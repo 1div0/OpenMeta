@@ -1,0 +1,1 @@
+OpenMeta - EXIF, IPTC, XMP, etc. metadata processing library
