@@ -1,0 +1,46 @@
+{"container": "segment", "format": "jpeg", "id": "APP1", "kind": "container.block", "marker": "0xFFE1", "payload": "exif", "signature": "Exif\\u0000\\u0000"}
+{"container": "segment", "format": "jpeg", "id": "APP1", "kind": "container.block", "marker": "0xFFE1", "payload": "xmp", "signature": "http://ns.adobe.com/xap/1.0/\\u0000"}
+{"container": "segment", "encoding": {"chunking": "xmp_extended_guid_offset"}, "format": "jpeg", "id": "APP1", "kind": "container.block", "marker": "0xFFE1", "payload": "xmp_extended", "signature": "http://ns.adobe.com/xmp/extension/\\u0000"}
+{"container": "segment", "encoding": {"chunking": "jpeg_app2_seq_total"}, "format": "jpeg", "id": "APP2", "kind": "container.block", "marker": "0xFFE2", "payload": "icc", "signature": "ICC_PROFILE\\u0000"}
+{"container": "segment", "format": "jpeg", "id": "APP2", "kind": "container.block", "marker": "0xFFE2", "payload": "mpf", "signature": "MPF\\u0000"}
+{"container": "segment", "encoding": {"chunking": "ps_irb_8bim"}, "format": "jpeg", "id": "APP13", "kind": "container.block", "marker": "0xFFED", "payload": "photoshop_irb", "signature": "Photoshop 3.0\\u0000"}
+{"container": "segment", "format": "jpeg", "id": "APP12", "kind": "container.block", "marker": "0xFFEC", "payload": "ducky"}
+{"container": "segment", "format": "jpeg", "id": "COM", "kind": "container.block", "marker": "0xFFFE", "payload": "comment"}
+
+{"container": "ifd", "format": "tiff", "id": "IFD0", "kind": "container.block", "payload": "tiff_tags"}
+{"container": "ifd", "format": "tiff", "id": "IFD1", "kind": "container.block", "payload": "thumbnail_tags"}
+{"container": "tag", "format": "tiff", "id": "0x8769", "ifd": "IFD0", "kind": "container.block", "name": "ExifIFDPointer", "payload": "exif_ifd"}
+{"container": "tag", "format": "tiff", "id": "0x8825", "ifd": "IFD0", "kind": "container.block", "name": "GPSInfoIFDPointer", "payload": "gps_ifd"}
+{"container": "tag", "format": "tiff", "id": "0xA005", "ifd": "ExifIFD", "kind": "container.block", "name": "InteropIFDPointer", "payload": "interop_ifd"}
+{"container": "tag", "format": "tiff", "id": "0x927C", "ifd": "ExifIFD", "kind": "container.block", "name": "MakerNote", "payload": "makernote"}
+{"container": "tag", "format": "tiff", "id": "0x02BC", "ifd": "IFD0", "kind": "container.block", "name": "XMLPacket", "payload": "xmp"}
+{"container": "tag", "format": "tiff", "id": "0x83BB", "ifd": "IFD0", "kind": "container.block", "name": "IPTCNAA", "payload": "iptc_iim"}
+{"container": "tag", "encoding": {"chunking": "ps_irb_8bim"}, "format": "tiff", "id": "0x8649", "ifd": "IFD0", "kind": "container.block", "name": "ImageResources", "payload": "photoshop_irb"}
+{"container": "tag", "format": "tiff", "id": "0x8773", "ifd": "IFD0", "kind": "container.block", "name": "InterColorProfile", "payload": "icc"}
+
+{"container": "chunk", "format": "png", "id": "eXIf", "kind": "container.block", "payload": "exif"}
+{"container": "chunk", "encoding": {"compression": "deflate"}, "format": "png", "id": "iCCP", "kind": "container.block", "payload": "icc"}
+{"container": "chunk", "encoding": {"compression": "deflate", "compression_optional": true}, "format": "png", "id": "iTXt", "kind": "container.block", "payload": "xmp", "signature": "XML:com.adobe.xmp"}
+{"container": "chunk", "format": "png", "id": "tEXt", "kind": "container.block", "payload": "text"}
+{"container": "chunk", "encoding": {"compression": "deflate"}, "format": "png", "id": "zTXt", "kind": "container.block", "payload": "text_compressed"}
+
+{"container": "riff_chunk", "format": "webp", "id": "EXIF", "kind": "container.block", "payload": "exif"}
+{"container": "riff_chunk", "format": "webp", "id": "XMP ", "kind": "container.block", "payload": "xmp"}
+{"container": "riff_chunk", "format": "webp", "id": "ICCP", "kind": "container.block", "payload": "icc"}
+
+{"container": "app_extension", "encoding": {"chunking": "gif_subblocks_255"}, "format": "gif", "id": "XMP Data/XMP", "kind": "container.block", "payload": "xmp"}
+{"container": "app_extension", "encoding": {"chunking": "gif_subblocks_255"}, "format": "gif", "id": "ICCRGBG1/012", "kind": "container.block", "payload": "icc"}
+
+{"container": "box", "encoding": {"chunking": "jp2_uuid_payload"}, "format": "jp2", "id": "uuid", "kind": "container.block", "payload": "exif", "uuid_hex": "4a706754696666457869662d3e4a5032"}
+{"container": "box", "encoding": {"chunking": "jp2_uuid_payload"}, "format": "jp2", "id": "uuid", "kind": "container.block", "payload": "iptc_iim", "uuid_hex": "33c7a4d2b81d4723a0baf1a3e097ad38"}
+{"container": "box", "encoding": {"chunking": "jp2_uuid_payload"}, "format": "jp2", "id": "uuid", "kind": "container.block", "payload": "xmp", "uuid_hex": "be7acfcb97a942e89c71999491e3afac"}
+{"container": "box", "format": "jp2", "id": "colr", "kind": "container.block", "payload": "icc"}
+
+{"container": "box", "encoding": {"chunking": "bmff_exif_tiff_offset_u32be"}, "format": "heif", "id": "meta/item:Exif", "kind": "container.block", "payload": "exif"}
+{"container": "box", "format": "heif", "id": "meta/item:mime:application/rdf+xml", "kind": "container.block", "payload": "xmp"}
+
+{"container": "box", "encoding": {"chunking": "bmff_exif_tiff_offset_u32be"}, "format": "jxl", "id": "Exif", "kind": "container.block", "payload": "exif"}
+{"container": "box", "format": "jxl", "id": "xml ", "kind": "container.block", "payload": "xmp"}
+{"container": "box", "encoding": {"chunking": "brob_u32be_realtype_prefix", "compression": "brotli"}, "format": "jxl", "id": "brob", "kind": "container.block", "payload": "compressed_metadata"}
+
+{"container": "header_attribute", "format": "openexr", "id": "*", "kind": "container.block", "payload": "attributes"}
