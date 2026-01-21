@@ -11,7 +11,7 @@ option(OPENMETA_FUZZTEST_FUZZING_MODE "Enable FuzzTest fuzzing mode flags" OFF)
 option(OPENMETA_FETCH_DEPS "Allow FetchContent to download missing deps" OFF)
 
 set(OPENMETA_DEPS_ROOT "" CACHE PATH
-  "Optional root containing vendored deps (googletest, fuzztest, abseil-cpp, re2, antlr4). If empty, auto-detects ./OpenMeta-internal/ext, ./openmeta-internal/ext, ./ext, or ../OpenMeta-internal/ext. If unavailable, CMake may use FetchContent.")
+  "Optional root containing vendored deps (googletest, fuzztest, abseil-cpp, re2, antlr4). If empty, auto-detects ../OpenMeta-internal/ext (and similar fallbacks). If unavailable, CMake may use FetchContent when OPENMETA_FETCH_DEPS=ON.")
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -20,6 +20,10 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 if(NOT OPENMETA_BUILD_STATIC AND NOT OPENMETA_BUILD_SHARED)
   message(FATAL_ERROR "Enable at least one of OPENMETA_BUILD_STATIC/OPENMETA_BUILD_SHARED.")
 endif()
+
+list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake")
+include(OpenMetaDependencies)
+include(OpenMetaTargetSettings)
 
 set(OPENMETA_SOURCES
   src/openmeta/byte_arena.cc
@@ -30,45 +34,7 @@ set(OPENMETA_SOURCES
   src/openmeta/meta_value.cc
 )
 
-set(openmeta_deps_root "")
-if(OPENMETA_DEPS_ROOT)
-  get_filename_component(openmeta_deps_root "${OPENMETA_DEPS_ROOT}" ABSOLUTE
-    BASE_DIR "${PROJECT_SOURCE_DIR}")
-elseif(EXISTS "${PROJECT_SOURCE_DIR}/openmeta-internal/ext/googletest/CMakeLists.txt")
-  set(openmeta_deps_root "${PROJECT_SOURCE_DIR}/openmeta-internal/ext")
-elseif(EXISTS "${PROJECT_SOURCE_DIR}/OpenMeta-internal/ext/googletest/CMakeLists.txt")
-  set(openmeta_deps_root "${PROJECT_SOURCE_DIR}/OpenMeta-internal/ext")
-elseif(EXISTS "${PROJECT_SOURCE_DIR}/ext/googletest/CMakeLists.txt")
-  set(openmeta_deps_root "${PROJECT_SOURCE_DIR}/ext")
-elseif(EXISTS "${PROJECT_SOURCE_DIR}/../openmeta-internal/ext/googletest/CMakeLists.txt")
-  set(openmeta_deps_root "${PROJECT_SOURCE_DIR}/../openmeta-internal/ext")
-elseif(EXISTS "${PROJECT_SOURCE_DIR}/../OpenMeta-internal/ext/googletest/CMakeLists.txt")
-  set(openmeta_deps_root "${PROJECT_SOURCE_DIR}/../OpenMeta-internal/ext")
-endif()
-
-function(openmeta_apply_target_settings target_name)
-  target_compile_features(${target_name} PUBLIC cxx_std_20)
-  target_include_directories(${target_name} PUBLIC ${PROJECT_SOURCE_DIR}/include)
-  set_target_properties(${target_name} PROPERTIES CXX_EXTENSIONS OFF)
-
-  if(MSVC)
-    target_compile_options(${target_name} PRIVATE /W4)
-  else()
-    target_compile_options(
-      ${target_name}
-      PRIVATE
-        -Wall
-        -Wextra
-        -Wpedantic
-        -Wshadow
-        -Wconversion
-        -Wsign-conversion
-        -Werror=return-type
-        -fno-exceptions
-        -fno-rtti
-    )
-  endif()
-endfunction()
+openmeta_resolve_deps_root(openmeta_deps_root)
 
 if(OPENMETA_BUILD_STATIC)
   add_library(openmeta_static STATIC ${OPENMETA_SOURCES})
@@ -93,49 +59,7 @@ if(OPENMETA_BUILD_FUZZTEST)
     message(FATAL_ERROR "OPENMETA_BUILD_FUZZTEST requires Clang.")
   endif()
 
-  set(FETCHCONTENT_UPDATES_DISCONNECTED ON CACHE BOOL "" FORCE)
-
-  if(openmeta_deps_root)
-    set(FETCHCONTENT_SOURCE_DIR_ABSEIL-CPP "${openmeta_deps_root}/abseil-cpp"
-      CACHE PATH "" FORCE)
-    set(FETCHCONTENT_SOURCE_DIR_RE2 "${openmeta_deps_root}/re2"
-      CACHE PATH "" FORCE)
-    set(FETCHCONTENT_SOURCE_DIR_GOOGLETEST "${openmeta_deps_root}/googletest"
-      CACHE PATH "" FORCE)
-    set(FETCHCONTENT_SOURCE_DIR_ANTLR_CPP
-      "${openmeta_deps_root}/antlr4/runtime/Cpp" CACHE PATH "" FORCE)
-  endif()
-
-  # The ANTLR4 runtime sets VERSION/SOVERSION on its shared library, which makes
-  # CMake create symlinks (not allowed in some sandboxed environments). We only
-  # need the static runtime for FuzzTest.
-  set(ANTLR_BUILD_SHARED OFF CACHE BOOL "" FORCE)
-  set(ANTLR_BUILD_STATIC ON CACHE BOOL "" FORCE)
-  set(ANTLR_BUILD_CPP_TESTS OFF CACHE BOOL "" FORCE)
-
-  set(FUZZTEST_BUILD_TESTING OFF CACHE BOOL "" FORCE)
-  set(FUZZTEST_BUILD_FLATBUFFERS OFF CACHE BOOL "" FORCE)
-  set(FUZZTEST_FUZZING_MODE ${OPENMETA_FUZZTEST_FUZZING_MODE} CACHE BOOL ""
-    FORCE)
-  set(FUZZTEST_COMPATIBILITY_MODE "" CACHE STRING "" FORCE)
-
-  if(openmeta_deps_root AND EXISTS "${openmeta_deps_root}/fuzztest/CMakeLists.txt")
-    add_subdirectory("${openmeta_deps_root}/fuzztest"
-      "${CMAKE_BINARY_DIR}/_deps/fuzztest-build")
-  else()
-    if(NOT OPENMETA_FETCH_DEPS)
-      message(FATAL_ERROR
-        "FuzzTest sources not found (expected `${openmeta_deps_root}/fuzztest`). "
-        "Set OPENMETA_DEPS_ROOT (or place deps under ./ext) or enable OPENMETA_FETCH_DEPS=ON.")
-    endif()
-    include(FetchContent)
-    FetchContent_Declare(
-      fuzztest
-      GIT_REPOSITORY https://github.com/google/fuzztest.git
-      GIT_TAG 5a702743bbf29e08f78b4077ccc1d119d4af785b
-    )
-    FetchContent_MakeAvailable(fuzztest)
-  endif()
+  openmeta_add_fuzztest("${openmeta_deps_root}")
 
   add_executable(openmeta_fuzztest_metastore
     ${OPENMETA_SOURCES}
@@ -172,26 +96,7 @@ endif()
 
 if(OPENMETA_BUILD_TESTS)
   enable_testing()
-  if(NOT TARGET gtest_main)
-    if(openmeta_deps_root AND EXISTS "${openmeta_deps_root}/googletest/CMakeLists.txt")
-      add_subdirectory("${openmeta_deps_root}/googletest"
-        "${CMAKE_BINARY_DIR}/_deps/googletest-build")
-    else()
-      if(NOT OPENMETA_FETCH_DEPS)
-        message(FATAL_ERROR
-          "GoogleTest sources not found (expected `${openmeta_deps_root}/googletest`). "
-          "Set OPENMETA_DEPS_ROOT (or place deps under ./ext) or enable OPENMETA_FETCH_DEPS=ON.")
-      endif()
-      include(FetchContent)
-      FetchContent_Declare(
-        googletest
-        GIT_REPOSITORY https://github.com/google/googletest.git
-        GIT_TAG 6910c9d9165801d8827d628cb72eb7ea9dd538c5
-      )
-      set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
-      FetchContent_MakeAvailable(googletest)
-    endif()
-  endif()
+  openmeta_add_googletest("${openmeta_deps_root}")
 
   add_executable(openmeta_tests
     tests/container_scan_test.cc

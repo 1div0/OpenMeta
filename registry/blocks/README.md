@@ -9,3 +9,5 @@ can parse/write, independent of any particular implementation.
 
 Data is stored as JSONL in `registry/blocks/blocks.jsonl` with
 `kind: "container.block"`.
+
+For the full registry schema, see `registry/SCHEMA.md`.
