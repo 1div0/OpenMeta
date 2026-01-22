@@ -4,6 +4,7 @@ project(OpenMeta VERSION 0.1.0 LANGUAGES CXX)
 
 option(OPENMETA_BUILD_STATIC "Build libopenmeta.a" ON)
 option(OPENMETA_BUILD_SHARED "Build libopenmeta.so/.dylib/.dll" ON)
+option(OPENMETA_BUILD_TOOLS "Build OpenMeta CLI tools" ON)
 option(OPENMETA_BUILD_TESTS "Build OpenMeta unit tests" OFF)
 option(OPENMETA_BUILD_FUZZERS "Build OpenMeta libFuzzer targets" OFF)
 option(OPENMETA_BUILD_FUZZTEST "Build OpenMeta fuzz tests (FuzzTest)" OFF)
@@ -28,10 +29,12 @@ include(OpenMetaTargetSettings)
 set(OPENMETA_SOURCES
   src/openmeta/byte_arena.cc
   src/openmeta/container_scan.cc
+  src/openmeta/exif_tiff_decode.cc
   src/openmeta/meta_edit.cc
   src/openmeta/meta_key.cc
   src/openmeta/meta_store.cc
   src/openmeta/meta_value.cc
+  src/openmeta/simple_meta.cc
 )
 
 openmeta_resolve_deps_root(openmeta_deps_root)
@@ -52,6 +55,12 @@ if(OPENMETA_BUILD_STATIC)
   set(OPENMETA_LIB_TARGET openmeta_static)
 else()
   set(OPENMETA_LIB_TARGET openmeta_shared)
+endif()
+
+if(OPENMETA_BUILD_TOOLS)
+  add_executable(openmeta_metaread tools/metaread.cc)
+  openmeta_apply_target_settings(openmeta_metaread)
+  target_link_libraries(openmeta_metaread PRIVATE ${OPENMETA_LIB_TARGET})
 endif()
 
 if(OPENMETA_BUILD_FUZZTEST)
@@ -100,6 +109,7 @@ if(OPENMETA_BUILD_TESTS)
 
   add_executable(openmeta_tests
     tests/container_scan_test.cc
+    tests/exif_tiff_decode_test.cc
     tests/meta_store_test.cc
   )
   target_link_libraries(openmeta_tests PRIVATE ${OPENMETA_LIB_TARGET} gtest_main)
@@ -145,6 +155,25 @@ if(OPENMETA_BUILD_FUZZERS)
   )
   target_link_options(
     openmeta_fuzz_container_scan
+    PRIVATE
+      -fsanitize=fuzzer,address,undefined
+      -fno-omit-frame-pointer
+  )
+
+  add_executable(openmeta_fuzz_exif_tiff_decode
+    ${OPENMETA_SOURCES}
+    tests/fuzz/exif_tiff_decode_libfuzzer.cc
+  )
+  openmeta_apply_target_settings(openmeta_fuzz_exif_tiff_decode)
+
+  target_compile_options(
+    openmeta_fuzz_exif_tiff_decode
+    PRIVATE
+      -fsanitize=fuzzer,address,undefined
+      -fno-omit-frame-pointer
+  )
+  target_link_options(
+    openmeta_fuzz_exif_tiff_decode
     PRIVATE
       -fsanitize=fuzzer,address,undefined
       -fno-omit-frame-pointer
