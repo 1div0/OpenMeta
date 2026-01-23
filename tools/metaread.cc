@@ -538,7 +538,7 @@ main(int argc, char** argv)
 
         std::vector<std::byte> bytes;
         if (!read_file_bytes(path, &bytes)) {
-            std::fprintf(stderr, "openmeta_metaread: failed to read `%s`\n",
+            std::fprintf(stderr, "metaread: failed to read `%s`\n",
                          path);
             exit_code = 1;
             continue;

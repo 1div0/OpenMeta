@@ -9,10 +9,15 @@ option(OPENMETA_BUILD_TESTS "Build OpenMeta unit tests" OFF)
 option(OPENMETA_BUILD_FUZZERS "Build OpenMeta libFuzzer targets" OFF)
 option(OPENMETA_BUILD_FUZZTEST "Build OpenMeta fuzz tests (FuzzTest)" OFF)
 option(OPENMETA_FUZZTEST_FUZZING_MODE "Enable FuzzTest fuzzing mode flags" OFF)
-option(OPENMETA_FETCH_DEPS "Allow FetchContent to download missing deps" OFF)
 
-set(OPENMETA_DEPS_ROOT "" CACHE PATH
-  "Optional root containing vendored deps (googletest, fuzztest, abseil-cpp, re2, antlr4). If empty, auto-detects ../OpenMeta-internal/ext (and similar fallbacks). If unavailable, CMake may use FetchContent when OPENMETA_FETCH_DEPS=ON.")
+include(GNUInstallDirs)
+
+# Optional path to local dependency repos (used for the FuzzTest wrapper).
+# Expected layout:
+#   <root>/fuzztest
+#   <root>/re2
+#   <root>/antlr4
+set(OPENMETA_DEPS_REPOS_ROOT "" CACHE PATH "Path to local dependency repos for optional source builds")
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -25,6 +30,7 @@ endif()
 list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake")
 include(OpenMetaDependencies)
 include(OpenMetaTargetSettings)
+include(OpenMetaReport)
 
 set(OPENMETA_SOURCES
   src/openmeta/byte_arena.cc
@@ -37,18 +43,16 @@ set(OPENMETA_SOURCES
   src/openmeta/simple_meta.cc
 )
 
-openmeta_resolve_deps_root(openmeta_deps_root)
-
 if(OPENMETA_BUILD_STATIC)
   add_library(openmeta_static STATIC ${OPENMETA_SOURCES})
   openmeta_apply_target_settings(openmeta_static)
-  set_target_properties(openmeta_static PROPERTIES OUTPUT_NAME openmeta)
+  set_target_properties(openmeta_static PROPERTIES OUTPUT_NAME openmeta EXPORT_NAME openmeta_static)
 endif()
 
 if(OPENMETA_BUILD_SHARED)
   add_library(openmeta_shared SHARED ${OPENMETA_SOURCES})
   openmeta_apply_target_settings(openmeta_shared)
-  set_target_properties(openmeta_shared PROPERTIES OUTPUT_NAME openmeta)
+  set_target_properties(openmeta_shared PROPERTIES OUTPUT_NAME openmeta EXPORT_NAME openmeta_shared)
 endif()
 
 if(OPENMETA_BUILD_STATIC)
@@ -58,9 +62,9 @@ else()
 endif()
 
 if(OPENMETA_BUILD_TOOLS)
-  add_executable(openmeta_metaread tools/metaread.cc)
-  openmeta_apply_target_settings(openmeta_metaread)
-  target_link_libraries(openmeta_metaread PRIVATE ${OPENMETA_LIB_TARGET})
+  add_executable(metaread tools/metaread.cc)
+  openmeta_apply_target_settings(metaread)
+  target_link_libraries(metaread PRIVATE ${OPENMETA_LIB_TARGET})
 endif()
 
 if(OPENMETA_BUILD_FUZZTEST)
@@ -68,7 +72,7 @@ if(OPENMETA_BUILD_FUZZTEST)
     message(FATAL_ERROR "OPENMETA_BUILD_FUZZTEST requires Clang.")
   endif()
 
-  openmeta_add_fuzztest("${openmeta_deps_root}")
+  openmeta_add_fuzztest()
 
   add_executable(openmeta_fuzztest_metastore
     ${OPENMETA_SOURCES}
@@ -105,7 +109,7 @@ endif()
 
 if(OPENMETA_BUILD_TESTS)
   enable_testing()
-  openmeta_add_googletest("${openmeta_deps_root}")
+  openmeta_add_googletest()
 
   add_executable(openmeta_tests
     tests/container_scan_test.cc
@@ -179,3 +183,61 @@ if(OPENMETA_BUILD_FUZZERS)
       -fno-omit-frame-pointer
   )
 endif()
+
+include(CMakePackageConfigHelpers)
+
+set(_openmeta_install_targets "")
+if(TARGET openmeta_static)
+  list(APPEND _openmeta_install_targets openmeta_static)
+endif()
+if(TARGET openmeta_shared)
+  list(APPEND _openmeta_install_targets openmeta_shared)
+endif()
+
+install(
+  TARGETS ${_openmeta_install_targets}
+  EXPORT OpenMetaTargets
+  ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"
+  LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}"
+  RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
+  INCLUDES DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
+)
+
+install(
+  DIRECTORY "${PROJECT_SOURCE_DIR}/include/openmeta"
+  DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
+)
+
+if(TARGET metaread)
+  install(TARGETS metaread RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
+endif()
+
+set(_openmeta_pkg_dir "${CMAKE_INSTALL_LIBDIR}/cmake/OpenMeta")
+
+install(
+  EXPORT OpenMetaTargets
+  NAMESPACE OpenMeta::
+  FILE OpenMetaTargets.cmake
+  DESTINATION "${_openmeta_pkg_dir}"
+)
+
+configure_package_config_file(
+  "${PROJECT_SOURCE_DIR}/cmake/OpenMetaConfig.cmake.in"
+  "${CMAKE_CURRENT_BINARY_DIR}/OpenMetaConfig.cmake"
+  INSTALL_DESTINATION "${_openmeta_pkg_dir}"
+)
+
+write_basic_package_version_file(
+  "${CMAKE_CURRENT_BINARY_DIR}/OpenMetaConfigVersion.cmake"
+  VERSION "${PROJECT_VERSION}"
+  COMPATIBILITY SameMajorVersion
+)
+
+install(
+  FILES
+    "${CMAKE_CURRENT_BINARY_DIR}/OpenMetaConfig.cmake"
+    "${CMAKE_CURRENT_BINARY_DIR}/OpenMetaConfigVersion.cmake"
+  DESTINATION "${_openmeta_pkg_dir}"
+)
+
+openmeta_print_config_summary()

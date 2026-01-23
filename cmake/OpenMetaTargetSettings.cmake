@@ -1,8 +1,15 @@
 include_guard(GLOBAL)
 
+include(GNUInstallDirs)
+
 function(openmeta_apply_target_settings target_name)
   target_compile_features(${target_name} PUBLIC cxx_std_20)
-  target_include_directories(${target_name} PUBLIC "${PROJECT_SOURCE_DIR}/include")
+  target_include_directories(
+    ${target_name}
+    PUBLIC
+      "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>"
+      "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>"
+  )
   set_target_properties(${target_name} PROPERTIES CXX_EXTENSIONS OFF)
 
   if(MSVC)
@@ -24,4 +31,3 @@ function(openmeta_apply_target_settings target_name)
     )
   endif()
 endfunction()
-

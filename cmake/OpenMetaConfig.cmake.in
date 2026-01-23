@@ -1,0 +1,13 @@
+@PACKAGE_INIT@
+
+include("${CMAKE_CURRENT_LIST_DIR}/OpenMetaTargets.cmake")
+
+# Convenience alias: prefer shared when available, otherwise fall back to static.
+if(NOT TARGET OpenMeta::openmeta)
+  if(TARGET OpenMeta::openmeta_shared)
+    add_library(OpenMeta::openmeta ALIAS OpenMeta::openmeta_shared)
+  elseif(TARGET OpenMeta::openmeta_static)
+    add_library(OpenMeta::openmeta ALIAS OpenMeta::openmeta_static)
+  endif()
+endif()
+
