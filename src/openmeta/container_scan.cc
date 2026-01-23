@@ -1237,6 +1237,21 @@ scan_tiff(std::span<const std::byte> bytes,
         return sink.result;
     }
 
+    // A TIFF/DNG file is itself a TIFF-IFD stream; expose it as a logical EXIF
+    // block so decoders can treat "TIFF container" and "TIFF-in-EXIF blob"
+    // uniformly.
+    {
+        ContainerBlockRef block;
+        block.format       = ContainerFormat::Tiff;
+        block.kind         = ContainerBlockKind::Exif;
+        block.outer_offset = 0;
+        block.outer_size   = static_cast<uint64_t>(bytes.size());
+        block.data_offset  = 0;
+        block.data_size    = static_cast<uint64_t>(bytes.size());
+        block.id           = 0;
+        sink_emit(&sink, block);
+    }
+
     uint64_t first_ifd = 0;
     if (!cfg.bigtiff) {
         uint32_t off32 = 0;

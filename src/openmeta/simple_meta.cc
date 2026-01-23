@@ -6,6 +6,9 @@ namespace {
     static void merge_exif_status(ExifDecodeStatus* out,
                                   ExifDecodeStatus in) noexcept
     {
+        // Aggregate results across multiple EXIF blocks:
+        // - Treat `Unsupported` as "no usable EXIF in this block".
+        // - Promote to the worst non-Unsupported status seen.
         if (*out == ExifDecodeStatus::LimitExceeded) {
             return;
         }
@@ -20,17 +23,17 @@ namespace {
             *out = in;
             return;
         }
-        if (*out == ExifDecodeStatus::Unsupported) {
-            return;
-        }
-        if (in == ExifDecodeStatus::Unsupported) {
-            *out = in;
-            return;
-        }
         if (*out == ExifDecodeStatus::OutputTruncated) {
             return;
         }
         if (in == ExifDecodeStatus::OutputTruncated) {
+            *out = in;
+            return;
+        }
+        if (*out == ExifDecodeStatus::Ok) {
+            return;
+        }
+        if (in == ExifDecodeStatus::Ok) {
             *out = in;
             return;
         }
@@ -48,17 +51,19 @@ simple_meta_read(std::span<const std::byte> file_bytes, MetaStore& store,
     result.scan = scan_auto(file_bytes, out_blocks);
 
     ExifDecodeResult exif;
-    exif.status          = ExifDecodeStatus::Ok;
+    exif.status          = ExifDecodeStatus::Unsupported;
     exif.ifds_written    = 0;
     exif.ifds_needed     = 0;
     exif.entries_decoded = 0;
 
     uint32_t ifd_write_pos = 0;
+    bool any_exif          = false;
     for (uint32_t i = 0; i < result.scan.written; ++i) {
         const ContainerBlockRef& block = out_blocks[i];
         if (block.kind != ContainerBlockKind::Exif) {
             continue;
         }
+        any_exif = true;
         if (block.data_offset + block.data_size > file_bytes.size()) {
             merge_exif_status(&exif.status, ExifDecodeStatus::Malformed);
             continue;
@@ -87,6 +92,10 @@ simple_meta_read(std::span<const std::byte> file_bytes, MetaStore& store,
                                                             : room;
         ifd_write_pos += advanced;
         exif.ifds_written = ifd_write_pos;
+    }
+
+    if (!any_exif) {
+        exif.status = ExifDecodeStatus::Unsupported;
     }
 
     result.exif = exif;

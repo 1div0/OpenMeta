@@ -422,17 +422,21 @@ namespace {
         std::array<ContainerBlockRef, 8> blocks {};
         const ScanResult res = scan_tiff(tiff, blocks);
         ASSERT_EQ(res.status, ScanStatus::Ok);
-        ASSERT_EQ(res.written, 2U);
+        ASSERT_EQ(res.written, 3U);
 
-        EXPECT_EQ(blocks[0].kind, ContainerBlockKind::Xmp);
-        EXPECT_EQ(blocks[0].data_size, 5U);
-        EXPECT_EQ(tiff[blocks[0].data_offset + 0], std::byte { '<' });
-        EXPECT_EQ(blocks[1].kind, ContainerBlockKind::Icc);
-        EXPECT_EQ(tiff[blocks[1].data_offset + 0], std::byte { 'A' });
+        EXPECT_EQ(blocks[0].kind, ContainerBlockKind::Exif);
+        EXPECT_EQ(blocks[0].data_offset, 0U);
+        EXPECT_EQ(blocks[0].data_size, tiff.size());
+
+        EXPECT_EQ(blocks[1].kind, ContainerBlockKind::Xmp);
+        EXPECT_EQ(blocks[1].data_size, 5U);
+        EXPECT_EQ(tiff[blocks[1].data_offset + 0], std::byte { '<' });
+        EXPECT_EQ(blocks[2].kind, ContainerBlockKind::Icc);
+        EXPECT_EQ(tiff[blocks[2].data_offset + 0], std::byte { 'A' });
 
         const ScanResult auto_res = scan_auto(tiff, blocks);
         EXPECT_EQ(auto_res.status, ScanStatus::Ok);
-        EXPECT_EQ(auto_res.written, 2U);
+        EXPECT_EQ(auto_res.written, 3U);
     }
 
 }  // namespace

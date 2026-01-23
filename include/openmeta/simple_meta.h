@@ -15,7 +15,7 @@ struct SimpleMetaResult final {
 };
 
 // High-level helper that scans a file container and decodes supported payloads.
-// Currently: EXIF (TIFF-in-EXIF) only.
+// Currently: EXIF/TIFF-IFD tags only (including TIFF/DNG containers).
 //
 // Caller controls all scratch buffers (blocks + decoded IFD list) to keep data
 // flow explicit and allocation-free.

@@ -1,8 +1,9 @@
 #include "openmeta/container_scan.h"
-#include "openmeta/exif_tiff_decode.h"
 #include "openmeta/exif_tag_names.h"
+#include "openmeta/exif_tiff_decode.h"
 #include "openmeta/meta_key.h"
 #include "openmeta/meta_store.h"
+#include "openmeta/simple_meta.h"
 
 #include <algorithm>
 #include <cctype>
@@ -138,7 +139,7 @@ namespace {
     static bool append_escaped_ascii(std::string_view s, uint32_t max_bytes,
                                      std::string* out)
     {
-        bool dangerous = false;
+        bool dangerous   = false;
         const uint32_t n = (s.size() < max_bytes)
                                ? static_cast<uint32_t>(s.size())
                                : max_bytes;
@@ -273,26 +274,6 @@ namespace {
         return true;
     }
 
-    static bool looks_like_tiff(std::span<const std::byte> bytes) noexcept
-    {
-        if (bytes.size() < 4) {
-            return false;
-        }
-        const uint8_t b0 = static_cast<uint8_t>(bytes[0]);
-        const uint8_t b1 = static_cast<uint8_t>(bytes[1]);
-        if (!((b0 == 0x49 && b1 == 0x49) || (b0 == 0x4D && b1 == 0x4D))) {
-            return false;
-        }
-        const uint16_t v = (b0 == 0x49)
-                               ? static_cast<uint16_t>(
-                                     static_cast<uint8_t>(bytes[2])
-                                     | (static_cast<uint8_t>(bytes[3]) << 8))
-                               : static_cast<uint16_t>(
-                                     (static_cast<uint8_t>(bytes[2]) << 8)
-                                     | static_cast<uint8_t>(bytes[3]));
-        return v == 42 || v == 43;
-    }
-
     static void append_double_fixed6_trim(double d, std::string* out)
     {
         char buf[128];
@@ -351,8 +332,8 @@ namespace {
                        out);
             return;
         case MetaElementType::I8:
-            append_i64(static_cast<int64_t>(static_cast<int8_t>(
-                           static_cast<uint8_t>(elem[0]))),
+            append_i64(static_cast<int64_t>(
+                           static_cast<int8_t>(static_cast<uint8_t>(elem[0]))),
                        out);
             return;
         case MetaElementType::U16: {
@@ -444,9 +425,9 @@ namespace {
                 out->append("-");
                 return;
             }
-            append_double_fixed6_trim(
-                static_cast<double>(r.numer) / static_cast<double>(r.denom),
-                out);
+            append_double_fixed6_trim(static_cast<double>(r.numer)
+                                          / static_cast<double>(r.denom),
+                                      out);
             return;
         }
         if (type == MetaElementType::SRational) {
@@ -456,9 +437,9 @@ namespace {
                 out->append("-");
                 return;
             }
-            append_double_fixed6_trim(
-                static_cast<double>(r.numer) / static_cast<double>(r.denom),
-                out);
+            append_double_fixed6_trim(static_cast<double>(r.numer)
+                                          / static_cast<double>(r.denom),
+                                      out);
             return;
         }
         append_element_raw(type, elem, out);
@@ -471,12 +452,12 @@ namespace {
             return value.count;
         }
         const std::span<const std::byte> raw = arena.span(value.data.span);
-        const uint32_t elem_size             = meta_element_size(value.elem_type);
+        const uint32_t elem_size = meta_element_size(value.elem_type);
         if (elem_size == 0U) {
             return 0U;
         }
-        const uint32_t available
-            = static_cast<uint32_t>(raw.size() / elem_size);
+        const uint32_t available = static_cast<uint32_t>(raw.size()
+                                                         / elem_size);
         return (value.count < available) ? value.count : available;
     }
 
@@ -519,9 +500,10 @@ namespace {
         return "scalar";
     }
 
-    static void format_value_pair(const MetaStore& store, const MetaValue& value,
-                                  uint32_t max_elements, uint32_t max_bytes,
-                                  std::string* raw_out, std::string* val_out)
+    static void format_value_pair(const MetaStore& store,
+                                  const MetaValue& value, uint32_t max_elements,
+                                  uint32_t max_bytes, std::string* raw_out,
+                                  std::string* val_out)
     {
         raw_out->clear();
         val_out->clear();
@@ -624,9 +606,9 @@ namespace {
         }
 
         const std::span<const std::byte> raw = arena.span(value.data.span);
-        const uint32_t elem_size             = meta_element_size(value.elem_type);
-        const uint32_t n                     = safe_array_count(arena, value);
-        const uint32_t shown = (n < max_elements) ? n : max_elements;
+        const uint32_t elem_size = meta_element_size(value.elem_type);
+        const uint32_t n         = safe_array_count(arena, value);
+        const uint32_t shown     = (n < max_elements) ? n : max_elements;
 
         for (uint32_t i = 0; i < shown; ++i) {
             if (i != 0) {
@@ -767,26 +749,26 @@ namespace {
 
         for (size_t i = 0; i < rows.size(); ++i) {
             const TableRow& r = rows[i];
-            w_idx             = (r.idx_s.size() > w_idx) ? r.idx_s.size() : w_idx;
-            w_tag             = (r.tag_s.size() > w_tag) ? r.tag_s.size() : w_tag;
-            w_name            = (r.name_s.size() > w_name) ? r.name_s.size()
-                                                           : w_name;
-            w_tag_type
-                = (r.tag_type_s.size() > w_tag_type) ? r.tag_type_s.size()
-                                                     : w_tag_type;
+            w_idx      = (r.idx_s.size() > w_idx) ? r.idx_s.size() : w_idx;
+            w_tag      = (r.tag_s.size() > w_tag) ? r.tag_s.size() : w_tag;
+            w_name     = (r.name_s.size() > w_name) ? r.name_s.size() : w_name;
+            w_tag_type = (r.tag_type_s.size() > w_tag_type)
+                             ? r.tag_type_s.size()
+                             : w_tag_type;
             w_count = (r.count_s.size() > w_count) ? r.count_s.size() : w_count;
             w_type  = (r.type_s.size() > w_type) ? r.type_s.size() : w_type;
             w_raw   = (r.raw_s.size() > w_raw) ? r.raw_s.size() : w_raw;
             w_val   = (r.val_s.size() > w_val) ? r.val_s.size() : w_val;
         }
 
-        const size_t total_width
-            = 1U + w_idx + 3U + w_tag + 3U + w_name + 3U + w_tag_type + 3U
-              + w_count + 3U + w_type + 3U + w_raw + 3U + w_val;
+        const size_t total_width = 1U + w_idx + 3U + w_tag + 3U + w_name + 3U
+                                   + w_tag_type + 3U + w_count + 3U + w_type
+                                   + 3U + w_raw + 3U + w_val;
 
         print_line('=', total_width);
-        std::printf(" ifd=%.*s block=%u entries=%zu\n", static_cast<int>(ifd.size()),
-                    ifd.data(), static_cast<unsigned>(block), rows.size());
+        std::printf(" ifd=%.*s block=%u entries=%zu\n",
+                    static_cast<int>(ifd.size()), ifd.data(),
+                    static_cast<unsigned>(block), rows.size());
         print_line('=', total_width);
 
         std::putchar(' ');
@@ -963,9 +945,9 @@ main(int argc, char** argv)
         }
 
         std::vector<std::byte> bytes;
-        uint64_t file_size = 0;
-        const ReadFileStatus st
-            = read_file_bytes(path, &bytes, max_file_bytes, &file_size);
+        uint64_t file_size      = 0;
+        const ReadFileStatus st = read_file_bytes(path, &bytes, max_file_bytes,
+                                                  &file_size);
         if (st != ReadFileStatus::Ok) {
             if (st == ReadFileStatus::TooLarge) {
                 std::fprintf(
@@ -985,27 +967,35 @@ main(int argc, char** argv)
         std::printf("== %s\n", path);
         std::printf("size=%zu\n", bytes.size());
 
-        std::vector<ContainerBlockRef> blocks;
-        blocks.resize(128);
-        ScanResult scan;
+        std::vector<ContainerBlockRef> blocks(128);
+        std::vector<ExifIfdRef> ifd_refs(256);
+
+        MetaStore store;
+        SimpleMetaResult read;
         for (;;) {
-            scan = scan_auto(bytes,
-                             std::span<ContainerBlockRef>(blocks.data(),
-                                                          blocks.size()));
-            if (scan.status != ScanStatus::OutputTruncated) {
+            store = MetaStore();
+            read  = simple_meta_read(bytes, store,
+                                     std::span<ContainerBlockRef>(blocks.data(),
+                                                                  blocks.size()),
+                                     std::span<ExifIfdRef>(ifd_refs.data(),
+                                                           ifd_refs.size()),
+                                     exif_options);
+
+            if (read.scan.status != ScanStatus::OutputTruncated) {
                 break;
             }
-            if (scan.needed <= blocks.size()) {
+            if (read.scan.needed <= blocks.size()) {
                 break;
             }
-            blocks.resize(scan.needed);
+            blocks.resize(read.scan.needed);
         }
 
         std::printf("scan=%s written=%u needed=%u\n",
-                    scan_status_name(scan.status), scan.written, scan.needed);
+                    scan_status_name(read.scan.status), read.scan.written,
+                    read.scan.needed);
 
         if (show_blocks) {
-            for (uint32_t i = 0; i < scan.written; ++i) {
+            for (uint32_t i = 0; i < read.scan.written; ++i) {
                 const ContainerBlockRef& b = blocks[i];
                 std::printf(
                     "block[%u] format=%s kind=%s comp=%s chunking=%s id=0x%08X outer=(%llu,%llu) data=(%llu,%llu)\n",
@@ -1019,72 +1009,7 @@ main(int argc, char** argv)
             }
         }
 
-        MetaStore store;
-        ExifDecodeResult exif_total;
-        exif_total.status          = ExifDecodeStatus::Unsupported;
-        exif_total.ifds_written    = 0;
-        exif_total.ifds_needed     = 0;
-        exif_total.entries_decoded = 0;
-
-        bool any_exif = false;
-        std::vector<ExifIfdRef> ifd_refs;
-        ifd_refs.resize(256);
-
-        for (uint32_t i = 0; i < scan.written; ++i) {
-            const ContainerBlockRef& b = blocks[i];
-            if (b.kind != ContainerBlockKind::Exif) {
-                continue;
-            }
-            if (b.data_offset + b.data_size > bytes.size()) {
-                continue;
-            }
-
-            const std::span<const std::byte> tiff
-                = std::span<const std::byte>(bytes.data(), bytes.size())
-                      .subspan(static_cast<size_t>(b.data_offset),
-                               static_cast<size_t>(b.data_size));
-
-            ExifDecodeResult one
-                = decode_exif_tiff(tiff, store,
-                                   std::span<ExifIfdRef>(ifd_refs.data(),
-                                                         ifd_refs.size()),
-                                   exif_options);
-
-            const bool first = !any_exif;
-            any_exif         = true;
-            if (first) {
-                exif_total = one;
-            } else {
-                if (one.status == ExifDecodeStatus::LimitExceeded) {
-                    exif_total.status = one.status;
-                } else if (one.status == ExifDecodeStatus::Malformed
-                           && exif_total.status
-                                  != ExifDecodeStatus::LimitExceeded) {
-                    exif_total.status = one.status;
-                } else if (one.status == ExifDecodeStatus::OutputTruncated
-                           && exif_total.status == ExifDecodeStatus::Ok) {
-                    exif_total.status = one.status;
-                } else if (one.status == ExifDecodeStatus::Ok
-                           && exif_total.status
-                                  == ExifDecodeStatus::Unsupported) {
-                    exif_total.status = one.status;
-                }
-            }
-            exif_total.ifds_needed += one.ifds_needed;
-            exif_total.entries_decoded += one.entries_decoded;
-        }
-
-        if (!any_exif && looks_like_tiff(bytes)) {
-            ExifDecodeResult one
-                = decode_exif_tiff(bytes, store,
-                                   std::span<ExifIfdRef>(ifd_refs.data(),
-                                                         ifd_refs.size()),
-                                   exif_options);
-            any_exif   = true;
-            exif_total = one;
-        }
-
-        if (!any_exif) {
+        if (read.exif.status == ExifDecodeStatus::Unsupported) {
             std::printf("exif=%s\n",
                         exif_status_name(ExifDecodeStatus::Unsupported));
             continue;
@@ -1092,7 +1017,7 @@ main(int argc, char** argv)
 
         store.finalize();
         std::printf("exif=%s ifds_decoded=%u entries=%zu\n",
-                    exif_status_name(exif_total.status), store.block_count(),
+                    exif_status_name(read.exif.status), store.block_count(),
                     store.entries().size());
 
         for (BlockId block = 0; block < store.block_count(); ++block) {

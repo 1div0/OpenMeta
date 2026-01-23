@@ -87,6 +87,12 @@ if(OPENMETA_BUILD_FUZZTEST)
   target_link_libraries(openmeta_fuzztest_metastore PRIVATE fuzztest::fuzztest_gtest_main)
 
   if(OPENMETA_FUZZTEST_FUZZING_MODE)
+    # Abseil enables "swisstable generations" automatically in sanitizer builds,
+    # which changes internal container layouts. When linking against prebuilt
+    # Abseil/FuzzTest without sanitizers, this can cause ODR/ABI mismatches and
+    # early process aborts. Disable the generations feature for this target so
+    # sanitized OpenMeta code can link against non-sanitized dependencies.
+    target_compile_definitions(openmeta_fuzztest_metastore PRIVATE NDEBUG_SANITIZER)
     target_compile_options(
       openmeta_fuzztest_metastore
       PRIVATE
