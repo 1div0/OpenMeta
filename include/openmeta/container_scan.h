@@ -4,15 +4,25 @@
 #include <cstdint>
 #include <span>
 
+/**
+ * \file container_scan.h
+ * \brief Container scanners that locate metadata blocks within file bytes.
+ */
+
 namespace openmeta {
 
+/// Scanner result status.
 enum class ScanStatus : uint8_t {
     Ok,
+    /// Output buffer was too small; \ref ScanResult::needed reports required size.
     OutputTruncated,
+    /// The bytes do not match the container format handled by the scanner.
     Unsupported,
+    /// The container structure is malformed or inconsistent.
     Malformed,
 };
 
+/// Supported high-level container formats for block scanning.
 enum class ContainerFormat : uint8_t {
     Unknown,
     Jpeg,
@@ -25,6 +35,7 @@ enum class ContainerFormat : uint8_t {
     Heif,
 };
 
+/// Logical kind of a discovered metadata block.
 enum class ContainerBlockKind : uint8_t {
     Unknown,
     Exif,
@@ -40,12 +51,14 @@ enum class ContainerBlockKind : uint8_t {
     CompressedMetadata,
 };
 
+/// Compression type for the block payload bytes (if any).
 enum class BlockCompression : uint8_t {
     None,
     Deflate,
     Brotli,
 };
 
+/// Chunking scheme used to represent a logical stream split across blocks.
 enum class BlockChunking : uint8_t {
     None,
     JpegApp2SeqTotal,
@@ -57,6 +70,15 @@ enum class BlockChunking : uint8_t {
     PsIrB8Bim,
 };
 
+/**
+ * \brief Reference to a metadata payload within container bytes.
+ *
+ * All offsets are relative to the start of the full file byte buffer passed to
+ * the scanner.
+ *
+ * \note Scanners are intentionally shallow: they locate blocks and annotate
+ * compression/chunking but do not decompress or parse the inner formats.
+ */
 struct ContainerBlockRef final {
     ContainerFormat format       = ContainerFormat::Unknown;
     ContainerBlockKind kind      = ContainerBlockKind::Unknown;
@@ -96,6 +118,7 @@ struct ScanResult final {
     uint32_t needed   = 0;
 };
 
+/// Packs four ASCII characters into a big-endian FourCC integer.
 static constexpr uint32_t
 fourcc(char a, char b, char c, char d) noexcept
 {
@@ -109,24 +132,31 @@ ScanResult
 scan_auto(std::span<const std::byte> bytes,
           std::span<ContainerBlockRef> out) noexcept;
 
+/// Scans a JPEG byte stream and returns all metadata segments found.
 ScanResult
 scan_jpeg(std::span<const std::byte> bytes,
           std::span<ContainerBlockRef> out) noexcept;
+/// Scans a PNG byte stream and returns all metadata chunks found.
 ScanResult
 scan_png(std::span<const std::byte> bytes,
          std::span<ContainerBlockRef> out) noexcept;
+/// Scans a RIFF/WebP byte stream and returns all metadata chunks found.
 ScanResult
 scan_webp(std::span<const std::byte> bytes,
           std::span<ContainerBlockRef> out) noexcept;
+/// Scans a GIF byte stream and returns all metadata extension blocks found.
 ScanResult
 scan_gif(std::span<const std::byte> bytes,
          std::span<ContainerBlockRef> out) noexcept;
+/// Scans a TIFF/DNG byte stream; the whole file is exposed as an EXIF/TIFF-IFD block.
 ScanResult
 scan_tiff(std::span<const std::byte> bytes,
           std::span<ContainerBlockRef> out) noexcept;
+/// Scans a JPEG 2000 (JP2) byte stream and returns metadata boxes found.
 ScanResult
 scan_jp2(std::span<const std::byte> bytes,
          std::span<ContainerBlockRef> out) noexcept;
+/// Scans a JPEG XL container byte stream and returns metadata boxes found.
 ScanResult
 scan_jxl(std::span<const std::byte> bytes,
          std::span<ContainerBlockRef> out) noexcept;

@@ -1,0 +1,15 @@
+message(STATUS "Generating OpenMeta API documentation (Doxygen)")
+
+execute_process(
+  COMMAND "@DOXYGEN_EXECUTABLE@" "@_openmeta_doxygen_cfg@"
+  WORKING_DIRECTORY "@PROJECT_SOURCE_DIR@"
+  RESULT_VARIABLE _openmeta_doxygen_res
+)
+
+if(NOT _openmeta_doxygen_res EQUAL 0)
+  message(FATAL_ERROR "Doxygen failed: exit=${_openmeta_doxygen_res}")
+endif()
+
+if(NOT EXISTS "@_openmeta_doxygen_out_dir@/html/index.html")
+  message(FATAL_ERROR "Doxygen did not generate expected output: @_openmeta_doxygen_out_dir@/html/index.html")
+endif()

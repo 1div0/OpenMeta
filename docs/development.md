@@ -68,5 +68,6 @@ Requirements:
 
 Generate API docs:
 ```bash
-doxygen Doxyfile
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DOPENMETA_BUILD_DOCS=ON
+cmake --build build --target openmeta_docs
 ```

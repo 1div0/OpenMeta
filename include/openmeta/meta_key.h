@@ -5,8 +5,14 @@
 #include <cstdint>
 #include <string_view>
 
+/**
+ * \file meta_key.h
+ * \brief Normalized key identifiers for EXIF/IPTC/XMP/etc. metadata entries.
+ */
+
 namespace openmeta {
 
+/// Namespace for different metadata key spaces.
 enum class MetaKeyKind : uint8_t {
     ExifTag,
     IptcDataset,
@@ -20,6 +26,12 @@ enum class MetaKeyKind : uint8_t {
     JumbfCborKey,
 };
 
+/**
+ * \brief An owned metadata key.
+ *
+ * Uses \ref ByteSpan fields for string-like components so keys can be stored
+ * compactly in a \ref ByteArena (e.g. IFD token, XMP schema namespace).
+ */
 struct MetaKey final {
     MetaKeyKind kind = MetaKeyKind::ExifTag;
 
@@ -74,6 +86,11 @@ struct MetaKey final {
     } data;
 };
 
+/**
+ * \brief A borrowed metadata key view.
+ *
+ * Intended for lookups and comparisons without allocating/copying strings.
+ */
 struct MetaKeyView final {
     MetaKeyKind kind = MetaKeyKind::ExifTag;
 
@@ -128,6 +145,7 @@ struct MetaKeyView final {
     } data;
 };
 
+/// Creates a key for an EXIF/TIFF tag within a named IFD token (e.g. "ifd0", "exififd").
 MetaKey
 make_exif_tag_key(ByteArena& arena, std::string_view ifd, uint16_t tag);
 MetaKey
@@ -150,9 +168,11 @@ make_jumbf_field_key(ByteArena& arena, std::string_view field);
 MetaKey
 make_jumbf_cbor_key(ByteArena& arena, std::string_view key);
 
+/// Orders keys for deterministic storage/indexing.
 int
 compare_key(const ByteArena& arena, const MetaKey& a,
             const MetaKey& b) noexcept;
+/// Orders a borrowed key against an owned key using the same ordering as \ref compare_key.
 int
 compare_key_view(const ByteArena& arena, const MetaKeyView& a,
                  const MetaKey& b) noexcept;

@@ -9,6 +9,11 @@
 #include <span>
 #include <vector>
 
+/**
+ * \file meta_store.h
+ * \brief In-memory representation of decoded metadata (keys/values + provenance).
+ */
+
 namespace openmeta {
 
 class MetaEdit;
@@ -19,17 +24,20 @@ using EntryId = uint32_t;
 static constexpr BlockId kInvalidBlockId = 0xffffffffU;
 static constexpr EntryId kInvalidEntryId = 0xffffffffU;
 
+/// The wire-format family a value came from (used for round-trip encoding).
 enum class WireFamily : uint8_t {
     None,
     Tiff,
     Other,
 };
 
+/// Wire-format element type + family (e.g. TIFF type code).
 struct WireType final {
     WireFamily family = WireFamily::None;
     uint16_t code     = 0;
 };
 
+/// Where an \ref Entry came from inside the original container.
 struct Origin final {
     BlockId block           = kInvalidBlockId;
     uint32_t order_in_block = 0;
@@ -37,6 +45,11 @@ struct Origin final {
     uint32_t wire_count = 0;
 };
 
+/**
+ * \brief A single metadata entry (key/value) with provenance.
+ *
+ * \note Duplicate keys are allowed and preserved.
+ */
 struct Entry final {
     MetaKey key;
     MetaValue value;
@@ -44,6 +57,7 @@ struct Entry final {
     EntryFlags flags = EntryFlags::None;
 };
 
+/// Container-block identity used to associate \ref Entry::origin with a source block.
 struct BlockInfo final {
     uint32_t format    = 0;
     uint32_t container = 0;
@@ -61,18 +75,33 @@ struct BlockSpan final {
     uint32_t count = 0;
 };
 
+/**
+ * \brief Stores decoded metadata entries grouped into blocks.
+ *
+ * Lifecycle:
+ * - Build phase: call \ref add_block and \ref add_entry (not thread-safe).
+ * - Finalize: call \ref finalize to build lookup indices; treat as read-only.
+ *
+ * Indices:
+ * - \ref entries_in_block returns entries sorted by \ref Origin::order_in_block.
+ * - \ref find_all returns all matching entries (duplicates preserved).
+ */
 class MetaStore final {
 public:
     MetaStore() = default;
 
     // Build phase (not thread-safe, not allowed after finalize).
+    /// Adds a new block and returns its id.
     BlockId add_block(const BlockInfo& info);
+    /// Appends an entry and returns its id.
     EntryId add_entry(const Entry& entry);
 
     ByteArena& arena() noexcept;
     const ByteArena& arena() const noexcept;
 
+    /// Builds lookup indices and marks the store as finalized.
     void finalize();
+    /// Rebuilds indices after an edit pipeline (invalidates previous spans).
     void rehash();
 
     uint32_t block_count() const noexcept;
@@ -81,7 +110,9 @@ public:
     std::span<const Entry> entries() const noexcept;
     const Entry& entry(EntryId id) const noexcept;
 
+    /// Returns all entries in \p block, ordered by \ref Origin::order_in_block.
     std::span<const EntryId> entries_in_block(BlockId block) const noexcept;
+    /// Returns all entry ids matching \p key (excluding tombstones).
     std::span<const EntryId> find_all(const MetaKeyView& key) const noexcept;
 
 private:

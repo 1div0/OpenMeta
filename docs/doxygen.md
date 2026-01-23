@@ -6,7 +6,24 @@ OpenMeta keeps documentation lightweight and close to the public headers.
 
 - `doxygen` (optional: `graphviz` for diagrams)
 
-## Generate API docs
+## Generate API docs (CMake)
+
+Enable docs and build:
+
+```bash
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DOPENMETA_BUILD_DOCS=ON
+cmake --build build --target openmeta_docs
+```
+
+Output goes to `build/docs/html/index.html` inside the build directory.
+
+When `OPENMETA_BUILD_DOCS=ON`, docs are also generated during `install`:
+
+```bash
+cmake --build build --target install
+```
+
+## Generate API docs (manual)
 
 From the `OpenMeta/` repo root:
 

@@ -9,6 +9,7 @@ option(OPENMETA_BUILD_TESTS "Build OpenMeta unit tests" OFF)
 option(OPENMETA_BUILD_FUZZERS "Build OpenMeta libFuzzer targets" OFF)
 option(OPENMETA_BUILD_FUZZTEST "Build OpenMeta fuzz tests (FuzzTest)" OFF)
 option(OPENMETA_FUZZTEST_FUZZING_MODE "Enable FuzzTest fuzzing mode flags" OFF)
+option(OPENMETA_BUILD_DOCS "Build and install API docs (Doxygen)" OFF)
 
 include(GNUInstallDirs)
 
@@ -31,6 +32,10 @@ list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake")
 include(OpenMetaDependencies)
 include(OpenMetaTargetSettings)
 include(OpenMetaReport)
+
+if(OPENMETA_BUILD_DOCS)
+  find_package(Doxygen REQUIRED)
+endif()
 
 set(OPENMETA_SOURCES
   src/openmeta/byte_arena.cc
@@ -218,6 +223,47 @@ install(
 
 if(TARGET metaread)
   install(TARGETS metaread RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
+endif()
+
+if(OPENMETA_BUILD_DOCS)
+  set(_openmeta_doxygen_out_dir "${CMAKE_CURRENT_BINARY_DIR}/docs")
+  set(_openmeta_doxygen_cfg "${CMAKE_CURRENT_BINARY_DIR}/OpenMetaDoxyfile")
+  set(_openmeta_install_docs_script "${CMAKE_CURRENT_BINARY_DIR}/OpenMetaInstallDocs.cmake")
+
+  set(_openmeta_doxygen_inputs
+    "${PROJECT_SOURCE_DIR}/README.md"
+    "${PROJECT_SOURCE_DIR}/include"
+    "${PROJECT_SOURCE_DIR}/docs"
+  )
+  string(JOIN " " OPENMETA_DOXYGEN_INPUT ${_openmeta_doxygen_inputs})
+  set(OPENMETA_DOXYGEN_OUTPUT_DIR "${_openmeta_doxygen_out_dir}")
+  set(OPENMETA_DOXYGEN_MAINPAGE "${PROJECT_SOURCE_DIR}/README.md")
+
+  configure_file(
+    "${PROJECT_SOURCE_DIR}/cmake/Doxyfile.in"
+    "${_openmeta_doxygen_cfg}"
+    @ONLY
+  )
+
+  configure_file(
+    "${PROJECT_SOURCE_DIR}/cmake/OpenMetaInstallDocs.cmake.in"
+    "${_openmeta_install_docs_script}"
+    @ONLY
+  )
+
+  add_custom_target(openmeta_docs
+    COMMAND "${DOXYGEN_EXECUTABLE}" "${_openmeta_doxygen_cfg}"
+    WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
+    COMMENT "Generating OpenMeta API documentation (Doxygen)"
+    VERBATIM
+  )
+
+  install(SCRIPT "${_openmeta_install_docs_script}")
+
+  install(
+    DIRECTORY "${_openmeta_doxygen_out_dir}/html"
+    DESTINATION "${CMAKE_INSTALL_DOCDIR}"
+  )
 endif()
 
 set(_openmeta_pkg_dir "${CMAKE_INSTALL_LIBDIR}/cmake/OpenMeta")

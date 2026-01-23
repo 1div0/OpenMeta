@@ -36,6 +36,7 @@ Useful options:
 - `-DOPENMETA_BUILD_TOOLS=ON|OFF`
 - `-DOPENMETA_BUILD_TESTS=ON` (requires GoogleTest)
 - `-DOPENMETA_BUILD_FUZZERS=ON` (requires Clang + libFuzzer)
+- `-DOPENMETA_BUILD_DOCS=ON` (requires Doxygen; installs HTML docs)
 
 Developer notes: `docs/development.md`
 
