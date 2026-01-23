@@ -177,6 +177,25 @@ if(OPENMETA_BUILD_FUZZERS)
       -fno-omit-frame-pointer
   )
 
+  add_executable(openmeta_fuzz_bmff_meta
+    ${OPENMETA_SOURCES}
+    tests/fuzz/bmff_meta_libfuzzer.cc
+  )
+  openmeta_apply_target_settings(openmeta_fuzz_bmff_meta)
+
+  target_compile_options(
+    openmeta_fuzz_bmff_meta
+    PRIVATE
+      -fsanitize=fuzzer,address,undefined
+      -fno-omit-frame-pointer
+  )
+  target_link_options(
+    openmeta_fuzz_bmff_meta
+    PRIVATE
+      -fsanitize=fuzzer,address,undefined
+      -fno-omit-frame-pointer
+  )
+
   add_executable(openmeta_fuzz_exif_tiff_decode
     ${OPENMETA_SOURCES}
     tests/fuzz/exif_tiff_decode_libfuzzer.cc

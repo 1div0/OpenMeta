@@ -12,7 +12,7 @@ Early development. APIs and data model are expected to evolve.
 ## Features
 
 - Container scanning: locate metadata blocks in `jpeg`, `png`, `webp`, `gif`,
-  `tiff/dng`, `jp2`, `jxl`.
+  `tiff/dng`, `jp2`, `jxl`, `heif/avif/cr3` (ISO-BMFF).
 - EXIF decoding: decode TIFF-IFD tags (including pointer IFDs) into `MetaStore`.
 - CLI tool: `metaread` (human-readable dump; output is sanitized).
 - Security-first: explicit decode limits + fuzz targets; see `SECURITY.md`.

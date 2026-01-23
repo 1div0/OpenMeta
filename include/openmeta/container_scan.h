@@ -33,6 +33,8 @@ enum class ContainerFormat : uint8_t {
     Jp2,
     Jxl,
     Heif,
+    Avif,
+    Cr3,
 };
 
 /// Logical kind of a discovered metadata block.
@@ -160,5 +162,10 @@ scan_jp2(std::span<const std::byte> bytes,
 ScanResult
 scan_jxl(std::span<const std::byte> bytes,
          std::span<ContainerBlockRef> out) noexcept;
+/// Scans an ISO-BMFF (`ftyp`) container (e.g. HEIF/AVIF/CR3) and returns
+/// metadata items found within `meta` boxes.
+ScanResult
+scan_bmff(std::span<const std::byte> bytes,
+          std::span<ContainerBlockRef> out) noexcept;
 
 }  // namespace openmeta

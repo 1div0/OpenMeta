@@ -52,6 +52,8 @@ namespace {
         case ContainerFormat::Jp2: return "jp2";
         case ContainerFormat::Jxl: return "jxl";
         case ContainerFormat::Heif: return "heif";
+        case ContainerFormat::Avif: return "avif";
+        case ContainerFormat::Cr3: return "cr3";
         }
         return "unknown";
     }

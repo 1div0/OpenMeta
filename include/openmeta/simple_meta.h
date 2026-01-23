@@ -26,6 +26,7 @@ struct SimpleMetaResult final {
  * - EXIF/TIFF-IFD tags (\ref decode_exif_tiff) from:
  *   - JPEG/PNG/WebP/etc. EXIF blocks
  *   - TIFF/DNG containers (whole file treated as a TIFF-IFD stream)
+ *   - ISO-BMFF containers (HEIF/AVIF/CR3) Exif items
  *
  * Caller provides the scratch buffers (blocks + decoded IFD list) to keep the
  * data flow explicit and allocation-free.

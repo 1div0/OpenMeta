@@ -47,6 +47,16 @@ namespace {
         std::byte { 0xac },
     };
 
+    // Canon CR3 metadata UUID found under `moov` (contains `CMT1..CMT4` TIFF blocks).
+    static constexpr std::array<std::byte, 16> kCr3CanonUuid = {
+        std::byte { 0x85 }, std::byte { 0xc0 }, std::byte { 0xb6 },
+        std::byte { 0x87 }, std::byte { 0x82 }, std::byte { 0x0f },
+        std::byte { 0x11 }, std::byte { 0xe0 }, std::byte { 0x81 },
+        std::byte { 0x11 }, std::byte { 0xf4 }, std::byte { 0xce },
+        std::byte { 0x46 }, std::byte { 0x2b }, std::byte { 0x6a },
+        std::byte { 0x48 },
+    };
+
     struct BlockSink final {
         ContainerBlockRef* out = nullptr;
         uint32_t cap           = 0;
@@ -1101,6 +1111,740 @@ scan_jxl(std::span<const std::byte> bytes,
 
 namespace {
 
+    struct BmffMetaItem final {
+        uint32_t item_id        = 0;
+        uint32_t item_type      = 0;
+        ContainerBlockKind kind = ContainerBlockKind::Unknown;
+    };
+
+    static void bmff_note_brand(uint32_t brand, bool* is_heif, bool* is_avif,
+                                bool* is_cr3) noexcept
+    {
+        if (brand == fourcc('c', 'r', 'x', ' ')
+            || brand == fourcc('C', 'R', '3', ' ')) {
+            *is_cr3 = true;
+        }
+
+        if (brand == fourcc('a', 'v', 'i', 'f')
+            || brand == fourcc('a', 'v', 'i', 's')) {
+            *is_avif = true;
+        }
+
+        if (brand == fourcc('m', 'i', 'f', '1')
+            || brand == fourcc('m', 's', 'f', '1')
+            || brand == fourcc('h', 'e', 'i', 'c')
+            || brand == fourcc('h', 'e', 'i', 'x')
+            || brand == fourcc('h', 'e', 'v', 'c')
+            || brand == fourcc('h', 'e', 'v', 'x')) {
+            *is_heif = true;
+        }
+    }
+
+    static bool bmff_format_from_ftyp(std::span<const std::byte> bytes,
+                                      const BmffBox& ftyp,
+                                      ContainerFormat* out) noexcept
+    {
+        const uint64_t payload_off  = ftyp.offset + ftyp.header_size;
+        const uint64_t payload_size = ftyp.size - ftyp.header_size;
+        if (payload_size < 8) {
+            return false;
+        }
+
+        uint32_t major_brand = 0;
+        if (!read_u32be(bytes, payload_off + 0, &major_brand)) {
+            return false;
+        }
+
+        bool is_heif = false;
+        bool is_avif = false;
+        bool is_cr3  = false;
+        bmff_note_brand(major_brand, &is_heif, &is_avif, &is_cr3);
+
+        const uint64_t brands_off = payload_off + 8;
+        const uint64_t brands_end = payload_off + payload_size;
+        for (uint64_t off = brands_off; off + 4 <= brands_end; off += 4) {
+            uint32_t brand = 0;
+            if (!read_u32be(bytes, off, &brand)) {
+                return false;
+            }
+            bmff_note_brand(brand, &is_heif, &is_avif, &is_cr3);
+        }
+
+        if (is_cr3) {
+            *out = ContainerFormat::Cr3;
+            return true;
+        }
+        if (is_avif) {
+            *out = ContainerFormat::Avif;
+            return true;
+        }
+        if (is_heif) {
+            *out = ContainerFormat::Heif;
+            return true;
+        }
+        return false;
+    }
+
+    static bool read_uint_be_n(std::span<const std::byte> bytes,
+                               uint64_t offset, uint32_t n,
+                               uint64_t* out) noexcept
+    {
+        if (n == 0) {
+            *out = 0;
+            return true;
+        }
+        if (n > 8 || offset + n > bytes.size()) {
+            return false;
+        }
+        uint64_t v = 0;
+        for (uint32_t i = 0; i < n; ++i) {
+            v = (v << 8) | static_cast<uint64_t>(u8(bytes[offset + i]));
+        }
+        *out = v;
+        return true;
+    }
+
+    static bool find_cstring_end(std::span<const std::byte> bytes,
+                                 uint64_t start, uint64_t end,
+                                 uint64_t* out_end) noexcept
+    {
+        const uint64_t limit = (end < bytes.size()) ? end : bytes.size();
+        for (uint64_t p = start; p < limit; ++p) {
+            if (u8(bytes[p]) == 0) {
+                *out_end = p;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static bool cstring_equals(std::span<const std::byte> bytes, uint64_t start,
+                               uint64_t end, const char* s,
+                               uint32_t s_len) noexcept
+    {
+        uint64_t s_end = 0;
+        if (!find_cstring_end(bytes, start, end, &s_end)) {
+            return false;
+        }
+        const uint64_t len = s_end - start;
+        if (len != s_len) {
+            return false;
+        }
+        return match(bytes, start, s, s_len);
+    }
+
+    static bool bmff_collect_meta_items(std::span<const std::byte> bytes,
+                                        const BmffBox& iinf,
+                                        std::span<BmffMetaItem> out_items,
+                                        uint32_t* out_count) noexcept
+    {
+        const uint64_t payload_off = iinf.offset + iinf.header_size;
+        const uint64_t payload_end = iinf.offset + iinf.size;
+        if (payload_off + 4 > payload_end) {
+            return false;
+        }
+
+        const uint8_t version = u8(bytes[payload_off + 0]);
+        uint64_t p            = payload_off + 4;
+
+        uint32_t entry_count = 0;
+        if (version < 2) {
+            uint16_t ec16 = 0;
+            if (!read_u16be(bytes, p, &ec16)) {
+                return false;
+            }
+            entry_count = ec16;
+            p += 2;
+        } else {
+            uint32_t ec32 = 0;
+            if (!read_u32be(bytes, p, &ec32)) {
+                return false;
+            }
+            entry_count = ec32;
+            p += 4;
+        }
+
+        const uint32_t kMaxEntries = 4096;
+        if (entry_count > kMaxEntries) {
+            return false;
+        }
+
+        uint32_t seen = 0;
+        while (p < payload_end && seen < entry_count) {
+            BmffBox infe;
+            if (!parse_bmff_box(bytes, p, payload_end, &infe)) {
+                return false;
+            }
+
+            if (infe.type == fourcc('i', 'n', 'f', 'e')) {
+                const uint64_t infe_payload_off = infe.offset
+                                                  + infe.header_size;
+                const uint64_t infe_end = infe.offset + infe.size;
+                if (infe_payload_off + 4 > infe_end) {
+                    return false;
+                }
+
+                const uint8_t infe_ver = u8(bytes[infe_payload_off + 0]);
+                uint64_t q             = infe_payload_off + 4;
+                if (infe_ver < 2) {
+                    // Legacy infe forms do not carry item_type; ignore.
+                } else {
+                    uint32_t item_id = 0;
+                    if (infe_ver == 2) {
+                        uint16_t id16 = 0;
+                        if (!read_u16be(bytes, q, &id16)) {
+                            return false;
+                        }
+                        item_id = id16;
+                        q += 2;
+                    } else {
+                        if (!read_u32be(bytes, q, &item_id)) {
+                            return false;
+                        }
+                        q += 4;
+                    }
+
+                    uint16_t prot = 0;
+                    if (!read_u16be(bytes, q, &prot)) {
+                        return false;
+                    }
+                    q += 2;
+                    (void)prot;
+
+                    uint32_t item_type = 0;
+                    if (!read_u32be(bytes, q, &item_type)) {
+                        return false;
+                    }
+                    q += 4;
+
+                    uint64_t name_end = 0;
+                    if (!find_cstring_end(bytes, q, infe_end, &name_end)) {
+                        return false;
+                    }
+                    q = name_end + 1;
+
+                    ContainerBlockKind kind = ContainerBlockKind::Unknown;
+                    if (item_type == fourcc('E', 'x', 'i', 'f')) {
+                        kind = ContainerBlockKind::Exif;
+                    } else if (item_type == fourcc('x', 'm', 'l', ' ')) {
+                        kind = ContainerBlockKind::Xmp;
+                    } else if (item_type == fourcc('m', 'i', 'm', 'e')) {
+                        static constexpr char kXmpMime[] = "application/rdf+xml";
+                        if (cstring_equals(bytes, q, infe_end, kXmpMime,
+                                           sizeof(kXmpMime) - 1)) {
+                            kind = ContainerBlockKind::Xmp;
+                        }
+
+                        uint64_t ct_end = 0;
+                        if (!find_cstring_end(bytes, q, infe_end, &ct_end)) {
+                            return false;
+                        }
+                        q                = ct_end + 1;
+                        uint64_t enc_end = 0;
+                        if (!find_cstring_end(bytes, q, infe_end, &enc_end)) {
+                            return false;
+                        }
+                        q = enc_end + 1;
+                    }
+
+                    if (kind != ContainerBlockKind::Unknown) {
+                        if (*out_count < out_items.size()) {
+                            BmffMetaItem item;
+                            item.item_id          = item_id;
+                            item.item_type        = item_type;
+                            item.kind             = kind;
+                            out_items[*out_count] = item;
+                        }
+                        *out_count += 1;
+                    }
+                }
+            }
+
+            p += infe.size;
+            if (infe.size == 0) {
+                break;
+            }
+            seen += 1;
+        }
+        return true;
+    }
+
+    static const BmffMetaItem*
+    bmff_find_item(std::span<const BmffMetaItem> items,
+                   uint32_t item_id) noexcept
+    {
+        for (size_t i = 0; i < items.size(); ++i) {
+            if (items[i].item_id == item_id) {
+                return &items[i];
+            }
+        }
+        return nullptr;
+    }
+
+    static bool bmff_emit_items_from_iloc(std::span<const std::byte> bytes,
+                                          const BmffBox& iloc,
+                                          const BmffBox* idat,
+                                          std::span<const BmffMetaItem> items,
+                                          ContainerFormat format,
+                                          BlockSink* sink) noexcept
+    {
+        const uint64_t payload_off = iloc.offset + iloc.header_size;
+        const uint64_t payload_end = iloc.offset + iloc.size;
+        if (payload_off + 4 > payload_end) {
+            return false;
+        }
+
+        const uint8_t version = u8(bytes[payload_off + 0]);
+        uint64_t p            = payload_off + 4;
+
+        if (p + 2 > payload_end) {
+            return false;
+        }
+        const uint8_t a          = u8(bytes[p + 0]);
+        const uint8_t b          = u8(bytes[p + 1]);
+        const uint32_t off_size  = (a >> 4) & 0x0F;
+        const uint32_t len_size  = (a >> 0) & 0x0F;
+        const uint32_t base_size = (b >> 4) & 0x0F;
+        const uint32_t idx_size  = (b >> 0) & 0x0F;
+        p += 2;
+
+        if (off_size > 8 || len_size > 8 || base_size > 8 || idx_size > 8) {
+            return false;
+        }
+
+        uint32_t item_count = 0;
+        if (version < 2) {
+            uint16_t c16 = 0;
+            if (!read_u16be(bytes, p, &c16)) {
+                return false;
+            }
+            item_count = c16;
+            p += 2;
+        } else {
+            uint32_t c32 = 0;
+            if (!read_u32be(bytes, p, &c32)) {
+                return false;
+            }
+            item_count = c32;
+            p += 4;
+        }
+
+        const uint32_t kMaxItems = 1U << 16;
+        if (item_count > kMaxItems) {
+            return false;
+        }
+
+        uint64_t idat_payload_off = 0;
+        uint64_t idat_payload_end = 0;
+        bool has_idat             = false;
+        if (idat != nullptr && idat->size > 0) {
+            idat_payload_off = idat->offset + idat->header_size;
+            idat_payload_end = idat->offset + idat->size;
+            if (idat_payload_off > idat_payload_end) {
+                return false;
+            }
+            has_idat = true;
+        }
+
+        for (uint32_t i = 0; i < item_count; ++i) {
+            uint32_t item_id = 0;
+            if (version < 2) {
+                uint16_t id16 = 0;
+                if (!read_u16be(bytes, p, &id16)) {
+                    return false;
+                }
+                item_id = id16;
+                p += 2;
+            } else {
+                if (!read_u32be(bytes, p, &item_id)) {
+                    return false;
+                }
+                p += 4;
+            }
+
+            uint32_t construction_method = 0;
+            if (version == 1 || version == 2) {
+                uint16_t cm = 0;
+                if (!read_u16be(bytes, p, &cm)) {
+                    return false;
+                }
+                construction_method = static_cast<uint32_t>(cm & 0x000F);
+                p += 2;
+            }
+
+            uint16_t data_ref = 0;
+            if (!read_u16be(bytes, p, &data_ref)) {
+                return false;
+            }
+            p += 2;
+            (void)data_ref;
+
+            uint64_t base_off = 0;
+            if (!read_uint_be_n(bytes, p, base_size, &base_off)) {
+                return false;
+            }
+            p += base_size;
+
+            uint16_t extent_count = 0;
+            if (!read_u16be(bytes, p, &extent_count)) {
+                return false;
+            }
+            p += 2;
+
+            const uint32_t kMaxExtents = 1U << 14;
+            if (extent_count > kMaxExtents) {
+                return false;
+            }
+
+            const BmffMetaItem* item = bmff_find_item(items, item_id);
+
+            uint64_t logical_off = 0;
+            for (uint32_t e = 0; e < extent_count; ++e) {
+                uint64_t extent_index = 0;
+                if ((version == 1 || version == 2) && idx_size > 0) {
+                    if (!read_uint_be_n(bytes, p, idx_size, &extent_index)) {
+                        return false;
+                    }
+                    p += idx_size;
+                }
+                (void)extent_index;
+
+                uint64_t extent_off = 0;
+                if (!read_uint_be_n(bytes, p, off_size, &extent_off)) {
+                    return false;
+                }
+                p += off_size;
+
+                uint64_t extent_len = 0;
+                if (!read_uint_be_n(bytes, p, len_size, &extent_len)) {
+                    return false;
+                }
+                p += len_size;
+
+                if (item == nullptr) {
+                    continue;
+                }
+
+                uint64_t file_off = 0;
+                if (construction_method == 1) {
+                    if (!has_idat) {
+                        continue;
+                    }
+                    if (idat_payload_off > UINT64_MAX - base_off) {
+                        return false;
+                    }
+                    file_off = idat_payload_off + base_off;
+                } else if (construction_method == 0) {
+                    file_off = base_off;
+                } else {
+                    continue;
+                }
+
+                if (file_off > UINT64_MAX - extent_off) {
+                    return false;
+                }
+                file_off += extent_off;
+
+                const uint64_t size = static_cast<uint64_t>(bytes.size());
+                if (file_off > size || extent_len > size - file_off) {
+                    return false;
+                }
+                if (construction_method == 1) {
+                    if (file_off + extent_len > idat_payload_end) {
+                        return false;
+                    }
+                }
+
+                ContainerBlockRef block;
+                block.format       = format;
+                block.kind         = item->kind;
+                block.outer_offset = file_off;
+                block.outer_size   = extent_len;
+                block.data_offset  = file_off;
+                block.data_size    = extent_len;
+                block.id           = item->item_type;
+                block.group        = static_cast<uint64_t>(item_id);
+
+                if (extent_count > 1) {
+                    block.part_index     = e;
+                    block.part_count     = extent_count;
+                    block.logical_offset = logical_off;
+                }
+                if (extent_len <= UINT64_MAX - logical_off) {
+                    logical_off += extent_len;
+                }
+
+                if (block.kind == ContainerBlockKind::Exif) {
+                    skip_bmff_exif_offset(&block, bytes);
+                    skip_exif_preamble(&block, bytes);
+                }
+
+                sink_emit(sink, block);
+            }
+        }
+
+        return true;
+    }
+
+    static void bmff_scan_meta_box(std::span<const std::byte> bytes,
+                                   const BmffBox& meta, ContainerFormat format,
+                                   BlockSink* sink) noexcept
+    {
+        const uint64_t payload_off  = meta.offset + meta.header_size;
+        const uint64_t payload_size = meta.size - meta.header_size;
+        if (payload_size < 4) {
+            sink->result.status = ScanStatus::Malformed;
+            return;
+        }
+
+        BmffBox iinf {};
+        BmffBox iloc {};
+        BmffBox idat {};
+        bool has_iinf = false;
+        bool has_iloc = false;
+        bool has_idat = false;
+
+        uint64_t child_off       = payload_off + 4;  // FullBox header.
+        const uint64_t child_end = meta.offset + meta.size;
+        while (child_off < child_end) {
+            BmffBox child;
+            if (!parse_bmff_box(bytes, child_off, child_end, &child)) {
+                break;
+            }
+
+            if (child.type == fourcc('i', 'i', 'n', 'f')) {
+                iinf     = child;
+                has_iinf = true;
+            } else if (child.type == fourcc('i', 'l', 'o', 'c')) {
+                iloc     = child;
+                has_iloc = true;
+            } else if (child.type == fourcc('i', 'd', 'a', 't')) {
+                idat     = child;
+                has_idat = true;
+            }
+
+            child_off += child.size;
+            if (child.size == 0) {
+                break;
+            }
+        }
+
+        std::array<BmffMetaItem, 32> items {};
+        uint32_t items_count = 0;
+        if (has_iinf) {
+            if (!bmff_collect_meta_items(bytes, iinf, items, &items_count)) {
+                sink->result.status = ScanStatus::Malformed;
+                return;
+            }
+        }
+
+        if (items_count > items.size()) {
+            items_count = static_cast<uint32_t>(items.size());
+        }
+
+        if (has_iloc && items_count > 0) {
+            const BmffBox* idat_ptr = has_idat ? &idat : nullptr;
+            if (!bmff_emit_items_from_iloc(
+                    bytes, iloc, idat_ptr,
+                    std::span<const BmffMetaItem>(items.data(), items_count),
+                    format, sink)) {
+                sink->result.status = ScanStatus::Malformed;
+                return;
+            }
+        }
+    }
+
+    static bool bmff_is_container_box(uint32_t type) noexcept
+    {
+        switch (type) {
+        case fourcc('m', 'o', 'o', 'v'):
+        case fourcc('t', 'r', 'a', 'k'):
+        case fourcc('m', 'd', 'i', 'a'):
+        case fourcc('m', 'i', 'n', 'f'):
+        case fourcc('s', 't', 'b', 'l'):
+        case fourcc('e', 'd', 't', 's'):
+        case fourcc('d', 'i', 'n', 'f'):
+        case fourcc('u', 'd', 't', 'a'): return true;
+        default: return false;
+        }
+    }
+
+    static bool bmff_is_tiff_at(std::span<const std::byte> bytes,
+                                uint64_t offset) noexcept
+    {
+        if (offset + 4 > bytes.size()) {
+            return false;
+        }
+        const uint8_t b0 = u8(bytes[offset + 0]);
+        const uint8_t b1 = u8(bytes[offset + 1]);
+        const uint8_t b2 = u8(bytes[offset + 2]);
+        const uint8_t b3 = u8(bytes[offset + 3]);
+        // "II*\0" or "MM\0*"
+        return (b0 == 0x49 && b1 == 0x49 && b2 == 0x2A && b3 == 0x00)
+               || (b0 == 0x4D && b1 == 0x4D && b2 == 0x00 && b3 == 0x2A);
+    }
+
+    static void bmff_emit_uuid_payload(ContainerFormat format,
+                                       ContainerBlockKind kind,
+                                       const BmffBox& box,
+                                       BlockSink* sink) noexcept
+    {
+        ContainerBlockRef block;
+        block.format       = format;
+        block.kind         = kind;
+        block.outer_offset = box.offset;
+        block.outer_size   = box.size;
+        block.data_offset  = box.offset + box.header_size;
+        block.data_size    = box.size - box.header_size;
+        block.id           = box.type;
+        block.chunking     = BlockChunking::Jp2UuidPayload;
+        sink_emit(sink, block);
+    }
+
+    static void bmff_scan_cr3_canon_uuid(std::span<const std::byte> bytes,
+                                         const BmffBox& box,
+                                         BlockSink* sink) noexcept
+    {
+        const uint64_t child_off0 = box.offset + box.header_size;
+        const uint64_t child_end  = box.offset + box.size;
+        if (child_off0 >= child_end) {
+            return;
+        }
+
+        uint64_t child_off = child_off0;
+        while (child_off < child_end) {
+            BmffBox child;
+            if (!parse_bmff_box(bytes, child_off, child_end, &child)) {
+                sink->result.status = ScanStatus::Malformed;
+                return;
+            }
+
+            const uint64_t payload_off  = child.offset + child.header_size;
+            const uint64_t payload_size = child.size - child.header_size;
+
+            if ((child.type == fourcc('C', 'M', 'T', '1')
+                 || child.type == fourcc('C', 'M', 'T', '2')
+                 || child.type == fourcc('C', 'M', 'T', '3')
+                 || child.type == fourcc('C', 'M', 'T', '4'))
+                && bmff_is_tiff_at(bytes, payload_off)) {
+                ContainerBlockRef block;
+                block.format       = ContainerFormat::Cr3;
+                block.kind         = ContainerBlockKind::Exif;
+                block.outer_offset = child.offset;
+                block.outer_size   = child.size;
+                block.data_offset  = payload_off;
+                block.data_size    = payload_size;
+                block.id           = child.type;
+                sink_emit(sink, block);
+            }
+
+            child_off += child.size;
+            if (child.size == 0) {
+                break;
+            }
+        }
+    }
+
+    static void bmff_scan_for_meta(std::span<const std::byte> bytes,
+                                   uint64_t begin, uint64_t end, uint32_t depth,
+                                   ContainerFormat format,
+                                   BlockSink* sink) noexcept
+    {
+        if (sink->result.status != ScanStatus::Ok) {
+            return;
+        }
+        if (depth > 8) {
+            return;
+        }
+
+        uint64_t offset          = begin;
+        const uint32_t kMaxBoxes = 1U << 18;
+        uint32_t seen            = 0;
+        while (offset < end) {
+            seen += 1;
+            if (seen > kMaxBoxes) {
+                sink->result.status = ScanStatus::Malformed;
+                return;
+            }
+
+            BmffBox box;
+            if (!parse_bmff_box(bytes, offset, end, &box)) {
+                sink->result.status = ScanStatus::Malformed;
+                return;
+            }
+
+            if (box.type == fourcc('m', 'e', 't', 'a')) {
+                bmff_scan_meta_box(bytes, box, format, sink);
+                if (sink->result.status != ScanStatus::Ok) {
+                    return;
+                }
+            } else if (box.type == fourcc('u', 'u', 'i', 'd') && box.has_uuid) {
+                if (box.uuid == kJp2UuidXmp) {
+                    bmff_emit_uuid_payload(format, ContainerBlockKind::Xmp, box,
+                                           sink);
+                } else if (format == ContainerFormat::Cr3
+                           && box.uuid == kCr3CanonUuid) {
+                    bmff_scan_cr3_canon_uuid(bytes, box, sink);
+                    if (sink->result.status != ScanStatus::Ok) {
+                        return;
+                    }
+                }
+            } else if (bmff_is_container_box(box.type)) {
+                const uint64_t child_off = box.offset + box.header_size;
+                const uint64_t child_end = box.offset + box.size;
+                if (child_off < child_end) {
+                    bmff_scan_for_meta(bytes, child_off, child_end, depth + 1,
+                                       format, sink);
+                    if (sink->result.status != ScanStatus::Ok) {
+                        return;
+                    }
+                }
+            }
+
+            offset += box.size;
+            if (box.size == 0) {
+                break;
+            }
+        }
+    }
+
+}  // namespace
+
+ScanResult
+scan_bmff(std::span<const std::byte> bytes,
+          std::span<ContainerBlockRef> out) noexcept
+{
+    BlockSink sink;
+    sink.out = out.data();
+    sink.cap = static_cast<uint32_t>(out.size());
+
+    if (bytes.size() < 8) {
+        sink.result.status = ScanStatus::Malformed;
+        return sink.result;
+    }
+
+    BmffBox ftyp;
+    if (!parse_bmff_box(bytes, 0, bytes.size(), &ftyp)) {
+        sink.result.status = ScanStatus::Malformed;
+        return sink.result;
+    }
+    if (ftyp.type != fourcc('f', 't', 'y', 'p')) {
+        sink.result.status = ScanStatus::Unsupported;
+        return sink.result;
+    }
+
+    ContainerFormat format = ContainerFormat::Unknown;
+    if (!bmff_format_from_ftyp(bytes, ftyp, &format)) {
+        sink.result.status = ScanStatus::Unsupported;
+        return sink.result;
+    }
+
+    bmff_scan_for_meta(bytes, 0, bytes.size(), 0, format, &sink);
+    return sink.result;
+}
+
+namespace {
+
     struct TiffConfig final {
         bool le      = true;
         bool bigtiff = false;
@@ -1568,6 +2312,17 @@ scan_auto(std::span<const std::byte> bytes,
             if (type == fourcc('J', 'X', 'L', ' ')) {
                 return scan_jxl(bytes, out);
             }
+        }
+    }
+
+    // ISO-BMFF (`ftyp`) image containers (HEIF/AVIF/CR3).
+    if (bytes.size() >= 16) {
+        uint32_t size = 0;
+        uint32_t type = 0;
+        if (read_u32be(bytes, 0, &size) && read_u32be(bytes, 4, &type)
+            && type == fourcc('f', 't', 'y', 'p')
+            && (size == 0 || size == 1 || size >= 16)) {
+            return scan_bmff(bytes, out);
         }
     }
 
