@@ -1,12 +1,15 @@
 #include "openmeta/container_scan.h"
 #include "openmeta/exif_tiff_decode.h"
+#include "openmeta/exif_tag_names.h"
 #include "openmeta/meta_key.h"
 #include "openmeta/meta_store.h"
 
+#include <algorithm>
 #include <cctype>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -132,91 +135,141 @@ namespace {
                                 bytes.size());
     }
 
-    static void print_escaped(std::string_view s, uint32_t max_bytes)
+    static bool append_escaped_ascii(std::string_view s, uint32_t max_bytes,
+                                     std::string* out)
     {
+        bool dangerous = false;
         const uint32_t n = (s.size() < max_bytes)
                                ? static_cast<uint32_t>(s.size())
                                : max_bytes;
-        std::putchar('"');
+        out->reserve(out->size() + static_cast<size_t>(n));
         for (uint32_t i = 0; i < n; ++i) {
             const unsigned char c = static_cast<unsigned char>(s[i]);
             if (c == '\\' || c == '"') {
-                std::putchar('\\');
-                std::putchar(static_cast<int>(c));
+                out->push_back('\\');
+                out->push_back(static_cast<char>(c));
                 continue;
             }
             if (c == '\n') {
-                std::fputs("\\n", stdout);
+                out->append("\\n");
+                dangerous = true;
                 continue;
             }
             if (c == '\r') {
-                std::fputs("\\r", stdout);
+                out->append("\\r");
+                dangerous = true;
                 continue;
             }
             if (c == '\t') {
-                std::fputs("\\t", stdout);
+                out->append("\\t");
+                dangerous = true;
                 continue;
             }
-            if (c < 0x20U || c == 0x7FU) {
-                std::printf("\\x%02X", static_cast<unsigned>(c));
+            if (c < 0x20U || c == 0x7FU || c >= 0x80U) {
+                char buf[8];
+                std::snprintf(buf, sizeof(buf), "\\x%02X",
+                              static_cast<unsigned>(c));
+                out->append(buf);
+                dangerous = true;
                 continue;
             }
-            std::putchar(static_cast<int>(c));
+            out->push_back(static_cast<char>(c));
         }
         if (n < s.size()) {
-            std::fputs("...", stdout);
+            out->append("...");
+            dangerous = true;
         }
-        std::putchar('"');
+        return dangerous;
     }
 
-    static void print_hex(std::span<const std::byte> bytes, uint32_t max_bytes)
+    static void append_hex(std::span<const std::byte> bytes, uint32_t max_bytes,
+                           std::string* out)
     {
         const uint32_t n = (bytes.size() < max_bytes)
                                ? static_cast<uint32_t>(bytes.size())
                                : max_bytes;
+        out->reserve(out->size() + static_cast<size_t>(n) * 2U);
         for (uint32_t i = 0; i < n; ++i) {
             const unsigned v = static_cast<unsigned>(
                 static_cast<uint8_t>(bytes[i]));
-            std::printf("%02X", v);
+            char buf[4];
+            std::snprintf(buf, sizeof(buf), "%02X", v);
+            out->append(buf);
         }
         if (n < bytes.size()) {
-            std::fputs("...", stdout);
+            out->append("...");
         }
     }
 
-    static bool read_file_bytes(const char* path, std::vector<std::byte>* out)
+    enum class ReadFileStatus : uint8_t {
+        Ok,
+        OpenFailed,
+        IoFailed,
+        TooLarge,
+    };
+
+    static ReadFileStatus read_file_bytes(const char* path,
+                                          std::vector<std::byte>* out,
+                                          uint64_t max_file_bytes,
+                                          uint64_t* out_size)
     {
         out->clear();
+        if (out_size) {
+            *out_size = 0;
+        }
         std::FILE* f = std::fopen(path, "rb");
         if (!f) {
-            return false;
+            return ReadFileStatus::OpenFailed;
         }
 
         if (std::fseek(f, 0, SEEK_END) != 0) {
             std::fclose(f);
-            return false;
+            return ReadFileStatus::IoFailed;
         }
         const long end = std::ftell(f);
         if (end < 0) {
             std::fclose(f);
-            return false;
+            return ReadFileStatus::IoFailed;
         }
         if (std::fseek(f, 0, SEEK_SET) != 0) {
             std::fclose(f);
-            return false;
+            return ReadFileStatus::IoFailed;
         }
 
-        const size_t size = static_cast<size_t>(end);
+        const uint64_t size_u64 = static_cast<uint64_t>(end);
+        if (out_size) {
+            *out_size = size_u64;
+        }
+        if (max_file_bytes != 0U && size_u64 > max_file_bytes) {
+            std::fclose(f);
+            return ReadFileStatus::TooLarge;
+        }
+
+        const size_t size = static_cast<size_t>(size_u64);
         out->resize(size);
-        if (size > 0) {
+        if (size != 0) {
             const size_t read = std::fread(out->data(), 1, size, f);
             if (read != size) {
                 std::fclose(f);
                 out->clear();
-                return false;
+                return ReadFileStatus::IoFailed;
             }
         }
         std::fclose(f);
+        return ReadFileStatus::Ok;
+    }
+
+    static bool parse_u64_arg(const char* s, uint64_t* out)
+    {
+        if (!s || !*s) {
+            return false;
+        }
+        char* end            = nullptr;
+        unsigned long long v = std::strtoull(s, &end, 10);
+        if (!end || *end != '\0') {
+            return false;
+        }
+        *out = static_cast<uint64_t>(v);
         return true;
     }
 
@@ -240,25 +293,264 @@ namespace {
         return v == 42 || v == 43;
     }
 
-    static void print_value(const MetaStore& store, const MetaValue& value,
-                            uint32_t max_elements, uint32_t max_bytes)
+    static void append_double_fixed6_trim(double d, std::string* out)
     {
+        char buf[128];
+        std::snprintf(buf, sizeof(buf), "%.6f", d);
+        size_t len = std::strlen(buf);
+        while (len > 0 && buf[len - 1] == '0') {
+            len -= 1;
+        }
+        if (len > 0 && buf[len - 1] == '.') {
+            len -= 1;
+        }
+        out->append(buf, len);
+    }
+
+    static uint32_t meta_element_size(MetaElementType type) noexcept
+    {
+        switch (type) {
+        case MetaElementType::U8:
+        case MetaElementType::I8: return 1U;
+        case MetaElementType::U16:
+        case MetaElementType::I16: return 2U;
+        case MetaElementType::U32:
+        case MetaElementType::I32:
+        case MetaElementType::F32: return 4U;
+        case MetaElementType::U64:
+        case MetaElementType::I64:
+        case MetaElementType::F64: return 8U;
+        case MetaElementType::URational:
+        case MetaElementType::SRational: return 8U;
+        }
+        return 0U;
+    }
+
+    static void append_u64(uint64_t v, std::string* out)
+    {
+        char buf[32];
+        std::snprintf(buf, sizeof(buf), "%llu",
+                      static_cast<unsigned long long>(v));
+        out->append(buf);
+    }
+
+    static void append_i64(int64_t v, std::string* out)
+    {
+        char buf[32];
+        std::snprintf(buf, sizeof(buf), "%lld", static_cast<long long>(v));
+        out->append(buf);
+    }
+
+    static void append_element_raw(MetaElementType type,
+                                   std::span<const std::byte> elem,
+                                   std::string* out)
+    {
+        switch (type) {
+        case MetaElementType::U8:
+            append_u64(static_cast<uint64_t>(static_cast<uint8_t>(elem[0])),
+                       out);
+            return;
+        case MetaElementType::I8:
+            append_i64(static_cast<int64_t>(static_cast<int8_t>(
+                           static_cast<uint8_t>(elem[0]))),
+                       out);
+            return;
+        case MetaElementType::U16: {
+            uint16_t v = 0;
+            std::memcpy(&v, elem.data(), 2);
+            append_u64(static_cast<uint64_t>(v), out);
+            return;
+        }
+        case MetaElementType::I16: {
+            int16_t v = 0;
+            std::memcpy(&v, elem.data(), 2);
+            append_i64(static_cast<int64_t>(v), out);
+            return;
+        }
+        case MetaElementType::U32: {
+            uint32_t v = 0;
+            std::memcpy(&v, elem.data(), 4);
+            append_u64(static_cast<uint64_t>(v), out);
+            return;
+        }
+        case MetaElementType::I32: {
+            int32_t v = 0;
+            std::memcpy(&v, elem.data(), 4);
+            append_i64(static_cast<int64_t>(v), out);
+            return;
+        }
+        case MetaElementType::U64: {
+            uint64_t v = 0;
+            std::memcpy(&v, elem.data(), 8);
+            append_u64(v, out);
+            return;
+        }
+        case MetaElementType::I64: {
+            int64_t v = 0;
+            std::memcpy(&v, elem.data(), 8);
+            append_i64(v, out);
+            return;
+        }
+        case MetaElementType::F32: {
+            uint32_t bits = 0;
+            std::memcpy(&bits, elem.data(), 4);
+            float f = 0.0F;
+            std::memcpy(&f, &bits, sizeof(float));
+            char buf[64];
+            std::snprintf(buf, sizeof(buf), "%g", static_cast<double>(f));
+            out->append(buf);
+            return;
+        }
+        case MetaElementType::F64: {
+            uint64_t bits = 0;
+            std::memcpy(&bits, elem.data(), 8);
+            double d = 0.0;
+            std::memcpy(&d, &bits, sizeof(double));
+            char buf[128];
+            std::snprintf(buf, sizeof(buf), "%g", d);
+            out->append(buf);
+            return;
+        }
+        case MetaElementType::URational: {
+            URational r;
+            std::memcpy(&r, elem.data(), sizeof(URational));
+            char buf[64];
+            std::snprintf(buf, sizeof(buf), "%u/%u",
+                          static_cast<unsigned>(r.numer),
+                          static_cast<unsigned>(r.denom));
+            out->append(buf);
+            return;
+        }
+        case MetaElementType::SRational: {
+            SRational r;
+            std::memcpy(&r, elem.data(), sizeof(SRational));
+            char buf[64];
+            std::snprintf(buf, sizeof(buf), "%d/%d", static_cast<int>(r.numer),
+                          static_cast<int>(r.denom));
+            out->append(buf);
+            return;
+        }
+        }
+    }
+
+    static void append_element_value(MetaElementType type,
+                                     std::span<const std::byte> elem,
+                                     std::string* out)
+    {
+        if (type == MetaElementType::URational) {
+            URational r;
+            std::memcpy(&r, elem.data(), sizeof(URational));
+            if (r.denom == 0U) {
+                out->append("-");
+                return;
+            }
+            append_double_fixed6_trim(
+                static_cast<double>(r.numer) / static_cast<double>(r.denom),
+                out);
+            return;
+        }
+        if (type == MetaElementType::SRational) {
+            SRational r;
+            std::memcpy(&r, elem.data(), sizeof(SRational));
+            if (r.denom == 0) {
+                out->append("-");
+                return;
+            }
+            append_double_fixed6_trim(
+                static_cast<double>(r.numer) / static_cast<double>(r.denom),
+                out);
+            return;
+        }
+        append_element_raw(type, elem, out);
+    }
+
+    static uint32_t safe_array_count(const ByteArena& arena,
+                                     const MetaValue& value) noexcept
+    {
+        if (value.kind != MetaValueKind::Array) {
+            return value.count;
+        }
+        const std::span<const std::byte> raw = arena.span(value.data.span);
+        const uint32_t elem_size             = meta_element_size(value.elem_type);
+        if (elem_size == 0U) {
+            return 0U;
+        }
+        const uint32_t available
+            = static_cast<uint32_t>(raw.size() / elem_size);
+        return (value.count < available) ? value.count : available;
+    }
+
+    static std::string value_type_string(const ByteArena& arena,
+                                         const MetaValue& value)
+    {
+        switch (value.kind) {
+        case MetaValueKind::Empty: return "empty";
+        case MetaValueKind::Text: return "text";
+        case MetaValueKind::Bytes: {
+            const std::span<const std::byte> b = arena.span(value.data.span);
+            char buf[64];
+            std::snprintf(buf, sizeof(buf), "bytes[%zu]", b.size());
+            return std::string(buf);
+        }
+        case MetaValueKind::Array: {
+            const uint32_t n = safe_array_count(arena, value);
+            char buf[64];
+            std::snprintf(buf, sizeof(buf), "array[%u]",
+                          static_cast<unsigned>(n));
+            return std::string(buf);
+        }
+        case MetaValueKind::Scalar: break;
+        }
+
+        switch (value.elem_type) {
+        case MetaElementType::U8:
+        case MetaElementType::U16:
+        case MetaElementType::U32:
+        case MetaElementType::U64: return "u";
+        case MetaElementType::I8:
+        case MetaElementType::I16:
+        case MetaElementType::I32:
+        case MetaElementType::I64: return "i";
+        case MetaElementType::F32: return "f32";
+        case MetaElementType::F64: return "f64";
+        case MetaElementType::URational: return "urational";
+        case MetaElementType::SRational: return "srational";
+        }
+        return "scalar";
+    }
+
+    static void format_value_pair(const MetaStore& store, const MetaValue& value,
+                                  uint32_t max_elements, uint32_t max_bytes,
+                                  std::string* raw_out, std::string* val_out)
+    {
+        raw_out->clear();
+        val_out->clear();
+
         const ByteArena& arena = store.arena();
         switch (value.kind) {
-        case MetaValueKind::Empty: std::fputs("empty", stdout); return;
-        case MetaValueKind::Scalar: break;
+        case MetaValueKind::Empty:
+            raw_out->append("-");
+            val_out->append("-");
+            return;
         case MetaValueKind::Text: {
             const std::string_view s = arena_string(arena, value.data.span);
-            std::fputs("text=", stdout);
-            print_escaped(s, max_bytes);
+            const bool dangerous = append_escaped_ascii(s, max_bytes, raw_out);
+            if (dangerous) {
+                val_out->append("(DANGEROUS) ");
+                val_out->append(*raw_out);
+            } else {
+                *val_out = *raw_out;
+            }
             return;
         }
         case MetaValueKind::Bytes: {
             const std::span<const std::byte> b = arena.span(value.data.span);
-            std::printf("bytes[%zu]=", b.size());
-            print_hex(b, max_bytes);
+            raw_out->append("0x");
+            append_hex(b, max_bytes, raw_out);
+            *val_out = *raw_out;
             return;
         }
+        case MetaValueKind::Scalar: break;
         case MetaValueKind::Array: break;
         }
 
@@ -268,171 +560,277 @@ namespace {
             case MetaElementType::U16:
             case MetaElementType::U32:
             case MetaElementType::U64:
-                std::printf("u=%llu",
-                            static_cast<unsigned long long>(value.data.u64));
+                append_u64(value.data.u64, raw_out);
+                *val_out = *raw_out;
                 return;
             case MetaElementType::I8:
             case MetaElementType::I16:
             case MetaElementType::I32:
             case MetaElementType::I64:
-                std::printf("i=%lld", static_cast<long long>(value.data.i64));
+                append_i64(value.data.i64, raw_out);
+                *val_out = *raw_out;
                 return;
             case MetaElementType::F32: {
                 float f = 0.0F;
                 std::memcpy(&f, &value.data.f32_bits, sizeof(float));
-                std::printf("f32=%g", static_cast<double>(f));
+                char buf[64];
+                std::snprintf(buf, sizeof(buf), "%g", static_cast<double>(f));
+                raw_out->append(buf);
+                *val_out = *raw_out;
                 return;
             }
             case MetaElementType::F64: {
                 double d = 0.0;
                 std::memcpy(&d, &value.data.f64_bits, sizeof(double));
-                std::printf("f64=%g", d);
+                char buf[128];
+                std::snprintf(buf, sizeof(buf), "%g", d);
+                raw_out->append(buf);
+                *val_out = *raw_out;
                 return;
             }
-            case MetaElementType::URational:
-                std::printf("urational=%u/%u", value.data.ur.numer,
-                            value.data.ur.denom);
-                return;
-            case MetaElementType::SRational:
-                std::printf("srational=%d/%d", value.data.sr.numer,
-                            value.data.sr.denom);
+            case MetaElementType::URational: {
+                char buf[64];
+                std::snprintf(buf, sizeof(buf), "%u/%u",
+                              static_cast<unsigned>(value.data.ur.numer),
+                              static_cast<unsigned>(value.data.ur.denom));
+                raw_out->append(buf);
+                if (value.data.ur.denom == 0U) {
+                    val_out->append("-");
+                } else {
+                    append_double_fixed6_trim(
+                        static_cast<double>(value.data.ur.numer)
+                            / static_cast<double>(value.data.ur.denom),
+                        val_out);
+                }
                 return;
             }
-            std::fputs("scalar", stdout);
-            return;
+            case MetaElementType::SRational: {
+                char buf[64];
+                std::snprintf(buf, sizeof(buf), "%d/%d",
+                              static_cast<int>(value.data.sr.numer),
+                              static_cast<int>(value.data.sr.denom));
+                raw_out->append(buf);
+                if (value.data.sr.denom == 0) {
+                    val_out->append("-");
+                } else {
+                    append_double_fixed6_trim(
+                        static_cast<double>(value.data.sr.numer)
+                            / static_cast<double>(value.data.sr.denom),
+                        val_out);
+                }
+                return;
+            }
+            }
         }
 
         const std::span<const std::byte> raw = arena.span(value.data.span);
-        uint32_t elem_size                   = 1;
-        switch (value.elem_type) {
-        case MetaElementType::U8:
-        case MetaElementType::I8: elem_size = 1; break;
-        case MetaElementType::U16:
-        case MetaElementType::I16: elem_size = 2; break;
-        case MetaElementType::U32:
-        case MetaElementType::I32:
-        case MetaElementType::F32: elem_size = 4; break;
-        case MetaElementType::U64:
-        case MetaElementType::I64:
-        case MetaElementType::F64: elem_size = 8; break;
-        case MetaElementType::URational:
-        case MetaElementType::SRational: elem_size = 8; break;
-        }
-
-        const uint32_t available
-            = (elem_size > 0U) ? static_cast<uint32_t>(raw.size() / elem_size)
-                               : 0U;
-        const uint32_t n = (value.count < available) ? value.count : available;
+        const uint32_t elem_size             = meta_element_size(value.elem_type);
+        const uint32_t n                     = safe_array_count(arena, value);
         const uint32_t shown = (n < max_elements) ? n : max_elements;
 
-        std::printf("array[%u]=", n);
-        std::putchar('[');
         for (uint32_t i = 0; i < shown; ++i) {
             if (i != 0) {
-                std::fputs(", ", stdout);
+                raw_out->append(", ");
+                val_out->append(", ");
             }
             const std::span<const std::byte> elem
                 = raw.subspan(static_cast<size_t>(i) * elem_size, elem_size);
-            switch (value.elem_type) {
-            case MetaElementType::U8:
-                std::printf("%u", static_cast<unsigned>(
-                                      static_cast<uint8_t>(elem[0])));
-                break;
-            case MetaElementType::I8:
-                std::printf("%d", static_cast<int>(static_cast<int8_t>(
-                                      static_cast<uint8_t>(elem[0]))));
-                break;
-            case MetaElementType::U16: {
-                uint16_t v = 0;
-                std::memcpy(&v, elem.data(), 2);
-                std::printf("%u", static_cast<unsigned>(v));
-                break;
-            }
-            case MetaElementType::I16: {
-                int16_t v = 0;
-                std::memcpy(&v, elem.data(), 2);
-                std::printf("%d", static_cast<int>(v));
-                break;
-            }
-            case MetaElementType::U32: {
-                uint32_t v = 0;
-                std::memcpy(&v, elem.data(), 4);
-                std::printf("%u", v);
-                break;
-            }
-            case MetaElementType::I32: {
-                int32_t v = 0;
-                std::memcpy(&v, elem.data(), 4);
-                std::printf("%d", v);
-                break;
-            }
-            case MetaElementType::U64: {
-                uint64_t v = 0;
-                std::memcpy(&v, elem.data(), 8);
-                std::printf("%llu", static_cast<unsigned long long>(v));
-                break;
-            }
-            case MetaElementType::I64: {
-                int64_t v = 0;
-                std::memcpy(&v, elem.data(), 8);
-                std::printf("%lld", static_cast<long long>(v));
-                break;
-            }
-            case MetaElementType::F32: {
-                uint32_t bits = 0;
-                std::memcpy(&bits, elem.data(), 4);
-                float f = 0.0F;
-                std::memcpy(&f, &bits, sizeof(float));
-                std::printf("%g", static_cast<double>(f));
-                break;
-            }
-            case MetaElementType::F64: {
-                uint64_t bits = 0;
-                std::memcpy(&bits, elem.data(), 8);
-                double d = 0.0;
-                std::memcpy(&d, &bits, sizeof(double));
-                std::printf("%g", d);
-                break;
-            }
-            case MetaElementType::URational: {
-                URational r;
-                std::memcpy(&r, elem.data(), sizeof(URational));
-                std::printf("%u/%u", r.numer, r.denom);
-                break;
-            }
-            case MetaElementType::SRational: {
-                SRational r;
-                std::memcpy(&r, elem.data(), sizeof(SRational));
-                std::printf("%d/%d", r.numer, r.denom);
-                break;
-            }
-            }
+            append_element_raw(value.elem_type, elem, raw_out);
+            append_element_value(value.elem_type, elem, val_out);
         }
         if (shown < n) {
-            std::fputs(", ...", stdout);
+            raw_out->append(", ...");
+            val_out->append(", ...");
         }
-        std::putchar(']');
     }
 
-    static void print_entry(const MetaStore& store, const Entry& entry,
-                            uint32_t max_elements, uint32_t max_bytes)
+    struct TableRow final {
+        uint32_t idx = 0;
+        std::string idx_s;
+        std::string tag_s;
+        std::string name_s;
+        std::string tag_type_s;
+        std::string count_s;
+        std::string type_s;
+        std::string raw_s;
+        std::string val_s;
+    };
+
+    static bool row_less_by_idx(const TableRow& a, const TableRow& b) noexcept
     {
-        if (entry.key.kind != MetaKeyKind::ExifTag) {
+        return a.idx < b.idx;
+    }
+
+    static void print_line(char ch, size_t count)
+    {
+        for (size_t i = 0; i < count; ++i) {
+            std::putchar(static_cast<int>(ch));
+        }
+        std::putchar('\n');
+    }
+
+    static void print_cell(std::string_view text, size_t width)
+    {
+        const size_t maxp = (text.size() < width) ? text.size() : width;
+        const int w       = static_cast<int>(width);
+        const int p       = static_cast<int>(maxp);
+        std::printf("%-*.*s", w, p, text.data());
+    }
+
+    static void truncate_cell(std::string* s, uint32_t max_chars)
+    {
+        const size_t max_len = static_cast<size_t>(max_chars);
+        if (max_len == 0 || s->size() <= max_len) {
             return;
         }
+        if (max_len <= 3) {
+            s->resize(max_len);
+            return;
+        }
+        s->resize(max_len - 3U);
+        s->append("...");
+    }
 
-        const std::string_view ifd = arena_string(store.arena(),
-                                                  entry.key.data.exif_tag.ifd);
-        const uint16_t tag         = entry.key.data.exif_tag.tag;
-        const uint16_t wire_type   = entry.origin.wire_type.code;
+    static void print_exif_block_table(const MetaStore& store, BlockId block,
+                                       std::string_view ifd,
+                                       std::span<const EntryId> ids,
+                                       uint32_t max_elements,
+                                       uint32_t max_bytes,
+                                       uint32_t max_cell_chars)
+    {
+        std::vector<TableRow> rows;
+        rows.reserve(ids.size());
 
-        std::printf("  [%u] %.*s tag=0x%04X type=%u(%s) count=%u ",
-                    entry.origin.order_in_block, static_cast<int>(ifd.size()),
-                    ifd.data(), static_cast<unsigned>(tag),
-                    static_cast<unsigned>(wire_type), tiff_type_name(wire_type),
-                    static_cast<unsigned>(entry.origin.wire_count));
-        print_value(store, entry.value, max_elements, max_bytes);
+        for (size_t i = 0; i < ids.size(); ++i) {
+            const Entry& entry = store.entry(ids[i]);
+            if (entry.key.kind != MetaKeyKind::ExifTag) {
+                continue;
+            }
+            const uint16_t tag       = entry.key.data.exif_tag.tag;
+            const uint16_t wire_type = entry.origin.wire_type.code;
+
+            TableRow row;
+            row.idx = entry.origin.order_in_block;
+            {
+                char buf[32];
+                std::snprintf(buf, sizeof(buf), "%u",
+                              static_cast<unsigned>(row.idx));
+                row.idx_s = buf;
+            }
+            {
+                char buf[16];
+                std::snprintf(buf, sizeof(buf), "0x%04X",
+                              static_cast<unsigned>(tag));
+                row.tag_s = buf;
+            }
+            {
+                const std::string_view name = exif_tag_name(ifd, tag);
+                if (name.empty()) {
+                    row.name_s = "-";
+                } else {
+                    row.name_s.assign(name.data(), name.size());
+                }
+            }
+            {
+                char buf[32];
+                std::snprintf(buf, sizeof(buf), "%u(%s)",
+                              static_cast<unsigned>(wire_type),
+                              tiff_type_name(wire_type));
+                row.tag_type_s = buf;
+            }
+            {
+                char buf[32];
+                std::snprintf(buf, sizeof(buf), "%u",
+                              static_cast<unsigned>(entry.origin.wire_count));
+                row.count_s = buf;
+            }
+
+            row.type_s = value_type_string(store.arena(), entry.value);
+            format_value_pair(store, entry.value, max_elements, max_bytes,
+                              &row.raw_s, &row.val_s);
+            truncate_cell(&row.raw_s, max_cell_chars);
+            truncate_cell(&row.val_s, max_cell_chars);
+
+            rows.push_back(std::move(row));
+        }
+
+        std::sort(rows.begin(), rows.end(), row_less_by_idx);
+
+        size_t w_idx      = std::strlen("idx");
+        size_t w_tag      = ifd.size();
+        size_t w_name     = std::strlen("name");
+        size_t w_tag_type = std::strlen("tag type");
+        size_t w_count    = std::strlen("count");
+        size_t w_type     = std::strlen("type");
+        size_t w_raw      = std::strlen("raw val");
+        size_t w_val      = std::strlen("val");
+
+        for (size_t i = 0; i < rows.size(); ++i) {
+            const TableRow& r = rows[i];
+            w_idx             = (r.idx_s.size() > w_idx) ? r.idx_s.size() : w_idx;
+            w_tag             = (r.tag_s.size() > w_tag) ? r.tag_s.size() : w_tag;
+            w_name            = (r.name_s.size() > w_name) ? r.name_s.size()
+                                                           : w_name;
+            w_tag_type
+                = (r.tag_type_s.size() > w_tag_type) ? r.tag_type_s.size()
+                                                     : w_tag_type;
+            w_count = (r.count_s.size() > w_count) ? r.count_s.size() : w_count;
+            w_type  = (r.type_s.size() > w_type) ? r.type_s.size() : w_type;
+            w_raw   = (r.raw_s.size() > w_raw) ? r.raw_s.size() : w_raw;
+            w_val   = (r.val_s.size() > w_val) ? r.val_s.size() : w_val;
+        }
+
+        const size_t total_width
+            = 1U + w_idx + 3U + w_tag + 3U + w_name + 3U + w_tag_type + 3U
+              + w_count + 3U + w_type + 3U + w_raw + 3U + w_val;
+
+        print_line('=', total_width);
+        std::printf(" ifd=%.*s block=%u entries=%zu\n", static_cast<int>(ifd.size()),
+                    ifd.data(), static_cast<unsigned>(block), rows.size());
+        print_line('=', total_width);
+
+        std::putchar(' ');
+        print_cell("idx", w_idx);
+        std::fputs(" | ", stdout);
+        print_cell(ifd, w_tag);
+        std::fputs(" | ", stdout);
+        print_cell("name", w_name);
+        std::fputs(" | ", stdout);
+        print_cell("tag type", w_tag_type);
+        std::fputs(" | ", stdout);
+        print_cell("count", w_count);
+        std::fputs(" | ", stdout);
+        print_cell("type", w_type);
+        std::fputs(" | ", stdout);
+        print_cell("raw val", w_raw);
+        std::fputs(" | ", stdout);
+        print_cell("val", w_val);
         std::putchar('\n');
+
+        print_line('-', total_width);
+
+        for (size_t i = 0; i < rows.size(); ++i) {
+            const TableRow& r = rows[i];
+            std::putchar(' ');
+            print_cell(r.idx_s, w_idx);
+            std::fputs(" | ", stdout);
+            print_cell(r.tag_s, w_tag);
+            std::fputs(" | ", stdout);
+            print_cell(r.name_s, w_name);
+            std::fputs(" | ", stdout);
+            print_cell(r.tag_type_s, w_tag_type);
+            std::fputs(" | ", stdout);
+            print_cell(r.count_s, w_count);
+            std::fputs(" | ", stdout);
+            print_cell(r.type_s, w_type);
+            std::fputs(" | ", stdout);
+            print_cell(r.raw_s, w_raw);
+            std::fputs(" | ", stdout);
+            print_cell(r.val_s, w_val);
+            std::putchar('\n');
+        }
+
+        print_line('=', total_width);
     }
 
     static bool parse_u32_arg(const char* s, uint32_t* out)
@@ -463,6 +861,10 @@ namespace {
             "  --max-elements N      max array elements to print (default: 16)\n");
         std::printf(
             "  --max-bytes N         max bytes to print for text/bytes (default: 256)\n");
+        std::printf(
+            "  --max-cell-chars N    max chars per table cell (default: 32)\n");
+        std::printf(
+            "  --max-file-bytes N    refuse to read files larger than N bytes (default: 536870912; 0=unlimited)\n");
     }
 
 }  // namespace
@@ -478,6 +880,8 @@ main(int argc, char** argv)
     exif_options.include_pointer_tags = true;
     uint32_t max_elements             = 16;
     uint32_t max_bytes                = 256;
+    uint32_t max_cell_chars           = 32;
+    uint64_t max_file_bytes           = 512ULL * 1024ULL * 1024ULL;
 
     int first_path = 1;
     for (int i = 1; i < argc; ++i) {
@@ -521,6 +925,28 @@ main(int argc, char** argv)
             first_path += 2;
             continue;
         }
+        if (std::strcmp(arg, "--max-cell-chars") == 0 && i + 1 < argc) {
+            uint32_t v = 0;
+            if (!parse_u32_arg(argv[i + 1], &v)) {
+                std::fprintf(stderr, "invalid --max-cell-chars value\n");
+                return 2;
+            }
+            max_cell_chars = v;
+            i += 1;
+            first_path += 2;
+            continue;
+        }
+        if (std::strcmp(arg, "--max-file-bytes") == 0 && i + 1 < argc) {
+            uint64_t v = 0;
+            if (!parse_u64_arg(argv[i + 1], &v)) {
+                std::fprintf(stderr, "invalid --max-file-bytes value\n");
+                return 2;
+            }
+            max_file_bytes = v;
+            i += 1;
+            first_path += 2;
+            continue;
+        }
         break;
     }
 
@@ -537,9 +963,21 @@ main(int argc, char** argv)
         }
 
         std::vector<std::byte> bytes;
-        if (!read_file_bytes(path, &bytes)) {
-            std::fprintf(stderr, "metaread: failed to read `%s`\n",
-                         path);
+        uint64_t file_size = 0;
+        const ReadFileStatus st
+            = read_file_bytes(path, &bytes, max_file_bytes, &file_size);
+        if (st != ReadFileStatus::Ok) {
+            if (st == ReadFileStatus::TooLarge) {
+                std::fprintf(
+                    stderr,
+                    "metaread: refusing to read `%s` (size=%llu > --max-file-bytes=%llu)\n",
+                    path, static_cast<unsigned long long>(file_size),
+                    static_cast<unsigned long long>(max_file_bytes));
+            } else if (st == ReadFileStatus::OpenFailed) {
+                std::fprintf(stderr, "metaread: failed to open `%s`\n", path);
+            } else {
+                std::fprintf(stderr, "metaread: failed to read `%s`\n", path);
+            }
             exit_code = 1;
             continue;
         }
@@ -668,13 +1106,8 @@ main(int argc, char** argv)
             }
             const std::string_view ifd
                 = arena_string(store.arena(), first.key.data.exif_tag.ifd);
-            std::printf("ifd=%.*s block=%u entries=%zu\n",
-                        static_cast<int>(ifd.size()), ifd.data(),
-                        static_cast<unsigned>(block), ids.size());
-            for (size_t i = 0; i < ids.size(); ++i) {
-                const Entry& e = store.entry(ids[i]);
-                print_entry(store, e, max_elements, max_bytes);
-            }
+            print_exif_block_table(store, block, ifd, ids, max_elements,
+                                   max_bytes, max_cell_chars);
         }
     }
 

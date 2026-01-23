@@ -35,6 +35,7 @@ include(OpenMetaReport)
 set(OPENMETA_SOURCES
   src/openmeta/byte_arena.cc
   src/openmeta/container_scan.cc
+  src/openmeta/exif_tag_names.cc
   src/openmeta/exif_tiff_decode.cc
   src/openmeta/meta_edit.cc
   src/openmeta/meta_key.cc
@@ -113,6 +114,7 @@ if(OPENMETA_BUILD_TESTS)
 
   add_executable(openmeta_tests
     tests/container_scan_test.cc
+    tests/exif_tag_names_test.cc
     tests/exif_tiff_decode_test.cc
     tests/meta_store_test.cc
   )

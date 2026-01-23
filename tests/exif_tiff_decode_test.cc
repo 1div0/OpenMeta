@@ -266,6 +266,79 @@ TEST(ExifTiffDecode, PreservesUtf8Type129)
     EXPECT_EQ(arena_string(store.arena(), e.value), "Hi");
 }
 
+TEST(ExifTiffDecode, AsciiWithEmbeddedNulIsStoredAsBytes)
+{
+    std::vector<std::byte> tiff;
+    append_bytes(&tiff, "II");
+    append_u16le(&tiff, 42);
+    append_u32le(&tiff, 8);
+
+    // IFD0 (offset 8).
+    append_u16le(&tiff, 1);
+
+    // ImageDescription (0x010E) ASCII count=4 stored inline: "A\0B\0".
+    append_u16le(&tiff, 0x010E);
+    append_u16le(&tiff, 2);
+    append_u32le(&tiff, 4);
+    tiff.push_back(std::byte { 'A' });
+    tiff.push_back(std::byte { 0 });
+    tiff.push_back(std::byte { 'B' });
+    tiff.push_back(std::byte { 0 });
+
+    // next IFD offset.
+    append_u32le(&tiff, 0);
+
+    MetaStore store;
+    std::array<ExifIfdRef, 8> ifds {};
+    ExifDecodeOptions options;
+    options.include_pointer_tags = true;
+    const ExifDecodeResult res   = decode_exif_tiff(tiff, store, ifds, options);
+    EXPECT_EQ(res.status, ExifDecodeStatus::Ok);
+
+    store.finalize();
+
+    const std::span<const EntryId> ids = store.find_all(exif_key("ifd0", 0x010E));
+    ASSERT_EQ(ids.size(), 1U);
+    const Entry& e = store.entry(ids[0]);
+    EXPECT_EQ(e.value.kind, MetaValueKind::Bytes);
+    const std::span<const std::byte> bytes = store.arena().span(e.value.data.span);
+    ASSERT_EQ(bytes.size(), 4U);
+    EXPECT_EQ(bytes[0], std::byte { 'A' });
+    EXPECT_EQ(bytes[1], std::byte { 0 });
+    EXPECT_EQ(bytes[2], std::byte { 'B' });
+    EXPECT_EQ(bytes[3], std::byte { 0 });
+}
+
+TEST(ExifTiffDecode, OutOfBoundsValueIsRejected)
+{
+    std::vector<std::byte> tiff;
+    append_bytes(&tiff, "II");
+    append_u16le(&tiff, 42);
+    append_u32le(&tiff, 8);
+
+    // IFD0 (offset 8).
+    append_u16le(&tiff, 1);
+
+    // Make (0x010F) ASCII count=6 requires an offset; point it out-of-bounds.
+    append_u16le(&tiff, 0x010F);
+    append_u16le(&tiff, 2);
+    append_u32le(&tiff, 6);
+    append_u32le(&tiff, 0x1000);
+
+    // next IFD offset.
+    append_u32le(&tiff, 0);
+
+    MetaStore store;
+    std::array<ExifIfdRef, 8> ifds {};
+    ExifDecodeOptions options;
+    options.include_pointer_tags = true;
+    const ExifDecodeResult res   = decode_exif_tiff(tiff, store, ifds, options);
+    EXPECT_EQ(res.status, ExifDecodeStatus::Malformed);
+
+    store.finalize();
+    EXPECT_TRUE(store.entries().empty());
+}
+
 TEST(SimpleMetaRead, ScansAndDecodesJpegApp1Exif)
 {
     const std::vector<std::byte> tiff = make_test_tiff_le();
