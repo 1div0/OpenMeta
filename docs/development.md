@@ -60,3 +60,13 @@ cmake --build build-fuzztest
 ASAN_OPTIONS=detect_leaks=0 ./build-fuzztest/openmeta_fuzztest_metastore --list_fuzz_tests
 ASAN_OPTIONS=detect_leaks=0 ./build-fuzztest/openmeta_fuzztest_metastore --fuzz=MetaStoreFuzz.meta_store_op_stream --fuzz_for=5s
 ```
+
+## Doxygen (Optional)
+
+Requirements:
+- `doxygen` (optional: `graphviz`)
+
+Generate API docs:
+```bash
+doxygen Doxyfile
+```
