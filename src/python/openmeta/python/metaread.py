@@ -193,7 +193,7 @@ def main(argv: list[str]) -> int:
             print(f" ifd={ifd} block={block_id} entries={len(entries)}")
             print("=" * width)
             print(
-                " idx | ifd    | name               | tag       | tag type      | count | type        | raw val                         | val"
+                " idx | ifd    | name               | tag    | tag type     | count | type       | raw val                        | val"
             )
             print("-" * width)
 
