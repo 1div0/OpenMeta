@@ -1,0 +1,99 @@
+message(STATUS "Building OpenMeta Python wheel")
+
+file(MAKE_DIRECTORY "@_openmeta_wheel_out_dir@")
+
+set(_openmeta_prefix_path "@CMAKE_PREFIX_PATH@")
+string(REPLACE ";" "\\;" _openmeta_prefix_path "${_openmeta_prefix_path}")
+
+execute_process(
+  COMMAND "@Python_EXECUTABLE@" -c "import pip"
+  RESULT_VARIABLE _openmeta_python_has_pip
+  OUTPUT_QUIET ERROR_QUIET
+)
+
+set(_openmeta_pip_args "--no-deps")
+if("@OPENMETA_WHEEL_NO_BUILD_ISOLATION@" STREQUAL "ON")
+  list(APPEND _openmeta_pip_args "--no-build-isolation")
+  message(STATUS "Wheel build mode: no-build-isolation (requires build backend installed)")
+else()
+  message(STATUS "Wheel build mode: build isolation (pip will install build requirements)")
+endif()
+
+set(_openmeta_wheel_res 1)
+if(_openmeta_python_has_pip EQUAL 0)
+  message(STATUS "Wheel tool: pip")
+  execute_process(
+    COMMAND "@CMAKE_COMMAND@" -E env
+            "CMAKE_PREFIX_PATH=${_openmeta_prefix_path}"
+            "CC=@CMAKE_C_COMPILER@"
+            "CXX=@CMAKE_CXX_COMPILER@"
+            "SKBUILD_CMAKE_BUILD_TYPE=@CMAKE_BUILD_TYPE@"
+            "@Python_EXECUTABLE@" -m pip wheel "@PROJECT_SOURCE_DIR@"
+              ${_openmeta_pip_args}
+              -w "@_openmeta_wheel_out_dir@"
+    WORKING_DIRECTORY "@PROJECT_SOURCE_DIR@"
+    RESULT_VARIABLE _openmeta_wheel_res
+  )
+else()
+  if("@OPENMETA_UV_EXECUTABLE@" STREQUAL "")
+    message(FATAL_ERROR
+      "Python has no pip module: @Python_EXECUTABLE@; and uv was not found when configuring. "
+      "Either install pip into that Python, or install uv and reconfigure."
+    )
+  endif()
+  message(STATUS "Wheel tool: uv")
+  set(_openmeta_uv_args "")
+  if("@OPENMETA_WHEEL_NO_BUILD_ISOLATION@" STREQUAL "ON")
+    list(APPEND _openmeta_uv_args "--no-build-isolation")
+  endif()
+  execute_process(
+    COMMAND "@CMAKE_COMMAND@" -E env
+            "CMAKE_PREFIX_PATH=${_openmeta_prefix_path}"
+            "CC=@CMAKE_C_COMPILER@"
+            "CXX=@CMAKE_CXX_COMPILER@"
+            "SKBUILD_CMAKE_BUILD_TYPE=@CMAKE_BUILD_TYPE@"
+            "@OPENMETA_UV_EXECUTABLE@" --no-cache build
+              --wheel
+              ${_openmeta_uv_args}
+              -p "@Python_EXECUTABLE@"
+              -o "@_openmeta_wheel_out_dir@"
+              "@PROJECT_SOURCE_DIR@"
+    WORKING_DIRECTORY "@PROJECT_SOURCE_DIR@"
+    RESULT_VARIABLE _openmeta_wheel_res
+  )
+endif()
+
+if(NOT _openmeta_wheel_res EQUAL 0)
+  message(FATAL_ERROR "Wheel build failed: exit=${_openmeta_wheel_res}")
+endif()
+
+file(GLOB _openmeta_wheels LIST_DIRECTORIES false "@_openmeta_wheel_out_dir@/openmeta-*.whl")
+list(LENGTH _openmeta_wheels _openmeta_wheel_count)
+if(_openmeta_wheel_count EQUAL 0)
+  message(FATAL_ERROR "Wheel build did not produce expected output: @_openmeta_wheel_out_dir@/openmeta-*.whl")
+endif()
+
+if(_openmeta_wheel_count GREATER 1)
+  message(WARNING "Multiple wheels found, installing the first one: ${_openmeta_wheels}")
+endif()
+
+list(GET _openmeta_wheels 0 _openmeta_wheel_file)
+
+set(_openmeta_wheel_install_dir "${CMAKE_INSTALL_PREFIX}/@CMAKE_INSTALL_DATADIR@/openmeta/wheels")
+message(STATUS "Installing wheel: ${_openmeta_wheel_file}")
+message(STATUS "  -> ${_openmeta_wheel_install_dir}")
+
+file(INSTALL
+  FILES "${_openmeta_wheel_file}"
+  DESTINATION "${_openmeta_wheel_install_dir}"
+)
+
+file(GLOB _openmeta_py_examples LIST_DIRECTORIES false "@PROJECT_SOURCE_DIR@/src/python/openmeta/python/*.py")
+list(LENGTH _openmeta_py_examples _openmeta_py_examples_count)
+if(_openmeta_py_examples_count GREATER 0)
+  message(STATUS "Installing Python helper scripts next to the wheel")
+  file(INSTALL
+    FILES ${_openmeta_py_examples}
+    DESTINATION "${_openmeta_wheel_install_dir}"
+  )
+endif()

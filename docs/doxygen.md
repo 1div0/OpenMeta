@@ -28,7 +28,7 @@ cmake --build build --target install
 From the `OpenMeta/` repo root:
 
 ```bash
-doxygen Doxyfile
+doxygen docs/Doxyfile
 ```
 
 Output goes to `build/docs/html/index.html`.
@@ -36,7 +36,7 @@ Output goes to `build/docs/html/index.html`.
 ## What gets documented
 
 - Markdown: `README.md` is used as the main page.
-- Public API: everything under `include/openmeta/`.
+- Public API: everything under `src/include/openmeta/`.
 
 If you add new public headers or APIs, prefer documenting at the header or
 type/function level so the docs stay accurate as code moves.

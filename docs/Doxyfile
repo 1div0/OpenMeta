@@ -3,7 +3,7 @@ PROJECT_BRIEF          = Format-agnostic metadata processing library
 
 OUTPUT_DIRECTORY       = build/docs
 
-INPUT                  = README.md include docs
+INPUT                  = README.md src/include docs
 FILE_PATTERNS          = *.h *.hpp *.md
 RECURSIVE              = YES
 

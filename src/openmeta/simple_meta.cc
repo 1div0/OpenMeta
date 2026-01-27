@@ -3,6 +3,48 @@
 namespace openmeta {
 namespace {
 
+    static void merge_payload_result(PayloadResult* out,
+                                     const PayloadResult& in) noexcept
+    {
+        if (in.status == PayloadStatus::Ok) {
+            return;
+        }
+        if (in.needed > out->needed) {
+            out->needed = in.needed;
+        }
+
+        // Prefer actionable outcomes:
+        // LimitExceeded > OutputTruncated > Unsupported > Malformed.
+        if (out->status == PayloadStatus::LimitExceeded) {
+            return;
+        }
+        if (in.status == PayloadStatus::LimitExceeded) {
+            out->status = in.status;
+            return;
+        }
+        if (out->status == PayloadStatus::OutputTruncated) {
+            return;
+        }
+        if (in.status == PayloadStatus::OutputTruncated) {
+            out->status = in.status;
+            return;
+        }
+        if (out->status == PayloadStatus::Unsupported) {
+            return;
+        }
+        if (in.status == PayloadStatus::Unsupported) {
+            out->status = in.status;
+            return;
+        }
+        if (out->status == PayloadStatus::Malformed) {
+            return;
+        }
+        if (in.status == PayloadStatus::Malformed) {
+            out->status = in.status;
+            return;
+        }
+    }
+
     static void merge_exif_status(ExifDecodeStatus* out,
                                   ExifDecodeStatus in) noexcept
     {
@@ -44,11 +86,16 @@ namespace {
 SimpleMetaResult
 simple_meta_read(std::span<const std::byte> file_bytes, MetaStore& store,
                  std::span<ContainerBlockRef> out_blocks,
-                 std::span<ExifIfdRef> out_ifds,
-                 const ExifDecodeOptions& exif_options) noexcept
+                 std::span<ExifIfdRef> out_ifds, std::span<std::byte> payload,
+                 std::span<uint32_t> payload_scratch_indices,
+                 const ExifDecodeOptions& exif_options,
+                 const PayloadOptions& payload_options) noexcept
 {
     SimpleMetaResult result;
-    result.scan = scan_auto(file_bytes, out_blocks);
+    result.scan            = scan_auto(file_bytes, out_blocks);
+    result.payload.status  = PayloadStatus::Ok;
+    result.payload.written = 0;
+    result.payload.needed  = 0;
 
     ExifDecodeResult exif;
     exif.status          = ExifDecodeStatus::Unsupported;
@@ -63,20 +110,52 @@ simple_meta_read(std::span<const std::byte> file_bytes, MetaStore& store,
         if (block.kind != ContainerBlockKind::Exif) {
             continue;
         }
-        any_exif = true;
-        if (block.data_offset + block.data_size > file_bytes.size()) {
-            merge_exif_status(&exif.status, ExifDecodeStatus::Malformed);
+        if (block.part_count > 1U && block.part_index != 0U) {
             continue;
         }
+        any_exif = true;
 
         std::span<ExifIfdRef> ifd_slice;
         if (ifd_write_pos < out_ifds.size()) {
             ifd_slice = out_ifds.subspan(ifd_write_pos);
         }
 
-        const std::span<const std::byte> tiff
-            = file_bytes.subspan(static_cast<size_t>(block.data_offset),
-                                 static_cast<size_t>(block.data_size));
+        std::span<const std::byte> tiff;
+        if (block.part_count <= 1U
+            && block.compression == BlockCompression::None
+            && block.chunking != BlockChunking::GifSubBlocks) {
+            if (block.data_offset + block.data_size > file_bytes.size()) {
+                merge_exif_status(&exif.status, ExifDecodeStatus::Malformed);
+                continue;
+            }
+            tiff = file_bytes.subspan(static_cast<size_t>(block.data_offset),
+                                      static_cast<size_t>(block.data_size));
+        } else {
+            const PayloadResult payload_res
+                = extract_payload(file_bytes, out_blocks, i, payload,
+                                  payload_scratch_indices, payload_options);
+            merge_payload_result(&result.payload, payload_res);
+
+            if (payload_res.status == PayloadStatus::Ok) {
+                tiff = std::span<const std::byte>(payload.data(),
+                                                  static_cast<size_t>(
+                                                      payload_res.written));
+            } else if (payload_res.status == PayloadStatus::OutputTruncated) {
+                merge_exif_status(&exif.status,
+                                  ExifDecodeStatus::OutputTruncated);
+                continue;
+            } else if (payload_res.status == PayloadStatus::LimitExceeded) {
+                merge_exif_status(&exif.status,
+                                  ExifDecodeStatus::LimitExceeded);
+                continue;
+            } else if (payload_res.status == PayloadStatus::Unsupported) {
+                merge_exif_status(&exif.status, ExifDecodeStatus::Unsupported);
+                continue;
+            } else {
+                merge_exif_status(&exif.status, ExifDecodeStatus::Malformed);
+                continue;
+            }
+        }
 
         const ExifDecodeResult one = decode_exif_tiff(tiff, store, ifd_slice,
                                                       exif_options);

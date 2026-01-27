@@ -61,6 +61,65 @@ ASAN_OPTIONS=detect_leaks=0 ./build-fuzztest/openmeta_fuzztest_metastore --list_
 ASAN_OPTIONS=detect_leaks=0 ./build-fuzztest/openmeta_fuzztest_metastore --fuzz=MetaStoreFuzz.meta_store_op_stream --fuzz_for=5s
 ```
 
+## Python (nanobind)
+
+Requirements:
+- Python `>= 3.9` + development headers/libraries
+- `nanobind` installed as a CMake package (findable via `CMAKE_PREFIX_PATH`)
+
+Build:
+```bash
+cmake -S . -B build-py -G Ninja -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_PREFIX_PATH=/mnt/f/UBS \
+  -DOPENMETA_BUILD_PYTHON=ON -DOPENMETA_BUILD_TOOLS=OFF
+cmake --build build-py
+PYTHONPATH=build-py/python python3 -c "import openmeta; print(openmeta.read('file.jpg').entry_count)"
+```
+
+Example scripts (repo tree):
+```bash
+PYTHONPATH=build-py/python python3 -m openmeta.python.openmeta_stats file.jpg
+PYTHONPATH=build-py/python python3 -m openmeta.python.metaread file.jpg
+```
+
+## Python Wheel
+
+Requirements:
+- `scikit-build-core` installed in your Python environment.
+- A wheel builder: `pip` (recommended) or `uv` (works even if your venv has no `pip`).
+
+Build:
+```bash
+python3 -m pip wheel . -w dist --no-deps
+```
+Or using `uv`:
+```bash
+uv --no-cache build --wheel --no-build-isolation -o dist -p "$(command -v python3)" .
+```
+After installing the wheel, example modules are available as:
+```bash
+python3 -m openmeta.python.openmeta_stats file.jpg
+python3 -m openmeta.python.metaread file.jpg
+```
+Or via CMake:
+```bash
+cmake -S . -B build-wheel -G Ninja -DCMAKE_BUILD_TYPE=Release -DOPENMETA_BUILD_WHEEL=ON
+cmake --build build-wheel --target openmeta_wheel
+```
+
+When `OPENMETA_BUILD_WHEEL=ON`, `cmake --install` also builds a wheel and copies
+it into `${CMAKE_INSTALL_PREFIX}/share/openmeta/wheels` (and also copies the
+Python helper scripts `metaread.py` and `openmeta_stats.py` into the same
+directory):
+```bash
+cmake --install build-wheel --prefix /tmp/openmeta-install
+ls /tmp/openmeta-install/share/openmeta/wheels
+```
+
+If you are building offline (or want strict control of the build environment),
+install `scikit-build-core` into your Python environment and enable:
+`-DOPENMETA_WHEEL_NO_BUILD_ISOLATION=ON`.
+
 ## Doxygen (Optional)
 
 Requirements:

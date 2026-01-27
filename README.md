@@ -19,9 +19,10 @@ Early development. APIs and data model are expected to evolve.
 
 ## Layout
 
-- `include/openmeta/`: public headers
-- `src/`: library implementation
-- `tools/`: CLI tools (`metaread`)
+- `src/include/openmeta/`: public headers
+- `src/openmeta/`: library implementation
+- `src/tools/`: CLI tools (`metaread`)
+- `src/python/`: Python bindings (nanobind) + helper scripts
 - `tests/`: unit tests + fuzz targets
 - `docs/`: developer docs (build, tests, fuzzing)
 
@@ -42,9 +43,10 @@ Developer notes: `docs/development.md`
 
 ## Quick Usage (read)
 
-`simple_meta_read(...)` does `scan_auto(...)` + EXIF decode in one call:
+`simple_meta_read(...)` does `scan_auto(...)` + payload extraction + EXIF decode:
 - Input: whole file bytes
 - Output: `MetaStore` (EXIF tags) + `ContainerBlockRef[]` (all discovered blocks)
+- Scratch: caller-provided block list, IFD list, payload buffer, and part-index buffer
 
 ## Documentation
 

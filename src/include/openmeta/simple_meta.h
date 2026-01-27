@@ -1,5 +1,6 @@
 #pragma once
 
+#include "openmeta/container_payload.h"
 #include "openmeta/container_scan.h"
 #include "openmeta/exif_tiff_decode.h"
 #include "openmeta/meta_store.h"
@@ -16,6 +17,7 @@ namespace openmeta {
 
 struct SimpleMetaResult final {
     ScanResult scan;
+    PayloadResult payload;
     ExifDecodeResult exif;
 };
 
@@ -35,12 +37,17 @@ struct SimpleMetaResult final {
  * \param store Destination \ref MetaStore (entries are appended).
  * \param out_blocks Scratch buffer for block scanning results.
  * \param out_ifds Scratch buffer for decoded IFD references.
+ * \param payload Scratch buffer for reassembled EXIF payload bytes.
+ * \param payload_scratch_indices Scratch buffer for payload part indices.
  * \param exif_options EXIF/TIFF decode options and limits.
+ * \param payload_options Payload extraction options and limits.
  */
 SimpleMetaResult
 simple_meta_read(std::span<const std::byte> file_bytes, MetaStore& store,
                  std::span<ContainerBlockRef> out_blocks,
-                 std::span<ExifIfdRef> out_ifds,
-                 const ExifDecodeOptions& exif_options) noexcept;
+                 std::span<ExifIfdRef> out_ifds, std::span<std::byte> payload,
+                 std::span<uint32_t> payload_scratch_indices,
+                 const ExifDecodeOptions& exif_options,
+                 const PayloadOptions& payload_options) noexcept;
 
 }  // namespace openmeta

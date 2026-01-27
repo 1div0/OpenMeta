@@ -7,7 +7,7 @@ function(openmeta_apply_target_settings target_name)
   target_include_directories(
     ${target_name}
     PUBLIC
-      "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>"
+      "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src/include>"
       "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>"
   )
   set_target_properties(${target_name} PROPERTIES CXX_EXTENSIONS OFF)

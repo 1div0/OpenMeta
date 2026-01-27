@@ -1,3 +1,4 @@
+#include "openmeta/container_payload.h"
 #include "openmeta/container_scan.h"
 #include "openmeta/exif_tag_names.h"
 #include "openmeta/exif_tiff_decode.h"
@@ -971,25 +972,33 @@ main(int argc, char** argv)
 
         std::vector<ContainerBlockRef> blocks(128);
         std::vector<ExifIfdRef> ifd_refs(256);
+        std::vector<std::byte> payload(1024 * 1024);
+        std::vector<uint32_t> payload_parts(16384);
 
         MetaStore store;
         SimpleMetaResult read;
+        PayloadOptions payload_options;
         for (;;) {
             store = MetaStore();
-            read  = simple_meta_read(bytes, store,
-                                     std::span<ContainerBlockRef>(blocks.data(),
-                                                                  blocks.size()),
-                                     std::span<ExifIfdRef>(ifd_refs.data(),
-                                                           ifd_refs.size()),
-                                     exif_options);
+            read  = simple_meta_read(
+                bytes, store,
+                std::span<ContainerBlockRef>(blocks.data(), blocks.size()),
+                std::span<ExifIfdRef>(ifd_refs.data(), ifd_refs.size()),
+                std::span<std::byte>(payload.data(), payload.size()),
+                std::span<uint32_t>(payload_parts.data(), payload_parts.size()),
+                exif_options, payload_options);
 
-            if (read.scan.status != ScanStatus::OutputTruncated) {
-                break;
+            if (read.scan.status == ScanStatus::OutputTruncated
+                && read.scan.needed > blocks.size()) {
+                blocks.resize(read.scan.needed);
+                continue;
             }
-            if (read.scan.needed <= blocks.size()) {
-                break;
+            if (read.payload.status == PayloadStatus::OutputTruncated
+                && read.payload.needed > payload.size()) {
+                payload.resize(static_cast<size_t>(read.payload.needed));
+                continue;
             }
-            blocks.resize(read.scan.needed);
+            break;
         }
 
         std::printf("scan=%s written=%u needed=%u\n",

@@ -297,11 +297,13 @@ TEST(ExifTiffDecode, AsciiWithEmbeddedNulIsStoredAsBytes)
 
     store.finalize();
 
-    const std::span<const EntryId> ids = store.find_all(exif_key("ifd0", 0x010E));
+    const std::span<const EntryId> ids = store.find_all(
+        exif_key("ifd0", 0x010E));
     ASSERT_EQ(ids.size(), 1U);
     const Entry& e = store.entry(ids[0]);
     EXPECT_EQ(e.value.kind, MetaValueKind::Bytes);
-    const std::span<const std::byte> bytes = store.arena().span(e.value.data.span);
+    const std::span<const std::byte> bytes = store.arena().span(
+        e.value.data.span);
     ASSERT_EQ(bytes.size(), 4U);
     EXPECT_EQ(bytes[0], std::byte { 'A' });
     EXPECT_EQ(bytes[1], std::byte { 0 });
@@ -366,9 +368,13 @@ TEST(SimpleMetaRead, ScansAndDecodesJpegApp1Exif)
     MetaStore store;
     std::array<ContainerBlockRef, 8> blocks {};
     std::array<ExifIfdRef, 8> ifds {};
+    std::array<std::byte, 4096> payload_scratch {};
+    std::array<uint32_t, 16> payload_parts {};
     ExifDecodeOptions exif_options;
-    const SimpleMetaResult res = simple_meta_read(jpeg, store, blocks, ifds,
-                                                  exif_options);
+    PayloadOptions payload_options;
+    const SimpleMetaResult res
+        = simple_meta_read(jpeg, store, blocks, ifds, payload_scratch,
+                           payload_parts, exif_options, payload_options);
     EXPECT_EQ(res.scan.status, ScanStatus::Ok);
     EXPECT_EQ(res.exif.status, ExifDecodeStatus::Ok);
 

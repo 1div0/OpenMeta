@@ -13,3 +13,9 @@ endif()
 if(NOT EXISTS "@_openmeta_doxygen_out_dir@/html/index.html")
   message(FATAL_ERROR "Doxygen did not generate expected output: @_openmeta_doxygen_out_dir@/html/index.html")
 endif()
+
+file(INSTALL
+  DESTINATION "${CMAKE_INSTALL_PREFIX}/@CMAKE_INSTALL_DOCDIR@"
+  TYPE DIRECTORY
+  FILES "@_openmeta_doxygen_out_dir@/html"
+)

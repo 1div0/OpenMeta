@@ -1565,18 +1565,20 @@ namespace {
                 block.id           = item->item_type;
                 block.group        = static_cast<uint64_t>(item_id);
 
+                if (block.kind == ContainerBlockKind::Exif) {
+                    if (e == 0) {
+                        skip_bmff_exif_offset(&block, bytes);
+                        skip_exif_preamble(&block, bytes);
+                    }
+                }
+
                 if (extent_count > 1) {
                     block.part_index     = e;
                     block.part_count     = extent_count;
                     block.logical_offset = logical_off;
                 }
-                if (extent_len <= UINT64_MAX - logical_off) {
-                    logical_off += extent_len;
-                }
-
-                if (block.kind == ContainerBlockKind::Exif) {
-                    skip_bmff_exif_offset(&block, bytes);
-                    skip_exif_preamble(&block, bytes);
+                if (block.data_size <= UINT64_MAX - logical_off) {
+                    logical_off += block.data_size;
                 }
 
                 sink_emit(sink, block);

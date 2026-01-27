@@ -92,3 +92,15 @@ function(openmeta_add_fuzztest)
     "`fuzztest::fuzztest_gtest_main`, set CMAKE_PREFIX_PATH to a custom install, "
     "or set OPENMETA_DEPS_REPOS_ROOT to build FuzzTest from local sources.")
 endfunction()
+
+function(openmeta_apply_core_deps target_name)
+  if(OPENMETA_ZLIB_FOUND)
+    target_link_libraries(${target_name} PRIVATE ZLIB::ZLIB)
+    target_compile_definitions(${target_name} PRIVATE OPENMETA_HAS_ZLIB=1)
+  endif()
+
+  if(OPENMETA_BROTLI_FOUND)
+    target_link_libraries(${target_name} PRIVATE Brotli::decoder)
+    target_compile_definitions(${target_name} PRIVATE OPENMETA_HAS_BROTLI=1)
+  endif()
+endfunction()
