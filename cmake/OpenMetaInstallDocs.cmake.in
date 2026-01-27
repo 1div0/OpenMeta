@@ -1,5 +1,7 @@
 message(STATUS "Generating OpenMeta API documentation (Doxygen)")
 
+file(MAKE_DIRECTORY "@_openmeta_doxygen_out_dir@")
+
 execute_process(
   COMMAND "@DOXYGEN_EXECUTABLE@" "@_openmeta_doxygen_cfg@"
   WORKING_DIRECTORY "@PROJECT_SOURCE_DIR@"
@@ -14,8 +16,14 @@ if(NOT EXISTS "@_openmeta_doxygen_out_dir@/html/index.html")
   message(FATAL_ERROR "Doxygen did not generate expected output: @_openmeta_doxygen_out_dir@/html/index.html")
 endif()
 
+set(_openmeta_doc_root "${CMAKE_INSTALL_PREFIX}/@CMAKE_INSTALL_DOCDIR@")
+set(_openmeta_doxygen_dest "${_openmeta_doc_root}")
+if("@OPENMETA_DOXYGEN_INSTALL_SUBDIR@" STREQUAL "doxygen")
+  set(_openmeta_doxygen_dest "${_openmeta_doc_root}/doxygen")
+endif()
+
 file(INSTALL
-  DESTINATION "${CMAKE_INSTALL_PREFIX}/@CMAKE_INSTALL_DOCDIR@"
+  DESTINATION "${_openmeta_doxygen_dest}"
   TYPE DIRECTORY
   FILES "@_openmeta_doxygen_out_dir@/html"
 )

@@ -23,8 +23,8 @@ All parsers/decoders must:
 - Avoid recursion; prefer iterative decoding with visited-set loop detection.
 - Preserve unknown/invalid payloads losslessly as `bytes` (do not assume C-strings).
 
-Existing EXIF/TIFF decoding uses `ExifDecodeLimits` to cap IFD count, entry
-count, and total value bytes.
+EXIF/TIFF decoding uses `ExifDecodeLimits` to cap IFD count, entry count, and
+total value bytes.
 
 ## Output & Export Safety Requirements
 

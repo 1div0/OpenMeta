@@ -1,0 +1,33 @@
+# Sphinx configuration for OpenMeta.
+#
+# This file is configured by CMake so out-of-source builds work reliably.
+
+from __future__ import annotations
+
+import importlib.util
+
+project = "OpenMeta"
+author = "OpenMeta contributors"
+
+release = "@PROJECT_VERSION@"
+version = "@PROJECT_VERSION_MAJOR@.@PROJECT_VERSION_MINOR@"
+
+extensions = [
+    "breathe",
+]
+
+exclude_patterns: list[str] = []
+
+html_theme = "alabaster"
+if importlib.util.find_spec("furo") is not None:
+    html_theme = "furo"
+
+# Breathe (Doxygen XML) configuration.
+breathe_projects = {
+    "openmeta": r"@OPENMETA_DOXYGEN_XML_DIR@",
+}
+breathe_default_project = "openmeta"
+breathe_domain_by_extension = {"h": "cpp"}
+primary_domain = "cpp"
+highlight_language = "cpp"
+

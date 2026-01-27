@@ -38,48 +38,6 @@ def _tiff_type_name(code: int) -> str:
     }.get(code, "UNKNOWN")
 
 
-def _hex_bytes(b: bytes, max_bytes: int) -> str:
-    if max_bytes != 0 and len(b) > max_bytes:
-        b = b[:max_bytes]
-        return "0x" + b.hex().upper() + "..."
-    return "0x" + b.hex().upper()
-
-
-def _safe_ascii(b: bytes, max_bytes: int) -> Tuple[str, bool]:
-    dangerous = False
-    if max_bytes != 0 and len(b) > max_bytes:
-        b = b[:max_bytes]
-        dangerous = True
-
-    out = []
-    for x in b:
-        if x == 0:
-            dangerous = True
-            continue
-        if x == 0x0A:
-            out.append(r"\n")
-            dangerous = True
-            continue
-        if x == 0x0D:
-            out.append(r"\r")
-            dangerous = True
-            continue
-        if x == 0x09:
-            out.append(r"\t")
-            dangerous = True
-            continue
-        if x < 0x20 or x == 0x7F or x >= 0x80:
-            out.append(rf"\x{x:02X}")
-            dangerous = True
-            continue
-        out.append(chr(x))
-
-    s = "".join(out)
-    if dangerous:
-        s += " (DANGEROUS)"
-    return s, dangerous
-
-
 def _fmt_float(x: float) -> str:
     if math.isnan(x):
         return "nan"
@@ -134,10 +92,13 @@ def _format_value(e: openmeta.Entry, *, max_elements: int, max_bytes: int) -> Tu
         return "-", "-"
 
     if isinstance(v, bytes):
-        raw = _hex_bytes(v, max_bytes=max_bytes)
-        text, _dangerous = _safe_ascii(v, max_bytes=max_bytes)
-        val = text if text and not text.endswith("(DANGEROUS)") else raw
-        return raw, val
+        if e.value_kind == openmeta.MetaValueKind.Text:
+            raw, dangerous = openmeta.console_text(v, max_bytes=int(max_bytes))
+            val = raw if not dangerous else "(DANGEROUS) " + raw
+            return raw, val
+
+        raw = openmeta.hex_bytes(v, max_bytes=int(max_bytes))
+        return raw, raw
 
     if isinstance(v, tuple) and len(v) == 2 and all(isinstance(x, int) for x in v):
         raw = f"{v[0]}/{v[1]}"
@@ -262,4 +223,3 @@ def main(argv: list[str]) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main(sys.argv[1:]))
-

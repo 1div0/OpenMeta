@@ -10,6 +10,7 @@ option(OPENMETA_BUILD_FUZZERS "Build OpenMeta libFuzzer targets" OFF)
 option(OPENMETA_BUILD_FUZZTEST "Build OpenMeta fuzz tests (FuzzTest)" OFF)
 option(OPENMETA_FUZZTEST_FUZZING_MODE "Enable FuzzTest fuzzing mode flags" OFF)
 option(OPENMETA_BUILD_DOCS "Build and install API docs (Doxygen)" OFF)
+option(OPENMETA_BUILD_SPHINX_DOCS "Build and install HTML docs via Sphinx (Doxygen XML + Breathe)" OFF)
 option(OPENMETA_BUILD_PYTHON "Build Python bindings (nanobind)" OFF)
 option(OPENMETA_BUILD_WHEEL "Add an `openmeta_wheel` target (Python wheel build)" OFF)
 option(OPENMETA_WHEEL_NO_BUILD_ISOLATION "Build wheel without isolation (requires scikit-build-core installed)" OFF)
@@ -38,7 +39,7 @@ include(OpenMetaDependencies)
 include(OpenMetaTargetSettings)
 include(OpenMetaReport)
 
-if(OPENMETA_BUILD_DOCS)
+if(OPENMETA_BUILD_DOCS OR OPENMETA_BUILD_SPHINX_DOCS)
   find_package(Doxygen REQUIRED)
 endif()
 
@@ -69,6 +70,7 @@ if(OPENMETA_BROTLI_FOUND)
 endif()
 
 set(OPENMETA_SOURCES
+  src/openmeta/console_format.cc
   src/openmeta/byte_arena.cc
   src/openmeta/container_payload.cc
   src/openmeta/container_scan.cc
@@ -390,10 +392,10 @@ if(TARGET metaread)
   install(TARGETS metaread RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
 endif()
 
-if(OPENMETA_BUILD_DOCS)
-  set(_openmeta_doxygen_out_dir "${CMAKE_CURRENT_BINARY_DIR}/docs")
+if(OPENMETA_BUILD_DOCS OR OPENMETA_BUILD_SPHINX_DOCS)
+  set(_openmeta_docs_root_dir "${CMAKE_CURRENT_BINARY_DIR}/docs")
+  set(_openmeta_doxygen_out_dir "${_openmeta_docs_root_dir}/doxygen")
   set(_openmeta_doxygen_cfg "${CMAKE_CURRENT_BINARY_DIR}/OpenMetaDoxyfile")
-  set(_openmeta_install_docs_script "${CMAKE_CURRENT_BINARY_DIR}/OpenMetaInstallDocs.cmake")
 
   set(_openmeta_doxygen_inputs
     "${PROJECT_SOURCE_DIR}/README.md"
@@ -404,26 +406,89 @@ if(OPENMETA_BUILD_DOCS)
   set(OPENMETA_DOXYGEN_OUTPUT_DIR "${_openmeta_doxygen_out_dir}")
   set(OPENMETA_DOXYGEN_MAINPAGE "${PROJECT_SOURCE_DIR}/README.md")
 
+  set(OPENMETA_DOXYGEN_GENERATE_XML "NO")
+  if(OPENMETA_BUILD_SPHINX_DOCS)
+    set(OPENMETA_DOXYGEN_GENERATE_XML "YES")
+  endif()
+
+  set(_openmeta_doxygen_xml_dir "${_openmeta_doxygen_out_dir}/xml")
+  file(TO_CMAKE_PATH "${_openmeta_doxygen_xml_dir}" OPENMETA_DOXYGEN_XML_DIR)
+
   configure_file(
     "${PROJECT_SOURCE_DIR}/cmake/Doxyfile.in"
     "${_openmeta_doxygen_cfg}"
     @ONLY
   )
 
-  configure_file(
-    "${PROJECT_SOURCE_DIR}/cmake/OpenMetaInstallDocs.cmake.in"
-    "${_openmeta_install_docs_script}"
-    @ONLY
-  )
-
   add_custom_target(openmeta_docs
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "${_openmeta_doxygen_out_dir}"
     COMMAND "${DOXYGEN_EXECUTABLE}" "${_openmeta_doxygen_cfg}"
     WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
     COMMENT "Generating OpenMeta API documentation (Doxygen)"
     VERBATIM
   )
 
-  install(SCRIPT "${_openmeta_install_docs_script}")
+  if(OPENMETA_BUILD_DOCS)
+    set(_openmeta_install_docs_script "${CMAKE_CURRENT_BINARY_DIR}/OpenMetaInstallDocs.cmake")
+    set(OPENMETA_DOXYGEN_INSTALL_SUBDIR "")
+    if(OPENMETA_BUILD_SPHINX_DOCS)
+      set(OPENMETA_DOXYGEN_INSTALL_SUBDIR "doxygen")
+    endif()
+    configure_file(
+      "${PROJECT_SOURCE_DIR}/cmake/OpenMetaInstallDocs.cmake.in"
+      "${_openmeta_install_docs_script}"
+      @ONLY
+    )
+    install(SCRIPT "${_openmeta_install_docs_script}")
+  endif()
+
+  if(OPENMETA_BUILD_SPHINX_DOCS)
+    find_package(Python REQUIRED COMPONENTS Interpreter)
+
+    execute_process(
+      COMMAND "${Python_EXECUTABLE}" -c "import sphinx, breathe"
+      RESULT_VARIABLE _openmeta_sphinx_import_res
+      OUTPUT_QUIET ERROR_QUIET
+    )
+    if(NOT _openmeta_sphinx_import_res EQUAL 0)
+      message(FATAL_ERROR
+        "OPENMETA_BUILD_SPHINX_DOCS requires Python packages 'sphinx' and 'breathe' for: ${Python_EXECUTABLE}. "
+        "Install them (see docs/requirements.txt) and reconfigure.")
+    endif()
+    set(OPENMETA_SPHINX_FOUND ON)
+    set(OPENMETA_BREATHE_FOUND ON)
+
+    set(_openmeta_sphinx_source_dir "${PROJECT_SOURCE_DIR}/docs/sphinx")
+    set(_openmeta_sphinx_conf_dir "${CMAKE_CURRENT_BINARY_DIR}/docs/sphinx")
+    set(_openmeta_sphinx_out_dir "${_openmeta_docs_root_dir}/html")
+    file(MAKE_DIRECTORY "${_openmeta_sphinx_conf_dir}")
+
+    configure_file(
+      "${PROJECT_SOURCE_DIR}/docs/sphinx/conf.py.in"
+      "${_openmeta_sphinx_conf_dir}/conf.py"
+      @ONLY
+    )
+
+    add_custom_target(openmeta_docs_sphinx
+      DEPENDS openmeta_docs
+      COMMAND "${CMAKE_COMMAND}" -E make_directory "${_openmeta_sphinx_out_dir}"
+      COMMAND "${Python_EXECUTABLE}" -m sphinx -b html
+              -c "${_openmeta_sphinx_conf_dir}"
+              "${_openmeta_sphinx_source_dir}"
+              "${_openmeta_sphinx_out_dir}"
+      WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
+      COMMENT "Generating OpenMeta documentation (Sphinx)"
+      VERBATIM
+    )
+
+    set(_openmeta_install_sphinx_docs_script "${CMAKE_CURRENT_BINARY_DIR}/OpenMetaInstallSphinxDocs.cmake")
+    configure_file(
+      "${PROJECT_SOURCE_DIR}/cmake/OpenMetaInstallSphinxDocs.cmake.in"
+      "${_openmeta_install_sphinx_docs_script}"
+      @ONLY
+    )
+    install(SCRIPT "${_openmeta_install_sphinx_docs_script}")
+  endif()
 endif()
 
 set(_openmeta_pkg_dir "${CMAKE_INSTALL_LIBDIR}/cmake/OpenMeta")

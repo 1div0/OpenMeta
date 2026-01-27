@@ -1,0 +1,56 @@
+message(STATUS "Generating OpenMeta documentation (Sphinx)")
+
+file(MAKE_DIRECTORY "@_openmeta_doxygen_out_dir@")
+
+execute_process(
+  COMMAND "@DOXYGEN_EXECUTABLE@" "@_openmeta_doxygen_cfg@"
+  WORKING_DIRECTORY "@PROJECT_SOURCE_DIR@"
+  RESULT_VARIABLE _openmeta_doxygen_res
+)
+
+if(NOT _openmeta_doxygen_res EQUAL 0)
+  message(FATAL_ERROR "Doxygen failed: exit=${_openmeta_doxygen_res}")
+endif()
+
+if(NOT EXISTS "@_openmeta_doxygen_out_dir@/xml/index.xml")
+  message(FATAL_ERROR
+    "Doxygen did not generate expected XML output: @_openmeta_doxygen_out_dir@/xml/index.xml")
+endif()
+
+execute_process(
+  COMMAND "@Python_EXECUTABLE@" -c "import sphinx, breathe"
+  RESULT_VARIABLE _openmeta_sphinx_import_res
+  OUTPUT_QUIET ERROR_QUIET
+)
+if(NOT _openmeta_sphinx_import_res EQUAL 0)
+  message(FATAL_ERROR
+    "Sphinx docs require Python packages 'sphinx' and 'breathe' for: @Python_EXECUTABLE@")
+endif()
+
+file(MAKE_DIRECTORY "@_openmeta_sphinx_out_dir@")
+
+execute_process(
+  COMMAND "@Python_EXECUTABLE@" -m sphinx -b html
+          -c "@_openmeta_sphinx_conf_dir@"
+          "@_openmeta_sphinx_source_dir@"
+          "@_openmeta_sphinx_out_dir@"
+  WORKING_DIRECTORY "@PROJECT_SOURCE_DIR@"
+  RESULT_VARIABLE _openmeta_sphinx_res
+)
+
+if(NOT _openmeta_sphinx_res EQUAL 0)
+  message(FATAL_ERROR "Sphinx failed: exit=${_openmeta_sphinx_res}")
+endif()
+
+if(NOT EXISTS "@_openmeta_sphinx_out_dir@/index.html")
+  message(FATAL_ERROR "Sphinx did not generate expected output: @_openmeta_sphinx_out_dir@/index.html")
+endif()
+
+set(_openmeta_doc_root "${CMAKE_INSTALL_PREFIX}/@CMAKE_INSTALL_DOCDIR@")
+message(STATUS "Installing Sphinx HTML docs to: ${_openmeta_doc_root}")
+
+file(INSTALL
+  DESTINATION "${_openmeta_doc_root}"
+  TYPE DIRECTORY
+  FILES "@_openmeta_sphinx_out_dir@"
+)

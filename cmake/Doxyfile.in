@@ -16,4 +16,7 @@ WARN_IF_UNDOCUMENTED   = NO
 GENERATE_HTML          = YES
 GENERATE_LATEX         = NO
 
+GENERATE_XML           = @OPENMETA_DOXYGEN_GENERATE_XML@
+XML_OUTPUT             = xml
+
 QUIET                  = YES

@@ -15,9 +15,9 @@ deps into a custom prefix, pass it via `CMAKE_PREFIX_PATH` (example:
 Requirements:
 - A GoogleTest package that provides `GTest::gtest_main` (or `GTest::Main`).
 
-Note: if your GoogleTest was built against `libc++` (common when using Clang),
-OpenMeta must be built with the same C++ standard library. Otherwise you may
-see link errors involving `std::__1` vs `std::__cxx11`.
+Note: if your GoogleTest was built against `libc++` (common with Clang),
+build OpenMeta against the same C++ standard library. Otherwise you may see
+link errors involving `std::__1` vs `std::__cxx11`.
 
 Build + run:
 ```bash
@@ -130,3 +130,29 @@ Generate API docs:
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DOPENMETA_BUILD_DOCS=ON
 cmake --build build --target openmeta_docs
 ```
+
+## Sphinx Docs (Optional)
+
+Requirements:
+- `doxygen`
+- Python packages listed in `docs/requirements.txt` (Sphinx + Breathe; `furo` is optional)
+
+Install the Python deps into your active environment (example with `uv`):
+```bash
+uv pip install -r docs/requirements.txt
+```
+
+Build:
+```bash
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DOPENMETA_BUILD_SPHINX_DOCS=ON
+cmake --build build --target openmeta_docs_sphinx
+```
+
+Install:
+```bash
+cmake --install build --prefix /tmp/openmeta-install
+ls /tmp/openmeta-install/share/doc/OpenMeta/html/index.html
+```
+
+When both `OPENMETA_BUILD_SPHINX_DOCS=ON` and `OPENMETA_BUILD_DOCS=ON`, the
+Doxygen HTML output is installed under `share/doc/OpenMeta/doxygen/html`.

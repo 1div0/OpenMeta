@@ -2,12 +2,12 @@
 
 OpenMeta is a metadata processing library.
 
-Current focus: **safe, format-agnostic reads** (locate metadata blocks inside
-common containers and decode EXIF/TIFF tags into a normalized in-memory model).
+Current focus: **safe, format-agnostic reads** — locate metadata blocks in
+common containers and decode EXIF/TIFF tags into a normalized in-memory model.
 
 ## Status
 
-Early development. APIs and data model are expected to evolve.
+This is early-stage. Expect breaking API changes.
 
 ## Features
 
@@ -38,6 +38,7 @@ Useful options:
 - `-DOPENMETA_BUILD_TESTS=ON` (requires GoogleTest)
 - `-DOPENMETA_BUILD_FUZZERS=ON` (requires Clang + libFuzzer)
 - `-DOPENMETA_BUILD_DOCS=ON` (requires Doxygen; installs HTML docs)
+- `-DOPENMETA_BUILD_SPHINX_DOCS=ON` (requires Python + Sphinx+Breathe; installs HTML docs via Sphinx)
 
 Developer notes: `docs/development.md`
 

@@ -1,5 +1,6 @@
 #include "openmeta/container_payload.h"
 #include "openmeta/container_scan.h"
+#include "openmeta/console_format.h"
 #include "openmeta/exif_tag_names.h"
 #include "openmeta/exif_tiff_decode.h"
 #include "openmeta/meta_key.h"
@@ -137,72 +138,6 @@ namespace {
         const std::span<const std::byte> bytes = arena.span(span);
         return std::string_view(reinterpret_cast<const char*>(bytes.data()),
                                 bytes.size());
-    }
-
-    static bool append_escaped_ascii(std::string_view s, uint32_t max_bytes,
-                                     std::string* out)
-    {
-        bool dangerous   = false;
-        const uint32_t n = (s.size() < max_bytes)
-                               ? static_cast<uint32_t>(s.size())
-                               : max_bytes;
-        out->reserve(out->size() + static_cast<size_t>(n));
-        for (uint32_t i = 0; i < n; ++i) {
-            const unsigned char c = static_cast<unsigned char>(s[i]);
-            if (c == '\\' || c == '"') {
-                out->push_back('\\');
-                out->push_back(static_cast<char>(c));
-                continue;
-            }
-            if (c == '\n') {
-                out->append("\\n");
-                dangerous = true;
-                continue;
-            }
-            if (c == '\r') {
-                out->append("\\r");
-                dangerous = true;
-                continue;
-            }
-            if (c == '\t') {
-                out->append("\\t");
-                dangerous = true;
-                continue;
-            }
-            if (c < 0x20U || c == 0x7FU || c >= 0x80U) {
-                char buf[8];
-                std::snprintf(buf, sizeof(buf), "\\x%02X",
-                              static_cast<unsigned>(c));
-                out->append(buf);
-                dangerous = true;
-                continue;
-            }
-            out->push_back(static_cast<char>(c));
-        }
-        if (n < s.size()) {
-            out->append("...");
-            dangerous = true;
-        }
-        return dangerous;
-    }
-
-    static void append_hex(std::span<const std::byte> bytes, uint32_t max_bytes,
-                           std::string* out)
-    {
-        const uint32_t n = (bytes.size() < max_bytes)
-                               ? static_cast<uint32_t>(bytes.size())
-                               : max_bytes;
-        out->reserve(out->size() + static_cast<size_t>(n) * 2U);
-        for (uint32_t i = 0; i < n; ++i) {
-            const unsigned v = static_cast<unsigned>(
-                static_cast<uint8_t>(bytes[i]));
-            char buf[4];
-            std::snprintf(buf, sizeof(buf), "%02X", v);
-            out->append(buf);
-        }
-        if (n < bytes.size()) {
-            out->append("...");
-        }
     }
 
     enum class ReadFileStatus : uint8_t {
@@ -519,7 +454,8 @@ namespace {
             return;
         case MetaValueKind::Text: {
             const std::string_view s = arena_string(arena, value.data.span);
-            const bool dangerous = append_escaped_ascii(s, max_bytes, raw_out);
+            const bool dangerous
+                = append_console_escaped_ascii(s, max_bytes, raw_out);
             if (dangerous) {
                 val_out->append("(DANGEROUS) ");
                 val_out->append(*raw_out);
@@ -531,7 +467,7 @@ namespace {
         case MetaValueKind::Bytes: {
             const std::span<const std::byte> b = arena.span(value.data.span);
             raw_out->append("0x");
-            append_hex(b, max_bytes, raw_out);
+            append_hex_bytes(b, max_bytes, raw_out);
             *val_out = *raw_out;
             return;
         }

@@ -1,7 +1,7 @@
 PROJECT_NAME           = OpenMeta
 PROJECT_BRIEF          = Format-agnostic metadata processing library
 
-OUTPUT_DIRECTORY       = build/docs
+OUTPUT_DIRECTORY       = build/docs/doxygen
 
 INPUT                  = README.md src/include docs
 FILE_PATTERNS          = *.h *.hpp *.md
@@ -15,5 +15,8 @@ WARN_IF_UNDOCUMENTED   = NO
 
 GENERATE_HTML          = YES
 GENERATE_LATEX         = NO
+
+GENERATE_XML           = YES
+XML_OUTPUT             = xml
 
 QUIET                  = YES

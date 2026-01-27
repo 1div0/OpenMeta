@@ -1,3 +1,4 @@
+#include "openmeta/console_format.h"
 #include "openmeta/container_payload.h"
 #include "openmeta/exif_tag_names.h"
 #include "openmeta/simple_meta.h"
@@ -12,6 +13,7 @@
 #include <bit>
 #include <cstdio>
 #include <cstring>
+#include <utility>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -32,51 +34,39 @@ namespace {
                            bytes.size());
     }
 
-    static bool append_escaped_ascii(std::string_view s, uint32_t max_bytes,
-                                     std::string* out)
+    static std::pair<std::string, bool>
+    console_text(nb::bytes data, uint32_t max_bytes)
     {
-        bool dangerous   = false;
-        const uint32_t n = (s.size() < max_bytes)
-                               ? static_cast<uint32_t>(s.size())
-                               : max_bytes;
-        out->reserve(out->size() + static_cast<size_t>(n));
-        for (uint32_t i = 0; i < n; ++i) {
-            const unsigned char c = static_cast<unsigned char>(s[i]);
-            if (c == '\\' || c == '"') {
-                out->push_back('\\');
-                out->push_back(static_cast<char>(c));
-                continue;
-            }
-            if (c == '\n') {
-                out->append("\\n");
-                dangerous = true;
-                continue;
-            }
-            if (c == '\r') {
-                out->append("\\r");
-                dangerous = true;
-                continue;
-            }
-            if (c == '\t') {
-                out->append("\\t");
-                dangerous = true;
-                continue;
-            }
-            if (c < 0x20U || c == 0x7FU || c >= 0x80U) {
-                char buf[8];
-                std::snprintf(buf, sizeof(buf), "\\x%02X",
-                              static_cast<unsigned>(c));
-                out->append(buf);
-                dangerous = true;
-                continue;
-            }
-            out->push_back(static_cast<char>(c));
+        const std::string_view s(reinterpret_cast<const char*>(data.data()),
+                                 data.size());
+        std::string out;
+        const bool dangerous = append_console_escaped_ascii(s, max_bytes, &out);
+        return { std::move(out), dangerous };
+    }
+
+    static std::string hex_bytes(nb::bytes data, uint32_t max_bytes)
+    {
+        const std::span<const std::byte> bytes(
+            reinterpret_cast<const std::byte*>(data.data()), data.size());
+        std::string out;
+        out.append("0x");
+        append_hex_bytes(bytes, max_bytes, &out);
+        return out;
+    }
+
+    static nb::str unsafe_text(nb::bytes data, uint32_t max_bytes)
+    {
+        size_t n = data.size();
+        if (max_bytes != 0U && n > static_cast<size_t>(max_bytes)) {
+            n = static_cast<size_t>(max_bytes);
         }
-        if (n < s.size()) {
-            out->append("...");
-            dangerous = true;
+        PyObject* s = PyUnicode_DecodeLatin1(
+            reinterpret_cast<const char*>(data.data()),
+            static_cast<Py_ssize_t>(n), nullptr);
+        if (!s) {
+            nb::raise_python_error();
         }
-        return dangerous;
+        return nb::steal<nb::str>(nb::handle(s));
     }
 
     static std::vector<std::byte> read_file_bytes(const char* path,
@@ -692,7 +682,7 @@ NB_MODULE(_openmeta, m)
                 const std::string ifd = arena_string(e.doc->store.arena(),
                                                      en.key.data.exif_tag.ifd);
                 s.append("ifd=\"");
-                append_escaped_ascii(ifd, 64, &s);
+                append_console_escaped_ascii(ifd, 64, &s);
                 s.append("\", tag=0x");
                 char tag_buf[8];
                 std::snprintf(tag_buf, sizeof(tag_buf), "%04X",
@@ -713,6 +703,12 @@ NB_MODULE(_openmeta, m)
     m.def("read", &read_document, "path"_a, "include_pointer_tags"_a = true,
           "decompress"_a     = true,
           "max_file_bytes"_a = 512ULL * 1024ULL * 1024ULL);
+
+    m.def("console_text", &console_text, "data"_a,
+          "max_bytes"_a = 4096U);
+    m.def("hex_bytes", &hex_bytes, "data"_a, "max_bytes"_a = 4096U);
+    m.def("unsafe_text", &unsafe_text, "data"_a, "max_bytes"_a = 4096U);
+    m.def("unsafe_test", &unsafe_text, "data"_a, "max_bytes"_a = 4096U);
 
     m.def(
         "exif_tag_name",
