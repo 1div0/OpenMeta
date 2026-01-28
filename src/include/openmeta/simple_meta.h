@@ -4,6 +4,7 @@
 #include "openmeta/container_scan.h"
 #include "openmeta/exif_tiff_decode.h"
 #include "openmeta/meta_store.h"
+#include "openmeta/xmp_decode.h"
 
 #include <cstddef>
 #include <span>
@@ -19,6 +20,7 @@ struct SimpleMetaResult final {
     ScanResult scan;
     PayloadResult payload;
     ExifDecodeResult exif;
+    XmpDecodeResult xmp;
 };
 
 /**
@@ -32,6 +34,7 @@ struct SimpleMetaResult final {
  * - ICC profiles (\ref decode_icc_profile)
  * - Photoshop IRB / 8BIM resources (\ref decode_photoshop_irb)
  * - IPTC-IIM dataset streams (\ref decode_iptc_iim)
+ * - XMP packets (\ref decode_xmp_packet)
  *
  * Caller provides the scratch buffers (blocks + decoded IFD list) to keep the
  * data flow explicit and allocation-free.

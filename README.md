@@ -18,6 +18,7 @@ This is early-stage. Expect breaking API changes.
   (zlib/deflate, brotli) with strict limits.
 - Structured decode into `MetaStore`:
   - EXIF: TIFF-IFD tags (including pointer IFDs).
+  - XMP: RDF/XML packets into properties (schema namespace URI + property path).
   - ICC: profile header + tag table (raw tag bytes preserved).
   - Photoshop IRB: 8BIM resources (raw payload preserved; IPTC from 0x0404 is
     decoded as derived datasets when present).

@@ -3,6 +3,7 @@
 #include "openmeta/icc_decode.h"
 #include "openmeta/iptc_iim_decode.h"
 #include "openmeta/photoshop_irb_decode.h"
+#include "openmeta/xmp_decode.h"
 
 namespace openmeta {
 namespace {
@@ -105,6 +106,50 @@ namespace {
         }
     }
 
+    static void merge_xmp_status(XmpDecodeStatus* out,
+                                 XmpDecodeStatus in) noexcept
+    {
+        if (!out) {
+            return;
+        }
+        if (*out == XmpDecodeStatus::LimitExceeded) {
+            return;
+        }
+        if (in == XmpDecodeStatus::LimitExceeded) {
+            *out = in;
+            return;
+        }
+        if (*out == XmpDecodeStatus::Malformed) {
+            return;
+        }
+        if (in == XmpDecodeStatus::Malformed) {
+            *out = in;
+            return;
+        }
+        if (*out == XmpDecodeStatus::OutputTruncated) {
+            return;
+        }
+        if (in == XmpDecodeStatus::OutputTruncated) {
+            *out = in;
+            return;
+        }
+        // `Unsupported` means "no usable XMP in this block".
+        // Promote to the best status seen across all XMP blocks.
+        if (*out == XmpDecodeStatus::Ok) {
+            return;
+        }
+        if (in == XmpDecodeStatus::Ok) {
+            *out = in;
+            return;
+        }
+        if (*out == XmpDecodeStatus::Unsupported) {
+            return;
+        }
+        if (in == XmpDecodeStatus::Unsupported) {
+            *out = in;
+        }
+    }
+
     static PayloadResult
     get_block_bytes(std::span<const std::byte> file_bytes,
                     std::span<const ContainerBlockRef> blocks,
@@ -169,8 +214,13 @@ simple_meta_read(std::span<const std::byte> file_bytes, MetaStore& store,
     exif.ifds_needed     = 0;
     exif.entries_decoded = 0;
 
+    XmpDecodeResult xmp;
+    xmp.status         = XmpDecodeStatus::Unsupported;
+    xmp.entries_decoded = 0;
+
     uint32_t ifd_write_pos = 0;
     bool any_exif          = false;
+    bool any_xmp           = false;
     const uint32_t blocks_written
         = (result.scan.written < out_blocks.size())
               ? result.scan.written
@@ -238,6 +288,12 @@ simple_meta_read(std::span<const std::byte> file_bytes, MetaStore& store,
                 = (one.ifds_written < room) ? one.ifds_written : room;
             ifd_write_pos += advanced;
             exif.ifds_written = ifd_write_pos;
+        } else if (block.kind == ContainerBlockKind::Xmp
+                   || block.kind == ContainerBlockKind::XmpExtended) {
+            any_xmp = true;
+            const XmpDecodeResult one = decode_xmp_packet(block_bytes, store);
+            merge_xmp_status(&xmp.status, one.status);
+            xmp.entries_decoded += one.entries_decoded;
         } else if (block.kind == ContainerBlockKind::Icc) {
             (void)decode_icc_profile(block_bytes, store);
         } else if (block.kind == ContainerBlockKind::PhotoshopIrB) {
@@ -294,8 +350,12 @@ simple_meta_read(std::span<const std::byte> file_bytes, MetaStore& store,
     if (!any_exif) {
         exif.status = ExifDecodeStatus::Unsupported;
     }
+    if (!any_xmp) {
+        xmp.status = XmpDecodeStatus::Unsupported;
+    }
 
     result.exif = exif;
+    result.xmp  = xmp;
     return result;
 }
 

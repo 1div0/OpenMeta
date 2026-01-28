@@ -13,9 +13,9 @@ CLI tool
 --------
 
 ``metaread`` prints a human-readable dump of blocks and decoded entries
-(EXIF/TIFF-IFD tags, IPTC-IIM datasets, ICC profile fields/tags, and Photoshop
-IRB resource blocks). Output is ASCII-only and truncated by default to reduce
-terminal injection risk.
+(EXIF/TIFF-IFD tags, XMP properties, IPTC-IIM datasets, ICC profile fields/tags,
+and Photoshop IRB resource blocks). Output is ASCII-only and truncated by
+default to reduce terminal injection risk.
 
 Python
 ------

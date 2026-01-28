@@ -7,6 +7,7 @@
 #include "openmeta/meta_key.h"
 #include "openmeta/meta_store.h"
 #include "openmeta/simple_meta.h"
+#include "openmeta/xmp_decode.h"
 
 #include <algorithm>
 #include <cctype>
@@ -41,6 +42,85 @@ namespace {
         case ExifDecodeStatus::LimitExceeded: return "limit_exceeded";
         }
         return "unknown";
+    }
+
+    static const char* xmp_status_name(XmpDecodeStatus status) noexcept
+    {
+        switch (status) {
+        case XmpDecodeStatus::Ok: return "ok";
+        case XmpDecodeStatus::OutputTruncated: return "output_truncated";
+        case XmpDecodeStatus::Unsupported: return "unsupported";
+        case XmpDecodeStatus::Malformed: return "malformed";
+        case XmpDecodeStatus::LimitExceeded: return "limit_exceeded";
+        }
+        return "unknown";
+    }
+
+    static void merge_xmp_status(XmpDecodeStatus* out,
+                                 XmpDecodeStatus in) noexcept
+    {
+        if (!out) {
+            return;
+        }
+        if (*out == XmpDecodeStatus::LimitExceeded) {
+            return;
+        }
+        if (in == XmpDecodeStatus::LimitExceeded) {
+            *out = in;
+            return;
+        }
+        if (*out == XmpDecodeStatus::Malformed) {
+            return;
+        }
+        if (in == XmpDecodeStatus::Malformed) {
+            *out = in;
+            return;
+        }
+        if (*out == XmpDecodeStatus::OutputTruncated) {
+            return;
+        }
+        if (in == XmpDecodeStatus::OutputTruncated) {
+            *out = in;
+            return;
+        }
+        if (*out == XmpDecodeStatus::Ok) {
+            return;
+        }
+        if (in == XmpDecodeStatus::Ok) {
+            *out = in;
+            return;
+        }
+    }
+
+    static void xmp_sidecar_candidates(const char* path, std::string* out_a,
+                                       std::string* out_b)
+    {
+        if (out_a) {
+            out_a->clear();
+        }
+        if (out_b) {
+            out_b->clear();
+        }
+        if (!path || !*path || !out_a || !out_b) {
+            return;
+        }
+
+        const std::string s(path);
+        *out_b = s;
+        out_b->append(".xmp");
+
+        const size_t sep = s.find_last_of("/\\");
+        const size_t dot = s.find_last_of('.');
+        if (dot != std::string::npos && (sep == std::string::npos || dot > sep)) {
+            *out_a = s.substr(0, dot);
+            out_a->append(".xmp");
+        } else {
+            *out_a = *out_b;
+        }
+
+        if (*out_a == *out_b) {
+            out_b->clear();
+        }
     }
 
     static const char* format_name(ContainerFormat format) noexcept
@@ -1010,6 +1090,141 @@ namespace {
         print_line('=', total_width);
     }
 
+    static void print_xmp_block_table(const MetaStore& store, BlockId block,
+                                      std::span<const EntryId> ids,
+                                      uint32_t max_elements,
+                                      uint32_t max_bytes,
+                                      uint32_t max_cell_chars)
+    {
+        struct Row final {
+            uint32_t idx = 0;
+            std::string idx_s;
+            std::string schema_s;
+            std::string path_s;
+            std::string type_s;
+            std::string raw_s;
+            std::string val_s;
+        };
+
+        std::vector<Row> rows;
+        rows.reserve(ids.size());
+
+        for (size_t i = 0; i < ids.size(); ++i) {
+            const Entry& entry = store.entry(ids[i]);
+            if (entry.key.kind != MetaKeyKind::XmpProperty) {
+                continue;
+            }
+
+            Row row;
+            row.idx = entry.origin.order_in_block;
+            {
+                char buf[32];
+                std::snprintf(buf, sizeof(buf), "%u",
+                              static_cast<unsigned>(row.idx));
+                row.idx_s = buf;
+            }
+
+            const std::string_view schema
+                = arena_string(store.arena(), entry.key.data.xmp_property.schema_ns);
+            const std::string_view path
+                = arena_string(store.arena(),
+                               entry.key.data.xmp_property.property_path);
+
+            {
+                const bool dangerous = append_console_escaped_ascii(
+                    schema, max_bytes, &row.schema_s);
+                if (dangerous) {
+                    row.schema_s.insert(0, "(DANGEROUS) ");
+                }
+            }
+            {
+                const bool dangerous = append_console_escaped_ascii(
+                    path, max_bytes, &row.path_s);
+                if (dangerous) {
+                    row.path_s.insert(0, "(DANGEROUS) ");
+                }
+            }
+
+            row.type_s = value_type_string(store.arena(), entry.value);
+            format_value_pair(store, entry.value, max_elements, max_bytes,
+                              &row.raw_s, &row.val_s);
+
+            truncate_cell(&row.schema_s, max_cell_chars);
+            truncate_cell(&row.path_s, max_cell_chars);
+            truncate_cell(&row.raw_s, max_cell_chars);
+            truncate_cell(&row.val_s, max_cell_chars);
+
+            rows.push_back(std::move(row));
+        }
+
+        struct RowLess final {
+            bool operator()(const Row& a, const Row& b) const noexcept
+            {
+                return a.idx < b.idx;
+            }
+        };
+        std::sort(rows.begin(), rows.end(), RowLess {});
+
+        size_t w_idx    = std::strlen("idx");
+        size_t w_schema = std::strlen("schema");
+        size_t w_path   = std::strlen("path");
+        size_t w_type   = std::strlen("type");
+        size_t w_raw    = std::strlen("raw val");
+        size_t w_val    = std::strlen("val");
+
+        for (size_t i = 0; i < rows.size(); ++i) {
+            w_idx    = (rows[i].idx_s.size() > w_idx) ? rows[i].idx_s.size() : w_idx;
+            w_schema = (rows[i].schema_s.size() > w_schema) ? rows[i].schema_s.size() : w_schema;
+            w_path   = (rows[i].path_s.size() > w_path) ? rows[i].path_s.size() : w_path;
+            w_type   = (rows[i].type_s.size() > w_type) ? rows[i].type_s.size() : w_type;
+            w_raw    = (rows[i].raw_s.size() > w_raw) ? rows[i].raw_s.size() : w_raw;
+            w_val    = (rows[i].val_s.size() > w_val) ? rows[i].val_s.size() : w_val;
+        }
+
+        const size_t total_width = 1U + w_idx + 3U + w_schema + 3U + w_path
+                                   + 3U + w_type + 3U + w_raw + 3U + w_val;
+
+        print_line('=', total_width);
+        std::printf(" xmp block=%u entries=%zu\n", static_cast<unsigned>(block),
+                    rows.size());
+        print_line('=', total_width);
+
+        std::fputs(" ", stdout);
+        print_cell("idx", w_idx);
+        std::fputs(" | ", stdout);
+        print_cell("schema", w_schema);
+        std::fputs(" | ", stdout);
+        print_cell("path", w_path);
+        std::fputs(" | ", stdout);
+        print_cell("type", w_type);
+        std::fputs(" | ", stdout);
+        print_cell("raw val", w_raw);
+        std::fputs(" | ", stdout);
+        print_cell("val", w_val);
+        std::putchar('\n');
+
+        print_line('-', total_width);
+
+        for (size_t i = 0; i < rows.size(); ++i) {
+            const Row& r = rows[i];
+            std::fputs(" ", stdout);
+            print_cell(r.idx_s, w_idx);
+            std::fputs(" | ", stdout);
+            print_cell(r.schema_s, w_schema);
+            std::fputs(" | ", stdout);
+            print_cell(r.path_s, w_path);
+            std::fputs(" | ", stdout);
+            print_cell(r.type_s, w_type);
+            std::fputs(" | ", stdout);
+            print_cell(r.raw_s, w_raw);
+            std::fputs(" | ", stdout);
+            print_cell(r.val_s, w_val);
+            std::putchar('\n');
+        }
+
+        print_line('=', total_width);
+    }
+
     static bool parse_u32_arg(const char* s, uint32_t* out)
     {
         if (!s || !*s) {
@@ -1034,6 +1249,7 @@ namespace {
         std::printf("  --version            print build info and exit\n");
         std::printf("  --no-build-info      hide build info header\n");
         std::printf("  --no-blocks           hide container block summary\n");
+        std::printf("  --xmp-sidecar         also read sidecar XMP (<file>.xmp and <basename>.xmp)\n");
         std::printf(
             "  --no-pointer-tags     do not store pointer tags (0x8769/0x8825/0xA005/0x014A)\n");
         std::printf(
@@ -1065,6 +1281,7 @@ main(int argc, char** argv)
 
     bool show_blocks     = true;
     bool show_build_info = true;
+    bool xmp_sidecar     = false;
     ExifDecodeOptions exif_options;
     exif_options.include_pointer_tags = true;
     uint32_t max_elements             = 16;
@@ -1093,6 +1310,11 @@ main(int argc, char** argv)
         }
         if (std::strcmp(arg, "--no-blocks") == 0) {
             show_blocks = false;
+            first_path += 1;
+            continue;
+        }
+        if (std::strcmp(arg, "--xmp-sidecar") == 0) {
+            xmp_sidecar = true;
             first_path += 1;
             continue;
         }
@@ -1218,6 +1440,51 @@ main(int argc, char** argv)
             break;
         }
 
+        if (xmp_sidecar) {
+            std::string sidecar_a;
+            std::string sidecar_b;
+            xmp_sidecar_candidates(path, &sidecar_a, &sidecar_b);
+
+            const char* candidates[2] = { sidecar_a.c_str(),
+                                          sidecar_b.empty() ? nullptr
+                                                            : sidecar_b.c_str() };
+            for (size_t i = 0; i < 2; ++i) {
+                const char* sp = candidates[i];
+                if (!sp || !*sp) {
+                    continue;
+                }
+                std::vector<std::byte> xmp_bytes;
+                uint64_t sc_size = 0;
+                const ReadFileStatus sc_st
+                    = read_file_bytes(sp, &xmp_bytes, max_file_bytes, &sc_size);
+                if (sc_st == ReadFileStatus::OpenFailed) {
+                    continue;
+                }
+                if (sc_st != ReadFileStatus::Ok) {
+                    if (sc_st == ReadFileStatus::TooLarge) {
+                        std::fprintf(
+                            stderr,
+                            "metaread: refusing to read sidecar `%s` (size=%llu > --max-file-bytes=%llu)\n",
+                            sp, static_cast<unsigned long long>(sc_size),
+                            static_cast<unsigned long long>(max_file_bytes));
+                    } else {
+                        std::fprintf(stderr,
+                                     "metaread: failed to read sidecar `%s`\n",
+                                     sp);
+                    }
+                    exit_code = 1;
+                    continue;
+                }
+
+                const XmpDecodeResult one = decode_xmp_packet(xmp_bytes, store);
+                merge_xmp_status(&read.xmp.status, one.status);
+                read.xmp.entries_decoded += one.entries_decoded;
+                std::printf("xmp_sidecar=%s status=%s entries=%u\n", sp,
+                            xmp_status_name(one.status),
+                            static_cast<unsigned>(one.entries_decoded));
+            }
+        }
+
         std::printf("scan=%s written=%u needed=%u\n",
                     scan_status_name(read.scan.status), read.scan.written,
                     read.scan.needed);
@@ -1238,9 +1505,11 @@ main(int argc, char** argv)
         }
 
         store.finalize();
-        std::printf("exif=%s ifds_decoded=%u entries=%zu blocks=%u\n",
+        std::printf("exif=%s ifds_decoded=%u xmp=%s xmp_entries=%u entries=%zu blocks=%u\n",
                     exif_status_name(read.exif.status),
                     static_cast<unsigned>(read.exif.ifds_written),
+                    xmp_status_name(read.xmp.status),
+                    static_cast<unsigned>(read.xmp.entries_decoded),
                     store.entries().size(),
                     static_cast<unsigned>(store.block_count()));
 
@@ -1264,6 +1533,9 @@ main(int argc, char** argv)
                 print_generic_block_table(store, block, "iptc_iim", ids,
                                           max_elements, max_bytes,
                                           max_cell_chars);
+            } else if (first.key.kind == MetaKeyKind::XmpProperty) {
+                print_xmp_block_table(store, block, ids, max_elements,
+                                      max_bytes, max_cell_chars);
             } else if (first.key.kind == MetaKeyKind::PhotoshopIrb) {
                 print_generic_block_table(store, block, "photoshop_irb", ids,
                                           max_elements, max_bytes,

@@ -43,6 +43,15 @@ namespace {
 #endif
     }
 
+    static constexpr bool has_expat() noexcept
+    {
+#if defined(OPENMETA_HAS_EXPAT) && OPENMETA_HAS_EXPAT
+        return true;
+#else
+        return false;
+#endif
+    }
+
     static constexpr BuildInfo kBuildInfo = {
         /*version=*/OPENMETA_BUILDINFO_VERSION,
         /*build_timestamp_utc=*/OPENMETA_BUILDINFO_BUILD_TIMESTAMP_UTC,
@@ -57,8 +66,10 @@ namespace {
         /*linkage_shared=*/linkage_shared(),
         /*option_with_zlib=*/static_cast<bool>(OPENMETA_BUILDINFO_WITH_ZLIB),
         /*option_with_brotli=*/static_cast<bool>(OPENMETA_BUILDINFO_WITH_BROTLI),
+        /*option_with_expat=*/static_cast<bool>(OPENMETA_BUILDINFO_WITH_EXPAT),
         /*has_zlib=*/has_zlib(),
         /*has_brotli=*/has_brotli(),
+        /*has_expat=*/has_expat(),
     };
 
 }  // namespace
@@ -114,6 +125,13 @@ format_build_info_lines(const BuildInfo& bi, std::string* line1,
                 line1->append(",");
             }
             line1->append("brotli");
+            first = false;
+        }
+        if (bi.has_expat) {
+            if (!first) {
+                line1->append(",");
+            }
+            line1->append("expat");
             first = false;
         }
         line1->append("] ");

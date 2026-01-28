@@ -52,11 +52,15 @@ struct BuildInfo final {
     bool option_with_zlib = false;
     /// Whether brotli decompression was enabled at configure time.
     bool option_with_brotli = false;
+    /// Whether Expat-based XMP parsing was enabled at configure time.
+    bool option_with_expat = false;
 
     /// Whether zlib support is compiled in (linked).
     bool has_zlib = false;
     /// Whether brotli support is compiled in (linked).
     bool has_brotli = false;
+    /// Whether Expat support is compiled in (linked).
+    bool has_expat = false;
 };
 
 /// Returns build information for the linked OpenMeta library.

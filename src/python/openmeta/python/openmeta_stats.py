@@ -27,6 +27,7 @@ def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(prog="openmeta_stats.py")
     ap.add_argument("files", nargs="+")
     ap.add_argument("--no-build-info", action="store_true", help="hide OpenMeta build info header")
+    ap.add_argument("--xmp-sidecar", action="store_true", help="also read sidecar XMP (<file>.xmp, <basename>.xmp)")
     ap.add_argument("--max-file-bytes", type=int, default=512 * 1024 * 1024)
     args = ap.parse_args(argv)
 
@@ -37,13 +38,18 @@ def main(argv: list[str]) -> int:
         print(openmeta.python_info_line())
 
     for path in args.files:
-        doc = openmeta.read(path, max_file_bytes=int(args.max_file_bytes))
+        doc = openmeta.read(
+            path,
+            include_xmp_sidecar=bool(args.xmp_sidecar),
+            max_file_bytes=int(args.max_file_bytes),
+        )
 
         print(f"== {path}")
         print(f"size={doc.file_size}")
         print(f"scan={_snake(doc.scan_status.name)} blocks={len(doc.blocks)}")
         print(
             f"exif={_snake(doc.exif_status.name)} ifds_decoded={doc.exif_ifds_decoded} "
+            f"xmp={_snake(doc.xmp_status.name)} xmp_entries={doc.xmp_entries_decoded} "
             f"entries={doc.entry_count} blocks={doc.block_count}"
         )
 

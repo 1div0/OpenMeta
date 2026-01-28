@@ -39,6 +39,7 @@ option(OPENMETA_BUILD_WHEEL "Add an `openmeta_wheel` target (Python wheel build)
 option(OPENMETA_WHEEL_NO_BUILD_ISOLATION "Build wheel without isolation (requires scikit-build-core installed)" OFF)
 option(OPENMETA_WITH_ZLIB "Enable zlib/deflate payload decompression" ON)
 option(OPENMETA_WITH_BROTLI "Enable brotli payload decompression" ON)
+option(OPENMETA_WITH_EXPAT "Enable XMP packet decode via Expat" ON)
 option(OPENMETA_USE_LIBCXX "Use libc++ as the C++ standard library (Clang)" OFF)
 
 include(GNUInstallDirs)
@@ -106,6 +107,14 @@ if(OPENMETA_WITH_BROTLI)
   endif()
 endif()
 
+set(OPENMETA_EXPAT_FOUND OFF)
+if(OPENMETA_WITH_EXPAT)
+  find_package(EXPAT QUIET)
+  if(EXPAT_FOUND)
+    set(OPENMETA_EXPAT_FOUND ON)
+  endif()
+endif()
+
 set(OPENMETA_CONFIG_HAS_ZLIB 0)
 if(OPENMETA_ZLIB_FOUND)
   set(OPENMETA_CONFIG_HAS_ZLIB 1)
@@ -114,6 +123,11 @@ endif()
 set(OPENMETA_CONFIG_HAS_BROTLI 0)
 if(OPENMETA_BROTLI_FOUND)
   set(OPENMETA_CONFIG_HAS_BROTLI 1)
+endif()
+
+set(OPENMETA_CONFIG_HAS_EXPAT 0)
+if(OPENMETA_EXPAT_FOUND)
+  set(OPENMETA_CONFIG_HAS_EXPAT 1)
 endif()
 
 if(OPENMETA_BUILD_TIMESTAMP STREQUAL "")
@@ -131,6 +145,7 @@ endif()
 set(OPENMETA_BUILDINFO_TIMESTAMP_UTC "${OPENMETA_BUILD_TIMESTAMP}")
 set(OPENMETA_BUILDINFO_WITH_ZLIB "${OPENMETA_WITH_ZLIB}")
 set(OPENMETA_BUILDINFO_WITH_BROTLI "${OPENMETA_WITH_BROTLI}")
+set(OPENMETA_BUILDINFO_WITH_EXPAT "${OPENMETA_WITH_EXPAT}")
 
 set(_openmeta_generated_include_dir "${CMAKE_CURRENT_BINARY_DIR}/generated/include")
 file(MAKE_DIRECTORY "${_openmeta_generated_include_dir}/openmeta")
@@ -150,6 +165,7 @@ set(OPENMETA_SOURCES
   src/openmeta/exif_tag_names.cc
   src/openmeta/exif_tiff_decode.cc
   src/openmeta/iptc_iim_decode.cc
+  src/openmeta/xmp_decode.cc
   src/openmeta/meta_edit.cc
   src/openmeta/meta_key.cc
   src/openmeta/meta_store.cc
@@ -184,6 +200,15 @@ foreach(_tgt IN ITEMS openmeta_static openmeta_shared)
     if(OPENMETA_BROTLI_FOUND)
       target_link_libraries(${_tgt} PUBLIC Brotli::decoder)
       target_compile_definitions(${_tgt} PUBLIC OPENMETA_HAS_BROTLI=1)
+    endif()
+    if(OPENMETA_EXPAT_FOUND)
+      if(TARGET EXPAT::EXPAT)
+        target_link_libraries(${_tgt} PUBLIC EXPAT::EXPAT)
+      else()
+        target_include_directories(${_tgt} PUBLIC "${EXPAT_INCLUDE_DIRS}")
+        target_link_libraries(${_tgt} PUBLIC "${EXPAT_LIBRARIES}")
+      endif()
+      target_compile_definitions(${_tgt} PUBLIC OPENMETA_HAS_EXPAT=1)
     endif()
   endif()
 endforeach()
@@ -348,6 +373,7 @@ if(OPENMETA_BUILD_TESTS)
     tests/iptc_iim_decode_test.cc
     tests/meta_store_test.cc
     tests/photoshop_irb_decode_test.cc
+    tests/xmp_decode_test.cc
   )
   target_link_libraries(openmeta_tests PRIVATE ${OPENMETA_LIB_TARGET} gtest_main)
 
@@ -452,6 +478,29 @@ if(OPENMETA_BUILD_FUZZERS)
       -fsanitize=fuzzer,address,undefined
       -fno-omit-frame-pointer
   )
+
+  if(OPENMETA_EXPAT_FOUND)
+    add_executable(openmeta_fuzz_xmp_decode
+      ${OPENMETA_SOURCES}
+      tests/fuzz/xmp_decode_libfuzzer.cc
+    )
+    openmeta_apply_target_settings(openmeta_fuzz_xmp_decode)
+    openmeta_apply_core_deps(openmeta_fuzz_xmp_decode)
+    openmeta_apply_libfuzzer_stdlib(openmeta_fuzz_xmp_decode)
+
+    target_compile_options(
+      openmeta_fuzz_xmp_decode
+      PRIVATE
+        -fsanitize=fuzzer,address,undefined
+        -fno-omit-frame-pointer
+    )
+    target_link_options(
+      openmeta_fuzz_xmp_decode
+      PRIVATE
+        -fsanitize=fuzzer,address,undefined
+        -fno-omit-frame-pointer
+    )
+  endif()
 
   add_executable(openmeta_fuzz_container_payload
     ${OPENMETA_SOURCES}

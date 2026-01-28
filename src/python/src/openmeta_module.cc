@@ -333,7 +333,7 @@ struct PyEntry final {
 
 static std::shared_ptr<PyDocument>
 read_document(const std::string& path, bool include_pointer_tags,
-              bool decompress, uint64_t max_file_bytes)
+              bool decompress, bool include_xmp_sidecar, uint64_t max_file_bytes)
 {
     auto doc        = std::make_shared<PyDocument>();
     doc->path       = path;
@@ -349,6 +349,41 @@ read_document(const std::string& path, bool include_pointer_tags,
 
     PayloadOptions payload_options;
     payload_options.decompress = decompress;
+
+    auto merge_xmp_status
+        = [](XmpDecodeStatus* out, XmpDecodeStatus in) noexcept {
+              if (!out) {
+                  return;
+              }
+              if (*out == XmpDecodeStatus::LimitExceeded) {
+                  return;
+              }
+              if (in == XmpDecodeStatus::LimitExceeded) {
+                  *out = in;
+                  return;
+              }
+              if (*out == XmpDecodeStatus::Malformed) {
+                  return;
+              }
+              if (in == XmpDecodeStatus::Malformed) {
+                  *out = in;
+                  return;
+              }
+              if (*out == XmpDecodeStatus::OutputTruncated) {
+                  return;
+              }
+              if (in == XmpDecodeStatus::OutputTruncated) {
+                  *out = in;
+                  return;
+              }
+              if (*out == XmpDecodeStatus::Ok) {
+                  return;
+              }
+              if (in == XmpDecodeStatus::Ok) {
+                  *out = in;
+                  return;
+              }
+          };
 
     for (;;) {
         doc->store  = MetaStore();
@@ -373,6 +408,51 @@ read_document(const std::string& path, bool include_pointer_tags,
             continue;
         }
         break;
+    }
+
+    if (include_xmp_sidecar) {
+        std::string sidecar_a;
+        std::string sidecar_b;
+        {
+            const std::string s(path);
+            sidecar_b = s + ".xmp";
+
+            const size_t sep = s.find_last_of("/\\");
+            const size_t dot = s.find_last_of('.');
+            if (dot != std::string::npos && (sep == std::string::npos || dot > sep)) {
+                sidecar_a = s.substr(0, dot) + ".xmp";
+            } else {
+                sidecar_a = sidecar_b;
+            }
+            if (sidecar_a == sidecar_b) {
+                sidecar_b.clear();
+            }
+        }
+
+        auto try_read = [&](const std::string& p) -> bool {
+            if (p.empty()) {
+                return false;
+            }
+            std::FILE* f = std::fopen(p.c_str(), "rb");
+            if (!f) {
+                return false;
+            }
+            std::fclose(f);
+            return true;
+        };
+
+        const std::string* candidates[2] = { &sidecar_a, &sidecar_b };
+        for (int i = 0; i < 2; ++i) {
+            const std::string& sp = *candidates[i];
+            if (sp.empty() || !try_read(sp)) {
+                continue;
+            }
+            const std::vector<std::byte> xmp_bytes
+                = read_file_bytes(sp.c_str(), max_file_bytes);
+            const XmpDecodeResult one = decode_xmp_packet(xmp_bytes, doc->store);
+            merge_xmp_status(&doc->result.xmp.status, one.status);
+            doc->result.xmp.entries_decoded += one.entries_decoded;
+        }
     }
 
     doc->blocks.resize(doc->result.scan.written);
@@ -413,6 +493,13 @@ NB_MODULE(_openmeta, m)
         .value("Unsupported", ExifDecodeStatus::Unsupported)
         .value("Malformed", ExifDecodeStatus::Malformed)
         .value("LimitExceeded", ExifDecodeStatus::LimitExceeded);
+
+    nb::enum_<XmpDecodeStatus>(m, "XmpDecodeStatus")
+        .value("Ok", XmpDecodeStatus::Ok)
+        .value("OutputTruncated", XmpDecodeStatus::OutputTruncated)
+        .value("Unsupported", XmpDecodeStatus::Unsupported)
+        .value("Malformed", XmpDecodeStatus::Malformed)
+        .value("LimitExceeded", XmpDecodeStatus::LimitExceeded);
 
     nb::enum_<ContainerFormat>(m, "ContainerFormat")
         .value("Unknown", ContainerFormat::Unknown)
@@ -543,6 +630,12 @@ NB_MODULE(_openmeta, m)
         .def_prop_ro("payload_needed",
                      [](const PyDocument& d) {
                          return static_cast<uint64_t>(d.result.payload.needed);
+                     })
+        .def_prop_ro("xmp_status",
+                     [](const PyDocument& d) { return d.result.xmp.status; })
+        .def_prop_ro("xmp_entries_decoded",
+                     [](const PyDocument& d) {
+                         return d.result.xmp.entries_decoded;
                      })
         .def_prop_ro("exif_status",
                      [](const PyDocument& d) { return d.result.exif.status; })
@@ -710,6 +803,28 @@ NB_MODULE(_openmeta, m)
                          }
                          return nb::int_(en.key.data.icc_tag.signature);
                      })
+        .def_prop_ro("xmp_schema_ns",
+                     [](const PyEntry& e) -> nb::object {
+                         const Entry& en = e.doc->store.entry(e.id);
+                         if (en.key.kind != MetaKeyKind::XmpProperty) {
+                             return nb::none();
+                         }
+                         const std::string s
+                             = arena_string(e.doc->store.arena(),
+                                            en.key.data.xmp_property.schema_ns);
+                         return nb::str(s.c_str(), s.size());
+                     })
+        .def_prop_ro("xmp_path",
+                     [](const PyEntry& e) -> nb::object {
+                         const Entry& en = e.doc->store.entry(e.id);
+                         if (en.key.kind != MetaKeyKind::XmpProperty) {
+                             return nb::none();
+                         }
+                         const std::string s = arena_string(
+                             e.doc->store.arena(),
+                             en.key.data.xmp_property.property_path);
+                         return nb::str(s.c_str(), s.size());
+                     })
         .def_prop_ro("name",
                      [](const PyEntry& e) -> nb::object {
                          const Entry& en = e.doc->store.entry(e.id);
@@ -798,8 +913,9 @@ NB_MODULE(_openmeta, m)
         });
 
     m.def("read", &read_document, "path"_a, "include_pointer_tags"_a = true,
-          "decompress"_a     = true,
-          "max_file_bytes"_a = 512ULL * 1024ULL * 1024ULL);
+          "decompress"_a           = true,
+          "include_xmp_sidecar"_a  = false,
+          "max_file_bytes"_a       = 512ULL * 1024ULL * 1024ULL);
 
     m.def("console_text", &console_text, "data"_a, "max_bytes"_a = 4096U);
     m.def("hex_bytes", &hex_bytes, "data"_a, "max_bytes"_a = 4096U);
@@ -822,8 +938,10 @@ NB_MODULE(_openmeta, m)
         d["linkage_shared"]       = nb::bool_(bi.linkage_shared);
         d["option_with_zlib"]     = nb::bool_(bi.option_with_zlib);
         d["option_with_brotli"]   = nb::bool_(bi.option_with_brotli);
+        d["option_with_expat"]    = nb::bool_(bi.option_with_expat);
         d["has_zlib"]             = nb::bool_(bi.has_zlib);
         d["has_brotli"]           = nb::bool_(bi.has_brotli);
+        d["has_expat"]            = nb::bool_(bi.has_expat);
         return d;
     });
 

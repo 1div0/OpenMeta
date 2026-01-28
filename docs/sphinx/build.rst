@@ -32,6 +32,7 @@ Core toggles:
 - ``OPENMETA_FUZZTEST_FUZZING_MODE``: enable FuzzTest fuzzing-mode flags.
 - ``OPENMETA_WITH_ZLIB`` / ``OPENMETA_WITH_BROTLI``: enable payload decompression
   when the system libraries are available.
+- ``OPENMETA_WITH_EXPAT``: enable XMP packet parsing when Expat is available.
 - ``OPENMETA_USE_LIBCXX``: build against ``libc++`` (useful when deps were built with ``libc++``).
 
 Docs (optional):

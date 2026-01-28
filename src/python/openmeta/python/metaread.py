@@ -202,6 +202,7 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--no-blocks", action="store_true", help="hide container block summary")
     ap.add_argument("--no-pointer-tags", action="store_true", help="do not store pointer tags")
     ap.add_argument("--no-decompress", action="store_true", help="do not decompress payloads")
+    ap.add_argument("--xmp-sidecar", action="store_true", help="also read sidecar XMP (<file>.xmp, <basename>.xmp)")
     ap.add_argument("--max-elements", type=int, default=16, help="max array elements to print")
     ap.add_argument("--max-bytes", type=int, default=256, help="max bytes to print for text/bytes")
     ap.add_argument("--max-cell-chars", type=int, default=32, help="max chars per table cell")
@@ -224,6 +225,7 @@ def main(argv: list[str]) -> int:
             path,
             include_pointer_tags=not args.no_pointer_tags,
             decompress=not args.no_decompress,
+            include_xmp_sidecar=bool(args.xmp_sidecar),
             max_file_bytes=int(args.max_file_bytes),
         )
 
@@ -251,6 +253,7 @@ def main(argv: list[str]) -> int:
 
         print(
             f"exif={_snake(doc.exif_status.name)} ifds_decoded={doc.exif_ifds_decoded} "
+            f"xmp={_snake(doc.xmp_status.name)} xmp_entries={doc.xmp_entries_decoded} "
             f"entries={doc.entry_count} blocks={doc.block_count}"
         )
 
@@ -299,6 +302,29 @@ def main(argv: list[str]) -> int:
                             f"{raw:<30} | {val}"
                         )
                     print("=" * width)
+                continue
+
+            if entries and entries[0].key_kind == openmeta.MetaKeyKind.XmpProperty:
+                width = 120
+                print("=" * width)
+                print(f" xmp block={block_id} entries={len(entries)}")
+                print("=" * width)
+                print(" idx | schema                 | path                   | type       | raw val                        | val")
+                print("-" * width)
+
+                for idx, e in enumerate(entries):
+                    schema = str(e.xmp_schema_ns or "-")
+                    path_s = str(e.xmp_path or "-")
+
+                    raw, val = _format_value(e, max_elements=args.max_elements, max_bytes=args.max_bytes)
+                    raw = _truncate_cell(raw, args.max_cell_chars)
+                    val = _truncate_cell(val, args.max_cell_chars)
+
+                    print(
+                        f"{idx:4d} | {_truncate_cell(schema, 22):<22} | {_truncate_cell(path_s, 22):<22} | "
+                        f"{_truncate_cell(_val_type(e), 10):<10} | {raw:<30} | {val}"
+                    )
+                print("=" * width)
                 continue
 
             # Generic non-EXIF block table.
