@@ -3,7 +3,46 @@ message(STATUS "Building OpenMeta Python wheel")
 file(MAKE_DIRECTORY "@_openmeta_wheel_out_dir@")
 
 set(_openmeta_prefix_path "@CMAKE_PREFIX_PATH@")
-string(REPLACE ";" "\\;" _openmeta_prefix_path "${_openmeta_prefix_path}")
+set(_openmeta_prefix_path_env "$ENV{CMAKE_PREFIX_PATH}")
+if(_openmeta_prefix_path_env AND NOT _openmeta_prefix_path_env MATCHES ";")
+  string(REPLACE ":" ";" _openmeta_prefix_path_env "${_openmeta_prefix_path_env}")
+endif()
+
+if(_openmeta_prefix_path STREQUAL "" AND NOT _openmeta_prefix_path_env STREQUAL "")
+  set(_openmeta_prefix_path "${_openmeta_prefix_path_env}")
+elseif(NOT _openmeta_prefix_path STREQUAL "" AND NOT _openmeta_prefix_path_env STREQUAL "")
+  # Merge the environment value (if any) so `cmake --install` can override
+  # without requiring a reconfigure.
+  set(_openmeta_prefix_path "${_openmeta_prefix_path};${_openmeta_prefix_path_env}")
+endif()
+
+set(_openmeta_env_vars "")
+if(NOT _openmeta_prefix_path STREQUAL "")
+  string(REPLACE ";" "\\;" _openmeta_prefix_path_escaped "${_openmeta_prefix_path}")
+  list(APPEND _openmeta_env_vars "CMAKE_PREFIX_PATH=${_openmeta_prefix_path_escaped}")
+endif()
+
+set(_openmeta_cc "@CMAKE_C_COMPILER@")
+if(NOT _openmeta_cc STREQUAL "")
+  list(APPEND _openmeta_env_vars "CC=${_openmeta_cc}")
+endif()
+set(_openmeta_cxx "@CMAKE_CXX_COMPILER@")
+if(NOT _openmeta_cxx STREQUAL "")
+  list(APPEND _openmeta_env_vars "CXX=${_openmeta_cxx}")
+endif()
+
+list(APPEND _openmeta_env_vars "SKBUILD_CMAKE_BUILD_TYPE=@CMAKE_BUILD_TYPE@")
+
+message(STATUS "Wheel env:")
+message(STATUS "  Python: @Python_EXECUTABLE@")
+if(NOT _openmeta_prefix_path STREQUAL "")
+  message(STATUS "  CMAKE_PREFIX_PATH: ${_openmeta_prefix_path}")
+else()
+  message(STATUS "  CMAKE_PREFIX_PATH: <empty>")
+endif()
+if(NOT _openmeta_cxx STREQUAL "")
+  message(STATUS "  CXX: ${_openmeta_cxx}")
+endif()
 
 execute_process(
   COMMAND "@Python_EXECUTABLE@" -c "import pip"
@@ -24,10 +63,7 @@ if(_openmeta_python_has_pip EQUAL 0)
   message(STATUS "Wheel tool: pip")
   execute_process(
     COMMAND "@CMAKE_COMMAND@" -E env
-            "CMAKE_PREFIX_PATH=${_openmeta_prefix_path}"
-            "CC=@CMAKE_C_COMPILER@"
-            "CXX=@CMAKE_CXX_COMPILER@"
-            "SKBUILD_CMAKE_BUILD_TYPE=@CMAKE_BUILD_TYPE@"
+            ${_openmeta_env_vars}
             "@Python_EXECUTABLE@" -m pip wheel "@PROJECT_SOURCE_DIR@"
               ${_openmeta_pip_args}
               -w "@_openmeta_wheel_out_dir@"
@@ -48,10 +84,7 @@ else()
   endif()
   execute_process(
     COMMAND "@CMAKE_COMMAND@" -E env
-            "CMAKE_PREFIX_PATH=${_openmeta_prefix_path}"
-            "CC=@CMAKE_C_COMPILER@"
-            "CXX=@CMAKE_CXX_COMPILER@"
-            "SKBUILD_CMAKE_BUILD_TYPE=@CMAKE_BUILD_TYPE@"
+            ${_openmeta_env_vars}
             "@OPENMETA_UV_EXECUTABLE@" --no-cache build
               --wheel
               ${_openmeta_uv_args}

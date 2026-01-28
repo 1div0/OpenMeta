@@ -10,6 +10,12 @@ OpenMeta discovers optional dependencies via `find_package(...)`. If you install
 deps into a custom prefix, pass it via `CMAKE_PREFIX_PATH` (example:
 `-DCMAKE_PREFIX_PATH=/mnt/f/UBSd`).
 
+## Versioning
+
+`VERSION` is the single source of truth for the project version:
+- CMake reads `VERSION` and sets `PROJECT_VERSION`.
+- The Python wheel version is derived from `VERSION` (via scikit-build-core metadata).
+
 ## Tests (GoogleTest)
 
 Requirements:

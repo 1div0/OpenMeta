@@ -791,36 +791,13 @@ namespace {
             "  --max-file-bytes N    refuse to read files larger than N bytes (default: 536870912; 0=unlimited)\n");
     }
 
-    static const char* on_off(bool v) noexcept { return v ? "on" : "off"; }
-
-    static const char* linkage_string(const BuildInfo& bi) noexcept
-    {
-        if (bi.linkage_static) {
-            return "static";
-        }
-        if (bi.linkage_shared) {
-            return "shared";
-        }
-        return "unknown";
-    }
-
     static void print_build_info_header()
     {
-        const BuildInfo& bi = build_info();
-        std::printf(
-            "openmeta=%.*s build=%.*s type=%.*s compiler=%.*s-%.*s system=%.*s/%.*s zlib=%s brotli=%s linkage=%s\n",
-            static_cast<int>(bi.version.size()), bi.version.data(),
-            static_cast<int>(bi.build_timestamp_utc.size()),
-            bi.build_timestamp_utc.data(),
-            static_cast<int>(bi.build_type.size()), bi.build_type.data(),
-            static_cast<int>(bi.cxx_compiler_id.size()),
-            bi.cxx_compiler_id.data(),
-            static_cast<int>(bi.cxx_compiler_version.size()),
-            bi.cxx_compiler_version.data(),
-            static_cast<int>(bi.system_name.size()), bi.system_name.data(),
-            static_cast<int>(bi.system_processor.size()),
-            bi.system_processor.data(), on_off(bi.has_zlib),
-            on_off(bi.has_brotli), linkage_string(bi));
+        std::string line1;
+        std::string line2;
+        format_build_info_lines(&line1, &line2);
+        std::printf("%s\n", line1.c_str());
+        std::printf("%s\n", line2.c_str());
     }
 
 }  // namespace

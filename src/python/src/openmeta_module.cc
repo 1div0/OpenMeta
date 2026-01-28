@@ -32,6 +32,44 @@ namespace {
         return nb::str(s.data(), s.size());
     }
 
+    static std::pair<std::string, std::string> info_lines()
+    {
+        std::string line1;
+        std::string line2;
+        format_build_info_lines(&line1, &line2);
+        return { std::move(line1), std::move(line2) };
+    }
+
+    static std::string python_info_line()
+    {
+        const char* ver = Py_GetVersion();
+        size_t n        = 0;
+        while (ver && ver[n] && ver[n] != ' ') {
+            n += 1;
+        }
+
+        std::string out;
+        out.reserve(96);
+        out.append("Python ");
+        if (ver && n != 0U) {
+            out.append(ver, n);
+        } else {
+            out.append("unknown");
+        }
+        out.append(" nanobind ");
+
+        char buf[64];
+#if defined(NB_VERSION_DEV) && (NB_VERSION_DEV > 0)
+        std::snprintf(buf, sizeof(buf), "%d.%d.%d-dev%d", NB_VERSION_MAJOR,
+                      NB_VERSION_MINOR, NB_VERSION_PATCH, NB_VERSION_DEV);
+#else
+        std::snprintf(buf, sizeof(buf), "%d.%d.%d", NB_VERSION_MAJOR,
+                      NB_VERSION_MINOR, NB_VERSION_PATCH);
+#endif
+        out.append(buf);
+        return out;
+    }
+
     static std::string arena_string(const ByteArena& arena,
                                     ByteSpan span) noexcept
     {
@@ -735,6 +773,9 @@ NB_MODULE(_openmeta, m)
         d["has_brotli"]           = nb::bool_(bi.has_brotli);
         return d;
     });
+
+    m.def("info_lines", &info_lines);
+    m.def("python_info_line", &python_info_line);
 
     m.def(
         "exif_tag_name",

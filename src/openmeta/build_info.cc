@@ -2,6 +2,8 @@
 
 #include "openmeta/build_info_generated.h"
 
+#include <string>
+
 namespace openmeta {
 namespace {
 
@@ -65,6 +67,83 @@ const BuildInfo&
 build_info() noexcept
 {
     return kBuildInfo;
+}
+
+namespace {
+
+    static const char* linkage_string(const BuildInfo& bi) noexcept
+    {
+        if (bi.linkage_static) {
+            return "static";
+        }
+        if (bi.linkage_shared) {
+            return "shared";
+        }
+        return "unknown";
+    }
+
+    static void append_sv(std::string* out, std::string_view s) noexcept
+    {
+        if (!out) {
+            return;
+        }
+        out->append(s.data(), s.size());
+    }
+
+}  // namespace
+
+void
+format_build_info_lines(const BuildInfo& bi, std::string* line1,
+                        std::string* line2) noexcept
+{
+    if (line1) {
+        line1->clear();
+        line1->reserve(128);
+        line1->append("OpenMeta v");
+        append_sv(line1, bi.version);
+        line1->append(" ");
+        append_sv(line1, bi.build_type);
+        line1->append(" [");
+        bool first = true;
+        if (bi.has_zlib) {
+            line1->append("zlib");
+            first = false;
+        }
+        if (bi.has_brotli) {
+            if (!first) {
+                line1->append(",");
+            }
+            line1->append("brotli");
+            first = false;
+        }
+        line1->append("] ");
+        line1->append(linkage_string(bi));
+    }
+
+    if (line2) {
+        line2->clear();
+        line2->reserve(160);
+        line2->append("built with ");
+        append_sv(line2, bi.cxx_compiler_id);
+        line2->append("-");
+        append_sv(line2, bi.cxx_compiler_version);
+        line2->append(" for ");
+        append_sv(line2, bi.system_name);
+        line2->append("/");
+        append_sv(line2, bi.system_processor);
+
+        if (!bi.build_timestamp_utc.empty()) {
+            line2->append(" (");
+            append_sv(line2, bi.build_timestamp_utc);
+            line2->append(")");
+        }
+    }
+}
+
+void
+format_build_info_lines(std::string* line1, std::string* line2) noexcept
+{
+    format_build_info_lines(build_info(), line1, line2);
 }
 
 }  // namespace openmeta

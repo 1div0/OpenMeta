@@ -4,15 +4,20 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "openmeta"
-version = "0.3.0"
 description = "Safe, format-agnostic metadata reads (EXIF/TIFF decoding)"
 readme = "README.md"
 requires-python = ">=3.9"
 license = { file = "LICENSE.md" }
+dynamic = ["version"]
 
 [tool.scikit-build]
 minimum-version = "build-system.requires"
 cmake.version = "CMakeLists.txt"
+
+[tool.scikit-build.metadata.version]
+provider = "scikit_build_core.metadata.regex"
+input = "VERSION"
+regex = '^\s*(?P<value>\d+\.\d+\.\d+)\s*$'
 
 [tool.scikit-build.cmake.define]
 OPENMETA_BUILD_PYTHON = "ON"

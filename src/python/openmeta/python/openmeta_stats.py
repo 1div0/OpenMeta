@@ -23,20 +23,6 @@ def _snake(name: str) -> str:
     return re.sub(r"(?<!^)([A-Z])", r"_\1", name).lower()
 
 
-def _build_info_line() -> str:
-    bi = openmeta.build_info()
-    linkage = "static" if bi.get("linkage_static") else "shared" if bi.get("linkage_shared") else "unknown"
-    zlib = "on" if bi.get("has_zlib") else "off"
-    brotli = "on" if bi.get("has_brotli") else "off"
-    return (
-        f"openmeta={bi.get('version','?')} build={bi.get('build_timestamp_utc','')} "
-        f"type={bi.get('build_type','')} "
-        f"compiler={bi.get('cxx_compiler_id','')}-{bi.get('cxx_compiler_version','')} "
-        f"system={bi.get('system_name','')}/{bi.get('system_processor','')} "
-        f"zlib={zlib} brotli={brotli} linkage={linkage}"
-    ).strip()
-
-
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(prog="openmeta_stats.py")
     ap.add_argument("files", nargs="+")
@@ -45,7 +31,10 @@ def main(argv: list[str]) -> int:
     args = ap.parse_args(argv)
 
     if not args.no_build_info:
-        print(_build_info_line())
+        l1, l2 = openmeta.info_lines()
+        print(l1)
+        print(l2)
+        print(openmeta.python_info_line())
 
     for path in args.files:
         doc = openmeta.read(path, max_file_bytes=int(args.max_file_bytes))

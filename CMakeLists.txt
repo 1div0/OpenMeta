@@ -1,6 +1,29 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(OpenMeta VERSION 0.3.0 LANGUAGES CXX)
+# Single source of truth for the project version (also used by the Python wheel).
+set(_openmeta_version_file "${CMAKE_CURRENT_LIST_DIR}/VERSION")
+if(NOT EXISTS "${_openmeta_version_file}")
+  message(FATAL_ERROR "Missing version file: ${_openmeta_version_file}")
+endif()
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${_openmeta_version_file}")
+file(READ "${_openmeta_version_file}" OPENMETA_VERSION)
+string(STRIP "${OPENMETA_VERSION}" OPENMETA_VERSION)
+if(NOT OPENMETA_VERSION MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+$")
+  message(FATAL_ERROR
+    "Invalid OpenMeta version in ${_openmeta_version_file}: '${OPENMETA_VERSION}' (expected MAJOR.MINOR.PATCH)")
+endif()
+set(OPENMETA_VERSION "${OPENMETA_VERSION}" CACHE STRING "OpenMeta project version" FORCE)
+
+# Preserve CMAKE_PREFIX_PATH in the cache so GUI tools don't lose it between runs.
+if(NOT CMAKE_PREFIX_PATH AND DEFINED ENV{CMAKE_PREFIX_PATH} AND NOT "$ENV{CMAKE_PREFIX_PATH}" STREQUAL "")
+  set(_openmeta_env_prefix_path "$ENV{CMAKE_PREFIX_PATH}")
+  if(NOT _openmeta_env_prefix_path MATCHES ";")
+    string(REPLACE ":" ";" _openmeta_env_prefix_path "${_openmeta_env_prefix_path}")
+  endif()
+  set(CMAKE_PREFIX_PATH "${_openmeta_env_prefix_path}" CACHE PATH "CMake prefix search path" FORCE)
+endif()
+
+project(OpenMeta VERSION "${OPENMETA_VERSION}" LANGUAGES CXX)
 
 option(OPENMETA_BUILD_STATIC "Build libopenmeta.a" ON)
 option(OPENMETA_BUILD_SHARED "Build libopenmeta.so/.dylib/.dll" ON)

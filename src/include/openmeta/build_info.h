@@ -1,5 +1,6 @@
 #pragma once
 
+#include <string>
 #include <string_view>
 
 /**
@@ -61,5 +62,20 @@ struct BuildInfo final {
 /// Returns build information for the linked OpenMeta library.
 const BuildInfo&
 build_info() noexcept;
+
+/**
+ * \brief Formats a stable, human-readable build info header (2 lines).
+ *
+ * Output format:
+ * - `OpenMeta vX.Y.Z <build_type> [features] <linkage>`
+ * - `built with <compiler> for <system>/<arch> (<timestamp>)`
+ */
+void
+format_build_info_lines(const BuildInfo& info, std::string* line1,
+                        std::string* line2) noexcept;
+
+/// Convenience overload for the linked OpenMeta library build.
+void
+format_build_info_lines(std::string* line1, std::string* line2) noexcept;
 
 }  // namespace openmeta

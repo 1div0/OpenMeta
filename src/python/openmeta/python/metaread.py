@@ -130,20 +130,6 @@ def _format_value(e: openmeta.Entry, *, max_elements: int, max_bytes: int) -> Tu
     return str(v), str(v)
 
 
-def _build_info_line() -> str:
-    bi = openmeta.build_info()
-    linkage = "static" if bi.get("linkage_static") else "shared" if bi.get("linkage_shared") else "unknown"
-    zlib = "on" if bi.get("has_zlib") else "off"
-    brotli = "on" if bi.get("has_brotli") else "off"
-    return (
-        f"openmeta={bi.get('version','?')} build={bi.get('build_timestamp_utc','')} "
-        f"type={bi.get('build_type','')} "
-        f"compiler={bi.get('cxx_compiler_id','')}-{bi.get('cxx_compiler_version','')} "
-        f"system={bi.get('system_name','')}/{bi.get('system_processor','')} "
-        f"zlib={zlib} brotli={brotli} linkage={linkage}"
-    ).strip()
-
-
 def _iter_exif_entries(doc: openmeta.Document) -> Iterable[openmeta.Entry]:
     for i in range(int(doc.entry_count)):
         e = doc[i]
@@ -170,7 +156,10 @@ def main(argv: list[str]) -> int:
     args = ap.parse_args(argv)
 
     if not args.no_build_info:
-        print(_build_info_line())
+        l1, l2 = openmeta.info_lines()
+        print(l1)
+        print(l2)
+        print(openmeta.python_info_line())
 
     for path in args.files:
         doc = openmeta.read(

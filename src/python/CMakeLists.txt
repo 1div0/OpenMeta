@@ -1,7 +1,61 @@
 include_guard(GLOBAL)
 
 find_package(Python REQUIRED COMPONENTS Interpreter Development.Module OPTIONAL_COMPONENTS Development.SABIModule)
-find_package(nanobind CONFIG REQUIRED)
+find_package(nanobind CONFIG QUIET)
+if(NOT nanobind_FOUND)
+  # Nanobind installs its CMake package config under different layouts depending
+  # on how it was built. One common variant is:
+  #   <prefix>/nanobind/cmake/nanobind-config.cmake
+  #
+  # If the user points CMAKE_PREFIX_PATH at <prefix>, teach CMake where to find
+  # nanobind without requiring an explicit `-Dnanobind_DIR=...`.
+  foreach(_openmeta_prefix IN LISTS CMAKE_PREFIX_PATH)
+    if(EXISTS "${_openmeta_prefix}/nanobind/cmake/nanobind-config.cmake"
+       OR EXISTS "${_openmeta_prefix}/nanobind/cmake/nanobindConfig.cmake")
+      set(nanobind_DIR "${_openmeta_prefix}/nanobind/cmake")
+      break()
+    endif()
+  endforeach()
+  if(nanobind_DIR)
+    find_package(nanobind CONFIG QUIET)
+  endif()
+
+  set(_openmeta_nanobind_cmake_dir "")
+
+  execute_process(
+    COMMAND "${Python_EXECUTABLE}" -c
+            "import nanobind, sys; p=getattr(nanobind,'cmake_dir',None); print(p() if callable(p) else '')"
+    RESULT_VARIABLE _openmeta_nanobind_py_res
+    OUTPUT_VARIABLE _openmeta_nanobind_py_dir
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET
+  )
+  if(_openmeta_nanobind_py_res EQUAL 0 AND _openmeta_nanobind_py_dir)
+    set(_openmeta_nanobind_cmake_dir "${_openmeta_nanobind_py_dir}")
+  else()
+    execute_process(
+      COMMAND "${Python_EXECUTABLE}" -m nanobind --cmakedir
+      RESULT_VARIABLE _openmeta_nanobind_mod_res
+      OUTPUT_VARIABLE _openmeta_nanobind_mod_dir
+      OUTPUT_STRIP_TRAILING_WHITESPACE
+      ERROR_QUIET
+    )
+    if(_openmeta_nanobind_mod_res EQUAL 0 AND _openmeta_nanobind_mod_dir)
+      set(_openmeta_nanobind_cmake_dir "${_openmeta_nanobind_mod_dir}")
+    endif()
+  endif()
+
+  if(_openmeta_nanobind_cmake_dir AND
+     EXISTS "${_openmeta_nanobind_cmake_dir}/nanobindConfig.cmake")
+    set(nanobind_DIR "${_openmeta_nanobind_cmake_dir}")
+    find_package(nanobind CONFIG REQUIRED)
+  else()
+    message(FATAL_ERROR
+      "Could not find nanobind. Set CMAKE_PREFIX_PATH or nanobind_DIR to a prefix containing "
+      "nanobindConfig.cmake, or install nanobind into ${Python_EXECUTABLE} (pip install nanobind)."
+    )
+  endif()
+endif()
 
 set(OPENMETA_PYTHON_VERSION "${Python_VERSION}" PARENT_SCOPE)
 set(OPENMETA_NANOBIND_FOUND 1 PARENT_SCOPE)
