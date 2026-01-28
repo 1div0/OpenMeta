@@ -35,6 +35,14 @@ Core toggles:
 - ``OPENMETA_WITH_EXPAT``: enable XMP packet parsing when Expat is available.
 - ``OPENMETA_USE_LIBCXX``: build against ``libc++`` (useful when deps were built with ``libc++``).
 
+Optional dependency notes:
+
+- zlib enables Deflate decompression (for example, PNG ``iCCP`` and compressed
+  text/XMP chunks).
+- Brotli enables JPEG XL ``brob`` compressed metadata decoding.
+- Expat enables parsing XMP RDF/XML into structured properties. Without it,
+  OpenMeta still locates XMP blocks but does not decode them into entries.
+
 Docs (optional):
 
 - ``OPENMETA_BUILD_DOCS``: generate Doxygen HTML on ``install``.

@@ -9,6 +9,21 @@ Repository layout (public):
 - ``src/python/``: Python bindings and helper scripts
 - ``tests/``: unit tests and fuzz targets
 
+Optional dependencies
+---------------------
+
+OpenMeta’s core scanning and EXIF/TIFF decoding do not require third-party
+libraries. Some metadata payloads are compressed or structured; these optional
+dependencies let OpenMeta decode more content:
+
+- **Expat** (``OPENMETA_WITH_EXPAT``): parses XMP RDF/XML packets (embedded
+  blocks and ``.xmp`` sidecars) using a streaming parser with strict limits.
+- **zlib** (``OPENMETA_WITH_ZLIB``): inflates Deflate-compressed payloads such
+  as PNG ``iCCP`` (ICC profiles) and compressed text/XMP chunks (``iTXt``,
+  ``zTXt``).
+- **Brotli** (``OPENMETA_WITH_BROTLI``): decompresses JPEG XL ``brob`` “compressed
+  metadata” boxes so wrapped metadata payloads can be decoded.
+
 CLI tool
 --------
 

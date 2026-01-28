@@ -10,6 +10,21 @@ OpenMeta discovers optional dependencies via `find_package(...)`. If you install
 deps into a custom prefix, pass it via `CMAKE_PREFIX_PATH` (example:
 `-DCMAKE_PREFIX_PATH=/mnt/f/UBSd`).
 
+## Optional Dependencies (Why They Exist)
+
+OpenMeta’s core scanning and EXIF/TIFF decoding do not require third-party
+libraries. Some metadata payloads are compressed or structured; these optional
+dependencies let OpenMeta decode more content:
+
+- **Expat** (`OPENMETA_WITH_EXPAT`): parses XMP RDF/XML packets (embedded blocks
+  and `.xmp` sidecars). Expat is used as a streaming parser so OpenMeta can
+  enforce strict limits and avoid building a full XML DOM from untrusted input.
+- **zlib** (`OPENMETA_WITH_ZLIB`): inflates Deflate-compressed payloads,
+  including PNG `iCCP` (ICC profiles) and compressed text/XMP chunks (`iTXt`,
+  `zTXt`).
+- **Brotli** (`OPENMETA_WITH_BROTLI`): decompresses JPEG XL `brob` “compressed
+  metadata” boxes so wrapped metadata payloads can be decoded.
+
 If you link against dependencies that were built with `libc++` (common when
 using Clang), configure OpenMeta with:
 
