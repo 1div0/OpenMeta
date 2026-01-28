@@ -32,6 +32,8 @@ Docs (optional):
 
 - ``OPENMETA_BUILD_DOCS``: generate Doxygen HTML on ``install``.
 - ``OPENMETA_BUILD_SPHINX_DOCS``: generate a Sphinx site (Doxygen XML + Breathe).
+- ``OPENMETA_PYTHON_EXECUTABLE``: override the Python interpreter used for Sphinx
+  (useful for uv/venv/conda when CMake would otherwise pick system Python).
 
 If you install dependencies into a custom prefix, provide it via
 ``CMAKE_PREFIX_PATH``.
@@ -39,4 +41,3 @@ If you install dependencies into a custom prefix, provide it via
 .. code-block:: bash
 
    cmake -S . -B build -DCMAKE_PREFIX_PATH=/mnt/f/UBS
-

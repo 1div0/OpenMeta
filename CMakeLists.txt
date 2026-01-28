@@ -19,6 +19,19 @@ option(OPENMETA_WITH_BROTLI "Enable brotli payload decompression" ON)
 
 include(GNUInstallDirs)
 
+# Python interpreter override.
+#
+# CMake caches the discovered interpreter in the build directory, and CMake GUI
+# often runs outside of an activated environment (uv/venv/conda). To ensure docs
+# and wheel builds use the intended Python, provide an explicit interpreter here.
+set(OPENMETA_PYTHON_EXECUTABLE "" CACHE FILEPATH "Override Python interpreter used by OpenMeta (docs/wheel/bindings)")
+if(OPENMETA_PYTHON_EXECUTABLE)
+  if(NOT EXISTS "${OPENMETA_PYTHON_EXECUTABLE}")
+    message(FATAL_ERROR "OPENMETA_PYTHON_EXECUTABLE does not exist: ${OPENMETA_PYTHON_EXECUTABLE}")
+  endif()
+  set(Python_EXECUTABLE "${OPENMETA_PYTHON_EXECUTABLE}" CACHE FILEPATH "Python interpreter" FORCE)
+endif()
+
 # Optional path to local dependency repos (used for the FuzzTest wrapper).
 # Expected layout:
 #   <root>/fuzztest
