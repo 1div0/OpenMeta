@@ -103,7 +103,9 @@ python3 -m openmeta.python.metaread file.jpg
 ```
 Or via CMake:
 ```bash
-cmake -S . -B build-wheel -G Ninja -DCMAKE_BUILD_TYPE=Release -DOPENMETA_BUILD_WHEEL=ON
+cmake -S . -B build-wheel -G Ninja -DCMAKE_BUILD_TYPE=Release \
+  -DOPENMETA_BUILD_WHEEL=ON \
+  -DOPENMETA_PYTHON_EXECUTABLE=/path/to/venv/bin/python3
 cmake --build build-wheel --target openmeta_wheel
 ```
 

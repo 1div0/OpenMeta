@@ -1,6 +1,7 @@
+#include "openmeta/build_info.h"
+#include "openmeta/console_format.h"
 #include "openmeta/container_payload.h"
 #include "openmeta/container_scan.h"
-#include "openmeta/console_format.h"
 #include "openmeta/exif_tag_names.h"
 #include "openmeta/exif_tiff_decode.h"
 #include "openmeta/meta_key.h"
@@ -454,8 +455,8 @@ namespace {
             return;
         case MetaValueKind::Text: {
             const std::string_view s = arena_string(arena, value.data.span);
-            const bool dangerous
-                = append_console_escaped_ascii(s, max_bytes, raw_out);
+            const bool dangerous = append_console_escaped_ascii(s, max_bytes,
+                                                                raw_out);
             if (dangerous) {
                 val_out->append("(DANGEROUS) ");
                 val_out->append(*raw_out);
@@ -775,6 +776,8 @@ namespace {
     {
         std::printf("usage: %s [options] <file> [file...]\n", argv0);
         std::printf("options:\n");
+        std::printf("  --version            print build info and exit\n");
+        std::printf("  --no-build-info      hide build info header\n");
         std::printf("  --no-blocks           hide container block summary\n");
         std::printf(
             "  --no-pointer-tags     do not store pointer tags (0x8769/0x8825/0xA005/0x014A)\n");
@@ -788,6 +791,38 @@ namespace {
             "  --max-file-bytes N    refuse to read files larger than N bytes (default: 536870912; 0=unlimited)\n");
     }
 
+    static const char* on_off(bool v) noexcept { return v ? "on" : "off"; }
+
+    static const char* linkage_string(const BuildInfo& bi) noexcept
+    {
+        if (bi.linkage_static) {
+            return "static";
+        }
+        if (bi.linkage_shared) {
+            return "shared";
+        }
+        return "unknown";
+    }
+
+    static void print_build_info_header()
+    {
+        const BuildInfo& bi = build_info();
+        std::printf(
+            "openmeta=%.*s build=%.*s type=%.*s compiler=%.*s-%.*s system=%.*s/%.*s zlib=%s brotli=%s linkage=%s\n",
+            static_cast<int>(bi.version.size()), bi.version.data(),
+            static_cast<int>(bi.build_timestamp_utc.size()),
+            bi.build_timestamp_utc.data(),
+            static_cast<int>(bi.build_type.size()), bi.build_type.data(),
+            static_cast<int>(bi.cxx_compiler_id.size()),
+            bi.cxx_compiler_id.data(),
+            static_cast<int>(bi.cxx_compiler_version.size()),
+            bi.cxx_compiler_version.data(),
+            static_cast<int>(bi.system_name.size()), bi.system_name.data(),
+            static_cast<int>(bi.system_processor.size()),
+            bi.system_processor.data(), on_off(bi.has_zlib),
+            on_off(bi.has_brotli), linkage_string(bi));
+    }
+
 }  // namespace
 }  // namespace openmeta
 
@@ -796,7 +831,8 @@ main(int argc, char** argv)
 {
     using namespace openmeta;
 
-    bool show_blocks = true;
+    bool show_blocks     = true;
+    bool show_build_info = true;
     ExifDecodeOptions exif_options;
     exif_options.include_pointer_tags = true;
     uint32_t max_elements             = 16;
@@ -813,6 +849,15 @@ main(int argc, char** argv)
         if (std::strcmp(arg, "--help") == 0) {
             usage(argv[0]);
             return 0;
+        }
+        if (std::strcmp(arg, "--version") == 0) {
+            print_build_info_header();
+            return 0;
+        }
+        if (std::strcmp(arg, "--no-build-info") == 0) {
+            show_build_info = false;
+            first_path += 1;
+            continue;
         }
         if (std::strcmp(arg, "--no-blocks") == 0) {
             show_blocks = false;
@@ -874,6 +919,10 @@ main(int argc, char** argv)
     if (argc <= first_path) {
         usage(argv[0]);
         return 2;
+    }
+
+    if (show_build_info) {
+        print_build_info_header();
     }
 
     int exit_code = 0;

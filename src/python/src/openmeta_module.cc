@@ -1,3 +1,4 @@
+#include "openmeta/build_info.h"
 #include "openmeta/console_format.h"
 #include "openmeta/container_payload.h"
 #include "openmeta/exif_tag_names.h"
@@ -13,11 +14,11 @@
 #include <bit>
 #include <cstdio>
 #include <cstring>
-#include <utility>
 #include <memory>
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace nb = nanobind;
@@ -25,6 +26,11 @@ using namespace nb::literals;
 
 namespace openmeta {
 namespace {
+
+    static nb::str sv_to_py(std::string_view s)
+    {
+        return nb::str(s.data(), s.size());
+    }
 
     static std::string arena_string(const ByteArena& arena,
                                     ByteSpan span) noexcept
@@ -34,8 +40,8 @@ namespace {
                            bytes.size());
     }
 
-    static std::pair<std::string, bool>
-    console_text(nb::bytes data, uint32_t max_bytes)
+    static std::pair<std::string, bool> console_text(nb::bytes data,
+                                                     uint32_t max_bytes)
     {
         const std::string_view s(reinterpret_cast<const char*>(data.data()),
                                  data.size());
@@ -60,9 +66,9 @@ namespace {
         if (max_bytes != 0U && n > static_cast<size_t>(max_bytes)) {
             n = static_cast<size_t>(max_bytes);
         }
-        PyObject* s = PyUnicode_DecodeLatin1(
-            reinterpret_cast<const char*>(data.data()),
-            static_cast<Py_ssize_t>(n), nullptr);
+        PyObject* s
+            = PyUnicode_DecodeLatin1(reinterpret_cast<const char*>(data.data()),
+                                     static_cast<Py_ssize_t>(n), nullptr);
         if (!s) {
             nb::raise_python_error();
         }
@@ -704,11 +710,31 @@ NB_MODULE(_openmeta, m)
           "decompress"_a     = true,
           "max_file_bytes"_a = 512ULL * 1024ULL * 1024ULL);
 
-    m.def("console_text", &console_text, "data"_a,
-          "max_bytes"_a = 4096U);
+    m.def("console_text", &console_text, "data"_a, "max_bytes"_a = 4096U);
     m.def("hex_bytes", &hex_bytes, "data"_a, "max_bytes"_a = 4096U);
     m.def("unsafe_text", &unsafe_text, "data"_a, "max_bytes"_a = 4096U);
     m.def("unsafe_test", &unsafe_text, "data"_a, "max_bytes"_a = 4096U);
+
+    m.def("build_info", []() {
+        const BuildInfo& bi = build_info();
+        nb::dict d;
+        d["version"]              = sv_to_py(bi.version);
+        d["build_timestamp_utc"]  = sv_to_py(bi.build_timestamp_utc);
+        d["build_type"]           = sv_to_py(bi.build_type);
+        d["cmake_generator"]      = sv_to_py(bi.cmake_generator);
+        d["system_name"]          = sv_to_py(bi.system_name);
+        d["system_processor"]     = sv_to_py(bi.system_processor);
+        d["cxx_compiler_id"]      = sv_to_py(bi.cxx_compiler_id);
+        d["cxx_compiler_version"] = sv_to_py(bi.cxx_compiler_version);
+        d["cxx_compiler"]         = sv_to_py(bi.cxx_compiler);
+        d["linkage_static"]       = nb::bool_(bi.linkage_static);
+        d["linkage_shared"]       = nb::bool_(bi.linkage_shared);
+        d["option_with_zlib"]     = nb::bool_(bi.option_with_zlib);
+        d["option_with_brotli"]   = nb::bool_(bi.option_with_brotli);
+        d["has_zlib"]             = nb::bool_(bi.has_zlib);
+        d["has_brotli"]           = nb::bool_(bi.has_brotli);
+        return d;
+    });
 
     m.def(
         "exif_tag_name",

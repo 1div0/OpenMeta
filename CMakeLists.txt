@@ -19,6 +19,8 @@ option(OPENMETA_WITH_BROTLI "Enable brotli payload decompression" ON)
 
 include(GNUInstallDirs)
 
+set(OPENMETA_BUILD_TIMESTAMP "" CACHE STRING "Build timestamp in UTC (ISO-8601). Leave empty to set on first configure")
+
 # Python interpreter override.
 #
 # CMake caches the discovered interpreter in the build directory, and CMake GUI
@@ -82,7 +84,32 @@ if(OPENMETA_BROTLI_FOUND)
   set(OPENMETA_CONFIG_HAS_BROTLI 1)
 endif()
 
+if(OPENMETA_BUILD_TIMESTAMP STREQUAL "")
+  string(TIMESTAMP _openmeta_ts "%Y-%m-%dT%H:%M:%SZ" UTC)
+  set(OPENMETA_BUILD_TIMESTAMP "${_openmeta_ts}" CACHE STRING "Build timestamp in UTC (ISO-8601). Leave empty to set on first configure" FORCE)
+endif()
+
+set(OPENMETA_BUILDINFO_BUILD_TYPE "unknown")
+if(CMAKE_CONFIGURATION_TYPES)
+  set(OPENMETA_BUILDINFO_BUILD_TYPE "multi-config")
+elseif(CMAKE_BUILD_TYPE)
+  set(OPENMETA_BUILDINFO_BUILD_TYPE "${CMAKE_BUILD_TYPE}")
+endif()
+
+set(OPENMETA_BUILDINFO_TIMESTAMP_UTC "${OPENMETA_BUILD_TIMESTAMP}")
+set(OPENMETA_BUILDINFO_WITH_ZLIB "${OPENMETA_WITH_ZLIB}")
+set(OPENMETA_BUILDINFO_WITH_BROTLI "${OPENMETA_WITH_BROTLI}")
+
+set(_openmeta_generated_include_dir "${CMAKE_CURRENT_BINARY_DIR}/generated/include")
+file(MAKE_DIRECTORY "${_openmeta_generated_include_dir}/openmeta")
+configure_file(
+  "${PROJECT_SOURCE_DIR}/cmake/OpenMetaBuildInfoGenerated.h.in"
+  "${_openmeta_generated_include_dir}/openmeta/build_info_generated.h"
+  @ONLY
+)
+
 set(OPENMETA_SOURCES
+  src/openmeta/build_info.cc
   src/openmeta/console_format.cc
   src/openmeta/byte_arena.cc
   src/openmeta/container_payload.cc
@@ -101,12 +128,16 @@ if(OPENMETA_BUILD_STATIC)
   openmeta_apply_target_settings(openmeta_static)
   set_target_properties(openmeta_static PROPERTIES OUTPUT_NAME openmeta EXPORT_NAME openmeta_static)
   set_target_properties(openmeta_static PROPERTIES POSITION_INDEPENDENT_CODE ON)
+  target_compile_definitions(openmeta_static PRIVATE OPENMETA_BUILD_LINKAGE_STATIC=1)
+  target_include_directories(openmeta_static PRIVATE "${_openmeta_generated_include_dir}")
 endif()
 
 if(OPENMETA_BUILD_SHARED)
   add_library(openmeta_shared SHARED ${OPENMETA_SOURCES})
   openmeta_apply_target_settings(openmeta_shared)
   set_target_properties(openmeta_shared PROPERTIES OUTPUT_NAME openmeta EXPORT_NAME openmeta_shared)
+  target_compile_definitions(openmeta_shared PRIVATE OPENMETA_BUILD_LINKAGE_SHARED=1)
+  target_include_directories(openmeta_shared PRIVATE "${_openmeta_generated_include_dir}")
 endif()
 
 foreach(_tgt IN ITEMS openmeta_static openmeta_shared)
@@ -146,6 +177,20 @@ if(OPENMETA_BUILD_WHEEL)
     RESULT_VARIABLE _openmeta_python_has_pip
     OUTPUT_QUIET ERROR_QUIET
   )
+
+  if(OPENMETA_WHEEL_NO_BUILD_ISOLATION)
+    execute_process(
+      COMMAND "${Python_EXECUTABLE}" -c "import scikit_build_core"
+      RESULT_VARIABLE _openmeta_python_has_scikit_build_core
+      OUTPUT_QUIET ERROR_QUIET
+    )
+    if(NOT _openmeta_python_has_scikit_build_core EQUAL 0)
+      message(FATAL_ERROR
+        "OPENMETA_WHEEL_NO_BUILD_ISOLATION requires Python package 'scikit-build-core' (module 'scikit_build_core') "
+        "for: ${Python_EXECUTABLE}. Install it into that interpreter (e.g. pip install scikit-build-core), "
+        "or set OPENMETA_WHEEL_NO_BUILD_ISOLATION=OFF.")
+    endif()
+  endif()
 
   set(_openmeta_wheel_env_prefix_path "${CMAKE_PREFIX_PATH}")
   string(REPLACE ";" "\\;" _openmeta_wheel_env_prefix_path "${_openmeta_wheel_env_prefix_path}")

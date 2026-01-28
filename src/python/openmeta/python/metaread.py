@@ -9,7 +9,16 @@ import sys
 from collections import defaultdict
 from typing import Iterable, Tuple
 
-import openmeta
+try:
+    import openmeta
+except ModuleNotFoundError:
+    sys.stderr.write("error: Python module 'openmeta' was not found.\n")
+    sys.stderr.write("Run this script with the same Python environment where the OpenMeta wheel is installed.\n")
+    sys.stderr.write("\n")
+    sys.stderr.write("Examples:\n")
+    sys.stderr.write("  uv run python -m openmeta.python.metaread <file>\n")
+    sys.stderr.write("  /path/to/venv/bin/python -m openmeta.python.metaread <file>\n")
+    raise SystemExit(2)
 
 
 def _snake(name: str) -> str:
@@ -121,6 +130,20 @@ def _format_value(e: openmeta.Entry, *, max_elements: int, max_bytes: int) -> Tu
     return str(v), str(v)
 
 
+def _build_info_line() -> str:
+    bi = openmeta.build_info()
+    linkage = "static" if bi.get("linkage_static") else "shared" if bi.get("linkage_shared") else "unknown"
+    zlib = "on" if bi.get("has_zlib") else "off"
+    brotli = "on" if bi.get("has_brotli") else "off"
+    return (
+        f"openmeta={bi.get('version','?')} build={bi.get('build_timestamp_utc','')} "
+        f"type={bi.get('build_type','')} "
+        f"compiler={bi.get('cxx_compiler_id','')}-{bi.get('cxx_compiler_version','')} "
+        f"system={bi.get('system_name','')}/{bi.get('system_processor','')} "
+        f"zlib={zlib} brotli={brotli} linkage={linkage}"
+    ).strip()
+
+
 def _iter_exif_entries(doc: openmeta.Document) -> Iterable[openmeta.Entry]:
     for i in range(int(doc.entry_count)):
         e = doc[i]
@@ -131,6 +154,7 @@ def _iter_exif_entries(doc: openmeta.Document) -> Iterable[openmeta.Entry]:
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(prog="metaread.py")
     ap.add_argument("files", nargs="+")
+    ap.add_argument("--no-build-info", action="store_true", help="hide OpenMeta build info header")
     ap.add_argument("--no-blocks", action="store_true", help="hide container block summary")
     ap.add_argument("--no-pointer-tags", action="store_true", help="do not store pointer tags")
     ap.add_argument("--no-decompress", action="store_true", help="do not decompress payloads")
@@ -144,6 +168,9 @@ def main(argv: list[str]) -> int:
         help="refuse to read files larger than N bytes (0=unlimited)",
     )
     args = ap.parse_args(argv)
+
+    if not args.no_build_info:
+        print(_build_info_line())
 
     for path in args.files:
         doc = openmeta.read(
