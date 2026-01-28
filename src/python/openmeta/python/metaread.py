@@ -70,6 +70,54 @@ def _truncate_cell(s: str, max_chars: int) -> str:
     return s
 
 
+def _fourcc_str(v: int) -> str:
+    b = bytes([(v >> 24) & 0xFF, (v >> 16) & 0xFF, (v >> 8) & 0xFF, v & 0xFF])
+    if all(0x20 <= c <= 0x7E for c in b):
+        return b.decode("ascii", errors="replace")
+    return f"0x{v:08X}"
+
+
+def _icc_header_field_name(offset: int) -> str:
+    return {
+        0: "profile_size",
+        4: "cmm_type",
+        8: "version",
+        12: "class",
+        16: "data_space",
+        20: "pcs",
+        24: "date_time",
+        36: "signature",
+        40: "platform",
+        44: "flags",
+        48: "manufacturer",
+        52: "model",
+        56: "attributes",
+        64: "rendering_intent",
+        68: "pcs_illuminant",
+        80: "creator",
+        84: "profile_id",
+    }.get(offset, "-")
+
+
+def _photoshop_resource_name(rid: int) -> str:
+    return {
+        0x0404: "IPTC_NAA",
+        0x0422: "EXIF_DATA_1",
+        0x0423: "EXIF_DATA_3",
+    }.get(rid, "-")
+
+
+def _looks_ascii(data: bytes) -> bool:
+    if not data:
+        return False
+    if b"\x00" in data:
+        return False
+    for c in data:
+        if c < 0x09 or (0x0D < c < 0x20) or c > 0x7E:
+            return False
+    return True
+
+
 def _val_type(e: openmeta.Entry) -> str:
     k = e.value_kind
     if k == openmeta.MetaValueKind.Empty:
@@ -101,6 +149,16 @@ def _format_value(e: openmeta.Entry, *, max_elements: int, max_bytes: int) -> Tu
         return "-", "-"
 
     if isinstance(v, bytes):
+        if e.key_kind == openmeta.MetaKeyKind.IptcDataset and _looks_ascii(v):
+            raw_hex = openmeta.hex_bytes(v, max_bytes=int(max_bytes))
+            text, dangerous = openmeta.console_text(v, max_bytes=int(max_bytes))
+            val = text if not dangerous else "(DANGEROUS) " + text
+            return raw_hex, val
+
+        if e.key_kind == openmeta.MetaKeyKind.IccHeaderField and len(v) == 4 and _looks_ascii(v):
+            raw_hex = openmeta.hex_bytes(v, max_bytes=int(max_bytes))
+            return raw_hex, v.decode("ascii", errors="replace")
+
         if e.value_kind == openmeta.MetaValueKind.Text:
             raw, dangerous = openmeta.console_text(v, max_bytes=int(max_bytes))
             val = raw if not dangerous else "(DANGEROUS) " + raw
@@ -191,46 +249,90 @@ def main(argv: list[str]) -> int:
                     )
                 )
 
-        print(f"exif={_snake(doc.exif_status.name)} ifds_decoded={doc.block_count} entries={doc.entry_count}")
+        print(
+            f"exif={_snake(doc.exif_status.name)} ifds_decoded={doc.exif_ifds_decoded} "
+            f"entries={doc.entry_count} blocks={doc.block_count}"
+        )
 
-        if doc.exif_status != openmeta.ExifDecodeStatus.Ok:
-            continue
+        by_block: dict[int, list[openmeta.Entry]] = defaultdict(list)
+        for i in range(int(doc.entry_count)):
+            e = doc[i]
+            by_block[int(e.origin_block)].append(e)
 
-        by_ifd_block: dict[Tuple[int, str], list[openmeta.Entry]] = defaultdict(list)
-        for e in _iter_exif_entries(doc):
-            ifd = e.ifd or ""
-            by_ifd_block[(int(e.origin_block), str(ifd))].append(e)
-
-        for (block_id, ifd), entries in sorted(by_ifd_block.items()):
+        for block_id in sorted(by_block.keys()):
+            entries = by_block[block_id]
             entries.sort(key=lambda x: int(x.origin_order))
 
-            width = 119
+            if entries and entries[0].key_kind == openmeta.MetaKeyKind.ExifTag:
+                # Group by IFD token inside the EXIF block.
+                by_ifd: dict[str, list[openmeta.Entry]] = defaultdict(list)
+                for e in entries:
+                    by_ifd[str(e.ifd or "")].append(e)
+
+                for ifd, ifd_entries in sorted(by_ifd.items()):
+                    width = 119
+                    print("=" * width)
+                    print(f" ifd={ifd} block={block_id} entries={len(ifd_entries)}")
+                    print("=" * width)
+                    print(
+                        " idx | ifd    | name               | tag    | tag type     | count | type       | raw val                        | val"
+                    )
+                    print("-" * width)
+
+                    for idx, e in enumerate(ifd_entries):
+                        tag = e.tag if e.tag is not None else 0
+                        name = e.name if e.name is not None else "-"
+                        ifd_short = (e.ifd or "-")[:6]
+
+                        type_code = int(e.wire_type_code)
+                        type_name = _tiff_type_name(type_code)
+                        tag_type = f"{type_code}({type_name})"
+
+                        raw, val = _format_value(e, max_elements=args.max_elements, max_bytes=args.max_bytes)
+                        raw = _truncate_cell(raw, args.max_cell_chars)
+                        val = _truncate_cell(val, args.max_cell_chars)
+
+                        print(
+                            f"{idx:4d} | {ifd_short:<6} | {_truncate_cell(str(name), 18):<18} | "
+                            f"0x{int(tag):04X} | {_truncate_cell(tag_type, 12):<12} | "
+                            f"{int(e.wire_count):5d} | {_truncate_cell(_val_type(e), 10):<10} | "
+                            f"{raw:<30} | {val}"
+                        )
+                    print("=" * width)
+                continue
+
+            # Generic non-EXIF block table.
+            width = 100
             print("=" * width)
-            print(f" ifd={ifd} block={block_id} entries={len(entries)}")
+            if entries:
+                print(f" kind={_snake(entries[0].key_kind.name)} block={block_id} entries={len(entries)}")
+            else:
+                print(f" block={block_id} entries=0")
             print("=" * width)
-            print(
-                " idx | ifd    | name               | tag    | tag type     | count | type       | raw val                        | val"
-            )
+            print(" idx | key            | name            | type       | raw val                        | val")
             print("-" * width)
 
             for idx, e in enumerate(entries):
-                tag = e.tag if e.tag is not None else 0
-                name = e.name if e.name is not None else "-"
-                ifd_short = (e.ifd or "-")[:6]
-
-                type_code = int(e.wire_type_code)
-                type_name = _tiff_type_name(type_code)
-                tag_type = f"{type_code}({type_name})"
+                key = "-"
+                name = "-"
+                if e.key_kind == openmeta.MetaKeyKind.IptcDataset:
+                    key = f"{int(e.iptc_record)}:{int(e.iptc_dataset)}"
+                elif e.key_kind == openmeta.MetaKeyKind.PhotoshopIrb:
+                    key = f"0x{int(e.photoshop_resource_id):04X}"
+                    name = _photoshop_resource_name(int(e.photoshop_resource_id))
+                elif e.key_kind == openmeta.MetaKeyKind.IccHeaderField:
+                    key = f"0x{int(e.icc_header_offset):X}"
+                    name = _icc_header_field_name(int(e.icc_header_offset))
+                elif e.key_kind == openmeta.MetaKeyKind.IccTag:
+                    key = _fourcc_str(int(e.icc_tag_signature))
 
                 raw, val = _format_value(e, max_elements=args.max_elements, max_bytes=args.max_bytes)
                 raw = _truncate_cell(raw, args.max_cell_chars)
                 val = _truncate_cell(val, args.max_cell_chars)
 
                 print(
-                    f"{idx:4d} | {ifd_short:<6} | {_truncate_cell(str(name), 18):<18} | "
-                    f"0x{int(tag):04X} | {_truncate_cell(tag_type, 12):<12} | "
-                    f"{int(e.wire_count):5d} | {_truncate_cell(_val_type(e), 10):<10} | "
-                    f"{raw:<30} | {val}"
+                    f"{idx:4d} | {_truncate_cell(key, 12):<12} | {_truncate_cell(name, 14):<14} | "
+                    f"{_truncate_cell(_val_type(e), 10):<10} | {raw:<30} | {val}"
                 )
             print("=" * width)
 

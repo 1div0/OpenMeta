@@ -12,8 +12,10 @@ Repository layout (public):
 CLI tool
 --------
 
-``metaread`` prints a human-readable dump of blocks and EXIF tags. Output is
-ASCII-only and truncated by default to reduce terminal injection risk.
+``metaread`` prints a human-readable dump of blocks and decoded entries
+(EXIF/TIFF-IFD tags, IPTC-IIM datasets, ICC profile fields/tags, and Photoshop
+IRB resource blocks). Output is ASCII-only and truncated by default to reduce
+terminal injection risk.
 
 Python
 ------
@@ -38,4 +40,3 @@ Sphinx docs require:
    uv pip install -r docs/requirements.txt
    cmake -S . -B build -DOPENMETA_BUILD_SPHINX_DOCS=ON
    cmake --build build --target openmeta_docs_sphinx
-

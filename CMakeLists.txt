@@ -39,6 +39,7 @@ option(OPENMETA_BUILD_WHEEL "Add an `openmeta_wheel` target (Python wheel build)
 option(OPENMETA_WHEEL_NO_BUILD_ISOLATION "Build wheel without isolation (requires scikit-build-core installed)" OFF)
 option(OPENMETA_WITH_ZLIB "Enable zlib/deflate payload decompression" ON)
 option(OPENMETA_WITH_BROTLI "Enable brotli payload decompression" ON)
+option(OPENMETA_USE_LIBCXX "Use libc++ as the C++ standard library (Clang)" OFF)
 
 include(GNUInstallDirs)
 
@@ -67,6 +68,14 @@ set(OPENMETA_DEPS_REPOS_ROOT "" CACHE PATH "Path to local dependency repos for o
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+
+if(OPENMETA_USE_LIBCXX)
+  if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    message(FATAL_ERROR "OPENMETA_USE_LIBCXX requires Clang.")
+  endif()
+  add_compile_options(-stdlib=libc++)
+  add_link_options(-stdlib=libc++)
+endif()
 
 if(NOT OPENMETA_BUILD_STATIC AND NOT OPENMETA_BUILD_SHARED)
   message(FATAL_ERROR "Enable at least one of OPENMETA_BUILD_STATIC/OPENMETA_BUILD_SHARED.")
@@ -137,12 +146,15 @@ set(OPENMETA_SOURCES
   src/openmeta/byte_arena.cc
   src/openmeta/container_payload.cc
   src/openmeta/container_scan.cc
+  src/openmeta/icc_decode.cc
   src/openmeta/exif_tag_names.cc
   src/openmeta/exif_tiff_decode.cc
+  src/openmeta/iptc_iim_decode.cc
   src/openmeta/meta_edit.cc
   src/openmeta/meta_key.cc
   src/openmeta/meta_store.cc
   src/openmeta/meta_value.cc
+  src/openmeta/photoshop_irb_decode.cc
   src/openmeta/simple_meta.cc
 )
 
@@ -330,9 +342,12 @@ if(OPENMETA_BUILD_TESTS)
   add_executable(openmeta_tests
     tests/container_payload_test.cc
     tests/container_scan_test.cc
+    tests/icc_decode_test.cc
     tests/exif_tag_names_test.cc
     tests/exif_tiff_decode_test.cc
+    tests/iptc_iim_decode_test.cc
     tests/meta_store_test.cc
+    tests/photoshop_irb_decode_test.cc
   )
   target_link_libraries(openmeta_tests PRIVATE ${OPENMETA_LIB_TARGET} gtest_main)
 
@@ -344,12 +359,23 @@ if(OPENMETA_BUILD_FUZZERS)
     message(FATAL_ERROR "OPENMETA_BUILD_FUZZERS requires Clang (libFuzzer).")
   endif()
 
+  function(openmeta_apply_libfuzzer_stdlib target_name)
+    # On Linux, Clang's bundled libFuzzer runtime is typically built against
+    # libstdc++. If the rest of the build uses libc++ (e.g. to match prebuilt
+    # GoogleTest), override the fuzz targets to use libstdc++ so they can link.
+    if(OPENMETA_USE_LIBCXX AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+      target_compile_options(${target_name} PRIVATE -stdlib=libstdc++)
+      target_link_options(${target_name} PRIVATE -stdlib=libstdc++)
+    endif()
+  endfunction()
+
   add_executable(openmeta_fuzz_metastore
     ${OPENMETA_SOURCES}
     tests/fuzz/metastore_libfuzzer.cc
   )
   openmeta_apply_target_settings(openmeta_fuzz_metastore)
   openmeta_apply_core_deps(openmeta_fuzz_metastore)
+  openmeta_apply_libfuzzer_stdlib(openmeta_fuzz_metastore)
 
   target_compile_options(
     openmeta_fuzz_metastore
@@ -370,6 +396,7 @@ if(OPENMETA_BUILD_FUZZERS)
   )
   openmeta_apply_target_settings(openmeta_fuzz_container_scan)
   openmeta_apply_core_deps(openmeta_fuzz_container_scan)
+  openmeta_apply_libfuzzer_stdlib(openmeta_fuzz_container_scan)
 
   target_compile_options(
     openmeta_fuzz_container_scan
@@ -390,6 +417,7 @@ if(OPENMETA_BUILD_FUZZERS)
   )
   openmeta_apply_target_settings(openmeta_fuzz_bmff_meta)
   openmeta_apply_core_deps(openmeta_fuzz_bmff_meta)
+  openmeta_apply_libfuzzer_stdlib(openmeta_fuzz_bmff_meta)
 
   target_compile_options(
     openmeta_fuzz_bmff_meta
@@ -410,6 +438,7 @@ if(OPENMETA_BUILD_FUZZERS)
   )
   openmeta_apply_target_settings(openmeta_fuzz_exif_tiff_decode)
   openmeta_apply_core_deps(openmeta_fuzz_exif_tiff_decode)
+  openmeta_apply_libfuzzer_stdlib(openmeta_fuzz_exif_tiff_decode)
 
   target_compile_options(
     openmeta_fuzz_exif_tiff_decode
@@ -430,6 +459,7 @@ if(OPENMETA_BUILD_FUZZERS)
   )
   openmeta_apply_target_settings(openmeta_fuzz_container_payload)
   openmeta_apply_core_deps(openmeta_fuzz_container_payload)
+  openmeta_apply_libfuzzer_stdlib(openmeta_fuzz_container_payload)
 
   target_compile_options(
     openmeta_fuzz_container_payload

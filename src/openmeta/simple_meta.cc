@@ -1,7 +1,16 @@
 #include "openmeta/simple_meta.h"
 
+#include "openmeta/icc_decode.h"
+#include "openmeta/iptc_iim_decode.h"
+#include "openmeta/photoshop_irb_decode.h"
+
 namespace openmeta {
 namespace {
+
+    static uint8_t u8(std::byte b) noexcept
+    {
+        return static_cast<uint8_t>(b);
+    }
 
     static void merge_payload_result(PayloadResult* out,
                                      const PayloadResult& in) noexcept
@@ -45,6 +54,21 @@ namespace {
         }
     }
 
+    static bool read_u32be(std::span<const std::byte> bytes, uint64_t offset,
+                           uint32_t* out) noexcept
+    {
+        if (!out || offset + 4 > bytes.size()) {
+            return false;
+        }
+        uint32_t v = 0;
+        v |= static_cast<uint32_t>(u8(bytes[offset + 0])) << 24;
+        v |= static_cast<uint32_t>(u8(bytes[offset + 1])) << 16;
+        v |= static_cast<uint32_t>(u8(bytes[offset + 2])) << 8;
+        v |= static_cast<uint32_t>(u8(bytes[offset + 3])) << 0;
+        *out = v;
+        return true;
+    }
+
     static void merge_exif_status(ExifDecodeStatus* out,
                                   ExifDecodeStatus in) noexcept
     {
@@ -81,6 +105,48 @@ namespace {
         }
     }
 
+    static PayloadResult
+    get_block_bytes(std::span<const std::byte> file_bytes,
+                    std::span<const ContainerBlockRef> blocks,
+                    uint32_t block_index, std::span<std::byte> payload,
+                    std::span<uint32_t> payload_scratch_indices,
+                    const PayloadOptions& payload_options,
+                    std::span<const std::byte>* out) noexcept
+    {
+        PayloadResult res;
+        if (!out || block_index >= blocks.size()) {
+            res.status = PayloadStatus::Malformed;
+            return res;
+        }
+        const ContainerBlockRef& block = blocks[block_index];
+
+        if (block.part_count <= 1U && block.compression == BlockCompression::None
+            && block.chunking != BlockChunking::GifSubBlocks) {
+            const uint64_t end = static_cast<uint64_t>(file_bytes.size());
+            if (block.data_offset > end || block.data_size > end - block.data_offset) {
+                res.status = PayloadStatus::Malformed;
+                return res;
+            }
+            *out = file_bytes.subspan(static_cast<size_t>(block.data_offset),
+                                      static_cast<size_t>(block.data_size));
+            res.status  = PayloadStatus::Ok;
+            res.written = block.data_size;
+            res.needed  = block.data_size;
+            return res;
+        }
+
+        const PayloadResult payload_res
+            = extract_payload(file_bytes, blocks, block_index, payload,
+                              payload_scratch_indices, payload_options);
+        if (payload_res.status != PayloadStatus::Ok) {
+            return payload_res;
+        }
+        *out = std::span<const std::byte>(payload.data(),
+                                          static_cast<size_t>(
+                                              payload_res.written));
+        return payload_res;
+    }
+
 }  // namespace
 
 SimpleMetaResult
@@ -105,72 +171,124 @@ simple_meta_read(std::span<const std::byte> file_bytes, MetaStore& store,
 
     uint32_t ifd_write_pos = 0;
     bool any_exif          = false;
-    for (uint32_t i = 0; i < result.scan.written; ++i) {
+    const uint32_t blocks_written
+        = (result.scan.written < out_blocks.size())
+              ? result.scan.written
+              : static_cast<uint32_t>(out_blocks.size());
+    const std::span<const ContainerBlockRef> blocks_view(
+        out_blocks.data(), static_cast<size_t>(blocks_written));
+    for (uint32_t i = 0; i < blocks_written; ++i) {
         const ContainerBlockRef& block = out_blocks[i];
-        if (block.kind != ContainerBlockKind::Exif) {
-            continue;
-        }
         if (block.part_count > 1U && block.part_index != 0U) {
             continue;
         }
-        any_exif = true;
 
-        std::span<ExifIfdRef> ifd_slice;
-        if (ifd_write_pos < out_ifds.size()) {
-            ifd_slice = out_ifds.subspan(ifd_write_pos);
+        std::span<const std::byte> block_bytes;
+        const PayloadResult payload_one
+            = get_block_bytes(file_bytes, blocks_view, i, payload,
+                              payload_scratch_indices, payload_options,
+                              &block_bytes);
+        merge_payload_result(&result.payload, payload_one);
+        if (payload_one.status != PayloadStatus::Ok) {
+            if (block.kind == ContainerBlockKind::Exif
+                || (block.kind == ContainerBlockKind::CompressedMetadata
+                    && block.compression == BlockCompression::Brotli
+                    && block.aux_u32 == fourcc('E', 'x', 'i', 'f'))) {
+                switch (payload_one.status) {
+                case PayloadStatus::Ok: break;
+                case PayloadStatus::OutputTruncated:
+                    merge_exif_status(&exif.status,
+                                      ExifDecodeStatus::OutputTruncated);
+                    break;
+                case PayloadStatus::Unsupported:
+                    merge_exif_status(&exif.status, ExifDecodeStatus::Unsupported);
+                    break;
+                case PayloadStatus::Malformed:
+                    merge_exif_status(&exif.status, ExifDecodeStatus::Malformed);
+                    break;
+                case PayloadStatus::LimitExceeded:
+                    merge_exif_status(&exif.status,
+                                      ExifDecodeStatus::LimitExceeded);
+                    break;
+                }
+            }
+            continue;
         }
 
-        std::span<const std::byte> tiff;
-        if (block.part_count <= 1U
-            && block.compression == BlockCompression::None
-            && block.chunking != BlockChunking::GifSubBlocks) {
-            if (block.data_offset + block.data_size > file_bytes.size()) {
-                merge_exif_status(&exif.status, ExifDecodeStatus::Malformed);
-                continue;
+        if (block.kind == ContainerBlockKind::Exif) {
+            any_exif = true;
+
+            std::span<ExifIfdRef> ifd_slice;
+            if (ifd_write_pos < out_ifds.size()) {
+                ifd_slice = out_ifds.subspan(ifd_write_pos);
             }
-            tiff = file_bytes.subspan(static_cast<size_t>(block.data_offset),
-                                      static_cast<size_t>(block.data_size));
-        } else {
-            const PayloadResult payload_res
-                = extract_payload(file_bytes, out_blocks, i, payload,
-                                  payload_scratch_indices, payload_options);
-            merge_payload_result(&result.payload, payload_res);
 
-            if (payload_res.status == PayloadStatus::Ok) {
-                tiff = std::span<const std::byte>(payload.data(),
-                                                  static_cast<size_t>(
-                                                      payload_res.written));
-            } else if (payload_res.status == PayloadStatus::OutputTruncated) {
-                merge_exif_status(&exif.status,
-                                  ExifDecodeStatus::OutputTruncated);
-                continue;
-            } else if (payload_res.status == PayloadStatus::LimitExceeded) {
-                merge_exif_status(&exif.status,
-                                  ExifDecodeStatus::LimitExceeded);
-                continue;
-            } else if (payload_res.status == PayloadStatus::Unsupported) {
-                merge_exif_status(&exif.status, ExifDecodeStatus::Unsupported);
-                continue;
-            } else {
-                merge_exif_status(&exif.status, ExifDecodeStatus::Malformed);
-                continue;
-            }
-        }
+            const ExifDecodeResult one = decode_exif_tiff(block_bytes, store,
+                                                          ifd_slice,
+                                                          exif_options);
+            merge_exif_status(&exif.status, one.status);
+            exif.ifds_needed += one.ifds_needed;
+            exif.entries_decoded += one.entries_decoded;
 
-        const ExifDecodeResult one = decode_exif_tiff(tiff, store, ifd_slice,
-                                                      exif_options);
-        merge_exif_status(&exif.status, one.status);
-        exif.ifds_needed += one.ifds_needed;
-        exif.entries_decoded += one.entries_decoded;
-
-        const uint32_t room     = (ifd_write_pos < out_ifds.size())
+            const uint32_t room = (ifd_write_pos < out_ifds.size())
                                       ? static_cast<uint32_t>(out_ifds.size()
                                                               - ifd_write_pos)
                                       : 0U;
-        const uint32_t advanced = (one.ifds_written < room) ? one.ifds_written
-                                                            : room;
-        ifd_write_pos += advanced;
-        exif.ifds_written = ifd_write_pos;
+            const uint32_t advanced
+                = (one.ifds_written < room) ? one.ifds_written : room;
+            ifd_write_pos += advanced;
+            exif.ifds_written = ifd_write_pos;
+        } else if (block.kind == ContainerBlockKind::Icc) {
+            (void)decode_icc_profile(block_bytes, store);
+        } else if (block.kind == ContainerBlockKind::PhotoshopIrB) {
+            (void)decode_photoshop_irb(block_bytes, store);
+        } else if (block.kind == ContainerBlockKind::IptcIim) {
+            (void)decode_iptc_iim(block_bytes, store);
+        } else if (block.kind == ContainerBlockKind::CompressedMetadata
+                   && block.compression == BlockCompression::Brotli
+                   && block.aux_u32 == fourcc('E', 'x', 'i', 'f')) {
+            // JPEG XL "brob" box containing Brotli-compressed Exif box payload.
+            // Exif box payload begins with a big-endian u32 TIFF offset.
+            if (!payload_options.decompress) {
+                continue;
+            }
+            if (block_bytes.size() < 4) {
+                merge_exif_status(&exif.status, ExifDecodeStatus::Malformed);
+                continue;
+            }
+            uint32_t off = 0;
+            if (!read_u32be(block_bytes, 0, &off)
+                || static_cast<uint64_t>(off) >= block_bytes.size()) {
+                merge_exif_status(&exif.status, ExifDecodeStatus::Malformed);
+                continue;
+            }
+            const std::span<const std::byte> tiff = block_bytes.subspan(
+                static_cast<size_t>(off),
+                static_cast<size_t>(block_bytes.size()
+                                    - static_cast<size_t>(off)));
+
+            any_exif = true;
+
+            std::span<ExifIfdRef> ifd_slice;
+            if (ifd_write_pos < out_ifds.size()) {
+                ifd_slice = out_ifds.subspan(ifd_write_pos);
+            }
+
+            const ExifDecodeResult one = decode_exif_tiff(tiff, store, ifd_slice,
+                                                          exif_options);
+            merge_exif_status(&exif.status, one.status);
+            exif.ifds_needed += one.ifds_needed;
+            exif.entries_decoded += one.entries_decoded;
+
+            const uint32_t room = (ifd_write_pos < out_ifds.size())
+                                      ? static_cast<uint32_t>(out_ifds.size()
+                                                              - ifd_write_pos)
+                                      : 0U;
+            const uint32_t advanced
+                = (one.ifds_written < room) ? one.ifds_written : room;
+            ifd_write_pos += advanced;
+            exif.ifds_written = ifd_write_pos;
+        }
     }
 
     if (!any_exif) {

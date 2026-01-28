@@ -546,6 +546,19 @@ NB_MODULE(_openmeta, m)
                      })
         .def_prop_ro("exif_status",
                      [](const PyDocument& d) { return d.result.exif.status; })
+        .def_prop_ro("exif_ifds_decoded",
+                     [](const PyDocument& d) {
+                         return static_cast<uint32_t>(d.result.exif.ifds_written);
+                     })
+        .def_prop_ro("exif_ifds_needed",
+                     [](const PyDocument& d) {
+                         return static_cast<uint32_t>(d.result.exif.ifds_needed);
+                     })
+        .def_prop_ro("exif_entries_decoded",
+                     [](const PyDocument& d) {
+                         return static_cast<uint32_t>(
+                             d.result.exif.entries_decoded);
+                     })
         .def_prop_ro("entry_count",
                      [](const PyDocument& d) {
                          return static_cast<uint64_t>(d.store.entries().size());
@@ -656,6 +669,46 @@ NB_MODULE(_openmeta, m)
                              return nb::none();
                          }
                          return nb::int_(en.key.data.exif_tag.tag);
+                     })
+        .def_prop_ro("iptc_record",
+                     [](const PyEntry& e) -> nb::object {
+                         const Entry& en = e.doc->store.entry(e.id);
+                         if (en.key.kind != MetaKeyKind::IptcDataset) {
+                             return nb::none();
+                         }
+                         return nb::int_(en.key.data.iptc_dataset.record);
+                     })
+        .def_prop_ro("iptc_dataset",
+                     [](const PyEntry& e) -> nb::object {
+                         const Entry& en = e.doc->store.entry(e.id);
+                         if (en.key.kind != MetaKeyKind::IptcDataset) {
+                             return nb::none();
+                         }
+                         return nb::int_(en.key.data.iptc_dataset.dataset);
+                     })
+        .def_prop_ro("photoshop_resource_id",
+                     [](const PyEntry& e) -> nb::object {
+                         const Entry& en = e.doc->store.entry(e.id);
+                         if (en.key.kind != MetaKeyKind::PhotoshopIrb) {
+                             return nb::none();
+                         }
+                         return nb::int_(en.key.data.photoshop_irb.resource_id);
+                     })
+        .def_prop_ro("icc_header_offset",
+                     [](const PyEntry& e) -> nb::object {
+                         const Entry& en = e.doc->store.entry(e.id);
+                         if (en.key.kind != MetaKeyKind::IccHeaderField) {
+                             return nb::none();
+                         }
+                         return nb::int_(en.key.data.icc_header_field.offset);
+                     })
+        .def_prop_ro("icc_tag_signature",
+                     [](const PyEntry& e) -> nb::object {
+                         const Entry& en = e.doc->store.entry(e.id);
+                         if (en.key.kind != MetaKeyKind::IccTag) {
+                             return nb::none();
+                         }
+                         return nb::int_(en.key.data.icc_tag.signature);
                      })
         .def_prop_ro("name",
                      [](const PyEntry& e) -> nb::object {

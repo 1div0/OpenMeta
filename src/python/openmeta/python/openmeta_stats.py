@@ -42,7 +42,10 @@ def main(argv: list[str]) -> int:
         print(f"== {path}")
         print(f"size={doc.file_size}")
         print(f"scan={_snake(doc.scan_status.name)} blocks={len(doc.blocks)}")
-        print(f"exif={_snake(doc.exif_status.name)} ifds_decoded={doc.block_count} entries={doc.entry_count}")
+        print(
+            f"exif={_snake(doc.exif_status.name)} ifds_decoded={doc.exif_ifds_decoded} "
+            f"entries={doc.entry_count} blocks={doc.block_count}"
+        )
 
         fmt_counts = Counter(_snake(b.format.name) for b in doc.blocks)
         kind_counts = Counter(_snake(b.kind.name) for b in doc.blocks)

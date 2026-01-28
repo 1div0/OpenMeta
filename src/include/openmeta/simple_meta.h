@@ -29,6 +29,9 @@ struct SimpleMetaResult final {
  *   - JPEG/PNG/WebP/etc. EXIF blocks
  *   - TIFF/DNG containers (whole file treated as a TIFF-IFD stream)
  *   - ISO-BMFF containers (HEIF/AVIF/CR3) Exif items
+ * - ICC profiles (\ref decode_icc_profile)
+ * - Photoshop IRB / 8BIM resources (\ref decode_photoshop_irb)
+ * - IPTC-IIM dataset streams (\ref decode_iptc_iim)
  *
  * Caller provides the scratch buffers (blocks + decoded IFD list) to keep the
  * data flow explicit and allocation-free.

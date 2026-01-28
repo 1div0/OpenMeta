@@ -14,6 +14,9 @@ Unit tests (GoogleTest)
    cmake --build build-tests
    ctest --test-dir build-tests --output-on-failure
 
+If your test dependencies were built against ``libc++`` (common with Clang),
+configure OpenMeta with ``-DOPENMETA_USE_LIBCXX=ON``.
+
 Fuzzing
 -------
 
@@ -25,6 +28,21 @@ libFuzzer targets (Clang):
    cmake --build build-fuzz
    ASAN_OPTIONS=detect_leaks=0 ./build-fuzz/openmeta_fuzz_exif_tiff_decode -max_total_time=60
 
+Corpus runs
+~~~~~~~~~~~
+
+If you pass corpus directories to libFuzzer, it treats the **first** directory
+as the main corpus and may add/reduce files there. To avoid modifying your seed
+corpus, use an empty output directory first:
+
+.. code-block:: bash
+
+   mkdir -p build-fuzz/_corpus_out
+   ASAN_OPTIONS=detect_leaks=0 ./build-fuzz/openmeta_fuzz_container_scan \
+     build-fuzz/_corpus_out \
+     /path/to/seed-corpus-a /path/to/seed-corpus-b \
+     -runs=1000
+
 FuzzTest targets (when available):
 
 .. code-block:: bash
@@ -33,4 +51,3 @@ FuzzTest targets (when available):
      -DCMAKE_PREFIX_PATH=/mnt/f/UBSd -DOPENMETA_BUILD_FUZZTEST=ON -DOPENMETA_FUZZTEST_FUZZING_MODE=ON
    cmake --build build-fuzztest
    ASAN_OPTIONS=detect_leaks=0 ./build-fuzztest/openmeta_fuzztest_metastore --fuzz_for=10s
-

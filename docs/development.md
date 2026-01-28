@@ -10,6 +10,13 @@ OpenMeta discovers optional dependencies via `find_package(...)`. If you install
 deps into a custom prefix, pass it via `CMAKE_PREFIX_PATH` (example:
 `-DCMAKE_PREFIX_PATH=/mnt/f/UBSd`).
 
+If you link against dependencies that were built with `libc++` (common when
+using Clang), configure OpenMeta with:
+
+```bash
+-DOPENMETA_USE_LIBCXX=ON
+```
+
 ## Versioning
 
 `VERSION` is the single source of truth for the project version:
@@ -39,10 +46,12 @@ ctest --test-dir build-tests --output-on-failure
 Requirements:
 - Clang with libFuzzer support.
 
-Note: on Linux, the bundled Clang libFuzzer runtime is typically built against
-`libstdc++`. If you build OpenMeta with `-stdlib=libc++` and see unresolved
-`std::__cxx11` symbols while linking fuzzers, configure fuzzers in a separate
-build without `-stdlib=libc++`.
+Notes:
+- On Linux, Clang’s bundled libFuzzer runtime is typically built against
+  `libstdc++`. When `OPENMETA_USE_LIBCXX=ON`, OpenMeta keeps tests/tools on
+  `libc++` but builds fuzz targets against `libstdc++` to match libFuzzer.
+- libFuzzer treats metadata as untrusted input; always run under sanitizers
+  and with explicit size limits.
 
 Build + run (example 5s smoke run):
 ```bash
@@ -50,6 +59,21 @@ cmake -S OpenMeta -B build-fuzz -G Ninja -DCMAKE_BUILD_TYPE=Debug \
   -DOPENMETA_BUILD_FUZZERS=ON
 cmake --build build-fuzz
 ASAN_OPTIONS=detect_leaks=0 ./build-fuzz/openmeta_fuzz_exif_tiff_decode -max_total_time=5
+```
+
+Corpus runs (seed corpora)
+--------------------------
+
+If you pass corpus directories to libFuzzer, it treats the **first** directory
+as the main corpus and may add/reduce files there. To avoid modifying your seed
+corpus directories, use an empty output directory first:
+
+```bash
+mkdir -p build-fuzz/_corpus_out
+ASAN_OPTIONS=detect_leaks=0 ./build-fuzz/openmeta_fuzz_container_scan \
+  build-fuzz/_corpus_out \
+  /path/to/seed-corpus-a /path/to/seed-corpus-b \
+  -runs=1000
 ```
 
 ## FuzzTest

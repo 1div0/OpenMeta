@@ -755,6 +755,261 @@ namespace {
         print_line('=', total_width);
     }
 
+    static const char* icc_header_field_name(uint32_t offset) noexcept
+    {
+        switch (offset) {
+        case 0: return "profile_size";
+        case 4: return "cmm_type";
+        case 8: return "version";
+        case 12: return "class";
+        case 16: return "data_space";
+        case 20: return "pcs";
+        case 24: return "date_time";
+        case 36: return "signature";
+        case 40: return "platform";
+        case 44: return "flags";
+        case 48: return "manufacturer";
+        case 52: return "model";
+        case 56: return "attributes";
+        case 64: return "rendering_intent";
+        case 68: return "pcs_illuminant";
+        case 80: return "creator";
+        case 84: return "profile_id";
+        default: return "-";
+        }
+    }
+
+    static std::string fourcc_string(uint32_t v)
+    {
+        char s[5];
+        s[0] = static_cast<char>((v >> 24) & 0xFF);
+        s[1] = static_cast<char>((v >> 16) & 0xFF);
+        s[2] = static_cast<char>((v >> 8) & 0xFF);
+        s[3] = static_cast<char>((v >> 0) & 0xFF);
+        s[4] = '\0';
+
+        bool printable = true;
+        for (int i = 0; i < 4; ++i) {
+            const unsigned char c = static_cast<unsigned char>(s[i]);
+            if (c < 0x20U || c > 0x7EU) {
+                printable = false;
+                break;
+            }
+        }
+        if (printable) {
+            return std::string(s, 4);
+        }
+        char buf[16];
+        std::snprintf(buf, sizeof(buf), "0x%08X",
+                      static_cast<unsigned>(v));
+        return std::string(buf);
+    }
+
+    static const char* photoshop_resource_name(uint16_t id) noexcept
+    {
+        switch (id) {
+        case 0x0404: return "IPTC_NAA";
+        case 0x0422: return "EXIF_DATA_1";
+        case 0x0423: return "EXIF_DATA_3";
+        default: return "-";
+        }
+    }
+
+    static bool bytes_look_ascii(std::span<const std::byte> bytes) noexcept
+    {
+        if (bytes.empty()) {
+            return false;
+        }
+        for (size_t i = 0; i < bytes.size(); ++i) {
+            const unsigned char c
+                = static_cast<unsigned char>(std::to_integer<uint8_t>(bytes[i]));
+            if (c == 0) {
+                return false;
+            }
+            if (c < 0x09U || (c > 0x0DU && c < 0x20U) || c > 0x7EU) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    static void print_generic_block_table(const MetaStore& store, BlockId block,
+                                          std::string_view block_name,
+                                          std::span<const EntryId> ids,
+                                          uint32_t max_elements,
+                                          uint32_t max_bytes,
+                                          uint32_t max_cell_chars)
+    {
+        struct Row final {
+            uint32_t idx = 0;
+            std::string idx_s;
+            std::string key_s;
+            std::string name_s;
+            std::string type_s;
+            std::string raw_s;
+            std::string val_s;
+        };
+
+        std::vector<Row> rows;
+        rows.reserve(ids.size());
+
+        for (size_t i = 0; i < ids.size(); ++i) {
+            const Entry& entry = store.entry(ids[i]);
+
+            Row row;
+            row.idx = entry.origin.order_in_block;
+            {
+                char buf[32];
+                std::snprintf(buf, sizeof(buf), "%u",
+                              static_cast<unsigned>(row.idx));
+                row.idx_s = buf;
+            }
+
+            switch (entry.key.kind) {
+            case MetaKeyKind::IptcDataset: {
+                char buf[32];
+                std::snprintf(buf, sizeof(buf), "%u:%u",
+                              static_cast<unsigned>(entry.key.data.iptc_dataset.record),
+                              static_cast<unsigned>(entry.key.data.iptc_dataset.dataset));
+                row.key_s = buf;
+                row.name_s = "-";
+                break;
+            }
+            case MetaKeyKind::PhotoshopIrb: {
+                char buf[32];
+                std::snprintf(buf, sizeof(buf), "0x%04X",
+                              static_cast<unsigned>(entry.key.data.photoshop_irb.resource_id));
+                row.key_s  = buf;
+                row.name_s = photoshop_resource_name(
+                    entry.key.data.photoshop_irb.resource_id);
+                break;
+            }
+            case MetaKeyKind::IccHeaderField: {
+                char buf[32];
+                std::snprintf(buf, sizeof(buf), "0x%X",
+                              static_cast<unsigned>(entry.key.data.icc_header_field.offset));
+                row.key_s  = buf;
+                row.name_s = icc_header_field_name(
+                    entry.key.data.icc_header_field.offset);
+                break;
+            }
+            case MetaKeyKind::IccTag: {
+                row.key_s  = fourcc_string(entry.key.data.icc_tag.signature);
+                row.name_s = "-";
+                break;
+            }
+            default:
+                row.key_s  = "-";
+                row.name_s = "-";
+                break;
+            }
+
+            row.type_s = value_type_string(store.arena(), entry.value);
+            format_value_pair(store, entry.value, max_elements, max_bytes,
+                              &row.raw_s, &row.val_s);
+
+            if (entry.key.kind == MetaKeyKind::IccHeaderField
+                && entry.value.kind == MetaValueKind::Bytes) {
+                const std::span<const std::byte> b
+                    = store.arena().span(entry.value.data.span);
+                if (b.size() == 4 && bytes_look_ascii(b)) {
+                    row.val_s.clear();
+                    row.val_s.append(reinterpret_cast<const char*>(b.data()),
+                                     b.size());
+                }
+            }
+
+            if (entry.key.kind == MetaKeyKind::IptcDataset
+                && entry.value.kind == MetaValueKind::Bytes) {
+                const std::span<const std::byte> b
+                    = store.arena().span(entry.value.data.span);
+                if (bytes_look_ascii(b)) {
+                    row.val_s.clear();
+                    const std::string_view s(
+                        reinterpret_cast<const char*>(b.data()), b.size());
+                    const bool dangerous
+                        = append_console_escaped_ascii(s, max_bytes, &row.val_s);
+                    if (dangerous) {
+                        row.val_s.insert(0, "(DANGEROUS) ");
+                    }
+                }
+            }
+
+            truncate_cell(&row.raw_s, max_cell_chars);
+            truncate_cell(&row.val_s, max_cell_chars);
+            rows.push_back(std::move(row));
+        }
+
+        struct RowLess final {
+            bool operator()(const Row& a, const Row& b) const noexcept
+            {
+                return a.idx < b.idx;
+            }
+        };
+        std::sort(rows.begin(), rows.end(), RowLess {});
+
+        size_t w_idx  = std::strlen("idx");
+        size_t w_key  = std::strlen("key");
+        size_t w_name = std::strlen("name");
+        size_t w_type = std::strlen("type");
+        size_t w_raw  = std::strlen("raw val");
+        size_t w_val  = std::strlen("val");
+
+        for (size_t i = 0; i < rows.size(); ++i) {
+            const Row& r = rows[i];
+            w_idx  = (r.idx_s.size() > w_idx) ? r.idx_s.size() : w_idx;
+            w_key  = (r.key_s.size() > w_key) ? r.key_s.size() : w_key;
+            w_name = (r.name_s.size() > w_name) ? r.name_s.size() : w_name;
+            w_type = (r.type_s.size() > w_type) ? r.type_s.size() : w_type;
+            w_raw  = (r.raw_s.size() > w_raw) ? r.raw_s.size() : w_raw;
+            w_val  = (r.val_s.size() > w_val) ? r.val_s.size() : w_val;
+        }
+
+        const size_t total_width = 1U + w_idx + 3U + w_key + 3U + w_name + 3U
+                                   + w_type + 3U + w_raw + 3U + w_val;
+
+        print_line('=', total_width);
+        std::printf(" %.*s block=%u entries=%zu\n",
+                    static_cast<int>(block_name.size()), block_name.data(),
+                    static_cast<unsigned>(block), rows.size());
+        print_line('=', total_width);
+
+        std::putchar(' ');
+        print_cell("idx", w_idx);
+        std::fputs(" | ", stdout);
+        print_cell("key", w_key);
+        std::fputs(" | ", stdout);
+        print_cell("name", w_name);
+        std::fputs(" | ", stdout);
+        print_cell("type", w_type);
+        std::fputs(" | ", stdout);
+        print_cell("raw val", w_raw);
+        std::fputs(" | ", stdout);
+        print_cell("val", w_val);
+        std::putchar('\n');
+
+        print_line('-', total_width);
+
+        for (size_t i = 0; i < rows.size(); ++i) {
+            const Row& r = rows[i];
+            std::putchar(' ');
+            print_cell(r.idx_s, w_idx);
+            std::fputs(" | ", stdout);
+            print_cell(r.key_s, w_key);
+            std::fputs(" | ", stdout);
+            print_cell(r.name_s, w_name);
+            std::fputs(" | ", stdout);
+            print_cell(r.type_s, w_type);
+            std::fputs(" | ", stdout);
+            print_cell(r.raw_s, w_raw);
+            std::fputs(" | ", stdout);
+            print_cell(r.val_s, w_val);
+            std::putchar('\n');
+        }
+
+        print_line('=', total_width);
+    }
+
     static bool parse_u32_arg(const char* s, uint32_t* out)
     {
         if (!s || !*s) {
@@ -982,16 +1237,12 @@ main(int argc, char** argv)
             }
         }
 
-        if (read.exif.status == ExifDecodeStatus::Unsupported) {
-            std::printf("exif=%s\n",
-                        exif_status_name(ExifDecodeStatus::Unsupported));
-            continue;
-        }
-
         store.finalize();
-        std::printf("exif=%s ifds_decoded=%u entries=%zu\n",
-                    exif_status_name(read.exif.status), store.block_count(),
-                    store.entries().size());
+        std::printf("exif=%s ifds_decoded=%u entries=%zu blocks=%u\n",
+                    exif_status_name(read.exif.status),
+                    static_cast<unsigned>(read.exif.ifds_written),
+                    store.entries().size(),
+                    static_cast<unsigned>(store.block_count()));
 
         for (BlockId block = 0; block < store.block_count(); ++block) {
             const std::span<const EntryId> ids = store.entries_in_block(block);
@@ -999,13 +1250,25 @@ main(int argc, char** argv)
                 continue;
             }
             const Entry& first = store.entry(ids[0]);
-            if (first.key.kind != MetaKeyKind::ExifTag) {
-                continue;
+            if (first.key.kind == MetaKeyKind::ExifTag) {
+                const std::string_view ifd
+                    = arena_string(store.arena(), first.key.data.exif_tag.ifd);
+                print_exif_block_table(store, block, ifd, ids, max_elements,
+                                       max_bytes, max_cell_chars);
+            } else if (first.key.kind == MetaKeyKind::IccHeaderField
+                       || first.key.kind == MetaKeyKind::IccTag) {
+                print_generic_block_table(store, block, "icc", ids,
+                                          max_elements, max_bytes,
+                                          max_cell_chars);
+            } else if (first.key.kind == MetaKeyKind::IptcDataset) {
+                print_generic_block_table(store, block, "iptc_iim", ids,
+                                          max_elements, max_bytes,
+                                          max_cell_chars);
+            } else if (first.key.kind == MetaKeyKind::PhotoshopIrb) {
+                print_generic_block_table(store, block, "photoshop_irb", ids,
+                                          max_elements, max_bytes,
+                                          max_cell_chars);
             }
-            const std::string_view ifd
-                = arena_string(store.arena(), first.key.data.exif_tag.ifd);
-            print_exif_block_table(store, block, ifd, ids, max_elements,
-                                   max_bytes, max_cell_chars);
         }
     }
 
