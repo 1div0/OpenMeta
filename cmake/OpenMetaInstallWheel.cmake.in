@@ -100,14 +100,22 @@ if(NOT _openmeta_wheel_res EQUAL 0)
   message(FATAL_ERROR "Wheel build failed: exit=${_openmeta_wheel_res}")
 endif()
 
-file(GLOB _openmeta_wheels LIST_DIRECTORIES false "@_openmeta_wheel_out_dir@/openmeta-*.whl")
+set(_openmeta_wheel_version "@PROJECT_VERSION@")
+file(GLOB _openmeta_wheels LIST_DIRECTORIES false
+  "@_openmeta_wheel_out_dir@/openmeta-${_openmeta_wheel_version}-*.whl"
+)
 list(LENGTH _openmeta_wheels _openmeta_wheel_count)
 if(_openmeta_wheel_count EQUAL 0)
-  message(FATAL_ERROR "Wheel build did not produce expected output: @_openmeta_wheel_out_dir@/openmeta-*.whl")
+  file(GLOB _openmeta_all_wheels LIST_DIRECTORIES false "@_openmeta_wheel_out_dir@/openmeta-*.whl")
+  message(FATAL_ERROR
+    "Wheel build did not produce expected output for version ${_openmeta_wheel_version}: "
+    "@_openmeta_wheel_out_dir@/openmeta-${_openmeta_wheel_version}-*.whl "
+    "(found: ${_openmeta_all_wheels})"
+  )
 endif()
 
 if(_openmeta_wheel_count GREATER 1)
-  message(WARNING "Multiple wheels found, installing the first one: ${_openmeta_wheels}")
+  message(WARNING "Multiple wheels found for version ${_openmeta_wheel_version}, installing the first one: ${_openmeta_wheels}")
 endif()
 
 list(GET _openmeta_wheels 0 _openmeta_wheel_file)
