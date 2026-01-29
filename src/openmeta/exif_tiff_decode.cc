@@ -242,15 +242,82 @@ namespace {
         }
     }
 
-    static bool already_visited(uint64_t off, std::span<const uint64_t> visited,
-                                uint32_t visited_count) noexcept
+    static uint8_t ifd_kind_bit(ExifIfdKind kind) noexcept
+    {
+        switch (kind) {
+        case ExifIfdKind::Ifd: return 1U << 0U;
+        case ExifIfdKind::ExifIfd: return 1U << 1U;
+        case ExifIfdKind::GpsIfd: return 1U << 2U;
+        case ExifIfdKind::InteropIfd: return 1U << 3U;
+        case ExifIfdKind::SubIfd: return 1U << 4U;
+        default: break;
+        }
+        return 0;
+    }
+
+    static uint32_t find_visited(uint64_t off,
+                                 std::span<const uint64_t> visited_offs,
+                                 uint32_t visited_count) noexcept
     {
         for (uint32_t i = 0; i < visited_count; ++i) {
-            if (visited[i] == off) {
-                return true;
+            if (visited_offs[i] == off) {
+                return i;
             }
         }
+        return 0xffffffffU;
+    }
+
+    static bool allow_revisit_kind(ExifIfdKind kind,
+                                  uint8_t existing_mask) noexcept
+    {
+        // In some malformed files, GPSInfoIFDPointer references the same IFD as
+        // InteropIFDPointer. ExifTool reports both groups. Preserve that
+        // behavior by allowing a second decode pass for the GPS/Interop pair.
+        const uint8_t gps    = ifd_kind_bit(ExifIfdKind::GpsIfd);
+        const uint8_t intero = ifd_kind_bit(ExifIfdKind::InteropIfd);
+
+        if (kind == ExifIfdKind::GpsIfd) {
+            return existing_mask == intero;
+        }
+        if (kind == ExifIfdKind::InteropIfd) {
+            return existing_mask == gps;
+        }
         return false;
+    }
+
+    static uint8_t ifd_priority(ExifIfdKind kind) noexcept
+    {
+        // Prefer structured sub-directories over generic IFD chain when offsets
+        // collide in malformed files (observed in the ExifTool sample corpus).
+        switch (kind) {
+        case ExifIfdKind::ExifIfd: return 5;
+        case ExifIfdKind::InteropIfd: return 4;
+        case ExifIfdKind::GpsIfd: return 3;
+        case ExifIfdKind::SubIfd: return 2;
+        case ExifIfdKind::Ifd: return 1;
+        default: break;
+        }
+        return 0;
+    }
+
+    static uint32_t select_next_task_index(std::span<const IfdTask> tasks,
+                                          uint32_t task_count) noexcept
+    {
+        uint32_t best_index   = 0;
+        uint8_t best_priority = 0;
+        uint64_t best_off     = 0;
+
+        for (uint32_t i = 0; i < task_count; ++i) {
+            const uint8_t prio = ifd_priority(tasks[i].kind);
+            const uint64_t off = tasks[i].offset;
+            if (i == 0 || prio > best_priority
+                || (prio == best_priority && off < best_off)) {
+                best_index   = i;
+                best_priority = prio;
+                best_off      = off;
+            }
+        }
+        return best_index;
     }
 
     static void update_status(ExifDecodeResult* out,
@@ -906,7 +973,8 @@ decode_exif_tiff(std::span<const std::byte> tiff_bytes, MetaStore& store,
     }
 
     std::array<IfdTask, 256> stack_buf {};
-    std::array<uint64_t, 256> visited_buf {};
+    std::array<uint64_t, 256> visited_offs {};
+    std::array<uint8_t, 256> visited_masks {};
     uint32_t stack_size        = 0;
     uint32_t visited_count     = 0;
     uint32_t next_subifd_index = 0;
@@ -917,22 +985,38 @@ decode_exif_tiff(std::span<const std::byte> tiff_bytes, MetaStore& store,
     }
 
     while (stack_size > 0) {
-        IfdTask task = stack_buf[stack_size - 1];
+        const uint32_t next_index = select_next_task_index(
+            std::span<const IfdTask>(stack_buf), stack_size);
+        IfdTask task = stack_buf[next_index];
+        stack_buf[next_index] = stack_buf[stack_size - 1];
         stack_size -= 1;
 
         if (task.offset == 0 || task.offset >= tiff_bytes.size()) {
             continue;
         }
-        if (already_visited(task.offset, std::span<const uint64_t>(visited_buf),
-                            visited_count)) {
-            continue;
-        }
-        if (visited_count < visited_buf.size()) {
-            visited_buf[visited_count] = task.offset;
-            visited_count += 1;
+
+        const uint8_t kind_bit = ifd_kind_bit(task.kind);
+        const uint32_t vi
+            = find_visited(task.offset, std::span<const uint64_t>(visited_offs),
+                           visited_count);
+        if (vi != 0xffffffffU) {
+            const uint8_t mask = visited_masks[vi];
+            if ((mask & kind_bit) != 0) {
+                continue;
+            }
+            if (!allow_revisit_kind(task.kind, mask)) {
+                continue;
+            }
+            visited_masks[vi] = static_cast<uint8_t>(mask | kind_bit);
         } else {
-            update_status(&sink.result, ExifDecodeStatus::LimitExceeded);
-            break;
+            if (visited_count < visited_offs.size()) {
+                visited_offs[visited_count]  = task.offset;
+                visited_masks[visited_count] = kind_bit;
+                visited_count += 1;
+            } else {
+                update_status(&sink.result, ExifDecodeStatus::LimitExceeded);
+                break;
+            }
         }
 
         if (sink.result.ifds_needed >= options.limits.max_ifds) {
@@ -955,24 +1039,25 @@ decode_exif_tiff(std::span<const std::byte> tiff_bytes, MetaStore& store,
             entries_off      = task.offset + 2;
             entry_size       = 12;
             next_ifd_off_pos = entries_off + entry_count * entry_size;
-            if (next_ifd_off_pos + 4 > tiff_bytes.size()) {
-                update_status(&sink.result, ExifDecodeStatus::Malformed);
-                continue;
-            }
             if (task.kind == ExifIfdKind::Ifd) {
-                uint32_t next32 = 0;
-                if (read_tiff_u32(cfg, tiff_bytes, next_ifd_off_pos, &next32)
-                    && next32 != 0) {
-                    if (stack_size < stack_buf.size()
-                        && stack_size < options.limits.max_ifds) {
-                        stack_buf[stack_size] = IfdTask { ExifIfdKind::Ifd,
-                                                          task.index + 1,
-                                                          next32 };
-                        stack_size += 1;
-                    } else {
-                        update_status(&sink.result,
-                                      ExifDecodeStatus::LimitExceeded);
+                if (next_ifd_off_pos + 4 <= tiff_bytes.size()) {
+                    uint32_t next32 = 0;
+                    if (read_tiff_u32(cfg, tiff_bytes, next_ifd_off_pos, &next32)
+                        && next32 != 0) {
+                        if (stack_size < stack_buf.size()
+                            && stack_size < options.limits.max_ifds) {
+                            stack_buf[stack_size] = IfdTask { ExifIfdKind::Ifd,
+                                                              task.index + 1,
+                                                              next32 };
+                            stack_size += 1;
+                        } else {
+                            update_status(&sink.result,
+                                          ExifDecodeStatus::LimitExceeded);
+                        }
                     }
+                } else {
+                    // Truncated next-IFD pointer field. Decode entries anyway.
+                    update_status(&sink.result, ExifDecodeStatus::Malformed);
                 }
             }
         } else {
@@ -985,24 +1070,25 @@ decode_exif_tiff(std::span<const std::byte> tiff_bytes, MetaStore& store,
             entries_off      = task.offset + 8;
             entry_size       = 20;
             next_ifd_off_pos = entries_off + entry_count * entry_size;
-            if (next_ifd_off_pos + 8 > tiff_bytes.size()) {
-                update_status(&sink.result, ExifDecodeStatus::Malformed);
-                continue;
-            }
             if (task.kind == ExifIfdKind::Ifd) {
-                uint64_t next64 = 0;
-                if (read_tiff_u64(cfg, tiff_bytes, next_ifd_off_pos, &next64)
-                    && next64 != 0) {
-                    if (stack_size < stack_buf.size()
-                        && stack_size < options.limits.max_ifds) {
-                        stack_buf[stack_size] = IfdTask { ExifIfdKind::Ifd,
-                                                          task.index + 1,
-                                                          next64 };
-                        stack_size += 1;
-                    } else {
-                        update_status(&sink.result,
-                                      ExifDecodeStatus::LimitExceeded);
+                if (next_ifd_off_pos + 8 <= tiff_bytes.size()) {
+                    uint64_t next64 = 0;
+                    if (read_tiff_u64(cfg, tiff_bytes, next_ifd_off_pos, &next64)
+                        && next64 != 0) {
+                        if (stack_size < stack_buf.size()
+                            && stack_size < options.limits.max_ifds) {
+                            stack_buf[stack_size] = IfdTask { ExifIfdKind::Ifd,
+                                                              task.index + 1,
+                                                              next64 };
+                            stack_size += 1;
+                        } else {
+                            update_status(&sink.result,
+                                          ExifDecodeStatus::LimitExceeded);
+                        }
                     }
+                } else {
+                    // Truncated next-IFD pointer field. Decode entries anyway.
+                    update_status(&sink.result, ExifDecodeStatus::Malformed);
                 }
             }
         }

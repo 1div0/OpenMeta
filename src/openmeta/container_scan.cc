@@ -187,13 +187,36 @@ namespace {
     static void skip_exif_preamble(ContainerBlockRef* block,
                                    std::span<const std::byte> bytes) noexcept
     {
-        if (block->data_size < 6) {
+        // EXIF segment preamble is typically "Exif\0\0" before the TIFF header.
+        // Some real-world files use a non-zero second terminator byte; accept
+        // these variants as long as the following bytes look like a TIFF header.
+        if (block->data_size < 10) {
             return;
         }
-        if (match(bytes, block->data_offset, "Exif\0\0", 6)) {
-            block->data_offset += 6;
-            block->data_size -= 6;
+        if (!match(bytes, block->data_offset, "Exif", 4)) {
+            return;
         }
+        if (u8(bytes[block->data_offset + 4]) != 0) {
+            return;
+        }
+
+        const uint64_t tiff_off = block->data_offset + 6;
+        if (tiff_off + 4 > bytes.size()) {
+            return;
+        }
+        const uint8_t a = u8(bytes[tiff_off + 0]);
+        const uint8_t b = u8(bytes[tiff_off + 1]);
+        const uint8_t c = u8(bytes[tiff_off + 2]);
+        const uint8_t d = u8(bytes[tiff_off + 3]);
+        const bool is_tiff
+            = (a == 'I' && b == 'I' && c == 0x2A && d == 0x00)
+              || (a == 'M' && b == 'M' && c == 0x00 && d == 0x2A);
+        if (!is_tiff) {
+            return;
+        }
+
+        block->data_offset += 6;
+        block->data_size -= 6;
     }
 
     static void skip_bmff_exif_offset(ContainerBlockRef* block,
@@ -289,17 +312,21 @@ scan_jpeg(std::span<const std::byte> bytes,
         }
 
         if (marker == 0xFFE1) {
-            if (seg_payload_size >= 6
-                && match(bytes, seg_payload_off, "Exif\0\0", 6)) {
+            if (seg_payload_size >= 10
+                && match(bytes, seg_payload_off, "Exif", 4)
+                && u8(bytes[seg_payload_off + 4]) == 0) {
                 ContainerBlockRef block;
                 block.format       = ContainerFormat::Jpeg;
                 block.kind         = ContainerBlockKind::Exif;
                 block.outer_offset = seg_total_off;
                 block.outer_size   = seg_total_size;
-                block.data_offset  = seg_payload_off + 6;
-                block.data_size    = seg_payload_size - 6;
+                block.data_offset  = seg_payload_off;
+                block.data_size    = seg_payload_size;
                 block.id           = marker;
-                sink_emit(&sink, block);
+                skip_exif_preamble(&block, bytes);
+                if (block.data_offset != seg_payload_off) {
+                    sink_emit(&sink, block);
+                }
             } else if (match(bytes, seg_payload_off,
                              "http://ns.adobe.com/xap/1.0/\0", 29)) {
                 ContainerBlockRef block;
