@@ -67,8 +67,6 @@ def main(argv: Optional[List[str]] = None) -> int:
                 if rec.get("kind") != "exif.tag":
                     continue
                 ifd = rec.get("ifd", "")
-                if not ifd.endswith(":main"):
-                    continue
 
                 tag_s = rec.get("tag", "")
                 if not tag_s:
@@ -98,7 +96,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             out.append(f"    {{ 0x{tag:04X}u, \"{_escape_c_string(name)}\" }},\n")
         out.append("};\n\n")
 
-    out.append("static constexpr MakerNoteTableMap kMakerNoteMainTables[] = {\n")
+    out.append("static constexpr MakerNoteTableMap kMakerNoteTables[] = {\n")
     for ifd in sorted(tables.keys()):
         ident = _cpp_ident(ifd)
         count = len(tables[ifd])

@@ -140,6 +140,42 @@ namespace {
         return mn;
     }
 
+    static std::vector<std::byte> make_canon_camera_settings_makernote()
+    {
+        // Canon MakerNote with a single SHORT array tag (0x0001) stored
+        // out-of-line, to exercise Canon BinaryData subdirectory decoding.
+        std::vector<std::byte> mn;
+        append_u16le(&mn, 1);       // entry count
+        append_u16le(&mn, 0x0001);  // CanonCameraSettings
+        append_u16le(&mn, 3);       // SHORT
+        append_u32le(&mn, 3);       // count
+        append_u32le(&mn, 18);      // value offset (MakerNote-relative)
+        append_u32le(&mn, 0);       // next IFD
+        EXPECT_EQ(mn.size(), 18U);
+        append_u16le(&mn, 0);
+        append_u16le(&mn, 11);
+        append_u16le(&mn, 22);
+        return mn;
+    }
+
+    static std::vector<std::byte> make_casio_type2_makernote()
+    {
+        // Casio MakerNote type2: "QVC\0" header + big-endian entry table.
+        std::vector<std::byte> mn;
+        append_bytes(&mn, "QVC");
+        mn.push_back(std::byte { 0 });
+        append_u32be(&mn, 1);  // entry count
+
+        // Tag 0x0002 (PreviewImageSize), SHORT[2] stored inline.
+        append_u16be(&mn, 0x0002);
+        append_u16be(&mn, 3);
+        append_u32be(&mn, 2);
+        append_u16be(&mn, 320);
+        append_u16be(&mn, 240);
+
+        return mn;
+    }
+
     static std::vector<std::byte> make_fuji_makernote()
     {
         std::vector<std::byte> mn;
@@ -285,6 +321,53 @@ TEST(MakerNoteDecode, DecodesCanonStyleMakerNoteIfdAtOffset0)
     EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
     EXPECT_EQ(e.value.elem_type, MetaElementType::U32);
     EXPECT_EQ(e.value.data.u64, 0x12345678U);
+}
+
+TEST(MakerNoteDecode, DecodesCanonBinaryDataCameraSettingsIntoDerivedIfd)
+{
+    const std::vector<std::byte> mn = make_canon_camera_settings_makernote();
+    const std::vector<std::byte> tiff
+        = make_test_tiff_with_makernote("Canon", mn);
+
+    MetaStore store;
+    std::array<ExifIfdRef, 8> ifds {};
+    ExifDecodeOptions options;
+    options.decode_makernote = true;
+    const ExifDecodeResult res = decode_exif_tiff(tiff, store, ifds, options);
+    EXPECT_EQ(res.status, ExifDecodeStatus::Ok);
+
+    store.finalize();
+    const std::span<const EntryId> ids = store.find_all(
+        exif_key("mk_canon_camerasettings_0", 0x0002));
+    ASSERT_EQ(ids.size(), 1U);
+    const Entry& e = store.entry(ids[0]);
+    EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
+    EXPECT_EQ(e.value.elem_type, MetaElementType::U16);
+    EXPECT_EQ(e.value.data.u64, 22U);
+    EXPECT_TRUE(any(e.flags, EntryFlags::Derived));
+}
+
+TEST(MakerNoteDecode, DecodesCasioType2MakerNoteQvcDirectory)
+{
+    const std::vector<std::byte> mn = make_casio_type2_makernote();
+    const std::vector<std::byte> tiff
+        = make_test_tiff_with_makernote("CASIO", mn);
+
+    MetaStore store;
+    std::array<ExifIfdRef, 8> ifds {};
+    ExifDecodeOptions options;
+    options.decode_makernote = true;
+    const ExifDecodeResult res = decode_exif_tiff(tiff, store, ifds, options);
+    EXPECT_EQ(res.status, ExifDecodeStatus::Ok);
+
+    store.finalize();
+    const std::span<const EntryId> ids
+        = store.find_all(exif_key("mk_casio_type2_0", 0x0002));
+    ASSERT_EQ(ids.size(), 1U);
+    const Entry& e = store.entry(ids[0]);
+    EXPECT_EQ(e.value.kind, MetaValueKind::Array);
+    EXPECT_EQ(e.value.elem_type, MetaElementType::U16);
+    EXPECT_EQ(e.value.count, 2U);
 }
 
 TEST(MakerNoteDecode, DecodesFujiMakerNoteWithSignatureAndOffset)

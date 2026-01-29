@@ -22,35 +22,55 @@ namespace {
         return c >= '0' && c <= '9';
     }
 
-    static std::string_view maker_note_vendor_token(std::string_view ifd) noexcept
+    struct MkIfdParts final {
+        std::string_view vendor;
+        std::string_view subtable;
+    };
+
+    static MkIfdParts parse_mk_ifd_token(std::string_view ifd) noexcept
     {
+        MkIfdParts out;
         if (!ifd.starts_with("mk_")) {
-            return {};
+            return out;
         }
-        const std::string_view rest = ifd.substr(3);
+        std::string_view rest = ifd.substr(3);
         if (rest.empty()) {
-            return {};
+            return out;
         }
 
-        size_t end = 0;
-        while (end < rest.size()) {
-            const char c = rest[end];
-            if (c == '_' || is_ascii_digit(c)) {
-                break;
-            }
-            end += 1;
+        // Strip trailing numeric index suffix (e.g. mk_canon0, mk_casio_type2_0).
+        size_t end = rest.size();
+        while (end > 0 && is_ascii_digit(rest[end - 1])) {
+            end -= 1;
         }
-        if (end == 0) {
-            return {};
+        rest = rest.substr(0, end);
+
+        // Optional '_' delimiter before the index.
+        while (!rest.empty() && rest.back() == '_') {
+            rest = rest.substr(0, rest.size() - 1);
         }
-        return rest.substr(0, end);
+        if (rest.empty()) {
+            return out;
+        }
+
+        const size_t sep = rest.find('_');
+        if (sep == std::string_view::npos) {
+            out.vendor = rest;
+            return out;
+        }
+        if (sep == 0 || sep + 1 >= rest.size()) {
+            return out;
+        }
+        out.vendor    = rest.substr(0, sep);
+        out.subtable  = rest.substr(sep + 1);
+        return out;
     }
 
     static const MakerNoteTableMap* find_table(std::string_view key) noexcept
     {
-        for (uint32_t i = 0; i < sizeof(kMakerNoteMainTables) / sizeof(kMakerNoteMainTables[0]);
-             ++i) {
-            const MakerNoteTableMap& t = kMakerNoteMainTables[i];
+        for (uint32_t i = 0;
+             i < sizeof(kMakerNoteTables) / sizeof(kMakerNoteTables[0]); ++i) {
+            const MakerNoteTableMap& t = kMakerNoteTables[i];
             if (!t.key) {
                 continue;
             }
@@ -87,44 +107,70 @@ namespace {
         return {};
     }
 
+    static const MakerNoteTableMap* try_table(std::string_view vendor_key,
+                                              std::string_view table,
+                                              char* buf,
+                                              size_t buf_size) noexcept
+    {
+        if (!buf || buf_size == 0) {
+            return nullptr;
+        }
+
+        const std::string_view prefix = "makernote:";
+        const std::string_view sep    = ":";
+
+        if (table.empty()) {
+            return nullptr;
+        }
+        if (prefix.size() + vendor_key.size() + sep.size() + table.size()
+            >= buf_size) {
+            return nullptr;
+        }
+
+        size_t n = 0;
+        for (size_t i = 0; i < prefix.size(); ++i) {
+            buf[n++] = prefix[i];
+        }
+        for (size_t i = 0; i < vendor_key.size(); ++i) {
+            buf[n++] = vendor_key[i];
+        }
+        for (size_t i = 0; i < sep.size(); ++i) {
+            buf[n++] = sep[i];
+        }
+        for (size_t i = 0; i < table.size(); ++i) {
+            buf[n++] = table[i];
+        }
+        return find_table(std::string_view(buf, n));
+    }
+
 }  // namespace
 
 std::string_view
 makernote_tag_name(std::string_view ifd, uint16_t tag) noexcept
 {
-    const std::string_view vendor = maker_note_vendor_token(ifd);
-    if (vendor.empty()) {
+    const MkIfdParts parts = parse_mk_ifd_token(ifd);
+    if (parts.vendor.empty()) {
         return {};
     }
 
     // Current MakerNote decode tokens use a few short aliases. Convert them to
     // canonical table keys used by the registry.
-    std::string_view vendor_key = vendor;
+    std::string_view vendor_key = parts.vendor;
     if (vendor_key == "fuji") {
         vendor_key = "fujifilm";
     }
 
-    char table_key_buf[64];
-    const std::string_view prefix = "makernote:";
-    const std::string_view suffix = ":main";
+    char table_key_buf[96];
 
-    if (prefix.size() + vendor_key.size() + suffix.size() >= sizeof(table_key_buf)) {
-        return {};
+    const MakerNoteTableMap* table = nullptr;
+    if (!parts.subtable.empty()) {
+        table = try_table(vendor_key, parts.subtable, table_key_buf,
+                          sizeof(table_key_buf));
     }
-
-    size_t n = 0;
-    for (size_t i = 0; i < prefix.size(); ++i) {
-        table_key_buf[n++] = prefix[i];
+    if (!table) {
+        table = try_table(vendor_key, "main", table_key_buf,
+                          sizeof(table_key_buf));
     }
-    for (size_t i = 0; i < vendor_key.size(); ++i) {
-        table_key_buf[n++] = vendor_key[i];
-    }
-    for (size_t i = 0; i < suffix.size(); ++i) {
-        table_key_buf[n++] = suffix[i];
-    }
-    const std::string_view table_key(table_key_buf, n);
-
-    const MakerNoteTableMap* table = find_table(table_key);
     if (!table) {
         return {};
     }
@@ -132,4 +178,3 @@ makernote_tag_name(std::string_view ifd, uint16_t tag) noexcept
 }
 
 }  // namespace openmeta
-
