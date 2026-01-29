@@ -62,4 +62,5 @@ Developer notes: `docs/development.md`
 ## Documentation
 
 - Security: `SECURITY.md`
+- Notices (trademarks, third-party deps): `NOTICE.md`
 - API reference (Doxygen): `docs/doxygen.md`

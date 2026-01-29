@@ -1,0 +1,10 @@
+{"kind":"exif.tag","ifd":"makernote:dji:main","tag":"0x0001","name":"Make"}
+{"kind":"exif.tag","ifd":"makernote:dji:main","tag":"0x0003","name":"SpeedX"}
+{"kind":"exif.tag","ifd":"makernote:dji:main","tag":"0x0004","name":"SpeedY"}
+{"kind":"exif.tag","ifd":"makernote:dji:main","tag":"0x0005","name":"SpeedZ"}
+{"kind":"exif.tag","ifd":"makernote:dji:main","tag":"0x0006","name":"Pitch"}
+{"kind":"exif.tag","ifd":"makernote:dji:main","tag":"0x0007","name":"Yaw"}
+{"kind":"exif.tag","ifd":"makernote:dji:main","tag":"0x0008","name":"Roll"}
+{"kind":"exif.tag","ifd":"makernote:dji:main","tag":"0x0009","name":"CameraPitch"}
+{"kind":"exif.tag","ifd":"makernote:dji:main","tag":"0x000a","name":"CameraYaw"}
+{"kind":"exif.tag","ifd":"makernote:dji:main","tag":"0x000b","name":"CameraRoll"}

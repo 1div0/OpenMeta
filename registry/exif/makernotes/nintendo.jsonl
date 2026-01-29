@@ -1,0 +1,5 @@
+{"kind":"exif.tag","ifd":"makernote:nintendo:camerainfo","tag":"0x0000","name":"ModelID"}
+{"kind":"exif.tag","ifd":"makernote:nintendo:camerainfo","tag":"0x0008","name":"TimeStamp"}
+{"kind":"exif.tag","ifd":"makernote:nintendo:camerainfo","tag":"0x0018","name":"InternalSerialNumber"}
+{"kind":"exif.tag","ifd":"makernote:nintendo:camerainfo","tag":"0x0028","name":"Parallax"}
+{"kind":"exif.tag","ifd":"makernote:nintendo:camerainfo","tag":"0x0030","name":"Category"}

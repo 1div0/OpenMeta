@@ -1,6 +1,8 @@
 #include "openmeta/exif_tag_names.h"
 
 namespace openmeta {
+std::string_view makernote_tag_name(std::string_view ifd, uint16_t tag) noexcept;
+
 namespace {
 
     enum class ExifIfdGroup : uint8_t {
@@ -8,22 +10,26 @@ namespace {
         ExifIfd,
         GpsIfd,
         InteropIfd,
+        MpfIfd,
         Unknown,
     };
 
     static ExifIfdGroup exif_ifd_group(std::string_view ifd) noexcept
     {
-        if (ifd == "exififd") {
+        if (ifd == "exififd" || ifd.ends_with("_exififd")) {
             return ExifIfdGroup::ExifIfd;
         }
-        if (ifd == "gpsifd") {
+        if (ifd == "gpsifd" || ifd.ends_with("_gpsifd")) {
             return ExifIfdGroup::GpsIfd;
         }
-        if (ifd == "interopifd") {
+        if (ifd == "interopifd" || ifd.ends_with("_interopifd")) {
             return ExifIfdGroup::InteropIfd;
         }
         if (ifd.starts_with("ifd") || ifd.starts_with("subifd")) {
             return ExifIfdGroup::TiffIfd;
+        }
+        if (ifd.starts_with("mpf")) {
+            return ExifIfdGroup::MpfIfd;
         }
         return ExifIfdGroup::Unknown;
     }
@@ -61,6 +67,7 @@ namespace {
         case 0x8298: return "Copyright";
         case 0x8769: return "ExifIFDPointer";
         case 0x8825: return "GPSInfoIFDPointer";
+        case 0xC4A5: return "PrintIM";
         default: return {};
         }
     }
@@ -142,19 +149,39 @@ namespace {
         }
     }
 
+    static std::string_view mpf_ifd_tag_name(uint16_t tag) noexcept
+    {
+        switch (tag) {
+        case 0xB000: return "MPFVersion";
+        case 0xB001: return "NumberOfImages";
+        case 0xB002: return "MPEntry";
+        case 0xB003: return "ImageUIDList";
+        case 0xB004: return "TotalFrames";
+        default: return {};
+        }
+    }
+
 }  // namespace
 
 std::string_view exif_tag_name(std::string_view ifd, uint16_t tag) noexcept
 {
-    switch (exif_ifd_group(ifd)) {
+    const ExifIfdGroup group = exif_ifd_group(ifd);
+    if (group == ExifIfdGroup::Unknown) {
+        if (ifd.starts_with("mk_")) {
+            return makernote_tag_name(ifd, tag);
+        }
+        return {};
+    }
+
+    switch (group) {
     case ExifIfdGroup::TiffIfd: return tiff_ifd_tag_name(tag);
     case ExifIfdGroup::ExifIfd: return exif_ifd_tag_name(tag);
     case ExifIfdGroup::GpsIfd: return gps_ifd_tag_name(tag);
     case ExifIfdGroup::InteropIfd: return interop_ifd_tag_name(tag);
+    case ExifIfdGroup::MpfIfd: return mpf_ifd_tag_name(tag);
     case ExifIfdGroup::Unknown: return {};
     }
     return {};
 }
 
 }  // namespace openmeta
-

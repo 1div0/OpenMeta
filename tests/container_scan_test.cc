@@ -234,7 +234,9 @@ namespace {
         append_bytes(&exif, "Exif");
         exif.push_back(std::byte { 0x00 });
         exif.push_back(std::byte { 0x00 });
-        append_bytes(&exif, "II*\0");
+        append_bytes(&exif, "II");
+        exif.push_back(std::byte { 0x2A });
+        exif.push_back(std::byte { 0x00 });
         append_u32le(&exif, 8);
 
         append_fourcc(&webp, fourcc('E', 'X', 'I', 'F'));
@@ -369,7 +371,9 @@ namespace {
 
         std::vector<std::byte> exif_box_payload;
         append_u32be(&exif_box_payload, 4);
-        append_bytes(&exif_box_payload, "II*\0");
+        append_bytes(&exif_box_payload, "II");
+        exif_box_payload.push_back(std::byte { 0x2A });
+        exif_box_payload.push_back(std::byte { 0x00 });
         append_u32le(&exif_box_payload, 8);
         append_u32be(&jxl, static_cast<uint32_t>(8 + exif_box_payload.size()));
         append_fourcc(&jxl, fourcc('E', 'x', 'i', 'f'));
@@ -442,7 +446,9 @@ namespace {
 
         std::vector<std::byte> idat_payload;
         append_u32be(&idat_payload, 4);  // TIFF header offset
-        append_bytes(&idat_payload, "II*\0");
+        append_bytes(&idat_payload, "II");
+        idat_payload.push_back(std::byte { 0x2A });
+        idat_payload.push_back(std::byte { 0x00 });
         append_u32le(&idat_payload, 8);
         const uint32_t xmp_off = static_cast<uint32_t>(idat_payload.size());
         append_bytes(&idat_payload, "<xmp/>");

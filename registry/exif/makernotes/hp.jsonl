@@ -1,0 +1,10 @@
+{"kind":"exif.tag","ifd":"makernote:hp:type4","tag":"0x000c","name":"MaxAperture"}
+{"kind":"exif.tag","ifd":"makernote:hp:type4","tag":"0x0010","name":"ExposureTime"}
+{"kind":"exif.tag","ifd":"makernote:hp:type4","tag":"0x0014","name":"CameraDateTime"}
+{"kind":"exif.tag","ifd":"makernote:hp:type4","tag":"0x0034","name":"ISO"}
+{"kind":"exif.tag","ifd":"makernote:hp:type4","tag":"0x005c","name":"SerialNumber"}
+{"kind":"exif.tag","ifd":"makernote:hp:type6","tag":"0x000c","name":"FNumber"}
+{"kind":"exif.tag","ifd":"makernote:hp:type6","tag":"0x0010","name":"ExposureTime"}
+{"kind":"exif.tag","ifd":"makernote:hp:type6","tag":"0x0014","name":"CameraDateTime"}
+{"kind":"exif.tag","ifd":"makernote:hp:type6","tag":"0x0034","name":"ISO"}
+{"kind":"exif.tag","ifd":"makernote:hp:type6","tag":"0x0058","name":"SerialNumber"}

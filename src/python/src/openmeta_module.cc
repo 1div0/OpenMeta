@@ -333,7 +333,8 @@ struct PyEntry final {
 
 static std::shared_ptr<PyDocument>
 read_document(const std::string& path, bool include_pointer_tags,
-              bool decompress, bool include_xmp_sidecar, uint64_t max_file_bytes)
+              bool decode_makernote, bool decompress, bool include_xmp_sidecar,
+              uint64_t max_file_bytes)
 {
     auto doc        = std::make_shared<PyDocument>();
     doc->path       = path;
@@ -346,6 +347,7 @@ read_document(const std::string& path, bool include_pointer_tags,
 
     ExifDecodeOptions exif_options;
     exif_options.include_pointer_tags = include_pointer_tags;
+    exif_options.decode_makernote     = decode_makernote;
 
     PayloadOptions payload_options;
     payload_options.decompress = decompress;
@@ -913,6 +915,7 @@ NB_MODULE(_openmeta, m)
         });
 
     m.def("read", &read_document, "path"_a, "include_pointer_tags"_a = true,
+          "decode_makernote"_a    = false,
           "decompress"_a           = true,
           "include_xmp_sidecar"_a  = false,
           "max_file_bytes"_a       = 512ULL * 1024ULL * 1024ULL);

@@ -201,6 +201,7 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--no-build-info", action="store_true", help="hide OpenMeta build info header")
     ap.add_argument("--no-blocks", action="store_true", help="hide container block summary")
     ap.add_argument("--no-pointer-tags", action="store_true", help="do not store pointer tags")
+    ap.add_argument("--makernotes", action="store_true", help="attempt MakerNote decode (best-effort)")
     ap.add_argument("--no-decompress", action="store_true", help="do not decompress payloads")
     ap.add_argument("--xmp-sidecar", action="store_true", help="also read sidecar XMP (<file>.xmp, <basename>.xmp)")
     ap.add_argument("--max-elements", type=int, default=16, help="max array elements to print")
@@ -224,6 +225,7 @@ def main(argv: list[str]) -> int:
         doc = openmeta.read(
             path,
             include_pointer_tags=not args.no_pointer_tags,
+            decode_makernote=bool(args.makernotes),
             decompress=not args.no_decompress,
             include_xmp_sidecar=bool(args.xmp_sidecar),
             max_file_bytes=int(args.max_file_bytes),

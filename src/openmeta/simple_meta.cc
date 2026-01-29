@@ -5,6 +5,8 @@
 #include "openmeta/photoshop_irb_decode.h"
 #include "openmeta/xmp_decode.h"
 
+#include <array>
+
 namespace openmeta {
 namespace {
 
@@ -288,6 +290,20 @@ simple_meta_read(std::span<const std::byte> file_bytes, MetaStore& store,
                 = (one.ifds_written < room) ? one.ifds_written : room;
             ifd_write_pos += advanced;
             exif.ifds_written = ifd_write_pos;
+        } else if (block.kind == ContainerBlockKind::Mpf) {
+            // JPEG APP2 MPF: TIFF-IFD stream used by MPO (multi-picture) files.
+            // Decode as EXIF/TIFF tags into a separate IFD token namespace.
+            std::array<ExifIfdRef, 64> mpf_ifds;
+            ExifDecodeOptions mpf_options = exif_options;
+            mpf_options.tokens.ifd_prefix        = "mpf";
+            mpf_options.tokens.subifd_prefix     = "mpf_subifd";
+            mpf_options.tokens.exif_ifd_token    = "mpf_exififd";
+            mpf_options.tokens.gps_ifd_token     = "mpf_gpsifd";
+            mpf_options.tokens.interop_ifd_token = "mpf_interopifd";
+            (void)decode_exif_tiff(block_bytes, store,
+                                   std::span<ExifIfdRef>(mpf_ifds.data(),
+                                                        mpf_ifds.size()),
+                                   mpf_options);
         } else if (block.kind == ContainerBlockKind::Xmp
                    || block.kind == ContainerBlockKind::XmpExtended) {
             any_xmp = true;

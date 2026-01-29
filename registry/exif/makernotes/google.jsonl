@@ -1,0 +1,4 @@
+{"kind":"exif.tag","ifd":"makernote:google:hdrplusmakernote","tag":"0x0002","name":"TimeLogText"}
+{"kind":"exif.tag","ifd":"makernote:google:hdrplusmakernote","tag":"0x0003","name":"SummaryText"}
+{"kind":"exif.tag","ifd":"makernote:google:shotlogdata","tag":"0x0002","name":"MeteringFrameCount"}
+{"kind":"exif.tag","ifd":"makernote:google:shotlogdata","tag":"0x0003","name":"OriginalPayloadFrameCount"}

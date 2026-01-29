@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <span>
+#include <string_view>
 
 /**
  * \file exif_tiff_decode.h
@@ -47,10 +48,30 @@ struct ExifDecodeLimits final {
     uint64_t max_value_bytes     = 16ULL * 1024ULL * 1024ULL;
 };
 
+/// Token strings used to label decoded IFD blocks.
+struct ExifIfdTokenPolicy final {
+    /// Prefix used for generic IFD chain blocks (e.g. `ifd0`, `ifd1`).
+    std::string_view ifd_prefix = "ifd";
+    /// Prefix used for SubIFD blocks (e.g. `subifd0`, `subifd1`).
+    std::string_view subifd_prefix = "subifd";
+    /// Token used for the EXIF sub-IFD pointer directory.
+    std::string_view exif_ifd_token = "exififd";
+    /// Token used for the GPS sub-IFD pointer directory.
+    std::string_view gps_ifd_token = "gpsifd";
+    /// Token used for the Interop sub-IFD pointer directory.
+    std::string_view interop_ifd_token = "interopifd";
+};
+
 /// Decoder options for \ref decode_exif_tiff.
 struct ExifDecodeOptions final {
     /// If true, pointer tags are preserved as entries in addition to being followed.
     bool include_pointer_tags = true;
+    /// If true, decode EXIF PrintIM (0xC4A5) into \ref MetaKeyKind::PrintImField.
+    bool decode_printim = true;
+    /// If true, attempt best-effort MakerNote decoding (vendor blocks).
+    bool decode_makernote = false;
+    /// IFD token naming policy (affects emitted EXIF key IFD strings).
+    ExifIfdTokenPolicy tokens;
     ExifDecodeLimits limits;
 };
 

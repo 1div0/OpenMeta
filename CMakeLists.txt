@@ -161,16 +161,18 @@ set(OPENMETA_SOURCES
   src/openmeta/byte_arena.cc
   src/openmeta/container_payload.cc
   src/openmeta/container_scan.cc
-  src/openmeta/icc_decode.cc
-  src/openmeta/exif_tag_names.cc
-  src/openmeta/exif_tiff_decode.cc
-  src/openmeta/iptc_iim_decode.cc
-  src/openmeta/xmp_decode.cc
+	  src/openmeta/icc_decode.cc
+	  src/openmeta/exif_makernote_tag_names.cc
+	  src/openmeta/exif_tag_names.cc
+	  src/openmeta/exif_tiff_decode.cc
+	  src/openmeta/iptc_iim_decode.cc
+	  src/openmeta/xmp_decode.cc
   src/openmeta/meta_edit.cc
   src/openmeta/meta_key.cc
   src/openmeta/meta_store.cc
   src/openmeta/meta_value.cc
   src/openmeta/photoshop_irb_decode.cc
+  src/openmeta/printim_decode.cc
   src/openmeta/simple_meta.cc
 )
 
@@ -364,17 +366,20 @@ if(OPENMETA_BUILD_TESTS)
   enable_testing()
   openmeta_add_googletest()
 
-  add_executable(openmeta_tests
-    tests/container_payload_test.cc
-    tests/container_scan_test.cc
-    tests/icc_decode_test.cc
-    tests/exif_tag_names_test.cc
-    tests/exif_tiff_decode_test.cc
-    tests/iptc_iim_decode_test.cc
-    tests/meta_store_test.cc
-    tests/photoshop_irb_decode_test.cc
-    tests/xmp_decode_test.cc
-  )
+	  add_executable(openmeta_tests
+	    tests/container_payload_test.cc
+	    tests/container_scan_test.cc
+	    tests/icc_decode_test.cc
+	    tests/exif_tag_names_test.cc
+	    tests/exif_tiff_decode_test.cc
+	    tests/iptc_iim_decode_test.cc
+	    tests/makernote_decode_test.cc
+	    tests/meta_store_test.cc
+	    tests/mpf_decode_test.cc
+	    tests/photoshop_irb_decode_test.cc
+	    tests/printim_decode_test.cc
+	    tests/xmp_decode_test.cc
+	  )
   target_link_libraries(openmeta_tests PRIVATE ${OPENMETA_LIB_TARGET} gtest_main)
 
   add_test(NAME openmeta_tests COMMAND openmeta_tests)

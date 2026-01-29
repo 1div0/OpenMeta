@@ -1,0 +1,7 @@
+{"kind":"exif.tag","ifd":"makernote:microsoft:stitch","tag":"0x0000","name":"PanoramicStitchVersion"}
+{"kind":"exif.tag","ifd":"makernote:microsoft:stitch","tag":"0x0001","name":"PanoramicStitchCameraMotion"}
+{"kind":"exif.tag","ifd":"makernote:microsoft:stitch","tag":"0x0002","name":"PanoramicStitchMapType"}
+{"kind":"exif.tag","ifd":"makernote:microsoft:stitch","tag":"0x0003","name":"PanoramicStitchTheta0"}
+{"kind":"exif.tag","ifd":"makernote:microsoft:stitch","tag":"0x0004","name":"PanoramicStitchTheta1"}
+{"kind":"exif.tag","ifd":"makernote:microsoft:stitch","tag":"0x0005","name":"PanoramicStitchPhi0"}
+{"kind":"exif.tag","ifd":"makernote:microsoft:stitch","tag":"0x0006","name":"PanoramicStitchPhi1"}

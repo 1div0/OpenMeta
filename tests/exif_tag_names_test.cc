@@ -22,6 +22,15 @@ TEST(ExifTagNames, MapsCommonTags)
     EXPECT_EQ(exif_tag_name("gpsifd", 0x0002), std::string_view("GPSLatitude"));
     EXPECT_EQ(exif_tag_name("gpsifd", 0x0011),
               std::string_view("GPSImgDirection"));
+
+    EXPECT_EQ(exif_tag_name("ifd0", 0xC4A5), std::string_view("PrintIM"));
+    EXPECT_EQ(exif_tag_name("mpf0", 0xB001),
+              std::string_view("NumberOfImages"));
+
+    EXPECT_EQ(exif_tag_name("mk_nikon0", 0x0002), std::string_view("ISO"));
+    EXPECT_EQ(exif_tag_name("mk_canon0", 0x0003),
+              std::string_view("CanonFlashInfo"));
+    EXPECT_EQ(exif_tag_name("mk_fuji0", 0x1000), std::string_view("Quality"));
 }
 
 TEST(ExifTagNames, UnknownReturnsEmpty)
@@ -31,4 +40,3 @@ TEST(ExifTagNames, UnknownReturnsEmpty)
     EXPECT_TRUE(exif_tag_name("gpsifd", 0xFFFF).empty());
     EXPECT_TRUE(exif_tag_name("unknown_ifd", 0x010F).empty());
 }
-

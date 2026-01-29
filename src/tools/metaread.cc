@@ -978,6 +978,14 @@ namespace {
                 row.name_s = "-";
                 break;
             }
+            case MetaKeyKind::PrintImField: {
+                const std::string_view field
+                    = arena_string(store.arena(),
+                                   entry.key.data.printim_field.field);
+                row.key_s.assign(field.data(), field.size());
+                row.name_s = "-";
+                break;
+            }
             default:
                 row.key_s  = "-";
                 row.name_s = "-";
@@ -1253,6 +1261,10 @@ namespace {
         std::printf(
             "  --no-pointer-tags     do not store pointer tags (0x8769/0x8825/0xA005/0x014A)\n");
         std::printf(
+            "  --makernotes          attempt MakerNote decode (best-effort)\n");
+        std::printf(
+            "  --no-printim          do not decode PrintIM (0xC4A5) into fields\n");
+        std::printf(
             "  --max-elements N      max array elements to print (default: 16)\n");
         std::printf(
             "  --max-bytes N         max bytes to print for text/bytes (default: 256)\n");
@@ -1320,6 +1332,16 @@ main(int argc, char** argv)
         }
         if (std::strcmp(arg, "--no-pointer-tags") == 0) {
             exif_options.include_pointer_tags = false;
+            first_path += 1;
+            continue;
+        }
+        if (std::strcmp(arg, "--makernotes") == 0) {
+            exif_options.decode_makernote = true;
+            first_path += 1;
+            continue;
+        }
+        if (std::strcmp(arg, "--no-printim") == 0) {
+            exif_options.decode_printim = false;
             first_path += 1;
             continue;
         }
@@ -1538,6 +1560,10 @@ main(int argc, char** argv)
                                       max_bytes, max_cell_chars);
             } else if (first.key.kind == MetaKeyKind::PhotoshopIrb) {
                 print_generic_block_table(store, block, "photoshop_irb", ids,
+                                          max_elements, max_bytes,
+                                          max_cell_chars);
+            } else if (first.key.kind == MetaKeyKind::PrintImField) {
+                print_generic_block_table(store, block, "printim", ids,
                                           max_elements, max_bytes,
                                           max_cell_chars);
             }
