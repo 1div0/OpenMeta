@@ -14,6 +14,7 @@ namespace {
         return static_cast<uint8_t>(b);
     }
 
+
     static bool match(std::span<const std::byte> bytes, uint64_t offset,
                       const char* s, uint32_t s_len) noexcept
     {
@@ -24,6 +25,7 @@ namespace {
                            static_cast<size_t>(s_len))
                == 0;
     }
+
 
     static bool read_u16le(std::span<const std::byte> bytes, uint64_t offset,
                            uint16_t* out) noexcept
@@ -36,6 +38,7 @@ namespace {
         *out = v;
         return true;
     }
+
 
     static bool read_u32le(std::span<const std::byte> bytes, uint64_t offset,
                            uint32_t* out) noexcept
@@ -104,13 +107,13 @@ decode_printim(std::span<const std::byte> bytes, MetaStore& store,
 
     // Version field (always emitted for valid PrintIM headers).
     {
-        const std::string_view version(
-            reinterpret_cast<const char*>(bytes.data() + 8), 4);
+        const std::string_view version(reinterpret_cast<const char*>(
+                                           bytes.data() + 8),
+                                       4);
         Entry e;
-        e.key = make_printim_field_key(store.arena(), "version");
-        e.value
-            = make_text(store.arena(), version, TextEncoding::Ascii);
-        e.origin.block          = block;
+        e.key          = make_printim_field_key(store.arena(), "version");
+        e.value        = make_text(store.arena(), version, TextEncoding::Ascii);
+        e.origin.block = block;
         e.origin.order_in_block = 0;
         e.origin.wire_type      = WireType { WireFamily::Other, 0 };
         e.origin.wire_count     = 4;
@@ -134,8 +137,8 @@ decode_printim(std::span<const std::byte> bytes, MetaStore& store,
                       static_cast<unsigned>(tag_id));
 
         Entry e;
-        e.key = make_printim_field_key(store.arena(),
-                                       std::string_view(key_buf));
+        e.key                   = make_printim_field_key(store.arena(),
+                                                         std::string_view(key_buf));
         e.value                 = make_u32(value);
         e.origin.block          = block;
         e.origin.order_in_block = i + 1;
@@ -151,4 +154,3 @@ decode_printim(std::span<const std::byte> bytes, MetaStore& store,
 }
 
 }  // namespace openmeta
-

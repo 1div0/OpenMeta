@@ -16,11 +16,13 @@ namespace {
                     reinterpret_cast<const std::byte*>(s.data() + s.size()));
     }
 
+
     static void append_u16le(std::vector<std::byte>* out, uint16_t v)
     {
         out->push_back(std::byte { static_cast<uint8_t>((v >> 0) & 0xFF) });
         out->push_back(std::byte { static_cast<uint8_t>((v >> 8) & 0xFF) });
     }
+
 
     static void append_u32le(std::vector<std::byte>* out, uint32_t v)
     {
@@ -30,11 +32,13 @@ namespace {
         out->push_back(std::byte { static_cast<uint8_t>((v >> 24) & 0xFF) });
     }
 
+
     static void append_u16be(std::vector<std::byte>* out, uint16_t v)
     {
         out->push_back(std::byte { static_cast<uint8_t>((v >> 8) & 0xFF) });
         out->push_back(std::byte { static_cast<uint8_t>((v >> 0) & 0xFF) });
     }
+
 
     static void append_u32be(std::vector<std::byte>* out, uint32_t v)
     {
@@ -43,6 +47,7 @@ namespace {
         out->push_back(std::byte { static_cast<uint8_t>((v >> 8) & 0xFF) });
         out->push_back(std::byte { static_cast<uint8_t>((v >> 0) & 0xFF) });
     }
+
 
     static void write_u32le_at(std::vector<std::byte>* out, size_t off,
                                uint32_t v)
@@ -55,6 +60,7 @@ namespace {
         (*out)[off + 3] = std::byte { static_cast<uint8_t>((v >> 24) & 0xFF) };
     }
 
+
     static void write_u16le_at(std::vector<std::byte>* out, size_t off,
                                uint16_t v)
     {
@@ -63,6 +69,7 @@ namespace {
         (*out)[off + 0] = std::byte { static_cast<uint8_t>((v >> 0) & 0xFF) };
         (*out)[off + 1] = std::byte { static_cast<uint8_t>((v >> 8) & 0xFF) };
     }
+
 
     static MetaKeyView exif_key(std::string_view ifd, uint16_t tag)
     {
@@ -73,24 +80,26 @@ namespace {
         return key;
     }
 
+
     static std::vector<std::byte>
     make_test_tiff_with_makernote(std::string_view make,
-                                 std::span<const std::byte> maker_note)
+                                  std::span<const std::byte> maker_note)
     {
         // TIFF header (8 bytes) + IFD0 (2 entries) + Make string + ExifIFD (1 entry)
         // + MakerNote bytes.
-        const uint32_t ifd0_off        = 8;
-        const uint32_t ifd0_entry_cnt  = 2;
-        const uint32_t ifd0_size       = 2U + ifd0_entry_cnt * 12U + 4U;
-        const uint32_t make_off        = ifd0_off + ifd0_size;
-        const uint32_t make_count      = static_cast<uint32_t>(make.size() + 1U);
-        const uint32_t exif_ifd_off    = make_off + make_count;
-        const uint32_t exif_entry_cnt  = 1;
-        const uint32_t exif_ifd_size   = 2U + exif_entry_cnt * 12U + 4U;
-        const uint32_t maker_note_off  = exif_ifd_off + exif_ifd_size;
-        const uint32_t maker_note_count
-            = (maker_note.size() > UINT32_MAX) ? UINT32_MAX
-                                               : static_cast<uint32_t>(maker_note.size());
+        const uint32_t ifd0_off       = 8;
+        const uint32_t ifd0_entry_cnt = 2;
+        const uint32_t ifd0_size      = 2U + ifd0_entry_cnt * 12U + 4U;
+        const uint32_t make_off       = ifd0_off + ifd0_size;
+        const uint32_t make_count     = static_cast<uint32_t>(make.size() + 1U);
+        const uint32_t exif_ifd_off   = make_off + make_count;
+        const uint32_t exif_entry_cnt = 1;
+        const uint32_t exif_ifd_size  = 2U + exif_entry_cnt * 12U + 4U;
+        const uint32_t maker_note_off = exif_ifd_off + exif_ifd_size;
+        const uint32_t maker_note_count = (maker_note.size() > UINT32_MAX)
+                                              ? UINT32_MAX
+                                              : static_cast<uint32_t>(
+                                                    maker_note.size());
 
         std::vector<std::byte> tiff;
         append_bytes(&tiff, "II");
@@ -137,6 +146,7 @@ namespace {
         return tiff;
     }
 
+
     static std::vector<std::byte> make_canon_makernote()
     {
         std::vector<std::byte> mn;
@@ -148,6 +158,7 @@ namespace {
         append_u32le(&mn, 0);
         return mn;
     }
+
 
     static std::vector<std::byte> make_canon_camera_settings_makernote()
     {
@@ -166,6 +177,7 @@ namespace {
         append_u16le(&mn, 22);
         return mn;
     }
+
 
     static std::vector<std::byte> make_canon_custom_functions2_makernote()
     {
@@ -196,6 +208,7 @@ namespace {
         return mn;
     }
 
+
     static std::vector<std::byte> make_canon_camera_info_psinfo_makernote()
     {
         // Canon MakerNote with a single CameraInfo blob tag (0x000d) that
@@ -217,6 +230,7 @@ namespace {
         mn.insert(mn.end(), cam.begin(), cam.end());
         return mn;
     }
+
 
     static std::vector<std::byte> make_canon_afinfo2_makernote()
     {
@@ -243,8 +257,10 @@ namespace {
         append_u16le(&mn, 3888);  // AFImageWidth
         append_u16le(&mn, 2592);  // AFImageHeight
 
-        for (int i = 0; i < 9; ++i) append_u16le(&mn, 97);  // widths
-        for (int i = 0; i < 9; ++i) append_u16le(&mn, 98);  // heights
+        for (int i = 0; i < 9; ++i)
+            append_u16le(&mn, 97);  // widths
+        for (int i = 0; i < 9; ++i)
+            append_u16le(&mn, 98);  // heights
 
         const int16_t x_pos[9] = { 0, -649, 649, -1034, 0, 1034, -649, 649, 0 };
         for (int i = 0; i < 9; ++i) {
@@ -264,6 +280,7 @@ namespace {
         return mn;
     }
 
+
     static std::vector<std::byte> make_casio_type2_makernote()
     {
         // Casio MakerNote type2: "QVC\0" header + big-endian entry table.
@@ -282,6 +299,7 @@ namespace {
         return mn;
     }
 
+
     static std::vector<std::byte> make_fuji_makernote()
     {
         std::vector<std::byte> mn;
@@ -297,6 +315,7 @@ namespace {
         append_u32le(&mn, 0);
         return mn;
     }
+
 
     static std::vector<std::byte> make_nikon_makernote()
     {
@@ -323,6 +342,7 @@ namespace {
 
         return mn;
     }
+
 
     static std::vector<std::byte> make_apple_makernote()
     {
@@ -356,6 +376,7 @@ namespace {
         return mn;
     }
 
+
     static std::vector<std::byte> make_olympus_makernote()
     {
         // Minimal Olympus MakerNote sample:
@@ -383,6 +404,7 @@ namespace {
         return mn;
     }
 
+
     static std::vector<std::byte> make_pentax_makernote()
     {
         // Minimal Pentax MakerNote sample:
@@ -409,19 +431,20 @@ namespace {
 
 TEST(MakerNoteDecode, DecodesCanonStyleMakerNoteIfdAtOffset0)
 {
-    const std::vector<std::byte> mn = make_canon_makernote();
-    const std::vector<std::byte> tiff
-        = make_test_tiff_with_makernote("Canon", mn);
+    const std::vector<std::byte> mn   = make_canon_makernote();
+    const std::vector<std::byte> tiff = make_test_tiff_with_makernote("Canon",
+                                                                      mn);
 
     MetaStore store;
     std::array<ExifIfdRef, 8> ifds {};
     ExifDecodeOptions options;
-    options.decode_makernote = true;
+    options.decode_makernote   = true;
     const ExifDecodeResult res = decode_exif_tiff(tiff, store, ifds, options);
     EXPECT_EQ(res.status, ExifDecodeStatus::Ok);
 
     store.finalize();
-    const std::span<const EntryId> ids = store.find_all(exif_key("mk_canon0", 0x0001));
+    const std::span<const EntryId> ids = store.find_all(
+        exif_key("mk_canon0", 0x0001));
     ASSERT_EQ(ids.size(), 1U);
     const Entry& e = store.entry(ids[0]);
     EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
@@ -429,22 +452,22 @@ TEST(MakerNoteDecode, DecodesCanonStyleMakerNoteIfdAtOffset0)
     EXPECT_EQ(e.value.data.u64, 0x12345678U);
 }
 
+
 TEST(MakerNoteDecode, DecodesCanonBinaryDataCameraSettingsIntoDerivedIfd)
 {
-    std::vector<std::byte> mn = make_canon_camera_settings_makernote();
+    std::vector<std::byte> mn   = make_canon_camera_settings_makernote();
     const std::string_view make = "Canon";
     const uint32_t maker_note_off
         = 57U + static_cast<uint32_t>(make.size());  // see builder layout
     const uint32_t value_off_abs = maker_note_off + 18U;
     write_u32le_at(&mn, 10U, value_off_abs);
 
-    const std::vector<std::byte> tiff
-        = make_test_tiff_with_makernote(make, mn);
+    const std::vector<std::byte> tiff = make_test_tiff_with_makernote(make, mn);
 
     MetaStore store;
     std::array<ExifIfdRef, 8> ifds {};
     ExifDecodeOptions options;
-    options.decode_makernote = true;
+    options.decode_makernote   = true;
     const ExifDecodeResult res = decode_exif_tiff(tiff, store, ifds, options);
     EXPECT_EQ(res.status, ExifDecodeStatus::Ok);
 
@@ -459,22 +482,22 @@ TEST(MakerNoteDecode, DecodesCanonBinaryDataCameraSettingsIntoDerivedIfd)
     EXPECT_TRUE(any(e.flags, EntryFlags::Derived));
 }
 
+
 TEST(MakerNoteDecode, DecodesCanonCustomFunctions2IntoDerivedIfd)
 {
-    std::vector<std::byte> mn = make_canon_custom_functions2_makernote();
+    std::vector<std::byte> mn   = make_canon_custom_functions2_makernote();
     const std::string_view make = "Canon";
     const uint32_t maker_note_off
         = 57U + static_cast<uint32_t>(make.size());  // see builder layout
     const uint32_t value_off_abs = maker_note_off + 18U;
     write_u32le_at(&mn, 10U, value_off_abs);
 
-    const std::vector<std::byte> tiff
-        = make_test_tiff_with_makernote(make, mn);
+    const std::vector<std::byte> tiff = make_test_tiff_with_makernote(make, mn);
 
     MetaStore store;
     std::array<ExifIfdRef, 8> ifds {};
     ExifDecodeOptions options;
-    options.decode_makernote = true;
+    options.decode_makernote   = true;
     const ExifDecodeResult res = decode_exif_tiff(tiff, store, ifds, options);
     EXPECT_EQ(res.status, ExifDecodeStatus::Ok);
 
@@ -489,22 +512,22 @@ TEST(MakerNoteDecode, DecodesCanonCustomFunctions2IntoDerivedIfd)
     EXPECT_TRUE(any(e.flags, EntryFlags::Derived));
 }
 
+
 TEST(MakerNoteDecode, DecodesCanonCameraInfoPictureStyleIntoDerivedIfd)
 {
-    std::vector<std::byte> mn = make_canon_camera_info_psinfo_makernote();
+    std::vector<std::byte> mn   = make_canon_camera_info_psinfo_makernote();
     const std::string_view make = "Canon";
     const uint32_t maker_note_off
         = 57U + static_cast<uint32_t>(make.size());  // see builder layout
     const uint32_t value_off_abs = maker_note_off + 18U;
     write_u32le_at(&mn, 10U, value_off_abs);
 
-    const std::vector<std::byte> tiff
-        = make_test_tiff_with_makernote(make, mn);
+    const std::vector<std::byte> tiff = make_test_tiff_with_makernote(make, mn);
 
     MetaStore store;
     std::array<ExifIfdRef, 8> ifds {};
     ExifDecodeOptions options;
-    options.decode_makernote = true;
+    options.decode_makernote   = true;
     const ExifDecodeResult res = decode_exif_tiff(tiff, store, ifds, options);
     EXPECT_EQ(res.status, ExifDecodeStatus::Ok);
 
@@ -531,22 +554,22 @@ TEST(MakerNoteDecode, DecodesCanonCameraInfoPictureStyleIntoDerivedIfd)
     }
 }
 
+
 TEST(MakerNoteDecode, DecodesCanonAfInfo2IntoDerivedIfd)
 {
-    std::vector<std::byte> mn = make_canon_afinfo2_makernote();
+    std::vector<std::byte> mn   = make_canon_afinfo2_makernote();
     const std::string_view make = "Canon";
     const uint32_t maker_note_off
         = 57U + static_cast<uint32_t>(make.size());  // see builder layout
     const uint32_t value_off_abs = maker_note_off + 18U;
     write_u32le_at(&mn, 10U, value_off_abs);
 
-    const std::vector<std::byte> tiff
-        = make_test_tiff_with_makernote(make, mn);
+    const std::vector<std::byte> tiff = make_test_tiff_with_makernote(make, mn);
 
     MetaStore store;
     std::array<ExifIfdRef, 8> ifds {};
     ExifDecodeOptions options;
-    options.decode_makernote = true;
+    options.decode_makernote   = true;
     const ExifDecodeResult res = decode_exif_tiff(tiff, store, ifds, options);
     EXPECT_EQ(res.status, ExifDecodeStatus::Ok);
 
@@ -583,22 +606,23 @@ TEST(MakerNoteDecode, DecodesCanonAfInfo2IntoDerivedIfd)
     }
 }
 
+
 TEST(MakerNoteDecode, DecodesCasioType2MakerNoteQvcDirectory)
 {
-    const std::vector<std::byte> mn = make_casio_type2_makernote();
-    const std::vector<std::byte> tiff
-        = make_test_tiff_with_makernote("CASIO", mn);
+    const std::vector<std::byte> mn   = make_casio_type2_makernote();
+    const std::vector<std::byte> tiff = make_test_tiff_with_makernote("CASIO",
+                                                                      mn);
 
     MetaStore store;
     std::array<ExifIfdRef, 8> ifds {};
     ExifDecodeOptions options;
-    options.decode_makernote = true;
+    options.decode_makernote   = true;
     const ExifDecodeResult res = decode_exif_tiff(tiff, store, ifds, options);
     EXPECT_EQ(res.status, ExifDecodeStatus::Ok);
 
     store.finalize();
-    const std::span<const EntryId> ids
-        = store.find_all(exif_key("mk_casio_type2_0", 0x0002));
+    const std::span<const EntryId> ids = store.find_all(
+        exif_key("mk_casio_type2_0", 0x0002));
     ASSERT_EQ(ids.size(), 1U);
     const Entry& e = store.entry(ids[0]);
     EXPECT_EQ(e.value.kind, MetaValueKind::Array);
@@ -606,21 +630,23 @@ TEST(MakerNoteDecode, DecodesCasioType2MakerNoteQvcDirectory)
     EXPECT_EQ(e.value.count, 2U);
 }
 
+
 TEST(MakerNoteDecode, DecodesFujiMakerNoteWithSignatureAndOffset)
 {
-    const std::vector<std::byte> mn = make_fuji_makernote();
-    const std::vector<std::byte> tiff
-        = make_test_tiff_with_makernote("Canon", mn);
+    const std::vector<std::byte> mn   = make_fuji_makernote();
+    const std::vector<std::byte> tiff = make_test_tiff_with_makernote("Canon",
+                                                                      mn);
 
     MetaStore store;
     std::array<ExifIfdRef, 8> ifds {};
     ExifDecodeOptions options;
-    options.decode_makernote = true;
+    options.decode_makernote   = true;
     const ExifDecodeResult res = decode_exif_tiff(tiff, store, ifds, options);
     EXPECT_EQ(res.status, ExifDecodeStatus::Ok);
 
     store.finalize();
-    const std::span<const EntryId> ids = store.find_all(exif_key("mk_fuji0", 0x0001));
+    const std::span<const EntryId> ids = store.find_all(
+        exif_key("mk_fuji0", 0x0001));
     ASSERT_EQ(ids.size(), 1U);
     const Entry& e = store.entry(ids[0]);
     EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
@@ -628,21 +654,23 @@ TEST(MakerNoteDecode, DecodesFujiMakerNoteWithSignatureAndOffset)
     EXPECT_EQ(e.value.data.u64, 0x42U);
 }
 
+
 TEST(MakerNoteDecode, DecodesNikonMakerNoteWithEmbeddedTiffHeader)
 {
-    const std::vector<std::byte> mn = make_nikon_makernote();
-    const std::vector<std::byte> tiff
-        = make_test_tiff_with_makernote("Canon", mn);
+    const std::vector<std::byte> mn   = make_nikon_makernote();
+    const std::vector<std::byte> tiff = make_test_tiff_with_makernote("Canon",
+                                                                      mn);
 
     MetaStore store;
     std::array<ExifIfdRef, 8> ifds {};
     ExifDecodeOptions options;
-    options.decode_makernote = true;
+    options.decode_makernote   = true;
     const ExifDecodeResult res = decode_exif_tiff(tiff, store, ifds, options);
     EXPECT_EQ(res.status, ExifDecodeStatus::Ok);
 
     store.finalize();
-    const std::span<const EntryId> ids = store.find_all(exif_key("mk_nikon0", 0x0001));
+    const std::span<const EntryId> ids = store.find_all(
+        exif_key("mk_nikon0", 0x0001));
     ASSERT_EQ(ids.size(), 1U);
     const Entry& e = store.entry(ids[0]);
     EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
@@ -650,21 +678,23 @@ TEST(MakerNoteDecode, DecodesNikonMakerNoteWithEmbeddedTiffHeader)
     EXPECT_EQ(e.value.data.u64, 0x01020304U);
 }
 
+
 TEST(MakerNoteDecode, DecodesAppleMakerNoteWithBigEndianIfdAtOffset14)
 {
-    const std::vector<std::byte> mn = make_apple_makernote();
-    const std::vector<std::byte> tiff
-        = make_test_tiff_with_makernote("Apple", mn);
+    const std::vector<std::byte> mn   = make_apple_makernote();
+    const std::vector<std::byte> tiff = make_test_tiff_with_makernote("Apple",
+                                                                      mn);
 
     MetaStore store;
     std::array<ExifIfdRef, 8> ifds {};
     ExifDecodeOptions options;
-    options.decode_makernote = true;
+    options.decode_makernote   = true;
     const ExifDecodeResult res = decode_exif_tiff(tiff, store, ifds, options);
     EXPECT_EQ(res.status, ExifDecodeStatus::Ok);
 
     store.finalize();
-    const std::span<const EntryId> ids = store.find_all(exif_key("mk_apple0", 0x0001));
+    const std::span<const EntryId> ids = store.find_all(
+        exif_key("mk_apple0", 0x0001));
     ASSERT_EQ(ids.size(), 1U);
     const Entry& e = store.entry(ids[0]);
     EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
@@ -672,13 +702,15 @@ TEST(MakerNoteDecode, DecodesAppleMakerNoteWithBigEndianIfdAtOffset14)
     EXPECT_EQ(e.value.data.u64, 17U);
 }
 
+
 TEST(MakerNoteDecode, DecodesOlympusMakerNoteWithOuterTiffOffsets)
 {
     std::vector<std::byte> mn = make_olympus_makernote();
 
-    const std::string_view make = "OLYMPUS";
+    const std::string_view make   = "OLYMPUS";
     const uint32_t maker_note_off = 57U + static_cast<uint32_t>(make.size());
-    const uint32_t value_off_abs = maker_note_off + static_cast<uint32_t>(mn.size());
+    const uint32_t value_off_abs  = maker_note_off
+                                   + static_cast<uint32_t>(mn.size());
 
     // Patch the out-of-line value offset in the MakerNote entry.
     // Layout: header(8) + entry_count(2) + tag(2) + type(2) + count(4) = 18.
@@ -692,13 +724,13 @@ TEST(MakerNoteDecode, DecodesOlympusMakerNoteWithOuterTiffOffsets)
     MetaStore store;
     std::array<ExifIfdRef, 8> ifds {};
     ExifDecodeOptions options;
-    options.decode_makernote = true;
+    options.decode_makernote   = true;
     const ExifDecodeResult res = decode_exif_tiff(tiff, store, ifds, options);
     EXPECT_EQ(res.status, ExifDecodeStatus::Ok);
 
     store.finalize();
-    const std::span<const EntryId> ids
-        = store.find_all(exif_key("mk_olympus0", 0x0200));
+    const std::span<const EntryId> ids = store.find_all(
+        exif_key("mk_olympus0", 0x0200));
     ASSERT_EQ(ids.size(), 1U);
     const Entry& e = store.entry(ids[0]);
     EXPECT_EQ(e.value.kind, MetaValueKind::Array);
@@ -706,21 +738,23 @@ TEST(MakerNoteDecode, DecodesOlympusMakerNoteWithOuterTiffOffsets)
     EXPECT_EQ(e.value.count, 3U);
 }
 
+
 TEST(MakerNoteDecode, DecodesPentaxMakerNoteWithAocHeaderAndCount)
 {
-    const std::vector<std::byte> mn = make_pentax_makernote();
-    const std::vector<std::byte> tiff
-        = make_test_tiff_with_makernote("PENTAX", mn);
+    const std::vector<std::byte> mn   = make_pentax_makernote();
+    const std::vector<std::byte> tiff = make_test_tiff_with_makernote("PENTAX",
+                                                                      mn);
 
     MetaStore store;
     std::array<ExifIfdRef, 8> ifds {};
     ExifDecodeOptions options;
-    options.decode_makernote = true;
+    options.decode_makernote   = true;
     const ExifDecodeResult res = decode_exif_tiff(tiff, store, ifds, options);
     EXPECT_EQ(res.status, ExifDecodeStatus::Ok);
 
     store.finalize();
-    const std::span<const EntryId> ids = store.find_all(exif_key("mk_pentax0", 0x0001));
+    const std::span<const EntryId> ids = store.find_all(
+        exif_key("mk_pentax0", 0x0001));
     ASSERT_EQ(ids.size(), 1U);
     const Entry& e = store.entry(ids[0]);
     EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);

@@ -53,7 +53,7 @@ struct IptcIimDecodeResult final {
 IptcIimDecodeResult
 decode_iptc_iim(std::span<const std::byte> iptc_bytes, MetaStore& store,
                 EntryFlags flags = EntryFlags::None,
-                const IptcIimDecodeOptions& options = IptcIimDecodeOptions {}) noexcept;
+                const IptcIimDecodeOptions& options
+                = IptcIimDecodeOptions {}) noexcept;
 
 }  // namespace openmeta
-

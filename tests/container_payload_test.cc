@@ -22,6 +22,7 @@ namespace {
         out->push_back(std::byte { static_cast<uint8_t>((v >> 0) & 0xFF) });
     }
 
+
     static void append_u32be(std::vector<std::byte>* out, uint32_t v)
     {
         out->push_back(std::byte { static_cast<uint8_t>((v >> 24) & 0xFF) });
@@ -29,6 +30,7 @@ namespace {
         out->push_back(std::byte { static_cast<uint8_t>((v >> 8) & 0xFF) });
         out->push_back(std::byte { static_cast<uint8_t>((v >> 0) & 0xFF) });
     }
+
 
     static void append_u32le(std::vector<std::byte>* out, uint32_t v)
     {
@@ -38,10 +40,12 @@ namespace {
         out->push_back(std::byte { static_cast<uint8_t>((v >> 24) & 0xFF) });
     }
 
+
     static void append_fourcc(std::vector<std::byte>* out, uint32_t f)
     {
         append_u32be(out, f);
     }
+
 
     static void append_bytes(std::vector<std::byte>* out, std::string_view s)
     {
@@ -49,6 +53,7 @@ namespace {
             out->push_back(std::byte { static_cast<uint8_t>(c) });
         }
     }
+
 
     static void append_jpeg_segment(std::vector<std::byte>* out,
                                     uint16_t marker,
@@ -61,6 +66,7 @@ namespace {
         out->insert(out->end(), payload.begin(), payload.end());
     }
 
+
     static void append_fullbox_header(std::vector<std::byte>* out,
                                       uint8_t version)
     {
@@ -70,6 +76,7 @@ namespace {
         out->push_back(std::byte { 0x00 });
     }
 
+
     static void append_bmff_box(std::vector<std::byte>* out, uint32_t type,
                                 std::span<const std::byte> payload)
     {
@@ -77,6 +84,7 @@ namespace {
         append_fourcc(out, type);
         out->insert(out->end(), payload.begin(), payload.end());
     }
+
 
     static void append_png_chunk(std::vector<std::byte>* out, uint32_t type,
                                  std::span<const std::byte> data)
@@ -86,6 +94,7 @@ namespace {
         out->insert(out->end(), data.begin(), data.end());
         append_u32be(out, 0);  // CRC ignored by scanner.
     }
+
 
     TEST(ContainerPayload, GifSubBlocks)
     {
@@ -131,6 +140,7 @@ namespace {
         EXPECT_EQ(out[1], std::byte { 'b' });
         EXPECT_EQ(out[2], std::byte { 'c' });
     }
+
 
     TEST(ContainerPayload, JpegIccSeqTotal)
     {
@@ -195,6 +205,7 @@ namespace {
         EXPECT_EQ(short_res.written, 3U);
     }
 
+
     TEST(ContainerPayload, JpegXmpExtendedGuidOffset)
     {
         std::vector<std::byte> jpeg;
@@ -257,6 +268,7 @@ namespace {
         EXPECT_EQ(out[4], std::byte { 'E' });
         EXPECT_EQ(out[5], std::byte { 'F' });
     }
+
 
     TEST(ContainerPayload, BmffMetaItemExtents)
     {

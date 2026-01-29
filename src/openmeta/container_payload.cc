@@ -27,10 +27,12 @@ namespace {
         return size <= cap;
     }
 
+
     static uint32_t safe_u32(uint64_t v) noexcept
     {
         return (v > 0xFFFFFFFFULL) ? 0xFFFFFFFFU : static_cast<uint32_t>(v);
     }
+
 
     static void insertion_sort_by_part_index(
         std::span<uint32_t> indices,
@@ -53,6 +55,7 @@ namespace {
         }
     }
 
+
     static void insertion_sort_by_logical_offset(
         std::span<uint32_t> indices,
         std::span<const ContainerBlockRef> blocks) noexcept
@@ -72,6 +75,7 @@ namespace {
             indices[j] = key;
         }
     }
+
 
     static void copy_bytes(std::span<std::byte> dst, uint64_t dst_off,
                            std::span<const std::byte> src,
@@ -94,6 +98,7 @@ namespace {
             *io_written += n;
         }
     }
+
 
     static PayloadResult
     extract_gif_subblocks(std::span<const std::byte> bytes,
@@ -394,6 +399,7 @@ namespace {
         return res;
     }
 
+
     static bool blocks_match_jpeg_icc(const ContainerBlockRef& seed,
                                       const ContainerBlockRef& b) noexcept
     {
@@ -409,6 +415,7 @@ namespace {
         }
         return true;
     }
+
 
     static bool blocks_match_jpeg_xmp_ext(const ContainerBlockRef& seed,
                                           const ContainerBlockRef& b) noexcept
@@ -429,6 +436,7 @@ namespace {
         return true;
     }
 
+
     static bool blocks_match_multipart(const ContainerBlockRef& seed,
                                        const ContainerBlockRef& b) noexcept
     {
@@ -447,6 +455,7 @@ namespace {
         }
         return true;
     }
+
 
     static PayloadResult
     extract_concat_parts(std::span<const std::byte> file_bytes,
@@ -489,6 +498,7 @@ namespace {
         }
         return res;
     }
+
 
     static PayloadResult
     extract_offset_parts(std::span<const std::byte> file_bytes,

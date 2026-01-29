@@ -28,6 +28,7 @@ make_exif_key(ByteSpan ifd, uint16_t tag) noexcept
     return key;
 }
 
+
 static void
 verify_block_order(const MetaStore& store, BlockId block)
 {
@@ -48,6 +49,7 @@ verify_block_order(const MetaStore& store, BlockId block)
     }
 }
 
+
 static void
 verify_lookup_tags(const MetaStore& store, std::span<const uint16_t> tags)
 {
@@ -67,6 +69,7 @@ verify_lookup_tags(const MetaStore& store, std::span<const uint16_t> tags)
         }
     }
 }
+
 
 static void
 meta_store_op_stream(const std::vector<Op>& ops)
@@ -141,6 +144,7 @@ meta_store_op_stream(const std::vector<Op>& ops)
     verify_block_order(compacted, block);
     verify_lookup_tags(compacted, sample_tags);
 }
+
 
 FUZZ_TEST(MetaStoreFuzz, meta_store_op_stream)
     .WithDomains(

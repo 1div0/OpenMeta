@@ -130,6 +130,7 @@ fourcc(char a, char b, char c, char d) noexcept
            | (static_cast<uint32_t>(static_cast<uint8_t>(d)) << 0);
 }
 
+
 ScanResult
 scan_auto(std::span<const std::byte> bytes,
           std::span<ContainerBlockRef> out) noexcept;

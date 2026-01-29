@@ -26,8 +26,8 @@ enum class IccDecodeStatus : uint8_t {
 
 /// Resource limits applied during ICC decode to bound hostile inputs.
 struct IccDecodeLimits final {
-    uint32_t max_tags      = 1U << 16;
-    uint32_t max_tag_bytes = 32U * 1024U * 1024U;
+    uint32_t max_tags            = 1U << 16;
+    uint32_t max_tag_bytes       = 32U * 1024U * 1024U;
     uint64_t max_total_tag_bytes = 64ULL * 1024ULL * 1024ULL;
 };
 
@@ -37,7 +37,7 @@ struct IccDecodeOptions final {
 };
 
 struct IccDecodeResult final {
-    IccDecodeStatus status  = IccDecodeStatus::Ok;
+    IccDecodeStatus status   = IccDecodeStatus::Ok;
     uint32_t entries_decoded = 0;
 };
 
@@ -50,7 +50,7 @@ struct IccDecodeResult final {
  */
 IccDecodeResult
 decode_icc_profile(std::span<const std::byte> icc_bytes, MetaStore& store,
-                   const IccDecodeOptions& options = IccDecodeOptions {}) noexcept;
+                   const IccDecodeOptions& options
+                   = IccDecodeOptions {}) noexcept;
 
 }  // namespace openmeta
-

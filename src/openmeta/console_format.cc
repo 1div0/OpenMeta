@@ -53,6 +53,7 @@ append_console_escaped_ascii(std::string_view s, uint32_t max_bytes,
     return dangerous;
 }
 
+
 void
 append_hex_bytes(std::span<const std::byte> bytes, uint32_t max_bytes,
                  std::string* out) noexcept
@@ -75,4 +76,3 @@ append_hex_bytes(std::span<const std::byte> bytes, uint32_t max_bytes,
 }
 
 }  // namespace openmeta
-

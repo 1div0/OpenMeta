@@ -17,6 +17,7 @@ fuzz_trap() noexcept
 #endif
 }
 
+
 static void
 verify_ranges(std::span<const std::byte> bytes,
               std::span<const ContainerBlockRef> blocks) noexcept

@@ -16,6 +16,7 @@ namespace {
 #endif
     }
 
+
     static constexpr bool linkage_shared() noexcept
     {
 #if defined(OPENMETA_BUILD_LINKAGE_SHARED) && OPENMETA_BUILD_LINKAGE_SHARED
@@ -24,6 +25,7 @@ namespace {
         return false;
 #endif
     }
+
 
     static constexpr bool has_zlib() noexcept
     {
@@ -34,6 +36,7 @@ namespace {
 #endif
     }
 
+
     static constexpr bool has_brotli() noexcept
     {
 #if defined(OPENMETA_HAS_BROTLI) && OPENMETA_HAS_BROTLI
@@ -43,6 +46,7 @@ namespace {
 #endif
     }
 
+
     static constexpr bool has_expat() noexcept
     {
 #if defined(OPENMETA_HAS_EXPAT) && OPENMETA_HAS_EXPAT
@@ -51,6 +55,7 @@ namespace {
         return false;
 #endif
     }
+
 
     static constexpr BuildInfo kBuildInfo = {
         /*version=*/OPENMETA_BUILDINFO_VERSION,
@@ -80,6 +85,7 @@ build_info() noexcept
     return kBuildInfo;
 }
 
+
 namespace {
 
     static const char* linkage_string(const BuildInfo& bi) noexcept
@@ -92,6 +98,7 @@ namespace {
         }
         return "unknown";
     }
+
 
     static void append_sv(std::string* out, std::string_view s) noexcept
     {
@@ -157,6 +164,7 @@ format_build_info_lines(const BuildInfo& bi, std::string* line1,
         }
     }
 }
+
 
 void
 format_build_info_lines(std::string* line1, std::string* line2) noexcept

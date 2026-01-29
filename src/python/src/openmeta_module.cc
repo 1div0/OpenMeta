@@ -32,6 +32,7 @@ namespace {
         return nb::str(s.data(), s.size());
     }
 
+
     static std::pair<std::string, std::string> info_lines()
     {
         std::string line1;
@@ -39,6 +40,7 @@ namespace {
         format_build_info_lines(&line1, &line2);
         return { std::move(line1), std::move(line2) };
     }
+
 
     static std::string python_info_line()
     {
@@ -70,6 +72,7 @@ namespace {
         return out;
     }
 
+
     static std::string arena_string(const ByteArena& arena,
                                     ByteSpan span) noexcept
     {
@@ -77,6 +80,7 @@ namespace {
         return std::string(reinterpret_cast<const char*>(bytes.data()),
                            bytes.size());
     }
+
 
     static std::pair<std::string, bool> console_text(nb::bytes data,
                                                      uint32_t max_bytes)
@@ -88,6 +92,7 @@ namespace {
         return { std::move(out), dangerous };
     }
 
+
     static std::string hex_bytes(nb::bytes data, uint32_t max_bytes)
     {
         const std::span<const std::byte> bytes(
@@ -97,6 +102,7 @@ namespace {
         append_hex_bytes(bytes, max_bytes, &out);
         return out;
     }
+
 
     static nb::str unsafe_text(nb::bytes data, uint32_t max_bytes)
     {
@@ -112,6 +118,7 @@ namespace {
         }
         return nb::steal<nb::str>(nb::handle(s));
     }
+
 
     static std::vector<std::byte> read_file_bytes(const char* path,
                                                   uint64_t max_file_bytes)
@@ -154,6 +161,7 @@ namespace {
         return bytes;
     }
 
+
     static nb::object scalar_to_python(const MetaValue& v)
     {
         switch (v.elem_type) {
@@ -183,6 +191,7 @@ namespace {
         return nb::none();
     }
 
+
     template<typename T>
     static std::span<const T> array_span(const ByteArena& arena,
                                          const MetaValue& v)
@@ -194,6 +203,7 @@ namespace {
         return std::span<const T>(reinterpret_cast<const T*>(bytes.data()),
                                   static_cast<size_t>(v.count));
     }
+
 
     static nb::object value_to_python(const ByteArena& arena,
                                       const MetaValue& v, uint32_t max_elements,
@@ -352,40 +362,40 @@ read_document(const std::string& path, bool include_pointer_tags,
     PayloadOptions payload_options;
     payload_options.decompress = decompress;
 
-    auto merge_xmp_status
-        = [](XmpDecodeStatus* out, XmpDecodeStatus in) noexcept {
-              if (!out) {
-                  return;
-              }
-              if (*out == XmpDecodeStatus::LimitExceeded) {
-                  return;
-              }
-              if (in == XmpDecodeStatus::LimitExceeded) {
-                  *out = in;
-                  return;
-              }
-              if (*out == XmpDecodeStatus::Malformed) {
-                  return;
-              }
-              if (in == XmpDecodeStatus::Malformed) {
-                  *out = in;
-                  return;
-              }
-              if (*out == XmpDecodeStatus::OutputTruncated) {
-                  return;
-              }
-              if (in == XmpDecodeStatus::OutputTruncated) {
-                  *out = in;
-                  return;
-              }
-              if (*out == XmpDecodeStatus::Ok) {
-                  return;
-              }
-              if (in == XmpDecodeStatus::Ok) {
-                  *out = in;
-                  return;
-              }
-          };
+    auto merge_xmp_status = [](XmpDecodeStatus* out,
+                               XmpDecodeStatus in) noexcept {
+        if (!out) {
+            return;
+        }
+        if (*out == XmpDecodeStatus::LimitExceeded) {
+            return;
+        }
+        if (in == XmpDecodeStatus::LimitExceeded) {
+            *out = in;
+            return;
+        }
+        if (*out == XmpDecodeStatus::Malformed) {
+            return;
+        }
+        if (in == XmpDecodeStatus::Malformed) {
+            *out = in;
+            return;
+        }
+        if (*out == XmpDecodeStatus::OutputTruncated) {
+            return;
+        }
+        if (in == XmpDecodeStatus::OutputTruncated) {
+            *out = in;
+            return;
+        }
+        if (*out == XmpDecodeStatus::Ok) {
+            return;
+        }
+        if (in == XmpDecodeStatus::Ok) {
+            *out = in;
+            return;
+        }
+    };
 
     for (;;) {
         doc->store  = MetaStore();
@@ -421,7 +431,8 @@ read_document(const std::string& path, bool include_pointer_tags,
 
             const size_t sep = s.find_last_of("/\\");
             const size_t dot = s.find_last_of('.');
-            if (dot != std::string::npos && (sep == std::string::npos || dot > sep)) {
+            if (dot != std::string::npos
+                && (sep == std::string::npos || dot > sep)) {
                 sidecar_a = s.substr(0, dot) + ".xmp";
             } else {
                 sidecar_a = sidecar_b;
@@ -451,7 +462,8 @@ read_document(const std::string& path, bool include_pointer_tags,
             }
             const std::vector<std::byte> xmp_bytes
                 = read_file_bytes(sp.c_str(), max_file_bytes);
-            const XmpDecodeResult one = decode_xmp_packet(xmp_bytes, doc->store);
+            const XmpDecodeResult one = decode_xmp_packet(xmp_bytes,
+                                                          doc->store);
             merge_xmp_status(&doc->result.xmp.status, one.status);
             doc->result.xmp.entries_decoded += one.entries_decoded;
         }
@@ -643,11 +655,13 @@ NB_MODULE(_openmeta, m)
                      [](const PyDocument& d) { return d.result.exif.status; })
         .def_prop_ro("exif_ifds_decoded",
                      [](const PyDocument& d) {
-                         return static_cast<uint32_t>(d.result.exif.ifds_written);
+                         return static_cast<uint32_t>(
+                             d.result.exif.ifds_written);
                      })
         .def_prop_ro("exif_ifds_needed",
                      [](const PyDocument& d) {
-                         return static_cast<uint32_t>(d.result.exif.ifds_needed);
+                         return static_cast<uint32_t>(
+                             d.result.exif.ifds_needed);
                      })
         .def_prop_ro("exif_entries_decoded",
                      [](const PyDocument& d) {
@@ -915,10 +929,9 @@ NB_MODULE(_openmeta, m)
         });
 
     m.def("read", &read_document, "path"_a, "include_pointer_tags"_a = true,
-          "decode_makernote"_a    = false,
-          "decompress"_a           = true,
-          "include_xmp_sidecar"_a  = false,
-          "max_file_bytes"_a       = 512ULL * 1024ULL * 1024ULL);
+          "decode_makernote"_a = false, "decompress"_a = true,
+          "include_xmp_sidecar"_a = false,
+          "max_file_bytes"_a      = 512ULL * 1024ULL * 1024ULL);
 
     m.def("console_text", &console_text, "data"_a, "max_bytes"_a = 4096U);
     m.def("hex_bytes", &hex_bytes, "data"_a, "max_bytes"_a = 4096U);

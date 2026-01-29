@@ -3,10 +3,8 @@
 namespace openmeta {
 namespace {
 
-    static uint8_t u8(std::byte b) noexcept
-    {
-        return static_cast<uint8_t>(b);
-    }
+    static uint8_t u8(std::byte b) noexcept { return static_cast<uint8_t>(b); }
+
 
     static bool match(std::span<const std::byte> bytes, uint64_t off,
                       const char* s, uint64_t n) noexcept
@@ -22,6 +20,7 @@ namespace {
         return true;
     }
 
+
     static bool read_u16be(std::span<const std::byte> bytes, uint64_t offset,
                            uint16_t* out) noexcept
     {
@@ -33,6 +32,7 @@ namespace {
         *out = v;
         return true;
     }
+
 
     static bool read_u32be(std::span<const std::byte> bytes, uint64_t offset,
                            uint32_t* out) noexcept
@@ -49,10 +49,8 @@ namespace {
         return true;
     }
 
-    static uint64_t pad2(uint64_t n) noexcept
-    {
-        return (n + 1U) & ~1ULL;
-    }
+
+    static uint64_t pad2(uint64_t n) noexcept { return (n + 1U) & ~1ULL; }
 
 }  // namespace
 
@@ -114,7 +112,7 @@ decode_photoshop_irb(std::span<const std::byte> irb_bytes, MetaStore& store,
             result.status = PhotoshopIrbDecodeStatus::Malformed;
             return result;
         }
-        const uint8_t name_len = u8(irb_bytes[p]);
+        const uint8_t name_len    = u8(irb_bytes[p]);
         const uint64_t name_total = pad2(static_cast<uint64_t>(1 + name_len));
         if (p + name_total > irb_bytes.size()) {
             result.status = PhotoshopIrbDecodeStatus::Malformed;
@@ -182,4 +180,3 @@ decode_photoshop_irb(std::span<const std::byte> irb_bytes, MetaStore& store,
 }
 
 }  // namespace openmeta
-

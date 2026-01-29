@@ -19,12 +19,14 @@ fuzz_trap() noexcept
 #endif
 }
 
+
 static void
 append_u16be(std::vector<std::byte>* out, uint16_t v)
 {
     out->push_back(std::byte { static_cast<uint8_t>((v >> 8) & 0xFF) });
     out->push_back(std::byte { static_cast<uint8_t>((v >> 0) & 0xFF) });
 }
+
 
 static void
 append_u32be(std::vector<std::byte>* out, uint32_t v)
@@ -35,11 +37,13 @@ append_u32be(std::vector<std::byte>* out, uint32_t v)
     out->push_back(std::byte { static_cast<uint8_t>((v >> 0) & 0xFF) });
 }
 
+
 static void
 append_fourcc(std::vector<std::byte>* out, uint32_t f)
 {
     append_u32be(out, f);
 }
+
 
 static void
 append_fullbox_header(std::vector<std::byte>* out, uint8_t version)
@@ -50,6 +54,7 @@ append_fullbox_header(std::vector<std::byte>* out, uint8_t version)
     out->push_back(std::byte { 0x00 });
 }
 
+
 static void
 append_bmff_box(std::vector<std::byte>* out, uint32_t type,
                 std::span<const std::byte> payload)
@@ -58,6 +63,7 @@ append_bmff_box(std::vector<std::byte>* out, uint32_t type,
     append_fourcc(out, type);
     out->insert(out->end(), payload.begin(), payload.end());
 }
+
 
 static void
 verify_ranges(std::span<const std::byte> bytes,

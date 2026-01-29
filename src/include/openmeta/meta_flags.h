@@ -27,6 +27,7 @@ operator|(EntryFlags a, EntryFlags b) noexcept
                                    | static_cast<uint8_t>(b));
 }
 
+
 constexpr EntryFlags
 operator&(EntryFlags a, EntryFlags b) noexcept
 {
@@ -34,12 +35,14 @@ operator&(EntryFlags a, EntryFlags b) noexcept
                                    & static_cast<uint8_t>(b));
 }
 
+
 constexpr EntryFlags&
 operator|=(EntryFlags& a, EntryFlags b) noexcept
 {
     a = a | b;
     return a;
 }
+
 
 /// Returns true if any bits in \p test are present in \p flags.
 constexpr bool

@@ -16,11 +16,13 @@ namespace {
                     reinterpret_cast<const std::byte*>(s.data() + s.size()));
     }
 
+
     static void append_u16le(std::vector<std::byte>* out, uint16_t v)
     {
         out->push_back(std::byte { static_cast<uint8_t>((v >> 0) & 0xFF) });
         out->push_back(std::byte { static_cast<uint8_t>((v >> 8) & 0xFF) });
     }
+
 
     static void append_u32le(std::vector<std::byte>* out, uint32_t v)
     {
@@ -30,13 +32,15 @@ namespace {
         out->push_back(std::byte { static_cast<uint8_t>((v >> 24) & 0xFF) });
     }
 
+
     static MetaKeyView printim_key(std::string_view field)
     {
         MetaKeyView key;
-        key.kind                  = MetaKeyKind::PrintImField;
+        key.kind                     = MetaKeyKind::PrintImField;
         key.data.printim_field.field = field;
         return key;
     }
+
 
     static std::string_view arena_string(const ByteArena& arena,
                                          const MetaValue& v)
@@ -97,8 +101,8 @@ TEST(PrintImDecode, DecodesPrintImTagIntoFields)
 
     store.finalize();
 
-    const std::span<const EntryId> version_ids
-        = store.find_all(printim_key("version"));
+    const std::span<const EntryId> version_ids = store.find_all(
+        printim_key("version"));
     ASSERT_EQ(version_ids.size(), 1U);
     const Entry& version = store.entry(version_ids[0]);
     EXPECT_EQ(version.value.kind, MetaValueKind::Text);

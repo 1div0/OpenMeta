@@ -5,22 +5,20 @@ namespace openmeta {
 namespace {
 
     struct MakerNoteTagNameEntry final {
-        uint16_t tag = 0;
+        uint16_t tag     = 0;
         const char* name = nullptr;
     };
 
     struct MakerNoteTableMap final {
-        const char* key = nullptr;
+        const char* key                      = nullptr;
         const MakerNoteTagNameEntry* entries = nullptr;
-        uint32_t count = 0;
+        uint32_t count                       = 0;
     };
 
 #include "exif_makernote_tag_names_generated.inc"
 
-    static bool is_ascii_digit(char c) noexcept
-    {
-        return c >= '0' && c <= '9';
-    }
+    static bool is_ascii_digit(char c) noexcept { return c >= '0' && c <= '9'; }
+
 
     struct MkIfdParts final {
         std::string_view vendor;
@@ -61,10 +59,11 @@ namespace {
         if (sep == 0 || sep + 1 >= rest.size()) {
             return out;
         }
-        out.vendor    = rest.substr(0, sep);
-        out.subtable  = rest.substr(sep + 1);
+        out.vendor   = rest.substr(0, sep);
+        out.subtable = rest.substr(sep + 1);
         return out;
     }
+
 
     static const MakerNoteTableMap* find_table(std::string_view key) noexcept
     {
@@ -81,9 +80,9 @@ namespace {
         return nullptr;
     }
 
+
     static std::string_view find_tag_name(const MakerNoteTagNameEntry* entries,
-                                          uint32_t count,
-                                          uint16_t tag) noexcept
+                                          uint32_t count, uint16_t tag) noexcept
     {
         if (!entries || count == 0) {
             return {};
@@ -107,9 +106,9 @@ namespace {
         return {};
     }
 
+
     static const MakerNoteTableMap* try_table(std::string_view vendor_key,
-                                              std::string_view table,
-                                              char* buf,
+                                              std::string_view table, char* buf,
                                               size_t buf_size) noexcept
     {
         if (!buf || buf_size == 0) {

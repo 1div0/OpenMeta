@@ -10,11 +10,13 @@ MetaStore::arena() noexcept
     return arena_;
 }
 
+
 const ByteArena&
 MetaStore::arena() const noexcept
 {
     return arena_;
 }
+
 
 BlockId
 MetaStore::add_block(const BlockInfo& info)
@@ -27,6 +29,7 @@ MetaStore::add_block(const BlockInfo& info)
     return id;
 }
 
+
 EntryId
 MetaStore::add_entry(const Entry& entry)
 {
@@ -38,6 +41,7 @@ MetaStore::add_entry(const Entry& entry)
     return id;
 }
 
+
 void
 MetaStore::clear_indices() noexcept
 {
@@ -47,6 +51,7 @@ MetaStore::clear_indices() noexcept
     key_spans_.clear();
 }
 
+
 void
 MetaStore::finalize()
 {
@@ -55,6 +60,7 @@ MetaStore::finalize()
     rebuild_key_index();
     finalized_ = true;
 }
+
 
 void
 MetaStore::rehash()
@@ -68,11 +74,13 @@ MetaStore::rehash()
     rebuild_key_index();
 }
 
+
 uint32_t
 MetaStore::block_count() const noexcept
 {
     return static_cast<uint32_t>(blocks_.size());
 }
+
 
 const BlockInfo&
 MetaStore::block_info(BlockId id) const noexcept
@@ -80,17 +88,20 @@ MetaStore::block_info(BlockId id) const noexcept
     return blocks_[id];
 }
 
+
 std::span<const Entry>
 MetaStore::entries() const noexcept
 {
     return std::span<const Entry>(entries_.data(), entries_.size());
 }
 
+
 const Entry&
 MetaStore::entry(EntryId id) const noexcept
 {
     return entries_[id];
 }
+
 
 std::span<const EntryId>
 MetaStore::entries_in_block(BlockId block) const noexcept
@@ -102,6 +113,7 @@ MetaStore::entries_in_block(BlockId block) const noexcept
     return std::span<const EntryId>(entries_by_block_.data() + span.start,
                                     span.count);
 }
+
 
 std::span<const EntryId>
 MetaStore::find_all(const MetaKeyView& key) const noexcept
@@ -130,6 +142,7 @@ MetaStore::find_all(const MetaKeyView& key) const noexcept
 
     return std::span<const EntryId>();
 }
+
 
 struct EntryIdLessByBlock final {
     const MetaStore* store = nullptr;
@@ -204,6 +217,7 @@ MetaStore::rebuild_block_index()
         next_start = span.start;
     }
 }
+
 
 void
 MetaStore::rebuild_key_index()

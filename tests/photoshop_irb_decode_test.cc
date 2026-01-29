@@ -10,41 +10,50 @@
 namespace openmeta {
 namespace {
 
-static void append_u16be(uint16_t v, std::vector<std::byte>* out)
-{
-    out->push_back(std::byte { static_cast<unsigned char>((v >> 8) & 0xFF) });
-    out->push_back(std::byte { static_cast<unsigned char>((v >> 0) & 0xFF) });
-}
-
-static void append_u32be(uint32_t v, std::vector<std::byte>* out)
-{
-    out->push_back(std::byte { static_cast<unsigned char>((v >> 24) & 0xFF) });
-    out->push_back(std::byte { static_cast<unsigned char>((v >> 16) & 0xFF) });
-    out->push_back(std::byte { static_cast<unsigned char>((v >> 8) & 0xFF) });
-    out->push_back(std::byte { static_cast<unsigned char>((v >> 0) & 0xFF) });
-}
-
-static void append_irb_resource(uint16_t id, std::span<const std::byte> payload,
-                                std::vector<std::byte>* out)
-{
-    // Signature.
-    out->push_back(std::byte { '8' });
-    out->push_back(std::byte { 'B' });
-    out->push_back(std::byte { 'I' });
-    out->push_back(std::byte { 'M' });
-    append_u16be(id, out);
-
-    // Pascal name (len=0) + pad => 2 bytes total.
-    out->push_back(std::byte { 0x00 });
-    out->push_back(std::byte { 0x00 });
-
-    append_u32be(static_cast<uint32_t>(payload.size()), out);
-    out->insert(out->end(), payload.begin(), payload.end());
-
-    if ((payload.size() & 1U) != 0U) {
-        out->push_back(std::byte { 0x00 });
+    static void append_u16be(uint16_t v, std::vector<std::byte>* out)
+    {
+        out->push_back(
+            std::byte { static_cast<unsigned char>((v >> 8) & 0xFF) });
+        out->push_back(
+            std::byte { static_cast<unsigned char>((v >> 0) & 0xFF) });
     }
-}
+
+
+    static void append_u32be(uint32_t v, std::vector<std::byte>* out)
+    {
+        out->push_back(
+            std::byte { static_cast<unsigned char>((v >> 24) & 0xFF) });
+        out->push_back(
+            std::byte { static_cast<unsigned char>((v >> 16) & 0xFF) });
+        out->push_back(
+            std::byte { static_cast<unsigned char>((v >> 8) & 0xFF) });
+        out->push_back(
+            std::byte { static_cast<unsigned char>((v >> 0) & 0xFF) });
+    }
+
+
+    static void append_irb_resource(uint16_t id,
+                                    std::span<const std::byte> payload,
+                                    std::vector<std::byte>* out)
+    {
+        // Signature.
+        out->push_back(std::byte { '8' });
+        out->push_back(std::byte { 'B' });
+        out->push_back(std::byte { 'I' });
+        out->push_back(std::byte { 'M' });
+        append_u16be(id, out);
+
+        // Pascal name (len=0) + pad => 2 bytes total.
+        out->push_back(std::byte { 0x00 });
+        out->push_back(std::byte { 0x00 });
+
+        append_u32be(static_cast<uint32_t>(payload.size()), out);
+        out->insert(out->end(), payload.begin(), payload.end());
+
+        if ((payload.size() & 1U) != 0U) {
+            out->push_back(std::byte { 0x00 });
+        }
+    }
 
 }  // namespace
 
@@ -61,7 +70,9 @@ TEST(PhotoshopIrbDecodeTest, DecodesResourcesAndOptionalIptc)
     append_irb_resource(0x0404, iptc, &irb);
 
     const std::array<std::byte, 3> other = {
-        std::byte { 0x01 }, std::byte { 0x02 }, std::byte { 0x03 },
+        std::byte { 0x01 },
+        std::byte { 0x02 },
+        std::byte { 0x03 },
     };
     append_irb_resource(0x1234, other, &irb);
 
@@ -95,4 +106,3 @@ TEST(PhotoshopIrbDecodeTest, DecodesResourcesAndOptionalIptc)
 }
 
 }  // namespace openmeta
-

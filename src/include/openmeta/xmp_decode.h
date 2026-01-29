@@ -48,7 +48,7 @@ struct XmpDecodeOptions final {
 };
 
 struct XmpDecodeResult final {
-    XmpDecodeStatus status = XmpDecodeStatus::Ok;
+    XmpDecodeStatus status   = XmpDecodeStatus::Ok;
     uint32_t entries_decoded = 0;
 };
 
@@ -64,7 +64,7 @@ struct XmpDecodeResult final {
 XmpDecodeResult
 decode_xmp_packet(std::span<const std::byte> xmp_bytes, MetaStore& store,
                   EntryFlags flags = EntryFlags::None,
-                  const XmpDecodeOptions& options = XmpDecodeOptions {}) noexcept;
+                  const XmpDecodeOptions& options
+                  = XmpDecodeOptions {}) noexcept;
 
 }  // namespace openmeta
-

@@ -5,10 +5,8 @@
 namespace openmeta {
 namespace {
 
-    static uint8_t u8(std::byte b) noexcept
-    {
-        return static_cast<uint8_t>(b);
-    }
+    static uint8_t u8(std::byte b) noexcept { return static_cast<uint8_t>(b); }
+
 
     static bool match(std::span<const std::byte> bytes, uint64_t off,
                       const char* s, uint64_t n) noexcept
@@ -24,6 +22,7 @@ namespace {
         return true;
     }
 
+
     static bool read_u16be(std::span<const std::byte> bytes, uint64_t offset,
                            uint16_t* out) noexcept
     {
@@ -35,6 +34,7 @@ namespace {
         *out = v;
         return true;
     }
+
 
     static bool read_u32be(std::span<const std::byte> bytes, uint64_t offset,
                            uint32_t* out) noexcept
@@ -50,6 +50,7 @@ namespace {
         *out = v;
         return true;
     }
+
 
     static void update_status(IccDecodeStatus* out, IccDecodeStatus in) noexcept
     {
@@ -75,6 +76,7 @@ namespace {
         }
     }
 
+
     static void emit_header_bytes(MetaStore& store, BlockId block,
                                   uint32_t order, uint32_t offset,
                                   std::span<const std::byte> bytes,
@@ -91,6 +93,7 @@ namespace {
         (void)store.add_entry(e);
     }
 
+
     static void emit_header_u32(MetaStore& store, BlockId block, uint32_t order,
                                 uint32_t offset, uint32_t value,
                                 EntryFlags flags)
@@ -105,6 +108,7 @@ namespace {
         e.flags                 = flags;
         (void)store.add_entry(e);
     }
+
 
     static void emit_header_u16_array(MetaStore& store, BlockId block,
                                       uint32_t order, uint32_t offset,
@@ -156,17 +160,22 @@ decode_icc_profile(std::span<const std::byte> icc_bytes, MetaStore& store,
     uint32_t order = 0;
     // Emit common header fields (raw bytes unless scalar is clearly useful).
     emit_header_u32(store, block, order++, 0, declared_size, flags);
-    emit_header_bytes(store, block, order++, 4, icc_bytes.subspan(4, 4), flags);   // CMM
+    emit_header_bytes(store, block, order++, 4, icc_bytes.subspan(4, 4),
+                      flags);  // CMM
     uint32_t ver = 0;
     if (read_u32be(icc_bytes, 8, &ver)) {
         emit_header_u32(store, block, order++, 8, ver, flags);
     } else {
-        emit_header_bytes(store, block, order++, 8, icc_bytes.subspan(8, 4), flags);
+        emit_header_bytes(store, block, order++, 8, icc_bytes.subspan(8, 4),
+                          flags);
         update_status(&result.status, IccDecodeStatus::Malformed);
     }
-    emit_header_bytes(store, block, order++, 12, icc_bytes.subspan(12, 4), flags);  // class
-    emit_header_bytes(store, block, order++, 16, icc_bytes.subspan(16, 4), flags);  // data space
-    emit_header_bytes(store, block, order++, 20, icc_bytes.subspan(20, 4), flags);  // PCS
+    emit_header_bytes(store, block, order++, 12, icc_bytes.subspan(12, 4),
+                      flags);  // class
+    emit_header_bytes(store, block, order++, 16, icc_bytes.subspan(16, 4),
+                      flags);  // data space
+    emit_header_bytes(store, block, order++, 20, icc_bytes.subspan(20, 4),
+                      flags);  // PCS
 
     // Date/time: 6x u16 big-endian.
     uint16_t dt[6] = {};
@@ -180,20 +189,31 @@ decode_icc_profile(std::span<const std::byte> icc_bytes, MetaStore& store,
         emit_header_u16_array(store, block, order++, 24,
                               std::span<const uint16_t>(dt, 6), flags);
     } else {
-        emit_header_bytes(store, block, order++, 24, icc_bytes.subspan(24, 12), flags);
+        emit_header_bytes(store, block, order++, 24, icc_bytes.subspan(24, 12),
+                          flags);
         update_status(&result.status, IccDecodeStatus::Malformed);
     }
 
-    emit_header_bytes(store, block, order++, 36, icc_bytes.subspan(36, 4), flags);  // "acsp"
-    emit_header_bytes(store, block, order++, 40, icc_bytes.subspan(40, 4), flags);  // platform
-    emit_header_bytes(store, block, order++, 44, icc_bytes.subspan(44, 4), flags);  // flags
-    emit_header_bytes(store, block, order++, 48, icc_bytes.subspan(48, 4), flags);  // manufacturer
-    emit_header_bytes(store, block, order++, 52, icc_bytes.subspan(52, 4), flags);  // model
-    emit_header_bytes(store, block, order++, 56, icc_bytes.subspan(56, 8), flags);  // attributes
-    emit_header_bytes(store, block, order++, 64, icc_bytes.subspan(64, 4), flags);  // intent
-    emit_header_bytes(store, block, order++, 68, icc_bytes.subspan(68, 12), flags); // illuminant
-    emit_header_bytes(store, block, order++, 80, icc_bytes.subspan(80, 4), flags);  // creator
-    emit_header_bytes(store, block, order++, 84, icc_bytes.subspan(84, 16), flags); // profile ID
+    emit_header_bytes(store, block, order++, 36, icc_bytes.subspan(36, 4),
+                      flags);  // "acsp"
+    emit_header_bytes(store, block, order++, 40, icc_bytes.subspan(40, 4),
+                      flags);  // platform
+    emit_header_bytes(store, block, order++, 44, icc_bytes.subspan(44, 4),
+                      flags);  // flags
+    emit_header_bytes(store, block, order++, 48, icc_bytes.subspan(48, 4),
+                      flags);  // manufacturer
+    emit_header_bytes(store, block, order++, 52, icc_bytes.subspan(52, 4),
+                      flags);  // model
+    emit_header_bytes(store, block, order++, 56, icc_bytes.subspan(56, 8),
+                      flags);  // attributes
+    emit_header_bytes(store, block, order++, 64, icc_bytes.subspan(64, 4),
+                      flags);  // intent
+    emit_header_bytes(store, block, order++, 68, icc_bytes.subspan(68, 12),
+                      flags);  // illuminant
+    emit_header_bytes(store, block, order++, 80, icc_bytes.subspan(80, 4),
+                      flags);  // creator
+    emit_header_bytes(store, block, order++, 84, icc_bytes.subspan(84, 16),
+                      flags);  // profile ID
 
     result.entries_decoded += order;
 
@@ -208,7 +228,8 @@ decode_icc_profile(std::span<const std::byte> icc_bytes, MetaStore& store,
         return result;
     }
 
-    const uint64_t table_bytes = 4ULL + static_cast<uint64_t>(tag_count) * 12ULL;
+    const uint64_t table_bytes = 4ULL
+                                 + static_cast<uint64_t>(tag_count) * 12ULL;
     if (128ULL + table_bytes > icc_bytes.size()) {
         result.status = IccDecodeStatus::Malformed;
         return result;
@@ -217,9 +238,9 @@ decode_icc_profile(std::span<const std::byte> icc_bytes, MetaStore& store,
     uint64_t total_tag_bytes = 0;
     for (uint32_t i = 0; i < tag_count; ++i) {
         const uint64_t eoff = 132ULL + static_cast<uint64_t>(i) * 12ULL;
-        uint32_t sig  = 0;
-        uint32_t off  = 0;
-        uint32_t size = 0;
+        uint32_t sig        = 0;
+        uint32_t off        = 0;
+        uint32_t size       = 0;
         if (!read_u32be(icc_bytes, eoff + 0, &sig)
             || !read_u32be(icc_bytes, eoff + 4, &off)
             || !read_u32be(icc_bytes, eoff + 8, &size)) {
@@ -266,4 +287,3 @@ decode_icc_profile(std::span<const std::byte> icc_bytes, MetaStore& store,
 }
 
 }  // namespace openmeta
-

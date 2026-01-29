@@ -40,6 +40,7 @@ TEST(MetaStoreTest, SupportsDuplicateKeys)
     EXPECT_EQ(ids[1], 1U);
 }
 
+
 TEST(MetaStoreTest, TombstonesHideEntriesFromLookup)
 {
     MetaStore store;
@@ -66,6 +67,7 @@ TEST(MetaStoreTest, TombstonesHideEntriesFromLookup)
 
     EXPECT_TRUE(updated.find_all(key).empty());
 }
+
 
 TEST(MetaStoreTest, CommitAppendsNewEntry)
 {
@@ -103,6 +105,7 @@ TEST(MetaStoreTest, CommitAppendsNewEntry)
     EXPECT_EQ(ids[1], 0U);
 }
 
+
 TEST(MetaStoreTest, BlockEntriesAreOrderedByOrigin)
 {
     MetaStore store;
@@ -137,6 +140,7 @@ TEST(MetaStoreTest, BlockEntriesAreOrderedByOrigin)
     EXPECT_EQ(ids[1], 2U);
     EXPECT_EQ(ids[2], 0U);
 }
+
 
 TEST(MetaStoreTest, PreservesWireTypeUtf8_129)
 {

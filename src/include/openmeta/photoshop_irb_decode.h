@@ -59,7 +59,7 @@ struct PhotoshopIrbDecodeResult final {
  */
 PhotoshopIrbDecodeResult
 decode_photoshop_irb(std::span<const std::byte> irb_bytes, MetaStore& store,
-                     const PhotoshopIrbDecodeOptions& options = PhotoshopIrbDecodeOptions {}) noexcept;
+                     const PhotoshopIrbDecodeOptions& options
+                     = PhotoshopIrbDecodeOptions {}) noexcept;
 
 }  // namespace openmeta
-

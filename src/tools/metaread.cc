@@ -32,6 +32,7 @@ namespace {
         return "unknown";
     }
 
+
     static const char* exif_status_name(ExifDecodeStatus status) noexcept
     {
         switch (status) {
@@ -44,6 +45,7 @@ namespace {
         return "unknown";
     }
 
+
     static const char* xmp_status_name(XmpDecodeStatus status) noexcept
     {
         switch (status) {
@@ -55,6 +57,7 @@ namespace {
         }
         return "unknown";
     }
+
 
     static void merge_xmp_status(XmpDecodeStatus* out,
                                  XmpDecodeStatus in) noexcept
@@ -92,6 +95,7 @@ namespace {
         }
     }
 
+
     static void xmp_sidecar_candidates(const char* path, std::string* out_a,
                                        std::string* out_b)
     {
@@ -111,7 +115,8 @@ namespace {
 
         const size_t sep = s.find_last_of("/\\");
         const size_t dot = s.find_last_of('.');
-        if (dot != std::string::npos && (sep == std::string::npos || dot > sep)) {
+        if (dot != std::string::npos
+            && (sep == std::string::npos || dot > sep)) {
             *out_a = s.substr(0, dot);
             out_a->append(".xmp");
         } else {
@@ -122,6 +127,7 @@ namespace {
             out_b->clear();
         }
     }
+
 
     static const char* format_name(ContainerFormat format) noexcept
     {
@@ -140,6 +146,7 @@ namespace {
         }
         return "unknown";
     }
+
 
     static const char* block_kind_name(ContainerBlockKind kind) noexcept
     {
@@ -161,6 +168,7 @@ namespace {
         return "unknown";
     }
 
+
     static const char* compression_name(BlockCompression compression) noexcept
     {
         switch (compression) {
@@ -170,6 +178,7 @@ namespace {
         }
         return "unknown";
     }
+
 
     static const char* chunking_name(BlockChunking chunking) noexcept
     {
@@ -188,6 +197,7 @@ namespace {
         }
         return "unknown";
     }
+
 
     static const char* tiff_type_name(uint16_t code) noexcept
     {
@@ -213,6 +223,7 @@ namespace {
         }
     }
 
+
     static std::string_view arena_string(const ByteArena& arena,
                                          ByteSpan span) noexcept
     {
@@ -220,6 +231,7 @@ namespace {
         return std::string_view(reinterpret_cast<const char*>(bytes.data()),
                                 bytes.size());
     }
+
 
     enum class ReadFileStatus : uint8_t {
         Ok,
@@ -279,6 +291,7 @@ namespace {
         return ReadFileStatus::Ok;
     }
 
+
     static bool parse_u64_arg(const char* s, uint64_t* out)
     {
         if (!s || !*s) {
@@ -293,6 +306,7 @@ namespace {
         return true;
     }
 
+
     static void append_double_fixed6_trim(double d, std::string* out)
     {
         char buf[128];
@@ -306,6 +320,7 @@ namespace {
         }
         out->append(buf, len);
     }
+
 
     static uint32_t meta_element_size(MetaElementType type) noexcept
     {
@@ -326,6 +341,7 @@ namespace {
         return 0U;
     }
 
+
     static void append_u64(uint64_t v, std::string* out)
     {
         char buf[32];
@@ -334,12 +350,14 @@ namespace {
         out->append(buf);
     }
 
+
     static void append_i64(int64_t v, std::string* out)
     {
         char buf[32];
         std::snprintf(buf, sizeof(buf), "%lld", static_cast<long long>(v));
         out->append(buf);
     }
+
 
     static void append_element_raw(MetaElementType type,
                                    std::span<const std::byte> elem,
@@ -433,6 +451,7 @@ namespace {
         }
     }
 
+
     static void append_element_value(MetaElementType type,
                                      std::span<const std::byte> elem,
                                      std::string* out)
@@ -464,6 +483,7 @@ namespace {
         append_element_raw(type, elem, out);
     }
 
+
     static uint32_t safe_array_count(const ByteArena& arena,
                                      const MetaValue& value) noexcept
     {
@@ -479,6 +499,7 @@ namespace {
                                                          / elem_size);
         return (value.count < available) ? value.count : available;
     }
+
 
     static std::string value_type_string(const ByteArena& arena,
                                          const MetaValue& value)
@@ -518,6 +539,7 @@ namespace {
         }
         return "scalar";
     }
+
 
     static void format_value_pair(const MetaStore& store,
                                   const MetaValue& value, uint32_t max_elements,
@@ -646,6 +668,7 @@ namespace {
         }
     }
 
+
     struct TableRow final {
         uint32_t idx = 0;
         std::string idx_s;
@@ -663,6 +686,7 @@ namespace {
         return a.idx < b.idx;
     }
 
+
     static void print_line(char ch, size_t count)
     {
         for (size_t i = 0; i < count; ++i) {
@@ -671,6 +695,7 @@ namespace {
         std::putchar('\n');
     }
 
+
     static void print_cell(std::string_view text, size_t width)
     {
         const size_t maxp = (text.size() < width) ? text.size() : width;
@@ -678,6 +703,7 @@ namespace {
         const int p       = static_cast<int>(maxp);
         std::printf("%-*.*s", w, p, text.data());
     }
+
 
     static void truncate_cell(std::string* s, uint32_t max_chars)
     {
@@ -692,6 +718,7 @@ namespace {
         s->resize(max_len - 3U);
         s->append("...");
     }
+
 
     static void print_exif_block_table(const MetaStore& store, BlockId block,
                                        std::string_view ifd,
@@ -835,6 +862,7 @@ namespace {
         print_line('=', total_width);
     }
 
+
     static const char* icc_header_field_name(uint32_t offset) noexcept
     {
         switch (offset) {
@@ -859,6 +887,7 @@ namespace {
         }
     }
 
+
     static std::string fourcc_string(uint32_t v)
     {
         char s[5];
@@ -880,10 +909,10 @@ namespace {
             return std::string(s, 4);
         }
         char buf[16];
-        std::snprintf(buf, sizeof(buf), "0x%08X",
-                      static_cast<unsigned>(v));
+        std::snprintf(buf, sizeof(buf), "0x%08X", static_cast<unsigned>(v));
         return std::string(buf);
     }
+
 
     static const char* photoshop_resource_name(uint16_t id) noexcept
     {
@@ -895,14 +924,15 @@ namespace {
         }
     }
 
+
     static bool bytes_look_ascii(std::span<const std::byte> bytes) noexcept
     {
         if (bytes.empty()) {
             return false;
         }
         for (size_t i = 0; i < bytes.size(); ++i) {
-            const unsigned char c
-                = static_cast<unsigned char>(std::to_integer<uint8_t>(bytes[i]));
+            const unsigned char c = static_cast<unsigned char>(
+                std::to_integer<uint8_t>(bytes[i]));
             if (c == 0) {
                 return false;
             }
@@ -912,6 +942,7 @@ namespace {
         }
         return true;
     }
+
 
     static void print_generic_block_table(const MetaStore& store, BlockId block,
                                           std::string_view block_name,
@@ -948,17 +979,19 @@ namespace {
             switch (entry.key.kind) {
             case MetaKeyKind::IptcDataset: {
                 char buf[32];
-                std::snprintf(buf, sizeof(buf), "%u:%u",
-                              static_cast<unsigned>(entry.key.data.iptc_dataset.record),
-                              static_cast<unsigned>(entry.key.data.iptc_dataset.dataset));
-                row.key_s = buf;
+                std::snprintf(
+                    buf, sizeof(buf), "%u:%u",
+                    static_cast<unsigned>(entry.key.data.iptc_dataset.record),
+                    static_cast<unsigned>(entry.key.data.iptc_dataset.dataset));
+                row.key_s  = buf;
                 row.name_s = "-";
                 break;
             }
             case MetaKeyKind::PhotoshopIrb: {
                 char buf[32];
                 std::snprintf(buf, sizeof(buf), "0x%04X",
-                              static_cast<unsigned>(entry.key.data.photoshop_irb.resource_id));
+                              static_cast<unsigned>(
+                                  entry.key.data.photoshop_irb.resource_id));
                 row.key_s  = buf;
                 row.name_s = photoshop_resource_name(
                     entry.key.data.photoshop_irb.resource_id);
@@ -967,7 +1000,8 @@ namespace {
             case MetaKeyKind::IccHeaderField: {
                 char buf[32];
                 std::snprintf(buf, sizeof(buf), "0x%X",
-                              static_cast<unsigned>(entry.key.data.icc_header_field.offset));
+                              static_cast<unsigned>(
+                                  entry.key.data.icc_header_field.offset));
                 row.key_s  = buf;
                 row.name_s = icc_header_field_name(
                     entry.key.data.icc_header_field.offset);
@@ -998,8 +1032,8 @@ namespace {
 
             if (entry.key.kind == MetaKeyKind::IccHeaderField
                 && entry.value.kind == MetaValueKind::Bytes) {
-                const std::span<const std::byte> b
-                    = store.arena().span(entry.value.data.span);
+                const std::span<const std::byte> b = store.arena().span(
+                    entry.value.data.span);
                 if (b.size() == 4 && bytes_look_ascii(b)) {
                     row.val_s.clear();
                     row.val_s.append(reinterpret_cast<const char*>(b.data()),
@@ -1009,14 +1043,16 @@ namespace {
 
             if (entry.key.kind == MetaKeyKind::IptcDataset
                 && entry.value.kind == MetaValueKind::Bytes) {
-                const std::span<const std::byte> b
-                    = store.arena().span(entry.value.data.span);
+                const std::span<const std::byte> b = store.arena().span(
+                    entry.value.data.span);
                 if (bytes_look_ascii(b)) {
                     row.val_s.clear();
-                    const std::string_view s(
-                        reinterpret_cast<const char*>(b.data()), b.size());
+                    const std::string_view s(reinterpret_cast<const char*>(
+                                                 b.data()),
+                                             b.size());
                     const bool dangerous
-                        = append_console_escaped_ascii(s, max_bytes, &row.val_s);
+                        = append_console_escaped_ascii(s, max_bytes,
+                                                       &row.val_s);
                     if (dangerous) {
                         row.val_s.insert(0, "(DANGEROUS) ");
                     }
@@ -1045,8 +1081,8 @@ namespace {
 
         for (size_t i = 0; i < rows.size(); ++i) {
             const Row& r = rows[i];
-            w_idx  = (r.idx_s.size() > w_idx) ? r.idx_s.size() : w_idx;
-            w_key  = (r.key_s.size() > w_key) ? r.key_s.size() : w_key;
+            w_idx        = (r.idx_s.size() > w_idx) ? r.idx_s.size() : w_idx;
+            w_key        = (r.key_s.size() > w_key) ? r.key_s.size() : w_key;
             w_name = (r.name_s.size() > w_name) ? r.name_s.size() : w_name;
             w_type = (r.type_s.size() > w_type) ? r.type_s.size() : w_type;
             w_raw  = (r.raw_s.size() > w_raw) ? r.raw_s.size() : w_raw;
@@ -1098,10 +1134,10 @@ namespace {
         print_line('=', total_width);
     }
 
+
     static void print_xmp_block_table(const MetaStore& store, BlockId block,
                                       std::span<const EntryId> ids,
-                                      uint32_t max_elements,
-                                      uint32_t max_bytes,
+                                      uint32_t max_elements, uint32_t max_bytes,
                                       uint32_t max_cell_chars)
     {
         struct Row final {
@@ -1133,21 +1169,24 @@ namespace {
             }
 
             const std::string_view schema
-                = arena_string(store.arena(), entry.key.data.xmp_property.schema_ns);
+                = arena_string(store.arena(),
+                               entry.key.data.xmp_property.schema_ns);
             const std::string_view path
                 = arena_string(store.arena(),
                                entry.key.data.xmp_property.property_path);
 
             {
-                const bool dangerous = append_console_escaped_ascii(
-                    schema, max_bytes, &row.schema_s);
+                const bool dangerous
+                    = append_console_escaped_ascii(schema, max_bytes,
+                                                   &row.schema_s);
                 if (dangerous) {
                     row.schema_s.insert(0, "(DANGEROUS) ");
                 }
             }
             {
-                const bool dangerous = append_console_escaped_ascii(
-                    path, max_bytes, &row.path_s);
+                const bool dangerous
+                    = append_console_escaped_ascii(path, max_bytes,
+                                                   &row.path_s);
                 if (dangerous) {
                     row.path_s.insert(0, "(DANGEROUS) ");
                 }
@@ -1181,16 +1220,23 @@ namespace {
         size_t w_val    = std::strlen("val");
 
         for (size_t i = 0; i < rows.size(); ++i) {
-            w_idx    = (rows[i].idx_s.size() > w_idx) ? rows[i].idx_s.size() : w_idx;
-            w_schema = (rows[i].schema_s.size() > w_schema) ? rows[i].schema_s.size() : w_schema;
-            w_path   = (rows[i].path_s.size() > w_path) ? rows[i].path_s.size() : w_path;
-            w_type   = (rows[i].type_s.size() > w_type) ? rows[i].type_s.size() : w_type;
-            w_raw    = (rows[i].raw_s.size() > w_raw) ? rows[i].raw_s.size() : w_raw;
-            w_val    = (rows[i].val_s.size() > w_val) ? rows[i].val_s.size() : w_val;
+            w_idx    = (rows[i].idx_s.size() > w_idx) ? rows[i].idx_s.size()
+                                                      : w_idx;
+            w_schema = (rows[i].schema_s.size() > w_schema)
+                           ? rows[i].schema_s.size()
+                           : w_schema;
+            w_path   = (rows[i].path_s.size() > w_path) ? rows[i].path_s.size()
+                                                        : w_path;
+            w_type   = (rows[i].type_s.size() > w_type) ? rows[i].type_s.size()
+                                                        : w_type;
+            w_raw    = (rows[i].raw_s.size() > w_raw) ? rows[i].raw_s.size()
+                                                      : w_raw;
+            w_val    = (rows[i].val_s.size() > w_val) ? rows[i].val_s.size()
+                                                      : w_val;
         }
 
-        const size_t total_width = 1U + w_idx + 3U + w_schema + 3U + w_path
-                                   + 3U + w_type + 3U + w_raw + 3U + w_val;
+        const size_t total_width = 1U + w_idx + 3U + w_schema + 3U + w_path + 3U
+                                   + w_type + 3U + w_raw + 3U + w_val;
 
         print_line('=', total_width);
         std::printf(" xmp block=%u entries=%zu\n", static_cast<unsigned>(block),
@@ -1233,6 +1279,7 @@ namespace {
         print_line('=', total_width);
     }
 
+
     static bool parse_u32_arg(const char* s, uint32_t* out)
     {
         if (!s || !*s) {
@@ -1250,6 +1297,7 @@ namespace {
         return true;
     }
 
+
     static void usage(const char* argv0)
     {
         std::printf("usage: %s [options] <file> [file...]\n", argv0);
@@ -1257,7 +1305,8 @@ namespace {
         std::printf("  --version            print build info and exit\n");
         std::printf("  --no-build-info      hide build info header\n");
         std::printf("  --no-blocks           hide container block summary\n");
-        std::printf("  --xmp-sidecar         also read sidecar XMP (<file>.xmp and <basename>.xmp)\n");
+        std::printf(
+            "  --xmp-sidecar         also read sidecar XMP (<file>.xmp and <basename>.xmp)\n");
         std::printf(
             "  --no-pointer-tags     do not store pointer tags (0x8769/0x8825/0xA005/0x014A)\n");
         std::printf(
@@ -1273,6 +1322,7 @@ namespace {
         std::printf(
             "  --max-file-bytes N    refuse to read files larger than N bytes (default: 536870912; 0=unlimited)\n");
     }
+
 
     static void print_build_info_header()
     {
@@ -1467,9 +1517,9 @@ main(int argc, char** argv)
             std::string sidecar_b;
             xmp_sidecar_candidates(path, &sidecar_a, &sidecar_b);
 
-            const char* candidates[2] = { sidecar_a.c_str(),
-                                          sidecar_b.empty() ? nullptr
-                                                            : sidecar_b.c_str() };
+            const char* candidates[2]
+                = { sidecar_a.c_str(),
+                    sidecar_b.empty() ? nullptr : sidecar_b.c_str() };
             for (size_t i = 0; i < 2; ++i) {
                 const char* sp = candidates[i];
                 if (!sp || !*sp) {
@@ -1527,13 +1577,13 @@ main(int argc, char** argv)
         }
 
         store.finalize();
-        std::printf("exif=%s ifds_decoded=%u xmp=%s xmp_entries=%u entries=%zu blocks=%u\n",
-                    exif_status_name(read.exif.status),
-                    static_cast<unsigned>(read.exif.ifds_written),
-                    xmp_status_name(read.xmp.status),
-                    static_cast<unsigned>(read.xmp.entries_decoded),
-                    store.entries().size(),
-                    static_cast<unsigned>(store.block_count()));
+        std::printf(
+            "exif=%s ifds_decoded=%u xmp=%s xmp_entries=%u entries=%zu blocks=%u\n",
+            exif_status_name(read.exif.status),
+            static_cast<unsigned>(read.exif.ifds_written),
+            xmp_status_name(read.xmp.status),
+            static_cast<unsigned>(read.xmp.entries_decoded),
+            store.entries().size(), static_cast<unsigned>(store.block_count()));
 
         for (BlockId block = 0; block < store.block_count(); ++block) {
             const std::span<const EntryId> ids = store.entries_in_block(block);

@@ -32,8 +32,9 @@ TEST(XmpDecodeTest, DecodesAttributesArraysAndRdfResource)
           "</x:xmpmeta>"
           "<?xpacket end='w'?>";
 
-    const std::span<const std::byte> bytes(
-        reinterpret_cast<const std::byte*>(xmp.data()), xmp.size());
+    const std::span<const std::byte> bytes(reinterpret_cast<const std::byte*>(
+                                               xmp.data()),
+                                           xmp.size());
 
     MetaStore store;
     const XmpDecodeResult r = decode_xmp_packet(bytes, store);
@@ -45,7 +46,7 @@ TEST(XmpDecodeTest, DecodesAttributesArraysAndRdfResource)
     auto expect_text = [&](std::string_view schema_ns, std::string_view path,
                            std::string_view expected) {
         MetaKeyView key;
-        key.kind = MetaKeyKind::XmpProperty;
+        key.kind                            = MetaKeyKind::XmpProperty;
         key.data.xmp_property.schema_ns     = schema_ns;
         key.data.xmp_property.property_path = path;
 
@@ -53,8 +54,10 @@ TEST(XmpDecodeTest, DecodesAttributesArraysAndRdfResource)
         ASSERT_EQ(ids.size(), 1U);
         const Entry& e = store.entry(ids[0]);
         ASSERT_EQ(e.value.kind, MetaValueKind::Text);
-        const std::span<const std::byte> vb = store.arena().span(e.value.data.span);
-        const std::string_view val(reinterpret_cast<const char*>(vb.data()), vb.size());
+        const std::span<const std::byte> vb = store.arena().span(
+            e.value.data.span);
+        const std::string_view val(reinterpret_cast<const char*>(vb.data()),
+                                   vb.size());
         EXPECT_EQ(val, expected);
     };
 
@@ -69,10 +72,10 @@ TEST(XmpDecodeTest, DecodesAttributesArraysAndRdfResource)
 
 TEST(XmpDecodeTest, ExpatNotEnabled)
 {
-    GTEST_SKIP() << "OPENMETA_HAS_EXPAT is not enabled; XMP decode is unavailable.";
+    GTEST_SKIP()
+        << "OPENMETA_HAS_EXPAT is not enabled; XMP decode is unavailable.";
 }
 
 #endif
 
 }  // namespace openmeta
-

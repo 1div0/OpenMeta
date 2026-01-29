@@ -25,6 +25,7 @@ compare_bytes(std::span<const std::byte> a,
     return 0;
 }
 
+
 MetaKey
 make_exif_tag_key(ByteArena& arena, std::string_view ifd, uint16_t tag)
 {
@@ -35,6 +36,7 @@ make_exif_tag_key(ByteArena& arena, std::string_view ifd, uint16_t tag)
     return key;
 }
 
+
 MetaKey
 make_iptc_dataset_key(uint16_t record, uint16_t dataset) noexcept
 {
@@ -44,6 +46,7 @@ make_iptc_dataset_key(uint16_t record, uint16_t dataset) noexcept
     key.data.iptc_dataset.dataset = dataset;
     return key;
 }
+
 
 MetaKey
 make_xmp_property_key(ByteArena& arena, std::string_view schema_ns,
@@ -56,6 +59,7 @@ make_xmp_property_key(ByteArena& arena, std::string_view schema_ns,
     return key;
 }
 
+
 MetaKey
 make_icc_header_field_key(uint32_t offset) noexcept
 {
@@ -64,6 +68,7 @@ make_icc_header_field_key(uint32_t offset) noexcept
     key.data.icc_header_field.offset = offset;
     return key;
 }
+
 
 MetaKey
 make_icc_tag_key(uint32_t signature) noexcept
@@ -74,6 +79,7 @@ make_icc_tag_key(uint32_t signature) noexcept
     return key;
 }
 
+
 MetaKey
 make_photoshop_irb_key(uint16_t resource_id) noexcept
 {
@@ -82,6 +88,7 @@ make_photoshop_irb_key(uint16_t resource_id) noexcept
     key.data.photoshop_irb.resource_id = resource_id;
     return key;
 }
+
 
 MetaKey
 make_geotiff_key(uint16_t key_id) noexcept
@@ -92,6 +99,7 @@ make_geotiff_key(uint16_t key_id) noexcept
     return key;
 }
 
+
 MetaKey
 make_printim_field_key(ByteArena& arena, std::string_view field)
 {
@@ -100,6 +108,7 @@ make_printim_field_key(ByteArena& arena, std::string_view field)
     key.data.printim_field.field = arena.append_string(field);
     return key;
 }
+
 
 MetaKey
 make_jumbf_field_key(ByteArena& arena, std::string_view field)
@@ -110,6 +119,7 @@ make_jumbf_field_key(ByteArena& arena, std::string_view field)
     return key;
 }
 
+
 MetaKey
 make_jumbf_cbor_key(ByteArena& arena, std::string_view key_text)
 {
@@ -118,6 +128,7 @@ make_jumbf_cbor_key(ByteArena& arena, std::string_view key_text)
     key.data.jumbf_cbor_key.key = arena.append_string(key_text);
     return key;
 }
+
 
 int
 compare_key(const ByteArena& arena, const MetaKey& a, const MetaKey& b) noexcept
@@ -210,6 +221,7 @@ compare_key(const ByteArena& arena, const MetaKey& a, const MetaKey& b) noexcept
     }
     return 0;
 }
+
 
 int
 compare_key_view(const ByteArena& arena, const MetaKeyView& a,

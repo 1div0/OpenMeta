@@ -10,7 +10,7 @@
 #include <vector>
 
 #if defined(OPENMETA_HAS_EXPAT) && OPENMETA_HAS_EXPAT
-#include <expat.h>
+#    include <expat.h>
 #endif
 
 namespace openmeta {
@@ -20,8 +20,7 @@ namespace {
                               unsigned char needle) noexcept
     {
         for (size_t i = 0; i < bytes.size(); ++i) {
-            if (static_cast<unsigned char>(
-                    std::to_integer<uint8_t>(bytes[i]))
+            if (static_cast<unsigned char>(std::to_integer<uint8_t>(bytes[i]))
                 == needle) {
                 return true;
             }
@@ -50,10 +49,12 @@ namespace {
         return NameParts { name.substr(0, sep), name.substr(sep + 1) };
     }
 
+
     static bool is_ascii_ws(char c) noexcept
     {
         return c == ' ' || c == '\t' || c == '\r' || c == '\n';
     }
+
 
     static std::string_view trim_ascii_ws(std::string_view s) noexcept
     {
@@ -67,6 +68,7 @@ namespace {
         }
         return s.substr(b, e - b);
     }
+
 
     static void merge_status(XmpDecodeResult* out, XmpDecodeStatus in) noexcept
     {
@@ -107,6 +109,7 @@ namespace {
         }
     }
 
+
     struct Frame final {
         bool is_rdf               = false;
         bool is_description       = false;
@@ -123,9 +126,9 @@ namespace {
     };
 
     struct Ctx final {
-        MetaStore* store  = nullptr;
-        BlockId block     = kInvalidBlockId;
-        EntryFlags flags  = EntryFlags::None;
+        MetaStore* store = nullptr;
+        BlockId block    = kInvalidBlockId;
+        EntryFlags flags = EntryFlags::None;
         XmpDecodeOptions options;
         XmpDecodeResult result;
 
@@ -144,9 +147,11 @@ namespace {
 
     static bool should_stop(const Ctx* ctx) noexcept
     {
-        return !ctx || !ctx->parser || ctx->result.status == XmpDecodeStatus::LimitExceeded
+        return !ctx || !ctx->parser
+               || ctx->result.status == XmpDecodeStatus::LimitExceeded
                || ctx->result.status == XmpDecodeStatus::Malformed;
     }
+
 
     static void stop_parser(Ctx* ctx, XmpDecodeStatus status) noexcept
     {
@@ -158,6 +163,7 @@ namespace {
             XML_StopParser(ctx->parser, XML_FALSE);
         }
     }
+
 
     static bool path_append_segment(Ctx* ctx, std::string_view seg,
                                     bool use_slash) noexcept
@@ -187,6 +193,7 @@ namespace {
         return true;
     }
 
+
     static bool path_append_index(Ctx* ctx, uint32_t index) noexcept
     {
         if (!ctx) {
@@ -194,8 +201,7 @@ namespace {
         }
 
         char buf[32];
-        std::snprintf(buf, sizeof(buf), "[%u]",
-                      static_cast<unsigned>(index));
+        std::snprintf(buf, sizeof(buf), "[%u]", static_cast<unsigned>(index));
         const std::string_view s(buf, std::strlen(buf));
 
         const uint32_t max_path = ctx->options.limits.max_path_bytes;
@@ -208,6 +214,7 @@ namespace {
         ctx->path.append(s.data(), s.size());
         return true;
     }
+
 
     static Frame* find_nearest_array_container(Ctx* ctx) noexcept
     {
@@ -222,6 +229,7 @@ namespace {
         }
         return nullptr;
     }
+
 
     static bool emit_property_text(Ctx* ctx, std::string_view schema_ns,
                                    std::string_view property_path,
@@ -249,9 +257,9 @@ namespace {
         }
 
         Entry entry;
-        entry.key                   = make_xmp_property_key(ctx->store->arena(), schema_ns,
-                                                            property_path);
-        entry.value                 = make_text(ctx->store->arena(), value, TextEncoding::Utf8);
+        entry.key   = make_xmp_property_key(ctx->store->arena(), schema_ns,
+                                            property_path);
+        entry.value = make_text(ctx->store->arena(), value, TextEncoding::Utf8);
         entry.origin.block          = ctx->block;
         entry.origin.order_in_block = ctx->order_in_block;
         entry.origin.wire_type      = WireType { WireFamily::Other, 0 };
@@ -264,6 +272,7 @@ namespace {
         ctx->total_value_bytes += static_cast<uint64_t>(value.size());
         return true;
     }
+
 
     static void XMLCALL start_element(void* user_data, const XML_Char* name_c,
                                       const XML_Char** atts)
@@ -287,9 +296,10 @@ namespace {
         const bool is_rdf     = (parts.uri == kRdfNs);
         const bool is_xml     = (parts.uri == kXmlNs);
         const bool is_desc    = is_rdf && (parts.local == "Description");
-        const bool is_seq     = is_rdf && (parts.local == "Seq" || parts.local == "Bag"
-                                       || parts.local == "Alt");
-        const bool is_li      = is_rdf && (parts.local == "li");
+        const bool is_seq     = is_rdf
+                            && (parts.local == "Seq" || parts.local == "Bag"
+                                || parts.local == "Alt");
+        const bool is_li = is_rdf && (parts.local == "li");
 
         Frame frame;
         frame.is_rdf             = is_rdf;
@@ -322,7 +332,8 @@ namespace {
                     const std::string_view an(atts[i], std::strlen(atts[i]));
                     const NameParts ap = split_name(an);
                     if (ap.uri == kRdfNs && ap.local == "resource") {
-                        const std::string_view av(atts[i + 1], std::strlen(atts[i + 1]));
+                        const std::string_view av(atts[i + 1],
+                                                  std::strlen(atts[i + 1]));
                         const std::string_view trimmed = trim_ascii_ws(av);
                         (void)emit_property_text(ctx, ctx->root_schema_ns,
                                                  ctx->path, trimmed);
@@ -342,8 +353,8 @@ namespace {
                     return;
                 }
                 container->li_counter += 1;
-                frame.path_len_before       = static_cast<uint32_t>(ctx->path.size());
-                frame.contributed_to_path   = true;
+                frame.path_len_before = static_cast<uint32_t>(ctx->path.size());
+                frame.contributed_to_path = true;
                 if (!path_append_index(ctx, container->li_counter)) {
                     return;
                 }
@@ -364,12 +375,14 @@ namespace {
                 if (ap.uri == kRdfNs || ap.uri == kXmlNs) {
                     continue;
                 }
-                const std::string_view av(atts[i + 1], std::strlen(atts[i + 1]));
+                const std::string_view av(atts[i + 1],
+                                          std::strlen(atts[i + 1]));
                 const std::string_view trimmed = trim_ascii_ws(av);
                 (void)emit_property_text(ctx, ap.uri, ap.local, trimmed);
             }
         }
     }
+
 
     static void XMLCALL end_element(void* user_data, const XML_Char* /*name_c*/)
     {
@@ -391,8 +404,8 @@ namespace {
             if (frame.is_li || frame.is_nonrdf) {
                 const std::string_view trimmed = trim_ascii_ws(frame.text);
                 if (!trimmed.empty()) {
-                    (void)emit_property_text(ctx, ctx->root_schema_ns, ctx->path,
-                                             trimmed);
+                    (void)emit_property_text(ctx, ctx->root_schema_ns,
+                                             ctx->path, trimmed);
                 }
             }
         }
@@ -419,6 +432,7 @@ namespace {
         }
     }
 
+
     static void XMLCALL char_data(void* user_data, const XML_Char* s, int len)
     {
         Ctx* ctx = reinterpret_cast<Ctx*>(user_data);
@@ -440,7 +454,7 @@ namespace {
             return;
         }
 
-        const uint32_t max_val = ctx->options.limits.max_value_bytes;
+        const uint32_t max_val   = ctx->options.limits.max_value_bytes;
         const uint64_t max_total = ctx->options.limits.max_total_value_bytes;
 
         const uint32_t want = static_cast<uint32_t>(len);
@@ -451,7 +465,7 @@ namespace {
         }
         uint32_t take = want;
         if (avail < take) {
-            take = avail;
+            take                 = avail;
             frame.text_truncated = true;
             merge_status(&ctx->result, XmpDecodeStatus::OutputTruncated);
         }
@@ -482,7 +496,8 @@ decode_xmp_packet(std::span<const std::byte> xmp_bytes, MetaStore& store,
 {
     XmpDecodeResult result;
 
-    if (xmp_bytes.empty() || !contains_byte(xmp_bytes, static_cast<unsigned char>('<'))) {
+    if (xmp_bytes.empty()
+        || !contains_byte(xmp_bytes, static_cast<unsigned char>('<'))) {
         result.status = XmpDecodeStatus::Unsupported;
         return result;
     }
@@ -495,11 +510,11 @@ decode_xmp_packet(std::span<const std::byte> xmp_bytes, MetaStore& store,
 
 #if defined(OPENMETA_HAS_EXPAT) && OPENMETA_HAS_EXPAT
     Ctx ctx;
-    ctx.store   = &store;
-    ctx.block   = store.add_block(BlockInfo {});
-    ctx.flags   = flags;
-    ctx.options = options;
-    ctx.result.status = XmpDecodeStatus::Ok;
+    ctx.store                  = &store;
+    ctx.block                  = store.add_block(BlockInfo {});
+    ctx.flags                  = flags;
+    ctx.options                = options;
+    ctx.result.status          = XmpDecodeStatus::Ok;
     ctx.result.entries_decoded = 0;
     ctx.path.reserve(options.limits.max_path_bytes);
     ctx.stack.reserve(options.limits.max_depth);

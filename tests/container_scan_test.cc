@@ -16,6 +16,7 @@ namespace {
         out->push_back(std::byte { static_cast<uint8_t>((v >> 0) & 0xFF) });
     }
 
+
     static void append_u32be(std::vector<std::byte>* out, uint32_t v)
     {
         out->push_back(std::byte { static_cast<uint8_t>((v >> 24) & 0xFF) });
@@ -23,6 +24,7 @@ namespace {
         out->push_back(std::byte { static_cast<uint8_t>((v >> 8) & 0xFF) });
         out->push_back(std::byte { static_cast<uint8_t>((v >> 0) & 0xFF) });
     }
+
 
     static void append_u32le(std::vector<std::byte>* out, uint32_t v)
     {
@@ -32,6 +34,7 @@ namespace {
         out->push_back(std::byte { static_cast<uint8_t>((v >> 24) & 0xFF) });
     }
 
+
     static void append_fourcc(std::vector<std::byte>* out, uint32_t f)
     {
         out->push_back(std::byte { static_cast<uint8_t>((f >> 24) & 0xFF) });
@@ -40,12 +43,14 @@ namespace {
         out->push_back(std::byte { static_cast<uint8_t>((f >> 0) & 0xFF) });
     }
 
+
     static void append_bytes(std::vector<std::byte>* out, std::string_view s)
     {
         for (char c : s) {
             out->push_back(std::byte { static_cast<uint8_t>(c) });
         }
     }
+
 
     static void append_fullbox_header(std::vector<std::byte>* out,
                                       uint8_t version)
@@ -56,6 +61,7 @@ namespace {
         out->push_back(std::byte { 0x00 });
     }
 
+
     static void append_bmff_box(std::vector<std::byte>* out, uint32_t type,
                                 std::span<const std::byte> payload)
     {
@@ -63,6 +69,7 @@ namespace {
         append_fourcc(out, type);
         out->insert(out->end(), payload.begin(), payload.end());
     }
+
 
     static void append_jpeg_segment(std::vector<std::byte>* out,
                                     uint16_t marker,
@@ -74,6 +81,7 @@ namespace {
         append_u16be(out, seg_len);
         out->insert(out->end(), payload.begin(), payload.end());
     }
+
 
     TEST(ContainerScan, JpegSegments)
     {
@@ -144,6 +152,7 @@ namespace {
         EXPECT_EQ(auto_res.written, 4U);
     }
 
+
     static void append_png_chunk(std::vector<std::byte>* out, uint32_t type,
                                  std::span<const std::byte> data)
     {
@@ -152,6 +161,7 @@ namespace {
         out->insert(out->end(), data.begin(), data.end());
         append_u32be(out, 0);  // crc ignored by scanner
     }
+
 
     TEST(ContainerScan, PngChunks)
     {
@@ -223,6 +233,7 @@ namespace {
         EXPECT_EQ(auto_res.written, 4U);
     }
 
+
     TEST(ContainerScan, WebpRiffChunks)
     {
         std::vector<std::byte> webp;
@@ -281,6 +292,7 @@ namespace {
         EXPECT_EQ(blocks[2].kind, ContainerBlockKind::Icc);
     }
 
+
     TEST(ContainerScan, GifApplicationExtensions)
     {
         std::vector<std::byte> gif;
@@ -313,6 +325,7 @@ namespace {
         EXPECT_EQ(blocks[0].chunking, BlockChunking::GifSubBlocks);
         EXPECT_EQ(gif[blocks[0].data_offset], std::byte { 0x03 });
     }
+
 
     TEST(ContainerScan, Jp2AndJxlBoxes)
     {
@@ -404,6 +417,7 @@ namespace {
         EXPECT_EQ(blocks[2].compression, BlockCompression::Brotli);
         EXPECT_EQ(blocks[2].aux_u32, fourcc('x', 'm', 'l', ' '));
     }
+
 
     TEST(ContainerScan, BmffMetaItems)
     {
@@ -540,6 +554,7 @@ namespace {
         }
     }
 
+
     TEST(ContainerScan, Cr3CanonUuidCmtBoxes)
     {
         // Minimal CR3-style BMFF: `ftyp` + `moov/uuid(Canon)` containing `CMT1` TIFF.
@@ -602,6 +617,7 @@ namespace {
         EXPECT_EQ(auto_res.status, ScanStatus::Ok);
         EXPECT_EQ(auto_res.written, 1U);
     }
+
 
     TEST(ContainerScan, TiffTagValues)
     {

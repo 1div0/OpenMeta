@@ -10,17 +10,20 @@ MetaEdit::arena() noexcept
     return arena_;
 }
 
+
 const ByteArena&
 MetaEdit::arena() const noexcept
 {
     return arena_;
 }
 
+
 void
 MetaEdit::reserve_ops(size_t count)
 {
     ops_.reserve(count);
 }
+
 
 void
 MetaEdit::add_entry(const Entry& entry)
@@ -30,6 +33,7 @@ MetaEdit::add_entry(const Entry& entry)
     op.entry = entry;
     ops_.push_back(op);
 }
+
 
 void
 MetaEdit::set_value(EntryId target, const MetaValue& value)
@@ -41,6 +45,7 @@ MetaEdit::set_value(EntryId target, const MetaValue& value)
     ops_.push_back(op);
 }
 
+
 void
 MetaEdit::tombstone(EntryId target)
 {
@@ -50,11 +55,13 @@ MetaEdit::tombstone(EntryId target)
     ops_.push_back(op);
 }
 
+
 std::span<const EditOp>
 MetaEdit::ops() const noexcept
 {
     return std::span<const EditOp>(ops_.data(), ops_.size());
 }
+
 
 static MetaKey
 copy_key(const MetaKey& key, const ByteArena& src, ByteArena& dst)
@@ -92,6 +99,7 @@ copy_key(const MetaKey& key, const ByteArena& src, ByteArena& dst)
     return out;
 }
 
+
 static MetaValue
 copy_value(const MetaValue& value, const ByteArena& src, ByteArena& dst)
 {
@@ -102,6 +110,7 @@ copy_value(const MetaValue& value, const ByteArena& src, ByteArena& dst)
     }
     return out;
 }
+
 
 MetaStore
 commit(const MetaStore& base, std::span<const MetaEdit> edits)
@@ -149,6 +158,7 @@ commit(const MetaStore& base, std::span<const MetaEdit> edits)
     out.finalize();
     return out;
 }
+
 
 MetaStore
 compact(const MetaStore& base)

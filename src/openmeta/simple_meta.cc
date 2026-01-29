@@ -10,10 +10,8 @@
 namespace openmeta {
 namespace {
 
-    static uint8_t u8(std::byte b) noexcept
-    {
-        return static_cast<uint8_t>(b);
-    }
+    static uint8_t u8(std::byte b) noexcept { return static_cast<uint8_t>(b); }
+
 
     static void merge_payload_result(PayloadResult* out,
                                      const PayloadResult& in) noexcept
@@ -57,6 +55,7 @@ namespace {
         }
     }
 
+
     static bool read_u32be(std::span<const std::byte> bytes, uint64_t offset,
                            uint32_t* out) noexcept
     {
@@ -71,6 +70,7 @@ namespace {
         *out = v;
         return true;
     }
+
 
     static void merge_exif_status(ExifDecodeStatus* out,
                                   ExifDecodeStatus in) noexcept
@@ -107,6 +107,7 @@ namespace {
             return;
         }
     }
+
 
     static void merge_xmp_status(XmpDecodeStatus* out,
                                  XmpDecodeStatus in) noexcept
@@ -152,6 +153,7 @@ namespace {
         }
     }
 
+
     static PayloadResult
     get_block_bytes(std::span<const std::byte> file_bytes,
                     std::span<const ContainerBlockRef> blocks,
@@ -167,10 +169,12 @@ namespace {
         }
         const ContainerBlockRef& block = blocks[block_index];
 
-        if (block.part_count <= 1U && block.compression == BlockCompression::None
+        if (block.part_count <= 1U
+            && block.compression == BlockCompression::None
             && block.chunking != BlockChunking::GifSubBlocks) {
             const uint64_t end = static_cast<uint64_t>(file_bytes.size());
-            if (block.data_offset > end || block.data_size > end - block.data_offset) {
+            if (block.data_offset > end
+                || block.data_size > end - block.data_offset) {
                 res.status = PayloadStatus::Malformed;
                 return res;
             }
@@ -217,18 +221,19 @@ simple_meta_read(std::span<const std::byte> file_bytes, MetaStore& store,
     exif.entries_decoded = 0;
 
     XmpDecodeResult xmp;
-    xmp.status         = XmpDecodeStatus::Unsupported;
+    xmp.status          = XmpDecodeStatus::Unsupported;
     xmp.entries_decoded = 0;
 
-    uint32_t ifd_write_pos = 0;
-    bool any_exif          = false;
-    bool any_xmp           = false;
-    const uint32_t blocks_written
-        = (result.scan.written < out_blocks.size())
-              ? result.scan.written
-              : static_cast<uint32_t>(out_blocks.size());
-    const std::span<const ContainerBlockRef> blocks_view(
-        out_blocks.data(), static_cast<size_t>(blocks_written));
+    uint32_t ifd_write_pos        = 0;
+    bool any_exif                 = false;
+    bool any_xmp                  = false;
+    const uint32_t blocks_written = (result.scan.written < out_blocks.size())
+                                        ? result.scan.written
+                                        : static_cast<uint32_t>(
+                                              out_blocks.size());
+    const std::span<const ContainerBlockRef> blocks_view(out_blocks.data(),
+                                                         static_cast<size_t>(
+                                                             blocks_written));
     for (uint32_t i = 0; i < blocks_written; ++i) {
         const ContainerBlockRef& block = out_blocks[i];
         if (block.part_count > 1U && block.part_index != 0U) {
@@ -253,10 +258,12 @@ simple_meta_read(std::span<const std::byte> file_bytes, MetaStore& store,
                                       ExifDecodeStatus::OutputTruncated);
                     break;
                 case PayloadStatus::Unsupported:
-                    merge_exif_status(&exif.status, ExifDecodeStatus::Unsupported);
+                    merge_exif_status(&exif.status,
+                                      ExifDecodeStatus::Unsupported);
                     break;
                 case PayloadStatus::Malformed:
-                    merge_exif_status(&exif.status, ExifDecodeStatus::Malformed);
+                    merge_exif_status(&exif.status,
+                                      ExifDecodeStatus::Malformed);
                     break;
                 case PayloadStatus::LimitExceeded:
                     merge_exif_status(&exif.status,
@@ -275,26 +282,26 @@ simple_meta_read(std::span<const std::byte> file_bytes, MetaStore& store,
                 ifd_slice = out_ifds.subspan(ifd_write_pos);
             }
 
-            const ExifDecodeResult one = decode_exif_tiff(block_bytes, store,
-                                                          ifd_slice,
-                                                          exif_options);
+            const ExifDecodeResult one
+                = decode_exif_tiff(block_bytes, store, ifd_slice, exif_options);
             merge_exif_status(&exif.status, one.status);
             exif.ifds_needed += one.ifds_needed;
             exif.entries_decoded += one.entries_decoded;
 
-            const uint32_t room = (ifd_write_pos < out_ifds.size())
-                                      ? static_cast<uint32_t>(out_ifds.size()
-                                                              - ifd_write_pos)
-                                      : 0U;
-            const uint32_t advanced
-                = (one.ifds_written < room) ? one.ifds_written : room;
+            const uint32_t room     = (ifd_write_pos < out_ifds.size())
+                                          ? static_cast<uint32_t>(out_ifds.size()
+                                                                  - ifd_write_pos)
+                                          : 0U;
+            const uint32_t advanced = (one.ifds_written < room)
+                                          ? one.ifds_written
+                                          : room;
             ifd_write_pos += advanced;
             exif.ifds_written = ifd_write_pos;
         } else if (block.kind == ContainerBlockKind::Mpf) {
             // JPEG APP2 MPF: TIFF-IFD stream used by MPO (multi-picture) files.
             // Decode as EXIF/TIFF tags into a separate IFD token namespace.
             std::array<ExifIfdRef, 64> mpf_ifds;
-            ExifDecodeOptions mpf_options = exif_options;
+            ExifDecodeOptions mpf_options        = exif_options;
             mpf_options.tokens.ifd_prefix        = "mpf";
             mpf_options.tokens.subifd_prefix     = "mpf_subifd";
             mpf_options.tokens.exif_ifd_token    = "mpf_exififd";
@@ -302,11 +309,11 @@ simple_meta_read(std::span<const std::byte> file_bytes, MetaStore& store,
             mpf_options.tokens.interop_ifd_token = "mpf_interopifd";
             (void)decode_exif_tiff(block_bytes, store,
                                    std::span<ExifIfdRef>(mpf_ifds.data(),
-                                                        mpf_ifds.size()),
+                                                         mpf_ifds.size()),
                                    mpf_options);
         } else if (block.kind == ContainerBlockKind::Xmp
                    || block.kind == ContainerBlockKind::XmpExtended) {
-            any_xmp = true;
+            any_xmp                   = true;
             const XmpDecodeResult one = decode_xmp_packet(block_bytes, store);
             merge_xmp_status(&xmp.status, one.status);
             xmp.entries_decoded += one.entries_decoded;
@@ -346,18 +353,19 @@ simple_meta_read(std::span<const std::byte> file_bytes, MetaStore& store,
                 ifd_slice = out_ifds.subspan(ifd_write_pos);
             }
 
-            const ExifDecodeResult one = decode_exif_tiff(tiff, store, ifd_slice,
-                                                          exif_options);
+            const ExifDecodeResult one
+                = decode_exif_tiff(tiff, store, ifd_slice, exif_options);
             merge_exif_status(&exif.status, one.status);
             exif.ifds_needed += one.ifds_needed;
             exif.entries_decoded += one.entries_decoded;
 
-            const uint32_t room = (ifd_write_pos < out_ifds.size())
-                                      ? static_cast<uint32_t>(out_ifds.size()
-                                                              - ifd_write_pos)
-                                      : 0U;
-            const uint32_t advanced
-                = (one.ifds_written < room) ? one.ifds_written : room;
+            const uint32_t room     = (ifd_write_pos < out_ifds.size())
+                                          ? static_cast<uint32_t>(out_ifds.size()
+                                                                  - ifd_write_pos)
+                                          : 0U;
+            const uint32_t advanced = (one.ifds_written < room)
+                                          ? one.ifds_written
+                                          : room;
             ifd_write_pos += advanced;
             exif.ifds_written = ifd_write_pos;
         }

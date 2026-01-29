@@ -14,17 +14,20 @@ align_up_u32(uint32_t value, uint32_t alignment) noexcept
     return (value + mask) & ~mask;
 }
 
+
 void
 ByteArena::clear() noexcept
 {
     buffer_.clear();
 }
 
+
 void
 ByteArena::reserve(size_t size_bytes)
 {
     buffer_.reserve(size_bytes);
 }
+
 
 ByteSpan
 ByteArena::append(std::span<const std::byte> bytes)
@@ -37,6 +40,7 @@ ByteArena::append(std::span<const std::byte> bytes)
     return ByteSpan { offset, static_cast<uint32_t>(bytes.size()) };
 }
 
+
 ByteSpan
 ByteArena::append_string(std::string_view text)
 {
@@ -45,6 +49,7 @@ ByteArena::append_string(std::string_view text)
                                            text.size());
     return append(bytes);
 }
+
 
 ByteSpan
 ByteArena::allocate(uint32_t size_bytes, uint32_t alignment)
@@ -59,17 +64,20 @@ ByteArena::allocate(uint32_t size_bytes, uint32_t alignment)
     return ByteSpan { offset, size_bytes };
 }
 
+
 std::span<const std::byte>
 ByteArena::bytes() const noexcept
 {
     return std::span<const std::byte>(buffer_.data(), buffer_.size());
 }
 
+
 std::span<std::byte>
 ByteArena::bytes_mut() noexcept
 {
     return std::span<std::byte>(buffer_.data(), buffer_.size());
 }
+
 
 std::span<const std::byte>
 ByteArena::span(ByteSpan view) const noexcept
@@ -84,6 +92,7 @@ ByteArena::span(ByteSpan view) const noexcept
     }
     return all.subspan(view.offset, view.size);
 }
+
 
 std::span<std::byte>
 ByteArena::span_mut(ByteSpan view) noexcept

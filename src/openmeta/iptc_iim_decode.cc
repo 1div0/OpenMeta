@@ -3,10 +3,8 @@
 namespace openmeta {
 namespace {
 
-    static uint8_t u8(std::byte b) noexcept
-    {
-        return static_cast<uint8_t>(b);
-    }
+    static uint8_t u8(std::byte b) noexcept { return static_cast<uint8_t>(b); }
+
 
     static bool read_u16be(std::span<const std::byte> bytes, uint64_t offset,
                            uint16_t* out) noexcept
@@ -20,8 +18,10 @@ namespace {
         return true;
     }
 
+
     static bool read_iptc_length(std::span<const std::byte> bytes, uint64_t off,
-                                 uint64_t* value_len, uint64_t* header_len) noexcept
+                                 uint64_t* value_len,
+                                 uint64_t* header_len) noexcept
     {
         // Base length field is 2 bytes. If MSB is set, the low 15 bits specify
         // the number of subsequent bytes used to encode the real length.

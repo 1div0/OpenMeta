@@ -1,5 +1,5 @@
-#include "openmeta/icc_decode.h"
 #include "openmeta/container_scan.h"
+#include "openmeta/icc_decode.h"
 
 #include <gtest/gtest.h>
 
@@ -11,19 +11,26 @@
 namespace openmeta {
 namespace {
 
-static void write_u16be(uint16_t v, size_t off, std::vector<std::byte>* out)
-{
-    (*out)[off + 0] = std::byte { static_cast<unsigned char>((v >> 8) & 0xFF) };
-    (*out)[off + 1] = std::byte { static_cast<unsigned char>((v >> 0) & 0xFF) };
-}
+    static void write_u16be(uint16_t v, size_t off, std::vector<std::byte>* out)
+    {
+        (*out)[off + 0]
+            = std::byte { static_cast<unsigned char>((v >> 8) & 0xFF) };
+        (*out)[off + 1]
+            = std::byte { static_cast<unsigned char>((v >> 0) & 0xFF) };
+    }
 
-static void write_u32be(uint32_t v, size_t off, std::vector<std::byte>* out)
-{
-    (*out)[off + 0] = std::byte { static_cast<unsigned char>((v >> 24) & 0xFF) };
-    (*out)[off + 1] = std::byte { static_cast<unsigned char>((v >> 16) & 0xFF) };
-    (*out)[off + 2] = std::byte { static_cast<unsigned char>((v >> 8) & 0xFF) };
-    (*out)[off + 3] = std::byte { static_cast<unsigned char>((v >> 0) & 0xFF) };
-}
+
+    static void write_u32be(uint32_t v, size_t off, std::vector<std::byte>* out)
+    {
+        (*out)[off + 0]
+            = std::byte { static_cast<unsigned char>((v >> 24) & 0xFF) };
+        (*out)[off + 1]
+            = std::byte { static_cast<unsigned char>((v >> 16) & 0xFF) };
+        (*out)[off + 2]
+            = std::byte { static_cast<unsigned char>((v >> 8) & 0xFF) };
+        (*out)[off + 3]
+            = std::byte { static_cast<unsigned char>((v >> 0) & 0xFF) };
+    }
 
 }  // namespace
 
@@ -81,7 +88,8 @@ TEST(IccDecodeTest, DecodesHeaderAndTagTable)
             saw_tag = true;
             EXPECT_EQ(e.value.kind, MetaValueKind::Bytes);
             EXPECT_EQ(e.value.count, 16U);
-            const std::span<const std::byte> b = store.arena().span(e.value.data.span);
+            const std::span<const std::byte> b = store.arena().span(
+                e.value.data.span);
             ASSERT_EQ(b.size(), 16U);
             for (size_t j = 0; j < 16; ++j) {
                 EXPECT_EQ(b[j], std::byte { static_cast<unsigned char>(j) });

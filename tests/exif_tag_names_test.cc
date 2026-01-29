@@ -33,6 +33,7 @@ TEST(ExifTagNames, MapsCommonTags)
     EXPECT_EQ(exif_tag_name("mk_fuji0", 0x1000), std::string_view("Quality"));
 }
 
+
 TEST(ExifTagNames, UnknownReturnsEmpty)
 {
     using openmeta::exif_tag_name;

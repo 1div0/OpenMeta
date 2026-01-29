@@ -16,17 +16,20 @@ namespace {
                     reinterpret_cast<const std::byte*>(s.data() + s.size()));
     }
 
+
     static void append_u16be(std::vector<std::byte>* out, uint16_t v)
     {
         out->push_back(std::byte { static_cast<uint8_t>((v >> 8) & 0xFF) });
         out->push_back(std::byte { static_cast<uint8_t>((v >> 0) & 0xFF) });
     }
 
+
     static void append_u16le(std::vector<std::byte>* out, uint16_t v)
     {
         out->push_back(std::byte { static_cast<uint8_t>((v >> 0) & 0xFF) });
         out->push_back(std::byte { static_cast<uint8_t>((v >> 8) & 0xFF) });
     }
+
 
     static void append_u32le(std::vector<std::byte>* out, uint32_t v)
     {
@@ -36,6 +39,7 @@ namespace {
         out->push_back(std::byte { static_cast<uint8_t>((v >> 24) & 0xFF) });
     }
 
+
     static MetaKeyView exif_key(std::string_view ifd, uint16_t tag)
     {
         MetaKeyView key;
@@ -44,6 +48,7 @@ namespace {
         key.data.exif_tag.tag = tag;
         return key;
     }
+
 
     static std::vector<std::byte> make_mpf_tiff()
     {
@@ -88,8 +93,7 @@ TEST(MpfDecode, SimpleMetaDecodesMpfBlocks)
 
     jpg.push_back(std::byte { 0xFF });
     jpg.push_back(std::byte { 0xE2 });  // APP2
-    const uint16_t seg_len
-        = static_cast<uint16_t>(seg_payload.size() + 2U);
+    const uint16_t seg_len = static_cast<uint16_t>(seg_payload.size() + 2U);
     append_u16be(&jpg, seg_len);
     jpg.insert(jpg.end(), seg_payload.begin(), seg_payload.end());
 
@@ -120,4 +124,3 @@ TEST(MpfDecode, SimpleMetaDecodesMpfBlocks)
 }
 
 }  // namespace openmeta
-

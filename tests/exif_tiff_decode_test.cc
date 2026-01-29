@@ -18,11 +18,13 @@ namespace {
                     reinterpret_cast<const std::byte*>(s.data() + s.size()));
     }
 
+
     static void append_u16le(std::vector<std::byte>* out, uint16_t v)
     {
         out->push_back(std::byte { static_cast<uint8_t>((v >> 0) & 0xFF) });
         out->push_back(std::byte { static_cast<uint8_t>((v >> 8) & 0xFF) });
     }
+
 
     static void append_u32le(std::vector<std::byte>* out, uint32_t v)
     {
@@ -32,11 +34,13 @@ namespace {
         out->push_back(std::byte { static_cast<uint8_t>((v >> 24) & 0xFF) });
     }
 
+
     static void append_u16be(std::vector<std::byte>* out, uint16_t v)
     {
         out->push_back(std::byte { static_cast<uint8_t>((v >> 8) & 0xFF) });
         out->push_back(std::byte { static_cast<uint8_t>((v >> 0) & 0xFF) });
     }
+
 
     static void append_u32be(std::vector<std::byte>* out, uint32_t v)
     {
@@ -46,6 +50,7 @@ namespace {
         out->push_back(std::byte { static_cast<uint8_t>((v >> 0) & 0xFF) });
     }
 
+
     static std::string_view arena_string(const ByteArena& arena,
                                          const MetaValue& v)
     {
@@ -53,6 +58,7 @@ namespace {
         return std::string_view(reinterpret_cast<const char*>(bytes.data()),
                                 bytes.size());
     }
+
 
     static MetaKeyView exif_key(std::string_view ifd, uint16_t tag)
     {
@@ -62,6 +68,7 @@ namespace {
         key.data.exif_tag.tag = tag;
         return key;
     }
+
 
     static std::vector<std::byte> make_test_tiff_le()
     {
@@ -110,6 +117,7 @@ namespace {
         tiff.push_back(std::byte { 0 });
         return tiff;
     }
+
 
     static std::vector<std::byte> make_test_tiff_be()
     {
@@ -204,6 +212,7 @@ TEST(ExifTiffDecode, DecodesIfd0AndExifIfd_LittleEndian)
     EXPECT_EQ(arena_string(store.arena(), dt.value), "2024:01:01 00:00:00");
 }
 
+
 TEST(ExifTiffDecode, DecodesIfd0AndExifIfd_BigEndian)
 {
     const std::vector<std::byte> tiff = make_test_tiff_be();
@@ -231,6 +240,7 @@ TEST(ExifTiffDecode, DecodesIfd0AndExifIfd_BigEndian)
     EXPECT_EQ(arena_string(store.arena(), store.entry(dt_ids[0]).value),
               "2024:01:01 00:00:00");
 }
+
 
 TEST(ExifTiffDecode, PreservesUtf8Type129)
 {
@@ -265,6 +275,7 @@ TEST(ExifTiffDecode, PreservesUtf8Type129)
     EXPECT_EQ(e.value.text_encoding, TextEncoding::Utf8);
     EXPECT_EQ(arena_string(store.arena(), e.value), "Hi");
 }
+
 
 TEST(ExifTiffDecode, AsciiWithEmbeddedNulIsStoredAsBytes)
 {
@@ -311,6 +322,7 @@ TEST(ExifTiffDecode, AsciiWithEmbeddedNulIsStoredAsBytes)
     EXPECT_EQ(bytes[3], std::byte { 0 });
 }
 
+
 TEST(ExifTiffDecode, OutOfBoundsValueIsRejected)
 {
     std::vector<std::byte> tiff;
@@ -340,6 +352,7 @@ TEST(ExifTiffDecode, OutOfBoundsValueIsRejected)
     store.finalize();
     EXPECT_TRUE(store.entries().empty());
 }
+
 
 TEST(SimpleMetaRead, ScansAndDecodesJpegApp1Exif)
 {

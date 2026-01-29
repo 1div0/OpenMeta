@@ -1,7 +1,8 @@
 #include "openmeta/exif_tag_names.h"
 
 namespace openmeta {
-std::string_view makernote_tag_name(std::string_view ifd, uint16_t tag) noexcept;
+std::string_view
+makernote_tag_name(std::string_view ifd, uint16_t tag) noexcept;
 
 namespace {
 
@@ -33,6 +34,7 @@ namespace {
         }
         return ExifIfdGroup::Unknown;
     }
+
 
     static std::string_view tiff_ifd_tag_name(uint16_t tag) noexcept
     {
@@ -72,6 +74,7 @@ namespace {
         }
     }
 
+
     static std::string_view exif_ifd_tag_name(uint16_t tag) noexcept
     {
         switch (tag) {
@@ -107,6 +110,7 @@ namespace {
         }
     }
 
+
     static std::string_view gps_ifd_tag_name(uint16_t tag) noexcept
     {
         switch (tag) {
@@ -138,6 +142,7 @@ namespace {
         }
     }
 
+
     static std::string_view interop_ifd_tag_name(uint16_t tag) noexcept
     {
         switch (tag) {
@@ -148,6 +153,7 @@ namespace {
         default: return {};
         }
     }
+
 
     static std::string_view mpf_ifd_tag_name(uint16_t tag) noexcept
     {
@@ -163,7 +169,8 @@ namespace {
 
 }  // namespace
 
-std::string_view exif_tag_name(std::string_view ifd, uint16_t tag) noexcept
+std::string_view
+exif_tag_name(std::string_view ifd, uint16_t tag) noexcept
 {
     const ExifIfdGroup group = exif_ifd_group(ifd);
     if (group == ExifIfdGroup::Unknown) {

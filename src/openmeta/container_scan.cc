@@ -68,6 +68,7 @@ namespace {
         return static_cast<uint8_t>(b);
     }
 
+
     static bool match(std::span<const std::byte> bytes, uint64_t offset,
                       const char* s, uint32_t s_len) noexcept
     {
@@ -79,6 +80,7 @@ namespace {
                            static_cast<size_t>(s_len))
                == 0;
     }
+
 
     static bool match_bytes(std::span<const std::byte> bytes, uint64_t offset,
                             const std::byte* data, uint32_t data_len) noexcept
@@ -92,6 +94,7 @@ namespace {
                == 0;
     }
 
+
     static void sink_emit(BlockSink* sink,
                           const ContainerBlockRef& block) noexcept
     {
@@ -104,6 +107,7 @@ namespace {
         }
     }
 
+
     static bool read_u16be(std::span<const std::byte> bytes, uint64_t offset,
                            uint16_t* out) noexcept
     {
@@ -115,6 +119,7 @@ namespace {
         *out = v;
         return true;
     }
+
 
     static bool read_u32be(std::span<const std::byte> bytes, uint64_t offset,
                            uint32_t* out) noexcept
@@ -131,6 +136,7 @@ namespace {
         return true;
     }
 
+
     static bool read_u32le(std::span<const std::byte> bytes, uint64_t offset,
                            uint32_t* out) noexcept
     {
@@ -146,6 +152,7 @@ namespace {
         return true;
     }
 
+
     static bool read_u64be(std::span<const std::byte> bytes, uint64_t offset,
                            uint64_t* out) noexcept
     {
@@ -159,6 +166,7 @@ namespace {
         *out = v;
         return true;
     }
+
 
     static bool read_u64le(std::span<const std::byte> bytes, uint64_t offset,
                            uint64_t* out) noexcept
@@ -174,6 +182,7 @@ namespace {
         return true;
     }
 
+
     static uint64_t fnv1a_64(std::span<const std::byte> data) noexcept
     {
         uint64_t hash = 14695981039346656037ULL;
@@ -183,6 +192,7 @@ namespace {
         }
         return hash;
     }
+
 
     static void skip_exif_preamble(ContainerBlockRef* block,
                                    std::span<const std::byte> bytes) noexcept
@@ -204,13 +214,13 @@ namespace {
         if (tiff_off + 4 > bytes.size()) {
             return;
         }
-        const uint8_t a = u8(bytes[tiff_off + 0]);
-        const uint8_t b = u8(bytes[tiff_off + 1]);
-        const uint8_t c = u8(bytes[tiff_off + 2]);
-        const uint8_t d = u8(bytes[tiff_off + 3]);
-        const bool is_tiff
-            = (a == 'I' && b == 'I' && c == 0x2A && d == 0x00)
-              || (a == 'M' && b == 'M' && c == 0x00 && d == 0x2A);
+        const uint8_t a    = u8(bytes[tiff_off + 0]);
+        const uint8_t b    = u8(bytes[tiff_off + 1]);
+        const uint8_t c    = u8(bytes[tiff_off + 2]);
+        const uint8_t d    = u8(bytes[tiff_off + 3]);
+        const bool is_tiff = (a == 'I' && b == 'I' && c == 0x2A && d == 0x00)
+                             || (a == 'M' && b == 'M' && c == 0x00
+                                 && d == 0x2A);
         if (!is_tiff) {
             return;
         }
@@ -218,6 +228,7 @@ namespace {
         block->data_offset += 6;
         block->data_size -= 6;
     }
+
 
     static void skip_bmff_exif_offset(ContainerBlockRef* block,
                                       std::span<const std::byte> bytes) noexcept
@@ -430,6 +441,7 @@ scan_jpeg(std::span<const std::byte> bytes,
     return sink.result;
 }
 
+
 ScanResult
 scan_png(std::span<const std::byte> bytes,
          std::span<ContainerBlockRef> out) noexcept
@@ -588,6 +600,7 @@ scan_png(std::span<const std::byte> bytes,
     return sink.result;
 }
 
+
 ScanResult
 scan_webp(std::span<const std::byte> bytes,
           std::span<ContainerBlockRef> out) noexcept
@@ -674,6 +687,7 @@ scan_webp(std::span<const std::byte> bytes,
 
     return sink.result;
 }
+
 
 ScanResult
 scan_gif(std::span<const std::byte> bytes,
@@ -853,6 +867,7 @@ scan_gif(std::span<const std::byte> bytes,
     return sink.result;
 }
 
+
 namespace {
 
     struct BmffBox final {
@@ -924,6 +939,7 @@ namespace {
         out->uuid        = uuid;
         return true;
     }
+
 
     static void scan_jp2_box_payload(std::span<const std::byte> bytes,
                                      const BmffBox& box,
@@ -1045,6 +1061,7 @@ scan_jp2(std::span<const std::byte> bytes,
     return sink.result;
 }
 
+
 ScanResult
 scan_jxl(std::span<const std::byte> bytes,
          std::span<ContainerBlockRef> out) noexcept
@@ -1136,6 +1153,7 @@ scan_jxl(std::span<const std::byte> bytes,
     return sink.result;
 }
 
+
 namespace {
 
     struct BmffMetaItem final {
@@ -1166,6 +1184,7 @@ namespace {
             *is_heif = true;
         }
     }
+
 
     static bool bmff_format_from_ftyp(std::span<const std::byte> bytes,
                                       const BmffBox& ftyp,
@@ -1212,6 +1231,7 @@ namespace {
         return false;
     }
 
+
     static bool read_uint_be_n(std::span<const std::byte> bytes,
                                uint64_t offset, uint32_t n,
                                uint64_t* out) noexcept
@@ -1231,6 +1251,7 @@ namespace {
         return true;
     }
 
+
     static bool find_cstring_end(std::span<const std::byte> bytes,
                                  uint64_t start, uint64_t end,
                                  uint64_t* out_end) noexcept
@@ -1244,6 +1265,7 @@ namespace {
         }
         return false;
     }
+
 
     static bool cstring_equals(std::span<const std::byte> bytes, uint64_t start,
                                uint64_t end, const char* s,
@@ -1259,6 +1281,7 @@ namespace {
         }
         return match(bytes, start, s, s_len);
     }
+
 
     static bool bmff_collect_meta_items(std::span<const std::byte> bytes,
                                         const BmffBox& iinf,
@@ -1396,6 +1419,7 @@ namespace {
         return true;
     }
 
+
     static const BmffMetaItem*
     bmff_find_item(std::span<const BmffMetaItem> items,
                    uint32_t item_id) noexcept
@@ -1407,6 +1431,7 @@ namespace {
         }
         return nullptr;
     }
+
 
     static bool bmff_emit_items_from_iloc(std::span<const std::byte> bytes,
                                           const BmffBox& iloc,
@@ -1615,6 +1640,7 @@ namespace {
         return true;
     }
 
+
     static void bmff_scan_meta_box(std::span<const std::byte> bytes,
                                    const BmffBox& meta, ContainerFormat format,
                                    BlockSink* sink) noexcept
@@ -1683,6 +1709,7 @@ namespace {
         }
     }
 
+
     static bool bmff_is_container_box(uint32_t type) noexcept
     {
         switch (type) {
@@ -1698,6 +1725,7 @@ namespace {
         }
     }
 
+
     static bool bmff_is_tiff_at(std::span<const std::byte> bytes,
                                 uint64_t offset) noexcept
     {
@@ -1712,6 +1740,7 @@ namespace {
         return (b0 == 0x49 && b1 == 0x49 && b2 == 0x2A && b3 == 0x00)
                || (b0 == 0x4D && b1 == 0x4D && b2 == 0x00 && b3 == 0x2A);
     }
+
 
     static void bmff_emit_uuid_payload(ContainerFormat format,
                                        ContainerBlockKind kind,
@@ -1729,6 +1758,7 @@ namespace {
         block.chunking     = BlockChunking::Jp2UuidPayload;
         sink_emit(sink, block);
     }
+
 
     static void bmff_scan_cr3_canon_uuid(std::span<const std::byte> bytes,
                                          const BmffBox& box,
@@ -1773,6 +1803,7 @@ namespace {
             }
         }
     }
+
 
     static void bmff_scan_for_meta(std::span<const std::byte> bytes,
                                    uint64_t begin, uint64_t end, uint32_t depth,
@@ -1872,6 +1903,7 @@ scan_bmff(std::span<const std::byte> bytes,
     return sink.result;
 }
 
+
 namespace {
 
     struct TiffConfig final {
@@ -1896,6 +1928,7 @@ namespace {
         return read_u16be(bytes, offset, out);
     }
 
+
     static bool read_tiff_u32(const TiffConfig& cfg,
                               std::span<const std::byte> bytes, uint64_t offset,
                               uint32_t* out) noexcept
@@ -1906,6 +1939,7 @@ namespace {
         return read_u32be(bytes, offset, out);
     }
 
+
     static bool read_tiff_u64(const TiffConfig& cfg,
                               std::span<const std::byte> bytes, uint64_t offset,
                               uint64_t* out) noexcept
@@ -1915,6 +1949,7 @@ namespace {
         }
         return read_u64be(bytes, offset, out);
     }
+
 
     static uint64_t tiff_type_size(uint16_t type) noexcept
     {
@@ -1944,6 +1979,7 @@ namespace {
         }
     }
 
+
     static bool push_offset(uint64_t off, std::span<uint64_t> stack,
                             uint32_t* stack_size) noexcept
     {
@@ -1957,6 +1993,7 @@ namespace {
         *stack_size += 1;
         return true;
     }
+
 
     static bool already_visited(uint64_t off, std::span<const uint64_t> visited,
                                 uint32_t visited_count) noexcept
@@ -2293,6 +2330,7 @@ scan_tiff(std::span<const std::byte> bytes,
 
     return sink.result;
 }
+
 
 ScanResult
 scan_auto(std::span<const std::byte> bytes,

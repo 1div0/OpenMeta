@@ -54,4 +54,3 @@ decode_printim(std::span<const std::byte> bytes, MetaStore& store,
                const PrintImDecodeLimits& limits) noexcept;
 
 }  // namespace openmeta
-

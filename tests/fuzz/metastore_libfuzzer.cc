@@ -17,6 +17,7 @@ fuzz_trap() noexcept
 #endif
 }
 
+
 static uint32_t
 read_u32(std::span<const uint8_t> bytes, size_t offset) noexcept
 {
@@ -31,6 +32,7 @@ read_u32(std::span<const uint8_t> bytes, size_t offset) noexcept
     return v;
 }
 
+
 static uint16_t
 read_u16(std::span<const uint8_t> bytes, size_t offset) noexcept
 {
@@ -43,6 +45,7 @@ read_u16(std::span<const uint8_t> bytes, size_t offset) noexcept
     return v;
 }
 
+
 static MetaKey
 make_exif_key_with_ifd(ByteSpan ifd, uint16_t tag) noexcept
 {
@@ -52,6 +55,7 @@ make_exif_key_with_ifd(ByteSpan ifd, uint16_t tag) noexcept
     key.data.exif_tag.tag = tag;
     return key;
 }
+
 
 static void
 verify_block_order(const MetaStore& store, BlockId block) noexcept
@@ -75,6 +79,7 @@ verify_block_order(const MetaStore& store, BlockId block) noexcept
         first = false;
     }
 }
+
 
 static void
 verify_lookup(const MetaStore& store,
