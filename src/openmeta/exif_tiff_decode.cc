@@ -1052,6 +1052,98 @@ namespace {
     }
 
 
+    static void decode_nikon_settings_dir(std::string_view ifd_name,
+                                          std::span<const std::byte> raw,
+                                          MetaStore& store,
+                                          const ExifDecodeOptions& options,
+                                          ExifDecodeResult* status_out) noexcept
+    {
+        if (ifd_name.empty()) {
+            return;
+        }
+        if (raw.size() < 24) {
+            return;
+        }
+        if ((raw.size() % 8U) != 0U) {
+            return;
+        }
+
+        uint32_t rec_count = 0;
+        if (!read_u32le(raw, 20, &rec_count)) {
+            return;
+        }
+        if (rec_count == 0) {
+            return;
+        }
+        if (rec_count > options.limits.max_entries_per_ifd) {
+            if (status_out) {
+                update_status(status_out, ExifDecodeStatus::LimitExceeded);
+            }
+            return;
+        }
+
+        const uint64_t rec_bytes = uint64_t(rec_count) * 8ULL;
+        if (rec_bytes > (raw.size() - 24ULL)) {
+            return;
+        }
+        if (24ULL + rec_bytes != raw.size()) {
+            return;
+        }
+
+        const BlockId block = store.add_block(BlockInfo {});
+        if (block == kInvalidBlockId) {
+            return;
+        }
+
+        for (uint32_t i = 0; i < rec_count; ++i) {
+            if (status_out
+                && (status_out->entries_decoded + 1U)
+                       > options.limits.max_total_entries) {
+                update_status(status_out, ExifDecodeStatus::LimitExceeded);
+                return;
+            }
+
+            const uint64_t off = 24ULL + uint64_t(i) * 8ULL;
+            uint16_t tag       = 0;
+            uint16_t type_be   = 0;
+            uint32_t val32     = 0;
+            if (!read_u16le(raw, off + 0, &tag)
+                || !read_u16be(raw, off + 2, &type_be)
+                || !read_u32le(raw, off + 4, &val32)) {
+                if (status_out) {
+                    update_status(status_out, ExifDecodeStatus::Malformed);
+                }
+                return;
+            }
+
+            Entry entry;
+            entry.key = make_exif_tag_key(store.arena(), ifd_name, tag);
+            entry.origin.block          = block;
+            entry.origin.order_in_block = i;
+            entry.origin.wire_type      = WireType { WireFamily::Tiff, type_be };
+            entry.origin.wire_count     = 1;
+            entry.flags |= EntryFlags::Derived;
+
+            switch (type_be) {
+            case 1: entry.value = make_u8(static_cast<uint8_t>(val32)); break;
+            case 3: entry.value = make_u16(static_cast<uint16_t>(val32)); break;
+            case 4: entry.value = make_u32(val32); break;
+            case 8:
+                entry.value = make_i16(static_cast<int16_t>(
+                    static_cast<uint16_t>(val32)));
+                break;
+            case 9: entry.value = make_i32(static_cast<int32_t>(val32)); break;
+            default: entry.value = make_u32(val32); break;
+            }
+
+            (void)store.add_entry(entry);
+            if (status_out) {
+                status_out->entries_decoded += 1;
+            }
+        }
+    }
+
+
     static void
     decode_nikon_binary_subdirs(std::string_view mk_ifd0, MetaStore& store,
                                 bool le, const ExifDecodeOptions& options,
@@ -1092,6 +1184,7 @@ namespace {
             case 0x0025:  // ISOInfo
             case 0x002C:  // UnknownInfo
             case 0x0032:  // UnknownInfo2
+            case 0x004E:  // NikonSettings
             case 0x0091:  // ShotInfoUnknown
             case 0x0097:  // ColorBalanceUnknown2
             case 0x0098:  // LensData
@@ -1115,6 +1208,7 @@ namespace {
         uint32_t idx_isoinfo        = 0;
         uint32_t idx_unknowninfo    = 0;
         uint32_t idx_unknowninfo2   = 0;
+        uint32_t idx_settings       = 0;
         uint32_t idx_shotinfo       = 0;
         uint32_t idx_colorbalance   = 0;
         uint32_t idx_lensdata       = 0;
@@ -1496,6 +1590,16 @@ namespace {
                     std::span<const uint16_t>(tags_out, out_count),
                     std::span<const MetaValue>(vals_out, out_count),
                     options.limits, status_out);
+                continue;
+            }
+
+            if (tag == 0x004E) {  // NikonSettings
+                const std::string_view ifd_name
+                    = make_mk_subtable_ifd_token("mk_nikonsettings", "main",
+                                                 idx_settings++,
+                                                 std::span<char>(sub_ifd_buf));
+                decode_nikon_settings_dir(ifd_name, raw_src, store, options,
+                                          status_out);
                 continue;
             }
 
@@ -3563,7 +3667,7 @@ namespace {
             return false;
         }
 
-        const uint32_t needed_words = 1U + 7U + 4U * uint32_t(num_points) + 2U;
+        const uint32_t needed_words = 1U + 7U + 4U * uint32_t(num_points) + 3U;
         if (word_count < needed_words) {
             return false;
         }
@@ -3576,8 +3680,14 @@ namespace {
         // CanonAFInfo2 layout (word offsets):
         // [0]=size(bytes), [1]=AFAreaMode, [2]=NumAFPoints, [3]=ValidAFPoints,
         // [4..7]=image dimensions, then 4 arrays of length NumAFPoints,
-        // then two scalar fields.
+        // then three scalar fields.
         uint32_t order = 0;
+        if (!decode_canon_afinfo2_add_u16_scalar(cfg, tiff_bytes, value_off,
+                                                 mk_ifd0, block, order++,
+                                                 0x0000, 0, store, options,
+                                                 status_out)) {
+            return true;
+        }
         if (!decode_canon_afinfo2_add_u16_scalar(cfg, tiff_bytes, value_off,
                                                  mk_ifd0, block, order++,
                                                  0x0001, 1, store, options,
@@ -3679,6 +3789,12 @@ namespace {
         if (!decode_canon_afinfo2_add_u16_scalar(cfg, tiff_bytes, value_off,
                                                  mk_ifd0, block, order++,
                                                  0x000d, base + 4U * n + 1U,
+                                                 store, options, status_out)) {
+            return true;
+        }
+        if (!decode_canon_afinfo2_add_u16_scalar(cfg, tiff_bytes, value_off,
+                                                 mk_ifd0, block, order++,
+                                                 0x000e, base + 4U * n + 2U,
                                                  store, options, status_out)) {
             return true;
         }
