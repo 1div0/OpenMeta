@@ -38,6 +38,19 @@ using Clang), configure OpenMeta with:
 - CMake reads `VERSION` and sets `PROJECT_VERSION`.
 - The Python wheel version is derived from `VERSION` (via scikit-build-core metadata).
 
+## Code Organization (EXIF + MakerNotes)
+
+- Core EXIF/TIFF decoding: `src/openmeta/exif_tiff_decode.cc`
+- Vendor MakerNote decoders: `src/openmeta/exif_makernote_*.cc`
+  (Canon, Nikon, Sony, Olympus, Pentax, Casio)
+- Shared internal-only helpers: `src/openmeta/exif_tiff_decode_internal.h`
+  (not installed; used to keep vendor logic out of the public API)
+- Tests: `tests/makernote_decode_test.cc`
+
+When adding or changing MakerNote code, prefer extending the vendor files and
+keeping the EXIF/TIFF core container-agnostic. Add/adjust a unit test for any
+new subtable or decode path.
+
 ## Tests (GoogleTest)
 
 Requirements:

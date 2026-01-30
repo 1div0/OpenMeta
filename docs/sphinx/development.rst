@@ -9,6 +9,16 @@ Repository layout (public):
 - ``src/python/``: Python bindings and helper scripts
 - ``tests/``: unit tests and fuzz targets
 
+EXIF + MakerNotes (code organization)
+-------------------------------------
+
+- Core EXIF/TIFF decoding: ``src/openmeta/exif_tiff_decode.cc``
+- Vendor MakerNote decoders: ``src/openmeta/exif_makernote_*.cc``
+  (Canon, Nikon, Sony, Olympus, Pentax, Casio)
+- Shared internal-only helpers: ``src/openmeta/exif_tiff_decode_internal.h``
+  (not installed)
+- Unit tests for MakerNote paths: ``tests/makernote_decode_test.cc``
+
 Optional dependencies
 ---------------------
 

@@ -157,23 +157,29 @@ configure_file(
 
 set(OPENMETA_SOURCES
   src/openmeta/build_info.cc
-  src/openmeta/console_format.cc
   src/openmeta/byte_arena.cc
+  src/openmeta/console_format.cc
   src/openmeta/container_payload.cc
   src/openmeta/container_scan.cc
-	  src/openmeta/icc_decode.cc
-	  src/openmeta/exif_makernote_tag_names.cc
-	  src/openmeta/exif_tag_names.cc
-	  src/openmeta/exif_tiff_decode.cc
-	  src/openmeta/iptc_iim_decode.cc
-	  src/openmeta/xmp_decode.cc
-  src/openmeta/meta_edit.cc
+  src/openmeta/exif_makernote_canon.cc
+  src/openmeta/exif_makernote_casio.cc
+  src/openmeta/exif_makernote_nikon.cc
+  src/openmeta/exif_makernote_olympus.cc
+  src/openmeta/exif_makernote_pentax.cc
+  src/openmeta/exif_makernote_sony.cc
+  src/openmeta/exif_makernote_tag_names.cc
+  src/openmeta/exif_tag_names.cc
+  src/openmeta/exif_tiff_decode.cc
+  src/openmeta/icc_decode.cc
+  src/openmeta/iptc_iim_decode.cc
   src/openmeta/meta_key.cc
   src/openmeta/meta_store.cc
+  src/openmeta/meta_edit.cc
   src/openmeta/meta_value.cc
   src/openmeta/photoshop_irb_decode.cc
   src/openmeta/printim_decode.cc
   src/openmeta/simple_meta.cc
+  src/openmeta/xmp_decode.cc
 )
 
 if(OPENMETA_BUILD_STATIC)

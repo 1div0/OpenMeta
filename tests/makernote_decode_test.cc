@@ -92,6 +92,131 @@ namespace {
         return key;
     }
 
+    static bool read_u16le_at(std::span<const std::byte> bytes, size_t off,
+                              uint16_t* out) noexcept
+    {
+        if (!out || off + 2U > bytes.size()) {
+            return false;
+        }
+        const uint16_t b0 = static_cast<uint16_t>(bytes[off + 0]);
+        const uint16_t b1 = static_cast<uint16_t>(bytes[off + 1]);
+        *out              = static_cast<uint16_t>(b0 | (b1 << 8));
+        return true;
+    }
+
+    static bool read_u32le_at(std::span<const std::byte> bytes, size_t off,
+                              uint32_t* out) noexcept
+    {
+        if (!out || off + 4U > bytes.size()) {
+            return false;
+        }
+        const uint32_t b0 = static_cast<uint32_t>(bytes[off + 0]);
+        const uint32_t b1 = static_cast<uint32_t>(bytes[off + 1]);
+        const uint32_t b2 = static_cast<uint32_t>(bytes[off + 2]);
+        const uint32_t b3 = static_cast<uint32_t>(bytes[off + 3]);
+        *out              = b0 | (b1 << 8) | (b2 << 16) | (b3 << 24);
+        return true;
+    }
+
+    static bool patch_sony_makernote_value_offset_in_tiff(
+        std::vector<std::byte>* tiff) noexcept
+    {
+        if (!tiff || tiff->size() < 8U) {
+            return false;
+        }
+        const std::span<const std::byte> bytes(tiff->data(), tiff->size());
+        if (bytes[0] != std::byte { 'I' } || bytes[1] != std::byte { 'I' }) {
+            return false;
+        }
+
+        uint32_t ifd0_off = 0;
+        if (!read_u32le_at(bytes, 4, &ifd0_off)) {
+            return false;
+        }
+        if (ifd0_off + 2U > bytes.size()) {
+            return false;
+        }
+        uint16_t ifd0_count = 0;
+        if (!read_u16le_at(bytes, ifd0_off, &ifd0_count) || ifd0_count == 0) {
+            return false;
+        }
+
+        uint32_t exif_ifd_off            = 0;
+        const size_t ifd0_entries_off    = size_t(ifd0_off) + 2U;
+        const size_t ifd0_entries_bytes  = size_t(ifd0_count) * 12U;
+        const size_t ifd0_entries_needed = ifd0_entries_off + ifd0_entries_bytes;
+        if (ifd0_entries_needed > bytes.size()) {
+            return false;
+        }
+
+        for (uint16_t i = 0; i < ifd0_count; ++i) {
+            const size_t eoff = ifd0_entries_off + size_t(i) * 12U;
+            uint16_t tag      = 0;
+            if (!read_u16le_at(bytes, eoff + 0, &tag)) {
+                return false;
+            }
+            if (tag == 0x8769) {  // ExifIFDPointer
+                if (!read_u32le_at(bytes, eoff + 8, &exif_ifd_off)) {
+                    return false;
+                }
+                break;
+            }
+        }
+        if (exif_ifd_off == 0 || exif_ifd_off + 2U > bytes.size()) {
+            return false;
+        }
+
+        uint16_t exif_count = 0;
+        if (!read_u16le_at(bytes, exif_ifd_off, &exif_count)
+            || exif_count == 0) {
+            return false;
+        }
+
+        uint32_t maker_note_off            = 0;
+        const size_t exif_entries_off      = size_t(exif_ifd_off) + 2U;
+        const size_t exif_entries_bytes    = size_t(exif_count) * 12U;
+        const size_t exif_entries_needed   = exif_entries_off + exif_entries_bytes;
+        if (exif_entries_needed > bytes.size()) {
+            return false;
+        }
+
+        for (uint16_t i = 0; i < exif_count; ++i) {
+            const size_t eoff = exif_entries_off + size_t(i) * 12U;
+            uint16_t tag      = 0;
+            if (!read_u16le_at(bytes, eoff + 0, &tag)) {
+                return false;
+            }
+            if (tag == 0x927C) {  // MakerNote
+                if (!read_u32le_at(bytes, eoff + 8, &maker_note_off)) {
+                    return false;
+                }
+                break;
+            }
+        }
+        if (maker_note_off == 0 || maker_note_off + 18U > bytes.size()) {
+            return false;
+        }
+
+        // Sony MakerNote: out-of-line value offsets are absolute (relative to
+        // the outer TIFF stream). Our test MakerNote consists of:
+        //   u16(entry_count=1) + IFD entry(12) + next_ifd(4) + payload...
+        // so the payload starts at +18 bytes.
+        const uint32_t value_off_abs = maker_note_off + 18U;
+        const size_t patch_off       = size_t(maker_note_off) + 10U;
+        if (patch_off + 4U > tiff->size()) {
+            return false;
+        }
+        (*tiff)[patch_off + 0]
+            = std::byte { static_cast<uint8_t>((value_off_abs >> 0) & 0xFF) };
+        (*tiff)[patch_off + 1]
+            = std::byte { static_cast<uint8_t>((value_off_abs >> 8) & 0xFF) };
+        (*tiff)[patch_off + 2]
+            = std::byte { static_cast<uint8_t>((value_off_abs >> 16) & 0xFF) };
+        (*tiff)[patch_off + 3]
+            = std::byte { static_cast<uint8_t>((value_off_abs >> 24) & 0xFF) };
+        return true;
+    }
+
 
     static std::vector<std::byte>
     make_test_tiff_with_makernote(std::string_view make,
@@ -137,6 +262,84 @@ namespace {
 
         EXPECT_EQ(tiff.size(), make_off);
         append_bytes(&tiff, make);
+        tiff.push_back(std::byte { 0 });
+
+        EXPECT_EQ(tiff.size(), exif_ifd_off);
+
+        // ExifIFD.
+        append_u16le(&tiff, static_cast<uint16_t>(exif_entry_cnt));
+
+        // MakerNote (0x927C) UNDEFINED bytes at maker_note_off.
+        append_u16le(&tiff, 0x927C);
+        append_u16le(&tiff, 7);
+        append_u32le(&tiff, maker_note_count);
+        append_u32le(&tiff, maker_note_off);
+
+        append_u32le(&tiff, 0);  // next IFD
+
+        EXPECT_EQ(tiff.size(), maker_note_off);
+        tiff.insert(tiff.end(), maker_note.begin(), maker_note.end());
+
+        return tiff;
+    }
+
+    static std::vector<std::byte> make_test_tiff_with_makernote_and_model(
+        std::string_view make, std::string_view model,
+        std::span<const std::byte> maker_note)
+    {
+        // TIFF header (8 bytes) + IFD0 (3 entries: Make, Model, ExifIFDPointer)
+        // + Make string + Model string + ExifIFD (1 entry) + MakerNote bytes.
+        const uint32_t ifd0_off       = 8;
+        const uint32_t ifd0_entry_cnt = 3;
+        const uint32_t ifd0_size      = 2U + ifd0_entry_cnt * 12U + 4U;
+        const uint32_t make_off       = ifd0_off + ifd0_size;
+        const uint32_t make_count     = static_cast<uint32_t>(make.size() + 1U);
+        const uint32_t model_off      = make_off + make_count;
+        const uint32_t model_count
+            = static_cast<uint32_t>(model.size() + 1U);
+        const uint32_t exif_ifd_off   = model_off + model_count;
+        const uint32_t exif_entry_cnt = 1;
+        const uint32_t exif_ifd_size  = 2U + exif_entry_cnt * 12U + 4U;
+        const uint32_t maker_note_off = exif_ifd_off + exif_ifd_size;
+        const uint32_t maker_note_count = (maker_note.size() > UINT32_MAX)
+                                              ? UINT32_MAX
+                                              : static_cast<uint32_t>(
+                                                    maker_note.size());
+
+        std::vector<std::byte> tiff;
+        append_bytes(&tiff, "II");
+        append_u16le(&tiff, 42);
+        append_u32le(&tiff, ifd0_off);
+
+        // IFD0.
+        append_u16le(&tiff, static_cast<uint16_t>(ifd0_entry_cnt));
+
+        // Make (0x010F) ASCII at make_off.
+        append_u16le(&tiff, 0x010F);
+        append_u16le(&tiff, 2);
+        append_u32le(&tiff, make_count);
+        append_u32le(&tiff, make_off);
+
+        // Model (0x0110) ASCII at model_off.
+        append_u16le(&tiff, 0x0110);
+        append_u16le(&tiff, 2);
+        append_u32le(&tiff, model_count);
+        append_u32le(&tiff, model_off);
+
+        // ExifIFDPointer (0x8769) LONG -> exif_ifd_off.
+        append_u16le(&tiff, 0x8769);
+        append_u16le(&tiff, 4);
+        append_u32le(&tiff, 1);
+        append_u32le(&tiff, exif_ifd_off);
+
+        append_u32le(&tiff, 0);  // next IFD
+
+        EXPECT_EQ(tiff.size(), make_off);
+        append_bytes(&tiff, make);
+        tiff.push_back(std::byte { 0 });
+
+        EXPECT_EQ(tiff.size(), model_off);
+        append_bytes(&tiff, model);
         tiff.push_back(std::byte { 0 });
 
         EXPECT_EQ(tiff.size(), exif_ifd_off);
@@ -554,6 +757,55 @@ namespace {
         return mn;
     }
 
+    static std::vector<std::byte> make_sony_makernote_tag2010i_ciphered()
+    {
+        // Minimal Sony MakerNote containing Tag2010 (UNDEFINED bytes) for the
+        // ciphered Tag2010i subtable.
+        //
+        // We keep the payload small enough to cover fields asserted in the
+        // test; out-of-range fields are skipped by the decoder.
+        const size_t payload_size = 0x1800;
+        std::vector<std::byte> plain(payload_size, std::byte { 0 });
+
+        // I16 tag 0x0217 = 0x1234.
+        plain[0x0217] = std::byte { 0x34 };
+        plain[0x0218] = std::byte { 0x12 };
+
+        // WB_RGBLevels u16[3] at 0x0252 = [1, 2, 3].
+        plain[0x0252] = std::byte { 0x01 };
+        plain[0x0253] = std::byte { 0x00 };
+        plain[0x0254] = std::byte { 0x02 };
+        plain[0x0255] = std::byte { 0x00 };
+        plain[0x0256] = std::byte { 0x03 };
+        plain[0x0257] = std::byte { 0x00 };
+
+        // SonyISO u16 at 0x0320 = 100.
+        plain[0x0320] = std::byte { 0x64 };
+        plain[0x0321] = std::byte { 0x00 };
+
+        // DistortionCorrParams bytes[32] at 0x17D0.
+        for (size_t i = 0; i < 32; ++i) {
+            plain[0x17D0 + i] = std::byte { static_cast<uint8_t>(i) };
+        }
+
+        std::vector<std::byte> cipher(payload_size, std::byte { 0 });
+        for (size_t i = 0; i < plain.size(); ++i) {
+            const uint8_t p = static_cast<uint8_t>(plain[i]);
+            cipher[i]       = std::byte { sony_encipher_byte(p) };
+        }
+
+        std::vector<std::byte> mn;
+        append_u16le(&mn, 1);  // entry count
+        append_u16le(&mn, 0x2010);
+        append_u16le(&mn, 7);  // UNDEFINED
+        append_u32le(&mn, static_cast<uint32_t>(cipher.size()));
+        append_u32le(&mn, 0);  // value offset placeholder (absolute)
+        append_u32le(&mn, 0);  // next IFD
+
+        mn.insert(mn.end(), cipher.begin(), cipher.end());
+        return mn;
+    }
+
     static std::vector<std::byte> make_sony_makernote_tag3000_shotinfo()
     {
         // Minimal Sony MakerNote containing ShotInfo (tag 0x3000). Within the
@@ -662,12 +914,8 @@ TEST(MakerNoteDecode, DecodesSonyCipheredTag9050IntoDerivedIfd)
 {
     std::vector<std::byte> mn   = make_sony_makernote_tag9050b_ciphered();
     const std::string_view make = "Sony";
-    const uint32_t maker_note_off
-        = 57U + static_cast<uint32_t>(make.size());       // see builder layout
-    const uint32_t value_off_abs = maker_note_off + 18U;  // IFD0 table bytes
-    write_u32le_at(&mn, 10U, value_off_abs);
-
-    const std::vector<std::byte> tiff = make_test_tiff_with_makernote(make, mn);
+    std::vector<std::byte> tiff = make_test_tiff_with_makernote(make, mn);
+    ASSERT_TRUE(patch_sony_makernote_value_offset_in_tiff(&tiff));
 
     MetaStore store;
     std::array<ExifIfdRef, 8> ifds {};
@@ -697,16 +945,94 @@ TEST(MakerNoteDecode, DecodesSonyCipheredTag9050IntoDerivedIfd)
     }
 }
 
+TEST(MakerNoteDecode, DecodesSonyCipheredTag2010IntoDerivedIfd)
+{
+    const std::string_view make = "Sony";
+    std::vector<std::byte> mn   = make_sony_makernote_tag2010i_ciphered();
+    std::vector<std::byte> tiff = make_test_tiff_with_makernote(make, mn);
+    ASSERT_TRUE(patch_sony_makernote_value_offset_in_tiff(&tiff));
+
+    MetaStore store;
+    std::array<ExifIfdRef, 8> ifds {};
+    ExifDecodeOptions options;
+    options.decode_makernote   = true;
+    const ExifDecodeResult res = decode_exif_tiff(tiff, store, ifds, options);
+    EXPECT_EQ(res.status, ExifDecodeStatus::Ok);
+
+    store.finalize();
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("mk_sony_tag2010i_0", 0x0217));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
+        EXPECT_EQ(e.value.elem_type, MetaElementType::I16);
+        EXPECT_EQ(e.value.data.u64, 0x1234U);
+    }
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("mk_sony_tag2010i_0", 0x0252));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Array);
+        EXPECT_EQ(e.value.elem_type, MetaElementType::U16);
+        EXPECT_EQ(e.value.count, 3U);
+    }
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("mk_sony_tag2010i_0", 0x17D0));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Bytes);
+        EXPECT_EQ(e.value.elem_type, MetaElementType::U8);
+        EXPECT_EQ(e.value.count, 32U);
+    }
+}
+
+TEST(MakerNoteDecode, DecodesSonyTag9050cWhenModelMatchesNewerBodies)
+{
+    std::vector<std::byte> mn = make_sony_makernote_tag9050b_ciphered();
+
+    const std::string_view make  = "Sony";
+    const std::string_view model = "ILCE-7M4";
+    std::vector<std::byte> tiff
+        = make_test_tiff_with_makernote_and_model(make, model, mn);
+    ASSERT_TRUE(patch_sony_makernote_value_offset_in_tiff(&tiff));
+
+    MetaStore store;
+    std::array<ExifIfdRef, 8> ifds {};
+    ExifDecodeOptions options;
+    options.decode_makernote   = true;
+    const ExifDecodeResult res = decode_exif_tiff(tiff, store, ifds, options);
+    EXPECT_EQ(res.status, ExifDecodeStatus::Ok);
+
+    store.finalize();
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("mk_sony_tag9050c_0", 0x0026));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Array);
+        EXPECT_EQ(e.value.elem_type, MetaElementType::U16);
+        EXPECT_EQ(e.value.count, 3U);
+    }
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("mk_sony_tag9050c_0", 0x003A));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
+        EXPECT_EQ(e.value.elem_type, MetaElementType::U32);
+        EXPECT_EQ(e.value.data.u64, 0x44332211U);
+    }
+}
+
 TEST(MakerNoteDecode, DecodesSonyTag3000ShotInfoIntoDerivedIfd)
 {
     std::vector<std::byte> mn   = make_sony_makernote_tag3000_shotinfo();
     const std::string_view make = "Sony";
-    const uint32_t maker_note_off
-        = 57U + static_cast<uint32_t>(make.size());       // see builder layout
-    const uint32_t value_off_abs = maker_note_off + 18U;  // IFD0 table bytes
-    write_u32le_at(&mn, 10U, value_off_abs);
-
-    const std::vector<std::byte> tiff = make_test_tiff_with_makernote(make, mn);
+    std::vector<std::byte> tiff = make_test_tiff_with_makernote(make, mn);
+    ASSERT_TRUE(patch_sony_makernote_value_offset_in_tiff(&tiff));
 
     MetaStore store;
     std::array<ExifIfdRef, 8> ifds {};
