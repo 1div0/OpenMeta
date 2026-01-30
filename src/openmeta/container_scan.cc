@@ -240,13 +240,20 @@ namespace {
         if (!read_u32be(bytes, block->data_offset, &tiff_off)) {
             return;
         }
-        if (static_cast<uint64_t>(tiff_off) >= block->data_size) {
+        // ISO-BMFF Exif item payload begins with a u32be offset to the TIFF
+        // header *relative to the start of the Exif data after this field*.
+        //
+        // Example (common HEIC):
+        //   00 00 00 06  45 78 69 66 00 00  MM 00 2A ...
+        //     offset=6     \"Exif\\0\\0\"     TIFF header
+        const uint64_t skip = 4ULL + static_cast<uint64_t>(tiff_off);
+        if (skip >= block->data_size) {
             return;
         }
         block->chunking = BlockChunking::BmffExifTiffOffsetU32Be;
         block->aux_u32  = tiff_off;
-        block->data_offset += static_cast<uint64_t>(tiff_off);
-        block->data_size -= static_cast<uint64_t>(tiff_off);
+        block->data_offset += skip;
+        block->data_size -= skip;
     }
 
 }  // namespace
@@ -1387,14 +1394,20 @@ namespace {
 
                         uint64_t ct_end = 0;
                         if (!find_cstring_end(bytes, q, infe_end, &ct_end)) {
-                            return false;
+                            // Some files omit the encoding string terminator.
+                            // Treat malformed MIME metadata conservatively and
+                            // skip the item rather than failing the full scan.
+                            continue;
                         }
                         q                = ct_end + 1;
                         uint64_t enc_end = 0;
-                        if (!find_cstring_end(bytes, q, infe_end, &enc_end)) {
-                            return false;
+                        if (find_cstring_end(bytes, q, infe_end, &enc_end)) {
+                            q = enc_end + 1;
+                        } else {
+                            // Encoding is optional in practice; treat missing
+                            // terminator as an empty encoding.
+                            q = infe_end;
                         }
-                        q = enc_end + 1;
                     }
 
                     if (kind != ContainerBlockKind::Unknown) {

@@ -383,7 +383,7 @@ namespace {
         append_u32be(&jxl, 0x0D0A870A);
 
         std::vector<std::byte> exif_box_payload;
-        append_u32be(&exif_box_payload, 4);
+        append_u32be(&exif_box_payload, 0);
         append_bytes(&exif_box_payload, "II");
         exif_box_payload.push_back(std::byte { 0x2A });
         exif_box_payload.push_back(std::byte { 0x00 });
@@ -410,7 +410,7 @@ namespace {
         ASSERT_EQ(jxl_res.written, 3U);
         EXPECT_EQ(blocks[0].kind, ContainerBlockKind::Exif);
         EXPECT_EQ(blocks[0].chunking, BlockChunking::BmffExifTiffOffsetU32Be);
-        EXPECT_EQ(blocks[0].aux_u32, 4U);
+        EXPECT_EQ(blocks[0].aux_u32, 0U);
         EXPECT_EQ(jxl[blocks[0].data_offset], std::byte { 'I' });
         EXPECT_EQ(blocks[1].kind, ContainerBlockKind::Xmp);
         EXPECT_EQ(blocks[2].kind, ContainerBlockKind::CompressedMetadata);
@@ -442,7 +442,7 @@ namespace {
         infe_xmp_payload.push_back(std::byte { 0x00 });
         append_bytes(&infe_xmp_payload, "application/rdf+xml");
         infe_xmp_payload.push_back(std::byte { 0x00 });
-        infe_xmp_payload.push_back(std::byte { 0x00 });  // empty encoding
+        // Some real-world files omit the encoding terminator (treat as empty).
 
         std::vector<std::byte> infe_xmp_box;
         append_bmff_box(&infe_xmp_box, fourcc('i', 'n', 'f', 'e'),
@@ -459,7 +459,7 @@ namespace {
         append_bmff_box(&iinf_box, fourcc('i', 'i', 'n', 'f'), iinf_payload);
 
         std::vector<std::byte> idat_payload;
-        append_u32be(&idat_payload, 4);  // TIFF header offset
+        append_u32be(&idat_payload, 0);  // TIFF header offset
         append_bytes(&idat_payload, "II");
         idat_payload.push_back(std::byte { 0x2A });
         idat_payload.push_back(std::byte { 0x00 });
@@ -542,7 +542,7 @@ namespace {
             EXPECT_EQ(exif_block->format, c.expect_fmt);
             EXPECT_EQ(exif_block->chunking,
                       BlockChunking::BmffExifTiffOffsetU32Be);
-            EXPECT_EQ(exif_block->aux_u32, 4U);
+            EXPECT_EQ(exif_block->aux_u32, 0U);
             EXPECT_EQ(file[exif_block->data_offset], std::byte { 'I' });
 
             EXPECT_EQ(xmp_block->format, c.expect_fmt);

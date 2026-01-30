@@ -70,6 +70,18 @@ namespace {
         (*out)[off + 1] = std::byte { static_cast<uint8_t>((v >> 8) & 0xFF) };
     }
 
+    static uint8_t sony_encipher_byte(uint8_t b) noexcept
+    {
+        if (b >= 249U) {
+            return b;
+        }
+        const uint32_t m  = 249U;
+        const uint32_t x  = b;
+        const uint32_t x2 = (x * x) % m;
+        const uint32_t x3 = (x2 * x) % m;
+        return static_cast<uint8_t>(x3);
+    }
+
 
     static MetaKeyView exif_key(std::string_view ifd, uint16_t tag)
     {
@@ -159,6 +171,45 @@ namespace {
         return mn;
     }
 
+    static std::vector<std::byte> make_sony_makernote()
+    {
+        std::vector<std::byte> mn;
+        append_bytes(&mn, "SONY");
+
+        // Classic IFD starting at offset 4, with offsets relative to the outer
+        // TIFF stream (patched by the test after placement).
+        append_u16le(&mn, 2);       // entry count
+        append_u16le(&mn, 0x0102);  // Quality
+        append_u16le(&mn, 3);       // SHORT
+        append_u32le(&mn, 1);       // count
+        append_u32le(&mn, 7);       // value (inline)
+
+        append_u16le(&mn, 0xB020);  // CreativeStyle
+        append_u16le(&mn, 2);       // ASCII
+        append_u32le(&mn, 9);       // count ("Standard\0")
+        append_u32le(&mn, 0);       // value offset placeholder (absolute)
+
+        append_u32le(&mn, 0);  // next IFD
+        EXPECT_EQ(mn.size(), 34U);
+
+        append_bytes(&mn, "Standard");
+        mn.push_back(std::byte { 0 });
+        return mn;
+    }
+
+    static std::vector<std::byte> make_minolta_makernote()
+    {
+        // Minolta/Konica-Minolta MakerNote is often a classic TIFF IFD.
+        std::vector<std::byte> mn;
+        append_u16le(&mn, 1);       // entry count
+        append_u16le(&mn, 0x0100);  // SceneMode
+        append_u16le(&mn, 4);       // LONG
+        append_u32le(&mn, 1);       // count
+        append_u32le(&mn, 13);      // value (inline)
+        append_u32le(&mn, 0);       // next IFD
+        return mn;
+    }
+
 
     static std::vector<std::byte> make_canon_camera_settings_makernote()
     {
@@ -215,6 +266,17 @@ namespace {
         // contains a PictureStyleInfo table at offset 0x025b.
         const size_t cam_bytes = 0x025b + 0x0100;
         std::vector<std::byte> cam(cam_bytes, std::byte { 0 });
+
+        // Minimal embedded classic IFD at the start of the blob:
+        // tag 0x0003 SHORT value 42.
+        write_u16le_at(&cam, 0, 1);       // entry count
+        write_u16le_at(&cam, 2, 0x0003);  // tag
+        write_u16le_at(&cam, 4, 3);       // type SHORT
+        write_u32le_at(&cam, 6, 1);       // count
+        write_u16le_at(&cam, 10, 42);     // value (inline)
+        write_u16le_at(&cam, 12, 0);      // padding
+        write_u32le_at(&cam, 14, 0);      // next IFD
+
         write_u32le_at(&cam, 0x025b + 0x0000, 0);
         write_u32le_at(&cam, 0x025b + 0x0004, 3);
         write_u16le_at(&cam, 0x025b + 0x00d8, 129);
@@ -333,12 +395,26 @@ namespace {
         append_u32le(&mn, 8);
 
         // IFD0 at offset 8 (relative to TIFF header start).
-        append_u16le(&mn, 1);
+        append_u16le(&mn, 2);
         append_u16le(&mn, 0x0001);
         append_u16le(&mn, 4);
         append_u32le(&mn, 1);
         append_u32le(&mn, 0x01020304U);
+
+        // VRInfo (0x001f) UNDEFINED[8] stored out-of-line at offset 38.
+        append_u16le(&mn, 0x001f);
+        append_u16le(&mn, 7);
+        append_u32le(&mn, 8);
+        append_u32le(&mn, 38);
+
         append_u32le(&mn, 0);
+
+        EXPECT_EQ(mn.size(), 48U);
+        append_bytes(&mn, "0101");
+        mn.push_back(std::byte { 1 });
+        mn.push_back(std::byte { 0 });
+        mn.push_back(std::byte { 2 });
+        mn.push_back(std::byte { 0 });
 
         return mn;
     }
@@ -427,6 +503,94 @@ namespace {
         return mn;
     }
 
+    static std::vector<std::byte> make_sony_makernote_tag9050b_ciphered()
+    {
+        // Minimal Sony MakerNote:
+        // Classic IFD at offset 0, but out-of-line value offsets are absolute
+        // (relative to outer TIFF stream).
+        //
+        // We include only Tag9050 (UNDEFINED bytes), containing the ciphered
+        // BinaryData sub-block that OpenMeta decodes into a derived IFD.
+        const size_t payload_size = 0x90;
+        std::vector<std::byte> plain(payload_size, std::byte { 0 });
+
+        // Shutter (u16[3]) at 0x0026.
+        plain[0x0026] = std::byte { 0x01 };
+        plain[0x0027] = std::byte { 0x00 };
+        plain[0x0028] = std::byte { 0x02 };
+        plain[0x0029] = std::byte { 0x00 };
+        plain[0x002A] = std::byte { 0x03 };
+        plain[0x002B] = std::byte { 0x00 };
+
+        // ShutterCount (u32) at 0x003A.
+        plain[0x003A] = std::byte { 0x11 };
+        plain[0x003B] = std::byte { 0x22 };
+        plain[0x003C] = std::byte { 0x33 };
+        plain[0x003D] = std::byte { 0x44 };
+
+        // InternalSerialNumber (6 bytes) at 0x0088.
+        plain[0x0088] = std::byte { 0x01 };
+        plain[0x0089] = std::byte { 0x02 };
+        plain[0x008A] = std::byte { 0x03 };
+        plain[0x008B] = std::byte { 0x04 };
+        plain[0x008C] = std::byte { 0x05 };
+        plain[0x008D] = std::byte { 0x06 };
+
+        std::vector<std::byte> cipher(payload_size, std::byte { 0 });
+        for (size_t i = 0; i < plain.size(); ++i) {
+            const uint8_t p = static_cast<uint8_t>(plain[i]);
+            cipher[i]       = std::byte { sony_encipher_byte(p) };
+        }
+
+        std::vector<std::byte> mn;
+        append_u16le(&mn, 1);  // entry count
+        append_u16le(&mn, 0x9050);
+        append_u16le(&mn, 7);  // UNDEFINED
+        append_u32le(&mn, static_cast<uint32_t>(cipher.size()));
+        append_u32le(&mn, 0);  // value offset placeholder (patched by caller)
+        append_u32le(&mn, 0);  // next IFD
+
+        mn.insert(mn.end(), cipher.begin(), cipher.end());
+        return mn;
+    }
+
+    static std::vector<std::byte> make_sony_makernote_tag3000_shotinfo()
+    {
+        // Minimal Sony MakerNote containing ShotInfo (tag 0x3000). Within the
+        // ShotInfo block, values are stored at offsets equal to the tag id.
+        std::vector<std::byte> blob(0x44, std::byte { 0 });
+        blob[0] = std::byte { 'I' };
+        blob[1] = std::byte { 'I' };
+
+        write_u16le_at(&blob, 0x0002, 94);
+
+        const std::string_view dt = "2017:02:08 07:07:08";
+        for (size_t i = 0; i < dt.size() && (0x0006 + i) < blob.size(); ++i) {
+            blob[0x0006 + i] = std::byte { static_cast<uint8_t>(dt[i]) };
+        }
+
+        write_u16le_at(&blob, 0x001A, 5304);
+        write_u16le_at(&blob, 0x001C, 7952);
+        write_u16le_at(&blob, 0x0030, 2);
+        write_u16le_at(&blob, 0x0032, 37);
+
+        const std::string_view ver = "DC7303320222000";
+        for (size_t i = 0; i < ver.size() && (0x0034 + i) < blob.size(); ++i) {
+            blob[0x0034 + i] = std::byte { static_cast<uint8_t>(ver[i]) };
+        }
+
+        std::vector<std::byte> mn;
+        append_u16le(&mn, 1);  // entry count
+        append_u16le(&mn, 0x3000);
+        append_u16le(&mn, 7);  // UNDEFINED
+        append_u32le(&mn, static_cast<uint32_t>(blob.size()));
+        append_u32le(&mn, 0);  // value offset placeholder (patched by caller)
+        append_u32le(&mn, 0);  // next IFD
+
+        mn.insert(mn.end(), blob.begin(), blob.end());
+        return mn;
+    }
+
 }  // namespace
 
 TEST(MakerNoteDecode, DecodesCanonStyleMakerNoteIfdAtOffset0)
@@ -450,6 +614,200 @@ TEST(MakerNoteDecode, DecodesCanonStyleMakerNoteIfdAtOffset0)
     EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
     EXPECT_EQ(e.value.elem_type, MetaElementType::U32);
     EXPECT_EQ(e.value.data.u64, 0x12345678U);
+}
+
+TEST(MakerNoteDecode, DecodesSonyMakerNoteByMakeString)
+{
+    std::vector<std::byte> mn   = make_sony_makernote();
+    const std::string_view make = "Sony";
+    const uint32_t maker_note_off
+        = 57U + static_cast<uint32_t>(make.size());  // see builder layout
+    const uint32_t value_off_abs = maker_note_off + 34U;
+    write_u32le_at(&mn, 26U, value_off_abs);
+
+    const std::vector<std::byte> tiff = make_test_tiff_with_makernote(make, mn);
+
+    MetaStore store;
+    std::array<ExifIfdRef, 8> ifds {};
+    ExifDecodeOptions options;
+    options.decode_makernote   = true;
+    const ExifDecodeResult res = decode_exif_tiff(tiff, store, ifds, options);
+    EXPECT_EQ(res.status, ExifDecodeStatus::Ok);
+
+    store.finalize();
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("mk_sony0", 0x0102));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
+        EXPECT_EQ(e.value.elem_type, MetaElementType::U16);
+        EXPECT_EQ(e.value.data.u64, 7U);
+    }
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("mk_sony0", 0xB020));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Text);
+        const std::string_view v(
+            reinterpret_cast<const char*>(
+                store.arena().span(e.value.data.span).data()),
+            store.arena().span(e.value.data.span).size());
+        EXPECT_EQ(v, "Standard");
+    }
+}
+
+TEST(MakerNoteDecode, DecodesSonyCipheredTag9050IntoDerivedIfd)
+{
+    std::vector<std::byte> mn   = make_sony_makernote_tag9050b_ciphered();
+    const std::string_view make = "Sony";
+    const uint32_t maker_note_off
+        = 57U + static_cast<uint32_t>(make.size());       // see builder layout
+    const uint32_t value_off_abs = maker_note_off + 18U;  // IFD0 table bytes
+    write_u32le_at(&mn, 10U, value_off_abs);
+
+    const std::vector<std::byte> tiff = make_test_tiff_with_makernote(make, mn);
+
+    MetaStore store;
+    std::array<ExifIfdRef, 8> ifds {};
+    ExifDecodeOptions options;
+    options.decode_makernote   = true;
+    const ExifDecodeResult res = decode_exif_tiff(tiff, store, ifds, options);
+    EXPECT_EQ(res.status, ExifDecodeStatus::Ok);
+
+    store.finalize();
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("mk_sony_tag9050b_0", 0x0026));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        ASSERT_EQ(e.value.kind, MetaValueKind::Array);
+        ASSERT_EQ(e.value.elem_type, MetaElementType::U16);
+        ASSERT_EQ(e.value.count, 3U);
+    }
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("mk_sony_tag9050b_0", 0x003A));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
+        EXPECT_EQ(e.value.elem_type, MetaElementType::U32);
+        EXPECT_EQ(e.value.data.u64, 0x44332211U);
+    }
+}
+
+TEST(MakerNoteDecode, DecodesSonyTag3000ShotInfoIntoDerivedIfd)
+{
+    std::vector<std::byte> mn   = make_sony_makernote_tag3000_shotinfo();
+    const std::string_view make = "Sony";
+    const uint32_t maker_note_off
+        = 57U + static_cast<uint32_t>(make.size());       // see builder layout
+    const uint32_t value_off_abs = maker_note_off + 18U;  // IFD0 table bytes
+    write_u32le_at(&mn, 10U, value_off_abs);
+
+    const std::vector<std::byte> tiff = make_test_tiff_with_makernote(make, mn);
+
+    MetaStore store;
+    std::array<ExifIfdRef, 8> ifds {};
+    ExifDecodeOptions options;
+    options.decode_makernote   = true;
+    const ExifDecodeResult res = decode_exif_tiff(tiff, store, ifds, options);
+    EXPECT_EQ(res.status, ExifDecodeStatus::Ok);
+
+    store.finalize();
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("mk_sony_shotinfo_0", 0x0002));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
+        EXPECT_EQ(e.value.elem_type, MetaElementType::U16);
+        EXPECT_EQ(e.value.data.u64, 94U);
+    }
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("mk_sony_shotinfo_0", 0x0006));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Text);
+        const std::string_view v(
+            reinterpret_cast<const char*>(
+                store.arena().span(e.value.data.span).data()),
+            store.arena().span(e.value.data.span).size());
+        EXPECT_EQ(v, "2017:02:08 07:07:08");
+    }
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("mk_sony_shotinfo_0", 0x001A));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
+        EXPECT_EQ(e.value.elem_type, MetaElementType::U16);
+        EXPECT_EQ(e.value.data.u64, 5304U);
+    }
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("mk_sony_shotinfo_0", 0x001C));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
+        EXPECT_EQ(e.value.elem_type, MetaElementType::U16);
+        EXPECT_EQ(e.value.data.u64, 7952U);
+    }
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("mk_sony_shotinfo_0", 0x0030));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
+        EXPECT_EQ(e.value.elem_type, MetaElementType::U16);
+        EXPECT_EQ(e.value.data.u64, 2U);
+    }
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("mk_sony_shotinfo_0", 0x0032));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
+        EXPECT_EQ(e.value.elem_type, MetaElementType::U16);
+        EXPECT_EQ(e.value.data.u64, 37U);
+    }
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("mk_sony_shotinfo_0", 0x0034));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Text);
+        const std::string_view v(
+            reinterpret_cast<const char*>(
+                store.arena().span(e.value.data.span).data()),
+            store.arena().span(e.value.data.span).size());
+        EXPECT_EQ(v, "DC7303320222000");
+    }
+}
+
+TEST(MakerNoteDecode, DecodesKonicaMinoltaMakerNoteByMakeString)
+{
+    const std::vector<std::byte> mn = make_minolta_makernote();
+    const std::vector<std::byte> tiff
+        = make_test_tiff_with_makernote("KONICA MINOLTA", mn);
+
+    MetaStore store;
+    std::array<ExifIfdRef, 8> ifds {};
+    ExifDecodeOptions options;
+    options.decode_makernote   = true;
+    const ExifDecodeResult res = decode_exif_tiff(tiff, store, ifds, options);
+    EXPECT_EQ(res.status, ExifDecodeStatus::Ok);
+
+    store.finalize();
+    const std::span<const EntryId> ids = store.find_all(
+        exif_key("mk_minolta0", 0x0100));
+    ASSERT_EQ(ids.size(), 1U);
+    const Entry& e = store.entry(ids[0]);
+    EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
+    EXPECT_EQ(e.value.elem_type, MetaElementType::U32);
+    EXPECT_EQ(e.value.data.u64, 13U);
 }
 
 
@@ -532,6 +890,16 @@ TEST(MakerNoteDecode, DecodesCanonCameraInfoPictureStyleIntoDerivedIfd)
     EXPECT_EQ(res.status, ExifDecodeStatus::Ok);
 
     store.finalize();
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("mk_canon_camerainfo_0", 0x0003));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
+        EXPECT_EQ(e.value.elem_type, MetaElementType::U16);
+        EXPECT_EQ(e.value.data.u64, 42U);
+        EXPECT_TRUE(any(e.flags, EntryFlags::Derived));
+    }
     {
         const std::span<const EntryId> ids = store.find_all(
             exif_key("mk_canon_psinfo_0", 0x0004));
@@ -676,6 +1044,45 @@ TEST(MakerNoteDecode, DecodesNikonMakerNoteWithEmbeddedTiffHeader)
     EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
     EXPECT_EQ(e.value.elem_type, MetaElementType::U32);
     EXPECT_EQ(e.value.data.u64, 0x01020304U);
+}
+
+TEST(MakerNoteDecode, DecodesNikonBinarySubdirectories)
+{
+    const std::vector<std::byte> mn   = make_nikon_makernote();
+    const std::vector<std::byte> tiff = make_test_tiff_with_makernote("Canon",
+                                                                      mn);
+
+    MetaStore store;
+    std::array<ExifIfdRef, 8> ifds {};
+    ExifDecodeOptions options;
+    options.decode_makernote   = true;
+    const ExifDecodeResult res = decode_exif_tiff(tiff, store, ifds, options);
+    EXPECT_EQ(res.status, ExifDecodeStatus::Ok);
+
+    store.finalize();
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("mk_nikon_vrinfo_0", 0x0006));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
+        EXPECT_EQ(e.value.elem_type, MetaElementType::U8);
+        EXPECT_EQ(e.value.data.u64, 2U);
+        EXPECT_TRUE(any(e.flags, EntryFlags::Derived));
+    }
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("mk_nikon_vrinfo_0", 0x0000));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Text);
+        const std::string_view v(
+            reinterpret_cast<const char*>(
+                store.arena().span(e.value.data.span).data()),
+            store.arena().span(e.value.data.span).size());
+        EXPECT_EQ(v, "0101");
+        EXPECT_TRUE(any(e.flags, EntryFlags::Derived));
+    }
 }
 
 

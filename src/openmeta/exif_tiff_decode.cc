@@ -265,6 +265,8 @@ namespace {
         Unknown,
         Nikon,
         Canon,
+        Sony,
+        Minolta,
         Fuji,
         Apple,
         Olympus,
@@ -279,6 +281,10 @@ namespace {
         if (maker_note_bytes.size() >= 6
             && match_bytes(maker_note_bytes, 0, "Nikon\0", 6)) {
             return MakerNoteVendor::Nikon;
+        }
+        if (maker_note_bytes.size() >= 4
+            && match_bytes(maker_note_bytes, 0, "SONY", 4)) {
+            return MakerNoteVendor::Sony;
         }
         if (maker_note_bytes.size() >= 8
             && match_bytes(maker_note_bytes, 0, "FUJIFILM", 8)) {
@@ -319,6 +325,13 @@ namespace {
             if (ascii_starts_with_insensitive(make, "Canon")) {
                 return MakerNoteVendor::Canon;
             }
+            if (ascii_starts_with_insensitive(make, "Sony")) {
+                return MakerNoteVendor::Sony;
+            }
+            if (ascii_starts_with_insensitive(make, "Konica Minolta")
+                || ascii_starts_with_insensitive(make, "Minolta")) {
+                return MakerNoteVendor::Minolta;
+            }
             if (ascii_starts_with_insensitive(make, "FUJIFILM")) {
                 return MakerNoteVendor::Fuji;
             }
@@ -351,6 +364,15 @@ namespace {
                                          MetaStore& store,
                                          const ExifDecodeOptions& options,
                                          ExifDecodeResult* status_out) noexcept;
+
+    static bool decode_sony_makernote(const TiffConfig& parent_cfg,
+                                      std::span<const std::byte> tiff_bytes,
+                                      uint64_t maker_note_off,
+                                      uint64_t maker_note_bytes,
+                                      std::string_view mk_ifd0,
+                                      MetaStore& store,
+                                      const ExifDecodeOptions& options,
+                                      ExifDecodeResult* status_out) noexcept;
 
     static bool decode_canon_makernote(const TiffConfig& cfg,
                                        std::span<const std::byte> tiff_bytes,
@@ -394,6 +416,20 @@ namespace {
             opts->tokens.exif_ifd_token    = "mk_canon_exififd";
             opts->tokens.gps_ifd_token     = "mk_canon_gpsifd";
             opts->tokens.interop_ifd_token = "mk_canon_interopifd";
+            return;
+        case MakerNoteVendor::Sony:
+            opts->tokens.ifd_prefix        = "mk_sony";
+            opts->tokens.subifd_prefix     = "mk_sony_subifd";
+            opts->tokens.exif_ifd_token    = "mk_sony_exififd";
+            opts->tokens.gps_ifd_token     = "mk_sony_gpsifd";
+            opts->tokens.interop_ifd_token = "mk_sony_interopifd";
+            return;
+        case MakerNoteVendor::Minolta:
+            opts->tokens.ifd_prefix        = "mk_minolta";
+            opts->tokens.subifd_prefix     = "mk_minolta_subifd";
+            opts->tokens.exif_ifd_token    = "mk_minolta_exififd";
+            opts->tokens.gps_ifd_token     = "mk_minolta_gpsifd";
+            opts->tokens.interop_ifd_token = "mk_minolta_interopifd";
             return;
         case MakerNoteVendor::Fuji:
             opts->tokens.ifd_prefix        = "mk_fuji";
@@ -609,7 +645,8 @@ namespace {
     static void decode_classic_ifd_no_header(
         const TiffConfig& cfg, std::span<const std::byte> bytes,
         uint64_t ifd_off, std::string_view ifd_name, MetaStore& store,
-        const ExifDecodeOptions& options, ExifDecodeResult* status_out) noexcept
+        const ExifDecodeOptions& options, ExifDecodeResult* status_out,
+        EntryFlags extra_flags) noexcept
     {
         if (ifd_name.empty()) {
             return;
@@ -691,6 +728,7 @@ namespace {
             entry.value = decode_tiff_value(cfg, bytes, type, count, value_off,
                                             value_bytes, store.arena(),
                                             options.limits, status_out);
+            entry.flags |= extra_flags;
 
             (void)store.add_entry(entry);
             if (status_out) {
@@ -732,7 +770,156 @@ namespace {
             return false;
         }
         decode_classic_ifd_no_header(parent_cfg, tiff_bytes, ifd_off, mk_ifd0,
-                                     store, options, status_out);
+                                     store, options, status_out,
+                                     EntryFlags::None);
+        return true;
+    }
+
+    static bool decode_sony_makernote(
+        const TiffConfig& parent_cfg, std::span<const std::byte> tiff_bytes,
+        uint64_t maker_note_off, uint64_t maker_note_bytes,
+        std::string_view mk_ifd0, MetaStore& store,
+        const ExifDecodeOptions& options, ExifDecodeResult* status_out) noexcept
+    {
+        if (mk_ifd0.empty()) {
+            return false;
+        }
+        if (maker_note_off > tiff_bytes.size()) {
+            return false;
+        }
+        if (maker_note_bytes > (tiff_bytes.size() - maker_note_off)) {
+            return false;
+        }
+        const std::span<const std::byte> mn
+            = tiff_bytes.subspan(static_cast<size_t>(maker_note_off),
+                                 static_cast<size_t>(maker_note_bytes));
+        if (mn.size() < 8) {
+            return false;
+        }
+
+        // Some Sony MakerNotes start directly with a classic TIFF IFD at offset 0,
+        // but use value offsets relative to the outer EXIF/TIFF stream.
+        //
+        // Example: ARW where the MakerNote begins with a u16 entry count (no "SONY"
+        // ASCII marker) and out-of-line values use absolute offsets.
+        if (looks_like_classic_ifd(parent_cfg, tiff_bytes, maker_note_off,
+                                   options.limits)) {
+            uint16_t entry_count = 0;
+            if (read_tiff_u16(parent_cfg, tiff_bytes, maker_note_off,
+                              &entry_count)
+                && entry_count != 0
+                && entry_count <= options.limits.max_entries_per_ifd) {
+                const uint64_t ifd_table_bytes
+                    = 2U + uint64_t(entry_count) * 12ULL + 4ULL;
+                const uint64_t mn_end = maker_note_off + maker_note_bytes;
+                if (maker_note_off + ifd_table_bytes <= mn_end) {
+                    // Heuristic: require at least one out-of-line value offset to
+                    // land after the IFD table when interpreted as an absolute
+                    // offset into the outer TIFF stream.
+                    bool has_abs_offsets       = false;
+                    const uint64_t entries_off = maker_note_off + 2;
+                    for (uint32_t i = 0; i < entry_count; ++i) {
+                        const uint64_t eoff = entries_off + uint64_t(i) * 12ULL;
+                        uint16_t type       = 0;
+                        if (!read_tiff_u16(parent_cfg, tiff_bytes, eoff + 2,
+                                           &type)) {
+                            break;
+                        }
+                        const uint64_t unit = tiff_type_size(type);
+                        if (unit == 0) {
+                            continue;
+                        }
+                        uint32_t count32 = 0;
+                        uint32_t off32   = 0;
+                        if (!read_tiff_u32(parent_cfg, tiff_bytes, eoff + 4,
+                                           &count32)
+                            || !read_tiff_u32(parent_cfg, tiff_bytes, eoff + 8,
+                                              &off32)) {
+                            break;
+                        }
+                        if (count32 == 0) {
+                            continue;
+                        }
+                        const uint64_t count = count32;
+                        if (count > (UINT64_MAX / unit)) {
+                            continue;
+                        }
+                        const uint64_t bytes = count * unit;
+                        if (bytes <= 4) {
+                            continue;
+                        }
+                        const uint64_t abs_off = off32;
+                        if (abs_off >= maker_note_off + ifd_table_bytes
+                            && abs_off + bytes <= tiff_bytes.size()) {
+                            has_abs_offsets = true;
+                            break;
+                        }
+                    }
+
+                    if (has_abs_offsets) {
+                        decode_classic_ifd_no_header(parent_cfg, tiff_bytes,
+                                                     maker_note_off, mk_ifd0,
+                                                     store, options, status_out,
+                                                     EntryFlags::None);
+                        return true;
+                    }
+                }
+            }
+        }
+
+        // Sony MakerNotes can also embed classic IFDs after a "SONY" prefix.
+        // These typically use offsets relative to the outer EXIF/TIFF stream.
+        if (!match_bytes(mn, 0, "SONY", 4)) {
+            return false;
+        }
+
+        ClassicIfdCandidate best;
+        bool found = false;
+
+        const uint64_t scan_bytes = (maker_note_bytes < 256U) ? maker_note_bytes
+                                                              : 256U;
+        const uint64_t scan_end   = maker_note_off + scan_bytes;
+        const uint64_t mn_end     = maker_note_off + maker_note_bytes;
+
+        for (uint64_t abs_off = maker_note_off; abs_off + 2 <= scan_end;
+             abs_off += 2) {
+            for (int endian = 0; endian < 2; ++endian) {
+                TiffConfig cfg;
+                cfg.le      = (endian == 0);
+                cfg.bigtiff = false;
+
+                ClassicIfdCandidate cand;
+                if (!score_classic_ifd_candidate(cfg, tiff_bytes, abs_off,
+                                                 options.limits, &cand)) {
+                    continue;
+                }
+
+                const uint64_t table_bytes
+                    = 2U + (uint64_t(cand.entry_count) * 12ULL) + 4ULL;
+                if (abs_off + table_bytes > mn_end) {
+                    continue;
+                }
+
+                if (!found || cand.valid_entries > best.valid_entries
+                    || (cand.valid_entries == best.valid_entries
+                        && cand.offset < best.offset)) {
+                    best  = cand;
+                    found = true;
+                }
+            }
+        }
+
+        if (!found) {
+            return false;
+        }
+
+        TiffConfig best_cfg;
+        best_cfg.le      = best.le;
+        best_cfg.bigtiff = false;
+
+        decode_classic_ifd_no_header(best_cfg, tiff_bytes, best.offset, mk_ifd0,
+                                     store, options, status_out,
+                                     EntryFlags::None);
         return true;
     }
 
@@ -777,6 +964,637 @@ namespace {
         }
 
         return std::string_view(scratch.data(), n);
+    }
+
+    static bool read_u16_endian(bool le, std::span<const std::byte> bytes,
+                                uint64_t offset, uint16_t* out) noexcept
+    {
+        return le ? read_u16le(bytes, offset, out)
+                  : read_u16be(bytes, offset, out);
+    }
+
+
+    static bool read_i16_endian(bool le, std::span<const std::byte> bytes,
+                                uint64_t offset, int16_t* out) noexcept
+    {
+        uint16_t raw = 0;
+        if (!read_u16_endian(le, bytes, offset, &raw)) {
+            return false;
+        }
+        *out = static_cast<int16_t>(raw);
+        return true;
+    }
+
+
+    static MetaValue
+    make_fixed_ascii_text(ByteArena& arena,
+                          std::span<const std::byte> raw) noexcept
+    {
+        size_t trimmed = 0;
+        while (trimmed < raw.size() && raw[trimmed] != std::byte { 0 }) {
+            trimmed += 1;
+        }
+        const std::span<const std::byte> payload = raw.subspan(0, trimmed);
+        const std::string_view text(reinterpret_cast<const char*>(
+                                        payload.data()),
+                                    payload.size());
+        return make_text(arena, text, TextEncoding::Ascii);
+    }
+
+
+    static void emit_bin_dir_entries(std::string_view ifd_name,
+                                     MetaStore& store,
+                                     std::span<const uint16_t> tags,
+                                     std::span<const MetaValue> values,
+                                     const ExifDecodeLimits& limits,
+                                     ExifDecodeResult* status_out) noexcept
+    {
+        if (ifd_name.empty() || tags.size() != values.size()) {
+            return;
+        }
+
+        const BlockId block = store.add_block(BlockInfo {});
+        if (block == kInvalidBlockId) {
+            return;
+        }
+
+        for (uint32_t i = 0; i < tags.size(); ++i) {
+            if (status_out
+                && (status_out->entries_decoded + 1U)
+                       > limits.max_total_entries) {
+                update_status(status_out, ExifDecodeStatus::LimitExceeded);
+                return;
+            }
+
+            Entry entry;
+            entry.key = make_exif_tag_key(store.arena(), ifd_name, tags[i]);
+            entry.origin.block          = block;
+            entry.origin.order_in_block = i;
+            entry.origin.wire_type      = WireType { WireFamily::Other, 0 };
+            entry.origin.wire_count     = values[i].count;
+            entry.value                 = values[i];
+            entry.flags |= EntryFlags::Derived;
+
+            (void)store.add_entry(entry);
+            if (status_out) {
+                status_out->entries_decoded += 1;
+            }
+        }
+    }
+
+
+    static void decode_nikon_bin_dir_entries(
+        std::string_view ifd_name, MetaStore& store,
+        std::span<const uint16_t> tags, std::span<const MetaValue> values,
+        const ExifDecodeLimits& limits, ExifDecodeResult* status_out) noexcept
+    {
+        emit_bin_dir_entries(ifd_name, store, tags, values, limits, status_out);
+    }
+
+
+    static void
+    decode_nikon_binary_subdirs(std::string_view mk_ifd0, MetaStore& store,
+                                bool le, const ExifDecodeOptions& options,
+                                ExifDecodeResult* status_out) noexcept
+    {
+        if (mk_ifd0.empty()) {
+            return;
+        }
+
+        struct Candidate final {
+            uint16_t tag = 0;
+            MetaValue value;
+        };
+
+        Candidate cands[32];
+        uint32_t cand_count = 0;
+
+        const ByteArena& arena               = store.arena();
+        const std::span<const Entry> entries = store.entries();
+
+        for (size_t i = 0; i < entries.size(); ++i) {
+            const Entry& e = entries[i];
+            if (e.key.kind != MetaKeyKind::ExifTag) {
+                continue;
+            }
+            if (arena_string(arena, e.key.data.exif_tag.ifd) != mk_ifd0) {
+                continue;
+            }
+            if (e.value.kind != MetaValueKind::Bytes) {
+                continue;
+            }
+            const uint16_t tag = e.key.data.exif_tag.tag;
+            switch (tag) {
+            case 0x001F:  // VRInfo
+            case 0x0023:  // PictureControlData
+            case 0x00BD:  // PictureControlData (alt)
+            case 0x0024:  // WorldTime
+            case 0x0025:  // ISOInfo
+            case 0x002C:  // UnknownInfo
+            case 0x0032:  // UnknownInfo2
+            case 0x0091:  // ShotInfoUnknown
+            case 0x0097:  // ColorBalanceUnknown2
+            case 0x0098:  // LensData
+            case 0x00B7:  // AFInfo2
+            case 0x00B9:  // AFTune
+                break;
+            default: continue;
+            }
+            if (cand_count < sizeof(cands) / sizeof(cands[0])) {
+                cands[cand_count].tag   = tag;
+                cands[cand_count].value = e.value;
+                cand_count += 1;
+            }
+        }
+
+        char sub_ifd_buf[96];
+
+        uint32_t idx_vrinfo         = 0;
+        uint32_t idx_picturecontrol = 0;
+        uint32_t idx_worldtime      = 0;
+        uint32_t idx_isoinfo        = 0;
+        uint32_t idx_unknowninfo    = 0;
+        uint32_t idx_unknowninfo2   = 0;
+        uint32_t idx_shotinfo       = 0;
+        uint32_t idx_colorbalance   = 0;
+        uint32_t idx_lensdata       = 0;
+        uint32_t idx_afinfo2        = 0;
+        uint32_t idx_aftune         = 0;
+
+        for (uint32_t i = 0; i < cand_count; ++i) {
+            const uint16_t tag                       = cands[i].tag;
+            const ByteSpan raw_span                  = cands[i].value.data.span;
+            const std::span<const std::byte> raw_src = store.arena().span(
+                raw_span);
+            if (raw_src.empty()) {
+                continue;
+            }
+
+            const std::string_view mk_prefix = "mk_nikon";
+
+            if (tag == 0x001F) {  // VRInfo
+                if (raw_src.size() < 7) {
+                    continue;
+                }
+                const std::string_view ifd_name
+                    = make_mk_subtable_ifd_token(mk_prefix, "vrinfo",
+                                                 idx_vrinfo++,
+                                                 std::span<char>(sub_ifd_buf));
+                if (ifd_name.empty()) {
+                    continue;
+                }
+
+                std::array<std::byte, 8> raw;
+                const size_t n = (raw_src.size() < raw.size()) ? raw_src.size()
+                                                               : raw.size();
+                std::memcpy(raw.data(), raw_src.data(), n);
+
+                uint8_t vr_enabled = 0;
+                uint8_t vr_mode    = 0;
+                if (n > 4) {
+                    vr_enabled = u8(raw[4]);
+                }
+                if (n > 6) {
+                    vr_mode = u8(raw[6]);
+                }
+
+                const uint16_t tags_out[]  = { 0x0000, 0x0004, 0x0006 };
+                const MetaValue vals_out[] = {
+                    make_fixed_ascii_text(store.arena(),
+                                          std::span<const std::byte>(raw.data(),
+                                                                     4)),
+                    make_u8(vr_enabled),
+                    make_u8(vr_mode),
+                };
+                decode_nikon_bin_dir_entries(
+                    ifd_name, store, std::span<const uint16_t>(tags_out),
+                    std::span<const MetaValue>(vals_out), options.limits,
+                    status_out);
+                continue;
+            }
+
+            if (tag == 0x0023 || tag == 0x00BD) {  // PictureControlData
+                if (raw_src.size() < 52) {
+                    continue;
+                }
+                const std::string_view ifd_name
+                    = make_mk_subtable_ifd_token(mk_prefix, "picturecontrol",
+                                                 idx_picturecontrol++,
+                                                 std::span<char>(sub_ifd_buf));
+                if (ifd_name.empty()) {
+                    continue;
+                }
+
+                std::array<std::byte, 58> raw;
+                const size_t n = (raw_src.size() < raw.size()) ? raw_src.size()
+                                                               : raw.size();
+                std::memcpy(raw.data(), raw_src.data(), n);
+
+                const MetaValue version = make_fixed_ascii_text(
+                    store.arena(), std::span<const std::byte>(raw.data(), 4));
+                const MetaValue name = make_fixed_ascii_text(
+                    store.arena(),
+                    std::span<const std::byte>(raw.data() + 4, 20));
+                const MetaValue base = make_fixed_ascii_text(
+                    store.arena(),
+                    std::span<const std::byte>(raw.data() + 24, 20));
+
+                const uint8_t adjust       = (n > 48) ? u8(raw[48]) : 0;
+                const uint8_t quick_adjust = (n > 49) ? u8(raw[49]) : 0;
+
+                MetaValue extras[8];
+                uint16_t extra_tags[8];
+                uint32_t extra_count = 0;
+                for (uint16_t t = 0x0032; t <= 0x0039; ++t) {
+                    const uint64_t off = t;
+                    if (off >= n) {
+                        break;
+                    }
+                    extra_tags[extra_count] = t;
+                    extras[extra_count]     = make_u8(u8(raw[off]));
+                    extra_count += 1;
+                    if (extra_count == 8) {
+                        break;
+                    }
+                }
+
+                uint16_t tags_out[13];
+                MetaValue vals_out[13];
+                uint32_t out_count = 0;
+
+                tags_out[out_count] = 0x0000;
+                vals_out[out_count] = version;
+                out_count += 1;
+                tags_out[out_count] = 0x0004;
+                vals_out[out_count] = name;
+                out_count += 1;
+                tags_out[out_count] = 0x0018;
+                vals_out[out_count] = base;
+                out_count += 1;
+                tags_out[out_count] = 0x0030;
+                vals_out[out_count] = make_u8(adjust);
+                out_count += 1;
+                tags_out[out_count] = 0x0031;
+                vals_out[out_count] = make_u8(quick_adjust);
+                out_count += 1;
+
+                for (uint32_t k = 0; k < extra_count; ++k) {
+                    tags_out[out_count] = extra_tags[k];
+                    vals_out[out_count] = extras[k];
+                    out_count += 1;
+                }
+
+                decode_nikon_bin_dir_entries(
+                    ifd_name, store,
+                    std::span<const uint16_t>(tags_out, out_count),
+                    std::span<const MetaValue>(vals_out, out_count),
+                    options.limits, status_out);
+                continue;
+            }
+
+            if (tag == 0x0024) {  // WorldTime
+                if (raw_src.size() < 4) {
+                    continue;
+                }
+                const std::string_view ifd_name
+                    = make_mk_subtable_ifd_token(mk_prefix, "worldtime",
+                                                 idx_worldtime++,
+                                                 std::span<char>(sub_ifd_buf));
+                if (ifd_name.empty()) {
+                    continue;
+                }
+
+                std::array<std::byte, 4> raw;
+                std::memcpy(raw.data(), raw_src.data(), raw.size());
+
+                int16_t tz = 0;
+                if (!read_i16_endian(le, raw, 0, &tz)) {
+                    continue;
+                }
+                const uint8_t dst = u8(raw[2]);
+                const uint8_t fmt = u8(raw[3]);
+
+                const uint16_t tags_out[]  = { 0x0000, 0x0002, 0x0003 };
+                const MetaValue vals_out[] = { make_i16(tz), make_u8(dst),
+                                               make_u8(fmt) };
+                decode_nikon_bin_dir_entries(
+                    ifd_name, store, std::span<const uint16_t>(tags_out),
+                    std::span<const MetaValue>(vals_out), options.limits,
+                    status_out);
+                continue;
+            }
+
+            if (tag == 0x0025) {  // ISOInfo
+                if (raw_src.size() < 12) {
+                    continue;
+                }
+                const std::string_view ifd_name
+                    = make_mk_subtable_ifd_token(mk_prefix, "isoinfo",
+                                                 idx_isoinfo++,
+                                                 std::span<char>(sub_ifd_buf));
+                if (ifd_name.empty()) {
+                    continue;
+                }
+
+                std::array<std::byte, 14> raw;
+                const size_t n = (raw_src.size() < raw.size()) ? raw_src.size()
+                                                               : raw.size();
+                std::memcpy(raw.data(), raw_src.data(), n);
+
+                uint16_t iso_expansion  = 0;
+                uint16_t iso_expansion2 = 0;
+                if (!read_u16_endian(le, raw, 4, &iso_expansion)
+                    || !read_u16_endian(le, raw, 10, &iso_expansion2)) {
+                    continue;
+                }
+                const uint8_t iso  = u8(raw[0]);
+                const uint8_t iso2 = u8(raw[6]);
+
+                const uint16_t tags_out[]  = { 0x0000, 0x0004, 0x0006, 0x000A };
+                const MetaValue vals_out[] = {
+                    make_u8(iso),
+                    make_u16(iso_expansion),
+                    make_u8(iso2),
+                    make_u16(iso_expansion2),
+                };
+                decode_nikon_bin_dir_entries(
+                    ifd_name, store, std::span<const uint16_t>(tags_out),
+                    std::span<const MetaValue>(vals_out), options.limits,
+                    status_out);
+                continue;
+            }
+
+            if (tag == 0x002C) {  // UnknownInfo
+                if (raw_src.size() < 4) {
+                    continue;
+                }
+                const std::string_view ifd_name
+                    = make_mk_subtable_ifd_token(mk_prefix, "unknowninfo",
+                                                 idx_unknowninfo++,
+                                                 std::span<char>(sub_ifd_buf));
+                if (ifd_name.empty()) {
+                    continue;
+                }
+                std::array<std::byte, 4> raw;
+                std::memcpy(raw.data(), raw_src.data(), raw.size());
+                const uint16_t tags_out[]  = { 0x0000 };
+                const MetaValue vals_out[] = { make_fixed_ascii_text(
+                    store.arena(),
+                    std::span<const std::byte>(raw.data(), raw.size())) };
+                decode_nikon_bin_dir_entries(
+                    ifd_name, store, std::span<const uint16_t>(tags_out),
+                    std::span<const MetaValue>(vals_out), options.limits,
+                    status_out);
+                continue;
+            }
+
+            if (tag == 0x0032) {  // UnknownInfo2
+                if (raw_src.size() < 4) {
+                    continue;
+                }
+                const std::string_view ifd_name
+                    = make_mk_subtable_ifd_token(mk_prefix, "unknowninfo2",
+                                                 idx_unknowninfo2++,
+                                                 std::span<char>(sub_ifd_buf));
+                if (ifd_name.empty()) {
+                    continue;
+                }
+                std::array<std::byte, 4> raw;
+                std::memcpy(raw.data(), raw_src.data(), raw.size());
+                const uint16_t tags_out[]  = { 0x0000 };
+                const MetaValue vals_out[] = { make_fixed_ascii_text(
+                    store.arena(),
+                    std::span<const std::byte>(raw.data(), raw.size())) };
+                decode_nikon_bin_dir_entries(
+                    ifd_name, store, std::span<const uint16_t>(tags_out),
+                    std::span<const MetaValue>(vals_out), options.limits,
+                    status_out);
+                continue;
+            }
+
+            if (tag == 0x0091) {  // ShotInfoUnknown
+                if (raw_src.size() < 9) {
+                    continue;
+                }
+                const std::string_view ifd_name
+                    = make_mk_subtable_ifd_token(mk_prefix, "shotinfo",
+                                                 idx_shotinfo++,
+                                                 std::span<char>(sub_ifd_buf));
+                if (ifd_name.empty()) {
+                    continue;
+                }
+
+                std::array<std::byte, 9> raw;
+                std::memcpy(raw.data(), raw_src.data(), raw.size());
+
+                const uint16_t tags_out[]  = { 0x0000, 0x0004 };
+                const MetaValue vals_out[] = {
+                    make_fixed_ascii_text(store.arena(),
+                                          std::span<const std::byte>(raw.data(),
+                                                                     4)),
+                    make_fixed_ascii_text(
+                        store.arena(),
+                        std::span<const std::byte>(raw.data() + 4, 5)),
+                };
+                decode_nikon_bin_dir_entries(
+                    ifd_name, store, std::span<const uint16_t>(tags_out),
+                    std::span<const MetaValue>(vals_out), options.limits,
+                    status_out);
+                continue;
+            }
+
+            if (tag == 0x0097) {  // ColorBalanceUnknown2
+                if (raw_src.size() < 4) {
+                    continue;
+                }
+                const std::string_view ifd_name = make_mk_subtable_ifd_token(
+                    mk_prefix, "colorbalanceunknown2", idx_colorbalance++,
+                    std::span<char>(sub_ifd_buf));
+                if (ifd_name.empty()) {
+                    continue;
+                }
+                std::array<std::byte, 4> raw;
+                std::memcpy(raw.data(), raw_src.data(), raw.size());
+                const uint16_t tags_out[]  = { 0x0000 };
+                const MetaValue vals_out[] = { make_fixed_ascii_text(
+                    store.arena(),
+                    std::span<const std::byte>(raw.data(), raw.size())) };
+                decode_nikon_bin_dir_entries(
+                    ifd_name, store, std::span<const uint16_t>(tags_out),
+                    std::span<const MetaValue>(vals_out), options.limits,
+                    status_out);
+                continue;
+            }
+
+            if (tag == 0x0098) {  // LensData
+                if (raw_src.size() < 4) {
+                    continue;
+                }
+                std::array<std::byte, 4> ver_bytes;
+                std::memcpy(ver_bytes.data(), raw_src.data(), ver_bytes.size());
+                const std::string_view ver = std::string_view(
+                    reinterpret_cast<const char*>(ver_bytes.data()),
+                    ver_bytes.size());
+
+                std::string_view subtable = "lensdataunknown";
+                uint16_t lens_model_tag   = 0;
+                uint64_t lens_model_off   = 0;
+                uint64_t lens_model_bytes = 0;
+                if (ver == "0400") {
+                    subtable         = "lensdata0400";
+                    lens_model_tag   = 0x018a;
+                    lens_model_off   = 0x018a;
+                    lens_model_bytes = 64;
+                } else if (ver == "0402") {
+                    subtable         = "lensdata0402";
+                    lens_model_tag   = 0x018b;
+                    lens_model_off   = 0x018b;
+                    lens_model_bytes = 64;
+                } else if (ver == "0403") {
+                    subtable         = "lensdata0403";
+                    lens_model_tag   = 0x02ac;
+                    lens_model_off   = 0x02ac;
+                    lens_model_bytes = 64;
+                }
+
+                const std::string_view ifd_name
+                    = make_mk_subtable_ifd_token(mk_prefix, subtable,
+                                                 idx_lensdata++,
+                                                 std::span<char>(sub_ifd_buf));
+                if (ifd_name.empty()) {
+                    continue;
+                }
+
+                uint16_t tags_out[2];
+                MetaValue vals_out[2];
+                uint32_t out_count = 0;
+
+                tags_out[out_count] = 0x0000;
+                vals_out[out_count] = make_fixed_ascii_text(
+                    store.arena(),
+                    std::span<const std::byte>(ver_bytes.data(),
+                                               ver_bytes.size()));
+                out_count += 1;
+
+                if (lens_model_tag != 0 && lens_model_off < raw_src.size()
+                    && lens_model_off + lens_model_bytes <= raw_src.size()) {
+                    std::array<std::byte, 64> model_bytes;
+                    std::memcpy(model_bytes.data(),
+                                raw_src.data()
+                                    + static_cast<size_t>(lens_model_off),
+                                model_bytes.size());
+                    tags_out[out_count] = lens_model_tag;
+                    vals_out[out_count] = make_fixed_ascii_text(
+                        store.arena(),
+                        std::span<const std::byte>(model_bytes.data(),
+                                                   model_bytes.size()));
+                    out_count += 1;
+                }
+
+                decode_nikon_bin_dir_entries(
+                    ifd_name, store,
+                    std::span<const uint16_t>(tags_out, out_count),
+                    std::span<const MetaValue>(vals_out, out_count),
+                    options.limits, status_out);
+                continue;
+            }
+
+            if (tag == 0x00B7) {  // AFInfo2
+                if (raw_src.size() < 9) {
+                    continue;
+                }
+
+                std::array<std::byte, 25> raw;
+                const size_t n = (raw_src.size() < raw.size()) ? raw_src.size()
+                                                               : raw.size();
+                std::memcpy(raw.data(), raw_src.data(), n);
+                const std::string_view ver = std::string_view(
+                    reinterpret_cast<const char*>(raw.data()), 4);
+                std::string_view subtable = "afinfo";
+                if (ver == "0200") {
+                    subtable = "afinfo2v0200";
+                }
+
+                const std::string_view ifd_name
+                    = make_mk_subtable_ifd_token(mk_prefix, subtable,
+                                                 idx_afinfo2++,
+                                                 std::span<char>(sub_ifd_buf));
+                if (ifd_name.empty()) {
+                    continue;
+                }
+
+                MetaValue points;
+                if (n >= 25) {
+                    points
+                        = make_bytes(store.arena(),
+                                     std::span<const std::byte>(raw.data() + 8,
+                                                                17));
+                }
+
+                uint16_t tags_out[6];
+                MetaValue vals_out[6];
+                uint32_t out_count = 0;
+
+                tags_out[out_count] = 0x0000;
+                vals_out[out_count] = make_fixed_ascii_text(
+                    store.arena(), std::span<const std::byte>(raw.data(), 4));
+                out_count += 1;
+                tags_out[out_count] = 0x0004;
+                vals_out[out_count] = make_u8((n > 4) ? u8(raw[4]) : 0);
+                out_count += 1;
+                tags_out[out_count] = 0x0005;
+                vals_out[out_count] = make_u8((n > 5) ? u8(raw[5]) : 0);
+                out_count += 1;
+                tags_out[out_count] = 0x0006;
+                vals_out[out_count] = make_u8((n > 6) ? u8(raw[6]) : 0);
+                out_count += 1;
+                tags_out[out_count] = 0x0007;
+                vals_out[out_count] = make_u8((n > 7) ? u8(raw[7]) : 0);
+                out_count += 1;
+
+                if (points.kind != MetaValueKind::Empty) {
+                    tags_out[out_count] = 0x0008;
+                    vals_out[out_count] = points;
+                    out_count += 1;
+                }
+
+                decode_nikon_bin_dir_entries(
+                    ifd_name, store,
+                    std::span<const uint16_t>(tags_out, out_count),
+                    std::span<const MetaValue>(vals_out, out_count),
+                    options.limits, status_out);
+                continue;
+            }
+
+            if (tag == 0x00B9) {  // AFTune
+                if (raw_src.size() < 4) {
+                    continue;
+                }
+                const std::string_view ifd_name
+                    = make_mk_subtable_ifd_token(mk_prefix, "aftune",
+                                                 idx_aftune++,
+                                                 std::span<char>(sub_ifd_buf));
+                if (ifd_name.empty()) {
+                    continue;
+                }
+
+                std::array<std::byte, 4> raw;
+                std::memcpy(raw.data(), raw_src.data(), raw.size());
+
+                const uint16_t tags_out[]  = { 0x0000, 0x0001, 0x0002, 0x0003 };
+                const MetaValue vals_out[] = {
+                    make_u8(u8(raw[0])),
+                    make_u8(u8(raw[1])),
+                    make_i8(static_cast<int8_t>(u8(raw[2]))),
+                    make_i8(static_cast<int8_t>(u8(raw[3]))),
+                };
+                decode_nikon_bin_dir_entries(
+                    ifd_name, store, std::span<const uint16_t>(tags_out),
+                    std::span<const MetaValue>(vals_out), options.limits,
+                    status_out);
+                continue;
+            }
+        }
     }
 
 
@@ -1038,6 +1856,1669 @@ namespace {
             status_out->entries_decoded += 1;
         }
         return true;
+    }
+
+
+    constexpr uint32_t sony_mod_mul_249(uint32_t a, uint32_t b) noexcept
+    {
+        return (a * b) % 249U;
+    }
+
+
+    constexpr uint8_t sony_mod_pow_249(uint8_t base, uint8_t exp) noexcept
+    {
+        uint32_t result = 1;
+        uint32_t cur    = base;
+        uint8_t e       = exp;
+        while (e != 0) {
+            if ((e & 1U) != 0U) {
+                result = sony_mod_mul_249(result, cur);
+            }
+            cur = sony_mod_mul_249(cur, cur);
+            e   = static_cast<uint8_t>(e >> 1U);
+        }
+        return static_cast<uint8_t>(result);
+    }
+
+
+    constexpr std::array<uint8_t, 249> make_sony_decipher_lut() noexcept
+    {
+        std::array<uint8_t, 249> out {};
+        for (uint32_t i = 0; i < out.size(); ++i) {
+            // ExifTool's Sony substitution cipher uses:
+            //   encipher: c = (b^3) % 249 for b in [0..248]
+            // so decipher is the modular cube root: b = (c^55) % 249
+            // because 3*55 ≡ 1 (mod phi(249)=164).
+            out[i] = sony_mod_pow_249(static_cast<uint8_t>(i), 55);
+        }
+        return out;
+    }
+
+
+    static constexpr std::array<uint8_t, 249> kSonyDecipherLut
+        = make_sony_decipher_lut();
+
+
+    static uint8_t sony_decipher_once(uint8_t b) noexcept
+    {
+        if (b >= 249U) {
+            return b;
+        }
+        return kSonyDecipherLut[b];
+    }
+
+
+    static uint8_t sony_decipher(uint8_t b, uint32_t rounds) noexcept
+    {
+        uint8_t out = b;
+        for (uint32_t i = 0; i < rounds; ++i) {
+            out = sony_decipher_once(out);
+        }
+        return out;
+    }
+
+
+    static bool sony_read_u8(std::span<const std::byte> bytes, uint64_t off,
+                             uint32_t rounds, uint8_t* out) noexcept
+    {
+        if (!out || off >= bytes.size()) {
+            return false;
+        }
+        *out = sony_decipher(u8(bytes[off]), rounds);
+        return true;
+    }
+
+
+    static bool sony_read_u16le(std::span<const std::byte> bytes, uint64_t off,
+                                uint32_t rounds, uint16_t* out) noexcept
+    {
+        if (!out || off + 2U > bytes.size()) {
+            return false;
+        }
+        const uint8_t b0 = sony_decipher(u8(bytes[off + 0]), rounds);
+        const uint8_t b1 = sony_decipher(u8(bytes[off + 1]), rounds);
+        *out = static_cast<uint16_t>(uint16_t(b0) | (uint16_t(b1) << 8));
+        return true;
+    }
+
+
+    static bool sony_read_i16le(std::span<const std::byte> bytes, uint64_t off,
+                                uint32_t rounds, int16_t* out) noexcept
+    {
+        uint16_t raw = 0;
+        if (!sony_read_u16le(bytes, off, rounds, &raw)) {
+            return false;
+        }
+        if (out) {
+            *out = static_cast<int16_t>(raw);
+        }
+        return out != nullptr;
+    }
+
+
+    static bool sony_read_u32le(std::span<const std::byte> bytes, uint64_t off,
+                                uint32_t rounds, uint32_t* out) noexcept
+    {
+        if (!out || off + 4U > bytes.size()) {
+            return false;
+        }
+        const uint8_t b0 = sony_decipher(u8(bytes[off + 0]), rounds);
+        const uint8_t b1 = sony_decipher(u8(bytes[off + 1]), rounds);
+        const uint8_t b2 = sony_decipher(u8(bytes[off + 2]), rounds);
+        const uint8_t b3 = sony_decipher(u8(bytes[off + 3]), rounds);
+        *out = uint32_t(b0) | (uint32_t(b1) << 8) | (uint32_t(b2) << 16)
+               | (uint32_t(b3) << 24);
+        return true;
+    }
+
+    static MetaValue
+    make_sony_deciphered_bytes(ByteArena& arena,
+                               std::span<const std::byte> bytes, uint64_t off,
+                               uint32_t size, uint32_t rounds) noexcept
+    {
+        MetaValue v;
+        if (size == 0) {
+            return v;
+        }
+        if (off > bytes.size() || uint64_t(size) > (bytes.size() - off)) {
+            return v;
+        }
+
+        const ByteSpan span            = arena.allocate(size, 1);
+        const std::span<std::byte> out = arena.span_mut(span);
+        if (out.size() != size) {
+            return v;
+        }
+        for (uint32_t i = 0; i < size; ++i) {
+            out[i] = std::byte { sony_decipher(u8(bytes[off + i]), rounds) };
+        }
+
+        v.kind          = MetaValueKind::Bytes;
+        v.elem_type     = MetaElementType::U8;
+        v.count         = size;
+        v.data.span     = span;
+        v.text_encoding = TextEncoding::Unknown;
+        return v;
+    }
+
+
+    static uint32_t
+    sony_guess_cipher_rounds(std::span<const std::byte> bytes, uint64_t off,
+                             std::span<const uint8_t> allowed) noexcept
+    {
+        uint8_t b = 0;
+        if (!sony_read_u8(bytes, off, 1, &b)) {
+            return 1;
+        }
+        for (size_t i = 0; i < allowed.size(); ++i) {
+            if (b == allowed[i]) {
+                return 1;
+            }
+        }
+
+        if (!sony_read_u8(bytes, off, 2, &b)) {
+            return 1;
+        }
+        for (size_t i = 0; i < allowed.size(); ++i) {
+            if (b == allowed[i]) {
+                return 2;
+            }
+        }
+        return 1;
+    }
+
+
+    static void decode_sony_tag9400(std::span<const std::byte> bytes,
+                                    std::string_view mk_prefix,
+                                    MetaStore& store,
+                                    const ExifDecodeOptions& options,
+                                    ExifDecodeResult* status_out) noexcept
+    {
+        if (bytes.empty()) {
+            return;
+        }
+
+        // Tag9400 variant selection (based on first deciphered byte).
+        const uint8_t allowed[] = { 0x07, 0x09, 0x0A, 0x0C, 0x23, 0x24,
+                                    0x26, 0x28, 0x31, 0x32, 0x33 };
+        const uint32_t rounds
+            = sony_guess_cipher_rounds(bytes, 0,
+                                       std::span<const uint8_t>(allowed));
+
+        uint8_t v0 = 0;
+        if (!sony_read_u8(bytes, 0, rounds, &v0)) {
+            return;
+        }
+
+        // In practice, tag9400c is the most common layout. tag9400b appears on
+        // some older bodies and uses different offsets.
+        std::string_view subtable = "tag9400c";
+        if (v0 == 0x0C) {
+            subtable = "tag9400b";
+        }
+
+        char sub_ifd_buf[96];
+        const std::string_view ifd_name
+            = make_mk_subtable_ifd_token(mk_prefix, subtable, 0,
+                                         std::span<char>(sub_ifd_buf));
+        if (ifd_name.empty()) {
+            return;
+        }
+
+        uint16_t tags_out[16];
+        MetaValue vals_out[16];
+        uint32_t out_count = 0;
+
+        // tag9400c common fields (byte offsets into deciphered data):
+        // - SequenceImageNumber (u32) at 0x0012
+        // - SequenceFileNumber (u32) at 0x001A
+        // - ModelReleaseYear (u16) at 0x0053
+        uint32_t u32 = 0;
+        if (sony_read_u32le(bytes, 0x0012, rounds, &u32)) {
+            tags_out[out_count] = 0x0012;
+            vals_out[out_count] = make_u32(u32);
+            out_count += 1;
+        }
+        if (sony_read_u32le(bytes, 0x001A, rounds, &u32)) {
+            tags_out[out_count] = 0x001A;
+            vals_out[out_count] = make_u32(u32);
+            out_count += 1;
+        }
+        uint16_t u16v = 0;
+        if (sony_read_u16le(bytes, 0x0053, rounds, &u16v)) {
+            tags_out[out_count] = 0x0053;
+            vals_out[out_count] = make_u16(u16v);
+            out_count += 1;
+        }
+
+        uint8_t u8v              = 0;
+        const uint16_t u8_tags[] = { 0x0009, 0x000A, 0x0016,
+                                     0x001E, 0x0029, 0x002A };
+        for (uint32_t i = 0; i < sizeof(u8_tags) / sizeof(u8_tags[0]); ++i) {
+            const uint16_t t = u8_tags[i];
+            if (!sony_read_u8(bytes, t, rounds, &u8v)) {
+                continue;
+            }
+            tags_out[out_count] = t;
+            vals_out[out_count] = make_u8(u8v);
+            out_count += 1;
+            if (out_count >= sizeof(tags_out) / sizeof(tags_out[0])) {
+                break;
+            }
+        }
+
+        emit_bin_dir_entries(ifd_name, store,
+                             std::span<const uint16_t>(tags_out, out_count),
+                             std::span<const MetaValue>(vals_out, out_count),
+                             options.limits, status_out);
+    }
+
+
+    static void decode_sony_tag9402(std::span<const std::byte> bytes,
+                                    std::string_view mk_prefix,
+                                    MetaStore& store,
+                                    const ExifDecodeOptions& options,
+                                    ExifDecodeResult* status_out) noexcept
+    {
+        if (bytes.empty()) {
+            return;
+        }
+
+        char sub_ifd_buf[96];
+        const std::string_view ifd_name
+            = make_mk_subtable_ifd_token(mk_prefix, "tag9402", 0,
+                                         std::span<char>(sub_ifd_buf));
+        if (ifd_name.empty()) {
+            return;
+        }
+
+        // Tag9402 uses the same Sony substitution cipher.
+        const uint32_t rounds = 1;
+
+        uint16_t tags_out[8];
+        MetaValue vals_out[8];
+        uint32_t out_count = 0;
+
+        const uint16_t u8_tags[] = { 0x0002, 0x0004, 0x0016, 0x0017, 0x002D };
+        for (uint32_t i = 0; i < sizeof(u8_tags) / sizeof(u8_tags[0]); ++i) {
+            const uint16_t t = u8_tags[i];
+            uint8_t v        = 0;
+            if (!sony_read_u8(bytes, t, rounds, &v)) {
+                continue;
+            }
+            tags_out[out_count] = t;
+            vals_out[out_count] = make_u8(v);
+            out_count += 1;
+        }
+
+        emit_bin_dir_entries(ifd_name, store,
+                             std::span<const uint16_t>(tags_out, out_count),
+                             std::span<const MetaValue>(vals_out, out_count),
+                             options.limits, status_out);
+    }
+
+
+    static void decode_sony_tag9403(std::span<const std::byte> bytes,
+                                    std::string_view mk_prefix,
+                                    MetaStore& store,
+                                    const ExifDecodeOptions& options,
+                                    ExifDecodeResult* status_out) noexcept
+    {
+        if (bytes.empty()) {
+            return;
+        }
+
+        char sub_ifd_buf[96];
+        const std::string_view ifd_name
+            = make_mk_subtable_ifd_token(mk_prefix, "tag9403", 0,
+                                         std::span<char>(sub_ifd_buf));
+        if (ifd_name.empty()) {
+            return;
+        }
+
+        const uint32_t rounds = 1;
+
+        uint16_t tags_out[8];
+        MetaValue vals_out[8];
+        uint32_t out_count = 0;
+
+        const uint16_t u8_tags[] = { 0x0004, 0x0005 };
+        for (uint32_t i = 0; i < sizeof(u8_tags) / sizeof(u8_tags[0]); ++i) {
+            const uint16_t t = u8_tags[i];
+            uint8_t v        = 0;
+            if (!sony_read_u8(bytes, t, rounds, &v)) {
+                continue;
+            }
+            tags_out[out_count] = t;
+            vals_out[out_count] = make_u8(v);
+            out_count += 1;
+        }
+
+        emit_bin_dir_entries(ifd_name, store,
+                             std::span<const uint16_t>(tags_out, out_count),
+                             std::span<const MetaValue>(vals_out, out_count),
+                             options.limits, status_out);
+    }
+
+
+    static void decode_sony_tag9406(std::span<const std::byte> bytes,
+                                    std::string_view mk_prefix,
+                                    MetaStore& store,
+                                    const ExifDecodeOptions& options,
+                                    ExifDecodeResult* status_out) noexcept
+    {
+        if (bytes.empty()) {
+            return;
+        }
+
+        char sub_ifd_buf[96];
+        const std::string_view ifd_name
+            = make_mk_subtable_ifd_token(mk_prefix, "tag9406", 0,
+                                         std::span<char>(sub_ifd_buf));
+        if (ifd_name.empty()) {
+            return;
+        }
+
+        const uint32_t rounds = 1;
+
+        uint16_t tags_out[8];
+        MetaValue vals_out[8];
+        uint32_t out_count = 0;
+
+        const uint16_t u8_tags[] = { 0x0005, 0x0006, 0x0007, 0x0008 };
+        for (uint32_t i = 0; i < sizeof(u8_tags) / sizeof(u8_tags[0]); ++i) {
+            const uint16_t t = u8_tags[i];
+            uint8_t v        = 0;
+            if (!sony_read_u8(bytes, t, rounds, &v)) {
+                continue;
+            }
+            tags_out[out_count] = t;
+            vals_out[out_count] = make_u8(v);
+            out_count += 1;
+        }
+
+        emit_bin_dir_entries(ifd_name, store,
+                             std::span<const uint16_t>(tags_out, out_count),
+                             std::span<const MetaValue>(vals_out, out_count),
+                             options.limits, status_out);
+    }
+
+
+    static void decode_sony_tag940c(std::span<const std::byte> bytes,
+                                    std::string_view mk_prefix,
+                                    MetaStore& store,
+                                    const ExifDecodeOptions& options,
+                                    ExifDecodeResult* status_out) noexcept
+    {
+        if (bytes.empty()) {
+            return;
+        }
+
+        char sub_ifd_buf[96];
+        const std::string_view ifd_name
+            = make_mk_subtable_ifd_token(mk_prefix, "tag940c", 0,
+                                         std::span<char>(sub_ifd_buf));
+        if (ifd_name.empty()) {
+            return;
+        }
+
+        const uint32_t rounds = 1;
+
+        uint16_t tags_out[8];
+        MetaValue vals_out[8];
+        uint32_t out_count = 0;
+
+        uint8_t u8v = 0;
+        if (sony_read_u8(bytes, 0x0008, rounds, &u8v)) {
+            tags_out[out_count] = 0x0008;
+            vals_out[out_count] = make_u8(u8v);
+            out_count += 1;
+        }
+
+        uint16_t u16v = 0;
+        if (sony_read_u16le(bytes, 0x0009, rounds, &u16v)) {
+            tags_out[out_count] = 0x0009;
+            vals_out[out_count] = make_u16(u16v);
+            out_count += 1;
+        }
+
+        if (sony_read_u16le(bytes, 0x000B, rounds, &u16v)) {
+            tags_out[out_count] = 0x000B;
+            vals_out[out_count] = make_u16(u16v);
+            out_count += 1;
+        }
+
+        if (sony_read_u16le(bytes, 0x000D, rounds, &u16v)) {
+            tags_out[out_count] = 0x000D;
+            vals_out[out_count] = make_u16(u16v);
+            out_count += 1;
+        }
+
+        if (sony_read_u16le(bytes, 0x0014, rounds, &u16v)) {
+            tags_out[out_count] = 0x0014;
+            vals_out[out_count] = make_u16(u16v);
+            out_count += 1;
+        }
+
+        emit_bin_dir_entries(ifd_name, store,
+                             std::span<const uint16_t>(tags_out, out_count),
+                             std::span<const MetaValue>(vals_out, out_count),
+                             options.limits, status_out);
+    }
+
+
+    static void decode_sony_isoinfo_from_tag9401(
+        std::span<const std::byte> bytes, std::string_view mk_prefix,
+        MetaStore& store, const ExifDecodeOptions& options,
+        ExifDecodeResult* status_out) noexcept
+    {
+        if (bytes.empty()) {
+            return;
+        }
+
+        const uint32_t rounds = 1;
+
+        // Try a set of known ISOInfo locations inside Tag9401 and pick the first
+        // plausible candidate.
+        const uint16_t iso_offsets[] = {
+            0x03E2, 0x03F4, 0x044E, 0x0498, 0x049D, 0x049E,
+            0x04A1, 0x04A2, 0x04BA, 0x059D, 0x0634, 0x0636,
+            0x064C, 0x0653, 0x0678, 0x06B8, 0x06DE, 0x06E7,
+        };
+
+        uint16_t best_off        = 0;
+        uint32_t best_score      = 0;
+        uint8_t best_iso_setting = 0;
+        uint8_t best_iso_min     = 0;
+        uint8_t best_iso_max     = 0;
+
+        for (uint32_t i = 0; i < sizeof(iso_offsets) / sizeof(iso_offsets[0]);
+             ++i) {
+            const uint64_t base = iso_offsets[i];
+            if (base + 5U > bytes.size()) {
+                continue;
+            }
+
+            uint8_t iso_setting = 0;
+            uint8_t iso_min     = 0;
+            uint8_t iso_max     = 0;
+            if (!sony_read_u8(bytes, base + 0, rounds, &iso_setting)
+                || !sony_read_u8(bytes, base + 2, rounds, &iso_min)
+                || !sony_read_u8(bytes, base + 4, rounds, &iso_max)) {
+                continue;
+            }
+
+            // Heuristic: ISO codes are small enum values.
+            uint32_t score = 0;
+            if (iso_setting <= 80U) {
+                score += 1;
+            }
+            if (iso_min <= 80U) {
+                score += 1;
+            }
+            if (iso_max <= 80U) {
+                score += 1;
+            }
+            if (iso_setting == 0U) {
+                score += 1;
+            }
+
+            if (score > best_score) {
+                best_score       = score;
+                best_off         = iso_offsets[i];
+                best_iso_setting = iso_setting;
+                best_iso_min     = iso_min;
+                best_iso_max     = iso_max;
+            }
+        }
+
+        if (best_score == 0) {
+            return;
+        }
+
+        char sub_ifd_buf[96];
+        const std::string_view ifd_name
+            = make_mk_subtable_ifd_token(mk_prefix, "isoinfo", 0,
+                                         std::span<char>(sub_ifd_buf));
+        if (ifd_name.empty()) {
+            return;
+        }
+
+        const uint16_t tags_out[]  = { 0x0000, 0x0002, 0x0004 };
+        const MetaValue vals_out[] = { make_u8(best_iso_setting),
+                                       make_u8(best_iso_min),
+                                       make_u8(best_iso_max) };
+        emit_bin_dir_entries(ifd_name, store,
+                             std::span<const uint16_t>(tags_out),
+                             std::span<const MetaValue>(vals_out),
+                             options.limits, status_out);
+        (void)best_off;
+    }
+
+    static void decode_sony_tag9404(std::span<const std::byte> bytes,
+                                    std::string_view mk_prefix,
+                                    MetaStore& store,
+                                    const ExifDecodeOptions& options,
+                                    ExifDecodeResult* status_out) noexcept
+    {
+        if (bytes.empty()) {
+            return;
+        }
+
+        char sub_ifd_buf[96];
+        const std::string_view ifd_name
+            = make_mk_subtable_ifd_token(mk_prefix, "tag9404c", 0,
+                                         std::span<char>(sub_ifd_buf));
+        if (ifd_name.empty()) {
+            return;
+        }
+
+        const uint32_t rounds = 1;
+
+        uint16_t tags_out[8];
+        MetaValue vals_out[8];
+        uint32_t out_count = 0;
+
+        uint8_t u8v              = 0;
+        const uint16_t u8_tags[] = { 0x000B, 0x000D };
+        for (uint32_t i = 0; i < sizeof(u8_tags) / sizeof(u8_tags[0]); ++i) {
+            const uint16_t t = u8_tags[i];
+            if (!sony_read_u8(bytes, t, rounds, &u8v)) {
+                continue;
+            }
+            tags_out[out_count] = t;
+            vals_out[out_count] = make_u8(u8v);
+            out_count += 1;
+        }
+
+        emit_bin_dir_entries(ifd_name, store,
+                             std::span<const uint16_t>(tags_out, out_count),
+                             std::span<const MetaValue>(vals_out, out_count),
+                             options.limits, status_out);
+    }
+
+
+    static void decode_sony_tag202a(std::span<const std::byte> bytes,
+                                    std::string_view mk_prefix,
+                                    MetaStore& store,
+                                    const ExifDecodeOptions& options,
+                                    ExifDecodeResult* status_out) noexcept
+    {
+        if (bytes.empty()) {
+            return;
+        }
+
+        char sub_ifd_buf[96];
+        const std::string_view ifd_name
+            = make_mk_subtable_ifd_token(mk_prefix, "tag202a", 0,
+                                         std::span<char>(sub_ifd_buf));
+        if (ifd_name.empty()) {
+            return;
+        }
+
+        const uint32_t rounds = 1;
+
+        uint8_t u8v = 0;
+        if (!sony_read_u8(bytes, 0x0001, rounds, &u8v)) {
+            return;
+        }
+
+        const uint16_t tags_out[]  = { 0x0001 };
+        const MetaValue vals_out[] = { make_u8(u8v) };
+        emit_bin_dir_entries(ifd_name, store,
+                             std::span<const uint16_t>(tags_out),
+                             std::span<const MetaValue>(vals_out),
+                             options.limits, status_out);
+    }
+
+    static void decode_sony_shotinfo_from_tag3000(
+        std::span<const std::byte> bytes, std::string_view mk_prefix,
+        MetaStore& store, const ExifDecodeOptions& options,
+        ExifDecodeResult* status_out) noexcept
+    {
+        // Tag3000 is a small binary directory where offsets correspond to tag
+        // ids (e.g. tag 0x001C stored at byte offset 0x001C).
+        if (bytes.size() < 0x0044) {
+            return;
+        }
+
+        const uint8_t b0 = u8(bytes[0]);
+        const uint8_t b1 = u8(bytes[1]);
+        bool le          = true;
+        if (b0 == 'I' && b1 == 'I') {
+            le = true;
+        } else if (b0 == 'M' && b1 == 'M') {
+            le = false;
+        } else {
+            return;
+        }
+
+        char sub_ifd_buf[96];
+        const std::string_view ifd_name
+            = make_mk_subtable_ifd_token(mk_prefix, "shotinfo", 0,
+                                         std::span<char>(sub_ifd_buf));
+        if (ifd_name.empty()) {
+            return;
+        }
+
+        uint16_t tags_out[16];
+        MetaValue vals_out[16];
+        uint32_t out_count = 0;
+
+        uint16_t u16v = 0;
+        if (read_u16_endian(le, bytes, 0x0002, &u16v)) {
+            tags_out[out_count] = 0x0002;
+            vals_out[out_count] = make_u16(u16v);
+            out_count += 1;
+        }
+
+        if (0x0006 + 20U <= bytes.size()
+            && 20U <= options.limits.max_value_bytes) {
+            tags_out[out_count] = 0x0006;
+            vals_out[out_count]
+                = make_fixed_ascii_text(store.arena(),
+                                        bytes.subspan(0x0006, 20));
+            out_count += 1;
+        }
+
+        if (read_u16_endian(le, bytes, 0x001A, &u16v)) {
+            tags_out[out_count] = 0x001A;
+            vals_out[out_count] = make_u16(u16v);
+            out_count += 1;
+        }
+        if (read_u16_endian(le, bytes, 0x001C, &u16v)) {
+            tags_out[out_count] = 0x001C;
+            vals_out[out_count] = make_u16(u16v);
+            out_count += 1;
+        }
+
+        if (read_u16_endian(le, bytes, 0x0030, &u16v)) {
+            tags_out[out_count] = 0x0030;
+            vals_out[out_count] = make_u16(u16v);
+            out_count += 1;
+        }
+        if (read_u16_endian(le, bytes, 0x0032, &u16v)) {
+            tags_out[out_count] = 0x0032;
+            vals_out[out_count] = make_u16(u16v);
+            out_count += 1;
+        }
+
+        if (0x0034 + 16U <= bytes.size()
+            && 16U <= options.limits.max_value_bytes) {
+            tags_out[out_count] = 0x0034;
+            vals_out[out_count]
+                = make_fixed_ascii_text(store.arena(),
+                                        bytes.subspan(0x0034, 16));
+            out_count += 1;
+        }
+
+        if (out_count == 0) {
+            return;
+        }
+
+        emit_bin_dir_entries(ifd_name, store,
+                             std::span<const uint16_t>(tags_out, out_count),
+                             std::span<const MetaValue>(vals_out, out_count),
+                             options.limits, status_out);
+    }
+
+
+    static void decode_sony_meterinfo9_from_tag2010(
+        std::span<const std::byte> bytes, std::string_view mk_prefix,
+        MetaStore& store, const ExifDecodeOptions& options,
+        ExifDecodeResult* status_out) noexcept
+    {
+        if (bytes.empty()) {
+            return;
+        }
+
+        char sub_ifd_buf[96];
+        const std::string_view ifd_name
+            = make_mk_subtable_ifd_token(mk_prefix, "meterinfo9", 0,
+                                         std::span<char>(sub_ifd_buf));
+        if (ifd_name.empty()) {
+            return;
+        }
+
+        const uint32_t rounds = 1;
+
+        struct Row final {
+            uint16_t tag  = 0;
+            uint16_t size = 0;
+        };
+
+        // MeterInfo row ranges are inferred from the known tag spacing:
+        // - MeterInfo1 rows: 0x5A bytes each
+        // - MeterInfo2 rows: 0x6E bytes each
+        const Row rows[] = {
+            { 0x0000, 0x005A }, { 0x005A, 0x005A }, { 0x00B4, 0x005A },
+            { 0x010E, 0x005A }, { 0x0168, 0x005A }, { 0x01C2, 0x005A },
+            { 0x021C, 0x005A }, { 0x0276, 0x006E }, { 0x02E4, 0x006E },
+            { 0x0352, 0x006E }, { 0x03C0, 0x006E }, { 0x042E, 0x006E },
+            { 0x049C, 0x006E }, { 0x050A, 0x006E }, { 0x0578, 0x006E },
+            { 0x05E6, 0x006E },
+        };
+
+        uint16_t tags_out[32];
+        MetaValue vals_out[32];
+        uint32_t out_count = 0;
+
+        for (uint32_t i = 0; i < sizeof(rows) / sizeof(rows[0]); ++i) {
+            const uint16_t tag = rows[i].tag;
+            const uint16_t len = rows[i].size;
+            if (out_count >= sizeof(tags_out) / sizeof(tags_out[0])) {
+                break;
+            }
+            if (tag + len > bytes.size()) {
+                continue;
+            }
+            if (len == 0 || len > options.limits.max_value_bytes) {
+                continue;
+            }
+
+            const MetaValue v = make_sony_deciphered_bytes(store.arena(), bytes,
+                                                           tag, len, rounds);
+            if (v.kind != MetaValueKind::Bytes) {
+                continue;
+            }
+            tags_out[out_count] = tag;
+            vals_out[out_count] = v;
+            out_count += 1;
+        }
+
+        emit_bin_dir_entries(ifd_name, store,
+                             std::span<const uint16_t>(tags_out, out_count),
+                             std::span<const MetaValue>(vals_out, out_count),
+                             options.limits, status_out);
+    }
+
+
+    static void decode_sony_tag2010i(std::span<const std::byte> bytes,
+                                     std::string_view mk_prefix,
+                                     MetaStore& store,
+                                     const ExifDecodeOptions& options,
+                                     ExifDecodeResult* status_out) noexcept
+    {
+        if (bytes.empty()) {
+            return;
+        }
+
+        char sub_ifd_buf[96];
+        const std::string_view ifd_name
+            = make_mk_subtable_ifd_token(mk_prefix, "tag2010i", 0,
+                                         std::span<char>(sub_ifd_buf));
+        if (ifd_name.empty()) {
+            return;
+        }
+
+        const uint32_t rounds = 1;
+
+        uint16_t tags_out[64];
+        MetaValue vals_out[64];
+        uint32_t out_count = 0;
+
+        uint8_t u8v              = 0;
+        const uint16_t u8_tags[] = { 0x0004, 0x004E, 0x0204, 0x0208, 0x0210,
+                                     0x0211, 0x021B, 0x021F, 0x0237, 0x0238,
+                                     0x023C, 0x0247, 0x024B, 0x024C, 0x17F1,
+                                     0x17F2, 0x17F8, 0x17F9, 0x188C };
+        for (uint32_t i = 0; i < sizeof(u8_tags) / sizeof(u8_tags[0]); ++i) {
+            const uint16_t t = u8_tags[i];
+            if (!sony_read_u8(bytes, t, rounds, &u8v)) {
+                continue;
+            }
+            tags_out[out_count] = t;
+            vals_out[out_count] = make_u8(u8v);
+            out_count += 1;
+        }
+
+        // Fixed-point-ish fields (best-effort, stored as i16).
+        const uint16_t i16_tags[] = { 0x0217, 0x0219, 0x0223 };
+        for (uint32_t i = 0; i < sizeof(i16_tags) / sizeof(i16_tags[0]); ++i) {
+            const uint16_t t = i16_tags[i];
+            int16_t v        = 0;
+            if (!sony_read_i16le(bytes, t, rounds, &v)) {
+                continue;
+            }
+            tags_out[out_count] = t;
+            vals_out[out_count] = make_i16(v);
+            out_count += 1;
+        }
+
+        // WB_RGBLevels u16[3].
+        {
+            std::array<uint16_t, 3> v {};
+            bool ok = true;
+            for (uint32_t i = 0; i < v.size(); ++i) {
+                ok = ok
+                     && sony_read_u16le(bytes, 0x0252 + i * 2U, rounds, &v[i]);
+            }
+            if (ok) {
+                tags_out[out_count] = 0x0252;
+                vals_out[out_count]
+                    = make_u16_array(store.arena(),
+                                     std::span<const uint16_t>(v));
+                out_count += 1;
+            }
+        }
+
+        // Focal lengths (best-effort u16).
+        const uint16_t focal_tags[] = { 0x030A, 0x030C, 0x030E };
+        for (uint32_t i = 0; i < sizeof(focal_tags) / sizeof(focal_tags[0]);
+             ++i) {
+            const uint16_t t = focal_tags[i];
+            uint16_t v       = 0;
+            if (!sony_read_u16le(bytes, t, rounds, &v)) {
+                continue;
+            }
+            tags_out[out_count] = t;
+            vals_out[out_count] = make_u16(v);
+            out_count += 1;
+        }
+
+        // SonyISO u16.
+        {
+            uint16_t v = 0;
+            if (sony_read_u16le(bytes, 0x0320, rounds, &v)) {
+                tags_out[out_count] = 0x0320;
+                vals_out[out_count] = make_u16(v);
+                out_count += 1;
+            }
+        }
+
+        // LensType2/LensType u16.
+        const uint16_t lens_u16_tags[] = { 0x17F3, 0x17F6 };
+        for (uint32_t i = 0;
+             i < sizeof(lens_u16_tags) / sizeof(lens_u16_tags[0]); ++i) {
+            uint16_t v       = 0;
+            const uint16_t t = lens_u16_tags[i];
+            if (!sony_read_u16le(bytes, t, rounds, &v)) {
+                continue;
+            }
+            tags_out[out_count] = t;
+            vals_out[out_count] = make_u16(v);
+            out_count += 1;
+        }
+
+        // DistortionCorrParamsPresent/Number (u8) already emitted above; add a small
+        // deciphered prefix for DistortionCorrParams itself.
+        if (0x17D0 + 32U <= bytes.size()
+            && 32U <= options.limits.max_value_bytes) {
+            const MetaValue v = make_sony_deciphered_bytes(store.arena(), bytes,
+                                                           0x17D0, 32, rounds);
+            if (v.kind == MetaValueKind::Bytes) {
+                tags_out[out_count] = 0x17D0;
+                vals_out[out_count] = v;
+                out_count += 1;
+            }
+        }
+
+        emit_bin_dir_entries(ifd_name, store,
+                             std::span<const uint16_t>(tags_out, out_count),
+                             std::span<const MetaValue>(vals_out, out_count),
+                             options.limits, status_out);
+    }
+
+
+    static void decode_sony_tag940e(std::span<const std::byte> bytes,
+                                    std::string_view mk_prefix,
+                                    MetaStore& store,
+                                    const ExifDecodeOptions& options,
+                                    ExifDecodeResult* status_out) noexcept
+    {
+        if (bytes.empty()) {
+            return;
+        }
+
+        char sub_ifd_buf[96];
+        const std::string_view ifd_name
+            = make_mk_subtable_ifd_token(mk_prefix, "tag940e", 0,
+                                         std::span<char>(sub_ifd_buf));
+        if (ifd_name.empty()) {
+            return;
+        }
+
+        // Tag940e contains the metering image; width/height are u8s at 0x1A06/0x1A07.
+        // Data is commonly ciphered with the Sony substitution cipher.
+        uint8_t w       = 0;
+        uint8_t h       = 0;
+        uint32_t rounds = 1;
+        bool ok         = sony_read_u8(bytes, 0x1A06, 1, &w)
+                  && sony_read_u8(bytes, 0x1A07, 1, &h);
+        if (!ok || w == 0 || h == 0) {
+            rounds = 2;
+            ok     = sony_read_u8(bytes, 0x1A06, 2, &w)
+                 && sony_read_u8(bytes, 0x1A07, 2, &h);
+        }
+        if (!ok || w == 0 || h == 0) {
+            return;
+        }
+
+        const uint32_t image_bytes = uint32_t(w) * uint32_t(h) * 2U;
+        if (image_bytes == 0U || image_bytes > options.limits.max_value_bytes) {
+            return;
+        }
+        if (0x1A08 + uint64_t(image_bytes) > bytes.size()) {
+            return;
+        }
+
+        const MetaValue img = make_sony_deciphered_bytes(store.arena(), bytes,
+                                                         0x1A08, image_bytes,
+                                                         rounds);
+        if (img.kind != MetaValueKind::Bytes) {
+            return;
+        }
+
+        const uint16_t tags_out[]  = { 0x1A06, 0x1A07, 0x1A08 };
+        const MetaValue vals_out[] = { make_u8(w), make_u8(h), img };
+        emit_bin_dir_entries(ifd_name, store,
+                             std::span<const uint16_t>(tags_out),
+                             std::span<const MetaValue>(vals_out),
+                             options.limits, status_out);
+    }
+
+
+    static void decode_sony_tag9050b(std::span<const std::byte> bytes,
+                                     std::string_view mk_prefix,
+                                     MetaStore& store,
+                                     const ExifDecodeOptions& options,
+                                     ExifDecodeResult* status_out) noexcept
+    {
+        if (bytes.empty()) {
+            return;
+        }
+
+        char sub_ifd_buf[96];
+        const std::string_view ifd_name
+            = make_mk_subtable_ifd_token(mk_prefix, "tag9050b", 0,
+                                         std::span<char>(sub_ifd_buf));
+        if (ifd_name.empty()) {
+            return;
+        }
+
+        const uint32_t rounds = 1;
+
+        uint16_t tags_out[64];
+        MetaValue vals_out[64];
+        uint32_t out_count = 0;
+
+        // u8 scalars.
+        const uint16_t u8_tags[] = { 0x0000, 0x0001, 0x0039, 0x004B, 0x006B,
+                                     0x006D, 0x0073, 0x0105, 0x0106, 0x010B,
+                                     0x0114, 0x01EB, 0x01EE, 0x021A };
+        for (uint32_t i = 0; i < sizeof(u8_tags) / sizeof(u8_tags[0]); ++i) {
+            uint8_t v        = 0;
+            const uint16_t t = u8_tags[i];
+            if (!sony_read_u8(bytes, t, rounds, &v)) {
+                continue;
+            }
+            tags_out[out_count] = t;
+            vals_out[out_count] = make_u8(v);
+            out_count += 1;
+        }
+
+        // u16 scalars.
+        const uint16_t u16_tags[] = { 0x0046, 0x0048 };
+        for (uint32_t i = 0; i < sizeof(u16_tags) / sizeof(u16_tags[0]); ++i) {
+            uint16_t v       = 0;
+            const uint16_t t = u16_tags[i];
+            if (!sony_read_u16le(bytes, t, rounds, &v)) {
+                continue;
+            }
+            tags_out[out_count] = t;
+            vals_out[out_count] = make_u16(v);
+            out_count += 1;
+        }
+
+        // u16[3] shutter.
+        {
+            std::array<uint16_t, 3> v {};
+            bool ok = true;
+            for (uint32_t i = 0; i < v.size(); ++i) {
+                if (!sony_read_u16le(bytes, 0x0026 + i * 2U, rounds, &v[i])) {
+                    ok = false;
+                    break;
+                }
+            }
+            if (ok) {
+                tags_out[out_count] = 0x0026;
+                vals_out[out_count]
+                    = make_u16_array(store.arena(),
+                                     std::span<const uint16_t>(v));
+                out_count += 1;
+            }
+        }
+
+        // u32 counters.
+        const uint16_t u32_tags[] = { 0x003A, 0x0050, 0x0052, 0x0058,
+                                      0x019F, 0x01CB, 0x01CD };
+        for (uint32_t i = 0; i < sizeof(u32_tags) / sizeof(u32_tags[0]); ++i) {
+            uint32_t v       = 0;
+            const uint16_t t = u32_tags[i];
+            if (!sony_read_u32le(bytes, t, rounds, &v)) {
+                continue;
+            }
+            tags_out[out_count] = t;
+            vals_out[out_count] = make_u32(v);
+            out_count += 1;
+        }
+
+        // LensType2/LensType (int16u).
+        const uint16_t lens_u16_tags[] = { 0x0107, 0x0109 };
+        for (uint32_t i = 0;
+             i < sizeof(lens_u16_tags) / sizeof(lens_u16_tags[0]); ++i) {
+            uint16_t v       = 0;
+            const uint16_t t = lens_u16_tags[i];
+            if (!sony_read_u16le(bytes, t, rounds, &v)) {
+                continue;
+            }
+            tags_out[out_count] = t;
+            vals_out[out_count] = make_u16(v);
+            out_count += 1;
+        }
+
+        // SonyTimeMinSec (2 raw bytes).
+        if (0x0061 + 2U <= bytes.size()) {
+            uint8_t b0 = 0;
+            uint8_t b1 = 0;
+            if (sony_read_u8(bytes, 0x0061, rounds, &b0)
+                && sony_read_u8(bytes, 0x0062, rounds, &b1)) {
+                const uint8_t tmp[] = { b0, b1 };
+                tags_out[out_count] = 0x0061;
+                vals_out[out_count]
+                    = make_u8_array(store.arena(),
+                                    std::span<const uint8_t>(tmp, 2));
+                out_count += 1;
+            }
+        }
+
+        // InternalSerialNumber (6 bytes).
+        if (0x0088 + 6U <= bytes.size()) {
+            uint8_t tmp[6];
+            bool ok = true;
+            for (uint32_t i = 0; i < 6; ++i) {
+                ok = ok && sony_read_u8(bytes, 0x0088 + i, rounds, &tmp[i]);
+            }
+            if (ok) {
+                tags_out[out_count] = 0x0088;
+                vals_out[out_count]
+                    = make_u8_array(store.arena(),
+                                    std::span<const uint8_t>(tmp, 6));
+                out_count += 1;
+            }
+        }
+
+        // LensSpecFeatures (undef[2]) at a handful of known offsets.
+        const uint16_t spec_offsets[] = { 0x0116, 0x01ED, 0x01F0, 0x021C,
+                                          0x021E };
+        for (uint32_t i = 0; i < sizeof(spec_offsets) / sizeof(spec_offsets[0]);
+             ++i) {
+            const uint16_t t = spec_offsets[i];
+            if (t + 2U > bytes.size()) {
+                continue;
+            }
+            uint8_t b0 = 0;
+            uint8_t b1 = 0;
+            if (!sony_read_u8(bytes, t + 0, rounds, &b0)
+                || !sony_read_u8(bytes, t + 1, rounds, &b1)) {
+                continue;
+            }
+            const uint8_t tmp[] = { b0, b1 };
+            tags_out[out_count] = t;
+            vals_out[out_count]
+                = make_u8_array(store.arena(),
+                                std::span<const uint8_t>(tmp, 2));
+            out_count += 1;
+        }
+
+        emit_bin_dir_entries(ifd_name, store,
+                             std::span<const uint16_t>(tags_out, out_count),
+                             std::span<const MetaValue>(vals_out, out_count),
+                             options.limits, status_out);
+    }
+
+
+    static void decode_sony_tag9050c(std::span<const std::byte> bytes,
+                                     std::string_view mk_prefix,
+                                     MetaStore& store,
+                                     const ExifDecodeOptions& options,
+                                     ExifDecodeResult* status_out) noexcept
+    {
+        if (bytes.empty()) {
+            return;
+        }
+
+        char sub_ifd_buf[96];
+        const std::string_view ifd_name
+            = make_mk_subtable_ifd_token(mk_prefix, "tag9050c", 0,
+                                         std::span<char>(sub_ifd_buf));
+        if (ifd_name.empty()) {
+            return;
+        }
+
+        const uint32_t rounds = 1;
+
+        uint16_t tags_out[16];
+        MetaValue vals_out[16];
+        uint32_t out_count = 0;
+
+        // u16[3] shutter.
+        {
+            std::array<uint16_t, 3> v {};
+            bool ok = true;
+            for (uint32_t i = 0; i < v.size(); ++i) {
+                if (!sony_read_u16le(bytes, 0x0026 + i * 2U, rounds, &v[i])) {
+                    ok = false;
+                    break;
+                }
+            }
+            if (ok) {
+                tags_out[out_count] = 0x0026;
+                vals_out[out_count]
+                    = make_u16_array(store.arena(),
+                                     std::span<const uint16_t>(v));
+                out_count += 1;
+            }
+        }
+
+        // u8 scalars.
+        const uint16_t u8_tags[] = { 0x0039, 0x004B, 0x006B };
+        for (uint32_t i = 0; i < sizeof(u8_tags) / sizeof(u8_tags[0]); ++i) {
+            uint8_t v        = 0;
+            const uint16_t t = u8_tags[i];
+            if (!sony_read_u8(bytes, t, rounds, &v)) {
+                continue;
+            }
+            tags_out[out_count] = t;
+            vals_out[out_count] = make_u8(v);
+            out_count += 1;
+        }
+
+        // u16 scalars.
+        const uint16_t u16_tags[] = { 0x0046, 0x0048, 0x0066, 0x0068 };
+        for (uint32_t i = 0; i < sizeof(u16_tags) / sizeof(u16_tags[0]); ++i) {
+            uint16_t v       = 0;
+            const uint16_t t = u16_tags[i];
+            if (!sony_read_u16le(bytes, t, rounds, &v)) {
+                continue;
+            }
+            tags_out[out_count] = t;
+            vals_out[out_count] = make_u16(v);
+            out_count += 1;
+        }
+
+        // u32 counters.
+        const uint16_t u32_tags[] = { 0x003A, 0x0050 };
+        for (uint32_t i = 0; i < sizeof(u32_tags) / sizeof(u32_tags[0]); ++i) {
+            uint32_t v       = 0;
+            const uint16_t t = u32_tags[i];
+            if (!sony_read_u32le(bytes, t, rounds, &v)) {
+                continue;
+            }
+            tags_out[out_count] = t;
+            vals_out[out_count] = make_u32(v);
+            out_count += 1;
+        }
+
+        // InternalSerialNumber (6 bytes).
+        if (0x0088 + 6U <= bytes.size()) {
+            uint8_t tmp[6];
+            bool ok = true;
+            for (uint32_t i = 0; i < 6; ++i) {
+                ok = ok && sony_read_u8(bytes, 0x0088 + i, rounds, &tmp[i]);
+            }
+            if (ok) {
+                tags_out[out_count] = 0x0088;
+                vals_out[out_count]
+                    = make_u8_array(store.arena(),
+                                    std::span<const uint8_t>(tmp, 6));
+                out_count += 1;
+            }
+        }
+
+        emit_bin_dir_entries(ifd_name, store,
+                             std::span<const uint16_t>(tags_out, out_count),
+                             std::span<const MetaValue>(vals_out, out_count),
+                             options.limits, status_out);
+    }
+
+
+    static void decode_sony_tag9405b(std::span<const std::byte> bytes,
+                                     std::string_view mk_prefix,
+                                     MetaStore& store,
+                                     const ExifDecodeOptions& options,
+                                     ExifDecodeResult* status_out) noexcept
+    {
+        if (bytes.empty()) {
+            return;
+        }
+
+        char sub_ifd_buf[96];
+        const std::string_view ifd_name
+            = make_mk_subtable_ifd_token(mk_prefix, "tag9405b", 0,
+                                         std::span<char>(sub_ifd_buf));
+        if (ifd_name.empty()) {
+            return;
+        }
+
+        const uint32_t rounds = 1;
+
+        uint16_t tags_out[128];
+        MetaValue vals_out[128];
+        uint32_t out_count = 0;
+
+        uint16_t u16v             = 0;
+        const uint16_t u16_tags[] = { 0x0004, 0x0006, 0x000A, 0x000E, 0x0014,
+                                      0x0016, 0x003E, 0x0040, 0x0342, 0x034E };
+        for (uint32_t i = 0; i < sizeof(u16_tags) / sizeof(u16_tags[0]); ++i) {
+            const uint16_t t = u16_tags[i];
+            if (!sony_read_u16le(bytes, t, rounds, &u16v)) {
+                continue;
+            }
+            tags_out[out_count] = t;
+            vals_out[out_count] = make_u16(u16v);
+            out_count += 1;
+        }
+
+        uint8_t u8v              = 0;
+        const uint16_t u8_tags[] = { 0x0034, 0x0042, 0x0044, 0x0046,
+                                     0x0048, 0x004A, 0x0052, 0x005A,
+                                     0x005B, 0x005D, 0x005E };
+        for (uint32_t i = 0; i < sizeof(u8_tags) / sizeof(u8_tags[0]); ++i) {
+            const uint16_t t = u8_tags[i];
+            if (!sony_read_u8(bytes, t, rounds, &u8v)) {
+                continue;
+            }
+            tags_out[out_count] = t;
+            vals_out[out_count] = make_u8(u8v);
+            out_count += 1;
+        }
+
+        // ExposureTime rational32u at 0x0010.
+        {
+            uint32_t numer = 0;
+            uint32_t denom = 0;
+            if (sony_read_u32le(bytes, 0x0010, rounds, &numer)
+                && sony_read_u32le(bytes, 0x0010 + 4U, rounds, &denom)) {
+                tags_out[out_count] = 0x0010;
+                vals_out[out_count] = make_urational(numer, denom);
+                out_count += 1;
+            }
+        }
+
+        // SequenceImageNumber (int32u) at 0x0024.
+        {
+            uint32_t v = 0;
+            if (sony_read_u32le(bytes, 0x0024, rounds, &v)) {
+                tags_out[out_count] = 0x0024;
+                vals_out[out_count] = make_u32(v);
+                out_count += 1;
+            }
+        }
+
+        // LensMount (u8) at 0x005e already decoded above.
+
+        // LensType2/LensType (int16u) at 0x0060/0x0062.
+        const uint16_t lens_u16_tags[] = { 0x0060, 0x0062 };
+        for (uint32_t i = 0;
+             i < sizeof(lens_u16_tags) / sizeof(lens_u16_tags[0]); ++i) {
+            const uint16_t t = lens_u16_tags[i];
+            uint16_t v       = 0;
+            if (!sony_read_u16le(bytes, t, rounds, &v)) {
+                continue;
+            }
+            tags_out[out_count] = t;
+            vals_out[out_count] = make_u16(v);
+            out_count += 1;
+        }
+
+        // DistortionCorrParams int16s[16] at 0x0064.
+        {
+            std::array<int16_t, 16> v {};
+            bool ok = true;
+            for (uint32_t i = 0; i < v.size(); ++i) {
+                ok = ok
+                     && sony_read_i16le(bytes, 0x0064 + i * 2U, rounds, &v[i]);
+            }
+            if (ok) {
+                tags_out[out_count] = 0x0064;
+                vals_out[out_count]
+                    = make_i16_array(store.arena(),
+                                     std::span<const int16_t>(v));
+                out_count += 1;
+            }
+        }
+
+        // VignettingCorrParams int16s[16].
+        const uint16_t vign_tags[] = { 0x034A, 0x0350, 0x035C, 0x0368 };
+        for (uint32_t ti = 0; ti < sizeof(vign_tags) / sizeof(vign_tags[0]);
+             ++ti) {
+            const uint16_t t = vign_tags[ti];
+            std::array<int16_t, 16> v {};
+            bool ok = true;
+            for (uint32_t i = 0; i < v.size(); ++i) {
+                ok = ok && sony_read_i16le(bytes, t + i * 2U, rounds, &v[i]);
+            }
+            if (!ok) {
+                continue;
+            }
+            tags_out[out_count] = t;
+            vals_out[out_count] = make_i16_array(store.arena(),
+                                                 std::span<const int16_t>(v));
+            out_count += 1;
+        }
+
+        // ChromaticAberrationCorrParams int16s[32].
+        const uint16_t ca_tags[] = { 0x037C, 0x0384, 0x039C, 0x03B0, 0x03B8 };
+        for (uint32_t ti = 0; ti < sizeof(ca_tags) / sizeof(ca_tags[0]); ++ti) {
+            const uint16_t t = ca_tags[ti];
+            std::array<int16_t, 32> v {};
+            bool ok = true;
+            for (uint32_t i = 0; i < v.size(); ++i) {
+                ok = ok && sony_read_i16le(bytes, t + i * 2U, rounds, &v[i]);
+            }
+            if (!ok) {
+                continue;
+            }
+            tags_out[out_count] = t;
+            vals_out[out_count] = make_i16_array(store.arena(),
+                                                 std::span<const int16_t>(v));
+            out_count += 1;
+        }
+
+        emit_bin_dir_entries(ifd_name, store,
+                             std::span<const uint16_t>(tags_out, out_count),
+                             std::span<const MetaValue>(vals_out, out_count),
+                             options.limits, status_out);
+    }
+
+
+    static void decode_sony_tag9416(std::span<const std::byte> bytes,
+                                    std::string_view mk_prefix,
+                                    MetaStore& store,
+                                    const ExifDecodeOptions& options,
+                                    ExifDecodeResult* status_out) noexcept
+    {
+        if (bytes.empty()) {
+            return;
+        }
+
+        char sub_ifd_buf[96];
+        const std::string_view ifd_name
+            = make_mk_subtable_ifd_token(mk_prefix, "tag9416", 0,
+                                         std::span<char>(sub_ifd_buf));
+        if (ifd_name.empty()) {
+            return;
+        }
+
+        const uint8_t allowed_versions[] = { 0x06, 0x07, 0x08, 0x09, 0x0C, 0x0D,
+                                             0x0F, 0x10, 0x11, 0x17, 0x1B };
+        const uint32_t rounds            = sony_guess_cipher_rounds(
+            bytes, 0x0000, std::span<const uint8_t>(allowed_versions));
+
+        uint16_t tags_out[128];
+        MetaValue vals_out[128];
+        uint32_t out_count = 0;
+
+        // u8 tags.
+        uint8_t u8v              = 0;
+        const uint16_t u8_tags[] = { 0x0000, 0x002B, 0x0035, 0x0037,
+                                     0x0048, 0x0049, 0x004A, 0x0070 };
+        for (uint32_t i = 0; i < sizeof(u8_tags) / sizeof(u8_tags[0]); ++i) {
+            const uint16_t t = u8_tags[i];
+            if (!sony_read_u8(bytes, t, rounds, &u8v)) {
+                continue;
+            }
+            tags_out[out_count] = t;
+            vals_out[out_count] = make_u8(u8v);
+            out_count += 1;
+        }
+
+        // u16 tags.
+        uint16_t u16v             = 0;
+        const uint16_t u16_tags[] = { 0x0004, 0x0006, 0x000A, 0x0010, 0x0012,
+                                      0x004B, 0x0071, 0x0073, 0x0075 };
+        for (uint32_t i = 0; i < sizeof(u16_tags) / sizeof(u16_tags[0]); ++i) {
+            const uint16_t t = u16_tags[i];
+            if (!sony_read_u16le(bytes, t, rounds, &u16v)) {
+                continue;
+            }
+            tags_out[out_count] = t;
+            vals_out[out_count] = make_u16(u16v);
+            out_count += 1;
+        }
+
+        // SequenceImageNumber int32u at 0x001d.
+        {
+            uint32_t v = 0;
+            if (sony_read_u32le(bytes, 0x001D, rounds, &v)) {
+                tags_out[out_count] = 0x001D;
+                vals_out[out_count] = make_u32(v);
+                out_count += 1;
+            }
+        }
+
+        // ExposureTime rational32u at 0x000c.
+        {
+            uint32_t numer = 0;
+            uint32_t denom = 0;
+            if (sony_read_u32le(bytes, 0x000C, rounds, &numer)
+                && sony_read_u32le(bytes, 0x000C + 4U, rounds, &denom)) {
+                tags_out[out_count] = 0x000C;
+                vals_out[out_count] = make_urational(numer, denom);
+                out_count += 1;
+            }
+        }
+
+        // DistortionCorrParams int16s[16] at 0x004f.
+        {
+            std::array<int16_t, 16> v {};
+            bool ok = true;
+            for (uint32_t i = 0; i < v.size(); ++i) {
+                ok = ok
+                     && sony_read_i16le(bytes, 0x004F + i * 2U, rounds, &v[i]);
+            }
+            if (ok) {
+                tags_out[out_count] = 0x004F;
+                vals_out[out_count]
+                    = make_i16_array(store.arena(),
+                                     std::span<const int16_t>(v));
+                out_count += 1;
+            }
+        }
+
+        // VignettingCorrParams int16s[32] at 0x089d.
+        {
+            std::array<int16_t, 32> v {};
+            bool ok = true;
+            for (uint32_t i = 0; i < v.size(); ++i) {
+                ok = ok
+                     && sony_read_i16le(bytes, 0x089D + i * 2U, rounds, &v[i]);
+            }
+            if (ok) {
+                tags_out[out_count] = 0x089D;
+                vals_out[out_count]
+                    = make_i16_array(store.arena(),
+                                     std::span<const int16_t>(v));
+                out_count += 1;
+            }
+        }
+
+        // APS-CSizeCapture (u8) at 0x08e5.
+        if (sony_read_u8(bytes, 0x08E5, rounds, &u8v)) {
+            tags_out[out_count] = 0x08E5;
+            vals_out[out_count] = make_u8(u8v);
+            out_count += 1;
+        }
+
+        // ChromaticAberrationCorrParams int16s[32] at 0x0945.
+        {
+            std::array<int16_t, 32> v {};
+            bool ok = true;
+            for (uint32_t i = 0; i < v.size(); ++i) {
+                ok = ok
+                     && sony_read_i16le(bytes, 0x0945 + i * 2U, rounds, &v[i]);
+            }
+            if (ok) {
+                tags_out[out_count] = 0x0945;
+                vals_out[out_count]
+                    = make_i16_array(store.arena(),
+                                     std::span<const int16_t>(v));
+                out_count += 1;
+            }
+        }
+
+        emit_bin_dir_entries(ifd_name, store,
+                             std::span<const uint16_t>(tags_out, out_count),
+                             std::span<const MetaValue>(vals_out, out_count),
+                             options.limits, status_out);
+    }
+
+
+    static void
+    decode_sony_cipher_subdirs(std::string_view mk_ifd0, MetaStore& store,
+                               const ExifDecodeOptions& options,
+                               ExifDecodeResult* status_out) noexcept
+    {
+        if (mk_ifd0.empty()) {
+            return;
+        }
+
+        struct Candidate final {
+            uint16_t tag = 0;
+            MetaValue value;
+        };
+
+        Candidate cands[16];
+        uint32_t cand_count = 0;
+
+        const ByteArena& arena               = store.arena();
+        const std::span<const Entry> entries = store.entries();
+
+        for (size_t i = 0; i < entries.size(); ++i) {
+            const Entry& e = entries[i];
+            if (e.key.kind != MetaKeyKind::ExifTag) {
+                continue;
+            }
+            if (arena_string(arena, e.key.data.exif_tag.ifd) != mk_ifd0) {
+                continue;
+            }
+            if (e.value.kind != MetaValueKind::Bytes) {
+                continue;
+            }
+            const uint16_t tag = e.key.data.exif_tag.tag;
+            switch (tag) {
+            case 0x9050:  // Tag9050*
+            case 0x3000:  // ShotInfo
+            case 0x9400:  // Tag9400*
+            case 0x9401:  // Tag9401 (ISOInfo)
+            case 0x9402:  // Tag9402
+            case 0x9403:  // Tag9403
+            case 0x9404:  // Tag9404*
+            case 0x9405:  // Tag9405*
+            case 0x9406:  // Tag9406*
+            case 0x940C:  // Tag940c
+            case 0x940E:  // Tag940e
+            case 0x9416:  // Tag9416
+            case 0x2010:  // Tag2010*
+            case 0x202A:  // Tag202a
+                break;
+            default: continue;
+            }
+            if (cand_count < sizeof(cands) / sizeof(cands[0])) {
+                cands[cand_count].tag   = tag;
+                cands[cand_count].value = e.value;
+                cand_count += 1;
+            }
+        }
+
+        const std::string_view mk_prefix = "mk_sony";
+        const std::string_view model
+            = find_first_exif_text_value(store, "ifd0", 0x0110 /* Model */);
+
+        for (uint32_t i = 0; i < cand_count; ++i) {
+            const uint16_t tag                   = cands[i].tag;
+            const ByteSpan raw_span              = cands[i].value.data.span;
+            const std::span<const std::byte> raw = store.arena().span(raw_span);
+            if (raw.empty()) {
+                continue;
+            }
+
+            if (tag == 0x3000) {
+                decode_sony_shotinfo_from_tag3000(raw, mk_prefix, store,
+                                                  options, status_out);
+                continue;
+            }
+            if (tag == 0x2010) {
+                decode_sony_tag2010i(raw, mk_prefix, store, options,
+                                     status_out);
+                decode_sony_meterinfo9_from_tag2010(raw, mk_prefix, store,
+                                                    options, status_out);
+                continue;
+            }
+            if (tag == 0x202A) {
+                decode_sony_tag202a(raw, mk_prefix, store, options, status_out);
+                continue;
+            }
+            if (tag == 0x9404) {
+                decode_sony_tag9404(raw, mk_prefix, store, options, status_out);
+                continue;
+            }
+            if (tag == 0x940E) {
+                decode_sony_tag940e(raw, mk_prefix, store, options, status_out);
+                continue;
+            }
+            if (tag == 0x9400) {
+                decode_sony_tag9400(raw, mk_prefix, store, options, status_out);
+                continue;
+            }
+            if (tag == 0x9401) {
+                decode_sony_isoinfo_from_tag9401(raw, mk_prefix, store, options,
+                                                 status_out);
+                continue;
+            }
+            if (tag == 0x9402) {
+                decode_sony_tag9402(raw, mk_prefix, store, options, status_out);
+                continue;
+            }
+            if (tag == 0x9403) {
+                decode_sony_tag9403(raw, mk_prefix, store, options, status_out);
+                continue;
+            }
+            if (tag == 0x9406) {
+                decode_sony_tag9406(raw, mk_prefix, store, options, status_out);
+                continue;
+            }
+            if (tag == 0x940C) {
+                decode_sony_tag940c(raw, mk_prefix, store, options, status_out);
+                continue;
+            }
+            if (tag == 0x9405) {
+                // Best-effort: Tag9405b is common for ILCE-7M3/7RM3/7RM4 etc.
+                decode_sony_tag9405b(raw, mk_prefix, store, options,
+                                     status_out);
+                continue;
+            }
+            if (tag == 0x9416) {
+                decode_sony_tag9416(raw, mk_prefix, store, options, status_out);
+                continue;
+            }
+            if (tag == 0x9050) {
+                // Tag9050 variant depends on camera generation.
+                if (model.find("7RM5") != std::string_view::npos
+                    || model.find("7M4") != std::string_view::npos
+                    || model.find("7SM3") != std::string_view::npos
+                    || model.starts_with("ILCE-1")
+                    || model.starts_with("ILME-")) {
+                    decode_sony_tag9050c(raw, mk_prefix, store, options,
+                                         status_out);
+                } else {
+                    decode_sony_tag9050b(raw, mk_prefix, store, options,
+                                         status_out);
+                }
+                continue;
+            }
+        }
     }
 
 
@@ -1508,6 +3989,30 @@ namespace {
             char sub_ifd_buf[96];
             const std::string_view mk_prefix = "mk_canon";
 
+            // CanonCameraInfo* (tag 0x000d) often contains an embedded TIFF-like
+            // IFD stream describing a "CameraInfo" block. Best-effort: locate a
+            // plausible classic IFD and decode it into mk_canon_camerainfo_0.
+            if (tag == 0x000d && type == 7 && value_bytes != 0U) {
+                const std::span<const std::byte> cam
+                    = tiff_bytes.subspan(static_cast<size_t>(abs_value_off),
+                                         static_cast<size_t>(value_bytes));
+                ClassicIfdCandidate best;
+                if (find_best_classic_ifd_candidate(cam, 512, options.limits,
+                                                    &best)) {
+                    TiffConfig cam_cfg;
+                    cam_cfg.le      = best.le;
+                    cam_cfg.bigtiff = false;
+
+                    const std::string_view sub_ifd = make_mk_subtable_ifd_token(
+                        mk_prefix, "camerainfo", 0,
+                        std::span<char>(sub_ifd_buf));
+                    decode_classic_ifd_no_header(cam_cfg, cam, best.offset,
+                                                 sub_ifd, store, options,
+                                                 status_out,
+                                                 EntryFlags::Derived);
+                }
+            }
+
             // CanonCameraInfo* blobs (tag 0x000d) may embed a PictureStyleInfo
             // table at a fixed offset for some models. Best-effort: decode a
             // psinfo table from the tail starting at 0x025b.
@@ -1535,6 +4040,17 @@ namespace {
                                                      abs_value_off, value_bytes,
                                                      canoncustom_ifd, store,
                                                      options, status_out);
+            }
+
+            if (tag == 0x4011 && type == 7 && value_bytes >= 2U
+                && (value_bytes % 2U) == 0U) {
+                const uint32_t count16 = static_cast<uint32_t>(value_bytes
+                                                               / 2U);
+                const std::string_view sub_ifd
+                    = make_mk_subtable_ifd_token(mk_prefix, "vignettingcorr", 0,
+                                                 std::span<char>(sub_ifd_buf));
+                decode_canon_u16_table(cfg, tiff_bytes, abs_value_off, count16,
+                                       sub_ifd, store, options, status_out);
             }
 
             if (type == 3 && count32 != 0) {  // SHORT
@@ -1579,6 +4095,13 @@ namespace {
                 } else if (tag == 0x00A0) {  // ProcessingInfo
                     const std::string_view sub_ifd = make_mk_subtable_ifd_token(
                         mk_prefix, "processing", 0,
+                        std::span<char>(sub_ifd_buf));
+                    decode_canon_u16_table(cfg, tiff_bytes, abs_value_off,
+                                           count32, sub_ifd, store, options,
+                                           status_out);
+                } else if (tag == 0x4001) {  // ColorData
+                    const std::string_view sub_ifd = make_mk_subtable_ifd_token(
+                        mk_prefix, "colordata", 0,
                         std::span<char>(sub_ifd_buf));
                     decode_canon_u16_table(cfg, tiff_bytes, abs_value_off,
                                            count32, sub_ifd, store, options,
@@ -3043,6 +5566,17 @@ decode_exif_tiff(std::span<const std::byte> tiff_bytes, MetaStore& store,
                     continue;
                 }
 
+                // Sony MakerNote: classic IFD located within the blob, but
+                // value offsets are commonly relative to the outer EXIF/TIFF.
+                if (vendor == MakerNoteVendor::Sony
+                    && decode_sony_makernote(cfg, tiff_bytes, value_off,
+                                             value_bytes, mk_ifd0, store,
+                                             mn_opts, &sink.result)) {
+                    decode_sony_cipher_subdirs(mk_ifd0, store, mn_opts,
+                                               &sink.result);
+                    continue;
+                }
+
                 // 1) Embedded TIFF header inside MakerNote (common for Nikon).
                 const uint64_t hdr_off = find_embedded_tiff_header(mn, 128);
                 if (hdr_off != UINT64_MAX) {
@@ -3051,6 +5585,15 @@ decode_exif_tiff(std::span<const std::byte> tiff_bytes, MetaStore& store,
                         mn.subspan(static_cast<size_t>(hdr_off)), store,
                         std::span<ExifIfdRef>(mn_ifds.data(), mn_ifds.size()),
                         mn_opts);
+
+                    if (vendor == MakerNoteVendor::Nikon
+                        && (hdr_off + 2U) <= mn.size()) {
+                        const uint8_t hdr_b0 = u8(mn[hdr_off + 0]);
+                        const uint8_t hdr_b1 = u8(mn[hdr_off + 1]);
+                        const bool le        = (hdr_b0 == 'I' && hdr_b1 == 'I');
+                        decode_nikon_binary_subdirs(mk_ifd0, store, le, mn_opts,
+                                                    &sink.result);
+                    }
                     continue;
                 }
 
@@ -3066,7 +5609,8 @@ decode_exif_tiff(std::span<const std::byte> tiff_bytes, MetaStore& store,
                             fuji_cfg.bigtiff = false;
                             decode_classic_ifd_no_header(fuji_cfg, mn, ifd_off,
                                                          mk_ifd0, store,
-                                                         mn_opts, &sink.result);
+                                                         mn_opts, &sink.result,
+                                                         EntryFlags::None);
                             continue;
                         }
                     }
@@ -3082,14 +5626,24 @@ decode_exif_tiff(std::span<const std::byte> tiff_bytes, MetaStore& store,
                     best_cfg.bigtiff = false;
                     decode_classic_ifd_no_header(best_cfg, mn, best.offset,
                                                  mk_ifd0, store, mn_opts,
-                                                 &sink.result);
+                                                 &sink.result,
+                                                 EntryFlags::None);
+                    if (vendor == MakerNoteVendor::Sony) {
+                        decode_sony_cipher_subdirs(mk_ifd0, store, mn_opts,
+                                                   &sink.result);
+                    }
                     continue;
                 }
 
                 // 4) Canon-style MakerNotes: raw IFD starting at offset 0,
                 // offsets relative to MakerNote start, using parent endianness.
                 decode_classic_ifd_no_header(cfg, mn, 0, mk_ifd0, store,
-                                             mn_opts, &sink.result);
+                                             mn_opts, &sink.result,
+                                             EntryFlags::None);
+                if (vendor == MakerNoteVendor::Sony) {
+                    decode_sony_cipher_subdirs(mk_ifd0, store, mn_opts,
+                                               &sink.result);
+                }
             }
         }
     }

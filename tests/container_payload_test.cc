@@ -292,7 +292,7 @@ namespace {
         append_bmff_box(&iinf_box, fourcc('i', 'i', 'n', 'f'), iinf_payload);
 
         std::vector<std::byte> idat_payload;
-        append_u32be(&idat_payload, 4);  // TIFF header offset
+        append_u32be(&idat_payload, 0);  // TIFF header offset
         {
             const std::array<std::byte, 4> tiff_hdr = {
                 std::byte { 'I' },

@@ -98,7 +98,7 @@ LLVMFuzzerTestOneInput(const uint8_t* data, size_t size)
 
     std::vector<std::byte> idat_payload;
     // Prefix with a plausible BMFF Exif TIFF offset.
-    append_u32be(&idat_payload, 4);
+    append_u32be(&idat_payload, 0);
     idat_payload.insert(idat_payload.end(),
                         reinterpret_cast<const std::byte*>(data),
                         reinterpret_cast<const std::byte*>(data + size));
