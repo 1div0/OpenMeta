@@ -1,0 +1,5 @@
+{"kind":"exif.tag","ifd":"interopifd","tag":"0x0001","name":"InteroperabilityIndex","aliases":["InteropIndex"]}
+{"kind":"exif.tag","ifd":"interopifd","tag":"0x0002","name":"InteroperabilityVersion","aliases":["InteropVersion"]}
+{"kind":"exif.tag","ifd":"interopifd","tag":"0x1000","name":"RelatedImageFileFormat"}
+{"kind":"exif.tag","ifd":"interopifd","tag":"0x1001","name":"RelatedImageWidth"}
+{"kind":"exif.tag","ifd":"interopifd","tag":"0x1002","name":"RelatedImageLength","aliases":["RelatedImageHeight"]}

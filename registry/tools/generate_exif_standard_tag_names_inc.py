@@ -9,18 +9,6 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 
-def _cpp_ident(name: str) -> str:
-    out: List[str] = []
-    cap_next = True
-    for ch in name:
-        if ch.isalnum():
-            out.append(ch.upper() if cap_next else ch)
-            cap_next = False
-        else:
-            cap_next = True
-    return "".join(out) if out else "Unknown"
-
-
 def _emit(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
@@ -38,13 +26,13 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument(
         "--in-path",
         type=Path,
-        default=Path("registry/exif/makernotes"),
+        default=Path("registry/exif/standard"),
         help="Input registry path (a .jsonl file or a directory of .jsonl files).",
     )
     ap.add_argument(
         "--out-inc",
         type=Path,
-        default=Path("src/openmeta/exif_makernote_tag_names_generated.inc"),
+        default=Path("src/openmeta/exif_standard_tag_names_generated.inc"),
         help="Output C++ include with static tag-name tables.",
     )
     args = ap.parse_args(argv)
@@ -67,6 +55,8 @@ def main(argv: Optional[List[str]] = None) -> int:
                 if rec.get("kind") != "exif.tag":
                     continue
                 ifd = rec.get("ifd", "")
+                if not ifd:
+                    continue
 
                 tag_s = rec.get("tag", "")
                 if not tag_s:
@@ -86,22 +76,25 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     out: List[str] = []
     out.append("// Generated file. Do not edit by hand.\n")
-    out.append("// Generated from: registry/exif/makernotes/*.jsonl\n\n")
+    out.append("// Generated from: registry/exif/standard/*.jsonl\n\n")
+
+    array_names = {
+        "ifd": "kStandardIfdTags",
+        "exififd": "kStandardExifIfdTags",
+        "gpsifd": "kStandardGpsIfdTags",
+        "interopifd": "kStandardInteropIfdTags",
+        "mpf": "kStandardMpfTags",
+    }
 
     for ifd in sorted(tables.keys()):
         items: List[Tuple[int, str]] = sorted(tables[ifd].items(), key=lambda kv: kv[0])
-        ident = _cpp_ident(ifd)
-        out.append(f"static constexpr MakerNoteTagNameEntry k{ident}[] = {{\n")
+        array_name = array_names.get(ifd)
+        if not array_name:
+            continue
+        out.append(f"static constexpr StandardTagNameEntry {array_name}[] = {{\n")
         for tag, name in items:
             out.append(f"    {{ 0x{tag:04X}u, \"{_escape_c_string(name)}\" }},\n")
         out.append("};\n\n")
-
-    out.append("static constexpr MakerNoteTableMap kMakerNoteTables[] = {\n")
-    for ifd in sorted(tables.keys()):
-        ident = _cpp_ident(ifd)
-        count = len(tables[ifd])
-        out.append(f"    {{ \"{ifd}\", k{ident}, {count}u }},\n")
-    out.append("};\n")
 
     _emit(args.out_inc, "".join(out))
     return 0
@@ -109,3 +102,4 @@ def main(argv: Optional[List[str]] = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

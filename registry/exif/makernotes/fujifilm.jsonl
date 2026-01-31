@@ -108,3 +108,4 @@
 {"kind":"exif.tag","ifd":"makernote:fujifilm:rafdata","tag":"0x0008","name":"RawImageHeight"}
 {"kind":"exif.tag","ifd":"makernote:fujifilm:rafdata","tag":"0x0008","name":"RawImageWidth"}
 {"kind":"exif.tag","ifd":"makernote:fujifilm:rafdata","tag":"0x000c","name":"RawImageHeight"}
+{"kind":"exif.tag","ifd":"makernote:fujifilm:main","tag":"0x1200","name":"Fuji_0x1200"}

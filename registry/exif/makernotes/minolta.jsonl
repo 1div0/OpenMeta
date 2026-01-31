@@ -197,6 +197,7 @@
 {"kind":"exif.tag","ifd":"makernote:minolta:camerasettingsa100","tag":"0x0060","name":"BatteryState"}
 {"kind":"exif.tag","ifd":"makernote:minolta:isinfoa100","tag":"0x0000","name":"ImageStabilization"}
 {"kind":"exif.tag","ifd":"makernote:minolta:main","tag":"0x0000","name":"MakerNoteVersion"}
+{"kind":"exif.tag","ifd":"makernote:minolta:main","tag":"0x0010","name":"Minolta_0x0010"}
 {"kind":"exif.tag","ifd":"makernote:minolta:main","tag":"0x0018","name":"ImageStabilization"}
 {"kind":"exif.tag","ifd":"makernote:minolta:main","tag":"0x0040","name":"CompressedImageSize"}
 {"kind":"exif.tag","ifd":"makernote:minolta:main","tag":"0x0081","name":"PreviewImage"}
@@ -209,6 +210,7 @@
 {"kind":"exif.tag","ifd":"makernote:minolta:main","tag":"0x0103","name":"MinoltaQuality"}
 {"kind":"exif.tag","ifd":"makernote:minolta:main","tag":"0x0104","name":"FlashExposureComp"}
 {"kind":"exif.tag","ifd":"makernote:minolta:main","tag":"0x0105","name":"Teleconverter"}
+{"kind":"exif.tag","ifd":"makernote:minolta:main","tag":"0x0106","name":"Minolta_0x0106"}
 {"kind":"exif.tag","ifd":"makernote:minolta:main","tag":"0x0107","name":"ImageStabilization"}
 {"kind":"exif.tag","ifd":"makernote:minolta:main","tag":"0x0109","name":"RawAndJpgRecording"}
 {"kind":"exif.tag","ifd":"makernote:minolta:main","tag":"0x010a","name":"ZoneMatching"}

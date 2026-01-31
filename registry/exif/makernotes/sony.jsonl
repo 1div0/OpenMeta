@@ -492,6 +492,11 @@
 {"kind":"exif.tag","ifd":"makernote:sony:main","tag":"0x1002","name":"MultiBurstImageHeight"}
 {"kind":"exif.tag","ifd":"makernote:sony:main","tag":"0x1003","name":"Sony_0x1003"}
 {"kind":"exif.tag","ifd":"makernote:sony:main","tag":"0x2000","name":"Sony_0x2000"}
+{"kind":"exif.tag","ifd":"makernote:sony:main","tag":"0x202a","name":"Sony_0x202a"}
+{"kind":"exif.tag","ifd":"makernote:sony:main","tag":"0x3000","name":"Sony_0x3000"}
+{"kind":"exif.tag","ifd":"makernote:sony:main","tag":"0x9401","name":"Sony_0x9401"}
+{"kind":"exif.tag","ifd":"makernote:sony:main","tag":"0x9403","name":"Sony_0x9403"}
+{"kind":"exif.tag","ifd":"makernote:sony:main","tag":"0x9416","name":"Sony_0x9416"}
 {"kind":"exif.tag","ifd":"makernote:sony:main","tag":"0x2001","name":"PreviewImage"}
 {"kind":"exif.tag","ifd":"makernote:sony:main","tag":"0x2002","name":"Rating"}
 {"kind":"exif.tag","ifd":"makernote:sony:main","tag":"0x2003","name":"Sony_0x2003"}

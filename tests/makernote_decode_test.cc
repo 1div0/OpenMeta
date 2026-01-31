@@ -144,7 +144,8 @@ namespace {
         uint32_t exif_ifd_off            = 0;
         const size_t ifd0_entries_off    = size_t(ifd0_off) + 2U;
         const size_t ifd0_entries_bytes  = size_t(ifd0_count) * 12U;
-        const size_t ifd0_entries_needed = ifd0_entries_off + ifd0_entries_bytes;
+        const size_t ifd0_entries_needed = ifd0_entries_off
+                                           + ifd0_entries_bytes;
         if (ifd0_entries_needed > bytes.size()) {
             return false;
         }
@@ -172,10 +173,11 @@ namespace {
             return false;
         }
 
-        uint32_t maker_note_off            = 0;
-        const size_t exif_entries_off      = size_t(exif_ifd_off) + 2U;
-        const size_t exif_entries_bytes    = size_t(exif_count) * 12U;
-        const size_t exif_entries_needed   = exif_entries_off + exif_entries_bytes;
+        uint32_t maker_note_off          = 0;
+        const size_t exif_entries_off    = size_t(exif_ifd_off) + 2U;
+        const size_t exif_entries_bytes  = size_t(exif_count) * 12U;
+        const size_t exif_entries_needed = exif_entries_off
+                                           + exif_entries_bytes;
         if (exif_entries_needed > bytes.size()) {
             return false;
         }
@@ -295,12 +297,11 @@ namespace {
         const uint32_t make_off       = ifd0_off + ifd0_size;
         const uint32_t make_count     = static_cast<uint32_t>(make.size() + 1U);
         const uint32_t model_off      = make_off + make_count;
-        const uint32_t model_count
-            = static_cast<uint32_t>(model.size() + 1U);
-        const uint32_t exif_ifd_off   = model_off + model_count;
-        const uint32_t exif_entry_cnt = 1;
-        const uint32_t exif_ifd_size  = 2U + exif_entry_cnt * 12U + 4U;
-        const uint32_t maker_note_off = exif_ifd_off + exif_ifd_size;
+        const uint32_t model_count  = static_cast<uint32_t>(model.size() + 1U);
+        const uint32_t exif_ifd_off = model_off + model_count;
+        const uint32_t exif_entry_cnt   = 1;
+        const uint32_t exif_ifd_size    = 2U + exif_entry_cnt * 12U + 4U;
+        const uint32_t maker_note_off   = exif_ifd_off + exif_ifd_size;
         const uint32_t maker_note_count = (maker_note.size() > UINT32_MAX)
                                               ? UINT32_MAX
                                               : static_cast<uint32_t>(
@@ -432,6 +433,31 @@ namespace {
         return mn;
     }
 
+    static std::vector<std::byte>
+    make_canon_camera_settings_makernote_adjusted_base()
+    {
+        // Canon MakerNote where the out-of-line value offset is not relative to
+        // the MakerNote start, but to an adjusted base. This occurs in some
+        // real-world Canon JPEGs where ExifTool reports:
+        //   "Adjusted MakerNotes base by <N>".
+        //
+        // The value bytes are placed immediately after the IFD table (at +18),
+        // but the offset field stores a larger value (50). The decoder should
+        // infer a base shift so that base+50 == maker_note_off+18.
+        std::vector<std::byte> mn;
+        append_u16le(&mn, 1);       // entry count
+        append_u16le(&mn, 0x0001);  // CanonCameraSettings
+        append_u16le(&mn, 3);       // SHORT
+        append_u32le(&mn, 3);       // count
+        append_u32le(&mn, 50);      // value offset (adjusted base)
+        append_u32le(&mn, 0);       // next IFD
+        EXPECT_EQ(mn.size(), 18U);
+        append_u16le(&mn, 0);
+        append_u16le(&mn, 11);
+        append_u16le(&mn, 22);
+        return mn;
+    }
+
 
     static std::vector<std::byte> make_canon_custom_functions2_makernote()
     {
@@ -442,7 +468,7 @@ namespace {
         append_u16le(&mn, 0x0099);  // CustomFunctions2
         append_u16le(&mn, 4);       // LONG
         append_u32le(&mn, 8);       // count (32 bytes / 4)
-        append_u32le(&mn, 0);       // value offset placeholder (absolute)
+        append_u32le(&mn, 18);      // value offset (MakerNote-relative)
         append_u32le(&mn, 0);       // next IFD
         EXPECT_EQ(mn.size(), 18U);
 
@@ -489,8 +515,8 @@ namespace {
         append_u16le(&mn, 0x000d);  // CanonCameraInfo* blob
         append_u16le(&mn, 7);       // UNDEFINED bytes
         append_u32le(&mn, static_cast<uint32_t>(cam_bytes));
-        append_u32le(&mn, 0);  // value offset placeholder (absolute)
-        append_u32le(&mn, 0);  // next IFD
+        append_u32le(&mn, 18);  // value offset (MakerNote-relative)
+        append_u32le(&mn, 0);   // next IFD
         EXPECT_EQ(mn.size(), 18U);
         mn.insert(mn.end(), cam.begin(), cam.end());
         return mn;
@@ -505,7 +531,7 @@ namespace {
         append_u16le(&mn, 0x0026);  // CanonAFInfo2
         append_u16le(&mn, 3);       // SHORT
         append_u32le(&mn, 48);      // count (96 bytes)
-        append_u32le(&mn, 0);       // value offset placeholder (absolute)
+        append_u32le(&mn, 18);      // value offset (MakerNote-relative)
         append_u32le(&mn, 0);       // next IFD
         EXPECT_EQ(mn.size(), 18U);
 
@@ -619,6 +645,176 @@ namespace {
         mn.push_back(std::byte { 2 });
         mn.push_back(std::byte { 0 });
 
+        return mn;
+    }
+
+    static std::vector<std::byte> make_nikon_makernote_with_binary_subdirs()
+    {
+        // Nikon MakerNote with an embedded TIFF header, and a number of
+        // BinaryData subdirectory tags (UNDEFINED byte blobs) commonly seen in
+        // real-world Nikon RAW files.
+        std::vector<std::byte> mn;
+        append_bytes(&mn, "Nikon");
+        mn.push_back(std::byte { 0 });
+        mn.push_back(std::byte { 2 });
+        mn.push_back(std::byte { 0 });
+        mn.push_back(std::byte { 0 });
+        mn.push_back(std::byte { 0 });
+        EXPECT_EQ(mn.size(), 10U);
+
+        append_bytes(&mn, "II");
+        append_u16le(&mn, 42);
+        append_u32le(&mn, 8);
+
+        static constexpr uint16_t kEntryCount = 8;
+        append_u16le(&mn, kEntryCount);
+
+        uint32_t value_off = 8U + 2U + static_cast<uint32_t>(kEntryCount) * 12U
+                             + 4U;
+
+        // Tag 0x0001 LONG value 0x01020304 (inline).
+        append_u16le(&mn, 0x0001);
+        append_u16le(&mn, 4);
+        append_u32le(&mn, 1);
+        append_u32le(&mn, 0x01020304U);
+
+        // VRInfo (0x001f) UNDEFINED[8].
+        append_u16le(&mn, 0x001f);
+        append_u16le(&mn, 7);
+        append_u32le(&mn, 8);
+        append_u32le(&mn, value_off);
+        value_off += 8;
+
+        // DistortInfo (0x002b) UNDEFINED[16].
+        append_u16le(&mn, 0x002b);
+        append_u16le(&mn, 7);
+        append_u32le(&mn, 16);
+        append_u32le(&mn, value_off);
+        value_off += 16;
+
+        // FlashInfo (0x00a8) UNDEFINED[49].
+        append_u16le(&mn, 0x00a8);
+        append_u16le(&mn, 7);
+        append_u32le(&mn, 49);
+        append_u32le(&mn, value_off);
+        value_off += 49;
+
+        // MultiExposure (0x00b0) UNDEFINED[16].
+        append_u16le(&mn, 0x00b0);
+        append_u16le(&mn, 7);
+        append_u32le(&mn, 16);
+        append_u32le(&mn, value_off);
+        value_off += 16;
+
+        // AFInfo2 (0x00b7) UNDEFINED[30].
+        append_u16le(&mn, 0x00b7);
+        append_u16le(&mn, 7);
+        append_u32le(&mn, 30);
+        append_u32le(&mn, value_off);
+        value_off += 30;
+
+        // FileInfo (0x00b8) UNDEFINED[10].
+        append_u16le(&mn, 0x00b8);
+        append_u16le(&mn, 7);
+        append_u32le(&mn, 10);
+        append_u32le(&mn, value_off);
+        value_off += 10;
+
+        // RetouchInfo (0x00bb) UNDEFINED[8].
+        append_u16le(&mn, 0x00bb);
+        append_u16le(&mn, 7);
+        append_u32le(&mn, 8);
+        append_u32le(&mn, value_off);
+        value_off += 8;
+
+        append_u32le(&mn, 0);  // next IFD
+
+        const uint32_t expected_value_start
+            = 10U + 8U + 2U + static_cast<uint32_t>(kEntryCount) * 12U + 4U;
+        EXPECT_EQ(mn.size(), expected_value_start);
+
+        // VRInfo value bytes (version "0101", vr_enabled=1, vr_mode=2).
+        append_bytes(&mn, "0101");
+        mn.push_back(std::byte { 1 });
+        mn.push_back(std::byte { 0 });
+        mn.push_back(std::byte { 2 });
+        mn.push_back(std::byte { 0 });
+
+        // DistortInfo value bytes (version "0100", AutoDistortionControl=1).
+        {
+            std::array<std::byte, 16> raw {};
+            raw[0] = std::byte { '0' };
+            raw[1] = std::byte { '1' };
+            raw[2] = std::byte { '0' };
+            raw[3] = std::byte { '0' };
+            raw[4] = std::byte { 1 };
+            mn.insert(mn.end(), raw.begin(), raw.end());
+        }
+
+        // FlashInfo0106 value bytes (mostly zeros, but include a few fields).
+        {
+            std::array<std::byte, 49> raw {};
+            raw[0]      = std::byte { '0' };
+            raw[1]      = std::byte { '1' };
+            raw[2]      = std::byte { '0' };
+            raw[3]      = std::byte { '6' };
+            raw[4]      = std::byte { 1 };     // FlashSource
+            raw[6]      = std::byte { 0x11 };  // ExternalFlashFirmware[0]
+            raw[7]      = std::byte { 0x22 };  // ExternalFlashFirmware[1]
+            raw[8]      = std::byte { 0x33 };  // ExternalFlashFlags
+            raw[0x27]   = std::byte { 0x80 };  // FlashCompensation (-128)
+            raw[0x002a] = std::byte { 0xFF };  // FlashGroupCCompensation (-1)
+            mn.insert(mn.end(), raw.begin(), raw.end());
+        }
+
+        // MultiExposure value bytes (version "0100", mode=1, shots=2, gain=3).
+        append_bytes(&mn, "0100");
+        append_u32le(&mn, 1);
+        append_u32le(&mn, 2);
+        append_u32le(&mn, 3);
+
+        // AFInfo2 value bytes (version "0100", some fields + offsets).
+        {
+            std::array<std::byte, 30> raw {};
+            raw[0]    = std::byte { '0' };
+            raw[1]    = std::byte { '1' };
+            raw[2]    = std::byte { '0' };
+            raw[3]    = std::byte { '0' };
+            raw[4]    = std::byte { 1 };  // ContrastDetectAF
+            raw[5]    = std::byte { 8 };  // AFAreaMode
+            raw[6]    = std::byte { 3 };  // PhaseDetectAF
+            raw[7]    = std::byte { 2 };  // PrimaryAFPoint
+            raw[8]    = std::byte { 0xaa };
+            raw[9]    = std::byte { 0xbb };
+            raw[10]   = std::byte { 0xcc };
+            raw[11]   = std::byte { 0xdd };
+            raw[12]   = std::byte { 0xee };
+            raw[0x10] = std::byte { 0x34 };  // AFImageWidth (0x1234 le)
+            raw[0x11] = std::byte { 0x12 };
+            raw[0x12] = std::byte { 0x78 };  // AFImageHeight (0x5678 le)
+            raw[0x13] = std::byte { 0x56 };
+            raw[0x1c] = std::byte { 1 };  // ContrastDetectAFInFocus
+            mn.insert(mn.end(), raw.begin(), raw.end());
+        }
+
+        // FileInfo value bytes (version "0100", card=2, dir=99, file=8).
+        append_bytes(&mn, "0100");
+        append_u16le(&mn, 2);
+        append_u16le(&mn, 99);
+        append_u16le(&mn, 8);
+
+        // RetouchInfo value bytes (version "0200", processing=-1).
+        {
+            std::array<std::byte, 8> raw {};
+            raw[0] = std::byte { '0' };
+            raw[1] = std::byte { '2' };
+            raw[2] = std::byte { '0' };
+            raw[3] = std::byte { '0' };
+            raw[5] = std::byte { 0xFF };
+            mn.insert(mn.end(), raw.begin(), raw.end());
+        }
+
+        EXPECT_EQ(mn.size(), static_cast<size_t>(10U + value_off));
         return mn;
     }
 
@@ -1139,13 +1335,33 @@ TEST(MakerNoteDecode, DecodesKonicaMinoltaMakerNoteByMakeString)
 
 TEST(MakerNoteDecode, DecodesCanonBinaryDataCameraSettingsIntoDerivedIfd)
 {
-    std::vector<std::byte> mn   = make_canon_camera_settings_makernote();
-    const std::string_view make = "Canon";
-    const uint32_t maker_note_off
-        = 57U + static_cast<uint32_t>(make.size());  // see builder layout
-    const uint32_t value_off_abs = maker_note_off + 18U;
-    write_u32le_at(&mn, 10U, value_off_abs);
+    std::vector<std::byte> mn         = make_canon_camera_settings_makernote();
+    const std::string_view make       = "Canon";
+    const std::vector<std::byte> tiff = make_test_tiff_with_makernote(make, mn);
 
+    MetaStore store;
+    std::array<ExifIfdRef, 8> ifds {};
+    ExifDecodeOptions options;
+    options.decode_makernote   = true;
+    const ExifDecodeResult res = decode_exif_tiff(tiff, store, ifds, options);
+    EXPECT_EQ(res.status, ExifDecodeStatus::Ok);
+
+    store.finalize();
+    const std::span<const EntryId> ids = store.find_all(
+        exif_key("mk_canon_camerasettings_0", 0x0002));
+    ASSERT_EQ(ids.size(), 1U);
+    const Entry& e = store.entry(ids[0]);
+    EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
+    EXPECT_EQ(e.value.elem_type, MetaElementType::U16);
+    EXPECT_EQ(e.value.data.u64, 22U);
+    EXPECT_TRUE(any(e.flags, EntryFlags::Derived));
+}
+
+TEST(MakerNoteDecode, DecodesCanonBinaryDataCameraSettingsWithAdjustedBase)
+{
+    std::vector<std::byte> mn
+        = make_canon_camera_settings_makernote_adjusted_base();
+    const std::string_view make       = "Canon";
     const std::vector<std::byte> tiff = make_test_tiff_with_makernote(make, mn);
 
     MetaStore store;
@@ -1171,11 +1387,6 @@ TEST(MakerNoteDecode, DecodesCanonCustomFunctions2IntoDerivedIfd)
 {
     std::vector<std::byte> mn   = make_canon_custom_functions2_makernote();
     const std::string_view make = "Canon";
-    const uint32_t maker_note_off
-        = 57U + static_cast<uint32_t>(make.size());  // see builder layout
-    const uint32_t value_off_abs = maker_note_off + 18U;
-    write_u32le_at(&mn, 10U, value_off_abs);
-
     const std::vector<std::byte> tiff = make_test_tiff_with_makernote(make, mn);
 
     MetaStore store;
@@ -1201,11 +1412,6 @@ TEST(MakerNoteDecode, DecodesCanonCameraInfoPictureStyleIntoDerivedIfd)
 {
     std::vector<std::byte> mn   = make_canon_camera_info_psinfo_makernote();
     const std::string_view make = "Canon";
-    const uint32_t maker_note_off
-        = 57U + static_cast<uint32_t>(make.size());  // see builder layout
-    const uint32_t value_off_abs = maker_note_off + 18U;
-    write_u32le_at(&mn, 10U, value_off_abs);
-
     const std::vector<std::byte> tiff = make_test_tiff_with_makernote(make, mn);
 
     MetaStore store;
@@ -1251,13 +1457,8 @@ TEST(MakerNoteDecode, DecodesCanonCameraInfoPictureStyleIntoDerivedIfd)
 
 TEST(MakerNoteDecode, DecodesCanonAfInfo2IntoDerivedIfd)
 {
-    std::vector<std::byte> mn   = make_canon_afinfo2_makernote();
-    const std::string_view make = "Canon";
-    const uint32_t maker_note_off
-        = 57U + static_cast<uint32_t>(make.size());  // see builder layout
-    const uint32_t value_off_abs = maker_note_off + 18U;
-    write_u32le_at(&mn, 10U, value_off_abs);
-
+    std::vector<std::byte> mn         = make_canon_afinfo2_makernote();
+    const std::string_view make       = "Canon";
     const std::vector<std::byte> tiff = make_test_tiff_with_makernote(make, mn);
 
     MetaStore store;
@@ -1407,6 +1608,82 @@ TEST(MakerNoteDecode, DecodesNikonBinarySubdirectories)
                 store.arena().span(e.value.data.span).data()),
             store.arena().span(e.value.data.span).size());
         EXPECT_EQ(v, "0101");
+        EXPECT_TRUE(any(e.flags, EntryFlags::Derived));
+    }
+}
+
+TEST(MakerNoteDecode, DecodesNikonBinarySubdirectoriesExtended)
+{
+    const std::vector<std::byte> mn = make_nikon_makernote_with_binary_subdirs();
+    const std::vector<std::byte> tiff = make_test_tiff_with_makernote("Canon",
+                                                                      mn);
+
+    MetaStore store;
+    std::array<ExifIfdRef, 8> ifds {};
+    ExifDecodeOptions options;
+    options.decode_makernote   = true;
+    const ExifDecodeResult res = decode_exif_tiff(tiff, store, ifds, options);
+    EXPECT_EQ(res.status, ExifDecodeStatus::Ok);
+
+    store.finalize();
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("mk_nikon_distortinfo_0", 0x0004));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
+        EXPECT_EQ(e.value.elem_type, MetaElementType::U8);
+        EXPECT_EQ(e.value.data.u64, 1U);
+        EXPECT_TRUE(any(e.flags, EntryFlags::Derived));
+    }
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("mk_nikon_flashinfo0106_0", 0x0006));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Array);
+        EXPECT_EQ(e.value.elem_type, MetaElementType::U8);
+        EXPECT_EQ(e.value.count, 2U);
+        EXPECT_TRUE(any(e.flags, EntryFlags::Derived));
+    }
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("mk_nikon_multiexposure_0", 0x0003));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
+        EXPECT_EQ(e.value.elem_type, MetaElementType::U32);
+        EXPECT_EQ(e.value.data.u64, 3U);
+        EXPECT_TRUE(any(e.flags, EntryFlags::Derived));
+    }
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("mk_nikon_afinfo2v0100_0", 0x001c));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
+        EXPECT_EQ(e.value.elem_type, MetaElementType::U8);
+        EXPECT_EQ(e.value.data.u64, 1U);
+        EXPECT_TRUE(any(e.flags, EntryFlags::Derived));
+    }
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("mk_nikon_fileinfo_0", 0x0003));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
+        EXPECT_EQ(e.value.elem_type, MetaElementType::U16);
+        EXPECT_EQ(e.value.data.u64, 99U);
+        EXPECT_TRUE(any(e.flags, EntryFlags::Derived));
+    }
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("mk_nikon_retouchinfo_0", 0x0005));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
+        EXPECT_EQ(e.value.elem_type, MetaElementType::I8);
+        EXPECT_EQ(static_cast<int64_t>(e.value.data.i64), -1);
         EXPECT_TRUE(any(e.flags, EntryFlags::Derived));
     }
 }

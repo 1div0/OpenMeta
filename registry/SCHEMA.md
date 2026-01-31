@@ -41,6 +41,7 @@ Required fields:
 Optional fields:
 - `type`: value type token (e.g. `"ascii"`, `"short"`, `"rational"`, `"undefined"`, `"utf8"`)
 - `count`: component count (`0` = any, `-1` = unknown)
+- `aliases`: alternate names (list of strings) used by other tools/specs
 
 ## `kind: "iptc.dataset"`
 Describes an IPTC-IIM dataset.
