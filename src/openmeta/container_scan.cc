@@ -1754,6 +1754,66 @@ namespace {
                || (b0 == 0x4D && b1 == 0x4D && b2 == 0x00 && b3 == 0x2A);
     }
 
+    static bool bmff_is_cr3_cmt_box(uint32_t type) noexcept
+    {
+        return type == fourcc('C', 'M', 'T', '1')
+               || type == fourcc('C', 'M', 'T', '2')
+               || type == fourcc('C', 'M', 'T', '3')
+               || type == fourcc('C', 'M', 'T', '4');
+    }
+
+    static bool bmff_type_looks_ascii(uint32_t type) noexcept
+    {
+        for (uint32_t i = 0; i < 4; ++i) {
+            const uint8_t b = static_cast<uint8_t>(
+                (type >> ((3 - i) * 8)) & 0xFF);
+            if (b < 0x20 || b > 0x7E) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    static bool bmff_payload_may_contain_boxes(std::span<const std::byte> bytes,
+                                               uint64_t payload_off,
+                                               uint64_t payload_end) noexcept
+    {
+        if (payload_off + 8 > payload_end || payload_end > bytes.size()) {
+            return false;
+        }
+
+        uint32_t size32 = 0;
+        uint32_t type   = 0;
+        if (!read_u32be(bytes, payload_off + 0, &size32)
+            || !read_u32be(bytes, payload_off + 4, &type)) {
+            return false;
+        }
+        if (!bmff_type_looks_ascii(type)) {
+            return false;
+        }
+
+        if (size32 == 0) {
+            return true;
+        }
+        if (size32 == 1) {
+            if (payload_off + 16 > payload_end) {
+                return false;
+            }
+            uint64_t size64 = 0;
+            if (!read_u64be(bytes, payload_off + 8, &size64)) {
+                return false;
+            }
+            if (size64 < 16) {
+                return false;
+            }
+            return payload_off + size64 <= payload_end;
+        }
+        if (size32 < 8) {
+            return false;
+        }
+        return payload_off + static_cast<uint64_t>(size32) <= payload_end;
+    }
+
 
     static void bmff_emit_uuid_payload(ContainerFormat format,
                                        ContainerBlockKind kind,
@@ -1777,42 +1837,85 @@ namespace {
                                          const BmffBox& box,
                                          BlockSink* sink) noexcept
     {
-        const uint64_t child_off0 = box.offset + box.header_size;
-        const uint64_t child_end  = box.offset + box.size;
-        if (child_off0 >= child_end) {
+        const uint64_t payload_off0 = box.offset + box.header_size;
+        const uint64_t payload_end  = box.offset + box.size;
+        if (payload_off0 >= payload_end) {
             return;
         }
 
-        uint64_t child_off = child_off0;
-        while (child_off < child_end) {
-            BmffBox child;
-            if (!parse_bmff_box(bytes, child_off, child_end, &child)) {
-                sink->result.status = ScanStatus::Malformed;
-                return;
+        // Some real CR3 files nest the `CMT*` TIFF boxes under intermediate
+        // container boxes (e.g. `CNCV`). Best-effort: walk the BMFF box tree
+        // under the Canon UUID and emit any `CMT*` payloads that look like TIFF.
+        const uint32_t kMaxDepth = 12;
+        const uint32_t kMaxBoxes = 1U << 16;
+
+        struct Range final {
+            uint64_t begin = 0;
+            uint64_t end   = 0;
+            uint32_t depth = 0;
+        };
+
+        std::array<Range, 64> stack {};
+        uint32_t sp = 0;
+        stack[sp++] = Range { payload_off0, payload_end, 0 };
+
+        uint32_t seen_boxes = 0;
+        while (sp > 0) {
+            const Range r = stack[--sp];
+            if (r.depth > kMaxDepth) {
+                continue;
             }
 
-            const uint64_t payload_off  = child.offset + child.header_size;
-            const uint64_t payload_size = child.size - child.header_size;
+            uint64_t off = r.begin;
+            while (off + 8 <= r.end) {
+                seen_boxes += 1;
+                if (seen_boxes > kMaxBoxes) {
+                    // Treat excessively nested/fragmented UUID payloads as
+                    // malformed to avoid pathological scans.
+                    sink->result.status = ScanStatus::Malformed;
+                    return;
+                }
 
-            if ((child.type == fourcc('C', 'M', 'T', '1')
-                 || child.type == fourcc('C', 'M', 'T', '2')
-                 || child.type == fourcc('C', 'M', 'T', '3')
-                 || child.type == fourcc('C', 'M', 'T', '4'))
-                && bmff_is_tiff_at(bytes, payload_off)) {
-                ContainerBlockRef block;
-                block.format       = ContainerFormat::Cr3;
-                block.kind         = ContainerBlockKind::Exif;
-                block.outer_offset = child.offset;
-                block.outer_size   = child.size;
-                block.data_offset  = payload_off;
-                block.data_size    = payload_size;
-                block.id           = child.type;
-                sink_emit(sink, block);
-            }
+                BmffBox child;
+                if (!parse_bmff_box(bytes, off, r.end, &child)) {
+                    // The Canon UUID payload may contain non-box data; stop
+                    // scanning this range without failing the full scan.
+                    break;
+                }
 
-            child_off += child.size;
-            if (child.size == 0) {
-                break;
+                const uint64_t child_payload_off = child.offset
+                                                   + child.header_size;
+                const uint64_t child_payload_end = child.offset + child.size;
+                const uint64_t child_payload_size = child.size
+                                                    - child.header_size;
+
+                if (bmff_is_cr3_cmt_box(child.type)
+                    && bmff_is_tiff_at(bytes, child_payload_off)) {
+                    ContainerBlockRef block;
+                    block.format       = ContainerFormat::Cr3;
+                    block.kind         = ContainerBlockKind::Exif;
+                    block.outer_offset = child.offset;
+                    block.outer_size   = child.size;
+                    block.data_offset  = child_payload_off;
+                    block.data_size    = child_payload_size;
+                    block.id           = child.type;
+                    sink_emit(sink, block);
+                } else if (child_payload_off + 8 <= child_payload_end
+                           && r.depth + 1 <= kMaxDepth && sp < stack.size()) {
+                    // Recurse only when the payload begins with a plausible BMFF
+                    // box header. This keeps the scan cheap for raw payloads.
+                    if (bmff_payload_may_contain_boxes(bytes, child_payload_off,
+                                                       child_payload_end)) {
+                        stack[sp++] = Range { child_payload_off,
+                                              child_payload_end,
+                                              r.depth + 1 };
+                    }
+                }
+
+                off += child.size;
+                if (child.size == 0) {
+                    break;
+                }
             }
         }
     }

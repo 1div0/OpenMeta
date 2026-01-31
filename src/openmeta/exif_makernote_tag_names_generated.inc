@@ -108,7 +108,7 @@ static constexpr MakerNoteTagNameEntry kMakernoteCanonAfinfo[] = {
     { 0x0008u, "AFAreaXPositions" },
     { 0x0009u, "AFAreaYPositions" },
     { 0x000Au, "AFPointsInFocus" },
-    { 0x000Bu, "Canon_AFInfo_0x000b" },
+    { 0x000Bu, "PrimaryAFPoint" },
     { 0x000Cu, "PrimaryAFPoint" },
 };
 
@@ -2313,6 +2313,13 @@ static constexpr MakerNoteTagNameEntry kMakernoteCanonFocallength[] = {
     { 0x0003u, "FocalPlaneYSize" },
 };
 
+static constexpr MakerNoteTagNameEntry kMakernoteCanonFocallengthUnknown[] = {
+    { 0x0000u, "FocalType" },
+    { 0x0001u, "FocalLength" },
+    { 0x0002u, "FocalPlaneXUnknown" },
+    { 0x0003u, "FocalPlaneYUnknown" },
+};
+
 static constexpr MakerNoteTagNameEntry kMakernoteCanonHdrinfo[] = {
     { 0x0001u, "HDR" },
     { 0x0002u, "HDREffect" },
@@ -2380,6 +2387,7 @@ static constexpr MakerNoteTagNameEntry kMakernoteCanonMain[] = {
     { 0x0037u, "Canon_0x0037" },
     { 0x0038u, "BatteryType" },
     { 0x003Cu, "Canon_0x003c" },
+    { 0x003Fu, "Canon_0x003f" },
     { 0x0081u, "RawDataOffset" },
     { 0x0082u, "RawDataLength" },
     { 0x0083u, "OriginalDecisionDataOffset" },
@@ -2409,7 +2417,7 @@ static constexpr MakerNoteTagNameEntry kMakernoteCanonMain[] = {
     { 0x4008u, "PictureStyleUserDef" },
     { 0x4009u, "PictureStylePC" },
     { 0x4010u, "CustomPictureStyleFileName" },
-    { 0x4011u, "CanonVignettingCorr" },
+    { 0x4011u, "Canon_0x4011" },
     { 0x4012u, "Canon_0x4012" },
     { 0x4013u, "Canon_0x4013" },
     { 0x4015u, "Canon_0x4015" },
@@ -2421,8 +2429,23 @@ static constexpr MakerNoteTagNameEntry kMakernoteCanonMain[] = {
     { 0x4025u, "Canon_0x4025" },
     { 0x4027u, "Canon_0x4027" },
     { 0x402Au, "Canon_0x402a" },
+    { 0x402Cu, "Canon_0x402c" },
     { 0x402Eu, "Canon_0x402e" },
+    { 0x4031u, "Canon_0x4031" },
     { 0x4033u, "Canon_0x4033" },
+    { 0x4035u, "Canon_0x4035" },
+    { 0x4037u, "Canon_0x4037" },
+    { 0x4039u, "Canon_0x4039" },
+    { 0x403Au, "Canon_0x403a" },
+    { 0x403Cu, "Canon_0x403c" },
+    { 0x4040u, "Canon_0x4040" },
+    { 0x4049u, "Canon_0x4049" },
+    { 0x404Bu, "Canon_0x404b" },
+    { 0x404Eu, "Canon_0x404e" },
+    { 0x404Fu, "Canon_0x404f" },
+    { 0x4051u, "Canon_0x4051" },
+    { 0x4059u, "Canon_0x4059" },
+    { 0x405Du, "Canon_0x405d" },
 };
 
 static constexpr MakerNoteTagNameEntry kMakernoteCanonMeasuredcolor[] = {
@@ -11183,11 +11206,12 @@ static constexpr MakerNoteTableMap kMakerNoteTables[] = {
     { "makernote:canon:flags", kMakernoteCanonFlags, 1u },
     { "makernote:canon:focalinfo", kMakernoteCanonFocalinfo, 1u },
     { "makernote:canon:focallength", kMakernoteCanonFocallength, 4u },
+    { "makernote:canon:focallength_unknown", kMakernoteCanonFocallengthUnknown, 4u },
     { "makernote:canon:hdrinfo", kMakernoteCanonHdrinfo, 2u },
     { "makernote:canon:lensinfo", kMakernoteCanonLensinfo, 1u },
     { "makernote:canon:levelinfo", kMakernoteCanonLevelinfo, 5u },
     { "makernote:canon:lightingopt", kMakernoteCanonLightingopt, 7u },
-    { "makernote:canon:main", kMakernoteCanonMain, 82u },
+    { "makernote:canon:main", kMakernoteCanonMain, 98u },
     { "makernote:canon:measuredcolor", kMakernoteCanonMeasuredcolor, 1u },
     { "makernote:canon:modifiedinfo", kMakernoteCanonModifiedinfo, 11u },
     { "makernote:canon:movieinfo", kMakernoteCanonMovieinfo, 9u },

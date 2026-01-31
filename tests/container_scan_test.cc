@@ -618,6 +618,76 @@ namespace {
         EXPECT_EQ(auto_res.written, 1U);
     }
 
+    TEST(ContainerScan, Cr3CanonUuidNestedCmtBoxes)
+    {
+        // Real-world CR3 commonly nests `CMT*` TIFF boxes under an intermediate
+        // container box (e.g. `CNCV`) inside `moov/uuid(Canon)`.
+        std::vector<std::byte> file;
+
+        std::vector<std::byte> ftyp_payload;
+        append_fourcc(&ftyp_payload, fourcc('c', 'r', 'x', ' '));
+        append_u32be(&ftyp_payload, 0);
+        append_fourcc(&ftyp_payload, fourcc('i', 's', 'o', 'm'));
+        append_bmff_box(&file, fourcc('f', 't', 'y', 'p'),
+                        std::span<const std::byte>(ftyp_payload.data(),
+                                                   ftyp_payload.size()));
+
+        std::vector<std::byte> cmt_payload;
+        const std::array<std::byte, 4> tiff_hdr = {
+            std::byte { 'I' },
+            std::byte { 'I' },
+            std::byte { 0x2A },
+            std::byte { 0x00 },
+        };
+        cmt_payload.insert(cmt_payload.end(), tiff_hdr.begin(), tiff_hdr.end());
+        append_u32le(&cmt_payload, 8);
+        std::vector<std::byte> cmt_box;
+        append_bmff_box(&cmt_box, fourcc('C', 'M', 'T', '1'),
+                        std::span<const std::byte>(cmt_payload.data(),
+                                                   cmt_payload.size()));
+
+        std::vector<std::byte> cncv_box;
+        append_bmff_box(&cncv_box, fourcc('C', 'N', 'C', 'V'),
+                        std::span<const std::byte>(cmt_box.data(),
+                                                   cmt_box.size()));
+
+        std::vector<std::byte> uuid_box;
+        const std::array<std::byte, 16> canon_uuid = {
+            std::byte { 0x85 }, std::byte { 0xc0 }, std::byte { 0xb6 },
+            std::byte { 0x87 }, std::byte { 0x82 }, std::byte { 0x0f },
+            std::byte { 0x11 }, std::byte { 0xe0 }, std::byte { 0x81 },
+            std::byte { 0x11 }, std::byte { 0xf4 }, std::byte { 0xce },
+            std::byte { 0x46 }, std::byte { 0x2b }, std::byte { 0x6a },
+            std::byte { 0x48 },
+        };
+        append_u32be(&uuid_box,
+                     static_cast<uint32_t>(8 + 16 + cncv_box.size()));
+        append_fourcc(&uuid_box, fourcc('u', 'u', 'i', 'd'));
+        uuid_box.insert(uuid_box.end(), canon_uuid.begin(), canon_uuid.end());
+        uuid_box.insert(uuid_box.end(), cncv_box.begin(), cncv_box.end());
+
+        std::vector<std::byte> moov_payload;
+        moov_payload.insert(moov_payload.end(), uuid_box.begin(),
+                            uuid_box.end());
+        append_bmff_box(&file, fourcc('m', 'o', 'o', 'v'),
+                        std::span<const std::byte>(moov_payload.data(),
+                                                   moov_payload.size()));
+
+        std::array<ContainerBlockRef, 8> blocks {};
+        const ScanResult res = scan_bmff(file, blocks);
+        ASSERT_EQ(res.status, ScanStatus::Ok);
+        ASSERT_EQ(res.written, 1U);
+        EXPECT_EQ(blocks[0].format, ContainerFormat::Cr3);
+        EXPECT_EQ(blocks[0].kind, ContainerBlockKind::Exif);
+        EXPECT_EQ(blocks[0].id, fourcc('C', 'M', 'T', '1'));
+        ASSERT_GE(blocks[0].data_size, 4U);
+        EXPECT_EQ(file[blocks[0].data_offset], std::byte { 'I' });
+
+        const ScanResult auto_res = scan_auto(file, blocks);
+        EXPECT_EQ(auto_res.status, ScanStatus::Ok);
+        EXPECT_EQ(auto_res.written, 1U);
+    }
+
 
     TEST(ContainerScan, TiffTagValues)
     {

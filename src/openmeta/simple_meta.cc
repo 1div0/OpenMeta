@@ -1,5 +1,7 @@
 #include "openmeta/simple_meta.h"
 
+#include "exif_tiff_decode_internal.h"
+
 #include "openmeta/icc_decode.h"
 #include "openmeta/iptc_iim_decode.h"
 #include "openmeta/photoshop_irb_decode.h"
@@ -68,6 +70,99 @@ namespace {
         v |= static_cast<uint32_t>(u8(bytes[offset + 2])) << 8;
         v |= static_cast<uint32_t>(u8(bytes[offset + 3])) << 0;
         *out = v;
+        return true;
+    }
+
+    static bool read_u16be(std::span<const std::byte> bytes, uint64_t offset,
+                           uint16_t* out) noexcept
+    {
+        if (!out || offset + 2 > bytes.size()) {
+            return false;
+        }
+        const uint16_t v = static_cast<uint16_t>(u8(bytes[offset + 0]) << 8)
+                           | static_cast<uint16_t>(u8(bytes[offset + 1]) << 0);
+        *out = v;
+        return true;
+    }
+
+    static bool read_u16le(std::span<const std::byte> bytes, uint64_t offset,
+                           uint16_t* out) noexcept
+    {
+        if (!out || offset + 2 > bytes.size()) {
+            return false;
+        }
+        const uint16_t v = static_cast<uint16_t>(u8(bytes[offset + 0]) << 0)
+                           | static_cast<uint16_t>(u8(bytes[offset + 1]) << 8);
+        *out = v;
+        return true;
+    }
+
+    static bool read_u32le(std::span<const std::byte> bytes, uint64_t offset,
+                           uint32_t* out) noexcept
+    {
+        if (!out || offset + 4 > bytes.size()) {
+            return false;
+        }
+        uint32_t v = 0;
+        v |= static_cast<uint32_t>(u8(bytes[offset + 0])) << 0;
+        v |= static_cast<uint32_t>(u8(bytes[offset + 1])) << 8;
+        v |= static_cast<uint32_t>(u8(bytes[offset + 2])) << 16;
+        v |= static_cast<uint32_t>(u8(bytes[offset + 3])) << 24;
+        *out = v;
+        return true;
+    }
+
+    static bool parse_classic_tiff_header(std::span<const std::byte> bytes,
+                                          TiffConfig* out_cfg,
+                                          uint64_t* out_ifd0_off) noexcept
+    {
+        if (!out_cfg || !out_ifd0_off) {
+            return false;
+        }
+        if (bytes.size() < 8) {
+            return false;
+        }
+
+        const uint8_t b0 = u8(bytes[0]);
+        const uint8_t b1 = u8(bytes[1]);
+        const bool le    = (b0 == 'I' && b1 == 'I');
+        const bool be    = (b0 == 'M' && b1 == 'M');
+        if (!le && !be) {
+            return false;
+        }
+
+        out_cfg->le      = le;
+        out_cfg->bigtiff = false;
+
+        uint16_t magic = 0;
+        if (le) {
+            if (!read_u16le(bytes, 2, &magic)) {
+                return false;
+            }
+        } else {
+            if (!read_u16be(bytes, 2, &magic)) {
+                return false;
+            }
+        }
+        if (magic != 42) {
+            return false;
+        }
+
+        uint32_t ifd0_off = 0;
+        if (le) {
+            if (!read_u32le(bytes, 4, &ifd0_off)) {
+                return false;
+            }
+        } else {
+            if (!read_u32be(bytes, 4, &ifd0_off)) {
+                return false;
+            }
+        }
+
+        if (ifd0_off > static_cast<uint64_t>(bytes.size())) {
+            return false;
+        }
+        *out_ifd0_off = static_cast<uint64_t>(ifd0_off);
         return true;
     }
 
@@ -275,6 +370,74 @@ simple_meta_read(std::span<const std::byte> file_bytes, MetaStore& store,
         }
 
         if (block.kind == ContainerBlockKind::Exif) {
+            // CR3: some Canon metadata is stored in a dedicated TIFF stream
+            // (`CMT3`) rather than in the standard MakerNote tag (0x927C).
+            // When MakerNote decoding is enabled, decode that directory as a
+            // Canon MakerNote block and expand known BinaryData subtables.
+            if (block.format == ContainerFormat::Cr3
+                && block.id == fourcc('C', 'M', 'T', '3')) {
+                if (!exif_options.decode_makernote) {
+                    continue;
+                }
+
+                any_exif = true;
+
+                TiffConfig cfg;
+                uint64_t ifd0_off = 0;
+                if (parse_classic_tiff_header(block_bytes, &cfg, &ifd0_off)
+                    && ifd0_off < block_bytes.size()) {
+                    ExifDecodeResult one;
+                    one.status          = ExifDecodeStatus::Ok;
+                    one.ifds_written    = 0;
+                    one.ifds_needed     = 0;
+                    one.entries_decoded = 0;
+
+                    ExifDecodeOptions mn_opts = exif_options;
+                    mn_opts.decode_printim    = false;
+                    mn_opts.decode_makernote  = false;
+                    mn_opts.tokens.ifd_prefix = "mk_canon";
+                    mn_opts.tokens.subifd_prefix     = "mk_canon_subifd";
+                    mn_opts.tokens.exif_ifd_token    = "mk_canon_exififd";
+                    mn_opts.tokens.gps_ifd_token     = "mk_canon_gpsifd";
+                    mn_opts.tokens.interop_ifd_token = "mk_canon_interopifd";
+
+                    const uint64_t bytes_rem = static_cast<uint64_t>(
+                        block_bytes.size() - static_cast<size_t>(ifd0_off));
+                    if (exif_internal::decode_canon_makernote(
+                            cfg, block_bytes, ifd0_off, bytes_rem, "mk_canon0",
+                            store, mn_opts, &one)) {
+                        merge_exif_status(&exif.status, one.status);
+                        exif.entries_decoded += one.entries_decoded;
+                        continue;
+                    }
+
+                    // Fallback: decode the TIFF stream into mk_canon* tags
+                    // without BinaryData expansion.
+                    std::span<ExifIfdRef> ifd_slice;
+                    if (ifd_write_pos < out_ifds.size()) {
+                        ifd_slice = out_ifds.subspan(ifd_write_pos);
+                    }
+
+                    const ExifDecodeResult fallback = decode_exif_tiff(
+                        block_bytes, store, ifd_slice, mn_opts);
+                    merge_exif_status(&exif.status, fallback.status);
+                    exif.ifds_needed += fallback.ifds_needed;
+                    exif.entries_decoded += fallback.entries_decoded;
+
+                    const uint32_t room
+                        = (ifd_write_pos < out_ifds.size())
+                              ? static_cast<uint32_t>(out_ifds.size()
+                                                      - ifd_write_pos)
+                              : 0U;
+                    const uint32_t advanced = (fallback.ifds_written < room)
+                                                  ? fallback.ifds_written
+                                                  : room;
+                    ifd_write_pos += advanced;
+                    exif.ifds_written = ifd_write_pos;
+                }
+                continue;
+            }
+
             any_exif = true;
 
             std::span<ExifIfdRef> ifd_slice;
