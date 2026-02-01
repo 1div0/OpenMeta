@@ -219,6 +219,84 @@ namespace {
         return true;
     }
 
+    static bool patch_makernote_count_in_tiff(std::vector<std::byte>* tiff,
+                                              uint32_t new_count) noexcept
+    {
+        if (!tiff || tiff->size() < 8U) {
+            return false;
+        }
+        const std::span<const std::byte> bytes(tiff->data(), tiff->size());
+        if (bytes[0] != std::byte { 'I' } || bytes[1] != std::byte { 'I' }) {
+            return false;
+        }
+
+        uint32_t ifd0_off = 0;
+        if (!read_u32le_at(bytes, 4, &ifd0_off)) {
+            return false;
+        }
+        if (ifd0_off + 2U > bytes.size()) {
+            return false;
+        }
+        uint16_t ifd0_count = 0;
+        if (!read_u16le_at(bytes, ifd0_off, &ifd0_count) || ifd0_count == 0) {
+            return false;
+        }
+
+        uint32_t exif_ifd_off            = 0;
+        const size_t ifd0_entries_off    = size_t(ifd0_off) + 2U;
+        const size_t ifd0_entries_bytes  = size_t(ifd0_count) * 12U;
+        const size_t ifd0_entries_needed = ifd0_entries_off
+                                           + ifd0_entries_bytes;
+        if (ifd0_entries_needed > bytes.size()) {
+            return false;
+        }
+
+        for (uint16_t i = 0; i < ifd0_count; ++i) {
+            const size_t eoff = ifd0_entries_off + size_t(i) * 12U;
+            uint16_t tag      = 0;
+            if (!read_u16le_at(bytes, eoff + 0, &tag)) {
+                return false;
+            }
+            if (tag == 0x8769) {  // ExifIFDPointer
+                if (!read_u32le_at(bytes, eoff + 8, &exif_ifd_off)) {
+                    return false;
+                }
+                break;
+            }
+        }
+        if (exif_ifd_off == 0 || exif_ifd_off + 2U > bytes.size()) {
+            return false;
+        }
+
+        uint16_t exif_count = 0;
+        if (!read_u16le_at(bytes, exif_ifd_off, &exif_count)
+            || exif_count == 0) {
+            return false;
+        }
+
+        const size_t exif_entries_off    = size_t(exif_ifd_off) + 2U;
+        const size_t exif_entries_bytes  = size_t(exif_count) * 12U;
+        const size_t exif_entries_needed = exif_entries_off
+                                           + exif_entries_bytes;
+        if (exif_entries_needed > bytes.size()) {
+            return false;
+        }
+
+        for (uint16_t i = 0; i < exif_count; ++i) {
+            const size_t eoff = exif_entries_off + size_t(i) * 12U;
+            uint16_t tag      = 0;
+            if (!read_u16le_at(bytes, eoff + 0, &tag)) {
+                return false;
+            }
+            if (tag == 0x927C) {  // MakerNote
+                write_u32le_at(tiff, eoff + 4, new_count);
+                return true;
+            }
+        }
+
+        return false;
+    }
+
 
     static std::vector<std::byte>
     make_test_tiff_with_makernote(std::string_view make,
@@ -485,6 +563,74 @@ namespace {
         append_u32le(&mn, 0);
 
         EXPECT_EQ(mn.size(), 18U + 32U);
+        return mn;
+    }
+
+    static std::vector<std::byte> make_canon_custom_functions1d_makernote()
+    {
+        // Canon MakerNote with:
+        // - CustomFunctions1D (0x0090): u16 array where each u16 encodes
+        //   (tag_id << 8) | value, preceded by a byte-size header.
+        // - PersonalFunctions (0x0091): u16 values preceded by size header.
+        // - PersonalFunctionValues (0x0092): u16 values preceded by size header.
+        std::vector<std::byte> mn;
+        append_u16le(&mn, 3);       // entry count
+        append_u16le(&mn, 0x0090);  // CustomFunctions1D
+        append_u16le(&mn, 3);       // SHORT
+        append_u32le(&mn, 6);       // count
+        append_u32le(&mn, 42);      // value offset (MakerNote-relative)
+        append_u16le(&mn, 0x0091);  // PersonalFunctions
+        append_u16le(&mn, 3);       // SHORT
+        append_u32le(&mn, 4);       // count
+        append_u32le(&mn, 54);      // value offset
+        append_u16le(&mn, 0x0092);  // PersonalFunctionValues
+        append_u16le(&mn, 3);       // SHORT
+        append_u32le(&mn, 4);       // count
+        append_u32le(&mn, 62);      // value offset
+        append_u32le(&mn, 0);       // next IFD
+        EXPECT_EQ(mn.size(), 42U);
+
+        // CustomFunctions1D (6*2 = 12 bytes).
+        append_u16le(&mn, 12);      // size in bytes
+        append_u16le(&mn, 0x0001);  // tag0=1
+        append_u16le(&mn, 0x0100);  // tag1=0
+        append_u16le(&mn, 0x0200);  // tag2=0
+        append_u16le(&mn, 0x0301);  // tag3=1
+        append_u16le(&mn, 0x0400);  // tag4=0
+
+        // PersonalFunctions (4*2 = 8 bytes).
+        append_u16le(&mn, 8);
+        append_u16le(&mn, 0);
+        append_u16le(&mn, 0);
+        append_u16le(&mn, 0);
+
+        // PersonalFunctionValues (4*2 = 8 bytes).
+        append_u16le(&mn, 8);
+        append_u16le(&mn, 63);
+        append_u16le(&mn, 240);
+        append_u16le(&mn, 16);
+
+        EXPECT_EQ(mn.size(), 70U);
+        return mn;
+    }
+
+    static std::vector<std::byte> make_canon_truncated_count_makernote()
+    {
+        // Canon MakerNote with a classic IFD that stores an out-of-line ASCII
+        // value immediately after the directory. Used to test cases where the
+        // declared MakerNote byte count is smaller than the directory size.
+        std::vector<std::byte> mn;
+        append_u16le(&mn, 1);       // entry count
+        append_u16le(&mn, 0x0006);  // CanonImageType
+        append_u16le(&mn, 2);       // ASCII
+        append_u32le(&mn, 13);      // count
+        append_u32le(&mn, 18);      // value offset (MakerNote-relative)
+        append_u32le(&mn, 0);       // next IFD
+        EXPECT_EQ(mn.size(), 18U);
+
+        append_bytes(&mn, "IMG:TEST JPEG");
+        mn.push_back(std::byte { 0 });
+        EXPECT_GE(mn.size(), 18U + 13U);
         return mn;
     }
 
@@ -1407,6 +1553,90 @@ TEST(MakerNoteDecode, DecodesCanonCustomFunctions2IntoDerivedIfd)
     EXPECT_TRUE(any(e.flags, EntryFlags::Derived));
 }
 
+TEST(MakerNoteDecode, DecodesCanonCustomFunctions1DAndPersonalFunctionsIntoDerivedIfds)
+{
+    std::vector<std::byte> mn   = make_canon_custom_functions1d_makernote();
+    const std::string_view make = "Canon";
+    const std::vector<std::byte> tiff = make_test_tiff_with_makernote(make, mn);
+
+    MetaStore store;
+    std::array<ExifIfdRef, 8> ifds {};
+    ExifDecodeOptions options;
+    options.decode_makernote   = true;
+    const ExifDecodeResult res = decode_exif_tiff(tiff, store, ifds, options);
+    EXPECT_EQ(res.status, ExifDecodeStatus::Ok);
+
+    store.finalize();
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("mk_canoncustom_functions1d_0", 0x0000));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
+        EXPECT_EQ(e.value.elem_type, MetaElementType::U8);
+        EXPECT_EQ(e.value.data.u64, 1U);
+        EXPECT_TRUE(any(e.flags, EntryFlags::Derived));
+    }
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("mk_canoncustom_functions1d_0", 0x0003));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
+        EXPECT_EQ(e.value.elem_type, MetaElementType::U8);
+        EXPECT_EQ(e.value.data.u64, 1U);
+        EXPECT_TRUE(any(e.flags, EntryFlags::Derived));
+    }
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("mk_canoncustom_personalfuncs_0", 0x0001));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
+        EXPECT_EQ(e.value.elem_type, MetaElementType::U8);
+        EXPECT_EQ(e.value.data.u64, 0U);
+        EXPECT_TRUE(any(e.flags, EntryFlags::Derived));
+    }
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("mk_canoncustom_personalfuncvalues_0", 0x0001));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
+        EXPECT_EQ(e.value.elem_type, MetaElementType::U16);
+        EXPECT_EQ(e.value.data.u64, 63U);
+        EXPECT_TRUE(any(e.flags, EntryFlags::Derived));
+    }
+}
+
+
+TEST(MakerNoteDecode, DecodesCanonMakernoteWithTruncatedDeclaredByteCount)
+{
+    std::vector<std::byte> mn   = make_canon_truncated_count_makernote();
+    const std::string_view make = "Canon";
+    std::vector<std::byte> tiff = make_test_tiff_with_makernote(make, mn);
+
+    // Declare an unrealistically small MakerNote count to force the decoder
+    // to rely on bounds checks against the full EXIF/TIFF buffer.
+    ASSERT_TRUE(patch_makernote_count_in_tiff(&tiff, 10));
+
+    MetaStore store;
+    std::array<ExifIfdRef, 8> ifds {};
+    ExifDecodeOptions options;
+    options.decode_makernote   = true;
+    const ExifDecodeResult res = decode_exif_tiff(tiff, store, ifds, options);
+    EXPECT_EQ(res.status, ExifDecodeStatus::Ok);
+
+    store.finalize();
+    const std::span<const EntryId> ids = store.find_all(
+        exif_key("mk_canon0", 0x0006));
+    ASSERT_EQ(ids.size(), 1U);
+    const Entry& e = store.entry(ids[0]);
+    EXPECT_EQ(e.value.kind, MetaValueKind::Text);
+    EXPECT_EQ(e.value.text_encoding, TextEncoding::Ascii);
+    EXPECT_FALSE(any(e.flags, EntryFlags::Derived));
+}
+
 
 TEST(MakerNoteDecode, DecodesCanonCameraInfoPictureStyleIntoDerivedIfd)
 {
@@ -1571,6 +1801,51 @@ TEST(MakerNoteDecode, DecodesNikonMakerNoteWithEmbeddedTiffHeader)
     EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
     EXPECT_EQ(e.value.elem_type, MetaElementType::U32);
     EXPECT_EQ(e.value.data.u64, 0x01020304U);
+}
+
+TEST(MakerNoteDecode, DecodesEmbeddedTiffMakerNoteValuesBeyondDeclaredCount)
+{
+    // Embedded TIFF header with an out-of-line value stored beyond the declared
+    // MakerNote byte count.
+    std::vector<std::byte> mn;
+    append_bytes(&mn, "II");
+    append_u16le(&mn, 42);
+    append_u32le(&mn, 8);  // IFD0 offset
+    append_u16le(&mn, 1);  // entry count
+    append_u16le(&mn, 0x0E22);
+    append_u16le(&mn, 3);   // SHORT
+    append_u32le(&mn, 4);   // count
+    append_u32le(&mn, 100); // value offset
+    append_u32le(&mn, 0);
+
+    while (mn.size() < 100U) {
+        mn.push_back(std::byte { 0 });
+    }
+    append_u16le(&mn, 1);
+    append_u16le(&mn, 2);
+    append_u16le(&mn, 3);
+    append_u16le(&mn, 4);
+    EXPECT_GE(mn.size(), 108U);
+
+    std::vector<std::byte> tiff = make_test_tiff_with_makernote("Nikon", mn);
+    ASSERT_TRUE(patch_makernote_count_in_tiff(&tiff, 32));
+
+    MetaStore store;
+    std::array<ExifIfdRef, 8> ifds {};
+    ExifDecodeOptions options;
+    options.decode_makernote   = true;
+    const ExifDecodeResult res = decode_exif_tiff(tiff, store, ifds, options);
+    EXPECT_EQ(res.status, ExifDecodeStatus::Ok);
+
+    store.finalize();
+    const std::span<const EntryId> ids = store.find_all(
+        exif_key("mk_nikon0", 0x0E22));
+    ASSERT_EQ(ids.size(), 1U);
+    const Entry& e = store.entry(ids[0]);
+    EXPECT_EQ(e.value.kind, MetaValueKind::Array);
+    EXPECT_EQ(e.value.elem_type, MetaElementType::U16);
+    EXPECT_EQ(e.value.count, 4U);
+    EXPECT_FALSE(any(e.flags, EntryFlags::Derived));
 }
 
 TEST(MakerNoteDecode, DecodesNikonBinarySubdirectories)

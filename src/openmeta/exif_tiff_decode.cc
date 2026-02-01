@@ -231,9 +231,9 @@ namespace {
     }
 
 
-    static std::string_view find_first_exif_text_value(const MetaStore& store,
-                                                       std::string_view ifd,
-                                                       uint16_t tag) noexcept
+    static std::string_view
+    find_first_exif_ascii_value(const MetaStore& store, std::string_view ifd,
+                                uint16_t tag) noexcept
     {
         const ByteArena& arena               = store.arena();
         const std::span<const Entry> entries = store.entries();
@@ -249,10 +249,27 @@ namespace {
             if (arena_string(arena, e.key.data.exif_tag.ifd) != ifd) {
                 continue;
             }
-            if (e.value.kind != MetaValueKind::Text) {
+
+            if (e.value.kind == MetaValueKind::Text) {
+                return arena_string(arena, e.value.data.span);
+            }
+            if (e.value.kind != MetaValueKind::Bytes) {
                 continue;
             }
-            return arena_string(arena, e.value.data.span);
+
+            const std::span<const std::byte> raw = arena.span(e.value.data.span);
+            size_t n                             = 0;
+            while (n < raw.size() && raw[n] != std::byte { 0 }) {
+                n += 1;
+            }
+            while (n > 0 && raw[n - 1] == std::byte { ' ' }) {
+                n -= 1;
+            }
+            if (n == 0) {
+                continue;
+            }
+            return std::string_view(reinterpret_cast<const char*>(raw.data()),
+                                    n);
         }
         return {};
     }
@@ -269,6 +286,18 @@ namespace {
         Olympus,
         Pentax,
         Casio,
+        Panasonic,
+        Kodak,
+        Flir,
+        Ricoh,
+        Samsung,
+        Jvc,
+        Dji,
+        Ge,
+        Motorola,
+        Reconyx,
+        Hp,
+        Nintendo,
     };
 
     static MakerNoteVendor
@@ -303,6 +332,10 @@ namespace {
             && match_bytes(maker_note_bytes, 0, "CAMER\0", 6)) {
             return MakerNoteVendor::Olympus;
         }
+        if (maker_note_bytes.size() >= 8
+            && match_bytes(maker_note_bytes, 0, "OLYMPUS\0", 8)) {
+            return MakerNoteVendor::Olympus;
+        }
         if (maker_note_bytes.size() >= 4
             && match_bytes(maker_note_bytes, 0, "AOC\0", 4)) {
             return MakerNoteVendor::Pentax;
@@ -311,9 +344,30 @@ namespace {
             && match_bytes(maker_note_bytes, 0, "QVC\0", 4)) {
             return MakerNoteVendor::Casio;
         }
+        if (maker_note_bytes.size() >= 4
+            && match_bytes(maker_note_bytes, 0, "IIII", 4)) {
+            return MakerNoteVendor::Hp;
+        }
+        if (maker_note_bytes.size() >= 9
+            && match_bytes(maker_note_bytes, 0, "Panasonic", 9)) {
+            return MakerNoteVendor::Panasonic;
+        }
+        if (maker_note_bytes.size() >= 7
+            && match_bytes(maker_note_bytes, 0, "RECONYX", 7)) {
+            return MakerNoteVendor::Reconyx;
+        }
+        if (maker_note_bytes.size() >= 4 && u8(maker_note_bytes[0]) == 0x01
+            && u8(maker_note_bytes[1]) == 0xF1 && u8(maker_note_bytes[2]) == 0x03
+            && u8(maker_note_bytes[3]) == 0x00) {
+            return MakerNoteVendor::Reconyx;
+        }
+        if (maker_note_bytes.size() >= 4
+            && match_bytes(maker_note_bytes, 0, "DJI\0", 4)) {
+            return MakerNoteVendor::Dji;
+        }
 
         const std::string_view make
-            = find_first_exif_text_value(store, "ifd0", 0x010F /* Make */);
+            = find_first_exif_ascii_value(store, "ifd0", 0x010F /* Make */);
 
         if (!make.empty()) {
             if (ascii_starts_with_insensitive(make, "Nikon")) {
@@ -346,6 +400,43 @@ namespace {
             }
             if (ascii_starts_with_insensitive(make, "CASIO")) {
                 return MakerNoteVendor::Casio;
+            }
+            if (ascii_starts_with_insensitive(make, "Panasonic")) {
+                return MakerNoteVendor::Panasonic;
+            }
+            if (ascii_starts_with_insensitive(make, "Kodak")
+                || ascii_starts_with_insensitive(make, "Eastman Kodak")) {
+                return MakerNoteVendor::Kodak;
+            }
+            if (ascii_starts_with_insensitive(make, "FLIR")) {
+                return MakerNoteVendor::Flir;
+            }
+            if (ascii_starts_with_insensitive(make, "RICOH")) {
+                return MakerNoteVendor::Ricoh;
+            }
+            if (ascii_starts_with_insensitive(make, "SAMSUNG")) {
+                return MakerNoteVendor::Samsung;
+            }
+            if (ascii_starts_with_insensitive(make, "JVC")) {
+                return MakerNoteVendor::Jvc;
+            }
+            if (ascii_starts_with_insensitive(make, "DJI")) {
+                return MakerNoteVendor::Dji;
+            }
+            if (ascii_starts_with_insensitive(make, "General Imaging")) {
+                return MakerNoteVendor::Ge;
+            }
+            if (ascii_starts_with_insensitive(make, "Motorola")) {
+                return MakerNoteVendor::Motorola;
+            }
+            if (ascii_starts_with_insensitive(make, "HP")
+                || ascii_starts_with_insensitive(make, "hp")
+                || ascii_starts_with_insensitive(make, "Hewlett-Packard")
+                || ascii_starts_with_insensitive(make, "Hewlett Packard")) {
+                return MakerNoteVendor::Hp;
+            }
+            if (ascii_starts_with_insensitive(make, "Nintendo")) {
+                return MakerNoteVendor::Nintendo;
             }
         }
 
@@ -425,6 +516,90 @@ namespace {
             opts->tokens.exif_ifd_token    = "mk_casio_exififd";
             opts->tokens.gps_ifd_token     = "mk_casio_gpsifd";
             opts->tokens.interop_ifd_token = "mk_casio_interopifd";
+            return;
+        case MakerNoteVendor::Panasonic:
+            opts->tokens.ifd_prefix        = "mk_panasonic";
+            opts->tokens.subifd_prefix     = "mk_panasonic_subifd";
+            opts->tokens.exif_ifd_token    = "mk_panasonic_exififd";
+            opts->tokens.gps_ifd_token     = "mk_panasonic_gpsifd";
+            opts->tokens.interop_ifd_token = "mk_panasonic_interopifd";
+            return;
+        case MakerNoteVendor::Kodak:
+            opts->tokens.ifd_prefix        = "mk_kodak";
+            opts->tokens.subifd_prefix     = "mk_kodak_subifd";
+            opts->tokens.exif_ifd_token    = "mk_kodak_exififd";
+            opts->tokens.gps_ifd_token     = "mk_kodak_gpsifd";
+            opts->tokens.interop_ifd_token = "mk_kodak_interopifd";
+            return;
+        case MakerNoteVendor::Flir:
+            opts->tokens.ifd_prefix        = "mk_flir";
+            opts->tokens.subifd_prefix     = "mk_flir_subifd";
+            opts->tokens.exif_ifd_token    = "mk_flir_exififd";
+            opts->tokens.gps_ifd_token     = "mk_flir_gpsifd";
+            opts->tokens.interop_ifd_token = "mk_flir_interopifd";
+            return;
+        case MakerNoteVendor::Ricoh:
+            opts->tokens.ifd_prefix        = "mk_ricoh";
+            opts->tokens.subifd_prefix     = "mk_ricoh_subifd";
+            opts->tokens.exif_ifd_token    = "mk_ricoh_exififd";
+            opts->tokens.gps_ifd_token     = "mk_ricoh_gpsifd";
+            opts->tokens.interop_ifd_token = "mk_ricoh_interopifd";
+            return;
+        case MakerNoteVendor::Samsung:
+            opts->tokens.ifd_prefix        = "mk_samsung";
+            opts->tokens.subifd_prefix     = "mk_samsung_subifd";
+            opts->tokens.exif_ifd_token    = "mk_samsung_exififd";
+            opts->tokens.gps_ifd_token     = "mk_samsung_gpsifd";
+            opts->tokens.interop_ifd_token = "mk_samsung_interopifd";
+            return;
+        case MakerNoteVendor::Jvc:
+            opts->tokens.ifd_prefix        = "mk_jvc";
+            opts->tokens.subifd_prefix     = "mk_jvc_subifd";
+            opts->tokens.exif_ifd_token    = "mk_jvc_exififd";
+            opts->tokens.gps_ifd_token     = "mk_jvc_gpsifd";
+            opts->tokens.interop_ifd_token = "mk_jvc_interopifd";
+            return;
+        case MakerNoteVendor::Dji:
+            opts->tokens.ifd_prefix        = "mk_dji";
+            opts->tokens.subifd_prefix     = "mk_dji_subifd";
+            opts->tokens.exif_ifd_token    = "mk_dji_exififd";
+            opts->tokens.gps_ifd_token     = "mk_dji_gpsifd";
+            opts->tokens.interop_ifd_token = "mk_dji_interopifd";
+            return;
+        case MakerNoteVendor::Ge:
+            opts->tokens.ifd_prefix        = "mk_ge";
+            opts->tokens.subifd_prefix     = "mk_ge_subifd";
+            opts->tokens.exif_ifd_token    = "mk_ge_exififd";
+            opts->tokens.gps_ifd_token     = "mk_ge_gpsifd";
+            opts->tokens.interop_ifd_token = "mk_ge_interopifd";
+            return;
+        case MakerNoteVendor::Motorola:
+            opts->tokens.ifd_prefix        = "mk_motorola";
+            opts->tokens.subifd_prefix     = "mk_motorola_subifd";
+            opts->tokens.exif_ifd_token    = "mk_motorola_exififd";
+            opts->tokens.gps_ifd_token     = "mk_motorola_gpsifd";
+            opts->tokens.interop_ifd_token = "mk_motorola_interopifd";
+            return;
+        case MakerNoteVendor::Reconyx:
+            opts->tokens.ifd_prefix        = "mk_reconyx";
+            opts->tokens.subifd_prefix     = "mk_reconyx_subifd";
+            opts->tokens.exif_ifd_token    = "mk_reconyx_exififd";
+            opts->tokens.gps_ifd_token     = "mk_reconyx_gpsifd";
+            opts->tokens.interop_ifd_token = "mk_reconyx_interopifd";
+            return;
+        case MakerNoteVendor::Hp:
+            opts->tokens.ifd_prefix        = "mk_hp";
+            opts->tokens.subifd_prefix     = "mk_hp_subifd";
+            opts->tokens.exif_ifd_token    = "mk_hp_exififd";
+            opts->tokens.gps_ifd_token     = "mk_hp_gpsifd";
+            opts->tokens.interop_ifd_token = "mk_hp_interopifd";
+            return;
+        case MakerNoteVendor::Nintendo:
+            opts->tokens.ifd_prefix        = "mk_nintendo";
+            opts->tokens.subifd_prefix     = "mk_nintendo_subifd";
+            opts->tokens.exif_ifd_token    = "mk_nintendo_exififd";
+            opts->tokens.gps_ifd_token     = "mk_nintendo_gpsifd";
+            opts->tokens.interop_ifd_token = "mk_nintendo_interopifd";
             return;
         case MakerNoteVendor::Unknown: break;
         }
@@ -2112,6 +2287,15 @@ decode_exif_tiff(std::span<const std::byte> tiff_bytes, MetaStore& store,
                     continue;
                 }
 
+                // Panasonic MakerNote: classic IFD located within the blob, but
+                // value offsets are commonly relative to the outer EXIF/TIFF.
+                if (vendor == MakerNoteVendor::Panasonic
+                    && exif_internal::decode_panasonic_makernote(
+                        cfg, tiff_bytes, value_off, value_bytes, mk_ifd0, store,
+                        mn_opts, &sink.result)) {
+                    continue;
+                }
+
                 // Canon MakerNote: classic IFD at offset 0 (parent endianness),
                 // plus Canon-specific BinaryData subdirectories.
                 if (vendor == MakerNoteVendor::Canon
@@ -2132,19 +2316,44 @@ decode_exif_tiff(std::span<const std::byte> tiff_bytes, MetaStore& store,
                     continue;
                 }
 
+                // Kodak MakerNote: supports both KDK fixed-layout blobs and
+                // embedded TIFF headers with vendor sub-IFDs.
+                if (vendor == MakerNoteVendor::Kodak
+                    && exif_internal::decode_kodak_makernote(
+                        cfg, tiff_bytes, value_off, value_bytes, mk_ifd0, store,
+                        mn_opts, &sink.result)) {
+                    continue;
+                }
+
                 // 1) Embedded TIFF header inside MakerNote (common for Nikon).
                 const uint64_t hdr_off = find_embedded_tiff_header(mn, 128);
                 if (hdr_off != UINT64_MAX) {
+                    if (value_off > (UINT64_MAX - hdr_off)) {
+                        continue;
+                    }
+                    const uint64_t hdr_abs = value_off + hdr_off;
+                    if (hdr_abs >= tiff_bytes.size()) {
+                        continue;
+                    }
+
+                    // Some real-world MakerNotes store out-of-line values
+                    // beyond the declared MakerNote byte count. Decode the
+                    // embedded TIFF header using the full EXIF/TIFF buffer so
+                    // these values can be resolved safely (bounds-checked by
+                    // the decoder limits and input span size).
+                    const std::span<const std::byte> hdr_bytes
+                        = tiff_bytes.subspan(static_cast<size_t>(hdr_abs));
+
                     std::array<ExifIfdRef, 128> mn_ifds;
                     (void)decode_exif_tiff(
-                        mn.subspan(static_cast<size_t>(hdr_off)), store,
+                        hdr_bytes, store,
                         std::span<ExifIfdRef>(mn_ifds.data(), mn_ifds.size()),
                         mn_opts);
 
                     if (vendor == MakerNoteVendor::Nikon
-                        && (hdr_off + 2U) <= mn.size()) {
-                        const uint8_t hdr_b0 = u8(mn[hdr_off + 0]);
-                        const uint8_t hdr_b1 = u8(mn[hdr_off + 1]);
+                        && (hdr_abs + 2U) <= tiff_bytes.size()) {
+                        const uint8_t hdr_b0 = u8(tiff_bytes[hdr_abs + 0]);
+                        const uint8_t hdr_b1 = u8(tiff_bytes[hdr_abs + 1]);
                         const bool le        = (hdr_b0 == 'I' && hdr_b1 == 'I');
                         exif_internal::decode_nikon_binary_subdirs(
                             mk_ifd0, store, le, mn_opts, &sink.result);

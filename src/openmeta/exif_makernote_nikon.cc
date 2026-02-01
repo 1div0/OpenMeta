@@ -317,6 +317,7 @@ decode_nikon_binary_subdirs(std::string_view mk_ifd0, MetaStore& store, bool le,
         case 0x002C:  // UnknownInfo
         case 0x0032:  // UnknownInfo2
         case 0x004E:  // NikonSettings
+        case 0x0088:  // AFInfo (older models)
         case 0x0091:  // ShotInfoUnknown
         case 0x0097:  // ColorBalanceUnknown2
         case 0x0098:  // LensData
@@ -346,6 +347,7 @@ decode_nikon_binary_subdirs(std::string_view mk_ifd0, MetaStore& store, bool le,
     uint32_t idx_unknowninfo    = 0;
     uint32_t idx_unknowninfo2   = 0;
     uint32_t idx_settings       = 0;
+    uint32_t idx_afinfo         = 0;
     uint32_t idx_shotinfo       = 0;
     uint32_t idx_colorbalance   = 0;
     uint32_t idx_lensdata       = 0;
@@ -1042,6 +1044,30 @@ decode_nikon_binary_subdirs(std::string_view mk_ifd0, MetaStore& store, bool le,
                                              std::span<char>(sub_ifd_buf));
             decode_nikon_settings_dir(ifd_name, raw_src, store, options,
                                       status_out);
+            continue;
+        }
+
+        if (tag == 0x0088) {  // AFInfo (older models)
+            if (raw_src.size() < 3) {
+                continue;
+            }
+
+            const std::string_view ifd_name
+                = make_mk_subtable_ifd_token(mk_prefix, "afinfo", idx_afinfo++,
+                                             std::span<char>(sub_ifd_buf));
+            if (ifd_name.empty()) {
+                continue;
+            }
+
+            const uint16_t tags_out[] = { 0x0000, 0x0001, 0x0002 };
+            const MetaValue vals_out[]
+                = { make_u8(u8(raw_src[0])), make_u8(u8(raw_src[1])),
+                    make_u8(u8(raw_src[2])) };
+
+            decode_nikon_bin_dir_entries(ifd_name, store,
+                                         std::span<const uint16_t>(tags_out),
+                                         std::span<const MetaValue>(vals_out),
+                                         options.limits, status_out);
             continue;
         }
 

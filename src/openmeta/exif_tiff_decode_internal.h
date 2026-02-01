@@ -168,6 +168,21 @@ bool decode_sony_makernote(const TiffConfig& parent_cfg,
                            const ExifDecodeOptions& options,
                            ExifDecodeResult* status_out) noexcept;
 
+bool decode_panasonic_makernote(const TiffConfig& parent_cfg,
+                                std::span<const std::byte> tiff_bytes,
+                                uint64_t maker_note_off,
+                                uint64_t maker_note_bytes,
+                                std::string_view mk_ifd0, MetaStore& store,
+                                const ExifDecodeOptions& options,
+                                ExifDecodeResult* status_out) noexcept;
+
+bool decode_kodak_makernote(const TiffConfig& parent_cfg,
+                            std::span<const std::byte> tiff_bytes,
+                            uint64_t maker_note_off, uint64_t maker_note_bytes,
+                            std::string_view mk_ifd0, MetaStore& store,
+                            const ExifDecodeOptions& options,
+                            ExifDecodeResult* status_out) noexcept;
+
 void decode_sony_cipher_subdirs(std::string_view mk_ifd0, MetaStore& store,
                                 const ExifDecodeOptions& options,
                                 ExifDecodeResult* status_out) noexcept;

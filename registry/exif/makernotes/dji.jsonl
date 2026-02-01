@@ -1,4 +1,5 @@
 {"kind":"exif.tag","ifd":"makernote:dji:main","tag":"0x0001","name":"Make"}
+{"kind":"exif.tag","ifd":"makernote:dji:main","tag":"0x0002","name":"DJI_0x0002"}
 {"kind":"exif.tag","ifd":"makernote:dji:main","tag":"0x0003","name":"SpeedX"}
 {"kind":"exif.tag","ifd":"makernote:dji:main","tag":"0x0004","name":"SpeedY"}
 {"kind":"exif.tag","ifd":"makernote:dji:main","tag":"0x0005","name":"SpeedZ"}
@@ -8,3 +9,15 @@
 {"kind":"exif.tag","ifd":"makernote:dji:main","tag":"0x0009","name":"CameraPitch"}
 {"kind":"exif.tag","ifd":"makernote:dji:main","tag":"0x000a","name":"CameraYaw"}
 {"kind":"exif.tag","ifd":"makernote:dji:main","tag":"0x000b","name":"CameraRoll"}
+{"kind":"exif.tag","ifd":"makernote:dji:main","tag":"0x000c","name":"DJI_0x000c"}
+{"kind":"exif.tag","ifd":"makernote:dji:main","tag":"0x000d","name":"DJI_0x000d"}
+{"kind":"exif.tag","ifd":"makernote:dji:main","tag":"0x000e","name":"DJI_0x000e"}
+{"kind":"exif.tag","ifd":"makernote:dji:main","tag":"0x000f","name":"DJI_0x000f"}
+{"kind":"exif.tag","ifd":"makernote:dji:main","tag":"0x0010","name":"DJI_0x0010"}
+{"kind":"exif.tag","ifd":"makernote:dji:main","tag":"0x0011","name":"DJI_0x0011"}
+{"kind":"exif.tag","ifd":"makernote:dji:main","tag":"0x0012","name":"DJI_0x0012"}
+{"kind":"exif.tag","ifd":"makernote:dji:main","tag":"0x0013","name":"DJI_0x0013"}
+{"kind":"exif.tag","ifd":"makernote:dji:main","tag":"0x0014","name":"DJI_0x0014"}
+{"kind":"exif.tag","ifd":"makernote:dji:main","tag":"0x0015","name":"DJI_0x0015"}
+{"kind":"exif.tag","ifd":"makernote:dji:main","tag":"0x0016","name":"DJI_0x0016"}
+{"kind":"exif.tag","ifd":"makernote:dji:main","tag":"0x0018","name":"DJI_0x0018"}

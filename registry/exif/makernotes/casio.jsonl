@@ -108,6 +108,9 @@
 {"kind":"exif.tag","ifd":"makernote:casio:type2","tag":"0x2033","name":"Casio_0x2033"}
 {"kind":"exif.tag","ifd":"makernote:casio:type2","tag":"0x2035","name":"Casio_0x2035"}
 {"kind":"exif.tag","ifd":"makernote:casio:type2","tag":"0x2036","name":"Casio_0x2036"}
+{"kind":"exif.tag","ifd":"makernote:casio:type2","tag":"0x2039","name":"Casio_0x2039"}
+{"kind":"exif.tag","ifd":"makernote:casio:type2","tag":"0x203a","name":"Casio_0x203a"}
+{"kind":"exif.tag","ifd":"makernote:casio:type2","tag":"0x203c","name":"Casio_0x203c"}
 {"kind":"exif.tag","ifd":"makernote:casio:type2","tag":"0x2041","name":"Casio_0x2041"}
 {"kind":"exif.tag","ifd":"makernote:casio:type2","tag":"0x2042","name":"Casio_0x2042"}
 {"kind":"exif.tag","ifd":"makernote:casio:type2","tag":"0x2043","name":"Casio_0x2043"}
