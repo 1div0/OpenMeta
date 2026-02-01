@@ -388,6 +388,7 @@
 {"kind":"exif.tag","ifd":"makernote:nikon:lensdata0800","tag":"0x002f","name":"NewLensData"}
 {"kind":"exif.tag","ifd":"makernote:nikon:lensdata0800","tag":"0x0030","name":"LensID"}
 {"kind":"exif.tag","ifd":"makernote:nikon:lensdata0800","tag":"0x0034","name":"LensFirmwareVersion"}
+{"kind":"exif.tag","ifd":"makernote:nikon:lensdata0800","tag":"0x0035","name":"LensMountType"}
 {"kind":"exif.tag","ifd":"makernote:nikon:lensdata0800","tag":"0x0036","name":"MaxAperture"}
 {"kind":"exif.tag","ifd":"makernote:nikon:lensdata0800","tag":"0x0038","name":"FNumber"}
 {"kind":"exif.tag","ifd":"makernote:nikon:lensdata0800","tag":"0x003c","name":"FocalLength"}

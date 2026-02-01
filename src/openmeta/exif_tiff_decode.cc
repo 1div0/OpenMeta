@@ -2361,6 +2361,48 @@ decode_exif_tiff(std::span<const std::byte> tiff_bytes, MetaStore& store,
                     continue;
                 }
 
+                // Nikon MakerNote (older/compact cameras): classic IFD at the
+                // MakerNote start, but value offsets are commonly relative to
+                // the outer EXIF/TIFF header (not the MakerNote start).
+                if (vendor == MakerNoteVendor::Nikon) {
+                    // Nikon type1 MakerNote: "Nikon\0" + u16 version (usually 1),
+                    // then a classic IFD starting at offset 8 within the
+                    // MakerNote payload.
+                    //
+                    // The IFD value offsets are commonly TIFF-relative, so
+                    // decode against the outer TIFF buffer.
+                    if (mn.size() >= 10 && match_bytes(mn, 0, "Nikon\0", 6)) {
+                        uint16_t ver = 0;
+                        if (read_u16le(mn, 6, &ver) && ver == 1) {
+                            const uint64_t ifd_off = value_off + 8ULL;
+                            if (ifd_off < tiff_bytes.size()) {
+                                TiffConfig mn_cfg = cfg;
+                                if (!looks_like_classic_ifd(mn_cfg, tiff_bytes,
+                                                            ifd_off,
+                                                            options.limits)) {
+                                    mn_cfg.le = !mn_cfg.le;
+                                }
+                                decode_classic_ifd_no_header(
+                                    mn_cfg, tiff_bytes, ifd_off, mk_ifd0,
+                                    store, mn_opts, &sink.result,
+                                    EntryFlags::None);
+                                exif_internal::decode_nikon_binary_subdirs(
+                                    mk_ifd0, store, mn_cfg.le, mn_opts,
+                                    &sink.result);
+                                continue;
+                            }
+                        }
+                    }
+
+                    decode_classic_ifd_no_header(cfg, tiff_bytes, value_off,
+                                                 mk_ifd0, store, mn_opts,
+                                                 &sink.result,
+                                                 EntryFlags::None);
+                    exif_internal::decode_nikon_binary_subdirs(
+                        mk_ifd0, store, cfg.le, mn_opts, &sink.result);
+                    continue;
+                }
+
                 // 2) FUJIFILM MakerNote: "FUJIFILM" + u32le IFD offset.
                 if (vendor == MakerNoteVendor::Fuji && mn.size() >= 12
                     && match_bytes(mn, 0, "FUJIFILM", 8)) {

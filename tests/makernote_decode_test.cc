@@ -1593,7 +1593,7 @@ TEST(MakerNoteDecode, DecodesCanonCustomFunctions1DAndPersonalFunctionsIntoDeriv
         ASSERT_EQ(ids.size(), 1U);
         const Entry& e = store.entry(ids[0]);
         EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
-        EXPECT_EQ(e.value.elem_type, MetaElementType::U8);
+        EXPECT_EQ(e.value.elem_type, MetaElementType::U16);
         EXPECT_EQ(e.value.data.u64, 0U);
         EXPECT_TRUE(any(e.flags, EntryFlags::Derived));
     }
