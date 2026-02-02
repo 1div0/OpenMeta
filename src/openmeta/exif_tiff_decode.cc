@@ -342,6 +342,10 @@ namespace {
             && match_bytes(maker_note_bytes, 0, "OLYMPUS\0", 8)) {
             return MakerNoteVendor::Olympus;
         }
+        if (maker_note_bytes.size() >= 7
+            && match_bytes(maker_note_bytes, 0, "PENTAX ", 7)) {
+            return MakerNoteVendor::Pentax;
+        }
         if (maker_note_bytes.size() >= 4
             && match_bytes(maker_note_bytes, 0, "AOC\0", 4)) {
             return MakerNoteVendor::Pentax;
@@ -402,6 +406,9 @@ namespace {
                 return MakerNoteVendor::Olympus;
             }
             if (ascii_starts_with_insensitive(make, "PENTAX")) {
+                return MakerNoteVendor::Pentax;
+            }
+            if (ascii_starts_with_insensitive(make, "Asahi")) {
                 return MakerNoteVendor::Pentax;
             }
             if (ascii_starts_with_insensitive(make, "CASIO")) {
@@ -2364,6 +2371,19 @@ decode_exif_tiff(std::span<const std::byte> tiff_bytes, MetaStore& store,
                         const uint8_t hdr_b1 = u8(tiff_bytes[hdr_abs + 1]);
                         const bool le        = (hdr_b0 == 'I' && hdr_b1 == 'I');
                         exif_internal::decode_nikon_binary_subdirs(
+                            mk_ifd0, store, le, mn_opts, &sink.result);
+                    }
+                    if (vendor == MakerNoteVendor::Pentax
+                        && (hdr_abs + 2U) <= tiff_bytes.size()) {
+                        const uint8_t hdr_b0 = u8(tiff_bytes[hdr_abs + 0]);
+                        const uint8_t hdr_b1 = u8(tiff_bytes[hdr_abs + 1]);
+                        bool le              = cfg.le;
+                        if (hdr_b0 == 'I' && hdr_b1 == 'I') {
+                            le = true;
+                        } else if (hdr_b0 == 'M' && hdr_b1 == 'M') {
+                            le = false;
+                        }
+                        exif_internal::decode_pentax_binary_subdirs(
                             mk_ifd0, store, le, mn_opts, &sink.result);
                     }
                     continue;

@@ -191,5 +191,9 @@ void decode_nikon_binary_subdirs(std::string_view mk_ifd0, MetaStore& store,
                                  bool le, const ExifDecodeOptions& options,
                                  ExifDecodeResult* status_out) noexcept;
 
+void decode_pentax_binary_subdirs(std::string_view mk_ifd0, MetaStore& store,
+                                  bool le, const ExifDecodeOptions& options,
+                                  ExifDecodeResult* status_out) noexcept;
+
 }  // namespace exif_internal
 }  // namespace openmeta

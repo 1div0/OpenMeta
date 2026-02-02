@@ -13,6 +13,18 @@ namespace {
         case 0x2031: return "rawdevelopment2";
         case 0x2040: return "imageprocessing";
         case 0x2050: return "focusinfo";
+        case 0x2100: return "fetags";
+        case 0x2200: return "fetags";
+        case 0x2300: return "fetags";
+        case 0x2400: return "fetags";
+        case 0x2500: return "fetags";
+        case 0x2600: return "fetags";
+        case 0x2700: return "fetags";
+        case 0x2800: return "fetags";
+        case 0x2900: return "fetags";
+        case 0x3000: return "rawinfo";
+        case 0x4000: return "main";
+        case 0x5000: return "unknowninfo";
         default: return {};
         }
     }
@@ -97,36 +109,6 @@ namespace {
         }
     }
 
-
-    static void olympus_decode_embedded_ifd(
-        const TiffConfig& cfg, std::span<const std::byte> bytes,
-        std::string_view vendor_prefix, std::string_view table,
-        MetaStore& store, const ExifDecodeOptions& options,
-        ExifDecodeResult* status_out) noexcept
-    {
-        if (bytes.size() < 4) {
-            return;
-        }
-        if (!looks_like_classic_ifd(cfg, bytes, 0, options.limits)) {
-            return;
-        }
-
-        char ifd_buf[96];
-        const std::string_view ifd_token = make_mk_subtable_ifd_token(
-            vendor_prefix, table, 0, std::span<char>(ifd_buf));
-        if (ifd_token.empty()) {
-            return;
-        }
-
-        decode_classic_ifd_no_header(cfg, bytes, 0, ifd_token, store, options,
-                                     status_out, EntryFlags::None);
-
-        if (table == "camerasettings") {
-            olympus_decode_camerasettings_nested(cfg, bytes, 0, vendor_prefix,
-                                                 store, options, status_out);
-        }
-    }
-
 }  // namespace
 
 bool decode_olympus_makernote(const TiffConfig& parent_cfg,
@@ -148,6 +130,99 @@ bool decode_olympus_makernote(const TiffConfig& parent_cfg,
                              static_cast<size_t>(maker_note_bytes));
     if (mn.size() < 10) {
         return false;
+    }
+
+    // Newer OM System MakerNotes start with:
+    //   "OM SYSTEM" + 3x NUL + byte order marker + u16(version?) + classic IFD at +16
+    // where sub-IFD offsets (type=IFD) are relative to the MakerNote start.
+    if (mn.size() >= 16 && match_bytes(mn, 0, "OM SYSTEM", 9)) {
+        const uint8_t b0 = u8(mn[12]);
+        const uint8_t b1 = u8(mn[13]);
+
+        TiffConfig cfg;
+        if (b0 == 'I' && b1 == 'I') {
+            cfg.le = true;
+        } else if (b0 == 'M' && b1 == 'M') {
+            cfg.le = false;
+        } else {
+            return false;
+        }
+        cfg.bigtiff = false;
+
+        const uint64_t main_ifd_off = 16;
+        if (!looks_like_classic_ifd(cfg, mn, main_ifd_off, options.limits)) {
+            return false;
+        }
+
+        olympus_decode_ifd(cfg, mn, main_ifd_off, mk_ifd0, store, options,
+                           status_out);
+
+        uint16_t entry_count = 0;
+        if (!read_tiff_u16(cfg, mn, main_ifd_off, &entry_count)) {
+            return true;
+        }
+
+        const std::string_view vendor_prefix = options.tokens.ifd_prefix;
+        uint32_t idx_fetags                  = 0;
+
+        const uint64_t entries_off = main_ifd_off + 2;
+        for (uint32_t i = 0; i < entry_count; ++i) {
+            const uint64_t eoff = entries_off + uint64_t(i) * 12ULL;
+
+            uint16_t tag  = 0;
+            uint16_t type = 0;
+            uint32_t count = 0;
+            uint32_t value_or_off32 = 0;
+            if (!read_tiff_u16(cfg, mn, eoff + 0, &tag)
+                || !read_tiff_u16(cfg, mn, eoff + 2, &type)
+                || !read_tiff_u32(cfg, mn, eoff + 4, &count)
+                || !read_tiff_u32(cfg, mn, eoff + 8, &value_or_off32)) {
+                break;
+            }
+
+            const std::string_view table = olympus_main_subifd_table(tag);
+            if (table.empty()) {
+                continue;
+            }
+
+            uint64_t sub_ifd_off = UINT64_MAX;
+            if (type == 13 && count == 1U) {
+                sub_ifd_off = value_or_off32;
+            } else {
+                const uint64_t unit = tiff_type_size(type);
+                if (unit == 0) {
+                    continue;
+                }
+                const uint64_t value_bytes = uint64_t(count) * unit;
+                if (value_bytes <= 4) {
+                    continue;
+                }
+                sub_ifd_off = value_or_off32;
+            }
+            if (sub_ifd_off >= mn.size()) {
+                continue;
+            }
+
+            char ifd_buf[96];
+            const uint32_t sub_idx
+                = (table == "fetags") ? idx_fetags++ : 0;
+            const std::string_view sub_ifd_token = make_mk_subtable_ifd_token(
+                vendor_prefix, table, sub_idx, std::span<char>(ifd_buf));
+            if (sub_ifd_token.empty()) {
+                continue;
+            }
+
+            olympus_decode_ifd(cfg, mn, sub_ifd_off, sub_ifd_token, store,
+                               options, status_out);
+
+            if (table == "camerasettings") {
+                olympus_decode_camerasettings_nested(cfg, mn, sub_ifd_off,
+                                                     vendor_prefix, store,
+                                                     options, status_out);
+            }
+        }
+
+        return true;
     }
 
     // Olympus MakerNotes commonly start with:
@@ -194,38 +269,52 @@ bool decode_olympus_makernote(const TiffConfig& parent_cfg,
                 continue;
             }
 
-            const uint64_t unit = tiff_type_size(type);
-            if (unit == 0) {
-                continue;
-            }
-            const uint64_t count = count32;
-            if (count > (UINT64_MAX / unit)) {
-                continue;
-            }
-            const uint64_t value_bytes = count * unit;
-            if (value_bytes <= 4) {
-                continue;
-            }
-            if (value_bytes > options.limits.max_value_bytes) {
-                if (status_out) {
-                    update_status(status_out, ExifDecodeStatus::LimitExceeded);
+            uint64_t sub_ifd_off = UINT64_MAX;
+            if ((type == 4 || type == 13) && count32 == 1U) {
+                // New-style sub-IFD pointer written as a standard TIFF offset.
+                sub_ifd_off = value_or_off32;
+            } else {
+                const uint64_t unit = tiff_type_size(type);
+                if (unit == 0) {
+                    continue;
                 }
+                const uint64_t count = count32;
+                if (count > (UINT64_MAX / unit)) {
+                    continue;
+                }
+                const uint64_t value_bytes = count * unit;
+                if (value_bytes <= 4) {
+                    continue;
+                }
+                if (value_bytes > options.limits.max_value_bytes) {
+                    if (status_out) {
+                        update_status(status_out,
+                                      ExifDecodeStatus::LimitExceeded);
+                    }
+                    continue;
+                }
+                sub_ifd_off = value_or_off32;
+            }
+
+            if (sub_ifd_off == UINT64_MAX || sub_ifd_off >= tiff_bytes.size()) {
                 continue;
             }
 
-            const uint64_t value_off = value_or_off32;
-            if (value_off + value_bytes > tiff_bytes.size()) {
-                if (status_out) {
-                    update_status(status_out, ExifDecodeStatus::Malformed);
-                }
+            char ifd_buf[96];
+            const std::string_view ifd_token = make_mk_subtable_ifd_token(
+                vendor_prefix, table, 0, std::span<char>(ifd_buf));
+            if (ifd_token.empty()) {
                 continue;
             }
 
-            const std::span<const std::byte> sub_bytes
-                = tiff_bytes.subspan(static_cast<size_t>(value_off),
-                                     static_cast<size_t>(value_bytes));
-            olympus_decode_embedded_ifd(parent_cfg, sub_bytes, vendor_prefix,
-                                        table, store, options, status_out);
+            olympus_decode_ifd(parent_cfg, tiff_bytes, sub_ifd_off, ifd_token,
+                               store, options, status_out);
+            if (table == "camerasettings") {
+                olympus_decode_camerasettings_nested(parent_cfg, tiff_bytes,
+                                                     sub_ifd_off,
+                                                     vendor_prefix, store,
+                                                     options, status_out);
+            }
         }
         return true;
     }
@@ -266,6 +355,7 @@ bool decode_olympus_makernote(const TiffConfig& parent_cfg,
     }
 
     const std::string_view vendor_prefix = options.tokens.ifd_prefix;
+    uint32_t idx_fetags                  = 0;
 
     // Decode known Olympus sub-IFDs.
     const uint64_t entries_off = main_ifd_off + 2;
@@ -275,13 +365,12 @@ bool decode_olympus_makernote(const TiffConfig& parent_cfg,
         uint16_t tag  = 0;
         uint16_t type = 0;
         uint32_t count = 0;
+        uint32_t value_or_off32 = 0;
         if (!read_tiff_u16(cfg, mn, eoff + 0, &tag)
             || !read_tiff_u16(cfg, mn, eoff + 2, &type)
-            || !read_tiff_u32(cfg, mn, eoff + 4, &count)) {
+            || !read_tiff_u32(cfg, mn, eoff + 4, &count)
+            || !read_tiff_u32(cfg, mn, eoff + 8, &value_or_off32)) {
             break;
-        }
-        if (type != 13 || count != 1U) {
-            continue;
         }
 
         const std::string_view table = olympus_main_subifd_table(tag);
@@ -289,18 +378,28 @@ bool decode_olympus_makernote(const TiffConfig& parent_cfg,
             continue;
         }
 
-        uint32_t sub_ifd_off32 = 0;
-        if (!read_tiff_u32(cfg, mn, eoff + 8, &sub_ifd_off32)) {
-            continue;
+        uint64_t sub_ifd_off = UINT64_MAX;
+        if (type == 13 && count == 1U) {
+            sub_ifd_off = value_or_off32;
+        } else {
+            const uint64_t unit = tiff_type_size(type);
+            if (unit == 0) {
+                continue;
+            }
+            const uint64_t value_bytes = uint64_t(count) * unit;
+            if (value_bytes <= 4) {
+                continue;
+            }
+            sub_ifd_off = value_or_off32;
         }
-        const uint64_t sub_ifd_off = sub_ifd_off32;
         if (sub_ifd_off >= mn.size()) {
             continue;
         }
 
         char ifd_buf[96];
+        const uint32_t sub_idx = (table == "fetags") ? idx_fetags++ : 0;
         const std::string_view sub_ifd_token = make_mk_subtable_ifd_token(
-            vendor_prefix, table, 0, std::span<char>(ifd_buf));
+            vendor_prefix, table, sub_idx, std::span<char>(ifd_buf));
         if (sub_ifd_token.empty()) {
             continue;
         }
