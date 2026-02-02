@@ -98,6 +98,54 @@ bool decode_sony_makernote(
 
         // Sony MakerNotes can also embed classic IFDs after a "SONY" prefix.
         // These typically use offsets relative to the outer EXIF/TIFF stream.
+        //
+        // Hasselblad-branded Sony cameras use a "VHAB     \0" prefix but still
+        // store a classic IFD at offset +12, with value offsets commonly
+        // relative to the outer EXIF/TIFF stream.
+        if (match_bytes(mn, 0, "VHAB", 4)) {
+            ClassicIfdCandidate best;
+            bool found = false;
+
+            const uint64_t ifd_off = maker_note_off + 12;
+            for (int endian = 0; endian < 2; ++endian) {
+                TiffConfig cfg;
+                cfg.le      = (endian == 0);
+                cfg.bigtiff = false;
+
+                ClassicIfdCandidate cand;
+                if (!score_classic_ifd_candidate(cfg, tiff_bytes, ifd_off,
+                                                 options.limits, &cand)) {
+                    continue;
+                }
+
+                const uint64_t table_bytes
+                    = 2U + (uint64_t(cand.entry_count) * 12ULL) + 4ULL;
+                const uint64_t mn_end = maker_note_off + maker_note_bytes;
+                if (ifd_off + table_bytes > mn_end
+                    || ifd_off + table_bytes > tiff_bytes.size()) {
+                    continue;
+                }
+
+                if (!found || cand.valid_entries > best.valid_entries) {
+                    best  = cand;
+                    found = true;
+                }
+            }
+
+            if (!found) {
+                return false;
+            }
+
+            TiffConfig best_cfg;
+            best_cfg.le      = best.le;
+            best_cfg.bigtiff = false;
+
+            decode_classic_ifd_no_header(best_cfg, tiff_bytes, ifd_off, mk_ifd0,
+                                         store, options, status_out,
+                                         EntryFlags::None);
+            return true;
+        }
+
         if (!match_bytes(mn, 0, "SONY", 4)) {
             return false;
         }
@@ -544,7 +592,21 @@ bool decode_sony_makernote(
 
     static constexpr SonyCipherField kSonyTag9403Fields[]
         = { { 0x0004, SonyCipherFieldKind::U8 },
-            { 0x0005, SonyCipherFieldKind::U8 } };
+            { 0x0005, SonyCipherFieldKind::U8 },
+            { 0x0019, SonyCipherFieldKind::U16LE } };
+
+    static constexpr SonyCipherField kSonyTag9400aFields[] = {
+        { 0x0008, SonyCipherFieldKind::U32LE },  // SequenceImageNumber
+        { 0x000C, SonyCipherFieldKind::U32LE },  // SequenceFileNumber
+        { 0x0010, SonyCipherFieldKind::U8 },     // ReleaseMode2
+        { 0x0012, SonyCipherFieldKind::U8 },     // DigitalZoom
+        { 0x001A, SonyCipherFieldKind::U32LE },  // ShotNumberSincePowerUp
+        { 0x0022, SonyCipherFieldKind::U8 },     // SequenceLength
+        { 0x0028, SonyCipherFieldKind::U8 },     // CameraOrientation
+        { 0x0029, SonyCipherFieldKind::U8 },     // Quality2
+        { 0x0044, SonyCipherFieldKind::U16LE },  // SonyImageHeight
+        { 0x0052, SonyCipherFieldKind::U8 },     // ModelReleaseYear
+    };
 
     static constexpr SonyCipherField kSonyTag9406Fields[]
         = { { 0x0005, SonyCipherFieldKind::U8 },
@@ -563,8 +625,85 @@ bool decode_sony_makernote(
         = { { 0x000B, SonyCipherFieldKind::U8 },
             { 0x000D, SonyCipherFieldKind::U8 } };
 
+    static constexpr SonyCipherField kSonyTag9404bFields[]
+        = { { 0x000C, SonyCipherFieldKind::U8 },
+            { 0x000E, SonyCipherFieldKind::U8 },
+            { 0x001E, SonyCipherFieldKind::U16LE } };
+
     static constexpr SonyCipherField kSonyTag202aFields[]
         = { { 0x0001, SonyCipherFieldKind::U8 } };
+
+    static constexpr SonyCipherField kSonyTag9405aFields[]
+        = { { 0x0600, SonyCipherFieldKind::U8 },
+            { 0x0601, SonyCipherFieldKind::U8 },
+            { 0x0603, SonyCipherFieldKind::U8 },
+            { 0x0604, SonyCipherFieldKind::U8 },
+            { 0x0605, SonyCipherFieldKind::U16LE },
+            { 0x0608, SonyCipherFieldKind::U16LE },
+            { 0x064A, SonyCipherFieldKind::I16LE_ARRAY, 16 },
+            { 0x066A, SonyCipherFieldKind::I16LE_ARRAY, 32 },
+            { 0x06CA, SonyCipherFieldKind::I16LE_ARRAY, 16 } };
+
+    static constexpr SonyCipherField kSonyTag2010bFields[] = {
+        { 0x0000, SonyCipherFieldKind::U32LE },
+        { 0x0004, SonyCipherFieldKind::U32LE },
+        { 0x0008, SonyCipherFieldKind::U32LE },
+        { 0x01B6, SonyCipherFieldKind::BYTES, 7 },
+        { 0x0324, SonyCipherFieldKind::U8 },
+        { 0x1128, SonyCipherFieldKind::U8 },
+        { 0x112C, SonyCipherFieldKind::U8 },
+        { 0x1134, SonyCipherFieldKind::U8 },
+        { 0x1138, SonyCipherFieldKind::U8 },
+        { 0x113E, SonyCipherFieldKind::U16LE },
+        { 0x1140, SonyCipherFieldKind::U16LE },
+        { 0x1144, SonyCipherFieldKind::U8 },
+        { 0x1148, SonyCipherFieldKind::U8 },
+        { 0x114C, SonyCipherFieldKind::I16LE },
+        { 0x1162, SonyCipherFieldKind::U8 },
+        { 0x1163, SonyCipherFieldKind::U8 },
+        { 0x1167, SonyCipherFieldKind::U8 },
+        { 0x1174, SonyCipherFieldKind::U8 },
+        { 0x1178, SonyCipherFieldKind::U8 },
+        { 0x1179, SonyCipherFieldKind::U8 },
+        { 0x1180, SonyCipherFieldKind::U16LE_ARRAY, 3 },
+        { 0x1218, SonyCipherFieldKind::U16LE },
+        { 0x1A23, SonyCipherFieldKind::I16LE_ARRAY, 16 },
+    };
+
+    static constexpr SonyCipherField kSonyTag2010eFields[] = {
+        { 0x0000, SonyCipherFieldKind::U32LE },
+        { 0x0004, SonyCipherFieldKind::U32LE },
+        { 0x0008, SonyCipherFieldKind::U32LE },
+        { 0x021C, SonyCipherFieldKind::U8 },
+        { 0x022C, SonyCipherFieldKind::BYTES, 7 },
+        { 0x0328, SonyCipherFieldKind::U8 },
+        { 0x115C, SonyCipherFieldKind::U8 },
+        { 0x1160, SonyCipherFieldKind::U8 },
+        { 0x1168, SonyCipherFieldKind::U8 },
+        { 0x116C, SonyCipherFieldKind::U8 },
+        { 0x1172, SonyCipherFieldKind::U16LE },
+        { 0x1174, SonyCipherFieldKind::U16LE },
+        { 0x1178, SonyCipherFieldKind::U8 },
+        { 0x117C, SonyCipherFieldKind::U8 },
+        { 0x1180, SonyCipherFieldKind::I16LE },
+        { 0x1196, SonyCipherFieldKind::U8 },
+        { 0x1197, SonyCipherFieldKind::U8 },
+        { 0x119B, SonyCipherFieldKind::U8 },
+        { 0x11A8, SonyCipherFieldKind::U8 },
+        { 0x11AC, SonyCipherFieldKind::U8 },
+        { 0x11AD, SonyCipherFieldKind::U8 },
+        { 0x11B4, SonyCipherFieldKind::U16LE_ARRAY, 3 },
+        { 0x1254, SonyCipherFieldKind::U16LE },          // SonyISO
+        { 0x1870, SonyCipherFieldKind::I16LE_ARRAY, 16 },  // DistortionCorrParams
+        { 0x1891, SonyCipherFieldKind::U8 },             // LensFormat
+        { 0x1892, SonyCipherFieldKind::U8 },             // LensMount
+        { 0x1893, SonyCipherFieldKind::U16LE },          // LensType2
+        { 0x1896, SonyCipherFieldKind::U16LE },          // LensType
+        { 0x1898, SonyCipherFieldKind::U8 },             // DistortionCorrParamsPresent
+        { 0x1899, SonyCipherFieldKind::U8 },             // DistortionCorrParamsNumber
+        { 0x192C, SonyCipherFieldKind::U8 },             // AspectRatio (most)
+        { 0x1A88, SonyCipherFieldKind::U8 },             // AspectRatio (RX100/Stellar)
+    };
 
     static constexpr SonyCipherField kSonyTag2010iFields[] = {
         // u8 scalars.
@@ -609,6 +748,229 @@ bool decode_sony_makernote(
         // DistortionCorrParams (prefix bytes).
         { 0x17D0, SonyCipherFieldKind::BYTES, 32 },
     };
+
+    static constexpr SonyCipherField kSonyTag9050aFields[] = {
+        { 0x0000, SonyCipherFieldKind::U8 },
+        { 0x0001, SonyCipherFieldKind::U8 },
+        { 0x0020, SonyCipherFieldKind::U16LE_ARRAY, 3 },
+        { 0x0031, SonyCipherFieldKind::U8 },
+        { 0x0032, SonyCipherFieldKind::U32LE },
+        { 0x003A, SonyCipherFieldKind::U16LE },
+        { 0x003C, SonyCipherFieldKind::U16LE },
+        { 0x003F, SonyCipherFieldKind::U8 },
+        { 0x0067, SonyCipherFieldKind::U8 },
+        { 0x007C, SonyCipherFieldKind::U8_ARRAY, 4 },
+        { 0x00F0, SonyCipherFieldKind::U8_ARRAY, 5 },
+        { 0x0105, SonyCipherFieldKind::U8 },
+        { 0x0106, SonyCipherFieldKind::U8 },
+        { 0x0107, SonyCipherFieldKind::U16LE },
+        { 0x0109, SonyCipherFieldKind::U16LE },
+        { 0x010B, SonyCipherFieldKind::U8 },
+        { 0x0114, SonyCipherFieldKind::U8 },
+        { 0x0116, SonyCipherFieldKind::U8_ARRAY, 2 },
+        { 0x01AA, SonyCipherFieldKind::U32LE },
+        { 0x01BD, SonyCipherFieldKind::U32LE },
+    };
+
+    static void decode_sony_meterinfo_from_tag2010(
+        std::span<const std::byte> bytes, uint32_t rounds, uint16_t meter_off,
+        std::string_view mk_prefix, MetaStore& store,
+        const ExifDecodeOptions& options, ExifDecodeResult* status_out) noexcept
+    {
+        static constexpr uint32_t kMeterBytes = 486U * 4U;
+        if (bytes.empty()) {
+            return;
+        }
+        if (uint64_t(meter_off) + uint64_t(kMeterBytes) > bytes.size()) {
+            return;
+        }
+
+        char sub_ifd_buf[96];
+        const std::string_view ifd_name
+            = make_mk_subtable_ifd_token(mk_prefix, "meterinfo", 0,
+                                         std::span<char>(sub_ifd_buf));
+        if (ifd_name.empty()) {
+            return;
+        }
+
+        struct Row final {
+            uint16_t tag = 0;
+            uint16_t off = 0;
+            uint16_t len = 0;
+        };
+        static constexpr Row kRows[] = {
+            { 0x0000, 0x0000, 0x006C }, { 0x006C, 0x006C, 0x006C },
+            { 0x00D8, 0x00D8, 0x006C }, { 0x0144, 0x0144, 0x006C },
+            { 0x01B0, 0x01B0, 0x006C }, { 0x021C, 0x021C, 0x006C },
+            { 0x0288, 0x0288, 0x006C },
+
+            { 0x02F4, 0x02F4, 0x0084 }, { 0x0378, 0x0378, 0x0084 },
+            { 0x03FC, 0x03FC, 0x0084 }, { 0x0480, 0x0480, 0x0084 },
+            { 0x0504, 0x0504, 0x0084 }, { 0x0588, 0x0588, 0x0084 },
+            { 0x060C, 0x060C, 0x0084 }, { 0x0690, 0x0690, 0x0084 },
+            { 0x0714, 0x0714, 0x0084 },
+        };
+
+        uint16_t tags_out[32];
+        MetaValue vals_out[32];
+        uint32_t out_count = 0;
+
+        for (uint32_t i = 0; i < sizeof(kRows) / sizeof(kRows[0]); ++i) {
+            if (out_count >= sizeof(tags_out) / sizeof(tags_out[0])) {
+                break;
+            }
+            const Row r = kRows[i];
+            if (r.len == 0) {
+                continue;
+            }
+            if (uint32_t(r.len) > options.limits.max_value_bytes) {
+                continue;
+            }
+            const uint16_t abs_off = uint16_t(meter_off + r.off);
+            if (uint64_t(abs_off) + uint64_t(r.len) > bytes.size()) {
+                continue;
+            }
+            const MetaValue v = make_sony_deciphered_bytes(
+                store.arena(), bytes, abs_off, r.len, rounds);
+            if (v.kind != MetaValueKind::Bytes) {
+                continue;
+            }
+            tags_out[out_count] = r.tag;
+            vals_out[out_count] = v;
+            out_count += 1;
+        }
+
+        emit_bin_dir_entries(ifd_name, store,
+                             std::span<const uint16_t>(tags_out, out_count),
+                             std::span<const MetaValue>(vals_out, out_count),
+                             options.limits, status_out);
+    }
+
+    static void decode_sony_afstatus_from_afinfo(
+        std::span<const std::byte> bytes, uint32_t rounds, uint16_t base_off,
+        uint32_t count, std::string_view mk_prefix, std::string_view subtable,
+        MetaStore& store, const ExifDecodeOptions& options,
+        ExifDecodeResult* status_out) noexcept
+    {
+        if (bytes.empty() || count == 0) {
+            return;
+        }
+        const uint64_t bytes_needed = uint64_t(count) * 2U;
+        if (uint64_t(base_off) + bytes_needed > bytes.size()) {
+            return;
+        }
+        if (bytes_needed > options.limits.max_value_bytes) {
+            return;
+        }
+
+        char sub_ifd_buf[96];
+        const std::string_view ifd_name
+            = make_mk_subtable_ifd_token(mk_prefix, subtable, 0,
+                                         std::span<char>(sub_ifd_buf));
+        if (ifd_name.empty()) {
+            return;
+        }
+
+        uint16_t tags_out[96];
+        MetaValue vals_out[96];
+        uint32_t out_count = 0;
+
+        for (uint32_t i = 0; i < count; ++i) {
+            if (out_count >= sizeof(tags_out) / sizeof(tags_out[0])) {
+                break;
+            }
+            const uint16_t tag = uint16_t(i * 2U);
+            int16_t v          = 0;
+            if (!sony_read_i16le(bytes, uint64_t(base_off) + uint64_t(tag),
+                                 rounds, &v)) {
+                continue;
+            }
+            tags_out[out_count] = tag;
+            vals_out[out_count] = make_i16(v);
+            out_count += 1;
+        }
+
+        emit_bin_dir_entries(ifd_name, store,
+                             std::span<const uint16_t>(tags_out, out_count),
+                             std::span<const MetaValue>(vals_out, out_count),
+                             options.limits, status_out);
+    }
+
+    static void decode_sony_afinfo_from_tag940e(
+        std::span<const std::byte> bytes, std::string_view mk_prefix,
+        MetaStore& store, const ExifDecodeOptions& options,
+        ExifDecodeResult* status_out) noexcept
+    {
+        if (bytes.empty()) {
+            return;
+        }
+
+        char sub_ifd_buf[96];
+        const std::string_view ifd_name
+            = make_mk_subtable_ifd_token(mk_prefix, "afinfo", 0,
+                                         std::span<char>(sub_ifd_buf));
+        if (ifd_name.empty()) {
+            return;
+        }
+
+        const uint8_t allowed_af_type[] = { 0, 1, 2, 3, 6, 9, 11 };
+        const uint32_t rounds
+            = sony_guess_cipher_rounds(bytes, 0x0002,
+                                       std::span<const uint8_t>(allowed_af_type));
+
+        uint16_t tags_out[32];
+        MetaValue vals_out[32];
+        uint32_t out_count = 0;
+
+        uint8_t u8v = 0;
+        const uint16_t u8_tags[] = { 0x0002, 0x0004, 0x0007, 0x0008,
+                                     0x0009, 0x000A, 0x000B };
+        for (uint32_t i = 0; i < sizeof(u8_tags) / sizeof(u8_tags[0]); ++i) {
+            const uint16_t t = u8_tags[i];
+            if (!sony_read_u8(bytes, t, rounds, &u8v)) {
+                continue;
+            }
+            tags_out[out_count] = t;
+            vals_out[out_count] = make_u8(u8v);
+            out_count += 1;
+        }
+
+        uint32_t u32 = 0;
+        if (sony_read_u32le(bytes, 0x016E, rounds, &u32)) {
+            tags_out[out_count] = 0x016E;
+            vals_out[out_count] = make_u32(u32);
+            out_count += 1;
+        }
+
+        uint8_t tmp_u8 = 0;
+        if (sony_read_u8(bytes, 0x017D, rounds, &tmp_u8)) {
+            tags_out[out_count] = 0x017D;
+            vals_out[out_count] = make_i8(static_cast<int8_t>(tmp_u8));
+            out_count += 1;
+        }
+        if (sony_read_u8(bytes, 0x017E, rounds, &tmp_u8)) {
+            tags_out[out_count] = 0x017E;
+            vals_out[out_count] = make_u8(tmp_u8);
+            out_count += 1;
+        }
+
+        emit_bin_dir_entries(ifd_name, store,
+                             std::span<const uint16_t>(tags_out, out_count),
+                             std::span<const MetaValue>(vals_out, out_count),
+                             options.limits, status_out);
+
+        uint8_t af_type = 0;
+        (void)sony_read_u8(bytes, 0x0002, rounds, &af_type);
+        if (af_type == 2) {
+            decode_sony_afstatus_from_afinfo(bytes, rounds, 0x0011, 30,
+                                             mk_prefix, "afstatus19", store,
+                                             options, status_out);
+        } else if (af_type == 1) {
+            decode_sony_afstatus_from_afinfo(bytes, rounds, 0x0011, 18,
+                                             mk_prefix, "afstatus15", store,
+                                             options, status_out);
+        }
+    }
 
     static constexpr SonyCipherField kSonyTag9050bFields[] = {
         // u8 scalars.
@@ -1428,6 +1790,11 @@ void decode_sony_cipher_subdirs(std::string_view mk_ifd0, MetaStore& store,
         const std::string_view mk_prefix = "mk_sony";
         const std::string_view model
             = find_first_exif_text_value(store, "ifd0", 0x0110 /* Model */);
+        const bool is_slt_family
+            = model.starts_with("SLT-") || model.starts_with("ILCA-")
+              || (model == "HV");
+        const bool is_lunar = (model == "Lunar");
+        const bool is_stellar = (model == "Stellar");
 
         for (uint32_t i = 0; i < cand_count; ++i) {
             const uint16_t tag                   = cands[i].tag;
@@ -1443,15 +1810,40 @@ void decode_sony_cipher_subdirs(std::string_view mk_ifd0, MetaStore& store,
                 continue;
             }
             if (tag == 0x2010) {
-                sony_decode_cipher_fields(
-                    raw, mk_prefix, "tag2010i", 1,
-                    std::span<const SonyCipherField>(
-                        kSonyTag2010iFields,
-                        sizeof(kSonyTag2010iFields)
-                            / sizeof(kSonyTag2010iFields[0])),
-                    store, options, status_out);
-                decode_sony_meterinfo9_from_tag2010(raw, mk_prefix, store,
-                                                    options, status_out);
+                const uint32_t rounds = 1;
+                if (is_lunar) {
+                    sony_decode_cipher_fields(
+                        raw, mk_prefix, "tag2010b", rounds,
+                        std::span<const SonyCipherField>(
+                            kSonyTag2010bFields,
+                            sizeof(kSonyTag2010bFields)
+                                / sizeof(kSonyTag2010bFields[0])),
+                        store, options, status_out);
+                    decode_sony_meterinfo_from_tag2010(
+                        raw, rounds, 0x04B4, mk_prefix, store, options,
+                        status_out);
+                } else if (is_slt_family || is_stellar) {
+                    sony_decode_cipher_fields(
+                        raw, mk_prefix, "tag2010e", rounds,
+                        std::span<const SonyCipherField>(
+                            kSonyTag2010eFields,
+                            sizeof(kSonyTag2010eFields)
+                                / sizeof(kSonyTag2010eFields[0])),
+                        store, options, status_out);
+                    decode_sony_meterinfo_from_tag2010(
+                        raw, rounds, 0x04B8, mk_prefix, store, options,
+                        status_out);
+                } else {
+                    sony_decode_cipher_fields(
+                        raw, mk_prefix, "tag2010i", rounds,
+                        std::span<const SonyCipherField>(
+                            kSonyTag2010iFields,
+                            sizeof(kSonyTag2010iFields)
+                                / sizeof(kSonyTag2010iFields[0])),
+                        store, options, status_out);
+                    decode_sony_meterinfo9_from_tag2010(raw, mk_prefix, store,
+                                                        options, status_out);
+                }
                 continue;
             }
             if (tag == 0x202A) {
@@ -1465,21 +1857,53 @@ void decode_sony_cipher_subdirs(std::string_view mk_ifd0, MetaStore& store,
                 continue;
             }
             if (tag == 0x9404) {
-                sony_decode_cipher_fields(
-                    raw, mk_prefix, "tag9404c", 1,
-                    std::span<const SonyCipherField>(
-                        kSonyTag9404cFields,
-                        sizeof(kSonyTag9404cFields)
-                            / sizeof(kSonyTag9404cFields[0])),
-                    store, options, status_out);
+                if (is_lunar || is_stellar) {
+                    sony_decode_cipher_fields(
+                        raw, mk_prefix, "tag9404b", 1,
+                        std::span<const SonyCipherField>(
+                            kSonyTag9404bFields,
+                            sizeof(kSonyTag9404bFields)
+                                / sizeof(kSonyTag9404bFields[0])),
+                        store, options, status_out);
+                } else {
+                    sony_decode_cipher_fields(
+                        raw, mk_prefix, "tag9404c", 1,
+                        std::span<const SonyCipherField>(
+                            kSonyTag9404cFields,
+                            sizeof(kSonyTag9404cFields)
+                                / sizeof(kSonyTag9404cFields[0])),
+                        store, options, status_out);
+                }
                 continue;
             }
             if (tag == 0x940E) {
-                decode_sony_tag940e(raw, mk_prefix, store, options, status_out);
+                if (is_slt_family) {
+                    decode_sony_afinfo_from_tag940e(raw, mk_prefix, store,
+                                                    options, status_out);
+                } else {
+                    decode_sony_tag940e(raw, mk_prefix, store, options,
+                                        status_out);
+                }
                 continue;
             }
             if (tag == 0x9400) {
-                decode_sony_tag9400(raw, mk_prefix, store, options, status_out);
+                const uint8_t allowed[] = { 0x07, 0x09, 0x0A, 0x0C, 0x23, 0x24,
+                                            0x26, 0x28, 0x31, 0x32, 0x33 };
+                const uint32_t rounds
+                    = sony_guess_cipher_rounds(raw, 0,
+                                               std::span<const uint8_t>(allowed));
+                if (is_lunar || is_slt_family || is_stellar) {
+                    sony_decode_cipher_fields(
+                        raw, mk_prefix, "tag9400a", rounds,
+                        std::span<const SonyCipherField>(
+                            kSonyTag9400aFields,
+                            sizeof(kSonyTag9400aFields)
+                                / sizeof(kSonyTag9400aFields[0])),
+                        store, options, status_out);
+                } else {
+                    decode_sony_tag9400(raw, mk_prefix, store, options,
+                                        status_out);
+                }
                 continue;
             }
             if (tag == 0x9401) {
@@ -1524,9 +1948,20 @@ void decode_sony_cipher_subdirs(std::string_view mk_ifd0, MetaStore& store,
                 continue;
             }
             if (tag == 0x9405) {
-                // Best-effort: Tag9405b is common for ILCE-7M3/7RM3/7RM4 etc.
-                decode_sony_tag9405b(raw, mk_prefix, store, options,
-                                     status_out);
+                const uint32_t rounds = 1;
+                if (is_slt_family || is_lunar || is_stellar) {
+                    sony_decode_cipher_fields(
+                        raw, mk_prefix, "tag9405a", rounds,
+                        std::span<const SonyCipherField>(
+                            kSonyTag9405aFields,
+                            sizeof(kSonyTag9405aFields)
+                                / sizeof(kSonyTag9405aFields[0])),
+                        store, options, status_out);
+                } else {
+                    // Best-effort: Tag9405b is common for newer ILCE/DSC bodies.
+                    decode_sony_tag9405b(raw, mk_prefix, store, options,
+                                         status_out);
+                }
                 continue;
             }
             if (tag == 0x9416) {
@@ -1534,14 +1969,22 @@ void decode_sony_cipher_subdirs(std::string_view mk_ifd0, MetaStore& store,
                 continue;
             }
             if (tag == 0x9050) {
-                // Tag9050 variant depends on camera generation.
-                if (model.find("7RM5") != std::string_view::npos
-                    || model.find("7M4") != std::string_view::npos
-                    || model.find("7SM3") != std::string_view::npos
-                    || model.starts_with("ILCE-1")
-                    || model.starts_with("ILME-")) {
+                const uint32_t rounds = 1;
+                if (is_slt_family || is_lunar) {
                     sony_decode_cipher_fields(
-                        raw, mk_prefix, "tag9050c", 1,
+                        raw, mk_prefix, "tag9050a", rounds,
+                        std::span<const SonyCipherField>(
+                            kSonyTag9050aFields,
+                            sizeof(kSonyTag9050aFields)
+                                / sizeof(kSonyTag9050aFields[0])),
+                        store, options, status_out);
+                } else if (model.find("7RM5") != std::string_view::npos
+                           || model.find("7M4") != std::string_view::npos
+                           || model.find("7SM3") != std::string_view::npos
+                           || model.starts_with("ILCE-1")
+                           || model.starts_with("ILME-")) {
+                    sony_decode_cipher_fields(
+                        raw, mk_prefix, "tag9050c", rounds,
                         std::span<const SonyCipherField>(
                             kSonyTag9050cFields,
                             sizeof(kSonyTag9050cFields)
@@ -1549,7 +1992,7 @@ void decode_sony_cipher_subdirs(std::string_view mk_ifd0, MetaStore& store,
                         store, options, status_out);
                 } else {
                     sony_decode_cipher_fields(
-                        raw, mk_prefix, "tag9050b", 1,
+                        raw, mk_prefix, "tag9050b", rounds,
                         std::span<const SonyCipherField>(
                             kSonyTag9050bFields,
                             sizeof(kSonyTag9050bFields)

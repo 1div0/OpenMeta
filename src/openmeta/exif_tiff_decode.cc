@@ -308,6 +308,12 @@ namespace {
             && match_bytes(maker_note_bytes, 0, "Nikon\0", 6)) {
             return MakerNoteVendor::Nikon;
         }
+        // Hasselblad-branded Sony cameras store Sony MakerNotes with a "VHAB"
+        // prefix.
+        if (maker_note_bytes.size() >= 4
+            && match_bytes(maker_note_bytes, 0, "VHAB", 4)) {
+            return MakerNoteVendor::Sony;
+        }
         if (maker_note_bytes.size() >= 4
             && match_bytes(maker_note_bytes, 0, "SONY", 4)) {
             return MakerNoteVendor::Sony;
@@ -818,25 +824,12 @@ namespace {
                 continue;
             }
             const uint64_t value_bytes = count * unit;
-            if (value_bytes > options.limits.max_value_bytes) {
-                if (status_out) {
-                    update_status(status_out, ExifDecodeStatus::LimitExceeded);
-                }
-                continue;
-            }
 
             const uint64_t inline_cap      = 4;
             const uint64_t value_field_off = eoff + 8;
             const uint64_t value_off       = (value_bytes <= inline_cap)
                                                  ? value_field_off
                                                  : value_or_off32;
-
-            if (value_off + value_bytes > bytes.size()) {
-                if (status_out) {
-                    update_status(status_out, ExifDecodeStatus::Malformed);
-                }
-                continue;
-            }
 
             if (status_out
                 && (status_out->entries_decoded + 1U)
@@ -851,9 +844,24 @@ namespace {
             entry.origin.order_in_block = i;
             entry.origin.wire_type      = WireType { WireFamily::Tiff, type };
             entry.origin.wire_count     = static_cast<uint32_t>(count);
-            entry.value = decode_tiff_value(cfg, bytes, type, count, value_off,
-                                            value_bytes, store.arena(),
-                                            options.limits, status_out);
+
+            if (value_bytes > options.limits.max_value_bytes) {
+                if (status_out) {
+                    update_status(status_out, ExifDecodeStatus::LimitExceeded);
+                }
+                entry.flags |= EntryFlags::Truncated;
+            } else if (value_off + value_bytes > bytes.size()) {
+                if (status_out) {
+                    update_status(status_out, ExifDecodeStatus::Malformed);
+                }
+                entry.flags |= EntryFlags::Unreadable;
+            } else {
+                entry.value = decode_tiff_value(cfg, bytes, type, count,
+                                                value_off, value_bytes,
+                                                store.arena(), options.limits,
+                                                status_out);
+            }
+
             entry.flags |= extra_flags;
 
             (void)store.add_entry(entry);

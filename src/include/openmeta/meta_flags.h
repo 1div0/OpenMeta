@@ -18,6 +18,10 @@ enum class EntryFlags : uint8_t {
     Dirty = 1U << 1U,
     /// Entry was derived from other data (e.g. EXIF->XMP mapping).
     Derived = 1U << 2U,
+    /// Value payload was truncated or omitted due to configured limits.
+    Truncated = 1U << 3U,
+    /// Value payload could not be read from the underlying container.
+    Unreadable = 1U << 4U,
 };
 
 constexpr EntryFlags

@@ -399,6 +399,61 @@ namespace {
     }
 
 
+    static void decode_kodak_embedded_subifd(
+        std::span<const std::byte> bytes, std::string_view mk_prefix,
+        std::string_view table, MetaStore& store,
+        const ExifDecodeOptions& options,
+        ExifDecodeResult* status_out) noexcept
+    {
+        if (bytes.size() < 4 || mk_prefix.empty() || table.empty()) {
+            return;
+        }
+
+        TiffConfig cfg;
+        cfg.bigtiff = false;
+        uint64_t ifd_off = 0;
+
+        if ((u8(bytes[0]) == 'I' && u8(bytes[1]) == 'I')
+            || (u8(bytes[0]) == 'M' && u8(bytes[1]) == 'M')) {
+            cfg.le = (u8(bytes[0]) == 'I');
+            if (bytes.size() >= 8) {
+                uint16_t version = 0;
+                if (read_tiff_u16(cfg, bytes, 2, &version) && version == 42) {
+                    uint32_t off32 = 0;
+                    if (read_tiff_u32(cfg, bytes, 4, &off32)
+                        && off32 < bytes.size()) {
+                        ifd_off = off32;
+                    } else {
+                        return;
+                    }
+                } else {
+                    ifd_off = 2;
+                }
+            } else {
+                ifd_off = 2;
+            }
+        } else {
+            cfg.le = true;
+            ifd_off = 0;
+        }
+
+        if (!looks_like_classic_ifd(cfg, bytes, ifd_off, options.limits)) {
+            return;
+        }
+
+        char scratch[64];
+        const std::string_view ifd_token
+            = make_mk_subtable_ifd_token(mk_prefix, table, 0,
+                                         std::span<char>(scratch));
+        if (ifd_token.empty()) {
+            return;
+        }
+
+        decode_classic_ifd_no_header(cfg, bytes, ifd_off, ifd_token, store,
+                                     options, status_out, EntryFlags::None);
+    }
+
+
     static bool decode_kodak_tiff(std::span<const std::byte> mn,
                                   std::string_view mk_ifd0, MetaStore& store,
                                   const ExifDecodeOptions& options,
@@ -472,10 +527,44 @@ namespace {
                 || !read_tiff_u32(cfg, mn, eoff + 8, &value32)) {
                 break;
             }
+
             if (tag == 0xFC00 && type == 4 && count == 1) {
                 fc00 = value32;
                 have_fc00 = true;
-                break;
+            }
+
+            if (type == 7 && count > 4) {
+                const std::string_view mk_prefix = options.tokens.ifd_prefix;
+                std::string_view table;
+                switch (tag) {
+                case 0xFC00: table = "subifd0"; break;
+                case 0xFC01: table = "subifd1"; break;
+                case 0xFC02: table = "subifd2"; break;
+                case 0xFC03: table = "subifd3"; break;
+                case 0xFC04: table = "subifd4"; break;
+                case 0xFC05: table = "subifd5"; break;
+                case 0xFC06: table = "subifd6"; break;
+                case 0xFCFF: table = "subifd255"; break;
+                default: break;
+                }
+                if (!table.empty()) {
+                    const uint64_t unit = tiff_type_size(type);
+                    if (unit != 0) {
+                        const uint64_t value_bytes = uint64_t(count) * unit;
+                        if (value_bytes <= options.limits.max_value_bytes) {
+                            const uint64_t value_off = value32;
+                            if (value_off + value_bytes <= mn.size()) {
+                                const std::span<const std::byte> sub_bytes
+                                    = mn.subspan(
+                                        static_cast<size_t>(value_off),
+                                        static_cast<size_t>(value_bytes));
+                                decode_kodak_embedded_subifd(
+                                    sub_bytes, mk_prefix, table, store, options,
+                                    status_out);
+                            }
+                        }
+                    }
+                }
             }
         }
 

@@ -97,6 +97,36 @@ namespace {
         }
     }
 
+
+    static void olympus_decode_embedded_ifd(
+        const TiffConfig& cfg, std::span<const std::byte> bytes,
+        std::string_view vendor_prefix, std::string_view table,
+        MetaStore& store, const ExifDecodeOptions& options,
+        ExifDecodeResult* status_out) noexcept
+    {
+        if (bytes.size() < 4) {
+            return;
+        }
+        if (!looks_like_classic_ifd(cfg, bytes, 0, options.limits)) {
+            return;
+        }
+
+        char ifd_buf[96];
+        const std::string_view ifd_token = make_mk_subtable_ifd_token(
+            vendor_prefix, table, 0, std::span<char>(ifd_buf));
+        if (ifd_token.empty()) {
+            return;
+        }
+
+        decode_classic_ifd_no_header(cfg, bytes, 0, ifd_token, store, options,
+                                     status_out, EntryFlags::None);
+
+        if (table == "camerasettings") {
+            olympus_decode_camerasettings_nested(cfg, bytes, 0, vendor_prefix,
+                                                 store, options, status_out);
+        }
+    }
+
 }  // namespace
 
 bool decode_olympus_makernote(const TiffConfig& parent_cfg,
@@ -132,6 +162,71 @@ bool decode_olympus_makernote(const TiffConfig& parent_cfg,
         decode_classic_ifd_no_header(parent_cfg, tiff_bytes, ifd_off, mk_ifd0,
                                      store, options, status_out,
                                      EntryFlags::None);
+
+        uint16_t entry_count = 0;
+        if (!read_tiff_u16(parent_cfg, tiff_bytes, ifd_off, &entry_count)) {
+            return true;
+        }
+        const uint64_t entries_off = ifd_off + 2;
+        const uint64_t table_bytes = uint64_t(entry_count) * 12ULL;
+        if (entries_off + table_bytes + 4ULL > tiff_bytes.size()) {
+            return true;
+        }
+
+        const std::string_view vendor_prefix = options.tokens.ifd_prefix;
+        for (uint32_t i = 0; i < entry_count; ++i) {
+            const uint64_t eoff = entries_off + uint64_t(i) * 12ULL;
+
+            uint16_t tag  = 0;
+            uint16_t type = 0;
+            uint32_t count32 = 0;
+            uint32_t value_or_off32 = 0;
+            if (!read_tiff_u16(parent_cfg, tiff_bytes, eoff + 0, &tag)
+                || !read_tiff_u16(parent_cfg, tiff_bytes, eoff + 2, &type)
+                || !read_tiff_u32(parent_cfg, tiff_bytes, eoff + 4, &count32)
+                || !read_tiff_u32(parent_cfg, tiff_bytes, eoff + 8,
+                                  &value_or_off32)) {
+                break;
+            }
+
+            const std::string_view table = olympus_main_subifd_table(tag);
+            if (table.empty()) {
+                continue;
+            }
+
+            const uint64_t unit = tiff_type_size(type);
+            if (unit == 0) {
+                continue;
+            }
+            const uint64_t count = count32;
+            if (count > (UINT64_MAX / unit)) {
+                continue;
+            }
+            const uint64_t value_bytes = count * unit;
+            if (value_bytes <= 4) {
+                continue;
+            }
+            if (value_bytes > options.limits.max_value_bytes) {
+                if (status_out) {
+                    update_status(status_out, ExifDecodeStatus::LimitExceeded);
+                }
+                continue;
+            }
+
+            const uint64_t value_off = value_or_off32;
+            if (value_off + value_bytes > tiff_bytes.size()) {
+                if (status_out) {
+                    update_status(status_out, ExifDecodeStatus::Malformed);
+                }
+                continue;
+            }
+
+            const std::span<const std::byte> sub_bytes
+                = tiff_bytes.subspan(static_cast<size_t>(value_off),
+                                     static_cast<size_t>(value_bytes));
+            olympus_decode_embedded_ifd(parent_cfg, sub_bytes, vendor_prefix,
+                                        table, store, options, status_out);
+        }
         return true;
     }
 
