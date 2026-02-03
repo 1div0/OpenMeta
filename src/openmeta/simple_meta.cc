@@ -320,6 +320,7 @@ simple_meta_read(std::span<const std::byte> file_bytes, MetaStore& store,
     xmp.entries_decoded = 0;
 
     uint32_t ifd_write_pos        = 0;
+    uint32_t casio_qvci_index     = 0;
     bool any_exif                 = false;
     bool any_xmp                  = false;
     const uint32_t blocks_written = (result.scan.written < out_blocks.size())
@@ -392,10 +393,10 @@ simple_meta_read(std::span<const std::byte> file_bytes, MetaStore& store,
                     one.ifds_needed     = 0;
                     one.entries_decoded = 0;
 
-                    ExifDecodeOptions mn_opts = exif_options;
-                    mn_opts.decode_printim    = false;
-                    mn_opts.decode_makernote  = false;
-                    mn_opts.tokens.ifd_prefix = "mk_canon";
+                    ExifDecodeOptions mn_opts        = exif_options;
+                    mn_opts.decode_printim           = false;
+                    mn_opts.decode_makernote         = false;
+                    mn_opts.tokens.ifd_prefix        = "mk_canon";
                     mn_opts.tokens.subifd_prefix     = "mk_canon_subifd";
                     mn_opts.tokens.exif_ifd_token    = "mk_canon_exififd";
                     mn_opts.tokens.gps_ifd_token     = "mk_canon_gpsifd";
@@ -418,17 +419,18 @@ simple_meta_read(std::span<const std::byte> file_bytes, MetaStore& store,
                         ifd_slice = out_ifds.subspan(ifd_write_pos);
                     }
 
-                    const ExifDecodeResult fallback = decode_exif_tiff(
-                        block_bytes, store, ifd_slice, mn_opts);
+                    const ExifDecodeResult fallback
+                        = decode_exif_tiff(block_bytes, store, ifd_slice,
+                                           mn_opts);
                     merge_exif_status(&exif.status, fallback.status);
                     exif.ifds_needed += fallback.ifds_needed;
                     exif.entries_decoded += fallback.entries_decoded;
 
-                    const uint32_t room
-                        = (ifd_write_pos < out_ifds.size())
-                              ? static_cast<uint32_t>(out_ifds.size()
-                                                      - ifd_write_pos)
-                              : 0U;
+                    const uint32_t room     = (ifd_write_pos < out_ifds.size())
+                                                  ? static_cast<uint32_t>(
+                                                    out_ifds.size()
+                                                    - ifd_write_pos)
+                                                  : 0U;
                     const uint32_t advanced = (fallback.ifds_written < room)
                                                   ? fallback.ifds_written
                                                   : room;
@@ -486,6 +488,38 @@ simple_meta_read(std::span<const std::byte> file_bytes, MetaStore& store,
             (void)decode_photoshop_irb(block_bytes, store);
         } else if (block.kind == ContainerBlockKind::IptcIim) {
             (void)decode_iptc_iim(block_bytes, store);
+        } else if (block.kind == ContainerBlockKind::MakerNote) {
+            if (!exif_options.decode_makernote) {
+                continue;
+            }
+
+            // JPEG APP1 "QVCI" block found in some Casio files (QV-7000SX).
+            if (block.format == ContainerFormat::Jpeg
+                && block.aux_u32 == fourcc('Q', 'V', 'C', 'I')) {
+                any_exif = true;
+
+                ExifDecodeResult one;
+                one.status          = ExifDecodeStatus::Ok;
+                one.ifds_written    = 0;
+                one.ifds_needed     = 0;
+                one.entries_decoded = 0;
+
+                char scratch[64];
+                const std::string_view ifd_name
+                    = exif_internal::make_mk_subtable_ifd_token(
+                        "mk_casio", "qvci", casio_qvci_index++,
+                        std::span<char>(scratch));
+                if (ifd_name.empty()) {
+                    continue;
+                }
+
+                (void)exif_internal::decode_casio_qvci(block_bytes, ifd_name,
+                                                       store,
+                                                       exif_options.limits,
+                                                       &one);
+                merge_exif_status(&exif.status, one.status);
+                exif.entries_decoded += one.entries_decoded;
+            }
         } else if (block.kind == ContainerBlockKind::CompressedMetadata
                    && block.compression == BlockCompression::Brotli
                    && block.aux_u32 == fourcc('E', 'x', 'i', 'f')) {

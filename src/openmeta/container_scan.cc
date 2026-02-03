@@ -385,6 +385,19 @@ scan_jpeg(std::span<const std::byte> bytes,
                         sink_emit(&sink, block);
                     }
                 }
+            } else if (seg_payload_size >= 4
+                       && match(bytes, seg_payload_off, "QVCI", 4)) {
+                // Casio QV-7000SX: APP1 "QVCI" maker note directory.
+                ContainerBlockRef block;
+                block.format       = ContainerFormat::Jpeg;
+                block.kind         = ContainerBlockKind::MakerNote;
+                block.outer_offset = seg_total_off;
+                block.outer_size   = seg_total_size;
+                block.data_offset  = seg_payload_off;
+                block.data_size    = seg_payload_size;
+                block.id           = marker;
+                block.aux_u32      = fourcc('Q', 'V', 'C', 'I');
+                sink_emit(&sink, block);
             }
         } else if (marker == 0xFFE2) {
             if (match(bytes, seg_payload_off, "ICC_PROFILE\0", 12)) {

@@ -32,8 +32,7 @@ namespace {
 
     static void olympus_decode_ifd(const TiffConfig& cfg,
                                    std::span<const std::byte> mn,
-                                   uint64_t ifd_off,
-                                   std::string_view ifd_token,
+                                   uint64_t ifd_off, std::string_view ifd_token,
                                    MetaStore& store,
                                    const ExifDecodeOptions& options,
                                    ExifDecodeResult* status_out) noexcept
@@ -41,14 +40,14 @@ namespace {
         if (!looks_like_classic_ifd(cfg, mn, ifd_off, options.limits)) {
             return;
         }
-        decode_classic_ifd_no_header(cfg, mn, ifd_off, ifd_token, store, options,
-                                     status_out, EntryFlags::None);
+        decode_classic_ifd_no_header(cfg, mn, ifd_off, ifd_token, store,
+                                     options, status_out, EntryFlags::None);
     }
 
 
     static void olympus_decode_camerasettings_nested(
-        const TiffConfig& cfg, std::span<const std::byte> mn,
-        uint64_t ifd_off, std::string_view vendor_prefix, MetaStore& store,
+        const TiffConfig& cfg, std::span<const std::byte> mn, uint64_t ifd_off,
+        std::string_view vendor_prefix, MetaStore& store,
         const ExifDecodeOptions& options, ExifDecodeResult* status_out) noexcept
     {
         uint16_t entry_count = 0;
@@ -60,8 +59,8 @@ namespace {
         for (uint32_t i = 0; i < entry_count; ++i) {
             const uint64_t eoff = entries_off + uint64_t(i) * 12ULL;
 
-            uint16_t tag  = 0;
-            uint16_t type = 0;
+            uint16_t tag   = 0;
+            uint16_t type  = 0;
             uint32_t count = 0;
             if (!read_tiff_u16(cfg, mn, eoff + 0, &tag)
                 || !read_tiff_u16(cfg, mn, eoff + 2, &type)
@@ -99,8 +98,9 @@ namespace {
             }
 
             char ifd_buf[96];
-            const std::string_view ifd_token = make_mk_subtable_ifd_token(
-                vendor_prefix, subtable, 0, std::span<char>(ifd_buf));
+            const std::string_view ifd_token
+                = make_mk_subtable_ifd_token(vendor_prefix, subtable, 0,
+                                             std::span<char>(ifd_buf));
             if (ifd_token.empty()) {
                 continue;
             }
@@ -111,13 +111,13 @@ namespace {
 
 }  // namespace
 
-bool decode_olympus_makernote(const TiffConfig& parent_cfg,
-                              std::span<const std::byte> tiff_bytes,
-                              uint64_t maker_note_off,
-                              uint64_t maker_note_bytes,
-                              std::string_view mk_ifd0, MetaStore& store,
-                              const ExifDecodeOptions& options,
-                              ExifDecodeResult* status_out) noexcept
+bool
+decode_olympus_makernote(const TiffConfig& parent_cfg,
+                         std::span<const std::byte> tiff_bytes,
+                         uint64_t maker_note_off, uint64_t maker_note_bytes,
+                         std::string_view mk_ifd0, MetaStore& store,
+                         const ExifDecodeOptions& options,
+                         ExifDecodeResult* status_out) noexcept
 {
     if (maker_note_off > tiff_bytes.size()) {
         return false;
@@ -125,19 +125,21 @@ bool decode_olympus_makernote(const TiffConfig& parent_cfg,
     if (maker_note_bytes > (tiff_bytes.size() - maker_note_off)) {
         return false;
     }
-    const std::span<const std::byte> mn
+    const std::span<const std::byte> mn_decl
         = tiff_bytes.subspan(static_cast<size_t>(maker_note_off),
                              static_cast<size_t>(maker_note_bytes));
-    if (mn.size() < 10) {
+    const std::span<const std::byte> mn = tiff_bytes.subspan(
+        static_cast<size_t>(maker_note_off));
+    if (mn_decl.size() < 10) {
         return false;
     }
 
     // Newer OM System MakerNotes start with:
     //   "OM SYSTEM" + 3x NUL + byte order marker + u16(version?) + classic IFD at +16
     // where sub-IFD offsets (type=IFD) are relative to the MakerNote start.
-    if (mn.size() >= 16 && match_bytes(mn, 0, "OM SYSTEM", 9)) {
-        const uint8_t b0 = u8(mn[12]);
-        const uint8_t b1 = u8(mn[13]);
+    if (mn_decl.size() >= 16 && match_bytes(mn_decl, 0, "OM SYSTEM", 9)) {
+        const uint8_t b0 = u8(mn_decl[12]);
+        const uint8_t b1 = u8(mn_decl[13]);
 
         TiffConfig cfg;
         if (b0 == 'I' && b1 == 'I') {
@@ -169,9 +171,9 @@ bool decode_olympus_makernote(const TiffConfig& parent_cfg,
         for (uint32_t i = 0; i < entry_count; ++i) {
             const uint64_t eoff = entries_off + uint64_t(i) * 12ULL;
 
-            uint16_t tag  = 0;
-            uint16_t type = 0;
-            uint32_t count = 0;
+            uint16_t tag            = 0;
+            uint16_t type           = 0;
+            uint32_t count          = 0;
             uint32_t value_or_off32 = 0;
             if (!read_tiff_u16(cfg, mn, eoff + 0, &tag)
                 || !read_tiff_u16(cfg, mn, eoff + 2, &type)
@@ -204,10 +206,10 @@ bool decode_olympus_makernote(const TiffConfig& parent_cfg,
             }
 
             char ifd_buf[96];
-            const uint32_t sub_idx
-                = (table == "fetags") ? idx_fetags++ : 0;
-            const std::string_view sub_ifd_token = make_mk_subtable_ifd_token(
-                vendor_prefix, table, sub_idx, std::span<char>(ifd_buf));
+            const uint32_t sub_idx = (table == "fetags") ? idx_fetags++ : 0;
+            const std::string_view sub_ifd_token
+                = make_mk_subtable_ifd_token(vendor_prefix, table, sub_idx,
+                                             std::span<char>(ifd_buf));
             if (sub_ifd_token.empty()) {
                 continue;
             }
@@ -228,7 +230,8 @@ bool decode_olympus_makernote(const TiffConfig& parent_cfg,
     // Olympus MakerNotes commonly start with:
     //   "OLYMP\0" + u16(version) + classic IFD (u16 entry_count) at +8
     // with offsets relative to the outer EXIF TIFF header.
-    if (match_bytes(mn, 0, "OLYMP\0", 6) || match_bytes(mn, 0, "CAMER\0", 6)) {
+    if (match_bytes(mn_decl, 0, "OLYMP\0", 6)
+        || match_bytes(mn_decl, 0, "CAMER\0", 6)) {
         const uint64_t ifd_off = maker_note_off + 8;
         if (!looks_like_classic_ifd(parent_cfg, tiff_bytes, ifd_off,
                                     options.limits)) {
@@ -252,9 +255,9 @@ bool decode_olympus_makernote(const TiffConfig& parent_cfg,
         for (uint32_t i = 0; i < entry_count; ++i) {
             const uint64_t eoff = entries_off + uint64_t(i) * 12ULL;
 
-            uint16_t tag  = 0;
-            uint16_t type = 0;
-            uint32_t count32 = 0;
+            uint16_t tag            = 0;
+            uint16_t type           = 0;
+            uint32_t count32        = 0;
             uint32_t value_or_off32 = 0;
             if (!read_tiff_u16(parent_cfg, tiff_bytes, eoff + 0, &tag)
                 || !read_tiff_u16(parent_cfg, tiff_bytes, eoff + 2, &type)
@@ -301,8 +304,9 @@ bool decode_olympus_makernote(const TiffConfig& parent_cfg,
             }
 
             char ifd_buf[96];
-            const std::string_view ifd_token = make_mk_subtable_ifd_token(
-                vendor_prefix, table, 0, std::span<char>(ifd_buf));
+            const std::string_view ifd_token
+                = make_mk_subtable_ifd_token(vendor_prefix, table, 0,
+                                             std::span<char>(ifd_buf));
             if (ifd_token.empty()) {
                 continue;
             }
@@ -311,9 +315,9 @@ bool decode_olympus_makernote(const TiffConfig& parent_cfg,
                                store, options, status_out);
             if (table == "camerasettings") {
                 olympus_decode_camerasettings_nested(parent_cfg, tiff_bytes,
-                                                     sub_ifd_off,
-                                                     vendor_prefix, store,
-                                                     options, status_out);
+                                                     sub_ifd_off, vendor_prefix,
+                                                     store, options,
+                                                     status_out);
             }
         }
         return true;
@@ -322,15 +326,15 @@ bool decode_olympus_makernote(const TiffConfig& parent_cfg,
     // Newer Olympus MakerNotes start with:
     //   "OLYMPUS\0" + byte order marker + u16(magic?) + classic IFD at +12
     // where sub-IFD offsets (type=IFD) are relative to the MakerNote start.
-    if (!match_bytes(mn, 0, "OLYMPUS\0", 8)) {
+    if (!match_bytes(mn_decl, 0, "OLYMPUS\0", 8)) {
         return false;
     }
-    if (mn.size() < 16) {
+    if (mn_decl.size() < 16) {
         return false;
     }
 
-    const uint8_t b0 = u8(mn[8]);
-    const uint8_t b1 = u8(mn[9]);
+    const uint8_t b0 = u8(mn_decl[8]);
+    const uint8_t b1 = u8(mn_decl[9]);
     TiffConfig cfg;
     if (b0 == 'I' && b1 == 'I') {
         cfg.le = true;
@@ -362,9 +366,9 @@ bool decode_olympus_makernote(const TiffConfig& parent_cfg,
     for (uint32_t i = 0; i < entry_count; ++i) {
         const uint64_t eoff = entries_off + uint64_t(i) * 12ULL;
 
-        uint16_t tag  = 0;
-        uint16_t type = 0;
-        uint32_t count = 0;
+        uint16_t tag            = 0;
+        uint16_t type           = 0;
+        uint32_t count          = 0;
         uint32_t value_or_off32 = 0;
         if (!read_tiff_u16(cfg, mn, eoff + 0, &tag)
             || !read_tiff_u16(cfg, mn, eoff + 2, &type)
@@ -379,7 +383,7 @@ bool decode_olympus_makernote(const TiffConfig& parent_cfg,
         }
 
         uint64_t sub_ifd_off = UINT64_MAX;
-        if (type == 13 && count == 1U) {
+        if ((type == 4 || type == 13) && count == 1U) {
             sub_ifd_off = value_or_off32;
         } else {
             const uint64_t unit = tiff_type_size(type);
@@ -398,8 +402,9 @@ bool decode_olympus_makernote(const TiffConfig& parent_cfg,
 
         char ifd_buf[96];
         const uint32_t sub_idx = (table == "fetags") ? idx_fetags++ : 0;
-        const std::string_view sub_ifd_token = make_mk_subtable_ifd_token(
-            vendor_prefix, table, sub_idx, std::span<char>(ifd_buf));
+        const std::string_view sub_ifd_token
+            = make_mk_subtable_ifd_token(vendor_prefix, table, sub_idx,
+                                         std::span<char>(ifd_buf));
         if (sub_ifd_token.empty()) {
             continue;
         }

@@ -2,8 +2,405 @@
 
 namespace openmeta::exif_internal {
 
+namespace {
+
+    static bool read_u32_endian(bool le, std::span<const std::byte> bytes,
+                                uint64_t offset, uint32_t* out) noexcept
+    {
+        return le ? read_u32le(bytes, offset, out)
+                  : read_u32be(bytes, offset, out);
+    }
+
+    static bool is_printable_ascii(uint8_t c) noexcept
+    {
+        return c >= 0x20U && c <= 0x7EU;
+    }
+
+    static bool is_printable_ascii_text(std::span<const std::byte> bytes,
+                                        uint32_t max_check) noexcept
+    {
+        const uint32_t n = (bytes.size() < max_check)
+                               ? static_cast<uint32_t>(bytes.size())
+                               : max_check;
+        if (n == 0) {
+            return false;
+        }
+        for (uint32_t i = 0; i < n; ++i) {
+            if (!is_printable_ascii(u8(bytes[i]))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    static MetaValue
+    panasonic_timeinfo_datetime(ByteArena& arena,
+                                std::span<const std::byte> raw) noexcept
+    {
+        if (raw.size() < 8U) {
+            return MetaValue {};
+        }
+        if (raw[0] == std::byte { 0 }) {
+            return MetaValue {};
+        }
+
+        // ExifTool formats as: YYYY:MM:DD HH:MM:SS.xx (BCD nibbles).
+        char buf[22];
+        size_t n = 0;
+
+        for (uint32_t i = 0; i < 8; ++i) {
+            const uint8_t b  = u8(raw[i]);
+            const uint8_t hi = static_cast<uint8_t>((b >> 4) & 0x0FU);
+            const uint8_t lo = static_cast<uint8_t>((b >> 0) & 0x0FU);
+            if (hi > 9U || lo > 9U) {
+                return make_bytes(arena, raw.subspan(0, 8));
+            }
+            const char c0 = static_cast<char>('0' + hi);
+            const char c1 = static_cast<char>('0' + lo);
+            if (n + 2U > sizeof(buf)) {
+                return make_bytes(arena, raw.subspan(0, 8));
+            }
+            buf[n++] = c0;
+            buf[n++] = c1;
+        }
+        if (n != 16U) {
+            return make_bytes(arena, raw.subspan(0, 8));
+        }
+
+        char out[32];
+        size_t out_n = 0;
+        // YYYY
+        out[out_n++] = buf[0];
+        out[out_n++] = buf[1];
+        out[out_n++] = buf[2];
+        out[out_n++] = buf[3];
+        out[out_n++] = ':';
+        // MM
+        out[out_n++] = buf[4];
+        out[out_n++] = buf[5];
+        out[out_n++] = ':';
+        // DD
+        out[out_n++] = buf[6];
+        out[out_n++] = buf[7];
+        out[out_n++] = ' ';
+        // HH
+        out[out_n++] = buf[8];
+        out[out_n++] = buf[9];
+        out[out_n++] = ':';
+        // MM
+        out[out_n++] = buf[10];
+        out[out_n++] = buf[11];
+        out[out_n++] = ':';
+        // SS
+        out[out_n++] = buf[12];
+        out[out_n++] = buf[13];
+        out[out_n++] = '.';
+        // xx
+        out[out_n++] = buf[14];
+        out[out_n++] = buf[15];
+
+        return make_text(arena, std::string_view(out, out_n),
+                         TextEncoding::Ascii);
+    }
+
+    static void decode_panasonic_facedetinfo(std::string_view ifd_name,
+                                             std::span<const std::byte> raw,
+                                             bool le, MetaStore& store,
+                                             const ExifDecodeLimits& limits,
+                                             ExifDecodeResult* status_out) noexcept
+    {
+        if (ifd_name.empty() || raw.size() < 2U) {
+            return;
+        }
+
+        uint16_t faces = 0;
+        if (!read_u16_endian(le, raw, 0, &faces)) {
+            return;
+        }
+
+        uint16_t tags_out[8];
+        MetaValue vals_out[8];
+        uint32_t out_count = 0;
+
+        tags_out[out_count] = 0x0000;
+        vals_out[out_count] = make_u16(faces);
+        out_count += 1;
+
+        static constexpr uint16_t kFaceTags[5] = { 0x0001, 0x0005, 0x0009,
+                                                   0x000d, 0x0011 };
+        const uint32_t face_n = (faces < 5U) ? static_cast<uint32_t>(faces)
+                                             : 5U;
+
+        for (uint32_t i = 0; i < face_n && out_count < 8U; ++i) {
+            const uint16_t tag      = kFaceTags[i];
+            const uint64_t byte_off = uint64_t(tag) * 2ULL;
+            if (byte_off + 8U > raw.size()) {
+                continue;
+            }
+
+            uint16_t pos[4];
+            bool ok = true;
+            for (uint32_t j = 0; j < 4; ++j) {
+                if (!read_u16_endian(le, raw, byte_off + uint64_t(j) * 2ULL,
+                                     &pos[j])) {
+                    ok = false;
+                    break;
+                }
+            }
+            if (!ok) {
+                continue;
+            }
+
+            tags_out[out_count] = tag;
+            vals_out[out_count]
+                = make_u16_array(store.arena(),
+                                 std::span<const uint16_t>(pos, 4));
+            out_count += 1;
+        }
+
+        emit_bin_dir_entries(ifd_name, store,
+                             std::span<const uint16_t>(tags_out, out_count),
+                             std::span<const MetaValue>(vals_out, out_count),
+                             limits, status_out);
+    }
+
+    static void decode_panasonic_facerecinfo(std::string_view ifd_name,
+                                             std::span<const std::byte> raw,
+                                             bool le, MetaStore& store,
+                                             const ExifDecodeLimits& limits,
+                                             ExifDecodeResult* status_out) noexcept
+    {
+        if (ifd_name.empty() || raw.size() < 2U) {
+            return;
+        }
+
+        uint16_t faces = 0;
+        if (!read_u16_endian(le, raw, 0, &faces)) {
+            return;
+        }
+
+        uint16_t tags_out[32];
+        MetaValue vals_out[32];
+        uint32_t out_count = 0;
+
+        tags_out[out_count] = 0x0000;
+        vals_out[out_count] = make_u16(faces);
+        out_count += 1;
+
+        const uint32_t face_n = (faces < 3U) ? static_cast<uint32_t>(faces)
+                                             : 3U;
+        for (uint32_t i = 0; i < face_n && out_count + 3U < 32U; ++i) {
+            const uint64_t name_off = 4ULL + uint64_t(i) * 48ULL;
+            const uint64_t pos_off  = 24ULL + uint64_t(i) * 48ULL;
+            const uint64_t age_off  = 32ULL + uint64_t(i) * 48ULL;
+
+            if (name_off + 20U <= raw.size() && 20U <= limits.max_value_bytes) {
+                tags_out[out_count] = static_cast<uint16_t>(name_off);
+                vals_out[out_count]
+                    = make_fixed_ascii_text(store.arena(),
+                                            raw.subspan(name_off, 20));
+                out_count += 1;
+            }
+
+            if (pos_off + 8U <= raw.size()) {
+                uint16_t pos[4];
+                bool ok = true;
+                for (uint32_t j = 0; j < 4; ++j) {
+                    if (!read_u16_endian(le, raw,
+                                         pos_off + uint64_t(j) * 2ULL,
+                                         &pos[j])) {
+                        ok = false;
+                        break;
+                    }
+                }
+                if (ok) {
+                    tags_out[out_count] = static_cast<uint16_t>(pos_off);
+                    vals_out[out_count]
+                        = make_u16_array(store.arena(),
+                                         std::span<const uint16_t>(pos, 4));
+                    out_count += 1;
+                }
+            }
+
+            if (age_off + 20U <= raw.size() && 20U <= limits.max_value_bytes) {
+                tags_out[out_count] = static_cast<uint16_t>(age_off);
+                vals_out[out_count]
+                    = make_fixed_ascii_text(store.arena(),
+                                            raw.subspan(age_off, 20));
+                out_count += 1;
+            }
+        }
+
+        emit_bin_dir_entries(ifd_name, store,
+                             std::span<const uint16_t>(tags_out, out_count),
+                             std::span<const MetaValue>(vals_out, out_count),
+                             limits, status_out);
+    }
+
+    static void decode_panasonic_timeinfo(std::string_view ifd_name,
+                                          std::span<const std::byte> raw,
+                                          bool le, MetaStore& store,
+                                          const ExifDecodeLimits& limits,
+                                          ExifDecodeResult* status_out) noexcept
+    {
+        if (ifd_name.empty() || raw.empty()) {
+            return;
+        }
+
+        uint16_t tags_out[4];
+        MetaValue vals_out[4];
+        uint32_t out_count = 0;
+
+        MetaValue dt = panasonic_timeinfo_datetime(store.arena(), raw);
+        if (dt.kind != MetaValueKind::Empty) {
+            tags_out[out_count] = 0x0000;
+            vals_out[out_count] = dt;
+            out_count += 1;
+        }
+
+        if (raw.size() >= 20U) {
+            uint32_t shot = 0;
+            if (read_u32_endian(le, raw, 16, &shot)) {
+                tags_out[out_count] = 0x0010;
+                vals_out[out_count] = make_u32(shot);
+                out_count += 1;
+            }
+        }
+
+        if (out_count == 0) {
+            return;
+        }
+
+        emit_bin_dir_entries(ifd_name, store,
+                             std::span<const uint16_t>(tags_out, out_count),
+                             std::span<const MetaValue>(vals_out, out_count),
+                             limits, status_out);
+    }
+
+    static bool decode_panasonic_type2(std::span<const std::byte> mn_decl,
+                                       std::string_view mk_prefix,
+                                       bool le, MetaStore& store,
+                                       const ExifDecodeLimits& limits,
+                                       ExifDecodeResult* status_out) noexcept
+    {
+        if (mn_decl.size() < 4U) {
+            return false;
+        }
+
+        // Type2 is a small fixed-layout blob. Be conservative: require the
+        // 4-byte type string to be printable ASCII.
+        const std::span<const std::byte> type = mn_decl.subspan(0, 4);
+        if (!is_printable_ascii_text(type, 4)) {
+            return false;
+        }
+
+        char sub_ifd_buf[96];
+        const std::string_view ifd_name
+            = make_mk_subtable_ifd_token(mk_prefix, "type2", 0,
+                                         std::span<char>(sub_ifd_buf));
+        if (ifd_name.empty()) {
+            return false;
+        }
+
+        uint16_t tags_out[2];
+        MetaValue vals_out[2];
+        uint32_t out_count = 0;
+
+        tags_out[out_count] = 0x0000;
+        vals_out[out_count] = make_fixed_ascii_text(store.arena(), type);
+        out_count += 1;
+
+        uint16_t gain = 0;
+        const uint64_t gain_off = 3ULL * 2ULL;
+        if (gain_off + 2U <= mn_decl.size()
+            && read_u16_endian(le, mn_decl, gain_off, &gain)) {
+            tags_out[out_count] = 0x0003;
+            vals_out[out_count] = make_u16(gain);
+            out_count += 1;
+        }
+
+        emit_bin_dir_entries(ifd_name, store,
+                             std::span<const uint16_t>(tags_out, out_count),
+                             std::span<const MetaValue>(vals_out, out_count),
+                             limits, status_out);
+        return true;
+    }
+
+    static void
+    decode_panasonic_binary_subdirs(std::string_view mk_ifd0, bool le,
+                                    MetaStore& store,
+                                    const ExifDecodeOptions& options,
+                                    ExifDecodeResult* status_out) noexcept
+    {
+        if (mk_ifd0.empty()) {
+            return;
+        }
+
+        const ByteArena& arena               = store.arena();
+        const std::span<const Entry> entries = store.entries();
+
+        uint32_t idx_facedet = 0;
+        uint32_t idx_facerec = 0;
+        uint32_t idx_time    = 0;
+
+        char sub_ifd_buf[96];
+        const std::string_view mk_prefix = "mk_panasonic";
+
+        for (size_t i = 0; i < entries.size(); ++i) {
+            const Entry& e = entries[i];
+            if (e.key.kind != MetaKeyKind::ExifTag) {
+                continue;
+            }
+            if (arena_string(arena, e.key.data.exif_tag.ifd) != mk_ifd0) {
+                continue;
+            }
+            if (e.value.kind != MetaValueKind::Bytes
+                && e.value.kind != MetaValueKind::Array) {
+                continue;
+            }
+
+            const std::span<const std::byte> raw
+                = arena.span(e.value.data.span);
+            if (raw.empty()) {
+                continue;
+            }
+
+            if (e.key.data.exif_tag.tag == 0x004e) {  // FaceDetInfo
+                const std::string_view ifd_name
+                    = make_mk_subtable_ifd_token(
+                        mk_prefix, "facedetinfo", idx_facedet++,
+                        std::span<char>(sub_ifd_buf));
+                decode_panasonic_facedetinfo(ifd_name, raw, le, store,
+                                             options.limits, status_out);
+                continue;
+            }
+
+            if (e.key.data.exif_tag.tag == 0x0061) {  // FaceRecInfo
+                const std::string_view ifd_name
+                    = make_mk_subtable_ifd_token(
+                        mk_prefix, "facerecinfo", idx_facerec++,
+                        std::span<char>(sub_ifd_buf));
+                decode_panasonic_facerecinfo(ifd_name, raw, le, store,
+                                             options.limits, status_out);
+                continue;
+            }
+
+            if (e.key.data.exif_tag.tag == 0x2003) {  // TimeInfo
+                const std::string_view ifd_name
+                    = make_mk_subtable_ifd_token(
+                        mk_prefix, "timeinfo", idx_time++,
+                        std::span<char>(sub_ifd_buf));
+                decode_panasonic_timeinfo(ifd_name, raw, le, store,
+                                          options.limits, status_out);
+                continue;
+            }
+        }
+    }
+
+}  // namespace
+
 bool decode_panasonic_makernote(
-        const TiffConfig& /*parent_cfg*/, std::span<const std::byte> tiff_bytes,
+        const TiffConfig& parent_cfg, std::span<const std::byte> tiff_bytes,
         uint64_t maker_note_off, uint64_t maker_note_bytes,
         std::string_view mk_ifd0, MetaStore& store,
         const ExifDecodeOptions& options, ExifDecodeResult* status_out) noexcept
@@ -17,6 +414,10 @@ bool decode_panasonic_makernote(
         if (maker_note_bytes > (tiff_bytes.size() - maker_note_off)) {
             return false;
         }
+
+        const std::span<const std::byte> mn_decl
+            = tiff_bytes.subspan(static_cast<size_t>(maker_note_off),
+                                 static_cast<size_t>(maker_note_bytes));
 
         ClassicIfdCandidate best;
         bool found = false;
@@ -39,9 +440,11 @@ bool decode_panasonic_makernote(
                     continue;
                 }
 
-                const uint64_t table_bytes
-                    = 2U + (uint64_t(cand.entry_count) * 12ULL) + 4ULL;
-                if (abs_off + table_bytes > mn_end) {
+                // Some real-world Panasonic MakerNotes report a byte count that
+                // truncates the trailing next-IFD pointer (4 bytes). Allow the
+                // entry table itself to fit even if the final pointer doesn't.
+                const uint64_t needed = 2U + (uint64_t(cand.entry_count) * 12ULL);
+                if (abs_off + needed > mn_end) {
                     continue;
                 }
 
@@ -55,6 +458,11 @@ bool decode_panasonic_makernote(
         }
 
         if (!found) {
+            // Panasonic Type2: fixed-layout binary MakerNote.
+            if (decode_panasonic_type2(mn_decl, "mk_panasonic", parent_cfg.le,
+                                       store, options.limits, status_out)) {
+                return true;
+            }
             return false;
         }
 
@@ -65,8 +473,9 @@ bool decode_panasonic_makernote(
         decode_classic_ifd_no_header(best_cfg, tiff_bytes, best.offset, mk_ifd0,
                                      store, options, status_out,
                                      EntryFlags::None);
+        decode_panasonic_binary_subdirs(mk_ifd0, best_cfg.le, store, options,
+                                        status_out);
         return true;
     }
 
 }  // namespace openmeta::exif_internal
-

@@ -2298,7 +2298,8 @@ decode_exif_tiff(std::span<const std::byte> tiff_bytes, MetaStore& store,
                 // Casio MakerNote type2: "QVC\0" header + big-endian entries.
                 if (vendor == MakerNoteVendor::Casio
                     && exif_internal::decode_casio_makernote(
-                        mn, mk_ifd0, store, mn_opts, &sink.result)) {
+                        cfg, tiff_bytes, value_off, value_bytes, mk_ifd0, store,
+                        mn_opts, &sink.result)) {
                     continue;
                 }
 
