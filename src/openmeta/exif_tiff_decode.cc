@@ -221,6 +221,33 @@ namespace {
         return true;
     }
 
+    static bool ascii_contains_insensitive(std::string_view s,
+                                          std::string_view needle) noexcept
+    {
+        if (needle.empty()) {
+            return false;
+        }
+        if (needle.size() > s.size()) {
+            return false;
+        }
+        const size_t limit = s.size() - needle.size();
+        for (size_t i = 0; i <= limit; ++i) {
+            bool match = true;
+            for (size_t j = 0; j < needle.size(); ++j) {
+                const uint8_t a = ascii_lower(static_cast<uint8_t>(s[i + j]));
+                const uint8_t b = ascii_lower(static_cast<uint8_t>(needle[j]));
+                if (a != b) {
+                    match = false;
+                    break;
+                }
+            }
+            if (match) {
+                return true;
+            }
+        }
+        return false;
+    }
+
 
     static std::string_view arena_string(const ByteArena& arena,
                                          ByteSpan span) noexcept
@@ -330,6 +357,17 @@ namespace {
             && match_bytes(maker_note_bytes, 0, "OM SYSTEM", 9)) {
             return MakerNoteVendor::Olympus;
         }
+        // Older Olympus/Epson MakerNotes may start with "EPSON\0" (Epson) or
+        // "OLYMP\0" (Olympus) and use an 8-byte header.
+        if (maker_note_bytes.size() >= 6
+            && match_bytes(maker_note_bytes, 0, "EPSON\0", 6)) {
+            return MakerNoteVendor::Olympus;
+        }
+        // Some Minolta models use Olympus tags with a "MINOL\0" prefix.
+        if (maker_note_bytes.size() >= 6
+            && match_bytes(maker_note_bytes, 0, "MINOL\0", 6)) {
+            return MakerNoteVendor::Olympus;
+        }
         if (maker_note_bytes.size() >= 6
             && match_bytes(maker_note_bytes, 0, "OLYMP\0", 6)) {
             return MakerNoteVendor::Olympus;
@@ -342,21 +380,134 @@ namespace {
             && match_bytes(maker_note_bytes, 0, "OLYMPUS\0", 8)) {
             return MakerNoteVendor::Olympus;
         }
+        // Some Ricoh cameras (eg. GR III / WG-6 / G900SE) use Pentax MakerNotes
+        // with a "RICOH\0" prefix and embedded byte-order mark.
+        if (maker_note_bytes.size() >= 8
+            && match_bytes(maker_note_bytes, 0, "RICOH\0", 6)
+            && (match_bytes(maker_note_bytes, 6, "II", 2)
+                || match_bytes(maker_note_bytes, 6, "MM", 2))) {
+            return MakerNoteVendor::Pentax;
+        }
+        // Native Ricoh MakerNotes often begin with "Ricoh" and should not be
+        // classified as Pentax based on the Make string (eg. "PENTAX RICOH IMAGING").
+        if (maker_note_bytes.size() >= 5
+            && match_bytes(maker_note_bytes, 0, "Ricoh", 5)) {
+            return MakerNoteVendor::Ricoh;
+        }
         if (maker_note_bytes.size() >= 7
             && match_bytes(maker_note_bytes, 0, "PENTAX ", 7)) {
             return MakerNoteVendor::Pentax;
         }
         if (maker_note_bytes.size() >= 4
             && match_bytes(maker_note_bytes, 0, "AOC\0", 4)) {
+            // Pentax Optio 330RS/430RS store Casio-like maker notes (ExifTool:
+            // MakerNotePentax3 -> Casio::Type2).
+            const std::string_view model = find_first_exif_ascii_value(
+                store, "ifd0", 0x0110 /* Model */);
+            if (!model.empty()
+                && (ascii_starts_with_insensitive(model, "PENTAX Optio 330RS")
+                    || ascii_starts_with_insensitive(model,
+                                                     "PENTAX Optio330RS")
+                    || ascii_starts_with_insensitive(model,
+                                                     "PENTAX Optio 430RS")
+                    || ascii_starts_with_insensitive(model,
+                                                     "PENTAX Optio430RS"))) {
+                return MakerNoteVendor::Casio;
+            }
             return MakerNoteVendor::Pentax;
         }
         if (maker_note_bytes.size() >= 4
             && match_bytes(maker_note_bytes, 0, "QVC\0", 4)) {
             return MakerNoteVendor::Casio;
         }
+        // Concord cameras may store Casio Type2 MakerNotes with a "DCI\0"
+        // prefix.
+        if (maker_note_bytes.size() >= 4
+            && match_bytes(maker_note_bytes, 0, "DCI\0", 4)) {
+            return MakerNoteVendor::Casio;
+        }
         if (maker_note_bytes.size() >= 4
             && match_bytes(maker_note_bytes, 0, "IIII", 4)) {
-            return MakerNoteVendor::Hp;
+            // Kodak Type9 ("IIII...") maker notes are also seen in some
+            // HP/Pentax/Minolta-branded files. Use Kodak decoding here to match
+            // ExifTool's MakerNoteKodak9 table.
+            return MakerNoteVendor::Kodak;
+        }
+        if (maker_note_bytes.size() >= 3
+            && match_bytes(maker_note_bytes, 0, "KDK", 3)) {
+            return MakerNoteVendor::Kodak;
+        }
+        if (maker_note_bytes.size() >= 20
+            && match_bytes(maker_note_bytes, 8, "Eastman Kodak", 12)) {
+            return MakerNoteVendor::Kodak;
+        }
+        // Kodak Type2 MakerNotes: two 32-byte ASCII maker/model strings and
+        // big-endian image width/height at fixed offsets. These are seen in
+        // some non-Kodak-branded files (eg. Minolta Dimage EX).
+        if (maker_note_bytes.size() >= 0x74) {
+            bool ok_maker = false;
+            bool ok_model = false;
+
+            // maker string at 0x08
+            bool ascii = true;
+            for (uint32_t i = 0; i < 32; ++i) {
+                const uint8_t c = u8(maker_note_bytes[0x08 + i]);
+                if (c == 0) {
+                    break;
+                }
+                if (c < 0x20 || c > 0x7E) {
+                    ascii = false;
+                    break;
+                }
+                ok_maker = true;
+            }
+            ok_maker = ok_maker && ascii;
+
+            // model string at 0x28
+            ascii = true;
+            for (uint32_t i = 0; i < 32; ++i) {
+                const uint8_t c = u8(maker_note_bytes[0x28 + i]);
+                if (c == 0) {
+                    break;
+                }
+                if (c < 0x20 || c > 0x7E) {
+                    ascii = false;
+                    break;
+                }
+                ok_model = true;
+            }
+            ok_model = ok_model && ascii;
+
+            if (ok_maker && ok_model) {
+                uint32_t width = 0;
+                uint32_t height = 0;
+                if (read_u32be(maker_note_bytes, 0x6c, &width)
+                    && read_u32be(maker_note_bytes, 0x70, &height)
+                    && width > 0 && height > 0 && width <= 200000
+                    && height <= 200000) {
+                    return MakerNoteVendor::Kodak;
+                }
+            }
+        }
+        // Leica MakerNotes commonly use the Panasonic MakerNote format.
+        if (maker_note_bytes.size() >= 8
+            && match_bytes(maker_note_bytes, 0, "LEICA\0\0\0", 8)) {
+            return MakerNoteVendor::Panasonic;
+        }
+        if (maker_note_bytes.size() >= 16
+            && match_bytes(maker_note_bytes, 0, "LEICA CAMERA AG\0", 16)) {
+            return MakerNoteVendor::Panasonic;
+        }
+        // Some GE models use a FujiFilm-compatible MakerNote with a "GE<...>"
+        // prefix and a non-standard base offset.
+        static constexpr char kGe2Magic[] = "GE\x0C\0\0\0\x16\0\0\0";
+        if (maker_note_bytes.size() >= 10
+            && match_bytes(maker_note_bytes, 0, kGe2Magic, 10)) {
+            return MakerNoteVendor::Fuji;
+        }
+        if (maker_note_bytes.size() >= 8
+            && match_bytes(maker_note_bytes, 0, "GENERALE", 8)) {
+            return MakerNoteVendor::Fuji;
         }
         if (maker_note_bytes.size() >= 9
             && match_bytes(maker_note_bytes, 0, "Panasonic", 9)) {
@@ -378,6 +529,16 @@ namespace {
 
         const std::string_view make
             = find_first_exif_ascii_value(store, "ifd0", 0x010F /* Make */);
+        const std::string_view model
+            = find_first_exif_ascii_value(store, "ifd0", 0x0110 /* Model */);
+
+        // Some modern Kodak/PixPro models use Make="JK Imaging, Ltd." but the
+        // MakerNote format is still Kodak.
+        if (!model.empty()
+            && (ascii_contains_insensitive(model, "kodak")
+                || ascii_contains_insensitive(model, "pixpro"))) {
+            return MakerNoteVendor::Kodak;
+        }
 
         if (!make.empty()) {
             if (ascii_starts_with_insensitive(make, "Nikon")) {
@@ -2351,6 +2512,24 @@ decode_exif_tiff(std::span<const std::byte> tiff_bytes, MetaStore& store,
                     continue;
                 }
 
+                // Ricoh MakerNote: TIFF IFD variants (including "Type2") plus
+                // binary ImageInfo and RicohSubdir tables.
+                if (vendor == MakerNoteVendor::Ricoh
+                    && exif_internal::decode_ricoh_makernote(
+                        cfg, tiff_bytes, value_off, value_bytes, mk_ifd0, store,
+                        mn_opts, &sink.result)) {
+                    continue;
+                }
+
+                // Minolta MakerNote: classic IFD with nested CameraSettings
+                // binary tables.
+                if (vendor == MakerNoteVendor::Minolta
+                    && exif_internal::decode_minolta_makernote(
+                        cfg, tiff_bytes, value_off, value_bytes, mk_ifd0, store,
+                        mn_opts, &sink.result)) {
+                    continue;
+                }
+
                 // 1) Embedded TIFF header inside MakerNote (common for Nikon).
                 const uint64_t hdr_off = find_embedded_tiff_header(mn, 128);
                 if (hdr_off != UINT64_MAX) {
@@ -2442,21 +2621,109 @@ decode_exif_tiff(std::span<const std::byte> tiff_bytes, MetaStore& store,
                     continue;
                 }
 
-                // 2) FUJIFILM MakerNote: "FUJIFILM" + u32le IFD offset.
-                if (vendor == MakerNoteVendor::Fuji && mn.size() >= 12
-                    && match_bytes(mn, 0, "FUJIFILM", 8)) {
-                    uint32_t ifd_off32 = 0;
-                    if (read_u32le(mn, 8, &ifd_off32)) {
-                        const uint64_t ifd_off = ifd_off32;
-                        if (ifd_off < mn.size()) {
-                            TiffConfig fuji_cfg;
-                            fuji_cfg.le      = true;
-                            fuji_cfg.bigtiff = false;
-                            decode_classic_ifd_no_header(fuji_cfg, mn, ifd_off,
-                                                         mk_ifd0, store,
-                                                         mn_opts, &sink.result,
-                                                         EntryFlags::None);
-                            continue;
+                // 2) FUJIFILM MakerNote variants:
+                // - "FUJIFILM" or "GENERALE": u32le IFD offset at +8.
+                // - GE Type2: FujiFilm-compatible IFD at +12 with a non-standard
+                //   base offset (Start=+12, Base=+6), plus a best-effort extra
+                //   pass for "crazy offsets" observed in the wild.
+                if (vendor == MakerNoteVendor::Fuji) {
+                    static constexpr char kGe2Magic[]
+                        = "GE\x0C\0\0\0\x16\0\0\0";
+                    if (mn.size() >= 12
+                        && match_bytes(mn, 0, kGe2Magic, 10)) {
+                        // ExifTool's MakerNoteGE2 uses:
+                        //   Start = valuePtr + 12
+                        //   Base  = start - 6
+                        // and applies a hard patch for offsets in some tags.
+                        TiffConfig fuji_cfg;
+                        fuji_cfg.le      = true;
+                        fuji_cfg.bigtiff = false;
+
+                        // GE2 maker notes are missing the entry count at the
+                        // start of the IFD. ExifTool patches it to 25.
+                        static constexpr uint16_t kGe2EntryCount = 25;
+
+                        std::array<std::byte, 4096> patched;
+
+                        // Primary pass (Base = valuePtr + 6, IFD at +12).
+                        if (value_off <= (UINT64_MAX - 6ULL)
+                            && value_bytes >= 6ULL) {
+                            const uint64_t base0 = value_off + 6ULL;
+                            const uint64_t n0    = value_bytes - 6ULL;
+                            if (n0 >= 8ULL && n0 <= patched.size()
+                                && base0 + n0 <= tiff_bytes.size()) {
+                                const std::span<const std::byte> src0
+                                    = tiff_bytes.subspan(
+                                        static_cast<size_t>(base0),
+                                        static_cast<size_t>(n0));
+                                std::memcpy(patched.data(), src0.data(),
+                                            src0.size());
+                                patched[6] = std::byte { static_cast<uint8_t>(
+                                    kGe2EntryCount & 0xFFU) };
+                                patched[7] = std::byte { static_cast<uint8_t>(
+                                    (kGe2EntryCount >> 8) & 0xFFU) };
+
+                                decode_classic_ifd_no_header(
+                                    fuji_cfg,
+                                    std::span<const std::byte>(
+                                        patched.data(), static_cast<size_t>(n0)),
+                                    6, mk_ifd0, store, mn_opts, &sink.result,
+                                    EntryFlags::None);
+                            }
+                        }
+
+                        // Second pass with an adjusted base. This is a
+                        // best-effort compatibility hack to recover tag ids in
+                        // some GE maker notes with broken value offsets.
+                        //
+                        // ExifTool uses: FixOffsets => '$valuePtr -= 210 if $tagID >= 0x1303'
+                        // We approximate this by decoding a second time with a
+                        // shifted base.
+                        if (value_off >= 204ULL
+                            && value_bytes <= (UINT64_MAX - 204ULL)) {
+                            const uint64_t base1 = value_off - 204ULL;
+                            const uint64_t n1    = value_bytes + 204ULL;
+                            if (n1 >= 218ULL && n1 <= patched.size()
+                                && base1 + n1 <= tiff_bytes.size()) {
+                                const std::span<const std::byte> src1
+                                    = tiff_bytes.subspan(
+                                        static_cast<size_t>(base1),
+                                        static_cast<size_t>(n1));
+                                std::memcpy(patched.data(), src1.data(),
+                                            src1.size());
+                                patched[216] = std::byte {
+                                    static_cast<uint8_t>(kGe2EntryCount & 0xFFU)
+                                };
+                                patched[217] = std::byte { static_cast<uint8_t>(
+                                    (kGe2EntryCount >> 8) & 0xFFU) };
+
+                                decode_classic_ifd_no_header(
+                                    fuji_cfg,
+                                    std::span<const std::byte>(
+                                        patched.data(), static_cast<size_t>(n1)),
+                                    216, mk_ifd0, store, mn_opts, &sink.result,
+                                    EntryFlags::None);
+                            }
+                        }
+
+                        continue;
+                    }
+
+                    if (mn.size() >= 12
+                        && (match_bytes(mn, 0, "FUJIFILM", 8)
+                            || match_bytes(mn, 0, "GENERALE", 8))) {
+                        uint32_t ifd_off32 = 0;
+                        if (read_u32le(mn, 8, &ifd_off32)) {
+                            const uint64_t ifd_off = ifd_off32;
+                            if (ifd_off < mn.size()) {
+                                TiffConfig fuji_cfg;
+                                fuji_cfg.le      = true;
+                                fuji_cfg.bigtiff = false;
+                                decode_classic_ifd_no_header(
+                                    fuji_cfg, mn, ifd_off, mk_ifd0, store,
+                                    mn_opts, &sink.result, EntryFlags::None);
+                                continue;
+                            }
                         }
                     }
                 }

@@ -333,7 +333,10 @@ decode_casio_makernote(const TiffConfig& parent_cfg,
     if (mn.size() < 8) {
         return false;
     }
-    if (!match_bytes(mn, 0, "QVC\0", 4)) {
+    // Casio Type2 MakerNotes may start with:
+    // - "QVC\0" (Casio)
+    // - "DCI\0" (Concord cameras using Casio Type2)
+    if (!match_bytes(mn, 0, "QVC\0", 4) && !match_bytes(mn, 0, "DCI\0", 4)) {
         return false;
     }
 

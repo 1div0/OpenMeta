@@ -1,5 +1,8 @@
 #include "exif_tiff_decode_internal.h"
 
+#include <array>
+#include <cstring>
+
 namespace openmeta::exif_internal {
 
 namespace {
@@ -25,13 +28,26 @@ decode_pentax_u8_table(std::string_view ifd_name,
         return;
     }
 
+    // `raw` often references `store.arena()` memory. Adding derived entries may
+    // grow the arena (realloc), invalidating `raw.data()`. Copy to a stable
+    // local buffer first.
+    std::array<std::byte, 4096> stable_buf {};
+    if (raw.size() > stable_buf.size()) {
+        if (status_out) {
+            update_status(status_out, ExifDecodeStatus::LimitExceeded);
+        }
+        return;
+    }
+    std::memcpy(stable_buf.data(), raw.data(), raw.size());
+    const std::span<const std::byte> stable(stable_buf.data(), raw.size());
+
     const BlockId block = store.add_block(BlockInfo {});
     if (block == kInvalidBlockId) {
         return;
     }
 
     uint32_t order = 0;
-    for (size_t i = 0; i < raw.size(); ++i) {
+    for (size_t i = 0; i < stable.size(); ++i) {
         if (i > 0xFFFFu) {
             break;
         }
@@ -50,7 +66,7 @@ decode_pentax_u8_table(std::string_view ifd_name,
         entry.origin.wire_type      = WireType { WireFamily::Tiff, 1 };
         entry.origin.wire_count     = 1;
         entry.flags |= EntryFlags::Derived;
-        entry.value = make_u8(u8(raw[i]));
+        entry.value = make_u8(u8(stable[i]));
 
         (void)store.add_entry(entry);
         if (status_out) {
@@ -589,6 +605,31 @@ bool decode_pentax_makernote(std::span<const std::byte> maker_note_bytes,
     if (maker_note_bytes.size() < 16) {
         return false;
     }
+
+    // Ricoh-branded cameras (eg. GR III, WG-6) may store Pentax MakerNotes with
+    // a "RICOH\0" prefix and a byte-order mark at +6. The IFD begins at +8.
+    if (maker_note_bytes.size() >= 10
+        && match_bytes(maker_note_bytes, 0, "RICOH\0", 6)
+        && (match_bytes(maker_note_bytes, 6, "II", 2)
+            || match_bytes(maker_note_bytes, 6, "MM", 2))) {
+        TiffConfig cfg;
+        cfg.bigtiff = false;
+        cfg.le      = (u8(maker_note_bytes[6]) == 'I');
+
+        const uint64_t ifd_off = 8;
+        if (!looks_like_classic_ifd(cfg, maker_note_bytes, ifd_off,
+                                    options.limits)) {
+            return false;
+        }
+
+        decode_classic_ifd_no_header(cfg, maker_note_bytes, ifd_off, mk_ifd0,
+                                     store, options, status_out,
+                                     EntryFlags::None);
+        decode_pentax_binary_subdirs(mk_ifd0, store, cfg.le, options,
+                                     status_out);
+        return true;
+    }
+
     if (!match_bytes(maker_note_bytes, 0, "AOC\0", 4)) {
         if (match_bytes(maker_note_bytes, 0, "PENTAX ", 7)) {
             const uint64_t hdr_off = 8;

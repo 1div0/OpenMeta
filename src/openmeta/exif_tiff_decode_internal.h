@@ -195,6 +195,22 @@ namespace exif_internal {
                                 const ExifDecodeOptions& options,
                                 ExifDecodeResult* status_out) noexcept;
 
+    bool decode_ricoh_makernote(const TiffConfig& parent_cfg,
+                                std::span<const std::byte> tiff_bytes,
+                                uint64_t maker_note_off,
+                                uint64_t maker_note_bytes,
+                                std::string_view mk_ifd0, MetaStore& store,
+                                const ExifDecodeOptions& options,
+                                ExifDecodeResult* status_out) noexcept;
+
+    bool decode_minolta_makernote(const TiffConfig& parent_cfg,
+                                  std::span<const std::byte> tiff_bytes,
+                                  uint64_t maker_note_off,
+                                  uint64_t maker_note_bytes,
+                                  std::string_view mk_ifd0, MetaStore& store,
+                                  const ExifDecodeOptions& options,
+                                  ExifDecodeResult* status_out) noexcept;
+
     bool decode_samsung_makernote(const TiffConfig& parent_cfg,
                                   std::span<const std::byte> tiff_bytes,
                                   uint64_t maker_note_off,

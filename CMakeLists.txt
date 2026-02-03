@@ -167,7 +167,9 @@ set(OPENMETA_SOURCES
   src/openmeta/exif_makernote_olympus.cc
   src/openmeta/exif_makernote_panasonic.cc
   src/openmeta/exif_makernote_kodak.cc
+  src/openmeta/exif_makernote_ricoh.cc
   src/openmeta/exif_makernote_pentax.cc
+  src/openmeta/exif_makernote_minolta.cc
   src/openmeta/exif_makernote_samsung.cc
   src/openmeta/exif_makernote_sony.cc
   src/openmeta/exif_makernote_tag_names.cc

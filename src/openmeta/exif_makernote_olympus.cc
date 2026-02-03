@@ -323,6 +323,104 @@ decode_olympus_makernote(const TiffConfig& parent_cfg,
         return true;
     }
 
+    // Older Olympus/Epson MakerNotes start with:
+    //   "OLYMP\0" or "EPSON\0" or "CAMER\0" + u16(version) + classic IFD at +8
+    // where value offsets are relative to the outer EXIF/TIFF header (not the
+    // MakerNote start).
+    if (match_bytes(mn_decl, 0, "OLYMP\0", 6)
+        || match_bytes(mn_decl, 0, "EPSON\0", 6)
+        || match_bytes(mn_decl, 0, "MINOL\0", 6)
+        || match_bytes(mn_decl, 0, "CAMER\0", 6)) {
+        const uint64_t main_ifd_off = maker_note_off + 8ULL;
+        if (!looks_like_classic_ifd(parent_cfg, tiff_bytes, main_ifd_off,
+                                    options.limits)) {
+            return false;
+        }
+
+        olympus_decode_ifd(parent_cfg, tiff_bytes, main_ifd_off, mk_ifd0, store,
+                           options, status_out);
+
+        uint16_t entry_count = 0;
+        if (!read_tiff_u16(parent_cfg, tiff_bytes, main_ifd_off, &entry_count)) {
+            return true;
+        }
+
+        const std::string_view vendor_prefix = options.tokens.ifd_prefix;
+        uint32_t idx_fetags                  = 0;
+
+        const uint64_t entries_off = main_ifd_off + 2;
+        for (uint32_t i = 0; i < entry_count; ++i) {
+            const uint64_t eoff = entries_off + uint64_t(i) * 12ULL;
+
+            uint16_t tag            = 0;
+            uint16_t type           = 0;
+            uint32_t count32        = 0;
+            uint32_t value_or_off32 = 0;
+            if (!read_tiff_u16(parent_cfg, tiff_bytes, eoff + 0, &tag)
+                || !read_tiff_u16(parent_cfg, tiff_bytes, eoff + 2, &type)
+                || !read_tiff_u32(parent_cfg, tiff_bytes, eoff + 4, &count32)
+                || !read_tiff_u32(parent_cfg, tiff_bytes, eoff + 8,
+                                  &value_or_off32)) {
+                break;
+            }
+
+            const std::string_view table = olympus_main_subifd_table(tag);
+            if (table.empty()) {
+                continue;
+            }
+
+            uint64_t sub_ifd_off = UINT64_MAX;
+            if ((type == 4 || type == 13) && count32 == 1U) {
+                sub_ifd_off = value_or_off32;
+            } else {
+                const uint64_t unit = tiff_type_size(type);
+                if (unit == 0) {
+                    continue;
+                }
+                const uint64_t count = count32;
+                if (count > (UINT64_MAX / unit)) {
+                    continue;
+                }
+                const uint64_t value_bytes = count * unit;
+                if (value_bytes <= 4) {
+                    continue;
+                }
+                if (value_bytes > options.limits.max_value_bytes) {
+                    if (status_out) {
+                        update_status(status_out,
+                                      ExifDecodeStatus::LimitExceeded);
+                    }
+                    continue;
+                }
+                sub_ifd_off = value_or_off32;
+            }
+
+            if (sub_ifd_off == UINT64_MAX || sub_ifd_off >= tiff_bytes.size()) {
+                continue;
+            }
+
+            char ifd_buf[96];
+            const uint32_t sub_idx = (table == "fetags") ? idx_fetags++ : 0;
+            const std::string_view sub_ifd_token
+                = make_mk_subtable_ifd_token(vendor_prefix, table, sub_idx,
+                                             std::span<char>(ifd_buf));
+            if (sub_ifd_token.empty()) {
+                continue;
+            }
+
+            olympus_decode_ifd(parent_cfg, tiff_bytes, sub_ifd_off, sub_ifd_token,
+                               store, options, status_out);
+            if (table == "camerasettings") {
+                olympus_decode_camerasettings_nested(parent_cfg, tiff_bytes,
+                                                     sub_ifd_off, vendor_prefix,
+                                                     store, options,
+                                                     status_out);
+            }
+        }
+
+        return true;
+    }
+
     // Newer Olympus MakerNotes start with:
     //   "OLYMPUS\0" + byte order marker + u16(magic?) + classic IFD at +12
     // where sub-IFD offsets (type=IFD) are relative to the MakerNote start.
