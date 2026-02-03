@@ -8,6 +8,8 @@
 #include "openmeta/xmp_decode.h"
 
 #include <array>
+#include <cmath>
+#include <cstring>
 
 namespace openmeta {
 namespace {
@@ -110,6 +112,204 @@ namespace {
         v |= static_cast<uint32_t>(u8(bytes[offset + 3])) << 24;
         *out = v;
         return true;
+    }
+
+    static uint32_t f32_bits_from_float(float v) noexcept
+    {
+        uint32_t bits = 0;
+        static_assert(sizeof(bits) == sizeof(v));
+        std::memcpy(&bits, &v, sizeof(bits));
+        return bits;
+    }
+
+    static float f32_from_bits(uint32_t bits) noexcept
+    {
+        float v = 0.0f;
+        static_assert(sizeof(bits) == sizeof(v));
+        std::memcpy(&v, &bits, sizeof(v));
+        return v;
+    }
+
+    static bool float_plausible(float v, float lo, float hi) noexcept
+    {
+        return std::isfinite(v) && v >= lo && v <= hi;
+    }
+
+    static uint64_t find_magic_u32be(std::span<const std::byte> bytes,
+                                     uint32_t magic) noexcept
+    {
+        if (bytes.size() < 4) {
+            return UINT64_MAX;
+        }
+        for (uint64_t i = 0; i + 4U <= bytes.size(); ++i) {
+            uint32_t v = 0;
+            if (read_u32be(bytes, i, &v) && v == magic) {
+                return i;
+            }
+        }
+        return UINT64_MAX;
+    }
+
+    static bool parse_dji_thermal_params(std::span<const std::byte> app4,
+                                         MetaStore& store,
+                                         const ExifDecodeLimits& limits,
+                                         ExifDecodeResult* status_out) noexcept
+    {
+        // ExifTool reference tables:
+        // - ThermalParams:  magic 0xaa551206, u16 values at offsets 0x44..0x4c
+        // - ThermalParams2: float values (ambient/dist/emiss/rh/refl) + IDString
+        // - ThermalParams3: magic 0xaa553800, u16 values at offsets 0x04..0x0a
+        //
+        // Real files often store these blocks at offset 32 within APP4.
+
+        bool any = false;
+
+        // 1) ThermalParams3 (magic AA 55 38 00).
+        const uint64_t m3 = find_magic_u32be(app4, 0xAA553800U);
+        if (m3 != UINT64_MAX && m3 + 0x0cU <= app4.size()) {
+            uint16_t rh_raw = 0;
+            uint16_t od_raw = 0;
+            uint16_t em_raw = 0;
+            uint16_t rt_raw = 0;
+            if (read_u16le(app4, m3 + 0x04U, &rh_raw)
+                && read_u16le(app4, m3 + 0x06U, &od_raw)
+                && read_u16le(app4, m3 + 0x08U, &em_raw)
+                && read_u16le(app4, m3 + 0x0aU, &rt_raw)) {
+                const float od = float(od_raw) / 10.0f;
+                const float em = float(em_raw) / 100.0f;
+                const float rt = float(rt_raw) / 10.0f;
+
+                char scratch[64];
+                const std::string_view ifd_name
+                    = exif_internal::make_mk_subtable_ifd_token(
+                        "mk_dji", "thermalparams3", 0,
+                        std::span<char>(scratch));
+                if (!ifd_name.empty()) {
+                    const uint16_t tags_out[4]
+                        = { 0x0004, 0x0006, 0x0008, 0x000a };
+                    const MetaValue vals_out[4]
+                        = { make_u16(rh_raw),
+                            make_f32_bits(f32_bits_from_float(od)),
+                            make_f32_bits(f32_bits_from_float(em)),
+                            make_f32_bits(f32_bits_from_float(rt)) };
+                    exif_internal::emit_bin_dir_entries(
+                        ifd_name, store,
+                        std::span<const uint16_t>(tags_out, 4),
+                        std::span<const MetaValue>(vals_out, 4), limits,
+                        status_out);
+                    any = true;
+                }
+            }
+        }
+
+        // 2) ThermalParams (magic AA 55 12 06).
+        const uint64_t m1 = find_magic_u32be(app4, 0xAA551206U);
+        if (m1 != UINT64_MAX && m1 + 0x4eU <= app4.size()) {
+            uint16_t od = 0;
+            uint16_t rh = 0;
+            uint16_t em = 0;
+            uint16_t rf = 0;
+            uint16_t at = 0;
+            if (read_u16le(app4, m1 + 0x44U, &od)
+                && read_u16le(app4, m1 + 0x46U, &rh)
+                && read_u16le(app4, m1 + 0x48U, &em)
+                && read_u16le(app4, m1 + 0x4aU, &rf)
+                && read_u16le(app4, m1 + 0x4cU, &at)) {
+                char scratch[64];
+                const std::string_view ifd_name
+                    = exif_internal::make_mk_subtable_ifd_token(
+                        "mk_dji", "thermalparams", 0,
+                        std::span<char>(scratch));
+                if (!ifd_name.empty()) {
+                    const uint16_t tags_out[5]
+                        = { 0x0044, 0x0046, 0x0048, 0x004a, 0x004c };
+                    const MetaValue vals_out[5]
+                        = { make_u16(od), make_u16(rh), make_u16(em),
+                            make_u16(rf), make_u16(at) };
+                    exif_internal::emit_bin_dir_entries(
+                        ifd_name, store,
+                        std::span<const uint16_t>(tags_out, 5),
+                        std::span<const MetaValue>(vals_out, 5), limits,
+                        status_out);
+                    any = true;
+                }
+            }
+        }
+
+        // 3) ThermalParams2 (float fields + IDString, no magic in observed files).
+        // Try base offsets commonly seen in the wild.
+        const uint64_t bases[2] = { 0U, 32U };
+        for (uint32_t bi = 0; bi < 2; ++bi) {
+            const uint64_t base = bases[bi];
+            if (base + 0x14U > app4.size()) {
+                continue;
+            }
+
+            uint32_t bits_at = 0;
+            uint32_t bits_od = 0;
+            uint32_t bits_em = 0;
+            uint32_t bits_rh = 0;
+            uint32_t bits_rt = 0;
+            if (!read_u32le(app4, base + 0x00U, &bits_at)
+                || !read_u32le(app4, base + 0x04U, &bits_od)
+                || !read_u32le(app4, base + 0x08U, &bits_em)
+                || !read_u32le(app4, base + 0x0cU, &bits_rh)
+                || !read_u32le(app4, base + 0x10U, &bits_rt)) {
+                continue;
+            }
+
+            const float at = f32_from_bits(bits_at);
+            const float od = f32_from_bits(bits_od);
+            const float em = f32_from_bits(bits_em);
+            const float rh = f32_from_bits(bits_rh);
+            const float rt = f32_from_bits(bits_rt);
+
+            // Plausibility gates to avoid false positives on unrelated APP4 data.
+            if (!float_plausible(at, -100.0f, 300.0f)
+                || !float_plausible(rt, -100.0f, 300.0f)
+                || !float_plausible(od, 0.0f, 10000.0f)
+                || !float_plausible(em, 0.0f, 2.0f)
+                || !float_plausible(rh, 0.0f, 1.0f)) {
+                continue;
+            }
+
+            char scratch[64];
+            const std::string_view ifd_name
+                = exif_internal::make_mk_subtable_ifd_token(
+                    "mk_dji", "thermalparams2", 0, std::span<char>(scratch));
+            if (ifd_name.empty()) {
+                break;
+            }
+
+            uint16_t tags_out[6] = { 0x0000, 0x0004, 0x0008, 0x000c, 0x0010,
+                                     0x0065 };
+            MetaValue vals_out[6] = { make_f32_bits(bits_at),
+                                      make_f32_bits(bits_od),
+                                      make_f32_bits(bits_em),
+                                      make_f32_bits(bits_rh),
+                                      make_f32_bits(bits_rt),
+                                      MetaValue {} };
+
+            if (base + 0x65U + 16U <= app4.size()) {
+                const std::span<const std::byte> raw
+                    = app4.subspan(static_cast<size_t>(base + 0x65U), 16U);
+                size_t n = 0;
+                while (n < raw.size() && raw[n] != std::byte { 0 }) {
+                    n += 1;
+                }
+                const std::string_view s(
+                    reinterpret_cast<const char*>(raw.data()), n);
+                vals_out[5] = make_text(store.arena(), s, TextEncoding::Ascii);
+            }
+
+            exif_internal::emit_bin_dir_entries(
+                ifd_name, store, std::span<const uint16_t>(tags_out, 6),
+                std::span<const MetaValue>(vals_out, 6), limits, status_out);
+            any = true;
+            break;
+        }
+
+        return any;
     }
 
     static bool parse_classic_tiff_header(std::span<const std::byte> bytes,
@@ -491,6 +691,23 @@ simple_meta_read(std::span<const std::byte> file_bytes, MetaStore& store,
         } else if (block.kind == ContainerBlockKind::MakerNote) {
             if (!exif_options.decode_makernote) {
                 continue;
+            }
+
+            // JPEG APP4: DJI thermal parameter blocks (and potentially other
+            // vendor-specific metadata). Decode best-effort when recognized.
+            if (block.format == ContainerFormat::Jpeg && block.id == 0xFFE4U) {
+                ExifDecodeResult one;
+                one.status          = ExifDecodeStatus::Ok;
+                one.ifds_written    = 0;
+                one.ifds_needed     = 0;
+                one.entries_decoded = 0;
+
+                if (parse_dji_thermal_params(block_bytes, store,
+                                             exif_options.limits, &one)) {
+                    any_exif = true;
+                    merge_exif_status(&exif.status, one.status);
+                    exif.entries_decoded += one.entries_decoded;
+                }
             }
 
             // JPEG APP1 "QVCI" block found in some Casio files (QV-7000SX).

@@ -168,6 +168,7 @@ set(OPENMETA_SOURCES
   src/openmeta/exif_makernote_panasonic.cc
   src/openmeta/exif_makernote_kodak.cc
   src/openmeta/exif_makernote_pentax.cc
+  src/openmeta/exif_makernote_samsung.cc
   src/openmeta/exif_makernote_sony.cc
   src/openmeta/exif_makernote_tag_names.cc
   src/openmeta/exif_tag_names.cc
@@ -381,6 +382,7 @@ if(OPENMETA_BUILD_TESTS)
 	    tests/exif_tag_names_test.cc
 	    tests/exif_tiff_decode_test.cc
 	    tests/iptc_iim_decode_test.cc
+	    tests/dji_app4_decode_test.cc
 	    tests/makernote_decode_test.cc
 	    tests/meta_store_test.cc
 	    tests/mpf_decode_test.cc

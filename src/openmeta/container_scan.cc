@@ -430,6 +430,25 @@ scan_jpeg(std::span<const std::byte> bytes,
                 block.id           = marker;
                 sink_emit(&sink, block);
             }
+        } else if (marker == 0xFFE4) {
+            // Some vendors store metadata in APP4 (e.g. DJI thermal parameters).
+            // Emit the payload as a vendor block and let higher-level decode
+            // decide whether it recognizes the contents.
+            ContainerBlockRef block;
+            block.format       = ContainerFormat::Jpeg;
+            block.kind         = ContainerBlockKind::MakerNote;
+            block.outer_offset = seg_total_off;
+            block.outer_size   = seg_total_size;
+            block.data_offset  = seg_payload_off;
+            block.data_size    = seg_payload_size;
+            block.id           = marker;
+            if (seg_payload_size >= 4) {
+                uint32_t sig = 0;
+                if (read_u32be(bytes, seg_payload_off, &sig)) {
+                    block.aux_u32 = sig;
+                }
+            }
+            sink_emit(&sink, block);
         } else if (marker == 0xFFED) {
             if (match(bytes, seg_payload_off, "Photoshop 3.0\0", 14)) {
                 ContainerBlockRef block;

@@ -3335,6 +3335,30 @@ static constexpr MakerNoteTagNameEntry kMakernoteDjiMain[] = {
     { 0x0018u, "DJI_0x0018" },
 };
 
+static constexpr MakerNoteTagNameEntry kMakernoteDjiThermalparams[] = {
+    { 0x0044u, "ObjectDistance" },
+    { 0x0046u, "RelativeHumidity" },
+    { 0x0048u, "Emissivity" },
+    { 0x004Au, "Reflection" },
+    { 0x004Cu, "AmbientTemperature" },
+};
+
+static constexpr MakerNoteTagNameEntry kMakernoteDjiThermalparams2[] = {
+    { 0x0000u, "AmbientTemperature" },
+    { 0x0004u, "ObjectDistance" },
+    { 0x0008u, "Emissivity" },
+    { 0x000Cu, "RelativeHumidity" },
+    { 0x0010u, "ReflectedTemperature" },
+    { 0x0065u, "IDString" },
+};
+
+static constexpr MakerNoteTagNameEntry kMakernoteDjiThermalparams3[] = {
+    { 0x0004u, "RelativeHumidity" },
+    { 0x0006u, "ObjectDistance" },
+    { 0x0008u, "Emissivity" },
+    { 0x000Au, "ReflectedTemperature" },
+};
+
 static constexpr MakerNoteTagNameEntry kMakernoteFlirGpsUuid[] = {
     { 0x0001u, "GPSLatitude" },
     { 0x0002u, "GPSLongitude" },
@@ -9466,6 +9490,14 @@ static constexpr MakerNoteTagNameEntry kMakernoteSamsungDualshotextra[] = {
     { 0x0011u, "DepthMapHeight" },
 };
 
+static constexpr MakerNoteTagNameEntry kMakernoteSamsungIfd[] = {
+    { 0x0001u, "Samsung_IFD_0x0001" },
+    { 0x0002u, "Samsung_IFD_0x0002" },
+    { 0x0003u, "Samsung_IFD_0x0003" },
+    { 0x0004u, "Samsung_IFD_0x0004" },
+    { 0x0006u, "Samsung_IFD_0x0006" },
+};
+
 static constexpr MakerNoteTagNameEntry kMakernoteSamsungMain[] = {
     { 0x0000u, "MakerNoteVersion" },
     { 0x0002u, "PreviewImageStart" },
@@ -11393,6 +11425,9 @@ static constexpr MakerNoteTableMap kMakerNoteTables[] = {
     { "makernote:casio:qvci", kMakernoteCasioQvci, 6u },
     { "makernote:casio:type2", kMakernoteCasioType2, 92u },
     { "makernote:dji:main", kMakernoteDjiMain, 23u },
+    { "makernote:dji:thermalparams", kMakernoteDjiThermalparams, 5u },
+    { "makernote:dji:thermalparams2", kMakernoteDjiThermalparams2, 6u },
+    { "makernote:dji:thermalparams3", kMakernoteDjiThermalparams3, 4u },
     { "makernote:flir:gps_uuid", kMakernoteFlirGpsUuid, 3u },
     { "makernote:flir:main", kMakernoteFlirMain, 6u },
     { "makernote:flir:moreinfo", kMakernoteFlirMoreinfo, 3u },
@@ -11702,6 +11737,7 @@ static constexpr MakerNoteTableMap kMakerNoteTables[] = {
     { "makernote:ricoh:thetasubdir", kMakernoteRicohThetasubdir, 3u },
     { "makernote:ricoh:type2", kMakernoteRicohType2, 2u },
     { "makernote:samsung:dualshotextra", kMakernoteSamsungDualshotextra, 3u },
+    { "makernote:samsung:ifd", kMakernoteSamsungIfd, 5u },
     { "makernote:samsung:main", kMakernoteSamsungMain, 3u },
     { "makernote:samsung:mp4", kMakernoteSamsungMp4, 7u },
     { "makernote:samsung:orientationinfo", kMakernoteSamsungOrientationinfo, 3u },

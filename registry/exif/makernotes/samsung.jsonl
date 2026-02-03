@@ -4,6 +4,11 @@
 {"kind":"exif.tag","ifd":"makernote:samsung:main","tag":"0x0000","name":"MakerNoteVersion"}
 {"kind":"exif.tag","ifd":"makernote:samsung:main","tag":"0x0002","name":"PreviewImageStart"}
 {"kind":"exif.tag","ifd":"makernote:samsung:main","tag":"0x0003","name":"PreviewImageLength"}
+{"kind":"exif.tag","ifd":"makernote:samsung:ifd","tag":"0x0001","name":"Samsung_IFD_0x0001"}
+{"kind":"exif.tag","ifd":"makernote:samsung:ifd","tag":"0x0002","name":"Samsung_IFD_0x0002"}
+{"kind":"exif.tag","ifd":"makernote:samsung:ifd","tag":"0x0003","name":"Samsung_IFD_0x0003"}
+{"kind":"exif.tag","ifd":"makernote:samsung:ifd","tag":"0x0004","name":"Samsung_IFD_0x0004"}
+{"kind":"exif.tag","ifd":"makernote:samsung:ifd","tag":"0x0006","name":"Samsung_IFD_0x0006"}
 {"kind":"exif.tag","ifd":"makernote:samsung:mp4","tag":"0x0000","name":"Make"}
 {"kind":"exif.tag","ifd":"makernote:samsung:mp4","tag":"0x0018","name":"Model"}
 {"kind":"exif.tag","ifd":"makernote:samsung:mp4","tag":"0x002e","name":"ExposureTime"}

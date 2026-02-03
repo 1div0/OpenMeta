@@ -83,10 +83,6 @@ decode_pentax_binary_subdirs_impl(std::string_view mk_ifd0, MetaStore& store,
         if (arena_string(arena, e.key.data.exif_tag.ifd) != mk_ifd0) {
             continue;
         }
-        if (e.value.kind != MetaValueKind::Bytes
-            && e.value.kind != MetaValueKind::Array) {
-            continue;
-        }
         const uint16_t tag = e.key.data.exif_tag.tag;
         switch (tag) {
         case 0x003f:  // LensRec
@@ -117,6 +113,16 @@ decode_pentax_binary_subdirs_impl(std::string_view mk_ifd0, MetaStore& store,
         case 0x03ff:  // TempInfo
             break;
         default: continue;
+        }
+        // Most Pentax BinaryData subdirectories are stored as UNDEFINED/BYTE
+        // arrays (decoded as Bytes/Array). Some models store FaceInfo as a
+        // single BYTE scalar (FacesDetected only), so accept that variant too.
+        if (e.value.kind != MetaValueKind::Bytes
+            && e.value.kind != MetaValueKind::Array) {
+            if (!(tag == 0x0060 && e.value.kind == MetaValueKind::Scalar
+                  && e.value.elem_type == MetaElementType::U8)) {
+                continue;
+            }
         }
         if (cand_count < sizeof(cands) / sizeof(cands[0])) {
             cands[cand_count].tag   = tag;
@@ -163,7 +169,28 @@ decode_pentax_binary_subdirs_impl(std::string_view mk_ifd0, MetaStore& store,
 
     for (uint32_t i = 0; i < cand_count; ++i) {
         const uint16_t tag                       = cands[i].tag;
-        const ByteSpan raw_span                  = cands[i].value.data.span;
+        const MetaValue val = cands[i].value;
+
+        // FaceInfo may be stored as a single BYTE scalar (FacesDetected only).
+        if (tag == 0x0060 && val.kind == MetaValueKind::Scalar
+            && val.elem_type == MetaElementType::U8) {
+            const std::string_view ifd_name = make_mk_subtable_ifd_token(
+                mk_prefix, "faceinfo", idx_faceinfo++,
+                std::span<char>(sub_ifd_buf));
+            if (ifd_name.empty()) {
+                continue;
+            }
+            const uint8_t faces = static_cast<uint8_t>(val.data.u64 & 0xFFU);
+            const uint16_t tags_out[]  = { 0x0000 };
+            const MetaValue vals_out[] = { make_u8(faces) };
+            emit_bin_dir_entries(ifd_name, store,
+                                 std::span<const uint16_t>(tags_out),
+                                 std::span<const MetaValue>(vals_out),
+                                 options.limits, status_out);
+            continue;
+        }
+
+        const ByteSpan raw_span = val.data.span;
         const std::span<const std::byte> raw_src = store.arena().span(raw_span);
         if (raw_src.empty()) {
             continue;

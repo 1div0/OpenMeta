@@ -1251,6 +1251,65 @@ namespace {
         return mn;
     }
 
+    static std::vector<std::byte> make_samsung_stmn_makernote()
+    {
+        // Minimal Samsung STMN MakerNote sample:
+        // - MakerNoteVersion (8 bytes): "STMN100\0"
+        // - PreviewImageStart (u32le) at +8
+        // - PreviewImageLength (u32le) at +12
+        // - SamsungIFD at +44:
+        //     u32le(entry_count=1) + entry(12) + next_ifd(4) + payload...
+        std::vector<std::byte> mn;
+        append_bytes(&mn, "STMN100");
+        mn.push_back(std::byte { 0 });
+        EXPECT_EQ(mn.size(), 8U);
+
+        append_u32le(&mn, 0x12345678U);  // PreviewImageStart
+        append_u32le(&mn, 0x00010002U);  // PreviewImageLength
+        EXPECT_EQ(mn.size(), 16U);
+
+        // Fill reserved slots up to tag 11 (offset 44).
+        mn.resize(44U, std::byte { 0 });
+        EXPECT_EQ(mn.size(), 44U);
+
+        // SamsungIFD: one ASCII tag whose out-of-line value is at base+0.
+        append_u32le(&mn, 1);  // entry count (u32le)
+        append_u16le(&mn, 0x0004);
+        append_u16le(&mn, 2);  // ASCII
+        append_u32le(&mn, 6);  // count
+        append_u32le(&mn, 0);  // offset relative to end-of-IFD (base)
+        append_u32le(&mn, 0);  // next IFD
+
+        EXPECT_EQ(mn.size(), 64U);
+        append_bytes(&mn, "HELLO");
+        mn.push_back(std::byte { 0 });
+        return mn;
+    }
+
+    static std::vector<std::byte> make_samsung_type2_makernote()
+    {
+        // Minimal Samsung Type2 MakerNote sample:
+        // classic IFD at offset 0 with PictureWizard (0x0021) UNDEFINED[10].
+        std::vector<std::byte> mn;
+        append_u16le(&mn, 1);  // entry count
+
+        append_u16le(&mn, 0x0021);  // PictureWizard
+        append_u16le(&mn, 7);       // UNDEFINED
+        append_u32le(&mn, 10);      // count (5 * u16)
+        append_u32le(&mn, 18);      // value offset (payload starts at +18)
+
+        append_u32le(&mn, 0);  // next IFD
+        EXPECT_EQ(mn.size(), 18U);
+
+        append_u16le(&mn, 1);
+        append_u16le(&mn, 2);
+        append_u16le(&mn, 3);
+        append_u16le(&mn, 4);
+        append_u16le(&mn, 5);
+        EXPECT_EQ(mn.size(), 28U);
+        return mn;
+    }
+
     static std::vector<std::byte> make_sony_makernote_tag9050b_ciphered()
     {
         // Minimal Sony MakerNote:
@@ -2543,6 +2602,98 @@ TEST(MakerNoteDecode, DecodesPentaxMakerNoteWithAocHeaderAndCount)
     EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
     EXPECT_EQ(e.value.elem_type, MetaElementType::U16);
     EXPECT_EQ(e.value.data.u64, 2U);
+}
+
+TEST(MakerNoteDecode, DecodesSamsungStmnMakerNoteAndSamsungIfd)
+{
+    const std::vector<std::byte> mn   = make_samsung_stmn_makernote();
+    const std::vector<std::byte> tiff = make_test_tiff_with_makernote("SAMSUNG",
+                                                                      mn);
+
+    MetaStore store;
+    std::array<ExifIfdRef, 8> ifds {};
+    ExifDecodeOptions options;
+    options.decode_makernote   = true;
+    const ExifDecodeResult res = decode_exif_tiff(tiff, store, ifds, options);
+    EXPECT_EQ(res.status, ExifDecodeStatus::Ok);
+
+    store.finalize();
+    {
+        const std::span<const EntryId> ids
+            = store.find_all(exif_key("mk_samsung0", 0x0000));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Text);
+        const std::span<const std::byte> raw
+            = store.arena().span(e.value.data.span);
+        const std::string_view v(reinterpret_cast<const char*>(raw.data()),
+                                 raw.size());
+        EXPECT_EQ(v, "STMN100");
+    }
+    {
+        const std::span<const EntryId> ids
+            = store.find_all(exif_key("mk_samsung0", 0x0002));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
+        EXPECT_EQ(e.value.elem_type, MetaElementType::U32);
+        EXPECT_EQ(e.value.data.u64, 0x12345678U);
+    }
+    {
+        const std::span<const EntryId> ids
+            = store.find_all(exif_key("mk_samsung0", 0x0003));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
+        EXPECT_EQ(e.value.elem_type, MetaElementType::U32);
+        EXPECT_EQ(e.value.data.u64, 0x00010002U);
+    }
+    {
+        const std::span<const EntryId> ids
+            = store.find_all(exif_key("mk_samsung_ifd_0", 0x0004));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Text);
+        const std::span<const std::byte> raw
+            = store.arena().span(e.value.data.span);
+        const std::string_view v(reinterpret_cast<const char*>(raw.data()),
+                                 raw.size());
+        EXPECT_EQ(v, "HELLO");
+    }
+}
+
+TEST(MakerNoteDecode, DecodesSamsungType2PictureWizard)
+{
+    const std::vector<std::byte> mn   = make_samsung_type2_makernote();
+    const std::vector<std::byte> tiff = make_test_tiff_with_makernote("SAMSUNG",
+                                                                      mn);
+
+    MetaStore store;
+    std::array<ExifIfdRef, 8> ifds {};
+    ExifDecodeOptions options;
+    options.decode_makernote   = true;
+    const ExifDecodeResult res = decode_exif_tiff(tiff, store, ifds, options);
+    EXPECT_EQ(res.status, ExifDecodeStatus::Ok);
+
+    store.finalize();
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("mk_samsung_type2_0", 0x0021));
+        ASSERT_EQ(ids.size(), 1U);
+        EXPECT_EQ(store.entry(ids[0]).value.kind, MetaValueKind::Bytes);
+    }
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("mk_samsung_picturewizard_0", 0x0000));
+        ASSERT_EQ(ids.size(), 1U);
+        EXPECT_EQ(store.entry(ids[0]).value.data.u64, 1U);
+    }
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("mk_samsung_picturewizard_0", 0x0004));
+        ASSERT_EQ(ids.size(), 1U);
+        EXPECT_EQ(store.entry(ids[0]).value.data.u64, 5U);
+    }
 }
 
 }  // namespace openmeta

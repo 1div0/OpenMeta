@@ -2312,6 +2312,16 @@ decode_exif_tiff(std::span<const std::byte> tiff_bytes, MetaStore& store,
                     continue;
                 }
 
+                // Samsung MakerNote: either fixed-layout "STMN" blocks or
+                // classic TIFF-IFD "Type2" maker notes, plus PictureWizard
+                // binary subtables.
+                if (vendor == MakerNoteVendor::Samsung
+                    && exif_internal::decode_samsung_makernote(
+                        cfg, tiff_bytes, value_off, value_bytes, mk_ifd0, store,
+                        mn_opts, &sink.result)) {
+                    continue;
+                }
+
                 // Canon MakerNote: classic IFD at offset 0 (parent endianness),
                 // plus Canon-specific BinaryData subdirectories.
                 if (vendor == MakerNoteVendor::Canon
