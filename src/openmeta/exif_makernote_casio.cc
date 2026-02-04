@@ -6,13 +6,6 @@ namespace openmeta::exif_internal {
 
 namespace {
 
-    static bool read_u32_endian(bool le, std::span<const std::byte> bytes,
-                                uint64_t offset, uint32_t* out) noexcept
-    {
-        return le ? read_u32le(bytes, offset, out)
-                  : read_u32be(bytes, offset, out);
-    }
-
     static bool casio_faceinfo1_bytes(std::span<const std::byte> raw) noexcept
     {
         if (raw.size() >= 2 && u8(raw[0]) == 0x00 && u8(raw[1]) == 0x00) {
@@ -399,35 +392,21 @@ decode_casio_makernote(const TiffConfig& parent_cfg,
     for (uint64_t i = 0; i < entry_count; ++i) {
         const uint64_t eoff = entries_off + i * 12ULL;
 
-        uint16_t tag  = 0;
-        uint16_t type = 0;
-        if (!read_u16_endian(le, mn, eoff + 0, &tag)
-            || !read_u16_endian(le, mn, eoff + 2, &type)) {
+        ClassicIfdEntry e;
+        if (!read_classic_ifd_entry(mn_cfg, mn, eoff, &e)) {
             return true;
         }
 
-        uint32_t count32        = 0;
-        uint32_t value_or_off32 = 0;
-        if (!read_u32_endian(le, mn, eoff + 4, &count32)
-            || !read_u32_endian(le, mn, eoff + 8, &value_or_off32)) {
-            return true;
-        }
-        const uint64_t count = count32;
-
-        const uint64_t unit = tiff_type_size(type);
-        if (unit == 0) {
+        uint64_t value_bytes = 0;
+        if (!classic_ifd_entry_value_bytes(e, &value_bytes)) {
             continue;
         }
-        if (count > (UINT64_MAX / unit)) {
-            continue;
-        }
-        const uint64_t value_bytes = count * unit;
 
         const uint64_t inline_cap      = 4;
         const uint64_t value_field_off = eoff + 8;
         const bool inline_value        = (value_bytes <= inline_cap);
-        const uint64_t value_off       = inline_value ? value_field_off
-                                                      : uint64_t(value_or_off32);
+        const uint64_t value_off = inline_value ? value_field_off
+                                                : uint64_t(e.value_or_off32);
 
         if (status_out
             && (status_out->entries_decoded + 1U)
@@ -437,11 +416,11 @@ decode_casio_makernote(const TiffConfig& parent_cfg,
         }
 
         Entry entry;
-        entry.key          = make_exif_tag_key(store.arena(), mk_ifd0, tag);
+        entry.key          = make_exif_tag_key(store.arena(), mk_ifd0, e.tag);
         entry.origin.block = block;
         entry.origin.order_in_block = static_cast<uint32_t>(i);
-        entry.origin.wire_type      = WireType { WireFamily::Tiff, type };
-        entry.origin.wire_count     = count32;
+        entry.origin.wire_type      = WireType { WireFamily::Tiff, e.type };
+        entry.origin.wire_count     = e.count32;
 
         if (value_bytes > options.limits.max_value_bytes) {
             if (status_out) {
@@ -455,10 +434,9 @@ decode_casio_makernote(const TiffConfig& parent_cfg,
                 }
                 entry.flags |= EntryFlags::Unreadable;
             } else {
-                entry.value = decode_tiff_value(mn_cfg, mn, type, count,
-                                                value_off, value_bytes,
-                                                store.arena(), options.limits,
-                                                status_out);
+                entry.value = decode_tiff_value(
+                    mn_cfg, mn, e.type, uint64_t(e.count32), value_off,
+                    value_bytes, store.arena(), options.limits, status_out);
             }
         } else {
             // QVC directories use TIFF-relative offsets for out-of-line values.
@@ -469,10 +447,10 @@ decode_casio_makernote(const TiffConfig& parent_cfg,
                 }
                 entry.flags |= EntryFlags::Unreadable;
             } else {
-                entry.value = decode_tiff_value(parent_cfg, tiff_bytes, type,
-                                                count, value_off, value_bytes,
-                                                store.arena(), options.limits,
-                                                status_out);
+                entry.value = decode_tiff_value(
+                    parent_cfg, tiff_bytes, e.type, uint64_t(e.count32),
+                    value_off, value_bytes, store.arena(), options.limits,
+                    status_out);
             }
         }
 

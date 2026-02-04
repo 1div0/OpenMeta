@@ -97,36 +97,21 @@ decode_nintendo_makernote(const TiffConfig& parent_cfg,
         for (uint32_t i = 0; i < entry_count; ++i) {
             const uint64_t eoff = entries_off + uint64_t(i) * 12ULL;
 
-            uint16_t type = 0;
-            if (!read_tiff_u16(cfg, tiff_bytes, eoff + 2U, &type)) {
+            ClassicIfdEntry e;
+            if (!read_classic_ifd_entry(cfg, tiff_bytes, eoff, &e)) {
                 break;
             }
-            const uint64_t unit = tiff_type_size(type);
-            if (unit == 0) {
-                continue;
-            }
 
-            uint32_t count32 = 0;
-            uint32_t off32   = 0;
-            if (!read_tiff_u32(cfg, tiff_bytes, eoff + 4U, &count32)
-                || !read_tiff_u32(cfg, tiff_bytes, eoff + 8U, &off32)) {
-                break;
-            }
-            if (count32 == 0) {
+            uint64_t value_bytes = 0;
+            if (!classic_ifd_entry_value_bytes(e, &value_bytes)) {
                 continue;
             }
-            const uint64_t count = count32;
-            if (count > (UINT64_MAX / unit)) {
-                continue;
-            }
-
-            const uint64_t value_bytes = count * unit;
             if (value_bytes <= 4) {
                 continue;  // inline
             }
 
-            const uint64_t rel_off = uint64_t(off32);
-            const uint64_t abs_off = uint64_t(off32);
+            const uint64_t rel_off = uint64_t(e.value_or_off32);
+            const uint64_t abs_off = uint64_t(e.value_or_off32);
 
             if (rel_off + value_bytes <= maker_note_bytes) {
                 ok_rel_offsets = true;

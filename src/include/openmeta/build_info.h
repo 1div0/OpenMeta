@@ -16,7 +16,7 @@ namespace openmeta {
  * Values are compiled into the binary at build time.
  */
 struct BuildInfo final {
-    /// OpenMeta version string (e.g. "0.3.0").
+    /// OpenMeta version string (e.g. "0.4.0").
     std::string_view version;
 
     /// Build timestamp in UTC (ISO-8601), or empty if not recorded.

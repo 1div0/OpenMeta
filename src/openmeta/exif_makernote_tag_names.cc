@@ -65,16 +65,56 @@ namespace {
     }
 
 
+    static int compare_key_to_cstr(std::string_view a,
+                                   const char* b) noexcept
+    {
+        // Lexicographic compare of a string_view to a NUL-terminated string.
+        // Avoids strlen() on every comparison.
+        size_t i = 0;
+        for (; i < a.size(); ++i) {
+            const char bc = b ? b[i] : '\0';
+            if (bc == '\0') {
+                // b shorter -> a greater.
+                return 1;
+            }
+            const char ac = a[i];
+            if (ac < bc) {
+                return -1;
+            }
+            if (ac > bc) {
+                return 1;
+            }
+        }
+        // a exhausted.
+        const char bc = b ? b[i] : '\0';
+        return (bc == '\0') ? 0 : -1;
+    }
+
+
     static const MakerNoteTableMap* find_table(std::string_view key) noexcept
     {
-        for (uint32_t i = 0;
-             i < sizeof(kMakerNoteTables) / sizeof(kMakerNoteTables[0]); ++i) {
-            const MakerNoteTableMap& t = kMakerNoteTables[i];
+        const uint32_t count
+            = static_cast<uint32_t>(sizeof(kMakerNoteTables)
+                                    / sizeof(kMakerNoteTables[0]));
+
+        uint32_t lo = 0;
+        uint32_t hi = count;
+        while (lo < hi) {
+            const uint32_t mid = lo + (hi - lo) / 2U;
+            const MakerNoteTableMap& t = kMakerNoteTables[mid];
             if (!t.key) {
-                continue;
+                // Generated tables should never include null keys, but don't
+                // crash if they do.
+                return nullptr;
             }
-            if (key == t.key) {
+            const int cmp = compare_key_to_cstr(key, t.key);
+            if (cmp == 0) {
                 return &t;
+            }
+            if (cmp < 0) {
+                hi = mid;
+            } else {
+                lo = mid + 1U;
             }
         }
         return nullptr;

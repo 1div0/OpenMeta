@@ -14,13 +14,6 @@ namespace {
     }
 
 
-    static bool read_u16le_at(std::span<const std::byte> bytes, uint64_t off,
-                              uint16_t* out) noexcept
-    {
-        return read_u16le(bytes, off, out);
-    }
-
-
     static void samsung_add_entry(std::string_view ifd_name, uint16_t tag,
                                   MetaValue value, BlockId block,
                                   uint32_t order_in_block, MetaStore& store,
@@ -114,58 +107,34 @@ namespace {
         cfg.le      = true;
         cfg.bigtiff = false;
 
+        MakerNoteLayout layout;
+        layout.cfg                      = cfg;
+        layout.bytes                    = maker_note_bytes;
+        layout.offsets.out_of_line_base = base;
+
         for (uint64_t i = 0; i < entry_count; ++i) {
             const uint64_t eoff = entries_off + i * entry_size;
 
-            uint16_t tag  = 0;
-            uint16_t type = 0;
-            if (!read_u16le_at(maker_note_bytes, eoff + 0, &tag)
-                || !read_u16le_at(maker_note_bytes, eoff + 2, &type)) {
+            ClassicIfdEntry e;
+            if (!read_classic_ifd_entry(cfg, maker_note_bytes, eoff, &e)) {
                 if (status_out) {
                     update_status(status_out, ExifDecodeStatus::Malformed);
                 }
                 return true;
             }
 
-            uint32_t count32        = 0;
-            uint32_t value_or_off32 = 0;
-            if (!read_u32le_at(maker_note_bytes, eoff + 4, &count32)
-                || !read_u32le_at(maker_note_bytes, eoff + 8, &value_or_off32)) {
-                if (status_out) {
-                    update_status(status_out, ExifDecodeStatus::Malformed);
-                }
-                return true;
-            }
-            const uint64_t count = count32;
-
-            const uint64_t unit = tiff_type_size(type);
-            if (unit == 0) {
+            ClassicIfdValueRef ref;
+            if (!resolve_classic_ifd_value_ref(layout, eoff, e, &ref,
+                                               status_out)) {
                 continue;
-            }
-            if (count > (UINT64_MAX / unit)) {
-                if (status_out) {
-                    update_status(status_out, ExifDecodeStatus::Malformed);
-                }
-                continue;
-            }
-            const uint64_t value_bytes = count * unit;
-
-            const uint64_t inline_cap = 4;
-            const bool inline_value   = (value_bytes <= inline_cap);
-
-            uint64_t value_off = 0;
-            if (inline_value) {
-                value_off = eoff + 8U;
-            } else {
-                value_off = base + static_cast<uint64_t>(value_or_off32);
             }
 
             Entry entry;
-            entry.key = make_exif_tag_key(store.arena(), ifd_name, tag);
+            entry.key = make_exif_tag_key(store.arena(), ifd_name, e.tag);
             entry.origin.block          = block;
             entry.origin.order_in_block = static_cast<uint32_t>(i);
-            entry.origin.wire_type      = WireType { WireFamily::Tiff, type };
-            entry.origin.wire_count     = count32;
+            entry.origin.wire_type      = WireType { WireFamily::Tiff, e.type };
+            entry.origin.wire_count     = e.count32;
 
             if (status_out
                 && (status_out->entries_decoded + 1U)
@@ -174,21 +143,21 @@ namespace {
                 return true;
             }
 
-            if (value_bytes > options.limits.max_value_bytes) {
+            if (ref.value_bytes > options.limits.max_value_bytes) {
                 if (status_out) {
                     update_status(status_out, ExifDecodeStatus::LimitExceeded);
                 }
                 entry.flags |= EntryFlags::Truncated;
-            } else if (value_off + value_bytes > maker_note_bytes.size()) {
+            } else if (ref.value_off + ref.value_bytes > maker_note_bytes.size()) {
                 if (status_out) {
                     update_status(status_out, ExifDecodeStatus::Malformed);
                 }
                 entry.flags |= EntryFlags::Unreadable;
             } else {
-                entry.value = decode_tiff_value(cfg, maker_note_bytes, type,
-                                                count, value_off, value_bytes,
-                                                store.arena(), options.limits,
-                                                status_out);
+                entry.value = decode_tiff_value(
+                    cfg, maker_note_bytes, e.type, uint64_t(e.count32),
+                    ref.value_off, ref.value_bytes, store.arena(),
+                    options.limits, status_out);
             }
 
             (void)store.add_entry(entry);

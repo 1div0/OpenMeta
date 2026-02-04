@@ -1975,6 +1975,288 @@ namespace {
 
 namespace exif_internal {
 
+    ExifContext::ExifContext(const MetaStore& store) noexcept
+        : store_(&store)
+    {
+        next_ = 0;
+        for (uint32_t i = 0; i < sizeof(slots_) / sizeof(slots_[0]); ++i) {
+            slots_[i].entry = kInvalidEntryId;
+            slots_[i].tag   = 0;
+            slots_[i].ifd   = std::string_view();
+        }
+    }
+
+
+    void ExifContext::cache_hit(std::string_view ifd, uint16_t tag,
+                                EntryId entry) noexcept
+    {
+        const uint32_t cap = static_cast<uint32_t>(sizeof(slots_)
+                                                   / sizeof(slots_[0]));
+        const uint32_t idx = next_;
+        slots_[idx].ifd    = ifd;
+        slots_[idx].tag    = tag;
+        slots_[idx].entry  = entry;
+        next_               = (idx + 1U) % cap;
+    }
+
+
+    bool ExifContext::find_first_entry(std::string_view ifd, uint16_t tag,
+                                       EntryId* out) noexcept
+    {
+        if (!store_) {
+            return false;
+        }
+        if (ifd.empty()) {
+            return false;
+        }
+
+        for (uint32_t i = 0; i < sizeof(slots_) / sizeof(slots_[0]); ++i) {
+            const Slot& s = slots_[i];
+            if (s.entry == kInvalidEntryId) {
+                continue;
+            }
+            if (s.tag == tag && s.ifd == ifd) {
+                if (out) {
+                    *out = s.entry;
+                }
+                return true;
+            }
+        }
+
+        const ByteArena& arena               = store_->arena();
+        const std::span<const Entry> entries = store_->entries();
+        for (size_t i = 0; i < entries.size(); ++i) {
+            const Entry& e = entries[i];
+            if (e.key.kind != MetaKeyKind::ExifTag) {
+                continue;
+            }
+            if (e.key.data.exif_tag.tag != tag) {
+                continue;
+            }
+            if (arena_string(arena, e.key.data.exif_tag.ifd) != ifd) {
+                continue;
+            }
+            const EntryId id = static_cast<EntryId>(i);
+            cache_hit(ifd, tag, id);
+            if (out) {
+                *out = id;
+            }
+            return true;
+        }
+
+        return false;
+    }
+
+
+    bool ExifContext::find_first_value(std::string_view ifd, uint16_t tag,
+                                       MetaValue* out) noexcept
+    {
+        if (out) {
+            *out = MetaValue {};
+        }
+
+        EntryId id = kInvalidEntryId;
+        if (!find_first_entry(ifd, tag, &id) || id == kInvalidEntryId) {
+            return false;
+        }
+        const Entry& e = store_->entry(id);
+        if (out) {
+            *out = e.value;
+        }
+        return true;
+    }
+
+
+    bool ExifContext::find_first_text(std::string_view ifd, uint16_t tag,
+                                      std::string_view* out) noexcept
+    {
+        if (out) {
+            *out = std::string_view();
+        }
+
+        EntryId id = kInvalidEntryId;
+        if (!find_first_entry(ifd, tag, &id) || id == kInvalidEntryId) {
+            return false;
+        }
+
+        const Entry& e = store_->entry(id);
+        if (e.value.kind != MetaValueKind::Text) {
+            return false;
+        }
+
+        if (out) {
+            *out = arena_string(store_->arena(), e.value.data.span);
+        }
+        return true;
+    }
+
+
+    bool ExifContext::find_first_u32(std::string_view ifd, uint16_t tag,
+                                     uint32_t* out) noexcept
+    {
+        if (out) {
+            *out = 0;
+        }
+
+        EntryId id = kInvalidEntryId;
+        if (!find_first_entry(ifd, tag, &id) || id == kInvalidEntryId) {
+            return false;
+        }
+
+        const Entry& e = store_->entry(id);
+        if (e.value.kind != MetaValueKind::Scalar || e.value.count != 1) {
+            return false;
+        }
+
+        if (e.value.elem_type == MetaElementType::U32
+            || e.value.elem_type == MetaElementType::U16
+            || e.value.elem_type == MetaElementType::U8) {
+            if (out) {
+                *out = static_cast<uint32_t>(e.value.data.u64);
+            }
+            return true;
+        }
+        return false;
+    }
+
+
+    bool ExifContext::find_first_i32(std::string_view ifd, uint16_t tag,
+                                     int32_t* out) noexcept
+    {
+        if (out) {
+            *out = 0;
+        }
+
+        EntryId id = kInvalidEntryId;
+        if (!find_first_entry(ifd, tag, &id) || id == kInvalidEntryId) {
+            return false;
+        }
+
+        const Entry& e = store_->entry(id);
+        if (e.value.kind != MetaValueKind::Scalar || e.value.count != 1) {
+            return false;
+        }
+
+        switch (e.value.elem_type) {
+        case MetaElementType::I32:
+        case MetaElementType::I16:
+        case MetaElementType::I8:
+            if (e.value.data.i64 < static_cast<int64_t>(INT32_MIN)
+                || e.value.data.i64 > static_cast<int64_t>(INT32_MAX)) {
+                return false;
+            }
+            if (out) {
+                *out = static_cast<int32_t>(e.value.data.i64);
+            }
+            return true;
+        case MetaElementType::U32:
+        case MetaElementType::U16:
+        case MetaElementType::U8:
+            if (e.value.data.u64 > static_cast<uint64_t>(INT32_MAX)) {
+                return false;
+            }
+            if (out) {
+                *out = static_cast<int32_t>(e.value.data.u64);
+            }
+            return true;
+        default: break;
+        }
+
+        return false;
+    }
+
+    bool read_classic_ifd_entry(const TiffConfig& cfg,
+                                std::span<const std::byte> bytes,
+                                uint64_t entry_off,
+                                ClassicIfdEntry* out) noexcept
+    {
+        if (!out) {
+            return false;
+        }
+        if (entry_off > bytes.size() || bytes.size() - entry_off < 12ULL) {
+            return false;
+        }
+
+        ClassicIfdEntry e;
+        if (!read_tiff_u16(cfg, bytes, entry_off + 0, &e.tag)
+            || !read_tiff_u16(cfg, bytes, entry_off + 2, &e.type)
+            || !read_tiff_u32(cfg, bytes, entry_off + 4, &e.count32)
+            || !read_tiff_u32(cfg, bytes, entry_off + 8, &e.value_or_off32)) {
+            return false;
+        }
+        *out = e;
+        return true;
+    }
+
+
+    bool classic_ifd_entry_value_bytes(const ClassicIfdEntry& e,
+                                       uint64_t* out) noexcept
+    {
+        if (!out) {
+            return false;
+        }
+        if (e.count32 == 0U) {
+            *out = 0;
+            return true;
+        }
+
+        const uint64_t unit = tiff_type_size(e.type);
+        if (unit == 0) {
+            return false;
+        }
+        const uint64_t count = e.count32;
+        if (count > (UINT64_MAX / unit)) {
+            return false;
+        }
+
+        *out = count * unit;
+        return true;
+    }
+
+
+    bool resolve_classic_ifd_value_ref(const MakerNoteLayout& layout,
+                                       uint64_t entry_off,
+                                       const ClassicIfdEntry& e,
+                                       ClassicIfdValueRef* out,
+                                       ExifDecodeResult* status_out) noexcept
+    {
+        if (!out) {
+            return false;
+        }
+
+        const uint64_t unit = tiff_type_size(e.type);
+        if (unit == 0) {
+            return false;
+        }
+        const uint64_t count = e.count32;
+        if (count != 0 && count > (UINT64_MAX / unit)) {
+            update_status(status_out, ExifDecodeStatus::Malformed);
+            return false;
+        }
+        const uint64_t value_bytes = count * unit;
+
+        ClassicIfdValueRef ref;
+        ref.value_bytes  = value_bytes;
+        ref.inline_value = (value_bytes <= 4U);
+
+        if (ref.inline_value) {
+            if (entry_off > (UINT64_MAX - 8ULL)) {
+                return false;
+            }
+            ref.value_off = entry_off + 8ULL;
+        } else {
+            const uint64_t base = layout.offsets.out_of_line_base;
+            const uint64_t off  = static_cast<uint64_t>(e.value_or_off32);
+            if (base > (UINT64_MAX - off)) {
+                return false;
+            }
+            ref.value_off = base + off;
+        }
+
+        *out = ref;
+        return true;
+    }
+
     bool match_bytes(std::span<const std::byte> bytes, uint64_t offset,
                      const char* magic, uint32_t magic_len) noexcept
     {

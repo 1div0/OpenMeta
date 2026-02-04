@@ -14,10 +14,17 @@ EXIF + MakerNotes (code organization)
 
 - Core EXIF/TIFF decoding: ``src/openmeta/exif_tiff_decode.cc``
 - Vendor MakerNote decoders: ``src/openmeta/exif_makernote_*.cc``
-  (Canon, Nikon, Sony, Olympus, Pentax, Casio)
+  (Canon, Nikon, Sony, Olympus, Pentax, Casio, Panasonic, Kodak, Ricoh, Samsung, FLIR, etc.)
 - Shared internal-only helpers: ``src/openmeta/exif_tiff_decode_internal.h``
   (not installed)
 - Unit tests for MakerNote paths: ``tests/makernote_decode_test.cc``
+
+Internal helper conventions (used by vendor decoders):
+
+- ``read_classic_ifd_entry(...)`` + ``ClassicIfdEntry``: parse a single 12-byte classic TIFF IFD entry.
+- ``MakerNoteLayout`` + ``OffsetPolicy``: makes "value offsets are relative to X" explicit for vendor formats.
+- ``ExifContext``: a small, decode-time cache for frequently accessed EXIF values.
+- MakerNote tag-name tables are generated from ``registry/exif/makernotes/*.jsonl`` and looked up via binary search (``exif_makernote_tag_names.cc``).
 
 Optional dependencies
 ---------------------

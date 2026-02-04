@@ -32,6 +32,74 @@ namespace exif_internal {
         return static_cast<uint8_t>(b);
     }
 
+    struct ClassicIfdEntry final {
+        uint16_t tag            = 0;
+        uint16_t type           = 0;
+        uint32_t count32        = 0;
+        uint32_t value_or_off32 = 0;
+    };
+
+    struct OffsetPolicy final {
+        // For classic TIFF IFD entries, out-of-line values use an offset field
+        // that is interpreted relative to a base. Most TIFF/EXIF uses base=0
+        // (offsets are relative to the start of the TIFF byte stream).
+        uint64_t out_of_line_base = 0;
+    };
+
+    struct MakerNoteLayout final {
+        TiffConfig cfg;
+        std::span<const std::byte> bytes;
+        OffsetPolicy offsets;
+    };
+
+    struct ClassicIfdValueRef final {
+        uint64_t value_off   = 0;
+        uint64_t value_bytes = 0;
+        bool inline_value    = false;
+    };
+
+    struct ExifContext final {
+        explicit ExifContext(const MetaStore& store) noexcept;
+
+        bool find_first_value(std::string_view ifd, uint16_t tag,
+                              MetaValue* out) noexcept;
+        bool find_first_text(std::string_view ifd, uint16_t tag,
+                             std::string_view* out) noexcept;
+        bool find_first_u32(std::string_view ifd, uint16_t tag,
+                            uint32_t* out) noexcept;
+        bool find_first_i32(std::string_view ifd, uint16_t tag,
+                            int32_t* out) noexcept;
+
+    private:
+        struct Slot final {
+            std::string_view ifd;
+            uint16_t tag = 0;
+            EntryId entry = kInvalidEntryId;  // Cache only hits.
+        };
+
+        const MetaStore* store_ = nullptr;
+        Slot slots_[32] {};
+        uint32_t next_ = 0;
+
+        bool find_first_entry(std::string_view ifd, uint16_t tag,
+                              EntryId* out) noexcept;
+        void cache_hit(std::string_view ifd, uint16_t tag, EntryId entry) noexcept;
+    };
+
+    bool read_classic_ifd_entry(const TiffConfig& cfg,
+                                std::span<const std::byte> bytes,
+                                uint64_t entry_off,
+                                ClassicIfdEntry* out) noexcept;
+
+    bool classic_ifd_entry_value_bytes(const ClassicIfdEntry& e,
+                                       uint64_t* out) noexcept;
+
+    bool resolve_classic_ifd_value_ref(const MakerNoteLayout& layout,
+                                       uint64_t entry_off,
+                                       const ClassicIfdEntry& e,
+                                       ClassicIfdValueRef* out,
+                                       ExifDecodeResult* status_out) noexcept;
+
     // Low-level helpers (implemented in exif_tiff_decode.cc).
     bool match_bytes(std::span<const std::byte> bytes, uint64_t offset,
                      const char* magic, uint32_t magic_len) noexcept;

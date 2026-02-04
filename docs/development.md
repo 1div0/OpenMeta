@@ -42,7 +42,7 @@ using Clang), configure OpenMeta with:
 
 - Core EXIF/TIFF decoding: `src/openmeta/exif_tiff_decode.cc`
 - Vendor MakerNote decoders: `src/openmeta/exif_makernote_*.cc`
-  (Canon, Nikon, Sony, Olympus, Pentax, Casio)
+  (Canon, Nikon, Sony, Olympus, Pentax, Casio, Panasonic, Kodak, Ricoh, Samsung, FLIR, etc.)
 - Shared internal-only helpers: `src/openmeta/exif_tiff_decode_internal.h`
   (not installed; used to keep vendor logic out of the public API)
 - Tests: `tests/makernote_decode_test.cc`
@@ -50,6 +50,12 @@ using Clang), configure OpenMeta with:
 When adding or changing MakerNote code, prefer extending the vendor files and
 keeping the EXIF/TIFF core container-agnostic. Add/adjust a unit test for any
 new subtable or decode path.
+
+Internal helper conventions (used by vendor decoders):
+- `read_classic_ifd_entry(...)` + `ClassicIfdEntry`: parse a single 12-byte classic TIFF IFD entry.
+- `MakerNoteLayout` + `OffsetPolicy`: makes "value offsets are relative to X" explicit for vendor formats.
+- `ExifContext`: a small, decode-time cache for frequently accessed EXIF values (avoids repeated linear scans of `store.entries()`).
+- MakerNote tag-name tables are generated from `registry/exif/makernotes/*.jsonl` and looked up via binary search (`exif_makernote_tag_names.cc`).
 
 ## Tests (GoogleTest)
 

@@ -108,73 +108,6 @@ openmeta_f64_to_bits(double v) noexcept
     return bits;
 }
 
-static bool
-find_first_exif_u32_value(const MetaStore& store, std::string_view ifd,
-                          uint16_t tag, uint32_t* out) noexcept
-{
-    if (!out) {
-        return false;
-    }
-
-    const ByteArena& arena               = store.arena();
-    const std::span<const Entry> entries = store.entries();
-
-    for (size_t i = 0; i < entries.size(); ++i) {
-        const Entry& e = entries[i];
-        if (e.key.kind != MetaKeyKind::ExifTag) {
-            continue;
-        }
-        if (e.key.data.exif_tag.tag != tag) {
-            continue;
-        }
-        if (arena_string(arena, e.key.data.exif_tag.ifd) != ifd) {
-            continue;
-        }
-        if (e.value.kind != MetaValueKind::Scalar || e.value.count != 1) {
-            continue;
-        }
-
-        if (e.value.elem_type == MetaElementType::U32
-            || e.value.elem_type == MetaElementType::U16
-            || e.value.elem_type == MetaElementType::U8) {
-            *out = static_cast<uint32_t>(e.value.data.u64);
-            return true;
-        }
-    }
-    return false;
-}
-
-static bool
-find_first_exif_text_value_present(const MetaStore& store, std::string_view ifd,
-                                   uint16_t tag, std::string_view* out) noexcept
-{
-    if (!out) {
-        return false;
-    }
-
-    const ByteArena& arena               = store.arena();
-    const std::span<const Entry> entries = store.entries();
-
-    for (size_t i = 0; i < entries.size(); ++i) {
-        const Entry& e = entries[i];
-        if (e.key.kind != MetaKeyKind::ExifTag) {
-            continue;
-        }
-        if (e.key.data.exif_tag.tag != tag) {
-            continue;
-        }
-        if (arena_string(arena, e.key.data.exif_tag.ifd) != ifd) {
-            continue;
-        }
-        if (e.value.kind != MetaValueKind::Text) {
-            continue;
-        }
-        *out = arena_string(arena, e.value.data.span);
-        return true;
-    }
-    return false;
-}
-
 static constexpr uint8_t kNikonDecryptXlat0[256] = {
     0xC1u, 0xBFu, 0x6Du, 0x0Du, 0x59u, 0xC5u, 0x13u, 0x9Du, 0x83u, 0x61u, 0x6Bu,
     0x4Fu, 0xC7u, 0x7Fu, 0x3Du, 0x3Du, 0x53u, 0x59u, 0xE3u, 0xC7u, 0xE9u, 0x2Fu,
@@ -421,6 +354,8 @@ decode_nikon_binary_subdirs(std::string_view mk_ifd0, MetaStore& store, bool le,
         return;
     }
 
+    ExifContext ctx(store);
+
     uint32_t serial_key     = 0;
     uint32_t shutter_count  = 0;
     bool have_serial        = false;
@@ -428,8 +363,7 @@ decode_nikon_binary_subdirs(std::string_view mk_ifd0, MetaStore& store, bool le,
     {
         std::string_view serial_s;
         const bool have_serial_tag
-            = find_first_exif_text_value_present(store, mk_ifd0, 0x001d,
-                                                 &serial_s);
+            = ctx.find_first_text(mk_ifd0, 0x001d, &serial_s);
         have_serial = have_serial_tag
                       && nikon_parse_u32_dec(serial_s, &serial_key);
         if (!have_serial && have_serial_tag) {
@@ -445,8 +379,8 @@ decode_nikon_binary_subdirs(std::string_view mk_ifd0, MetaStore& store, bool le,
                 have_serial = true;
             }
         }
-        have_shutter_count = find_first_exif_u32_value(store, mk_ifd0, 0x00a7,
-                                                       &shutter_count);
+        have_shutter_count
+            = ctx.find_first_u32(mk_ifd0, 0x00a7, &shutter_count);
     }
 
     struct Candidate final {

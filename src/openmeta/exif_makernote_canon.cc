@@ -8,57 +8,6 @@
 namespace openmeta::exif_internal {
 
 static bool
-find_first_exif_i32_value(const MetaStore& store, std::string_view ifd,
-                          uint16_t tag, int32_t* out) noexcept
-{
-    if (!out) {
-        return false;
-    }
-
-    const ByteArena& arena               = store.arena();
-    const std::span<const Entry> entries = store.entries();
-
-    for (size_t i = 0; i < entries.size(); ++i) {
-        const Entry& e = entries[i];
-        if (e.key.kind != MetaKeyKind::ExifTag) {
-            continue;
-        }
-        if (e.key.data.exif_tag.tag != tag) {
-            continue;
-        }
-        if (arena_string(arena, e.key.data.exif_tag.ifd) != ifd) {
-            continue;
-        }
-        if (e.value.kind != MetaValueKind::Scalar || e.value.count != 1) {
-            continue;
-        }
-
-        switch (e.value.elem_type) {
-        case MetaElementType::I32:
-        case MetaElementType::I16:
-        case MetaElementType::I8:
-            if (e.value.data.i64 < static_cast<int64_t>(INT32_MIN)
-                || e.value.data.i64 > static_cast<int64_t>(INT32_MAX)) {
-                return false;
-            }
-            *out = static_cast<int32_t>(e.value.data.i64);
-            return true;
-        case MetaElementType::U32:
-        case MetaElementType::U16:
-        case MetaElementType::U8:
-            if (e.value.data.u64 > static_cast<uint64_t>(INT32_MAX)) {
-                return false;
-            }
-            *out = static_cast<int32_t>(e.value.data.u64);
-            return true;
-        default: break;
-        }
-    }
-
-    return false;
-}
-
-static bool
 canon_is_printable_ascii(uint8_t c) noexcept
 {
     return (c >= 0x20U && c <= 0x7EU) || c == '\t' || c == '\n' || c == '\r';
@@ -1862,9 +1811,11 @@ decode_canon_makernote(const TiffConfig& cfg,
                                                ? needed
                                                : maker_note_bytes;
 
+    ExifContext ctx(store);
+
     int32_t offset_schema = 0;
     const bool have_offset_schema
-        = find_first_exif_i32_value(store, "exififd", 0xea1d, &offset_schema);
+        = ctx.find_first_i32("exififd", 0xea1d, &offset_schema);
 
     const int64_t value_base = guess_canon_value_base(
         mk_cfg, tiff_bytes, maker_note_off, maker_note_span_bytes, entry_count,
