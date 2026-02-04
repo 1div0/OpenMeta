@@ -44,6 +44,12 @@ namespace exif_internal {
         // that is interpreted relative to a base. Most TIFF/EXIF uses base=0
         // (offsets are relative to the start of the TIFF byte stream).
         uint64_t out_of_line_base = 0;
+
+        // Some vendor MakerNotes use a signed origin for offsets (ie, base may
+        // be negative). When enabled, out-of-line offsets are resolved using
+        // `out_of_line_base_i64` + off32 with overflow and negative checks.
+        bool out_of_line_base_is_signed = false;
+        int64_t out_of_line_base_i64    = 0;
     };
 
     struct MakerNoteLayout final {
@@ -73,7 +79,7 @@ namespace exif_internal {
     private:
         struct Slot final {
             std::string_view ifd;
-            uint16_t tag = 0;
+            uint16_t tag  = 0;
             EntryId entry = kInvalidEntryId;  // Cache only hits.
         };
 
@@ -83,7 +89,8 @@ namespace exif_internal {
 
         bool find_first_entry(std::string_view ifd, uint16_t tag,
                               EntryId* out) noexcept;
-        void cache_hit(std::string_view ifd, uint16_t tag, EntryId entry) noexcept;
+        void cache_hit(std::string_view ifd, uint16_t tag,
+                       EntryId entry) noexcept;
     };
 
     bool read_classic_ifd_entry(const TiffConfig& cfg,
@@ -134,32 +141,6 @@ namespace exif_internal {
         const std::span<const std::byte> bytes = arena.span(span);
         return std::string_view(reinterpret_cast<const char*>(bytes.data()),
                                 bytes.size());
-    }
-
-    inline std::string_view find_first_exif_text_value(const MetaStore& store,
-                                                       std::string_view ifd,
-                                                       uint16_t tag) noexcept
-    {
-        const ByteArena& arena               = store.arena();
-        const std::span<const Entry> entries = store.entries();
-
-        for (size_t i = 0; i < entries.size(); ++i) {
-            const Entry& e = entries[i];
-            if (e.key.kind != MetaKeyKind::ExifTag) {
-                continue;
-            }
-            if (e.key.data.exif_tag.tag != tag) {
-                continue;
-            }
-            if (arena_string(arena, e.key.data.exif_tag.ifd) != ifd) {
-                continue;
-            }
-            if (e.value.kind != MetaValueKind::Text) {
-                continue;
-            }
-            return arena_string(arena, e.value.data.span);
-        }
-        return {};
     }
 
     MetaValue make_fixed_ascii_text(ByteArena& arena,

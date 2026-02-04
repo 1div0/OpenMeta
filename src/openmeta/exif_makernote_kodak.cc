@@ -26,9 +26,8 @@ namespace {
     }
 
 
-    static MetaValue make_u8_text_time(ByteArena& arena, uint8_t hh,
-                                       uint8_t mm, uint8_t ss,
-                                       uint8_t frac) noexcept
+    static MetaValue make_u8_text_time(ByteArena& arena, uint8_t hh, uint8_t mm,
+                                       uint8_t ss, uint8_t frac) noexcept
     {
         char buf[24];
         std::snprintf(buf, sizeof(buf), "%02u:%02u:%02u.%02u",
@@ -43,8 +42,7 @@ namespace {
     {
         char buf[12];
         std::snprintf(buf, sizeof(buf), "%02u:%02u",
-                      static_cast<unsigned>(month),
-                      static_cast<unsigned>(day));
+                      static_cast<unsigned>(month), static_cast<unsigned>(day));
         return make_text(arena, std::string_view(buf), TextEncoding::Ascii);
     }
 
@@ -92,9 +90,9 @@ namespace {
                 }
                 end += 1;
             }
-            const std::string_view s(
-                reinterpret_cast<const char*>(mn.data() + off),
-                static_cast<size_t>(end - off));
+            const std::string_view s(reinterpret_cast<const char*>(mn.data()
+                                                                   + off),
+                                     static_cast<size_t>(end - off));
             tags[n]   = 0x0000;
             values[n] = make_text(store.arena(), s, TextEncoding::Ascii);
             n += 1;
@@ -111,7 +109,7 @@ namespace {
         values[n] = make_u8(burst);
         n += 1;
 
-        uint16_t width = 0;
+        uint16_t width  = 0;
         uint16_t height = 0;
         (void)read_u16le(mn, 0x14, &width);
         (void)read_u16le(mn, 0x16, &height);
@@ -154,7 +152,7 @@ namespace {
         values[n] = make_u16(burst2);
         n += 1;
 
-        uint8_t shutter_mode = 0;
+        uint8_t shutter_mode  = 0;
         uint8_t metering_mode = 0;
         (void)read_u8(mn, 0x23, &shutter_mode);
         (void)read_u8(mn, 0x21, &metering_mode);
@@ -216,9 +214,9 @@ namespace {
         values[n] = make_u16(d4);
         n += 1;
 
-        uint16_t focus_mode = 0;
-        uint16_t various2   = 0;
-        uint16_t panorama   = 0;
+        uint16_t focus_mode       = 0;
+        uint16_t various2         = 0;
+        uint16_t panorama         = 0;
         uint16_t subject_distance = 0;
         (void)read_u16le(mn, 0x40, &focus_mode);
         (void)read_u16le(mn, 0x42, &various2);
@@ -243,7 +241,7 @@ namespace {
         values[n] = make_u8(white_balance);
         n += 1;
 
-        uint8_t flash_mode = 0;
+        uint8_t flash_mode  = 0;
         uint8_t flash_fired = 0;
         (void)read_u8(mn, 0x60, &flash_mode);
         (void)read_u8(mn, 0x5c, &flash_fired);
@@ -255,7 +253,7 @@ namespace {
         n += 1;
 
         uint8_t iso_setting = 0;
-        uint8_t iso = 0;
+        uint8_t iso         = 0;
         (void)read_u8(mn, 0x66, &iso_setting);
         (void)read_u8(mn, 0x68, &iso);
         tags[n]   = 0x005e;
@@ -316,28 +314,28 @@ namespace {
             return false;
         }
 
-        uint32_t exposure_u32 = 0;
-        uint32_t iso_setting_u32 = 0;
-        uint16_t fnumber_u16 = 0;
-        uint16_t iso_u16 = 0;
+        uint32_t exposure_u32     = 0;
+        uint32_t iso_setting_u32  = 0;
+        uint16_t fnumber_u16      = 0;
+        uint16_t iso_u16          = 0;
         uint16_t optical_zoom_u16 = 0;
         uint16_t digital_zoom_u16 = 0;
-        uint16_t flash_u16 = 0;
+        uint16_t flash_u16        = 0;
 
         const bool ok = le ? (read_u32le(mn, 0x10, &exposure_u32)
-                                  && read_u32le(mn, 0x14, &iso_setting_u32)
-                                  && read_u16le(mn, 0x18, &fnumber_u16)
-                                  && read_u16le(mn, 0x1a, &iso_u16)
-                                  && read_u16le(mn, 0x1c, &optical_zoom_u16)
-                                  && read_u16le(mn, 0x1e, &digital_zoom_u16)
-                                  && read_u16le(mn, 0x22, &flash_u16))
+                              && read_u32le(mn, 0x14, &iso_setting_u32)
+                              && read_u16le(mn, 0x18, &fnumber_u16)
+                              && read_u16le(mn, 0x1a, &iso_u16)
+                              && read_u16le(mn, 0x1c, &optical_zoom_u16)
+                              && read_u16le(mn, 0x1e, &digital_zoom_u16)
+                              && read_u16le(mn, 0x22, &flash_u16))
                            : (read_u32be(mn, 0x10, &exposure_u32)
-                                  && read_u32be(mn, 0x14, &iso_setting_u32)
-                                  && read_u16be(mn, 0x18, &fnumber_u16)
-                                  && read_u16be(mn, 0x1a, &iso_u16)
-                                  && read_u16be(mn, 0x1c, &optical_zoom_u16)
-                                  && read_u16be(mn, 0x1e, &digital_zoom_u16)
-                                  && read_u16be(mn, 0x22, &flash_u16));
+                              && read_u32be(mn, 0x14, &iso_setting_u32)
+                              && read_u16be(mn, 0x18, &fnumber_u16)
+                              && read_u16be(mn, 0x1a, &iso_u16)
+                              && read_u16be(mn, 0x1c, &optical_zoom_u16)
+                              && read_u16be(mn, 0x1e, &digital_zoom_u16)
+                              && read_u16be(mn, 0x22, &flash_u16));
         if (!ok) {
             return false;
         }
@@ -353,12 +351,9 @@ namespace {
         };
 
         const MetaValue vals_out[] = {
-            make_u32(exposure_u32),
-            make_u32(iso_setting_u32),
-            make_u16(fnumber_u16),
-            make_u16(iso_u16),
-            make_u16(optical_zoom_u16),
-            make_u16(digital_zoom_u16),
+            make_u32(exposure_u32),     make_u32(iso_setting_u32),
+            make_u16(fnumber_u16),      make_u16(iso_u16),
+            make_u16(optical_zoom_u16), make_u16(digital_zoom_u16),
             make_u16(flash_u16),
         };
 
@@ -404,7 +399,7 @@ namespace {
             return false;
         }
 
-        uint32_t width = 0;
+        uint32_t width  = 0;
         uint32_t height = 0;
         if (!read_u32be(mn, 0x6c, &width) || !read_u32be(mn, 0x70, &height)) {
             return false;
@@ -425,9 +420,10 @@ namespace {
             make_u32(width),
             make_u32(height),
         };
-        emit_bin_dir_entries(mk_ifd0, store, std::span<const uint16_t>(tags_out),
-                             std::span<const MetaValue>(vals_out), options.limits,
-                             status_out);
+        emit_bin_dir_entries(mk_ifd0, store,
+                             std::span<const uint16_t>(tags_out),
+                             std::span<const MetaValue>(vals_out),
+                             options.limits, status_out);
         return true;
     }
 
@@ -441,11 +437,11 @@ namespace {
             return false;
         }
 
-        uint16_t year = 0;
-        uint16_t optical_zoom = 0;
+        uint16_t year          = 0;
+        uint16_t optical_zoom  = 0;
         uint32_t exposure_time = 0;
-        uint16_t fnumber = 0;
-        uint16_t iso = 0;
+        uint16_t fnumber       = 0;
+        uint16_t iso           = 0;
         if (!read_u16be(mn, 0x0c, &year) || !read_u16be(mn, 0x1e, &optical_zoom)
             || !read_u32be(mn, 0x38, &exposure_time)
             || !read_u16be(mn, 0x3c, &fnumber) || !read_u16be(mn, 0x4e, &iso)) {
@@ -486,9 +482,10 @@ namespace {
             make_u16(fnumber),
             make_u16(iso),
         };
-        emit_bin_dir_entries(mk_ifd0, store, std::span<const uint16_t>(tags_out),
-                             std::span<const MetaValue>(vals_out), options.limits,
-                             status_out);
+        emit_bin_dir_entries(mk_ifd0, store,
+                             std::span<const uint16_t>(tags_out),
+                             std::span<const MetaValue>(vals_out),
+                             options.limits, status_out);
         return true;
     }
 
@@ -503,12 +500,13 @@ namespace {
         }
 
         const uint16_t tags_out[] = { 0x0020 /* OriginalFileName */ };
-        MetaValue vals_out[] = {
+        MetaValue vals_out[]      = {
             make_fixed_ascii_text(store.arena(), mn.subspan(0x20, 12)),
         };
-        emit_bin_dir_entries(mk_ifd0, store, std::span<const uint16_t>(tags_out),
-                             std::span<const MetaValue>(vals_out), options.limits,
-                             status_out);
+        emit_bin_dir_entries(mk_ifd0, store,
+                             std::span<const uint16_t>(tags_out),
+                             std::span<const MetaValue>(vals_out),
+                             options.limits, status_out);
         return true;
     }
 
@@ -553,12 +551,13 @@ namespace {
         }
 
         const std::string_view s(reinterpret_cast<const char*>(mn.data()), n);
-        const uint16_t tags_out[] = { 0x0000 /* SerialNumber */ };
+        const uint16_t tags_out[]  = { 0x0000 /* SerialNumber */ };
         const MetaValue vals_out[] = {
             make_text(store.arena(), s, TextEncoding::Ascii),
         };
 
-        emit_bin_dir_entries(mk_ifd0, store, std::span<const uint16_t>(tags_out),
+        emit_bin_dir_entries(mk_ifd0, store,
+                             std::span<const uint16_t>(tags_out),
                              std::span<const MetaValue>(vals_out),
                              options.limits, status_out);
         return true;
@@ -575,21 +574,22 @@ namespace {
         }
 
         uint32_t exposure_time = 0;
-        uint16_t fnumber = 0;
-        uint16_t iso = 0;
-        uint16_t optical_zoom = 0;
-        uint16_t digital_zoom = 0;
-        uint8_t white_balance = 0;
-        uint8_t flash_mode = 0;
-        uint8_t image_rotated = 0;
-        uint8_t macro = 0;
+        uint16_t fnumber       = 0;
+        uint16_t iso           = 0;
+        uint16_t optical_zoom  = 0;
+        uint16_t digital_zoom  = 0;
+        uint8_t white_balance  = 0;
+        uint8_t flash_mode     = 0;
+        uint8_t image_rotated  = 0;
+        uint8_t macro          = 0;
         if (!read_u32be(mn, 0x14, &exposure_time)
             || !read_u16be(mn, 0x1c, &fnumber) || !read_u16be(mn, 0x1e, &iso)
             || !read_u16be(mn, 0x20, &optical_zoom)
             || !read_u16be(mn, 0x22, &digital_zoom)
             || !read_u8(mn, 0x1a, &white_balance)
             || !read_u8(mn, 0x27, &flash_mode)
-            || !read_u8(mn, 0x2a, &image_rotated) || !read_u8(mn, 0x2b, &macro)) {
+            || !read_u8(mn, 0x2a, &image_rotated)
+            || !read_u8(mn, 0x2b, &macro)) {
             return false;
         }
 
@@ -605,19 +605,16 @@ namespace {
             0x002b,  // Macro
         };
         MetaValue vals_out[] = {
-            make_u32(exposure_time),
-            make_u8(white_balance),
-            make_u16(fnumber),
-            make_u16(iso),
-            make_u16(optical_zoom),
-            make_u16(digital_zoom),
-            make_u8(flash_mode),
-            make_u8(image_rotated),
+            make_u32(exposure_time), make_u8(white_balance),
+            make_u16(fnumber),       make_u16(iso),
+            make_u16(optical_zoom),  make_u16(digital_zoom),
+            make_u8(flash_mode),     make_u8(image_rotated),
             make_u8(macro),
         };
-        emit_bin_dir_entries(mk_ifd0, store, std::span<const uint16_t>(tags_out),
-                             std::span<const MetaValue>(vals_out), options.limits,
-                             status_out);
+        emit_bin_dir_entries(mk_ifd0, store,
+                             std::span<const uint16_t>(tags_out),
+                             std::span<const MetaValue>(vals_out),
+                             options.limits, status_out);
         return true;
     }
 
@@ -636,20 +633,17 @@ namespace {
         }
 
         uint16_t fnum = 0;
-        uint32_t exp = 0;
-        uint16_t iso = 0;
+        uint32_t exp  = 0;
+        uint16_t iso  = 0;
         (void)read_u16le(mn, 0x0c, &fnum);
         (void)read_u32le(mn, 0x10, &exp);
         (void)read_u16le(mn, 0x34, &iso);
 
         const std::span<const std::byte> dt_raw
             = mn.subspan(0x14, 20);  // "YYYY/MM/DD HH:MM:SS\0"
-        const std::span<const std::byte> fw_raw
-            = mn.subspan(0x57, 16);
-        const std::span<const std::byte> num_a8_raw
-            = mn.subspan(0xa8, 12);
-        const std::span<const std::byte> num_c4_raw
-            = mn.subspan(0xc4, 12);
+        const std::span<const std::byte> fw_raw     = mn.subspan(0x57, 16);
+        const std::span<const std::byte> num_a8_raw = mn.subspan(0xa8, 12);
+        const std::span<const std::byte> num_c4_raw = mn.subspan(0xc4, 12);
 
         const uint16_t tags_out[] = {
             0x000c,  // FNumber
@@ -695,9 +689,9 @@ namespace {
 
         const uint64_t start = (approx_off > radius) ? (approx_off - radius)
                                                      : 0;
-        const uint64_t end
-            = ((approx_off + radius) < bytes.size()) ? (approx_off + radius)
-                                                     : bytes.size();
+        const uint64_t end   = ((approx_off + radius) < bytes.size())
+                                   ? (approx_off + radius)
+                                   : bytes.size();
 
         for (uint64_t off = start; off + 2 <= end; off += 2) {
             for (int endian = 0; endian < 2; ++endian) {
@@ -711,9 +705,8 @@ namespace {
                     continue;
                 }
 
-                const uint64_t dist
-                    = (off >= approx_off) ? (off - approx_off)
-                                          : (approx_off - off);
+                const uint64_t dist = (off >= approx_off) ? (off - approx_off)
+                                                          : (approx_off - off);
 
                 if (!found || cand.valid_entries > best.valid_entries
                     || (cand.valid_entries == best.valid_entries
@@ -737,11 +730,11 @@ namespace {
 
 
     static bool decode_kodak_tiff_subifd0(std::span<const std::byte> mn,
-                                         uint64_t ptr_off,
-                                         std::string_view mk_prefix,
-                                         MetaStore& store,
-                                         const ExifDecodeOptions& options,
-                                         ExifDecodeResult* status_out) noexcept
+                                          uint64_t ptr_off,
+                                          std::string_view mk_prefix,
+                                          MetaStore& store,
+                                          const ExifDecodeOptions& options,
+                                          ExifDecodeResult* status_out) noexcept
     {
         if (ptr_off == 0 || ptr_off >= mn.size()) {
             return false;
@@ -773,15 +766,14 @@ namespace {
     static void decode_kodak_embedded_subifd(
         std::span<const std::byte> bytes, std::string_view mk_prefix,
         std::string_view table, MetaStore& store,
-        const ExifDecodeOptions& options,
-        ExifDecodeResult* status_out) noexcept
+        const ExifDecodeOptions& options, ExifDecodeResult* status_out) noexcept
     {
         if (bytes.size() < 4 || mk_prefix.empty() || table.empty()) {
             return;
         }
 
         TiffConfig cfg;
-        cfg.bigtiff = false;
+        cfg.bigtiff      = false;
         uint64_t ifd_off = 0;
 
         if ((u8(bytes[0]) == 'I' && u8(bytes[1]) == 'I')
@@ -825,8 +817,8 @@ namespace {
             if (!have_best || best.valid_entries < 2) {
                 return;
             }
-            cfg.le   = best.le;
-            ifd_off  = 0;
+            cfg.le  = best.le;
+            ifd_off = 0;
         }
 
         if (!looks_like_classic_ifd(cfg, bytes, ifd_off, options.limits)) {
@@ -845,13 +837,10 @@ namespace {
                                      options, status_out, EntryFlags::None);
     }
 
-    static bool decode_kodak_padded_ifd(const TiffConfig& cfg,
-                                        std::span<const std::byte> mn,
-                                        uint64_t ifd_off,
-                                        std::string_view ifd_name,
-                                        MetaStore& store,
-                                        const ExifDecodeOptions& options,
-                                        ExifDecodeResult* status_out) noexcept
+    static bool decode_kodak_padded_ifd(
+        const TiffConfig& cfg, std::span<const std::byte> mn, uint64_t ifd_off,
+        std::string_view ifd_name, MetaStore& store,
+        const ExifDecodeOptions& options, ExifDecodeResult* status_out) noexcept
     {
         if (ifd_name.empty()) {
             return false;
@@ -882,35 +871,30 @@ namespace {
             return false;
         }
 
+        MakerNoteLayout layout;
+        layout.cfg                      = cfg;
+        layout.bytes                    = mn;
+        layout.offsets.out_of_line_base = 0;
+
         for (uint32_t i = 0; i < entry_count; ++i) {
             const uint64_t eoff = entries_off + uint64_t(i) * 12ULL;
 
-            uint16_t tag  = 0;
-            uint16_t type = 0;
-            if (!read_tiff_u16(cfg, mn, eoff + 0, &tag)
-                || !read_tiff_u16(cfg, mn, eoff + 2, &type)) {
+            ClassicIfdEntry e;
+            if (!read_classic_ifd_entry(cfg, mn, eoff, &e)) {
                 return true;
             }
 
-            uint32_t count32        = 0;
-            uint32_t value_or_off32 = 0;
-            if (!read_tiff_u32(cfg, mn, eoff + 4, &count32)
-                || !read_tiff_u32(cfg, mn, eoff + 8, &value_or_off32)) {
-                return true;
-            }
-
-            const uint64_t count = count32;
-            const uint64_t unit  = tiff_type_size(type);
-            if (unit == 0 || count > (UINT64_MAX / unit)) {
+            ClassicIfdValueRef ref;
+            if (!resolve_classic_ifd_value_ref(layout, eoff, e, &ref,
+                                               status_out)) {
                 continue;
             }
-            const uint64_t value_bytes = count * unit;
 
-            const uint64_t inline_cap      = 4;
-            const uint64_t value_field_off = eoff + 8;
-            const uint64_t value_off       = (value_bytes <= inline_cap)
-                                                 ? value_field_off
-                                                 : value_or_off32;
+            const uint16_t tag         = e.tag;
+            const uint16_t type        = e.type;
+            const uint64_t count       = e.count32;
+            const uint64_t value_bytes = ref.value_bytes;
+            const uint64_t value_off   = ref.value_off;
 
             Entry entry;
             entry.key = make_exif_tag_key(store.arena(), ifd_name, tag);
@@ -988,9 +972,9 @@ namespace {
                         && read_tiff_u16(cfg, mn, ifd0_off, &entry_count)
                         && entry_count != 0
                         && entry_count <= options.limits.max_entries_per_ifd) {
-                        uint16_t tag0 = 0;
+                        uint16_t tag0  = 0;
                         uint16_t type0 = 0;
-                        uint16_t tag1 = 0;
+                        uint16_t tag1  = 0;
                         uint16_t type1 = 0;
                         const bool have0
                             = read_tiff_u16(cfg, mn, ifd0_off + 2, &tag0)
@@ -1000,9 +984,9 @@ namespace {
                               && read_tiff_u16(cfg, mn, ifd0_off + 6, &type1);
                         if (have0 && have1 && tiff_type_size(type0) == 0
                             && tiff_type_size(type1) != 0) {
-                            return decode_kodak_padded_ifd(
-                                cfg, mn, ifd0_off, mk_ifd0, store, options,
-                                status_out);
+                            return decode_kodak_padded_ifd(cfg, mn, ifd0_off,
+                                                           mk_ifd0, store,
+                                                           options, status_out);
                         }
                     }
                 }
@@ -1062,14 +1046,14 @@ namespace {
             return true;
         }
 
-        uint32_t fc00 = 0;
+        uint32_t fc00  = 0;
         bool have_fc00 = false;
         for (uint32_t i = 0; i < entry_count; ++i) {
             const uint64_t eoff = entries_off + uint64_t(i) * 12ULL;
-            uint16_t tag = 0;
-            uint16_t type = 0;
-            uint32_t count = 0;
-            uint32_t value32 = 0;
+            uint16_t tag        = 0;
+            uint16_t type       = 0;
+            uint32_t count      = 0;
+            uint32_t value32    = 0;
             if (!read_tiff_u16(cfg, mn, eoff + 0, &tag)
                 || !read_tiff_u16(cfg, mn, eoff + 2, &type)
                 || !read_tiff_u32(cfg, mn, eoff + 4, &count)
@@ -1078,7 +1062,7 @@ namespace {
             }
 
             if (tag == 0xFC00 && type == 4 && count == 1) {
-                fc00 = value32;
+                fc00      = value32;
                 have_fc00 = true;
             }
 
@@ -1106,13 +1090,13 @@ namespace {
                         // a byte order mark and the IFD begins at +2.
                         if (off + 4 <= mn.size()) {
                             const uint8_t m0 = u8(mn[static_cast<size_t>(off)]);
-                            const uint8_t m1
-                                = u8(mn[static_cast<size_t>(off + 1)]);
+                            const uint8_t m1 = u8(
+                                mn[static_cast<size_t>(off + 1)]);
                             if ((m0 == 'I' && m1 == 'I')
                                 || (m0 == 'M' && m1 == 'M')) {
                                 TiffConfig sub_cfg;
-                                sub_cfg.bigtiff = false;
-                                sub_cfg.le      = (m0 == 'I');
+                                sub_cfg.bigtiff            = false;
+                                sub_cfg.le                 = (m0 == 'I');
                                 const uint64_t sub_ifd_off = off + 2;
                                 if (looks_like_classic_ifd(sub_cfg, mn,
                                                            sub_ifd_off,
@@ -1135,8 +1119,8 @@ namespace {
 
                         if (!decoded) {
                             ClassicIfdCandidate cand;
-                            if (find_best_ifd_near(mn, off, 2048, options.limits,
-                                                   &cand)) {
+                            if (find_best_ifd_near(mn, off, 2048,
+                                                   options.limits, &cand)) {
                                 char scratch[64];
                                 const std::string_view ifd_token
                                     = make_mk_subtable_ifd_token(
@@ -1179,12 +1163,13 @@ namespace {
                             const uint64_t value_off = value32;
                             if (value_off + value_bytes <= mn.size()) {
                                 const std::span<const std::byte> sub_bytes
-                                    = mn.subspan(
-                                        static_cast<size_t>(value_off),
-                                        static_cast<size_t>(value_bytes));
-                                decode_kodak_embedded_subifd(
-                                    sub_bytes, mk_prefix, table, store, options,
-                                    status_out);
+                                    = mn.subspan(static_cast<size_t>(value_off),
+                                                 static_cast<size_t>(
+                                                     value_bytes));
+                                decode_kodak_embedded_subifd(sub_bytes,
+                                                             mk_prefix, table,
+                                                             store, options,
+                                                             status_out);
                             }
                         }
                     }
@@ -1202,14 +1187,11 @@ namespace {
         return true;
     }
 
-    static bool decode_kodak_type8_absolute(const TiffConfig& parent_cfg,
-                                            std::span<const std::byte> tiff_bytes,
-                                            uint64_t maker_note_off,
-                                            uint64_t maker_note_bytes,
-                                            std::string_view mk_ifd0,
-                                            MetaStore& store,
-                                            const ExifDecodeOptions& options,
-                                            ExifDecodeResult* status_out) noexcept
+    static bool decode_kodak_type8_absolute(
+        const TiffConfig& parent_cfg, std::span<const std::byte> tiff_bytes,
+        uint64_t maker_note_off, uint64_t maker_note_bytes,
+        std::string_view mk_ifd0, MetaStore& store,
+        const ExifDecodeOptions& options, ExifDecodeResult* status_out) noexcept
     {
         if (mk_ifd0.empty()) {
             return false;
@@ -1221,17 +1203,17 @@ namespace {
             return false;
         }
 
-        const std::span<const std::byte> mn = tiff_bytes.subspan(
-            static_cast<size_t>(maker_note_off),
-            static_cast<size_t>(maker_note_bytes));
+        const std::span<const std::byte> mn
+            = tiff_bytes.subspan(static_cast<size_t>(maker_note_off),
+                                 static_cast<size_t>(maker_note_bytes));
 
         // Skip self-contained TIFF-header variants (handled by decode_kodak_tiff).
         if (mn.size() >= 4
             && ((u8(mn[0]) == 'I' && u8(mn[1]) == 'I')
                 || (u8(mn[0]) == 'M' && u8(mn[1]) == 'M'))) {
             TiffConfig tmp;
-            tmp.bigtiff = false;
-            tmp.le      = (u8(mn[0]) == 'I');
+            tmp.bigtiff      = false;
+            tmp.le           = (u8(mn[0]) == 'I');
             uint16_t version = 0;
             if (read_tiff_u16(tmp, mn, 2, &version) && version == 42) {
                 return false;
@@ -1263,8 +1245,9 @@ namespace {
                 tmp.bigtiff = false;
                 tmp.le      = (endian == 0);
                 ClassicIfdCandidate cand;
-                if (!score_classic_ifd_candidate(tmp, tiff_bytes, maker_note_off,
-                                                 options.limits, &cand)) {
+                if (!score_classic_ifd_candidate(tmp, tiff_bytes,
+                                                 maker_note_off, options.limits,
+                                                 &cand)) {
                     continue;
                 }
                 if (!have_best || cand.valid_entries > best.valid_entries) {
@@ -1294,14 +1277,14 @@ namespace {
 
         const std::string_view mk_prefix = options.tokens.ifd_prefix;
 
-        uint32_t fc00 = 0;
+        uint32_t fc00  = 0;
         bool have_fc00 = false;
         for (uint32_t i = 0; i < entry_count; ++i) {
             const uint64_t eoff = entries_off + uint64_t(i) * 12ULL;
-            uint16_t tag = 0;
-            uint16_t type = 0;
-            uint32_t count = 0;
-            uint32_t value32 = 0;
+            uint16_t tag        = 0;
+            uint16_t type       = 0;
+            uint32_t count      = 0;
+            uint32_t value32    = 0;
             if (!read_tiff_u16(cfg, tiff_bytes, eoff + 0, &tag)
                 || !read_tiff_u16(cfg, tiff_bytes, eoff + 2, &type)
                 || !read_tiff_u32(cfg, tiff_bytes, eoff + 4, &count)
@@ -1331,14 +1314,17 @@ namespace {
                 if (!table.empty()) {
                     const uint64_t dir_off = value32;
                     if (dir_off + 4 <= tiff_bytes.size()) {
-                        const uint8_t m0 = u8(tiff_bytes[static_cast<size_t>(dir_off)]);
-                        const uint8_t m1 = u8(tiff_bytes[static_cast<size_t>(dir_off + 1)]);
+                        const uint8_t m0 = u8(
+                            tiff_bytes[static_cast<size_t>(dir_off)]);
+                        const uint8_t m1 = u8(
+                            tiff_bytes[static_cast<size_t>(dir_off + 1)]);
 
                         bool decoded = false;
-                        if ((m0 == 'I' && m1 == 'I') || (m0 == 'M' && m1 == 'M')) {
+                        if ((m0 == 'I' && m1 == 'I')
+                            || (m0 == 'M' && m1 == 'M')) {
                             TiffConfig sub_cfg;
-                            sub_cfg.bigtiff = false;
-                            sub_cfg.le      = (m0 == 'I');
+                            sub_cfg.bigtiff            = false;
+                            sub_cfg.le                 = (m0 == 'I');
                             const uint64_t sub_ifd_off = dir_off + 2;
                             if (looks_like_classic_ifd(sub_cfg, tiff_bytes,
                                                        sub_ifd_off,
@@ -1405,8 +1391,9 @@ namespace {
                         if (value_bytes <= options.limits.max_value_bytes
                             && value_off + value_bytes <= tiff_bytes.size()) {
                             decode_kodak_embedded_subifd(
-                                tiff_bytes.subspan(static_cast<size_t>(value_off),
-                                                   static_cast<size_t>(value_bytes)),
+                                tiff_bytes.subspan(
+                                    static_cast<size_t>(value_off),
+                                    static_cast<size_t>(value_bytes)),
                                 mk_prefix, table, store, options, status_out);
                         }
                     }
@@ -1441,15 +1428,16 @@ namespace {
                                        &cand)) {
                     char scratch[64];
                     const std::string_view ifd_token
-                        = make_mk_subtable_ifd_token(
-                            mk_prefix, "subifd0", 0, std::span<char>(scratch));
+                        = make_mk_subtable_ifd_token(mk_prefix, "subifd0", 0,
+                                                     std::span<char>(scratch));
                     if (!ifd_token.empty()) {
                         TiffConfig scan_cfg;
                         scan_cfg.bigtiff = false;
                         scan_cfg.le      = cand.le;
-                        decode_classic_ifd_no_header(
-                            scan_cfg, tiff_bytes, cand.offset, ifd_token, store,
-                            options, status_out, EntryFlags::None);
+                        decode_classic_ifd_no_header(scan_cfg, tiff_bytes,
+                                                     cand.offset, ifd_token,
+                                                     store, options, status_out,
+                                                     EntryFlags::None);
                     }
                 }
             }
@@ -1460,13 +1448,13 @@ namespace {
 
 }  // namespace
 
-bool decode_kodak_makernote(const TiffConfig& parent_cfg,
-                            std::span<const std::byte> tiff_bytes,
-                            uint64_t maker_note_off,
-                            uint64_t maker_note_bytes,
-                            std::string_view mk_ifd0, MetaStore& store,
-                            const ExifDecodeOptions& options,
-                            ExifDecodeResult* status_out) noexcept
+bool
+decode_kodak_makernote(const TiffConfig& parent_cfg,
+                       std::span<const std::byte> tiff_bytes,
+                       uint64_t maker_note_off, uint64_t maker_note_bytes,
+                       std::string_view mk_ifd0, MetaStore& store,
+                       const ExifDecodeOptions& options,
+                       ExifDecodeResult* status_out) noexcept
 {
     if (mk_ifd0.empty()) {
         return false;
@@ -1478,8 +1466,9 @@ bool decode_kodak_makernote(const TiffConfig& parent_cfg,
         return false;
     }
 
-    const std::span<const std::byte> mn = tiff_bytes.subspan(
-        static_cast<size_t>(maker_note_off), static_cast<size_t>(maker_note_bytes));
+    const std::span<const std::byte> mn
+        = tiff_bytes.subspan(static_cast<size_t>(maker_note_off),
+                             static_cast<size_t>(maker_note_bytes));
 
     if (starts_with_kdk(mn)) {
         return decode_kodak_kdk(mn, mk_ifd0, store, options, status_out);
@@ -1489,8 +1478,9 @@ bool decode_kodak_makernote(const TiffConfig& parent_cfg,
         return true;
     }
 
-    const std::string_view model = find_first_exif_text_value(
-        store, "ifd0", 0x0110 /* Model */);
+    ExifContext ctx(store);
+    std::string_view model;
+    (void)ctx.find_first_text("ifd0", 0x0110 /* Model */, &model);
     if (!model.empty()) {
         if (model.find("DX3215") != std::string_view::npos) {
             return decode_kodak_type6(mn, mk_ifd0, false, store, options,

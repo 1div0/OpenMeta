@@ -1996,7 +1996,7 @@ namespace exif_internal {
         slots_[idx].ifd    = ifd;
         slots_[idx].tag    = tag;
         slots_[idx].entry  = entry;
-        next_               = (idx + 1U) % cap;
+        next_              = (idx + 1U) % cap;
     }
 
 
@@ -2244,10 +2244,32 @@ namespace exif_internal {
                 return false;
             }
             ref.value_off = entry_off + 8ULL;
+        } else if (layout.offsets.out_of_line_base_is_signed) {
+            const int64_t base = layout.offsets.out_of_line_base_i64;
+            const int64_t off  = static_cast<int64_t>(
+                static_cast<uint64_t>(e.value_or_off32));
+
+            if (base > 0 && base > (INT64_MAX - off)) {
+                update_status(status_out, ExifDecodeStatus::Malformed);
+                return false;
+            }
+            if (base < 0 && base < (INT64_MIN - off)) {
+                update_status(status_out, ExifDecodeStatus::Malformed);
+                return false;
+            }
+
+            const int64_t abs_off = base + off;
+            if (abs_off < 0) {
+                update_status(status_out, ExifDecodeStatus::Malformed);
+                return false;
+            }
+
+            ref.value_off = static_cast<uint64_t>(abs_off);
         } else {
             const uint64_t base = layout.offsets.out_of_line_base;
             const uint64_t off  = static_cast<uint64_t>(e.value_or_off32);
             if (base > (UINT64_MAX - off)) {
+                update_status(status_out, ExifDecodeStatus::Malformed);
                 return false;
             }
             ref.value_off = base + off;

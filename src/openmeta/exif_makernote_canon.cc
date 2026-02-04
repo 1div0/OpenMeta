@@ -1813,13 +1813,22 @@ decode_canon_makernote(const TiffConfig& cfg,
 
     ExifContext ctx(store);
 
-    int32_t offset_schema = 0;
-    const bool have_offset_schema
-        = ctx.find_first_i32("exififd", 0xea1d, &offset_schema);
+    std::string_view model;
+    (void)ctx.find_first_text("ifd0", 0x0110 /* Model */, &model);
+
+    int32_t offset_schema         = 0;
+    const bool have_offset_schema = ctx.find_first_i32("exififd", 0xea1d,
+                                                       &offset_schema);
 
     const int64_t value_base = guess_canon_value_base(
         mk_cfg, tiff_bytes, maker_note_off, maker_note_span_bytes, entry_count,
         needed, options.limits, have_offset_schema, offset_schema);
+
+    MakerNoteLayout layout;
+    layout.cfg                                = mk_cfg;
+    layout.bytes                              = tiff_bytes;
+    layout.offsets.out_of_line_base_is_signed = true;
+    layout.offsets.out_of_line_base_i64       = value_base;
 
     const BlockId block = store.add_block(BlockInfo {});
     if (block == kInvalidBlockId) {
@@ -1829,29 +1838,23 @@ decode_canon_makernote(const TiffConfig& cfg,
     for (uint32_t i = 0; i < entry_count; ++i) {
         const uint64_t eoff = entries_off + uint64_t(i) * 12ULL;
 
-        uint16_t tag  = 0;
-        uint16_t type = 0;
-        if (!read_tiff_u16(mk_cfg, tiff_bytes, eoff + 0, &tag)
-            || !read_tiff_u16(mk_cfg, tiff_bytes, eoff + 2, &type)) {
+        ClassicIfdEntry ifd_entry;
+        if (!read_classic_ifd_entry(mk_cfg, tiff_bytes, eoff, &ifd_entry)) {
             return true;
         }
 
-        uint32_t count32        = 0;
-        uint32_t value_or_off32 = 0;
-        if (!read_tiff_u32(mk_cfg, tiff_bytes, eoff + 4, &count32)
-            || !read_tiff_u32(mk_cfg, tiff_bytes, eoff + 8, &value_or_off32)) {
-            return true;
-        }
-        const uint64_t count = count32;
+        const uint16_t tag     = ifd_entry.tag;
+        const uint16_t type    = ifd_entry.type;
+        const uint32_t count32 = ifd_entry.count32;
+        const uint64_t count   = count32;
 
-        const uint64_t unit = tiff_type_size(type);
-        if (unit == 0) {
+        ClassicIfdValueRef ref;
+        if (!resolve_classic_ifd_value_ref(layout, eoff, ifd_entry, &ref,
+                                           status_out)) {
             continue;
         }
-        if (count > (UINT64_MAX / unit)) {
-            continue;
-        }
-        const uint64_t value_bytes = count * unit;
+
+        const uint64_t value_bytes = ref.value_bytes;
         if (value_bytes > options.limits.max_value_bytes) {
             if (status_out) {
                 update_status(status_out, ExifDecodeStatus::LimitExceeded);
@@ -1859,18 +1862,7 @@ decode_canon_makernote(const TiffConfig& cfg,
             continue;
         }
 
-        const uint64_t inline_cap      = 4;
-        const uint64_t value_field_off = eoff + 8;
-        uint64_t abs_value_off         = value_field_off;
-        if (value_bytes > inline_cap) {
-            if (!canon_add_base_and_off32(value_base, value_or_off32,
-                                          &abs_value_off)) {
-                if (status_out) {
-                    update_status(status_out, ExifDecodeStatus::Malformed);
-                }
-                continue;
-            }
-        }
+        const uint64_t abs_value_off = ref.value_off;
 
         if (abs_value_off + value_bytes > tiff_bytes.size()) {
             if (status_out) {
@@ -2013,8 +2005,6 @@ decode_canon_makernote(const TiffConfig& cfg,
                                                CanonCustomMode::LowByteAsU8,
                                                store, options, status_out);
             } else if (tag == 0x000f) {  // CustomFunctions (older models)
-                const std::string_view model
-                    = find_first_exif_text_value(store, "ifd0", 0x0110);
                 const std::string_view subtable
                     = canoncustom_subtable_for_tag_0x000f(model);
                 char canoncustom_ifd_buf[96];

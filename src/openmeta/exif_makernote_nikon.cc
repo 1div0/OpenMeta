@@ -356,15 +356,18 @@ decode_nikon_binary_subdirs(std::string_view mk_ifd0, MetaStore& store, bool le,
 
     ExifContext ctx(store);
 
+    std::string_view model;
+    (void)ctx.find_first_text("ifd0", 0x0110 /* Model */, &model);
+
     uint32_t serial_key     = 0;
     uint32_t shutter_count  = 0;
     bool have_serial        = false;
     bool have_shutter_count = false;
     {
         std::string_view serial_s;
-        const bool have_serial_tag
-            = ctx.find_first_text(mk_ifd0, 0x001d, &serial_s);
-        have_serial = have_serial_tag
+        const bool have_serial_tag = ctx.find_first_text(mk_ifd0, 0x001d,
+                                                         &serial_s);
+        have_serial                = have_serial_tag
                       && nikon_parse_u32_dec(serial_s, &serial_key);
         if (!have_serial && have_serial_tag) {
             // Best-effort fallbacks (ExifTool decrypts even if SerialNumber
@@ -379,8 +382,8 @@ decode_nikon_binary_subdirs(std::string_view mk_ifd0, MetaStore& store, bool le,
                 have_serial = true;
             }
         }
-        have_shutter_count
-            = ctx.find_first_u32(mk_ifd0, 0x00a7, &shutter_count);
+        have_shutter_count = ctx.find_first_u32(mk_ifd0, 0x00a7,
+                                                &shutter_count);
     }
 
     struct Candidate final {
@@ -1718,9 +1721,6 @@ decode_nikon_binary_subdirs(std::string_view mk_ifd0, MetaStore& store, bool le,
             if (!have_serial || !have_shutter_count || raw_src.size() <= 4) {
                 continue;
             }
-
-            const std::string_view model
-                = find_first_exif_text_value(store, "ifd0", 0x0110);
 
             std::string_view settings_table;
             uint64_t settings_start = 0;

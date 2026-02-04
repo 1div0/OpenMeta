@@ -53,7 +53,8 @@ new subtable or decode path.
 
 Internal helper conventions (used by vendor decoders):
 - `read_classic_ifd_entry(...)` + `ClassicIfdEntry`: parse a single 12-byte classic TIFF IFD entry.
-- `MakerNoteLayout` + `OffsetPolicy`: makes "value offsets are relative to X" explicit for vendor formats.
+- `resolve_classic_ifd_value_ref(...)` + `ClassicIfdValueRef`: compute the value location/size for a classic IFD entry (inline vs out-of-line), using `MakerNoteLayout` + `OffsetPolicy`.
+- `MakerNoteLayout` + `OffsetPolicy`: makes "value offsets are relative to X" explicit for vendor formats. `OffsetPolicy` supports both the common unsigned base (default) and a signed base for vendors that require it (eg Canon).
 - `ExifContext`: a small, decode-time cache for frequently accessed EXIF values (avoids repeated linear scans of `store.entries()`).
 - MakerNote tag-name tables are generated from `registry/exif/makernotes/*.jsonl` and looked up via binary search (`exif_makernote_tag_names.cc`).
 
