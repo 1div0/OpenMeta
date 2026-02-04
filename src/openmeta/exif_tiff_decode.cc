@@ -2539,6 +2539,15 @@ decode_exif_tiff(std::span<const std::byte> tiff_bytes, MetaStore& store,
                     continue;
                 }
 
+                // FLIR MakerNote: classic IFD at offset 0 (value offsets are
+                // typically relative to the outer EXIF/TIFF).
+                if (vendor == MakerNoteVendor::Flir
+                    && exif_internal::decode_flir_makernote(
+                        cfg, tiff_bytes, value_off, value_bytes, mk_ifd0, store,
+                        mn_opts, &sink.result)) {
+                    continue;
+                }
+
                 // Ricoh MakerNote: TIFF IFD variants (including "Type2") plus
                 // binary ImageInfo and RicohSubdir tables.
                 if (vendor == MakerNoteVendor::Ricoh

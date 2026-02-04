@@ -153,6 +153,58 @@ namespace {
     }
 
 
+    TEST(ContainerScan, JpegFlirApp1)
+    {
+        std::vector<std::byte> jpeg;
+        jpeg.push_back(std::byte { 0xFF });
+        jpeg.push_back(std::byte { 0xD8 });
+
+        std::vector<std::byte> flir0;
+        append_bytes(&flir0, "FLIR");
+        flir0.push_back(std::byte { 0x00 });
+        flir0.push_back(std::byte { 0x01 });
+        flir0.push_back(std::byte { 0x00 });  // part 0
+        flir0.push_back(std::byte { 0x01 });  // total-1 (2 parts)
+        append_bytes(&flir0, "FFF");
+        flir0.push_back(std::byte { 0x00 });
+        append_jpeg_segment(&jpeg, 0xFFE1, flir0);
+
+        std::vector<std::byte> flir1;
+        append_bytes(&flir1, "FLIR");
+        flir1.push_back(std::byte { 0x00 });
+        flir1.push_back(std::byte { 0x01 });
+        flir1.push_back(std::byte { 0x01 });  // part 1
+        flir1.push_back(std::byte { 0x01 });  // total-1 (2 parts)
+        append_bytes(&flir1, "DATA");
+        append_jpeg_segment(&jpeg, 0xFFE1, flir1);
+
+        jpeg.push_back(std::byte { 0xFF });
+        jpeg.push_back(std::byte { 0xD9 });
+
+        std::array<ContainerBlockRef, 8> blocks {};
+        const ScanResult res = scan_jpeg(jpeg, blocks);
+        ASSERT_EQ(res.status, ScanStatus::Ok);
+        ASSERT_EQ(res.written, 2U);
+
+        EXPECT_EQ(blocks[0].format, ContainerFormat::Jpeg);
+        EXPECT_EQ(blocks[0].kind, ContainerBlockKind::MakerNote);
+        EXPECT_EQ(blocks[0].id, 0xFFE1U);
+        EXPECT_EQ(blocks[0].aux_u32, fourcc('F', 'L', 'I', 'R'));
+        EXPECT_EQ(blocks[0].group, static_cast<uint64_t>(fourcc('F', 'L', 'I', 'R')));
+        EXPECT_EQ(blocks[0].part_index, 0U);
+        EXPECT_EQ(blocks[0].part_count, 2U);
+        ASSERT_GE(blocks[0].data_size, 4U);
+        EXPECT_EQ(jpeg[blocks[0].data_offset + 0], std::byte { 'F' });
+        EXPECT_EQ(jpeg[blocks[0].data_offset + 1], std::byte { 'F' });
+        EXPECT_EQ(jpeg[blocks[0].data_offset + 2], std::byte { 'F' });
+
+        EXPECT_EQ(blocks[1].kind, ContainerBlockKind::MakerNote);
+        EXPECT_EQ(blocks[1].aux_u32, fourcc('F', 'L', 'I', 'R'));
+        EXPECT_EQ(blocks[1].part_index, 1U);
+        EXPECT_EQ(blocks[1].part_count, 2U);
+    }
+
+
     static void append_png_chunk(std::vector<std::byte>* out, uint32_t type,
                                  std::span<const std::byte> data)
     {

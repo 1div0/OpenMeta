@@ -737,6 +737,24 @@ simple_meta_read(std::span<const std::byte> file_bytes, MetaStore& store,
                 merge_exif_status(&exif.status, one.status);
                 exif.entries_decoded += one.entries_decoded;
             }
+
+            // JPEG APP1 "FLIR" multi-part stream containing an FFF/AFF payload.
+            if (block.format == ContainerFormat::Jpeg
+                && block.aux_u32 == fourcc('F', 'L', 'I', 'R')) {
+                any_exif = true;
+
+                ExifDecodeResult one;
+                one.status          = ExifDecodeStatus::Ok;
+                one.ifds_written    = 0;
+                one.ifds_needed     = 0;
+                one.entries_decoded = 0;
+
+                if (exif_internal::decode_flir_fff(block_bytes, store,
+                                                   exif_options.limits, &one)) {
+                    merge_exif_status(&exif.status, one.status);
+                    exif.entries_decoded += one.entries_decoded;
+                }
+            }
         } else if (block.kind == ContainerBlockKind::CompressedMetadata
                    && block.compression == BlockCompression::Brotli
                    && block.aux_u32 == fourcc('E', 'x', 'i', 'f')) {

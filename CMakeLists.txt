@@ -163,6 +163,7 @@ set(OPENMETA_SOURCES
   src/openmeta/container_scan.cc
   src/openmeta/exif_makernote_canon.cc
   src/openmeta/exif_makernote_casio.cc
+  src/openmeta/exif_makernote_flir.cc
   src/openmeta/exif_makernote_hp.cc
   src/openmeta/exif_makernote_nintendo.cc
   src/openmeta/exif_makernote_nikon.cc
@@ -389,6 +390,7 @@ if(OPENMETA_BUILD_TESTS)
 	    tests/iptc_iim_decode_test.cc
 	    tests/dji_app4_decode_test.cc
 	    tests/makernote_decode_test.cc
+	    tests/flir_fff_decode_test.cc
 	    tests/meta_store_test.cc
 	    tests/mpf_decode_test.cc
 	    tests/photoshop_irb_decode_test.cc

@@ -398,6 +398,27 @@ scan_jpeg(std::span<const std::byte> bytes,
                 block.id           = marker;
                 block.aux_u32      = fourcc('Q', 'V', 'C', 'I');
                 sink_emit(&sink, block);
+            } else if (seg_payload_size >= 8
+                       && match(bytes, seg_payload_off, "FLIR", 4)
+                       && u8(bytes[seg_payload_off + 4]) == 0) {
+                // FLIR: APP1 multi-part stream containing an FFF/AFF payload.
+                // Preamble:
+                //   "FLIR\0" + u8(0x01) + u8(part_index) + u8(part_count_minus_1)
+                ContainerBlockRef block;
+                block.format       = ContainerFormat::Jpeg;
+                block.kind         = ContainerBlockKind::MakerNote;
+                block.outer_offset = seg_total_off;
+                block.outer_size   = seg_total_size;
+                block.data_offset  = seg_payload_off + 8;
+                block.data_size    = seg_payload_size - 8;
+                block.id           = marker;
+                block.aux_u32      = fourcc('F', 'L', 'I', 'R');
+                block.part_index   = u8(bytes[seg_payload_off + 6]);
+                block.part_count
+                    = static_cast<uint32_t>(u8(bytes[seg_payload_off + 7]))
+                      + 1U;
+                block.group = fourcc('F', 'L', 'I', 'R');
+                sink_emit(&sink, block);
             }
         } else if (marker == 0xFFE2) {
             if (match(bytes, seg_payload_off, "ICC_PROFILE\0", 12)) {
