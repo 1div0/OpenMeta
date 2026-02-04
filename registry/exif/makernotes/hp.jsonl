@@ -8,3 +8,8 @@
 {"kind":"exif.tag","ifd":"makernote:hp:type6","tag":"0x0014","name":"CameraDateTime"}
 {"kind":"exif.tag","ifd":"makernote:hp:type6","tag":"0x0034","name":"ISO"}
 {"kind":"exif.tag","ifd":"makernote:hp:type6","tag":"0x0058","name":"SerialNumber"}
+{"kind":"exif.tag","ifd":"makernote:hp:main","tag":"0x0200","name":"HP_0x0200"}
+{"kind":"exif.tag","ifd":"makernote:hp:main","tag":"0x0201","name":"HP_0x0201"}
+{"kind":"exif.tag","ifd":"makernote:hp:main","tag":"0x0202","name":"HP_0x0202"}
+{"kind":"exif.tag","ifd":"makernote:hp:main","tag":"0x0203","name":"HP_0x0203"}
+{"kind":"exif.tag","ifd":"makernote:hp:main","tag":"0x0300","name":"HP_0x0300"}

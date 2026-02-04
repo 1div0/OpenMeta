@@ -1,3 +1,9 @@
+{"kind":"exif.tag","ifd":"makernote:ge:main","tag":"0x0104","name":"GE_0x0104"}
 {"kind":"exif.tag","ifd":"makernote:ge:main","tag":"0x0202","name":"Macro"}
+{"kind":"exif.tag","ifd":"makernote:ge:main","tag":"0x0203","name":"GE_0x0203"}
+{"kind":"exif.tag","ifd":"makernote:ge:main","tag":"0x0204","name":"GE_0x0204"}
+{"kind":"exif.tag","ifd":"makernote:ge:main","tag":"0x0205","name":"GE_0x0205"}
 {"kind":"exif.tag","ifd":"makernote:ge:main","tag":"0x0207","name":"GEModel"}
 {"kind":"exif.tag","ifd":"makernote:ge:main","tag":"0x0300","name":"GEMake"}
+{"kind":"exif.tag","ifd":"makernote:ge:main","tag":"0x0500","name":"GE_0x0500"}
+{"kind":"exif.tag","ifd":"makernote:ge:main","tag":"0x0600","name":"GE_0x0600"}

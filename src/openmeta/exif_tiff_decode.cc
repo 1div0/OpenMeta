@@ -222,7 +222,7 @@ namespace {
     }
 
     static bool ascii_contains_insensitive(std::string_view s,
-                                          std::string_view needle) noexcept
+                                           std::string_view needle) noexcept
     {
         if (needle.empty()) {
             return false;
@@ -258,9 +258,9 @@ namespace {
     }
 
 
-    static std::string_view
-    find_first_exif_ascii_value(const MetaStore& store, std::string_view ifd,
-                                uint16_t tag) noexcept
+    static std::string_view find_first_exif_ascii_value(const MetaStore& store,
+                                                        std::string_view ifd,
+                                                        uint16_t tag) noexcept
     {
         const ByteArena& arena               = store.arena();
         const std::span<const Entry> entries = store.entries();
@@ -284,8 +284,9 @@ namespace {
                 continue;
             }
 
-            const std::span<const std::byte> raw = arena.span(e.value.data.span);
-            size_t n                             = 0;
+            const std::span<const std::byte> raw = arena.span(
+                e.value.data.span);
+            size_t n = 0;
             while (n < raw.size() && raw[n] != std::byte { 0 }) {
                 n += 1;
             }
@@ -402,14 +403,13 @@ namespace {
             && match_bytes(maker_note_bytes, 0, "AOC\0", 4)) {
             // Pentax Optio 330RS/430RS store Casio-like maker notes (ExifTool:
             // MakerNotePentax3 -> Casio::Type2).
-            const std::string_view model = find_first_exif_ascii_value(
-                store, "ifd0", 0x0110 /* Model */);
+            const std::string_view model
+                = find_first_exif_ascii_value(store, "ifd0",
+                                              0x0110 /* Model */);
             if (!model.empty()
                 && (ascii_starts_with_insensitive(model, "PENTAX Optio 330RS")
-                    || ascii_starts_with_insensitive(model,
-                                                     "PENTAX Optio330RS")
-                    || ascii_starts_with_insensitive(model,
-                                                     "PENTAX Optio 430RS")
+                    || ascii_starts_with_insensitive(model, "PENTAX Optio330RS")
+                    || ascii_starts_with_insensitive(model, "PENTAX Optio 430RS")
                     || ascii_starts_with_insensitive(model,
                                                      "PENTAX Optio430RS"))) {
                 return MakerNoteVendor::Casio;
@@ -425,6 +425,19 @@ namespace {
         if (maker_note_bytes.size() >= 4
             && match_bytes(maker_note_bytes, 0, "DCI\0", 4)) {
             return MakerNoteVendor::Casio;
+        }
+        // HP MakerNote: fixed-layout blobs that start with "IIII" followed by
+        // a type byte (0x04/0x05/0x06) and a NUL (ExifTool: MakerNoteHP4/HP6).
+        //
+        // Note: some unrelated MakerNotes (including Kodak Type9) also begin
+        // with "IIII", so we must not classify all such blobs as Kodak.
+        if (maker_note_bytes.size() >= 6
+            && match_bytes(maker_note_bytes, 0, "IIII", 4)
+            && u8(maker_note_bytes[5]) == 0
+            && (u8(maker_note_bytes[4]) == 0x04
+                || u8(maker_note_bytes[4]) == 0x05
+                || u8(maker_note_bytes[4]) == 0x06)) {
+            return MakerNoteVendor::Hp;
         }
         if (maker_note_bytes.size() >= 4
             && match_bytes(maker_note_bytes, 0, "IIII", 4)) {
@@ -479,12 +492,11 @@ namespace {
             ok_model = ok_model && ascii;
 
             if (ok_maker && ok_model) {
-                uint32_t width = 0;
+                uint32_t width  = 0;
                 uint32_t height = 0;
                 if (read_u32be(maker_note_bytes, 0x6c, &width)
-                    && read_u32be(maker_note_bytes, 0x70, &height)
-                    && width > 0 && height > 0 && width <= 200000
-                    && height <= 200000) {
+                    && read_u32be(maker_note_bytes, 0x70, &height) && width > 0
+                    && height > 0 && width <= 200000 && height <= 200000) {
                     return MakerNoteVendor::Kodak;
                 }
             }
@@ -513,12 +525,25 @@ namespace {
             && match_bytes(maker_note_bytes, 0, "Panasonic", 9)) {
             return MakerNoteVendor::Panasonic;
         }
+        // GE MakerNote: starts with "GE\0\0" or "GENIC\0" (ExifTool: MakerNoteGE).
+        // Note: some GE-branded cameras use Make="GEDSC IMAGING CORP.", so
+        // detecting by Make string alone is not sufficient.
+        if (maker_note_bytes.size() >= 4
+            && match_bytes(maker_note_bytes, 0, "GE\0\0", 4)) {
+            return MakerNoteVendor::Ge;
+        }
+        if (maker_note_bytes.size() >= 6
+            && match_bytes(maker_note_bytes, 0, "GENIC\0", 6)) {
+            return MakerNoteVendor::Ge;
+        }
         if (maker_note_bytes.size() >= 7
             && match_bytes(maker_note_bytes, 0, "RECONYX", 7)) {
             return MakerNoteVendor::Reconyx;
         }
         if (maker_note_bytes.size() >= 4 && u8(maker_note_bytes[0]) == 0x01
-            && u8(maker_note_bytes[1]) == 0xF1 && u8(maker_note_bytes[2]) == 0x03
+            && u8(maker_note_bytes[1]) == 0xF1
+            && (u8(maker_note_bytes[2]) == 0x03
+                || u8(maker_note_bytes[2]) == 0x04)
             && u8(maker_note_bytes[3]) == 0x00) {
             return MakerNoteVendor::Reconyx;
         }
@@ -1950,144 +1975,144 @@ namespace {
 
 namespace exif_internal {
 
-bool match_bytes(std::span<const std::byte> bytes, uint64_t offset,
-                 const char* magic, uint32_t magic_len) noexcept
-{
-    return ::openmeta::match_bytes(bytes, offset, magic, magic_len);
-}
+    bool match_bytes(std::span<const std::byte> bytes, uint64_t offset,
+                     const char* magic, uint32_t magic_len) noexcept
+    {
+        return ::openmeta::match_bytes(bytes, offset, magic, magic_len);
+    }
 
-bool read_u16be(std::span<const std::byte> bytes, uint64_t offset,
-                uint16_t* out) noexcept
-{
-    return ::openmeta::read_u16be(bytes, offset, out);
-}
+    bool read_u16be(std::span<const std::byte> bytes, uint64_t offset,
+                    uint16_t* out) noexcept
+    {
+        return ::openmeta::read_u16be(bytes, offset, out);
+    }
 
-bool read_u16le(std::span<const std::byte> bytes, uint64_t offset,
-                uint16_t* out) noexcept
-{
-    return ::openmeta::read_u16le(bytes, offset, out);
-}
+    bool read_u16le(std::span<const std::byte> bytes, uint64_t offset,
+                    uint16_t* out) noexcept
+    {
+        return ::openmeta::read_u16le(bytes, offset, out);
+    }
 
-bool read_u32be(std::span<const std::byte> bytes, uint64_t offset,
-                uint32_t* out) noexcept
-{
-    return ::openmeta::read_u32be(bytes, offset, out);
-}
+    bool read_u32be(std::span<const std::byte> bytes, uint64_t offset,
+                    uint32_t* out) noexcept
+    {
+        return ::openmeta::read_u32be(bytes, offset, out);
+    }
 
-bool read_u32le(std::span<const std::byte> bytes, uint64_t offset,
-                uint32_t* out) noexcept
-{
-    return ::openmeta::read_u32le(bytes, offset, out);
-}
+    bool read_u32le(std::span<const std::byte> bytes, uint64_t offset,
+                    uint32_t* out) noexcept
+    {
+        return ::openmeta::read_u32le(bytes, offset, out);
+    }
 
-bool read_tiff_u16(const TiffConfig& cfg, std::span<const std::byte> bytes,
-                   uint64_t offset, uint16_t* out) noexcept
-{
-    return ::openmeta::read_tiff_u16(cfg, bytes, offset, out);
-}
+    bool read_tiff_u16(const TiffConfig& cfg, std::span<const std::byte> bytes,
+                       uint64_t offset, uint16_t* out) noexcept
+    {
+        return ::openmeta::read_tiff_u16(cfg, bytes, offset, out);
+    }
 
-bool read_tiff_u32(const TiffConfig& cfg, std::span<const std::byte> bytes,
-                   uint64_t offset, uint32_t* out) noexcept
-{
-    return ::openmeta::read_tiff_u32(cfg, bytes, offset, out);
-}
+    bool read_tiff_u32(const TiffConfig& cfg, std::span<const std::byte> bytes,
+                       uint64_t offset, uint32_t* out) noexcept
+    {
+        return ::openmeta::read_tiff_u32(cfg, bytes, offset, out);
+    }
 
-bool read_u16_endian(bool le, std::span<const std::byte> bytes, uint64_t offset,
-                     uint16_t* out) noexcept
-{
-    return ::openmeta::read_u16_endian(le, bytes, offset, out);
-}
+    bool read_u16_endian(bool le, std::span<const std::byte> bytes,
+                         uint64_t offset, uint16_t* out) noexcept
+    {
+        return ::openmeta::read_u16_endian(le, bytes, offset, out);
+    }
 
-bool read_i16_endian(bool le, std::span<const std::byte> bytes, uint64_t offset,
-                     int16_t* out) noexcept
-{
-    return ::openmeta::read_i16_endian(le, bytes, offset, out);
-}
+    bool read_i16_endian(bool le, std::span<const std::byte> bytes,
+                         uint64_t offset, int16_t* out) noexcept
+    {
+        return ::openmeta::read_i16_endian(le, bytes, offset, out);
+    }
 
-std::string_view make_mk_subtable_ifd_token(std::string_view vendor_prefix,
-                                            std::string_view subtable,
-                                            uint32_t index,
-                                            std::span<char> scratch) noexcept
-{
-    return ::openmeta::make_mk_subtable_ifd_token(vendor_prefix, subtable,
-                                                  index, scratch);
-}
+    std::string_view
+    make_mk_subtable_ifd_token(std::string_view vendor_prefix,
+                               std::string_view subtable, uint32_t index,
+                               std::span<char> scratch) noexcept
+    {
+        return ::openmeta::make_mk_subtable_ifd_token(vendor_prefix, subtable,
+                                                      index, scratch);
+    }
 
-MetaValue make_fixed_ascii_text(ByteArena& arena,
-                                std::span<const std::byte> raw) noexcept
-{
-    return ::openmeta::make_fixed_ascii_text(arena, raw);
-}
+    MetaValue make_fixed_ascii_text(ByteArena& arena,
+                                    std::span<const std::byte> raw) noexcept
+    {
+        return ::openmeta::make_fixed_ascii_text(arena, raw);
+    }
 
-void emit_bin_dir_entries(std::string_view ifd_name, MetaStore& store,
-                          std::span<const uint16_t> tags,
-                          std::span<const MetaValue> values,
-                          const ExifDecodeLimits& limits,
-                          ExifDecodeResult* status_out) noexcept
-{
-    ::openmeta::emit_bin_dir_entries(ifd_name, store, tags, values, limits,
-                                     status_out);
-}
+    void emit_bin_dir_entries(std::string_view ifd_name, MetaStore& store,
+                              std::span<const uint16_t> tags,
+                              std::span<const MetaValue> values,
+                              const ExifDecodeLimits& limits,
+                              ExifDecodeResult* status_out) noexcept
+    {
+        ::openmeta::emit_bin_dir_entries(ifd_name, store, tags, values, limits,
+                                         status_out);
+    }
 
-uint64_t tiff_type_size(uint16_t type) noexcept
-{
-    return ::openmeta::tiff_type_size(type);
-}
+    uint64_t tiff_type_size(uint16_t type) noexcept
+    {
+        return ::openmeta::tiff_type_size(type);
+    }
 
-void update_status(ExifDecodeResult* out, ExifDecodeStatus status) noexcept
-{
-    ::openmeta::update_status(out, status);
-}
+    void update_status(ExifDecodeResult* out, ExifDecodeStatus status) noexcept
+    {
+        ::openmeta::update_status(out, status);
+    }
 
-MetaValue decode_tiff_value(const TiffConfig& cfg,
-                            std::span<const std::byte> bytes, uint16_t type,
-                            uint64_t count, uint64_t value_off,
-                            uint64_t value_bytes, ByteArena& arena,
-                            const ExifDecodeLimits& limits,
-                            ExifDecodeResult* result) noexcept
-{
-    return ::openmeta::decode_tiff_value(cfg, bytes, type, count, value_off,
-                                         value_bytes, arena, limits, result);
-}
+    MetaValue decode_tiff_value(const TiffConfig& cfg,
+                                std::span<const std::byte> bytes, uint16_t type,
+                                uint64_t count, uint64_t value_off,
+                                uint64_t value_bytes, ByteArena& arena,
+                                const ExifDecodeLimits& limits,
+                                ExifDecodeResult* result) noexcept
+    {
+        return ::openmeta::decode_tiff_value(cfg, bytes, type, count, value_off,
+                                             value_bytes, arena, limits,
+                                             result);
+    }
 
-bool score_classic_ifd_candidate(const TiffConfig& cfg,
-                                 std::span<const std::byte> bytes,
-                                 uint64_t ifd_off,
-                                 const ExifDecodeLimits& limits,
-                                 ClassicIfdCandidate* out) noexcept
-{
-    return ::openmeta::score_classic_ifd_candidate(cfg, bytes, ifd_off, limits,
-                                                   out);
-}
-
-bool find_best_classic_ifd_candidate(std::span<const std::byte> bytes,
-                                     uint64_t scan_bytes,
+    bool score_classic_ifd_candidate(const TiffConfig& cfg,
+                                     std::span<const std::byte> bytes,
+                                     uint64_t ifd_off,
                                      const ExifDecodeLimits& limits,
                                      ClassicIfdCandidate* out) noexcept
-{
-    return ::openmeta::find_best_classic_ifd_candidate(bytes, scan_bytes,
+    {
+        return ::openmeta::score_classic_ifd_candidate(cfg, bytes, ifd_off,
                                                        limits, out);
-}
+    }
 
-bool looks_like_classic_ifd(const TiffConfig& cfg,
-                            std::span<const std::byte> bytes, uint64_t ifd_off,
-                            const ExifDecodeLimits& limits) noexcept
-{
-    return ::openmeta::looks_like_classic_ifd(cfg, bytes, ifd_off, limits);
-}
+    bool find_best_classic_ifd_candidate(std::span<const std::byte> bytes,
+                                         uint64_t scan_bytes,
+                                         const ExifDecodeLimits& limits,
+                                         ClassicIfdCandidate* out) noexcept
+    {
+        return ::openmeta::find_best_classic_ifd_candidate(bytes, scan_bytes,
+                                                           limits, out);
+    }
 
-void decode_classic_ifd_no_header(const TiffConfig& cfg,
-                                  std::span<const std::byte> bytes,
-                                  uint64_t ifd_off, std::string_view ifd_name,
-                                  MetaStore& store,
-                                  const ExifDecodeOptions& options,
-                                  ExifDecodeResult* status_out,
-                                  EntryFlags extra_flags) noexcept
-{
-    ::openmeta::decode_classic_ifd_no_header(cfg, bytes, ifd_off, ifd_name,
-                                             store, options, status_out,
-                                             extra_flags);
-}
+    bool looks_like_classic_ifd(const TiffConfig& cfg,
+                                std::span<const std::byte> bytes,
+                                uint64_t ifd_off,
+                                const ExifDecodeLimits& limits) noexcept
+    {
+        return ::openmeta::looks_like_classic_ifd(cfg, bytes, ifd_off, limits);
+    }
+
+    void decode_classic_ifd_no_header(
+        const TiffConfig& cfg, std::span<const std::byte> bytes,
+        uint64_t ifd_off, std::string_view ifd_name, MetaStore& store,
+        const ExifDecodeOptions& options, ExifDecodeResult* status_out,
+        EntryFlags extra_flags) noexcept
+    {
+        ::openmeta::decode_classic_ifd_no_header(cfg, bytes, ifd_off, ifd_name,
+                                                 store, options, status_out,
+                                                 extra_flags);
+    }
 
 }  // namespace exif_internal
 
@@ -2451,8 +2476,9 @@ decode_exif_tiff(std::span<const std::byte> tiff_bytes, MetaStore& store,
                 // Pentax MakerNote: "AOC\0" header + endianness marker +
                 // u16 entry count at +6, then classic IFD entries at +8.
                 if (vendor == MakerNoteVendor::Pentax
-                    && exif_internal::decode_pentax_makernote(
-                        mn, mk_ifd0, store, mn_opts, &sink.result)) {
+                    && exif_internal::decode_pentax_makernote(mn, mk_ifd0,
+                                                              store, mn_opts,
+                                                              &sink.result)) {
                     continue;
                 }
 
@@ -2498,8 +2524,9 @@ decode_exif_tiff(std::span<const std::byte> tiff_bytes, MetaStore& store,
                     && exif_internal::decode_sony_makernote(
                         cfg, tiff_bytes, value_off, value_bytes, mk_ifd0, store,
                         mn_opts, &sink.result)) {
-                    exif_internal::decode_sony_cipher_subdirs(
-                        mk_ifd0, store, mn_opts, &sink.result);
+                    exif_internal::decode_sony_cipher_subdirs(mk_ifd0, store,
+                                                              mn_opts,
+                                                              &sink.result);
                     continue;
                 }
 
@@ -2530,6 +2557,33 @@ decode_exif_tiff(std::span<const std::byte> tiff_bytes, MetaStore& store,
                     continue;
                 }
 
+                // HP MakerNote: fixed-layout binary blocks (ExifTool:
+                // MakerNoteHP4/MakerNoteHP6).
+                if (vendor == MakerNoteVendor::Hp
+                    && exif_internal::decode_hp_makernote(mn, mk_ifd0, store,
+                                                          mn_opts,
+                                                          &sink.result)) {
+                    continue;
+                }
+
+                // Nintendo MakerNote: classic IFD at offset 0 plus a binary
+                // CameraInfo subdirectory (tag 0x1101).
+                if (vendor == MakerNoteVendor::Nintendo
+                    && exif_internal::decode_nintendo_makernote(
+                        cfg, tiff_bytes, value_off, value_bytes, mk_ifd0, store,
+                        mn_opts, &sink.result)) {
+                    continue;
+                }
+
+                // Reconyx MakerNote: fixed-layout binary maker notes (HyperFire,
+                // UltraFire, etc).
+                if (vendor == MakerNoteVendor::Reconyx
+                    && exif_internal::decode_reconyx_makernote(mn, mk_ifd0,
+                                                               store, mn_opts,
+                                                               &sink.result)) {
+                    continue;
+                }
+
                 // 1) Embedded TIFF header inside MakerNote (common for Nikon).
                 const uint64_t hdr_off = find_embedded_tiff_header(mn, 128);
                 if (hdr_off != UINT64_MAX) {
@@ -2550,10 +2604,10 @@ decode_exif_tiff(std::span<const std::byte> tiff_bytes, MetaStore& store,
                         = tiff_bytes.subspan(static_cast<size_t>(hdr_abs));
 
                     std::array<ExifIfdRef, 128> mn_ifds;
-                    (void)decode_exif_tiff(
-                        hdr_bytes, store,
-                        std::span<ExifIfdRef>(mn_ifds.data(), mn_ifds.size()),
-                        mn_opts);
+                    (void)decode_exif_tiff(hdr_bytes, store,
+                                           std::span<ExifIfdRef>(mn_ifds.data(),
+                                                                 mn_ifds.size()),
+                                           mn_opts);
 
                     if (vendor == MakerNoteVendor::Nikon
                         && (hdr_abs + 2U) <= tiff_bytes.size()) {
@@ -2600,10 +2654,11 @@ decode_exif_tiff(std::span<const std::byte> tiff_bytes, MetaStore& store,
                                                             options.limits)) {
                                     mn_cfg.le = !mn_cfg.le;
                                 }
-                                decode_classic_ifd_no_header(
-                                    mn_cfg, tiff_bytes, ifd_off, mk_ifd0,
-                                    store, mn_opts, &sink.result,
-                                    EntryFlags::None);
+                                decode_classic_ifd_no_header(mn_cfg, tiff_bytes,
+                                                             ifd_off, mk_ifd0,
+                                                             store, mn_opts,
+                                                             &sink.result,
+                                                             EntryFlags::None);
                                 exif_internal::decode_nikon_binary_subdirs(
                                     mk_ifd0, store, mn_cfg.le, mn_opts,
                                     &sink.result);
@@ -2616,8 +2671,9 @@ decode_exif_tiff(std::span<const std::byte> tiff_bytes, MetaStore& store,
                                                  mk_ifd0, store, mn_opts,
                                                  &sink.result,
                                                  EntryFlags::None);
-                    exif_internal::decode_nikon_binary_subdirs(
-                        mk_ifd0, store, cfg.le, mn_opts, &sink.result);
+                    exif_internal::decode_nikon_binary_subdirs(mk_ifd0, store,
+                                                               cfg.le, mn_opts,
+                                                               &sink.result);
                     continue;
                 }
 
@@ -2627,10 +2683,8 @@ decode_exif_tiff(std::span<const std::byte> tiff_bytes, MetaStore& store,
                 //   base offset (Start=+12, Base=+6), plus a best-effort extra
                 //   pass for "crazy offsets" observed in the wild.
                 if (vendor == MakerNoteVendor::Fuji) {
-                    static constexpr char kGe2Magic[]
-                        = "GE\x0C\0\0\0\x16\0\0\0";
-                    if (mn.size() >= 12
-                        && match_bytes(mn, 0, kGe2Magic, 10)) {
+                    static constexpr char kGe2Magic[] = "GE\x0C\0\0\0\x16\0\0\0";
+                    if (mn.size() >= 12 && match_bytes(mn, 0, kGe2Magic, 10)) {
                         // ExifTool's MakerNoteGE2 uses:
                         //   Start = valuePtr + 12
                         //   Base  = start - 6
@@ -2691,9 +2745,8 @@ decode_exif_tiff(std::span<const std::byte> tiff_bytes, MetaStore& store,
                                         static_cast<size_t>(n1));
                                 std::memcpy(patched.data(), src1.data(),
                                             src1.size());
-                                patched[216] = std::byte {
-                                    static_cast<uint8_t>(kGe2EntryCount & 0xFFU)
-                                };
+                                patched[216] = std::byte { static_cast<uint8_t>(
+                                    kGe2EntryCount & 0xFFU) };
                                 patched[217] = std::byte { static_cast<uint8_t>(
                                     (kGe2EntryCount >> 8) & 0xFFU) };
 
@@ -2719,12 +2772,33 @@ decode_exif_tiff(std::span<const std::byte> tiff_bytes, MetaStore& store,
                                 TiffConfig fuji_cfg;
                                 fuji_cfg.le      = true;
                                 fuji_cfg.bigtiff = false;
-                                decode_classic_ifd_no_header(
-                                    fuji_cfg, mn, ifd_off, mk_ifd0, store,
-                                    mn_opts, &sink.result, EntryFlags::None);
+                                decode_classic_ifd_no_header(fuji_cfg, mn,
+                                                             ifd_off, mk_ifd0,
+                                                             store, mn_opts,
+                                                             &sink.result,
+                                                             EntryFlags::None);
                                 continue;
                             }
                         }
+                    }
+                }
+
+                // JVC MakerNote: "JVC " header + a classic IFD at +4 (start
+                // offsets are MakerNote-relative).
+                if (vendor == MakerNoteVendor::Jvc && mn.size() >= 6
+                    && match_bytes(mn, 0, "JVC ", 4)) {
+                    static constexpr uint64_t kJvcIfdOff = 4;
+                    if (kJvcIfdOff < mn.size()) {
+                        TiffConfig jvc_cfg = cfg;
+                        if (!looks_like_classic_ifd(jvc_cfg, mn, kJvcIfdOff,
+                                                    options.limits)) {
+                            jvc_cfg.le = !jvc_cfg.le;
+                        }
+                        decode_classic_ifd_no_header(jvc_cfg, mn, kJvcIfdOff,
+                                                     mk_ifd0, store, mn_opts,
+                                                     &sink.result,
+                                                     EntryFlags::None);
+                        continue;
                     }
                 }
 
@@ -2741,8 +2815,10 @@ decode_exif_tiff(std::span<const std::byte> tiff_bytes, MetaStore& store,
                                                  &sink.result,
                                                  EntryFlags::None);
                     if (vendor == MakerNoteVendor::Sony) {
-                        exif_internal::decode_sony_cipher_subdirs(
-                            mk_ifd0, store, mn_opts, &sink.result);
+                        exif_internal::decode_sony_cipher_subdirs(mk_ifd0,
+                                                                  store,
+                                                                  mn_opts,
+                                                                  &sink.result);
                     }
                     continue;
                 }
@@ -2753,8 +2829,9 @@ decode_exif_tiff(std::span<const std::byte> tiff_bytes, MetaStore& store,
                                              mn_opts, &sink.result,
                                              EntryFlags::None);
                 if (vendor == MakerNoteVendor::Sony) {
-                    exif_internal::decode_sony_cipher_subdirs(
-                        mk_ifd0, store, mn_opts, &sink.result);
+                    exif_internal::decode_sony_cipher_subdirs(mk_ifd0, store,
+                                                              mn_opts,
+                                                              &sink.result);
                 }
             }
         }

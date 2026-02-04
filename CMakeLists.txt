@@ -163,10 +163,13 @@ set(OPENMETA_SOURCES
   src/openmeta/container_scan.cc
   src/openmeta/exif_makernote_canon.cc
   src/openmeta/exif_makernote_casio.cc
+  src/openmeta/exif_makernote_hp.cc
+  src/openmeta/exif_makernote_nintendo.cc
   src/openmeta/exif_makernote_nikon.cc
   src/openmeta/exif_makernote_olympus.cc
   src/openmeta/exif_makernote_panasonic.cc
   src/openmeta/exif_makernote_kodak.cc
+  src/openmeta/exif_makernote_reconyx.cc
   src/openmeta/exif_makernote_ricoh.cc
   src/openmeta/exif_makernote_pentax.cc
   src/openmeta/exif_makernote_minolta.cc
