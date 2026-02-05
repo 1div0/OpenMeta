@@ -68,10 +68,13 @@ struct ExifDecodeOptions final {
     bool include_pointer_tags = true;
     /// If true, decode EXIF PrintIM (0xC4A5) into \ref MetaKeyKind::PrintImField.
     bool decode_printim = true;
+    /// If true, decode GeoTIFF GeoKeyDirectoryTag (0x87AF) into
+    /// \ref MetaKeyKind::GeotiffKey entries (best-effort).
+    bool decode_geotiff = true;
     /// If true, attempt best-effort MakerNote decoding (vendor blocks).
     bool decode_makernote = false;
     /// If true, attempt best-effort decoding of embedded containers stored as
-    /// EXIF tag byte blobs (for example, Panasonic RW2 `JpgFromRaw`).
+     /// EXIF tag byte blobs (for example, Panasonic RW2 `JpgFromRaw`).
     bool decode_embedded_containers = false;
     /// IFD token naming policy (affects emitted EXIF key IFD strings).
     ExifIfdTokenPolicy tokens;

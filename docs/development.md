@@ -41,6 +41,7 @@ using Clang), configure OpenMeta with:
 ## Code Organization (EXIF + MakerNotes)
 
 - Core EXIF/TIFF decoding: `src/openmeta/exif_tiff_decode.cc`
+- GeoTIFF GeoKey decoding (derived keys): `src/openmeta/geotiff_decode.cc`
 - Vendor MakerNote decoders: `src/openmeta/exif_makernote_*.cc`
   (Canon, Nikon, Sony, Olympus, Pentax, Casio, Panasonic, Kodak, Ricoh, Samsung, FLIR, etc.)
 - Shared internal-only helpers: `src/openmeta/exif_tiff_decode_internal.h`
@@ -57,6 +58,7 @@ Internal helper conventions (used by vendor decoders):
 - `MakerNoteLayout` + `OffsetPolicy`: makes "value offsets are relative to X" explicit for vendor formats. `OffsetPolicy` supports both the common unsigned base (default) and a signed base for vendors that require it (eg Canon).
 - `ExifContext`: a small, decode-time cache for frequently accessed EXIF values (avoids repeated linear scans of `store.entries()`).
 - MakerNote tag-name tables are generated from `registry/exif/makernotes/*.jsonl` and looked up via binary search (`exif_makernote_tag_names.cc`).
+- GeoTIFF key-name table is generated from `registry/geotiff/keys.jsonl` and looked up via binary search (`geotiff_key_names.cc`).
 
 ## Tests (GoogleTest)
 
@@ -140,6 +142,11 @@ cmake -S . -B build-py -G Ninja -DCMAKE_BUILD_TYPE=Release \
 cmake --build build-py
 PYTHONPATH=build-py/python python3 -c "import openmeta; print(openmeta.read('file.jpg').entry_count)"
 ```
+
+Notes:
+- `openmeta.read(...)` releases the Python GIL while doing file I/O and decode,
+  so it can be called from multiple Python threads in parallel (useful for corpus
+  comparisons).
 
 Example scripts (repo tree):
 ```bash

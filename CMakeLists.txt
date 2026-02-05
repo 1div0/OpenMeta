@@ -161,6 +161,7 @@ set(OPENMETA_SOURCES
   src/openmeta/console_format.cc
   src/openmeta/container_payload.cc
   src/openmeta/container_scan.cc
+  src/openmeta/crw_ciff_decode.cc
   src/openmeta/mapped_file.cc
   src/openmeta/exif_makernote_canon.cc
   src/openmeta/exif_makernote_casio.cc
@@ -180,6 +181,8 @@ set(OPENMETA_SOURCES
   src/openmeta/exif_makernote_tag_names.cc
   src/openmeta/exif_tag_names.cc
   src/openmeta/exif_tiff_decode.cc
+  src/openmeta/geotiff_decode.cc
+  src/openmeta/geotiff_key_names.cc
   src/openmeta/icc_decode.cc
   src/openmeta/iptc_iim_decode.cc
   src/openmeta/meta_key.cc
@@ -385,9 +388,11 @@ if(OPENMETA_BUILD_TESTS)
 	  add_executable(openmeta_tests
 	    tests/container_payload_test.cc
 	    tests/container_scan_test.cc
+	    tests/crw_ciff_decode_test.cc
 	    tests/icc_decode_test.cc
 	    tests/exif_tag_names_test.cc
 	    tests/exif_tiff_decode_test.cc
+	    tests/geotiff_decode_test.cc
 	    tests/iptc_iim_decode_test.cc
 	    tests/dji_app4_decode_test.cc
 	    tests/makernote_decode_test.cc

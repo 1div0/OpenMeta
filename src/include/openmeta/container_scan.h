@@ -41,6 +41,8 @@ enum class ContainerFormat : uint8_t {
 enum class ContainerBlockKind : uint8_t {
     Unknown,
     Exif,
+    /// Canon CRW (CIFF) directory tree (non-TIFF metadata container).
+    Ciff,
     MakerNote,
     Xmp,
     XmpExtended,

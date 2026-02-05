@@ -47,6 +47,17 @@ namespace {
         std::byte { 0xac },
     };
 
+    // GeoJP2 / GeoTIFF UUID box (OGC GeoJP2). Payload is a classic TIFF stream.
+    // UUID: B14BF8BD-083D-4B43-A5AE-8CD7D5A6CE03
+    static constexpr std::array<std::byte, 16> kJp2UuidGeoTiff = {
+        std::byte { 0xb1 }, std::byte { 0x4b }, std::byte { 0xf8 },
+        std::byte { 0xbd }, std::byte { 0x08 }, std::byte { 0x3d },
+        std::byte { 0x4b }, std::byte { 0x43 }, std::byte { 0xa5 },
+        std::byte { 0xae }, std::byte { 0x8c }, std::byte { 0xd7 },
+        std::byte { 0xd5 }, std::byte { 0xa6 }, std::byte { 0xce },
+        std::byte { 0x03 },
+    };
+
     // Canon CR3 metadata UUID found under `moov` (contains `CMT1..CMT4` TIFF blocks).
     static constexpr std::array<std::byte, 16> kCr3CanonUuid = {
         std::byte { 0x85 }, std::byte { 0xc0 }, std::byte { 0xb6 },
@@ -1096,6 +1107,12 @@ namespace {
             } else if (box.uuid == kJp2UuidIptc) {
                 block.kind = ContainerBlockKind::IptcIim;
                 sink_emit(sink, block);
+            } else if (box.uuid == kJp2UuidGeoTiff) {
+                // GeoJP2 uses a UUID box that stores a TIFF stream containing
+                // GeoTIFF tags (ModelPixelScale, ModelTiepoint, GeoKeyDirectory...).
+                // Expose it as an EXIF/TIFF payload for unified decode.
+                block.kind = ContainerBlockKind::Exif;
+                sink_emit(sink, block);
             }
             return;
         }
@@ -1507,9 +1524,21 @@ namespace {
                     } else if (item_type == fourcc('x', 'm', 'l', ' ')) {
                         kind = ContainerBlockKind::Xmp;
                     } else if (item_type == fourcc('m', 'i', 'm', 'e')) {
-                        static constexpr char kXmpMime[] = "application/rdf+xml";
-                        if (cstring_equals(bytes, q, infe_end, kXmpMime,
-                                           sizeof(kXmpMime) - 1)) {
+                        // XMP is commonly stored as a MIME item in HEIF/AVIF.
+                        // "application/rdf+xml" is most common, but some files
+                        // use "application/xmp+xml" or generic XML types.
+                        static constexpr char kXmpMimeRdf[] = "application/rdf+xml";
+                        static constexpr char kXmpMimeXmp[] = "application/xmp+xml";
+                        static constexpr char kXmlText[]    = "text/xml";
+                        static constexpr char kXmlApp[]     = "application/xml";
+                        if (cstring_equals(bytes, q, infe_end, kXmpMimeRdf,
+                                           sizeof(kXmpMimeRdf) - 1)
+                            || cstring_equals(bytes, q, infe_end, kXmpMimeXmp,
+                                              sizeof(kXmpMimeXmp) - 1)
+                            || cstring_equals(bytes, q, infe_end, kXmlText,
+                                              sizeof(kXmlText) - 1)
+                            || cstring_equals(bytes, q, infe_end, kXmlApp,
+                                              sizeof(kXmlApp) - 1)) {
                             kind = ContainerBlockKind::Xmp;
                         }
 
@@ -2776,6 +2805,45 @@ scan_auto(std::span<const std::byte> bytes,
                 out[i].format = ContainerFormat::Unknown;
             }
             return res;
+        }
+    }
+
+    // Canon CRW (CIFF): header with "HEAPCCDR" signature at +6.
+    if (bytes.size() >= 14) {
+        const uint8_t b0 = u8(bytes[0]);
+        const uint8_t b1 = u8(bytes[1]);
+        const bool le    = (b0 == 0x49 && b1 == 0x49);
+        const bool be    = (b0 == 0x4D && b1 == 0x4D);
+        if ((le || be) && match(bytes, 6, "HEAPCCDR", 8)) {
+            uint32_t root_off = 0;
+            if ((le && read_u32le(bytes, 2, &root_off))
+                || (be && read_u32be(bytes, 2, &root_off))) {
+                if (root_off >= 14U
+                    && static_cast<uint64_t>(root_off) <= bytes.size()) {
+                    ScanResult res;
+                    res.written = 0;
+                    res.needed  = 1;
+                    if (out.empty()) {
+                        res.status = ScanStatus::OutputTruncated;
+                        return res;
+                    }
+
+                    ContainerBlockRef block;
+                    block.format       = ContainerFormat::Unknown;
+                    block.kind         = ContainerBlockKind::Ciff;
+                    block.outer_offset = 0;
+                    block.outer_size   = static_cast<uint64_t>(bytes.size());
+                    block.data_offset  = 0;
+                    block.data_size    = static_cast<uint64_t>(bytes.size());
+                    block.id           = fourcc('C', 'R', 'W', ' ');
+                    block.aux_u32      = root_off;
+
+                    out[0]     = block;
+                    res.status = ScanStatus::Ok;
+                    res.written = 1;
+                    return res;
+                }
+            }
         }
     }
 

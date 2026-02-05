@@ -427,12 +427,39 @@ namespace {
         append_fourcc(&jp2, fourcc('u', 'u', 'i', 'd'));
         jp2.insert(jp2.end(), uuid_payload.begin(), uuid_payload.end());
 
+        // uuid (GeoTIFF) box.
+        const std::array<std::byte, 16> geo_uuid = {
+            std::byte { 0xb1 }, std::byte { 0x4b }, std::byte { 0xf8 },
+            std::byte { 0xbd }, std::byte { 0x08 }, std::byte { 0x3d },
+            std::byte { 0x4b }, std::byte { 0x43 }, std::byte { 0xa5 },
+            std::byte { 0xae }, std::byte { 0x8c }, std::byte { 0xd7 },
+            std::byte { 0xd5 }, std::byte { 0xa6 }, std::byte { 0xce },
+            std::byte { 0x03 },
+        };
+        std::vector<std::byte> geo_payload;
+        geo_payload.insert(geo_payload.end(), geo_uuid.begin(),
+                           geo_uuid.end());
+        // Minimal TIFF payload: IFD0 with one ImageWidth entry.
+        append_bytes(&geo_payload, "II");
+        append_u16le(&geo_payload, 42);
+        append_u32le(&geo_payload, 8);
+        append_u16le(&geo_payload, 1);
+        append_u16le(&geo_payload, 0x0100);
+        append_u16le(&geo_payload, 4);
+        append_u32le(&geo_payload, 1);
+        append_u32le(&geo_payload, 2717);
+        append_u32le(&geo_payload, 0);
+        append_u32be(&jp2, static_cast<uint32_t>(8 + geo_payload.size()));
+        append_fourcc(&jp2, fourcc('u', 'u', 'i', 'd'));
+        jp2.insert(jp2.end(), geo_payload.begin(), geo_payload.end());
+
         std::array<ContainerBlockRef, 8> blocks {};
         const ScanResult jp2_res = scan_jp2(jp2, blocks);
         ASSERT_EQ(jp2_res.status, ScanStatus::Ok);
-        ASSERT_EQ(jp2_res.written, 2U);
+        ASSERT_EQ(jp2_res.written, 3U);
         EXPECT_EQ(blocks[0].kind, ContainerBlockKind::Icc);
         EXPECT_EQ(blocks[1].kind, ContainerBlockKind::Xmp);
+        EXPECT_EQ(blocks[2].kind, ContainerBlockKind::Exif);
 
         // JXL container: signature + Exif + xml + brob(xml).
         std::vector<std::byte> jxl;
@@ -498,7 +525,7 @@ namespace {
         append_fourcc(&infe_xmp_payload, fourcc('m', 'i', 'm', 'e'));
         append_bytes(&infe_xmp_payload, "xmp");
         infe_xmp_payload.push_back(std::byte { 0x00 });
-        append_bytes(&infe_xmp_payload, "application/rdf+xml");
+        append_bytes(&infe_xmp_payload, "application/xmp+xml");
         infe_xmp_payload.push_back(std::byte { 0x00 });
         // Some real-world files omit the encoding terminator (treat as empty).
 

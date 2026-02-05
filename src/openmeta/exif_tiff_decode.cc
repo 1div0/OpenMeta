@@ -6,6 +6,7 @@
 #include "openmeta/printim_decode.h"
 
 #include "exif_tiff_decode_internal.h"
+#include "geotiff_decode_internal.h"
 
 #include <array>
 #include <cstring>
@@ -2648,6 +2649,10 @@ decode_exif_tiff(std::span<const std::byte> tiff_bytes, MetaStore& store,
             continue;
         }
 
+        exif_internal::GeoTiffTagRef geotiff_dir;
+        exif_internal::GeoTiffTagRef geotiff_double;
+        exif_internal::GeoTiffTagRef geotiff_ascii;
+
         for (uint64_t i = 0; i < entry_count; ++i) {
             const uint64_t eoff = entries_off + i * entry_size;
 
@@ -2706,6 +2711,28 @@ decode_exif_tiff(std::span<const std::byte> tiff_bytes, MetaStore& store,
             if (value_off + value_bytes > tiff_bytes.size()) {
                 update_status(&sink.result, ExifDecodeStatus::Malformed);
                 continue;
+            }
+
+            if (options.decode_geotiff) {
+                if (tag == 0x87AFu && count <= UINT32_MAX) {
+                    geotiff_dir.present     = true;
+                    geotiff_dir.type        = type;
+                    geotiff_dir.count32     = static_cast<uint32_t>(count);
+                    geotiff_dir.value_off   = value_off;
+                    geotiff_dir.value_bytes = value_bytes;
+                } else if (tag == 0x87B0u && count <= UINT32_MAX) {
+                    geotiff_double.present     = true;
+                    geotiff_double.type        = type;
+                    geotiff_double.count32     = static_cast<uint32_t>(count);
+                    geotiff_double.value_off   = value_off;
+                    geotiff_double.value_bytes = value_bytes;
+                } else if (tag == 0x87B1u && count <= UINT32_MAX) {
+                    geotiff_ascii.present     = true;
+                    geotiff_ascii.type        = type;
+                    geotiff_ascii.count32     = static_cast<uint32_t>(count);
+                    geotiff_ascii.value_off   = value_off;
+                    geotiff_ascii.value_bytes = value_bytes;
+                }
             }
 
             (void)follow_ifd_pointers(cfg, tiff_bytes, tag, type, count,
@@ -3152,6 +3179,12 @@ decode_exif_tiff(std::span<const std::byte> tiff_bytes, MetaStore& store,
                                                               &sink.result);
                 }
             }
+        }
+
+        if (options.decode_geotiff) {
+            exif_internal::decode_geotiff_keys(cfg, tiff_bytes, geotiff_dir,
+                                               geotiff_double, geotiff_ascii,
+                                               store, options.limits);
         }
     }
 

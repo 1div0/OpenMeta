@@ -1,5 +1,6 @@
 #include "openmeta/simple_meta.h"
 
+#include "crw_ciff_decode_internal.h"
 #include "exif_tiff_decode_internal.h"
 
 #include "openmeta/icc_decode.h"
@@ -808,6 +809,22 @@ simple_meta_read(std::span<const std::byte> file_bytes, MetaStore& store,
                                    std::span<ExifIfdRef>(mpf_ifds.data(),
                                                          mpf_ifds.size()),
                                    mpf_options);
+        } else if (block.kind == ContainerBlockKind::Ciff) {
+            any_exif = true;
+
+            ExifDecodeResult one;
+            one.status          = ExifDecodeStatus::Ok;
+            one.ifds_written    = 0;
+            one.ifds_needed     = 0;
+            one.entries_decoded = 0;
+
+            if (ciff_internal::decode_crw_ciff(block_bytes, store,
+                                               exif_options.limits, &one)) {
+                merge_exif_status(&exif.status, one.status);
+                exif.entries_decoded += one.entries_decoded;
+            } else {
+                merge_exif_status(&exif.status, one.status);
+            }
         } else if (block.kind == ContainerBlockKind::Xmp
                    || block.kind == ContainerBlockKind::XmpExtended) {
             any_xmp                   = true;

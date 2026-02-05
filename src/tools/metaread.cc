@@ -4,6 +4,7 @@
 #include "openmeta/container_scan.h"
 #include "openmeta/exif_tag_names.h"
 #include "openmeta/exif_tiff_decode.h"
+#include "openmeta/geotiff_key_names.h"
 #include "openmeta/mapped_file.h"
 #include "openmeta/meta_key.h"
 #include "openmeta/meta_store.h"
@@ -154,6 +155,7 @@ namespace {
         switch (kind) {
         case ContainerBlockKind::Unknown: return "unknown";
         case ContainerBlockKind::Exif: return "exif";
+        case ContainerBlockKind::Ciff: return "ciff";
         case ContainerBlockKind::MakerNote: return "makernote";
         case ContainerBlockKind::Xmp: return "xmp";
         case ContainerBlockKind::XmpExtended: return "xmp_extended";
@@ -1048,6 +1050,18 @@ namespace {
                 row.name_s = "-";
                 break;
             }
+            case MetaKeyKind::GeotiffKey: {
+                char buf[32];
+                std::snprintf(buf, sizeof(buf), "%u",
+                              static_cast<unsigned>(
+                                  entry.key.data.geotiff_key.key_id));
+                row.key_s  = buf;
+                row.name_s = geotiff_key_name(entry.key.data.geotiff_key.key_id);
+                if (row.name_s.empty()) {
+                    row.name_s = "-";
+                }
+                break;
+            }
             default:
                 row.key_s  = "-";
                 row.name_s = "-";
@@ -1646,6 +1660,10 @@ main(int argc, char** argv)
                                           max_cell_chars);
             } else if (first.key.kind == MetaKeyKind::PrintImField) {
                 print_generic_block_table(store, block, "printim", ids,
+                                          max_elements, max_bytes,
+                                          max_cell_chars);
+            } else if (first.key.kind == MetaKeyKind::GeotiffKey) {
+                print_generic_block_table(store, block, "geotiff", ids,
                                           max_elements, max_bytes,
                                           max_cell_chars);
             }

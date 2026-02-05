@@ -2,6 +2,7 @@
 #include "openmeta/console_format.h"
 #include "openmeta/container_payload.h"
 #include "openmeta/exif_tag_names.h"
+#include "openmeta/geotiff_key_names.h"
 #include "openmeta/mapped_file.h"
 #include "openmeta/simple_meta.h"
 
@@ -350,6 +351,13 @@ read_document(const std::string& path, bool include_pointer_tags,
 {
     auto doc        = std::make_shared<PyDocument>();
     doc->path       = path;
+
+    // Release the GIL while performing file I/O and metadata decoding so callers
+    // (and internal comparison tools) can read in parallel from multiple Python
+    // threads. All work below this point is pure C/C++ and does not touch the
+    // Python C API.
+    nb::gil_scoped_release gil_release;
+
     const MappedFileStatus st = doc->file.open(path.c_str(), max_file_bytes);
     if (st != MappedFileStatus::Ok) {
         if (st == MappedFileStatus::TooLarge) {
@@ -547,6 +555,7 @@ NB_MODULE(_openmeta, m)
     nb::enum_<ContainerBlockKind>(m, "ContainerBlockKind")
         .value("Unknown", ContainerBlockKind::Unknown)
         .value("Exif", ContainerBlockKind::Exif)
+        .value("Ciff", ContainerBlockKind::Ciff)
         .value("MakerNote", ContainerBlockKind::MakerNote)
         .value("Xmp", ContainerBlockKind::Xmp)
         .value("XmpExtended", ContainerBlockKind::XmpExtended)
@@ -795,6 +804,14 @@ NB_MODULE(_openmeta, m)
                          }
                          return nb::int_(en.key.data.exif_tag.tag);
                      })
+        .def_prop_ro("geotiff_key_id",
+                     [](const PyEntry& e) -> nb::object {
+                         const Entry& en = e.doc->store.entry(e.id);
+                         if (en.key.kind != MetaKeyKind::GeotiffKey) {
+                             return nb::none();
+                         }
+                         return nb::int_(en.key.data.geotiff_key.key_id);
+                     })
         .def_prop_ro("iptc_record",
                      [](const PyEntry& e) -> nb::object {
                          const Entry& en = e.doc->store.entry(e.id);
@@ -860,18 +877,26 @@ NB_MODULE(_openmeta, m)
         .def_prop_ro("name",
                      [](const PyEntry& e) -> nb::object {
                          const Entry& en = e.doc->store.entry(e.id);
-                         if (en.key.kind != MetaKeyKind::ExifTag) {
-                             return nb::none();
+                         if (en.key.kind == MetaKeyKind::ExifTag) {
+                             const std::string ifd
+                                 = arena_string(e.doc->store.arena(),
+                                                en.key.data.exif_tag.ifd);
+                             const std::string_view n
+                                 = exif_tag_name(ifd, en.key.data.exif_tag.tag);
+                             if (n.empty()) {
+                                 return nb::none();
+                             }
+                             return nb::str(n.data(), n.size());
                          }
-                         const std::string ifd
-                             = arena_string(e.doc->store.arena(),
-                                            en.key.data.exif_tag.ifd);
-                         const std::string_view n
-                             = exif_tag_name(ifd, en.key.data.exif_tag.tag);
-                         if (n.empty()) {
-                             return nb::none();
+                         if (en.key.kind == MetaKeyKind::GeotiffKey) {
+                             const std::string_view n = geotiff_key_name(
+                                 en.key.data.geotiff_key.key_id);
+                             if (n.empty()) {
+                                 return nb::none();
+                             }
+                             return nb::str(n.data(), n.size());
                          }
-                         return nb::str(n.data(), n.size());
+                         return nb::none();
                      })
         .def_prop_ro("value_kind",
                      [](const PyEntry& e) {
