@@ -97,6 +97,11 @@ configure_file(
   COPYONLY
 )
 configure_file(
+  "${CMAKE_CURRENT_SOURCE_DIR}/openmeta/python/metadump.py"
+  "${CMAKE_BINARY_DIR}/python/openmeta/python/metadump.py"
+  COPYONLY
+)
+configure_file(
   "${CMAKE_CURRENT_SOURCE_DIR}/openmeta/python/openmeta_stats.py"
   "${CMAKE_BINARY_DIR}/python/openmeta/python/openmeta_stats.py"
   COPYONLY

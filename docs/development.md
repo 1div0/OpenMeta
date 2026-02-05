@@ -156,6 +156,7 @@ Example scripts (repo tree):
 ```bash
 PYTHONPATH=build-py/python python3 -m openmeta.python.openmeta_stats file.jpg
 PYTHONPATH=build-py/python python3 -m openmeta.python.metaread file.jpg
+PYTHONPATH=build-py/python python3 -m openmeta.python.metadump file.jpg
 ```
 
 ## Python Wheel
@@ -187,8 +188,8 @@ cmake --build build-wheel --target openmeta_wheel
 
 When `OPENMETA_BUILD_WHEEL=ON`, `cmake --install` also builds a wheel and copies
 it into `${CMAKE_INSTALL_PREFIX}/share/openmeta/wheels` (and also copies the
-Python helper scripts `metaread.py` and `openmeta_stats.py` into the same
-directory):
+Python helper scripts `metaread.py`, `metadump.py`, and `openmeta_stats.py`
+into the same directory):
 ```bash
 cmake --install build-wheel --prefix /tmp/openmeta-install
 ls /tmp/openmeta-install/share/openmeta/wheels

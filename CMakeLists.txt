@@ -194,6 +194,7 @@ set(OPENMETA_SOURCES
   src/openmeta/printim_decode.cc
   src/openmeta/simple_meta.cc
   src/openmeta/xmp_decode.cc
+  src/openmeta/xmp_dump.cc
 )
 
 if(OPENMETA_BUILD_STATIC)
@@ -245,6 +246,10 @@ if(OPENMETA_BUILD_TOOLS)
   add_executable(metaread src/tools/metaread.cc)
   openmeta_apply_target_settings(metaread)
   target_link_libraries(metaread PRIVATE ${OPENMETA_LIB_TARGET})
+
+  add_executable(metadump src/tools/metadump.cc)
+  openmeta_apply_target_settings(metadump)
+  target_link_libraries(metadump PRIVATE ${OPENMETA_LIB_TARGET})
 endif()
 
 if(OPENMETA_BUILD_PYTHON)
@@ -404,6 +409,7 @@ if(OPENMETA_BUILD_TESTS)
     tests/photoshop_irb_decode_test.cc
     tests/printim_decode_test.cc
     tests/xmp_decode_test.cc
+    tests/xmp_dump_test.cc
   )
   target_link_libraries(openmeta_tests PRIVATE ${OPENMETA_LIB_TARGET} gtest_main)
 
@@ -580,6 +586,9 @@ install(
 
 if(TARGET metaread)
   install(TARGETS metaread RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
+endif()
+if(TARGET metadump)
+  install(TARGETS metadump RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
 endif()
 
 if(OPENMETA_BUILD_DOCS OR OPENMETA_BUILD_SPHINX_DOCS)

@@ -5,6 +5,7 @@
 #include "openmeta/geotiff_key_names.h"
 #include "openmeta/mapped_file.h"
 #include "openmeta/simple_meta.h"
+#include "openmeta/xmp_dump.h"
 
 #include <nanobind/nanobind.h>
 #include <nanobind/stl/pair.h>
@@ -631,6 +632,17 @@ NB_MODULE(_openmeta, m)
         .value("Utf16LE", TextEncoding::Utf16LE)
         .value("Utf16BE", TextEncoding::Utf16BE);
 
+    nb::enum_<XmpDumpStatus>(m, "XmpDumpStatus")
+        .value("Ok", XmpDumpStatus::Ok)
+        .value("OutputTruncated", XmpDumpStatus::OutputTruncated)
+        .value("LimitExceeded", XmpDumpStatus::LimitExceeded);
+
+    nb::class_<XmpDumpResult>(m, "XmpDumpResult")
+        .def_ro("status", &XmpDumpResult::status)
+        .def_ro("written", &XmpDumpResult::written)
+        .def_ro("needed", &XmpDumpResult::needed)
+        .def_ro("entries", &XmpDumpResult::entries);
+
     nb::class_<ContainerBlockRef>(m, "BlockRef")
         .def(nb::init<>())
         .def_ro("format", &ContainerBlockRef::format)
@@ -703,6 +715,52 @@ NB_MODULE(_openmeta, m)
                          return static_cast<uint32_t>(d.store.block_count());
                      })
         .def_prop_ro("blocks", [](const PyDocument& d) { return d.blocks; })
+        .def(
+            "dump_xmp_lossless",
+            [](std::shared_ptr<PyDocument> d, uint64_t max_output_bytes,
+               uint32_t max_entries, bool include_origin, bool include_wire,
+               bool include_flags, bool include_names) {
+                std::vector<std::byte> out(1024 * 1024);
+                XmpDumpOptions opts;
+                opts.limits.max_output_bytes = max_output_bytes;
+                opts.limits.max_entries      = max_entries;
+                opts.include_origin          = include_origin;
+                opts.include_wire            = include_wire;
+                opts.include_flags           = include_flags;
+                opts.include_names           = include_names;
+
+                XmpDumpResult res;
+                {
+                    nb::gil_scoped_release gil_release;
+                    for (;;) {
+                        res = dump_xmp_lossless(
+                            d->store,
+                            std::span<std::byte>(out.data(), out.size()), opts);
+                        if (res.status == XmpDumpStatus::OutputTruncated
+                            && res.needed > out.size()) {
+                            if (res.needed
+                                > static_cast<uint64_t>(SIZE_MAX)) {
+                                throw std::runtime_error(
+                                    "dump output too large");
+                            }
+                            out.resize(static_cast<size_t>(res.needed));
+                            continue;
+                        }
+                        break;
+                    }
+                }
+
+                if (res.status != XmpDumpStatus::Ok) {
+                    throw std::runtime_error("XMP dump failed");
+                }
+
+                const size_t n = static_cast<size_t>(res.written);
+                nb::bytes b(reinterpret_cast<const char*>(out.data()), n);
+                return std::make_pair(b, res);
+            },
+            "max_output_bytes"_a = 0ULL, "max_entries"_a = 0U,
+            "include_origin"_a = true, "include_wire"_a = true,
+            "include_flags"_a = true, "include_names"_a = true)
         .def(
             "extract_payload",
             [](PyDocument& d, uint32_t block_index, bool decompress,

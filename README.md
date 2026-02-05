@@ -25,7 +25,9 @@ This is early-stage. Expect breaking API changes.
   - IPTC-IIM: dataset streams (raw dataset bytes preserved).
   - ISO-BMFF derived fields (`MetaKeyKind::BmffField`): `ftyp.*` and primary item
     properties (`pitm`, `iprp/ipco ispe/irot/imir`, `ipma`).
-- CLI tool: `metaread` (human-readable dump; output is sanitized).
+- CLI tools:
+  - `metaread`: human-readable dump; output is sanitized.
+  - `metadump`: lossless OpenMeta dump as an XMP sidecar (private namespace).
 - Security-first: explicit decode limits + fuzz targets; see `SECURITY.md`.
 
 ## Layout
