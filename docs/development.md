@@ -41,6 +41,10 @@ using Clang), configure OpenMeta with:
 ## Code Organization (EXIF + MakerNotes)
 
 - Core EXIF/TIFF decoding: `src/openmeta/exif_tiff_decode.cc`
+- ISO-BMFF (HEIF/AVIF/CR3) container-derived fields: `src/openmeta/bmff_fields_decode.cc`
+  - Emitted during `simple_meta_read(...)` as `MetaKeyKind::BmffField` entries.
+  - Current fields: `ftyp.*` and primary item properties (`pitm`, `iprp/ipco ispe/irot/imir`, `ipma`).
+  - Parsing is intentionally bounded (depth/box count caps) and ignores unknown properties.
 - GeoTIFF GeoKey decoding (derived keys): `src/openmeta/geotiff_decode.cc`
 - Vendor MakerNote decoders: `src/openmeta/exif_makernote_*.cc`
   (Canon, Nikon, Sony, Olympus, Pentax, Casio, Panasonic, Kodak, Ricoh, Samsung, FLIR, etc.)

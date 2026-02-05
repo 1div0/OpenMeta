@@ -1050,6 +1050,14 @@ namespace {
                 row.name_s = "-";
                 break;
             }
+            case MetaKeyKind::BmffField: {
+                const std::string_view field
+                    = arena_string(store.arena(),
+                                   entry.key.data.bmff_field.field);
+                row.key_s.assign(field.data(), field.size());
+                row.name_s = "-";
+                break;
+            }
             case MetaKeyKind::GeotiffKey: {
                 char buf[32];
                 std::snprintf(buf, sizeof(buf), "%u",
@@ -1097,6 +1105,43 @@ namespace {
                                                        &row.val_s);
                     if (dangerous) {
                         row.val_s.insert(0, "(DANGEROUS) ");
+                    }
+                }
+            }
+
+            if (entry.key.kind == MetaKeyKind::BmffField) {
+                const std::string_view field
+                    = arena_string(store.arena(), entry.key.data.bmff_field.field);
+                if (field == "ftyp.major_brand"
+                    && entry.value.kind == MetaValueKind::Scalar
+                    && entry.value.elem_type == MetaElementType::U32) {
+                    row.val_s = fourcc_string(static_cast<uint32_t>(
+                        entry.value.data.u64));
+                } else if (field == "ftyp.compat_brands"
+                           && entry.value.kind == MetaValueKind::Array
+                           && entry.value.elem_type == MetaElementType::U32) {
+                    row.val_s.clear();
+                    const std::span<const std::byte> raw
+                        = store.arena().span(entry.value.data.span);
+                    const uint32_t n = safe_array_count(store.arena(),
+                                                        entry.value);
+                    const uint32_t shown = (n < max_elements) ? n : max_elements;
+                    for (uint32_t j = 0; j < shown; ++j) {
+                        if (j != 0) {
+                            row.val_s.append(", ");
+                        }
+                        uint32_t v = 0;
+                        const uint64_t off
+                            = static_cast<uint64_t>(j) * 4ULL;
+                        if (off + 4ULL > raw.size()) {
+                            break;
+                        }
+                        std::memcpy(&v, raw.data() + static_cast<size_t>(off),
+                                    4);
+                        row.val_s.append(fourcc_string(v));
+                    }
+                    if (shown < n) {
+                        row.val_s.append(", ...");
                     }
                 }
             }
@@ -1660,6 +1705,10 @@ main(int argc, char** argv)
                                           max_cell_chars);
             } else if (first.key.kind == MetaKeyKind::PrintImField) {
                 print_generic_block_table(store, block, "printim", ids,
+                                          max_elements, max_bytes,
+                                          max_cell_chars);
+            } else if (first.key.kind == MetaKeyKind::BmffField) {
+                print_generic_block_table(store, block, "bmff", ids,
                                           max_elements, max_bytes,
                                           max_cell_chars);
             } else if (first.key.kind == MetaKeyKind::GeotiffKey) {

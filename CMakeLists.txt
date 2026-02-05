@@ -158,6 +158,7 @@ configure_file(
 set(OPENMETA_SOURCES
   src/openmeta/build_info.cc
   src/openmeta/byte_arena.cc
+  src/openmeta/bmff_fields_decode.cc
   src/openmeta/console_format.cc
   src/openmeta/container_payload.cc
   src/openmeta/container_scan.cc
@@ -385,24 +386,25 @@ if(OPENMETA_BUILD_TESTS)
   enable_testing()
   openmeta_add_googletest()
 
-	  add_executable(openmeta_tests
-	    tests/container_payload_test.cc
-	    tests/container_scan_test.cc
-	    tests/crw_ciff_decode_test.cc
-	    tests/icc_decode_test.cc
-	    tests/exif_tag_names_test.cc
-	    tests/exif_tiff_decode_test.cc
-	    tests/geotiff_decode_test.cc
-	    tests/iptc_iim_decode_test.cc
-	    tests/dji_app4_decode_test.cc
-	    tests/makernote_decode_test.cc
-	    tests/flir_fff_decode_test.cc
-	    tests/meta_store_test.cc
-	    tests/mpf_decode_test.cc
-	    tests/photoshop_irb_decode_test.cc
-	    tests/printim_decode_test.cc
-	    tests/xmp_decode_test.cc
-	  )
+  add_executable(openmeta_tests
+    tests/container_payload_test.cc
+    tests/container_scan_test.cc
+    tests/bmff_fields_decode_test.cc
+    tests/crw_ciff_decode_test.cc
+    tests/icc_decode_test.cc
+    tests/exif_tag_names_test.cc
+    tests/exif_tiff_decode_test.cc
+    tests/geotiff_decode_test.cc
+    tests/iptc_iim_decode_test.cc
+    tests/dji_app4_decode_test.cc
+    tests/makernote_decode_test.cc
+    tests/flir_fff_decode_test.cc
+    tests/meta_store_test.cc
+    tests/mpf_decode_test.cc
+    tests/photoshop_irb_decode_test.cc
+    tests/printim_decode_test.cc
+    tests/xmp_decode_test.cc
+  )
   target_link_libraries(openmeta_tests PRIVATE ${OPENMETA_LIB_TARGET} gtest_main)
 
   add_test(NAME openmeta_tests COMMAND openmeta_tests)

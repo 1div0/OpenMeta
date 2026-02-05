@@ -23,6 +23,8 @@ This is early-stage. Expect breaking API changes.
   - Photoshop IRB: 8BIM resources (raw payload preserved; IPTC from 0x0404 is
     decoded as derived datasets when present).
   - IPTC-IIM: dataset streams (raw dataset bytes preserved).
+  - ISO-BMFF derived fields (`MetaKeyKind::BmffField`): `ftyp.*` and primary item
+    properties (`pitm`, `iprp/ipco ispe/irot/imir`, `ipma`).
 - CLI tool: `metaread` (human-readable dump; output is sanitized).
 - Security-first: explicit decode limits + fuzz targets; see `SECURITY.md`.
 

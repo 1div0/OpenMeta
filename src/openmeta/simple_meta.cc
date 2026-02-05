@@ -1,5 +1,6 @@
 #include "openmeta/simple_meta.h"
 
+#include "bmff_fields_decode_internal.h"
 #include "crw_ciff_decode_internal.h"
 #include "exif_tiff_decode_internal.h"
 
@@ -509,6 +510,9 @@ simple_meta_read(std::span<const std::byte> file_bytes, MetaStore& store,
     result.payload.status  = PayloadStatus::Ok;
     result.payload.written = 0;
     result.payload.needed  = 0;
+
+    // Container-derived fields (currently: ISO-BMFF/HEIF/AVIF/CR3).
+    bmff_internal::decode_bmff_derived_fields(file_bytes, store);
 
     ExifDecodeResult exif;
     exif.status          = ExifDecodeStatus::Unsupported;

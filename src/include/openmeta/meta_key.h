@@ -22,6 +22,7 @@ enum class MetaKeyKind : uint8_t {
     PhotoshopIrb,
     GeotiffKey,
     PrintImField,
+    BmffField,
     JumbfField,
     JumbfCborKey,
 };
@@ -70,6 +71,10 @@ struct MetaKey final {
         struct PrintImField final {
             ByteSpan field;
         } printim_field;
+
+        struct BmffField final {
+            ByteSpan field;
+        } bmff_field;
 
         struct JumbfField final {
             ByteSpan field;
@@ -130,6 +135,10 @@ struct MetaKeyView final {
             std::string_view field;
         } printim_field;
 
+        struct BmffField final {
+            std::string_view field;
+        } bmff_field;
+
         struct JumbfField final {
             std::string_view field;
         } jumbf_field;
@@ -163,6 +172,8 @@ MetaKey
 make_geotiff_key(uint16_t key_id) noexcept;
 MetaKey
 make_printim_field_key(ByteArena& arena, std::string_view field);
+MetaKey
+make_bmff_field_key(ByteArena& arena, std::string_view field);
 MetaKey
 make_jumbf_field_key(ByteArena& arena, std::string_view field);
 MetaKey

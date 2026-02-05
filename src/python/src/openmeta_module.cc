@@ -594,6 +594,7 @@ NB_MODULE(_openmeta, m)
         .value("PhotoshopIrb", MetaKeyKind::PhotoshopIrb)
         .value("GeotiffKey", MetaKeyKind::GeotiffKey)
         .value("PrintImField", MetaKeyKind::PrintImField)
+        .value("BmffField", MetaKeyKind::BmffField)
         .value("JumbfField", MetaKeyKind::JumbfField)
         .value("JumbfCborKey", MetaKeyKind::JumbfCborKey);
 
@@ -895,6 +896,12 @@ NB_MODULE(_openmeta, m)
                                  return nb::none();
                              }
                              return nb::str(n.data(), n.size());
+                         }
+                         if (en.key.kind == MetaKeyKind::BmffField) {
+                             const std::string s
+                                 = arena_string(e.doc->store.arena(),
+                                                en.key.data.bmff_field.field);
+                             return nb::str(s.c_str(), s.size());
                          }
                          return nb::none();
                      })

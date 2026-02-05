@@ -87,6 +87,10 @@ copy_key(const MetaKey& key, const ByteArena& src, ByteArena& dst)
         out.data.printim_field.field = dst.append(
             src.span(key.data.printim_field.field));
         return out;
+    case MetaKeyKind::BmffField:
+        out.data.bmff_field.field = dst.append(
+            src.span(key.data.bmff_field.field));
+        return out;
     case MetaKeyKind::JumbfField:
         out.data.jumbf_field.field = dst.append(
             src.span(key.data.jumbf_field.field));

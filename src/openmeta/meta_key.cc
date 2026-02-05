@@ -111,6 +111,16 @@ make_printim_field_key(ByteArena& arena, std::string_view field)
 
 
 MetaKey
+make_bmff_field_key(ByteArena& arena, std::string_view field)
+{
+    MetaKey key;
+    key.kind                  = MetaKeyKind::BmffField;
+    key.data.bmff_field.field = arena.append_string(field);
+    return key;
+}
+
+
+MetaKey
 make_jumbf_field_key(ByteArena& arena, std::string_view field)
 {
     MetaKey key;
@@ -212,6 +222,9 @@ compare_key(const ByteArena& arena, const MetaKey& a, const MetaKey& b) noexcept
     case MetaKeyKind::PrintImField:
         return compare_bytes(arena.span(a.data.printim_field.field),
                              arena.span(b.data.printim_field.field));
+    case MetaKeyKind::BmffField:
+        return compare_bytes(arena.span(a.data.bmff_field.field),
+                             arena.span(b.data.bmff_field.field));
     case MetaKeyKind::JumbfField:
         return compare_bytes(arena.span(a.data.jumbf_field.field),
                              arena.span(b.data.jumbf_field.field));
@@ -318,6 +331,12 @@ compare_key_view(const ByteArena& arena, const MetaKeyView& a,
                 a.data.printim_field.field.data()),
             a.data.printim_field.field.size());
         return compare_bytes(a_field, arena.span(b.data.printim_field.field));
+    }
+    case MetaKeyKind::BmffField: {
+        const std::span<const std::byte> a_field(
+            reinterpret_cast<const std::byte*>(a.data.bmff_field.field.data()),
+            a.data.bmff_field.field.size());
+        return compare_bytes(a_field, arena.span(b.data.bmff_field.field));
     }
     case MetaKeyKind::JumbfField: {
         const std::span<const std::byte> a_field(
