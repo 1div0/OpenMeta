@@ -2,6 +2,7 @@
 #include "openmeta/console_format.h"
 #include "openmeta/container_payload.h"
 #include "openmeta/exif_tag_names.h"
+#include "openmeta/mapped_file.h"
 #include "openmeta/simple_meta.h"
 
 #include <nanobind/nanobind.h>
@@ -327,7 +328,8 @@ namespace {
 
 struct PyDocument final {
     std::string path;
-    std::vector<std::byte> file_bytes;
+    MappedFile file;
+    std::span<const std::byte> file_bytes;
     std::vector<ContainerBlockRef> blocks;
     std::vector<ExifIfdRef> ifds;
     std::vector<std::byte> payload;
@@ -348,7 +350,20 @@ read_document(const std::string& path, bool include_pointer_tags,
 {
     auto doc        = std::make_shared<PyDocument>();
     doc->path       = path;
-    doc->file_bytes = read_file_bytes(path.c_str(), max_file_bytes);
+    const MappedFileStatus st = doc->file.open(path.c_str(), max_file_bytes);
+    if (st != MappedFileStatus::Ok) {
+        if (st == MappedFileStatus::TooLarge) {
+            throw std::runtime_error("file too large");
+        }
+        if (st == MappedFileStatus::OpenFailed) {
+            throw std::runtime_error("failed to open file");
+        }
+        if (st == MappedFileStatus::StatFailed) {
+            throw std::runtime_error("failed to stat file");
+        }
+        throw std::runtime_error("failed to map file");
+    }
+    doc->file_bytes = doc->file.bytes();
 
     doc->blocks.resize(128);
     doc->ifds.resize(256);
@@ -358,6 +373,7 @@ read_document(const std::string& path, bool include_pointer_tags,
     ExifDecodeOptions exif_options;
     exif_options.include_pointer_tags = include_pointer_tags;
     exif_options.decode_makernote     = decode_makernote;
+    exif_options.decode_embedded_containers = true;
 
     PayloadOptions payload_options;
     payload_options.decompress = decompress;

@@ -68,6 +68,56 @@ TEST(XmpDecodeTest, DecodesAttributesArraysAndRdfResource)
     expect_text("http://ns.adobe.com/xap/1.0/mm/", "InstanceID", "uuid:123");
 }
 
+TEST(XmpDecodeTest, TrimsTrailingNulPadding)
+{
+    const std::string xmp
+        = "<x:xmpmeta xmlns:x='adobe:ns:meta/'>"
+          "<rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'>"
+          "<rdf:Description "
+          "xmlns:xmp='http://ns.adobe.com/xap/1.0/' "
+          "xmp:CreatorTool='OpenMeta'/>"
+          "</rdf:RDF>"
+          "</x:xmpmeta>";
+
+    std::string padded = xmp;
+    padded.append(16, '\0');
+
+    const std::span<const std::byte> bytes(reinterpret_cast<const std::byte*>(
+                                               padded.data()),
+                                           padded.size());
+
+    MetaStore store;
+    const XmpDecodeResult r = decode_xmp_packet(bytes, store);
+    EXPECT_EQ(r.status, XmpDecodeStatus::Ok);
+    EXPECT_EQ(r.entries_decoded, 1U);
+}
+
+TEST(XmpDecodeTest, SkipsLeadingMimePrefix)
+{
+    const std::string xmp
+        = "<x:xmpmeta xmlns:x='adobe:ns:meta/'>"
+          "<rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'>"
+          "<rdf:Description "
+          "xmlns:xmp='http://ns.adobe.com/xap/1.0/' "
+          "xmp:CreatorTool='OpenMeta'/>"
+          "</rdf:RDF>"
+          "</x:xmpmeta>";
+
+    std::string blob = "application/rdf+xml";
+    blob.push_back('\0');
+    blob.append(xmp);
+    blob.append(8, '\0');
+
+    const std::span<const std::byte> bytes(reinterpret_cast<const std::byte*>(
+                                               blob.data()),
+                                           blob.size());
+
+    MetaStore store;
+    const XmpDecodeResult r = decode_xmp_packet(bytes, store);
+    EXPECT_EQ(r.status, XmpDecodeStatus::Ok);
+    EXPECT_EQ(r.entries_decoded, 1U);
+}
+
 #else
 
 TEST(XmpDecodeTest, ExpatNotEnabled)

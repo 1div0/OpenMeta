@@ -4,6 +4,7 @@
 #include "openmeta/container_scan.h"
 #include "openmeta/exif_tag_names.h"
 #include "openmeta/exif_tiff_decode.h"
+#include "openmeta/mapped_file.h"
 #include "openmeta/meta_key.h"
 #include "openmeta/meta_store.h"
 #include "openmeta/simple_meta.h"
@@ -289,6 +290,33 @@ namespace {
         }
         std::fclose(f);
         return ReadFileStatus::Ok;
+    }
+
+    static bool file_size_u64(const char* path, uint64_t* out_size)
+    {
+        if (out_size) {
+            *out_size = 0;
+        }
+        if (!path || !*path) {
+            return false;
+        }
+        std::FILE* f = std::fopen(path, "rb");
+        if (!f) {
+            return false;
+        }
+        if (std::fseek(f, 0, SEEK_END) != 0) {
+            std::fclose(f);
+            return false;
+        }
+        const long end = std::ftell(f);
+        std::fclose(f);
+        if (end < 0) {
+            return false;
+        }
+        if (out_size) {
+            *out_size = static_cast<uint64_t>(end);
+        }
+        return true;
     }
 
 
@@ -1346,6 +1374,7 @@ main(int argc, char** argv)
     bool xmp_sidecar     = false;
     ExifDecodeOptions exif_options;
     exif_options.include_pointer_tags = true;
+    exif_options.decode_embedded_containers = true;
     uint32_t max_elements             = 16;
     uint32_t max_bytes                = 256;
     uint32_t max_cell_chars           = 32;
@@ -1458,18 +1487,18 @@ main(int argc, char** argv)
             continue;
         }
 
-        std::vector<std::byte> bytes;
-        uint64_t file_size      = 0;
-        const ReadFileStatus st = read_file_bytes(path, &bytes, max_file_bytes,
-                                                  &file_size);
-        if (st != ReadFileStatus::Ok) {
-            if (st == ReadFileStatus::TooLarge) {
+        MappedFile file;
+        const MappedFileStatus st = file.open(path, max_file_bytes);
+        if (st != MappedFileStatus::Ok) {
+            if (st == MappedFileStatus::TooLarge) {
+                uint64_t file_size = 0;
+                (void)file_size_u64(path, &file_size);
                 std::fprintf(
                     stderr,
                     "metaread: refusing to read `%s` (size=%llu > --max-file-bytes=%llu)\n",
                     path, static_cast<unsigned long long>(file_size),
                     static_cast<unsigned long long>(max_file_bytes));
-            } else if (st == ReadFileStatus::OpenFailed) {
+            } else if (st == MappedFileStatus::OpenFailed) {
                 std::fprintf(stderr, "metaread: failed to open `%s`\n", path);
             } else {
                 std::fprintf(stderr, "metaread: failed to read `%s`\n", path);
@@ -1478,8 +1507,11 @@ main(int argc, char** argv)
             continue;
         }
 
+        const std::span<const std::byte> bytes = file.bytes();
+
         std::printf("== %s\n", path);
-        std::printf("size=%zu\n", bytes.size());
+        std::printf("size=%llu\n",
+                    static_cast<unsigned long long>(file.size()));
 
         std::vector<ContainerBlockRef> blocks(128);
         std::vector<ExifIfdRef> ifd_refs(256);

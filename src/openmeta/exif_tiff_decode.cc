@@ -2455,6 +2455,11 @@ decode_exif_tiff(std::span<const std::byte> tiff_bytes, MetaStore& store,
         cfg.bigtiff = false;
     } else if (version == 43) {
         cfg.bigtiff = true;
+    } else if (version == 0x0055 || version == 0x4F52) {
+        // TIFF-based RAW variants that still use classic TIFF IFD structures:
+        // - Panasonic RW2: "IIU\0" (0x0055 in LE form)
+        // - Olympus ORF: "IIRO" (0x4F52 in LE form)
+        cfg.bigtiff = false;
     } else {
         sink.result.status = ExifDecodeStatus::Unsupported;
         return sink.result;

@@ -16,18 +16,6 @@
 namespace openmeta {
 namespace {
 
-    static bool contains_byte(std::span<const std::byte> bytes,
-                              unsigned char needle) noexcept
-    {
-        for (size_t i = 0; i < bytes.size(); ++i) {
-            if (static_cast<unsigned char>(std::to_integer<uint8_t>(bytes[i]))
-                == needle) {
-                return true;
-            }
-        }
-        return false;
-    }
-
 #if defined(OPENMETA_HAS_EXPAT) && OPENMETA_HAS_EXPAT
 
     static constexpr std::string_view kRdfNs
@@ -67,6 +55,65 @@ namespace {
             e -= 1;
         }
         return s.substr(b, e - b);
+    }
+
+    static bool is_ascii_ws_or_nul(char c) noexcept
+    {
+        return c == '\0' || is_ascii_ws(c);
+    }
+
+
+    static std::span<const std::byte>
+    normalize_xmp_packet(std::span<const std::byte> bytes) noexcept
+    {
+        if (bytes.empty()) {
+            return {};
+        }
+
+        const std::string_view s(reinterpret_cast<const char*>(bytes.data()),
+                                 bytes.size());
+
+        const size_t begin = s.find('<');
+        if (begin == std::string_view::npos) {
+            return {};
+        }
+
+        size_t end = s.size();
+
+        // Prefer cutting at a known close tag to avoid trailing binary/padding
+        // from container-specific storage (e.g. ISO-BMFF `mime` items).
+        const std::string_view tail = s.substr(begin);
+        {
+            static constexpr std::string_view kCloseXmpMeta = "</x:xmpmeta>";
+            static constexpr std::string_view kCloseRdf
+                = "</rdf:RDF>";
+
+            size_t pos = tail.find(kCloseXmpMeta);
+            if (pos != std::string_view::npos) {
+                end = begin + pos + kCloseXmpMeta.size();
+            } else {
+                pos = tail.find(kCloseRdf);
+                if (pos != std::string_view::npos) {
+                    end = begin + pos + kCloseRdf.size();
+                } else {
+                    const size_t last_gt = s.rfind('>');
+                    if (last_gt == std::string_view::npos || last_gt < begin) {
+                        return {};
+                    }
+                    end = last_gt + 1;
+                }
+            }
+        }
+
+        while (end > begin && is_ascii_ws_or_nul(s[end - 1])) {
+            end -= 1;
+        }
+
+        if (end <= begin) {
+            return {};
+        }
+
+        return bytes.subspan(begin, end - begin);
     }
 
 
@@ -496,12 +543,6 @@ decode_xmp_packet(std::span<const std::byte> xmp_bytes, MetaStore& store,
 {
     XmpDecodeResult result;
 
-    if (xmp_bytes.empty()
-        || !contains_byte(xmp_bytes, static_cast<unsigned char>('<'))) {
-        result.status = XmpDecodeStatus::Unsupported;
-        return result;
-    }
-
     const uint64_t max_in = options.limits.max_input_bytes;
     if (max_in != 0U && xmp_bytes.size() > max_in) {
         result.status = XmpDecodeStatus::LimitExceeded;
@@ -509,6 +550,12 @@ decode_xmp_packet(std::span<const std::byte> xmp_bytes, MetaStore& store,
     }
 
 #if defined(OPENMETA_HAS_EXPAT) && OPENMETA_HAS_EXPAT
+    const std::span<const std::byte> pkt = normalize_xmp_packet(xmp_bytes);
+    if (pkt.empty()) {
+        result.status = XmpDecodeStatus::Unsupported;
+        return result;
+    }
+
     Ctx ctx;
     ctx.store                  = &store;
     ctx.block                  = store.add_block(BlockInfo {});
@@ -529,12 +576,12 @@ decode_xmp_packet(std::span<const std::byte> xmp_bytes, MetaStore& store,
     XML_SetElementHandler(ctx.parser, &start_element, &end_element);
     XML_SetCharacterDataHandler(ctx.parser, &char_data);
 
-    const char* data = reinterpret_cast<const char*>(xmp_bytes.data());
-    const int size   = (xmp_bytes.size() > static_cast<size_t>(INT32_MAX))
+    const char* data = reinterpret_cast<const char*>(pkt.data());
+    const int size   = (pkt.size() > static_cast<size_t>(INT32_MAX))
                            ? INT32_MAX
-                           : static_cast<int>(xmp_bytes.size());
+                           : static_cast<int>(pkt.size());
 
-    if (xmp_bytes.size() > static_cast<size_t>(INT32_MAX)) {
+    if (pkt.size() > static_cast<size_t>(INT32_MAX)) {
         stop_parser(&ctx, XmpDecodeStatus::LimitExceeded);
     } else {
         const XML_Status st = XML_Parse(ctx.parser, data, size, XML_TRUE);

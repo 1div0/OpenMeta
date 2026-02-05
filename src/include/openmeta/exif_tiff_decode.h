@@ -70,6 +70,9 @@ struct ExifDecodeOptions final {
     bool decode_printim = true;
     /// If true, attempt best-effort MakerNote decoding (vendor blocks).
     bool decode_makernote = false;
+    /// If true, attempt best-effort decoding of embedded containers stored as
+    /// EXIF tag byte blobs (for example, Panasonic RW2 `JpgFromRaw`).
+    bool decode_embedded_containers = false;
     /// IFD token naming policy (affects emitted EXIF key IFD strings).
     ExifIfdTokenPolicy tokens;
     ExifDecodeLimits limits;

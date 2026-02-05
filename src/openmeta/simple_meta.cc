@@ -647,8 +647,10 @@ simple_meta_read(std::span<const std::byte> file_bytes, MetaStore& store,
                 ifd_slice = out_ifds.subspan(ifd_write_pos);
             }
 
+            const size_t entry_start = store.entries().size();
             const ExifDecodeResult one
                 = decode_exif_tiff(block_bytes, store, ifd_slice, exif_options);
+            const size_t entry_end = store.entries().size();
             merge_exif_status(&exif.status, one.status);
             exif.ifds_needed += one.ifds_needed;
             exif.entries_decoded += one.entries_decoded;
@@ -662,6 +664,136 @@ simple_meta_read(std::span<const std::byte> file_bytes, MetaStore& store,
                                           : room;
             ifd_write_pos += advanced;
             exif.ifds_written = ifd_write_pos;
+
+            // Some TIFF-based RAW formats store an embedded JPEG preview as a
+            // byte blob within a TIFF tag (for example, Panasonic RW2
+            // `JpgFromRaw` tag 0x002E). ExifTool reports many common EXIF tags
+            // from this preview; decode best-effort when enabled.
+            if (exif_options.decode_embedded_containers
+                && entry_end > entry_start) {
+                // Phase 1: collect candidate blobs without mutating the arena.
+                std::array<ByteSpan, 8> candidates {};
+                uint32_t cand_count = 0;
+                const std::span<const Entry> entries = store.entries();
+                const size_t scan_end = (entry_end < entries.size())
+                                            ? entry_end
+                                            : entries.size();
+                for (size_t ei = entry_start;
+                     ei < scan_end && cand_count < candidates.size(); ++ei) {
+                    const Entry& e = entries[ei];
+                    if (e.key.kind != MetaKeyKind::ExifTag) {
+                        continue;
+                    }
+                    if (e.key.data.exif_tag.tag != 0x002EU) {
+                        continue;
+                    }
+                    if (any(e.flags,
+                            EntryFlags::Truncated | EntryFlags::Unreadable)) {
+                        continue;
+                    }
+                    const bool ok_kind
+                        = (e.value.kind == MetaValueKind::Bytes)
+                          || (e.value.kind == MetaValueKind::Array
+                              && e.value.elem_type == MetaElementType::U8);
+                    if (!ok_kind || e.value.count < 2) {
+                        continue;
+                    }
+                    candidates[cand_count++] = e.value.data.span;
+                }
+
+                // Phase 2: copy + decode each embedded JPEG.
+                for (uint32_t ci = 0; ci < cand_count; ++ci) {
+                    const std::span<const std::byte> blob
+                        = store.arena().span(candidates[ci]);
+                    if (blob.size() < 2 || u8(blob[0]) != 0xFFU
+                        || u8(blob[1]) != 0xD8U) {
+                        continue;
+                    }
+                    if (blob.size() > payload.size()) {
+                        merge_exif_status(&exif.status,
+                                          ExifDecodeStatus::OutputTruncated);
+                        continue;
+                    }
+
+                    std::memcpy(payload.data(), blob.data(), blob.size());
+                    const std::span<const std::byte> jpeg_bytes(
+                        payload.data(), blob.size());
+
+                    std::array<ContainerBlockRef, 64> embed_blocks {};
+                    const ScanResult scan_embed
+                        = scan_jpeg(jpeg_bytes, embed_blocks);
+                    if (scan_embed.status == ScanStatus::Malformed) {
+                        merge_exif_status(&exif.status,
+                                          ExifDecodeStatus::Malformed);
+                        continue;
+                    }
+                    if (scan_embed.status == ScanStatus::OutputTruncated) {
+                        merge_exif_status(&exif.status,
+                                          ExifDecodeStatus::OutputTruncated);
+                    }
+
+                    const uint32_t embed_written
+                        = (scan_embed.written < embed_blocks.size())
+                              ? scan_embed.written
+                              : static_cast<uint32_t>(embed_blocks.size());
+                    for (uint32_t bi = 0; bi < embed_written; ++bi) {
+                        const ContainerBlockRef& b = embed_blocks[bi];
+                        if (b.part_count > 1U && b.part_index != 0U) {
+                            continue;
+                        }
+                        if (b.data_offset > jpeg_bytes.size()
+                            || b.data_size > jpeg_bytes.size() - b.data_offset) {
+                            merge_exif_status(&exif.status,
+                                              ExifDecodeStatus::Malformed);
+                            continue;
+                        }
+                        const std::span<const std::byte> inner
+                            = jpeg_bytes.subspan(static_cast<size_t>(
+                                                     b.data_offset),
+                                                 static_cast<size_t>(
+                                                     b.data_size));
+
+                        if (b.kind == ContainerBlockKind::Exif) {
+                            any_exif = true;
+
+                            ExifDecodeOptions embed_opts = exif_options;
+                            embed_opts.decode_makernote  = false;
+                            embed_opts.decode_printim    = false;
+                            embed_opts.decode_embedded_containers = false;
+
+                            std::span<ExifIfdRef> embed_ifds;
+                            if (ifd_write_pos < out_ifds.size()) {
+                                embed_ifds = out_ifds.subspan(ifd_write_pos);
+                            }
+
+                            const ExifDecodeResult inner_res
+                                = decode_exif_tiff(inner, store, embed_ifds,
+                                                   embed_opts);
+                            merge_exif_status(&exif.status, inner_res.status);
+                            exif.ifds_needed += inner_res.ifds_needed;
+                            exif.entries_decoded += inner_res.entries_decoded;
+
+                            const uint32_t inner_room
+                                = (ifd_write_pos < out_ifds.size())
+                                      ? static_cast<uint32_t>(
+                                            out_ifds.size() - ifd_write_pos)
+                                      : 0U;
+                            const uint32_t inner_advanced
+                                = (inner_res.ifds_written < inner_room)
+                                      ? inner_res.ifds_written
+                                      : inner_room;
+                            ifd_write_pos += inner_advanced;
+                            exif.ifds_written = ifd_write_pos;
+                        } else if (b.kind == ContainerBlockKind::Xmp) {
+                            any_xmp = true;
+                            const XmpDecodeResult xr
+                                = decode_xmp_packet(inner, store);
+                            merge_xmp_status(&xmp.status, xr.status);
+                            xmp.entries_decoded += xr.entries_decoded;
+                        }
+                    }
+                }
+            }
         } else if (block.kind == ContainerBlockKind::Mpf) {
             // JPEG APP2 MPF: TIFF-IFD stream used by MPO (multi-picture) files.
             // Decode as EXIF/TIFF tags into a separate IFD token namespace.

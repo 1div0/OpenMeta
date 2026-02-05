@@ -16,6 +16,12 @@ namespace {
         out->push_back(std::byte { static_cast<uint8_t>((v >> 0) & 0xFF) });
     }
 
+    static void append_u16le(std::vector<std::byte>* out, uint16_t v)
+    {
+        out->push_back(std::byte { static_cast<uint8_t>((v >> 0) & 0xFF) });
+        out->push_back(std::byte { static_cast<uint8_t>((v >> 8) & 0xFF) });
+    }
+
 
     static void append_u32be(std::vector<std::byte>* out, uint32_t v)
     {
@@ -543,6 +549,25 @@ namespace {
         std::vector<std::byte> iloc_box;
         append_bmff_box(&iloc_box, fourcc('i', 'l', 'o', 'c'), iloc_payload);
 
+        // Minimal item property container with an ICC profile in `colr` (prof).
+        std::vector<std::byte> colr_payload;
+        append_fourcc(&colr_payload, fourcc('p', 'r', 'o', 'f'));
+        append_bytes(&colr_payload, "ICC");
+        std::vector<std::byte> colr_box;
+        append_bmff_box(&colr_box, fourcc('c', 'o', 'l', 'r'), colr_payload);
+
+        std::vector<std::byte> ipco_payload;
+        ipco_payload.insert(ipco_payload.end(), colr_box.begin(),
+                            colr_box.end());
+        std::vector<std::byte> ipco_box;
+        append_bmff_box(&ipco_box, fourcc('i', 'p', 'c', 'o'), ipco_payload);
+
+        std::vector<std::byte> iprp_payload;
+        iprp_payload.insert(iprp_payload.end(), ipco_box.begin(),
+                            ipco_box.end());
+        std::vector<std::byte> iprp_box;
+        append_bmff_box(&iprp_box, fourcc('i', 'p', 'r', 'p'), iprp_payload);
+
         std::vector<std::byte> meta_payload;
         append_fullbox_header(&meta_payload, 0);
         meta_payload.insert(meta_payload.end(), iinf_box.begin(),
@@ -551,6 +576,8 @@ namespace {
                             iloc_box.end());
         meta_payload.insert(meta_payload.end(), idat_box.begin(),
                             idat_box.end());
+        meta_payload.insert(meta_payload.end(), iprp_box.begin(),
+                            iprp_box.end());
         std::vector<std::byte> meta_box;
         append_bmff_box(&meta_box, fourcc('m', 'e', 't', 'a'), meta_payload);
 
@@ -577,19 +604,23 @@ namespace {
             std::array<ContainerBlockRef, 8> blocks {};
             const ScanResult res = scan_bmff(file, blocks);
             ASSERT_EQ(res.status, ScanStatus::Ok);
-            ASSERT_EQ(res.written, 2U);
+            ASSERT_EQ(res.written, 3U);
 
             const ContainerBlockRef* exif_block = nullptr;
             const ContainerBlockRef* xmp_block  = nullptr;
+            const ContainerBlockRef* icc_block  = nullptr;
             for (uint32_t bi = 0; bi < res.written; ++bi) {
                 if (blocks[bi].kind == ContainerBlockKind::Exif) {
                     exif_block = &blocks[bi];
                 } else if (blocks[bi].kind == ContainerBlockKind::Xmp) {
                     xmp_block = &blocks[bi];
+                } else if (blocks[bi].kind == ContainerBlockKind::Icc) {
+                    icc_block = &blocks[bi];
                 }
             }
             ASSERT_NE(exif_block, nullptr);
             ASSERT_NE(xmp_block, nullptr);
+            ASSERT_NE(icc_block, nullptr);
 
             EXPECT_EQ(exif_block->format, c.expect_fmt);
             EXPECT_EQ(exif_block->chunking,
@@ -600,9 +631,17 @@ namespace {
             EXPECT_EQ(xmp_block->format, c.expect_fmt);
             EXPECT_EQ(file[xmp_block->data_offset], std::byte { '<' });
 
+            EXPECT_EQ(icc_block->format, c.expect_fmt);
+            EXPECT_EQ(icc_block->id, fourcc('c', 'o', 'l', 'r'));
+            EXPECT_EQ(icc_block->aux_u32, fourcc('p', 'r', 'o', 'f'));
+            ASSERT_GE(icc_block->data_size, 3U);
+            EXPECT_EQ(file[icc_block->data_offset + 0], std::byte { 'I' });
+            EXPECT_EQ(file[icc_block->data_offset + 1], std::byte { 'C' });
+            EXPECT_EQ(file[icc_block->data_offset + 2], std::byte { 'C' });
+
             const ScanResult auto_res = scan_auto(file, blocks);
             EXPECT_EQ(auto_res.status, ScanStatus::Ok);
-            EXPECT_EQ(auto_res.written, 2U);
+            EXPECT_EQ(auto_res.written, 3U);
         }
     }
 
@@ -794,6 +833,34 @@ namespace {
         const ScanResult auto_res = scan_auto(tiff, blocks);
         EXPECT_EQ(auto_res.status, ScanStatus::Ok);
         EXPECT_EQ(auto_res.written, 3U);
+    }
+
+
+    TEST(ContainerScan, TiffRawVariantHeaders)
+    {
+        auto make_min_tiff = [&](uint16_t version_le) {
+            std::vector<std::byte> t;
+            append_bytes(&t, "II");
+            append_u16le(&t, version_le);
+            append_u32le(&t, 8);
+            append_u16le(&t, 0);  // entry count
+            append_u32le(&t, 0);  // next IFD
+            return t;
+        };
+
+        const std::vector<std::byte> rw2 = make_min_tiff(0x0055);   // "IIU\0"
+        const std::vector<std::byte> orf = make_min_tiff(0x4F52);   // "IIRO"
+
+        for (const std::vector<std::byte>& t : { rw2, orf }) {
+            std::array<ContainerBlockRef, 8> blocks {};
+            const ScanResult res = scan_auto(t, blocks);
+            ASSERT_EQ(res.status, ScanStatus::Ok);
+            ASSERT_EQ(res.written, 1U);
+            EXPECT_EQ(blocks[0].format, ContainerFormat::Tiff);
+            EXPECT_EQ(blocks[0].kind, ContainerBlockKind::Exif);
+            EXPECT_EQ(blocks[0].data_offset, 0U);
+            EXPECT_EQ(blocks[0].data_size, t.size());
+        }
     }
 
 }  // namespace

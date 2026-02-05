@@ -241,6 +241,50 @@ TEST(ExifTiffDecode, DecodesIfd0AndExifIfd_BigEndian)
               "2024:01:01 00:00:00");
 }
 
+TEST(ExifTiffDecode, AcceptsTiffRawVariantHeaders)
+{
+    auto make_min = [&](uint16_t version_le) {
+        std::vector<std::byte> tiff;
+        append_bytes(&tiff, "II");
+        append_u16le(&tiff, version_le);
+        append_u32le(&tiff, 8);
+
+        // IFD0 at offset 8 with a single Make tag.
+        append_u16le(&tiff, 1);
+        append_u16le(&tiff, 0x010F);  // Make
+        append_u16le(&tiff, 2);       // ASCII
+        append_u32le(&tiff, 6);       // "Canon\0"
+        append_u32le(&tiff, 26);      // value offset
+        append_u32le(&tiff, 0);       // next IFD
+
+        EXPECT_EQ(tiff.size(), 26U);
+        append_bytes(&tiff, "Canon");
+        tiff.push_back(std::byte { 0 });
+        return tiff;
+    };
+
+    // Panasonic RW2 ("IIU\0") and Olympus ORF ("IIRO") variant headers.
+    const std::array<uint16_t, 2> versions = { 0x0055, 0x4F52 };
+
+    for (const uint16_t v : versions) {
+        const std::vector<std::byte> tiff = make_min(v);
+
+        MetaStore store;
+        std::array<ExifIfdRef, 8> ifds {};
+        ExifDecodeOptions options;
+        const ExifDecodeResult res
+            = decode_exif_tiff(tiff, store, ifds, options);
+        EXPECT_EQ(res.status, ExifDecodeStatus::Ok);
+
+        store.finalize();
+        const std::span<const EntryId> make_ids = store.find_all(
+            exif_key("ifd0", 0x010F));
+        ASSERT_EQ(make_ids.size(), 1U);
+        EXPECT_EQ(arena_string(store.arena(), store.entry(make_ids[0]).value),
+                  "Canon");
+    }
+}
+
 
 TEST(ExifTiffDecode, PreservesUtf8Type129)
 {
@@ -387,6 +431,72 @@ TEST(SimpleMetaRead, ScansAndDecodesJpegApp1Exif)
     PayloadOptions payload_options;
     const SimpleMetaResult res
         = simple_meta_read(jpeg, store, blocks, ifds, payload_scratch,
+                           payload_parts, exif_options, payload_options);
+    EXPECT_EQ(res.scan.status, ScanStatus::Ok);
+    EXPECT_EQ(res.exif.status, ExifDecodeStatus::Ok);
+
+    store.finalize();
+    const std::span<const EntryId> ids = store.find_all(
+        exif_key("exififd", 0x9003));
+    ASSERT_EQ(ids.size(), 1U);
+    EXPECT_EQ(arena_string(store.arena(), store.entry(ids[0]).value),
+              "2024:01:01 00:00:00");
+}
+
+
+TEST(SimpleMetaRead, DecodesEmbeddedJpegFromRawTag002E)
+{
+    // Build an embedded JPEG preview containing a minimal APP1 Exif segment.
+    const std::vector<std::byte> tiff = make_test_tiff_le();
+
+    std::vector<std::byte> jpeg;
+    jpeg.push_back(std::byte { 0xFF });
+    jpeg.push_back(std::byte { 0xD8 });
+
+    std::vector<std::byte> payload;
+    append_bytes(&payload, "Exif");
+    payload.push_back(std::byte { 0 });
+    payload.push_back(std::byte { 0 });
+    payload.insert(payload.end(), tiff.begin(), tiff.end());
+
+    const uint16_t seg_len = static_cast<uint16_t>(payload.size() + 2U);
+    jpeg.push_back(std::byte { 0xFF });
+    jpeg.push_back(std::byte { 0xE1 });
+    jpeg.push_back(std::byte { static_cast<uint8_t>((seg_len >> 8) & 0xFF) });
+    jpeg.push_back(std::byte { static_cast<uint8_t>((seg_len >> 0) & 0xFF) });
+    jpeg.insert(jpeg.end(), payload.begin(), payload.end());
+
+    jpeg.push_back(std::byte { 0xFF });
+    jpeg.push_back(std::byte { 0xD9 });
+
+    // Build an outer TIFF that stores the embedded JPEG as tag 0x002E.
+    std::vector<std::byte> outer;
+    append_bytes(&outer, "II");
+    append_u16le(&outer, 42);
+    append_u32le(&outer, 8);
+
+    // IFD0 at offset 8: one entry, then next IFD offset.
+    append_u16le(&outer, 1);
+    append_u16le(&outer, 0x002E);  // JpgFromRaw
+    append_u16le(&outer, 7);       // UNDEFINED
+    append_u32le(&outer, static_cast<uint32_t>(jpeg.size()));
+    append_u32le(&outer, 26);  // value offset (right after this IFD)
+    append_u32le(&outer, 0);
+
+    EXPECT_EQ(outer.size(), 26U);
+    outer.insert(outer.end(), jpeg.begin(), jpeg.end());
+
+    MetaStore store;
+    std::array<ContainerBlockRef, 8> blocks {};
+    std::array<ExifIfdRef, 16> ifds {};
+    std::array<std::byte, 8192> payload_scratch {};
+    std::array<uint32_t, 64> payload_parts {};
+    ExifDecodeOptions exif_options;
+    exif_options.decode_embedded_containers = true;
+    PayloadOptions payload_options;
+
+    const SimpleMetaResult res
+        = simple_meta_read(outer, store, blocks, ifds, payload_scratch,
                            payload_parts, exif_options, payload_options);
     EXPECT_EQ(res.scan.status, ScanStatus::Ok);
     EXPECT_EQ(res.exif.status, ExifDecodeStatus::Ok);

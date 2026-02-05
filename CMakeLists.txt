@@ -161,6 +161,7 @@ set(OPENMETA_SOURCES
   src/openmeta/console_format.cc
   src/openmeta/container_payload.cc
   src/openmeta/container_scan.cc
+  src/openmeta/mapped_file.cc
   src/openmeta/exif_makernote_canon.cc
   src/openmeta/exif_makernote_casio.cc
   src/openmeta/exif_makernote_flir.cc

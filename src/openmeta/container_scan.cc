@@ -1706,6 +1706,116 @@ namespace {
         return true;
     }
 
+    static void bmff_scan_ipco_for_icc(std::span<const std::byte> bytes,
+                                       const BmffBox& ipco,
+                                       ContainerFormat format,
+                                       BlockSink* sink) noexcept
+    {
+        if (sink->result.status != ScanStatus::Ok) {
+            return;
+        }
+
+        const uint64_t payload_off = ipco.offset + ipco.header_size;
+        const uint64_t payload_end = ipco.offset + ipco.size;
+        if (payload_off > payload_end || payload_end > bytes.size()) {
+            return;
+        }
+
+        uint64_t off               = payload_off;
+        const uint32_t kMaxProps   = 1U << 16;
+        uint32_t seen              = 0;
+        while (off + 8 <= payload_end) {
+            seen += 1;
+            if (seen > kMaxProps) {
+                // Avoid pathological property lists; treat as malformed meta.
+                sink->result.status = ScanStatus::Malformed;
+                return;
+            }
+
+            BmffBox child;
+            if (!parse_bmff_box(bytes, off, payload_end, &child)) {
+                break;
+            }
+
+            if (child.type == fourcc('c', 'o', 'l', 'r')) {
+                const uint64_t colr_payload_off = child.offset
+                                                  + child.header_size;
+                const uint64_t colr_payload_end = child.offset + child.size;
+                const uint64_t colr_payload_size = child.size
+                                                   - child.header_size;
+                if (colr_payload_off + 4 <= colr_payload_end
+                    && colr_payload_end <= bytes.size()
+                    && colr_payload_size >= 4) {
+                    uint32_t colr_type = 0;
+                    if (read_u32be(bytes, colr_payload_off, &colr_type)) {
+                        if (colr_type == fourcc('p', 'r', 'o', 'f')
+                            || colr_type == fourcc('r', 'I', 'C', 'C')) {
+                            ContainerBlockRef block;
+                            block.format       = format;
+                            block.kind         = ContainerBlockKind::Icc;
+                            block.outer_offset = child.offset;
+                            block.outer_size   = child.size;
+                            block.data_offset  = colr_payload_off + 4;
+                            block.data_size    = colr_payload_size - 4;
+                            block.id           = child.type;
+                            block.aux_u32      = colr_type;
+                            sink_emit(sink, block);
+                        }
+                    }
+                }
+            }
+
+            off += child.size;
+            if (child.size == 0) {
+                break;
+            }
+        }
+    }
+
+    static void bmff_scan_iprp_for_icc(std::span<const std::byte> bytes,
+                                       const BmffBox& iprp,
+                                       ContainerFormat format,
+                                       BlockSink* sink) noexcept
+    {
+        if (sink->result.status != ScanStatus::Ok) {
+            return;
+        }
+
+        const uint64_t payload_off = iprp.offset + iprp.header_size;
+        const uint64_t payload_end = iprp.offset + iprp.size;
+        if (payload_off > payload_end || payload_end > bytes.size()) {
+            return;
+        }
+
+        uint64_t off               = payload_off;
+        const uint32_t kMaxBoxes   = 1U << 16;
+        uint32_t seen              = 0;
+        while (off + 8 <= payload_end) {
+            seen += 1;
+            if (seen > kMaxBoxes) {
+                sink->result.status = ScanStatus::Malformed;
+                return;
+            }
+
+            BmffBox child;
+            if (!parse_bmff_box(bytes, off, payload_end, &child)) {
+                break;
+            }
+
+            if (child.type == fourcc('i', 'p', 'c', 'o')) {
+                bmff_scan_ipco_for_icc(bytes, child, format, sink);
+                if (sink->result.status != ScanStatus::Ok) {
+                    return;
+                }
+            }
+
+            off += child.size;
+            if (child.size == 0) {
+                break;
+            }
+        }
+    }
+
 
     static void bmff_scan_meta_box(std::span<const std::byte> bytes,
                                    const BmffBox& meta, ContainerFormat format,
@@ -1721,9 +1831,11 @@ namespace {
         BmffBox iinf {};
         BmffBox iloc {};
         BmffBox idat {};
+        BmffBox iprp {};
         bool has_iinf = false;
         bool has_iloc = false;
         bool has_idat = false;
+        bool has_iprp = false;
 
         uint64_t child_off       = payload_off + 4;  // FullBox header.
         const uint64_t child_end = meta.offset + meta.size;
@@ -1742,6 +1854,9 @@ namespace {
             } else if (child.type == fourcc('i', 'd', 'a', 't')) {
                 idat     = child;
                 has_idat = true;
+            } else if (child.type == fourcc('i', 'p', 'r', 'p')) {
+                iprp     = child;
+                has_iprp = true;
             }
 
             child_off += child.size;
@@ -1772,6 +1887,10 @@ namespace {
                 sink->result.status = ScanStatus::Malformed;
                 return;
             }
+        }
+
+        if (has_iprp) {
+            bmff_scan_iprp_for_icc(bytes, iprp, format, sink);
         }
     }
 
@@ -2211,6 +2330,12 @@ scan_tiff(std::span<const std::byte> bytes,
         cfg.bigtiff = false;
     } else if (version == 43) {
         cfg.bigtiff = true;
+    } else if (version == 0x0055 || version == 0x4F52) {
+        // Some TIFF-based RAW formats use a custom "version" field while still
+        // storing classic TIFF IFD structures at offset 4:
+        // - Panasonic RW2: "IIU\0" (0x0055 in LE form)
+        // - Olympus ORF: "IIRO" (0x4F52 in LE form)
+        cfg.bigtiff = false;
     } else {
         sink.result.status = ScanStatus::Unsupported;
         return sink.result;
@@ -2530,7 +2655,7 @@ scan_auto(std::span<const std::byte> bytes,
                                          u8(bytes[2]) | (u8(bytes[3]) << 8))
                                    : static_cast<uint16_t>((u8(bytes[2]) << 8)
                                                            | u8(bytes[3]));
-            if (v == 42 || v == 43) {
+            if (v == 42 || v == 43 || v == 0x0055 || v == 0x4F52) {
                 return scan_tiff(bytes, out);
             }
         }
