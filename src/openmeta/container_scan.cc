@@ -183,6 +183,74 @@ namespace {
     }
 
 
+    static bool looks_like_tiff_at(std::span<const std::byte> bytes,
+                                   uint64_t offset) noexcept
+    {
+        if (offset + 8 > bytes.size()) {
+            return false;
+        }
+
+        const uint8_t b0 = u8(bytes[offset + 0]);
+        const uint8_t b1 = u8(bytes[offset + 1]);
+        const bool le    = (b0 == 0x49 && b1 == 0x49);
+        const bool be    = (b0 == 0x4D && b1 == 0x4D);
+        if (!le && !be) {
+            return false;
+        }
+
+        const uint16_t version = le ? static_cast<uint16_t>(u8(bytes[offset + 2])
+                                                            | (u8(bytes[offset + 3])
+                                                               << 8U))
+                                    : static_cast<uint16_t>((u8(bytes[offset + 2])
+                                                             << 8U)
+                                                            | u8(bytes[offset + 3]));
+        if (version != 42 && version != 43 && version != 0x0055
+            && version != 0x4F52) {
+            return false;
+        }
+
+        // Classic TIFF (and RW2/ORF variants) store a u32 IFD0 offset at +4.
+        if (version != 43) {
+            uint32_t ifd0 = 0;
+            if (le) {
+                if (!read_u32le(bytes, offset + 4, &ifd0)) {
+                    return false;
+                }
+            } else {
+                if (!read_u32be(bytes, offset + 4, &ifd0)) {
+                    return false;
+                }
+            }
+            return offset + static_cast<uint64_t>(ifd0) < bytes.size();
+        }
+
+        // BigTIFF header:
+        //   u16 version=43, u16 offsize (8), u16 zero, u64 IFD0 offset.
+        if (offset + 16 > bytes.size()) {
+            return false;
+        }
+        const uint16_t offsize
+            = le ? static_cast<uint16_t>(u8(bytes[offset + 4])
+                                         | (u8(bytes[offset + 5]) << 8U))
+                 : static_cast<uint16_t>((u8(bytes[offset + 4]) << 8U)
+                                         | u8(bytes[offset + 5]));
+        if (offsize != 8) {
+            return false;
+        }
+        uint64_t ifd0 = 0;
+        if (le) {
+            if (!read_u64le(bytes, offset + 8, &ifd0)) {
+                return false;
+            }
+        } else {
+            if (!read_u64be(bytes, offset + 8, &ifd0)) {
+                return false;
+            }
+        }
+        return offset + ifd0 < bytes.size();
+    }
+
+
     static uint64_t fnv1a_64(std::span<const std::byte> data) noexcept
     {
         uint64_t hash = 14695981039346656037ULL;
@@ -2658,6 +2726,56 @@ scan_auto(std::span<const std::byte> bytes,
             if (v == 42 || v == 43 || v == 0x0055 || v == 0x4F52) {
                 return scan_tiff(bytes, out);
             }
+        }
+    }
+
+    // Fujifilm RAF: fixed header, then an embedded TIFF stream.
+    if (bytes.size() >= 16 && match(bytes, 0, "FUJIFILMCCD-RAW ", 16)) {
+        uint64_t tiff_off = 160;
+        if (tiff_off < bytes.size() && looks_like_tiff_at(bytes, tiff_off)) {
+            const std::span<const std::byte> tiff = bytes.subspan(
+                static_cast<size_t>(tiff_off));
+            const ScanResult res = scan_tiff(tiff, out);
+            const uint32_t written = (res.written < out.size())
+                                         ? res.written
+                                         : static_cast<uint32_t>(out.size());
+            for (uint32_t i = 0; i < written; ++i) {
+                out[i].outer_offset += tiff_off;
+                out[i].data_offset += tiff_off;
+                out[i].format = ContainerFormat::Unknown;
+            }
+            return res;
+        }
+    }
+
+    // Sigma X3F: the file commonly embeds an "Exif\0\0" preamble followed by a
+    // classic TIFF header. Locate and scan that TIFF stream.
+    if (bytes.size() >= 4 && match(bytes, 0, "FOVb", 4)) {
+        const uint64_t max_search
+            = (bytes.size() < (4ULL * 1024ULL * 1024ULL))
+                  ? static_cast<uint64_t>(bytes.size())
+                  : (4ULL * 1024ULL * 1024ULL);
+        for (uint64_t off = 0; off + 10 <= max_search; ++off) {
+            if (!match(bytes, off, "Exif", 4) || u8(bytes[off + 4]) != 0
+                || u8(bytes[off + 5]) != 0) {
+                continue;
+            }
+            const uint64_t tiff_off = off + 6;
+            if (!looks_like_tiff_at(bytes, tiff_off)) {
+                continue;
+            }
+            const std::span<const std::byte> tiff = bytes.subspan(
+                static_cast<size_t>(tiff_off));
+            const ScanResult res = scan_tiff(tiff, out);
+            const uint32_t written = (res.written < out.size())
+                                         ? res.written
+                                         : static_cast<uint32_t>(out.size());
+            for (uint32_t i = 0; i < written; ++i) {
+                out[i].outer_offset += tiff_off;
+                out[i].data_offset += tiff_off;
+                out[i].format = ContainerFormat::Unknown;
+            }
+            return res;
         }
     }
 

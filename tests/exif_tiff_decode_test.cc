@@ -509,4 +509,67 @@ TEST(SimpleMetaRead, DecodesEmbeddedJpegFromRawTag002E)
               "2024:01:01 00:00:00");
 }
 
+
+TEST(SimpleMetaRead, DecodesRafEmbeddedTiff)
+{
+    const std::vector<std::byte> tiff = make_test_tiff_le();
+
+    std::vector<std::byte> raf;
+    append_bytes(&raf, "FUJIFILMCCD-RAW ");
+    raf.resize(160, std::byte { 0 });
+    raf.insert(raf.end(), tiff.begin(), tiff.end());
+
+    MetaStore store;
+    std::array<ContainerBlockRef, 8> blocks {};
+    std::array<ExifIfdRef, 8> ifds {};
+    std::array<std::byte, 4096> payload_scratch {};
+    std::array<uint32_t, 16> payload_parts {};
+    ExifDecodeOptions exif_options;
+    PayloadOptions payload_options;
+    const SimpleMetaResult res
+        = simple_meta_read(raf, store, blocks, ifds, payload_scratch,
+                           payload_parts, exif_options, payload_options);
+    EXPECT_EQ(res.scan.status, ScanStatus::Ok);
+    EXPECT_EQ(res.exif.status, ExifDecodeStatus::Ok);
+
+    store.finalize();
+    const std::span<const EntryId> ids = store.find_all(
+        exif_key("ifd0", 0x010F));
+    ASSERT_EQ(ids.size(), 1U);
+    EXPECT_EQ(arena_string(store.arena(), store.entry(ids[0]).value), "Canon");
+}
+
+
+TEST(SimpleMetaRead, DecodesX3fEmbeddedExifTiff)
+{
+    const std::vector<std::byte> tiff = make_test_tiff_be();
+
+    std::vector<std::byte> x3f;
+    append_bytes(&x3f, "FOVb");
+    x3f.resize(128, std::byte { 0 });
+    append_bytes(&x3f, "Exif");
+    x3f.push_back(std::byte { 0 });
+    x3f.push_back(std::byte { 0 });
+    x3f.insert(x3f.end(), tiff.begin(), tiff.end());
+
+    MetaStore store;
+    std::array<ContainerBlockRef, 8> blocks {};
+    std::array<ExifIfdRef, 8> ifds {};
+    std::array<std::byte, 4096> payload_scratch {};
+    std::array<uint32_t, 16> payload_parts {};
+    ExifDecodeOptions exif_options;
+    PayloadOptions payload_options;
+    const SimpleMetaResult res
+        = simple_meta_read(x3f, store, blocks, ifds, payload_scratch,
+                           payload_parts, exif_options, payload_options);
+    EXPECT_EQ(res.scan.status, ScanStatus::Ok);
+    EXPECT_EQ(res.exif.status, ExifDecodeStatus::Ok);
+
+    store.finalize();
+    const std::span<const EntryId> ids = store.find_all(
+        exif_key("ifd0", 0x010F));
+    ASSERT_EQ(ids.size(), 1U);
+    EXPECT_EQ(arena_string(store.arena(), store.entry(ids[0]).value), "Canon");
+}
+
 }  // namespace openmeta
