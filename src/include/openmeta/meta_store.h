@@ -43,6 +43,8 @@ struct Origin final {
     uint32_t order_in_block = 0;
     WireType wire_type;
     uint32_t wire_count = 0;
+    /// Optional wire type name (for formats with named types, e.g. OpenEXR custom attrs).
+    ByteSpan wire_type_name;
 };
 
 /**

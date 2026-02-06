@@ -564,9 +564,14 @@ namespace {
         entry.origin.block            = block;
         entry.origin.order_in_block   = *io_order_in_block;
         entry.origin.wire_type.family = WireFamily::Other;
-        entry.origin.wire_type.code   = exr_type_code(type_name);
+        const uint16_t wire_code      = exr_type_code(type_name);
+        entry.origin.wire_type.code   = wire_code;
         entry.origin.wire_count       = attribute_size;
-        entry.flags                   = flags;
+        if (options.preserve_unknown_type_name && wire_code == kExrAttrOpaque) {
+            entry.origin.wire_type_name = store.arena().append_string(
+                type_name);
+        }
+        entry.flags = flags;
         store.add_entry(entry);
 
         *io_order_in_block += 1U;

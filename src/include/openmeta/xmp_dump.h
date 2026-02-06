@@ -34,9 +34,10 @@ struct XmpDumpLimits final {
 struct XmpDumpOptions final {
     XmpDumpLimits limits;
     bool include_origin = true;
-    bool include_wire   = true;
-    bool include_flags  = true;
-    bool include_names  = true;
+    /// Includes wire family/code/count and EXR-specific wire type name when available.
+    bool include_wire  = true;
+    bool include_flags = true;
+    bool include_names = true;
 };
 
 /// Options for \ref dump_xmp_portable.

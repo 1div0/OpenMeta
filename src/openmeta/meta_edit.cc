@@ -119,6 +119,16 @@ copy_value(const MetaValue& value, const ByteArena& src, ByteArena& dst)
     return out;
 }
 
+static Origin
+copy_origin(const Origin& origin, const ByteArena& src, ByteArena& dst)
+{
+    Origin out = origin;
+    if (origin.wire_type_name.size > 0U) {
+        out.wire_type_name = dst.append(src.span(origin.wire_type_name));
+    }
+    return out;
+}
+
 
 MetaStore
 commit(const MetaStore& base, std::span<const MetaEdit> edits)
@@ -135,10 +145,12 @@ commit(const MetaStore& base, std::span<const MetaEdit> edits)
             const EditOp& op = ops[i];
             switch (op.kind) {
             case EditOpKind::AddEntry: {
-                Entry entry = op.entry;
-                entry.key   = copy_key(entry.key, edit.arena(), out.arena());
-                entry.value = copy_value(entry.value, edit.arena(),
-                                         out.arena());
+                Entry entry  = op.entry;
+                entry.key    = copy_key(entry.key, edit.arena(), out.arena());
+                entry.value  = copy_value(entry.value, edit.arena(),
+                                          out.arena());
+                entry.origin = copy_origin(entry.origin, edit.arena(),
+                                           out.arena());
                 out.entries_.push_back(entry);
                 break;
             }
@@ -180,9 +192,10 @@ compact(const MetaStore& base)
         if (any(entry.flags, EntryFlags::Deleted)) {
             continue;
         }
-        Entry copied = entry;
-        copied.key   = copy_key(entry.key, base.arena(), out.arena());
-        copied.value = copy_value(entry.value, base.arena(), out.arena());
+        Entry copied  = entry;
+        copied.key    = copy_key(entry.key, base.arena(), out.arena());
+        copied.value  = copy_value(entry.value, base.arena(), out.arena());
+        copied.origin = copy_origin(entry.origin, base.arena(), out.arena());
         out.entries_.push_back(copied);
     }
 

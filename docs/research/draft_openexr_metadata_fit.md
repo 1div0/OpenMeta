@@ -52,6 +52,8 @@ Current implementation snapshot (still draft-level):
   fallback path (metadata-only header decode).
 - Common EXR scalar/vector/matrix types decode to typed `MetaValue`; unknown and
   complex payloads are preserved as raw bytes.
+- Unknown/custom EXR attrs can preserve original type name in
+  `Origin::wire_type_name` (optional decode behavior).
 - `Origin::wire_type` carries EXR type code (`WireFamily::Other`), and
   `wire_count` currently stores attribute byte size.
 

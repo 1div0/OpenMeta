@@ -200,6 +200,36 @@ If you are building offline (or want strict control of the build environment),
 install `scikit-build-core` into your Python environment and enable:
 `-DOPENMETA_WHEEL_NO_BUILD_ISOLATION=ON`.
 
+## Interop Adapters (Draft)
+
+Draft adapter APIs for ASF integration targets:
+
+- `openmeta/interop_export.h`: shared traversal and naming styles
+  (`Canonical`, `XmpPortable`, `Oiio`).
+- `openmeta/oiio_adapter.h`: flat OIIO-style name/value export.
+- `openmeta/ocio_adapter.h`: deterministic OCIO-style metadata tree export.
+
+These are marked draft and may be refactored in upcoming iterations.
+
+Python binding entry points (draft):
+
+- `Document.export_names(style=..., include_makernotes=...)`
+- `Document.oiio_attributes(...)`
+- `Document.ocio_metadata_tree(...)`
+
+Cached corpus parity gate (internal workflow):
+
+```bash
+OpenMeta-internal/internals/run_interop_gates.sh --tier raw_bmff --jobs 4
+```
+
+Cached adapter-name parity (internal workflow):
+
+```bash
+python3 OpenMeta-internal/internals/compare_openmeta_interop_names_cached.py \
+  --tool both --jobs 4 --quiet
+```
+
 ## Doxygen (Optional)
 
 Requirements:

@@ -186,11 +186,15 @@ set(OPENMETA_SOURCES
   src/openmeta/geotiff_decode.cc
   src/openmeta/geotiff_key_names.cc
   src/openmeta/icc_decode.cc
+  src/openmeta/interop_export.cc
+  src/openmeta/interop_value_format_internal.cc
   src/openmeta/iptc_iim_decode.cc
   src/openmeta/meta_key.cc
   src/openmeta/meta_store.cc
   src/openmeta/meta_edit.cc
   src/openmeta/meta_value.cc
+  src/openmeta/ocio_adapter.cc
+  src/openmeta/oiio_adapter.cc
   src/openmeta/photoshop_irb_decode.cc
   src/openmeta/printim_decode.cc
   src/openmeta/simple_meta.cc
@@ -403,11 +407,14 @@ if(OPENMETA_BUILD_TESTS)
     tests/exif_tiff_decode_test.cc
     tests/geotiff_decode_test.cc
     tests/iptc_iim_decode_test.cc
+    tests/interop_export_test.cc
     tests/dji_app4_decode_test.cc
     tests/makernote_decode_test.cc
     tests/flir_fff_decode_test.cc
     tests/meta_store_test.cc
     tests/mpf_decode_test.cc
+    tests/ocio_adapter_test.cc
+    tests/oiio_adapter_test.cc
     tests/photoshop_irb_decode_test.cc
     tests/printim_decode_test.cc
     tests/xmp_decode_test.cc

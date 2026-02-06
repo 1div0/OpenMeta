@@ -51,3 +51,19 @@ FuzzTest targets (when available):
      -DCMAKE_PREFIX_PATH=/mnt/f/UBSd -DOPENMETA_BUILD_FUZZTEST=ON -DOPENMETA_FUZZTEST_FUZZING_MODE=ON
    cmake --build build-fuzztest
    ASAN_OPTIONS=detect_leaks=0 ./build-fuzztest/openmeta_fuzztest_metastore --fuzz_for=10s
+
+Interop parity gates (cached corpora)
+-------------------------------------
+
+For fast interop checks without re-running ExifTool on every iteration:
+
+.. code-block:: bash
+
+   OpenMeta-internal/internals/run_interop_gates.sh --tier raw_bmff --jobs 4
+
+Adapter-name parity against cached ExifTool/Exiv2 tags:
+
+.. code-block:: bash
+
+   python3 OpenMeta-internal/internals/compare_openmeta_interop_names_cached.py \
+     --tool both --jobs 4 --quiet

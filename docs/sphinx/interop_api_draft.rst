@@ -15,8 +15,8 @@ Define a small export interface from ``MetaStore`` that is easy to adapt to:
 - OpenEXR header attributes.
 - OpenColorIO ``FormatMetadata`` trees.
 
-Proposed Core API (Draft)
--------------------------
+Current Draft API (v1)
+----------------------
 
 .. code-block:: cpp
 
@@ -36,6 +36,8 @@ Proposed Core API (Draft)
    struct ExportItem final {
        std::string_view name;
        const Entry* entry = nullptr;
+       const Origin* origin = nullptr; // only when include_origin=true
+       EntryFlags flags = EntryFlags::None; // only when include_flags=true
    };
 
    class MetadataSink {
@@ -60,9 +62,28 @@ Adapter Boundaries (Draft)
 Refactor Checkpoints
 --------------------
 
-1. Add ``visit_metadata(...)`` with ``Canonical`` naming only.
-2. Add ``Oiio`` naming mode for parity checks vs. OIIO naming conventions.
-3. Add typed conversion helpers (int/float/rational/text/bytes).
-4. Add adapter modules (kept outside core decode path).
-5. Promote from draft after two stable iterations of API+tests.
+Status
+------
 
+Implemented in draft form:
+
+1. ``visit_metadata(...)`` with ``Canonical``, ``XmpPortable``, and ``Oiio``
+   name styles.
+2. ``include_makernotes`` policy switch in the shared export path.
+3. Draft adapters:
+   - ``collect_oiio_attributes(...)`` in ``openmeta/oiio_adapter.h``
+   - ``build_ocio_metadata_tree(...)`` in ``openmeta/ocio_adapter.h``
+4. Unit tests:
+   - ``tests/interop_export_test.cc``
+   - ``tests/oiio_adapter_test.cc``
+   - ``tests/ocio_adapter_test.cc``
+5. Python binding wrappers:
+   - ``Document.export_names(...)``
+   - ``Document.oiio_attributes(...)``
+   - ``Document.ocio_metadata_tree(...)``
+
+Still draft / planned follow-ups:
+
+- Expand typed conversion beyond text-form export for direct SDK bridging.
+- Add corpus parity automation over cached tool outputs for adapter names/values.
+- Review naming policy against real OIIO/OCIO integration points.

@@ -3,7 +3,10 @@
 #include "openmeta/container_payload.h"
 #include "openmeta/exif_tag_names.h"
 #include "openmeta/geotiff_key_names.h"
+#include "openmeta/interop_export.h"
 #include "openmeta/mapped_file.h"
+#include "openmeta/ocio_adapter.h"
+#include "openmeta/oiio_adapter.h"
 #include "openmeta/simple_meta.h"
 #include "openmeta/xmp_dump.h"
 
@@ -326,6 +329,91 @@ namespace {
         return out;
     }
 
+
+    class NameCollectSink final : public MetadataSink {
+    public:
+        explicit NameCollectSink(std::vector<std::string>* out) noexcept
+            : out_(out)
+        {
+        }
+
+        void on_item(const ExportItem& item) override
+        {
+            if (!out_) {
+                return;
+            }
+            out_->emplace_back(item.name.data(), item.name.size());
+        }
+
+    private:
+        std::vector<std::string>* out_ = nullptr;
+    };
+
+
+    static std::vector<std::string> export_names(const MetaStore& store,
+                                                 const ExportOptions& options)
+    {
+        std::vector<std::string> out;
+        NameCollectSink sink(&out);
+        visit_metadata(store, options, sink);
+        return out;
+    }
+
+
+    static nb::list oiio_attributes_to_python(const MetaStore& store,
+                                              uint32_t max_value_bytes,
+                                              bool include_makernotes,
+                                              bool include_empty)
+    {
+        OiioAdapterOptions opts;
+        opts.max_value_bytes                   = max_value_bytes;
+        opts.include_empty                     = include_empty;
+        opts.export_options.include_makernotes = include_makernotes;
+
+        std::vector<OiioAttribute> attrs;
+        collect_oiio_attributes(store, &attrs, opts);
+
+        nb::list out;
+        for (size_t i = 0; i < attrs.size(); ++i) {
+            out.append(nb::make_tuple(
+                nb::str(attrs[i].name.c_str(), attrs[i].name.size()),
+                nb::str(attrs[i].value.c_str(), attrs[i].value.size())));
+        }
+        return out;
+    }
+
+
+    static nb::dict ocio_node_to_python(const OcioMetadataNode& node)
+    {
+        nb::dict out;
+        out["name"]  = nb::str(node.name.c_str(), node.name.size());
+        out["value"] = nb::str(node.value.c_str(), node.value.size());
+        nb::list children;
+        for (size_t i = 0; i < node.children.size(); ++i) {
+            children.append(ocio_node_to_python(node.children[i]));
+        }
+        out["children"] = std::move(children);
+        return out;
+    }
+
+
+    static nb::dict ocio_tree_to_python(const MetaStore& store,
+                                        ExportNameStyle style,
+                                        uint32_t max_value_bytes,
+                                        bool include_makernotes,
+                                        bool include_empty)
+    {
+        OcioAdapterOptions opts;
+        opts.max_value_bytes                   = max_value_bytes;
+        opts.include_empty                     = include_empty;
+        opts.export_options.style              = style;
+        opts.export_options.include_makernotes = include_makernotes;
+
+        OcioMetadataNode root;
+        build_ocio_metadata_tree(store, &root, opts);
+        return ocio_node_to_python(root);
+    }
+
 }  // namespace
 
 struct PyDocument final {
@@ -639,6 +727,11 @@ NB_MODULE(_openmeta, m)
         .value("Utf16LE", TextEncoding::Utf16LE)
         .value("Utf16BE", TextEncoding::Utf16BE);
 
+    nb::enum_<ExportNameStyle>(m, "ExportNameStyle")
+        .value("Canonical", ExportNameStyle::Canonical)
+        .value("XmpPortable", ExportNameStyle::XmpPortable)
+        .value("Oiio", ExportNameStyle::Oiio);
+
     nb::enum_<XmpDumpStatus>(m, "XmpDumpStatus")
         .value("Ok", XmpDumpStatus::Ok)
         .value("OutputTruncated", XmpDumpStatus::OutputTruncated)
@@ -734,6 +827,38 @@ NB_MODULE(_openmeta, m)
                          return static_cast<uint32_t>(d.store.block_count());
                      })
         .def_prop_ro("blocks", [](const PyDocument& d) { return d.blocks; })
+        .def(
+            "export_names",
+            [](std::shared_ptr<PyDocument> d, ExportNameStyle style,
+               bool include_makernotes) {
+                ExportOptions options;
+                options.style              = style;
+                options.include_makernotes = include_makernotes;
+                return export_names(d->store, options);
+            },
+            "style"_a              = ExportNameStyle::Canonical,
+            "include_makernotes"_a = true)
+        .def(
+            "oiio_attributes",
+            [](std::shared_ptr<PyDocument> d, uint32_t max_value_bytes,
+               bool include_makernotes, bool include_empty) {
+                return oiio_attributes_to_python(d->store, max_value_bytes,
+                                                 include_makernotes,
+                                                 include_empty);
+            },
+            "max_value_bytes"_a = 1024U, "include_makernotes"_a = true,
+            "include_empty"_a = false)
+        .def(
+            "ocio_metadata_tree",
+            [](std::shared_ptr<PyDocument> d, ExportNameStyle style,
+               uint32_t max_value_bytes, bool include_makernotes,
+               bool include_empty) {
+                return ocio_tree_to_python(d->store, style, max_value_bytes,
+                                           include_makernotes, include_empty);
+            },
+            "style"_a           = ExportNameStyle::XmpPortable,
+            "max_value_bytes"_a = 1024U, "include_makernotes"_a = false,
+            "include_empty"_a = false)
         .def(
             "dump_xmp_lossless",
             [](std::shared_ptr<PyDocument> d, uint64_t max_output_bytes,
@@ -1100,6 +1225,17 @@ NB_MODULE(_openmeta, m)
         .def_prop_ro("wire_type_code",
                      [](const PyEntry& e) {
                          return e.doc->store.entry(e.id).origin.wire_type.code;
+                     })
+        .def_prop_ro("wire_type_name",
+                     [](const PyEntry& e) -> nb::object {
+                         const Entry& en = e.doc->store.entry(e.id);
+                         if (en.origin.wire_type_name.size == 0U) {
+                             return nb::none();
+                         }
+                         const std::string s
+                             = arena_string(e.doc->store.arena(),
+                                            en.origin.wire_type_name);
+                         return nb::str(s.c_str(), s.size());
                      })
         .def_prop_ro("wire_count",
                      [](const PyEntry& e) {

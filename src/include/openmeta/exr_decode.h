@@ -40,6 +40,9 @@ struct ExrDecodeOptions final {
     /// If true, decodes known scalar/vector EXR attribute types into typed values.
     /// Unknown and complex attribute types are always preserved as raw bytes.
     bool decode_known_types = true;
+    /// If true, preserves original EXR type name for unknown/custom attrs in
+    /// \ref Origin::wire_type_name.
+    bool preserve_unknown_type_name = true;
     ExrDecodeLimits limits;
 };
 

@@ -487,6 +487,43 @@ namespace {
         return "Unknown";
     }
 
+    static std::string_view exr_wire_type_name(uint16_t code) noexcept
+    {
+        switch (code) {
+        case 1: return "box2i";
+        case 2: return "box2f";
+        case 3: return "bytes";
+        case 4: return "chlist";
+        case 5: return "chromaticities";
+        case 6: return "compression";
+        case 7: return "double";
+        case 8: return "envmap";
+        case 9: return "float";
+        case 10: return "floatvector";
+        case 11: return "int";
+        case 12: return "keycode";
+        case 13: return "lineOrder";
+        case 14: return "m33f";
+        case 15: return "m33d";
+        case 16: return "m44f";
+        case 17: return "m44d";
+        case 18: return "preview";
+        case 19: return "rational";
+        case 20: return "string";
+        case 21: return "stringvector";
+        case 22: return "tiledesc";
+        case 23: return "timecode";
+        case 24: return "v2i";
+        case 25: return "v2f";
+        case 26: return "v2d";
+        case 27: return "v3i";
+        case 28: return "v3f";
+        case 29: return "v3d";
+        case 30: return "deepImageState";
+        default: return {};
+        }
+    }
+
 
     static void emit_open(SpanWriter* w, const char* indent,
                           std::string_view name) noexcept
@@ -1000,6 +1037,19 @@ dump_xmp_lossless(const MetaStore& store, std::span<std::byte> out,
                                  static_cast<uint64_t>(e.origin.wire_type.code));
                 emit_u64_element(&w, kIndent4, "omd:wireCount",
                                  static_cast<uint64_t>(e.origin.wire_count));
+                if (e.key.kind == MetaKeyKind::ExrAttribute) {
+                    std::string_view type_name;
+                    if (e.origin.wire_type_name.size > 0U) {
+                        type_name = arena_string(arena,
+                                                 e.origin.wire_type_name);
+                    } else {
+                        type_name = exr_wire_type_name(e.origin.wire_type.code);
+                    }
+                    if (!type_name.empty()) {
+                        emit_text_element(&w, kIndent4, "omd:exrTypeName",
+                                          type_name);
+                    }
+                }
             }
             if (options.include_flags) {
                 emit_u64_element(&w, kIndent4, "omd:flags",

@@ -100,6 +100,23 @@ namespace {
         return exr;
     }
 
+    static std::vector<std::byte> build_exr_single_part_unknown_type()
+    {
+        std::vector<std::byte> exr;
+        append_u32le(&exr, 20000630U);
+        append_u32le(&exr, 2U);
+
+        const std::array<std::byte, 5> payload {
+            std::byte { 1 }, std::byte { 2 }, std::byte { 3 }, std::byte { 4 },
+            std::byte { 5 }
+        };
+        append_attr_raw(&exr, "customA", "myVendorFoo",
+                        std::span<const std::byte>(payload.data(),
+                                                   payload.size()));
+        exr.push_back(std::byte { 0 });
+        return exr;
+    }
+
 
     static std::string_view arena_string(const MetaStore& store,
                                          ByteSpan span) noexcept
@@ -186,6 +203,45 @@ TEST(ExrDecode, ReportsLimitExceededForMaxAttributes)
                             store, EntryFlags::None, options);
     EXPECT_EQ(res.status, ExrDecodeStatus::LimitExceeded);
     EXPECT_EQ(res.entries_decoded, 1U);
+}
+
+TEST(ExrDecode, PreservesUnknownTypeNameByDefault)
+{
+    const std::vector<std::byte> exr = build_exr_single_part_unknown_type();
+
+    MetaStore store;
+    const ExrDecodeResult res
+        = decode_exr_header(std::span<const std::byte>(exr.data(), exr.size()),
+                            store);
+    ASSERT_EQ(res.status, ExrDecodeStatus::Ok);
+    ASSERT_EQ(res.entries_decoded, 1U);
+
+    store.finalize();
+    ASSERT_EQ(store.entries().size(), 1U);
+    const Entry& e = store.entry(0);
+    EXPECT_EQ(e.origin.wire_type.family, WireFamily::Other);
+    EXPECT_EQ(e.origin.wire_type.code, 31U);
+    ASSERT_GT(e.origin.wire_type_name.size, 0U);
+    EXPECT_EQ(arena_string(store, e.origin.wire_type_name), "myVendorFoo");
+}
+
+TEST(ExrDecode, CanDisableUnknownTypeNamePreservation)
+{
+    const std::vector<std::byte> exr = build_exr_single_part_unknown_type();
+
+    MetaStore store;
+    ExrDecodeOptions options;
+    options.preserve_unknown_type_name = false;
+    const ExrDecodeResult res
+        = decode_exr_header(std::span<const std::byte>(exr.data(), exr.size()),
+                            store, EntryFlags::None, options);
+    ASSERT_EQ(res.status, ExrDecodeStatus::Ok);
+
+    store.finalize();
+    ASSERT_EQ(store.entries().size(), 1U);
+    const Entry& e = store.entry(0);
+    EXPECT_EQ(e.origin.wire_type.code, 31U);
+    EXPECT_EQ(e.origin.wire_type_name.size, 0U);
 }
 
 

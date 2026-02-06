@@ -22,7 +22,7 @@ Keying is handled separately by `MetaKeyKind::ExrAttribute` with:
 For unknown/user-defined EXR attribute types, preserve:
 
 - raw payload bytes in `MetaValueKind::Bytes`
-- type string in side metadata (planned follow-up in decode path)
+- type string in `Origin::wire_type_name` (optional decode behavior)
 
 ## Canonical Mapping Table (Draft)
 

@@ -19,10 +19,9 @@ TEST(XmpDump, EmitsValidPacketAndKey)
     ASSERT_NE(block, kInvalidBlockId);
 
     Entry e;
-    e.key                   = make_exif_tag_key(store.arena(), "ifd0", 0x010F);
-    e.value                 = make_text(store.arena(), "Canon",
-                                        TextEncoding::Ascii);
-    e.origin.block          = block;
+    e.key          = make_exif_tag_key(store.arena(), "ifd0", 0x010F);
+    e.value        = make_text(store.arena(), "Canon", TextEncoding::Ascii);
+    e.origin.block = block;
     e.origin.order_in_block = 0;
     e.origin.wire_type      = WireType { WireFamily::Tiff, 2 /*ASCII*/ };
     e.origin.wire_count     = 5;
@@ -33,14 +32,16 @@ TEST(XmpDump, EmitsValidPacketAndKey)
     XmpDumpOptions opts;
     std::vector<std::byte> out(64);
 
-    XmpDumpResult r1 = dump_xmp_lossless(
-        store, std::span<std::byte>(out.data(), out.size()), opts);
+    XmpDumpResult r1
+        = dump_xmp_lossless(store, std::span<std::byte>(out.data(), out.size()),
+                            opts);
     ASSERT_EQ(r1.status, XmpDumpStatus::OutputTruncated);
     ASSERT_GT(r1.needed, out.size());
 
     out.resize(static_cast<size_t>(r1.needed));
-    const XmpDumpResult r2 = dump_xmp_lossless(
-        store, std::span<std::byte>(out.data(), out.size()), opts);
+    const XmpDumpResult r2
+        = dump_xmp_lossless(store, std::span<std::byte>(out.data(), out.size()),
+                            opts);
     ASSERT_EQ(r2.status, XmpDumpStatus::Ok);
     ASSERT_EQ(r2.entries, 1U);
     ASSERT_EQ(r2.written, r2.needed);
@@ -61,17 +62,16 @@ TEST(XmpDump, EmitsPortablePacketWithExifAndTiff)
     ASSERT_NE(block, kInvalidBlockId);
 
     Entry make;
-    make.key                   = make_exif_tag_key(store.arena(), "ifd0", 0x010F);
-    make.value                 = make_text(store.arena(), "Canon",
-                                           TextEncoding::Ascii);
-    make.origin.block          = block;
+    make.key          = make_exif_tag_key(store.arena(), "ifd0", 0x010F);
+    make.value        = make_text(store.arena(), "Canon", TextEncoding::Ascii);
+    make.origin.block = block;
     make.origin.order_in_block = 0;
     (void)store.add_entry(make);
 
     Entry exp;
-    exp.key                   = make_exif_tag_key(store.arena(), "exififd", 0x829A);
-    exp.value                 = make_urational(1, 1250);
-    exp.origin.block          = block;
+    exp.key          = make_exif_tag_key(store.arena(), "exififd", 0x829A);
+    exp.value        = make_urational(1, 1250);
+    exp.origin.block = block;
     exp.origin.order_in_block = 1;
     (void)store.add_entry(exp);
 
@@ -80,14 +80,16 @@ TEST(XmpDump, EmitsPortablePacketWithExifAndTiff)
     XmpPortableOptions opts;
     std::vector<std::byte> out(64);
 
-    XmpDumpResult r1 = dump_xmp_portable(
-        store, std::span<std::byte>(out.data(), out.size()), opts);
+    XmpDumpResult r1
+        = dump_xmp_portable(store, std::span<std::byte>(out.data(), out.size()),
+                            opts);
     ASSERT_EQ(r1.status, XmpDumpStatus::OutputTruncated);
     ASSERT_GT(r1.needed, out.size());
 
     out.resize(static_cast<size_t>(r1.needed));
-    const XmpDumpResult r2 = dump_xmp_portable(
-        store, std::span<std::byte>(out.data(), out.size()), opts);
+    const XmpDumpResult r2
+        = dump_xmp_portable(store, std::span<std::byte>(out.data(), out.size()),
+                            opts);
     ASSERT_EQ(r2.status, XmpDumpStatus::Ok);
     ASSERT_GE(r2.entries, 2U);
     ASSERT_EQ(r2.written, r2.needed);
@@ -98,6 +100,41 @@ TEST(XmpDump, EmitsPortablePacketWithExifAndTiff)
     EXPECT_NE(s.find("http://ns.adobe.com/tiff/1.0/"), std::string_view::npos);
     EXPECT_NE(s.find("<tiff:Make>Canon</tiff:Make>"), std::string_view::npos);
     EXPECT_NE(s.find("<exif:ExposureTime>1/1250</exif:ExposureTime>"),
+              std::string_view::npos);
+}
+
+TEST(XmpDump, EmitsExrTypeNameInLosslessDump)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, kInvalidBlockId);
+
+    Entry e;
+    e.key = make_exr_attribute_key(store.arena(), 0, "customA");
+    const std::array<std::byte, 3> raw { std::byte { 0xAA }, std::byte { 0xBB },
+                                         std::byte { 0xCC } };
+    e.value                 = make_bytes(store.arena(),
+                                         std::span<const std::byte>(raw.data(), raw.size()));
+    e.origin.block          = block;
+    e.origin.order_in_block = 0;
+    e.origin.wire_type      = WireType { WireFamily::Other, 31U };
+    e.origin.wire_count     = 3U;
+    e.origin.wire_type_name = store.arena().append_string("myVendorFoo");
+    (void)store.add_entry(e);
+
+    store.finalize();
+
+    XmpDumpOptions opts;
+    std::vector<std::byte> out(2048);
+    const XmpDumpResult r
+        = dump_xmp_lossless(store, std::span<std::byte>(out.data(), out.size()),
+                            opts);
+    ASSERT_EQ(r.status, XmpDumpStatus::Ok);
+
+    const std::string_view s(reinterpret_cast<const char*>(out.data()),
+                             static_cast<size_t>(r.written));
+    EXPECT_NE(s.find("exr:part:0:customA"), std::string_view::npos);
+    EXPECT_NE(s.find("<omd:exrTypeName>myVendorFoo</omd:exrTypeName>"),
               std::string_view::npos);
 }
 

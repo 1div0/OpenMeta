@@ -27,6 +27,21 @@ Internal helper conventions (used by vendor decoders):
 - ``ExifContext``: a small, decode-time cache for frequently accessed EXIF values.
 - MakerNote tag-name tables are generated from ``registry/exif/makernotes/*.jsonl`` and looked up via binary search (``exif_makernote_tag_names.cc``).
 
+Interop adapters (draft)
+------------------------
+
+- Core traversal API: ``src/include/openmeta/interop_export.h``
+- OIIO adapter (flat name/value): ``src/include/openmeta/oiio_adapter.h``
+- OCIO adapter (namespace tree): ``src/include/openmeta/ocio_adapter.h``
+
+These are still draft interfaces and may change between minor releases.
+
+Python binding entry points (draft):
+
+- ``Document.export_names(...)``
+- ``Document.oiio_attributes(...)``
+- ``Document.ocio_metadata_tree(...)``
+
 Optional dependencies
 ---------------------
 
