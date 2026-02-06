@@ -17,8 +17,7 @@ Keying is handled separately by `MetaKeyKind::ExrAttribute` with:
 
 - `Origin::wire_type.family = WireFamily::Other`
 - `Origin::wire_type.code = exr_attribute_type_t` numeric value
-- `Origin::wire_count` stores logical element count when meaningful, else byte
-  count for opaque payloads
+- `Origin::wire_count` stores raw attribute byte size (current implementation)
 
 For unknown/user-defined EXR attribute types, preserve:
 
@@ -32,8 +31,8 @@ For unknown/user-defined EXR attribute types, preserve:
 - `EXR_ATTR_DOUBLE` -> `Scalar + F64`
 - `EXR_ATTR_RATIONAL` -> `Scalar + SRational` (`num`, `denom`)
 - `EXR_ATTR_STRING` -> `Text + Utf8` (best effort, fallback `Unknown`)
-- `EXR_ATTR_STRING_VECTOR` -> `Array + Bytes` with packed UTF-8 strings
-  (temporary), planned structured helper API for element iteration
+- `EXR_ATTR_STRING_VECTOR` -> `Bytes` (current), planned structured helper API
+  for element iteration
 
 - `EXR_ATTR_V2I/V3I` -> `Array + I32` (count 2/3)
 - `EXR_ATTR_V2F/V3F` -> `Array + F32` (count 2/3)
@@ -48,9 +47,12 @@ For unknown/user-defined EXR attribute types, preserve:
 - Enum-like attrs (`compression`, `lineorder`, `envmap`, `deepImageState`) ->
   `Scalar + U8`
 
-- Struct/blob attrs (`chlist`, `preview`, `tiledesc`, `timecode`, `keycode`,
-  `bytes`, `opaque`) -> `Bytes` for lossless core storage; typed helper decode
-  APIs should be layered on top.
+- Struct/blob attrs (`chlist`, `preview`, `bytes`, `opaque`) -> `Bytes` for
+  lossless core storage; typed helper decode APIs should be layered on top.
+- Current decode additionally normalizes:
+  - `EXR_ATTR_TIMECODE` -> `Array + U32` (2 values)
+  - `EXR_ATTR_KEYCODE` -> `Array + I32` (7 values)
+  - `EXR_ATTR_TILEDESC` -> `Array + U8` (9 raw bytes)
 
 ## Rationale
 

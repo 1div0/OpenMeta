@@ -48,6 +48,18 @@ namespace {
     }
 
 
+    static const char* exr_status_name(ExrDecodeStatus status) noexcept
+    {
+        switch (status) {
+        case ExrDecodeStatus::Ok: return "ok";
+        case ExrDecodeStatus::Unsupported: return "unsupported";
+        case ExrDecodeStatus::Malformed: return "malformed";
+        case ExrDecodeStatus::LimitExceeded: return "limit_exceeded";
+        }
+        return "unknown";
+    }
+
+
     static const char* xmp_status_name(XmpDecodeStatus status) noexcept
     {
         switch (status) {
@@ -1007,6 +1019,22 @@ namespace {
             }
 
             switch (entry.key.kind) {
+            case MetaKeyKind::ExrAttribute: {
+                char buf[32];
+                std::snprintf(buf, sizeof(buf), "part:%u",
+                              static_cast<unsigned>(
+                                  entry.key.data.exr_attribute.part_index));
+                row.key_s = buf;
+                const std::string_view n
+                    = arena_string(store.arena(),
+                                   entry.key.data.exr_attribute.name);
+                const bool dangerous
+                    = append_console_escaped_ascii(n, max_bytes, &row.name_s);
+                if (dangerous) {
+                    row.name_s.insert(0, "(DANGEROUS) ");
+                }
+                break;
+            }
             case MetaKeyKind::IptcDataset: {
                 char buf[32];
                 std::snprintf(
@@ -1064,7 +1092,8 @@ namespace {
                               static_cast<unsigned>(
                                   entry.key.data.geotiff_key.key_id));
                 row.key_s  = buf;
-                row.name_s = geotiff_key_name(entry.key.data.geotiff_key.key_id);
+                row.name_s = geotiff_key_name(
+                    entry.key.data.geotiff_key.key_id);
                 if (row.name_s.empty()) {
                     row.name_s = "-";
                 }
@@ -1111,28 +1140,29 @@ namespace {
 
             if (entry.key.kind == MetaKeyKind::BmffField) {
                 const std::string_view field
-                    = arena_string(store.arena(), entry.key.data.bmff_field.field);
+                    = arena_string(store.arena(),
+                                   entry.key.data.bmff_field.field);
                 if (field == "ftyp.major_brand"
                     && entry.value.kind == MetaValueKind::Scalar
                     && entry.value.elem_type == MetaElementType::U32) {
-                    row.val_s = fourcc_string(static_cast<uint32_t>(
-                        entry.value.data.u64));
+                    row.val_s = fourcc_string(
+                        static_cast<uint32_t>(entry.value.data.u64));
                 } else if (field == "ftyp.compat_brands"
                            && entry.value.kind == MetaValueKind::Array
                            && entry.value.elem_type == MetaElementType::U32) {
                     row.val_s.clear();
-                    const std::span<const std::byte> raw
-                        = store.arena().span(entry.value.data.span);
-                    const uint32_t n = safe_array_count(store.arena(),
-                                                        entry.value);
-                    const uint32_t shown = (n < max_elements) ? n : max_elements;
+                    const std::span<const std::byte> raw = store.arena().span(
+                        entry.value.data.span);
+                    const uint32_t n     = safe_array_count(store.arena(),
+                                                            entry.value);
+                    const uint32_t shown = (n < max_elements) ? n
+                                                              : max_elements;
                     for (uint32_t j = 0; j < shown; ++j) {
                         if (j != 0) {
                             row.val_s.append(", ");
                         }
-                        uint32_t v = 0;
-                        const uint64_t off
-                            = static_cast<uint64_t>(j) * 4ULL;
+                        uint32_t v         = 0;
+                        const uint64_t off = static_cast<uint64_t>(j) * 4ULL;
                         if (off + 4ULL > raw.size()) {
                             break;
                         }
@@ -1432,12 +1462,12 @@ main(int argc, char** argv)
     bool show_build_info = true;
     bool xmp_sidecar     = false;
     ExifDecodeOptions exif_options;
-    exif_options.include_pointer_tags = true;
+    exif_options.include_pointer_tags       = true;
     exif_options.decode_embedded_containers = true;
-    uint32_t max_elements             = 16;
-    uint32_t max_bytes                = 256;
-    uint32_t max_cell_chars           = 32;
-    uint64_t max_file_bytes           = 512ULL * 1024ULL * 1024ULL;
+    uint32_t max_elements                   = 16;
+    uint32_t max_bytes                      = 256;
+    uint32_t max_cell_chars                 = 32;
+    uint64_t max_file_bytes                 = 512ULL * 1024ULL * 1024ULL;
 
     int first_path = 1;
     for (int i = 1; i < argc; ++i) {
@@ -1669,9 +1699,12 @@ main(int argc, char** argv)
 
         store.finalize();
         std::printf(
-            "exif=%s ifds_decoded=%u xmp=%s xmp_entries=%u entries=%zu blocks=%u\n",
+            "exif=%s ifds_decoded=%u exr=%s exr_parts=%u exr_entries=%u xmp=%s xmp_entries=%u entries=%zu blocks=%u\n",
             exif_status_name(read.exif.status),
             static_cast<unsigned>(read.exif.ifds_written),
+            exr_status_name(read.exr.status),
+            static_cast<unsigned>(read.exr.parts_decoded),
+            static_cast<unsigned>(read.exr.entries_decoded),
             xmp_status_name(read.xmp.status),
             static_cast<unsigned>(read.xmp.entries_decoded),
             store.entries().size(), static_cast<unsigned>(store.block_count()));
@@ -1687,6 +1720,10 @@ main(int argc, char** argv)
                     = arena_string(store.arena(), first.key.data.exif_tag.ifd);
                 print_exif_block_table(store, block, ifd, ids, max_elements,
                                        max_bytes, max_cell_chars);
+            } else if (first.key.kind == MetaKeyKind::ExrAttribute) {
+                print_generic_block_table(store, block, "exr", ids,
+                                          max_elements, max_bytes,
+                                          max_cell_chars);
             } else if (first.key.kind == MetaKeyKind::IccHeaderField
                        || first.key.kind == MetaKeyKind::IccTag) {
                 print_generic_block_table(store, block, "icc", ids,

@@ -350,8 +350,8 @@ read_document(const std::string& path, bool include_pointer_tags,
               bool decode_makernote, bool decompress, bool include_xmp_sidecar,
               uint64_t max_file_bytes)
 {
-    auto doc        = std::make_shared<PyDocument>();
-    doc->path       = path;
+    auto doc  = std::make_shared<PyDocument>();
+    doc->path = path;
 
     // Release the GIL while performing file I/O and metadata decoding so callers
     // (and internal comparison tools) can read in parallel from multiple Python
@@ -380,8 +380,8 @@ read_document(const std::string& path, bool include_pointer_tags,
     doc->payload_parts.resize(16384);
 
     ExifDecodeOptions exif_options;
-    exif_options.include_pointer_tags = include_pointer_tags;
-    exif_options.decode_makernote     = decode_makernote;
+    exif_options.include_pointer_tags       = include_pointer_tags;
+    exif_options.decode_makernote           = decode_makernote;
     exif_options.decode_embedded_containers = true;
 
     PayloadOptions payload_options;
@@ -533,6 +533,12 @@ NB_MODULE(_openmeta, m)
         .value("Malformed", ExifDecodeStatus::Malformed)
         .value("LimitExceeded", ExifDecodeStatus::LimitExceeded);
 
+    nb::enum_<ExrDecodeStatus>(m, "ExrDecodeStatus")
+        .value("Ok", ExrDecodeStatus::Ok)
+        .value("Unsupported", ExrDecodeStatus::Unsupported)
+        .value("Malformed", ExrDecodeStatus::Malformed)
+        .value("LimitExceeded", ExrDecodeStatus::LimitExceeded);
+
     nb::enum_<XmpDecodeStatus>(m, "XmpDecodeStatus")
         .value("Ok", XmpDecodeStatus::Ok)
         .value("OutputTruncated", XmpDecodeStatus::OutputTruncated)
@@ -588,6 +594,7 @@ NB_MODULE(_openmeta, m)
 
     nb::enum_<MetaKeyKind>(m, "MetaKeyKind")
         .value("ExifTag", MetaKeyKind::ExifTag)
+        .value("ExrAttribute", MetaKeyKind::ExrAttribute)
         .value("IptcDataset", MetaKeyKind::IptcDataset)
         .value("XmpProperty", MetaKeyKind::XmpProperty)
         .value("IccHeaderField", MetaKeyKind::IccHeaderField)
@@ -706,6 +713,18 @@ NB_MODULE(_openmeta, m)
                          return static_cast<uint32_t>(
                              d.result.exif.entries_decoded);
                      })
+        .def_prop_ro("exr_status",
+                     [](const PyDocument& d) { return d.result.exr.status; })
+        .def_prop_ro("exr_parts_decoded",
+                     [](const PyDocument& d) {
+                         return static_cast<uint32_t>(
+                             d.result.exr.parts_decoded);
+                     })
+        .def_prop_ro("exr_entries_decoded",
+                     [](const PyDocument& d) {
+                         return static_cast<uint32_t>(
+                             d.result.exr.entries_decoded);
+                     })
         .def_prop_ro("entry_count",
                      [](const PyDocument& d) {
                          return static_cast<uint64_t>(d.store.entries().size());
@@ -738,8 +757,7 @@ NB_MODULE(_openmeta, m)
                             std::span<std::byte>(out.data(), out.size()), opts);
                         if (res.status == XmpDumpStatus::OutputTruncated
                             && res.needed > out.size()) {
-                            if (res.needed
-                                > static_cast<uint64_t>(SIZE_MAX)) {
+                            if (res.needed > static_cast<uint64_t>(SIZE_MAX)) {
                                 throw std::runtime_error(
                                     "dump output too large");
                             }
@@ -768,10 +786,10 @@ NB_MODULE(_openmeta, m)
                bool include_existing_xmp) {
                 std::vector<std::byte> out(1024 * 1024);
                 XmpPortableOptions opts;
-                opts.limits.max_output_bytes  = max_output_bytes;
-                opts.limits.max_entries       = max_entries;
-                opts.include_exif             = include_exif;
-                opts.include_existing_xmp     = include_existing_xmp;
+                opts.limits.max_output_bytes = max_output_bytes;
+                opts.limits.max_entries      = max_entries;
+                opts.include_exif            = include_exif;
+                opts.include_existing_xmp    = include_existing_xmp;
 
                 XmpDumpResult res;
                 {
@@ -782,8 +800,7 @@ NB_MODULE(_openmeta, m)
                             std::span<std::byte>(out.data(), out.size()), opts);
                         if (res.status == XmpDumpStatus::OutputTruncated
                             && res.needed > out.size()) {
-                            if (res.needed
-                                > static_cast<uint64_t>(SIZE_MAX)) {
+                            if (res.needed > static_cast<uint64_t>(SIZE_MAX)) {
                                 throw std::runtime_error(
                                     "dump output too large");
                             }
@@ -867,6 +884,27 @@ NB_MODULE(_openmeta, m)
                 return out;
             },
             "ifd"_a, "tag"_a)
+        .def(
+            "find_exr",
+            [](std::shared_ptr<PyDocument> d, uint32_t part_index,
+               const std::string& name) {
+                MetaKeyView key;
+                key.kind                          = MetaKeyKind::ExrAttribute;
+                key.data.exr_attribute.part_index = part_index;
+                key.data.exr_attribute.name       = name;
+
+                const std::span<const EntryId> ids = d->store.find_all(key);
+                std::vector<PyEntry> out;
+                out.reserve(ids.size());
+                for (const EntryId id : ids) {
+                    PyEntry e;
+                    e.doc = d;
+                    e.id  = id;
+                    out.push_back(std::move(e));
+                }
+                return out;
+            },
+            "part_index"_a, "name"_a)
         .def("__getitem__", [](std::shared_ptr<PyDocument> d, int64_t index) {
             const size_t n = d->store.entries().size();
             int64_t i      = index;
@@ -905,6 +943,25 @@ NB_MODULE(_openmeta, m)
                              return nb::none();
                          }
                          return nb::int_(en.key.data.exif_tag.tag);
+                     })
+        .def_prop_ro("exr_part",
+                     [](const PyEntry& e) -> nb::object {
+                         const Entry& en = e.doc->store.entry(e.id);
+                         if (en.key.kind != MetaKeyKind::ExrAttribute) {
+                             return nb::none();
+                         }
+                         return nb::int_(en.key.data.exr_attribute.part_index);
+                     })
+        .def_prop_ro("exr_name",
+                     [](const PyEntry& e) -> nb::object {
+                         const Entry& en = e.doc->store.entry(e.id);
+                         if (en.key.kind != MetaKeyKind::ExrAttribute) {
+                             return nb::none();
+                         }
+                         const std::string s
+                             = arena_string(e.doc->store.arena(),
+                                            en.key.data.exr_attribute.name);
+                         return nb::str(s.c_str(), s.size());
                      })
         .def_prop_ro("geotiff_key_id",
                      [](const PyEntry& e) -> nb::object {
@@ -998,6 +1055,12 @@ NB_MODULE(_openmeta, m)
                              }
                              return nb::str(n.data(), n.size());
                          }
+                         if (en.key.kind == MetaKeyKind::ExrAttribute) {
+                             const std::string s
+                                 = arena_string(e.doc->store.arena(),
+                                                en.key.data.exr_attribute.name);
+                             return nb::str(s.c_str(), s.size());
+                         }
                          if (en.key.kind == MetaKeyKind::BmffField) {
                              const std::string s
                                  = arena_string(e.doc->store.arena(),
@@ -1065,6 +1128,16 @@ NB_MODULE(_openmeta, m)
                 std::snprintf(tag_buf, sizeof(tag_buf), "%04X",
                               static_cast<unsigned>(en.key.data.exif_tag.tag));
                 s.append(tag_buf);
+            } else if (en.key.kind == MetaKeyKind::ExrAttribute) {
+                s.append("part=");
+                s.append(std::to_string(static_cast<unsigned>(
+                    en.key.data.exr_attribute.part_index)));
+                s.append(", name=\"");
+                const std::string name
+                    = arena_string(e.doc->store.arena(),
+                                   en.key.data.exr_attribute.name);
+                append_console_escaped_ascii(name, 64, &s);
+                s.append("\"");
             } else {
                 s.append("kind=");
                 s.append(std::to_string(static_cast<unsigned>(en.key.kind)));

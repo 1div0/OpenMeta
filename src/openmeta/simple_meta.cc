@@ -4,6 +4,7 @@
 #include "crw_ciff_decode_internal.h"
 #include "exif_tiff_decode_internal.h"
 
+#include "openmeta/exr_decode.h"
 #include "openmeta/icc_decode.h"
 #include "openmeta/iptc_iim_decode.h"
 #include "openmeta/photoshop_irb_decode.h"
@@ -187,16 +188,15 @@ namespace {
                         "mk_dji", "thermalparams3", 0,
                         std::span<char>(scratch));
                 if (!ifd_name.empty()) {
-                    const uint16_t tags_out[4]
-                        = { 0x0004, 0x0006, 0x0008, 0x000a };
+                    const uint16_t tags_out[4] = { 0x0004, 0x0006, 0x0008,
+                                                   0x000a };
                     const MetaValue vals_out[4]
                         = { make_u16(rh_raw),
                             make_f32_bits(f32_bits_from_float(od)),
                             make_f32_bits(f32_bits_from_float(em)),
                             make_f32_bits(f32_bits_from_float(rt)) };
                     exif_internal::emit_bin_dir_entries(
-                        ifd_name, store,
-                        std::span<const uint16_t>(tags_out, 4),
+                        ifd_name, store, std::span<const uint16_t>(tags_out, 4),
                         std::span<const MetaValue>(vals_out, 4), limits,
                         status_out);
                     any = true;
@@ -220,17 +220,15 @@ namespace {
                 char scratch[64];
                 const std::string_view ifd_name
                     = exif_internal::make_mk_subtable_ifd_token(
-                        "mk_dji", "thermalparams", 0,
-                        std::span<char>(scratch));
+                        "mk_dji", "thermalparams", 0, std::span<char>(scratch));
                 if (!ifd_name.empty()) {
-                    const uint16_t tags_out[5]
-                        = { 0x0044, 0x0046, 0x0048, 0x004a, 0x004c };
-                    const MetaValue vals_out[5]
-                        = { make_u16(od), make_u16(rh), make_u16(em),
-                            make_u16(rf), make_u16(at) };
+                    const uint16_t tags_out[5]  = { 0x0044, 0x0046, 0x0048,
+                                                    0x004a, 0x004c };
+                    const MetaValue vals_out[5] = { make_u16(od), make_u16(rh),
+                                                    make_u16(em), make_u16(rf),
+                                                    make_u16(at) };
                     exif_internal::emit_bin_dir_entries(
-                        ifd_name, store,
-                        std::span<const uint16_t>(tags_out, 5),
+                        ifd_name, store, std::span<const uint16_t>(tags_out, 5),
                         std::span<const MetaValue>(vals_out, 5), limits,
                         status_out);
                     any = true;
@@ -283,14 +281,12 @@ namespace {
                 break;
             }
 
-            uint16_t tags_out[6] = { 0x0000, 0x0004, 0x0008, 0x000c, 0x0010,
-                                     0x0065 };
-            MetaValue vals_out[6] = { make_f32_bits(bits_at),
-                                      make_f32_bits(bits_od),
-                                      make_f32_bits(bits_em),
-                                      make_f32_bits(bits_rh),
-                                      make_f32_bits(bits_rt),
-                                      MetaValue {} };
+            uint16_t tags_out[6] = { 0x0000, 0x0004, 0x0008,
+                                     0x000c, 0x0010, 0x0065 };
+            MetaValue vals_out[6]
+                = { make_f32_bits(bits_at), make_f32_bits(bits_od),
+                    make_f32_bits(bits_em), make_f32_bits(bits_rh),
+                    make_f32_bits(bits_rt), MetaValue {} };
 
             if (base + 0x65U + 16U <= app4.size()) {
                 const std::span<const std::byte> raw
@@ -299,8 +295,9 @@ namespace {
                 while (n < raw.size() && raw[n] != std::byte { 0 }) {
                     n += 1;
                 }
-                const std::string_view s(
-                    reinterpret_cast<const char*>(raw.data()), n);
+                const std::string_view s(reinterpret_cast<const char*>(
+                                             raw.data()),
+                                         n);
                 vals_out[5] = make_text(store.arena(), s, TextEncoding::Ascii);
             }
 
@@ -524,6 +521,11 @@ simple_meta_read(std::span<const std::byte> file_bytes, MetaStore& store,
     xmp.status          = XmpDecodeStatus::Unsupported;
     xmp.entries_decoded = 0;
 
+    ExrDecodeResult exr;
+    exr.status          = ExrDecodeStatus::Unsupported;
+    exr.parts_decoded   = 0;
+    exr.entries_decoded = 0;
+
     uint32_t ifd_write_pos        = 0;
     uint32_t casio_qvci_index     = 0;
     bool any_exif                 = false;
@@ -678,7 +680,7 @@ simple_meta_read(std::span<const std::byte> file_bytes, MetaStore& store,
                 && entry_end > entry_start) {
                 // Phase 1: collect candidate blobs without mutating the arena.
                 std::array<ByteSpan, 8> candidates {};
-                uint32_t cand_count = 0;
+                uint32_t cand_count                  = 0;
                 const std::span<const Entry> entries = store.entries();
                 const size_t scan_end = (entry_end < entries.size())
                                             ? entry_end
@@ -708,8 +710,8 @@ simple_meta_read(std::span<const std::byte> file_bytes, MetaStore& store,
 
                 // Phase 2: copy + decode each embedded JPEG.
                 for (uint32_t ci = 0; ci < cand_count; ++ci) {
-                    const std::span<const std::byte> blob
-                        = store.arena().span(candidates[ci]);
+                    const std::span<const std::byte> blob = store.arena().span(
+                        candidates[ci]);
                     if (blob.size() < 2 || u8(blob[0]) != 0xFFU
                         || u8(blob[1]) != 0xD8U) {
                         continue;
@@ -721,12 +723,12 @@ simple_meta_read(std::span<const std::byte> file_bytes, MetaStore& store,
                     }
 
                     std::memcpy(payload.data(), blob.data(), blob.size());
-                    const std::span<const std::byte> jpeg_bytes(
-                        payload.data(), blob.size());
+                    const std::span<const std::byte> jpeg_bytes(payload.data(),
+                                                                blob.size());
 
                     std::array<ContainerBlockRef, 64> embed_blocks {};
-                    const ScanResult scan_embed
-                        = scan_jpeg(jpeg_bytes, embed_blocks);
+                    const ScanResult scan_embed = scan_jpeg(jpeg_bytes,
+                                                            embed_blocks);
                     if (scan_embed.status == ScanStatus::Malformed) {
                         merge_exif_status(&exif.status,
                                           ExifDecodeStatus::Malformed);
@@ -747,16 +749,16 @@ simple_meta_read(std::span<const std::byte> file_bytes, MetaStore& store,
                             continue;
                         }
                         if (b.data_offset > jpeg_bytes.size()
-                            || b.data_size > jpeg_bytes.size() - b.data_offset) {
+                            || b.data_size
+                                   > jpeg_bytes.size() - b.data_offset) {
                             merge_exif_status(&exif.status,
                                               ExifDecodeStatus::Malformed);
                             continue;
                         }
                         const std::span<const std::byte> inner
-                            = jpeg_bytes.subspan(static_cast<size_t>(
-                                                     b.data_offset),
-                                                 static_cast<size_t>(
-                                                     b.data_size));
+                            = jpeg_bytes.subspan(
+                                static_cast<size_t>(b.data_offset),
+                                static_cast<size_t>(b.data_size));
 
                         if (b.kind == ContainerBlockKind::Exif) {
                             any_exif = true;
@@ -780,8 +782,8 @@ simple_meta_read(std::span<const std::byte> file_bytes, MetaStore& store,
 
                             const uint32_t inner_room
                                 = (ifd_write_pos < out_ifds.size())
-                                      ? static_cast<uint32_t>(
-                                            out_ifds.size() - ifd_write_pos)
+                                      ? static_cast<uint32_t>(out_ifds.size()
+                                                              - ifd_write_pos)
                                       : 0U;
                             const uint32_t inner_advanced
                                 = (inner_res.ifds_written < inner_room)
@@ -790,9 +792,9 @@ simple_meta_read(std::span<const std::byte> file_bytes, MetaStore& store,
                             ifd_write_pos += inner_advanced;
                             exif.ifds_written = ifd_write_pos;
                         } else if (b.kind == ContainerBlockKind::Xmp) {
-                            any_xmp = true;
-                            const XmpDecodeResult xr
-                                = decode_xmp_packet(inner, store);
+                            any_xmp                  = true;
+                            const XmpDecodeResult xr = decode_xmp_packet(inner,
+                                                                         store);
                             merge_xmp_status(&xmp.status, xr.status);
                             xmp.entries_decoded += xr.entries_decoded;
                         }
@@ -963,7 +965,12 @@ simple_meta_read(std::span<const std::byte> file_bytes, MetaStore& store,
         xmp.status = XmpDecodeStatus::Unsupported;
     }
 
+    exr = decode_exr_header(file_bytes, store);
+
+    // If EXR decode succeeded, preserve "unsupported" EXIF/XMP statuses: EXR
+    // metadata is a separate key space and may be the only metadata in file.
     result.exif = exif;
+    result.exr  = exr;
     result.xmp  = xmp;
     return result;
 }

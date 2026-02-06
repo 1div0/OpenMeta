@@ -49,6 +49,7 @@ def main(argv: list[str]) -> int:
         print(f"scan={_snake(doc.scan_status.name)} blocks={len(doc.blocks)}")
         print(
             f"exif={_snake(doc.exif_status.name)} ifds_decoded={doc.exif_ifds_decoded} "
+            f"exr={_snake(doc.exr_status.name)} exr_parts={doc.exr_parts_decoded} exr_entries={doc.exr_entries_decoded} "
             f"xmp={_snake(doc.xmp_status.name)} xmp_entries={doc.xmp_entries_decoded} "
             f"entries={doc.entry_count} blocks={doc.block_count}"
         )

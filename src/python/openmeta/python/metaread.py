@@ -255,6 +255,7 @@ def main(argv: list[str]) -> int:
 
         print(
             f"exif={_snake(doc.exif_status.name)} ifds_decoded={doc.exif_ifds_decoded} "
+            f"exr={_snake(doc.exr_status.name)} exr_parts={doc.exr_parts_decoded} exr_entries={doc.exr_entries_decoded} "
             f"xmp={_snake(doc.xmp_status.name)} xmp_entries={doc.xmp_entries_decoded} "
             f"entries={doc.entry_count} blocks={doc.block_count}"
         )
@@ -353,6 +354,9 @@ def main(argv: list[str]) -> int:
                     name = _icc_header_field_name(int(e.icc_header_offset))
                 elif e.key_kind == openmeta.MetaKeyKind.IccTag:
                     key = _fourcc_str(int(e.icc_tag_signature))
+                elif e.key_kind == openmeta.MetaKeyKind.ExrAttribute:
+                    key = f"part:{int(e.exr_part)}"
+                    name = str(e.exr_name or "-")
 
                 raw, val = _format_value(e, max_elements=args.max_elements, max_bytes=args.max_bytes)
                 raw = _truncate_cell(raw, args.max_cell_chars)

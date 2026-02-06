@@ -1,0 +1,220 @@
+#include "openmeta/exr_decode.h"
+
+#include "openmeta/meta_key.h"
+#include "openmeta/simple_meta.h"
+
+#include <array>
+#include <bit>
+#include <cstdint>
+#include <string_view>
+#include <vector>
+
+#include <gtest/gtest.h>
+
+namespace openmeta {
+namespace {
+
+    static void append_u32le(std::vector<std::byte>* out, uint32_t v)
+    {
+        ASSERT_NE(out, nullptr);
+        out->push_back(std::byte { static_cast<uint8_t>(v & 0xFFU) });
+        out->push_back(std::byte { static_cast<uint8_t>((v >> 8) & 0xFFU) });
+        out->push_back(std::byte { static_cast<uint8_t>((v >> 16) & 0xFFU) });
+        out->push_back(std::byte { static_cast<uint8_t>((v >> 24) & 0xFFU) });
+    }
+
+
+    static void append_cstr(std::vector<std::byte>* out, std::string_view s)
+    {
+        ASSERT_NE(out, nullptr);
+        for (size_t i = 0; i < s.size(); ++i) {
+            out->push_back(std::byte { static_cast<uint8_t>(s[i]) });
+        }
+        out->push_back(std::byte { 0 });
+    }
+
+
+    static void append_attr_raw(std::vector<std::byte>* out,
+                                std::string_view name, std::string_view type,
+                                std::span<const std::byte> value)
+    {
+        append_cstr(out, name);
+        append_cstr(out, type);
+        append_u32le(out, static_cast<uint32_t>(value.size()));
+        for (size_t i = 0; i < value.size(); ++i) {
+            out->push_back(value[i]);
+        }
+    }
+
+
+    static void append_attr_text(std::vector<std::byte>* out,
+                                 std::string_view name, std::string_view type,
+                                 std::string_view value)
+    {
+        std::vector<std::byte> payload;
+        payload.reserve(value.size());
+        for (size_t i = 0; i < value.size(); ++i) {
+            payload.push_back(std::byte { static_cast<uint8_t>(value[i]) });
+        }
+        append_attr_raw(out, name, type,
+                        std::span<const std::byte>(payload.data(),
+                                                   payload.size()));
+    }
+
+
+    static std::vector<std::byte> build_exr_single_part()
+    {
+        std::vector<std::byte> exr;
+        append_u32le(&exr, 20000630U);
+        append_u32le(&exr, 2U);
+
+        append_attr_text(&exr, "owner", "string", "Vlad");
+
+        const uint32_t one_f32_bits = std::bit_cast<uint32_t>(1.0f);
+        std::array<std::byte, 4> f32_payload {
+            std::byte { static_cast<uint8_t>(one_f32_bits & 0xFFU) },
+            std::byte { static_cast<uint8_t>((one_f32_bits >> 8) & 0xFFU) },
+            std::byte { static_cast<uint8_t>((one_f32_bits >> 16) & 0xFFU) },
+            std::byte { static_cast<uint8_t>((one_f32_bits >> 24) & 0xFFU) },
+        };
+        append_attr_raw(&exr, "pixelAspectRatio", "float",
+                        std::span<const std::byte>(f32_payload.data(),
+                                                   f32_payload.size()));
+
+        exr.push_back(std::byte { 0 });
+        return exr;
+    }
+
+
+    static std::vector<std::byte> build_exr_multipart_two_names()
+    {
+        std::vector<std::byte> exr;
+        append_u32le(&exr, 20000630U);
+        append_u32le(&exr, 2U | 0x00001000U);
+
+        append_attr_text(&exr, "name", "string", "left");
+        exr.push_back(std::byte { 0 });
+        append_attr_text(&exr, "name", "string", "right");
+        exr.push_back(std::byte { 0 });
+        exr.push_back(std::byte { 0 });
+        return exr;
+    }
+
+
+    static std::string_view arena_string(const MetaStore& store,
+                                         ByteSpan span) noexcept
+    {
+        const std::span<const std::byte> bytes = store.arena().span(span);
+        return std::string_view(reinterpret_cast<const char*>(bytes.data()),
+                                bytes.size());
+    }
+
+}  // namespace
+
+
+TEST(ExrDecode, DecodesSinglePartHeaderAttributes)
+{
+    const std::vector<std::byte> exr = build_exr_single_part();
+
+    MetaStore store;
+    const ExrDecodeResult res
+        = decode_exr_header(std::span<const std::byte>(exr.data(), exr.size()),
+                            store);
+    EXPECT_EQ(res.status, ExrDecodeStatus::Ok);
+    EXPECT_EQ(res.parts_decoded, 1U);
+    EXPECT_EQ(res.entries_decoded, 2U);
+
+    store.finalize();
+    EXPECT_EQ(store.block_count(), 1U);
+    EXPECT_EQ(store.entries().size(), 2U);
+
+    MetaKeyView owner_key;
+    owner_key.kind                          = MetaKeyKind::ExrAttribute;
+    owner_key.data.exr_attribute.part_index = 0;
+    owner_key.data.exr_attribute.name       = "owner";
+    const std::span<const EntryId> ids      = store.find_all(owner_key);
+    ASSERT_EQ(ids.size(), 1U);
+
+    const Entry& owner = store.entry(ids[0]);
+    EXPECT_EQ(owner.origin.wire_type.family, WireFamily::Other);
+    EXPECT_EQ(owner.origin.wire_type.code, 20U);
+    EXPECT_EQ(owner.origin.wire_count, 4U);
+    ASSERT_EQ(owner.value.kind, MetaValueKind::Text);
+    EXPECT_EQ(arena_string(store, owner.value.data.span), "Vlad");
+}
+
+
+TEST(ExrDecode, DecodesMultipartHeaders)
+{
+    const std::vector<std::byte> exr = build_exr_multipart_two_names();
+
+    MetaStore store;
+    const ExrDecodeResult res
+        = decode_exr_header(std::span<const std::byte>(exr.data(), exr.size()),
+                            store);
+    EXPECT_EQ(res.status, ExrDecodeStatus::Ok);
+    EXPECT_EQ(res.parts_decoded, 2U);
+    EXPECT_EQ(res.entries_decoded, 2U);
+
+    store.finalize();
+    EXPECT_EQ(store.block_count(), 2U);
+
+    MetaKeyView p0;
+    p0.kind                          = MetaKeyKind::ExrAttribute;
+    p0.data.exr_attribute.part_index = 0;
+    p0.data.exr_attribute.name       = "name";
+    EXPECT_EQ(store.find_all(p0).size(), 1U);
+
+    MetaKeyView p1;
+    p1.kind                          = MetaKeyKind::ExrAttribute;
+    p1.data.exr_attribute.part_index = 1;
+    p1.data.exr_attribute.name       = "name";
+    EXPECT_EQ(store.find_all(p1).size(), 1U);
+}
+
+
+TEST(ExrDecode, ReportsLimitExceededForMaxAttributes)
+{
+    const std::vector<std::byte> exr = build_exr_single_part();
+
+    MetaStore store;
+    ExrDecodeOptions options;
+    options.limits.max_attributes = 1U;
+
+    const ExrDecodeResult res
+        = decode_exr_header(std::span<const std::byte>(exr.data(), exr.size()),
+                            store, EntryFlags::None, options);
+    EXPECT_EQ(res.status, ExrDecodeStatus::LimitExceeded);
+    EXPECT_EQ(res.entries_decoded, 1U);
+}
+
+
+TEST(SimpleMetaRead, DecodesExrHeaderFallback)
+{
+    const std::vector<std::byte> exr = build_exr_single_part();
+
+    std::array<ContainerBlockRef, 16> blocks {};
+    std::array<ExifIfdRef, 16> ifds {};
+    std::array<std::byte, 2048> payload {};
+    std::array<uint32_t, 64> payload_indices {};
+
+    MetaStore store;
+    const SimpleMetaResult read = simple_meta_read(
+        std::span<const std::byte>(exr.data(), exr.size()), store,
+        std::span<ContainerBlockRef>(blocks.data(), blocks.size()),
+        std::span<ExifIfdRef>(ifds.data(), ifds.size()),
+        std::span<std::byte>(payload.data(), payload.size()),
+        std::span<uint32_t>(payload_indices.data(), payload_indices.size()),
+        ExifDecodeOptions {}, PayloadOptions {});
+
+    EXPECT_EQ(read.exr.status, ExrDecodeStatus::Ok);
+    EXPECT_EQ(read.exr.parts_decoded, 1U);
+    EXPECT_EQ(read.exr.entries_decoded, 2U);
+    EXPECT_EQ(read.exif.status, ExifDecodeStatus::Unsupported);
+    EXPECT_EQ(read.xmp.status, XmpDecodeStatus::Unsupported);
+
+    store.finalize();
+    EXPECT_EQ(store.entries().size(), 2U);
+}
+
+}  // namespace openmeta
