@@ -27,7 +27,7 @@ This is early-stage. Expect breaking API changes.
     properties (`pitm`, `iprp/ipco ispe/irot/imir`, `ipma`).
 - CLI tools:
   - `metaread`: human-readable dump; output is sanitized.
-  - `metadump`: lossless OpenMeta dump as an XMP sidecar (private namespace).
+  - `metadump`: XMP sidecar generator (`--format lossless|portable`).
 - Security-first: explicit decode limits + fuzz targets; see `SECURITY.md`.
 
 ## Layout

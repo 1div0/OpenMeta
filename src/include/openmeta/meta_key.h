@@ -15,6 +15,7 @@ namespace openmeta {
 /// Namespace for different metadata key spaces.
 enum class MetaKeyKind : uint8_t {
     ExifTag,
+    ExrAttribute,
     IptcDataset,
     XmpProperty,
     IccHeaderField,
@@ -41,6 +42,11 @@ struct MetaKey final {
             ByteSpan ifd;
             uint16_t tag = 0;
         } exif_tag;
+
+        struct ExrAttribute final {
+            uint32_t part_index = 0;
+            ByteSpan name;
+        } exr_attribute;
 
         struct IptcDataset final {
             uint16_t record  = 0;
@@ -105,6 +111,11 @@ struct MetaKeyView final {
             uint16_t tag = 0;
         } exif_tag;
 
+        struct ExrAttribute final {
+            uint32_t part_index = 0;
+            std::string_view name;
+        } exr_attribute;
+
         struct IptcDataset final {
             uint16_t record  = 0;
             uint16_t dataset = 0;
@@ -157,6 +168,10 @@ struct MetaKeyView final {
 /// Creates a key for an EXIF/TIFF tag within a named IFD token (e.g. "ifd0", "exififd").
 MetaKey
 make_exif_tag_key(ByteArena& arena, std::string_view ifd, uint16_t tag);
+/// Creates a key for an OpenEXR attribute name in a specific part.
+MetaKey
+make_exr_attribute_key(ByteArena& arena, uint32_t part_index,
+                       std::string_view name);
 MetaKey
 make_iptc_dataset_key(uint16_t record, uint16_t dataset) noexcept;
 MetaKey

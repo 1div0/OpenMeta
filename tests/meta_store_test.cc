@@ -41,6 +41,54 @@ TEST(MetaStoreTest, SupportsDuplicateKeys)
 }
 
 
+TEST(MetaStoreTest, SupportsExrAttributeLookupByPartAndName)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+
+    Entry p0_owner;
+    p0_owner.key   = make_exr_attribute_key(store.arena(), 0, "owner");
+    p0_owner.value = make_text(store.arena(), "showA", TextEncoding::Utf8);
+    p0_owner.origin.block          = block;
+    p0_owner.origin.order_in_block = 0;
+    store.add_entry(p0_owner);
+
+    Entry p1_owner;
+    p1_owner.key   = make_exr_attribute_key(store.arena(), 1, "owner");
+    p1_owner.value = make_text(store.arena(), "showB", TextEncoding::Utf8);
+    p1_owner.origin.block          = block;
+    p1_owner.origin.order_in_block = 1;
+    store.add_entry(p1_owner);
+
+    Entry p0_owner_dup;
+    p0_owner_dup.key   = make_exr_attribute_key(store.arena(), 0, "owner");
+    p0_owner_dup.value = make_text(store.arena(), "showA-alt",
+                                   TextEncoding::Utf8);
+    p0_owner_dup.origin.block          = block;
+    p0_owner_dup.origin.order_in_block = 2;
+    store.add_entry(p0_owner_dup);
+
+    store.finalize();
+
+    MetaKeyView key_part0;
+    key_part0.kind                           = MetaKeyKind::ExrAttribute;
+    key_part0.data.exr_attribute.part_index  = 0;
+    key_part0.data.exr_attribute.name        = "owner";
+    const std::span<const EntryId> ids_part0 = store.find_all(key_part0);
+    ASSERT_EQ(ids_part0.size(), 2U);
+    EXPECT_EQ(ids_part0[0], 0U);
+    EXPECT_EQ(ids_part0[1], 2U);
+
+    MetaKeyView key_part1;
+    key_part1.kind                           = MetaKeyKind::ExrAttribute;
+    key_part1.data.exr_attribute.part_index  = 1;
+    key_part1.data.exr_attribute.name        = "owner";
+    const std::span<const EntryId> ids_part1 = store.find_all(key_part1);
+    ASSERT_EQ(ids_part1.size(), 1U);
+    EXPECT_EQ(ids_part1[0], 1U);
+}
+
+
 TEST(MetaStoreTest, TombstonesHideEntriesFromLookup)
 {
     MetaStore store;

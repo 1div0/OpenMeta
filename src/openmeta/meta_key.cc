@@ -38,6 +38,18 @@ make_exif_tag_key(ByteArena& arena, std::string_view ifd, uint16_t tag)
 
 
 MetaKey
+make_exr_attribute_key(ByteArena& arena, uint32_t part_index,
+                       std::string_view name)
+{
+    MetaKey key;
+    key.kind                          = MetaKeyKind::ExrAttribute;
+    key.data.exr_attribute.part_index = part_index;
+    key.data.exr_attribute.name       = arena.append_string(name);
+    return key;
+}
+
+
+MetaKey
 make_iptc_dataset_key(uint16_t record, uint16_t dataset) noexcept
 {
     MetaKey key;
@@ -162,6 +174,16 @@ compare_key(const ByteArena& arena, const MetaKey& a, const MetaKey& b) noexcept
         }
         return 0;
     }
+    case MetaKeyKind::ExrAttribute: {
+        if (a.data.exr_attribute.part_index < b.data.exr_attribute.part_index) {
+            return -1;
+        }
+        if (a.data.exr_attribute.part_index > b.data.exr_attribute.part_index) {
+            return 1;
+        }
+        return compare_bytes(arena.span(a.data.exr_attribute.name),
+                             arena.span(b.data.exr_attribute.name));
+    }
     case MetaKeyKind::IptcDataset: {
         if (a.data.iptc_dataset.record != b.data.iptc_dataset.record) {
             return (a.data.iptc_dataset.record < b.data.iptc_dataset.record)
@@ -261,6 +283,18 @@ compare_key_view(const ByteArena& arena, const MetaKeyView& a,
             return 1;
         }
         return 0;
+    }
+    case MetaKeyKind::ExrAttribute: {
+        if (a.data.exr_attribute.part_index < b.data.exr_attribute.part_index) {
+            return -1;
+        }
+        if (a.data.exr_attribute.part_index > b.data.exr_attribute.part_index) {
+            return 1;
+        }
+        const std::span<const std::byte> a_name(
+            reinterpret_cast<const std::byte*>(a.data.exr_attribute.name.data()),
+            a.data.exr_attribute.name.size());
+        return compare_bytes(a_name, arena.span(b.data.exr_attribute.name));
     }
     case MetaKeyKind::IptcDataset:
         if (a.data.iptc_dataset.record != b.data.iptc_dataset.record) {

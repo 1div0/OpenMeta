@@ -8,7 +8,7 @@
 
 /**
  * \file xmp_dump.h
- * \brief Lossless XMP sidecar dump of a decoded \ref MetaStore.
+ * \brief XMP sidecar generation for a decoded \ref MetaStore.
  */
 
 namespace openmeta {
@@ -39,6 +39,17 @@ struct XmpDumpOptions final {
     bool include_names  = true;
 };
 
+/// Options for \ref dump_xmp_portable.
+struct XmpPortableOptions final {
+    XmpDumpLimits limits;
+    /// Include TIFF/EXIF/GPS derived properties.
+    bool include_exif = true;
+    /// Include \ref MetaKeyKind::XmpProperty entries already present in the store.
+    ///
+    /// \note Currently only simple `property_path` values are emitted (no `/` nesting).
+    bool include_existing_xmp = false;
+};
+
 /// Dump result (size stats + how many entries were emitted).
 struct XmpDumpResult final {
     XmpDumpStatus status = XmpDumpStatus::Ok;
@@ -62,5 +73,19 @@ XmpDumpResult
 dump_xmp_lossless(const MetaStore& store, std::span<std::byte> out,
                   const XmpDumpOptions& options) noexcept;
 
-}  // namespace openmeta
+/**
+ * \brief Emits a portable XMP sidecar packet (standard XMP schemas).
+ *
+ * The output is safe-by-default:
+ * - XML reserved characters are escaped.
+ * - Invalid control bytes are emitted as deterministic ASCII escapes.
+ *
+ * This mode is intended for interoperability (e.g. XMP sidecars alongside RAW/JPEG files).
+ * It emits a best-effort mapping from decoded EXIF/TIFF/GPS fields to standard XMP
+ * properties (e.g. `tiff:Make`, `exif:ExposureTime`, `exif:GPSLatitude`).
+ */
+XmpDumpResult
+dump_xmp_portable(const MetaStore& store, std::span<std::byte> out,
+                  const XmpPortableOptions& options) noexcept;
 
+}  // namespace openmeta

@@ -29,6 +29,8 @@ def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(prog="metadump.py")
     ap.add_argument("files", nargs="+")
     ap.add_argument("--no-build-info", action="store_true", help="hide OpenMeta build info header")
+    ap.add_argument("--format", choices=["lossless", "portable"], default="lossless", help="XMP output format")
+    ap.add_argument("--portable", action="store_true", help="alias for --format portable")
     ap.add_argument("--out", type=str, default="", help="output path (single input only)")
     ap.add_argument("--out-dir", type=str, default="", help="output directory (multiple inputs)")
     ap.add_argument("--force", action="store_true", help="overwrite existing output files")
@@ -40,6 +42,9 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--max-output-bytes", type=int, default=0, help="refuse to generate dumps larger than N bytes (0=unlimited)")
     ap.add_argument("--max-entries", type=int, default=0, help="refuse to emit more than N entries (0=unlimited)")
     args = ap.parse_args(argv)
+
+    if args.portable:
+        args.format = "portable"
 
     if args.out and len(args.files) != 1:
         sys.stderr.write("error: --out requires exactly one input file\n")
@@ -69,10 +74,16 @@ def main(argv: list[str]) -> int:
             max_file_bytes=int(args.max_file_bytes),
         )
 
-        data, res = doc.dump_xmp_lossless(
-            max_output_bytes=int(args.max_output_bytes),
-            max_entries=int(args.max_entries),
-        )
+        if args.format == "portable":
+            data, res = doc.dump_xmp_portable(
+                max_output_bytes=int(args.max_output_bytes),
+                max_entries=int(args.max_entries),
+            )
+        else:
+            data, res = doc.dump_xmp_lossless(
+                max_output_bytes=int(args.max_output_bytes),
+                max_entries=int(args.max_entries),
+            )
 
         try:
             os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
@@ -90,4 +101,3 @@ def main(argv: list[str]) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main(sys.argv[1:]))
-

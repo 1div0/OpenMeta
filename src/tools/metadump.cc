@@ -4,6 +4,7 @@
 #include "openmeta/xmp_decode.h"
 #include "openmeta/xmp_dump.h"
 
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -19,12 +20,15 @@ namespace {
         std::printf(
             "Usage: %s [options] <file> [file...]\n"
             "\n"
-            "Writes a lossless OpenMeta XMP dump sidecar (private namespace) next to the input file.\n"
+            "Writes an OpenMeta-generated XMP sidecar next to the input file.\n"
             "\n"
             "Options:\n"
             "  --help                 Show this help\n"
             "  --version              Print OpenMeta build info\n"
             "  --no-build-info         Hide build info header\n"
+            "  --format <lossless|portable>\n"
+            "                         XMP output format (default: lossless)\n"
+            "  --portable             Alias for --format portable\n"
             "  --out <path>            Output path (single input only)\n"
             "  --out-dir <dir>         Output directory (for multiple inputs)\n"
             "  --force                 Overwrite existing output files\n"
@@ -227,9 +231,15 @@ int main(int argc, char** argv)
 {
     using namespace openmeta;
 
+    enum class DumpFormat : uint8_t {
+        Lossless,
+        Portable,
+    };
+
     bool show_build_info = true;
     bool xmp_sidecar     = false;
     bool force_overwrite = false;
+    DumpFormat format    = DumpFormat::Lossless;
     std::string out_path;
     std::string out_dir;
 
@@ -258,6 +268,29 @@ int main(int argc, char** argv)
         if (std::strcmp(arg, "--no-build-info") == 0) {
             show_build_info = false;
             first_path += 1;
+            continue;
+        }
+        if (std::strcmp(arg, "--portable") == 0) {
+            format = DumpFormat::Portable;
+            first_path += 1;
+            continue;
+        }
+        if (std::strcmp(arg, "--format") == 0 && i + 1 < argc) {
+            const char* v = argv[i + 1];
+            if (!v) {
+                std::fprintf(stderr, "invalid --format value\n");
+                return 2;
+            }
+            if (std::strcmp(v, "lossless") == 0) {
+                format = DumpFormat::Lossless;
+            } else if (std::strcmp(v, "portable") == 0) {
+                format = DumpFormat::Portable;
+            } else {
+                std::fprintf(stderr, "invalid --format value (expected lossless|portable)\n");
+                return 2;
+            }
+            i += 1;
+            first_path += 2;
             continue;
         }
         if (std::strcmp(arg, "--xmp-sidecar") == 0) {
@@ -426,16 +459,26 @@ int main(int argc, char** argv)
 
         store.finalize();
 
-        XmpDumpOptions dump_opts;
-        dump_opts.limits.max_output_bytes = max_output_bytes;
-        dump_opts.limits.max_entries      = max_entries;
+        XmpDumpOptions dump_lossless_opts;
+        dump_lossless_opts.limits.max_output_bytes = max_output_bytes;
+        dump_lossless_opts.limits.max_entries      = max_entries;
+
+        XmpPortableOptions dump_portable_opts;
+        dump_portable_opts.limits.max_output_bytes = max_output_bytes;
+        dump_portable_opts.limits.max_entries      = max_entries;
 
         std::vector<std::byte> out_buf(1024 * 1024);
         XmpDumpResult dump_res;
         for (;;) {
-            dump_res = dump_xmp_lossless(
-                store, std::span<std::byte>(out_buf.data(), out_buf.size()),
-                dump_opts);
+            if (format == DumpFormat::Portable) {
+                dump_res = dump_xmp_portable(
+                    store, std::span<std::byte>(out_buf.data(), out_buf.size()),
+                    dump_portable_opts);
+            } else {
+                dump_res = dump_xmp_lossless(
+                    store, std::span<std::byte>(out_buf.data(), out_buf.size()),
+                    dump_lossless_opts);
+            }
             if (dump_res.status == XmpDumpStatus::OutputTruncated
                 && dump_res.needed > out_buf.size()) {
                 if (dump_res.needed > static_cast<uint64_t>(SIZE_MAX)) {
@@ -475,4 +518,3 @@ int main(int argc, char** argv)
 
     return exit_code;
 }
-

@@ -6,6 +6,7 @@
 #include "openmeta/meta_value.h"
 
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -14,12 +15,19 @@
 namespace openmeta {
 namespace {
 
-    static constexpr std::string_view kXmpNsX
-        = "adobe:ns:meta/";
+    static constexpr std::string_view kXmpNsX = "adobe:ns:meta/";
     static constexpr std::string_view kXmpNsRdf
         = "http://www.w3.org/1999/02/22-rdf-syntax-ns#";
     static constexpr std::string_view kXmpNsOpenMetaDump
         = "urn:openmeta:dump:1.0";
+
+    static constexpr std::string_view kXmpNsXmp = "http://ns.adobe.com/xap/1.0/";
+    static constexpr std::string_view kXmpNsTiff
+        = "http://ns.adobe.com/tiff/1.0/";
+    static constexpr std::string_view kXmpNsExif
+        = "http://ns.adobe.com/exif/1.0/";
+    static constexpr std::string_view kXmpNsDc
+        = "http://purl.org/dc/elements/1.1/";
 
     static constexpr const char* kIndent1 = "  ";
     static constexpr const char* kIndent2 = "    ";
@@ -80,8 +88,8 @@ namespace {
                 return;
             }
 
-            const uint64_t cap = static_cast<uint64_t>(out.size());
-            const uint64_t w   = (written < cap) ? (cap - written) : 0U;
+            const uint64_t cap  = static_cast<uint64_t>(out.size());
+            const uint64_t w    = (written < cap) ? (cap - written) : 0U;
             const uint64_t take = (n < w) ? n : w;
             if (take > 0U) {
                 std::memcpy(out.data() + static_cast<size_t>(written), data,
@@ -97,6 +105,54 @@ namespace {
 
         void append_char(char c) noexcept { append_bytes(&c, 1U); }
     };
+
+    struct XmpNsDecl final {
+        std::string_view prefix;
+        std::string_view uri;
+    };
+
+    static void emit_xmp_packet_begin(SpanWriter* w,
+                                      std::span<const XmpNsDecl> decls) noexcept
+    {
+        if (!w) {
+            return;
+        }
+
+        w->append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
+        w->append("<x:xmpmeta xmlns:x=\"");
+        w->append(kXmpNsX);
+        w->append("\" x:xmptk=\"OpenMeta\">\n");
+        w->append(kIndent1);
+        w->append("<rdf:RDF xmlns:rdf=\"");
+        w->append(kXmpNsRdf);
+        w->append("\"");
+        for (size_t i = 0; i < decls.size(); ++i) {
+            const XmpNsDecl& d = decls[i];
+            if (d.prefix.empty() || d.uri.empty()) {
+                continue;
+            }
+            w->append(" xmlns:");
+            w->append(d.prefix);
+            w->append("=\"");
+            w->append(d.uri);
+            w->append("\"");
+        }
+        w->append(">\n");
+        w->append(kIndent2);
+        w->append("<rdf:Description rdf:about=\"\">\n");
+    }
+
+    static void emit_xmp_packet_end(SpanWriter* w) noexcept
+    {
+        if (!w) {
+            return;
+        }
+        w->append(kIndent2);
+        w->append("</rdf:Description>\n");
+        w->append(kIndent1);
+        w->append("</rdf:RDF>\n");
+        w->append("</x:xmpmeta>\n");
+    }
 
 
     static void append_u64_dec(uint64_t v, SpanWriter* w) noexcept
@@ -168,11 +224,58 @@ namespace {
         }
     }
 
+    static void append_xml_safe_utf8(std::string_view s, SpanWriter* w) noexcept
+    {
+        if (!w) {
+            return;
+        }
+
+        for (size_t i = 0; i < s.size(); ++i) {
+            const uint8_t c = static_cast<uint8_t>(s[i]);
+            if (c == static_cast<uint8_t>('&')) {
+                w->append("&amp;");
+                continue;
+            }
+            if (c == static_cast<uint8_t>('<')) {
+                w->append("&lt;");
+                continue;
+            }
+            if (c == static_cast<uint8_t>('>')) {
+                w->append("&gt;");
+                continue;
+            }
+            if (c == static_cast<uint8_t>('\"')) {
+                w->append("&quot;");
+                continue;
+            }
+            if (c == static_cast<uint8_t>('\'')) {
+                w->append("&apos;");
+                continue;
+            }
+
+            // XML 1.0 allows TAB/CR/LF and 0x20..; escape other control bytes.
+            if (c == 0x09U || c == 0x0AU || c == 0x0DU
+                || (c >= 0x20U && c != 0x7FU)) {
+                w->append_char(static_cast<char>(c));
+                continue;
+            }
+
+            char buf[5];
+            static constexpr char hex[] = "0123456789ABCDEF";
+            buf[0]                      = '\\';
+            buf[1]                      = 'x';
+            buf[2]                      = hex[(c >> 4) & 0x0F];
+            buf[3]                      = hex[(c >> 0) & 0x0F];
+            buf[4]                      = '\0';
+            w->append(buf);
+        }
+    }
+
 
     struct Base64Encoder final {
-        SpanWriter* w      = nullptr;
-        uint8_t buf[3]     = { 0, 0, 0 };
-        uint32_t buffered  = 0;
+        SpanWriter* w     = nullptr;
+        uint8_t buf[3]    = { 0, 0, 0 };
+        uint32_t buffered = 0;
 
         explicit Base64Encoder(SpanWriter* writer) noexcept
             : w(writer)
@@ -302,12 +405,12 @@ namespace {
             return value.count;
         }
         const std::span<const std::byte> raw = arena.span(value.data.span);
-        const uint32_t elem_size             = meta_element_size(value.elem_type);
+        const uint32_t elem_size = meta_element_size(value.elem_type);
         if (elem_size == 0U) {
             return 0U;
         }
-        const uint32_t available
-            = static_cast<uint32_t>(raw.size() / elem_size);
+        const uint32_t available = static_cast<uint32_t>(raw.size()
+                                                         / elem_size);
         return (value.count < available) ? value.count : available;
     }
 
@@ -316,6 +419,7 @@ namespace {
     {
         switch (k) {
         case MetaKeyKind::ExifTag: return "ExifTag";
+        case MetaKeyKind::ExrAttribute: return "ExrAttribute";
         case MetaKeyKind::IptcDataset: return "IptcDataset";
         case MetaKeyKind::XmpProperty: return "XmpProperty";
         case MetaKeyKind::IccHeaderField: return "IccHeaderField";
@@ -405,8 +509,7 @@ namespace {
     }
 
     static void emit_u64_element(SpanWriter* w, const char* indent,
-                                 std::string_view name,
-                                 uint64_t value) noexcept
+                                 std::string_view name, uint64_t value) noexcept
     {
         emit_open(w, indent, name);
         append_u64_dec(value, w);
@@ -454,8 +557,8 @@ namespace {
                 return;
             }
             case MetaElementType::I8: {
-                const uint8_t x = static_cast<uint8_t>(static_cast<int8_t>(
-                    v.data.i64));
+                const uint8_t x = static_cast<uint8_t>(
+                    static_cast<int8_t>(v.data.i64));
                 if (out_bytes) {
                     *out_bytes = 1;
                 }
@@ -583,7 +686,7 @@ namespace {
         if (v.kind == MetaValueKind::Array) {
             const std::span<const std::byte> raw = arena.span(v.data.span);
             const uint32_t n                     = safe_array_count(arena, v);
-            const uint32_t elem_size             = meta_element_size(v.elem_type);
+            const uint32_t elem_size = meta_element_size(v.elem_type);
             if (elem_size == 0U || n == 0U) {
                 return;
             }
@@ -598,16 +701,15 @@ namespace {
                 return;
             }
 
-            const uint64_t take_bytes
-                = static_cast<uint64_t>(n) * elem_size;
+            const uint64_t take_bytes = static_cast<uint64_t>(n) * elem_size;
             if (take_bytes > raw.size()) {
                 return;
             }
 
             for (uint32_t i = 0; i < n; ++i) {
                 const size_t off = static_cast<size_t>(i) * elem_size;
-                const std::span<const std::byte> elem
-                    = raw.subspan(off, elem_size);
+                const std::span<const std::byte> elem = raw.subspan(off,
+                                                                    elem_size);
 
                 if (v.elem_type == MetaElementType::U16) {
                     uint16_t x = 0;
@@ -695,7 +797,8 @@ namespace {
         w->append("<omd:key>");
         switch (e.key.kind) {
         case MetaKeyKind::ExifTag: {
-            const std::string_view ifd = arena_string(arena, e.key.data.exif_tag.ifd);
+            const std::string_view ifd = arena_string(arena,
+                                                      e.key.data.exif_tag.ifd);
             w->append("exif:");
             append_xml_safe_ascii(ifd, w);
             w->append(":");
@@ -703,6 +806,15 @@ namespace {
             std::snprintf(buf, sizeof(buf), "0x%04X",
                           static_cast<unsigned>(e.key.data.exif_tag.tag));
             w->append(buf);
+            break;
+        }
+        case MetaKeyKind::ExrAttribute: {
+            const std::string_view name
+                = arena_string(arena, e.key.data.exr_attribute.name);
+            w->append("exr:part:");
+            append_u64_dec(e.key.data.exr_attribute.part_index, w);
+            w->append(":");
+            append_xml_safe_ascii(name, w);
             break;
         }
         case MetaKeyKind::IptcDataset: {
@@ -771,23 +883,34 @@ namespace {
         w->append("</omd:key>\n");
 
         if (e.key.kind == MetaKeyKind::ExifTag) {
-            const std::string_view ifd = arena_string(arena, e.key.data.exif_tag.ifd);
+            const std::string_view ifd = arena_string(arena,
+                                                      e.key.data.exif_tag.ifd);
             emit_text_element(w, kIndent4, "omd:ifd", ifd);
             w->append(kIndent4);
             w->append("<omd:tag>");
             append_u16_hex(e.key.data.exif_tag.tag, w);
             w->append("</omd:tag>\n");
             if (options.include_names) {
-                const std::string_view n = exif_tag_name(ifd, e.key.data.exif_tag.tag);
+                const std::string_view n
+                    = exif_tag_name(ifd, e.key.data.exif_tag.tag);
                 if (!n.empty()) {
                     emit_text_element(w, kIndent4, "omd:tagName", n);
                 }
             }
-        } else if (e.key.kind == MetaKeyKind::GeotiffKey && options.include_names) {
-            const std::string_view n = geotiff_key_name(e.key.data.geotiff_key.key_id);
+        } else if (e.key.kind == MetaKeyKind::GeotiffKey
+                   && options.include_names) {
+            const std::string_view n = geotiff_key_name(
+                e.key.data.geotiff_key.key_id);
             if (!n.empty()) {
                 emit_text_element(w, kIndent4, "omd:tagName", n);
             }
+        } else if (e.key.kind == MetaKeyKind::ExrAttribute) {
+            emit_u64_element(w, kIndent4, "omd:part",
+                             static_cast<uint64_t>(
+                                 e.key.data.exr_attribute.part_index));
+            const std::string_view name
+                = arena_string(arena, e.key.data.exr_attribute.name);
+            emit_text_element(w, kIndent4, "omd:attrName", name);
         }
     }
 
@@ -802,18 +925,11 @@ dump_xmp_lossless(const MetaStore& store, std::span<std::byte> out,
 
     SpanWriter w(out, options.limits.max_output_bytes);
 
-    w.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
-    w.append("<x:xmpmeta xmlns:x=\"");
-    w.append(kXmpNsX);
-    w.append("\" x:xmptk=\"OpenMeta\">\n");
-    w.append(kIndent1);
-    w.append("<rdf:RDF xmlns:rdf=\"");
-    w.append(kXmpNsRdf);
-    w.append("\" xmlns:omd=\"");
-    w.append(kXmpNsOpenMetaDump);
-    w.append("\">\n");
-    w.append(kIndent2);
-    w.append("<rdf:Description rdf:about=\"\">\n");
+    static constexpr std::array<XmpNsDecl, 1> kDecls = {
+        XmpNsDecl { "omd", kXmpNsOpenMetaDump },
+    };
+    emit_xmp_packet_begin(&w, std::span<const XmpNsDecl>(kDecls.data(),
+                                                         kDecls.size()));
 
     emit_u64_element(&w, kIndent3, "omd:formatVersion", 1);
     emit_u64_element(&w, kIndent3, "omd:blockCount",
@@ -910,15 +1026,495 @@ dump_xmp_lossless(const MetaStore& store, std::span<std::byte> out,
     w.append("</omd:entries>\n");
     emit_u64_element(&w, kIndent3, "omd:entriesWritten",
                      static_cast<uint64_t>(emitted));
-
-    w.append(kIndent2);
-    w.append("</rdf:Description>\n");
-    w.append(kIndent1);
-    w.append("</rdf:RDF>\n");
-    w.append("</x:xmpmeta>\n");
+    emit_xmp_packet_end(&w);
 
     r.entries = emitted;
 
+    if (w.limit_hit) {
+        r.status = XmpDumpStatus::LimitExceeded;
+    } else if (w.needed > static_cast<uint64_t>(out.size())) {
+        r.status = XmpDumpStatus::OutputTruncated;
+    } else {
+        r.status = XmpDumpStatus::Ok;
+    }
+
+    r.written = (w.written < w.needed) ? w.written : w.needed;
+    r.needed  = w.needed;
+    return r;
+}
+
+
+namespace {
+
+    static bool is_simple_xmp_property_name(std::string_view s) noexcept
+    {
+        if (s.empty()) {
+            return false;
+        }
+        if (s.find('/') != std::string_view::npos) {
+            return false;
+        }
+        if (s.find('[') != std::string_view::npos
+            || s.find(']') != std::string_view::npos) {
+            return false;
+        }
+        for (size_t i = 0; i < s.size(); ++i) {
+            const char c  = s[i];
+            const bool ok = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')
+                            || (c >= '0' && c <= '9') || c == '_' || c == '-';
+            if (!ok) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+
+    static bool is_makernote_ifd(std::string_view ifd) noexcept
+    {
+        return ifd.starts_with("mk_");
+    }
+
+
+    static bool ifd_to_portable_prefix(std::string_view ifd,
+                                       std::string_view* out_prefix) noexcept
+    {
+        if (!out_prefix) {
+            return false;
+        }
+        *out_prefix = {};
+
+        if (ifd.empty() || is_makernote_ifd(ifd)) {
+            return false;
+        }
+        if (ifd == "exififd" || ifd.ends_with("_exififd")) {
+            *out_prefix = "exif";
+            return true;
+        }
+        if (ifd == "gpsifd" || ifd.ends_with("_gpsifd")) {
+            *out_prefix = "exif";
+            return true;
+        }
+        if (ifd == "interopifd" || ifd.ends_with("_interopifd")) {
+            *out_prefix = "exif";
+            return true;
+        }
+        if (ifd.starts_with("ifd") || ifd.starts_with("subifd")
+            || ifd.starts_with("mkifd") || ifd.starts_with("mk_subifd")) {
+            *out_prefix = "tiff";
+            return true;
+        }
+        return false;
+    }
+
+
+    static bool bytes_are_ascii_text(std::span<const std::byte> raw) noexcept
+    {
+        for (size_t i = 0; i < raw.size(); ++i) {
+            const uint8_t c = static_cast<uint8_t>(raw[i]);
+            if (c == 0U) {
+                return false;
+            }
+            if (c < 0x20U || c > 0x7EU) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+
+    static void append_i64_dec(int64_t v, SpanWriter* w) noexcept
+    {
+        if (!w) {
+            return;
+        }
+        char buf[32];
+        std::snprintf(buf, sizeof(buf), "%lld", static_cast<long long>(v));
+        w->append(buf);
+    }
+
+
+    static void append_f64_dec(double v, SpanWriter* w) noexcept
+    {
+        if (!w) {
+            return;
+        }
+        if (!std::isfinite(v)) {
+            w->append("0");
+            return;
+        }
+        char buf[64];
+        std::snprintf(buf, sizeof(buf), "%.17g", v);
+        w->append(buf);
+    }
+
+
+    static void append_rational_text(const URational& r, SpanWriter* w) noexcept
+    {
+        if (!w) {
+            return;
+        }
+        char buf[64];
+        std::snprintf(buf, sizeof(buf), "%u/%u", static_cast<unsigned>(r.numer),
+                      static_cast<unsigned>(r.denom));
+        w->append(buf);
+    }
+
+
+    static void append_rational_text(const SRational& r, SpanWriter* w) noexcept
+    {
+        if (!w) {
+            return;
+        }
+        char buf[64];
+        std::snprintf(buf, sizeof(buf), "%d/%d", static_cast<int>(r.numer),
+                      static_cast<int>(r.denom));
+        w->append(buf);
+    }
+
+
+    static void emit_portable_scalar_text(const MetaValue& v,
+                                          SpanWriter* w) noexcept
+    {
+        if (!w) {
+            return;
+        }
+
+        switch (v.elem_type) {
+        case MetaElementType::U8:
+        case MetaElementType::U16:
+        case MetaElementType::U32:
+        case MetaElementType::U64: append_u64_dec(v.data.u64, w); return;
+        case MetaElementType::I8:
+        case MetaElementType::I16:
+        case MetaElementType::I32:
+        case MetaElementType::I64: append_i64_dec(v.data.i64, w); return;
+        case MetaElementType::F32: {
+            float f = 0.0f;
+            std::memcpy(&f, &v.data.f32_bits, sizeof(f));
+            append_f64_dec(static_cast<double>(f), w);
+            return;
+        }
+        case MetaElementType::F64: {
+            double d = 0.0;
+            std::memcpy(&d, &v.data.f64_bits, sizeof(d));
+            append_f64_dec(d, w);
+            return;
+        }
+        case MetaElementType::URational:
+            append_rational_text(v.data.ur, w);
+            return;
+        case MetaElementType::SRational:
+            append_rational_text(v.data.sr, w);
+            return;
+        }
+    }
+
+
+    static bool emit_portable_value_inline(const ByteArena& arena,
+                                           const MetaValue& v,
+                                           SpanWriter* w) noexcept
+    {
+        if (!w) {
+            return false;
+        }
+
+        switch (v.kind) {
+        case MetaValueKind::Empty: return false;
+        case MetaValueKind::Text: {
+            const std::string_view s = arena_string(arena, v.data.span);
+            if (v.text_encoding == TextEncoding::Utf8) {
+                append_xml_safe_utf8(s, w);
+            } else {
+                append_xml_safe_ascii(s, w);
+            }
+            return true;
+        }
+        case MetaValueKind::Bytes: {
+            const std::span<const std::byte> raw = arena.span(v.data.span);
+            if (!bytes_are_ascii_text(raw)) {
+                return false;
+            }
+            const std::string_view s(reinterpret_cast<const char*>(raw.data()),
+                                     raw.size());
+            append_xml_safe_ascii(s, w);
+            return true;
+        }
+        case MetaValueKind::Scalar:
+            emit_portable_scalar_text(v, w);
+            return true;
+        case MetaValueKind::Array: return false;
+        }
+        return false;
+    }
+
+
+    static void emit_portable_array_as_seq(const ByteArena& arena,
+                                           const MetaValue& v,
+                                           SpanWriter* w) noexcept
+    {
+        if (!w) {
+            return;
+        }
+
+        const std::span<const std::byte> raw = arena.span(v.data.span);
+        const uint32_t elem_size             = meta_element_size(v.elem_type);
+        if (elem_size == 0U) {
+            return;
+        }
+        const uint32_t count = safe_array_count(arena, v);
+        if (count == 0U) {
+            return;
+        }
+
+        w->append(kIndent4);
+        w->append("<rdf:Seq>\n");
+        for (uint32_t i = 0; i < count; ++i) {
+            const size_t off = static_cast<size_t>(i) * elem_size;
+            if (off + elem_size > raw.size()) {
+                break;
+            }
+            w->append(kIndent4);
+            w->append(kIndent1);
+            w->append("<rdf:li>");
+
+            switch (v.elem_type) {
+            case MetaElementType::U8: {
+                const uint8_t x = static_cast<uint8_t>(raw[off]);
+                append_u64_dec(x, w);
+                break;
+            }
+            case MetaElementType::I8: {
+                const int8_t x = static_cast<int8_t>(
+                    static_cast<uint8_t>(raw[off]));
+                append_i64_dec(x, w);
+                break;
+            }
+            case MetaElementType::U16: {
+                uint16_t x = 0;
+                std::memcpy(&x, raw.data() + off, sizeof(x));
+                append_u64_dec(x, w);
+                break;
+            }
+            case MetaElementType::I16: {
+                int16_t x = 0;
+                std::memcpy(&x, raw.data() + off, sizeof(x));
+                append_i64_dec(x, w);
+                break;
+            }
+            case MetaElementType::U32: {
+                uint32_t x = 0;
+                std::memcpy(&x, raw.data() + off, sizeof(x));
+                append_u64_dec(x, w);
+                break;
+            }
+            case MetaElementType::I32: {
+                int32_t x = 0;
+                std::memcpy(&x, raw.data() + off, sizeof(x));
+                append_i64_dec(x, w);
+                break;
+            }
+            case MetaElementType::U64: {
+                uint64_t x = 0;
+                std::memcpy(&x, raw.data() + off, sizeof(x));
+                append_u64_dec(x, w);
+                break;
+            }
+            case MetaElementType::I64: {
+                int64_t x = 0;
+                std::memcpy(&x, raw.data() + off, sizeof(x));
+                append_i64_dec(x, w);
+                break;
+            }
+            case MetaElementType::F32: {
+                uint32_t bits = 0;
+                std::memcpy(&bits, raw.data() + off, sizeof(bits));
+                float f = 0.0f;
+                std::memcpy(&f, &bits, sizeof(f));
+                append_f64_dec(static_cast<double>(f), w);
+                break;
+            }
+            case MetaElementType::F64: {
+                uint64_t bits = 0;
+                std::memcpy(&bits, raw.data() + off, sizeof(bits));
+                double d = 0.0;
+                std::memcpy(&d, &bits, sizeof(d));
+                append_f64_dec(d, w);
+                break;
+            }
+            case MetaElementType::URational: {
+                URational r;
+                std::memcpy(&r, raw.data() + off, sizeof(r));
+                append_rational_text(r, w);
+                break;
+            }
+            case MetaElementType::SRational: {
+                SRational r;
+                std::memcpy(&r, raw.data() + off, sizeof(r));
+                append_rational_text(r, w);
+                break;
+            }
+            }
+
+            w->append("</rdf:li>\n");
+        }
+        w->append(kIndent4);
+        w->append("</rdf:Seq>\n");
+    }
+
+
+    static void emit_portable_property(SpanWriter* w, std::string_view prefix,
+                                       std::string_view name,
+                                       const ByteArena& arena,
+                                       const MetaValue& v) noexcept
+    {
+        if (!w) {
+            return;
+        }
+        if (prefix.empty() || name.empty()) {
+            return;
+        }
+        if (!is_simple_xmp_property_name(name)) {
+            return;
+        }
+
+        if (v.kind == MetaValueKind::Array) {
+            w->append(kIndent3);
+            w->append("<");
+            w->append(prefix);
+            w->append(":");
+            w->append(name);
+            w->append(">\n");
+
+            emit_portable_array_as_seq(arena, v, w);
+
+            w->append(kIndent3);
+            w->append("</");
+            w->append(prefix);
+            w->append(":");
+            w->append(name);
+            w->append(">\n");
+            return;
+        }
+
+        // Skip bytes that can't be represented safely as portable XMP text.
+        if (v.kind == MetaValueKind::Bytes) {
+            const std::span<const std::byte> raw = arena.span(v.data.span);
+            if (!bytes_are_ascii_text(raw)) {
+                return;
+            }
+        }
+        if (v.kind != MetaValueKind::Text && v.kind != MetaValueKind::Bytes
+            && v.kind != MetaValueKind::Scalar) {
+            return;
+        }
+
+        w->append(kIndent3);
+        w->append("<");
+        w->append(prefix);
+        w->append(":");
+        w->append(name);
+        w->append(">");
+        (void)emit_portable_value_inline(arena, v, w);
+        w->append("</");
+        w->append(prefix);
+        w->append(":");
+        w->append(name);
+        w->append(">\n");
+    }
+
+}  // namespace
+
+
+XmpDumpResult
+dump_xmp_portable(const MetaStore& store, std::span<std::byte> out,
+                  const XmpPortableOptions& options) noexcept
+{
+    XmpDumpResult r;
+    SpanWriter w(out, options.limits.max_output_bytes);
+
+    static constexpr std::array<XmpNsDecl, 4> kDecls = {
+        XmpNsDecl { "xmp", kXmpNsXmp },
+        XmpNsDecl { "tiff", kXmpNsTiff },
+        XmpNsDecl { "exif", kXmpNsExif },
+        XmpNsDecl { "dc", kXmpNsDc },
+    };
+    emit_xmp_packet_begin(&w, std::span<const XmpNsDecl>(kDecls.data(),
+                                                         kDecls.size()));
+
+    const ByteArena& arena          = store.arena();
+    const std::span<const Entry> es = store.entries();
+
+    uint32_t emitted = 0;
+    for (size_t i = 0; i < es.size(); ++i) {
+        if (options.limits.max_entries != 0U
+            && emitted >= options.limits.max_entries) {
+            w.limit_hit = true;
+            break;
+        }
+
+        const Entry& e = es[i];
+        if (any(e.flags, EntryFlags::Deleted)) {
+            continue;
+        }
+
+        if (e.key.kind == MetaKeyKind::ExifTag) {
+            if (!options.include_exif) {
+                continue;
+            }
+            const std::string_view ifd = arena_string(arena,
+                                                      e.key.data.exif_tag.ifd);
+            std::string_view prefix;
+            if (!ifd_to_portable_prefix(ifd, &prefix)) {
+                continue;
+            }
+            const std::string_view tag_name
+                = exif_tag_name(ifd, e.key.data.exif_tag.tag);
+            if (tag_name.empty()) {
+                continue;
+            }
+
+            if (tag_name.ends_with("IFDPointer") || tag_name == "SubIFDs") {
+                continue;
+            }
+
+            emit_portable_property(&w, prefix, tag_name, arena, e.value);
+            emitted += 1;
+            continue;
+        }
+
+        if (e.key.kind == MetaKeyKind::XmpProperty
+            && options.include_existing_xmp) {
+            const std::string_view ns
+                = arena_string(arena, e.key.data.xmp_property.schema_ns);
+            const std::string_view name
+                = arena_string(arena, e.key.data.xmp_property.property_path);
+            if (!is_simple_xmp_property_name(name)) {
+                continue;
+            }
+
+            std::string_view prefix;
+            if (ns == kXmpNsXmp) {
+                prefix = "xmp";
+            } else if (ns == kXmpNsTiff) {
+                prefix = "tiff";
+            } else if (ns == kXmpNsExif) {
+                prefix = "exif";
+            } else if (ns == kXmpNsDc) {
+                prefix = "dc";
+            } else {
+                continue;
+            }
+
+            emit_portable_property(&w, prefix, name, arena, e.value);
+            emitted += 1;
+            continue;
+        }
+    }
+
+    emit_xmp_packet_end(&w);
+
+    r.entries = emitted;
     if (w.limit_hit) {
         r.status = XmpDumpStatus::LimitExceeded;
     } else if (w.needed > static_cast<uint64_t>(out.size())) {

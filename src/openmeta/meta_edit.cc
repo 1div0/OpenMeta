@@ -72,6 +72,10 @@ copy_key(const MetaKey& key, const ByteArena& src, ByteArena& dst)
     case MetaKeyKind::ExifTag:
         out.data.exif_tag.ifd = dst.append(src.span(key.data.exif_tag.ifd));
         return out;
+    case MetaKeyKind::ExrAttribute:
+        out.data.exr_attribute.name = dst.append(
+            src.span(key.data.exr_attribute.name));
+        return out;
     case MetaKeyKind::IptcDataset: return out;
     case MetaKeyKind::XmpProperty:
         out.data.xmp_property.schema_ns = dst.append(

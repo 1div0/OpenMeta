@@ -762,6 +762,49 @@ NB_MODULE(_openmeta, m)
             "include_origin"_a = true, "include_wire"_a = true,
             "include_flags"_a = true, "include_names"_a = true)
         .def(
+            "dump_xmp_portable",
+            [](std::shared_ptr<PyDocument> d, uint64_t max_output_bytes,
+               uint32_t max_entries, bool include_exif,
+               bool include_existing_xmp) {
+                std::vector<std::byte> out(1024 * 1024);
+                XmpPortableOptions opts;
+                opts.limits.max_output_bytes  = max_output_bytes;
+                opts.limits.max_entries       = max_entries;
+                opts.include_exif             = include_exif;
+                opts.include_existing_xmp     = include_existing_xmp;
+
+                XmpDumpResult res;
+                {
+                    nb::gil_scoped_release gil_release;
+                    for (;;) {
+                        res = dump_xmp_portable(
+                            d->store,
+                            std::span<std::byte>(out.data(), out.size()), opts);
+                        if (res.status == XmpDumpStatus::OutputTruncated
+                            && res.needed > out.size()) {
+                            if (res.needed
+                                > static_cast<uint64_t>(SIZE_MAX)) {
+                                throw std::runtime_error(
+                                    "dump output too large");
+                            }
+                            out.resize(static_cast<size_t>(res.needed));
+                            continue;
+                        }
+                        break;
+                    }
+                }
+
+                if (res.status != XmpDumpStatus::Ok) {
+                    throw std::runtime_error("XMP dump failed");
+                }
+
+                const size_t n = static_cast<size_t>(res.written);
+                nb::bytes b(reinterpret_cast<const char*>(out.data()), n);
+                return std::make_pair(b, res);
+            },
+            "max_output_bytes"_a = 0ULL, "max_entries"_a = 0U,
+            "include_exif"_a = true, "include_existing_xmp"_a = false)
+        .def(
             "extract_payload",
             [](PyDocument& d, uint32_t block_index, bool decompress,
                uint64_t max_output_bytes) {
