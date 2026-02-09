@@ -13,6 +13,9 @@
 
 namespace openmeta {
 
+/// Stable EXR canonical value encoding contract version.
+inline constexpr uint32_t kExrCanonicalEncodingVersion = 1U;
+
 /// OpenEXR decode result status.
 enum class ExrDecodeStatus : uint8_t {
     Ok,

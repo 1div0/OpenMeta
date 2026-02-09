@@ -8,12 +8,12 @@
 
 /**
  * \file oiio_adapter.h
- * \brief Draft adapter helpers for OIIO-style metadata export.
+ * \brief Adapter helpers for OIIO-style metadata export.
  */
 
 namespace openmeta {
 
-/// Flattened metadata attribute used by the draft OIIO adapter.
+/// Flattened metadata attribute used by the OIIO adapter.
 struct OiioAttribute final {
     std::string name;
     std::string value;
@@ -35,7 +35,6 @@ struct OiioAdapterOptions final {
 /**
  * \brief Collects OIIO-style name/value attributes from a \ref MetaStore.
  *
- * \note Draft API: output structure and mapping policy may still change.
  */
 void
 collect_oiio_attributes(const MetaStore& store, std::vector<OiioAttribute>* out,

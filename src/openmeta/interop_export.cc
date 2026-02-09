@@ -4,6 +4,7 @@
 
 #include <array>
 #include <cstdio>
+#include <string>
 
 namespace openmeta {
 namespace {

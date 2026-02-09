@@ -200,18 +200,16 @@ If you are building offline (or want strict control of the build environment),
 install `scikit-build-core` into your Python environment and enable:
 `-DOPENMETA_WHEEL_NO_BUILD_ISOLATION=ON`.
 
-## Interop Adapters (Draft)
+## Interop Adapters
 
-Draft adapter APIs for ASF integration targets:
+Interop adapter APIs for ASF integration targets:
 
 - `openmeta/interop_export.h`: shared traversal and naming styles
   (`Canonical`, `XmpPortable`, `Oiio`).
 - `openmeta/oiio_adapter.h`: flat OIIO-style name/value export.
 - `openmeta/ocio_adapter.h`: deterministic OCIO-style metadata tree export.
 
-These are marked draft and may be refactored in upcoming iterations.
-
-Python binding entry points (draft):
+Current Python binding entry points:
 
 - `Document.export_names(style=..., include_makernotes=...)`
 - `Document.oiio_attributes(...)`
@@ -220,8 +218,21 @@ Python binding entry points (draft):
 Cached corpus parity gate (internal workflow):
 
 ```bash
-OpenMeta-internal/internals/run_interop_gates.sh --tier raw_bmff --jobs 4
+OpenMeta-internal/internals/run_premerge_gates.sh --jobs 4
 ```
+
+Include OpenEXR ground-truth checks:
+
+```bash
+OpenMeta-internal/internals/run_interop_gates.sh --tier exr --jobs 4
+OpenMeta-internal/internals/run_interop_gates.sh --tier all --jobs 4
+OpenMeta-internal/internals/run_interop_gates.sh --tier heic --jobs 4 --require-exr 0
+```
+
+Notes:
+- `run_premerge_gates.sh` is the standard pre-merge gate entrypoint.
+- `run_interop_gates.sh` now defaults to `--tier all`.
+- EXR gate is required by default (`--require-exr 1`) and includes safe value parity checks (`--exr-check-values 1`).
 
 Cached adapter-name parity (internal workflow):
 

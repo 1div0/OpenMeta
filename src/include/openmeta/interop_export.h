@@ -7,10 +7,13 @@
 
 /**
  * \file interop_export.h
- * \brief Draft metadata export traversal API for interop adapters.
+ * \brief Metadata export traversal API for interop adapters.
  */
 
 namespace openmeta {
+
+/// Stable interop export naming contract version.
+inline constexpr uint32_t kInteropExportContractVersion = 1U;
 
 /**
  * \brief Key naming policy used by \ref visit_metadata.
@@ -27,7 +30,6 @@ enum class ExportNameStyle : uint8_t {
 /**
  * \brief Export controls for \ref visit_metadata.
  *
- * \note This API is marked draft and may change.
  */
 struct ExportOptions final {
     ExportNameStyle style   = ExportNameStyle::Canonical;

@@ -1,6 +1,6 @@
-# DRAFT: OpenEXR Metadata Fit for OpenMeta Core
+# OpenEXR Metadata Fit for OpenMeta Core
 
-Status: draft (working note, expected to change)
+Status: baseline contract (v1)
 
 ## Goal
 
@@ -45,7 +45,7 @@ Current OpenMeta strengths:
 - `MetaValue` already supports scalar, array, bytes, text, and rational values.
 - Existing block model can represent per-part metadata boundaries.
 
-Current implementation snapshot (still draft-level):
+Current implementation snapshot:
 
 - `MetaKeyKind::ExrAttribute` is available (`part_index` + `name`).
 - `decode_exr_header(...)` is implemented and wired into `simple_meta_read`
@@ -66,7 +66,7 @@ Remaining gaps for production-level EXR workflows:
 - Optional EXR scanner integration in `container_scan` (today handled by
   fallback decode in `simple_meta_read`).
 
-## Recommended Design Direction (Draft)
+## Design Direction (v1)
 
 1. Add EXR key space and provenance:
    - `MetaKeyKind::ExrAttribute` with fields: `part_index`, `name`.
@@ -90,7 +90,7 @@ Remaining gaps for production-level EXR workflows:
    - OpenColorIO adapter: expose selected color metadata subset only.
 
 Canonical encoding details for compound EXR values are tracked in:
-`OpenMeta/docs/design/draft_exr_canonical_value_encoding.md`.
+`OpenMeta/docs/design/exr_canonical_value_encoding.md`.
 
 ## Practical Conclusion
 

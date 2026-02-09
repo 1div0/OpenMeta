@@ -59,7 +59,15 @@ For fast interop checks without re-running ExifTool on every iteration:
 
 .. code-block:: bash
 
-   OpenMeta-internal/internals/run_interop_gates.sh --tier raw_bmff --jobs 4
+   OpenMeta-internal/internals/run_premerge_gates.sh --jobs 4
+   OpenMeta-internal/internals/run_interop_gates.sh --tier exr --jobs 4
+   OpenMeta-internal/internals/run_interop_gates.sh --tier all --jobs 4
+   OpenMeta-internal/internals/run_interop_gates.sh --tier heic --jobs 4 --require-exr 0
+
+``run_premerge_gates.sh`` is the standard pre-merge workflow and enforces EXR.
+
+By default, ``run_interop_gates.sh`` enforces the EXR ground-truth gate and
+enables EXR safe value checks (``--require-exr 1 --exr-check-values 1``).
 
 Adapter-name parity against cached ExifTool/Exiv2 tags:
 

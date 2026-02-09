@@ -466,16 +466,15 @@ namespace {
         }
 
         if (type_name == "tiledesc") {
-            std::array<uint32_t, 2> dummy {};
+            std::array<uint32_t, 2> base {};
             if (value_bytes.size() == 9U
-                && decode_u32_fixed(value_bytes.first<8>(), &dummy)) {
-                std::array<uint8_t, 9> raw {};
-                for (size_t i = 0; i < raw.size(); ++i) {
-                    raw[i] = u8(value_bytes[i]);
-                }
-                return make_u8_array(store.arena(),
-                                     std::span<const uint8_t>(raw.data(),
-                                                              raw.size()));
+                && decode_u32_fixed(value_bytes.first<8>(), &base)) {
+                std::array<uint32_t, 3> v {
+                    base[0], base[1], static_cast<uint32_t>(u8(value_bytes[8]))
+                };
+                return make_u32_array(store.arena(),
+                                      std::span<const uint32_t>(v.data(),
+                                                                v.size()));
             }
         }
 

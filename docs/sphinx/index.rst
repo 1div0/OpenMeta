@@ -21,7 +21,8 @@ sanitization to reduce memory and output attack surface.
 
    build
    development
-   interop_api_draft
+   interop_api
+   exr_metadata_contract
    testing
    security
    api

@@ -6,6 +6,7 @@
 #include <array>
 #include <bit>
 #include <cstdint>
+#include <cstring>
 #include <string_view>
 #include <vector>
 
@@ -111,6 +112,25 @@ namespace {
             std::byte { 5 }
         };
         append_attr_raw(&exr, "customA", "myVendorFoo",
+                        std::span<const std::byte>(payload.data(),
+                                                   payload.size()));
+        exr.push_back(std::byte { 0 });
+        return exr;
+    }
+
+
+    static std::vector<std::byte> build_exr_single_part_tiledesc()
+    {
+        std::vector<std::byte> exr;
+        append_u32le(&exr, 20000630U);
+        append_u32le(&exr, 2U);
+
+        const std::array<std::byte, 9> payload {
+            std::byte { 0x40 }, std::byte { 0x00 }, std::byte { 0x00 },
+            std::byte { 0x00 }, std::byte { 0x40 }, std::byte { 0x00 },
+            std::byte { 0x00 }, std::byte { 0x00 }, std::byte { 0x01 }
+        };
+        append_attr_raw(&exr, "tiles", "tiledesc",
                         std::span<const std::byte>(payload.data(),
                                                    payload.size()));
         exr.push_back(std::byte { 0 });
@@ -242,6 +262,42 @@ TEST(ExrDecode, CanDisableUnknownTypeNamePreservation)
     const Entry& e = store.entry(0);
     EXPECT_EQ(e.origin.wire_type.code, 31U);
     EXPECT_EQ(e.origin.wire_type_name.size, 0U);
+}
+
+
+TEST(ExrDecode, DecodesTileDescAsU32Array)
+{
+    const std::vector<std::byte> exr = build_exr_single_part_tiledesc();
+
+    MetaStore store;
+    const ExrDecodeResult res
+        = decode_exr_header(std::span<const std::byte>(exr.data(), exr.size()),
+                            store);
+    ASSERT_EQ(res.status, ExrDecodeStatus::Ok);
+    ASSERT_EQ(res.entries_decoded, 1U);
+
+    store.finalize();
+    MetaKeyView key;
+    key.kind                           = MetaKeyKind::ExrAttribute;
+    key.data.exr_attribute.part_index  = 0;
+    key.data.exr_attribute.name        = "tiles";
+    const std::span<const EntryId> ids = store.find_all(key);
+    ASSERT_EQ(ids.size(), 1U);
+
+    const Entry& e = store.entry(ids[0]);
+    EXPECT_EQ(e.origin.wire_type.code, 22U);
+    ASSERT_EQ(e.value.kind, MetaValueKind::Array);
+    EXPECT_EQ(e.value.elem_type, MetaElementType::U32);
+    EXPECT_EQ(e.value.count, 3U);
+
+    const std::span<const std::byte> bytes = store.arena().span(
+        e.value.data.span);
+    ASSERT_EQ(bytes.size(), 12U);
+    std::array<uint32_t, 3> v {};
+    std::memcpy(v.data(), bytes.data(), bytes.size());
+    EXPECT_EQ(v[0], 64U);
+    EXPECT_EQ(v[1], 64U);
+    EXPECT_EQ(v[2], 1U);
 }
 
 

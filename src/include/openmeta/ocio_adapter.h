@@ -8,7 +8,7 @@
 
 /**
  * \file ocio_adapter.h
- * \brief Draft adapter helpers for OCIO-style metadata trees.
+ * \brief Adapter helpers for OCIO-style metadata trees.
  */
 
 namespace openmeta {
@@ -37,7 +37,7 @@ struct OcioAdapterOptions final {
 /**
  * \brief Builds a deterministic metadata tree for OCIO-style consumers.
  *
- * Mapping rules (draft):
+ * Mapping rules:
  * - Item names with a `prefix:name` form become namespace nodes (`prefix`)
  *   with leaf children (`name=value`).
  * - Other names are added as direct leaves under the root.

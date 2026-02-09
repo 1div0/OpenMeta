@@ -1,6 +1,6 @@
-# DRAFT: Canonical EXR Value Encoding in OpenMeta
+# Canonical EXR Value Encoding in OpenMeta
 
-Status: draft (working contract; expected to evolve)
+Status: baseline contract (v1)
 
 ## Scope
 
@@ -13,7 +13,7 @@ Keying is handled separately by `MetaKeyKind::ExrAttribute` with:
 - `part_index` (EXR part id)
 - `name` (attribute name)
 
-## Wire Type Contract (Draft)
+## Wire Type Contract
 
 - `Origin::wire_type.family = WireFamily::Other`
 - `Origin::wire_type.code = exr_attribute_type_t` numeric value
@@ -24,7 +24,7 @@ For unknown/user-defined EXR attribute types, preserve:
 - raw payload bytes in `MetaValueKind::Bytes`
 - type string in `Origin::wire_type_name` (optional decode behavior)
 
-## Canonical Mapping Table (Draft)
+## Canonical Mapping Table
 
 - `EXR_ATTR_INT` -> `Scalar + I32`
 - `EXR_ATTR_FLOAT` -> `Scalar + F32`
