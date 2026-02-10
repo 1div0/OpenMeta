@@ -909,6 +909,7 @@
 {"kind":"exif.tag","ifd":"makernote:olympus:main","tag":"0x040b","name":"Olympus_0x040b"}
 {"kind":"exif.tag","ifd":"makernote:olympus:main","tag":"0x040c","name":"Olympus_0x040c"}
 {"kind":"exif.tag","ifd":"makernote:olympus:main","tag":"0x040d","name":"Olympus_0x040d"}
+{"kind":"exif.tag","ifd":"makernote:olympus:main","tag":"0x0480","name":"Olympus_0x0480"}
 {"kind":"exif.tag","ifd":"makernote:olympus:main","tag":"0x0500","name":"Olympus_0x0500"}
 {"kind":"exif.tag","ifd":"makernote:olympus:main","tag":"0x0501","name":"Olympus_0x0501"}
 {"kind":"exif.tag","ifd":"makernote:olympus:main","tag":"0x0502","name":"Olympus_0x0502"}
@@ -931,6 +932,8 @@
 {"kind":"exif.tag","ifd":"makernote:olympus:main","tag":"0x0900","name":"Olympus_0x0900"}
 {"kind":"exif.tag","ifd":"makernote:olympus:main","tag":"0x0901","name":"Olympus_0x0901"}
 {"kind":"exif.tag","ifd":"makernote:olympus:main","tag":"0x0902","name":"Olympus_0x0902"}
+{"kind":"exif.tag","ifd":"makernote:olympus:main","tag":"0x0d00","name":"Olympus_0x0d00"}
+{"kind":"exif.tag","ifd":"makernote:olympus:main","tag":"0x0e80","name":"Olympus_0x0e80"}
 {"kind":"exif.tag","ifd":"makernote:olympus:main","tag":"0x0f02","name":"Olympus_0x0f02"}
 {"kind":"exif.tag","ifd":"makernote:olympus:main","tag":"0x0040","name":"CompressedImageSize"}
 {"kind":"exif.tag","ifd":"makernote:olympus:main","tag":"0x0081","name":"PreviewImageData"}

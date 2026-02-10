@@ -209,12 +209,11 @@ namespace {
             return false;
         }
 
-        const uint16_t version = le ? static_cast<uint16_t>(u8(bytes[offset + 2])
-                                                            | (u8(bytes[offset + 3])
-                                                               << 8U))
-                                    : static_cast<uint16_t>((u8(bytes[offset + 2])
-                                                             << 8U)
-                                                            | u8(bytes[offset + 3]));
+        const uint16_t version
+            = le ? static_cast<uint16_t>(u8(bytes[offset + 2])
+                                         | (u8(bytes[offset + 3]) << 8U))
+                 : static_cast<uint16_t>((u8(bytes[offset + 2]) << 8U)
+                                         | u8(bytes[offset + 3]));
         if (version != 42 && version != 43 && version != 0x0055
             && version != 0x4F52) {
             return false;
@@ -493,9 +492,9 @@ scan_jpeg(std::span<const std::byte> bytes,
                 block.id           = marker;
                 block.aux_u32      = fourcc('F', 'L', 'I', 'R');
                 block.part_index   = u8(bytes[seg_payload_off + 6]);
-                block.part_count
-                    = static_cast<uint32_t>(u8(bytes[seg_payload_off + 7]))
-                      + 1U;
+                block.part_count   = static_cast<uint32_t>(
+                                       u8(bytes[seg_payload_off + 7]))
+                                   + 1U;
                 block.group = fourcc('F', 'L', 'I', 'R');
                 sink_emit(&sink, block);
             }
@@ -1412,9 +1411,18 @@ namespace {
     }
 
 
-    static bool cstring_equals(std::span<const std::byte> bytes, uint64_t start,
-                               uint64_t end, const char* s,
-                               uint32_t s_len) noexcept
+    static uint8_t ascii_lower_u8(uint8_t c) noexcept
+    {
+        if (c >= static_cast<uint8_t>('A') && c <= static_cast<uint8_t>('Z')) {
+            return static_cast<uint8_t>(c + 0x20U);
+        }
+        return c;
+    }
+
+
+    static bool cstring_equals_icase(std::span<const std::byte> bytes,
+                                     uint64_t start, uint64_t end,
+                                     const char* s, uint32_t s_len) noexcept
     {
         uint64_t s_end = 0;
         if (!find_cstring_end(bytes, start, end, &s_end)) {
@@ -1424,7 +1432,87 @@ namespace {
         if (len != s_len) {
             return false;
         }
-        return match(bytes, start, s, s_len);
+        if (start + len > bytes.size()) {
+            return false;
+        }
+        for (uint32_t i = 0; i < s_len; ++i) {
+            const uint8_t a = ascii_lower_u8(u8(bytes[start + i]));
+            const uint8_t b = ascii_lower_u8(static_cast<uint8_t>(s[i]));
+            if (a != b) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+
+    static bool ascii_span_equals_icase(std::span<const std::byte> bytes,
+                                        uint64_t start, uint64_t len,
+                                        const char* s, uint32_t s_len) noexcept
+    {
+        if (len != s_len || start + len > bytes.size()) {
+            return false;
+        }
+        for (uint32_t i = 0; i < s_len; ++i) {
+            const uint8_t a = ascii_lower_u8(u8(bytes[start + i]));
+            const uint8_t b = ascii_lower_u8(static_cast<uint8_t>(s[i]));
+            if (a != b) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+
+    static bool bmff_mime_content_is_xmp(std::span<const std::byte> bytes,
+                                         uint64_t start, uint64_t end) noexcept
+    {
+        uint64_t s_end = 0;
+        if (!find_cstring_end(bytes, start, end, &s_end)) {
+            return false;
+        }
+        if (start > s_end || s_end > bytes.size()) {
+            return false;
+        }
+
+        uint64_t token_begin = start;
+        while (token_begin < s_end) {
+            const uint8_t c = u8(bytes[token_begin]);
+            if (c != static_cast<uint8_t>(' ')
+                && c != static_cast<uint8_t>('\t')) {
+                break;
+            }
+            token_begin += 1;
+        }
+
+        uint64_t token_end = token_begin;
+        while (token_end < s_end) {
+            const uint8_t c = u8(bytes[token_end]);
+            if (c == static_cast<uint8_t>(';') || c == static_cast<uint8_t>(' ')
+                || c == static_cast<uint8_t>('\t')) {
+                break;
+            }
+            token_end += 1;
+        }
+
+        if (token_end <= token_begin) {
+            return false;
+        }
+        const uint64_t token_len = token_end - token_begin;
+
+        static constexpr char kXmpMimeRdf[] = "application/rdf+xml";
+        static constexpr char kXmpMimeXmp[] = "application/xmp+xml";
+        static constexpr char kXmlText[]    = "text/xml";
+        static constexpr char kXmlApp[]     = "application/xml";
+
+        return ascii_span_equals_icase(bytes, token_begin, token_len,
+                                       kXmpMimeRdf, sizeof(kXmpMimeRdf) - 1)
+               || ascii_span_equals_icase(bytes, token_begin, token_len,
+                                          kXmpMimeXmp, sizeof(kXmpMimeXmp) - 1)
+               || ascii_span_equals_icase(bytes, token_begin, token_len,
+                                          kXmlText, sizeof(kXmlText) - 1)
+               || ascii_span_equals_icase(bytes, token_begin, token_len,
+                                          kXmlApp, sizeof(kXmlApp) - 1);
     }
 
 
@@ -1479,12 +1567,56 @@ namespace {
                     return false;
                 }
 
-                const uint8_t infe_ver = u8(bytes[infe_payload_off + 0]);
-                uint64_t q             = infe_payload_off + 4;
+                const uint8_t infe_ver  = u8(bytes[infe_payload_off + 0]);
+                uint64_t q              = infe_payload_off + 4;
+                uint32_t item_id        = 0;
+                uint32_t item_type      = 0;
+                ContainerBlockKind kind = ContainerBlockKind::Unknown;
+
                 if (infe_ver < 2) {
-                    // Legacy infe forms do not carry item_type; ignore.
+                    // Legacy `infe` (v0/v1):
+                    // item_ID(16) + item_protection_index(16) + item_name(cstr)
+                    // + content_type(cstr) + content_encoding(cstr).
+                    uint16_t id16 = 0;
+                    uint16_t prot = 0;
+                    if (!read_u16be(bytes, q, &id16)
+                        || !read_u16be(bytes, q + 2, &prot)) {
+                        return false;
+                    }
+                    item_id = id16;
+                    q += 4;
+                    (void)prot;
+
+                    uint64_t name_end = 0;
+                    if (!find_cstring_end(bytes, q, infe_end, &name_end)) {
+                        return false;
+                    }
+                    if (cstring_equals_icase(bytes, q, infe_end, "Exif", 4)) {
+                        kind      = ContainerBlockKind::Exif;
+                        item_type = fourcc('E', 'x', 'i', 'f');
+                    }
+                    q = name_end + 1;
+
+                    if (q < infe_end
+                        && bmff_mime_content_is_xmp(bytes, q, infe_end)) {
+                        kind      = ContainerBlockKind::Xmp;
+                        item_type = fourcc('x', 'm', 'l', ' ');
+                    }
+
+                    uint64_t ct_end = 0;
+                    if (find_cstring_end(bytes, q, infe_end, &ct_end)) {
+                        q                = ct_end + 1;
+                        uint64_t enc_end = 0;
+                        if (find_cstring_end(bytes, q, infe_end, &enc_end)) {
+                            q = enc_end + 1;
+                        } else {
+                            q = infe_end;
+                        }
+                    } else if (kind == ContainerBlockKind::Unknown) {
+                        // Can't read content_type and no Exif hint in name.
+                        continue;
+                    }
                 } else {
-                    uint32_t item_id = 0;
                     if (infe_ver == 2) {
                         uint16_t id16 = 0;
                         if (!read_u16be(bytes, q, &id16)) {
@@ -1506,7 +1638,6 @@ namespace {
                     q += 2;
                     (void)prot;
 
-                    uint32_t item_type = 0;
                     if (!read_u32be(bytes, q, &item_type)) {
                         return false;
                     }
@@ -1518,35 +1649,19 @@ namespace {
                     }
                     q = name_end + 1;
 
-                    ContainerBlockKind kind = ContainerBlockKind::Unknown;
                     if (item_type == fourcc('E', 'x', 'i', 'f')) {
                         kind = ContainerBlockKind::Exif;
                     } else if (item_type == fourcc('x', 'm', 'l', ' ')) {
                         kind = ContainerBlockKind::Xmp;
                     } else if (item_type == fourcc('m', 'i', 'm', 'e')) {
-                        // XMP is commonly stored as a MIME item in HEIF/AVIF.
-                        // "application/rdf+xml" is most common, but some files
-                        // use "application/xmp+xml" or generic XML types.
-                        static constexpr char kXmpMimeRdf[] = "application/rdf+xml";
-                        static constexpr char kXmpMimeXmp[] = "application/xmp+xml";
-                        static constexpr char kXmlText[]    = "text/xml";
-                        static constexpr char kXmlApp[]     = "application/xml";
-                        if (cstring_equals(bytes, q, infe_end, kXmpMimeRdf,
-                                           sizeof(kXmpMimeRdf) - 1)
-                            || cstring_equals(bytes, q, infe_end, kXmpMimeXmp,
-                                              sizeof(kXmpMimeXmp) - 1)
-                            || cstring_equals(bytes, q, infe_end, kXmlText,
-                                              sizeof(kXmlText) - 1)
-                            || cstring_equals(bytes, q, infe_end, kXmlApp,
-                                              sizeof(kXmlApp) - 1)) {
+                        if (bmff_mime_content_is_xmp(bytes, q, infe_end)) {
                             kind = ContainerBlockKind::Xmp;
                         }
 
                         uint64_t ct_end = 0;
                         if (!find_cstring_end(bytes, q, infe_end, &ct_end)) {
-                            // Some files omit the encoding string terminator.
-                            // Treat malformed MIME metadata conservatively and
-                            // skip the item rather than failing the full scan.
+                            // Some files omit the content-type terminator.
+                            // Skip this item instead of failing the full scan.
                             continue;
                         }
                         q                = ct_end + 1;
@@ -1559,17 +1674,17 @@ namespace {
                             q = infe_end;
                         }
                     }
+                }
 
-                    if (kind != ContainerBlockKind::Unknown) {
-                        if (*out_count < out_items.size()) {
-                            BmffMetaItem item;
-                            item.item_id          = item_id;
-                            item.item_type        = item_type;
-                            item.kind             = kind;
-                            out_items[*out_count] = item;
-                        }
-                        *out_count += 1;
+                if (kind != ContainerBlockKind::Unknown) {
+                    if (*out_count < out_items.size()) {
+                        BmffMetaItem item;
+                        item.item_id          = item_id;
+                        item.item_type        = item_type;
+                        item.kind             = kind;
+                        out_items[*out_count] = item;
                     }
+                    *out_count += 1;
                 }
             }
 
@@ -1818,9 +1933,9 @@ namespace {
             return;
         }
 
-        uint64_t off               = payload_off;
-        const uint32_t kMaxProps   = 1U << 16;
-        uint32_t seen              = 0;
+        uint64_t off             = payload_off;
+        const uint32_t kMaxProps = 1U << 16;
+        uint32_t seen            = 0;
         while (off + 8 <= payload_end) {
             seen += 1;
             if (seen > kMaxProps) {
@@ -1837,7 +1952,7 @@ namespace {
             if (child.type == fourcc('c', 'o', 'l', 'r')) {
                 const uint64_t colr_payload_off = child.offset
                                                   + child.header_size;
-                const uint64_t colr_payload_end = child.offset + child.size;
+                const uint64_t colr_payload_end  = child.offset + child.size;
                 const uint64_t colr_payload_size = child.size
                                                    - child.header_size;
                 if (colr_payload_off + 4 <= colr_payload_end
@@ -1884,9 +1999,9 @@ namespace {
             return;
         }
 
-        uint64_t off               = payload_off;
-        const uint32_t kMaxBoxes   = 1U << 16;
-        uint32_t seen              = 0;
+        uint64_t off             = payload_off;
+        const uint32_t kMaxBoxes = 1U << 16;
+        uint32_t seen            = 0;
         while (off + 8 <= payload_end) {
             seen += 1;
             if (seen > kMaxBoxes) {
@@ -2034,8 +2149,8 @@ namespace {
     static bool bmff_type_looks_ascii(uint32_t type) noexcept
     {
         for (uint32_t i = 0; i < 4; ++i) {
-            const uint8_t b = static_cast<uint8_t>(
-                (type >> ((3 - i) * 8)) & 0xFF);
+            const uint8_t b = static_cast<uint8_t>((type >> ((3 - i) * 8))
+                                                   & 0xFF);
             if (b < 0x20 || b > 0x7E) {
                 return false;
             }
@@ -2154,7 +2269,7 @@ namespace {
 
                 const uint64_t child_payload_off = child.offset
                                                    + child.header_size;
-                const uint64_t child_payload_end = child.offset + child.size;
+                const uint64_t child_payload_end  = child.offset + child.size;
                 const uint64_t child_payload_size = child.size
                                                     - child.header_size;
 
@@ -2176,8 +2291,7 @@ namespace {
                     if (bmff_payload_may_contain_boxes(bytes, child_payload_off,
                                                        child_payload_end)) {
                         stack[sp++] = Range { child_payload_off,
-                                              child_payload_end,
-                                              r.depth + 1 };
+                                              child_payload_end, r.depth + 1 };
                     }
                 }
 
@@ -2764,7 +2878,7 @@ scan_auto(std::span<const std::byte> bytes,
         if (tiff_off < bytes.size() && looks_like_tiff_at(bytes, tiff_off)) {
             const std::span<const std::byte> tiff = bytes.subspan(
                 static_cast<size_t>(tiff_off));
-            const ScanResult res = scan_tiff(tiff, out);
+            const ScanResult res   = scan_tiff(tiff, out);
             const uint32_t written = (res.written < out.size())
                                          ? res.written
                                          : static_cast<uint32_t>(out.size());
@@ -2780,10 +2894,9 @@ scan_auto(std::span<const std::byte> bytes,
     // Sigma X3F: the file commonly embeds an "Exif\0\0" preamble followed by a
     // classic TIFF header. Locate and scan that TIFF stream.
     if (bytes.size() >= 4 && match(bytes, 0, "FOVb", 4)) {
-        const uint64_t max_search
-            = (bytes.size() < (4ULL * 1024ULL * 1024ULL))
-                  ? static_cast<uint64_t>(bytes.size())
-                  : (4ULL * 1024ULL * 1024ULL);
+        const uint64_t max_search = (bytes.size() < (4ULL * 1024ULL * 1024ULL))
+                                        ? static_cast<uint64_t>(bytes.size())
+                                        : (4ULL * 1024ULL * 1024ULL);
         for (uint64_t off = 0; off + 10 <= max_search; ++off) {
             if (!match(bytes, off, "Exif", 4) || u8(bytes[off + 4]) != 0
                 || u8(bytes[off + 5]) != 0) {
@@ -2795,7 +2908,7 @@ scan_auto(std::span<const std::byte> bytes,
             }
             const std::span<const std::byte> tiff = bytes.subspan(
                 static_cast<size_t>(tiff_off));
-            const ScanResult res = scan_tiff(tiff, out);
+            const ScanResult res   = scan_tiff(tiff, out);
             const uint32_t written = (res.written < out.size())
                                          ? res.written
                                          : static_cast<uint32_t>(out.size());
@@ -2838,8 +2951,8 @@ scan_auto(std::span<const std::byte> bytes,
                     block.id           = fourcc('C', 'R', 'W', ' ');
                     block.aux_u32      = root_off;
 
-                    out[0]     = block;
-                    res.status = ScanStatus::Ok;
+                    out[0]      = block;
+                    res.status  = ScanStatus::Ok;
                     res.written = 1;
                     return res;
                 }

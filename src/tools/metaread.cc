@@ -47,6 +47,19 @@ namespace {
         return "unknown";
     }
 
+    static const char* exif_limit_reason_name(ExifLimitReason reason) noexcept
+    {
+        switch (reason) {
+        case ExifLimitReason::None: return "none";
+        case ExifLimitReason::MaxIfds: return "max_ifds";
+        case ExifLimitReason::MaxEntriesPerIfd: return "max_entries_per_ifd";
+        case ExifLimitReason::MaxTotalEntries: return "max_total_entries";
+        case ExifLimitReason::ValueCountTooLarge:
+            return "value_count_too_large";
+        }
+        return "unknown";
+    }
+
 
     static const char* exr_status_name(ExrDecodeStatus status) noexcept
     {
@@ -1708,6 +1721,14 @@ main(int argc, char** argv)
             xmp_status_name(read.xmp.status),
             static_cast<unsigned>(read.xmp.entries_decoded),
             store.entries().size(), static_cast<unsigned>(store.block_count()));
+        if (read.exif.status == ExifDecodeStatus::LimitExceeded
+            && read.exif.limit_reason != ExifLimitReason::None) {
+            std::printf("exif_limit reason=%s ifd_off=%llu tag=0x%04X\n",
+                        exif_limit_reason_name(read.exif.limit_reason),
+                        static_cast<unsigned long long>(
+                            read.exif.limit_ifd_offset),
+                        static_cast<unsigned>(read.exif.limit_tag));
+        }
 
         for (BlockId block = 0; block < store.block_count(); ++block) {
             const std::span<const EntryId> ids = store.entries_in_block(block);

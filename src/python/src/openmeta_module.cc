@@ -621,6 +621,13 @@ NB_MODULE(_openmeta, m)
         .value("Malformed", ExifDecodeStatus::Malformed)
         .value("LimitExceeded", ExifDecodeStatus::LimitExceeded);
 
+    nb::enum_<ExifLimitReason>(m, "ExifLimitReason")
+        .value("None_", ExifLimitReason::None)
+        .value("MaxIfds", ExifLimitReason::MaxIfds)
+        .value("MaxEntriesPerIfd", ExifLimitReason::MaxEntriesPerIfd)
+        .value("MaxTotalEntries", ExifLimitReason::MaxTotalEntries)
+        .value("ValueCountTooLarge", ExifLimitReason::ValueCountTooLarge);
+
     nb::enum_<ExrDecodeStatus>(m, "ExrDecodeStatus")
         .value("Ok", ExrDecodeStatus::Ok)
         .value("Unsupported", ExrDecodeStatus::Unsupported)
@@ -805,6 +812,19 @@ NB_MODULE(_openmeta, m)
                      [](const PyDocument& d) {
                          return static_cast<uint32_t>(
                              d.result.exif.entries_decoded);
+                     })
+        .def_prop_ro("exif_limit_reason",
+                     [](const PyDocument& d) {
+                         return d.result.exif.limit_reason;
+                     })
+        .def_prop_ro("exif_limit_ifd_offset",
+                     [](const PyDocument& d) {
+                         return static_cast<uint64_t>(
+                             d.result.exif.limit_ifd_offset);
+                     })
+        .def_prop_ro("exif_limit_tag",
+                     [](const PyDocument& d) {
+                         return static_cast<uint32_t>(d.result.exif.limit_tag);
                      })
         .def_prop_ro("exr_status",
                      [](const PyDocument& d) { return d.result.exr.status; })

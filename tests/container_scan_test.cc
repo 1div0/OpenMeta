@@ -196,7 +196,8 @@ namespace {
         EXPECT_EQ(blocks[0].kind, ContainerBlockKind::MakerNote);
         EXPECT_EQ(blocks[0].id, 0xFFE1U);
         EXPECT_EQ(blocks[0].aux_u32, fourcc('F', 'L', 'I', 'R'));
-        EXPECT_EQ(blocks[0].group, static_cast<uint64_t>(fourcc('F', 'L', 'I', 'R')));
+        EXPECT_EQ(blocks[0].group,
+                  static_cast<uint64_t>(fourcc('F', 'L', 'I', 'R')));
         EXPECT_EQ(blocks[0].part_index, 0U);
         EXPECT_EQ(blocks[0].part_count, 2U);
         ASSERT_GE(blocks[0].data_size, 4U);
@@ -437,8 +438,7 @@ namespace {
             std::byte { 0x03 },
         };
         std::vector<std::byte> geo_payload;
-        geo_payload.insert(geo_payload.end(), geo_uuid.begin(),
-                           geo_uuid.end());
+        geo_payload.insert(geo_payload.end(), geo_uuid.begin(), geo_uuid.end());
         // Minimal TIFF payload: IFD0 with one ImageWidth entry.
         append_bytes(&geo_payload, "II");
         append_u16le(&geo_payload, 42);
@@ -673,6 +673,166 @@ namespace {
     }
 
 
+    TEST(ContainerScan, BmffMetaMimeTypeCaseInsensitiveWithParameters)
+    {
+        std::vector<std::byte> infe_payload;
+        append_fullbox_header(&infe_payload, 2);
+        append_u16be(&infe_payload, 1);  // item_ID
+        append_u16be(&infe_payload, 0);  // protection
+        append_fourcc(&infe_payload, fourcc('m', 'i', 'm', 'e'));
+        append_bytes(&infe_payload, "xmp");
+        infe_payload.push_back(std::byte { 0x00 });
+        append_bytes(&infe_payload, "Application/RDF+XML; charset=UTF-8");
+        infe_payload.push_back(std::byte { 0x00 });
+        // Encoding is optional; include empty encoding for completeness.
+        infe_payload.push_back(std::byte { 0x00 });
+
+        std::vector<std::byte> infe_box;
+        append_bmff_box(&infe_box, fourcc('i', 'n', 'f', 'e'), infe_payload);
+
+        std::vector<std::byte> iinf_payload;
+        append_fullbox_header(&iinf_payload, 2);
+        append_u32be(&iinf_payload, 1);  // entry_count
+        iinf_payload.insert(iinf_payload.end(), infe_box.begin(),
+                            infe_box.end());
+        std::vector<std::byte> iinf_box;
+        append_bmff_box(&iinf_box, fourcc('i', 'i', 'n', 'f'), iinf_payload);
+
+        std::vector<std::byte> idat_payload;
+        append_bytes(&idat_payload, "<xmp/>");
+        std::vector<std::byte> idat_box;
+        append_bmff_box(&idat_box, fourcc('i', 'd', 'a', 't'), idat_payload);
+
+        std::vector<std::byte> iloc_payload;
+        append_fullbox_header(&iloc_payload, 1);
+        iloc_payload.push_back(std::byte { 0x44 });  // off_size=4, len_size=4
+        iloc_payload.push_back(std::byte { 0x00 });  // base=0, idx=0
+        append_u16be(&iloc_payload, 1);              // item_count
+        append_u16be(&iloc_payload, 1);              // item_ID
+        append_u16be(&iloc_payload, 1);              // construction_method=1
+        append_u16be(&iloc_payload, 0);              // data_reference_index
+        append_u16be(&iloc_payload, 1);              // extent_count
+        append_u32be(&iloc_payload, 0);              // extent_offset
+        append_u32be(&iloc_payload, static_cast<uint32_t>(idat_payload.size()));
+        std::vector<std::byte> iloc_box;
+        append_bmff_box(&iloc_box, fourcc('i', 'l', 'o', 'c'), iloc_payload);
+
+        std::vector<std::byte> meta_payload;
+        append_fullbox_header(&meta_payload, 0);
+        meta_payload.insert(meta_payload.end(), iinf_box.begin(),
+                            iinf_box.end());
+        meta_payload.insert(meta_payload.end(), iloc_box.begin(),
+                            iloc_box.end());
+        meta_payload.insert(meta_payload.end(), idat_box.begin(),
+                            idat_box.end());
+        std::vector<std::byte> meta_box;
+        append_bmff_box(&meta_box, fourcc('m', 'e', 't', 'a'), meta_payload);
+
+        std::vector<std::byte> ftyp_payload;
+        append_fourcc(&ftyp_payload, fourcc('h', 'e', 'i', 'c'));
+        append_u32be(&ftyp_payload, 0);
+        append_fourcc(&ftyp_payload, fourcc('m', 'i', 'f', '1'));
+        std::vector<std::byte> file;
+        append_bmff_box(&file, fourcc('f', 't', 'y', 'p'), ftyp_payload);
+        file.insert(file.end(), meta_box.begin(), meta_box.end());
+
+        std::array<ContainerBlockRef, 8> blocks {};
+        const ScanResult res = scan_bmff(file, blocks);
+        ASSERT_EQ(res.status, ScanStatus::Ok);
+        ASSERT_EQ(res.written, 1U);
+        EXPECT_EQ(blocks[0].format, ContainerFormat::Heif);
+        EXPECT_EQ(blocks[0].kind, ContainerBlockKind::Xmp);
+        ASSERT_GE(blocks[0].data_size, 6U);
+        EXPECT_EQ(file[blocks[0].data_offset], std::byte { '<' });
+
+        const ScanResult auto_res = scan_auto(file, blocks);
+        EXPECT_EQ(auto_res.status, ScanStatus::Ok);
+        EXPECT_EQ(auto_res.written, 1U);
+    }
+
+
+    TEST(ContainerScan, BmffMetaLegacyInfeV1ExifName)
+    {
+        std::vector<std::byte> infe_payload;
+        append_fullbox_header(&infe_payload, 1);
+        append_u16be(&infe_payload, 1);  // item_ID
+        append_u16be(&infe_payload, 0);  // protection
+        append_bytes(&infe_payload, "Exif");
+        infe_payload.push_back(std::byte { 0x00 });
+        // Empty content_type/content_encoding are valid for this test path.
+        infe_payload.push_back(std::byte { 0x00 });
+        infe_payload.push_back(std::byte { 0x00 });
+
+        std::vector<std::byte> infe_box;
+        append_bmff_box(&infe_box, fourcc('i', 'n', 'f', 'e'), infe_payload);
+
+        std::vector<std::byte> iinf_payload;
+        append_fullbox_header(&iinf_payload, 1);
+        append_u16be(&iinf_payload, 1);  // entry_count (v1)
+        iinf_payload.insert(iinf_payload.end(), infe_box.begin(),
+                            infe_box.end());
+        std::vector<std::byte> iinf_box;
+        append_bmff_box(&iinf_box, fourcc('i', 'i', 'n', 'f'), iinf_payload);
+
+        std::vector<std::byte> idat_payload;
+        append_u32be(&idat_payload, 0);  // Exif TIFF offset
+        append_bytes(&idat_payload, "II");
+        idat_payload.push_back(std::byte { 0x2A });
+        idat_payload.push_back(std::byte { 0x00 });
+        append_u32le(&idat_payload, 8);
+        std::vector<std::byte> idat_box;
+        append_bmff_box(&idat_box, fourcc('i', 'd', 'a', 't'), idat_payload);
+
+        std::vector<std::byte> iloc_payload;
+        append_fullbox_header(&iloc_payload, 1);
+        iloc_payload.push_back(std::byte { 0x44 });  // off_size=4, len_size=4
+        iloc_payload.push_back(std::byte { 0x00 });  // base=0, idx=0
+        append_u16be(&iloc_payload, 1);              // item_count
+        append_u16be(&iloc_payload, 1);              // item_ID
+        append_u16be(&iloc_payload, 1);              // construction_method=1
+        append_u16be(&iloc_payload, 0);              // data_reference_index
+        append_u16be(&iloc_payload, 1);              // extent_count
+        append_u32be(&iloc_payload, 0);              // extent_offset
+        append_u32be(&iloc_payload, static_cast<uint32_t>(idat_payload.size()));
+        std::vector<std::byte> iloc_box;
+        append_bmff_box(&iloc_box, fourcc('i', 'l', 'o', 'c'), iloc_payload);
+
+        std::vector<std::byte> meta_payload;
+        append_fullbox_header(&meta_payload, 0);
+        meta_payload.insert(meta_payload.end(), iinf_box.begin(),
+                            iinf_box.end());
+        meta_payload.insert(meta_payload.end(), iloc_box.begin(),
+                            iloc_box.end());
+        meta_payload.insert(meta_payload.end(), idat_box.begin(),
+                            idat_box.end());
+        std::vector<std::byte> meta_box;
+        append_bmff_box(&meta_box, fourcc('m', 'e', 't', 'a'), meta_payload);
+
+        std::vector<std::byte> ftyp_payload;
+        append_fourcc(&ftyp_payload, fourcc('h', 'e', 'i', 'c'));
+        append_u32be(&ftyp_payload, 0);
+        append_fourcc(&ftyp_payload, fourcc('m', 'i', 'f', '1'));
+        std::vector<std::byte> file;
+        append_bmff_box(&file, fourcc('f', 't', 'y', 'p'), ftyp_payload);
+        file.insert(file.end(), meta_box.begin(), meta_box.end());
+
+        std::array<ContainerBlockRef, 8> blocks {};
+        const ScanResult res = scan_bmff(file, blocks);
+        ASSERT_EQ(res.status, ScanStatus::Ok);
+        ASSERT_EQ(res.written, 1U);
+        EXPECT_EQ(blocks[0].format, ContainerFormat::Heif);
+        EXPECT_EQ(blocks[0].kind, ContainerBlockKind::Exif);
+        EXPECT_EQ(blocks[0].chunking, BlockChunking::BmffExifTiffOffsetU32Be);
+        EXPECT_EQ(blocks[0].aux_u32, 0U);
+        ASSERT_GE(blocks[0].data_size, 4U);
+        EXPECT_EQ(file[blocks[0].data_offset], std::byte { 'I' });
+
+        const ScanResult auto_res = scan_auto(file, blocks);
+        EXPECT_EQ(auto_res.status, ScanStatus::Ok);
+        EXPECT_EQ(auto_res.written, 1U);
+    }
+
+
     TEST(ContainerScan, Cr3CanonUuidCmtBoxes)
     {
         // Minimal CR3-style BMFF: `ftyp` + `moov/uuid(Canon)` containing `CMT1` TIFF.
@@ -875,8 +1035,8 @@ namespace {
             return t;
         };
 
-        const std::vector<std::byte> rw2 = make_min_tiff(0x0055);   // "IIU\0"
-        const std::vector<std::byte> orf = make_min_tiff(0x4F52);   // "IIRO"
+        const std::vector<std::byte> rw2 = make_min_tiff(0x0055);  // "IIU\0"
+        const std::vector<std::byte> orf = make_min_tiff(0x4F52);  // "IIRO"
 
         for (const std::vector<std::byte>& t : { rw2, orf }) {
             std::array<ContainerBlockRef, 8> blocks {};

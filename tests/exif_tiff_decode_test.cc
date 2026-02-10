@@ -272,8 +272,8 @@ TEST(ExifTiffDecode, AcceptsTiffRawVariantHeaders)
         MetaStore store;
         std::array<ExifIfdRef, 8> ifds {};
         ExifDecodeOptions options;
-        const ExifDecodeResult res
-            = decode_exif_tiff(tiff, store, ifds, options);
+        const ExifDecodeResult res = decode_exif_tiff(tiff, store, ifds,
+                                                      options);
         EXPECT_EQ(res.status, ExifDecodeStatus::Ok);
 
         store.finalize();
@@ -395,6 +395,74 @@ TEST(ExifTiffDecode, OutOfBoundsValueIsRejected)
 
     store.finalize();
     EXPECT_TRUE(store.entries().empty());
+}
+
+TEST(ExifTiffDecode, OversizedValueIsTruncatedWithoutLimitExceeded)
+{
+    std::vector<std::byte> tiff;
+    append_bytes(&tiff, "II");
+    append_u16le(&tiff, 42);
+    append_u32le(&tiff, 8);
+
+    // IFD0 (offset 8), one UNDEFINED entry with 16 bytes at offset 26.
+    append_u16le(&tiff, 1);
+    append_u16le(&tiff, 0x9286);  // UserComment
+    append_u16le(&tiff, 7);       // UNDEFINED
+    append_u32le(&tiff, 16);
+    append_u32le(&tiff, 26);
+    append_u32le(&tiff, 0);
+
+    for (uint32_t i = 0; i < 16; ++i) {
+        tiff.push_back(std::byte { static_cast<uint8_t>(i) });
+    }
+
+    MetaStore store;
+    std::array<ExifIfdRef, 8> ifds {};
+    ExifDecodeOptions options;
+    options.limits.max_value_bytes = 8;
+    const ExifDecodeResult res = decode_exif_tiff(tiff, store, ifds, options);
+    EXPECT_EQ(res.status, ExifDecodeStatus::Ok);
+    EXPECT_EQ(res.limit_reason, ExifLimitReason::None);
+
+    store.finalize();
+    const std::span<const EntryId> ids = store.find_all(
+        exif_key("ifd0", 0x9286));
+    ASSERT_EQ(ids.size(), 1U);
+    const Entry& e = store.entry(ids[0]);
+    EXPECT_TRUE(any(e.flags, EntryFlags::Truncated));
+    EXPECT_EQ(e.value.kind, MetaValueKind::Empty);
+}
+
+TEST(ExifTiffDecode, ReportsLimitReasonForMaxEntriesPerIfd)
+{
+    std::vector<std::byte> tiff;
+    append_bytes(&tiff, "II");
+    append_u16le(&tiff, 42);
+    append_u32le(&tiff, 8);
+
+    // IFD0 with two inline SHORT entries.
+    append_u16le(&tiff, 2);
+    append_u16le(&tiff, 0x0100);
+    append_u16le(&tiff, 3);
+    append_u32le(&tiff, 1);
+    append_u16le(&tiff, 600);
+    append_u16le(&tiff, 0);
+    append_u16le(&tiff, 0x0101);
+    append_u16le(&tiff, 3);
+    append_u32le(&tiff, 1);
+    append_u16le(&tiff, 400);
+    append_u16le(&tiff, 0);
+    append_u32le(&tiff, 0);
+
+    MetaStore store;
+    std::array<ExifIfdRef, 8> ifds {};
+    ExifDecodeOptions options;
+    options.limits.max_entries_per_ifd = 1;
+    const ExifDecodeResult res = decode_exif_tiff(tiff, store, ifds, options);
+    EXPECT_EQ(res.status, ExifDecodeStatus::LimitExceeded);
+    EXPECT_EQ(res.limit_reason, ExifLimitReason::MaxEntriesPerIfd);
+    EXPECT_EQ(res.limit_ifd_offset, 8U);
+    EXPECT_EQ(res.limit_tag, 0U);
 }
 
 

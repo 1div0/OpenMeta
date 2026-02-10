@@ -41,3 +41,13 @@ TEST(ExifTagNames, UnknownReturnsEmpty)
     EXPECT_TRUE(exif_tag_name("gpsifd", 0xFFFF).empty());
     EXPECT_TRUE(exif_tag_name("unknown_ifd", 0x010F).empty());
 }
+
+
+TEST(ExifTagNames, MakerNoteSubtableFallsBackToVendorMain)
+{
+    using openmeta::exif_tag_name;
+
+    // This tag is known in Olympus main table but not all Olympus subtables.
+    EXPECT_EQ(exif_tag_name("mk_olympus_equipment0", 0x0040),
+              std::string_view("CompressedImageSize"));
+}

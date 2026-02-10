@@ -817,6 +817,10 @@ namespace {
     static void update_status(ExifDecodeResult* out,
                               ExifDecodeStatus status) noexcept;
 
+    static void mark_limit_exceeded(ExifDecodeResult* out,
+                                    ExifLimitReason reason, uint64_t ifd_offset,
+                                    uint16_t tag) noexcept;
+
     static MetaValue decode_tiff_value(const TiffConfig& cfg,
                                        std::span<const std::byte> bytes,
                                        uint16_t type, uint64_t count,
@@ -1028,7 +1032,9 @@ namespace {
             if (status_out
                 && (status_out->entries_decoded + 1U)
                        > options.limits.max_total_entries) {
-                update_status(status_out, ExifDecodeStatus::LimitExceeded);
+                mark_limit_exceeded(status_out,
+                                    ExifLimitReason::MaxTotalEntries, ifd_off,
+                                    0);
                 return;
             }
 
@@ -1040,9 +1046,6 @@ namespace {
             entry.origin.wire_count     = static_cast<uint32_t>(count);
 
             if (value_bytes > options.limits.max_value_bytes) {
-                if (status_out) {
-                    update_status(status_out, ExifDecodeStatus::LimitExceeded);
-                }
                 entry.flags |= EntryFlags::Truncated;
             } else if (value_off + value_bytes > bytes.size()) {
                 if (status_out) {
@@ -1391,6 +1394,9 @@ namespace {
     static void update_status(ExifDecodeResult* out,
                               ExifDecodeStatus status) noexcept
     {
+        if (!out) {
+            return;
+        }
         if (out->status == ExifDecodeStatus::LimitExceeded) {
             return;
         }
@@ -1418,6 +1424,29 @@ namespace {
         if (status == ExifDecodeStatus::OutputTruncated) {
             out->status = status;
             return;
+        }
+    }
+
+
+    static void mark_limit_exceeded(ExifDecodeResult* out,
+                                    ExifLimitReason reason, uint64_t ifd_offset,
+                                    uint16_t tag) noexcept
+    {
+        if (!out) {
+            return;
+        }
+        if (out->status != ExifDecodeStatus::LimitExceeded) {
+            out->status           = ExifDecodeStatus::LimitExceeded;
+            out->limit_reason     = reason;
+            out->limit_ifd_offset = ifd_offset;
+            out->limit_tag        = tag;
+            return;
+        }
+        if (out->limit_reason == ExifLimitReason::None
+            && reason != ExifLimitReason::None) {
+            out->limit_reason     = reason;
+            out->limit_ifd_offset = ifd_offset;
+            out->limit_tag        = tag;
         }
     }
 
@@ -1504,7 +1533,6 @@ namespace {
                                        ExifDecodeResult* result) noexcept
     {
         if (value_bytes > limits.max_value_bytes) {
-            update_status(result, ExifDecodeStatus::LimitExceeded);
             return MetaValue {};
         }
 
@@ -1915,7 +1943,7 @@ namespace {
         }
 
         if (*stack_size >= limits.max_ifds) {
-            update_status(result, ExifDecodeStatus::LimitExceeded);
+            mark_limit_exceeded(result, ExifLimitReason::MaxIfds, 0, tag);
             return false;
         }
 
@@ -1930,7 +1958,8 @@ namespace {
             for (uint32_t i = 0; i < ptr_count; ++i) {
                 if (*stack_size >= stack.size()
                     || *stack_size >= limits.max_ifds) {
-                    update_status(result, ExifDecodeStatus::LimitExceeded);
+                    mark_limit_exceeded(result, ExifLimitReason::MaxIfds, 0,
+                                        tag);
                     return false;
                 }
                 IfdTask t;
@@ -1965,7 +1994,7 @@ namespace {
             stack[*stack_size] = t;
             *stack_size += 1;
         } else {
-            update_status(result, ExifDecodeStatus::LimitExceeded);
+            mark_limit_exceeded(result, ExifLimitReason::MaxIfds, 0, tag);
             return false;
         }
 
@@ -2539,13 +2568,15 @@ decode_exif_tiff(std::span<const std::byte> tiff_bytes, MetaStore& store,
                 visited_masks[visited_count] = kind_bit;
                 visited_count += 1;
             } else {
-                update_status(&sink.result, ExifDecodeStatus::LimitExceeded);
+                mark_limit_exceeded(&sink.result, ExifLimitReason::MaxIfds,
+                                    task.offset, 0);
                 break;
             }
         }
 
         if (sink.result.ifds_needed >= options.limits.max_ifds) {
-            update_status(&sink.result, ExifDecodeStatus::LimitExceeded);
+            mark_limit_exceeded(&sink.result, ExifLimitReason::MaxIfds,
+                                task.offset, 0);
             break;
         }
 
@@ -2576,8 +2607,9 @@ decode_exif_tiff(std::span<const std::byte> tiff_bytes, MetaStore& store,
                                                               next32 };
                             stack_size += 1;
                         } else {
-                            update_status(&sink.result,
-                                          ExifDecodeStatus::LimitExceeded);
+                            mark_limit_exceeded(&sink.result,
+                                                ExifLimitReason::MaxIfds,
+                                                task.offset, 0);
                         }
                     }
                 } else {
@@ -2607,8 +2639,9 @@ decode_exif_tiff(std::span<const std::byte> tiff_bytes, MetaStore& store,
                                                               next64 };
                             stack_size += 1;
                         } else {
-                            update_status(&sink.result,
-                                          ExifDecodeStatus::LimitExceeded);
+                            mark_limit_exceeded(&sink.result,
+                                                ExifLimitReason::MaxIfds,
+                                                task.offset, 0);
                         }
                     }
                 } else {
@@ -2619,7 +2652,8 @@ decode_exif_tiff(std::span<const std::byte> tiff_bytes, MetaStore& store,
         }
 
         if (entry_count > options.limits.max_entries_per_ifd) {
-            update_status(&sink.result, ExifDecodeStatus::LimitExceeded);
+            mark_limit_exceeded(&sink.result, ExifLimitReason::MaxEntriesPerIfd,
+                                task.offset, 0);
             continue;
         }
         if (entries_off + entry_count * entry_size > tiff_bytes.size()) {
@@ -2628,7 +2662,8 @@ decode_exif_tiff(std::span<const std::byte> tiff_bytes, MetaStore& store,
         }
         if (sink.result.entries_decoded + entry_count
             > options.limits.max_total_entries) {
-            update_status(&sink.result, ExifDecodeStatus::LimitExceeded);
+            mark_limit_exceeded(&sink.result, ExifLimitReason::MaxTotalEntries,
+                                task.offset, 0);
             continue;
         }
 
@@ -2741,7 +2776,9 @@ decode_exif_tiff(std::span<const std::byte> tiff_bytes, MetaStore& store,
                                       options.limits, &sink.result);
 
             if (count > UINT32_MAX) {
-                update_status(&sink.result, ExifDecodeStatus::LimitExceeded);
+                mark_limit_exceeded(&sink.result,
+                                    ExifLimitReason::ValueCountTooLarge,
+                                    task.offset, tag);
                 continue;
             }
 
@@ -2751,10 +2788,14 @@ decode_exif_tiff(std::span<const std::byte> tiff_bytes, MetaStore& store,
             entry.origin.order_in_block = static_cast<uint32_t>(i);
             entry.origin.wire_type      = WireType { WireFamily::Tiff, type };
             entry.origin.wire_count     = static_cast<uint32_t>(count);
-            entry.value = decode_tiff_value(cfg, tiff_bytes, type, count,
-                                            value_off, value_bytes,
-                                            store.arena(), options.limits,
-                                            &sink.result);
+            if (value_bytes > options.limits.max_value_bytes) {
+                entry.flags |= EntryFlags::Truncated;
+            } else {
+                entry.value = decode_tiff_value(cfg, tiff_bytes, type, count,
+                                                value_off, value_bytes,
+                                                store.arena(), options.limits,
+                                                &sink.result);
+            }
 
             if (!options.include_pointer_tags
                 && (tag == 0x8769 || tag == 0x8825 || tag == 0xA005

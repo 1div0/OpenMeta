@@ -259,6 +259,16 @@ def main(argv: list[str]) -> int:
             f"xmp={_snake(doc.xmp_status.name)} xmp_entries={doc.xmp_entries_decoded} "
             f"entries={doc.entry_count} blocks={doc.block_count}"
         )
+        if (
+            doc.exif_status == openmeta.ExifDecodeStatus.LimitExceeded
+            and doc.exif_limit_reason != openmeta.ExifLimitReason.None_
+        ):
+            print(
+                "exif_limit "
+                f"reason={_snake(doc.exif_limit_reason.name)} "
+                f"ifd_off={int(doc.exif_limit_ifd_offset)} "
+                f"tag=0x{int(doc.exif_limit_tag):04X}"
+            )
 
         by_block: dict[int, list[openmeta.Entry]] = defaultdict(list)
         for i in range(int(doc.entry_count)):

@@ -370,8 +370,12 @@
 {"kind":"exif.tag","ifd":"makernote:ricoh:main","tag":"0x0224","name":"Ricoh_0x0224"}
 {"kind":"exif.tag","ifd":"makernote:ricoh:main","tag":"0x0225","name":"Ricoh_0x0225"}
 {"kind":"exif.tag","ifd":"makernote:ricoh:main","tag":"0x0226","name":"Ricoh_0x0226"}
+{"kind":"exif.tag","ifd":"makernote:ricoh:main","tag":"0x0300","name":"RicohMake"}
+{"kind":"exif.tag","ifd":"makernote:ricoh:main","tag":"0x0306","name":"Ricoh_0x0306"}
 {"kind":"exif.tag","ifd":"makernote:ricoh:main","tag":"0x0500","name":"Ricoh_0x0500"}
 {"kind":"exif.tag","ifd":"makernote:ricoh:main","tag":"0x0501","name":"Ricoh_0x0501"}
+{"kind":"exif.tag","ifd":"makernote:ricoh:main","tag":"0x0502","name":"Ricoh_0x0502"}
+{"kind":"exif.tag","ifd":"makernote:ricoh:main","tag":"0x0207","name":"RicohModel"}
 {"kind":"exif.tag","ifd":"makernote:ricoh:main","tag":"0x0e00","name":"Ricoh_0x0e00"}
 {"kind":"exif.tag","ifd":"makernote:ricoh:main","tag":"0x0f00","name":"Ricoh_0x0f00"}
 {"kind":"exif.tag","ifd":"makernote:ricoh:main","tag":"0x0f01","name":"Ricoh_0x0f01"}
@@ -406,6 +410,8 @@
 {"kind":"exif.tag","ifd":"makernote:ricoh:main","tag":"0xf010","name":"Ricoh_0xf010"}
 {"kind":"exif.tag","ifd":"makernote:ricoh:main","tag":"0xf020","name":"Ricoh_0xf020"}
 {"kind":"exif.tag","ifd":"makernote:ricoh:main","tag":"0xf030","name":"Ricoh_0xf030"}
+{"kind":"exif.tag","ifd":"makernote:ricoh:main","tag":"0x9c9c","name":"Ricoh_0x9c9c"}
+{"kind":"exif.tag","ifd":"makernote:ricoh:main","tag":"0xadad","name":"Ricoh_0xadad"}
 {"kind":"exif.tag","ifd":"makernote:ricoh:subdir","tag":"0x0000","name":"Ricoh_Subdir_0x0000"}
 {"kind":"exif.tag","ifd":"makernote:ricoh:subdir","tag":"0x0001","name":"Ricoh_Subdir_0x0001"}
 {"kind":"exif.tag","ifd":"makernote:ricoh:subdir","tag":"0x0002","name":"Ricoh_Subdir_0x0002"}

@@ -23,6 +23,15 @@ enum class ExifDecodeStatus : uint8_t {
     LimitExceeded,
 };
 
+/// Best-effort reason for \ref ExifDecodeStatus::LimitExceeded.
+enum class ExifLimitReason : uint8_t {
+    None,
+    MaxIfds,
+    MaxEntriesPerIfd,
+    MaxTotalEntries,
+    ValueCountTooLarge,
+};
+
 /// Logical IFD kinds exposed by decode_exif_tiff().
 enum class ExifIfdKind : uint8_t {
     Ifd,
@@ -74,7 +83,7 @@ struct ExifDecodeOptions final {
     /// If true, attempt best-effort MakerNote decoding (vendor blocks).
     bool decode_makernote = false;
     /// If true, attempt best-effort decoding of embedded containers stored as
-     /// EXIF tag byte blobs (for example, Panasonic RW2 `JpgFromRaw`).
+    /// EXIF tag byte blobs (for example, Panasonic RW2 `JpgFromRaw`).
     bool decode_embedded_containers = false;
     /// IFD token naming policy (affects emitted EXIF key IFD strings).
     ExifIfdTokenPolicy tokens;
@@ -83,10 +92,13 @@ struct ExifDecodeOptions final {
 
 /// Aggregated decode statistics.
 struct ExifDecodeResult final {
-    ExifDecodeStatus status  = ExifDecodeStatus::Ok;
-    uint32_t ifds_written    = 0;
-    uint32_t ifds_needed     = 0;
-    uint32_t entries_decoded = 0;
+    ExifDecodeStatus status      = ExifDecodeStatus::Ok;
+    uint32_t ifds_written        = 0;
+    uint32_t ifds_needed         = 0;
+    uint32_t entries_decoded     = 0;
+    ExifLimitReason limit_reason = ExifLimitReason::None;
+    uint64_t limit_ifd_offset    = 0;
+    uint16_t limit_tag           = 0;
 };
 
 /**

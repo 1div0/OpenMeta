@@ -65,8 +65,7 @@ namespace {
     }
 
 
-    static int compare_key_to_cstr(std::string_view a,
-                                   const char* b) noexcept
+    static int compare_key_to_cstr(std::string_view a, const char* b) noexcept
     {
         // Lexicographic compare of a string_view to a NUL-terminated string.
         // Avoids strlen() on every comparison.
@@ -93,14 +92,13 @@ namespace {
 
     static const MakerNoteTableMap* find_table(std::string_view key) noexcept
     {
-        const uint32_t count
-            = static_cast<uint32_t>(sizeof(kMakerNoteTables)
-                                    / sizeof(kMakerNoteTables[0]));
+        const uint32_t count = static_cast<uint32_t>(
+            sizeof(kMakerNoteTables) / sizeof(kMakerNoteTables[0]));
 
         uint32_t lo = 0;
         uint32_t hi = count;
         while (lo < hi) {
-            const uint32_t mid = lo + (hi - lo) / 2U;
+            const uint32_t mid         = lo + (hi - lo) / 2U;
             const MakerNoteTableMap& t = kMakerNoteTables[mid];
             if (!t.key) {
                 // Generated tables should never include null keys, but don't
@@ -213,7 +211,20 @@ makernote_tag_name(std::string_view ifd, uint16_t tag) noexcept
     if (!table) {
         return {};
     }
-    return find_tag_name(table->entries, table->count, tag);
+    std::string_view name = find_tag_name(table->entries, table->count, tag);
+    if (!name.empty()) {
+        return name;
+    }
+
+    // Some MakerNote subtables omit tags that still exist in the vendor's
+    // main table. Fallback improves practical name coverage without changing
+    // decode semantics.
+    const MakerNoteTableMap* main_table
+        = try_table(vendor_key, "main", table_key_buf, sizeof(table_key_buf));
+    if (!main_table || main_table == table) {
+        return {};
+    }
+    return find_tag_name(main_table->entries, main_table->count, tag);
 }
 
 }  // namespace openmeta
