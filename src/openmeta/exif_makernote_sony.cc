@@ -219,7 +219,7 @@ make_sony_decipher_lut() noexcept
         // ExifTool's Sony substitution cipher uses:
         //   encipher: c = (b^3) % 249 for b in [0..248]
         // so decipher is the modular cube root: b = (c^55) % 249
-        // because 3*55 ≡ 1 (mod phi(249)=164).
+        // because 3*55 == 1 (mod phi(249)=164).
         out[i] = sony_mod_pow_249(static_cast<uint8_t>(i), 55);
     }
     return out;

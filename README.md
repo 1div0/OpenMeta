@@ -2,7 +2,7 @@
 
 OpenMeta is a metadata processing library.
 
-Current focus: **safe, format-agnostic reads** — locate metadata blocks in
+Current focus: **safe, format-agnostic reads** - locate metadata blocks in
 common containers and decode common metadata payloads into a normalized
 in-memory model.
 

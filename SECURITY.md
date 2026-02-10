@@ -10,7 +10,7 @@ Assume inputs may be maliciously crafted to:
 - trigger out-of-bounds reads/writes via bad offsets/sizes/counts,
 - cause integer overflows (e.g., `count * element_size`),
 - create cycles/recursion in pointer structures (IFD loops),
-- force unbounded allocations or decompression bombs (“zip bombs”),
+- force unbounded allocations or decompression bombs ("zip bombs"),
 - inject control sequences or confusing Unicode into console/logs/exports.
 
 ## Parsing Safety Requirements
@@ -18,7 +18,7 @@ Assume inputs may be maliciously crafted to:
 All parsers/decoders must:
 - Validate **every** offset/length against the available buffer before reading.
 - Guard multiplications/additions against overflow and validate computed ranges.
-- Enforce explicit resource limits (entries/blocks/value bytes) and fail “soft”
+- Enforce explicit resource limits (entries/blocks/value bytes) and fail "soft"
   (skip entry / mark status) rather than crashing.
 - Avoid recursion; prefer iterative decoding with visited-set loop detection.
 - Preserve unknown/invalid payloads losslessly as `bytes` (do not assume C-strings).
@@ -36,12 +36,12 @@ Console (`metaread`) rules:
 - Apply strict size limits for printing (`--max-bytes`, `--max-elements`,
   `--max-cell-chars`) and for reading whole files (`--max-file-bytes`).
 - If sanitization or truncation is triggered, annotate the value (e.g.
-  `(DANGEROUS)`) so users don’t mistake it for authoritative text.
+  `(DANGEROUS)`) so users don't mistake it for authoritative text.
 
 Structured exports (JSON/XML/XMP/etc.) rules:
 - Escape per-format (JSON string escaping; XML entity escaping) and never embed
   untrusted text into markup/attributes without escaping.
-- Prefer explicit encodings for binary fields (hex/base64) instead of “best effort” text.
+- Prefer explicit encodings for binary fields (hex/base64) instead of "best effort" text.
 - Preserve provenance: mark values that were lossy-sanitized or truncated.
 
 ## Testing & Fuzzing (Required)

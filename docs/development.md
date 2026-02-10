@@ -12,7 +12,7 @@ deps into a custom prefix, pass it via `CMAKE_PREFIX_PATH` (example:
 
 ## Optional Dependencies (Why They Exist)
 
-OpenMeta’s core scanning and EXIF/TIFF decoding do not require third-party
+OpenMeta's core scanning and EXIF/TIFF decoding do not require third-party
 libraries. Some metadata payloads are compressed or structured; these optional
 dependencies let OpenMeta decode more content:
 
@@ -22,8 +22,8 @@ dependencies let OpenMeta decode more content:
 - **zlib** (`OPENMETA_WITH_ZLIB`): inflates Deflate-compressed payloads,
   including PNG `iCCP` (ICC profiles) and compressed text/XMP chunks (`iTXt`,
   `zTXt`).
-- **Brotli** (`OPENMETA_WITH_BROTLI`): decompresses JPEG XL `brob` “compressed
-  metadata” boxes so wrapped metadata payloads can be decoded.
+- **Brotli** (`OPENMETA_WITH_BROTLI`): decompresses JPEG XL `brob` "compressed
+  metadata" boxes so wrapped metadata payloads can be decoded.
 
 If you link against dependencies that were built with `libc++` (common when
 using Clang), configure OpenMeta with:
@@ -88,7 +88,7 @@ Requirements:
 - Clang with libFuzzer support.
 
 Notes:
-- On Linux, Clang’s bundled libFuzzer runtime is typically built against
+- On Linux, Clang's bundled libFuzzer runtime is typically built against
   `libstdc++`. When `OPENMETA_USE_LIBCXX=ON`, OpenMeta keeps tests/tools on
   `libc++` but builds fuzz targets against `libstdc++` to match libFuzzer.
 - libFuzzer treats metadata as untrusted input; always run under sanitizers

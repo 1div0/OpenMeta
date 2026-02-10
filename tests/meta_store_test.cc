@@ -197,12 +197,14 @@ TEST(MetaStoreTest, PreservesWireTypeUtf8_129)
 
     Entry e;
     e.key          = make_exif_tag_key(store.arena(), "ifd0Id", 0x010e);
-    e.value        = make_text(store.arena(), "Привет", TextEncoding::Utf8);
+    static constexpr const char* kUtf8Hello
+        = "\xD0\x9F\xD1\x80\xD0\xB8\xD0\xB2\xD0\xB5\xD1\x82";
+    e.value        = make_text(store.arena(), kUtf8Hello, TextEncoding::Utf8);
     e.origin.block = block;
     e.origin.order_in_block = 0;
     e.origin.wire_type      = WireType { WireFamily::Tiff, 129 };
-    e.origin.wire_count     = static_cast<uint32_t>(
-        std::string_view("Привет").size());
+    e.origin.wire_count
+        = static_cast<uint32_t>(std::string_view(kUtf8Hello).size());
     store.add_entry(e);
     store.finalize();
 
