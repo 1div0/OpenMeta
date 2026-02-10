@@ -138,4 +138,56 @@ TEST(XmpDump, EmitsExrTypeNameInLosslessDump)
               std::string_view::npos);
 }
 
+TEST(XmpDump, PortableIncludeExistingXmpSwitch)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, kInvalidBlockId);
+
+    Entry exif_make;
+    exif_make.key   = make_exif_tag_key(store.arena(), "ifd0", 0x010F);
+    exif_make.value = make_text(store.arena(), "Canon", TextEncoding::Ascii);
+    exif_make.origin.block          = block;
+    exif_make.origin.order_in_block = 0;
+    (void)store.add_entry(exif_make);
+
+    Entry xmp_rating;
+    xmp_rating.key                   = make_xmp_property_key(store.arena(),
+                                                             "http://ns.adobe.com/xap/1.0/",
+                                                             "Rating");
+    xmp_rating.value                 = make_u16(5);
+    xmp_rating.origin.block          = block;
+    xmp_rating.origin.order_in_block = 1;
+    (void)store.add_entry(xmp_rating);
+
+    store.finalize();
+
+    XmpPortableOptions opts;
+    opts.include_exif         = false;
+    opts.include_existing_xmp = false;
+
+    std::vector<std::byte> out(1024);
+    XmpDumpResult r
+        = dump_xmp_portable(store, std::span<std::byte>(out.data(), out.size()),
+                            opts);
+    ASSERT_EQ(r.status, XmpDumpStatus::Ok);
+    ASSERT_EQ(r.entries, 0U);
+
+    std::string_view s(reinterpret_cast<const char*>(out.data()),
+                       static_cast<size_t>(r.written));
+    EXPECT_EQ(s.find("<tiff:Make>"), std::string_view::npos);
+    EXPECT_EQ(s.find("<xmp:Rating>"), std::string_view::npos);
+
+    opts.include_existing_xmp = true;
+    r = dump_xmp_portable(store, std::span<std::byte>(out.data(), out.size()),
+                          opts);
+    ASSERT_EQ(r.status, XmpDumpStatus::Ok);
+    ASSERT_EQ(r.entries, 1U);
+
+    s = std::string_view(reinterpret_cast<const char*>(out.data()),
+                         static_cast<size_t>(r.written));
+    EXPECT_EQ(s.find("<tiff:Make>"), std::string_view::npos);
+    EXPECT_NE(s.find("<xmp:Rating>5</xmp:Rating>"), std::string_view::npos);
+}
+
 }  // namespace openmeta

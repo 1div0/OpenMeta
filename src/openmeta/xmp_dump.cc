@@ -1413,19 +1413,19 @@ namespace {
     }
 
 
-    static void emit_portable_property(SpanWriter* w, std::string_view prefix,
+    static bool emit_portable_property(SpanWriter* w, std::string_view prefix,
                                        std::string_view name,
                                        const ByteArena& arena,
                                        const MetaValue& v) noexcept
     {
         if (!w) {
-            return;
+            return false;
         }
         if (prefix.empty() || name.empty()) {
-            return;
+            return false;
         }
         if (!is_simple_xmp_property_name(name)) {
-            return;
+            return false;
         }
 
         if (v.kind == MetaValueKind::Array) {
@@ -1444,19 +1444,19 @@ namespace {
             w->append(":");
             w->append(name);
             w->append(">\n");
-            return;
+            return true;
         }
 
         // Skip bytes that can't be represented safely as portable XMP text.
         if (v.kind == MetaValueKind::Bytes) {
             const std::span<const std::byte> raw = arena.span(v.data.span);
             if (!bytes_are_ascii_text(raw)) {
-                return;
+                return false;
             }
         }
         if (v.kind != MetaValueKind::Text && v.kind != MetaValueKind::Bytes
             && v.kind != MetaValueKind::Scalar) {
-            return;
+            return false;
         }
 
         w->append(kIndent3);
@@ -1471,6 +1471,7 @@ namespace {
         w->append(":");
         w->append(name);
         w->append(">\n");
+        return true;
     }
 
 }  // namespace
@@ -1528,8 +1529,9 @@ dump_xmp_portable(const MetaStore& store, std::span<std::byte> out,
                 continue;
             }
 
-            emit_portable_property(&w, prefix, tag_name, arena, e.value);
-            emitted += 1;
+            if (emit_portable_property(&w, prefix, tag_name, arena, e.value)) {
+                emitted += 1;
+            }
             continue;
         }
 
@@ -1556,8 +1558,9 @@ dump_xmp_portable(const MetaStore& store, std::span<std::byte> out,
                 continue;
             }
 
-            emit_portable_property(&w, prefix, name, arena, e.value);
-            emitted += 1;
+            if (emit_portable_property(&w, prefix, name, arena, e.value)) {
+                emitted += 1;
+            }
             continue;
         }
     }

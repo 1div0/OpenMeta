@@ -158,6 +158,7 @@ PYTHONPATH=build-py/python python3 -m openmeta.python.openmeta_stats file.jpg
 PYTHONPATH=build-py/python python3 -m openmeta.python.metaread file.jpg
 PYTHONPATH=build-py/python python3 -m openmeta.python.metadump file.jpg
 PYTHONPATH=build-py/python python3 -m openmeta.python.metadump --format portable file.jpg
+PYTHONPATH=build-py/python python3 -m openmeta.python.metadump --format portable --portable-include-existing-xmp --xmp-sidecar file.jpg
 ```
 
 ## Python Wheel

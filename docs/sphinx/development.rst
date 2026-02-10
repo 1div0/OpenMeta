@@ -72,6 +72,8 @@ Python bindings use nanobind. The wheel also ships helper scripts as
 .. code-block:: bash
 
    python3 -m openmeta.python.metaread file.jpg
+   python3 -m openmeta.python.metadump --format portable file.jpg
+   python3 -m openmeta.python.metadump --format portable --portable-include-existing-xmp --xmp-sidecar file.jpg
 
 Documentation build
 -------------------

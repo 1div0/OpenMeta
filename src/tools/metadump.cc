@@ -29,6 +29,9 @@ namespace {
             "  --format <lossless|portable>\n"
             "                         XMP output format (default: lossless)\n"
             "  --portable             Alias for --format portable\n"
+            "  --portable-no-exif     Portable mode: skip EXIF/TIFF/GPS mapped fields\n"
+            "  --portable-include-existing-xmp\n"
+            "                         Portable mode: include decoded standard XMP properties\n"
             "  --out <path>            Output path (single input only)\n"
             "  --out-dir <dir>         Output directory (for multiple inputs)\n"
             "  --force                 Overwrite existing output files\n"
@@ -63,8 +66,8 @@ namespace {
         if (!s || !*s || !out) {
             return false;
         }
-        char* end        = nullptr;
-        unsigned long v  = std::strtoul(s, &end, 10);
+        char* end       = nullptr;
+        unsigned long v = std::strtoul(s, &end, 10);
         if (!end || *end != '\0') {
             return false;
         }
@@ -206,7 +209,7 @@ namespace {
             return {};
         }
         const std::string in(in_path);
-        const std::string base = basename_only(in);
+        const std::string base     = basename_only(in);
         const std::string out_name = base + ".xmp";
         if (out_dir.empty()) {
             return in + ".xmp";
@@ -227,7 +230,8 @@ namespace {
 }  // namespace openmeta
 
 
-int main(int argc, char** argv)
+int
+main(int argc, char** argv)
 {
     using namespace openmeta;
 
@@ -236,10 +240,12 @@ int main(int argc, char** argv)
         Portable,
     };
 
-    bool show_build_info = true;
-    bool xmp_sidecar     = false;
-    bool force_overwrite = false;
-    DumpFormat format    = DumpFormat::Lossless;
+    bool show_build_info               = true;
+    bool xmp_sidecar                   = false;
+    bool force_overwrite               = false;
+    DumpFormat format                  = DumpFormat::Lossless;
+    bool portable_include_exif         = true;
+    bool portable_include_existing_xmp = false;
     std::string out_path;
     std::string out_dir;
 
@@ -275,6 +281,16 @@ int main(int argc, char** argv)
             first_path += 1;
             continue;
         }
+        if (std::strcmp(arg, "--portable-no-exif") == 0) {
+            portable_include_exif = false;
+            first_path += 1;
+            continue;
+        }
+        if (std::strcmp(arg, "--portable-include-existing-xmp") == 0) {
+            portable_include_existing_xmp = true;
+            first_path += 1;
+            continue;
+        }
         if (std::strcmp(arg, "--format") == 0 && i + 1 < argc) {
             const char* v = argv[i + 1];
             if (!v) {
@@ -286,7 +302,9 @@ int main(int argc, char** argv)
             } else if (std::strcmp(v, "portable") == 0) {
                 format = DumpFormat::Portable;
             } else {
-                std::fprintf(stderr, "invalid --format value (expected lossless|portable)\n");
+                std::fprintf(
+                    stderr,
+                    "invalid --format value (expected lossless|portable)\n");
                 return 2;
             }
             i += 1;
@@ -373,7 +391,8 @@ int main(int argc, char** argv)
 
     const int file_count = argc - first_path;
     if (!out_path.empty() && file_count != 1) {
-        std::fprintf(stderr, "metadump: --out requires exactly one input file\n");
+        std::fprintf(stderr,
+                     "metadump: --out requires exactly one input file\n");
         return 2;
     }
 
@@ -393,7 +412,8 @@ int main(int argc, char** argv)
                                     : out_path;
 
         if (!force_overwrite && file_exists(out)) {
-            std::fprintf(stderr, "metadump: refusing to overwrite `%s` (use --force)\n",
+            std::fprintf(stderr,
+                         "metadump: refusing to overwrite `%s` (use --force)\n",
                          out.c_str());
             exit_code = 1;
             continue;
@@ -466,6 +486,8 @@ int main(int argc, char** argv)
         XmpPortableOptions dump_portable_opts;
         dump_portable_opts.limits.max_output_bytes = max_output_bytes;
         dump_portable_opts.limits.max_entries      = max_entries;
+        dump_portable_opts.include_exif            = portable_include_exif;
+        dump_portable_opts.include_existing_xmp = portable_include_existing_xmp;
 
         std::vector<std::byte> out_buf(1024 * 1024);
         XmpDumpResult dump_res;
@@ -492,8 +514,7 @@ int main(int argc, char** argv)
         }
 
         if (dump_res.status != XmpDumpStatus::Ok) {
-            std::fprintf(stderr,
-                         "metadump: dump failed for `%s` (status=%s)\n",
+            std::fprintf(stderr, "metadump: dump failed for `%s` (status=%s)\n",
                          path,
                          (dump_res.status == XmpDumpStatus::LimitExceeded)
                              ? "limit_exceeded"
@@ -502,8 +523,9 @@ int main(int argc, char** argv)
             continue;
         }
 
-        const std::span<const std::byte> dump_bytes(
-            out_buf.data(), static_cast<size_t>(dump_res.written));
+        const std::span<const std::byte> dump_bytes(out_buf.data(),
+                                                    static_cast<size_t>(
+                                                        dump_res.written));
         if (!write_file_bytes(out, dump_bytes)) {
             std::fprintf(stderr, "metadump: failed to write `%s`\n",
                          out.c_str());
@@ -511,7 +533,8 @@ int main(int argc, char** argv)
             continue;
         }
 
-        std::printf("wrote=%s bytes=%llu entries=%u\n", out.c_str(),
+        std::printf("wrote=%s format=%s bytes=%llu entries=%u\n", out.c_str(),
+                    (format == DumpFormat::Portable) ? "portable" : "lossless",
                     static_cast<unsigned long long>(dump_res.written),
                     static_cast<unsigned>(dump_res.entries));
     }

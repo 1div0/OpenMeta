@@ -31,6 +31,12 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--no-build-info", action="store_true", help="hide OpenMeta build info header")
     ap.add_argument("--format", choices=["lossless", "portable"], default="lossless", help="XMP output format")
     ap.add_argument("--portable", action="store_true", help="alias for --format portable")
+    ap.add_argument("--portable-no-exif", action="store_true", help="portable mode: skip EXIF/TIFF/GPS mapped fields")
+    ap.add_argument(
+        "--portable-include-existing-xmp",
+        action="store_true",
+        help="portable mode: include decoded standard XMP properties",
+    )
     ap.add_argument("--out", type=str, default="", help="output path (single input only)")
     ap.add_argument("--out-dir", type=str, default="", help="output directory (multiple inputs)")
     ap.add_argument("--force", action="store_true", help="overwrite existing output files")
@@ -78,6 +84,8 @@ def main(argv: list[str]) -> int:
             data, res = doc.dump_xmp_portable(
                 max_output_bytes=int(args.max_output_bytes),
                 max_entries=int(args.max_entries),
+                include_exif=not args.portable_no_exif,
+                include_existing_xmp=bool(args.portable_include_existing_xmp),
             )
         else:
             data, res = doc.dump_xmp_lossless(
@@ -94,7 +102,7 @@ def main(argv: list[str]) -> int:
             rc = 1
             continue
 
-        print(f"wrote={out_path} bytes={len(data)} entries={res.entries}")
+        print(f"wrote={out_path} format={args.format} bytes={len(data)} entries={res.entries}")
 
     return rc
 
