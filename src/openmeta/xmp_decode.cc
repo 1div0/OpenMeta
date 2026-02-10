@@ -445,15 +445,14 @@ namespace {
         Frame frame = std::move(ctx->stack.back());
         ctx->stack.pop_back();
 
-        // Emit element/li text values (leaf-only).
+        // Emit element/li text values (leaf-only). Preserve explicit empty
+        // values so XMP->XMP round-trip doesn't drop empty properties.
         if (ctx->description_depth > 0 && !ctx->path.empty()
             && !frame.emitted_resource_val && !frame.had_child_element) {
             if (frame.is_li || frame.is_nonrdf) {
                 const std::string_view trimmed = trim_ascii_ws(frame.text);
-                if (!trimmed.empty()) {
-                    (void)emit_property_text(ctx, ctx->root_schema_ns,
-                                             ctx->path, trimmed);
-                }
+                (void)emit_property_text(ctx, ctx->root_schema_ns, ctx->path,
+                                         trimmed);
             }
         }
 

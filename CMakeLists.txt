@@ -417,6 +417,7 @@ if(OPENMETA_BUILD_TESTS)
     tests/oiio_adapter_test.cc
     tests/photoshop_irb_decode_test.cc
     tests/printim_decode_test.cc
+    tests/simple_meta_xmp_test.cc
     tests/xmp_decode_test.cc
     tests/xmp_dump_test.cc
   )

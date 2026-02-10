@@ -92,6 +92,60 @@ TEST(XmpDecodeTest, TrimsTrailingNulPadding)
     EXPECT_EQ(r.entries_decoded, 1U);
 }
 
+TEST(XmpDecodeTest, PreservesExplicitEmptyLeafValues)
+{
+    const std::string xmp
+        = "<x:xmpmeta xmlns:x='adobe:ns:meta/'>"
+          "<rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'>"
+          "<rdf:Description "
+          "xmlns:tiff='http://ns.adobe.com/tiff/1.0/'>"
+          "<tiff:Artist/>"
+          "<tiff:Copyright>   </tiff:Copyright>"
+          "</rdf:Description>"
+          "</rdf:RDF>"
+          "</x:xmpmeta>";
+
+    const std::span<const std::byte> bytes(reinterpret_cast<const std::byte*>(
+                                               xmp.data()),
+                                           xmp.size());
+
+    MetaStore store;
+    const XmpDecodeResult r = decode_xmp_packet(bytes, store);
+    EXPECT_EQ(r.status, XmpDecodeStatus::Ok);
+    EXPECT_EQ(r.entries_decoded, 2U);
+
+    store.finalize();
+
+    MetaKeyView artist_key;
+    artist_key.kind = MetaKeyKind::XmpProperty;
+    artist_key.data.xmp_property.schema_ns
+        = "http://ns.adobe.com/tiff/1.0/";
+    artist_key.data.xmp_property.property_path = "Artist";
+
+    MetaKeyView copy_key;
+    copy_key.kind = MetaKeyKind::XmpProperty;
+    copy_key.data.xmp_property.schema_ns
+        = "http://ns.adobe.com/tiff/1.0/";
+    copy_key.data.xmp_property.property_path = "Copyright";
+
+    const std::span<const EntryId> artist_ids = store.find_all(artist_key);
+    const std::span<const EntryId> copy_ids   = store.find_all(copy_key);
+    ASSERT_EQ(artist_ids.size(), 1U);
+    ASSERT_EQ(copy_ids.size(), 1U);
+
+    const Entry& artist = store.entry(artist_ids[0]);
+    const Entry& copy   = store.entry(copy_ids[0]);
+    ASSERT_EQ(artist.value.kind, MetaValueKind::Text);
+    ASSERT_EQ(copy.value.kind, MetaValueKind::Text);
+
+    const std::span<const std::byte> artist_val = store.arena().span(
+        artist.value.data.span);
+    const std::span<const std::byte> copy_val = store.arena().span(
+        copy.value.data.span);
+    EXPECT_TRUE(artist_val.empty());
+    EXPECT_TRUE(copy_val.empty());
+}
+
 TEST(XmpDecodeTest, SkipsLeadingMimePrefix)
 {
     const std::string xmp

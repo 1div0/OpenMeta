@@ -13,6 +13,7 @@
 #include <array>
 #include <cmath>
 #include <cstring>
+#include <string_view>
 
 namespace openmeta {
 namespace {
@@ -492,6 +493,20 @@ namespace {
         return payload_res;
     }
 
+
+    static bool looks_like_xmp_packet(std::span<const std::byte> bytes) noexcept
+    {
+        if (bytes.empty()) {
+            return false;
+        }
+        const size_t n = (bytes.size() < 8192U) ? bytes.size() : 8192U;
+        const std::string_view head(reinterpret_cast<const char*>(bytes.data()),
+                                    n);
+        return head.find("<x:xmpmeta") != std::string_view::npos
+               || head.find("<rdf:RDF") != std::string_view::npos
+               || head.find("xmlns:rdf=") != std::string_view::npos;
+    }
+
 }  // namespace
 
 SimpleMetaResult
@@ -956,6 +971,16 @@ simple_meta_read(std::span<const std::byte> file_bytes, MetaStore& store,
             ifd_write_pos += advanced;
             exif.ifds_written = ifd_write_pos;
         }
+    }
+
+    // Standalone .xmp sidecar packets are containerless; scan_auto won't emit
+    // dedicated XMP blocks for them. Decode directly when packet signatures are
+    // present and no XMP block was seen.
+    if (!any_xmp && looks_like_xmp_packet(file_bytes)) {
+        any_xmp                   = true;
+        const XmpDecodeResult one = decode_xmp_packet(file_bytes, store);
+        merge_xmp_status(&xmp.status, one.status);
+        xmp.entries_decoded += one.entries_decoded;
     }
 
     if (!any_exif) {

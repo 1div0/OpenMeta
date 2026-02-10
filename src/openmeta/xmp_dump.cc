@@ -5,12 +5,14 @@
 #include "openmeta/meta_key.h"
 #include "openmeta/meta_value.h"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <string_view>
+#include <vector>
 
 namespace openmeta {
 namespace {
@@ -1157,6 +1159,109 @@ namespace {
         return false;
     }
 
+    static std::string_view portable_property_name_for_exif_tag(
+        std::string_view prefix, std::string_view ifd, uint16_t tag,
+        std::string_view fallback_name) noexcept
+    {
+        (void)ifd;
+        if (fallback_name.empty()) {
+            return {};
+        }
+
+        if (prefix == "tiff") {
+            if (tag == 0x0101U) {  // ImageLength in TIFF IFD.
+                return "ImageHeight";
+            }
+            return fallback_name;
+        }
+
+        if (prefix != "exif") {
+            return fallback_name;
+        }
+
+        // EXIF -> XMP canonical naming adjustments expected by interop tools.
+        switch (tag) {
+        case 0x9204U: return "ExposureCompensation";  // ExposureBiasValue
+        case 0x8827U: return "ISO";                   // ISOSpeedRatings
+        case 0xA002U: return "ExifImageWidth";        // PixelXDimension
+        case 0xA003U: return "ExifImageHeight";       // PixelYDimension
+        case 0xA405U:
+            return "FocalLengthIn35mmFormat";  // FocalLengthIn35mmFilm
+        default: return fallback_name;
+        }
+    }
+
+
+    static bool xmp_ns_to_portable_prefix(std::string_view ns,
+                                          std::string_view* out_prefix) noexcept
+    {
+        if (!out_prefix) {
+            return false;
+        }
+        *out_prefix = {};
+        if (ns == kXmpNsXmp) {
+            *out_prefix = "xmp";
+            return true;
+        }
+        if (ns == kXmpNsTiff) {
+            *out_prefix = "tiff";
+            return true;
+        }
+        if (ns == kXmpNsExif) {
+            *out_prefix = "exif";
+            return true;
+        }
+        if (ns == kXmpNsDc) {
+            *out_prefix = "dc";
+            return true;
+        }
+        return false;
+    }
+
+
+    static bool parse_indexed_xmp_property_name(std::string_view path,
+                                                std::string_view* out_base,
+                                                uint32_t* out_index) noexcept
+    {
+        if (!out_base || !out_index) {
+            return false;
+        }
+        *out_base  = {};
+        *out_index = 0U;
+
+        const size_t lb = path.rfind('[');
+        if (lb == std::string_view::npos || lb + 2U >= path.size()
+            || path.back() != ']') {
+            return false;
+        }
+
+        const std::string_view base = path.substr(0, lb);
+        if (!is_simple_xmp_property_name(base)) {
+            return false;
+        }
+
+        const std::string_view idx = path.substr(lb + 1U,
+                                                 path.size() - lb - 2U);
+        uint64_t parsed_idx        = 0U;
+        for (size_t i = 0; i < idx.size(); ++i) {
+            const char c = idx[i];
+            if (c < '0' || c > '9') {
+                return false;
+            }
+            parsed_idx = parsed_idx * 10U + static_cast<uint64_t>(c - '0');
+            if (parsed_idx > UINT32_MAX) {
+                return false;
+            }
+        }
+        if (parsed_idx == 0U) {
+            return false;
+        }
+
+        *out_base  = base;
+        *out_index = static_cast<uint32_t>(parsed_idx);
+        return true;
+    }
+
 
     static bool bytes_are_ascii_text(std::span<const std::byte> raw) noexcept
     {
@@ -1294,6 +1399,19 @@ namespace {
             emit_portable_scalar_text(v, w);
             return true;
         case MetaValueKind::Array: return false;
+        }
+        return false;
+    }
+
+
+    static bool portable_scalar_like_value_supported(const ByteArena& arena,
+                                                     const MetaValue& v) noexcept
+    {
+        if (v.kind == MetaValueKind::Text || v.kind == MetaValueKind::Scalar) {
+            return true;
+        }
+        if (v.kind == MetaValueKind::Bytes) {
+            return bytes_are_ascii_text(arena.span(v.data.span));
         }
         return false;
     }
@@ -1474,6 +1592,118 @@ namespace {
         return true;
     }
 
+
+    struct PortableIndexedProperty final {
+        std::string_view prefix;
+        std::string_view base;
+        uint32_t index         = 0U;
+        uint32_t order         = 0U;
+        const MetaValue* value = nullptr;
+    };
+
+    struct PortablePropertyKey final {
+        std::string_view prefix;
+        std::string_view name;
+    };
+
+    static bool has_portable_property_key(
+        const std::vector<PortablePropertyKey>& keys, std::string_view prefix,
+        std::string_view name) noexcept
+    {
+        for (size_t i = 0; i < keys.size(); ++i) {
+            if (keys[i].prefix == prefix && keys[i].name == name) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static bool add_portable_property_key(std::vector<PortablePropertyKey>* keys,
+                                          std::string_view prefix,
+                                          std::string_view name) noexcept
+    {
+        if (!keys || prefix.empty() || name.empty()) {
+            return false;
+        }
+        if (has_portable_property_key(*keys, prefix, name)) {
+            return false;
+        }
+        keys->push_back(PortablePropertyKey { prefix, name });
+        return true;
+    }
+
+    static bool portable_indexed_property_less(
+        const PortableIndexedProperty& a,
+        const PortableIndexedProperty& b) noexcept
+    {
+        if (a.prefix != b.prefix) {
+            return a.prefix < b.prefix;
+        }
+        if (a.base != b.base) {
+            return a.base < b.base;
+        }
+        if (a.index != b.index) {
+            return a.index < b.index;
+        }
+        return a.order < b.order;
+    }
+
+
+    static bool emit_portable_indexed_property_seq(
+        SpanWriter* w, std::string_view prefix, std::string_view name,
+        const ByteArena& arena,
+        std::span<const PortableIndexedProperty> items) noexcept
+    {
+        if (!w || prefix.empty() || name.empty() || items.empty()) {
+            return false;
+        }
+
+        uint32_t valid = 0U;
+        for (size_t i = 0; i < items.size(); ++i) {
+            if (!items[i].value) {
+                continue;
+            }
+            if (portable_scalar_like_value_supported(arena, *items[i].value)) {
+                valid += 1U;
+            }
+        }
+        if (valid == 0U) {
+            return false;
+        }
+
+        w->append(kIndent3);
+        w->append("<");
+        w->append(prefix);
+        w->append(":");
+        w->append(name);
+        w->append(">\n");
+        w->append(kIndent4);
+        w->append("<rdf:Seq>\n");
+
+        for (size_t i = 0; i < items.size(); ++i) {
+            if (!items[i].value
+                || !portable_scalar_like_value_supported(arena,
+                                                         *items[i].value)) {
+                continue;
+            }
+            w->append(kIndent4);
+            w->append(kIndent1);
+            w->append("<rdf:li>");
+            (void)emit_portable_value_inline(arena, *items[i].value, w);
+            w->append("</rdf:li>\n");
+        }
+
+        w->append(kIndent4);
+        w->append("</rdf:Seq>\n");
+        w->append(kIndent3);
+        w->append("</");
+        w->append(prefix);
+        w->append(":");
+        w->append(name);
+        w->append(">\n");
+        return true;
+    }
+
 }  // namespace
 
 
@@ -1495,6 +1725,11 @@ dump_xmp_portable(const MetaStore& store, std::span<std::byte> out,
 
     const ByteArena& arena          = store.arena();
     const std::span<const Entry> es = store.entries();
+
+    std::vector<PortableIndexedProperty> indexed;
+    indexed.reserve(128);
+    std::vector<PortablePropertyKey> emitted_keys;
+    emitted_keys.reserve(256);
 
     uint32_t emitted = 0;
     for (size_t i = 0; i < es.size(); ++i) {
@@ -1524,12 +1759,24 @@ dump_xmp_portable(const MetaStore& store, std::span<std::byte> out,
             if (tag_name.empty()) {
                 continue;
             }
+            const std::string_view portable_tag_name
+                = portable_property_name_for_exif_tag(
+                    prefix, ifd, e.key.data.exif_tag.tag, tag_name);
+            if (portable_tag_name.empty()) {
+                continue;
+            }
 
             if (tag_name.ends_with("IFDPointer") || tag_name == "SubIFDs") {
                 continue;
             }
 
-            if (emit_portable_property(&w, prefix, tag_name, arena, e.value)) {
+            if (!add_portable_property_key(&emitted_keys, prefix,
+                                           portable_tag_name)) {
+                continue;
+            }
+
+            if (emit_portable_property(&w, prefix, portable_tag_name, arena,
+                                       e.value)) {
                 emitted += 1;
             }
             continue;
@@ -1541,27 +1788,68 @@ dump_xmp_portable(const MetaStore& store, std::span<std::byte> out,
                 = arena_string(arena, e.key.data.xmp_property.schema_ns);
             const std::string_view name
                 = arena_string(arena, e.key.data.xmp_property.property_path);
-            if (!is_simple_xmp_property_name(name)) {
-                continue;
-            }
-
             std::string_view prefix;
-            if (ns == kXmpNsXmp) {
-                prefix = "xmp";
-            } else if (ns == kXmpNsTiff) {
-                prefix = "tiff";
-            } else if (ns == kXmpNsExif) {
-                prefix = "exif";
-            } else if (ns == kXmpNsDc) {
-                prefix = "dc";
-            } else {
+            if (!xmp_ns_to_portable_prefix(ns, &prefix)) {
                 continue;
             }
 
-            if (emit_portable_property(&w, prefix, name, arena, e.value)) {
-                emitted += 1;
+            if (is_simple_xmp_property_name(name)) {
+                if (!add_portable_property_key(&emitted_keys, prefix, name)) {
+                    continue;
+                }
+                if (emit_portable_property(&w, prefix, name, arena, e.value)) {
+                    emitted += 1;
+                }
+                continue;
+            }
+
+            std::string_view base_name;
+            uint32_t index = 0U;
+            if (parse_indexed_xmp_property_name(name, &base_name, &index)) {
+                PortableIndexedProperty item;
+                item.prefix = prefix;
+                item.base   = base_name;
+                item.index  = index;
+                item.order  = static_cast<uint32_t>(i);
+                item.value  = &e.value;
+                indexed.push_back(item);
             }
             continue;
+        }
+    }
+
+    if (!indexed.empty() && !w.limit_hit) {
+        std::stable_sort(indexed.begin(), indexed.end(),
+                         portable_indexed_property_less);
+
+        size_t i = 0;
+        while (i < indexed.size()) {
+            if (options.limits.max_entries != 0U
+                && emitted >= options.limits.max_entries) {
+                w.limit_hit = true;
+                break;
+            }
+
+            size_t j = i + 1U;
+            while (j < indexed.size() && indexed[j].prefix == indexed[i].prefix
+                   && indexed[j].base == indexed[i].base) {
+                j += 1U;
+            }
+
+            if (!add_portable_property_key(&emitted_keys, indexed[i].prefix,
+                                           indexed[i].base)) {
+                i = j;
+                continue;
+            }
+
+            if (emit_portable_indexed_property_seq(
+                    &w, indexed[i].prefix, indexed[i].base, arena,
+                    std::span<const PortableIndexedProperty>(indexed.data() + i,
+                                                             j - i))) {
+                emitted += 1U;
+            }
+
+            i = j;
         }
     }
 
