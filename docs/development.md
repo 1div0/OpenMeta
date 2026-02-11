@@ -215,30 +215,32 @@ Current Python binding entry points:
 - `Document.export_names(style=..., include_makernotes=...)`
 - `Document.oiio_attributes(...)`
 - `Document.ocio_metadata_tree(...)`
+- `Document.dump_xmp_sidecar(format=...)`
 
-Cached corpus parity gate (internal workflow):
+Cached corpus parity gate (local cached workflow):
 
 ```bash
-OpenMeta-internal/internals/run_premerge_gates.sh --jobs 4
+./run_premerge_gates.sh --jobs 4
 ```
 
 Include OpenEXR ground-truth checks:
 
 ```bash
-OpenMeta-internal/internals/run_interop_gates.sh --tier exr --jobs 4
-OpenMeta-internal/internals/run_interop_gates.sh --tier all --jobs 4
-OpenMeta-internal/internals/run_interop_gates.sh --tier heic --jobs 4 --require-exr 0
+./run_interop_gates.sh --tier exr --jobs 4
+./run_interop_gates.sh --tier all --jobs 4
+./run_interop_gates.sh --tier heic --jobs 4 --require-exr 0
 ```
 
 Notes:
 - `run_premerge_gates.sh` is the standard pre-merge gate entrypoint.
 - `run_interop_gates.sh` now defaults to `--tier all`.
 - EXR gate is required by default (`--require-exr 1`) and includes safe value parity checks (`--exr-check-values 1`).
+- RAW tiers should include both broad RAW camera corpora and compact DNG-focused corpora.
 
-Cached adapter-name parity (internal workflow):
+Cached adapter-name parity (local cached workflow):
 
 ```bash
-python3 OpenMeta-internal/internals/compare_openmeta_interop_names_cached.py \
+python3 compare_openmeta_interop_names_cached.py \
   --tool both --jobs 4 --quiet
 ```
 

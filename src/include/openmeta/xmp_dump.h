@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <span>
+#include <vector>
 
 /**
  * \file xmp_dump.h
@@ -51,6 +52,21 @@ struct XmpPortableOptions final {
     bool include_existing_xmp = false;
 };
 
+/// Sidecar format selection for \ref dump_xmp_sidecar.
+enum class XmpSidecarFormat : uint8_t {
+    Lossless,
+    Portable,
+};
+
+/// High-level sidecar options for \ref dump_xmp_sidecar.
+struct XmpSidecarOptions final {
+    XmpSidecarFormat format = XmpSidecarFormat::Lossless;
+    XmpDumpOptions lossless;
+    XmpPortableOptions portable;
+    /// Initial output buffer size before automatic growth (0 uses default).
+    uint64_t initial_output_bytes = 0;
+};
+
 /// Dump result (size stats + how many entries were emitted).
 struct XmpDumpResult final {
     XmpDumpStatus status = XmpDumpStatus::Ok;
@@ -88,5 +104,18 @@ dump_xmp_lossless(const MetaStore& store, std::span<std::byte> out,
 XmpDumpResult
 dump_xmp_portable(const MetaStore& store, std::span<std::byte> out,
                   const XmpPortableOptions& options) noexcept;
+
+/**
+ * \brief Emits an XMP sidecar into a resizable byte buffer.
+ *
+ * This is a high-level wrapper around \ref dump_xmp_lossless and
+ * \ref dump_xmp_portable that:
+ * - selects format via \ref XmpSidecarOptions::format,
+ * - grows output buffer automatically on \ref XmpDumpStatus::OutputTruncated,
+ * - returns final bytes in \p out (trimmed to \ref XmpDumpResult::written on success).
+ */
+XmpDumpResult
+dump_xmp_sidecar(const MetaStore& store, std::vector<std::byte>* out,
+                 const XmpSidecarOptions& options) noexcept;
 
 }  // namespace openmeta

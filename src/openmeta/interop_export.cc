@@ -164,6 +164,67 @@ namespace {
     }
 
 
+    enum class ExrOiioNameMapResult : uint8_t { Unmapped = 0, Mapped, Skip };
+
+
+    static ExrOiioNameMapResult
+    map_exr_attribute_name_for_oiio(std::string_view attr_name,
+                                    std::string_view* mapped) noexcept
+    {
+        if (mapped) {
+            *mapped = {};
+        }
+
+        struct ExrNameMap final {
+            std::string_view exr_name;
+            std::string_view oiio_name;
+        };
+
+        static constexpr std::array<ExrNameMap, 12> kMap = { {
+            { "cameraTransform", "worldtocamera" },
+            { "capDate", "DateTime" },
+            { "comments", "ImageDescription" },
+            { "owner", "Copyright" },
+            { "pixelAspectRatio", "PixelAspectRatio" },
+            { "xDensity", "XResolution" },
+            { "expTime", "ExposureTime" },
+            { "wrapmodes", "wrapmodes" },
+            { "aperture", "FNumber" },
+            { "chunkCount", "openexr:chunkCount" },
+            { "maxSamplesPerPixel", "openexr:maxSamplesPerPixel" },
+            { "dwaCompressionLevel", "openexr:dwaCompressionLevel" },
+        } };
+
+        for (size_t i = 0; i < kMap.size(); ++i) {
+            if (attr_name == kMap[i].exr_name) {
+                if (mapped) {
+                    *mapped = kMap[i].oiio_name;
+                }
+                return ExrOiioNameMapResult::Mapped;
+            }
+        }
+
+        static constexpr std::array<std::string_view, 8> kSkip = { {
+            "channels",
+            "compression",
+            "dataWindow",
+            "displayWindow",
+            "envmap",
+            "tiledesc",
+            "tiles",
+            "type",
+        } };
+
+        for (size_t i = 0; i < kSkip.size(); ++i) {
+            if (attr_name == kSkip[i]) {
+                return ExrOiioNameMapResult::Skip;
+            }
+        }
+
+        return ExrOiioNameMapResult::Unmapped;
+    }
+
+
     static bool build_canonical_name(const ByteArena& arena, const Entry& e,
                                      std::string* out_name) noexcept
     {
@@ -388,15 +449,27 @@ namespace {
             const std::string_view attr_name
                 = arena_string(arena, e.key.data.exr_attribute.name);
             if (e.key.data.exr_attribute.part_index == 0U) {
+                std::string_view mapped;
+                const ExrOiioNameMapResult map_result
+                    = map_exr_attribute_name_for_oiio(attr_name, &mapped);
+                if (map_result == ExrOiioNameMapResult::Skip) {
+                    return false;
+                }
+                if (map_result == ExrOiioNameMapResult::Mapped) {
+                    out_name->append(mapped);
+                    return true;
+                }
                 out_name->append("openexr:");
                 out_name->append(attr_name);
-            } else {
+                return true;
+            }
+            {
                 out_name->append("openexr:part:");
                 append_u64_dec(e.key.data.exr_attribute.part_index, out_name);
                 out_name->append(":");
                 out_name->append(attr_name);
+                return true;
             }
-            return true;
         }
 
         return build_canonical_name(arena, e, out_name);

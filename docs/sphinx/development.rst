@@ -39,6 +39,7 @@ Python binding entry points:
 - ``Document.export_names(...)``
 - ``Document.oiio_attributes(...)``
 - ``Document.ocio_metadata_tree(...)``
+- ``Document.dump_xmp_sidecar(...)`` (lossless or portable via format switch)
 
 Optional dependencies
 ---------------------

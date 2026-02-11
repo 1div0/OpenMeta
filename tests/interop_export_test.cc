@@ -104,6 +104,15 @@ namespace {
         exr_attr.origin.order_in_block = 5;
         (void)store.add_entry(exr_attr);
 
+        Entry exr_skipped;
+        exr_skipped.key          = make_exr_attribute_key(store.arena(), 0U,
+                                                          "compression");
+        exr_skipped.value        = make_text(store.arena(), "zip",
+                                             TextEncoding::Ascii);
+        exr_skipped.origin.block = block;
+        exr_skipped.origin.order_in_block = 6;
+        (void)store.add_entry(exr_skipped);
+
         store.finalize();
         return store;
     }
@@ -172,6 +181,9 @@ TEST(InteropExport, OiioStyleRespectsMakerNoteSwitch)
 
     EXPECT_TRUE(contains_name(names_without_mk, "Make"));
     EXPECT_TRUE(contains_name(names_without_mk, "Exif:ExposureTime"));
+    EXPECT_TRUE(contains_name(names_without_mk, "Copyright"));
+    EXPECT_FALSE(contains_name(names_without_mk, "openexr:owner"));
+    EXPECT_FALSE(contains_name(names_without_mk, "openexr:compression"));
     EXPECT_FALSE(contains_prefix(names_without_mk, "MakerNote:mk_canon:"));
     EXPECT_TRUE(contains_prefix(names_with_mk, "MakerNote:mk_canon:"));
 }

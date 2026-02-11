@@ -1116,6 +1116,34 @@ namespace {
             return;
         }
 
+        if (box.type == fourcc('x', 'm', 'l', ' ')) {
+            ContainerBlockRef block;
+            block.format       = ContainerFormat::Jp2;
+            block.kind         = ContainerBlockKind::Xmp;
+            block.outer_offset = box.offset;
+            block.outer_size   = box.size;
+            block.data_offset  = payload_off;
+            block.data_size    = payload_size;
+            block.id           = box.type;
+            sink_emit(sink, block);
+            return;
+        }
+
+        if (box.type == fourcc('E', 'x', 'i', 'f')) {
+            ContainerBlockRef block;
+            block.format       = ContainerFormat::Jp2;
+            block.kind         = ContainerBlockKind::Exif;
+            block.outer_offset = box.offset;
+            block.outer_size   = box.size;
+            block.data_offset  = payload_off;
+            block.data_size    = payload_size;
+            block.id           = box.type;
+            skip_bmff_exif_offset(&block, bytes);
+            skip_exif_preamble(&block, bytes);
+            sink_emit(sink, block);
+            return;
+        }
+
         if (box.type == fourcc('c', 'o', 'l', 'r')) {
             if (payload_size < 3) {
                 return;
@@ -1307,7 +1335,7 @@ namespace {
     };
 
     static void bmff_note_brand(uint32_t brand, bool* is_heif, bool* is_avif,
-                                bool* is_cr3) noexcept
+                                bool* is_cr3, bool* is_jp2) noexcept
     {
         if (brand == fourcc('c', 'r', 'x', ' ')
             || brand == fourcc('C', 'R', '3', ' ')) {
@@ -1326,6 +1354,16 @@ namespace {
             || brand == fourcc('h', 'e', 'v', 'c')
             || brand == fourcc('h', 'e', 'v', 'x')) {
             *is_heif = true;
+        }
+
+        if (brand == fourcc('j', 'p', '2', ' ')
+            || brand == fourcc('j', 'p', 'x', ' ')
+            || brand == fourcc('j', 'p', 'm', ' ')
+            || brand == fourcc('m', 'j', 'p', '2')
+            || brand == fourcc('j', 'p', 'h', ' ')
+            || brand == fourcc('j', 'h', 'c', ' ')
+            || brand == fourcc('j', 'p', 'f', ' ')) {
+            *is_jp2 = true;
         }
     }
 
@@ -1348,7 +1386,8 @@ namespace {
         bool is_heif = false;
         bool is_avif = false;
         bool is_cr3  = false;
-        bmff_note_brand(major_brand, &is_heif, &is_avif, &is_cr3);
+        bool is_jp2  = false;
+        bmff_note_brand(major_brand, &is_heif, &is_avif, &is_cr3, &is_jp2);
 
         const uint64_t brands_off = payload_off + 8;
         const uint64_t brands_end = payload_off + payload_size;
@@ -1357,7 +1396,7 @@ namespace {
             if (!read_u32be(bytes, off, &brand)) {
                 return false;
             }
-            bmff_note_brand(brand, &is_heif, &is_avif, &is_cr3);
+            bmff_note_brand(brand, &is_heif, &is_avif, &is_cr3, &is_jp2);
         }
 
         if (is_cr3) {
@@ -1366,6 +1405,10 @@ namespace {
         }
         if (is_avif) {
             *out = ContainerFormat::Avif;
+            return true;
+        }
+        if (is_jp2) {
+            *out = ContainerFormat::Jp2;
             return true;
         }
         if (is_heif) {
@@ -1464,19 +1507,15 @@ namespace {
     }
 
 
-    static bool bmff_mime_content_is_xmp(std::span<const std::byte> bytes,
-                                         uint64_t start, uint64_t end) noexcept
+    static bool bmff_mime_span_is_xmp(std::span<const std::byte> bytes,
+                                      uint64_t start, uint64_t end) noexcept
     {
-        uint64_t s_end = 0;
-        if (!find_cstring_end(bytes, start, end, &s_end)) {
-            return false;
-        }
-        if (start > s_end || s_end > bytes.size()) {
+        if (start >= end || end > bytes.size()) {
             return false;
         }
 
         uint64_t token_begin = start;
-        while (token_begin < s_end) {
+        while (token_begin < end) {
             const uint8_t c = u8(bytes[token_begin]);
             if (c != static_cast<uint8_t>(' ')
                 && c != static_cast<uint8_t>('\t')) {
@@ -1486,7 +1525,7 @@ namespace {
         }
 
         uint64_t token_end = token_begin;
-        while (token_end < s_end) {
+        while (token_end < end) {
             const uint8_t c = u8(bytes[token_end]);
             if (c == static_cast<uint8_t>(';') || c == static_cast<uint8_t>(' ')
                 || c == static_cast<uint8_t>('\t')) {
@@ -1513,6 +1552,17 @@ namespace {
                                           kXmlText, sizeof(kXmlText) - 1)
                || ascii_span_equals_icase(bytes, token_begin, token_len,
                                           kXmlApp, sizeof(kXmlApp) - 1);
+    }
+
+
+    static bool bmff_mime_content_is_xmp(std::span<const std::byte> bytes,
+                                         uint64_t start, uint64_t end) noexcept
+    {
+        uint64_t s_end = 0;
+        if (!find_cstring_end(bytes, start, end, &s_end)) {
+            return false;
+        }
+        return bmff_mime_span_is_xmp(bytes, start, s_end);
     }
 
 
@@ -1612,9 +1662,15 @@ namespace {
                         } else {
                             q = infe_end;
                         }
-                    } else if (kind == ContainerBlockKind::Unknown) {
-                        // Can't read content_type and no Exif hint in name.
-                        continue;
+                    } else {
+                        // Tolerate missing content_type terminator in broken
+                        // files by treating the remainder as content_type.
+                        if (kind == ContainerBlockKind::Unknown && q < infe_end
+                            && bmff_mime_span_is_xmp(bytes, q, infe_end)) {
+                            kind      = ContainerBlockKind::Xmp;
+                            item_type = fourcc('x', 'm', 'l', ' ');
+                        }
+                        q = infe_end;
                     }
                 } else {
                     if (infe_ver == 2) {
@@ -1661,17 +1717,23 @@ namespace {
                         uint64_t ct_end = 0;
                         if (!find_cstring_end(bytes, q, infe_end, &ct_end)) {
                             // Some files omit the content-type terminator.
-                            // Skip this item instead of failing the full scan.
-                            continue;
-                        }
-                        q                = ct_end + 1;
-                        uint64_t enc_end = 0;
-                        if (find_cstring_end(bytes, q, infe_end, &enc_end)) {
-                            q = enc_end + 1;
-                        } else {
-                            // Encoding is optional in practice; treat missing
-                            // terminator as an empty encoding.
+                            // Treat the rest as content_type and continue.
+                            if (kind == ContainerBlockKind::Unknown
+                                && q < infe_end
+                                && bmff_mime_span_is_xmp(bytes, q, infe_end)) {
+                                kind = ContainerBlockKind::Xmp;
+                            }
                             q = infe_end;
+                        } else {
+                            q                = ct_end + 1;
+                            uint64_t enc_end = 0;
+                            if (find_cstring_end(bytes, q, infe_end, &enc_end)) {
+                                q = enc_end + 1;
+                            } else {
+                                // Encoding is optional in practice; treat missing
+                                // terminator as an empty encoding.
+                                q = infe_end;
+                            }
                         }
                     }
                 }
@@ -2117,7 +2179,13 @@ namespace {
         case fourcc('s', 't', 'b', 'l'):
         case fourcc('e', 'd', 't', 's'):
         case fourcc('d', 'i', 'n', 'f'):
-        case fourcc('u', 'd', 't', 'a'): return true;
+        case fourcc('u', 'd', 't', 'a'):
+        case fourcc('j', 'p', '2', 'h'):
+        case fourcc('a', 's', 'o', 'c'):
+        case fourcc('j', 'p', 'c', 'h'):
+        case fourcc('j', 'p', 'l', 'h'):
+        case fourcc('u', 'i', 'n', 'f'):
+        case fourcc('r', 'e', 's', ' '): return true;
         default: return false;
         }
     }
@@ -2138,12 +2206,37 @@ namespace {
                || (b0 == 0x4D && b1 == 0x4D && b2 == 0x00 && b3 == 0x2A);
     }
 
+
+    static bool
+    bmff_adjust_block_to_tiff_payload(std::span<const std::byte> bytes,
+                                      ContainerBlockRef* block) noexcept
+    {
+        if (!block) {
+            return false;
+        }
+        skip_bmff_exif_offset(block, bytes);
+        skip_exif_preamble(block, bytes);
+        return bmff_is_tiff_at(bytes, block->data_offset);
+    }
+
     static bool bmff_is_cr3_cmt_box(uint32_t type) noexcept
     {
         return type == fourcc('C', 'M', 'T', '1')
                || type == fourcc('C', 'M', 'T', '2')
                || type == fourcc('C', 'M', 'T', '3')
                || type == fourcc('C', 'M', 'T', '4');
+    }
+
+
+    static bool bmff_is_cr3_vendor_metadata_box(uint32_t type) noexcept
+    {
+        return type == fourcc('C', 'C', 'T', 'P')
+               || type == fourcc('C', 'N', 'C', 'V')
+               || type == fourcc('C', 'N', 'T', 'H')
+               || type == fourcc('C', 'N', 'O', 'P')
+               || type == fourcc('C', 'N', 'D', 'M')
+               || type == fourcc('C', 'T', 'B', 'O')
+               || type == fourcc('C', 'M', 'P', '1');
     }
 
     static bool bmff_type_looks_ascii(uint32_t type) noexcept
@@ -2273,8 +2366,13 @@ namespace {
                 const uint64_t child_payload_size = child.size
                                                     - child.header_size;
 
-                if (bmff_is_cr3_cmt_box(child.type)
-                    && bmff_is_tiff_at(bytes, child_payload_off)) {
+                const bool payload_looks_boxes
+                    = child_payload_off + 8 <= child_payload_end
+                      && bmff_payload_may_contain_boxes(bytes,
+                                                        child_payload_off,
+                                                        child_payload_end);
+
+                if (bmff_is_cr3_cmt_box(child.type)) {
                     ContainerBlockRef block;
                     block.format       = ContainerFormat::Cr3;
                     block.kind         = ContainerBlockKind::Exif;
@@ -2283,16 +2381,34 @@ namespace {
                     block.data_offset  = child_payload_off;
                     block.data_size    = child_payload_size;
                     block.id           = child.type;
-                    sink_emit(sink, block);
-                } else if (child_payload_off + 8 <= child_payload_end
-                           && r.depth + 1 <= kMaxDepth && sp < stack.size()) {
-                    // Recurse only when the payload begins with a plausible BMFF
-                    // box header. This keeps the scan cheap for raw payloads.
-                    if (bmff_payload_may_contain_boxes(bytes, child_payload_off,
-                                                       child_payload_end)) {
+                    if (bmff_adjust_block_to_tiff_payload(bytes, &block)) {
+                        sink_emit(sink, block);
+                    }
+                } else if (bmff_is_cr3_vendor_metadata_box(child.type)
+                           && child_payload_size > 0) {
+                    if (payload_looks_boxes && r.depth + 1 <= kMaxDepth
+                        && sp < stack.size()) {
+                        // Some CR3 vendor boxes act as wrappers around nested
+                        // `CMT*` boxes. Recurse instead of emitting the wrapper.
                         stack[sp++] = Range { child_payload_off,
                                               child_payload_end, r.depth + 1 };
+                    } else {
+                        ContainerBlockRef block;
+                        block.format       = ContainerFormat::Cr3;
+                        block.kind         = ContainerBlockKind::MakerNote;
+                        block.outer_offset = child.offset;
+                        block.outer_size   = child.size;
+                        block.data_offset  = child_payload_off;
+                        block.data_size    = child_payload_size;
+                        block.id           = child.type;
+                        sink_emit(sink, block);
                     }
+                } else if (payload_looks_boxes && r.depth + 1 <= kMaxDepth
+                           && sp < stack.size()) {
+                    // Recurse only when the payload begins with a plausible BMFF
+                    // box header. This keeps the scan cheap for raw payloads.
+                    stack[sp++] = Range { child_payload_off, child_payload_end,
+                                          r.depth + 1 };
                 }
 
                 off += child.size;
@@ -2301,6 +2417,105 @@ namespace {
                 }
             }
         }
+    }
+
+
+    static bool bmff_emit_jp2_uuid_payload(std::span<const std::byte> bytes,
+                                           const BmffBox& box,
+                                           BlockSink* sink) noexcept
+    {
+        if (!box.has_uuid) {
+            return false;
+        }
+
+        ContainerBlockRef block;
+        block.format       = ContainerFormat::Jp2;
+        block.outer_offset = box.offset;
+        block.outer_size   = box.size;
+        block.data_offset  = box.offset + box.header_size;
+        block.data_size    = box.size - box.header_size;
+        block.id           = box.type;
+        block.chunking     = BlockChunking::Jp2UuidPayload;
+
+        if (box.uuid == kJp2UuidExif) {
+            block.kind = ContainerBlockKind::Exif;
+            skip_exif_preamble(&block, bytes);
+            sink_emit(sink, block);
+            return true;
+        }
+        if (box.uuid == kJp2UuidXmp) {
+            block.kind = ContainerBlockKind::Xmp;
+            sink_emit(sink, block);
+            return true;
+        }
+        if (box.uuid == kJp2UuidIptc) {
+            block.kind = ContainerBlockKind::IptcIim;
+            sink_emit(sink, block);
+            return true;
+        }
+        if (box.uuid == kJp2UuidGeoTiff) {
+            block.kind = ContainerBlockKind::Exif;
+            sink_emit(sink, block);
+            return true;
+        }
+        return false;
+    }
+
+
+    static bool
+    bmff_emit_jp2_direct_metadata_box(std::span<const std::byte> bytes,
+                                      const BmffBox& box,
+                                      BlockSink* sink) noexcept
+    {
+        const uint64_t payload_off  = box.offset + box.header_size;
+        const uint64_t payload_size = box.size - box.header_size;
+
+        if (box.type == fourcc('x', 'm', 'l', ' ')) {
+            ContainerBlockRef block;
+            block.format       = ContainerFormat::Jp2;
+            block.kind         = ContainerBlockKind::Xmp;
+            block.outer_offset = box.offset;
+            block.outer_size   = box.size;
+            block.data_offset  = payload_off;
+            block.data_size    = payload_size;
+            block.id           = box.type;
+            sink_emit(sink, block);
+            return true;
+        }
+
+        if (box.type == fourcc('E', 'x', 'i', 'f')) {
+            ContainerBlockRef block;
+            block.format       = ContainerFormat::Jp2;
+            block.kind         = ContainerBlockKind::Exif;
+            block.outer_offset = box.offset;
+            block.outer_size   = box.size;
+            block.data_offset  = payload_off;
+            block.data_size    = payload_size;
+            block.id           = box.type;
+            skip_bmff_exif_offset(&block, bytes);
+            skip_exif_preamble(&block, bytes);
+            sink_emit(sink, block);
+            return true;
+        }
+
+        if (box.type == fourcc('c', 'o', 'l', 'r') && payload_size >= 3) {
+            const uint8_t method = u8(bytes[payload_off + 0]);
+            if (method == 2U || method == 3U) {
+                ContainerBlockRef block;
+                block.format       = ContainerFormat::Jp2;
+                block.kind         = ContainerBlockKind::Icc;
+                block.outer_offset = box.offset;
+                block.outer_size   = box.size;
+                block.data_offset  = payload_off + 3;
+                block.data_size    = payload_size - 3;
+                block.id           = box.type;
+                block.aux_u32      = method;
+                sink_emit(sink, block);
+                return true;
+            }
+        }
+
+        return false;
     }
 
 
@@ -2337,8 +2552,16 @@ namespace {
                 if (sink->result.status != ScanStatus::Ok) {
                     return;
                 }
+            } else if (format == ContainerFormat::Jp2
+                       && bmff_emit_jp2_direct_metadata_box(bytes, box, sink)) {
+                if (sink->result.status != ScanStatus::Ok) {
+                    return;
+                }
             } else if (box.type == fourcc('u', 'u', 'i', 'd') && box.has_uuid) {
-                if (box.uuid == kJp2UuidXmp) {
+                if (format == ContainerFormat::Jp2
+                    && bmff_emit_jp2_uuid_payload(bytes, box, sink)) {
+                    // handled
+                } else if (box.uuid == kJp2UuidXmp) {
                     bmff_emit_uuid_payload(format, ContainerBlockKind::Xmp, box,
                                            sink);
                 } else if (format == ContainerFormat::Cr3

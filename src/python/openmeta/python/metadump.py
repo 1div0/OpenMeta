@@ -80,18 +80,18 @@ def main(argv: list[str]) -> int:
             max_file_bytes=int(args.max_file_bytes),
         )
 
-        if args.format == "portable":
-            data, res = doc.dump_xmp_portable(
-                max_output_bytes=int(args.max_output_bytes),
-                max_entries=int(args.max_entries),
-                include_exif=not args.portable_no_exif,
-                include_existing_xmp=bool(args.portable_include_existing_xmp),
-            )
-        else:
-            data, res = doc.dump_xmp_lossless(
-                max_output_bytes=int(args.max_output_bytes),
-                max_entries=int(args.max_entries),
-            )
+        sidecar_format = (
+            openmeta.XmpSidecarFormat.Portable
+            if args.format == "portable"
+            else openmeta.XmpSidecarFormat.Lossless
+        )
+        data, res = doc.dump_xmp_sidecar(
+            format=sidecar_format,
+            max_output_bytes=int(args.max_output_bytes),
+            max_entries=int(args.max_entries),
+            include_exif=not args.portable_no_exif,
+            include_existing_xmp=bool(args.portable_include_existing_xmp),
+        )
 
         try:
             os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)

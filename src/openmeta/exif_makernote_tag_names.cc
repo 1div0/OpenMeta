@@ -1,4 +1,5 @@
 #include <cstdint>
+#include <span>
 #include <string_view>
 
 namespace openmeta {
@@ -180,6 +181,88 @@ namespace {
         return find_table(std::string_view(buf, n));
     }
 
+
+    static std::string_view find_tag_name_by_key_prefix(std::string_view prefix,
+                                                        uint16_t tag) noexcept
+    {
+        const uint32_t count = static_cast<uint32_t>(
+            sizeof(kMakerNoteTables) / sizeof(kMakerNoteTables[0]));
+        for (uint32_t i = 0; i < count; ++i) {
+            const MakerNoteTableMap& table = kMakerNoteTables[i];
+            if (!table.key) {
+                continue;
+            }
+            const std::string_view key(table.key);
+            if (key.size() < prefix.size()
+                || key.substr(0, prefix.size()) != prefix) {
+                continue;
+            }
+            const std::string_view name = find_tag_name(table.entries,
+                                                        table.count, tag);
+            if (!name.empty()) {
+                return name;
+            }
+        }
+        return {};
+    }
+
+
+    static std::string_view
+    find_unique_tag_name_by_key_prefix(std::string_view prefix,
+                                       uint16_t tag) noexcept
+    {
+        const uint32_t count = static_cast<uint32_t>(
+            sizeof(kMakerNoteTables) / sizeof(kMakerNoteTables[0]));
+        std::string_view chosen;
+        for (uint32_t i = 0; i < count; ++i) {
+            const MakerNoteTableMap& table = kMakerNoteTables[i];
+            if (!table.key) {
+                continue;
+            }
+            const std::string_view key(table.key);
+            if (key.size() < prefix.size()
+                || key.substr(0, prefix.size()) != prefix) {
+                continue;
+            }
+            const std::string_view name = find_tag_name(table.entries,
+                                                        table.count, tag);
+            if (name.empty()) {
+                continue;
+            }
+            if (chosen.empty()) {
+                chosen = name;
+                continue;
+            }
+            if (name != chosen) {
+                return {};
+            }
+        }
+        return chosen;
+    }
+
+
+    static std::string_view
+    find_name_in_candidate_tables(std::string_view vendor_key, uint16_t tag,
+                                  std::span<const std::string_view> candidates,
+                                  char* table_key_buf,
+                                  size_t table_key_buf_size) noexcept
+    {
+        for (size_t i = 0; i < candidates.size(); ++i) {
+            const MakerNoteTableMap* candidate
+                = try_table(vendor_key, candidates[i], table_key_buf,
+                            table_key_buf_size);
+            if (!candidate) {
+                continue;
+            }
+            const std::string_view name = find_tag_name(candidate->entries,
+                                                        candidate->count, tag);
+            if (!name.empty()) {
+                return name;
+            }
+        }
+        return {};
+    }
+
 }  // namespace
 
 std::string_view
@@ -214,6 +297,63 @@ makernote_tag_name(std::string_view ifd, uint16_t tag) noexcept
     std::string_view name = find_tag_name(table->entries, table->count, tag);
     if (!name.empty()) {
         return name;
+    }
+
+    // Canon uses many model/version-specific table names for common decoded
+    // subtables (`camerainfo*`, `colordata*`) while decode emits stable token
+    // names (`mk_canon_camerainfo_*`, `mk_canon_colordata_*`).
+    if (vendor_key == "canon" && parts.subtable == "colordata") {
+        name = find_tag_name_by_key_prefix("makernote:canon:colordata", tag);
+        if (!name.empty()) {
+            return name;
+        }
+    }
+    if (vendor_key == "canon" && parts.subtable == "camerainfo") {
+        name = find_tag_name_by_key_prefix("makernote:canon:camerainfo", tag);
+        if (!name.empty()) {
+            return name;
+        }
+    }
+
+    if (vendor_key == "panasonic" && parts.subtable.empty()) {
+        // Older Panasonic maker notes often align with the legacy `pana` table.
+        static constexpr std::string_view kPanasonicMainFallbacks[] = {
+            "pana",
+        };
+        name = find_name_in_candidate_tables(vendor_key, tag,
+                                             std::span<const std::string_view>(
+                                                 kPanasonicMainFallbacks),
+                                             table_key_buf,
+                                             sizeof(table_key_buf));
+        if (!name.empty()) {
+            return name;
+        }
+    }
+
+    if (vendor_key == "kodak" && parts.subtable.empty()) {
+        // Kodak type-specific tables share tag ids; only use unambiguous
+        // matches across the family to avoid introducing wrong names.
+        name = find_unique_tag_name_by_key_prefix("makernote:kodak:type", tag);
+        if (!name.empty()) {
+            return name;
+        }
+        name = find_unique_tag_name_by_key_prefix("makernote:kodak:subifd",
+                                                  tag);
+        if (!name.empty()) {
+            return name;
+        }
+        static constexpr std::string_view kKodakMainFallbacks[] = {
+            "ifd",
+            "camerainfo",
+        };
+        name = find_name_in_candidate_tables(vendor_key, tag,
+                                             std::span<const std::string_view>(
+                                                 kKodakMainFallbacks),
+                                             table_key_buf,
+                                             sizeof(table_key_buf));
+        if (!name.empty()) {
+            return name;
+        }
     }
 
     // Some MakerNote subtables omit tags that still exist in the vendor's

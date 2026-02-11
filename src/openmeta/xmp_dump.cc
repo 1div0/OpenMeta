@@ -1161,8 +1161,9 @@ namespace {
         return false;
     }
 
-    static std::string_view canonical_portable_property_name(
-        std::string_view prefix, std::string_view name) noexcept
+    static std::string_view
+    canonical_portable_property_name(std::string_view prefix,
+                                     std::string_view name) noexcept
     {
         if (name.empty()) {
             return {};
@@ -1197,9 +1198,10 @@ namespace {
         return name;
     }
 
-    static std::string_view portable_property_name_for_exif_tag(
-        std::string_view prefix, std::string_view ifd, uint16_t tag,
-        std::string_view fallback_name) noexcept
+    static std::string_view
+    portable_property_name_for_exif_tag(std::string_view prefix,
+                                        std::string_view ifd, uint16_t tag,
+                                        std::string_view fallback_name) noexcept
     {
         (void)ifd;
         (void)tag;
@@ -1233,8 +1235,9 @@ namespace {
         return false;
     }
 
-    static std::string_view portable_property_name_for_existing_xmp(
-        std::string_view prefix, std::string_view name) noexcept
+    static std::string_view
+    portable_property_name_for_existing_xmp(std::string_view prefix,
+                                            std::string_view name) noexcept
     {
         return canonical_portable_property_name(prefix, name);
     }
@@ -1405,8 +1408,8 @@ namespace {
         }
 
         char buf[64];
-        std::snprintf(buf, sizeof(buf), "%lld/%lld",
-                      static_cast<long long>(rn), static_cast<long long>(rd));
+        std::snprintf(buf, sizeof(buf), "%lld/%lld", static_cast<long long>(rn),
+                      static_cast<long long>(rd));
         w->append(buf);
     }
 
@@ -1707,9 +1710,7 @@ namespace {
         case MetaElementType::U8:
         case MetaElementType::U16:
         case MetaElementType::U32:
-        case MetaElementType::U64:
-            *out = v.data.u64;
-            return true;
+        case MetaElementType::U64: *out = v.data.u64; return true;
         case MetaElementType::I8:
         case MetaElementType::I16:
         case MetaElementType::I32:
@@ -1859,6 +1860,35 @@ namespace {
         return true;
     }
 
+    static bool has_invalid_urational_value(const ByteArena& arena,
+                                            const MetaValue& v) noexcept
+    {
+        if (v.kind == MetaValueKind::Scalar
+            && v.elem_type == MetaElementType::URational) {
+            return v.data.ur.denom == 0U;
+        }
+
+        if (v.kind != MetaValueKind::Array
+            || v.elem_type != MetaElementType::URational) {
+            return false;
+        }
+
+        const std::span<const std::byte> raw = arena.span(v.data.span);
+        const uint32_t count                 = safe_array_count(arena, v);
+        for (uint32_t i = 0U; i < count; ++i) {
+            const size_t off = static_cast<size_t>(i) * sizeof(URational);
+            if (off + sizeof(URational) > raw.size()) {
+                break;
+            }
+            URational r {};
+            std::memcpy(&r, raw.data() + off, sizeof(r));
+            if (r.denom == 0U) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     static bool scalar_srational_value(const MetaValue& v,
                                        SRational* out) noexcept
     {
@@ -1902,12 +1932,13 @@ namespace {
         SpanWriter* w, std::string_view prefix, std::string_view name,
         const ByteArena& arena, const MetaValue& v) noexcept
     {
-        if (!w || prefix.empty() || name.empty() || v.kind != MetaValueKind::Array
+        if (!w || prefix.empty() || name.empty()
+            || v.kind != MetaValueKind::Array
             || v.elem_type != MetaElementType::URational) {
             return false;
         }
         const std::span<const std::byte> raw = arena.span(v.data.span);
-        const uint32_t count = safe_array_count(arena, v);
+        const uint32_t count                 = safe_array_count(arena, v);
         if (count == 0U) {
             return false;
         }
@@ -2010,7 +2041,8 @@ namespace {
             }
         }
         if ((tag == 0x9202U || tag == 0x9205U)
-            && scalar_urational_value(v, &ur)) {  // ApertureValue/MaxApertureValue
+            && scalar_urational_value(v,
+                                      &ur)) {  // ApertureValue/MaxApertureValue
             double apex = 0.0;
             if (urational_to_double(ur, &apex)) {
                 const double fnum = std::pow(2.0, apex * 0.5);
@@ -2020,15 +2052,16 @@ namespace {
                 }
             }
         }
-        if (tag == 0x9201U && scalar_srational_value(v, &sr)) {  // ShutterSpeedValue
+        if (tag == 0x9201U
+            && scalar_srational_value(v, &sr)) {  // ShutterSpeedValue
             double apex = 0.0;
             if (srational_to_double(sr, &apex)) {
                 const double sec = std::pow(2.0, -apex);
                 if (std::isfinite(sec) && sec > 0.0) {
                     if (sec < 1.0) {
-                        const double den = 1.0 / sec;
-                        const uint64_t rden
-                            = static_cast<uint64_t>(std::llround(den));
+                        const double den    = 1.0 / sec;
+                        const uint64_t rden = static_cast<uint64_t>(
+                            std::llround(den));
                         if (rden > 0U) {
                             std::snprintf(buf, sizeof(buf), "1/%llu",
                                           static_cast<unsigned long long>(rden));
@@ -2090,9 +2123,9 @@ namespace {
         = std::unordered_set<PortablePropertyKey, PortablePropertyKeyHash,
                              PortablePropertyKeyEq>;
 
-    static bool add_portable_property_key(
-        PortablePropertyKeySet* keys,
-        std::string_view prefix, std::string_view name) noexcept
+    static bool add_portable_property_key(PortablePropertyKeySet* keys,
+                                          std::string_view prefix,
+                                          std::string_view name) noexcept
     {
         if (!keys || prefix.empty() || name.empty()) {
             return false;
@@ -2155,9 +2188,10 @@ namespace {
         return false;
     }
 
-    static bool process_portable_exif_entry(const ByteArena& arena,
-                                            const Entry& e, SpanWriter* w,
-                                            PortablePropertyKeySet* emitted_keys) noexcept
+    static bool
+    process_portable_exif_entry(const ByteArena& arena, const Entry& e,
+                                SpanWriter* w,
+                                PortablePropertyKeySet* emitted_keys) noexcept
     {
         if (!w || !emitted_keys || e.key.kind != MetaKeyKind::ExifTag) {
             return false;
@@ -2170,8 +2204,13 @@ namespace {
             return false;
         }
 
-        const std::string_view tag_name = exif_tag_name(ifd,
-                                                        e.key.data.exif_tag.tag);
+        if ((ifd == "gpsifd" || ifd.ends_with("_gpsifd"))
+            && has_invalid_urational_value(arena, e.value)) {
+            return false;
+        }
+
+        const std::string_view tag_name
+            = exif_tag_name(ifd, e.key.data.exif_tag.tag);
         if (tag_name.empty()) {
             return false;
         }
@@ -2194,9 +2233,10 @@ namespace {
             return false;
         }
 
-        if (emit_portable_exif_tag_property_override(
-                w, prefix, ifd, e.key.data.exif_tag.tag, portable_tag_name,
-                arena, e.value)) {
+        if (emit_portable_exif_tag_property_override(w, prefix, ifd,
+                                                     e.key.data.exif_tag.tag,
+                                                     portable_tag_name, arena,
+                                                     e.value)) {
             return true;
         }
 
@@ -2204,9 +2244,9 @@ namespace {
                                       e.value);
     }
 
-    static bool portable_indexed_property_less(
-        const PortableIndexedProperty& a,
-        const PortableIndexedProperty& b) noexcept
+    static bool
+    portable_indexed_property_less(const PortableIndexedProperty& a,
+                                   const PortableIndexedProperty& b) noexcept
     {
         if (a.prefix != b.prefix) {
             return a.prefix < b.prefix;
@@ -2276,11 +2316,12 @@ namespace {
         return true;
     }
 
-    static void emit_portable_indexed_groups(
-        SpanWriter* w, const ByteArena& arena,
-        std::vector<PortableIndexedProperty>* indexed,
-        PortablePropertyKeySet* emitted_keys, uint32_t max_entries,
-        uint32_t* emitted) noexcept
+    static void
+    emit_portable_indexed_groups(SpanWriter* w, const ByteArena& arena,
+                                 std::vector<PortableIndexedProperty>* indexed,
+                                 PortablePropertyKeySet* emitted_keys,
+                                 uint32_t max_entries,
+                                 uint32_t* emitted) noexcept
     {
         if (!w || !indexed || !emitted_keys || !emitted || w->limit_hit
             || indexed->empty()) {
@@ -2298,7 +2339,8 @@ namespace {
             }
 
             size_t j = i + 1U;
-            while (j < indexed->size() && (*indexed)[j].prefix == (*indexed)[i].prefix
+            while (j < indexed->size()
+                   && (*indexed)[j].prefix == (*indexed)[i].prefix
                    && (*indexed)[j].base == (*indexed)[i].base) {
                 j += 1U;
             }
@@ -2311,8 +2353,8 @@ namespace {
 
             if (emit_portable_indexed_property_seq(
                     w, (*indexed)[i].prefix, (*indexed)[i].base, arena,
-                    std::span<const PortableIndexedProperty>(
-                        indexed->data() + i, j - i))) {
+                    std::span<const PortableIndexedProperty>(indexed->data() + i,
+                                                             j - i))) {
                 *emitted += 1U;
             }
 
@@ -2372,9 +2414,10 @@ dump_xmp_portable(const MetaStore& store, std::span<std::byte> out,
 
         if (e.key.kind == MetaKeyKind::XmpProperty
             && options.include_existing_xmp) {
-            if (process_portable_existing_xmp_entry(
-                    arena, e, static_cast<uint32_t>(i), &w, &emitted_keys,
-                    &indexed)) {
+            if (process_portable_existing_xmp_entry(arena, e,
+                                                    static_cast<uint32_t>(i),
+                                                    &w, &emitted_keys,
+                                                    &indexed)) {
                 emitted += 1U;
             }
             continue;
@@ -2397,6 +2440,53 @@ dump_xmp_portable(const MetaStore& store, std::span<std::byte> out,
 
     r.written = (w.written < w.needed) ? w.written : w.needed;
     r.needed  = w.needed;
+    return r;
+}
+
+
+XmpDumpResult
+dump_xmp_sidecar(const MetaStore& store, std::vector<std::byte>* out,
+                 const XmpSidecarOptions& options) noexcept
+{
+    XmpDumpResult r;
+    if (!out) {
+        r.status = XmpDumpStatus::LimitExceeded;
+        return r;
+    }
+
+    uint64_t initial_bytes = options.initial_output_bytes;
+    if (initial_bytes == 0U) {
+        initial_bytes = 1024ULL * 1024ULL;
+    }
+    if (initial_bytes > static_cast<uint64_t>(SIZE_MAX)) {
+        r.status = XmpDumpStatus::LimitExceeded;
+        return r;
+    }
+    out->assign(static_cast<size_t>(initial_bytes), std::byte { 0 });
+
+    for (;;) {
+        const std::span<std::byte> span(out->data(), out->size());
+        if (options.format == XmpSidecarFormat::Portable) {
+            r = dump_xmp_portable(store, span, options.portable);
+        } else {
+            r = dump_xmp_lossless(store, span, options.lossless);
+        }
+
+        if (r.status == XmpDumpStatus::OutputTruncated
+            && r.needed > out->size()) {
+            if (r.needed > static_cast<uint64_t>(SIZE_MAX)) {
+                r.status = XmpDumpStatus::LimitExceeded;
+                return r;
+            }
+            out->resize(static_cast<size_t>(r.needed));
+            continue;
+        }
+        break;
+    }
+
+    if (r.status == XmpDumpStatus::Ok && r.written <= out->size()) {
+        out->resize(static_cast<size_t>(r.written));
+    }
     return r;
 }
 

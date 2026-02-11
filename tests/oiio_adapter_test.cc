@@ -58,13 +58,30 @@ TEST(OiioAdapter, CollectsOiioNamedAttributes)
 
     const std::array<std::byte, 2> bytes = { std::byte { 0xDE },
                                              std::byte { 0xAD } };
+
+    Entry exr_owner;
+    exr_owner.key   = make_exr_attribute_key(store.arena(), 0U, "owner");
+    exr_owner.value = make_text(store.arena(), "showA", TextEncoding::Utf8);
+    exr_owner.origin.block          = block;
+    exr_owner.origin.order_in_block = 3;
+    (void)store.add_entry(exr_owner);
+
+    Entry exr_compression;
+    exr_compression.key          = make_exr_attribute_key(store.arena(), 0U,
+                                                          "compression");
+    exr_compression.value        = make_text(store.arena(), "zip",
+                                             TextEncoding::Ascii);
+    exr_compression.origin.block = block;
+    exr_compression.origin.order_in_block = 4;
+    (void)store.add_entry(exr_compression);
+
     Entry bmff;
     bmff.key = make_bmff_field_key(store.arena(), "meta.test");
     bmff.value
         = make_bytes(store.arena(),
                      std::span<const std::byte>(bytes.data(), bytes.size()));
     bmff.origin.block          = block;
-    bmff.origin.order_in_block = 3;
+    bmff.origin.order_in_block = 5;
     (void)store.add_entry(bmff);
 
     store.finalize();
@@ -86,6 +103,12 @@ TEST(OiioAdapter, CollectsOiioNamedAttributes)
     const OiioAttribute* a_exr = find_attr(attrs, "openexr:v2");
     ASSERT_NE(a_exr, nullptr);
     EXPECT_EQ(a_exr->value, "[1, 2, 3]");
+
+    const OiioAttribute* a_owner = find_attr(attrs, "Copyright");
+    ASSERT_NE(a_owner, nullptr);
+    EXPECT_EQ(a_owner->value, "showA");
+
+    EXPECT_EQ(find_attr(attrs, "openexr:compression"), nullptr);
 
     const OiioAttribute* a_bmff = find_attr(attrs, "bmff:meta.test");
     ASSERT_NE(a_bmff, nullptr);

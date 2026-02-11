@@ -52,6 +52,9 @@ Naming Contract
 - ``Canonical``: stable key-space-aware names for lossless workflows.
 - ``XmpPortable``: normalized names intended for cross-tool interchange.
 - ``Oiio``: OIIO-friendly names for drop-in metadata attribute use.
+  EXR attributes map common OpenEXR names to OIIO-style names where practical
+  (for example ``owner -> Copyright``, ``capDate -> DateTime``), while
+  non-standard EXR attributes remain under ``openexr:*``.
 
 Adapters
 --------
@@ -74,3 +77,4 @@ Python Entry Points
 - ``Document.export_names(style=..., include_makernotes=...)``
 - ``Document.oiio_attributes(...)``
 - ``Document.ocio_metadata_tree(...)``
+- ``Document.dump_xmp_sidecar(format=...)``
