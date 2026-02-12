@@ -50,13 +50,13 @@ namespace {
 
     static std::pair<nb::bytes, XmpDumpResult>
     dump_xmp_sidecar_to_python(const MetaStore& store,
-                               const XmpSidecarOptions& options)
+                               const XmpSidecarRequest& request)
     {
         std::vector<std::byte> out;
         XmpDumpResult res;
         {
             nb::gil_scoped_release gil_release;
-            res = dump_xmp_sidecar(store, &out, options);
+            res = dump_xmp_sidecar(store, &out, request);
         }
 
         if (res.status != XmpDumpStatus::Ok) {
@@ -66,6 +66,27 @@ namespace {
         const size_t n = out.size();
         nb::bytes b(reinterpret_cast<const char*>(out.data()), n);
         return std::make_pair(b, res);
+    }
+
+
+    static XmpSidecarRequest
+    make_xmp_sidecar_request(XmpSidecarFormat format, uint64_t max_output_bytes,
+                             uint32_t max_entries, bool include_exif,
+                             bool include_existing_xmp, bool include_origin,
+                             bool include_wire, bool include_flags,
+                             bool include_names)
+    {
+        XmpSidecarRequest request;
+        request.format                  = format;
+        request.limits.max_output_bytes = max_output_bytes;
+        request.limits.max_entries      = max_entries;
+        request.include_exif            = include_exif;
+        request.include_existing_xmp    = include_existing_xmp;
+        request.include_origin          = include_origin;
+        request.include_wire            = include_wire;
+        request.include_flags           = include_flags;
+        request.include_names           = include_names;
+        return request;
     }
 
 
@@ -380,6 +401,91 @@ namespace {
         return out;
     }
 
+    static nb::list unsafe_oiio_attributes_to_python(
+        const MetaStore& store, uint32_t max_value_bytes,
+        ExportNamePolicy name_policy, bool include_makernotes,
+        bool include_empty)
+    {
+        OiioAdapterRequest request;
+        request.max_value_bytes    = max_value_bytes;
+        request.include_empty      = include_empty;
+        request.name_policy        = name_policy;
+        request.include_makernotes = include_makernotes;
+
+        std::vector<OiioAttribute> attrs;
+        collect_oiio_attributes(store, &attrs, request);
+
+        nb::list out;
+        for (size_t i = 0; i < attrs.size(); ++i) {
+            out.append(nb::make_tuple(
+                nb::str(attrs[i].name.c_str(), attrs[i].name.size()),
+                nb::str(attrs[i].value.c_str(), attrs[i].value.size())));
+        }
+        return out;
+    }
+
+    static std::string
+    format_safety_error_message(const InteropSafetyError& error)
+    {
+        std::string msg = error.message.empty() ? "unsafe metadata value"
+                                                : error.message;
+        if (!error.field_name.empty()) {
+            msg.append(" [field=");
+            msg.append(error.field_name);
+            msg.push_back(']');
+        }
+        if (!error.key_path.empty()) {
+            msg.append(" [key=");
+            msg.append(error.key_path);
+            msg.push_back(']');
+        }
+        return msg;
+    }
+
+    static void throw_safety_error(const InteropSafetyError& error)
+    {
+        throw std::runtime_error(format_safety_error_message(error));
+    }
+
+    static nb::str decode_text_safe_for_python(std::span<const std::byte> bytes,
+                                               TextEncoding encoding)
+    {
+        PyObject* decoded = nullptr;
+        switch (encoding) {
+        case TextEncoding::Ascii:
+            decoded = PyUnicode_DecodeASCII(
+                reinterpret_cast<const char*>(bytes.data()),
+                static_cast<Py_ssize_t>(bytes.size()), "strict");
+            break;
+        case TextEncoding::Utf8:
+        case TextEncoding::Unknown:
+            decoded = PyUnicode_DecodeUTF8(
+                reinterpret_cast<const char*>(bytes.data()),
+                static_cast<Py_ssize_t>(bytes.size()), "strict");
+            break;
+        case TextEncoding::Utf16LE: {
+            int byteorder = -1;
+            decoded       = PyUnicode_DecodeUTF16(
+                reinterpret_cast<const char*>(bytes.data()),
+                static_cast<Py_ssize_t>(bytes.size()), "strict", &byteorder);
+            break;
+        }
+        case TextEncoding::Utf16BE: {
+            int byteorder = 1;
+            decoded       = PyUnicode_DecodeUTF16(
+                reinterpret_cast<const char*>(bytes.data()),
+                static_cast<Py_ssize_t>(bytes.size()), "strict", &byteorder);
+            break;
+        }
+        }
+
+        if (!decoded) {
+            PyErr_Clear();
+            throw std::runtime_error(
+                "unsafe text value: invalid or unsupported encoding");
+        }
+        return nb::steal<nb::str>(nb::handle(decoded));
+    }
 
     static nb::list oiio_attributes_to_python(const MetaStore& store,
                                               uint32_t max_value_bytes,
@@ -387,20 +493,103 @@ namespace {
                                               bool include_makernotes,
                                               bool include_empty)
     {
-        OiioAdapterOptions opts;
-        opts.max_value_bytes                   = max_value_bytes;
-        opts.include_empty                     = include_empty;
-        opts.export_options.name_policy        = name_policy;
-        opts.export_options.include_makernotes = include_makernotes;
+        OiioAdapterRequest request;
+        request.max_value_bytes    = max_value_bytes;
+        request.include_empty      = include_empty;
+        request.name_policy        = name_policy;
+        request.include_makernotes = include_makernotes;
 
+        InteropSafetyError error;
         std::vector<OiioAttribute> attrs;
-        collect_oiio_attributes(store, &attrs, opts);
+        const InteropSafetyStatus status
+            = collect_oiio_attributes_safe(store, &attrs, request, &error);
+        if (status != InteropSafetyStatus::Ok) {
+            throw_safety_error(error);
+        }
 
         nb::list out;
         for (size_t i = 0; i < attrs.size(); ++i) {
             out.append(nb::make_tuple(
                 nb::str(attrs[i].name.c_str(), attrs[i].name.size()),
                 nb::str(attrs[i].value.c_str(), attrs[i].value.size())));
+        }
+        return out;
+    }
+
+    static nb::object oiio_typed_value_to_python(const OiioTypedValue& typed,
+                                                 bool unsafe_text)
+    {
+        if (typed.kind == MetaValueKind::Text) {
+            const std::span<const std::byte> raw(typed.storage.data(),
+                                                 typed.storage.size());
+            if (unsafe_text) {
+                return nb::bytes(reinterpret_cast<const char*>(raw.data()),
+                                 raw.size());
+            }
+            return decode_text_safe_for_python(raw, typed.text_encoding);
+        }
+        if (typed.kind == MetaValueKind::Bytes) {
+            if (unsafe_text) {
+                return nb::bytes(reinterpret_cast<const char*>(
+                                     typed.storage.data()),
+                                 typed.storage.size());
+            }
+            throw std::runtime_error(
+                "unsafe bytes value in typed export; use unsafe_oiio_attributes_typed()");
+        }
+
+        MetaValue value;
+        value.kind          = typed.kind;
+        value.elem_type     = typed.elem_type;
+        value.text_encoding = typed.text_encoding;
+        value.count         = typed.count;
+        value.data          = typed.data;
+
+        ByteArena arena;
+        if (typed.kind == MetaValueKind::Array
+            || typed.kind == MetaValueKind::Bytes
+            || typed.kind == MetaValueKind::Text) {
+            if (!typed.storage.empty()) {
+                value.data.span = arena.append(
+                    std::span<const std::byte>(typed.storage.data(),
+                                               typed.storage.size()));
+            } else {
+                value.data.span = ByteSpan {};
+            }
+        }
+        return value_to_python(arena, value, 0U, 0U);
+    }
+
+
+    static nb::list oiio_typed_attributes_to_python(
+        const MetaStore& store, uint32_t max_value_bytes,
+        ExportNamePolicy name_policy, bool include_makernotes,
+        bool include_empty, bool unsafe_text)
+    {
+        OiioAdapterRequest request;
+        request.max_value_bytes    = max_value_bytes;
+        request.include_empty      = include_empty;
+        request.name_policy        = name_policy;
+        request.include_makernotes = include_makernotes;
+
+        std::vector<OiioTypedAttribute> attrs;
+        if (unsafe_text) {
+            collect_oiio_attributes_typed(store, &attrs, request);
+        } else {
+            InteropSafetyError error;
+            const InteropSafetyStatus status
+                = collect_oiio_attributes_typed_safe(store, &attrs, request,
+                                                     &error);
+            if (status != InteropSafetyStatus::Ok) {
+                throw_safety_error(error);
+            }
+        }
+
+        nb::list out;
+        for (size_t i = 0; i < attrs.size(); ++i) {
+            out.append(nb::make_tuple(
+                nb::str(attrs[i].name.c_str(), attrs[i].name.size()),
+                oiio_typed_value_to_python(attrs[i].value, unsafe_text)));
         }
         return out;
     }
@@ -419,21 +608,43 @@ namespace {
         return out;
     }
 
+    static nb::dict unsafe_ocio_metadata_tree_to_python(
+        const MetaStore& store, ExportNameStyle style,
+        ExportNamePolicy name_policy, uint32_t max_value_bytes,
+        bool include_makernotes, bool include_empty)
+    {
+        OcioAdapterRequest request;
+        request.style              = style;
+        request.name_policy        = name_policy;
+        request.max_value_bytes    = max_value_bytes;
+        request.include_makernotes = include_makernotes;
+        request.include_empty      = include_empty;
+
+        OcioMetadataNode root;
+        build_ocio_metadata_tree(store, &root, request);
+        return ocio_node_to_python(root);
+    }
 
     static nb::dict
     ocio_tree_to_python(const MetaStore& store, ExportNameStyle style,
                         ExportNamePolicy name_policy, uint32_t max_value_bytes,
                         bool include_makernotes, bool include_empty)
     {
-        OcioAdapterOptions opts;
-        opts.max_value_bytes                   = max_value_bytes;
-        opts.include_empty                     = include_empty;
-        opts.export_options.style              = style;
-        opts.export_options.name_policy        = name_policy;
-        opts.export_options.include_makernotes = include_makernotes;
+        OcioAdapterRequest request;
+        request.style              = style;
+        request.name_policy        = name_policy;
+        request.max_value_bytes    = max_value_bytes;
+        request.include_makernotes = include_makernotes;
+        request.include_empty      = include_empty;
 
         OcioMetadataNode root;
-        build_ocio_metadata_tree(store, &root, opts);
+        InteropSafetyError error;
+        const InteropSafetyStatus status
+            = build_ocio_metadata_tree_safe(store, &root, request, &error);
+        if (status != InteropSafetyStatus::Ok) {
+            throw_safety_error(error);
+        }
+
         return ocio_node_to_python(root);
     }
 
@@ -904,6 +1115,48 @@ NB_MODULE(_openmeta, m)
             "name_policy"_a        = ExportNamePolicy::ExifToolAlias,
             "include_makernotes"_a = true, "include_empty"_a = false)
         .def(
+            "unsafe_oiio_attributes",
+            [](std::shared_ptr<PyDocument> d, uint32_t max_value_bytes,
+               ExportNamePolicy name_policy, bool include_makernotes,
+               bool include_empty) {
+                return unsafe_oiio_attributes_to_python(d->store,
+                                                        max_value_bytes,
+                                                        name_policy,
+                                                        include_makernotes,
+                                                        include_empty);
+            },
+            "max_value_bytes"_a    = 1024U,
+            "name_policy"_a        = ExportNamePolicy::ExifToolAlias,
+            "include_makernotes"_a = true, "include_empty"_a = false)
+        .def(
+            "oiio_attributes_typed",
+            [](std::shared_ptr<PyDocument> d, uint32_t max_value_bytes,
+               ExportNamePolicy name_policy, bool include_makernotes,
+               bool include_empty) {
+                return oiio_typed_attributes_to_python(d->store,
+                                                       max_value_bytes,
+                                                       name_policy,
+                                                       include_makernotes,
+                                                       include_empty, false);
+            },
+            "max_value_bytes"_a    = 1024U,
+            "name_policy"_a        = ExportNamePolicy::ExifToolAlias,
+            "include_makernotes"_a = true, "include_empty"_a = false)
+        .def(
+            "unsafe_oiio_attributes_typed",
+            [](std::shared_ptr<PyDocument> d, uint32_t max_value_bytes,
+               ExportNamePolicy name_policy, bool include_makernotes,
+               bool include_empty) {
+                return oiio_typed_attributes_to_python(d->store,
+                                                       max_value_bytes,
+                                                       name_policy,
+                                                       include_makernotes,
+                                                       include_empty, true);
+            },
+            "max_value_bytes"_a    = 1024U,
+            "name_policy"_a        = ExportNamePolicy::ExifToolAlias,
+            "include_makernotes"_a = true, "include_empty"_a = false)
+        .def(
             "ocio_metadata_tree",
             [](std::shared_ptr<PyDocument> d, ExportNameStyle style,
                ExportNamePolicy name_policy, uint32_t max_value_bytes,
@@ -917,19 +1170,30 @@ NB_MODULE(_openmeta, m)
             "max_value_bytes"_a = 1024U, "include_makernotes"_a = false,
             "include_empty"_a = false)
         .def(
+            "unsafe_ocio_metadata_tree",
+            [](std::shared_ptr<PyDocument> d, ExportNameStyle style,
+               ExportNamePolicy name_policy, uint32_t max_value_bytes,
+               bool include_makernotes, bool include_empty) {
+                return unsafe_ocio_metadata_tree_to_python(d->store, style,
+                                                           name_policy,
+                                                           max_value_bytes,
+                                                           include_makernotes,
+                                                           include_empty);
+            },
+            "style"_a           = ExportNameStyle::XmpPortable,
+            "name_policy"_a     = ExportNamePolicy::ExifToolAlias,
+            "max_value_bytes"_a = 1024U, "include_makernotes"_a = false,
+            "include_empty"_a = false)
+        .def(
             "dump_xmp_lossless",
             [](std::shared_ptr<PyDocument> d, uint64_t max_output_bytes,
                uint32_t max_entries, bool include_origin, bool include_wire,
                bool include_flags, bool include_names) {
-                XmpSidecarOptions opts;
-                opts.format = XmpSidecarFormat::Lossless;
-                opts.lossless.limits.max_output_bytes = max_output_bytes;
-                opts.lossless.limits.max_entries      = max_entries;
-                opts.lossless.include_origin          = include_origin;
-                opts.lossless.include_wire            = include_wire;
-                opts.lossless.include_flags           = include_flags;
-                opts.lossless.include_names           = include_names;
-                return dump_xmp_sidecar_to_python(d->store, opts);
+                const XmpSidecarRequest request = make_xmp_sidecar_request(
+                    XmpSidecarFormat::Lossless, max_output_bytes, max_entries,
+                    true, false, include_origin, include_wire, include_flags,
+                    include_names);
+                return dump_xmp_sidecar_to_python(d->store, request);
             },
             "max_output_bytes"_a = 0ULL, "max_entries"_a = 0U,
             "include_origin"_a = true, "include_wire"_a = true,
@@ -939,13 +1203,10 @@ NB_MODULE(_openmeta, m)
             [](std::shared_ptr<PyDocument> d, uint64_t max_output_bytes,
                uint32_t max_entries, bool include_exif,
                bool include_existing_xmp) {
-                XmpSidecarOptions opts;
-                opts.format = XmpSidecarFormat::Portable;
-                opts.portable.limits.max_output_bytes = max_output_bytes;
-                opts.portable.limits.max_entries      = max_entries;
-                opts.portable.include_exif            = include_exif;
-                opts.portable.include_existing_xmp    = include_existing_xmp;
-                return dump_xmp_sidecar_to_python(d->store, opts);
+                const XmpSidecarRequest request = make_xmp_sidecar_request(
+                    XmpSidecarFormat::Portable, max_output_bytes, max_entries,
+                    include_exif, include_existing_xmp, true, true, true, true);
+                return dump_xmp_sidecar_to_python(d->store, request);
             },
             "max_output_bytes"_a = 0ULL, "max_entries"_a = 0U,
             "include_exif"_a = true, "include_existing_xmp"_a = false)
@@ -956,21 +1217,11 @@ NB_MODULE(_openmeta, m)
                bool include_exif, bool include_existing_xmp,
                bool include_origin, bool include_wire, bool include_flags,
                bool include_names) {
-                XmpSidecarOptions opts;
-                opts.format = format;
-
-                opts.portable.limits.max_output_bytes = max_output_bytes;
-                opts.portable.limits.max_entries      = max_entries;
-                opts.portable.include_exif            = include_exif;
-                opts.portable.include_existing_xmp    = include_existing_xmp;
-
-                opts.lossless.limits.max_output_bytes = max_output_bytes;
-                opts.lossless.limits.max_entries      = max_entries;
-                opts.lossless.include_origin          = include_origin;
-                opts.lossless.include_wire            = include_wire;
-                opts.lossless.include_flags           = include_flags;
-                opts.lossless.include_names           = include_names;
-                return dump_xmp_sidecar_to_python(d->store, opts);
+                const XmpSidecarRequest request = make_xmp_sidecar_request(
+                    format, max_output_bytes, max_entries, include_exif,
+                    include_existing_xmp, include_origin, include_wire,
+                    include_flags, include_names);
+                return dump_xmp_sidecar_to_python(d->store, request);
             },
             "format"_a           = XmpSidecarFormat::Lossless,
             "max_output_bytes"_a = 0ULL, "max_entries"_a = 0U,

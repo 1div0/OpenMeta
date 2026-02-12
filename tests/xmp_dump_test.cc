@@ -7,6 +7,7 @@
 
 #include <array>
 #include <cstddef>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -145,6 +146,108 @@ TEST(XmpDump, SidecarApiPortableUsesFormatSwitch)
                              out.size());
     EXPECT_NE(s.find("<tiff:Make>Canon</tiff:Make>"), std::string_view::npos);
     EXPECT_NE(s.find("<exif:ExposureTime>1/1250</exif:ExposureTime>"),
+              std::string_view::npos);
+}
+
+
+TEST(XmpDump, SidecarRequestApiPortableIsDeterministic)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, kInvalidBlockId);
+
+    Entry make;
+    make.key          = make_exif_tag_key(store.arena(), "ifd0", 0x010F);
+    make.value        = make_text(store.arena(), "Canon", TextEncoding::Ascii);
+    make.origin.block = block;
+    make.origin.order_in_block = 0;
+    (void)store.add_entry(make);
+
+    Entry model;
+    model.key   = make_exif_tag_key(store.arena(), "ifd0", 0x0110);
+    model.value = make_text(store.arena(), "EOS R6", TextEncoding::Ascii);
+    model.origin.block          = block;
+    model.origin.order_in_block = 1;
+    (void)store.add_entry(model);
+
+    store.finalize();
+
+    XmpSidecarRequest request;
+    request.format               = XmpSidecarFormat::Portable;
+    request.initial_output_bytes = 32U;
+
+    std::vector<std::byte> out_a;
+    std::vector<std::byte> out_b;
+    const XmpDumpResult ra = dump_xmp_sidecar(store, &out_a, request);
+    const XmpDumpResult rb = dump_xmp_sidecar(store, &out_b, request);
+
+    ASSERT_EQ(ra.status, XmpDumpStatus::Ok);
+    ASSERT_EQ(rb.status, XmpDumpStatus::Ok);
+    ASSERT_EQ(ra.entries, rb.entries);
+    ASSERT_EQ(ra.written, rb.written);
+    ASSERT_EQ(out_a, out_b);
+}
+
+
+TEST(XmpDump, SidecarRequestApiRespectsOutputLimit)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, kInvalidBlockId);
+
+    Entry e;
+    e.key          = make_exif_tag_key(store.arena(), "ifd0", 0x010F);
+    e.value        = make_text(store.arena(), "Canon", TextEncoding::Ascii);
+    e.origin.block = block;
+    e.origin.order_in_block = 0;
+    (void)store.add_entry(e);
+    store.finalize();
+
+    XmpSidecarRequest request;
+    request.format                  = XmpSidecarFormat::Lossless;
+    request.initial_output_bytes    = 32U;
+    request.limits.max_output_bytes = 32U;
+
+    std::vector<std::byte> out;
+    const XmpDumpResult r = dump_xmp_sidecar(store, &out, request);
+    ASSERT_EQ(r.status, XmpDumpStatus::LimitExceeded);
+}
+
+
+TEST(XmpDump, SidecarRequestPortableEscapesUnsafeText)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, kInvalidBlockId);
+
+    std::string unsafe;
+    unsafe.push_back('A');
+    unsafe.push_back(static_cast<char>(0x01));
+    unsafe.append("<>&\"'");
+
+    Entry xmp_label;
+    xmp_label.key   = make_xmp_property_key(store.arena(),
+                                            "http://ns.adobe.com/xap/1.0/",
+                                            "Label");
+    xmp_label.value = make_text(store.arena(), unsafe, TextEncoding::Utf8);
+    xmp_label.origin.block          = block;
+    xmp_label.origin.order_in_block = 0;
+    (void)store.add_entry(xmp_label);
+    store.finalize();
+
+    XmpSidecarRequest request;
+    request.format               = XmpSidecarFormat::Portable;
+    request.initial_output_bytes = 64U;
+    request.include_exif         = false;
+    request.include_existing_xmp = true;
+
+    std::vector<std::byte> out;
+    const XmpDumpResult r = dump_xmp_sidecar(store, &out, request);
+    ASSERT_EQ(r.status, XmpDumpStatus::Ok);
+
+    const std::string_view s(reinterpret_cast<const char*>(out.data()),
+                             out.size());
+    EXPECT_NE(s.find("<xmp:Label>A\\x01&lt;&gt;&amp;&quot;&apos;</xmp:Label>"),
               std::string_view::npos);
 }
 

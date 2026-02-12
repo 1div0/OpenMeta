@@ -214,8 +214,48 @@ Current Python binding entry points:
 
 - `Document.export_names(style=..., include_makernotes=...)`
 - `Document.oiio_attributes(...)`
+- `Document.unsafe_oiio_attributes(...)`
+- `Document.oiio_attributes_typed(...)`
+- `Document.unsafe_oiio_attributes_typed(...)`
 - `Document.ocio_metadata_tree(...)`
+- `Document.unsafe_ocio_metadata_tree(...)`
 - `Document.dump_xmp_sidecar(format=...)`
+
+Current C++ adapter entry points:
+
+- `openmeta/oiio_adapter.h`:
+  - safe API: `collect_oiio_attributes_safe(..., InteropSafetyError*)`
+  - unsafe API: `collect_oiio_attributes(...)`
+  - `collect_oiio_attributes(..., const OiioAdapterRequest&)` (stable flat request API)
+  - `collect_oiio_attributes(..., const OiioAdapterOptions&)` (advanced/legacy shape)
+  - safe typed API: `collect_oiio_attributes_typed_safe(..., InteropSafetyError*)`
+  - unsafe typed API: `collect_oiio_attributes_typed(...)`
+  - `collect_oiio_attributes_typed(..., const OiioAdapterRequest&)` (typed values)
+  - `collect_oiio_attributes_typed(..., const OiioAdapterOptions&)` (typed values)
+  - typed payload model: `OiioTypedValue` / `OiioTypedAttribute`
+
+Python typed behavior:
+- `Document.oiio_attributes(...)` is safe-by-default and raises on unsafe raw
+  byte payloads; use `Document.unsafe_oiio_attributes(...)` for legacy/raw
+  fallback output.
+- `Document.oiio_attributes_typed(...)` decodes text values to Python `str` in
+  safe mode and raises on unsafe/invalid text bytes.
+- `Document.unsafe_oiio_attributes_typed(...)` returns raw text bytes for
+  explicit unsafe workflows.
+- `Document.ocio_metadata_tree(...)` is safe-by-default and raises on unsafe
+  raw byte payloads; use `Document.unsafe_ocio_metadata_tree(...)` for
+  legacy/raw fallback output.
+- `openmeta/ocio_adapter.h`:
+  - safe API: `build_ocio_metadata_tree_safe(..., InteropSafetyError*)`
+  - unsafe API: `build_ocio_metadata_tree(...)`
+  - `build_ocio_metadata_tree(..., const OcioAdapterRequest&)` (stable flat request API)
+  - `build_ocio_metadata_tree(..., const OcioAdapterOptions&)` (advanced/legacy shape)
+
+Current C++ sidecar entry points:
+
+- `openmeta/xmp_dump.h`:
+  - `dump_xmp_sidecar(..., const XmpSidecarRequest&)` (stable flat request API)
+  - `dump_xmp_sidecar(..., const XmpSidecarOptions&)` (advanced/legacy shape)
 
 Current adapter/name-policy behavior:
 

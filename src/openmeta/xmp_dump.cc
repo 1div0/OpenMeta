@@ -2490,4 +2490,33 @@ dump_xmp_sidecar(const MetaStore& store, std::vector<std::byte>* out,
     return r;
 }
 
+
+XmpSidecarOptions
+make_xmp_sidecar_options(const XmpSidecarRequest& request) noexcept
+{
+    XmpSidecarOptions options;
+    options.format               = request.format;
+    options.initial_output_bytes = request.initial_output_bytes;
+
+    options.portable.limits               = request.limits;
+    options.portable.include_exif         = request.include_exif;
+    options.portable.include_existing_xmp = request.include_existing_xmp;
+
+    options.lossless.limits         = request.limits;
+    options.lossless.include_origin = request.include_origin;
+    options.lossless.include_wire   = request.include_wire;
+    options.lossless.include_flags  = request.include_flags;
+    options.lossless.include_names  = request.include_names;
+    return options;
+}
+
+
+XmpDumpResult
+dump_xmp_sidecar(const MetaStore& store, std::vector<std::byte>* out,
+                 const XmpSidecarRequest& request) noexcept
+{
+    const XmpSidecarOptions options = make_xmp_sidecar_options(request);
+    return dump_xmp_sidecar(store, out, options);
+}
+
 }  // namespace openmeta

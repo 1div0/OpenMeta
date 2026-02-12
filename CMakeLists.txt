@@ -187,6 +187,7 @@ set(OPENMETA_SOURCES
   src/openmeta/geotiff_key_names.cc
   src/openmeta/icc_decode.cc
   src/openmeta/interop_export.cc
+  src/openmeta/interop_safety_internal.cc
   src/openmeta/interop_value_format_internal.cc
   src/openmeta/iptc_iim_decode.cc
   src/openmeta/meta_key.cc

@@ -60,7 +60,16 @@ Adapters
 --------
 
 - OIIO adapter: ``collect_oiio_attributes(...)`` in ``openmeta/oiio_adapter.h``.
+  Stable request model: ``OiioAdapterRequest``.
+  Typed variant: ``collect_oiio_attributes_typed(...)``.
+  ``OiioTypedValue`` keeps original MetaValue typing (scalar/array/bytes/text)
+  for host integrations that need non-string metadata values.
+  Strict safe variants: ``collect_oiio_attributes_safe(...)`` and
+  ``collect_oiio_attributes_typed_safe(...)`` with ``InteropSafetyError``.
 - OCIO adapter: ``build_ocio_metadata_tree(...)`` in ``openmeta/ocio_adapter.h``.
+  Stable request model: ``OcioAdapterRequest``.
+  Strict safe variant: ``build_ocio_metadata_tree_safe(...)`` with
+  ``InteropSafetyError``.
 - EXR flows use ``MetaKeyKind::ExrAttribute`` and map through ``Canonical`` or
   OIIO-style names depending on target API.
 
@@ -76,5 +85,20 @@ Python Entry Points
 
 - ``Document.export_names(style=..., include_makernotes=...)``
 - ``Document.oiio_attributes(...)``
+- ``Document.unsafe_oiio_attributes(...)``
+- ``Document.oiio_attributes_typed(...)``
+- ``Document.unsafe_oiio_attributes_typed(...)``
 - ``Document.ocio_metadata_tree(...)``
+- ``Document.unsafe_ocio_metadata_tree(...)``
 - ``Document.dump_xmp_sidecar(format=...)``
+
+XMP Sidecar Export API
+----------------------
+
+``openmeta/xmp_dump.h`` exposes a stable flat request model for wrappers and
+adapters:
+
+- ``XmpSidecarRequest`` (format + limits + portable/lossless switches)
+- ``dump_xmp_sidecar(const MetaStore&, std::vector<std::byte>*, const XmpSidecarRequest&)``
+
+The nested ``XmpSidecarOptions`` API remains available for advanced callers.

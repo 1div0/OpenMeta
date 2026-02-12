@@ -474,19 +474,17 @@ main(int argc, char** argv)
 
         store.finalize();
 
-        XmpSidecarOptions dump_opts;
-        dump_opts.format                           = format;
-        dump_opts.initial_output_bytes             = 1024ULL * 1024ULL;
-        dump_opts.portable.limits.max_output_bytes = max_output_bytes;
-        dump_opts.portable.limits.max_entries      = max_entries;
-        dump_opts.portable.include_exif            = portable_include_exif;
-        dump_opts.portable.include_existing_xmp = portable_include_existing_xmp;
-        dump_opts.lossless.limits.max_output_bytes = max_output_bytes;
-        dump_opts.lossless.limits.max_entries      = max_entries;
+        XmpSidecarRequest dump_request;
+        dump_request.format                  = format;
+        dump_request.initial_output_bytes    = 1024ULL * 1024ULL;
+        dump_request.limits.max_output_bytes = max_output_bytes;
+        dump_request.limits.max_entries      = max_entries;
+        dump_request.include_exif            = portable_include_exif;
+        dump_request.include_existing_xmp    = portable_include_existing_xmp;
 
         std::vector<std::byte> out_buf;
         const XmpDumpResult dump_res = dump_xmp_sidecar(store, &out_buf,
-                                                        dump_opts);
+                                                        dump_request);
 
         if (dump_res.status != XmpDumpStatus::Ok) {
             std::fprintf(stderr, "metadump: dump failed for `%s` (status=%s)\n",

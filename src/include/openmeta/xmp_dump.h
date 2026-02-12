@@ -67,6 +67,28 @@ struct XmpSidecarOptions final {
     uint64_t initial_output_bytes = 0;
 };
 
+/// Stable flat request for sidecar export.
+///
+/// This shape is intended for wrapper/front-end APIs that need one option set
+/// independent of selected format.
+struct XmpSidecarRequest final {
+    XmpSidecarFormat format = XmpSidecarFormat::Lossless;
+    XmpDumpLimits limits;
+
+    /// Portable mode options (applied when format == Portable).
+    bool include_exif         = true;
+    bool include_existing_xmp = false;
+
+    /// Lossless mode options (applied when format == Lossless).
+    bool include_origin = true;
+    bool include_wire   = true;
+    bool include_flags  = true;
+    bool include_names  = true;
+
+    /// Initial output buffer size before automatic growth (0 uses default).
+    uint64_t initial_output_bytes = 0;
+};
+
 /// Dump result (size stats + how many entries were emitted).
 struct XmpDumpResult final {
     XmpDumpStatus status = XmpDumpStatus::Ok;
@@ -117,5 +139,20 @@ dump_xmp_portable(const MetaStore& store, std::span<std::byte> out,
 XmpDumpResult
 dump_xmp_sidecar(const MetaStore& store, std::vector<std::byte>* out,
                  const XmpSidecarOptions& options) noexcept;
+
+/**
+ * \brief Converts \ref XmpSidecarRequest into \ref XmpSidecarOptions.
+ *
+ * Useful for wrappers and adapters that expose one flattened option model.
+ */
+XmpSidecarOptions
+make_xmp_sidecar_options(const XmpSidecarRequest& request) noexcept;
+
+/**
+ * \brief Emits an XMP sidecar using the stable \ref XmpSidecarRequest model.
+ */
+XmpDumpResult
+dump_xmp_sidecar(const MetaStore& store, std::vector<std::byte>* out,
+                 const XmpSidecarRequest& request) noexcept;
 
 }  // namespace openmeta

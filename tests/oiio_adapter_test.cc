@@ -24,6 +24,29 @@ namespace {
         return nullptr;
     }
 
+    static const OiioTypedAttribute*
+    find_typed_attr(const std::vector<OiioTypedAttribute>& attrs,
+                    std::string_view name) noexcept
+    {
+        for (size_t i = 0; i < attrs.size(); ++i) {
+            if (attrs[i].name == name) {
+                return &attrs[i];
+            }
+        }
+        return nullptr;
+    }
+
+
+    static void expect_same_attributes(const std::vector<OiioAttribute>& a,
+                                       const std::vector<OiioAttribute>& b)
+    {
+        ASSERT_EQ(a.size(), b.size());
+        for (size_t i = 0; i < a.size(); ++i) {
+            EXPECT_EQ(a[i].name, b[i].name);
+            EXPECT_EQ(a[i].value, b[i].value);
+        }
+    }
+
 }  // namespace
 
 
@@ -92,8 +115,8 @@ TEST(OiioAdapter, CollectsOiioNamedAttributes)
     (void)store.add_entry(empty_unknown);
 
     Entry empty_makernote;
-    empty_makernote.key = make_exif_tag_key(store.arena(), "exififd", 0x927C);
-    empty_makernote.value                 = MetaValue {};
+    empty_makernote.key   = make_exif_tag_key(store.arena(), "exififd", 0x927C);
+    empty_makernote.value = MetaValue {};
     empty_makernote.origin.block          = block;
     empty_makernote.origin.order_in_block = 7;
     (void)store.add_entry(empty_makernote);
@@ -105,6 +128,12 @@ TEST(OiioAdapter, CollectsOiioNamedAttributes)
 
     std::vector<OiioAttribute> attrs;
     collect_oiio_attributes(store, &attrs, options);
+
+    OiioAdapterRequest request;
+    request.max_value_bytes = 256;
+    std::vector<OiioAttribute> request_attrs;
+    collect_oiio_attributes(store, &request_attrs, request);
+    expect_same_attributes(attrs, request_attrs);
 
     const OiioAttribute* a_make = find_attr(attrs, "Make");
     ASSERT_NE(a_make, nullptr);
@@ -132,15 +161,119 @@ TEST(OiioAdapter, CollectsOiioNamedAttributes)
     ASSERT_NE(a_empty_unknown, nullptr);
     EXPECT_TRUE(a_empty_unknown->value.empty());
 
-    OiioAdapterOptions spec_options = options;
+    OiioAdapterOptions spec_options         = options;
     spec_options.export_options.name_policy = ExportNamePolicy::Spec;
     std::vector<OiioAttribute> spec_attrs;
     collect_oiio_attributes(store, &spec_attrs, spec_options);
 
-    const OiioAttribute* a_empty_makernote
-        = find_attr(spec_attrs, "Exif:MakerNote");
+    OiioAdapterRequest spec_request;
+    spec_request.max_value_bytes = 256;
+    spec_request.name_policy     = ExportNamePolicy::Spec;
+    std::vector<OiioAttribute> spec_request_attrs;
+    collect_oiio_attributes(store, &spec_request_attrs, spec_request);
+    expect_same_attributes(spec_attrs, spec_request_attrs);
+
+    const OiioAttribute* a_empty_makernote = find_attr(spec_attrs,
+                                                       "Exif:MakerNote");
     ASSERT_NE(a_empty_makernote, nullptr);
     EXPECT_TRUE(a_empty_makernote->value.empty());
+
+    std::vector<OiioTypedAttribute> typed_attrs;
+    collect_oiio_attributes_typed(store, &typed_attrs, request);
+
+    const OiioTypedAttribute* t_make = find_typed_attr(typed_attrs, "Make");
+    ASSERT_NE(t_make, nullptr);
+    ASSERT_EQ(t_make->value.kind, MetaValueKind::Text);
+    ASSERT_EQ(t_make->value.text_encoding, TextEncoding::Ascii);
+    ASSERT_EQ(t_make->value.storage.size(), 5U);
+    EXPECT_EQ(static_cast<char>(t_make->value.storage[0]), 'C');
+
+    const OiioTypedAttribute* t_exp = find_typed_attr(typed_attrs,
+                                                      "Exif:ExposureTime");
+    ASSERT_NE(t_exp, nullptr);
+    ASSERT_EQ(t_exp->value.kind, MetaValueKind::Scalar);
+    ASSERT_EQ(t_exp->value.elem_type, MetaElementType::URational);
+    EXPECT_EQ(t_exp->value.data.ur.numer, 1U);
+    EXPECT_EQ(t_exp->value.data.ur.denom, 1250U);
+
+    const OiioTypedAttribute* t_exr = find_typed_attr(typed_attrs,
+                                                      "openexr:v2");
+    ASSERT_NE(t_exr, nullptr);
+    ASSERT_EQ(t_exr->value.kind, MetaValueKind::Array);
+    ASSERT_EQ(t_exr->value.elem_type, MetaElementType::U16);
+    ASSERT_EQ(t_exr->value.count, 3U);
+
+    std::vector<OiioTypedAttribute> typed_spec_attrs;
+    collect_oiio_attributes_typed(store, &typed_spec_attrs, spec_request);
+    const OiioTypedAttribute* t_empty_makernote
+        = find_typed_attr(typed_spec_attrs, "Exif:MakerNote");
+    ASSERT_NE(t_empty_makernote, nullptr);
+    EXPECT_EQ(t_empty_makernote->value.kind, MetaValueKind::Empty);
+
+    InteropSafetyError safe_error;
+    std::vector<OiioAttribute> safe_attrs;
+    const InteropSafetyStatus safe_status
+        = collect_oiio_attributes_safe(store, &safe_attrs, request,
+                                       &safe_error);
+    EXPECT_EQ(safe_status, InteropSafetyStatus::UnsafeData);
+    EXPECT_EQ(safe_error.reason, InteropSafetyReason::UnsafeBytes);
+    EXPECT_EQ(safe_error.field_name, "bmff:meta.test");
+
+    std::vector<OiioTypedAttribute> safe_typed_attrs;
+    const InteropSafetyStatus safe_typed_status
+        = collect_oiio_attributes_typed_safe(store, &safe_typed_attrs, request,
+                                             &safe_error);
+    EXPECT_EQ(safe_typed_status, InteropSafetyStatus::UnsafeData);
+    EXPECT_EQ(safe_error.reason, InteropSafetyReason::UnsafeBytes);
+    EXPECT_EQ(safe_error.field_name, "bmff:meta.test");
+}
+
+TEST(OiioAdapter, SafeExportSucceedsWithoutBytesValues)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+
+    Entry make;
+    make.key          = make_exif_tag_key(store.arena(), "ifd0", 0x010F);
+    make.value        = make_text(store.arena(), "Canon", TextEncoding::Ascii);
+    make.origin.block = block;
+    make.origin.order_in_block = 0;
+    (void)store.add_entry(make);
+
+    Entry owner;
+    owner.key          = make_exr_attribute_key(store.arena(), 0U, "owner");
+    owner.value        = make_text(store.arena(), "showA", TextEncoding::Utf8);
+    owner.origin.block = block;
+    owner.origin.order_in_block = 1;
+    (void)store.add_entry(owner);
+
+    store.finalize();
+
+    OiioAdapterRequest request;
+    request.max_value_bytes = 256U;
+
+    InteropSafetyError safe_error;
+    std::vector<OiioAttribute> safe_attrs;
+    const InteropSafetyStatus safe_status
+        = collect_oiio_attributes_safe(store, &safe_attrs, request,
+                                       &safe_error);
+    ASSERT_EQ(safe_status, InteropSafetyStatus::Ok);
+    EXPECT_TRUE(safe_error.message.empty());
+
+    const OiioAttribute* make_attr = find_attr(safe_attrs, "Make");
+    ASSERT_NE(make_attr, nullptr);
+    EXPECT_EQ(make_attr->value, "Canon");
+
+    std::vector<OiioTypedAttribute> safe_typed_attrs;
+    const InteropSafetyStatus safe_typed_status
+        = collect_oiio_attributes_typed_safe(store, &safe_typed_attrs, request,
+                                             &safe_error);
+    ASSERT_EQ(safe_typed_status, InteropSafetyStatus::Ok);
+    const OiioTypedAttribute* owner_attr = find_typed_attr(safe_typed_attrs,
+                                                           "Copyright");
+    ASSERT_NE(owner_attr, nullptr);
+    EXPECT_EQ(owner_attr->value.kind, MetaValueKind::Text);
+    EXPECT_EQ(owner_attr->value.text_encoding, TextEncoding::Utf8);
 }
 
 }  // namespace openmeta

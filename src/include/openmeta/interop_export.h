@@ -3,6 +3,7 @@
 #include "openmeta/meta_store.h"
 
 #include <cstdint>
+#include <string>
 #include <string_view>
 
 /**
@@ -14,6 +15,31 @@ namespace openmeta {
 
 /// Stable interop export naming contract version.
 inline constexpr uint32_t kInteropExportContractVersion = 1U;
+
+/// Status for strict safe interop export APIs.
+enum class InteropSafetyStatus : uint8_t {
+    Ok,
+    InvalidArgument,
+    UnsafeData,
+    InternalError,
+};
+
+/// Reason code for \ref InteropSafetyError.
+enum class InteropSafetyReason : uint8_t {
+    None,
+    UnsafeBytes,
+    InvalidTextEncoding,
+    UnsafeTextControlCharacter,
+    InternalMismatch,
+};
+
+/// Structured error details returned by strict safe interop exports.
+struct InteropSafetyError final {
+    InteropSafetyReason reason = InteropSafetyReason::None;
+    std::string field_name;
+    std::string key_path;
+    std::string message;
+};
 
 /**
  * \brief Key naming policy used by \ref visit_metadata.

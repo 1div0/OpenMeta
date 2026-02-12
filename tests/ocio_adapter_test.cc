@@ -5,6 +5,7 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
 #include <string_view>
 
 namespace openmeta {
@@ -19,6 +20,18 @@ namespace {
             }
         }
         return nullptr;
+    }
+
+
+    static void expect_same_tree(const OcioMetadataNode& a,
+                                 const OcioMetadataNode& b)
+    {
+        EXPECT_EQ(a.name, b.name);
+        EXPECT_EQ(a.value, b.value);
+        ASSERT_EQ(a.children.size(), b.children.size());
+        for (size_t i = 0; i < a.children.size(); ++i) {
+            expect_same_tree(a.children[i], b.children[i]);
+        }
     }
 
 }  // namespace
@@ -58,6 +71,11 @@ TEST(OcioAdapter, BuildsDeterministicNamespaceTree)
     OcioMetadataNode root;
     build_ocio_metadata_tree(store, &root, options);
 
+    OcioAdapterRequest request;
+    OcioMetadataNode request_root;
+    build_ocio_metadata_tree(store, &request_root, request);
+    expect_same_tree(root, request_root);
+
     EXPECT_EQ(root.name, "OpenMeta");
 
     const OcioMetadataNode* tiff = find_child(root, "tiff");
@@ -77,6 +95,43 @@ TEST(OcioAdapter, BuildsDeterministicNamespaceTree)
     const OcioMetadataNode* label_leaf = find_child(*xmp, "Label");
     ASSERT_NE(label_leaf, nullptr);
     EXPECT_EQ(label_leaf->value, "shotA");
+
+    InteropSafetyError safe_error;
+    OcioMetadataNode safe_root;
+    const InteropSafetyStatus safe_status
+        = build_ocio_metadata_tree_safe(store, &safe_root, options,
+                                        &safe_error);
+    ASSERT_EQ(safe_status, InteropSafetyStatus::Ok);
+    EXPECT_TRUE(safe_error.message.empty());
+    EXPECT_EQ(safe_root.name, "OpenMeta");
+}
+
+TEST(OcioAdapter, SafeTreeRejectsBytesValues)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+
+    const std::array<std::byte, 4> raw
+        = { std::byte { 0x30 }, std::byte { 0x31 }, std::byte { 0x32 },
+            std::byte { 0x33 } };
+    Entry bmff;
+    bmff.key          = make_bmff_field_key(store.arena(), "meta.test");
+    bmff.value        = make_bytes(store.arena(),
+                                   std::span<const std::byte>(raw.data(), raw.size()));
+    bmff.origin.block = block;
+    bmff.origin.order_in_block = 0;
+    (void)store.add_entry(bmff);
+    store.finalize();
+
+    OcioAdapterOptions options;
+    options.export_options.style = ExportNameStyle::Canonical;
+    OcioMetadataNode root;
+    InteropSafetyError safe_error;
+    const InteropSafetyStatus safe_status
+        = build_ocio_metadata_tree_safe(store, &root, options, &safe_error);
+    EXPECT_EQ(safe_status, InteropSafetyStatus::UnsafeData);
+    EXPECT_EQ(safe_error.reason, InteropSafetyReason::UnsafeBytes);
+    EXPECT_EQ(safe_error.field_name, "bmff:meta.test");
 }
 
 }  // namespace openmeta
