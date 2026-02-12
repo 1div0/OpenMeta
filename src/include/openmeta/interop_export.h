@@ -28,14 +28,25 @@ enum class ExportNameStyle : uint8_t {
 };
 
 /**
+ * \brief Name normalization policy for interop exports.
+ */
+enum class ExportNamePolicy : uint8_t {
+    /// Preserve native OpenMeta/EXIF naming (spec-oriented).
+    Spec,
+    /// Apply ExifTool-compatible aliases and filtering for parity workflows.
+    ExifToolAlias,
+};
+
+/**
  * \brief Export controls for \ref visit_metadata.
  *
  */
 struct ExportOptions final {
-    ExportNameStyle style   = ExportNameStyle::Canonical;
-    bool include_origin     = false;
-    bool include_flags      = false;
-    bool include_makernotes = true;
+    ExportNameStyle style        = ExportNameStyle::Canonical;
+    ExportNamePolicy name_policy = ExportNamePolicy::ExifToolAlias;
+    bool include_origin          = false;
+    bool include_flags           = false;
+    bool include_makernotes      = true;
 };
 
 /**

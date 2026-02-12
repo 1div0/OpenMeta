@@ -84,6 +84,20 @@ TEST(OiioAdapter, CollectsOiioNamedAttributes)
     bmff.origin.order_in_block = 5;
     (void)store.add_entry(bmff);
 
+    Entry empty_unknown;
+    empty_unknown.key   = make_exif_tag_key(store.arena(), "ifd0", 0xC5D8);
+    empty_unknown.value = MetaValue {};
+    empty_unknown.origin.block          = block;
+    empty_unknown.origin.order_in_block = 6;
+    (void)store.add_entry(empty_unknown);
+
+    Entry empty_makernote;
+    empty_makernote.key = make_exif_tag_key(store.arena(), "exififd", 0x927C);
+    empty_makernote.value                 = MetaValue {};
+    empty_makernote.origin.block          = block;
+    empty_makernote.origin.order_in_block = 7;
+    (void)store.add_entry(empty_makernote);
+
     store.finalize();
 
     OiioAdapterOptions options;
@@ -113,6 +127,20 @@ TEST(OiioAdapter, CollectsOiioNamedAttributes)
     const OiioAttribute* a_bmff = find_attr(attrs, "bmff:meta.test");
     ASSERT_NE(a_bmff, nullptr);
     EXPECT_EQ(a_bmff->value, "0xDEAD");
+
+    const OiioAttribute* a_empty_unknown = find_attr(attrs, "Exif_0xc5d8");
+    ASSERT_NE(a_empty_unknown, nullptr);
+    EXPECT_TRUE(a_empty_unknown->value.empty());
+
+    OiioAdapterOptions spec_options = options;
+    spec_options.export_options.name_policy = ExportNamePolicy::Spec;
+    std::vector<OiioAttribute> spec_attrs;
+    collect_oiio_attributes(store, &spec_attrs, spec_options);
+
+    const OiioAttribute* a_empty_makernote
+        = find_attr(spec_attrs, "Exif:MakerNote");
+    ASSERT_NE(a_empty_makernote, nullptr);
+    EXPECT_TRUE(a_empty_makernote->value.empty());
 }
 
 }  // namespace openmeta

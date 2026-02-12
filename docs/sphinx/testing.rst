@@ -52,28 +52,19 @@ FuzzTest targets (when available):
    cmake --build build-fuzztest
    ASAN_OPTIONS=detect_leaks=0 ./build-fuzztest/openmeta_fuzztest_metastore --fuzz_for=10s
 
-Interop parity gates (cached corpora)
--------------------------------------
+Interop adapter tests
+---------------------
 
-For fast interop checks without re-running ExifTool on every iteration:
-
-.. code-block:: bash
-
-   ./run_premerge_gates.sh --jobs 4
-   ./run_interop_gates.sh --tier exr --jobs 4
-   ./run_interop_gates.sh --tier all --jobs 4
-   ./run_interop_gates.sh --tier heic --jobs 4 --require-exr 0
-
-``run_premerge_gates.sh`` is the standard pre-merge workflow and enforces EXR.
-
-By default, ``run_interop_gates.sh`` enforces the EXR ground-truth gate and
-enables EXR safe value checks (``--require-exr 1 --exr-check-values 1``).
-The RAW tiers should include both broad RAW camera corpora and
-compact DNG-focused corpora.
-
-Adapter-name parity against cached ExifTool/Exiv2 tags:
+Adapter-focused tests in the public tree:
 
 .. code-block:: bash
 
-   python3 compare_openmeta_interop_names_cached.py \
-     --tool both --jobs 4 --quiet
+   cmake --build build-tests --target openmeta_tests
+   ./build-tests/openmeta_tests --gtest_filter='InteropExport.*:OiioAdapter.*:OcioAdapter.*'
+   ./build-tests/openmeta_tests --gtest_filter='CrwCiffDecode.*'
+
+These tests cover:
+
+- alias/spec name-policy behavior in ``InteropExport``,
+- OIIO/OCIO adapter export stability,
+- CRW/CIFF derived EXIF mapping for legacy Canon RAW.

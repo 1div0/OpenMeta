@@ -217,32 +217,26 @@ Current Python binding entry points:
 - `Document.ocio_metadata_tree(...)`
 - `Document.dump_xmp_sidecar(format=...)`
 
-Cached corpus parity gate (local cached workflow):
+Current adapter/name-policy behavior:
+
+- `ExportNamePolicy::ExifToolAlias` applies compatibility aliases for
+  interop-name parity workflows.
+- `ExportNamePolicy::Spec` preserves spec/native names.
+- OIIO adapter keeps numeric unknown names (for example `Exif_0x....`) even
+  when value formatting is empty, and keeps `Exif:MakerNote` in spec mode.
+
+Adapter-focused tests (public tree):
 
 ```bash
-./run_premerge_gates.sh --jobs 4
-```
-
-Include OpenEXR ground-truth checks:
-
-```bash
-./run_interop_gates.sh --tier exr --jobs 4
-./run_interop_gates.sh --tier all --jobs 4
-./run_interop_gates.sh --tier heic --jobs 4 --require-exr 0
+cmake --build build-tests --target openmeta_tests
+./build-tests/openmeta_tests --gtest_filter='InteropExport.*:OiioAdapter.*:OcioAdapter.*'
+./build-tests/openmeta_tests --gtest_filter='CrwCiffDecode.*'
 ```
 
 Notes:
-- `run_premerge_gates.sh` is the standard pre-merge gate entrypoint.
-- `run_interop_gates.sh` now defaults to `--tier all`.
-- EXR gate is required by default (`--require-exr 1`) and includes safe value parity checks (`--exr-check-values 1`).
-- RAW tiers should include both broad RAW camera corpora and compact DNG-focused corpora.
-
-Cached adapter-name parity (local cached workflow):
-
-```bash
-python3 compare_openmeta_interop_names_cached.py \
-  --tool both --jobs 4 --quiet
-```
+- `CrwCiffDecode` tests cover CRW/CIFF derived EXIF mapping for legacy Canon RAW.
+- `OiioAdapter` tests cover stable handling of empty-value attributes needed by
+  interop parity workflows.
 
 ## Doxygen (Optional)
 

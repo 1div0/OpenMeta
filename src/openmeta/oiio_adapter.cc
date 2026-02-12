@@ -5,6 +5,18 @@
 namespace openmeta {
 namespace {
 
+    static bool
+    looks_like_numeric_unknown_name(std::string_view name) noexcept
+    {
+        for (size_t i = 0; i + 2 < name.size(); ++i) {
+            if (name[i] == '_' && name[i + 1] == '0'
+                && (name[i + 2] == 'x' || name[i + 2] == 'X')) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     class OiioCollectSink final : public MetadataSink {
     public:
         OiioCollectSink(const ByteArena& arena, std::vector<OiioAttribute>* out,
@@ -25,7 +37,9 @@ namespace {
             std::string value_text;
             const bool has_value = interop_internal::format_value_for_text(
                 arena_, item.entry->value, max_value_bytes_, &value_text);
-            if (!has_value && !include_empty_) {
+            if (!has_value && !include_empty_
+                && !looks_like_numeric_unknown_name(item.name)
+                && item.name != "Exif:MakerNote") {
                 return;
             }
 

@@ -4,6 +4,7 @@
 #include "openmeta/meta_value.h"
 
 #include <array>
+#include <ctime>
 #include <cstdio>
 #include <cstddef>
 #include <cstdint>
@@ -93,6 +94,22 @@ namespace {
     {
         return cfg.le ? read_u32le(bytes, offset, out)
                       : read_u32be(bytes, offset, out);
+    }
+
+
+    static bool read_i32(const CiffConfig& cfg,
+                         std::span<const std::byte> bytes, uint64_t offset,
+                         int32_t* out) noexcept
+    {
+        if (!out) {
+            return false;
+        }
+        uint32_t u = 0;
+        if (!read_u32(cfg, bytes, offset, &u)) {
+            return false;
+        }
+        *out = static_cast<int32_t>(u);
+        return true;
     }
 
 
@@ -265,6 +282,224 @@ namespace {
     {
         const uint16_t t = ciff_type_bits(tag);
         return t == 0x2800U || t == 0x3000U;
+    }
+
+
+    static bool parse_ciff_dir_id(std::string_view ifd_token,
+                                  uint16_t* out) noexcept
+    {
+        if (!out || ifd_token.size() < 10 || !ifd_token.starts_with("ciff_")
+            || ifd_token[9] != '_') {
+            return false;
+        }
+        uint16_t dir = 0;
+        for (size_t i = 5; i < 9; ++i) {
+            const char c = ifd_token[i];
+            uint16_t nibble = 0;
+            if (c >= '0' && c <= '9') {
+                nibble = static_cast<uint16_t>(c - '0');
+            } else if (c >= 'a' && c <= 'f') {
+                nibble = static_cast<uint16_t>(10 + (c - 'a'));
+            } else if (c >= 'A' && c <= 'F') {
+                nibble = static_cast<uint16_t>(10 + (c - 'A'));
+            } else {
+                return false;
+            }
+            dir = static_cast<uint16_t>((dir << 4U) | nibble);
+        }
+        *out = dir;
+        return true;
+    }
+
+
+    static uint16_t ciff_rotation_to_orientation(int32_t degrees) noexcept
+    {
+        switch (degrees) {
+        case 0: return 1;
+        case 180:
+        case -180: return 3;
+        case 90:
+        case -270: return 6;
+        case 270:
+        case -90: return 8;
+        default: return 1;
+        }
+    }
+
+
+    static bool can_add_derived_entry(const ExifDecodeLimits& limits,
+                                      ExifDecodeResult* status_out) noexcept
+    {
+        if (!status_out) {
+            return true;
+        }
+        if (status_out->entries_decoded >= limits.max_total_entries) {
+            update_status(status_out, ExifDecodeStatus::LimitExceeded);
+            return false;
+        }
+        return true;
+    }
+
+
+    static void add_derived_exif_entry(MetaStore& store, BlockId block,
+                                       uint32_t order_in_block,
+                                       std::string_view ifd, uint16_t tag,
+                                       const MetaValue& value,
+                                       uint16_t source_tag,
+                                       const ExifDecodeLimits& limits,
+                                       ExifDecodeResult* status_out) noexcept
+    {
+        if (!can_add_derived_entry(limits, status_out)) {
+            return;
+        }
+        Entry entry;
+        entry.key.kind              = MetaKeyKind::ExifTag;
+        entry.key.data.exif_tag.ifd = store.arena().append_string(ifd);
+        entry.key.data.exif_tag.tag = tag;
+        entry.value                 = value;
+        entry.origin.block          = block;
+        entry.origin.order_in_block = order_in_block;
+        entry.origin.wire_type      = WireType { WireFamily::Other, source_tag };
+        entry.origin.wire_count     = value.count;
+        (void)store.add_entry(entry);
+        if (status_out) {
+            status_out->entries_decoded += 1U;
+        }
+    }
+
+
+    static bool format_exif_datetime(uint32_t unix_seconds,
+                                     std::array<char, 20>* out) noexcept
+    {
+        if (!out) {
+            return false;
+        }
+        const std::time_t t = static_cast<std::time_t>(unix_seconds);
+        std::tm tm_out {};
+#if defined(_WIN32)
+        if (localtime_s(&tm_out, &t) != 0) {
+            return false;
+        }
+#else
+        if (!localtime_r(&t, &tm_out)) {
+            return false;
+        }
+#endif
+        const size_t n = std::strftime(out->data(), out->size(),
+                                       "%Y:%m:%d %H:%M:%S", &tm_out);
+        return n == 19;
+    }
+
+
+    static void add_crw_derived_entries(const CiffConfig& cfg,
+                                        std::string_view ifd_token,
+                                        uint16_t tag_id,
+                                        std::span<const std::byte> raw,
+                                        MetaStore& store, BlockId block,
+                                        uint32_t order_in_block,
+                                        const ExifDecodeLimits& limits,
+                                        ExifDecodeResult* status_out) noexcept
+    {
+        uint16_t dir_id = 0;
+        if (!parse_ciff_dir_id(ifd_token, &dir_id)) {
+            return;
+        }
+
+        uint32_t next_order = (order_in_block < UINT32_MAX)
+                                  ? (order_in_block + 1U)
+                                  : order_in_block;
+
+        if (dir_id == 0x2807U && tag_id == 0x080AU) {
+            size_t make_end = 0;
+            while (make_end < raw.size() && raw[make_end] != std::byte { 0 }) {
+                ++make_end;
+            }
+            if (make_end > 0) {
+                const std::string_view make(reinterpret_cast<const char*>(
+                                                raw.data()),
+                                            make_end);
+                const MetaValue value = make_text(store.arena(), make,
+                                                  TextEncoding::Ascii);
+                add_derived_exif_entry(store, block, next_order++, "ifd0",
+                                       0x010FU, value, tag_id, limits,
+                                       status_out);
+            }
+
+            size_t model_begin = make_end;
+            if (model_begin < raw.size() && raw[model_begin] == std::byte { 0 }) {
+                ++model_begin;
+            }
+            size_t model_end = model_begin;
+            while (model_end < raw.size() && raw[model_end] != std::byte { 0 }) {
+                ++model_end;
+            }
+            if (model_end > model_begin) {
+                const std::string_view model(
+                    reinterpret_cast<const char*>(raw.data() + model_begin),
+                    model_end - model_begin);
+                const MetaValue value = make_text(store.arena(), model,
+                                                  TextEncoding::Ascii);
+                add_derived_exif_entry(store, block, next_order++, "ifd0",
+                                       0x0110U, value, tag_id, limits,
+                                       status_out);
+            }
+            return;
+        }
+
+        if (dir_id == 0x300AU && tag_id == 0x180EU && raw.size() >= 4U) {
+            uint32_t unix_seconds = 0;
+            if (read_u32(cfg, raw, 0, &unix_seconds)) {
+                std::array<char, 20> buf {};
+                if (format_exif_datetime(unix_seconds, &buf)) {
+                    const std::string_view dt(buf.data(), 19);
+                    const MetaValue value = make_text(store.arena(), dt,
+                                                      TextEncoding::Ascii);
+                    add_derived_exif_entry(store, block, next_order++, "exififd",
+                                           0x9003U, value, tag_id, limits,
+                                           status_out);
+                }
+            }
+            return;
+        }
+
+        if (dir_id == 0x300AU && tag_id == 0x1810U) {
+            if (raw.size() >= 4U) {
+                uint32_t width = 0;
+                if (read_u32(cfg, raw, 0, &width)) {
+                    add_derived_exif_entry(store, block, next_order++,
+                                           "exififd", 0xA002U, make_u32(width),
+                                           tag_id, limits, status_out);
+                }
+            }
+            if (raw.size() >= 8U) {
+                uint32_t height = 0;
+                if (read_u32(cfg, raw, 4, &height)) {
+                    add_derived_exif_entry(store, block, next_order++,
+                                           "exififd", 0xA003U, make_u32(height),
+                                           tag_id, limits, status_out);
+                }
+            }
+            if (raw.size() >= 16U) {
+                int32_t rotation = 0;
+                if (read_i32(cfg, raw, 12, &rotation)) {
+                    const uint16_t orientation
+                        = ciff_rotation_to_orientation(rotation);
+                    add_derived_exif_entry(store, block, next_order++, "ifd0",
+                                           0x0112U, make_u16(orientation),
+                                           tag_id, limits, status_out);
+                }
+            }
+            return;
+        }
+
+        if (dir_id == 0x3002U && tag_id == 0x1807U && raw.size() >= 4U) {
+            uint32_t distance = 0;
+            if (read_u32(cfg, raw, 0, &distance)) {
+                add_derived_exif_entry(store, block, next_order++, "exififd",
+                                       0x9206U, make_u32(distance), tag_id,
+                                       limits, status_out);
+            }
+        }
     }
 
 
@@ -466,6 +701,13 @@ namespace {
             (void)store.add_entry(entry);
             if (status_out) {
                 status_out->entries_decoded += 1U;
+            }
+            if (value_bytes <= limits.max_value_bytes) {
+                const std::span<const std::byte> raw = dir_bytes.subspan(
+                    static_cast<size_t>(value_off),
+                    static_cast<size_t>(value_bytes));
+                add_crw_derived_entries(cfg, ifd_token, tag_id, raw, store,
+                                        block, i, limits, status_out);
             }
             any = true;
         }

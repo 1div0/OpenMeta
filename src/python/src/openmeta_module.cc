@@ -383,12 +383,14 @@ namespace {
 
     static nb::list oiio_attributes_to_python(const MetaStore& store,
                                               uint32_t max_value_bytes,
+                                              ExportNamePolicy name_policy,
                                               bool include_makernotes,
                                               bool include_empty)
     {
         OiioAdapterOptions opts;
         opts.max_value_bytes                   = max_value_bytes;
         opts.include_empty                     = include_empty;
+        opts.export_options.name_policy        = name_policy;
         opts.export_options.include_makernotes = include_makernotes;
 
         std::vector<OiioAttribute> attrs;
@@ -418,16 +420,16 @@ namespace {
     }
 
 
-    static nb::dict ocio_tree_to_python(const MetaStore& store,
-                                        ExportNameStyle style,
-                                        uint32_t max_value_bytes,
-                                        bool include_makernotes,
-                                        bool include_empty)
+    static nb::dict
+    ocio_tree_to_python(const MetaStore& store, ExportNameStyle style,
+                        ExportNamePolicy name_policy, uint32_t max_value_bytes,
+                        bool include_makernotes, bool include_empty)
     {
         OcioAdapterOptions opts;
         opts.max_value_bytes                   = max_value_bytes;
         opts.include_empty                     = include_empty;
         opts.export_options.style              = style;
+        opts.export_options.name_policy        = name_policy;
         opts.export_options.include_makernotes = include_makernotes;
 
         OcioMetadataNode root;
@@ -759,6 +761,9 @@ NB_MODULE(_openmeta, m)
         .value("Canonical", ExportNameStyle::Canonical)
         .value("XmpPortable", ExportNameStyle::XmpPortable)
         .value("Oiio", ExportNameStyle::Oiio);
+    nb::enum_<ExportNamePolicy>(m, "ExportNamePolicy")
+        .value("Spec", ExportNamePolicy::Spec)
+        .value("ExifToolAlias", ExportNamePolicy::ExifToolAlias);
 
     nb::enum_<XmpDumpStatus>(m, "XmpDumpStatus")
         .value("Ok", XmpDumpStatus::Ok)
@@ -875,33 +880,40 @@ NB_MODULE(_openmeta, m)
         .def(
             "export_names",
             [](std::shared_ptr<PyDocument> d, ExportNameStyle style,
-               bool include_makernotes) {
+               ExportNamePolicy name_policy, bool include_makernotes) {
                 ExportOptions options;
                 options.style              = style;
+                options.name_policy        = name_policy;
                 options.include_makernotes = include_makernotes;
                 return export_names(d->store, options);
             },
             "style"_a              = ExportNameStyle::Canonical,
+            "name_policy"_a        = ExportNamePolicy::ExifToolAlias,
             "include_makernotes"_a = true)
         .def(
             "oiio_attributes",
             [](std::shared_ptr<PyDocument> d, uint32_t max_value_bytes,
-               bool include_makernotes, bool include_empty) {
+               ExportNamePolicy name_policy, bool include_makernotes,
+               bool include_empty) {
                 return oiio_attributes_to_python(d->store, max_value_bytes,
+                                                 name_policy,
                                                  include_makernotes,
                                                  include_empty);
             },
-            "max_value_bytes"_a = 1024U, "include_makernotes"_a = true,
-            "include_empty"_a = false)
+            "max_value_bytes"_a    = 1024U,
+            "name_policy"_a        = ExportNamePolicy::ExifToolAlias,
+            "include_makernotes"_a = true, "include_empty"_a = false)
         .def(
             "ocio_metadata_tree",
             [](std::shared_ptr<PyDocument> d, ExportNameStyle style,
-               uint32_t max_value_bytes, bool include_makernotes,
-               bool include_empty) {
-                return ocio_tree_to_python(d->store, style, max_value_bytes,
-                                           include_makernotes, include_empty);
+               ExportNamePolicy name_policy, uint32_t max_value_bytes,
+               bool include_makernotes, bool include_empty) {
+                return ocio_tree_to_python(d->store, style, name_policy,
+                                           max_value_bytes, include_makernotes,
+                                           include_empty);
             },
             "style"_a           = ExportNameStyle::XmpPortable,
+            "name_policy"_a     = ExportNamePolicy::ExifToolAlias,
             "max_value_bytes"_a = 1024U, "include_makernotes"_a = false,
             "include_empty"_a = false)
         .def(

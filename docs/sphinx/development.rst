@@ -13,6 +13,7 @@ EXIF + MakerNotes (code organization)
 -------------------------------------
 
 - Core EXIF/TIFF decoding: ``src/openmeta/exif_tiff_decode.cc``
+- CRW/CIFF decode + derived EXIF bridge: ``src/openmeta/crw_ciff_decode.cc``
 - Vendor MakerNote decoders: ``src/openmeta/exif_makernote_*.cc``
   (Canon, Nikon, Sony, Olympus, Pentax, Casio, Panasonic, Kodak, Ricoh, Samsung, FLIR, etc.)
 - Shared internal-only helpers: ``src/openmeta/exif_tiff_decode_internal.h``
@@ -33,6 +34,13 @@ Interop adapters
 - Core traversal API: ``src/include/openmeta/interop_export.h``
 - OIIO adapter (flat name/value): ``src/include/openmeta/oiio_adapter.h``
 - OCIO adapter (namespace tree): ``src/include/openmeta/ocio_adapter.h``
+
+Notes:
+
+- ``ExportNamePolicy::ExifToolAlias`` and ``ExportNamePolicy::Spec`` are both
+  covered by interop tests and used for split-parity workflows.
+- OIIO export keeps numeric unknown names (``Exif_0x....``) and
+  ``Exif:MakerNote`` when values are empty so parity checks remain stable.
 
 Python binding entry points:
 

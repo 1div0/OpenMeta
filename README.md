@@ -18,6 +18,9 @@ This is early-stage. Expect breaking API changes.
   (zlib/deflate, brotli) with strict limits.
 - Structured decode into `MetaStore`:
   - EXIF: TIFF-IFD tags (including pointer IFDs).
+  - CRW/CIFF bridge: derives common EXIF fields (`Make`, `Model`,
+    `DateTimeOriginal`, `SubjectDistance`, `PixelXDimension`,
+    `PixelYDimension`, `Orientation`) from legacy Canon CRW directory tags.
   - XMP: RDF/XML packets into properties (schema namespace URI + property path).
   - ICC: profile header + tag table (raw tag bytes preserved).
   - Photoshop IRB: 8BIM resources (raw payload preserved; IPTC from 0x0404 is
@@ -34,7 +37,7 @@ This is early-stage. Expect breaking API changes.
 
 - `src/include/openmeta/`: public headers
 - `src/openmeta/`: library implementation
-- `src/tools/`: CLI tools (`metaread`)
+- `src/tools/`: CLI tools (`metaread`, `metadump`)
 - `src/python/`: Python bindings (nanobind) + helper scripts
 - `tests/`: unit tests + fuzz targets
 - `docs/`: developer docs (build, tests, fuzzing)

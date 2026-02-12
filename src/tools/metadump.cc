@@ -235,15 +235,10 @@ main(int argc, char** argv)
 {
     using namespace openmeta;
 
-    enum class DumpFormat : uint8_t {
-        Lossless,
-        Portable,
-    };
-
     bool show_build_info               = true;
     bool xmp_sidecar                   = false;
     bool force_overwrite               = false;
-    DumpFormat format                  = DumpFormat::Lossless;
+    XmpSidecarFormat format            = XmpSidecarFormat::Lossless;
     bool portable_include_exif         = true;
     bool portable_include_existing_xmp = false;
     std::string out_path;
@@ -277,7 +272,7 @@ main(int argc, char** argv)
             continue;
         }
         if (std::strcmp(arg, "--portable") == 0) {
-            format = DumpFormat::Portable;
+            format = XmpSidecarFormat::Portable;
             first_path += 1;
             continue;
         }
@@ -298,9 +293,9 @@ main(int argc, char** argv)
                 return 2;
             }
             if (std::strcmp(v, "lossless") == 0) {
-                format = DumpFormat::Lossless;
+                format = XmpSidecarFormat::Lossless;
             } else if (std::strcmp(v, "portable") == 0) {
-                format = DumpFormat::Portable;
+                format = XmpSidecarFormat::Portable;
             } else {
                 std::fprintf(
                     stderr,
@@ -479,39 +474,19 @@ main(int argc, char** argv)
 
         store.finalize();
 
-        XmpDumpOptions dump_lossless_opts;
-        dump_lossless_opts.limits.max_output_bytes = max_output_bytes;
-        dump_lossless_opts.limits.max_entries      = max_entries;
+        XmpSidecarOptions dump_opts;
+        dump_opts.format                           = format;
+        dump_opts.initial_output_bytes             = 1024ULL * 1024ULL;
+        dump_opts.portable.limits.max_output_bytes = max_output_bytes;
+        dump_opts.portable.limits.max_entries      = max_entries;
+        dump_opts.portable.include_exif            = portable_include_exif;
+        dump_opts.portable.include_existing_xmp = portable_include_existing_xmp;
+        dump_opts.lossless.limits.max_output_bytes = max_output_bytes;
+        dump_opts.lossless.limits.max_entries      = max_entries;
 
-        XmpPortableOptions dump_portable_opts;
-        dump_portable_opts.limits.max_output_bytes = max_output_bytes;
-        dump_portable_opts.limits.max_entries      = max_entries;
-        dump_portable_opts.include_exif            = portable_include_exif;
-        dump_portable_opts.include_existing_xmp = portable_include_existing_xmp;
-
-        std::vector<std::byte> out_buf(1024 * 1024);
-        XmpDumpResult dump_res;
-        for (;;) {
-            if (format == DumpFormat::Portable) {
-                dump_res = dump_xmp_portable(
-                    store, std::span<std::byte>(out_buf.data(), out_buf.size()),
-                    dump_portable_opts);
-            } else {
-                dump_res = dump_xmp_lossless(
-                    store, std::span<std::byte>(out_buf.data(), out_buf.size()),
-                    dump_lossless_opts);
-            }
-            if (dump_res.status == XmpDumpStatus::OutputTruncated
-                && dump_res.needed > out_buf.size()) {
-                if (dump_res.needed > static_cast<uint64_t>(SIZE_MAX)) {
-                    dump_res.status = XmpDumpStatus::LimitExceeded;
-                    break;
-                }
-                out_buf.resize(static_cast<size_t>(dump_res.needed));
-                continue;
-            }
-            break;
-        }
+        std::vector<std::byte> out_buf;
+        const XmpDumpResult dump_res = dump_xmp_sidecar(store, &out_buf,
+                                                        dump_opts);
 
         if (dump_res.status != XmpDumpStatus::Ok) {
             std::fprintf(stderr, "metadump: dump failed for `%s` (status=%s)\n",
@@ -523,10 +498,8 @@ main(int argc, char** argv)
             continue;
         }
 
-        const std::span<const std::byte> dump_bytes(out_buf.data(),
-                                                    static_cast<size_t>(
-                                                        dump_res.written));
-        if (!write_file_bytes(out, dump_bytes)) {
+        if (!write_file_bytes(out, std::span<const std::byte>(out_buf.data(),
+                                                              out_buf.size()))) {
             std::fprintf(stderr, "metadump: failed to write `%s`\n",
                          out.c_str());
             exit_code = 1;
@@ -534,7 +507,8 @@ main(int argc, char** argv)
         }
 
         std::printf("wrote=%s format=%s bytes=%llu entries=%u\n", out.c_str(),
-                    (format == DumpFormat::Portable) ? "portable" : "lossless",
+                    (format == XmpSidecarFormat::Portable) ? "portable"
+                                                           : "lossless",
                     static_cast<unsigned long long>(dump_res.written),
                     static_cast<unsigned>(dump_res.entries));
     }

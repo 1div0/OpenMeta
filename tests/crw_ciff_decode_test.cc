@@ -77,6 +77,83 @@ namespace {
         return file;
     }
 
+
+    struct CiffValueEntry final {
+        uint16_t tag = 0;
+        std::vector<std::byte> value;
+    };
+
+
+    static std::vector<std::byte>
+    make_ciff_directory(const std::vector<CiffValueEntry>& entries)
+    {
+        std::vector<std::byte> out;
+        append_u16le(&out, static_cast<uint16_t>(entries.size()));
+
+        const uint32_t table_bytes
+            = 2U + static_cast<uint32_t>(entries.size()) * 10U;
+        uint32_t data_off = table_bytes;
+
+        for (size_t i = 0; i < entries.size(); ++i) {
+            append_u16le(&out, entries[i].tag);
+            append_u32le(&out, static_cast<uint32_t>(entries[i].value.size()));
+            append_u32le(&out, data_off);
+            data_off += static_cast<uint32_t>(entries[i].value.size());
+        }
+
+        for (size_t i = 0; i < entries.size(); ++i) {
+            out.insert(out.end(), entries[i].value.begin(),
+                       entries[i].value.end());
+        }
+
+        append_u32le(&out, 0U);
+        return out;
+    }
+
+
+    static std::vector<std::byte> make_crw_with_derived_exif_sources()
+    {
+        std::vector<std::byte> make_model;
+        append_bytes(&make_model, "Canon");
+        make_model.push_back(std::byte { 0 });
+        append_bytes(&make_model, "PowerShot Pro70");
+        make_model.push_back(std::byte { 0 });
+
+        std::vector<std::byte> subject_distance;
+        append_u32le(&subject_distance, 123U);
+
+        std::vector<std::byte> datetime_original;
+        append_u32le(&datetime_original, 1700000000U);
+
+        std::vector<std::byte> dimensions_orientation;
+        append_u32le(&dimensions_orientation, 1536U);  // PixelXDimension
+        append_u32le(&dimensions_orientation, 1024U);  // PixelYDimension
+        append_u32le(&dimensions_orientation, 0U);     // unused
+        append_u32le(&dimensions_orientation, 90U);    // rotation -> orient=6
+
+        const std::vector<std::byte> dir2807 = make_ciff_directory(
+            std::vector<CiffValueEntry> { { 0x080AU, make_model } });
+        const std::vector<std::byte> dir3002 = make_ciff_directory(
+            std::vector<CiffValueEntry> { { 0x1807U, subject_distance } });
+        const std::vector<std::byte> dir300a = make_ciff_directory(
+            std::vector<CiffValueEntry> { { 0x180EU, datetime_original },
+                                          { 0x1810U, dimensions_orientation } });
+
+        const std::vector<std::byte> root
+            = make_ciff_directory(std::vector<CiffValueEntry> {
+                { 0x2807U, dir2807 },
+                { 0x3002U, dir3002 },
+                { 0x300AU, dir300a },
+            });
+
+        std::vector<std::byte> file;
+        append_bytes(&file, "II");
+        append_u32le(&file, 14U);
+        append_bytes(&file, "HEAPCCDR");
+        file.insert(file.end(), root.begin(), root.end());
+        return file;
+    }
+
 }  // namespace
 
 TEST(CrwCiffDecode, DecodesMinimalDirectory)
@@ -106,6 +183,37 @@ TEST(CrwCiffDecode, DecodesMinimalDirectory)
     EXPECT_EQ(e.value.kind, MetaValueKind::Text);
     EXPECT_EQ(e.value.text_encoding, TextEncoding::Ascii);
     EXPECT_EQ(arena_string(store.arena(), e.value), "CIFFTEST");
+}
+
+
+TEST(CrwCiffDecode, AddsDerivedExifEntriesForKnownCiffTags)
+{
+    const std::vector<std::byte> file = make_crw_with_derived_exif_sources();
+
+    MetaStore store;
+    std::array<ContainerBlockRef, 16> blocks {};
+    std::array<ExifIfdRef, 16> ifds {};
+    std::array<std::byte, 4096> payload {};
+    std::array<uint32_t, 64> payload_scratch {};
+
+    ExifDecodeOptions exif_opts;
+    PayloadOptions payload_opts;
+
+    const SimpleMetaResult res
+        = simple_meta_read(file, store, blocks, ifds, payload, payload_scratch,
+                           exif_opts, payload_opts);
+    EXPECT_EQ(res.scan.status, ScanStatus::Ok);
+    EXPECT_EQ(res.exif.status, ExifDecodeStatus::Ok);
+
+    store.finalize();
+
+    ASSERT_EQ(store.find_all(exif_key("ifd0", 0x010F)).size(), 1U);
+    ASSERT_EQ(store.find_all(exif_key("ifd0", 0x0110)).size(), 1U);
+    ASSERT_EQ(store.find_all(exif_key("ifd0", 0x0112)).size(), 1U);
+    ASSERT_EQ(store.find_all(exif_key("exififd", 0x9003)).size(), 1U);
+    ASSERT_EQ(store.find_all(exif_key("exififd", 0x9206)).size(), 1U);
+    ASSERT_EQ(store.find_all(exif_key("exififd", 0xA002)).size(), 1U);
+    ASSERT_EQ(store.find_all(exif_key("exififd", 0xA003)).size(), 1U);
 }
 
 }  // namespace openmeta
