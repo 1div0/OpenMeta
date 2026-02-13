@@ -65,6 +65,8 @@ endif()
 #   <root>/re2
 #   <root>/antlr4
 set(OPENMETA_DEPS_REPOS_ROOT "" CACHE PATH "Path to local dependency repos for optional source builds")
+set(OPENMETA_MULTI_PREVIEW_SAMPLE "" CACHE FILEPATH
+  "Optional sample file with 2+ embedded previews for CLI index-suffix integration test")
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -431,6 +433,20 @@ if(OPENMETA_BUILD_TESTS)
   target_link_libraries(openmeta_tests PRIVATE ${OPENMETA_LIB_TARGET} gtest_main)
 
   add_test(NAME openmeta_tests COMMAND openmeta_tests)
+
+  if(TARGET metadump AND TARGET thumdump)
+    add_test(
+      NAME openmeta_cli_preview_index
+      COMMAND ${CMAKE_COMMAND}
+        "-DMETADUMP_BIN=$<TARGET_FILE:metadump>"
+        "-DTHUMDUMP_BIN=$<TARGET_FILE:thumdump>"
+        "-DSAMPLE_FILE=${OPENMETA_MULTI_PREVIEW_SAMPLE}"
+        "-DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/_cli_preview_index"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/cli_preview_index_test.cmake"
+    )
+    set_tests_properties(openmeta_cli_preview_index PROPERTIES
+      SKIP_REGULAR_EXPRESSION "^SKIP:")
+  endif()
 endif()
 
 if(OPENMETA_BUILD_FUZZERS)

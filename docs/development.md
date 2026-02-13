@@ -135,6 +135,19 @@ cmake --build build-tests
 ctest --test-dir build-tests --output-on-failure
 ```
 
+Optional CLI integration test for preview index suffixing:
+```bash
+cmake -S . -B build-tests -G Ninja -DCMAKE_BUILD_TYPE=Debug \
+  -DCMAKE_PREFIX_PATH=/mnt/f/UBSd \
+  -DOPENMETA_BUILD_TESTS=ON \
+  -DOPENMETA_MULTI_PREVIEW_SAMPLE=/path/to/file_with_multiple_previews
+cmake --build build-tests
+ctest --test-dir build-tests -R openmeta_cli_preview_index --output-on-failure
+```
+
+If `OPENMETA_MULTI_PREVIEW_SAMPLE` is not set (or the file is missing),
+`openmeta_cli_preview_index` is skipped.
+
 ## libFuzzer Targets
 
 Requirements:
