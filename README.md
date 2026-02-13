@@ -30,8 +30,18 @@ This is early-stage. Expect breaking API changes.
     properties (`pitm`, `iprp/ipco ispe/irot/imir`, `ipma`).
 - CLI tools:
   - `metaread`: human-readable dump; output is sanitized.
-  - `metadump`: XMP sidecar generator (`--format lossless|portable`).
+  - `metadump`: sidecar/preview dump tool (`--format lossless|portable`,
+    `--extract-preview`, supports both positional
+    `<source> <destination>` and explicit `-i/--input` + `-o/--out`; when
+    multiple previews are found, `--out name.jpg` writes `name_1.jpg`,
+    `name_2.jpg`, ...).
+  - `thumdump`: preview-only extractor, also supports positional
+    `<source> <destination>` and explicit `-i/--input` + `-o/--out`; when
+    multiple previews are found, `--out name.jpg` writes `name_1.jpg`,
+    `name_2.jpg`, ...).
 - Security-first: explicit decode limits + fuzz targets; see `SECURITY.md`.
+- Draft resource policy surface in public headers:
+  `src/include/openmeta/resource_policy.h`.
 
 ## Layout
 

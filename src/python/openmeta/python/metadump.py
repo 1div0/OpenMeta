@@ -44,7 +44,7 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--no-pointer-tags", action="store_true", help="do not store pointer tags")
     ap.add_argument("--makernotes", action="store_true", help="attempt MakerNote decode (best-effort)")
     ap.add_argument("--no-decompress", action="store_true", help="do not decompress payloads")
-    ap.add_argument("--max-file-bytes", type=int, default=512 * 1024 * 1024, help="refuse to read files larger than N bytes (0=unlimited)")
+    ap.add_argument("--max-file-bytes", type=int, default=0, help="optional file mapping cap in bytes (0=unlimited)")
     ap.add_argument("--max-output-bytes", type=int, default=0, help="refuse to generate dumps larger than N bytes (0=unlimited)")
     ap.add_argument("--max-entries", type=int, default=0, help="refuse to emit more than N entries (0=unlimited)")
     args = ap.parse_args(argv)

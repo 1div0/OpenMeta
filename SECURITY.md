@@ -34,7 +34,8 @@ Console (`metaread`) rules:
 - Print **ASCII-only** output. Non-ASCII and control bytes must be escaped
   (e.g. `\\x1B`, `\\xE2\\x80\\xAE`) to prevent terminal injection and display spoofing.
 - Apply strict size limits for printing (`--max-bytes`, `--max-elements`,
-  `--max-cell-chars`) and for reading whole files (`--max-file-bytes`).
+  `--max-cell-chars`). File-size caps (`--max-file-bytes`) are optional overrides;
+  parser/decode budgets are the primary protection.
 - If sanitization or truncation is triggered, annotate the value (e.g.
   `(DANGEROUS)`) so users don't mistake it for authoritative text.
 

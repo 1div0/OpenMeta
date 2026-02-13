@@ -514,8 +514,7 @@ simple_meta_read(std::span<const std::byte> file_bytes, MetaStore& store,
                  std::span<ContainerBlockRef> out_blocks,
                  std::span<ExifIfdRef> out_ifds, std::span<std::byte> payload,
                  std::span<uint32_t> payload_scratch_indices,
-                 const ExifDecodeOptions& exif_options,
-                 const PayloadOptions& payload_options) noexcept
+                 const SimpleMetaDecodeOptions& options) noexcept
 {
     SimpleMetaResult result;
     result.scan            = scan_auto(file_bytes, out_blocks);
@@ -561,7 +560,7 @@ simple_meta_read(std::span<const std::byte> file_bytes, MetaStore& store,
         std::span<const std::byte> block_bytes;
         const PayloadResult payload_one
             = get_block_bytes(file_bytes, blocks_view, i, payload,
-                              payload_scratch_indices, payload_options,
+                              payload_scratch_indices, options.payload,
                               &block_bytes);
         merge_payload_result(&result.payload, payload_one);
         if (payload_one.status != PayloadStatus::Ok) {
@@ -599,7 +598,7 @@ simple_meta_read(std::span<const std::byte> file_bytes, MetaStore& store,
             // Canon MakerNote block and expand known BinaryData subtables.
             if (block.format == ContainerFormat::Cr3
                 && block.id == fourcc('C', 'M', 'T', '3')) {
-                if (!exif_options.decode_makernote) {
+                if (!options.exif.decode_makernote) {
                     continue;
                 }
 
@@ -615,7 +614,7 @@ simple_meta_read(std::span<const std::byte> file_bytes, MetaStore& store,
                     one.ifds_needed     = 0;
                     one.entries_decoded = 0;
 
-                    ExifDecodeOptions mn_opts        = exif_options;
+                    ExifDecodeOptions mn_opts        = options.exif;
                     mn_opts.decode_printim           = false;
                     mn_opts.decode_makernote         = false;
                     mn_opts.tokens.ifd_prefix        = "mk_canon";
@@ -671,7 +670,7 @@ simple_meta_read(std::span<const std::byte> file_bytes, MetaStore& store,
 
             const size_t entry_start = store.entries().size();
             const ExifDecodeResult one
-                = decode_exif_tiff(block_bytes, store, ifd_slice, exif_options);
+                = decode_exif_tiff(block_bytes, store, ifd_slice, options.exif);
             const size_t entry_end = store.entries().size();
             merge_exif_status(&exif.status, one.status);
             exif.ifds_needed += one.ifds_needed;
@@ -691,7 +690,7 @@ simple_meta_read(std::span<const std::byte> file_bytes, MetaStore& store,
             // byte blob within a TIFF tag (for example, Panasonic RW2
             // `JpgFromRaw` tag 0x002E). ExifTool reports many common EXIF tags
             // from this preview; decode best-effort when enabled.
-            if (exif_options.decode_embedded_containers
+            if (options.exif.decode_embedded_containers
                 && entry_end > entry_start) {
                 // Phase 1: collect candidate blobs without mutating the arena.
                 std::array<ByteSpan, 8> candidates {};
@@ -778,7 +777,7 @@ simple_meta_read(std::span<const std::byte> file_bytes, MetaStore& store,
                         if (b.kind == ContainerBlockKind::Exif) {
                             any_exif = true;
 
-                            ExifDecodeOptions embed_opts = exif_options;
+                            ExifDecodeOptions embed_opts = options.exif;
                             embed_opts.decode_makernote  = false;
                             embed_opts.decode_printim    = false;
                             embed_opts.decode_embedded_containers = false;
@@ -808,8 +807,8 @@ simple_meta_read(std::span<const std::byte> file_bytes, MetaStore& store,
                             exif.ifds_written = ifd_write_pos;
                         } else if (b.kind == ContainerBlockKind::Xmp) {
                             any_xmp                  = true;
-                            const XmpDecodeResult xr = decode_xmp_packet(inner,
-                                                                         store);
+                            const XmpDecodeResult xr = decode_xmp_packet(
+                                inner, store, EntryFlags::None, options.xmp);
                             merge_xmp_status(&xmp.status, xr.status);
                             xmp.entries_decoded += xr.entries_decoded;
                         }
@@ -820,7 +819,7 @@ simple_meta_read(std::span<const std::byte> file_bytes, MetaStore& store,
             // JPEG APP2 MPF: TIFF-IFD stream used by MPO (multi-picture) files.
             // Decode as EXIF/TIFF tags into a separate IFD token namespace.
             std::array<ExifIfdRef, 64> mpf_ifds;
-            ExifDecodeOptions mpf_options        = exif_options;
+            ExifDecodeOptions mpf_options        = options.exif;
             mpf_options.tokens.ifd_prefix        = "mpf";
             mpf_options.tokens.subifd_prefix     = "mpf_subifd";
             mpf_options.tokens.exif_ifd_token    = "mpf_exififd";
@@ -840,7 +839,7 @@ simple_meta_read(std::span<const std::byte> file_bytes, MetaStore& store,
             one.entries_decoded = 0;
 
             if (ciff_internal::decode_crw_ciff(block_bytes, store,
-                                               exif_options.limits, &one)) {
+                                               options.exif.limits, &one)) {
                 merge_exif_status(&exif.status, one.status);
                 exif.entries_decoded += one.entries_decoded;
             } else {
@@ -849,17 +848,21 @@ simple_meta_read(std::span<const std::byte> file_bytes, MetaStore& store,
         } else if (block.kind == ContainerBlockKind::Xmp
                    || block.kind == ContainerBlockKind::XmpExtended) {
             any_xmp                   = true;
-            const XmpDecodeResult one = decode_xmp_packet(block_bytes, store);
+            const XmpDecodeResult one = decode_xmp_packet(block_bytes, store,
+                                                          EntryFlags::None,
+                                                          options.xmp);
             merge_xmp_status(&xmp.status, one.status);
             xmp.entries_decoded += one.entries_decoded;
         } else if (block.kind == ContainerBlockKind::Icc) {
-            (void)decode_icc_profile(block_bytes, store);
+            (void)decode_icc_profile(block_bytes, store, options.icc);
         } else if (block.kind == ContainerBlockKind::PhotoshopIrB) {
-            (void)decode_photoshop_irb(block_bytes, store);
+            (void)decode_photoshop_irb(block_bytes, store,
+                                       options.photoshop_irb);
         } else if (block.kind == ContainerBlockKind::IptcIim) {
-            (void)decode_iptc_iim(block_bytes, store);
+            (void)decode_iptc_iim(block_bytes, store, EntryFlags::None,
+                                  options.iptc);
         } else if (block.kind == ContainerBlockKind::MakerNote) {
-            if (!exif_options.decode_makernote) {
+            if (!options.exif.decode_makernote) {
                 continue;
             }
 
@@ -873,7 +876,7 @@ simple_meta_read(std::span<const std::byte> file_bytes, MetaStore& store,
                 one.entries_decoded = 0;
 
                 if (parse_dji_thermal_params(block_bytes, store,
-                                             exif_options.limits, &one)) {
+                                             options.exif.limits, &one)) {
                     any_exif = true;
                     merge_exif_status(&exif.status, one.status);
                     exif.entries_decoded += one.entries_decoded;
@@ -902,7 +905,7 @@ simple_meta_read(std::span<const std::byte> file_bytes, MetaStore& store,
 
                 (void)exif_internal::decode_casio_qvci(block_bytes, ifd_name,
                                                        store,
-                                                       exif_options.limits,
+                                                       options.exif.limits,
                                                        &one);
                 merge_exif_status(&exif.status, one.status);
                 exif.entries_decoded += one.entries_decoded;
@@ -920,7 +923,7 @@ simple_meta_read(std::span<const std::byte> file_bytes, MetaStore& store,
                 one.entries_decoded = 0;
 
                 if (exif_internal::decode_flir_fff(block_bytes, store,
-                                                   exif_options.limits, &one)) {
+                                                   options.exif.limits, &one)) {
                     merge_exif_status(&exif.status, one.status);
                     exif.entries_decoded += one.entries_decoded;
                 }
@@ -930,7 +933,7 @@ simple_meta_read(std::span<const std::byte> file_bytes, MetaStore& store,
                    && block.aux_u32 == fourcc('E', 'x', 'i', 'f')) {
             // JPEG XL "brob" box containing Brotli-compressed Exif box payload.
             // Exif box payload begins with a big-endian u32 TIFF offset.
-            if (!payload_options.decompress) {
+            if (!options.payload.decompress) {
                 continue;
             }
             if (block_bytes.size() < 4) {
@@ -956,7 +959,7 @@ simple_meta_read(std::span<const std::byte> file_bytes, MetaStore& store,
             }
 
             const ExifDecodeResult one
-                = decode_exif_tiff(tiff, store, ifd_slice, exif_options);
+                = decode_exif_tiff(tiff, store, ifd_slice, options.exif);
             merge_exif_status(&exif.status, one.status);
             exif.ifds_needed += one.ifds_needed;
             exif.entries_decoded += one.entries_decoded;
@@ -978,7 +981,9 @@ simple_meta_read(std::span<const std::byte> file_bytes, MetaStore& store,
     // present and no XMP block was seen.
     if (!any_xmp && looks_like_xmp_packet(file_bytes)) {
         any_xmp                   = true;
-        const XmpDecodeResult one = decode_xmp_packet(file_bytes, store);
+        const XmpDecodeResult one = decode_xmp_packet(file_bytes, store,
+                                                      EntryFlags::None,
+                                                      options.xmp);
         merge_xmp_status(&xmp.status, one.status);
         xmp.entries_decoded += one.entries_decoded;
     }
@@ -990,7 +995,7 @@ simple_meta_read(std::span<const std::byte> file_bytes, MetaStore& store,
         xmp.status = XmpDecodeStatus::Unsupported;
     }
 
-    exr = decode_exr_header(file_bytes, store);
+    exr = decode_exr_header(file_bytes, store, EntryFlags::None, options.exr);
 
     // If EXR decode succeeded, preserve "unsupported" EXIF/XMP statuses: EXR
     // metadata is a separate key space and may be the only metadata in file.
@@ -998,6 +1003,21 @@ simple_meta_read(std::span<const std::byte> file_bytes, MetaStore& store,
     result.exr  = exr;
     result.xmp  = xmp;
     return result;
+}
+
+SimpleMetaResult
+simple_meta_read(std::span<const std::byte> file_bytes, MetaStore& store,
+                 std::span<ContainerBlockRef> out_blocks,
+                 std::span<ExifIfdRef> out_ifds, std::span<std::byte> payload,
+                 std::span<uint32_t> payload_scratch_indices,
+                 const ExifDecodeOptions& exif_options,
+                 const PayloadOptions& payload_options) noexcept
+{
+    SimpleMetaDecodeOptions options;
+    options.exif    = exif_options;
+    options.payload = payload_options;
+    return simple_meta_read(file_bytes, store, out_blocks, out_ifds, payload,
+                            payload_scratch_indices, options);
 }
 
 }  // namespace openmeta

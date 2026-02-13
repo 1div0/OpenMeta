@@ -8,6 +8,7 @@
 #include "openmeta/mapped_file.h"
 #include "openmeta/meta_key.h"
 #include "openmeta/meta_store.h"
+#include "openmeta/resource_policy.h"
 #include "openmeta/simple_meta.h"
 #include "openmeta/xmp_decode.h"
 
@@ -1450,7 +1451,16 @@ namespace {
         std::printf(
             "  --max-cell-chars N    max chars per table cell (default: 32)\n");
         std::printf(
-            "  --max-file-bytes N    refuse to read files larger than N bytes (default: 536870912; 0=unlimited)\n");
+            "  --max-file-bytes N    optional file mapping cap in bytes (default: 0=unlimited)\n");
+        std::printf(
+            "  --max-payload-bytes N max reassembled/decompressed payload bytes\n");
+        std::printf("  --max-payload-parts N max payload part count\n");
+        std::printf("  --max-exif-ifds N     max EXIF/TIFF IFD count\n");
+        std::printf("  --max-exif-entries N  max EXIF/TIFF entries per IFD\n");
+        std::printf("  --max-exif-total N    max total EXIF/TIFF entries\n");
+        std::printf(
+            "  --max-exif-value-bytes N max EXIF value bytes per tag\n");
+        std::printf("  --max-xmp-input-bytes N  max XMP packet bytes\n");
     }
 
 
@@ -1474,13 +1484,21 @@ main(int argc, char** argv)
     bool show_blocks     = true;
     bool show_build_info = true;
     bool xmp_sidecar     = false;
-    ExifDecodeOptions exif_options;
+    OpenMetaResourcePolicy policy;
+    policy.max_file_bytes = 0;
+    SimpleMetaDecodeOptions decode_options;
+    apply_resource_policy(policy, &decode_options.exif,
+                          &decode_options.payload);
+    apply_resource_policy(policy, &decode_options.xmp, &decode_options.exr,
+                          &decode_options.icc, &decode_options.iptc,
+                          &decode_options.photoshop_irb);
+    ExifDecodeOptions& exif_options         = decode_options.exif;
     exif_options.include_pointer_tags       = true;
     exif_options.decode_embedded_containers = true;
     uint32_t max_elements                   = 16;
     uint32_t max_bytes                      = 256;
     uint32_t max_cell_chars                 = 32;
-    uint64_t max_file_bytes                 = 512ULL * 1024ULL * 1024ULL;
+    uint64_t max_file_bytes                 = policy.max_file_bytes;
 
     int first_path = 1;
     for (int i = 1; i < argc; ++i) {
@@ -1570,6 +1588,83 @@ main(int argc, char** argv)
             first_path += 2;
             continue;
         }
+        if (std::strcmp(arg, "--max-payload-bytes") == 0 && i + 1 < argc) {
+            uint64_t v = 0;
+            if (!parse_u64_arg(argv[i + 1], &v) || v == 0U) {
+                std::fprintf(stderr, "invalid --max-payload-bytes value\n");
+                return 2;
+            }
+            decode_options.payload.limits.max_output_bytes = v;
+            i += 1;
+            first_path += 2;
+            continue;
+        }
+        if (std::strcmp(arg, "--max-payload-parts") == 0 && i + 1 < argc) {
+            uint32_t v = 0;
+            if (!parse_u32_arg(argv[i + 1], &v) || v == 0U) {
+                std::fprintf(stderr, "invalid --max-payload-parts value\n");
+                return 2;
+            }
+            decode_options.payload.limits.max_parts = v;
+            i += 1;
+            first_path += 2;
+            continue;
+        }
+        if (std::strcmp(arg, "--max-exif-ifds") == 0 && i + 1 < argc) {
+            uint32_t v = 0;
+            if (!parse_u32_arg(argv[i + 1], &v) || v == 0U) {
+                std::fprintf(stderr, "invalid --max-exif-ifds value\n");
+                return 2;
+            }
+            decode_options.exif.limits.max_ifds = v;
+            i += 1;
+            first_path += 2;
+            continue;
+        }
+        if (std::strcmp(arg, "--max-exif-entries") == 0 && i + 1 < argc) {
+            uint32_t v = 0;
+            if (!parse_u32_arg(argv[i + 1], &v) || v == 0U) {
+                std::fprintf(stderr, "invalid --max-exif-entries value\n");
+                return 2;
+            }
+            decode_options.exif.limits.max_entries_per_ifd = v;
+            i += 1;
+            first_path += 2;
+            continue;
+        }
+        if (std::strcmp(arg, "--max-exif-total") == 0 && i + 1 < argc) {
+            uint32_t v = 0;
+            if (!parse_u32_arg(argv[i + 1], &v) || v == 0U) {
+                std::fprintf(stderr, "invalid --max-exif-total value\n");
+                return 2;
+            }
+            decode_options.exif.limits.max_total_entries = v;
+            i += 1;
+            first_path += 2;
+            continue;
+        }
+        if (std::strcmp(arg, "--max-exif-value-bytes") == 0 && i + 1 < argc) {
+            uint64_t v = 0;
+            if (!parse_u64_arg(argv[i + 1], &v) || v == 0U) {
+                std::fprintf(stderr, "invalid --max-exif-value-bytes value\n");
+                return 2;
+            }
+            decode_options.exif.limits.max_value_bytes = v;
+            i += 1;
+            first_path += 2;
+            continue;
+        }
+        if (std::strcmp(arg, "--max-xmp-input-bytes") == 0 && i + 1 < argc) {
+            uint64_t v = 0;
+            if (!parse_u64_arg(argv[i + 1], &v) || v == 0U) {
+                std::fprintf(stderr, "invalid --max-xmp-input-bytes value\n");
+                return 2;
+            }
+            decode_options.xmp.limits.max_input_bytes = v;
+            i += 1;
+            first_path += 2;
+            continue;
+        }
         break;
     }
 
@@ -1622,7 +1717,6 @@ main(int argc, char** argv)
 
         MetaStore store;
         SimpleMetaResult read;
-        PayloadOptions payload_options;
         for (;;) {
             store = MetaStore();
             read  = simple_meta_read(
@@ -1631,7 +1725,7 @@ main(int argc, char** argv)
                 std::span<ExifIfdRef>(ifd_refs.data(), ifd_refs.size()),
                 std::span<std::byte>(payload.data(), payload.size()),
                 std::span<uint32_t>(payload_parts.data(), payload_parts.size()),
-                exif_options, payload_options);
+                decode_options);
 
             if (read.scan.status == ScanStatus::OutputTruncated
                 && read.scan.needed > blocks.size()) {
@@ -1682,7 +1776,9 @@ main(int argc, char** argv)
                     continue;
                 }
 
-                const XmpDecodeResult one = decode_xmp_packet(xmp_bytes, store);
+                const XmpDecodeResult one
+                    = decode_xmp_packet(xmp_bytes, store, EntryFlags::None,
+                                        decode_options.xmp);
                 merge_xmp_status(&read.xmp.status, one.status);
                 read.xmp.entries_decoded += one.entries_decoded;
                 std::printf("xmp_sidecar=%s status=%s entries=%u\n", sp,

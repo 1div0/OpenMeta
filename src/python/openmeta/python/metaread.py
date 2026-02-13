@@ -210,8 +210,8 @@ def main(argv: list[str]) -> int:
     ap.add_argument(
         "--max-file-bytes",
         type=int,
-        default=512 * 1024 * 1024,
-        help="refuse to read files larger than N bytes (0=unlimited)",
+        default=0,
+        help="optional file mapping cap in bytes (0=unlimited)",
     )
     args = ap.parse_args(argv)
 

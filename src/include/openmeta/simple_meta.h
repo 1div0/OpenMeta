@@ -4,7 +4,10 @@
 #include "openmeta/container_scan.h"
 #include "openmeta/exif_tiff_decode.h"
 #include "openmeta/exr_decode.h"
+#include "openmeta/icc_decode.h"
+#include "openmeta/iptc_iim_decode.h"
 #include "openmeta/meta_store.h"
+#include "openmeta/photoshop_irb_decode.h"
 #include "openmeta/xmp_decode.h"
 
 #include <cstddef>
@@ -23,6 +26,17 @@ struct SimpleMetaResult final {
     ExrDecodeResult exr;
     ExifDecodeResult exif;
     XmpDecodeResult xmp;
+};
+
+/// Full decoder option set for \ref simple_meta_read.
+struct SimpleMetaDecodeOptions final {
+    ExifDecodeOptions exif;
+    PayloadOptions payload;
+    XmpDecodeOptions xmp;
+    ExrDecodeOptions exr;
+    IccDecodeOptions icc;
+    IptcIimDecodeOptions iptc;
+    PhotoshopIrbDecodeOptions photoshop_irb;
 };
 
 /**
@@ -48,8 +62,17 @@ struct SimpleMetaResult final {
  * \param out_ifds Scratch buffer for decoded IFD references.
  * \param payload Scratch buffer for reassembled EXIF payload bytes.
  * \param payload_scratch_indices Scratch buffer for payload part indices.
- * \param exif_options EXIF/TIFF decode options and limits.
- * \param payload_options Payload extraction options and limits.
+ * \param options Full decode option set (EXIF/payload/XMP/EXR/ICC/IPTC/IRB).
+ */
+SimpleMetaResult
+simple_meta_read(std::span<const std::byte> file_bytes, MetaStore& store,
+                 std::span<ContainerBlockRef> out_blocks,
+                 std::span<ExifIfdRef> out_ifds, std::span<std::byte> payload,
+                 std::span<uint32_t> payload_scratch_indices,
+                 const SimpleMetaDecodeOptions& options) noexcept;
+
+/**
+ * \brief Backward-compatible overload using EXIF and payload options only.
  */
 SimpleMetaResult
 simple_meta_read(std::span<const std::byte> file_bytes, MetaStore& store,

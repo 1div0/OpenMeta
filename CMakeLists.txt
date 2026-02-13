@@ -197,6 +197,7 @@ set(OPENMETA_SOURCES
   src/openmeta/ocio_adapter.cc
   src/openmeta/oiio_adapter.cc
   src/openmeta/photoshop_irb_decode.cc
+  src/openmeta/preview_extract.cc
   src/openmeta/printim_decode.cc
   src/openmeta/simple_meta.cc
   src/openmeta/xmp_decode.cc
@@ -256,6 +257,10 @@ if(OPENMETA_BUILD_TOOLS)
   add_executable(metadump src/tools/metadump.cc)
   openmeta_apply_target_settings(metadump)
   target_link_libraries(metadump PRIVATE ${OPENMETA_LIB_TARGET})
+
+  add_executable(thumdump src/tools/thumdump.cc)
+  openmeta_apply_target_settings(thumdump)
+  target_link_libraries(thumdump PRIVATE ${OPENMETA_LIB_TARGET})
 endif()
 
 if(OPENMETA_BUILD_PYTHON)
@@ -417,6 +422,7 @@ if(OPENMETA_BUILD_TESTS)
     tests/ocio_adapter_test.cc
     tests/oiio_adapter_test.cc
     tests/photoshop_irb_decode_test.cc
+    tests/preview_extract_test.cc
     tests/printim_decode_test.cc
     tests/simple_meta_xmp_test.cc
     tests/xmp_decode_test.cc
@@ -600,6 +606,9 @@ if(TARGET metaread)
 endif()
 if(TARGET metadump)
   install(TARGETS metadump RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
+endif()
+if(TARGET thumdump)
+  install(TARGETS thumdump RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
 endif()
 
 if(OPENMETA_BUILD_DOCS OR OPENMETA_BUILD_SPHINX_DOCS)

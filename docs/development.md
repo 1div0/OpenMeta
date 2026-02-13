@@ -38,6 +38,59 @@ using Clang), configure OpenMeta with:
 - CMake reads `VERSION` and sets `PROJECT_VERSION`.
 - The Python wheel version is derived from `VERSION` (via scikit-build-core metadata).
 
+## CLI Tools
+
+`metadump` is the general dump/save tool:
+
+```bash
+# Lossless sidecar
+./build/metadump --format lossless input.jpg output.xmp
+
+# Portable sidecar
+./build/metadump --format portable --portable-include-existing-xmp input.jpg output.xmp
+
+# Explicit input/output form
+./build/metadump -i input.jpg -o output.xmp
+
+# Extract first embedded preview
+./build/metadump --extract-preview --first-only input.jpg preview.jpg
+
+# If multiple previews exist, --out gets auto-suffixed:
+# preview_1.jpg, preview_2.jpg, ...
+./build/metadump --extract-preview input.arq preview.jpg
+```
+
+`thumdump` is preview-only and optimized for batch preview extraction:
+
+```bash
+# Positional input/output
+./build/thumdump input.jpg preview.jpg
+
+# Explicit input/output
+./build/thumdump -i input.jpg -o preview.jpg
+
+# Batch mode
+./build/thumdump --out-dir previews --first-only input1.jpg input2.cr2
+
+# If multiple previews exist, --out gets auto-suffixed:
+# preview_1.jpg, preview_2.jpg, ...
+./build/thumdump input.arq preview.jpg
+```
+
+### Resource Budgets (Draft)
+
+OpenMeta tools now default to **no hard file-size cap** (`--max-file-bytes 0`).
+Resource control is expected to come from parser/decode budgets:
+
+- `metaread` / `metadump`:
+  - `--max-payload-bytes`, `--max-payload-parts`
+  - `--max-exif-ifds`, `--max-exif-entries`, `--max-exif-total`
+  - `--max-exif-value-bytes`, `--max-xmp-input-bytes`
+- `metadump` / `thumdump` preview scan:
+  - `--max-preview-ifds`, `--max-preview-total`, `--max-preview-bytes`
+
+This policy surface is intentionally marked draft and may be refined.
+
 ## Code Organization (EXIF + MakerNotes)
 
 - Core EXIF/TIFF decoding: `src/openmeta/exif_tiff_decode.cc`
@@ -151,6 +204,21 @@ Notes:
 - `openmeta.read(...)` releases the Python GIL while doing file I/O and decode,
   so it can be called from multiple Python threads in parallel (useful for corpus
   comparisons).
+- Python bindings are thin wrappers over C++ decode logic. Resource/safety
+  limits should be configured via `openmeta.ResourcePolicy` and passed to
+  `openmeta.read(...)`.
+
+Example policy usage:
+```bash
+PYTHONPATH=build-py/python python3 - <<'PY'
+import openmeta
+policy = openmeta.ResourcePolicy()
+policy.max_file_bytes = 0
+policy.exif_limits.max_total_entries = 200000
+doc = openmeta.read("file.jpg", policy=policy)
+print(doc.entry_count)
+PY
+```
 
 Example scripts (repo tree):
 ```bash

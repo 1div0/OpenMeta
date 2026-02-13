@@ -28,7 +28,7 @@ def main(argv: list[str]) -> int:
     ap.add_argument("files", nargs="+")
     ap.add_argument("--no-build-info", action="store_true", help="hide OpenMeta build info header")
     ap.add_argument("--xmp-sidecar", action="store_true", help="also read sidecar XMP (<file>.xmp, <basename>.xmp)")
-    ap.add_argument("--max-file-bytes", type=int, default=512 * 1024 * 1024)
+    ap.add_argument("--max-file-bytes", type=int, default=0)
     args = ap.parse_args(argv)
 
     if not args.no_build_info:

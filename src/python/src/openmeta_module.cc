@@ -7,6 +7,7 @@
 #include "openmeta/mapped_file.h"
 #include "openmeta/ocio_adapter.h"
 #include "openmeta/oiio_adapter.h"
+#include "openmeta/resource_policy.h"
 #include "openmeta/simple_meta.h"
 #include "openmeta/xmp_dump.h"
 
@@ -670,10 +671,30 @@ struct PyEntry final {
 static std::shared_ptr<PyDocument>
 read_document(const std::string& path, bool include_pointer_tags,
               bool decode_makernote, bool decompress, bool include_xmp_sidecar,
-              uint64_t max_file_bytes)
+              uint64_t max_file_bytes,
+              const OpenMetaResourcePolicy* policy_ptr)
 {
     auto doc  = std::make_shared<PyDocument>();
     doc->path = path;
+
+    OpenMetaResourcePolicy policy;
+    policy.max_file_bytes = max_file_bytes;
+    if (policy_ptr) {
+        policy = *policy_ptr;
+        if (max_file_bytes != 0U) {
+            policy.max_file_bytes = max_file_bytes;
+        }
+    }
+
+    SimpleMetaDecodeOptions decode_options;
+    apply_resource_policy(policy, &decode_options.exif, &decode_options.payload);
+    apply_resource_policy(policy, &decode_options.xmp, &decode_options.exr,
+                          &decode_options.icc, &decode_options.iptc,
+                          &decode_options.photoshop_irb);
+    decode_options.exif.include_pointer_tags       = include_pointer_tags;
+    decode_options.exif.decode_makernote           = decode_makernote;
+    decode_options.exif.decode_embedded_containers = true;
+    decode_options.payload.decompress              = decompress;
 
     // Release the GIL while performing file I/O and metadata decoding so callers
     // (and internal comparison tools) can read in parallel from multiple Python
@@ -681,7 +702,8 @@ read_document(const std::string& path, bool include_pointer_tags,
     // Python C API.
     nb::gil_scoped_release gil_release;
 
-    const MappedFileStatus st = doc->file.open(path.c_str(), max_file_bytes);
+    const MappedFileStatus st
+        = doc->file.open(path.c_str(), policy.max_file_bytes);
     if (st != MappedFileStatus::Ok) {
         if (st == MappedFileStatus::TooLarge) {
             throw std::runtime_error("file too large");
@@ -700,14 +722,6 @@ read_document(const std::string& path, bool include_pointer_tags,
     doc->ifds.resize(256);
     doc->payload.resize(1024 * 1024);
     doc->payload_parts.resize(16384);
-
-    ExifDecodeOptions exif_options;
-    exif_options.include_pointer_tags       = include_pointer_tags;
-    exif_options.decode_makernote           = decode_makernote;
-    exif_options.decode_embedded_containers = true;
-
-    PayloadOptions payload_options;
-    payload_options.decompress = decompress;
 
     auto merge_xmp_status = [](XmpDecodeStatus* out,
                                XmpDecodeStatus in) noexcept {
@@ -753,7 +767,7 @@ read_document(const std::string& path, bool include_pointer_tags,
             std::span<std::byte>(doc->payload.data(), doc->payload.size()),
             std::span<uint32_t>(doc->payload_parts.data(),
                                 doc->payload_parts.size()),
-            exif_options, payload_options);
+            decode_options);
 
         if (doc->result.scan.status == ScanStatus::OutputTruncated
             && doc->result.scan.needed > doc->blocks.size()) {
@@ -808,9 +822,9 @@ read_document(const std::string& path, bool include_pointer_tags,
                 continue;
             }
             const std::vector<std::byte> xmp_bytes
-                = read_file_bytes(sp.c_str(), max_file_bytes);
-            const XmpDecodeResult one = decode_xmp_packet(xmp_bytes,
-                                                          doc->store);
+                = read_file_bytes(sp.c_str(), policy.max_file_bytes);
+            const XmpDecodeResult one = decode_xmp_packet(
+                xmp_bytes, doc->store, EntryFlags::None, decode_options.xmp);
             merge_xmp_status(&doc->result.xmp.status, one.status);
             doc->result.xmp.entries_decoded += one.entries_decoded;
         }
@@ -984,6 +998,93 @@ NB_MODULE(_openmeta, m)
     nb::enum_<XmpSidecarFormat>(m, "XmpSidecarFormat")
         .value("Lossless", XmpSidecarFormat::Lossless)
         .value("Portable", XmpSidecarFormat::Portable);
+
+    nb::class_<PayloadLimits>(m, "PayloadLimits")
+        .def(nb::init<>())
+        .def_rw("max_parts", &PayloadLimits::max_parts)
+        .def_rw("max_output_bytes", &PayloadLimits::max_output_bytes);
+
+    nb::class_<ExifDecodeLimits>(m, "ExifDecodeLimits")
+        .def(nb::init<>())
+        .def_rw("max_ifds", &ExifDecodeLimits::max_ifds)
+        .def_rw("max_entries_per_ifd", &ExifDecodeLimits::max_entries_per_ifd)
+        .def_rw("max_total_entries", &ExifDecodeLimits::max_total_entries)
+        .def_rw("max_value_bytes", &ExifDecodeLimits::max_value_bytes);
+
+    nb::class_<XmpDecodeLimits>(m, "XmpDecodeLimits")
+        .def(nb::init<>())
+        .def_rw("max_depth", &XmpDecodeLimits::max_depth)
+        .def_rw("max_properties", &XmpDecodeLimits::max_properties)
+        .def_rw("max_input_bytes", &XmpDecodeLimits::max_input_bytes)
+        .def_rw("max_path_bytes", &XmpDecodeLimits::max_path_bytes)
+        .def_rw("max_value_bytes", &XmpDecodeLimits::max_value_bytes)
+        .def_rw("max_total_value_bytes",
+                &XmpDecodeLimits::max_total_value_bytes);
+
+    nb::class_<ExrDecodeLimits>(m, "ExrDecodeLimits")
+        .def(nb::init<>())
+        .def_rw("max_parts", &ExrDecodeLimits::max_parts)
+        .def_rw("max_attributes_per_part",
+                &ExrDecodeLimits::max_attributes_per_part)
+        .def_rw("max_attributes", &ExrDecodeLimits::max_attributes)
+        .def_rw("max_name_bytes", &ExrDecodeLimits::max_name_bytes)
+        .def_rw("max_type_name_bytes", &ExrDecodeLimits::max_type_name_bytes)
+        .def_rw("max_attribute_bytes", &ExrDecodeLimits::max_attribute_bytes)
+        .def_rw("max_total_attribute_bytes",
+                &ExrDecodeLimits::max_total_attribute_bytes);
+
+    nb::class_<IccDecodeLimits>(m, "IccDecodeLimits")
+        .def(nb::init<>())
+        .def_rw("max_tags", &IccDecodeLimits::max_tags)
+        .def_rw("max_tag_bytes", &IccDecodeLimits::max_tag_bytes)
+        .def_rw("max_total_tag_bytes", &IccDecodeLimits::max_total_tag_bytes);
+
+    nb::class_<IptcIimDecodeLimits>(m, "IptcIimDecodeLimits")
+        .def(nb::init<>())
+        .def_rw("max_datasets", &IptcIimDecodeLimits::max_datasets)
+        .def_rw("max_dataset_bytes", &IptcIimDecodeLimits::max_dataset_bytes)
+        .def_rw("max_total_bytes", &IptcIimDecodeLimits::max_total_bytes);
+
+    nb::class_<PhotoshopIrbDecodeLimits>(m, "PhotoshopIrbDecodeLimits")
+        .def(nb::init<>())
+        .def_rw("max_resources", &PhotoshopIrbDecodeLimits::max_resources)
+        .def_rw("max_total_bytes", &PhotoshopIrbDecodeLimits::max_total_bytes)
+        .def_rw("max_resource_len",
+                &PhotoshopIrbDecodeLimits::max_resource_len);
+
+    nb::class_<PreviewScanLimits>(m, "PreviewScanLimits")
+        .def(nb::init<>())
+        .def_rw("max_ifds", &PreviewScanLimits::max_ifds)
+        .def_rw("max_total_entries", &PreviewScanLimits::max_total_entries)
+        .def_rw("max_preview_bytes", &PreviewScanLimits::max_preview_bytes);
+
+    nb::class_<XmpDumpLimits>(m, "XmpDumpLimits")
+        .def(nb::init<>())
+        .def_rw("max_output_bytes", &XmpDumpLimits::max_output_bytes)
+        .def_rw("max_entries", &XmpDumpLimits::max_entries);
+
+    nb::class_<OpenMetaResourcePolicy>(m, "ResourcePolicy")
+        .def(nb::init<>())
+        .def_rw("max_file_bytes", &OpenMetaResourcePolicy::max_file_bytes)
+        .def_rw("payload_limits", &OpenMetaResourcePolicy::payload_limits)
+        .def_rw("exif_limits", &OpenMetaResourcePolicy::exif_limits)
+        .def_rw("xmp_limits", &OpenMetaResourcePolicy::xmp_limits)
+        .def_rw("exr_limits", &OpenMetaResourcePolicy::exr_limits)
+        .def_rw("icc_limits", &OpenMetaResourcePolicy::icc_limits)
+        .def_rw("iptc_limits", &OpenMetaResourcePolicy::iptc_limits)
+        .def_rw("photoshop_irb_limits",
+                &OpenMetaResourcePolicy::photoshop_irb_limits)
+        .def_rw("preview_scan_limits",
+                &OpenMetaResourcePolicy::preview_scan_limits)
+        .def_rw("max_preview_output_bytes",
+                &OpenMetaResourcePolicy::max_preview_output_bytes)
+        .def_rw("xmp_dump_limits", &OpenMetaResourcePolicy::xmp_dump_limits)
+        .def_rw("max_decode_millis",
+                &OpenMetaResourcePolicy::max_decode_millis)
+        .def_rw("max_decompression_ratio",
+                &OpenMetaResourcePolicy::max_decompression_ratio)
+        .def_rw("max_total_decode_work_bytes",
+                &OpenMetaResourcePolicy::max_total_decode_work_bytes);
 
     nb::class_<XmpDumpResult>(m, "XmpDumpResult")
         .def_ro("status", &XmpDumpResult::status)
@@ -1568,10 +1669,25 @@ NB_MODULE(_openmeta, m)
             return s;
         });
 
-    m.def("read", &read_document, "path"_a, "include_pointer_tags"_a = true,
-          "decode_makernote"_a = false, "decompress"_a = true,
-          "include_xmp_sidecar"_a = false,
-          "max_file_bytes"_a      = 512ULL * 1024ULL * 1024ULL);
+    m.def(
+        "read",
+        [](const std::string& path, bool include_pointer_tags,
+           bool decode_makernote, bool decompress, bool include_xmp_sidecar,
+           uint64_t max_file_bytes, nb::object policy_obj) {
+            OpenMetaResourcePolicy policy;
+            const OpenMetaResourcePolicy* policy_ptr = nullptr;
+            if (!policy_obj.is_none()) {
+                policy     = nb::cast<OpenMetaResourcePolicy>(policy_obj);
+                policy_ptr = &policy;
+            }
+            return read_document(path, include_pointer_tags, decode_makernote,
+                                 decompress, include_xmp_sidecar,
+                                 max_file_bytes, policy_ptr);
+        },
+        "path"_a, "include_pointer_tags"_a = true,
+        "decode_makernote"_a = false, "decompress"_a = true,
+        "include_xmp_sidecar"_a = false, "max_file_bytes"_a = 0ULL,
+        "policy"_a = nb::none());
 
     m.def("console_text", &console_text, "data"_a, "max_bytes"_a = 4096U);
     m.def("hex_bytes", &hex_bytes, "data"_a, "max_bytes"_a = 4096U);
