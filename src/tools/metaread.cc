@@ -1461,6 +1461,18 @@ namespace {
         std::printf(
             "  --max-exif-value-bytes N max EXIF value bytes per tag\n");
         std::printf("  --max-xmp-input-bytes N  max XMP packet bytes\n");
+        std::printf("\n");
+        std::printf("capability legend:\n");
+        std::printf(
+            "  scan   container/block discovery in file bytes\n");
+        std::printf(
+            "  decode structured metadata decode into MetaStore entries\n");
+        std::printf(
+            "  names  tag/key name mapping for human-readable output\n");
+        std::printf(
+            "  dump   sidecar/preview export support via metadump/thumdump\n");
+        std::printf(
+            "  details: docs/metadata_support.md (draft)\n");
     }
 
 

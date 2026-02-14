@@ -39,7 +39,14 @@ namespace {
             "  --max-preview-total N  Max preview scan total entries\n"
             "  --max-preview-bytes N  Refuse preview candidates larger than N bytes\n"
             "                         (default: 134217728)\n"
-            "  --max-candidates N     Max candidates written per file (default: 32)\n",
+            "  --max-candidates N     Max candidates written per file (default: 32)\n"
+            "\n"
+            "Capability legend:\n"
+            "  scan   container/block discovery in file bytes\n"
+            "  decode structured metadata decode into MetaStore entries\n"
+            "  names  tag/key name mapping for human-readable output\n"
+            "  dump   sidecar/preview export support via metadump/thumdump\n"
+            "  details: docs/metadata_support.md (draft)\n",
             argv0 ? argv0 : "thumdump", argv0 ? argv0 : "thumdump");
     }
 

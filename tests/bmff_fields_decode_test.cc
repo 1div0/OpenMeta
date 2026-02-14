@@ -57,6 +57,23 @@ namespace {
         return key;
     }
 
+    static std::vector<uint32_t>
+    collect_u32_values(const MetaStore& store, std::string_view field)
+    {
+        std::vector<uint32_t> out;
+        const std::span<const EntryId> ids = store.find_all(bmff_key(field));
+        out.reserve(ids.size());
+        for (size_t i = 0; i < ids.size(); ++i) {
+            const Entry& e = store.entry(ids[i]);
+            if (e.value.kind != MetaValueKind::Scalar
+                || e.value.elem_type != MetaElementType::U32) {
+                continue;
+            }
+            out.push_back(static_cast<uint32_t>(e.value.data.u64));
+        }
+        return out;
+    }
+
 }  // namespace
 
 TEST(BmffDerivedFieldsDecode, EmitsFtypAndPrimaryProps)
@@ -175,5 +192,94 @@ TEST(BmffDerivedFieldsDecode, EmitsFtypAndPrimaryProps)
     }
 }
 
-}  // namespace openmeta
+TEST(BmffDerivedFieldsDecode, EmitsIrefEdgesAndPrimaryAuxLinks)
+{
+    // Minimal HEIF-like BMFF:
+    // - ftyp(heic)
+    // - meta(pitm primary item id=1)
+    // - iref with one auxl edge box: from=1 -> [2,3]
 
+    std::vector<std::byte> file;
+
+    {
+        std::vector<std::byte> ftyp_payload;
+        append_fourcc(&ftyp_payload, fourcc('h', 'e', 'i', 'c'));
+        append_u32be(&ftyp_payload, 0);
+        append_fourcc(&ftyp_payload, fourcc('m', 'i', 'f', '1'));
+        append_bmff_box(&file, fourcc('f', 't', 'y', 'p'), ftyp_payload);
+    }
+
+    {
+        std::vector<std::byte> pitm_payload;
+        append_fullbox_header(&pitm_payload, 0);
+        append_u16be(&pitm_payload, 1);
+        std::vector<std::byte> pitm_box;
+        append_bmff_box(&pitm_box, fourcc('p', 'i', 't', 'm'), pitm_payload);
+
+        std::vector<std::byte> auxl_payload;
+        append_u16be(&auxl_payload, 1);  // from item id
+        append_u16be(&auxl_payload, 2);  // ref count
+        append_u16be(&auxl_payload, 2);  // to item id
+        append_u16be(&auxl_payload, 3);  // to item id
+        std::vector<std::byte> auxl_box;
+        append_bmff_box(&auxl_box, fourcc('a', 'u', 'x', 'l'), auxl_payload);
+
+        std::vector<std::byte> iref_payload;
+        append_fullbox_header(&iref_payload, 0);
+        iref_payload.insert(iref_payload.end(), auxl_box.begin(),
+                            auxl_box.end());
+        std::vector<std::byte> iref_box;
+        append_bmff_box(&iref_box, fourcc('i', 'r', 'e', 'f'), iref_payload);
+
+        std::vector<std::byte> meta_payload;
+        append_fullbox_header(&meta_payload, 0);
+        meta_payload.insert(meta_payload.end(), pitm_box.begin(),
+                            pitm_box.end());
+        meta_payload.insert(meta_payload.end(), iref_box.begin(),
+                            iref_box.end());
+        append_bmff_box(&file, fourcc('m', 'e', 't', 'a'), meta_payload);
+    }
+
+    MetaStore store;
+    std::array<ContainerBlockRef, 16> blocks {};
+    std::array<ExifIfdRef, 8> ifds {};
+    std::array<std::byte, 1024> payload {};
+    std::array<uint32_t, 32> payload_scratch {};
+    ExifDecodeOptions exif_opts;
+    PayloadOptions payload_opts;
+
+    (void)simple_meta_read(file, store, blocks, ifds, payload, payload_scratch,
+                           exif_opts, payload_opts);
+    store.finalize();
+
+    const std::vector<uint32_t> edge_count
+        = collect_u32_values(store, "iref.edge_count");
+    ASSERT_EQ(edge_count.size(), 1U);
+    EXPECT_EQ(edge_count[0], 2U);
+
+    const std::vector<uint32_t> ref_type
+        = collect_u32_values(store, "iref.ref_type");
+    ASSERT_EQ(ref_type.size(), 2U);
+    EXPECT_EQ(ref_type[0], fourcc('a', 'u', 'x', 'l'));
+    EXPECT_EQ(ref_type[1], fourcc('a', 'u', 'x', 'l'));
+
+    const std::vector<uint32_t> from_ids
+        = collect_u32_values(store, "iref.from_item_id");
+    ASSERT_EQ(from_ids.size(), 2U);
+    EXPECT_EQ(from_ids[0], 1U);
+    EXPECT_EQ(from_ids[1], 1U);
+
+    const std::vector<uint32_t> to_ids
+        = collect_u32_values(store, "iref.to_item_id");
+    ASSERT_EQ(to_ids.size(), 2U);
+    EXPECT_EQ(to_ids[0], 2U);
+    EXPECT_EQ(to_ids[1], 3U);
+
+    const std::vector<uint32_t> primary_auxl
+        = collect_u32_values(store, "primary.auxl_item_id");
+    ASSERT_EQ(primary_auxl.size(), 2U);
+    EXPECT_EQ(primary_auxl[0], 2U);
+    EXPECT_EQ(primary_auxl[1], 3U);
+}
+
+}  // namespace openmeta

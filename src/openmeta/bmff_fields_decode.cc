@@ -313,6 +313,12 @@ namespace {
         uint8_t value = 0;
     };
 
+    struct ItemRefEdge final {
+        uint32_t ref_type     = 0;
+        uint32_t from_item_id = 0;
+        uint32_t to_item_id   = 0;
+    };
+
 
     struct PrimaryProps final {
         bool have_item_id = false;
@@ -327,7 +333,79 @@ namespace {
 
         bool have_mirror = false;
         uint8_t mirror   = 0;
+
+        std::array<ItemRefEdge, 512> iref_edges {};
+        uint32_t iref_edge_count = 0;
+        uint32_t iref_edge_total = 0;
+        bool iref_truncated      = false;
+
+        std::array<uint32_t, 128> primary_auxl_item_ids {};
+        uint32_t primary_auxl_count = 0;
+        std::array<uint32_t, 128> primary_dimg_item_ids {};
+        uint32_t primary_dimg_count = 0;
+        std::array<uint32_t, 128> primary_thmb_item_ids {};
+        uint32_t primary_thmb_count = 0;
+        std::array<uint32_t, 128> primary_cdsc_item_ids {};
+        uint32_t primary_cdsc_count = 0;
     };
+
+    static void push_primary_rel(std::span<uint32_t> out, uint32_t* io_count,
+                                 uint32_t value) noexcept
+    {
+        if (!io_count) {
+            return;
+        }
+        if (*io_count < out.size()) {
+            out[*io_count] = value;
+            *io_count += 1;
+        }
+    }
+
+    static void add_primary_item_ref(PrimaryProps* out, uint32_t ref_type,
+                                     uint32_t to_item_id) noexcept
+    {
+        if (!out) {
+            return;
+        }
+        if (ref_type == fourcc('a', 'u', 'x', 'l')) {
+            push_primary_rel(out->primary_auxl_item_ids,
+                             &out->primary_auxl_count, to_item_id);
+        } else if (ref_type == fourcc('d', 'i', 'm', 'g')) {
+            push_primary_rel(out->primary_dimg_item_ids,
+                             &out->primary_dimg_count, to_item_id);
+        } else if (ref_type == fourcc('t', 'h', 'm', 'b')) {
+            push_primary_rel(out->primary_thmb_item_ids,
+                             &out->primary_thmb_count, to_item_id);
+        } else if (ref_type == fourcc('c', 'd', 's', 'c')) {
+            push_primary_rel(out->primary_cdsc_item_ids,
+                             &out->primary_cdsc_count, to_item_id);
+        }
+    }
+
+    static bool append_iref_edge(PrimaryProps* out, uint32_t ref_type,
+                                 uint32_t from_item_id,
+                                 uint32_t to_item_id) noexcept
+    {
+        if (!out) {
+            return false;
+        }
+        if (out->iref_edge_total == UINT32_MAX) {
+            return false;
+        }
+        out->iref_edge_total += 1;
+        if (out->iref_edge_count < out->iref_edges.size()) {
+            out->iref_edges[out->iref_edge_count]
+                = ItemRefEdge { ref_type, from_item_id, to_item_id };
+            out->iref_edge_count += 1;
+        } else {
+            out->iref_truncated = true;
+        }
+
+        if (out->have_item_id && from_item_id == out->item_id) {
+            add_primary_item_ref(out, ref_type, to_item_id);
+        }
+        return true;
+    }
 
 
     static bool bmff_parse_pitm(std::span<const std::byte> bytes,
@@ -604,6 +682,106 @@ namespace {
         }
     }
 
+    static bool bmff_collect_iref_edges(std::span<const std::byte> bytes,
+                                        const BmffBox& iref,
+                                        PrimaryProps* out) noexcept
+    {
+        if (!out) {
+            return false;
+        }
+
+        const uint64_t payload_off = iref.offset + iref.header_size;
+        const uint64_t payload_end = iref.offset + iref.size;
+        if (payload_off + 4 > payload_end) {
+            return false;
+        }
+
+        const uint8_t version = u8(bytes[payload_off + 0]);
+        if (version > 1) {
+            return false;
+        }
+
+        uint64_t off             = payload_off + 4;  // skip FullBox header
+        const uint32_t kMaxBoxes = 1U << 16;
+        uint32_t seen            = 0;
+        const uint32_t kMaxRefsPerBox = 1U << 14;
+        const uint32_t kMaxTotalRefs  = 1U << 18;
+        while (off + 8 <= payload_end) {
+            seen += 1;
+            if (seen > kMaxBoxes) {
+                return false;
+            }
+
+            BmffBox child;
+            if (!parse_bmff_box(bytes, off, payload_end, &child)) {
+                break;
+            }
+
+            const uint64_t child_payload_off = child.offset + child.header_size;
+            const uint64_t child_payload_end = child.offset + child.size;
+            if (child_payload_off > child_payload_end
+                || child_payload_end > bytes.size()) {
+                return false;
+            }
+
+            uint64_t p = child_payload_off;
+            uint32_t from_item_id = 0;
+            if (version == 0) {
+                uint16_t from16 = 0;
+                if (!read_u16be(bytes, p, &from16)) {
+                    return false;
+                }
+                from_item_id = static_cast<uint32_t>(from16);
+                p += 2;
+            } else {
+                if (!read_u32be(bytes, p, &from_item_id)) {
+                    return false;
+                }
+                p += 4;
+            }
+
+            uint16_t ref_count = 0;
+            if (!read_u16be(bytes, p, &ref_count)) {
+                return false;
+            }
+            p += 2;
+            if (ref_count > kMaxRefsPerBox) {
+                return false;
+            }
+
+            for (uint32_t i = 0; i < ref_count; ++i) {
+                uint32_t to_item_id = 0;
+                if (version == 0) {
+                    uint16_t to16 = 0;
+                    if (!read_u16be(bytes, p, &to16)) {
+                        return false;
+                    }
+                    to_item_id = static_cast<uint32_t>(to16);
+                    p += 2;
+                } else {
+                    if (!read_u32be(bytes, p, &to_item_id)) {
+                        return false;
+                    }
+                    p += 4;
+                }
+
+                if (!append_iref_edge(out, child.type, from_item_id,
+                                      to_item_id)) {
+                    return false;
+                }
+                if (out->iref_edge_total > kMaxTotalRefs) {
+                    return false;
+                }
+            }
+
+            off += child.size;
+            if (child.size == 0) {
+                break;
+            }
+        }
+        return true;
+    }
+
 
     static bool bmff_decode_meta_primary(std::span<const std::byte> bytes,
                                          const BmffBox& meta,
@@ -622,8 +800,10 @@ namespace {
 
         BmffBox pitm {};
         BmffBox iprp {};
+        BmffBox iref {};
         bool has_pitm = false;
         bool has_iprp = false;
+        bool has_iref = false;
 
         uint64_t child_off       = payload_off + 4;  // FullBox header.
         const uint64_t child_end = meta.offset + meta.size;
@@ -646,6 +826,9 @@ namespace {
             } else if (child.type == fourcc('i', 'p', 'r', 'p')) {
                 iprp     = child;
                 has_iprp = true;
+            } else if (child.type == fourcc('i', 'r', 'e', 'f')) {
+                iref     = child;
+                has_iref = true;
             }
 
             child_off += child.size;
@@ -663,6 +846,12 @@ namespace {
         }
         out->have_item_id = true;
         out->item_id      = primary_id;
+
+        if (has_iref) {
+            if (!bmff_collect_iref_edges(bytes, iref, out)) {
+                return false;
+            }
+        }
 
         if (!has_iprp) {
             return true;
@@ -788,6 +977,51 @@ namespace {
                     if (p.have_mirror) {
                         emit_u8_field(*ctx->store, ctx->block, (*ctx->order)++,
                                       "primary.mirror", p.mirror);
+                    }
+                    if (p.iref_edge_total > 0) {
+                        emit_u32_field(*ctx->store, ctx->block, (*ctx->order)++,
+                                       "iref.edge_count", p.iref_edge_total);
+                        if (p.iref_truncated) {
+                            emit_u8_field(*ctx->store, ctx->block,
+                                          (*ctx->order)++,
+                                          "iref.edge_truncated", 1);
+                        }
+                        for (uint32_t i = 0; i < p.iref_edge_count; ++i) {
+                            emit_u32_field(*ctx->store, ctx->block,
+                                           (*ctx->order)++, "iref.ref_type",
+                                           p.iref_edges[i].ref_type);
+                            emit_u32_field(*ctx->store, ctx->block,
+                                           (*ctx->order)++,
+                                           "iref.from_item_id",
+                                           p.iref_edges[i].from_item_id);
+                            emit_u32_field(*ctx->store, ctx->block,
+                                           (*ctx->order)++, "iref.to_item_id",
+                                           p.iref_edges[i].to_item_id);
+                        }
+                        for (uint32_t i = 0; i < p.primary_auxl_count; ++i) {
+                            emit_u32_field(*ctx->store, ctx->block,
+                                           (*ctx->order)++,
+                                           "primary.auxl_item_id",
+                                           p.primary_auxl_item_ids[i]);
+                        }
+                        for (uint32_t i = 0; i < p.primary_dimg_count; ++i) {
+                            emit_u32_field(*ctx->store, ctx->block,
+                                           (*ctx->order)++,
+                                           "primary.dimg_item_id",
+                                           p.primary_dimg_item_ids[i]);
+                        }
+                        for (uint32_t i = 0; i < p.primary_thmb_count; ++i) {
+                            emit_u32_field(*ctx->store, ctx->block,
+                                           (*ctx->order)++,
+                                           "primary.thmb_item_id",
+                                           p.primary_thmb_item_ids[i]);
+                        }
+                        for (uint32_t i = 0; i < p.primary_cdsc_count; ++i) {
+                            emit_u32_field(*ctx->store, ctx->block,
+                                           (*ctx->order)++,
+                                           "primary.cdsc_item_id",
+                                           p.primary_cdsc_item_ids[i]);
+                        }
                     }
                     ctx->meta_done = true;
                     return;
