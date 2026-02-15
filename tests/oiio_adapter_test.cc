@@ -276,4 +276,68 @@ TEST(OiioAdapter, SafeExportSucceedsWithoutBytesValues)
     EXPECT_EQ(owner_attr->value.text_encoding, TextEncoding::Utf8);
 }
 
+TEST(OiioAdapter, ExportsBmffAuxSemanticInSafeMode)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+
+    Entry semantic;
+    semantic.key = make_bmff_field_key(store.arena(),
+                                       "primary.auxl_semantic");
+    semantic.value        = make_text(store.arena(), "depth",
+                                      TextEncoding::Ascii);
+    semantic.origin.block = block;
+    semantic.origin.order_in_block = 0;
+    (void)store.add_entry(semantic);
+
+    Entry depth_id;
+    depth_id.key = make_bmff_field_key(store.arena(),
+                                       "primary.depth_item_id");
+    depth_id.value        = make_u32(2U);
+    depth_id.origin.block = block;
+    depth_id.origin.order_in_block = 1;
+    (void)store.add_entry(depth_id);
+
+    store.finalize();
+
+    OiioAdapterRequest request;
+    request.max_value_bytes = 256U;
+
+    InteropSafetyError safe_error;
+    std::vector<OiioAttribute> safe_attrs;
+    const InteropSafetyStatus safe_status
+        = collect_oiio_attributes_safe(store, &safe_attrs, request,
+                                       &safe_error);
+    ASSERT_EQ(safe_status, InteropSafetyStatus::Ok);
+
+    const OiioAttribute* semantic_attr
+        = find_attr(safe_attrs, "bmff:primary.auxl_semantic");
+    ASSERT_NE(semantic_attr, nullptr);
+    EXPECT_EQ(semantic_attr->value, "depth");
+
+    const OiioAttribute* depth_attr
+        = find_attr(safe_attrs, "bmff:primary.depth_item_id");
+    ASSERT_NE(depth_attr, nullptr);
+    EXPECT_EQ(depth_attr->value, "2");
+
+    std::vector<OiioTypedAttribute> safe_typed_attrs;
+    const InteropSafetyStatus safe_typed_status
+        = collect_oiio_attributes_typed_safe(store, &safe_typed_attrs, request,
+                                             &safe_error);
+    ASSERT_EQ(safe_typed_status, InteropSafetyStatus::Ok);
+
+    const OiioTypedAttribute* semantic_typed
+        = find_typed_attr(safe_typed_attrs, "bmff:primary.auxl_semantic");
+    ASSERT_NE(semantic_typed, nullptr);
+    EXPECT_EQ(semantic_typed->value.kind, MetaValueKind::Text);
+    EXPECT_EQ(semantic_typed->value.text_encoding, TextEncoding::Utf8);
+
+    const OiioTypedAttribute* depth_typed
+        = find_typed_attr(safe_typed_attrs, "bmff:primary.depth_item_id");
+    ASSERT_NE(depth_typed, nullptr);
+    EXPECT_EQ(depth_typed->value.kind, MetaValueKind::Scalar);
+    EXPECT_EQ(depth_typed->value.elem_type, MetaElementType::U32);
+    EXPECT_EQ(static_cast<uint32_t>(depth_typed->value.data.u64), 2U);
+}
+
 }  // namespace openmeta

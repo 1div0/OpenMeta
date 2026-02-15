@@ -98,7 +98,7 @@ This policy surface is intentionally marked draft and may be refined.
 - Core EXIF/TIFF decoding: `src/openmeta/exif_tiff_decode.cc`
 - ISO-BMFF (HEIF/AVIF/CR3) container-derived fields: `src/openmeta/bmff_fields_decode.cc`
   - Emitted during `simple_meta_read(...)` as `MetaKeyKind::BmffField` entries.
-  - Current fields: `ftyp.*`, primary item properties (`pitm`, `iprp/ipco ispe/irot/imir`, `ipma`), and draft `iref.*` relation fields (`ref_type`, `from_item_id`, `to_item_id`, `edge_count`) with convenience links such as `primary.auxl_item_id`.
+  - Current fields: `ftyp.*`, primary item properties (`pitm`, `iprp/ipco ispe/irot/imir`, `ipma`), draft `iref.*` relation fields (`ref_type`, `from_item_id`, `to_item_id`, `edge_count`), `iref.auxl.*` derived relation rows, and `auxC`-based aux semantics (`aux.item_id`, `aux.semantic`, `aux.type`, `aux.subtype_hex`, `aux.subtype_kind`, `aux.subtype_u32`, `primary.auxl_semantic`, `primary.depth_item_id`, `primary.alpha_item_id`, ...).
   - Parsing is intentionally bounded (depth/box count caps) and ignores unknown properties.
 - GeoTIFF GeoKey decoding (derived keys): `src/openmeta/geotiff_decode.cc`
 - Vendor MakerNote decoders: `src/openmeta/exif_makernote_*.cc`

@@ -25,7 +25,7 @@ Status labels used below:
 | RAF / X3F | Embedded TIFF located heuristically | Same as TIFF decode after embed detection | Reported as `ContainerFormat::Unknown` with TIFF decode path. |
 | JP2 | UUID/direct metadata boxes (EXIF/XMP/IPTC/ICC/GeoTIFF) | EXIF, XMP, IPTC, ICC, GeoTIFF | GeoJP2 TIFF payload is decoded via EXIF/TIFF path. |
 | JXL | `Exif`, `xml `, `brob` compressed metadata | EXIF, XMP, partial compressed metadata decode | `brob` decode currently handles wrapped EXIF path. |
-| HEIF / AVIF / CR3 (BMFF) | `meta` item graph (`iinf`/`iloc`), ICC from `iprp/ipco colr`, CR3 Canon UUID metadata | EXIF, XMP, ICC, CR3 maker blocks; BMFF derived fields (`ftyp`, primary item props, draft `iref` edge fields) | Draft `iref` relation emission is available (`iref.*`, `primary.auxl_item_id`, etc.); full auxiliary semantics are still partial. |
+| HEIF / AVIF / CR3 (BMFF) | `meta` item graph (`iinf`/`iloc`), ICC from `iprp/ipco colr`, CR3 Canon UUID metadata | EXIF, XMP, ICC, CR3 maker blocks; BMFF derived fields (`ftyp`, primary item props, draft `iref` edge fields, `iref.auxl.*` rows, `auxC`-typed aux fields) | Draft `iref` relation emission is available (`iref.*`) and aux semantics are typed via `auxC` (`aux.item_id`, `aux.semantic`, `aux.type`, `aux.subtype_hex`, `aux.subtype_kind`, `aux.subtype_u32`, `primary.auxl_semantic`, `primary.depth_item_id`, ...); full graph semantics are still partial. |
 | EXR | n/a via `scan_auto` (decoded directly by EXR header decoder) | EXR header attributes (typed known attrs + raw fallback) | Header metadata only; no pixel decode. |
 
 ## Metadata Key-Space Coverage
@@ -41,7 +41,7 @@ Status labels used below:
 | MPF | Yes | EXIF-like tag mapping | Yes |
 | GeoTIFF key (`GeotiffKey`) | Yes | Yes (generated key-name table) | Yes |
 | EXR attribute (`ExrAttribute`) | Yes (header attrs) | Attribute names are native in file | Yes (lossless + OIIO/OCIO adapters) |
-| BMFF derived (`BmffField`) | Partial (primary item/ftyp + draft relation fields) | Field names are explicit (`ftyp.*`, `primary.*`, `meta.*`, draft `iref.*`) | Yes |
+| BMFF derived (`BmffField`) | Partial (primary item/ftyp + draft relation fields + `auxC` typing) | Field names are explicit (`ftyp.*`, `primary.*`, `meta.*`, draft `iref.*`, `aux.*`) | Yes |
 | JUMBF / C2PA keys (`JumbfField`, `JumbfCborKey`) | No current decode pipeline | n/a | Can be preserved/exported if entries are injected upstream |
 
 ## Tool-Level Behavior
@@ -54,9 +54,9 @@ Status labels used below:
 
 ## Important Current Gaps
 
-- HEIF/AVIF auxiliary semantics are still partial: OpenMeta now emits draft
-  `iref` relation fields, but richer interpretation (`auxC`, typed depth/disparity
-  semantics, full relationship graph views) is not complete.
+- HEIF/AVIF auxiliary semantics are still partial: OpenMeta emits draft
+  `iref` relation fields and primary `auxC`-typed semantics (alpha/depth/disparity/matte),
+  but full relationship graph views and broader auxiliary interpretation are not complete.
 - JXL compressed metadata handling is focused on wrapped EXIF (`brob` + `Exif`).
 - JUMBF/C2PA key-space exists in `MetaKeyKind` but does not yet have a full
   public decode path.

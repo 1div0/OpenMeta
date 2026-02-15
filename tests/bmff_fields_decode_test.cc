@@ -8,6 +8,7 @@
 #include <array>
 #include <cstdint>
 #include <span>
+#include <string>
 #include <vector>
 
 namespace openmeta {
@@ -70,6 +71,25 @@ namespace {
                 continue;
             }
             out.push_back(static_cast<uint32_t>(e.value.data.u64));
+        }
+        return out;
+    }
+
+    static std::vector<std::string>
+    collect_text_values(const MetaStore& store, std::string_view field)
+    {
+        std::vector<std::string> out;
+        const std::span<const EntryId> ids = store.find_all(bmff_key(field));
+        out.reserve(ids.size());
+        for (size_t i = 0; i < ids.size(); ++i) {
+            const Entry& e = store.entry(ids[i]);
+            if (e.value.kind != MetaValueKind::Text) {
+                continue;
+            }
+            const std::span<const std::byte> text
+                = store.arena().span(e.value.data.span);
+            out.emplace_back(reinterpret_cast<const char*>(text.data()),
+                             text.size());
         }
         return out;
     }
@@ -280,6 +300,241 @@ TEST(BmffDerivedFieldsDecode, EmitsIrefEdgesAndPrimaryAuxLinks)
     ASSERT_EQ(primary_auxl.size(), 2U);
     EXPECT_EQ(primary_auxl[0], 2U);
     EXPECT_EQ(primary_auxl[1], 3U);
+}
+
+TEST(BmffDerivedFieldsDecode, EmitsPrimaryAuxSemanticsFromAuxC)
+{
+    // Minimal HEIF-like BMFF:
+    // - primary item id = 1
+    // - iref auxl edges: 1 -> 2,3
+    // - ipco has auxC properties:
+    //   - prop #1: urn:mpeg:hevc:2015:auxid:2 (depth)
+    //   - prop #2: urn:mpeg:hevc:2015:auxid:1 (alpha)
+    // - ipma maps item 2 -> prop #1, item 3 -> prop #2
+
+    std::vector<std::byte> file;
+
+    {
+        std::vector<std::byte> ftyp_payload;
+        append_fourcc(&ftyp_payload, fourcc('h', 'e', 'i', 'c'));
+        append_u32be(&ftyp_payload, 0);
+        append_fourcc(&ftyp_payload, fourcc('m', 'i', 'f', '1'));
+        append_bmff_box(&file, fourcc('f', 't', 'y', 'p'), ftyp_payload);
+    }
+
+    {
+        std::vector<std::byte> pitm_payload;
+        append_fullbox_header(&pitm_payload, 0);
+        append_u16be(&pitm_payload, 1);
+        std::vector<std::byte> pitm_box;
+        append_bmff_box(&pitm_box, fourcc('p', 'i', 't', 'm'), pitm_payload);
+
+        std::vector<std::byte> auxl_payload;
+        append_u16be(&auxl_payload, 1);  // from item id
+        append_u16be(&auxl_payload, 2);  // ref count
+        append_u16be(&auxl_payload, 2);  // to item id
+        append_u16be(&auxl_payload, 3);  // to item id
+        std::vector<std::byte> auxl_box;
+        append_bmff_box(&auxl_box, fourcc('a', 'u', 'x', 'l'), auxl_payload);
+
+        std::vector<std::byte> iref_payload;
+        append_fullbox_header(&iref_payload, 0);
+        iref_payload.insert(iref_payload.end(), auxl_box.begin(),
+                            auxl_box.end());
+        std::vector<std::byte> iref_box;
+        append_bmff_box(&iref_box, fourcc('i', 'r', 'e', 'f'), iref_payload);
+
+        std::vector<std::byte> auxc_depth_payload;
+        append_fullbox_header(&auxc_depth_payload, 0);
+        static constexpr char kDepth[]
+            = "urn:mpeg:hevc:2015:auxid:2";
+        for (size_t i = 0; i < sizeof(kDepth) - 1; ++i) {
+            auxc_depth_payload.push_back(
+                std::byte { static_cast<uint8_t>(kDepth[i]) });
+        }
+        auxc_depth_payload.push_back(std::byte { 0x00 });
+        auxc_depth_payload.push_back(std::byte { 0xAA });
+        auxc_depth_payload.push_back(std::byte { 0xBB });
+        std::vector<std::byte> auxc_depth_box;
+        append_bmff_box(&auxc_depth_box, fourcc('a', 'u', 'x', 'C'),
+                        auxc_depth_payload);
+
+        std::vector<std::byte> auxc_alpha_payload;
+        append_fullbox_header(&auxc_alpha_payload, 0);
+        static constexpr char kAlpha[]
+            = "urn:mpeg:hevc:2015:auxid:1";
+        for (size_t i = 0; i < sizeof(kAlpha) - 1; ++i) {
+            auxc_alpha_payload.push_back(
+                std::byte { static_cast<uint8_t>(kAlpha[i]) });
+        }
+        auxc_alpha_payload.push_back(std::byte { 0x00 });
+        auxc_alpha_payload.push_back(std::byte { 0x11 });
+        std::vector<std::byte> auxc_alpha_box;
+        append_bmff_box(&auxc_alpha_box, fourcc('a', 'u', 'x', 'C'),
+                        auxc_alpha_payload);
+
+        std::vector<std::byte> ipco_payload;
+        ipco_payload.insert(ipco_payload.end(), auxc_depth_box.begin(),
+                            auxc_depth_box.end());
+        ipco_payload.insert(ipco_payload.end(), auxc_alpha_box.begin(),
+                            auxc_alpha_box.end());
+        std::vector<std::byte> ipco_box;
+        append_bmff_box(&ipco_box, fourcc('i', 'p', 'c', 'o'), ipco_payload);
+
+        std::vector<std::byte> ipma_payload;
+        append_fullbox_header(&ipma_payload, 0);
+        append_u32be(&ipma_payload, 3);  // entry_count
+
+        append_u16be(&ipma_payload, 1);  // item id (primary)
+        ipma_payload.push_back(std::byte { 0 });  // association_count
+
+        append_u16be(&ipma_payload, 2);  // item id (aux depth)
+        ipma_payload.push_back(std::byte { 1 });  // association_count
+        ipma_payload.push_back(std::byte { 1 });  // property_index=1
+
+        append_u16be(&ipma_payload, 3);  // item id (aux alpha)
+        ipma_payload.push_back(std::byte { 1 });  // association_count
+        ipma_payload.push_back(std::byte { 2 });  // property_index=2
+
+        std::vector<std::byte> ipma_box;
+        append_bmff_box(&ipma_box, fourcc('i', 'p', 'm', 'a'), ipma_payload);
+
+        std::vector<std::byte> iprp_payload;
+        iprp_payload.insert(iprp_payload.end(), ipco_box.begin(),
+                            ipco_box.end());
+        iprp_payload.insert(iprp_payload.end(), ipma_box.begin(),
+                            ipma_box.end());
+        std::vector<std::byte> iprp_box;
+        append_bmff_box(&iprp_box, fourcc('i', 'p', 'r', 'p'), iprp_payload);
+
+        std::vector<std::byte> meta_payload;
+        append_fullbox_header(&meta_payload, 0);
+        meta_payload.insert(meta_payload.end(), pitm_box.begin(),
+                            pitm_box.end());
+        meta_payload.insert(meta_payload.end(), iref_box.begin(),
+                            iref_box.end());
+        meta_payload.insert(meta_payload.end(), iprp_box.begin(),
+                            iprp_box.end());
+        append_bmff_box(&file, fourcc('m', 'e', 't', 'a'), meta_payload);
+    }
+
+    MetaStore store;
+    std::array<ContainerBlockRef, 16> blocks {};
+    std::array<ExifIfdRef, 8> ifds {};
+    std::array<std::byte, 1024> payload {};
+    std::array<uint32_t, 32> payload_scratch {};
+    ExifDecodeOptions exif_opts;
+    PayloadOptions payload_opts;
+
+    (void)simple_meta_read(file, store, blocks, ifds, payload, payload_scratch,
+                           exif_opts, payload_opts);
+    store.finalize();
+
+    const std::vector<uint32_t> primary_auxl
+        = collect_u32_values(store, "primary.auxl_item_id");
+    ASSERT_EQ(primary_auxl.size(), 2U);
+    EXPECT_EQ(primary_auxl[0], 2U);
+    EXPECT_EQ(primary_auxl[1], 3U);
+
+    const std::vector<std::string> primary_auxl_semantic
+        = collect_text_values(store, "primary.auxl_semantic");
+    ASSERT_EQ(primary_auxl_semantic.size(), 2U);
+    EXPECT_EQ(primary_auxl_semantic[0], "depth");
+    EXPECT_EQ(primary_auxl_semantic[1], "alpha");
+
+    const std::vector<uint32_t> depth_ids
+        = collect_u32_values(store, "primary.depth_item_id");
+    ASSERT_EQ(depth_ids.size(), 1U);
+    EXPECT_EQ(depth_ids[0], 2U);
+
+    const std::vector<uint32_t> alpha_ids
+        = collect_u32_values(store, "primary.alpha_item_id");
+    ASSERT_EQ(alpha_ids.size(), 1U);
+    EXPECT_EQ(alpha_ids[0], 3U);
+
+    const std::vector<uint32_t> aux_item_ids
+        = collect_u32_values(store, "aux.item_id");
+    ASSERT_EQ(aux_item_ids.size(), 2U);
+    EXPECT_EQ(aux_item_ids[0], 2U);
+    EXPECT_EQ(aux_item_ids[1], 3U);
+
+    const std::vector<std::string> aux_semantic
+        = collect_text_values(store, "aux.semantic");
+    ASSERT_EQ(aux_semantic.size(), 2U);
+    EXPECT_EQ(aux_semantic[0], "depth");
+    EXPECT_EQ(aux_semantic[1], "alpha");
+
+    const std::vector<std::string> aux_type
+        = collect_text_values(store, "aux.type");
+    ASSERT_EQ(aux_type.size(), 2U);
+    EXPECT_EQ(aux_type[0], "urn:mpeg:hevc:2015:auxid:2");
+    EXPECT_EQ(aux_type[1], "urn:mpeg:hevc:2015:auxid:1");
+
+    const std::vector<std::string> aux_subtype
+        = collect_text_values(store, "aux.subtype_hex");
+    ASSERT_EQ(aux_subtype.size(), 2U);
+    EXPECT_EQ(aux_subtype[0], "0xAABB");
+    EXPECT_EQ(aux_subtype[1], "0x11");
+
+    const std::vector<uint32_t> aux_subtype_len
+        = collect_u32_values(store, "aux.subtype_len");
+    ASSERT_EQ(aux_subtype_len.size(), 2U);
+    EXPECT_EQ(aux_subtype_len[0], 2U);
+    EXPECT_EQ(aux_subtype_len[1], 1U);
+
+    const std::vector<std::string> aux_subtype_kind
+        = collect_text_values(store, "aux.subtype_kind");
+    ASSERT_EQ(aux_subtype_kind.size(), 2U);
+    EXPECT_EQ(aux_subtype_kind[0], "u16be");
+    EXPECT_EQ(aux_subtype_kind[1], "u8");
+
+    const std::vector<uint32_t> aux_subtype_u32
+        = collect_u32_values(store, "aux.subtype_u32");
+    ASSERT_EQ(aux_subtype_u32.size(), 2U);
+    EXPECT_EQ(aux_subtype_u32[0], 43707U);
+    EXPECT_EQ(aux_subtype_u32[1], 17U);
+
+    const std::vector<uint32_t> auxl_from
+        = collect_u32_values(store, "iref.auxl.from_item_id");
+    ASSERT_EQ(auxl_from.size(), 2U);
+    EXPECT_EQ(auxl_from[0], 1U);
+    EXPECT_EQ(auxl_from[1], 1U);
+
+    const std::vector<uint32_t> auxl_to
+        = collect_u32_values(store, "iref.auxl.to_item_id");
+    ASSERT_EQ(auxl_to.size(), 2U);
+    EXPECT_EQ(auxl_to[0], 2U);
+    EXPECT_EQ(auxl_to[1], 3U);
+
+    const std::vector<std::string> auxl_semantic
+        = collect_text_values(store, "iref.auxl.semantic");
+    ASSERT_EQ(auxl_semantic.size(), 2U);
+    EXPECT_EQ(auxl_semantic[0], "depth");
+    EXPECT_EQ(auxl_semantic[1], "alpha");
+
+    const std::vector<std::string> auxl_type
+        = collect_text_values(store, "iref.auxl.type");
+    ASSERT_EQ(auxl_type.size(), 2U);
+    EXPECT_EQ(auxl_type[0], "urn:mpeg:hevc:2015:auxid:2");
+    EXPECT_EQ(auxl_type[1], "urn:mpeg:hevc:2015:auxid:1");
+
+    const std::vector<std::string> auxl_subtype
+        = collect_text_values(store, "iref.auxl.subtype_hex");
+    ASSERT_EQ(auxl_subtype.size(), 2U);
+    EXPECT_EQ(auxl_subtype[0], "0xAABB");
+    EXPECT_EQ(auxl_subtype[1], "0x11");
+
+    const std::vector<std::string> auxl_subtype_kind
+        = collect_text_values(store, "iref.auxl.subtype_kind");
+    ASSERT_EQ(auxl_subtype_kind.size(), 2U);
+    EXPECT_EQ(auxl_subtype_kind[0], "u16be");
+    EXPECT_EQ(auxl_subtype_kind[1], "u8");
+
+    const std::vector<uint32_t> auxl_subtype_u32
+        = collect_u32_values(store, "iref.auxl.subtype_u32");
+    ASSERT_EQ(auxl_subtype_u32.size(), 2U);
+    EXPECT_EQ(auxl_subtype_u32[0], 43707U);
+    EXPECT_EQ(auxl_subtype_u32[1], 17U);
 }
 
 }  // namespace openmeta

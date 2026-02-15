@@ -999,6 +999,68 @@ namespace {
         return true;
     }
 
+    static bool str_starts_with(std::string_view s,
+                                std::string_view prefix) noexcept
+    {
+        return s.size() >= prefix.size()
+               && s.substr(0, prefix.size()) == prefix;
+    }
+
+    static uint8_t bmff_field_group(std::string_view field) noexcept
+    {
+        if (str_starts_with(field, "ftyp.")) {
+            return 0U;
+        }
+        if (str_starts_with(field, "meta.")) {
+            return 1U;
+        }
+        if (str_starts_with(field, "primary.width")
+            || str_starts_with(field, "primary.height")
+            || str_starts_with(field, "primary.rotation_degrees")
+            || str_starts_with(field, "primary.mirror")) {
+            return 2U;
+        }
+        if (str_starts_with(field, "iref.")
+            && !str_starts_with(field, "iref.auxl.")) {
+            return 3U;
+        }
+        if (str_starts_with(field, "iref.auxl.")) {
+            return 4U;
+        }
+        if (str_starts_with(field, "aux.")) {
+            return 5U;
+        }
+        if (str_starts_with(field, "primary.auxl_")
+            || str_starts_with(field, "primary.alpha_")
+            || str_starts_with(field, "primary.depth_")
+            || str_starts_with(field, "primary.disparity_")
+            || str_starts_with(field, "primary.matte_")
+            || str_starts_with(field, "primary.dimg_")
+            || str_starts_with(field, "primary.thmb_")
+            || str_starts_with(field, "primary.cdsc_")) {
+            return 6U;
+        }
+        if (str_starts_with(field, "primary.")) {
+            return 7U;
+        }
+        return 8U;
+    }
+
+    static std::string_view bmff_group_label(uint8_t group) noexcept
+    {
+        switch (group) {
+        case 0U: return "ftyp";
+        case 1U: return "meta";
+        case 2U: return "primary core";
+        case 3U: return "iref";
+        case 4U: return "iref.auxl";
+        case 5U: return "aux";
+        case 6U: return "primary links";
+        case 7U: return "primary other";
+        default: return "other";
+        }
+    }
+
 
     static void print_generic_block_table(const MetaStore& store, BlockId block,
                                           std::string_view block_name,
@@ -1009,6 +1071,7 @@ namespace {
     {
         struct Row final {
             uint32_t idx = 0;
+            uint8_t group = 0;
             std::string idx_s;
             std::string key_s;
             std::string name_s;
@@ -1190,18 +1253,35 @@ namespace {
                 }
             }
 
+            if (block_name == "bmff") {
+                row.group = bmff_field_group(row.key_s);
+            }
+
             truncate_cell(&row.raw_s, max_cell_chars);
             truncate_cell(&row.val_s, max_cell_chars);
             rows.push_back(std::move(row));
         }
 
         struct RowLess final {
+            bool bmff_order = false;
+
             bool operator()(const Row& a, const Row& b) const noexcept
             {
+                if (bmff_order) {
+                    if (a.group != b.group) {
+                        return a.group < b.group;
+                    }
+                    if (a.idx != b.idx) {
+                        return a.idx < b.idx;
+                    }
+                    return a.key_s < b.key_s;
+                }
                 return a.idx < b.idx;
             }
         };
-        std::sort(rows.begin(), rows.end(), RowLess {});
+        RowLess less;
+        less.bmff_order = (block_name == "bmff");
+        std::sort(rows.begin(), rows.end(), less);
 
         size_t w_idx  = std::strlen("idx");
         size_t w_key  = std::strlen("key");
@@ -1245,7 +1325,21 @@ namespace {
 
         print_line('-', total_width);
 
+        const bool bmff_group_separators = (block_name == "bmff");
         for (size_t i = 0; i < rows.size(); ++i) {
+            if (bmff_group_separators && i == 0) {
+                const std::string_view label = bmff_group_label(rows[i].group);
+                std::printf("# %.*s\n", static_cast<int>(label.size()),
+                            label.data());
+            }
+            if (bmff_group_separators && i > 0
+                && rows[i].group != rows[i - 1].group) {
+                print_line('-', total_width);
+                const std::string_view label
+                    = bmff_group_label(rows[i].group);
+                std::printf("# %.*s\n", static_cast<int>(label.size()),
+                            label.data());
+            }
             const Row& r = rows[i];
             std::putchar(' ');
             print_cell(r.idx_s, w_idx);
