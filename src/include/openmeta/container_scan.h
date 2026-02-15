@@ -46,6 +46,8 @@ enum class ContainerBlockKind : uint8_t {
     MakerNote,
     Xmp,
     XmpExtended,
+    /// JPEG Universal Metadata Box Format payload (including C2PA manifests).
+    Jumbf,
     Icc,
     IptcIim,
     PhotoshopIrB,

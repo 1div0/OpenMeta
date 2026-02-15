@@ -1296,6 +1296,17 @@ scan_jxl(std::span<const std::byte> bytes,
             block.data_size    = payload_size;
             block.id           = box.type;
             sink_emit(&sink, block);
+        } else if (box.type == fourcc('j', 'u', 'm', 'b')
+                   || box.type == fourcc('c', '2', 'p', 'a')) {
+            ContainerBlockRef block;
+            block.format       = ContainerFormat::Jxl;
+            block.kind         = ContainerBlockKind::Jumbf;
+            block.outer_offset = box.offset;
+            block.outer_size   = box.size;
+            block.data_offset  = payload_off;
+            block.data_size    = payload_size;
+            block.id           = box.type;
+            sink_emit(&sink, block);
         } else if (box.type == fourcc('b', 'r', 'o', 'b')) {
             if (payload_size >= 4) {
                 uint32_t realtype = 0;
@@ -1555,6 +1566,52 @@ namespace {
     }
 
 
+    static bool bmff_mime_span_is_jumbf(std::span<const std::byte> bytes,
+                                        uint64_t start, uint64_t end) noexcept
+    {
+        if (start >= end || end > bytes.size()) {
+            return false;
+        }
+
+        uint64_t token_begin = start;
+        while (token_begin < end) {
+            const uint8_t c = u8(bytes[token_begin]);
+            if (c != static_cast<uint8_t>(' ')
+                && c != static_cast<uint8_t>('\t')) {
+                break;
+            }
+            token_begin += 1;
+        }
+
+        uint64_t token_end = token_begin;
+        while (token_end < end) {
+            const uint8_t c = u8(bytes[token_end]);
+            if (c == static_cast<uint8_t>(';') || c == static_cast<uint8_t>(' ')
+                || c == static_cast<uint8_t>('\t')) {
+                break;
+            }
+            token_end += 1;
+        }
+
+        if (token_end <= token_begin) {
+            return false;
+        }
+        const uint64_t token_len = token_end - token_begin;
+
+        static constexpr char kJumbfMime[]     = "application/jumbf";
+        static constexpr char kC2paMime[]      = "application/c2pa";
+        static constexpr char kC2paJumbfMime[] = "application/c2pa+jumbf";
+
+        return ascii_span_equals_icase(bytes, token_begin, token_len,
+                                       kJumbfMime, sizeof(kJumbfMime) - 1)
+               || ascii_span_equals_icase(bytes, token_begin, token_len,
+                                          kC2paMime, sizeof(kC2paMime) - 1)
+               || ascii_span_equals_icase(bytes, token_begin, token_len,
+                                          kC2paJumbfMime,
+                                          sizeof(kC2paJumbfMime) - 1);
+    }
+
+
     static bool bmff_mime_content_is_xmp(std::span<const std::byte> bytes,
                                          uint64_t start, uint64_t end) noexcept
     {
@@ -1563,6 +1620,18 @@ namespace {
             return false;
         }
         return bmff_mime_span_is_xmp(bytes, start, s_end);
+    }
+
+
+    static bool bmff_mime_content_is_jumbf(std::span<const std::byte> bytes,
+                                           uint64_t start,
+                                           uint64_t end) noexcept
+    {
+        uint64_t s_end = 0;
+        if (!find_cstring_end(bytes, start, end, &s_end)) {
+            return false;
+        }
+        return bmff_mime_span_is_jumbf(bytes, start, s_end);
     }
 
 
@@ -1644,6 +1713,10 @@ namespace {
                     if (cstring_equals_icase(bytes, q, infe_end, "Exif", 4)) {
                         kind      = ContainerBlockKind::Exif;
                         item_type = fourcc('E', 'x', 'i', 'f');
+                    } else if (cstring_equals_icase(bytes, q, infe_end, "JUMBF",
+                                                    5)) {
+                        kind      = ContainerBlockKind::Jumbf;
+                        item_type = fourcc('j', 'u', 'm', 'b');
                     }
                     q = name_end + 1;
 
@@ -1651,6 +1724,11 @@ namespace {
                         && bmff_mime_content_is_xmp(bytes, q, infe_end)) {
                         kind      = ContainerBlockKind::Xmp;
                         item_type = fourcc('x', 'm', 'l', ' ');
+                    } else if (q < infe_end
+                               && bmff_mime_content_is_jumbf(bytes, q,
+                                                             infe_end)) {
+                        kind      = ContainerBlockKind::Jumbf;
+                        item_type = fourcc('j', 'u', 'm', 'b');
                     }
 
                     uint64_t ct_end = 0;
@@ -1669,6 +1747,12 @@ namespace {
                             && bmff_mime_span_is_xmp(bytes, q, infe_end)) {
                             kind      = ContainerBlockKind::Xmp;
                             item_type = fourcc('x', 'm', 'l', ' ');
+                        } else if (kind == ContainerBlockKind::Unknown
+                                   && q < infe_end
+                                   && bmff_mime_span_is_jumbf(bytes, q,
+                                                              infe_end)) {
+                            kind      = ContainerBlockKind::Jumbf;
+                            item_type = fourcc('j', 'u', 'm', 'b');
                         }
                         q = infe_end;
                     }
@@ -1709,9 +1793,15 @@ namespace {
                         kind = ContainerBlockKind::Exif;
                     } else if (item_type == fourcc('x', 'm', 'l', ' ')) {
                         kind = ContainerBlockKind::Xmp;
+                    } else if (item_type == fourcc('j', 'u', 'm', 'b')
+                               || item_type == fourcc('c', '2', 'p', 'a')) {
+                        kind = ContainerBlockKind::Jumbf;
                     } else if (item_type == fourcc('m', 'i', 'm', 'e')) {
                         if (bmff_mime_content_is_xmp(bytes, q, infe_end)) {
                             kind = ContainerBlockKind::Xmp;
+                        } else if (bmff_mime_content_is_jumbf(bytes, q,
+                                                              infe_end)) {
+                            kind = ContainerBlockKind::Jumbf;
                         }
 
                         uint64_t ct_end = 0;
@@ -1722,6 +1812,11 @@ namespace {
                                 && q < infe_end
                                 && bmff_mime_span_is_xmp(bytes, q, infe_end)) {
                                 kind = ContainerBlockKind::Xmp;
+                            } else if (kind == ContainerBlockKind::Unknown
+                                       && q < infe_end
+                                       && bmff_mime_span_is_jumbf(bytes, q,
+                                                                  infe_end)) {
+                                kind = ContainerBlockKind::Jumbf;
                             }
                             q = infe_end;
                         } else {

@@ -100,12 +100,25 @@ This policy surface is intentionally marked draft and may be refined.
   - Emitted during `simple_meta_read(...)` as `MetaKeyKind::BmffField` entries.
   - Current fields: `ftyp.*`, primary item properties (`pitm`, `iprp/ipco ispe/irot/imir`, `ipma`), draft `iref.*` relation fields (`ref_type`, `from_item_id`, `to_item_id`, `edge_count`), `iref.auxl.*` derived relation rows, and `auxC`-based aux semantics (`aux.item_id`, `aux.semantic`, `aux.type`, `aux.subtype_hex`, `aux.subtype_kind`, `aux.subtype_u32`, `primary.auxl_semantic`, `primary.depth_item_id`, `primary.alpha_item_id`, ...).
   - Parsing is intentionally bounded (depth/box count caps) and ignores unknown properties.
+- JUMBF/C2PA decode (draft phase-3): `src/openmeta/jumbf_decode.cc`
+  - Routed from container scan blocks tagged as `ContainerBlockKind::Jumbf`
+    (BMFF `jumb`/C2PA hints and JXL `jumb` boxes).
+  - Emits structural fields as `MetaKeyKind::JumbfField` (`box.*`, `c2pa.*`)
+    and decoded CBOR keys as `MetaKeyKind::JumbfCborKey` (`*.cbor.*`).
+  - Current CBOR path supports bounded definite and indefinite forms, with
+    composite-key fallback naming (`k{map_index}_{major}`) and broader scalar
+    decode coverage (simple values + half/float/double bit-preserving paths).
+  - Draft semantic projection emits stable `c2pa.semantic.*` fields
+    (`manifest_present`, `claim_present`, `assertion_present`,
+    `signature_present`, `assertion_key_hits`, `cbor_key_count`,
+    `claim_generator` when ASCII-safe).
 - GeoTIFF GeoKey decoding (derived keys): `src/openmeta/geotiff_decode.cc`
 - Vendor MakerNote decoders: `src/openmeta/exif_makernote_*.cc`
   (Canon, Nikon, Sony, Olympus, Pentax, Casio, Panasonic, Kodak, Ricoh, Samsung, FLIR, etc.)
 - Shared internal-only helpers: `src/openmeta/exif_tiff_decode_internal.h`
   (not installed; used to keep vendor logic out of the public API)
 - Tests: `tests/makernote_decode_test.cc`
+  and `tests/jumbf_decode_test.cc`
 
 When adding or changing MakerNote code, prefer extending the vendor files and
 keeping the EXIF/TIFF core container-agnostic. Add/adjust a unit test for any

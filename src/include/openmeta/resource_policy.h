@@ -5,6 +5,7 @@
 #include "openmeta/exr_decode.h"
 #include "openmeta/icc_decode.h"
 #include "openmeta/iptc_iim_decode.h"
+#include "openmeta/jumbf_decode.h"
 #include "openmeta/photoshop_irb_decode.h"
 #include "openmeta/preview_extract.h"
 #include "openmeta/xmp_decode.h"
@@ -41,6 +42,9 @@ struct OpenMetaResourcePolicy final {
 
     /// OpenEXR header decode budgets.
     ExrDecodeLimits exr_limits;
+
+    /// JUMBF/C2PA decode budgets.
+    JumbfDecodeLimits jumbf_limits;
 
     /// ICC profile decode budgets.
     IccDecodeLimits icc_limits;
@@ -79,7 +83,8 @@ apply_resource_policy(const OpenMetaResourcePolicy& policy,
 inline void
 apply_resource_policy(const OpenMetaResourcePolicy& policy,
                       XmpDecodeOptions* xmp, ExrDecodeOptions* exr,
-                      IccDecodeOptions* icc, IptcIimDecodeOptions* iptc,
+                      JumbfDecodeOptions* jumbf, IccDecodeOptions* icc,
+                      IptcIimDecodeOptions* iptc,
                       PhotoshopIrbDecodeOptions* irb) noexcept
 {
     if (xmp) {
@@ -87,6 +92,9 @@ apply_resource_policy(const OpenMetaResourcePolicy& policy,
     }
     if (exr) {
         exr->limits = policy.exr_limits;
+    }
+    if (jumbf) {
+        jumbf->limits = policy.jumbf_limits;
     }
     if (icc) {
         icc->limits = policy.icc_limits;
@@ -98,6 +106,15 @@ apply_resource_policy(const OpenMetaResourcePolicy& policy,
         irb->limits      = policy.photoshop_irb_limits;
         irb->iptc.limits = policy.iptc_limits;
     }
+}
+
+inline void
+apply_resource_policy(const OpenMetaResourcePolicy& policy,
+                      XmpDecodeOptions* xmp, ExrDecodeOptions* exr,
+                      IccDecodeOptions* icc, IptcIimDecodeOptions* iptc,
+                      PhotoshopIrbDecodeOptions* irb) noexcept
+{
+    apply_resource_policy(policy, xmp, exr, nullptr, icc, iptc, irb);
 }
 
 inline void

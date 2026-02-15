@@ -87,6 +87,18 @@ namespace {
     }
 
 
+    static const char* jumbf_status_name(JumbfDecodeStatus status) noexcept
+    {
+        switch (status) {
+        case JumbfDecodeStatus::Ok: return "ok";
+        case JumbfDecodeStatus::Unsupported: return "unsupported";
+        case JumbfDecodeStatus::Malformed: return "malformed";
+        case JumbfDecodeStatus::LimitExceeded: return "limit_exceeded";
+        }
+        return "unknown";
+    }
+
+
     static void merge_xmp_status(XmpDecodeStatus* out,
                                  XmpDecodeStatus in) noexcept
     {
@@ -185,6 +197,7 @@ namespace {
         case ContainerBlockKind::MakerNote: return "makernote";
         case ContainerBlockKind::Xmp: return "xmp";
         case ContainerBlockKind::XmpExtended: return "xmp_extended";
+        case ContainerBlockKind::Jumbf: return "jumbf";
         case ContainerBlockKind::Icc: return "icc";
         case ContainerBlockKind::IptcIim: return "iptc_iim";
         case ContainerBlockKind::PhotoshopIrB: return "photoshop_irb";
@@ -1070,7 +1083,7 @@ namespace {
                                           uint32_t max_cell_chars)
     {
         struct Row final {
-            uint32_t idx = 0;
+            uint32_t idx  = 0;
             uint8_t group = 0;
             std::string idx_s;
             std::string key_s;
@@ -1160,6 +1173,22 @@ namespace {
                     = arena_string(store.arena(),
                                    entry.key.data.bmff_field.field);
                 row.key_s.assign(field.data(), field.size());
+                row.name_s = "-";
+                break;
+            }
+            case MetaKeyKind::JumbfField: {
+                const std::string_view field
+                    = arena_string(store.arena(),
+                                   entry.key.data.jumbf_field.field);
+                row.key_s.assign(field.data(), field.size());
+                row.name_s = "-";
+                break;
+            }
+            case MetaKeyKind::JumbfCborKey: {
+                const std::string_view key
+                    = arena_string(store.arena(),
+                                   entry.key.data.jumbf_cbor_key.key);
+                row.key_s.assign(key.data(), key.size());
                 row.name_s = "-";
                 break;
             }
@@ -1335,8 +1364,7 @@ namespace {
             if (bmff_group_separators && i > 0
                 && rows[i].group != rows[i - 1].group) {
                 print_line('-', total_width);
-                const std::string_view label
-                    = bmff_group_label(rows[i].group);
+                const std::string_view label = bmff_group_label(rows[i].group);
                 std::printf("# %.*s\n", static_cast<int>(label.size()),
                             label.data());
             }
@@ -1557,16 +1585,14 @@ namespace {
         std::printf("  --max-xmp-input-bytes N  max XMP packet bytes\n");
         std::printf("\n");
         std::printf("capability legend:\n");
-        std::printf(
-            "  scan   container/block discovery in file bytes\n");
+        std::printf("  scan   container/block discovery in file bytes\n");
         std::printf(
             "  decode structured metadata decode into MetaStore entries\n");
         std::printf(
             "  names  tag/key name mapping for human-readable output\n");
         std::printf(
             "  dump   sidecar/preview export support via metadump/thumdump\n");
-        std::printf(
-            "  details: docs/metadata_support.md (draft)\n");
+        std::printf("  details: docs/metadata_support.md (draft)\n");
     }
 
 
@@ -1596,8 +1622,8 @@ main(int argc, char** argv)
     apply_resource_policy(policy, &decode_options.exif,
                           &decode_options.payload);
     apply_resource_policy(policy, &decode_options.xmp, &decode_options.exr,
-                          &decode_options.icc, &decode_options.iptc,
-                          &decode_options.photoshop_irb);
+                          &decode_options.jumbf, &decode_options.icc,
+                          &decode_options.iptc, &decode_options.photoshop_irb);
     ExifDecodeOptions& exif_options         = decode_options.exif;
     exif_options.include_pointer_tags       = true;
     exif_options.decode_embedded_containers = true;
@@ -1914,7 +1940,7 @@ main(int argc, char** argv)
 
         store.finalize();
         std::printf(
-            "exif=%s ifds_decoded=%u exr=%s exr_parts=%u exr_entries=%u xmp=%s xmp_entries=%u entries=%zu blocks=%u\n",
+            "exif=%s ifds_decoded=%u exr=%s exr_parts=%u exr_entries=%u xmp=%s xmp_entries=%u jumbf=%s jumbf_boxes=%u jumbf_cbor=%u jumbf_entries=%u entries=%zu blocks=%u\n",
             exif_status_name(read.exif.status),
             static_cast<unsigned>(read.exif.ifds_written),
             exr_status_name(read.exr.status),
@@ -1922,6 +1948,10 @@ main(int argc, char** argv)
             static_cast<unsigned>(read.exr.entries_decoded),
             xmp_status_name(read.xmp.status),
             static_cast<unsigned>(read.xmp.entries_decoded),
+            jumbf_status_name(read.jumbf.status),
+            static_cast<unsigned>(read.jumbf.boxes_decoded),
+            static_cast<unsigned>(read.jumbf.cbor_items),
+            static_cast<unsigned>(read.jumbf.entries_decoded),
             store.entries().size(), static_cast<unsigned>(store.block_count()));
         if (read.exif.status == ExifDecodeStatus::LimitExceeded
             && read.exif.limit_reason != ExifLimitReason::None) {
@@ -1969,6 +1999,11 @@ main(int argc, char** argv)
                                           max_cell_chars);
             } else if (first.key.kind == MetaKeyKind::BmffField) {
                 print_generic_block_table(store, block, "bmff", ids,
+                                          max_elements, max_bytes,
+                                          max_cell_chars);
+            } else if (first.key.kind == MetaKeyKind::JumbfField
+                       || first.key.kind == MetaKeyKind::JumbfCborKey) {
+                print_generic_block_table(store, block, "jumbf", ids,
                                           max_elements, max_bytes,
                                           max_cell_chars);
             } else if (first.key.kind == MetaKeyKind::GeotiffKey) {

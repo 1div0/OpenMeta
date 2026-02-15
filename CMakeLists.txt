@@ -192,6 +192,7 @@ set(OPENMETA_SOURCES
   src/openmeta/interop_safety_internal.cc
   src/openmeta/interop_value_format_internal.cc
   src/openmeta/iptc_iim_decode.cc
+  src/openmeta/jumbf_decode.cc
   src/openmeta/meta_key.cc
   src/openmeta/meta_store.cc
   src/openmeta/meta_edit.cc
@@ -408,6 +409,7 @@ if(OPENMETA_BUILD_TESTS)
     tests/container_payload_test.cc
     tests/container_scan_test.cc
     tests/bmff_fields_decode_test.cc
+    tests/jumbf_decode_test.cc
     tests/crw_ciff_decode_test.cc
     tests/icc_decode_test.cc
     tests/exif_tag_names_test.cc

@@ -671,8 +671,7 @@ struct PyEntry final {
 static std::shared_ptr<PyDocument>
 read_document(const std::string& path, bool include_pointer_tags,
               bool decode_makernote, bool decompress, bool include_xmp_sidecar,
-              uint64_t max_file_bytes,
-              const OpenMetaResourcePolicy* policy_ptr)
+              uint64_t max_file_bytes, const OpenMetaResourcePolicy* policy_ptr)
 {
     auto doc  = std::make_shared<PyDocument>();
     doc->path = path;
@@ -687,10 +686,11 @@ read_document(const std::string& path, bool include_pointer_tags,
     }
 
     SimpleMetaDecodeOptions decode_options;
-    apply_resource_policy(policy, &decode_options.exif, &decode_options.payload);
+    apply_resource_policy(policy, &decode_options.exif,
+                          &decode_options.payload);
     apply_resource_policy(policy, &decode_options.xmp, &decode_options.exr,
-                          &decode_options.icc, &decode_options.iptc,
-                          &decode_options.photoshop_irb);
+                          &decode_options.jumbf, &decode_options.icc,
+                          &decode_options.iptc, &decode_options.photoshop_irb);
     decode_options.exif.include_pointer_tags       = include_pointer_tags;
     decode_options.exif.decode_makernote           = decode_makernote;
     decode_options.exif.decode_embedded_containers = true;
@@ -702,8 +702,8 @@ read_document(const std::string& path, bool include_pointer_tags,
     // Python C API.
     nb::gil_scoped_release gil_release;
 
-    const MappedFileStatus st
-        = doc->file.open(path.c_str(), policy.max_file_bytes);
+    const MappedFileStatus st = doc->file.open(path.c_str(),
+                                               policy.max_file_bytes);
     if (st != MappedFileStatus::Ok) {
         if (st == MappedFileStatus::TooLarge) {
             throw std::runtime_error("file too large");
@@ -823,8 +823,9 @@ read_document(const std::string& path, bool include_pointer_tags,
             }
             const std::vector<std::byte> xmp_bytes
                 = read_file_bytes(sp.c_str(), policy.max_file_bytes);
-            const XmpDecodeResult one = decode_xmp_packet(
-                xmp_bytes, doc->store, EntryFlags::None, decode_options.xmp);
+            const XmpDecodeResult one = decode_xmp_packet(xmp_bytes, doc->store,
+                                                          EntryFlags::None,
+                                                          decode_options.xmp);
             merge_xmp_status(&doc->result.xmp.status, one.status);
             doc->result.xmp.entries_decoded += one.entries_decoded;
         }
@@ -909,6 +910,7 @@ NB_MODULE(_openmeta, m)
         .value("MakerNote", ContainerBlockKind::MakerNote)
         .value("Xmp", ContainerBlockKind::Xmp)
         .value("XmpExtended", ContainerBlockKind::XmpExtended)
+        .value("Jumbf", ContainerBlockKind::Jumbf)
         .value("Icc", ContainerBlockKind::Icc)
         .value("IptcIim", ContainerBlockKind::IptcIim)
         .value("PhotoshopIrB", ContainerBlockKind::PhotoshopIrB)
@@ -995,6 +997,12 @@ NB_MODULE(_openmeta, m)
         .value("OutputTruncated", XmpDumpStatus::OutputTruncated)
         .value("LimitExceeded", XmpDumpStatus::LimitExceeded);
 
+    nb::enum_<JumbfDecodeStatus>(m, "JumbfDecodeStatus")
+        .value("Ok", JumbfDecodeStatus::Ok)
+        .value("Unsupported", JumbfDecodeStatus::Unsupported)
+        .value("Malformed", JumbfDecodeStatus::Malformed)
+        .value("LimitExceeded", JumbfDecodeStatus::LimitExceeded);
+
     nb::enum_<XmpSidecarFormat>(m, "XmpSidecarFormat")
         .value("Lossless", XmpSidecarFormat::Lossless)
         .value("Portable", XmpSidecarFormat::Portable);
@@ -1033,6 +1041,19 @@ NB_MODULE(_openmeta, m)
         .def_rw("max_total_attribute_bytes",
                 &ExrDecodeLimits::max_total_attribute_bytes);
 
+    nb::class_<JumbfDecodeLimits>(m, "JumbfDecodeLimits")
+        .def(nb::init<>())
+        .def_rw("max_input_bytes", &JumbfDecodeLimits::max_input_bytes)
+        .def_rw("max_box_depth", &JumbfDecodeLimits::max_box_depth)
+        .def_rw("max_boxes", &JumbfDecodeLimits::max_boxes)
+        .def_rw("max_entries", &JumbfDecodeLimits::max_entries)
+        .def_rw("max_cbor_depth", &JumbfDecodeLimits::max_cbor_depth)
+        .def_rw("max_cbor_items", &JumbfDecodeLimits::max_cbor_items)
+        .def_rw("max_cbor_key_bytes", &JumbfDecodeLimits::max_cbor_key_bytes)
+        .def_rw("max_cbor_text_bytes", &JumbfDecodeLimits::max_cbor_text_bytes)
+        .def_rw("max_cbor_bytes_bytes",
+                &JumbfDecodeLimits::max_cbor_bytes_bytes);
+
     nb::class_<IccDecodeLimits>(m, "IccDecodeLimits")
         .def(nb::init<>())
         .def_rw("max_tags", &IccDecodeLimits::max_tags)
@@ -1070,6 +1091,7 @@ NB_MODULE(_openmeta, m)
         .def_rw("exif_limits", &OpenMetaResourcePolicy::exif_limits)
         .def_rw("xmp_limits", &OpenMetaResourcePolicy::xmp_limits)
         .def_rw("exr_limits", &OpenMetaResourcePolicy::exr_limits)
+        .def_rw("jumbf_limits", &OpenMetaResourcePolicy::jumbf_limits)
         .def_rw("icc_limits", &OpenMetaResourcePolicy::icc_limits)
         .def_rw("iptc_limits", &OpenMetaResourcePolicy::iptc_limits)
         .def_rw("photoshop_irb_limits",
@@ -1079,8 +1101,7 @@ NB_MODULE(_openmeta, m)
         .def_rw("max_preview_output_bytes",
                 &OpenMetaResourcePolicy::max_preview_output_bytes)
         .def_rw("xmp_dump_limits", &OpenMetaResourcePolicy::xmp_dump_limits)
-        .def_rw("max_decode_millis",
-                &OpenMetaResourcePolicy::max_decode_millis)
+        .def_rw("max_decode_millis", &OpenMetaResourcePolicy::max_decode_millis)
         .def_rw("max_decompression_ratio",
                 &OpenMetaResourcePolicy::max_decompression_ratio)
         .def_rw("max_total_decode_work_bytes",
@@ -1137,6 +1158,20 @@ NB_MODULE(_openmeta, m)
         .def_prop_ro("xmp_entries_decoded",
                      [](const PyDocument& d) {
                          return d.result.xmp.entries_decoded;
+                     })
+        .def_prop_ro("jumbf_status",
+                     [](const PyDocument& d) { return d.result.jumbf.status; })
+        .def_prop_ro("jumbf_boxes_decoded",
+                     [](const PyDocument& d) {
+                         return d.result.jumbf.boxes_decoded;
+                     })
+        .def_prop_ro("jumbf_cbor_items",
+                     [](const PyDocument& d) {
+                         return d.result.jumbf.cbor_items;
+                     })
+        .def_prop_ro("jumbf_entries_decoded",
+                     [](const PyDocument& d) {
+                         return d.result.jumbf.entries_decoded;
                      })
         .def_prop_ro("exif_status",
                      [](const PyDocument& d) { return d.result.exif.status; })
@@ -1575,6 +1610,18 @@ NB_MODULE(_openmeta, m)
                                                 en.key.data.bmff_field.field);
                              return nb::str(s.c_str(), s.size());
                          }
+                         if (en.key.kind == MetaKeyKind::JumbfField) {
+                             const std::string s
+                                 = arena_string(e.doc->store.arena(),
+                                                en.key.data.jumbf_field.field);
+                             return nb::str(s.c_str(), s.size());
+                         }
+                         if (en.key.kind == MetaKeyKind::JumbfCborKey) {
+                             const std::string s
+                                 = arena_string(e.doc->store.arena(),
+                                                en.key.data.jumbf_cbor_key.key);
+                             return nb::str(s.c_str(), s.size());
+                         }
                          return nb::none();
                      })
         .def_prop_ro("value_kind",
@@ -1657,6 +1704,20 @@ NB_MODULE(_openmeta, m)
                                    en.key.data.exr_attribute.name);
                 append_console_escaped_ascii(name, 64, &s);
                 s.append("\"");
+            } else if (en.key.kind == MetaKeyKind::JumbfField) {
+                s.append("jumbf=\"");
+                const std::string field
+                    = arena_string(e.doc->store.arena(),
+                                   en.key.data.jumbf_field.field);
+                append_console_escaped_ascii(field, 64, &s);
+                s.append("\"");
+            } else if (en.key.kind == MetaKeyKind::JumbfCborKey) {
+                s.append("jumbf_cbor=\"");
+                const std::string key
+                    = arena_string(e.doc->store.arena(),
+                                   en.key.data.jumbf_cbor_key.key);
+                append_console_escaped_ascii(key, 64, &s);
+                s.append("\"");
             } else {
                 s.append("kind=");
                 s.append(std::to_string(static_cast<unsigned>(en.key.kind)));
@@ -1684,10 +1745,9 @@ NB_MODULE(_openmeta, m)
                                  decompress, include_xmp_sidecar,
                                  max_file_bytes, policy_ptr);
         },
-        "path"_a, "include_pointer_tags"_a = true,
-        "decode_makernote"_a = false, "decompress"_a = true,
-        "include_xmp_sidecar"_a = false, "max_file_bytes"_a = 0ULL,
-        "policy"_a = nb::none());
+        "path"_a, "include_pointer_tags"_a = true, "decode_makernote"_a = false,
+        "decompress"_a = true, "include_xmp_sidecar"_a = false,
+        "max_file_bytes"_a = 0ULL, "policy"_a = nb::none());
 
     m.def("console_text", &console_text, "data"_a, "max_bytes"_a = 4096U);
     m.def("hex_bytes", &hex_bytes, "data"_a, "max_bytes"_a = 4096U);

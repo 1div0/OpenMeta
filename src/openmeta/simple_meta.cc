@@ -449,6 +449,43 @@ namespace {
     }
 
 
+    static void merge_jumbf_status(JumbfDecodeStatus* out,
+                                   JumbfDecodeStatus in) noexcept
+    {
+        if (!out) {
+            return;
+        }
+        if (*out == JumbfDecodeStatus::LimitExceeded) {
+            return;
+        }
+        if (in == JumbfDecodeStatus::LimitExceeded) {
+            *out = in;
+            return;
+        }
+        if (*out == JumbfDecodeStatus::Malformed) {
+            return;
+        }
+        if (in == JumbfDecodeStatus::Malformed) {
+            *out = in;
+            return;
+        }
+        // `Unsupported` means "no decodable JUMBF in this block".
+        if (*out == JumbfDecodeStatus::Ok) {
+            return;
+        }
+        if (in == JumbfDecodeStatus::Ok) {
+            *out = in;
+            return;
+        }
+        if (*out == JumbfDecodeStatus::Unsupported) {
+            return;
+        }
+        if (in == JumbfDecodeStatus::Unsupported) {
+            *out = in;
+        }
+    }
+
+
     static PayloadResult
     get_block_bytes(std::span<const std::byte> file_bytes,
                     std::span<const ContainerBlockRef> blocks,
@@ -534,6 +571,12 @@ simple_meta_read(std::span<const std::byte> file_bytes, MetaStore& store,
     XmpDecodeResult xmp;
     xmp.status          = XmpDecodeStatus::Unsupported;
     xmp.entries_decoded = 0;
+
+    JumbfDecodeResult jumbf;
+    jumbf.status          = JumbfDecodeStatus::Unsupported;
+    jumbf.boxes_decoded   = 0;
+    jumbf.cbor_items      = 0;
+    jumbf.entries_decoded = 0;
 
     ExrDecodeResult exr;
     exr.status          = ExrDecodeStatus::Unsupported;
@@ -853,6 +896,14 @@ simple_meta_read(std::span<const std::byte> file_bytes, MetaStore& store,
                                                           options.xmp);
             merge_xmp_status(&xmp.status, one.status);
             xmp.entries_decoded += one.entries_decoded;
+        } else if (block.kind == ContainerBlockKind::Jumbf) {
+            const JumbfDecodeResult one
+                = decode_jumbf_payload(block_bytes, store, EntryFlags::None,
+                                       options.jumbf);
+            merge_jumbf_status(&jumbf.status, one.status);
+            jumbf.boxes_decoded += one.boxes_decoded;
+            jumbf.cbor_items += one.cbor_items;
+            jumbf.entries_decoded += one.entries_decoded;
         } else if (block.kind == ContainerBlockKind::Icc) {
             (void)decode_icc_profile(block_bytes, store, options.icc);
         } else if (block.kind == ContainerBlockKind::PhotoshopIrB) {
@@ -999,9 +1050,10 @@ simple_meta_read(std::span<const std::byte> file_bytes, MetaStore& store,
 
     // If EXR decode succeeded, preserve "unsupported" EXIF/XMP statuses: EXR
     // metadata is a separate key space and may be the only metadata in file.
-    result.exif = exif;
-    result.exr  = exr;
-    result.xmp  = xmp;
+    result.exif  = exif;
+    result.exr   = exr;
+    result.jumbf = jumbf;
+    result.xmp   = xmp;
     return result;
 }
 
