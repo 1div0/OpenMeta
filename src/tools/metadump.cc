@@ -47,6 +47,9 @@ namespace {
             "  --portable-include-existing-xmp\n"
             "                         Portable mode: include decoded standard XMP properties\n"
             "  --xmp-sidecar           Also read sidecar XMP (<file>.xmp, <basename>.xmp)\n"
+            "  --c2pa-verify           Request draft C2PA verify scaffold evaluation\n"
+            "  --c2pa-verify-backend <none|auto|native|openssl>\n"
+            "                         Verification backend preference\n"
             "  --no-pointer-tags       Do not store pointer tags\n"
             "  --makernotes            Attempt MakerNote decode (best-effort)\n"
             "  --no-decompress         Do not decompress payloads\n"
@@ -109,6 +112,58 @@ namespace {
         }
         *out = static_cast<uint32_t>(v);
         return true;
+    }
+
+    static const char* c2pa_verify_status_name(C2paVerifyStatus status) noexcept
+    {
+        switch (status) {
+        case C2paVerifyStatus::NotRequested: return "not_requested";
+        case C2paVerifyStatus::DisabledByBuild: return "disabled_by_build";
+        case C2paVerifyStatus::BackendUnavailable: return "backend_unavailable";
+        case C2paVerifyStatus::NoSignatures: return "no_signatures";
+        case C2paVerifyStatus::InvalidSignature: return "invalid_signature";
+        case C2paVerifyStatus::VerificationFailed: return "verification_failed";
+        case C2paVerifyStatus::Verified: return "verified";
+        case C2paVerifyStatus::NotImplemented: return "not_implemented";
+        }
+        return "unknown";
+    }
+
+    static const char*
+    c2pa_verify_backend_name(C2paVerifyBackend backend) noexcept
+    {
+        switch (backend) {
+        case C2paVerifyBackend::None: return "none";
+        case C2paVerifyBackend::Auto: return "auto";
+        case C2paVerifyBackend::Native: return "native";
+        case C2paVerifyBackend::OpenSsl: return "openssl";
+        }
+        return "unknown";
+    }
+
+    static bool parse_c2pa_verify_backend_arg(const char* s,
+                                              C2paVerifyBackend* out)
+    {
+        if (!s || !*s || !out) {
+            return false;
+        }
+        if (std::strcmp(s, "none") == 0) {
+            *out = C2paVerifyBackend::None;
+            return true;
+        }
+        if (std::strcmp(s, "auto") == 0) {
+            *out = C2paVerifyBackend::Auto;
+            return true;
+        }
+        if (std::strcmp(s, "native") == 0) {
+            *out = C2paVerifyBackend::Native;
+            return true;
+        }
+        if (std::strcmp(s, "openssl") == 0) {
+            *out = C2paVerifyBackend::OpenSsl;
+            return true;
+        }
+        return false;
     }
 
 
@@ -459,6 +514,23 @@ main(int argc, char** argv)
         if (std::strcmp(arg, "--xmp-sidecar") == 0) {
             xmp_sidecar = true;
             first_path += 1;
+            continue;
+        }
+        if (std::strcmp(arg, "--c2pa-verify") == 0) {
+            decode_options.jumbf.verify_c2pa = true;
+            first_path += 1;
+            continue;
+        }
+        if (std::strcmp(arg, "--c2pa-verify-backend") == 0 && i + 1 < argc) {
+            C2paVerifyBackend backend = C2paVerifyBackend::Auto;
+            if (!parse_c2pa_verify_backend_arg(argv[i + 1], &backend)) {
+                std::fprintf(stderr, "invalid --c2pa-verify-backend value "
+                                     "(expected none|auto|native|openssl)\n");
+                return 2;
+            }
+            decode_options.jumbf.verify_backend = backend;
+            i += 1;
+            first_path += 2;
             continue;
         }
         if (std::strcmp(arg, "--force") == 0) {
@@ -921,11 +993,16 @@ main(int argc, char** argv)
             continue;
         }
 
-        std::printf("wrote=%s format=%s bytes=%llu entries=%u\n", out.c_str(),
+        std::printf("wrote=%s format=%s bytes=%llu entries=%u c2pa_verify=%s "
+                    "c2pa_backend=%s\n",
+                    out.c_str(),
                     (format == XmpSidecarFormat::Portable) ? "portable"
                                                            : "lossless",
                     static_cast<unsigned long long>(dump_res.written),
-                    static_cast<unsigned>(dump_res.entries));
+                    static_cast<unsigned>(dump_res.entries),
+                    c2pa_verify_status_name(read.jumbf.verify_status),
+                    c2pa_verify_backend_name(
+                        read.jumbf.verify_backend_selected));
     }
 
     return exit_code;

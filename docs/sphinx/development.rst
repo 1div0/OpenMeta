@@ -123,6 +123,8 @@ Python bindings use nanobind. The wheel also ships helper scripts as
 
    python3 -m openmeta.python.metaread file.jpg
    python3 -m openmeta.python.metadump --format portable file.jpg
+   python3 -m openmeta.python.metadump file.jpg output.xmp
+   python3 -m openmeta.python.metadump --format portable --c2pa-verify --c2pa-verify-backend auto file.jpg
    python3 -m openmeta.python.metadump --format portable --portable-include-existing-xmp --xmp-sidecar file.jpg
 
 Documentation build

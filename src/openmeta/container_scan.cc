@@ -1964,7 +1964,7 @@ namespace {
                 return false;
             }
             p += 2;
-            (void)data_ref;
+            const bool has_external_data_ref = (data_ref != 0);
 
             uint64_t base_off = 0;
             if (!read_uint_be_n(bytes, p, base_size, &base_off)) {
@@ -2011,6 +2011,9 @@ namespace {
                 if (item == nullptr) {
                     continue;
                 }
+                if (has_external_data_ref) {
+                    continue;
+                }
 
                 uint64_t file_off = 0;
                 if (construction_method == 1) {
@@ -2018,7 +2021,7 @@ namespace {
                         continue;
                     }
                     if (idat_payload_off > UINT64_MAX - base_off) {
-                        return false;
+                        continue;
                     }
                     file_off = idat_payload_off + base_off;
                 } else if (construction_method == 0) {
@@ -2028,17 +2031,17 @@ namespace {
                 }
 
                 if (file_off > UINT64_MAX - extent_off) {
-                    return false;
+                    continue;
                 }
                 file_off += extent_off;
 
                 const uint64_t size = static_cast<uint64_t>(bytes.size());
                 if (file_off > size || extent_len > size - file_off) {
-                    return false;
+                    continue;
                 }
                 if (construction_method == 1) {
                     if (file_off + extent_len > idat_payload_end) {
-                        return false;
+                        continue;
                     }
                 }
 

@@ -98,6 +98,33 @@ namespace {
         return "unknown";
     }
 
+    static const char* c2pa_verify_status_name(C2paVerifyStatus status) noexcept
+    {
+        switch (status) {
+        case C2paVerifyStatus::NotRequested: return "not_requested";
+        case C2paVerifyStatus::DisabledByBuild: return "disabled_by_build";
+        case C2paVerifyStatus::BackendUnavailable: return "backend_unavailable";
+        case C2paVerifyStatus::NoSignatures: return "no_signatures";
+        case C2paVerifyStatus::InvalidSignature: return "invalid_signature";
+        case C2paVerifyStatus::VerificationFailed: return "verification_failed";
+        case C2paVerifyStatus::Verified: return "verified";
+        case C2paVerifyStatus::NotImplemented: return "not_implemented";
+        }
+        return "unknown";
+    }
+
+    static const char*
+    c2pa_verify_backend_name(C2paVerifyBackend backend) noexcept
+    {
+        switch (backend) {
+        case C2paVerifyBackend::None: return "none";
+        case C2paVerifyBackend::Auto: return "auto";
+        case C2paVerifyBackend::Native: return "native";
+        case C2paVerifyBackend::OpenSsl: return "openssl";
+        }
+        return "unknown";
+    }
+
 
     static void merge_xmp_status(XmpDecodeStatus* out,
                                  XmpDecodeStatus in) noexcept
@@ -1940,7 +1967,7 @@ main(int argc, char** argv)
 
         store.finalize();
         std::printf(
-            "exif=%s ifds_decoded=%u exr=%s exr_parts=%u exr_entries=%u xmp=%s xmp_entries=%u jumbf=%s jumbf_boxes=%u jumbf_cbor=%u jumbf_entries=%u entries=%zu blocks=%u\n",
+            "exif=%s ifds_decoded=%u exr=%s exr_parts=%u exr_entries=%u xmp=%s xmp_entries=%u jumbf=%s jumbf_boxes=%u jumbf_cbor=%u jumbf_entries=%u c2pa_verify=%s c2pa_backend=%s entries=%zu blocks=%u\n",
             exif_status_name(read.exif.status),
             static_cast<unsigned>(read.exif.ifds_written),
             exr_status_name(read.exr.status),
@@ -1952,6 +1979,8 @@ main(int argc, char** argv)
             static_cast<unsigned>(read.jumbf.boxes_decoded),
             static_cast<unsigned>(read.jumbf.cbor_items),
             static_cast<unsigned>(read.jumbf.entries_decoded),
+            c2pa_verify_status_name(read.jumbf.verify_status),
+            c2pa_verify_backend_name(read.jumbf.verify_backend_selected),
             store.entries().size(), static_cast<unsigned>(store.block_count()));
         if (read.exif.status == ExifDecodeStatus::LimitExceeded
             && read.exif.limit_reason != ExifLimitReason::None) {

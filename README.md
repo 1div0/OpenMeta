@@ -31,7 +31,8 @@ This is early-stage. Expect breaking API changes.
 - CLI tools:
   - `metaread`: human-readable dump; output is sanitized.
   - `metadump`: sidecar/preview dump tool (`--format lossless|portable`,
-    `--extract-preview`, supports both positional
+    `--extract-preview`, optional draft C2PA verify scaffold controls
+    (`--c2pa-verify`, `--c2pa-verify-backend`), supports both positional
     `<source> <destination>` and explicit `-i/--input` + `-o/--out`; when
     multiple previews are found, `--out name.jpg` writes `name_1.jpg`,
     `name_2.jpg`, ...).

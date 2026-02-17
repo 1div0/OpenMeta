@@ -40,6 +40,10 @@ option(OPENMETA_WHEEL_NO_BUILD_ISOLATION "Build wheel without isolation (require
 option(OPENMETA_WITH_ZLIB "Enable zlib/deflate payload decompression" ON)
 option(OPENMETA_WITH_BROTLI "Enable brotli payload decompression" ON)
 option(OPENMETA_WITH_EXPAT "Enable XMP packet decode via Expat" ON)
+option(OPENMETA_ENABLE_C2PA_VERIFY "Enable draft C2PA verification scaffold fields" OFF)
+set(OPENMETA_C2PA_VERIFY_BACKEND "auto" CACHE STRING
+  "Draft C2PA verify backend preference: auto/native/openssl/none")
+set_property(CACHE OPENMETA_C2PA_VERIFY_BACKEND PROPERTY STRINGS auto native openssl none)
 option(OPENMETA_USE_LIBCXX "Use libc++ as the C++ standard library (Clang)" OFF)
 
 include(GNUInstallDirs)
@@ -114,6 +118,32 @@ if(OPENMETA_WITH_EXPAT)
   find_package(EXPAT QUIET)
   if(EXPAT_FOUND)
     set(OPENMETA_EXPAT_FOUND ON)
+  endif()
+endif()
+
+string(TOLOWER "${OPENMETA_C2PA_VERIFY_BACKEND}" OPENMETA_C2PA_VERIFY_BACKEND_LOWER)
+if(NOT OPENMETA_C2PA_VERIFY_BACKEND_LOWER STREQUAL "auto"
+   AND NOT OPENMETA_C2PA_VERIFY_BACKEND_LOWER STREQUAL "native"
+   AND NOT OPENMETA_C2PA_VERIFY_BACKEND_LOWER STREQUAL "openssl"
+   AND NOT OPENMETA_C2PA_VERIFY_BACKEND_LOWER STREQUAL "none")
+  message(FATAL_ERROR
+    "OPENMETA_C2PA_VERIFY_BACKEND must be one of: auto, native, openssl, none")
+endif()
+set(OPENMETA_C2PA_VERIFY_BACKEND "${OPENMETA_C2PA_VERIFY_BACKEND_LOWER}" CACHE STRING
+  "Draft C2PA verify backend preference: auto/native/openssl/none" FORCE)
+
+set(OPENMETA_C2PA_VERIFY_NATIVE_AVAILABLE OFF)
+if(WIN32 OR APPLE)
+  set(OPENMETA_C2PA_VERIFY_NATIVE_AVAILABLE ON)
+endif()
+
+set(OPENMETA_OPENSSL_FOUND OFF)
+if(OPENMETA_ENABLE_C2PA_VERIFY
+   AND (OPENMETA_C2PA_VERIFY_BACKEND_LOWER STREQUAL "openssl"
+        OR OPENMETA_C2PA_VERIFY_BACKEND_LOWER STREQUAL "auto"))
+  find_package(OpenSSL QUIET)
+  if(OPENSSL_FOUND)
+    set(OPENMETA_OPENSSL_FOUND ON)
   endif()
 endif()
 
@@ -242,6 +272,22 @@ foreach(_tgt IN ITEMS openmeta_static openmeta_shared)
         target_link_libraries(${_tgt} PUBLIC "${EXPAT_LIBRARIES}")
       endif()
       target_compile_definitions(${_tgt} PUBLIC OPENMETA_HAS_EXPAT=1)
+    endif()
+    if(OPENMETA_ENABLE_C2PA_VERIFY)
+      target_compile_definitions(${_tgt} PUBLIC OPENMETA_ENABLE_C2PA_VERIFY=1)
+    else()
+      target_compile_definitions(${_tgt} PUBLIC OPENMETA_ENABLE_C2PA_VERIFY=0)
+    endif()
+    if(OPENMETA_C2PA_VERIFY_NATIVE_AVAILABLE)
+      target_compile_definitions(${_tgt} PUBLIC OPENMETA_C2PA_VERIFY_NATIVE_AVAILABLE=1)
+    else()
+      target_compile_definitions(${_tgt} PUBLIC OPENMETA_C2PA_VERIFY_NATIVE_AVAILABLE=0)
+    endif()
+    if(OPENMETA_OPENSSL_FOUND)
+      target_link_libraries(${_tgt} PUBLIC OpenSSL::Crypto)
+      target_compile_definitions(${_tgt} PUBLIC OPENMETA_C2PA_VERIFY_OPENSSL_AVAILABLE=1)
+    else()
+      target_compile_definitions(${_tgt} PUBLIC OPENMETA_C2PA_VERIFY_OPENSSL_AVAILABLE=0)
     endif()
   endif()
 endforeach()

@@ -4,6 +4,7 @@
 #include "openmeta/meta_key.h"
 #include "openmeta/meta_value.h"
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <cstring>
@@ -208,7 +209,7 @@ namespace {
         bmff_note_brand(major_brand, &is_heif, &is_avif, &is_cr3);
 
         std::array<uint32_t, 32> compat {};
-        uint32_t compat_count = 0;
+        uint32_t compat_count     = 0;
         const uint64_t brands_off = payload_off + 8;
         const uint64_t brands_end = payload_off + payload_size;
         for (uint64_t off = brands_off; off + 4 <= brands_end; off += 4) {
@@ -292,10 +293,9 @@ namespace {
                                 std::string_view value) noexcept
     {
         Entry e;
-        e.key                   = make_bmff_field_key(store.arena(), field);
-        e.value                 = make_text(store.arena(), value,
-                                            TextEncoding::Ascii);
-        e.origin.block          = block;
+        e.key          = make_bmff_field_key(store.arena(), field);
+        e.value        = make_text(store.arena(), value, TextEncoding::Ascii);
+        e.origin.block = block;
         e.origin.order_in_block = order;
         e.origin.wire_type      = WireType { WireFamily::Other, 0 };
         e.origin.wire_count     = 1;
@@ -328,7 +328,7 @@ namespace {
 
     struct U8Prop final {
         uint32_t index = 0;  // 1-based ipco index
-        uint8_t value = 0;
+        uint8_t value  = 0;
     };
 
     enum class AuxSemantic : uint8_t {
@@ -340,25 +340,25 @@ namespace {
     };
 
     struct AuxCProp final {
-        uint32_t index = 0;  // 1-based ipco index
+        uint32_t index       = 0;  // 1-based ipco index
         AuxSemantic semantic = AuxSemantic::Unknown;
         std::array<char, 96> aux_type {};
         uint16_t aux_type_len = 0;
         std::array<std::byte, 32> aux_subtype {};
-        uint16_t aux_subtype_len = 0;
+        uint16_t aux_subtype_len       = 0;
         uint16_t aux_subtype_total_len = 0;
-        bool aux_subtype_truncated = false;
+        bool aux_subtype_truncated     = false;
     };
 
     struct AuxItemInfo final {
-        uint32_t item_id = 0;
+        uint32_t item_id     = 0;
         AuxSemantic semantic = AuxSemantic::Unknown;
         std::array<char, 96> aux_type {};
         uint16_t aux_type_len = 0;
         std::array<std::byte, 32> aux_subtype {};
-        uint16_t aux_subtype_len = 0;
+        uint16_t aux_subtype_len       = 0;
         uint16_t aux_subtype_total_len = 0;
-        bool aux_subtype_truncated = false;
+        bool aux_subtype_truncated     = false;
     };
 
     struct ItemRefEdge final {
@@ -376,7 +376,7 @@ namespace {
         uint32_t width         = 0;
         uint32_t height        = 0;
 
-        bool have_rotation = false;
+        bool have_rotation        = false;
         uint16_t rotation_degrees = 0;
 
         bool have_mirror = false;
@@ -437,10 +437,32 @@ namespace {
         push_primary_rel(out, io_count, value);
     }
 
+    static void bump_item_edge_count(std::span<uint32_t> item_ids,
+                                     std::span<uint32_t> item_counts,
+                                     uint32_t* io_count,
+                                     uint32_t item_id) noexcept
+    {
+        if (!io_count) {
+            return;
+        }
+        const uint32_t cap = static_cast<uint32_t>(
+            std::min(item_ids.size(), item_counts.size()));
+        for (uint32_t i = 0; i < *io_count && i < cap; ++i) {
+            if (item_ids[i] == item_id) {
+                item_counts[i] += 1U;
+                return;
+            }
+        }
+        if (*io_count < cap) {
+            item_ids[*io_count]    = item_id;
+            item_counts[*io_count] = 1U;
+            *io_count += 1U;
+        }
+    }
+
     static uint8_t ascii_to_lower(uint8_t c) noexcept
     {
-        if (c >= static_cast<uint8_t>('A')
-            && c <= static_cast<uint8_t>('Z')) {
+        if (c >= static_cast<uint8_t>('A') && c <= static_cast<uint8_t>('Z')) {
             return static_cast<uint8_t>(c + 0x20U);
         }
         return c;
@@ -474,10 +496,10 @@ namespace {
         for (size_t i = 0; i <= stop; ++i) {
             bool match = true;
             for (size_t j = 0; j < needle.size(); ++j) {
-                const uint8_t hc
-                    = ascii_to_lower(static_cast<uint8_t>(hay[i + j]));
-                const uint8_t nc
-                    = ascii_to_lower(static_cast<uint8_t>(needle[j]));
+                const uint8_t hc = ascii_to_lower(
+                    static_cast<uint8_t>(hay[i + j]));
+                const uint8_t nc = ascii_to_lower(
+                    static_cast<uint8_t>(needle[j]));
                 if (hc != nc) {
                     match = false;
                     break;
@@ -498,7 +520,8 @@ namespace {
 
         if (ascii_ieq(aux_type, "urn:mpeg:hevc:2015:auxid:1")
             || ascii_icontains(aux_type, ":aux:alpha")
-            || ascii_ieq(aux_type, "urn:mpeg:mpegb:cicp:systems:auxiliary:alpha")) {
+            || ascii_ieq(aux_type,
+                         "urn:mpeg:mpegb:cicp:systems:auxiliary:alpha")) {
             return AuxSemantic::Alpha;
         }
         if (ascii_ieq(aux_type, "urn:mpeg:hevc:2015:auxid:2")
@@ -584,9 +607,9 @@ namespace {
             if (out->aux_item_count >= out->aux_items.size()) {
                 return UINT32_MAX;
             }
-            idx = out->aux_item_count;
-            out->aux_items[idx]          = AuxItemInfo {};
-            out->aux_items[idx].item_id  = item_id;
+            idx                         = out->aux_item_count;
+            out->aux_items[idx]         = AuxItemInfo {};
+            out->aux_items[idx].item_id = item_id;
             out->aux_item_count += 1;
         }
         return idx;
@@ -621,10 +644,9 @@ namespace {
         if (info.aux_type_len != 0) {
             return;
         }
-        const size_t max_copy
-            = (aux_type.size() < info.aux_type.size())
-                  ? aux_type.size()
-                  : info.aux_type.size();
+        const size_t max_copy = (aux_type.size() < info.aux_type.size())
+                                    ? aux_type.size()
+                                    : info.aux_type.size();
         for (size_t i = 0; i < max_copy; ++i) {
             info.aux_type[i] = aux_type[i];
         }
@@ -647,14 +669,13 @@ namespace {
         if (info.aux_subtype_total_len != 0) {
             return;
         }
-        const size_t max_copy
-            = (subtype.size() < info.aux_subtype.size())
-                  ? subtype.size()
-                  : info.aux_subtype.size();
+        const size_t max_copy = (subtype.size() < info.aux_subtype.size())
+                                    ? subtype.size()
+                                    : info.aux_subtype.size();
         for (size_t i = 0; i < max_copy; ++i) {
             info.aux_subtype[i] = subtype[i];
         }
-        info.aux_subtype_len = static_cast<uint16_t>(max_copy);
+        info.aux_subtype_len       = static_cast<uint16_t>(max_copy);
         info.aux_subtype_total_len = total_len;
         info.aux_subtype_truncated = truncated;
     }
@@ -665,8 +686,8 @@ namespace {
         return kHex[v & 0x0F];
     }
 
-    static bool bytes_are_printable_ascii(
-        std::span<const std::byte> bytes) noexcept
+    static bool
+    bytes_are_printable_ascii(std::span<const std::byte> bytes) noexcept
     {
         if (bytes.empty()) {
             return false;
@@ -680,8 +701,8 @@ namespace {
         return true;
     }
 
-    static std::string bytes_to_hex_string(
-        std::span<const std::byte> bytes) noexcept
+    static std::string
+    bytes_to_hex_string(std::span<const std::byte> bytes) noexcept
     {
         std::string out;
         out.reserve(bytes.size() * 2U + 2U);
@@ -695,8 +716,8 @@ namespace {
         return out;
     }
 
-    static std::string bytes16_to_uuid_string(
-        std::span<const std::byte> bytes) noexcept
+    static std::string
+    bytes16_to_uuid_string(std::span<const std::byte> bytes) noexcept
     {
         std::string out;
         out.reserve(36U);
@@ -713,16 +734,16 @@ namespace {
 
     struct AuxSubtypeInterpretation final {
         std::string_view kind;
-        bool has_u32 = false;
-        uint32_t u32 = 0;
+        bool has_u32  = false;
+        uint32_t u32  = 0;
         bool has_text = false;
         std::array<char, 80> text {};
         uint16_t text_len = 0;
     };
 
-    static AuxSubtypeInterpretation interpret_aux_subtype(
-        std::span<const std::byte> subtype, uint16_t total_len,
-        bool truncated) noexcept
+    static AuxSubtypeInterpretation
+    interpret_aux_subtype(std::span<const std::byte> subtype,
+                          uint16_t total_len, bool truncated) noexcept
     {
         AuxSubtypeInterpretation out {};
         if (total_len == 0U) {
@@ -766,23 +787,24 @@ namespace {
             return out;
         }
         if (total_len == 16U && subtype.size() >= 16U) {
-            out.kind = "uuid";
+            out.kind               = "uuid";
             const std::string uuid = bytes16_to_uuid_string(subtype.first(16U));
             const size_t n = (uuid.size() < out.text.size()) ? uuid.size()
                                                              : out.text.size();
             for (size_t i = 0; i < n; ++i) {
                 out.text[i] = uuid[i];
             }
-            out.text_len  = static_cast<uint16_t>(n);
-            out.has_text  = (n != 0U);
+            out.text_len = static_cast<uint16_t>(n);
+            out.has_text = (n != 0U);
             return out;
         }
 
         if (!truncated && static_cast<size_t>(total_len) == subtype.size()
             && bytes_are_printable_ascii(subtype)) {
-            out.kind = "ascii";
-            const size_t n = (subtype.size() < out.text.size()) ? subtype.size()
-                                                                 : out.text.size();
+            out.kind       = "ascii";
+            const size_t n = (subtype.size() < out.text.size())
+                                 ? subtype.size()
+                                 : out.text.size();
             for (size_t i = 0; i < n; ++i) {
                 out.text[i] = static_cast<char>(u8(subtype[i]));
             }
@@ -920,12 +942,10 @@ namespace {
         std::array<IspeProp, 64>* out_ispe, uint32_t* out_ispe_count,
         std::array<U8Prop, 64>* out_irot, uint32_t* out_irot_count,
         std::array<U8Prop, 64>* out_imir, uint32_t* out_imir_count,
-        std::array<AuxCProp, 64>* out_auxc,
-        uint32_t* out_auxc_count) noexcept
+        std::array<AuxCProp, 64>* out_auxc, uint32_t* out_auxc_count) noexcept
     {
         if (!out_ispe || !out_ispe_count || !out_irot || !out_irot_count
-            || !out_imir || !out_imir_count || !out_auxc
-            || !out_auxc_count) {
+            || !out_imir || !out_imir_count || !out_auxc || !out_auxc_count) {
             return;
         }
 
@@ -940,10 +960,10 @@ namespace {
             return;
         }
 
-        uint64_t off               = payload_off;
-        uint32_t prop_index        = 1;
-        const uint32_t kMaxBoxes   = 1U << 16;
-        uint32_t seen              = 0;
+        uint64_t off             = payload_off;
+        uint32_t prop_index      = 1;
+        const uint32_t kMaxBoxes = 1U << 16;
+        uint32_t seen            = 0;
         while (off + 8 <= payload_end) {
             seen += 1;
             if (seen > kMaxBoxes) {
@@ -977,8 +997,8 @@ namespace {
                     if (child_payload_size >= 1) {
                         const uint8_t rot = u8(bytes[child_payload_off]) & 0x03;
                         if (*out_irot_count < out_irot->size()) {
-                            (*out_irot)[*out_irot_count]
-                                = U8Prop { prop_index, rot };
+                            (*out_irot)[*out_irot_count] = U8Prop { prop_index,
+                                                                    rot };
                             *out_irot_count += 1;
                         }
                     }
@@ -986,14 +1006,14 @@ namespace {
                     if (child_payload_size >= 1) {
                         const uint8_t dir = u8(bytes[child_payload_off]);
                         if (*out_imir_count < out_imir->size()) {
-                            (*out_imir)[*out_imir_count]
-                                = U8Prop { prop_index, dir };
+                            (*out_imir)[*out_imir_count] = U8Prop { prop_index,
+                                                                    dir };
                             *out_imir_count += 1;
                         }
                     }
                 } else if (child.type == fourcc('a', 'u', 'x', 'C')) {
                     if (child_payload_size >= 5) {
-                        uint64_t p = child_payload_off + 4;
+                        uint64_t p       = child_payload_off + 4;
                         const uint64_t e = child_payload_off
                                            + child_payload_size;
                         while (p < e && bytes[p] != std::byte { 0x00 }) {
@@ -1002,29 +1022,28 @@ namespace {
                         if (p < e) {
                             const uint64_t type_off = child_payload_off + 4;
                             const uint64_t type_len = p - type_off;
-                            if (type_len > 0
-                                && type_off <= bytes.size()
+                            if (type_len > 0 && type_off <= bytes.size()
                                 && type_len <= bytes.size() - type_off) {
                                 const char* s = reinterpret_cast<const char*>(
                                     bytes.data() + type_off);
-                                const std::string_view aux_type(s,
-                                                                type_len);
-                                const AuxSemantic semantic
-                                    = classify_auxc_type(aux_type);
+                                const std::string_view aux_type(s, type_len);
+                                const AuxSemantic semantic = classify_auxc_type(
+                                    aux_type);
                                 if (*out_auxc_count < out_auxc->size()) {
                                     AuxCProp prop {};
                                     prop.index    = prop_index;
                                     prop.semantic = semantic;
 
                                     const size_t type_copy
-                                        = (aux_type.size() < prop.aux_type.size())
+                                        = (aux_type.size()
+                                           < prop.aux_type.size())
                                               ? aux_type.size()
                                               : prop.aux_type.size();
                                     for (size_t ti = 0; ti < type_copy; ++ti) {
                                         prop.aux_type[ti] = aux_type[ti];
                                     }
-                                    prop.aux_type_len
-                                        = static_cast<uint16_t>(type_copy);
+                                    prop.aux_type_len = static_cast<uint16_t>(
+                                        type_copy);
 
                                     const uint64_t subtype_off = p + 1;
                                     if (subtype_off <= e) {
@@ -1050,7 +1069,7 @@ namespace {
                                             = (subtype_len > 0xFFFFU)
                                                   ? 0xFFFFU
                                                   : static_cast<uint16_t>(
-                                                      subtype_len);
+                                                        subtype_len);
                                         prop.aux_subtype_truncated
                                             = (subtype_copy < subtype_len);
                                     }
@@ -1119,8 +1138,7 @@ namespace {
         std::span<const std::byte> bytes, const BmffBox& ipma,
         uint32_t primary_item_id, std::span<const IspeProp> ispe,
         std::span<const U8Prop> irot, std::span<const U8Prop> imir,
-        std::span<const AuxCProp> auxc,
-        PrimaryProps* out) noexcept
+        std::span<const AuxCProp> auxc, PrimaryProps* out) noexcept
     {
         if (!out) {
             return;
@@ -1142,12 +1160,11 @@ namespace {
             return;
         }
 
-        uint64_t off = payload_off + 8;
-        const uint64_t end = payload_off + payload_size;
-        const uint32_t kMaxEntries = 1U << 16;
-        const uint32_t take_entries = (entry_count < kMaxEntries)
-                                          ? entry_count
-                                          : kMaxEntries;
+        uint64_t off                = payload_off + 8;
+        const uint64_t end          = payload_off + payload_size;
+        const uint32_t kMaxEntries  = 1U << 16;
+        const uint32_t take_entries = (entry_count < kMaxEntries) ? entry_count
+                                                                  : kMaxEntries;
         for (uint32_t i = 0; i < take_entries; ++i) {
             uint32_t item_id = 0;
             if (version < 1) {
@@ -1190,13 +1207,14 @@ namespace {
                     const uint32_t prop_index = static_cast<uint32_t>(v & 0x7F);
                     if (prop_index != 0U) {
                         if (is_primary) {
-                            if (const IspeProp* p = find_ispe(ispe, prop_index)) {
+                            if (const IspeProp* p = find_ispe(ispe,
+                                                              prop_index)) {
                                 out->have_width_height = true;
                                 out->width             = p->width;
                                 out->height            = p->height;
                             }
                             if (const U8Prop* p = find_u8(irot, prop_index)) {
-                                out->have_rotation     = true;
+                                out->have_rotation = true;
                                 out->rotation_degrees
                                     = static_cast<uint16_t>(p->value) * 90U;
                             }
@@ -1206,7 +1224,8 @@ namespace {
                             }
                         }
                         if (is_primary_aux) {
-                            if (const AuxCProp* p = find_auxc(auxc, prop_index)) {
+                            if (const AuxCProp* p = find_auxc(auxc,
+                                                              prop_index)) {
                                 set_aux_item_semantic(out, item_id,
                                                       p->semantic);
                                 if (p->aux_type_len > 0) {
@@ -1239,13 +1258,12 @@ namespace {
                             }
                             if (p->aux_subtype_len > 0
                                 || p->aux_subtype_total_len > 0) {
-                                set_aux_item_subtype(
-                                    out, item_id,
-                                    std::span<const std::byte>(
-                                        p->aux_subtype.data(),
-                                        p->aux_subtype_len),
-                                    p->aux_subtype_total_len,
-                                    p->aux_subtype_truncated);
+                                set_aux_item_subtype(out, item_id,
+                                                     std::span<const std::byte>(
+                                                         p->aux_subtype.data(),
+                                                         p->aux_subtype_len),
+                                                     p->aux_subtype_total_len,
+                                                     p->aux_subtype_truncated);
                             }
                         }
                     }
@@ -1260,17 +1278,18 @@ namespace {
                         return;
                     }
                     off += 2;
-                    const uint32_t prop_index
-                        = static_cast<uint32_t>(v & 0x7FFF);
+                    const uint32_t prop_index = static_cast<uint32_t>(v
+                                                                      & 0x7FFF);
                     if (prop_index != 0U) {
                         if (is_primary) {
-                            if (const IspeProp* p = find_ispe(ispe, prop_index)) {
+                            if (const IspeProp* p = find_ispe(ispe,
+                                                              prop_index)) {
                                 out->have_width_height = true;
                                 out->width             = p->width;
                                 out->height            = p->height;
                             }
                             if (const U8Prop* p = find_u8(irot, prop_index)) {
-                                out->have_rotation     = true;
+                                out->have_rotation = true;
                                 out->rotation_degrees
                                     = static_cast<uint16_t>(p->value) * 90U;
                             }
@@ -1280,7 +1299,8 @@ namespace {
                             }
                         }
                         if (is_primary_aux) {
-                            if (const AuxCProp* p = find_auxc(auxc, prop_index)) {
+                            if (const AuxCProp* p = find_auxc(auxc,
+                                                              prop_index)) {
                                 set_aux_item_semantic(out, item_id,
                                                       p->semantic);
                                 if (p->aux_type_len > 0) {
@@ -1313,13 +1333,12 @@ namespace {
                             }
                             if (p->aux_subtype_len > 0
                                 || p->aux_subtype_total_len > 0) {
-                                set_aux_item_subtype(
-                                    out, item_id,
-                                    std::span<const std::byte>(
-                                        p->aux_subtype.data(),
-                                        p->aux_subtype_len),
-                                    p->aux_subtype_total_len,
-                                    p->aux_subtype_truncated);
+                                set_aux_item_subtype(out, item_id,
+                                                     std::span<const std::byte>(
+                                                         p->aux_subtype.data(),
+                                                         p->aux_subtype_len),
+                                                     p->aux_subtype_total_len,
+                                                     p->aux_subtype_truncated);
                             }
                         }
                     }
@@ -1347,9 +1366,9 @@ namespace {
             return false;
         }
 
-        uint64_t off             = payload_off + 4;  // skip FullBox header
-        const uint32_t kMaxBoxes = 1U << 16;
-        uint32_t seen            = 0;
+        uint64_t off                  = payload_off + 4;  // skip FullBox header
+        const uint32_t kMaxBoxes      = 1U << 16;
+        uint32_t seen                 = 0;
         const uint32_t kMaxRefsPerBox = 1U << 14;
         const uint32_t kMaxTotalRefs  = 1U << 18;
         while (off + 8 <= payload_end) {
@@ -1370,7 +1389,7 @@ namespace {
                 return false;
             }
 
-            uint64_t p = child_payload_off;
+            uint64_t p            = child_payload_off;
             uint32_t from_item_id = 0;
             if (version == 0) {
                 uint16_t from16 = 0;
@@ -1515,7 +1534,7 @@ namespace {
             return true;
         }
 
-        uint64_t off             = iprp_payload_off;
+        uint64_t off              = iprp_payload_off;
         const uint32_t kMaxBoxes2 = 1U << 16;
         uint32_t seen2            = 0;
         while (off + 8 <= iprp_payload_end) {
@@ -1573,12 +1592,12 @@ namespace {
 
     struct ScanCtx final {
         std::span<const std::byte> bytes;
-        MetaStore* store      = nullptr;
-        BlockId block         = kInvalidBlockId;
-        uint32_t* order       = nullptr;
-        bool meta_done        = false;
+        MetaStore* store       = nullptr;
+        BlockId block          = kInvalidBlockId;
+        uint32_t* order        = nullptr;
+        bool meta_done         = false;
         ContainerFormat format = ContainerFormat::Unknown;
-        uint32_t seen_boxes   = 0;
+        uint32_t seen_boxes    = 0;
     };
 
 
@@ -1636,40 +1655,76 @@ namespace {
                                           (*ctx->order)++,
                                           "iref.edge_truncated", 1);
                         }
+                        uint32_t auxl_edge_count = 0;
+                        uint32_t dimg_edge_count = 0;
+                        uint32_t thmb_edge_count = 0;
+                        uint32_t cdsc_edge_count = 0;
+                        std::array<uint32_t, 512> auxl_from_ids {};
+                        std::array<uint32_t, 512> auxl_to_ids {};
+                        std::array<uint32_t, 512> dimg_from_ids {};
+                        std::array<uint32_t, 512> dimg_to_ids {};
+                        std::array<uint32_t, 512> thmb_from_ids {};
+                        std::array<uint32_t, 512> thmb_to_ids {};
+                        std::array<uint32_t, 512> cdsc_from_ids {};
+                        std::array<uint32_t, 512> cdsc_to_ids {};
+                        uint32_t auxl_from_count = 0;
+                        uint32_t auxl_to_count   = 0;
+                        uint32_t dimg_from_count = 0;
+                        uint32_t dimg_to_count   = 0;
+                        uint32_t thmb_from_count = 0;
+                        uint32_t thmb_to_count   = 0;
+                        uint32_t cdsc_from_count = 0;
+                        uint32_t cdsc_to_count   = 0;
+                        std::array<uint32_t, 512> iref_item_ids {};
+                        std::array<uint32_t, 512> iref_item_out_edge_counts {};
+                        std::array<uint32_t, 512> iref_item_in_edge_counts {};
+                        uint32_t iref_item_count = 0;
                         for (uint32_t i = 0; i < p.iref_edge_count; ++i) {
                             emit_u32_field(*ctx->store, ctx->block,
                                            (*ctx->order)++, "iref.ref_type",
                                            p.iref_edges[i].ref_type);
                             emit_u32_field(*ctx->store, ctx->block,
-                                           (*ctx->order)++,
-                                           "iref.from_item_id",
+                                           (*ctx->order)++, "iref.from_item_id",
                                            p.iref_edges[i].from_item_id);
                             emit_u32_field(*ctx->store, ctx->block,
                                            (*ctx->order)++, "iref.to_item_id",
                                            p.iref_edges[i].to_item_id);
+                            bump_item_edge_count(iref_item_ids,
+                                                 iref_item_out_edge_counts,
+                                                 &iref_item_count,
+                                                 p.iref_edges[i].from_item_id);
+                            bump_item_edge_count(iref_item_ids,
+                                                 iref_item_in_edge_counts,
+                                                 &iref_item_count,
+                                                 p.iref_edges[i].to_item_id);
                             if (p.iref_edges[i].ref_type
                                 == fourcc('a', 'u', 'x', 'l')) {
-                                emit_u32_field(
-                                    *ctx->store, ctx->block, (*ctx->order)++,
-                                    "iref.auxl.from_item_id",
+                                auxl_edge_count += 1;
+                                push_primary_rel_unique(
+                                    auxl_from_ids, &auxl_from_count,
                                     p.iref_edges[i].from_item_id);
-                                emit_u32_field(
-                                    *ctx->store, ctx->block, (*ctx->order)++,
-                                    "iref.auxl.to_item_id",
+                                push_primary_rel_unique(
+                                    auxl_to_ids, &auxl_to_count,
                                     p.iref_edges[i].to_item_id);
+                                emit_u32_field(*ctx->store, ctx->block,
+                                               (*ctx->order)++,
+                                               "iref.auxl.from_item_id",
+                                               p.iref_edges[i].from_item_id);
+                                emit_u32_field(*ctx->store, ctx->block,
+                                               (*ctx->order)++,
+                                               "iref.auxl.to_item_id",
+                                               p.iref_edges[i].to_item_id);
                                 emit_text_field(
                                     *ctx->store, ctx->block, (*ctx->order)++,
                                     "iref.auxl.semantic",
                                     aux_semantic_name(find_aux_item_semantic(
                                         p, p.iref_edges[i].to_item_id)));
-                                if (const AuxItemInfo* info
-                                    = find_aux_item_info(
+                                if (const AuxItemInfo* info = find_aux_item_info(
                                         p, p.iref_edges[i].to_item_id)) {
                                     if (info->aux_type_len > 0) {
                                         emit_text_field(
                                             *ctx->store, ctx->block,
-                                            (*ctx->order)++,
-                                            "iref.auxl.type",
+                                            (*ctx->order)++, "iref.auxl.type",
                                             std::string_view(
                                                 info->aux_type.data(),
                                                 info->aux_type_len));
@@ -1682,11 +1737,10 @@ namespace {
                                                     info->aux_subtype_len),
                                                 info->aux_subtype_total_len,
                                                 info->aux_subtype_truncated);
-                                        emit_text_field(
-                                            *ctx->store, ctx->block,
-                                            (*ctx->order)++,
-                                            "iref.auxl.subtype_kind",
-                                            interp.kind);
+                                        emit_text_field(*ctx->store, ctx->block,
+                                                        (*ctx->order)++,
+                                                        "iref.auxl.subtype_kind",
+                                                        interp.kind);
                                         if (interp.has_text) {
                                             emit_text_field(
                                                 *ctx->store, ctx->block,
@@ -1708,12 +1762,155 @@ namespace {
                                                 std::span<const std::byte>(
                                                     info->aux_subtype.data(),
                                                     info->aux_subtype_len));
-                                        emit_text_field(
-                                            *ctx->store, ctx->block,
-                                            (*ctx->order)++,
-                                            "iref.auxl.subtype_hex", hex);
+                                        emit_text_field(*ctx->store, ctx->block,
+                                                        (*ctx->order)++,
+                                                        "iref.auxl.subtype_hex",
+                                                        hex);
                                     }
                                 }
+                            } else if (p.iref_edges[i].ref_type
+                                       == fourcc('d', 'i', 'm', 'g')) {
+                                dimg_edge_count += 1;
+                                push_primary_rel_unique(
+                                    dimg_from_ids, &dimg_from_count,
+                                    p.iref_edges[i].from_item_id);
+                                push_primary_rel_unique(
+                                    dimg_to_ids, &dimg_to_count,
+                                    p.iref_edges[i].to_item_id);
+                                emit_u32_field(*ctx->store, ctx->block,
+                                               (*ctx->order)++,
+                                               "iref.dimg.from_item_id",
+                                               p.iref_edges[i].from_item_id);
+                                emit_u32_field(*ctx->store, ctx->block,
+                                               (*ctx->order)++,
+                                               "iref.dimg.to_item_id",
+                                               p.iref_edges[i].to_item_id);
+                            } else if (p.iref_edges[i].ref_type
+                                       == fourcc('t', 'h', 'm', 'b')) {
+                                thmb_edge_count += 1;
+                                push_primary_rel_unique(
+                                    thmb_from_ids, &thmb_from_count,
+                                    p.iref_edges[i].from_item_id);
+                                push_primary_rel_unique(
+                                    thmb_to_ids, &thmb_to_count,
+                                    p.iref_edges[i].to_item_id);
+                                emit_u32_field(*ctx->store, ctx->block,
+                                               (*ctx->order)++,
+                                               "iref.thmb.from_item_id",
+                                               p.iref_edges[i].from_item_id);
+                                emit_u32_field(*ctx->store, ctx->block,
+                                               (*ctx->order)++,
+                                               "iref.thmb.to_item_id",
+                                               p.iref_edges[i].to_item_id);
+                            } else if (p.iref_edges[i].ref_type
+                                       == fourcc('c', 'd', 's', 'c')) {
+                                cdsc_edge_count += 1;
+                                push_primary_rel_unique(
+                                    cdsc_from_ids, &cdsc_from_count,
+                                    p.iref_edges[i].from_item_id);
+                                push_primary_rel_unique(
+                                    cdsc_to_ids, &cdsc_to_count,
+                                    p.iref_edges[i].to_item_id);
+                                emit_u32_field(*ctx->store, ctx->block,
+                                               (*ctx->order)++,
+                                               "iref.cdsc.from_item_id",
+                                               p.iref_edges[i].from_item_id);
+                                emit_u32_field(*ctx->store, ctx->block,
+                                               (*ctx->order)++,
+                                               "iref.cdsc.to_item_id",
+                                               p.iref_edges[i].to_item_id);
+                            }
+                        }
+                        if (auxl_edge_count > 0) {
+                            emit_u32_field(*ctx->store, ctx->block,
+                                           (*ctx->order)++,
+                                           "iref.auxl.edge_count",
+                                           auxl_edge_count);
+                            emit_u32_field(*ctx->store, ctx->block,
+                                           (*ctx->order)++,
+                                           "iref.auxl.from_item_unique_count",
+                                           auxl_from_count);
+                            emit_u32_field(*ctx->store, ctx->block,
+                                           (*ctx->order)++,
+                                           "iref.auxl.to_item_unique_count",
+                                           auxl_to_count);
+                        }
+                        if (dimg_edge_count > 0) {
+                            emit_u32_field(*ctx->store, ctx->block,
+                                           (*ctx->order)++,
+                                           "iref.dimg.edge_count",
+                                           dimg_edge_count);
+                            emit_u32_field(*ctx->store, ctx->block,
+                                           (*ctx->order)++,
+                                           "iref.dimg.from_item_unique_count",
+                                           dimg_from_count);
+                            emit_u32_field(*ctx->store, ctx->block,
+                                           (*ctx->order)++,
+                                           "iref.dimg.to_item_unique_count",
+                                           dimg_to_count);
+                        }
+                        if (thmb_edge_count > 0) {
+                            emit_u32_field(*ctx->store, ctx->block,
+                                           (*ctx->order)++,
+                                           "iref.thmb.edge_count",
+                                           thmb_edge_count);
+                            emit_u32_field(*ctx->store, ctx->block,
+                                           (*ctx->order)++,
+                                           "iref.thmb.from_item_unique_count",
+                                           thmb_from_count);
+                            emit_u32_field(*ctx->store, ctx->block,
+                                           (*ctx->order)++,
+                                           "iref.thmb.to_item_unique_count",
+                                           thmb_to_count);
+                        }
+                        if (cdsc_edge_count > 0) {
+                            emit_u32_field(*ctx->store, ctx->block,
+                                           (*ctx->order)++,
+                                           "iref.cdsc.edge_count",
+                                           cdsc_edge_count);
+                            emit_u32_field(*ctx->store, ctx->block,
+                                           (*ctx->order)++,
+                                           "iref.cdsc.from_item_unique_count",
+                                           cdsc_from_count);
+                            emit_u32_field(*ctx->store, ctx->block,
+                                           (*ctx->order)++,
+                                           "iref.cdsc.to_item_unique_count",
+                                           cdsc_to_count);
+                        }
+                        if (iref_item_count > 0) {
+                            uint32_t unique_from_count = 0;
+                            uint32_t unique_to_count   = 0;
+                            for (uint32_t i = 0; i < iref_item_count; ++i) {
+                                if (iref_item_out_edge_counts[i] > 0) {
+                                    unique_from_count += 1U;
+                                }
+                                if (iref_item_in_edge_counts[i] > 0) {
+                                    unique_to_count += 1U;
+                                }
+                            }
+                            emit_u32_field(*ctx->store, ctx->block,
+                                           (*ctx->order)++, "iref.item_count",
+                                           iref_item_count);
+                            emit_u32_field(*ctx->store, ctx->block,
+                                           (*ctx->order)++,
+                                           "iref.from_item_unique_count",
+                                           unique_from_count);
+                            emit_u32_field(*ctx->store, ctx->block,
+                                           (*ctx->order)++,
+                                           "iref.to_item_unique_count",
+                                           unique_to_count);
+                            for (uint32_t i = 0; i < iref_item_count; ++i) {
+                                emit_u32_field(*ctx->store, ctx->block,
+                                               (*ctx->order)++, "iref.item_id",
+                                               iref_item_ids[i]);
+                                emit_u32_field(*ctx->store, ctx->block,
+                                               (*ctx->order)++,
+                                               "iref.item_out_edge_count",
+                                               iref_item_out_edge_counts[i]);
+                                emit_u32_field(*ctx->store, ctx->block,
+                                               (*ctx->order)++,
+                                               "iref.item_in_edge_count",
+                                               iref_item_in_edge_counts[i]);
                             }
                         }
                         for (uint32_t i = 0; i < p.aux_item_count; ++i) {
@@ -1722,7 +1919,8 @@ namespace {
                                            p.aux_items[i].item_id);
                             emit_text_field(*ctx->store, ctx->block,
                                             (*ctx->order)++, "aux.semantic",
-                                            aux_semantic_name(p.aux_items[i].semantic));
+                                            aux_semantic_name(
+                                                p.aux_items[i].semantic));
                             if (p.aux_items[i].aux_type_len > 0) {
                                 emit_text_field(
                                     *ctx->store, ctx->block, (*ctx->order)++,
@@ -1739,9 +1937,10 @@ namespace {
                                             p.aux_items[i].aux_subtype_len),
                                         p.aux_items[i].aux_subtype_total_len,
                                         p.aux_items[i].aux_subtype_truncated);
-                                emit_text_field(
-                                    *ctx->store, ctx->block, (*ctx->order)++,
-                                    "aux.subtype_kind", interp.kind);
+                                emit_text_field(*ctx->store, ctx->block,
+                                                (*ctx->order)++,
+                                                "aux.subtype_kind",
+                                                interp.kind);
                                 if (interp.has_text) {
                                     emit_text_field(
                                         *ctx->store, ctx->block,
@@ -1750,10 +1949,10 @@ namespace {
                                                          interp.text_len));
                                 }
                                 if (interp.has_u32) {
-                                    emit_u32_field(
-                                        *ctx->store, ctx->block,
-                                        (*ctx->order)++, "aux.subtype_u32",
-                                        interp.u32);
+                                    emit_u32_field(*ctx->store, ctx->block,
+                                                   (*ctx->order)++,
+                                                   "aux.subtype_u32",
+                                                   interp.u32);
                                 }
                                 const std::string hex = bytes_to_hex_string(
                                     std::span<const std::byte>(
@@ -1768,10 +1967,9 @@ namespace {
                                     static_cast<uint32_t>(
                                         p.aux_items[i].aux_subtype_total_len));
                                 if (p.aux_items[i].aux_subtype_truncated) {
-                                    emit_u8_field(
-                                        *ctx->store, ctx->block,
-                                        (*ctx->order)++,
-                                        "aux.subtype_truncated", 1);
+                                    emit_u8_field(*ctx->store, ctx->block,
+                                                  (*ctx->order)++,
+                                                  "aux.subtype_truncated", 1);
                                 }
                             }
                         }
@@ -1798,8 +1996,8 @@ namespace {
                                            "primary.depth_item_id",
                                            p.primary_depth_item_ids[i]);
                         }
-                        for (uint32_t i = 0;
-                             i < p.primary_disparity_count; ++i) {
+                        for (uint32_t i = 0; i < p.primary_disparity_count;
+                             ++i) {
                             emit_u32_field(*ctx->store, ctx->block,
                                            (*ctx->order)++,
                                            "primary.disparity_item_id",
@@ -1868,8 +2066,8 @@ namespace bmff_internal {
             return;
         }
 
-        ContainerFormat fmt = ContainerFormat::Unknown;
-        uint32_t major_brand = 0;
+        ContainerFormat fmt    = ContainerFormat::Unknown;
+        uint32_t major_brand   = 0;
         uint32_t minor_version = 0;
         std::array<uint32_t, 32> compat {};
         uint32_t compat_count = 0;
@@ -1888,17 +2086,17 @@ namespace bmff_internal {
         emit_u32_field(store, block, order++, "ftyp.minor_version",
                        minor_version);
         if (compat_count > 0) {
-            emit_u32_array_field(
-                store, block, order++, "ftyp.compat_brands",
-                std::span<const uint32_t>(compat.data(), compat_count));
+            emit_u32_array_field(store, block, order++, "ftyp.compat_brands",
+                                 std::span<const uint32_t>(compat.data(),
+                                                           compat_count));
         }
 
         ScanCtx ctx;
-        ctx.bytes   = file_bytes;
-        ctx.store   = &store;
-        ctx.block   = block;
-        ctx.order   = &order;
-        ctx.format  = fmt;
+        ctx.bytes     = file_bytes;
+        ctx.store     = &store;
+        ctx.block     = block;
+        ctx.order     = &order;
+        ctx.format    = fmt;
         ctx.meta_done = false;
         bmff_scan_for_meta(file_bytes, 0, file_bytes.size(), 0, &ctx);
     }

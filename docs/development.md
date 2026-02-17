@@ -26,6 +26,11 @@ dependencies let OpenMeta decode more content:
   `zTXt`).
 - **Brotli** (`OPENMETA_WITH_BROTLI`): decompresses JPEG XL `brob` "compressed
   metadata" boxes so wrapped metadata payloads can be decoded.
+- **Draft C2PA verify scaffold** (`OPENMETA_ENABLE_C2PA_VERIFY`,
+  `OPENMETA_C2PA_VERIFY_BACKEND`): enables backend selection/reporting fields
+  (`none|auto|native|openssl`) and draft verification flow. Native backend
+  availability is platform-based (Windows/macOS), while OpenSSL availability
+  is discovered via `find_package(OpenSSL)` when needed.
 
 If you link against dependencies that were built with `libc++` (common when
 using Clang), configure OpenMeta with:
@@ -50,6 +55,9 @@ using Clang), configure OpenMeta with:
 
 # Portable sidecar
 ./build/metadump --format portable --portable-include-existing-xmp input.jpg output.xmp
+
+# Portable sidecar + draft C2PA verify scaffold status reporting
+./build/metadump --format portable --c2pa-verify --c2pa-verify-backend auto input.jpg output.xmp
 
 # Explicit input/output form
 ./build/metadump -i input.jpg -o output.xmp
@@ -98,7 +106,7 @@ This policy surface is intentionally marked draft and may be refined.
 - Core EXIF/TIFF decoding: `src/openmeta/exif_tiff_decode.cc`
 - ISO-BMFF (HEIF/AVIF/CR3) container-derived fields: `src/openmeta/bmff_fields_decode.cc`
   - Emitted during `simple_meta_read(...)` as `MetaKeyKind::BmffField` entries.
-  - Current fields: `ftyp.*`, primary item properties (`pitm`, `iprp/ipco ispe/irot/imir`, `ipma`), draft `iref.*` relation fields (`ref_type`, `from_item_id`, `to_item_id`, `edge_count`), `iref.auxl.*` derived relation rows, and `auxC`-based aux semantics (`aux.item_id`, `aux.semantic`, `aux.type`, `aux.subtype_hex`, `aux.subtype_kind`, `aux.subtype_u32`, `primary.auxl_semantic`, `primary.depth_item_id`, `primary.alpha_item_id`, ...).
+  - Current fields: `ftyp.*`, primary item properties (`pitm`, `iprp/ipco ispe/irot/imir`, `ipma`), draft `iref.*` relation fields (`ref_type`, `from_item_id`, `to_item_id`, `edge_count`), typed derived relation rows (`iref.auxl.*`, `iref.dimg.*`, `iref.thmb.*`, `iref.cdsc.*`), per-type relation counters (`iref.<type>.edge_count`) and per-type unique source/target counters (`iref.<type>.from_item_unique_count`, `iref.<type>.to_item_unique_count`), draft relation-graph summaries (`iref.item_count`, `iref.from_item_unique_count`, `iref.to_item_unique_count`, row-wise `iref.item_id` + `iref.item_out_edge_count` + `iref.item_in_edge_count`), and `auxC`-based aux semantics (`aux.item_id`, `aux.semantic`, `aux.type`, `aux.subtype_hex`, `aux.subtype_kind`, `aux.subtype_u32`, `primary.auxl_semantic`, `primary.depth_item_id`, `primary.alpha_item_id`, ...).
   - Parsing is intentionally bounded (depth/box count caps) and ignores unknown properties.
 - JUMBF/C2PA decode (draft phase-3): `src/openmeta/jumbf_decode.cc`
   - Routed from container scan blocks tagged as `ContainerBlockKind::Jumbf`
@@ -111,7 +119,45 @@ This policy surface is intentionally marked draft and may be refined.
   - Draft semantic projection emits stable `c2pa.semantic.*` fields
     (`manifest_present`, `claim_present`, `assertion_present`,
     `signature_present`, `assertion_key_hits`, `cbor_key_count`,
-    `claim_generator` when ASCII-safe).
+    `signature_count`,
+    `claim_generator` when ASCII-safe), plus draft per-claim fields
+    (`claim_count`, `assertion_count`, `claim.{i}.prefix`,
+    `claim.{i}.assertion_count`, `claim.{i}.key_hits`,
+    `claim.{i}.signature_count`, `claim.{i}.signature_key_hits`,
+    `claim.{i}.claim_generator` when ASCII-safe) and per-assertion fields
+    (`claim.{i}.assertion.{j}.prefix`, `claim.{i}.assertion.{j}.key_hits`),
+    plus draft per-claim signature fields
+    (`claim.{i}.signature.{k}.prefix`, `claim.{i}.signature.{k}.key_hits`,
+    `claim.{i}.signature.{k}.algorithm` when available), plus draft
+    per-signature fields
+    (`signature_count`, `signature_key_hits`, `signature.{k}.prefix`,
+    `signature.{k}.key_hits`, `signature.{k}.algorithm` when available),
+    and linkage counters (`signature_linked_count`,
+    `signature_orphan_count`).
+  - Draft verify scaffold (`c2pa.verify.*`) now includes:
+    - signature-shape validation (`invalid_signature`) for malformed payloads;
+    - OpenSSL-backed cryptographic verification (`verified` /
+      `verification_failed`) when a signature entry provides algorithm +
+      signing input + public key material (`public_key_der`/`public_key_pem` or
+      `certificate_der`).
+    - COSE_Sign1 support (array or embedded CBOR byte-string forms): extracts
+      `alg` from protected headers, reconstructs Sig_structure signing bytes
+      when payload is present, extracts `x5chain` from unprotected headers, and
+      accepts raw ECDSA signatures (`r||s`) by converting to DER for OpenSSL.
+    - detached payload resolution (`payload=null`) using explicit
+      reference-linked candidates first (for example `claims[n]` / claim-label
+      references in decoded claim/signature fields, scalar index references,
+      and indexed array-element reference keys such as `claimRef[0]`), then
+      best-effort fallback probing via claim bytes, single-claim `claims[*]`
+      arrays, nearby/nested claim JUMBF boxes, and additional cross-manifest
+      candidates. Current tests include conflicting mixed references and
+      multi-claim/multi-signature cross-manifest precedence cases.
+    - draft profile checks (`profile_status`/`profile_reason`) from decoded
+      `c2pa.semantic.*` shape fields (manifest/claim/signature linkage);
+    - draft certificate trust checks (`chain_status`/`chain_reason`) when
+      `certificate_der` is present (certificate parse, time validity, and
+      OpenSSL trust-store verification).
+    Full C2PA/COSE manifest binding and policy validation is still pending.
 - GeoTIFF GeoKey decoding (derived keys): `src/openmeta/geotiff_decode.cc`
 - Vendor MakerNote decoders: `src/openmeta/exif_makernote_*.cc`
   (Canon, Nikon, Sony, Olympus, Pentax, Casio, Panasonic, Kodak, Ricoh, Samsung, FLIR, etc.)
@@ -253,7 +299,9 @@ Example scripts (repo tree):
 PYTHONPATH=build-py/python python3 -m openmeta.python.openmeta_stats file.jpg
 PYTHONPATH=build-py/python python3 -m openmeta.python.metaread file.jpg
 PYTHONPATH=build-py/python python3 -m openmeta.python.metadump file.jpg
+PYTHONPATH=build-py/python python3 -m openmeta.python.metadump file.jpg output.xmp
 PYTHONPATH=build-py/python python3 -m openmeta.python.metadump --format portable file.jpg
+PYTHONPATH=build-py/python python3 -m openmeta.python.metadump --format portable --c2pa-verify --c2pa-verify-backend auto file.jpg
 PYTHONPATH=build-py/python python3 -m openmeta.python.metadump --format portable --portable-include-existing-xmp --xmp-sidecar file.jpg
 ```
 

@@ -24,6 +24,26 @@ enum class JumbfDecodeStatus : uint8_t {
     LimitExceeded,
 };
 
+/// Draft C2PA verification backend selection.
+enum class C2paVerifyBackend : uint8_t {
+    None,
+    Auto,
+    Native,
+    OpenSsl,
+};
+
+/// Draft C2PA verification status.
+enum class C2paVerifyStatus : uint8_t {
+    NotRequested,
+    DisabledByBuild,
+    BackendUnavailable,
+    NoSignatures,
+    InvalidSignature,
+    VerificationFailed,
+    Verified,
+    NotImplemented,
+};
+
 /// Resource limits for JUMBF/C2PA decode.
 struct JumbfDecodeLimits final {
     /// Maximum input bytes to accept (0 = unlimited).
@@ -52,6 +72,14 @@ struct JumbfDecodeOptions final {
     bool decode_cbor = true;
     /// If true, emit a `c2pa.detected` marker when C2PA-like payload is seen.
     bool detect_c2pa = true;
+    /// If true, request draft C2PA verification scaffold fields.
+    bool verify_c2pa = false;
+    /// Verification backend preference (used when \ref verify_c2pa is true).
+    C2paVerifyBackend verify_backend = C2paVerifyBackend::Auto;
+    /// If true, require the certificate chain to validate against the system
+    /// trust store. Untrusted or missing chains fail verification even when
+    /// the signature matches.
+    bool verify_require_trusted_chain = false;
     JumbfDecodeLimits limits;
 };
 
@@ -61,6 +89,8 @@ struct JumbfDecodeResult final {
     uint32_t boxes_decoded   = 0;
     uint32_t cbor_items      = 0;
     uint32_t entries_decoded = 0;
+    C2paVerifyStatus verify_status = C2paVerifyStatus::NotRequested;
+    C2paVerifyBackend verify_backend_selected = C2paVerifyBackend::None;
 };
 
 /**

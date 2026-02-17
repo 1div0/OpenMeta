@@ -671,6 +671,7 @@ struct PyEntry final {
 static std::shared_ptr<PyDocument>
 read_document(const std::string& path, bool include_pointer_tags,
               bool decode_makernote, bool decompress, bool include_xmp_sidecar,
+              bool verify_c2pa, C2paVerifyBackend verify_backend,
               uint64_t max_file_bytes, const OpenMetaResourcePolicy* policy_ptr)
 {
     auto doc  = std::make_shared<PyDocument>();
@@ -695,6 +696,8 @@ read_document(const std::string& path, bool include_pointer_tags,
     decode_options.exif.decode_makernote           = decode_makernote;
     decode_options.exif.decode_embedded_containers = true;
     decode_options.payload.decompress              = decompress;
+    decode_options.jumbf.verify_c2pa               = verify_c2pa;
+    decode_options.jumbf.verify_backend            = verify_backend;
 
     // Release the GIL while performing file I/O and metadata decoding so callers
     // (and internal comparison tools) can read in parallel from multiple Python
@@ -1003,6 +1006,22 @@ NB_MODULE(_openmeta, m)
         .value("Malformed", JumbfDecodeStatus::Malformed)
         .value("LimitExceeded", JumbfDecodeStatus::LimitExceeded);
 
+    nb::enum_<C2paVerifyStatus>(m, "C2paVerifyStatus")
+        .value("NotRequested", C2paVerifyStatus::NotRequested)
+        .value("DisabledByBuild", C2paVerifyStatus::DisabledByBuild)
+        .value("BackendUnavailable", C2paVerifyStatus::BackendUnavailable)
+        .value("NoSignatures", C2paVerifyStatus::NoSignatures)
+        .value("InvalidSignature", C2paVerifyStatus::InvalidSignature)
+        .value("VerificationFailed", C2paVerifyStatus::VerificationFailed)
+        .value("Verified", C2paVerifyStatus::Verified)
+        .value("NotImplemented", C2paVerifyStatus::NotImplemented);
+
+    nb::enum_<C2paVerifyBackend>(m, "C2paVerifyBackend")
+        .value("None", C2paVerifyBackend::None)
+        .value("Auto", C2paVerifyBackend::Auto)
+        .value("Native", C2paVerifyBackend::Native)
+        .value("OpenSsl", C2paVerifyBackend::OpenSsl);
+
     nb::enum_<XmpSidecarFormat>(m, "XmpSidecarFormat")
         .value("Lossless", XmpSidecarFormat::Lossless)
         .value("Portable", XmpSidecarFormat::Portable);
@@ -1172,6 +1191,14 @@ NB_MODULE(_openmeta, m)
         .def_prop_ro("jumbf_entries_decoded",
                      [](const PyDocument& d) {
                          return d.result.jumbf.entries_decoded;
+                     })
+        .def_prop_ro("jumbf_verify_status",
+                     [](const PyDocument& d) {
+                         return d.result.jumbf.verify_status;
+                     })
+        .def_prop_ro("jumbf_verify_backend",
+                     [](const PyDocument& d) {
+                         return d.result.jumbf.verify_backend_selected;
                      })
         .def_prop_ro("exif_status",
                      [](const PyDocument& d) { return d.result.exif.status; })
@@ -1734,6 +1761,7 @@ NB_MODULE(_openmeta, m)
         "read",
         [](const std::string& path, bool include_pointer_tags,
            bool decode_makernote, bool decompress, bool include_xmp_sidecar,
+           bool verify_c2pa, C2paVerifyBackend verify_backend,
            uint64_t max_file_bytes, nb::object policy_obj) {
             OpenMetaResourcePolicy policy;
             const OpenMetaResourcePolicy* policy_ptr = nullptr;
@@ -1742,11 +1770,12 @@ NB_MODULE(_openmeta, m)
                 policy_ptr = &policy;
             }
             return read_document(path, include_pointer_tags, decode_makernote,
-                                 decompress, include_xmp_sidecar,
-                                 max_file_bytes, policy_ptr);
+                                 decompress, include_xmp_sidecar, verify_c2pa,
+                                 verify_backend, max_file_bytes, policy_ptr);
         },
         "path"_a, "include_pointer_tags"_a = true, "decode_makernote"_a = false,
         "decompress"_a = true, "include_xmp_sidecar"_a = false,
+        "verify_c2pa"_a = false, "verify_backend"_a = C2paVerifyBackend::Auto,
         "max_file_bytes"_a = 0ULL, "policy"_a = nb::none());
 
     m.def("console_text", &console_text, "data"_a, "max_bytes"_a = 4096U);

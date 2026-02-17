@@ -25,6 +25,17 @@ def _default_out_path(path: str, out_dir: str) -> str:
     return path + ".xmp"
 
 
+def _has_known_output_extension(path: str) -> bool:
+    lower = path.lower()
+    return lower.endswith(".xmp") or lower.endswith(".jpg") or lower.endswith(".bin")
+
+
+def _looks_like_output_path(path: str) -> bool:
+    if _has_known_output_extension(path):
+        return True
+    return "/" in path or "\\" in path
+
+
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(prog="metadump.py")
     ap.add_argument("files", nargs="+")
@@ -41,6 +52,13 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--out-dir", type=str, default="", help="output directory (multiple inputs)")
     ap.add_argument("--force", action="store_true", help="overwrite existing output files")
     ap.add_argument("--xmp-sidecar", action="store_true", help="also read sidecar XMP (<file>.xmp, <basename>.xmp)")
+    ap.add_argument("--c2pa-verify", action="store_true", help="request draft C2PA verify scaffold evaluation")
+    ap.add_argument(
+        "--c2pa-verify-backend",
+        choices=["none", "auto", "native", "openssl"],
+        default="auto",
+        help="verification backend preference",
+    )
     ap.add_argument("--no-pointer-tags", action="store_true", help="do not store pointer tags")
     ap.add_argument("--makernotes", action="store_true", help="attempt MakerNote decode (best-effort)")
     ap.add_argument("--no-decompress", action="store_true", help="do not decompress payloads")
@@ -52,7 +70,17 @@ def main(argv: list[str]) -> int:
     if args.portable:
         args.format = "portable"
 
-    if args.out and len(args.files) != 1:
+    input_paths = list(args.files)
+    if len(input_paths) == 2 and not args.out and not args.out_dir:
+        candidate = input_paths[1]
+        second_is_output_hint = _has_known_output_extension(candidate) or (
+            not os.path.exists(candidate) and _looks_like_output_path(candidate)
+        )
+        if second_is_output_hint:
+            args.out = candidate
+            input_paths = [input_paths[0]]
+
+    if args.out and len(input_paths) != 1:
         sys.stderr.write("error: --out requires exactly one input file\n")
         return 2
 
@@ -63,7 +91,30 @@ def main(argv: list[str]) -> int:
         print(openmeta.python_info_line())
 
     rc = 0
-    for path in args.files:
+    c2pa_backend_none = getattr(openmeta.C2paVerifyBackend, "None")
+    backend_map = {
+        "none": c2pa_backend_none,
+        "auto": openmeta.C2paVerifyBackend.Auto,
+        "native": openmeta.C2paVerifyBackend.Native,
+        "openssl": openmeta.C2paVerifyBackend.OpenSsl,
+    }
+    status_map = {
+        openmeta.C2paVerifyStatus.NotRequested: "not_requested",
+        openmeta.C2paVerifyStatus.DisabledByBuild: "disabled_by_build",
+        openmeta.C2paVerifyStatus.BackendUnavailable: "backend_unavailable",
+        openmeta.C2paVerifyStatus.NoSignatures: "no_signatures",
+        openmeta.C2paVerifyStatus.InvalidSignature: "invalid_signature",
+        openmeta.C2paVerifyStatus.VerificationFailed: "verification_failed",
+        openmeta.C2paVerifyStatus.Verified: "verified",
+        openmeta.C2paVerifyStatus.NotImplemented: "not_implemented",
+    }
+    backend_name_map = {
+        c2pa_backend_none: "none",
+        openmeta.C2paVerifyBackend.Auto: "auto",
+        openmeta.C2paVerifyBackend.Native: "native",
+        openmeta.C2paVerifyBackend.OpenSsl: "openssl",
+    }
+    for path in input_paths:
         out_path = args.out if args.out else _default_out_path(path, args.out_dir)
 
         if os.path.exists(out_path) and not args.force:
@@ -77,6 +128,8 @@ def main(argv: list[str]) -> int:
             decode_makernote=bool(args.makernotes),
             decompress=not args.no_decompress,
             include_xmp_sidecar=bool(args.xmp_sidecar),
+            verify_c2pa=bool(args.c2pa_verify),
+            verify_backend=backend_map[args.c2pa_verify_backend],
             max_file_bytes=int(args.max_file_bytes),
         )
 
@@ -102,7 +155,12 @@ def main(argv: list[str]) -> int:
             rc = 1
             continue
 
-        print(f"wrote={out_path} format={args.format} bytes={len(data)} entries={res.entries}")
+        verify_status = status_map.get(doc.jumbf_verify_status, "unknown")
+        verify_backend = backend_name_map.get(doc.jumbf_verify_backend, "unknown")
+        print(
+            f"wrote={out_path} format={args.format} bytes={len(data)} "
+            f"entries={res.entries} c2pa_verify={verify_status} c2pa_backend={verify_backend}"
+        )
 
     return rc
 
