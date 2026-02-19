@@ -172,6 +172,37 @@ TEST(XmpDecodeTest, SkipsLeadingMimePrefix)
     EXPECT_EQ(r.entries_decoded, 1U);
 }
 
+TEST(XmpDecodeTest, DecodesXmpToolkitOnXmpMetaRoot)
+{
+    const std::string xmp
+        = "<?xpacket begin='' id='W5M0MpCehiHzreSzNTczkc9d' ?>"
+          "<x:xmpmeta xmlns:x='adobe:ns:meta/' "
+          "x:xmptk='Adobe XMP Core 5.2-c004 1.136881, 2010/06/10-18:11:35'>"
+          "</x:xmpmeta>"
+          "<?xpacket end='w'?>";
+
+    const std::span<const std::byte> bytes(reinterpret_cast<const std::byte*>(
+                                               xmp.data()),
+                                           xmp.size());
+
+    MetaStore store;
+    const XmpDecodeResult r = decode_xmp_packet(bytes, store);
+    EXPECT_EQ(r.status, XmpDecodeStatus::Ok);
+    EXPECT_EQ(r.entries_decoded, 1U);
+
+    store.finalize();
+
+    MetaKeyView key;
+    key.kind                            = MetaKeyKind::XmpProperty;
+    key.data.xmp_property.schema_ns     = "adobe:ns:meta/";
+    key.data.xmp_property.property_path = "XMPToolkit";
+
+    const std::span<const EntryId> ids = store.find_all(key);
+    ASSERT_EQ(ids.size(), 1U);
+    const Entry& e = store.entry(ids[0]);
+    ASSERT_EQ(e.value.kind, MetaValueKind::Text);
+}
+
 TEST(XmpDecodeTest, MalformedCanBeReportedAsOutputTruncated)
 {
     std::string xmp

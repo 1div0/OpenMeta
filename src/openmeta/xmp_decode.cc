@@ -22,6 +22,7 @@ namespace {
         = "http://www.w3.org/1999/02/22-rdf-syntax-ns#";
     static constexpr std::string_view kXmlNs
         = "http://www.w3.org/XML/1998/namespace";
+    static constexpr std::string_view kXmpMetaNs = "adobe:ns:meta/";
 
     struct NameParts final {
         std::string_view uri;
@@ -355,6 +356,23 @@ namespace {
         frame.is_li              = is_li;
         frame.is_nonrdf          = (!is_rdf && !is_xml);
         frame.path_len_before    = static_cast<uint32_t>(ctx->path.size());
+
+        // ExifTool exposes the `x:xmptk` attribute on the `<x:xmpmeta>` root as
+        // XMP-x:XMPToolkit. This is outside `rdf:RDF`, but is still useful
+        // metadata, and some files contain only this attribute.
+        if (parts.uri == kXmpMetaNs && parts.local == "xmpmeta" && atts) {
+            for (int i = 0; atts[i] && atts[i + 1]; i += 2) {
+                const std::string_view an(atts[i], std::strlen(atts[i]));
+                const NameParts ap = split_name(an);
+                if (ap.uri == kXmpMetaNs && ap.local == "xmptk") {
+                    const std::string_view av(atts[i + 1],
+                                              std::strlen(atts[i + 1]));
+                    const std::string_view trimmed = trim_ascii_ws(av);
+                    (void)emit_property_text(ctx, kXmpMetaNs, "XMPToolkit",
+                                             trimmed);
+                }
+            }
+        }
 
         // Enter rdf:Description scope.
         if (frame.is_description) {
