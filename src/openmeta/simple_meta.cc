@@ -631,6 +631,54 @@ simple_meta_read(std::span<const std::byte> file_bytes, MetaStore& store,
                     break;
                 }
             }
+            if (block.kind == ContainerBlockKind::Xmp
+                || block.kind == ContainerBlockKind::XmpExtended
+                || (block.kind == ContainerBlockKind::CompressedMetadata
+                    && block.compression == BlockCompression::Brotli
+                    && block.aux_u32 == fourcc('x', 'm', 'l', ' '))) {
+                switch (payload_one.status) {
+                case PayloadStatus::Ok: break;
+                case PayloadStatus::OutputTruncated:
+                    merge_xmp_status(&xmp.status,
+                                     XmpDecodeStatus::OutputTruncated);
+                    break;
+                case PayloadStatus::Unsupported:
+                    merge_xmp_status(&xmp.status, XmpDecodeStatus::Unsupported);
+                    break;
+                case PayloadStatus::Malformed:
+                    merge_xmp_status(&xmp.status, XmpDecodeStatus::Malformed);
+                    break;
+                case PayloadStatus::LimitExceeded:
+                    merge_xmp_status(&xmp.status,
+                                     XmpDecodeStatus::LimitExceeded);
+                    break;
+                }
+            }
+            if (block.kind == ContainerBlockKind::Jumbf
+                || (block.kind == ContainerBlockKind::CompressedMetadata
+                    && block.compression == BlockCompression::Brotli
+                    && (block.aux_u32 == fourcc('j', 'u', 'm', 'b')
+                        || block.aux_u32 == fourcc('c', '2', 'p', 'a')))) {
+                switch (payload_one.status) {
+                case PayloadStatus::Ok: break;
+                case PayloadStatus::OutputTruncated:
+                    merge_jumbf_status(&jumbf.status,
+                                       JumbfDecodeStatus::LimitExceeded);
+                    break;
+                case PayloadStatus::Unsupported:
+                    merge_jumbf_status(&jumbf.status,
+                                       JumbfDecodeStatus::Unsupported);
+                    break;
+                case PayloadStatus::Malformed:
+                    merge_jumbf_status(&jumbf.status,
+                                       JumbfDecodeStatus::Malformed);
+                    break;
+                case PayloadStatus::LimitExceeded:
+                    merge_jumbf_status(&jumbf.status,
+                                       JumbfDecodeStatus::LimitExceeded);
+                    break;
+                }
+            }
             continue;
         }
 
@@ -980,50 +1028,67 @@ simple_meta_read(std::span<const std::byte> file_bytes, MetaStore& store,
                 }
             }
         } else if (block.kind == ContainerBlockKind::CompressedMetadata
-                   && block.compression == BlockCompression::Brotli
-                   && block.aux_u32 == fourcc('E', 'x', 'i', 'f')) {
-            // JPEG XL "brob" box containing Brotli-compressed Exif box payload.
-            // Exif box payload begins with a big-endian u32 TIFF offset.
+                   && block.compression == BlockCompression::Brotli) {
+            // JPEG XL "brob" box containing Brotli-compressed metadata payload.
             if (!options.payload.decompress) {
                 continue;
             }
-            if (block_bytes.size() < 4) {
-                merge_exif_status(&exif.status, ExifDecodeStatus::Malformed);
-                continue;
-            }
-            uint32_t off = 0;
-            if (!read_u32be(block_bytes, 0, &off)
-                || static_cast<uint64_t>(off) >= block_bytes.size()) {
-                merge_exif_status(&exif.status, ExifDecodeStatus::Malformed);
-                continue;
-            }
-            const std::span<const std::byte> tiff = block_bytes.subspan(
-                static_cast<size_t>(off),
-                static_cast<size_t>(block_bytes.size()
-                                    - static_cast<size_t>(off)));
 
-            any_exif = true;
+            if (block.aux_u32 == fourcc('E', 'x', 'i', 'f')) {
+                // Exif box payload begins with a big-endian u32 TIFF offset.
+                if (block_bytes.size() < 4) {
+                    merge_exif_status(&exif.status, ExifDecodeStatus::Malformed);
+                    continue;
+                }
+                uint32_t off = 0;
+                if (!read_u32be(block_bytes, 0, &off)
+                    || static_cast<uint64_t>(off) >= block_bytes.size()) {
+                    merge_exif_status(&exif.status, ExifDecodeStatus::Malformed);
+                    continue;
+                }
+                const std::span<const std::byte> tiff = block_bytes.subspan(
+                    static_cast<size_t>(off),
+                    static_cast<size_t>(block_bytes.size()
+                                        - static_cast<size_t>(off)));
 
-            std::span<ExifIfdRef> ifd_slice;
-            if (ifd_write_pos < out_ifds.size()) {
-                ifd_slice = out_ifds.subspan(ifd_write_pos);
-            }
+                any_exif = true;
 
-            const ExifDecodeResult one
-                = decode_exif_tiff(tiff, store, ifd_slice, options.exif);
-            merge_exif_status(&exif.status, one.status);
-            exif.ifds_needed += one.ifds_needed;
-            exif.entries_decoded += one.entries_decoded;
+                std::span<ExifIfdRef> ifd_slice;
+                if (ifd_write_pos < out_ifds.size()) {
+                    ifd_slice = out_ifds.subspan(ifd_write_pos);
+                }
 
-            const uint32_t room     = (ifd_write_pos < out_ifds.size())
-                                          ? static_cast<uint32_t>(out_ifds.size()
-                                                                  - ifd_write_pos)
+                const ExifDecodeResult one
+                    = decode_exif_tiff(tiff, store, ifd_slice, options.exif);
+                merge_exif_status(&exif.status, one.status);
+                exif.ifds_needed += one.ifds_needed;
+                exif.entries_decoded += one.entries_decoded;
+
+                const uint32_t room = (ifd_write_pos < out_ifds.size())
+                                          ? static_cast<uint32_t>(
+                                                out_ifds.size() - ifd_write_pos)
                                           : 0U;
-            const uint32_t advanced = (one.ifds_written < room)
-                                          ? one.ifds_written
-                                          : room;
-            ifd_write_pos += advanced;
-            exif.ifds_written = ifd_write_pos;
+                const uint32_t advanced
+                    = (one.ifds_written < room) ? one.ifds_written : room;
+                ifd_write_pos += advanced;
+                exif.ifds_written = ifd_write_pos;
+            } else if (block.aux_u32 == fourcc('x', 'm', 'l', ' ')) {
+                any_xmp = true;
+                const XmpDecodeResult one
+                    = decode_xmp_packet(block_bytes, store, EntryFlags::None,
+                                        options.xmp);
+                merge_xmp_status(&xmp.status, one.status);
+                xmp.entries_decoded += one.entries_decoded;
+            } else if (block.aux_u32 == fourcc('j', 'u', 'm', 'b')
+                       || block.aux_u32 == fourcc('c', '2', 'p', 'a')) {
+                const JumbfDecodeResult one
+                    = decode_jumbf_payload(block_bytes, store, EntryFlags::None,
+                                           options.jumbf);
+                merge_jumbf_status(&jumbf.status, one.status);
+                jumbf.boxes_decoded += one.boxes_decoded;
+                jumbf.cbor_items += one.cbor_items;
+                jumbf.entries_decoded += one.entries_decoded;
+            }
         }
     }
 

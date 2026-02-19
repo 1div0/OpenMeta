@@ -455,6 +455,7 @@ if(OPENMETA_BUILD_TESTS)
     tests/container_payload_test.cc
     tests/container_scan_test.cc
     tests/bmff_fields_decode_test.cc
+    tests/c2pa_container_test.cc
     tests/jumbf_decode_test.cc
     tests/crw_ciff_decode_test.cc
     tests/icc_decode_test.cc
@@ -474,11 +475,17 @@ if(OPENMETA_BUILD_TESTS)
     tests/photoshop_irb_decode_test.cc
     tests/preview_extract_test.cc
     tests/printim_decode_test.cc
+    tests/simple_meta_bmff_exif_test.cc
     tests/simple_meta_xmp_test.cc
     tests/xmp_decode_test.cc
     tests/xmp_dump_test.cc
   )
   target_link_libraries(openmeta_tests PRIVATE ${OPENMETA_LIB_TARGET} gtest_main)
+  if(TARGET Brotli::encoder)
+    # Used by tests that synthesize brob payloads.
+    target_link_libraries(openmeta_tests PRIVATE Brotli::encoder)
+    target_compile_definitions(openmeta_tests PRIVATE OPENMETA_HAS_BROTLI_ENCODER=1)
+  endif()
 
   add_test(NAME openmeta_tests COMMAND openmeta_tests)
 
@@ -570,6 +577,27 @@ if(OPENMETA_BUILD_FUZZERS)
   )
   target_link_options(
     openmeta_fuzz_bmff_meta
+    PRIVATE
+      -fsanitize=fuzzer,address,undefined
+      -fno-omit-frame-pointer
+  )
+
+  add_executable(openmeta_fuzz_jumbf_decode
+    ${OPENMETA_SOURCES}
+    tests/fuzz/jumbf_decode_libfuzzer.cc
+  )
+  openmeta_apply_target_settings(openmeta_fuzz_jumbf_decode)
+  openmeta_apply_core_deps(openmeta_fuzz_jumbf_decode)
+  openmeta_apply_libfuzzer_stdlib(openmeta_fuzz_jumbf_decode)
+
+  target_compile_options(
+    openmeta_fuzz_jumbf_decode
+    PRIVATE
+      -fsanitize=fuzzer,address,undefined
+      -fno-omit-frame-pointer
+  )
+  target_link_options(
+    openmeta_fuzz_jumbf_decode
     PRIVATE
       -fsanitize=fuzzer,address,undefined
       -fno-omit-frame-pointer

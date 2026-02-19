@@ -16,16 +16,16 @@ Status labels used below:
 
 | Container / input type | Block discovery | Structured decode in `simple_meta_read` | Notes |
 | --- | --- | --- | --- |
-| JPEG | EXIF, XMP, extended XMP, ICC, MPF, Photoshop IRB, comment, vendor APP1/APP4 maker blocks | EXIF, MakerNote (opt-in), XMP, ICC, IPTC (from IRB), Photoshop IRB, MPF, DJI/FLIR/Casio vendor paths | One of the most complete paths today. |
-| PNG | EXIF, XMP/text chunks, ICC, text | EXIF, XMP, ICC | Generic text chunks are discovered; not all become structured entries. |
-| WebP | EXIF, XMP, ICC | EXIF, XMP, ICC | RIFF chunk metadata path. |
+| JPEG | EXIF, XMP, extended XMP, ICC, MPF, Photoshop IRB, comment, vendor APP1/APP4 maker blocks, JUMBF/C2PA (APP11) | EXIF, MakerNote (opt-in), XMP, ICC, IPTC (from IRB), Photoshop IRB, MPF, draft JUMBF/C2PA decode, DJI/FLIR/Casio vendor paths | One of the most complete paths today. |
+| PNG | EXIF, XMP/text chunks, ICC, text, JUMBF/C2PA (caBX) | EXIF, XMP, ICC, draft JUMBF/C2PA decode | Generic text chunks are discovered; not all become structured entries. |
+| WebP | EXIF, XMP, ICC, JUMBF/C2PA (C2PA chunk) | EXIF, XMP, ICC, draft JUMBF/C2PA decode | RIFF chunk metadata path. |
 | GIF | XMP app-extension, ICC app-extension | XMP, ICC | Metadata is reassembled from GIF sub-blocks. |
-| TIFF / DNG / TIFF-based RAW | TIFF stream + embedded XMP/IPTC/IRB/ICC/MakerNote tags | EXIF (incl pointer IFDs), MakerNote (opt-in), XMP, IPTC, Photoshop IRB, ICC, GeoTIFF keys | Includes RW2/ORF TIFF-variant headers. |
+| TIFF / DNG / TIFF-based RAW | TIFF stream + embedded XMP/IPTC/IRB/ICC/MakerNote tags; best-effort JUMBF/C2PA in tag blobs (BMFF `jumb`/`c2pa`) | EXIF (incl pointer IFDs), MakerNote (opt-in), XMP, IPTC, Photoshop IRB, ICC, GeoTIFF keys, draft JUMBF/C2PA decode | Includes RW2/ORF TIFF-variant headers. |
 | CRW (CIFF) | CIFF root block | Partial (derived EXIF bridge fields) | Best-effort mapping from CIFF to common EXIF fields. |
-| RAF / X3F | Embedded TIFF located heuristically | Same as TIFF decode after embed detection | Reported as `ContainerFormat::Unknown` with TIFF decode path. |
+| RAF / X3F | Embedded TIFF located heuristically; RAF standalone XMP signature scan | Same as TIFF decode after embed detection (plus RAF XMP best-effort decode when present) | Reported as `ContainerFormat::Unknown` with TIFF decode path. |
 | JP2 | UUID/direct metadata boxes (EXIF/XMP/IPTC/ICC/GeoTIFF) | EXIF, XMP, IPTC, ICC, GeoTIFF | GeoJP2 TIFF payload is decoded via EXIF/TIFF path. |
-| JXL | `Exif`, `xml `, `jumb`, `brob` compressed metadata | EXIF, XMP, draft JUMBF/C2PA decode, partial compressed metadata decode | `brob` decode currently handles wrapped EXIF path; `jumb` is draft phase-3 structural/CBOR decode with draft C2PA semantic projection fields. |
-| HEIF / AVIF / CR3 (BMFF) | `meta` item graph (`iinf`/`iloc`), ICC from `iprp/ipco colr`, CR3 Canon UUID metadata | EXIF, XMP, ICC, CR3 maker blocks; BMFF derived fields (`ftyp`, primary item props, draft `iref` edge fields, typed `iref.<type>.*` rows, `iref` graph summary fields, `auxC`-typed aux fields), draft JUMBF/C2PA block decode | Draft `iref` relation emission is available (`iref.*`), including typed rows for `auxl`/`dimg`/`thmb`/`cdsc`, per-type edge counters and per-type unique source/target counters (`iref.<type>.from_item_unique_count`, `iref.<type>.to_item_unique_count`), and graph-summary fields (`iref.item_count`, `iref.from_item_unique_count`, `iref.to_item_unique_count`, `iref.item_*_edge_count`). Aux semantics are typed via `auxC` (`aux.item_id`, `aux.semantic`, `aux.type`, `aux.subtype_hex`, `aux.subtype_kind`, `aux.subtype_u32`, `primary.auxl_semantic`, `primary.depth_item_id`, ...). `iloc` entries with external `data_reference_index` are skipped safely per item, and out-of-range known-item extents are skipped best-effort. JUMBF/C2PA is draft phase-3 (box structure + bounded CBOR key/value decode, including indefinite CBOR forms, plus draft `c2pa.semantic.*` projections), not full manifest semantics yet. |
+| JXL | `Exif`, `xml `, `jumb`, `brob` compressed metadata | EXIF, XMP, draft JUMBF/C2PA decode, compressed metadata decode (brob: Exif/xml/jumb/c2pa realtypes) | `brob` decode dispatches wrapped EXIF, XMP, and JUMBF/C2PA payloads by realtype. |
+| HEIF / AVIF / CR3 (BMFF) | `meta` item graph (`iinf`/`iloc`), ICC from `iprp/ipco colr`, CR3 Canon UUID metadata | EXIF, XMP, ICC, CR3 maker blocks; BMFF derived fields (`ftyp`, primary item props, draft `iref` edge fields, typed `iref.<type>.*` rows, `iref` graph summary fields, `auxC`-typed aux fields), draft JUMBF/C2PA block decode | Draft `iref` relation emission is available (`iref.*`), including typed rows for `auxl`/`dimg`/`thmb`/`cdsc`, per-type edge counters and per-type unique source/target counters (`iref.<type>.from_item_unique_count`, `iref.<type>.to_item_unique_count`), and graph-summary fields (`iref.item_count`, `iref.from_item_unique_count`, `iref.to_item_unique_count`, `iref.item_*_edge_count`). Aux semantics are typed via `auxC` (`aux.item_id`, `aux.semantic`, `aux.type`, `aux.subtype_hex`, `aux.subtype_kind`, `aux.subtype_u32`, `primary.auxl_semantic`, `primary.depth_item_id`, ...). `iloc` items with `data_reference_index` that resolve to self-contained `dref/url ` entries are treated as local; non-self-contained references are skipped safely per item, and out-of-range known-item extents are skipped best-effort. JUMBF/C2PA is draft phase-3 (box structure + bounded CBOR key/value decode, including indefinite CBOR forms, plus draft `c2pa.semantic.*` projections), not full manifest semantics yet. |
 | EXR | n/a via `scan_auto` (decoded directly by EXR header decoder) | EXR header attributes (typed known attrs + raw fallback) | Header metadata only; no pixel decode. |
 
 ## Metadata Key-Space Coverage
@@ -57,7 +57,7 @@ Status labels used below:
 - HEIF/AVIF auxiliary semantics are still partial: OpenMeta emits draft
   `iref` relation fields and primary `auxC`-typed semantics (alpha/depth/disparity/matte),
   but full relationship graph views and broader auxiliary interpretation are not complete.
-- JXL compressed metadata handling is focused on wrapped EXIF (`brob` + `Exif`).
+- JXL compressed metadata handling supports wrapped EXIF/XMP/JUMBF (`brob`), but other realtypes are not decoded yet.
 - JUMBF/C2PA support is intentionally draft phase-3: structural box fields and
   bounded CBOR values are decoded (including definite and indefinite forms,
   synthesized names for composite map keys, and broader scalar coverage). A

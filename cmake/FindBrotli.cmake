@@ -12,6 +12,10 @@ find_library(Brotli_COMMON_LIBRARY
   NAMES brotlicommon
 )
 
+find_library(Brotli_ENC_LIBRARY
+  NAMES brotlienc
+)
+
 find_package_handle_standard_args(
   Brotli
   REQUIRED_VARS
@@ -29,5 +33,13 @@ if(Brotli_FOUND)
       INTERFACE_LINK_LIBRARIES "${Brotli_COMMON_LIBRARY}"
     )
   endif()
-endif()
 
+  if(Brotli_ENC_LIBRARY AND NOT TARGET Brotli::encoder)
+    add_library(Brotli::encoder UNKNOWN IMPORTED)
+    set_target_properties(Brotli::encoder PROPERTIES
+      IMPORTED_LOCATION "${Brotli_ENC_LIBRARY}"
+      INTERFACE_INCLUDE_DIRECTORIES "${Brotli_INCLUDE_DIR}"
+      INTERFACE_LINK_LIBRARIES "${Brotli_COMMON_LIBRARY}"
+    )
+  endif()
+endif()

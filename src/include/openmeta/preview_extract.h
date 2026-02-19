@@ -21,6 +21,8 @@ enum class PreviewKind : uint8_t {
     ExifJpgFromRaw,
     /// EXIF/TIFF blob tag `JpgFromRaw2` (0x0127).
     ExifJpgFromRaw2,
+    /// Canon CR3 preview JPEG stored in a PRVW stream inside a UUID box.
+    Cr3PrvwJpeg,
 };
 
 /// Preview candidate discovered in a container.
@@ -55,6 +57,7 @@ struct PreviewScanLimits final {
 struct PreviewScanOptions final {
     bool include_exif_jpeg_interchange = true;
     bool include_jpg_from_raw          = true;
+    bool include_cr3_prvw_jpeg         = true;
     bool require_jpeg_soi              = false;
     PreviewScanLimits limits;
 };
@@ -72,6 +75,7 @@ struct PreviewScanResult final {
  * This function currently analyzes EXIF/TIFF blocks and discovers:
  * - `JPEGInterchangeFormat`/`JPEGInterchangeFormatLength` pairs
  * - `JpgFromRaw` and `JpgFromRaw2` byte blobs
+ * - Canon CR3 PRVW UUID stream preview JPEGs
  *
  * Candidates are file-relative (`file_offset` + `size`) and can be copied with
  * \ref extract_preview_candidate.

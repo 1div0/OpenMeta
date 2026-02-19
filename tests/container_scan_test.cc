@@ -89,6 +89,271 @@ namespace {
     }
 
 
+    TEST(ContainerScan, TiffJumbfTag)
+    {
+        // Minimal JUMBF superbox: jumb -> jumd(label) + cbor(payload).
+        std::vector<std::byte> jumd_payload;
+        append_bytes(&jumd_payload, "c2pa");
+        jumd_payload.push_back(std::byte { 0x00 });
+        std::vector<std::byte> jumd_box;
+        append_bmff_box(&jumd_box, fourcc('j', 'u', 'm', 'd'), jumd_payload);
+
+        const std::array<std::byte, 1> cbor_payload
+            = { std::byte { 0xA0 } };  // {}
+        std::vector<std::byte> cbor_box;
+        append_bmff_box(&cbor_box, fourcc('c', 'b', 'o', 'r'), cbor_payload);
+
+        std::vector<std::byte> jumb_payload;
+        jumb_payload.insert(jumb_payload.end(), jumd_box.begin(),
+                            jumd_box.end());
+        jumb_payload.insert(jumb_payload.end(), cbor_box.begin(),
+                            cbor_box.end());
+
+        std::vector<std::byte> jumb_box;
+        append_bmff_box(&jumb_box, fourcc('j', 'u', 'm', 'b'), jumb_payload);
+
+        // Minimal TIFF header + one UNDEFINED tag containing a `jumb` BMFF box.
+        std::vector<std::byte> tiff;
+        append_bytes(&tiff, "II");
+        append_u16le(&tiff, 42);
+        append_u32le(&tiff, 8);  // IFD0 offset
+
+        // IFD0 at offset 8.
+        append_u16le(&tiff, 1);  // entry count
+        append_u16le(&tiff, 0xCD41);
+        append_u16le(&tiff, 7);  // UNDEFINED
+        append_u32le(&tiff, static_cast<uint32_t>(jumb_box.size()));
+        const uint32_t data_off = 28;
+        append_u32le(&tiff, data_off);
+        append_u32le(&tiff, 0);  // next IFD
+
+        while (tiff.size() < data_off) {
+            tiff.push_back(std::byte { 0x00 });
+        }
+        tiff.insert(tiff.end(), jumb_box.begin(), jumb_box.end());
+
+        std::array<ContainerBlockRef, 16> blocks {};
+        const ScanResult res
+            = scan_auto(std::span<const std::byte>(tiff.data(), tiff.size()),
+                        std::span<ContainerBlockRef>(blocks.data(),
+                                                     blocks.size()));
+
+        ASSERT_EQ(res.status, ScanStatus::Ok);
+
+        bool found       = false;
+        const uint32_t n = (res.written < blocks.size())
+                               ? res.written
+                               : static_cast<uint32_t>(blocks.size());
+        for (uint32_t i = 0; i < n; ++i) {
+            const ContainerBlockRef& b = blocks[i];
+            if (b.format == ContainerFormat::Tiff
+                && b.kind == ContainerBlockKind::Jumbf && b.id == 0xCD41U) {
+                found = true;
+                EXPECT_EQ(b.data_offset, static_cast<uint64_t>(data_off));
+                EXPECT_EQ(b.data_size, static_cast<uint64_t>(jumb_box.size()));
+                break;
+            }
+        }
+
+        EXPECT_TRUE(found);
+    }
+
+    TEST(ContainerScan, RafStandaloneXmp)
+    {
+        std::vector<std::byte> raf;
+        append_bytes(&raf, "FUJIFILMCCD-RAW ");
+        while (raf.size() < 160U) {
+            raf.push_back(std::byte { 0x00 });
+        }
+
+        // Embedded TIFF at +160 (minimal IFD0 with no tags).
+        append_bytes(&raf, "II");
+        append_u16le(&raf, 42);
+        append_u32le(&raf, 8);  // IFD0 offset
+        append_u16le(&raf, 0);  // entry count
+        append_u32le(&raf, 0);  // next IFD
+
+        const uint32_t sig_off = 512U;
+        while (raf.size() < sig_off) {
+            raf.push_back(std::byte { 0x00 });
+        }
+
+        append_bytes(&raf, "http://ns.adobe.com/xap/1.0/");
+        raf.push_back(std::byte { 0x00 });
+        const uint32_t data_off = sig_off + 29U;
+        ASSERT_EQ(raf.size(), static_cast<size_t>(data_off));
+
+        // Small but valid XMP packet with one Description attribute.
+        append_bytes(
+            &raf,
+            "<x:xmpmeta xmlns:x='adobe:ns:meta/'>"
+            "<rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'>"
+            "<rdf:Description xmlns:xmp='http://ns.adobe.com/xap/1.0/' xmp:Rating='0'/>"
+            "</rdf:RDF>"
+            "</x:xmpmeta>");
+
+        std::array<ContainerBlockRef, 16> blocks {};
+        const ScanResult res
+            = scan_auto(std::span<const std::byte>(raf.data(), raf.size()),
+                        std::span<ContainerBlockRef>(blocks.data(),
+                                                     blocks.size()));
+        ASSERT_EQ(res.status, ScanStatus::Ok);
+
+        bool found       = false;
+        const uint32_t n = (res.written < blocks.size())
+                               ? res.written
+                               : static_cast<uint32_t>(blocks.size());
+        for (uint32_t i = 0; i < n; ++i) {
+            const ContainerBlockRef& b = blocks[i];
+            if (b.format == ContainerFormat::Unknown
+                && b.kind == ContainerBlockKind::Xmp
+                && b.data_offset == static_cast<uint64_t>(data_off)) {
+                found = true;
+                EXPECT_EQ(b.outer_offset, static_cast<uint64_t>(sig_off));
+                EXPECT_EQ(b.data_offset, static_cast<uint64_t>(data_off));
+                EXPECT_GT(b.data_size, 32U);
+                break;
+            }
+        }
+
+        EXPECT_TRUE(found);
+    }
+
+    TEST(ContainerScan, BmffStartsWithMoovStillScans)
+    {
+        // Some BMFF files start with `moov`/`mdat` before `ftyp`. scan_auto()
+        // should still attempt BMFF scanning and find metadata.
+        std::vector<std::byte> file;
+
+        // moov (empty)
+        append_bmff_box(&file, fourcc('m', 'o', 'o', 'v'),
+                        std::span<const std::byte> {});
+
+        // ftyp (heic + mif1)
+        std::vector<std::byte> ftyp_payload;
+        append_fourcc(&ftyp_payload, fourcc('h', 'e', 'i', 'c'));
+        append_u32be(&ftyp_payload, 0);
+        append_fourcc(&ftyp_payload, fourcc('m', 'i', 'f', '1'));
+        append_bmff_box(&file, fourcc('f', 't', 'y', 'p'), ftyp_payload);
+
+        // uuid XMP box (Adobe UUID) with a small XMP packet payload.
+        const std::array<std::byte, 16> xmp_uuid = {
+            std::byte { 0xBE }, std::byte { 0x7A }, std::byte { 0xCF },
+            std::byte { 0xCB }, std::byte { 0x97 }, std::byte { 0xA9 },
+            std::byte { 0x42 }, std::byte { 0xE8 }, std::byte { 0x9C },
+            std::byte { 0x71 }, std::byte { 0x99 }, std::byte { 0x94 },
+            std::byte { 0x91 }, std::byte { 0xE3 }, std::byte { 0xAF },
+            std::byte { 0xAC },
+        };
+
+        std::vector<std::byte> xmp_payload;
+        append_bytes(
+            &xmp_payload,
+            "<x:xmpmeta xmlns:x='adobe:ns:meta/'>"
+            "<rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'>"
+            "<rdf:Description xmlns:xmp='http://ns.adobe.com/xap/1.0/' xmp:Rating='0'/>"
+            "</rdf:RDF>"
+            "</x:xmpmeta>");
+
+        const uint64_t uuid_off  = static_cast<uint64_t>(file.size());
+        const uint32_t uuid_size = static_cast<uint32_t>(8U + 16U
+                                                         + xmp_payload.size());
+        append_u32be(&file, uuid_size);
+        append_fourcc(&file, fourcc('u', 'u', 'i', 'd'));
+        file.insert(file.end(), xmp_uuid.begin(), xmp_uuid.end());
+        file.insert(file.end(), xmp_payload.begin(), xmp_payload.end());
+
+        std::array<ContainerBlockRef, 8> blocks {};
+        const ScanResult res
+            = scan_auto(std::span<const std::byte>(file.data(), file.size()),
+                        std::span<ContainerBlockRef>(blocks.data(),
+                                                     blocks.size()));
+        ASSERT_EQ(res.status, ScanStatus::Ok);
+
+        bool found       = false;
+        const uint32_t n = (res.written < blocks.size())
+                               ? res.written
+                               : static_cast<uint32_t>(blocks.size());
+        for (uint32_t i = 0; i < n; ++i) {
+            const ContainerBlockRef& b = blocks[i];
+            if (b.format == ContainerFormat::Heif
+                && b.kind == ContainerBlockKind::Xmp
+                && b.outer_offset == uuid_off) {
+                found = true;
+                EXPECT_EQ(b.data_offset, uuid_off + 24U);
+                EXPECT_EQ(b.data_size,
+                          static_cast<uint64_t>(xmp_payload.size()));
+                break;
+            }
+        }
+        EXPECT_TRUE(found);
+    }
+
+    TEST(ContainerScan, BmffUuidExifPayload)
+    {
+        std::vector<std::byte> file;
+
+        // ftyp (heic + mif1)
+        std::vector<std::byte> ftyp_payload;
+        append_fourcc(&ftyp_payload, fourcc('h', 'e', 'i', 'c'));
+        append_u32be(&ftyp_payload, 0);
+        append_fourcc(&ftyp_payload, fourcc('m', 'i', 'f', '1'));
+        append_bmff_box(&file, fourcc('f', 't', 'y', 'p'), ftyp_payload);
+
+        // uuid Exif box (GeoJP2/Exif UUID) with an Exif preamble + minimal TIFF.
+        const std::array<std::byte, 16> exif_uuid = {
+            std::byte { 0x4A }, std::byte { 0x70 }, std::byte { 0x67 },
+            std::byte { 0x54 }, std::byte { 0x69 }, std::byte { 0x66 },
+            std::byte { 0x66 }, std::byte { 0x45 }, std::byte { 0x78 },
+            std::byte { 0x69 }, std::byte { 0x66 }, std::byte { 0x2D },
+            std::byte { 0x3E }, std::byte { 0x4A }, std::byte { 0x50 },
+            std::byte { 0x32 },
+        };
+
+        std::vector<std::byte> exif_payload;
+        append_bytes(&exif_payload, "Exif");
+        exif_payload.push_back(std::byte { 0x00 });
+        exif_payload.push_back(std::byte { 0x00 });
+        append_bytes(&exif_payload, "II");
+        append_u16le(&exif_payload, 42);
+        append_u32le(&exif_payload, 8);
+        append_u16le(&exif_payload, 0);
+        append_u32le(&exif_payload, 0);
+
+        const uint64_t uuid_off  = static_cast<uint64_t>(file.size());
+        const uint32_t uuid_size = static_cast<uint32_t>(8U + 16U
+                                                         + exif_payload.size());
+        append_u32be(&file, uuid_size);
+        append_fourcc(&file, fourcc('u', 'u', 'i', 'd'));
+        file.insert(file.end(), exif_uuid.begin(), exif_uuid.end());
+        file.insert(file.end(), exif_payload.begin(), exif_payload.end());
+
+        std::array<ContainerBlockRef, 8> blocks {};
+        const ScanResult res
+            = scan_auto(std::span<const std::byte>(file.data(), file.size()),
+                        std::span<ContainerBlockRef>(blocks.data(),
+                                                     blocks.size()));
+        ASSERT_EQ(res.status, ScanStatus::Ok);
+
+        bool found       = false;
+        const uint32_t n = (res.written < blocks.size())
+                               ? res.written
+                               : static_cast<uint32_t>(blocks.size());
+        for (uint32_t i = 0; i < n; ++i) {
+            const ContainerBlockRef& b = blocks[i];
+            if (b.format == ContainerFormat::Heif
+                && b.kind == ContainerBlockKind::Exif
+                && b.outer_offset == uuid_off) {
+                found = true;
+                EXPECT_EQ(b.data_offset, uuid_off + 30U);
+                EXPECT_EQ(b.data_size, 14U);
+                break;
+            }
+        }
+        EXPECT_TRUE(found);
+    }
+
+
     TEST(ContainerScan, JpegSegments)
     {
         std::vector<std::byte> jpeg;
@@ -707,6 +972,169 @@ namespace {
             EXPECT_EQ(auto_res.status, ScanStatus::Ok);
             EXPECT_EQ(auto_res.written, 3U);
         }
+    }
+
+
+    TEST(ContainerScan, BmffFtypNotFirst)
+    {
+        // Some BMFF files include a top-level `free`/`skip` box before `ftyp`.
+        // Ensure scan_auto still recognizes the container and finds meta items.
+
+        std::vector<std::byte> infe_payload;
+        append_fullbox_header(&infe_payload, 2);
+        append_u16be(&infe_payload, 1);  // item_ID
+        append_u16be(&infe_payload, 0);  // protection
+        append_fourcc(&infe_payload, fourcc('E', 'x', 'i', 'f'));
+        append_bytes(&infe_payload, "exif");
+        infe_payload.push_back(std::byte { 0x00 });
+        std::vector<std::byte> infe_box;
+        append_bmff_box(&infe_box, fourcc('i', 'n', 'f', 'e'), infe_payload);
+
+        std::vector<std::byte> iinf_payload;
+        append_fullbox_header(&iinf_payload, 2);
+        append_u32be(&iinf_payload, 1);  // entry_count
+        iinf_payload.insert(iinf_payload.end(), infe_box.begin(),
+                            infe_box.end());
+        std::vector<std::byte> iinf_box;
+        append_bmff_box(&iinf_box, fourcc('i', 'i', 'n', 'f'), iinf_payload);
+
+        std::vector<std::byte> idat_payload;
+        append_u32be(&idat_payload, 0);  // Exif TIFF offset
+        append_bytes(&idat_payload, "II");
+        idat_payload.push_back(std::byte { 0x2A });
+        idat_payload.push_back(std::byte { 0x00 });
+        append_u32le(&idat_payload, 8);
+        std::vector<std::byte> idat_box;
+        append_bmff_box(&idat_box, fourcc('i', 'd', 'a', 't'), idat_payload);
+
+        std::vector<std::byte> iloc_payload;
+        append_fullbox_header(&iloc_payload, 1);
+        iloc_payload.push_back(std::byte { 0x44 });  // off_size=4, len_size=4
+        iloc_payload.push_back(std::byte { 0x00 });  // base=0, idx=0
+        append_u16be(&iloc_payload, 1);              // item_count
+        append_u16be(&iloc_payload, 1);              // item_ID
+        append_u16be(&iloc_payload, 1);  // construction_method=1 (idat)
+        append_u16be(&iloc_payload, 0);  // data_reference_index
+        append_u16be(&iloc_payload, 1);  // extent_count
+        append_u32be(&iloc_payload, 0);  // extent_offset (within idat)
+        append_u32be(&iloc_payload, static_cast<uint32_t>(idat_payload.size()));
+        std::vector<std::byte> iloc_box;
+        append_bmff_box(&iloc_box, fourcc('i', 'l', 'o', 'c'), iloc_payload);
+
+        std::vector<std::byte> meta_payload;
+        append_fullbox_header(&meta_payload, 0);
+        meta_payload.insert(meta_payload.end(), iinf_box.begin(),
+                            iinf_box.end());
+        meta_payload.insert(meta_payload.end(), iloc_box.begin(),
+                            iloc_box.end());
+        meta_payload.insert(meta_payload.end(), idat_box.begin(),
+                            idat_box.end());
+        std::vector<std::byte> meta_box;
+        append_bmff_box(&meta_box, fourcc('m', 'e', 't', 'a'), meta_payload);
+
+        std::vector<std::byte> ftyp_payload;
+        append_fourcc(&ftyp_payload, fourcc('h', 'e', 'i', 'c'));
+        append_u32be(&ftyp_payload, 0);
+        append_fourcc(&ftyp_payload, fourcc('m', 'i', 'f', '1'));
+        std::vector<std::byte> ftyp_box;
+        append_bmff_box(&ftyp_box, fourcc('f', 't', 'y', 'p'), ftyp_payload);
+
+        std::vector<std::byte> free_payload;
+        append_u32be(&free_payload, 0);
+        std::vector<std::byte> free_box;
+        append_bmff_box(&free_box, fourcc('f', 'r', 'e', 'e'), free_payload);
+
+        std::vector<std::byte> file;
+        file.insert(file.end(), free_box.begin(), free_box.end());
+        file.insert(file.end(), ftyp_box.begin(), ftyp_box.end());
+        file.insert(file.end(), meta_box.begin(), meta_box.end());
+
+        std::array<ContainerBlockRef, 8> blocks {};
+        const ScanResult res = scan_bmff(file, blocks);
+        ASSERT_EQ(res.status, ScanStatus::Ok);
+        ASSERT_EQ(res.written, 1U);
+        EXPECT_EQ(blocks[0].format, ContainerFormat::Heif);
+        EXPECT_EQ(blocks[0].kind, ContainerBlockKind::Exif);
+        EXPECT_EQ(blocks[0].chunking, BlockChunking::BmffExifTiffOffsetU32Be);
+        EXPECT_EQ(blocks[0].aux_u32, 0U);
+        EXPECT_EQ(file[blocks[0].data_offset], std::byte { 'I' });
+
+        const ScanResult auto_res = scan_auto(file, blocks);
+        EXPECT_EQ(auto_res.status, ScanStatus::Ok);
+        EXPECT_EQ(auto_res.written, 1U);
+    }
+
+    TEST(ContainerScan, BmffMetaIlocMissingExtentLengthUsesIdatEnd)
+    {
+        // iloc len_size=0 omits extent_length. For metadata in `idat`, scan_bmff
+        // should treat the single extent as spanning to the end of `idat`.
+
+        std::vector<std::byte> infe_payload;
+        append_fullbox_header(&infe_payload, 2);
+        append_u16be(&infe_payload, 1);  // item_ID
+        append_u16be(&infe_payload, 0);  // protection
+        append_fourcc(&infe_payload, fourcc('E', 'x', 'i', 'f'));
+        append_bytes(&infe_payload, "exif");
+        infe_payload.push_back(std::byte { 0x00 });
+        std::vector<std::byte> infe_box;
+        append_bmff_box(&infe_box, fourcc('i', 'n', 'f', 'e'), infe_payload);
+
+        std::vector<std::byte> iinf_payload;
+        append_fullbox_header(&iinf_payload, 2);
+        append_u32be(&iinf_payload, 1);  // entry_count
+        iinf_payload.insert(iinf_payload.end(), infe_box.begin(),
+                            infe_box.end());
+        std::vector<std::byte> iinf_box;
+        append_bmff_box(&iinf_box, fourcc('i', 'i', 'n', 'f'), iinf_payload);
+
+        std::vector<std::byte> idat_payload;
+        append_u32be(&idat_payload, 0);  // Exif TIFF offset
+        append_bytes(&idat_payload, "II");
+        idat_payload.push_back(std::byte { 0x2A });
+        idat_payload.push_back(std::byte { 0x00 });
+        append_u32le(&idat_payload, 8);
+        std::vector<std::byte> idat_box;
+        append_bmff_box(&idat_box, fourcc('i', 'd', 'a', 't'), idat_payload);
+
+        std::vector<std::byte> iloc_payload;
+        append_fullbox_header(&iloc_payload, 1);
+        iloc_payload.push_back(std::byte { 0x40 });  // off_size=4, len_size=0
+        iloc_payload.push_back(std::byte { 0x00 });  // base=0, idx=0
+        append_u16be(&iloc_payload, 1);              // item_count
+        append_u16be(&iloc_payload, 1);              // item_ID
+        append_u16be(&iloc_payload, 1);  // construction_method=1 (idat)
+        append_u16be(&iloc_payload, 0);  // data_reference_index
+        append_u16be(&iloc_payload, 1);  // extent_count
+        append_u32be(&iloc_payload, 0);  // extent_offset (within idat)
+        std::vector<std::byte> iloc_box;
+        append_bmff_box(&iloc_box, fourcc('i', 'l', 'o', 'c'), iloc_payload);
+
+        std::vector<std::byte> meta_payload;
+        append_fullbox_header(&meta_payload, 0);
+        meta_payload.insert(meta_payload.end(), iinf_box.begin(),
+                            iinf_box.end());
+        meta_payload.insert(meta_payload.end(), iloc_box.begin(),
+                            iloc_box.end());
+        meta_payload.insert(meta_payload.end(), idat_box.begin(),
+                            idat_box.end());
+        std::vector<std::byte> meta_box;
+        append_bmff_box(&meta_box, fourcc('m', 'e', 't', 'a'), meta_payload);
+
+        std::vector<std::byte> ftyp_payload;
+        append_fourcc(&ftyp_payload, fourcc('h', 'e', 'i', 'c'));
+        append_u32be(&ftyp_payload, 0);
+        append_fourcc(&ftyp_payload, fourcc('m', 'i', 'f', '1'));
+        std::vector<std::byte> file;
+        append_bmff_box(&file, fourcc('f', 't', 'y', 'p'), ftyp_payload);
+        file.insert(file.end(), meta_box.begin(), meta_box.end());
+
+        std::array<ContainerBlockRef, 8> blocks {};
+        const ScanResult res = scan_bmff(file, blocks);
+        ASSERT_EQ(res.status, ScanStatus::Ok);
+        ASSERT_EQ(res.written, 1U);
+        EXPECT_EQ(blocks[0].kind, ContainerBlockKind::Exif);
+        EXPECT_EQ(blocks[0].chunking, BlockChunking::BmffExifTiffOffsetU32Be);
+        EXPECT_EQ(file[blocks[0].data_offset], std::byte { 'I' });
     }
 
 

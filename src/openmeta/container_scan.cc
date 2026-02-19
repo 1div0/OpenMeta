@@ -105,6 +105,27 @@ namespace {
                == 0;
     }
 
+    static uint64_t find_match(std::span<const std::byte> bytes, uint64_t begin,
+                               uint64_t end, const char* s,
+                               uint32_t s_len) noexcept
+    {
+        if (!s || s_len == 0U) {
+            return UINT64_MAX;
+        }
+        if (end > bytes.size()) {
+            end = bytes.size();
+        }
+        if (begin > end || s_len > end - begin) {
+            return UINT64_MAX;
+        }
+        for (uint64_t off = begin; off + s_len <= end; ++off) {
+            if (match(bytes, off, s, s_len)) {
+                return off;
+            }
+        }
+        return UINT64_MAX;
+    }
+
 
     static void sink_emit(BlockSink* sink,
                           const ContainerBlockRef& block) noexcept
@@ -548,6 +569,60 @@ scan_jpeg(std::span<const std::byte> bytes,
                 }
             }
             sink_emit(&sink, block);
+        } else if (marker == 0xFFEB) {
+            // APP11: C2PA/JUMBF payloads are stored as a multi-segment stream.
+            //
+            // Observed segment preamble (per segment):
+            //   "JP.." + u32be(seq) + BMFF box header (size/type[/extsize]) + payload bytes...
+            //
+            // This scanner emits each segment as a \ref ContainerBlockKind::Jumbf
+            // block and normalizes the part indices after scanning so payload
+            // extraction can reassemble the logical stream.
+            if (seg_payload_size >= 16 && u8(bytes[seg_payload_off + 0]) == 'J'
+                && u8(bytes[seg_payload_off + 1]) == 'P') {
+                uint32_t seq    = 0;
+                uint32_t size32 = 0;
+                uint32_t type   = 0;
+                if (read_u32be(bytes, seg_payload_off + 4, &seq)
+                    && read_u32be(bytes, seg_payload_off + 8, &size32)
+                    && read_u32be(bytes, seg_payload_off + 12, &type)) {
+                    uint32_t hdr_len  = 8;
+                    uint64_t box_size = size32;
+                    if (size32 == 1U && seg_payload_size >= 24U) {
+                        uint64_t size64 = 0;
+                        if (read_u64be(bytes, seg_payload_off + 16, &size64)) {
+                            hdr_len  = 16;
+                            box_size = size64;
+                        }
+                    }
+
+                    if (box_size >= hdr_len && seg_payload_size >= 8U + hdr_len
+                        && seg_payload_size > 8U + hdr_len) {
+                        ContainerBlockRef jumbf;
+                        jumbf.format       = ContainerFormat::Jpeg;
+                        jumbf.kind         = ContainerBlockKind::Jumbf;
+                        jumbf.outer_offset = seg_total_off;
+                        jumbf.outer_size   = seg_total_size;
+                        // Skip "JP.." + seq + box header for segment payload bytes.
+                        jumbf.data_offset = seg_payload_off + 8U + hdr_len;
+                        jumbf.data_size   = seg_payload_size - (8U + hdr_len);
+                        jumbf.id          = marker;
+                        jumbf.aux_u32     = type;
+                        // Temporarily store the raw sequence number in part_index.
+                        jumbf.part_index   = seq;
+                        jumbf.logical_size = box_size;
+                        // Group segments by the repeated BMFF box header.
+                        const uint64_t header_off = seg_payload_off + 8U;
+                        jumbf.group               = fnv1a_64(
+                            bytes.subspan(static_cast<size_t>(header_off),
+                                                        static_cast<size_t>(hdr_len)));
+                        if (jumbf.group == 0U) {
+                            jumbf.group = 1U;
+                        }
+                        sink_emit(&sink, jumbf);
+                    }
+                }
+            }
         } else if (marker == 0xFFED) {
             if (match(bytes, seg_payload_off, "Photoshop 3.0\0", 14)) {
                 ContainerBlockRef block;
@@ -574,6 +649,156 @@ scan_jpeg(std::span<const std::byte> bytes,
         }
 
         offset = seg_payload_off + seg_payload_size;
+    }
+
+    // Normalize APP11 JUMBF stream parts:
+    // - decide whether sequence starts at 0 or 1 (best-effort)
+    // - assign part_count and 0-based part_index
+    // - include the BMFF header bytes only once (in the first segment)
+    const uint32_t written = sink.result.written;
+    for (uint32_t i = 0; i < written; ++i) {
+        ContainerBlockRef& seed = sink.out[i];
+        if (seed.format != ContainerFormat::Jpeg
+            || seed.kind != ContainerBlockKind::Jumbf || seed.id != 0xFFEBU) {
+            continue;
+        }
+        if (seed.part_count != 0U) {
+            continue;
+        }
+
+        // Avoid re-processing the same group.
+        bool seen_group = false;
+        for (uint32_t k = 0; k < i; ++k) {
+            const ContainerBlockRef& prev = sink.out[k];
+            if (prev.format == ContainerFormat::Jpeg
+                && prev.kind == ContainerBlockKind::Jumbf && prev.id == 0xFFEBU
+                && prev.group == seed.group) {
+                seen_group = true;
+                break;
+            }
+        }
+        if (seen_group) {
+            continue;
+        }
+
+        // Count parts and note if any seq==0.
+        uint32_t count = 0;
+        bool has_seq0  = false;
+        for (uint32_t j = 0; j < written; ++j) {
+            const ContainerBlockRef& b = sink.out[j];
+            if (b.format == ContainerFormat::Jpeg
+                && b.kind == ContainerBlockKind::Jumbf && b.id == 0xFFEBU
+                && b.group == seed.group) {
+                count += 1U;
+                if (b.part_index == 0U) {
+                    has_seq0 = true;
+                }
+            }
+        }
+        if (count == 0U) {
+            continue;
+        }
+
+        auto validate_base = [&](uint32_t base) noexcept -> bool {
+            if (base > 1U) {
+                return false;
+            }
+            uint32_t min_idx = 0xFFFFFFFFU;
+            uint32_t max_idx = 0U;
+            for (uint32_t j = 0; j < written; ++j) {
+                const ContainerBlockRef& b = sink.out[j];
+                if (b.format != ContainerFormat::Jpeg
+                    || b.kind != ContainerBlockKind::Jumbf || b.id != 0xFFEBU
+                    || b.group != seed.group) {
+                    continue;
+                }
+                if (b.part_index < base) {
+                    return false;
+                }
+                const uint32_t idx = b.part_index - base;
+                min_idx            = (idx < min_idx) ? idx : min_idx;
+                max_idx            = (idx > max_idx) ? idx : max_idx;
+            }
+            if (min_idx != 0U || max_idx + 1U != count) {
+                return false;
+            }
+            // Uniqueness check (O(n^2), small `count` expected).
+            for (uint32_t a = 0; a < written; ++a) {
+                const ContainerBlockRef& ba = sink.out[a];
+                if (ba.format != ContainerFormat::Jpeg
+                    || ba.kind != ContainerBlockKind::Jumbf || ba.id != 0xFFEBU
+                    || ba.group != seed.group) {
+                    continue;
+                }
+                const uint32_t ia = ba.part_index - base;
+                for (uint32_t b = a + 1U; b < written; ++b) {
+                    const ContainerBlockRef& bb = sink.out[b];
+                    if (bb.format != ContainerFormat::Jpeg
+                        || bb.kind != ContainerBlockKind::Jumbf
+                        || bb.id != 0xFFEBU || bb.group != seed.group) {
+                        continue;
+                    }
+                    const uint32_t ib = bb.part_index - base;
+                    if (ia == ib) {
+                        return false;
+                    }
+                }
+            }
+            return true;
+        };
+
+        // Prefer base=0 if present, otherwise base=1. If that fails, try the
+        // other base as a fallback.
+        uint32_t base = has_seq0 ? 0U : 1U;
+        if (!validate_base(base)) {
+            const uint32_t alt = (base == 0U) ? 1U : 0U;
+            if (validate_base(alt)) {
+                base = alt;
+            } else {
+                // Leave as single blocks (no reassembly).
+                continue;
+            }
+        }
+
+        // Patch indices and part_count.
+        for (uint32_t j = 0; j < written; ++j) {
+            ContainerBlockRef& b = sink.out[j];
+            if (b.format != ContainerFormat::Jpeg
+                || b.kind != ContainerBlockKind::Jumbf || b.id != 0xFFEBU
+                || b.group != seed.group) {
+                continue;
+            }
+            b.part_index = b.part_index - base;
+            b.part_count = count;
+        }
+
+        // Include the BMFF header bytes (size/type[/extsize]) only once, in the
+        // first part. The header begins at outer_offset+12 (marker+len+JP..+seq).
+        for (uint32_t j = 0; j < written; ++j) {
+            ContainerBlockRef& b = sink.out[j];
+            if (b.format != ContainerFormat::Jpeg
+                || b.kind != ContainerBlockKind::Jumbf || b.id != 0xFFEBU
+                || b.group != seed.group) {
+                continue;
+            }
+            if (b.part_index != 0U) {
+                continue;
+            }
+            const uint64_t header_start = b.outer_offset + 12U;
+            if (b.data_offset <= header_start) {
+                break;
+            }
+            const uint64_t hdr_len = b.data_offset - header_start;
+            if (hdr_len != 8U && hdr_len != 16U) {
+                break;
+            }
+            if (b.data_offset < hdr_len) {
+                break;
+            }
+            b.data_offset -= hdr_len;
+            b.data_size += hdr_len;
+            break;
+        }
     }
 
     return sink.result;
@@ -620,6 +845,17 @@ scan_png(std::span<const std::byte> bytes,
             ContainerBlockRef block;
             block.format       = ContainerFormat::Png;
             block.kind         = ContainerBlockKind::Exif;
+            block.outer_offset = chunk_off;
+            block.outer_size   = chunk_size;
+            block.data_offset  = data_off;
+            block.data_size    = data_size;
+            block.id           = type;
+            sink_emit(&sink, block);
+        } else if (type == fourcc('c', 'a', 'B', 'X')) {
+            // PNG C2PA chunk: JUMBF payload stored directly in the chunk data.
+            ContainerBlockRef block;
+            block.format       = ContainerFormat::Png;
+            block.kind         = ContainerBlockKind::Jumbf;
             block.outer_offset = chunk_off;
             block.outer_size   = chunk_size;
             block.data_offset  = data_off;
@@ -797,6 +1033,17 @@ scan_webp(std::span<const std::byte> bytes,
             block.data_size    = data_size;
             block.id           = type;
             skip_exif_preamble(&block, bytes);
+            sink_emit(&sink, block);
+        } else if (type == fourcc('C', '2', 'P', 'A')) {
+            // WebP/RIFF C2PA chunk: JUMBF payload stored directly in the chunk data.
+            ContainerBlockRef block;
+            block.format       = ContainerFormat::Webp;
+            block.kind         = ContainerBlockKind::Jumbf;
+            block.outer_offset = chunk_off;
+            block.outer_size   = next - chunk_off;
+            block.data_offset  = data_off;
+            block.data_size    = data_size;
+            block.id           = type;
             sink_emit(&sink, block);
         } else if (type == fourcc('X', 'M', 'P', ' ')) {
             ContainerBlockRef block;
@@ -1345,6 +1592,12 @@ namespace {
         ContainerBlockKind kind = ContainerBlockKind::Unknown;
     };
 
+    struct BmffDrefTable final {
+        std::array<bool, 32> self_contained {};
+        uint32_t count = 0;
+        bool parsed    = false;
+    };
+
     static void bmff_note_brand(uint32_t brand, bool* is_heif, bool* is_avif,
                                 bool* is_cr3, bool* is_jp2) noexcept
     {
@@ -1867,10 +2120,94 @@ namespace {
         return nullptr;
     }
 
+    static bool bmff_parse_dref_table(std::span<const std::byte> bytes,
+                                      const BmffBox& dref,
+                                      BmffDrefTable* out) noexcept
+    {
+        if (!out) {
+            return false;
+        }
+        *out = BmffDrefTable {};
+
+        const uint64_t payload_off = dref.offset + dref.header_size;
+        const uint64_t payload_end = dref.offset + dref.size;
+        if (payload_off + 8 > payload_end || payload_end > bytes.size()) {
+            return false;
+        }
+
+        uint32_t entry_count = 0;
+        if (!read_u32be(bytes, payload_off + 4, &entry_count)) {
+            return false;
+        }
+
+        uint64_t off           = payload_off + 8;
+        const uint32_t kMaxEnt = 1U << 16;
+        const uint32_t take = (entry_count < kMaxEnt) ? entry_count : kMaxEnt;
+        uint32_t idx        = 0;
+        while (off + 8 <= payload_end && idx < take) {
+            BmffBox ent;
+            if (!parse_bmff_box(bytes, off, payload_end, &ent)) {
+                return false;
+            }
+
+            bool self = false;
+            if (ent.type == fourcc('u', 'r', 'l', ' ')
+                || ent.type == fourcc('u', 'r', 'n', ' ')) {
+                const uint64_t ent_payload_off = ent.offset + ent.header_size;
+                const uint64_t ent_payload_end = ent.offset + ent.size;
+                if (ent_payload_off + 4 <= ent_payload_end
+                    && ent_payload_end <= bytes.size()) {
+                    uint32_t vf = 0;
+                    if (read_u32be(bytes, ent_payload_off, &vf)) {
+                        const uint32_t flags = vf & 0x00FFFFFFU;
+                        self                 = (flags & 0x000001U) != 0U;
+                    }
+                }
+            }
+
+            if (idx < out->self_contained.size()) {
+                out->self_contained[idx] = self;
+            }
+            idx += 1;
+
+            off += ent.size;
+            if (ent.size == 0) {
+                break;
+            }
+        }
+
+        out->count  = idx;
+        out->parsed = true;
+        return true;
+    }
+
+
+    static bool bmff_data_ref_is_self_contained(const BmffDrefTable* table,
+                                                uint16_t data_ref) noexcept
+    {
+        // Some real-world files use 0 here to mean "same file".
+        if (data_ref == 0) {
+            return true;
+        }
+
+        // Best-effort: if no dref table is available, treat index 1 as local.
+        // This matches common "single self-contained dref entry" layouts.
+        if (!table || !table->parsed) {
+            return data_ref == 1;
+        }
+
+        const uint32_t idx = static_cast<uint32_t>(data_ref - 1U);
+        if (idx >= table->count || idx >= table->self_contained.size()) {
+            return false;
+        }
+        return table->self_contained[idx];
+    }
+
 
     static bool bmff_emit_items_from_iloc(std::span<const std::byte> bytes,
                                           const BmffBox& iloc,
                                           const BmffBox* idat,
+                                          const BmffDrefTable* dref,
                                           std::span<const BmffMetaItem> items,
                                           ContainerFormat format,
                                           BlockSink* sink) noexcept
@@ -1964,7 +2301,8 @@ namespace {
                 return false;
             }
             p += 2;
-            const bool has_external_data_ref = (data_ref != 0);
+            const bool has_external_data_ref
+                = !bmff_data_ref_is_self_contained(dref, data_ref);
 
             uint64_t base_off = 0;
             if (!read_uint_be_n(bytes, p, base_size, &base_off)) {
@@ -2034,6 +2372,18 @@ namespace {
                     continue;
                 }
                 file_off += extent_off;
+
+                // Some files omit `extent_length` by setting len_size=0 in the
+                // `iloc` header. For metadata items stored in `idat`, treat a
+                // single extent with missing length as "to the end of idat".
+                if (extent_len == 0 && len_size == 0 && extent_count == 1) {
+                    if (construction_method == 1 && has_idat
+                        && file_off <= idat_payload_end) {
+                        extent_len = idat_payload_end - file_off;
+                    } else {
+                        continue;
+                    }
+                }
 
                 const uint64_t size = static_cast<uint64_t>(bytes.size());
                 if (file_off > size || extent_len > size - file_off) {
@@ -2204,10 +2554,12 @@ namespace {
         BmffBox iloc {};
         BmffBox idat {};
         BmffBox iprp {};
+        BmffBox dinf {};
         bool has_iinf = false;
         bool has_iloc = false;
         bool has_idat = false;
         bool has_iprp = false;
+        bool has_dinf = false;
 
         uint64_t child_off       = payload_off + 4;  // FullBox header.
         const uint64_t child_end = meta.offset + meta.size;
@@ -2229,6 +2581,9 @@ namespace {
             } else if (child.type == fourcc('i', 'p', 'r', 'p')) {
                 iprp     = child;
                 has_iprp = true;
+            } else if (child.type == fourcc('d', 'i', 'n', 'f')) {
+                dinf     = child;
+                has_dinf = true;
             }
 
             child_off += child.size;
@@ -2250,10 +2605,31 @@ namespace {
             items_count = static_cast<uint32_t>(items.size());
         }
 
+        BmffDrefTable dref {};
+        if (has_dinf) {
+            const uint64_t dinf_payload_off = dinf.offset + dinf.header_size;
+            const uint64_t dinf_end         = dinf.offset + dinf.size;
+            uint64_t off                    = dinf_payload_off;
+            while (off + 8 <= dinf_end) {
+                BmffBox child;
+                if (!parse_bmff_box(bytes, off, dinf_end, &child)) {
+                    break;
+                }
+                if (child.type == fourcc('d', 'r', 'e', 'f')) {
+                    (void)bmff_parse_dref_table(bytes, child, &dref);
+                    break;
+                }
+                off += child.size;
+                if (child.size == 0) {
+                    break;
+                }
+            }
+        }
+
         if (has_iloc && items_count > 0) {
             const BmffBox* idat_ptr = has_idat ? &idat : nullptr;
             if (!bmff_emit_items_from_iloc(
-                    bytes, iloc, idat_ptr,
+                    bytes, iloc, idat_ptr, &dref,
                     std::span<const BmffMetaItem>(items.data(), items_count),
                     format, sink)) {
                 sink->result.status = ScanStatus::Malformed;
@@ -2659,6 +3035,22 @@ namespace {
                 if (format == ContainerFormat::Jp2
                     && bmff_emit_jp2_uuid_payload(bytes, box, sink)) {
                     // handled
+                } else if (box.uuid == kJp2UuidExif
+                           || box.uuid == kJp2UuidGeoTiff) {
+                    ContainerBlockRef block;
+                    block.format       = format;
+                    block.kind         = ContainerBlockKind::Exif;
+                    block.outer_offset = box.offset;
+                    block.outer_size   = box.size;
+                    block.data_offset  = box.offset + box.header_size;
+                    block.data_size    = box.size - box.header_size;
+                    block.id           = box.type;
+                    block.chunking     = BlockChunking::Jp2UuidPayload;
+                    skip_exif_preamble(&block, bytes);
+                    sink_emit(sink, block);
+                } else if (box.uuid == kJp2UuidIptc) {
+                    bmff_emit_uuid_payload(format, ContainerBlockKind::IptcIim,
+                                           box, sink);
                 } else if (box.uuid == kJp2UuidXmp) {
                     bmff_emit_uuid_payload(format, ContainerBlockKind::Xmp, box,
                                            sink);
@@ -2703,12 +3095,37 @@ scan_bmff(std::span<const std::byte> bytes,
         return sink.result;
     }
 
-    BmffBox ftyp;
-    if (!parse_bmff_box(bytes, 0, bytes.size(), &ftyp)) {
-        sink.result.status = ScanStatus::Malformed;
-        return sink.result;
+    // Most ISO-BMFF files start with `ftyp`, but some real-world files include a
+    // leading `free`/`skip`/`wide` box (or other top-level boxes) before `ftyp`.
+    // Locate the first `ftyp` box in the top-level stream.
+    BmffBox ftyp {};
+    bool found_ftyp          = false;
+    uint64_t off             = 0;
+    const uint32_t kMaxBoxes = 1U << 14;
+    uint32_t seen            = 0;
+    while (off + 8 <= bytes.size()) {
+        seen += 1;
+        if (seen > kMaxBoxes) {
+            sink.result.status = ScanStatus::Malformed;
+            return sink.result;
+        }
+
+        BmffBox box {};
+        if (!parse_bmff_box(bytes, off, bytes.size(), &box)) {
+            sink.result.status = ScanStatus::Malformed;
+            return sink.result;
+        }
+        if (box.type == fourcc('f', 't', 'y', 'p')) {
+            ftyp       = box;
+            found_ftyp = true;
+            break;
+        }
+        off += box.size;
+        if (box.size == 0) {
+            break;
+        }
     }
-    if (ftyp.type != fourcc('f', 't', 'y', 'p')) {
+    if (!found_ftyp) {
         sink.result.status = ScanStatus::Unsupported;
         return sink.result;
     }
@@ -3099,6 +3516,45 @@ scan_tiff(std::span<const std::byte> bytes,
                 }
             }
 
+            // Some TIFF/DNG files embed JUMBF/C2PA payloads as a raw BMFF box
+            // blob inside an unknown tag (observed in the wild: DNG tag 0xCD41
+            // containing a `jumb` superbox). Detect when the tag value is
+            // exactly one BMFF box of type `jumb`/`c2pa` and expose it as a
+            // JUMBF block for higher-level decode.
+            if (value_bytes >= 8U && value_off + 8U <= bytes.size()) {
+                uint32_t box_size32 = 0;
+                uint32_t box_type   = 0;
+                if (read_u32be(bytes, value_off + 0U, &box_size32)
+                    && read_u32be(bytes, value_off + 4U, &box_type)) {
+                    uint64_t box_size    = box_size32;
+                    uint64_t header_size = 8U;
+                    if (box_size32 == 1U && value_bytes >= 16U) {
+                        uint64_t box_size64 = 0;
+                        if (read_u64be(bytes, value_off + 8U, &box_size64)) {
+                            box_size    = box_size64;
+                            header_size = 16U;
+                        }
+                    } else if (box_size32 == 0U) {
+                        box_size = value_bytes;
+                    }
+
+                    if (box_size == value_bytes && box_size >= header_size
+                        && (box_type == fourcc('j', 'u', 'm', 'b')
+                            || box_type == fourcc('c', '2', 'p', 'a'))) {
+                        ContainerBlockRef block;
+                        block.format       = ContainerFormat::Tiff;
+                        block.kind         = ContainerBlockKind::Jumbf;
+                        block.outer_offset = value_off;
+                        block.outer_size   = value_bytes;
+                        block.data_offset  = value_off;
+                        block.data_size    = value_bytes;
+                        block.id           = tag;
+                        block.aux_u32      = box_type;
+                        sink_emit(&sink, block);
+                    }
+                }
+            }
+
             if (tag == 0x02BC) {  // XMP
                 ContainerBlockRef block;
                 block.format       = ContainerFormat::Tiff;
@@ -3199,14 +3655,95 @@ scan_auto(std::span<const std::byte> bytes,
         if (tiff_off < bytes.size() && looks_like_tiff_at(bytes, tiff_off)) {
             const std::span<const std::byte> tiff = bytes.subspan(
                 static_cast<size_t>(tiff_off));
-            const ScanResult res   = scan_tiff(tiff, out);
-            const uint32_t written = (res.written < out.size())
-                                         ? res.written
-                                         : static_cast<uint32_t>(out.size());
+            ScanResult res   = scan_tiff(tiff, out);
+            uint32_t written = (res.written < out.size())
+                                   ? res.written
+                                   : static_cast<uint32_t>(out.size());
             for (uint32_t i = 0; i < written; ++i) {
                 out[i].outer_offset += tiff_off;
                 out[i].data_offset += tiff_off;
                 out[i].format = ContainerFormat::Unknown;
+            }
+
+            // RAF files can also embed an XMP packet as a standalone blob
+            // preceded by the standard Adobe XMP signature
+            // ("http://ns.adobe.com/xap/1.0/\0"). ExifTool reports these XMP
+            // values even when they are not referenced by TIFF tags.
+            //
+            // Best-effort: if the TIFF scan did not already find XMP, locate
+            // the first such packet in the file and expose it as an XMP block.
+            if (res.status == ScanStatus::Ok) {
+                bool have_xmp = false;
+                for (uint32_t i = 0; i < written; ++i) {
+                    const ContainerBlockRef& b = out[i];
+                    if (b.kind == ContainerBlockKind::Xmp
+                        || b.kind == ContainerBlockKind::XmpExtended) {
+                        have_xmp = true;
+                        break;
+                    }
+                }
+
+                if (!have_xmp) {
+                    static constexpr char kXmpSig[]
+                        = "http://ns.adobe.com/xap/1.0/\0";
+                    const uint64_t max_search
+                        = (bytes.size() < (32ULL * 1024ULL * 1024ULL))
+                              ? bytes.size()
+                              : (32ULL * 1024ULL * 1024ULL);
+                    const uint64_t sig_off = find_match(bytes, 0U, max_search,
+                                                        kXmpSig,
+                                                        sizeof(kXmpSig) - 1U);
+                    if (sig_off != UINT64_MAX) {
+                        const uint64_t data_off = sig_off
+                                                  + (sizeof(kXmpSig) - 1U);
+
+                        // Limit scanning for close tags to keep this cheap and
+                        // bounded for hostile inputs.
+                        const uint64_t max_packet = 512ULL * 1024ULL;
+                        uint64_t packet_end       = data_off + max_packet;
+                        if (packet_end > bytes.size()) {
+                            packet_end = bytes.size();
+                        }
+
+                        static constexpr char kCloseXmpMeta[] = "</x:xmpmeta>";
+                        static constexpr char kCloseRdf[]     = "</rdf:RDF>";
+
+                        uint64_t end   = packet_end;
+                        uint64_t close = find_match(bytes, data_off, packet_end,
+                                                    kCloseXmpMeta,
+                                                    sizeof(kCloseXmpMeta) - 1U);
+                        if (close != UINT64_MAX) {
+                            end = close + (sizeof(kCloseXmpMeta) - 1U);
+                        } else {
+                            close = find_match(bytes, data_off, packet_end,
+                                               kCloseRdf,
+                                               sizeof(kCloseRdf) - 1U);
+                            if (close != UINT64_MAX) {
+                                end = close + (sizeof(kCloseRdf) - 1U);
+                            }
+                        }
+
+                        if (end > data_off && end > sig_off) {
+                            if (written < out.size()) {
+                                ContainerBlockRef block;
+                                block.format       = ContainerFormat::Unknown;
+                                block.kind         = ContainerBlockKind::Xmp;
+                                block.outer_offset = sig_off;
+                                block.outer_size   = end - sig_off;
+                                block.data_offset  = data_off;
+                                block.data_size    = end - data_off;
+                                block.id           = fourcc('x', 'm', 'p', ' ');
+                                out[written]       = block;
+                                written += 1;
+                                res.written = written;
+                                res.needed  = written;
+                            } else {
+                                res.status = ScanStatus::OutputTruncated;
+                                res.needed = res.written + 1;
+                            }
+                        }
+                    }
+                }
             }
             return res;
         }
@@ -3301,8 +3838,17 @@ scan_auto(std::span<const std::byte> bytes,
         uint32_t size = 0;
         uint32_t type = 0;
         if (read_u32be(bytes, 0, &size) && read_u32be(bytes, 4, &type)
-            && type == fourcc('f', 't', 'y', 'p')
-            && (size == 0 || size == 1 || size >= 16)) {
+            && (size == 0 || size == 1 || size >= 8)
+            && bmff_type_looks_ascii(type)
+            && (type == fourcc('f', 't', 'y', 'p')
+                || type == fourcc('s', 't', 'y', 'p')
+                || type == fourcc('m', 'o', 'o', 'v')
+                || type == fourcc('m', 'd', 'a', 't')
+                || type == fourcc('m', 'e', 't', 'a')
+                || type == fourcc('f', 'r', 'e', 'e')
+                || type == fourcc('s', 'k', 'i', 'p')
+                || type == fourcc('w', 'i', 'd', 'e')
+                || type == fourcc('u', 'u', 'i', 'd'))) {
             return scan_bmff(bytes, out);
         }
     }

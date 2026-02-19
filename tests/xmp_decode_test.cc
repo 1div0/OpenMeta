@@ -172,6 +172,38 @@ TEST(XmpDecodeTest, SkipsLeadingMimePrefix)
     EXPECT_EQ(r.entries_decoded, 1U);
 }
 
+TEST(XmpDecodeTest, MalformedCanBeReportedAsOutputTruncated)
+{
+    std::string xmp
+        = "<x:xmpmeta xmlns:x='adobe:ns:meta/'>"
+          "<rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'>"
+          "<rdf:Description xmlns:xmp='http://ns.adobe.com/xap/1.0/' "
+          "xmp:CreatorTool='OpenMeta'>"
+          "<xmp:Rating>5";
+    xmp.push_back(static_cast<char>(0x01));  // invalid XML control byte
+    xmp += "</xmp:Rating>"
+           "</rdf:Description>"
+           "</rdf:RDF>"
+           "</x:xmpmeta>";
+
+    const std::span<const std::byte> bytes(reinterpret_cast<const std::byte*>(
+                                               xmp.data()),
+                                           xmp.size());
+
+    MetaStore store_a;
+    const XmpDecodeResult strict = decode_xmp_packet(bytes, store_a);
+    EXPECT_EQ(strict.status, XmpDecodeStatus::Malformed);
+    EXPECT_GE(strict.entries_decoded, 1U);
+
+    MetaStore store_b;
+    XmpDecodeOptions options;
+    options.malformed_mode = XmpDecodeMalformedMode::OutputTruncated;
+    const XmpDecodeResult safe
+        = decode_xmp_packet(bytes, store_b, EntryFlags::None, options);
+    EXPECT_EQ(safe.status, XmpDecodeStatus::OutputTruncated);
+    EXPECT_EQ(safe.entries_decoded, strict.entries_decoded);
+}
+
 #else
 
 TEST(XmpDecodeTest, ExpatNotEnabled)

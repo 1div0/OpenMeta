@@ -55,7 +55,7 @@ struct PayloadResult final {
  * - \ref BlockChunking::GifSubBlocks
  * - \ref BlockChunking::JpegApp2SeqTotal (ICC)
  * - \ref BlockChunking::JpegXmpExtendedGuidOffset
- * - ISO-BMFF meta items with \ref ContainerBlockRef::part_count > 1
+ * - Multi-part logical streams with \ref ContainerBlockRef::part_count > 1
  *
  * Supported decompression (optional):
  * - \ref BlockCompression::Deflate (zlib)

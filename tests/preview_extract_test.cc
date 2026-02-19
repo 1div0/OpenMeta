@@ -25,6 +25,28 @@ namespace {
         out->push_back(std::byte(static_cast<uint8_t>((v >> 24) & 0xFFU)));
     }
 
+    static void append_u32be(std::vector<std::byte>* out, uint32_t v)
+    {
+        ASSERT_NE(out, nullptr);
+        out->push_back(std::byte(static_cast<uint8_t>((v >> 24) & 0xFFU)));
+        out->push_back(std::byte(static_cast<uint8_t>((v >> 16) & 0xFFU)));
+        out->push_back(std::byte(static_cast<uint8_t>((v >> 8) & 0xFFU)));
+        out->push_back(std::byte(static_cast<uint8_t>(v & 0xFFU)));
+    }
+
+    static void append_u64be(std::vector<std::byte>* out, uint64_t v)
+    {
+        ASSERT_NE(out, nullptr);
+        out->push_back(std::byte(static_cast<uint8_t>((v >> 56) & 0xFFU)));
+        out->push_back(std::byte(static_cast<uint8_t>((v >> 48) & 0xFFU)));
+        out->push_back(std::byte(static_cast<uint8_t>((v >> 40) & 0xFFU)));
+        out->push_back(std::byte(static_cast<uint8_t>((v >> 32) & 0xFFU)));
+        out->push_back(std::byte(static_cast<uint8_t>((v >> 24) & 0xFFU)));
+        out->push_back(std::byte(static_cast<uint8_t>((v >> 16) & 0xFFU)));
+        out->push_back(std::byte(static_cast<uint8_t>((v >> 8) & 0xFFU)));
+        out->push_back(std::byte(static_cast<uint8_t>(v & 0xFFU)));
+    }
+
     static void append_bytes(std::vector<std::byte>* out, const char* s)
     {
         ASSERT_NE(out, nullptr);
@@ -91,6 +113,52 @@ namespace {
         bytes.push_back(std::byte { 0x02 });
         bytes.push_back(std::byte { 0xFF });
         bytes.push_back(std::byte { 0xD9 });
+        return bytes;
+    }
+
+    static std::vector<std::byte> make_cr3_with_uuid_prvw_jpeg_preview()
+    {
+        // Minimal ISO-BMFF file with:
+        // - ftyp brand 'crx ' (CR3)
+        // - uuid box with PRVW stream containing a tiny JPEG (FFD8..FFD9)
+        std::vector<std::byte> bytes;
+
+        // ftyp box (24 bytes)
+        append_u32be(&bytes, 24U);
+        append_bytes(&bytes, "ftyp");
+        append_bytes(&bytes, "crx ");  // major brand
+        append_u32be(&bytes, 0U);      // minor version
+        append_bytes(&bytes, "crx ");  // compatible brand
+        append_bytes(&bytes, "isom");  // compatible brand
+
+        // uuid box (60 bytes)
+        append_u32be(&bytes, 60U);
+        append_bytes(&bytes, "uuid");
+
+        const uint8_t uuid[16] = {
+            0xEA, 0xF4, 0x2B, 0x5E, 0x1C, 0x98, 0x4B, 0x88,
+            0xB9, 0xFB, 0xB7, 0xDC, 0x40, 0x6E, 0x4D, 0x16,
+        };
+        for (uint32_t i = 0; i < 16U; ++i) {
+            bytes.push_back(std::byte { uuid[i] });
+        }
+
+        append_u64be(&bytes, 1U);  // uuid payload header
+
+        // PRVW inner box: size=28 bytes, with JPEG bytes at payload+16.
+        append_u32be(&bytes, 28U);
+        append_bytes(&bytes, "PRVW");
+
+        for (uint32_t i = 0; i < 12U; ++i) {  // padding/fields
+            bytes.push_back(std::byte { 0x00 });
+        }
+
+        append_u32be(&bytes, 4U);  // JPEG length
+        bytes.push_back(std::byte { 0xFF });
+        bytes.push_back(std::byte { 0xD8 });
+        bytes.push_back(std::byte { 0xFF });
+        bytes.push_back(std::byte { 0xD9 });
+
         return bytes;
     }
 
@@ -203,6 +271,42 @@ TEST(PreviewExtract, ExtractionChecksOutputAndLimits)
         std::span<const std::byte>(bytes.data(), bytes.size()), p,
         std::span<std::byte>(out.data(), out.size()), options);
     EXPECT_EQ(limited.status, PreviewExtractStatus::LimitExceeded);
+}
+
+TEST(PreviewExtract, FindsCr3PrvwJpegCandidate)
+{
+    const std::vector<std::byte> bytes = make_cr3_with_uuid_prvw_jpeg_preview();
+
+    std::array<ContainerBlockRef, 8> blocks {};
+    std::array<PreviewCandidate, 8> previews {};
+    PreviewScanOptions options;
+    options.include_exif_jpeg_interchange = false;
+    options.include_jpg_from_raw          = false;
+    options.include_cr3_prvw_jpeg         = true;
+
+    const PreviewScanResult res = scan_preview_candidates(
+        std::span<const std::byte>(bytes.data(), bytes.size()),
+        std::span<ContainerBlockRef>(blocks.data(), blocks.size()),
+        std::span<PreviewCandidate>(previews.data(), previews.size()), options);
+
+    ASSERT_EQ(res.status, PreviewScanStatus::Ok);
+    ASSERT_EQ(res.written, 1U);
+    const PreviewCandidate& p = previews[0];
+    EXPECT_EQ(p.kind, PreviewKind::Cr3PrvwJpeg);
+    EXPECT_EQ(p.format, ContainerFormat::Cr3);
+    EXPECT_EQ(p.file_offset, 80U);
+    EXPECT_EQ(p.size, 4U);
+    EXPECT_TRUE(p.has_jpeg_soi_signature);
+
+    std::array<std::byte, 4> out {};
+    const PreviewExtractResult er = extract_preview_candidate(
+        std::span<const std::byte>(bytes.data(), bytes.size()), p,
+        std::span<std::byte>(out.data(), out.size()), PreviewExtractOptions {});
+    ASSERT_EQ(er.status, PreviewExtractStatus::Ok);
+    EXPECT_EQ(er.written, 4U);
+    EXPECT_EQ(static_cast<uint8_t>(out[0]), 0xFFU);
+    EXPECT_EQ(static_cast<uint8_t>(out[1]), 0xD8U);
+    EXPECT_EQ(static_cast<uint8_t>(out[3]), 0xD9U);
 }
 
 }  // namespace openmeta

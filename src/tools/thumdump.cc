@@ -109,6 +109,7 @@ namespace {
         case PreviewKind::ExifJpegInterchange: return "exif_jpeg_interchange";
         case PreviewKind::ExifJpgFromRaw: return "exif_jpg_from_raw";
         case PreviewKind::ExifJpgFromRaw2: return "exif_jpg_from_raw2";
+        case PreviewKind::Cr3PrvwJpeg: return "cr3_prvw_jpeg";
         }
         return "unknown";
     }

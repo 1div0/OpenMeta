@@ -1651,6 +1651,7 @@ main(int argc, char** argv)
     apply_resource_policy(policy, &decode_options.xmp, &decode_options.exr,
                           &decode_options.jumbf, &decode_options.icc,
                           &decode_options.iptc, &decode_options.photoshop_irb);
+    decode_options.xmp.malformed_mode = XmpDecodeMalformedMode::OutputTruncated;
     ExifDecodeOptions& exif_options         = decode_options.exif;
     exif_options.include_pointer_tags       = true;
     exif_options.decode_embedded_containers = true;

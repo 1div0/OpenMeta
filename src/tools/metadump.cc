@@ -738,6 +738,13 @@ main(int argc, char** argv)
         break;
     }
 
+    // For standard/portable outputs, treat malformed XMP as best-effort partial
+    // output rather than a hard failure.
+    decode_options.xmp.malformed_mode
+        = (format == XmpSidecarFormat::Portable)
+              ? XmpDecodeMalformedMode::OutputTruncated
+              : XmpDecodeMalformedMode::Malformed;
+
     std::vector<std::string> input_paths = explicit_inputs;
     for (int i = first_path; i < argc; ++i) {
         if (argv[i] && argv[i][0] != '\0') {

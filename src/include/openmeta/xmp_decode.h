@@ -22,6 +22,17 @@ enum class XmpDecodeStatus : uint8_t {
     LimitExceeded,
 };
 
+/// Controls how malformed XMP packets are reported to callers.
+///
+/// Some workflows prefer treating malformed XML as "best-effort partial output"
+/// rather than a hard failure.
+enum class XmpDecodeMalformedMode : uint8_t {
+    /// Report malformed XML as \ref XmpDecodeStatus::Malformed.
+    Malformed,
+    /// Report malformed XML as \ref XmpDecodeStatus::OutputTruncated.
+    OutputTruncated,
+};
+
 /// Resource limits applied during XMP decode to bound hostile inputs.
 struct XmpDecodeLimits final {
     uint32_t max_depth      = 128;
@@ -44,6 +55,9 @@ struct XmpDecodeLimits final {
 struct XmpDecodeOptions final {
     /// If true, decodes attributes on `rdf:Description` as XMP properties.
     bool decode_description_attributes = true;
+    /// Controls whether malformed XML should be reported as Malformed or as
+    /// best-effort OutputTruncated.
+    XmpDecodeMalformedMode malformed_mode = XmpDecodeMalformedMode::Malformed;
     XmpDecodeLimits limits;
 };
 

@@ -73,6 +73,25 @@ namespace {
         return true;
     }
 
+    static bool read_u64be(std::span<const std::byte> bytes, uint64_t offset,
+                           uint64_t* out) noexcept
+    {
+        if (!out || offset + 8U > bytes.size()) {
+            return false;
+        }
+        uint64_t v = 0;
+        v |= static_cast<uint64_t>(u8(bytes[offset + 0])) << 56;
+        v |= static_cast<uint64_t>(u8(bytes[offset + 1])) << 48;
+        v |= static_cast<uint64_t>(u8(bytes[offset + 2])) << 40;
+        v |= static_cast<uint64_t>(u8(bytes[offset + 3])) << 32;
+        v |= static_cast<uint64_t>(u8(bytes[offset + 4])) << 24;
+        v |= static_cast<uint64_t>(u8(bytes[offset + 5])) << 16;
+        v |= static_cast<uint64_t>(u8(bytes[offset + 6])) << 8;
+        v |= static_cast<uint64_t>(u8(bytes[offset + 7])) << 0;
+        *out = v;
+        return true;
+    }
+
     static bool read_tiff_u16(const TiffConfig& cfg,
                               std::span<const std::byte> bytes, uint64_t offset,
                               uint16_t* out) noexcept
@@ -195,6 +214,358 @@ namespace {
         }
         return u8(file_bytes[static_cast<size_t>(offset + 0U)]) == 0xFFU
                && u8(file_bytes[static_cast<size_t>(offset + 1U)]) == 0xD8U;
+    }
+
+    static PreviewScanStatus
+    add_candidate(std::span<const std::byte> file_bytes,
+                  std::span<PreviewCandidate> out, uint32_t* written,
+                  uint32_t* needed, const PreviewScanOptions& options,
+                  const PreviewCandidate& in) noexcept;
+
+    struct BmffBox final {
+        uint64_t offset      = 0;
+        uint64_t size        = 0;
+        uint64_t header_size = 0;
+        uint32_t type        = 0;
+        bool has_uuid        = false;
+        std::array<std::byte, 16> uuid {};
+    };
+
+    static bool parse_bmff_box(std::span<const std::byte> bytes,
+                               uint64_t offset, uint64_t parent_end,
+                               BmffBox* out) noexcept
+    {
+        if (!out || offset + 8U > parent_end || offset + 8U > bytes.size()) {
+            return false;
+        }
+
+        uint32_t size32 = 0;
+        uint32_t type   = 0;
+        if (!read_u32be(bytes, offset + 0U, &size32)
+            || !read_u32be(bytes, offset + 4U, &type)) {
+            return false;
+        }
+
+        uint64_t header_size = 8U;
+        uint64_t box_size    = size32;
+        if (size32 == 1U) {
+            uint64_t size64 = 0;
+            if (!read_u64be(bytes, offset + 8U, &size64)) {
+                return false;
+            }
+            header_size = 16U;
+            box_size    = size64;
+        } else if (size32 == 0U) {
+            box_size = parent_end - offset;
+        }
+
+        if (box_size < header_size) {
+            return false;
+        }
+        if (offset + box_size > parent_end
+            || offset + box_size > bytes.size()) {
+            return false;
+        }
+
+        bool has_uuid = false;
+        std::array<std::byte, 16> uuid {};
+        if (type == fourcc('u', 'u', 'i', 'd')) {
+            if (header_size + 16U > box_size) {
+                return false;
+            }
+            has_uuid                = true;
+            const uint64_t uuid_off = offset + header_size;
+            if (uuid_off + 16U > bytes.size()) {
+                return false;
+            }
+            for (uint32_t i = 0; i < 16U; ++i) {
+                uuid[i] = bytes[uuid_off + i];
+            }
+            header_size += 16U;
+        }
+
+        out->offset      = offset;
+        out->size        = box_size;
+        out->header_size = header_size;
+        out->type        = type;
+        out->has_uuid    = has_uuid;
+        out->uuid        = uuid;
+        return true;
+    }
+
+    static bool bmff_is_cr3_brand(uint32_t brand) noexcept
+    {
+        return brand == fourcc('c', 'r', 'x', ' ')
+               || brand == fourcc('C', 'R', '3', ' ');
+    }
+
+    static bool
+    bmff_has_cr3_brand(std::span<const std::byte> file_bytes) noexcept
+    {
+        if (file_bytes.size() < 8U) {
+            return false;
+        }
+
+        uint64_t off             = 0;
+        const uint32_t kMaxBoxes = 1U << 14;
+        uint32_t seen            = 0;
+        while (off + 8U <= file_bytes.size()) {
+            seen += 1U;
+            if (seen > kMaxBoxes) {
+                return false;
+            }
+
+            BmffBox box {};
+            if (!parse_bmff_box(file_bytes, off, file_bytes.size(), &box)) {
+                return false;
+            }
+
+            if (box.type == fourcc('f', 't', 'y', 'p')) {
+                const uint64_t payload_off  = box.offset + box.header_size;
+                const uint64_t payload_size = box.size - box.header_size;
+                if (payload_size < 8U) {
+                    return false;
+                }
+
+                uint32_t major_brand = 0;
+                if (!read_u32be(file_bytes, payload_off + 0U, &major_brand)) {
+                    return false;
+                }
+                if (bmff_is_cr3_brand(major_brand)) {
+                    return true;
+                }
+
+                const uint64_t brands_off = payload_off + 8U;
+                const uint64_t brands_end = payload_off + payload_size;
+                for (uint64_t p = brands_off; p + 4U <= brands_end; p += 4U) {
+                    uint32_t brand = 0;
+                    if (!read_u32be(file_bytes, p, &brand)) {
+                        return false;
+                    }
+                    if (bmff_is_cr3_brand(brand)) {
+                        return true;
+                    }
+                }
+                return false;
+            }
+
+            off += box.size;
+            if (box.size == 0U) {
+                break;
+            }
+        }
+        return false;
+    }
+
+    static bool bmff_box_can_have_children(uint32_t type) noexcept
+    {
+        switch (type) {
+        case fourcc('m', 'o', 'o', 'v'):
+        case fourcc('t', 'r', 'a', 'k'):
+        case fourcc('m', 'd', 'i', 'a'):
+        case fourcc('m', 'i', 'n', 'f'):
+        case fourcc('s', 't', 'b', 'l'):
+        case fourcc('u', 'd', 't', 'a'):
+        case fourcc('m', 'e', 't', 'a'):
+        case fourcc('i', 'p', 'r', 'p'):
+        case fourcc('i', 'p', 'c', 'o'):
+        case fourcc('m', 'o', 'o', 'f'):
+        case fourcc('t', 'r', 'a', 'f'): return true;
+        default: return false;
+        }
+    }
+
+    static bool uuid_equals(std::span<const std::byte> a,
+                            const std::array<std::byte, 16>& b) noexcept
+    {
+        if (a.size() != 16U) {
+            return false;
+        }
+        return std::memcmp(a.data(), b.data(), 16U) == 0;
+    }
+
+    static PreviewScanStatus collect_cr3_prvw_candidates_from_uuid_box(
+        std::span<const std::byte> file_bytes, const BmffBox& uuid_box,
+        std::span<PreviewCandidate> out, uint32_t* written, uint32_t* needed,
+        const PreviewScanOptions& options) noexcept
+    {
+        const uint64_t payload_off  = uuid_box.offset + uuid_box.header_size;
+        const uint64_t payload_size = uuid_box.size - uuid_box.header_size;
+        if (payload_off > file_bytes.size()
+            || payload_size > file_bytes.size() - payload_off) {
+            return PreviewScanStatus::Malformed;
+        }
+
+        // Expected layout (as observed in real CR3 files):
+        // - 8-byte header
+        // - inner BMFF box 'PRVW'
+        // - JPEG bytes start at payload+32, with length stored as u32be at payload+28
+        if (payload_size < 36U) {
+            return PreviewScanStatus::Ok;
+        }
+
+        const uint64_t prvw_off = payload_off + 8U;
+        const uint64_t prvw_end = payload_off + payload_size;
+        BmffBox prvw {};
+        if (!parse_bmff_box(file_bytes, prvw_off, prvw_end, &prvw)) {
+            return PreviewScanStatus::Ok;
+        }
+        if (prvw.type != fourcc('P', 'R', 'V', 'W')) {
+            return PreviewScanStatus::Ok;
+        }
+
+        const uint64_t jpeg_rel = 32U;
+        if (payload_size < jpeg_rel + 2U) {
+            return PreviewScanStatus::Ok;
+        }
+
+        uint32_t jpeg_len32 = 0;
+        if (!read_u32be(file_bytes, payload_off + jpeg_rel - 4U, &jpeg_len32)) {
+            return PreviewScanStatus::Malformed;
+        }
+        const uint64_t jpeg_len = jpeg_len32;
+        if (jpeg_len == 0U || jpeg_len > options.limits.max_preview_bytes) {
+            return PreviewScanStatus::Ok;
+        }
+        if (jpeg_len > payload_size - jpeg_rel) {
+            return PreviewScanStatus::Malformed;
+        }
+
+        const uint64_t jpeg_off = payload_off + jpeg_rel;
+        if (jpeg_off > file_bytes.size()
+            || jpeg_len > file_bytes.size() - jpeg_off) {
+            return PreviewScanStatus::Malformed;
+        }
+
+        const uint64_t prvw_payload_off = prvw.offset + prvw.header_size;
+        const uint64_t prvw_end_abs     = prvw.offset + prvw.size;
+        if (jpeg_off < prvw_payload_off || jpeg_off + jpeg_len > prvw_end_abs) {
+            return PreviewScanStatus::Malformed;
+        }
+
+        // Be strict here: this stream is expected to contain a JPEG.
+        if (!is_jpeg_soi(file_bytes, jpeg_off, jpeg_len)) {
+            return PreviewScanStatus::Ok;
+        }
+
+        PreviewCandidate c;
+        c.kind        = PreviewKind::Cr3PrvwJpeg;
+        c.format      = ContainerFormat::Cr3;
+        c.block_index = 0U;
+        c.file_offset = jpeg_off;
+        c.size        = jpeg_len;
+        return add_candidate(file_bytes, out, written, needed, options, c);
+    }
+
+    struct Cr3PrvwScanState final {
+        bool truncated      = false;
+        uint32_t boxes_seen = 0U;
+    };
+
+    static constexpr uint32_t kCr3PrvwMaxBoxes = 1U << 16;
+    static constexpr uint32_t kCr3PrvwMaxDepth = 16U;
+
+    static PreviewScanStatus scan_bmff_range_for_cr3_prvw_uuid(
+        std::span<const std::byte> file_bytes, uint64_t start, uint64_t end,
+        uint32_t depth, const std::array<std::byte, 16>& uuid,
+        std::span<PreviewCandidate> out, uint32_t* written, uint32_t* needed,
+        const PreviewScanOptions& options, Cr3PrvwScanState* st) noexcept
+    {
+        if (!st) {
+            return PreviewScanStatus::Malformed;
+        }
+        if (depth > kCr3PrvwMaxDepth) {
+            return PreviewScanStatus::LimitExceeded;
+        }
+
+        uint64_t off = start;
+        while (off + 8U <= end && off + 8U <= file_bytes.size()) {
+            st->boxes_seen += 1U;
+            if (st->boxes_seen > kCr3PrvwMaxBoxes) {
+                return PreviewScanStatus::LimitExceeded;
+            }
+
+            BmffBox box {};
+            if (!parse_bmff_box(file_bytes, off, end, &box)) {
+                return PreviewScanStatus::Malformed;
+            }
+
+            if (box.type == fourcc('u', 'u', 'i', 'd') && box.has_uuid
+                && uuid_equals(std::span<const std::byte>(box.uuid.data(), 16U),
+                               uuid)) {
+                const PreviewScanStatus one
+                    = collect_cr3_prvw_candidates_from_uuid_box(file_bytes, box,
+                                                                out, written,
+                                                                needed,
+                                                                options);
+                if (one == PreviewScanStatus::OutputTruncated) {
+                    st->truncated = true;
+                } else if (one == PreviewScanStatus::LimitExceeded
+                           || one == PreviewScanStatus::Malformed) {
+                    return one;
+                }
+            }
+
+            if (bmff_box_can_have_children(box.type)) {
+                uint64_t child_off       = box.offset + box.header_size;
+                const uint64_t child_end = box.offset + box.size;
+                if (box.type == fourcc('m', 'e', 't', 'a')) {
+                    if (child_end - child_off < 4U) {
+                        return PreviewScanStatus::Malformed;
+                    }
+                    child_off += 4U;
+                }
+
+                if (child_off <= child_end) {
+                    const PreviewScanStatus inner
+                        = scan_bmff_range_for_cr3_prvw_uuid(
+                            file_bytes, child_off, child_end, depth + 1U, uuid,
+                            out, written, needed, options, st);
+                    if (inner == PreviewScanStatus::OutputTruncated) {
+                        st->truncated = true;
+                    } else if (inner == PreviewScanStatus::LimitExceeded
+                               || inner == PreviewScanStatus::Malformed) {
+                        return inner;
+                    }
+                }
+            }
+
+            off += box.size;
+            if (box.size == 0U) {
+                break;
+            }
+        }
+
+        return st->truncated ? PreviewScanStatus::OutputTruncated
+                             : PreviewScanStatus::Ok;
+    }
+
+    static PreviewScanStatus collect_cr3_prvw_preview_candidates(
+        std::span<const std::byte> file_bytes, std::span<PreviewCandidate> out,
+        uint32_t* written, uint32_t* needed,
+        const PreviewScanOptions& options) noexcept
+    {
+        if (!options.include_cr3_prvw_jpeg) {
+            return PreviewScanStatus::Unsupported;
+        }
+        if (!bmff_has_cr3_brand(file_bytes)) {
+            return PreviewScanStatus::Unsupported;
+        }
+
+        static constexpr std::array<std::byte, 16> kCr3PrvwUuid {
+            std::byte { 0xEA }, std::byte { 0xF4 }, std::byte { 0x2B },
+            std::byte { 0x5E }, std::byte { 0x1C }, std::byte { 0x98 },
+            std::byte { 0x4B }, std::byte { 0x88 }, std::byte { 0xB9 },
+            std::byte { 0xFB }, std::byte { 0xB7 }, std::byte { 0xDC },
+            std::byte { 0x40 }, std::byte { 0x6E }, std::byte { 0x4D },
+            std::byte { 0x16 },
+        };
+
+        Cr3PrvwScanState st;
+        return scan_bmff_range_for_cr3_prvw_uuid(file_bytes, 0U,
+                                                 file_bytes.size(), 0U,
+                                                 kCr3PrvwUuid, out, written,
+                                                 needed, options, &st);
     }
 
     static bool contains_ifd_offset(std::span<const uint64_t> values,
@@ -483,7 +854,7 @@ find_preview_candidates(std::span<const std::byte> file_bytes,
     result.written = 0U;
     result.needed  = 0U;
 
-    bool saw_tiff  = false;
+    bool supported = false;
     bool truncated = false;
     for (uint32_t i = 0; i < blocks.size(); ++i) {
         const ContainerBlockRef& block = blocks[i];
@@ -494,7 +865,7 @@ find_preview_candidates(std::span<const std::byte> file_bytes,
             continue;
         }
 
-        saw_tiff = true;
+        supported = true;
         const PreviewScanStatus one
             = collect_tiff_preview_candidates(file_bytes, block, i, out,
                                               &result.written, &result.needed,
@@ -510,9 +881,23 @@ find_preview_candidates(std::span<const std::byte> file_bytes,
         }
     }
 
+    const PreviewScanStatus cr3
+        = collect_cr3_prvw_preview_candidates(file_bytes, out, &result.written,
+                                              &result.needed, options);
+    if (cr3 == PreviewScanStatus::OutputTruncated) {
+        supported = true;
+        truncated = true;
+    } else if (cr3 == PreviewScanStatus::Ok) {
+        supported = true;
+    } else if (cr3 == PreviewScanStatus::LimitExceeded
+               || cr3 == PreviewScanStatus::Malformed) {
+        result.status = cr3;
+        return result;
+    }
+
     if (truncated) {
         result.status = PreviewScanStatus::OutputTruncated;
-    } else if (!saw_tiff) {
+    } else if (!supported) {
         result.status = PreviewScanStatus::Unsupported;
     } else {
         result.status = PreviewScanStatus::Ok;

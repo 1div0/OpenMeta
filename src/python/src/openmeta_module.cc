@@ -692,6 +692,7 @@ read_document(const std::string& path, bool include_pointer_tags,
     apply_resource_policy(policy, &decode_options.xmp, &decode_options.exr,
                           &decode_options.jumbf, &decode_options.icc,
                           &decode_options.iptc, &decode_options.photoshop_irb);
+    decode_options.xmp.malformed_mode = XmpDecodeMalformedMode::OutputTruncated;
     decode_options.exif.include_pointer_tags       = include_pointer_tags;
     decode_options.exif.decode_makernote           = decode_makernote;
     decode_options.exif.decode_embedded_containers = true;

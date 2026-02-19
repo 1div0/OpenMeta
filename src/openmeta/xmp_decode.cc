@@ -599,6 +599,10 @@ decode_xmp_packet(std::span<const std::byte> xmp_bytes, MetaStore& store,
     ctx.parser = nullptr;
 
     result = ctx.result;
+    if (result.status == XmpDecodeStatus::Malformed
+        && options.malformed_mode == XmpDecodeMalformedMode::OutputTruncated) {
+        result.status = XmpDecodeStatus::OutputTruncated;
+    }
     return result;
 #else
     (void)store;
