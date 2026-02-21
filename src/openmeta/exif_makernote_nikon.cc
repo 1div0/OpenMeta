@@ -1725,12 +1725,22 @@ decode_nikon_binary_subdirs(std::string_view mk_ifd0, MetaStore& store, bool le,
             std::string_view settings_table;
             uint64_t settings_start = 0;
             uint32_t settings_len   = 0;
-            bool need_menu_offset   = false;
+            bool need_dyn_u32_start = false;
+            uint64_t dyn_u32_off    = 0;
+            uint64_t dyn_u32_add    = 0;
 
-            if (ver == "0209") {
+            if (ver == "0208") {
+                settings_table = "settingsd80";
+                settings_start = 748;
+                settings_len   = 17;
+            } else if (ver == "0209") {
                 settings_table = "settingsd40";
                 settings_start = 729;
                 settings_len   = 12;
+            } else if (ver == "0213") {
+                settings_table = "settingsd90";
+                settings_start = 0x0374;
+                settings_len   = 36;
             } else if (ver == "0210") {
                 settings_table = "settingsd3";
                 settings_len   = 24;
@@ -1739,6 +1749,10 @@ decode_nikon_binary_subdirs(std::string_view mk_ifd0, MetaStore& store, bool le,
                 } else {
                     settings_start = 0x0301;
                 }
+            } else if (ver == "0215") {
+                settings_table = "settingsd5000";
+                settings_start = 0x0378;
+                settings_len   = 34;
             } else if (ver == "0214") {
                 settings_table = "settingsd3";
                 settings_start = 0x030b;
@@ -1755,18 +1769,62 @@ decode_nikon_binary_subdirs(std::string_view mk_ifd0, MetaStore& store, bool le,
                 settings_table = "settingsd7000";
                 settings_start = 0x0404;
                 settings_len   = 48;
+            } else if (ver == "0221") {
+                settings_table = "settingsd5100";
+                settings_start = 0x0407;
+                settings_len   = 34;
+            } else if (ver == "0222") {
+                settings_table = "settingsd800";
+                settings_start = 0x06ec;
+                settings_len   = 48;
             } else if (ver == "0223") {
                 settings_table = "settingsd4";
                 settings_start = 0x0751;
                 settings_len   = 56;
+            } else if (ver == "0226") {
+                settings_table = "settingsd5200";
+                settings_start = 0x0cd5;
+                settings_len   = 34;
+            } else if (ver == "0232") {
+                settings_table = "settingsd610";
+                settings_start = 0x07cf;
+                settings_len   = 48;
             } else if (ver == "0231") {
                 settings_table = "settingsd4";
                 settings_start = 0x189d;
                 settings_len   = 56;
+            } else if (ver == "0233") {
+                // D810: encrypted ShotInfo includes a u32 offset to the
+                // CustomSettings block at 0x40.
+                settings_table     = "settingsd810";
+                settings_len       = 90;
+                need_dyn_u32_start = true;
+                dyn_u32_off        = 0x40;
+                dyn_u32_add        = 0;
+            } else if (ver == "0239") {
+                // D500: encrypted ShotInfo includes a u32 offset to the
+                // CustomSettings block at 0x58.
+                settings_table     = "settingsd500";
+                settings_len       = 90;
+                need_dyn_u32_start = true;
+                dyn_u32_off        = 0x58;
+                dyn_u32_add        = 0;
+            } else if (ver == "0243") {
+                // D850: encrypted ShotInfo includes a u32 offset to the
+                // CustomSettings block at 0x58.
+                settings_table     = "settingsd850";
+                settings_len       = 90;
+                need_dyn_u32_start = true;
+                dyn_u32_off        = 0x58;
+                dyn_u32_add        = 0;
             } else if (ver == "0805") {
-                settings_table   = "settingsz9";
-                settings_len     = 608;
-                need_menu_offset = true;
+                // Z9: CustomSettings base is derived from an encrypted u32
+                // offset and an additional constant.
+                settings_table     = "settingsz9";
+                settings_len       = 608;
+                need_dyn_u32_start = true;
+                dyn_u32_off        = 0x8c;
+                dyn_u32_add        = 799;
             }
 
             if (settings_table.empty() || settings_len == 0
@@ -1774,7 +1832,7 @@ decode_nikon_binary_subdirs(std::string_view mk_ifd0, MetaStore& store, bool le,
                 continue;
             }
 
-            if (!need_menu_offset) {
+            if (!need_dyn_u32_start) {
                 if (settings_start + settings_len > raw_src.size()) {
                     // Best-effort fallback: D3 custom settings may be located at
                     // 0x30a for some firmware versions.
@@ -1799,10 +1857,10 @@ decode_nikon_binary_subdirs(std::string_view mk_ifd0, MetaStore& store, bool le,
             std::array<uint8_t, 608> buf {};
             uint32_t filled = 0;
 
-            uint8_t menu_off_bytes[4] = {};
-            uint32_t menu_off_have    = 0;
-            uint32_t menu_off         = 0;
-            bool have_menu_off        = false;
+            uint8_t dyn_u32_bytes[4] = {};
+            uint32_t dyn_u32_have    = 0;
+            uint32_t dyn_u32         = 0;
+            bool have_dyn_u32        = false;
 
             const uint8_t serial8 = static_cast<uint8_t>(serial_key & 0xFFu);
             const uint8_t key     = static_cast<uint8_t>(
@@ -1817,7 +1875,7 @@ decode_nikon_binary_subdirs(std::string_view mk_ifd0, MetaStore& store, bool le,
 
             uint64_t dyn_start     = settings_start;
             const uint64_t dyn_len = settings_len;
-            bool have_dyn_range    = !need_menu_offset;
+            bool have_dyn_range    = !need_dyn_u32_start;
 
             for (uint64_t i_enc = 0; i_enc < enc.size(); ++i_enc) {
                 const uint32_t prod = static_cast<uint32_t>(ci0)
@@ -1831,23 +1889,24 @@ decode_nikon_binary_subdirs(std::string_view mk_ifd0, MetaStore& store, bool le,
                     u8(enc[static_cast<size_t>(i_enc)]) ^ cj);
                 const uint64_t abs_off = 4ULL + i_enc;
 
-                if (need_menu_offset && !have_menu_off && abs_off >= 0x8c
-                    && abs_off < 0x90) {
-                    const uint32_t bi = static_cast<uint32_t>(abs_off - 0x8c);
+                if (need_dyn_u32_start && !have_dyn_u32
+                    && abs_off >= dyn_u32_off && abs_off < (dyn_u32_off + 4)) {
+                    const uint32_t bi
+                        = static_cast<uint32_t>(abs_off - dyn_u32_off);
                     if (bi < 4) {
-                        menu_off_bytes[bi] = decb;
-                        menu_off_have |= (1U << bi);
-                        if (menu_off_have == 0x0FU) {
-                            menu_off
-                                = static_cast<uint32_t>(menu_off_bytes[0])
-                                  | (static_cast<uint32_t>(menu_off_bytes[1])
-                                     << 8)
-                                  | (static_cast<uint32_t>(menu_off_bytes[2])
-                                     << 16)
-                                  | (static_cast<uint32_t>(menu_off_bytes[3])
-                                     << 24);
-                            have_menu_off        = true;
-                            const uint64_t start = uint64_t(menu_off) + 799ULL;
+                        dyn_u32_bytes[bi] = decb;
+                        dyn_u32_have |= (1U << bi);
+                        if (dyn_u32_have == 0x0FU) {
+                            dyn_u32 = static_cast<uint32_t>(dyn_u32_bytes[0])
+                                      | (static_cast<uint32_t>(dyn_u32_bytes[1])
+                                         << 8)
+                                      | (static_cast<uint32_t>(dyn_u32_bytes[2])
+                                         << 16)
+                                      | (static_cast<uint32_t>(dyn_u32_bytes[3])
+                                         << 24);
+                            have_dyn_u32 = true;
+                            const uint64_t start
+                                = uint64_t(dyn_u32) + dyn_u32_add;
                             if (start + dyn_len <= raw_src.size()) {
                                 dyn_start      = start;
                                 have_dyn_range = true;

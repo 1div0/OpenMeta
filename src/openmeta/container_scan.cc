@@ -2203,14 +2203,348 @@ namespace {
         return table->self_contained[idx];
     }
 
+    struct BmffIlocItemRefs final {
+        uint32_t from_id = 0;
+        std::array<uint32_t, 32> to_ids {};
+        uint16_t to_count = 0;
+    };
 
-    static bool bmff_emit_items_from_iloc(std::span<const std::byte> bytes,
-                                          const BmffBox& iloc,
-                                          const BmffBox* idat,
-                                          const BmffDrefTable* dref,
-                                          std::span<const BmffMetaItem> items,
-                                          ContainerFormat format,
-                                          BlockSink* sink) noexcept
+    struct BmffIlocRefTable final {
+        std::array<BmffIlocItemRefs, 64> refs {};
+        uint32_t count = 0;
+        bool parsed    = false;
+    };
+
+    struct BmffIlocExtentMap final {
+        uint64_t logical_begin = 0;
+        uint64_t logical_end   = 0;
+        uint64_t file_off      = 0;
+        uint64_t file_len      = 0;
+    };
+
+    struct BmffIlocItemLayout final {
+        uint32_t item_id             = 0;
+        uint32_t construction_method = 0;
+        bool external_data_ref       = false;
+        bool valid                   = false;
+        uint16_t extent_count        = 0;
+        uint64_t total_len           = 0;
+        std::array<BmffIlocExtentMap, 64> extents {};
+    };
+
+    static bool u32_list_contains(std::span<const uint32_t> ids, uint32_t id,
+                                  uint32_t count) noexcept
+    {
+        const uint32_t take = (count < static_cast<uint32_t>(ids.size()))
+                                  ? count
+                                  : static_cast<uint32_t>(ids.size());
+        for (uint32_t i = 0; i < take; ++i) {
+            if (ids[i] == id) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+
+    static BmffIlocItemRefs*
+    bmff_find_or_add_iloc_refs(BmffIlocRefTable* table,
+                               uint32_t from_id) noexcept
+    {
+        if (!table) {
+            return nullptr;
+        }
+        for (uint32_t i = 0; i < table->count; ++i) {
+            if (table->refs[i].from_id == from_id) {
+                return &table->refs[i];
+            }
+        }
+        if (table->count >= table->refs.size()) {
+            return nullptr;
+        }
+        table->refs[table->count]         = BmffIlocItemRefs {};
+        table->refs[table->count].from_id = from_id;
+        table->count += 1;
+        return &table->refs[table->count - 1];
+    }
+
+
+    static const BmffIlocItemRefs*
+    bmff_find_iloc_refs(const BmffIlocRefTable* table,
+                        uint32_t from_id) noexcept
+    {
+        if (!table || !table->parsed) {
+            return nullptr;
+        }
+        for (uint32_t i = 0; i < table->count; ++i) {
+            if (table->refs[i].from_id == from_id) {
+                return &table->refs[i];
+            }
+        }
+        return nullptr;
+    }
+
+
+    static bool bmff_lookup_iloc_reference_item_id(
+        const BmffIlocRefTable* table, uint32_t from_id,
+        uint64_t extent_index_1based, uint32_t* out_item_id) noexcept
+    {
+        if (!out_item_id) {
+            return false;
+        }
+        const BmffIlocItemRefs* refs = bmff_find_iloc_refs(table, from_id);
+        if (!refs || extent_index_1based == 0) {
+            return false;
+        }
+        const uint64_t idx0 = extent_index_1based - 1U;
+        if (idx0 > 0xFFFFFFFFULL || idx0 >= refs->to_count) {
+            return false;
+        }
+        const uint32_t to = refs->to_ids[static_cast<uint32_t>(idx0)];
+        if (to == 0) {
+            return false;
+        }
+        *out_item_id = to;
+        return true;
+    }
+
+
+    static bool bmff_parse_iref_iloc_table(std::span<const std::byte> bytes,
+                                           const BmffBox& iref,
+                                           std::span<const BmffMetaItem> items,
+                                           BmffIlocRefTable* out) noexcept
+    {
+        if (!out) {
+            return false;
+        }
+        *out = BmffIlocRefTable {};
+
+        const uint64_t payload_off = iref.offset + iref.header_size;
+        const uint64_t payload_end = iref.offset + iref.size;
+        if (payload_off + 4 > payload_end || payload_end > bytes.size()) {
+            return false;
+        }
+
+        const uint8_t version = u8(bytes[payload_off + 0]);
+        if (version > 1) {
+            return false;
+        }
+
+        uint64_t child_off       = payload_off + 4;
+        const uint32_t kMaxBoxes = 1U << 16;
+        uint32_t seen            = 0;
+        while (child_off + 8 <= payload_end) {
+            seen += 1;
+            if (seen > kMaxBoxes) {
+                return false;
+            }
+
+            BmffBox child;
+            if (!parse_bmff_box(bytes, child_off, payload_end, &child)) {
+                return false;
+            }
+            child_off += child.size;
+            if (child.size == 0) {
+                break;
+            }
+
+            if (child.type != fourcc('i', 'l', 'o', 'c')) {
+                continue;
+            }
+
+            const uint64_t child_payload_off = child.offset + child.header_size;
+            const uint64_t child_payload_end = child.offset + child.size;
+            if (child_payload_off > child_payload_end
+                || child_payload_end > bytes.size()) {
+                return false;
+            }
+
+            uint64_t p = child_payload_off;
+            while (p < child_payload_end) {
+                uint32_t from_id = 0;
+                if (version == 0) {
+                    uint16_t id16 = 0;
+                    if (!read_u16be(bytes, p, &id16)) {
+                        return false;
+                    }
+                    from_id = id16;
+                    p += 2;
+                } else {
+                    if (!read_u32be(bytes, p, &from_id)) {
+                        return false;
+                    }
+                    p += 4;
+                }
+
+                uint16_t ref_count = 0;
+                if (!read_u16be(bytes, p, &ref_count)) {
+                    return false;
+                }
+                p += 2;
+
+                const bool want = bmff_find_item(items, from_id) != nullptr;
+                BmffIlocItemRefs* refs
+                    = want ? bmff_find_or_add_iloc_refs(out, from_id) : nullptr;
+
+                for (uint16_t i = 0; i < ref_count; ++i) {
+                    uint32_t to_id = 0;
+                    if (version == 0) {
+                        uint16_t to16 = 0;
+                        if (!read_u16be(bytes, p, &to16)) {
+                            return false;
+                        }
+                        to_id = to16;
+                        p += 2;
+                    } else {
+                        if (!read_u32be(bytes, p, &to_id)) {
+                            return false;
+                        }
+                        p += 4;
+                    }
+
+                    if (refs && refs->to_count < refs->to_ids.size()
+                        && to_id != 0U) {
+                        refs->to_ids[refs->to_count] = to_id;
+                        refs->to_count += 1;
+                    }
+                }
+            }
+        }
+
+        out->parsed = true;
+        return true;
+    }
+
+
+    static BmffIlocItemLayout*
+    bmff_find_or_add_layout(std::span<BmffIlocItemLayout> layouts,
+                            uint32_t* io_count, uint32_t item_id) noexcept
+    {
+        if (!io_count) {
+            return nullptr;
+        }
+        const uint32_t take = (*io_count
+                               < static_cast<uint32_t>(layouts.size()))
+                                  ? *io_count
+                                  : static_cast<uint32_t>(layouts.size());
+        for (uint32_t i = 0; i < take; ++i) {
+            if (layouts[i].item_id == item_id) {
+                return &layouts[i];
+            }
+        }
+        if (take >= layouts.size()) {
+            return nullptr;
+        }
+        layouts[take]         = BmffIlocItemLayout {};
+        layouts[take].item_id = item_id;
+        *io_count += 1;
+        return &layouts[take];
+    }
+
+
+    static const BmffIlocItemLayout*
+    bmff_find_layout(std::span<const BmffIlocItemLayout> layouts,
+                     uint32_t count, uint32_t item_id) noexcept
+    {
+        const uint32_t take = (count < static_cast<uint32_t>(layouts.size()))
+                                  ? count
+                                  : static_cast<uint32_t>(layouts.size());
+        for (uint32_t i = 0; i < take; ++i) {
+            if (layouts[i].item_id == item_id) {
+                return &layouts[i];
+            }
+        }
+        return nullptr;
+    }
+
+
+    struct BmffResolvedPart final {
+        uint64_t file_off = 0;
+        uint64_t len      = 0;
+    };
+
+    static bool bmff_resolve_logical_slice_to_file_parts(
+        const BmffIlocItemLayout* layout, uint64_t logical_off, uint64_t len,
+        std::span<BmffResolvedPart> out_parts, uint32_t* out_count) noexcept
+    {
+        if (!layout || !layout->valid || !out_count) {
+            return false;
+        }
+        *out_count = 0;
+
+        if (len == 0) {
+            return false;
+        }
+        if (logical_off > UINT64_MAX - len) {
+            return false;
+        }
+        const uint64_t logical_end = logical_off + len;
+
+        uint32_t start_idx = 0;
+        bool found         = false;
+        for (uint32_t i = 0; i < layout->extent_count; ++i) {
+            const BmffIlocExtentMap& ex = layout->extents[i];
+            if (logical_off >= ex.logical_begin
+                && logical_off < ex.logical_end) {
+                start_idx = i;
+                found     = true;
+                break;
+            }
+        }
+        if (!found) {
+            return false;
+        }
+
+        uint64_t cur  = logical_off;
+        uint32_t take = 0;
+        for (uint32_t i = start_idx;
+             i < layout->extent_count && cur < logical_end; ++i) {
+            const BmffIlocExtentMap& ex = layout->extents[i];
+            if (cur < ex.logical_begin) {
+                return false;
+            }
+
+            const uint64_t end = (logical_end < ex.logical_end)
+                                     ? logical_end
+                                     : ex.logical_end;
+            if (end <= cur) {
+                continue;
+            }
+            const uint64_t part_len = end - cur;
+
+            const uint64_t delta = cur - ex.logical_begin;
+            if (delta > UINT64_MAX - ex.file_off) {
+                return false;
+            }
+            const uint64_t file_off = ex.file_off + delta;
+            if (delta > ex.file_len || part_len > ex.file_len - delta) {
+                return false;
+            }
+
+            if (take >= out_parts.size()) {
+                return false;
+            }
+            out_parts[take].file_off = file_off;
+            out_parts[take].len      = part_len;
+            take += 1;
+
+            cur += part_len;
+        }
+
+        if (cur != logical_end) {
+            return false;
+        }
+        *out_count = take;
+        return true;
+    }
+
+
+    static bool
+    bmff_emit_items_from_iloc(std::span<const std::byte> bytes,
+                              const BmffBox& iloc, const BmffBox* idat,
+                              const BmffBox* iref, const BmffDrefTable* dref,
+                              std::span<const BmffMetaItem> items,
+                              ContainerFormat format, BlockSink* sink) noexcept
     {
         const uint64_t payload_off = iloc.offset + iloc.header_size;
         const uint64_t payload_end = iloc.offset + iloc.size;
@@ -2270,6 +2604,241 @@ namespace {
             has_idat = true;
         }
 
+        BmffIlocRefTable iloc_refs {};
+        if (iref != nullptr && iref->size > 0) {
+            (void)bmff_parse_iref_iloc_table(bytes, *iref, items, &iloc_refs);
+        }
+
+        std::array<uint32_t, 64> referenced_ids {};
+        uint32_t referenced_count = 0;
+        if (iloc_refs.parsed) {
+            for (uint32_t i = 0; i < iloc_refs.count; ++i) {
+                const BmffIlocItemRefs& refs = iloc_refs.refs[i];
+                for (uint16_t j = 0; j < refs.to_count; ++j) {
+                    const uint32_t to = refs.to_ids[j];
+                    if (to == 0U) {
+                        continue;
+                    }
+                    if (referenced_count >= referenced_ids.size()) {
+                        break;
+                    }
+                    if (!u32_list_contains(referenced_ids, to,
+                                           referenced_count)) {
+                        referenced_ids[referenced_count] = to;
+                        referenced_count += 1;
+                    }
+                }
+            }
+        }
+
+        const uint64_t item_records_off = p;
+
+        std::array<BmffIlocItemLayout, 64> layouts {};
+        uint32_t layout_count = 0;
+        if (referenced_count > 0) {
+            uint64_t q = item_records_off;
+            for (uint32_t i = 0; i < item_count; ++i) {
+                uint32_t item_id = 0;
+                if (version < 2) {
+                    uint16_t id16 = 0;
+                    if (!read_u16be(bytes, q, &id16)) {
+                        return false;
+                    }
+                    item_id = id16;
+                    q += 2;
+                } else {
+                    if (!read_u32be(bytes, q, &item_id)) {
+                        return false;
+                    }
+                    q += 4;
+                }
+
+                uint32_t construction_method = 0;
+                if (version == 1 || version == 2) {
+                    uint16_t cm = 0;
+                    if (!read_u16be(bytes, q, &cm)) {
+                        return false;
+                    }
+                    construction_method = static_cast<uint32_t>(cm & 0x000F);
+                    q += 2;
+                }
+
+                uint16_t data_ref = 0;
+                if (!read_u16be(bytes, q, &data_ref)) {
+                    return false;
+                }
+                q += 2;
+                const bool has_external_data_ref
+                    = !bmff_data_ref_is_self_contained(dref, data_ref);
+
+                uint64_t base_off = 0;
+                if (!read_uint_be_n(bytes, q, base_size, &base_off)) {
+                    return false;
+                }
+                q += base_size;
+
+                uint16_t extent_count = 0;
+                if (!read_u16be(bytes, q, &extent_count)) {
+                    return false;
+                }
+                q += 2;
+
+                const uint32_t kMaxExtents = 1U << 14;
+                if (extent_count > kMaxExtents) {
+                    return false;
+                }
+
+                const uint64_t extent_hdr
+                    = ((version == 1 || version == 2)
+                           ? static_cast<uint64_t>(idx_size)
+                           : 0ULL);
+                const uint64_t extent_rec = extent_hdr
+                                            + static_cast<uint64_t>(off_size)
+                                            + static_cast<uint64_t>(len_size);
+                if (extent_rec != 0U
+                    && extent_count > (UINT64_MAX / extent_rec)) {
+                    return false;
+                }
+                const uint64_t extents_bytes
+                    = extent_rec * static_cast<uint64_t>(extent_count);
+                if (q + extents_bytes > payload_end) {
+                    return false;
+                }
+
+                const bool want_layout = u32_list_contains(referenced_ids,
+                                                           item_id,
+                                                           referenced_count);
+                if (!want_layout) {
+                    q += extents_bytes;
+                    continue;
+                }
+
+                BmffIlocItemLayout* layout
+                    = bmff_find_or_add_layout(layouts, &layout_count, item_id);
+                if (!layout) {
+                    q += extents_bytes;
+                    continue;
+                }
+
+                *layout                     = BmffIlocItemLayout {};
+                layout->item_id             = item_id;
+                layout->construction_method = construction_method;
+                layout->external_data_ref   = has_external_data_ref;
+                layout->valid               = false;
+
+                if (has_external_data_ref) {
+                    q += extents_bytes;
+                    continue;
+                }
+                if (construction_method != 0U && construction_method != 1U) {
+                    q += extents_bytes;
+                    continue;
+                }
+
+                uint64_t base_file_off = 0;
+                if (construction_method == 1U) {
+                    if (!has_idat) {
+                        q += extents_bytes;
+                        continue;
+                    }
+                    if (idat_payload_off > UINT64_MAX - base_off) {
+                        q += extents_bytes;
+                        continue;
+                    }
+                    base_file_off = idat_payload_off + base_off;
+                } else {
+                    base_file_off = base_off;
+                }
+
+                uint64_t logical_off = 0;
+                const uint16_t take_ext
+                    = (extent_count < layout->extents.size())
+                          ? extent_count
+                          : static_cast<uint16_t>(layout->extents.size());
+                layout->extent_count = 0;
+
+                bool ok = true;
+                for (uint16_t e = 0; e < extent_count; ++e) {
+                    if ((version == 1 || version == 2) && idx_size > 0) {
+                        uint64_t discard = 0;
+                        if (!read_uint_be_n(bytes, q, idx_size, &discard)) {
+                            return false;
+                        }
+                        q += idx_size;
+                    }
+
+                    uint64_t extent_off = 0;
+                    if (!read_uint_be_n(bytes, q, off_size, &extent_off)) {
+                        return false;
+                    }
+                    q += off_size;
+
+                    uint64_t extent_len = 0;
+                    if (!read_uint_be_n(bytes, q, len_size, &extent_len)) {
+                        return false;
+                    }
+                    q += len_size;
+
+                    uint64_t file_off = base_file_off;
+                    if (file_off > UINT64_MAX - extent_off) {
+                        ok = false;
+                        continue;
+                    }
+                    file_off += extent_off;
+
+                    if (extent_len == 0 && len_size == 0 && extent_count == 1) {
+                        if (construction_method == 1U && has_idat
+                            && file_off <= idat_payload_end) {
+                            extent_len = idat_payload_end - file_off;
+                        } else {
+                            ok = false;
+                            continue;
+                        }
+                    }
+
+                    const uint64_t size = static_cast<uint64_t>(bytes.size());
+                    if (file_off > size || extent_len > size - file_off) {
+                        ok = false;
+                        continue;
+                    }
+                    if (construction_method == 1U) {
+                        if (file_off + extent_len > idat_payload_end) {
+                            ok = false;
+                            continue;
+                        }
+                    }
+
+                    if (e < take_ext) {
+                        BmffIlocExtentMap ex;
+                        ex.logical_begin = logical_off;
+                        if (extent_len > UINT64_MAX - logical_off) {
+                            ok = false;
+                        } else {
+                            ex.logical_end = logical_off + extent_len;
+                        }
+                        ex.file_off          = file_off;
+                        ex.file_len          = extent_len;
+                        layout->extents[e]   = ex;
+                        layout->extent_count = static_cast<uint16_t>(
+                            layout->extent_count + 1);
+                    } else {
+                        ok = false;
+                    }
+
+                    if (extent_len <= UINT64_MAX - logical_off) {
+                        logical_off += extent_len;
+                    } else {
+                        ok = false;
+                    }
+                }
+
+                layout->total_len = logical_off;
+                layout->valid = ok && (layout->extent_count == extent_count);
+            }
+        }
+
+        p = item_records_off;
+
         for (uint32_t i = 0; i < item_count; ++i) {
             uint32_t item_id = 0;
             if (version < 2) {
@@ -2322,6 +2891,156 @@ namespace {
             }
 
             const BmffMetaItem* item = bmff_find_item(items, item_id);
+
+            const uint64_t extent_hdr = ((version == 1 || version == 2)
+                                             ? static_cast<uint64_t>(idx_size)
+                                             : 0ULL);
+            const uint64_t extent_rec = extent_hdr
+                                        + static_cast<uint64_t>(off_size)
+                                        + static_cast<uint64_t>(len_size);
+            if (extent_rec != 0U && extent_count > (UINT64_MAX / extent_rec)) {
+                return false;
+            }
+            const uint64_t extents_bytes
+                = extent_rec * static_cast<uint64_t>(extent_count);
+            if (p + extents_bytes > payload_end) {
+                return false;
+            }
+
+            if (item == nullptr) {
+                p += extents_bytes;
+                continue;
+            }
+
+            if (has_external_data_ref) {
+                p += extents_bytes;
+                continue;
+            }
+
+            if (construction_method == 2U) {
+                const uint32_t kMaxResolveExtents = 64;
+                if (extent_count == 0 || extent_count > kMaxResolveExtents) {
+                    p += extents_bytes;
+                    continue;
+                }
+
+                const uint32_t kMaxResolvedParts = 256;
+                std::array<BmffResolvedPart, kMaxResolvedParts> parts {};
+                uint32_t part_count = 0;
+                bool all_ok         = true;
+
+                for (uint32_t e = 0; e < extent_count; ++e) {
+                    uint64_t extent_index = 1;
+                    if ((version == 1 || version == 2) && idx_size > 0) {
+                        if (!read_uint_be_n(bytes, p, idx_size, &extent_index)) {
+                            return false;
+                        }
+                        p += idx_size;
+                    }
+
+                    uint64_t extent_off = 0;
+                    if (!read_uint_be_n(bytes, p, off_size, &extent_off)) {
+                        return false;
+                    }
+                    p += off_size;
+
+                    uint64_t extent_len = 0;
+                    if (!read_uint_be_n(bytes, p, len_size, &extent_len)) {
+                        return false;
+                    }
+                    p += len_size;
+
+                    uint32_t ref_item_id = 0;
+                    if (!bmff_lookup_iloc_reference_item_id(&iloc_refs, item_id,
+                                                            extent_index,
+                                                            &ref_item_id)) {
+                        all_ok = false;
+                        continue;
+                    }
+
+                    const BmffIlocItemLayout* layout
+                        = bmff_find_layout(layouts, layout_count, ref_item_id);
+                    if (!layout || !layout->valid) {
+                        all_ok = false;
+                        continue;
+                    }
+
+                    uint64_t logical_src_off = base_off;
+                    if (logical_src_off > UINT64_MAX - extent_off) {
+                        all_ok = false;
+                        continue;
+                    }
+                    logical_src_off += extent_off;
+
+                    if (extent_len == 0 && len_size == 0 && extent_count == 1) {
+                        if (logical_src_off <= layout->total_len) {
+                            extent_len = layout->total_len - logical_src_off;
+                        } else {
+                            all_ok = false;
+                            continue;
+                        }
+                    }
+
+                    std::array<BmffResolvedPart, 64> tmp_parts {};
+                    uint32_t tmp_count = 0;
+                    if (!bmff_resolve_logical_slice_to_file_parts(
+                            layout, logical_src_off, extent_len, tmp_parts,
+                            &tmp_count)) {
+                        all_ok = false;
+                        continue;
+                    }
+                    for (uint32_t j = 0; j < tmp_count; ++j) {
+                        if (part_count >= parts.size()) {
+                            all_ok = false;
+                            break;
+                        }
+                        parts[part_count] = tmp_parts[j];
+                        part_count += 1;
+                    }
+                }
+
+                if (!all_ok || part_count == 0) {
+                    continue;
+                }
+
+                uint64_t logical_off = 0;
+                for (uint32_t part_idx = 0; part_idx < part_count; ++part_idx) {
+                    const uint64_t file_off   = parts[part_idx].file_off;
+                    const uint64_t extent_len = parts[part_idx].len;
+                    if (extent_len == 0) {
+                        continue;
+                    }
+
+                    ContainerBlockRef block;
+                    block.format       = format;
+                    block.kind         = item->kind;
+                    block.outer_offset = file_off;
+                    block.outer_size   = extent_len;
+                    block.data_offset  = file_off;
+                    block.data_size    = extent_len;
+                    block.id           = item->item_type;
+                    block.group        = static_cast<uint64_t>(item_id);
+
+                    if (block.kind == ContainerBlockKind::Exif) {
+                        if (part_idx == 0) {
+                            skip_bmff_exif_offset(&block, bytes);
+                            skip_exif_preamble(&block, bytes);
+                        }
+                    }
+
+                    if (part_count > 1) {
+                        block.part_index     = part_idx;
+                        block.part_count     = part_count;
+                        block.logical_offset = logical_off;
+                    }
+                    if (block.data_size <= UINT64_MAX - logical_off) {
+                        logical_off += block.data_size;
+                    }
+
+                    sink_emit(sink, block);
+                }
+                continue;
+            }
 
             uint64_t logical_off = 0;
             for (uint32_t e = 0; e < extent_count; ++e) {
@@ -2553,11 +3272,13 @@ namespace {
         BmffBox iinf {};
         BmffBox iloc {};
         BmffBox idat {};
+        BmffBox iref {};
         BmffBox iprp {};
         BmffBox dinf {};
         bool has_iinf = false;
         bool has_iloc = false;
         bool has_idat = false;
+        bool has_iref = false;
         bool has_iprp = false;
         bool has_dinf = false;
 
@@ -2578,6 +3299,9 @@ namespace {
             } else if (child.type == fourcc('i', 'd', 'a', 't')) {
                 idat     = child;
                 has_idat = true;
+            } else if (child.type == fourcc('i', 'r', 'e', 'f')) {
+                iref     = child;
+                has_iref = true;
             } else if (child.type == fourcc('i', 'p', 'r', 'p')) {
                 iprp     = child;
                 has_iprp = true;
@@ -2628,8 +3352,9 @@ namespace {
 
         if (has_iloc && items_count > 0) {
             const BmffBox* idat_ptr = has_idat ? &idat : nullptr;
+            const BmffBox* iref_ptr = has_iref ? &iref : nullptr;
             if (!bmff_emit_items_from_iloc(
-                    bytes, iloc, idat_ptr, &dref,
+                    bytes, iloc, idat_ptr, iref_ptr, &dref,
                     std::span<const BmffMetaItem>(items.data(), items_count),
                     format, sink)) {
                 sink->result.status = ScanStatus::Malformed;
