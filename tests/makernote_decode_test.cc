@@ -2369,6 +2369,16 @@ TEST(MakerNoteDecode, DecodesNikonBinarySubdirectoriesExtended)
     }
     {
         const std::span<const EntryId> ids = store.find_all(
+            exif_key("mk_nikon_flashinfo0106_0", 0x0009));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
+        EXPECT_EQ(e.value.elem_type, MetaElementType::U8);
+        EXPECT_EQ(e.value.data.u64, 0U);
+        EXPECT_TRUE(any(e.flags, EntryFlags::Derived));
+    }
+    {
+        const std::span<const EntryId> ids = store.find_all(
             exif_key("mk_nikon_multiexposure_0", 0x0003));
         ASSERT_EQ(ids.size(), 1U);
         const Entry& e = store.entry(ids[0]);

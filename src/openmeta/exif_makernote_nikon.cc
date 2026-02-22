@@ -833,8 +833,8 @@ decode_nikon_binary_subdirs(std::string_view mk_ifd0, MetaStore& store, bool le,
                 out_count += 1;
             }
 
-            const uint16_t u8_tags[] = { 0x000c, 0x000d, 0x000e, 0x000f,
-                                         0x0010 };
+            const uint16_t u8_tags[] = { 0x0009, 0x000c, 0x000d,
+                                         0x000e, 0x000f, 0x0010 };
             for (size_t k = 0; k < sizeof(u8_tags) / sizeof(u8_tags[0]); ++k) {
                 if (out_count >= sizeof(tags_out) / sizeof(tags_out[0])) {
                     break;
@@ -1633,10 +1633,11 @@ decode_nikon_binary_subdirs(std::string_view mk_ifd0, MetaStore& store, bool le,
                             0x0012, 0x0038, 0x0066, 0x0075, 0x0082, 0x013c,
                             0x01a8, 0x01ac, 0x01ae, 0x01b0, 0x01b4, 0x01d0,
                             0x020e, 0x0214, 0x0221, 0x0228, 0x022c, 0x022e,
-                            0x0234, 0x0256, 0x025c, 0x025d, 0x0265, 0x02b5,
-                            0x02c4, 0x02ca, 0x04c0, 0x04c2, 0x04c3, 0x04da,
-                            0x04db, 0x051c, 0x0532, 0x06dd, 0x174c, 0x174d,
-                            0x184d, 0x18ea, 0x18eb, 0x3693,
+                            0x0234, 0x024e, 0x0256, 0x025c, 0x025d, 0x0265,
+                            0x029f, 0x02b5, 0x02c4, 0x02ca, 0x02d3, 0x04c0,
+                            0x04c2, 0x04c3, 0x04da, 0x04db, 0x051c, 0x0532,
+                            0x06dd, 0x174c, 0x174d, 0x184d, 0x18ea, 0x18eb,
+                            0x3693,
                         };
                         for (size_t k = 0;
                              k < sizeof(u8_tags) / sizeof(u8_tags[0]); ++k) {
