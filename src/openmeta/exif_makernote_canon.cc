@@ -79,6 +79,19 @@ canon_dir_bytes(uint16_t entry_count, uint64_t* out) noexcept
 }
 
 
+static bool
+canon_should_emit_unknown_table_tags(std::string_view ifd_name) noexcept
+{
+    // Exiv2 exposes unknown Canon table elements by numeric tag id for a few
+    // compact/array-like Canon subtables. Keep this behavior constrained to
+    // these tables to avoid noisy expansion in large variant tables.
+    return ifd_name.find("mk_canon_camerasettings_") == 0
+           || ifd_name.find("mk_canon_shotinfo_") == 0
+           || ifd_name.find("mk_canon_fileinfo_") == 0
+           || ifd_name.find("mk_canon_afinfo_") == 0
+           || ifd_name.find("mk_canon_filterinfo_") == 0;
+}
+
 
 static int64_t
 guess_canon_value_base(const TiffConfig& cfg,
@@ -754,13 +767,15 @@ decode_canon_u16_table(const TiffConfig& cfg, std::span<const std::byte> bytes,
         return;
     }
 
+    const bool emit_unknown = canon_should_emit_unknown_table_tags(ifd_name);
+
     for (uint32_t i = 0; i < count; ++i) {
         if (i > 0xFFFFu) {
             break;
         }
 
         const uint16_t tag = static_cast<uint16_t>(i);
-        if (exif_tag_name(ifd_name, tag).empty()) {
+        if (!emit_unknown && exif_tag_name(ifd_name, tag).empty()) {
             continue;
         }
 
@@ -853,13 +868,15 @@ decode_canon_u32_table(const TiffConfig& cfg, std::span<const std::byte> bytes,
         return;
     }
 
+    const bool emit_unknown = canon_should_emit_unknown_table_tags(ifd_name);
+
     for (uint32_t i = 0; i < count; ++i) {
         if (i > 0xFFFFu) {
             break;
         }
 
         const uint16_t tag = static_cast<uint16_t>(i);
-        if (exif_tag_name(ifd_name, tag).empty()) {
+        if (!emit_unknown && exif_tag_name(ifd_name, tag).empty()) {
             continue;
         }
 
@@ -925,13 +942,15 @@ decode_canon_i32_table(const TiffConfig& cfg, std::span<const std::byte> bytes,
         return;
     }
 
+    const bool emit_unknown = canon_should_emit_unknown_table_tags(ifd_name);
+
     for (uint32_t i = 0; i < count; ++i) {
         if (i > 0xFFFFu) {
             break;
         }
 
         const uint16_t tag = static_cast<uint16_t>(i);
-        if (exif_tag_name(ifd_name, tag).empty()) {
+        if (!emit_unknown && exif_tag_name(ifd_name, tag).empty()) {
             continue;
         }
 
@@ -1166,6 +1185,10 @@ decode_canon_afinfo2(const TiffConfig& cfg,
     // [0]=size(bytes), [1]=AFAreaMode, [2]=NumAFPoints, [3]=ValidAFPoints,
     // [4..7]=image dimensions, then 4 arrays of length NumAFPoints,
     // then three scalar fields.
+    //
+    // Exiv2 additionally exposes AFInfo2 fields under Canon pseudo tags
+    // 0x2600..0x260e. Emit both forms to keep OpenMeta parity with both
+    // ExifTool-style and Exiv2-style inventories.
     uint32_t order = 0;
     if (!decode_canon_afinfo2_add_u16_scalar(cfg, tiff_bytes, value_off,
                                              mk_ifd0, block, order++, 0x0000, 0,
@@ -1204,6 +1227,46 @@ decode_canon_afinfo2(const TiffConfig& cfg,
     }
     if (!decode_canon_afinfo2_add_u16_scalar(cfg, tiff_bytes, value_off,
                                              mk_ifd0, block, order++, 0x0007, 7,
+                                             store, options, status_out)) {
+        return true;
+    }
+    if (!decode_canon_afinfo2_add_u16_scalar(cfg, tiff_bytes, value_off,
+                                             mk_ifd0, block, order++, 0x2600, 0,
+                                             store, options, status_out)) {
+        return true;
+    }
+    if (!decode_canon_afinfo2_add_u16_scalar(cfg, tiff_bytes, value_off,
+                                             mk_ifd0, block, order++, 0x2601, 1,
+                                             store, options, status_out)) {
+        return true;
+    }
+    if (!decode_canon_afinfo2_add_u16_scalar(cfg, tiff_bytes, value_off,
+                                             mk_ifd0, block, order++, 0x2602, 2,
+                                             store, options, status_out)) {
+        return true;
+    }
+    if (!decode_canon_afinfo2_add_u16_scalar(cfg, tiff_bytes, value_off,
+                                             mk_ifd0, block, order++, 0x2603, 3,
+                                             store, options, status_out)) {
+        return true;
+    }
+    if (!decode_canon_afinfo2_add_u16_scalar(cfg, tiff_bytes, value_off,
+                                             mk_ifd0, block, order++, 0x2604, 4,
+                                             store, options, status_out)) {
+        return true;
+    }
+    if (!decode_canon_afinfo2_add_u16_scalar(cfg, tiff_bytes, value_off,
+                                             mk_ifd0, block, order++, 0x2605, 5,
+                                             store, options, status_out)) {
+        return true;
+    }
+    if (!decode_canon_afinfo2_add_u16_scalar(cfg, tiff_bytes, value_off,
+                                             mk_ifd0, block, order++, 0x2606, 6,
+                                             store, options, status_out)) {
+        return true;
+    }
+    if (!decode_canon_afinfo2_add_u16_scalar(cfg, tiff_bytes, value_off,
+                                             mk_ifd0, block, order++, 0x2607, 7,
                                              store, options, status_out)) {
         return true;
     }
@@ -1255,6 +1318,30 @@ decode_canon_afinfo2(const TiffConfig& cfg,
         if (status_out) {
             status_out->entries_decoded += 1;
         }
+
+        if (status_out
+            && (status_out->entries_decoded + 1U)
+                   > options.limits.max_total_entries) {
+            update_status(status_out, ExifDecodeStatus::LimitExceeded);
+            return true;
+        }
+
+        Entry alias_entry;
+        alias_entry.key
+            = make_exif_tag_key(store.arena(), mk_ifd0,
+                                static_cast<uint16_t>(0x2600u + a.tag));
+        alias_entry.origin.block          = block;
+        alias_entry.origin.order_in_block = order++;
+        alias_entry.origin.wire_type  = WireType { WireFamily::Tiff, a.type };
+        alias_entry.origin.wire_count = n;
+        alias_entry.value = decode_tiff_value(cfg, tiff_bytes, a.type, n, off,
+                                              bytes, store.arena(),
+                                              options.limits, status_out);
+        alias_entry.flags |= EntryFlags::Derived;
+        (void)store.add_entry(alias_entry);
+        if (status_out) {
+            status_out->entries_decoded += 1;
+        }
     }
 
     if (!decode_canon_afinfo2_add_u16_scalar(cfg, tiff_bytes, value_off,
@@ -1271,6 +1358,24 @@ decode_canon_afinfo2(const TiffConfig& cfg,
     }
     if (!decode_canon_afinfo2_add_u16_scalar(cfg, tiff_bytes, value_off,
                                              mk_ifd0, block, order++, 0x000e,
+                                             base + 4U * n + 2U, store, options,
+                                             status_out)) {
+        return true;
+    }
+    if (!decode_canon_afinfo2_add_u16_scalar(cfg, tiff_bytes, value_off,
+                                             mk_ifd0, block, order++, 0x260c,
+                                             base + 4U * n + 0U, store, options,
+                                             status_out)) {
+        return true;
+    }
+    if (!decode_canon_afinfo2_add_u16_scalar(cfg, tiff_bytes, value_off,
+                                             mk_ifd0, block, order++, 0x260d,
+                                             base + 4U * n + 1U, store, options,
+                                             status_out)) {
+        return true;
+    }
+    if (!decode_canon_afinfo2_add_u16_scalar(cfg, tiff_bytes, value_off,
+                                             mk_ifd0, block, order++, 0x260e,
                                              base + 4U * n + 2U, store, options,
                                              status_out)) {
         return true;
@@ -2306,6 +2411,12 @@ decode_canon_makernote(const TiffConfig& cfg,
                                                abs_value_off, value_bytes,
                                                sub_ifd, store, options,
                                                status_out);
+                // Some files expose FilterInfo as a flat LONG table where
+                // Exiv2 reports numeric CanonFil indices (0x0032, 0x0033,
+                // ...). Emit that index form as well for parity.
+                decode_canon_u32_table(mk_cfg, tiff_bytes, abs_value_off,
+                                       count32, sub_ifd, store, options,
+                                       status_out);
             } else if (tag == 0x4025) {  // HDRInfo
                 const std::string_view sub_ifd
                     = make_mk_subtable_ifd_token(mk_prefix, "hdrinfo", 0,

@@ -306,6 +306,10 @@ namespace exif_internal {
                                      bool le, const ExifDecodeOptions& options,
                                      ExifDecodeResult* status_out) noexcept;
 
+    void decode_nikon_preview_aliases(MetaStore& store,
+                                      const ExifDecodeOptions& options,
+                                      ExifDecodeResult* status_out) noexcept;
+
     void decode_pentax_binary_subdirs(std::string_view mk_ifd0,
                                       MetaStore& store, bool le,
                                       const ExifDecodeOptions& options,

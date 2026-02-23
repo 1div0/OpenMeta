@@ -2996,12 +2996,33 @@ decode_exif_tiff(std::span<const std::byte> tiff_bytes, MetaStore& store,
                                            mn_opts);
 
                     if (vendor == MakerNoteVendor::Nikon
-                        && (hdr_abs + 2U) <= tiff_bytes.size()) {
-                        const uint8_t hdr_b0 = u8(tiff_bytes[hdr_abs + 0]);
-                        const uint8_t hdr_b1 = u8(tiff_bytes[hdr_abs + 1]);
-                        const bool le        = (hdr_b0 == 'I' && hdr_b1 == 'I');
+                        && hdr_bytes.size() >= 8U) {
+                        const uint8_t hdr_b0 = u8(hdr_bytes[0]);
+                        const uint8_t hdr_b1 = u8(hdr_bytes[1]);
+
+                        TiffConfig mn_cfg;
+                        mn_cfg.bigtiff = false;
+                        if (hdr_b0 == 'I' && hdr_b1 == 'I') {
+                            mn_cfg.le = true;
+                        } else if (hdr_b0 == 'M' && hdr_b1 == 'M') {
+                            mn_cfg.le = false;
+                        } else {
+                            mn_cfg.le = cfg.le;
+                        }
+
+                        uint32_t ifd0_off = 0;
+                        if (read_tiff_u32(mn_cfg, hdr_bytes, 4, &ifd0_off)) {
+                            const uint64_t ifd0_u64 = uint64_t(ifd0_off);
+                            if (ifd0_u64 < hdr_bytes.size()) {
+                                decode_classic_ifd_no_header(mn_cfg, hdr_bytes,
+                                                             ifd0_u64, mk_ifd0,
+                                                             store, mn_opts,
+                                                             &sink.result,
+                                                             EntryFlags::None);
+                            }
+                        }
                         exif_internal::decode_nikon_binary_subdirs(
-                            mk_ifd0, store, le, mn_opts, &sink.result);
+                            mk_ifd0, store, mn_cfg.le, mn_opts, &sink.result);
                     }
                     if (vendor == MakerNoteVendor::Pentax
                         && (hdr_abs + 2U) <= tiff_bytes.size()) {
@@ -3228,6 +3249,8 @@ decode_exif_tiff(std::span<const std::byte> tiff_bytes, MetaStore& store,
                                                store, options.limits);
         }
     }
+
+    exif_internal::decode_nikon_preview_aliases(store, options, &sink.result);
 
     return sink.result;
 }

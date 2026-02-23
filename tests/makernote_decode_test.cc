@@ -1156,8 +1156,7 @@ namespace {
             const std::string_view name = "Bob";
             for (size_t i = 0; i < name.size() && (4U + i) < facerec.size();
                  ++i) {
-                facerec[4U + i]
-                    = std::byte { static_cast<uint8_t>(name[i]) };
+                facerec[4U + i] = std::byte { static_cast<uint8_t>(name[i]) };
             }
         }
         write_u16le_at(&facerec, 24U + 0, 1);
@@ -1168,8 +1167,7 @@ namespace {
             const std::string_view age = "25";
             for (size_t i = 0; i < age.size() && (32U + i) < facerec.size();
                  ++i) {
-                facerec[32U + i]
-                    = std::byte { static_cast<uint8_t>(age[i]) };
+                facerec[32U + i] = std::byte { static_cast<uint8_t>(age[i]) };
             }
         }
         EXPECT_EQ(facerec.size(), 52U);
@@ -1974,6 +1972,16 @@ TEST(MakerNoteDecode, DecodesCanonAfInfo2IntoDerivedIfd)
     }
     {
         const std::span<const EntryId> ids = store.find_all(
+            exif_key("mk_canon_afinfo2_0", 0x2602));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
+        EXPECT_EQ(e.value.elem_type, MetaElementType::U16);
+        EXPECT_EQ(e.value.data.u64, 9U);
+        EXPECT_TRUE(any(e.flags, EntryFlags::Derived));
+    }
+    {
+        const std::span<const EntryId> ids = store.find_all(
             exif_key("mk_canon_afinfo2_0", 0x0008));
         ASSERT_EQ(ids.size(), 1U);
         const Entry& e = store.entry(ids[0]);
@@ -1985,6 +1993,16 @@ TEST(MakerNoteDecode, DecodesCanonAfInfo2IntoDerivedIfd)
     {
         const std::span<const EntryId> ids = store.find_all(
             exif_key("mk_canon_afinfo2_0", 0x000a));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Array);
+        EXPECT_EQ(e.value.elem_type, MetaElementType::I16);
+        EXPECT_EQ(e.value.count, 9U);
+        EXPECT_TRUE(any(e.flags, EntryFlags::Derived));
+    }
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("mk_canon_afinfo2_0", 0x260a));
         ASSERT_EQ(ids.size(), 1U);
         const Entry& e = store.entry(ids[0]);
         EXPECT_EQ(e.value.kind, MetaValueKind::Array);
@@ -2504,7 +2522,7 @@ TEST(MakerNoteDecode, DecodesOlympusMakerNoteWithOlympusSignatureSubIfdOffsets)
 
 TEST(MakerNoteDecode, DecodesPanasonicBinarySubDirs)
 {
-    std::vector<std::byte> mn = make_panasonic_makernote_with_subdirs();
+    std::vector<std::byte> mn   = make_panasonic_makernote_with_subdirs();
     const std::string_view make = "Panasonic";
     const uint32_t maker_note_off
         = 57U + static_cast<uint32_t>(make.size());  // see builder layout
@@ -2533,14 +2551,14 @@ TEST(MakerNoteDecode, DecodesPanasonicBinarySubDirs)
     store.finalize();
 
     {
-        const std::span<const EntryId> ids
-            = store.find_all(exif_key("mk_panasonic_facedetinfo_0", 0x0000));
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("mk_panasonic_facedetinfo_0", 0x0000));
         ASSERT_EQ(ids.size(), 1U);
         EXPECT_EQ(store.entry(ids[0]).value.data.u64, 1U);
     }
     {
-        const std::span<const EntryId> ids
-            = store.find_all(exif_key("mk_panasonic_facedetinfo_0", 0x0001));
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("mk_panasonic_facedetinfo_0", 0x0001));
         ASSERT_EQ(ids.size(), 1U);
         const Entry& e = store.entry(ids[0]);
         EXPECT_EQ(e.value.kind, MetaValueKind::Array);
@@ -2548,15 +2566,15 @@ TEST(MakerNoteDecode, DecodesPanasonicBinarySubDirs)
         EXPECT_EQ(e.value.count, 4U);
     }
     {
-        const std::span<const EntryId> ids
-            = store.find_all(exif_key("mk_panasonic_facerecinfo_0", 0x0004));
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("mk_panasonic_facerecinfo_0", 0x0004));
         ASSERT_EQ(ids.size(), 1U);
         const Entry& e = store.entry(ids[0]);
         EXPECT_EQ(e.value.kind, MetaValueKind::Text);
     }
     {
-        const std::span<const EntryId> ids
-            = store.find_all(exif_key("mk_panasonic_timeinfo_0", 0x0010));
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("mk_panasonic_timeinfo_0", 0x0010));
         ASSERT_EQ(ids.size(), 1U);
         EXPECT_EQ(store.entry(ids[0]).value.data.u64, 123U);
     }
@@ -2564,9 +2582,9 @@ TEST(MakerNoteDecode, DecodesPanasonicBinarySubDirs)
 
 TEST(MakerNoteDecode, DecodesPanasonicType2MakerNote)
 {
-    const std::vector<std::byte> mn   = make_panasonic_type2_makernote();
-    const std::vector<std::byte> tiff = make_test_tiff_with_makernote("Panasonic",
-                                                                      mn);
+    const std::vector<std::byte> mn = make_panasonic_type2_makernote();
+    const std::vector<std::byte> tiff
+        = make_test_tiff_with_makernote("Panasonic", mn);
 
     MetaStore store;
     std::array<ExifIfdRef, 8> ifds {};
@@ -2629,20 +2647,20 @@ TEST(MakerNoteDecode, DecodesSamsungStmnMakerNoteAndSamsungIfd)
 
     store.finalize();
     {
-        const std::span<const EntryId> ids
-            = store.find_all(exif_key("mk_samsung0", 0x0000));
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("mk_samsung0", 0x0000));
         ASSERT_EQ(ids.size(), 1U);
         const Entry& e = store.entry(ids[0]);
         EXPECT_EQ(e.value.kind, MetaValueKind::Text);
-        const std::span<const std::byte> raw
-            = store.arena().span(e.value.data.span);
+        const std::span<const std::byte> raw = store.arena().span(
+            e.value.data.span);
         const std::string_view v(reinterpret_cast<const char*>(raw.data()),
                                  raw.size());
         EXPECT_EQ(v, "STMN100");
     }
     {
-        const std::span<const EntryId> ids
-            = store.find_all(exif_key("mk_samsung0", 0x0002));
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("mk_samsung0", 0x0002));
         ASSERT_EQ(ids.size(), 1U);
         const Entry& e = store.entry(ids[0]);
         EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
@@ -2650,8 +2668,8 @@ TEST(MakerNoteDecode, DecodesSamsungStmnMakerNoteAndSamsungIfd)
         EXPECT_EQ(e.value.data.u64, 0x12345678U);
     }
     {
-        const std::span<const EntryId> ids
-            = store.find_all(exif_key("mk_samsung0", 0x0003));
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("mk_samsung0", 0x0003));
         ASSERT_EQ(ids.size(), 1U);
         const Entry& e = store.entry(ids[0]);
         EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
@@ -2659,13 +2677,13 @@ TEST(MakerNoteDecode, DecodesSamsungStmnMakerNoteAndSamsungIfd)
         EXPECT_EQ(e.value.data.u64, 0x00010002U);
     }
     {
-        const std::span<const EntryId> ids
-            = store.find_all(exif_key("mk_samsung_ifd_0", 0x0004));
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("mk_samsung_ifd_0", 0x0004));
         ASSERT_EQ(ids.size(), 1U);
         const Entry& e = store.entry(ids[0]);
         EXPECT_EQ(e.value.kind, MetaValueKind::Text);
-        const std::span<const std::byte> raw
-            = store.arena().span(e.value.data.span);
+        const std::span<const std::byte> raw = store.arena().span(
+            e.value.data.span);
         const std::string_view v(reinterpret_cast<const char*>(raw.data()),
                                  raw.size());
         EXPECT_EQ(v, "HELLO");
