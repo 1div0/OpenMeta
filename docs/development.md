@@ -108,7 +108,7 @@ This policy surface is intentionally marked draft and may be refined.
   `src/openmeta/ccm_query.cc` (`collect_dng_ccm_fields(...)`)
 - ICC tag interpretation helpers: `src/include/openmeta/icc_interpret.h`,
   `src/openmeta/icc_interpret.cc` (`icc_tag_name(...)`,
-  `interpret_icc_tag(...)` for `desc`/`text`/`sig `/`mluc`/`dtim`/`XYZ `/`curv`/`para`,
+  `interpret_icc_tag(...)` for `desc`/`text`/`sig `/`mluc`/`dtim`/`view`/`meas`/`sf32`/`uf32`/`mft1`/`mft2`/`mAB`/`mBA`/`XYZ `/`curv`/`para`,
   plus `format_icc_tag_display_value(...)` for shared CLI/Python rendering)
 - ISO-BMFF (HEIF/AVIF/CR3) container-derived fields: `src/openmeta/bmff_fields_decode.cc`
   - Emitted during `simple_meta_read(...)` as `MetaKeyKind::BmffField` entries.

@@ -5,6 +5,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <string>
 #include <vector>
 
 namespace openmeta {
@@ -165,6 +166,210 @@ TEST(IccInterpret, DecodesDateTimeType)
     EXPECT_TRUE(out.values.empty());
 }
 
+TEST(IccInterpret, DecodesViewingConditions)
+{
+    std::vector<std::byte> tag(36, std::byte { 0x00 });
+    write_u32be(make_fourcc('v', 'i', 'e', 'w'), 0, &tag);
+    write_u32be(65536U, 8, &tag);   // illum X = 1.0
+    write_u32be(32768U, 12, &tag);  // illum Y = 0.5
+    write_u32be(16384U, 16, &tag);  // illum Z = 0.25
+    write_u32be(6554U, 20, &tag);   // sur X = 0.100006
+    write_u32be(13107U, 24, &tag);  // sur Y = 0.199997
+    write_u32be(19661U, 28, &tag);  // sur Z = 0.300003
+    write_u32be(2U, 32, &tag);      // D65
+
+    IccTagInterpretation out;
+    const IccTagInterpretStatus st
+        = interpret_icc_tag(make_fourcc('v', 'i', 'e', 'w'), tag, &out);
+    EXPECT_EQ(st, IccTagInterpretStatus::Ok);
+    EXPECT_EQ(out.type, "view");
+    EXPECT_EQ(out.rows, 2U);
+    EXPECT_EQ(out.cols, 3U);
+    ASSERT_EQ(out.values.size(), 6U);
+    EXPECT_NEAR(out.values[0], 1.0, 1e-9);
+    EXPECT_NEAR(out.values[1], 0.5, 1e-9);
+    EXPECT_NEAR(out.values[2], 0.25, 1e-9);
+    EXPECT_NEAR(out.values[3], 6554.0 / 65536.0, 1e-9);
+    EXPECT_NEAR(out.values[4], 13107.0 / 65536.0, 1e-9);
+    EXPECT_NEAR(out.values[5], 19661.0 / 65536.0, 1e-9);
+    EXPECT_NE(out.text.find("illuminant_type=2(D65)"), std::string::npos);
+}
+
+TEST(IccInterpret, DecodesMeasurementType)
+{
+    std::vector<std::byte> tag(36, std::byte { 0x00 });
+    write_u32be(make_fourcc('m', 'e', 'a', 's'), 0, &tag);
+    write_u32be(1U, 8, &tag);       // observer
+    write_u32be(6554U, 12, &tag);   // backing X = 0.100006
+    write_u32be(13107U, 16, &tag);  // backing Y = 0.199997
+    write_u32be(19661U, 20, &tag);  // backing Z = 0.300003
+    write_u32be(1U, 24, &tag);      // geometry
+    write_u32be(32768U, 28, &tag);  // flare = 0.5
+    write_u32be(2U, 32, &tag);      // illuminant (D65)
+
+    IccTagInterpretation out;
+    const IccTagInterpretStatus st
+        = interpret_icc_tag(make_fourcc('m', 'e', 'a', 's'), tag, &out);
+    EXPECT_EQ(st, IccTagInterpretStatus::Ok);
+    EXPECT_EQ(out.type, "meas");
+    EXPECT_EQ(out.rows, 1U);
+    EXPECT_EQ(out.cols, 4U);
+    ASSERT_EQ(out.values.size(), 4U);
+    EXPECT_NEAR(out.values[0], 6554.0 / 65536.0, 1e-9);
+    EXPECT_NEAR(out.values[1], 13107.0 / 65536.0, 1e-9);
+    EXPECT_NEAR(out.values[2], 19661.0 / 65536.0, 1e-9);
+    EXPECT_NEAR(out.values[3], 0.5, 1e-9);
+    EXPECT_NE(out.text.find("observer=1(CIE1931_2deg)"), std::string::npos);
+    EXPECT_NE(out.text.find("geometry=1(0_45_or_45_0)"), std::string::npos);
+    EXPECT_NE(out.text.find("illuminant=2(D65)"), std::string::npos);
+}
+
+TEST(IccInterpret, DecodesSf32Array)
+{
+    std::vector<std::byte> tag(16, std::byte { 0x00 });
+    write_u32be(make_fourcc('s', 'f', '3', '2'), 0, &tag);
+    write_u32be(0x00010000U, 8, &tag);   // 1.0
+    write_u32be(0xFFFF8000U, 12, &tag);  // -0.5
+
+    IccTagInterpretation out;
+    const IccTagInterpretStatus st
+        = interpret_icc_tag(make_fourcc('b', 'k', 'p', 't'), tag, &out);
+    EXPECT_EQ(st, IccTagInterpretStatus::Ok);
+    EXPECT_EQ(out.type, "sf32");
+    EXPECT_EQ(out.rows, 1U);
+    EXPECT_EQ(out.cols, 2U);
+    ASSERT_EQ(out.values.size(), 2U);
+    EXPECT_NEAR(out.values[0], 1.0, 1e-9);
+    EXPECT_NEAR(out.values[1], -0.5, 1e-9);
+}
+
+TEST(IccInterpret, DecodesUf32Array)
+{
+    std::vector<std::byte> tag(16, std::byte { 0x00 });
+    write_u32be(make_fourcc('u', 'f', '3', '2'), 0, &tag);
+    write_u32be(0x00018000U, 8, &tag);   // 1.5
+    write_u32be(0x00004000U, 12, &tag);  // 0.25
+
+    IccTagInterpretation out;
+    const IccTagInterpretStatus st
+        = interpret_icc_tag(make_fourcc('c', 'h', 'a', 'd'), tag, &out);
+    EXPECT_EQ(st, IccTagInterpretStatus::Ok);
+    EXPECT_EQ(out.type, "uf32");
+    EXPECT_EQ(out.rows, 1U);
+    EXPECT_EQ(out.cols, 2U);
+    ASSERT_EQ(out.values.size(), 2U);
+    EXPECT_NEAR(out.values[0], 1.5, 1e-9);
+    EXPECT_NEAR(out.values[1], 0.25, 1e-9);
+}
+
+TEST(IccInterpret, SummarizesMft1)
+{
+    // mft1 with in=3, out=3, clut_points=2 => need=48+768+24+768 = 1608.
+    std::vector<std::byte> tag(1608, std::byte { 0x00 });
+    write_u32be(make_fourcc('m', 'f', 't', '1'), 0, &tag);
+    tag[8]  = std::byte { 3 };
+    tag[9]  = std::byte { 3 };
+    tag[10] = std::byte { 2 };
+
+    IccTagInterpretation out;
+    const IccTagInterpretStatus st
+        = interpret_icc_tag(make_fourcc('A', '2', 'B', '0'), tag, &out);
+    EXPECT_EQ(st, IccTagInterpretStatus::Ok);
+    EXPECT_EQ(out.type, "mft1");
+    EXPECT_TRUE(out.values.empty());
+    EXPECT_NE(out.text.find("mft1 in=3 out=3 clut_points=2"),
+              std::string::npos);
+    EXPECT_NE(out.text.find("in_tbl=768"), std::string::npos);
+    EXPECT_NE(out.text.find("clut=24"), std::string::npos);
+    EXPECT_NE(out.text.find("out_tbl=768"), std::string::npos);
+}
+
+TEST(IccInterpret, SummarizesMft2)
+{
+    // mft2 with in=3, out=3, clut_points=2, in_entries=4, out_entries=4
+    // values=12+24+12=48, bytes=96, need=52+96=148.
+    std::vector<std::byte> tag(148, std::byte { 0x00 });
+    write_u32be(make_fourcc('m', 'f', 't', '2'), 0, &tag);
+    tag[8]  = std::byte { 3 };
+    tag[9]  = std::byte { 3 };
+    tag[10] = std::byte { 2 };
+    write_u16be(4U, 48, &tag);
+    write_u16be(4U, 50, &tag);
+
+    IccTagInterpretation out;
+    const IccTagInterpretStatus st
+        = interpret_icc_tag(make_fourcc('B', '2', 'A', '0'), tag, &out);
+    EXPECT_EQ(st, IccTagInterpretStatus::Ok);
+    EXPECT_EQ(out.type, "mft2");
+    EXPECT_TRUE(out.values.empty());
+    EXPECT_NE(out.text.find("mft2 in=3 out=3 clut_points=2"),
+              std::string::npos);
+    EXPECT_NE(out.text.find("in_tbl=12"), std::string::npos);
+    EXPECT_NE(out.text.find("clut=24"), std::string::npos);
+    EXPECT_NE(out.text.find("out_tbl=12"), std::string::npos);
+    EXPECT_NE(out.text.find("in_entries=4"), std::string::npos);
+    EXPECT_NE(out.text.find("out_entries=4"), std::string::npos);
+}
+
+TEST(IccInterpret, SummarizesMabStructure)
+{
+    std::vector<std::byte> tag(512, std::byte { 0x00 });
+    write_u32be(make_fourcc('m', 'A', 'B', ' '), 0, &tag);
+    tag[8] = std::byte { 3 };
+    tag[9] = std::byte { 3 };
+    write_u32be(64U, 12, &tag);   // B curves
+    write_u32be(128U, 16, &tag);  // matrix
+    write_u32be(192U, 20, &tag);  // M curves
+    write_u32be(256U, 24, &tag);  // CLUT
+    write_u32be(320U, 28, &tag);  // A curves
+
+    IccTagInterpretation out;
+    const IccTagInterpretStatus st
+        = interpret_icc_tag(make_fourcc('A', '2', 'B', '0'), tag, &out);
+    EXPECT_EQ(st, IccTagInterpretStatus::Ok);
+    EXPECT_EQ(out.type, "mAB ");
+    EXPECT_NE(out.text.find("mAB in=3 out=3"), std::string::npos);
+    EXPECT_NE(out.text.find("blocks=B,matrix,M,CLUT,A"), std::string::npos);
+    EXPECT_NE(out.text.find("offs=B:64"), std::string::npos);
+}
+
+TEST(IccInterpret, SummarizesMbaStructure)
+{
+    std::vector<std::byte> tag(256, std::byte { 0x00 });
+    write_u32be(make_fourcc('m', 'B', 'A', ' '), 0, &tag);
+    tag[8] = std::byte { 4 };
+    tag[9] = std::byte { 3 };
+    write_u32be(80U, 12, &tag);   // B curves
+    write_u32be(0U, 16, &tag);    // matrix absent
+    write_u32be(0U, 20, &tag);    // M curves absent
+    write_u32be(144U, 24, &tag);  // CLUT
+    write_u32be(0U, 28, &tag);    // A curves absent
+
+    IccTagInterpretation out;
+    const IccTagInterpretStatus st
+        = interpret_icc_tag(make_fourcc('B', '2', 'A', '0'), tag, &out);
+    EXPECT_EQ(st, IccTagInterpretStatus::Ok);
+    EXPECT_EQ(out.type, "mBA ");
+    EXPECT_NE(out.text.find("mBA in=4 out=3"), std::string::npos);
+    EXPECT_NE(out.text.find("blocks=B,CLUT"), std::string::npos);
+    EXPECT_NE(out.text.find("offs=B:80"), std::string::npos);
+    EXPECT_NE(out.text.find("CLUT:144"), std::string::npos);
+}
+
+TEST(IccInterpret, MabMalformedOffsetOutOfRange)
+{
+    std::vector<std::byte> tag(128, std::byte { 0x00 });
+    write_u32be(make_fourcc('m', 'A', 'B', ' '), 0, &tag);
+    tag[8] = std::byte { 3 };
+    tag[9] = std::byte { 3 };
+    write_u32be(200U, 12, &tag);  // out of range for size 128
+
+    IccTagInterpretation out;
+    const IccTagInterpretStatus st
+        = interpret_icc_tag(make_fourcc('A', '2', 'B', '0'), tag, &out);
+    EXPECT_EQ(st, IccTagInterpretStatus::Malformed);
+}
+
 TEST(IccInterpret, DecodesMlucPreferredEnUs)
 {
     // mluc with 2 records, prefers enUS over frFR.
@@ -254,6 +459,44 @@ TEST(IccInterpret, FormatsDisplayValueForCliPython)
     EXPECT_TRUE(format_icc_tag_display_value(make_fourcc('w', 't', 'p', 't'),
                                              xyz_tag, 16U, 256U, &text));
     EXPECT_EQ(text, "[1, 0, 0.5]");
+
+    std::vector<std::byte> sf32_tag(16, std::byte { 0x00 });
+    write_u32be(make_fourcc('s', 'f', '3', '2'), 0, &sf32_tag);
+    write_u32be(0x00010000U, 8, &sf32_tag);
+    write_u32be(0xFFFF8000U, 12, &sf32_tag);
+    EXPECT_TRUE(format_icc_tag_display_value(make_fourcc('b', 'k', 'p', 't'),
+                                             sf32_tag, 16U, 256U, &text));
+    EXPECT_EQ(text, "[1, -0.5]");
+
+    std::vector<std::byte> mft1_tag(1608, std::byte { 0x00 });
+    write_u32be(make_fourcc('m', 'f', 't', '1'), 0, &mft1_tag);
+    mft1_tag[8]  = std::byte { 3 };
+    mft1_tag[9]  = std::byte { 3 };
+    mft1_tag[10] = std::byte { 2 };
+    EXPECT_TRUE(format_icc_tag_display_value(make_fourcc('A', '2', 'B', '0'),
+                                             mft1_tag, 16U, 256U, &text));
+    EXPECT_NE(text.find("mft1 in=3 out=3 clut_points=2"), std::string::npos);
+
+    std::vector<std::byte> mab_tag(512, std::byte { 0x00 });
+    write_u32be(make_fourcc('m', 'A', 'B', ' '), 0, &mab_tag);
+    mab_tag[8] = std::byte { 3 };
+    mab_tag[9] = std::byte { 3 };
+    write_u32be(64U, 12, &mab_tag);
+    write_u32be(128U, 16, &mab_tag);
+    write_u32be(192U, 20, &mab_tag);
+    write_u32be(256U, 24, &mab_tag);
+    write_u32be(320U, 28, &mab_tag);
+    EXPECT_TRUE(format_icc_tag_display_value(make_fourcc('A', '2', 'B', '0'),
+                                             mab_tag, 16U, 256U, &text));
+    EXPECT_NE(text.find("mAB in=3 out=3"), std::string::npos);
+    EXPECT_NE(text.find("blocks=B,matrix,M,CLUT,A"), std::string::npos);
+
+    std::vector<std::byte> view_tag(36, std::byte { 0x00 });
+    write_u32be(make_fourcc('v', 'i', 'e', 'w'), 0, &view_tag);
+    write_u32be(2U, 32, &view_tag);
+    EXPECT_TRUE(format_icc_tag_display_value(make_fourcc('v', 'i', 'e', 'w'),
+                                             view_tag, 16U, 256U, &text));
+    EXPECT_NE(text.find("view illuminant_type=2(D65)"), std::string::npos);
 }
 
 }  // namespace openmeta

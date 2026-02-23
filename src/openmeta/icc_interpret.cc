@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <limits>
 
 namespace openmeta {
 namespace {
@@ -147,6 +148,596 @@ namespace {
             }
         }
         return true;
+    }
+
+    static bool append_fixed_array_values(std::span<const std::byte> bytes,
+                                          uint32_t max_values, bool is_signed,
+                                          std::vector<double>* out,
+                                          bool* truncated) noexcept
+    {
+        if (!out || bytes.size() < 12U) {
+            return false;
+        }
+        if (truncated) {
+            *truncated = false;
+        }
+        const uint64_t payload = bytes.size() - 8U;
+        if ((payload % 4ULL) != 0ULL) {
+            return false;
+        }
+        const uint32_t count = static_cast<uint32_t>(payload / 4ULL);
+        if (count == 0U) {
+            return false;
+        }
+        uint32_t limit = count;
+        if (max_values != 0U && limit > max_values) {
+            limit = max_values;
+            if (truncated) {
+                *truncated = true;
+            }
+        }
+        out->reserve(limit);
+        for (uint32_t i = 0; i < limit; ++i) {
+            const uint64_t off = 8ULL + static_cast<uint64_t>(i) * 4ULL;
+            if (is_signed) {
+                int32_t v = 0;
+                if (!read_i32be(bytes, off, &v)) {
+                    return false;
+                }
+                out->push_back(static_cast<double>(v) / 65536.0);
+            } else {
+                uint32_t v = 0;
+                if (!read_u32be(bytes, off, &v)) {
+                    return false;
+                }
+                out->push_back(static_cast<double>(v) / 65536.0);
+            }
+        }
+        return true;
+    }
+
+    static bool checked_mul_u64(uint64_t a, uint64_t b, uint64_t* out) noexcept
+    {
+        if (!out) {
+            return false;
+        }
+        if (a == 0U || b == 0U) {
+            *out = 0U;
+            return true;
+        }
+        if (a > (std::numeric_limits<uint64_t>::max() / b)) {
+            return false;
+        }
+        *out = a * b;
+        return true;
+    }
+
+    static bool checked_add_u64(uint64_t a, uint64_t b, uint64_t* out) noexcept
+    {
+        if (!out) {
+            return false;
+        }
+        if (a > (std::numeric_limits<uint64_t>::max() - b)) {
+            return false;
+        }
+        *out = a + b;
+        return true;
+    }
+
+    static bool checked_pow_u64(uint64_t base, uint32_t exp,
+                                uint64_t* out) noexcept
+    {
+        if (!out) {
+            return false;
+        }
+        uint64_t v = 1U;
+        for (uint32_t i = 0; i < exp; ++i) {
+            if (!checked_mul_u64(v, base, &v)) {
+                return false;
+            }
+        }
+        *out = v;
+        return true;
+    }
+
+    static void append_u64_dec(uint64_t v, std::string* out)
+    {
+        if (!out) {
+            return;
+        }
+        char buf[32];
+        std::snprintf(buf, sizeof(buf), "%llu",
+                      static_cast<unsigned long long>(v));
+        out->append(buf);
+    }
+
+    static bool
+    format_lut_summary(std::string_view type, uint8_t in_channels,
+                       uint8_t out_channels, uint8_t clut_points,
+                       uint64_t in_table_values, uint64_t clut_values,
+                       uint64_t out_table_values, uint64_t needed_bytes,
+                       uint64_t available_bytes, std::string* out) noexcept
+    {
+        if (!out) {
+            return false;
+        }
+        out->clear();
+        out->append(type.data(), type.size());
+        out->append(" in=");
+        append_u64_dec(in_channels, out);
+        out->append(" out=");
+        append_u64_dec(out_channels, out);
+        out->append(" clut_points=");
+        append_u64_dec(clut_points, out);
+        out->append(" in_tbl=");
+        append_u64_dec(in_table_values, out);
+        out->append(" clut=");
+        append_u64_dec(clut_values, out);
+        out->append(" out_tbl=");
+        append_u64_dec(out_table_values, out);
+        out->append(" need=");
+        append_u64_dec(needed_bytes, out);
+        if (available_bytes > needed_bytes) {
+            out->append(" extra=");
+            append_u64_dec(available_bytes - needed_bytes, out);
+        }
+        return true;
+    }
+
+    static IccTagInterpretStatus
+    decode_lut8_summary(std::span<const std::byte> bytes,
+                        const IccTagInterpretOptions& options,
+                        IccTagInterpretation* out) noexcept
+    {
+        if (!out || bytes.size() < 48U) {
+            return IccTagInterpretStatus::Malformed;
+        }
+        const uint8_t in_channels  = u8(bytes[8U]);
+        const uint8_t out_channels = u8(bytes[9U]);
+        const uint8_t clut_points  = u8(bytes[10U]);
+        if (in_channels == 0U || out_channels == 0U || clut_points == 0U) {
+            return IccTagInterpretStatus::Malformed;
+        }
+
+        uint64_t clut_nodes = 0;
+        if (!checked_pow_u64(clut_points, in_channels, &clut_nodes)) {
+            return IccTagInterpretStatus::Malformed;
+        }
+
+        uint64_t in_table_values  = 0;
+        uint64_t out_table_values = 0;
+        uint64_t clut_values      = 0;
+        if (!checked_mul_u64(in_channels, 256U, &in_table_values)
+            || !checked_mul_u64(out_channels, 256U, &out_table_values)
+            || !checked_mul_u64(clut_nodes, out_channels, &clut_values)) {
+            return IccTagInterpretStatus::Malformed;
+        }
+
+        uint64_t data_values = 0;
+        uint64_t needed      = 48U;
+        if (!checked_add_u64(in_table_values, clut_values, &data_values)
+            || !checked_add_u64(data_values, out_table_values, &data_values)
+            || !checked_add_u64(needed, data_values, &needed)) {
+            return IccTagInterpretStatus::Malformed;
+        }
+        if (needed > bytes.size()) {
+            return IccTagInterpretStatus::Malformed;
+        }
+
+        if (!format_lut_summary("mft1", in_channels, out_channels, clut_points,
+                                in_table_values, clut_values, out_table_values,
+                                needed, bytes.size(), &out->text)) {
+            return IccTagInterpretStatus::Malformed;
+        }
+        if (options.limits.max_text_bytes != 0U
+            && out->text.size() > options.limits.max_text_bytes) {
+            out->text.resize(options.limits.max_text_bytes);
+            return IccTagInterpretStatus::LimitExceeded;
+        }
+        return IccTagInterpretStatus::Ok;
+    }
+
+    static IccTagInterpretStatus
+    decode_lut16_summary(std::span<const std::byte> bytes,
+                         const IccTagInterpretOptions& options,
+                         IccTagInterpretation* out) noexcept
+    {
+        if (!out || bytes.size() < 52U) {
+            return IccTagInterpretStatus::Malformed;
+        }
+        const uint8_t in_channels  = u8(bytes[8U]);
+        const uint8_t out_channels = u8(bytes[9U]);
+        const uint8_t clut_points  = u8(bytes[10U]);
+        if (in_channels == 0U || out_channels == 0U || clut_points == 0U) {
+            return IccTagInterpretStatus::Malformed;
+        }
+        uint16_t in_entries  = 0;
+        uint16_t out_entries = 0;
+        if (!read_u16be(bytes, 48U, &in_entries)
+            || !read_u16be(bytes, 50U, &out_entries)) {
+            return IccTagInterpretStatus::Malformed;
+        }
+        if (in_entries == 0U || out_entries == 0U) {
+            return IccTagInterpretStatus::Malformed;
+        }
+
+        uint64_t clut_nodes = 0;
+        if (!checked_pow_u64(clut_points, in_channels, &clut_nodes)) {
+            return IccTagInterpretStatus::Malformed;
+        }
+
+        uint64_t in_table_values  = 0;
+        uint64_t out_table_values = 0;
+        uint64_t clut_values      = 0;
+        if (!checked_mul_u64(in_channels, in_entries, &in_table_values)
+            || !checked_mul_u64(out_channels, out_entries, &out_table_values)
+            || !checked_mul_u64(clut_nodes, out_channels, &clut_values)) {
+            return IccTagInterpretStatus::Malformed;
+        }
+
+        uint64_t data_values = 0;
+        uint64_t data_bytes  = 0;
+        uint64_t needed      = 52U;
+        if (!checked_add_u64(in_table_values, clut_values, &data_values)
+            || !checked_add_u64(data_values, out_table_values, &data_values)
+            || !checked_mul_u64(data_values, 2U, &data_bytes)
+            || !checked_add_u64(needed, data_bytes, &needed)) {
+            return IccTagInterpretStatus::Malformed;
+        }
+        if (needed > bytes.size()) {
+            return IccTagInterpretStatus::Malformed;
+        }
+
+        if (!format_lut_summary("mft2", in_channels, out_channels, clut_points,
+                                in_table_values, clut_values, out_table_values,
+                                needed, bytes.size(), &out->text)) {
+            return IccTagInterpretStatus::Malformed;
+        }
+        out->text.append(" in_entries=");
+        append_u64_dec(in_entries, &out->text);
+        out->text.append(" out_entries=");
+        append_u64_dec(out_entries, &out->text);
+        if (options.limits.max_text_bytes != 0U
+            && out->text.size() > options.limits.max_text_bytes) {
+            out->text.resize(options.limits.max_text_bytes);
+            return IccTagInterpretStatus::LimitExceeded;
+        }
+        return IccTagInterpretStatus::Ok;
+    }
+
+    static bool append_offset_item(const char* label, uint32_t value,
+                                   bool* first, std::string* out)
+    {
+        if (!label || !first || !out) {
+            return false;
+        }
+        if (!*first) {
+            out->append(", ");
+        }
+        *first = false;
+        out->append(label);
+        out->append(":");
+        append_u64_dec(value, out);
+        return true;
+    }
+
+    static IccTagInterpretStatus
+    decode_lutab_summary(std::string_view type,
+                         std::span<const std::byte> bytes,
+                         const IccTagInterpretOptions& options,
+                         IccTagInterpretation* out) noexcept
+    {
+        if (!out || bytes.size() < 32U) {
+            return IccTagInterpretStatus::Malformed;
+        }
+        const uint8_t in_channels  = u8(bytes[8U]);
+        const uint8_t out_channels = u8(bytes[9U]);
+        if (in_channels == 0U || out_channels == 0U) {
+            return IccTagInterpretStatus::Malformed;
+        }
+
+        uint32_t off_b      = 0;
+        uint32_t off_matrix = 0;
+        uint32_t off_m      = 0;
+        uint32_t off_clut   = 0;
+        uint32_t off_a      = 0;
+        if (!read_u32be(bytes, 12U, &off_b)
+            || !read_u32be(bytes, 16U, &off_matrix)
+            || !read_u32be(bytes, 20U, &off_m)
+            || !read_u32be(bytes, 24U, &off_clut)
+            || !read_u32be(bytes, 28U, &off_a)) {
+            return IccTagInterpretStatus::Malformed;
+        }
+
+        const uint32_t offsets[5] = { off_b, off_matrix, off_m, off_clut,
+                                      off_a };
+        for (uint32_t i = 0U; i < 5U; ++i) {
+            if (offsets[i] == 0U) {
+                continue;
+            }
+            if (offsets[i] < 32U || offsets[i] >= bytes.size()) {
+                return IccTagInterpretStatus::Malformed;
+            }
+        }
+
+        out->text.clear();
+        out->text.append(type.data(), type.size());
+        out->text.append(" in=");
+        append_u64_dec(in_channels, &out->text);
+        out->text.append(" out=");
+        append_u64_dec(out_channels, &out->text);
+
+        out->text.append(" blocks=");
+        bool first_block = true;
+        if (off_b != 0U) {
+            if (!first_block) {
+                out->text.push_back(',');
+            }
+            out->text.append("B");
+            first_block = false;
+        }
+        if (off_matrix != 0U) {
+            if (!first_block) {
+                out->text.push_back(',');
+            }
+            out->text.append("matrix");
+            first_block = false;
+        }
+        if (off_m != 0U) {
+            if (!first_block) {
+                out->text.push_back(',');
+            }
+            out->text.append("M");
+            first_block = false;
+        }
+        if (off_clut != 0U) {
+            if (!first_block) {
+                out->text.push_back(',');
+            }
+            out->text.append("CLUT");
+            first_block = false;
+        }
+        if (off_a != 0U) {
+            if (!first_block) {
+                out->text.push_back(',');
+            }
+            out->text.append("A");
+            first_block = false;
+        }
+        if (first_block) {
+            out->text.append("none");
+        }
+
+        out->text.append(" offs=");
+        bool first_offset = true;
+        if (off_b != 0U) {
+            (void)append_offset_item("B", off_b, &first_offset, &out->text);
+        }
+        if (off_matrix != 0U) {
+            (void)append_offset_item("matrix", off_matrix, &first_offset,
+                                     &out->text);
+        }
+        if (off_m != 0U) {
+            (void)append_offset_item("M", off_m, &first_offset, &out->text);
+        }
+        if (off_clut != 0U) {
+            (void)append_offset_item("CLUT", off_clut, &first_offset,
+                                     &out->text);
+        }
+        if (off_a != 0U) {
+            (void)append_offset_item("A", off_a, &first_offset, &out->text);
+        }
+        if (first_offset) {
+            out->text.append("none");
+        }
+
+        if (options.limits.max_text_bytes != 0U
+            && out->text.size() > options.limits.max_text_bytes) {
+            out->text.resize(options.limits.max_text_bytes);
+            return IccTagInterpretStatus::LimitExceeded;
+        }
+        return IccTagInterpretStatus::Ok;
+    }
+
+    static const char* standard_illuminant_name(uint32_t code) noexcept
+    {
+        switch (code) {
+        case 1U: return "D50";
+        case 2U: return "D65";
+        case 3U: return "D93";
+        case 4U: return "F2";
+        case 5U: return "D55";
+        case 6U: return "A";
+        case 7U: return "EquiPowerE";
+        case 8U: return "F8";
+        default: return nullptr;
+        }
+    }
+
+    static const char* measurement_observer_name(uint32_t code) noexcept
+    {
+        switch (code) {
+        case 1U: return "CIE1931_2deg";
+        case 2U: return "CIE1964_10deg";
+        default: return nullptr;
+        }
+    }
+
+    static const char* measurement_geometry_name(uint32_t code) noexcept
+    {
+        switch (code) {
+        case 1U: return "0_45_or_45_0";
+        case 2U: return "0_d_or_d_0";
+        default: return nullptr;
+        }
+    }
+
+    static bool push_limited_value(double value, uint32_t max_values,
+                                   std::vector<double>* out,
+                                   bool* truncated) noexcept
+    {
+        if (!out) {
+            return false;
+        }
+        if (max_values != 0U && out->size() >= max_values) {
+            if (truncated) {
+                *truncated = true;
+            }
+            return true;
+        }
+        out->push_back(value);
+        return true;
+    }
+
+    static void append_enum_label(const char* label, uint32_t code,
+                                  const char* name, std::string* out)
+    {
+        if (!label || !out) {
+            return;
+        }
+        if (!out->empty()) {
+            out->push_back(' ');
+        }
+        out->append(label);
+        out->push_back('=');
+        append_u64_dec(code, out);
+        if (name && name[0] != '\0') {
+            out->push_back('(');
+            out->append(name);
+            out->push_back(')');
+        }
+    }
+
+    static IccTagInterpretStatus
+    decode_viewing_conditions(std::span<const std::byte> bytes,
+                              const IccTagInterpretOptions& options,
+                              IccTagInterpretation* out) noexcept
+    {
+        if (!out || bytes.size() < 36U) {
+            return IccTagInterpretStatus::Malformed;
+        }
+
+        int32_t illum_x = 0;
+        int32_t illum_y = 0;
+        int32_t illum_z = 0;
+        int32_t sur_x   = 0;
+        int32_t sur_y   = 0;
+        int32_t sur_z   = 0;
+        uint32_t illum  = 0;
+        if (!read_i32be(bytes, 8U, &illum_x)
+            || !read_i32be(bytes, 12U, &illum_y)
+            || !read_i32be(bytes, 16U, &illum_z)
+            || !read_i32be(bytes, 20U, &sur_x)
+            || !read_i32be(bytes, 24U, &sur_y)
+            || !read_i32be(bytes, 28U, &sur_z)
+            || !read_u32be(bytes, 32U, &illum)) {
+            return IccTagInterpretStatus::Malformed;
+        }
+
+        bool truncated = false;
+        out->values.clear();
+        out->values.reserve(6U);
+        (void)push_limited_value(static_cast<double>(illum_x) / 65536.0,
+                                 options.limits.max_values, &out->values,
+                                 &truncated);
+        (void)push_limited_value(static_cast<double>(illum_y) / 65536.0,
+                                 options.limits.max_values, &out->values,
+                                 &truncated);
+        (void)push_limited_value(static_cast<double>(illum_z) / 65536.0,
+                                 options.limits.max_values, &out->values,
+                                 &truncated);
+        (void)push_limited_value(static_cast<double>(sur_x) / 65536.0,
+                                 options.limits.max_values, &out->values,
+                                 &truncated);
+        (void)push_limited_value(static_cast<double>(sur_y) / 65536.0,
+                                 options.limits.max_values, &out->values,
+                                 &truncated);
+        (void)push_limited_value(static_cast<double>(sur_z) / 65536.0,
+                                 options.limits.max_values, &out->values,
+                                 &truncated);
+
+        if (out->values.size() == 6U) {
+            out->rows = 2U;
+            out->cols = 3U;
+        } else {
+            out->rows = 1U;
+            out->cols = static_cast<uint32_t>(out->values.size());
+        }
+
+        out->text.clear();
+        out->text.append("view");
+        append_enum_label("illuminant_type", illum,
+                          standard_illuminant_name(illum), &out->text);
+
+        if (options.limits.max_text_bytes != 0U
+            && out->text.size() > options.limits.max_text_bytes) {
+            out->text.resize(options.limits.max_text_bytes);
+            truncated = true;
+        }
+        return truncated ? IccTagInterpretStatus::LimitExceeded
+                         : IccTagInterpretStatus::Ok;
+    }
+
+    static IccTagInterpretStatus
+    decode_measurement(std::span<const std::byte> bytes,
+                       const IccTagInterpretOptions& options,
+                       IccTagInterpretation* out) noexcept
+    {
+        if (!out || bytes.size() < 36U) {
+            return IccTagInterpretStatus::Malformed;
+        }
+
+        uint32_t observer = 0;
+        int32_t back_x    = 0;
+        int32_t back_y    = 0;
+        int32_t back_z    = 0;
+        uint32_t geometry = 0;
+        uint32_t flare    = 0;
+        uint32_t illum    = 0;
+        if (!read_u32be(bytes, 8U, &observer)
+            || !read_i32be(bytes, 12U, &back_x)
+            || !read_i32be(bytes, 16U, &back_y)
+            || !read_i32be(bytes, 20U, &back_z)
+            || !read_u32be(bytes, 24U, &geometry)
+            || !read_u32be(bytes, 28U, &flare)
+            || !read_u32be(bytes, 32U, &illum)) {
+            return IccTagInterpretStatus::Malformed;
+        }
+
+        bool truncated = false;
+        out->values.clear();
+        out->values.reserve(4U);
+        (void)push_limited_value(static_cast<double>(back_x) / 65536.0,
+                                 options.limits.max_values, &out->values,
+                                 &truncated);
+        (void)push_limited_value(static_cast<double>(back_y) / 65536.0,
+                                 options.limits.max_values, &out->values,
+                                 &truncated);
+        (void)push_limited_value(static_cast<double>(back_z) / 65536.0,
+                                 options.limits.max_values, &out->values,
+                                 &truncated);
+        (void)push_limited_value(static_cast<double>(flare) / 65536.0,
+                                 options.limits.max_values, &out->values,
+                                 &truncated);
+        out->rows = 1U;
+        out->cols = static_cast<uint32_t>(out->values.size());
+
+        out->text.clear();
+        out->text.append("meas");
+        append_enum_label("observer", observer,
+                          measurement_observer_name(observer), &out->text);
+        append_enum_label("geometry", geometry,
+                          measurement_geometry_name(geometry), &out->text);
+        append_enum_label("illuminant", illum, standard_illuminant_name(illum),
+                          &out->text);
+
+        if (options.limits.max_text_bytes != 0U
+            && out->text.size() > options.limits.max_text_bytes) {
+            out->text.resize(options.limits.max_text_bytes);
+            truncated = true;
+        }
+        return truncated ? IccTagInterpretStatus::LimitExceeded
+                         : IccTagInterpretStatus::Ok;
     }
 
     static uint32_t
@@ -456,6 +1047,14 @@ interpret_icc_tag(uint32_t signature, std::span<const std::byte> tag_bytes,
         return IccTagInterpretStatus::Ok;
     }
 
+    if (type_sig == fourcc('v', 'i', 'e', 'w')) {
+        return decode_viewing_conditions(tag_bytes, options, out);
+    }
+
+    if (type_sig == fourcc('m', 'e', 'a', 's')) {
+        return decode_measurement(tag_bytes, options, out);
+    }
+
     if (type_sig == fourcc('m', 'l', 'u', 'c')) {
         if (tag_bytes.size() < 16U) {
             return IccTagInterpretStatus::Malformed;
@@ -532,6 +1131,46 @@ interpret_icc_tag(uint32_t signature, std::span<const std::byte> tag_bytes,
         }
         return truncated ? IccTagInterpretStatus::LimitExceeded
                          : IccTagInterpretStatus::Ok;
+    }
+
+    if (type_sig == fourcc('s', 'f', '3', '2')) {
+        bool truncated = false;
+        if (!append_fixed_array_values(tag_bytes, options.limits.max_values,
+                                       true, &out->values, &truncated)) {
+            return IccTagInterpretStatus::Malformed;
+        }
+        out->rows = 1U;
+        out->cols = static_cast<uint32_t>(out->values.size());
+        return truncated ? IccTagInterpretStatus::LimitExceeded
+                         : IccTagInterpretStatus::Ok;
+    }
+
+    if (type_sig == fourcc('u', 'f', '3', '2')) {
+        bool truncated = false;
+        if (!append_fixed_array_values(tag_bytes, options.limits.max_values,
+                                       false, &out->values, &truncated)) {
+            return IccTagInterpretStatus::Malformed;
+        }
+        out->rows = 1U;
+        out->cols = static_cast<uint32_t>(out->values.size());
+        return truncated ? IccTagInterpretStatus::LimitExceeded
+                         : IccTagInterpretStatus::Ok;
+    }
+
+    if (type_sig == fourcc('m', 'f', 't', '1')) {
+        return decode_lut8_summary(tag_bytes, options, out);
+    }
+
+    if (type_sig == fourcc('m', 'f', 't', '2')) {
+        return decode_lut16_summary(tag_bytes, options, out);
+    }
+
+    if (type_sig == fourcc('m', 'A', 'B', ' ')) {
+        return decode_lutab_summary("mAB", tag_bytes, options, out);
+    }
+
+    if (type_sig == fourcc('m', 'B', 'A', ' ')) {
+        return decode_lutab_summary("mBA", tag_bytes, options, out);
     }
 
     if (type_sig == fourcc('X', 'Y', 'Z', ' ')) {
