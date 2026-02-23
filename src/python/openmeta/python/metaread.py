@@ -99,6 +99,20 @@ def _icc_header_field_name(offset: int) -> str:
     }.get(offset, "-")
 
 
+def _icc_header_is_fourcc(offset: int) -> bool:
+    return offset in {
+        4,   # cmm_type
+        12,  # class
+        16,  # data_space
+        20,  # pcs
+        36,  # signature
+        40,  # platform
+        48,  # manufacturer
+        52,  # model
+        80,  # creator
+    }
+
+
 def _photoshop_resource_name(rid: int) -> str:
     return {
         0x0404: "IPTC_NAA",
@@ -164,6 +178,35 @@ def _format_value(e: openmeta.Entry, *, max_elements: int, max_bytes: int) -> Tu
             val = raw if not dangerous else "(DANGEROUS) " + raw
             return raw, val
 
+        if e.key_kind == openmeta.MetaKeyKind.IccTag:
+            raw = openmeta.hex_bytes(v, max_bytes=int(max_bytes))
+            try:
+                decoded = openmeta.icc_interpret(
+                    int(e.icc_tag_signature),
+                    v,
+                    max_values=int(max_elements),
+                    max_text_bytes=int(max_bytes),
+                )
+                status = decoded.get("status")
+                if status in (
+                    openmeta.IccTagInterpretStatus.Ok,
+                    openmeta.IccTagInterpretStatus.LimitExceeded,
+                ):
+                    text = decoded.get("text")
+                    if isinstance(text, str) and text:
+                        return raw, text
+                    values = decoded.get("values")
+                    if isinstance(values, list) and values:
+                        rows = int(decoded.get("rows", 0) or 0)
+                        cols = int(decoded.get("cols", 0) or 0)
+                        vals = ", ".join(_fmt_float(float(x)) for x in values)
+                        if rows > 1 and cols > 0:
+                            return raw, f"{rows}x{cols} [{vals}]"
+                        return raw, f"[{vals}]"
+            except Exception:
+                pass
+            return raw, raw
+
         raw = openmeta.hex_bytes(v, max_bytes=int(max_bytes))
         return raw, raw
 
@@ -184,6 +227,13 @@ def _format_value(e: openmeta.Entry, *, max_elements: int, max_bytes: int) -> Tu
                 val_parts.append(_rational_to_decimal(int(n), int(d)))
             return ", ".join(raw_parts), ", ".join(val_parts)
         return ", ".join(str(x) for x in v), ", ".join(str(x) for x in v)
+
+    if (
+        isinstance(v, int)
+        and e.key_kind == openmeta.MetaKeyKind.IccHeaderField
+        and _icc_header_is_fourcc(int(e.icc_header_offset))
+    ):
+        return str(v), _fourcc_str(int(v))
 
     return str(v), str(v)
 
@@ -364,6 +414,7 @@ def main(argv: list[str]) -> int:
                     name = _icc_header_field_name(int(e.icc_header_offset))
                 elif e.key_kind == openmeta.MetaKeyKind.IccTag:
                     key = _fourcc_str(int(e.icc_tag_signature))
+                    name = str(e.name or "-")
                 elif e.key_kind == openmeta.MetaKeyKind.ExrAttribute:
                     key = f"part:{int(e.exr_part)}"
                     name = str(e.exr_name or "-")

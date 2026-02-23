@@ -191,6 +191,7 @@ set(OPENMETA_SOURCES
   src/openmeta/build_info.cc
   src/openmeta/byte_arena.cc
   src/openmeta/bmff_fields_decode.cc
+  src/openmeta/ccm_query.cc
   src/openmeta/console_format.cc
   src/openmeta/container_payload.cc
   src/openmeta/container_scan.cc
@@ -218,6 +219,7 @@ set(OPENMETA_SOURCES
   src/openmeta/geotiff_decode.cc
   src/openmeta/geotiff_key_names.cc
   src/openmeta/icc_decode.cc
+  src/openmeta/icc_interpret.cc
   src/openmeta/interop_export.cc
   src/openmeta/interop_safety_internal.cc
   src/openmeta/interop_value_format_internal.cc
@@ -452,6 +454,7 @@ if(OPENMETA_BUILD_TESTS)
   openmeta_add_googletest()
 
   add_executable(openmeta_tests
+    tests/ccm_query_test.cc
     tests/container_payload_test.cc
     tests/container_scan_test.cc
     tests/bmff_fields_decode_test.cc
@@ -459,6 +462,7 @@ if(OPENMETA_BUILD_TESTS)
     tests/jumbf_decode_test.cc
     tests/crw_ciff_decode_test.cc
     tests/icc_decode_test.cc
+    tests/icc_interpret_test.cc
     tests/exif_tag_names_test.cc
     tests/exr_decode_test.cc
     tests/exif_tiff_decode_test.cc

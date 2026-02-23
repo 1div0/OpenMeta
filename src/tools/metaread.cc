@@ -5,6 +5,7 @@
 #include "openmeta/exif_tag_names.h"
 #include "openmeta/exif_tiff_decode.h"
 #include "openmeta/geotiff_key_names.h"
+#include "openmeta/icc_interpret.h"
 #include "openmeta/mapped_file.h"
 #include "openmeta/meta_key.h"
 #include "openmeta/meta_store.h"
@@ -984,6 +985,24 @@ namespace {
     }
 
 
+    static bool icc_header_field_is_fourcc(uint32_t offset) noexcept
+    {
+        switch (offset) {
+        case 4:   // cmm_type
+        case 12:  // class
+        case 16:  // data_space
+        case 20:  // pcs
+        case 36:  // signature
+        case 40:  // platform
+        case 48:  // manufacturer
+        case 52:  // model
+        case 80:  // creator
+            return true;
+        default: return false;
+        }
+    }
+
+
     static std::string fourcc_string(uint32_t v)
     {
         char s[5];
@@ -1007,6 +1026,85 @@ namespace {
         char buf[16];
         std::snprintf(buf, sizeof(buf), "0x%08X", static_cast<unsigned>(v));
         return std::string(buf);
+    }
+
+    static void
+    append_icc_interpreted_values(const IccTagInterpretation& interpretation,
+                                  uint32_t max_elements, std::string* out)
+    {
+        if (!out) {
+            return;
+        }
+        out->clear();
+        if (interpretation.values.empty()) {
+            return;
+        }
+        if (interpretation.rows > 1U && interpretation.cols > 0U) {
+            char dims[32];
+            std::snprintf(dims, sizeof(dims), "%ux%u ",
+                          static_cast<unsigned>(interpretation.rows),
+                          static_cast<unsigned>(interpretation.cols));
+            out->append(dims);
+        }
+        out->push_back('[');
+        const uint32_t n = static_cast<uint32_t>(interpretation.values.size());
+        const uint32_t shown = (n < max_elements) ? n : max_elements;
+        for (uint32_t i = 0; i < shown; ++i) {
+            if (i != 0U) {
+                out->append(", ");
+            }
+            append_double_fixed6_trim(interpretation.values[i], out);
+        }
+        if (shown < n) {
+            out->append(", ...");
+        }
+        out->push_back(']');
+    }
+
+    static bool format_icc_interpreted_value(const MetaStore& store,
+                                             const Entry& entry,
+                                             uint32_t max_elements,
+                                             uint32_t max_bytes,
+                                             std::string* out)
+    {
+        if (!out) {
+            return false;
+        }
+        out->clear();
+        if (entry.key.kind != MetaKeyKind::IccTag
+            || entry.value.kind != MetaValueKind::Bytes) {
+            return false;
+        }
+        const std::span<const std::byte> raw = store.arena().span(
+            entry.value.data.span);
+        IccTagInterpretOptions options;
+        options.limits.max_values     = max_elements;
+        options.limits.max_text_bytes = max_bytes;
+
+        IccTagInterpretation interpretation;
+        const IccTagInterpretStatus status
+            = interpret_icc_tag(entry.key.data.icc_tag.signature, raw,
+                                &interpretation, options);
+        if (status != IccTagInterpretStatus::Ok
+            && status != IccTagInterpretStatus::LimitExceeded) {
+            return false;
+        }
+
+        if (!interpretation.text.empty()) {
+            const bool dangerous
+                = append_console_escaped_ascii(interpretation.text, max_bytes,
+                                               out);
+            if (dangerous) {
+                out->insert(0, "(DANGEROUS) ");
+            }
+            return true;
+        }
+
+        if (!interpretation.values.empty()) {
+            append_icc_interpreted_values(interpretation, max_elements, out);
+            return true;
+        }
+        return false;
     }
 
 
@@ -1183,8 +1281,14 @@ namespace {
                 break;
             }
             case MetaKeyKind::IccTag: {
-                row.key_s  = fourcc_string(entry.key.data.icc_tag.signature);
-                row.name_s = "-";
+                row.key_s = fourcc_string(entry.key.data.icc_tag.signature);
+                const std::string_view name = icc_tag_name(
+                    entry.key.data.icc_tag.signature);
+                if (!name.empty()) {
+                    row.name_s.assign(name.data(), name.size());
+                } else {
+                    row.name_s = "-";
+                }
                 break;
             }
             case MetaKeyKind::PrintImField: {
@@ -1250,6 +1354,19 @@ namespace {
                     row.val_s.clear();
                     row.val_s.append(reinterpret_cast<const char*>(b.data()),
                                      b.size());
+                }
+            } else if (entry.key.kind == MetaKeyKind::IccHeaderField
+                       && entry.value.kind == MetaValueKind::Scalar
+                       && entry.value.elem_type == MetaElementType::U32
+                       && icc_header_field_is_fourcc(
+                           entry.key.data.icc_header_field.offset)) {
+                row.val_s = fourcc_string(
+                    static_cast<uint32_t>(entry.value.data.u64));
+            } else if (entry.key.kind == MetaKeyKind::IccTag) {
+                std::string interpreted;
+                if (format_icc_interpreted_value(store, entry, max_elements,
+                                                 max_bytes, &interpreted)) {
+                    row.val_s = std::move(interpreted);
                 }
             }
 
@@ -1652,8 +1769,8 @@ main(int argc, char** argv)
                           &decode_options.jumbf, &decode_options.icc,
                           &decode_options.iptc, &decode_options.photoshop_irb);
     decode_options.xmp.malformed_mode = XmpDecodeMalformedMode::OutputTruncated;
-    ExifDecodeOptions& exif_options         = decode_options.exif;
-    exif_options.include_pointer_tags       = true;
+    ExifDecodeOptions& exif_options   = decode_options.exif;
+    exif_options.include_pointer_tags = true;
     exif_options.decode_embedded_containers = true;
     uint32_t max_elements                   = 16;
     uint32_t max_bytes                      = 256;

@@ -1,8 +1,10 @@
 #include "openmeta/build_info.h"
+#include "openmeta/ccm_query.h"
 #include "openmeta/console_format.h"
 #include "openmeta/container_payload.h"
 #include "openmeta/exif_tag_names.h"
 #include "openmeta/geotiff_key_names.h"
+#include "openmeta/icc_interpret.h"
 #include "openmeta/interop_export.h"
 #include "openmeta/mapped_file.h"
 #include "openmeta/ocio_adapter.h"
@@ -402,6 +404,50 @@ namespace {
         return out;
     }
 
+    static nb::dict ccm_field_to_python(const CcmField& field)
+    {
+        nb::dict d;
+        d["name"] = nb::str(field.name.c_str(), field.name.size());
+        d["ifd"]  = nb::str(field.ifd.c_str(), field.ifd.size());
+        d["tag"]  = nb::int_(field.tag);
+        d["rows"] = nb::int_(field.rows);
+        d["cols"] = nb::int_(field.cols);
+        nb::list values;
+        for (size_t i = 0; i < field.values.size(); ++i) {
+            values.append(nb::float_(field.values[i]));
+        }
+        d["values"] = std::move(values);
+        return d;
+    }
+
+    static nb::dict collect_dng_ccm_to_python(const MetaStore& store,
+                                              bool require_dng_context,
+                                              bool include_reduction_matrices,
+                                              uint32_t max_fields,
+                                              uint32_t max_values_per_field)
+    {
+        CcmQueryOptions options;
+        options.require_dng_context         = require_dng_context;
+        options.include_reduction_matrices  = include_reduction_matrices;
+        options.limits.max_fields           = max_fields;
+        options.limits.max_values_per_field = max_values_per_field;
+
+        std::vector<CcmField> fields;
+        const CcmQueryResult result = collect_dng_ccm_fields(store, &fields,
+                                                             options);
+
+        nb::list out_fields;
+        for (size_t i = 0; i < fields.size(); ++i) {
+            out_fields.append(ccm_field_to_python(fields[i]));
+        }
+
+        nb::dict out;
+        out["status"]       = result.status;
+        out["fields_found"] = nb::int_(result.fields_found);
+        out["fields"]       = std::move(out_fields);
+        return out;
+    }
+
     static nb::list unsafe_oiio_attributes_to_python(
         const MetaStore& store, uint32_t max_value_bytes,
         ExportNamePolicy name_policy, bool include_makernotes,
@@ -486,6 +532,54 @@ namespace {
                 "unsafe text value: invalid or unsupported encoding");
         }
         return nb::steal<nb::str>(nb::handle(decoded));
+    }
+
+    static nb::dict icc_interpret_to_python(uint32_t signature,
+                                            nb::bytes tag_bytes,
+                                            uint32_t max_values,
+                                            uint32_t max_text_bytes)
+    {
+        const std::span<const std::byte> bytes(
+            reinterpret_cast<const std::byte*>(tag_bytes.data()),
+            tag_bytes.size());
+        IccTagInterpretOptions options;
+        options.limits.max_values     = max_values;
+        options.limits.max_text_bytes = max_text_bytes;
+
+        IccTagInterpretation interpretation;
+        const IccTagInterpretStatus status
+            = interpret_icc_tag(signature, bytes, &interpretation, options);
+
+        nb::dict out;
+        out["status"]    = status;
+        out["signature"] = nb::int_(interpretation.signature);
+        if (!interpretation.name.empty()) {
+            out["name"] = nb::str(interpretation.name.data(),
+                                  interpretation.name.size());
+        } else {
+            out["name"] = nb::none();
+        }
+        out["type"] = nb::str(interpretation.type.c_str(),
+                              interpretation.type.size());
+
+        if (!interpretation.text.empty()) {
+            const std::span<const std::byte> text_bytes(
+                reinterpret_cast<const std::byte*>(interpretation.text.data()),
+                interpretation.text.size());
+            out["text"] = decode_text_safe_for_python(text_bytes,
+                                                      TextEncoding::Ascii);
+        } else {
+            out["text"] = nb::none();
+        }
+
+        nb::list values;
+        for (size_t i = 0; i < interpretation.values.size(); ++i) {
+            values.append(nb::float_(interpretation.values[i]));
+        }
+        out["values"] = std::move(values);
+        out["rows"]   = nb::int_(interpretation.rows);
+        out["cols"]   = nb::int_(interpretation.cols);
+        return out;
     }
 
     static nb::list oiio_attributes_to_python(const MetaStore& store,
@@ -873,6 +967,16 @@ NB_MODULE(_openmeta, m)
         .value("Unsupported", ExifDecodeStatus::Unsupported)
         .value("Malformed", ExifDecodeStatus::Malformed)
         .value("LimitExceeded", ExifDecodeStatus::LimitExceeded);
+
+    nb::enum_<CcmQueryStatus>(m, "CcmQueryStatus")
+        .value("Ok", CcmQueryStatus::Ok)
+        .value("LimitExceeded", CcmQueryStatus::LimitExceeded);
+
+    nb::enum_<IccTagInterpretStatus>(m, "IccTagInterpretStatus")
+        .value("Ok", IccTagInterpretStatus::Ok)
+        .value("Unsupported", IccTagInterpretStatus::Unsupported)
+        .value("Malformed", IccTagInterpretStatus::Malformed)
+        .value("LimitExceeded", IccTagInterpretStatus::LimitExceeded);
 
     nb::enum_<ExifLimitReason>(m, "ExifLimitReason")
         .value("None_", ExifLimitReason::None)
@@ -1266,6 +1370,19 @@ NB_MODULE(_openmeta, m)
             "name_policy"_a        = ExportNamePolicy::ExifToolAlias,
             "include_makernotes"_a = true)
         .def(
+            "dng_ccm_fields",
+            [](std::shared_ptr<PyDocument> d, bool require_dng_context,
+               bool include_reduction_matrices, uint32_t max_fields,
+               uint32_t max_values_per_field) {
+                return collect_dng_ccm_to_python(d->store, require_dng_context,
+                                                 include_reduction_matrices,
+                                                 max_fields,
+                                                 max_values_per_field);
+            },
+            "require_dng_context"_a        = true,
+            "include_reduction_matrices"_a = true, "max_fields"_a = 128U,
+            "max_values_per_field"_a = 256U)
+        .def(
             "oiio_attributes",
             [](std::shared_ptr<PyDocument> d, uint32_t max_value_bytes,
                ExportNamePolicy name_policy, bool include_makernotes,
@@ -1626,6 +1743,14 @@ NB_MODULE(_openmeta, m)
                              }
                              return nb::str(n.data(), n.size());
                          }
+                         if (en.key.kind == MetaKeyKind::IccTag) {
+                             const std::string_view n = icc_tag_name(
+                                 en.key.data.icc_tag.signature);
+                             if (n.empty()) {
+                                 return nb::none();
+                             }
+                             return nb::str(n.data(), n.size());
+                         }
                          if (en.key.kind == MetaKeyKind::ExrAttribute) {
                              const std::string s
                                  = arena_string(e.doc->store.arena(),
@@ -1809,6 +1934,27 @@ NB_MODULE(_openmeta, m)
 
     m.def("info_lines", &info_lines);
     m.def("python_info_line", &python_info_line);
+
+    m.def(
+        "icc_tag_name",
+        [](uint32_t signature) -> nb::object {
+            const std::string_view n = icc_tag_name(signature);
+            if (n.empty()) {
+                return nb::none();
+            }
+            return nb::str(n.data(), n.size());
+        },
+        "signature"_a);
+
+    m.def(
+        "icc_interpret",
+        [](uint32_t signature, nb::bytes tag_bytes, uint32_t max_values,
+           uint32_t max_text_bytes) {
+            return icc_interpret_to_python(signature, tag_bytes, max_values,
+                                           max_text_bytes);
+        },
+        "signature"_a, "tag_bytes"_a, "max_values"_a = 512U,
+        "max_text_bytes"_a = 4096U);
 
     m.def(
         "exif_tag_name",

@@ -46,6 +46,7 @@ struct IccDecodeResult final {
  *
  * The decoder emits:
  * - \ref MetaKeyKind::IccHeaderField entries for common header fields
+ *   (typed when interpretation is stable: signature/u32/u64/s15Fixed16 arrays)
  * - \ref MetaKeyKind::IccTag entries (tag signature -> raw tag bytes)
  */
 IccDecodeResult

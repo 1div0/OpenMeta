@@ -276,25 +276,142 @@ TEST(OiioAdapter, SafeExportSucceedsWithoutBytesValues)
     EXPECT_EQ(owner_attr->value.text_encoding, TextEncoding::Utf8);
 }
 
+TEST(OiioAdapter, TypedExportIncludesNormalizedDngCcm)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+
+    const std::array<uint8_t, 4> dng_version = { 1U, 6U, 0U, 0U };
+    Entry dng_ver;
+    dng_ver.key          = make_exif_tag_key(store.arena(), "ifd0", 0xC612);
+    dng_ver.value        = make_u8_array(store.arena(),
+                                         std::span<const uint8_t>(dng_version.data(),
+                                                                  dng_version.size()));
+    dng_ver.origin.block = block;
+    dng_ver.origin.order_in_block = 0;
+    (void)store.add_entry(dng_ver);
+
+    const URational cm_values[9] = {
+        { 1000, 1000 }, { 0, 1000 },    { 0, 1000 },
+        { 0, 1000 },    { 1000, 1000 }, { 0, 1000 },
+        { 0, 1000 },    { 0, 1000 },    { 1000, 1000 },
+    };
+    Entry cm1;
+    cm1.key          = make_exif_tag_key(store.arena(), "ifd0", 0xC621);
+    cm1.value        = make_urational_array(store.arena(),
+                                            std::span<const URational>(cm_values, 9));
+    cm1.origin.block = block;
+    cm1.origin.order_in_block = 1;
+    (void)store.add_entry(cm1);
+    store.finalize();
+
+    OiioAdapterRequest request;
+    request.max_value_bytes = 1024U;
+
+    std::vector<OiioTypedAttribute> typed_attrs;
+    collect_oiio_attributes_typed(store, &typed_attrs, request);
+
+    const OiioTypedAttribute* cm = find_typed_attr(typed_attrs,
+                                                   "DNGNorm:ifd0.ColorMatrix1");
+    ASSERT_NE(cm, nullptr);
+    EXPECT_EQ(cm->value.kind, MetaValueKind::Array);
+    EXPECT_EQ(cm->value.elem_type, MetaElementType::F64);
+    EXPECT_EQ(cm->value.count, 9U);
+
+    request.include_normalized_ccm = false;
+    typed_attrs.clear();
+    collect_oiio_attributes_typed(store, &typed_attrs, request);
+    EXPECT_EQ(find_typed_attr(typed_attrs, "DNGNorm:ifd0.ColorMatrix1"),
+              nullptr);
+}
+
+TEST(OiioAdapter, TypedExportNormalizedDngCcmRequiresDngContext)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+
+    const URational cm_values[9] = {
+        { 1000, 1000 }, { 0, 1000 },    { 0, 1000 },
+        { 0, 1000 },    { 1000, 1000 }, { 0, 1000 },
+        { 0, 1000 },    { 0, 1000 },    { 1000, 1000 },
+    };
+    Entry cm1;
+    cm1.key          = make_exif_tag_key(store.arena(), "ifd0", 0xC621);
+    cm1.value        = make_urational_array(store.arena(),
+                                            std::span<const URational>(cm_values, 9));
+    cm1.origin.block = block;
+    cm1.origin.order_in_block = 0;
+    (void)store.add_entry(cm1);
+    store.finalize();
+
+    OiioAdapterRequest request;
+    std::vector<OiioTypedAttribute> typed_attrs;
+    collect_oiio_attributes_typed(store, &typed_attrs, request);
+    EXPECT_EQ(find_typed_attr(typed_attrs, "DNGNorm:ifd0.ColorMatrix1"),
+              nullptr);
+}
+
+TEST(OiioAdapter, SafeTypedExportIncludesNormalizedDngCcm)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+
+    const std::array<uint8_t, 4> dng_version = { 1U, 6U, 0U, 0U };
+    Entry dng_ver;
+    dng_ver.key          = make_exif_tag_key(store.arena(), "ifd0", 0xC612);
+    dng_ver.value        = make_u8_array(store.arena(),
+                                         std::span<const uint8_t>(dng_version.data(),
+                                                                  dng_version.size()));
+    dng_ver.origin.block = block;
+    dng_ver.origin.order_in_block = 0;
+    (void)store.add_entry(dng_ver);
+
+    const URational cm_values[9] = {
+        { 1000, 1000 }, { 0, 1000 },    { 0, 1000 },
+        { 0, 1000 },    { 1000, 1000 }, { 0, 1000 },
+        { 0, 1000 },    { 0, 1000 },    { 1000, 1000 },
+    };
+    Entry cm1;
+    cm1.key          = make_exif_tag_key(store.arena(), "ifd0", 0xC621);
+    cm1.value        = make_urational_array(store.arena(),
+                                            std::span<const URational>(cm_values, 9));
+    cm1.origin.block = block;
+    cm1.origin.order_in_block = 1;
+    (void)store.add_entry(cm1);
+    store.finalize();
+
+    OiioAdapterRequest request;
+    InteropSafetyError error;
+    std::vector<OiioTypedAttribute> typed_attrs;
+    const InteropSafetyStatus status
+        = collect_oiio_attributes_typed_safe(store, &typed_attrs, request,
+                                             &error);
+    ASSERT_EQ(status, InteropSafetyStatus::Ok);
+    EXPECT_TRUE(error.message.empty());
+
+    const OiioTypedAttribute* cm = find_typed_attr(typed_attrs,
+                                                   "DNGNorm:ifd0.ColorMatrix1");
+    ASSERT_NE(cm, nullptr);
+    EXPECT_EQ(cm->value.kind, MetaValueKind::Array);
+    EXPECT_EQ(cm->value.elem_type, MetaElementType::F64);
+}
+
 TEST(OiioAdapter, ExportsBmffAuxSemanticInSafeMode)
 {
     MetaStore store;
     const BlockId block = store.add_block(BlockInfo {});
 
     Entry semantic;
-    semantic.key = make_bmff_field_key(store.arena(),
-                                       "primary.auxl_semantic");
-    semantic.value        = make_text(store.arena(), "depth",
-                                      TextEncoding::Ascii);
-    semantic.origin.block = block;
+    semantic.key = make_bmff_field_key(store.arena(), "primary.auxl_semantic");
+    semantic.value = make_text(store.arena(), "depth", TextEncoding::Ascii);
+    semantic.origin.block          = block;
     semantic.origin.order_in_block = 0;
     (void)store.add_entry(semantic);
 
     Entry depth_id;
-    depth_id.key = make_bmff_field_key(store.arena(),
-                                       "primary.depth_item_id");
-    depth_id.value        = make_u32(2U);
-    depth_id.origin.block = block;
+    depth_id.key = make_bmff_field_key(store.arena(), "primary.depth_item_id");
+    depth_id.value                 = make_u32(2U);
+    depth_id.origin.block          = block;
     depth_id.origin.order_in_block = 1;
     (void)store.add_entry(depth_id);
 
@@ -315,8 +432,8 @@ TEST(OiioAdapter, ExportsBmffAuxSemanticInSafeMode)
     ASSERT_NE(semantic_attr, nullptr);
     EXPECT_EQ(semantic_attr->value, "depth");
 
-    const OiioAttribute* depth_attr
-        = find_attr(safe_attrs, "bmff:primary.depth_item_id");
+    const OiioAttribute* depth_attr = find_attr(safe_attrs,
+                                                "bmff:primary.depth_item_id");
     ASSERT_NE(depth_attr, nullptr);
     EXPECT_EQ(depth_attr->value, "2");
 

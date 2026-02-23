@@ -52,6 +52,41 @@ namespace {
     }
 
 
+    static bool read_i32be(std::span<const std::byte> bytes, uint64_t offset,
+                           int32_t* out) noexcept
+    {
+        if (!out) {
+            return false;
+        }
+        uint32_t tmp = 0;
+        if (!read_u32be(bytes, offset, &tmp)) {
+            return false;
+        }
+        *out = static_cast<int32_t>(tmp);
+        return true;
+    }
+
+
+    static bool read_u64be(std::span<const std::byte> bytes, uint64_t offset,
+                           uint64_t* out) noexcept
+    {
+        if (!out || offset + 8 > bytes.size()) {
+            return false;
+        }
+        uint64_t v = 0;
+        v |= static_cast<uint64_t>(u8(bytes[offset + 0])) << 56;
+        v |= static_cast<uint64_t>(u8(bytes[offset + 1])) << 48;
+        v |= static_cast<uint64_t>(u8(bytes[offset + 2])) << 40;
+        v |= static_cast<uint64_t>(u8(bytes[offset + 3])) << 32;
+        v |= static_cast<uint64_t>(u8(bytes[offset + 4])) << 24;
+        v |= static_cast<uint64_t>(u8(bytes[offset + 5])) << 16;
+        v |= static_cast<uint64_t>(u8(bytes[offset + 6])) << 8;
+        v |= static_cast<uint64_t>(u8(bytes[offset + 7])) << 0;
+        *out = v;
+        return true;
+    }
+
+
     static void update_status(IccDecodeStatus* out, IccDecodeStatus in) noexcept
     {
         if (!out || in == IccDecodeStatus::Ok) {
@@ -110,6 +145,22 @@ namespace {
     }
 
 
+    static void emit_header_u64(MetaStore& store, BlockId block, uint32_t order,
+                                uint32_t offset, uint64_t value,
+                                EntryFlags flags)
+    {
+        Entry e;
+        e.key                   = make_icc_header_field_key(offset);
+        e.value                 = make_u64(value);
+        e.origin.block          = block;
+        e.origin.order_in_block = order;
+        e.origin.wire_type      = WireType { WireFamily::Other, 0 };
+        e.origin.wire_count     = 1;
+        e.flags                 = flags;
+        (void)store.add_entry(e);
+    }
+
+
     static void emit_header_u16_array(MetaStore& store, BlockId block,
                                       uint32_t order, uint32_t offset,
                                       std::span<const uint16_t> values,
@@ -118,6 +169,23 @@ namespace {
         Entry e;
         e.key                   = make_icc_header_field_key(offset);
         e.value                 = make_u16_array(store.arena(), values);
+        e.origin.block          = block;
+        e.origin.order_in_block = order;
+        e.origin.wire_type      = WireType { WireFamily::Other, 0 };
+        e.origin.wire_count     = static_cast<uint32_t>(values.size());
+        e.flags                 = flags;
+        (void)store.add_entry(e);
+    }
+
+
+    static void emit_header_srational_array(MetaStore& store, BlockId block,
+                                            uint32_t order, uint32_t offset,
+                                            std::span<const SRational> values,
+                                            EntryFlags flags)
+    {
+        Entry e;
+        e.key                   = make_icc_header_field_key(offset);
+        e.value                 = make_srational_array(store.arena(), values);
         e.origin.block          = block;
         e.origin.order_in_block = order;
         e.origin.wire_type      = WireType { WireFamily::Other, 0 };
@@ -158,10 +226,20 @@ decode_icc_profile(std::span<const std::byte> icc_bytes, MetaStore& store,
     EntryFlags flags    = EntryFlags::None;
 
     uint32_t order = 0;
-    // Emit common header fields (raw bytes unless scalar is clearly useful).
+    // Emit common header fields using typed values where interpretation is
+    // stable (signatures/u32/u64/s15Fixed16 arrays); preserve raw bytes only
+    // for opaque sections.
     emit_header_u32(store, block, order++, 0, declared_size, flags);
-    emit_header_bytes(store, block, order++, 4, icc_bytes.subspan(4, 4),
-                      flags);  // CMM
+
+    uint32_t cmm_type = 0;
+    if (read_u32be(icc_bytes, 4, &cmm_type)) {
+        emit_header_u32(store, block, order++, 4, cmm_type, flags);
+    } else {
+        emit_header_bytes(store, block, order++, 4, icc_bytes.subspan(4, 4),
+                          flags);
+        update_status(&result.status, IccDecodeStatus::Malformed);
+    }
+
     uint32_t ver = 0;
     if (read_u32be(icc_bytes, 8, &ver)) {
         emit_header_u32(store, block, order++, 8, ver, flags);
@@ -170,12 +248,33 @@ decode_icc_profile(std::span<const std::byte> icc_bytes, MetaStore& store,
                           flags);
         update_status(&result.status, IccDecodeStatus::Malformed);
     }
-    emit_header_bytes(store, block, order++, 12, icc_bytes.subspan(12, 4),
-                      flags);  // class
-    emit_header_bytes(store, block, order++, 16, icc_bytes.subspan(16, 4),
-                      flags);  // data space
-    emit_header_bytes(store, block, order++, 20, icc_bytes.subspan(20, 4),
-                      flags);  // PCS
+
+    uint32_t profile_class = 0;
+    if (read_u32be(icc_bytes, 12, &profile_class)) {
+        emit_header_u32(store, block, order++, 12, profile_class, flags);
+    } else {
+        emit_header_bytes(store, block, order++, 12, icc_bytes.subspan(12, 4),
+                          flags);
+        update_status(&result.status, IccDecodeStatus::Malformed);
+    }
+
+    uint32_t data_space = 0;
+    if (read_u32be(icc_bytes, 16, &data_space)) {
+        emit_header_u32(store, block, order++, 16, data_space, flags);
+    } else {
+        emit_header_bytes(store, block, order++, 16, icc_bytes.subspan(16, 4),
+                          flags);
+        update_status(&result.status, IccDecodeStatus::Malformed);
+    }
+
+    uint32_t pcs = 0;
+    if (read_u32be(icc_bytes, 20, &pcs)) {
+        emit_header_u32(store, block, order++, 20, pcs, flags);
+    } else {
+        emit_header_bytes(store, block, order++, 20, icc_bytes.subspan(20, 4),
+                          flags);
+        update_status(&result.status, IccDecodeStatus::Malformed);
+    }
 
     // Date/time: 6x u16 big-endian.
     uint16_t dt[6] = {};
@@ -194,24 +293,99 @@ decode_icc_profile(std::span<const std::byte> icc_bytes, MetaStore& store,
         update_status(&result.status, IccDecodeStatus::Malformed);
     }
 
-    emit_header_bytes(store, block, order++, 36, icc_bytes.subspan(36, 4),
-                      flags);  // "acsp"
-    emit_header_bytes(store, block, order++, 40, icc_bytes.subspan(40, 4),
-                      flags);  // platform
-    emit_header_bytes(store, block, order++, 44, icc_bytes.subspan(44, 4),
-                      flags);  // flags
-    emit_header_bytes(store, block, order++, 48, icc_bytes.subspan(48, 4),
-                      flags);  // manufacturer
-    emit_header_bytes(store, block, order++, 52, icc_bytes.subspan(52, 4),
-                      flags);  // model
-    emit_header_bytes(store, block, order++, 56, icc_bytes.subspan(56, 8),
-                      flags);  // attributes
-    emit_header_bytes(store, block, order++, 64, icc_bytes.subspan(64, 4),
-                      flags);  // intent
-    emit_header_bytes(store, block, order++, 68, icc_bytes.subspan(68, 12),
-                      flags);  // illuminant
-    emit_header_bytes(store, block, order++, 80, icc_bytes.subspan(80, 4),
-                      flags);  // creator
+    uint32_t signature = 0;
+    if (read_u32be(icc_bytes, 36, &signature)) {
+        emit_header_u32(store, block, order++, 36, signature, flags);
+    } else {
+        emit_header_bytes(store, block, order++, 36, icc_bytes.subspan(36, 4),
+                          flags);
+        update_status(&result.status, IccDecodeStatus::Malformed);
+    }
+
+    uint32_t platform = 0;
+    if (read_u32be(icc_bytes, 40, &platform)) {
+        emit_header_u32(store, block, order++, 40, platform, flags);
+    } else {
+        emit_header_bytes(store, block, order++, 40, icc_bytes.subspan(40, 4),
+                          flags);
+        update_status(&result.status, IccDecodeStatus::Malformed);
+    }
+
+    uint32_t profile_flags = 0;
+    if (read_u32be(icc_bytes, 44, &profile_flags)) {
+        emit_header_u32(store, block, order++, 44, profile_flags, flags);
+    } else {
+        emit_header_bytes(store, block, order++, 44, icc_bytes.subspan(44, 4),
+                          flags);
+        update_status(&result.status, IccDecodeStatus::Malformed);
+    }
+
+    uint32_t manufacturer = 0;
+    if (read_u32be(icc_bytes, 48, &manufacturer)) {
+        emit_header_u32(store, block, order++, 48, manufacturer, flags);
+    } else {
+        emit_header_bytes(store, block, order++, 48, icc_bytes.subspan(48, 4),
+                          flags);
+        update_status(&result.status, IccDecodeStatus::Malformed);
+    }
+
+    uint32_t model = 0;
+    if (read_u32be(icc_bytes, 52, &model)) {
+        emit_header_u32(store, block, order++, 52, model, flags);
+    } else {
+        emit_header_bytes(store, block, order++, 52, icc_bytes.subspan(52, 4),
+                          flags);
+        update_status(&result.status, IccDecodeStatus::Malformed);
+    }
+
+    uint64_t attributes = 0;
+    if (read_u64be(icc_bytes, 56, &attributes)) {
+        emit_header_u64(store, block, order++, 56, attributes, flags);
+    } else {
+        emit_header_bytes(store, block, order++, 56, icc_bytes.subspan(56, 8),
+                          flags);
+        update_status(&result.status, IccDecodeStatus::Malformed);
+    }
+
+    uint32_t rendering_intent = 0;
+    if (read_u32be(icc_bytes, 64, &rendering_intent)) {
+        emit_header_u32(store, block, order++, 64, rendering_intent, flags);
+    } else {
+        emit_header_bytes(store, block, order++, 64, icc_bytes.subspan(64, 4),
+                          flags);
+        update_status(&result.status, IccDecodeStatus::Malformed);
+    }
+
+    int32_t ill[3] = {};
+    bool ill_ok    = true;
+    for (uint32_t i = 0; i < 3; ++i) {
+        if (!read_i32be(icc_bytes, 68 + i * 4, &ill[i])) {
+            ill_ok = false;
+        }
+    }
+    if (ill_ok) {
+        const SRational illum[3] = {
+            { ill[0], 65536 },
+            { ill[1], 65536 },
+            { ill[2], 65536 },
+        };
+        emit_header_srational_array(store, block, order++, 68,
+                                    std::span<const SRational>(illum, 3),
+                                    flags);
+    } else {
+        emit_header_bytes(store, block, order++, 68, icc_bytes.subspan(68, 12),
+                          flags);
+        update_status(&result.status, IccDecodeStatus::Malformed);
+    }
+
+    uint32_t creator = 0;
+    if (read_u32be(icc_bytes, 80, &creator)) {
+        emit_header_u32(store, block, order++, 80, creator, flags);
+    } else {
+        emit_header_bytes(store, block, order++, 80, icc_bytes.subspan(80, 4),
+                          flags);
+        update_status(&result.status, IccDecodeStatus::Malformed);
+    }
     emit_header_bytes(store, block, order++, 84, icc_bytes.subspan(84, 16),
                       flags);  // profile ID
 

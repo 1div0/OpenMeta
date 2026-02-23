@@ -1,7 +1,11 @@
 #include "openmeta/ocio_adapter.h"
 
+#include "openmeta/ccm_query.h"
+
 #include "interop_safety_internal.h"
 #include "interop_value_format_internal.h"
+
+#include <cstdio>
 
 namespace openmeta {
 namespace {
@@ -35,6 +39,88 @@ namespace {
         }
         text->resize(cut);
         text->append("...");
+    }
+
+    static void append_double_text(double v, std::string* out) noexcept
+    {
+        if (!out) {
+            return;
+        }
+        char buf[64];
+        std::snprintf(buf, sizeof(buf), "%.9g", v);
+        out->append(buf);
+    }
+
+    static void format_ccm_field_value(const CcmField& field,
+                                       uint32_t max_value_bytes,
+                                       std::string* out) noexcept
+    {
+        if (!out) {
+            return;
+        }
+        out->clear();
+        if (field.values.empty()) {
+            return;
+        }
+        if (field.rows > 1U && field.cols > 0U) {
+            char dims[32];
+            std::snprintf(dims, sizeof(dims), "%ux%u ",
+                          static_cast<unsigned>(field.rows),
+                          static_cast<unsigned>(field.cols));
+            out->append(dims);
+        }
+        out->push_back('[');
+        for (size_t i = 0; i < field.values.size(); ++i) {
+            if (i != 0U) {
+                out->append(", ");
+            }
+            append_double_text(field.values[i], out);
+        }
+        out->push_back(']');
+        truncate_utf8_for_limit(out, max_value_bytes);
+    }
+
+    static void append_normalized_ccm_tree(const MetaStore& store,
+                                           OcioMetadataNode* root,
+                                           uint32_t max_value_bytes) noexcept
+    {
+        if (!root) {
+            return;
+        }
+        CcmQueryOptions q;
+        if (max_value_bytes != 0U) {
+            const uint32_t max_values = max_value_bytes / 8U;
+            q.limits.max_values_per_field = (max_values == 0U) ? 1U
+                                                                : max_values;
+        }
+        std::vector<CcmField> fields;
+        (void)collect_dng_ccm_fields(store, &fields, q);
+        if (fields.empty()) {
+            return;
+        }
+
+        size_t ns_index = find_child_node(root->children, "dngnorm");
+        if (ns_index == static_cast<size_t>(-1)) {
+            OcioMetadataNode ns;
+            ns.name = "dngnorm";
+            root->children.push_back(std::move(ns));
+            ns_index = root->children.size() - 1U;
+        }
+
+        for (size_t i = 0; i < fields.size(); ++i) {
+            const CcmField& f = fields[i];
+            if (f.values.empty() || f.name.empty()) {
+                continue;
+            }
+            OcioMetadataNode leaf;
+            if (!f.ifd.empty()) {
+                leaf.name.append(f.ifd);
+                leaf.name.push_back('.');
+            }
+            leaf.name.append(f.name);
+            format_ccm_field_value(f, max_value_bytes, &leaf.value);
+            root->children[ns_index].children.push_back(std::move(leaf));
+        }
     }
 
 
@@ -207,6 +293,9 @@ build_ocio_metadata_tree(const MetaStore& store, OcioMetadataNode* root,
     OcioTreeSink sink(store.arena(), root, options.max_value_bytes,
                       options.include_empty);
     visit_metadata(store, options.export_options, sink);
+    if (options.include_normalized_ccm) {
+        append_normalized_ccm_tree(store, root, options.max_value_bytes);
+    }
 }
 
 
@@ -231,6 +320,10 @@ build_ocio_metadata_tree_safe(const MetaStore& store, OcioMetadataNode* root,
     OcioTreeSafeSink sink(store.arena(), root, options.max_value_bytes,
                           options.include_empty, error);
     visit_metadata(store, options.export_options, sink);
+    if (sink.status() == InteropSafetyStatus::Ok
+        && options.include_normalized_ccm) {
+        append_normalized_ccm_tree(store, root, options.max_value_bytes);
+    }
     return sink.status();
 }
 
@@ -246,6 +339,7 @@ make_ocio_adapter_options(const OcioAdapterRequest& request) noexcept
     options.export_options.include_makernotes = request.include_makernotes;
     options.export_options.include_origin     = request.include_origin;
     options.export_options.include_flags      = request.include_flags;
+    options.include_normalized_ccm            = request.include_normalized_ccm;
     return options;
 }
 

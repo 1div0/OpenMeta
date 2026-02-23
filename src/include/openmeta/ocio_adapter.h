@@ -25,6 +25,8 @@ struct OcioAdapterOptions final {
     ExportOptions export_options;
     uint32_t max_value_bytes = 1024;
     bool include_empty       = false;
+    /// Append derived normalized DNG CCM fields under `dngnorm:*`.
+    bool include_normalized_ccm = true;
 
     OcioAdapterOptions() noexcept
         : export_options()
@@ -43,6 +45,7 @@ struct OcioAdapterRequest final {
     bool include_flags           = false;
     uint32_t max_value_bytes     = 1024;
     bool include_empty           = false;
+    bool include_normalized_ccm  = true;
 };
 
 /**

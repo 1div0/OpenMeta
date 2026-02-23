@@ -1,8 +1,11 @@
 #include "openmeta/oiio_adapter.h"
 
+#include "openmeta/ccm_query.h"
+
 #include "interop_safety_internal.h"
 #include "interop_value_format_internal.h"
 
+#include <algorithm>
 #include <cstring>
 
 namespace openmeta {
@@ -108,6 +111,74 @@ namespace {
                     to_copy));
         out->data.span = ByteSpan { 0U, static_cast<uint32_t>(to_copy) };
         return true;
+    }
+
+    static uint64_t double_bits(double v) noexcept
+    {
+        uint64_t bits = 0;
+        std::memcpy(&bits, &v, sizeof(uint64_t));
+        return bits;
+    }
+
+    static void set_typed_f64_value(std::span<const double> values,
+                                    OiioTypedValue* out) noexcept
+    {
+        if (!out) {
+            return;
+        }
+        *out                 = OiioTypedValue {};
+        out->elem_type       = MetaElementType::F64;
+        out->text_encoding   = TextEncoding::Unknown;
+        out->count           = static_cast<uint32_t>(values.size());
+        if (values.empty()) {
+            out->kind = MetaValueKind::Empty;
+            return;
+        }
+        if (values.size() == 1U) {
+            out->kind          = MetaValueKind::Scalar;
+            out->data.f64_bits = double_bits(values[0]);
+            return;
+        }
+        out->kind = MetaValueKind::Array;
+        out->storage.resize(values.size() * sizeof(double));
+        std::memcpy(out->storage.data(), values.data(),
+                    values.size() * sizeof(double));
+        out->data.span = ByteSpan { 0U,
+                                    static_cast<uint32_t>(out->storage.size()) };
+    }
+
+    static void append_normalized_ccm_typed(
+        const MetaStore& store, uint32_t max_value_bytes,
+        std::vector<OiioTypedAttribute>* out) noexcept
+    {
+        if (!out) {
+            return;
+        }
+        CcmQueryOptions q;
+        if (max_value_bytes != 0U) {
+            const uint32_t max_values = max_value_bytes / 8U;
+            q.limits.max_values_per_field = std::max(1U, max_values);
+        }
+        std::vector<CcmField> fields;
+        (void)collect_dng_ccm_fields(store, &fields, q);
+
+        for (size_t i = 0; i < fields.size(); ++i) {
+            const CcmField& f = fields[i];
+            if (f.values.empty() || f.name.empty()) {
+                continue;
+            }
+            OiioTypedAttribute a;
+            a.name.append("DNGNorm:");
+            if (!f.ifd.empty()) {
+                a.name.append(f.ifd);
+                a.name.push_back('.');
+            }
+            a.name.append(f.name);
+            set_typed_f64_value(std::span<const double>(f.values.data(),
+                                                        f.values.size()),
+                                &a.value);
+            out->push_back(std::move(a));
+        }
     }
 
     class OiioCollectSink final : public MetadataSink {
@@ -394,6 +465,9 @@ collect_oiio_attributes_typed(const MetaStore& store,
     OiioCollectTypedSink sink(store.arena(), out, options.max_value_bytes,
                               options.include_empty);
     visit_metadata(store, options.export_options, sink);
+    if (options.include_normalized_ccm) {
+        append_normalized_ccm_typed(store, options.max_value_bytes, out);
+    }
 }
 
 
@@ -416,6 +490,10 @@ collect_oiio_attributes_typed_safe(const MetaStore& store,
     OiioCollectTypedSafeSink sink(store.arena(), out, options.max_value_bytes,
                                   options.include_empty, error);
     visit_metadata(store, options.export_options, sink);
+    if (sink.status() == InteropSafetyStatus::Ok
+        && options.include_normalized_ccm) {
+        append_normalized_ccm_typed(store, options.max_value_bytes, out);
+    }
     return sink.status();
 }
 
@@ -430,6 +508,7 @@ make_oiio_adapter_options(const OiioAdapterRequest& request) noexcept
     options.export_options.include_makernotes = request.include_makernotes;
     options.export_options.include_origin     = request.include_origin;
     options.export_options.include_flags      = request.include_flags;
+    options.include_normalized_ccm            = request.include_normalized_ccm;
     return options;
 }
 

@@ -134,25 +134,92 @@ TEST(OcioAdapter, SafeTreeRejectsBytesValues)
     EXPECT_EQ(safe_error.field_name, "bmff:meta.test");
 }
 
+TEST(OcioAdapter, IncludesNormalizedDngCcmNamespace)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+
+    const std::array<uint8_t, 4> dng_version = { 1U, 6U, 0U, 0U };
+    Entry dng_ver;
+    dng_ver.key          = make_exif_tag_key(store.arena(), "ifd0", 0xC612);
+    dng_ver.value        = make_u8_array(store.arena(),
+                                         std::span<const uint8_t>(dng_version.data(),
+                                                                  dng_version.size()));
+    dng_ver.origin.block = block;
+    dng_ver.origin.order_in_block = 0;
+    (void)store.add_entry(dng_ver);
+
+    const URational cm_values[9] = {
+        { 1000, 1000 }, { 0, 1000 },    { 0, 1000 },
+        { 0, 1000 },    { 1000, 1000 }, { 0, 1000 },
+        { 0, 1000 },    { 0, 1000 },    { 1000, 1000 },
+    };
+    Entry cm1;
+    cm1.key          = make_exif_tag_key(store.arena(), "ifd0", 0xC621);
+    cm1.value        = make_urational_array(store.arena(),
+                                            std::span<const URational>(cm_values, 9));
+    cm1.origin.block = block;
+    cm1.origin.order_in_block = 1;
+    (void)store.add_entry(cm1);
+    store.finalize();
+
+    OcioAdapterRequest request;
+    OcioMetadataNode root;
+    build_ocio_metadata_tree(store, &root, request);
+
+    const OcioMetadataNode* ns = find_child(root, "dngnorm");
+    ASSERT_NE(ns, nullptr);
+    const OcioMetadataNode* cm = find_child(*ns, "ifd0.ColorMatrix1");
+    ASSERT_NE(cm, nullptr);
+    EXPECT_FALSE(cm->value.empty());
+
+    request.include_normalized_ccm = false;
+    root                           = OcioMetadataNode {};
+    build_ocio_metadata_tree(store, &root, request);
+    EXPECT_EQ(find_child(root, "dngnorm"), nullptr);
+}
+
+TEST(OcioAdapter, NormalizedDngCcmRequiresDngContext)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+
+    const URational cm_values[9] = {
+        { 1000, 1000 }, { 0, 1000 },    { 0, 1000 },
+        { 0, 1000 },    { 1000, 1000 }, { 0, 1000 },
+        { 0, 1000 },    { 0, 1000 },    { 1000, 1000 },
+    };
+    Entry cm1;
+    cm1.key          = make_exif_tag_key(store.arena(), "ifd0", 0xC621);
+    cm1.value        = make_urational_array(store.arena(),
+                                            std::span<const URational>(cm_values, 9));
+    cm1.origin.block = block;
+    cm1.origin.order_in_block = 0;
+    (void)store.add_entry(cm1);
+    store.finalize();
+
+    OcioAdapterRequest request;
+    OcioMetadataNode root;
+    build_ocio_metadata_tree(store, &root, request);
+    EXPECT_EQ(find_child(root, "dngnorm"), nullptr);
+}
+
 TEST(OcioAdapter, IncludesBmffAuxSemanticFields)
 {
     MetaStore store;
     const BlockId block = store.add_block(BlockInfo {});
 
     Entry semantic;
-    semantic.key = make_bmff_field_key(store.arena(),
-                                       "primary.auxl_semantic");
-    semantic.value        = make_text(store.arena(), "depth",
-                                      TextEncoding::Ascii);
-    semantic.origin.block = block;
+    semantic.key = make_bmff_field_key(store.arena(), "primary.auxl_semantic");
+    semantic.value = make_text(store.arena(), "depth", TextEncoding::Ascii);
+    semantic.origin.block          = block;
     semantic.origin.order_in_block = 0;
     (void)store.add_entry(semantic);
 
     Entry depth_id;
-    depth_id.key = make_bmff_field_key(store.arena(),
-                                       "primary.depth_item_id");
-    depth_id.value        = make_u32(2U);
-    depth_id.origin.block = block;
+    depth_id.key = make_bmff_field_key(store.arena(), "primary.depth_item_id");
+    depth_id.value                 = make_u32(2U);
+    depth_id.origin.block          = block;
     depth_id.origin.order_in_block = 1;
     (void)store.add_entry(depth_id);
 

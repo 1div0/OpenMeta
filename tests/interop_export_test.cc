@@ -5,6 +5,7 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
 #include <string_view>
 #include <vector>
 
@@ -52,6 +53,15 @@ namespace {
             }
         }
         return false;
+    }
+
+
+    static uint32_t make_fourcc(char a, char b, char c, char d) noexcept
+    {
+        return (static_cast<uint32_t>(static_cast<uint8_t>(a)) << 24)
+               | (static_cast<uint32_t>(static_cast<uint8_t>(b)) << 16)
+               | (static_cast<uint32_t>(static_cast<uint8_t>(c)) << 8)
+               | static_cast<uint32_t>(static_cast<uint8_t>(d));
     }
 
 
@@ -158,6 +168,54 @@ namespace {
         exr_skipped.origin.order_in_block = 12;
         (void)store.add_entry(exr_skipped);
 
+        const std::array<uint8_t, 4> dng_version = { 1, 6, 0, 0 };
+        Entry dng_ver;
+        dng_ver.key = make_exif_tag_key(store.arena(), "ifd0", 0xC612);
+        dng_ver.value
+            = make_u8_array(store.arena(),
+                            std::span<const uint8_t>(dng_version.data(),
+                                                     dng_version.size()));
+        dng_ver.origin.block          = block;
+        dng_ver.origin.order_in_block = 13;
+        (void)store.add_entry(dng_ver);
+
+        const URational cm_values[9] = {
+            { 1000, 1000 }, { 0, 1000 },    { 0, 1000 },
+            { 0, 1000 },    { 1000, 1000 }, { 0, 1000 },
+            { 0, 1000 },    { 0, 1000 },    { 1000, 1000 },
+        };
+        Entry dng_cm1;
+        dng_cm1.key = make_exif_tag_key(store.arena(), "ifd0", 0xC621);
+        dng_cm1.value
+            = make_urational_array(store.arena(),
+                                   std::span<const URational>(cm_values, 9));
+        dng_cm1.origin.block          = block;
+        dng_cm1.origin.order_in_block = 14;
+        (void)store.add_entry(dng_cm1);
+
+        Entry icc_header;
+        icc_header.key          = make_icc_header_field_key(4);
+        icc_header.value        = make_u32(make_fourcc('a', 'p', 'p', 'l'));
+        icc_header.origin.block = block;
+        icc_header.origin.order_in_block = 15;
+        (void)store.add_entry(icc_header);
+
+        const std::array<std::byte, 4> icc_tag_data = {
+            std::byte { 0x64 },
+            std::byte { 0x65 },
+            std::byte { 0x73 },
+            std::byte { 0x63 },
+        };
+        Entry icc_tag;
+        icc_tag.key = make_icc_tag_key(make_fourcc('d', 'e', 's', 'c'));
+        icc_tag.value
+            = make_bytes(store.arena(),
+                         std::span<const std::byte>(icc_tag_data.data(),
+                                                    icc_tag_data.size()));
+        icc_tag.origin.block          = block;
+        icc_tag.origin.order_in_block = 16;
+        (void)store.add_entry(icc_tag);
+
         store.finalize();
         return store;
     }
@@ -181,6 +239,8 @@ TEST(InteropExport, CanonicalStyleIncludesExpectedKeys)
     EXPECT_TRUE(
         contains_name(names, "xmp:http://ns.adobe.com/exif/1.0/:FNumber"));
     EXPECT_TRUE(contains_name(names, "exr:part:0:owner"));
+    EXPECT_TRUE(contains_name(names, "icc:header:4"));
+    EXPECT_TRUE(contains_name(names, "icc:tag:0x64657363"));
 }
 
 
@@ -202,6 +262,9 @@ TEST(InteropExport, PortableStyleSkipsPointersAndMakerNotes)
     EXPECT_TRUE(contains_name(names, "exif:ExposureCompensation"));
     EXPECT_TRUE(contains_name(names, "exif:CreateDate"));
     EXPECT_TRUE(contains_name(names, "exif:FNumber"));
+    EXPECT_TRUE(contains_name(names, "dng:ColorMatrix1"));
+    EXPECT_TRUE(contains_name(names, "icc:cmm_type"));
+    EXPECT_TRUE(contains_name(names, "icc:tag:0x64657363"));
     EXPECT_FALSE(contains_name(names, "tiff:DateTime"));
     EXPECT_FALSE(contains_name(names, "exif:ISOSpeedRatings"));
     EXPECT_FALSE(contains_name(names, "exif:ExposureBiasValue"));
@@ -241,6 +304,9 @@ TEST(InteropExport, OiioStyleRespectsMakerNoteSwitch)
     EXPECT_TRUE(contains_name(names_without_mk, "Exif:ISO"));
     EXPECT_TRUE(contains_name(names_without_mk, "Exif:ExposureCompensation"));
     EXPECT_TRUE(contains_name(names_without_mk, "Exif:CreateDate"));
+    EXPECT_TRUE(contains_name(names_without_mk, "DNG:ColorMatrix1"));
+    EXPECT_TRUE(contains_name(names_without_mk, "ICC:cmm_type"));
+    EXPECT_TRUE(contains_name(names_without_mk, "ICC:tag:0x64657363"));
     EXPECT_TRUE(contains_name(names_without_mk, "Copyright"));
     EXPECT_FALSE(contains_name(names_without_mk, "openexr:owner"));
     EXPECT_FALSE(contains_name(names_without_mk, "openexr:compression"));

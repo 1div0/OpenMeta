@@ -104,6 +104,11 @@ This policy surface is intentionally marked draft and may be refined.
 ## Code Organization (EXIF + MakerNotes)
 
 - Core EXIF/TIFF decoding: `src/openmeta/exif_tiff_decode.cc`
+- Normalized DNG/RAW CCM query surface: `src/include/openmeta/ccm_query.h`,
+  `src/openmeta/ccm_query.cc` (`collect_dng_ccm_fields(...)`)
+- ICC tag interpretation helpers: `src/include/openmeta/icc_interpret.h`,
+  `src/openmeta/icc_interpret.cc` (`icc_tag_name(...)`,
+  `interpret_icc_tag(...)` for `desc`/`text`/`sig `/`XYZ `/`curv`/`para`)
 - ISO-BMFF (HEIF/AVIF/CR3) container-derived fields: `src/openmeta/bmff_fields_decode.cc`
   - Emitted during `simple_meta_read(...)` as `MetaKeyKind::BmffField` entries.
   - Current fields: `ftyp.*`, primary item properties (`pitm`, `iprp/ipco ispe/irot/imir`, `ipma`), draft `iref.*` relation fields (`ref_type`, `from_item_id`, `to_item_id`, `edge_count`), typed derived relation rows (`iref.auxl.*`, `iref.dimg.*`, `iref.thmb.*`, `iref.cdsc.*`), per-type relation counters (`iref.<type>.edge_count`) and per-type unique source/target counters (`iref.<type>.from_item_unique_count`, `iref.<type>.to_item_unique_count`), draft relation-graph summaries (`iref.item_count`, `iref.from_item_unique_count`, `iref.to_item_unique_count`, row-wise `iref.item_id` + `iref.item_out_edge_count` + `iref.item_in_edge_count`), and `auxC`-based aux semantics (`aux.item_id`, `aux.semantic`, `aux.type`, `aux.subtype_hex`, `aux.subtype_kind`, `aux.subtype_u32`, `primary.auxl_semantic`, `primary.depth_item_id`, `primary.alpha_item_id`, ...).
@@ -408,6 +413,12 @@ Current adapter/name-policy behavior:
 - `ExportNamePolicy::Spec` preserves spec/native names.
 - OIIO adapter keeps numeric unknown names (for example `Exif_0x....`) even
   when value formatting is empty, and keeps `Exif:MakerNote` in spec mode.
+- When DNG context is detected (`DNGVersion` present in the same IFD), DNG
+  color/CCM tags are exported with dedicated adapter namespaces:
+  `dng:*` (portable) and `DNG:*` (OIIO).
+- ICC entries are exported with adapter-friendly names:
+  `icc:*` (portable) and `ICC:*` (OIIO), alongside canonical `icc:header:*`
+  / `icc:tag:*` naming.
 
 Adapter-focused tests (public tree):
 

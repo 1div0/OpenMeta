@@ -154,7 +154,8 @@ namespace {
 
     class ExifExportContext final {
     public:
-        void scan(const ByteArena& arena, std::span<const Entry> entries) noexcept
+        void scan(const ByteArena& arena,
+                  std::span<const Entry> entries) noexcept
         {
             hints_.clear();
             hints_.reserve(16);
@@ -168,8 +169,8 @@ namespace {
                     continue;
                 }
 
-                const std::string_view ifd = arena_string(arena,
-                                                          e.key.data.exif_tag.ifd);
+                const std::string_view ifd
+                    = arena_string(arena, e.key.data.exif_tag.ifd);
                 if (ifd.empty() || is_makernote_ifd(ifd)) {
                     continue;
                 }
@@ -193,8 +194,7 @@ namespace {
                     && e.value.count != 0U) {
                     const std::string_view make
                         = arena_string(arena, e.value.data.span);
-                    if (make.size() >= 4
-                        && (make[0] == 'S' || make[0] == 's')
+                    if (make.size() >= 4 && (make[0] == 'S' || make[0] == 's')
                         && (make[1] == 'O' || make[1] == 'o')
                         && (make[2] == 'N' || make[2] == 'n')
                         && (make[3] == 'Y' || make[3] == 'y')) {
@@ -222,10 +222,7 @@ namespace {
             return h && h->has_dng_version;
         }
 
-        bool make_is_sony() const noexcept
-        {
-            return make_sony_;
-        }
+        bool make_is_sony() const noexcept { return make_sony_; }
 
     private:
         size_t ensure_ifd(std::string_view ifd) noexcept
@@ -288,8 +285,7 @@ namespace {
         return false;
     }
 
-    static bool
-    alias_prefers_exif_prefix_for_tiff_tag(uint16_t tag) noexcept
+    static bool alias_prefers_exif_prefix_for_tiff_tag(uint16_t tag) noexcept
     {
         switch (tag) {
         case 0x829A:  // ExposureTime
@@ -322,8 +318,7 @@ namespace {
         }
     }
 
-    static bool
-    cr3_tiff_ifd_prefers_exif_prefix(uint16_t tag) noexcept
+    static bool cr3_tiff_ifd_prefers_exif_prefix(uint16_t tag) noexcept
     {
         switch (tag) {
         case 0x829A:  // ExposureTime
@@ -422,8 +417,7 @@ namespace {
         case 0x0122:
         case 0x0124:
         case 0x0125:
-        case 0x0126:
-            return true;
+        case 0x0126: return true;
         default: return false;
         }
     }
@@ -528,6 +522,55 @@ namespace {
     }
 
 
+    static std::string_view dng_color_field_name(uint16_t tag) noexcept
+    {
+        switch (tag) {
+        case 0xC621: return "ColorMatrix1";
+        case 0xC622: return "ColorMatrix2";
+        case 0xC623: return "CameraCalibration1";
+        case 0xC624: return "CameraCalibration2";
+        case 0xC625: return "ReductionMatrix1";
+        case 0xC626: return "ReductionMatrix2";
+        case 0xC627: return "AnalogBalance";
+        case 0xC628: return "AsShotNeutral";
+        case 0xC629: return "AsShotWhiteXY";
+        case 0xC65A: return "CalibrationIlluminant1";
+        case 0xC65B: return "CalibrationIlluminant2";
+        case 0xC714: return "ForwardMatrix1";
+        case 0xC715: return "ForwardMatrix2";
+        case 0xCD32: return "CameraCalibration3";
+        case 0xCD33: return "ColorMatrix3";
+        case 0xCD34: return "ForwardMatrix3";
+        default: return {};
+        }
+    }
+
+
+    static std::string_view icc_header_field_name(uint32_t offset) noexcept
+    {
+        switch (offset) {
+        case 0: return "profile_size";
+        case 4: return "cmm_type";
+        case 8: return "version";
+        case 12: return "class";
+        case 16: return "data_space";
+        case 20: return "pcs";
+        case 24: return "date_time";
+        case 36: return "signature";
+        case 40: return "platform";
+        case 44: return "flags";
+        case 48: return "manufacturer";
+        case 52: return "model";
+        case 56: return "attributes";
+        case 64: return "rendering_intent";
+        case 68: return "pcs_illuminant";
+        case 80: return "creator";
+        case 84: return "profile_id";
+        default: return {};
+        }
+    }
+
+
     static std::string_view
     canonical_interop_tag_name(std::string_view ifd, uint16_t tag,
                                std::string_view fallback,
@@ -549,13 +592,12 @@ namespace {
         case 0x9004: return "CreateDate";            // DateTimeDigitized
         case 0x9204: return "ExposureCompensation";  // ExposureBiasValue
         case 0x9400: return "AmbientTemperature";
-        case 0xA002: return "ExifImageWidth";        // PixelXDimension
-        case 0xA003: return "ExifImageHeight";       // PixelYDimension
-        case 0xA405:
-            return "FocalLengthIn35mmFormat";  // FocalLengthIn35mmFilm
-        case 0xA430: return "OwnerName";     // CameraOwnerName
-        case 0xA431: return "SerialNumber";  // BodySerialNumber
-        case 0xA432: return "LensInfo";      // LensSpecification
+        case 0xA002: return "ExifImageWidth";           // PixelXDimension
+        case 0xA003: return "ExifImageHeight";          // PixelYDimension
+        case 0xA405: return "FocalLengthIn35mmFormat";  // FocalLengthIn35mmFilm
+        case 0xA430: return "OwnerName";                // CameraOwnerName
+        case 0xA431: return "SerialNumber";             // BodySerialNumber
+        case 0xA432: return "LensInfo";                 // LensSpecification
         case 0xC630: return "DNGLensInfo";
         case 0xC6F3: return "CameraCalibrationSig";
         case 0xC6F4: return "ProfileCalibrationSig";
@@ -577,10 +619,10 @@ namespace {
 
         if (is_tiff_ifd) {
             switch (tag) {
-            case 0x00FE: return "SubfileType";         // NewSubfileType
-            case 0x0101: return "ImageHeight";         // ImageLength
-            case 0x0132: return "ModifyDate";          // DateTime
-            case 0x0201: return "ThumbnailOffset";     // JPEGInterchangeFormat
+            case 0x00FE: return "SubfileType";      // NewSubfileType
+            case 0x0101: return "ImageHeight";      // ImageLength
+            case 0x0132: return "ModifyDate";       // DateTime
+            case 0x0201: return "ThumbnailOffset";  // JPEGInterchangeFormat
             case 0x0202:
                 return "ThumbnailLength";  // JPEGInterchangeFormatLength
             default: return fallback;
@@ -750,8 +792,8 @@ namespace {
     {
         out_name->clear();
         if (e.key.kind == MetaKeyKind::ExifTag) {
-            const std::string_view ifd = arena_string(arena,
-                                                      e.key.data.exif_tag.ifd);
+            const std::string_view ifd  = arena_string(arena,
+                                                       e.key.data.exif_tag.ifd);
             const bool is_cr3_style_ifd = exif_ctx
                                           && exif_ctx->ifd_has_tag_zero(ifd);
             const std::string_view cr3_gps_name
@@ -789,6 +831,17 @@ namespace {
             out_name->append(prefix);
             out_name->append(":");
 
+            if (exif_ctx && exif_ctx->ifd_has_dng_version(ifd)) {
+                const std::string_view dng_name = dng_color_field_name(
+                    e.key.data.exif_tag.tag);
+                if (!dng_name.empty()) {
+                    out_name->clear();
+                    out_name->append("dng:");
+                    out_name->append(dng_name);
+                    return true;
+                }
+            }
+
             if (policy == ExportNamePolicy::ExifToolAlias && exif_ctx
                 && exif_ctx->make_is_sony()
                 && parse_index_with_prefix(ifd, "ifd") >= 2) {
@@ -804,14 +857,14 @@ namespace {
 
             if (policy == ExportNamePolicy::ExifToolAlias
                 && is_preview_ifd_token(ifd)) {
-                    if (e.key.data.exif_tag.tag == 0x0111U) {
-                        out_name->append("PreviewImageStart");
-                        return true;
-                    }
-                    if (e.key.data.exif_tag.tag == 0x0117U) {
-                        out_name->append("PreviewImageLength");
-                        return true;
-                    }
+                if (e.key.data.exif_tag.tag == 0x0111U) {
+                    out_name->append("PreviewImageStart");
+                    return true;
+                }
+                if (e.key.data.exif_tag.tag == 0x0117U) {
+                    out_name->append("PreviewImageLength");
+                    return true;
+                }
             }
 
             if (policy == ExportNamePolicy::ExifToolAlias && exif_ctx
@@ -843,8 +896,8 @@ namespace {
                                 e.key.data.exif_tag.tag, out_name);
                         }
                     } else {
-                        append_exiftool_unknown_tag_name(
-                            e.key.data.exif_tag.tag, out_name);
+                        append_exiftool_unknown_tag_name(e.key.data.exif_tag.tag,
+                                                         out_name);
                     }
                     return true;
                 }
@@ -886,6 +939,23 @@ namespace {
             return true;
         }
 
+        if (e.key.kind == MetaKeyKind::IccHeaderField) {
+            const std::string_view field = icc_header_field_name(
+                e.key.data.icc_header_field.offset);
+            if (field.empty()) {
+                return false;
+            }
+            out_name->append("icc:");
+            out_name->append(field);
+            return true;
+        }
+
+        if (e.key.kind == MetaKeyKind::IccTag) {
+            out_name->append("icc:tag:");
+            append_u32_hex(e.key.data.icc_tag.signature, out_name);
+            return true;
+        }
+
         return false;
     }
 
@@ -899,9 +969,9 @@ namespace {
         out_name->clear();
 
         if (e.key.kind == MetaKeyKind::ExifTag) {
-            const std::string_view ifd = arena_string(arena,
-                                                      e.key.data.exif_tag.ifd);
-            const bool is_mk_ifd       = is_makernote_ifd(ifd);
+            const std::string_view ifd  = arena_string(arena,
+                                                       e.key.data.exif_tag.ifd);
+            const bool is_mk_ifd        = is_makernote_ifd(ifd);
             const bool is_cr3_style_ifd = exif_ctx
                                           && exif_ctx->ifd_has_tag_zero(ifd);
             const std::string_view cr3_gps_name
@@ -921,7 +991,8 @@ namespace {
                 && exif_tag_is_pointer(e.key.data.exif_tag.tag)) {
                 return false;
             }
-            if (!is_mk_ifd && prefix.empty() && is_classic_tiff_ifd_token(ifd)) {
+            if (!is_mk_ifd && prefix.empty()
+                && is_classic_tiff_ifd_token(ifd)) {
                 if ((policy == ExportNamePolicy::ExifToolAlias
                      && alias_prefers_exif_prefix_for_tiff_tag(
                          e.key.data.exif_tag.tag))
@@ -959,6 +1030,17 @@ namespace {
                 out_name->append(":");
             }
 
+            if (exif_ctx && exif_ctx->ifd_has_dng_version(ifd)) {
+                const std::string_view dng_name = dng_color_field_name(
+                    e.key.data.exif_tag.tag);
+                if (!dng_name.empty()) {
+                    out_name->clear();
+                    out_name->append("DNG:");
+                    out_name->append(dng_name);
+                    return true;
+                }
+            }
+
             if (policy == ExportNamePolicy::ExifToolAlias && exif_ctx
                 && exif_ctx->make_is_sony()
                 && parse_index_with_prefix(ifd, "ifd") >= 2) {
@@ -974,14 +1056,14 @@ namespace {
 
             if (policy == ExportNamePolicy::ExifToolAlias
                 && is_preview_ifd_token(ifd)) {
-                    if (e.key.data.exif_tag.tag == 0x0111U) {
-                        out_name->append("PreviewImageStart");
-                        return true;
-                    }
-                    if (e.key.data.exif_tag.tag == 0x0117U) {
-                        out_name->append("PreviewImageLength");
-                        return true;
-                    }
+                if (e.key.data.exif_tag.tag == 0x0111U) {
+                    out_name->append("PreviewImageStart");
+                    return true;
+                }
+                if (e.key.data.exif_tag.tag == 0x0117U) {
+                    out_name->append("PreviewImageLength");
+                    return true;
+                }
             }
 
             if (policy == ExportNamePolicy::ExifToolAlias && exif_ctx
@@ -1018,8 +1100,8 @@ namespace {
                                 e.key.data.exif_tag.tag, out_name);
                         }
                     } else {
-                        append_exiftool_unknown_tag_name(
-                            e.key.data.exif_tag.tag, out_name);
+                        append_exiftool_unknown_tag_name(e.key.data.exif_tag.tag,
+                                                         out_name);
                     }
                 } else {
                     append_spec_unknown_tag_name(e.key.data.exif_tag.tag,
@@ -1084,6 +1166,23 @@ namespace {
             }
         }
 
+        if (e.key.kind == MetaKeyKind::IccHeaderField) {
+            const std::string_view field = icc_header_field_name(
+                e.key.data.icc_header_field.offset);
+            if (field.empty()) {
+                return false;
+            }
+            out_name->append("ICC:");
+            out_name->append(field);
+            return true;
+        }
+
+        if (e.key.kind == MetaKeyKind::IccTag) {
+            out_name->append("ICC:tag:");
+            append_u32_hex(e.key.data.icc_tag.signature, out_name);
+            return true;
+        }
+
         return build_canonical_name(arena, e, out_name);
     }
 
@@ -1123,8 +1222,7 @@ visit_metadata(const MetaStore& store, const ExportOptions& options,
             break;
         case ExportNameStyle::XmpPortable:
             mapped = build_xmp_portable_name(arena, e, &exif_ctx,
-                                             options.name_policy,
-                                             &name);
+                                             options.name_policy, &name);
             break;
         case ExportNameStyle::Oiio:
             mapped = build_oiio_name(arena, e, &exif_ctx,
