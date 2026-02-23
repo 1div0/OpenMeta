@@ -1,5 +1,7 @@
 #include "openmeta/icc_interpret.h"
 
+#include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 
@@ -157,6 +159,144 @@ namespace {
         return n;
     }
 
+    static bool append_utf8_codepoint(uint32_t cp, std::string* out) noexcept
+    {
+        if (!out) {
+            return false;
+        }
+        if (cp <= 0x7FU) {
+            out->push_back(static_cast<char>(cp));
+            return true;
+        }
+        if (cp <= 0x7FFU) {
+            out->push_back(static_cast<char>(0xC0U | ((cp >> 6) & 0x1FU)));
+            out->push_back(static_cast<char>(0x80U | (cp & 0x3FU)));
+            return true;
+        }
+        if (cp <= 0xFFFFU) {
+            if (cp >= 0xD800U && cp <= 0xDFFFU) {
+                return false;
+            }
+            out->push_back(static_cast<char>(0xE0U | ((cp >> 12) & 0x0FU)));
+            out->push_back(static_cast<char>(0x80U | ((cp >> 6) & 0x3FU)));
+            out->push_back(static_cast<char>(0x80U | (cp & 0x3FU)));
+            return true;
+        }
+        if (cp <= 0x10FFFFU) {
+            out->push_back(static_cast<char>(0xF0U | ((cp >> 18) & 0x07U)));
+            out->push_back(static_cast<char>(0x80U | ((cp >> 12) & 0x3FU)));
+            out->push_back(static_cast<char>(0x80U | ((cp >> 6) & 0x3FU)));
+            out->push_back(static_cast<char>(0x80U | (cp & 0x3FU)));
+            return true;
+        }
+        return false;
+    }
+
+    static bool decode_utf16be_to_utf8(std::span<const std::byte> bytes,
+                                       uint32_t max_output_bytes,
+                                       std::string* out,
+                                       bool* truncated) noexcept
+    {
+        if (!out) {
+            return false;
+        }
+        out->clear();
+        if (truncated) {
+            *truncated = false;
+        }
+        if ((bytes.size() % 2U) != 0U) {
+            return false;
+        }
+        for (size_t off = 0U; off + 1U < bytes.size();) {
+            uint16_t u = 0;
+            if (!read_u16be(bytes, static_cast<uint64_t>(off), &u)) {
+                return false;
+            }
+            off += 2U;
+
+            uint32_t cp = static_cast<uint32_t>(u);
+            if (u >= 0xD800U && u <= 0xDBFFU) {
+                if (off + 1U >= bytes.size()) {
+                    return false;
+                }
+                uint16_t lo = 0;
+                if (!read_u16be(bytes, static_cast<uint64_t>(off), &lo)) {
+                    return false;
+                }
+                if (lo < 0xDC00U || lo > 0xDFFFU) {
+                    return false;
+                }
+                off += 2U;
+                cp = 0x10000U
+                     + (((static_cast<uint32_t>(u) - 0xD800U) << 10)
+                        | (static_cast<uint32_t>(lo) - 0xDC00U));
+            } else if (u >= 0xDC00U && u <= 0xDFFFU) {
+                return false;
+            }
+
+            const size_t before = out->size();
+            if (!append_utf8_codepoint(cp, out)) {
+                return false;
+            }
+            if (max_output_bytes != 0U && out->size() > max_output_bytes) {
+                out->resize(before);
+                if (truncated) {
+                    *truncated = true;
+                }
+                break;
+            }
+        }
+        return true;
+    }
+
+    static void append_double_fixed6_trim(double d, std::string* out)
+    {
+        char buf[128];
+        std::snprintf(buf, sizeof(buf), "%.6f", d);
+        size_t len = std::strlen(buf);
+        while (len > 0U && buf[len - 1U] == '0') {
+            len -= 1U;
+        }
+        if (len > 0U && buf[len - 1U] == '.') {
+            len -= 1U;
+        }
+        out->append(buf, len);
+    }
+
+    static void append_interpreted_values_text(const IccTagInterpretation& in,
+                                               uint32_t max_values,
+                                               std::string* out)
+    {
+        if (!out) {
+            return;
+        }
+        out->clear();
+        if (in.values.empty()) {
+            return;
+        }
+        if (in.rows > 1U && in.cols > 0U) {
+            char dims[32];
+            std::snprintf(dims, sizeof(dims), "%ux%u ",
+                          static_cast<unsigned>(in.rows),
+                          static_cast<unsigned>(in.cols));
+            out->append(dims);
+        }
+        out->push_back('[');
+        const uint32_t n     = static_cast<uint32_t>(in.values.size());
+        const uint32_t shown = (max_values != 0U && n > max_values) ? max_values
+                                                                    : n;
+        for (uint32_t i = 0; i < shown; ++i) {
+            if (i != 0U) {
+                out->append(", ");
+            }
+            append_double_fixed6_trim(in.values[i], out);
+        }
+        if (shown < n) {
+            out->append(", ...");
+        }
+        out->push_back(']');
+    }
+
     static uint32_t parametric_coefficient_count(uint16_t fn) noexcept
     {
         switch (fn) {
@@ -279,6 +419,121 @@ interpret_icc_tag(uint32_t signature, std::span<const std::byte> tag_bytes,
         return IccTagInterpretStatus::Ok;
     }
 
+    if (type_sig == fourcc('d', 't', 'i', 'm')) {
+        if (tag_bytes.size() < 20U) {
+            return IccTagInterpretStatus::Malformed;
+        }
+        uint16_t year   = 0;
+        uint16_t month  = 0;
+        uint16_t day    = 0;
+        uint16_t hour   = 0;
+        uint16_t minute = 0;
+        uint16_t second = 0;
+        if (!read_u16be(tag_bytes, 8U, &year)
+            || !read_u16be(tag_bytes, 10U, &month)
+            || !read_u16be(tag_bytes, 12U, &day)
+            || !read_u16be(tag_bytes, 14U, &hour)
+            || !read_u16be(tag_bytes, 16U, &minute)
+            || !read_u16be(tag_bytes, 18U, &second)) {
+            return IccTagInterpretStatus::Malformed;
+        }
+        if (month < 1U || month > 12U || day < 1U || day > 31U || hour > 23U
+            || minute > 59U || second > 59U) {
+            return IccTagInterpretStatus::Malformed;
+        }
+        char buf[32];
+        std::snprintf(buf, sizeof(buf), "%04u-%02u-%02uT%02u:%02u:%02u",
+                      static_cast<unsigned>(year), static_cast<unsigned>(month),
+                      static_cast<unsigned>(day), static_cast<unsigned>(hour),
+                      static_cast<unsigned>(minute),
+                      static_cast<unsigned>(second));
+        out->text = buf;
+        if (options.limits.max_text_bytes != 0U
+            && out->text.size() > options.limits.max_text_bytes) {
+            out->text.resize(options.limits.max_text_bytes);
+            return IccTagInterpretStatus::LimitExceeded;
+        }
+        return IccTagInterpretStatus::Ok;
+    }
+
+    if (type_sig == fourcc('m', 'l', 'u', 'c')) {
+        if (tag_bytes.size() < 16U) {
+            return IccTagInterpretStatus::Malformed;
+        }
+        uint32_t rec_count = 0;
+        uint32_t rec_size  = 0;
+        if (!read_u32be(tag_bytes, 8U, &rec_count)
+            || !read_u32be(tag_bytes, 12U, &rec_size)) {
+            return IccTagInterpretStatus::Malformed;
+        }
+        if (rec_count == 0U || rec_size < 12U) {
+            return IccTagInterpretStatus::Malformed;
+        }
+        const uint64_t table_bytes = static_cast<uint64_t>(rec_count)
+                                     * static_cast<uint64_t>(rec_size);
+        if (16ULL + table_bytes > tag_bytes.size()) {
+            return IccTagInterpretStatus::Malformed;
+        }
+
+        bool have_selected    = false;
+        bool selected_is_en   = false;
+        uint32_t selected_off = 0U;
+        uint32_t selected_len = 0U;
+
+        for (uint32_t i = 0; i < rec_count; ++i) {
+            const uint64_t rec_off = 16ULL
+                                     + static_cast<uint64_t>(i)
+                                           * static_cast<uint64_t>(rec_size);
+            if (rec_off + 12ULL > tag_bytes.size()) {
+                return IccTagInterpretStatus::Malformed;
+            }
+
+            const uint8_t lang0    = u8(tag_bytes[rec_off + 0U]);
+            const uint8_t lang1    = u8(tag_bytes[rec_off + 1U]);
+            const uint8_t country0 = u8(tag_bytes[rec_off + 2U]);
+            const uint8_t country1 = u8(tag_bytes[rec_off + 3U]);
+
+            uint32_t rec_len      = 0;
+            uint32_t rec_data_off = 0;
+            if (!read_u32be(tag_bytes, rec_off + 4U, &rec_len)
+                || !read_u32be(tag_bytes, rec_off + 8U, &rec_data_off)) {
+                return IccTagInterpretStatus::Malformed;
+            }
+            if (rec_len == 0U || (rec_len % 2U) != 0U) {
+                continue;
+            }
+            if (static_cast<uint64_t>(rec_data_off)
+                    + static_cast<uint64_t>(rec_len)
+                > tag_bytes.size()) {
+                continue;
+            }
+
+            const bool is_en = (lang0 == static_cast<uint8_t>('e')
+                                && lang1 == static_cast<uint8_t>('n')
+                                && country0 == static_cast<uint8_t>('U')
+                                && country1 == static_cast<uint8_t>('S'));
+            if (!have_selected || (is_en && !selected_is_en)) {
+                selected_off   = rec_data_off;
+                selected_len   = rec_len;
+                selected_is_en = is_en;
+                have_selected  = true;
+            }
+        }
+
+        if (!have_selected) {
+            return IccTagInterpretStatus::Malformed;
+        }
+        bool truncated = false;
+        if (!decode_utf16be_to_utf8(tag_bytes.subspan(selected_off,
+                                                      selected_len),
+                                    options.limits.max_text_bytes, &out->text,
+                                    &truncated)) {
+            return IccTagInterpretStatus::Malformed;
+        }
+        return truncated ? IccTagInterpretStatus::LimitExceeded
+                         : IccTagInterpretStatus::Ok;
+    }
+
     if (type_sig == fourcc('X', 'Y', 'Z', ' ')) {
         if (tag_bytes.size() < 20U) {
             return IccTagInterpretStatus::Malformed;
@@ -365,6 +620,39 @@ interpret_icc_tag(uint32_t signature, std::span<const std::byte> tag_bytes,
     }
 
     return IccTagInterpretStatus::Unsupported;
+}
+
+bool
+format_icc_tag_display_value(uint32_t signature,
+                             std::span<const std::byte> tag_bytes,
+                             uint32_t max_values, uint32_t max_text_bytes,
+                             std::string* out) noexcept
+{
+    if (!out) {
+        return false;
+    }
+    out->clear();
+    IccTagInterpretOptions options;
+    options.limits.max_values     = max_values;
+    options.limits.max_text_bytes = max_text_bytes;
+
+    IccTagInterpretation interpretation;
+    const IccTagInterpretStatus status
+        = interpret_icc_tag(signature, tag_bytes, &interpretation, options);
+    if (status != IccTagInterpretStatus::Ok
+        && status != IccTagInterpretStatus::LimitExceeded) {
+        return false;
+    }
+
+    if (!interpretation.text.empty()) {
+        out->assign(interpretation.text);
+        return true;
+    }
+    if (!interpretation.values.empty()) {
+        append_interpreted_values_text(interpretation, max_values, out);
+        return true;
+    }
+    return false;
 }
 
 }  // namespace openmeta

@@ -35,7 +35,7 @@ Status labels used below:
 | EXIF tag (`MetaKeyKind::ExifTag`) | Yes | Yes (standard EXIF + many MakerNote tables) | Yes (lossless sidecar, portable mapping subset, OIIO/OCIO adapters; DNG color tags are exported with `dng:`/`DNG:` adapter names when DNG context is detected) |
 | MakerNote (`ExifTag` in `mk_*` IFD namespaces) | Partial/Yes (vendor-dependent, opt-in) | Partial/Yes (generated tables; unknown tags remain unnamed) | Yes in lossless; portable mode does not preserve vendor schema as standard XMP fields |
 | XMP property (`MetaKeyKind::XmpProperty`) | Yes (requires Expat at build time) | Native schema URI + property path | Yes (lossless + portable) |
-| ICC (`IccHeaderField`, `IccTag`) | Yes | Signature/offset based with typed header interpretation (u32/u64/s15Fixed16 where stable) plus best-effort tag payload interpretation helpers (`desc`, `text`, `sig `, `XYZ `, `curv`, `para`) | Yes (lossless; canonical + adapter-friendly `icc:*`/`ICC:*` names) |
+| ICC (`IccHeaderField`, `IccTag`) | Yes | Signature/offset based with typed header interpretation (u32/u64/s15Fixed16 where stable) plus best-effort tag payload interpretation helpers (`desc`, `text`, `sig `, `mluc`, `dtim`, `XYZ `, `curv`, `para`) | Yes (lossless; canonical + adapter-friendly `icc:*`/`ICC:*` names) |
 | IPTC-IIM (`IptcDataset`) | Yes | Record/dataset id based | Yes (lossless; portable behavior depends on mapping path) |
 | Photoshop IRB (`PhotoshopIrb`) | Yes (raw resources) | Resource id based | Yes (lossless) |
 | MPF | Yes | EXIF-like tag mapping | Yes |

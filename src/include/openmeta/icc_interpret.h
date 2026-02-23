@@ -64,6 +64,8 @@ icc_tag_name(uint32_t signature) noexcept;
  * - `desc` (ASCII profile description)
  * - `text` (ASCII text payload)
  * - `sig ` (embedded 4-byte signature)
+ * - `mluc` (multi-localized Unicode)
+ * - `dtim` (date/time number)
  * - `XYZ ` (s15Fixed16 XYZ triplets)
  * - `curv` (TRC curves)
  * - `para` (parametric curves)
@@ -73,5 +75,17 @@ interpret_icc_tag(uint32_t signature, std::span<const std::byte> tag_bytes,
                   IccTagInterpretation* out,
                   const IccTagInterpretOptions& options
                   = IccTagInterpretOptions {}) noexcept;
+
+/**
+ * \brief Formats a best-effort human-readable value string for an ICC tag.
+ *
+ * This helper is intended for CLI/Python display paths. It uses
+ * \ref interpret_icc_tag and returns `false` for unsupported/malformed payloads.
+ */
+bool
+format_icc_tag_display_value(uint32_t signature,
+                             std::span<const std::byte> tag_bytes,
+                             uint32_t max_values, uint32_t max_text_bytes,
+                             std::string* out) noexcept;
 
 }  // namespace openmeta

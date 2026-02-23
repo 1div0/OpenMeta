@@ -181,28 +181,14 @@ def _format_value(e: openmeta.Entry, *, max_elements: int, max_bytes: int) -> Tu
         if e.key_kind == openmeta.MetaKeyKind.IccTag:
             raw = openmeta.hex_bytes(v, max_bytes=int(max_bytes))
             try:
-                decoded = openmeta.icc_interpret(
+                rendered = openmeta.icc_render_value(
                     int(e.icc_tag_signature),
                     v,
                     max_values=int(max_elements),
                     max_text_bytes=int(max_bytes),
                 )
-                status = decoded.get("status")
-                if status in (
-                    openmeta.IccTagInterpretStatus.Ok,
-                    openmeta.IccTagInterpretStatus.LimitExceeded,
-                ):
-                    text = decoded.get("text")
-                    if isinstance(text, str) and text:
-                        return raw, text
-                    values = decoded.get("values")
-                    if isinstance(values, list) and values:
-                        rows = int(decoded.get("rows", 0) or 0)
-                        cols = int(decoded.get("cols", 0) or 0)
-                        vals = ", ".join(_fmt_float(float(x)) for x in values)
-                        if rows > 1 and cols > 0:
-                            return raw, f"{rows}x{cols} [{vals}]"
-                        return raw, f"[{vals}]"
+                if isinstance(rendered, str) and rendered:
+                    return raw, rendered
             except Exception:
                 pass
             return raw, raw

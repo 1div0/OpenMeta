@@ -145,4 +145,115 @@ TEST(IccInterpret, DecodesSignatureType)
     EXPECT_TRUE(out.values.empty());
 }
 
+TEST(IccInterpret, DecodesDateTimeType)
+{
+    std::vector<std::byte> tag(20, std::byte { 0x00 });
+    write_u32be(make_fourcc('d', 't', 'i', 'm'), 0, &tag);
+    write_u16be(2024U, 8, &tag);
+    write_u16be(2U, 10, &tag);
+    write_u16be(29U, 12, &tag);
+    write_u16be(17U, 14, &tag);
+    write_u16be(45U, 16, &tag);
+    write_u16be(3U, 18, &tag);
+
+    IccTagInterpretation out;
+    const IccTagInterpretStatus st
+        = interpret_icc_tag(make_fourcc('m', 'e', 'a', 's'), tag, &out);
+    EXPECT_EQ(st, IccTagInterpretStatus::Ok);
+    EXPECT_EQ(out.type, "dtim");
+    EXPECT_EQ(out.text, "2024-02-29T17:45:03");
+    EXPECT_TRUE(out.values.empty());
+}
+
+TEST(IccInterpret, DecodesMlucPreferredEnUs)
+{
+    // mluc with 2 records, prefers enUS over frFR.
+    std::vector<std::byte> tag(56, std::byte { 0x00 });
+    write_u32be(make_fourcc('m', 'l', 'u', 'c'), 0, &tag);
+    write_u32be(2U, 8, &tag);    // record count
+    write_u32be(12U, 12, &tag);  // record size
+
+    // Record 0: frFR -> "Salut"
+    tag[16] = std::byte { 'f' };
+    tag[17] = std::byte { 'r' };
+    tag[18] = std::byte { 'F' };
+    tag[19] = std::byte { 'R' };
+    write_u32be(10U, 20, &tag);  // len bytes (UTF-16BE)
+    write_u32be(40U, 24, &tag);  // offset
+
+    // Record 1: enUS -> "Hello"
+    tag[28] = std::byte { 'e' };
+    tag[29] = std::byte { 'n' };
+    tag[30] = std::byte { 'U' };
+    tag[31] = std::byte { 'S' };
+    write_u32be(10U, 32, &tag);
+    write_u32be(50U, 36, &tag);
+
+    // UTF-16BE "Salut"
+    tag[40] = std::byte { 0x00 };
+    tag[41] = std::byte { 'S' };
+    tag[42] = std::byte { 0x00 };
+    tag[43] = std::byte { 'a' };
+    tag[44] = std::byte { 0x00 };
+    tag[45] = std::byte { 'l' };
+    tag[46] = std::byte { 0x00 };
+    tag[47] = std::byte { 'u' };
+    tag[48] = std::byte { 0x00 };
+    tag[49] = std::byte { 't' };
+
+    // UTF-16BE "Hello"
+    tag[50] = std::byte { 0x00 };
+    tag[51] = std::byte { 'H' };
+    tag[52] = std::byte { 0x00 };
+    tag[53] = std::byte { 'e' };
+    tag[54] = std::byte { 0x00 };
+    tag[55] = std::byte { 'l' };
+    // "lo" gets truncated by tag size intentionally in this test to ensure
+    // malformed tables are rejected below; create full-good table first.
+
+    std::vector<std::byte> good = tag;
+    good.resize(60, std::byte { 0x00 });
+    good[56] = std::byte { 0x00 };
+    good[57] = std::byte { 'l' };
+    good[58] = std::byte { 0x00 };
+    good[59] = std::byte { 'o' };
+
+    IccTagInterpretation out;
+    const IccTagInterpretStatus st
+        = interpret_icc_tag(make_fourcc('c', 'p', 'r', 't'), good, &out);
+    EXPECT_EQ(st, IccTagInterpretStatus::Ok);
+    EXPECT_EQ(out.type, "mluc");
+    EXPECT_EQ(out.text, "Hello");
+
+    std::vector<std::byte> bad = good;
+    // Invalidate both record lengths (odd UTF-16 byte counts).
+    write_u32be(11U, 20, &bad);
+    write_u32be(11U, 32, &bad);
+
+    const IccTagInterpretStatus malformed
+        = interpret_icc_tag(make_fourcc('c', 'p', 'r', 't'), bad, &out);
+    EXPECT_EQ(malformed, IccTagInterpretStatus::Malformed);
+}
+
+TEST(IccInterpret, FormatsDisplayValueForCliPython)
+{
+    std::vector<std::byte> sig_tag(12, std::byte { 0x00 });
+    write_u32be(make_fourcc('s', 'i', 'g', ' '), 0, &sig_tag);
+    write_u32be(make_fourcc('s', 'c', 'n', 'r'), 8, &sig_tag);
+
+    std::string text;
+    EXPECT_TRUE(format_icc_tag_display_value(make_fourcc('t', 'e', 'c', 'h'),
+                                             sig_tag, 16U, 256U, &text));
+    EXPECT_EQ(text, "scnr");
+
+    std::vector<std::byte> xyz_tag(20, std::byte { 0x00 });
+    write_u32be(make_fourcc('X', 'Y', 'Z', ' '), 0, &xyz_tag);
+    write_u32be(65536U, 8, &xyz_tag);
+    write_u32be(0U, 12, &xyz_tag);
+    write_u32be(32768U, 16, &xyz_tag);
+    EXPECT_TRUE(format_icc_tag_display_value(make_fourcc('w', 't', 'p', 't'),
+                                             xyz_tag, 16U, 256U, &text));
+    EXPECT_EQ(text, "[1, 0, 0.5]");
+}
+
 }  // namespace openmeta

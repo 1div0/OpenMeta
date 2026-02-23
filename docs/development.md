@@ -108,7 +108,8 @@ This policy surface is intentionally marked draft and may be refined.
   `src/openmeta/ccm_query.cc` (`collect_dng_ccm_fields(...)`)
 - ICC tag interpretation helpers: `src/include/openmeta/icc_interpret.h`,
   `src/openmeta/icc_interpret.cc` (`icc_tag_name(...)`,
-  `interpret_icc_tag(...)` for `desc`/`text`/`sig `/`XYZ `/`curv`/`para`)
+  `interpret_icc_tag(...)` for `desc`/`text`/`sig `/`mluc`/`dtim`/`XYZ `/`curv`/`para`,
+  plus `format_icc_tag_display_value(...)` for shared CLI/Python rendering)
 - ISO-BMFF (HEIF/AVIF/CR3) container-derived fields: `src/openmeta/bmff_fields_decode.cc`
   - Emitted during `simple_meta_read(...)` as `MetaKeyKind::BmffField` entries.
   - Current fields: `ftyp.*`, primary item properties (`pitm`, `iprp/ipco ispe/irot/imir`, `ipma`), draft `iref.*` relation fields (`ref_type`, `from_item_id`, `to_item_id`, `edge_count`), typed derived relation rows (`iref.auxl.*`, `iref.dimg.*`, `iref.thmb.*`, `iref.cdsc.*`), per-type relation counters (`iref.<type>.edge_count`) and per-type unique source/target counters (`iref.<type>.from_item_unique_count`, `iref.<type>.to_item_unique_count`), draft relation-graph summaries (`iref.item_count`, `iref.from_item_unique_count`, `iref.to_item_unique_count`, row-wise `iref.item_id` + `iref.item_out_edge_count` + `iref.item_in_edge_count`), and `auxC`-based aux semantics (`aux.item_id`, `aux.semantic`, `aux.type`, `aux.subtype_hex`, `aux.subtype_kind`, `aux.subtype_u32`, `primary.auxl_semantic`, `primary.depth_item_id`, `primary.alpha_item_id`, ...).

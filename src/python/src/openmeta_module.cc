@@ -582,6 +582,25 @@ namespace {
         return out;
     }
 
+    static nb::object icc_render_value_to_python(uint32_t signature,
+                                                 nb::bytes tag_bytes,
+                                                 uint32_t max_values,
+                                                 uint32_t max_text_bytes)
+    {
+        const std::span<const std::byte> bytes(
+            reinterpret_cast<const std::byte*>(tag_bytes.data()),
+            tag_bytes.size());
+        std::string rendered;
+        if (!format_icc_tag_display_value(signature, bytes, max_values,
+                                          max_text_bytes, &rendered)) {
+            return nb::none();
+        }
+        const std::span<const std::byte> text_bytes(
+            reinterpret_cast<const std::byte*>(rendered.data()),
+            rendered.size());
+        return decode_text_safe_for_python(text_bytes, TextEncoding::Utf8);
+    }
+
     static nb::list oiio_attributes_to_python(const MetaStore& store,
                                               uint32_t max_value_bytes,
                                               ExportNamePolicy name_policy,
@@ -1952,6 +1971,16 @@ NB_MODULE(_openmeta, m)
            uint32_t max_text_bytes) {
             return icc_interpret_to_python(signature, tag_bytes, max_values,
                                            max_text_bytes);
+        },
+        "signature"_a, "tag_bytes"_a, "max_values"_a = 512U,
+        "max_text_bytes"_a = 4096U);
+
+    m.def(
+        "icc_render_value",
+        [](uint32_t signature, nb::bytes tag_bytes, uint32_t max_values,
+           uint32_t max_text_bytes) {
+            return icc_render_value_to_python(signature, tag_bytes, max_values,
+                                              max_text_bytes);
         },
         "signature"_a, "tag_bytes"_a, "max_values"_a = 512U,
         "max_text_bytes"_a = 4096U);

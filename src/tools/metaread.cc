@@ -1028,39 +1028,6 @@ namespace {
         return std::string(buf);
     }
 
-    static void
-    append_icc_interpreted_values(const IccTagInterpretation& interpretation,
-                                  uint32_t max_elements, std::string* out)
-    {
-        if (!out) {
-            return;
-        }
-        out->clear();
-        if (interpretation.values.empty()) {
-            return;
-        }
-        if (interpretation.rows > 1U && interpretation.cols > 0U) {
-            char dims[32];
-            std::snprintf(dims, sizeof(dims), "%ux%u ",
-                          static_cast<unsigned>(interpretation.rows),
-                          static_cast<unsigned>(interpretation.cols));
-            out->append(dims);
-        }
-        out->push_back('[');
-        const uint32_t n = static_cast<uint32_t>(interpretation.values.size());
-        const uint32_t shown = (n < max_elements) ? n : max_elements;
-        for (uint32_t i = 0; i < shown; ++i) {
-            if (i != 0U) {
-                out->append(", ");
-            }
-            append_double_fixed6_trim(interpretation.values[i], out);
-        }
-        if (shown < n) {
-            out->append(", ...");
-        }
-        out->push_back(']');
-    }
-
     static bool format_icc_interpreted_value(const MetaStore& store,
                                              const Entry& entry,
                                              uint32_t max_elements,
@@ -1077,34 +1044,17 @@ namespace {
         }
         const std::span<const std::byte> raw = store.arena().span(
             entry.value.data.span);
-        IccTagInterpretOptions options;
-        options.limits.max_values     = max_elements;
-        options.limits.max_text_bytes = max_bytes;
-
-        IccTagInterpretation interpretation;
-        const IccTagInterpretStatus status
-            = interpret_icc_tag(entry.key.data.icc_tag.signature, raw,
-                                &interpretation, options);
-        if (status != IccTagInterpretStatus::Ok
-            && status != IccTagInterpretStatus::LimitExceeded) {
+        std::string rendered;
+        if (!format_icc_tag_display_value(entry.key.data.icc_tag.signature, raw,
+                                          max_elements, max_bytes, &rendered)) {
             return false;
         }
-
-        if (!interpretation.text.empty()) {
-            const bool dangerous
-                = append_console_escaped_ascii(interpretation.text, max_bytes,
-                                               out);
-            if (dangerous) {
-                out->insert(0, "(DANGEROUS) ");
-            }
-            return true;
+        const bool dangerous = append_console_escaped_ascii(rendered, max_bytes,
+                                                            out);
+        if (dangerous) {
+            out->insert(0, "(DANGEROUS) ");
         }
-
-        if (!interpretation.values.empty()) {
-            append_icc_interpreted_values(interpretation, max_elements, out);
-            return true;
-        }
-        return false;
+        return true;
     }
 
 
