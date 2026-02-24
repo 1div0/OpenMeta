@@ -2936,6 +2936,12 @@ namespace {
                             return false;
                         }
                         p += idx_size;
+                    } else if (idx_size == 0 && extent_count > 1) {
+                        // Some files omit extent_index fields while still
+                        // providing multiple iloc references. In this layout,
+                        // map extents to reference targets by extent order:
+                        // extent[0] -> ref[1], extent[1] -> ref[2], ...
+                        extent_index = static_cast<uint64_t>(e) + 1U;
                     }
 
                     uint64_t extent_off = 0;

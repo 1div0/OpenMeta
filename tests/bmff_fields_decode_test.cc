@@ -344,6 +344,79 @@ TEST(BmffDerivedFieldsDecode, EmitsIrefEdgesAndPrimaryAuxLinks)
     EXPECT_EQ(auxl_to_unique[0], 2U);
 }
 
+TEST(BmffDerivedFieldsDecode, EmitsIrefEdgesForVersion1ItemIds)
+{
+    // Same auxl edge semantics as the v0 test, but with 32-bit item IDs in
+    // pitm/iref (version=1 fullboxes).
+    std::vector<std::byte> file;
+
+    {
+        std::vector<std::byte> ftyp_payload;
+        append_fourcc(&ftyp_payload, fourcc('h', 'e', 'i', 'c'));
+        append_u32be(&ftyp_payload, 0);
+        append_fourcc(&ftyp_payload, fourcc('m', 'i', 'f', '1'));
+        append_bmff_box(&file, fourcc('f', 't', 'y', 'p'), ftyp_payload);
+    }
+
+    {
+        const uint32_t kPrimary = 0x10001U;
+        const uint32_t kAuxA    = 0x10002U;
+        const uint32_t kAuxB    = 0x10003U;
+
+        std::vector<std::byte> pitm_payload;
+        append_fullbox_header(&pitm_payload, 1);
+        append_u32be(&pitm_payload, kPrimary);
+        std::vector<std::byte> pitm_box;
+        append_bmff_box(&pitm_box, fourcc('p', 'i', 't', 'm'), pitm_payload);
+
+        std::vector<std::byte> auxl_payload;
+        append_u32be(&auxl_payload, kPrimary);  // from item id
+        append_u16be(&auxl_payload, 2);         // ref count
+        append_u32be(&auxl_payload, kAuxA);     // to item id
+        append_u32be(&auxl_payload, kAuxB);     // to item id
+        std::vector<std::byte> auxl_box;
+        append_bmff_box(&auxl_box, fourcc('a', 'u', 'x', 'l'), auxl_payload);
+
+        std::vector<std::byte> iref_payload;
+        append_fullbox_header(&iref_payload, 1);
+        iref_payload.insert(iref_payload.end(), auxl_box.begin(),
+                            auxl_box.end());
+        std::vector<std::byte> iref_box;
+        append_bmff_box(&iref_box, fourcc('i', 'r', 'e', 'f'), iref_payload);
+
+        std::vector<std::byte> meta_payload;
+        append_fullbox_header(&meta_payload, 0);
+        meta_payload.insert(meta_payload.end(), pitm_box.begin(),
+                            pitm_box.end());
+        meta_payload.insert(meta_payload.end(), iref_box.begin(),
+                            iref_box.end());
+        append_bmff_box(&file, fourcc('m', 'e', 't', 'a'), meta_payload);
+    }
+
+    MetaStore store;
+    std::array<ContainerBlockRef, 16> blocks {};
+    std::array<ExifIfdRef, 8> ifds {};
+    std::array<std::byte, 1024> payload {};
+    std::array<uint32_t, 32> payload_scratch {};
+    ExifDecodeOptions exif_opts;
+    PayloadOptions payload_opts;
+
+    (void)simple_meta_read(file, store, blocks, ifds, payload, payload_scratch,
+                           exif_opts, payload_opts);
+    store.finalize();
+
+    const std::vector<uint32_t> edge_count
+        = collect_u32_values(store, "iref.edge_count");
+    ASSERT_EQ(edge_count.size(), 1U);
+    EXPECT_EQ(edge_count[0], 2U);
+
+    const std::vector<uint32_t> primary_auxl
+        = collect_u32_values(store, "primary.auxl_item_id");
+    ASSERT_EQ(primary_auxl.size(), 2U);
+    EXPECT_EQ(primary_auxl[0], 0x10002U);
+    EXPECT_EQ(primary_auxl[1], 0x10003U);
+}
+
 TEST(BmffDerivedFieldsDecode, EmitsPrimaryAuxSemanticsFromAuxC)
 {
     // Minimal HEIF-like BMFF:

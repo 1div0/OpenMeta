@@ -35,6 +35,9 @@ namespace {
             return "calibration_signature_mismatch";
         case CcmIssueCode::MissingIlluminantData:
             return "missing_illuminant_data";
+        case CcmIssueCode::InvalidIlluminantCode:
+            return "invalid_illuminant_code";
+        case CcmIssueCode::WhiteXYOutOfRange: return "white_xy_out_of_range";
         }
         return "unknown";
     }

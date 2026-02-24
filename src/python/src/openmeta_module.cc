@@ -1114,7 +1114,9 @@ NB_MODULE(_openmeta, m)
         .value("TripleIlluminantRule", CcmIssueCode::TripleIlluminantRule)
         .value("CalibrationSignatureMismatch",
                CcmIssueCode::CalibrationSignatureMismatch)
-        .value("MissingIlluminantData", CcmIssueCode::MissingIlluminantData);
+        .value("MissingIlluminantData", CcmIssueCode::MissingIlluminantData)
+        .value("InvalidIlluminantCode", CcmIssueCode::InvalidIlluminantCode)
+        .value("WhiteXYOutOfRange", CcmIssueCode::WhiteXYOutOfRange);
 
     nb::enum_<ValidateStatus>(m, "ValidateStatus")
         .value("Ok", ValidateStatus::Ok)

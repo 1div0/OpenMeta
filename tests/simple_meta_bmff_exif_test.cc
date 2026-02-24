@@ -719,7 +719,7 @@ TEST(SimpleMetaRead,
 
     // ftyp.
     std::vector<std::byte> ftyp_payload;
-    append_fourcc(&ftyp_payload, fourcc('h', 'e', 'i', 'c'));
+    append_fourcc(&ftyp_payload, fourcc('c', 'r', 'x', ' '));
     append_u32be(&ftyp_payload, 0);
     append_fourcc(&ftyp_payload, fourcc('m', 'i', 'f', '1'));
     std::vector<std::byte> file;
@@ -746,6 +746,164 @@ TEST(SimpleMetaRead,
     ASSERT_EQ(e.value.kind, MetaValueKind::Scalar);
     EXPECT_EQ(e.value.elem_type, MetaElementType::U32);
     EXPECT_EQ(static_cast<uint32_t>(e.value.data.u64), 322U);
+}
+
+TEST(SimpleMetaRead, BmffMetaExifItemFromItemOffsetIdxSize0MultiRefDecodes)
+{
+    const std::vector<std::byte> tiff = make_tiff_ifd0_imagewidth_u32(323U);
+    const std::vector<std::byte> exif_item = make_bmff_exif_item_with_preamble(
+        tiff);
+
+    const uint32_t total = static_cast<uint32_t>(exif_item.size());
+    const uint32_t split = 16U;
+    ASSERT_GT(total, split);
+
+    // infe (v2): item 1 and 3 are generic mime payloads, item 2 is Exif.
+    std::vector<std::byte> infe1_payload;
+    append_fullbox_header(&infe1_payload, 2);
+    append_u16be(&infe1_payload, 1);  // item_ID
+    append_u16be(&infe1_payload, 0);  // protection
+    append_fourcc(&infe1_payload, fourcc('m', 'i', 'm', 'e'));
+    append_bytes(&infe1_payload, "data");
+    infe1_payload.push_back(std::byte { 0 });
+    append_bytes(&infe1_payload, "application/octet-stream");
+    infe1_payload.push_back(std::byte { 0 });
+    std::vector<std::byte> infe1_box;
+    append_bmff_box(&infe1_box, fourcc('i', 'n', 'f', 'e'), infe1_payload);
+
+    std::vector<std::byte> infe2_payload;
+    append_fullbox_header(&infe2_payload, 2);
+    append_u16be(&infe2_payload, 2);  // item_ID
+    append_u16be(&infe2_payload, 0);  // protection
+    append_fourcc(&infe2_payload, fourcc('E', 'x', 'i', 'f'));
+    append_bytes(&infe2_payload, "exif");
+    infe2_payload.push_back(std::byte { 0 });
+    std::vector<std::byte> infe2_box;
+    append_bmff_box(&infe2_box, fourcc('i', 'n', 'f', 'e'), infe2_payload);
+
+    std::vector<std::byte> infe3_payload;
+    append_fullbox_header(&infe3_payload, 2);
+    append_u16be(&infe3_payload, 3);  // item_ID
+    append_u16be(&infe3_payload, 0);  // protection
+    append_fourcc(&infe3_payload, fourcc('m', 'i', 'm', 'e'));
+    append_bytes(&infe3_payload, "data2");
+    infe3_payload.push_back(std::byte { 0 });
+    append_bytes(&infe3_payload, "application/octet-stream");
+    infe3_payload.push_back(std::byte { 0 });
+    std::vector<std::byte> infe3_box;
+    append_bmff_box(&infe3_box, fourcc('i', 'n', 'f', 'e'), infe3_payload);
+
+    // iinf (v2): 3 entries.
+    std::vector<std::byte> iinf_payload;
+    append_fullbox_header(&iinf_payload, 2);
+    append_u32be(&iinf_payload, 3);
+    iinf_payload.insert(iinf_payload.end(), infe1_box.begin(), infe1_box.end());
+    iinf_payload.insert(iinf_payload.end(), infe2_box.begin(), infe2_box.end());
+    iinf_payload.insert(iinf_payload.end(), infe3_box.begin(), infe3_box.end());
+    std::vector<std::byte> iinf_box;
+    append_bmff_box(&iinf_box, fourcc('i', 'i', 'n', 'f'), iinf_payload);
+
+    // idat payload: concatenated source items.
+    std::vector<std::byte> idat_payload;
+    idat_payload.insert(idat_payload.end(), exif_item.begin(),
+                        exif_item.begin() + split);
+    idat_payload.insert(idat_payload.end(), exif_item.begin() + split,
+                        exif_item.end());
+    std::vector<std::byte> idat_box;
+    append_bmff_box(&idat_box, fourcc('i', 'd', 'a', 't'), idat_payload);
+
+    // iref (v0): referenceType `iloc` from item 2 -> [1,3].
+    std::vector<std::byte> iloc_ref_payload;
+    append_u16be(&iloc_ref_payload, 2);  // from_item_ID
+    append_u16be(&iloc_ref_payload, 2);  // reference_count
+    append_u16be(&iloc_ref_payload, 1);  // to_item_ID[0]
+    append_u16be(&iloc_ref_payload, 3);  // to_item_ID[1]
+    std::vector<std::byte> iloc_ref_box;
+    append_bmff_box(&iloc_ref_box, fourcc('i', 'l', 'o', 'c'),
+                    iloc_ref_payload);
+
+    std::vector<std::byte> iref_payload;
+    append_fullbox_header(&iref_payload, 0);
+    iref_payload.insert(iref_payload.end(), iloc_ref_box.begin(),
+                        iloc_ref_box.end());
+    std::vector<std::byte> iref_box;
+    append_bmff_box(&iref_box, fourcc('i', 'r', 'e', 'f'), iref_payload);
+
+    // iloc (v1): idx_size=0, item 2 uses item offsets with 2 extents.
+    std::vector<std::byte> iloc_payload;
+    append_fullbox_header(&iloc_payload, 1);
+    iloc_payload.push_back(std::byte { 0x44 });  // off_size=4, len_size=4
+    iloc_payload.push_back(std::byte { 0x00 });  // base=0, idx=0
+    append_u16be(&iloc_payload, 3);              // item_count
+
+    // item 1 (idat source 0): first split.
+    append_u16be(&iloc_payload, 1);      // item_ID
+    append_u16be(&iloc_payload, 1);      // construction_method=1 (idat)
+    append_u16be(&iloc_payload, 0);      // data_reference_index
+    append_u16be(&iloc_payload, 1);      // extent_count
+    append_u32be(&iloc_payload, 0);      // extent_offset
+    append_u32be(&iloc_payload, split);  // extent_length
+
+    // item 2 (Exif): logical payload across two referenced source items.
+    append_u16be(&iloc_payload, 2);              // item_ID
+    append_u16be(&iloc_payload, 2);              // construction_method=2
+    append_u16be(&iloc_payload, 0);              // data_reference_index
+    append_u16be(&iloc_payload, 2);              // extent_count
+    append_u32be(&iloc_payload, 0);              // extent[0] offset
+    append_u32be(&iloc_payload, split);          // extent[0] length
+    append_u32be(&iloc_payload, 0);              // extent[1] offset
+    append_u32be(&iloc_payload, total - split);  // extent[1] length
+
+    // item 3 (idat source 1): second split.
+    append_u16be(&iloc_payload, 3);              // item_ID
+    append_u16be(&iloc_payload, 1);              // construction_method=1
+    append_u16be(&iloc_payload, 0);              // data_reference_index
+    append_u16be(&iloc_payload, 1);              // extent_count
+    append_u32be(&iloc_payload, split);          // extent_offset
+    append_u32be(&iloc_payload, total - split);  // extent_length
+
+    std::vector<std::byte> iloc_box;
+    append_bmff_box(&iloc_box, fourcc('i', 'l', 'o', 'c'), iloc_payload);
+
+    // meta (FullBox): iinf + iloc + iref + idat.
+    std::vector<std::byte> meta_payload;
+    append_fullbox_header(&meta_payload, 0);
+    meta_payload.insert(meta_payload.end(), iinf_box.begin(), iinf_box.end());
+    meta_payload.insert(meta_payload.end(), iloc_box.begin(), iloc_box.end());
+    meta_payload.insert(meta_payload.end(), iref_box.begin(), iref_box.end());
+    meta_payload.insert(meta_payload.end(), idat_box.begin(), idat_box.end());
+    std::vector<std::byte> meta_box;
+    append_bmff_box(&meta_box, fourcc('m', 'e', 't', 'a'), meta_payload);
+
+    // ftyp.
+    std::vector<std::byte> ftyp_payload;
+    append_fourcc(&ftyp_payload, fourcc('h', 'e', 'i', 'c'));
+    append_u32be(&ftyp_payload, 0);
+    append_fourcc(&ftyp_payload, fourcc('m', 'i', 'f', '1'));
+    std::vector<std::byte> file;
+    append_bmff_box(&file, fourcc('f', 't', 'y', 'p'), ftyp_payload);
+    file.insert(file.end(), meta_box.begin(), meta_box.end());
+
+    MetaStore store;
+    std::array<ContainerBlockRef, 32> blocks {};
+    std::array<ExifIfdRef, 8> ifds {};
+    std::array<std::byte, 4096> payload {};
+    std::array<uint32_t, 64> scratch {};
+    const SimpleMetaResult res
+        = simple_meta_read(file, store, blocks, ifds, payload, scratch,
+                           ExifDecodeOptions {}, PayloadOptions {});
+    store.finalize();
+
+    ASSERT_EQ(res.scan.status, ScanStatus::Ok);
+    ASSERT_EQ(res.exif.status, ExifDecodeStatus::Ok);
+
+    const std::span<const EntryId> ids = store.find_all(
+        exif_key("ifd0", 0x0100));
+    ASSERT_EQ(ids.size(), 1U);
+    const Entry& e = store.entry(ids[0]);
+    ASSERT_EQ(e.value.kind, MetaValueKind::Scalar);
+    EXPECT_EQ(e.value.elem_type, MetaElementType::U32);
+    EXPECT_EQ(static_cast<uint32_t>(e.value.data.u64), 323U);
 }
 
 TEST(SimpleMetaRead, BmffMetaExifItemFromItemOffsetIdxSize2Decodes)

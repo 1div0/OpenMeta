@@ -567,6 +567,35 @@ namespace {
                || tag == 0xC625U || tag == 0xC626U || tag == 0xCD3AU;
     }
 
+    static bool is_valid_calibration_illuminant(int32_t value) noexcept
+    {
+        switch (value) {
+        case 0:    // unknown
+        case 1:    // daylight
+        case 2:    // fluorescent
+        case 3:    // tungsten
+        case 4:    // flash
+        case 9:    // fine weather
+        case 10:   // cloudy
+        case 11:   // shade
+        case 12:   // daylight fluorescent
+        case 13:   // day white fluorescent
+        case 14:   // cool white fluorescent
+        case 15:   // white fluorescent
+        case 17:   // standard light A
+        case 18:   // standard light B
+        case 19:   // standard light C
+        case 20:   // D55
+        case 21:   // D65
+        case 22:   // D75
+        case 23:   // D50
+        case 24:   // ISO studio tungsten
+        case 255:  // other
+            return true;
+        default: return false;
+        }
+    }
+
     static bool validate_field(const CcmTagInfo& info, const CcmField& field,
                                CcmValidationMode validation_mode,
                                std::vector<CcmIssue>* issues,
@@ -597,6 +626,16 @@ namespace {
                       CcmIssueCode::UnexpectedCount, field.ifd, field.tag,
                       field.name,
                       "AsShotWhiteXY should contain exactly 2 values", result);
+        } else if (field.tag == 0xC629U && n == 2U) {
+            const double x = field.values[0];
+            const double y = field.values[1];
+            if (!(x > 0.0 && x < 1.0 && y > 0.0 && y < 1.0 && (x + y) <= 1.0)) {
+                add_issue(issues, CcmIssueSeverity::Warning,
+                          CcmIssueCode::WhiteXYOutOfRange, field.ifd, field.tag,
+                          field.name,
+                          "AsShotWhiteXY values should be in (0,1) and x+y<=1",
+                          result);
+            }
         }
 
         if (info.is_scalar_illuminant && n != 1U) {
@@ -605,6 +644,17 @@ namespace {
                       field.name,
                       "CalibrationIlluminant should contain exactly 1 value",
                       result);
+        } else if (info.is_scalar_illuminant && n == 1U) {
+            const int32_t code = static_cast<int32_t>(
+                std::llround(field.values[0]));
+            if (std::fabs(field.values[0] - static_cast<double>(code)) > 1e-9
+                || !is_valid_calibration_illuminant(code)) {
+                add_issue(issues, CcmIssueSeverity::Warning,
+                          CcmIssueCode::InvalidIlluminantCode, field.ifd,
+                          field.tag, field.name,
+                          "CalibrationIlluminant contains unsupported value",
+                          result);
+            }
         }
 
         if ((field.tag == 0xC627U || field.tag == 0xC628U) && n < 3U) {

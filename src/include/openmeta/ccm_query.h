@@ -47,6 +47,8 @@ enum class CcmIssueCode : uint16_t {
     TripleIlluminantRule,
     CalibrationSignatureMismatch,
     MissingIlluminantData,
+    InvalidIlluminantCode,
+    WhiteXYOutOfRange,
 };
 
 /// Limits for CCM query extraction.

@@ -1117,11 +1117,14 @@ namespace {
 
     static bool collect_detached_payload_candidates_from_claim_references(
         const DecodeContext& ctx, const C2paVerifySignatureCandidate& candidate,
-        uint64_t max_bytes,
-        std::vector<std::vector<std::byte>>* out_candidates) noexcept
+        uint64_t max_bytes, std::vector<std::vector<std::byte>>* out_candidates,
+        bool* out_saw_reference) noexcept
     {
         if (!ctx.store || !out_candidates) {
             return false;
+        }
+        if (out_saw_reference) {
+            *out_saw_reference = false;
         }
         const std::string_view signature_prefix(candidate.prefix);
         const size_t marker_pos = signature_prefix.rfind(".signatures[");
@@ -1150,6 +1153,9 @@ namespace {
             if (!string_starts_with(key, signature_prefix)
                 || !cbor_key_is_claim_reference_field(key)) {
                 continue;
+            }
+            if (out_saw_reference) {
+                *out_saw_reference = true;
             }
 
             uint32_t claim_index = 0U;
@@ -1275,10 +1281,11 @@ namespace {
             }
         }
 
+        bool saw_reference = false;
         const bool have_reference_candidates
             = collect_detached_payload_candidates_from_claim_references(
-                ctx, candidate, max_bytes, out_candidates);
-        if (have_reference_candidates) {
+                ctx, candidate, max_bytes, out_candidates, &saw_reference);
+        if (saw_reference || have_reference_candidates) {
             return;
         }
         collect_detached_payload_candidates_from_claim_keys(ctx, max_bytes,

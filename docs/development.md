@@ -125,6 +125,8 @@ This policy surface is intentionally marked draft and may be refined.
   `src/openmeta/ccm_query.cc` (`collect_dng_ccm_fields(...)`)
   with DNG-oriented validation diagnostics (`CcmIssue`) in warning mode and
   non-finite numeric field rejection.
+  Current warning taxonomy also includes practical checks such as
+  `invalid_illuminant_code` and `white_xy_out_of_range`.
 - ICC tag interpretation helpers: `src/include/openmeta/icc_interpret.h`,
   `src/openmeta/icc_interpret.cc` (`icc_tag_name(...)`,
   `interpret_icc_tag(...)` for `desc`/`text`/`sig `/`mluc`/`dtim`/`view`/`meas`/`sf32`/`uf32`/`mft1`/`mft2`/`mAB`/`mBA`/`XYZ `/`curv`/`para`,
