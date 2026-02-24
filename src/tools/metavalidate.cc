@@ -4,6 +4,9 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <string>
+#include <string_view>
+#include <vector>
 
 namespace openmeta {
 namespace {
@@ -13,6 +16,12 @@ namespace {
         uint32_t files_failed  = 0;
         uint32_t warnings      = 0;
         uint32_t errors        = 0;
+    };
+
+
+    struct JsonFileResult final {
+        std::string path;
+        ValidateResult result;
     };
 
 
@@ -27,6 +36,7 @@ namespace {
             "  --help                   Show this help\n"
             "  --version                Print OpenMeta build info\n"
             "  --no-build-info          Hide build info header\n"
+            "  --json                   Print machine-readable JSON output\n"
             "  --xmp-sidecar            Also read sidecar XMP (<file>.xmp, <basename>.xmp)\n"
             "  --no-pointer-tags        Do not store pointer tags\n"
             "  --makernotes             Attempt MakerNote decode (best-effort)\n"
@@ -296,6 +306,189 @@ namespace {
     }
 
 
+    static void append_json_escaped(std::string_view s, std::string* out)
+    {
+        if (!out) {
+            return;
+        }
+        static constexpr char kHex[] = "0123456789ABCDEF";
+        out->push_back('"');
+        for (size_t i = 0; i < s.size(); ++i) {
+            const unsigned char c = static_cast<unsigned char>(s[i]);
+            switch (c) {
+            case '"': out->append("\\\""); break;
+            case '\\': out->append("\\\\"); break;
+            case '\b': out->append("\\b"); break;
+            case '\f': out->append("\\f"); break;
+            case '\n': out->append("\\n"); break;
+            case '\r': out->append("\\r"); break;
+            case '\t': out->append("\\t"); break;
+            default:
+                if (c < 0x20U) {
+                    out->append("\\u00");
+                    out->push_back(kHex[(c >> 4U) & 0x0FU]);
+                    out->push_back(kHex[c & 0x0FU]);
+                } else {
+                    out->push_back(static_cast<char>(c));
+                }
+                break;
+            }
+        }
+        out->push_back('"');
+    }
+
+
+    static const char* result_name(const ValidateResult& result) noexcept
+    {
+        if (result.failed) {
+            return "fail";
+        }
+        if (result.warning_count != 0U) {
+            return "warn";
+        }
+        return "ok";
+    }
+
+
+    static std::string
+    build_json_report(const std::vector<JsonFileResult>& rows,
+                      const ValidationSummary& summary,
+                      const ValidateOptions& options, bool include_build_info)
+    {
+        std::string out;
+        out.reserve(4096);
+        out.push_back('{');
+
+        if (include_build_info) {
+            std::string line1;
+            std::string line2;
+            format_build_info_lines(&line1, &line2);
+            out.append("\"build_info\":{");
+            out.append("\"line1\":");
+            append_json_escaped(line1, &out);
+            out.append(",\"line2\":");
+            append_json_escaped(line2, &out);
+            out.append("},");
+        }
+
+        out.append("\"strict\":");
+        out.append(options.warnings_as_errors ? "true" : "false");
+        out.append(",\"files\":[");
+
+        for (size_t i = 0; i < rows.size(); ++i) {
+            if (i != 0U) {
+                out.push_back(',');
+            }
+            const JsonFileResult& row    = rows[i];
+            const ValidateResult& result = row.result;
+            out.push_back('{');
+
+            out.append("\"path\":");
+            append_json_escaped(row.path, &out);
+            out.append(",\"file_size\":");
+            out.append(std::to_string(result.file_size));
+            out.append(",\"status\":");
+            append_json_escaped(validate_status_name(result.status), &out);
+            out.append(",\"result\":");
+            append_json_escaped(result_name(result), &out);
+            out.append(",\"failed\":");
+            out.append(result.failed ? "true" : "false");
+            out.append(",\"error_count\":");
+            out.append(std::to_string(result.error_count));
+            out.append(",\"warning_count\":");
+            out.append(std::to_string(result.warning_count));
+            out.append(",\"entries\":");
+            out.append(std::to_string(result.entries));
+
+            if (result.status == ValidateStatus::Ok) {
+                out.append(",\"scan_status\":");
+                append_json_escaped(scan_status_name(result.read.scan.status),
+                                    &out);
+                out.append(",\"payload_status\":");
+                append_json_escaped(payload_status_name(
+                                        result.read.payload.status),
+                                    &out);
+                out.append(",\"exif_status\":");
+                append_json_escaped(exif_status_name(result.read.exif.status),
+                                    &out);
+                out.append(",\"xmp_status\":");
+                append_json_escaped(xmp_status_name(result.read.xmp.status),
+                                    &out);
+                out.append(",\"exr_status\":");
+                append_json_escaped(exr_status_name(result.read.exr.status),
+                                    &out);
+                out.append(",\"jumbf_status\":");
+                append_json_escaped(jumbf_status_name(result.read.jumbf.status),
+                                    &out);
+                out.append(",\"c2pa_verify_status\":");
+                append_json_escaped(c2pa_verify_status_name(
+                                        result.read.jumbf.verify_status),
+                                    &out);
+                out.append(",\"c2pa_verify_backend\":");
+                append_json_escaped(
+                    c2pa_verify_backend_name(
+                        result.read.jumbf.verify_backend_selected),
+                    &out);
+                out.append(",\"ccm_status\":");
+                append_json_escaped(ccm_status_name(result.ccm.status), &out);
+                out.append(",\"ccm_mode\":");
+                append_json_escaped(ccm_validation_mode_name(
+                                        options.ccm.validation_mode),
+                                    &out);
+                out.append(",\"ccm_require_dng\":");
+                out.append(options.ccm.require_dng_context ? "true" : "false");
+                out.append(",\"ccm_include_reduction\":");
+                out.append(options.ccm.include_reduction_matrices ? "true"
+                                                                  : "false");
+                out.append(",\"ccm_fields_found\":");
+                out.append(std::to_string(result.ccm.fields_found));
+                out.append(",\"ccm_fields_dropped\":");
+                out.append(std::to_string(result.ccm.fields_dropped));
+                out.append(",\"ccm_issues_reported\":");
+                out.append(std::to_string(result.ccm.issues_reported));
+            }
+
+            out.append(",\"issues\":[");
+            for (size_t j = 0; j < result.issues.size(); ++j) {
+                if (j != 0U) {
+                    out.push_back(',');
+                }
+                const ValidateIssue& issue = result.issues[j];
+                out.append("{\"severity\":");
+                append_json_escaped(issue_severity_name(issue.severity), &out);
+                out.append(",\"category\":");
+                append_json_escaped(issue.category, &out);
+                out.append(",\"code\":");
+                append_json_escaped(issue.code, &out);
+                out.append(",\"ifd\":");
+                append_json_escaped(issue.ifd, &out);
+                out.append(",\"name\":");
+                append_json_escaped(issue.name, &out);
+                out.append(",\"tag\":");
+                out.append(std::to_string(static_cast<uint32_t>(issue.tag)));
+                out.append(",\"message\":");
+                append_json_escaped(issue.message, &out);
+                out.push_back('}');
+            }
+            out.append("]}");
+        }
+
+        out.append("],\"summary\":{");
+        out.append("\"files\":");
+        out.append(std::to_string(summary.files_checked));
+        out.append(",\"failed\":");
+        out.append(std::to_string(summary.files_failed));
+        out.append(",\"errors\":");
+        out.append(std::to_string(summary.errors));
+        out.append(",\"warnings\":");
+        out.append(std::to_string(summary.warnings));
+        out.append(",\"strict\":");
+        out.append(options.warnings_as_errors ? "true" : "false");
+        out.append("}}");
+        return out;
+    }
+
+
     static void print_issue(const ValidateIssue& issue)
     {
         const char* sev = issue_severity_name(issue.severity);
@@ -361,6 +554,7 @@ main(int argc, char** argv)
     using namespace openmeta;
 
     bool show_build_info = true;
+    bool json_output     = false;
     ValidateOptions options;
     options.policy.max_file_bytes = 0;
 
@@ -380,6 +574,11 @@ main(int argc, char** argv)
         }
         if (std::strcmp(arg, "--no-build-info") == 0) {
             show_build_info = false;
+            first_path += 1;
+            continue;
+        }
+        if (std::strcmp(arg, "--json") == 0) {
+            json_output = true;
             first_path += 1;
             continue;
         }
@@ -569,11 +768,15 @@ main(int argc, char** argv)
         return 2;
     }
 
-    if (show_build_info) {
+    if (show_build_info && !json_output) {
         print_build_info_header();
     }
 
     ValidationSummary summary;
+    std::vector<JsonFileResult> json_rows;
+    if (json_output) {
+        json_rows.reserve(static_cast<size_t>(argc - first_path));
+    }
     int exit_code = 0;
 
     for (int argi = first_path; argi < argc; ++argi) {
@@ -584,7 +787,23 @@ main(int argc, char** argv)
 
         summary.files_checked += 1U;
 
-        const ValidateResult result = validate_file(path, options);
+        ValidateResult result = validate_file(path, options);
+
+        if (result.failed) {
+            summary.files_failed += 1U;
+            exit_code = 1;
+        }
+
+        summary.errors += result.error_count;
+        summary.warnings += result.warning_count;
+
+        if (json_output) {
+            JsonFileResult row;
+            row.path   = path;
+            row.result = std::move(result);
+            json_rows.push_back(std::move(row));
+            continue;
+        }
 
         std::printf("== %s\n", path);
         print_result_header(result, options);
@@ -597,8 +816,6 @@ main(int argc, char** argv)
             std::printf("result=fail errors=%u warnings=%u\n",
                         static_cast<unsigned>(result.error_count),
                         static_cast<unsigned>(result.warning_count));
-            summary.files_failed += 1U;
-            exit_code = 1;
         } else if (result.warning_count != 0U) {
             std::printf("result=warn errors=%u warnings=%u\n",
                         static_cast<unsigned>(result.error_count),
@@ -606,9 +823,13 @@ main(int argc, char** argv)
         } else {
             std::printf("result=ok errors=0 warnings=0\n");
         }
+    }
 
-        summary.errors += result.error_count;
-        summary.warnings += result.warning_count;
+    if (json_output) {
+        const std::string json = build_json_report(json_rows, summary, options,
+                                                   show_build_info);
+        std::printf("%s\n", json.c_str());
+        return exit_code;
     }
 
     std::printf("summary files=%u failed=%u errors=%u warnings=%u strict=%s\n",

@@ -56,6 +56,9 @@ using Clang), configure OpenMeta with:
 # Strict mode: warnings fail the file
 ./build/metavalidate --strict input.dng
 
+# Machine-readable JSON output
+./build/metavalidate --json input.dng
+
 # Validate with sidecar + MakerNotes + C2PA verify status
 ./build/metavalidate --xmp-sidecar --makernotes --c2pa-verify input.jpg
 ```
@@ -230,6 +233,12 @@ ctest --test-dir build-tests -R openmeta_cli_preview_index --output-on-failure
 
 If `OPENMETA_MULTI_PREVIEW_SAMPLE` is not set (or the file is missing),
 `openmeta_cli_preview_index` is skipped.
+
+Fast public smoke gate for `metavalidate` (self-contained, no corpus needed):
+```bash
+cmake --build build-tests --target openmeta_gate_metavalidate_smoke
+ctest --test-dir build-tests -R openmeta_cli_metavalidate_smoke --output-on-failure
+```
 
 ## libFuzzer Targets
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 
 try:
@@ -30,10 +31,19 @@ def _status_name(value: object) -> str:
     return _snake(getattr(value, "name", "unknown"))
 
 
+def _result_name(result: dict[str, object]) -> str:
+    if bool(result["failed"]):
+        return "fail"
+    if int(result["warning_count"]) != 0:
+        return "warn"
+    return "ok"
+
+
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(prog="metavalidate.py")
     ap.add_argument("files", nargs="+")
     ap.add_argument("--no-build-info", action="store_true", help="hide OpenMeta build info header")
+    ap.add_argument("--json", action="store_true", help="print machine-readable JSON output")
     ap.add_argument("--xmp-sidecar", action="store_true", help="also read sidecar XMP (<file>.xmp, <basename>.xmp)")
     ap.add_argument("--no-pointer-tags", action="store_true", help="do not store pointer tags")
     ap.add_argument("--makernotes", action="store_true", help="attempt MakerNote decode (best-effort)")
@@ -71,7 +81,7 @@ def main(argv: list[str]) -> int:
 
     warnings_as_errors = bool(args.warnings_as_errors or args.strict)
 
-    if not args.no_build_info:
+    if not args.no_build_info and not args.json:
         l1, l2 = openmeta.info_lines()
         print(l1)
         print(l2)
@@ -94,10 +104,10 @@ def main(argv: list[str]) -> int:
     total_failed = 0
     total_errors = 0
     total_warnings = 0
+    json_rows: list[dict[str, object]] = []
 
     for path in args.files:
         total_files += 1
-        print(f"== {path}")
 
         result = openmeta.validate(
             path,
@@ -117,75 +127,146 @@ def main(argv: list[str]) -> int:
             max_file_bytes=int(args.max_file_bytes),
         )
 
-        print(f"size={int(result['file_size'])}")
-        print(
-            "scan={scan} payload={payload} exif={exif} xmp={xmp} exr={exr} jumbf={jumbf} "
-            "c2pa_verify={verify} c2pa_backend={backend} entries={entries}".format(
-                scan=_status_name(result["scan_status"]),
-                payload=_status_name(result["payload_status"]),
-                exif=_status_name(result["exif_status"]),
-                xmp=_status_name(result["xmp_status"]),
-                exr=_status_name(result["exr_status"]),
-                jumbf=_status_name(result["jumbf_status"]),
-                verify=_status_name(result["jumbf_verify_status"]),
-                backend=_status_name(result["jumbf_verify_backend"]),
-                entries=int(result["entries"]),
-            )
-        )
-        print(
-            "ccm=status={status} mode={mode} require_dng={require_dng} include_reduction={include_red} "
-            "fields={fields} dropped={dropped} issues={issues}".format(
-                status=_status_name(result["ccm_status"]),
-                mode=args.ccm_validation.replace("-", "_"),
-                require_dng="off" if args.ccm_no_require_dng_context else "on",
-                include_red="off" if args.ccm_no_reduction else "on",
-                fields=int(result["ccm_fields_found"]),
-                dropped=int(result["ccm_fields_dropped"]),
-                issues=int(result["ccm_issues_reported"]),
-            )
-        )
-
-        for issue in result["issues"]:
-            severity = _status_name(issue["severity"])
-            category = str(issue["category"])
-            code = str(issue["code"])
-            if category == "ccm":
-                print(
-                    "  {sev}[ccm] code={code} ifd={ifd} tag=0x{tag:04X} name={name} msg={msg}".format(
-                        sev=severity,
-                        code=code,
-                        ifd=str(issue["ifd"]),
-                        tag=int(issue["tag"]),
-                        name=str(issue["name"]),
-                        msg=str(issue["message"]),
-                    )
+        if args.json:
+            row: dict[str, object] = {
+                "path": path,
+                "file_size": int(result["file_size"]),
+                "status": _status_name(result["status"]),
+                "result": _result_name(result),
+                "failed": bool(result["failed"]),
+                "error_count": int(result["error_count"]),
+                "warning_count": int(result["warning_count"]),
+                "entries": int(result["entries"]),
+                "issues": [],
+            }
+            if _status_name(result["status"]) == "ok":
+                row.update(
+                    {
+                        "scan_status": _status_name(result["scan_status"]),
+                        "payload_status": _status_name(result["payload_status"]),
+                        "exif_status": _status_name(result["exif_status"]),
+                        "xmp_status": _status_name(result["xmp_status"]),
+                        "exr_status": _status_name(result["exr_status"]),
+                        "jumbf_status": _status_name(result["jumbf_status"]),
+                        "c2pa_verify_status": _status_name(result["jumbf_verify_status"]),
+                        "c2pa_verify_backend": _status_name(result["jumbf_verify_backend"]),
+                        "ccm_status": _status_name(result["ccm_status"]),
+                        "ccm_mode": args.ccm_validation.replace("-", "_"),
+                        "ccm_require_dng": not args.ccm_no_require_dng_context,
+                        "ccm_include_reduction": not args.ccm_no_reduction,
+                        "ccm_fields_found": int(result["ccm_fields_found"]),
+                        "ccm_fields_dropped": int(result["ccm_fields_dropped"]),
+                        "ccm_issues_reported": int(result["ccm_issues_reported"]),
+                    }
                 )
-            else:
-                print(f"  {severity}[{category}] {code}")
+            issues: list[dict[str, object]] = []
+            for issue in result["issues"]:
+                issues.append(
+                    {
+                        "severity": _status_name(issue["severity"]),
+                        "category": str(issue["category"]),
+                        "code": str(issue["code"]),
+                        "ifd": str(issue["ifd"]),
+                        "name": str(issue["name"]),
+                        "tag": int(issue["tag"]),
+                        "message": str(issue["message"]),
+                    }
+                )
+            row["issues"] = issues
+            json_rows.append(row)
+        else:
+            print(f"== {path}")
+            print(f"size={int(result['file_size'])}")
+            print(
+                "scan={scan} payload={payload} exif={exif} xmp={xmp} exr={exr} jumbf={jumbf} "
+                "c2pa_verify={verify} c2pa_backend={backend} entries={entries}".format(
+                    scan=_status_name(result["scan_status"]),
+                    payload=_status_name(result["payload_status"]),
+                    exif=_status_name(result["exif_status"]),
+                    xmp=_status_name(result["xmp_status"]),
+                    exr=_status_name(result["exr_status"]),
+                    jumbf=_status_name(result["jumbf_status"]),
+                    verify=_status_name(result["jumbf_verify_status"]),
+                    backend=_status_name(result["jumbf_verify_backend"]),
+                    entries=int(result["entries"]),
+                )
+            )
+            print(
+                "ccm=status={status} mode={mode} require_dng={require_dng} include_reduction={include_red} "
+                "fields={fields} dropped={dropped} issues={issues}".format(
+                    status=_status_name(result["ccm_status"]),
+                    mode=args.ccm_validation.replace("-", "_"),
+                    require_dng="off" if args.ccm_no_require_dng_context else "on",
+                    include_red="off" if args.ccm_no_reduction else "on",
+                    fields=int(result["ccm_fields_found"]),
+                    dropped=int(result["ccm_fields_dropped"]),
+                    issues=int(result["ccm_issues_reported"]),
+                )
+            )
+            for issue in result["issues"]:
+                severity = _status_name(issue["severity"])
+                category = str(issue["category"])
+                code = str(issue["code"])
+                if category == "ccm":
+                    print(
+                        "  {sev}[ccm] code={code} ifd={ifd} tag=0x{tag:04X} name={name} msg={msg}".format(
+                            sev=severity,
+                            code=code,
+                            ifd=str(issue["ifd"]),
+                            tag=int(issue["tag"]),
+                            name=str(issue["name"]),
+                            msg=str(issue["message"]),
+                        )
+                    )
+                else:
+                    print(f"  {severity}[{category}] {code}")
 
         err_count = int(result["error_count"])
         warn_count = int(result["warning_count"])
         fail = bool(result["failed"])
         if fail:
-            print(f"result=fail errors={err_count} warnings={warn_count}")
             total_failed += 1
+            if not args.json:
+                print(f"result=fail errors={err_count} warnings={warn_count}")
         elif warn_count != 0:
-            print(f"result=warn errors={err_count} warnings={warn_count}")
-        else:
+            if not args.json:
+                print(f"result=warn errors={err_count} warnings={warn_count}")
+        elif not args.json:
             print("result=ok errors=0 warnings=0")
 
         total_errors += err_count
         total_warnings += warn_count
 
-    print(
-        "summary files={files} failed={failed} errors={errors} warnings={warnings} strict={strict}".format(
-            files=total_files,
-            failed=total_failed,
-            errors=total_errors,
-            warnings=total_warnings,
-            strict="on" if warnings_as_errors else "off",
+    if args.json:
+        payload: dict[str, object] = {
+            "strict": bool(warnings_as_errors),
+            "files": json_rows,
+            "summary": {
+                "files": total_files,
+                "failed": total_failed,
+                "errors": total_errors,
+                "warnings": total_warnings,
+                "strict": bool(warnings_as_errors),
+            },
+        }
+        if not args.no_build_info:
+            line1, line2 = openmeta.info_lines()
+            payload["build_info"] = {
+                "line1": line1,
+                "line2": line2,
+                "python": openmeta.python_info_line(),
+            }
+        print(json.dumps(payload, ensure_ascii=True))
+    else:
+        print(
+            "summary files={files} failed={failed} errors={errors} warnings={warnings} strict={strict}".format(
+                files=total_files,
+                failed=total_failed,
+                errors=total_errors,
+                warnings=total_warnings,
+                strict="on" if warnings_as_errors else "off",
+            )
         )
-    )
     return 1 if total_failed != 0 else 0
 
 

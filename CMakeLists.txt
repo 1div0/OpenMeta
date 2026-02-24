@@ -317,6 +317,18 @@ if(OPENMETA_BUILD_TOOLS)
   add_executable(thumdump src/tools/thumdump.cc)
   openmeta_apply_target_settings(thumdump)
   target_link_libraries(thumdump PRIVATE ${OPENMETA_LIB_TARGET})
+
+  if(TARGET metavalidate)
+    add_custom_target(openmeta_gate_metavalidate_smoke
+      DEPENDS metavalidate
+      COMMAND ${CMAKE_COMMAND}
+        "-DMETAVALIDATE_BIN=$<TARGET_FILE:metavalidate>"
+        "-DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/_cli_metavalidate_smoke"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/cli_metavalidate_smoke_test.cmake"
+      COMMENT "Running metavalidate smoke gate"
+      VERBATIM
+    )
+  endif()
 endif()
 
 if(OPENMETA_BUILD_PYTHON)
@@ -486,6 +498,7 @@ if(OPENMETA_BUILD_TESTS)
     tests/printim_decode_test.cc
     tests/simple_meta_bmff_exif_test.cc
     tests/simple_meta_xmp_test.cc
+    tests/validate_test.cc
     tests/xmp_decode_test.cc
     tests/xmp_dump_test.cc
   )
@@ -510,6 +523,16 @@ if(OPENMETA_BUILD_TESTS)
     )
     set_tests_properties(openmeta_cli_preview_index PROPERTIES
       SKIP_REGULAR_EXPRESSION "^SKIP:")
+  endif()
+
+  if(TARGET metavalidate)
+    add_test(
+      NAME openmeta_cli_metavalidate_smoke
+      COMMAND ${CMAKE_COMMAND}
+        "-DMETAVALIDATE_BIN=$<TARGET_FILE:metavalidate>"
+        "-DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/_cli_metavalidate_smoke"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/cli_metavalidate_smoke_test.cmake"
+    )
   endif()
 endif()
 
