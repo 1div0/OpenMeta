@@ -30,6 +30,7 @@ This is early-stage. Expect breaking API changes.
     properties (`pitm`, `iprp/ipco ispe/irot/imir`, `ipma`).
 - CLI tools:
   - `metaread`: human-readable dump; output is sanitized.
+  - `metavalidate`: metadata validation tool (decode-status health + DNG/CCM checks).
   - `metadump`: sidecar/preview dump tool (`--format lossless|portable`,
     `--extract-preview`, optional draft C2PA verify scaffold controls
     (`--c2pa-verify`, `--c2pa-verify-backend`), supports both positional
@@ -48,7 +49,7 @@ This is early-stage. Expect breaking API changes.
 
 - `src/include/openmeta/`: public headers
 - `src/openmeta/`: library implementation
-- `src/tools/`: CLI tools (`metaread`, `metadump`)
+- `src/tools/`: CLI tools (`metaread`, `metavalidate`, `metadump`, `thumdump`)
 - `src/python/`: Python bindings (nanobind) + helper scripts
 - `tests/`: unit tests + fuzz targets
 - `docs/`: developer docs (build, tests, fuzzing)

@@ -11,6 +11,7 @@
 #include "openmeta/oiio_adapter.h"
 #include "openmeta/resource_policy.h"
 #include "openmeta/simple_meta.h"
+#include "openmeta/validate.h"
 #include "openmeta/xmp_dump.h"
 
 #include <nanobind/nanobind.h>
@@ -420,31 +421,133 @@ namespace {
         return d;
     }
 
+    static nb::dict ccm_issue_to_python(const CcmIssue& issue)
+    {
+        nb::dict d;
+        d["severity"] = issue.severity;
+        d["code"]     = issue.code;
+        d["ifd"]      = nb::str(issue.ifd.c_str(), issue.ifd.size());
+        d["name"]     = nb::str(issue.name.c_str(), issue.name.size());
+        d["tag"]      = nb::int_(issue.tag);
+        d["message"]  = nb::str(issue.message.c_str(), issue.message.size());
+        return d;
+    }
+
     static nb::dict collect_dng_ccm_to_python(const MetaStore& store,
                                               bool require_dng_context,
                                               bool include_reduction_matrices,
                                               uint32_t max_fields,
-                                              uint32_t max_values_per_field)
+                                              uint32_t max_values_per_field,
+                                              CcmValidationMode validation_mode)
     {
         CcmQueryOptions options;
         options.require_dng_context         = require_dng_context;
         options.include_reduction_matrices  = include_reduction_matrices;
+        options.validation_mode             = validation_mode;
         options.limits.max_fields           = max_fields;
         options.limits.max_values_per_field = max_values_per_field;
 
         std::vector<CcmField> fields;
+        std::vector<CcmIssue> issues;
         const CcmQueryResult result = collect_dng_ccm_fields(store, &fields,
-                                                             options);
+                                                             options, &issues);
 
         nb::list out_fields;
         for (size_t i = 0; i < fields.size(); ++i) {
             out_fields.append(ccm_field_to_python(fields[i]));
         }
+        nb::list out_issues;
+        for (size_t i = 0; i < issues.size(); ++i) {
+            out_issues.append(ccm_issue_to_python(issues[i]));
+        }
 
         nb::dict out;
-        out["status"]       = result.status;
-        out["fields_found"] = nb::int_(result.fields_found);
-        out["fields"]       = std::move(out_fields);
+        out["status"]          = result.status;
+        out["fields_found"]    = nb::int_(result.fields_found);
+        out["fields_dropped"]  = nb::int_(result.fields_dropped);
+        out["issues_reported"] = nb::int_(result.issues_reported);
+        out["fields"]          = std::move(out_fields);
+        out["issues"]          = std::move(out_issues);
+        return out;
+    }
+
+    static nb::dict validate_issue_to_python(const ValidateIssue& issue)
+    {
+        nb::dict d;
+        d["severity"] = issue.severity;
+        d["category"] = nb::str(issue.category.c_str(), issue.category.size());
+        d["code"]     = nb::str(issue.code.c_str(), issue.code.size());
+        d["ifd"]      = nb::str(issue.ifd.c_str(), issue.ifd.size());
+        d["name"]     = nb::str(issue.name.c_str(), issue.name.size());
+        d["tag"]      = nb::int_(issue.tag);
+        d["message"]  = nb::str(issue.message.c_str(), issue.message.size());
+        return d;
+    }
+
+    static nb::dict validate_file_to_python(
+        const std::string& path, bool include_pointer_tags,
+        bool decode_makernote, bool decode_printim, bool decompress,
+        bool include_xmp_sidecar, bool verify_c2pa,
+        C2paVerifyBackend verify_backend, bool warnings_as_errors,
+        bool ccm_require_dng_context, bool ccm_include_reduction_matrices,
+        uint32_t ccm_max_fields, uint32_t ccm_max_values_per_field,
+        CcmValidationMode ccm_validation_mode, uint64_t max_file_bytes,
+        nb::object policy_obj)
+    {
+        ValidateOptions options;
+        options.include_pointer_tags           = include_pointer_tags;
+        options.decode_makernote               = decode_makernote;
+        options.decode_printim                 = decode_printim;
+        options.decompress                     = decompress;
+        options.include_xmp_sidecar            = include_xmp_sidecar;
+        options.verify_c2pa                    = verify_c2pa;
+        options.verify_backend                 = verify_backend;
+        options.warnings_as_errors             = warnings_as_errors;
+        options.ccm.require_dng_context        = ccm_require_dng_context;
+        options.ccm.include_reduction_matrices = ccm_include_reduction_matrices;
+        options.ccm.limits.max_fields          = ccm_max_fields;
+        options.ccm.limits.max_values_per_field = ccm_max_values_per_field;
+        options.ccm.validation_mode             = ccm_validation_mode;
+        options.policy.max_file_bytes           = max_file_bytes;
+        if (!policy_obj.is_none()) {
+            options.policy = nb::cast<OpenMetaResourcePolicy>(policy_obj);
+            if (max_file_bytes != 0U) {
+                options.policy.max_file_bytes = max_file_bytes;
+            }
+        }
+
+        ValidateResult result;
+        {
+            nb::gil_scoped_release gil_release;
+            result = validate_file(path.c_str(), options);
+        }
+
+        nb::list issues;
+        for (size_t i = 0; i < result.issues.size(); ++i) {
+            issues.append(validate_issue_to_python(result.issues[i]));
+        }
+
+        nb::dict out;
+        out["status"]               = result.status;
+        out["file_size"]            = nb::int_(result.file_size);
+        out["scan_status"]          = result.read.scan.status;
+        out["payload_status"]       = result.read.payload.status;
+        out["exif_status"]          = result.read.exif.status;
+        out["xmp_status"]           = result.read.xmp.status;
+        out["exr_status"]           = result.read.exr.status;
+        out["jumbf_status"]         = result.read.jumbf.status;
+        out["jumbf_verify_status"]  = result.read.jumbf.verify_status;
+        out["jumbf_verify_backend"] = result.read.jumbf.verify_backend_selected;
+        out["entries"]              = nb::int_(result.entries);
+        out["ccm_status"]           = result.ccm.status;
+        out["ccm_fields"]           = nb::int_(result.ccm_fields);
+        out["ccm_fields_found"]     = nb::int_(result.ccm.fields_found);
+        out["ccm_fields_dropped"]   = nb::int_(result.ccm.fields_dropped);
+        out["ccm_issues_reported"]  = nb::int_(result.ccm.issues_reported);
+        out["warning_count"]        = nb::int_(result.warning_count);
+        out["error_count"]          = nb::int_(result.error_count);
+        out["failed"]               = nb::bool_(result.failed);
+        out["issues"]               = std::move(issues);
         return out;
     }
 
@@ -991,6 +1094,38 @@ NB_MODULE(_openmeta, m)
         .value("Ok", CcmQueryStatus::Ok)
         .value("LimitExceeded", CcmQueryStatus::LimitExceeded);
 
+    nb::enum_<CcmValidationMode>(m, "CcmValidationMode")
+        .value("None", CcmValidationMode::None)
+        .value("DngSpecWarnings", CcmValidationMode::DngSpecWarnings);
+
+    nb::enum_<CcmIssueSeverity>(m, "CcmIssueSeverity")
+        .value("Warning", CcmIssueSeverity::Warning)
+        .value("Error", CcmIssueSeverity::Error);
+
+    nb::enum_<CcmIssueCode>(m, "CcmIssueCode")
+        .value("DecodeFailed", CcmIssueCode::DecodeFailed)
+        .value("NonFiniteValue", CcmIssueCode::NonFiniteValue)
+        .value("UnexpectedCount", CcmIssueCode::UnexpectedCount)
+        .value("MatrixCountNotDivisibleBy3",
+               CcmIssueCode::MatrixCountNotDivisibleBy3)
+        .value("NonPositiveValue", CcmIssueCode::NonPositiveValue)
+        .value("AsShotConflict", CcmIssueCode::AsShotConflict)
+        .value("MissingCompanionTag", CcmIssueCode::MissingCompanionTag)
+        .value("TripleIlluminantRule", CcmIssueCode::TripleIlluminantRule)
+        .value("CalibrationSignatureMismatch",
+               CcmIssueCode::CalibrationSignatureMismatch)
+        .value("MissingIlluminantData", CcmIssueCode::MissingIlluminantData);
+
+    nb::enum_<ValidateStatus>(m, "ValidateStatus")
+        .value("Ok", ValidateStatus::Ok)
+        .value("OpenFailed", ValidateStatus::OpenFailed)
+        .value("TooLarge", ValidateStatus::TooLarge)
+        .value("ReadFailed", ValidateStatus::ReadFailed);
+
+    nb::enum_<ValidateIssueSeverity>(m, "ValidateIssueSeverity")
+        .value("Warning", ValidateIssueSeverity::Warning)
+        .value("Error", ValidateIssueSeverity::Error);
+
     nb::enum_<IccTagInterpretStatus>(m, "IccTagInterpretStatus")
         .value("Ok", IccTagInterpretStatus::Ok)
         .value("Unsupported", IccTagInterpretStatus::Unsupported)
@@ -1392,15 +1527,18 @@ NB_MODULE(_openmeta, m)
             "dng_ccm_fields",
             [](std::shared_ptr<PyDocument> d, bool require_dng_context,
                bool include_reduction_matrices, uint32_t max_fields,
-               uint32_t max_values_per_field) {
+               uint32_t max_values_per_field,
+               CcmValidationMode validation_mode) {
                 return collect_dng_ccm_to_python(d->store, require_dng_context,
                                                  include_reduction_matrices,
                                                  max_fields,
-                                                 max_values_per_field);
+                                                 max_values_per_field,
+                                                 validation_mode);
             },
             "require_dng_context"_a        = true,
             "include_reduction_matrices"_a = true, "max_fields"_a = 128U,
-            "max_values_per_field"_a = 256U)
+            "max_values_per_field"_a = 256U,
+            "validation_mode"_a      = CcmValidationMode::DngSpecWarnings)
         .def(
             "oiio_attributes",
             [](std::shared_ptr<PyDocument> d, uint32_t max_value_bytes,
@@ -1921,6 +2059,34 @@ NB_MODULE(_openmeta, m)
         "path"_a, "include_pointer_tags"_a = true, "decode_makernote"_a = false,
         "decompress"_a = true, "include_xmp_sidecar"_a = false,
         "verify_c2pa"_a = false, "verify_backend"_a = C2paVerifyBackend::Auto,
+        "max_file_bytes"_a = 0ULL, "policy"_a = nb::none());
+
+    m.def(
+        "validate",
+        [](const std::string& path, bool include_pointer_tags,
+           bool decode_makernote, bool decode_printim, bool decompress,
+           bool include_xmp_sidecar, bool verify_c2pa,
+           C2paVerifyBackend verify_backend, bool warnings_as_errors,
+           bool ccm_require_dng_context, bool ccm_include_reduction_matrices,
+           uint32_t ccm_max_fields, uint32_t ccm_max_values_per_field,
+           CcmValidationMode ccm_validation_mode, uint64_t max_file_bytes,
+           nb::object policy_obj) {
+            return validate_file_to_python(
+                path, include_pointer_tags, decode_makernote, decode_printim,
+                decompress, include_xmp_sidecar, verify_c2pa, verify_backend,
+                warnings_as_errors, ccm_require_dng_context,
+                ccm_include_reduction_matrices, ccm_max_fields,
+                ccm_max_values_per_field, ccm_validation_mode, max_file_bytes,
+                policy_obj);
+        },
+        "path"_a, "include_pointer_tags"_a = true, "decode_makernote"_a = false,
+        "decode_printim"_a = true, "decompress"_a = true,
+        "include_xmp_sidecar"_a = false, "verify_c2pa"_a = false,
+        "verify_backend"_a     = C2paVerifyBackend::Auto,
+        "warnings_as_errors"_a = false, "ccm_require_dng_context"_a = true,
+        "ccm_include_reduction_matrices"_a = true, "ccm_max_fields"_a = 128U,
+        "ccm_max_values_per_field"_a = 256U,
+        "ccm_validation_mode"_a      = CcmValidationMode::DngSpecWarnings,
         "max_file_bytes"_a = 0ULL, "policy"_a = nb::none());
 
     m.def("console_text", &console_text, "data"_a, "max_bytes"_a = 4096U);

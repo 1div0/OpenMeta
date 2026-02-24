@@ -235,6 +235,7 @@ set(OPENMETA_SOURCES
   src/openmeta/preview_extract.cc
   src/openmeta/printim_decode.cc
   src/openmeta/simple_meta.cc
+  src/openmeta/validate.cc
   src/openmeta/xmp_decode.cc
   src/openmeta/xmp_dump.cc
 )
@@ -304,6 +305,10 @@ if(OPENMETA_BUILD_TOOLS)
   add_executable(metaread src/tools/metaread.cc)
   openmeta_apply_target_settings(metaread)
   target_link_libraries(metaread PRIVATE ${OPENMETA_LIB_TARGET})
+
+  add_executable(metavalidate src/tools/metavalidate.cc)
+  openmeta_apply_target_settings(metavalidate)
+  target_link_libraries(metavalidate PRIVATE ${OPENMETA_LIB_TARGET})
 
   add_executable(metadump src/tools/metadump.cc)
   openmeta_apply_target_settings(metadump)
@@ -699,6 +704,9 @@ install(
 
 if(TARGET metaread)
   install(TARGETS metaread RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
+endif()
+if(TARGET metavalidate)
+  install(TARGETS metavalidate RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
 endif()
 if(TARGET metadump)
   install(TARGETS metadump RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")

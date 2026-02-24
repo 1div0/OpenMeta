@@ -47,6 +47,20 @@ using Clang), configure OpenMeta with:
 
 ## CLI Tools
 
+`metavalidate` checks decode-status health and DNG/CCM validation:
+
+```bash
+# Basic validation
+./build/metavalidate input.dng
+
+# Strict mode: warnings fail the file
+./build/metavalidate --strict input.dng
+
+# Validate with sidecar + MakerNotes + C2PA verify status
+./build/metavalidate --xmp-sidecar --makernotes --c2pa-verify input.jpg
+```
+`metavalidate` CLI is a thin wrapper over `openmeta::validate_file(...)`.
+
 `metadump` is the general dump/save tool:
 
 ```bash
@@ -92,7 +106,7 @@ using Clang), configure OpenMeta with:
 OpenMeta tools now default to **no hard file-size cap** (`--max-file-bytes 0`).
 Resource control is expected to come from parser/decode budgets:
 
-- `metaread` / `metadump`:
+- `metaread` / `metavalidate` / `metadump`:
   - `--max-payload-bytes`, `--max-payload-parts`
   - `--max-exif-ifds`, `--max-exif-entries`, `--max-exif-total`
   - `--max-exif-value-bytes`, `--max-xmp-input-bytes`
@@ -106,6 +120,8 @@ This policy surface is intentionally marked draft and may be refined.
 - Core EXIF/TIFF decoding: `src/openmeta/exif_tiff_decode.cc`
 - Normalized DNG/RAW CCM query surface: `src/include/openmeta/ccm_query.h`,
   `src/openmeta/ccm_query.cc` (`collect_dng_ccm_fields(...)`)
+  with DNG-oriented validation diagnostics (`CcmIssue`) in warning mode and
+  non-finite numeric field rejection.
 - ICC tag interpretation helpers: `src/include/openmeta/icc_interpret.h`,
   `src/openmeta/icc_interpret.cc` (`icc_tag_name(...)`,
   `interpret_icc_tag(...)` for `desc`/`text`/`sig `/`mluc`/`dtim`/`view`/`meas`/`sf32`/`uf32`/`mft1`/`mft2`/`mAB`/`mBA`/`XYZ `/`curv`/`para`,
@@ -284,6 +300,9 @@ Notes:
 - `openmeta.read(...)` releases the Python GIL while doing file I/O and decode,
   so it can be called from multiple Python threads in parallel (useful for corpus
   comparisons).
+- `openmeta.validate(...)` is the library-backed validation API used by
+  `openmeta.python.metavalidate`; it returns decode/CCM issue summaries without
+  Python-side validation logic.
 - Python bindings are thin wrappers over C++ decode logic. Resource/safety
   limits should be configured via `openmeta.ResourcePolicy` and passed to
   `openmeta.read(...)`.
@@ -304,6 +323,7 @@ Example scripts (repo tree):
 ```bash
 PYTHONPATH=build-py/python python3 -m openmeta.python.openmeta_stats file.jpg
 PYTHONPATH=build-py/python python3 -m openmeta.python.metaread file.jpg
+PYTHONPATH=build-py/python python3 -m openmeta.python.metavalidate file.dng
 PYTHONPATH=build-py/python python3 -m openmeta.python.metadump file.jpg
 PYTHONPATH=build-py/python python3 -m openmeta.python.metadump file.jpg output.xmp
 PYTHONPATH=build-py/python python3 -m openmeta.python.metadump --format portable file.jpg
@@ -340,7 +360,7 @@ cmake --build build-wheel --target openmeta_wheel
 
 When `OPENMETA_BUILD_WHEEL=ON`, `cmake --install` also builds a wheel and copies
 it into `${CMAKE_INSTALL_PREFIX}/share/openmeta/wheels` (and also copies the
-Python helper scripts `metaread.py`, `metadump.py`, and `openmeta_stats.py`
+Python helper scripts `metaread.py`, `metavalidate.py`, `metadump.py`, and `openmeta_stats.py`
 into the same directory):
 ```bash
 cmake --install build-wheel --prefix /tmp/openmeta-install

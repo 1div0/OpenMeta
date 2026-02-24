@@ -1,5 +1,6 @@
 #include "openmeta/ccm_query.h"
 
+#include <cmath>
 #include <cstring>
 #include <string_view>
 #include <vector>
@@ -7,11 +8,17 @@
 namespace openmeta {
 namespace {
 
+    static constexpr uint16_t kTagCameraCalibrationSignature  = 0xC6F3U;
+    static constexpr uint16_t kTagProfileCalibrationSignature = 0xC6F4U;
+    static constexpr uint16_t kTagIlluminantData1             = 0xCD35U;
+    static constexpr uint16_t kTagIlluminantData2             = 0xCD36U;
+    static constexpr uint16_t kTagIlluminantData3             = 0xCD37U;
+
     struct CcmTagInfo final {
-        uint16_t tag            = 0;
-        const char* name        = nullptr;
-        bool is_matrix3xN       = false;
-        bool is_reduction       = false;
+        uint16_t tag              = 0;
+        const char* name          = nullptr;
+        bool is_matrix3xN         = false;
+        bool is_reduction         = false;
         bool is_scalar_illuminant = false;
     };
 
@@ -27,11 +34,51 @@ namespace {
         { 0xCD34, "ForwardMatrix3", true, false, false },
         { 0xC625, "ReductionMatrix1", true, true, false },
         { 0xC626, "ReductionMatrix2", true, true, false },
+        { 0xCD3A, "ReductionMatrix3", true, true, false },
         { 0xC627, "AnalogBalance", false, false, false },
         { 0xC628, "AsShotNeutral", false, false, false },
         { 0xC629, "AsShotWhiteXY", false, false, false },
         { 0xC65A, "CalibrationIlluminant1", false, false, true },
         { 0xC65B, "CalibrationIlluminant2", false, false, true },
+        { 0xCD31, "CalibrationIlluminant3", false, false, true },
+    };
+
+    struct IfdValidationState final {
+        std::string ifd;
+        bool has_as_shot_neutral  = false;
+        bool has_as_shot_white_xy = false;
+
+        bool has_cal_illum1 = false;
+        bool has_cal_illum2 = false;
+        bool has_cal_illum3 = false;
+        int32_t cal_illum1  = -1;
+        int32_t cal_illum2  = -1;
+        int32_t cal_illum3  = -1;
+
+        bool has_color1 = false;
+        bool has_color2 = false;
+        bool has_color3 = false;
+
+        bool has_forward1 = false;
+        bool has_forward2 = false;
+        bool has_forward3 = false;
+
+        bool has_reduction1 = false;
+        bool has_reduction2 = false;
+        bool has_reduction3 = false;
+
+        bool has_cam_cal1 = false;
+        bool has_cam_cal2 = false;
+        bool has_cam_cal3 = false;
+
+        bool has_illum_data1 = false;
+        bool has_illum_data2 = false;
+        bool has_illum_data3 = false;
+
+        bool has_camera_cal_sig  = false;
+        bool has_profile_cal_sig = false;
+        std::string camera_cal_sig;
+        std::string profile_cal_sig;
     };
 
     static std::string_view arena_string(const ByteArena& arena,
@@ -44,7 +91,8 @@ namespace {
 
     static bool is_dng_version_tag(const Entry& e) noexcept
     {
-        return e.key.kind == MetaKeyKind::ExifTag && e.key.data.exif_tag.tag == 0xC612U;
+        return e.key.kind == MetaKeyKind::ExifTag
+               && e.key.data.exif_tag.tag == 0xC612U;
     }
 
     static const CcmTagInfo* find_ccm_tag(uint16_t tag) noexcept
@@ -57,8 +105,9 @@ namespace {
         return nullptr;
     }
 
-    static bool ifd_is_dng_context(std::string_view ifd,
-                                   const std::vector<std::string>& dng_ifds) noexcept
+    static bool
+    ifd_is_dng_context(std::string_view ifd,
+                       const std::vector<std::string>& dng_ifds) noexcept
     {
         for (size_t i = 0; i < dng_ifds.size(); ++i) {
             if (dng_ifds[i] == ifd) {
@@ -66,6 +115,45 @@ namespace {
             }
         }
         return false;
+    }
+
+    static void add_issue(std::vector<CcmIssue>* issues, CcmIssueSeverity sev,
+                          CcmIssueCode code, std::string_view ifd, uint16_t tag,
+                          std::string_view name, std::string_view message,
+                          CcmQueryResult* result)
+    {
+        if (result) {
+            result->issues_reported += 1U;
+        }
+        if (!issues) {
+            return;
+        }
+        CcmIssue issue;
+        issue.severity = sev;
+        issue.code     = code;
+        issue.ifd.assign(ifd.data(), ifd.size());
+        issue.name.assign(name.data(), name.size());
+        issue.tag = tag;
+        issue.message.assign(message.data(), message.size());
+        issues->push_back(std::move(issue));
+    }
+
+    static IfdValidationState*
+    find_or_add_ifd_state(std::vector<IfdValidationState>* states,
+                          std::string_view ifd) noexcept
+    {
+        if (!states) {
+            return nullptr;
+        }
+        for (size_t i = 0; i < states->size(); ++i) {
+            if ((*states)[i].ifd == ifd) {
+                return &(*states)[i];
+            }
+        }
+        IfdValidationState state;
+        state.ifd.assign(ifd.data(), ifd.size());
+        states->push_back(std::move(state));
+        return &(*states)[states->size() - 1U];
     }
 
     static bool read_u16(std::span<const std::byte> bytes, size_t off,
@@ -217,8 +305,9 @@ namespace {
         return false;
     }
 
-    static bool append_array_values(const ByteArena& arena, const MetaValue& value,
-                                    uint32_t max_values, std::vector<double>* out,
+    static bool append_array_values(const ByteArena& arena,
+                                    const MetaValue& value, uint32_t max_values,
+                                    std::vector<double>* out,
                                     bool* limit_exceeded) noexcept
     {
         if (!out) {
@@ -256,9 +345,8 @@ namespace {
                 if (static_cast<size_t>(i) >= raw.size()) {
                     return false;
                 }
-                const int8_t v
-                    = static_cast<int8_t>(static_cast<uint8_t>(
-                        raw[static_cast<size_t>(i)]));
+                const int8_t v = static_cast<int8_t>(
+                    static_cast<uint8_t>(raw[static_cast<size_t>(i)]));
                 out->push_back(static_cast<double>(v));
             }
             return true;
@@ -342,7 +430,8 @@ namespace {
         case MetaElementType::F64: {
             for (uint32_t i = 0; i < limit; ++i) {
                 double v = 0.0;
-                if (!read_f64(raw, static_cast<size_t>(i) * sizeof(double), &v)) {
+                if (!read_f64(raw, static_cast<size_t>(i) * sizeof(double),
+                              &v)) {
                     return false;
                 }
                 out->push_back(v);
@@ -429,18 +518,303 @@ namespace {
         }
     }
 
+    static bool copy_text_like_value(const ByteArena& arena,
+                                     const MetaValue& value,
+                                     std::string* out) noexcept
+    {
+        if (!out) {
+            return false;
+        }
+        out->clear();
+        if (value.kind != MetaValueKind::Text
+            && value.kind != MetaValueKind::Bytes
+            && value.kind != MetaValueKind::Array) {
+            return false;
+        }
+        const std::span<const std::byte> bytes = arena.span(value.data.span);
+        if (bytes.empty()) {
+            return true;
+        }
+        size_t n = 0U;
+        for (; n < bytes.size(); ++n) {
+            if (bytes[n] == std::byte { 0x00 }) {
+                break;
+            }
+        }
+        out->reserve(n);
+        for (size_t i = 0; i < n; ++i) {
+            const unsigned char c = static_cast<unsigned char>(bytes[i]);
+            out->push_back(static_cast<char>(c));
+        }
+        return true;
+    }
+
+    static bool is_non_finite_present(const std::vector<double>& values) noexcept
+    {
+        for (size_t i = 0; i < values.size(); ++i) {
+            if (!std::isfinite(values[i])) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static bool is_matrix_tag(uint16_t tag) noexcept
+    {
+        return tag == 0xC621U || tag == 0xC622U || tag == 0xCD33U
+               || tag == 0xC623U || tag == 0xC624U || tag == 0xCD32U
+               || tag == 0xC714U || tag == 0xC715U || tag == 0xCD34U
+               || tag == 0xC625U || tag == 0xC626U || tag == 0xCD3AU;
+    }
+
+    static bool validate_field(const CcmTagInfo& info, const CcmField& field,
+                               CcmValidationMode validation_mode,
+                               std::vector<CcmIssue>* issues,
+                               CcmQueryResult* result) noexcept
+    {
+        if (is_non_finite_present(field.values)) {
+            add_issue(issues, CcmIssueSeverity::Error,
+                      CcmIssueCode::NonFiniteValue, field.ifd, field.tag,
+                      field.name, "field contains non-finite numeric value",
+                      result);
+            return false;
+        }
+
+        if (validation_mode == CcmValidationMode::None) {
+            return true;
+        }
+
+        const uint32_t n = static_cast<uint32_t>(field.values.size());
+        if (is_matrix_tag(field.tag) && (n % 3U) != 0U) {
+            add_issue(issues, CcmIssueSeverity::Warning,
+                      CcmIssueCode::MatrixCountNotDivisibleBy3, field.ifd,
+                      field.tag, field.name,
+                      "matrix-like field count is not divisible by 3", result);
+        }
+
+        if (field.tag == 0xC629U && n != 2U) {
+            add_issue(issues, CcmIssueSeverity::Warning,
+                      CcmIssueCode::UnexpectedCount, field.ifd, field.tag,
+                      field.name,
+                      "AsShotWhiteXY should contain exactly 2 values", result);
+        }
+
+        if (info.is_scalar_illuminant && n != 1U) {
+            add_issue(issues, CcmIssueSeverity::Warning,
+                      CcmIssueCode::UnexpectedCount, field.ifd, field.tag,
+                      field.name,
+                      "CalibrationIlluminant should contain exactly 1 value",
+                      result);
+        }
+
+        if ((field.tag == 0xC627U || field.tag == 0xC628U) && n < 3U) {
+            add_issue(issues, CcmIssueSeverity::Warning,
+                      CcmIssueCode::UnexpectedCount, field.ifd, field.tag,
+                      field.name,
+                      "value count below common minimum of 3 channels", result);
+        }
+
+        if (field.tag == 0xC627U || field.tag == 0xC628U) {
+            bool non_positive = false;
+            for (size_t i = 0; i < field.values.size(); ++i) {
+                if (field.values[i] <= 0.0) {
+                    non_positive = true;
+                    break;
+                }
+            }
+            if (non_positive) {
+                add_issue(
+                    issues, CcmIssueSeverity::Warning,
+                    CcmIssueCode::NonPositiveValue, field.ifd, field.tag,
+                    field.name,
+                    "contains non-positive values (often invalid in DNG practice)",
+                    result);
+            }
+        }
+
+        return true;
+    }
+
+    static void mark_field_presence(const CcmField& field,
+                                    IfdValidationState* state) noexcept
+    {
+        if (!state) {
+            return;
+        }
+        switch (field.tag) {
+        case 0xC621U: state->has_color1 = true; break;
+        case 0xC622U: state->has_color2 = true; break;
+        case 0xCD33U: state->has_color3 = true; break;
+        case 0xC714U: state->has_forward1 = true; break;
+        case 0xC715U: state->has_forward2 = true; break;
+        case 0xCD34U: state->has_forward3 = true; break;
+        case 0xC625U: state->has_reduction1 = true; break;
+        case 0xC626U: state->has_reduction2 = true; break;
+        case 0xCD3AU: state->has_reduction3 = true; break;
+        case 0xC623U: state->has_cam_cal1 = true; break;
+        case 0xC624U: state->has_cam_cal2 = true; break;
+        case 0xCD32U: state->has_cam_cal3 = true; break;
+        case 0xC627U: break;
+        case 0xC628U: state->has_as_shot_neutral = true; break;
+        case 0xC629U: state->has_as_shot_white_xy = true; break;
+        case 0xC65AU:
+            state->has_cal_illum1 = true;
+            if (!field.values.empty()) {
+                state->cal_illum1 = static_cast<int32_t>(
+                    std::llround(field.values[0]));
+            }
+            break;
+        case 0xC65BU:
+            state->has_cal_illum2 = true;
+            if (!field.values.empty()) {
+                state->cal_illum2 = static_cast<int32_t>(
+                    std::llround(field.values[0]));
+            }
+            break;
+        case 0xCD31U:
+            state->has_cal_illum3 = true;
+            if (!field.values.empty()) {
+                state->cal_illum3 = static_cast<int32_t>(
+                    std::llround(field.values[0]));
+            }
+            break;
+        default: break;
+        }
+    }
+
+    static void
+    run_cross_field_validation(const std::vector<IfdValidationState>& states,
+                               std::vector<CcmIssue>* issues,
+                               CcmQueryResult* result)
+    {
+        for (size_t i = 0; i < states.size(); ++i) {
+            const IfdValidationState& s = states[i];
+
+            if (s.has_as_shot_neutral && s.has_as_shot_white_xy) {
+                add_issue(issues, CcmIssueSeverity::Warning,
+                          CcmIssueCode::AsShotConflict, s.ifd, 0U, "AsShot*",
+                          "AsShotNeutral and AsShotWhiteXY both present",
+                          result);
+            }
+
+            if (s.has_cal_illum2 && !s.has_color2) {
+                add_issue(issues, CcmIssueSeverity::Warning,
+                          CcmIssueCode::MissingCompanionTag, s.ifd, 0xC65BU,
+                          "CalibrationIlluminant2",
+                          "CalibrationIlluminant2 present without ColorMatrix2",
+                          result);
+            }
+            if (!s.has_cal_illum2 && s.has_color2) {
+                add_issue(issues, CcmIssueSeverity::Warning,
+                          CcmIssueCode::MissingCompanionTag, s.ifd, 0xC622U,
+                          "ColorMatrix2",
+                          "ColorMatrix2 present without CalibrationIlluminant2",
+                          result);
+            }
+
+            if (s.has_cal_illum3) {
+                if (!s.has_cal_illum1 || !s.has_cal_illum2) {
+                    add_issue(
+                        issues, CcmIssueSeverity::Warning,
+                        CcmIssueCode::TripleIlluminantRule, s.ifd, 0xCD31U,
+                        "CalibrationIlluminant3",
+                        "CalibrationIlluminant3 requires CalibrationIlluminant1 and CalibrationIlluminant2",
+                        result);
+                }
+                if (!s.has_color3) {
+                    add_issue(issues, CcmIssueSeverity::Warning,
+                              CcmIssueCode::TripleIlluminantRule, s.ifd,
+                              0xCD33U, "ColorMatrix3",
+                              "CalibrationIlluminant3 requires ColorMatrix3",
+                              result);
+                }
+                const bool any_forward = s.has_forward1 || s.has_forward2
+                                         || s.has_forward3;
+                if (any_forward
+                    && !(s.has_forward1 && s.has_forward2 && s.has_forward3)) {
+                    add_issue(
+                        issues, CcmIssueSeverity::Warning,
+                        CcmIssueCode::TripleIlluminantRule, s.ifd, 0xCD34U,
+                        "ForwardMatrix*",
+                        "Triple-illuminant mode expects ForwardMatrix1/2/3 all present or all absent",
+                        result);
+                }
+                const bool any_reduction = s.has_reduction1 || s.has_reduction2
+                                           || s.has_reduction3;
+                if (any_reduction
+                    && !(s.has_reduction1 && s.has_reduction2
+                         && s.has_reduction3)) {
+                    add_issue(
+                        issues, CcmIssueSeverity::Warning,
+                        CcmIssueCode::TripleIlluminantRule, s.ifd, 0xCD3AU,
+                        "ReductionMatrix*",
+                        "Triple-illuminant mode expects ReductionMatrix1/2/3 all present or all absent",
+                        result);
+                }
+            } else if (s.has_color3 || s.has_forward3 || s.has_reduction3) {
+                add_issue(
+                    issues, CcmIssueSeverity::Warning,
+                    CcmIssueCode::TripleIlluminantRule, s.ifd, 0U,
+                    "ThirdIlluminantTags",
+                    "third-illuminant tags present without CalibrationIlluminant3",
+                    result);
+            }
+
+            if (s.has_cal_illum1 && s.cal_illum1 == 255 && !s.has_illum_data1) {
+                add_issue(
+                    issues, CcmIssueSeverity::Warning,
+                    CcmIssueCode::MissingIlluminantData, s.ifd, 0xCD35U,
+                    "IlluminantData1",
+                    "CalibrationIlluminant1=Other but IlluminantData1 is missing",
+                    result);
+            }
+            if (s.has_cal_illum2 && s.cal_illum2 == 255 && !s.has_illum_data2) {
+                add_issue(
+                    issues, CcmIssueSeverity::Warning,
+                    CcmIssueCode::MissingIlluminantData, s.ifd, 0xCD36U,
+                    "IlluminantData2",
+                    "CalibrationIlluminant2=Other but IlluminantData2 is missing",
+                    result);
+            }
+            if (s.has_cal_illum3 && s.cal_illum3 == 255 && !s.has_illum_data3) {
+                add_issue(
+                    issues, CcmIssueSeverity::Warning,
+                    CcmIssueCode::MissingIlluminantData, s.ifd, 0xCD37U,
+                    "IlluminantData3",
+                    "CalibrationIlluminant3=Other but IlluminantData3 is missing",
+                    result);
+            }
+
+            if ((s.has_cam_cal1 || s.has_cam_cal2 || s.has_cam_cal3)
+                && s.has_camera_cal_sig && s.has_profile_cal_sig
+                && s.camera_cal_sig != s.profile_cal_sig) {
+                add_issue(
+                    issues, CcmIssueSeverity::Warning,
+                    CcmIssueCode::CalibrationSignatureMismatch, s.ifd,
+                    kTagCameraCalibrationSignature,
+                    "CameraCalibrationSignature",
+                    "CameraCalibrationSignature and ProfileCalibrationSignature do not match",
+                    result);
+            }
+        }
+    }
+
 }  // namespace
 
 
 CcmQueryResult
 collect_dng_ccm_fields(const MetaStore& store, std::vector<CcmField>* out,
-                       const CcmQueryOptions& options) noexcept
+                       const CcmQueryOptions& options,
+                       std::vector<CcmIssue>* issues) noexcept
 {
     CcmQueryResult result;
     if (!out) {
         return result;
     }
     out->clear();
+    if (issues) {
+        issues->clear();
+    }
 
     const ByteArena& arena           = store.arena();
     const std::span<const Entry> all = store.entries();
@@ -456,7 +830,8 @@ collect_dng_ccm_fields(const MetaStore& store, std::vector<CcmField>* out,
         if (!is_dng_version_tag(e)) {
             continue;
         }
-        const std::string_view ifd = arena_string(arena, e.key.data.exif_tag.ifd);
+        const std::string_view ifd = arena_string(arena,
+                                                  e.key.data.exif_tag.ifd);
         if (ifd.empty()) {
             continue;
         }
@@ -476,6 +851,42 @@ collect_dng_ccm_fields(const MetaStore& store, std::vector<CcmField>* out,
         return result;
     }
 
+    std::vector<IfdValidationState> ifd_states;
+    ifd_states.reserve(8U);
+
+    for (size_t i = 0; i < all.size(); ++i) {
+        const Entry& e = all[i];
+        if (any(e.flags, EntryFlags::Deleted)) {
+            continue;
+        }
+        if (e.key.kind != MetaKeyKind::ExifTag) {
+            continue;
+        }
+        const std::string_view ifd = arena_string(arena,
+                                                  e.key.data.exif_tag.ifd);
+        if (options.require_dng_context && !ifd_is_dng_context(ifd, dng_ifds)) {
+            continue;
+        }
+        IfdValidationState* state = find_or_add_ifd_state(&ifd_states, ifd);
+        if (!state) {
+            continue;
+        }
+        const uint16_t tag = e.key.data.exif_tag.tag;
+        if (tag == kTagIlluminantData1) {
+            state->has_illum_data1 = true;
+        } else if (tag == kTagIlluminantData2) {
+            state->has_illum_data2 = true;
+        } else if (tag == kTagIlluminantData3) {
+            state->has_illum_data3 = true;
+        } else if (tag == kTagCameraCalibrationSignature) {
+            state->has_camera_cal_sig
+                = copy_text_like_value(arena, e.value, &state->camera_cal_sig);
+        } else if (tag == kTagProfileCalibrationSignature) {
+            state->has_profile_cal_sig
+                = copy_text_like_value(arena, e.value, &state->profile_cal_sig);
+        }
+    }
+
     for (size_t i = 0; i < all.size(); ++i) {
         const Entry& e = all[i];
         if (any(e.flags, EntryFlags::Deleted)) {
@@ -492,7 +903,8 @@ collect_dng_ccm_fields(const MetaStore& store, std::vector<CcmField>* out,
             continue;
         }
 
-        const std::string_view ifd = arena_string(arena, e.key.data.exif_tag.ifd);
+        const std::string_view ifd = arena_string(arena,
+                                                  e.key.data.exif_tag.ifd);
         if (options.require_dng_context && !ifd_is_dng_context(ifd, dng_ifds)) {
             continue;
         }
@@ -511,6 +923,12 @@ collect_dng_ccm_fields(const MetaStore& store, std::vector<CcmField>* out,
         bool values_limit_exceeded = false;
         if (!decode_values(arena, e.value, options.limits.max_values_per_field,
                            &field.values, &values_limit_exceeded)) {
+            if (options.validation_mode != CcmValidationMode::None) {
+                add_issue(issues, CcmIssueSeverity::Warning,
+                          CcmIssueCode::DecodeFailed, field.ifd, field.tag,
+                          field.name, "failed to decode field payload",
+                          &result);
+            }
             continue;
         }
         if (field.values.empty()) {
@@ -519,8 +937,24 @@ collect_dng_ccm_fields(const MetaStore& store, std::vector<CcmField>* out,
         if (values_limit_exceeded) {
             result.status = CcmQueryStatus::LimitExceeded;
         }
+
+        if (!validate_field(*info, field, options.validation_mode, issues,
+                            &result)) {
+            result.fields_dropped += 1U;
+            continue;
+        }
+
         infer_shape(*info, field.values.size(), &field.rows, &field.cols);
-        out->push_back(std::move(field));
+        out->push_back(field);
+
+        if (options.validation_mode != CcmValidationMode::None) {
+            IfdValidationState* state = find_or_add_ifd_state(&ifd_states, ifd);
+            mark_field_presence(field, state);
+        }
+    }
+
+    if (options.validation_mode != CcmValidationMode::None) {
+        run_cross_field_validation(ifd_states, issues, &result);
     }
 
     result.fields_found = static_cast<uint32_t>(out->size());
@@ -528,4 +962,3 @@ collect_dng_ccm_fields(const MetaStore& store, std::vector<CcmField>* out,
 }
 
 }  // namespace openmeta
-
