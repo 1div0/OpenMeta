@@ -267,6 +267,10 @@ namespace {
         if (out->read.xmp.status == XmpDecodeStatus::OutputTruncated) {
             add_issue(out, ValidateIssueSeverity::Warning, "xmp",
                       "output_truncated", "output_truncated");
+            add_issue(
+                out, ValidateIssueSeverity::Warning, "xmp",
+                "invalid_or_malformed_xml_text",
+                "xmp output was truncated due malformed XML or unsafe text");
         } else if (out->read.xmp.status == XmpDecodeStatus::Malformed) {
             add_issue(out, ValidateIssueSeverity::Error, "xmp", "malformed",
                       "malformed");

@@ -242,6 +242,11 @@ cmake --build build-tests --target openmeta_gate_metavalidate_smoke
 ctest --test-dir build-tests -R openmeta_cli_metavalidate_smoke --output-on-failure
 ```
 
+Fast public smoke gate for `metaread` safe-text placeholder behavior:
+```bash
+cmake --build build-tests --target openmeta_gate_metaread_safe_text_smoke
+```
+
 ## libFuzzer Targets
 
 Requirements:

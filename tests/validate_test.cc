@@ -236,6 +236,7 @@ TEST(ValidateFile, WarningsAsErrorsPromotesFailure)
     EXPECT_GE(warn_result.warning_count, 1U);
     EXPECT_EQ(warn_result.read.xmp.status, XmpDecodeStatus::OutputTruncated);
     EXPECT_TRUE(has_issue(warn_result, "xmp", "output_truncated"));
+    EXPECT_TRUE(has_issue(warn_result, "xmp", "invalid_or_malformed_xml_text"));
 
     ValidateOptions strict             = loose;
     strict.warnings_as_errors          = true;

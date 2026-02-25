@@ -455,6 +455,18 @@ namespace {
         out->append(buf);
     }
 
+    static void mark_corrupted_text(std::string* s) noexcept
+    {
+        if (!s) {
+            return;
+        }
+        const std::string escaped = *s;
+        s->clear();
+        s->append("<CORRUPTED_TEXT:unsafe_console_text:");
+        s->append(escaped);
+        s->push_back('>');
+    }
+
 
     static void append_element_raw(MetaElementType type,
                                    std::span<const std::byte> elem,
@@ -657,8 +669,8 @@ namespace {
             const bool dangerous = append_console_escaped_ascii(s, max_bytes,
                                                                 raw_out);
             if (dangerous) {
-                val_out->append("(DANGEROUS) ");
-                val_out->append(*raw_out);
+                *val_out = *raw_out;
+                mark_corrupted_text(val_out);
             } else {
                 *val_out = *raw_out;
             }
@@ -1052,7 +1064,7 @@ namespace {
         const bool dangerous = append_console_escaped_ascii(rendered, max_bytes,
                                                             out);
         if (dangerous) {
-            out->insert(0, "(DANGEROUS) ");
+            mark_corrupted_text(out);
         }
         return true;
     }
@@ -1196,7 +1208,7 @@ namespace {
                 const bool dangerous
                     = append_console_escaped_ascii(n, max_bytes, &row.name_s);
                 if (dangerous) {
-                    row.name_s.insert(0, "(DANGEROUS) ");
+                    mark_corrupted_text(&row.name_s);
                 }
                 break;
             }
@@ -1333,7 +1345,7 @@ namespace {
                         = append_console_escaped_ascii(s, max_bytes,
                                                        &row.val_s);
                     if (dangerous) {
-                        row.val_s.insert(0, "(DANGEROUS) ");
+                        mark_corrupted_text(&row.val_s);
                     }
                 }
             }
@@ -1527,7 +1539,7 @@ namespace {
                     = append_console_escaped_ascii(schema, max_bytes,
                                                    &row.schema_s);
                 if (dangerous) {
-                    row.schema_s.insert(0, "(DANGEROUS) ");
+                    mark_corrupted_text(&row.schema_s);
                 }
             }
             {
@@ -1535,7 +1547,7 @@ namespace {
                     = append_console_escaped_ascii(path, max_bytes,
                                                    &row.path_s);
                 if (dangerous) {
-                    row.path_s.insert(0, "(DANGEROUS) ");
+                    mark_corrupted_text(&row.path_s);
                 }
             }
 

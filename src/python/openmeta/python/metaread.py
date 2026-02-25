@@ -70,6 +70,10 @@ def _truncate_cell(s: str, max_chars: int) -> str:
     return s
 
 
+def _corrupted_text_placeholder(escaped: str) -> str:
+    return f"<CORRUPTED_TEXT:unsafe_console_text:{escaped}>"
+
+
 def _fourcc_str(v: int) -> str:
     b = bytes([(v >> 24) & 0xFF, (v >> 16) & 0xFF, (v >> 8) & 0xFF, v & 0xFF])
     if all(0x20 <= c <= 0x7E for c in b):
@@ -166,7 +170,7 @@ def _format_value(e: openmeta.Entry, *, max_elements: int, max_bytes: int) -> Tu
         if e.key_kind == openmeta.MetaKeyKind.IptcDataset and _looks_ascii(v):
             raw_hex = openmeta.hex_bytes(v, max_bytes=int(max_bytes))
             text, dangerous = openmeta.console_text(v, max_bytes=int(max_bytes))
-            val = text if not dangerous else "(DANGEROUS) " + text
+            val = text if not dangerous else _corrupted_text_placeholder(text)
             return raw_hex, val
 
         if e.key_kind == openmeta.MetaKeyKind.IccHeaderField and len(v) == 4 and _looks_ascii(v):
@@ -175,7 +179,7 @@ def _format_value(e: openmeta.Entry, *, max_elements: int, max_bytes: int) -> Tu
 
         if e.value_kind == openmeta.MetaValueKind.Text:
             raw, dangerous = openmeta.console_text(v, max_bytes=int(max_bytes))
-            val = raw if not dangerous else "(DANGEROUS) " + raw
+            val = raw if not dangerous else _corrupted_text_placeholder(raw)
             return raw, val
 
         if e.key_kind == openmeta.MetaKeyKind.IccTag:

@@ -329,6 +329,18 @@ if(OPENMETA_BUILD_TOOLS)
       VERBATIM
     )
   endif()
+
+  if(TARGET metaread)
+    add_custom_target(openmeta_gate_metaread_safe_text_smoke
+      DEPENDS metaread
+      COMMAND ${CMAKE_COMMAND}
+        "-DMETAREAD_BIN=$<TARGET_FILE:metaread>"
+        "-DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/_cli_metaread_safe_text_smoke"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/cli_metaread_safe_text_smoke_test.cmake"
+      COMMENT "Running metaread safe-text smoke gate"
+      VERBATIM
+    )
+  endif()
 endif()
 
 if(OPENMETA_BUILD_PYTHON)
