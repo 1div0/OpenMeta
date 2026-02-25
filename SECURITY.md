@@ -30,20 +30,31 @@ total value bytes.
 
 Tools and exporters must never emit raw metadata bytes without sanitization.
 
+Safe/unsafe contract:
+- `safe` paths are default. They must not silently fall back to raw bytes.
+  If text is malformed/unsafe, return an explicit status/issue and keep output
+  sanitized.
+- `unsafe_...` paths are explicit opt-in for raw bytes/words. They still must
+  enforce memory/path/resource safety checks.
+
 Console (`metaread`) rules:
 - Print **ASCII-only** output. Non-ASCII and control bytes must be escaped
   (e.g. `\\x1B`, `\\xE2\\x80\\xAE`) to prevent terminal injection and display spoofing.
 - Apply strict size limits for printing (`--max-bytes`, `--max-elements`,
   `--max-cell-chars`). File-size caps (`--max-file-bytes`) are optional overrides;
   parser/decode budgets are the primary protection.
-- If sanitization or truncation is triggered, annotate the value (e.g.
-  `(DANGEROUS)`) so users don't mistake it for authoritative text.
+- If sanitization or truncation is triggered, annotate with a structured
+  placeholder (for example `<CORRUPTED_TEXT:unsafe_console_text:...>`) so users
+  don't mistake it for authoritative text.
 
 Structured exports (JSON/XML/XMP/etc.) rules:
 - Escape per-format (JSON string escaping; XML entity escaping) and never embed
   untrusted text into markup/attributes without escaping.
 - Prefer explicit encodings for binary fields (hex/base64) instead of "best effort" text.
 - Preserve provenance: mark values that were lossy-sanitized or truncated.
+- Validation should expose machine-readable issue codes (for example
+  `xmp/output_truncated`, `xmp/invalid_or_malformed_xml_text`) for gating and
+  allowlist workflows.
 
 ## Testing & Fuzzing (Required)
 

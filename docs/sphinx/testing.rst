@@ -52,6 +52,24 @@ FuzzTest targets (when available):
    cmake --build build-fuzztest
    ASAN_OPTIONS=detect_leaks=0 ./build-fuzztest/openmeta_fuzztest_metastore --fuzz_for=10s
 
+CLI smoke gates
+---------------
+
+Public-tree smoke targets (self-contained, no external corpus required):
+
+.. code-block:: bash
+
+   cmake --build build-tests --target openmeta_gate_metavalidate_smoke
+   ctest --test-dir build-tests -R openmeta_cli_metavalidate_smoke --output-on-failure
+
+.. code-block:: bash
+
+   cmake --build build-tests --target openmeta_gate_metaread_safe_text_smoke
+
+These gates provide fast regression checks for safe-output and validation
+behavior. Corpus-scale compare/baseline gates are expected to run in project CI
+or release validation workflows.
+
 Interop adapter tests
 ---------------------
 

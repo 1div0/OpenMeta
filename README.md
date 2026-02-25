@@ -8,7 +8,19 @@ in-memory model.
 
 ## Status
 
-This is early-stage. Expect breaking API changes.
+Read-path support is broad and actively regression-gated. API surface for
+write/edit workflows is still draft in some areas, so expect targeted breaking
+changes as those paths stabilize.
+
+### Read Coverage Snapshot
+
+Current baseline-gated status on tracked corpora:
+- HEIC/HEIF, CR3, and mixed RAW EXIF tag-id compare gates are passing.
+- EXR header metadata compare gate is passing (name/type/value-class contract).
+- Portable and lossless sidecar export paths are covered by baseline and smoke
+  gates.
+- MakerNote decode is baseline-gated with broad vendor support (unknown tags are
+  preserved losslessly when no structured mapping exists).
 
 ## Features
 
@@ -27,10 +39,14 @@ This is early-stage. Expect breaking API changes.
     decoded as derived datasets when present).
   - IPTC-IIM: dataset streams (raw dataset bytes preserved).
   - ISO-BMFF derived fields (`MetaKeyKind::BmffField`): `ftyp.*` and primary item
-    properties (`pitm`, `iprp/ipco ispe/irot/imir`, `ipma`).
+    properties (`pitm`, `iprp/ipco ispe/irot/imir`, `ipma`), typed `iref.<type>.*`
+    rows (`auxl`/`dimg`/`thmb`/`cdsc`), graph-summary counters, and `auxC`-typed
+    auxiliary semantics.
 - CLI tools:
   - `metaread`: human-readable dump; output is sanitized.
-  - `metavalidate`: metadata validation tool (decode-status health + DNG/CCM checks).
+  - `metavalidate`: metadata validation tool (decode-status health + DNG/CCM checks),
+    including machine-readable issue codes (for example
+    `xmp/output_truncated`, `xmp/invalid_or_malformed_xml_text`).
   - `metadump`: sidecar/preview dump tool (`--format lossless|portable`,
     `--extract-preview`, optional draft C2PA verify scaffold controls
     (`--c2pa-verify`, `--c2pa-verify-backend`), supports both positional

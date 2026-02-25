@@ -787,15 +787,19 @@ namespace {
             }
         }
 
-        static constexpr std::array<std::string_view, 20U> kRefSuffixes = {
+        static constexpr std::array<std::string_view, 24U> kRefSuffixes = {
             std::string_view { ".ref" },
+            std::string_view { ".refs" },
             std::string_view { ".reference" },
+            std::string_view { ".references" },
             std::string_view { ".claim_ref" },
             std::string_view { ".claim_reference" },
+            std::string_view { ".claim_references" },
             std::string_view { ".claimref" },
             std::string_view { ".claimreference" },
             std::string_view { ".claim_refs" },
             std::string_view { ".claimrefs" },
+            std::string_view { ".claimreferences" },
             std::string_view { ".claim_ref_index" },
             std::string_view { ".claim_index" },
             std::string_view { ".claimindex" },
@@ -902,20 +906,65 @@ namespace {
         return true;
     }
 
+    static bool hex_nibble_value(char c, uint8_t* out) noexcept
+    {
+        if (!out) {
+            return false;
+        }
+        if (c >= '0' && c <= '9') {
+            *out = static_cast<uint8_t>(c - '0');
+            return true;
+        }
+        if (c >= 'a' && c <= 'f') {
+            *out = static_cast<uint8_t>(10 + (c - 'a'));
+            return true;
+        }
+        if (c >= 'A' && c <= 'F') {
+            *out = static_cast<uint8_t>(10 + (c - 'A'));
+            return true;
+        }
+        return false;
+    }
+
+    static std::string uri_percent_decode(std::string_view text)
+    {
+        std::string out;
+        out.reserve(text.size());
+        for (size_t i = 0U; i < text.size(); ++i) {
+            const char c = text[i];
+            if (c == '%' && i + 2U < text.size()) {
+                uint8_t hi = 0U;
+                uint8_t lo = 0U;
+                if (hex_nibble_value(text[i + 1U], &hi)
+                    && hex_nibble_value(text[i + 2U], &lo)) {
+                    out.push_back(static_cast<char>((hi << 4U) | lo));
+                    i += 2U;
+                    continue;
+                }
+            }
+            out.push_back(c);
+        }
+        return out;
+    }
+
     static bool claim_index_from_reference_text(std::string_view reference,
                                                 uint32_t* out_index) noexcept
     {
         if (!out_index || reference.empty()) {
             return false;
         }
+        const std::string decoded = uri_percent_decode(reference);
+        const std::string_view decoded_view(decoded);
+
         size_t begin_trim = 0U;
-        size_t end_trim   = reference.size();
+        size_t end_trim   = decoded_view.size();
         while (begin_trim < end_trim
-               && static_cast<unsigned char>(reference[begin_trim]) <= 0x20U) {
+               && static_cast<unsigned char>(decoded_view[begin_trim])
+                      <= 0x20U) {
             begin_trim += 1U;
         }
         while (end_trim > begin_trim
-               && static_cast<unsigned char>(reference[end_trim - 1U])
+               && static_cast<unsigned char>(decoded_view[end_trim - 1U])
                       <= 0x20U) {
             end_trim -= 1U;
         }
@@ -923,7 +972,7 @@ namespace {
             return false;
         }
         const std::string_view trimmed
-            = reference.substr(begin_trim, end_trim - begin_trim);
+            = decoded_view.substr(begin_trim, end_trim - begin_trim);
         if (parse_decimal_u32(trimmed, 0U, trimmed.size(), out_index)) {
             return true;
         }
@@ -974,7 +1023,11 @@ namespace {
         }
         out_label->clear();
 
-        const std::string lowered = ascii_lower(reference);
+        const std::string decoded_reference = uri_percent_decode(reference);
+        if (decoded_reference.empty()) {
+            return false;
+        }
+        const std::string lowered = ascii_lower(decoded_reference);
         size_t token_pos          = lowered.find("jumbf=");
         if (token_pos == std::string::npos) {
             token_pos = lowered.find("c2pa.claim");
@@ -983,16 +1036,16 @@ namespace {
             }
         } else {
             token_pos += 6U;
-            if (token_pos >= reference.size()) {
+            if (token_pos >= decoded_reference.size()) {
                 return false;
             }
         }
 
         size_t token_end = token_pos;
-        while (token_end < reference.size()) {
-            const char c = reference[token_end];
+        while (token_end < decoded_reference.size()) {
+            const char c = decoded_reference[token_end];
             if (c == '&' || c == '?' || c == ';' || c == ' ' || c == '\t'
-                || c == '\r' || c == '\n') {
+                || c == '\r' || c == '\n' || c == '#') {
                 break;
             }
             token_end += 1U;
@@ -1001,16 +1054,50 @@ namespace {
             return false;
         }
 
-        while (
-            token_pos < token_end
-            && (reference[token_pos] == '#' || reference[token_pos] == '/')) {
+        while (token_pos < token_end
+               && (decoded_reference[token_pos] == '#'
+                   || decoded_reference[token_pos] == '/')) {
             token_pos += 1U;
         }
         if (token_pos >= token_end) {
             return false;
         }
 
-        out_label->assign(reference.substr(token_pos, token_end - token_pos));
+        {
+            const std::string_view candidate
+                = std::string_view(decoded_reference.data() + token_pos,
+                                   token_end - token_pos);
+            const std::string candidate_lower = ascii_lower(candidate);
+            const size_t claim_pos = candidate_lower.find("c2pa.claim");
+            if (claim_pos != std::string::npos) {
+                token_pos += claim_pos;
+                token_end = token_pos;
+                while (token_end < decoded_reference.size()) {
+                    const char c = decoded_reference[token_end];
+                    if (c == '&' || c == '?' || c == ';' || c == '#' || c == '/'
+                        || c == ' ' || c == '\t' || c == '\r' || c == '\n') {
+                        break;
+                    }
+                    token_end += 1U;
+                }
+            }
+        }
+
+        while (token_end > token_pos) {
+            const char tail = decoded_reference[token_end - 1U];
+            if (tail == '/' || tail == '"' || tail == '\'' || tail == ']'
+                || tail == ')') {
+                token_end -= 1U;
+                continue;
+            }
+            break;
+        }
+        if (token_end <= token_pos) {
+            return false;
+        }
+
+        out_label->assign(
+            decoded_reference.substr(token_pos, token_end - token_pos));
         return !out_label->empty();
     }
 

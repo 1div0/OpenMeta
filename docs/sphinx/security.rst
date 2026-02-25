@@ -14,6 +14,23 @@ What the code does
 - Sanitizes console output (ASCII-only, escapes control/non-ASCII, truncates).
 - Caps decompression output size and part counts.
 
+Safe/unsafe contract
+--------------------
+
+- Safe paths are default: they return explicit status/issues for malformed or
+  unsafe metadata text and do not silently fall back to raw bytes.
+- Unsafe paths are explicit opt-in and may expose raw metadata bytes, while
+  still enforcing memory/path/resource safety checks.
+- Safe console rendering uses structured placeholders for unsafe text (for
+  example ``<CORRUPTED_TEXT:...>``) to avoid display/log injection confusion.
+
+Validation issue codes
+----------------------
+
+``metavalidate`` exposes machine-readable issue codes that can be consumed by
+gates and CI (for example ``xmp/output_truncated`` and
+``xmp/invalid_or_malformed_xml_text``).
+
 What the tests do
 -----------------
 
@@ -21,4 +38,3 @@ What the tests do
 - libFuzzer and FuzzTest targets exercise parsers under sanitizers.
 
 For the full policy and threat model, see ``SECURITY.md`` in the repository.
-

@@ -12,6 +12,18 @@ Status labels used below:
 - `Partial`: supported with limits or best-effort paths.
 - `No`: not supported yet.
 
+## Coverage Snapshot (Tracked Gates)
+
+- EXIF tag-id compare gates are currently passing on tracked HEIC/HEIF, CR3,
+  and mixed RAW corpora.
+- EXR header metadata compare gate is currently passing for the documented
+  name/type/value-class contract.
+- Sidecar export paths (`lossless` and `portable`) are covered by baseline
+  and smoke tests.
+- MakerNote coverage is tracked by baseline gates with broad vendor support;
+  unknown/unsupported vendor tags are preserved as raw metadata for lossless
+  workflows.
+
 ## Container and Block Coverage
 
 | Container / input type | Block discovery | Structured decode in `simple_meta_read` | Notes |
@@ -49,7 +61,7 @@ Status labels used below:
 | Tool | Purpose | Current state |
 | --- | --- | --- |
 | `metaread` | Human-readable metadata listing | Shows decoded entries; uses tag-name mapping where available; unknown names are shown as `-`. Unsafe/corrupted text is rendered as `<CORRUPTED_TEXT:...>` placeholders in safe output paths. |
-| `metavalidate` | Metadata validation | Reports decode-status warnings/errors and DNG/CCM validation issues (for example `invalid_illuminant_code`, `white_xy_out_of_range`); supports strict mode (`--warnings-as-errors`). |
+| `metavalidate` | Metadata validation | Reports decode-status warnings/errors and DNG/CCM validation issues (for example `invalid_illuminant_code`, `white_xy_out_of_range`) with machine-readable issue codes (`category/code`); supports strict mode (`--warnings-as-errors`). |
 | `metadump` | Sidecar and preview dump tool | `lossless` mode preserves broad key-space data; `portable` mode targets interoperable XMP fields. |
 | `thumdump` | Preview extractor | Extracts embedded preview candidates; multi-preview outputs auto-suffix (`_1`, `_2`, ...). |
 

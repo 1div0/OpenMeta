@@ -63,6 +63,8 @@ using Clang), configure OpenMeta with:
 ./build/metavalidate --xmp-sidecar --makernotes --c2pa-verify input.jpg
 ```
 `metavalidate` CLI is a thin wrapper over `openmeta::validate_file(...)`.
+Machine-readable JSON output includes issue codes suitable for gating, for
+example `xmp/output_truncated` and `xmp/invalid_or_malformed_xml_text`.
 
 `metadump` is the general dump/save tool:
 
@@ -175,6 +177,9 @@ This policy surface is intentionally marked draft and may be refined.
       reference-linked candidates first (for example `claims[n]` / claim-label
       references in decoded claim/signature fields, scalar index references,
       and indexed array-element reference keys such as `claimRef[0]`), then
+      including plural reference-key variants (`references`, `refs`,
+      `claim_references`) and percent-encoded URI/label forms where present,
+      then
       best-effort fallback probing via claim bytes, single-claim `claims[*]`
       arrays, nearby/nested claim JUMBF boxes, and additional cross-manifest
       candidates. Current tests include conflicting mixed references and
@@ -246,6 +251,11 @@ Fast public smoke gate for `metaread` safe-text placeholder behavior:
 ```bash
 cmake --build build-tests --target openmeta_gate_metaread_safe_text_smoke
 ```
+
+Coverage note:
+- Public tree tests focus on deterministic unit/fuzz/smoke behavior.
+- Corpus-scale compare/baseline workflows are external to the public tree and
+  should be run in your CI/release validation pipeline.
 
 ## libFuzzer Targets
 

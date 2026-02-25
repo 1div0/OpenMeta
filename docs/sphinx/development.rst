@@ -9,6 +9,14 @@ Repository layout (public):
 - ``src/python/``: Python bindings and helper scripts
 - ``tests/``: unit tests and fuzz targets
 
+Read-path coverage snapshot
+---------------------------
+
+- Tracked HEIC/HEIF, CR3, and mixed RAW EXIF compare gates are passing.
+- EXR header metadata compare gate is passing for the documented
+  name/type/value-class contract.
+- MakerNote support is broad and baseline-gated; unknown tags remain lossless.
+
 EXIF + MakerNotes (code organization)
 -------------------------------------
 
@@ -112,6 +120,10 @@ CLI tool
 (EXIF/TIFF-IFD tags, XMP properties, IPTC-IIM datasets, ICC profile fields/tags,
 and Photoshop IRB resource blocks). Output is ASCII-only and truncated by
 default to reduce terminal injection risk.
+
+``metavalidate`` reports decode/validation issues in text or JSON and emits
+machine-readable issue codes (for example ``xmp/output_truncated`` and
+``xmp/invalid_or_malformed_xml_text``) suitable for CI gating.
 
 Python
 ------

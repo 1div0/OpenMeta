@@ -7,11 +7,20 @@ media containers.
 What it does today:
 
 - Scans files to locate metadata blocks (EXIF, XMP, ICC, IPTC, Photoshop IRB, MPF,
-  comments).
+  comments, JUMBF/C2PA hints, and BMFF item-graph metadata).
 - Extracts and optionally decompresses block payloads (size-limited).
 - Decodes common blocks into a typed, normalized in-memory model:
   EXIF/TIFF-IFD tags, XMP properties, IPTC-IIM datasets, ICC profile
-  header/tag tables, and Photoshop IRB (8BIM) resource blocks.
+  header/tag tables, Photoshop IRB (8BIM) resource blocks, BMFF derived fields,
+  and EXR header attributes.
+- Exposes sidecar dump paths (lossless and portable) and validation APIs/tools
+  (`metavalidate`) with machine-readable issue codes for CI gating.
+
+Read-path coverage snapshot:
+
+- Tracked HEIC/HEIF, CR3, and mixed RAW EXIF compare gates are passing.
+- EXR header metadata compare gate is passing for the documented contract.
+- MakerNote support is broad and baseline-gated; unknown tags remain lossless.
 
 OpenMeta treats metadata as **untrusted input** and applies explicit limits and
 sanitization to reduce memory and output attack surface.
