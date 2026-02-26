@@ -747,6 +747,35 @@ scan_jpeg(std::span<const std::byte> bytes,
             return true;
         };
 
+        auto fallback_group_to_independent_parts = [&]() noexcept {
+            // Ambiguous/non-contiguous groups can happen when multiple APP11
+            // streams share the same header signature. Keep each segment
+            // as an independent part so downstream decode still sees a full
+            // BMFF header per block.
+            for (uint32_t j = 0; j < written; ++j) {
+                ContainerBlockRef& b = sink.out[j];
+                if (b.format != ContainerFormat::Jpeg
+                    || b.kind != ContainerBlockKind::Jumbf || b.id != 0xFFEBU
+                    || b.group != seed.group) {
+                    continue;
+                }
+                b.part_index = 0U;
+                b.part_count = 1U;
+
+                const uint64_t header_start = b.outer_offset + 12U;
+                if (b.data_offset <= header_start) {
+                    continue;
+                }
+                const uint64_t hdr_len = b.data_offset - header_start;
+                if ((hdr_len != 8U && hdr_len != 16U)
+                    || b.data_offset < hdr_len) {
+                    continue;
+                }
+                b.data_offset -= hdr_len;
+                b.data_size += hdr_len;
+            }
+        };
+
         // Prefer base=0 if present, otherwise base=1. If that fails, try the
         // other base as a fallback.
         uint32_t base = has_seq0 ? 0U : 1U;
@@ -755,7 +784,7 @@ scan_jpeg(std::span<const std::byte> bytes,
             if (validate_base(alt)) {
                 base = alt;
             } else {
-                // Leave as single blocks (no reassembly).
+                fallback_group_to_independent_parts();
                 continue;
             }
         }
