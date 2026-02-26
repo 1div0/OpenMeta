@@ -257,6 +257,20 @@ namespace {
         (void)store.add_entry(e);
     }
 
+    static void emit_u64_field(MetaStore& store, BlockId block, uint32_t order,
+                               std::string_view field, uint64_t value) noexcept
+    {
+        Entry e;
+        e.key                   = make_bmff_field_key(store.arena(), field);
+        e.value                 = make_u64(value);
+        e.origin.block          = block;
+        e.origin.order_in_block = order;
+        e.origin.wire_type      = WireType { WireFamily::Other, 0 };
+        e.origin.wire_count     = 1;
+        e.flags                 = EntryFlags::Derived;
+        (void)store.add_entry(e);
+    }
+
 
     static void emit_u16_field(MetaStore& store, BlockId block, uint32_t order,
                                std::string_view field, uint16_t value) noexcept
@@ -301,6 +315,52 @@ namespace {
         e.origin.wire_count     = 1;
         e.flags                 = EntryFlags::Derived;
         (void)store.add_entry(e);
+    }
+
+    static void
+    emit_iref_typed_item_summary(MetaStore& store, BlockId block,
+                                 uint32_t* io_order, std::string_view rel_type,
+                                 std::span<const uint32_t> item_ids,
+                                 std::span<const uint32_t> item_out_edge_counts,
+                                 std::span<const uint32_t> item_in_edge_counts,
+                                 uint32_t item_count) noexcept
+    {
+        if (!io_order || rel_type.empty()) {
+            return;
+        }
+        const uint32_t cap = static_cast<uint32_t>(
+            std::min(item_ids.size(), std::min(item_out_edge_counts.size(),
+                                               item_in_edge_counts.size())));
+        if (item_count == 0U || cap == 0U) {
+            return;
+        }
+        if (item_count > cap) {
+            item_count = cap;
+        }
+
+        std::string field("iref.");
+        field.append(rel_type);
+        const size_t base_len = field.size();
+
+        field.append(".item_count");
+        emit_u32_field(store, block, (*io_order)++, field, item_count);
+        field.resize(base_len);
+
+        for (uint32_t i = 0U; i < item_count; ++i) {
+            field.append(".item_id");
+            emit_u32_field(store, block, (*io_order)++, field, item_ids[i]);
+            field.resize(base_len);
+
+            field.append(".item_out_edge_count");
+            emit_u32_field(store, block, (*io_order)++, field,
+                           item_out_edge_counts[i]);
+            field.resize(base_len);
+
+            field.append(".item_in_edge_count");
+            emit_u32_field(store, block, (*io_order)++, field,
+                           item_in_edge_counts[i]);
+            field.resize(base_len);
+        }
     }
 
 
@@ -736,6 +796,8 @@ namespace {
         std::string_view kind;
         bool has_u32  = false;
         uint32_t u32  = 0;
+        bool has_u64  = false;
+        uint64_t u64  = 0;
         bool has_text = false;
         std::array<char, 80> text {};
         uint16_t text_len = 0;
@@ -784,6 +846,46 @@ namespace {
                       | (static_cast<uint32_t>(u8(subtype[1])) << 16)
                       | (static_cast<uint32_t>(u8(subtype[2])) << 8)
                       | static_cast<uint32_t>(u8(subtype[3]));
+            return out;
+        }
+        if (!truncated && static_cast<size_t>(total_len) == subtype.size()
+            && total_len >= 2U
+            && subtype[static_cast<size_t>(total_len) - 1U]
+                   == std::byte { 0x00 }
+            && bytes_are_printable_ascii(
+                subtype.first(static_cast<size_t>(total_len) - 1U))) {
+            out.kind       = "ascii_z";
+            const size_t n = ((static_cast<size_t>(total_len) - 1U)
+                              < out.text.size())
+                                 ? (static_cast<size_t>(total_len) - 1U)
+                                 : out.text.size();
+            for (size_t i = 0; i < n; ++i) {
+                out.text[i] = static_cast<char>(u8(subtype[i]));
+            }
+            out.text_len = static_cast<uint16_t>(n);
+            out.has_text = (n != 0U);
+            return out;
+        }
+        if (total_len == 8U && subtype.size() >= 8U) {
+            if (bytes_are_printable_ascii(subtype.first(8U))) {
+                out.kind     = "ascii";
+                out.has_text = true;
+                for (size_t i = 0; i < 8U; ++i) {
+                    out.text[i] = static_cast<char>(u8(subtype[i]));
+                }
+                out.text_len = 8U;
+                return out;
+            }
+            out.kind    = "u64be";
+            out.has_u64 = true;
+            out.u64     = (static_cast<uint64_t>(u8(subtype[0])) << 56)
+                      | (static_cast<uint64_t>(u8(subtype[1])) << 48)
+                      | (static_cast<uint64_t>(u8(subtype[2])) << 40)
+                      | (static_cast<uint64_t>(u8(subtype[3])) << 32)
+                      | (static_cast<uint64_t>(u8(subtype[4])) << 24)
+                      | (static_cast<uint64_t>(u8(subtype[5])) << 16)
+                      | (static_cast<uint64_t>(u8(subtype[6])) << 8)
+                      | static_cast<uint64_t>(u8(subtype[7]));
             return out;
         }
         if (total_len == 16U && subtype.size() >= 16U) {
@@ -1667,6 +1769,18 @@ namespace {
                         std::array<uint32_t, 512> thmb_to_ids {};
                         std::array<uint32_t, 512> cdsc_from_ids {};
                         std::array<uint32_t, 512> cdsc_to_ids {};
+                        std::array<uint32_t, 512> auxl_item_ids {};
+                        std::array<uint32_t, 512> auxl_item_out_counts {};
+                        std::array<uint32_t, 512> auxl_item_in_counts {};
+                        std::array<uint32_t, 512> dimg_item_ids {};
+                        std::array<uint32_t, 512> dimg_item_out_counts {};
+                        std::array<uint32_t, 512> dimg_item_in_counts {};
+                        std::array<uint32_t, 512> thmb_item_ids {};
+                        std::array<uint32_t, 512> thmb_item_out_counts {};
+                        std::array<uint32_t, 512> thmb_item_in_counts {};
+                        std::array<uint32_t, 512> cdsc_item_ids {};
+                        std::array<uint32_t, 512> cdsc_item_out_counts {};
+                        std::array<uint32_t, 512> cdsc_item_in_counts {};
                         uint32_t auxl_from_count = 0;
                         uint32_t auxl_to_count   = 0;
                         uint32_t dimg_from_count = 0;
@@ -1675,6 +1789,10 @@ namespace {
                         uint32_t thmb_to_count   = 0;
                         uint32_t cdsc_from_count = 0;
                         uint32_t cdsc_to_count   = 0;
+                        uint32_t auxl_item_count = 0;
+                        uint32_t dimg_item_count = 0;
+                        uint32_t thmb_item_count = 0;
+                        uint32_t cdsc_item_count = 0;
                         std::array<uint32_t, 512> iref_item_ids {};
                         std::array<uint32_t, 512> iref_item_out_edge_counts {};
                         std::array<uint32_t, 512> iref_item_in_edge_counts {};
@@ -1714,6 +1832,14 @@ namespace {
                                                (*ctx->order)++,
                                                "iref.auxl.to_item_id",
                                                p.iref_edges[i].to_item_id);
+                                bump_item_edge_count(
+                                    auxl_item_ids, auxl_item_out_counts,
+                                    &auxl_item_count,
+                                    p.iref_edges[i].from_item_id);
+                                bump_item_edge_count(auxl_item_ids,
+                                                     auxl_item_in_counts,
+                                                     &auxl_item_count,
+                                                     p.iref_edges[i].to_item_id);
                                 emit_text_field(
                                     *ctx->store, ctx->block, (*ctx->order)++,
                                     "iref.auxl.semantic",
@@ -1757,6 +1883,13 @@ namespace {
                                                 "iref.auxl.subtype_u32",
                                                 interp.u32);
                                         }
+                                        if (interp.has_u64) {
+                                            emit_u64_field(
+                                                *ctx->store, ctx->block,
+                                                (*ctx->order)++,
+                                                "iref.auxl.subtype_u64",
+                                                interp.u64);
+                                        }
                                         const std::string hex
                                             = bytes_to_hex_string(
                                                 std::span<const std::byte>(
@@ -1785,6 +1918,14 @@ namespace {
                                                (*ctx->order)++,
                                                "iref.dimg.to_item_id",
                                                p.iref_edges[i].to_item_id);
+                                bump_item_edge_count(
+                                    dimg_item_ids, dimg_item_out_counts,
+                                    &dimg_item_count,
+                                    p.iref_edges[i].from_item_id);
+                                bump_item_edge_count(dimg_item_ids,
+                                                     dimg_item_in_counts,
+                                                     &dimg_item_count,
+                                                     p.iref_edges[i].to_item_id);
                             } else if (p.iref_edges[i].ref_type
                                        == fourcc('t', 'h', 'm', 'b')) {
                                 thmb_edge_count += 1;
@@ -1802,6 +1943,14 @@ namespace {
                                                (*ctx->order)++,
                                                "iref.thmb.to_item_id",
                                                p.iref_edges[i].to_item_id);
+                                bump_item_edge_count(
+                                    thmb_item_ids, thmb_item_out_counts,
+                                    &thmb_item_count,
+                                    p.iref_edges[i].from_item_id);
+                                bump_item_edge_count(thmb_item_ids,
+                                                     thmb_item_in_counts,
+                                                     &thmb_item_count,
+                                                     p.iref_edges[i].to_item_id);
                             } else if (p.iref_edges[i].ref_type
                                        == fourcc('c', 'd', 's', 'c')) {
                                 cdsc_edge_count += 1;
@@ -1819,6 +1968,14 @@ namespace {
                                                (*ctx->order)++,
                                                "iref.cdsc.to_item_id",
                                                p.iref_edges[i].to_item_id);
+                                bump_item_edge_count(
+                                    cdsc_item_ids, cdsc_item_out_counts,
+                                    &cdsc_item_count,
+                                    p.iref_edges[i].from_item_id);
+                                bump_item_edge_count(cdsc_item_ids,
+                                                     cdsc_item_in_counts,
+                                                     &cdsc_item_count,
+                                                     p.iref_edges[i].to_item_id);
                             }
                         }
                         if (auxl_edge_count > 0) {
@@ -1834,6 +1991,12 @@ namespace {
                                            (*ctx->order)++,
                                            "iref.auxl.to_item_unique_count",
                                            auxl_to_count);
+                            emit_iref_typed_item_summary(*ctx->store,
+                                                         ctx->block, ctx->order,
+                                                         "auxl", auxl_item_ids,
+                                                         auxl_item_out_counts,
+                                                         auxl_item_in_counts,
+                                                         auxl_item_count);
                         }
                         if (dimg_edge_count > 0) {
                             emit_u32_field(*ctx->store, ctx->block,
@@ -1848,6 +2011,12 @@ namespace {
                                            (*ctx->order)++,
                                            "iref.dimg.to_item_unique_count",
                                            dimg_to_count);
+                            emit_iref_typed_item_summary(*ctx->store,
+                                                         ctx->block, ctx->order,
+                                                         "dimg", dimg_item_ids,
+                                                         dimg_item_out_counts,
+                                                         dimg_item_in_counts,
+                                                         dimg_item_count);
                         }
                         if (thmb_edge_count > 0) {
                             emit_u32_field(*ctx->store, ctx->block,
@@ -1862,6 +2031,12 @@ namespace {
                                            (*ctx->order)++,
                                            "iref.thmb.to_item_unique_count",
                                            thmb_to_count);
+                            emit_iref_typed_item_summary(*ctx->store,
+                                                         ctx->block, ctx->order,
+                                                         "thmb", thmb_item_ids,
+                                                         thmb_item_out_counts,
+                                                         thmb_item_in_counts,
+                                                         thmb_item_count);
                         }
                         if (cdsc_edge_count > 0) {
                             emit_u32_field(*ctx->store, ctx->block,
@@ -1876,6 +2051,12 @@ namespace {
                                            (*ctx->order)++,
                                            "iref.cdsc.to_item_unique_count",
                                            cdsc_to_count);
+                            emit_iref_typed_item_summary(*ctx->store,
+                                                         ctx->block, ctx->order,
+                                                         "cdsc", cdsc_item_ids,
+                                                         cdsc_item_out_counts,
+                                                         cdsc_item_in_counts,
+                                                         cdsc_item_count);
                         }
                         if (iref_item_count > 0) {
                             uint32_t unique_from_count = 0;
@@ -1953,6 +2134,12 @@ namespace {
                                                    (*ctx->order)++,
                                                    "aux.subtype_u32",
                                                    interp.u32);
+                                }
+                                if (interp.has_u64) {
+                                    emit_u64_field(*ctx->store, ctx->block,
+                                                   (*ctx->order)++,
+                                                   "aux.subtype_u64",
+                                                   interp.u64);
                                 }
                                 const std::string hex = bytes_to_hex_string(
                                     std::span<const std::byte>(
