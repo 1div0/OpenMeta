@@ -48,6 +48,11 @@ def main(argv: list[str]) -> int:
         action="store_true",
         help="portable mode: include decoded standard XMP properties",
     )
+    ap.add_argument(
+        "--portable-exiftool-gpsdatetime-alias",
+        action="store_true",
+        help="portable mode: emit exif:GPSDateTime alias for GPS time",
+    )
     ap.add_argument("--out", type=str, default="", help="output path (single input only)")
     ap.add_argument("--out-dir", type=str, default="", help="output directory (multiple inputs)")
     ap.add_argument("--force", action="store_true", help="overwrite existing output files")
@@ -144,6 +149,9 @@ def main(argv: list[str]) -> int:
             max_entries=int(args.max_entries),
             include_exif=not args.portable_no_exif,
             include_existing_xmp=bool(args.portable_include_existing_xmp),
+            portable_exiftool_gpsdatetime_alias=bool(
+                args.portable_exiftool_gpsdatetime_alias
+            ),
         )
 
         try:

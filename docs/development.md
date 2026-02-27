@@ -75,6 +75,9 @@ example `xmp/output_truncated` and `xmp/invalid_or_malformed_xml_text`.
 # Portable sidecar
 ./build/metadump --format portable --portable-include-existing-xmp input.jpg output.xmp
 
+# Portable sidecar with ExifTool GPS time alias compatibility
+./build/metadump --format portable --portable-exiftool-gpsdatetime-alias input.jpg output.xmp
+
 # Portable sidecar + draft C2PA verify scaffold status reporting
 ./build/metadump --format portable --c2pa-verify --c2pa-verify-backend auto input.jpg output.xmp
 
@@ -88,6 +91,12 @@ example `xmp/output_truncated` and `xmp/invalid_or_malformed_xml_text`.
 # preview_1.jpg, preview_2.jpg, ...
 ./build/metadump --extract-preview input.arq preview.jpg
 ```
+
+Portable sidecar note:
+- `exif:GPSTimeStamp` is emitted as XMP date-time text (`YYYY-MM-DDThh:mm:ssZ`)
+  only when `GPSDateStamp` is available; otherwise it is skipped.
+- Compatibility mode `--portable-exiftool-gpsdatetime-alias` emits
+  `exif:GPSDateTime` instead of `exif:GPSTimeStamp`.
 
 `thumdump` is preview-only and optimized for batch preview extraction:
 
@@ -354,6 +363,7 @@ PYTHONPATH=build-py/python python3 -m openmeta.python.metavalidate file.dng
 PYTHONPATH=build-py/python python3 -m openmeta.python.metadump file.jpg
 PYTHONPATH=build-py/python python3 -m openmeta.python.metadump file.jpg output.xmp
 PYTHONPATH=build-py/python python3 -m openmeta.python.metadump --format portable file.jpg
+PYTHONPATH=build-py/python python3 -m openmeta.python.metadump --format portable --portable-exiftool-gpsdatetime-alias file.jpg
 PYTHONPATH=build-py/python python3 -m openmeta.python.metadump --format portable --c2pa-verify --c2pa-verify-backend auto file.jpg
 PYTHONPATH=build-py/python python3 -m openmeta.python.metadump --format portable --portable-include-existing-xmp --xmp-sidecar file.jpg
 ```

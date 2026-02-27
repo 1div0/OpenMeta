@@ -1889,6 +1889,188 @@ namespace {
         return false;
     }
 
+    static bool urational_to_double(const URational& r, double* out) noexcept;
+
+    static bool parse_gps_date_stamp(std::string_view text, uint32_t* out_year,
+                                     uint32_t* out_month,
+                                     uint32_t* out_day) noexcept
+    {
+        if (!out_year || !out_month || !out_day) {
+            return false;
+        }
+        while (!text.empty()) {
+            const char c = text.back();
+            if (c == '\0' || c == ' ') {
+                text.remove_suffix(1U);
+                continue;
+            }
+            break;
+        }
+        if (text.size() < 10U || text[4] != ':' || text[7] != ':') {
+            return false;
+        }
+
+        const char y0 = text[0];
+        const char y1 = text[1];
+        const char y2 = text[2];
+        const char y3 = text[3];
+        const char m0 = text[5];
+        const char m1 = text[6];
+        const char d0 = text[8];
+        const char d1 = text[9];
+        if (y0 < '0' || y0 > '9' || y1 < '0' || y1 > '9' || y2 < '0' || y2 > '9'
+            || y3 < '0' || y3 > '9' || m0 < '0' || m0 > '9' || m1 < '0'
+            || m1 > '9' || d0 < '0' || d0 > '9' || d1 < '0' || d1 > '9') {
+            return false;
+        }
+
+        const uint32_t year = static_cast<uint32_t>(y0 - '0') * 1000U
+                              + static_cast<uint32_t>(y1 - '0') * 100U
+                              + static_cast<uint32_t>(y2 - '0') * 10U
+                              + static_cast<uint32_t>(y3 - '0');
+        const uint32_t month = static_cast<uint32_t>(m0 - '0') * 10U
+                               + static_cast<uint32_t>(m1 - '0');
+        const uint32_t day = static_cast<uint32_t>(d0 - '0') * 10U
+                             + static_cast<uint32_t>(d1 - '0');
+        if (year == 0U || month < 1U || month > 12U || day < 1U || day > 31U) {
+            return false;
+        }
+        *out_year  = year;
+        *out_month = month;
+        *out_day   = day;
+        return true;
+    }
+
+    static bool find_gps_date_stamp_for_ifd(const ByteArena& arena,
+                                            std::span<const Entry> entries,
+                                            std::string_view ifd,
+                                            uint32_t* out_year,
+                                            uint32_t* out_month,
+                                            uint32_t* out_day) noexcept
+    {
+        if (!out_year || !out_month || !out_day || ifd.empty()) {
+            return false;
+        }
+        for (const Entry& e : entries) {
+            if (any(e.flags, EntryFlags::Deleted)
+                || e.key.kind != MetaKeyKind::ExifTag
+                || e.key.data.exif_tag.tag != 0x001DU
+                || e.value.kind != MetaValueKind::Text) {
+                continue;
+            }
+            const std::string_view e_ifd
+                = arena_string(arena, e.key.data.exif_tag.ifd);
+            if (e_ifd != ifd) {
+                continue;
+            }
+            const std::span<const std::byte> raw = arena.span(
+                e.value.data.span);
+            const std::string_view text(reinterpret_cast<const char*>(
+                                            raw.data()),
+                                        raw.size());
+            if (parse_gps_date_stamp(text, out_year, out_month, out_day)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static bool exif_gps_time_stamp_text(const ByteArena& arena,
+                                         std::span<const Entry> entries,
+                                         std::string_view ifd,
+                                         const MetaValue& v,
+                                         std::string* out_text) noexcept
+    {
+        if (!out_text || v.kind != MetaValueKind::Array
+            || v.elem_type != MetaElementType::URational) {
+            return false;
+        }
+        const uint32_t count = safe_array_count(arena, v);
+        if (count < 3U) {
+            return false;
+        }
+
+        const std::span<const std::byte> raw = arena.span(v.data.span);
+        if (raw.size() < 3U * sizeof(URational)) {
+            return false;
+        }
+
+        URational r0 {};
+        URational r1 {};
+        URational r2 {};
+        std::memcpy(&r0, raw.data() + 0U * sizeof(URational), sizeof(r0));
+        std::memcpy(&r1, raw.data() + 1U * sizeof(URational), sizeof(r1));
+        std::memcpy(&r2, raw.data() + 2U * sizeof(URational), sizeof(r2));
+
+        double hours   = 0.0;
+        double minutes = 0.0;
+        double seconds = 0.0;
+        if (!urational_to_double(r0, &hours)
+            || !urational_to_double(r1, &minutes)
+            || !urational_to_double(r2, &seconds)) {
+            return false;
+        }
+        if (!std::isfinite(hours) || !std::isfinite(minutes)
+            || !std::isfinite(seconds)) {
+            return false;
+        }
+
+        const double hr_rounded = std::round(hours);
+        const double mn_rounded = std::round(minutes);
+        if (std::fabs(hours - hr_rounded) > 1e-6
+            || std::fabs(minutes - mn_rounded) > 1e-6) {
+            return false;
+        }
+        if (hr_rounded < 0.0 || hr_rounded >= 24.0 || mn_rounded < 0.0
+            || mn_rounded >= 60.0 || seconds < 0.0 || seconds >= 61.0) {
+            return false;
+        }
+
+        uint32_t year  = 0U;
+        uint32_t month = 0U;
+        uint32_t day   = 0U;
+        if (!find_gps_date_stamp_for_ifd(arena, entries, ifd, &year, &month,
+                                         &day)) {
+            return false;
+        }
+
+        std::string sec_text;
+        if (std::fabs(seconds - std::round(seconds)) <= 1e-6) {
+            const uint32_t sec_int = static_cast<uint32_t>(
+                std::llround(seconds));
+            char buf[8];
+            std::snprintf(buf, sizeof(buf), "%02u", sec_int);
+            sec_text.assign(buf);
+        } else {
+            char buf[32];
+            std::snprintf(buf, sizeof(buf), "%.6f", seconds);
+            sec_text.assign(buf);
+            while (!sec_text.empty() && sec_text.back() == '0') {
+                sec_text.pop_back();
+            }
+            if (!sec_text.empty() && sec_text.back() == '.') {
+                sec_text.pop_back();
+            }
+            if (sec_text.size() < 2U
+                || (sec_text.size() >= 2U && sec_text[1] == '.')) {
+                sec_text.insert(sec_text.begin(), '0');
+            }
+        }
+        if (sec_text.empty()) {
+            return false;
+        }
+
+        char dt_prefix[48];
+        std::snprintf(dt_prefix, sizeof(dt_prefix),
+                      "%04u-%02u-%02uT%02u:%02u:", year, month, day,
+                      static_cast<unsigned>(static_cast<uint32_t>(hr_rounded)),
+                      static_cast<unsigned>(static_cast<uint32_t>(mn_rounded)));
+        out_text->assign(dt_prefix);
+        out_text->append(sec_text);
+        out_text->append("Z");
+        return true;
+    }
+
     static bool scalar_srational_value(const MetaValue& v,
                                        SRational* out) noexcept
     {
@@ -1985,9 +2167,8 @@ namespace {
     static bool emit_portable_exif_tag_property_override(
         SpanWriter* w, std::string_view prefix, std::string_view ifd,
         uint16_t tag, std::string_view name, const ByteArena& arena,
-        const MetaValue& v) noexcept
+        std::span<const Entry> entries, const MetaValue& v) noexcept
     {
-        (void)ifd;
         if (!w || prefix.empty() || name.empty()) {
             return false;
         }
@@ -2008,6 +2189,16 @@ namespace {
         if (tag == 0xA432U) {  // LensSpecification
             return emit_exif_lens_specification_decimal_seq(w, prefix, name,
                                                             arena, v);
+        }
+
+        if (tag == 0x0007U) {  // GPSTimeStamp
+            std::string gps_dt;
+            if (exif_gps_time_stamp_text(arena, entries, ifd, v, &gps_dt)) {
+                return emit_portable_property_text(w, prefix, name, gps_dt);
+            }
+            // GPSTimeStamp in XMP is a date-time type; when EXIF lacks
+            // supporting GPSDateStamp or carries invalid parts, skip it.
+            return true;
         }
 
         if (tag == 0x0000U && v.kind == MetaValueKind::Array
@@ -2189,8 +2380,9 @@ namespace {
     }
 
     static bool
-    process_portable_exif_entry(const ByteArena& arena, const Entry& e,
-                                SpanWriter* w,
+    process_portable_exif_entry(const ByteArena& arena,
+                                std::span<const Entry> entries, const Entry& e,
+                                bool exiftool_gpsdatetime_alias, SpanWriter* w,
                                 PortablePropertyKeySet* emitted_keys) noexcept
     {
         if (!w || !emitted_keys || e.key.kind != MetaKeyKind::ExifTag) {
@@ -2215,10 +2407,15 @@ namespace {
             return false;
         }
 
-        const std::string_view portable_tag_name
+        std::string_view portable_tag_name
             = portable_property_name_for_exif_tag(prefix, ifd,
                                                   e.key.data.exif_tag.tag,
                                                   tag_name);
+        if (exiftool_gpsdatetime_alias && prefix == "exif"
+            && e.key.data.exif_tag.tag == 0x0007U
+            && portable_tag_name == "GPSTimeStamp") {
+            portable_tag_name = "GPSDateTime";
+        }
         if (portable_tag_name.empty()) {
             return false;
         }
@@ -2236,7 +2433,7 @@ namespace {
         if (emit_portable_exif_tag_property_override(w, prefix, ifd,
                                                      e.key.data.exif_tag.tag,
                                                      portable_tag_name, arena,
-                                                     e.value)) {
+                                                     entries, e.value)) {
             return true;
         }
 
@@ -2406,7 +2603,9 @@ dump_xmp_portable(const MetaStore& store, std::span<std::byte> out,
             if (!options.include_exif) {
                 continue;
             }
-            if (process_portable_exif_entry(arena, e, &w, &emitted_keys)) {
+            if (process_portable_exif_entry(arena, es, e,
+                                            options.exiftool_gpsdatetime_alias,
+                                            &w, &emitted_keys)) {
                 emitted += 1U;
             }
             continue;
@@ -2501,6 +2700,8 @@ make_xmp_sidecar_options(const XmpSidecarRequest& request) noexcept
     options.portable.limits               = request.limits;
     options.portable.include_exif         = request.include_exif;
     options.portable.include_existing_xmp = request.include_existing_xmp;
+    options.portable.exiftool_gpsdatetime_alias
+        = request.portable_exiftool_gpsdatetime_alias;
 
     options.lossless.limits         = request.limits;
     options.lossless.include_origin = request.include_origin;

@@ -46,6 +46,8 @@ namespace {
             "  --portable-no-exif     Portable mode: skip EXIF/TIFF/GPS mapped fields\n"
             "  --portable-include-existing-xmp\n"
             "                         Portable mode: include decoded standard XMP properties\n"
+            "  --portable-exiftool-gpsdatetime-alias\n"
+            "                         Portable mode: emit exif:GPSDateTime alias for GPS time\n"
             "  --xmp-sidecar           Also read sidecar XMP (<file>.xmp, <basename>.xmp)\n"
             "  --c2pa-verify           Request draft C2PA verify scaffold evaluation\n"
             "  --c2pa-verify-backend <none|auto|native|openssl>\n"
@@ -417,15 +419,16 @@ main(int argc, char** argv)
 {
     using namespace openmeta;
 
-    bool show_build_info               = true;
-    bool xmp_sidecar                   = false;
-    bool force_overwrite               = false;
-    bool extract_preview               = false;
-    bool first_only                    = false;
-    bool require_jpeg_soi              = false;
-    XmpSidecarFormat format            = XmpSidecarFormat::Lossless;
-    bool portable_include_exif         = true;
-    bool portable_include_existing_xmp = false;
+    bool show_build_info                     = true;
+    bool xmp_sidecar                         = false;
+    bool force_overwrite                     = false;
+    bool extract_preview                     = false;
+    bool first_only                          = false;
+    bool require_jpeg_soi                    = false;
+    XmpSidecarFormat format                  = XmpSidecarFormat::Lossless;
+    bool portable_include_exif               = true;
+    bool portable_include_existing_xmp       = false;
+    bool portable_exiftool_gpsdatetime_alias = false;
     std::string out_path;
     std::string out_dir;
     std::vector<std::string> explicit_inputs;
@@ -488,6 +491,11 @@ main(int argc, char** argv)
         }
         if (std::strcmp(arg, "--portable-include-existing-xmp") == 0) {
             portable_include_existing_xmp = true;
+            first_path += 1;
+            continue;
+        }
+        if (std::strcmp(arg, "--portable-exiftool-gpsdatetime-alias") == 0) {
+            portable_exiftool_gpsdatetime_alias = true;
             first_path += 1;
             continue;
         }
@@ -977,6 +985,8 @@ main(int argc, char** argv)
         dump_request.limits.max_entries      = max_entries;
         dump_request.include_exif            = portable_include_exif;
         dump_request.include_existing_xmp    = portable_include_existing_xmp;
+        dump_request.portable_exiftool_gpsdatetime_alias
+            = portable_exiftool_gpsdatetime_alias;
 
         std::vector<std::byte> out_buf;
         const XmpDumpResult dump_res = dump_xmp_sidecar(store, &out_buf,

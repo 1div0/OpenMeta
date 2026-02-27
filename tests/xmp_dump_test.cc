@@ -778,6 +778,28 @@ TEST(XmpDump, PortablePrintConvertsCommonExifEnumsAndValues)
     gps_version.origin.order_in_block = 7;
     (void)store.add_entry(gps_version);
 
+    Entry gps_date;
+    gps_date.key          = make_exif_tag_key(store.arena(), "gpsifd", 0x001D);
+    gps_date.value        = make_text(store.arena(), "2024:04:19",
+                                      TextEncoding::Ascii);
+    gps_date.origin.block = block;
+    gps_date.origin.order_in_block = 8;
+    (void)store.add_entry(gps_date);
+
+    const std::array<URational, 3> gps_time_triplet = {
+        URational { 12, 1 },
+        URational { 11, 1 },
+        URational { 13, 1 },
+    };
+    Entry gps_time;
+    gps_time.key   = make_exif_tag_key(store.arena(), "gpsifd", 0x0007);
+    gps_time.value = make_urational_array(
+        store.arena(), std::span<const URational>(gps_time_triplet.data(),
+                                                  gps_time_triplet.size()));
+    gps_time.origin.block          = block;
+    gps_time.origin.order_in_block = 9;
+    (void)store.add_entry(gps_time);
+
     store.finalize();
 
     XmpPortableOptions opts;
@@ -807,6 +829,9 @@ TEST(XmpDump, PortablePrintConvertsCommonExifEnumsAndValues)
               std::string_view::npos);
     EXPECT_NE(s.find("<exif:GPSVersionID>2</exif:GPSVersionID>"),
               std::string_view::npos);
+    EXPECT_NE(
+        s.find("<exif:GPSTimeStamp>2024-04-19T12:11:13Z</exif:GPSTimeStamp>"),
+        std::string_view::npos);
     EXPECT_NE(s.find("<rdf:li>24</rdf:li>"), std::string_view::npos);
     EXPECT_NE(s.find("<rdf:li>70</rdf:li>"), std::string_view::npos);
 }
@@ -881,6 +906,92 @@ TEST(XmpDump, PortableSkipsInvalidGpsRationalValues)
     EXPECT_EQ(s.find("<exif:GPSLatitude>"), std::string_view::npos);
     EXPECT_EQ(s.find("<exif:GPSTimeStamp>"), std::string_view::npos);
     EXPECT_EQ(s.find("<exif:GPSAltitude>"), std::string_view::npos);
+}
+
+TEST(XmpDump, PortableSkipsGpsTimeStampWithoutGpsDateStamp)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, kInvalidBlockId);
+
+    const std::array<URational, 3> gps_time_triplet = {
+        URational { 12, 1 },
+        URational { 11, 1 },
+        URational { 13, 1 },
+    };
+    Entry gps_time;
+    gps_time.key   = make_exif_tag_key(store.arena(), "gpsifd", 0x0007);
+    gps_time.value = make_urational_array(
+        store.arena(), std::span<const URational>(gps_time_triplet.data(),
+                                                  gps_time_triplet.size()));
+    gps_time.origin.block          = block;
+    gps_time.origin.order_in_block = 0;
+    (void)store.add_entry(gps_time);
+
+    store.finalize();
+
+    XmpPortableOptions opts;
+    opts.include_exif         = true;
+    opts.include_existing_xmp = false;
+
+    std::vector<std::byte> out(4096);
+    const XmpDumpResult r
+        = dump_xmp_portable(store, std::span<std::byte>(out.data(), out.size()),
+                            opts);
+    ASSERT_EQ(r.status, XmpDumpStatus::Ok);
+
+    const std::string_view s(reinterpret_cast<const char*>(out.data()),
+                             static_cast<size_t>(r.written));
+    EXPECT_EQ(s.find("<exif:GPSTimeStamp>"), std::string_view::npos);
+}
+
+TEST(XmpDump, PortableGpsTimeStampSupportsExifToolAlias)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, kInvalidBlockId);
+
+    Entry gps_date;
+    gps_date.key          = make_exif_tag_key(store.arena(), "gpsifd", 0x001D);
+    gps_date.value        = make_text(store.arena(), "2024:04:19",
+                                      TextEncoding::Ascii);
+    gps_date.origin.block = block;
+    gps_date.origin.order_in_block = 0;
+    (void)store.add_entry(gps_date);
+
+    const std::array<URational, 3> gps_time_triplet = {
+        URational { 12, 1 },
+        URational { 11, 1 },
+        URational { 13, 1 },
+    };
+    Entry gps_time;
+    gps_time.key   = make_exif_tag_key(store.arena(), "gpsifd", 0x0007);
+    gps_time.value = make_urational_array(
+        store.arena(), std::span<const URational>(gps_time_triplet.data(),
+                                                  gps_time_triplet.size()));
+    gps_time.origin.block          = block;
+    gps_time.origin.order_in_block = 1;
+    (void)store.add_entry(gps_time);
+
+    store.finalize();
+
+    XmpPortableOptions opts;
+    opts.include_exif               = true;
+    opts.include_existing_xmp       = false;
+    opts.exiftool_gpsdatetime_alias = true;
+
+    std::vector<std::byte> out(4096);
+    const XmpDumpResult r
+        = dump_xmp_portable(store, std::span<std::byte>(out.data(), out.size()),
+                            opts);
+    ASSERT_EQ(r.status, XmpDumpStatus::Ok);
+
+    const std::string_view s(reinterpret_cast<const char*>(out.data()),
+                             static_cast<size_t>(r.written));
+    EXPECT_NE(s.find(
+                  "<exif:GPSDateTime>2024-04-19T12:11:13Z</exif:GPSDateTime>"),
+              std::string_view::npos);
+    EXPECT_EQ(s.find("<exif:GPSTimeStamp>"), std::string_view::npos);
 }
 
 }  // namespace openmeta

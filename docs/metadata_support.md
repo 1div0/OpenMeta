@@ -62,7 +62,7 @@ Status labels used below:
 | --- | --- | --- |
 | `metaread` | Human-readable metadata listing | Shows decoded entries; uses tag-name mapping where available; unknown names are shown as `-`. Unsafe/corrupted text is rendered as `<CORRUPTED_TEXT:...>` placeholders in safe output paths. |
 | `metavalidate` | Metadata validation | Reports decode-status warnings/errors and DNG/CCM validation issues (for example `invalid_illuminant_code`, `white_xy_out_of_range`) with machine-readable issue codes (`category/code`); supports strict mode (`--warnings-as-errors`). |
-| `metadump` | Sidecar and preview dump tool | `lossless` mode preserves broad key-space data; `portable` mode targets interoperable XMP fields. |
+| `metadump` | Sidecar and preview dump tool | `lossless` mode preserves broad key-space data; `portable` mode targets interoperable XMP fields. `GPSTimeStamp` is exported as date-time text only when `GPSDateStamp` is available. Optional compatibility mode emits `GPSDateTime` alias. |
 | `thumdump` | Preview extractor | Extracts embedded preview candidates; multi-preview outputs auto-suffix (`_1`, `_2`, ...). |
 
 ## Important Current Gaps

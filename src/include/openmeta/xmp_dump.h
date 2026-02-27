@@ -50,6 +50,11 @@ struct XmpPortableOptions final {
     ///
     /// \note Currently only simple `property_path` values are emitted (no `/` nesting).
     bool include_existing_xmp = false;
+    /// Emit `exif:GPSDateTime` instead of `exif:GPSTimeStamp` for GPS time.
+    ///
+    /// Default keeps standard portable naming. This compatibility mode is
+    /// useful for tools that normalize XMP GPS time under `GPSDateTime`.
+    bool exiftool_gpsdatetime_alias = false;
 };
 
 /// Sidecar format selection for \ref dump_xmp_sidecar.
@@ -76,8 +81,9 @@ struct XmpSidecarRequest final {
     XmpDumpLimits limits;
 
     /// Portable mode options (applied when format == Portable).
-    bool include_exif         = true;
-    bool include_existing_xmp = false;
+    bool include_exif                        = true;
+    bool include_existing_xmp                = false;
+    bool portable_exiftool_gpsdatetime_alias = false;
 
     /// Lossless mode options (applied when format == Lossless).
     bool include_origin = true;

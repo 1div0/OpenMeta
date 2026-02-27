@@ -73,12 +73,11 @@ namespace {
     }
 
 
-    static XmpSidecarRequest
-    make_xmp_sidecar_request(XmpSidecarFormat format, uint64_t max_output_bytes,
-                             uint32_t max_entries, bool include_exif,
-                             bool include_existing_xmp, bool include_origin,
-                             bool include_wire, bool include_flags,
-                             bool include_names)
+    static XmpSidecarRequest make_xmp_sidecar_request(
+        XmpSidecarFormat format, uint64_t max_output_bytes,
+        uint32_t max_entries, bool include_exif, bool include_existing_xmp,
+        bool portable_exiftool_gpsdatetime_alias, bool include_origin,
+        bool include_wire, bool include_flags, bool include_names)
     {
         XmpSidecarRequest request;
         request.format                  = format;
@@ -86,10 +85,12 @@ namespace {
         request.limits.max_entries      = max_entries;
         request.include_exif            = include_exif;
         request.include_existing_xmp    = include_existing_xmp;
-        request.include_origin          = include_origin;
-        request.include_wire            = include_wire;
-        request.include_flags           = include_flags;
-        request.include_names           = include_names;
+        request.portable_exiftool_gpsdatetime_alias
+            = portable_exiftool_gpsdatetime_alias;
+        request.include_origin = include_origin;
+        request.include_wire   = include_wire;
+        request.include_flags  = include_flags;
+        request.include_names  = include_names;
         return request;
     }
 
@@ -1631,8 +1632,8 @@ NB_MODULE(_openmeta, m)
                bool include_flags, bool include_names) {
                 const XmpSidecarRequest request = make_xmp_sidecar_request(
                     XmpSidecarFormat::Lossless, max_output_bytes, max_entries,
-                    true, false, include_origin, include_wire, include_flags,
-                    include_names);
+                    true, false, false, include_origin, include_wire,
+                    include_flags, include_names);
                 return dump_xmp_sidecar_to_python(d->store, request);
             },
             "max_output_bytes"_a = 0ULL, "max_entries"_a = 0U,
@@ -1642,30 +1643,33 @@ NB_MODULE(_openmeta, m)
             "dump_xmp_portable",
             [](std::shared_ptr<PyDocument> d, uint64_t max_output_bytes,
                uint32_t max_entries, bool include_exif,
-               bool include_existing_xmp) {
+               bool include_existing_xmp, bool exiftool_gpsdatetime_alias) {
                 const XmpSidecarRequest request = make_xmp_sidecar_request(
                     XmpSidecarFormat::Portable, max_output_bytes, max_entries,
-                    include_exif, include_existing_xmp, true, true, true, true);
+                    include_exif, include_existing_xmp,
+                    exiftool_gpsdatetime_alias, true, true, true, true);
                 return dump_xmp_sidecar_to_python(d->store, request);
             },
             "max_output_bytes"_a = 0ULL, "max_entries"_a = 0U,
-            "include_exif"_a = true, "include_existing_xmp"_a = false)
+            "include_exif"_a = true, "include_existing_xmp"_a = false,
+            "exiftool_gpsdatetime_alias"_a = false)
         .def(
             "dump_xmp_sidecar",
             [](std::shared_ptr<PyDocument> d, XmpSidecarFormat format,
                uint64_t max_output_bytes, uint32_t max_entries,
                bool include_exif, bool include_existing_xmp,
-               bool include_origin, bool include_wire, bool include_flags,
-               bool include_names) {
+               bool portable_exiftool_gpsdatetime_alias, bool include_origin,
+               bool include_wire, bool include_flags, bool include_names) {
                 const XmpSidecarRequest request = make_xmp_sidecar_request(
                     format, max_output_bytes, max_entries, include_exif,
-                    include_existing_xmp, include_origin, include_wire,
-                    include_flags, include_names);
+                    include_existing_xmp, portable_exiftool_gpsdatetime_alias,
+                    include_origin, include_wire, include_flags, include_names);
                 return dump_xmp_sidecar_to_python(d->store, request);
             },
             "format"_a           = XmpSidecarFormat::Lossless,
             "max_output_bytes"_a = 0ULL, "max_entries"_a = 0U,
             "include_exif"_a = true, "include_existing_xmp"_a = false,
+            "portable_exiftool_gpsdatetime_alias"_a = false,
             "include_origin"_a = true, "include_wire"_a = true,
             "include_flags"_a = true, "include_names"_a = true)
         .def(
