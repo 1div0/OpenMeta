@@ -787,28 +787,43 @@ namespace {
             }
         }
 
-        static constexpr std::array<std::string_view, 24U> kRefSuffixes = {
+        static constexpr std::array<std::string_view, 39U> kRefSuffixes = {
             std::string_view { ".ref" },
             std::string_view { ".refs" },
             std::string_view { ".reference" },
             std::string_view { ".references" },
             std::string_view { ".claim_ref" },
+            std::string_view { ".claim-ref" },
             std::string_view { ".claim_reference" },
+            std::string_view { ".claim-reference" },
             std::string_view { ".claim_references" },
+            std::string_view { ".claim-references" },
             std::string_view { ".claimref" },
             std::string_view { ".claimreference" },
             std::string_view { ".claim_refs" },
+            std::string_view { ".claim-refs" },
             std::string_view { ".claimrefs" },
             std::string_view { ".claimreferences" },
             std::string_view { ".claim_ref_index" },
+            std::string_view { ".claim-ref-index" },
             std::string_view { ".claim_index" },
+            std::string_view { ".claim-index" },
             std::string_view { ".claimindex" },
             std::string_view { ".claim_url" },
+            std::string_view { ".claim-url" },
             std::string_view { ".claim_uri" },
+            std::string_view { ".claim-uri" },
             std::string_view { ".claim_link" },
+            std::string_view { ".claim-link" },
             std::string_view { ".claimurl" },
             std::string_view { ".claimuri" },
             std::string_view { ".claimlink" },
+            std::string_view { ".claim-urls" },
+            std::string_view { ".claim-uris" },
+            std::string_view { ".claim-links" },
+            std::string_view { ".claimurls" },
+            std::string_view { ".claimuris" },
+            std::string_view { ".claimlinks" },
             std::string_view { ".url" },
             std::string_view { ".uri" },
             std::string_view { ".jumbf" },
@@ -904,6 +919,17 @@ namespace {
         }
         *out = static_cast<uint32_t>(value);
         return true;
+    }
+
+    static bool reference_token_boundary(char c) noexcept
+    {
+        if (c == '?' || c == '&' || c == '#' || c == ';' || c == '/'
+            || c == '\\' || c == ':' || c == ',' || c == '.' || c == '['
+            || c == ']' || c == '(' || c == ')' || c == '{' || c == '}'
+            || c == '<' || c == '>' || c == '"' || c == '\'' || c == '=') {
+            return true;
+        }
+        return static_cast<unsigned char>(c) <= 0x20U;
     }
 
     static bool hex_nibble_value(char c, uint8_t* out) noexcept
@@ -1007,6 +1033,73 @@ namespace {
                     }
                 }
                 if (parse_decimal_u32(trimmed, begin, end, out_index)) {
+                    return true;
+                }
+                pos += 1U;
+            }
+        }
+
+        static constexpr std::array<std::string_view, 14U> kQueryFieldRoots = {
+            std::string_view { "claim_ref" },
+            std::string_view { "claim-ref" },
+            std::string_view { "claimref" },
+            std::string_view { "claim_reference" },
+            std::string_view { "claim-reference" },
+            std::string_view { "claimreference" },
+            std::string_view { "claim_index" },
+            std::string_view { "claim-index" },
+            std::string_view { "claimindex" },
+            std::string_view { "claim_id" },
+            std::string_view { "claim-id" },
+            std::string_view { "claimid" },
+            std::string_view { "claim" },
+            std::string_view { "claims" },
+        };
+        for (const std::string_view root : kQueryFieldRoots) {
+            size_t pos = 0U;
+            while (true) {
+                pos = lowered.find(root, pos);
+                if (pos == std::string_view::npos) {
+                    break;
+                }
+                if (pos > 0U && !reference_token_boundary(trimmed[pos - 1U])) {
+                    pos += 1U;
+                    continue;
+                }
+                size_t value_pos = pos + root.size();
+                while (value_pos < trimmed.size()
+                       && static_cast<unsigned char>(trimmed[value_pos])
+                              <= 0x20U) {
+                    value_pos += 1U;
+                }
+                if (value_pos >= trimmed.size()
+                    || (trimmed[value_pos] != '='
+                        && trimmed[value_pos] != ':')) {
+                    pos += 1U;
+                    continue;
+                }
+                value_pos += 1U;
+                while (value_pos < trimmed.size()
+                       && static_cast<unsigned char>(trimmed[value_pos])
+                              <= 0x20U) {
+                    value_pos += 1U;
+                }
+                size_t value_end = value_pos;
+                while (value_end < trimmed.size() && trimmed[value_end] >= '0'
+                       && trimmed[value_end] <= '9') {
+                    value_end += 1U;
+                }
+                if (value_end == value_pos) {
+                    pos += 1U;
+                    continue;
+                }
+                if (value_end < trimmed.size()
+                    && !reference_token_boundary(trimmed[value_end])) {
+                    pos += 1U;
+                    continue;
+                }
+                if (parse_decimal_u32(trimmed, value_pos, value_end,
+                                      out_index)) {
                     return true;
                 }
                 pos += 1U;

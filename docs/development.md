@@ -188,8 +188,10 @@ This policy surface is intentionally marked draft and may be refined.
       references in decoded claim/signature fields, scalar index references,
       and indexed array-element reference keys such as `claimRef[0]`), then
       including plural reference-key variants (`references`, `refs`,
-      `claim_references`) and percent-encoded URI/label forms where present,
-      then
+      `claim_references`) plus hyphenated variants (`claim-reference`,
+      `claim-uri`, `claim-ref-index`), plus query-style index tokens in URI
+      text (`claim-index=...`, `claim_ref=...`) and percent-encoded URI/label
+      forms where present, then
       best-effort fallback probing via claim bytes, single-claim `claims[*]`
       arrays, nearby/nested claim JUMBF boxes, and additional cross-manifest
       candidates. Current tests include conflicting mixed references and

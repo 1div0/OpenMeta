@@ -348,6 +348,130 @@ TEST(SimpleMetaRead, BmffMetaExifItemFromIdatWithDrefSelfContainedDecodes)
     }
 }
 
+TEST(SimpleMetaRead, BmffMetaExifItemFromIdatWithDrefExternalIsSkipped)
+{
+    // Hardening: iloc item references with non-self-contained `dref/url ` must
+    // not be treated as local bytes.
+    struct Case final {
+        uint32_t major_brand = 0;
+    };
+    const std::array<Case, 3> cases = {
+        Case { fourcc('h', 'e', 'i', 'c') },
+        Case { fourcc('a', 'v', 'i', 'f') },
+        Case { fourcc('c', 'r', 'x', ' ') },
+    };
+
+    for (const Case& c : cases) {
+        const std::vector<std::byte> tiff = make_tiff_ifd0_imagewidth_u32(640U);
+        const std::vector<std::byte> exif_item
+            = make_bmff_exif_item_with_preamble(tiff);
+
+        // infe (v2): item 1 is Exif.
+        std::vector<std::byte> infe_payload;
+        append_fullbox_header(&infe_payload, 2);
+        append_u16be(&infe_payload, 1);  // item_ID
+        append_u16be(&infe_payload, 0);  // protection
+        append_fourcc(&infe_payload, fourcc('E', 'x', 'i', 'f'));
+        append_bytes(&infe_payload, "exif");
+        infe_payload.push_back(std::byte { 0 });
+        std::vector<std::byte> infe_box;
+        append_bmff_box(&infe_box, fourcc('i', 'n', 'f', 'e'), infe_payload);
+
+        // iinf (v2): 1 entry.
+        std::vector<std::byte> iinf_payload;
+        append_fullbox_header(&iinf_payload, 2);
+        append_u32be(&iinf_payload, 1);
+        iinf_payload.insert(iinf_payload.end(), infe_box.begin(),
+                            infe_box.end());
+        std::vector<std::byte> iinf_box;
+        append_bmff_box(&iinf_box, fourcc('i', 'i', 'n', 'f'), iinf_payload);
+
+        // idat payload: Exif item bytes.
+        std::vector<std::byte> idat_box;
+        append_bmff_box(&idat_box, fourcc('i', 'd', 'a', 't'), exif_item);
+
+        // dref: one external `url ` entry (flags=0 + URL string).
+        std::vector<std::byte> url_payload;
+        url_payload.push_back(std::byte { 0 });  // version
+        url_payload.push_back(std::byte { 0 });
+        url_payload.push_back(std::byte { 0 });
+        url_payload.push_back(std::byte { 0 });  // flags (not self-contained)
+        append_bytes(&url_payload, "https://example.invalid/exif.bin");
+        url_payload.push_back(std::byte { 0 });
+        std::vector<std::byte> url_box;
+        append_bmff_box(&url_box, fourcc('u', 'r', 'l', ' '), url_payload);
+
+        std::vector<std::byte> dref_payload;
+        append_fullbox_header(&dref_payload, 0);
+        append_u32be(&dref_payload, 1);  // entry_count
+        dref_payload.insert(dref_payload.end(), url_box.begin(), url_box.end());
+        std::vector<std::byte> dref_box;
+        append_bmff_box(&dref_box, fourcc('d', 'r', 'e', 'f'), dref_payload);
+
+        std::vector<std::byte> dinf_payload;
+        dinf_payload.insert(dinf_payload.end(), dref_box.begin(),
+                            dref_box.end());
+        std::vector<std::byte> dinf_box;
+        append_bmff_box(&dinf_box, fourcc('d', 'i', 'n', 'f'), dinf_payload);
+
+        // iloc (v1): construction_method=1 (idat), data_reference_index=1.
+        std::vector<std::byte> iloc_payload;
+        append_fullbox_header(&iloc_payload, 1);
+        iloc_payload.push_back(std::byte { 0x44 });  // off_size=4, len_size=4
+        iloc_payload.push_back(std::byte { 0x00 });  // base=0, idx=0
+        append_u16be(&iloc_payload, 1);              // item_count
+        append_u16be(&iloc_payload, 1);              // item_ID
+        append_u16be(&iloc_payload,
+                     1);                 // construction_method=1 (idat)
+        append_u16be(&iloc_payload, 1);  // data_reference_index
+        append_u16be(&iloc_payload, 1);  // extent_count
+        append_u32be(&iloc_payload,
+                     0);  // extent_offset (within idat)
+        append_u32be(&iloc_payload, static_cast<uint32_t>(exif_item.size()));
+        std::vector<std::byte> iloc_box;
+        append_bmff_box(&iloc_box, fourcc('i', 'l', 'o', 'c'), iloc_payload);
+
+        // meta (FullBox): iinf + iloc + dinf + idat.
+        std::vector<std::byte> meta_payload;
+        append_fullbox_header(&meta_payload, 0);
+        meta_payload.insert(meta_payload.end(), iinf_box.begin(),
+                            iinf_box.end());
+        meta_payload.insert(meta_payload.end(), iloc_box.begin(),
+                            iloc_box.end());
+        meta_payload.insert(meta_payload.end(), dinf_box.begin(),
+                            dinf_box.end());
+        meta_payload.insert(meta_payload.end(), idat_box.begin(),
+                            idat_box.end());
+        std::vector<std::byte> meta_box;
+        append_bmff_box(&meta_box, fourcc('m', 'e', 't', 'a'), meta_payload);
+
+        // ftyp.
+        std::vector<std::byte> ftyp_payload;
+        append_fourcc(&ftyp_payload, c.major_brand);
+        append_u32be(&ftyp_payload, 0);
+        append_fourcc(&ftyp_payload, fourcc('m', 'i', 'f', '1'));
+        std::vector<std::byte> file;
+        append_bmff_box(&file, fourcc('f', 't', 'y', 'p'), ftyp_payload);
+        file.insert(file.end(), meta_box.begin(), meta_box.end());
+
+        MetaStore store;
+        std::array<ContainerBlockRef, 32> blocks {};
+        std::array<ExifIfdRef, 8> ifds {};
+        std::array<std::byte, 4096> payload {};
+        std::array<uint32_t, 64> scratch {};
+        const SimpleMetaResult res
+            = simple_meta_read(file, store, blocks, ifds, payload, scratch,
+                               ExifDecodeOptions {}, PayloadOptions {});
+        store.finalize();
+
+        ASSERT_EQ(res.scan.status, ScanStatus::Ok);
+
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("ifd0", 0x0100));
+        EXPECT_TRUE(ids.empty());
+    }
+}
+
 TEST(SimpleMetaRead, BmffMetaExifItemFromFileOffsetDecodes)
 {
     struct Case final {

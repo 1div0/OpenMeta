@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -1975,6 +1976,163 @@ namespace {
         return false;
     }
 
+    static bool format_decimal_trimmed(double value, uint32_t precision,
+                                       std::string* out) noexcept
+    {
+        if (!out || !std::isfinite(value)) {
+            return false;
+        }
+        if (precision > 12U) {
+            precision = 12U;
+        }
+        char fmt[16];
+        std::snprintf(fmt, sizeof(fmt), "%%.%uf",
+                      static_cast<unsigned>(precision));
+        char buf[80];
+        std::snprintf(buf, sizeof(buf), fmt, value);
+        out->assign(buf);
+        while (!out->empty() && out->back() == '0') {
+            out->pop_back();
+        }
+        if (!out->empty() && out->back() == '.') {
+            out->pop_back();
+        }
+        if (out->empty() || *out == "-0") {
+            *out = "0";
+        }
+        return true;
+    }
+
+    static bool find_exif_text_tag_for_ifd(const ByteArena& arena,
+                                           std::span<const Entry> entries,
+                                           std::string_view ifd, uint16_t tag,
+                                           std::string* out_text) noexcept
+    {
+        if (!out_text || ifd.empty()) {
+            return false;
+        }
+        for (const Entry& e : entries) {
+            if (any(e.flags, EntryFlags::Deleted)
+                || e.key.kind != MetaKeyKind::ExifTag
+                || e.key.data.exif_tag.tag != tag
+                || e.value.kind != MetaValueKind::Text) {
+                continue;
+            }
+            const std::string_view e_ifd
+                = arena_string(arena, e.key.data.exif_tag.ifd);
+            if (e_ifd != ifd) {
+                continue;
+            }
+            std::string_view text = arena_string(arena, e.value.data.span);
+            while (!text.empty()
+                   && (text.back() == '\0' || text.back() == ' ')) {
+                text.remove_suffix(1U);
+            }
+            if (text.empty()) {
+                continue;
+            }
+            out_text->assign(text.data(), text.size());
+            return true;
+        }
+        return false;
+    }
+
+    static bool first_ref_char(std::string_view text, std::string_view allowed,
+                               char* out_ref) noexcept
+    {
+        if (!out_ref) {
+            return false;
+        }
+        for (char c : text) {
+            if (c == '\0' || c == ' ') {
+                continue;
+            }
+            const unsigned char uc = static_cast<unsigned char>(c);
+            const char up          = static_cast<char>(std::toupper(uc));
+            if (allowed.find(up) != std::string_view::npos) {
+                *out_ref = up;
+                return true;
+            }
+            return false;
+        }
+        return false;
+    }
+
+    static bool exif_gps_coord_text(const ByteArena& arena,
+                                    std::span<const Entry> entries,
+                                    std::string_view ifd, const MetaValue& v,
+                                    uint16_t ref_tag, bool is_latitude,
+                                    std::string* out_text) noexcept
+    {
+        if (!out_text || v.kind != MetaValueKind::Array
+            || v.elem_type != MetaElementType::URational) {
+            return false;
+        }
+        const uint32_t count = safe_array_count(arena, v);
+        if (count < 3U) {
+            return false;
+        }
+
+        const std::span<const std::byte> raw = arena.span(v.data.span);
+        if (raw.size() < 3U * sizeof(URational)) {
+            return false;
+        }
+
+        URational r0 {};
+        URational r1 {};
+        URational r2 {};
+        std::memcpy(&r0, raw.data() + 0U * sizeof(URational), sizeof(r0));
+        std::memcpy(&r1, raw.data() + 1U * sizeof(URational), sizeof(r1));
+        std::memcpy(&r2, raw.data() + 2U * sizeof(URational), sizeof(r2));
+
+        double deg = 0.0;
+        double min = 0.0;
+        double sec = 0.0;
+        if (!urational_to_double(r0, &deg) || !urational_to_double(r1, &min)
+            || !urational_to_double(r2, &sec)) {
+            return false;
+        }
+        if (!std::isfinite(deg) || !std::isfinite(min) || !std::isfinite(sec)
+            || deg < 0.0 || min < 0.0 || sec < 0.0 || min >= 60.0
+            || sec >= 60.0) {
+            return false;
+        }
+
+        const double deg_rounded = std::round(deg);
+        if (std::fabs(deg - deg_rounded) > 1e-6) {
+            return false;
+        }
+        const uint32_t deg_i = static_cast<uint32_t>(std::llround(deg_rounded));
+        if ((is_latitude && deg_i > 90U) || (!is_latitude && deg_i > 180U)) {
+            return false;
+        }
+
+        std::string ref_text;
+        if (!find_exif_text_tag_for_ifd(arena, entries, ifd, ref_tag,
+                                        &ref_text)) {
+            return false;
+        }
+        char ref = '\0';
+        if (!first_ref_char(ref_text, is_latitude ? "NS" : "EW", &ref)) {
+            return false;
+        }
+
+        const double decimal_minutes = min + (sec / 60.0);
+        std::string minutes_text;
+        if (!format_decimal_trimmed(decimal_minutes, 8U, &minutes_text)) {
+            return false;
+        }
+
+        char deg_buf[24];
+        std::snprintf(deg_buf, sizeof(deg_buf), "%u",
+                      static_cast<unsigned>(deg_i));
+        out_text->assign(deg_buf);
+        out_text->append(",");
+        out_text->append(minutes_text);
+        out_text->push_back(ref);
+        return true;
+    }
+
     static bool exif_gps_time_stamp_text(const ByteArena& arena,
                                          std::span<const Entry> entries,
                                          std::string_view ifd,
@@ -2189,6 +2347,15 @@ namespace {
         if (tag == 0xA432U) {  // LensSpecification
             return emit_exif_lens_specification_decimal_seq(w, prefix, name,
                                                             arena, v);
+        }
+
+        if (tag == 0x0002U || tag == 0x0004U) {  // GPSLatitude/GPSLongitude
+            std::string gps_coord;
+            const uint16_t ref_tag = (tag == 0x0002U) ? 0x0001U : 0x0003U;
+            if (exif_gps_coord_text(arena, entries, ifd, v, ref_tag,
+                                    tag == 0x0002U, &gps_coord)) {
+                return emit_portable_property_text(w, prefix, name, gps_coord);
+            }
         }
 
         if (tag == 0x0007U) {  // GPSTimeStamp

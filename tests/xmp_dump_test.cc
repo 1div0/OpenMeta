@@ -778,12 +778,54 @@ TEST(XmpDump, PortablePrintConvertsCommonExifEnumsAndValues)
     gps_version.origin.order_in_block = 7;
     (void)store.add_entry(gps_version);
 
+    Entry gps_lat_ref;
+    gps_lat_ref.key   = make_exif_tag_key(store.arena(), "gpsifd", 0x0001);
+    gps_lat_ref.value = make_text(store.arena(), "N", TextEncoding::Ascii);
+    gps_lat_ref.origin.block          = block;
+    gps_lat_ref.origin.order_in_block = 8;
+    (void)store.add_entry(gps_lat_ref);
+
+    const std::array<URational, 3> gps_lat_triplet = {
+        URational { 41, 1 },
+        URational { 24, 1 },
+        URational { 30, 1 },
+    };
+    Entry gps_lat;
+    gps_lat.key   = make_exif_tag_key(store.arena(), "gpsifd", 0x0002);
+    gps_lat.value = make_urational_array(
+        store.arena(), std::span<const URational>(gps_lat_triplet.data(),
+                                                  gps_lat_triplet.size()));
+    gps_lat.origin.block          = block;
+    gps_lat.origin.order_in_block = 9;
+    (void)store.add_entry(gps_lat);
+
+    Entry gps_lon_ref;
+    gps_lon_ref.key   = make_exif_tag_key(store.arena(), "gpsifd", 0x0003);
+    gps_lon_ref.value = make_text(store.arena(), "E", TextEncoding::Ascii);
+    gps_lon_ref.origin.block          = block;
+    gps_lon_ref.origin.order_in_block = 10;
+    (void)store.add_entry(gps_lon_ref);
+
+    const std::array<URational, 3> gps_lon_triplet = {
+        URational { 2, 1 },
+        URational { 9, 1 },
+        URational { 0, 1 },
+    };
+    Entry gps_lon;
+    gps_lon.key   = make_exif_tag_key(store.arena(), "gpsifd", 0x0004);
+    gps_lon.value = make_urational_array(
+        store.arena(), std::span<const URational>(gps_lon_triplet.data(),
+                                                  gps_lon_triplet.size()));
+    gps_lon.origin.block          = block;
+    gps_lon.origin.order_in_block = 11;
+    (void)store.add_entry(gps_lon);
+
     Entry gps_date;
     gps_date.key          = make_exif_tag_key(store.arena(), "gpsifd", 0x001D);
     gps_date.value        = make_text(store.arena(), "2024:04:19",
                                       TextEncoding::Ascii);
     gps_date.origin.block = block;
-    gps_date.origin.order_in_block = 8;
+    gps_date.origin.order_in_block = 12;
     (void)store.add_entry(gps_date);
 
     const std::array<URational, 3> gps_time_triplet = {
@@ -797,7 +839,7 @@ TEST(XmpDump, PortablePrintConvertsCommonExifEnumsAndValues)
         store.arena(), std::span<const URational>(gps_time_triplet.data(),
                                                   gps_time_triplet.size()));
     gps_time.origin.block          = block;
-    gps_time.origin.order_in_block = 9;
+    gps_time.origin.order_in_block = 13;
     (void)store.add_entry(gps_time);
 
     store.finalize();
@@ -828,6 +870,10 @@ TEST(XmpDump, PortablePrintConvertsCommonExifEnumsAndValues)
     EXPECT_NE(s.find("<exif:ShutterSpeedValue>1/64</exif:ShutterSpeedValue>"),
               std::string_view::npos);
     EXPECT_NE(s.find("<exif:GPSVersionID>2</exif:GPSVersionID>"),
+              std::string_view::npos);
+    EXPECT_NE(s.find("<exif:GPSLatitude>41,24.5N</exif:GPSLatitude>"),
+              std::string_view::npos);
+    EXPECT_NE(s.find("<exif:GPSLongitude>2,9E</exif:GPSLongitude>"),
               std::string_view::npos);
     EXPECT_NE(
         s.find("<exif:GPSTimeStamp>2024-04-19T12:11:13Z</exif:GPSTimeStamp>"),

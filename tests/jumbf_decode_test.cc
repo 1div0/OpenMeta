@@ -1757,6 +1757,59 @@ TEST(JumbfDecode, C2paVerifyCoseSign1BytesEs256)
 #endif
 }
 
+TEST(JumbfDecode, C2paVerifyCoseSign1BytesMalformedArrayShape)
+{
+    const std::array<std::byte, 3U> payload_bytes
+        = { std::byte { 'a' }, std::byte { 'b' }, std::byte { 'c' } };
+    const std::vector<std::byte> protected_header = make_cose_protected_es256();
+    ASSERT_FALSE(protected_header.empty());
+
+    // COSE_Sign1 must be [protected, unprotected, payload, signature].
+    // Here we intentionally emit a 3-element array to ensure shape validation
+    // rejects it deterministically.
+    std::vector<std::byte> cose_sign1;
+    cose_sign1.push_back(std::byte { 0xD2 });  // tag(18)
+    append_cbor_array(&cose_sign1, 3U);
+    append_cbor_bytes(&cose_sign1, protected_header);
+    append_cbor_map(&cose_sign1, 0U);
+    append_cbor_bytes(&cose_sign1, payload_bytes);
+
+    std::vector<std::byte> cbor_payload;
+    append_cbor_map(&cbor_payload, 1U);
+    append_cbor_text(&cbor_payload, "manifests");
+    append_cbor_map(&cbor_payload, 1U);
+    append_cbor_text(&cbor_payload, "active_manifest");
+    append_cbor_map(&cbor_payload, 1U);
+    append_cbor_text(&cbor_payload, "claims");
+    append_cbor_array(&cbor_payload, 1U);
+    append_cbor_map(&cbor_payload, 1U);
+    append_cbor_text(&cbor_payload, "signatures");
+    append_cbor_array(&cbor_payload, 1U);
+    append_cbor_bytes(&cbor_payload, cose_sign1);
+
+    const std::vector<std::byte> payload = make_jumbf_payload_with_cbor(
+        cbor_payload);
+    MetaStore store;
+    JumbfDecodeOptions options;
+    options.verify_c2pa    = true;
+    options.verify_backend = C2paVerifyBackend::Auto;
+    const JumbfDecodeResult result
+        = decode_jumbf_payload(payload, store, EntryFlags::None, options);
+    EXPECT_EQ(result.status, JumbfDecodeStatus::Ok);
+
+#if OPENMETA_ENABLE_C2PA_VERIFY
+#    if OPENMETA_C2PA_VERIFY_OPENSSL_AVAILABLE
+    EXPECT_EQ(result.verify_status, C2paVerifyStatus::InvalidSignature);
+#    elif OPENMETA_C2PA_VERIFY_NATIVE_AVAILABLE
+    EXPECT_EQ(result.verify_status, C2paVerifyStatus::NotImplemented);
+#    else
+    EXPECT_EQ(result.verify_status, C2paVerifyStatus::BackendUnavailable);
+#    endif
+#else
+    EXPECT_EQ(result.verify_status, C2paVerifyStatus::DisabledByBuild);
+#endif
+}
+
 TEST(JumbfDecode, C2paVerifyCoseSign1BytesX5chainExtraction)
 {
     const std::array<std::byte, 3U> payload_bytes
@@ -3092,6 +3145,105 @@ TEST(JumbfDecode,
 #endif
 }
 
+TEST(JumbfDecode,
+     C2paVerifyCoseDetachedPayloadHyphenReferenceUnresolvedSkipsGenericFallback)
+{
+    const std::vector<std::byte> target_claim = {
+        std::byte { 0xA1 },
+        std::byte { 0x61 },
+        std::byte { 0x61 },
+        std::byte { 0x2A },
+    };
+    const std::vector<std::byte> bad_claim = {
+        std::byte { 0xA1 },
+        std::byte { 0x61 },
+        std::byte { 0x61 },
+        std::byte { 0x01 },
+    };
+    const std::vector<std::byte> protected_header = make_cose_protected_es256();
+    ASSERT_FALSE(protected_header.empty());
+
+#if OPENMETA_ENABLE_C2PA_VERIFY && OPENMETA_C2PA_VERIFY_OPENSSL_AVAILABLE
+    EVP_PKEY* key = nullptr;
+    ASSERT_TRUE(make_ec_p256_keypair(&key));
+    const std::vector<std::byte> public_key_der = public_key_der_from_key(key);
+    ASSERT_FALSE(public_key_der.empty());
+
+    const std::vector<std::byte> sig_structure = make_cose_sig_structure(
+        std::span<const std::byte>(protected_header.data(),
+                                   protected_header.size()),
+        std::span<const std::byte>(target_claim.data(), target_claim.size()));
+    ASSERT_FALSE(sig_structure.empty());
+
+    const std::vector<std::byte> der_sig = ecdsa_sign_sha256(key,
+                                                             sig_structure);
+    EVP_PKEY_free(key);
+    ASSERT_FALSE(der_sig.empty());
+
+    const std::vector<std::byte> raw_sig = ecdsa_der_to_cose_raw_p256(der_sig);
+    ASSERT_EQ(raw_sig.size(), 64U);
+#else
+    const std::vector<std::byte> public_key_der;
+    const std::vector<std::byte> raw_sig(64U, std::byte { 0x00 });
+#endif
+
+    std::vector<std::byte> cbor_payload;
+    append_cbor_map(&cbor_payload, 1U);
+    append_cbor_text(&cbor_payload, "manifests");
+    append_cbor_map(&cbor_payload, 1U);
+    append_cbor_text(&cbor_payload, "active_manifest");
+    append_cbor_map(&cbor_payload, 1U);
+    append_cbor_text(&cbor_payload, "claims");
+    append_cbor_array(&cbor_payload, 2U);
+
+    append_cbor_map(&cbor_payload, 2U);
+    append_cbor_text(&cbor_payload, "claim");
+    append_cbor_bytes(&cbor_payload,
+                      std::span<const std::byte>(bad_claim.data(),
+                                                 bad_claim.size()));
+    append_cbor_text(&cbor_payload, "signatures");
+    append_cbor_array(&cbor_payload, 1U);
+    append_cbor_array(&cbor_payload, 4U);
+    append_cbor_bytes(&cbor_payload, protected_header);
+    append_cbor_map(&cbor_payload, 4U);
+    append_cbor_text(&cbor_payload, "public_key_der");
+    append_cbor_bytes(&cbor_payload, public_key_der);
+    append_cbor_text(&cbor_payload, "claim-ref-index");
+    append_cbor_i64(&cbor_payload, 999);
+    append_cbor_text(&cbor_payload, "claim-reference");
+    append_cbor_text(&cbor_payload, "c2pa.claim.missing");
+    append_cbor_text(&cbor_payload, "claim-uri");
+    append_cbor_text(&cbor_payload,
+                     "https://example.test/asset?jumbf=c2pa.claim.missing");
+    append_cbor_null(&cbor_payload);
+    append_cbor_bytes(&cbor_payload, raw_sig);
+
+    append_cbor_map(&cbor_payload, 1U);
+    append_cbor_text(&cbor_payload, "claim");
+    append_cbor_bytes(&cbor_payload,
+                      std::span<const std::byte>(target_claim.data(),
+                                                 target_claim.size()));
+
+    const std::vector<std::byte> payload = make_jumbf_payload_with_cbor(
+        cbor_payload);
+
+    MetaStore store;
+    JumbfDecodeOptions options;
+    options.verify_c2pa    = true;
+    options.verify_backend = C2paVerifyBackend::OpenSsl;
+    const JumbfDecodeResult result
+        = decode_jumbf_payload(payload, store, EntryFlags::None, options);
+    EXPECT_EQ(result.status, JumbfDecodeStatus::Ok);
+
+#if OPENMETA_ENABLE_C2PA_VERIFY && OPENMETA_C2PA_VERIFY_OPENSSL_AVAILABLE
+    EXPECT_EQ(result.verify_status, C2paVerifyStatus::NotImplemented);
+#elif OPENMETA_ENABLE_C2PA_VERIFY
+    EXPECT_EQ(result.verify_status, C2paVerifyStatus::BackendUnavailable);
+#else
+    EXPECT_EQ(result.verify_status, C2paVerifyStatus::DisabledByBuild);
+#endif
+}
+
 TEST(JumbfDecode, C2paVerifyCoseDetachedPayloadPercentEncodedClaimReference)
 {
     const std::vector<std::byte> target_claim = {
@@ -3319,6 +3471,106 @@ TEST(JumbfDecode, C2paVerifyCoseDetachedPayloadPercentEncodedJumbfLabel)
 #endif
 }
 
+TEST(JumbfDecode, C2paVerifyCoseDetachedPayloadQueryStyleClaimIndexReference)
+{
+    const std::vector<std::byte> target_claim = {
+        std::byte { 0xA1 },
+        std::byte { 0x61 },
+        std::byte { 0x61 },
+        std::byte { 0x2A },
+    };
+    const std::vector<std::byte> protected_header = make_cose_protected_es256();
+    ASSERT_FALSE(protected_header.empty());
+
+#if OPENMETA_ENABLE_C2PA_VERIFY && OPENMETA_C2PA_VERIFY_OPENSSL_AVAILABLE
+    EVP_PKEY* key = nullptr;
+    ASSERT_TRUE(make_ec_p256_keypair(&key));
+    const std::vector<std::byte> public_key_der = public_key_der_from_key(key);
+    ASSERT_FALSE(public_key_der.empty());
+
+    const std::vector<std::byte> sig_structure = make_cose_sig_structure(
+        std::span<const std::byte>(protected_header.data(),
+                                   protected_header.size()),
+        std::span<const std::byte>(target_claim.data(), target_claim.size()));
+    ASSERT_FALSE(sig_structure.empty());
+
+    const std::vector<std::byte> der_sig = ecdsa_sign_sha256(key,
+                                                             sig_structure);
+    EVP_PKEY_free(key);
+    ASSERT_FALSE(der_sig.empty());
+
+    const std::vector<std::byte> raw_sig = ecdsa_der_to_cose_raw_p256(der_sig);
+    ASSERT_EQ(raw_sig.size(), 64U);
+#else
+    const std::vector<std::byte> public_key_der;
+    const std::vector<std::byte> raw_sig(64U, std::byte { 0x00 });
+#endif
+
+    std::vector<std::byte> cbor_payload;
+    append_cbor_map(&cbor_payload, 1U);
+    append_cbor_text(&cbor_payload, "manifests");
+    append_cbor_map(&cbor_payload, 1U);
+    append_cbor_text(&cbor_payload, "active_manifest");
+    append_cbor_map(&cbor_payload, 1U);
+
+    append_cbor_text(&cbor_payload, "claims");
+    append_cbor_array(&cbor_payload, 41U);
+    for (uint32_t i = 0U; i < 40U; ++i) {
+        append_cbor_map(&cbor_payload, (i == 0U) ? 2U : 1U);
+        append_cbor_text(&cbor_payload, "claim");
+        const uint8_t value = static_cast<uint8_t>((i % 253U) + 1U);
+        const std::array<std::byte, 4U> bad_claim = {
+            std::byte { 0xA1 },
+            std::byte { 0x61 },
+            std::byte { 0x61 },
+            std::byte { value },
+        };
+        append_cbor_bytes(&cbor_payload,
+                          std::span<const std::byte>(bad_claim.data(),
+                                                     bad_claim.size()));
+        if (i == 0U) {
+            append_cbor_text(&cbor_payload, "signatures");
+            append_cbor_array(&cbor_payload, 1U);
+            append_cbor_array(&cbor_payload, 4U);
+            append_cbor_bytes(&cbor_payload, protected_header);
+            append_cbor_map(&cbor_payload, 3U);
+            append_cbor_text(&cbor_payload, "public_key_der");
+            append_cbor_bytes(&cbor_payload, public_key_der);
+            append_cbor_text(&cbor_payload, "claim-reference");
+            append_cbor_text(&cbor_payload, "c2pa.claim.missing");
+            append_cbor_text(&cbor_payload, "claim-uri");
+            append_cbor_text(&cbor_payload,
+                             "https://example.test/media?claim-index=40");
+            append_cbor_null(&cbor_payload);
+            append_cbor_bytes(&cbor_payload, raw_sig);
+        }
+    }
+    append_cbor_map(&cbor_payload, 1U);
+    append_cbor_text(&cbor_payload, "claim");
+    append_cbor_bytes(&cbor_payload,
+                      std::span<const std::byte>(target_claim.data(),
+                                                 target_claim.size()));
+
+    const std::vector<std::byte> payload = make_jumbf_payload_with_cbor(
+        cbor_payload);
+
+    MetaStore store;
+    JumbfDecodeOptions options;
+    options.verify_c2pa    = true;
+    options.verify_backend = C2paVerifyBackend::OpenSsl;
+    const JumbfDecodeResult result
+        = decode_jumbf_payload(payload, store, EntryFlags::None, options);
+    EXPECT_EQ(result.status, JumbfDecodeStatus::Ok);
+
+#if OPENMETA_ENABLE_C2PA_VERIFY && OPENMETA_C2PA_VERIFY_OPENSSL_AVAILABLE
+    EXPECT_EQ(result.verify_status, C2paVerifyStatus::Verified);
+#elif OPENMETA_ENABLE_C2PA_VERIFY
+    EXPECT_EQ(result.verify_status, C2paVerifyStatus::BackendUnavailable);
+#else
+    EXPECT_EQ(result.verify_status, C2paVerifyStatus::DisabledByBuild);
+#endif
+}
+
 TEST(JumbfDecode, C2paVerifyCoseDetachedPayloadFromReferenceMapEntries)
 {
     const std::vector<std::byte> target_claim = {
@@ -3430,6 +3682,127 @@ TEST(JumbfDecode, C2paVerifyCoseDetachedPayloadFromReferenceMapEntries)
     const std::vector<std::byte> payload = make_jumb_box_with_label(
         "c2pa",
         std::span<const std::byte>(root_payload.data(), root_payload.size()));
+
+    MetaStore store;
+    JumbfDecodeOptions options;
+    options.verify_c2pa    = true;
+    options.verify_backend = C2paVerifyBackend::OpenSsl;
+    const JumbfDecodeResult result
+        = decode_jumbf_payload(payload, store, EntryFlags::None, options);
+    EXPECT_EQ(result.status, JumbfDecodeStatus::Ok);
+
+#if OPENMETA_ENABLE_C2PA_VERIFY && OPENMETA_C2PA_VERIFY_OPENSSL_AVAILABLE
+    EXPECT_EQ(result.verify_status, C2paVerifyStatus::Verified);
+#elif OPENMETA_ENABLE_C2PA_VERIFY
+    EXPECT_EQ(result.verify_status, C2paVerifyStatus::BackendUnavailable);
+#else
+    EXPECT_EQ(result.verify_status, C2paVerifyStatus::DisabledByBuild);
+#endif
+}
+
+TEST(JumbfDecode,
+     C2paVerifyCoseDetachedPayloadMultiClaimMultiSignatureQueryIndexReference)
+{
+    const std::vector<std::byte> claim0 = {
+        std::byte { 0xA1 },
+        std::byte { 0x61 },
+        std::byte { 0x61 },
+        std::byte { 0x2A },
+    };
+    const std::vector<std::byte> claim1 = {
+        std::byte { 0xA1 },
+        std::byte { 0x61 },
+        std::byte { 0x62 },
+        std::byte { 0x2B },
+    };
+    const std::vector<std::byte> protected_header = make_cose_protected_es256();
+    ASSERT_FALSE(protected_header.empty());
+
+#if OPENMETA_ENABLE_C2PA_VERIFY && OPENMETA_C2PA_VERIFY_OPENSSL_AVAILABLE
+    EVP_PKEY* key = nullptr;
+    ASSERT_TRUE(make_ec_p256_keypair(&key));
+    const std::vector<std::byte> public_key_der = public_key_der_from_key(key);
+    ASSERT_FALSE(public_key_der.empty());
+
+    const std::vector<std::byte> sig0 = make_cose_sig_structure(
+        std::span<const std::byte>(protected_header.data(),
+                                   protected_header.size()),
+        std::span<const std::byte>(claim1.data(), claim1.size()));
+    const std::vector<std::byte> sig1 = make_cose_sig_structure(
+        std::span<const std::byte>(protected_header.data(),
+                                   protected_header.size()),
+        std::span<const std::byte>(claim0.data(), claim0.size()));
+    ASSERT_FALSE(sig0.empty());
+    ASSERT_FALSE(sig1.empty());
+
+    const std::vector<std::byte> der_sig0 = ecdsa_sign_sha256(key, sig0);
+    const std::vector<std::byte> der_sig1 = ecdsa_sign_sha256(key, sig1);
+    EVP_PKEY_free(key);
+    ASSERT_FALSE(der_sig0.empty());
+    ASSERT_FALSE(der_sig1.empty());
+
+    const std::vector<std::byte> raw_sig0 = ecdsa_der_to_cose_raw_p256(
+        der_sig0);
+    const std::vector<std::byte> raw_sig1 = ecdsa_der_to_cose_raw_p256(
+        der_sig1);
+    ASSERT_EQ(raw_sig0.size(), 64U);
+    ASSERT_EQ(raw_sig1.size(), 64U);
+#else
+    const std::vector<std::byte> public_key_der;
+    const std::vector<std::byte> raw_sig0(64U, std::byte { 0x00 });
+    const std::vector<std::byte> raw_sig1(64U, std::byte { 0x00 });
+#endif
+
+    std::vector<std::byte> cbor_payload;
+    append_cbor_map(&cbor_payload, 1U);
+    append_cbor_text(&cbor_payload, "manifests");
+    append_cbor_map(&cbor_payload, 1U);
+    append_cbor_text(&cbor_payload, "active_manifest");
+    append_cbor_map(&cbor_payload, 1U);
+    append_cbor_text(&cbor_payload, "claims");
+    append_cbor_array(&cbor_payload, 2U);
+
+    append_cbor_map(&cbor_payload, 2U);
+    append_cbor_text(&cbor_payload, "claim");
+    append_cbor_bytes(&cbor_payload,
+                      std::span<const std::byte>(claim0.data(), claim0.size()));
+    append_cbor_text(&cbor_payload, "signatures");
+    append_cbor_array(&cbor_payload, 1U);
+    append_cbor_array(&cbor_payload, 4U);
+    append_cbor_bytes(&cbor_payload, protected_header);
+    append_cbor_map(&cbor_payload, 3U);
+    append_cbor_text(&cbor_payload, "public_key_der");
+    append_cbor_bytes(&cbor_payload, public_key_der);
+    append_cbor_text(&cbor_payload, "claim-uri");
+    append_cbor_text(&cbor_payload,
+                     "https://example.test/a?claim-index=1&jumbf="
+                     "c2pa.claim.missing0");
+    append_cbor_text(&cbor_payload, "claim-reference");
+    append_cbor_text(&cbor_payload, "c2pa.claim.missing0");
+    append_cbor_null(&cbor_payload);
+    append_cbor_bytes(&cbor_payload, raw_sig0);
+
+    append_cbor_map(&cbor_payload, 2U);
+    append_cbor_text(&cbor_payload, "claim");
+    append_cbor_bytes(&cbor_payload,
+                      std::span<const std::byte>(claim1.data(), claim1.size()));
+    append_cbor_text(&cbor_payload, "signatures");
+    append_cbor_array(&cbor_payload, 1U);
+    append_cbor_array(&cbor_payload, 4U);
+    append_cbor_bytes(&cbor_payload, protected_header);
+    append_cbor_map(&cbor_payload, 3U);
+    append_cbor_text(&cbor_payload, "public_key_der");
+    append_cbor_bytes(&cbor_payload, public_key_der);
+    append_cbor_text(&cbor_payload, "claim-uri");
+    append_cbor_text(&cbor_payload, "https://example.test/b?claim_ref=0&jumbf="
+                                    "c2pa.claim.missing1");
+    append_cbor_text(&cbor_payload, "claim-reference");
+    append_cbor_text(&cbor_payload, "c2pa.claim.missing1");
+    append_cbor_null(&cbor_payload);
+    append_cbor_bytes(&cbor_payload, raw_sig1);
+
+    const std::vector<std::byte> payload = make_jumbf_payload_with_cbor(
+        cbor_payload);
 
     MetaStore store;
     JumbfDecodeOptions options;
