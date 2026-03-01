@@ -49,14 +49,19 @@ struct JumbfDecodeLimits final {
     /// Maximum input bytes to accept (0 = unlimited).
     uint64_t max_input_bytes = 64ULL * 1024ULL * 1024ULL;
     /// Maximum BMFF box depth.
+    /// 0 is normalized to a safe default (32).
     uint32_t max_box_depth = 32;
     /// Maximum BMFF boxes to traverse.
+    /// 0 is normalized to a safe default (65536).
     uint32_t max_boxes = 1U << 16;
     /// Maximum emitted entries.
+    /// 0 is normalized to a safe default (200000).
     uint32_t max_entries = 200000;
     /// Maximum CBOR recursion depth.
+    /// 0 is normalized to a safe default (64).
     uint32_t max_cbor_depth = 64;
     /// Maximum CBOR items to parse.
+    /// 0 is normalized to a safe default (200000).
     uint32_t max_cbor_items = 200000;
     /// Maximum CBOR string key bytes.
     uint32_t max_cbor_key_bytes = 1024;
@@ -85,12 +90,24 @@ struct JumbfDecodeOptions final {
 
 /// JUMBF decode result summary.
 struct JumbfDecodeResult final {
-    JumbfDecodeStatus status = JumbfDecodeStatus::Unsupported;
-    uint32_t boxes_decoded   = 0;
-    uint32_t cbor_items      = 0;
-    uint32_t entries_decoded = 0;
-    C2paVerifyStatus verify_status = C2paVerifyStatus::NotRequested;
+    JumbfDecodeStatus status                  = JumbfDecodeStatus::Unsupported;
+    uint32_t boxes_decoded                    = 0;
+    uint32_t cbor_items                       = 0;
+    uint32_t entries_decoded                  = 0;
+    C2paVerifyStatus verify_status            = C2paVerifyStatus::NotRequested;
     C2paVerifyBackend verify_backend_selected = C2paVerifyBackend::None;
+};
+
+/// Preflight structural estimate for a JUMBF/C2PA payload.
+///
+/// This is a scan-only estimate: it does not emit metadata entries.
+struct JumbfStructureEstimate final {
+    JumbfDecodeStatus status = JumbfDecodeStatus::Unsupported;
+    uint32_t boxes_scanned   = 0;
+    uint32_t max_box_depth   = 0;
+    uint32_t cbor_payloads   = 0;
+    uint32_t cbor_items      = 0;
+    uint32_t max_cbor_depth  = 0;
 };
 
 /**
@@ -107,5 +124,17 @@ decode_jumbf_payload(std::span<const std::byte> bytes, MetaStore& store,
                      EntryFlags flags = EntryFlags::None,
                      const JumbfDecodeOptions& options
                      = JumbfDecodeOptions {}) noexcept;
+
+/**
+ * \brief Estimates structural nesting for a JUMBF/C2PA payload.
+ *
+ * Performs bounded BMFF box traversal and bounded CBOR structural parsing to
+ * report maximum observed nesting depth and item counts. This function is
+ * intended for preflight risk checks before full decode.
+ */
+JumbfStructureEstimate
+estimate_jumbf_structure(std::span<const std::byte> bytes,
+                         const JumbfDecodeLimits& limits
+                         = JumbfDecodeLimits {}) noexcept;
 
 }  // namespace openmeta

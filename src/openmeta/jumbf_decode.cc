@@ -216,6 +216,29 @@ namespace {
         return true;
     }
 
+    static void normalize_jumbf_limits(JumbfDecodeLimits* limits) noexcept
+    {
+        if (!limits) {
+            return;
+        }
+
+        if (limits->max_box_depth == 0U) {
+            limits->max_box_depth = 32U;
+        }
+        if (limits->max_boxes == 0U) {
+            limits->max_boxes = 1U << 16;
+        }
+        if (limits->max_entries == 0U) {
+            limits->max_entries = 200000U;
+        }
+        if (limits->max_cbor_depth == 0U) {
+            limits->max_cbor_depth = 64U;
+        }
+        if (limits->max_cbor_items == 0U) {
+            limits->max_cbor_items = 200000U;
+        }
+    }
+
 
     static bool emit_field_text(DecodeContext* ctx, std::string_view field,
                                 std::string_view value,
@@ -709,6 +732,10 @@ namespace {
     static bool find_detached_payload_from_claim_box_layout(
         const DecodeContext& ctx, uint32_t signature_cbor_box_index,
         std::vector<std::byte>* out_payload) noexcept;
+    static void append_detached_payload_candidates_in_order(
+        const std::vector<std::vector<std::byte>>& candidates,
+        uint64_t max_bytes,
+        std::vector<std::vector<std::byte>>* out_candidates) noexcept;
     static int32_t find_first_descendant_box_of_type(const DecodeContext& ctx,
                                                      int32_t ancestor_index,
                                                      uint32_t type) noexcept;
@@ -952,7 +979,7 @@ namespace {
         return false;
     }
 
-    static std::string uri_percent_decode(std::string_view text)
+    static std::string uri_percent_decode_once(std::string_view text)
     {
         std::string out;
         out.reserve(text.size());
@@ -971,6 +998,23 @@ namespace {
             out.push_back(c);
         }
         return out;
+    }
+
+    static std::string uri_percent_decode(std::string_view text)
+    {
+        // Minor real-world edge case: some references are encoded multiple
+        // times before entering CBOR payloads. Decode a small fixed number of
+        // passes to normalize those forms without unbounded work.
+        std::string decoded = uri_percent_decode_once(text);
+        for (uint32_t pass = 0U; pass < 2U; ++pass) {
+            const std::string next = uri_percent_decode_once(
+                std::string_view(decoded));
+            if (next == decoded) {
+                break;
+            }
+            decoded = next;
+        }
+        return decoded;
     }
 
     static bool claim_index_from_reference_text(std::string_view reference,
@@ -1320,7 +1364,8 @@ namespace {
             = claim_scope_prefix_from_signature_prefix(signature_prefix,
                                                        parent_prefix);
 
-        bool added_any                       = false;
+        std::vector<std::vector<std::byte>> index_candidates;
+        std::vector<std::vector<std::byte>> label_candidates;
         const std::span<const Entry> entries = ctx.store->entries();
         for (const Entry& e : entries) {
             if (e.origin.block != ctx.block
@@ -1340,11 +1385,9 @@ namespace {
 
             uint32_t claim_index = 0U;
             if (claim_reference_index_from_scalar_entry(e, &claim_index)) {
-                if (append_detached_payload_candidate_from_claim_index(
-                        ctx, claim_scope_prefix, claim_index, max_bytes,
-                        out_candidates)) {
-                    added_any = true;
-                }
+                (void)append_detached_payload_candidate_from_claim_index(
+                    ctx, claim_scope_prefix, claim_index, max_bytes,
+                    &index_candidates);
             }
 
             std::string reference;
@@ -1354,24 +1397,43 @@ namespace {
 
             claim_index = 0U;
             if (claim_index_from_reference_text(reference, &claim_index)) {
-                if (append_detached_payload_candidate_from_claim_index(
-                        ctx, claim_scope_prefix, claim_index, max_bytes,
-                        out_candidates)) {
-                    added_any = true;
-                }
+                (void)append_detached_payload_candidate_from_claim_index(
+                    ctx, claim_scope_prefix, claim_index, max_bytes,
+                    &index_candidates);
             }
 
             std::string claim_label;
             if (claim_label_from_reference_text(reference, &claim_label)) {
-                const size_t before = out_candidates->size();
                 collect_detached_payload_candidates_from_claim_box_label(
-                    ctx, claim_label, max_bytes, out_candidates);
-                if (out_candidates->size() > before) {
-                    added_any = true;
-                }
+                    ctx, claim_label, max_bytes, &label_candidates);
             }
         }
+
+        const size_t before = out_candidates->size();
+        append_detached_payload_candidates_in_order(index_candidates, max_bytes,
+                                                    out_candidates);
+        append_detached_payload_candidates_in_order(label_candidates, max_bytes,
+                                                    out_candidates);
+        const bool added_any = out_candidates->size() > before;
         return added_any;
+    }
+
+    static void append_detached_payload_candidates_in_order(
+        const std::vector<std::vector<std::byte>>& candidates,
+        uint64_t max_bytes,
+        std::vector<std::vector<std::byte>>* out_candidates) noexcept
+    {
+        if (!out_candidates) {
+            return;
+        }
+        for (const std::vector<std::byte>& payload : candidates) {
+            if (payload.empty()) {
+                continue;
+            }
+            append_unique_detached_payload_candidate(
+                std::span<const std::byte>(payload.data(), payload.size()),
+                max_bytes, out_candidates);
+        }
     }
 
     static void collect_detached_payload_candidates_from_claim_keys(
@@ -3504,8 +3566,9 @@ namespace {
         };
 
         std::string prefix;
-        uint64_t key_hits           = 0U;
-        uint64_t signature_key_hits = 0U;
+        uint64_t key_hits                      = 0U;
+        uint64_t signature_key_hits            = 0U;
+        uint64_t referenced_by_signature_count = 0U;
         std::vector<AssertionProjection> assertions;
         std::vector<SignatureProjection> signatures;
         bool has_claim_generator = false;
@@ -3514,9 +3577,14 @@ namespace {
 
     struct SignatureProjection final {
         std::string prefix;
-        uint64_t key_hits  = 0U;
-        bool has_algorithm = false;
+        uint64_t key_hits               = 0U;
+        uint64_t reference_key_hits     = 0U;
+        uint64_t linked_claim_count     = 0U;
+        uint64_t cross_claim_link_count = 0U;
+        bool has_explicit_reference     = false;
+        bool has_algorithm              = false;
         std::string algorithm;
+        std::vector<std::string> linked_claim_prefixes;
     };
 
     struct ClaimProjectionLess final {
@@ -3670,6 +3738,133 @@ namespace {
         return signatures->size() - 1U;
     }
 
+    static void append_unique_string_value(std::vector<std::string>* values,
+                                           std::string_view value) noexcept
+    {
+        if (!values || value.empty()) {
+            return;
+        }
+        if (vector_contains_string(*values, value)) {
+            return;
+        }
+        values->emplace_back(value.data(), value.size());
+    }
+
+    static bool payload_bytes_equal(std::span<const std::byte> a,
+                                    std::span<const std::byte> b) noexcept
+    {
+        if (a.size() != b.size()) {
+            return false;
+        }
+        if (a.empty()) {
+            return true;
+        }
+        return std::memcmp(a.data(), b.data(), a.size()) == 0;
+    }
+
+    static void collect_claim_payloads_for_prefix(
+        const DecodeContext& ctx, std::string_view claim_prefix,
+        uint64_t max_bytes,
+        std::vector<std::vector<std::byte>>* out_payloads) noexcept
+    {
+        if (!ctx.store || !out_payloads || claim_prefix.empty()) {
+            return;
+        }
+        const std::span<const Entry> entries = ctx.store->entries();
+        for (const Entry& e : entries) {
+            if (e.origin.block != ctx.block
+                || e.key.kind != MetaKeyKind::JumbfCborKey) {
+                continue;
+            }
+            if (e.value.kind != MetaValueKind::Bytes
+                && !(e.value.kind == MetaValueKind::Array
+                     && e.value.elem_type == MetaElementType::U8)) {
+                continue;
+            }
+            const std::string_view key
+                = arena_string_view(ctx.store->arena(),
+                                    e.key.data.jumbf_cbor_key.key);
+            if (!string_starts_with(key, claim_prefix)
+                || !cbor_key_is_claim_payload_field(key)) {
+                continue;
+            }
+            const std::span<const std::byte> payload = ctx.store->arena().span(
+                e.value.data.span);
+            append_unique_detached_payload_candidate(payload, max_bytes,
+                                                     out_payloads);
+        }
+    }
+
+    static void append_signature_explicit_reference_links(
+        const DecodeContext& ctx, const std::vector<ClaimProjection>& claims,
+        const std::vector<std::vector<std::vector<std::byte>>>&
+            claim_payloads_by_index,
+        uint64_t max_bytes, SignatureProjection* signature) noexcept
+    {
+        if (!signature || !ctx.store) {
+            return;
+        }
+        if (claims.empty() || claim_payloads_by_index.size() != claims.size()) {
+            return;
+        }
+
+        C2paVerifySignatureCandidate candidate;
+        candidate.prefix = signature->prefix;
+
+        bool saw_reference = false;
+        std::vector<std::vector<std::byte>> detached_candidates;
+        (void)collect_detached_payload_candidates_from_claim_references(
+            ctx, candidate, max_bytes, &detached_candidates, &saw_reference);
+        if (!saw_reference) {
+            return;
+        }
+        signature->has_explicit_reference = true;
+
+        for (const std::vector<std::byte>& detached : detached_candidates) {
+            const std::span<const std::byte> detached_span(detached.data(),
+                                                           detached.size());
+            for (size_t claim_index = 0U; claim_index < claims.size();
+                 ++claim_index) {
+                const std::vector<std::vector<std::byte>>& claim_payloads
+                    = claim_payloads_by_index[claim_index];
+                bool matched_claim = false;
+                for (const std::vector<std::byte>& payload : claim_payloads) {
+                    if (!payload_bytes_equal(
+                            detached_span,
+                            std::span<const std::byte>(payload.data(),
+                                                       payload.size()))) {
+                        continue;
+                    }
+                    append_unique_string_value(&signature->linked_claim_prefixes,
+                                               claims[claim_index].prefix);
+                    matched_claim = true;
+                    break;
+                }
+                if (matched_claim) {
+                    continue;
+                }
+            }
+        }
+    }
+
+    static void append_signature_nested_claim_links(
+        const std::vector<ClaimProjection>& claims,
+        SignatureProjection* signature) noexcept
+    {
+        if (!signature) {
+            return;
+        }
+        for (const ClaimProjection& claim : claims) {
+            if (!string_starts_with(signature->prefix, claim.prefix)
+                || signature->prefix.size() <= claim.prefix.size()
+                || signature->prefix[claim.prefix.size()] != '.') {
+                continue;
+            }
+            append_unique_string_value(&signature->linked_claim_prefixes,
+                                       claim.prefix);
+        }
+    }
+
     static bool append_c2pa_semantic_fields(DecodeContext* ctx) noexcept
     {
         if (!ctx || !ctx->store) {
@@ -3679,6 +3874,7 @@ namespace {
         uint64_t cbor_key_count     = 0U;
         uint64_t assertion_key_hits = 0U;
         uint64_t signature_key_hits = 0U;
+        uint64_t reference_key_hits = 0U;
         bool has_manifest           = false;
         bool has_claim              = false;
         bool has_assertions         = false;
@@ -3806,6 +4002,12 @@ namespace {
                                                       signature_prefix);
                 if (signature_index != static_cast<size_t>(-1)) {
                     signatures[signature_index].key_hits += 1U;
+                    if (cbor_key_is_claim_reference_field(key)) {
+                        signatures[signature_index].reference_key_hits += 1U;
+                        signatures[signature_index].has_explicit_reference
+                            = true;
+                        reference_key_hits += 1U;
+                    }
                     if (!signatures[signature_index].has_algorithm
                         && has_algorithm) {
                         signatures[signature_index].algorithm = algorithm_value;
@@ -3865,6 +4067,72 @@ namespace {
 
         const bool use_label_counts = have_label_summary && claims.empty()
                                       && signatures.empty();
+        uint64_t signature_linked_count = 0U;
+        uint64_t cross_claim_link_count = 0U;
+        if (!use_label_counts) {
+            const uint64_t max_detached_bytes = cbor_limit_or_default(
+                ctx->options.limits.max_cbor_bytes_bytes, 8U * 1024U * 1024U);
+
+            std::vector<std::vector<std::vector<std::byte>>>
+                claim_payloads_by_index;
+            claim_payloads_by_index.resize(claims.size());
+            for (size_t claim_index = 0U; claim_index < claims.size();
+                 ++claim_index) {
+                collect_claim_payloads_for_prefix(
+                    *ctx, claims[claim_index].prefix, max_detached_bytes,
+                    &claim_payloads_by_index[claim_index]);
+            }
+
+            for (SignatureProjection& signature : signatures) {
+                append_signature_explicit_reference_links(
+                    *ctx, claims, claim_payloads_by_index, max_detached_bytes,
+                    &signature);
+                if (signature.linked_claim_prefixes.empty()
+                    && !signature.has_explicit_reference) {
+                    append_signature_nested_claim_links(claims, &signature);
+                }
+            }
+
+            for (ClaimProjection& claim : claims) {
+                claim.referenced_by_signature_count = 0U;
+            }
+            for (SignatureProjection& signature : signatures) {
+                signature.linked_claim_count = static_cast<uint64_t>(
+                    signature.linked_claim_prefixes.size());
+                if (signature.linked_claim_count != 0U) {
+                    signature_linked_count += 1U;
+                }
+
+                std::string direct_claim_prefix;
+                for (const ClaimProjection& claim : claims) {
+                    if (!string_starts_with(signature.prefix, claim.prefix)
+                        || signature.prefix.size() <= claim.prefix.size()
+                        || signature.prefix[claim.prefix.size()] != '.') {
+                        continue;
+                    }
+                    direct_claim_prefix = claim.prefix;
+                    break;
+                }
+
+                signature.cross_claim_link_count = 0U;
+                for (const std::string& linked_claim_prefix :
+                     signature.linked_claim_prefixes) {
+                    if (direct_claim_prefix.empty()
+                        || linked_claim_prefix != direct_claim_prefix) {
+                        signature.cross_claim_link_count += 1U;
+                    }
+                    const size_t linked_claim_index
+                        = find_claim_projection(claims, linked_claim_prefix);
+                    if (linked_claim_index != static_cast<size_t>(-1)) {
+                        claims[linked_claim_index].referenced_by_signature_count
+                            += 1U;
+                    }
+                }
+                cross_claim_link_count += signature.cross_claim_link_count;
+            }
+        } else {
+            signature_linked_count = label_signature_linked;
+        }
 
         if (has_manifest || has_claim || has_assertions || has_signature) {
             if (!append_c2pa_marker(ctx, "cbor.semantic")) {
@@ -3900,6 +4168,14 @@ namespace {
                             signature_key_hits, EntryFlags::Derived)) {
             return false;
         }
+        if (!emit_field_u64(ctx, "c2pa.semantic.reference_key_hits",
+                            reference_key_hits, EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(ctx, "c2pa.semantic.cross_claim_link_count",
+                            cross_claim_link_count, EntryFlags::Derived)) {
+            return false;
+        }
         const uint64_t claim_count = use_label_counts ? label_claim_count
                                                       : claims.size();
         if (!emit_field_u64(ctx, "c2pa.semantic.claim_count", claim_count,
@@ -3918,25 +4194,6 @@ namespace {
         if (!emit_field_u64(ctx, "c2pa.semantic.signature_count",
                             signature_count, EntryFlags::Derived)) {
             return false;
-        }
-        uint64_t signature_linked_count = 0U;
-        if (use_label_counts) {
-            signature_linked_count = label_signature_linked;
-        } else {
-            for (const SignatureProjection& signature : signatures) {
-                bool linked = false;
-                for (const ClaimProjection& claim : claims) {
-                    if (string_starts_with(signature.prefix, claim.prefix)
-                        && signature.prefix.size() > claim.prefix.size()
-                        && signature.prefix[claim.prefix.size()] == '.') {
-                        linked = true;
-                        break;
-                    }
-                }
-                if (linked) {
-                    signature_linked_count += 1U;
-                }
-            }
         }
         if (!emit_field_u64(ctx, "c2pa.semantic.signature_linked_count",
                             signature_linked_count, EntryFlags::Derived)) {
@@ -4000,6 +4257,13 @@ namespace {
             field.assign(field_prefix);
             field.append(".signature_key_hits");
             if (!emit_field_u64(ctx, field, claim.signature_key_hits,
+                                EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(".referenced_by_signature_count");
+            if (!emit_field_u64(ctx, field, claim.referenced_by_signature_count,
                                 EntryFlags::Derived)) {
                 return false;
             }
@@ -4102,6 +4366,45 @@ namespace {
             if (!emit_field_u64(ctx, field, signature.key_hits,
                                 EntryFlags::Derived)) {
                 return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(".reference_key_hits");
+            if (!emit_field_u64(ctx, field, signature.reference_key_hits,
+                                EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(".linked_claim_count");
+            if (!emit_field_u64(ctx, field, signature.linked_claim_count,
+                                EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(".cross_claim_link_count");
+            if (!emit_field_u64(ctx, field, signature.cross_claim_link_count,
+                                EntryFlags::Derived)) {
+                return false;
+            }
+
+            std::vector<std::string> linked_claim_prefixes
+                = signature.linked_claim_prefixes;
+            std::sort(linked_claim_prefixes.begin(),
+                      linked_claim_prefixes.end());
+            for (size_t claim_index = 0U;
+                 claim_index < linked_claim_prefixes.size(); ++claim_index) {
+                std::string claim_field(field_prefix);
+                claim_field.append(".linked_claim.");
+                claim_field.append(std::to_string(
+                    static_cast<unsigned long long>(claim_index)));
+                claim_field.append(".prefix");
+                if (!emit_field_text(ctx, claim_field,
+                                     linked_claim_prefixes[claim_index],
+                                     EntryFlags::Derived)) {
+                    return false;
+                }
             }
 
             if (signature.has_algorithm) {
@@ -5996,6 +6299,232 @@ namespace {
         return true;
     }
 
+    struct JumbfEstimateCtx final {
+        JumbfStructureEstimate result;
+        JumbfDecodeLimits limits;
+    };
+
+    static bool estimate_cbor_item(std::span<const std::byte> bytes,
+                                   size_t* pos, uint32_t depth,
+                                   JumbfEstimateCtx* ctx) noexcept;
+
+    static bool estimate_cbor_depth_ok(JumbfEstimateCtx* ctx,
+                                       uint32_t depth) noexcept
+    {
+        if (!ctx) {
+            return false;
+        }
+        if (depth > ctx->result.max_cbor_depth) {
+            ctx->result.max_cbor_depth = depth;
+        }
+        const uint32_t max_depth = ctx->limits.max_cbor_depth;
+        if (max_depth != 0U && depth > max_depth) {
+            ctx->result.status = JumbfDecodeStatus::LimitExceeded;
+            return false;
+        }
+        return true;
+    }
+
+    static bool estimate_cbor_take_item(JumbfEstimateCtx* ctx) noexcept
+    {
+        if (!ctx) {
+            return false;
+        }
+        ctx->result.cbor_items += 1U;
+        const uint32_t max_items = ctx->limits.max_cbor_items;
+        if (max_items != 0U && ctx->result.cbor_items > max_items) {
+            ctx->result.status = JumbfDecodeStatus::LimitExceeded;
+            return false;
+        }
+        return true;
+    }
+
+    static bool estimate_cbor_item_from_head(std::span<const std::byte> bytes,
+                                             size_t* pos, uint32_t depth,
+                                             const CborHeadLite& head,
+                                             JumbfEstimateCtx* ctx) noexcept
+    {
+        if (!pos || !ctx || !estimate_cbor_depth_ok(ctx, depth)) {
+            return false;
+        }
+        if (head.is_break_item) {
+            return false;
+        }
+        if (head.major == 0U || head.major == 1U || head.major == 7U) {
+            return true;
+        }
+        if (head.major == 2U || head.major == 3U) {
+            if (!head.indefinite) {
+                if (*pos > bytes.size() || head.arg > bytes.size() - *pos) {
+                    return false;
+                }
+                *pos += static_cast<size_t>(head.arg);
+                return true;
+            }
+            while (true) {
+                if (cbor_lite_peek_break(bytes, *pos)) {
+                    *pos += 1U;
+                    return true;
+                }
+                CborHeadLite chunk;
+                if (!cbor_lite_read_head(bytes, pos, &chunk)
+                    || chunk.is_break_item || !estimate_cbor_take_item(ctx)) {
+                    return false;
+                }
+                if (chunk.major != head.major || chunk.indefinite) {
+                    return false;
+                }
+                if (*pos > bytes.size() || chunk.arg > bytes.size() - *pos) {
+                    return false;
+                }
+                *pos += static_cast<size_t>(chunk.arg);
+            }
+        }
+        if (head.major == 4U) {
+            if (!head.indefinite) {
+                for (uint64_t i = 0U; i < head.arg; ++i) {
+                    if (!estimate_cbor_item(bytes, pos, depth + 1U, ctx)) {
+                        return false;
+                    }
+                }
+                return true;
+            }
+            while (true) {
+                if (cbor_lite_peek_break(bytes, *pos)) {
+                    *pos += 1U;
+                    return true;
+                }
+                if (!estimate_cbor_item(bytes, pos, depth + 1U, ctx)) {
+                    return false;
+                }
+            }
+        }
+        if (head.major == 5U) {
+            if (!head.indefinite) {
+                for (uint64_t i = 0U; i < head.arg; ++i) {
+                    if (!estimate_cbor_item(bytes, pos, depth + 1U, ctx)
+                        || !estimate_cbor_item(bytes, pos, depth + 1U, ctx)) {
+                        return false;
+                    }
+                }
+                return true;
+            }
+            while (true) {
+                if (cbor_lite_peek_break(bytes, *pos)) {
+                    *pos += 1U;
+                    return true;
+                }
+                if (!estimate_cbor_item(bytes, pos, depth + 1U, ctx)
+                    || !estimate_cbor_item(bytes, pos, depth + 1U, ctx)) {
+                    return false;
+                }
+            }
+        }
+        if (head.major == 6U) {
+            if (head.indefinite) {
+                return false;
+            }
+            return estimate_cbor_item(bytes, pos, depth + 1U, ctx);
+        }
+        return false;
+    }
+
+    static bool estimate_cbor_item(std::span<const std::byte> bytes,
+                                   size_t* pos, uint32_t depth,
+                                   JumbfEstimateCtx* ctx) noexcept
+    {
+        if (!pos || *pos > bytes.size() || !ctx
+            || !estimate_cbor_depth_ok(ctx, depth)) {
+            return false;
+        }
+        CborHeadLite head;
+        if (!cbor_lite_read_head(bytes, pos, &head) || head.is_break_item
+            || !estimate_cbor_take_item(ctx)) {
+            return false;
+        }
+        return estimate_cbor_item_from_head(bytes, pos, depth, head, ctx);
+    }
+
+    static bool estimate_cbor_payload(std::span<const std::byte> payload,
+                                      JumbfEstimateCtx* ctx) noexcept
+    {
+        if (!ctx) {
+            return false;
+        }
+        size_t pos = 0U;
+        while (pos < payload.size()) {
+            if (!estimate_cbor_item(payload, &pos, 0U, ctx)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    static bool estimate_jumbf_boxes(std::span<const std::byte> bytes,
+                                     uint64_t begin, uint64_t end,
+                                     uint32_t depth,
+                                     JumbfEstimateCtx* ctx) noexcept
+    {
+        if (!ctx) {
+            return false;
+        }
+        if (depth > ctx->result.max_box_depth) {
+            ctx->result.max_box_depth = depth;
+        }
+        const uint32_t max_depth = ctx->limits.max_box_depth;
+        if (max_depth != 0U && depth > max_depth) {
+            ctx->result.status = JumbfDecodeStatus::LimitExceeded;
+            return false;
+        }
+
+        uint64_t offset = begin;
+        while (offset < end) {
+            BmffBox box;
+            if (!parse_bmff_box(bytes, offset, end, &box)) {
+                ctx->result.status = JumbfDecodeStatus::Malformed;
+                return false;
+            }
+
+            ctx->result.boxes_scanned += 1U;
+            const uint32_t max_boxes = ctx->limits.max_boxes;
+            if (max_boxes != 0U && ctx->result.boxes_scanned > max_boxes) {
+                ctx->result.status = JumbfDecodeStatus::LimitExceeded;
+                return false;
+            }
+
+            const uint64_t payload_off  = box.offset + box.header_size;
+            const uint64_t payload_size = box.size - box.header_size;
+            const std::span<const std::byte> payload
+                = bytes.subspan(static_cast<size_t>(payload_off),
+                                static_cast<size_t>(payload_size));
+
+            if (box.type == fourcc('c', 'b', 'o', 'r')) {
+                ctx->result.cbor_payloads += 1U;
+                if (!estimate_cbor_payload(payload, ctx)) {
+                    if (ctx->result.status == JumbfDecodeStatus::Unsupported) {
+                        ctx->result.status = JumbfDecodeStatus::Malformed;
+                    }
+                    return false;
+                }
+            }
+
+            if (looks_like_bmff_sequence(bytes, payload_off,
+                                         payload_off + payload_size)) {
+                if (!estimate_jumbf_boxes(bytes, payload_off,
+                                          payload_off + payload_size,
+                                          depth + 1U, ctx)) {
+                    return false;
+                }
+            }
+
+            offset += box.size;
+            if (box.size == 0U) {
+                break;
+            }
+        }
+        return true;
+    }
+
 }  // namespace
 
 JumbfDecodeResult
@@ -6006,8 +6535,11 @@ decode_jumbf_payload(std::span<const std::byte> bytes, MetaStore& store,
     JumbfDecodeResult out;
     out.status = JumbfDecodeStatus::Unsupported;
 
-    if (options.limits.max_input_bytes != 0U
-        && bytes.size() > options.limits.max_input_bytes) {
+    JumbfDecodeOptions effective_options = options;
+    normalize_jumbf_limits(&effective_options.limits);
+
+    if (effective_options.limits.max_input_bytes != 0U
+        && bytes.size() > effective_options.limits.max_input_bytes) {
         out.status = JumbfDecodeStatus::LimitExceeded;
         return out;
     }
@@ -6020,7 +6552,7 @@ decode_jumbf_payload(std::span<const std::byte> bytes, MetaStore& store,
     ctx.store         = &store;
     ctx.flags         = flags;
     ctx.input_bytes   = bytes;
-    ctx.options       = options;
+    ctx.options       = effective_options;
     ctx.result.status = JumbfDecodeStatus::Ok;
     ctx.block         = store.add_block(BlockInfo {});
     if (ctx.block == kInvalidBlockId) {
@@ -6047,6 +6579,38 @@ decode_jumbf_payload(std::span<const std::byte> bytes, MetaStore& store,
         }
     }
 
+    return ctx.result;
+}
+
+JumbfStructureEstimate
+estimate_jumbf_structure(std::span<const std::byte> bytes,
+                         const JumbfDecodeLimits& limits) noexcept
+{
+    JumbfStructureEstimate out;
+    out.status = JumbfDecodeStatus::Unsupported;
+
+    JumbfEstimateCtx ctx;
+    ctx.limits       = limits;
+    ctx.result       = out;
+    ctx.result.status = JumbfDecodeStatus::Ok;
+    normalize_jumbf_limits(&ctx.limits);
+
+    if (ctx.limits.max_input_bytes != 0U
+        && bytes.size() > ctx.limits.max_input_bytes) {
+        ctx.result.status = JumbfDecodeStatus::LimitExceeded;
+        return ctx.result;
+    }
+
+    if (!looks_like_bmff_sequence(bytes, 0U, bytes.size())) {
+        ctx.result.status = JumbfDecodeStatus::Unsupported;
+        return ctx.result;
+    }
+
+    if (!estimate_jumbf_boxes(bytes, 0U, bytes.size(), 0U, &ctx)) {
+        if (ctx.result.status == JumbfDecodeStatus::Ok) {
+            ctx.result.status = JumbfDecodeStatus::Malformed;
+        }
+    }
     return ctx.result;
 }
 

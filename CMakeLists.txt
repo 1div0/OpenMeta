@@ -508,6 +508,7 @@ if(OPENMETA_BUILD_TESTS)
     tests/photoshop_irb_decode_test.cc
     tests/preview_extract_test.cc
     tests/printim_decode_test.cc
+    tests/resource_policy_test.cc
     tests/simple_meta_bmff_exif_test.cc
     tests/simple_meta_xmp_test.cc
     tests/validate_test.cc

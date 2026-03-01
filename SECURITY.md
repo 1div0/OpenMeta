@@ -26,6 +26,32 @@ All parsers/decoders must:
 EXIF/TIFF decoding uses `ExifDecodeLimits` to cap IFD count, entry count, and
 total value bytes.
 
+## Recursion & Traversal Budgets (Recommended)
+
+OpenMeta design rule: metadata decode must never rely on unlimited recursion or
+unbounded graph walks.
+
+Recommended limits by block family:
+- EXIF/TIFF + MakerNotes (IFD pointer graph): keep
+  `exif_limits.max_ifds <= 128`, `max_entries_per_ifd <= 4096`, and
+  `max_total_entries <= 200000`; keep visited-offset loop checks enabled.
+- XMP RDF/XML (element nesting): keep `xmp_limits.max_depth <= 128` and
+  `xmp_limits.max_properties <= 200000`.
+- JUMBF/C2PA (nested BMFF + CBOR): keep `jumbf_limits.max_box_depth <= 32`,
+  `max_boxes <= 65536`, `max_cbor_depth <= 64`, and
+  `max_cbor_items <= 200000`.
+- BMFF metadata discovery (HEIF/AVIF/CR3/JP2/JXL): uses internal hard caps for
+  nested box scans (depth-capped and box-count-capped by decoder path).
+- CR3 preview UUID scan: internal hard caps
+  (`depth <= 16`, `boxes <= 65536`).
+- CRW/CIFF directory decode: internal hard cap (`depth <= 32`) plus EXIF entry
+  budgets.
+
+For JUMBF preflight checks, use `estimate_jumbf_structure(...)` before full
+decode when you need to enforce stricter deployment-specific depth policy.
+For cross-decoder policy setup, start from `recommended_resource_policy()` and
+override only what your application needs.
+
 ## Output & Export Safety Requirements
 
 Tools and exporters must never emit raw metadata bytes without sanitization.

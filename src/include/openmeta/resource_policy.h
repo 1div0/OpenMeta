@@ -68,15 +68,102 @@ struct OpenMetaResourcePolicy final {
     uint64_t max_total_decode_work_bytes = 0;
 };
 
+/**
+ * \brief Normalizes traversal/recursion-related limits to safe defaults.
+ *
+ * OpenMeta design goal: recursion/traversal limits should never become
+ * "unlimited" through a zero value in user policy. This helper keeps decode
+ * paths bounded for untrusted metadata.
+ */
+inline void
+normalize_resource_policy(OpenMetaResourcePolicy* policy) noexcept
+{
+    if (!policy) {
+        return;
+    }
+
+    if (policy->payload_limits.max_parts == 0U) {
+        policy->payload_limits.max_parts = 1U << 14;
+    }
+
+    if (policy->exif_limits.max_ifds == 0U) {
+        policy->exif_limits.max_ifds = 128U;
+    }
+    if (policy->exif_limits.max_entries_per_ifd == 0U) {
+        policy->exif_limits.max_entries_per_ifd = 4096U;
+    }
+    if (policy->exif_limits.max_total_entries == 0U) {
+        policy->exif_limits.max_total_entries = 200000U;
+    }
+
+    if (policy->xmp_limits.max_depth == 0U) {
+        policy->xmp_limits.max_depth = 128U;
+    }
+    if (policy->xmp_limits.max_properties == 0U) {
+        policy->xmp_limits.max_properties = 200000U;
+    }
+
+    if (policy->exr_limits.max_parts == 0U) {
+        policy->exr_limits.max_parts = 64U;
+    }
+    if (policy->exr_limits.max_attributes_per_part == 0U) {
+        policy->exr_limits.max_attributes_per_part = 1U << 16;
+    }
+    if (policy->exr_limits.max_attributes == 0U) {
+        policy->exr_limits.max_attributes = 200000U;
+    }
+
+    if (policy->jumbf_limits.max_box_depth == 0U) {
+        policy->jumbf_limits.max_box_depth = 32U;
+    }
+    if (policy->jumbf_limits.max_boxes == 0U) {
+        policy->jumbf_limits.max_boxes = 1U << 16;
+    }
+    if (policy->jumbf_limits.max_entries == 0U) {
+        policy->jumbf_limits.max_entries = 200000U;
+    }
+    if (policy->jumbf_limits.max_cbor_depth == 0U) {
+        policy->jumbf_limits.max_cbor_depth = 64U;
+    }
+    if (policy->jumbf_limits.max_cbor_items == 0U) {
+        policy->jumbf_limits.max_cbor_items = 200000U;
+    }
+
+    if (policy->iptc_limits.max_datasets == 0U) {
+        policy->iptc_limits.max_datasets = 200000U;
+    }
+
+    if (policy->photoshop_irb_limits.max_resources == 0U) {
+        policy->photoshop_irb_limits.max_resources = 1U << 16;
+    }
+
+    if (policy->preview_scan_limits.max_ifds == 0U) {
+        policy->preview_scan_limits.max_ifds = 256U;
+    }
+    if (policy->preview_scan_limits.max_total_entries == 0U) {
+        policy->preview_scan_limits.max_total_entries = 8192U;
+    }
+}
+
+inline OpenMetaResourcePolicy
+recommended_resource_policy() noexcept
+{
+    OpenMetaResourcePolicy policy;
+    normalize_resource_policy(&policy);
+    return policy;
+}
+
 inline void
 apply_resource_policy(const OpenMetaResourcePolicy& policy,
                       ExifDecodeOptions* exif, PayloadOptions* payload) noexcept
 {
+    OpenMetaResourcePolicy normalized = policy;
+    normalize_resource_policy(&normalized);
     if (exif) {
-        exif->limits = policy.exif_limits;
+        exif->limits = normalized.exif_limits;
     }
     if (payload) {
-        payload->limits = policy.payload_limits;
+        payload->limits = normalized.payload_limits;
     }
 }
 
@@ -87,24 +174,26 @@ apply_resource_policy(const OpenMetaResourcePolicy& policy,
                       IptcIimDecodeOptions* iptc,
                       PhotoshopIrbDecodeOptions* irb) noexcept
 {
+    OpenMetaResourcePolicy normalized = policy;
+    normalize_resource_policy(&normalized);
     if (xmp) {
-        xmp->limits = policy.xmp_limits;
+        xmp->limits = normalized.xmp_limits;
     }
     if (exr) {
-        exr->limits = policy.exr_limits;
+        exr->limits = normalized.exr_limits;
     }
     if (jumbf) {
-        jumbf->limits = policy.jumbf_limits;
+        jumbf->limits = normalized.jumbf_limits;
     }
     if (icc) {
-        icc->limits = policy.icc_limits;
+        icc->limits = normalized.icc_limits;
     }
     if (iptc) {
-        iptc->limits = policy.iptc_limits;
+        iptc->limits = normalized.iptc_limits;
     }
     if (irb) {
-        irb->limits      = policy.photoshop_irb_limits;
-        irb->iptc.limits = policy.iptc_limits;
+        irb->limits      = normalized.photoshop_irb_limits;
+        irb->iptc.limits = normalized.iptc_limits;
     }
 }
 
@@ -122,11 +211,13 @@ apply_resource_policy(const OpenMetaResourcePolicy& policy,
                       PreviewScanOptions* scan,
                       PreviewExtractOptions* extract) noexcept
 {
+    OpenMetaResourcePolicy normalized = policy;
+    normalize_resource_policy(&normalized);
     if (scan) {
-        scan->limits = policy.preview_scan_limits;
+        scan->limits = normalized.preview_scan_limits;
     }
     if (extract) {
-        extract->max_output_bytes = policy.max_preview_output_bytes;
+        extract->max_output_bytes = normalized.max_preview_output_bytes;
     }
 }
 
@@ -134,8 +225,10 @@ inline void
 apply_resource_policy(const OpenMetaResourcePolicy& policy,
                       XmpSidecarRequest* request) noexcept
 {
+    OpenMetaResourcePolicy normalized = policy;
+    normalize_resource_policy(&normalized);
     if (request) {
-        request->limits = policy.xmp_dump_limits;
+        request->limits = normalized.xmp_dump_limits;
     }
 }
 

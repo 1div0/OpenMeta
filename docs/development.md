@@ -170,7 +170,14 @@ This policy surface is intentionally marked draft and may be refined.
     `claim.{i}.signature.{k}.algorithm` when available), plus draft
     per-signature fields
     (`signature_count`, `signature_key_hits`, `signature.{k}.prefix`,
-    `signature.{k}.key_hits`, `signature.{k}.algorithm` when available),
+    `signature.{k}.key_hits`, `signature.{k}.algorithm` when available,
+    `signature.{k}.reference_key_hits`,
+    `signature.{k}.linked_claim_count`,
+    `signature.{k}.cross_claim_link_count`,
+    `signature.{k}.linked_claim.{m}.prefix`),
+    plus reference-link counters
+    (`reference_key_hits`, `cross_claim_link_count`,
+    `claim.{i}.referenced_by_signature_count`),
     and linkage counters (`signature_linked_count`,
     `signature_orphan_count`).
   - Draft verify scaffold (`c2pa.verify.*`) now includes:
@@ -191,11 +198,15 @@ This policy surface is intentionally marked draft and may be refined.
       `claim_references`) plus hyphenated variants (`claim-reference`,
       `claim-uri`, `claim-ref-index`), plus query-style index tokens in URI
       text (`claim-index=...`, `claim_ref=...`) and percent-encoded URI/label
-      forms where present, then
+      forms where present. Candidate ordering is deterministic with index-like
+      references resolved before label-based references, then
       best-effort fallback probing via claim bytes, single-claim `claims[*]`
       arrays, nearby/nested claim JUMBF boxes, and additional cross-manifest
       candidates. Current tests include conflicting mixed references and
-      multi-claim/multi-signature cross-manifest precedence cases.
+      multi-claim/multi-signature cross-manifest precedence cases, nested
+      `references[]` map forms, duplicate overlapping explicit references,
+      unresolved explicit-reference no-fallback behavior, and percent-encoded
+      query-index URI variants.
     - draft profile checks (`profile_status`/`profile_reason`) from decoded
       `c2pa.semantic.*` shape fields (manifest/claim/signature linkage);
     - draft certificate trust checks (`chain_status`/`chain_reason`) when
@@ -355,6 +366,26 @@ policy.exif_limits.max_total_entries = 200000
 doc = openmeta.read("file.jpg", policy=policy)
 print(doc.entry_count)
 PY
+```
+
+C++ policy setup:
+```cpp
+#include "openmeta/resource_policy.h"
+
+openmeta::OpenMetaResourcePolicy policy
+    = openmeta::recommended_resource_policy();
+policy.jumbf_limits.max_box_depth = 24;  // optional override
+```
+
+JUMBF preflight depth estimate (before full decode):
+```cpp
+#include "openmeta/jumbf_decode.h"
+
+const openmeta::JumbfStructureEstimate est
+    = openmeta::estimate_jumbf_structure(bytes, policy.jumbf_limits);
+if (est.status == openmeta::JumbfDecodeStatus::LimitExceeded) {
+    // reject or route to stricter handling
+}
 ```
 
 Example scripts (repo tree):

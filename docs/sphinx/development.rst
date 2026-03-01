@@ -139,6 +139,22 @@ Python bindings use nanobind. The wheel also ships helper scripts as
    python3 -m openmeta.python.metadump --format portable --c2pa-verify --c2pa-verify-backend auto file.jpg
    python3 -m openmeta.python.metadump --format portable --portable-include-existing-xmp --xmp-sidecar file.jpg
 
+Resource policy defaults
+------------------------
+
+For C++ callers, initialize from ``recommended_resource_policy()`` and only
+override fields you need:
+
+.. code-block:: cpp
+
+   #include "openmeta/resource_policy.h"
+   openmeta::OpenMetaResourcePolicy policy
+       = openmeta::recommended_resource_policy();
+   policy.jumbf_limits.max_box_depth = 24;  // optional override
+
+For JUMBF/C2PA preflight traversal checks, call
+``estimate_jumbf_structure(bytes, policy.jumbf_limits)`` before full decode.
+
 Documentation build
 -------------------
 

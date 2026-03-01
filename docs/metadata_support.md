@@ -76,7 +76,9 @@ Status labels used below:
   synthesized names for composite map keys, and broader scalar coverage). A
   minimal semantic layer is emitted as draft `c2pa.semantic.*` fields
   (including per-claim, per-assertion, per-claim-signature, and per-signature
-  draft projections, plus draft linkage counters such as
+  draft projections, reference-link projections such as
+  `reference_key_hits`, `cross_claim_link_count`,
+  `signature.{k}.linked_claim.{m}.prefix`, and draft linkage counters such as
   `signature_linked_count`/`signature_orphan_count`). Draft verify scaffold
   status (`c2pa.verify.*`) includes malformed-signature detection and optional
   OpenSSL-backed cryptographic verification for signatures that expose explicit
