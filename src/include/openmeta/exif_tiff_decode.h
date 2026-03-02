@@ -121,4 +121,16 @@ decode_exif_tiff(std::span<const std::byte> tiff_bytes, MetaStore& store,
                  std::span<ExifIfdRef> out_ifds,
                  const ExifDecodeOptions& options) noexcept;
 
+/**
+ * \brief Estimates EXIF/TIFF decode counts using the same limits/options.
+ *
+ * This function performs a bounded decode pass into an internal scratch store
+ * and returns the same status/counter model as \ref decode_exif_tiff.
+ * Callers can use this to preflight entry counts before full decode/export.
+ */
+ExifDecodeResult
+measure_exif_tiff(std::span<const std::byte> tiff_bytes,
+                  const ExifDecodeOptions& options
+                  = ExifDecodeOptions {}) noexcept;
+
 }  // namespace openmeta

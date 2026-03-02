@@ -460,4 +460,12 @@ decode_icc_profile(std::span<const std::byte> icc_bytes, MetaStore& store,
     return result;
 }
 
+IccDecodeResult
+measure_icc_profile(std::span<const std::byte> icc_bytes,
+                    const IccDecodeOptions& options) noexcept
+{
+    MetaStore scratch;
+    return decode_icc_profile(icc_bytes, scratch, options);
+}
+
 }  // namespace openmeta

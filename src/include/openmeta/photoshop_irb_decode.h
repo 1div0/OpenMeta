@@ -62,4 +62,12 @@ decode_photoshop_irb(std::span<const std::byte> irb_bytes, MetaStore& store,
                      const PhotoshopIrbDecodeOptions& options
                      = PhotoshopIrbDecodeOptions {}) noexcept;
 
+/**
+ * \brief Estimates Photoshop IRB decode counts using the same limits/options.
+ */
+PhotoshopIrbDecodeResult
+measure_photoshop_irb(std::span<const std::byte> irb_bytes,
+                      const PhotoshopIrbDecodeOptions& options
+                      = PhotoshopIrbDecodeOptions {}) noexcept;
+
 }  // namespace openmeta

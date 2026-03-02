@@ -270,6 +270,313 @@ namespace {
     }
 
 
+    TEST(ContainerPayload, JpegApp11JumbfMultipartReassembly)
+    {
+        std::vector<std::byte> jpeg;
+        jpeg.push_back(std::byte { 0xFF });
+        jpeg.push_back(std::byte { 0xD8 });
+
+        // Minimal jumb box bytes.
+        std::vector<std::byte> jumb_box;
+        append_u32be(&jumb_box, 12U);
+        append_fourcc(&jumb_box, fourcc('j', 'u', 'm', 'b'));
+        append_bytes(&jumb_box, "ABCD");
+        const std::span<const std::byte> payload(jumb_box.data() + 8U,
+                                                 jumb_box.size() - 8U);
+
+        // Split payload across 2 APP11 segments with one-based sequence values.
+        const size_t mid = payload.size() / 2U;
+        for (uint32_t seq = 1U; seq <= 2U; ++seq) {
+            std::vector<std::byte> seg;
+            append_bytes(&seg, "JP");
+            seg.push_back(std::byte { 0x00 });
+            seg.push_back(std::byte { 0x00 });
+            append_u32be(&seg, seq);
+            seg.insert(seg.end(), jumb_box.begin(), jumb_box.begin() + 8);
+            if (seq == 1U) {
+                seg.insert(seg.end(), payload.begin(),
+                           payload.begin() + static_cast<ptrdiff_t>(mid));
+            } else {
+                seg.insert(seg.end(),
+                           payload.begin() + static_cast<ptrdiff_t>(mid),
+                           payload.end());
+            }
+            append_jpeg_segment(&jpeg, 0xFFEB, seg);
+        }
+
+        jpeg.push_back(std::byte { 0xFF });
+        jpeg.push_back(std::byte { 0xD9 });
+
+        std::array<ContainerBlockRef, 8> blocks {};
+        const ScanResult scan = scan_jpeg(jpeg, blocks);
+        ASSERT_EQ(scan.status, ScanStatus::Ok);
+        ASSERT_EQ(scan.written, 2U);
+        EXPECT_EQ(blocks[0].kind, ContainerBlockKind::Jumbf);
+        EXPECT_EQ(blocks[1].kind, ContainerBlockKind::Jumbf);
+
+        std::array<std::byte, 32> out {};
+        std::array<uint32_t, 8> scratch {};
+        PayloadOptions opts;
+        const PayloadResult res
+            = extract_payload(jpeg,
+                              std::span<const ContainerBlockRef>(blocks.data(),
+                                                                 scan.written),
+                              0, out, scratch, opts);
+        EXPECT_EQ(res.status, PayloadStatus::Ok);
+        ASSERT_EQ(res.written, jumb_box.size());
+        EXPECT_EQ(std::memcmp(out.data(), jumb_box.data(), jumb_box.size()), 0);
+    }
+
+    TEST(ContainerPayload, JpegApp11HeaderOnlyFirstPartReassembly)
+    {
+        std::vector<std::byte> jpeg;
+        jpeg.push_back(std::byte { 0xFF });
+        jpeg.push_back(std::byte { 0xD8 });
+
+        std::vector<std::byte> jumb_box;
+        append_u32be(&jumb_box, 12U);
+        append_fourcc(&jumb_box, fourcc('j', 'u', 'm', 'b'));
+        append_bytes(&jumb_box, "ABCD");
+        const std::span<const std::byte> payload(jumb_box.data() + 8U,
+                                                 jumb_box.size() - 8U);
+
+        // Part 1: preamble + seq + BMFF header only.
+        std::vector<std::byte> seg1;
+        append_bytes(&seg1, "JP");
+        seg1.push_back(std::byte { 0x00 });
+        seg1.push_back(std::byte { 0x00 });
+        append_u32be(&seg1, 1U);
+        seg1.insert(seg1.end(), jumb_box.begin(), jumb_box.begin() + 8);
+        append_jpeg_segment(&jpeg, 0xFFEB, seg1);
+
+        // Part 2: preamble + seq + BMFF header + payload.
+        std::vector<std::byte> seg2;
+        append_bytes(&seg2, "JP");
+        seg2.push_back(std::byte { 0x00 });
+        seg2.push_back(std::byte { 0x00 });
+        append_u32be(&seg2, 2U);
+        seg2.insert(seg2.end(), jumb_box.begin(), jumb_box.begin() + 8);
+        seg2.insert(seg2.end(), payload.begin(), payload.end());
+        append_jpeg_segment(&jpeg, 0xFFEB, seg2);
+
+        jpeg.push_back(std::byte { 0xFF });
+        jpeg.push_back(std::byte { 0xD9 });
+
+        std::array<ContainerBlockRef, 8> blocks {};
+        const ScanResult scan = scan_jpeg(jpeg, blocks);
+        ASSERT_EQ(scan.status, ScanStatus::Ok);
+        ASSERT_EQ(scan.written, 2U);
+        EXPECT_EQ(blocks[0].kind, ContainerBlockKind::Jumbf);
+        EXPECT_EQ(blocks[1].kind, ContainerBlockKind::Jumbf);
+        EXPECT_EQ(blocks[0].part_count, 2U);
+        EXPECT_EQ(blocks[0].part_index, 0U);
+        EXPECT_EQ(blocks[1].part_index, 1U);
+
+        std::array<std::byte, 32> out {};
+        std::array<uint32_t, 8> scratch {};
+        PayloadOptions opts;
+        const PayloadResult res
+            = extract_payload(jpeg,
+                              std::span<const ContainerBlockRef>(blocks.data(),
+                                                                 scan.written),
+                              0, out, scratch, opts);
+        EXPECT_EQ(res.status, PayloadStatus::Ok);
+        ASSERT_EQ(res.written, jumb_box.size());
+        EXPECT_EQ(std::memcmp(out.data(), jumb_box.data(), jumb_box.size()), 0);
+    }
+
+
+    TEST(ContainerPayload, PngCaBxJumbfPayload)
+    {
+        std::vector<std::byte> png = {
+            std::byte { 0x89 }, std::byte { 0x50 }, std::byte { 0x4E },
+            std::byte { 0x47 }, std::byte { 0x0D }, std::byte { 0x0A },
+            std::byte { 0x1A }, std::byte { 0x0A },
+        };
+
+        std::vector<std::byte> jumb_box;
+        append_u32be(&jumb_box, 12U);
+        append_fourcc(&jumb_box, fourcc('j', 'u', 'm', 'b'));
+        append_bytes(&jumb_box, "ABCD");
+
+        append_png_chunk(&png, fourcc('c', 'a', 'B', 'X'), jumb_box);
+        append_png_chunk(&png, fourcc('I', 'E', 'N', 'D'), {});
+
+        std::array<ContainerBlockRef, 4> blocks {};
+        const ScanResult scan = scan_png(png, blocks);
+        ASSERT_EQ(scan.status, ScanStatus::Ok);
+        ASSERT_EQ(scan.written, 1U);
+        EXPECT_EQ(blocks[0].kind, ContainerBlockKind::Jumbf);
+
+        std::array<std::byte, 32> out {};
+        std::array<uint32_t, 8> scratch {};
+        PayloadOptions opts;
+        const PayloadResult res
+            = extract_payload(png,
+                              std::span<const ContainerBlockRef>(blocks.data(),
+                                                                 scan.written),
+                              0, out, scratch, opts);
+        EXPECT_EQ(res.status, PayloadStatus::Ok);
+        ASSERT_EQ(res.written, jumb_box.size());
+        EXPECT_EQ(std::memcmp(out.data(), jumb_box.data(), jumb_box.size()), 0);
+    }
+
+    TEST(ContainerPayload, PngCaBxJumbfSplitPayload)
+    {
+        std::vector<std::byte> png = {
+            std::byte { 0x89 }, std::byte { 0x50 }, std::byte { 0x4E },
+            std::byte { 0x47 }, std::byte { 0x0D }, std::byte { 0x0A },
+            std::byte { 0x1A }, std::byte { 0x0A },
+        };
+
+        std::vector<std::byte> jumb_box;
+        append_u32be(&jumb_box, 12U);
+        append_fourcc(&jumb_box, fourcc('j', 'u', 'm', 'b'));
+        append_bytes(&jumb_box, "ABCD");
+        const size_t mid = 8U;  // keep BMFF header in the first split chunk
+        ASSERT_GT(jumb_box.size(), mid);
+
+        append_png_chunk(&png, fourcc('c', 'a', 'B', 'X'),
+                         std::span<const std::byte>(jumb_box.data(), mid));
+        append_png_chunk(
+            &png, fourcc('c', 'a', 'B', 'X'),
+            std::span<const std::byte>(jumb_box.data() + static_cast<ptrdiff_t>(mid),
+                                       jumb_box.size() - mid));
+        append_png_chunk(&png, fourcc('I', 'E', 'N', 'D'), {});
+
+        std::array<ContainerBlockRef, 8> blocks {};
+        const ScanResult scan = scan_png(png, blocks);
+        ASSERT_EQ(scan.status, ScanStatus::Ok);
+        ASSERT_EQ(scan.written, 2U);
+        EXPECT_EQ(blocks[0].kind, ContainerBlockKind::Jumbf);
+        EXPECT_EQ(blocks[1].kind, ContainerBlockKind::Jumbf);
+        EXPECT_EQ(blocks[0].part_count, 2U);
+        EXPECT_EQ(blocks[0].part_index, 0U);
+        EXPECT_EQ(blocks[1].part_index, 1U);
+
+        std::array<std::byte, 32> out {};
+        std::array<uint32_t, 8> scratch {};
+        PayloadOptions opts;
+        const PayloadResult res
+            = extract_payload(png,
+                              std::span<const ContainerBlockRef>(blocks.data(),
+                                                                 scan.written),
+                              0, out, scratch, opts);
+        EXPECT_EQ(res.status, PayloadStatus::Ok);
+        ASSERT_EQ(res.written, jumb_box.size());
+        EXPECT_EQ(std::memcmp(out.data(), jumb_box.data(), jumb_box.size()), 0);
+    }
+
+
+    TEST(ContainerPayload, WebpC2paJumbfPayload)
+    {
+        std::vector<std::byte> webp;
+        append_bytes(&webp, "RIFF");
+        append_u32le(&webp, 0U);  // placeholder
+        append_bytes(&webp, "WEBP");
+
+        std::vector<std::byte> jumb_box;
+        append_u32be(&jumb_box, 12U);
+        append_fourcc(&jumb_box, fourcc('j', 'u', 'm', 'b'));
+        append_bytes(&jumb_box, "ABCD");
+
+        append_fourcc(&webp, fourcc('C', '2', 'P', 'A'));
+        append_u32le(&webp, static_cast<uint32_t>(jumb_box.size()));
+        webp.insert(webp.end(), jumb_box.begin(), jumb_box.end());
+        if ((jumb_box.size() & 1U) != 0U) {
+            webp.push_back(std::byte { 0x00 });
+        }
+
+        const uint32_t riff_size
+            = static_cast<uint32_t>((webp.size() >= 8U) ? (webp.size() - 8U)
+                                                        : 0U);
+        webp[4] = std::byte { static_cast<uint8_t>((riff_size >> 0) & 0xFFU) };
+        webp[5] = std::byte { static_cast<uint8_t>((riff_size >> 8) & 0xFFU) };
+        webp[6] = std::byte { static_cast<uint8_t>((riff_size >> 16) & 0xFFU) };
+        webp[7] = std::byte { static_cast<uint8_t>((riff_size >> 24) & 0xFFU) };
+
+        std::array<ContainerBlockRef, 4> blocks {};
+        const ScanResult scan = scan_webp(webp, blocks);
+        ASSERT_EQ(scan.status, ScanStatus::Ok);
+        ASSERT_EQ(scan.written, 1U);
+        EXPECT_EQ(blocks[0].kind, ContainerBlockKind::Jumbf);
+
+        std::array<std::byte, 32> out {};
+        std::array<uint32_t, 8> scratch {};
+        PayloadOptions opts;
+        const PayloadResult res
+            = extract_payload(webp,
+                              std::span<const ContainerBlockRef>(blocks.data(),
+                                                                 scan.written),
+                              0, out, scratch, opts);
+        EXPECT_EQ(res.status, PayloadStatus::Ok);
+        ASSERT_EQ(res.written, jumb_box.size());
+        EXPECT_EQ(std::memcmp(out.data(), jumb_box.data(), jumb_box.size()), 0);
+    }
+
+    TEST(ContainerPayload, WebpC2paJumbfSplitPayload)
+    {
+        std::vector<std::byte> webp;
+        append_bytes(&webp, "RIFF");
+        append_u32le(&webp, 0U);  // placeholder
+        append_bytes(&webp, "WEBP");
+
+        std::vector<std::byte> jumb_box;
+        append_u32be(&jumb_box, 12U);
+        append_fourcc(&jumb_box, fourcc('j', 'u', 'm', 'b'));
+        append_bytes(&jumb_box, "ABCD");
+        const size_t mid = 8U;  // keep BMFF header in the first split chunk
+        ASSERT_GT(jumb_box.size(), mid);
+
+        append_fourcc(&webp, fourcc('C', '2', 'P', 'A'));
+        append_u32le(&webp, static_cast<uint32_t>(mid));
+        webp.insert(webp.end(), jumb_box.begin(),
+                    jumb_box.begin() + static_cast<ptrdiff_t>(mid));
+        if ((mid & 1U) != 0U) {
+            webp.push_back(std::byte { 0x00 });
+        }
+
+        append_fourcc(&webp, fourcc('C', '2', 'P', 'A'));
+        append_u32le(&webp, static_cast<uint32_t>(jumb_box.size() - mid));
+        webp.insert(
+            webp.end(), jumb_box.begin() + static_cast<ptrdiff_t>(mid),
+            jumb_box.end());
+        if (((jumb_box.size() - mid) & 1U) != 0U) {
+            webp.push_back(std::byte { 0x00 });
+        }
+
+        const uint32_t riff_size
+            = static_cast<uint32_t>((webp.size() >= 8U) ? (webp.size() - 8U)
+                                                        : 0U);
+        webp[4] = std::byte { static_cast<uint8_t>((riff_size >> 0) & 0xFFU) };
+        webp[5] = std::byte { static_cast<uint8_t>((riff_size >> 8) & 0xFFU) };
+        webp[6] = std::byte { static_cast<uint8_t>((riff_size >> 16) & 0xFFU) };
+        webp[7] = std::byte { static_cast<uint8_t>((riff_size >> 24) & 0xFFU) };
+
+        std::array<ContainerBlockRef, 8> blocks {};
+        const ScanResult scan = scan_webp(webp, blocks);
+        ASSERT_EQ(scan.status, ScanStatus::Ok);
+        ASSERT_EQ(scan.written, 2U);
+        EXPECT_EQ(blocks[0].kind, ContainerBlockKind::Jumbf);
+        EXPECT_EQ(blocks[1].kind, ContainerBlockKind::Jumbf);
+        EXPECT_EQ(blocks[0].part_count, 2U);
+        EXPECT_EQ(blocks[0].part_index, 0U);
+        EXPECT_EQ(blocks[1].part_index, 1U);
+
+        std::array<std::byte, 32> out {};
+        std::array<uint32_t, 8> scratch {};
+        PayloadOptions opts;
+        const PayloadResult res
+            = extract_payload(webp,
+                              std::span<const ContainerBlockRef>(blocks.data(),
+                                                                 scan.written),
+                              0, out, scratch, opts);
+        EXPECT_EQ(res.status, PayloadStatus::Ok);
+        ASSERT_EQ(res.written, jumb_box.size());
+        EXPECT_EQ(std::memcmp(out.data(), jumb_box.data(), jumb_box.size()), 0);
+    }
+
+
     TEST(ContainerPayload, BmffMetaItemExtents)
     {
         // ISO-BMFF file with a single Exif item split across two `iloc` extents.

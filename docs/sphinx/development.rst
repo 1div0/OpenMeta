@@ -153,7 +153,22 @@ override fields you need:
    policy.jumbf_limits.max_box_depth = 24;  // optional override
 
 For JUMBF/C2PA preflight traversal checks, call
-``estimate_jumbf_structure(bytes, policy.jumbf_limits)`` before full decode.
+``measure_jumbf_structure(bytes, policy.jumbf_limits)`` before full decode.
+
+Other preflight estimate APIs use the same bounded-options model:
+
+- ``measure_scan_auto(file_bytes)``
+- ``measure_scan_jpeg(bytes)``, ``measure_scan_png(bytes)``,
+  ``measure_scan_webp(bytes)``, ``measure_scan_gif(bytes)``,
+  ``measure_scan_tiff(bytes)``, ``measure_scan_jp2(bytes)``,
+  ``measure_scan_jxl(bytes)``, ``measure_scan_bmff(bytes)``
+- ``measure_exif_tiff(exif_bytes, exif_options)``
+- ``measure_xmp_packet(xmp_bytes, xmp_options)``
+- ``measure_icc_profile(icc_bytes, icc_options)``
+- ``measure_iptc_iim(iptc_bytes, iptc_options)``
+- ``measure_photoshop_irb(irb_bytes, irb_options)``
+- ``measure_exr_header(exr_bytes, exr_options)``
+- ``measure_jumbf_payload(jumbf_bytes, jumbf_options)``
 
 Documentation build
 -------------------

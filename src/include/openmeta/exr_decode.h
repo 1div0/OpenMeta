@@ -71,4 +71,12 @@ decode_exr_header(std::span<const std::byte> exr_bytes, MetaStore& store,
                   const ExrDecodeOptions& options
                   = ExrDecodeOptions {}) noexcept;
 
+/**
+ * \brief Estimates EXR header decode counts using the same limits/options.
+ */
+ExrDecodeResult
+measure_exr_header(std::span<const std::byte> exr_bytes,
+                   const ExrDecodeOptions& options
+                   = ExrDecodeOptions {}) noexcept;
+
 }  // namespace openmeta

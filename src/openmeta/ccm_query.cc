@@ -45,8 +45,11 @@ namespace {
 
     struct IfdValidationState final {
         std::string ifd;
-        bool has_as_shot_neutral  = false;
-        bool has_as_shot_white_xy = false;
+        bool has_analog_balance        = false;
+        bool has_as_shot_neutral       = false;
+        bool has_as_shot_white_xy      = false;
+        uint32_t analog_balance_count  = 0U;
+        uint32_t as_shot_neutral_count = 0U;
 
         bool has_cal_illum1 = false;
         bool has_cal_illum2 = false;
@@ -55,21 +58,33 @@ namespace {
         int32_t cal_illum2  = -1;
         int32_t cal_illum3  = -1;
 
-        bool has_color1 = false;
-        bool has_color2 = false;
-        bool has_color3 = false;
+        bool has_color1       = false;
+        bool has_color2       = false;
+        bool has_color3       = false;
+        uint32_t color1_count = 0U;
+        uint32_t color2_count = 0U;
+        uint32_t color3_count = 0U;
 
-        bool has_forward1 = false;
-        bool has_forward2 = false;
-        bool has_forward3 = false;
+        bool has_forward1       = false;
+        bool has_forward2       = false;
+        bool has_forward3       = false;
+        uint32_t forward1_count = 0U;
+        uint32_t forward2_count = 0U;
+        uint32_t forward3_count = 0U;
 
-        bool has_reduction1 = false;
-        bool has_reduction2 = false;
-        bool has_reduction3 = false;
+        bool has_reduction1       = false;
+        bool has_reduction2       = false;
+        bool has_reduction3       = false;
+        uint32_t reduction1_count = 0U;
+        uint32_t reduction2_count = 0U;
+        uint32_t reduction3_count = 0U;
 
-        bool has_cam_cal1 = false;
-        bool has_cam_cal2 = false;
-        bool has_cam_cal3 = false;
+        bool has_cam_cal1       = false;
+        bool has_cam_cal2       = false;
+        bool has_cam_cal3       = false;
+        uint32_t cam_cal1_count = 0U;
+        uint32_t cam_cal2_count = 0U;
+        uint32_t cam_cal3_count = 0U;
 
         bool has_illum_data1 = false;
         bool has_illum_data2 = false;
@@ -691,21 +706,64 @@ namespace {
         if (!state) {
             return;
         }
+        const uint32_t n = static_cast<uint32_t>(field.values.size());
         switch (field.tag) {
-        case 0xC621U: state->has_color1 = true; break;
-        case 0xC622U: state->has_color2 = true; break;
-        case 0xCD33U: state->has_color3 = true; break;
-        case 0xC714U: state->has_forward1 = true; break;
-        case 0xC715U: state->has_forward2 = true; break;
-        case 0xCD34U: state->has_forward3 = true; break;
-        case 0xC625U: state->has_reduction1 = true; break;
-        case 0xC626U: state->has_reduction2 = true; break;
-        case 0xCD3AU: state->has_reduction3 = true; break;
-        case 0xC623U: state->has_cam_cal1 = true; break;
-        case 0xC624U: state->has_cam_cal2 = true; break;
-        case 0xCD32U: state->has_cam_cal3 = true; break;
-        case 0xC627U: break;
-        case 0xC628U: state->has_as_shot_neutral = true; break;
+        case 0xC621U:
+            state->has_color1   = true;
+            state->color1_count = n;
+            break;
+        case 0xC622U:
+            state->has_color2   = true;
+            state->color2_count = n;
+            break;
+        case 0xCD33U:
+            state->has_color3   = true;
+            state->color3_count = n;
+            break;
+        case 0xC714U:
+            state->has_forward1   = true;
+            state->forward1_count = n;
+            break;
+        case 0xC715U:
+            state->has_forward2   = true;
+            state->forward2_count = n;
+            break;
+        case 0xCD34U:
+            state->has_forward3   = true;
+            state->forward3_count = n;
+            break;
+        case 0xC625U:
+            state->has_reduction1   = true;
+            state->reduction1_count = n;
+            break;
+        case 0xC626U:
+            state->has_reduction2   = true;
+            state->reduction2_count = n;
+            break;
+        case 0xCD3AU:
+            state->has_reduction3   = true;
+            state->reduction3_count = n;
+            break;
+        case 0xC623U:
+            state->has_cam_cal1   = true;
+            state->cam_cal1_count = n;
+            break;
+        case 0xC624U:
+            state->has_cam_cal2   = true;
+            state->cam_cal2_count = n;
+            break;
+        case 0xCD32U:
+            state->has_cam_cal3   = true;
+            state->cam_cal3_count = n;
+            break;
+        case 0xC627U:
+            state->has_analog_balance   = true;
+            state->analog_balance_count = n;
+            break;
+        case 0xC628U:
+            state->has_as_shot_neutral   = true;
+            state->as_shot_neutral_count = n;
+            break;
         case 0xC629U: state->has_as_shot_white_xy = true; break;
         case 0xC65AU:
             state->has_cal_illum1 = true;
@@ -745,6 +803,86 @@ namespace {
                           CcmIssueCode::AsShotConflict, s.ifd, 0U, "AsShot*",
                           "AsShotNeutral and AsShotWhiteXY both present",
                           result);
+            }
+            if (s.has_analog_balance && s.has_as_shot_neutral
+                && s.analog_balance_count != s.as_shot_neutral_count) {
+                add_issue(issues, CcmIssueSeverity::Warning,
+                          CcmIssueCode::UnexpectedCount, s.ifd, 0xC627U,
+                          "AnalogBalance",
+                          "AnalogBalance count differs from AsShotNeutral count",
+                          result);
+            }
+
+            if (s.has_color1 && s.has_color2
+                && s.color1_count != s.color2_count) {
+                add_issue(
+                    issues, CcmIssueSeverity::Warning,
+                    CcmIssueCode::UnexpectedCount, s.ifd, 0xC622U,
+                    "ColorMatrix2",
+                    "ColorMatrix1 and ColorMatrix2 should use the same element count",
+                    result);
+            }
+            if (s.has_color3 && s.has_color1
+                && s.color3_count != s.color1_count) {
+                add_issue(issues, CcmIssueSeverity::Warning,
+                          CcmIssueCode::UnexpectedCount, s.ifd, 0xCD33U,
+                          "ColorMatrix3",
+                          "ColorMatrix3 should match ColorMatrix1 element count",
+                          result);
+            }
+            if (s.has_cam_cal1 && s.has_cam_cal2
+                && s.cam_cal1_count != s.cam_cal2_count) {
+                add_issue(
+                    issues, CcmIssueSeverity::Warning,
+                    CcmIssueCode::UnexpectedCount, s.ifd, 0xC624U,
+                    "CameraCalibration2",
+                    "CameraCalibration1 and CameraCalibration2 should use the same element count",
+                    result);
+            }
+            if (s.has_cam_cal3 && s.has_cam_cal1
+                && s.cam_cal3_count != s.cam_cal1_count) {
+                add_issue(
+                    issues, CcmIssueSeverity::Warning,
+                    CcmIssueCode::UnexpectedCount, s.ifd, 0xCD32U,
+                    "CameraCalibration3",
+                    "CameraCalibration3 should match CameraCalibration1 element count",
+                    result);
+            }
+            if (s.has_forward1 && s.has_forward2
+                && s.forward1_count != s.forward2_count) {
+                add_issue(
+                    issues, CcmIssueSeverity::Warning,
+                    CcmIssueCode::UnexpectedCount, s.ifd, 0xC715U,
+                    "ForwardMatrix2",
+                    "ForwardMatrix1 and ForwardMatrix2 should use the same element count",
+                    result);
+            }
+            if (s.has_forward3 && s.has_forward1
+                && s.forward3_count != s.forward1_count) {
+                add_issue(
+                    issues, CcmIssueSeverity::Warning,
+                    CcmIssueCode::UnexpectedCount, s.ifd, 0xCD34U,
+                    "ForwardMatrix3",
+                    "ForwardMatrix3 should match ForwardMatrix1 element count",
+                    result);
+            }
+            if (s.has_reduction1 && s.has_reduction2
+                && s.reduction1_count != s.reduction2_count) {
+                add_issue(
+                    issues, CcmIssueSeverity::Warning,
+                    CcmIssueCode::UnexpectedCount, s.ifd, 0xC626U,
+                    "ReductionMatrix2",
+                    "ReductionMatrix1 and ReductionMatrix2 should use the same element count",
+                    result);
+            }
+            if (s.has_reduction3 && s.has_reduction1
+                && s.reduction3_count != s.reduction1_count) {
+                add_issue(
+                    issues, CcmIssueSeverity::Warning,
+                    CcmIssueCode::UnexpectedCount, s.ifd, 0xCD3AU,
+                    "ReductionMatrix3",
+                    "ReductionMatrix3 should match ReductionMatrix1 element count",
+                    result);
             }
 
             if (s.has_cal_illum2 && !s.has_color2) {

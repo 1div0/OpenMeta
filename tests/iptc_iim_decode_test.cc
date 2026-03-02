@@ -110,4 +110,21 @@ TEST(IptcIimDecodeTest, EnforcesMaxDatasetsLimit)
     EXPECT_EQ(r.status, IptcIimDecodeStatus::LimitExceeded);
 }
 
+TEST(IptcIimDecodeTest, EstimateMatchesDecodeCounters)
+{
+    const std::array<std::byte, 6> bytes = {
+        std::byte { 0x1C }, std::byte { 0x02 }, std::byte { 0x19 },
+        std::byte { 0x00 }, std::byte { 0x01 }, std::byte { 'a' },
+    };
+
+    const IptcIimDecodeResult estimate = measure_iptc_iim(bytes);
+    EXPECT_EQ(estimate.status, IptcIimDecodeStatus::Ok);
+    EXPECT_EQ(estimate.entries_decoded, 1U);
+
+    MetaStore store;
+    const IptcIimDecodeResult decoded = decode_iptc_iim(bytes, store);
+    EXPECT_EQ(decoded.status, estimate.status);
+    EXPECT_EQ(decoded.entries_decoded, estimate.entries_decoded);
+}
+
 }  // namespace openmeta

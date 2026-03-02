@@ -1299,6 +1299,9 @@ namespace {
     static void sink_emit(IfdSink* sink, const ExifIfdRef& ref) noexcept
     {
         sink->result.ifds_needed += 1;
+        if (!sink->out || sink->cap == 0U) {
+            return;
+        }
         if (sink->result.ifds_written < sink->cap) {
             sink->out[sink->result.ifds_written] = ref;
             sink->result.ifds_written += 1;
@@ -3253,6 +3256,15 @@ decode_exif_tiff(std::span<const std::byte> tiff_bytes, MetaStore& store,
     exif_internal::decode_nikon_preview_aliases(store, options, &sink.result);
 
     return sink.result;
+}
+
+ExifDecodeResult
+measure_exif_tiff(std::span<const std::byte> tiff_bytes,
+                  const ExifDecodeOptions& options) noexcept
+{
+    MetaStore scratch;
+    return decode_exif_tiff(tiff_bytes, scratch, std::span<ExifIfdRef> {},
+                            options);
 }
 
 }  // namespace openmeta

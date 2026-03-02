@@ -46,6 +46,18 @@ namespace {
         return false;
     }
 
+    static uint32_t count_issue_code(const std::vector<CcmIssue>& issues,
+                                     CcmIssueCode code) noexcept
+    {
+        uint32_t n = 0U;
+        for (size_t i = 0; i < issues.size(); ++i) {
+            if (issues[i].code == code) {
+                n += 1U;
+            }
+        }
+        return n;
+    }
+
 }  // namespace
 
 
@@ -311,6 +323,100 @@ TEST(CcmQuery, ValidationWarnsOnIlluminantCodeAndWhiteXYRange)
     EXPECT_EQ(r.fields_found, fields.size());
     EXPECT_TRUE(has_issue(issues, CcmIssueCode::InvalidIlluminantCode));
     EXPECT_TRUE(has_issue(issues, CcmIssueCode::WhiteXYOutOfRange));
+    EXPECT_GT(r.issues_reported, 0U);
+}
+
+TEST(CcmQuery, ValidationWarnsOnCrossFieldCountMismatches)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+
+    const std::array<uint8_t, 4> dng_version = { 1, 7, 0, 0 };
+    Entry dng_ver;
+    dng_ver.key          = make_exif_tag_key(store.arena(), "ifd0", 0xC612);
+    dng_ver.value        = make_u8_array(store.arena(),
+                                         std::span<const uint8_t>(dng_version.data(),
+                                                                  dng_version.size()));
+    dng_ver.origin.block = block;
+    dng_ver.origin.order_in_block = 0;
+    (void)store.add_entry(dng_ver);
+
+    const URational cm1_values[9] = {
+        { 1, 1 }, { 0, 1 }, { 0, 1 }, { 0, 1 }, { 1, 1 },
+        { 0, 1 }, { 0, 1 }, { 0, 1 }, { 1, 1 },
+    };
+    Entry cm1;
+    cm1.key          = make_exif_tag_key(store.arena(), "ifd0", 0xC621);
+    cm1.value        = make_urational_array(store.arena(),
+                                            std::span<const URational>(cm1_values, 9));
+    cm1.origin.block = block;
+    cm1.origin.order_in_block = 1;
+    (void)store.add_entry(cm1);
+
+    const URational cm2_values[12] = {
+        { 1, 1 }, { 0, 1 }, { 0, 1 }, { 0, 1 }, { 1, 1 }, { 0, 1 },
+        { 0, 1 }, { 0, 1 }, { 1, 1 }, { 1, 2 }, { 1, 3 }, { 1, 4 },
+    };
+    Entry cm2;
+    cm2.key          = make_exif_tag_key(store.arena(), "ifd0", 0xC622);
+    cm2.value        = make_urational_array(store.arena(),
+                                            std::span<const URational>(cm2_values, 12));
+    cm2.origin.block = block;
+    cm2.origin.order_in_block = 2;
+    (void)store.add_entry(cm2);
+
+    Entry cal2;
+    cal2.key          = make_exif_tag_key(store.arena(), "ifd0", 0xC65B);
+    cal2.value        = make_u16(21U);
+    cal2.origin.block = block;
+    cal2.origin.order_in_block = 3;
+    (void)store.add_entry(cal2);
+
+    const URational analog_balance[4] = {
+        { 1, 1 },
+        { 1, 1 },
+        { 1, 1 },
+        { 1, 1 },
+    };
+    Entry ab;
+    ab.key = make_exif_tag_key(store.arena(), "ifd0", 0xC627);
+    ab.value
+        = make_urational_array(store.arena(),
+                               std::span<const URational>(analog_balance, 4));
+    ab.origin.block          = block;
+    ab.origin.order_in_block = 4;
+    (void)store.add_entry(ab);
+
+    const URational as_shot_neutral[3] = {
+        { 1, 1 },
+        { 1, 1 },
+        { 1, 1 },
+    };
+    Entry asn;
+    asn.key = make_exif_tag_key(store.arena(), "ifd0", 0xC628);
+    asn.value
+        = make_urational_array(store.arena(),
+                               std::span<const URational>(as_shot_neutral, 3));
+    asn.origin.block          = block;
+    asn.origin.order_in_block = 5;
+    (void)store.add_entry(asn);
+
+    store.finalize();
+
+    std::vector<CcmField> fields;
+    std::vector<CcmIssue> issues;
+    CcmQueryOptions opts;
+    opts.validation_mode = CcmValidationMode::DngSpecWarnings;
+
+    const CcmQueryResult r = collect_dng_ccm_fields(store, &fields, opts,
+                                                    &issues);
+    EXPECT_EQ(r.status, CcmQueryStatus::Ok);
+    EXPECT_EQ(r.fields_found, fields.size());
+    EXPECT_EQ(r.fields_dropped, 0U);
+
+    const uint32_t unexpected_count_issues
+        = count_issue_code(issues, CcmIssueCode::UnexpectedCount);
+    EXPECT_GE(unexpected_count_issues, 2U);
     EXPECT_GT(r.issues_reported, 0U);
 }
 

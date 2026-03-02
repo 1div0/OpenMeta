@@ -81,4 +81,15 @@ decode_xmp_packet(std::span<const std::byte> xmp_bytes, MetaStore& store,
                   const XmpDecodeOptions& options
                   = XmpDecodeOptions {}) noexcept;
 
+/**
+ * \brief Estimates XMP decode counts using the same limits/options.
+ *
+ * This function performs a bounded decode pass into an internal scratch store
+ * and returns the same status/counter model as \ref decode_xmp_packet.
+ */
+XmpDecodeResult
+measure_xmp_packet(std::span<const std::byte> xmp_bytes,
+                   const XmpDecodeOptions& options
+                   = XmpDecodeOptions {}) noexcept;
+
 }  // namespace openmeta

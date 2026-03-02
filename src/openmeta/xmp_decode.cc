@@ -86,8 +86,7 @@ namespace {
         const std::string_view tail = s.substr(begin);
         {
             static constexpr std::string_view kCloseXmpMeta = "</x:xmpmeta>";
-            static constexpr std::string_view kCloseRdf
-                = "</rdf:RDF>";
+            static constexpr std::string_view kCloseRdf     = "</rdf:RDF>";
 
             size_t pos = tail.find(kCloseXmpMeta);
             if (pos != std::string_view::npos) {
@@ -629,6 +628,14 @@ decode_xmp_packet(std::span<const std::byte> xmp_bytes, MetaStore& store,
     result.status = XmpDecodeStatus::Unsupported;
     return result;
 #endif
+}
+
+XmpDecodeResult
+measure_xmp_packet(std::span<const std::byte> xmp_bytes,
+                   const XmpDecodeOptions& options) noexcept
+{
+    MetaStore scratch;
+    return decode_xmp_packet(xmp_bytes, scratch, EntryFlags::None, options);
 }
 
 }  // namespace openmeta

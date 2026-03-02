@@ -693,4 +693,12 @@ decode_exr_header(std::span<const std::byte> exr_bytes, MetaStore& store,
     }
 }
 
+ExrDecodeResult
+measure_exr_header(std::span<const std::byte> exr_bytes,
+                   const ExrDecodeOptions& options) noexcept
+{
+    MetaStore scratch;
+    return decode_exr_header(exr_bytes, scratch, EntryFlags::None, options);
+}
+
 }  // namespace openmeta

@@ -139,38 +139,63 @@ ScanResult
 scan_auto(std::span<const std::byte> bytes,
           std::span<ContainerBlockRef> out) noexcept;
 
+/**
+ * \brief Measures discovered metadata block count for \ref scan_auto.
+ *
+ * Performs the same bounded scan logic and reports \ref ScanResult::needed
+ * without requiring output block storage.
+ */
+ScanResult
+measure_scan_auto(std::span<const std::byte> bytes) noexcept;
+
 /// Scans a JPEG byte stream and returns all metadata segments found.
 ScanResult
 scan_jpeg(std::span<const std::byte> bytes,
           std::span<ContainerBlockRef> out) noexcept;
+ScanResult
+measure_scan_jpeg(std::span<const std::byte> bytes) noexcept;
 /// Scans a PNG byte stream and returns all metadata chunks found.
 ScanResult
 scan_png(std::span<const std::byte> bytes,
          std::span<ContainerBlockRef> out) noexcept;
+ScanResult
+measure_scan_png(std::span<const std::byte> bytes) noexcept;
 /// Scans a RIFF/WebP byte stream and returns all metadata chunks found.
 ScanResult
 scan_webp(std::span<const std::byte> bytes,
           std::span<ContainerBlockRef> out) noexcept;
+ScanResult
+measure_scan_webp(std::span<const std::byte> bytes) noexcept;
 /// Scans a GIF byte stream and returns all metadata extension blocks found.
 ScanResult
 scan_gif(std::span<const std::byte> bytes,
          std::span<ContainerBlockRef> out) noexcept;
+ScanResult
+measure_scan_gif(std::span<const std::byte> bytes) noexcept;
 /// Scans a TIFF/DNG byte stream; the whole file is exposed as an EXIF/TIFF-IFD block.
 ScanResult
 scan_tiff(std::span<const std::byte> bytes,
           std::span<ContainerBlockRef> out) noexcept;
+ScanResult
+measure_scan_tiff(std::span<const std::byte> bytes) noexcept;
 /// Scans a JPEG 2000 (JP2) byte stream and returns metadata boxes found.
 ScanResult
 scan_jp2(std::span<const std::byte> bytes,
          std::span<ContainerBlockRef> out) noexcept;
+ScanResult
+measure_scan_jp2(std::span<const std::byte> bytes) noexcept;
 /// Scans a JPEG XL container byte stream and returns metadata boxes found.
 ScanResult
 scan_jxl(std::span<const std::byte> bytes,
          std::span<ContainerBlockRef> out) noexcept;
+ScanResult
+measure_scan_jxl(std::span<const std::byte> bytes) noexcept;
 /// Scans an ISO-BMFF (`ftyp`) container (e.g. HEIF/AVIF/CR3) and returns
 /// metadata items found within `meta` boxes.
 ScanResult
 scan_bmff(std::span<const std::byte> bytes,
           std::span<ContainerBlockRef> out) noexcept;
+ScanResult
+measure_scan_bmff(std::span<const std::byte> bytes) noexcept;
 
 }  // namespace openmeta

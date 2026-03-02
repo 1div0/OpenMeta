@@ -1,4 +1,4 @@
-# Development
+#Development
 
 See also: `docs/metadata_support.md` for current container/block/decode support.
 
@@ -50,16 +50,16 @@ using Clang), configure OpenMeta with:
 `metavalidate` checks decode-status health and DNG/CCM validation:
 
 ```bash
-# Basic validation
+#Basic validation
 ./build/metavalidate input.dng
 
-# Strict mode: warnings fail the file
+#Strict mode : warnings fail the file
 ./build/metavalidate --strict input.dng
 
-# Machine-readable JSON output
+#Machine - readable JSON output
 ./build/metavalidate --json input.dng
 
-# Validate with sidecar + MakerNotes + C2PA verify status
+#Validate with sidecar + MakerNotes + C2PA verify status
 ./build/metavalidate --xmp-sidecar --makernotes --c2pa-verify input.jpg
 ```
 `metavalidate` CLI is a thin wrapper over `openmeta::validate_file(...)`.
@@ -69,26 +69,26 @@ example `xmp/output_truncated` and `xmp/invalid_or_malformed_xml_text`.
 `metadump` is the general dump/save tool:
 
 ```bash
-# Lossless sidecar
+#Lossless sidecar
 ./build/metadump --format lossless input.jpg output.xmp
 
-# Portable sidecar
+#Portable sidecar
 ./build/metadump --format portable --portable-include-existing-xmp input.jpg output.xmp
 
-# Portable sidecar with ExifTool GPS time alias compatibility
+#Portable sidecar with ExifTool GPS time alias compatibility
 ./build/metadump --format portable --portable-exiftool-gpsdatetime-alias input.jpg output.xmp
 
-# Portable sidecar + draft C2PA verify scaffold status reporting
+#Portable sidecar + draft C2PA verify scaffold status reporting
 ./build/metadump --format portable --c2pa-verify --c2pa-verify-backend auto input.jpg output.xmp
 
-# Explicit input/output form
+#Explicit input / output form
 ./build/metadump -i input.jpg -o output.xmp
 
-# Extract first embedded preview
+#Extract first embedded preview
 ./build/metadump --extract-preview --first-only input.jpg preview.jpg
 
-# If multiple previews exist, --out gets auto-suffixed:
-# preview_1.jpg, preview_2.jpg, ...
+#If multiple previews exist, --out gets auto - suffixed:
+#preview_1.jpg, preview_2.jpg, ...
 ./build/metadump --extract-preview input.arq preview.jpg
 ```
 
@@ -101,17 +101,17 @@ Portable sidecar note:
 `thumdump` is preview-only and optimized for batch preview extraction:
 
 ```bash
-# Positional input/output
+#Positional input / output
 ./build/thumdump input.jpg preview.jpg
 
-# Explicit input/output
+#Explicit input / output
 ./build/thumdump -i input.jpg -o preview.jpg
 
-# Batch mode
+#Batch mode
 ./build/thumdump --out-dir previews --first-only input1.jpg input2.cr2
 
-# If multiple previews exist, --out gets auto-suffixed:
-# preview_1.jpg, preview_2.jpg, ...
+#If multiple previews exist, --out gets auto - suffixed:
+#preview_1.jpg, preview_2.jpg, ...
 ./build/thumdump input.arq preview.jpg
 ```
 
@@ -140,7 +140,7 @@ This policy surface is intentionally marked draft and may be refined.
   `invalid_illuminant_code` and `white_xy_out_of_range`.
 - ICC tag interpretation helpers: `src/include/openmeta/icc_interpret.h`,
   `src/openmeta/icc_interpret.cc` (`icc_tag_name(...)`,
-  `interpret_icc_tag(...)` for `desc`/`text`/`sig `/`mluc`/`dtim`/`view`/`meas`/`sf32`/`uf32`/`mft1`/`mft2`/`mAB`/`mBA`/`XYZ `/`curv`/`para`,
+  `interpret_icc_tag(...)` for `desc`/`text`/`sig `/`mluc`/`dtim`/`view`/`meas`/`chrm`/`sf32`/`uf32`/`mft1`/`mft2`/`mAB`/`mBA`/`XYZ `/`curv`/`para`,
   plus `format_icc_tag_display_value(...)` for shared CLI/Python rendering)
 - ISO-BMFF (HEIF/AVIF/CR3) container-derived fields: `src/openmeta/bmff_fields_decode.cc`
   - Emitted during `simple_meta_read(...)` as `MetaKeyKind::BmffField` entries.
@@ -153,7 +153,8 @@ This policy surface is intentionally marked draft and may be refined.
   - Emits structural fields as `MetaKeyKind::JumbfField` (`box.*`, `c2pa.*`)
     and decoded CBOR keys as `MetaKeyKind::JumbfCborKey` (`*.cbor.*`).
   - Current CBOR path supports bounded definite and indefinite forms, with
-    composite-key fallback naming (`k{map_index}_{major}`) and broader scalar
+    composite-key fallback naming (`k{map_index}_{
+    major}`) and broader scalar
     decode coverage (simple values + half/float/double bit-preserving paths).
   - Draft semantic projection emits stable `c2pa.semantic.*` fields
     (`manifest_present`, `claim_present`, `assertion_present`,
@@ -174,9 +175,16 @@ This policy surface is intentionally marked draft and may be refined.
     `signature.{k}.reference_key_hits`,
     `signature.{k}.linked_claim_count`,
     `signature.{k}.cross_claim_link_count`,
+    `signature.{k}.explicit_reference_present`,
+    `signature.{k}.explicit_reference_resolved_claim_count`,
+    `signature.{k}.explicit_reference_unresolved`,
+    `signature.{k}.explicit_reference_ambiguous`,
     `signature.{k}.linked_claim.{m}.prefix`),
     plus reference-link counters
     (`reference_key_hits`, `cross_claim_link_count`,
+    `explicit_reference_signature_count`,
+    `explicit_reference_unresolved_signature_count`,
+    `explicit_reference_ambiguous_signature_count`,
     `claim.{i}.referenced_by_signature_count`),
     and linkage counters (`signature_linked_count`,
     `signature_orphan_count`).
@@ -198,8 +206,8 @@ This policy surface is intentionally marked draft and may be refined.
       `claim_references`) plus hyphenated variants (`claim-reference`,
       `claim-uri`, `claim-ref-index`), plus query-style index tokens in URI
       text (`claim-index=...`, `claim_ref=...`) and percent-encoded URI/label
-      forms where present. Candidate ordering is deterministic with index-like
-      references resolved before label-based references, then
+      forms where present. Candidate ordering is deterministic with sorted
+      index-like references resolved before sorted label-based references, then
       best-effort fallback probing via claim bytes, single-claim `claims[*]`
       arrays, nearby/nested claim JUMBF boxes, and additional cross-manifest
       candidates. Current tests include conflicting mixed references and
@@ -382,10 +390,39 @@ JUMBF preflight depth estimate (before full decode):
 #include "openmeta/jumbf_decode.h"
 
 const openmeta::JumbfStructureEstimate est
-    = openmeta::estimate_jumbf_structure(bytes, policy.jumbf_limits);
+    = openmeta::measure_jumbf_structure(bytes, policy.jumbf_limits);
 if (est.status == openmeta::JumbfDecodeStatus::LimitExceeded) {
     // reject or route to stricter handling
 }
+```
+
+Other preflight estimate entry points follow the same limit model:
+```cpp
+#include "openmeta/container_scan.h"
+#include "openmeta/exif_tiff_decode.h"
+#include "openmeta/exr_decode.h"
+#include "openmeta/icc_decode.h"
+#include "openmeta/iptc_iim_decode.h"
+#include "openmeta/jumbf_decode.h"
+#include "openmeta/photoshop_irb_decode.h"
+#include "openmeta/xmp_decode.h"
+
+const openmeta::ScanResult scan_est
+    = openmeta::measure_scan_auto(file_bytes);
+const openmeta::ExifDecodeResult exif_est
+    = openmeta::measure_exif_tiff(exif_bytes, exif_options);
+const openmeta::XmpDecodeResult xmp_est
+    = openmeta::measure_xmp_packet(xmp_bytes, xmp_options);
+const openmeta::IccDecodeResult icc_est
+    = openmeta::measure_icc_profile(icc_bytes, icc_options);
+const openmeta::IptcIimDecodeResult iptc_est
+    = openmeta::measure_iptc_iim(iptc_bytes, iptc_options);
+const openmeta::PhotoshopIrbDecodeResult irb_est
+    = openmeta::measure_photoshop_irb(irb_bytes, irb_options);
+const openmeta::ExrDecodeResult exr_est
+    = openmeta::measure_exr_header(exr_bytes, exr_options);
+const openmeta::JumbfDecodeResult jumbf_est
+    = openmeta::measure_jumbf_payload(jumbf_bytes, jumbf_options);
 ```
 
 Example scripts (repo tree):

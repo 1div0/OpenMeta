@@ -126,6 +126,14 @@ decode_jumbf_payload(std::span<const std::byte> bytes, MetaStore& store,
                      = JumbfDecodeOptions {}) noexcept;
 
 /**
+ * \brief Estimates JUMBF decode entry count using the same limits/options.
+ */
+JumbfDecodeResult
+measure_jumbf_payload(std::span<const std::byte> bytes,
+                      const JumbfDecodeOptions& options
+                      = JumbfDecodeOptions {}) noexcept;
+
+/**
  * \brief Estimates structural nesting for a JUMBF/C2PA payload.
  *
  * Performs bounded BMFF box traversal and bounded CBOR structural parsing to
@@ -133,8 +141,8 @@ decode_jumbf_payload(std::span<const std::byte> bytes, MetaStore& store,
  * intended for preflight risk checks before full decode.
  */
 JumbfStructureEstimate
-estimate_jumbf_structure(std::span<const std::byte> bytes,
-                         const JumbfDecodeLimits& limits
-                         = JumbfDecodeLimits {}) noexcept;
+measure_jumbf_structure(std::span<const std::byte> bytes,
+                        const JumbfDecodeLimits& limits
+                        = JumbfDecodeLimits {}) noexcept;
 
 }  // namespace openmeta

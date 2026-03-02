@@ -241,6 +241,45 @@ TEST(ExifTiffDecode, DecodesIfd0AndExifIfd_BigEndian)
               "2024:01:01 00:00:00");
 }
 
+TEST(ExifTiffDecode, EstimateMatchesDecodeCounters)
+{
+    const std::vector<std::byte> tiff = make_test_tiff_le();
+    ExifDecodeOptions options;
+    options.include_pointer_tags = true;
+
+    const ExifDecodeResult estimate = measure_exif_tiff(tiff, options);
+    EXPECT_EQ(estimate.status, ExifDecodeStatus::Ok);
+    EXPECT_EQ(estimate.ifds_needed, 2U);
+    EXPECT_EQ(estimate.entries_decoded, 3U);
+
+    MetaStore store;
+    std::array<ExifIfdRef, 8> ifds {};
+    const ExifDecodeResult decoded = decode_exif_tiff(tiff, store, ifds,
+                                                      options);
+    EXPECT_EQ(decoded.status, estimate.status);
+    EXPECT_EQ(decoded.ifds_needed, estimate.ifds_needed);
+    EXPECT_EQ(decoded.entries_decoded, estimate.entries_decoded);
+}
+
+TEST(ExifTiffDecode, EstimateRespectsEntryLimitOverrides)
+{
+    const std::vector<std::byte> tiff = make_test_tiff_le();
+    ExifDecodeOptions options;
+    options.include_pointer_tags     = true;
+    options.limits.max_total_entries = 2U;
+
+    const ExifDecodeResult estimate = measure_exif_tiff(tiff, options);
+    EXPECT_EQ(estimate.status, ExifDecodeStatus::LimitExceeded);
+    EXPECT_EQ(estimate.limit_reason, ExifLimitReason::MaxTotalEntries);
+
+    MetaStore store;
+    std::array<ExifIfdRef, 8> ifds {};
+    const ExifDecodeResult decoded = decode_exif_tiff(tiff, store, ifds,
+                                                      options);
+    EXPECT_EQ(decoded.status, ExifDecodeStatus::LimitExceeded);
+    EXPECT_EQ(decoded.limit_reason, ExifLimitReason::MaxTotalEntries);
+}
+
 TEST(ExifTiffDecode, AcceptsTiffRawVariantHeaders)
 {
     auto make_min = [&](uint16_t version_le) {

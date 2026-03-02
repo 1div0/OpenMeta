@@ -421,6 +421,16 @@ namespace {
         const ScanResult auto_res = scan_auto(jpeg, blocks);
         EXPECT_EQ(auto_res.status, ScanStatus::Ok);
         EXPECT_EQ(auto_res.written, 4U);
+
+        const ScanResult est_jpeg = measure_scan_jpeg(jpeg);
+        EXPECT_EQ(est_jpeg.status, ScanStatus::Ok);
+        EXPECT_EQ(est_jpeg.written, 0U);
+        EXPECT_EQ(est_jpeg.needed, 4U);
+
+        const ScanResult est_auto = measure_scan_auto(jpeg);
+        EXPECT_EQ(est_auto.status, ScanStatus::Ok);
+        EXPECT_EQ(est_auto.written, 0U);
+        EXPECT_EQ(est_auto.needed, 4U);
     }
 
     TEST(ContainerScan, JpegApp11JumbfOneBasedReassembly)
@@ -1137,6 +1147,11 @@ namespace {
             const ScanResult auto_res = scan_auto(file, blocks);
             EXPECT_EQ(auto_res.status, ScanStatus::Ok);
             EXPECT_EQ(auto_res.written, 3U);
+
+            const ScanResult est_bmff = measure_scan_bmff(file);
+            EXPECT_EQ(est_bmff.status, ScanStatus::Ok);
+            EXPECT_EQ(est_bmff.written, 0U);
+            EXPECT_EQ(est_bmff.needed, 3U);
         }
     }
 

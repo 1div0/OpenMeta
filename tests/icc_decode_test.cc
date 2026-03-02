@@ -183,4 +183,23 @@ TEST(IccDecodeTest, DecodesHeaderAndTagTable)
     EXPECT_TRUE(saw_tag);
 }
 
+TEST(IccDecodeTest, EstimateMatchesDecodeCounters)
+{
+    std::vector<std::byte> icc(160, std::byte { 0x00 });
+    write_u32be(static_cast<uint32_t>(icc.size()), 0, &icc);
+    write_u32be(fourcc('a', 'c', 's', 'p'), 36, &icc);
+    write_u32be(1U, 128, &icc);
+    write_u32be(fourcc('d', 'e', 's', 'c'), 132, &icc);
+    write_u32be(144U, 136, &icc);
+    write_u32be(16U, 140, &icc);
+
+    const IccDecodeResult estimate = measure_icc_profile(icc);
+    EXPECT_EQ(estimate.status, IccDecodeStatus::Ok);
+
+    MetaStore store;
+    const IccDecodeResult decoded = decode_icc_profile(icc, store);
+    EXPECT_EQ(decoded.status, estimate.status);
+    EXPECT_EQ(decoded.entries_decoded, estimate.entries_decoded);
+}
+
 }  // namespace openmeta

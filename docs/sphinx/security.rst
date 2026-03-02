@@ -35,7 +35,7 @@ metadata block family:
   budgets.
 
 For JUMBF preflight checks, use
-``estimate_jumbf_structure(std::span<const std::byte>, limits)`` before full
+``measure_jumbf_structure(std::span<const std::byte>, limits)`` before full
 decode. For global defaults across decoders, initialize policy with
 ``recommended_resource_policy()``.
 

@@ -92,6 +92,61 @@ TEST(XmpDecodeTest, TrimsTrailingNulPadding)
     EXPECT_EQ(r.entries_decoded, 1U);
 }
 
+TEST(XmpDecodeTest, EstimateMatchesDecodeCounters)
+{
+    const std::string xmp
+        = "<x:xmpmeta xmlns:x='adobe:ns:meta/'>"
+          "<rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'>"
+          "<rdf:Description "
+          "xmlns:xmp='http://ns.adobe.com/xap/1.0/' "
+          "xmp:CreatorTool='OpenMeta'>"
+          "<xmp:Rating>5</xmp:Rating>"
+          "</rdf:Description>"
+          "</rdf:RDF>"
+          "</x:xmpmeta>";
+
+    const std::span<const std::byte> bytes(reinterpret_cast<const std::byte*>(
+                                               xmp.data()),
+                                           xmp.size());
+
+    const XmpDecodeResult estimate = measure_xmp_packet(bytes);
+    EXPECT_EQ(estimate.status, XmpDecodeStatus::Ok);
+    EXPECT_EQ(estimate.entries_decoded, 2U);
+
+    MetaStore store;
+    const XmpDecodeResult decoded = decode_xmp_packet(bytes, store);
+    EXPECT_EQ(decoded.status, estimate.status);
+    EXPECT_EQ(decoded.entries_decoded, estimate.entries_decoded);
+}
+
+TEST(XmpDecodeTest, EstimateRespectsPropertyLimitOverride)
+{
+    const std::string xmp
+        = "<x:xmpmeta xmlns:x='adobe:ns:meta/'>"
+          "<rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'>"
+          "<rdf:Description "
+          "xmlns:xmp='http://ns.adobe.com/xap/1.0/' "
+          "xmp:CreatorTool='OpenMeta'>"
+          "<xmp:Rating>5</xmp:Rating>"
+          "</rdf:Description>"
+          "</rdf:RDF>"
+          "</x:xmpmeta>";
+
+    const std::span<const std::byte> bytes(reinterpret_cast<const std::byte*>(
+                                               xmp.data()),
+                                           xmp.size());
+
+    XmpDecodeOptions options;
+    options.limits.max_properties  = 1U;
+    const XmpDecodeResult estimate = measure_xmp_packet(bytes, options);
+    EXPECT_EQ(estimate.status, XmpDecodeStatus::LimitExceeded);
+
+    MetaStore store;
+    const XmpDecodeResult decoded
+        = decode_xmp_packet(bytes, store, EntryFlags::None, options);
+    EXPECT_EQ(decoded.status, XmpDecodeStatus::LimitExceeded);
+}
+
 TEST(XmpDecodeTest, PreservesExplicitEmptyLeafValues)
 {
     const std::string xmp
@@ -117,15 +172,13 @@ TEST(XmpDecodeTest, PreservesExplicitEmptyLeafValues)
     store.finalize();
 
     MetaKeyView artist_key;
-    artist_key.kind = MetaKeyKind::XmpProperty;
-    artist_key.data.xmp_property.schema_ns
-        = "http://ns.adobe.com/tiff/1.0/";
+    artist_key.kind                        = MetaKeyKind::XmpProperty;
+    artist_key.data.xmp_property.schema_ns = "http://ns.adobe.com/tiff/1.0/";
     artist_key.data.xmp_property.property_path = "Artist";
 
     MetaKeyView copy_key;
-    copy_key.kind = MetaKeyKind::XmpProperty;
-    copy_key.data.xmp_property.schema_ns
-        = "http://ns.adobe.com/tiff/1.0/";
+    copy_key.kind                            = MetaKeyKind::XmpProperty;
+    copy_key.data.xmp_property.schema_ns     = "http://ns.adobe.com/tiff/1.0/";
     copy_key.data.xmp_property.property_path = "Copyright";
 
     const std::span<const EntryId> artist_ids = store.find_all(artist_key);
@@ -228,9 +281,9 @@ TEST(XmpDecodeTest, MalformedCanBeReportedAsOutputTruncated)
 
     MetaStore store_b;
     XmpDecodeOptions options;
-    options.malformed_mode = XmpDecodeMalformedMode::OutputTruncated;
-    const XmpDecodeResult safe
-        = decode_xmp_packet(bytes, store_b, EntryFlags::None, options);
+    options.malformed_mode     = XmpDecodeMalformedMode::OutputTruncated;
+    const XmpDecodeResult safe = decode_xmp_packet(bytes, store_b,
+                                                   EntryFlags::None, options);
     EXPECT_EQ(safe.status, XmpDecodeStatus::OutputTruncated);
     EXPECT_EQ(safe.entries_decoded, strict.entries_decoded);
 }

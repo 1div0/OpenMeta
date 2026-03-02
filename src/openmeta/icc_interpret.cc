@@ -572,6 +572,17 @@ namespace {
         }
     }
 
+    static const char* chromaticity_colorant_name(uint32_t code) noexcept
+    {
+        switch (code) {
+        case 1U: return "ITU-R_BT.709";
+        case 2U: return "SMPTE_RP145";
+        case 3U: return "EBU_Tech_3213";
+        case 4U: return "P22";
+        default: return nullptr;
+        }
+    }
+
     static bool push_limited_value(double value, uint32_t max_values,
                                    std::vector<double>* out,
                                    bool* truncated) noexcept
@@ -730,6 +741,71 @@ namespace {
                           measurement_geometry_name(geometry), &out->text);
         append_enum_label("illuminant", illum, standard_illuminant_name(illum),
                           &out->text);
+
+        if (options.limits.max_text_bytes != 0U
+            && out->text.size() > options.limits.max_text_bytes) {
+            out->text.resize(options.limits.max_text_bytes);
+            truncated = true;
+        }
+        return truncated ? IccTagInterpretStatus::LimitExceeded
+                         : IccTagInterpretStatus::Ok;
+    }
+
+    static IccTagInterpretStatus
+    decode_chromaticity(std::span<const std::byte> bytes,
+                        const IccTagInterpretOptions& options,
+                        IccTagInterpretation* out) noexcept
+    {
+        if (!out || bytes.size() < 12U) {
+            return IccTagInterpretStatus::Malformed;
+        }
+
+        uint16_t channels = 0;
+        uint16_t colorant = 0;
+        if (!read_u16be(bytes, 8U, &channels)
+            || !read_u16be(bytes, 10U, &colorant)) {
+            return IccTagInterpretStatus::Malformed;
+        }
+        if (channels == 0U) {
+            return IccTagInterpretStatus::Malformed;
+        }
+
+        const uint64_t pair_count = static_cast<uint64_t>(channels) * 2ULL;
+        const uint64_t need       = 12ULL + pair_count * 4ULL;
+        if (need > bytes.size()) {
+            return IccTagInterpretStatus::Malformed;
+        }
+
+        bool truncated = false;
+        out->values.clear();
+        out->values.reserve(channels * 2U);
+        for (uint32_t i = 0U; i < pair_count; ++i) {
+            uint32_t fixed = 0;
+            if (!read_u32be(bytes, 12ULL + static_cast<uint64_t>(i) * 4ULL,
+                            &fixed)) {
+                return IccTagInterpretStatus::Malformed;
+            }
+            (void)push_limited_value(static_cast<double>(fixed) / 65536.0,
+                                     options.limits.max_values, &out->values,
+                                     &truncated);
+        }
+        if (out->values.empty()) {
+            return IccTagInterpretStatus::Malformed;
+        }
+
+        if ((out->values.size() % 2U) == 0U) {
+            out->rows = static_cast<uint32_t>(out->values.size() / 2U);
+            out->cols = 2U;
+        } else {
+            out->rows = 1U;
+            out->cols = static_cast<uint32_t>(out->values.size());
+        }
+
+        out->text.clear();
+        out->text.append("chrm");
+        append_enum_label("channels", channels, nullptr, &out->text);
+        append_enum_label("colorant", colorant,
+                          chromaticity_colorant_name(colorant), &out->text);
 
         if (options.limits.max_text_bytes != 0U
             && out->text.size() > options.limits.max_text_bytes) {
@@ -1053,6 +1129,10 @@ interpret_icc_tag(uint32_t signature, std::span<const std::byte> tag_bytes,
 
     if (type_sig == fourcc('m', 'e', 'a', 's')) {
         return decode_measurement(tag_bytes, options, out);
+    }
+
+    if (type_sig == fourcc('c', 'h', 'r', 'm')) {
+        return decode_chromaticity(tag_bytes, options, out);
     }
 
     if (type_sig == fourcc('m', 'l', 'u', 'c')) {

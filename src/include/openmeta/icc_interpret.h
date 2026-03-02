@@ -68,6 +68,7 @@ icc_tag_name(uint32_t signature) noexcept;
  * - `dtim` (date/time number)
  * - `view` (viewing conditions summary + numeric values)
  * - `meas` (measurement summary + backing/flare values)
+ * - `chrm` (chromaticity coordinates + colorant summary)
  * - `sf32` (s15Fixed16 array)
  * - `uf32` (u16Fixed16 array)
  * - `mft1` / `mft2` (LUT summaries)

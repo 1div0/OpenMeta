@@ -131,6 +131,9 @@ namespace {
                           const ContainerBlockRef& block) noexcept
     {
         sink->result.needed += 1;
+        if (!sink->out || sink->cap == 0U) {
+            return;
+        }
         if (sink->result.written < sink->cap) {
             sink->out[sink->result.written] = block;
             sink->result.written += 1;
@@ -596,8 +599,7 @@ scan_jpeg(std::span<const std::byte> bytes,
                         }
                     }
 
-                    if (box_size >= hdr_len && seg_payload_size >= 8U + hdr_len
-                        && seg_payload_size > 8U + hdr_len) {
+                    if (box_size >= hdr_len && seg_payload_size >= 8U + hdr_len) {
                         ContainerBlockRef jumbf;
                         jumbf.format       = ContainerFormat::Jpeg;
                         jumbf.kind         = ContainerBlockKind::Jumbf;
@@ -834,6 +836,130 @@ scan_jpeg(std::span<const std::byte> bytes,
 }
 
 
+namespace {
+
+    static bool
+    looks_like_bmff_box_header_fragment(std::span<const std::byte> bytes,
+                                        const ContainerBlockRef& b) noexcept
+    {
+        if (b.data_size < 8U || b.data_offset + 8U > bytes.size()) {
+            return false;
+        }
+        uint32_t size32 = 0;
+        uint32_t type   = 0;
+        if (!read_u32be(bytes, b.data_offset, &size32)
+            || !read_u32be(bytes, b.data_offset + 4U, &type)) {
+            return false;
+        }
+        if (type == 0U) {
+            return false;
+        }
+        if (size32 == 0U) {
+            return true;
+        }
+        if (size32 == 1U) {
+            if (b.data_size < 16U || b.data_offset + 16U > bytes.size()) {
+                return false;
+            }
+            uint64_t size64 = 0;
+            if (!read_u64be(bytes, b.data_offset + 8U, &size64)) {
+                return false;
+            }
+            return size64 >= 16U;
+        }
+        return size32 >= 8U;
+    }
+
+    static uint32_t
+    find_next_jumbf_block(const BlockSink& sink, uint32_t begin,
+                          ContainerFormat format, uint32_t id) noexcept
+    {
+        const uint32_t written = sink.result.written;
+        for (uint32_t i = begin; i < written; ++i) {
+            const ContainerBlockRef& b = sink.out[i];
+            if (b.format == format && b.kind == ContainerBlockKind::Jumbf
+                && b.id == id) {
+                return i;
+            }
+        }
+        return written;
+    }
+
+    static void
+    normalize_split_jumbf_blocks(BlockSink* sink,
+                                 std::span<const std::byte> bytes,
+                                 ContainerFormat format, uint32_t id) noexcept
+    {
+        if (!sink || !sink->out || sink->result.written == 0U) {
+            return;
+        }
+
+        const uint32_t written = sink->result.written;
+        uint32_t i             = 0U;
+        while (true) {
+            i = find_next_jumbf_block(*sink, i, format, id);
+            if (i >= written) {
+                break;
+            }
+
+            const ContainerBlockRef& head = sink->out[i];
+            if (!looks_like_bmff_box_header_fragment(bytes, head)) {
+                i += 1U;
+                continue;
+            }
+
+            uint32_t run_count    = 1U;
+            uint32_t next_header  = written;
+            uint32_t probe_search = i + 1U;
+            while (true) {
+                const uint32_t j
+                    = find_next_jumbf_block(*sink, probe_search, format, id);
+                if (j >= written) {
+                    break;
+                }
+                if (looks_like_bmff_box_header_fragment(bytes, sink->out[j])) {
+                    next_header = j;
+                    break;
+                }
+                run_count += 1U;
+                probe_search = j + 1U;
+            }
+
+            if (run_count > 1U) {
+                uint64_t group
+                    = (static_cast<uint64_t>(id) << 32U)
+                      ^ (static_cast<uint64_t>(i) + 1ULL);
+                if (group == 0U) {
+                    group = 1U;
+                }
+                uint32_t part_index = 0U;
+                uint32_t k_search   = i;
+                while (part_index < run_count) {
+                    const uint32_t k = find_next_jumbf_block(
+                        *sink, k_search, format, id);
+                    if (k >= written || (next_header < written && k >= next_header)) {
+                        break;
+                    }
+                    ContainerBlockRef& b = sink->out[k];
+                    b.part_count         = run_count;
+                    b.part_index         = part_index;
+                    b.group              = group;
+                    part_index += 1U;
+                    k_search = k + 1U;
+                }
+            }
+
+            if (next_header < written) {
+                i = next_header;
+            } else {
+                break;
+            }
+        }
+    }
+
+}  // namespace
+
+
 ScanResult
 scan_png(std::span<const std::byte> bytes,
          std::span<ContainerBlockRef> out) noexcept
@@ -1000,6 +1126,9 @@ scan_png(std::span<const std::byte> bytes,
         }
     }
 
+    normalize_split_jumbf_blocks(&sink, bytes, ContainerFormat::Png,
+                                 fourcc('c', 'a', 'B', 'X'));
+
     return sink.result;
 }
 
@@ -1098,6 +1227,9 @@ scan_webp(std::span<const std::byte> bytes,
 
         offset = next;
     }
+
+    normalize_split_jumbf_blocks(&sink, bytes, ContainerFormat::Webp,
+                                 fourcc('C', '2', 'P', 'A'));
 
     return sink.result;
 }
@@ -4616,6 +4748,81 @@ scan_auto(std::span<const std::byte> bytes,
     ScanResult res;
     res.status = ScanStatus::Unsupported;
     return res;
+}
+
+static ScanResult
+normalize_estimate_scan_result(ScanResult res) noexcept
+{
+    // Estimation paths intentionally provide no output storage. Preserve
+    // needed/status semantics except "output buffer full".
+    if (res.status == ScanStatus::OutputTruncated) {
+        res.status = ScanStatus::Ok;
+    }
+    res.written = 0U;
+    return res;
+}
+
+ScanResult
+measure_scan_auto(std::span<const std::byte> bytes) noexcept
+{
+    return normalize_estimate_scan_result(
+        scan_auto(bytes, std::span<ContainerBlockRef> {}));
+}
+
+ScanResult
+measure_scan_jpeg(std::span<const std::byte> bytes) noexcept
+{
+    return normalize_estimate_scan_result(
+        scan_jpeg(bytes, std::span<ContainerBlockRef> {}));
+}
+
+ScanResult
+measure_scan_png(std::span<const std::byte> bytes) noexcept
+{
+    return normalize_estimate_scan_result(
+        scan_png(bytes, std::span<ContainerBlockRef> {}));
+}
+
+ScanResult
+measure_scan_webp(std::span<const std::byte> bytes) noexcept
+{
+    return normalize_estimate_scan_result(
+        scan_webp(bytes, std::span<ContainerBlockRef> {}));
+}
+
+ScanResult
+measure_scan_gif(std::span<const std::byte> bytes) noexcept
+{
+    return normalize_estimate_scan_result(
+        scan_gif(bytes, std::span<ContainerBlockRef> {}));
+}
+
+ScanResult
+measure_scan_tiff(std::span<const std::byte> bytes) noexcept
+{
+    return normalize_estimate_scan_result(
+        scan_tiff(bytes, std::span<ContainerBlockRef> {}));
+}
+
+ScanResult
+measure_scan_jp2(std::span<const std::byte> bytes) noexcept
+{
+    return normalize_estimate_scan_result(
+        scan_jp2(bytes, std::span<ContainerBlockRef> {}));
+}
+
+ScanResult
+measure_scan_jxl(std::span<const std::byte> bytes) noexcept
+{
+    return normalize_estimate_scan_result(
+        scan_jxl(bytes, std::span<ContainerBlockRef> {}));
+}
+
+ScanResult
+measure_scan_bmff(std::span<const std::byte> bytes) noexcept
+{
+    return normalize_estimate_scan_result(
+        scan_bmff(bytes, std::span<ContainerBlockRef> {}));
 }
 
 }  // namespace openmeta

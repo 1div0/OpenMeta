@@ -105,4 +105,25 @@ TEST(PhotoshopIrbDecodeTest, DecodesResourcesAndOptionalIptc)
     EXPECT_EQ(iptc_entries, 1U);
 }
 
+TEST(PhotoshopIrbDecodeTest, EstimateMatchesDecodeCounters)
+{
+    const std::array<std::byte, 3> payload = {
+        std::byte { 0x01 },
+        std::byte { 0x02 },
+        std::byte { 0x03 },
+    };
+    std::vector<std::byte> irb;
+    append_irb_resource(0x1234, payload, &irb);
+
+    const PhotoshopIrbDecodeResult estimate = measure_photoshop_irb(irb);
+    EXPECT_EQ(estimate.status, PhotoshopIrbDecodeStatus::Ok);
+    EXPECT_EQ(estimate.resources_decoded, 1U);
+
+    MetaStore store;
+    const PhotoshopIrbDecodeResult decoded = decode_photoshop_irb(irb, store);
+    EXPECT_EQ(decoded.status, estimate.status);
+    EXPECT_EQ(decoded.resources_decoded, estimate.resources_decoded);
+    EXPECT_EQ(decoded.entries_decoded, estimate.entries_decoded);
+}
+
 }  // namespace openmeta

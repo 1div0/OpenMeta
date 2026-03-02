@@ -225,6 +225,25 @@ TEST(ExrDecode, ReportsLimitExceededForMaxAttributes)
     EXPECT_EQ(res.entries_decoded, 1U);
 }
 
+TEST(ExrDecode, EstimateMatchesDecodeCounters)
+{
+    const std::vector<std::byte> exr = build_exr_single_part();
+
+    const ExrDecodeResult estimate = measure_exr_header(
+        std::span<const std::byte>(exr.data(), exr.size()));
+    EXPECT_EQ(estimate.status, ExrDecodeStatus::Ok);
+    EXPECT_EQ(estimate.parts_decoded, 1U);
+    EXPECT_EQ(estimate.entries_decoded, 2U);
+
+    MetaStore store;
+    const ExrDecodeResult decoded
+        = decode_exr_header(std::span<const std::byte>(exr.data(), exr.size()),
+                            store);
+    EXPECT_EQ(decoded.status, estimate.status);
+    EXPECT_EQ(decoded.parts_decoded, estimate.parts_decoded);
+    EXPECT_EQ(decoded.entries_decoded, estimate.entries_decoded);
+}
+
 TEST(ExrDecode, PreservesUnknownTypeNameByDefault)
 {
     const std::vector<std::byte> exr = build_exr_single_part_unknown_type();

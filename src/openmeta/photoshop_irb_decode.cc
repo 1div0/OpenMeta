@@ -179,4 +179,12 @@ decode_photoshop_irb(std::span<const std::byte> irb_bytes, MetaStore& store,
     return result;
 }
 
+PhotoshopIrbDecodeResult
+measure_photoshop_irb(std::span<const std::byte> irb_bytes,
+                      const PhotoshopIrbDecodeOptions& options) noexcept
+{
+    MetaStore scratch;
+    return decode_photoshop_irb(irb_bytes, scratch, options);
+}
+
 }  // namespace openmeta

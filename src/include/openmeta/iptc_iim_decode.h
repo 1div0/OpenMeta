@@ -56,4 +56,12 @@ decode_iptc_iim(std::span<const std::byte> iptc_bytes, MetaStore& store,
                 const IptcIimDecodeOptions& options
                 = IptcIimDecodeOptions {}) noexcept;
 
+/**
+ * \brief Estimates IPTC-IIM dataset count using the same limits/options.
+ */
+IptcIimDecodeResult
+measure_iptc_iim(std::span<const std::byte> iptc_bytes,
+                 const IptcIimDecodeOptions& options
+                 = IptcIimDecodeOptions {}) noexcept;
+
 }  // namespace openmeta

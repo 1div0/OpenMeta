@@ -224,6 +224,54 @@ TEST(IccInterpret, DecodesMeasurementType)
     EXPECT_NE(out.text.find("illuminant=2(D65)"), std::string::npos);
 }
 
+TEST(IccInterpret, DecodesChromaticityType)
+{
+    std::vector<std::byte> tag(36, std::byte { 0x00 });
+    write_u32be(make_fourcc('c', 'h', 'r', 'm'), 0, &tag);
+    write_u16be(3U, 8, &tag);   // channels
+    write_u16be(1U, 10, &tag);  // BT.709
+
+    // 3 x (x,y), u16Fixed16
+    write_u32be(0x0000A666U, 12, &tag);  // 0.64999
+    write_u32be(0x00005555U, 16, &tag);  // 0.33333
+    write_u32be(0x00004CCC, 20, &tag);   // 0.29999
+    write_u32be(0x0000999A, 24, &tag);   // 0.60001
+    write_u32be(0x00002666, 28, &tag);   // 0.14999
+    write_u32be(0x0000099A, 32, &tag);   // 0.03751
+
+    IccTagInterpretation out;
+    const IccTagInterpretStatus st
+        = interpret_icc_tag(make_fourcc('r', 'X', 'Y', 'Z'), tag, &out);
+    EXPECT_EQ(st, IccTagInterpretStatus::Ok);
+    EXPECT_EQ(out.type, "chrm");
+    EXPECT_EQ(out.rows, 3U);
+    EXPECT_EQ(out.cols, 2U);
+    ASSERT_EQ(out.values.size(), 6U);
+    EXPECT_NEAR(out.values[0], 0.65, 1e-4);
+    EXPECT_NEAR(out.values[1], 0.3333, 1e-4);
+    EXPECT_NEAR(out.values[2], 0.3, 1e-4);
+    EXPECT_NEAR(out.values[3], 0.6, 1e-4);
+    EXPECT_NEAR(out.values[4], 0.15, 1e-4);
+    EXPECT_NEAR(out.values[5], 0.0375, 1e-4);
+    EXPECT_NE(out.text.find("channels=3"), std::string::npos);
+    EXPECT_NE(out.text.find("colorant=1(ITU-R_BT.709)"), std::string::npos);
+}
+
+TEST(IccInterpret, RejectsMalformedChromaticityType)
+{
+    std::vector<std::byte> tag(20, std::byte { 0x00 });
+    write_u32be(make_fourcc('c', 'h', 'r', 'm'), 0, &tag);
+    write_u16be(3U, 8, &tag);  // channels=3 requires 24 payload bytes
+    write_u16be(0U, 10, &tag);
+    write_u32be(0x00010000U, 12, &tag);
+    write_u32be(0x00010000U, 16, &tag);
+
+    IccTagInterpretation out;
+    const IccTagInterpretStatus st
+        = interpret_icc_tag(make_fourcc('g', 'X', 'Y', 'Z'), tag, &out);
+    EXPECT_EQ(st, IccTagInterpretStatus::Malformed);
+}
+
 TEST(IccInterpret, DecodesSf32Array)
 {
     std::vector<std::byte> tag(16, std::byte { 0x00 });
@@ -497,6 +545,21 @@ TEST(IccInterpret, FormatsDisplayValueForCliPython)
     EXPECT_TRUE(format_icc_tag_display_value(make_fourcc('v', 'i', 'e', 'w'),
                                              view_tag, 16U, 256U, &text));
     EXPECT_NE(text.find("view illuminant_type=2(D65)"), std::string::npos);
+
+    std::vector<std::byte> chrm_tag(36, std::byte { 0x00 });
+    write_u32be(make_fourcc('c', 'h', 'r', 'm'), 0, &chrm_tag);
+    write_u16be(3U, 8, &chrm_tag);
+    write_u16be(1U, 10, &chrm_tag);
+    write_u32be(0x0000A666U, 12, &chrm_tag);
+    write_u32be(0x00005555U, 16, &chrm_tag);
+    write_u32be(0x00004CCCU, 20, &chrm_tag);
+    write_u32be(0x0000999AU, 24, &chrm_tag);
+    write_u32be(0x00002666U, 28, &chrm_tag);
+    write_u32be(0x0000099AU, 32, &chrm_tag);
+    EXPECT_TRUE(format_icc_tag_display_value(make_fourcc('r', 'X', 'Y', 'Z'),
+                                             chrm_tag, 16U, 256U, &text));
+    EXPECT_NE(text.find("chrm channels=3 colorant=1(ITU-R_BT.709)"),
+              std::string::npos);
 }
 
 }  // namespace openmeta

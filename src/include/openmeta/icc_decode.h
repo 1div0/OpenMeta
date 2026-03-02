@@ -54,4 +54,12 @@ decode_icc_profile(std::span<const std::byte> icc_bytes, MetaStore& store,
                    const IccDecodeOptions& options
                    = IccDecodeOptions {}) noexcept;
 
+/**
+ * \brief Estimates ICC decode entry count using the same limits/options.
+ */
+IccDecodeResult
+measure_icc_profile(std::span<const std::byte> icc_bytes,
+                    const IccDecodeOptions& options
+                    = IccDecodeOptions {}) noexcept;
+
 }  // namespace openmeta

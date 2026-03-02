@@ -186,6 +186,59 @@ namespace {
         EXPECT_TRUE(store_has_jumbf_cbor_key(store, "box.0.1.cbor.a"));
     }
 
+    TEST(C2paContainers, JpegApp11HeaderOnlyFirstSegmentIntegrated)
+    {
+        std::vector<std::byte> jpeg;
+        jpeg.push_back(std::byte { 0xFF });
+        jpeg.push_back(std::byte { 0xD8 });
+
+        const std::vector<std::byte> jumb_box = make_sample_jumbf_payload();
+        ASSERT_GT(jumb_box.size(), 8U);
+
+        const std::span<const std::byte> jumb_payload(jumb_box.data() + 8U,
+                                                      jumb_box.size() - 8U);
+
+        // Part 1: APP11 preamble + BMFF header only.
+        std::vector<std::byte> seg1;
+        append_bytes(&seg1, "JP");
+        seg1.push_back(std::byte { 0x00 });
+        seg1.push_back(std::byte { 0x00 });
+        append_u32be(&seg1, 1U);
+        seg1.insert(seg1.end(), jumb_box.begin(), jumb_box.begin() + 8);
+        append_jpeg_segment(&jpeg, 0xFFEB, seg1);
+
+        // Part 2: APP11 preamble + same BMFF header + full payload bytes.
+        std::vector<std::byte> seg2;
+        append_bytes(&seg2, "JP");
+        seg2.push_back(std::byte { 0x00 });
+        seg2.push_back(std::byte { 0x00 });
+        append_u32be(&seg2, 2U);
+        seg2.insert(seg2.end(), jumb_box.begin(), jumb_box.begin() + 8);
+        seg2.insert(seg2.end(), jumb_payload.begin(), jumb_payload.end());
+        append_jpeg_segment(&jpeg, 0xFFEB, seg2);
+
+        jpeg.push_back(std::byte { 0xFF });
+        jpeg.push_back(std::byte { 0xD9 });
+
+        MetaStore store;
+        std::array<ContainerBlockRef, 32> blocks {};
+        std::array<ExifIfdRef, 16> ifds {};
+        std::array<std::byte, 8192> payload {};
+        std::array<uint32_t, 128> payload_parts {};
+        SimpleMetaDecodeOptions options;
+
+        const SimpleMetaResult read
+            = simple_meta_read(jpeg, store, blocks, ifds, payload,
+                               payload_parts, options);
+        EXPECT_EQ(read.scan.status, ScanStatus::Ok);
+        EXPECT_EQ(read.jumbf.status, JumbfDecodeStatus::Ok);
+        EXPECT_GT(read.jumbf.entries_decoded, 0U);
+
+        store.finalize();
+        EXPECT_TRUE(store_has_jumbf_field(store, "c2pa.detected"));
+        EXPECT_TRUE(store_has_jumbf_cbor_key(store, "box.0.1.cbor.a"));
+    }
+
 
     TEST(C2paContainers, PngCaBxJumbfIntegrated)
     {
@@ -197,6 +250,44 @@ namespace {
 
         const std::vector<std::byte> jumb_box = make_sample_jumbf_payload();
         append_png_chunk(&png, fourcc('c', 'a', 'B', 'X'), jumb_box);
+        append_png_chunk(&png, fourcc('I', 'E', 'N', 'D'),
+                         std::span<const std::byte> {});
+
+        MetaStore store;
+        std::array<ContainerBlockRef, 32> blocks {};
+        std::array<ExifIfdRef, 16> ifds {};
+        std::array<std::byte, 8192> payload {};
+        std::array<uint32_t, 128> payload_parts {};
+        SimpleMetaDecodeOptions options;
+
+        const SimpleMetaResult read = simple_meta_read(
+            png, store, blocks, ifds, payload, payload_parts, options);
+        EXPECT_EQ(read.scan.status, ScanStatus::Ok);
+        EXPECT_EQ(read.jumbf.status, JumbfDecodeStatus::Ok);
+
+        store.finalize();
+        EXPECT_TRUE(store_has_jumbf_field(store, "c2pa.detected"));
+        EXPECT_TRUE(store_has_jumbf_cbor_key(store, "box.0.1.cbor.a"));
+    }
+
+    TEST(C2paContainers, PngCaBxSplitChunksIntegrated)
+    {
+        std::vector<std::byte> png = {
+            std::byte { 0x89 }, std::byte { 0x50 }, std::byte { 0x4E },
+            std::byte { 0x47 }, std::byte { 0x0D }, std::byte { 0x0A },
+            std::byte { 0x1A }, std::byte { 0x0A },
+        };
+
+        const std::vector<std::byte> jumb_box = make_sample_jumbf_payload();
+        ASSERT_GT(jumb_box.size(), 8U);
+        const size_t mid = jumb_box.size() / 2U;
+
+        append_png_chunk(&png, fourcc('c', 'a', 'B', 'X'),
+                         std::span<const std::byte>(jumb_box.data(), mid));
+        append_png_chunk(
+            &png, fourcc('c', 'a', 'B', 'X'),
+            std::span<const std::byte>(jumb_box.data() + static_cast<ptrdiff_t>(mid),
+                                       jumb_box.size() - mid));
         append_png_chunk(&png, fourcc('I', 'E', 'N', 'D'),
                          std::span<const std::byte> {});
 
@@ -232,6 +323,59 @@ namespace {
         append_u32le(&webp, static_cast<uint32_t>(jumb_box.size()));
         webp.insert(webp.end(), jumb_box.begin(), jumb_box.end());
         if ((jumb_box.size() & 1U) != 0U) {
+            webp.push_back(std::byte { 0x00 });
+        }
+
+        const uint32_t riff_size
+            = static_cast<uint32_t>((webp.size() >= 8U) ? (webp.size() - 8U)
+                                                        : 0U);
+        webp[4] = std::byte { static_cast<uint8_t>((riff_size >> 0) & 0xFFU) };
+        webp[5] = std::byte { static_cast<uint8_t>((riff_size >> 8) & 0xFFU) };
+        webp[6] = std::byte { static_cast<uint8_t>((riff_size >> 16) & 0xFFU) };
+        webp[7] = std::byte { static_cast<uint8_t>((riff_size >> 24) & 0xFFU) };
+
+        MetaStore store;
+        std::array<ContainerBlockRef, 32> blocks {};
+        std::array<ExifIfdRef, 16> ifds {};
+        std::array<std::byte, 8192> payload {};
+        std::array<uint32_t, 128> payload_parts {};
+        SimpleMetaDecodeOptions options;
+
+        const SimpleMetaResult read = simple_meta_read(
+            webp, store, blocks, ifds, payload, payload_parts, options);
+        EXPECT_EQ(read.scan.status, ScanStatus::Ok);
+        EXPECT_EQ(read.jumbf.status, JumbfDecodeStatus::Ok);
+
+        store.finalize();
+        EXPECT_TRUE(store_has_jumbf_field(store, "c2pa.detected"));
+        EXPECT_TRUE(store_has_jumbf_cbor_key(store, "box.0.1.cbor.a"));
+    }
+
+    TEST(C2paContainers, WebpC2paSplitChunksIntegrated)
+    {
+        const std::vector<std::byte> jumb_box = make_sample_jumbf_payload();
+        ASSERT_GT(jumb_box.size(), 8U);
+        const size_t mid = jumb_box.size() / 2U;
+
+        std::vector<std::byte> webp;
+        append_bytes(&webp, "RIFF");
+        append_u32le(&webp, 0);
+        append_bytes(&webp, "WEBP");
+
+        append_bytes(&webp, "C2PA");
+        append_u32le(&webp, static_cast<uint32_t>(mid));
+        webp.insert(webp.end(), jumb_box.begin(),
+                    jumb_box.begin() + static_cast<ptrdiff_t>(mid));
+        if ((mid & 1U) != 0U) {
+            webp.push_back(std::byte { 0x00 });
+        }
+
+        append_bytes(&webp, "C2PA");
+        append_u32le(&webp, static_cast<uint32_t>(jumb_box.size() - mid));
+        webp.insert(
+            webp.end(), jumb_box.begin() + static_cast<ptrdiff_t>(mid),
+            jumb_box.end());
+        if (((jumb_box.size() - mid) & 1U) != 0U) {
             webp.push_back(std::byte { 0x00 });
         }
 

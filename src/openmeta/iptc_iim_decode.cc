@@ -138,4 +138,12 @@ decode_iptc_iim(std::span<const std::byte> iptc_bytes, MetaStore& store,
     return result;
 }
 
+IptcIimDecodeResult
+measure_iptc_iim(std::span<const std::byte> iptc_bytes,
+                 const IptcIimDecodeOptions& options) noexcept
+{
+    MetaStore scratch;
+    return decode_iptc_iim(iptc_bytes, scratch, EntryFlags::None, options);
+}
+
 }  // namespace openmeta
