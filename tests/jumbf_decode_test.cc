@@ -576,6 +576,27 @@ namespace {
                            text.size());
     }
 
+    static uint64_t read_jumbf_field_u64(const MetaStore& store,
+                                         std::string_view field)
+    {
+        MetaKeyView key_view;
+        key_view.kind                      = MetaKeyKind::JumbfField;
+        key_view.data.jumbf_field.field    = field;
+        const std::span<const EntryId> ids = store.find_all(key_view);
+        if (ids.empty()) {
+            return 0U;
+        }
+        const Entry& entry = store.entry(ids.back());
+        if (entry.value.kind != MetaValueKind::Scalar
+            || (entry.value.elem_type != MetaElementType::U64
+                && entry.value.elem_type != MetaElementType::U32
+                && entry.value.elem_type != MetaElementType::U16
+                && entry.value.elem_type != MetaElementType::U8)) {
+            return 0U;
+        }
+        return entry.value.data.u64;
+    }
+
     static std::vector<std::byte> make_c2pa_manifest_with_top_level_signature(
         std::string_view algorithm, std::span<const std::byte> signing_input,
         std::span<const std::byte> signature,
@@ -3173,6 +3194,163 @@ TEST(JumbfDecode, C2paVerifyDraftRegressionFixtures)
             << fixture.name;
 #endif
     }
+}
+
+TEST(JumbfDecode,
+     C2paVerifyProfilePolicyRequireResolvedReferencesUnresolvedFails)
+{
+    const std::array<std::byte, 4U> claim0 = {
+        std::byte { 0xA1 },
+        std::byte { 0x61 },
+        std::byte { 0x61 },
+        std::byte { 0x01 },
+    };
+    const std::array<std::byte, 4U> claim1 = {
+        std::byte { 0xA1 },
+        std::byte { 0x61 },
+        std::byte { 0x61 },
+        std::byte { 0x02 },
+    };
+
+    std::vector<std::byte> cbor_payload;
+    append_cbor_map(&cbor_payload, 1U);
+    append_cbor_text(&cbor_payload, "manifests");
+    append_cbor_map(&cbor_payload, 1U);
+    append_cbor_text(&cbor_payload, "active_manifest");
+    append_cbor_map(&cbor_payload, 1U);
+    append_cbor_text(&cbor_payload, "claims");
+    append_cbor_array(&cbor_payload, 2U);
+
+    append_cbor_map(&cbor_payload, 2U);
+    append_cbor_text(&cbor_payload, "claim");
+    append_cbor_bytes(&cbor_payload,
+                      std::span<const std::byte>(claim0.data(), claim0.size()));
+    append_cbor_text(&cbor_payload, "signatures");
+    append_cbor_array(&cbor_payload, 1U);
+    append_cbor_map(&cbor_payload, 2U);
+    append_cbor_text(&cbor_payload, "alg");
+    append_cbor_text(&cbor_payload, "es256");
+    append_cbor_text(&cbor_payload, "claim_ref_id");
+    append_cbor_i64(&cbor_payload, 99);
+
+    append_cbor_map(&cbor_payload, 2U);
+    append_cbor_text(&cbor_payload, "claim");
+    append_cbor_bytes(&cbor_payload,
+                      std::span<const std::byte>(claim1.data(), claim1.size()));
+    append_cbor_text(&cbor_payload, "signatures");
+    append_cbor_array(&cbor_payload, 1U);
+    append_cbor_map(&cbor_payload, 2U);
+    append_cbor_text(&cbor_payload, "alg");
+    append_cbor_text(&cbor_payload, "es256");
+    append_cbor_text(&cbor_payload, "claim_ref_id");
+    append_cbor_i64(&cbor_payload, 0);
+
+    const std::vector<std::byte> payload = make_jumbf_payload_with_cbor(
+        cbor_payload);
+
+    MetaStore store;
+    JumbfDecodeOptions options;
+    options.verify_c2pa                        = true;
+    options.verify_backend                     = C2paVerifyBackend::OpenSsl;
+    options.verify_require_resolved_references = true;
+    const JumbfDecodeResult result
+        = decode_jumbf_payload(payload, store, EntryFlags::None, options);
+    EXPECT_EQ(result.status, JumbfDecodeStatus::Ok);
+    store.finalize();
+
+    MetaKeyView strict_key;
+    strict_key.kind = MetaKeyKind::JumbfField;
+    strict_key.data.jumbf_field.field
+        = "c2pa.verify.require_resolved_references";
+    const std::span<const EntryId> strict_ids = store.find_all(strict_key);
+    ASSERT_EQ(strict_ids.size(), 1U);
+    EXPECT_EQ(store.entry(strict_ids[0]).value.data.u64, 1U);
+
+#if OPENMETA_ENABLE_C2PA_VERIFY && OPENMETA_C2PA_VERIFY_OPENSSL_AVAILABLE
+    EXPECT_EQ(result.verify_status, C2paVerifyStatus::VerificationFailed);
+    EXPECT_EQ(read_jumbf_field_text(store, "c2pa.verify.profile_reason"),
+              "explicit_reference_unresolved");
+    EXPECT_EQ(read_jumbf_field_u64(
+                  store,
+                  "c2pa.verify.explicit_reference_unresolved_signature_count"),
+              1U);
+#elif OPENMETA_ENABLE_C2PA_VERIFY
+    EXPECT_EQ(result.verify_status, C2paVerifyStatus::BackendUnavailable);
+#else
+    EXPECT_EQ(result.verify_status, C2paVerifyStatus::DisabledByBuild);
+#endif
+}
+
+TEST(JumbfDecode,
+     C2paVerifyProfilePolicyRequireResolvedReferencesAmbiguousFails)
+{
+    const std::array<std::byte, 4U> claim0 = {
+        std::byte { 0xA1 },
+        std::byte { 0x61 },
+        std::byte { 0x61 },
+        std::byte { 0x01 },
+    };
+    const std::array<std::byte, 4U> claim1 = {
+        std::byte { 0xA1 },
+        std::byte { 0x61 },
+        std::byte { 0x61 },
+        std::byte { 0x02 },
+    };
+
+    std::vector<std::byte> cbor_payload;
+    append_cbor_map(&cbor_payload, 1U);
+    append_cbor_text(&cbor_payload, "manifests");
+    append_cbor_map(&cbor_payload, 1U);
+    append_cbor_text(&cbor_payload, "active_manifest");
+    append_cbor_map(&cbor_payload, 1U);
+    append_cbor_text(&cbor_payload, "claims");
+    append_cbor_array(&cbor_payload, 2U);
+
+    append_cbor_map(&cbor_payload, 2U);
+    append_cbor_text(&cbor_payload, "claim");
+    append_cbor_bytes(&cbor_payload,
+                      std::span<const std::byte>(claim0.data(), claim0.size()));
+    append_cbor_text(&cbor_payload, "signatures");
+    append_cbor_array(&cbor_payload, 1U);
+    append_cbor_map(&cbor_payload, 3U);
+    append_cbor_text(&cbor_payload, "alg");
+    append_cbor_text(&cbor_payload, "es256");
+    append_cbor_text(&cbor_payload, "claim_ref_id");
+    append_cbor_i64(&cbor_payload, 0);
+    append_cbor_text(&cbor_payload, "claim_reference");
+    append_cbor_text(&cbor_payload, "claims[1]");
+
+    append_cbor_map(&cbor_payload, 1U);
+    append_cbor_text(&cbor_payload, "claim");
+    append_cbor_bytes(&cbor_payload,
+                      std::span<const std::byte>(claim1.data(), claim1.size()));
+
+    const std::vector<std::byte> payload = make_jumbf_payload_with_cbor(
+        cbor_payload);
+
+    MetaStore store;
+    JumbfDecodeOptions options;
+    options.verify_c2pa                        = true;
+    options.verify_backend                     = C2paVerifyBackend::OpenSsl;
+    options.verify_require_resolved_references = true;
+    const JumbfDecodeResult result
+        = decode_jumbf_payload(payload, store, EntryFlags::None, options);
+    EXPECT_EQ(result.status, JumbfDecodeStatus::Ok);
+    store.finalize();
+
+#if OPENMETA_ENABLE_C2PA_VERIFY && OPENMETA_C2PA_VERIFY_OPENSSL_AVAILABLE
+    EXPECT_EQ(result.verify_status, C2paVerifyStatus::VerificationFailed);
+    EXPECT_EQ(read_jumbf_field_text(store, "c2pa.verify.profile_reason"),
+              "explicit_reference_ambiguous");
+    EXPECT_EQ(read_jumbf_field_u64(
+                  store,
+                  "c2pa.verify.explicit_reference_ambiguous_signature_count"),
+              1U);
+#elif OPENMETA_ENABLE_C2PA_VERIFY
+    EXPECT_EQ(result.verify_status, C2paVerifyStatus::BackendUnavailable);
+#else
+    EXPECT_EQ(result.verify_status, C2paVerifyStatus::DisabledByBuild);
+#endif
 }
 
 TEST(JumbfDecode, C2paVerifyCoseSign1ArrayEs256)

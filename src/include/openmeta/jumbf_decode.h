@@ -85,6 +85,9 @@ struct JumbfDecodeOptions final {
     /// trust store. Untrusted or missing chains fail verification even when
     /// the signature matches.
     bool verify_require_trusted_chain = false;
+    /// If true, explicit claim references must resolve deterministically:
+    /// unresolved or ambiguous explicit-reference signatures fail verification.
+    bool verify_require_resolved_references = false;
     JumbfDecodeLimits limits;
 };
 

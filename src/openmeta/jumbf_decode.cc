@@ -706,14 +706,17 @@ namespace {
     };
 
     struct C2paProfileSummary final {
-        bool available             = false;
-        uint64_t claim_count       = 0U;
-        uint64_t signature_count   = 0U;
-        uint64_t signature_linked  = 0U;
-        uint64_t signature_orphan  = 0U;
-        uint64_t manifest_present  = 0U;
-        uint64_t claim_present     = 0U;
-        uint64_t signature_present = 0U;
+        bool available                                         = false;
+        uint64_t claim_count                                   = 0U;
+        uint64_t signature_count                               = 0U;
+        uint64_t signature_linked                              = 0U;
+        uint64_t signature_orphan                              = 0U;
+        uint64_t explicit_reference_signature_count            = 0U;
+        uint64_t explicit_reference_unresolved_signature_count = 0U;
+        uint64_t explicit_reference_ambiguous_signature_count  = 0U;
+        uint64_t manifest_present                              = 0U;
+        uint64_t claim_present                                 = 0U;
+        uint64_t signature_present                             = 0U;
     };
 
     struct C2paVerifyEvaluation final {
@@ -1753,6 +1756,26 @@ namespace {
             out->signature_orphan = value;
             have_any              = true;
         }
+        if (read_jumbf_field_u64(
+                *ctx, "c2pa.semantic.explicit_reference_signature_count",
+                &value)) {
+            out->explicit_reference_signature_count = value;
+            have_any                                = true;
+        }
+        if (read_jumbf_field_u64(
+                *ctx,
+                "c2pa.semantic.explicit_reference_unresolved_signature_count",
+                &value)) {
+            out->explicit_reference_unresolved_signature_count = value;
+            have_any                                           = true;
+        }
+        if (read_jumbf_field_u64(
+                *ctx,
+                "c2pa.semantic.explicit_reference_ambiguous_signature_count",
+                &value)) {
+            out->explicit_reference_ambiguous_signature_count = value;
+            have_any                                          = true;
+        }
         if (read_jumbf_field_u64(*ctx, "c2pa.semantic.manifest_present",
                                  &value)) {
             out->manifest_present = value;
@@ -1774,6 +1797,7 @@ namespace {
 
     [[maybe_unused]] static void
     evaluate_c2pa_profile_summary(const C2paProfileSummary& summary,
+                                  bool require_resolved_explicit_references,
                                   C2paVerifyEvaluation* evaluation) noexcept
     {
         if (!evaluation) {
@@ -1805,6 +1829,19 @@ namespace {
             evaluation->profile_status = C2paVerifyDetailStatus::Fail;
             evaluation->profile_reason = "signature_unlinked";
             return;
+        }
+        if (require_resolved_explicit_references
+            && summary.explicit_reference_signature_count != 0U) {
+            if (summary.explicit_reference_unresolved_signature_count != 0U) {
+                evaluation->profile_status = C2paVerifyDetailStatus::Fail;
+                evaluation->profile_reason = "explicit_reference_unresolved";
+                return;
+            }
+            if (summary.explicit_reference_ambiguous_signature_count != 0U) {
+                evaluation->profile_status = C2paVerifyDetailStatus::Fail;
+                evaluation->profile_reason = "explicit_reference_ambiguous";
+                return;
+            }
         }
 
         evaluation->profile_status = C2paVerifyDetailStatus::Pass;
@@ -5649,7 +5686,10 @@ namespace {
         if (!collect_c2pa_profile_summary(ctx, &profile_summary)) {
             profile_summary = C2paProfileSummary {};
         }
-        evaluate_c2pa_profile_summary(profile_summary, &evaluation);
+        evaluate_c2pa_profile_summary(
+            profile_summary,
+            ctx && ctx->options.verify_require_resolved_references,
+            &evaluation);
         if (evaluation.profile_status == C2paVerifyDetailStatus::Fail) {
             evaluation.status = C2paVerifyStatus::VerificationFailed;
             return evaluation;
@@ -5934,6 +5974,12 @@ namespace {
                            EntryFlags::Derived)) {
             return false;
         }
+        if (!emit_field_u8(ctx, "c2pa.verify.require_resolved_references",
+                           ctx->options.verify_require_resolved_references ? 1U
+                                                                           : 0U,
+                           EntryFlags::Derived)) {
+            return false;
+        }
 #if OPENMETA_ENABLE_C2PA_VERIFY
         if (!emit_field_u8(ctx, "c2pa.verify.enabled_in_build", 1U,
                            EntryFlags::Derived)) {
@@ -6004,6 +6050,27 @@ namespace {
         if (!emit_field_u64(ctx, "c2pa.verify.signature_orphan_count",
                             evaluation.profile_summary.signature_orphan,
                             EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(
+                ctx, "c2pa.verify.explicit_reference_signature_count",
+                evaluation.profile_summary.explicit_reference_signature_count,
+                EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(
+                ctx,
+                "c2pa.verify.explicit_reference_unresolved_signature_count",
+                evaluation.profile_summary
+                    .explicit_reference_unresolved_signature_count,
+                EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(
+                ctx, "c2pa.verify.explicit_reference_ambiguous_signature_count",
+                evaluation.profile_summary
+                    .explicit_reference_ambiguous_signature_count,
+                EntryFlags::Derived)) {
             return false;
         }
         return true;
