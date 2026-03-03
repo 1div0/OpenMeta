@@ -820,12 +820,30 @@ namespace {
             }
         }
 
-        static constexpr std::array<std::string_view, 57U> kRefSuffixes = {
+        static constexpr std::array<std::string_view, 81U> kRefSuffixes = {
             std::string_view { ".ref" },
             std::string_view { ".refs" },
             std::string_view { ".reference" },
             std::string_view { ".references" },
+            std::string_view { ".reference_id" },
+            std::string_view { ".reference-id" },
+            std::string_view { ".referenceid" },
+            std::string_view { ".references_id" },
+            std::string_view { ".references-id" },
+            std::string_view { ".referencesid" },
+            std::string_view { ".reference_index" },
+            std::string_view { ".reference-index" },
+            std::string_view { ".referenceindex" },
+            std::string_view { ".references_index" },
+            std::string_view { ".references-index" },
+            std::string_view { ".referencesindex" },
             std::string_view { ".claims" },
+            std::string_view { ".ref_id" },
+            std::string_view { ".ref-id" },
+            std::string_view { ".refid" },
+            std::string_view { ".ref_index" },
+            std::string_view { ".ref-index" },
+            std::string_view { ".refindex" },
             std::string_view { ".claim_ref" },
             std::string_view { ".claim-ref" },
             std::string_view { ".claim_reference" },
@@ -840,6 +858,12 @@ namespace {
             std::string_view { ".claimreferences" },
             std::string_view { ".claim_ref_index" },
             std::string_view { ".claim-ref-index" },
+            std::string_view { ".claim_ref_id" },
+            std::string_view { ".claim-ref-id" },
+            std::string_view { ".claimrefid" },
+            std::string_view { ".claim_reference_id" },
+            std::string_view { ".claim-reference-id" },
+            std::string_view { ".claimreferenceid" },
             std::string_view { ".claim_index" },
             std::string_view { ".claim-index" },
             std::string_view { ".claimindex" },
@@ -1177,19 +1201,43 @@ namespace {
             }
         }
 
-        static constexpr std::array<std::string_view, 14U> kQueryFieldRoots = {
+        static constexpr std::array<std::string_view, 38U> kQueryFieldRoots = {
             std::string_view { "claim_ref" },
             std::string_view { "claim-ref" },
             std::string_view { "claimref" },
             std::string_view { "claim_reference" },
             std::string_view { "claim-reference" },
             std::string_view { "claimreference" },
+            std::string_view { "claim_ref_id" },
+            std::string_view { "claim-ref-id" },
+            std::string_view { "claimrefid" },
+            std::string_view { "claim_reference_id" },
+            std::string_view { "claim-reference-id" },
+            std::string_view { "claimreferenceid" },
             std::string_view { "claim_index" },
             std::string_view { "claim-index" },
             std::string_view { "claimindex" },
             std::string_view { "claim_id" },
             std::string_view { "claim-id" },
             std::string_view { "claimid" },
+            std::string_view { "reference_id" },
+            std::string_view { "reference-id" },
+            std::string_view { "referenceid" },
+            std::string_view { "references_id" },
+            std::string_view { "references-id" },
+            std::string_view { "referencesid" },
+            std::string_view { "reference_index" },
+            std::string_view { "reference-index" },
+            std::string_view { "referenceindex" },
+            std::string_view { "references_index" },
+            std::string_view { "references-index" },
+            std::string_view { "referencesindex" },
+            std::string_view { "ref_id" },
+            std::string_view { "ref-id" },
+            std::string_view { "refid" },
+            std::string_view { "ref_index" },
+            std::string_view { "ref-index" },
+            std::string_view { "refindex" },
             std::string_view { "claim" },
             std::string_view { "claims" },
         };
@@ -3795,6 +3843,19 @@ namespace {
         std::vector<std::string> linked_claim_prefixes;
     };
 
+    struct ManifestProjection final {
+        std::string prefix;
+        uint64_t claim_count                         = 0U;
+        uint64_t assertion_count                     = 0U;
+        uint64_t signature_count                     = 0U;
+        uint64_t signature_linked_count              = 0U;
+        uint64_t signature_orphan_count              = 0U;
+        uint64_t cross_claim_link_count              = 0U;
+        uint64_t explicit_reference_signature_count  = 0U;
+        uint64_t explicit_reference_unresolved_count = 0U;
+        uint64_t explicit_reference_ambiguous_count  = 0U;
+    };
+
     struct ClaimProjectionLess final {
         bool operator()(const ClaimProjection& a,
                         const ClaimProjection& b) const noexcept
@@ -3815,6 +3876,14 @@ namespace {
     struct SignatureProjectionLess final {
         bool operator()(const SignatureProjection& a,
                         const SignatureProjection& b) const noexcept
+        {
+            return a.prefix < b.prefix;
+        }
+    };
+
+    struct ManifestProjectionLess final {
+        bool operator()(const ManifestProjection& a,
+                        const ManifestProjection& b) const noexcept
         {
             return a.prefix < b.prefix;
         }
@@ -3944,6 +4013,68 @@ namespace {
         signature.prefix.assign(prefix.data(), prefix.size());
         signatures->push_back(signature);
         return signatures->size() - 1U;
+    }
+
+    static size_t
+    find_manifest_projection(const std::vector<ManifestProjection>& manifests,
+                             std::string_view prefix) noexcept
+    {
+        for (size_t index = 0U; index < manifests.size(); ++index) {
+            if (manifests[index].prefix == prefix) {
+                return index;
+            }
+        }
+        return static_cast<size_t>(-1);
+    }
+
+    static size_t
+    add_or_get_manifest_projection(std::vector<ManifestProjection>* manifests,
+                                   std::string_view prefix) noexcept
+    {
+        if (!manifests) {
+            return static_cast<size_t>(-1);
+        }
+        const size_t existing = find_manifest_projection(*manifests, prefix);
+        if (existing != static_cast<size_t>(-1)) {
+            return existing;
+        }
+        ManifestProjection manifest;
+        manifest.prefix.assign(prefix.data(), prefix.size());
+        manifests->push_back(manifest);
+        return manifests->size() - 1U;
+    }
+
+    static bool extract_manifest_prefix_from_projection_prefix(
+        std::string_view prefix, std::string* out_prefix) noexcept
+    {
+        if (!out_prefix || prefix.empty()) {
+            return false;
+        }
+        size_t cut = std::string_view::npos;
+
+        const size_t claim_pos = prefix.find(".claims[");
+        if (claim_pos != std::string_view::npos) {
+            cut = claim_pos;
+        }
+
+        const size_t assertion_pos = prefix.find(".assertions[");
+        if (assertion_pos != std::string_view::npos
+            && (cut == std::string_view::npos || assertion_pos < cut)) {
+            cut = assertion_pos;
+        }
+
+        const size_t signature_pos = prefix.find(".signatures[");
+        if (signature_pos != std::string_view::npos
+            && (cut == std::string_view::npos || signature_pos < cut)) {
+            cut = signature_pos;
+        }
+
+        if (cut == std::string_view::npos || cut == 0U) {
+            return false;
+        }
+
+        out_prefix->assign(prefix.substr(0U, cut));
+        return !out_prefix->empty();
     }
 
     static void append_unique_string_value(std::vector<std::string>* values,
@@ -4417,6 +4548,70 @@ namespace {
             signature_linked_count = label_signature_linked;
         }
 
+        std::vector<ManifestProjection> manifests;
+        manifests.reserve(claims.size() + signatures.size());
+
+        for (const ClaimProjection& claim : claims) {
+            std::string manifest_prefix;
+            if (!extract_manifest_prefix_from_projection_prefix(
+                    claim.prefix, &manifest_prefix)) {
+                continue;
+            }
+            const size_t manifest_index
+                = add_or_get_manifest_projection(&manifests, manifest_prefix);
+            if (manifest_index == static_cast<size_t>(-1)) {
+                continue;
+            }
+            ManifestProjection& manifest = manifests[manifest_index];
+            manifest.claim_count += 1U;
+            manifest.assertion_count += static_cast<uint64_t>(
+                claim.assertions.size());
+        }
+
+        for (const SignatureProjection& signature : signatures) {
+            std::string manifest_prefix;
+            if (!extract_manifest_prefix_from_projection_prefix(
+                    signature.prefix, &manifest_prefix)) {
+                continue;
+            }
+            const size_t manifest_index
+                = add_or_get_manifest_projection(&manifests, manifest_prefix);
+            if (manifest_index == static_cast<size_t>(-1)) {
+                continue;
+            }
+            ManifestProjection& manifest = manifests[manifest_index];
+            manifest.signature_count += 1U;
+            if (signature.linked_claim_count != 0U) {
+                manifest.signature_linked_count += 1U;
+            }
+            manifest.cross_claim_link_count += signature.cross_claim_link_count;
+            if (signature.has_explicit_reference) {
+                manifest.explicit_reference_signature_count += 1U;
+            }
+            if (signature.explicit_reference_unresolved) {
+                manifest.explicit_reference_unresolved_count += 1U;
+            }
+            if (signature.explicit_reference_ambiguous) {
+                manifest.explicit_reference_ambiguous_count += 1U;
+            }
+        }
+
+        for (ManifestProjection& manifest : manifests) {
+            manifest.signature_orphan_count
+                = (manifest.signature_count > manifest.signature_linked_count)
+                      ? (manifest.signature_count
+                         - manifest.signature_linked_count)
+                      : 0U;
+        }
+
+        uint64_t manifest_count = static_cast<uint64_t>(manifests.size());
+        if (manifest_count == 0U && have_label_summary) {
+            manifest_count = label_manifest_present;
+        }
+        if (manifest_count == 0U && has_manifest) {
+            manifest_count = 1U;
+        }
+
         if (has_manifest || has_claim || has_assertions || has_signature) {
             if (!append_c2pa_marker(ctx, "cbor.semantic")) {
                 return false;
@@ -4441,6 +4636,10 @@ namespace {
         }
         if (!emit_field_u8(ctx, "c2pa.semantic.signature_present",
                            has_signature ? 1U : 0U, EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(ctx, "c2pa.semantic.manifest_count", manifest_count,
+                            EntryFlags::Derived)) {
             return false;
         }
         if (!emit_field_u64(ctx, "c2pa.semantic.assertion_key_hits",
@@ -4525,6 +4724,91 @@ namespace {
         if (has_claim_generator) {
             if (!emit_field_text(ctx, "c2pa.semantic.claim_generator",
                                  claim_generator, EntryFlags::Derived)) {
+                return false;
+            }
+        }
+
+        std::sort(manifests.begin(), manifests.end(),
+                  ManifestProjectionLess {});
+        for (size_t index = 0U; index < manifests.size(); ++index) {
+            const ManifestProjection& manifest = manifests[index];
+            std::string field;
+            field.reserve(64U);
+            field.append("c2pa.semantic.manifest.");
+            field.append(
+                std::to_string(static_cast<unsigned long long>(index)));
+            const std::string field_prefix(field);
+
+            field.assign(field_prefix);
+            field.append(".prefix");
+            if (!emit_field_text(ctx, field, manifest.prefix,
+                                 EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(".claim_count");
+            if (!emit_field_u64(ctx, field, manifest.claim_count,
+                                EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(".assertion_count");
+            if (!emit_field_u64(ctx, field, manifest.assertion_count,
+                                EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(".signature_count");
+            if (!emit_field_u64(ctx, field, manifest.signature_count,
+                                EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(".signature_linked_count");
+            if (!emit_field_u64(ctx, field, manifest.signature_linked_count,
+                                EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(".signature_orphan_count");
+            if (!emit_field_u64(ctx, field, manifest.signature_orphan_count,
+                                EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(".cross_claim_link_count");
+            if (!emit_field_u64(ctx, field, manifest.cross_claim_link_count,
+                                EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(".explicit_reference_signature_count");
+            if (!emit_field_u64(ctx, field,
+                                manifest.explicit_reference_signature_count,
+                                EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(".explicit_reference_unresolved_count");
+            if (!emit_field_u64(ctx, field,
+                                manifest.explicit_reference_unresolved_count,
+                                EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(".explicit_reference_ambiguous_count");
+            if (!emit_field_u64(ctx, field,
+                                manifest.explicit_reference_ambiguous_count,
+                                EntryFlags::Derived)) {
                 return false;
             }
         }

@@ -363,6 +363,32 @@ namespace {
         }
     }
 
+    static void emit_iref_typed_graph_summary(MetaStore& store, BlockId block,
+                                              uint32_t* io_order,
+                                              std::string_view rel_type,
+                                              uint32_t edge_count,
+                                              uint32_t from_unique_count,
+                                              uint32_t to_unique_count) noexcept
+    {
+        if (!io_order || rel_type.empty() || edge_count == 0U) {
+            return;
+        }
+        std::string field("iref.graph.");
+        field.append(rel_type);
+        const size_t base_len = field.size();
+
+        field.append(".edge_count");
+        emit_u32_field(store, block, (*io_order)++, field, edge_count);
+        field.resize(base_len);
+
+        field.append(".from_item_unique_count");
+        emit_u32_field(store, block, (*io_order)++, field, from_unique_count);
+        field.resize(base_len);
+
+        field.append(".to_item_unique_count");
+        emit_u32_field(store, block, (*io_order)++, field, to_unique_count);
+    }
+
 
     static void emit_u32_array_field(MetaStore& store, BlockId block,
                                      uint32_t order, std::string_view field,
@@ -1875,6 +1901,15 @@ namespace {
                                                 std::string_view(
                                                     interp.text.data(),
                                                     interp.text_len));
+                                            if (interp.kind == "uuid") {
+                                                emit_text_field(
+                                                    *ctx->store, ctx->block,
+                                                    (*ctx->order)++,
+                                                    "iref.auxl.subtype_uuid",
+                                                    std::string_view(
+                                                        interp.text.data(),
+                                                        interp.text_len));
+                                            }
                                         }
                                         if (interp.has_u32) {
                                             emit_u32_field(
@@ -1997,6 +2032,12 @@ namespace {
                                                          auxl_item_out_counts,
                                                          auxl_item_in_counts,
                                                          auxl_item_count);
+                            emit_iref_typed_graph_summary(*ctx->store,
+                                                          ctx->block,
+                                                          ctx->order, "auxl",
+                                                          auxl_edge_count,
+                                                          auxl_from_count,
+                                                          auxl_to_count);
                         }
                         if (dimg_edge_count > 0) {
                             emit_u32_field(*ctx->store, ctx->block,
@@ -2017,6 +2058,12 @@ namespace {
                                                          dimg_item_out_counts,
                                                          dimg_item_in_counts,
                                                          dimg_item_count);
+                            emit_iref_typed_graph_summary(*ctx->store,
+                                                          ctx->block,
+                                                          ctx->order, "dimg",
+                                                          dimg_edge_count,
+                                                          dimg_from_count,
+                                                          dimg_to_count);
                         }
                         if (thmb_edge_count > 0) {
                             emit_u32_field(*ctx->store, ctx->block,
@@ -2037,6 +2084,12 @@ namespace {
                                                          thmb_item_out_counts,
                                                          thmb_item_in_counts,
                                                          thmb_item_count);
+                            emit_iref_typed_graph_summary(*ctx->store,
+                                                          ctx->block,
+                                                          ctx->order, "thmb",
+                                                          thmb_edge_count,
+                                                          thmb_from_count,
+                                                          thmb_to_count);
                         }
                         if (cdsc_edge_count > 0) {
                             emit_u32_field(*ctx->store, ctx->block,
@@ -2057,6 +2110,12 @@ namespace {
                                                          cdsc_item_out_counts,
                                                          cdsc_item_in_counts,
                                                          cdsc_item_count);
+                            emit_iref_typed_graph_summary(*ctx->store,
+                                                          ctx->block,
+                                                          ctx->order, "cdsc",
+                                                          cdsc_edge_count,
+                                                          cdsc_from_count,
+                                                          cdsc_to_count);
                         }
                         if (iref_item_count > 0) {
                             uint32_t unique_from_count = 0;
@@ -2128,6 +2187,13 @@ namespace {
                                         (*ctx->order)++, "aux.subtype_text",
                                         std::string_view(interp.text.data(),
                                                          interp.text_len));
+                                    if (interp.kind == "uuid") {
+                                        emit_text_field(
+                                            *ctx->store, ctx->block,
+                                            (*ctx->order)++, "aux.subtype_uuid",
+                                            std::string_view(interp.text.data(),
+                                                             interp.text_len));
+                                    }
                                 }
                                 if (interp.has_u32) {
                                     emit_u32_field(*ctx->store, ctx->block,

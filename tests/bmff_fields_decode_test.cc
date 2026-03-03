@@ -756,40 +756,79 @@ TEST(BmffDerivedFieldsDecode, EmitsNonPrimaryIrefTypedEdges)
         = collect_u32_values(store, "iref.dimg.edge_count");
     ASSERT_EQ(dimg_count.size(), 1U);
     EXPECT_EQ(dimg_count[0], 2U);
+    const std::vector<uint32_t> dimg_graph_count
+        = collect_u32_values(store, "iref.graph.dimg.edge_count");
+    ASSERT_EQ(dimg_graph_count.size(), 1U);
+    EXPECT_EQ(dimg_graph_count[0], 2U);
     const std::vector<uint32_t> dimg_from_unique
         = collect_u32_values(store, "iref.dimg.from_item_unique_count");
     ASSERT_EQ(dimg_from_unique.size(), 1U);
     EXPECT_EQ(dimg_from_unique[0], 1U);
+    const std::vector<uint32_t> dimg_graph_from_unique
+        = collect_u32_values(store, "iref.graph.dimg.from_item_unique_count");
+    ASSERT_EQ(dimg_graph_from_unique.size(), 1U);
+    EXPECT_EQ(dimg_graph_from_unique[0], 1U);
     const std::vector<uint32_t> dimg_to_unique
         = collect_u32_values(store, "iref.dimg.to_item_unique_count");
     ASSERT_EQ(dimg_to_unique.size(), 1U);
     EXPECT_EQ(dimg_to_unique[0], 2U);
+    const std::vector<uint32_t> dimg_graph_to_unique
+        = collect_u32_values(store, "iref.graph.dimg.to_item_unique_count");
+    ASSERT_EQ(dimg_graph_to_unique.size(), 1U);
+    EXPECT_EQ(dimg_graph_to_unique[0], 2U);
 
     const std::vector<uint32_t> thmb_count
         = collect_u32_values(store, "iref.thmb.edge_count");
     ASSERT_EQ(thmb_count.size(), 1U);
     EXPECT_EQ(thmb_count[0], 1U);
+    const std::vector<uint32_t> thmb_graph_count
+        = collect_u32_values(store, "iref.graph.thmb.edge_count");
+    ASSERT_EQ(thmb_graph_count.size(), 1U);
+    EXPECT_EQ(thmb_graph_count[0], 1U);
     const std::vector<uint32_t> thmb_from_unique
         = collect_u32_values(store, "iref.thmb.from_item_unique_count");
     ASSERT_EQ(thmb_from_unique.size(), 1U);
     EXPECT_EQ(thmb_from_unique[0], 1U);
+    const std::vector<uint32_t> thmb_graph_from_unique
+        = collect_u32_values(store, "iref.graph.thmb.from_item_unique_count");
+    ASSERT_EQ(thmb_graph_from_unique.size(), 1U);
+    EXPECT_EQ(thmb_graph_from_unique[0], 1U);
     const std::vector<uint32_t> thmb_to_unique
         = collect_u32_values(store, "iref.thmb.to_item_unique_count");
     ASSERT_EQ(thmb_to_unique.size(), 1U);
     EXPECT_EQ(thmb_to_unique[0], 1U);
+    const std::vector<uint32_t> thmb_graph_to_unique
+        = collect_u32_values(store, "iref.graph.thmb.to_item_unique_count");
+    ASSERT_EQ(thmb_graph_to_unique.size(), 1U);
+    EXPECT_EQ(thmb_graph_to_unique[0], 1U);
 
     const std::vector<uint32_t> cdsc_count
         = collect_u32_values(store, "iref.cdsc.edge_count");
     ASSERT_EQ(cdsc_count.size(), 1U);
     EXPECT_EQ(cdsc_count[0], 1U);
+    const std::vector<uint32_t> cdsc_graph_count
+        = collect_u32_values(store, "iref.graph.cdsc.edge_count");
+    ASSERT_EQ(cdsc_graph_count.size(), 1U);
+    EXPECT_EQ(cdsc_graph_count[0], 1U);
     const std::vector<uint32_t> cdsc_from_unique
         = collect_u32_values(store, "iref.cdsc.from_item_unique_count");
     ASSERT_EQ(cdsc_from_unique.size(), 1U);
     EXPECT_EQ(cdsc_from_unique[0], 1U);
+    const std::vector<uint32_t> cdsc_graph_from_unique
+        = collect_u32_values(store, "iref.graph.cdsc.from_item_unique_count");
+    ASSERT_EQ(cdsc_graph_from_unique.size(), 1U);
+    EXPECT_EQ(cdsc_graph_from_unique[0], 1U);
     const std::vector<uint32_t> cdsc_to_unique
         = collect_u32_values(store, "iref.cdsc.to_item_unique_count");
     ASSERT_EQ(cdsc_to_unique.size(), 1U);
     EXPECT_EQ(cdsc_to_unique[0], 1U);
+    const std::vector<uint32_t> cdsc_graph_to_unique
+        = collect_u32_values(store, "iref.graph.cdsc.to_item_unique_count");
+    ASSERT_EQ(cdsc_graph_to_unique.size(), 1U);
+    EXPECT_EQ(cdsc_graph_to_unique[0], 1U);
+
+    EXPECT_TRUE(
+        collect_u32_values(store, "iref.graph.auxl.edge_count").empty());
 
     const std::vector<uint32_t> item_count
         = collect_u32_values(store, "iref.item_count");
@@ -862,9 +901,10 @@ TEST(BmffDerivedFieldsDecode, EmitsAuxSubtypeU64AndAsciiZFromAuxC)
 
         std::vector<std::byte> auxl_payload;
         append_u16be(&auxl_payload, 1);
-        append_u16be(&auxl_payload, 2);
+        append_u16be(&auxl_payload, 3);
         append_u16be(&auxl_payload, 2);
         append_u16be(&auxl_payload, 3);
+        append_u16be(&auxl_payload, 4);
         std::vector<std::byte> auxl_box;
         append_bmff_box(&auxl_box, fourcc('a', 'u', 'x', 'l'), auxl_payload);
 
@@ -913,17 +953,33 @@ TEST(BmffDerivedFieldsDecode, EmitsAuxSubtypeU64AndAsciiZFromAuxC)
         append_bmff_box(&auxc_alpha_box, fourcc('a', 'u', 'x', 'C'),
                         auxc_alpha_payload);
 
+        std::vector<std::byte> auxc_uuid_payload;
+        append_fullbox_header(&auxc_uuid_payload, 0);
+        for (size_t i = 0; i < sizeof(kAlpha) - 1; ++i) {
+            auxc_uuid_payload.push_back(
+                std::byte { static_cast<uint8_t>(kAlpha[i]) });
+        }
+        auxc_uuid_payload.push_back(std::byte { 0x00 });
+        for (uint8_t i = 0; i < 16U; ++i) {
+            auxc_uuid_payload.push_back(std::byte { i });
+        }
+        std::vector<std::byte> auxc_uuid_box;
+        append_bmff_box(&auxc_uuid_box, fourcc('a', 'u', 'x', 'C'),
+                        auxc_uuid_payload);
+
         std::vector<std::byte> ipco_payload;
         ipco_payload.insert(ipco_payload.end(), auxc_depth_box.begin(),
                             auxc_depth_box.end());
         ipco_payload.insert(ipco_payload.end(), auxc_alpha_box.begin(),
                             auxc_alpha_box.end());
+        ipco_payload.insert(ipco_payload.end(), auxc_uuid_box.begin(),
+                            auxc_uuid_box.end());
         std::vector<std::byte> ipco_box;
         append_bmff_box(&ipco_box, fourcc('i', 'p', 'c', 'o'), ipco_payload);
 
         std::vector<std::byte> ipma_payload;
         append_fullbox_header(&ipma_payload, 0);
-        append_u32be(&ipma_payload, 3);
+        append_u32be(&ipma_payload, 4);
 
         append_u16be(&ipma_payload, 1);
         ipma_payload.push_back(std::byte { 0 });
@@ -935,6 +991,10 @@ TEST(BmffDerivedFieldsDecode, EmitsAuxSubtypeU64AndAsciiZFromAuxC)
         append_u16be(&ipma_payload, 3);
         ipma_payload.push_back(std::byte { 1 });
         ipma_payload.push_back(std::byte { 2 });
+
+        append_u16be(&ipma_payload, 4);
+        ipma_payload.push_back(std::byte { 1 });
+        ipma_payload.push_back(std::byte { 3 });
         std::vector<std::byte> ipma_box;
         append_bmff_box(&ipma_box, fourcc('i', 'p', 'm', 'a'), ipma_payload);
 
@@ -971,14 +1031,21 @@ TEST(BmffDerivedFieldsDecode, EmitsAuxSubtypeU64AndAsciiZFromAuxC)
 
     const std::vector<std::string> aux_subtype_kind
         = collect_text_values(store, "aux.subtype_kind");
-    ASSERT_EQ(aux_subtype_kind.size(), 2U);
+    ASSERT_EQ(aux_subtype_kind.size(), 3U);
     EXPECT_EQ(aux_subtype_kind[0], "ascii_z");
     EXPECT_EQ(aux_subtype_kind[1], "u64be");
+    EXPECT_EQ(aux_subtype_kind[2], "uuid");
 
     const std::vector<std::string> aux_subtype_text
         = collect_text_values(store, "aux.subtype_text");
-    ASSERT_EQ(aux_subtype_text.size(), 1U);
+    ASSERT_EQ(aux_subtype_text.size(), 2U);
     EXPECT_EQ(aux_subtype_text[0], "profile");
+    EXPECT_EQ(aux_subtype_text[1], "00010203-0405-0607-0809-0A0B0C0D0E0F");
+
+    const std::vector<std::string> aux_subtype_uuid
+        = collect_text_values(store, "aux.subtype_uuid");
+    ASSERT_EQ(aux_subtype_uuid.size(), 1U);
+    EXPECT_EQ(aux_subtype_uuid[0], "00010203-0405-0607-0809-0A0B0C0D0E0F");
 
     const std::vector<uint64_t> aux_subtype_u64
         = collect_u64_values(store, "aux.subtype_u64");
@@ -987,14 +1054,21 @@ TEST(BmffDerivedFieldsDecode, EmitsAuxSubtypeU64AndAsciiZFromAuxC)
 
     const std::vector<std::string> iref_auxl_subtype_kind
         = collect_text_values(store, "iref.auxl.subtype_kind");
-    ASSERT_EQ(iref_auxl_subtype_kind.size(), 2U);
+    ASSERT_EQ(iref_auxl_subtype_kind.size(), 3U);
     EXPECT_EQ(iref_auxl_subtype_kind[0], "ascii_z");
     EXPECT_EQ(iref_auxl_subtype_kind[1], "u64be");
+    EXPECT_EQ(iref_auxl_subtype_kind[2], "uuid");
 
     const std::vector<uint64_t> iref_auxl_subtype_u64
         = collect_u64_values(store, "iref.auxl.subtype_u64");
     ASSERT_EQ(iref_auxl_subtype_u64.size(), 1U);
     EXPECT_EQ(iref_auxl_subtype_u64[0], 0x1122334455667788ULL);
+
+    const std::vector<std::string> iref_auxl_subtype_uuid
+        = collect_text_values(store, "iref.auxl.subtype_uuid");
+    ASSERT_EQ(iref_auxl_subtype_uuid.size(), 1U);
+    EXPECT_EQ(iref_auxl_subtype_uuid[0],
+              "00010203-0405-0607-0809-0A0B0C0D0E0F");
 }
 
 TEST(BmffDerivedFieldsDecode, EmitsPerTypeUniqueCountsWithDuplicateEdges)
@@ -1145,53 +1219,101 @@ TEST(BmffDerivedFieldsDecode, EmitsPerTypeUniqueCountsWithDuplicateEdges)
         = collect_u32_values(store, "iref.auxl.edge_count");
     ASSERT_EQ(auxl_edge.size(), 1U);
     EXPECT_EQ(auxl_edge[0], 4U);
+    const std::vector<uint32_t> auxl_graph_edge
+        = collect_u32_values(store, "iref.graph.auxl.edge_count");
+    ASSERT_EQ(auxl_graph_edge.size(), 1U);
+    EXPECT_EQ(auxl_graph_edge[0], 4U);
     const std::vector<uint32_t> auxl_from_unique
         = collect_u32_values(store, "iref.auxl.from_item_unique_count");
     ASSERT_EQ(auxl_from_unique.size(), 1U);
     EXPECT_EQ(auxl_from_unique[0], 1U);
+    const std::vector<uint32_t> auxl_graph_from_unique
+        = collect_u32_values(store, "iref.graph.auxl.from_item_unique_count");
+    ASSERT_EQ(auxl_graph_from_unique.size(), 1U);
+    EXPECT_EQ(auxl_graph_from_unique[0], 1U);
     const std::vector<uint32_t> auxl_to_unique
         = collect_u32_values(store, "iref.auxl.to_item_unique_count");
     ASSERT_EQ(auxl_to_unique.size(), 1U);
     EXPECT_EQ(auxl_to_unique[0], 2U);
+    const std::vector<uint32_t> auxl_graph_to_unique
+        = collect_u32_values(store, "iref.graph.auxl.to_item_unique_count");
+    ASSERT_EQ(auxl_graph_to_unique.size(), 1U);
+    EXPECT_EQ(auxl_graph_to_unique[0], 2U);
 
     const std::vector<uint32_t> dimg_edge
         = collect_u32_values(store, "iref.dimg.edge_count");
     ASSERT_EQ(dimg_edge.size(), 1U);
     EXPECT_EQ(dimg_edge[0], 3U);
+    const std::vector<uint32_t> dimg_graph_edge
+        = collect_u32_values(store, "iref.graph.dimg.edge_count");
+    ASSERT_EQ(dimg_graph_edge.size(), 1U);
+    EXPECT_EQ(dimg_graph_edge[0], 3U);
     const std::vector<uint32_t> dimg_from_unique
         = collect_u32_values(store, "iref.dimg.from_item_unique_count");
     ASSERT_EQ(dimg_from_unique.size(), 1U);
     EXPECT_EQ(dimg_from_unique[0], 2U);
+    const std::vector<uint32_t> dimg_graph_from_unique
+        = collect_u32_values(store, "iref.graph.dimg.from_item_unique_count");
+    ASSERT_EQ(dimg_graph_from_unique.size(), 1U);
+    EXPECT_EQ(dimg_graph_from_unique[0], 2U);
     const std::vector<uint32_t> dimg_to_unique
         = collect_u32_values(store, "iref.dimg.to_item_unique_count");
     ASSERT_EQ(dimg_to_unique.size(), 1U);
     EXPECT_EQ(dimg_to_unique[0], 1U);
+    const std::vector<uint32_t> dimg_graph_to_unique
+        = collect_u32_values(store, "iref.graph.dimg.to_item_unique_count");
+    ASSERT_EQ(dimg_graph_to_unique.size(), 1U);
+    EXPECT_EQ(dimg_graph_to_unique[0], 1U);
 
     const std::vector<uint32_t> thmb_edge
         = collect_u32_values(store, "iref.thmb.edge_count");
     ASSERT_EQ(thmb_edge.size(), 1U);
     EXPECT_EQ(thmb_edge[0], 3U);
+    const std::vector<uint32_t> thmb_graph_edge
+        = collect_u32_values(store, "iref.graph.thmb.edge_count");
+    ASSERT_EQ(thmb_graph_edge.size(), 1U);
+    EXPECT_EQ(thmb_graph_edge[0], 3U);
     const std::vector<uint32_t> thmb_from_unique
         = collect_u32_values(store, "iref.thmb.from_item_unique_count");
     ASSERT_EQ(thmb_from_unique.size(), 1U);
     EXPECT_EQ(thmb_from_unique[0], 1U);
+    const std::vector<uint32_t> thmb_graph_from_unique
+        = collect_u32_values(store, "iref.graph.thmb.from_item_unique_count");
+    ASSERT_EQ(thmb_graph_from_unique.size(), 1U);
+    EXPECT_EQ(thmb_graph_from_unique[0], 1U);
     const std::vector<uint32_t> thmb_to_unique
         = collect_u32_values(store, "iref.thmb.to_item_unique_count");
     ASSERT_EQ(thmb_to_unique.size(), 1U);
     EXPECT_EQ(thmb_to_unique[0], 2U);
+    const std::vector<uint32_t> thmb_graph_to_unique
+        = collect_u32_values(store, "iref.graph.thmb.to_item_unique_count");
+    ASSERT_EQ(thmb_graph_to_unique.size(), 1U);
+    EXPECT_EQ(thmb_graph_to_unique[0], 2U);
 
     const std::vector<uint32_t> cdsc_edge
         = collect_u32_values(store, "iref.cdsc.edge_count");
     ASSERT_EQ(cdsc_edge.size(), 1U);
     EXPECT_EQ(cdsc_edge[0], 4U);
+    const std::vector<uint32_t> cdsc_graph_edge
+        = collect_u32_values(store, "iref.graph.cdsc.edge_count");
+    ASSERT_EQ(cdsc_graph_edge.size(), 1U);
+    EXPECT_EQ(cdsc_graph_edge[0], 4U);
     const std::vector<uint32_t> cdsc_from_unique
         = collect_u32_values(store, "iref.cdsc.from_item_unique_count");
     ASSERT_EQ(cdsc_from_unique.size(), 1U);
     EXPECT_EQ(cdsc_from_unique[0], 2U);
+    const std::vector<uint32_t> cdsc_graph_from_unique
+        = collect_u32_values(store, "iref.graph.cdsc.from_item_unique_count");
+    ASSERT_EQ(cdsc_graph_from_unique.size(), 1U);
+    EXPECT_EQ(cdsc_graph_from_unique[0], 2U);
     const std::vector<uint32_t> cdsc_to_unique
         = collect_u32_values(store, "iref.cdsc.to_item_unique_count");
     ASSERT_EQ(cdsc_to_unique.size(), 1U);
     EXPECT_EQ(cdsc_to_unique[0], 2U);
+    const std::vector<uint32_t> cdsc_graph_to_unique
+        = collect_u32_values(store, "iref.graph.cdsc.to_item_unique_count");
+    ASSERT_EQ(cdsc_graph_to_unique.size(), 1U);
+    EXPECT_EQ(cdsc_graph_to_unique[0], 2U);
 
     const std::vector<uint32_t> item_count
         = collect_u32_values(store, "iref.item_count");
