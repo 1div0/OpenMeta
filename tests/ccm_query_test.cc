@@ -279,6 +279,58 @@ TEST(CcmQuery, NonFiniteValuesAreDroppedAndReported)
                           CcmIssueCode::NonFiniteValue));
 }
 
+TEST(CcmQuery, ValidationWarnsOnUnusuallyLargeMatrixCount)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+
+    const std::array<uint8_t, 4> dng_version = { 1, 7, 0, 0 };
+    Entry dng_ver;
+    dng_ver.key          = make_exif_tag_key(store.arena(), "ifd0", 0xC612);
+    dng_ver.value        = make_u8_array(store.arena(),
+                                         std::span<const uint8_t>(dng_version.data(),
+                                                                  dng_version.size()));
+    dng_ver.origin.block = block;
+    dng_ver.origin.order_in_block = 0;
+    (void)store.add_entry(dng_ver);
+
+    const URational cm_values[39] = {
+        { 1, 1 }, { 1, 1 }, { 1, 1 }, { 1, 1 }, { 1, 1 }, { 1, 1 }, { 1, 1 },
+        { 1, 1 }, { 1, 1 }, { 1, 1 }, { 1, 1 }, { 1, 1 }, { 1, 1 }, { 1, 1 },
+        { 1, 1 }, { 1, 1 }, { 1, 1 }, { 1, 1 }, { 1, 1 }, { 1, 1 }, { 1, 1 },
+        { 1, 1 }, { 1, 1 }, { 1, 1 }, { 1, 1 }, { 1, 1 }, { 1, 1 }, { 1, 1 },
+        { 1, 1 }, { 1, 1 }, { 1, 1 }, { 1, 1 }, { 1, 1 }, { 1, 1 }, { 1, 1 },
+        { 1, 1 }, { 1, 1 }, { 1, 1 }, { 1, 1 },
+    };
+    Entry cm1;
+    cm1.key          = make_exif_tag_key(store.arena(), "ifd0", 0xC621);
+    cm1.value        = make_urational_array(store.arena(),
+                                            std::span<const URational>(cm_values, 39));
+    cm1.origin.block = block;
+    cm1.origin.order_in_block = 1;
+    (void)store.add_entry(cm1);
+
+    Entry cal1;
+    cal1.key          = make_exif_tag_key(store.arena(), "ifd0", 0xC65A);
+    cal1.value        = make_u16(21U);
+    cal1.origin.block = block;
+    cal1.origin.order_in_block = 2;
+    (void)store.add_entry(cal1);
+
+    store.finalize();
+
+    std::vector<CcmField> fields;
+    std::vector<CcmIssue> issues;
+    CcmQueryOptions opts;
+    opts.validation_mode = CcmValidationMode::DngSpecWarnings;
+
+    const CcmQueryResult r = collect_dng_ccm_fields(store, &fields, opts,
+                                                    &issues);
+    EXPECT_EQ(r.status, CcmQueryStatus::Ok);
+    EXPECT_FALSE(fields.empty());
+    EXPECT_TRUE(has_issue(issues, CcmIssueCode::UnexpectedCount));
+}
+
 TEST(CcmQuery, ValidationWarnsOnIlluminantCodeAndWhiteXYRange)
 {
     MetaStore store;

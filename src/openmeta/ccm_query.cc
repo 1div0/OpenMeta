@@ -635,6 +635,13 @@ namespace {
                       field.tag, field.name,
                       "matrix-like field count is not divisible by 3", result);
         }
+        if (is_matrix_tag(field.tag) && n > 36U) {
+            add_issue(issues, CcmIssueSeverity::Warning,
+                      CcmIssueCode::UnexpectedCount, field.ifd, field.tag,
+                      field.name,
+                      "matrix-like field count exceeds conservative bound (36)",
+                      result);
+        }
 
         if (field.tag == 0xC629U && n != 2U) {
             add_issue(issues, CcmIssueSeverity::Warning,

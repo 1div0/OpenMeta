@@ -140,10 +140,11 @@ This policy surface is intentionally marked draft and may be refined.
   with DNG-oriented validation diagnostics (`CcmIssue`) in warning mode and
   non-finite numeric field rejection.
   Current warning taxonomy also includes practical checks such as
-  `invalid_illuminant_code` and `white_xy_out_of_range`.
+  `invalid_illuminant_code`, `white_xy_out_of_range`, and unusually large
+  matrix-like field counts.
 - ICC tag interpretation helpers: `src/include/openmeta/icc_interpret.h`,
   `src/openmeta/icc_interpret.cc` (`icc_tag_name(...)`,
-  `interpret_icc_tag(...)` for `desc`/`text`/`sig `/`mluc`/`dtim`/`view`/`meas`/`chrm`/`sf32`/`uf32`/`mft1`/`mft2`/`mAB`/`mBA`/`XYZ `/`curv`/`para`,
+  `interpret_icc_tag(...)` for `desc`/`text`/`sig `/`mluc`/`dtim`/`view`/`meas`/`chrm`/`sf32`/`uf32`/`ui08`/`ui16`/`ui32`/`mft1`/`mft2`/`mAB`/`mBA`/`XYZ `/`curv`/`para`,
   plus `format_icc_tag_display_value(...)` for shared CLI/Python rendering)
 - ISO-BMFF (HEIF/AVIF/CR3) container-derived fields: `src/openmeta/bmff_fields_decode.cc`
   - Emitted during `simple_meta_read(...)` as `MetaKeyKind::BmffField` entries.

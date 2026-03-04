@@ -2603,6 +2603,90 @@ TEST(JumbfDecode, EmitsDraftC2paExplicitReferenceHrefMapField)
               "box.0.1.cbor.manifests.active_manifest.claims[1]");
 }
 
+TEST(JumbfDecode, EmitsDraftC2paExplicitReferenceLinkMapField)
+{
+    const std::array<std::byte, 4U> claim0 = {
+        std::byte { 0xA1 },
+        std::byte { 0x61 },
+        std::byte { 0x61 },
+        std::byte { 0x01 },
+    };
+    const std::array<std::byte, 4U> claim1 = {
+        std::byte { 0xA1 },
+        std::byte { 0x61 },
+        std::byte { 0x61 },
+        std::byte { 0x11 },
+    };
+
+    std::vector<std::byte> cbor_payload;
+    append_cbor_map(&cbor_payload, 1U);
+    append_cbor_text(&cbor_payload, "manifests");
+    append_cbor_map(&cbor_payload, 1U);
+    append_cbor_text(&cbor_payload, "active_manifest");
+    append_cbor_map(&cbor_payload, 1U);
+    append_cbor_text(&cbor_payload, "claims");
+    append_cbor_array(&cbor_payload, 2U);
+
+    append_cbor_map(&cbor_payload, 2U);
+    append_cbor_text(&cbor_payload, "claim");
+    append_cbor_bytes(&cbor_payload,
+                      std::span<const std::byte>(claim0.data(), claim0.size()));
+    append_cbor_text(&cbor_payload, "signatures");
+    append_cbor_array(&cbor_payload, 1U);
+    append_cbor_map(&cbor_payload, 2U);
+    append_cbor_text(&cbor_payload, "alg");
+    append_cbor_text(&cbor_payload, "es256");
+    append_cbor_text(&cbor_payload, "references");
+    append_cbor_array(&cbor_payload, 1U);
+    append_cbor_map(&cbor_payload, 1U);
+    append_cbor_text(&cbor_payload, "link");
+    append_cbor_text(&cbor_payload, "https://example.test/media?claim-index=1");
+
+    append_cbor_map(&cbor_payload, 1U);
+    append_cbor_text(&cbor_payload, "claim");
+    append_cbor_bytes(&cbor_payload,
+                      std::span<const std::byte>(claim1.data(), claim1.size()));
+
+    const std::vector<std::byte> payload = make_jumbf_payload_with_cbor(
+        cbor_payload);
+
+    MetaStore store;
+    const JumbfDecodeResult result = decode_jumbf_payload(payload, store);
+    EXPECT_EQ(result.status, JumbfDecodeStatus::Ok);
+    store.finalize();
+
+    EXPECT_EQ(read_jumbf_field_u64(
+                  store, "c2pa.semantic.explicit_reference_signature_count"),
+              1U);
+    EXPECT_EQ(read_jumbf_field_u64(
+                  store,
+                  "c2pa.semantic.explicit_reference_unresolved_signature_count"),
+              0U);
+    EXPECT_EQ(read_jumbf_field_u64(
+                  store,
+                  "c2pa.semantic.explicit_reference_ambiguous_signature_count"),
+              0U);
+    EXPECT_EQ(read_jumbf_field_u64(
+                  store, "c2pa.semantic.explicit_reference_index_hits"),
+              1U);
+    EXPECT_EQ(
+        read_jumbf_field_u64(
+            store,
+            "c2pa.semantic.signature.0.explicit_reference_resolved_claim_count"),
+        1U);
+    EXPECT_EQ(read_jumbf_field_u64(
+                  store,
+                  "c2pa.semantic.signature.0.explicit_reference_index_hits"),
+              1U);
+    EXPECT_EQ(read_jumbf_field_u64(
+                  store,
+                  "c2pa.semantic.signature.0.explicit_reference_ambiguous"),
+              0U);
+    EXPECT_EQ(read_jumbf_field_text(
+                  store, "c2pa.semantic.signature.0.linked_claim.0.prefix"),
+              "box.0.1.cbor.manifests.active_manifest.claims[1]");
+}
+
 TEST(JumbfDecode,
      EmitsDraftC2paExplicitReferenceMultiSignatureClaimRefIdDeterministic)
 {
@@ -6648,9 +6732,104 @@ TEST(JumbfDecode, C2paVerifyCoseDetachedPayloadNestedReferenceMapQueryLabelUri)
 #endif
 }
 
-TEST(
-    JumbfDecode,
-    C2paVerifyCoseDetachedPayloadNestedReferenceMapIndexLabelHrefConflictDeterministic)
+TEST(JumbfDecode, C2paVerifyCoseDetachedPayloadNestedReferenceMapLinkField)
+{
+    const std::vector<std::byte> target_claim = {
+        std::byte { 0xA1 },
+        std::byte { 0x61 },
+        std::byte { 0x61 },
+        std::byte { 0x2A },
+    };
+    const std::vector<std::byte> bad_claim = {
+        std::byte { 0xA1 },
+        std::byte { 0x61 },
+        std::byte { 0x61 },
+        std::byte { 0x01 },
+    };
+    const std::vector<std::byte> protected_header = make_cose_protected_es256();
+    ASSERT_FALSE(protected_header.empty());
+
+#if OPENMETA_ENABLE_C2PA_VERIFY && OPENMETA_C2PA_VERIFY_OPENSSL_AVAILABLE
+    EVP_PKEY* key = nullptr;
+    ASSERT_TRUE(make_ec_p256_keypair(&key));
+    const std::vector<std::byte> public_key_der = public_key_der_from_key(key);
+    ASSERT_FALSE(public_key_der.empty());
+
+    const std::vector<std::byte> sig_structure = make_cose_sig_structure(
+        std::span<const std::byte>(protected_header.data(),
+                                   protected_header.size()),
+        std::span<const std::byte>(target_claim.data(), target_claim.size()));
+    ASSERT_FALSE(sig_structure.empty());
+
+    const std::vector<std::byte> der_sig = ecdsa_sign_sha256(key,
+                                                             sig_structure);
+    EVP_PKEY_free(key);
+    ASSERT_FALSE(der_sig.empty());
+
+    const std::vector<std::byte> raw_sig = ecdsa_der_to_cose_raw_p256(der_sig);
+    ASSERT_EQ(raw_sig.size(), 64U);
+#else
+    const std::vector<std::byte> public_key_der;
+    const std::vector<std::byte> raw_sig(64U, std::byte { 0x00 });
+#endif
+
+    std::vector<std::byte> cbor_payload;
+    append_cbor_map(&cbor_payload, 1U);
+    append_cbor_text(&cbor_payload, "manifests");
+    append_cbor_map(&cbor_payload, 1U);
+    append_cbor_text(&cbor_payload, "active_manifest");
+    append_cbor_map(&cbor_payload, 1U);
+    append_cbor_text(&cbor_payload, "claims");
+    append_cbor_array(&cbor_payload, 2U);
+
+    append_cbor_map(&cbor_payload, 2U);
+    append_cbor_text(&cbor_payload, "claim");
+    append_cbor_bytes(&cbor_payload,
+                      std::span<const std::byte>(bad_claim.data(),
+                                                 bad_claim.size()));
+    append_cbor_text(&cbor_payload, "signatures");
+    append_cbor_array(&cbor_payload, 1U);
+    append_cbor_array(&cbor_payload, 4U);
+    append_cbor_bytes(&cbor_payload, protected_header);
+    append_cbor_map(&cbor_payload, 2U);
+    append_cbor_text(&cbor_payload, "public_key_der");
+    append_cbor_bytes(&cbor_payload, public_key_der);
+    append_cbor_text(&cbor_payload, "references");
+    append_cbor_array(&cbor_payload, 1U);
+    append_cbor_map(&cbor_payload, 1U);
+    append_cbor_text(&cbor_payload, "link");
+    append_cbor_text(&cbor_payload, "https://example.test/media?claim-index=1");
+    append_cbor_null(&cbor_payload);
+    append_cbor_bytes(&cbor_payload, raw_sig);
+
+    append_cbor_map(&cbor_payload, 1U);
+    append_cbor_text(&cbor_payload, "claim");
+    append_cbor_bytes(&cbor_payload,
+                      std::span<const std::byte>(target_claim.data(),
+                                                 target_claim.size()));
+
+    const std::vector<std::byte> payload = make_jumbf_payload_with_cbor(
+        cbor_payload);
+
+    MetaStore store;
+    JumbfDecodeOptions options;
+    options.verify_c2pa    = true;
+    options.verify_backend = C2paVerifyBackend::OpenSsl;
+    const JumbfDecodeResult result
+        = decode_jumbf_payload(payload, store, EntryFlags::None, options);
+    EXPECT_EQ(result.status, JumbfDecodeStatus::Ok);
+
+#if OPENMETA_ENABLE_C2PA_VERIFY && OPENMETA_C2PA_VERIFY_OPENSSL_AVAILABLE
+    EXPECT_EQ(result.verify_status, C2paVerifyStatus::Verified);
+#elif OPENMETA_ENABLE_C2PA_VERIFY
+    EXPECT_EQ(result.verify_status, C2paVerifyStatus::BackendUnavailable);
+#else
+    EXPECT_EQ(result.verify_status, C2paVerifyStatus::DisabledByBuild);
+#endif
+}
+
+TEST(JumbfDecode,
+     C2paVerifyCoseDetachedPayloadNestedReferenceMapIndexLabelHrefConflictDeterministic)
 {
     const std::vector<std::byte> target_claim = {
         std::byte { 0xA1 },
@@ -6758,8 +6937,9 @@ TEST(
     JumbfDecodeOptions semantic_options;
     semantic_options.verify_c2pa    = true;
     semantic_options.verify_backend = C2paVerifyBackend::OpenSsl;
-    const JumbfDecodeResult semantic_result = decode_jumbf_payload(
-        payload, semantic_store, EntryFlags::None, semantic_options);
+    const JumbfDecodeResult semantic_result
+        = decode_jumbf_payload(payload, semantic_store, EntryFlags::None,
+                               semantic_options);
     EXPECT_EQ(semantic_result.status, JumbfDecodeStatus::Ok);
     semantic_store.finalize();
     EXPECT_EQ(read_jumbf_field_u64(
@@ -6819,9 +6999,8 @@ TEST(
 #endif
 }
 
-TEST(
-    JumbfDecode,
-    C2paVerifyCoseDetachedPayloadNestedReferenceMapIndexLabelHrefConsistent)
+TEST(JumbfDecode,
+     C2paVerifyCoseDetachedPayloadNestedReferenceMapIndexLabelHrefConsistent)
 {
     const std::vector<std::byte> target_claim = {
         std::byte { 0xA1 },
@@ -6929,8 +7108,9 @@ TEST(
     JumbfDecodeOptions semantic_options;
     semantic_options.verify_c2pa    = true;
     semantic_options.verify_backend = C2paVerifyBackend::OpenSsl;
-    const JumbfDecodeResult semantic_result = decode_jumbf_payload(
-        payload, semantic_store, EntryFlags::None, semantic_options);
+    const JumbfDecodeResult semantic_result
+        = decode_jumbf_payload(payload, semantic_store, EntryFlags::None,
+                               semantic_options);
     EXPECT_EQ(semantic_result.status, JumbfDecodeStatus::Ok);
     semantic_store.finalize();
     EXPECT_EQ(read_jumbf_field_u64(

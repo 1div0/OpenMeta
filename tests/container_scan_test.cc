@@ -1424,6 +1424,112 @@ namespace {
         EXPECT_EQ(est.needed, 1U);
     }
 
+    TEST(ContainerScan, BmffMetaIlocV2ConstructionMethod2FromIrefV0)
+    {
+        std::vector<std::byte> infe_payload;
+        append_fullbox_header(&infe_payload, 2);
+        append_u16be(&infe_payload, 1);  // item_ID
+        append_u16be(&infe_payload, 0);  // protection
+        append_fourcc(&infe_payload, fourcc('m', 'i', 'm', 'e'));
+        append_bytes(&infe_payload, "xmp");
+        infe_payload.push_back(std::byte { 0x00 });
+        append_bytes(&infe_payload, "application/xmp+xml");
+        infe_payload.push_back(std::byte { 0x00 });
+        infe_payload.push_back(std::byte { 0x00 });
+        std::vector<std::byte> infe_box;
+        append_bmff_box(&infe_box, fourcc('i', 'n', 'f', 'e'), infe_payload);
+
+        std::vector<std::byte> iinf_payload;
+        append_fullbox_header(&iinf_payload, 2);
+        append_u32be(&iinf_payload, 1);  // entry_count
+        iinf_payload.insert(iinf_payload.end(), infe_box.begin(),
+                            infe_box.end());
+        std::vector<std::byte> iinf_box;
+        append_bmff_box(&iinf_box, fourcc('i', 'i', 'n', 'f'), iinf_payload);
+
+        std::vector<std::byte> idat_payload;
+        append_bytes(&idat_payload, "<xmp/>");
+        std::vector<std::byte> idat_box;
+        append_bmff_box(&idat_box, fourcc('i', 'd', 'a', 't'), idat_payload);
+
+        std::vector<std::byte> iloc_payload;
+        append_fullbox_header(&iloc_payload, 2);
+        iloc_payload.push_back(std::byte { 0x44 });  // off_size=4, len_size=4
+        iloc_payload.push_back(std::byte { 0x00 });  // base=0, idx=0
+        append_u32be(&iloc_payload, 2);              // item_count (v2)
+
+        // Referenced target item (not in iinf).
+        append_u32be(&iloc_payload, 2);  // item_ID
+        append_u16be(&iloc_payload, 1);  // construction_method=1
+        append_u16be(&iloc_payload, 0);  // data_reference_index
+        append_u16be(&iloc_payload, 1);  // extent_count
+        append_u32be(&iloc_payload, 0);  // extent_offset
+        append_u32be(&iloc_payload, static_cast<uint32_t>(idat_payload.size()));
+
+        // Source metadata item (known XMP item in iinf), resolved via iref+iloc.
+        append_u32be(&iloc_payload, 1);  // item_ID
+        append_u16be(&iloc_payload, 2);  // construction_method=2
+        append_u16be(&iloc_payload, 0);  // data_reference_index
+        append_u16be(&iloc_payload, 1);  // extent_count
+        append_u32be(&iloc_payload, 0);  // logical extent offset
+        append_u32be(&iloc_payload, static_cast<uint32_t>(idat_payload.size()));
+        std::vector<std::byte> iloc_box;
+        append_bmff_box(&iloc_box, fourcc('i', 'l', 'o', 'c'), iloc_payload);
+
+        // iref version=0 uses 16-bit item IDs.
+        std::vector<std::byte> iref_iloc_payload;
+        append_u16be(&iref_iloc_payload, 1);  // from item id
+        append_u16be(&iref_iloc_payload, 1);  // ref_count
+        append_u16be(&iref_iloc_payload, 2);  // to item id
+        std::vector<std::byte> iref_iloc_box;
+        append_bmff_box(&iref_iloc_box, fourcc('i', 'l', 'o', 'c'),
+                        iref_iloc_payload);
+
+        std::vector<std::byte> iref_payload;
+        append_fullbox_header(&iref_payload, 0);
+        iref_payload.insert(iref_payload.end(), iref_iloc_box.begin(),
+                            iref_iloc_box.end());
+        std::vector<std::byte> iref_box;
+        append_bmff_box(&iref_box, fourcc('i', 'r', 'e', 'f'), iref_payload);
+
+        std::vector<std::byte> meta_payload;
+        append_fullbox_header(&meta_payload, 0);
+        meta_payload.insert(meta_payload.end(), iinf_box.begin(),
+                            iinf_box.end());
+        meta_payload.insert(meta_payload.end(), iloc_box.begin(),
+                            iloc_box.end());
+        meta_payload.insert(meta_payload.end(), iref_box.begin(),
+                            iref_box.end());
+        meta_payload.insert(meta_payload.end(), idat_box.begin(),
+                            idat_box.end());
+        std::vector<std::byte> meta_box;
+        append_bmff_box(&meta_box, fourcc('m', 'e', 't', 'a'), meta_payload);
+
+        std::vector<std::byte> ftyp_payload;
+        append_fourcc(&ftyp_payload, fourcc('h', 'e', 'i', 'c'));
+        append_u32be(&ftyp_payload, 0);
+        append_fourcc(&ftyp_payload, fourcc('m', 'i', 'f', '1'));
+        std::vector<std::byte> file;
+        append_bmff_box(&file, fourcc('f', 't', 'y', 'p'), ftyp_payload);
+        file.insert(file.end(), meta_box.begin(), meta_box.end());
+
+        std::array<ContainerBlockRef, 8> blocks {};
+        const ScanResult res = scan_bmff(file, blocks);
+        ASSERT_EQ(res.status, ScanStatus::Ok);
+        ASSERT_EQ(res.written, 1U);
+        EXPECT_EQ(blocks[0].format, ContainerFormat::Heif);
+        EXPECT_EQ(blocks[0].kind, ContainerBlockKind::Xmp);
+        EXPECT_EQ(blocks[0].group, 1U);
+        ASSERT_EQ(blocks[0].data_size, idat_payload.size());
+        EXPECT_EQ(file[blocks[0].data_offset + 0], std::byte { '<' });
+        EXPECT_EQ(file[blocks[0].data_offset + 1], std::byte { 'x' });
+
+        const ScanResult est = measure_scan_bmff(file);
+        EXPECT_EQ(est.status, ScanStatus::Ok);
+        EXPECT_EQ(est.written, 0U);
+        EXPECT_EQ(est.needed, 1U);
+    }
+
     TEST(ContainerScan,
          BmffMetaIlocV2ConstructionMethod2NoIdxMapsExtentsByReferenceOrder)
     {

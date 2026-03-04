@@ -403,6 +403,27 @@ TEST(IccInterpret, DecodesUi16Array)
     EXPECT_EQ(out.values[2], 65535.0);
 }
 
+TEST(IccInterpret, DecodesUi08Array)
+{
+    std::vector<std::byte> tag(11, std::byte { 0x00 });
+    write_u32be(make_fourcc('u', 'i', '0', '8'), 0, &tag);
+    tag[8]  = std::byte { 0x00 };
+    tag[9]  = std::byte { 0x7F };
+    tag[10] = std::byte { 0xFF };
+
+    IccTagInterpretation out;
+    const IccTagInterpretStatus st
+        = interpret_icc_tag(make_fourcc('c', 'h', 'a', 'd'), tag, &out);
+    EXPECT_EQ(st, IccTagInterpretStatus::Ok);
+    EXPECT_EQ(out.type, "ui08");
+    EXPECT_EQ(out.rows, 1U);
+    EXPECT_EQ(out.cols, 3U);
+    ASSERT_EQ(out.values.size(), 3U);
+    EXPECT_EQ(out.values[0], 0.0);
+    EXPECT_EQ(out.values[1], 127.0);
+    EXPECT_EQ(out.values[2], 255.0);
+}
+
 TEST(IccInterpret, DecodesUi32ArrayWithValueLimit)
 {
     std::vector<std::byte> tag(20, std::byte { 0x00 });

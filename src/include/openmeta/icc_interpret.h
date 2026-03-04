@@ -73,6 +73,7 @@ icc_tag_name(uint32_t signature) noexcept;
  * - `chrm` (chromaticity coordinates + colorant summary)
  * - `sf32` (s15Fixed16 array)
  * - `uf32` (u16Fixed16 array)
+ * - `ui08` (uInt8 array)
  * - `ui16` (uInt16 array)
  * - `ui32` (uInt32 array)
  * - `mft1` / `mft2` (LUT summaries)

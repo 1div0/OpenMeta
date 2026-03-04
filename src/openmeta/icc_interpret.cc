@@ -228,6 +228,14 @@ namespace {
             const uint64_t off = 8ULL
                                  + static_cast<uint64_t>(i)
                                        * static_cast<uint64_t>(item_bytes);
+            if (item_bytes == 1U) {
+                if (off + 1U > bytes.size()) {
+                    return false;
+                }
+                const uint8_t v = u8(bytes[off]);
+                out->push_back(static_cast<double>(v));
+                continue;
+            }
             if (item_bytes == 2U) {
                 uint16_t v = 0U;
                 if (!read_u16be(bytes, off, &v)) {
@@ -1400,6 +1408,19 @@ interpret_icc_tag(uint32_t signature, std::span<const std::byte> tag_bytes,
         bool truncated = false;
         if (!append_fixed_array_values(tag_bytes, options.limits.max_values,
                                        false, &out->values, &truncated)) {
+            return IccTagInterpretStatus::Malformed;
+        }
+        out->rows = 1U;
+        out->cols = static_cast<uint32_t>(out->values.size());
+        return truncated ? IccTagInterpretStatus::LimitExceeded
+                         : IccTagInterpretStatus::Ok;
+    }
+
+    if (type_sig == fourcc('u', 'i', '0', '8')) {
+        bool truncated = false;
+        if (!append_unsigned_integer_array_values(tag_bytes, 1U,
+                                                  options.limits.max_values,
+                                                  &out->values, &truncated)) {
             return IccTagInterpretStatus::Malformed;
         }
         out->rows = 1U;

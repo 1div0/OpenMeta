@@ -98,7 +98,7 @@ Status labels used below:
                 / offset based with typed header interpretation(
                     u32 / u64 / s15Fixed16 where stable) plus best
             - effort tag payload interpretation
-                helpers(`desc`, `text`, `sig `, `mluc`, `dtim`, `view`, `meas`, `chrm`, `sf32`, `uf32`, `mft1`, `mft2`, `mAB`, `mBA`, `XYZ `, `curv`, `para`)
+                helpers(`desc`, `text`, `sig `, `mluc`, `dtim`, `view`, `meas`, `chrm`, `sf32`, `uf32`, `ui08`, `ui16`, `ui32`, `mft1`, `mft2`, `mAB`, `mBA`, `XYZ `, `curv`, `para`)
       | Yes(lossless; canonical + adapter - friendly `icc : *`/`ICC : *` names)
       | | IPTC - IIM(`IptcDataset`) | Yes | Record / dataset id based
       | Yes(lossless; portable behavior depends on mapping path) |
