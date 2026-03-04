@@ -585,6 +585,38 @@ TEST(XmpDump, PortableNormalizesRationalAndSkipsXmlPacket)
     xml_packet.origin.order_in_block = 2;
     (void)store.add_entry(xml_packet);
 
+    Entry maker_note;
+    maker_note.key = make_exif_tag_key(store.arena(), "exififd", 0x927C);
+    const std::array<std::byte, 4> maker_note_bytes = {
+        std::byte { 0xDE },
+        std::byte { 0xAD },
+        std::byte { 0xBE },
+        std::byte { 0xEF },
+    };
+    maker_note.value
+        = make_bytes(store.arena(),
+                     std::span<const std::byte>(maker_note_bytes.data(),
+                                                maker_note_bytes.size()));
+    maker_note.origin.block          = block;
+    maker_note.origin.order_in_block = 3;
+    (void)store.add_entry(maker_note);
+
+    Entry dng_private;
+    dng_private.key = make_exif_tag_key(store.arena(), "ifd0", 0xC634);
+    const std::array<std::byte, 4> dng_private_bytes = {
+        std::byte { 0xAA },
+        std::byte { 0xBB },
+        std::byte { 0xCC },
+        std::byte { 0xDD },
+    };
+    dng_private.value
+        = make_bytes(store.arena(),
+                     std::span<const std::byte>(dng_private_bytes.data(),
+                                                dng_private_bytes.size()));
+    dng_private.origin.block          = block;
+    dng_private.origin.order_in_block = 4;
+    (void)store.add_entry(dng_private);
+
     store.finalize();
 
     XmpPortableOptions opts;
@@ -602,9 +634,11 @@ TEST(XmpDump, PortableNormalizesRationalAndSkipsXmlPacket)
     EXPECT_NE(s.find("<tiff:XResolution>72</tiff:XResolution>"),
               std::string_view::npos);
     EXPECT_NE(s.find(
-                  "<exif:ExposureCompensation>1/2</exif:ExposureCompensation>"),
+                  "<exif:ExposureCompensation>0.5</exif:ExposureCompensation>"),
               std::string_view::npos);
     EXPECT_EQ(s.find("<tiff:XMLPacket>"), std::string_view::npos);
+    EXPECT_EQ(s.find("<exif:MakerNote>"), std::string_view::npos);
+    EXPECT_EQ(s.find("<tiff:DNGPrivateData>"), std::string_view::npos);
 }
 
 TEST(XmpDump, PortableCanonicalizesExistingXmpPropertyNames)
@@ -667,6 +701,24 @@ TEST(XmpDump, PortableCanonicalizesExistingXmpPropertyNames)
     focal35.origin.order_in_block = 5;
     (void)store.add_entry(focal35);
 
+    Entry maker_note;
+    maker_note.key   = make_xmp_property_key(store.arena(),
+                                             "http://ns.adobe.com/exif/1.0/",
+                                             "MakerNote");
+    maker_note.value = make_text(store.arena(), "AAAA", TextEncoding::Ascii);
+    maker_note.origin.block          = block;
+    maker_note.origin.order_in_block = 6;
+    (void)store.add_entry(maker_note);
+
+    Entry dng_private;
+    dng_private.key   = make_xmp_property_key(store.arena(),
+                                              "http://ns.adobe.com/tiff/1.0/",
+                                              "DNGPrivateData");
+    dng_private.value = make_text(store.arena(), "BBBB", TextEncoding::Ascii);
+    dng_private.origin.block          = block;
+    dng_private.origin.order_in_block = 7;
+    (void)store.add_entry(dng_private);
+
     store.finalize();
 
     XmpPortableOptions opts;
@@ -702,6 +754,8 @@ TEST(XmpDump, PortableCanonicalizesExistingXmpPropertyNames)
     EXPECT_EQ(s.find("<exif:PixelXDimension>"), std::string_view::npos);
     EXPECT_EQ(s.find("<exif:PixelYDimension>"), std::string_view::npos);
     EXPECT_EQ(s.find("<exif:FocalLengthIn35mmFilm>"), std::string_view::npos);
+    EXPECT_EQ(s.find("<exif:MakerNote>"), std::string_view::npos);
+    EXPECT_EQ(s.find("<tiff:DNGPrivateData>"), std::string_view::npos);
 }
 
 TEST(XmpDump, PortablePrintConvertsCommonExifEnumsAndValues)
@@ -952,6 +1006,154 @@ TEST(XmpDump, PortableSkipsInvalidGpsRationalValues)
     EXPECT_EQ(s.find("<exif:GPSLatitude>"), std::string_view::npos);
     EXPECT_EQ(s.find("<exif:GPSTimeStamp>"), std::string_view::npos);
     EXPECT_EQ(s.find("<exif:GPSAltitude>"), std::string_view::npos);
+}
+
+
+TEST(XmpDump, PortableSkipsInvalidApexRationalValues)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, kInvalidBlockId);
+
+    Entry fnumber;
+    fnumber.key          = make_exif_tag_key(store.arena(), "exififd", 0x829D);
+    fnumber.value        = make_urational(0, 0);
+    fnumber.origin.block = block;
+    fnumber.origin.order_in_block = 0;
+    (void)store.add_entry(fnumber);
+
+    Entry aperture;
+    aperture.key          = make_exif_tag_key(store.arena(), "exififd", 0x9202);
+    aperture.value        = make_urational(0, 0);
+    aperture.origin.block = block;
+    aperture.origin.order_in_block = 1;
+    (void)store.add_entry(aperture);
+
+    Entry shutter;
+    shutter.key          = make_exif_tag_key(store.arena(), "exififd", 0x9201);
+    shutter.value        = make_srational(0, 0);
+    shutter.origin.block = block;
+    shutter.origin.order_in_block = 2;
+    (void)store.add_entry(shutter);
+
+    Entry exposure_comp;
+    exposure_comp.key   = make_exif_tag_key(store.arena(), "exififd", 0x9204);
+    exposure_comp.value = make_srational(0, 0);
+    exposure_comp.origin.block          = block;
+    exposure_comp.origin.order_in_block = 3;
+    (void)store.add_entry(exposure_comp);
+
+    Entry focal_length;
+    focal_length.key   = make_exif_tag_key(store.arena(), "exififd", 0x920A);
+    focal_length.value = make_urational(66, 1);
+    focal_length.origin.block          = block;
+    focal_length.origin.order_in_block = 4;
+    (void)store.add_entry(focal_length);
+
+    store.finalize();
+
+    XmpPortableOptions opts;
+    opts.include_exif         = true;
+    opts.include_existing_xmp = false;
+
+    std::vector<std::byte> out(4096);
+    const XmpDumpResult r
+        = dump_xmp_portable(store, std::span<std::byte>(out.data(), out.size()),
+                            opts);
+    ASSERT_EQ(r.status, XmpDumpStatus::Ok);
+
+    const std::string_view s(reinterpret_cast<const char*>(out.data()),
+                             static_cast<size_t>(r.written));
+    EXPECT_EQ(s.find("<exif:FNumber>"), std::string_view::npos);
+    EXPECT_EQ(s.find("<exif:ApertureValue>"), std::string_view::npos);
+    EXPECT_EQ(s.find("<exif:ShutterSpeedValue>"), std::string_view::npos);
+    EXPECT_EQ(s.find("<exif:ExposureCompensation>"), std::string_view::npos);
+    EXPECT_NE(s.find("<exif:FocalLength>66.0 mm</exif:FocalLength>"),
+              std::string_view::npos);
+}
+
+
+TEST(XmpDump, PortableApexTagsUseFirstValidArrayElement)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, kInvalidBlockId);
+
+    const std::array<URational, 2> fnumber_vals = {
+        URational { 139, 50 },
+        URational { 0, 0 },
+    };
+    Entry fnumber;
+    fnumber.key = make_exif_tag_key(store.arena(), "exififd", 0x829D);
+    fnumber.value
+        = make_urational_array(store.arena(),
+                               std::span<const URational>(fnumber_vals.data(),
+                                                          fnumber_vals.size()));
+    fnumber.origin.block          = block;
+    fnumber.origin.order_in_block = 0;
+    (void)store.add_entry(fnumber);
+
+    const std::array<URational, 2> aperture_vals = {
+        URational { 0, 0 }, URational { 4, 1 },  // APEX 4 -> f/4.0
+    };
+    Entry aperture;
+    aperture.key   = make_exif_tag_key(store.arena(), "exififd", 0x9202);
+    aperture.value = make_urational_array(
+        store.arena(),
+        std::span<const URational>(aperture_vals.data(), aperture_vals.size()));
+    aperture.origin.block          = block;
+    aperture.origin.order_in_block = 1;
+    (void)store.add_entry(aperture);
+
+    const std::array<SRational, 2> shutter_vals = {
+        SRational { 0, 0 }, SRational { 6, 1 },  // APEX 6 -> 1/64 s
+    };
+    Entry shutter;
+    shutter.key = make_exif_tag_key(store.arena(), "exififd", 0x9201);
+    shutter.value
+        = make_srational_array(store.arena(),
+                               std::span<const SRational>(shutter_vals.data(),
+                                                          shutter_vals.size()));
+    shutter.origin.block          = block;
+    shutter.origin.order_in_block = 2;
+    (void)store.add_entry(shutter);
+
+    const std::array<SRational, 2> exp_comp_vals = {
+        SRational { 0, 0 },
+        SRational { 1, 2 },
+    };
+    Entry exp_comp;
+    exp_comp.key   = make_exif_tag_key(store.arena(), "exififd", 0x9204);
+    exp_comp.value = make_srational_array(
+        store.arena(),
+        std::span<const SRational>(exp_comp_vals.data(), exp_comp_vals.size()));
+    exp_comp.origin.block          = block;
+    exp_comp.origin.order_in_block = 3;
+    (void)store.add_entry(exp_comp);
+
+    store.finalize();
+
+    XmpPortableOptions opts;
+    opts.include_exif         = true;
+    opts.include_existing_xmp = false;
+
+    std::vector<std::byte> out(4096);
+    const XmpDumpResult r
+        = dump_xmp_portable(store, std::span<std::byte>(out.data(), out.size()),
+                            opts);
+    ASSERT_EQ(r.status, XmpDumpStatus::Ok);
+
+    const std::string_view s(reinterpret_cast<const char*>(out.data()),
+                             static_cast<size_t>(r.written));
+    EXPECT_NE(s.find("<exif:FNumber>2.8</exif:FNumber>"),
+              std::string_view::npos);
+    EXPECT_NE(s.find("<exif:ApertureValue>4.0</exif:ApertureValue>"),
+              std::string_view::npos);
+    EXPECT_NE(s.find("<exif:ShutterSpeedValue>1/64</exif:ShutterSpeedValue>"),
+              std::string_view::npos);
+    EXPECT_NE(s.find(
+                  "<exif:ExposureCompensation>0.5</exif:ExposureCompensation>"),
+              std::string_view::npos);
 }
 
 TEST(XmpDump, PortableSkipsGpsTimeStampWithoutGpsDateStamp)

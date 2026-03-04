@@ -1163,6 +1163,40 @@ namespace {
         return false;
     }
 
+    static bool exif_tag_is_nonportable_blob(uint16_t tag) noexcept
+    {
+        switch (tag) {
+        case 0x02BC:  // XMLPacket
+        case 0x83BB:  // IPTC
+        case 0x8649:  // Photoshop
+        case 0x8773:  // ICCProfile
+        case 0x927C:  // MakerNote
+        case 0xC634:  // DNGPrivateData
+            return true;
+        default: return false;
+        }
+    }
+
+    static bool xmp_property_is_nonportable_blob(std::string_view prefix,
+                                                 std::string_view name) noexcept
+    {
+        if (name.empty()) {
+            return true;
+        }
+        if (name == "XMLPacket") {
+            return true;
+        }
+        if (prefix == "exif" && name == "MakerNote") {
+            return true;
+        }
+        if (prefix == "tiff"
+            && (name == "IPTC" || name == "Photoshop" || name == "ICCProfile"
+                || name == "DNGPrivateData")) {
+            return true;
+        }
+        return false;
+    }
+
     static std::string_view
     canonical_portable_property_name(std::string_view prefix,
                                      std::string_view name) noexcept
@@ -1862,6 +1896,80 @@ namespace {
         return true;
     }
 
+    static bool first_valid_urational_value(const ByteArena& arena,
+                                            const MetaValue& v,
+                                            URational* out) noexcept
+    {
+        if (!out) {
+            return false;
+        }
+        URational r {};
+        if (scalar_urational_value(v, &r)) {
+            if (r.denom != 0U) {
+                *out = r;
+                return true;
+            }
+            return false;
+        }
+        if (v.kind != MetaValueKind::Array
+            || v.elem_type != MetaElementType::URational) {
+            return false;
+        }
+
+        const std::span<const std::byte> raw = arena.span(v.data.span);
+        const uint32_t count                 = safe_array_count(arena, v);
+        for (uint32_t i = 0U; i < count; ++i) {
+            const size_t off = static_cast<size_t>(i) * sizeof(URational);
+            if (off + sizeof(URational) > raw.size()) {
+                break;
+            }
+            std::memcpy(&r, raw.data() + off, sizeof(r));
+            if (r.denom != 0U) {
+                *out = r;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static bool first_valid_srational_value(const ByteArena& arena,
+                                            const MetaValue& v,
+                                            SRational* out) noexcept
+    {
+        if (!out) {
+            return false;
+        }
+        if (v.kind == MetaValueKind::Scalar
+            && v.elem_type == MetaElementType::SRational) {
+            const SRational r = v.data.sr;
+            if (r.denom != 0) {
+                *out = r;
+                return true;
+            }
+            return false;
+        }
+        if (v.kind != MetaValueKind::Array
+            || v.elem_type != MetaElementType::SRational) {
+            return false;
+        }
+
+        const std::span<const std::byte> raw = arena.span(v.data.span);
+        const uint32_t count                 = safe_array_count(arena, v);
+        for (uint32_t i = 0U; i < count; ++i) {
+            const size_t off = static_cast<size_t>(i) * sizeof(SRational);
+            if (off + sizeof(SRational) > raw.size()) {
+                break;
+            }
+            SRational r {};
+            std::memcpy(&r, raw.data() + off, sizeof(r));
+            if (r.denom != 0) {
+                *out = r;
+                return true;
+            }
+        }
+        return false;
+    }
+
     static bool has_invalid_urational_value(const ByteArena& arena,
                                             const MetaValue& v) noexcept
     {
@@ -2230,17 +2338,6 @@ namespace {
         return true;
     }
 
-    static bool scalar_srational_value(const MetaValue& v,
-                                       SRational* out) noexcept
-    {
-        if (!out || v.kind != MetaValueKind::Scalar
-            || v.elem_type != MetaElementType::SRational) {
-            return false;
-        }
-        *out = v.data.sr;
-        return true;
-    }
-
     static bool urational_to_double(const URational& r, double* out) noexcept
     {
         if (!out || r.denom == 0U) {
@@ -2392,27 +2489,36 @@ namespace {
                 return emit_portable_property_text(w, prefix, name, buf);
             }
         }
-        if (tag == 0x829DU && scalar_urational_value(v, &ur)) {  // FNumber
+        if (tag == 0x829DU) {  // FNumber
+            if (!first_valid_urational_value(arena, v, &ur)) {
+                return true;
+            }
             double d = 0.0;
             if (urational_to_double(ur, &d)) {
                 std::snprintf(buf, sizeof(buf), "%.1f", d);
                 return emit_portable_property_text(w, prefix, name, buf);
             }
+            return true;
         }
-        if ((tag == 0x9202U || tag == 0x9205U)
-            && scalar_urational_value(v,
-                                      &ur)) {  // ApertureValue/MaxApertureValue
+        if (tag == 0x9202U
+            || tag == 0x9205U) {  // ApertureValue/MaxApertureValue
+            if (!first_valid_urational_value(arena, v, &ur)) {
+                return true;
+            }
             double apex = 0.0;
             if (urational_to_double(ur, &apex)) {
                 const double fnum = std::pow(2.0, apex * 0.5);
-                if (std::isfinite(fnum)) {
+                if (std::isfinite(fnum) && fnum <= 1.0e5) {
                     std::snprintf(buf, sizeof(buf), "%.1f", fnum);
                     return emit_portable_property_text(w, prefix, name, buf);
                 }
             }
+            return true;
         }
-        if (tag == 0x9201U
-            && scalar_srational_value(v, &sr)) {  // ShutterSpeedValue
+        if (tag == 0x9201U) {  // ShutterSpeedValue
+            if (!first_valid_srational_value(arena, v, &sr)) {
+                return true;
+            }
             double apex = 0.0;
             if (srational_to_double(sr, &apex)) {
                 const double sec = std::pow(2.0, -apex);
@@ -2434,6 +2540,18 @@ namespace {
                     }
                 }
             }
+            return true;
+        }
+        if (tag == 0x9204U) {  // ExposureCompensation
+            if (!first_valid_srational_value(arena, v, &sr)) {
+                return true;
+            }
+            double d = 0.0;
+            if (srational_to_double(sr, &d) && std::isfinite(d)) {
+                std::snprintf(buf, sizeof(buf), "%.15g", d);
+                return emit_portable_property_text(w, prefix, name, buf);
+            }
+            return true;
         }
         if ((tag == 0xA20EU || tag == 0xA20FU)
             && scalar_urational_value(v, &ur)) {  // FocalPlaneX/YResolution
@@ -2514,7 +2632,8 @@ namespace {
         if (is_simple_xmp_property_name(name)) {
             const std::string_view portable_name
                 = portable_property_name_for_existing_xmp(prefix, name);
-            if (portable_name.empty() || portable_name == "XMLPacket") {
+            if (portable_name.empty()
+                || xmp_property_is_nonportable_blob(prefix, portable_name)) {
                 return false;
             }
             if (!add_portable_property_key(emitted_keys, prefix,
@@ -2533,7 +2652,8 @@ namespace {
 
         const std::string_view portable_base
             = portable_property_name_for_existing_xmp(prefix, base_name);
-        if (portable_base.empty() || portable_base == "XMLPacket") {
+        if (portable_base.empty()
+            || xmp_property_is_nonportable_blob(prefix, portable_base)) {
             return false;
         }
 
@@ -2588,8 +2708,11 @@ namespace {
             return false;
         }
 
-        if (tag_name.ends_with("IFDPointer") || tag_name == "SubIFDs"
-            || tag_name == "XMLPacket") {
+        if (exif_tag_is_nonportable_blob(e.key.data.exif_tag.tag)) {
+            return false;
+        }
+
+        if (tag_name.ends_with("IFDPointer") || tag_name == "SubIFDs") {
             return false;
         }
 

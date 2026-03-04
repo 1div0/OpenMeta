@@ -49,13 +49,14 @@ struct ValidateIssue final {
 
 /// Options for \ref validate_file.
 struct ValidateOptions final {
-    bool include_pointer_tags        = true;
-    bool decode_makernote            = false;
-    bool decode_printim              = true;
-    bool decompress                  = true;
-    bool include_xmp_sidecar         = false;
-    bool verify_c2pa                 = false;
-    C2paVerifyBackend verify_backend = C2paVerifyBackend::Auto;
+    bool include_pointer_tags               = true;
+    bool decode_makernote                   = false;
+    bool decode_printim                     = true;
+    bool decompress                         = true;
+    bool include_xmp_sidecar                = false;
+    bool verify_c2pa                        = false;
+    C2paVerifyBackend verify_backend        = C2paVerifyBackend::Auto;
+    bool verify_require_resolved_references = false;
 
     /// Treat warnings as failures in \ref ValidateResult::failed.
     bool warnings_as_errors = false;

@@ -489,20 +489,23 @@ namespace {
         const std::string& path, bool include_pointer_tags,
         bool decode_makernote, bool decode_printim, bool decompress,
         bool include_xmp_sidecar, bool verify_c2pa,
-        C2paVerifyBackend verify_backend, bool warnings_as_errors,
+        C2paVerifyBackend verify_backend,
+        bool verify_require_resolved_references, bool warnings_as_errors,
         bool ccm_require_dng_context, bool ccm_include_reduction_matrices,
         uint32_t ccm_max_fields, uint32_t ccm_max_values_per_field,
         CcmValidationMode ccm_validation_mode, uint64_t max_file_bytes,
         nb::object policy_obj)
     {
         ValidateOptions options;
-        options.include_pointer_tags           = include_pointer_tags;
-        options.decode_makernote               = decode_makernote;
-        options.decode_printim                 = decode_printim;
-        options.decompress                     = decompress;
-        options.include_xmp_sidecar            = include_xmp_sidecar;
-        options.verify_c2pa                    = verify_c2pa;
-        options.verify_backend                 = verify_backend;
+        options.include_pointer_tags = include_pointer_tags;
+        options.decode_makernote     = decode_makernote;
+        options.decode_printim       = decode_printim;
+        options.decompress           = decompress;
+        options.include_xmp_sidecar  = include_xmp_sidecar;
+        options.verify_c2pa          = verify_c2pa;
+        options.verify_backend       = verify_backend;
+        options.verify_require_resolved_references
+            = verify_require_resolved_references;
         options.warnings_as_errors             = warnings_as_errors;
         options.ccm.require_dng_context        = ccm_require_dng_context;
         options.ccm.include_reduction_matrices = ccm_include_reduction_matrices;
@@ -539,16 +542,18 @@ namespace {
         out["jumbf_status"]         = result.read.jumbf.status;
         out["jumbf_verify_status"]  = result.read.jumbf.verify_status;
         out["jumbf_verify_backend"] = result.read.jumbf.verify_backend_selected;
-        out["entries"]              = nb::int_(result.entries);
-        out["ccm_status"]           = result.ccm.status;
-        out["ccm_fields"]           = nb::int_(result.ccm_fields);
-        out["ccm_fields_found"]     = nb::int_(result.ccm.fields_found);
-        out["ccm_fields_dropped"]   = nb::int_(result.ccm.fields_dropped);
-        out["ccm_issues_reported"]  = nb::int_(result.ccm.issues_reported);
-        out["warning_count"]        = nb::int_(result.warning_count);
-        out["error_count"]          = nb::int_(result.error_count);
-        out["failed"]               = nb::bool_(result.failed);
-        out["issues"]               = std::move(issues);
+        out["jumbf_verify_require_resolved_references"] = nb::bool_(
+            verify_require_resolved_references);
+        out["entries"]             = nb::int_(result.entries);
+        out["ccm_status"]          = result.ccm.status;
+        out["ccm_fields"]          = nb::int_(result.ccm_fields);
+        out["ccm_fields_found"]    = nb::int_(result.ccm.fields_found);
+        out["ccm_fields_dropped"]  = nb::int_(result.ccm.fields_dropped);
+        out["ccm_issues_reported"] = nb::int_(result.ccm.issues_reported);
+        out["warning_count"]       = nb::int_(result.warning_count);
+        out["error_count"]         = nb::int_(result.error_count);
+        out["failed"]              = nb::bool_(result.failed);
+        out["issues"]              = std::move(issues);
         return out;
     }
 
@@ -889,7 +894,8 @@ static std::shared_ptr<PyDocument>
 read_document(const std::string& path, bool include_pointer_tags,
               bool decode_makernote, bool decompress, bool include_xmp_sidecar,
               bool verify_c2pa, C2paVerifyBackend verify_backend,
-              uint64_t max_file_bytes, const OpenMetaResourcePolicy* policy_ptr)
+              bool verify_require_resolved_references, uint64_t max_file_bytes,
+              const OpenMetaResourcePolicy* policy_ptr)
 {
     auto doc  = std::make_shared<PyDocument>();
     doc->path = path;
@@ -916,6 +922,8 @@ read_document(const std::string& path, bool include_pointer_tags,
     decode_options.payload.decompress              = decompress;
     decode_options.jumbf.verify_c2pa               = verify_c2pa;
     decode_options.jumbf.verify_backend            = verify_backend;
+    decode_options.jumbf.verify_require_resolved_references
+        = verify_require_resolved_references;
 
     // Release the GIL while performing file I/O and metadata decoding so callers
     // (and internal comparison tools) can read in parallel from multiple Python
@@ -2051,7 +2059,8 @@ NB_MODULE(_openmeta, m)
         [](const std::string& path, bool include_pointer_tags,
            bool decode_makernote, bool decompress, bool include_xmp_sidecar,
            bool verify_c2pa, C2paVerifyBackend verify_backend,
-           uint64_t max_file_bytes, nb::object policy_obj) {
+           bool verify_require_resolved_references, uint64_t max_file_bytes,
+           nb::object policy_obj) {
             OpenMetaResourcePolicy policy;
             const OpenMetaResourcePolicy* policy_ptr = nullptr;
             if (!policy_obj.is_none()) {
@@ -2060,11 +2069,14 @@ NB_MODULE(_openmeta, m)
             }
             return read_document(path, include_pointer_tags, decode_makernote,
                                  decompress, include_xmp_sidecar, verify_c2pa,
-                                 verify_backend, max_file_bytes, policy_ptr);
+                                 verify_backend,
+                                 verify_require_resolved_references,
+                                 max_file_bytes, policy_ptr);
         },
         "path"_a, "include_pointer_tags"_a = true, "decode_makernote"_a = false,
         "decompress"_a = true, "include_xmp_sidecar"_a = false,
         "verify_c2pa"_a = false, "verify_backend"_a = C2paVerifyBackend::Auto,
+        "verify_require_resolved_references"_a = false,
         "max_file_bytes"_a = 0ULL, "policy"_a = nb::none());
 
     m.def(
@@ -2072,7 +2084,8 @@ NB_MODULE(_openmeta, m)
         [](const std::string& path, bool include_pointer_tags,
            bool decode_makernote, bool decode_printim, bool decompress,
            bool include_xmp_sidecar, bool verify_c2pa,
-           C2paVerifyBackend verify_backend, bool warnings_as_errors,
+           C2paVerifyBackend verify_backend,
+           bool verify_require_resolved_references, bool warnings_as_errors,
            bool ccm_require_dng_context, bool ccm_include_reduction_matrices,
            uint32_t ccm_max_fields, uint32_t ccm_max_values_per_field,
            CcmValidationMode ccm_validation_mode, uint64_t max_file_bytes,
@@ -2080,15 +2093,16 @@ NB_MODULE(_openmeta, m)
             return validate_file_to_python(
                 path, include_pointer_tags, decode_makernote, decode_printim,
                 decompress, include_xmp_sidecar, verify_c2pa, verify_backend,
-                warnings_as_errors, ccm_require_dng_context,
-                ccm_include_reduction_matrices, ccm_max_fields,
-                ccm_max_values_per_field, ccm_validation_mode, max_file_bytes,
-                policy_obj);
+                verify_require_resolved_references, warnings_as_errors,
+                ccm_require_dng_context, ccm_include_reduction_matrices,
+                ccm_max_fields, ccm_max_values_per_field, ccm_validation_mode,
+                max_file_bytes, policy_obj);
         },
         "path"_a, "include_pointer_tags"_a = true, "decode_makernote"_a = false,
         "decode_printim"_a = true, "decompress"_a = true,
         "include_xmp_sidecar"_a = false, "verify_c2pa"_a = false,
-        "verify_backend"_a     = C2paVerifyBackend::Auto,
+        "verify_backend"_a                     = C2paVerifyBackend::Auto,
+        "verify_require_resolved_references"_a = false,
         "warnings_as_errors"_a = false, "ccm_require_dng_context"_a = true,
         "ccm_include_reduction_matrices"_a = true, "ccm_max_fields"_a = 128U,
         "ccm_max_values_per_field"_a = 256U,

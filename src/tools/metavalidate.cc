@@ -47,6 +47,8 @@ namespace {
             "  --c2pa-verify            Request draft C2PA verify scaffold evaluation\n"
             "  --c2pa-verify-backend <none|auto|native|openssl>\n"
             "                           Verification backend preference\n"
+            "  --c2pa-verify-require-resolved-references\n"
+            "                           Fail C2PA verify when explicit references are unresolved or ambiguous\n"
             "\n"
             "DNG/CCM validation:\n"
             "  --ccm-validation <none|dng-warnings>\n"
@@ -429,6 +431,10 @@ namespace {
                     c2pa_verify_backend_name(
                         result.read.jumbf.verify_backend_selected),
                     &out);
+                out.append(",\"c2pa_verify_require_resolved_references\":");
+                out.append(options.verify_require_resolved_references
+                               ? "true"
+                               : "false");
                 out.append(",\"ccm_status\":");
                 append_json_escaped(ccm_status_name(result.ccm.status), &out);
                 out.append(",\"ccm_mode\":");
@@ -522,7 +528,7 @@ namespace {
         }
 
         std::printf(
-            "scan=%s payload=%s exif=%s xmp=%s exr=%s jumbf=%s c2pa_verify=%s c2pa_backend=%s entries=%u\n",
+            "scan=%s payload=%s exif=%s xmp=%s exr=%s jumbf=%s c2pa_verify=%s c2pa_backend=%s c2pa_require_resolved_refs=%s entries=%u\n",
             scan_status_name(result.read.scan.status),
             payload_status_name(result.read.payload.status),
             exif_status_name(result.read.exif.status),
@@ -531,6 +537,7 @@ namespace {
             jumbf_status_name(result.read.jumbf.status),
             c2pa_verify_status_name(result.read.jumbf.verify_status),
             c2pa_verify_backend_name(result.read.jumbf.verify_backend_selected),
+            options.verify_require_resolved_references ? "on" : "off",
             static_cast<unsigned>(result.entries));
 
         std::printf(
@@ -627,6 +634,12 @@ main(int argc, char** argv)
             options.verify_backend = backend;
             i += 1;
             first_path += 2;
+            continue;
+        }
+        if (std::strcmp(arg, "--c2pa-verify-require-resolved-references")
+            == 0) {
+            options.verify_require_resolved_references = true;
+            first_path += 1;
             continue;
         }
         if (std::strcmp(arg, "--ccm-validation") == 0 && i + 1 < argc) {

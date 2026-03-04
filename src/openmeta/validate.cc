@@ -385,6 +385,8 @@ validate_file(const char* path, const ValidateOptions& options) noexcept
     decode_options.payload.decompress              = options.decompress;
     decode_options.jumbf.verify_c2pa               = options.verify_c2pa;
     decode_options.jumbf.verify_backend            = options.verify_backend;
+    decode_options.jumbf.verify_require_resolved_references
+        = options.verify_require_resolved_references;
 
     std::vector<ContainerBlockRef> blocks(128);
     std::vector<ExifIfdRef> ifd_refs(256);

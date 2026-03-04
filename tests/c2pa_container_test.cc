@@ -41,6 +41,15 @@ namespace {
         out->push_back(std::byte { static_cast<uint8_t>((v >> 24) & 0xFFU) });
     }
 
+    static void append_fullbox_header(std::vector<std::byte>* out,
+                                      uint8_t version)
+    {
+        out->push_back(std::byte { version });
+        out->push_back(std::byte { 0 });
+        out->push_back(std::byte { 0 });
+        out->push_back(std::byte { 0 });
+    }
+
     static void append_fourcc(std::vector<std::byte>* out, uint32_t f)
     {
         out->push_back(std::byte { static_cast<uint8_t>((f >> 24) & 0xFFU) });
@@ -114,6 +123,77 @@ namespace {
         return jumb_box;
     }
 
+    static std::vector<std::byte>
+    make_bmff_meta_jumbf_item_file(uint32_t major_brand, uint32_t item_type,
+                                   std::string_view item_name,
+                                   std::string_view content_type)
+    {
+        const std::vector<std::byte> jumb_box = make_sample_jumbf_payload();
+
+        std::vector<std::byte> infe_payload;
+        append_fullbox_header(&infe_payload, 2);
+        append_u16be(&infe_payload, 1);  // item_ID
+        append_u16be(&infe_payload, 0);  // protection
+        append_fourcc(&infe_payload, item_type);
+        append_bytes(&infe_payload, item_name);
+        infe_payload.push_back(std::byte { 0x00 });
+        if (item_type == fourcc('m', 'i', 'm', 'e')) {
+            append_bytes(&infe_payload, content_type);
+            infe_payload.push_back(std::byte { 0x00 });
+            // Optional content-encoding string: empty.
+            infe_payload.push_back(std::byte { 0x00 });
+        }
+        std::vector<std::byte> infe_box;
+        append_bmff_box(&infe_box, fourcc('i', 'n', 'f', 'e'), infe_payload);
+
+        std::vector<std::byte> iinf_payload;
+        append_fullbox_header(&iinf_payload, 2);
+        append_u32be(&iinf_payload, 1);  // entry_count
+        iinf_payload.insert(iinf_payload.end(), infe_box.begin(),
+                            infe_box.end());
+        std::vector<std::byte> iinf_box;
+        append_bmff_box(&iinf_box, fourcc('i', 'i', 'n', 'f'), iinf_payload);
+
+        std::vector<std::byte> idat_payload(jumb_box.begin(), jumb_box.end());
+        std::vector<std::byte> idat_box;
+        append_bmff_box(&idat_box, fourcc('i', 'd', 'a', 't'), idat_payload);
+
+        std::vector<std::byte> iloc_payload;
+        append_fullbox_header(&iloc_payload, 1);
+        iloc_payload.push_back(std::byte { 0x44 });  // off_size=4, len_size=4
+        iloc_payload.push_back(std::byte { 0x00 });  // base=0, idx=0
+        append_u16be(&iloc_payload, 1);              // item_count
+        append_u16be(&iloc_payload, 1);              // item_ID
+        append_u16be(&iloc_payload, 1);              // construction_method=1
+        append_u16be(&iloc_payload, 0);              // data_reference_index
+        append_u16be(&iloc_payload, 1);              // extent_count
+        append_u32be(&iloc_payload, 0);              // extent_offset
+        append_u32be(&iloc_payload, static_cast<uint32_t>(idat_payload.size()));
+        std::vector<std::byte> iloc_box;
+        append_bmff_box(&iloc_box, fourcc('i', 'l', 'o', 'c'), iloc_payload);
+
+        std::vector<std::byte> meta_payload;
+        append_fullbox_header(&meta_payload, 0);
+        meta_payload.insert(meta_payload.end(), iinf_box.begin(),
+                            iinf_box.end());
+        meta_payload.insert(meta_payload.end(), iloc_box.begin(),
+                            iloc_box.end());
+        meta_payload.insert(meta_payload.end(), idat_box.begin(),
+                            idat_box.end());
+        std::vector<std::byte> meta_box;
+        append_bmff_box(&meta_box, fourcc('m', 'e', 't', 'a'), meta_payload);
+
+        std::vector<std::byte> ftyp_payload;
+        append_fourcc(&ftyp_payload, major_brand);
+        append_u32be(&ftyp_payload, 0);
+        append_fourcc(&ftyp_payload, fourcc('m', 'i', 'f', '1'));
+
+        std::vector<std::byte> file;
+        append_bmff_box(&file, fourcc('f', 't', 'y', 'p'), ftyp_payload);
+        file.insert(file.end(), meta_box.begin(), meta_box.end());
+        return file;
+    }
+
     static bool store_has_jumbf_cbor_key(const MetaStore& store,
                                          std::string_view key)
     {
@@ -127,8 +207,8 @@ namespace {
                                       std::string_view field)
     {
         MetaKeyView k;
-        k.kind                      = MetaKeyKind::JumbfField;
-        k.data.jumbf_field.field    = field;
+        k.kind                   = MetaKeyKind::JumbfField;
+        k.data.jumbf_field.field = field;
         return !store.find_all(k).empty();
     }
 
@@ -158,7 +238,8 @@ namespace {
 
             const size_t start = (part == 0U) ? 0U : mid;
             const size_t end   = (part == 0U) ? mid : jumb_payload.size();
-            seg.insert(seg.end(), jumb_payload.begin() + static_cast<ptrdiff_t>(start),
+            seg.insert(seg.end(),
+                       jumb_payload.begin() + static_cast<ptrdiff_t>(start),
                        jumb_payload.begin() + static_cast<ptrdiff_t>(end));
 
             append_jpeg_segment(&jpeg, 0xFFEB, seg);
@@ -174,9 +255,9 @@ namespace {
         std::array<uint32_t, 128> payload_parts {};
         SimpleMetaDecodeOptions options;
 
-        const SimpleMetaResult read
-            = simple_meta_read(jpeg, store, blocks, ifds, payload,
-                               payload_parts, options);
+        const SimpleMetaResult read = simple_meta_read(jpeg, store, blocks,
+                                                       ifds, payload,
+                                                       payload_parts, options);
         EXPECT_EQ(read.scan.status, ScanStatus::Ok);
         EXPECT_EQ(read.jumbf.status, JumbfDecodeStatus::Ok);
         EXPECT_GT(read.jumbf.entries_decoded, 0U);
@@ -227,9 +308,9 @@ namespace {
         std::array<uint32_t, 128> payload_parts {};
         SimpleMetaDecodeOptions options;
 
-        const SimpleMetaResult read
-            = simple_meta_read(jpeg, store, blocks, ifds, payload,
-                               payload_parts, options);
+        const SimpleMetaResult read = simple_meta_read(jpeg, store, blocks,
+                                                       ifds, payload,
+                                                       payload_parts, options);
         EXPECT_EQ(read.scan.status, ScanStatus::Ok);
         EXPECT_EQ(read.jumbf.status, JumbfDecodeStatus::Ok);
         EXPECT_GT(read.jumbf.entries_decoded, 0U);
@@ -260,8 +341,9 @@ namespace {
         std::array<uint32_t, 128> payload_parts {};
         SimpleMetaDecodeOptions options;
 
-        const SimpleMetaResult read = simple_meta_read(
-            png, store, blocks, ifds, payload, payload_parts, options);
+        const SimpleMetaResult read = simple_meta_read(png, store, blocks, ifds,
+                                                       payload, payload_parts,
+                                                       options);
         EXPECT_EQ(read.scan.status, ScanStatus::Ok);
         EXPECT_EQ(read.jumbf.status, JumbfDecodeStatus::Ok);
 
@@ -284,10 +366,10 @@ namespace {
 
         append_png_chunk(&png, fourcc('c', 'a', 'B', 'X'),
                          std::span<const std::byte>(jumb_box.data(), mid));
-        append_png_chunk(
-            &png, fourcc('c', 'a', 'B', 'X'),
-            std::span<const std::byte>(jumb_box.data() + static_cast<ptrdiff_t>(mid),
-                                       jumb_box.size() - mid));
+        append_png_chunk(&png, fourcc('c', 'a', 'B', 'X'),
+                         std::span<const std::byte>(
+                             jumb_box.data() + static_cast<ptrdiff_t>(mid),
+                             jumb_box.size() - mid));
         append_png_chunk(&png, fourcc('I', 'E', 'N', 'D'),
                          std::span<const std::byte> {});
 
@@ -298,8 +380,9 @@ namespace {
         std::array<uint32_t, 128> payload_parts {};
         SimpleMetaDecodeOptions options;
 
-        const SimpleMetaResult read = simple_meta_read(
-            png, store, blocks, ifds, payload, payload_parts, options);
+        const SimpleMetaResult read = simple_meta_read(png, store, blocks, ifds,
+                                                       payload, payload_parts,
+                                                       options);
         EXPECT_EQ(read.scan.status, ScanStatus::Ok);
         EXPECT_EQ(read.jumbf.status, JumbfDecodeStatus::Ok);
 
@@ -326,9 +409,8 @@ namespace {
             webp.push_back(std::byte { 0x00 });
         }
 
-        const uint32_t riff_size
-            = static_cast<uint32_t>((webp.size() >= 8U) ? (webp.size() - 8U)
-                                                        : 0U);
+        const uint32_t riff_size = static_cast<uint32_t>(
+            (webp.size() >= 8U) ? (webp.size() - 8U) : 0U);
         webp[4] = std::byte { static_cast<uint8_t>((riff_size >> 0) & 0xFFU) };
         webp[5] = std::byte { static_cast<uint8_t>((riff_size >> 8) & 0xFFU) };
         webp[6] = std::byte { static_cast<uint8_t>((riff_size >> 16) & 0xFFU) };
@@ -341,8 +423,9 @@ namespace {
         std::array<uint32_t, 128> payload_parts {};
         SimpleMetaDecodeOptions options;
 
-        const SimpleMetaResult read = simple_meta_read(
-            webp, store, blocks, ifds, payload, payload_parts, options);
+        const SimpleMetaResult read = simple_meta_read(webp, store, blocks,
+                                                       ifds, payload,
+                                                       payload_parts, options);
         EXPECT_EQ(read.scan.status, ScanStatus::Ok);
         EXPECT_EQ(read.jumbf.status, JumbfDecodeStatus::Ok);
 
@@ -372,16 +455,14 @@ namespace {
 
         append_bytes(&webp, "C2PA");
         append_u32le(&webp, static_cast<uint32_t>(jumb_box.size() - mid));
-        webp.insert(
-            webp.end(), jumb_box.begin() + static_cast<ptrdiff_t>(mid),
-            jumb_box.end());
+        webp.insert(webp.end(), jumb_box.begin() + static_cast<ptrdiff_t>(mid),
+                    jumb_box.end());
         if (((jumb_box.size() - mid) & 1U) != 0U) {
             webp.push_back(std::byte { 0x00 });
         }
 
-        const uint32_t riff_size
-            = static_cast<uint32_t>((webp.size() >= 8U) ? (webp.size() - 8U)
-                                                        : 0U);
+        const uint32_t riff_size = static_cast<uint32_t>(
+            (webp.size() >= 8U) ? (webp.size() - 8U) : 0U);
         webp[4] = std::byte { static_cast<uint8_t>((riff_size >> 0) & 0xFFU) };
         webp[5] = std::byte { static_cast<uint8_t>((riff_size >> 8) & 0xFFU) };
         webp[6] = std::byte { static_cast<uint8_t>((riff_size >> 16) & 0xFFU) };
@@ -394,14 +475,81 @@ namespace {
         std::array<uint32_t, 128> payload_parts {};
         SimpleMetaDecodeOptions options;
 
-        const SimpleMetaResult read = simple_meta_read(
-            webp, store, blocks, ifds, payload, payload_parts, options);
+        const SimpleMetaResult read = simple_meta_read(webp, store, blocks,
+                                                       ifds, payload,
+                                                       payload_parts, options);
         EXPECT_EQ(read.scan.status, ScanStatus::Ok);
         EXPECT_EQ(read.jumbf.status, JumbfDecodeStatus::Ok);
 
         store.finalize();
         EXPECT_TRUE(store_has_jumbf_field(store, "c2pa.detected"));
         EXPECT_TRUE(store_has_jumbf_cbor_key(store, "box.0.1.cbor.a"));
+    }
+
+    TEST(C2paContainers, BmffMetaC2paItemIntegrated)
+    {
+        const std::array<uint32_t, 3U> brands = {
+            fourcc('h', 'e', 'i', 'c'),
+            fourcc('a', 'v', 'i', 'f'),
+            fourcc('c', 'r', 'x', ' '),
+        };
+
+        for (uint32_t brand : brands) {
+            const std::vector<std::byte> file = make_bmff_meta_jumbf_item_file(
+                brand, fourcc('c', '2', 'p', 'a'), "manifest",
+                std::string_view {});
+
+            MetaStore store;
+            std::array<ContainerBlockRef, 32> blocks {};
+            std::array<ExifIfdRef, 16> ifds {};
+            std::array<std::byte, 8192> payload {};
+            std::array<uint32_t, 128> payload_parts {};
+            SimpleMetaDecodeOptions options;
+
+            const SimpleMetaResult read
+                = simple_meta_read(file, store, blocks, ifds, payload,
+                                   payload_parts, options);
+            EXPECT_EQ(read.scan.status, ScanStatus::Ok);
+            EXPECT_EQ(read.jumbf.status, JumbfDecodeStatus::Ok);
+            EXPECT_GT(read.jumbf.entries_decoded, 0U);
+
+            store.finalize();
+            EXPECT_TRUE(store_has_jumbf_field(store, "c2pa.detected"));
+            EXPECT_TRUE(store_has_jumbf_cbor_key(store, "box.0.1.cbor.a"));
+        }
+    }
+
+    TEST(C2paContainers, BmffMetaMimeC2paJumbfIntegrated)
+    {
+        const std::array<uint32_t, 3U> brands = {
+            fourcc('h', 'e', 'i', 'c'),
+            fourcc('a', 'v', 'i', 'f'),
+            fourcc('c', 'r', 'x', ' '),
+        };
+
+        for (uint32_t brand : brands) {
+            const std::vector<std::byte> file = make_bmff_meta_jumbf_item_file(
+                brand, fourcc('m', 'i', 'm', 'e'), "manifest",
+                "Application/C2PA+JUMBF; charset=UTF-8");
+
+            MetaStore store;
+            std::array<ContainerBlockRef, 32> blocks {};
+            std::array<ExifIfdRef, 16> ifds {};
+            std::array<std::byte, 8192> payload {};
+            std::array<uint32_t, 128> payload_parts {};
+            SimpleMetaDecodeOptions options;
+
+            const SimpleMetaResult read
+                = simple_meta_read(file, store, blocks, ifds, payload,
+                                   payload_parts, options);
+            EXPECT_EQ(read.scan.status, ScanStatus::Ok);
+            EXPECT_EQ(read.jumbf.status, JumbfDecodeStatus::Ok);
+            EXPECT_GT(read.jumbf.entries_decoded, 0U);
+
+            store.finalize();
+            EXPECT_TRUE(store_has_jumbf_field(store, "c2pa.detected"));
+            EXPECT_TRUE(store_has_jumbf_cbor_key(store, "box.0.1.cbor.a"));
+        }
     }
 
 
@@ -415,13 +563,14 @@ namespace {
         std::vector<uint8_t> out(max_out);
         size_t out_size = out.size();
 
-        const int quality = 4;
-        const int lgwin   = 22;
+        const int quality            = 4;
+        const int lgwin              = 22;
         const BrotliEncoderMode mode = BROTLI_MODE_GENERIC;
 
         const auto* in_u8 = reinterpret_cast<const uint8_t*>(input.data());
-        const bool ok = BrotliEncoderCompress(
-            quality, lgwin, mode, input.size(), in_u8, &out_size, out.data());
+        const bool ok     = BrotliEncoderCompress(quality, lgwin, mode,
+                                                  input.size(), in_u8, &out_size,
+                                                  out.data());
         if (!ok) {
             return {};
         }
@@ -461,9 +610,9 @@ namespace {
         std::array<uint32_t, 128> payload_parts {};
         SimpleMetaDecodeOptions options;
 
-        const SimpleMetaResult read
-            = simple_meta_read(jxl, store, blocks, ifds, payload,
-                               payload_parts, options);
+        const SimpleMetaResult read = simple_meta_read(jxl, store, blocks, ifds,
+                                                       payload, payload_parts,
+                                                       options);
         EXPECT_EQ(read.scan.status, ScanStatus::Ok);
         EXPECT_EQ(read.jumbf.status, JumbfDecodeStatus::Ok);
 
@@ -482,7 +631,7 @@ namespace {
 #endif
 
 
-#if defined(OPENMETA_HAS_BROTLI) && OPENMETA_HAS_BROTLI \
+#if defined(OPENMETA_HAS_BROTLI) && OPENMETA_HAS_BROTLI                    \
     && defined(OPENMETA_HAS_BROTLI_ENCODER) && OPENMETA_HAS_BROTLI_ENCODER \
     && defined(OPENMETA_HAS_EXPAT) && OPENMETA_HAS_EXPAT
 
@@ -519,9 +668,9 @@ namespace {
         std::array<uint32_t, 128> payload_parts {};
         SimpleMetaDecodeOptions options;
 
-        const SimpleMetaResult read
-            = simple_meta_read(jxl, store, blocks, ifds, payload,
-                               payload_parts, options);
+        const SimpleMetaResult read = simple_meta_read(jxl, store, blocks, ifds,
+                                                       payload, payload_parts,
+                                                       options);
         EXPECT_EQ(read.scan.status, ScanStatus::Ok);
         EXPECT_EQ(read.xmp.status, XmpDecodeStatus::Ok);
         EXPECT_GT(read.xmp.entries_decoded, 0U);

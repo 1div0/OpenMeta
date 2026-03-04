@@ -64,6 +64,11 @@ def main(argv: list[str]) -> int:
         default="auto",
         help="verification backend preference",
     )
+    ap.add_argument(
+        "--c2pa-verify-require-resolved-references",
+        action="store_true",
+        help="fail C2PA verify when explicit references are unresolved or ambiguous",
+    )
     ap.add_argument("--no-pointer-tags", action="store_true", help="do not store pointer tags")
     ap.add_argument("--makernotes", action="store_true", help="attempt MakerNote decode (best-effort)")
     ap.add_argument("--no-decompress", action="store_true", help="do not decompress payloads")
@@ -135,6 +140,9 @@ def main(argv: list[str]) -> int:
             include_xmp_sidecar=bool(args.xmp_sidecar),
             verify_c2pa=bool(args.c2pa_verify),
             verify_backend=backend_map[args.c2pa_verify_backend],
+            verify_require_resolved_references=bool(
+                args.c2pa_verify_require_resolved_references
+            ),
             max_file_bytes=int(args.max_file_bytes),
         )
 
@@ -167,7 +175,8 @@ def main(argv: list[str]) -> int:
         verify_backend = backend_name_map.get(doc.jumbf_verify_backend, "unknown")
         print(
             f"wrote={out_path} format={args.format} bytes={len(data)} "
-            f"entries={res.entries} c2pa_verify={verify_status} c2pa_backend={verify_backend}"
+            f"entries={res.entries} c2pa_verify={verify_status} c2pa_backend={verify_backend} "
+            f"c2pa_require_resolved_refs={'on' if args.c2pa_verify_require_resolved_references else 'off'}"
         )
 
     return rc
