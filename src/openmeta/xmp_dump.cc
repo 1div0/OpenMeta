@@ -34,6 +34,10 @@ namespace {
         = "http://ns.adobe.com/exif/1.0/";
     static constexpr std::string_view kXmpNsDc
         = "http://purl.org/dc/elements/1.1/";
+    static constexpr std::string_view kXmpNsPhotoshop
+        = "http://ns.adobe.com/photoshop/1.0/";
+    static constexpr std::string_view kXmpNsIptc4xmpCore
+        = "http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/";
 
     static constexpr const char* kIndent1 = "  ";
     static constexpr const char* kIndent2 = "    ";
@@ -1268,6 +1272,14 @@ namespace {
             *out_prefix = "dc";
             return true;
         }
+        if (ns == kXmpNsPhotoshop) {
+            *out_prefix = "photoshop";
+            return true;
+        }
+        if (ns == kXmpNsIptc4xmpCore) {
+            *out_prefix = "Iptc4xmpCore";
+            return true;
+        }
         return false;
     }
 
@@ -1769,9 +1781,12 @@ namespace {
             case 0x0103U:  // Compression
                 switch (value) {
                 case 1U: return "Uncompressed";
+                case 4U: return "T6/Group 4 Fax";
                 case 6U: return "JPEG (old-style)";
                 case 7U: return "JPEG";
                 case 8U: return "Adobe Deflate";
+                case 9U: return "JBIG B&W";
+                case 32770U: return "Samsung SRW Compressed";
                 case 32773U: return "PackBits";
                 default: return {};
                 }
@@ -1878,11 +1893,111 @@ namespace {
                 case 3U: return "Distant";
                 default: return {};
                 }
+            case 0xA001U:  // ColorSpace
+                switch (value) {
+                case 1U: return "sRGB";
+                case 2U: return "Adobe RGB";
+                case 0xFFFFU: return "Uncalibrated";
+                default: return {};
+                }
+            case 0xA210U:  // FocalPlaneResolutionUnit
+                switch (value) {
+                case 2U: return "inches";
+                case 3U: return "cm";
+                case 4U: return "mm";
+                case 5U: return "um";
+                default: return {};
+                }
+            case 0xA300U:  // FileSource
+                switch (value) {
+                case 3U: return "Digital Camera";
+                default: return {};
+                }
+            case 0x001EU:  // GPSDifferential
+                switch (value) {
+                case 0U: return "No Correction";
+                case 1U: return "Differential Corrected";
+                default: return {};
+                }
             default: return {};
             }
         }
 
         return {};
+    }
+
+    static bool first_ref_char(std::string_view text, std::string_view allowed,
+                               char* out_ref) noexcept;
+
+    static bool scalar_text_value(const ByteArena& arena, const MetaValue& v,
+                                  std::string_view* out_text) noexcept
+    {
+        if (!out_text) {
+            return false;
+        }
+        *out_text = {};
+        if (v.kind == MetaValueKind::Text) {
+            *out_text = arena_string(arena, v.data.span);
+            return true;
+        }
+        if (v.kind == MetaValueKind::Bytes) {
+            const std::span<const std::byte> raw = arena.span(v.data.span);
+            if (!bytes_are_ascii_text(raw)) {
+                return false;
+            }
+            *out_text
+                = std::string_view(reinterpret_cast<const char*>(raw.data()),
+                                   raw.size());
+            return true;
+        }
+        return false;
+    }
+
+    static std::string_view
+    portable_gps_ref_text_override(const ByteArena& arena, uint16_t tag,
+                                   const MetaValue& v) noexcept
+    {
+        std::string_view text;
+        if (!scalar_text_value(arena, v, &text)) {
+            return {};
+        }
+
+        char c = '\0';
+        switch (tag) {
+        case 0x0009U:  // GPSStatus
+            if (first_ref_char(text, "AV", &c)) {
+                return (c == 'A') ? "Measurement Active" : "Measurement Void";
+            }
+            return {};
+        case 0x000CU:  // GPSSpeedRef
+            if (first_ref_char(text, "KMN", &c)) {
+                switch (c) {
+                case 'K': return "km/h";
+                case 'M': return "mph";
+                case 'N': return "knots";
+                default: return {};
+                }
+            }
+            return {};
+        case 0x000EU:  // GPSTrackRef
+        case 0x0010U:  // GPSImgDirectionRef
+        case 0x0017U:  // GPSDestBearingRef
+            if (first_ref_char(text, "TM", &c)) {
+                return (c == 'T') ? "True North" : "Magnetic North";
+            }
+            return {};
+        case 0x0019U:  // GPSDestDistanceRef
+            if (first_ref_char(text, "KMN", &c)) {
+                switch (c) {
+                case 'K': return "Kilometers";
+                case 'M': return "Miles";
+                case 'N': return "Knots";
+                default: return {};
+                }
+            }
+            return {};
+        default: return {};
+        }
     }
 
     static bool scalar_urational_value(const MetaValue& v,
@@ -1999,7 +2114,37 @@ namespace {
         return false;
     }
 
+    static bool has_invalid_srational_value(const ByteArena& arena,
+                                            const MetaValue& v) noexcept
+    {
+        if (v.kind == MetaValueKind::Scalar
+            && v.elem_type == MetaElementType::SRational) {
+            return v.data.sr.denom == 0;
+        }
+
+        if (v.kind != MetaValueKind::Array
+            || v.elem_type != MetaElementType::SRational) {
+            return false;
+        }
+
+        const std::span<const std::byte> raw = arena.span(v.data.span);
+        const uint32_t count                 = safe_array_count(arena, v);
+        for (uint32_t i = 0U; i < count; ++i) {
+            const size_t off = static_cast<size_t>(i) * sizeof(SRational);
+            if (off + sizeof(SRational) > raw.size()) {
+                break;
+            }
+            SRational r {};
+            std::memcpy(&r, raw.data() + off, sizeof(r));
+            if (r.denom == 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     static bool urational_to_double(const URational& r, double* out) noexcept;
+    static bool srational_to_double(const SRational& r, double* out) noexcept;
 
     static bool parse_gps_date_stamp(std::string_view text, uint32_t* out_year,
                                      uint32_t* out_month,
@@ -2167,38 +2312,72 @@ namespace {
         return false;
     }
 
-    static bool exif_gps_coord_text(const ByteArena& arena,
-                                    std::span<const Entry> entries,
-                                    std::string_view ifd, const MetaValue& v,
-                                    uint16_t ref_tag, bool is_latitude,
-                                    std::string* out_text) noexcept
+    static bool read_rational_triplet_as_f64(const ByteArena& arena,
+                                             const MetaValue& v, double* out0,
+                                             double* out1,
+                                             double* out2) noexcept
     {
-        if (!out_text || v.kind != MetaValueKind::Array
-            || v.elem_type != MetaElementType::URational) {
+        if (!out0 || !out1 || !out2 || v.kind != MetaValueKind::Array) {
             return false;
         }
+
         const uint32_t count = safe_array_count(arena, v);
         if (count < 3U) {
             return false;
         }
 
         const std::span<const std::byte> raw = arena.span(v.data.span);
-        if (raw.size() < 3U * sizeof(URational)) {
-            return false;
+        if (v.elem_type == MetaElementType::URational) {
+            if (raw.size() < 3U * sizeof(URational)) {
+                return false;
+            }
+            URational r0 {};
+            URational r1 {};
+            URational r2 {};
+            std::memcpy(&r0, raw.data() + 0U * sizeof(URational), sizeof(r0));
+            std::memcpy(&r1, raw.data() + 1U * sizeof(URational), sizeof(r1));
+            std::memcpy(&r2, raw.data() + 2U * sizeof(URational), sizeof(r2));
+            if (!urational_to_double(r0, out0) || !urational_to_double(r1, out1)
+                || !urational_to_double(r2, out2)) {
+                return false;
+            }
+            return true;
         }
 
-        URational r0 {};
-        URational r1 {};
-        URational r2 {};
-        std::memcpy(&r0, raw.data() + 0U * sizeof(URational), sizeof(r0));
-        std::memcpy(&r1, raw.data() + 1U * sizeof(URational), sizeof(r1));
-        std::memcpy(&r2, raw.data() + 2U * sizeof(URational), sizeof(r2));
+        if (v.elem_type == MetaElementType::SRational) {
+            if (raw.size() < 3U * sizeof(SRational)) {
+                return false;
+            }
+            SRational r0 {};
+            SRational r1 {};
+            SRational r2 {};
+            std::memcpy(&r0, raw.data() + 0U * sizeof(SRational), sizeof(r0));
+            std::memcpy(&r1, raw.data() + 1U * sizeof(SRational), sizeof(r1));
+            std::memcpy(&r2, raw.data() + 2U * sizeof(SRational), sizeof(r2));
+            if (!srational_to_double(r0, out0) || !srational_to_double(r1, out1)
+                || !srational_to_double(r2, out2)) {
+                return false;
+            }
+            return true;
+        }
+
+        return false;
+    }
+
+    static bool exif_gps_coord_text(const ByteArena& arena,
+                                    std::span<const Entry> entries,
+                                    std::string_view ifd, const MetaValue& v,
+                                    uint16_t ref_tag, bool is_latitude,
+                                    std::string* out_text) noexcept
+    {
+        if (!out_text) {
+            return false;
+        }
 
         double deg = 0.0;
         double min = 0.0;
         double sec = 0.0;
-        if (!urational_to_double(r0, &deg) || !urational_to_double(r1, &min)
-            || !urational_to_double(r2, &sec)) {
+        if (!read_rational_triplet_as_f64(arena, v, &deg, &min, &sec)) {
             return false;
         }
         if (!std::isfinite(deg) || !std::isfinite(min) || !std::isfinite(sec)
@@ -2248,33 +2427,15 @@ namespace {
                                          const MetaValue& v,
                                          std::string* out_text) noexcept
     {
-        if (!out_text || v.kind != MetaValueKind::Array
-            || v.elem_type != MetaElementType::URational) {
+        if (!out_text) {
             return false;
         }
-        const uint32_t count = safe_array_count(arena, v);
-        if (count < 3U) {
-            return false;
-        }
-
-        const std::span<const std::byte> raw = arena.span(v.data.span);
-        if (raw.size() < 3U * sizeof(URational)) {
-            return false;
-        }
-
-        URational r0 {};
-        URational r1 {};
-        URational r2 {};
-        std::memcpy(&r0, raw.data() + 0U * sizeof(URational), sizeof(r0));
-        std::memcpy(&r1, raw.data() + 1U * sizeof(URational), sizeof(r1));
-        std::memcpy(&r2, raw.data() + 2U * sizeof(URational), sizeof(r2));
 
         double hours   = 0.0;
         double minutes = 0.0;
         double seconds = 0.0;
-        if (!urational_to_double(r0, &hours)
-            || !urational_to_double(r1, &minutes)
-            || !urational_to_double(r2, &seconds)) {
+        if (!read_rational_triplet_as_f64(arena, v, &hours, &minutes,
+                                          &seconds)) {
             return false;
         }
         if (!std::isfinite(hours) || !std::isfinite(minutes)
@@ -2442,6 +2603,12 @@ namespace {
             return false;
         }
 
+        const std::string_view gps_ref_text
+            = portable_gps_ref_text_override(arena, tag, v);
+        if (!gps_ref_text.empty()) {
+            return emit_portable_property_text(w, prefix, name, gps_ref_text);
+        }
+
         if (tag == 0xA432U) {  // LensSpecification
             return emit_exif_lens_specification_decimal_seq(w, prefix, name,
                                                             arena, v);
@@ -2454,6 +2621,8 @@ namespace {
                                     tag == 0x0002U, &gps_coord)) {
                 return emit_portable_property_text(w, prefix, name, gps_coord);
             }
+            // Skip malformed/ambiguous GPS coordinates in portable output.
+            return true;
         }
 
         if (tag == 0x0007U) {  // GPSTimeStamp
@@ -2482,12 +2651,16 @@ namespace {
         SRational sr {};
         char buf[96];
 
-        if (tag == 0x920AU && scalar_urational_value(v, &ur)) {  // FocalLength
+        if (tag == 0x920AU) {  // FocalLength
+            if (!first_valid_urational_value(arena, v, &ur)) {
+                return true;
+            }
             double d = 0.0;
             if (urational_to_double(ur, &d)) {
                 std::snprintf(buf, sizeof(buf), "%.1f mm", d);
                 return emit_portable_property_text(w, prefix, name, buf);
             }
+            return true;
         }
         if (tag == 0x829DU) {  // FNumber
             if (!first_valid_urational_value(arena, v, &ur)) {
@@ -2553,6 +2726,28 @@ namespace {
             }
             return true;
         }
+        if (tag == 0x9203U) {  // BrightnessValue
+            if (!first_valid_srational_value(arena, v, &sr)) {
+                return true;
+            }
+            double d = 0.0;
+            if (srational_to_double(sr, &d) && std::isfinite(d)) {
+                std::snprintf(buf, sizeof(buf), "%.15g", d);
+                return emit_portable_property_text(w, prefix, name, buf);
+            }
+            return true;
+        }
+        if (tag == 0xA404U) {  // DigitalZoomRatio
+            if (!first_valid_urational_value(arena, v, &ur)) {
+                return true;
+            }
+            double d = 0.0;
+            if (urational_to_double(ur, &d) && std::isfinite(d)) {
+                std::snprintf(buf, sizeof(buf), "%.15g", d);
+                return emit_portable_property_text(w, prefix, name, buf);
+            }
+            return true;
+        }
         if ((tag == 0xA20EU || tag == 0xA20FU)
             && scalar_urational_value(v, &ur)) {  // FocalPlaneX/YResolution
             double d = 0.0;
@@ -2567,11 +2762,17 @@ namespace {
 
 
     struct PortableIndexedProperty final {
+        enum class Container : uint8_t {
+            Seq,
+            Bag,
+        };
+
         std::string_view prefix;
         std::string_view base;
         uint32_t index         = 0U;
         uint32_t order         = 0U;
         const MetaValue* value = nullptr;
+        Container container    = Container::Seq;
     };
 
     struct PortablePropertyKey final {
@@ -2684,23 +2885,32 @@ namespace {
             return false;
         }
 
+        const uint16_t tag = e.key.data.exif_tag.tag;
+
         if ((ifd == "gpsifd" || ifd.ends_with("_gpsifd"))
-            && has_invalid_urational_value(arena, e.value)) {
+            && (has_invalid_urational_value(arena, e.value)
+                || has_invalid_srational_value(arena, e.value))) {
             return false;
         }
 
-        const std::string_view tag_name
-            = exif_tag_name(ifd, e.key.data.exif_tag.tag);
+        // Portable output should skip malformed rationals for common scalar tags.
+        if ((tag == 0x011AU || tag == 0x011BU || tag == 0xC620U
+             || tag == 0xC793U)
+            && has_invalid_urational_value(arena, e.value)) {
+            return false;
+        }
+        if (tag == 0x9203U && has_invalid_srational_value(arena, e.value)) {
+            return false;
+        }
+
+        const std::string_view tag_name = exif_tag_name(ifd, tag);
         if (tag_name.empty()) {
             return false;
         }
 
         std::string_view portable_tag_name
-            = portable_property_name_for_exif_tag(prefix, ifd,
-                                                  e.key.data.exif_tag.tag,
-                                                  tag_name);
-        if (exiftool_gpsdatetime_alias && prefix == "exif"
-            && e.key.data.exif_tag.tag == 0x0007U
+            = portable_property_name_for_exif_tag(prefix, ifd, tag, tag_name);
+        if (exiftool_gpsdatetime_alias && prefix == "exif" && tag == 0x0007U
             && portable_tag_name == "GPSTimeStamp") {
             portable_tag_name = "GPSDateTime";
         }
@@ -2708,7 +2918,7 @@ namespace {
             return false;
         }
 
-        if (exif_tag_is_nonportable_blob(e.key.data.exif_tag.tag)) {
+        if (exif_tag_is_nonportable_blob(tag)) {
             return false;
         }
 
@@ -2721,8 +2931,7 @@ namespace {
             return false;
         }
 
-        if (emit_portable_exif_tag_property_override(w, prefix, ifd,
-                                                     e.key.data.exif_tag.tag,
+        if (emit_portable_exif_tag_property_override(w, prefix, ifd, tag,
                                                      portable_tag_name, arena,
                                                      entries, e.value)) {
             return true;
@@ -2730,6 +2939,152 @@ namespace {
 
         return emit_portable_property(w, prefix, portable_tag_name, arena,
                                       e.value);
+    }
+
+    static bool map_iptc_dataset_to_portable(
+        uint16_t record, uint16_t dataset, std::string_view* out_prefix,
+        std::string_view* out_name, bool* out_indexed,
+        PortableIndexedProperty::Container* out_container) noexcept
+    {
+        if (!out_prefix || !out_name || !out_indexed || !out_container) {
+            return false;
+        }
+
+        *out_prefix    = {};
+        *out_name      = {};
+        *out_indexed   = false;
+        *out_container = PortableIndexedProperty::Container::Seq;
+
+        if (record != 2U) {
+            return false;
+        }
+
+        switch (dataset) {
+        case 5U:  // ObjectName
+            *out_prefix = "dc";
+            *out_name   = "title";
+            return true;
+        case 25U:  // Keywords
+            *out_prefix    = "dc";
+            *out_name      = "subject";
+            *out_indexed   = true;
+            *out_container = PortableIndexedProperty::Container::Bag;
+            return true;
+        case 80U:  // By-line
+            *out_prefix    = "dc";
+            *out_name      = "creator";
+            *out_indexed   = true;
+            *out_container = PortableIndexedProperty::Container::Seq;
+            return true;
+        case 116U:  // CopyrightNotice
+            *out_prefix = "dc";
+            *out_name   = "rights";
+            return true;
+        case 120U:  // Caption-Abstract
+            *out_prefix = "dc";
+            *out_name   = "description";
+            return true;
+        case 15U:  // Category
+            *out_prefix = "photoshop";
+            *out_name   = "Category";
+            return true;
+        case 20U:  // SupplementalCategories
+            *out_prefix    = "photoshop";
+            *out_name      = "SupplementalCategories";
+            *out_indexed   = true;
+            *out_container = PortableIndexedProperty::Container::Bag;
+            return true;
+        case 40U:  // SpecialInstructions
+            *out_prefix = "photoshop";
+            *out_name   = "Instructions";
+            return true;
+        case 85U:  // By-lineTitle
+            *out_prefix = "photoshop";
+            *out_name   = "AuthorsPosition";
+            return true;
+        case 90U:  // City
+            *out_prefix = "photoshop";
+            *out_name   = "City";
+            return true;
+        case 92U:  // Sub-location
+            *out_prefix = "Iptc4xmpCore";
+            *out_name   = "Location";
+            return true;
+        case 95U:  // Province-State
+            *out_prefix = "photoshop";
+            *out_name   = "State";
+            return true;
+        case 100U:  // Country-PrimaryLocationCode
+            *out_prefix = "Iptc4xmpCore";
+            *out_name   = "CountryCode";
+            return true;
+        case 101U:  // Country-PrimaryLocationName
+            *out_prefix = "photoshop";
+            *out_name   = "Country";
+            return true;
+        case 103U:  // OriginalTransmissionReference
+            *out_prefix = "photoshop";
+            *out_name   = "TransmissionReference";
+            return true;
+        case 105U:  // Headline
+            *out_prefix = "photoshop";
+            *out_name   = "Headline";
+            return true;
+        case 110U:  // Credit
+            *out_prefix = "photoshop";
+            *out_name   = "Credit";
+            return true;
+        case 115U:  // Source
+            *out_prefix = "photoshop";
+            *out_name   = "Source";
+            return true;
+        case 122U:  // Writer-Editor
+            *out_prefix = "photoshop";
+            *out_name   = "CaptionWriter";
+            return true;
+        default: return false;
+        }
+    }
+
+    static bool process_portable_iptc_entry(
+        const ByteArena& arena, const Entry& e, uint32_t order, SpanWriter* w,
+        PortablePropertyKeySet* emitted_keys,
+        std::vector<PortableIndexedProperty>* indexed) noexcept
+    {
+        if (!w || !emitted_keys || !indexed
+            || e.key.kind != MetaKeyKind::IptcDataset) {
+            return false;
+        }
+
+        std::string_view prefix;
+        std::string_view name;
+        bool indexed_property = false;
+        PortableIndexedProperty::Container container
+            = PortableIndexedProperty::Container::Seq;
+        if (!map_iptc_dataset_to_portable(e.key.data.iptc_dataset.record,
+                                          e.key.data.iptc_dataset.dataset,
+                                          &prefix, &name, &indexed_property,
+                                          &container)) {
+            return false;
+        }
+
+        if (indexed_property) {
+            PortableIndexedProperty item;
+            item.prefix    = prefix;
+            item.base      = name;
+            item.index     = order + 1U;
+            item.order     = order;
+            item.value     = &e.value;
+            item.container = container;
+            indexed->push_back(item);
+            return false;
+        }
+
+        if (!add_portable_property_key(emitted_keys, prefix, name)) {
+            return false;
+        }
+
+        return emit_portable_property(w, prefix, name, arena, e.value);
     }
 
     static bool
@@ -2745,11 +3100,15 @@ namespace {
         if (a.index != b.index) {
             return a.index < b.index;
         }
+        if (a.container != b.container) {
+            return static_cast<uint8_t>(a.container)
+                   < static_cast<uint8_t>(b.container);
+        }
         return a.order < b.order;
     }
 
 
-    static bool emit_portable_indexed_property_seq(
+    static bool emit_portable_indexed_property_group(
         SpanWriter* w, std::string_view prefix, std::string_view name,
         const ByteArena& arena,
         std::span<const PortableIndexedProperty> items) noexcept
@@ -2778,7 +3137,10 @@ namespace {
         w->append(name);
         w->append(">\n");
         w->append(kIndent4);
-        w->append("<rdf:Seq>\n");
+        const PortableIndexedProperty::Container container = items[0].container;
+        w->append(container == PortableIndexedProperty::Container::Bag
+                      ? "<rdf:Bag>\n"
+                      : "<rdf:Seq>\n");
 
         for (size_t i = 0; i < items.size(); ++i) {
             if (!items[i].value
@@ -2794,7 +3156,9 @@ namespace {
         }
 
         w->append(kIndent4);
-        w->append("</rdf:Seq>\n");
+        w->append(container == PortableIndexedProperty::Container::Bag
+                      ? "</rdf:Bag>\n"
+                      : "</rdf:Seq>\n");
         w->append(kIndent3);
         w->append("</");
         w->append(prefix);
@@ -2829,7 +3193,8 @@ namespace {
             size_t j = i + 1U;
             while (j < indexed->size()
                    && (*indexed)[j].prefix == (*indexed)[i].prefix
-                   && (*indexed)[j].base == (*indexed)[i].base) {
+                   && (*indexed)[j].base == (*indexed)[i].base
+                   && (*indexed)[j].container == (*indexed)[i].container) {
                 j += 1U;
             }
 
@@ -2839,7 +3204,7 @@ namespace {
                 continue;
             }
 
-            if (emit_portable_indexed_property_seq(
+            if (emit_portable_indexed_property_group(
                     w, (*indexed)[i].prefix, (*indexed)[i].base, arena,
                     std::span<const PortableIndexedProperty>(indexed->data() + i,
                                                              j - i))) {
@@ -2860,11 +3225,13 @@ dump_xmp_portable(const MetaStore& store, std::span<std::byte> out,
     XmpDumpResult r;
     SpanWriter w(out, options.limits.max_output_bytes);
 
-    static constexpr std::array<XmpNsDecl, 4> kDecls = {
+    static constexpr std::array<XmpNsDecl, 6> kDecls = {
         XmpNsDecl { "xmp", kXmpNsXmp },
         XmpNsDecl { "tiff", kXmpNsTiff },
         XmpNsDecl { "exif", kXmpNsExif },
         XmpNsDecl { "dc", kXmpNsDc },
+        XmpNsDecl { "photoshop", kXmpNsPhotoshop },
+        XmpNsDecl { "Iptc4xmpCore", kXmpNsIptc4xmpCore },
     };
     emit_xmp_packet_begin(&w, std::span<const XmpNsDecl>(kDecls.data(),
                                                          kDecls.size()));
@@ -2877,7 +3244,10 @@ dump_xmp_portable(const MetaStore& store, std::span<std::byte> out,
     PortablePropertyKeySet emitted_keys;
     emitted_keys.reserve(256);
 
-    uint32_t emitted = 0;
+    uint32_t emitted    = 0;
+    uint32_t iptc_order = 0U;
+
+    // Pass 1: EXIF.
     for (size_t i = 0; i < es.size(); ++i) {
         if (options.limits.max_entries != 0U
             && emitted >= options.limits.max_entries) {
@@ -2901,6 +3271,20 @@ dump_xmp_portable(const MetaStore& store, std::span<std::byte> out,
             }
             continue;
         }
+    }
+
+    // Pass 2: existing XMP.
+    for (size_t i = 0; i < es.size(); ++i) {
+        if (options.limits.max_entries != 0U
+            && emitted >= options.limits.max_entries) {
+            w.limit_hit = true;
+            break;
+        }
+
+        const Entry& e = es[i];
+        if (any(e.flags, EntryFlags::Deleted)) {
+            continue;
+        }
 
         if (e.key.kind == MetaKeyKind::XmpProperty
             && options.include_existing_xmp) {
@@ -2912,6 +3296,30 @@ dump_xmp_portable(const MetaStore& store, std::span<std::byte> out,
             }
             continue;
         }
+    }
+
+    // Pass 3: IPTC-IIM mappings (dc/photoshop/Iptc4xmpCore), preserving source
+    // order.
+    for (size_t i = 0; i < es.size(); ++i) {
+        if (options.limits.max_entries != 0U
+            && emitted >= options.limits.max_entries) {
+            w.limit_hit = true;
+            break;
+        }
+
+        const Entry& e = es[i];
+        if (any(e.flags, EntryFlags::Deleted)) {
+            continue;
+        }
+
+        if (e.key.kind != MetaKeyKind::IptcDataset) {
+            continue;
+        }
+        if (process_portable_iptc_entry(arena, e, iptc_order, &w, &emitted_keys,
+                                        &indexed)) {
+            emitted += 1U;
+        }
+        iptc_order += 1U;
     }
 
     emit_portable_indexed_groups(&w, arena, &indexed, &emitted_keys,

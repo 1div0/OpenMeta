@@ -97,6 +97,9 @@ Portable sidecar note:
   only when `GPSDateStamp` is available; otherwise it is skipped.
 - Compatibility mode `--portable-exiftool-gpsdatetime-alias` emits
   `exif:GPSDateTime` instead of `exif:GPSTimeStamp`.
+- Portable IPTC-IIM mapping covers `dc:*` plus selected `photoshop:*` and
+  `Iptc4xmpCore:*` fields (for example city/state/country/headline/credit and
+  location/country-code).
 
 `thumdump` is preview-only and optimized for batch preview extraction:
 
@@ -204,8 +207,9 @@ This policy surface is intentionally marked draft and may be refined.
       and indexed array-element reference keys such as `claimRef[0]`), then
       including plural reference-key variants (`references`, `refs`,
       `claim_references`) plus hyphenated variants (`claim-reference`,
-      `claim-uri`, `claim-ref-index`), plus query-style index tokens in URI
-      text (`claim-index=...`, `claim_ref=...`) and percent-encoded URI/label
+      `claim-uri`, `claim-ref-index`), nested URI-like map fields such as
+      `references[].href`/`references[].link`, query-style index tokens in URI
+      text (`claim-index=...`, `claim_ref=...`), and percent-encoded URI/label
       forms where present. Candidate ordering is deterministic with sorted
       index-like references resolved before sorted label-based references, then
       best-effort fallback probing via claim bytes, single-claim `claims[*]`
@@ -213,8 +217,9 @@ This policy surface is intentionally marked draft and may be refined.
       candidates. Current tests include conflicting mixed references and
       multi-claim/multi-signature cross-manifest precedence cases, nested
       `references[]` map forms, duplicate overlapping explicit references,
-      unresolved explicit-reference no-fallback behavior, and percent-encoded
-      query-index URI variants.
+      unresolved explicit-reference no-fallback behavior, conflict/consistent
+      `index + claim_reference + href` nested-map ambiguity/consistency cases, and
+      percent-encoded query-index URI variants.
     - draft profile checks (`profile_status`/`profile_reason`) from decoded
       `c2pa.semantic.*` shape fields (manifest/claim/signature linkage);
     - draft certificate trust checks (`chain_status`/`chain_reason`) when
@@ -322,6 +327,22 @@ ASAN_OPTIONS=detect_leaks=0 ./build-fuzz/openmeta_fuzz_container_scan \
   /path/to/seed-corpus-a /path/to/seed-corpus-b \
   -runs=1000
 ```
+
+Public seed corpus is available in-tree:
+
+```bash
+mkdir -p build-fuzz/_corpus_out
+ASAN_OPTIONS=detect_leaks=0 ./build-fuzz/openmeta_fuzz_container_scan \
+  build-fuzz/_corpus_out \
+  tests/fuzz/corpus/container_scan \
+  -runs=1000
+```
+
+The `container_scan` seed set includes BMFF `iloc` method-2 edge cases:
+- valid `iref` v1 (`32-bit` item-id) resolution,
+- missing `iref` mapping,
+- out-of-range explicit `extent_index`,
+- `idx_size=0` extent/reference mismatch fallback behavior.
 
 ## FuzzTest
 

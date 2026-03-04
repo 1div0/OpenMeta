@@ -43,6 +43,20 @@ corpus, use an empty output directory first:
      /path/to/seed-corpus-a /path/to/seed-corpus-b \
      -runs=1000
 
+Public in-tree seed corpus:
+
+.. code-block:: bash
+
+   mkdir -p build-fuzz/_corpus_out
+   ASAN_OPTIONS=detect_leaks=0 ./build-fuzz/openmeta_fuzz_container_scan \
+     build-fuzz/_corpus_out \
+     tests/fuzz/corpus/container_scan \
+     -runs=1000
+
+The ``container_scan`` seed set includes BMFF ``iloc`` method-2 relation
+cases (valid v1 ``iref`` mapping, missing mapping, out-of-range
+``extent_index``, and ``idx_size=0`` reference mismatch).
+
 FuzzTest targets (when available):
 
 .. code-block:: bash

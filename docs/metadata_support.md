@@ -23,6 +23,9 @@ Status labels used below:
 - MakerNote coverage is tracked by baseline gates with broad vendor support;
   unknown/unsupported vendor tags are preserved as raw metadata for lossless
   workflows.
+- BMFF HEIF/AVIF/CR3 edge-path tests include `iloc` construction-method-2
+  relation variants (valid `iref` v1 mapping plus missing/out-of-range/mismatch
+  safe-skip behavior).
 
 ## Container and Block Coverage
 
@@ -122,11 +125,12 @@ Status labels used below:
       | Tool | Purpose | Current state | | -- -| -- -| -- -| | `metaread`
       | Human - readable metadata listing | Shows decoded entries;
   uses tag - name mapping where available; unknown names are shown as `-`. Unsafe/corrupted text is rendered as `<CORRUPTED_TEXT:...>` placeholders in safe output paths. |
-| `metavalidate` | Metadata validation | Reports decode-status warnings/errors and DNG/CCM validation issues (for example `invalid_illuminant_code`, `white_xy_out_of_range`) with machine-readable issue codes (`category/code`);
+| `metavalidate` | Metadata validation | Reports decode-status warnings/errors and DNG/CCM validation issues (for example `invalid_illuminant_code`, `white_xy_out_of_range`, companion-tag and channel-count mismatches) with machine-readable issue codes (`category/code`);
   supports strict mode(`--warnings - as - errors`).| | `metadump`
       | Sidecar and preview dump tool
       | `lossless` mode preserves broad key - space data;
-  `portable` mode targets interoperable XMP fields. `GPSTimeStamp` is exported
+  `portable` mode targets interoperable XMP fields (including selected IPTC-IIM
+  mappings to `dc:*`, `photoshop:*`, and `Iptc4xmpCore:*`). `GPSTimeStamp` is exported
               as date
           - time text only when `GPSDateStamp` is available
                 .Optional compatibility mode emits `GPSDateTime` alias.
@@ -157,11 +161,15 @@ Status labels used below:
   binding and policy validation are still not implemented.
   Detached COSE payloads (`payload=null`) now prefer explicit
   reference-linked candidates first (for example `claims[n]`, claim-label
-  references, scalar index references, and indexed array-element references
-  such as `claimRef[0]`), then fall back to best-effort probing from claim
+  references, scalar index references, indexed array-element references
+  such as `claimRef[0]`, and nested URI-like fields such as
+  `references[].href`/`references[].link`), then fall back to best-effort probing from claim
   bytes, single-claim `claims[*]` arrays, nearby/nested claim JUMBF boxes,
   and cross-manifest claim candidates during verification. Current draft tests
   cover conflicting mixed-reference cases and multi-claim/multi-signature
-  cross-manifest precedence behavior.
+  cross-manifest precedence behavior. Explicit-reference parsing is now scope-
+  strict for signature prefixes (avoids `signatures[1]` vs `signatures[10]`
+  collisions), and draft verify profile checks include basic semantic counter
+  consistency invariants.
 
 This page is intentionally marked draft and should be updated as support grows.

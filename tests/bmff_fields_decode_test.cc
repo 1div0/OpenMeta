@@ -434,6 +434,140 @@ TEST(BmffDerivedFieldsDecode, EmitsIrefEdgesForVersion1ItemIds)
     EXPECT_EQ(primary_auxl[1], 0x10003U);
 }
 
+TEST(BmffDerivedFieldsDecode, EmitsNonPrimaryIrefTypedEdgesForVersion1ItemIds)
+{
+    std::vector<std::byte> file;
+
+    {
+        std::vector<std::byte> ftyp_payload;
+        append_fourcc(&ftyp_payload, fourcc('h', 'e', 'i', 'c'));
+        append_u32be(&ftyp_payload, 0);
+        append_fourcc(&ftyp_payload, fourcc('m', 'i', 'f', '1'));
+        append_bmff_box(&file, fourcc('f', 't', 'y', 'p'), ftyp_payload);
+    }
+
+    {
+        const uint32_t kPrimary  = 0x10001U;
+        const uint32_t kFromDimg = 0x20002U;
+        const uint32_t kFromThmb = 0x20003U;
+        const uint32_t kFromCdsc = 0x20004U;
+        const uint32_t kToDimgA  = 0x30005U;
+        const uint32_t kToDimgB  = 0x30006U;
+        const uint32_t kToThmb   = 0x30007U;
+        const uint32_t kToCdsc   = 0x30008U;
+
+        std::vector<std::byte> pitm_payload;
+        append_fullbox_header(&pitm_payload, 1);
+        append_u32be(&pitm_payload, kPrimary);
+        std::vector<std::byte> pitm_box;
+        append_bmff_box(&pitm_box, fourcc('p', 'i', 't', 'm'), pitm_payload);
+
+        std::vector<std::byte> dimg_payload;
+        append_u32be(&dimg_payload, kFromDimg);
+        append_u16be(&dimg_payload, 2);
+        append_u32be(&dimg_payload, kToDimgA);
+        append_u32be(&dimg_payload, kToDimgB);
+        std::vector<std::byte> dimg_box;
+        append_bmff_box(&dimg_box, fourcc('d', 'i', 'm', 'g'), dimg_payload);
+
+        std::vector<std::byte> thmb_payload;
+        append_u32be(&thmb_payload, kFromThmb);
+        append_u16be(&thmb_payload, 1);
+        append_u32be(&thmb_payload, kToThmb);
+        std::vector<std::byte> thmb_box;
+        append_bmff_box(&thmb_box, fourcc('t', 'h', 'm', 'b'), thmb_payload);
+
+        std::vector<std::byte> cdsc_payload;
+        append_u32be(&cdsc_payload, kFromCdsc);
+        append_u16be(&cdsc_payload, 1);
+        append_u32be(&cdsc_payload, kToCdsc);
+        std::vector<std::byte> cdsc_box;
+        append_bmff_box(&cdsc_box, fourcc('c', 'd', 's', 'c'), cdsc_payload);
+
+        std::vector<std::byte> iref_payload;
+        append_fullbox_header(&iref_payload, 1);
+        iref_payload.insert(iref_payload.end(), dimg_box.begin(),
+                            dimg_box.end());
+        iref_payload.insert(iref_payload.end(), thmb_box.begin(),
+                            thmb_box.end());
+        iref_payload.insert(iref_payload.end(), cdsc_box.begin(),
+                            cdsc_box.end());
+        std::vector<std::byte> iref_box;
+        append_bmff_box(&iref_box, fourcc('i', 'r', 'e', 'f'), iref_payload);
+
+        std::vector<std::byte> meta_payload;
+        append_fullbox_header(&meta_payload, 0);
+        meta_payload.insert(meta_payload.end(), pitm_box.begin(),
+                            pitm_box.end());
+        meta_payload.insert(meta_payload.end(), iref_box.begin(),
+                            iref_box.end());
+        append_bmff_box(&file, fourcc('m', 'e', 't', 'a'), meta_payload);
+    }
+
+    MetaStore store;
+    std::array<ContainerBlockRef, 16> blocks {};
+    std::array<ExifIfdRef, 8> ifds {};
+    std::array<std::byte, 1024> payload {};
+    std::array<uint32_t, 32> payload_scratch {};
+    ExifDecodeOptions exif_opts;
+    PayloadOptions payload_opts;
+
+    (void)simple_meta_read(file, store, blocks, ifds, payload, payload_scratch,
+                           exif_opts, payload_opts);
+    store.finalize();
+
+    const std::vector<uint32_t> edge_count
+        = collect_u32_values(store, "iref.edge_count");
+    ASSERT_EQ(edge_count.size(), 1U);
+    EXPECT_EQ(edge_count[0], 4U);
+
+    const std::vector<uint32_t> dimg_count
+        = collect_u32_values(store, "iref.dimg.edge_count");
+    ASSERT_EQ(dimg_count.size(), 1U);
+    EXPECT_EQ(dimg_count[0], 2U);
+    const std::vector<uint32_t> thmb_count
+        = collect_u32_values(store, "iref.thmb.edge_count");
+    ASSERT_EQ(thmb_count.size(), 1U);
+    EXPECT_EQ(thmb_count[0], 1U);
+    const std::vector<uint32_t> cdsc_count
+        = collect_u32_values(store, "iref.cdsc.edge_count");
+    ASSERT_EQ(cdsc_count.size(), 1U);
+    EXPECT_EQ(cdsc_count[0], 1U);
+
+    const std::vector<uint32_t> dimg_from
+        = collect_u32_values(store, "iref.dimg.from_item_id");
+    ASSERT_EQ(dimg_from.size(), 2U);
+    EXPECT_EQ(dimg_from[0], 0x20002U);
+    EXPECT_EQ(dimg_from[1], 0x20002U);
+    const std::vector<uint32_t> dimg_to
+        = collect_u32_values(store, "iref.dimg.to_item_id");
+    ASSERT_EQ(dimg_to.size(), 2U);
+    EXPECT_EQ(dimg_to[0], 0x30005U);
+    EXPECT_EQ(dimg_to[1], 0x30006U);
+
+    const std::vector<uint32_t> thmb_from
+        = collect_u32_values(store, "iref.thmb.from_item_id");
+    ASSERT_EQ(thmb_from.size(), 1U);
+    EXPECT_EQ(thmb_from[0], 0x20003U);
+    const std::vector<uint32_t> thmb_to
+        = collect_u32_values(store, "iref.thmb.to_item_id");
+    ASSERT_EQ(thmb_to.size(), 1U);
+    EXPECT_EQ(thmb_to[0], 0x30007U);
+
+    const std::vector<uint32_t> cdsc_from
+        = collect_u32_values(store, "iref.cdsc.from_item_id");
+    ASSERT_EQ(cdsc_from.size(), 1U);
+    EXPECT_EQ(cdsc_from[0], 0x20004U);
+    const std::vector<uint32_t> cdsc_to
+        = collect_u32_values(store, "iref.cdsc.to_item_id");
+    ASSERT_EQ(cdsc_to.size(), 1U);
+    EXPECT_EQ(cdsc_to[0], 0x30008U);
+
+    EXPECT_TRUE(collect_u32_values(store, "primary.dimg_item_id").empty());
+    EXPECT_TRUE(collect_u32_values(store, "primary.thmb_item_id").empty());
+    EXPECT_TRUE(collect_u32_values(store, "primary.cdsc_item_id").empty());
+}
+
 TEST(BmffDerivedFieldsDecode, EmitsPrimaryAuxSemanticsFromAuxC)
 {
     // Minimal HEIF-like BMFF:

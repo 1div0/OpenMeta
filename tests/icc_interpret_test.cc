@@ -42,6 +42,17 @@ namespace {
 
 }  // namespace
 
+TEST(IccInterpret, ProvidesExtendedTagNames)
+{
+    EXPECT_EQ(icc_tag_name(make_fourcc('c', 'h', 'r', 'm')), "Chromaticity");
+    EXPECT_EQ(icc_tag_name(make_fourcc('d', 'm', 'n', 'd')), "DeviceMfgDesc");
+    EXPECT_EQ(icc_tag_name(make_fourcc('d', 'm', 'd', 'd')), "DeviceModelDesc");
+    EXPECT_EQ(icc_tag_name(make_fourcc('g', 'a', 'm', 't')), "Gamut");
+    EXPECT_EQ(icc_tag_name(make_fourcc('n', 'c', 'l', '2')), "NamedColor2");
+    EXPECT_EQ(icc_tag_name(make_fourcc('r', 'e', 's', 'p')), "OutputResponse");
+    EXPECT_EQ(icc_tag_name(make_fourcc('t', 'a', 'r', 'g')), "CharTarget");
+}
+
 
 TEST(IccInterpret, DecodesDescText)
 {
@@ -144,6 +155,67 @@ TEST(IccInterpret, DecodesSignatureType)
     EXPECT_EQ(out.type, "sig ");
     EXPECT_EQ(out.text, "scnr");
     EXPECT_TRUE(out.values.empty());
+}
+
+TEST(IccInterpret, DecodesDataTypeAsciiPayload)
+{
+    std::vector<std::byte> tag(17, std::byte { 0x00 });
+    write_u32be(make_fourcc('d', 'a', 't', 'a'), 0, &tag);
+    write_u32be(0U, 8, &tag);  // ascii
+    tag[12] = std::byte { 'h' };
+    tag[13] = std::byte { 'e' };
+    tag[14] = std::byte { 'l' };
+    tag[15] = std::byte { 'l' };
+    tag[16] = std::byte { 'o' };
+
+    IccTagInterpretation out;
+    const IccTagInterpretStatus st
+        = interpret_icc_tag(make_fourcc('c', 'p', 'r', 't'), tag, &out);
+    EXPECT_EQ(st, IccTagInterpretStatus::Ok);
+    EXPECT_EQ(out.type, "data");
+    EXPECT_EQ(out.text, "hello");
+}
+
+TEST(IccInterpret, DecodesDataTypeBinarySummary)
+{
+    std::vector<std::byte> tag(16, std::byte { 0x00 });
+    write_u32be(make_fourcc('d', 'a', 't', 'a'), 0, &tag);
+    write_u32be(1U, 8, &tag);  // binary
+    tag[12] = std::byte { 0x01 };
+    tag[13] = std::byte { 0x02 };
+    tag[14] = std::byte { 0x03 };
+    tag[15] = std::byte { 0x04 };
+
+    IccTagInterpretation out;
+    const IccTagInterpretStatus st
+        = interpret_icc_tag(make_fourcc('c', 'p', 'r', 't'), tag, &out);
+    EXPECT_EQ(st, IccTagInterpretStatus::Ok);
+    EXPECT_EQ(out.type, "data");
+    EXPECT_NE(out.text.find("flags=1"), std::string::npos);
+    EXPECT_NE(out.text.find("bytes=4"), std::string::npos);
+}
+
+TEST(IccInterpret, DecodesNamedColor2Summary)
+{
+    // Header(84) + one color entry (32 + 6 + 2) = 124 bytes
+    std::vector<std::byte> tag(124, std::byte { 0x00 });
+    write_u32be(make_fourcc('n', 'c', 'l', '2'), 0, &tag);
+    write_u32be(1U, 12, &tag);  // named color count
+    write_u32be(1U, 16, &tag);  // device coords per color
+
+    const char* name = "FirstColor";
+    for (size_t i = 0U; name[i] != '\0'; ++i) {
+        tag[84U + i] = std::byte { static_cast<unsigned char>(name[i]) };
+    }
+
+    IccTagInterpretation out;
+    const IccTagInterpretStatus st
+        = interpret_icc_tag(make_fourcc('n', 'c', 'l', '2'), tag, &out);
+    EXPECT_EQ(st, IccTagInterpretStatus::Ok);
+    EXPECT_EQ(out.type, "ncl2");
+    EXPECT_NE(out.text.find("count=1"), std::string::npos);
+    EXPECT_NE(out.text.find("device_coords=1"), std::string::npos);
+    EXPECT_NE(out.text.find("first=\"FirstColor\""), std::string::npos);
 }
 
 TEST(IccInterpret, DecodesDateTimeType)
@@ -308,6 +380,49 @@ TEST(IccInterpret, DecodesUf32Array)
     ASSERT_EQ(out.values.size(), 2U);
     EXPECT_NEAR(out.values[0], 1.5, 1e-9);
     EXPECT_NEAR(out.values[1], 0.25, 1e-9);
+}
+
+TEST(IccInterpret, DecodesUi16Array)
+{
+    std::vector<std::byte> tag(14, std::byte { 0x00 });
+    write_u32be(make_fourcc('u', 'i', '1', '6'), 0, &tag);
+    write_u16be(100U, 8, &tag);
+    write_u16be(200U, 10, &tag);
+    write_u16be(65535U, 12, &tag);
+
+    IccTagInterpretation out;
+    const IccTagInterpretStatus st
+        = interpret_icc_tag(make_fourcc('c', 'h', 'a', 'd'), tag, &out);
+    EXPECT_EQ(st, IccTagInterpretStatus::Ok);
+    EXPECT_EQ(out.type, "ui16");
+    EXPECT_EQ(out.rows, 1U);
+    EXPECT_EQ(out.cols, 3U);
+    ASSERT_EQ(out.values.size(), 3U);
+    EXPECT_EQ(out.values[0], 100.0);
+    EXPECT_EQ(out.values[1], 200.0);
+    EXPECT_EQ(out.values[2], 65535.0);
+}
+
+TEST(IccInterpret, DecodesUi32ArrayWithValueLimit)
+{
+    std::vector<std::byte> tag(20, std::byte { 0x00 });
+    write_u32be(make_fourcc('u', 'i', '3', '2'), 0, &tag);
+    write_u32be(1U, 8, &tag);
+    write_u32be(65536U, 12, &tag);
+    write_u32be(4294967295U, 16, &tag);
+
+    IccTagInterpretation out;
+    IccTagInterpretOptions opts;
+    opts.limits.max_values = 2U;
+    const IccTagInterpretStatus st
+        = interpret_icc_tag(make_fourcc('c', 'h', 'a', 'd'), tag, &out, opts);
+    EXPECT_EQ(st, IccTagInterpretStatus::LimitExceeded);
+    EXPECT_EQ(out.type, "ui32");
+    EXPECT_EQ(out.rows, 1U);
+    EXPECT_EQ(out.cols, 2U);
+    ASSERT_EQ(out.values.size(), 2U);
+    EXPECT_EQ(out.values[0], 1.0);
+    EXPECT_EQ(out.values[1], 65536.0);
 }
 
 TEST(IccInterpret, SummarizesMft1)

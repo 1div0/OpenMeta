@@ -196,6 +196,59 @@ namespace {
         return true;
     }
 
+    static bool append_unsigned_integer_array_values(
+        std::span<const std::byte> bytes, uint32_t item_bytes,
+        uint32_t max_values, std::vector<double>* out, bool* truncated) noexcept
+    {
+        if (!out || item_bytes == 0U || bytes.size() < 8U) {
+            return false;
+        }
+        if (truncated) {
+            *truncated = false;
+        }
+        const uint64_t payload = bytes.size() - 8U;
+        if ((payload % static_cast<uint64_t>(item_bytes)) != 0ULL) {
+            return false;
+        }
+        const uint32_t count = static_cast<uint32_t>(
+            payload / static_cast<uint64_t>(item_bytes));
+        if (count == 0U) {
+            return false;
+        }
+
+        uint32_t limit = count;
+        if (max_values != 0U && limit > max_values) {
+            limit = max_values;
+            if (truncated) {
+                *truncated = true;
+            }
+        }
+        out->reserve(limit);
+        for (uint32_t i = 0U; i < limit; ++i) {
+            const uint64_t off = 8ULL
+                                 + static_cast<uint64_t>(i)
+                                       * static_cast<uint64_t>(item_bytes);
+            if (item_bytes == 2U) {
+                uint16_t v = 0U;
+                if (!read_u16be(bytes, off, &v)) {
+                    return false;
+                }
+                out->push_back(static_cast<double>(v));
+                continue;
+            }
+            if (item_bytes == 4U) {
+                uint32_t v = 0U;
+                if (!read_u32be(bytes, off, &v)) {
+                    return false;
+                }
+                out->push_back(static_cast<double>(v));
+                continue;
+            }
+            return false;
+        }
+        return true;
+    }
+
     static bool checked_mul_u64(uint64_t a, uint64_t b, uint64_t* out) noexcept
     {
         if (!out) {
@@ -993,15 +1046,22 @@ icc_tag_name(uint32_t signature) noexcept
     case fourcc('b', 'T', 'R', 'C'): return "BlueTRC";
     case fourcc('b', 'k', 'p', 't'): return "MediaBlackPoint";
     case fourcc('c', 'h', 'a', 'd'): return "ChromaticAdaptation";
+    case fourcc('c', 'h', 'r', 'm'): return "Chromaticity";
     case fourcc('c', 'p', 'r', 't'): return "Copyright";
     case fourcc('d', 'e', 's', 'c'): return "ProfileDescription";
+    case fourcc('d', 'm', 'd', 'd'): return "DeviceModelDesc";
+    case fourcc('d', 'm', 'n', 'd'): return "DeviceMfgDesc";
+    case fourcc('g', 'a', 'm', 't'): return "Gamut";
     case fourcc('g', 'X', 'Y', 'Z'): return "GreenMatrixColumn";
     case fourcc('g', 'T', 'R', 'C'): return "GreenTRC";
     case fourcc('k', 'T', 'R', 'C'): return "GrayTRC";
     case fourcc('l', 'u', 'm', 'i'): return "Luminance";
     case fourcc('m', 'e', 'a', 's'): return "Measurement";
+    case fourcc('n', 'c', 'l', '2'): return "NamedColor2";
+    case fourcc('r', 'e', 's', 'p'): return "OutputResponse";
     case fourcc('r', 'X', 'Y', 'Z'): return "RedMatrixColumn";
     case fourcc('r', 'T', 'R', 'C'): return "RedTRC";
+    case fourcc('t', 'a', 'r', 'g'): return "CharTarget";
     case fourcc('t', 'e', 'c', 'h'): return "Technology";
     case fourcc('v', 'i', 'e', 'w'): return "ViewingConditions";
     case fourcc('w', 't', 'p', 't'): return "MediaWhitePoint";
@@ -1083,6 +1143,117 @@ interpret_icc_tag(uint32_t signature, std::span<const std::byte> tag_bytes,
             return IccTagInterpretStatus::Malformed;
         }
         fourcc_to_string(sig, &out->text);
+        return IccTagInterpretStatus::Ok;
+    }
+
+    if (type_sig == fourcc('d', 'a', 't', 'a')) {
+        if (tag_bytes.size() < 12U) {
+            return IccTagInterpretStatus::Malformed;
+        }
+        uint32_t flags = 0;
+        if (!read_u32be(tag_bytes, 8U, &flags)) {
+            return IccTagInterpretStatus::Malformed;
+        }
+        const std::span<const std::byte> payload = tag_bytes.subspan(12U);
+        bool truncated                           = false;
+
+        if (flags == 0U) {
+            uint32_t text_len = trim_trailing_nul_bytes(payload);
+            bool printable    = true;
+            for (uint32_t i = 0U; i < text_len; ++i) {
+                const unsigned char c = static_cast<unsigned char>(payload[i]);
+                if (c < 0x20U || c > 0x7EU) {
+                    printable = false;
+                    break;
+                }
+            }
+            if (printable) {
+                if (options.limits.max_text_bytes != 0U
+                    && text_len > options.limits.max_text_bytes) {
+                    text_len  = options.limits.max_text_bytes;
+                    truncated = true;
+                }
+                out->text.assign(reinterpret_cast<const char*>(payload.data()),
+                                 text_len);
+                return truncated ? IccTagInterpretStatus::LimitExceeded
+                                 : IccTagInterpretStatus::Ok;
+            }
+        }
+
+        out->text.clear();
+        out->text.append("data flags=");
+        append_u64_dec(flags, &out->text);
+        out->text.append(" bytes=");
+        append_u64_dec(static_cast<uint64_t>(payload.size()), &out->text);
+        if (flags == 0U) {
+            out->text.append(" non_ascii");
+        }
+        if (options.limits.max_text_bytes != 0U
+            && out->text.size() > options.limits.max_text_bytes) {
+            out->text.resize(options.limits.max_text_bytes);
+            return IccTagInterpretStatus::LimitExceeded;
+        }
+        return IccTagInterpretStatus::Ok;
+    }
+
+    if (type_sig == fourcc('n', 'c', 'l', '2')) {
+        if (tag_bytes.size() < 84U) {
+            return IccTagInterpretStatus::Malformed;
+        }
+        uint32_t named_color_count = 0U;
+        uint32_t device_coords     = 0U;
+        if (!read_u32be(tag_bytes, 12U, &named_color_count)
+            || !read_u32be(tag_bytes, 16U, &device_coords)) {
+            return IccTagInterpretStatus::Malformed;
+        }
+
+        uint64_t device_bytes = 0U;
+        uint64_t entry_size   = 0U;
+        uint64_t table_bytes  = 0U;
+        uint64_t need         = 0U;
+        if (!checked_mul_u64(static_cast<uint64_t>(device_coords), 2U,
+                             &device_bytes)
+            || !checked_add_u64(38U, device_bytes, &entry_size)
+            || !checked_mul_u64(static_cast<uint64_t>(named_color_count),
+                                entry_size, &table_bytes)
+            || !checked_add_u64(84U, table_bytes, &need)) {
+            return IccTagInterpretStatus::Malformed;
+        }
+        if (need > tag_bytes.size()) {
+            return IccTagInterpretStatus::Malformed;
+        }
+
+        out->text.clear();
+        out->text.append("ncl2 count=");
+        append_u64_dec(named_color_count, &out->text);
+        out->text.append(" device_coords=");
+        append_u64_dec(device_coords, &out->text);
+
+        if (named_color_count > 0U) {
+            const std::span<const std::byte> root_name = tag_bytes.subspan(84U,
+                                                                           32U);
+            uint32_t name_len = trim_trailing_nul_bytes(root_name);
+            bool printable    = true;
+            for (uint32_t i = 0U; i < name_len; ++i) {
+                const unsigned char c = static_cast<unsigned char>(
+                    root_name[i]);
+                if (c < 0x20U || c > 0x7EU) {
+                    printable = false;
+                    break;
+                }
+            }
+            if (printable && name_len != 0U) {
+                out->text.append(" first=\"");
+                out->text.append(reinterpret_cast<const char*>(root_name.data()),
+                                 name_len);
+                out->text.push_back('"');
+            }
+        }
+        if (options.limits.max_text_bytes != 0U
+            && out->text.size() > options.limits.max_text_bytes) {
+            out->text.resize(options.limits.max_text_bytes);
+            return IccTagInterpretStatus::LimitExceeded;
+        }
         return IccTagInterpretStatus::Ok;
     }
 
@@ -1229,6 +1400,32 @@ interpret_icc_tag(uint32_t signature, std::span<const std::byte> tag_bytes,
         bool truncated = false;
         if (!append_fixed_array_values(tag_bytes, options.limits.max_values,
                                        false, &out->values, &truncated)) {
+            return IccTagInterpretStatus::Malformed;
+        }
+        out->rows = 1U;
+        out->cols = static_cast<uint32_t>(out->values.size());
+        return truncated ? IccTagInterpretStatus::LimitExceeded
+                         : IccTagInterpretStatus::Ok;
+    }
+
+    if (type_sig == fourcc('u', 'i', '1', '6')) {
+        bool truncated = false;
+        if (!append_unsigned_integer_array_values(tag_bytes, 2U,
+                                                  options.limits.max_values,
+                                                  &out->values, &truncated)) {
+            return IccTagInterpretStatus::Malformed;
+        }
+        out->rows = 1U;
+        out->cols = static_cast<uint32_t>(out->values.size());
+        return truncated ? IccTagInterpretStatus::LimitExceeded
+                         : IccTagInterpretStatus::Ok;
+    }
+
+    if (type_sig == fourcc('u', 'i', '3', '2')) {
+        bool truncated = false;
+        if (!append_unsigned_integer_array_values(tag_bytes, 4U,
+                                                  options.limits.max_values,
+                                                  &out->values, &truncated)) {
             return IccTagInterpretStatus::Malformed;
         }
         out->rows = 1U;

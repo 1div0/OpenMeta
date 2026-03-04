@@ -675,6 +675,19 @@ namespace {
         return true;
     }
 
+    static bool key_is_in_prefix_scope(std::string_view key,
+                                       std::string_view prefix) noexcept
+    {
+        if (prefix.empty() || !string_starts_with(key, prefix)) {
+            return false;
+        }
+        if (key.size() == prefix.size()) {
+            return true;
+        }
+        const char next = key[prefix.size()];
+        return next == '.' || next == '[';
+    }
+
     struct C2paVerifySignatureCandidate final {
         std::string prefix;
         bool has_algorithm = false;
@@ -823,7 +836,7 @@ namespace {
             }
         }
 
-        static constexpr std::array<std::string_view, 81U> kRefSuffixes = {
+        static constexpr std::array<std::string_view, 79U> kRefSuffixes = {
             std::string_view { ".ref" },
             std::string_view { ".refs" },
             std::string_view { ".reference" },
@@ -902,12 +915,23 @@ namespace {
             std::string_view { ".jumbf-uri" },
             std::string_view { ".jumbf_link" },
             std::string_view { ".jumbf-link" },
-            std::string_view { ".url" },
-            std::string_view { ".uri" },
             std::string_view { ".jumbf" },
         };
         for (const std::string_view suffix : kRefSuffixes) {
             if (string_ends_with_ascii_icase(key_no_index, suffix)) {
+                return true;
+            }
+        }
+        if (string_ends_with_ascii_icase(key_no_index, ".url")
+            || string_ends_with_ascii_icase(key_no_index, ".uri")
+            || string_ends_with_ascii_icase(key_no_index, ".href")
+            || string_ends_with_ascii_icase(key_no_index, ".link")) {
+            const std::string lowered = ascii_lower(key_no_index);
+            if (cbor_key_has_segment(lowered, "claim")
+                || cbor_key_has_segment(lowered, "reference")
+                || cbor_key_has_segment(lowered, "references")
+                || cbor_key_has_segment(lowered, "jumbf")
+                || cbor_key_has_segment(lowered, "manifest")) {
                 return true;
             }
         }
@@ -1534,7 +1558,7 @@ namespace {
             const bool is_reference_index = cbor_key_is_reference_index_field(
                 key);
             const bool is_reference_id = cbor_key_is_reference_id_field(key);
-            if (!string_starts_with(key, signature_prefix)
+            if (!key_is_in_prefix_scope(key, signature_prefix)
                 || (!is_claim_reference && !is_reference_index
                     && !is_reference_id)) {
                 continue;
@@ -1823,6 +1847,50 @@ namespace {
         if (summary.signature_count == 0U || summary.signature_present == 0U) {
             evaluation->profile_status = C2paVerifyDetailStatus::Fail;
             evaluation->profile_reason = "signature_missing";
+            return;
+        }
+        if (summary.signature_linked > summary.signature_count) {
+            evaluation->profile_status = C2paVerifyDetailStatus::Fail;
+            evaluation->profile_reason = "signature_linked_count_invalid";
+            return;
+        }
+        if (summary.signature_orphan > summary.signature_count) {
+            evaluation->profile_status = C2paVerifyDetailStatus::Fail;
+            evaluation->profile_reason = "signature_orphan_count_invalid";
+            return;
+        }
+        if ((summary.signature_linked + summary.signature_orphan)
+            != summary.signature_count) {
+            evaluation->profile_status = C2paVerifyDetailStatus::Fail;
+            evaluation->profile_reason = "signature_link_consistency_invalid";
+            return;
+        }
+        if (summary.explicit_reference_signature_count
+            > summary.signature_count) {
+            evaluation->profile_status = C2paVerifyDetailStatus::Fail;
+            evaluation->profile_reason = "explicit_reference_count_invalid";
+            return;
+        }
+        if (summary.explicit_reference_unresolved_signature_count
+            > summary.explicit_reference_signature_count) {
+            evaluation->profile_status = C2paVerifyDetailStatus::Fail;
+            evaluation->profile_reason
+                = "explicit_reference_unresolved_count_invalid";
+            return;
+        }
+        if (summary.explicit_reference_ambiguous_signature_count
+            > summary.explicit_reference_signature_count) {
+            evaluation->profile_status = C2paVerifyDetailStatus::Fail;
+            evaluation->profile_reason
+                = "explicit_reference_ambiguous_count_invalid";
+            return;
+        }
+        if (summary.explicit_reference_unresolved_signature_count
+            > (summary.explicit_reference_signature_count
+               - summary.explicit_reference_ambiguous_signature_count)) {
+            evaluation->profile_status = C2paVerifyDetailStatus::Fail;
+            evaluation->profile_reason
+                = "explicit_reference_consistency_invalid";
             return;
         }
         if (summary.signature_linked == 0U) {

@@ -812,6 +812,27 @@ namespace {
                           "AnalogBalance count differs from AsShotNeutral count",
                           result);
             }
+            if (s.has_color1 && (s.color1_count % 3U) == 0U) {
+                const uint32_t color1_channels = s.color1_count / 3U;
+                if (s.has_as_shot_neutral
+                    && s.as_shot_neutral_count != color1_channels) {
+                    add_issue(
+                        issues, CcmIssueSeverity::Warning,
+                        CcmIssueCode::UnexpectedCount, s.ifd, 0xC628U,
+                        "AsShotNeutral",
+                        "AsShotNeutral count differs from ColorMatrix1 channel count",
+                        result);
+                }
+                if (s.has_analog_balance
+                    && s.analog_balance_count != color1_channels) {
+                    add_issue(
+                        issues, CcmIssueSeverity::Warning,
+                        CcmIssueCode::UnexpectedCount, s.ifd, 0xC627U,
+                        "AnalogBalance",
+                        "AnalogBalance count differs from ColorMatrix1 channel count",
+                        result);
+                }
+            }
 
             if (s.has_color1 && s.has_color2
                 && s.color1_count != s.color2_count) {
@@ -885,6 +906,20 @@ namespace {
                     result);
             }
 
+            if (s.has_cal_illum1 && !s.has_color1) {
+                add_issue(issues, CcmIssueSeverity::Warning,
+                          CcmIssueCode::MissingCompanionTag, s.ifd, 0xC65AU,
+                          "CalibrationIlluminant1",
+                          "CalibrationIlluminant1 present without ColorMatrix1",
+                          result);
+            }
+            if (!s.has_cal_illum1 && s.has_color1) {
+                add_issue(issues, CcmIssueSeverity::Warning,
+                          CcmIssueCode::MissingCompanionTag, s.ifd, 0xC621U,
+                          "ColorMatrix1",
+                          "ColorMatrix1 present without CalibrationIlluminant1",
+                          result);
+            }
             if (s.has_cal_illum2 && !s.has_color2) {
                 add_issue(issues, CcmIssueSeverity::Warning,
                           CcmIssueCode::MissingCompanionTag, s.ifd, 0xC65BU,

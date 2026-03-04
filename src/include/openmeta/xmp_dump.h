@@ -126,8 +126,10 @@ dump_xmp_lossless(const MetaStore& store, std::span<std::byte> out,
  * - Invalid control bytes are emitted as deterministic ASCII escapes.
  *
  * This mode is intended for interoperability (e.g. XMP sidecars alongside RAW/JPEG files).
- * It emits a best-effort mapping from decoded EXIF/TIFF/GPS fields to standard XMP
- * properties (e.g. `tiff:Make`, `exif:ExposureTime`, `exif:GPSLatitude`).
+ * It emits a best-effort mapping from decoded EXIF/TIFF/GPS/IPTC-IIM fields
+ * to standard XMP properties (e.g. `tiff:Make`, `exif:ExposureTime`,
+ * `exif:GPSLatitude`, `dc:subject`, `photoshop:City`,
+ * `Iptc4xmpCore:Location`).
  */
 XmpDumpResult
 dump_xmp_portable(const MetaStore& store, std::span<std::byte> out,

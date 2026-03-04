@@ -417,7 +417,83 @@ TEST(CcmQuery, ValidationWarnsOnCrossFieldCountMismatches)
     const uint32_t unexpected_count_issues
         = count_issue_code(issues, CcmIssueCode::UnexpectedCount);
     EXPECT_GE(unexpected_count_issues, 2U);
+    EXPECT_TRUE(has_issue(issues, CcmIssueCode::MissingCompanionTag));
     EXPECT_GT(r.issues_reported, 0U);
+}
+
+TEST(CcmQuery, ValidationWarnsWhenAsShotChannelCountDiffersFromColorMatrix1)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+
+    const std::array<uint8_t, 4> dng_version = { 1, 7, 0, 0 };
+    Entry dng_ver;
+    dng_ver.key          = make_exif_tag_key(store.arena(), "ifd0", 0xC612);
+    dng_ver.value        = make_u8_array(store.arena(),
+                                         std::span<const uint8_t>(dng_version.data(),
+                                                                  dng_version.size()));
+    dng_ver.origin.block = block;
+    dng_ver.origin.order_in_block = 0;
+    (void)store.add_entry(dng_ver);
+
+    Entry cal1;
+    cal1.key          = make_exif_tag_key(store.arena(), "ifd0", 0xC65A);
+    cal1.value        = make_u16(21U);
+    cal1.origin.block = block;
+    cal1.origin.order_in_block = 1;
+    (void)store.add_entry(cal1);
+
+    const URational cm1_values[12] = {
+        { 1, 1 }, { 0, 1 }, { 0, 1 }, { 0, 1 }, { 1, 1 }, { 0, 1 },
+        { 0, 1 }, { 0, 1 }, { 1, 1 }, { 1, 2 }, { 1, 3 }, { 1, 4 },
+    };
+    Entry cm1;
+    cm1.key          = make_exif_tag_key(store.arena(), "ifd0", 0xC621);
+    cm1.value        = make_urational_array(store.arena(),
+                                            std::span<const URational>(cm1_values, 12));
+    cm1.origin.block = block;
+    cm1.origin.order_in_block = 2;
+    (void)store.add_entry(cm1);
+
+    const URational as_shot_neutral[3] = {
+        { 1, 1 },
+        { 1, 1 },
+        { 1, 1 },
+    };
+    Entry asn;
+    asn.key = make_exif_tag_key(store.arena(), "ifd0", 0xC628);
+    asn.value
+        = make_urational_array(store.arena(),
+                               std::span<const URational>(as_shot_neutral, 3));
+    asn.origin.block          = block;
+    asn.origin.order_in_block = 3;
+    (void)store.add_entry(asn);
+
+    const URational analog_balance[5] = {
+        { 1, 1 }, { 1, 1 }, { 1, 1 }, { 1, 1 }, { 1, 1 },
+    };
+    Entry ab;
+    ab.key = make_exif_tag_key(store.arena(), "ifd0", 0xC627);
+    ab.value
+        = make_urational_array(store.arena(),
+                               std::span<const URational>(analog_balance, 5));
+    ab.origin.block          = block;
+    ab.origin.order_in_block = 4;
+    (void)store.add_entry(ab);
+
+    store.finalize();
+
+    std::vector<CcmField> fields;
+    std::vector<CcmIssue> issues;
+    CcmQueryOptions opts;
+    opts.validation_mode = CcmValidationMode::DngSpecWarnings;
+
+    const CcmQueryResult r = collect_dng_ccm_fields(store, &fields, opts,
+                                                    &issues);
+    EXPECT_EQ(r.status, CcmQueryStatus::Ok);
+    EXPECT_EQ(r.fields_found, fields.size());
+    EXPECT_TRUE(has_issue(issues, CcmIssueCode::UnexpectedCount));
+    EXPECT_GE(count_issue_code(issues, CcmIssueCode::UnexpectedCount), 2U);
 }
 
 }  // namespace openmeta
