@@ -327,6 +327,136 @@ namespace {
         EXPECT_EQ(std::memcmp(out.data(), jumb_box.data(), jumb_box.size()), 0);
     }
 
+    TEST(ContainerPayload, JpegApp11JumbfMultipartReassemblyViaScanAuto)
+    {
+        std::vector<std::byte> jpeg;
+        jpeg.push_back(std::byte { 0xFF });
+        jpeg.push_back(std::byte { 0xD8 });
+
+        std::vector<std::byte> jumb_box;
+        append_u32be(&jumb_box, 12U);
+        append_fourcc(&jumb_box, fourcc('j', 'u', 'm', 'b'));
+        append_bytes(&jumb_box, "ABCD");
+        const std::span<const std::byte> payload(jumb_box.data() + 8U,
+                                                 jumb_box.size() - 8U);
+
+        const size_t mid = payload.size() / 2U;
+        for (uint32_t seq = 1U; seq <= 2U; ++seq) {
+            std::vector<std::byte> seg;
+            append_bytes(&seg, "JP");
+            seg.push_back(std::byte { 0x00 });
+            seg.push_back(std::byte { 0x00 });
+            append_u32be(&seg, seq);
+            seg.insert(seg.end(), jumb_box.begin(), jumb_box.begin() + 8);
+            if (seq == 1U) {
+                seg.insert(seg.end(), payload.begin(),
+                           payload.begin() + static_cast<ptrdiff_t>(mid));
+            } else {
+                seg.insert(seg.end(),
+                           payload.begin() + static_cast<ptrdiff_t>(mid),
+                           payload.end());
+            }
+            append_jpeg_segment(&jpeg, 0xFFEB, seg);
+        }
+
+        jpeg.push_back(std::byte { 0xFF });
+        jpeg.push_back(std::byte { 0xD9 });
+
+        std::array<ContainerBlockRef, 8> blocks {};
+        const ScanResult scan = scan_auto(jpeg, blocks);
+        ASSERT_EQ(scan.status, ScanStatus::Ok);
+        ASSERT_EQ(scan.written, 2U);
+        EXPECT_EQ(blocks[0].kind, ContainerBlockKind::Jumbf);
+        EXPECT_EQ(blocks[1].kind, ContainerBlockKind::Jumbf);
+
+        std::array<std::byte, 32> out {};
+        std::array<uint32_t, 8> scratch {};
+        PayloadOptions opts;
+        const PayloadResult res
+            = extract_payload(jpeg,
+                              std::span<const ContainerBlockRef>(blocks.data(),
+                                                                 scan.written),
+                              0, out, scratch, opts);
+        EXPECT_EQ(res.status, PayloadStatus::Ok);
+        ASSERT_EQ(res.written, jumb_box.size());
+        EXPECT_EQ(std::memcmp(out.data(), jumb_box.data(), jumb_box.size()), 0);
+    }
+
+    TEST(ContainerPayload, JpegApp11JumbfAmbiguousStandaloneSegments)
+    {
+        std::vector<std::byte> jpeg;
+        jpeg.push_back(std::byte { 0xFF });
+        jpeg.push_back(std::byte { 0xD8 });
+
+        std::vector<std::byte> seg0;
+        append_bytes(&seg0, "JP");
+        seg0.push_back(std::byte { 0x00 });
+        seg0.push_back(std::byte { 0x00 });
+        append_u32be(&seg0, 1U);
+        append_u32be(&seg0, 12U);
+        append_fourcc(&seg0, fourcc('j', 'u', 'm', 'b'));
+        append_bytes(&seg0, "ABCD");
+        append_jpeg_segment(&jpeg, 0xFFEB, seg0);
+
+        std::vector<std::byte> seg1;
+        append_bytes(&seg1, "JP");
+        seg1.push_back(std::byte { 0x00 });
+        seg1.push_back(std::byte { 0x00 });
+        append_u32be(&seg1, 1U);  // duplicate sequence -> ambiguous fallback
+        append_u32be(&seg1, 12U);
+        append_fourcc(&seg1, fourcc('j', 'u', 'm', 'b'));
+        append_bytes(&seg1, "WXYZ");
+        append_jpeg_segment(&jpeg, 0xFFEB, seg1);
+
+        jpeg.push_back(std::byte { 0xFF });
+        jpeg.push_back(std::byte { 0xD9 });
+
+        std::array<ContainerBlockRef, 8> blocks {};
+        const ScanResult scan = scan_jpeg(jpeg, blocks);
+        ASSERT_EQ(scan.status, ScanStatus::Ok);
+        ASSERT_EQ(scan.written, 2U);
+        EXPECT_EQ(blocks[0].kind, ContainerBlockKind::Jumbf);
+        EXPECT_EQ(blocks[1].kind, ContainerBlockKind::Jumbf);
+        EXPECT_EQ(blocks[0].part_count, 1U);
+        EXPECT_EQ(blocks[1].part_count, 1U);
+
+        std::array<uint32_t, 8> scratch {};
+        PayloadOptions opts;
+        std::array<std::byte, 32> out0 {};
+        const PayloadResult res0
+            = extract_payload(jpeg,
+                              std::span<const ContainerBlockRef>(blocks.data(),
+                                                                 scan.written),
+                              0, out0, scratch, opts);
+        EXPECT_EQ(res0.status, PayloadStatus::Ok);
+        ASSERT_EQ(res0.written, 12U);
+        EXPECT_EQ(out0[0], std::byte { 0x00 });
+        EXPECT_EQ(out0[1], std::byte { 0x00 });
+        EXPECT_EQ(out0[2], std::byte { 0x00 });
+        EXPECT_EQ(out0[3], std::byte { 0x0C });
+        EXPECT_EQ(out0[4], std::byte { 'j' });
+        EXPECT_EQ(out0[5], std::byte { 'u' });
+        EXPECT_EQ(out0[6], std::byte { 'm' });
+        EXPECT_EQ(out0[7], std::byte { 'b' });
+        EXPECT_EQ(out0[8], std::byte { 'A' });
+        EXPECT_EQ(out0[9], std::byte { 'B' });
+        EXPECT_EQ(out0[10], std::byte { 'C' });
+        EXPECT_EQ(out0[11], std::byte { 'D' });
+
+        std::array<std::byte, 32> out1 {};
+        const PayloadResult res1
+            = extract_payload(jpeg,
+                              std::span<const ContainerBlockRef>(blocks.data(),
+                                                                 scan.written),
+                              1, out1, scratch, opts);
+        EXPECT_EQ(res1.status, PayloadStatus::Ok);
+        ASSERT_EQ(res1.written, 12U);
+        EXPECT_EQ(out1[8], std::byte { 'W' });
+        EXPECT_EQ(out1[9], std::byte { 'X' });
+        EXPECT_EQ(out1[10], std::byte { 'Y' });
+        EXPECT_EQ(out1[11], std::byte { 'Z' });
+    }
+
     TEST(ContainerPayload, JpegApp11HeaderOnlyFirstPartReassembly)
     {
         std::vector<std::byte> jpeg;

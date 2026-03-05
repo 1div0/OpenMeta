@@ -320,6 +320,64 @@ namespace {
         EXPECT_TRUE(store_has_jumbf_cbor_key(store, "box.0.1.cbor.a"));
     }
 
+    TEST(C2paContainers, JpegApp11OutOfOrderOneBasedIntegrated)
+    {
+        std::vector<std::byte> jpeg;
+        jpeg.push_back(std::byte { 0xFF });
+        jpeg.push_back(std::byte { 0xD8 });
+
+        const std::vector<std::byte> jumb_box = make_sample_jumbf_payload();
+        ASSERT_GT(jumb_box.size(), 8U);
+
+        const std::span<const std::byte> jumb_payload(jumb_box.data() + 8U,
+                                                      jumb_box.size() - 8U);
+        const size_t mid = jumb_payload.size() / 2U;
+
+        // Emit sequence 2 before sequence 1 to exercise out-of-order
+        // reconstruction for one-based APP11 multipart streams.
+        std::vector<std::byte> seg2;
+        append_bytes(&seg2, "JP");
+        seg2.push_back(std::byte { 0x00 });
+        seg2.push_back(std::byte { 0x00 });
+        append_u32be(&seg2, 2U);
+        seg2.insert(seg2.end(), jumb_box.begin(), jumb_box.begin() + 8);
+        seg2.insert(seg2.end(),
+                    jumb_payload.begin() + static_cast<ptrdiff_t>(mid),
+                    jumb_payload.end());
+        append_jpeg_segment(&jpeg, 0xFFEB, seg2);
+
+        std::vector<std::byte> seg1;
+        append_bytes(&seg1, "JP");
+        seg1.push_back(std::byte { 0x00 });
+        seg1.push_back(std::byte { 0x00 });
+        append_u32be(&seg1, 1U);
+        seg1.insert(seg1.end(), jumb_box.begin(), jumb_box.begin() + 8);
+        seg1.insert(seg1.end(), jumb_payload.begin(),
+                    jumb_payload.begin() + static_cast<ptrdiff_t>(mid));
+        append_jpeg_segment(&jpeg, 0xFFEB, seg1);
+
+        jpeg.push_back(std::byte { 0xFF });
+        jpeg.push_back(std::byte { 0xD9 });
+
+        MetaStore store;
+        std::array<ContainerBlockRef, 32> blocks {};
+        std::array<ExifIfdRef, 16> ifds {};
+        std::array<std::byte, 8192> payload {};
+        std::array<uint32_t, 128> payload_parts {};
+        SimpleMetaDecodeOptions options;
+
+        const SimpleMetaResult read = simple_meta_read(jpeg, store, blocks,
+                                                       ifds, payload,
+                                                       payload_parts, options);
+        EXPECT_EQ(read.scan.status, ScanStatus::Ok);
+        EXPECT_EQ(read.jumbf.status, JumbfDecodeStatus::Ok);
+        EXPECT_GT(read.jumbf.entries_decoded, 0U);
+
+        store.finalize();
+        EXPECT_TRUE(store_has_jumbf_field(store, "c2pa.detected"));
+        EXPECT_TRUE(store_has_jumbf_cbor_key(store, "box.0.1.cbor.a"));
+    }
+
 
     TEST(C2paContainers, PngCaBxJumbfIntegrated)
     {
