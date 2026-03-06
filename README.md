@@ -53,6 +53,10 @@ Current baseline-gated status on tracked corpora:
     `<source> <destination>` and explicit `-i/--input` + `-o/--out`; when
     multiple previews are found, `--out name.jpg` writes `name_1.jpg`,
     `name_2.jpg`, ...).
+  - `metatransfer`: transfer smoke tool (`read -> prepare -> emit`) for JPEG
+    APP marker packaging checks; thin wrapper over
+    `prepare_metadata_for_target_file(...)` + `emit_prepared_bundle_jpeg(...)`,
+    with optional prepared-payload dumps.
   - `thumdump`: preview-only extractor, also supports positional
     `<source> <destination>` and explicit `-i/--input` + `-o/--out`; when
     multiple previews are found, `--out name.jpg` writes `name_1.jpg`,
@@ -65,7 +69,8 @@ Current baseline-gated status on tracked corpora:
 
 - `src/include/openmeta/`: public headers
 - `src/openmeta/`: library implementation
-- `src/tools/`: CLI tools (`metaread`, `metavalidate`, `metadump`, `thumdump`)
+- `src/tools/`: CLI tools (`metaread`, `metavalidate`, `metadump`,
+  `metatransfer`, `thumdump`)
 - `src/python/`: Python bindings (nanobind) + helper scripts
 - `tests/`: unit tests + fuzz targets
 - `docs/`: developer docs (build, tests, fuzzing)

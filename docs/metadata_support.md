@@ -122,6 +122,11 @@ Status labels used below:
 
       ##Tool - Level Behavior
 
+`metatransfer` complements `metadump` with a transfer-specific smoke path:
+it runs `read -> prepare_metadata_for_target_file -> emit_prepared_bundle_jpeg`,
+prints prepared block routes/sizes, and summarizes emitted JPEG marker usage
+for quick packaging checks.
+
       | Tool | Purpose | Current state | | -- -| -- -| -- -| | `metaread`
       | Human - readable metadata listing | Shows decoded entries;
   uses tag - name mapping where available; unknown names are shown as `-`. Unsafe/corrupted text is rendered as `<CORRUPTED_TEXT:...>` placeholders in safe output paths. |

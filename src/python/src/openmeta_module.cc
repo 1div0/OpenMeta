@@ -7,6 +7,7 @@
 #include "openmeta/icc_interpret.h"
 #include "openmeta/interop_export.h"
 #include "openmeta/mapped_file.h"
+#include "openmeta/metadata_transfer.h"
 #include "openmeta/ocio_adapter.h"
 #include "openmeta/oiio_adapter.h"
 #include "openmeta/resource_policy.h"
@@ -22,6 +23,7 @@
 
 #include <algorithm>
 #include <bit>
+#include <cctype>
 #include <cstdio>
 #include <cstring>
 #include <memory>
@@ -554,6 +556,515 @@ namespace {
         out["error_count"]         = nb::int_(result.error_count);
         out["failed"]              = nb::bool_(result.failed);
         out["issues"]              = std::move(issues);
+        return out;
+    }
+
+    static const char* transfer_status_name(TransferStatus status) noexcept
+    {
+        switch (status) {
+        case TransferStatus::Ok: return "ok";
+        case TransferStatus::InvalidArgument: return "invalid_argument";
+        case TransferStatus::Unsupported: return "unsupported";
+        case TransferStatus::LimitExceeded: return "limit_exceeded";
+        case TransferStatus::Malformed: return "malformed";
+        case TransferStatus::UnsafeData: return "unsafe_data";
+        case TransferStatus::InternalError: return "internal_error";
+        }
+        return "unknown";
+    }
+
+    static const char*
+    transfer_file_status_name(TransferFileStatus status) noexcept
+    {
+        switch (status) {
+        case TransferFileStatus::Ok: return "ok";
+        case TransferFileStatus::InvalidArgument: return "invalid_argument";
+        case TransferFileStatus::OpenFailed: return "open_failed";
+        case TransferFileStatus::StatFailed: return "stat_failed";
+        case TransferFileStatus::TooLarge: return "too_large";
+        case TransferFileStatus::MapFailed: return "map_failed";
+        case TransferFileStatus::ReadFailed: return "read_failed";
+        }
+        return "unknown";
+    }
+
+    static const char*
+    prepare_transfer_code_name(PrepareTransferCode code) noexcept
+    {
+        switch (code) {
+        case PrepareTransferCode::None: return "none";
+        case PrepareTransferCode::NullOutBundle: return "null_out_bundle";
+        case PrepareTransferCode::UnsupportedTargetFormat:
+            return "unsupported_target_format";
+        case PrepareTransferCode::ExifPackFailed: return "exif_pack_failed";
+        case PrepareTransferCode::XmpPackFailed: return "xmp_pack_failed";
+        case PrepareTransferCode::IccPackFailed: return "icc_pack_failed";
+        case PrepareTransferCode::IptcPackFailed: return "iptc_pack_failed";
+        case PrepareTransferCode::RequestedMetadataNotSerializable:
+            return "requested_metadata_not_serializable";
+        }
+        return "unknown";
+    }
+
+    static const char* emit_transfer_code_name(EmitTransferCode code) noexcept
+    {
+        switch (code) {
+        case EmitTransferCode::None: return "none";
+        case EmitTransferCode::InvalidArgument: return "invalid_argument";
+        case EmitTransferCode::BundleTargetNotJpeg:
+            return "bundle_target_not_jpeg";
+        case EmitTransferCode::UnsupportedRoute: return "unsupported_route";
+        case EmitTransferCode::BackendWriteFailed:
+            return "backend_write_failed";
+        case EmitTransferCode::PlanMismatch: return "plan_mismatch";
+        }
+        return "unknown";
+    }
+
+    static const char*
+    prepare_transfer_file_code_name(PrepareTransferFileCode code) noexcept
+    {
+        switch (code) {
+        case PrepareTransferFileCode::None: return "none";
+        case PrepareTransferFileCode::EmptyPath: return "empty_path";
+        case PrepareTransferFileCode::MapFailed: return "map_failed";
+        case PrepareTransferFileCode::PayloadBufferPlatformLimit:
+            return "payload_buffer_platform_limit";
+        case PrepareTransferFileCode::DecodeFailed: return "decode_failed";
+        }
+        return "unknown";
+    }
+
+    static TransferStatus
+    transfer_status_from_file_status(TransferFileStatus status) noexcept
+    {
+        switch (status) {
+        case TransferFileStatus::Ok: return TransferStatus::Ok;
+        case TransferFileStatus::InvalidArgument:
+            return TransferStatus::InvalidArgument;
+        case TransferFileStatus::TooLarge: return TransferStatus::LimitExceeded;
+        case TransferFileStatus::OpenFailed:
+        case TransferFileStatus::StatFailed:
+        case TransferFileStatus::MapFailed:
+        case TransferFileStatus::ReadFailed: return TransferStatus::Unsupported;
+        }
+        return TransferStatus::InternalError;
+    }
+
+    struct ParsedTimePatchUpdate final {
+        TimePatchUpdate update;
+        bool from_text = false;
+    };
+
+    static std::string canonical_time_patch_name(std::string_view s)
+    {
+        std::string out;
+        out.reserve(s.size());
+        for (size_t i = 0; i < s.size(); ++i) {
+            const unsigned char c = static_cast<unsigned char>(s[i]);
+            if (std::isalnum(c) == 0) {
+                continue;
+            }
+            const int lower = std::tolower(c);
+            out.push_back(static_cast<char>(lower));
+        }
+        return out;
+    }
+
+    static bool parse_time_patch_field(std::string_view name,
+                                       TimePatchField* out)
+    {
+        if (!out) {
+            return false;
+        }
+        const std::string n = canonical_time_patch_name(name);
+        if (n == "datetime") {
+            *out = TimePatchField::DateTime;
+            return true;
+        }
+        if (n == "datetimeoriginal") {
+            *out = TimePatchField::DateTimeOriginal;
+            return true;
+        }
+        if (n == "datetimedigitized") {
+            *out = TimePatchField::DateTimeDigitized;
+            return true;
+        }
+        if (n == "subsectime") {
+            *out = TimePatchField::SubSecTime;
+            return true;
+        }
+        if (n == "subsectimeoriginal") {
+            *out = TimePatchField::SubSecTimeOriginal;
+            return true;
+        }
+        if (n == "subsectimedigitized") {
+            *out = TimePatchField::SubSecTimeDigitized;
+            return true;
+        }
+        if (n == "offsettime") {
+            *out = TimePatchField::OffsetTime;
+            return true;
+        }
+        if (n == "offsettimeoriginal") {
+            *out = TimePatchField::OffsetTimeOriginal;
+            return true;
+        }
+        if (n == "offsettimedigitized") {
+            *out = TimePatchField::OffsetTimeDigitized;
+            return true;
+        }
+        if (n == "gpsdatestamp") {
+            *out = TimePatchField::GpsDateStamp;
+            return true;
+        }
+        if (n == "gpstimestamp") {
+            *out = TimePatchField::GpsTimeStamp;
+            return true;
+        }
+        return false;
+    }
+
+    static bool has_time_patch_width(const PreparedTransferBundle& bundle,
+                                     TimePatchField field, size_t width)
+    {
+        for (size_t i = 0; i < bundle.time_patch_map.size(); ++i) {
+            const TimePatchSlot& slot = bundle.time_patch_map[i];
+            if (slot.field == field
+                && static_cast<size_t>(slot.width) == width) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static void maybe_append_auto_nul(const PreparedTransferBundle& bundle,
+                                      ParsedTimePatchUpdate* update,
+                                      bool auto_nul)
+    {
+        if (!update || !auto_nul || !update->from_text) {
+            return;
+        }
+        const size_t n = update->update.value.size();
+        if (has_time_patch_width(bundle, update->update.field, n)) {
+            return;
+        }
+        if (has_time_patch_width(bundle, update->update.field, n + 1U)) {
+            update->update.value.push_back(std::byte { 0 });
+        }
+    }
+
+    static std::vector<ParsedTimePatchUpdate>
+    parse_time_patches_object(nb::object time_patches_obj)
+    {
+        std::vector<ParsedTimePatchUpdate> out;
+        if (time_patches_obj.is_none()) {
+            return out;
+        }
+
+        nb::dict patch_dict = nb::cast<nb::dict>(time_patches_obj);
+        PyObject* dict_obj  = patch_dict.ptr();
+        if (!dict_obj || !PyDict_Check(dict_obj)) {
+            throw std::runtime_error(
+                "time_patches must be a dict[str, str|bytes]");
+        }
+
+        PyObject* py_key   = nullptr;
+        PyObject* py_value = nullptr;
+        Py_ssize_t pos     = 0;
+        while (PyDict_Next(dict_obj, &pos, &py_key, &py_value) != 0) {
+            if (!PyUnicode_Check(py_key)) {
+                throw std::runtime_error(
+                    "time_patches key must be str field name");
+            }
+            Py_ssize_t key_n  = 0;
+            const char* key_s = PyUnicode_AsUTF8AndSize(py_key, &key_n);
+            if (!key_s || key_n <= 0) {
+                throw std::runtime_error("invalid time patch field name");
+            }
+
+            ParsedTimePatchUpdate one;
+            if (!parse_time_patch_field(
+                    std::string_view(key_s, static_cast<size_t>(key_n)),
+                    &one.update.field)) {
+                throw std::runtime_error("unknown time patch field");
+            }
+
+            if (PyUnicode_Check(py_value)) {
+                Py_ssize_t n  = 0;
+                const char* s = PyUnicode_AsUTF8AndSize(py_value, &n);
+                if (!s || n < 0) {
+                    throw std::runtime_error(
+                        "failed to encode time patch text value as UTF-8");
+                }
+                one.from_text = true;
+                one.update.value.resize(static_cast<size_t>(n));
+                for (size_t i = 0; i < one.update.value.size(); ++i) {
+                    one.update.value[i] = static_cast<std::byte>(
+                        static_cast<unsigned char>(s[i]));
+                }
+            } else if (PyBytes_Check(py_value)) {
+                char* s      = nullptr;
+                Py_ssize_t n = 0;
+                if (PyBytes_AsStringAndSize(py_value, &s, &n) != 0) {
+                    throw std::runtime_error(
+                        "failed to read bytes time patch value");
+                }
+                if (!s || n < 0) {
+                    throw std::runtime_error("invalid bytes time patch value");
+                }
+                one.from_text = false;
+                one.update.value.resize(static_cast<size_t>(n));
+                for (size_t i = 0; i < one.update.value.size(); ++i) {
+                    one.update.value[i] = static_cast<std::byte>(
+                        static_cast<unsigned char>(s[i]));
+                }
+            } else {
+                throw std::runtime_error(
+                    "time_patches value must be str or bytes");
+            }
+
+            out.push_back(std::move(one));
+        }
+        return out;
+    }
+
+    struct ProbeJpegEmitter final : public JpegTransferEmitter {
+        struct Marker final {
+            uint8_t marker = 0;
+            uint64_t bytes = 0;
+        };
+
+        TransferStatus
+        write_app_marker(uint8_t marker_code,
+                         std::span<const std::byte> payload) noexcept override
+        {
+            Marker m;
+            m.marker = marker_code;
+            m.bytes  = static_cast<uint64_t>(payload.size());
+            emitted.push_back(m);
+            return TransferStatus::Ok;
+        }
+
+        std::vector<Marker> emitted;
+    };
+
+    static nb::dict transfer_probe_to_python(
+        const std::string& path, XmpSidecarFormat format,
+        bool include_pointer_tags, bool decode_makernote,
+        bool decode_embedded_containers, bool decompress,
+        bool include_exif_app1, bool include_xmp_app1, bool include_icc_app2,
+        bool include_iptc_app13, bool xmp_include_existing,
+        bool xmp_exiftool_gpsdatetime_alias, uint64_t max_file_bytes,
+        nb::object policy_obj, bool include_payloads,
+        bool unsafe_payload_access, nb::object time_patches_obj,
+        bool time_patch_strict_width, bool time_patch_require_slot,
+        bool time_patch_auto_nul)
+    {
+        PrepareTransferFileOptions options;
+        options.include_pointer_tags       = include_pointer_tags;
+        options.decode_makernote           = decode_makernote;
+        options.decode_embedded_containers = decode_embedded_containers;
+        options.decompress                 = decompress;
+        options.prepare.target_format      = TransferTargetFormat::Jpeg;
+        options.prepare.xmp_portable = (format == XmpSidecarFormat::Portable);
+        options.prepare.include_exif_app1    = include_exif_app1;
+        options.prepare.include_xmp_app1     = include_xmp_app1;
+        options.prepare.include_icc_app2     = include_icc_app2;
+        options.prepare.include_iptc_app13   = include_iptc_app13;
+        options.prepare.xmp_include_existing = xmp_include_existing;
+        options.prepare.xmp_exiftool_gpsdatetime_alias
+            = xmp_exiftool_gpsdatetime_alias;
+        options.policy.max_file_bytes = max_file_bytes;
+
+        if (!policy_obj.is_none()) {
+            options.policy = nb::cast<OpenMetaResourcePolicy>(policy_obj);
+            if (max_file_bytes != 0U) {
+                options.policy.max_file_bytes = max_file_bytes;
+            }
+        }
+
+        std::vector<ParsedTimePatchUpdate> parsed_updates
+            = parse_time_patches_object(time_patches_obj);
+
+        PrepareTransferFileResult prepared;
+        {
+            nb::gil_scoped_release gil_release;
+            prepared = prepare_metadata_for_target_file(path.c_str(), options);
+        }
+
+        nb::dict out;
+        out["path"]             = nb::str(path.c_str(), path.size());
+        out["file_status"]      = prepared.file_status;
+        out["file_status_name"] = nb::str(
+            transfer_file_status_name(prepared.file_status));
+        out["file_code"]      = prepared.code;
+        out["file_code_name"] = nb::str(
+            prepare_transfer_file_code_name(prepared.code));
+        out["file_size"]           = nb::int_(prepared.file_size);
+        out["entry_count"]         = nb::int_(prepared.entry_count);
+        out["scan_status"]         = prepared.read.scan.status;
+        out["payload_status"]      = prepared.read.payload.status;
+        out["exif_status"]         = prepared.read.exif.status;
+        out["xmp_status"]          = prepared.read.xmp.status;
+        out["exr_status"]          = prepared.read.exr.status;
+        out["jumbf_status"]        = prepared.read.jumbf.status;
+        out["prepare_status"]      = prepared.prepare.status;
+        out["prepare_status_name"] = nb::str(
+            transfer_status_name(prepared.prepare.status));
+        out["prepare_code"]      = prepared.prepare.code;
+        out["prepare_code_name"] = nb::str(
+            prepare_transfer_code_name(prepared.prepare.code));
+        out["prepare_warnings"] = nb::int_(prepared.prepare.warnings);
+        out["prepare_errors"]   = nb::int_(prepared.prepare.errors);
+        out["prepare_message"]  = nb::str(prepared.prepare.message.c_str(),
+                                          prepared.prepare.message.size());
+
+        ApplyTimePatchResult patch_result;
+        if (prepared.file_status == TransferFileStatus::Ok
+            && prepared.prepare.status == TransferStatus::Ok
+            && !parsed_updates.empty()) {
+            for (size_t i = 0; i < parsed_updates.size(); ++i) {
+                maybe_append_auto_nul(prepared.bundle, &parsed_updates[i],
+                                      time_patch_auto_nul);
+            }
+
+            std::vector<TimePatchUpdate> updates;
+            updates.reserve(parsed_updates.size());
+            for (size_t i = 0; i < parsed_updates.size(); ++i) {
+                updates.push_back(std::move(parsed_updates[i].update));
+            }
+
+            ApplyTimePatchOptions patch_opts;
+            patch_opts.strict_width = time_patch_strict_width;
+            patch_opts.require_slot = time_patch_require_slot;
+            patch_result = apply_time_patches(&prepared.bundle, updates,
+                                              patch_opts);
+        }
+        out["time_patch_status"]      = patch_result.status;
+        out["time_patch_status_name"] = nb::str(
+            transfer_status_name(patch_result.status));
+        out["time_patch_patched_slots"] = nb::int_(patch_result.patched_slots);
+        out["time_patch_skipped_slots"] = nb::int_(patch_result.skipped_slots);
+        out["time_patch_errors"]        = nb::int_(patch_result.errors);
+        out["time_patch_message"]       = nb::str(patch_result.message.c_str(),
+                                                  patch_result.message.size());
+
+        const bool allow_payload_bytes = include_payloads
+                                         && unsafe_payload_access;
+
+        nb::list blocks;
+        for (size_t i = 0; i < prepared.bundle.blocks.size(); ++i) {
+            const PreparedTransferBlock& b = prepared.bundle.blocks[i];
+            nb::dict one;
+            one["index"] = nb::int_(static_cast<uint32_t>(i));
+            one["kind"]  = b.kind;
+            one["order"] = nb::int_(b.order);
+            one["route"] = nb::str(b.route.c_str(), b.route.size());
+            one["size"]  = nb::int_(static_cast<uint64_t>(b.payload.size()));
+            if (allow_payload_bytes) {
+                one["payload"]
+                    = nb::bytes(reinterpret_cast<const char*>(b.payload.data()),
+                                b.payload.size());
+            } else {
+                one["payload"] = nb::none();
+            }
+            blocks.append(std::move(one));
+        }
+        out["blocks"] = std::move(blocks);
+
+        EmitTransferResult emitted;
+        ProbeJpegEmitter emitter;
+        if (prepared.file_status == TransferFileStatus::Ok
+            && prepared.prepare.status == TransferStatus::Ok) {
+            PreparedJpegEmitPlan plan;
+            const EmitTransferResult compiled
+                = compile_prepared_bundle_jpeg(prepared.bundle, &plan);
+            if (compiled.status == TransferStatus::Ok) {
+                emitted = emit_prepared_bundle_jpeg_compiled(prepared.bundle,
+                                                             plan, emitter);
+            } else {
+                emitted = compiled;
+            }
+        } else {
+            emitted.status  = TransferStatus::Unsupported;
+            emitted.code    = EmitTransferCode::InvalidArgument;
+            emitted.errors  = 1U;
+            emitted.message = "skipped emit due to read/prepare failure";
+        }
+        out["emit_status"]      = emitted.status;
+        out["emit_status_name"] = nb::str(transfer_status_name(emitted.status));
+        out["emit_code"]        = emitted.code;
+        out["emit_code_name"] = nb::str(emit_transfer_code_name(emitted.code));
+        out["emit_emitted"]   = nb::int_(emitted.emitted);
+        out["emit_skipped"]   = nb::int_(emitted.skipped);
+        out["emit_errors"]    = nb::int_(emitted.errors);
+        out["emit_failed_block_index"] = nb::int_(emitted.failed_block_index);
+        out["emit_message"]            = nb::str(emitted.message.c_str(),
+                                                 emitted.message.size());
+
+        uint32_t marker_count[256] = {};
+        uint64_t marker_bytes[256] = {};
+        for (size_t i = 0; i < emitter.emitted.size(); ++i) {
+            const ProbeJpegEmitter::Marker& m = emitter.emitted[i];
+            marker_count[m.marker] += 1U;
+            marker_bytes[m.marker] += m.bytes;
+        }
+
+        nb::list marker_summary;
+        for (uint32_t i = 0; i < 256U; ++i) {
+            if (marker_count[i] == 0U) {
+                continue;
+            }
+            nb::dict one;
+            one["marker"] = nb::int_(i);
+            one["count"]  = nb::int_(marker_count[i]);
+            one["bytes"]  = nb::int_(marker_bytes[i]);
+            marker_summary.append(std::move(one));
+        }
+        out["marker_summary"] = std::move(marker_summary);
+
+        TransferStatus overall_status = TransferStatus::Ok;
+        std::string error_stage       = "none";
+        std::string error_code        = "none";
+        std::string error_message;
+
+        if (include_payloads && !unsafe_payload_access) {
+            overall_status = TransferStatus::UnsafeData;
+            error_stage    = "api";
+            error_code     = "unsafe_payloads_forbidden";
+            error_message  = "safe transfer_probe forbids payload bytes; use "
+                             "unsafe_transfer_probe(include_payloads=True)";
+        } else if (patch_result.status != TransferStatus::Ok) {
+            overall_status = patch_result.status;
+            error_stage    = "time_patch";
+            error_code     = "apply_time_patches_failed";
+            error_message  = patch_result.message;
+        } else if (prepared.file_status != TransferFileStatus::Ok) {
+            overall_status = transfer_status_from_file_status(
+                prepared.file_status);
+            error_stage   = "file";
+            error_code    = prepare_transfer_file_code_name(prepared.code);
+            error_message = prepared.prepare.message;
+        } else if (prepared.prepare.status != TransferStatus::Ok) {
+            overall_status = prepared.prepare.status;
+            error_stage    = "prepare";
+            error_code     = prepare_transfer_code_name(prepared.prepare.code);
+            error_message  = prepared.prepare.message;
+        } else if (emitted.status != TransferStatus::Ok) {
+            overall_status = emitted.status;
+            error_stage    = "emit";
+            error_code     = emit_transfer_code_name(emitted.code);
+            error_message  = emitted.message;
+        }
+
+        out["overall_status"]      = overall_status;
+        out["overall_status_name"] = nb::str(
+            transfer_status_name(overall_status));
+        out["error_stage"]   = nb::str(error_stage.c_str(), error_stage.size());
+        out["error_code"]    = nb::str(error_code.c_str(), error_code.size());
+        out["error_message"] = nb::str(error_message.c_str(),
+                                       error_message.size());
         return out;
     }
 
@@ -1295,6 +1806,63 @@ NB_MODULE(_openmeta, m)
     nb::enum_<XmpSidecarFormat>(m, "XmpSidecarFormat")
         .value("Lossless", XmpSidecarFormat::Lossless)
         .value("Portable", XmpSidecarFormat::Portable);
+
+    nb::enum_<TransferStatus>(m, "TransferStatus")
+        .value("Ok", TransferStatus::Ok)
+        .value("InvalidArgument", TransferStatus::InvalidArgument)
+        .value("Unsupported", TransferStatus::Unsupported)
+        .value("LimitExceeded", TransferStatus::LimitExceeded)
+        .value("Malformed", TransferStatus::Malformed)
+        .value("UnsafeData", TransferStatus::UnsafeData)
+        .value("InternalError", TransferStatus::InternalError);
+
+    nb::enum_<PrepareTransferCode>(m, "PrepareTransferCode")
+        .value("None", PrepareTransferCode::None)
+        .value("NullOutBundle", PrepareTransferCode::NullOutBundle)
+        .value("UnsupportedTargetFormat",
+               PrepareTransferCode::UnsupportedTargetFormat)
+        .value("ExifPackFailed", PrepareTransferCode::ExifPackFailed)
+        .value("XmpPackFailed", PrepareTransferCode::XmpPackFailed)
+        .value("IccPackFailed", PrepareTransferCode::IccPackFailed)
+        .value("IptcPackFailed", PrepareTransferCode::IptcPackFailed)
+        .value("RequestedMetadataNotSerializable",
+               PrepareTransferCode::RequestedMetadataNotSerializable);
+
+    nb::enum_<EmitTransferCode>(m, "EmitTransferCode")
+        .value("None", EmitTransferCode::None)
+        .value("InvalidArgument", EmitTransferCode::InvalidArgument)
+        .value("BundleTargetNotJpeg", EmitTransferCode::BundleTargetNotJpeg)
+        .value("UnsupportedRoute", EmitTransferCode::UnsupportedRoute)
+        .value("BackendWriteFailed", EmitTransferCode::BackendWriteFailed)
+        .value("PlanMismatch", EmitTransferCode::PlanMismatch);
+
+    nb::enum_<PrepareTransferFileCode>(m, "PrepareTransferFileCode")
+        .value("None", PrepareTransferFileCode::None)
+        .value("EmptyPath", PrepareTransferFileCode::EmptyPath)
+        .value("MapFailed", PrepareTransferFileCode::MapFailed)
+        .value("PayloadBufferPlatformLimit",
+               PrepareTransferFileCode::PayloadBufferPlatformLimit)
+        .value("DecodeFailed", PrepareTransferFileCode::DecodeFailed);
+
+    nb::enum_<TransferFileStatus>(m, "TransferFileStatus")
+        .value("Ok", TransferFileStatus::Ok)
+        .value("InvalidArgument", TransferFileStatus::InvalidArgument)
+        .value("OpenFailed", TransferFileStatus::OpenFailed)
+        .value("StatFailed", TransferFileStatus::StatFailed)
+        .value("TooLarge", TransferFileStatus::TooLarge)
+        .value("MapFailed", TransferFileStatus::MapFailed)
+        .value("ReadFailed", TransferFileStatus::ReadFailed);
+
+    nb::enum_<TransferBlockKind>(m, "TransferBlockKind")
+        .value("Exif", TransferBlockKind::Exif)
+        .value("Xmp", TransferBlockKind::Xmp)
+        .value("IptcIim", TransferBlockKind::IptcIim)
+        .value("PhotoshopIrb", TransferBlockKind::PhotoshopIrb)
+        .value("Icc", TransferBlockKind::Icc)
+        .value("Jumbf", TransferBlockKind::Jumbf)
+        .value("C2pa", TransferBlockKind::C2pa)
+        .value("ExrAttribute", TransferBlockKind::ExrAttribute)
+        .value("Other", TransferBlockKind::Other);
 
     nb::class_<PayloadLimits>(m, "PayloadLimits")
         .def(nb::init<>())
@@ -2108,6 +2676,68 @@ NB_MODULE(_openmeta, m)
         "ccm_max_values_per_field"_a = 256U,
         "ccm_validation_mode"_a      = CcmValidationMode::DngSpecWarnings,
         "max_file_bytes"_a = 0ULL, "policy"_a = nb::none());
+
+    m.def(
+        "transfer_probe",
+        [](const std::string& path, XmpSidecarFormat format,
+           bool include_pointer_tags, bool decode_makernote,
+           bool decode_embedded_containers, bool decompress,
+           bool include_exif_app1, bool include_xmp_app1, bool include_icc_app2,
+           bool include_iptc_app13, bool xmp_include_existing,
+           bool xmp_exiftool_gpsdatetime_alias, uint64_t max_file_bytes,
+           nb::object policy_obj, bool include_payloads,
+           nb::object time_patches, bool time_patch_strict_width,
+           bool time_patch_require_slot, bool time_patch_auto_nul) {
+            return transfer_probe_to_python(
+                path, format, include_pointer_tags, decode_makernote,
+                decode_embedded_containers, decompress, include_exif_app1,
+                include_xmp_app1, include_icc_app2, include_iptc_app13,
+                xmp_include_existing, xmp_exiftool_gpsdatetime_alias,
+                max_file_bytes, policy_obj, include_payloads, false,
+                time_patches, time_patch_strict_width, time_patch_require_slot,
+                time_patch_auto_nul);
+        },
+        "path"_a, "format"_a = XmpSidecarFormat::Portable,
+        "include_pointer_tags"_a = true, "decode_makernote"_a = false,
+        "decode_embedded_containers"_a = true, "decompress"_a = true,
+        "include_exif_app1"_a = true, "include_xmp_app1"_a = true,
+        "include_icc_app2"_a = true, "include_iptc_app13"_a = true,
+        "xmp_include_existing"_a           = false,
+        "xmp_exiftool_gpsdatetime_alias"_a = false, "max_file_bytes"_a = 0ULL,
+        "policy"_a = nb::none(), "include_payloads"_a = false,
+        "time_patches"_a = nb::none(), "time_patch_strict_width"_a = true,
+        "time_patch_require_slot"_a = false, "time_patch_auto_nul"_a = true);
+
+    m.def(
+        "unsafe_transfer_probe",
+        [](const std::string& path, XmpSidecarFormat format,
+           bool include_pointer_tags, bool decode_makernote,
+           bool decode_embedded_containers, bool decompress,
+           bool include_exif_app1, bool include_xmp_app1, bool include_icc_app2,
+           bool include_iptc_app13, bool xmp_include_existing,
+           bool xmp_exiftool_gpsdatetime_alias, uint64_t max_file_bytes,
+           nb::object policy_obj, bool include_payloads,
+           nb::object time_patches, bool time_patch_strict_width,
+           bool time_patch_require_slot, bool time_patch_auto_nul) {
+            return transfer_probe_to_python(
+                path, format, include_pointer_tags, decode_makernote,
+                decode_embedded_containers, decompress, include_exif_app1,
+                include_xmp_app1, include_icc_app2, include_iptc_app13,
+                xmp_include_existing, xmp_exiftool_gpsdatetime_alias,
+                max_file_bytes, policy_obj, include_payloads, true,
+                time_patches, time_patch_strict_width, time_patch_require_slot,
+                time_patch_auto_nul);
+        },
+        "path"_a, "format"_a = XmpSidecarFormat::Portable,
+        "include_pointer_tags"_a = true, "decode_makernote"_a = false,
+        "decode_embedded_containers"_a = true, "decompress"_a = true,
+        "include_exif_app1"_a = true, "include_xmp_app1"_a = true,
+        "include_icc_app2"_a = true, "include_iptc_app13"_a = true,
+        "xmp_include_existing"_a           = false,
+        "xmp_exiftool_gpsdatetime_alias"_a = false, "max_file_bytes"_a = 0ULL,
+        "policy"_a = nb::none(), "include_payloads"_a = false,
+        "time_patches"_a = nb::none(), "time_patch_strict_width"_a = true,
+        "time_patch_require_slot"_a = false, "time_patch_auto_nul"_a = true);
 
     m.def("console_text", &console_text, "data"_a, "max_bytes"_a = 4096U);
     m.def("hex_bytes", &hex_bytes, "data"_a, "max_bytes"_a = 4096U);

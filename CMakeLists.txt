@@ -226,6 +226,7 @@ set(OPENMETA_SOURCES
   src/openmeta/iptc_iim_decode.cc
   src/openmeta/jumbf_decode.cc
   src/openmeta/meta_key.cc
+  src/openmeta/metadata_transfer.cc
   src/openmeta/meta_store.cc
   src/openmeta/meta_edit.cc
   src/openmeta/meta_value.cc
@@ -314,6 +315,10 @@ if(OPENMETA_BUILD_TOOLS)
   openmeta_apply_target_settings(metadump)
   target_link_libraries(metadump PRIVATE ${OPENMETA_LIB_TARGET})
 
+  add_executable(metatransfer src/tools/metatransfer.cc)
+  openmeta_apply_target_settings(metatransfer)
+  target_link_libraries(metatransfer PRIVATE ${OPENMETA_LIB_TARGET})
+
   add_executable(thumdump src/tools/thumdump.cc)
   openmeta_apply_target_settings(thumdump)
   target_link_libraries(thumdump PRIVATE ${OPENMETA_LIB_TARGET})
@@ -341,10 +346,39 @@ if(OPENMETA_BUILD_TOOLS)
       VERBATIM
     )
   endif()
+
+  if(TARGET metatransfer)
+    add_custom_target(openmeta_gate_metatransfer_smoke
+      DEPENDS metatransfer
+      COMMAND ${CMAKE_COMMAND}
+        "-DMETATRANSFER_BIN=$<TARGET_FILE:metatransfer>"
+        "-DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/_cli_metatransfer_smoke"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/cli_metatransfer_smoke_test.cmake"
+      COMMENT "Running metatransfer smoke gate"
+      VERBATIM
+    )
+  endif()
 endif()
 
 if(OPENMETA_BUILD_PYTHON)
   add_subdirectory(src/python)
+
+  if(TARGET openmeta_python)
+    if(NOT DEFINED Python_EXECUTABLE OR Python_EXECUTABLE STREQUAL "")
+      find_package(Python REQUIRED COMPONENTS Interpreter)
+    endif()
+
+    add_custom_target(openmeta_gate_python_transfer_probe_smoke
+      DEPENDS openmeta_python
+      COMMAND ${CMAKE_COMMAND}
+        "-DOPENMETA_PYTHON_EXECUTABLE=${Python_EXECUTABLE}"
+        "-DOPENMETA_PYTHONPATH=${CMAKE_CURRENT_BINARY_DIR}/python"
+        "-DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/_python_transfer_probe_smoke"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/python_transfer_probe_smoke_test.cmake"
+      COMMENT "Running python transfer-probe smoke gate"
+      VERBATIM
+    )
+  endif()
 endif()
 
 if(OPENMETA_BUILD_WHEEL)
@@ -500,6 +534,7 @@ if(OPENMETA_BUILD_TESTS)
     tests/interop_export_test.cc
     tests/dji_app4_decode_test.cc
     tests/makernote_decode_test.cc
+    tests/metadata_transfer_api_test.cc
     tests/flir_fff_decode_test.cc
     tests/meta_store_test.cc
     tests/mpf_decode_test.cc
@@ -545,6 +580,31 @@ if(OPENMETA_BUILD_TESTS)
         "-DMETAVALIDATE_BIN=$<TARGET_FILE:metavalidate>"
         "-DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/_cli_metavalidate_smoke"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/cli_metavalidate_smoke_test.cmake"
+    )
+  endif()
+
+  if(TARGET metatransfer)
+    add_test(
+      NAME openmeta_cli_metatransfer_smoke
+      COMMAND ${CMAKE_COMMAND}
+        "-DMETATRANSFER_BIN=$<TARGET_FILE:metatransfer>"
+        "-DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/_cli_metatransfer_smoke"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/cli_metatransfer_smoke_test.cmake"
+    )
+  endif()
+
+  if(TARGET openmeta_python)
+    if(NOT DEFINED Python_EXECUTABLE OR Python_EXECUTABLE STREQUAL "")
+      find_package(Python REQUIRED COMPONENTS Interpreter)
+    endif()
+
+    add_test(
+      NAME openmeta_python_transfer_probe_smoke
+      COMMAND ${CMAKE_COMMAND}
+        "-DOPENMETA_PYTHON_EXECUTABLE=${Python_EXECUTABLE}"
+        "-DOPENMETA_PYTHONPATH=${CMAKE_CURRENT_BINARY_DIR}/python"
+        "-DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/_python_transfer_probe_smoke"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/python_transfer_probe_smoke_test.cmake"
     )
   endif()
 endif()
@@ -746,6 +806,9 @@ if(TARGET metavalidate)
 endif()
 if(TARGET metadump)
   install(TARGETS metadump RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
+endif()
+if(TARGET metatransfer)
+  install(TARGETS metatransfer RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
 endif()
 if(TARGET thumdump)
   install(TARGETS thumdump RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")

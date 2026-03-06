@@ -101,6 +101,31 @@ Portable sidecar note:
   `Iptc4xmpCore:*` fields (for example city/state/country/headline/credit and
   location/country-code).
 
+`metatransfer` is a transfer smoke tool for JPEG packaging:
+
+```bash
+#read -> prepare -> emit simulation
+./build/metatransfer input.jpg
+
+#Portable vs lossless transfer-prepared XMP block
+./build/metatransfer --format portable input.jpg
+./build/metatransfer --format lossless input.jpg
+
+#Write prepared payload bytes for inspection
+./build/metatransfer --unsafe-write-payloads --out-dir payloads input.jpg
+
+#Prepare once, emit many times (same bundle)
+./build/metatransfer --emit-repeat 100 input.jpg
+
+#Patch prepared EXIF time fields before emit
+./build/metatransfer --time-patch DateTimeOriginal="2026:03:06 12:34:56" input.jpg
+```
+
+`metatransfer` is a thin CLI wrapper over
+`prepare_metadata_for_target_file(...)` +
+`apply_time_patches(...)` +
+`emit_prepared_bundle_jpeg(...)`.
+
 `thumdump` is preview-only and optimized for batch preview extraction:
 
 ```bash
@@ -123,7 +148,7 @@ Portable sidecar note:
 OpenMeta tools now default to **no hard file-size cap** (`--max-file-bytes 0`).
 Resource control is expected to come from parser/decode budgets:
 
-- `metaread` / `metavalidate` / `metadump`:
+- `metaread` / `metavalidate` / `metadump` / `metatransfer`:
   - `--max-payload-bytes`, `--max-payload-parts`
   - `--max-exif-ifds`, `--max-exif-entries`, `--max-exif-total`
   - `--max-exif-value-bytes`, `--max-xmp-input-bytes`
@@ -287,6 +312,19 @@ ctest --test-dir build-tests -R openmeta_cli_metavalidate_smoke --output-on-fail
 Fast public smoke gate for `metaread` safe-text placeholder behavior:
 ```bash
 cmake --build build-tests --target openmeta_gate_metaread_safe_text_smoke
+```
+
+Fast public smoke gate for `metatransfer` thin wrapper behavior:
+```bash
+cmake --build build-tests --target openmeta_gate_metatransfer_smoke
+ctest --test-dir build-tests -R openmeta_cli_metatransfer_smoke --output-on-failure
+```
+
+Fast public smoke gate for Python `openmeta.transfer_probe` thin wrapper
+behavior (requires `-DOPENMETA_BUILD_PYTHON=ON`):
+```bash
+cmake --build build-tests --target openmeta_gate_python_transfer_probe_smoke
+ctest --test-dir build-tests -R openmeta_python_transfer_probe_smoke --output-on-failure
 ```
 
 Coverage note:
@@ -458,6 +496,7 @@ PYTHONPATH=build-py/python python3 -m openmeta.python.metadump --format portable
 PYTHONPATH=build-py/python python3 -m openmeta.python.metadump --format portable --portable-exiftool-gpsdatetime-alias file.jpg
 PYTHONPATH=build-py/python python3 -m openmeta.python.metadump --format portable --c2pa-verify --c2pa-verify-backend auto file.jpg
 PYTHONPATH=build-py/python python3 -m openmeta.python.metadump --format portable --portable-include-existing-xmp --xmp-sidecar file.jpg
+PYTHONPATH=build-py/python python3 -m openmeta.python.metatransfer file.jpg
 ```
 
 ## Python Wheel
@@ -478,6 +517,7 @@ After installing the wheel, example modules are available as:
 ```bash
 python3 -m openmeta.python.openmeta_stats file.jpg
 python3 -m openmeta.python.metaread file.jpg
+python3 -m openmeta.python.metatransfer file.jpg
 ```
 Or via CMake:
 ```bash
@@ -489,7 +529,8 @@ cmake --build build-wheel --target openmeta_wheel
 
 When `OPENMETA_BUILD_WHEEL=ON`, `cmake --install` also builds a wheel and copies
 it into `${CMAKE_INSTALL_PREFIX}/share/openmeta/wheels` (and also copies the
-Python helper scripts `metaread.py`, `metavalidate.py`, `metadump.py`, and `openmeta_stats.py`
+Python helper scripts `metaread.py`, `metavalidate.py`, `metadump.py`, `metatransfer.py`,
+and `openmeta_stats.py`
 into the same directory):
 ```bash
 cmake --install build-wheel --prefix /tmp/openmeta-install
@@ -555,6 +596,54 @@ Current C++ sidecar entry points:
 - `openmeta/xmp_dump.h`:
   - `dump_xmp_sidecar(..., const XmpSidecarRequest&)` (stable flat request API)
   - `dump_xmp_sidecar(..., const XmpSidecarOptions&)` (advanced/legacy shape)
+
+Draft C++ transfer entry points (prepare/emit scaffold):
+
+- `openmeta/metadata_transfer.h`:
+  - `PreparedTransferBundle` (target-ready payload container)
+  - backend emitter contracts:
+    - `JpegTransferEmitter`
+    - `TiffTransferEmitter`
+    - `JxlTransferEmitter`
+    - `ExrTransferEmitter`
+  - `prepare_metadata_for_target(..., PreparedTransferBundle*)` currently
+    prepares JPEG APP1 EXIF + APP1 XMP + APP2 ICC payloads, with explicit
+    warnings for unsupported/skipped EXIF/ICC/IPTC entries.
+  - `emit_prepared_bundle_jpeg(...)` is implemented for route-based JPEG marker
+    emission (`jpeg:appN...`, `jpeg:com`).
+  - `compile_prepared_bundle_jpeg(...)` + `emit_prepared_bundle_jpeg_compiled(...)`
+    provide route-compile + reusable emit plan for high-throughput
+    "prepare once, emit many" use.
+  - `apply_time_patches(...)` applies fixed-width in-place updates over
+    `bundle.time_patch_map` (for example EXIF `DateTime*`, `SubSec*`,
+    `OffsetTime*`, GPS date/time slots) without full re-prepare.
+  - `prepare_metadata_for_target_file(...)` provides a thin-wrapper file API
+    (`read/decode -> prepare bundle`) for CLI/Python tooling.
+
+Python transfer entry point:
+
+- `openmeta.transfer_probe(...)` (safe):
+  - calls the same file-level transfer API and JPEG emit simulation path,
+    returning read/prepare/emit summaries and prepared block routes/sizes;
+  - supports `time_patches={Field: "Value" | b"..."}`
+    with shared C++ patch logic (`apply_time_patches(...)`);
+  - exposes `time_patch_*` summary fields
+    (`time_patch_status_name`, `time_patch_patched_slots`, ...);
+  - if `include_payloads=True`, returns
+    `overall_status=unsafe_data` with `error_code=unsafe_payloads_forbidden`.
+- `openmeta.unsafe_transfer_probe(...)`:
+  - same probe contract, but allows `include_payloads=True` and returns raw
+    payload bytes (`bytes`) in `blocks[i].payload`.
+  - intended for explicit raw/unsafe workflows only.
+
+Transfer probe contract hardening (stable machine fields):
+- `overall_status`, `overall_status_name`
+- `error_stage` (`none|api|file|prepare|emit`)
+- `error_code`, `error_message`
+- stage-specific stable code enums/strings:
+  - file: `PrepareTransferFileCode` / `file_code_name`
+  - prepare: `PrepareTransferCode` / `prepare_code_name`
+  - emit: `EmitTransferCode` / `emit_code_name`
 
 Current adapter/name-policy behavior:
 
