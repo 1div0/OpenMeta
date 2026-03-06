@@ -119,11 +119,19 @@ Portable sidecar note:
 
 #Patch prepared EXIF time fields before emit
 ./build/metatransfer --time-patch DateTimeOriginal="2026:03:06 12:34:56" input.jpg
+
+#Plan edit strategy without writing output
+./build/metatransfer --mode auto --dry-run input.jpg
+
+#Write edited JPEG output (metadata rewrite mode)
+./build/metatransfer --mode metadata_rewrite -o output.jpg input.jpg
 ```
 
 `metatransfer` is a thin CLI wrapper over
 `prepare_metadata_for_target_file(...)` +
 `apply_time_patches(...)` +
+`plan_prepared_bundle_jpeg_edit(...)` +
+`apply_prepared_bundle_jpeg_edit(...)` +
 `emit_prepared_bundle_jpeg(...)`.
 
 `thumdump` is preview-only and optimized for batch preview extraction:

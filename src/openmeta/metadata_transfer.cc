@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <string>
@@ -167,6 +168,271 @@ namespace {
         }
         *out_marker = static_cast<uint8_t>(0xE0U + app_n);
         return true;
+    }
+
+    struct PlannedJpegSegment final {
+        uint8_t marker = 0;
+        std::string route;
+        std::span<const std::byte> payload;
+    };
+
+    struct ExistingJpegSegment final {
+        uint8_t marker     = 0;
+        size_t marker_off  = 0;
+        size_t payload_off = 0;
+        size_t payload_len = 0;
+        std::string route;
+        bool route_known = false;
+    };
+
+    struct JpegScanResult final {
+        TransferStatus status = TransferStatus::Ok;
+        size_t scan_end       = 0;
+        std::vector<ExistingJpegSegment> leading_segments;
+        std::string message;
+    };
+
+    static uint16_t read_u16be(std::span<const std::byte> data,
+                               size_t off) noexcept
+    {
+        if (off + 2U > data.size()) {
+            return 0U;
+        }
+        const uint16_t hi = static_cast<uint16_t>(
+            std::to_integer<uint8_t>(data[off + 0U]));
+        const uint16_t lo = static_cast<uint16_t>(
+            std::to_integer<uint8_t>(data[off + 1U]));
+        return static_cast<uint16_t>((hi << 8U) | lo);
+    }
+
+    static bool has_prefix(std::span<const std::byte> data, const char* prefix,
+                           size_t prefix_len) noexcept
+    {
+        if (!prefix) {
+            return false;
+        }
+        if (data.size() < prefix_len) {
+            return false;
+        }
+        for (size_t i = 0; i < prefix_len; ++i) {
+            if (data[i]
+                != static_cast<std::byte>(static_cast<uint8_t>(prefix[i]))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    static std::string
+    detect_existing_jpeg_route(uint8_t marker,
+                               std::span<const std::byte> payload,
+                               bool* out_known) noexcept
+    {
+        bool known = false;
+        std::string route;
+        if (marker == 0xE1U && has_prefix(payload, "Exif\0\0", 6U)) {
+            known = true;
+            route = "jpeg:app1-exif";
+        } else if (marker == 0xE1U
+                   && has_prefix(payload, "http://ns.adobe.com/xap/1.0/\0",
+                                 29U)) {
+            known = true;
+            route = "jpeg:app1-xmp";
+        } else if (marker == 0xE2U
+                   && has_prefix(payload, "ICC_PROFILE\0", 12U)) {
+            known = true;
+            route = "jpeg:app2-icc";
+        } else if (marker == 0xEDU
+                   && has_prefix(payload, "Photoshop 3.0\0", 14U)) {
+            known = true;
+            route = "jpeg:app13-iptc";
+        } else if (marker >= 0xE0U && marker <= 0xEFU) {
+            known = true;
+            route = "jpeg:app"
+                    + std::to_string(static_cast<unsigned>(marker - 0xE0U));
+        } else if (marker == 0xFEU) {
+            known = true;
+            route = "jpeg:com";
+        }
+        if (out_known) {
+            *out_known = known;
+        }
+        return route;
+    }
+
+    static JpegScanResult
+    scan_leading_jpeg_segments(std::span<const std::byte> input) noexcept
+    {
+        JpegScanResult out;
+        if (input.size() < 2U) {
+            out.status  = TransferStatus::Malformed;
+            out.message = "jpeg input is too small";
+            return out;
+        }
+        if (input[0] != std::byte { 0xFF } || input[1] != std::byte { 0xD8 }) {
+            out.status  = TransferStatus::Malformed;
+            out.message = "jpeg input does not start with SOI";
+            return out;
+        }
+
+        size_t pos = 2U;
+        while (pos + 1U < input.size()) {
+            if (input[pos] != std::byte { 0xFF }) {
+                break;
+            }
+            const uint8_t marker = std::to_integer<uint8_t>(input[pos + 1U]);
+            if (marker == 0xDAU || marker == 0xD9U) {
+                break;
+            }
+            const bool is_app = (marker >= 0xE0U && marker <= 0xEFU);
+            const bool is_com = (marker == 0xFEU);
+            if (!is_app && !is_com) {
+                break;
+            }
+
+            if (pos + 4U > input.size()) {
+                out.status  = TransferStatus::Malformed;
+                out.message = "jpeg marker header truncated";
+                return out;
+            }
+            const uint16_t seg_len = read_u16be(input, pos + 2U);
+            if (seg_len < 2U) {
+                out.status  = TransferStatus::Malformed;
+                out.message = "jpeg marker length is invalid";
+                return out;
+            }
+            const size_t seg_total = 2U + static_cast<size_t>(seg_len);
+            if (pos + seg_total > input.size()) {
+                out.status  = TransferStatus::Malformed;
+                out.message = "jpeg marker payload truncated";
+                return out;
+            }
+
+            ExistingJpegSegment seg;
+            seg.marker      = marker;
+            seg.marker_off  = pos;
+            seg.payload_off = pos + 4U;
+            seg.payload_len = static_cast<size_t>(seg_len) - 2U;
+
+            const std::span<const std::byte> payload
+                = input.subspan(seg.payload_off, seg.payload_len);
+            seg.route = detect_existing_jpeg_route(marker, payload,
+                                                   &seg.route_known);
+            out.leading_segments.push_back(std::move(seg));
+
+            pos += seg_total;
+        }
+
+        out.scan_end = pos;
+        out.status   = TransferStatus::Ok;
+        return out;
+    }
+
+    static EmitTransferResult
+    collect_planned_jpeg_segments(const PreparedTransferBundle& bundle,
+                                  bool skip_empty_payloads,
+                                  std::vector<PlannedJpegSegment>* out)
+    {
+        EmitTransferResult status;
+        if (!out) {
+            status.status  = TransferStatus::InvalidArgument;
+            status.code    = EmitTransferCode::InvalidArgument;
+            status.errors  = 1U;
+            status.message = "planned segment output is null";
+            return status;
+        }
+        out->clear();
+
+        EmitTransferOptions opts;
+        opts.skip_empty_payloads = skip_empty_payloads;
+        opts.stop_on_error       = true;
+        PreparedJpegEmitPlan compiled;
+        status = compile_prepared_bundle_jpeg(bundle, &compiled, opts);
+        if (status.status != TransferStatus::Ok) {
+            return status;
+        }
+
+        out->reserve(compiled.ops.size());
+        for (size_t i = 0; i < compiled.ops.size(); ++i) {
+            const PreparedJpegEmitOp& op = compiled.ops[i];
+            if (op.block_index >= bundle.blocks.size()) {
+                status.status  = TransferStatus::InternalError;
+                status.code    = EmitTransferCode::PlanMismatch;
+                status.errors  = 1U;
+                status.message = "compiled op block index out of range";
+                return status;
+            }
+            const PreparedTransferBlock& block = bundle.blocks[op.block_index];
+            PlannedJpegSegment seg;
+            seg.marker  = op.marker_code;
+            seg.route   = block.route;
+            seg.payload = std::span<const std::byte>(block.payload.data(),
+                                                     block.payload.size());
+            out->push_back(std::move(seg));
+        }
+        return status;
+    }
+
+    static size_t
+    route_occurrence_before(const std::vector<PlannedJpegSegment>& desired,
+                            size_t idx, std::string_view route) noexcept
+    {
+        size_t occ = 0;
+        for (size_t i = 0; i < idx; ++i) {
+            if (desired[i].route == route) {
+                occ += 1U;
+            }
+        }
+        return occ;
+    }
+
+    static bool find_existing_by_route_occurrence(
+        const std::vector<ExistingJpegSegment>& existing,
+        std::string_view route, size_t occurrence, size_t* out_index) noexcept
+    {
+        if (!out_index) {
+            return false;
+        }
+        size_t seen = 0;
+        for (size_t i = 0; i < existing.size(); ++i) {
+            if (existing[i].route != route) {
+                continue;
+            }
+            if (seen == occurrence) {
+                *out_index = i;
+                return true;
+            }
+            seen += 1U;
+        }
+        return false;
+    }
+
+    static bool
+    route_in_desired(std::string_view route,
+                     const std::vector<PlannedJpegSegment>& desired) noexcept
+    {
+        for (size_t i = 0; i < desired.size(); ++i) {
+            if (desired[i].route == route) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static void append_jpeg_segment(std::vector<std::byte>* out, uint8_t marker,
+                                    std::span<const std::byte> payload) noexcept
+    {
+        if (!out) {
+            return;
+        }
+        const uint16_t seg_len = static_cast<uint16_t>(payload.size() + 2U);
+        out->push_back(std::byte { 0xFF });
+        out->push_back(static_cast<std::byte>(marker));
+        out->push_back(static_cast<std::byte>((seg_len >> 8U) & 0xFFU));
+        out->push_back(static_cast<std::byte>((seg_len >> 0U) & 0xFFU));
+        if (!payload.empty()) {
+            out->insert(out->end(), payload.begin(), payload.end());
+        }
     }
 
     static void append_message(std::string* dst, std::string_view msg) noexcept
@@ -1699,6 +1965,282 @@ emit_prepared_bundle_jpeg_compiled(const PreparedTransferBundle& bundle,
         r.code   = EmitTransferCode::None;
     }
     return r;
+}
+
+JpegEditPlan
+plan_prepared_bundle_jpeg_edit(std::span<const std::byte> input_jpeg,
+                               const PreparedTransferBundle& bundle,
+                               const PlanJpegEditOptions& options) noexcept
+{
+    JpegEditPlan plan;
+    plan.requested_mode = options.mode;
+    plan.input_size     = static_cast<uint64_t>(input_jpeg.size());
+
+    if (bundle.target_format != TransferTargetFormat::Jpeg) {
+        plan.status  = TransferStatus::Unsupported;
+        plan.message = "bundle target format is not jpeg";
+        return plan;
+    }
+
+    std::vector<PlannedJpegSegment> desired;
+    const EmitTransferResult desired_status
+        = collect_planned_jpeg_segments(bundle, options.skip_empty_payloads,
+                                        &desired);
+    if (desired_status.status != TransferStatus::Ok) {
+        plan.status  = desired_status.status;
+        plan.message = desired_status.message.empty()
+                           ? "failed to compile prepared jpeg segments"
+                           : desired_status.message;
+        return plan;
+    }
+    plan.emitted_segments = static_cast<uint32_t>(desired.size());
+
+    const JpegScanResult scan = scan_leading_jpeg_segments(input_jpeg);
+    plan.leading_scan_end     = static_cast<uint64_t>(scan.scan_end);
+    if (scan.status != TransferStatus::Ok) {
+        plan.status  = scan.status;
+        plan.message = scan.message;
+        return plan;
+    }
+
+    bool in_place_possible  = true;
+    uint32_t in_place_count = 0;
+    uint64_t replaced_bytes = 0;
+    for (size_t i = 0; i < desired.size(); ++i) {
+        const PlannedJpegSegment& d = desired[i];
+        const size_t occ    = route_occurrence_before(desired, i, d.route);
+        size_t existing_idx = 0;
+        if (!find_existing_by_route_occurrence(scan.leading_segments, d.route,
+                                               occ, &existing_idx)) {
+            in_place_possible = false;
+            break;
+        }
+        const ExistingJpegSegment& e = scan.leading_segments[existing_idx];
+        if (e.payload_len != d.payload.size()) {
+            in_place_possible = false;
+            break;
+        }
+        in_place_count += 1U;
+    }
+    plan.in_place_possible = in_place_possible;
+
+    JpegEditMode selected = JpegEditMode::MetadataRewrite;
+    if (options.mode == JpegEditMode::InPlace) {
+        if (!in_place_possible) {
+            plan.status  = TransferStatus::Unsupported;
+            plan.message = "in_place edit is not possible for current jpeg";
+            return plan;
+        }
+        selected = JpegEditMode::InPlace;
+    } else if (options.mode == JpegEditMode::MetadataRewrite) {
+        selected = JpegEditMode::MetadataRewrite;
+    } else {
+        selected = in_place_possible ? JpegEditMode::InPlace
+                                     : JpegEditMode::MetadataRewrite;
+    }
+
+    if (options.require_in_place && selected != JpegEditMode::InPlace) {
+        plan.status  = TransferStatus::Unsupported;
+        plan.message = "in_place edit required but not possible";
+        return plan;
+    }
+
+    plan.selected_mode = selected;
+    if (selected == JpegEditMode::InPlace) {
+        plan.replaced_segments = in_place_count;
+        plan.appended_segments = 0U;
+        plan.output_size       = plan.input_size;
+        plan.status            = TransferStatus::Ok;
+        return plan;
+    }
+
+    uint32_t replaced_segments = 0;
+    for (size_t i = 0; i < scan.leading_segments.size(); ++i) {
+        const ExistingJpegSegment& e = scan.leading_segments[i];
+        if (!e.route_known) {
+            continue;
+        }
+        if (!route_in_desired(e.route, desired)) {
+            continue;
+        }
+        replaced_segments += 1U;
+        replaced_bytes += static_cast<uint64_t>(4U + e.payload_len);
+    }
+
+    uint64_t added_bytes = 0;
+    for (size_t i = 0; i < desired.size(); ++i) {
+        added_bytes += static_cast<uint64_t>(4U + desired[i].payload.size());
+    }
+
+    plan.replaced_segments = replaced_segments;
+    plan.appended_segments = static_cast<uint32_t>(desired.size());
+    if (plan.input_size >= replaced_bytes) {
+        plan.output_size = plan.input_size - replaced_bytes + added_bytes;
+    } else {
+        plan.output_size = plan.input_size + added_bytes;
+    }
+    plan.status = TransferStatus::Ok;
+    return plan;
+}
+
+EmitTransferResult
+apply_prepared_bundle_jpeg_edit(std::span<const std::byte> input_jpeg,
+                                const PreparedTransferBundle& bundle,
+                                const JpegEditPlan& plan,
+                                std::vector<std::byte>* out_jpeg) noexcept
+{
+    EmitTransferResult out;
+    if (!out_jpeg) {
+        out.status  = TransferStatus::InvalidArgument;
+        out.code    = EmitTransferCode::InvalidArgument;
+        out.errors  = 1U;
+        out.message = "out_jpeg is null";
+        return out;
+    }
+    if (plan.status != TransferStatus::Ok) {
+        out.status  = TransferStatus::InvalidArgument;
+        out.code    = EmitTransferCode::InvalidArgument;
+        out.errors  = 1U;
+        out.message = "edit plan status is not ok";
+        return out;
+    }
+    if (bundle.target_format != TransferTargetFormat::Jpeg) {
+        out.status  = TransferStatus::Unsupported;
+        out.code    = EmitTransferCode::BundleTargetNotJpeg;
+        out.errors  = 1U;
+        out.message = "bundle target format is not jpeg";
+        return out;
+    }
+
+    std::vector<PlannedJpegSegment> desired;
+    const EmitTransferResult desired_status
+        = collect_planned_jpeg_segments(bundle, true, &desired);
+    if (desired_status.status != TransferStatus::Ok) {
+        return desired_status;
+    }
+
+    const JpegScanResult scan = scan_leading_jpeg_segments(input_jpeg);
+    if (scan.status != TransferStatus::Ok) {
+        out.status  = scan.status;
+        out.code    = EmitTransferCode::InvalidArgument;
+        out.errors  = 1U;
+        out.message = scan.message;
+        return out;
+    }
+
+    if (plan.selected_mode == JpegEditMode::InPlace) {
+        out_jpeg->assign(input_jpeg.begin(), input_jpeg.end());
+        for (size_t i = 0; i < desired.size(); ++i) {
+            const PlannedJpegSegment& d = desired[i];
+            const size_t occ    = route_occurrence_before(desired, i, d.route);
+            size_t existing_idx = 0;
+            if (!find_existing_by_route_occurrence(scan.leading_segments,
+                                                   d.route, occ,
+                                                   &existing_idx)) {
+                out.status  = TransferStatus::Unsupported;
+                out.code    = EmitTransferCode::PlanMismatch;
+                out.errors  = 1U;
+                out.message = "in_place match not found for route: " + d.route;
+                return out;
+            }
+            const ExistingJpegSegment& e = scan.leading_segments[existing_idx];
+            if (e.payload_len != d.payload.size()) {
+                out.status  = TransferStatus::Unsupported;
+                out.code    = EmitTransferCode::PlanMismatch;
+                out.errors  = 1U;
+                out.message = "in_place size mismatch for route: " + d.route;
+                return out;
+            }
+            if (e.payload_off + e.payload_len > out_jpeg->size()) {
+                out.status  = TransferStatus::Malformed;
+                out.code    = EmitTransferCode::PlanMismatch;
+                out.errors  = 1U;
+                out.message = "in_place payload range out of bounds";
+                return out;
+            }
+            if (!d.payload.empty()) {
+                std::memcpy(out_jpeg->data() + e.payload_off, d.payload.data(),
+                            d.payload.size());
+            }
+            out.emitted += 1U;
+        }
+        out.status = TransferStatus::Ok;
+        out.code   = EmitTransferCode::None;
+        return out;
+    }
+
+    if (plan.selected_mode != JpegEditMode::MetadataRewrite) {
+        out.status  = TransferStatus::InvalidArgument;
+        out.code    = EmitTransferCode::InvalidArgument;
+        out.errors  = 1U;
+        out.message = "unsupported selected edit mode";
+        return out;
+    }
+
+    out_jpeg->clear();
+    out_jpeg->reserve(static_cast<size_t>(plan.output_size));
+
+    if (input_jpeg.size() < 2U) {
+        out.status  = TransferStatus::Malformed;
+        out.code    = EmitTransferCode::InvalidArgument;
+        out.errors  = 1U;
+        out.message = "jpeg input is too small";
+        return out;
+    }
+    out_jpeg->push_back(input_jpeg[0]);
+    out_jpeg->push_back(input_jpeg[1]);
+
+    bool inserted = false;
+    for (size_t i = 0; i < scan.leading_segments.size(); ++i) {
+        const ExistingJpegSegment& e = scan.leading_segments[i];
+        const bool replaced          = e.route_known
+                              && route_in_desired(e.route, desired);
+        if (replaced) {
+            if (!inserted) {
+                for (size_t si = 0; si < desired.size(); ++si) {
+                    append_jpeg_segment(out_jpeg, desired[si].marker,
+                                        desired[si].payload);
+                }
+                inserted    = true;
+                out.emitted = static_cast<uint32_t>(desired.size());
+            }
+            out.skipped += 1U;
+            continue;
+        }
+
+        const size_t seg_end = e.payload_off + e.payload_len;
+        if (seg_end > input_jpeg.size() || e.marker_off > seg_end) {
+            out.status  = TransferStatus::Malformed;
+            out.code    = EmitTransferCode::PlanMismatch;
+            out.errors  = 1U;
+            out.message = "existing jpeg segment range is invalid";
+            return out;
+        }
+        const std::ptrdiff_t marker_off = static_cast<std::ptrdiff_t>(
+            e.marker_off);
+        const std::ptrdiff_t seg_end_off = static_cast<std::ptrdiff_t>(seg_end);
+        out_jpeg->insert(out_jpeg->end(), input_jpeg.begin() + marker_off,
+                         input_jpeg.begin() + seg_end_off);
+    }
+
+    if (!inserted) {
+        for (size_t si = 0; si < desired.size(); ++si) {
+            append_jpeg_segment(out_jpeg, desired[si].marker,
+                                desired[si].payload);
+        }
+        out.emitted = static_cast<uint32_t>(desired.size());
+    }
+
+    if (scan.scan_end <= input_jpeg.size()) {
+        const std::ptrdiff_t scan_end = static_cast<std::ptrdiff_t>(
+            scan.scan_end);
+        out_jpeg->insert(out_jpeg->end(), input_jpeg.begin() + scan_end,
+                         input_jpeg.end());
+    }
+
+    out.status = TransferStatus::Ok;
+    out.code   = EmitTransferCode::None;
+    return out;
 }
 
 PrepareTransferFileResult

@@ -69,7 +69,12 @@ namespace {
             "                         Write prepared raw block payload bytes to files\n"
             "  --write-payloads       Deprecated alias for --unsafe-write-payloads\n"
             "  --out-dir <dir>        Output directory for --write-payloads\n"
+            "  -o, --output <path>    Write edited JPEG output file\n"
             "  --force                Overwrite existing payload files\n"
+            "  --dry-run              Plan edit only; do not write output\n"
+            "  --mode <auto|in_place|metadata_rewrite>\n"
+            "                         JPEG edit mode selection for output writer\n"
+            "  --require-in-place     Fail if selected plan is not in_place\n"
             "  --emit-repeat N        Emit same prepared bundle N times (default: 1)\n"
             "  --time-patch F=V       Apply time patch update (repeatable)\n"
             "                         F: DateTime|DateTimeOriginal|DateTimeDigitized|\n"
@@ -275,6 +280,73 @@ namespace {
             return false;
         }
         *out = static_cast<uint32_t>(v);
+        return true;
+    }
+
+    static const char* jpeg_edit_mode_name(JpegEditMode mode) noexcept
+    {
+        switch (mode) {
+        case JpegEditMode::Auto: return "auto";
+        case JpegEditMode::InPlace: return "in_place";
+        case JpegEditMode::MetadataRewrite: return "metadata_rewrite";
+        }
+        return "unknown";
+    }
+
+    static bool parse_jpeg_edit_mode(const char* s, JpegEditMode* out) noexcept
+    {
+        if (!s || !out) {
+            return false;
+        }
+        if (std::strcmp(s, "auto") == 0) {
+            *out = JpegEditMode::Auto;
+            return true;
+        }
+        if (std::strcmp(s, "in_place") == 0) {
+            *out = JpegEditMode::InPlace;
+            return true;
+        }
+        if (std::strcmp(s, "metadata_rewrite") == 0) {
+            *out = JpegEditMode::MetadataRewrite;
+            return true;
+        }
+        return false;
+    }
+
+    static bool read_file_bytes(const std::string& path,
+                                std::vector<std::byte>* out)
+    {
+        if (!out) {
+            return false;
+        }
+        out->clear();
+        std::FILE* f = std::fopen(path.c_str(), "rb");
+        if (!f) {
+            return false;
+        }
+        if (std::fseek(f, 0, SEEK_END) != 0) {
+            std::fclose(f);
+            return false;
+        }
+        const long n = std::ftell(f);
+        if (n < 0) {
+            std::fclose(f);
+            return false;
+        }
+        if (std::fseek(f, 0, SEEK_SET) != 0) {
+            std::fclose(f);
+            return false;
+        }
+        out->resize(static_cast<size_t>(n));
+        if (!out->empty()) {
+            const size_t read_n = std::fread(out->data(), 1, out->size(), f);
+            if (read_n != out->size()) {
+                std::fclose(f);
+                out->clear();
+                return false;
+            }
+        }
+        std::fclose(f);
         return true;
     }
 
@@ -568,12 +640,15 @@ main(int argc, char** argv)
     bool show_build_info     = true;
     bool force               = false;
     bool write_payloads      = false;
+    bool dry_run             = false;
     uint32_t emit_repeat     = 1U;
     bool time_patch_auto_nul = true;
     std::string out_dir;
+    std::string output_path;
     std::vector<std::string> input_paths;
     std::vector<PendingTimePatch> pending_time_patches;
     ApplyTimePatchOptions time_patch_opts;
+    PlanJpegEditOptions edit_plan_opts;
 
     PrepareTransferFileOptions options;
     options.prepare.target_format = TransferTargetFormat::Jpeg;
@@ -671,8 +746,34 @@ main(int argc, char** argv)
             i += 1;
             continue;
         }
+        if ((std::strcmp(arg, "-o") == 0 || std::strcmp(arg, "--output") == 0)
+            && i + 1 < argc) {
+            output_path = argv[i + 1];
+            i += 1;
+            continue;
+        }
         if (std::strcmp(arg, "--force") == 0) {
             force = true;
+            continue;
+        }
+        if (std::strcmp(arg, "--dry-run") == 0) {
+            dry_run = true;
+            continue;
+        }
+        if (std::strcmp(arg, "--mode") == 0 && i + 1 < argc) {
+            JpegEditMode m = JpegEditMode::Auto;
+            if (!parse_jpeg_edit_mode(argv[i + 1], &m)) {
+                std::fprintf(
+                    stderr,
+                    "invalid --mode value (expected auto|in_place|metadata_rewrite)\n");
+                return 2;
+            }
+            edit_plan_opts.mode = m;
+            i += 1;
+            continue;
+        }
+        if (std::strcmp(arg, "--require-in-place") == 0) {
+            edit_plan_opts.require_in_place = true;
             continue;
         }
         if (std::strcmp(arg, "--emit-repeat") == 0 && i + 1 < argc) {
@@ -779,6 +880,11 @@ main(int argc, char** argv)
         usage(argv[0]);
         return 2;
     }
+    if (!output_path.empty() && input_paths.size() != 1U) {
+        std::fprintf(stderr,
+                     "--output supports exactly one input path per run\n");
+        return 2;
+    }
 
     if (show_build_info) {
         print_build_info_header();
@@ -867,6 +973,88 @@ main(int argc, char** argv)
                 continue;
             }
             std::printf("  [%u] wrote=%s\n", bi, out_path.c_str());
+        }
+
+        const bool need_edit_plan = dry_run || !output_path.empty()
+                                    || edit_plan_opts.mode != JpegEditMode::Auto
+                                    || edit_plan_opts.require_in_place;
+        JpegEditPlan edit_plan;
+        if (need_edit_plan) {
+            std::vector<std::byte> input_jpeg;
+            if (!read_file_bytes(path, &input_jpeg)) {
+                std::fprintf(stderr, "  edit_plan: read_failed: %s\n",
+                             path.c_str());
+                any_failed = true;
+                continue;
+            }
+            edit_plan = plan_prepared_bundle_jpeg_edit(
+                std::span<const std::byte>(input_jpeg.data(), input_jpeg.size()),
+                prepared.bundle, edit_plan_opts);
+            std::printf(
+                "  edit_plan: status=%s requested=%s selected=%s "
+                "in_place_possible=%s emitted=%u replaced=%u appended=%u "
+                "input=%llu output=%llu scan_end=%llu\n",
+                transfer_status_name(edit_plan.status),
+                jpeg_edit_mode_name(edit_plan.requested_mode),
+                jpeg_edit_mode_name(edit_plan.selected_mode),
+                edit_plan.in_place_possible ? "true" : "false",
+                edit_plan.emitted_segments, edit_plan.replaced_segments,
+                edit_plan.appended_segments,
+                static_cast<unsigned long long>(edit_plan.input_size),
+                static_cast<unsigned long long>(edit_plan.output_size),
+                static_cast<unsigned long long>(edit_plan.leading_scan_end));
+            if (!edit_plan.message.empty()) {
+                std::printf("  edit_plan_message=%s\n",
+                            edit_plan.message.c_str());
+            }
+            if (edit_plan.status != TransferStatus::Ok) {
+                any_failed = true;
+                continue;
+            }
+
+            if (!output_path.empty()) {
+                if (!force && file_exists(output_path)) {
+                    std::fprintf(stderr,
+                                 "  edit_apply: exists: %s (use --force)\n",
+                                 output_path.c_str());
+                    any_failed = true;
+                    continue;
+                }
+                if (!dry_run) {
+                    std::vector<std::byte> out_jpeg;
+                    EmitTransferResult apply_result
+                        = apply_prepared_bundle_jpeg_edit(
+                            std::span<const std::byte>(input_jpeg.data(),
+                                                       input_jpeg.size()),
+                            prepared.bundle, edit_plan, &out_jpeg);
+                    std::printf(
+                        "  edit_apply: status=%s code=%s emitted=%u skipped=%u errors=%u\n",
+                        transfer_status_name(apply_result.status),
+                        emit_transfer_code_name(apply_result.code),
+                        apply_result.emitted, apply_result.skipped,
+                        apply_result.errors);
+                    if (!apply_result.message.empty()) {
+                        std::printf("  edit_apply_message=%s\n",
+                                    apply_result.message.c_str());
+                    }
+                    if (apply_result.status != TransferStatus::Ok) {
+                        any_failed = true;
+                        continue;
+                    }
+                    if (!write_file_bytes(
+                            output_path,
+                            std::span<const std::byte>(out_jpeg.data(),
+                                                       out_jpeg.size()))) {
+                        std::fprintf(stderr, "  edit_apply: write_failed: %s\n",
+                                     output_path.c_str());
+                        any_failed = true;
+                        continue;
+                    }
+                    std::printf("  output=%s bytes=%llu\n", output_path.c_str(),
+                                static_cast<unsigned long long>(
+                                    out_jpeg.size()));
+                }
+            }
         }
 
         PreparedJpegEmitPlan compiled_plan;

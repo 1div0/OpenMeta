@@ -15,6 +15,7 @@ file(MAKE_DIRECTORY "${WORK_DIR}")
 
 set(_jpg "${WORK_DIR}/sample.jpg")
 set(_dump_dir "${WORK_DIR}/payloads")
+set(_edited_jpg "${WORK_DIR}/edited.jpg")
 file(MAKE_DIRECTORY "${_dump_dir}")
 
 # Minimal JPEG with APP1 Exif payload:
@@ -54,6 +55,48 @@ endif()
 if(NOT _out_probe MATCHES "time_patch: status=ok patched=1")
   message(FATAL_ERROR
     "metatransfer probe missing time_patch patched=1\nstdout:\n${_out_probe}\nstderr:\n${_err_probe}")
+endif()
+
+execute_process(
+  COMMAND "${METATRANSFER_BIN}" --no-build-info
+          --mode auto --dry-run
+          --time-patch "DateTime=2024:12:31 23:59:59"
+          "${_jpg}"
+  RESULT_VARIABLE _rv_dry
+  OUTPUT_VARIABLE _out_dry
+  ERROR_VARIABLE _err_dry
+)
+if(NOT _rv_dry EQUAL 0)
+  message(FATAL_ERROR
+    "metatransfer dry-run failed (${_rv_dry})\nstdout:\n${_out_dry}\nstderr:\n${_err_dry}")
+endif()
+if(NOT _out_dry MATCHES "edit_plan: status=ok")
+  message(FATAL_ERROR
+    "metatransfer dry-run missing edit_plan ok\nstdout:\n${_out_dry}\nstderr:\n${_err_dry}")
+endif()
+
+execute_process(
+  COMMAND "${METATRANSFER_BIN}" --no-build-info
+          --mode metadata_rewrite
+          --time-patch "DateTime=2024:12:31 23:59:59"
+          --output "${_edited_jpg}" --force
+          "${_jpg}"
+  RESULT_VARIABLE _rv_edit
+  OUTPUT_VARIABLE _out_edit
+  ERROR_VARIABLE _err_edit
+)
+if(NOT _rv_edit EQUAL 0)
+  message(FATAL_ERROR
+    "metatransfer edit apply failed (${_rv_edit})\nstdout:\n${_out_edit}\nstderr:\n${_err_edit}")
+endif()
+if(NOT EXISTS "${_edited_jpg}")
+  message(FATAL_ERROR
+    "metatransfer did not write edited output\nstdout:\n${_out_edit}\nstderr:\n${_err_edit}")
+endif()
+file(SIZE "${_edited_jpg}" _edited_size)
+if(_edited_size LESS 10)
+  message(FATAL_ERROR
+    "metatransfer wrote suspiciously small edited output (${_edited_size})\nstdout:\n${_out_edit}\nstderr:\n${_err_edit}")
 endif()
 
 execute_process(

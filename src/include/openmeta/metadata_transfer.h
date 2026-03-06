@@ -184,6 +184,35 @@ struct EmitTransferResult final {
     std::string message;
 };
 
+/// Draft JPEG edit strategy selection.
+enum class JpegEditMode : uint8_t {
+    Auto,
+    InPlace,
+    MetadataRewrite,
+};
+
+/// Options for JPEG edit planning.
+struct PlanJpegEditOptions final {
+    JpegEditMode mode        = JpegEditMode::Auto;
+    bool require_in_place    = false;
+    bool skip_empty_payloads = true;
+};
+
+/// Planned JPEG edit summary (draft API).
+struct JpegEditPlan final {
+    TransferStatus status       = TransferStatus::Ok;
+    JpegEditMode requested_mode = JpegEditMode::Auto;
+    JpegEditMode selected_mode  = JpegEditMode::MetadataRewrite;
+    bool in_place_possible      = false;
+    uint32_t emitted_segments   = 0;
+    uint32_t replaced_segments  = 0;
+    uint32_t appended_segments  = 0;
+    uint64_t input_size         = 0;
+    uint64_t output_size        = 0;
+    uint64_t leading_scan_end   = 0;
+    std::string message;
+};
+
 /// One precompiled JPEG emit operation (route -> marker mapping).
 struct PreparedJpegEmitOp final {
     uint32_t block_index = 0;
@@ -374,5 +403,31 @@ apply_time_patches(PreparedTransferBundle* bundle,
                    std::span<const TimePatchUpdate> updates,
                    const ApplyTimePatchOptions& options
                    = ApplyTimePatchOptions {}) noexcept;
+
+/**
+ * \brief Plan JPEG metadata injection/edit strategy for a prepared bundle.
+ *
+ * `Auto` selects `InPlace` when all emitted payloads can replace existing
+ * leading JPEG metadata segments with exact size match; otherwise it selects
+ * `MetadataRewrite`.
+ */
+JpegEditPlan
+plan_prepared_bundle_jpeg_edit(std::span<const std::byte> input_jpeg,
+                               const PreparedTransferBundle& bundle,
+                               const PlanJpegEditOptions& options
+                               = PlanJpegEditOptions {}) noexcept;
+
+/**
+ * \brief Apply a planned JPEG metadata edit and produce edited output bytes.
+ *
+ * For `InPlace`, this replaces matched existing segment payload bytes in a
+ * copy of the input stream. For `MetadataRewrite`, this rewrites leading
+ * metadata segments and preserves the remaining codestream bytes unchanged.
+ */
+EmitTransferResult
+apply_prepared_bundle_jpeg_edit(std::span<const std::byte> input_jpeg,
+                                const PreparedTransferBundle& bundle,
+                                const JpegEditPlan& plan,
+                                std::vector<std::byte>* out_jpeg) noexcept;
 
 }  // namespace openmeta
