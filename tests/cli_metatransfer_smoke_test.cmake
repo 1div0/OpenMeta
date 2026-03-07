@@ -14,8 +14,19 @@ file(REMOVE_RECURSE "${WORK_DIR}")
 file(MAKE_DIRECTORY "${WORK_DIR}")
 
 set(_jpg "${WORK_DIR}/sample.jpg")
+set(_target_jpg "${WORK_DIR}/target.jpg")
 set(_dump_dir "${WORK_DIR}/payloads")
 set(_edited_jpg "${WORK_DIR}/edited.jpg")
+set(_split_jpg "${WORK_DIR}/split_injected.jpg")
+set(_target_tif "${WORK_DIR}/target.tif")
+set(_split_tif "${WORK_DIR}/split_injected.tif")
+set(_target_tif_be "${WORK_DIR}/target_be.tif")
+set(_split_tif_be "${WORK_DIR}/split_injected_be.tif")
+set(_jpg_rich "${WORK_DIR}/sample_rich.jpg")
+set(_split_tif_rich "${WORK_DIR}/split_rich.tif")
+set(_split_tif_be_rich "${WORK_DIR}/split_rich_be.tif")
+set(_rich_builder_py "${WORK_DIR}/build_rich_exif_fixture.py")
+set(_rich_checker_py "${WORK_DIR}/check_rich_tiff_transfer.py")
 file(MAKE_DIRECTORY "${_dump_dir}")
 
 # Minimal JPEG with APP1 Exif payload:
@@ -31,6 +42,325 @@ if(NOT _rv_write EQUAL 0)
   message(FATAL_ERROR
     "failed to write metatransfer fixture (${_rv_write})\nstdout:\n${_out_write}\nstderr:\n${_err_write}")
 endif()
+
+# Minimal metadata-free JPEG target (SOI+EOI)
+execute_process(
+  COMMAND python3 -c
+    "from pathlib import Path; Path(r'''${_target_jpg}''').write_bytes(bytes([255,216,255,217]))"
+  RESULT_VARIABLE _rv_write_target
+  OUTPUT_VARIABLE _out_write_target
+  ERROR_VARIABLE _err_write_target
+)
+if(NOT _rv_write_target EQUAL 0)
+  message(FATAL_ERROR
+    "failed to write target jpeg fixture (${_rv_write_target})\nstdout:\n${_out_write_target}\nstderr:\n${_err_write_target}")
+endif()
+
+# Minimal classic TIFF target (II + 42 + IFD0 at offset 8 with 0 entries)
+execute_process(
+  COMMAND python3 -c
+    "from pathlib import Path; b=bytearray(); b+=b'II'; b+=(42).to_bytes(2,'little'); b+=(8).to_bytes(4,'little'); b+=(0).to_bytes(2,'little'); b+=(0).to_bytes(4,'little'); Path(r'''${_target_tif}''').write_bytes(bytes(b))"
+  RESULT_VARIABLE _rv_write_tiff
+  OUTPUT_VARIABLE _out_write_tiff
+  ERROR_VARIABLE _err_write_tiff
+)
+if(NOT _rv_write_tiff EQUAL 0)
+  message(FATAL_ERROR
+    "failed to write target tiff fixture (${_rv_write_tiff})\nstdout:\n${_out_write_tiff}\nstderr:\n${_err_write_tiff}")
+endif()
+
+# Minimal classic big-endian TIFF target (MM + 42 + IFD0 at offset 8 with 0 entries)
+execute_process(
+  COMMAND python3 -c
+    "from pathlib import Path; b=bytearray(); b+=b'MM'; b+=(42).to_bytes(2,'big'); b+=(8).to_bytes(4,'big'); b+=(0).to_bytes(2,'big'); b+=(0).to_bytes(4,'big'); Path(r'''${_target_tif_be}''').write_bytes(bytes(b))"
+  RESULT_VARIABLE _rv_write_tiff_be
+  OUTPUT_VARIABLE _out_write_tiff_be
+  ERROR_VARIABLE _err_write_tiff_be
+)
+if(NOT _rv_write_tiff_be EQUAL 0)
+  message(FATAL_ERROR
+    "failed to write big-endian target tiff fixture (${_rv_write_tiff_be})\nstdout:\n${_out_write_tiff_be}\nstderr:\n${_err_write_tiff_be}")
+endif()
+
+file(WRITE "${_rich_builder_py}" [=[
+import struct
+import sys
+from pathlib import Path
+
+def u16le(v): return struct.pack("<H", v)
+def u32le(v): return struct.pack("<I", v)
+def align2(v): return (v + 1) & ~1
+
+class Entry:
+    __slots__ = ("tag", "typ", "count", "value", "order", "inline", "value_off", "dir_off")
+    def __init__(self, tag, typ, count, value, order):
+        self.tag = tag
+        self.typ = typ
+        self.count = count
+        self.value = value
+        self.order = order
+        self.inline = False
+        self.value_off = 0
+        self.dir_off = 0
+
+def add_ascii(dst, tag, s, order):
+    dst.append(Entry(tag, 2, len(s) + 1, s.encode("ascii") + b"\x00", order))
+
+def add_short(dst, tag, v, order):
+    dst.append(Entry(tag, 3, 1, u16le(v), order))
+
+def add_long(dst, tag, v, order):
+    dst.append(Entry(tag, 4, 1, u32le(v), order))
+
+def add_rational(dst, tag, pairs, order):
+    raw = bytearray()
+    for n, d in pairs:
+        raw += u32le(n)
+        raw += u32le(d)
+    dst.append(Entry(tag, 5, len(pairs), bytes(raw), order))
+
+def find_entry(dst, tag):
+    for e in dst:
+        if e.tag == tag:
+            return e
+    return None
+
+if len(sys.argv) != 2:
+    raise SystemExit("usage: build_rich_exif_fixture.py <out.jpg>")
+out = Path(sys.argv[1])
+
+ifd0 = []
+exififd = []
+gpsifd = []
+interopifd = []
+
+add_short(ifd0, 0x0112, 1, 0)
+add_ascii(ifd0, 0x0132, "2000:01:02 03:04:05", 1)
+add_long(ifd0, 0x8769, 0, 0xFFFFFFF0)
+add_long(ifd0, 0x8825, 0, 0xFFFFFFF1)
+
+add_short(exififd, 0x8827, 400, 0)
+add_ascii(exififd, 0x9003, "2000:01:02 03:04:05", 1)
+add_rational(exififd, 0x920A, [(66, 1)], 2)
+add_long(exififd, 0xA005, 0, 0xFFFFFFF2)
+
+add_ascii(gpsifd, 0x0001, "N", 0)
+add_rational(gpsifd, 0x0002, [(41, 1), (24, 1), (5000, 100)], 1)
+
+add_ascii(interopifd, 0x0001, "R98", 0)
+
+ifd0.sort(key=lambda e: (e.tag, e.order))
+exififd.sort(key=lambda e: (e.tag, e.order))
+gpsifd.sort(key=lambda e: (e.tag, e.order))
+interopifd.sort(key=lambda e: (e.tag, e.order))
+
+cursor = 8
+ifd0_off = cursor
+cursor += 2 + len(ifd0) * 12 + 4
+exif_off = cursor
+cursor += 2 + len(exififd) * 12 + 4
+gps_off = cursor
+cursor += 2 + len(gpsifd) * 12 + 4
+interop_off = cursor
+cursor += 2 + len(interopifd) * 12 + 4
+
+find_entry(ifd0, 0x8769).value = u32le(exif_off)
+find_entry(ifd0, 0x8825).value = u32le(gps_off)
+find_entry(exififd, 0xA005).value = u32le(interop_off)
+
+for arr in (ifd0, exififd, gpsifd, interopifd):
+    for e in arr:
+        if len(e.value) <= 4:
+            e.inline = True
+        else:
+            cursor = align2(cursor)
+            e.inline = False
+            e.value_off = cursor
+            cursor += len(e.value)
+
+tiff = bytearray(cursor)
+tiff[0:2] = b"II"
+tiff[2:4] = u16le(42)
+tiff[4:8] = u32le(ifd0_off)
+
+def write_ifd(buf, off, entries):
+    buf[off:off+2] = u16le(len(entries))
+    p = off + 2
+    for e in entries:
+        buf[p+0:p+2] = u16le(e.tag)
+        buf[p+2:p+4] = u16le(e.typ)
+        buf[p+4:p+8] = u32le(e.count)
+        if e.inline:
+            raw = e.value + b"\x00" * (4 - len(e.value))
+            buf[p+8:p+12] = raw[:4]
+        else:
+            buf[p+8:p+12] = u32le(e.value_off)
+        p += 12
+    buf[p:p+4] = u32le(0)
+
+write_ifd(tiff, ifd0_off, ifd0)
+write_ifd(tiff, exif_off, exififd)
+write_ifd(tiff, gps_off, gpsifd)
+write_ifd(tiff, interop_off, interopifd)
+
+for arr in (ifd0, exififd, gpsifd, interopifd):
+    for e in arr:
+        if not e.inline:
+            tiff[e.value_off:e.value_off+len(e.value)] = e.value
+
+app1 = b"Exif\x00\x00" + bytes(tiff)
+jpg = b"\xFF\xD8\xFF\xE1" + struct.pack(">H", len(app1) + 2) + app1 + b"\xFF\xD9"
+out.write_bytes(jpg)
+]=])
+
+execute_process(
+  COMMAND python3 "${_rich_builder_py}" "${_jpg_rich}"
+  RESULT_VARIABLE _rv_write_rich
+  OUTPUT_VARIABLE _out_write_rich
+  ERROR_VARIABLE _err_write_rich
+)
+if(NOT _rv_write_rich EQUAL 0)
+  message(FATAL_ERROR
+    "failed to write rich exif fixture (${_rv_write_rich})\nstdout:\n${_out_write_rich}\nstderr:\n${_err_write_rich}")
+endif()
+
+file(WRITE "${_rich_checker_py}" [=[
+import sys
+from pathlib import Path
+
+TYPE_SIZE = {
+    1: 1, 2: 1, 3: 2, 4: 4, 5: 8, 6: 1, 7: 1,
+    8: 2, 9: 4, 10: 8, 11: 4, 12: 8,
+}
+
+def fail(msg):
+    print(msg, file=sys.stderr)
+    raise SystemExit(1)
+
+def read_u16(b, off, end):
+    return int.from_bytes(b[off:off+2], end, signed=False)
+
+def read_u32(b, off, end):
+    return int.from_bytes(b[off:off+4], end, signed=False)
+
+def parse_ifd(b, off, end):
+    if off == 0 or off + 2 > len(b):
+        fail("ifd offset out of range")
+    n = read_u16(b, off, end)
+    p = off + 2
+    if p + n * 12 + 4 > len(b):
+        fail("ifd entries truncated")
+    out = {}
+    for i in range(n):
+        e = p + i * 12
+        tag = read_u16(b, e + 0, end)
+        typ = read_u16(b, e + 2, end)
+        cnt = read_u32(b, e + 4, end)
+        val = b[e + 8:e + 12]
+        out[tag] = (typ, cnt, val)
+    nxt = read_u32(b, p + n * 12, end)
+    return out, nxt
+
+def payload_for(b, entries, tag, end):
+    if tag not in entries:
+        fail(f"missing tag 0x{tag:04X}")
+    typ, cnt, val = entries[tag]
+    sz = TYPE_SIZE.get(typ, 0)
+    if sz == 0:
+        fail(f"unsupported tag type {typ}")
+    n = sz * cnt
+    if n <= 4:
+        return typ, cnt, val[:n]
+    off = int.from_bytes(val, end, signed=False)
+    if off + n > len(b):
+        fail(f"value for tag 0x{tag:04X} out of range")
+    return typ, cnt, b[off:off+n]
+
+def ascii_val(raw):
+    return raw.split(b"\x00", 1)[0].decode("ascii", "ignore")
+
+def short_val(raw, end):
+    return int.from_bytes(raw[:2], end, signed=False)
+
+def long_val(raw, end):
+    return int.from_bytes(raw[:4], end, signed=False)
+
+def rationals(raw, end):
+    out = []
+    for i in range(0, len(raw), 8):
+        n = int.from_bytes(raw[i:i+4], end, signed=False)
+        d = int.from_bytes(raw[i+4:i+8], end, signed=False)
+        out.append((n, d))
+    return out
+
+if len(sys.argv) != 4:
+    fail("usage: check_rich_tiff_transfer.py <tiff> <DateTime> <DateTimeOriginal>")
+
+path = Path(sys.argv[1])
+expect_dt = sys.argv[2]
+expect_dto = sys.argv[3]
+b = path.read_bytes()
+
+if len(b) < 8:
+    fail("tiff too small")
+if b[0:2] == b"II":
+    end = "little"
+elif b[0:2] == b"MM":
+    end = "big"
+else:
+    fail("invalid byte order")
+if read_u16(b, 2, end) != 42:
+    fail("invalid tiff magic")
+
+ifd0_off = read_u32(b, 4, end)
+ifd0, _ = parse_ifd(b, ifd0_off, end)
+
+if 0x02BC not in ifd0:
+    fail("missing XMP tag 700")
+
+_, _, dt_raw = payload_for(b, ifd0, 0x0132, end)
+if ascii_val(dt_raw) != expect_dt:
+    fail("DateTime mismatch")
+
+_, _, exif_ptr_raw = payload_for(b, ifd0, 0x8769, end)
+_, _, gps_ptr_raw = payload_for(b, ifd0, 0x8825, end)
+exif_off = long_val(exif_ptr_raw, end)
+gps_off = long_val(gps_ptr_raw, end)
+if exif_off == 0 or gps_off == 0:
+    fail("missing ExifIFD/GPS pointers")
+
+exififd, _ = parse_ifd(b, exif_off, end)
+gpsifd, _ = parse_ifd(b, gps_off, end)
+
+_, _, dto_raw = payload_for(b, exififd, 0x9003, end)
+if ascii_val(dto_raw) != expect_dto:
+    fail("DateTimeOriginal mismatch")
+
+_, _, iso_raw = payload_for(b, exififd, 0x8827, end)
+if short_val(iso_raw, end) != 400:
+    fail("ISO value mismatch")
+
+_, _, focal_raw = payload_for(b, exififd, 0x920A, end)
+if rationals(focal_raw, end) != [(66, 1)]:
+    fail("FocalLength mismatch")
+
+_, _, interop_ptr_raw = payload_for(b, exififd, 0xA005, end)
+interop_off = long_val(interop_ptr_raw, end)
+if interop_off == 0:
+    fail("missing InteropIFD pointer")
+interopifd, _ = parse_ifd(b, interop_off, end)
+_, _, interop_raw = payload_for(b, interopifd, 0x0001, end)
+if ascii_val(interop_raw) != "R98":
+    fail("InteropIndex mismatch")
+
+_, _, lat_ref_raw = payload_for(b, gpsifd, 0x0001, end)
+if ascii_val(lat_ref_raw) != "N":
+    fail("GPSLatitudeRef mismatch")
+
+_, _, lat_raw = payload_for(b, gpsifd, 0x0002, end)
+if rationals(lat_raw, end) != [(41, 1), (24, 1), (5000, 100)]:
+    fail("GPSLatitude mismatch")
+]=])
 
 execute_process(
   COMMAND "${METATRANSFER_BIN}" --no-build-info
@@ -97,6 +427,161 @@ file(SIZE "${_edited_jpg}" _edited_size)
 if(_edited_size LESS 10)
   message(FATAL_ERROR
     "metatransfer wrote suspiciously small edited output (${_edited_size})\nstdout:\n${_out_edit}\nstderr:\n${_err_edit}")
+endif()
+
+execute_process(
+  COMMAND "${METATRANSFER_BIN}" --no-build-info
+          --source-meta "${_jpg}"
+          --target-jpeg "${_target_jpg}"
+          --mode metadata_rewrite
+          --output "${_split_jpg}" --force
+  RESULT_VARIABLE _rv_split
+  OUTPUT_VARIABLE _out_split
+  ERROR_VARIABLE _err_split
+)
+if(NOT _rv_split EQUAL 0)
+  message(FATAL_ERROR
+    "metatransfer source/target split edit failed (${_rv_split})\nstdout:\n${_out_split}\nstderr:\n${_err_split}")
+endif()
+if(NOT EXISTS "${_split_jpg}")
+  message(FATAL_ERROR
+    "metatransfer split mode did not write output\nstdout:\n${_out_split}\nstderr:\n${_err_split}")
+endif()
+execute_process(
+  COMMAND python3 -c
+    "from pathlib import Path; b=Path(r'''${_split_jpg}''').read_bytes(); import sys; sys.exit(0 if (len(b)>=8 and b[0]==0xFF and b[1]==0xD8 and b[2]==0xFF and b[3]==0xE1) else 1)"
+  RESULT_VARIABLE _rv_split_check
+  OUTPUT_VARIABLE _out_split_check
+  ERROR_VARIABLE _err_split_check
+)
+if(NOT _rv_split_check EQUAL 0)
+  message(FATAL_ERROR
+    "metatransfer split output does not look like injected APP1 jpeg\nstdout:\n${_out_split}\nstderr:\n${_err_split}\ncheck_stderr:\n${_err_split_check}")
+endif()
+
+execute_process(
+  COMMAND "${METATRANSFER_BIN}" --no-build-info
+          --source-meta "${_jpg}"
+          --target-tiff "${_target_tif}"
+          --time-patch "DateTime=2024:12:31 23:59:59"
+          --output "${_split_tif}" --force
+  RESULT_VARIABLE _rv_split_tif
+  OUTPUT_VARIABLE _out_split_tif
+  ERROR_VARIABLE _err_split_tif
+)
+if(NOT _rv_split_tif EQUAL 0)
+  message(FATAL_ERROR
+    "metatransfer source/target tiff split edit failed (${_rv_split_tif})\nstdout:\n${_out_split_tif}\nstderr:\n${_err_split_tif}")
+endif()
+if(NOT EXISTS "${_split_tif}")
+  message(FATAL_ERROR
+    "metatransfer split tiff mode did not write output\nstdout:\n${_out_split_tif}\nstderr:\n${_err_split_tif}")
+endif()
+execute_process(
+  COMMAND python3 -c
+    "from pathlib import Path; import sys; b=Path(r'''${_split_tif}''').read_bytes(); ok=(len(b)>=8 and b[0:2]==b'II' and int.from_bytes(b[2:4],'little')==42); off=int.from_bytes(b[4:8],'little') if ok else 0; ok=ok and (off+2<=len(b)); n=int.from_bytes(b[off:off+2],'little') if ok else 0; p=off+2; ok=ok and (p+n*12+4<=len(b)); tags=[int.from_bytes(b[p+i*12:p+i*12+2],'little') for i in range(n)] if ok else []; sys.exit(0 if (ok and 700 in tags and 0x0132 in tags) else 1)"
+  RESULT_VARIABLE _rv_split_tif_check
+  OUTPUT_VARIABLE _out_split_tif_check
+  ERROR_VARIABLE _err_split_tif_check
+)
+if(NOT _rv_split_tif_check EQUAL 0)
+  message(FATAL_ERROR
+    "metatransfer split tiff output missing expected TIFF tags (700 and 0x0132)\nstdout:\n${_out_split_tif}\nstderr:\n${_err_split_tif}\ncheck_stderr:\n${_err_split_tif_check}")
+endif()
+execute_process(
+  COMMAND python3 -c
+    "from pathlib import Path; import sys; b=Path(r'''${_split_tif}''').read_bytes(); ok=(len(b)>=8 and b[0:2]==b'II' and int.from_bytes(b[2:4],'little')==42); off=int.from_bytes(b[4:8],'little') if ok else 0; ok=ok and (off+2<=len(b)); n=int.from_bytes(b[off:off+2],'little') if ok else 0; p=off+2; ok=ok and (p+n*12+4<=len(b)); dt=None; \nfor i in range(n):\n e=p+i*12; tag=int.from_bytes(b[e:e+2],'little'); typ=int.from_bytes(b[e+2:e+4],'little'); cnt=int.from_bytes(b[e+4:e+8],'little'); vo=int.from_bytes(b[e+8:e+12],'little');\n if tag==0x0132 and typ==2 and cnt>0:\n  if cnt<=4: raw=b[e+8:e+8+cnt]\n  else: raw=b[vo:vo+cnt] if vo+cnt<=len(b) else b''\n  dt=raw.split(b'\\x00',1)[0].decode('ascii','ignore')\n  break\nsys.exit(0 if (ok and dt=='2024:12:31 23:59:59') else 1)"
+  RESULT_VARIABLE _rv_split_tif_dt_check
+  OUTPUT_VARIABLE _out_split_tif_dt_check
+  ERROR_VARIABLE _err_split_tif_dt_check
+)
+if(NOT _rv_split_tif_dt_check EQUAL 0)
+  message(FATAL_ERROR
+    "metatransfer split tiff output missing patched DateTime value\nstdout:\n${_out_split_tif}\nstderr:\n${_err_split_tif}\ncheck_stderr:\n${_err_split_tif_dt_check}")
+endif()
+
+execute_process(
+  COMMAND "${METATRANSFER_BIN}" --no-build-info
+          --source-meta "${_jpg}"
+          --target-tiff "${_target_tif_be}"
+          --time-patch "DateTime=2024:12:31 23:59:59"
+          --output "${_split_tif_be}" --force
+  RESULT_VARIABLE _rv_split_tif_be
+  OUTPUT_VARIABLE _out_split_tif_be
+  ERROR_VARIABLE _err_split_tif_be
+)
+if(NOT _rv_split_tif_be EQUAL 0)
+  message(FATAL_ERROR
+    "metatransfer source/target big-endian tiff split edit failed (${_rv_split_tif_be})\nstdout:\n${_out_split_tif_be}\nstderr:\n${_err_split_tif_be}")
+endif()
+if(NOT EXISTS "${_split_tif_be}")
+  message(FATAL_ERROR
+    "metatransfer split big-endian tiff mode did not write output\nstdout:\n${_out_split_tif_be}\nstderr:\n${_err_split_tif_be}")
+endif()
+execute_process(
+  COMMAND python3 -c
+    "from pathlib import Path; import sys; b=Path(r'''${_split_tif_be}''').read_bytes(); ok=(len(b)>=8 and b[0:2]==b'MM' and int.from_bytes(b[2:4],'big')==42); off=int.from_bytes(b[4:8],'big') if ok else 0; ok=ok and (off+2<=len(b)); n=int.from_bytes(b[off:off+2],'big') if ok else 0; p=off+2; ok=ok and (p+n*12+4<=len(b)); entries=[(int.from_bytes(b[p+i*12:p+i*12+2],'big'), int.from_bytes(b[p+i*12+2:p+i*12+4],'big'), int.from_bytes(b[p+i*12+4:p+i*12+8],'big'), int.from_bytes(b[p+i*12+8:p+i*12+12],'big')) for i in range(n)] if ok else []; tags=[e[0] for e in entries]; dt=next(((b[p+i*12+8:p+i*12+8+cnt] if cnt<=4 else (b[vo:vo+cnt] if vo+cnt<=len(b) else b'')).split(b'\\x00',1)[0].decode('ascii','ignore') for i,(tag,typ,cnt,vo) in enumerate(entries) if tag==0x0132 and typ==2 and cnt>0), None); sys.exit(0 if (ok and 700 in tags and 0x0132 in tags and dt=='2024:12:31 23:59:59') else 1)"
+  RESULT_VARIABLE _rv_split_tif_be_check
+  OUTPUT_VARIABLE _out_split_tif_be_check
+  ERROR_VARIABLE _err_split_tif_be_check
+)
+if(NOT _rv_split_tif_be_check EQUAL 0)
+  message(FATAL_ERROR
+    "metatransfer split big-endian tiff output missing expected tags or patched DateTime\nstdout:\n${_out_split_tif_be}\nstderr:\n${_err_split_tif_be}\ncheck_stderr:\n${_err_split_tif_be_check}")
+endif()
+
+execute_process(
+  COMMAND "${METATRANSFER_BIN}" --no-build-info
+          --source-meta "${_jpg_rich}"
+          --target-tiff "${_target_tif}"
+          --time-patch "DateTime=2024:12:31 23:59:59"
+          --time-patch "DateTimeOriginal=2024:12:31 23:59:59"
+          --output "${_split_tif_rich}" --force
+  RESULT_VARIABLE _rv_split_tif_rich
+  OUTPUT_VARIABLE _out_split_tif_rich
+  ERROR_VARIABLE _err_split_tif_rich
+)
+if(NOT _rv_split_tif_rich EQUAL 0)
+  message(FATAL_ERROR
+    "metatransfer rich split little-endian tiff edit failed (${_rv_split_tif_rich})\nstdout:\n${_out_split_tif_rich}\nstderr:\n${_err_split_tif_rich}")
+endif()
+
+execute_process(
+  COMMAND python3 "${_rich_checker_py}" "${_split_tif_rich}" "2024:12:31 23:59:59" "2024:12:31 23:59:59"
+  RESULT_VARIABLE _rv_split_tif_rich_check
+  OUTPUT_VARIABLE _out_split_tif_rich_check
+  ERROR_VARIABLE _err_split_tif_rich_check
+)
+if(NOT _rv_split_tif_rich_check EQUAL 0)
+  message(FATAL_ERROR
+    "rich little-endian tiff transfer validation failed\nstdout:\n${_out_split_tif_rich}\nstderr:\n${_err_split_tif_rich}\ncheck_stderr:\n${_err_split_tif_rich_check}")
+endif()
+
+execute_process(
+  COMMAND "${METATRANSFER_BIN}" --no-build-info
+          --source-meta "${_jpg_rich}"
+          --target-tiff "${_target_tif_be}"
+          --time-patch "DateTime=2024:12:31 23:59:59"
+          --time-patch "DateTimeOriginal=2024:12:31 23:59:59"
+          --output "${_split_tif_be_rich}" --force
+  RESULT_VARIABLE _rv_split_tif_be_rich
+  OUTPUT_VARIABLE _out_split_tif_be_rich
+  ERROR_VARIABLE _err_split_tif_be_rich
+)
+if(NOT _rv_split_tif_be_rich EQUAL 0)
+  message(FATAL_ERROR
+    "metatransfer rich split big-endian tiff edit failed (${_rv_split_tif_be_rich})\nstdout:\n${_out_split_tif_be_rich}\nstderr:\n${_err_split_tif_be_rich}")
+endif()
+
+execute_process(
+  COMMAND python3 "${_rich_checker_py}" "${_split_tif_be_rich}" "2024:12:31 23:59:59" "2024:12:31 23:59:59"
+  RESULT_VARIABLE _rv_split_tif_be_rich_check
+  OUTPUT_VARIABLE _out_split_tif_be_rich_check
+  ERROR_VARIABLE _err_split_tif_be_rich_check
+)
+if(NOT _rv_split_tif_be_rich_check EQUAL 0)
+  message(FATAL_ERROR
+    "rich big-endian tiff transfer validation failed\nstdout:\n${_out_split_tif_be_rich}\nstderr:\n${_err_split_tif_be_rich}\ncheck_stderr:\n${_err_split_tif_be_rich_check}")
 endif()
 
 execute_process(

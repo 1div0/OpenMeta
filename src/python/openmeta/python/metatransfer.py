@@ -146,6 +146,10 @@ def main(argv: list[str]) -> int:
         default="",
         help="output directory for --unsafe-write-payloads",
     )
+    ap.add_argument("--target-jpeg", type=str, default="", help="target JPEG stream for edit/apply")
+    ap.add_argument("--target-tiff", type=str, default="", help="target TIFF stream for edit/apply")
+    ap.add_argument("-o", "--output", type=str, default="", help="write edited output file")
+    ap.add_argument("--dry-run", action="store_true", help="plan edit only; do not write output")
     ap.add_argument("--force", action="store_true", help="overwrite existing payload files")
     ap.add_argument(
         "--time-patch",
@@ -180,6 +184,12 @@ def main(argv: list[str]) -> int:
     if not input_paths:
         ap.print_help(sys.stderr)
         return 2
+    if args.target_jpeg and args.target_tiff:
+        ap.error("--target-jpeg and --target-tiff are mutually exclusive")
+    if args.output and not (args.target_jpeg or args.target_tiff):
+        ap.error("--output requires --target-jpeg or --target-tiff")
+    if (args.target_jpeg or args.target_tiff) and len(input_paths) != 1:
+        ap.error("edit mode supports exactly one source input")
 
     if args.portable:
         args.format = "portable"
@@ -219,14 +229,25 @@ def main(argv: list[str]) -> int:
     )
 
     rc = 0
+    target_format = (
+        openmeta.TransferTargetFormat.Tiff
+        if args.target_tiff
+        else openmeta.TransferTargetFormat.Jpeg
+    )
+    target_path = args.target_tiff if args.target_tiff else args.target_jpeg
+    edit_requested = bool(target_path)
+    edit_apply = bool(edit_requested and not args.dry_run)
+    need_edited_bytes = bool(edit_apply and args.output)
+
     for path in input_paths:
         probe_fn = (
             openmeta.unsafe_transfer_probe
-            if write_payloads
+            if (write_payloads or need_edited_bytes)
             else openmeta.transfer_probe
         )
         probe = probe_fn(
             path,
+            target_format=target_format,
             format=sidecar_format,
             include_pointer_tags=True,
             decode_makernote=bool(args.makernotes),
@@ -245,6 +266,9 @@ def main(argv: list[str]) -> int:
             time_patch_strict_width=not bool(args.time_patch_lax_width),
             time_patch_require_slot=bool(args.time_patch_require_slot),
             time_patch_auto_nul=not bool(args.time_patch_no_auto_nul),
+            edit_target_path=(target_path if edit_requested else None),
+            edit_apply=edit_apply,
+            include_edited_bytes=need_edited_bytes,
         )
 
         print(f"== {path}")
@@ -311,11 +335,49 @@ def main(argv: list[str]) -> int:
             print(f"  [{idx}] wrote={out_path}")
 
         print(
+            f"  compile: status={probe['compile_status_name']} code={probe['compile_code_name']} "
+            f"ops={int(probe['compile_ops'])}"
+        )
+        if probe["compile_message"]:
+            print(f"  compile_message={probe['compile_message']}")
+
+        print(
             f"  emit: status={probe['emit_status_name']} emitted={probe['emit_emitted']} "
             f"skipped={probe['emit_skipped']} errors={probe['emit_errors']}"
         )
         if probe["emit_message"]:
             print(f"  emit_message={probe['emit_message']}")
+
+        if edit_requested:
+            print(
+                f"  edit_plan: status={probe['edit_plan_status_name']} input={int(probe['edit_input_size'])} "
+                f"output={int(probe['edit_output_size'])}"
+            )
+            if probe["edit_plan_message"]:
+                print(f"  edit_plan_message={probe['edit_plan_message']}")
+            print(
+                f"  edit_apply: status={probe['edit_apply_status_name']} code={probe['edit_apply_code_name']} "
+                f"emitted={int(probe['edit_apply_emitted'])} skipped={int(probe['edit_apply_skipped'])} "
+                f"errors={int(probe['edit_apply_errors'])}"
+            )
+            if probe["edit_apply_message"]:
+                print(f"  edit_apply_message={probe['edit_apply_message']}")
+
+            if need_edited_bytes:
+                if os.path.exists(args.output) and not args.force:
+                    sys.stderr.write(f"  output exists: {args.output} (use --force)\n")
+                    rc = 1
+                    continue
+                edited = probe["edited_bytes"]
+                if edited is None:
+                    sys.stderr.write("  edited_bytes missing from probe result\n")
+                    rc = 1
+                    continue
+                os.makedirs(os.path.dirname(args.output) or ".", exist_ok=True)
+                with open(args.output, "wb") as f:
+                    f.write(edited)
+                print(f"  output={args.output} bytes={len(edited)}")
+
         if probe["overall_status"] != openmeta.TransferStatus.Ok:
             rc = 1
             continue
@@ -324,6 +386,12 @@ def main(argv: list[str]) -> int:
             print(
                 f"  marker {_marker_name(marker)} count={int(m['count'])} bytes={int(m['bytes'])}"
             )
+        for t in probe["tiff_tag_summary"]:
+            print(
+                f"  tiff_tag {int(t['tag'])} count={int(t['count'])} bytes={int(t['bytes'])}"
+            )
+        if probe["tiff_commit"]:
+            print("  tiff_commit=true")
 
     return rc
 

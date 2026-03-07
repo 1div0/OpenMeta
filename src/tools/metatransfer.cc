@@ -1,6 +1,8 @@
 #include "openmeta/build_info.h"
 #include "openmeta/metadata_transfer.h"
 
+#include <algorithm>
+#include <array>
 #include <cctype>
 #include <cstdint>
 #include <cstdio>
@@ -18,34 +20,13 @@ namespace {
         std::string value;
     };
 
-    struct EmittedMarker final {
-        uint8_t marker = 0;
-        uint64_t bytes = 0;
-    };
-
-    class RecordingJpegEmitter final : public JpegTransferEmitter {
-    public:
-        TransferStatus
-        write_app_marker(uint8_t marker_code,
-                         std::span<const std::byte> payload) noexcept override
-        {
-            EmittedMarker m;
-            m.marker = marker_code;
-            m.bytes  = static_cast<uint64_t>(payload.size());
-            emitted.push_back(m);
-            return TransferStatus::Ok;
-        }
-
-        std::vector<EmittedMarker> emitted;
-    };
-
     static void usage(const char* argv0)
     {
         std::printf(
             "Usage: %s [options] <file> [file...]\n"
             "\n"
             "Transfer smoke tool (thin wrapper):\n"
-            "  read/decode -> prepare_metadata_for_target_file -> emit_prepared_bundle_jpeg\n"
+            "  read/decode -> prepare_metadata_for_target_file -> execute_prepared_transfer_file\n"
             "\n"
             "Options:\n"
             "  --help                 Show this help\n"
@@ -69,11 +50,14 @@ namespace {
             "                         Write prepared raw block payload bytes to files\n"
             "  --write-payloads       Deprecated alias for --unsafe-write-payloads\n"
             "  --out-dir <dir>        Output directory for --write-payloads\n"
-            "  -o, --output <path>    Write edited JPEG output file\n"
+            "  --source-meta <path>   Metadata source for prepare phase\n"
+            "  --target-jpeg <path>   Target JPEG stream for edit/apply phase\n"
+            "  --target-tiff <path>   Target TIFF stream for edit/apply phase\n"
+            "  -o, --output <path>    Write edited output file\n"
             "  --force                Overwrite existing payload files\n"
             "  --dry-run              Plan edit only; do not write output\n"
             "  --mode <auto|in_place|metadata_rewrite>\n"
-            "                         JPEG edit mode selection for output writer\n"
+            "                         JPEG-only edit mode selection for output writer\n"
             "  --require-in-place     Fail if selected plan is not in_place\n"
             "  --emit-repeat N        Emit same prepared bundle N times (default: 1)\n"
             "  --time-patch F=V       Apply time patch update (repeatable)\n"
@@ -200,55 +184,22 @@ namespace {
         return true;
     }
 
-
-    static bool has_time_patch_width(const PreparedTransferBundle& bundle,
-                                     TimePatchField field, size_t width)
+    static std::vector<TransferTimePatchInput> build_transfer_time_patch_inputs(
+        const std::vector<PendingTimePatch>& pending)
     {
-        for (size_t i = 0; i < bundle.time_patch_map.size(); ++i) {
-            const TimePatchSlot& slot = bundle.time_patch_map[i];
-            if (slot.field == field
-                && static_cast<size_t>(slot.width) == width) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-
-    static void maybe_append_auto_nul(const PreparedTransferBundle& bundle,
-                                      TimePatchUpdate* update, bool auto_nul)
-    {
-        if (!update || !auto_nul) {
-            return;
-        }
-        const size_t n = update->value.size();
-        if (has_time_patch_width(bundle, update->field, n)) {
-            return;
-        }
-        if (has_time_patch_width(bundle, update->field, n + 1U)) {
-            update->value.push_back(std::byte { 0 });
-        }
-    }
-
-
-    static std::vector<TimePatchUpdate>
-    build_time_patch_updates(const PreparedTransferBundle& bundle,
-                             const std::vector<PendingTimePatch>& pending,
-                             bool auto_nul)
-    {
-        std::vector<TimePatchUpdate> updates;
+        std::vector<TransferTimePatchInput> updates;
         updates.reserve(pending.size());
         for (size_t i = 0; i < pending.size(); ++i) {
-            TimePatchUpdate u;
-            u.field = pending[i].field;
-            u.value.resize(pending[i].value.size());
+            TransferTimePatchInput one;
+            one.field      = pending[i].field;
+            one.text_value = true;
+            one.value.resize(pending[i].value.size());
             for (size_t bi = 0; bi < pending[i].value.size(); ++bi) {
                 const unsigned char c = static_cast<unsigned char>(
                     pending[i].value[bi]);
-                u.value[bi] = static_cast<std::byte>(c);
+                one.value[bi] = static_cast<std::byte>(c);
             }
-            maybe_append_auto_nul(bundle, &u, auto_nul);
-            updates.push_back(std::move(u));
+            updates.push_back(std::move(one));
         }
         return updates;
     }
@@ -312,44 +263,6 @@ namespace {
         }
         return false;
     }
-
-    static bool read_file_bytes(const std::string& path,
-                                std::vector<std::byte>* out)
-    {
-        if (!out) {
-            return false;
-        }
-        out->clear();
-        std::FILE* f = std::fopen(path.c_str(), "rb");
-        if (!f) {
-            return false;
-        }
-        if (std::fseek(f, 0, SEEK_END) != 0) {
-            std::fclose(f);
-            return false;
-        }
-        const long n = std::ftell(f);
-        if (n < 0) {
-            std::fclose(f);
-            return false;
-        }
-        if (std::fseek(f, 0, SEEK_SET) != 0) {
-            std::fclose(f);
-            return false;
-        }
-        out->resize(static_cast<size_t>(n));
-        if (!out->empty()) {
-            const size_t read_n = std::fread(out->data(), 1, out->size(), f);
-            if (read_n != out->size()) {
-                std::fclose(f);
-                out->clear();
-                return false;
-            }
-        }
-        std::fclose(f);
-        return true;
-    }
-
 
     static void print_build_info_header()
     {
@@ -644,6 +557,9 @@ main(int argc, char** argv)
     uint32_t emit_repeat     = 1U;
     bool time_patch_auto_nul = true;
     std::string out_dir;
+    std::string source_meta_path;
+    std::string target_jpeg_path;
+    std::string target_tiff_path;
     std::string output_path;
     std::vector<std::string> input_paths;
     std::vector<PendingTimePatch> pending_time_patches;
@@ -743,6 +659,21 @@ main(int argc, char** argv)
         }
         if (std::strcmp(arg, "--out-dir") == 0 && i + 1 < argc) {
             out_dir = argv[i + 1];
+            i += 1;
+            continue;
+        }
+        if (std::strcmp(arg, "--source-meta") == 0 && i + 1 < argc) {
+            source_meta_path = argv[i + 1];
+            i += 1;
+            continue;
+        }
+        if (std::strcmp(arg, "--target-jpeg") == 0 && i + 1 < argc) {
+            target_jpeg_path = argv[i + 1];
+            i += 1;
+            continue;
+        }
+        if (std::strcmp(arg, "--target-tiff") == 0 && i + 1 < argc) {
+            target_tiff_path = argv[i + 1];
             i += 1;
             continue;
         }
@@ -877,12 +808,47 @@ main(int argc, char** argv)
     }
 
     if (input_paths.empty()) {
+        if (!source_meta_path.empty()) {
+            input_paths.push_back(source_meta_path);
+        } else if (!target_jpeg_path.empty()) {
+            input_paths.push_back(target_jpeg_path);
+        } else if (!target_tiff_path.empty()) {
+            input_paths.push_back(target_tiff_path);
+        }
+    }
+    if (input_paths.empty()) {
         usage(argv[0]);
+        return 2;
+    }
+    if ((!source_meta_path.empty() || !target_jpeg_path.empty()
+         || !target_tiff_path.empty())
+        && input_paths.size() != 1U) {
+        std::fprintf(
+            stderr,
+            "--source-meta/--target-jpeg/--target-tiff support exactly one job per run\n");
         return 2;
     }
     if (!output_path.empty() && input_paths.size() != 1U) {
         std::fprintf(stderr,
                      "--output supports exactly one input path per run\n");
+        return 2;
+    }
+    if (!target_jpeg_path.empty() && !target_tiff_path.empty()) {
+        std::fprintf(stderr,
+                     "--target-jpeg and --target-tiff are mutually exclusive\n");
+        return 2;
+    }
+    if (!target_tiff_path.empty()) {
+        options.prepare.target_format = TransferTargetFormat::Tiff;
+    } else {
+        options.prepare.target_format = TransferTargetFormat::Jpeg;
+    }
+    if (options.prepare.target_format == TransferTargetFormat::Tiff
+        && (edit_plan_opts.mode != JpegEditMode::Auto
+            || edit_plan_opts.require_in_place)) {
+        std::fprintf(
+            stderr,
+            "--mode/--require-in-place are only valid for JPEG targets\n");
         return 2;
     }
 
@@ -892,11 +858,54 @@ main(int argc, char** argv)
 
     bool any_failed = false;
     for (size_t i = 0; i < input_paths.size(); ++i) {
-        const std::string& path = input_paths[i];
-        std::printf("== %s\n", path.c_str());
+        const std::string& job_path   = input_paths[i];
+        const std::string source_path = source_meta_path.empty()
+                                            ? job_path
+                                            : source_meta_path;
+        std::string target_path;
+        if (!target_jpeg_path.empty()) {
+            target_path = target_jpeg_path;
+        } else if (!target_tiff_path.empty()) {
+            target_path = target_tiff_path;
+        } else {
+            target_path = job_path;
+        }
 
-        PrepareTransferFileResult prepared
-            = prepare_metadata_for_target_file(path.c_str(), options);
+        std::printf("== source=%s\n", source_path.c_str());
+        if (target_path != source_path) {
+            std::printf("   target=%s\n", target_path.c_str());
+        }
+
+        const bool need_jpeg_edit
+            = options.prepare.target_format == TransferTargetFormat::Jpeg
+              && (dry_run || !output_path.empty()
+                  || edit_plan_opts.mode != JpegEditMode::Auto
+                  || edit_plan_opts.require_in_place
+                  || !target_jpeg_path.empty());
+        const bool need_tiff_edit
+            = options.prepare.target_format == TransferTargetFormat::Tiff
+              && (dry_run || !output_path.empty() || !target_tiff_path.empty());
+
+        ExecutePreparedTransferFileOptions execute_options;
+        execute_options.prepare              = options;
+        execute_options.execute.time_patches = build_transfer_time_patch_inputs(
+            pending_time_patches);
+        execute_options.execute.time_patch          = time_patch_opts;
+        execute_options.execute.time_patch_auto_nul = time_patch_auto_nul;
+        execute_options.execute.emit_repeat         = emit_repeat;
+        execute_options.execute.jpeg_edit           = edit_plan_opts;
+        execute_options.execute.edit_requested      = need_jpeg_edit
+                                                 || need_tiff_edit;
+        execute_options.execute.edit_apply = !dry_run && !output_path.empty();
+        if (execute_options.execute.edit_requested) {
+            execute_options.edit_target_path = target_path;
+        }
+
+        const ExecutePreparedTransferFileResult executed
+            = execute_prepared_transfer_file(source_path.c_str(),
+                                             execute_options);
+        const PrepareTransferFileResult& prepared = executed.prepared;
+        const ExecutePreparedTransferResult& exec = executed.execute;
 
         std::printf("  file_status=%s code=%s size=%llu entries=%u\n",
                     transfer_file_status_name(prepared.file_status),
@@ -926,24 +935,15 @@ main(int argc, char** argv)
             continue;
         }
 
-        ApplyTimePatchResult patch_result;
-        if (!pending_time_patches.empty()) {
-            const std::vector<TimePatchUpdate> updates
-                = build_time_patch_updates(prepared.bundle,
-                                           pending_time_patches,
-                                           time_patch_auto_nul);
-            patch_result = apply_time_patches(&prepared.bundle, updates,
-                                              time_patch_opts);
-        }
         std::printf("  time_patch: status=%s patched=%u skipped=%u errors=%u\n",
-                    transfer_status_name(patch_result.status),
-                    patch_result.patched_slots, patch_result.skipped_slots,
-                    patch_result.errors);
-        if (!patch_result.message.empty()) {
+                    transfer_status_name(exec.time_patch.status),
+                    exec.time_patch.patched_slots,
+                    exec.time_patch.skipped_slots, exec.time_patch.errors);
+        if (!exec.time_patch.message.empty()) {
             std::printf("  time_patch_message=%s\n",
-                        patch_result.message.c_str());
+                        exec.time_patch.message.c_str());
         }
-        if (patch_result.status != TransferStatus::Ok) {
+        if (exec.time_patch.status != TransferStatus::Ok) {
             any_failed = true;
             continue;
         }
@@ -956,8 +956,8 @@ main(int argc, char** argv)
             if (!write_payloads) {
                 continue;
             }
-            const std::string out_path = payload_dump_path(path, out_dir, block,
-                                                           bi);
+            const std::string out_path = payload_dump_path(source_path, out_dir,
+                                                           block, bi);
             if (!force && file_exists(out_path)) {
                 std::fprintf(stderr, "  [%u] exists: %s (use --force)\n", bi,
                              out_path.c_str());
@@ -975,41 +975,36 @@ main(int argc, char** argv)
             std::printf("  [%u] wrote=%s\n", bi, out_path.c_str());
         }
 
-        const bool need_edit_plan = dry_run || !output_path.empty()
-                                    || edit_plan_opts.mode != JpegEditMode::Auto
-                                    || edit_plan_opts.require_in_place;
-        JpegEditPlan edit_plan;
-        if (need_edit_plan) {
-            std::vector<std::byte> input_jpeg;
-            if (!read_file_bytes(path, &input_jpeg)) {
-                std::fprintf(stderr, "  edit_plan: read_failed: %s\n",
-                             path.c_str());
-                any_failed = true;
-                continue;
-            }
-            edit_plan = plan_prepared_bundle_jpeg_edit(
-                std::span<const std::byte>(input_jpeg.data(), input_jpeg.size()),
-                prepared.bundle, edit_plan_opts);
-            std::printf(
-                "  edit_plan: status=%s requested=%s selected=%s "
-                "in_place_possible=%s emitted=%u replaced=%u appended=%u "
-                "input=%llu output=%llu scan_end=%llu\n",
-                transfer_status_name(edit_plan.status),
-                jpeg_edit_mode_name(edit_plan.requested_mode),
-                jpeg_edit_mode_name(edit_plan.selected_mode),
-                edit_plan.in_place_possible ? "true" : "false",
-                edit_plan.emitted_segments, edit_plan.replaced_segments,
-                edit_plan.appended_segments,
-                static_cast<unsigned long long>(edit_plan.input_size),
-                static_cast<unsigned long long>(edit_plan.output_size),
-                static_cast<unsigned long long>(edit_plan.leading_scan_end));
-            if (!edit_plan.message.empty()) {
-                std::printf("  edit_plan_message=%s\n",
-                            edit_plan.message.c_str());
-            }
-            if (edit_plan.status != TransferStatus::Ok) {
-                any_failed = true;
-                continue;
+        if (prepared.bundle.target_format == TransferTargetFormat::Jpeg) {
+            if (exec.edit_requested) {
+                if (exec.edit_plan_status == TransferStatus::Ok) {
+                    std::printf(
+                        "  edit_plan: status=%s requested=%s selected=%s "
+                        "in_place_possible=%s emitted=%u replaced=%u appended=%u "
+                        "input=%llu output=%llu scan_end=%llu\n",
+                        transfer_status_name(exec.edit_plan_status),
+                        jpeg_edit_mode_name(exec.jpeg_edit_plan.requested_mode),
+                        jpeg_edit_mode_name(exec.jpeg_edit_plan.selected_mode),
+                        exec.jpeg_edit_plan.in_place_possible ? "true"
+                                                              : "false",
+                        exec.jpeg_edit_plan.emitted_segments,
+                        exec.jpeg_edit_plan.replaced_segments,
+                        exec.jpeg_edit_plan.appended_segments,
+                        static_cast<unsigned long long>(exec.edit_input_size),
+                        static_cast<unsigned long long>(exec.edit_output_size),
+                        static_cast<unsigned long long>(
+                            exec.jpeg_edit_plan.leading_scan_end));
+                } else {
+                    std::printf("  edit_plan: status=%s\n",
+                                transfer_status_name(exec.edit_plan_status));
+                }
+                if (!exec.edit_plan_message.empty()) {
+                    std::printf("  edit_plan_message=%s\n",
+                                exec.edit_plan_message.c_str());
+                }
+                if (exec.edit_plan_status != TransferStatus::Ok) {
+                    any_failed = true;
+                }
             }
 
             if (!output_path.empty()) {
@@ -1021,30 +1016,24 @@ main(int argc, char** argv)
                     continue;
                 }
                 if (!dry_run) {
-                    std::vector<std::byte> out_jpeg;
-                    EmitTransferResult apply_result
-                        = apply_prepared_bundle_jpeg_edit(
-                            std::span<const std::byte>(input_jpeg.data(),
-                                                       input_jpeg.size()),
-                            prepared.bundle, edit_plan, &out_jpeg);
                     std::printf(
                         "  edit_apply: status=%s code=%s emitted=%u skipped=%u errors=%u\n",
-                        transfer_status_name(apply_result.status),
-                        emit_transfer_code_name(apply_result.code),
-                        apply_result.emitted, apply_result.skipped,
-                        apply_result.errors);
-                    if (!apply_result.message.empty()) {
+                        transfer_status_name(exec.edit_apply.status),
+                        emit_transfer_code_name(exec.edit_apply.code),
+                        exec.edit_apply.emitted, exec.edit_apply.skipped,
+                        exec.edit_apply.errors);
+                    if (!exec.edit_apply.message.empty()) {
                         std::printf("  edit_apply_message=%s\n",
-                                    apply_result.message.c_str());
+                                    exec.edit_apply.message.c_str());
                     }
-                    if (apply_result.status != TransferStatus::Ok) {
+                    if (exec.edit_apply.status != TransferStatus::Ok) {
                         any_failed = true;
                         continue;
                     }
-                    if (!write_file_bytes(
-                            output_path,
-                            std::span<const std::byte>(out_jpeg.data(),
-                                                       out_jpeg.size()))) {
+                    if (!write_file_bytes(output_path,
+                                          std::span<const std::byte>(
+                                              exec.edited_output.data(),
+                                              exec.edited_output.size()))) {
                         std::fprintf(stderr, "  edit_apply: write_failed: %s\n",
                                      output_path.c_str());
                         any_failed = true;
@@ -1052,70 +1041,156 @@ main(int argc, char** argv)
                     }
                     std::printf("  output=%s bytes=%llu\n", output_path.c_str(),
                                 static_cast<unsigned long long>(
-                                    out_jpeg.size()));
+                                    exec.edited_output.size()));
                 }
             }
-        }
 
-        PreparedJpegEmitPlan compiled_plan;
-        const EmitTransferResult compiled
-            = compile_prepared_bundle_jpeg(prepared.bundle, &compiled_plan);
-        std::printf("  compile: status=%s code=%s ops=%u skipped=%u errors=%u\n",
-                    transfer_status_name(compiled.status),
-                    emit_transfer_code_name(compiled.code),
-                    static_cast<unsigned>(compiled_plan.ops.size()),
-                    compiled.skipped, compiled.errors);
-        if (!compiled.message.empty()) {
-            std::printf("  compile_message=%s\n", compiled.message.c_str());
-        }
-        if (compiled.status != TransferStatus::Ok) {
-            any_failed = true;
-            continue;
-        }
-
-        RecordingJpegEmitter emitter;
-        EmitTransferResult emitted;
-        for (uint32_t rep = 0; rep < emit_repeat; ++rep) {
-            emitter.emitted.clear();
-            emitted = emit_prepared_bundle_jpeg_compiled(prepared.bundle,
-                                                         compiled_plan,
-                                                         emitter);
-            if (emitted.status != TransferStatus::Ok) {
-                break;
+            std::printf(
+                "  compile: status=%s code=%s ops=%u skipped=%u errors=%u\n",
+                transfer_status_name(exec.compile.status),
+                emit_transfer_code_name(exec.compile.code),
+                static_cast<unsigned>(exec.compiled_ops), exec.compile.skipped,
+                exec.compile.errors);
+            if (!exec.compile.message.empty()) {
+                std::printf("  compile_message=%s\n",
+                            exec.compile.message.c_str());
             }
-        }
-        std::printf(
-            "  emit: status=%s code=%s emitted=%u skipped=%u errors=%u\n",
-            transfer_status_name(emitted.status),
-            emit_transfer_code_name(emitted.code), emitted.emitted,
-            emitted.skipped, emitted.errors);
-        if (emit_repeat > 1U) {
-            std::printf("  emit_repeat=%u\n", emit_repeat);
-        }
-        if (!emitted.message.empty()) {
-            std::printf("  emit_message=%s\n", emitted.message.c_str());
-        }
-        if (emitted.status != TransferStatus::Ok) {
-            any_failed = true;
-            continue;
-        }
-
-        uint32_t marker_count[256] = {};
-        uint64_t marker_bytes[256] = {};
-        for (size_t ei = 0; ei < emitter.emitted.size(); ++ei) {
-            const EmittedMarker& m = emitter.emitted[ei];
-            marker_count[m.marker] += 1U;
-            marker_bytes[m.marker] += m.bytes;
-        }
-        for (uint32_t mi = 0; mi < 256U; ++mi) {
-            if (marker_count[mi] == 0U) {
+            if (exec.compile.status != TransferStatus::Ok) {
+                any_failed = true;
                 continue;
             }
-            std::printf("  marker %s count=%u bytes=%llu\n",
-                        marker_name(static_cast<uint8_t>(mi)).c_str(),
-                        marker_count[mi],
-                        static_cast<unsigned long long>(marker_bytes[mi]));
+
+            std::printf(
+                "  emit: status=%s code=%s emitted=%u skipped=%u errors=%u\n",
+                transfer_status_name(exec.emit.status),
+                emit_transfer_code_name(exec.emit.code), exec.emit.emitted,
+                exec.emit.skipped, exec.emit.errors);
+            if (emit_repeat > 1U) {
+                std::printf("  emit_repeat=%u\n", emit_repeat);
+            }
+            if (!exec.emit.message.empty()) {
+                std::printf("  emit_message=%s\n", exec.emit.message.c_str());
+            }
+            if (exec.emit.status != TransferStatus::Ok) {
+                any_failed = true;
+                continue;
+            }
+
+            for (size_t mi = 0; mi < exec.marker_summary.size(); ++mi) {
+                const EmittedJpegMarkerSummary& one = exec.marker_summary[mi];
+                std::printf("  marker %s count=%u bytes=%llu\n",
+                            marker_name(one.marker).c_str(), one.count,
+                            static_cast<unsigned long long>(one.bytes));
+            }
+            continue;
         }
+
+        if (prepared.bundle.target_format == TransferTargetFormat::Tiff) {
+            if (exec.edit_requested) {
+                if (exec.edit_plan_status == TransferStatus::Ok) {
+                    std::printf(
+                        "  tiff_edit: status=%s updates=%u exif=%s input=%llu output=%llu\n",
+                        transfer_status_name(exec.edit_plan_status),
+                        static_cast<unsigned>(exec.tiff_edit_plan.tag_updates),
+                        exec.tiff_edit_plan.has_exif_ifd ? "on" : "off",
+                        static_cast<unsigned long long>(exec.edit_input_size),
+                        static_cast<unsigned long long>(exec.edit_output_size));
+                } else {
+                    std::printf("  tiff_edit: status=%s\n",
+                                transfer_status_name(exec.edit_plan_status));
+                }
+                if (!exec.edit_plan_message.empty()) {
+                    std::printf("  tiff_edit_message=%s\n",
+                                exec.edit_plan_message.c_str());
+                }
+                if (exec.edit_plan_status != TransferStatus::Ok) {
+                    any_failed = true;
+                }
+            }
+
+            if (!output_path.empty()) {
+                if (!force && file_exists(output_path)) {
+                    std::fprintf(stderr,
+                                 "  tiff_edit_apply: exists: %s (use --force)\n",
+                                 output_path.c_str());
+                    any_failed = true;
+                    continue;
+                }
+                if (!dry_run) {
+                    std::printf(
+                        "  tiff_edit_apply: status=%s code=%s emitted=%u skipped=%u errors=%u\n",
+                        transfer_status_name(exec.edit_apply.status),
+                        emit_transfer_code_name(exec.edit_apply.code),
+                        exec.edit_apply.emitted, exec.edit_apply.skipped,
+                        exec.edit_apply.errors);
+                    if (!exec.edit_apply.message.empty()) {
+                        std::printf("  tiff_edit_apply_message=%s\n",
+                                    exec.edit_apply.message.c_str());
+                    }
+                    if (exec.edit_apply.status != TransferStatus::Ok) {
+                        any_failed = true;
+                        continue;
+                    }
+                    if (!write_file_bytes(output_path,
+                                          std::span<const std::byte>(
+                                              exec.edited_output.data(),
+                                              exec.edited_output.size()))) {
+                        std::fprintf(stderr,
+                                     "  tiff_edit_apply: write_failed: %s\n",
+                                     output_path.c_str());
+                        any_failed = true;
+                        continue;
+                    }
+                    std::printf("  output=%s bytes=%llu\n", output_path.c_str(),
+                                static_cast<unsigned long long>(
+                                    exec.edited_output.size()));
+                }
+            }
+
+            std::printf(
+                "  compile: status=%s code=%s ops=%u skipped=%u errors=%u\n",
+                transfer_status_name(exec.compile.status),
+                emit_transfer_code_name(exec.compile.code),
+                static_cast<unsigned>(exec.compiled_ops), exec.compile.skipped,
+                exec.compile.errors);
+            if (!exec.compile.message.empty()) {
+                std::printf("  compile_message=%s\n",
+                            exec.compile.message.c_str());
+            }
+            if (exec.compile.status != TransferStatus::Ok) {
+                any_failed = true;
+                continue;
+            }
+
+            std::printf(
+                "  emit: status=%s code=%s emitted=%u skipped=%u errors=%u\n",
+                transfer_status_name(exec.emit.status),
+                emit_transfer_code_name(exec.emit.code), exec.emit.emitted,
+                exec.emit.skipped, exec.emit.errors);
+            if (emit_repeat > 1U) {
+                std::printf("  emit_repeat=%u\n", emit_repeat);
+            }
+            if (!exec.emit.message.empty()) {
+                std::printf("  emit_message=%s\n", exec.emit.message.c_str());
+            }
+            std::printf("  tiff_commit=%s\n",
+                        exec.tiff_commit ? "true" : "false");
+            if (exec.emit.status != TransferStatus::Ok) {
+                any_failed = true;
+                continue;
+            }
+
+            for (size_t si = 0; si < exec.tiff_tag_summary.size(); ++si) {
+                const EmittedTiffTagSummary& one = exec.tiff_tag_summary[si];
+                std::printf("  tiff_tag %u count=%u bytes=%llu\n",
+                            static_cast<unsigned>(one.tag), one.count,
+                            static_cast<unsigned long long>(one.bytes));
+            }
+            continue;
+        }
+
+        std::fprintf(stderr, "  emit: unsupported bundle target format\n");
+        any_failed = true;
     }
 
     return any_failed ? 1 : 0;

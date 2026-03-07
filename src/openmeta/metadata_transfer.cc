@@ -170,6 +170,31 @@ namespace {
         return true;
     }
 
+    static bool tiff_tag_from_route(std::string_view route,
+                                    uint16_t* out_tag) noexcept
+    {
+        if (!out_tag) {
+            return false;
+        }
+        if (route == "tiff:tag-700-xmp") {
+            *out_tag = 700U;
+            return true;
+        }
+        if (route == "tiff:ifd-exif-app1") {
+            *out_tag = 34665U;  // backend interprets payload and sets ExifIFD
+            return true;
+        }
+        if (route == "tiff:tag-34675-icc") {
+            *out_tag = 34675U;
+            return true;
+        }
+        if (route == "tiff:tag-33723-iptc") {
+            *out_tag = 33723U;
+            return true;
+        }
+        return false;
+    }
+
     struct PlannedJpegSegment final {
         uint8_t marker = 0;
         std::string route;
@@ -1144,7 +1169,82 @@ namespace {
         }
     };
 
-    static uint32_t align_to_4(uint32_t v) noexcept { return (v + 3U) & ~3U; }
+    static bool build_icc_profile_bytes_from_items(
+        const std::vector<IccHeaderFieldItem>& headers,
+        const std::vector<IccTagItem>& tags,
+        std::vector<std::byte>* out_profile) noexcept
+    {
+        if (!out_profile) {
+            return false;
+        }
+        out_profile->clear();
+        if (tags.empty()) {
+            return false;
+        }
+
+        const auto align4 = [](uint32_t v) noexcept -> uint32_t {
+            return (v + 3U) & ~3U;
+        };
+
+        const uint32_t count = static_cast<uint32_t>(tags.size());
+        uint32_t table_off   = 128U;
+        uint32_t data_off    = table_off + 4U + count * 12U;
+        data_off             = align4(data_off);
+
+        struct TagPos final {
+            uint32_t signature                  = 0;
+            uint32_t offset                     = 0;
+            uint32_t size                       = 0;
+            const std::vector<std::byte>* bytes = nullptr;
+        };
+
+        std::vector<TagPos> positions;
+        positions.reserve(tags.size());
+        uint32_t cursor = data_off;
+        for (const IccTagItem& t : tags) {
+            cursor = align4(cursor);
+            TagPos p;
+            p.signature = t.signature;
+            p.offset    = cursor;
+            p.size      = static_cast<uint32_t>(t.bytes.size());
+            p.bytes     = &t.bytes;
+            positions.push_back(p);
+            cursor += p.size;
+        }
+
+        out_profile->assign(cursor, std::byte { 0x00 });
+        for (const IccHeaderFieldItem& h : headers) {
+            if (h.offset >= 128U || h.bytes.empty()) {
+                continue;
+            }
+            const size_t avail = static_cast<size_t>(128U - h.offset);
+            const size_t n     = std::min(avail, h.bytes.size());
+            std::memcpy(out_profile->data() + h.offset, h.bytes.data(), n);
+        }
+
+        (*out_profile)[36] = std::byte { 'a' };
+        (*out_profile)[37] = std::byte { 'c' };
+        (*out_profile)[38] = std::byte { 's' };
+        (*out_profile)[39] = std::byte { 'p' };
+
+        put_u32be(out_profile, 128U, count);
+        uint32_t table_pos = 132U;
+        for (const TagPos& p : positions) {
+            put_u32be(out_profile, table_pos + 0U, p.signature);
+            put_u32be(out_profile, table_pos + 4U, p.offset);
+            put_u32be(out_profile, table_pos + 8U, p.size);
+            table_pos += 12U;
+        }
+        for (const TagPos& p : positions) {
+            if (!p.bytes || p.bytes->empty()) {
+                continue;
+            }
+            std::memcpy(out_profile->data() + p.offset, p.bytes->data(),
+                        p.bytes->size());
+        }
+        put_u32be(out_profile, 0U, static_cast<uint32_t>(out_profile->size()));
+        return true;
+    }
 
     static bool value_to_icc_bytes(const MetaStore& store, const MetaValue& v,
                                    std::vector<std::byte>* out) noexcept
@@ -1342,65 +1442,12 @@ namespace {
 
         std::stable_sort(tags.begin(), tags.end(), IccTagItemLess {});
 
-        const uint32_t count = static_cast<uint32_t>(tags.size());
-        uint32_t table_off   = 128U;
-        uint32_t data_off    = table_off + 4U + count * 12U;
-        data_off             = align_to_4(data_off);
-
-        struct TagPos final {
-            uint32_t signature                  = 0;
-            uint32_t offset                     = 0;
-            uint32_t size                       = 0;
-            const std::vector<std::byte>* bytes = nullptr;
-        };
-
-        std::vector<TagPos> positions;
-        positions.reserve(tags.size());
-        uint32_t cursor = data_off;
-        for (const IccTagItem& t : tags) {
-            cursor = align_to_4(cursor);
-            TagPos p;
-            p.signature = t.signature;
-            p.offset    = cursor;
-            p.size      = static_cast<uint32_t>(t.bytes.size());
-            p.bytes     = &t.bytes;
-            positions.push_back(p);
-            cursor += p.size;
+        std::vector<std::byte> profile;
+        if (!build_icc_profile_bytes_from_items(headers, tags, &profile)
+            || profile.empty()) {
+            out.skipped_count += 1U;
+            return out;
         }
-
-        std::vector<std::byte> profile(cursor, std::byte { 0x00 });
-
-        for (const IccHeaderFieldItem& h : headers) {
-            if (h.offset >= 128U || h.bytes.empty()) {
-                continue;
-            }
-            const size_t avail = static_cast<size_t>(128U - h.offset);
-            const size_t n     = std::min(avail, h.bytes.size());
-            std::memcpy(profile.data() + h.offset, h.bytes.data(), n);
-        }
-
-        profile[36] = std::byte { 'a' };
-        profile[37] = std::byte { 'c' };
-        profile[38] = std::byte { 's' };
-        profile[39] = std::byte { 'p' };
-
-        put_u32be(&profile, 128U, count);
-        uint32_t table_pos = 132U;
-        for (const TagPos& p : positions) {
-            put_u32be(&profile, table_pos + 0U, p.signature);
-            put_u32be(&profile, table_pos + 4U, p.offset);
-            put_u32be(&profile, table_pos + 8U, p.size);
-            table_pos += 12U;
-        }
-        for (const TagPos& p : positions) {
-            if (!p.bytes || p.bytes->empty()) {
-                continue;
-            }
-            std::memcpy(profile.data() + p.offset, p.bytes->data(),
-                        p.bytes->size());
-        }
-
-        put_u32be(&profile, 0U, static_cast<uint32_t>(profile.size()));
 
         static constexpr uint32_t kIccChunkDataMax = 65519U;
         uint32_t chunk_count                       = static_cast<uint32_t>(
@@ -1434,6 +1481,87 @@ namespace {
 
         out.produced = !out.blocks.empty();
         return out;
+    }
+
+    static bool build_icc_profile_bytes(const MetaStore& store,
+                                        std::vector<std::byte>* out_profile,
+                                        uint32_t* skipped_count) noexcept
+    {
+        if (!out_profile) {
+            return false;
+        }
+        out_profile->clear();
+        if (skipped_count) {
+            *skipped_count = 0U;
+        }
+
+        std::vector<IccHeaderFieldItem> headers;
+        std::vector<IccTagItem> tags;
+
+        for (const Entry& e : store.entries()) {
+            if (any(e.flags, EntryFlags::Deleted)) {
+                continue;
+            }
+            if (e.key.kind == MetaKeyKind::IccHeaderField) {
+                std::vector<std::byte> bytes;
+                if (!value_to_icc_bytes(store, e.value, &bytes)) {
+                    if (skipped_count) {
+                        *skipped_count += 1U;
+                    }
+                    continue;
+                }
+                bool exists = false;
+                for (const IccHeaderFieldItem& h : headers) {
+                    if (h.offset == e.key.data.icc_header_field.offset) {
+                        exists = true;
+                        break;
+                    }
+                }
+                if (!exists) {
+                    IccHeaderFieldItem h;
+                    h.offset = e.key.data.icc_header_field.offset;
+                    h.bytes  = std::move(bytes);
+                    headers.push_back(std::move(h));
+                }
+                continue;
+            }
+            if (e.key.kind == MetaKeyKind::IccTag) {
+                std::vector<std::byte> bytes;
+                if (!value_to_icc_bytes(store, e.value, &bytes)) {
+                    if (skipped_count) {
+                        *skipped_count += 1U;
+                    }
+                    continue;
+                }
+                if (bytes.empty()) {
+                    if (skipped_count) {
+                        *skipped_count += 1U;
+                    }
+                    continue;
+                }
+                bool exists = false;
+                for (const IccTagItem& t : tags) {
+                    if (t.signature == e.key.data.icc_tag.signature) {
+                        exists = true;
+                        break;
+                    }
+                }
+                if (!exists) {
+                    IccTagItem t;
+                    t.signature = e.key.data.icc_tag.signature;
+                    t.bytes     = std::move(bytes);
+                    tags.push_back(std::move(t));
+                }
+                continue;
+            }
+        }
+
+        if (tags.empty()) {
+            return false;
+        }
+
+        std::stable_sort(tags.begin(), tags.end(), IccTagItemLess {});
+        return build_icc_profile_bytes_from_items(headers, tags, out_profile);
     }
 
     struct IptcDatasetItem final {
@@ -1605,6 +1733,975 @@ namespace {
         return out;
     }
 
+    enum class TiffEndian : uint8_t {
+        Little,
+        Big,
+    };
+
+    struct TiffTagUpdate final {
+        uint16_t tag   = 0U;
+        uint16_t type  = 7U;  // UNDEFINED
+        uint32_t count = 0U;
+        std::vector<std::byte> payload;
+    };
+
+    struct TiffIfdEntry final {
+        uint16_t tag            = 0U;
+        uint16_t type           = 0U;
+        uint32_t count          = 0U;
+        uint32_t value_or_off   = 0U;
+        bool has_inline_payload = false;
+        std::array<std::byte, 4> inline_payload {};
+        bool has_rewrite_payload = false;
+        std::vector<std::byte> rewrite_payload;
+    };
+
+    struct ParsedTiffIfdEntry final {
+        uint16_t tag   = 0U;
+        uint16_t type  = 0U;
+        uint32_t count = 0U;
+        std::vector<std::byte> payload;
+    };
+
+    struct ParsedTiffIfd final {
+        bool present = false;
+        std::vector<ParsedTiffIfdEntry> entries;
+    };
+
+    struct ParsedTransferExif final {
+        std::vector<TiffTagUpdate> ifd0_updates;
+        ParsedTiffIfd exif_ifd;
+        ParsedTiffIfd gps_ifd;
+        ParsedTiffIfd interop_ifd;
+        TiffEndian source_endian = TiffEndian::Little;
+    };
+
+    static uint16_t read_u16_tiff(std::span<const std::byte> b, size_t off,
+                                  TiffEndian endian) noexcept
+    {
+        if (off + 2U > b.size()) {
+            return 0U;
+        }
+        const uint16_t a = static_cast<uint16_t>(
+            std::to_integer<uint8_t>(b[off + 0U]));
+        const uint16_t c = static_cast<uint16_t>(
+            std::to_integer<uint8_t>(b[off + 1U]));
+        if (endian == TiffEndian::Little) {
+            return static_cast<uint16_t>(a | (c << 8U));
+        }
+        return static_cast<uint16_t>((a << 8U) | c);
+    }
+
+    static uint32_t read_u32_tiff(std::span<const std::byte> b, size_t off,
+                                  TiffEndian endian) noexcept
+    {
+        if (off + 4U > b.size()) {
+            return 0U;
+        }
+        const uint32_t b0 = static_cast<uint32_t>(
+            std::to_integer<uint8_t>(b[off + 0U]));
+        const uint32_t b1 = static_cast<uint32_t>(
+            std::to_integer<uint8_t>(b[off + 1U]));
+        const uint32_t b2 = static_cast<uint32_t>(
+            std::to_integer<uint8_t>(b[off + 2U]));
+        const uint32_t b3 = static_cast<uint32_t>(
+            std::to_integer<uint8_t>(b[off + 3U]));
+        if (endian == TiffEndian::Little) {
+            return b0 | (b1 << 8U) | (b2 << 16U) | (b3 << 24U);
+        }
+        return (b0 << 24U) | (b1 << 16U) | (b2 << 8U) | b3;
+    }
+
+    static void write_u16_tiff(std::vector<std::byte>* out, size_t off,
+                               uint16_t v, TiffEndian endian) noexcept
+    {
+        if (!out || off + 2U > out->size()) {
+            return;
+        }
+        if (endian == TiffEndian::Little) {
+            (*out)[off + 0U] = static_cast<std::byte>((v >> 0U) & 0xFFU);
+            (*out)[off + 1U] = static_cast<std::byte>((v >> 8U) & 0xFFU);
+        } else {
+            (*out)[off + 0U] = static_cast<std::byte>((v >> 8U) & 0xFFU);
+            (*out)[off + 1U] = static_cast<std::byte>((v >> 0U) & 0xFFU);
+        }
+    }
+
+    static void write_u32_tiff(std::vector<std::byte>* out, size_t off,
+                               uint32_t v, TiffEndian endian) noexcept
+    {
+        if (!out || off + 4U > out->size()) {
+            return;
+        }
+        if (endian == TiffEndian::Little) {
+            (*out)[off + 0U] = static_cast<std::byte>((v >> 0U) & 0xFFU);
+            (*out)[off + 1U] = static_cast<std::byte>((v >> 8U) & 0xFFU);
+            (*out)[off + 2U] = static_cast<std::byte>((v >> 16U) & 0xFFU);
+            (*out)[off + 3U] = static_cast<std::byte>((v >> 24U) & 0xFFU);
+        } else {
+            (*out)[off + 0U] = static_cast<std::byte>((v >> 24U) & 0xFFU);
+            (*out)[off + 1U] = static_cast<std::byte>((v >> 16U) & 0xFFU);
+            (*out)[off + 2U] = static_cast<std::byte>((v >> 8U) & 0xFFU);
+            (*out)[off + 3U] = static_cast<std::byte>((v >> 0U) & 0xFFU);
+        }
+    }
+
+    static void append_u32_tiff(std::vector<std::byte>* out, uint32_t v,
+                                TiffEndian endian) noexcept
+    {
+        if (!out) {
+            return;
+        }
+        const size_t off = out->size();
+        out->resize(off + 4U, std::byte { 0x00 });
+        write_u32_tiff(out, off, v, endian);
+    }
+
+    static bool tiff_type_byte_len(uint16_t type, uint32_t count,
+                                   size_t* out_len) noexcept
+    {
+        if (!out_len) {
+            return false;
+        }
+        *out_len           = 0U;
+        const uint32_t sz  = tiff_type_size(type);
+        const uint64_t mul = static_cast<uint64_t>(sz)
+                             * static_cast<uint64_t>(count);
+        if (sz == 0U || mul > static_cast<uint64_t>(SIZE_MAX)) {
+            return false;
+        }
+        *out_len = static_cast<size_t>(mul);
+        return true;
+    }
+
+    static bool convert_tiff_payload_endian_inplace(
+        std::vector<std::byte>* bytes, uint16_t type, uint32_t count,
+        TiffEndian from_endian, TiffEndian to_endian) noexcept
+    {
+        if (!bytes) {
+            return false;
+        }
+        if (from_endian == to_endian || bytes->empty()) {
+            return true;
+        }
+        size_t expected = 0U;
+        if (!tiff_type_byte_len(type, count, &expected)
+            || expected != bytes->size()) {
+            return false;
+        }
+
+        std::vector<std::byte>& v = *bytes;
+        switch (type) {
+        case 1U:  // BYTE
+        case 2U:  // ASCII
+        case 6U:  // SBYTE
+        case 7U:  // UNDEFINED
+            return true;
+        case 3U:  // SHORT
+        case 8U:  // SSHORT
+            for (size_t i = 0; i < v.size(); i += 2U) {
+                std::swap(v[i + 0U], v[i + 1U]);
+            }
+            return true;
+        case 4U:   // LONG
+        case 9U:   // SLONG
+        case 11U:  // FLOAT
+            for (size_t i = 0; i < v.size(); i += 4U) {
+                std::swap(v[i + 0U], v[i + 3U]);
+                std::swap(v[i + 1U], v[i + 2U]);
+            }
+            return true;
+        case 5U:   // RATIONAL
+        case 10U:  // SRATIONAL
+            for (size_t i = 0; i < v.size(); i += 8U) {
+                std::swap(v[i + 0U], v[i + 3U]);
+                std::swap(v[i + 1U], v[i + 2U]);
+                std::swap(v[i + 4U], v[i + 7U]);
+                std::swap(v[i + 5U], v[i + 6U]);
+            }
+            return true;
+        case 12U:  // DOUBLE
+            for (size_t i = 0; i < v.size(); i += 8U) {
+                std::swap(v[i + 0U], v[i + 7U]);
+                std::swap(v[i + 1U], v[i + 6U]);
+                std::swap(v[i + 2U], v[i + 5U]);
+                std::swap(v[i + 3U], v[i + 4U]);
+            }
+            return true;
+        default: return false;
+        }
+    }
+
+    static bool convert_parsed_ifd_endian(ParsedTiffIfd* ifd,
+                                          TiffEndian from_endian,
+                                          TiffEndian to_endian) noexcept
+    {
+        if (!ifd || !ifd->present) {
+            return true;
+        }
+        for (size_t i = 0; i < ifd->entries.size(); ++i) {
+            ParsedTiffIfdEntry& e = ifd->entries[i];
+            if (!convert_tiff_payload_endian_inplace(&e.payload, e.type,
+                                                     e.count, from_endian,
+                                                     to_endian)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    static bool convert_transfer_exif_endian(ParsedTransferExif* exif,
+                                             TiffEndian to_endian) noexcept
+    {
+        if (!exif) {
+            return false;
+        }
+        const TiffEndian from_endian = exif->source_endian;
+        if (from_endian == to_endian) {
+            return true;
+        }
+        for (size_t i = 0; i < exif->ifd0_updates.size(); ++i) {
+            TiffTagUpdate& u = exif->ifd0_updates[i];
+            if (!convert_tiff_payload_endian_inplace(&u.payload, u.type,
+                                                     u.count, from_endian,
+                                                     to_endian)) {
+                return false;
+            }
+        }
+        return convert_parsed_ifd_endian(&exif->exif_ifd, from_endian,
+                                         to_endian)
+               && convert_parsed_ifd_endian(&exif->gps_ifd, from_endian,
+                                            to_endian)
+               && convert_parsed_ifd_endian(&exif->interop_ifd, from_endian,
+                                            to_endian);
+    }
+
+    static bool parse_classic_ifd(std::span<const std::byte> tiff,
+                                  size_t ifd_off, TiffEndian endian,
+                                  ParsedTiffIfd* out, std::string* err) noexcept
+    {
+        if (!out) {
+            return false;
+        }
+        out->present = false;
+        out->entries.clear();
+
+        if (ifd_off == 0U) {
+            return false;
+        }
+        if (ifd_off + 2U > tiff.size()) {
+            if (err) {
+                *err = "exif ifd offset out of range";
+            }
+            return false;
+        }
+        const uint16_t count_u16 = read_u16_tiff(tiff, ifd_off, endian);
+        const size_t count       = static_cast<size_t>(count_u16);
+        const size_t entries_off = ifd_off + 2U;
+        const size_t entries_end = entries_off + count * 12U;
+        if (entries_end + 4U > tiff.size()) {
+            if (err) {
+                *err = "exif ifd entries truncated";
+            }
+            return false;
+        }
+
+        out->entries.reserve(count);
+        for (size_t i = 0; i < count; ++i) {
+            const size_t p            = entries_off + i * 12U;
+            const uint16_t tag        = read_u16_tiff(tiff, p + 0U, endian);
+            const uint16_t type       = read_u16_tiff(tiff, p + 2U, endian);
+            const uint32_t elem_count = read_u32_tiff(tiff, p + 4U, endian);
+            size_t payload_n          = 0U;
+            if (!tiff_type_byte_len(type, elem_count, &payload_n)) {
+                if (err) {
+                    *err = "unsupported exif ifd entry type/size";
+                }
+                return false;
+            }
+
+            ParsedTiffIfdEntry e;
+            e.tag   = tag;
+            e.type  = type;
+            e.count = elem_count;
+            if (payload_n <= 4U) {
+                e.payload.resize(payload_n, std::byte { 0x00 });
+                for (size_t bi = 0; bi < payload_n; ++bi) {
+                    e.payload[bi] = tiff[p + 8U + bi];
+                }
+            } else {
+                const uint32_t value_off_u32 = read_u32_tiff(tiff, p + 8U,
+                                                             endian);
+                const size_t value_off = static_cast<size_t>(value_off_u32);
+                if (value_off + payload_n > tiff.size()) {
+                    if (err) {
+                        *err = "exif ifd value offset out of range";
+                    }
+                    return false;
+                }
+                e.payload.resize(payload_n, std::byte { 0x00 });
+                if (payload_n > 0U) {
+                    std::memcpy(e.payload.data(), tiff.data() + value_off,
+                                payload_n);
+                }
+            }
+            out->entries.push_back(std::move(e));
+        }
+        out->present = true;
+        return true;
+    }
+
+    static bool find_ifd_entry(const ParsedTiffIfd& ifd, uint16_t tag,
+                               ParsedTiffIfdEntry* out) noexcept
+    {
+        if (!out) {
+            return false;
+        }
+        for (size_t i = 0; i < ifd.entries.size(); ++i) {
+            if (ifd.entries[i].tag == tag) {
+                *out = ifd.entries[i];
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static bool payload_to_u32(const ParsedTiffIfdEntry& e, TiffEndian endian,
+                               uint32_t* out) noexcept
+    {
+        if (!out || e.type != 4U || e.count != 1U || e.payload.size() != 4U) {
+            return false;
+        }
+        const uint32_t b0 = static_cast<uint32_t>(
+            std::to_integer<uint8_t>(e.payload[0U]));
+        const uint32_t b1 = static_cast<uint32_t>(
+            std::to_integer<uint8_t>(e.payload[1U]));
+        const uint32_t b2 = static_cast<uint32_t>(
+            std::to_integer<uint8_t>(e.payload[2U]));
+        const uint32_t b3 = static_cast<uint32_t>(
+            std::to_integer<uint8_t>(e.payload[3U]));
+        if (endian == TiffEndian::Little) {
+            *out = b0 | (b1 << 8U) | (b2 << 16U) | (b3 << 24U);
+        } else {
+            *out = (b0 << 24U) | (b1 << 16U) | (b2 << 8U) | b3;
+        }
+        return true;
+    }
+
+    static bool
+    parse_exif_app1_for_tiff_transfer(std::span<const std::byte> exif_app1,
+                                      ParsedTransferExif* out,
+                                      std::string* err) noexcept
+    {
+        if (!out) {
+            return false;
+        }
+        out->ifd0_updates.clear();
+        out->exif_ifd      = ParsedTiffIfd {};
+        out->gps_ifd       = ParsedTiffIfd {};
+        out->interop_ifd   = ParsedTiffIfd {};
+        out->source_endian = TiffEndian::Little;
+
+        if (exif_app1.size() < 14U) {
+            if (err) {
+                *err = "exif app1 payload too small";
+            }
+            return false;
+        }
+        const char kExifPrefix[6] = { 'E', 'x', 'i', 'f', '\0', '\0' };
+        for (size_t i = 0; i < 6U; ++i) {
+            if (std::to_integer<uint8_t>(exif_app1[i])
+                != static_cast<uint8_t>(kExifPrefix[i])) {
+                if (err) {
+                    *err = "exif app1 payload missing Exif\\0\\0 prefix";
+                }
+                return false;
+            }
+        }
+
+        const std::span<const std::byte> tiff = exif_app1.subspan(6U);
+        if (tiff.size() < 8U) {
+            if (err) {
+                *err = "exif tiff payload too small";
+            }
+            return false;
+        }
+        TiffEndian endian = TiffEndian::Little;
+        if (tiff[0] == std::byte { 'I' } && tiff[1] == std::byte { 'I' }) {
+            endian = TiffEndian::Little;
+        } else if (tiff[0] == std::byte { 'M' }
+                   && tiff[1] == std::byte { 'M' }) {
+            endian = TiffEndian::Big;
+        } else {
+            if (err) {
+                *err = "unsupported exif tiff byte order";
+            }
+            return false;
+        }
+        if (read_u16_tiff(tiff, 2U, endian) != 42U) {
+            if (err) {
+                *err = "unsupported exif tiff magic";
+            }
+            return false;
+        }
+        const size_t ifd0_off = static_cast<size_t>(
+            read_u32_tiff(tiff, 4U, endian));
+
+        ParsedTiffIfd ifd0;
+        if (!parse_classic_ifd(tiff, ifd0_off, endian, &ifd0, err)) {
+            return false;
+        }
+
+        uint32_t exif_ifd_off = 0U;
+        uint32_t gps_ifd_off  = 0U;
+        for (size_t i = 0; i < ifd0.entries.size(); ++i) {
+            const ParsedTiffIfdEntry& e = ifd0.entries[i];
+            if (e.tag == 0x8769U && payload_to_u32(e, endian, &exif_ifd_off)) {
+                continue;
+            }
+            if (e.tag == 0x8825U && payload_to_u32(e, endian, &gps_ifd_off)) {
+                continue;
+            }
+            TiffTagUpdate u;
+            u.tag     = e.tag;
+            u.type    = e.type;
+            u.count   = e.count;
+            u.payload = e.payload;
+            out->ifd0_updates.push_back(std::move(u));
+        }
+
+        if (exif_ifd_off != 0U) {
+            if (!parse_classic_ifd(tiff, static_cast<size_t>(exif_ifd_off),
+                                   endian, &out->exif_ifd, err)) {
+                return false;
+            }
+            ParsedTiffIfdEntry interop_ptr;
+            if (find_ifd_entry(out->exif_ifd, 0xA005U, &interop_ptr)) {
+                uint32_t interop_ifd_off = 0U;
+                if (payload_to_u32(interop_ptr, endian, &interop_ifd_off)
+                    && interop_ifd_off != 0U) {
+                    if (!parse_classic_ifd(tiff,
+                                           static_cast<size_t>(interop_ifd_off),
+                                           endian, &out->interop_ifd, err)) {
+                        return false;
+                    }
+                }
+            }
+        }
+
+        if (gps_ifd_off != 0U
+            && !parse_classic_ifd(tiff, static_cast<size_t>(gps_ifd_off),
+                                  endian, &out->gps_ifd, err)) {
+            return false;
+        }
+
+        out->source_endian = endian;
+        return true;
+    }
+
+    static std::vector<TiffTagUpdate>
+    collect_tiff_tag_updates(const PreparedTransferBundle& bundle) noexcept
+    {
+        std::vector<TiffTagUpdate> out;
+        for (size_t i = 0; i < bundle.blocks.size(); ++i) {
+            const PreparedTransferBlock& b = bundle.blocks[i];
+            uint16_t tag                   = 0;
+            if (!tiff_tag_from_route(b.route, &tag)) {
+                continue;
+            }
+            if (tag == 34665U) {
+                continue;
+            }
+            bool exists = false;
+            for (size_t j = 0; j < out.size(); ++j) {
+                if (out[j].tag == tag) {
+                    exists = true;
+                    break;
+                }
+            }
+            if (exists) {
+                continue;
+            }
+            TiffTagUpdate u;
+            u.tag   = tag;
+            u.type  = 7U;
+            u.count = static_cast<uint32_t>(b.payload.size());
+            u.payload.assign(b.payload.begin(), b.payload.end());
+            out.push_back(std::move(u));
+        }
+        return out;
+    }
+
+    static std::vector<std::byte>
+    first_tiff_exif_app1_payload(const PreparedTransferBundle& bundle) noexcept
+    {
+        for (size_t i = 0; i < bundle.blocks.size(); ++i) {
+            const PreparedTransferBlock& b = bundle.blocks[i];
+            if (b.route == "tiff:ifd-exif-app1" && !b.payload.empty()) {
+                return b.payload;
+            }
+        }
+        return {};
+    }
+
+    static bool has_update_for_tag(const std::vector<TiffTagUpdate>& updates,
+                                   uint16_t tag) noexcept
+    {
+        for (size_t i = 0; i < updates.size(); ++i) {
+            if (updates[i].tag == tag) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static void upsert_ifd_pointer(ParsedTiffIfd* ifd, uint16_t tag,
+                                   uint32_t value, TiffEndian endian) noexcept
+    {
+        if (!ifd) {
+            return;
+        }
+        std::vector<std::byte> payload;
+        append_u32_tiff(&payload, value, endian);
+        for (size_t i = 0; i < ifd->entries.size(); ++i) {
+            ParsedTiffIfdEntry& e = ifd->entries[i];
+            if (e.tag == tag) {
+                e.type    = 4U;
+                e.count   = 1U;
+                e.payload = payload;
+                return;
+            }
+        }
+        ParsedTiffIfdEntry p;
+        p.tag     = tag;
+        p.type    = 4U;
+        p.count   = 1U;
+        p.payload = std::move(payload);
+        ifd->entries.push_back(std::move(p));
+    }
+
+    static bool append_serialized_ifd(std::vector<std::byte>* out,
+                                      const ParsedTiffIfd& ifd,
+                                      TiffEndian endian,
+                                      uint32_t* out_ifd_offset,
+                                      std::string* err) noexcept
+    {
+        if (!out || !out_ifd_offset || !ifd.present) {
+            return false;
+        }
+        if (ifd.entries.size() > static_cast<size_t>(0xFFFFU)) {
+            if (err) {
+                *err = "too many EXIF sub-IFD entries";
+            }
+            return false;
+        }
+
+        if ((out->size() & 1U) != 0U) {
+            out->push_back(std::byte { 0x00 });
+        }
+        if (out->size() > static_cast<size_t>(0xFFFFFFFFU)) {
+            if (err) {
+                *err = "tiff output exceeds classic 32-bit offset range";
+            }
+            return false;
+        }
+        const uint32_t dir_off = static_cast<uint32_t>(out->size());
+        *out_ifd_offset        = dir_off;
+
+        struct Placement final {
+            bool inline_value     = false;
+            uint32_t value_offset = 0U;
+            std::array<std::byte, 4> inline_bytes {};
+        };
+
+        std::vector<Placement> placements(ifd.entries.size());
+        uint32_t cursor = dir_off + 2U
+                          + static_cast<uint32_t>(ifd.entries.size()) * 12U
+                          + 4U;
+
+        for (size_t i = 0; i < ifd.entries.size(); ++i) {
+            const ParsedTiffIfdEntry& e = ifd.entries[i];
+            if (e.payload.size() <= 4U) {
+                placements[i].inline_value = true;
+                for (size_t bi = 0; bi < e.payload.size(); ++bi) {
+                    placements[i].inline_bytes[bi] = e.payload[bi];
+                }
+                continue;
+            }
+            cursor                     = (cursor + 1U) & ~1U;
+            placements[i].value_offset = cursor;
+            cursor += static_cast<uint32_t>(e.payload.size());
+        }
+
+        if (cursor > static_cast<uint32_t>(0xFFFFFFFFU)) {
+            if (err) {
+                *err = "tiff output exceeds classic 32-bit offset range";
+            }
+            return false;
+        }
+        out->resize(static_cast<size_t>(cursor), std::byte { 0x00 });
+
+        size_t p = static_cast<size_t>(dir_off);
+        write_u16_tiff(out, p, static_cast<uint16_t>(ifd.entries.size()),
+                       endian);
+        p += 2U;
+        for (size_t i = 0; i < ifd.entries.size(); ++i) {
+            const ParsedTiffIfdEntry& e = ifd.entries[i];
+            write_u16_tiff(out, p + 0U, e.tag, endian);
+            write_u16_tiff(out, p + 2U, e.type, endian);
+            write_u32_tiff(out, p + 4U, e.count, endian);
+            if (placements[i].inline_value) {
+                for (size_t bi = 0; bi < 4U; ++bi) {
+                    (*out)[p + 8U + bi] = placements[i].inline_bytes[bi];
+                }
+            } else {
+                write_u32_tiff(out, p + 8U, placements[i].value_offset, endian);
+            }
+            p += 12U;
+        }
+        write_u32_tiff(out, p, 0U, endian);
+
+        for (size_t i = 0; i < ifd.entries.size(); ++i) {
+            const ParsedTiffIfdEntry& e = ifd.entries[i];
+            if (placements[i].inline_value || e.payload.empty()) {
+                continue;
+            }
+            const size_t off = static_cast<size_t>(placements[i].value_offset);
+            if (off + e.payload.size() > out->size()) {
+                if (err) {
+                    *err = "serialized EXIF sub-IFD payload out of range";
+                }
+                return false;
+            }
+            std::memcpy(out->data() + off, e.payload.data(), e.payload.size());
+        }
+
+        return true;
+    }
+
+    static bool
+    rewrite_tiff_ifd0_tags(std::span<const std::byte> input,
+                           const std::vector<TiffTagUpdate>& updates,
+                           std::span<const std::byte> exif_app1_payload,
+                           std::vector<std::byte>* out,
+                           std::string* err) noexcept
+    {
+        if (!out) {
+            return false;
+        }
+        out->clear();
+        if (updates.empty() && exif_app1_payload.empty()) {
+            if (err) {
+                *err = "no tiff updates";
+            }
+            return false;
+        }
+        if (input.size() < 8U) {
+            if (err) {
+                *err = "tiff input too small";
+            }
+            return false;
+        }
+
+        TiffEndian endian = TiffEndian::Little;
+        if (input[0] == std::byte { 'I' } && input[1] == std::byte { 'I' }) {
+            endian = TiffEndian::Little;
+        } else if (input[0] == std::byte { 'M' }
+                   && input[1] == std::byte { 'M' }) {
+            endian = TiffEndian::Big;
+        } else {
+            if (err) {
+                *err = "unsupported tiff byte order";
+            }
+            return false;
+        }
+        const uint16_t magic = read_u16_tiff(input, 2U, endian);
+        if (magic != 42U) {
+            if (err) {
+                *err = "unsupported tiff variant (expected classic tiff)";
+            }
+            return false;
+        }
+
+        const uint32_t ifd0_off_u32 = read_u32_tiff(input, 4U, endian);
+        const size_t ifd0_off       = static_cast<size_t>(ifd0_off_u32);
+        if (ifd0_off + 2U > input.size()) {
+            if (err) {
+                *err = "ifd0 offset out of range";
+            }
+            return false;
+        }
+        const uint16_t count_u16 = read_u16_tiff(input, ifd0_off, endian);
+        const size_t count       = static_cast<size_t>(count_u16);
+        const size_t entries_off = ifd0_off + 2U;
+        const size_t entries_end = entries_off + count * 12U;
+        if (entries_end + 4U > input.size()) {
+            if (err) {
+                *err = "ifd0 entries truncated";
+            }
+            return false;
+        }
+        const uint32_t next_ifd_off = read_u32_tiff(input, entries_end, endian);
+
+        ParsedTransferExif parsed_exif;
+        if (!exif_app1_payload.empty()
+            && !parse_exif_app1_for_tiff_transfer(exif_app1_payload,
+                                                  &parsed_exif, err)) {
+            return false;
+        }
+        if (parsed_exif.interop_ifd.present && !parsed_exif.exif_ifd.present) {
+            if (err) {
+                *err = "interop IFD present without ExifIFD";
+            }
+            return false;
+        }
+        if (!convert_transfer_exif_endian(&parsed_exif, endian)) {
+            if (err) {
+                *err = "failed to convert EXIF payload endian for target TIFF";
+            }
+            return false;
+        }
+
+        std::vector<TiffTagUpdate> merged_updates = updates;
+        for (size_t i = 0; i < parsed_exif.ifd0_updates.size(); ++i) {
+            const TiffTagUpdate& src = parsed_exif.ifd0_updates[i];
+            bool replaced            = false;
+            for (size_t j = 0; j < merged_updates.size(); ++j) {
+                if (merged_updates[j].tag == src.tag) {
+                    merged_updates[j] = src;
+                    replaced          = true;
+                    break;
+                }
+            }
+            if (!replaced) {
+                merged_updates.push_back(src);
+            }
+        }
+
+        const bool need_exif_ptr = parsed_exif.exif_ifd.present;
+        const bool need_gps_ptr  = parsed_exif.gps_ifd.present;
+
+        std::vector<TiffIfdEntry> final_entries;
+        final_entries.reserve(count + merged_updates.size() + 2U);
+
+        for (size_t i = 0; i < count; ++i) {
+            const size_t p     = entries_off + i * 12U;
+            const uint16_t tag = read_u16_tiff(input, p + 0U, endian);
+            if (has_update_for_tag(merged_updates, tag)
+                || (need_exif_ptr && tag == 0x8769U)
+                || (need_gps_ptr && tag == 0x8825U)) {
+                continue;
+            }
+            TiffIfdEntry e;
+            e.tag          = tag;
+            e.type         = read_u16_tiff(input, p + 2U, endian);
+            e.count        = read_u32_tiff(input, p + 4U, endian);
+            e.value_or_off = read_u32_tiff(input, p + 8U, endian);
+            final_entries.push_back(e);
+        }
+
+        for (size_t u = 0; u < merged_updates.size(); ++u) {
+            const TiffTagUpdate& src = merged_updates[u];
+            TiffIfdEntry e;
+            e.tag                 = src.tag;
+            e.type                = src.type;
+            e.count               = src.count;
+            e.has_rewrite_payload = true;
+            e.rewrite_payload     = src.payload;
+            if (e.count == 0U) {
+                const uint32_t sz = tiff_type_size(e.type);
+                if (sz == 0U) {
+                    if (err) {
+                        *err = "unsupported update tag type";
+                    }
+                    return false;
+                }
+                if (e.rewrite_payload.size() % sz != 0U) {
+                    if (err) {
+                        *err = "update payload size/type mismatch";
+                    }
+                    return false;
+                }
+                e.count = static_cast<uint32_t>(e.rewrite_payload.size() / sz);
+            }
+            final_entries.push_back(std::move(e));
+        }
+
+        if (need_exif_ptr) {
+            TiffIfdEntry e;
+            e.tag                 = 0x8769U;
+            e.type                = 4U;
+            e.count               = 1U;
+            e.has_rewrite_payload = true;
+            e.rewrite_payload.resize(4U, std::byte { 0x00 });
+            final_entries.push_back(std::move(e));
+        }
+        if (need_gps_ptr) {
+            TiffIfdEntry e;
+            e.tag                 = 0x8825U;
+            e.type                = 4U;
+            e.count               = 1U;
+            e.has_rewrite_payload = true;
+            e.rewrite_payload.resize(4U, std::byte { 0x00 });
+            final_entries.push_back(std::move(e));
+        }
+
+        std::sort(final_entries.begin(), final_entries.end(),
+                  [](const TiffIfdEntry& a, const TiffIfdEntry& b) {
+                      return a.tag < b.tag;
+                  });
+
+        out->assign(input.begin(), input.end());
+        if ((out->size() & 1U) != 0U) {
+            out->push_back(std::byte { 0x00 });
+        }
+
+        for (size_t i = 0; i < final_entries.size(); ++i) {
+            TiffIfdEntry& e = final_entries[i];
+            if (!e.has_rewrite_payload) {
+                continue;
+            }
+            if (e.rewrite_payload.size() <= 4U) {
+                e.has_inline_payload = true;
+                e.inline_payload     = { std::byte { 0x00 }, std::byte { 0x00 },
+                                         std::byte { 0x00 }, std::byte { 0x00 } };
+                for (size_t bi = 0; bi < e.rewrite_payload.size(); ++bi) {
+                    e.inline_payload[bi] = e.rewrite_payload[bi];
+                }
+                continue;
+            }
+            if ((out->size() & 1U) != 0U) {
+                out->push_back(std::byte { 0x00 });
+            }
+            if (out->size() > static_cast<size_t>(0xFFFFFFFFU)) {
+                if (err) {
+                    *err = "tiff output exceeds classic 32-bit offset range";
+                }
+                return false;
+            }
+            e.value_or_off = static_cast<uint32_t>(out->size());
+            out->insert(out->end(), e.rewrite_payload.begin(),
+                        e.rewrite_payload.end());
+        }
+
+        uint32_t interop_ifd_off = 0U;
+        if (parsed_exif.interop_ifd.present
+            && !append_serialized_ifd(out, parsed_exif.interop_ifd, endian,
+                                      &interop_ifd_off, err)) {
+            return false;
+        }
+
+        uint32_t exif_ifd_off = 0U;
+        if (parsed_exif.exif_ifd.present) {
+            ParsedTiffIfd exif_ifd = parsed_exif.exif_ifd;
+            if (parsed_exif.interop_ifd.present) {
+                upsert_ifd_pointer(&exif_ifd, 0xA005U, interop_ifd_off, endian);
+            }
+            if (!append_serialized_ifd(out, exif_ifd, endian, &exif_ifd_off,
+                                       err)) {
+                return false;
+            }
+        }
+
+        uint32_t gps_ifd_off = 0U;
+        if (parsed_exif.gps_ifd.present
+            && !append_serialized_ifd(out, parsed_exif.gps_ifd, endian,
+                                      &gps_ifd_off, err)) {
+            return false;
+        }
+
+        if (exif_ifd_off != 0U || gps_ifd_off != 0U) {
+            for (size_t i = 0; i < final_entries.size(); ++i) {
+                TiffIfdEntry& e = final_entries[i];
+                if (e.tag == 0x8769U && exif_ifd_off != 0U) {
+                    e.type               = 4U;
+                    e.count              = 1U;
+                    e.has_inline_payload = true;
+                    e.inline_payload = { std::byte { 0x00 }, std::byte { 0x00 },
+                                         std::byte { 0x00 },
+                                         std::byte { 0x00 } };
+                    std::vector<std::byte> tmp;
+                    append_u32_tiff(&tmp, exif_ifd_off, endian);
+                    for (size_t bi = 0; bi < 4U; ++bi) {
+                        e.inline_payload[bi] = tmp[bi];
+                    }
+                    continue;
+                }
+                if (e.tag == 0x8825U && gps_ifd_off != 0U) {
+                    e.type               = 4U;
+                    e.count              = 1U;
+                    e.has_inline_payload = true;
+                    e.inline_payload = { std::byte { 0x00 }, std::byte { 0x00 },
+                                         std::byte { 0x00 },
+                                         std::byte { 0x00 } };
+                    std::vector<std::byte> tmp;
+                    append_u32_tiff(&tmp, gps_ifd_off, endian);
+                    for (size_t bi = 0; bi < 4U; ++bi) {
+                        e.inline_payload[bi] = tmp[bi];
+                    }
+                }
+            }
+        }
+
+        if ((out->size() & 1U) != 0U) {
+            out->push_back(std::byte { 0x00 });
+        }
+        if (out->size() > static_cast<size_t>(0xFFFFFFFFU)) {
+            if (err) {
+                *err = "tiff output exceeds classic 32-bit offset range";
+            }
+            return false;
+        }
+        const uint32_t new_ifd0_off = static_cast<uint32_t>(out->size());
+
+        if (final_entries.size() > static_cast<size_t>(0xFFFFU)) {
+            if (err) {
+                *err = "too many tiff ifd0 entries";
+            }
+            return false;
+        }
+        const size_t ifd_bytes = 2U + final_entries.size() * 12U + 4U;
+        out->resize(out->size() + ifd_bytes, std::byte { 0x00 });
+        size_t w = static_cast<size_t>(new_ifd0_off);
+        write_u16_tiff(out, w, static_cast<uint16_t>(final_entries.size()),
+                       endian);
+        w += 2U;
+        for (size_t i = 0; i < final_entries.size(); ++i) {
+            const TiffIfdEntry& e = final_entries[i];
+            write_u16_tiff(out, w + 0U, e.tag, endian);
+            write_u16_tiff(out, w + 2U, e.type, endian);
+            write_u32_tiff(out, w + 4U, e.count, endian);
+            if (e.has_inline_payload) {
+                for (size_t k = 0; k < 4U; ++k) {
+                    (*out)[w + 8U + k] = e.inline_payload[k];
+                }
+            } else {
+                write_u32_tiff(out, w + 8U, e.value_or_off, endian);
+            }
+            w += 12U;
+        }
+        write_u32_tiff(out, w, next_ifd_off, endian);
+        write_u32_tiff(out, 4U, new_ifd0_off, endian);
+        return true;
+    }
+
+    static TransferStatus
+    tiff_edit_status_from_error(std::string_view message) noexcept
+    {
+        if (message.empty()) {
+            return TransferStatus::Malformed;
+        }
+        if (starts_with(message, "unsupported")
+            || starts_with(message, "no tiff updates")) {
+            return TransferStatus::Unsupported;
+        }
+        if (starts_with(message, "tiff output exceeds")
+            || starts_with(message, "too many tiff")) {
+            return TransferStatus::LimitExceeded;
+        }
+        return TransferStatus::Malformed;
+    }
+
 }  // namespace
 
 PrepareTransferResult
@@ -1625,11 +2722,12 @@ prepare_metadata_for_target(const MetaStore& store,
     bundle.target_format = request.target_format;
     bundle.profile       = request.profile;
 
-    if (request.target_format != TransferTargetFormat::Jpeg) {
+    if (request.target_format != TransferTargetFormat::Jpeg
+        && request.target_format != TransferTargetFormat::Tiff) {
         r.status    = TransferStatus::Unsupported;
         r.code      = PrepareTransferCode::UnsupportedTargetFormat;
         r.errors    = 1U;
-        r.message   = "prepare currently supports jpeg target only";
+        r.message   = "prepare currently supports jpeg and tiff targets";
         *out_bundle = std::move(bundle);
         return r;
     }
@@ -1648,9 +2746,15 @@ prepare_metadata_for_target(const MetaStore& store,
             const uint32_t block_index = static_cast<uint32_t>(
                 bundle.blocks.size());
             PreparedTransferBlock b;
-            b.kind    = TransferBlockKind::Exif;
-            b.order   = 100U;
-            b.route   = "jpeg:app1-exif";
+            b.kind  = TransferBlockKind::Exif;
+            b.order = 100U;
+            if (request.target_format == TransferTargetFormat::Jpeg) {
+                b.route = "jpeg:app1-exif";
+            } else {
+                // TIFF backends can consume this as a serialized Exif APP1 blob
+                // and materialize ExifIFD pointers/entries natively.
+                b.route = "tiff:ifd-exif-app1";
+            }
             b.payload = std::move(exif_build.app1_payload);
             bundle.blocks.push_back(std::move(b));
             for (size_t i = 0; i < exif_build.time_patch_map.size(); ++i) {
@@ -1671,9 +2775,9 @@ prepare_metadata_for_target(const MetaStore& store,
                 r.code = PrepareTransferCode::ExifPackFailed;
             }
             r.warnings += 1U;
-            append_message(&r.message,
-                           "exif app1 packer could not serialize current exif "
-                           "set");
+            append_message(
+                &r.message,
+                "exif app1 packer could not serialize current exif set");
         }
     }
 
@@ -1692,11 +2796,16 @@ prepare_metadata_for_target(const MetaStore& store,
             PreparedTransferBlock b;
             b.kind  = TransferBlockKind::Xmp;
             b.order = 110U;
-            b.route = "jpeg:app1-xmp";
-            append_ascii_bytes(&b.payload, "http://ns.adobe.com/xap/1.0/");
-            b.payload.push_back(std::byte { 0x00 });
-            b.payload.insert(b.payload.end(), xmp_packet.begin(),
-                             xmp_packet.end());
+            if (request.target_format == TransferTargetFormat::Jpeg) {
+                b.route = "jpeg:app1-xmp";
+                append_ascii_bytes(&b.payload, "http://ns.adobe.com/xap/1.0/");
+                b.payload.push_back(std::byte { 0x00 });
+                b.payload.insert(b.payload.end(), xmp_packet.begin(),
+                                 xmp_packet.end());
+            } else {
+                b.route   = "tiff:tag-700-xmp";
+                b.payload = std::move(xmp_packet);
+            }
             bundle.blocks.push_back(std::move(b));
         } else if (xr.status != XmpDumpStatus::Ok) {
             if (r.code == PrepareTransferCode::None) {
@@ -1708,54 +2817,117 @@ prepare_metadata_for_target(const MetaStore& store,
     }
 
     if (request.include_icc_app2 && has_icc) {
-        IccPackBuild icc_build = build_jpeg_icc_app2_blocks(store);
-        if (icc_build.produced && !icc_build.blocks.empty()) {
-            for (PreparedTransferBlock& b : icc_build.blocks) {
-                bundle.blocks.push_back(std::move(b));
-            }
-            if (icc_build.skipped_count > 0U) {
+        if (request.target_format == TransferTargetFormat::Jpeg) {
+            IccPackBuild icc_build = build_jpeg_icc_app2_blocks(store);
+            if (icc_build.produced && !icc_build.blocks.empty()) {
+                for (PreparedTransferBlock& b : icc_build.blocks) {
+                    bundle.blocks.push_back(std::move(b));
+                }
+                if (icc_build.skipped_count > 0U) {
+                    r.warnings += 1U;
+                    append_message(&r.message,
+                                   "icc serializer skipped "
+                                       + std::to_string(icc_build.skipped_count)
+                                       + " unsupported icc entries");
+                }
+            } else {
+                requested_present_but_unpacked = true;
+                if (r.code == PrepareTransferCode::None) {
+                    r.code = PrepareTransferCode::IccPackFailed;
+                }
                 r.warnings += 1U;
                 append_message(&r.message,
-                               "icc serializer skipped "
-                                   + std::to_string(icc_build.skipped_count)
-                                   + " unsupported icc entries");
+                               "icc app2 packer could not serialize current "
+                               "icc set");
             }
         } else {
-            requested_present_but_unpacked = true;
-            if (r.code == PrepareTransferCode::None) {
-                r.code = PrepareTransferCode::IccPackFailed;
+            std::vector<std::byte> icc_profile;
+            uint32_t skipped_icc = 0U;
+            if (build_icc_profile_bytes(store, &icc_profile, &skipped_icc)
+                && !icc_profile.empty()) {
+                PreparedTransferBlock b;
+                b.kind    = TransferBlockKind::Icc;
+                b.order   = 120U;
+                b.route   = "tiff:tag-34675-icc";
+                b.payload = std::move(icc_profile);
+                bundle.blocks.push_back(std::move(b));
+                if (skipped_icc > 0U) {
+                    r.warnings += 1U;
+                    append_message(&r.message,
+                                   "icc serializer skipped "
+                                       + std::to_string(skipped_icc)
+                                       + " unsupported icc entries");
+                }
+            } else {
+                requested_present_but_unpacked = true;
+                if (r.code == PrepareTransferCode::None) {
+                    r.code = PrepareTransferCode::IccPackFailed;
+                }
+                r.warnings += 1U;
+                append_message(&r.message,
+                               "tiff icc packer could not serialize current "
+                               "icc set");
             }
-            r.warnings += 1U;
-            append_message(&r.message,
-                           "icc app2 packer could not serialize current icc "
-                           "set");
         }
     }
     if (request.include_iptc_app13 && has_iptc) {
-        IptcPackBuild iptc_build = build_jpeg_iptc_app13_payload(store);
-        if (iptc_build.produced && !iptc_build.app13_payload.empty()) {
-            PreparedTransferBlock b;
-            b.kind    = TransferBlockKind::IptcIim;
-            b.order   = 130U;
-            b.route   = "jpeg:app13-iptc";
-            b.payload = std::move(iptc_build.app13_payload);
-            bundle.blocks.push_back(std::move(b));
-            if (iptc_build.skipped_count > 0U) {
+        if (request.target_format == TransferTargetFormat::Jpeg) {
+            IptcPackBuild iptc_build = build_jpeg_iptc_app13_payload(store);
+            if (iptc_build.produced && !iptc_build.app13_payload.empty()) {
+                PreparedTransferBlock b;
+                b.kind    = TransferBlockKind::IptcIim;
+                b.order   = 130U;
+                b.route   = "jpeg:app13-iptc";
+                b.payload = std::move(iptc_build.app13_payload);
+                bundle.blocks.push_back(std::move(b));
+                if (iptc_build.skipped_count > 0U) {
+                    r.warnings += 1U;
+                    append_message(&r.message,
+                                   "iptc serializer skipped "
+                                       + std::to_string(iptc_build.skipped_count)
+                                       + " unsupported iptc entries");
+                }
+            } else {
+                requested_present_but_unpacked = true;
+                if (r.code == PrepareTransferCode::None) {
+                    r.code = PrepareTransferCode::IptcPackFailed;
+                }
                 r.warnings += 1U;
-                append_message(&r.message,
-                               "iptc serializer skipped "
-                                   + std::to_string(iptc_build.skipped_count)
-                                   + " unsupported iptc entries");
+                append_message(
+                    &r.message,
+                    "iptc app13 packer could not serialize current iptc set");
             }
         } else {
-            requested_present_but_unpacked = true;
-            if (r.code == PrepareTransferCode::None) {
-                r.code = PrepareTransferCode::IptcPackFailed;
+            std::vector<std::byte> iptc_iim;
+            uint32_t skipped_iptc = 0U;
+            if (!first_photoshop_iptc_payload(store, &iptc_iim)) {
+                iptc_iim = build_iptc_iim_stream_from_datasets(store,
+                                                               &skipped_iptc);
             }
-            r.warnings += 1U;
-            append_message(
-                &r.message,
-                "iptc app13 packer could not serialize current iptc set");
+            if (!iptc_iim.empty()) {
+                PreparedTransferBlock b;
+                b.kind    = TransferBlockKind::IptcIim;
+                b.order   = 130U;
+                b.route   = "tiff:tag-33723-iptc";
+                b.payload = std::move(iptc_iim);
+                bundle.blocks.push_back(std::move(b));
+                if (skipped_iptc > 0U) {
+                    r.warnings += 1U;
+                    append_message(&r.message,
+                                   "iptc serializer skipped "
+                                       + std::to_string(skipped_iptc)
+                                       + " unsupported iptc entries");
+                }
+            } else {
+                requested_present_but_unpacked = true;
+                if (r.code == PrepareTransferCode::None) {
+                    r.code = PrepareTransferCode::IptcPackFailed;
+                }
+                r.warnings += 1U;
+                append_message(
+                    &r.message,
+                    "tiff iptc packer could not serialize current iptc set");
+            }
         }
     }
 
@@ -1832,6 +3004,214 @@ emit_prepared_bundle_jpeg(const PreparedTransferBundle& bundle,
     }
 
     if (r.errors == 0U) {
+        r.status = TransferStatus::Ok;
+        r.code   = EmitTransferCode::None;
+    }
+    return r;
+}
+
+EmitTransferResult
+emit_prepared_bundle_tiff(const PreparedTransferBundle& bundle,
+                          TiffTransferEmitter& emitter,
+                          const EmitTransferOptions& options) noexcept
+{
+    EmitTransferResult r;
+    if (bundle.target_format != TransferTargetFormat::Tiff) {
+        r.status  = TransferStatus::Unsupported;
+        r.code    = EmitTransferCode::InvalidArgument;
+        r.errors  = 1U;
+        r.message = "bundle target format is not tiff";
+        return r;
+    }
+
+    for (uint32_t i = 0; i < bundle.blocks.size(); ++i) {
+        const PreparedTransferBlock& block = bundle.blocks[i];
+        if (options.skip_empty_payloads && block.payload.empty()) {
+            r.skipped += 1U;
+            continue;
+        }
+
+        uint16_t tag = 0;
+        if (!tiff_tag_from_route(block.route, &tag)) {
+            r.status = TransferStatus::Unsupported;
+            r.code   = EmitTransferCode::UnsupportedRoute;
+            r.errors += 1U;
+            r.failed_block_index = i;
+            r.message            = "unsupported tiff route: " + block.route;
+            if (options.stop_on_error) {
+                return r;
+            }
+            continue;
+        }
+
+        const TransferStatus st = emitter.set_tag_bytes(
+            tag, std::span<const std::byte>(block.payload.data(),
+                                            block.payload.size()));
+        if (st != TransferStatus::Ok) {
+            r.status = st;
+            r.code   = EmitTransferCode::BackendWriteFailed;
+            r.errors += 1U;
+            r.failed_block_index = i;
+            r.message            = "tiff emitter set_tag_bytes failed";
+            if (options.stop_on_error) {
+                return r;
+            }
+            continue;
+        }
+
+        r.emitted += 1U;
+    }
+
+    if (r.errors == 0U) {
+        uint64_t exif_ifd_off          = 0U;
+        const TransferStatus commit_st = emitter.commit_exif_directory(
+            &exif_ifd_off);
+        if (commit_st != TransferStatus::Ok) {
+            r.status  = commit_st;
+            r.code    = EmitTransferCode::BackendWriteFailed;
+            r.errors  = 1U;
+            r.message = "tiff emitter commit_exif_directory failed";
+            return r;
+        }
+        r.status = TransferStatus::Ok;
+        r.code   = EmitTransferCode::None;
+    }
+    return r;
+}
+
+EmitTransferResult
+compile_prepared_bundle_tiff(const PreparedTransferBundle& bundle,
+                             PreparedTiffEmitPlan* out_plan,
+                             const EmitTransferOptions& options) noexcept
+{
+    EmitTransferResult r;
+    if (!out_plan) {
+        r.status  = TransferStatus::InvalidArgument;
+        r.code    = EmitTransferCode::InvalidArgument;
+        r.errors  = 1U;
+        r.message = "out_plan is null";
+        return r;
+    }
+    out_plan->contract_version = bundle.contract_version;
+    out_plan->ops.clear();
+
+    if (bundle.target_format != TransferTargetFormat::Tiff) {
+        r.status  = TransferStatus::Unsupported;
+        r.code    = EmitTransferCode::InvalidArgument;
+        r.errors  = 1U;
+        r.message = "bundle target format is not tiff";
+        return r;
+    }
+
+    for (uint32_t i = 0; i < bundle.blocks.size(); ++i) {
+        const PreparedTransferBlock& block = bundle.blocks[i];
+        if (options.skip_empty_payloads && block.payload.empty()) {
+            r.skipped += 1U;
+            continue;
+        }
+
+        uint16_t tag = 0;
+        if (!tiff_tag_from_route(block.route, &tag)) {
+            r.status = TransferStatus::Unsupported;
+            if (r.code == EmitTransferCode::None) {
+                r.code = EmitTransferCode::UnsupportedRoute;
+            }
+            r.errors += 1U;
+            r.failed_block_index = i;
+            r.message            = "unsupported tiff route: " + block.route;
+            if (options.stop_on_error) {
+                return r;
+            }
+            continue;
+        }
+
+        PreparedTiffEmitOp op;
+        op.block_index = i;
+        op.tiff_tag    = tag;
+        out_plan->ops.push_back(op);
+    }
+
+    if (r.errors == 0U) {
+        r.status = TransferStatus::Ok;
+        r.code   = EmitTransferCode::None;
+    }
+    return r;
+}
+
+EmitTransferResult
+emit_prepared_bundle_tiff_compiled(const PreparedTransferBundle& bundle,
+                                   const PreparedTiffEmitPlan& plan,
+                                   TiffTransferEmitter& emitter,
+                                   const EmitTransferOptions& options) noexcept
+{
+    EmitTransferResult r;
+    if (bundle.target_format != TransferTargetFormat::Tiff) {
+        r.status  = TransferStatus::Unsupported;
+        r.code    = EmitTransferCode::InvalidArgument;
+        r.errors  = 1U;
+        r.message = "bundle target format is not tiff";
+        return r;
+    }
+    if (plan.contract_version != bundle.contract_version) {
+        r.status  = TransferStatus::InvalidArgument;
+        r.code    = EmitTransferCode::PlanMismatch;
+        r.errors  = 1U;
+        r.message = "compiled plan contract_version mismatch";
+        return r;
+    }
+
+    for (uint32_t i = 0; i < plan.ops.size(); ++i) {
+        const PreparedTiffEmitOp& op = plan.ops[i];
+        if (op.block_index >= bundle.blocks.size()) {
+            r.status = TransferStatus::InvalidArgument;
+            if (r.code == EmitTransferCode::None) {
+                r.code = EmitTransferCode::PlanMismatch;
+            }
+            r.errors += 1U;
+            r.failed_block_index = op.block_index;
+            r.message            = "compiled plan block_index out of range";
+            if (options.stop_on_error) {
+                return r;
+            }
+            continue;
+        }
+
+        const PreparedTransferBlock& block = bundle.blocks[op.block_index];
+        if (options.skip_empty_payloads && block.payload.empty()) {
+            r.skipped += 1U;
+            continue;
+        }
+
+        const TransferStatus st = emitter.set_tag_bytes(
+            op.tiff_tag, std::span<const std::byte>(block.payload.data(),
+                                                    block.payload.size()));
+        if (st != TransferStatus::Ok) {
+            r.status = st;
+            if (r.code == EmitTransferCode::None) {
+                r.code = EmitTransferCode::BackendWriteFailed;
+            }
+            r.errors += 1U;
+            r.failed_block_index = op.block_index;
+            r.message            = "tiff emitter set_tag_bytes failed";
+            if (options.stop_on_error) {
+                return r;
+            }
+            continue;
+        }
+        r.emitted += 1U;
+    }
+
+    if (r.errors == 0U) {
+        uint64_t exif_ifd_off          = 0U;
+        const TransferStatus commit_st = emitter.commit_exif_directory(
+            &exif_ifd_off);
+        if (commit_st != TransferStatus::Ok) {
+            r.status  = commit_st;
+            r.code    = EmitTransferCode::BackendWriteFailed;
+            r.errors  = 1U;
+            r.message = "tiff emitter commit_exif_directory failed";
+            return r;
+        }
         r.status = TransferStatus::Ok;
         r.code   = EmitTransferCode::None;
     }
@@ -2243,6 +3623,111 @@ apply_prepared_bundle_jpeg_edit(std::span<const std::byte> input_jpeg,
     return out;
 }
 
+TiffEditPlan
+plan_prepared_bundle_tiff_edit(std::span<const std::byte> input_tiff,
+                               const PreparedTransferBundle& bundle,
+                               const PlanTiffEditOptions& options) noexcept
+{
+    TiffEditPlan plan;
+    plan.input_size = static_cast<uint64_t>(input_tiff.size());
+
+    if (bundle.target_format != TransferTargetFormat::Tiff) {
+        plan.status  = TransferStatus::Unsupported;
+        plan.message = "bundle target format is not tiff";
+        return plan;
+    }
+
+    const std::vector<TiffTagUpdate> updates = collect_tiff_tag_updates(bundle);
+    const std::vector<std::byte> exif_app1_payload
+        = first_tiff_exif_app1_payload(bundle);
+    plan.tag_updates  = static_cast<uint32_t>(updates.size());
+    plan.has_exif_ifd = !exif_app1_payload.empty();
+
+    if (options.require_updates && updates.empty()
+        && exif_app1_payload.empty()) {
+        plan.status  = TransferStatus::Unsupported;
+        plan.message = "no tiff updates";
+        return plan;
+    }
+
+    std::vector<std::byte> out_tiff;
+    std::string err;
+    const bool rewritten = rewrite_tiff_ifd0_tags(
+        input_tiff, updates,
+        std::span<const std::byte>(exif_app1_payload.data(),
+                                   exif_app1_payload.size()),
+        &out_tiff, &err);
+    if (!rewritten) {
+        plan.status  = tiff_edit_status_from_error(err);
+        plan.message = err;
+        return plan;
+    }
+    plan.output_size = static_cast<uint64_t>(out_tiff.size());
+    plan.status      = TransferStatus::Ok;
+    return plan;
+}
+
+EmitTransferResult
+apply_prepared_bundle_tiff_edit(std::span<const std::byte> input_tiff,
+                                const PreparedTransferBundle& bundle,
+                                const TiffEditPlan& plan,
+                                std::vector<std::byte>* out_tiff) noexcept
+{
+    EmitTransferResult out;
+    if (!out_tiff) {
+        out.status  = TransferStatus::InvalidArgument;
+        out.code    = EmitTransferCode::InvalidArgument;
+        out.errors  = 1U;
+        out.message = "out_tiff is null";
+        return out;
+    }
+    if (plan.status != TransferStatus::Ok) {
+        out.status  = TransferStatus::InvalidArgument;
+        out.code    = EmitTransferCode::InvalidArgument;
+        out.errors  = 1U;
+        out.message = "edit plan status is not ok";
+        return out;
+    }
+    if (bundle.target_format != TransferTargetFormat::Tiff) {
+        out.status  = TransferStatus::Unsupported;
+        out.code    = EmitTransferCode::InvalidArgument;
+        out.errors  = 1U;
+        out.message = "bundle target format is not tiff";
+        return out;
+    }
+
+    const std::vector<TiffTagUpdate> updates = collect_tiff_tag_updates(bundle);
+    const std::vector<std::byte> exif_app1_payload
+        = first_tiff_exif_app1_payload(bundle);
+    if (plan.tag_updates != static_cast<uint32_t>(updates.size())
+        || plan.has_exif_ifd != !exif_app1_payload.empty()) {
+        out.status  = TransferStatus::InvalidArgument;
+        out.code    = EmitTransferCode::PlanMismatch;
+        out.errors  = 1U;
+        out.message = "tiff edit plan no longer matches bundle";
+        return out;
+    }
+
+    std::string err;
+    const bool rewritten = rewrite_tiff_ifd0_tags(
+        input_tiff, updates,
+        std::span<const std::byte>(exif_app1_payload.data(),
+                                   exif_app1_payload.size()),
+        out_tiff, &err);
+    if (!rewritten) {
+        out.status  = tiff_edit_status_from_error(err);
+        out.code    = EmitTransferCode::PlanMismatch;
+        out.errors  = 1U;
+        out.message = err;
+        return out;
+    }
+
+    out.status  = TransferStatus::Ok;
+    out.code    = EmitTransferCode::None;
+    out.emitted = plan.tag_updates + (plan.has_exif_ifd ? 1U : 0U);
+    return out;
+}
+
 PrepareTransferFileResult
 prepare_metadata_for_target_file(
     const char* path, const PrepareTransferFileOptions& options) noexcept
@@ -2450,6 +3935,432 @@ apply_time_patches(PreparedTransferBundle* bundle,
     } else {
         out.status = TransferStatus::InvalidArgument;
     }
+    return out;
+}
+
+namespace {
+
+    struct EmittedTiffTagSummaryLess final {
+        bool operator()(const EmittedTiffTagSummary& a,
+                        const EmittedTiffTagSummary& b) const noexcept
+        {
+            return a.tag < b.tag;
+        }
+    };
+
+    class ExecuteRecordingJpegEmitter final : public JpegTransferEmitter {
+    public:
+        void reset() noexcept
+        {
+            marker_count_.fill(0U);
+            marker_bytes_.fill(0U);
+        }
+
+        TransferStatus
+        write_app_marker(uint8_t marker_code,
+                         std::span<const std::byte> payload) noexcept override
+        {
+            marker_count_[marker_code] += 1U;
+            marker_bytes_[marker_code] += static_cast<uint64_t>(payload.size());
+            return TransferStatus::Ok;
+        }
+
+        void
+        build_summary(std::vector<EmittedJpegMarkerSummary>* out) const noexcept
+        {
+            if (!out) {
+                return;
+            }
+            out->clear();
+            for (uint32_t i = 0; i < 256U; ++i) {
+                if (marker_count_[i] == 0U) {
+                    continue;
+                }
+                EmittedJpegMarkerSummary one;
+                one.marker = static_cast<uint8_t>(i);
+                one.count  = marker_count_[i];
+                one.bytes  = marker_bytes_[i];
+                out->push_back(one);
+            }
+        }
+
+    private:
+        std::array<uint32_t, 256> marker_count_ {};
+        std::array<uint64_t, 256> marker_bytes_ {};
+    };
+
+    class ExecuteRecordingTiffEmitter final : public TiffTransferEmitter {
+    public:
+        void reset() noexcept
+        {
+            committed_ = false;
+            tags_.clear();
+        }
+
+        bool committed() const noexcept { return committed_; }
+
+        TransferStatus set_tag_u32(uint16_t tag,
+                                   uint32_t /*value*/) noexcept override
+        {
+            add_tag(tag, 4U);
+            return TransferStatus::Ok;
+        }
+
+        TransferStatus
+        set_tag_bytes(uint16_t tag,
+                      std::span<const std::byte> payload) noexcept override
+        {
+            add_tag(tag, static_cast<uint64_t>(payload.size()));
+            return TransferStatus::Ok;
+        }
+
+        TransferStatus
+        commit_exif_directory(uint64_t* out_ifd_offset) noexcept override
+        {
+            committed_ = true;
+            if (out_ifd_offset) {
+                *out_ifd_offset = 0U;
+            }
+            return TransferStatus::Ok;
+        }
+
+        void
+        build_summary(std::vector<EmittedTiffTagSummary>* out) const noexcept
+        {
+            if (!out) {
+                return;
+            }
+            *out = tags_;
+            std::sort(out->begin(), out->end(), EmittedTiffTagSummaryLess {});
+        }
+
+    private:
+        void add_tag(uint16_t tag, uint64_t bytes) noexcept
+        {
+            for (size_t i = 0; i < tags_.size(); ++i) {
+                if (tags_[i].tag != tag) {
+                    continue;
+                }
+                tags_[i].count += 1U;
+                tags_[i].bytes += bytes;
+                return;
+            }
+
+            EmittedTiffTagSummary one;
+            one.tag   = tag;
+            one.count = 1U;
+            one.bytes = bytes;
+            tags_.push_back(one);
+        }
+
+        bool committed_ = false;
+        std::vector<EmittedTiffTagSummary> tags_;
+    };
+
+    static bool has_time_patch_width(const PreparedTransferBundle& bundle,
+                                     TimePatchField field,
+                                     size_t width) noexcept
+    {
+        for (size_t i = 0; i < bundle.time_patch_map.size(); ++i) {
+            const TimePatchSlot& slot = bundle.time_patch_map[i];
+            if (slot.field == field
+                && static_cast<size_t>(slot.width) == width) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static void maybe_append_auto_nul(const PreparedTransferBundle& bundle,
+                                      const TransferTimePatchInput& input,
+                                      bool auto_nul,
+                                      TimePatchUpdate* out) noexcept
+    {
+        if (!out || !auto_nul || !input.text_value) {
+            return;
+        }
+        const size_t n = out->value.size();
+        if (has_time_patch_width(bundle, input.field, n)) {
+            return;
+        }
+        if (has_time_patch_width(bundle, input.field, n + 1U)) {
+            out->value.push_back(std::byte { 0 });
+        }
+    }
+
+    static void build_execute_time_patch_updates(
+        const PreparedTransferBundle& bundle,
+        const ExecutePreparedTransferOptions& options,
+        std::vector<TimePatchUpdate>* out) noexcept
+    {
+        if (!out) {
+            return;
+        }
+        out->clear();
+        out->reserve(options.time_patches.size());
+        for (size_t i = 0; i < options.time_patches.size(); ++i) {
+            TimePatchUpdate one;
+            one.field = options.time_patches[i].field;
+            one.value = options.time_patches[i].value;
+            maybe_append_auto_nul(bundle, options.time_patches[i],
+                                  options.time_patch_auto_nul, &one);
+            out->push_back(std::move(one));
+        }
+    }
+
+    static TransferStatus
+    map_mapped_file_status_to_transfer(MappedFileStatus status) noexcept
+    {
+        switch (status) {
+        case MappedFileStatus::Ok: return TransferStatus::Ok;
+        case MappedFileStatus::TooLarge: return TransferStatus::LimitExceeded;
+        case MappedFileStatus::OpenFailed:
+        case MappedFileStatus::StatFailed:
+        case MappedFileStatus::MapFailed: return TransferStatus::Unsupported;
+        }
+        return TransferStatus::InternalError;
+    }
+
+    static const char* edit_target_file_error(MappedFileStatus status) noexcept
+    {
+        switch (status) {
+        case MappedFileStatus::OpenFailed:
+            return "failed to open edit target file";
+        case MappedFileStatus::StatFailed:
+            return "failed to stat edit target file";
+        case MappedFileStatus::TooLarge:
+            return "edit target file exceeds size limit";
+        case MappedFileStatus::MapFailed:
+            return "failed to map edit target file";
+        case MappedFileStatus::Ok: break;
+        }
+        return "failed to read edit target file";
+    }
+
+    static EmitTransferResult skipped_emit_result(const char* message) noexcept
+    {
+        EmitTransferResult out;
+        out.status  = TransferStatus::Unsupported;
+        out.code    = EmitTransferCode::InvalidArgument;
+        out.errors  = 1U;
+        out.message = message ? message : "emit skipped";
+        return out;
+    }
+
+}  // namespace
+
+ExecutePreparedTransferResult
+execute_prepared_transfer(PreparedTransferBundle* bundle,
+                          std::span<const std::byte> edit_input,
+                          const ExecutePreparedTransferOptions& options) noexcept
+{
+    ExecutePreparedTransferResult out;
+    out.edit_requested     = options.edit_requested;
+    out.edit_apply.status  = TransferStatus::Unsupported;
+    out.edit_apply.code    = EmitTransferCode::InvalidArgument;
+    out.edit_apply.message = options.edit_requested ? "edit apply not requested"
+                                                    : "edit not requested";
+
+    if (!bundle) {
+        out.time_patch.status  = TransferStatus::InvalidArgument;
+        out.time_patch.errors  = 1U;
+        out.time_patch.message = "bundle is null";
+        out.compile.status     = TransferStatus::InvalidArgument;
+        out.compile.code       = EmitTransferCode::InvalidArgument;
+        out.compile.errors     = 1U;
+        out.compile.message    = "bundle is null";
+        out.emit               = out.compile;
+        out.edit_plan_status   = TransferStatus::InvalidArgument;
+        out.edit_plan_message  = "bundle is null";
+        out.edit_apply.status  = TransferStatus::InvalidArgument;
+        out.edit_apply.code    = EmitTransferCode::InvalidArgument;
+        out.edit_apply.errors  = 1U;
+        out.edit_apply.message = "bundle is null";
+        return out;
+    }
+
+    if (!options.time_patches.empty()) {
+        std::vector<TimePatchUpdate> updates;
+        build_execute_time_patch_updates(*bundle, options, &updates);
+        out.time_patch = apply_time_patches(bundle, updates,
+                                            options.time_patch);
+    }
+
+    if (out.time_patch.status != TransferStatus::Ok) {
+        out.compile = skipped_emit_result(
+            "skipped emit due to time patch failure");
+        out.emit = out.compile;
+        if (options.edit_requested) {
+            out.edit_plan_status   = TransferStatus::Unsupported;
+            out.edit_plan_message  = "skipped edit due to time patch failure";
+            out.edit_apply.status  = TransferStatus::Unsupported;
+            out.edit_apply.code    = EmitTransferCode::InvalidArgument;
+            out.edit_apply.errors  = 1U;
+            out.edit_apply.message = "skipped edit due to time patch failure";
+        }
+        return out;
+    }
+
+    const uint32_t emit_repeat = options.emit_repeat == 0U
+                                     ? 1U
+                                     : options.emit_repeat;
+    if (bundle->target_format == TransferTargetFormat::Jpeg) {
+        PreparedJpegEmitPlan plan;
+        out.compile      = compile_prepared_bundle_jpeg(*bundle, &plan,
+                                                        options.emit);
+        out.compiled_ops = static_cast<uint32_t>(plan.ops.size());
+        if (out.compile.status == TransferStatus::Ok) {
+            ExecuteRecordingJpegEmitter emitter;
+            for (uint32_t rep = 0; rep < emit_repeat; ++rep) {
+                emitter.reset();
+                out.emit = emit_prepared_bundle_jpeg_compiled(*bundle, plan,
+                                                              emitter,
+                                                              options.emit);
+                if (out.emit.status != TransferStatus::Ok) {
+                    break;
+                }
+            }
+            emitter.build_summary(&out.marker_summary);
+        } else {
+            out.emit = skipped_emit_result(
+                "skipped emit due to compile failure");
+        }
+    } else if (bundle->target_format == TransferTargetFormat::Tiff) {
+        PreparedTiffEmitPlan plan;
+        out.compile      = compile_prepared_bundle_tiff(*bundle, &plan,
+                                                        options.emit);
+        out.compiled_ops = static_cast<uint32_t>(plan.ops.size());
+        if (out.compile.status == TransferStatus::Ok) {
+            ExecuteRecordingTiffEmitter emitter;
+            for (uint32_t rep = 0; rep < emit_repeat; ++rep) {
+                emitter.reset();
+                out.emit = emit_prepared_bundle_tiff_compiled(*bundle, plan,
+                                                              emitter,
+                                                              options.emit);
+                if (out.emit.status != TransferStatus::Ok) {
+                    break;
+                }
+            }
+            out.tiff_commit = emitter.committed();
+            emitter.build_summary(&out.tiff_tag_summary);
+        } else {
+            out.emit = skipped_emit_result(
+                "skipped emit due to compile failure");
+        }
+    } else {
+        out.compile.status  = TransferStatus::Unsupported;
+        out.compile.code    = EmitTransferCode::InvalidArgument;
+        out.compile.errors  = 1U;
+        out.compile.message = "unsupported target format for emit";
+        out.emit = skipped_emit_result("unsupported target format for emit");
+    }
+
+    if (!options.edit_requested) {
+        return out;
+    }
+
+    out.edit_input_size = static_cast<uint64_t>(edit_input.size());
+    if (bundle->target_format == TransferTargetFormat::Jpeg) {
+        out.jpeg_edit_plan = plan_prepared_bundle_jpeg_edit(edit_input, *bundle,
+                                                            options.jpeg_edit);
+        out.edit_plan_status  = out.jpeg_edit_plan.status;
+        out.edit_plan_message = out.jpeg_edit_plan.message;
+        out.edit_output_size  = out.jpeg_edit_plan.output_size;
+        if (out.jpeg_edit_plan.status == TransferStatus::Ok
+            && options.edit_apply) {
+            out.edit_apply = apply_prepared_bundle_jpeg_edit(
+                edit_input, *bundle, out.jpeg_edit_plan, &out.edited_output);
+            if (out.edit_apply.status == TransferStatus::Ok) {
+                out.edit_output_size = static_cast<uint64_t>(
+                    out.edited_output.size());
+            }
+        }
+    } else if (bundle->target_format == TransferTargetFormat::Tiff) {
+        out.tiff_edit_plan = plan_prepared_bundle_tiff_edit(edit_input, *bundle,
+                                                            options.tiff_edit);
+        out.edit_plan_status  = out.tiff_edit_plan.status;
+        out.edit_plan_message = out.tiff_edit_plan.message;
+        out.edit_output_size  = out.tiff_edit_plan.output_size;
+        if (out.tiff_edit_plan.status == TransferStatus::Ok
+            && options.edit_apply) {
+            out.edit_apply = apply_prepared_bundle_tiff_edit(
+                edit_input, *bundle, out.tiff_edit_plan, &out.edited_output);
+            if (out.edit_apply.status == TransferStatus::Ok) {
+                out.edit_output_size = static_cast<uint64_t>(
+                    out.edited_output.size());
+            }
+        }
+    } else {
+        out.edit_plan_status   = TransferStatus::Unsupported;
+        out.edit_plan_message  = "unsupported target format for edit";
+        out.edit_apply.status  = TransferStatus::Unsupported;
+        out.edit_apply.code    = EmitTransferCode::InvalidArgument;
+        out.edit_apply.errors  = 1U;
+        out.edit_apply.message = "unsupported target format for edit";
+    }
+
+    return out;
+}
+
+ExecutePreparedTransferFileResult
+execute_prepared_transfer_file(
+    const char* path,
+    const ExecutePreparedTransferFileOptions& options) noexcept
+{
+    ExecutePreparedTransferFileResult out;
+    out.prepared = prepare_metadata_for_target_file(path, options.prepare);
+
+    if (out.prepared.file_status != TransferFileStatus::Ok
+        || out.prepared.prepare.status != TransferStatus::Ok) {
+        out.execute.compile = skipped_emit_result(
+            "skipped emit due to read/prepare failure");
+        out.execute.emit = out.execute.compile;
+        if (!options.edit_target_path.empty()
+            || options.execute.edit_requested) {
+            out.execute.edit_requested   = true;
+            out.execute.edit_plan_status = TransferStatus::Unsupported;
+            out.execute.edit_plan_message
+                = "skipped edit due to read/prepare failure";
+            out.execute.edit_apply.status = TransferStatus::Unsupported;
+            out.execute.edit_apply.code   = EmitTransferCode::InvalidArgument;
+            out.execute.edit_apply.errors = 1U;
+            out.execute.edit_apply.message
+                = "skipped edit due to read/prepare failure";
+        }
+        return out;
+    }
+
+    if (!options.edit_target_path.empty()) {
+        MappedFile edit_file;
+        const MappedFileStatus edit_status
+            = edit_file.open(options.edit_target_path.c_str(),
+                             options.prepare.policy.max_file_bytes);
+        if (edit_status != MappedFileStatus::Ok) {
+            ExecutePreparedTransferOptions execute_options = options.execute;
+            execute_options.edit_requested                 = false;
+            out.execute = execute_prepared_transfer(&out.prepared.bundle, {},
+                                                    execute_options);
+            out.execute.edit_requested   = true;
+            out.execute.edit_plan_status = map_mapped_file_status_to_transfer(
+                edit_status);
+            out.execute.edit_plan_message = edit_target_file_error(edit_status);
+            out.execute.edit_apply.status = out.execute.edit_plan_status;
+            out.execute.edit_apply.code   = EmitTransferCode::InvalidArgument;
+            out.execute.edit_apply.errors = 1U;
+            out.execute.edit_apply.message = out.execute.edit_plan_message;
+            return out;
+        }
+
+        ExecutePreparedTransferOptions execute_options = options.execute;
+        execute_options.edit_requested                 = true;
+        out.execute = execute_prepared_transfer(&out.prepared.bundle,
+                                                edit_file.bytes(),
+                                                execute_options);
+        return out;
+    }
+
+    out.execute = execute_prepared_transfer(&out.prepared.bundle, {},
+                                            options.execute);
     return out;
 }
 

@@ -378,6 +378,17 @@ if(OPENMETA_BUILD_PYTHON)
       COMMENT "Running python transfer-probe smoke gate"
       VERBATIM
     )
+
+    add_custom_target(openmeta_gate_python_metatransfer_edit_smoke
+      DEPENDS openmeta_python
+      COMMAND ${CMAKE_COMMAND}
+        "-DOPENMETA_PYTHON_EXECUTABLE=${Python_EXECUTABLE}"
+        "-DOPENMETA_PYTHONPATH=${CMAKE_CURRENT_BINARY_DIR}/python"
+        "-DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/_python_metatransfer_edit_smoke"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/python_metatransfer_edit_smoke_test.cmake"
+      COMMENT "Running python metatransfer edit smoke gate"
+      VERBATIM
+    )
   endif()
 endif()
 
@@ -605,6 +616,15 @@ if(OPENMETA_BUILD_TESTS)
         "-DOPENMETA_PYTHONPATH=${CMAKE_CURRENT_BINARY_DIR}/python"
         "-DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/_python_transfer_probe_smoke"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/python_transfer_probe_smoke_test.cmake"
+    )
+
+    add_test(
+      NAME openmeta_python_metatransfer_edit_smoke
+      COMMAND ${CMAKE_COMMAND}
+        "-DOPENMETA_PYTHON_EXECUTABLE=${Python_EXECUTABLE}"
+        "-DOPENMETA_PYTHONPATH=${CMAKE_CURRENT_BINARY_DIR}/python"
+        "-DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/_python_metatransfer_edit_smoke"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/python_metatransfer_edit_smoke_test.cmake"
     )
   endif()
 endif()

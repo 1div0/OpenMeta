@@ -213,6 +213,22 @@ struct JpegEditPlan final {
     std::string message;
 };
 
+/// Options for TIFF edit planning.
+struct PlanTiffEditOptions final {
+    /// If true, fail planning when the bundle has no TIFF-applicable updates.
+    bool require_updates = true;
+};
+
+/// Planned TIFF edit summary (draft API).
+struct TiffEditPlan final {
+    TransferStatus status = TransferStatus::Ok;
+    uint32_t tag_updates  = 0;
+    bool has_exif_ifd     = false;
+    uint64_t input_size   = 0;
+    uint64_t output_size  = 0;
+    std::string message;
+};
+
 /// One precompiled JPEG emit operation (route -> marker mapping).
 struct PreparedJpegEmitOp final {
     uint32_t block_index = 0;
@@ -223,6 +239,18 @@ struct PreparedJpegEmitOp final {
 struct PreparedJpegEmitPlan final {
     uint32_t contract_version = kMetadataTransferContractVersion;
     std::vector<PreparedJpegEmitOp> ops;
+};
+
+/// One precompiled TIFF emit operation (route -> TIFF tag mapping).
+struct PreparedTiffEmitOp final {
+    uint32_t block_index = 0;
+    uint16_t tiff_tag    = 0;
+};
+
+/// Reusable precompiled TIFF emit plan for a prepared transfer bundle.
+struct PreparedTiffEmitPlan final {
+    uint32_t contract_version = kMetadataTransferContractVersion;
+    std::vector<PreparedTiffEmitOp> ops;
 };
 
 /// Emission options shared by backend emit entry points.
@@ -275,6 +303,78 @@ struct ApplyTimePatchResult final {
     uint32_t skipped_slots = 0;
     uint32_t errors        = 0;
     std::string message;
+};
+
+/// One high-level time patch input for transfer execution helpers.
+struct TransferTimePatchInput final {
+    TimePatchField field = TimePatchField::DateTime;
+    std::vector<std::byte> value;
+    bool text_value = false;
+};
+
+/// One emitted JPEG marker summary entry.
+struct EmittedJpegMarkerSummary final {
+    uint8_t marker = 0;
+    uint32_t count = 0;
+    uint64_t bytes = 0;
+};
+
+/// One emitted TIFF tag summary entry.
+struct EmittedTiffTagSummary final {
+    uint16_t tag   = 0;
+    uint32_t count = 0;
+    uint64_t bytes = 0;
+};
+
+/// Options for \ref execute_prepared_transfer.
+struct ExecutePreparedTransferOptions final {
+    std::vector<TransferTimePatchInput> time_patches;
+    ApplyTimePatchOptions time_patch;
+    bool time_patch_auto_nul = true;
+
+    EmitTransferOptions emit;
+    uint32_t emit_repeat = 1;
+
+    bool edit_requested = false;
+    bool edit_apply     = false;
+    PlanJpegEditOptions jpeg_edit;
+    PlanTiffEditOptions tiff_edit;
+};
+
+/// Result for \ref execute_prepared_transfer.
+struct ExecutePreparedTransferResult final {
+    ApplyTimePatchResult time_patch;
+
+    EmitTransferResult compile;
+    uint32_t compiled_ops = 0;
+
+    EmitTransferResult emit;
+    std::vector<EmittedJpegMarkerSummary> marker_summary;
+    std::vector<EmittedTiffTagSummary> tiff_tag_summary;
+    bool tiff_commit = false;
+
+    bool edit_requested             = false;
+    TransferStatus edit_plan_status = TransferStatus::Unsupported;
+    std::string edit_plan_message;
+    JpegEditPlan jpeg_edit_plan;
+    TiffEditPlan tiff_edit_plan;
+    EmitTransferResult edit_apply;
+    uint64_t edit_input_size  = 0;
+    uint64_t edit_output_size = 0;
+    std::vector<std::byte> edited_output;
+};
+
+/// Options for \ref execute_prepared_transfer_file.
+struct ExecutePreparedTransferFileOptions final {
+    PrepareTransferFileOptions prepare;
+    ExecutePreparedTransferOptions execute;
+    std::string edit_target_path;
+};
+
+/// Result for \ref execute_prepared_transfer_file.
+struct ExecutePreparedTransferFileResult final {
+    PrepareTransferFileResult prepared;
+    ExecutePreparedTransferResult execute;
 };
 
 /**
@@ -360,6 +460,43 @@ emit_prepared_bundle_jpeg(const PreparedTransferBundle& bundle,
                           = EmitTransferOptions {}) noexcept;
 
 /**
+ * \brief Emit prepared metadata blocks into a TIFF backend.
+ *
+ * Route mapping:
+ * - `tiff:tag-700-xmp` -> TIFF tag 700 (XMP packet)
+ * - `tiff:ifd-exif-app1` -> serialized EXIF APP1 input for ExifIFD materialization
+ * - `tiff:tag-34675-icc` -> TIFF tag 34675 (ICC profile)
+ * - `tiff:tag-33723-iptc` -> TIFF tag 33723 (IPTC IIM stream)
+ */
+EmitTransferResult
+emit_prepared_bundle_tiff(const PreparedTransferBundle& bundle,
+                          TiffTransferEmitter& emitter,
+                          const EmitTransferOptions& options
+                          = EmitTransferOptions {}) noexcept;
+
+/**
+ * \brief Compile a reusable TIFF emit plan from a prepared bundle.
+ *
+ * This maps route strings to TIFF tags once for high-throughput
+ * "prepare once, emit many" workflows.
+ */
+EmitTransferResult
+compile_prepared_bundle_tiff(const PreparedTransferBundle& bundle,
+                             PreparedTiffEmitPlan* out_plan,
+                             const EmitTransferOptions& options
+                             = EmitTransferOptions {}) noexcept;
+
+/**
+ * \brief Emit a prepared bundle using a precompiled TIFF emit plan.
+ */
+EmitTransferResult
+emit_prepared_bundle_tiff_compiled(const PreparedTransferBundle& bundle,
+                                   const PreparedTiffEmitPlan& plan,
+                                   TiffTransferEmitter& emitter,
+                                   const EmitTransferOptions& options
+                                   = EmitTransferOptions {}) noexcept;
+
+/**
  * \brief Compile a reusable JPEG emit plan from a prepared bundle.
  *
  * This maps route strings to marker codes once for high-throughput
@@ -405,6 +542,32 @@ apply_time_patches(PreparedTransferBundle* bundle,
                    = ApplyTimePatchOptions {}) noexcept;
 
 /**
+ * \brief Execute the high-level transfer flow on a prepared bundle.
+ *
+ * This helper applies optional time patches, compiles/emits prepared blocks,
+ * and optionally plans/applies a target-stream edit using \p edit_input.
+ * It is intended for thin wrappers and high-throughput "prepare once, reuse"
+ * integrations.
+ */
+ExecutePreparedTransferResult
+execute_prepared_transfer(PreparedTransferBundle* bundle,
+                          std::span<const std::byte> edit_input = {},
+                          const ExecutePreparedTransferOptions& options
+                          = ExecutePreparedTransferOptions {}) noexcept;
+
+/**
+ * \brief High-level helper: read file, prepare a bundle, then execute transfer.
+ *
+ * This wraps \ref prepare_metadata_for_target_file plus
+ * \ref execute_prepared_transfer for CLI/Python entry points that want a single
+ * file-based execution path.
+ */
+ExecutePreparedTransferFileResult
+execute_prepared_transfer_file(const char* path,
+                               const ExecutePreparedTransferFileOptions& options
+                               = ExecutePreparedTransferFileOptions {}) noexcept;
+
+/**
  * \brief Plan JPEG metadata injection/edit strategy for a prepared bundle.
  *
  * `Auto` selects `InPlace` when all emitted payloads can replace existing
@@ -429,5 +592,26 @@ apply_prepared_bundle_jpeg_edit(std::span<const std::byte> input_jpeg,
                                 const PreparedTransferBundle& bundle,
                                 const JpegEditPlan& plan,
                                 std::vector<std::byte>* out_jpeg) noexcept;
+
+/**
+ * \brief Plan TIFF metadata rewrite for a prepared bundle.
+ *
+ * This computes the expected output size and validates that TIFF-applicable
+ * prepared blocks can be materialized on the target stream.
+ */
+TiffEditPlan
+plan_prepared_bundle_tiff_edit(std::span<const std::byte> input_tiff,
+                               const PreparedTransferBundle& bundle,
+                               const PlanTiffEditOptions& options
+                               = PlanTiffEditOptions {}) noexcept;
+
+/**
+ * \brief Apply a planned TIFF metadata rewrite and produce edited output bytes.
+ */
+EmitTransferResult
+apply_prepared_bundle_tiff_edit(std::span<const std::byte> input_tiff,
+                                const PreparedTransferBundle& bundle,
+                                const TiffEditPlan& plan,
+                                std::vector<std::byte>* out_tiff) noexcept;
 
 }  // namespace openmeta
