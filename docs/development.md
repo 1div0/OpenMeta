@@ -101,7 +101,7 @@ Portable sidecar note:
   `Iptc4xmpCore:*` fields (for example city/state/country/headline/credit and
   location/country-code).
 
-`metatransfer` is a transfer smoke tool for JPEG packaging:
+`metatransfer` is a transfer smoke tool for JPEG/TIFF packaging:
 
 ```bash
 #read -> prepare -> emit simulation
@@ -125,14 +125,50 @@ Portable sidecar note:
 
 #Write edited JPEG output (metadata rewrite mode)
 ./build/metatransfer --mode metadata_rewrite -o output.jpg input.jpg
+
+#Use separate metadata source and JPEG target stream
+./build/metatransfer \
+  --source-meta source.tif \
+  --target-jpeg target.jpg \
+  --mode metadata_rewrite \
+  -o injected.jpg
+
+#Use separate metadata source and TIFF target stream
+./build/metatransfer \
+  --source-meta source.jpg \
+  --target-tiff target.tif \
+  -o injected.tif
 ```
 
 `metatransfer` is a thin CLI wrapper over
-`prepare_metadata_for_target_file(...)` +
-`apply_time_patches(...)` +
-`plan_prepared_bundle_jpeg_edit(...)` +
-`apply_prepared_bundle_jpeg_edit(...)` +
-`emit_prepared_bundle_jpeg(...)`.
+`execute_prepared_transfer_file(...)`, which wraps
+`prepare_metadata_for_target_file(...)` plus the shared
+`execute_prepared_transfer(...)` path for time patching, route compile/emit,
+and optional JPEG/TIFF edit plan/apply. The core also exposes
+`compile_prepared_transfer_execution(...)` plus
+`execute_prepared_transfer_compiled(...)` for
+`prepare once -> compile once -> patch/emit many` workflows. When `-o` is
+used, the CLI passes a `TransferByteWriter` sink into the shared execution
+path so edited output can stream directly to disk instead of always
+materializing a full output buffer.
+Current v1 behavior is:
+
+- JPEG edit output is streamed directly from the shared core path.
+- JPEG metadata-only emit can also stream marker bytes directly through the
+  shared core API.
+- TIFF edit output uses the same sink API and only buffers the appended
+  metadata tail; it no longer materializes a second full-file output buffer.
+- `TransferProfile` now uses explicit `TransferPolicyAction` values for
+  `makernote`, `jumbf`, and `c2pa`.
+- `PreparedTransferBundle::policy_decisions` records the resolved per-family
+  transfer decision during prepare.
+- Current policy resolution for JPEG/TIFF prepare is:
+  - MakerNote: `Keep` by default, `Drop` when requested, `Invalidate`
+    resolves to `Drop`, and `Rewrite` currently resolves to raw-preserve
+    (`Keep`) with a warning.
+  - JUMBF/C2PA: current JPEG/TIFF prepare does not serialize them, so
+    non-`Drop` requests resolve to `Drop` with explicit policy diagnostics and
+    prepare warnings.
 
 `thumdump` is preview-only and optimized for batch preview extraction:
 
@@ -335,6 +371,13 @@ cmake --build build-tests --target openmeta_gate_python_transfer_probe_smoke
 ctest --test-dir build-tests -R openmeta_python_transfer_probe_smoke --output-on-failure
 ```
 
+Fast public smoke gate for Python `openmeta.python.metatransfer` edit mode
+behavior (requires `-DOPENMETA_BUILD_PYTHON=ON`):
+```bash
+cmake --build build-tests --target openmeta_gate_python_metatransfer_edit_smoke
+ctest --test-dir build-tests -R openmeta_python_metatransfer_edit_smoke --output-on-failure
+```
+
 Coverage note:
 - Public tree tests focus on deterministic unit/fuzz/smoke behavior.
 - Corpus-scale compare/baseline workflows are external to the public tree and
@@ -505,6 +548,8 @@ PYTHONPATH=build-py/python python3 -m openmeta.python.metadump --format portable
 PYTHONPATH=build-py/python python3 -m openmeta.python.metadump --format portable --c2pa-verify --c2pa-verify-backend auto file.jpg
 PYTHONPATH=build-py/python python3 -m openmeta.python.metadump --format portable --portable-include-existing-xmp --xmp-sidecar file.jpg
 PYTHONPATH=build-py/python python3 -m openmeta.python.metatransfer file.jpg
+PYTHONPATH=build-py/python python3 -m openmeta.python.metatransfer --target-jpeg target.jpg -o edited.jpg source.jpg
+PYTHONPATH=build-py/python python3 -m openmeta.python.metatransfer --target-tiff target.tif --dry-run source.jpg
 ```
 
 ## Python Wheel
@@ -615,26 +660,81 @@ Draft C++ transfer entry points (prepare/emit scaffold):
     - `JxlTransferEmitter`
     - `ExrTransferEmitter`
   - `prepare_metadata_for_target(..., PreparedTransferBundle*)` currently
-    prepares JPEG APP1 EXIF + APP1 XMP + APP2 ICC payloads, with explicit
-    warnings for unsupported/skipped EXIF/ICC/IPTC entries.
+    prepares JPEG/TIFF transfer blocks: EXIF APP1 (JPEG), XMP (JPEG APP1 /
+    TIFF tag 700), ICC (JPEG APP2 / TIFF tag 34675), IPTC (JPEG APP13 / TIFF
+    tag 33723), with explicit warnings for unsupported/skipped entries.
   - `emit_prepared_bundle_jpeg(...)` is implemented for route-based JPEG marker
     emission (`jpeg:appN...`, `jpeg:com`).
+  - `emit_prepared_bundle_tiff(...)` is implemented for route-based TIFF tag
+    emission (`tiff:ifd-exif-app1`, `tiff:tag-700-xmp`, `tiff:tag-34675-icc`,
+    `tiff:tag-33723-iptc`) and commit hook.
+  - Current CLI TIFF rewrite path supports classic TIFF (little- and
+    big-endian) for ExifIFD materialization (`tiff:ifd-exif-app1`).
   - `compile_prepared_bundle_jpeg(...)` + `emit_prepared_bundle_jpeg_compiled(...)`
     provide route-compile + reusable emit plan for high-throughput
     "prepare once, emit many" use.
+  - `compile_prepared_bundle_tiff(...)` + `emit_prepared_bundle_tiff_compiled(...)`
+    provide the same reusable route-compile emit plan for TIFF tag emission.
   - `apply_time_patches(...)` applies fixed-width in-place updates over
     `bundle.time_patch_map` (for example EXIF `DateTime*`, `SubSec*`,
     `OffsetTime*`, GPS date/time slots) without full re-prepare.
-  - `prepare_metadata_for_target_file(...)` provides a thin-wrapper file API
-    (`read/decode -> prepare bundle`) for CLI/Python tooling.
+  - TIFF edit path mirrors JPEG edit path:
+    - `plan_prepared_bundle_tiff_edit(...)`
+    - `apply_prepared_bundle_tiff_edit(...)`
+    (classic TIFF rewrite for prepared EXIF/XMP/ICC/IPTC updates).
+  - Writer/sink edit path is available for both targets:
+    - `TransferByteWriter`
+    - `SpanTransferByteWriter`
+    - `PreparedTransferExecutionPlan`
+    - `TimePatchView`
+    - `write_prepared_bundle_jpeg(...)`
+    - `write_prepared_bundle_jpeg_compiled(...)`
+    - `write_prepared_bundle_jpeg_edit(...)`
+    - `write_prepared_bundle_tiff_edit(...)`
+    - `apply_time_patches_view(...)`
+    - `compile_prepared_transfer_execution(...)`
+    - `execute_prepared_transfer_compiled(...)`
+    - `write_prepared_transfer_compiled(...)`
+    - `emit_prepared_transfer_compiled(..., JpegTransferEmitter&)`
+    - `emit_prepared_transfer_compiled(..., TiffTransferEmitter&)`
+    - `ExecutePreparedTransferOptions::emit_output_writer`
+    - `ExecutePreparedTransferOptions::edit_output_writer`
+    JPEG can stream either metadata-only emit bytes or edited output directly.
+    TIFF edit output streams original input plus a planned metadata tail,
+    avoiding a temporary full-file rewrite buffer.
+  - `prepare_metadata_for_target_file(...)` provides the file-level
+    `read/decode -> prepare bundle` step.
+  - `execute_prepared_transfer(...)` runs the shared
+    `time_patch -> compile -> emit -> optional edit` flow on an already
+    prepared bundle.
+  - `compile_prepared_transfer_execution(...)` compiles a reusable execution
+    plan that stores target-specific route mapping plus emit policy.
+  - `apply_time_patches_view(...)` accepts non-owning patch spans for
+    per-frame patching without owned update buffers.
+  - `execute_prepared_transfer_compiled(...)` runs the same shared
+    `time_patch -> emit -> optional edit` flow using a precompiled execution
+    plan.
+  - `write_prepared_transfer_compiled(...)` is the narrow encoder-integration
+    helper for `prepare once -> compile once -> patch -> write` workflows.
+  - `SpanTransferByteWriter` is the fixed-buffer adapter for encoder paths that
+    want preallocated output memory and deterministic overflow reporting before
+    any JPEG marker bytes are written.
+  - `emit_prepared_transfer_compiled(..., TiffTransferEmitter&)` is the
+    intended TIFF hot path; TIFF does not expose a metadata-only byte-writer
+    emit contract.
+  - `execute_prepared_transfer_file(...)` wraps the full
+    `read/decode -> prepare -> execute` flow and is now the main thin-wrapper
+    entry point for CLI/Python tooling.
 
 Python transfer entry point:
 
 - `openmeta.transfer_probe(...)` (safe):
-  - calls the same file-level transfer API and JPEG emit simulation path,
-    returning read/prepare/emit summaries and prepared block routes/sizes;
+  - calls the same file-level transfer execution API as the CLI,
+    returning read/prepare/compile/emit summaries and prepared block
+    routes/sizes;
   - supports `time_patches={Field: "Value" | b"..."}`
-    with shared C++ patch logic (`apply_time_patches(...)`);
+    with shared C++ patch logic inside
+    `execute_prepared_transfer(...)`;
   - exposes `time_patch_*` summary fields
     (`time_patch_status_name`, `time_patch_patched_slots`, ...);
   - if `include_payloads=True`, returns

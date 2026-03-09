@@ -77,6 +77,42 @@ namespace {
                && s.substr(0, prefix.size()) == prefix;
     }
 
+    static std::string_view arena_string(const ByteArena& arena,
+                                         ByteSpan span) noexcept
+    {
+        const std::span<const std::byte> bytes = arena.span(span);
+        return std::string_view(reinterpret_cast<const char*>(bytes.data()),
+                                bytes.size());
+    }
+
+    static bool path_separator(char c) noexcept
+    {
+        return c == '.' || c == '[' || c == ']' || c == '@';
+    }
+
+    static bool contains_path_segment(std::string_view text,
+                                      std::string_view segment) noexcept
+    {
+        if (text.empty() || segment.empty()) {
+            return false;
+        }
+        size_t pos = 0U;
+        while (true) {
+            pos = text.find(segment, pos);
+            if (pos == std::string_view::npos) {
+                return false;
+            }
+            const size_t end    = pos + segment.size();
+            const bool left_ok  = (pos == 0U) || path_separator(text[pos - 1U]);
+            const bool right_ok = (end >= text.size())
+                                  || path_separator(text[end]);
+            if (left_ok && right_ok) {
+                return true;
+            }
+            pos += 1U;
+        }
+    }
+
     static bool parse_u32_decimal(std::string_view s, uint32_t* out) noexcept
     {
         if (!out || s.empty()) {
@@ -460,6 +496,67 @@ namespace {
         }
     }
 
+    struct PlannedJpegReplacement final {
+        size_t payload_off = 0;
+        size_t payload_len = 0;
+        std::span<const std::byte> payload;
+        std::string route;
+    };
+
+    struct PlannedJpegReplacementLess final {
+        bool operator()(const PlannedJpegReplacement& a,
+                        const PlannedJpegReplacement& b) const noexcept
+        {
+            return a.payload_off < b.payload_off;
+        }
+    };
+
+    static bool write_transfer_bytes(TransferByteWriter& writer,
+                                     std::span<const std::byte> bytes,
+                                     EmitTransferResult* out,
+                                     const char* message) noexcept
+    {
+        if (!out) {
+            return false;
+        }
+        if (bytes.empty()) {
+            return true;
+        }
+        const TransferStatus st = writer.write(bytes);
+        if (st == TransferStatus::Ok) {
+            return true;
+        }
+        out->status = st;
+        out->code   = EmitTransferCode::BackendWriteFailed;
+        out->errors += 1U;
+        out->message = message ? message : "transfer byte writer failed";
+        return false;
+    }
+
+    static bool write_jpeg_marker_segment(TransferByteWriter& writer,
+                                          uint8_t marker,
+                                          std::span<const std::byte> payload,
+                                          EmitTransferResult* out) noexcept
+    {
+        std::array<std::byte, 4> header = {
+            std::byte { 0xFF },
+            static_cast<std::byte>(marker),
+            std::byte { 0x00 },
+            std::byte { 0x00 },
+        };
+        const uint16_t seg_len = static_cast<uint16_t>(payload.size() + 2U);
+        header[2] = static_cast<std::byte>((seg_len >> 8U) & 0xFFU);
+        header[3] = static_cast<std::byte>((seg_len >> 0U) & 0xFFU);
+        if (!write_transfer_bytes(writer,
+                                  std::span<const std::byte>(header.data(),
+                                                             header.size()),
+                                  out, "jpeg edit header write failed")) {
+            return false;
+        }
+        return write_transfer_bytes(writer, payload, out,
+                                    "jpeg edit payload write failed");
+    }
+
     static void append_message(std::string* dst, std::string_view msg) noexcept
     {
         if (!dst || msg.empty()) {
@@ -482,6 +579,151 @@ namespace {
             }
         }
         return false;
+    }
+
+    static uint32_t count_makernote_entries(const MetaStore& store) noexcept
+    {
+        uint32_t count = 0U;
+        for (const Entry& e : store.entries()) {
+            if (any(e.flags, EntryFlags::Deleted)
+                || e.key.kind != MetaKeyKind::ExifTag) {
+                continue;
+            }
+            if (e.key.data.exif_tag.tag == 0x927CU) {
+                count += 1U;
+            }
+        }
+        return count;
+    }
+
+    static uint32_t count_jumbf_entries(const MetaStore& store) noexcept
+    {
+        uint32_t count = 0U;
+        for (const Entry& e : store.entries()) {
+            if (any(e.flags, EntryFlags::Deleted)) {
+                continue;
+            }
+            if (e.key.kind == MetaKeyKind::JumbfField
+                || e.key.kind == MetaKeyKind::JumbfCborKey) {
+                count += 1U;
+            }
+        }
+        return count;
+    }
+
+    static bool is_c2pa_entry(const MetaStore& store, const Entry& e) noexcept
+    {
+        if (any(e.flags, EntryFlags::Deleted)) {
+            return false;
+        }
+        if (e.key.kind == MetaKeyKind::JumbfField) {
+            return contains_path_segment(
+                arena_string(store.arena(), e.key.data.jumbf_field.field),
+                "c2pa");
+        }
+        if (e.key.kind == MetaKeyKind::JumbfCborKey) {
+            return contains_path_segment(
+                arena_string(store.arena(), e.key.data.jumbf_cbor_key.key),
+                "c2pa");
+        }
+        if (e.key.kind == MetaKeyKind::BmffField) {
+            return contains_path_segment(
+                arena_string(store.arena(), e.key.data.bmff_field.field),
+                "c2pa");
+        }
+        return false;
+    }
+
+    static uint32_t count_c2pa_entries(const MetaStore& store) noexcept
+    {
+        uint32_t count = 0U;
+        for (const Entry& e : store.entries()) {
+            if (is_c2pa_entry(store, e)) {
+                count += 1U;
+            }
+        }
+        return count;
+    }
+
+    static TransferPolicyAction
+    resolve_makernote_policy(TransferPolicyAction requested,
+                             TransferPolicyReason* out_reason) noexcept
+    {
+        if (!out_reason) {
+            return TransferPolicyAction::Keep;
+        }
+        switch (requested) {
+        case TransferPolicyAction::Keep:
+            *out_reason = TransferPolicyReason::Default;
+            return TransferPolicyAction::Keep;
+        case TransferPolicyAction::Drop:
+            *out_reason = TransferPolicyReason::ExplicitDrop;
+            return TransferPolicyAction::Drop;
+        case TransferPolicyAction::Invalidate:
+            *out_reason = TransferPolicyReason::PortableInvalidationUnavailable;
+            return TransferPolicyAction::Drop;
+        case TransferPolicyAction::Rewrite:
+            *out_reason = TransferPolicyReason::RewriteUnavailablePreservedRaw;
+            return TransferPolicyAction::Keep;
+        }
+        *out_reason = TransferPolicyReason::Default;
+        return TransferPolicyAction::Keep;
+    }
+
+    static TransferPolicyAction
+    resolve_unserialized_policy(TransferPolicyAction requested,
+                                TransferPolicyReason* out_reason) noexcept
+    {
+        if (!out_reason) {
+            return TransferPolicyAction::Drop;
+        }
+        switch (requested) {
+        case TransferPolicyAction::Drop:
+            *out_reason = TransferPolicyReason::ExplicitDrop;
+            return TransferPolicyAction::Drop;
+        case TransferPolicyAction::Keep:
+        case TransferPolicyAction::Invalidate:
+        case TransferPolicyAction::Rewrite:
+            *out_reason = TransferPolicyReason::TargetSerializationUnavailable;
+            return TransferPolicyAction::Drop;
+        }
+        *out_reason = TransferPolicyReason::TargetSerializationUnavailable;
+        return TransferPolicyAction::Drop;
+    }
+
+    static void append_policy_decision(PreparedTransferBundle* bundle,
+                                       TransferPolicySubject subject,
+                                       TransferPolicyAction requested,
+                                       TransferPolicyAction effective,
+                                       TransferPolicyReason reason,
+                                       uint32_t matched_entries,
+                                       std::string_view message) noexcept
+    {
+        if (!bundle) {
+            return;
+        }
+        PreparedTransferPolicyDecision decision;
+        decision.subject         = subject;
+        decision.requested       = requested;
+        decision.effective       = effective;
+        decision.reason          = reason;
+        decision.matched_entries = matched_entries;
+        decision.message.assign(message.data(), message.size());
+        bundle->policy_decisions.push_back(std::move(decision));
+    }
+
+    static void add_prepare_warning(PrepareTransferResult* out,
+                                    PrepareTransferCode code,
+                                    std::string_view message) noexcept
+    {
+        if (!out) {
+            return;
+        }
+        if (out->code == PrepareTransferCode::None) {
+            out->code = code;
+        }
+        out->warnings += 1U;
+        append_message(&out->message, message);
     }
 
     static TransferFileStatus map_file_status(MappedFileStatus status) noexcept
@@ -935,7 +1177,8 @@ namespace {
     static uint32_t align_to_2(uint32_t v) noexcept { return (v + 1U) & ~1U; }
 
     static ExifPackBuild
-    build_jpeg_exif_app1_payload(const MetaStore& store) noexcept
+    build_jpeg_exif_app1_payload(const MetaStore& store,
+                                 TransferPolicyAction makernote_policy) noexcept
     {
         ExifPackBuild out;
 
@@ -964,6 +1207,10 @@ namespace {
 
             const uint16_t tag = e.key.data.exif_tag.tag;
             if (is_regenerated_pointer_tag(slot, tag)) {
+                continue;
+            }
+            if (tag == 0x927CU
+                && makernote_policy == TransferPolicyAction::Drop) {
                 continue;
             }
 
@@ -1756,6 +2003,14 @@ namespace {
         std::vector<std::byte> rewrite_payload;
     };
 
+    struct TiffIfdEntryLess final {
+        bool operator()(const TiffIfdEntry& a,
+                        const TiffIfdEntry& b) const noexcept
+        {
+            return a.tag < b.tag;
+        }
+    };
+
     struct ParsedTiffIfdEntry final {
         uint16_t tag   = 0U;
         uint16_t type  = 0U;
@@ -1774,6 +2029,12 @@ namespace {
         ParsedTiffIfd gps_ifd;
         ParsedTiffIfd interop_ifd;
         TiffEndian source_endian = TiffEndian::Little;
+    };
+
+    struct TiffRewriteTail final {
+        TiffEndian endian     = TiffEndian::Little;
+        uint32_t new_ifd0_off = 0U;
+        std::vector<std::byte> tail_bytes;
     };
 
     static uint16_t read_u16_tiff(std::span<const std::byte> b, size_t off,
@@ -1843,6 +2104,25 @@ namespace {
             (*out)[off + 1U] = static_cast<std::byte>((v >> 16U) & 0xFFU);
             (*out)[off + 2U] = static_cast<std::byte>((v >> 8U) & 0xFFU);
             (*out)[off + 3U] = static_cast<std::byte>((v >> 0U) & 0xFFU);
+        }
+    }
+
+    static void write_u32_tiff_bytes(std::array<std::byte, 4>* out, uint32_t v,
+                                     TiffEndian endian) noexcept
+    {
+        if (!out) {
+            return;
+        }
+        if (endian == TiffEndian::Little) {
+            (*out)[0] = static_cast<std::byte>((v >> 0U) & 0xFFU);
+            (*out)[1] = static_cast<std::byte>((v >> 8U) & 0xFFU);
+            (*out)[2] = static_cast<std::byte>((v >> 16U) & 0xFFU);
+            (*out)[3] = static_cast<std::byte>((v >> 24U) & 0xFFU);
+        } else {
+            (*out)[0] = static_cast<std::byte>((v >> 24U) & 0xFFU);
+            (*out)[1] = static_cast<std::byte>((v >> 16U) & 0xFFU);
+            (*out)[2] = static_cast<std::byte>((v >> 8U) & 0xFFU);
+            (*out)[3] = static_cast<std::byte>((v >> 0U) & 0xFFU);
         }
     }
 
@@ -2280,11 +2560,30 @@ namespace {
         ifd->entries.push_back(std::move(p));
     }
 
-    static bool append_serialized_ifd(std::vector<std::byte>* out,
-                                      const ParsedTiffIfd& ifd,
-                                      TiffEndian endian,
-                                      uint32_t* out_ifd_offset,
-                                      std::string* err) noexcept
+    static bool align_tiff_tail(std::vector<std::byte>* tail,
+                                uint32_t base_offset, std::string* err) noexcept
+    {
+        if (!tail) {
+            return false;
+        }
+        const uint64_t abs_size = static_cast<uint64_t>(base_offset)
+                                  + static_cast<uint64_t>(tail->size());
+        if (abs_size > static_cast<uint64_t>(0xFFFFFFFFU)) {
+            if (err) {
+                *err = "tiff output exceeds classic 32-bit offset range";
+            }
+            return false;
+        }
+        if ((abs_size & 1U) != 0U) {
+            tail->push_back(std::byte { 0x00 });
+        }
+        return true;
+    }
+
+    static bool
+    append_serialized_ifd(std::vector<std::byte>* out, uint32_t base_offset,
+                          const ParsedTiffIfd& ifd, TiffEndian endian,
+                          uint32_t* out_ifd_offset, std::string* err) noexcept
     {
         if (!out || !out_ifd_offset || !ifd.present) {
             return false;
@@ -2296,16 +2595,18 @@ namespace {
             return false;
         }
 
-        if ((out->size() & 1U) != 0U) {
-            out->push_back(std::byte { 0x00 });
+        if (!align_tiff_tail(out, base_offset, err)) {
+            return false;
         }
-        if (out->size() > static_cast<size_t>(0xFFFFFFFFU)) {
+        const uint64_t dir_off_u64 = static_cast<uint64_t>(base_offset)
+                                     + static_cast<uint64_t>(out->size());
+        if (dir_off_u64 > static_cast<uint64_t>(0xFFFFFFFFU)) {
             if (err) {
                 *err = "tiff output exceeds classic 32-bit offset range";
             }
             return false;
         }
-        const uint32_t dir_off = static_cast<uint32_t>(out->size());
+        const uint32_t dir_off = static_cast<uint32_t>(dir_off_u64);
         *out_ifd_offset        = dir_off;
 
         struct Placement final {
@@ -2339,9 +2640,16 @@ namespace {
             }
             return false;
         }
-        out->resize(static_cast<size_t>(cursor), std::byte { 0x00 });
+        if (cursor < base_offset) {
+            if (err) {
+                *err = "serialized EXIF sub-IFD offset underflow";
+            }
+            return false;
+        }
+        out->resize(static_cast<size_t>(cursor - base_offset),
+                    std::byte { 0x00 });
 
-        size_t p = static_cast<size_t>(dir_off);
+        size_t p = static_cast<size_t>(dir_off - base_offset);
         write_u16_tiff(out, p, static_cast<uint16_t>(ifd.entries.size()),
                        endian);
         p += 2U;
@@ -2366,7 +2674,8 @@ namespace {
             if (placements[i].inline_value || e.payload.empty()) {
                 continue;
             }
-            const size_t off = static_cast<size_t>(placements[i].value_offset);
+            const size_t off = static_cast<size_t>(placements[i].value_offset
+                                                   - base_offset);
             if (off + e.payload.size() > out->size()) {
                 if (err) {
                     *err = "serialized EXIF sub-IFD payload out of range";
@@ -2380,16 +2689,17 @@ namespace {
     }
 
     static bool
-    rewrite_tiff_ifd0_tags(std::span<const std::byte> input,
-                           const std::vector<TiffTagUpdate>& updates,
-                           std::span<const std::byte> exif_app1_payload,
-                           std::vector<std::byte>* out,
-                           std::string* err) noexcept
+    build_tiff_rewrite_tail(std::span<const std::byte> input,
+                            const std::vector<TiffTagUpdate>& updates,
+                            std::span<const std::byte> exif_app1_payload,
+                            TiffRewriteTail* out, std::string* err) noexcept
     {
         if (!out) {
             return false;
         }
-        out->clear();
+        out->tail_bytes.clear();
+        out->new_ifd0_off = 0U;
+
         if (updates.empty() && exif_app1_payload.empty()) {
             if (err) {
                 *err = "no tiff updates";
@@ -2399,6 +2709,12 @@ namespace {
         if (input.size() < 8U) {
             if (err) {
                 *err = "tiff input too small";
+            }
+            return false;
+        }
+        if (input.size() > static_cast<size_t>(0xFFFFFFFFU)) {
+            if (err) {
+                *err = "tiff output exceeds classic 32-bit offset range";
             }
             return false;
         }
@@ -2547,13 +2863,12 @@ namespace {
         }
 
         std::sort(final_entries.begin(), final_entries.end(),
-                  [](const TiffIfdEntry& a, const TiffIfdEntry& b) {
-                      return a.tag < b.tag;
-                  });
+                  TiffIfdEntryLess {});
 
-        out->assign(input.begin(), input.end());
-        if ((out->size() & 1U) != 0U) {
-            out->push_back(std::byte { 0x00 });
+        const uint32_t base_offset   = static_cast<uint32_t>(input.size());
+        std::vector<std::byte>& tail = out->tail_bytes;
+        if (!align_tiff_tail(&tail, base_offset, err)) {
+            return false;
         }
 
         for (size_t i = 0; i < final_entries.size(); ++i) {
@@ -2570,23 +2885,26 @@ namespace {
                 }
                 continue;
             }
-            if ((out->size() & 1U) != 0U) {
-                out->push_back(std::byte { 0x00 });
+            if (!align_tiff_tail(&tail, base_offset, err)) {
+                return false;
             }
-            if (out->size() > static_cast<size_t>(0xFFFFFFFFU)) {
+            const uint64_t value_off_u64 = static_cast<uint64_t>(base_offset)
+                                           + static_cast<uint64_t>(tail.size());
+            if (value_off_u64 > static_cast<uint64_t>(0xFFFFFFFFU)) {
                 if (err) {
                     *err = "tiff output exceeds classic 32-bit offset range";
                 }
                 return false;
             }
-            e.value_or_off = static_cast<uint32_t>(out->size());
-            out->insert(out->end(), e.rewrite_payload.begin(),
+            e.value_or_off = static_cast<uint32_t>(value_off_u64);
+            tail.insert(tail.end(), e.rewrite_payload.begin(),
                         e.rewrite_payload.end());
         }
 
         uint32_t interop_ifd_off = 0U;
         if (parsed_exif.interop_ifd.present
-            && !append_serialized_ifd(out, parsed_exif.interop_ifd, endian,
+            && !append_serialized_ifd(&tail, base_offset,
+                                      parsed_exif.interop_ifd, endian,
                                       &interop_ifd_off, err)) {
             return false;
         }
@@ -2597,16 +2915,16 @@ namespace {
             if (parsed_exif.interop_ifd.present) {
                 upsert_ifd_pointer(&exif_ifd, 0xA005U, interop_ifd_off, endian);
             }
-            if (!append_serialized_ifd(out, exif_ifd, endian, &exif_ifd_off,
-                                       err)) {
+            if (!append_serialized_ifd(&tail, base_offset, exif_ifd, endian,
+                                       &exif_ifd_off, err)) {
                 return false;
             }
         }
 
         uint32_t gps_ifd_off = 0U;
         if (parsed_exif.gps_ifd.present
-            && !append_serialized_ifd(out, parsed_exif.gps_ifd, endian,
-                                      &gps_ifd_off, err)) {
+            && !append_serialized_ifd(&tail, base_offset, parsed_exif.gps_ifd,
+                                      endian, &gps_ifd_off, err)) {
             return false;
         }
 
@@ -2643,16 +2961,18 @@ namespace {
             }
         }
 
-        if ((out->size() & 1U) != 0U) {
-            out->push_back(std::byte { 0x00 });
+        if (!align_tiff_tail(&tail, base_offset, err)) {
+            return false;
         }
-        if (out->size() > static_cast<size_t>(0xFFFFFFFFU)) {
+        const uint64_t new_ifd0_off_u64 = static_cast<uint64_t>(base_offset)
+                                          + static_cast<uint64_t>(tail.size());
+        if (new_ifd0_off_u64 > static_cast<uint64_t>(0xFFFFFFFFU)) {
             if (err) {
                 *err = "tiff output exceeds classic 32-bit offset range";
             }
             return false;
         }
-        const uint32_t new_ifd0_off = static_cast<uint32_t>(out->size());
+        out->new_ifd0_off = static_cast<uint32_t>(new_ifd0_off_u64);
 
         if (final_entries.size() > static_cast<size_t>(0xFFFFU)) {
             if (err) {
@@ -2660,28 +2980,92 @@ namespace {
             }
             return false;
         }
-        const size_t ifd_bytes = 2U + final_entries.size() * 12U + 4U;
-        out->resize(out->size() + ifd_bytes, std::byte { 0x00 });
-        size_t w = static_cast<size_t>(new_ifd0_off);
-        write_u16_tiff(out, w, static_cast<uint16_t>(final_entries.size()),
+        const size_t ifd_bytes     = 2U + final_entries.size() * 12U + 4U;
+        const size_t local_ifd_off = tail.size();
+        tail.resize(tail.size() + ifd_bytes, std::byte { 0x00 });
+        size_t w = local_ifd_off;
+        write_u16_tiff(&tail, w, static_cast<uint16_t>(final_entries.size()),
                        endian);
         w += 2U;
         for (size_t i = 0; i < final_entries.size(); ++i) {
             const TiffIfdEntry& e = final_entries[i];
-            write_u16_tiff(out, w + 0U, e.tag, endian);
-            write_u16_tiff(out, w + 2U, e.type, endian);
-            write_u32_tiff(out, w + 4U, e.count, endian);
+            write_u16_tiff(&tail, w + 0U, e.tag, endian);
+            write_u16_tiff(&tail, w + 2U, e.type, endian);
+            write_u32_tiff(&tail, w + 4U, e.count, endian);
             if (e.has_inline_payload) {
                 for (size_t k = 0; k < 4U; ++k) {
-                    (*out)[w + 8U + k] = e.inline_payload[k];
+                    tail[w + 8U + k] = e.inline_payload[k];
                 }
             } else {
-                write_u32_tiff(out, w + 8U, e.value_or_off, endian);
+                write_u32_tiff(&tail, w + 8U, e.value_or_off, endian);
             }
             w += 12U;
         }
-        write_u32_tiff(out, w, next_ifd_off, endian);
-        write_u32_tiff(out, 4U, new_ifd0_off, endian);
+        write_u32_tiff(&tail, w, next_ifd_off, endian);
+        out->endian = endian;
+        return true;
+    }
+
+    static bool write_tiff_rewrite_with_tail(std::span<const std::byte> input,
+                                             const TiffRewriteTail& rewrite,
+                                             TransferByteWriter& writer,
+                                             EmitTransferResult* out) noexcept
+    {
+        if (!out || input.size() < 8U) {
+            return false;
+        }
+        if (!write_transfer_bytes(writer, input.subspan(0, 4U), out,
+                                  "tiff rewrite header write failed")) {
+            return false;
+        }
+        std::array<std::byte, 4> patched_ifd0 = {
+            std::byte { 0x00 },
+            std::byte { 0x00 },
+            std::byte { 0x00 },
+            std::byte { 0x00 },
+        };
+        write_u32_tiff_bytes(&patched_ifd0, rewrite.new_ifd0_off,
+                             rewrite.endian);
+        if (!write_transfer_bytes(writer,
+                                  std::span<const std::byte>(
+                                      patched_ifd0.data(), patched_ifd0.size()),
+                                  out,
+                                  "tiff rewrite ifd0 offset write failed")) {
+            return false;
+        }
+        if (!write_transfer_bytes(writer, input.subspan(8U), out,
+                                  "tiff rewrite body write failed")) {
+            return false;
+        }
+        return write_transfer_bytes(
+            writer,
+            std::span<const std::byte>(rewrite.tail_bytes.data(),
+                                       rewrite.tail_bytes.size()),
+            out, "tiff rewrite tail write failed");
+    }
+
+    static bool
+    rewrite_tiff_ifd0_tags(std::span<const std::byte> input,
+                           const std::vector<TiffTagUpdate>& updates,
+                           std::span<const std::byte> exif_app1_payload,
+                           std::vector<std::byte>* out,
+                           std::string* err) noexcept
+    {
+        if (!out) {
+            return false;
+        }
+        out->clear();
+
+        TiffRewriteTail rewrite;
+        if (!build_tiff_rewrite_tail(input, updates, exif_app1_payload,
+                                     &rewrite, err)) {
+            return false;
+        }
+
+        out->assign(input.begin(), input.end());
+        write_u32_tiff(out, 4U, rewrite.new_ifd0_off, rewrite.endian);
+        out->insert(out->end(), rewrite.tail_bytes.begin(),
+                    rewrite.tail_bytes.end());
         return true;
     }
 
@@ -2737,11 +3121,114 @@ prepare_metadata_for_target(const MetaStore& store,
                           || has_kind(store, MetaKeyKind::PhotoshopIrb);
     const bool has_icc = has_kind(store, MetaKeyKind::IccHeaderField)
                          || has_kind(store, MetaKeyKind::IccTag);
+    const uint32_t makernote_count = count_makernote_entries(store);
+    const uint32_t jumbf_count     = count_jumbf_entries(store);
+    const uint32_t c2pa_count      = count_c2pa_entries(store);
 
     bool requested_present_but_unpacked = false;
 
+    TransferPolicyAction effective_makernote = request.profile.makernote;
+    TransferPolicyReason makernote_reason    = TransferPolicyReason::NotPresent;
+    if (makernote_count == 0U) {
+        append_policy_decision(&bundle, TransferPolicySubject::MakerNote,
+                               request.profile.makernote,
+                               request.profile.makernote,
+                               TransferPolicyReason::NotPresent, 0U,
+                               "no maker note entries in source metadata");
+    } else if (!request.include_exif_app1) {
+        effective_makernote = TransferPolicyAction::Drop;
+        makernote_reason    = TransferPolicyReason::CarrierDisabled;
+        append_policy_decision(&bundle, TransferPolicySubject::MakerNote,
+                               request.profile.makernote, effective_makernote,
+                               makernote_reason, makernote_count,
+                               "maker notes require EXIF transfer; EXIF output "
+                               "is disabled");
+    } else {
+        effective_makernote = resolve_makernote_policy(request.profile.makernote,
+                                                       &makernote_reason);
+        if (makernote_reason
+            == TransferPolicyReason::PortableInvalidationUnavailable) {
+            add_prepare_warning(
+                &r, PrepareTransferCode::RequestedMetadataNotSerializable,
+                "maker note invalidation is not portable; dropping maker "
+                "notes");
+        } else if (makernote_reason
+                   == TransferPolicyReason::RewriteUnavailablePreservedRaw) {
+            add_prepare_warning(
+                &r, PrepareTransferCode::RequestedMetadataNotSerializable,
+                "maker note rewrite is not implemented; preserving raw maker "
+                "notes");
+        }
+        append_policy_decision(
+            &bundle, TransferPolicySubject::MakerNote,
+            request.profile.makernote, effective_makernote, makernote_reason,
+            makernote_count,
+            makernote_reason == TransferPolicyReason::ExplicitDrop
+                ? "maker notes will be dropped from prepared EXIF"
+                : (makernote_reason
+                           == TransferPolicyReason::PortableInvalidationUnavailable
+                       ? "maker notes have no portable invalidation path; "
+                         "dropping from prepared EXIF"
+                       : (makernote_reason
+                                  == TransferPolicyReason::
+                                      RewriteUnavailablePreservedRaw
+                              ? "maker note rewrite is unavailable; preserving "
+                                "raw maker note payload"
+                              : "maker notes will be preserved in prepared "
+                                "EXIF")));
+    }
+
+    TransferPolicyReason jumbf_reason = TransferPolicyReason::NotPresent;
+    if (jumbf_count == 0U) {
+        append_policy_decision(&bundle, TransferPolicySubject::Jumbf,
+                               request.profile.jumbf, request.profile.jumbf,
+                               TransferPolicyReason::NotPresent, 0U,
+                               "no jumbf entries in source metadata");
+    } else {
+        const TransferPolicyAction effective_jumbf
+            = resolve_unserialized_policy(request.profile.jumbf, &jumbf_reason);
+        if (request.profile.jumbf != TransferPolicyAction::Drop) {
+            requested_present_but_unpacked = true;
+            add_prepare_warning(
+                &r, PrepareTransferCode::RequestedMetadataNotSerializable,
+                "jumbf transfer is not yet serialized for jpeg/tiff targets; "
+                "dropping jumbf data");
+        }
+        append_policy_decision(
+            &bundle, TransferPolicySubject::Jumbf, request.profile.jumbf,
+            effective_jumbf, jumbf_reason, jumbf_count,
+            request.profile.jumbf == TransferPolicyAction::Drop
+                ? "jumbf transfer disabled by profile"
+                : "jumbf transfer is not yet serialized for current targets");
+    }
+
+    TransferPolicyReason c2pa_reason = TransferPolicyReason::NotPresent;
+    if (c2pa_count == 0U) {
+        append_policy_decision(&bundle, TransferPolicySubject::C2pa,
+                               request.profile.c2pa, request.profile.c2pa,
+                               TransferPolicyReason::NotPresent, 0U,
+                               "no c2pa entries in source metadata");
+    } else {
+        const TransferPolicyAction effective_c2pa
+            = resolve_unserialized_policy(request.profile.c2pa, &c2pa_reason);
+        if (request.profile.c2pa != TransferPolicyAction::Drop) {
+            requested_present_but_unpacked = true;
+            add_prepare_warning(
+                &r, PrepareTransferCode::RequestedMetadataNotSerializable,
+                "c2pa transfer is not yet serialized for jpeg/tiff targets; "
+                "dropping c2pa data");
+        }
+        append_policy_decision(
+            &bundle, TransferPolicySubject::C2pa, request.profile.c2pa,
+            effective_c2pa, c2pa_reason, c2pa_count,
+            request.profile.c2pa == TransferPolicyAction::Drop
+                ? "c2pa transfer disabled by profile"
+                : "c2pa transfer is not yet serialized for current targets");
+    }
+
     if (request.include_exif_app1 && has_exif) {
-        ExifPackBuild exif_build = build_jpeg_exif_app1_payload(store);
+        ExifPackBuild exif_build
+            = build_jpeg_exif_app1_payload(store, effective_makernote);
         if (exif_build.produced && !exif_build.app1_payload.empty()) {
             const uint32_t block_index = static_cast<uint32_t>(
                 bundle.blocks.size());
@@ -3347,6 +3834,91 @@ emit_prepared_bundle_jpeg_compiled(const PreparedTransferBundle& bundle,
     return r;
 }
 
+EmitTransferResult
+write_prepared_bundle_jpeg(const PreparedTransferBundle& bundle,
+                           TransferByteWriter& writer,
+                           const EmitTransferOptions& options) noexcept
+{
+    PreparedJpegEmitPlan plan;
+    const EmitTransferResult compiled
+        = compile_prepared_bundle_jpeg(bundle, &plan, options);
+    if (compiled.status != TransferStatus::Ok) {
+        return compiled;
+    }
+    return write_prepared_bundle_jpeg_compiled(bundle, plan, writer, options);
+}
+
+EmitTransferResult
+write_prepared_bundle_jpeg_compiled(const PreparedTransferBundle& bundle,
+                                    const PreparedJpegEmitPlan& plan,
+                                    TransferByteWriter& writer,
+                                    const EmitTransferOptions& options) noexcept
+{
+    EmitTransferResult r;
+    if (bundle.target_format != TransferTargetFormat::Jpeg) {
+        r.status  = TransferStatus::Unsupported;
+        r.code    = EmitTransferCode::BundleTargetNotJpeg;
+        r.errors  = 1U;
+        r.message = "bundle target format is not jpeg";
+        return r;
+    }
+    if (plan.contract_version != bundle.contract_version) {
+        r.status  = TransferStatus::InvalidArgument;
+        r.code    = EmitTransferCode::PlanMismatch;
+        r.errors  = 1U;
+        r.message = "compiled plan contract_version mismatch";
+        return r;
+    }
+
+    for (uint32_t i = 0; i < plan.ops.size(); ++i) {
+        const PreparedJpegEmitOp& op = plan.ops[i];
+        if (op.block_index >= bundle.blocks.size()) {
+            r.status = TransferStatus::InvalidArgument;
+            if (r.code == EmitTransferCode::None) {
+                r.code = EmitTransferCode::PlanMismatch;
+            }
+            r.errors += 1U;
+            r.failed_block_index = op.block_index;
+            r.message            = "compiled plan block_index out of range";
+            if (options.stop_on_error) {
+                return r;
+            }
+            continue;
+        }
+
+        const PreparedTransferBlock& block = bundle.blocks[op.block_index];
+        if (options.skip_empty_payloads && block.payload.empty()) {
+            r.skipped += 1U;
+            continue;
+        }
+
+        if (!write_jpeg_marker_segment(
+                writer, op.marker_code,
+                std::span<const std::byte>(block.payload.data(),
+                                           block.payload.size()),
+                &r)) {
+            if (r.code == EmitTransferCode::None) {
+                r.code = EmitTransferCode::BackendWriteFailed;
+            }
+            r.failed_block_index = op.block_index;
+            if (r.message.empty()) {
+                r.message = "jpeg byte writer failed";
+            }
+            if (options.stop_on_error) {
+                return r;
+            }
+            continue;
+        }
+        r.emitted += 1U;
+    }
+
+    if (r.errors == 0U) {
+        r.status = TransferStatus::Ok;
+        r.code   = EmitTransferCode::None;
+    }
+    return r;
+}
+
 JpegEditPlan
 plan_prepared_bundle_jpeg_edit(std::span<const std::byte> input_jpeg,
                                const PreparedTransferBundle& bundle,
@@ -3623,6 +4195,204 @@ apply_prepared_bundle_jpeg_edit(std::span<const std::byte> input_jpeg,
     return out;
 }
 
+EmitTransferResult
+write_prepared_bundle_jpeg_edit(std::span<const std::byte> input_jpeg,
+                                const PreparedTransferBundle& bundle,
+                                const JpegEditPlan& plan,
+                                TransferByteWriter& writer) noexcept
+{
+    EmitTransferResult out;
+    if (plan.status != TransferStatus::Ok) {
+        out.status  = TransferStatus::InvalidArgument;
+        out.code    = EmitTransferCode::InvalidArgument;
+        out.errors  = 1U;
+        out.message = "edit plan status is not ok";
+        return out;
+    }
+    if (bundle.target_format != TransferTargetFormat::Jpeg) {
+        out.status  = TransferStatus::Unsupported;
+        out.code    = EmitTransferCode::BundleTargetNotJpeg;
+        out.errors  = 1U;
+        out.message = "bundle target format is not jpeg";
+        return out;
+    }
+
+    std::vector<PlannedJpegSegment> desired;
+    const EmitTransferResult desired_status
+        = collect_planned_jpeg_segments(bundle, true, &desired);
+    if (desired_status.status != TransferStatus::Ok) {
+        return desired_status;
+    }
+
+    const JpegScanResult scan = scan_leading_jpeg_segments(input_jpeg);
+    if (scan.status != TransferStatus::Ok) {
+        out.status  = scan.status;
+        out.code    = EmitTransferCode::InvalidArgument;
+        out.errors  = 1U;
+        out.message = scan.message;
+        return out;
+    }
+
+    if (plan.selected_mode == JpegEditMode::InPlace) {
+        std::vector<PlannedJpegReplacement> replacements;
+        replacements.reserve(desired.size());
+        for (size_t i = 0; i < desired.size(); ++i) {
+            const PlannedJpegSegment& d = desired[i];
+            const size_t occ    = route_occurrence_before(desired, i, d.route);
+            size_t existing_idx = 0;
+            if (!find_existing_by_route_occurrence(scan.leading_segments,
+                                                   d.route, occ,
+                                                   &existing_idx)) {
+                out.status  = TransferStatus::Unsupported;
+                out.code    = EmitTransferCode::PlanMismatch;
+                out.errors  = 1U;
+                out.message = "in_place match not found for route: " + d.route;
+                return out;
+            }
+            const ExistingJpegSegment& e = scan.leading_segments[existing_idx];
+            if (e.payload_len != d.payload.size()) {
+                out.status  = TransferStatus::Unsupported;
+                out.code    = EmitTransferCode::PlanMismatch;
+                out.errors  = 1U;
+                out.message = "in_place size mismatch for route: " + d.route;
+                return out;
+            }
+            PlannedJpegReplacement repl;
+            repl.payload_off = e.payload_off;
+            repl.payload_len = e.payload_len;
+            repl.payload     = d.payload;
+            repl.route       = d.route;
+            replacements.push_back(std::move(repl));
+        }
+
+        std::sort(replacements.begin(), replacements.end(),
+                  PlannedJpegReplacementLess {});
+
+        size_t cursor = 0;
+        for (size_t i = 0; i < replacements.size(); ++i) {
+            const PlannedJpegReplacement& repl = replacements[i];
+            if (repl.payload_off < cursor
+                || repl.payload_off + repl.payload_len > input_jpeg.size()) {
+                out.status  = TransferStatus::Malformed;
+                out.code    = EmitTransferCode::PlanMismatch;
+                out.errors  = 1U;
+                out.message = "in_place payload range out of bounds";
+                return out;
+            }
+            if (!write_transfer_bytes(
+                    writer,
+                    input_jpeg.subspan(cursor, repl.payload_off - cursor), &out,
+                    "jpeg in_place prefix write failed")) {
+                return out;
+            }
+            if (!write_transfer_bytes(writer, repl.payload, &out,
+                                      "jpeg in_place payload write failed")) {
+                return out;
+            }
+            cursor = repl.payload_off + repl.payload_len;
+            out.emitted += 1U;
+        }
+
+        if (cursor > input_jpeg.size()) {
+            out.status  = TransferStatus::Malformed;
+            out.code    = EmitTransferCode::PlanMismatch;
+            out.errors  = 1U;
+            out.message = "jpeg in_place cursor is out of range";
+            return out;
+        }
+        if (!write_transfer_bytes(writer, input_jpeg.subspan(cursor), &out,
+                                  "jpeg in_place tail write failed")) {
+            return out;
+        }
+        out.status = TransferStatus::Ok;
+        out.code   = EmitTransferCode::None;
+        return out;
+    }
+
+    if (plan.selected_mode != JpegEditMode::MetadataRewrite) {
+        out.status  = TransferStatus::InvalidArgument;
+        out.code    = EmitTransferCode::InvalidArgument;
+        out.errors  = 1U;
+        out.message = "unsupported selected edit mode";
+        return out;
+    }
+
+    if (input_jpeg.size() < 2U) {
+        out.status  = TransferStatus::Malformed;
+        out.code    = EmitTransferCode::InvalidArgument;
+        out.errors  = 1U;
+        out.message = "jpeg input is too small";
+        return out;
+    }
+
+    if (!write_transfer_bytes(writer, input_jpeg.subspan(0, 2U), &out,
+                              "jpeg rewrite soi write failed")) {
+        return out;
+    }
+
+    bool inserted = false;
+    for (size_t i = 0; i < scan.leading_segments.size(); ++i) {
+        const ExistingJpegSegment& e = scan.leading_segments[i];
+        const bool replaced          = e.route_known
+                              && route_in_desired(e.route, desired);
+        if (replaced) {
+            if (!inserted) {
+                for (size_t si = 0; si < desired.size(); ++si) {
+                    if (!write_jpeg_marker_segment(writer, desired[si].marker,
+                                                   desired[si].payload, &out)) {
+                        return out;
+                    }
+                }
+                inserted    = true;
+                out.emitted = static_cast<uint32_t>(desired.size());
+            }
+            out.skipped += 1U;
+            continue;
+        }
+
+        const size_t seg_end = e.payload_off + e.payload_len;
+        if (seg_end > input_jpeg.size() || e.marker_off > seg_end) {
+            out.status  = TransferStatus::Malformed;
+            out.code    = EmitTransferCode::PlanMismatch;
+            out.errors  = 1U;
+            out.message = "existing jpeg segment range is invalid";
+            return out;
+        }
+        if (!write_transfer_bytes(writer,
+                                  input_jpeg.subspan(e.marker_off,
+                                                     seg_end - e.marker_off),
+                                  &out, "jpeg rewrite segment write failed")) {
+            return out;
+        }
+    }
+
+    if (!inserted) {
+        for (size_t si = 0; si < desired.size(); ++si) {
+            if (!write_jpeg_marker_segment(writer, desired[si].marker,
+                                           desired[si].payload, &out)) {
+                return out;
+            }
+        }
+        out.emitted = static_cast<uint32_t>(desired.size());
+    }
+
+    if (scan.scan_end > input_jpeg.size()) {
+        out.status  = TransferStatus::Malformed;
+        out.code    = EmitTransferCode::PlanMismatch;
+        out.errors  = 1U;
+        out.message = "jpeg rewrite scan end is out of range";
+        return out;
+    }
+    if (!write_transfer_bytes(writer, input_jpeg.subspan(scan.scan_end), &out,
+                              "jpeg rewrite tail write failed")) {
+        return out;
+    }
+
+    out.status = TransferStatus::Ok;
+    out.code   = EmitTransferCode::None;
+    return out;
+}
+
 TiffEditPlan
 plan_prepared_bundle_tiff_edit(std::span<const std::byte> input_tiff,
                                const PreparedTransferBundle& bundle,
@@ -3650,20 +4420,20 @@ plan_prepared_bundle_tiff_edit(std::span<const std::byte> input_tiff,
         return plan;
     }
 
-    std::vector<std::byte> out_tiff;
+    TiffRewriteTail rewrite;
     std::string err;
-    const bool rewritten = rewrite_tiff_ifd0_tags(
-        input_tiff, updates,
-        std::span<const std::byte>(exif_app1_payload.data(),
-                                   exif_app1_payload.size()),
-        &out_tiff, &err);
-    if (!rewritten) {
+    if (!build_tiff_rewrite_tail(
+            input_tiff, updates,
+            std::span<const std::byte>(exif_app1_payload.data(),
+                                       exif_app1_payload.size()),
+            &rewrite, &err)) {
         plan.status  = tiff_edit_status_from_error(err);
         plan.message = err;
         return plan;
     }
-    plan.output_size = static_cast<uint64_t>(out_tiff.size());
-    plan.status      = TransferStatus::Ok;
+    plan.output_size = static_cast<uint64_t>(input_tiff.size())
+                       + static_cast<uint64_t>(rewrite.tail_bytes.size());
+    plan.status = TransferStatus::Ok;
     return plan;
 }
 
@@ -3719,6 +4489,69 @@ apply_prepared_bundle_tiff_edit(std::span<const std::byte> input_tiff,
         out.code    = EmitTransferCode::PlanMismatch;
         out.errors  = 1U;
         out.message = err;
+        return out;
+    }
+
+    out.status  = TransferStatus::Ok;
+    out.code    = EmitTransferCode::None;
+    out.emitted = plan.tag_updates + (plan.has_exif_ifd ? 1U : 0U);
+    return out;
+}
+
+EmitTransferResult
+write_prepared_bundle_tiff_edit(std::span<const std::byte> input_tiff,
+                                const PreparedTransferBundle& bundle,
+                                const TiffEditPlan& plan,
+                                TransferByteWriter& writer) noexcept
+{
+    EmitTransferResult out;
+    if (plan.status != TransferStatus::Ok) {
+        out.status  = TransferStatus::InvalidArgument;
+        out.code    = EmitTransferCode::InvalidArgument;
+        out.errors  = 1U;
+        out.message = "edit plan status is not ok";
+        return out;
+    }
+    if (bundle.target_format != TransferTargetFormat::Tiff) {
+        out.status  = TransferStatus::Unsupported;
+        out.code    = EmitTransferCode::InvalidArgument;
+        out.errors  = 1U;
+        out.message = "bundle target format is not tiff";
+        return out;
+    }
+
+    const std::vector<TiffTagUpdate> updates = collect_tiff_tag_updates(bundle);
+    const std::vector<std::byte> exif_app1_payload
+        = first_tiff_exif_app1_payload(bundle);
+    if (plan.tag_updates != static_cast<uint32_t>(updates.size())
+        || plan.has_exif_ifd != !exif_app1_payload.empty()) {
+        out.status  = TransferStatus::InvalidArgument;
+        out.code    = EmitTransferCode::PlanMismatch;
+        out.errors  = 1U;
+        out.message = "tiff edit plan no longer matches bundle";
+        return out;
+    }
+
+    TiffRewriteTail rewrite;
+    std::string err;
+    if (!build_tiff_rewrite_tail(
+            input_tiff, updates,
+            std::span<const std::byte>(exif_app1_payload.data(),
+                                       exif_app1_payload.size()),
+            &rewrite, &err)) {
+        out.status  = tiff_edit_status_from_error(err);
+        out.code    = EmitTransferCode::PlanMismatch;
+        out.errors  = 1U;
+        out.message = err;
+        return out;
+    }
+    if (!write_tiff_rewrite_with_tail(input_tiff, rewrite, writer, &out)) {
+        if (out.code == EmitTransferCode::None) {
+            out.code = EmitTransferCode::BackendWriteFailed;
+        }
+        if (out.message.empty()) {
+            out.message = "tiff edit write failed";
+        }
         return out;
     }
 
@@ -3842,6 +4675,95 @@ prepare_metadata_for_target_file(
     return out;
 }
 
+namespace {
+
+    static void apply_one_time_patch(PreparedTransferBundle* bundle,
+                                     TimePatchField field,
+                                     std::span<const std::byte> value,
+                                     const ApplyTimePatchOptions& options,
+                                     ApplyTimePatchResult* out) noexcept
+    {
+        if (!bundle || !out) {
+            return;
+        }
+
+        bool matched_any = false;
+        for (size_t si = 0; si < bundle->time_patch_map.size(); ++si) {
+            const TimePatchSlot& slot = bundle->time_patch_map[si];
+            if (slot.field != field) {
+                continue;
+            }
+            matched_any = true;
+
+            if (slot.block_index >= bundle->blocks.size()) {
+                out->errors += 1U;
+                append_message(&out->message,
+                               std::string(
+                                   "time patch slot block out of range: ")
+                                   + time_patch_field_name(slot.field));
+                continue;
+            }
+            PreparedTransferBlock& block = bundle->blocks[slot.block_index];
+            const uint32_t width         = static_cast<uint32_t>(slot.width);
+            if (width == 0U) {
+                out->errors += 1U;
+                append_message(&out->message,
+                               std::string("time patch slot width is zero: ")
+                                   + time_patch_field_name(slot.field));
+                continue;
+            }
+            if (slot.byte_offset + width > block.payload.size()) {
+                out->errors += 1U;
+                append_message(&out->message,
+                               std::string(
+                                   "time patch slot out of payload bounds: ")
+                                   + time_patch_field_name(slot.field));
+                continue;
+            }
+            if (options.strict_width && value.size() != width) {
+                out->errors += 1U;
+                append_message(&out->message,
+                               std::string("time patch width mismatch: ")
+                                   + time_patch_field_name(slot.field));
+                continue;
+            }
+
+            const uint32_t copy_n = static_cast<uint32_t>(
+                std::min(value.size(), static_cast<size_t>(width)));
+            if (copy_n > 0U) {
+                std::memcpy(block.payload.data() + slot.byte_offset,
+                            value.data(), copy_n);
+            }
+            if (copy_n < width) {
+                std::memset(block.payload.data() + slot.byte_offset + copy_n, 0,
+                            width - copy_n);
+            }
+            out->patched_slots += 1U;
+        }
+
+        if (!matched_any) {
+            if (options.require_slot) {
+                out->errors += 1U;
+                append_message(&out->message,
+                               std::string("time patch slot not found: ")
+                                   + time_patch_field_name(field));
+            } else {
+                out->skipped_slots += 1U;
+            }
+        }
+    }
+
+    static void finalize_time_patch_result(ApplyTimePatchResult* out) noexcept
+    {
+        if (!out) {
+            return;
+        }
+        out->status = out->errors == 0U ? TransferStatus::Ok
+                                        : TransferStatus::InvalidArgument;
+    }
+
+}  // namespace
+
 ApplyTimePatchResult
 apply_time_patches(PreparedTransferBundle* bundle,
                    std::span<const TimePatchUpdate> updates,
@@ -3862,79 +4784,37 @@ apply_time_patches(PreparedTransferBundle* bundle,
     }
 
     for (size_t ui = 0; ui < updates.size(); ++ui) {
-        const TimePatchUpdate& update = updates[ui];
-        bool matched_any              = false;
+        apply_one_time_patch(bundle, updates[ui].field, updates[ui].value,
+                             options, &out);
+    }
+    finalize_time_patch_result(&out);
+    return out;
+}
 
-        for (size_t si = 0; si < bundle->time_patch_map.size(); ++si) {
-            const TimePatchSlot& slot = bundle->time_patch_map[si];
-            if (slot.field != update.field) {
-                continue;
-            }
-            matched_any = true;
-
-            if (slot.block_index >= bundle->blocks.size()) {
-                out.errors += 1U;
-                append_message(&out.message,
-                               std::string(
-                                   "time patch slot block out of range: ")
-                                   + time_patch_field_name(slot.field));
-                continue;
-            }
-            PreparedTransferBlock& block = bundle->blocks[slot.block_index];
-            const uint32_t width         = static_cast<uint32_t>(slot.width);
-            if (width == 0U) {
-                out.errors += 1U;
-                append_message(&out.message,
-                               std::string("time patch slot width is zero: ")
-                                   + time_patch_field_name(slot.field));
-                continue;
-            }
-            if (slot.byte_offset + width > block.payload.size()) {
-                out.errors += 1U;
-                append_message(&out.message,
-                               std::string(
-                                   "time patch slot out of payload bounds: ")
-                                   + time_patch_field_name(slot.field));
-                continue;
-            }
-            if (options.strict_width && update.value.size() != width) {
-                out.errors += 1U;
-                append_message(&out.message,
-                               std::string("time patch width mismatch: ")
-                                   + time_patch_field_name(slot.field));
-                continue;
-            }
-
-            const uint32_t copy_n = static_cast<uint32_t>(
-                std::min(update.value.size(), static_cast<size_t>(width)));
-            if (copy_n > 0U) {
-                std::memcpy(block.payload.data() + slot.byte_offset,
-                            update.value.data(), copy_n);
-            }
-            if (copy_n < width) {
-                std::memset(block.payload.data() + slot.byte_offset + copy_n, 0,
-                            width - copy_n);
-            }
-            out.patched_slots += 1U;
-        }
-
-        if (!matched_any) {
-            if (options.require_slot) {
-                out.errors += 1U;
-                append_message(&out.message,
-                               std::string("time patch slot not found: ")
-                                   + time_patch_field_name(update.field));
-            } else {
-                out.skipped_slots += 1U;
-            }
-        }
+ApplyTimePatchResult
+apply_time_patches_view(PreparedTransferBundle* bundle,
+                        std::span<const TimePatchView> updates,
+                        const ApplyTimePatchOptions& options) noexcept
+{
+    ApplyTimePatchResult out;
+    if (!bundle) {
+        out.status  = TransferStatus::InvalidArgument;
+        out.errors  = 1U;
+        out.message = "bundle is null";
+        return out;
+    }
+    if (updates.empty()) {
+        out.status  = TransferStatus::InvalidArgument;
+        out.errors  = 1U;
+        out.message = "updates are empty";
+        return out;
     }
 
-    if (out.errors == 0U) {
-        out.status = TransferStatus::Ok;
-    } else {
-        out.status = TransferStatus::InvalidArgument;
+    for (size_t ui = 0; ui < updates.size(); ++ui) {
+        apply_one_time_patch(bundle, updates[ui].field, updates[ui].value,
+                             options, &out);
     }
+    finalize_time_patch_result(&out);
     return out;
 }
 
@@ -4057,6 +4937,145 @@ namespace {
         std::vector<EmittedTiffTagSummary> tags_;
     };
 
+    class CountingTransferByteWriter final : public TransferByteWriter {
+    public:
+        explicit CountingTransferByteWriter(TransferByteWriter& inner) noexcept
+            : inner_(inner)
+        {
+        }
+
+        TransferStatus write(std::span<const std::byte> bytes) noexcept override
+        {
+            const TransferStatus st = inner_.write(bytes);
+            if (st == TransferStatus::Ok) {
+                bytes_written_ += static_cast<uint64_t>(bytes.size());
+            }
+            return st;
+        }
+
+        uint64_t bytes_written() const noexcept { return bytes_written_; }
+
+    private:
+        TransferByteWriter& inner_;
+        uint64_t bytes_written_ = 0;
+    };
+
+    static void build_jpeg_emit_summary_from_plan(
+        const PreparedTransferBundle& bundle, const PreparedJpegEmitPlan& plan,
+        const EmitTransferOptions& options, uint32_t repeat,
+        std::vector<EmittedJpegMarkerSummary>* out) noexcept
+    {
+        if (!out) {
+            return;
+        }
+        out->clear();
+
+        std::array<uint32_t, 256> counts {};
+        std::array<uint64_t, 256> bytes {};
+        for (uint32_t rep = 0; rep < repeat; ++rep) {
+            for (size_t i = 0; i < plan.ops.size(); ++i) {
+                const PreparedJpegEmitOp& op = plan.ops[i];
+                if (op.block_index >= bundle.blocks.size()) {
+                    continue;
+                }
+                const PreparedTransferBlock& block
+                    = bundle.blocks[op.block_index];
+                if (options.skip_empty_payloads && block.payload.empty()) {
+                    continue;
+                }
+                counts[op.marker_code] += 1U;
+                bytes[op.marker_code] += static_cast<uint64_t>(
+                    block.payload.size());
+            }
+        }
+        for (uint32_t i = 0; i < 256U; ++i) {
+            if (counts[i] == 0U) {
+                continue;
+            }
+            EmittedJpegMarkerSummary one;
+            one.marker = static_cast<uint8_t>(i);
+            one.count  = counts[i];
+            one.bytes  = bytes[i];
+            out->push_back(one);
+        }
+    }
+
+    static bool measure_jpeg_emit_bytes_from_plan(
+        const PreparedTransferBundle& bundle, const PreparedJpegEmitPlan& plan,
+        const EmitTransferOptions& options, uint32_t repeat,
+        uint64_t* out_bytes) noexcept
+    {
+        if (!out_bytes) {
+            return false;
+        }
+        uint64_t per_emit = 0U;
+        for (size_t i = 0; i < plan.ops.size(); ++i) {
+            const PreparedJpegEmitOp& op = plan.ops[i];
+            if (op.block_index >= bundle.blocks.size()) {
+                return false;
+            }
+            const PreparedTransferBlock& block = bundle.blocks[op.block_index];
+            if (options.skip_empty_payloads && block.payload.empty()) {
+                continue;
+            }
+            const uint64_t part = 4U
+                                  + static_cast<uint64_t>(block.payload.size());
+            if (UINT64_MAX - per_emit < part) {
+                return false;
+            }
+            per_emit += part;
+        }
+        if (repeat != 0U && per_emit > (UINT64_MAX / repeat)) {
+            return false;
+        }
+        *out_bytes = per_emit * repeat;
+        return true;
+    }
+
+    static void build_tiff_emit_summary_from_plan(
+        const PreparedTransferBundle& bundle, const PreparedTiffEmitPlan& plan,
+        const EmitTransferOptions& options, uint32_t repeat,
+        std::vector<EmittedTiffTagSummary>* out) noexcept
+    {
+        if (!out) {
+            return;
+        }
+        out->clear();
+        for (uint32_t rep = 0; rep < repeat; ++rep) {
+            for (size_t i = 0; i < plan.ops.size(); ++i) {
+                const PreparedTiffEmitOp& op = plan.ops[i];
+                if (op.block_index >= bundle.blocks.size()) {
+                    continue;
+                }
+                const PreparedTransferBlock& block
+                    = bundle.blocks[op.block_index];
+                if (options.skip_empty_payloads && block.payload.empty()) {
+                    continue;
+                }
+                bool merged = false;
+                for (size_t j = 0; j < out->size(); ++j) {
+                    if ((*out)[j].tag != op.tiff_tag) {
+                        continue;
+                    }
+                    (*out)[j].count += 1U;
+                    (*out)[j].bytes += static_cast<uint64_t>(
+                        block.payload.size());
+                    merged = true;
+                    break;
+                }
+                if (merged) {
+                    continue;
+                }
+                EmittedTiffTagSummary one;
+                one.tag   = op.tiff_tag;
+                one.count = 1U;
+                one.bytes = static_cast<uint64_t>(block.payload.size());
+                out->push_back(one);
+            }
+        }
+        std::sort(out->begin(), out->end(), EmittedTiffTagSummaryLess {});
+    }
+
     static bool has_time_patch_width(const PreparedTransferBundle& bundle,
                                      TimePatchField field,
                                      size_t width) noexcept
@@ -4147,158 +5166,498 @@ namespace {
         return out;
     }
 
+    static uint32_t prepared_transfer_execution_plan_ops(
+        const PreparedTransferExecutionPlan& plan) noexcept
+    {
+        switch (plan.target_format) {
+        case TransferTargetFormat::Jpeg:
+            return static_cast<uint32_t>(plan.jpeg_emit.ops.size());
+        case TransferTargetFormat::Tiff:
+            return static_cast<uint32_t>(plan.tiff_emit.ops.size());
+        default: break;
+        }
+        return 0U;
+    }
+
+    static EmitTransferResult validate_prepared_transfer_execution_plan(
+        const PreparedTransferBundle& bundle,
+        const PreparedTransferExecutionPlan& plan) noexcept
+    {
+        EmitTransferResult out;
+        if (plan.contract_version != bundle.contract_version) {
+            out.status  = TransferStatus::InvalidArgument;
+            out.code    = EmitTransferCode::PlanMismatch;
+            out.errors  = 1U;
+            out.message = "compiled execution plan contract_version mismatch";
+            return out;
+        }
+        if (plan.target_format != bundle.target_format) {
+            out.status  = TransferStatus::InvalidArgument;
+            out.code    = EmitTransferCode::PlanMismatch;
+            out.errors  = 1U;
+            out.message = "compiled execution plan target_format mismatch";
+            return out;
+        }
+
+        switch (bundle.target_format) {
+        case TransferTargetFormat::Jpeg:
+            if (plan.jpeg_emit.contract_version != bundle.contract_version) {
+                out.status = TransferStatus::InvalidArgument;
+                out.code   = EmitTransferCode::PlanMismatch;
+                out.errors = 1U;
+                out.message
+                    = "compiled jpeg emit plan contract_version mismatch";
+                return out;
+            }
+            break;
+        case TransferTargetFormat::Tiff:
+            if (plan.tiff_emit.contract_version != bundle.contract_version) {
+                out.status = TransferStatus::InvalidArgument;
+                out.code   = EmitTransferCode::PlanMismatch;
+                out.errors = 1U;
+                out.message
+                    = "compiled tiff emit plan contract_version mismatch";
+                return out;
+            }
+            break;
+        default:
+            out.status  = TransferStatus::Unsupported;
+            out.code    = EmitTransferCode::InvalidArgument;
+            out.errors  = 1U;
+            out.message = "unsupported target format for emit";
+            return out;
+        }
+
+        out.status = TransferStatus::Ok;
+        out.code   = EmitTransferCode::None;
+        return out;
+    }
+
+    static ExecutePreparedTransferResult execute_prepared_transfer_impl(
+        PreparedTransferBundle* bundle,
+        const PreparedTransferExecutionPlan* compiled_plan,
+        std::span<const std::byte> edit_input,
+        const ExecutePreparedTransferOptions& options) noexcept
+    {
+        ExecutePreparedTransferResult out;
+        out.edit_requested     = options.edit_requested;
+        out.edit_apply.status  = TransferStatus::Unsupported;
+        out.edit_apply.code    = EmitTransferCode::InvalidArgument;
+        out.edit_apply.message = options.edit_requested
+                                     ? "edit apply not requested"
+                                     : "edit not requested";
+
+        if (!bundle) {
+            out.time_patch.status  = TransferStatus::InvalidArgument;
+            out.time_patch.errors  = 1U;
+            out.time_patch.message = "bundle is null";
+            out.compile.status     = TransferStatus::InvalidArgument;
+            out.compile.code       = EmitTransferCode::InvalidArgument;
+            out.compile.errors     = 1U;
+            out.compile.message    = "bundle is null";
+            out.emit               = out.compile;
+            out.edit_plan_status   = TransferStatus::InvalidArgument;
+            out.edit_plan_message  = "bundle is null";
+            out.edit_apply.status  = TransferStatus::InvalidArgument;
+            out.edit_apply.code    = EmitTransferCode::InvalidArgument;
+            out.edit_apply.errors  = 1U;
+            out.edit_apply.message = "bundle is null";
+            return out;
+        }
+
+        if (!options.time_patches.empty()) {
+            std::vector<TimePatchUpdate> updates;
+            build_execute_time_patch_updates(*bundle, options, &updates);
+            out.time_patch = apply_time_patches(bundle, updates,
+                                                options.time_patch);
+        }
+
+        if (out.time_patch.status != TransferStatus::Ok) {
+            out.compile = skipped_emit_result(
+                "skipped emit due to time patch failure");
+            out.emit = out.compile;
+            if (options.edit_requested) {
+                out.edit_plan_status = TransferStatus::Unsupported;
+                out.edit_plan_message = "skipped edit due to time patch failure";
+                out.edit_apply.status = TransferStatus::Unsupported;
+                out.edit_apply.code   = EmitTransferCode::InvalidArgument;
+                out.edit_apply.errors = 1U;
+                out.edit_apply.message
+                    = "skipped edit due to time patch failure";
+            }
+            return out;
+        }
+
+        PreparedTransferExecutionPlan local_plan;
+        const PreparedTransferExecutionPlan* effective_plan = compiled_plan;
+        if (effective_plan) {
+            out.compile
+                = validate_prepared_transfer_execution_plan(*bundle,
+                                                            *effective_plan);
+            if (out.compile.status == TransferStatus::Ok) {
+                out.compiled_ops = prepared_transfer_execution_plan_ops(
+                    *effective_plan);
+            }
+        } else {
+            out.compile      = compile_prepared_transfer_execution(*bundle,
+                                                                   options.emit,
+                                                                   &local_plan);
+            out.compiled_ops = prepared_transfer_execution_plan_ops(local_plan);
+            effective_plan   = &local_plan;
+        }
+
+        const uint32_t emit_repeat = options.emit_repeat == 0U
+                                         ? 1U
+                                         : options.emit_repeat;
+        if (out.compile.status == TransferStatus::Ok && effective_plan) {
+            switch (bundle->target_format) {
+            case TransferTargetFormat::Jpeg: {
+                if (options.emit_output_writer) {
+                    const uint64_t writer_hint
+                        = options.emit_output_writer->remaining_capacity_hint();
+                    if (writer_hint != UINT64_MAX) {
+                        uint64_t needed_bytes = 0U;
+                        if (!measure_jpeg_emit_bytes_from_plan(
+                                *bundle, effective_plan->jpeg_emit,
+                                effective_plan->emit, emit_repeat,
+                                &needed_bytes)) {
+                            out.emit.status = TransferStatus::InvalidArgument;
+                            out.emit.code   = EmitTransferCode::PlanMismatch;
+                            out.emit.errors = 1U;
+                            out.emit.message
+                                = "failed to measure compiled jpeg emit bytes";
+                            break;
+                        }
+                        if (needed_bytes > writer_hint) {
+                            out.emit.status = TransferStatus::LimitExceeded;
+                            out.emit.code = EmitTransferCode::BackendWriteFailed;
+                            out.emit.errors = 1U;
+                            out.emit.message
+                                = "emit_output_writer capacity exceeded";
+                            break;
+                        }
+                    }
+
+                    CountingTransferByteWriter writer(
+                        *options.emit_output_writer);
+                    for (uint32_t rep = 0; rep < emit_repeat; ++rep) {
+                        out.emit = write_prepared_bundle_jpeg_compiled(
+                            *bundle, effective_plan->jpeg_emit, writer,
+                            effective_plan->emit);
+                        if (out.emit.status != TransferStatus::Ok) {
+                            break;
+                        }
+                    }
+                    out.emit_output_size = writer.bytes_written();
+                    if (out.emit.status == TransferStatus::Ok) {
+                        build_jpeg_emit_summary_from_plan(
+                            *bundle, effective_plan->jpeg_emit,
+                            effective_plan->emit, emit_repeat,
+                            &out.marker_summary);
+                    }
+                } else {
+                    ExecuteRecordingJpegEmitter emitter;
+                    emitter.reset();
+                    for (uint32_t rep = 0; rep < emit_repeat; ++rep) {
+                        out.emit = emit_prepared_bundle_jpeg_compiled(
+                            *bundle, effective_plan->jpeg_emit, emitter,
+                            effective_plan->emit);
+                        if (out.emit.status != TransferStatus::Ok) {
+                            break;
+                        }
+                    }
+                    emitter.build_summary(&out.marker_summary);
+                }
+                break;
+            }
+            case TransferTargetFormat::Tiff: {
+                if (options.emit_output_writer) {
+                    out.emit = skipped_emit_result(
+                        "emit_output_writer is only supported for jpeg");
+                } else {
+                    ExecuteRecordingTiffEmitter emitter;
+                    emitter.reset();
+                    for (uint32_t rep = 0; rep < emit_repeat; ++rep) {
+                        out.emit = emit_prepared_bundle_tiff_compiled(
+                            *bundle, effective_plan->tiff_emit, emitter,
+                            effective_plan->emit);
+                        if (out.emit.status != TransferStatus::Ok) {
+                            break;
+                        }
+                    }
+                    out.tiff_commit = emitter.committed();
+                    build_tiff_emit_summary_from_plan(*bundle,
+                                                      effective_plan->tiff_emit,
+                                                      effective_plan->emit,
+                                                      emit_repeat,
+                                                      &out.tiff_tag_summary);
+                }
+                break;
+            }
+            default:
+                out.compile.status  = TransferStatus::Unsupported;
+                out.compile.code    = EmitTransferCode::InvalidArgument;
+                out.compile.errors  = 1U;
+                out.compile.message = "unsupported target format for emit";
+                out.emit            = skipped_emit_result(
+                    "unsupported target format for emit");
+                break;
+            }
+        } else {
+            out.emit = skipped_emit_result(
+                "skipped emit due to compile failure");
+        }
+
+        if (!options.edit_requested) {
+            return out;
+        }
+
+        out.edit_input_size = static_cast<uint64_t>(edit_input.size());
+        if (bundle->target_format == TransferTargetFormat::Jpeg) {
+            out.jpeg_edit_plan
+                = plan_prepared_bundle_jpeg_edit(edit_input, *bundle,
+                                                 options.jpeg_edit);
+            out.edit_plan_status  = out.jpeg_edit_plan.status;
+            out.edit_plan_message = out.jpeg_edit_plan.message;
+            out.edit_output_size  = out.jpeg_edit_plan.output_size;
+            if (out.jpeg_edit_plan.status == TransferStatus::Ok
+                && options.edit_apply) {
+                if (options.edit_output_writer) {
+                    out.edit_apply = write_prepared_bundle_jpeg_edit(
+                        edit_input, *bundle, out.jpeg_edit_plan,
+                        *options.edit_output_writer);
+                } else {
+                    out.edit_apply
+                        = apply_prepared_bundle_jpeg_edit(edit_input, *bundle,
+                                                          out.jpeg_edit_plan,
+                                                          &out.edited_output);
+                    if (out.edit_apply.status == TransferStatus::Ok) {
+                        out.edit_output_size = static_cast<uint64_t>(
+                            out.edited_output.size());
+                    }
+                }
+            }
+        } else if (bundle->target_format == TransferTargetFormat::Tiff) {
+            out.tiff_edit_plan
+                = plan_prepared_bundle_tiff_edit(edit_input, *bundle,
+                                                 options.tiff_edit);
+            out.edit_plan_status  = out.tiff_edit_plan.status;
+            out.edit_plan_message = out.tiff_edit_plan.message;
+            out.edit_output_size  = out.tiff_edit_plan.output_size;
+            if (out.tiff_edit_plan.status == TransferStatus::Ok
+                && options.edit_apply) {
+                if (options.edit_output_writer) {
+                    out.edit_apply = write_prepared_bundle_tiff_edit(
+                        edit_input, *bundle, out.tiff_edit_plan,
+                        *options.edit_output_writer);
+                } else {
+                    out.edit_apply
+                        = apply_prepared_bundle_tiff_edit(edit_input, *bundle,
+                                                          out.tiff_edit_plan,
+                                                          &out.edited_output);
+                    if (out.edit_apply.status == TransferStatus::Ok) {
+                        out.edit_output_size = static_cast<uint64_t>(
+                            out.edited_output.size());
+                    }
+                }
+            }
+        } else {
+            out.edit_plan_status   = TransferStatus::Unsupported;
+            out.edit_plan_message  = "unsupported target format for edit";
+            out.edit_apply.status  = TransferStatus::Unsupported;
+            out.edit_apply.code    = EmitTransferCode::InvalidArgument;
+            out.edit_apply.errors  = 1U;
+            out.edit_apply.message = "unsupported target format for edit";
+        }
+
+        return out;
+    }
+
 }  // namespace
+
+EmitTransferResult
+compile_prepared_transfer_execution(
+    const PreparedTransferBundle& bundle, const EmitTransferOptions& options,
+    PreparedTransferExecutionPlan* out_plan) noexcept
+{
+    EmitTransferResult out;
+    if (!out_plan) {
+        out.status  = TransferStatus::InvalidArgument;
+        out.code    = EmitTransferCode::InvalidArgument;
+        out.errors  = 1U;
+        out.message = "out_plan is null";
+        return out;
+    }
+
+    out_plan->contract_version           = bundle.contract_version;
+    out_plan->target_format              = bundle.target_format;
+    out_plan->emit                       = options;
+    out_plan->jpeg_emit.contract_version = bundle.contract_version;
+    out_plan->jpeg_emit.ops.clear();
+    out_plan->tiff_emit.contract_version = bundle.contract_version;
+    out_plan->tiff_emit.ops.clear();
+
+    switch (bundle.target_format) {
+    case TransferTargetFormat::Jpeg:
+        return compile_prepared_bundle_jpeg(bundle, &out_plan->jpeg_emit,
+                                            options);
+    case TransferTargetFormat::Tiff:
+        return compile_prepared_bundle_tiff(bundle, &out_plan->tiff_emit,
+                                            options);
+    default:
+        out.status  = TransferStatus::Unsupported;
+        out.code    = EmitTransferCode::InvalidArgument;
+        out.errors  = 1U;
+        out.message = "unsupported target format for emit";
+        return out;
+    }
+}
 
 ExecutePreparedTransferResult
 execute_prepared_transfer(PreparedTransferBundle* bundle,
                           std::span<const std::byte> edit_input,
                           const ExecutePreparedTransferOptions& options) noexcept
 {
-    ExecutePreparedTransferResult out;
-    out.edit_requested     = options.edit_requested;
-    out.edit_apply.status  = TransferStatus::Unsupported;
-    out.edit_apply.code    = EmitTransferCode::InvalidArgument;
-    out.edit_apply.message = options.edit_requested ? "edit apply not requested"
-                                                    : "edit not requested";
+    return execute_prepared_transfer_impl(bundle, nullptr, edit_input, options);
+}
 
+ExecutePreparedTransferResult
+execute_prepared_transfer_compiled(
+    PreparedTransferBundle* bundle, const PreparedTransferExecutionPlan& plan,
+    std::span<const std::byte> edit_input,
+    const ExecutePreparedTransferOptions& options) noexcept
+{
+    return execute_prepared_transfer_impl(bundle, &plan, edit_input, options);
+}
+
+ExecutePreparedTransferResult
+write_prepared_transfer_compiled(PreparedTransferBundle* bundle,
+                                 const PreparedTransferExecutionPlan& plan,
+                                 TransferByteWriter& writer,
+                                 std::span<const TimePatchView> time_patches,
+                                 const ApplyTimePatchOptions& time_patch,
+                                 uint32_t emit_repeat) noexcept
+{
     if (!bundle) {
-        out.time_patch.status  = TransferStatus::InvalidArgument;
-        out.time_patch.errors  = 1U;
-        out.time_patch.message = "bundle is null";
-        out.compile.status     = TransferStatus::InvalidArgument;
-        out.compile.code       = EmitTransferCode::InvalidArgument;
-        out.compile.errors     = 1U;
-        out.compile.message    = "bundle is null";
-        out.emit               = out.compile;
-        out.edit_plan_status   = TransferStatus::InvalidArgument;
-        out.edit_plan_message  = "bundle is null";
-        out.edit_apply.status  = TransferStatus::InvalidArgument;
-        out.edit_apply.code    = EmitTransferCode::InvalidArgument;
-        out.edit_apply.errors  = 1U;
-        out.edit_apply.message = "bundle is null";
+        return execute_prepared_transfer_compiled(bundle, plan);
+    }
+
+    ApplyTimePatchResult patch_result;
+    if (!time_patches.empty()) {
+        patch_result = apply_time_patches_view(bundle, time_patches,
+                                               time_patch);
+        if (patch_result.status != TransferStatus::Ok) {
+            ExecutePreparedTransferResult out;
+            out.time_patch = patch_result;
+            out.compile    = skipped_emit_result(
+                "skipped emit due to time patch failure");
+            out.emit = out.compile;
+            return out;
+        }
+    }
+
+    ExecutePreparedTransferOptions options;
+    options.emit_repeat        = emit_repeat;
+    options.emit_output_writer = &writer;
+
+    ExecutePreparedTransferResult out
+        = execute_prepared_transfer_compiled(bundle, plan, {}, options);
+    if (!time_patches.empty()) {
+        out.time_patch = patch_result;
+    }
+    return out;
+}
+
+ExecutePreparedTransferResult
+emit_prepared_transfer_compiled(PreparedTransferBundle* bundle,
+                                const PreparedTransferExecutionPlan& plan,
+                                JpegTransferEmitter& emitter,
+                                std::span<const TimePatchView> time_patches,
+                                const ApplyTimePatchOptions& time_patch,
+                                uint32_t emit_repeat) noexcept
+{
+    ExecutePreparedTransferResult out;
+    if (!bundle) {
+        return execute_prepared_transfer_compiled(bundle, plan);
+    }
+
+    if (!time_patches.empty()) {
+        out.time_patch = apply_time_patches_view(bundle, time_patches,
+                                                 time_patch);
+        if (out.time_patch.status != TransferStatus::Ok) {
+            out.compile = skipped_emit_result(
+                "skipped emit due to time patch failure");
+            out.emit = out.compile;
+            return out;
+        }
+    }
+
+    out.compile      = validate_prepared_transfer_execution_plan(*bundle, plan);
+    out.compiled_ops = prepared_transfer_execution_plan_ops(plan);
+    if (out.compile.status != TransferStatus::Ok) {
+        out.emit = skipped_emit_result("skipped emit due to compile failure");
         return out;
     }
 
-    if (!options.time_patches.empty()) {
-        std::vector<TimePatchUpdate> updates;
-        build_execute_time_patch_updates(*bundle, options, &updates);
-        out.time_patch = apply_time_patches(bundle, updates,
-                                            options.time_patch);
+    const uint32_t repeat = emit_repeat == 0U ? 1U : emit_repeat;
+    for (uint32_t rep = 0; rep < repeat; ++rep) {
+        out.emit = emit_prepared_bundle_jpeg_compiled(*bundle, plan.jpeg_emit,
+                                                      emitter, plan.emit);
+        if (out.emit.status != TransferStatus::Ok) {
+            break;
+        }
+    }
+    if (out.emit.status == TransferStatus::Ok) {
+        build_jpeg_emit_summary_from_plan(*bundle, plan.jpeg_emit, plan.emit,
+                                          repeat, &out.marker_summary);
+    }
+    return out;
+}
+
+ExecutePreparedTransferResult
+emit_prepared_transfer_compiled(PreparedTransferBundle* bundle,
+                                const PreparedTransferExecutionPlan& plan,
+                                TiffTransferEmitter& emitter,
+                                std::span<const TimePatchView> time_patches,
+                                const ApplyTimePatchOptions& time_patch,
+                                uint32_t emit_repeat) noexcept
+{
+    ExecutePreparedTransferResult out;
+    if (!bundle) {
+        return execute_prepared_transfer_compiled(bundle, plan);
     }
 
-    if (out.time_patch.status != TransferStatus::Ok) {
-        out.compile = skipped_emit_result(
-            "skipped emit due to time patch failure");
-        out.emit = out.compile;
-        if (options.edit_requested) {
-            out.edit_plan_status   = TransferStatus::Unsupported;
-            out.edit_plan_message  = "skipped edit due to time patch failure";
-            out.edit_apply.status  = TransferStatus::Unsupported;
-            out.edit_apply.code    = EmitTransferCode::InvalidArgument;
-            out.edit_apply.errors  = 1U;
-            out.edit_apply.message = "skipped edit due to time patch failure";
+    if (!time_patches.empty()) {
+        out.time_patch = apply_time_patches_view(bundle, time_patches,
+                                                 time_patch);
+        if (out.time_patch.status != TransferStatus::Ok) {
+            out.compile = skipped_emit_result(
+                "skipped emit due to time patch failure");
+            out.emit = out.compile;
+            return out;
         }
+    }
+
+    out.compile      = validate_prepared_transfer_execution_plan(*bundle, plan);
+    out.compiled_ops = prepared_transfer_execution_plan_ops(plan);
+    if (out.compile.status != TransferStatus::Ok) {
+        out.emit = skipped_emit_result("skipped emit due to compile failure");
         return out;
     }
 
-    const uint32_t emit_repeat = options.emit_repeat == 0U
-                                     ? 1U
-                                     : options.emit_repeat;
-    if (bundle->target_format == TransferTargetFormat::Jpeg) {
-        PreparedJpegEmitPlan plan;
-        out.compile      = compile_prepared_bundle_jpeg(*bundle, &plan,
-                                                        options.emit);
-        out.compiled_ops = static_cast<uint32_t>(plan.ops.size());
-        if (out.compile.status == TransferStatus::Ok) {
-            ExecuteRecordingJpegEmitter emitter;
-            for (uint32_t rep = 0; rep < emit_repeat; ++rep) {
-                emitter.reset();
-                out.emit = emit_prepared_bundle_jpeg_compiled(*bundle, plan,
-                                                              emitter,
-                                                              options.emit);
-                if (out.emit.status != TransferStatus::Ok) {
-                    break;
-                }
-            }
-            emitter.build_summary(&out.marker_summary);
-        } else {
-            out.emit = skipped_emit_result(
-                "skipped emit due to compile failure");
+    const uint32_t repeat = emit_repeat == 0U ? 1U : emit_repeat;
+    for (uint32_t rep = 0; rep < repeat; ++rep) {
+        out.emit = emit_prepared_bundle_tiff_compiled(*bundle, plan.tiff_emit,
+                                                      emitter, plan.emit);
+        if (out.emit.status != TransferStatus::Ok) {
+            break;
         }
-    } else if (bundle->target_format == TransferTargetFormat::Tiff) {
-        PreparedTiffEmitPlan plan;
-        out.compile      = compile_prepared_bundle_tiff(*bundle, &plan,
-                                                        options.emit);
-        out.compiled_ops = static_cast<uint32_t>(plan.ops.size());
-        if (out.compile.status == TransferStatus::Ok) {
-            ExecuteRecordingTiffEmitter emitter;
-            for (uint32_t rep = 0; rep < emit_repeat; ++rep) {
-                emitter.reset();
-                out.emit = emit_prepared_bundle_tiff_compiled(*bundle, plan,
-                                                              emitter,
-                                                              options.emit);
-                if (out.emit.status != TransferStatus::Ok) {
-                    break;
-                }
-            }
-            out.tiff_commit = emitter.committed();
-            emitter.build_summary(&out.tiff_tag_summary);
-        } else {
-            out.emit = skipped_emit_result(
-                "skipped emit due to compile failure");
-        }
-    } else {
-        out.compile.status  = TransferStatus::Unsupported;
-        out.compile.code    = EmitTransferCode::InvalidArgument;
-        out.compile.errors  = 1U;
-        out.compile.message = "unsupported target format for emit";
-        out.emit = skipped_emit_result("unsupported target format for emit");
     }
-
-    if (!options.edit_requested) {
-        return out;
+    if (out.emit.status == TransferStatus::Ok) {
+        out.tiff_commit = true;
+        build_tiff_emit_summary_from_plan(*bundle, plan.tiff_emit, plan.emit,
+                                          repeat, &out.tiff_tag_summary);
     }
-
-    out.edit_input_size = static_cast<uint64_t>(edit_input.size());
-    if (bundle->target_format == TransferTargetFormat::Jpeg) {
-        out.jpeg_edit_plan = plan_prepared_bundle_jpeg_edit(edit_input, *bundle,
-                                                            options.jpeg_edit);
-        out.edit_plan_status  = out.jpeg_edit_plan.status;
-        out.edit_plan_message = out.jpeg_edit_plan.message;
-        out.edit_output_size  = out.jpeg_edit_plan.output_size;
-        if (out.jpeg_edit_plan.status == TransferStatus::Ok
-            && options.edit_apply) {
-            out.edit_apply = apply_prepared_bundle_jpeg_edit(
-                edit_input, *bundle, out.jpeg_edit_plan, &out.edited_output);
-            if (out.edit_apply.status == TransferStatus::Ok) {
-                out.edit_output_size = static_cast<uint64_t>(
-                    out.edited_output.size());
-            }
-        }
-    } else if (bundle->target_format == TransferTargetFormat::Tiff) {
-        out.tiff_edit_plan = plan_prepared_bundle_tiff_edit(edit_input, *bundle,
-                                                            options.tiff_edit);
-        out.edit_plan_status  = out.tiff_edit_plan.status;
-        out.edit_plan_message = out.tiff_edit_plan.message;
-        out.edit_output_size  = out.tiff_edit_plan.output_size;
-        if (out.tiff_edit_plan.status == TransferStatus::Ok
-            && options.edit_apply) {
-            out.edit_apply = apply_prepared_bundle_tiff_edit(
-                edit_input, *bundle, out.tiff_edit_plan, &out.edited_output);
-            if (out.edit_apply.status == TransferStatus::Ok) {
-                out.edit_output_size = static_cast<uint64_t>(
-                    out.edited_output.size());
-            }
-        }
-    } else {
-        out.edit_plan_status   = TransferStatus::Unsupported;
-        out.edit_plan_message  = "unsupported target format for edit";
-        out.edit_apply.status  = TransferStatus::Unsupported;
-        out.edit_apply.code    = EmitTransferCode::InvalidArgument;
-        out.edit_apply.errors  = 1U;
-        out.edit_apply.message = "unsupported target format for edit";
-    }
-
     return out;
 }
 

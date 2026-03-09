@@ -507,6 +507,83 @@ namespace {
     }
 
 
+    class FileByteWriter final : public TransferByteWriter {
+    public:
+        explicit FileByteWriter(std::string path)
+            : path_(std::move(path))
+        {
+        }
+
+        ~FileByteWriter() override { close_handle(); }
+
+        TransferStatus write(std::span<const std::byte> bytes) noexcept override
+        {
+            if (bytes.empty()) {
+                return TransferStatus::Ok;
+            }
+            if (!ensure_open()) {
+                return status_;
+            }
+            const size_t written = std::fwrite(bytes.data(), 1, bytes.size(),
+                                               file_);
+            if (written != bytes.size()) {
+                status_ = TransferStatus::InternalError;
+                return status_;
+            }
+            bytes_written_ += static_cast<uint64_t>(written);
+            return TransferStatus::Ok;
+        }
+
+
+        TransferStatus finish() noexcept
+        {
+            if (!file_) {
+                return status_;
+            }
+            if (std::fclose(file_) != 0) {
+                file_   = nullptr;
+                status_ = TransferStatus::InternalError;
+                return status_;
+            }
+            file_   = nullptr;
+            status_ = TransferStatus::Ok;
+            return status_;
+        }
+
+
+        uint64_t bytes_written() const noexcept { return bytes_written_; }
+
+    private:
+        bool ensure_open() noexcept
+        {
+            if (file_) {
+                return true;
+            }
+            file_ = std::fopen(path_.c_str(), "wb");
+            if (!file_) {
+                status_ = TransferStatus::InternalError;
+                return false;
+            }
+            return true;
+        }
+
+
+        void close_handle() noexcept
+        {
+            if (file_) {
+                std::fclose(file_);
+                file_ = nullptr;
+            }
+        }
+
+
+        std::string path_;
+        std::FILE* file_        = nullptr;
+        TransferStatus status_  = TransferStatus::Ok;
+        uint64_t bytes_written_ = 0;
+    };
+
+
     static std::string payload_dump_path(const std::string& in_path,
                                          const std::string& out_dir,
                                          const PreparedTransferBlock& block,
@@ -900,6 +977,14 @@ main(int argc, char** argv)
         if (execute_options.execute.edit_requested) {
             execute_options.edit_target_path = target_path;
         }
+        const bool output_exists = !output_path.empty()
+                                   && file_exists(output_path);
+        FileByteWriter output_writer(output_path);
+        const bool use_output_writer = !output_path.empty() && !dry_run
+                                       && (!output_exists || force);
+        if (use_output_writer) {
+            execute_options.execute.edit_output_writer = &output_writer;
+        }
 
         const ExecutePreparedTransferFileResult executed
             = execute_prepared_transfer_file(source_path.c_str(),
@@ -1008,7 +1093,7 @@ main(int argc, char** argv)
             }
 
             if (!output_path.empty()) {
-                if (!force && file_exists(output_path)) {
+                if (!force && output_exists) {
                     std::fprintf(stderr,
                                  "  edit_apply: exists: %s (use --force)\n",
                                  output_path.c_str());
@@ -1030,10 +1115,19 @@ main(int argc, char** argv)
                         any_failed = true;
                         continue;
                     }
-                    if (!write_file_bytes(output_path,
-                                          std::span<const std::byte>(
-                                              exec.edited_output.data(),
-                                              exec.edited_output.size()))) {
+                    if (use_output_writer) {
+                        if (output_writer.finish() != TransferStatus::Ok) {
+                            std::fprintf(stderr,
+                                         "  edit_apply: write_failed: %s\n",
+                                         output_path.c_str());
+                            any_failed = true;
+                            continue;
+                        }
+                    } else if (!write_file_bytes(
+                                   output_path,
+                                   std::span<const std::byte>(
+                                       exec.edited_output.data(),
+                                       exec.edited_output.size()))) {
                         std::fprintf(stderr, "  edit_apply: write_failed: %s\n",
                                      output_path.c_str());
                         any_failed = true;
@@ -1041,7 +1135,9 @@ main(int argc, char** argv)
                     }
                     std::printf("  output=%s bytes=%llu\n", output_path.c_str(),
                                 static_cast<unsigned long long>(
-                                    exec.edited_output.size()));
+                                    use_output_writer
+                                        ? output_writer.bytes_written()
+                                        : exec.edited_output.size()));
                 }
             }
 
@@ -1109,7 +1205,7 @@ main(int argc, char** argv)
             }
 
             if (!output_path.empty()) {
-                if (!force && file_exists(output_path)) {
+                if (!force && output_exists) {
                     std::fprintf(stderr,
                                  "  tiff_edit_apply: exists: %s (use --force)\n",
                                  output_path.c_str());
@@ -1131,10 +1227,19 @@ main(int argc, char** argv)
                         any_failed = true;
                         continue;
                     }
-                    if (!write_file_bytes(output_path,
-                                          std::span<const std::byte>(
-                                              exec.edited_output.data(),
-                                              exec.edited_output.size()))) {
+                    if (use_output_writer) {
+                        if (output_writer.finish() != TransferStatus::Ok) {
+                            std::fprintf(stderr,
+                                         "  tiff_edit_apply: write_failed: %s\n",
+                                         output_path.c_str());
+                            any_failed = true;
+                            continue;
+                        }
+                    } else if (!write_file_bytes(
+                                   output_path,
+                                   std::span<const std::byte>(
+                                       exec.edited_output.data(),
+                                       exec.edited_output.size()))) {
                         std::fprintf(stderr,
                                      "  tiff_edit_apply: write_failed: %s\n",
                                      output_path.c_str());
@@ -1143,7 +1248,9 @@ main(int argc, char** argv)
                     }
                     std::printf("  output=%s bytes=%llu\n", output_path.c_str(),
                                 static_cast<unsigned long long>(
-                                    exec.edited_output.size()));
+                                    use_output_writer
+                                        ? output_writer.bytes_written()
+                                        : exec.edited_output.size()));
                 }
             }
 

@@ -7,6 +7,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <span>
 #include <string>
 #include <string_view>
@@ -99,12 +100,48 @@ enum class TransferFileStatus : uint8_t {
     ReadFailed,
 };
 
+/// Transfer-policy subject handled during bundle preparation.
+enum class TransferPolicySubject : uint8_t {
+    MakerNote,
+    Jumbf,
+    C2pa,
+};
+
+/// Requested/effective action for a metadata family during transfer.
+enum class TransferPolicyAction : uint8_t {
+    Keep,
+    Drop,
+    Invalidate,
+    Rewrite,
+};
+
+/// Reason attached to one prepared transfer policy decision.
+enum class TransferPolicyReason : uint8_t {
+    Default,
+    NotPresent,
+    ExplicitDrop,
+    CarrierDisabled,
+    PortableInvalidationUnavailable,
+    RewriteUnavailablePreservedRaw,
+    TargetSerializationUnavailable,
+};
+
 /// Transfer policy profile for initial no-edits workflows.
 struct TransferProfile final {
-    bool preserve_makernotes = true;
-    bool preserve_jumbf      = true;
-    bool preserve_c2pa       = true;
-    bool allow_time_patch    = true;
+    TransferPolicyAction makernote = TransferPolicyAction::Keep;
+    TransferPolicyAction jumbf     = TransferPolicyAction::Keep;
+    TransferPolicyAction c2pa      = TransferPolicyAction::Keep;
+    bool allow_time_patch          = true;
+};
+
+/// Effective policy decision captured during bundle preparation.
+struct PreparedTransferPolicyDecision final {
+    TransferPolicySubject subject  = TransferPolicySubject::MakerNote;
+    TransferPolicyAction requested = TransferPolicyAction::Keep;
+    TransferPolicyAction effective = TransferPolicyAction::Keep;
+    TransferPolicyReason reason    = TransferPolicyReason::Default;
+    uint32_t matched_entries       = 0;
+    std::string message;
 };
 
 /// Optional fixed-width patch field identifiers for per-frame updates.
@@ -147,6 +184,7 @@ struct PreparedTransferBundle final {
     uint32_t contract_version          = kMetadataTransferContractVersion;
     TransferTargetFormat target_format = TransferTargetFormat::Jpeg;
     TransferProfile profile;
+    std::vector<PreparedTransferPolicyDecision> policy_decisions;
     std::vector<PreparedTransferBlock> blocks;
     std::vector<TimePatchSlot> time_patch_map;
 };
@@ -259,6 +297,15 @@ struct EmitTransferOptions final {
     bool stop_on_error       = true;
 };
 
+/// Reusable compiled execution plan for high-throughput transfer workflows.
+struct PreparedTransferExecutionPlan final {
+    uint32_t contract_version          = kMetadataTransferContractVersion;
+    TransferTargetFormat target_format = TransferTargetFormat::Jpeg;
+    EmitTransferOptions emit;
+    PreparedJpegEmitPlan jpeg_emit;
+    PreparedTiffEmitPlan tiff_emit;
+};
+
 /// File-read + decode options for \ref prepare_metadata_for_target_file.
 struct PrepareTransferFileOptions final {
     bool include_pointer_tags       = true;
@@ -286,6 +333,12 @@ struct PrepareTransferFileResult final {
 struct TimePatchUpdate final {
     TimePatchField field = TimePatchField::DateTime;
     std::vector<std::byte> value;
+};
+
+/// Non-owning time patch view for hot-path transfer execution.
+struct TimePatchView final {
+    TimePatchField field = TimePatchField::DateTime;
+    std::span<const std::byte> value;
 };
 
 /// Options for \ref apply_time_patches.
@@ -326,6 +379,68 @@ struct EmittedTiffTagSummary final {
     uint64_t bytes = 0;
 };
 
+/// Streaming byte sink for edit/write transfer paths.
+class TransferByteWriter {
+public:
+    virtual ~TransferByteWriter() = default;
+    virtual TransferStatus write(std::span<const std::byte> bytes) noexcept = 0;
+    virtual uint64_t remaining_capacity_hint() const noexcept
+    {
+        return UINT64_MAX;
+    }
+};
+
+/// Fixed-buffer writer for encoder integrations with preallocated memory.
+class SpanTransferByteWriter final : public TransferByteWriter {
+public:
+    explicit SpanTransferByteWriter(std::span<std::byte> buffer) noexcept
+        : buffer_(buffer)
+    {
+    }
+
+    TransferStatus write(std::span<const std::byte> bytes) noexcept override
+    {
+        if (status_ != TransferStatus::Ok) {
+            return status_;
+        }
+        if (bytes.empty()) {
+            return TransferStatus::Ok;
+        }
+        if (bytes.size() > remaining()) {
+            status_ = TransferStatus::LimitExceeded;
+            return status_;
+        }
+        std::memcpy(buffer_.data() + written_, bytes.data(), bytes.size());
+        written_ += bytes.size();
+        return TransferStatus::Ok;
+    }
+
+    void reset() noexcept
+    {
+        written_ = 0U;
+        status_  = TransferStatus::Ok;
+    }
+
+    size_t capacity() const noexcept { return buffer_.size(); }
+    size_t bytes_written() const noexcept { return written_; }
+    size_t remaining() const noexcept { return buffer_.size() - written_; }
+    TransferStatus status() const noexcept { return status_; }
+    uint64_t remaining_capacity_hint() const noexcept override
+    {
+        return static_cast<uint64_t>(remaining());
+    }
+
+    std::span<const std::byte> written_bytes() const noexcept
+    {
+        return std::span<const std::byte>(buffer_.data(), written_);
+    }
+
+private:
+    std::span<std::byte> buffer_;
+    size_t written_        = 0U;
+    TransferStatus status_ = TransferStatus::Ok;
+};
+
 /// Options for \ref execute_prepared_transfer.
 struct ExecutePreparedTransferOptions final {
     std::vector<TransferTimePatchInput> time_patches;
@@ -333,10 +448,12 @@ struct ExecutePreparedTransferOptions final {
     bool time_patch_auto_nul = true;
 
     EmitTransferOptions emit;
-    uint32_t emit_repeat = 1;
+    uint32_t emit_repeat                   = 1;
+    TransferByteWriter* emit_output_writer = nullptr;
 
-    bool edit_requested = false;
-    bool edit_apply     = false;
+    bool edit_requested                    = false;
+    bool edit_apply                        = false;
+    TransferByteWriter* edit_output_writer = nullptr;
     PlanJpegEditOptions jpeg_edit;
     PlanTiffEditOptions tiff_edit;
 };
@@ -351,7 +468,8 @@ struct ExecutePreparedTransferResult final {
     EmitTransferResult emit;
     std::vector<EmittedJpegMarkerSummary> marker_summary;
     std::vector<EmittedTiffTagSummary> tiff_tag_summary;
-    bool tiff_commit = false;
+    bool tiff_commit          = false;
+    uint64_t emit_output_size = 0;
 
     bool edit_requested             = false;
     TransferStatus edit_plan_status = TransferStatus::Unsupported;
@@ -519,6 +637,28 @@ emit_prepared_bundle_jpeg_compiled(const PreparedTransferBundle& bundle,
                                    = EmitTransferOptions {}) noexcept;
 
 /**
+ * \brief Write prepared JPEG metadata marker bytes directly to a byte sink.
+ *
+ * This emits serialized APP/COM marker records only. It does not write SOI,
+ * SOS/image data, or EOI.
+ */
+EmitTransferResult
+write_prepared_bundle_jpeg(const PreparedTransferBundle& bundle,
+                           TransferByteWriter& writer,
+                           const EmitTransferOptions& options
+                           = EmitTransferOptions {}) noexcept;
+
+/**
+ * \brief Write prepared JPEG metadata marker bytes using a precompiled plan.
+ */
+EmitTransferResult
+write_prepared_bundle_jpeg_compiled(const PreparedTransferBundle& bundle,
+                                    const PreparedJpegEmitPlan& plan,
+                                    TransferByteWriter& writer,
+                                    const EmitTransferOptions& options
+                                    = EmitTransferOptions {}) noexcept;
+
+/**
  * \brief High-level helper: read file, decode metadata, and prepare transfer bundle.
  *
  * This helper is intended for thin wrappers (CLI/Python) that need
@@ -528,6 +668,17 @@ PrepareTransferFileResult
 prepare_metadata_for_target_file(const char* path,
                                  const PrepareTransferFileOptions& options
                                  = PrepareTransferFileOptions {}) noexcept;
+
+/**
+ * \brief Compile a reusable execution plan for \ref execute_prepared_transfer_compiled.
+ *
+ * This performs route-to-backend compilation once and stores the selected
+ * emit options inside the plan for repeated runtime execution.
+ */
+EmitTransferResult
+compile_prepared_transfer_execution(
+    const PreparedTransferBundle& bundle, const EmitTransferOptions& options,
+    PreparedTransferExecutionPlan* out_plan) noexcept;
 
 /**
  * \brief Apply fixed-width time patch updates in-place on a prepared bundle.
@@ -542,6 +693,18 @@ apply_time_patches(PreparedTransferBundle* bundle,
                    = ApplyTimePatchOptions {}) noexcept;
 
 /**
+ * \brief Apply fixed-width time patch views in-place on a prepared bundle.
+ *
+ * This overload avoids owned patch buffers and is intended for high-throughput
+ * `prepare once -> compile once -> patch/emit many` integrations.
+ */
+ApplyTimePatchResult
+apply_time_patches_view(PreparedTransferBundle* bundle,
+                        std::span<const TimePatchView> updates,
+                        const ApplyTimePatchOptions& options
+                        = ApplyTimePatchOptions {}) noexcept;
+
+/**
  * \brief Execute the high-level transfer flow on a prepared bundle.
  *
  * This helper applies optional time patches, compiles/emits prepared blocks,
@@ -554,6 +717,65 @@ execute_prepared_transfer(PreparedTransferBundle* bundle,
                           std::span<const std::byte> edit_input = {},
                           const ExecutePreparedTransferOptions& options
                           = ExecutePreparedTransferOptions {}) noexcept;
+
+/**
+ * \brief Execute the transfer flow using a precompiled execution plan.
+ *
+ * This is intended for high-throughput integrations that want
+ * `prepare once -> compile once -> patch/emit many`.
+ */
+ExecutePreparedTransferResult
+execute_prepared_transfer_compiled(PreparedTransferBundle* bundle,
+                                   const PreparedTransferExecutionPlan& plan,
+                                   std::span<const std::byte> edit_input = {},
+                                   const ExecutePreparedTransferOptions& options
+                                   = ExecutePreparedTransferOptions {}) noexcept;
+
+/**
+ * \brief Hot-path helper: apply non-owning time patches and stream emit bytes.
+ *
+ * This is a thin encoder-integration helper for
+ * `prepare once -> compile once -> patch -> write` workflows. It reuses
+ * \ref execute_prepared_transfer_compiled for plan validation and emission,
+ * but accepts non-owning patch views to avoid per-call owned patch buffers.
+ */
+ExecutePreparedTransferResult
+write_prepared_transfer_compiled(
+    PreparedTransferBundle* bundle, const PreparedTransferExecutionPlan& plan,
+    TransferByteWriter& writer,
+    std::span<const TimePatchView> time_patches = {},
+    const ApplyTimePatchOptions& time_patch     = ApplyTimePatchOptions {},
+    uint32_t emit_repeat                        = 1U) noexcept;
+
+/**
+ * \brief Hot-path helper: apply non-owning time patches and emit through a
+ * JPEG backend.
+ *
+ * This is the direct backend-emitter path for `prepare once -> compile once ->
+ * patch -> emit` integrations that already own a JPEG encoder/backend.
+ */
+ExecutePreparedTransferResult
+emit_prepared_transfer_compiled(
+    PreparedTransferBundle* bundle, const PreparedTransferExecutionPlan& plan,
+    JpegTransferEmitter& emitter,
+    std::span<const TimePatchView> time_patches = {},
+    const ApplyTimePatchOptions& time_patch     = ApplyTimePatchOptions {},
+    uint32_t emit_repeat                        = 1U) noexcept;
+
+/**
+ * \brief Hot-path helper: apply non-owning time patches and emit through a
+ * TIFF backend.
+ *
+ * TIFF intentionally uses backend-emitter or rewrite/edit paths instead of a
+ * metadata-only byte-writer emit contract.
+ */
+ExecutePreparedTransferResult
+emit_prepared_transfer_compiled(
+    PreparedTransferBundle* bundle, const PreparedTransferExecutionPlan& plan,
+    TiffTransferEmitter& emitter,
+    std::span<const TimePatchView> time_patches = {},
+    const ApplyTimePatchOptions& time_patch     = ApplyTimePatchOptions {},
+    uint32_t emit_repeat                        = 1U) noexcept;
 
 /**
  * \brief High-level helper: read file, prepare a bundle, then execute transfer.
@@ -594,6 +816,15 @@ apply_prepared_bundle_jpeg_edit(std::span<const std::byte> input_jpeg,
                                 std::vector<std::byte>* out_jpeg) noexcept;
 
 /**
+ * \brief Apply a planned JPEG metadata edit and stream output bytes to a writer.
+ */
+EmitTransferResult
+write_prepared_bundle_jpeg_edit(std::span<const std::byte> input_jpeg,
+                                const PreparedTransferBundle& bundle,
+                                const JpegEditPlan& plan,
+                                TransferByteWriter& writer) noexcept;
+
+/**
  * \brief Plan TIFF metadata rewrite for a prepared bundle.
  *
  * This computes the expected output size and validates that TIFF-applicable
@@ -613,5 +844,18 @@ apply_prepared_bundle_tiff_edit(std::span<const std::byte> input_tiff,
                                 const PreparedTransferBundle& bundle,
                                 const TiffEditPlan& plan,
                                 std::vector<std::byte>* out_tiff) noexcept;
+
+/**
+ * \brief Apply a planned TIFF metadata rewrite and stream output bytes to a writer.
+ *
+ * Current implementation uses the same rewrite path as
+ * \ref apply_prepared_bundle_tiff_edit and then writes the final bytes to the
+ * supplied sink.
+ */
+EmitTransferResult
+write_prepared_bundle_tiff_edit(std::span<const std::byte> input_tiff,
+                                const PreparedTransferBundle& bundle,
+                                const TiffEditPlan& plan,
+                                TransferByteWriter& writer) noexcept;
 
 }  // namespace openmeta

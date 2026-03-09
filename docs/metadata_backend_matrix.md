@@ -35,6 +35,10 @@ backends without per-backend metadata logic duplication.
 - Photoshop IRB uses `TIFFTAG_PHOTOSHOP` (34377).
 - ICC uses `TIFFTAG_ICCPROFILE` (34675).
 - OpenMeta should own EXIF serializer policy before `TIFFSetField`.
+- Public OpenMeta fast path is backend-emitter or rewrite/edit based:
+  `emit_prepared_transfer_compiled(..., TiffTransferEmitter&)` or
+  `write_prepared_bundle_tiff_edit(...)`.
+- TIFF intentionally does not expose a metadata-only byte-writer emit API.
 
 ### JXL (libjxl)
 
@@ -82,7 +86,13 @@ container call mapping.
 
 - No-edits transfer mode: preserve payloads when legal for target container.
 - EXIF pointer tags are regenerated for target container layout.
-- MakerNote and C2PA/JUMBF preserve/drop policy is explicit and deterministic.
+- MakerNote and C2PA/JUMBF transfer policy is explicit and deterministic.
+- Current JPEG/TIFF prepare behavior:
+  - MakerNote: `Keep` default, `Drop` supported, `Invalidate` currently
+    resolves to `Drop`, `Rewrite` currently resolves to raw-preserve.
+  - JUMBF/C2PA: non-`Drop` requests currently resolve to `Drop` with explicit
+    prepare diagnostics because those targets do not yet serialize them in the
+    transfer pack path.
 - Safety limits are enforced before backend calls (size, truncation, malformed).
 
 ## Recommended Integration Order

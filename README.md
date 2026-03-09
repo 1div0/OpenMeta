@@ -56,6 +56,16 @@ Current baseline-gated status on tracked corpora:
   - `metatransfer`: transfer/edit smoke tool (`read -> prepare -> emit`,
     source/target split inject, edit plan/apply) for JPEG and TIFF; thin
     wrapper over the core transfer APIs, with optional prepared-payload dumps.
+    The shared transfer core now supports sink-based output paths; JPEG can
+    stream metadata emit bytes and edited output directly, TIFF edit output
+    streams the original file plus a planned metadata tail, and the public API
+    now supports both a reusable `prepare -> compile -> patch/emit` execution
+    plan and a narrow compiled writer helper with non-owning time patches plus
+    a fixed-buffer `SpanTransferByteWriter` for high-throughput pipelines.
+    TIFF hot-path integration uses backend emitters or rewrite/edit, not a
+    metadata-only byte-writer emit path.
+    The prepare path also records explicit per-family transfer policy
+    decisions for MakerNote, JUMBF, and C2PA in the prepared bundle.
   - `thumdump`: preview-only extractor, also supports positional
     `<source> <destination>` and explicit `-i/--input` + `-o/--out`; when
     multiple previews are found, `--out name.jpg` writes `name_1.jpg`,

@@ -79,6 +79,26 @@ public:
         = openmeta::TransferStatus::InternalError;
 };
 
+class BufferByteWriter final : public openmeta::TransferByteWriter {
+public:
+    openmeta::TransferStatus
+    write(std::span<const std::byte> bytes) noexcept override
+    {
+        writes += 1U;
+        if (fail_after_writes != 0U && writes >= fail_after_writes) {
+            return fail_status;
+        }
+        out.insert(out.end(), bytes.begin(), bytes.end());
+        return openmeta::TransferStatus::Ok;
+    }
+
+    std::vector<std::byte> out;
+    size_t writes            = 0;
+    size_t fail_after_writes = 0;
+    openmeta::TransferStatus fail_status
+        = openmeta::TransferStatus::InternalError;
+};
+
 static uint16_t
 read_u16le(std::span<const std::byte> bytes, size_t off) noexcept
 {
@@ -97,6 +117,71 @@ read_u32le(std::span<const std::byte> bytes, size_t off) noexcept
         | (static_cast<uint32_t>(std::to_integer<uint8_t>(bytes[off + 2])) << 16)
         | (static_cast<uint32_t>(std::to_integer<uint8_t>(bytes[off + 3]))
            << 24));
+}
+
+static bool
+find_tiff_tag_entry_le(std::span<const std::byte> bytes, uint32_t ifd_off,
+                       uint16_t tag, uint16_t* out_type, uint32_t* out_count,
+                       uint32_t* out_value_or_offset) noexcept
+{
+    const size_t base = static_cast<size_t>(ifd_off);
+    if (base + 2U > bytes.size()) {
+        return false;
+    }
+    const uint16_t count = read_u16le(bytes, base);
+    size_t entry_pos     = base + 2U;
+    for (uint16_t i = 0; i < count; ++i) {
+        if (entry_pos + 12U > bytes.size()) {
+            return false;
+        }
+        if (read_u16le(bytes, entry_pos + 0U) == tag) {
+            if (out_type) {
+                *out_type = read_u16le(bytes, entry_pos + 2U);
+            }
+            if (out_count) {
+                *out_count = read_u32le(bytes, entry_pos + 4U);
+            }
+            if (out_value_or_offset) {
+                *out_value_or_offset = read_u32le(bytes, entry_pos + 8U);
+            }
+            return true;
+        }
+        entry_pos += 12U;
+    }
+    return false;
+}
+
+static bool
+exif_app1_contains_exififd_tag(std::span<const std::byte> payload,
+                               uint16_t tag) noexcept
+{
+    if (payload.size() < 14U) {
+        return false;
+    }
+    if (payload[0] != std::byte { 'E' } || payload[1] != std::byte { 'x' }
+        || payload[2] != std::byte { 'i' } || payload[3] != std::byte { 'f' }) {
+        return false;
+    }
+    const uint32_t ifd0_off = read_u32le(payload, 10U);
+    uint32_t exififd_off    = 0U;
+    if (!find_tiff_tag_entry_le(payload, 6U + ifd0_off, 0x8769U, nullptr,
+                                nullptr, &exififd_off)) {
+        return false;
+    }
+    return find_tiff_tag_entry_le(payload, 6U + exififd_off, tag, nullptr,
+                                  nullptr, nullptr);
+}
+
+static const openmeta::PreparedTransferPolicyDecision*
+find_policy_decision(const openmeta::PreparedTransferBundle& bundle,
+                     openmeta::TransferPolicySubject subject) noexcept
+{
+    for (size_t i = 0; i < bundle.policy_decisions.size(); ++i) {
+        if (bundle.policy_decisions[i].subject == subject) {
+            return &bundle.policy_decisions[i];
+        }
+    }
+    return nullptr;
 }
 
 static std::vector<std::byte>
@@ -156,10 +241,11 @@ TEST(MetadataTransferApi, ContractDefaultsAreStable)
     EXPECT_EQ(bundle.contract_version,
               openmeta::kMetadataTransferContractVersion);
     EXPECT_EQ(bundle.target_format, openmeta::TransferTargetFormat::Jpeg);
-    EXPECT_TRUE(bundle.profile.preserve_makernotes);
-    EXPECT_TRUE(bundle.profile.preserve_jumbf);
-    EXPECT_TRUE(bundle.profile.preserve_c2pa);
+    EXPECT_EQ(bundle.profile.makernote, openmeta::TransferPolicyAction::Keep);
+    EXPECT_EQ(bundle.profile.jumbf, openmeta::TransferPolicyAction::Keep);
+    EXPECT_EQ(bundle.profile.c2pa, openmeta::TransferPolicyAction::Keep);
     EXPECT_TRUE(bundle.profile.allow_time_patch);
+    EXPECT_TRUE(bundle.policy_decisions.empty());
     EXPECT_TRUE(bundle.blocks.empty());
     EXPECT_TRUE(bundle.time_patch_map.empty());
 }
@@ -279,6 +365,121 @@ TEST(MetadataTransferApi, PrepareBuildsJpegExifApp1Block)
     ASSERT_LT(ifd0_pos + 14U, p.size());
     EXPECT_EQ(read_u16le(p, ifd0_pos + 2U), 0x010FU);
     EXPECT_EQ(read_u16le(p, ifd0_pos + 4U), 2U);
+}
+
+TEST(MetadataTransferApi, PrepareDropsMakerNoteWhenProfileRequestsDrop)
+{
+    openmeta::MetaStore store;
+    const openmeta::BlockId block = store.add_block(openmeta::BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    openmeta::Entry ifd0;
+    ifd0.key   = openmeta::make_exif_tag_key(store.arena(), "ifd0", 0x010FU);
+    ifd0.value = openmeta::make_text(store.arena(), "Vendor",
+                                     openmeta::TextEncoding::Ascii);
+    ifd0.origin.block          = block;
+    ifd0.origin.order_in_block = 0U;
+    ASSERT_NE(store.add_entry(ifd0), openmeta::kInvalidEntryId);
+
+    openmeta::Entry maker;
+    maker.key = openmeta::make_exif_tag_key(store.arena(), "exififd", 0x927CU);
+    const std::array<std::byte, 6> maker_bytes = {
+        std::byte { 'A' }, std::byte { 'B' }, std::byte { 'C' },
+        std::byte { 'D' }, std::byte { 'E' }, std::byte { 'F' },
+    };
+    maker.value
+        = openmeta::make_bytes(store.arena(),
+                               std::span<const std::byte>(maker_bytes.data(),
+                                                          maker_bytes.size()));
+    maker.origin.block          = block;
+    maker.origin.order_in_block = 1U;
+    ASSERT_NE(store.add_entry(maker), openmeta::kInvalidEntryId);
+    store.finalize();
+
+    openmeta::PrepareTransferRequest request;
+    request.include_xmp_app1   = false;
+    request.include_icc_app2   = false;
+    request.include_iptc_app13 = false;
+    request.profile.makernote  = openmeta::TransferPolicyAction::Drop;
+
+    openmeta::PreparedTransferBundle bundle;
+    const openmeta::PrepareTransferResult result
+        = openmeta::prepare_metadata_for_target(store, request, &bundle);
+
+    EXPECT_EQ(result.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.errors, 0U);
+    ASSERT_EQ(bundle.blocks.size(), 1U);
+    EXPECT_FALSE(exif_app1_contains_exififd_tag(
+        std::span<const std::byte>(bundle.blocks[0].payload.data(),
+                                   bundle.blocks[0].payload.size()),
+        0x927CU));
+
+    const openmeta::PreparedTransferPolicyDecision* decision
+        = find_policy_decision(bundle,
+                               openmeta::TransferPolicySubject::MakerNote);
+    ASSERT_NE(decision, nullptr);
+    EXPECT_EQ(decision->requested, openmeta::TransferPolicyAction::Drop);
+    EXPECT_EQ(decision->effective, openmeta::TransferPolicyAction::Drop);
+    EXPECT_EQ(decision->reason, openmeta::TransferPolicyReason::ExplicitDrop);
+    EXPECT_EQ(decision->matched_entries, 1U);
+}
+
+TEST(MetadataTransferApi, PrepareRecordsUnserializedJumbfAndC2paPolicies)
+{
+    openmeta::MetaStore store;
+    const openmeta::BlockId block = store.add_block(openmeta::BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    openmeta::Entry jumbf;
+    jumbf.key = openmeta::make_jumbf_field_key(store.arena(), "manifest.label");
+    jumbf.value                 = openmeta::make_text(store.arena(), "main",
+                                                      openmeta::TextEncoding::Utf8);
+    jumbf.origin.block          = block;
+    jumbf.origin.order_in_block = 0U;
+    ASSERT_NE(store.add_entry(jumbf), openmeta::kInvalidEntryId);
+
+    openmeta::Entry c2pa;
+    c2pa.key   = openmeta::make_jumbf_field_key(store.arena(), "c2pa.detected");
+    c2pa.value = openmeta::make_u32(1U);
+    c2pa.origin.block          = block;
+    c2pa.origin.order_in_block = 1U;
+    ASSERT_NE(store.add_entry(c2pa), openmeta::kInvalidEntryId);
+    store.finalize();
+
+    openmeta::PrepareTransferRequest request;
+    request.include_exif_app1  = false;
+    request.include_xmp_app1   = false;
+    request.include_icc_app2   = false;
+    request.include_iptc_app13 = false;
+
+    openmeta::PreparedTransferBundle bundle;
+    const openmeta::PrepareTransferResult result
+        = openmeta::prepare_metadata_for_target(store, request, &bundle);
+
+    EXPECT_EQ(result.status, openmeta::TransferStatus::Unsupported);
+    EXPECT_EQ(result.code,
+              openmeta::PrepareTransferCode::RequestedMetadataNotSerializable);
+    EXPECT_GE(result.warnings, 2U);
+    EXPECT_TRUE(bundle.blocks.empty());
+    ASSERT_EQ(bundle.policy_decisions.size(), 3U);
+
+    const openmeta::PreparedTransferPolicyDecision* jumbf_decision
+        = find_policy_decision(bundle, openmeta::TransferPolicySubject::Jumbf);
+    ASSERT_NE(jumbf_decision, nullptr);
+    EXPECT_EQ(jumbf_decision->requested, openmeta::TransferPolicyAction::Keep);
+    EXPECT_EQ(jumbf_decision->effective, openmeta::TransferPolicyAction::Drop);
+    EXPECT_EQ(jumbf_decision->reason,
+              openmeta::TransferPolicyReason::TargetSerializationUnavailable);
+    EXPECT_EQ(jumbf_decision->matched_entries, 2U);
+
+    const openmeta::PreparedTransferPolicyDecision* c2pa_decision
+        = find_policy_decision(bundle, openmeta::TransferPolicySubject::C2pa);
+    ASSERT_NE(c2pa_decision, nullptr);
+    EXPECT_EQ(c2pa_decision->requested, openmeta::TransferPolicyAction::Keep);
+    EXPECT_EQ(c2pa_decision->effective, openmeta::TransferPolicyAction::Drop);
+    EXPECT_EQ(c2pa_decision->reason,
+              openmeta::TransferPolicyReason::TargetSerializationUnavailable);
+    EXPECT_EQ(c2pa_decision->matched_entries, 1U);
 }
 
 TEST(MetadataTransferApi, PrepareBuildsTiffExifTransferBlockAndTimePatchSlots)
@@ -434,6 +635,37 @@ TEST(MetadataTransferApi, ApplyTimePatchesUpdatesPreparedPayload)
     EXPECT_EQ(std::memcmp(payload.data() + dt_slot.byte_offset, v.data(),
                           v.size()),
               0);
+}
+
+TEST(MetadataTransferApi, ApplyTimePatchesViewUpdatesPreparedPayload)
+{
+    openmeta::PreparedTransferBundle bundle;
+    bundle.target_format = openmeta::TransferTargetFormat::Jpeg;
+
+    openmeta::PreparedTransferBlock exif;
+    exif.route   = "jpeg:app1-exif";
+    exif.payload = ascii_z("2024:01:02 03:04:05");
+    bundle.blocks.push_back(exif);
+
+    openmeta::TimePatchSlot slot;
+    slot.field       = openmeta::TimePatchField::DateTime;
+    slot.block_index = 0U;
+    slot.byte_offset = 0U;
+    slot.width       = 20U;
+    bundle.time_patch_map.push_back(slot);
+
+    const std::vector<std::byte> patched = ascii_z("2030:12:31 23:59:59");
+    openmeta::TimePatchView view;
+    view.field = openmeta::TimePatchField::DateTime;
+    view.value = std::span<const std::byte>(patched.data(), patched.size());
+
+    const std::array<openmeta::TimePatchView, 1> updates = { view };
+    const openmeta::ApplyTimePatchResult result
+        = openmeta::apply_time_patches_view(&bundle, updates);
+    EXPECT_EQ(result.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.errors, 0U);
+    EXPECT_EQ(result.patched_slots, 1U);
+    EXPECT_EQ(bundle.blocks[0].payload, patched);
 }
 
 TEST(MetadataTransferApi, ApplyTimePatchesStrictWidthMismatchFails)
@@ -714,6 +946,110 @@ TEST(MetadataTransferApi, ExecutePreparedTransferJpegEditAndEmit)
     EXPECT_NE(it, result.edited_output.end());
 }
 
+TEST(MetadataTransferApi, WritePreparedBundleJpegEditMatchesApply)
+{
+    openmeta::MetaStore store;
+    const openmeta::BlockId block = store.add_block(openmeta::BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    openmeta::Entry e;
+    e.key   = openmeta::make_exif_tag_key(store.arena(), "ifd0", 0x0132U);
+    e.value = openmeta::make_text(store.arena(), "2024:01:02 03:04:05",
+                                  openmeta::TextEncoding::Ascii);
+    e.origin.block          = block;
+    e.origin.order_in_block = 0;
+    ASSERT_NE(store.add_entry(e), openmeta::kInvalidEntryId);
+    store.finalize();
+
+    openmeta::PrepareTransferRequest request;
+    request.include_xmp_app1   = false;
+    request.include_icc_app2   = false;
+    request.include_iptc_app13 = false;
+
+    openmeta::PreparedTransferBundle bundle;
+    const openmeta::PrepareTransferResult prepared
+        = openmeta::prepare_metadata_for_target(store, request, &bundle);
+    ASSERT_EQ(prepared.status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(bundle.blocks.size(), 1U);
+
+    const std::vector<std::byte> input = make_jpeg_with_segment(
+        0xE1U, std::span<const std::byte>(bundle.blocks[0].payload.data(),
+                                          bundle.blocks[0].payload.size()));
+    const openmeta::JpegEditPlan plan = openmeta::plan_prepared_bundle_jpeg_edit(
+        std::span<const std::byte>(input.data(), input.size()), bundle);
+    ASSERT_EQ(plan.status, openmeta::TransferStatus::Ok);
+
+    std::vector<std::byte> expected;
+    const openmeta::EmitTransferResult buffered
+        = openmeta::apply_prepared_bundle_jpeg_edit(
+            std::span<const std::byte>(input.data(), input.size()), bundle,
+            plan, &expected);
+    ASSERT_EQ(buffered.status, openmeta::TransferStatus::Ok);
+
+    BufferByteWriter writer;
+    const openmeta::EmitTransferResult streamed
+        = openmeta::write_prepared_bundle_jpeg_edit(
+            std::span<const std::byte>(input.data(), input.size()), bundle,
+            plan, writer);
+    EXPECT_EQ(streamed.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(streamed.emitted, buffered.emitted);
+    EXPECT_EQ(writer.out, expected);
+}
+
+TEST(MetadataTransferApi, ExecutePreparedTransferJpegEditToWriter)
+{
+    openmeta::MetaStore store;
+    const openmeta::BlockId block = store.add_block(openmeta::BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    openmeta::Entry e;
+    e.key   = openmeta::make_exif_tag_key(store.arena(), "ifd0", 0x0132U);
+    e.value = openmeta::make_text(store.arena(), "2024:01:02 03:04:05",
+                                  openmeta::TextEncoding::Ascii);
+    e.origin.block          = block;
+    e.origin.order_in_block = 0;
+    ASSERT_NE(store.add_entry(e), openmeta::kInvalidEntryId);
+    store.finalize();
+
+    openmeta::PrepareTransferRequest request;
+    request.include_xmp_app1   = false;
+    request.include_icc_app2   = false;
+    request.include_iptc_app13 = false;
+
+    openmeta::PreparedTransferBundle bundle;
+    const openmeta::PrepareTransferResult prepared
+        = openmeta::prepare_metadata_for_target(store, request, &bundle);
+    ASSERT_EQ(prepared.status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(bundle.blocks.size(), 1U);
+
+    const std::vector<std::byte> input = make_jpeg_with_segment(
+        0xE1U, std::span<const std::byte>(bundle.blocks[0].payload.data(),
+                                          bundle.blocks[0].payload.size()));
+
+    openmeta::TransferTimePatchInput patch;
+    patch.field      = openmeta::TimePatchField::DateTime;
+    patch.value      = ascii_z("2033:03:04 05:06:07");
+    patch.text_value = true;
+
+    BufferByteWriter writer;
+    openmeta::ExecutePreparedTransferOptions options;
+    options.time_patches.push_back(patch);
+    options.edit_requested     = true;
+    options.edit_apply         = true;
+    options.edit_output_writer = &writer;
+
+    const openmeta::ExecutePreparedTransferResult result
+        = openmeta::execute_prepared_transfer(
+            &bundle, std::span<const std::byte>(input.data(), input.size()),
+            options);
+
+    EXPECT_EQ(result.edit_plan_status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.edit_apply.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.edit_output_size, input.size());
+    EXPECT_TRUE(result.edited_output.empty());
+    EXPECT_EQ(writer.out.size(), input.size());
+}
+
 TEST(MetadataTransferApi, ExecutePreparedTransferTiffEditAndEmit)
 {
     openmeta::MetaStore store;
@@ -793,6 +1129,100 @@ TEST(MetadataTransferApi, ExecutePreparedTransferTiffEditAndEmit)
     EXPECT_EQ(result.edit_apply.status, openmeta::TransferStatus::Ok);
     EXPECT_GT(result.edit_output_size, input.size());
     ASSERT_GT(result.edited_output.size(), input.size());
+}
+
+TEST(MetadataTransferApi, WritePreparedBundleTiffEditMatchesApply)
+{
+    openmeta::MetaStore store;
+    const openmeta::BlockId block = store.add_block(openmeta::BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    openmeta::Entry exif;
+    exif.key   = openmeta::make_exif_tag_key(store.arena(), "ifd0", 0x0132U);
+    exif.value = openmeta::make_text(store.arena(), "2024:01:02 03:04:05",
+                                     openmeta::TextEncoding::Ascii);
+    exif.origin.block          = block;
+    exif.origin.order_in_block = 0;
+    ASSERT_NE(store.add_entry(exif), openmeta::kInvalidEntryId);
+    store.finalize();
+
+    openmeta::PrepareTransferRequest request;
+    request.target_format      = openmeta::TransferTargetFormat::Tiff;
+    request.include_icc_app2   = false;
+    request.include_iptc_app13 = false;
+    request.include_xmp_app1   = false;
+
+    openmeta::PreparedTransferBundle bundle;
+    const openmeta::PrepareTransferResult prepared
+        = openmeta::prepare_metadata_for_target(store, request, &bundle);
+    ASSERT_EQ(prepared.status, openmeta::TransferStatus::Ok);
+
+    const std::vector<std::byte> input = make_minimal_tiff_little_endian();
+    const openmeta::TiffEditPlan plan = openmeta::plan_prepared_bundle_tiff_edit(
+        std::span<const std::byte>(input.data(), input.size()), bundle);
+    ASSERT_EQ(plan.status, openmeta::TransferStatus::Ok);
+
+    std::vector<std::byte> expected;
+    const openmeta::EmitTransferResult buffered
+        = openmeta::apply_prepared_bundle_tiff_edit(
+            std::span<const std::byte>(input.data(), input.size()), bundle,
+            plan, &expected);
+    ASSERT_EQ(buffered.status, openmeta::TransferStatus::Ok);
+
+    BufferByteWriter writer;
+    const openmeta::EmitTransferResult streamed
+        = openmeta::write_prepared_bundle_tiff_edit(
+            std::span<const std::byte>(input.data(), input.size()), bundle,
+            plan, writer);
+    EXPECT_EQ(streamed.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(streamed.emitted, buffered.emitted);
+    EXPECT_EQ(writer.out, expected);
+}
+
+TEST(MetadataTransferApi, ExecutePreparedTransferTiffEditToWriter)
+{
+    openmeta::MetaStore store;
+    const openmeta::BlockId block = store.add_block(openmeta::BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    openmeta::Entry exif;
+    exif.key   = openmeta::make_exif_tag_key(store.arena(), "ifd0", 0x0132U);
+    exif.value = openmeta::make_text(store.arena(), "2024:01:02 03:04:05",
+                                     openmeta::TextEncoding::Ascii);
+    exif.origin.block          = block;
+    exif.origin.order_in_block = 0;
+    ASSERT_NE(store.add_entry(exif), openmeta::kInvalidEntryId);
+    store.finalize();
+
+    openmeta::PrepareTransferRequest request;
+    request.target_format      = openmeta::TransferTargetFormat::Tiff;
+    request.include_icc_app2   = false;
+    request.include_iptc_app13 = false;
+    request.include_xmp_app1   = false;
+
+    openmeta::PreparedTransferBundle bundle;
+    const openmeta::PrepareTransferResult prepared
+        = openmeta::prepare_metadata_for_target(store, request, &bundle);
+    ASSERT_EQ(prepared.status, openmeta::TransferStatus::Ok);
+
+    const std::vector<std::byte> input = make_minimal_tiff_little_endian();
+
+    BufferByteWriter writer;
+    openmeta::ExecutePreparedTransferOptions options;
+    options.edit_requested     = true;
+    options.edit_apply         = true;
+    options.edit_output_writer = &writer;
+
+    const openmeta::ExecutePreparedTransferResult result
+        = openmeta::execute_prepared_transfer(
+            &bundle, std::span<const std::byte>(input.data(), input.size()),
+            options);
+
+    EXPECT_EQ(result.edit_plan_status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.edit_apply.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.edit_output_size, result.tiff_edit_plan.output_size);
+    EXPECT_TRUE(result.edited_output.empty());
+    EXPECT_EQ(writer.out.size(), static_cast<size_t>(result.edit_output_size));
 }
 
 TEST(MetadataTransferApi, ExecutePreparedTransferFileRejectsEmptyPath)
@@ -1144,6 +1574,403 @@ TEST(MetadataTransferApi, EmitJpegCompiledPlan)
     ASSERT_EQ(emitter.calls.size(), 2U);
     EXPECT_EQ(emitter.calls[0].first, 0xE1U);
     EXPECT_EQ(emitter.calls[1].first, 0xE2U);
+}
+
+TEST(MetadataTransferApi, WriteJpegCompiledPlanToWriter)
+{
+    openmeta::PreparedTransferBundle bundle;
+    bundle.target_format = openmeta::TransferTargetFormat::Jpeg;
+
+    openmeta::PreparedTransferBlock exif;
+    exif.route   = "jpeg:app1-exif";
+    exif.payload = { std::byte { 0x01 } };
+    bundle.blocks.push_back(exif);
+
+    openmeta::PreparedTransferBlock icc;
+    icc.route   = "jpeg:app2-icc";
+    icc.payload = { std::byte { 0x02 }, std::byte { 0x03 } };
+    bundle.blocks.push_back(icc);
+
+    openmeta::PreparedJpegEmitPlan plan;
+    const openmeta::EmitTransferResult compile_result
+        = openmeta::compile_prepared_bundle_jpeg(bundle, &plan);
+    ASSERT_EQ(compile_result.status, openmeta::TransferStatus::Ok);
+
+    BufferByteWriter writer;
+    const openmeta::EmitTransferResult emit_result
+        = openmeta::write_prepared_bundle_jpeg_compiled(bundle, plan, writer);
+    EXPECT_EQ(emit_result.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(emit_result.emitted, 2U);
+
+    std::vector<std::byte> expected;
+    expected.push_back(std::byte { 0xFF });
+    expected.push_back(std::byte { 0xE1 });
+    append_u16be(&expected, 3U);
+    expected.push_back(std::byte { 0x01 });
+    expected.push_back(std::byte { 0xFF });
+    expected.push_back(std::byte { 0xE2 });
+    append_u16be(&expected, 4U);
+    expected.push_back(std::byte { 0x02 });
+    expected.push_back(std::byte { 0x03 });
+    EXPECT_EQ(writer.out, expected);
+}
+
+TEST(MetadataTransferApi, CompilePreparedTransferExecutionJpeg)
+{
+    openmeta::PreparedTransferBundle bundle;
+    bundle.target_format = openmeta::TransferTargetFormat::Jpeg;
+
+    openmeta::PreparedTransferBlock exif;
+    exif.route   = "jpeg:app1-exif";
+    exif.payload = { std::byte { 0x01 } };
+    bundle.blocks.push_back(exif);
+
+    openmeta::PreparedTransferBlock com;
+    com.route   = "jpeg:com";
+    com.payload = {};
+    bundle.blocks.push_back(com);
+
+    openmeta::EmitTransferOptions emit_options;
+    emit_options.skip_empty_payloads = false;
+    emit_options.stop_on_error       = true;
+
+    openmeta::PreparedTransferExecutionPlan plan;
+    const openmeta::EmitTransferResult result
+        = openmeta::compile_prepared_transfer_execution(bundle, emit_options,
+                                                        &plan);
+
+    EXPECT_EQ(result.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.code, openmeta::EmitTransferCode::None);
+    EXPECT_EQ(plan.contract_version, bundle.contract_version);
+    EXPECT_EQ(plan.target_format, openmeta::TransferTargetFormat::Jpeg);
+    EXPECT_EQ(plan.emit.skip_empty_payloads, false);
+    EXPECT_EQ(plan.emit.stop_on_error, true);
+    ASSERT_EQ(plan.jpeg_emit.ops.size(), 2U);
+    EXPECT_TRUE(plan.tiff_emit.ops.empty());
+}
+
+TEST(MetadataTransferApi, ExecutePreparedTransferCompiledJpegEmitToWriter)
+{
+    openmeta::PreparedTransferBundle bundle;
+    bundle.target_format = openmeta::TransferTargetFormat::Jpeg;
+
+    openmeta::PreparedTransferBlock exif;
+    exif.route   = "jpeg:app1-exif";
+    exif.payload = { std::byte { 0x01 } };
+    bundle.blocks.push_back(exif);
+
+    openmeta::PreparedTransferBlock com;
+    com.route   = "jpeg:com";
+    com.payload = {};
+    bundle.blocks.push_back(com);
+
+    openmeta::EmitTransferOptions compile_options;
+    compile_options.skip_empty_payloads = false;
+
+    openmeta::PreparedTransferExecutionPlan plan;
+    const openmeta::EmitTransferResult compile_result
+        = openmeta::compile_prepared_transfer_execution(bundle, compile_options,
+                                                        &plan);
+    ASSERT_EQ(compile_result.status, openmeta::TransferStatus::Ok);
+
+    BufferByteWriter writer;
+    openmeta::ExecutePreparedTransferOptions options;
+    options.emit_output_writer       = &writer;
+    options.emit.skip_empty_payloads = true;
+    options.emit.stop_on_error       = true;
+
+    const openmeta::ExecutePreparedTransferResult result
+        = openmeta::execute_prepared_transfer_compiled(&bundle, plan, {},
+                                                       options);
+    EXPECT_EQ(result.compile.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.compile.code, openmeta::EmitTransferCode::None);
+    EXPECT_EQ(result.compiled_ops, 2U);
+    EXPECT_EQ(result.emit.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.emit.emitted, 2U);
+    EXPECT_EQ(result.emit_output_size, writer.out.size());
+    EXPECT_EQ(writer.out.size(), 9U);
+    ASSERT_EQ(result.marker_summary.size(), 2U);
+    EXPECT_EQ(result.marker_summary[0].marker, 0xE1U);
+    EXPECT_EQ(result.marker_summary[0].count, 1U);
+    EXPECT_EQ(result.marker_summary[0].bytes, 1U);
+    EXPECT_EQ(result.marker_summary[1].marker, 0xFEU);
+    EXPECT_EQ(result.marker_summary[1].count, 1U);
+    EXPECT_EQ(result.marker_summary[1].bytes, 0U);
+}
+
+TEST(MetadataTransferApi, WritePreparedTransferCompiledAppliesViewAndEmits)
+{
+    openmeta::PreparedTransferBundle bundle;
+    bundle.target_format = openmeta::TransferTargetFormat::Jpeg;
+
+    openmeta::PreparedTransferBlock exif;
+    exif.route   = "jpeg:app1-exif";
+    exif.payload = ascii_z("2024:01:02 03:04:05");
+    bundle.blocks.push_back(exif);
+
+    openmeta::TimePatchSlot slot;
+    slot.field       = openmeta::TimePatchField::DateTime;
+    slot.block_index = 0U;
+    slot.byte_offset = 0U;
+    slot.width       = 20U;
+    bundle.time_patch_map.push_back(slot);
+
+    openmeta::PreparedTransferExecutionPlan plan;
+    const openmeta::EmitTransferResult compile_result
+        = openmeta::compile_prepared_transfer_execution(bundle, {}, &plan);
+    ASSERT_EQ(compile_result.status, openmeta::TransferStatus::Ok);
+
+    const std::vector<std::byte> patched = ascii_z("2030:12:31 23:59:59");
+    openmeta::TimePatchView view;
+    view.field = openmeta::TimePatchField::DateTime;
+    view.value = std::span<const std::byte>(patched.data(), patched.size());
+    const std::array<openmeta::TimePatchView, 1> updates = { view };
+
+    BufferByteWriter writer;
+    const openmeta::ExecutePreparedTransferResult result
+        = openmeta::write_prepared_transfer_compiled(&bundle, plan, writer,
+                                                     updates);
+    EXPECT_EQ(result.time_patch.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.time_patch.patched_slots, 1U);
+    EXPECT_EQ(result.compile.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.emit.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.emit.emitted, 1U);
+    EXPECT_EQ(result.emit_output_size, writer.out.size());
+    ASSERT_EQ(writer.out.size(), 24U);
+    EXPECT_EQ(std::memcmp(writer.out.data() + 4, patched.data(), patched.size()),
+              0);
+}
+
+TEST(MetadataTransferApi, SpanTransferByteWriterWorksWithCompiledTransfer)
+{
+    openmeta::PreparedTransferBundle bundle;
+    bundle.target_format = openmeta::TransferTargetFormat::Jpeg;
+
+    openmeta::PreparedTransferBlock exif;
+    exif.route   = "jpeg:app1-exif";
+    exif.payload = ascii_z("2024:01:02 03:04:05");
+    bundle.blocks.push_back(exif);
+
+    openmeta::TimePatchSlot slot;
+    slot.field       = openmeta::TimePatchField::DateTime;
+    slot.block_index = 0U;
+    slot.byte_offset = 0U;
+    slot.width       = 20U;
+    bundle.time_patch_map.push_back(slot);
+
+    openmeta::PreparedTransferExecutionPlan plan;
+    const openmeta::EmitTransferResult compile_result
+        = openmeta::compile_prepared_transfer_execution(bundle, {}, &plan);
+    ASSERT_EQ(compile_result.status, openmeta::TransferStatus::Ok);
+
+    const std::vector<std::byte> patched = ascii_z("2030:12:31 23:59:59");
+    openmeta::TimePatchView view;
+    view.field = openmeta::TimePatchField::DateTime;
+    view.value = std::span<const std::byte>(patched.data(), patched.size());
+    const std::array<openmeta::TimePatchView, 1> updates = { view };
+
+    std::array<std::byte, 64> buffer {};
+    openmeta::SpanTransferByteWriter writer(
+        std::span<std::byte>(buffer.data(), buffer.size()));
+
+    const openmeta::ExecutePreparedTransferResult result
+        = openmeta::write_prepared_transfer_compiled(&bundle, plan, writer,
+                                                     updates);
+    EXPECT_EQ(result.time_patch.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.emit.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.emit_output_size, 24U);
+    EXPECT_EQ(writer.status(), openmeta::TransferStatus::Ok);
+    EXPECT_EQ(writer.bytes_written(), 24U);
+    ASSERT_EQ(writer.written_bytes().size(), 24U);
+    EXPECT_EQ(std::memcmp(writer.written_bytes().data() + 4, patched.data(),
+                          patched.size()),
+              0);
+}
+
+TEST(MetadataTransferApi, SpanTransferByteWriterRejectsOverflow)
+{
+    openmeta::PreparedTransferBundle bundle;
+    bundle.target_format = openmeta::TransferTargetFormat::Jpeg;
+
+    openmeta::PreparedTransferBlock exif;
+    exif.route   = "jpeg:app1-exif";
+    exif.payload = ascii_z("2024:01:02 03:04:05");
+    bundle.blocks.push_back(exif);
+
+    openmeta::PreparedTransferExecutionPlan plan;
+    const openmeta::EmitTransferResult compile_result
+        = openmeta::compile_prepared_transfer_execution(bundle, {}, &plan);
+    ASSERT_EQ(compile_result.status, openmeta::TransferStatus::Ok);
+
+    std::array<std::byte, 8> buffer {};
+    openmeta::SpanTransferByteWriter writer(
+        std::span<std::byte>(buffer.data(), buffer.size()));
+
+    const openmeta::ExecutePreparedTransferResult result
+        = openmeta::write_prepared_transfer_compiled(&bundle, plan, writer);
+    EXPECT_EQ(result.compile.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.emit.status, openmeta::TransferStatus::LimitExceeded);
+    EXPECT_EQ(result.emit.code, openmeta::EmitTransferCode::BackendWriteFailed);
+    EXPECT_EQ(result.emit.errors, 1U);
+    EXPECT_TRUE(result.emit.message.find("capacity exceeded")
+                != std::string::npos);
+    EXPECT_EQ(writer.status(), openmeta::TransferStatus::Ok);
+    EXPECT_EQ(writer.bytes_written(), 0U);
+}
+
+TEST(MetadataTransferApi, EmitPreparedTransferCompiledJpegEmitterUsesBackend)
+{
+    openmeta::PreparedTransferBundle bundle;
+    bundle.target_format = openmeta::TransferTargetFormat::Jpeg;
+
+    openmeta::PreparedTransferBlock exif;
+    exif.route   = "jpeg:app1-exif";
+    exif.payload = { std::byte { 0x01 } };
+    bundle.blocks.push_back(exif);
+
+    openmeta::PreparedTransferBlock com;
+    com.route   = "jpeg:com";
+    com.payload = {};
+    bundle.blocks.push_back(com);
+
+    openmeta::EmitTransferOptions compile_options;
+    compile_options.skip_empty_payloads = false;
+
+    openmeta::PreparedTransferExecutionPlan plan;
+    const openmeta::EmitTransferResult compile_result
+        = openmeta::compile_prepared_transfer_execution(bundle, compile_options,
+                                                        &plan);
+    ASSERT_EQ(compile_result.status, openmeta::TransferStatus::Ok);
+
+    FakeJpegEmitter emitter;
+    const openmeta::ExecutePreparedTransferResult result
+        = openmeta::emit_prepared_transfer_compiled(&bundle, plan, emitter);
+    EXPECT_EQ(result.compile.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.emit.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.emit.emitted, 2U);
+    ASSERT_EQ(emitter.calls.size(), 2U);
+    ASSERT_EQ(result.marker_summary.size(), 2U);
+    EXPECT_EQ(result.marker_summary[0].marker, 0xE1U);
+    EXPECT_EQ(result.marker_summary[1].marker, 0xFEU);
+}
+
+TEST(MetadataTransferApi, EmitPreparedTransferCompiledTiffEmitterUsesBackend)
+{
+    openmeta::PreparedTransferBundle bundle;
+    bundle.target_format = openmeta::TransferTargetFormat::Tiff;
+
+    openmeta::PreparedTransferBlock xmp;
+    xmp.route   = "tiff:tag-700-xmp";
+    xmp.payload = { std::byte { 0x01 }, std::byte { 0x02 } };
+    bundle.blocks.push_back(xmp);
+
+    openmeta::PreparedTransferBlock icc;
+    icc.route   = "tiff:tag-34675-icc";
+    icc.payload = { std::byte { 0x03 } };
+    bundle.blocks.push_back(icc);
+
+    openmeta::PreparedTransferExecutionPlan plan;
+    const openmeta::EmitTransferResult compile_result
+        = openmeta::compile_prepared_transfer_execution(bundle, {}, &plan);
+    ASSERT_EQ(compile_result.status, openmeta::TransferStatus::Ok);
+
+    FakeTiffEmitter emitter;
+    const openmeta::ExecutePreparedTransferResult result
+        = openmeta::emit_prepared_transfer_compiled(&bundle, plan, emitter);
+    EXPECT_EQ(result.compile.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.emit.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.emit.emitted, 2U);
+    EXPECT_EQ(result.tiff_commit, true);
+    EXPECT_EQ(emitter.commit_calls, 1U);
+    ASSERT_EQ(emitter.bytes_calls.size(), 2U);
+    ASSERT_EQ(result.tiff_tag_summary.size(), 2U);
+    EXPECT_EQ(result.tiff_tag_summary[0].tag, 700U);
+    EXPECT_EQ(result.tiff_tag_summary[1].tag, 34675U);
+}
+
+TEST(MetadataTransferApi, ExecutePreparedTransferCompiledRejectsPlanMismatch)
+{
+    openmeta::PreparedTransferBundle bundle;
+    bundle.target_format = openmeta::TransferTargetFormat::Jpeg;
+
+    openmeta::PreparedTransferBlock exif;
+    exif.route   = "jpeg:app1-exif";
+    exif.payload = { std::byte { 0x01 } };
+    bundle.blocks.push_back(exif);
+
+    openmeta::PreparedTransferExecutionPlan plan;
+    const openmeta::EmitTransferResult compile_result
+        = openmeta::compile_prepared_transfer_execution(bundle, {}, &plan);
+    ASSERT_EQ(compile_result.status, openmeta::TransferStatus::Ok);
+
+    plan.contract_version += 1U;
+
+    const openmeta::ExecutePreparedTransferResult result
+        = openmeta::execute_prepared_transfer_compiled(&bundle, plan);
+    EXPECT_EQ(result.compile.status, openmeta::TransferStatus::InvalidArgument);
+    EXPECT_EQ(result.compile.code, openmeta::EmitTransferCode::PlanMismatch);
+    EXPECT_EQ(result.compile.errors, 1U);
+    EXPECT_EQ(result.emit.status, openmeta::TransferStatus::Unsupported);
+    EXPECT_EQ(result.emit.code, openmeta::EmitTransferCode::InvalidArgument);
+    EXPECT_EQ(result.emit.errors, 1U);
+    EXPECT_TRUE(result.emit.message.find("compile failure")
+                != std::string::npos);
+}
+
+TEST(MetadataTransferApi, ExecutePreparedTransferJpegEmitToWriter)
+{
+    openmeta::PreparedTransferBundle bundle;
+    bundle.target_format = openmeta::TransferTargetFormat::Jpeg;
+
+    openmeta::PreparedTransferBlock exif;
+    exif.route   = "jpeg:app1-exif";
+    exif.payload = { std::byte { 0x01 } };
+    bundle.blocks.push_back(exif);
+
+    openmeta::PreparedTransferBlock xmp;
+    xmp.route   = "jpeg:app1-xmp";
+    xmp.payload = { std::byte { 0x02 }, std::byte { 0x03 } };
+    bundle.blocks.push_back(xmp);
+
+    BufferByteWriter writer;
+    openmeta::ExecutePreparedTransferOptions options;
+    options.emit_repeat        = 2U;
+    options.emit_output_writer = &writer;
+
+    const openmeta::ExecutePreparedTransferResult result
+        = openmeta::execute_prepared_transfer(&bundle, {}, options);
+    EXPECT_EQ(result.compile.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.emit.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.edit_requested, false);
+    EXPECT_EQ(result.emit_output_size, writer.out.size());
+    ASSERT_EQ(result.marker_summary.size(), 1U);
+    EXPECT_EQ(result.marker_summary[0].marker, 0xE1U);
+    EXPECT_EQ(result.marker_summary[0].count, 4U);
+    EXPECT_EQ(result.marker_summary[0].bytes, 6U);
+}
+
+TEST(MetadataTransferApi, ExecutePreparedTransferTiffEmitToWriterUnsupported)
+{
+    openmeta::PreparedTransferBundle bundle;
+    bundle.target_format = openmeta::TransferTargetFormat::Tiff;
+
+    openmeta::PreparedTransferBlock xmp;
+    xmp.route   = "tiff:tag-700-xmp";
+    xmp.payload = { std::byte { 0x01 } };
+    bundle.blocks.push_back(xmp);
+
+    BufferByteWriter writer;
+    openmeta::ExecutePreparedTransferOptions options;
+    options.emit_output_writer = &writer;
+
+    const openmeta::ExecutePreparedTransferResult result
+        = openmeta::execute_prepared_transfer(&bundle, {}, options);
+    EXPECT_EQ(result.compile.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.emit.status, openmeta::TransferStatus::Unsupported);
+    EXPECT_EQ(result.emit.errors, 1U);
+    EXPECT_TRUE(result.emit.message.find("only supported for jpeg")
+                != std::string::npos);
+    EXPECT_TRUE(writer.out.empty());
 }
 
 TEST(MetadataTransferApi, CompileRejectsNullPlan)
