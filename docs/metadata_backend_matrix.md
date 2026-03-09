@@ -90,9 +90,34 @@ container call mapping.
 - Current JPEG/TIFF prepare behavior:
   - MakerNote: `Keep` default, `Drop` supported, `Invalidate` currently
     resolves to `Drop`, `Rewrite` currently resolves to raw-preserve.
-  - JUMBF/C2PA: non-`Drop` requests currently resolve to `Drop` with explicit
-    prepare diagnostics because those targets do not yet serialize them in the
-    transfer pack path.
+  - JUMBF: file-based JPEG prepare can preserve source payloads by repacking
+    them into APP11 segments; store-only JPEG prepare can project decoded
+    non-C2PA `JumbfCborKey` roots into generic APP11 JUMBF payloads; explicit
+    raw JUMBF -> JPEG APP11 append is available through
+    `append_prepared_bundle_jpeg_jumbf(...)`; and JPEG rewrite/edit removes
+    existing APP11 JUMBF when the resolved policy is `Drop`. Ambiguous numeric
+    map keys and decoded-CBOR bool/simple/sentinel/large-negative fallback
+    forms in projected JUMBF are rejected; tagged CBOR values are preserved.
+  - C2PA: `Invalidate` on JPEG now emits a draft unsigned APP11 C2PA
+    invalidation payload.
+    - `PreparedTransferPolicyDecision` exposes `mode`, `source_kind`, and
+      `prepared_output` so adapters can branch without parsing free-form
+      messages.
+    - `PreparedTransferBundle::c2pa_rewrite` exposes the separate
+      rewrite-prerequisites contract for future signing flows:
+      current rewrite state, source kind, existing carrier segment count,
+      and whether manifest builder, content binding, certificate chain,
+      private key, and signing time are still required.
+    - For JPEG it also exposes `content_binding_chunks`, the exact
+      rewrite-without-C2PA chunk sequence a future signer would hash or
+      reconstruct.
+    - File-based JPEG prepare can preserve an existing OpenMeta draft
+      invalidation payload as raw APP11 C2PA (`TransferC2paMode::PreserveRaw`).
+    - Content-bound `Keep` still resolves to `Drop`.
+    - `Rewrite` resolves to `Drop` with explicit
+      `SignedRewriteUnavailable` until re-sign support exists.
+    - JPEG content-changing rewrite/edit removes existing APP11 C2PA from the
+      target before inserting the new prepared payload.
 - Safety limits are enforced before backend calls (size, truncation, malformed).
 
 ## Recommended Integration Order

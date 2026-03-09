@@ -65,7 +65,39 @@ Current baseline-gated status on tracked corpora:
     TIFF hot-path integration uses backend emitters or rewrite/edit, not a
     metadata-only byte-writer emit path.
     The prepare path also records explicit per-family transfer policy
-    decisions for MakerNote, JUMBF, and C2PA in the prepared bundle.
+    decisions for MakerNote, JUMBF, and C2PA in the prepared bundle. File-based
+    JPEG prepare can now preserve source JUMBF payloads as APP11 transfer
+    blocks. Store-only JPEG prepare can also project decoded non-C2PA
+    `JumbfCborKey` roots into generic APP11 JUMBF payloads when no raw source
+    payload is available; ambiguous numeric map keys and decoded-CBOR
+    bool/simple/sentinel/large-negative fallback forms still fail closed. The
+    public core API also exposes
+    `append_prepared_bundle_jpeg_jumbf(...)` for explicit logical raw JUMBF
+    append into prepared JPEG bundles. `metatransfer --jpeg-jumbf file.jumbf`
+    is the thin CLI path on top of that helper. JPEG content-changing
+    rewrite/edit also drops stale APP11 C2PA and removes APP11 JUMBF when the
+    resolved transfer policy is `Drop`. `c2pa=invalidate` now emits a draft
+    unsigned APP11 C2PA invalidation payload for JPEG outputs instead of
+    drop-only behavior. File-based JPEG prepare can also preserve an existing
+    OpenMeta draft invalidation payload as raw APP11 C2PA. Re-sign is still
+    unavailable. `PreparedTransferPolicyDecision` now carries an explicit
+    C2PA contract surface:
+    - `TransferC2paMode`
+    - `TransferC2paSourceKind`
+    - `TransferC2paPreparedOutput`
+    so callers can distinguish `drop`, generated draft invalidation, raw
+    draft preserve, and future signed rewrite without parsing messages.
+    `PreparedTransferBundle::c2pa_rewrite` now exposes rewrite prerequisites
+    separately from the resolved transfer policy: current state, detected
+    source kind, existing carrier segment count, and whether manifest builder,
+    content binding, certificate chain, private key, and signing time are
+    still required before signed rewrite can exist. For JPEG rewrite prep it
+    also exposes a deterministic `content_binding_chunks` sequence describing
+    the rewrite-without-C2PA byte stream as preserved source ranges plus
+    prepared JPEG segments.
+    `metatransfer` and `openmeta.transfer_probe(...)` now expose both the
+    resolved transfer-policy decisions and JPEG edit-plan removal counts for
+    existing APP11 JUMBF/C2PA segments.
   - `thumdump`: preview-only extractor, also supports positional
     `<source> <destination>` and explicit `-i/--input` + `-o/--out`; when
     multiple previews are found, `--out name.jpg` writes `name_1.jpg`,

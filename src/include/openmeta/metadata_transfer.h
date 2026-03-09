@@ -76,6 +76,8 @@ enum class EmitTransferCode : uint16_t {
     InvalidArgument,
     BundleTargetNotJpeg,
     UnsupportedRoute,
+    InvalidPayload,
+    ContentBoundPayloadUnsupported,
     BackendWriteFailed,
     PlanMismatch,
 };
@@ -121,9 +123,85 @@ enum class TransferPolicyReason : uint8_t {
     NotPresent,
     ExplicitDrop,
     CarrierDisabled,
+    ProjectedPayload,
+    DraftInvalidationPayload,
+    ContentBoundTransferUnavailable,
+    SignedRewriteUnavailable,
     PortableInvalidationUnavailable,
     RewriteUnavailablePreservedRaw,
     TargetSerializationUnavailable,
+};
+
+/// Explicit current C2PA transfer mode resolved during prepare.
+enum class TransferC2paMode : uint8_t {
+    NotApplicable,
+    NotPresent,
+    Drop,
+    DraftUnsignedInvalidation,
+    PreserveRaw,
+    SignedRewrite,
+};
+
+/// Classified C2PA source state observed during prepare.
+enum class TransferC2paSourceKind : uint8_t {
+    NotApplicable,
+    NotPresent,
+    DecodedOnly,
+    ContentBound,
+    DraftUnsignedInvalidation,
+};
+
+/// Prepared C2PA output contract selected during prepare.
+enum class TransferC2paPreparedOutput : uint8_t {
+    NotApplicable,
+    NotPresent,
+    Dropped,
+    PreservedRaw,
+    GeneratedDraftUnsignedInvalidation,
+    SignedRewrite,
+};
+
+/// Current rewrite-signing readiness for C2PA transfer.
+enum class TransferC2paRewriteState : uint8_t {
+    NotApplicable,
+    NotRequested,
+    SigningMaterialRequired,
+    Ready,
+};
+
+/// One deterministic chunk in the future C2PA rewrite binding sequence.
+enum class TransferC2paRewriteChunkKind : uint8_t {
+    SourceRange,
+    PreparedJpegSegment,
+};
+
+/// One deterministic chunk in the JPEG rewrite-without-C2PA byte stream.
+struct PreparedTransferC2paRewriteChunk final {
+    TransferC2paRewriteChunkKind kind
+        = TransferC2paRewriteChunkKind::SourceRange;
+    uint64_t source_offset   = 0;
+    uint64_t size            = 0;
+    uint32_t block_index     = 0xFFFFFFFFU;
+    uint8_t jpeg_marker_code = 0U;
+};
+
+/// Future-facing signer prerequisites for C2PA rewrite.
+struct PreparedTransferC2paRewriteRequirements final {
+    TransferC2paRewriteState state = TransferC2paRewriteState::NotApplicable;
+    TransferTargetFormat target_format = TransferTargetFormat::Jpeg;
+    TransferC2paSourceKind source_kind = TransferC2paSourceKind::NotApplicable;
+    uint32_t matched_entries           = 0;
+    uint32_t existing_carrier_segments = 0;
+    bool target_carrier_available      = false;
+    bool content_change_invalidates_existing = false;
+    bool requires_manifest_builder           = false;
+    bool requires_content_binding            = false;
+    bool requires_certificate_chain          = false;
+    bool requires_private_key                = false;
+    bool requires_signing_time               = false;
+    uint64_t content_binding_bytes           = 0;
+    std::vector<PreparedTransferC2paRewriteChunk> content_binding_chunks;
+    std::string message;
 };
 
 /// Transfer policy profile for initial no-edits workflows.
@@ -140,7 +218,12 @@ struct PreparedTransferPolicyDecision final {
     TransferPolicyAction requested = TransferPolicyAction::Keep;
     TransferPolicyAction effective = TransferPolicyAction::Keep;
     TransferPolicyReason reason    = TransferPolicyReason::Default;
-    uint32_t matched_entries       = 0;
+    TransferC2paMode c2pa_mode     = TransferC2paMode::NotApplicable;
+    TransferC2paSourceKind c2pa_source_kind
+        = TransferC2paSourceKind::NotApplicable;
+    TransferC2paPreparedOutput c2pa_prepared_output
+        = TransferC2paPreparedOutput::NotApplicable;
+    uint32_t matched_entries = 0;
     std::string message;
 };
 
@@ -184,9 +267,16 @@ struct PreparedTransferBundle final {
     uint32_t contract_version          = kMetadataTransferContractVersion;
     TransferTargetFormat target_format = TransferTargetFormat::Jpeg;
     TransferProfile profile;
+    PreparedTransferC2paRewriteRequirements c2pa_rewrite;
     std::vector<PreparedTransferPolicyDecision> policy_decisions;
     std::vector<PreparedTransferBlock> blocks;
     std::vector<TimePatchSlot> time_patch_map;
+};
+
+/// Options for explicit raw JUMBF append into a prepared JPEG bundle.
+struct AppendPreparedJpegJumbfOptions final {
+    /// If true, remove existing prepared `jpeg:app11-jumbf` blocks first.
+    bool replace_existing = false;
 };
 
 /// Request options for preparation.
@@ -238,16 +328,19 @@ struct PlanJpegEditOptions final {
 
 /// Planned JPEG edit summary (draft API).
 struct JpegEditPlan final {
-    TransferStatus status       = TransferStatus::Ok;
-    JpegEditMode requested_mode = JpegEditMode::Auto;
-    JpegEditMode selected_mode  = JpegEditMode::MetadataRewrite;
-    bool in_place_possible      = false;
-    uint32_t emitted_segments   = 0;
-    uint32_t replaced_segments  = 0;
-    uint32_t appended_segments  = 0;
-    uint64_t input_size         = 0;
-    uint64_t output_size        = 0;
-    uint64_t leading_scan_end   = 0;
+    TransferStatus status                    = TransferStatus::Ok;
+    JpegEditMode requested_mode              = JpegEditMode::Auto;
+    JpegEditMode selected_mode               = JpegEditMode::MetadataRewrite;
+    bool in_place_possible                   = false;
+    uint32_t emitted_segments                = 0;
+    uint32_t replaced_segments               = 0;
+    uint32_t appended_segments               = 0;
+    uint32_t removed_existing_segments       = 0;
+    uint32_t removed_existing_jumbf_segments = 0;
+    uint32_t removed_existing_c2pa_segments  = 0;
+    uint64_t input_size                      = 0;
+    uint64_t output_size                     = 0;
+    uint64_t leading_scan_end                = 0;
     std::string message;
 };
 
@@ -559,6 +652,22 @@ public:
 PrepareTransferResult
 prepare_metadata_for_target(const MetaStore&, const PrepareTransferRequest&,
                             PreparedTransferBundle* out_bundle) noexcept;
+
+/**
+ * \brief Append one logical raw JUMBF payload as JPEG APP11 transfer blocks.
+ *
+ * The input must be a logical JUMBF BMFF payload (`jumb`/`jumd`...), not an
+ * already wrapped APP11 marker payload. C2PA content-bound payloads are
+ * rejected by this helper; they require a dedicated invalidation/re-sign path.
+ *
+ * On success, the bundle policy decision for JUMBF is updated to explicit
+ * `Keep`, and one or more `jpeg:app11-jumbf` prepared blocks are appended.
+ */
+EmitTransferResult
+append_prepared_bundle_jpeg_jumbf(PreparedTransferBundle* bundle,
+                                  std::span<const std::byte> logical_payload,
+                                  const AppendPreparedJpegJumbfOptions& options
+                                  = AppendPreparedJpegJumbfOptions {}) noexcept;
 
 /**
  * \brief Emit prepared metadata blocks into a JPEG backend.

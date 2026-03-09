@@ -120,6 +120,17 @@ Portable sidecar note:
 #Patch prepared EXIF time fields before emit
 ./build/metatransfer --time-patch DateTimeOriginal="2026:03:06 12:34:56" input.jpg
 
+#Select explicit transfer policy for raw-sensitive families
+./build/metatransfer --makernote-policy keep --jumbf-policy drop --c2pa-policy drop input.jpg
+
+#Emit a draft unsigned C2PA invalidation payload for JPEG output
+./build/metatransfer --no-exif --no-xmp --no-icc --no-iptc \
+  --c2pa-policy invalidate input_with_c2pa.jpg
+
+#Append one logical raw JUMBF payload into a prepared JPEG bundle
+./build/metatransfer --no-exif --no-xmp --no-icc --no-iptc \
+  --jpeg-jumbf payload.jumbf input.jpg
+
 #Plan edit strategy without writing output
 ./build/metatransfer --mode auto --dry-run input.jpg
 
@@ -140,11 +151,12 @@ Portable sidecar note:
   -o injected.tif
 ```
 
-`metatransfer` is a thin CLI wrapper over
-`execute_prepared_transfer_file(...)`, which wraps
-`prepare_metadata_for_target_file(...)` plus the shared
-`execute_prepared_transfer(...)` path for time patching, route compile/emit,
-and optional JPEG/TIFF edit plan/apply. The core also exposes
+`metatransfer` is a thin CLI wrapper over the public transfer APIs. It uses
+`prepare_metadata_for_target_file(...)` for source read/decode plus
+`execute_prepared_transfer(...)` for time patching, route compile/emit, and
+optional JPEG/TIFF edit plan/apply. When `--jpeg-jumbf` is used, the CLI also
+calls `append_prepared_bundle_jpeg_jumbf(...)` before execute. The core also
+exposes
 `compile_prepared_transfer_execution(...)` plus
 `execute_prepared_transfer_compiled(...)` for
 `prepare once -> compile once -> patch/emit many` workflows. When `-o` is
@@ -158,17 +170,66 @@ Current v1 behavior is:
   shared core API.
 - TIFF edit output uses the same sink API and only buffers the appended
   metadata tail; it no longer materializes a second full-file output buffer.
-- `TransferProfile` now uses explicit `TransferPolicyAction` values for
-  `makernote`, `jumbf`, and `c2pa`.
-- `PreparedTransferBundle::policy_decisions` records the resolved per-family
-  transfer decision during prepare.
-- Current policy resolution for JPEG/TIFF prepare is:
+  - `TransferProfile` now uses explicit `TransferPolicyAction` values for
+    `makernote`, `jumbf`, and `c2pa`.
+  - `PreparedTransferBundle::policy_decisions` records the resolved per-family
+    transfer decision during prepare.
+  - CLI and Python transfer probes now expose those resolved policy decisions
+    directly, and JPEG edit plans report how many existing APP11 JUMBF/C2PA
+    segments will be removed during rewrite.
+  - C2PA decisions now expose three explicit fields:
+    - `TransferC2paMode`
+    - `TransferC2paSourceKind`
+    - `TransferC2paPreparedOutput`
+    so callers can tell whether prepare saw decoded-only C2PA, content-bound
+    raw C2PA, or a raw draft invalidation payload, and whether the prepared
+    output was dropped, preserved raw, or generated as a draft invalidation.
+  - `PreparedTransferBundle::c2pa_rewrite` is the future-facing signer
+    contract for `c2pa=rewrite`.
+    - It is separate from `policy_decisions`.
+    - Current JPEG prepare fills `state`, `source_kind`, matched decoded-entry
+      count, existing APP11 C2PA carrier segment count, and the required
+      signer inputs.
+    - Current JPEG prepare also emits `content_binding_chunks`, a deterministic
+      sequence of preserved source ranges and prepared JPEG segments that
+      describes the rewrite output before any new C2PA payload is inserted.
+    - Current state is `SigningMaterialRequired`; signed rewrite/re-sign is
+      not implemented yet.
+  - Current policy resolution for JPEG/TIFF prepare is:
   - MakerNote: `Keep` by default, `Drop` when requested, `Invalidate`
     resolves to `Drop`, and `Rewrite` currently resolves to raw-preserve
     (`Keep`) with a warning.
-  - JUMBF/C2PA: current JPEG/TIFF prepare does not serialize them, so
-    non-`Drop` requests resolve to `Drop` with explicit policy diagnostics and
-    prepare warnings.
+  - JUMBF:
+    - `prepare_metadata_for_target(...)` can now project decoded non-C2PA
+      `JumbfCborKey` roots into generic JPEG APP11 JUMBF payloads.
+    - The projected path is intentionally bounded:
+      ambiguous numeric map keys and decoded-CBOR bool/simple/sentinel
+      and large-negative fallback forms are rejected, while tagged CBOR
+      values are preserved.
+    - `prepare_metadata_for_target_file(...)` can preserve source JUMBF payloads
+      for JPEG targets by repacking them into APP11 segments.
+    - `append_prepared_bundle_jpeg_jumbf(...)` is the explicit public helper
+      for adding one logical raw JUMBF payload to a prepared JPEG bundle, and
+      `metatransfer --jpeg-jumbf file.jumbf` is the thin CLI path over it.
+  - C2PA:
+    - `c2pa=invalidate` on JPEG targets now resolves to a draft unsigned APP11
+      C2PA invalidation payload instead of drop-only behavior.
+    - The generated draft payload now includes an explicit OpenMeta contract
+      marker and contract version in its CBOR map.
+    - File-based JPEG prepare can preserve an existing OpenMeta draft
+      invalidation payload as raw APP11 C2PA (`TransferC2paMode::PreserveRaw`).
+    - `Rewrite` resolves to `Drop` with
+      `TransferPolicyReason::SignedRewriteUnavailable` until re-sign support
+      exists, while `PreparedTransferBundle::c2pa_rewrite` reports the signer
+      prerequisites that would be needed to perform it.
+  - JPEG edit/rewrite now recognizes existing APP11 JUMBF/C2PA carrier
+    segments.
+    - Existing C2PA APP11 payloads are dropped automatically when the output
+      metadata changes.
+    - Existing JUMBF APP11 payloads are removed when the resolved transfer
+      policy for JUMBF is `Drop`.
+  - C2PA raw preserve still resolves to `Drop` because signed content-bound
+    metadata has no safe preserve path without re-sign support.
 
 `thumdump` is preview-only and optimized for batch preview extraction:
 

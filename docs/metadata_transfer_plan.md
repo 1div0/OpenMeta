@@ -89,20 +89,62 @@ Read-path readiness is high:
   - `TransferProfile::{makernote,jumbf,c2pa}` use `TransferPolicyAction`
   - `PreparedTransferBundle::policy_decisions` records resolved prepare-time
     decisions and reasons
+  - `metatransfer` / `openmeta.transfer_probe(...)` can now accept explicit
+    `keep|drop|invalidate|rewrite` policy selections for MakerNote/JUMBF/C2PA
+    and report the resolved decisions back to the caller
+  - C2PA decisions now carry an explicit structured contract:
+    - `TransferC2paMode`
+    - `TransferC2paSourceKind`
+    - `TransferC2paPreparedOutput`
+  - `PreparedTransferBundle::c2pa_rewrite` now carries the separate
+    future-signing contract for `c2pa=rewrite`:
+    - `TransferC2paRewriteState`
+    - source kind
+    - matched decoded-entry count
+    - existing carrier segment count
+    - signer prerequisites
+    - JPEG `content_binding_chunks` for the rewrite-without-C2PA byte stream
   - MakerNote `Drop` is active in the EXIF prepare path
-  - JUMBF/C2PA currently resolve to explicit drop decisions for JPEG/TIFF
-    prepare because those targets do not yet serialize them in the transfer
-    pack path
+  - File-based JPEG prepare can now preserve source JUMBF payloads by repacking
+    them into APP11 segments
+  - Store-only JPEG prepare can now project decoded non-C2PA
+    `JumbfCborKey` roots into generic APP11 JUMBF payloads
+  - `append_prepared_bundle_jpeg_jumbf(...)` now provides the first explicit
+    public raw JUMBF -> JPEG APP11 serializer path for prepared bundles
+  - `c2pa=invalidate` for JPEG targets now emits a draft unsigned APP11 C2PA
+    invalidation payload instead of drop-only behavior
+  - The generated draft invalidation payload now carries an OpenMeta contract
+    marker and contract version
+  - File-based JPEG prepare can preserve an existing OpenMeta draft unsigned
+    invalidation payload as raw APP11 C2PA
+  - `c2pa=rewrite` now resolves to `Drop` with explicit
+    `SignedRewriteUnavailable`
+  - File-based JPEG prepare now records rewrite prerequisites even when
+    signed rewrite is unavailable, so a future signer can consume the same
+    prepared contract without another API change
+  - The JPEG rewrite prep path now emits deterministic content-binding chunks
+    as preserved source ranges plus prepared JPEG segments
+  - JPEG edit/rewrite now treats existing APP11 JUMBF/C2PA as managed routes:
+    content-changing edits drop stale C2PA, and explicit JUMBF `Drop` removes
+    existing APP11 JUMBF segments
+  - JPEG edit plans now report how many existing managed APP11 segments will be
+    removed, including separate counts for JUMBF and C2PA
+  - Full C2PA preserve/re-sign is still unavailable
 
 ## Main Blockers For Transfer
 
 1. No general streaming/container-packaging API yet for zero-copy or
    chunked output assembly beyond the current edit-output sink path.
-2. JUMBF/C2PA transfer policy is decision-only today; target serialization,
-   rewrite, and invalidation paths are still missing.
-3. No deterministic conflict/precedence contract yet for EXIF/IPTC/XMP
+2. C2PA still has no real preserve/re-sign path; JPEG now has a draft
+   invalidation payload path, but full signed-manifest rewrite/re-sign is still
+   missing.
+3. JUMBF transfer now has three draft paths for JPEG:
+   file-based APP11 preserve, explicit raw logical append, and a bounded
+   `MetaStore` projection path from decoded non-C2PA CBOR roots. General
+   target-agnostic JUMBF serialization is still incomplete.
+4. No deterministic conflict/precedence contract yet for EXIF/IPTC/XMP
    remap in slow-path transfer mode.
-4. No target-family write adapters yet beyond the current JPEG/TIFF draft path.
+5. No target-family write adapters yet beyond the current JPEG/TIFF draft path.
 
 ## Runtime Model
 
@@ -161,8 +203,13 @@ For TIFF/JPEG targets:
 - IPTC/IRB: preserve payload, repackage where target supports it.
 - MakerNote: preserve raw bytes by default; explicit drop policy is active in
   the current prepare path.
-- JUMBF/C2PA: current JPEG/TIFF prepare records explicit drop decisions, but
-  does not yet serialize or invalidate/rewrite these payloads.
+- JUMBF: file-based JPEG transfer can preserve raw source payloads by
+  repacking them into APP11 segments, and JPEG rewrite/edit removes existing
+  APP11 JUMBF segments when the resolved policy is `Drop`.
+- C2PA: `Invalidate` on JPEG now emits a draft unsigned APP11 C2PA
+  invalidation payload, and JPEG content-changing rewrite/edit removes
+  existing APP11 C2PA from the target before inserting the new prepared
+  payload. Preserve/re-sign and signed rewrite remain future work.
 
 ## Time Patch Plan (V1)
 

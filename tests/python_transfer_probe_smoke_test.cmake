@@ -71,6 +71,49 @@ r3 = openmeta.unsafe_transfer_probe(
 assert r3['overall_status'] == openmeta.TransferStatus.Ok, r3
 assert r3['blocks'], r3
 assert isinstance(r3['blocks'][0]['payload'], (bytes, bytearray)), r3
+
+p_c2pa = Path(r'''${WORK_DIR}/sample_c2pa.jpg''')
+cbor = bytes([0xA1, 0x61, 0x61, 0x01])
+jumd = b'c2pa\\x00'
+box = lambda t, payload: (8 + len(payload)).to_bytes(4, 'big') + t + payload
+jumb = box(b'jumb', box(b'jumd', jumd) + box(b'cbor', cbor))
+seg = b'JP\\x00\\x00' + (1).to_bytes(4, 'big') + jumb
+p_c2pa.write_bytes(b'\\xFF\\xD8\\xFF\\xEB' + (len(seg) + 2).to_bytes(2, 'big') + seg + b'\\xFF\\xD9')
+
+r4 = openmeta.transfer_probe(
+    str(p_c2pa),
+    include_exif_app1=False,
+    include_xmp_app1=False,
+    include_icc_app2=False,
+    include_iptc_app13=False,
+    c2pa_policy=openmeta.TransferPolicyAction.Invalidate,
+)
+assert r4['prepare_status'] == openmeta.TransferStatus.Ok, r4
+assert any(d['subject_name'] == 'c2pa' and d['effective_name'] == 'keep' and d['reason_name'] == 'draft_invalidation_payload' and d['c2pa_mode_name'] == 'draft_unsigned_invalidation' and d['c2pa_source_kind_name'] == 'content_bound' and d['c2pa_prepared_output_name'] == 'generated_draft_unsigned_invalidation' for d in r4['policy_decisions']), r4
+assert any(b['route'] == 'jpeg:app11-c2pa' for b in r4['blocks']), r4
+assert r4['c2pa_rewrite']['state_name'] == 'not_requested', r4
+assert r4['c2pa_rewrite']['matched_entries'] > 0, r4
+assert r4['c2pa_rewrite']['existing_carrier_segments'] == 1, r4
+
+r5 = openmeta.transfer_probe(
+    str(p_c2pa),
+    include_exif_app1=False,
+    include_xmp_app1=False,
+    include_icc_app2=False,
+    include_iptc_app13=False,
+    c2pa_policy=openmeta.TransferPolicyAction.Rewrite,
+)
+assert r5['prepare_status'] == openmeta.TransferStatus.Unsupported, r5
+assert any(d['subject_name'] == 'c2pa' and d['reason_name'] == 'signed_rewrite_unavailable' for d in r5['policy_decisions']), r5
+assert r5['c2pa_rewrite']['state_name'] == 'signing_material_required', r5
+assert r5['c2pa_rewrite']['source_kind_name'] == 'content_bound', r5
+assert r5['c2pa_rewrite']['matched_entries'] > 0, r5
+assert r5['c2pa_rewrite']['existing_carrier_segments'] == 1, r5
+assert r5['c2pa_rewrite']['target_carrier_available'] is True, r5
+assert r5['c2pa_rewrite']['requires_private_key'] is True, r5
+assert r5['c2pa_rewrite']['content_binding_bytes'] == 4, r5
+assert len(r5['c2pa_rewrite']['content_binding_chunks']) == 2, r5
+assert all(c['kind_name'] == 'source_range' for c in r5['c2pa_rewrite']['content_binding_chunks']), r5
 print('openmeta.transfer_probe smoke ok')
 ")
 

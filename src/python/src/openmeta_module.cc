@@ -614,6 +614,9 @@ namespace {
         case EmitTransferCode::BundleTargetNotJpeg:
             return "bundle_target_not_jpeg";
         case EmitTransferCode::UnsupportedRoute: return "unsupported_route";
+        case EmitTransferCode::InvalidPayload: return "invalid_payload";
+        case EmitTransferCode::ContentBoundPayloadUnsupported:
+            return "content_bound_payload_unsupported";
         case EmitTransferCode::BackendWriteFailed:
             return "backend_write_failed";
         case EmitTransferCode::PlanMismatch: return "plan_mismatch";
@@ -631,6 +634,133 @@ namespace {
         case PrepareTransferFileCode::PayloadBufferPlatformLimit:
             return "payload_buffer_platform_limit";
         case PrepareTransferFileCode::DecodeFailed: return "decode_failed";
+        }
+        return "unknown";
+    }
+
+    static const char*
+    transfer_policy_subject_name(TransferPolicySubject subject) noexcept
+    {
+        switch (subject) {
+        case TransferPolicySubject::MakerNote: return "makernote";
+        case TransferPolicySubject::Jumbf: return "jumbf";
+        case TransferPolicySubject::C2pa: return "c2pa";
+        }
+        return "unknown";
+    }
+
+    static const char*
+    transfer_policy_action_name(TransferPolicyAction action) noexcept
+    {
+        switch (action) {
+        case TransferPolicyAction::Keep: return "keep";
+        case TransferPolicyAction::Drop: return "drop";
+        case TransferPolicyAction::Invalidate: return "invalidate";
+        case TransferPolicyAction::Rewrite: return "rewrite";
+        }
+        return "unknown";
+    }
+
+    static const char*
+    transfer_policy_reason_name(TransferPolicyReason reason) noexcept
+    {
+        switch (reason) {
+        case TransferPolicyReason::Default: return "default";
+        case TransferPolicyReason::NotPresent: return "not_present";
+        case TransferPolicyReason::ExplicitDrop: return "explicit_drop";
+        case TransferPolicyReason::CarrierDisabled: return "carrier_disabled";
+        case TransferPolicyReason::ProjectedPayload: return "projected_payload";
+        case TransferPolicyReason::DraftInvalidationPayload:
+            return "draft_invalidation_payload";
+        case TransferPolicyReason::ContentBoundTransferUnavailable:
+            return "content_bound_transfer_unavailable";
+        case TransferPolicyReason::SignedRewriteUnavailable:
+            return "signed_rewrite_unavailable";
+        case TransferPolicyReason::PortableInvalidationUnavailable:
+            return "portable_invalidation_unavailable";
+        case TransferPolicyReason::RewriteUnavailablePreservedRaw:
+            return "rewrite_unavailable_preserved_raw";
+        case TransferPolicyReason::TargetSerializationUnavailable:
+            return "target_serialization_unavailable";
+        }
+        return "unknown";
+    }
+
+    static const char* transfer_c2pa_mode_name(TransferC2paMode mode) noexcept
+    {
+        switch (mode) {
+        case TransferC2paMode::NotApplicable: return "not_applicable";
+        case TransferC2paMode::NotPresent: return "not_present";
+        case TransferC2paMode::Drop: return "drop";
+        case TransferC2paMode::DraftUnsignedInvalidation:
+            return "draft_unsigned_invalidation";
+        case TransferC2paMode::PreserveRaw: return "preserve_raw";
+        case TransferC2paMode::SignedRewrite: return "signed_rewrite";
+        }
+        return "unknown";
+    }
+
+    static const char*
+    transfer_c2pa_source_kind_name(TransferC2paSourceKind kind) noexcept
+    {
+        switch (kind) {
+        case TransferC2paSourceKind::NotApplicable: return "not_applicable";
+        case TransferC2paSourceKind::NotPresent: return "not_present";
+        case TransferC2paSourceKind::DecodedOnly: return "decoded_only";
+        case TransferC2paSourceKind::ContentBound: return "content_bound";
+        case TransferC2paSourceKind::DraftUnsignedInvalidation:
+            return "draft_unsigned_invalidation";
+        }
+        return "unknown";
+    }
+
+    static const char* transfer_c2pa_prepared_output_name(
+        TransferC2paPreparedOutput output) noexcept
+    {
+        switch (output) {
+        case TransferC2paPreparedOutput::NotApplicable: return "not_applicable";
+        case TransferC2paPreparedOutput::NotPresent: return "not_present";
+        case TransferC2paPreparedOutput::Dropped: return "dropped";
+        case TransferC2paPreparedOutput::PreservedRaw: return "preserved_raw";
+        case TransferC2paPreparedOutput::GeneratedDraftUnsignedInvalidation:
+            return "generated_draft_unsigned_invalidation";
+        case TransferC2paPreparedOutput::SignedRewrite: return "signed_rewrite";
+        }
+        return "unknown";
+    }
+
+    static const char*
+    transfer_c2pa_rewrite_state_name(TransferC2paRewriteState state) noexcept
+    {
+        switch (state) {
+        case TransferC2paRewriteState::NotApplicable: return "not_applicable";
+        case TransferC2paRewriteState::NotRequested: return "not_requested";
+        case TransferC2paRewriteState::SigningMaterialRequired:
+            return "signing_material_required";
+        case TransferC2paRewriteState::Ready: return "ready";
+        }
+        return "unknown";
+    }
+
+    static const char* transfer_c2pa_rewrite_chunk_kind_name(
+        TransferC2paRewriteChunkKind kind) noexcept
+    {
+        switch (kind) {
+        case TransferC2paRewriteChunkKind::SourceRange: return "source_range";
+        case TransferC2paRewriteChunkKind::PreparedJpegSegment:
+            return "prepared_jpeg_segment";
+        }
+        return "unknown";
+    }
+
+    static const char*
+    transfer_target_format_name(TransferTargetFormat format) noexcept
+    {
+        switch (format) {
+        case TransferTargetFormat::Jpeg: return "jpeg";
+        case TransferTargetFormat::Tiff: return "tiff";
+        case TransferTargetFormat::Jxl: return "jxl";
+        case TransferTargetFormat::Exr: return "exr";
         }
         return "unknown";
     }
@@ -801,8 +931,10 @@ namespace {
         bool decode_makernote, bool decode_embedded_containers, bool decompress,
         bool include_exif_app1, bool include_xmp_app1, bool include_icc_app2,
         bool include_iptc_app13, bool xmp_include_existing,
-        bool xmp_exiftool_gpsdatetime_alias, uint64_t max_file_bytes,
-        nb::object policy_obj, bool include_payloads,
+        bool xmp_exiftool_gpsdatetime_alias,
+        TransferPolicyAction makernote_policy,
+        TransferPolicyAction jumbf_policy, TransferPolicyAction c2pa_policy,
+        uint64_t max_file_bytes, nb::object policy_obj, bool include_payloads,
         bool unsafe_payload_access, nb::object time_patches_obj,
         bool time_patch_strict_width, bool time_patch_require_slot,
         bool time_patch_auto_nul, nb::object edit_target_path_obj,
@@ -824,7 +956,10 @@ namespace {
         prepare_options.prepare.xmp_include_existing = xmp_include_existing;
         prepare_options.prepare.xmp_exiftool_gpsdatetime_alias
             = xmp_exiftool_gpsdatetime_alias;
-        prepare_options.policy.max_file_bytes = max_file_bytes;
+        prepare_options.prepare.profile.makernote = makernote_policy;
+        prepare_options.prepare.profile.jumbf     = jumbf_policy;
+        prepare_options.prepare.profile.c2pa      = c2pa_policy;
+        prepare_options.policy.max_file_bytes     = max_file_bytes;
 
         if (!policy_obj.is_none()) {
             prepare_options.policy = nb::cast<OpenMetaResourcePolicy>(
@@ -924,6 +1059,95 @@ namespace {
         }
         out["blocks"] = std::move(blocks);
 
+        nb::list policy_decisions;
+        for (size_t i = 0; i < prepared.bundle.policy_decisions.size(); ++i) {
+            const PreparedTransferPolicyDecision& d
+                = prepared.bundle.policy_decisions[i];
+            nb::dict one;
+            one["subject"]      = d.subject;
+            one["subject_name"] = nb::str(
+                transfer_policy_subject_name(d.subject));
+            one["requested"]      = d.requested;
+            one["requested_name"] = nb::str(
+                transfer_policy_action_name(d.requested));
+            one["effective"]      = d.effective;
+            one["effective_name"] = nb::str(
+                transfer_policy_action_name(d.effective));
+            one["reason"]      = d.reason;
+            one["reason_name"] = nb::str(transfer_policy_reason_name(d.reason));
+            one["c2pa_mode"]   = d.c2pa_mode;
+            one["c2pa_mode_name"] = nb::str(
+                transfer_c2pa_mode_name(d.c2pa_mode));
+            one["c2pa_source_kind"]      = d.c2pa_source_kind;
+            one["c2pa_source_kind_name"] = nb::str(
+                transfer_c2pa_source_kind_name(d.c2pa_source_kind));
+            one["c2pa_prepared_output"]      = d.c2pa_prepared_output;
+            one["c2pa_prepared_output_name"] = nb::str(
+                transfer_c2pa_prepared_output_name(d.c2pa_prepared_output));
+            one["matched_entries"] = nb::int_(d.matched_entries);
+            one["message"] = nb::str(d.message.c_str(), d.message.size());
+            policy_decisions.append(std::move(one));
+        }
+        out["policy_decisions"] = std::move(policy_decisions);
+
+        const PreparedTransferC2paRewriteRequirements& rewrite
+            = prepared.bundle.c2pa_rewrite;
+        nb::dict rewrite_dict;
+        rewrite_dict["state"]      = rewrite.state;
+        rewrite_dict["state_name"] = nb::str(
+            transfer_c2pa_rewrite_state_name(rewrite.state));
+        rewrite_dict["target_format"]      = rewrite.target_format;
+        rewrite_dict["target_format_name"] = nb::str(
+            transfer_target_format_name(rewrite.target_format));
+        rewrite_dict["source_kind"]      = rewrite.source_kind;
+        rewrite_dict["source_kind_name"] = nb::str(
+            transfer_c2pa_source_kind_name(rewrite.source_kind));
+        rewrite_dict["matched_entries"] = nb::int_(rewrite.matched_entries);
+        rewrite_dict["existing_carrier_segments"] = nb::int_(
+            rewrite.existing_carrier_segments);
+        rewrite_dict["target_carrier_available"] = nb::bool_(
+            rewrite.target_carrier_available);
+        rewrite_dict["content_change_invalidates_existing"] = nb::bool_(
+            rewrite.content_change_invalidates_existing);
+        rewrite_dict["requires_manifest_builder"] = nb::bool_(
+            rewrite.requires_manifest_builder);
+        rewrite_dict["requires_content_binding"] = nb::bool_(
+            rewrite.requires_content_binding);
+        rewrite_dict["requires_certificate_chain"] = nb::bool_(
+            rewrite.requires_certificate_chain);
+        rewrite_dict["requires_private_key"] = nb::bool_(
+            rewrite.requires_private_key);
+        rewrite_dict["requires_signing_time"] = nb::bool_(
+            rewrite.requires_signing_time);
+        rewrite_dict["content_binding_bytes"] = nb::int_(
+            rewrite.content_binding_bytes);
+        nb::list binding_chunks;
+        for (size_t i = 0; i < rewrite.content_binding_chunks.size(); ++i) {
+            const PreparedTransferC2paRewriteChunk& chunk
+                = rewrite.content_binding_chunks[i];
+            nb::dict one;
+            one["index"]     = nb::int_(static_cast<uint32_t>(i));
+            one["kind"]      = chunk.kind;
+            one["kind_name"] = nb::str(
+                transfer_c2pa_rewrite_chunk_kind_name(chunk.kind));
+            one["source_offset"]    = nb::int_(chunk.source_offset);
+            one["size"]             = nb::int_(chunk.size);
+            one["block_index"]      = nb::int_(chunk.block_index);
+            one["jpeg_marker_code"] = nb::int_(chunk.jpeg_marker_code);
+            if (chunk.block_index < prepared.bundle.blocks.size()) {
+                one["route"] = nb::str(
+                    prepared.bundle.blocks[chunk.block_index].route.c_str(),
+                    prepared.bundle.blocks[chunk.block_index].route.size());
+            } else {
+                one["route"] = nb::none();
+            }
+            binding_chunks.append(std::move(one));
+        }
+        rewrite_dict["content_binding_chunks"] = std::move(binding_chunks);
+        rewrite_dict["message"] = nb::str(rewrite.message.c_str(),
+                                          rewrite.message.size());
+        out["c2pa_rewrite"]     = std::move(rewrite_dict);
+
         out["compile_status"]      = exec.compile.status;
         out["compile_status_name"] = nb::str(
             transfer_status_name(exec.compile.status));
@@ -987,6 +1211,12 @@ namespace {
                                             exec.edit_apply.message.size());
         out["edit_input_size"]    = nb::int_(exec.edit_input_size);
         out["edit_output_size"]   = nb::int_(exec.edit_output_size);
+        out["edit_removed_existing_segments"] = nb::int_(
+            exec.jpeg_edit_plan.removed_existing_segments);
+        out["edit_removed_existing_jumbf_segments"] = nb::int_(
+            exec.jpeg_edit_plan.removed_existing_jumbf_segments);
+        out["edit_removed_existing_c2pa_segments"] = nb::int_(
+            exec.jpeg_edit_plan.removed_existing_c2pa_segments);
 
         const bool allow_edited_bytes = include_edited_bytes
                                         && unsafe_edited_bytes_access;
@@ -1811,6 +2041,74 @@ NB_MODULE(_openmeta, m)
         .value("Jxl", TransferTargetFormat::Jxl)
         .value("Exr", TransferTargetFormat::Exr);
 
+    nb::enum_<TransferPolicySubject>(m, "TransferPolicySubject")
+        .value("MakerNote", TransferPolicySubject::MakerNote)
+        .value("Jumbf", TransferPolicySubject::Jumbf)
+        .value("C2pa", TransferPolicySubject::C2pa);
+
+    nb::enum_<TransferPolicyAction>(m, "TransferPolicyAction")
+        .value("Keep", TransferPolicyAction::Keep)
+        .value("Drop", TransferPolicyAction::Drop)
+        .value("Invalidate", TransferPolicyAction::Invalidate)
+        .value("Rewrite", TransferPolicyAction::Rewrite);
+
+    nb::enum_<TransferPolicyReason>(m, "TransferPolicyReason")
+        .value("Default", TransferPolicyReason::Default)
+        .value("NotPresent", TransferPolicyReason::NotPresent)
+        .value("ExplicitDrop", TransferPolicyReason::ExplicitDrop)
+        .value("CarrierDisabled", TransferPolicyReason::CarrierDisabled)
+        .value("ProjectedPayload", TransferPolicyReason::ProjectedPayload)
+        .value("DraftInvalidationPayload",
+               TransferPolicyReason::DraftInvalidationPayload)
+        .value("ContentBoundTransferUnavailable",
+               TransferPolicyReason::ContentBoundTransferUnavailable)
+        .value("SignedRewriteUnavailable",
+               TransferPolicyReason::SignedRewriteUnavailable)
+        .value("PortableInvalidationUnavailable",
+               TransferPolicyReason::PortableInvalidationUnavailable)
+        .value("RewriteUnavailablePreservedRaw",
+               TransferPolicyReason::RewriteUnavailablePreservedRaw)
+        .value("TargetSerializationUnavailable",
+               TransferPolicyReason::TargetSerializationUnavailable);
+
+    nb::enum_<TransferC2paMode>(m, "TransferC2paMode")
+        .value("NotApplicable", TransferC2paMode::NotApplicable)
+        .value("NotPresent", TransferC2paMode::NotPresent)
+        .value("Drop", TransferC2paMode::Drop)
+        .value("DraftUnsignedInvalidation",
+               TransferC2paMode::DraftUnsignedInvalidation)
+        .value("PreserveRaw", TransferC2paMode::PreserveRaw)
+        .value("SignedRewrite", TransferC2paMode::SignedRewrite);
+
+    nb::enum_<TransferC2paSourceKind>(m, "TransferC2paSourceKind")
+        .value("NotApplicable", TransferC2paSourceKind::NotApplicable)
+        .value("NotPresent", TransferC2paSourceKind::NotPresent)
+        .value("DecodedOnly", TransferC2paSourceKind::DecodedOnly)
+        .value("ContentBound", TransferC2paSourceKind::ContentBound)
+        .value("DraftUnsignedInvalidation",
+               TransferC2paSourceKind::DraftUnsignedInvalidation);
+
+    nb::enum_<TransferC2paPreparedOutput>(m, "TransferC2paPreparedOutput")
+        .value("NotApplicable", TransferC2paPreparedOutput::NotApplicable)
+        .value("NotPresent", TransferC2paPreparedOutput::NotPresent)
+        .value("Dropped", TransferC2paPreparedOutput::Dropped)
+        .value("PreservedRaw", TransferC2paPreparedOutput::PreservedRaw)
+        .value("GeneratedDraftUnsignedInvalidation",
+               TransferC2paPreparedOutput::GeneratedDraftUnsignedInvalidation)
+        .value("SignedRewrite", TransferC2paPreparedOutput::SignedRewrite);
+
+    nb::enum_<TransferC2paRewriteState>(m, "TransferC2paRewriteState")
+        .value("NotApplicable", TransferC2paRewriteState::NotApplicable)
+        .value("NotRequested", TransferC2paRewriteState::NotRequested)
+        .value("SigningMaterialRequired",
+               TransferC2paRewriteState::SigningMaterialRequired)
+        .value("Ready", TransferC2paRewriteState::Ready);
+
+    nb::enum_<TransferC2paRewriteChunkKind>(m, "TransferC2paRewriteChunkKind")
+        .value("SourceRange", TransferC2paRewriteChunkKind::SourceRange)
+        .value("PreparedJpegSegment",
+               TransferC2paRewriteChunkKind::PreparedJpegSegment);
+
     nb::enum_<TransferStatus>(m, "TransferStatus")
         .value("Ok", TransferStatus::Ok)
         .value("InvalidArgument", TransferStatus::InvalidArgument)
@@ -1837,6 +2135,9 @@ NB_MODULE(_openmeta, m)
         .value("InvalidArgument", EmitTransferCode::InvalidArgument)
         .value("BundleTargetNotJpeg", EmitTransferCode::BundleTargetNotJpeg)
         .value("UnsupportedRoute", EmitTransferCode::UnsupportedRoute)
+        .value("InvalidPayload", EmitTransferCode::InvalidPayload)
+        .value("ContentBoundPayloadUnsupported",
+               EmitTransferCode::ContentBoundPayloadUnsupported)
         .value("BackendWriteFailed", EmitTransferCode::BackendWriteFailed)
         .value("PlanMismatch", EmitTransferCode::PlanMismatch);
 
@@ -2689,6 +2990,8 @@ NB_MODULE(_openmeta, m)
            bool decompress, bool include_exif_app1, bool include_xmp_app1,
            bool include_icc_app2, bool include_iptc_app13,
            bool xmp_include_existing, bool xmp_exiftool_gpsdatetime_alias,
+           TransferPolicyAction makernote_policy,
+           TransferPolicyAction jumbf_policy, TransferPolicyAction c2pa_policy,
            uint64_t max_file_bytes, nb::object policy_obj,
            bool include_payloads, nb::object time_patches,
            bool time_patch_strict_width, bool time_patch_require_slot,
@@ -2699,8 +3002,9 @@ NB_MODULE(_openmeta, m)
                 decode_makernote, decode_embedded_containers, decompress,
                 include_exif_app1, include_xmp_app1, include_icc_app2,
                 include_iptc_app13, xmp_include_existing,
-                xmp_exiftool_gpsdatetime_alias, max_file_bytes, policy_obj,
-                include_payloads, false, time_patches, time_patch_strict_width,
+                xmp_exiftool_gpsdatetime_alias, makernote_policy, jumbf_policy,
+                c2pa_policy, max_file_bytes, policy_obj, include_payloads,
+                false, time_patches, time_patch_strict_width,
                 time_patch_require_slot, time_patch_auto_nul, edit_target_path,
                 edit_apply, include_edited_bytes, false);
         },
@@ -2711,7 +3015,10 @@ NB_MODULE(_openmeta, m)
         "include_exif_app1"_a = true, "include_xmp_app1"_a = true,
         "include_icc_app2"_a = true, "include_iptc_app13"_a = true,
         "xmp_include_existing"_a           = false,
-        "xmp_exiftool_gpsdatetime_alias"_a = false, "max_file_bytes"_a = 0ULL,
+        "xmp_exiftool_gpsdatetime_alias"_a = false,
+        "makernote_policy"_a               = TransferPolicyAction::Keep,
+        "jumbf_policy"_a                   = TransferPolicyAction::Keep,
+        "c2pa_policy"_a = TransferPolicyAction::Keep, "max_file_bytes"_a = 0ULL,
         "policy"_a = nb::none(), "include_payloads"_a = false,
         "time_patches"_a = nb::none(), "time_patch_strict_width"_a = true,
         "time_patch_require_slot"_a = false, "time_patch_auto_nul"_a = true,
@@ -2726,6 +3033,8 @@ NB_MODULE(_openmeta, m)
            bool decompress, bool include_exif_app1, bool include_xmp_app1,
            bool include_icc_app2, bool include_iptc_app13,
            bool xmp_include_existing, bool xmp_exiftool_gpsdatetime_alias,
+           TransferPolicyAction makernote_policy,
+           TransferPolicyAction jumbf_policy, TransferPolicyAction c2pa_policy,
            uint64_t max_file_bytes, nb::object policy_obj,
            bool include_payloads, nb::object time_patches,
            bool time_patch_strict_width, bool time_patch_require_slot,
@@ -2736,10 +3045,11 @@ NB_MODULE(_openmeta, m)
                 decode_makernote, decode_embedded_containers, decompress,
                 include_exif_app1, include_xmp_app1, include_icc_app2,
                 include_iptc_app13, xmp_include_existing,
-                xmp_exiftool_gpsdatetime_alias, max_file_bytes, policy_obj,
-                include_payloads, true, time_patches, time_patch_strict_width,
-                time_patch_require_slot, time_patch_auto_nul, edit_target_path,
-                edit_apply, include_edited_bytes, true);
+                xmp_exiftool_gpsdatetime_alias, makernote_policy, jumbf_policy,
+                c2pa_policy, max_file_bytes, policy_obj, include_payloads, true,
+                time_patches, time_patch_strict_width, time_patch_require_slot,
+                time_patch_auto_nul, edit_target_path, edit_apply,
+                include_edited_bytes, true);
         },
         "path"_a, "target_format"_a = TransferTargetFormat::Jpeg,
         "format"_a               = XmpSidecarFormat::Portable,
@@ -2748,7 +3058,10 @@ NB_MODULE(_openmeta, m)
         "include_exif_app1"_a = true, "include_xmp_app1"_a = true,
         "include_icc_app2"_a = true, "include_iptc_app13"_a = true,
         "xmp_include_existing"_a           = false,
-        "xmp_exiftool_gpsdatetime_alias"_a = false, "max_file_bytes"_a = 0ULL,
+        "xmp_exiftool_gpsdatetime_alias"_a = false,
+        "makernote_policy"_a               = TransferPolicyAction::Keep,
+        "jumbf_policy"_a                   = TransferPolicyAction::Keep,
+        "c2pa_policy"_a = TransferPolicyAction::Keep, "max_file_bytes"_a = 0ULL,
         "policy"_a = nb::none(), "include_payloads"_a = false,
         "time_patches"_a = nb::none(), "time_patch_strict_width"_a = true,
         "time_patch_require_slot"_a = false, "time_patch_auto_nul"_a = true,

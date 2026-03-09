@@ -1,4 +1,5 @@
 #include "openmeta/build_info.h"
+#include "openmeta/mapped_file.h"
 #include "openmeta/metadata_transfer.h"
 
 #include <algorithm>
@@ -45,6 +46,14 @@ namespace {
             "  --no-icc               Skip ICC APP2 preparation\n"
             "  --no-iptc              Skip IPTC APP13 preparation\n"
             "  --makernotes           Enable best-effort MakerNote decode in read phase\n"
+            "  --makernote-policy <keep|drop|invalidate|rewrite>\n"
+            "                         Transfer policy for MakerNote payloads\n"
+            "  --jumbf-policy <keep|drop|invalidate|rewrite>\n"
+            "                         Transfer policy for JUMBF payloads\n"
+            "  --c2pa-policy <keep|drop|invalidate|rewrite>\n"
+            "                         Transfer policy for C2PA payloads\n"
+            "  --jpeg-jumbf <path>   Append one logical raw JUMBF payload to a JPEG bundle\n"
+            "  --replace-jpeg-jumbf  Remove prepared jpeg:app11-jumbf blocks before append\n"
             "  --no-decompress        Disable payload decompression in read phase\n"
             "  --unsafe-write-payloads\n"
             "                         Write prepared raw block payload bytes to files\n"
@@ -264,6 +273,162 @@ namespace {
         return false;
     }
 
+
+    static bool parse_transfer_policy_action(const char* s,
+                                             TransferPolicyAction* out) noexcept
+    {
+        if (!s || !out) {
+            return false;
+        }
+        if (std::strcmp(s, "keep") == 0) {
+            *out = TransferPolicyAction::Keep;
+            return true;
+        }
+        if (std::strcmp(s, "drop") == 0) {
+            *out = TransferPolicyAction::Drop;
+            return true;
+        }
+        if (std::strcmp(s, "invalidate") == 0) {
+            *out = TransferPolicyAction::Invalidate;
+            return true;
+        }
+        if (std::strcmp(s, "rewrite") == 0) {
+            *out = TransferPolicyAction::Rewrite;
+            return true;
+        }
+        return false;
+    }
+
+
+    static const char*
+    transfer_policy_subject_name(TransferPolicySubject subject) noexcept
+    {
+        switch (subject) {
+        case TransferPolicySubject::MakerNote: return "makernote";
+        case TransferPolicySubject::Jumbf: return "jumbf";
+        case TransferPolicySubject::C2pa: return "c2pa";
+        }
+        return "unknown";
+    }
+
+
+    static const char*
+    transfer_policy_action_name(TransferPolicyAction action) noexcept
+    {
+        switch (action) {
+        case TransferPolicyAction::Keep: return "keep";
+        case TransferPolicyAction::Drop: return "drop";
+        case TransferPolicyAction::Invalidate: return "invalidate";
+        case TransferPolicyAction::Rewrite: return "rewrite";
+        }
+        return "unknown";
+    }
+
+
+    static const char*
+    transfer_policy_reason_name(TransferPolicyReason reason) noexcept
+    {
+        switch (reason) {
+        case TransferPolicyReason::Default: return "default";
+        case TransferPolicyReason::NotPresent: return "not_present";
+        case TransferPolicyReason::ExplicitDrop: return "explicit_drop";
+        case TransferPolicyReason::CarrierDisabled: return "carrier_disabled";
+        case TransferPolicyReason::ProjectedPayload: return "projected_payload";
+        case TransferPolicyReason::DraftInvalidationPayload:
+            return "draft_invalidation_payload";
+        case TransferPolicyReason::ContentBoundTransferUnavailable:
+            return "content_bound_transfer_unavailable";
+        case TransferPolicyReason::SignedRewriteUnavailable:
+            return "signed_rewrite_unavailable";
+        case TransferPolicyReason::PortableInvalidationUnavailable:
+            return "portable_invalidation_unavailable";
+        case TransferPolicyReason::RewriteUnavailablePreservedRaw:
+            return "rewrite_unavailable_preserved_raw";
+        case TransferPolicyReason::TargetSerializationUnavailable:
+            return "target_serialization_unavailable";
+        }
+        return "unknown";
+    }
+
+    static const char* transfer_c2pa_mode_name(TransferC2paMode mode) noexcept
+    {
+        switch (mode) {
+        case TransferC2paMode::NotApplicable: return "not_applicable";
+        case TransferC2paMode::NotPresent: return "not_present";
+        case TransferC2paMode::Drop: return "drop";
+        case TransferC2paMode::DraftUnsignedInvalidation:
+            return "draft_unsigned_invalidation";
+        case TransferC2paMode::PreserveRaw: return "preserve_raw";
+        case TransferC2paMode::SignedRewrite: return "signed_rewrite";
+        }
+        return "unknown";
+    }
+
+    static const char*
+    transfer_c2pa_source_kind_name(TransferC2paSourceKind kind) noexcept
+    {
+        switch (kind) {
+        case TransferC2paSourceKind::NotApplicable: return "not_applicable";
+        case TransferC2paSourceKind::NotPresent: return "not_present";
+        case TransferC2paSourceKind::DecodedOnly: return "decoded_only";
+        case TransferC2paSourceKind::ContentBound: return "content_bound";
+        case TransferC2paSourceKind::DraftUnsignedInvalidation:
+            return "draft_unsigned_invalidation";
+        }
+        return "unknown";
+    }
+
+    static const char* transfer_c2pa_prepared_output_name(
+        TransferC2paPreparedOutput output) noexcept
+    {
+        switch (output) {
+        case TransferC2paPreparedOutput::NotApplicable: return "not_applicable";
+        case TransferC2paPreparedOutput::NotPresent: return "not_present";
+        case TransferC2paPreparedOutput::Dropped: return "dropped";
+        case TransferC2paPreparedOutput::PreservedRaw: return "preserved_raw";
+        case TransferC2paPreparedOutput::GeneratedDraftUnsignedInvalidation:
+            return "generated_draft_unsigned_invalidation";
+        case TransferC2paPreparedOutput::SignedRewrite: return "signed_rewrite";
+        }
+        return "unknown";
+    }
+
+    static const char*
+    transfer_c2pa_rewrite_state_name(TransferC2paRewriteState state) noexcept
+    {
+        switch (state) {
+        case TransferC2paRewriteState::NotApplicable: return "not_applicable";
+        case TransferC2paRewriteState::NotRequested: return "not_requested";
+        case TransferC2paRewriteState::SigningMaterialRequired:
+            return "signing_material_required";
+        case TransferC2paRewriteState::Ready: return "ready";
+        }
+        return "unknown";
+    }
+
+    static const char* transfer_c2pa_rewrite_chunk_kind_name(
+        TransferC2paRewriteChunkKind kind) noexcept
+    {
+        switch (kind) {
+        case TransferC2paRewriteChunkKind::SourceRange: return "source_range";
+        case TransferC2paRewriteChunkKind::PreparedJpegSegment:
+            return "prepared_jpeg_segment";
+        }
+        return "unknown";
+    }
+
+    static const char*
+    transfer_target_format_name(TransferTargetFormat format) noexcept
+    {
+        switch (format) {
+        case TransferTargetFormat::Jpeg: return "jpeg";
+        case TransferTargetFormat::Tiff: return "tiff";
+        case TransferTargetFormat::Jxl: return "jxl";
+        case TransferTargetFormat::Exr: return "exr";
+        }
+        return "unknown";
+    }
+
     static void print_build_info_header()
     {
         std::string line1;
@@ -329,6 +494,9 @@ namespace {
         case EmitTransferCode::BundleTargetNotJpeg:
             return "bundle_target_not_jpeg";
         case EmitTransferCode::UnsupportedRoute: return "unsupported_route";
+        case EmitTransferCode::InvalidPayload: return "invalid_payload";
+        case EmitTransferCode::ContentBoundPayloadUnsupported:
+            return "content_bound_payload_unsupported";
         case EmitTransferCode::BackendWriteFailed:
             return "backend_write_failed";
         case EmitTransferCode::PlanMismatch: return "plan_mismatch";
@@ -507,6 +675,40 @@ namespace {
     }
 
 
+    static bool read_file_bytes(const std::string& path,
+                                std::vector<std::byte>* out)
+    {
+        if (!out) {
+            return false;
+        }
+        out->clear();
+        std::FILE* f = std::fopen(path.c_str(), "rb");
+        if (!f) {
+            return false;
+        }
+        if (std::fseek(f, 0, SEEK_END) != 0) {
+            std::fclose(f);
+            return false;
+        }
+        const long end = std::ftell(f);
+        if (end < 0) {
+            std::fclose(f);
+            return false;
+        }
+        if (std::fseek(f, 0, SEEK_SET) != 0) {
+            std::fclose(f);
+            return false;
+        }
+        out->resize(static_cast<size_t>(end));
+        size_t read = 0U;
+        if (!out->empty()) {
+            read = std::fread(out->data(), 1, out->size(), f);
+        }
+        std::fclose(f);
+        return read == out->size();
+    }
+
+
     class FileByteWriter final : public TransferByteWriter {
     public:
         explicit FileByteWriter(std::string path)
@@ -631,12 +833,14 @@ main(int argc, char** argv)
     bool force               = false;
     bool write_payloads      = false;
     bool dry_run             = false;
+    bool replace_jpeg_jumbf  = false;
     uint32_t emit_repeat     = 1U;
     bool time_patch_auto_nul = true;
     std::string out_dir;
     std::string source_meta_path;
     std::string target_jpeg_path;
     std::string target_tiff_path;
+    std::string jpeg_jumbf_path;
     std::string output_path;
     std::vector<std::string> input_paths;
     std::vector<PendingTimePatch> pending_time_patches;
@@ -723,6 +927,51 @@ main(int argc, char** argv)
         }
         if (std::strcmp(arg, "--makernotes") == 0) {
             options.decode_makernote = true;
+            continue;
+        }
+        if (std::strcmp(arg, "--makernote-policy") == 0 && i + 1 < argc) {
+            TransferPolicyAction action = TransferPolicyAction::Keep;
+            if (!parse_transfer_policy_action(argv[i + 1], &action)) {
+                std::fprintf(
+                    stderr,
+                    "invalid --makernote-policy value (expected keep|drop|invalidate|rewrite)\n");
+                return 2;
+            }
+            options.prepare.profile.makernote = action;
+            i += 1;
+            continue;
+        }
+        if (std::strcmp(arg, "--jumbf-policy") == 0 && i + 1 < argc) {
+            TransferPolicyAction action = TransferPolicyAction::Keep;
+            if (!parse_transfer_policy_action(argv[i + 1], &action)) {
+                std::fprintf(
+                    stderr,
+                    "invalid --jumbf-policy value (expected keep|drop|invalidate|rewrite)\n");
+                return 2;
+            }
+            options.prepare.profile.jumbf = action;
+            i += 1;
+            continue;
+        }
+        if (std::strcmp(arg, "--c2pa-policy") == 0 && i + 1 < argc) {
+            TransferPolicyAction action = TransferPolicyAction::Keep;
+            if (!parse_transfer_policy_action(argv[i + 1], &action)) {
+                std::fprintf(
+                    stderr,
+                    "invalid --c2pa-policy value (expected keep|drop|invalidate|rewrite)\n");
+                return 2;
+            }
+            options.prepare.profile.c2pa = action;
+            i += 1;
+            continue;
+        }
+        if (std::strcmp(arg, "--jpeg-jumbf") == 0 && i + 1 < argc) {
+            jpeg_jumbf_path = argv[i + 1];
+            i += 1;
+            continue;
+        }
+        if (std::strcmp(arg, "--replace-jpeg-jumbf") == 0) {
+            replace_jpeg_jumbf = true;
             continue;
         }
         if (std::strcmp(arg, "--no-decompress") == 0) {
@@ -920,6 +1169,12 @@ main(int argc, char** argv)
     } else {
         options.prepare.target_format = TransferTargetFormat::Jpeg;
     }
+    if (!jpeg_jumbf_path.empty()
+        && options.prepare.target_format != TransferTargetFormat::Jpeg) {
+        std::fprintf(stderr,
+                     "--jpeg-jumbf is only supported for JPEG targets\n");
+        return 2;
+    }
     if (options.prepare.target_format == TransferTargetFormat::Tiff
         && (edit_plan_opts.mode != JpegEditMode::Auto
             || edit_plan_opts.require_in_place)) {
@@ -963,34 +1218,70 @@ main(int argc, char** argv)
             = options.prepare.target_format == TransferTargetFormat::Tiff
               && (dry_run || !output_path.empty() || !target_tiff_path.empty());
 
-        ExecutePreparedTransferFileOptions execute_options;
-        execute_options.prepare              = options;
-        execute_options.execute.time_patches = build_transfer_time_patch_inputs(
-            pending_time_patches);
-        execute_options.execute.time_patch          = time_patch_opts;
-        execute_options.execute.time_patch_auto_nul = time_patch_auto_nul;
-        execute_options.execute.emit_repeat         = emit_repeat;
-        execute_options.execute.jpeg_edit           = edit_plan_opts;
-        execute_options.execute.edit_requested      = need_jpeg_edit
-                                                 || need_tiff_edit;
-        execute_options.execute.edit_apply = !dry_run && !output_path.empty();
-        if (execute_options.execute.edit_requested) {
-            execute_options.edit_target_path = target_path;
-        }
         const bool output_exists = !output_path.empty()
                                    && file_exists(output_path);
         FileByteWriter output_writer(output_path);
         const bool use_output_writer = !output_path.empty() && !dry_run
                                        && (!output_exists || force);
-        if (use_output_writer) {
-            execute_options.execute.edit_output_writer = &output_writer;
+        PrepareTransferFileResult prepared
+            = prepare_metadata_for_target_file(source_path.c_str(), options);
+        EmitTransferResult append_jumbf_result;
+        bool did_append_jumbf = false;
+        if (prepared.file_status == TransferFileStatus::Ok
+            && prepared.prepare.status == TransferStatus::Ok
+            && !jpeg_jumbf_path.empty()) {
+            std::vector<std::byte> jpeg_jumbf_bytes;
+            if (!read_file_bytes(jpeg_jumbf_path, &jpeg_jumbf_bytes)) {
+                std::fprintf(stderr, "  append_jumbf: read_failed: %s\n",
+                             jpeg_jumbf_path.c_str());
+                any_failed = true;
+                continue;
+            }
+            AppendPreparedJpegJumbfOptions append_options;
+            append_options.replace_existing = replace_jpeg_jumbf;
+            append_jumbf_result             = append_prepared_bundle_jpeg_jumbf(
+                &prepared.bundle,
+                std::span<const std::byte>(jpeg_jumbf_bytes.data(),
+                                                       jpeg_jumbf_bytes.size()),
+                append_options);
+            did_append_jumbf = true;
         }
 
-        const ExecutePreparedTransferFileResult executed
-            = execute_prepared_transfer_file(source_path.c_str(),
-                                             execute_options);
-        const PrepareTransferFileResult& prepared = executed.prepared;
-        const ExecutePreparedTransferResult& exec = executed.execute;
+        ExecutePreparedTransferOptions exec_options;
+        exec_options.time_patches = build_transfer_time_patch_inputs(
+            pending_time_patches);
+        exec_options.time_patch          = time_patch_opts;
+        exec_options.time_patch_auto_nul = time_patch_auto_nul;
+        exec_options.emit_repeat         = emit_repeat;
+        exec_options.jpeg_edit           = edit_plan_opts;
+        exec_options.edit_requested      = need_jpeg_edit || need_tiff_edit;
+        exec_options.edit_apply          = !dry_run && !output_path.empty();
+        if (use_output_writer) {
+            exec_options.edit_output_writer = &output_writer;
+        }
+
+        ExecutePreparedTransferResult exec;
+        MappedFile mapped_edit_file;
+        if (prepared.file_status == TransferFileStatus::Ok
+            && prepared.prepare.status == TransferStatus::Ok
+            && (!did_append_jumbf
+                || append_jumbf_result.status == TransferStatus::Ok)) {
+            std::span<const std::byte> edit_input;
+            if (exec_options.edit_requested) {
+                const MappedFileStatus map_status
+                    = mapped_edit_file.open(target_path.c_str(),
+                                            options.policy.max_file_bytes);
+                if (map_status != MappedFileStatus::Ok) {
+                    std::fprintf(stderr, "  edit_input: map_failed: %s\n",
+                                 target_path.c_str());
+                    any_failed = true;
+                    continue;
+                }
+                edit_input = mapped_edit_file.bytes();
+            }
+            exec = execute_prepared_transfer(&prepared.bundle, edit_input,
+                                             exec_options);
+        }
 
         std::printf("  file_status=%s code=%s size=%llu entries=%u\n",
                     transfer_file_status_name(prepared.file_status),
@@ -1013,9 +1304,120 @@ main(int argc, char** argv)
             std::printf("  prepare_message=%s\n",
                         prepared.prepare.message.c_str());
         }
+        if (did_append_jumbf) {
+            std::printf(
+                "  append_jumbf: status=%s code=%s emitted=%u removed=%u errors=%u\n",
+                transfer_status_name(append_jumbf_result.status),
+                emit_transfer_code_name(append_jumbf_result.code),
+                append_jumbf_result.emitted, append_jumbf_result.skipped,
+                append_jumbf_result.errors);
+            if (!append_jumbf_result.message.empty()) {
+                std::printf("  append_jumbf_message=%s\n",
+                            append_jumbf_result.message.c_str());
+            }
+        }
+        for (size_t pi = 0; pi < prepared.bundle.policy_decisions.size();
+             ++pi) {
+            const PreparedTransferPolicyDecision& decision
+                = prepared.bundle.policy_decisions[pi];
+            if (decision.subject == TransferPolicySubject::C2pa) {
+                std::printf(
+                    "  policy[%s]: requested=%s effective=%s reason=%s mode=%s source=%s output=%s matched=%u\n",
+                    transfer_policy_subject_name(decision.subject),
+                    transfer_policy_action_name(decision.requested),
+                    transfer_policy_action_name(decision.effective),
+                    transfer_policy_reason_name(decision.reason),
+                    transfer_c2pa_mode_name(decision.c2pa_mode),
+                    transfer_c2pa_source_kind_name(decision.c2pa_source_kind),
+                    transfer_c2pa_prepared_output_name(
+                        decision.c2pa_prepared_output),
+                    decision.matched_entries);
+            } else {
+                std::printf(
+                    "  policy[%s]: requested=%s effective=%s reason=%s matched=%u\n",
+                    transfer_policy_subject_name(decision.subject),
+                    transfer_policy_action_name(decision.requested),
+                    transfer_policy_action_name(decision.effective),
+                    transfer_policy_reason_name(decision.reason),
+                    decision.matched_entries);
+            }
+            if (!decision.message.empty()) {
+                std::printf("  policy[%s]_message=%s\n",
+                            transfer_policy_subject_name(decision.subject),
+                            decision.message.c_str());
+            }
+        }
+        if (prepared.bundle.c2pa_rewrite.state
+                != TransferC2paRewriteState::NotApplicable
+            || prepared.bundle.c2pa_rewrite.matched_entries > 0U) {
+            const PreparedTransferC2paRewriteRequirements& rewrite
+                = prepared.bundle.c2pa_rewrite;
+            std::printf(
+                "  c2pa_rewrite: state=%s target=%s source=%s matched=%u existing_segments=%u carrier_available=%s invalidates_existing=%s\n",
+                transfer_c2pa_rewrite_state_name(rewrite.state),
+                transfer_target_format_name(rewrite.target_format),
+                transfer_c2pa_source_kind_name(rewrite.source_kind),
+                rewrite.matched_entries, rewrite.existing_carrier_segments,
+                rewrite.target_carrier_available ? "yes" : "no",
+                rewrite.content_change_invalidates_existing ? "yes" : "no");
+            if (rewrite.requires_manifest_builder
+                || rewrite.requires_content_binding
+                || rewrite.requires_certificate_chain
+                || rewrite.requires_private_key
+                || rewrite.requires_signing_time) {
+                std::printf(
+                    "  c2pa_rewrite_requirements: manifest_builder=%s content_binding=%s certificate_chain=%s private_key=%s signing_time=%s\n",
+                    rewrite.requires_manifest_builder ? "yes" : "no",
+                    rewrite.requires_content_binding ? "yes" : "no",
+                    rewrite.requires_certificate_chain ? "yes" : "no",
+                    rewrite.requires_private_key ? "yes" : "no",
+                    rewrite.requires_signing_time ? "yes" : "no");
+            }
+            if (!rewrite.message.empty()) {
+                std::printf("  c2pa_rewrite_message=%s\n",
+                            rewrite.message.c_str());
+            }
+            if (!rewrite.content_binding_chunks.empty()) {
+                std::printf("  c2pa_rewrite_binding: chunks=%u bytes=%llu\n",
+                            static_cast<unsigned>(
+                                rewrite.content_binding_chunks.size()),
+                            static_cast<unsigned long long>(
+                                rewrite.content_binding_bytes));
+                for (size_t ci = 0; ci < rewrite.content_binding_chunks.size();
+                     ++ci) {
+                    const PreparedTransferC2paRewriteChunk& chunk
+                        = rewrite.content_binding_chunks[ci];
+                    if (chunk.kind
+                        == TransferC2paRewriteChunkKind::SourceRange) {
+                        std::printf(
+                            "  c2pa_rewrite_chunk[%u]: kind=%s offset=%llu size=%llu\n",
+                            static_cast<unsigned>(ci),
+                            transfer_c2pa_rewrite_chunk_kind_name(chunk.kind),
+                            static_cast<unsigned long long>(chunk.source_offset),
+                            static_cast<unsigned long long>(chunk.size));
+                    } else {
+                        std::printf(
+                            "  c2pa_rewrite_chunk[%u]: kind=%s block=%u marker=0x%02X size=%llu route=%s\n",
+                            static_cast<unsigned>(ci),
+                            transfer_c2pa_rewrite_chunk_kind_name(chunk.kind),
+                            chunk.block_index, chunk.jpeg_marker_code,
+                            static_cast<unsigned long long>(chunk.size),
+                            chunk.block_index < prepared.bundle.blocks.size()
+                                ? prepared.bundle.blocks[chunk.block_index]
+                                      .route.c_str()
+                                : "invalid");
+                    }
+                }
+            }
+        }
 
         if (prepared.file_status != TransferFileStatus::Ok
             || prepared.prepare.status != TransferStatus::Ok) {
+            any_failed = true;
+            continue;
+        }
+        if (did_append_jumbf
+            && append_jumbf_result.status != TransferStatus::Ok) {
             any_failed = true;
             continue;
         }
@@ -1066,6 +1468,7 @@ main(int argc, char** argv)
                     std::printf(
                         "  edit_plan: status=%s requested=%s selected=%s "
                         "in_place_possible=%s emitted=%u replaced=%u appended=%u "
+                        "removed=%u removed_jumbf=%u removed_c2pa=%u "
                         "input=%llu output=%llu scan_end=%llu\n",
                         transfer_status_name(exec.edit_plan_status),
                         jpeg_edit_mode_name(exec.jpeg_edit_plan.requested_mode),
@@ -1075,6 +1478,9 @@ main(int argc, char** argv)
                         exec.jpeg_edit_plan.emitted_segments,
                         exec.jpeg_edit_plan.replaced_segments,
                         exec.jpeg_edit_plan.appended_segments,
+                        exec.jpeg_edit_plan.removed_existing_segments,
+                        exec.jpeg_edit_plan.removed_existing_jumbf_segments,
+                        exec.jpeg_edit_plan.removed_existing_c2pa_segments,
                         static_cast<unsigned long long>(exec.edit_input_size),
                         static_cast<unsigned long long>(exec.edit_output_size),
                         static_cast<unsigned long long>(

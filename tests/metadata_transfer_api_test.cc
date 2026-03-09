@@ -3,7 +3,10 @@
 #include <gtest/gtest.h>
 
 #include <array>
+#include <chrono>
 #include <cstddef>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 #include <utility>
@@ -208,6 +211,38 @@ append_u16be(std::vector<std::byte>* out, uint16_t v)
     out->push_back(static_cast<std::byte>((v >> 0U) & 0xFFU));
 }
 
+static void
+append_u32be(std::vector<std::byte>* out, uint32_t v)
+{
+    out->push_back(static_cast<std::byte>((v >> 24U) & 0xFFU));
+    out->push_back(static_cast<std::byte>((v >> 16U) & 0xFFU));
+    out->push_back(static_cast<std::byte>((v >> 8U) & 0xFFU));
+    out->push_back(static_cast<std::byte>((v >> 0U) & 0xFFU));
+}
+
+static void
+append_fourcc(std::vector<std::byte>* out, uint32_t v)
+{
+    append_u32be(out, v);
+}
+
+static void
+append_bytes(std::vector<std::byte>* out, std::string_view s)
+{
+    for (char c : s) {
+        out->push_back(static_cast<std::byte>(static_cast<unsigned char>(c)));
+    }
+}
+
+static void
+append_bmff_box(std::vector<std::byte>* out, uint32_t type,
+                std::span<const std::byte> payload)
+{
+    append_u32be(out, static_cast<uint32_t>(8U + payload.size()));
+    append_fourcc(out, type);
+    out->insert(out->end(), payload.begin(), payload.end());
+}
+
 static std::vector<std::byte>
 make_jpeg_with_segment(uint8_t marker, std::span<const std::byte> payload)
 {
@@ -221,6 +256,298 @@ make_jpeg_with_segment(uint8_t marker, std::span<const std::byte> payload)
     out.push_back(std::byte { 0xFF });
     out.push_back(std::byte { 0xD9 });
     return out;
+}
+
+struct TestJpegSegment final {
+    uint8_t marker = 0U;
+    std::span<const std::byte> payload;
+};
+
+static void
+append_test_jpeg_segment(std::vector<std::byte>* out, uint8_t marker,
+                         std::span<const std::byte> payload)
+{
+    ASSERT_NE(out, nullptr);
+    out->push_back(std::byte { 0xFF });
+    out->push_back(static_cast<std::byte>(marker));
+    append_u16be(out, static_cast<uint16_t>(payload.size() + 2U));
+    out->insert(out->end(), payload.begin(), payload.end());
+}
+
+static std::vector<std::byte>
+make_jpeg_with_segments(std::span<const TestJpegSegment> segments)
+{
+    std::vector<std::byte> out;
+    out.push_back(std::byte { 0xFF });
+    out.push_back(std::byte { 0xD8 });
+    for (size_t i = 0; i < segments.size(); ++i) {
+        append_test_jpeg_segment(&out, segments[i].marker, segments[i].payload);
+    }
+    out.push_back(std::byte { 0xFF });
+    out.push_back(std::byte { 0xD9 });
+    return out;
+}
+
+static std::vector<std::byte>
+make_app11_jumbf_payload(std::string_view label)
+{
+    const std::vector<std::byte> cbor_payload = {
+        std::byte { 0xA1 },
+        std::byte { 0x61 },
+        std::byte { 0x61 },
+        std::byte { 0x01 },
+    };
+
+    std::vector<std::byte> jumd_payload;
+    append_bytes(&jumd_payload, label);
+    jumd_payload.push_back(std::byte { 0x00 });
+
+    std::vector<std::byte> jumd_box;
+    append_bmff_box(&jumd_box, openmeta::fourcc('j', 'u', 'm', 'd'),
+                    std::span<const std::byte>(jumd_payload.data(),
+                                               jumd_payload.size()));
+
+    std::vector<std::byte> cbor_box;
+    append_bmff_box(&cbor_box, openmeta::fourcc('c', 'b', 'o', 'r'),
+                    std::span<const std::byte>(cbor_payload.data(),
+                                               cbor_payload.size()));
+
+    std::vector<std::byte> jumb_payload;
+    jumb_payload.insert(jumb_payload.end(), jumd_box.begin(), jumd_box.end());
+    jumb_payload.insert(jumb_payload.end(), cbor_box.begin(), cbor_box.end());
+
+    std::vector<std::byte> jumb_box;
+    append_bmff_box(&jumb_box, openmeta::fourcc('j', 'u', 'm', 'b'),
+                    std::span<const std::byte>(jumb_payload.data(),
+                                               jumb_payload.size()));
+
+    std::vector<std::byte> seg;
+    append_bytes(&seg, "JP");
+    seg.push_back(std::byte { 0x00 });
+    seg.push_back(std::byte { 0x00 });
+    append_u32be(&seg, 1U);
+    seg.insert(seg.end(), jumb_box.begin(), jumb_box.end());
+
+    return seg;
+}
+
+static std::vector<std::byte>
+make_jpeg_with_app11_jumbf(std::string_view label)
+{
+    const std::vector<std::byte> seg = make_app11_jumbf_payload(label);
+    return make_jpeg_with_segment(0xEBU,
+                                  std::span<const std::byte>(seg.data(),
+                                                             seg.size()));
+}
+
+static std::vector<std::byte>
+make_logical_jumbf_payload(std::string_view label)
+{
+    const std::vector<std::byte> seg = make_app11_jumbf_payload(label);
+    EXPECT_GE(seg.size(), 8U);
+    return std::vector<std::byte>(seg.begin() + 8, seg.end());
+}
+
+static std::vector<std::byte>
+make_jpeg_with_draft_c2pa_invalidation()
+{
+    std::vector<std::byte> cbor_payload;
+    cbor_payload.push_back(std::byte { 0xA3 });
+    cbor_payload.push_back(std::byte { 0x78 });
+    cbor_payload.push_back(std::byte { 0x1A });
+    append_bytes(&cbor_payload, "openmeta:c2pa_invalidation");
+    cbor_payload.push_back(std::byte { 0xF5 });
+    cbor_payload.push_back(std::byte { 0x6F });
+    append_bytes(&cbor_payload, "openmeta:reason");
+    cbor_payload.push_back(std::byte { 0x6F });
+    append_bytes(&cbor_payload, "content_changed");
+    cbor_payload.push_back(std::byte { 0x6D });
+    append_bytes(&cbor_payload, "openmeta:mode");
+    cbor_payload.push_back(std::byte { 0x6E });
+    append_bytes(&cbor_payload, "unsigned_draft");
+
+    std::vector<std::byte> jumd_payload;
+    append_bytes(&jumd_payload, "c2pa");
+    jumd_payload.push_back(std::byte { 0x00 });
+
+    std::vector<std::byte> jumd_box;
+    append_bmff_box(&jumd_box, openmeta::fourcc('j', 'u', 'm', 'd'),
+                    std::span<const std::byte>(jumd_payload.data(),
+                                               jumd_payload.size()));
+
+    std::vector<std::byte> cbor_box;
+    append_bmff_box(&cbor_box, openmeta::fourcc('c', 'b', 'o', 'r'),
+                    std::span<const std::byte>(cbor_payload.data(),
+                                               cbor_payload.size()));
+
+    std::vector<std::byte> jumb_payload;
+    jumb_payload.insert(jumb_payload.end(), jumd_box.begin(), jumd_box.end());
+    jumb_payload.insert(jumb_payload.end(), cbor_box.begin(), cbor_box.end());
+
+    std::vector<std::byte> jumb_box;
+    append_bmff_box(&jumb_box, openmeta::fourcc('j', 'u', 'm', 'b'),
+                    std::span<const std::byte>(jumb_payload.data(),
+                                               jumb_payload.size()));
+
+    std::vector<std::byte> seg;
+    append_bytes(&seg, "JP");
+    seg.push_back(std::byte { 0x00 });
+    seg.push_back(std::byte { 0x00 });
+    append_u32be(&seg, 1U);
+    seg.insert(seg.end(), jumb_box.begin(), jumb_box.end());
+
+    return make_jpeg_with_segment(0xEBU,
+                                  std::span<const std::byte>(seg.data(),
+                                                             seg.size()));
+}
+
+static std::vector<std::byte>
+make_app1_exif_payload()
+{
+    std::vector<std::byte> t;
+    append_bytes(&t, "Exif");
+    t.push_back(std::byte { 0x00 });
+    t.push_back(std::byte { 0x00 });
+    append_bytes(&t, "II");
+    t.push_back(std::byte { 0x2A });
+    t.push_back(std::byte { 0x00 });
+    t.push_back(std::byte { 0x08 });
+    t.push_back(std::byte { 0x00 });
+    t.push_back(std::byte { 0x00 });
+    t.push_back(std::byte { 0x00 });
+    t.push_back(std::byte { 0x01 });
+    t.push_back(std::byte { 0x00 });
+    t.push_back(std::byte { 0x32 });
+    t.push_back(std::byte { 0x01 });
+    t.push_back(std::byte { 0x02 });
+    t.push_back(std::byte { 0x00 });
+    t.push_back(std::byte { 0x14 });
+    t.push_back(std::byte { 0x00 });
+    t.push_back(std::byte { 0x00 });
+    t.push_back(std::byte { 0x00 });
+    t.push_back(std::byte { 0x1A });
+    t.push_back(std::byte { 0x00 });
+    t.push_back(std::byte { 0x00 });
+    t.push_back(std::byte { 0x00 });
+    t.push_back(std::byte { 0x00 });
+    t.push_back(std::byte { 0x00 });
+    t.push_back(std::byte { 0x00 });
+    t.push_back(std::byte { 0x00 });
+    append_bytes(&t, "2000:01:02 03:04:05");
+    t.push_back(std::byte { 0x00 });
+    return t;
+}
+
+static uint32_t
+count_blocks_with_route(const openmeta::PreparedTransferBundle& bundle,
+                        std::string_view route) noexcept
+{
+    uint32_t count = 0U;
+    for (size_t i = 0; i < bundle.blocks.size(); ++i) {
+        if (bundle.blocks[i].route == route) {
+            count += 1U;
+        }
+    }
+    return count;
+}
+
+static bool
+payload_contains_ascii(std::span<const std::byte> bytes,
+                       std::string_view text) noexcept
+{
+    if (text.empty()) {
+        return true;
+    }
+    if (bytes.size() < text.size()) {
+        return false;
+    }
+    for (size_t off = 0; off + text.size() <= bytes.size(); ++off) {
+        bool match = true;
+        for (size_t i = 0; i < text.size(); ++i) {
+            if (bytes[off + i]
+                != static_cast<std::byte>(static_cast<unsigned char>(text[i]))) {
+                match = false;
+                break;
+            }
+        }
+        if (match) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool
+payload_contains_bytes(std::span<const std::byte> bytes,
+                       std::span<const std::byte> needle) noexcept
+{
+    if (needle.empty()) {
+        return true;
+    }
+    if (bytes.size() < needle.size()) {
+        return false;
+    }
+    for (size_t off = 0; off + needle.size() <= bytes.size(); ++off) {
+        bool match = true;
+        for (size_t i = 0; i < needle.size(); ++i) {
+            if (bytes[off + i] != needle[i]) {
+                match = false;
+                break;
+            }
+        }
+        if (match) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static std::string
+temp_root()
+{
+    const char* env = std::getenv("TMPDIR");
+    if (env && *env) {
+        return std::string(env);
+    }
+    return "/tmp";
+}
+
+static std::string
+unique_temp_path(const char* suffix)
+{
+    static uint64_t seq = 0U;
+    seq += 1U;
+    const uint64_t now = static_cast<uint64_t>(
+        std::chrono::steady_clock::now().time_since_epoch().count());
+
+    std::string path = temp_root();
+    if (!path.empty() && path.back() != '/') {
+        path.push_back('/');
+    }
+
+    char name[160];
+    std::snprintf(name, sizeof(name), "openmeta_transfer_%llu_%llu%s",
+                  static_cast<unsigned long long>(now),
+                  static_cast<unsigned long long>(seq), suffix ? suffix : "");
+    path.append(name);
+    return path;
+}
+
+static bool
+write_bytes_file(const std::string& path, std::span<const std::byte> bytes)
+{
+    std::FILE* f = std::fopen(path.c_str(), "wb");
+    if (!f) {
+        return false;
+    }
+    if (!bytes.empty()) {
+        const size_t n = std::fwrite(bytes.data(), 1, bytes.size(), f);
+        if (n != bytes.size()) {
+            std::fclose(f);
+            return false;
+        }
+    }
+    return std::fclose(f) == 0;
 }
 
 static std::vector<std::byte>
@@ -278,6 +605,421 @@ TEST(MetadataTransferApi, PrepareFileRejectsEmptyPath)
     EXPECT_EQ(result.prepare.status, openmeta::TransferStatus::InvalidArgument);
     EXPECT_EQ(result.prepare.code, openmeta::PrepareTransferCode::None);
     EXPECT_EQ(result.prepare.errors, 1U);
+}
+
+TEST(MetadataTransferApi, PrepareFilePreservesJpegApp11JumbfForJpegTarget)
+{
+    const std::vector<std::byte> jpeg = make_jpeg_with_app11_jumbf("acme");
+    const std::string path            = unique_temp_path(".jpg");
+    ASSERT_TRUE(
+        write_bytes_file(path,
+                         std::span<const std::byte>(jpeg.data(), jpeg.size())));
+
+    openmeta::PrepareTransferFileOptions options;
+    options.prepare.include_exif_app1  = false;
+    options.prepare.include_xmp_app1   = false;
+    options.prepare.include_icc_app2   = false;
+    options.prepare.include_iptc_app13 = false;
+
+    const openmeta::PrepareTransferFileResult result
+        = openmeta::prepare_metadata_for_target_file(path.c_str(), options);
+    std::remove(path.c_str());
+
+    EXPECT_EQ(result.file_status, openmeta::TransferFileStatus::Ok);
+    EXPECT_EQ(result.prepare.status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(result.bundle.blocks.size(), 1U);
+    EXPECT_EQ(result.bundle.blocks[0].kind, openmeta::TransferBlockKind::Jumbf);
+    EXPECT_EQ(result.bundle.blocks[0].route, "jpeg:app11-jumbf");
+
+    const openmeta::PreparedTransferPolicyDecision* decision
+        = find_policy_decision(result.bundle,
+                               openmeta::TransferPolicySubject::Jumbf);
+    ASSERT_NE(decision, nullptr);
+    EXPECT_EQ(decision->effective, openmeta::TransferPolicyAction::Keep);
+    EXPECT_EQ(decision->reason, openmeta::TransferPolicyReason::Default);
+}
+
+TEST(MetadataTransferApi, PrepareFileDropsC2paForJpegTarget)
+{
+    const std::vector<std::byte> jpeg = make_jpeg_with_app11_jumbf("c2pa");
+    const std::string path            = unique_temp_path(".jpg");
+    ASSERT_TRUE(
+        write_bytes_file(path,
+                         std::span<const std::byte>(jpeg.data(), jpeg.size())));
+
+    openmeta::PrepareTransferFileOptions options;
+    options.prepare.include_exif_app1  = false;
+    options.prepare.include_xmp_app1   = false;
+    options.prepare.include_icc_app2   = false;
+    options.prepare.include_iptc_app13 = false;
+
+    const openmeta::PrepareTransferFileResult result
+        = openmeta::prepare_metadata_for_target_file(path.c_str(), options);
+    std::remove(path.c_str());
+
+    EXPECT_EQ(result.file_status, openmeta::TransferFileStatus::Ok);
+    EXPECT_EQ(result.prepare.status, openmeta::TransferStatus::Unsupported);
+    EXPECT_TRUE(result.bundle.blocks.empty());
+
+    const openmeta::PreparedTransferPolicyDecision* decision
+        = find_policy_decision(result.bundle,
+                               openmeta::TransferPolicySubject::C2pa);
+    ASSERT_NE(decision, nullptr);
+    EXPECT_EQ(decision->effective, openmeta::TransferPolicyAction::Drop);
+    EXPECT_EQ(decision->reason,
+              openmeta::TransferPolicyReason::ContentBoundTransferUnavailable);
+    EXPECT_EQ(decision->c2pa_mode, openmeta::TransferC2paMode::Drop);
+    EXPECT_EQ(decision->c2pa_source_kind,
+              openmeta::TransferC2paSourceKind::ContentBound);
+    EXPECT_EQ(decision->c2pa_prepared_output,
+              openmeta::TransferC2paPreparedOutput::Dropped);
+}
+
+TEST(MetadataTransferApi, PrepareFileBuildsDraftC2paInvalidationForJpegTarget)
+{
+    const std::vector<std::byte> jpeg = make_jpeg_with_app11_jumbf("c2pa");
+    const std::string path            = unique_temp_path(".jpg");
+    ASSERT_TRUE(
+        write_bytes_file(path,
+                         std::span<const std::byte>(jpeg.data(), jpeg.size())));
+
+    openmeta::PrepareTransferFileOptions options;
+    options.prepare.include_exif_app1  = false;
+    options.prepare.include_xmp_app1   = false;
+    options.prepare.include_icc_app2   = false;
+    options.prepare.include_iptc_app13 = false;
+    options.prepare.profile.c2pa = openmeta::TransferPolicyAction::Invalidate;
+
+    const openmeta::PrepareTransferFileResult result
+        = openmeta::prepare_metadata_for_target_file(path.c_str(), options);
+    std::remove(path.c_str());
+
+    EXPECT_EQ(result.file_status, openmeta::TransferFileStatus::Ok);
+    EXPECT_EQ(result.prepare.status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(result.bundle.blocks.size(), 1U);
+    EXPECT_EQ(result.bundle.blocks[0].kind, openmeta::TransferBlockKind::C2pa);
+    EXPECT_EQ(result.bundle.blocks[0].route, "jpeg:app11-c2pa");
+    EXPECT_TRUE(payload_contains_ascii(
+        std::span<const std::byte>(result.bundle.blocks[0].payload.data(),
+                                   result.bundle.blocks[0].payload.size()),
+        "openmeta:c2pa_invalidation"));
+
+    const openmeta::PreparedTransferPolicyDecision* decision
+        = find_policy_decision(result.bundle,
+                               openmeta::TransferPolicySubject::C2pa);
+    ASSERT_NE(decision, nullptr);
+    EXPECT_EQ(decision->requested, openmeta::TransferPolicyAction::Invalidate);
+    EXPECT_EQ(decision->effective, openmeta::TransferPolicyAction::Keep);
+    EXPECT_EQ(decision->reason,
+              openmeta::TransferPolicyReason::DraftInvalidationPayload);
+    EXPECT_EQ(decision->c2pa_mode,
+              openmeta::TransferC2paMode::DraftUnsignedInvalidation);
+    EXPECT_EQ(decision->c2pa_source_kind,
+              openmeta::TransferC2paSourceKind::ContentBound);
+    EXPECT_EQ(
+        decision->c2pa_prepared_output,
+        openmeta::TransferC2paPreparedOutput::GeneratedDraftUnsignedInvalidation);
+    EXPECT_EQ(result.bundle.c2pa_rewrite.state,
+              openmeta::TransferC2paRewriteState::NotRequested);
+    EXPECT_EQ(result.bundle.c2pa_rewrite.target_format,
+              openmeta::TransferTargetFormat::Jpeg);
+    EXPECT_EQ(result.bundle.c2pa_rewrite.source_kind,
+              openmeta::TransferC2paSourceKind::ContentBound);
+    EXPECT_GT(result.bundle.c2pa_rewrite.matched_entries, 0U);
+    EXPECT_EQ(result.bundle.c2pa_rewrite.existing_carrier_segments, 1U);
+    EXPECT_FALSE(result.bundle.c2pa_rewrite.requires_manifest_builder);
+    EXPECT_FALSE(result.bundle.c2pa_rewrite.requires_private_key);
+    EXPECT_TRUE(payload_contains_ascii(
+        std::span<const std::byte>(result.bundle.blocks[0].payload.data(),
+                                   result.bundle.blocks[0].payload.size()),
+        "openmeta:c2pa_contract"));
+}
+
+TEST(MetadataTransferApi, PrepareFilePreservesDraftC2paForJpegTarget)
+{
+    const std::vector<std::byte> jpeg = make_jpeg_with_draft_c2pa_invalidation();
+    const std::string path = unique_temp_path(".jpg");
+    ASSERT_TRUE(
+        write_bytes_file(path,
+                         std::span<const std::byte>(jpeg.data(), jpeg.size())));
+
+    openmeta::PrepareTransferFileOptions options;
+    options.prepare.include_exif_app1  = false;
+    options.prepare.include_xmp_app1   = false;
+    options.prepare.include_icc_app2   = false;
+    options.prepare.include_iptc_app13 = false;
+    options.prepare.profile.c2pa       = openmeta::TransferPolicyAction::Keep;
+
+    const openmeta::PrepareTransferFileResult result
+        = openmeta::prepare_metadata_for_target_file(path.c_str(), options);
+    std::remove(path.c_str());
+
+    EXPECT_EQ(result.file_status, openmeta::TransferFileStatus::Ok);
+    EXPECT_EQ(result.prepare.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(count_blocks_with_route(result.bundle, "jpeg:app11-c2pa"), 1U);
+
+    const openmeta::PreparedTransferPolicyDecision* decision
+        = find_policy_decision(result.bundle,
+                               openmeta::TransferPolicySubject::C2pa);
+    ASSERT_NE(decision, nullptr);
+    EXPECT_EQ(decision->effective, openmeta::TransferPolicyAction::Keep);
+    EXPECT_EQ(decision->reason, openmeta::TransferPolicyReason::Default);
+    EXPECT_EQ(decision->c2pa_mode, openmeta::TransferC2paMode::PreserveRaw);
+    EXPECT_EQ(decision->c2pa_source_kind,
+              openmeta::TransferC2paSourceKind::DraftUnsignedInvalidation);
+    EXPECT_EQ(decision->c2pa_prepared_output,
+              openmeta::TransferC2paPreparedOutput::PreservedRaw);
+    EXPECT_EQ(result.bundle.c2pa_rewrite.state,
+              openmeta::TransferC2paRewriteState::NotRequested);
+    EXPECT_EQ(result.bundle.c2pa_rewrite.source_kind,
+              openmeta::TransferC2paSourceKind::DraftUnsignedInvalidation);
+    EXPECT_GT(result.bundle.c2pa_rewrite.matched_entries, 0U);
+    EXPECT_EQ(result.bundle.c2pa_rewrite.existing_carrier_segments, 1U);
+    EXPECT_TRUE(payload_contains_ascii(
+        std::span<const std::byte>(result.bundle.blocks[0].payload.data(),
+                                   result.bundle.blocks[0].payload.size()),
+        "openmeta:c2pa_invalidation"));
+}
+
+TEST(MetadataTransferApi, PrepareFileRejectsSignedRewriteForJpegTarget)
+{
+    const std::vector<std::byte> jpeg = make_jpeg_with_app11_jumbf("c2pa");
+    const std::string path            = unique_temp_path(".jpg");
+    ASSERT_TRUE(
+        write_bytes_file(path,
+                         std::span<const std::byte>(jpeg.data(), jpeg.size())));
+
+    openmeta::PrepareTransferFileOptions options;
+    options.prepare.include_exif_app1  = false;
+    options.prepare.include_xmp_app1   = false;
+    options.prepare.include_icc_app2   = false;
+    options.prepare.include_iptc_app13 = false;
+    options.prepare.profile.c2pa = openmeta::TransferPolicyAction::Rewrite;
+
+    const openmeta::PrepareTransferFileResult result
+        = openmeta::prepare_metadata_for_target_file(path.c_str(), options);
+    std::remove(path.c_str());
+
+    EXPECT_EQ(result.file_status, openmeta::TransferFileStatus::Ok);
+    EXPECT_EQ(result.prepare.status, openmeta::TransferStatus::Unsupported);
+
+    const openmeta::PreparedTransferPolicyDecision* decision
+        = find_policy_decision(result.bundle,
+                               openmeta::TransferPolicySubject::C2pa);
+    ASSERT_NE(decision, nullptr);
+    EXPECT_EQ(decision->effective, openmeta::TransferPolicyAction::Drop);
+    EXPECT_EQ(decision->reason,
+              openmeta::TransferPolicyReason::SignedRewriteUnavailable);
+    EXPECT_EQ(decision->c2pa_mode, openmeta::TransferC2paMode::Drop);
+    EXPECT_EQ(decision->c2pa_source_kind,
+              openmeta::TransferC2paSourceKind::ContentBound);
+    EXPECT_EQ(decision->c2pa_prepared_output,
+              openmeta::TransferC2paPreparedOutput::Dropped);
+    EXPECT_EQ(result.bundle.c2pa_rewrite.state,
+              openmeta::TransferC2paRewriteState::SigningMaterialRequired);
+    EXPECT_EQ(result.bundle.c2pa_rewrite.target_format,
+              openmeta::TransferTargetFormat::Jpeg);
+    EXPECT_EQ(result.bundle.c2pa_rewrite.source_kind,
+              openmeta::TransferC2paSourceKind::ContentBound);
+    EXPECT_GT(result.bundle.c2pa_rewrite.matched_entries, 0U);
+    EXPECT_EQ(result.bundle.c2pa_rewrite.existing_carrier_segments, 1U);
+    EXPECT_TRUE(result.bundle.c2pa_rewrite.target_carrier_available);
+    EXPECT_TRUE(result.bundle.c2pa_rewrite.content_change_invalidates_existing);
+    EXPECT_TRUE(result.bundle.c2pa_rewrite.requires_manifest_builder);
+    EXPECT_TRUE(result.bundle.c2pa_rewrite.requires_content_binding);
+    EXPECT_TRUE(result.bundle.c2pa_rewrite.requires_certificate_chain);
+    EXPECT_TRUE(result.bundle.c2pa_rewrite.requires_private_key);
+    EXPECT_TRUE(result.bundle.c2pa_rewrite.requires_signing_time);
+    EXPECT_EQ(result.bundle.c2pa_rewrite.content_binding_bytes, 4U);
+    ASSERT_EQ(result.bundle.c2pa_rewrite.content_binding_chunks.size(), 2U);
+    EXPECT_EQ(result.bundle.c2pa_rewrite.content_binding_chunks[0].kind,
+              openmeta::TransferC2paRewriteChunkKind::SourceRange);
+    EXPECT_EQ(result.bundle.c2pa_rewrite.content_binding_chunks[0].source_offset,
+              0U);
+    EXPECT_EQ(result.bundle.c2pa_rewrite.content_binding_chunks[0].size, 2U);
+    EXPECT_EQ(result.bundle.c2pa_rewrite.content_binding_chunks[1].kind,
+              openmeta::TransferC2paRewriteChunkKind::SourceRange);
+    EXPECT_EQ(result.bundle.c2pa_rewrite.content_binding_chunks[1].size, 2U);
+    EXPECT_TRUE(result.bundle.c2pa_rewrite.message.find("signed c2pa rewrite")
+                != std::string::npos);
+}
+
+TEST(MetadataTransferApi, PrepareFileMixedRawC2paPrefersContentBoundDrop)
+{
+    const std::vector<std::byte> draft_jpeg
+        = make_jpeg_with_draft_c2pa_invalidation();
+    const std::vector<std::byte> content_bound_seg = make_app11_jumbf_payload(
+        "c2pa");
+    ASSERT_GE(draft_jpeg.size(), 4U);
+    std::vector<std::byte> jpeg;
+    jpeg.insert(jpeg.end(), draft_jpeg.begin(), draft_jpeg.end() - 2);
+    append_test_jpeg_segment(
+        &jpeg, 0xEBU,
+        std::span<const std::byte>(content_bound_seg.data(),
+                                   content_bound_seg.size()));
+    jpeg.push_back(std::byte { 0xFF });
+    jpeg.push_back(std::byte { 0xD9 });
+
+    const std::string path = unique_temp_path(".jpg");
+    ASSERT_TRUE(
+        write_bytes_file(path,
+                         std::span<const std::byte>(jpeg.data(), jpeg.size())));
+
+    openmeta::PrepareTransferFileOptions options;
+    options.prepare.include_exif_app1  = false;
+    options.prepare.include_xmp_app1   = false;
+    options.prepare.include_icc_app2   = false;
+    options.prepare.include_iptc_app13 = false;
+    options.prepare.profile.c2pa       = openmeta::TransferPolicyAction::Keep;
+
+    const openmeta::PrepareTransferFileResult result
+        = openmeta::prepare_metadata_for_target_file(path.c_str(), options);
+    std::remove(path.c_str());
+
+    EXPECT_EQ(result.file_status, openmeta::TransferFileStatus::Ok);
+    EXPECT_EQ(result.prepare.status, openmeta::TransferStatus::Unsupported);
+
+    const openmeta::PreparedTransferPolicyDecision* decision
+        = find_policy_decision(result.bundle,
+                               openmeta::TransferPolicySubject::C2pa);
+    ASSERT_NE(decision, nullptr);
+    EXPECT_EQ(decision->effective, openmeta::TransferPolicyAction::Drop);
+    EXPECT_EQ(decision->reason,
+              openmeta::TransferPolicyReason::ContentBoundTransferUnavailable);
+    EXPECT_EQ(decision->c2pa_mode, openmeta::TransferC2paMode::Drop);
+    EXPECT_EQ(decision->c2pa_source_kind,
+              openmeta::TransferC2paSourceKind::ContentBound);
+    EXPECT_EQ(decision->c2pa_prepared_output,
+              openmeta::TransferC2paPreparedOutput::Dropped);
+    EXPECT_EQ(result.bundle.c2pa_rewrite.state,
+              openmeta::TransferC2paRewriteState::NotRequested);
+    EXPECT_EQ(result.bundle.c2pa_rewrite.source_kind,
+              openmeta::TransferC2paSourceKind::ContentBound);
+    EXPECT_GT(result.bundle.c2pa_rewrite.matched_entries, 0U);
+    EXPECT_EQ(result.bundle.c2pa_rewrite.existing_carrier_segments, 2U);
+}
+
+TEST(MetadataTransferApi, PrepareFileRewriteBuildsBindingChunkForPreparedExif)
+{
+    const std::vector<std::byte> exif = make_app1_exif_payload();
+    const std::vector<std::byte> c2pa = make_app11_jumbf_payload("c2pa");
+    const TestJpegSegment segments[]  = {
+        { 0xE1U, std::span<const std::byte>(exif.data(), exif.size()) },
+        { 0xEBU, std::span<const std::byte>(c2pa.data(), c2pa.size()) },
+    };
+    const std::vector<std::byte> jpeg = make_jpeg_with_segments(segments);
+    const std::string path            = unique_temp_path(".jpg");
+    ASSERT_TRUE(
+        write_bytes_file(path,
+                         std::span<const std::byte>(jpeg.data(), jpeg.size())));
+
+    openmeta::PrepareTransferFileOptions options;
+    options.prepare.include_xmp_app1   = false;
+    options.prepare.include_icc_app2   = false;
+    options.prepare.include_iptc_app13 = false;
+    options.prepare.profile.c2pa = openmeta::TransferPolicyAction::Rewrite;
+
+    const openmeta::PrepareTransferFileResult result
+        = openmeta::prepare_metadata_for_target_file(path.c_str(), options);
+    std::remove(path.c_str());
+
+    EXPECT_EQ(result.file_status, openmeta::TransferFileStatus::Ok);
+    EXPECT_EQ(result.prepare.status, openmeta::TransferStatus::Ok);
+    EXPECT_GT(result.prepare.warnings, 0U);
+    EXPECT_EQ(result.bundle.c2pa_rewrite.state,
+              openmeta::TransferC2paRewriteState::SigningMaterialRequired);
+    EXPECT_GT(result.bundle.c2pa_rewrite.content_binding_bytes, 4U);
+
+    bool saw_prepared_exif = false;
+    for (size_t i = 0;
+         i < result.bundle.c2pa_rewrite.content_binding_chunks.size(); ++i) {
+        const openmeta::PreparedTransferC2paRewriteChunk& chunk
+            = result.bundle.c2pa_rewrite.content_binding_chunks[i];
+        if (chunk.kind
+            != openmeta::TransferC2paRewriteChunkKind::PreparedJpegSegment) {
+            continue;
+        }
+        ASSERT_LT(chunk.block_index, result.bundle.blocks.size());
+        EXPECT_EQ(chunk.jpeg_marker_code, 0xE1U);
+        if (result.bundle.blocks[chunk.block_index].route == "jpeg:app1-exif") {
+            saw_prepared_exif = true;
+        }
+    }
+    EXPECT_TRUE(saw_prepared_exif);
+}
+
+TEST(MetadataTransferApi, AppendPreparedBundleJpegJumbfAddsPreparedBlocks)
+{
+    openmeta::PreparedTransferBundle bundle;
+    bundle.target_format = openmeta::TransferTargetFormat::Jpeg;
+    bundle.profile.jumbf = openmeta::TransferPolicyAction::Drop;
+
+    const std::vector<std::byte> logical = make_logical_jumbf_payload("acme");
+    const openmeta::EmitTransferResult result
+        = openmeta::append_prepared_bundle_jpeg_jumbf(
+            &bundle,
+            std::span<const std::byte>(logical.data(), logical.size()));
+
+    EXPECT_EQ(result.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.code, openmeta::EmitTransferCode::None);
+    EXPECT_EQ(result.emitted, 1U);
+    ASSERT_EQ(bundle.blocks.size(), 1U);
+    EXPECT_EQ(bundle.blocks[0].kind, openmeta::TransferBlockKind::Jumbf);
+    EXPECT_EQ(bundle.blocks[0].route, "jpeg:app11-jumbf");
+    EXPECT_EQ(bundle.profile.jumbf, openmeta::TransferPolicyAction::Keep);
+
+    const openmeta::PreparedTransferPolicyDecision* decision
+        = find_policy_decision(bundle, openmeta::TransferPolicySubject::Jumbf);
+    ASSERT_NE(decision, nullptr);
+    EXPECT_EQ(decision->requested, openmeta::TransferPolicyAction::Keep);
+    EXPECT_EQ(decision->effective, openmeta::TransferPolicyAction::Keep);
+    EXPECT_EQ(decision->reason, openmeta::TransferPolicyReason::Default);
+    EXPECT_EQ(decision->matched_entries, 1U);
+}
+
+TEST(MetadataTransferApi, AppendPreparedBundleJpegJumbfCanReplaceExisting)
+{
+    openmeta::PreparedTransferBundle bundle;
+    bundle.target_format = openmeta::TransferTargetFormat::Jpeg;
+
+    openmeta::PreparedTransferBlock stale;
+    stale.kind    = openmeta::TransferBlockKind::Jumbf;
+    stale.order   = 140U;
+    stale.route   = "jpeg:app11-jumbf";
+    stale.payload = make_app11_jumbf_payload("old");
+    bundle.blocks.push_back(std::move(stale));
+
+    const std::vector<std::byte> logical = make_logical_jumbf_payload("new");
+    openmeta::AppendPreparedJpegJumbfOptions options;
+    options.replace_existing = true;
+    const openmeta::EmitTransferResult result
+        = openmeta::append_prepared_bundle_jpeg_jumbf(
+            &bundle, std::span<const std::byte>(logical.data(), logical.size()),
+            options);
+
+    EXPECT_EQ(result.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.code, openmeta::EmitTransferCode::None);
+    EXPECT_EQ(result.skipped, 1U);
+    EXPECT_EQ(count_blocks_with_route(bundle, "jpeg:app11-jumbf"), 1U);
+    ASSERT_EQ(bundle.blocks.size(), 1U);
+    EXPECT_EQ(bundle.blocks[0].payload, make_app11_jumbf_payload("new"));
+}
+
+TEST(MetadataTransferApi, AppendPreparedBundleJpegJumbfRejectsC2paPayload)
+{
+    openmeta::PreparedTransferBundle bundle;
+    bundle.target_format = openmeta::TransferTargetFormat::Jpeg;
+
+    const std::vector<std::byte> logical = make_logical_jumbf_payload("c2pa");
+    const openmeta::EmitTransferResult result
+        = openmeta::append_prepared_bundle_jpeg_jumbf(
+            &bundle,
+            std::span<const std::byte>(logical.data(), logical.size()));
+
+    EXPECT_EQ(result.status, openmeta::TransferStatus::Unsupported);
+    EXPECT_EQ(result.code,
+              openmeta::EmitTransferCode::ContentBoundPayloadUnsupported);
+    EXPECT_TRUE(bundle.blocks.empty());
 }
 
 TEST(MetadataTransferApi, PrepareBuildsJpegXmpApp1Block)
@@ -470,7 +1212,7 @@ TEST(MetadataTransferApi, PrepareRecordsUnserializedJumbfAndC2paPolicies)
     EXPECT_EQ(jumbf_decision->effective, openmeta::TransferPolicyAction::Drop);
     EXPECT_EQ(jumbf_decision->reason,
               openmeta::TransferPolicyReason::TargetSerializationUnavailable);
-    EXPECT_EQ(jumbf_decision->matched_entries, 2U);
+    EXPECT_EQ(jumbf_decision->matched_entries, 1U);
 
     const openmeta::PreparedTransferPolicyDecision* c2pa_decision
         = find_policy_decision(bundle, openmeta::TransferPolicySubject::C2pa);
@@ -480,6 +1222,378 @@ TEST(MetadataTransferApi, PrepareRecordsUnserializedJumbfAndC2paPolicies)
     EXPECT_EQ(c2pa_decision->reason,
               openmeta::TransferPolicyReason::TargetSerializationUnavailable);
     EXPECT_EQ(c2pa_decision->matched_entries, 1U);
+}
+
+TEST(MetadataTransferApi, PrepareProjectsDecodedJumbfCborKeysForJpegTarget)
+{
+    openmeta::MetaStore store;
+    const openmeta::BlockId block = store.add_block(openmeta::BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    openmeta::Entry title;
+    title.key                   = openmeta::make_jumbf_cbor_key(store.arena(),
+                                                                "box.0.1.cbor.manifest.title");
+    title.value                 = openmeta::make_text(store.arena(), "OpenMeta",
+                                                      openmeta::TextEncoding::Utf8);
+    title.origin.block          = block;
+    title.origin.order_in_block = 0U;
+    ASSERT_NE(store.add_entry(title), openmeta::kInvalidEntryId);
+
+    openmeta::Entry count;
+    count.key                   = openmeta::make_jumbf_cbor_key(store.arena(),
+                                                                "box.0.1.cbor.manifest.count");
+    count.value                 = openmeta::make_u32(2U);
+    count.origin.block          = block;
+    count.origin.order_in_block = 1U;
+    ASSERT_NE(store.add_entry(count), openmeta::kInvalidEntryId);
+
+    openmeta::Entry item0;
+    item0.key                   = openmeta::make_jumbf_cbor_key(store.arena(),
+                                                                "box.0.1.cbor.items[0]");
+    item0.value                 = openmeta::make_u32(7U);
+    item0.origin.block          = block;
+    item0.origin.order_in_block = 2U;
+    ASSERT_NE(store.add_entry(item0), openmeta::kInvalidEntryId);
+
+    openmeta::Entry item1;
+    item1.key                   = openmeta::make_jumbf_cbor_key(store.arena(),
+                                                                "box.0.1.cbor.items[1]");
+    item1.value                 = openmeta::make_text(store.arena(), "ok",
+                                                      openmeta::TextEncoding::Ascii);
+    item1.origin.block          = block;
+    item1.origin.order_in_block = 3U;
+    ASSERT_NE(store.add_entry(item1), openmeta::kInvalidEntryId);
+    store.finalize();
+
+    openmeta::PrepareTransferRequest request;
+    request.include_exif_app1  = false;
+    request.include_xmp_app1   = false;
+    request.include_icc_app2   = false;
+    request.include_iptc_app13 = false;
+
+    openmeta::PreparedTransferBundle bundle;
+    const openmeta::PrepareTransferResult result
+        = openmeta::prepare_metadata_for_target(store, request, &bundle);
+
+    EXPECT_EQ(result.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.errors, 0U);
+    ASSERT_EQ(bundle.blocks.size(), 1U);
+    EXPECT_EQ(bundle.blocks[0].kind, openmeta::TransferBlockKind::Jumbf);
+    EXPECT_EQ(bundle.blocks[0].route, "jpeg:app11-jumbf");
+    EXPECT_TRUE(payload_contains_ascii(
+        std::span<const std::byte>(bundle.blocks[0].payload.data(),
+                                   bundle.blocks[0].payload.size()),
+        "openmeta.projected.box.0.1.cbor"));
+    EXPECT_TRUE(payload_contains_ascii(
+        std::span<const std::byte>(bundle.blocks[0].payload.data(),
+                                   bundle.blocks[0].payload.size()),
+        "OpenMeta"));
+
+    const openmeta::PreparedTransferPolicyDecision* decision
+        = find_policy_decision(bundle, openmeta::TransferPolicySubject::Jumbf);
+    ASSERT_NE(decision, nullptr);
+    EXPECT_EQ(decision->requested, openmeta::TransferPolicyAction::Keep);
+    EXPECT_EQ(decision->effective, openmeta::TransferPolicyAction::Keep);
+    EXPECT_EQ(decision->reason,
+              openmeta::TransferPolicyReason::ProjectedPayload);
+    EXPECT_EQ(decision->matched_entries, 4U);
+}
+
+TEST(MetadataTransferApi, PrepareProjectsMultipleDecodedJumbfRootsForJpegTarget)
+{
+    openmeta::MetaStore store;
+    const openmeta::BlockId block = store.add_block(openmeta::BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    openmeta::Entry first;
+    first.key                   = openmeta::make_jumbf_cbor_key(store.arena(),
+                                                                "box.0.1.cbor.title");
+    first.value                 = openmeta::make_text(store.arena(), "one",
+                                                      openmeta::TextEncoding::Ascii);
+    first.origin.block          = block;
+    first.origin.order_in_block = 0U;
+    ASSERT_NE(store.add_entry(first), openmeta::kInvalidEntryId);
+
+    openmeta::Entry second;
+    second.key                   = openmeta::make_jumbf_cbor_key(store.arena(),
+                                                                 "box.1.1.cbor.title");
+    second.value                 = openmeta::make_text(store.arena(), "two",
+                                                       openmeta::TextEncoding::Ascii);
+    second.origin.block          = block;
+    second.origin.order_in_block = 1U;
+    ASSERT_NE(store.add_entry(second), openmeta::kInvalidEntryId);
+    store.finalize();
+
+    openmeta::PrepareTransferRequest request;
+    request.include_exif_app1  = false;
+    request.include_xmp_app1   = false;
+    request.include_icc_app2   = false;
+    request.include_iptc_app13 = false;
+
+    openmeta::PreparedTransferBundle bundle;
+    const openmeta::PrepareTransferResult result
+        = openmeta::prepare_metadata_for_target(store, request, &bundle);
+
+    EXPECT_EQ(result.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.errors, 0U);
+    ASSERT_EQ(bundle.blocks.size(), 2U);
+    EXPECT_EQ(bundle.blocks[0].route, "jpeg:app11-jumbf");
+    EXPECT_EQ(bundle.blocks[1].route, "jpeg:app11-jumbf");
+    EXPECT_TRUE(payload_contains_ascii(
+        std::span<const std::byte>(bundle.blocks[0].payload.data(),
+                                   bundle.blocks[0].payload.size()),
+        "openmeta.projected.box.0.1.cbor"));
+    EXPECT_TRUE(payload_contains_ascii(
+        std::span<const std::byte>(bundle.blocks[1].payload.data(),
+                                   bundle.blocks[1].payload.size()),
+        "openmeta.projected.box.1.1.cbor"));
+
+    const openmeta::PreparedTransferPolicyDecision* decision
+        = find_policy_decision(bundle, openmeta::TransferPolicySubject::Jumbf);
+    ASSERT_NE(decision, nullptr);
+    EXPECT_EQ(decision->effective, openmeta::TransferPolicyAction::Keep);
+    EXPECT_EQ(decision->reason,
+              openmeta::TransferPolicyReason::ProjectedPayload);
+    EXPECT_EQ(decision->matched_entries, 2U);
+}
+
+TEST(MetadataTransferApi, PrepareProjectsTaggedDecodedJumbfValueForJpegTarget)
+{
+    openmeta::MetaStore store;
+    const openmeta::BlockId block = store.add_block(openmeta::BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    openmeta::Entry tagged_value;
+    tagged_value.key          = openmeta::make_jumbf_cbor_key(store.arena(),
+                                                              "box.0.1.cbor.when");
+    tagged_value.value        = openmeta::make_text(store.arena(), "tagged",
+                                                    openmeta::TextEncoding::Ascii);
+    tagged_value.origin.block = block;
+    tagged_value.origin.order_in_block = 0U;
+    ASSERT_NE(store.add_entry(tagged_value), openmeta::kInvalidEntryId);
+
+    openmeta::Entry tag;
+    tag.key                   = openmeta::make_jumbf_cbor_key(store.arena(),
+                                                              "box.0.1.cbor.when.@tag");
+    tag.value                 = openmeta::make_u64(1U);
+    tag.origin.block          = block;
+    tag.origin.order_in_block = 1U;
+    ASSERT_NE(store.add_entry(tag), openmeta::kInvalidEntryId);
+    store.finalize();
+
+    openmeta::PrepareTransferRequest request;
+    request.include_exif_app1  = false;
+    request.include_xmp_app1   = false;
+    request.include_icc_app2   = false;
+    request.include_iptc_app13 = false;
+
+    openmeta::PreparedTransferBundle bundle;
+    const openmeta::PrepareTransferResult result
+        = openmeta::prepare_metadata_for_target(store, request, &bundle);
+
+    EXPECT_EQ(result.status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(bundle.blocks.size(), 1U);
+
+    const std::array<std::byte, 8U> tagged_pattern = {
+        std::byte { 0xC1 }, std::byte { 0x66 }, std::byte { 't' },
+        std::byte { 'a' },  std::byte { 'g' },  std::byte { 'g' },
+        std::byte { 'e' },  std::byte { 'd' },
+    };
+    EXPECT_TRUE(payload_contains_bytes(
+        std::span<const std::byte>(bundle.blocks[0].payload.data(),
+                                   bundle.blocks[0].payload.size()),
+        std::span<const std::byte>(tagged_pattern.data(),
+                                   tagged_pattern.size())));
+}
+
+TEST(MetadataTransferApi, PrepareRejectsAmbiguousProjectedJumbfMapKeys)
+{
+    openmeta::MetaStore store;
+    const openmeta::BlockId block = store.add_block(openmeta::BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    openmeta::Entry value;
+    value.key                   = openmeta::make_jumbf_cbor_key(store.arena(),
+                                                                "box.0.1.cbor.map.1");
+    value.value                 = openmeta::make_u32(1U);
+    value.origin.block          = block;
+    value.origin.order_in_block = 0U;
+    ASSERT_NE(store.add_entry(value), openmeta::kInvalidEntryId);
+    store.finalize();
+
+    openmeta::PrepareTransferRequest request;
+    request.include_exif_app1  = false;
+    request.include_xmp_app1   = false;
+    request.include_icc_app2   = false;
+    request.include_iptc_app13 = false;
+
+    openmeta::PreparedTransferBundle bundle;
+    const openmeta::PrepareTransferResult result
+        = openmeta::prepare_metadata_for_target(store, request, &bundle);
+
+    EXPECT_EQ(result.status, openmeta::TransferStatus::Unsupported);
+    EXPECT_EQ(result.code,
+              openmeta::PrepareTransferCode::RequestedMetadataNotSerializable);
+    EXPECT_GE(result.warnings, 1U);
+    EXPECT_TRUE(bundle.blocks.empty());
+
+    const openmeta::PreparedTransferPolicyDecision* decision
+        = find_policy_decision(bundle, openmeta::TransferPolicySubject::Jumbf);
+    ASSERT_NE(decision, nullptr);
+    EXPECT_EQ(decision->requested, openmeta::TransferPolicyAction::Keep);
+    EXPECT_EQ(decision->effective, openmeta::TransferPolicyAction::Drop);
+    EXPECT_EQ(decision->reason,
+              openmeta::TransferPolicyReason::TargetSerializationUnavailable);
+    EXPECT_EQ(decision->message,
+              "projected jumbf cbor numeric map keys are ambiguous");
+}
+
+TEST(MetadataTransferApi, PrepareRejectsAmbiguousProjectedJumbfU8Scalar)
+{
+    openmeta::MetaStore store;
+    const openmeta::BlockId block = store.add_block(openmeta::BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    openmeta::Entry value;
+    value.key                   = openmeta::make_jumbf_cbor_key(store.arena(),
+                                                                "box.0.1.cbor.flag");
+    value.value                 = openmeta::make_u8(1U);
+    value.origin.block          = block;
+    value.origin.order_in_block = 0U;
+    ASSERT_NE(store.add_entry(value), openmeta::kInvalidEntryId);
+    store.finalize();
+
+    openmeta::PrepareTransferRequest request;
+    request.include_exif_app1  = false;
+    request.include_xmp_app1   = false;
+    request.include_icc_app2   = false;
+    request.include_iptc_app13 = false;
+
+    openmeta::PreparedTransferBundle bundle;
+    const openmeta::PrepareTransferResult result
+        = openmeta::prepare_metadata_for_target(store, request, &bundle);
+
+    EXPECT_EQ(result.status, openmeta::TransferStatus::Unsupported);
+    EXPECT_TRUE(bundle.blocks.empty());
+
+    const openmeta::PreparedTransferPolicyDecision* decision
+        = find_policy_decision(bundle, openmeta::TransferPolicySubject::Jumbf);
+    ASSERT_NE(decision, nullptr);
+    EXPECT_EQ(decision->reason,
+              openmeta::TransferPolicyReason::TargetSerializationUnavailable);
+    EXPECT_EQ(
+        decision->message,
+        "projected jumbf cbor U8 scalars are ambiguous (decoded bool/simple vs integer)");
+}
+
+TEST(MetadataTransferApi, PrepareRejectsAmbiguousProjectedJumbfNullText)
+{
+    openmeta::MetaStore store;
+    const openmeta::BlockId block = store.add_block(openmeta::BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    openmeta::Entry value;
+    value.key                   = openmeta::make_jumbf_cbor_key(store.arena(),
+                                                                "box.0.1.cbor.value");
+    value.value                 = openmeta::make_text(store.arena(), "null",
+                                                      openmeta::TextEncoding::Ascii);
+    value.origin.block          = block;
+    value.origin.order_in_block = 0U;
+    ASSERT_NE(store.add_entry(value), openmeta::kInvalidEntryId);
+    store.finalize();
+
+    openmeta::PrepareTransferRequest request;
+    request.include_exif_app1  = false;
+    request.include_xmp_app1   = false;
+    request.include_icc_app2   = false;
+    request.include_iptc_app13 = false;
+
+    openmeta::PreparedTransferBundle bundle;
+    const openmeta::PrepareTransferResult result
+        = openmeta::prepare_metadata_for_target(store, request, &bundle);
+
+    EXPECT_EQ(result.status, openmeta::TransferStatus::Unsupported);
+    EXPECT_TRUE(bundle.blocks.empty());
+
+    const openmeta::PreparedTransferPolicyDecision* decision
+        = find_policy_decision(bundle, openmeta::TransferPolicySubject::Jumbf);
+    ASSERT_NE(decision, nullptr);
+    EXPECT_EQ(
+        decision->message,
+        "projected jumbf cbor sentinel text is ambiguous (decoded null/undefined vs string)");
+}
+
+TEST(MetadataTransferApi, PrepareRejectsAmbiguousProjectedJumbfSimpleText)
+{
+    openmeta::MetaStore store;
+    const openmeta::BlockId block = store.add_block(openmeta::BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    openmeta::Entry value;
+    value.key          = openmeta::make_jumbf_cbor_key(store.arena(),
+                                                       "box.0.1.cbor.value");
+    value.value        = openmeta::make_text(store.arena(), "simple(16)",
+                                             openmeta::TextEncoding::Ascii);
+    value.origin.block = block;
+    value.origin.order_in_block = 0U;
+    ASSERT_NE(store.add_entry(value), openmeta::kInvalidEntryId);
+    store.finalize();
+
+    openmeta::PrepareTransferRequest request;
+    request.include_exif_app1  = false;
+    request.include_xmp_app1   = false;
+    request.include_icc_app2   = false;
+    request.include_iptc_app13 = false;
+
+    openmeta::PreparedTransferBundle bundle;
+    const openmeta::PrepareTransferResult result
+        = openmeta::prepare_metadata_for_target(store, request, &bundle);
+
+    EXPECT_EQ(result.status, openmeta::TransferStatus::Unsupported);
+    EXPECT_TRUE(bundle.blocks.empty());
+
+    const openmeta::PreparedTransferPolicyDecision* decision
+        = find_policy_decision(bundle, openmeta::TransferPolicySubject::Jumbf);
+    ASSERT_NE(decision, nullptr);
+    EXPECT_EQ(decision->message,
+              "projected jumbf cbor simple-value text is ambiguous");
+}
+
+TEST(MetadataTransferApi,
+     PrepareRejectsAmbiguousProjectedJumbfLargeNegativeText)
+{
+    openmeta::MetaStore store;
+    const openmeta::BlockId block = store.add_block(openmeta::BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    openmeta::Entry value;
+    value.key   = openmeta::make_jumbf_cbor_key(store.arena(),
+                                                "box.0.1.cbor.value");
+    value.value = openmeta::make_text(store.arena(), "-(1+9223372036854775807)",
+                                      openmeta::TextEncoding::Ascii);
+    value.origin.block          = block;
+    value.origin.order_in_block = 0U;
+    ASSERT_NE(store.add_entry(value), openmeta::kInvalidEntryId);
+    store.finalize();
+
+    openmeta::PrepareTransferRequest request;
+    request.include_exif_app1  = false;
+    request.include_xmp_app1   = false;
+    request.include_icc_app2   = false;
+    request.include_iptc_app13 = false;
+
+    openmeta::PreparedTransferBundle bundle;
+    const openmeta::PrepareTransferResult result
+        = openmeta::prepare_metadata_for_target(store, request, &bundle);
+
+    EXPECT_EQ(result.status, openmeta::TransferStatus::Unsupported);
+    EXPECT_TRUE(bundle.blocks.empty());
+
+    const openmeta::PreparedTransferPolicyDecision* decision
+        = find_policy_decision(bundle, openmeta::TransferPolicySubject::Jumbf);
+    ASSERT_NE(decision, nullptr);
+    EXPECT_EQ(decision->message,
+              "projected jumbf cbor large-negative fallback text is ambiguous");
 }
 
 TEST(MetadataTransferApi, PrepareBuildsTiffExifTransferBlockAndTimePatchSlots)
@@ -744,6 +1858,9 @@ TEST(MetadataTransferApi, PlanJpegEditAutoFallsBackToMetadataRewrite)
     EXPECT_EQ(plan.status, openmeta::TransferStatus::Ok);
     EXPECT_EQ(plan.selected_mode, openmeta::JpegEditMode::MetadataRewrite);
     EXPECT_FALSE(plan.in_place_possible);
+    EXPECT_EQ(plan.removed_existing_segments, 0U);
+    EXPECT_EQ(plan.removed_existing_jumbf_segments, 0U);
+    EXPECT_EQ(plan.removed_existing_c2pa_segments, 0U);
     EXPECT_EQ(plan.emitted_segments, 1U);
 
     std::vector<std::byte> out;
@@ -818,6 +1935,212 @@ TEST(MetadataTransferApi, PlanJpegEditAutoSelectsInPlaceWhenPossible)
     const auto it = std::search(out.begin(), out.end(), needle.begin(),
                                 needle.end());
     EXPECT_NE(it, out.end());
+}
+
+TEST(MetadataTransferApi, JpegEditDropsExistingC2paOnContentChange)
+{
+    openmeta::MetaStore store;
+    const openmeta::BlockId block = store.add_block(openmeta::BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    openmeta::Entry e;
+    e.key   = openmeta::make_exif_tag_key(store.arena(), "ifd0", 0x0132U);
+    e.value = openmeta::make_text(store.arena(), "2024:01:02 03:04:05",
+                                  openmeta::TextEncoding::Ascii);
+    e.origin.block          = block;
+    e.origin.order_in_block = 0;
+    ASSERT_NE(store.add_entry(e), openmeta::kInvalidEntryId);
+    store.finalize();
+
+    openmeta::PrepareTransferRequest request;
+    request.include_xmp_app1   = false;
+    request.include_icc_app2   = false;
+    request.include_iptc_app13 = false;
+
+    openmeta::PreparedTransferBundle bundle;
+    const openmeta::PrepareTransferResult prepared
+        = openmeta::prepare_metadata_for_target(store, request, &bundle);
+    ASSERT_EQ(prepared.status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(bundle.blocks.size(), 1U);
+    ASSERT_EQ(bundle.blocks[0].route, "jpeg:app1-exif");
+
+    openmeta::TimePatchUpdate update;
+    update.field = openmeta::TimePatchField::DateTime;
+    update.value = ascii_z("2033:03:04 05:06:07");
+    const std::array<openmeta::TimePatchUpdate, 1> updates = { update };
+    ASSERT_EQ(openmeta::apply_time_patches(&bundle, updates).status,
+              openmeta::TransferStatus::Ok);
+
+    const std::vector<std::byte> c2pa = make_app11_jumbf_payload("c2pa");
+    const std::array<TestJpegSegment, 2> segments = {
+        TestJpegSegment {
+            0xE1U,
+            std::span<const std::byte>(bundle.blocks[0].payload.data(),
+                                       bundle.blocks[0].payload.size()),
+        },
+        TestJpegSegment {
+            0xEBU,
+            std::span<const std::byte>(c2pa.data(), c2pa.size()),
+        },
+    };
+    const std::vector<std::byte> input = make_jpeg_with_segments(segments);
+
+    const openmeta::JpegEditPlan plan = openmeta::plan_prepared_bundle_jpeg_edit(
+        std::span<const std::byte>(input.data(), input.size()), bundle);
+    EXPECT_EQ(plan.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(plan.selected_mode, openmeta::JpegEditMode::MetadataRewrite);
+    EXPECT_FALSE(plan.in_place_possible);
+    EXPECT_EQ(plan.removed_existing_segments, 2U);
+    EXPECT_EQ(plan.removed_existing_jumbf_segments, 0U);
+    EXPECT_EQ(plan.removed_existing_c2pa_segments, 1U);
+
+    std::vector<std::byte> out;
+    const openmeta::EmitTransferResult applied
+        = openmeta::apply_prepared_bundle_jpeg_edit(
+            std::span<const std::byte>(input.data(), input.size()), bundle,
+            plan, &out);
+    EXPECT_EQ(applied.status, openmeta::TransferStatus::Ok);
+
+    const std::array<std::byte, 4> jp_magic = {
+        std::byte { 'J' },
+        std::byte { 'P' },
+        std::byte { 0x00 },
+        std::byte { 0x00 },
+    };
+    const auto it = std::search(out.begin(), out.end(), jp_magic.begin(),
+                                jp_magic.end());
+    EXPECT_EQ(it, out.end());
+}
+
+TEST(MetadataTransferApi,
+     JpegEditReplacesExistingC2paWithDraftInvalidationPayload)
+{
+    const std::vector<std::byte> jpeg = make_jpeg_with_app11_jumbf("c2pa");
+    const std::string path            = unique_temp_path(".jpg");
+    ASSERT_TRUE(
+        write_bytes_file(path,
+                         std::span<const std::byte>(jpeg.data(), jpeg.size())));
+
+    openmeta::PrepareTransferFileOptions options;
+    options.prepare.include_exif_app1  = false;
+    options.prepare.include_xmp_app1   = false;
+    options.prepare.include_icc_app2   = false;
+    options.prepare.include_iptc_app13 = false;
+    options.prepare.profile.c2pa = openmeta::TransferPolicyAction::Invalidate;
+
+    openmeta::PrepareTransferFileResult prepared
+        = openmeta::prepare_metadata_for_target_file(path.c_str(), options);
+    std::remove(path.c_str());
+
+    ASSERT_EQ(prepared.file_status, openmeta::TransferFileStatus::Ok);
+    ASSERT_EQ(prepared.prepare.status, openmeta::TransferStatus::Ok);
+
+    const openmeta::JpegEditPlan plan = openmeta::plan_prepared_bundle_jpeg_edit(
+        std::span<const std::byte>(jpeg.data(), jpeg.size()), prepared.bundle);
+    ASSERT_EQ(plan.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(plan.removed_existing_c2pa_segments, 1U);
+
+    std::vector<std::byte> out;
+    const openmeta::EmitTransferResult applied
+        = openmeta::apply_prepared_bundle_jpeg_edit(
+            std::span<const std::byte>(jpeg.data(), jpeg.size()),
+            prepared.bundle, plan, &out);
+    EXPECT_EQ(applied.status, openmeta::TransferStatus::Ok);
+    EXPECT_TRUE(payload_contains_ascii(std::span<const std::byte>(out.data(),
+                                                                  out.size()),
+                                       "openmeta:c2pa_invalidation"));
+}
+
+TEST(MetadataTransferApi, JpegEditDropsExistingJumbfWhenPolicyDropsIt)
+{
+    openmeta::PreparedTransferBundle bundle;
+    bundle.target_format = openmeta::TransferTargetFormat::Jpeg;
+
+    openmeta::PreparedTransferBlock exif;
+    exif.kind    = openmeta::TransferBlockKind::Exif;
+    exif.order   = 10U;
+    exif.route   = "jpeg:app1-exif";
+    exif.payload = ascii_z("ExifTransferPayload");
+    bundle.blocks.push_back(std::move(exif));
+
+    openmeta::PreparedTransferPolicyDecision decision;
+    decision.subject         = openmeta::TransferPolicySubject::Jumbf;
+    decision.requested       = openmeta::TransferPolicyAction::Drop;
+    decision.effective       = openmeta::TransferPolicyAction::Drop;
+    decision.reason          = openmeta::TransferPolicyReason::ExplicitDrop;
+    decision.matched_entries = 1U;
+    decision.message         = "jumbf transfer disabled by profile";
+    bundle.policy_decisions.push_back(std::move(decision));
+
+    const std::vector<std::byte> jumbf = make_app11_jumbf_payload("acme");
+    const std::vector<std::byte> input = make_jpeg_with_segment(
+        0xEBU, std::span<const std::byte>(jumbf.data(), jumbf.size()));
+
+    const openmeta::JpegEditPlan plan = openmeta::plan_prepared_bundle_jpeg_edit(
+        std::span<const std::byte>(input.data(), input.size()), bundle);
+    EXPECT_EQ(plan.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(plan.selected_mode, openmeta::JpegEditMode::MetadataRewrite);
+    EXPECT_FALSE(plan.in_place_possible);
+
+    std::vector<std::byte> out;
+    const openmeta::EmitTransferResult applied
+        = openmeta::apply_prepared_bundle_jpeg_edit(
+            std::span<const std::byte>(input.data(), input.size()), bundle,
+            plan, &out);
+    EXPECT_EQ(applied.status, openmeta::TransferStatus::Ok);
+
+    const std::array<std::byte, 4> jp_magic = {
+        std::byte { 'J' },
+        std::byte { 'P' },
+        std::byte { 0x00 },
+        std::byte { 0x00 },
+    };
+    const auto it = std::search(out.begin(), out.end(), jp_magic.begin(),
+                                jp_magic.end());
+    EXPECT_EQ(it, out.end());
+}
+
+TEST(MetadataTransferApi, JpegEditCanReplaceExistingJumbfInPlace)
+{
+    openmeta::PreparedTransferBundle bundle;
+    bundle.target_format = openmeta::TransferTargetFormat::Jpeg;
+
+    std::vector<std::byte> new_payload = make_app11_jumbf_payload("beta");
+    openmeta::PreparedTransferBlock jumbf;
+    jumbf.kind    = openmeta::TransferBlockKind::Jumbf;
+    jumbf.order   = 10U;
+    jumbf.route   = "jpeg:app11-jumbf";
+    jumbf.payload = std::move(new_payload);
+    bundle.blocks.push_back(std::move(jumbf));
+
+    const std::vector<std::byte> input = make_jpeg_with_app11_jumbf("acme");
+
+    const openmeta::JpegEditPlan plan = openmeta::plan_prepared_bundle_jpeg_edit(
+        std::span<const std::byte>(input.data(), input.size()), bundle);
+    EXPECT_EQ(plan.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(plan.selected_mode, openmeta::JpegEditMode::InPlace);
+    EXPECT_TRUE(plan.in_place_possible);
+    EXPECT_EQ(plan.removed_existing_segments, 0U);
+    EXPECT_EQ(plan.removed_existing_jumbf_segments, 0U);
+    EXPECT_EQ(plan.removed_existing_c2pa_segments, 0U);
+
+    std::vector<std::byte> out;
+    const openmeta::EmitTransferResult applied
+        = openmeta::apply_prepared_bundle_jpeg_edit(
+            std::span<const std::byte>(input.data(), input.size()), bundle,
+            plan, &out);
+    EXPECT_EQ(applied.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(out.size(), input.size());
+    EXPECT_NE(out, input);
+
+    const std::vector<std::byte> new_label = ascii_z("beta");
+    const std::vector<std::byte> old_label = ascii_z("acme");
+    EXPECT_NE(std::search(out.begin(), out.end(), new_label.begin(),
+                          new_label.end()),
+              out.end());
+    EXPECT_EQ(std::search(out.begin(), out.end(), old_label.begin(),
+                          old_label.end()),
+              out.end());
 }
 
 TEST(MetadataTransferApi, PlanAndApplyTiffEditMetadataRewrite)

@@ -296,6 +296,82 @@ def main(argv: list[str]) -> int:
         )
         if probe["prepare_message"]:
             print(f"  prepare_message={probe['prepare_message']}")
+        for decision in probe["policy_decisions"]:
+            mode_text = ""
+            if str(decision["subject_name"]) == "c2pa":
+                mode_text = (
+                    f" mode={decision['c2pa_mode_name']}"
+                    f" source={decision['c2pa_source_kind_name']}"
+                    f" output={decision['c2pa_prepared_output_name']}"
+                )
+            print(
+                "  policy[{subject}]: requested={requested} effective={effective} "
+                "reason={reason}{mode} matched={matched}".format(
+                    subject=str(decision["subject_name"]),
+                    requested=str(decision["requested_name"]),
+                    effective=str(decision["effective_name"]),
+                    reason=str(decision["reason_name"]),
+                    mode=mode_text,
+                    matched=int(decision["matched_entries"]),
+                )
+            )
+            if decision["message"]:
+                print(
+                    f"  policy[{decision['subject_name']}]_message={decision['message']}"
+                )
+        rewrite = probe["c2pa_rewrite"]
+        if (
+            str(rewrite["state_name"]) != "not_applicable"
+            or int(rewrite["matched_entries"]) > 0
+        ):
+            print(
+                f"  c2pa_rewrite: state={rewrite['state_name']} "
+                f"target={rewrite['target_format_name']} "
+                f"source={rewrite['source_kind_name']} "
+                f"matched={int(rewrite['matched_entries'])} "
+                f"existing_segments={int(rewrite['existing_carrier_segments'])} "
+                f"carrier_available={'yes' if rewrite['target_carrier_available'] else 'no'} "
+                f"invalidates_existing={'yes' if rewrite['content_change_invalidates_existing'] else 'no'}"
+            )
+            if (
+                rewrite["requires_manifest_builder"]
+                or rewrite["requires_content_binding"]
+                or rewrite["requires_certificate_chain"]
+                or rewrite["requires_private_key"]
+                or rewrite["requires_signing_time"]
+            ):
+                print(
+                    "  c2pa_rewrite_requirements: "
+                    f"manifest_builder={'yes' if rewrite['requires_manifest_builder'] else 'no'} "
+                    f"content_binding={'yes' if rewrite['requires_content_binding'] else 'no'} "
+                    f"certificate_chain={'yes' if rewrite['requires_certificate_chain'] else 'no'} "
+                    f"private_key={'yes' if rewrite['requires_private_key'] else 'no'} "
+                    f"signing_time={'yes' if rewrite['requires_signing_time'] else 'no'}"
+                )
+            if rewrite["message"]:
+                print(f"  c2pa_rewrite_message={rewrite['message']}")
+            if int(rewrite["content_binding_bytes"]) > 0:
+                print(
+                    f"  c2pa_rewrite_binding: chunks={len(rewrite['content_binding_chunks'])} "
+                    f"bytes={int(rewrite['content_binding_bytes'])}"
+                )
+                for chunk in rewrite["content_binding_chunks"]:
+                    if str(chunk["kind_name"]) == "source_range":
+                        print(
+                            f"  c2pa_rewrite_chunk[{int(chunk['index'])}]: "
+                            f"kind={chunk['kind_name']} "
+                            f"offset={int(chunk['source_offset'])} "
+                            f"size={int(chunk['size'])}"
+                        )
+                    else:
+                        print(
+                            f"  c2pa_rewrite_chunk[{int(chunk['index'])}]: "
+                            f"kind={chunk['kind_name']} "
+                            f"block={int(chunk['block_index'])} "
+                            f"marker=0x{int(chunk['jpeg_marker_code']):02X} "
+                            f"size={int(chunk['size'])} "
+                            f"route={chunk['route']}"
+                        )
         if probe["time_patch_message"]:
             print(f"  time_patch_message={probe['time_patch_message']}")
         if probe["error_message"]:

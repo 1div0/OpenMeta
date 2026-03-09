@@ -23,6 +23,8 @@ set(_split_tif "${WORK_DIR}/split_injected.tif")
 set(_target_tif_be "${WORK_DIR}/target_be.tif")
 set(_split_tif_be "${WORK_DIR}/split_injected_be.tif")
 set(_jpg_rich "${WORK_DIR}/sample_rich.jpg")
+set(_c2pa_jpg "${WORK_DIR}/sample_c2pa.jpg")
+set(_jumbf_box "${WORK_DIR}/sample.jumbf")
 set(_split_tif_rich "${WORK_DIR}/split_rich.tif")
 set(_split_tif_be_rich "${WORK_DIR}/split_rich_be.tif")
 set(_rich_builder_py "${WORK_DIR}/build_rich_exif_fixture.py")
@@ -80,6 +82,30 @@ execute_process(
 if(NOT _rv_write_tiff_be EQUAL 0)
   message(FATAL_ERROR
     "failed to write big-endian target tiff fixture (${_rv_write_tiff_be})\nstdout:\n${_out_write_tiff_be}\nstderr:\n${_err_write_tiff_be}")
+endif()
+
+execute_process(
+  COMMAND python3 -c
+    "from pathlib import Path; cbor=bytes([0xA1,0x61,0x61,0x01]); jumd=b'acme\\x00'; box=lambda t,p: (8+len(p)).to_bytes(4,'big')+t+p; payload=box(b'jumd', jumd)+box(b'cbor', cbor); Path(r'''${_jumbf_box}''').write_bytes(box(b'jumb', payload))"
+  RESULT_VARIABLE _rv_write_jumbf
+  OUTPUT_VARIABLE _out_write_jumbf
+  ERROR_VARIABLE _err_write_jumbf
+)
+if(NOT _rv_write_jumbf EQUAL 0)
+  message(FATAL_ERROR
+    "failed to write raw jumbf fixture (${_rv_write_jumbf})\nstdout:\n${_out_write_jumbf}\nstderr:\n${_err_write_jumbf}")
+endif()
+
+execute_process(
+  COMMAND python3 -c
+    "from pathlib import Path; cbor=bytes([0xA1,0x61,0x61,0x01]); jumd=b'c2pa\\x00'; box=lambda t,p: (8+len(p)).to_bytes(4,'big')+t+p; jumb=box(b'jumb', box(b'jumd', jumd)+box(b'cbor', cbor)); seg=b'JP\\x00\\x00'+(1).to_bytes(4,'big')+jumb; jpg=b'\\xFF\\xD8\\xFF\\xEB'+(len(seg)+2).to_bytes(2,'big')+seg+b'\\xFF\\xD9'; Path(r'''${_c2pa_jpg}''').write_bytes(jpg)"
+  RESULT_VARIABLE _rv_write_c2pa
+  OUTPUT_VARIABLE _out_write_c2pa
+  ERROR_VARIABLE _err_write_c2pa
+)
+if(NOT _rv_write_c2pa EQUAL 0)
+  message(FATAL_ERROR
+    "failed to write c2pa jpeg fixture (${_rv_write_c2pa})\nstdout:\n${_out_write_c2pa}\nstderr:\n${_err_write_c2pa}")
 endif()
 
 file(WRITE "${_rich_builder_py}" [=[
@@ -385,6 +411,90 @@ endif()
 if(NOT _out_probe MATCHES "time_patch: status=ok patched=1")
   message(FATAL_ERROR
     "metatransfer probe missing time_patch patched=1\nstdout:\n${_out_probe}\nstderr:\n${_err_probe}")
+endif()
+
+execute_process(
+  COMMAND "${METATRANSFER_BIN}" --no-build-info
+          --no-exif --no-xmp --no-icc --no-iptc
+          --jpeg-jumbf "${_jumbf_box}"
+          "${_jpg}"
+  RESULT_VARIABLE _rv_jumbf
+  OUTPUT_VARIABLE _out_jumbf
+  ERROR_VARIABLE _err_jumbf
+)
+if(NOT _rv_jumbf EQUAL 0)
+  message(FATAL_ERROR
+    "metatransfer jpeg jumbf append failed (${_rv_jumbf})\nstdout:\n${_out_jumbf}\nstderr:\n${_err_jumbf}")
+endif()
+if(NOT _out_jumbf MATCHES "append_jumbf: status=ok")
+  message(FATAL_ERROR
+    "metatransfer jpeg jumbf append missing append ok\nstdout:\n${_out_jumbf}\nstderr:\n${_err_jumbf}")
+endif()
+if(NOT _out_jumbf MATCHES "route=jpeg:app11-jumbf")
+  message(FATAL_ERROR
+    "metatransfer jpeg jumbf append missing prepared app11 route\nstdout:\n${_out_jumbf}\nstderr:\n${_err_jumbf}")
+endif()
+
+execute_process(
+  COMMAND "${METATRANSFER_BIN}" --no-build-info
+          --no-exif --no-xmp --no-icc --no-iptc
+          --c2pa-policy invalidate
+          "${_c2pa_jpg}"
+  RESULT_VARIABLE _rv_c2pa
+  OUTPUT_VARIABLE _out_c2pa
+  ERROR_VARIABLE _err_c2pa
+)
+if(NOT _rv_c2pa EQUAL 0)
+  message(FATAL_ERROR
+    "metatransfer c2pa invalidate failed (${_rv_c2pa})\nstdout:\n${_out_c2pa}\nstderr:\n${_err_c2pa}")
+endif()
+if(NOT _out_c2pa MATCHES "policy\\[c2pa\\]: requested=invalidate effective=keep reason=draft_invalidation_payload mode=draft_unsigned_invalidation source=content_bound output=generated_draft_unsigned_invalidation")
+  message(FATAL_ERROR
+    "metatransfer c2pa invalidate missing resolved policy\nstdout:\n${_out_c2pa}\nstderr:\n${_err_c2pa}")
+endif()
+if(NOT _out_c2pa MATCHES "route=jpeg:app11-c2pa")
+  message(FATAL_ERROR
+    "metatransfer c2pa invalidate missing prepared app11 c2pa route\nstdout:\n${_out_c2pa}\nstderr:\n${_err_c2pa}")
+endif()
+if(NOT _out_c2pa MATCHES "c2pa_rewrite: state=not_requested target=jpeg source=content_bound matched=[0-9]+ existing_segments=1 carrier_available=no invalidates_existing=no")
+  message(FATAL_ERROR
+    "metatransfer c2pa invalidate missing rewrite summary\nstdout:\n${_out_c2pa}\nstderr:\n${_err_c2pa}")
+endif()
+
+execute_process(
+  COMMAND "${METATRANSFER_BIN}" --no-build-info
+          --no-exif --no-xmp --no-icc --no-iptc
+          --c2pa-policy rewrite
+          "${_c2pa_jpg}"
+  RESULT_VARIABLE _rv_c2pa_rewrite
+  OUTPUT_VARIABLE _out_c2pa_rewrite
+  ERROR_VARIABLE _err_c2pa_rewrite
+)
+if(NOT _rv_c2pa_rewrite EQUAL 0)
+  if(NOT _rv_c2pa_rewrite EQUAL 1)
+    message(FATAL_ERROR
+      "metatransfer c2pa rewrite returned unexpected exit (${_rv_c2pa_rewrite})\nstdout:\n${_out_c2pa_rewrite}\nstderr:\n${_err_c2pa_rewrite}")
+  endif()
+endif()
+if(NOT _out_c2pa_rewrite MATCHES "policy\\[c2pa\\]: requested=rewrite effective=drop reason=signed_rewrite_unavailable mode=drop source=content_bound output=dropped")
+  message(FATAL_ERROR
+    "metatransfer c2pa rewrite missing resolved policy\nstdout:\n${_out_c2pa_rewrite}\nstderr:\n${_err_c2pa_rewrite}")
+endif()
+if(NOT _out_c2pa_rewrite MATCHES "c2pa_rewrite: state=signing_material_required target=jpeg source=content_bound matched=[0-9]+ existing_segments=1 carrier_available=yes invalidates_existing=yes")
+  message(FATAL_ERROR
+    "metatransfer c2pa rewrite missing rewrite requirements summary\nstdout:\n${_out_c2pa_rewrite}\nstderr:\n${_err_c2pa_rewrite}")
+endif()
+if(NOT _out_c2pa_rewrite MATCHES "c2pa_rewrite_requirements: manifest_builder=yes content_binding=yes certificate_chain=yes private_key=yes signing_time=yes")
+  message(FATAL_ERROR
+    "metatransfer c2pa rewrite missing rewrite requirements line\nstdout:\n${_out_c2pa_rewrite}\nstderr:\n${_err_c2pa_rewrite}")
+endif()
+if(NOT _out_c2pa_rewrite MATCHES "c2pa_rewrite_binding: chunks=2 bytes=4")
+  message(FATAL_ERROR
+    "metatransfer c2pa rewrite missing binding summary\nstdout:\n${_out_c2pa_rewrite}\nstderr:\n${_err_c2pa_rewrite}")
+endif()
+if(NOT _out_c2pa_rewrite MATCHES "c2pa_rewrite_chunk\\[0\\]: kind=source_range offset=0 size=2")
+  message(FATAL_ERROR
+    "metatransfer c2pa rewrite missing first binding chunk\nstdout:\n${_out_c2pa_rewrite}\nstderr:\n${_err_c2pa_rewrite}")
 endif()
 
 execute_process(

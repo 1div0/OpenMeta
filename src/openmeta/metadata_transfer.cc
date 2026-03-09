@@ -59,6 +59,57 @@ namespace {
         std::vector<std::byte> app13_payload;
     };
 
+    enum class C2paPayloadClass : uint8_t {
+        NotC2pa,
+        DraftUnsignedInvalidation,
+        ContentBound,
+    };
+
+    struct TransferPrepareCapabilities final {
+        bool jpeg_jumbf_passthrough                = false;
+        C2paPayloadClass source_c2pa_payload_class = C2paPayloadClass::NotC2pa;
+    };
+
+    struct SourceJumbfAppendResult final {
+        uint32_t emitted_blocks = 0;
+        uint32_t emitted_jumbf  = 0;
+        uint32_t emitted_c2pa   = 0;
+        uint32_t errors         = 0;
+        std::string message;
+    };
+
+    enum class ProjectedCborNodeKind : uint8_t {
+        Unknown,
+        Leaf,
+        Map,
+        Array,
+    };
+
+    struct ProjectedCborChild final {
+        uint32_t node_index  = 0U;
+        uint32_t array_index = 0U;
+        bool array_child     = false;
+        std::string map_key;
+    };
+
+    struct ProjectedCborNode final {
+        ProjectedCborNodeKind kind = ProjectedCborNodeKind::Unknown;
+        const Entry* leaf          = nullptr;
+        bool has_tag               = false;
+        uint64_t tag               = 0U;
+        std::vector<ProjectedCborChild> children;
+    };
+
+    struct ProjectedCborTree final {
+        std::string root_prefix;
+        std::vector<ProjectedCborNode> nodes;
+    };
+
+    struct ProjectedJumbfPayload final {
+        std::string root_prefix;
+        std::vector<std::byte> logical_payload;
+    };
+
     struct IfdEntryLess final {
         bool operator()(const SerializedIfdEntry& a,
                         const SerializedIfdEntry& b) const noexcept
@@ -133,6 +184,59 @@ namespace {
         return true;
     }
 
+    static bool decimal_text(std::string_view s) noexcept
+    {
+        if (s.empty()) {
+            return false;
+        }
+        for (size_t i = 0; i < s.size(); ++i) {
+            if (s[i] < '0' || s[i] > '9') {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    static bool
+    find_jumbf_cbor_root_prefix(std::string_view key,
+                                std::string_view* out_root,
+                                std::string_view* out_suffix) noexcept
+    {
+        if (!out_root || !out_suffix) {
+            return false;
+        }
+        size_t pos = 0U;
+        while (true) {
+            pos = key.find(".cbor", pos);
+            if (pos == std::string_view::npos) {
+                return false;
+            }
+            const size_t end = pos + 5U;
+            if (end == key.size() || key[end] == '.' || key[end] == '['
+                || key[end] == '@') {
+                *out_root   = key.substr(0U, end);
+                *out_suffix = key.substr(end);
+                return true;
+            }
+            pos = end;
+        }
+    }
+
+    static bool append_unique_string(std::vector<std::string>* out,
+                                     std::string_view value) noexcept
+    {
+        if (!out || value.empty()) {
+            return false;
+        }
+        for (size_t i = 0; i < out->size(); ++i) {
+            if ((*out)[i] == value) {
+                return false;
+            }
+        }
+        out->emplace_back(value);
+        return true;
+    }
+
     static const char* time_patch_field_name(TimePatchField f) noexcept
     {
         switch (f) {
@@ -150,6 +254,56 @@ namespace {
         }
         return "Unknown";
     }
+
+    static bool read_u32be(std::span<const std::byte> bytes, size_t off,
+                           uint32_t* out) noexcept
+    {
+        if (!out || off > bytes.size() || bytes.size() - off < 4U) {
+            return false;
+        }
+        *out
+            = (static_cast<uint32_t>(std::to_integer<uint8_t>(bytes[off + 0U]))
+               << 24U)
+              | (static_cast<uint32_t>(std::to_integer<uint8_t>(bytes[off + 1U]))
+                 << 16U)
+              | (static_cast<uint32_t>(std::to_integer<uint8_t>(bytes[off + 2U]))
+                 << 8U)
+              | (static_cast<uint32_t>(std::to_integer<uint8_t>(bytes[off + 3U]))
+                 << 0U);
+        return true;
+    }
+
+    static bool read_u64be(std::span<const std::byte> bytes, size_t off,
+                           uint64_t* out) noexcept
+    {
+        if (!out || off > bytes.size() || bytes.size() - off < 8U) {
+            return false;
+        }
+        *out
+            = (static_cast<uint64_t>(std::to_integer<uint8_t>(bytes[off + 0U]))
+               << 56U)
+              | (static_cast<uint64_t>(std::to_integer<uint8_t>(bytes[off + 1U]))
+                 << 48U)
+              | (static_cast<uint64_t>(std::to_integer<uint8_t>(bytes[off + 2U]))
+                 << 40U)
+              | (static_cast<uint64_t>(std::to_integer<uint8_t>(bytes[off + 3U]))
+                 << 32U)
+              | (static_cast<uint64_t>(std::to_integer<uint8_t>(bytes[off + 4U]))
+                 << 24U)
+              | (static_cast<uint64_t>(std::to_integer<uint8_t>(bytes[off + 5U]))
+                 << 16U)
+              | (static_cast<uint64_t>(std::to_integer<uint8_t>(bytes[off + 6U]))
+                 << 8U)
+              | (static_cast<uint64_t>(std::to_integer<uint8_t>(bytes[off + 7U]))
+                 << 0U);
+        return true;
+    }
+
+    static bool is_openmeta_draft_c2pa_invalidation_payload(
+        std::span<const std::byte> bytes) noexcept;
+
+    static bool
+    is_c2pa_jumbf_payload(std::span<const std::byte> logical_payload) noexcept;
 
     static bool marker_from_jpeg_route(std::string_view route,
                                        uint8_t* out_marker) noexcept
@@ -299,6 +453,12 @@ namespace {
                                  29U)) {
             known = true;
             route = "jpeg:app1-xmp";
+        } else if (marker == 0xEBU && has_prefix(payload, "JP\0\0", 4U)
+                   && payload.size() >= 8U) {
+            known = true;
+            route = is_c2pa_jumbf_payload(payload.subspan(8U))
+                        ? "jpeg:app11-c2pa"
+                        : "jpeg:app11-jumbf";
         } else if (marker == 0xE2U
                    && has_prefix(payload, "ICC_PROFILE\0", 12U)) {
             known = true;
@@ -480,6 +640,225 @@ namespace {
         return false;
     }
 
+    static const PreparedTransferPolicyDecision*
+    find_policy_decision(const PreparedTransferBundle& bundle,
+                         TransferPolicySubject subject) noexcept
+    {
+        for (size_t i = 0; i < bundle.policy_decisions.size(); ++i) {
+            if (bundle.policy_decisions[i].subject == subject) {
+                return &bundle.policy_decisions[i];
+            }
+        }
+        return nullptr;
+    }
+
+    static bool should_strip_existing_jpeg_segment(
+        const PreparedTransferBundle& bundle,
+        const ExistingJpegSegment& existing,
+        const std::vector<PlannedJpegSegment>& desired) noexcept
+    {
+        if (!existing.route_known) {
+            return false;
+        }
+        if (route_in_desired(existing.route, desired)) {
+            return true;
+        }
+        if (existing.route == "jpeg:app11-jumbf") {
+            const PreparedTransferPolicyDecision* decision
+                = find_policy_decision(bundle, TransferPolicySubject::Jumbf);
+            return decision && decision->effective == TransferPolicyAction::Drop
+                   && decision->matched_entries > 0U;
+        }
+        if (existing.route == "jpeg:app11-c2pa") {
+            if (!desired.empty()) {
+                return true;
+            }
+            const PreparedTransferPolicyDecision* decision
+                = find_policy_decision(bundle, TransferPolicySubject::C2pa);
+            return decision && decision->effective == TransferPolicyAction::Drop
+                   && decision->matched_entries > 0U;
+        }
+        return false;
+    }
+
+    static void append_c2pa_rewrite_source_chunk(
+        PreparedTransferC2paRewriteRequirements* out, uint64_t offset,
+        uint64_t size) noexcept
+    {
+        if (!out || size == 0U) {
+            return;
+        }
+        if (!out->content_binding_chunks.empty()) {
+            PreparedTransferC2paRewriteChunk& last
+                = out->content_binding_chunks.back();
+            if (last.kind == TransferC2paRewriteChunkKind::SourceRange
+                && last.source_offset + last.size == offset) {
+                last.size += size;
+                out->content_binding_bytes += size;
+                return;
+            }
+        }
+        PreparedTransferC2paRewriteChunk chunk;
+        chunk.kind          = TransferC2paRewriteChunkKind::SourceRange;
+        chunk.source_offset = offset;
+        chunk.size          = size;
+        out->content_binding_chunks.push_back(std::move(chunk));
+        out->content_binding_bytes += size;
+    }
+
+    static void append_c2pa_rewrite_prepared_chunk(
+        PreparedTransferC2paRewriteRequirements* out, uint32_t block_index,
+        uint8_t marker_code, uint64_t size) noexcept
+    {
+        if (!out || size == 0U) {
+            return;
+        }
+        PreparedTransferC2paRewriteChunk chunk;
+        chunk.kind        = TransferC2paRewriteChunkKind::PreparedJpegSegment;
+        chunk.block_index = block_index;
+        chunk.jpeg_marker_code = marker_code;
+        chunk.size             = size;
+        out->content_binding_chunks.push_back(std::move(chunk));
+        out->content_binding_bytes += size;
+    }
+
+    static bool build_jpeg_c2pa_rewrite_chunks(
+        std::span<const std::byte> input_jpeg,
+        const PreparedTransferBundle& bundle,
+        PreparedTransferC2paRewriteRequirements* rewrite,
+        std::string* err) noexcept
+    {
+        if (!rewrite) {
+            if (err) {
+                *err = "c2pa rewrite output is null";
+            }
+            return false;
+        }
+        rewrite->content_binding_bytes = 0;
+        rewrite->content_binding_chunks.clear();
+
+        if (rewrite->state
+            != TransferC2paRewriteState::SigningMaterialRequired) {
+            return true;
+        }
+        if (bundle.target_format != TransferTargetFormat::Jpeg) {
+            if (err) {
+                *err = "c2pa rewrite binding chunks currently require jpeg";
+            }
+            return false;
+        }
+        if (input_jpeg.size() < 2U) {
+            if (err) {
+                *err = "jpeg input is too small";
+            }
+            return false;
+        }
+
+        EmitTransferOptions opts;
+        opts.skip_empty_payloads = true;
+        opts.stop_on_error       = true;
+        PreparedJpegEmitPlan compiled;
+        const EmitTransferResult compiled_status
+            = compile_prepared_bundle_jpeg(bundle, &compiled, opts);
+        if (compiled_status.status != TransferStatus::Ok) {
+            if (err) {
+                *err = compiled_status.message.empty()
+                           ? "failed to compile jpeg rewrite binding chunks"
+                           : compiled_status.message;
+            }
+            return false;
+        }
+
+        std::vector<PlannedJpegSegment> desired;
+        desired.reserve(compiled.ops.size());
+        std::vector<PreparedJpegEmitOp> desired_ops;
+        desired_ops.reserve(compiled.ops.size());
+        for (size_t i = 0; i < compiled.ops.size(); ++i) {
+            const PreparedJpegEmitOp& op = compiled.ops[i];
+            if (op.block_index >= bundle.blocks.size()) {
+                if (err) {
+                    *err = "compiled op block index out of range";
+                }
+                return false;
+            }
+            const PreparedTransferBlock& block = bundle.blocks[op.block_index];
+            if (block.route == "jpeg:app11-c2pa") {
+                continue;
+            }
+            PlannedJpegSegment seg;
+            seg.marker  = op.marker_code;
+            seg.route   = block.route;
+            seg.payload = std::span<const std::byte>(block.payload.data(),
+                                                     block.payload.size());
+            desired.push_back(std::move(seg));
+            desired_ops.push_back(op);
+        }
+
+        const JpegScanResult scan = scan_leading_jpeg_segments(input_jpeg);
+        if (scan.status != TransferStatus::Ok) {
+            if (err) {
+                *err = scan.message.empty() ? "jpeg scan failed" : scan.message;
+            }
+            return false;
+        }
+
+        append_c2pa_rewrite_source_chunk(rewrite, 0U, 2U);
+
+        bool inserted = false;
+        for (size_t i = 0; i < scan.leading_segments.size(); ++i) {
+            const ExistingJpegSegment& e = scan.leading_segments[i];
+            const bool replaced = should_strip_existing_jpeg_segment(bundle, e,
+                                                                     desired);
+            if (replaced) {
+                if (!inserted) {
+                    for (size_t oi = 0; oi < desired_ops.size(); ++oi) {
+                        const PreparedJpegEmitOp& op = desired_ops[oi];
+                        const PreparedTransferBlock& block
+                            = bundle.blocks[op.block_index];
+                        append_c2pa_rewrite_prepared_chunk(
+                            rewrite, op.block_index, op.marker_code,
+                            static_cast<uint64_t>(4U + block.payload.size()));
+                    }
+                    inserted = true;
+                }
+                continue;
+            }
+
+            const size_t seg_end = e.payload_off + e.payload_len;
+            if (seg_end > input_jpeg.size() || e.marker_off > seg_end) {
+                if (err) {
+                    *err = "existing jpeg segment range is invalid";
+                }
+                return false;
+            }
+            append_c2pa_rewrite_source_chunk(
+                rewrite, static_cast<uint64_t>(e.marker_off),
+                static_cast<uint64_t>(seg_end - e.marker_off));
+        }
+
+        if (!inserted) {
+            for (size_t oi = 0; oi < desired_ops.size(); ++oi) {
+                const PreparedJpegEmitOp& op = desired_ops[oi];
+                const PreparedTransferBlock& block
+                    = bundle.blocks[op.block_index];
+                append_c2pa_rewrite_prepared_chunk(
+                    rewrite, op.block_index, op.marker_code,
+                    static_cast<uint64_t>(4U + block.payload.size()));
+            }
+        }
+
+        if (scan.scan_end > input_jpeg.size()) {
+            if (err) {
+                *err = "jpeg rewrite scan end is out of range";
+            }
+            return false;
+        }
+        append_c2pa_rewrite_source_chunk(
+            rewrite, static_cast<uint64_t>(scan.scan_end),
+            static_cast<uint64_t>(input_jpeg.size() - scan.scan_end));
+        return true;
+    }
+
     static void append_jpeg_segment(std::vector<std::byte>* out, uint8_t marker,
                                     std::span<const std::byte> payload) noexcept
     {
@@ -568,6 +947,43 @@ namespace {
         dst->append(msg.data(), msg.size());
     }
 
+    static uint32_t
+    next_prepared_block_order(const PreparedTransferBundle& bundle,
+                              uint32_t base) noexcept
+    {
+        uint32_t order = base;
+        for (size_t i = 0; i < bundle.blocks.size(); ++i) {
+            if (bundle.blocks[i].order >= order) {
+                order = bundle.blocks[i].order + 1U;
+            }
+        }
+        return order;
+    }
+
+    static uint32_t
+    remove_prepared_blocks_by_route(PreparedTransferBundle* bundle,
+                                    std::string_view route) noexcept
+    {
+        if (!bundle || bundle->blocks.empty()) {
+            return 0U;
+        }
+
+        size_t write     = 0U;
+        uint32_t removed = 0U;
+        for (size_t read = 0U; read < bundle->blocks.size(); ++read) {
+            if (bundle->blocks[read].route == route) {
+                removed += 1U;
+                continue;
+            }
+            if (write != read) {
+                bundle->blocks[write] = std::move(bundle->blocks[read]);
+            }
+            write += 1U;
+        }
+        bundle->blocks.resize(write);
+        return removed;
+    }
+
     static bool has_kind(const MetaStore& store, MetaKeyKind kind) noexcept
     {
         for (const Entry& e : store.entries()) {
@@ -603,8 +1019,39 @@ namespace {
             if (any(e.flags, EntryFlags::Deleted)) {
                 continue;
             }
-            if (e.key.kind == MetaKeyKind::JumbfField
-                || e.key.kind == MetaKeyKind::JumbfCborKey) {
+            if (e.key.kind == MetaKeyKind::JumbfField) {
+                if (!contains_path_segment(
+                        arena_string(store.arena(),
+                                     e.key.data.jumbf_field.field),
+                        "c2pa")) {
+                    count += 1U;
+                }
+                continue;
+            }
+            if (e.key.kind == MetaKeyKind::JumbfCborKey) {
+                if (!contains_path_segment(
+                        arena_string(store.arena(),
+                                     e.key.data.jumbf_cbor_key.key),
+                        "c2pa")) {
+                    count += 1U;
+                }
+            }
+        }
+        return count;
+    }
+
+    static uint32_t
+    count_non_c2pa_jumbf_cbor_entries(const MetaStore& store) noexcept
+    {
+        uint32_t count = 0U;
+        for (const Entry& e : store.entries()) {
+            if (any(e.flags, EntryFlags::Deleted)
+                || e.key.kind != MetaKeyKind::JumbfCborKey) {
+                continue;
+            }
+            if (!contains_path_segment(
+                    arena_string(store.arena(), e.key.data.jumbf_cbor_key.key),
+                    "c2pa")) {
                 count += 1U;
             }
         }
@@ -691,23 +1138,230 @@ namespace {
         return TransferPolicyAction::Drop;
     }
 
-    static void append_policy_decision(PreparedTransferBundle* bundle,
-                                       TransferPolicySubject subject,
-                                       TransferPolicyAction requested,
-                                       TransferPolicyAction effective,
-                                       TransferPolicyReason reason,
-                                       uint32_t matched_entries,
-                                       std::string_view message) noexcept
+    static TransferPolicyAction
+    resolve_raw_jumbf_policy(TransferPolicyAction requested,
+                             TransferPolicyReason* out_reason) noexcept
+    {
+        if (!out_reason) {
+            return TransferPolicyAction::Keep;
+        }
+        switch (requested) {
+        case TransferPolicyAction::Keep:
+            *out_reason = TransferPolicyReason::Default;
+            return TransferPolicyAction::Keep;
+        case TransferPolicyAction::Drop:
+            *out_reason = TransferPolicyReason::ExplicitDrop;
+            return TransferPolicyAction::Drop;
+        case TransferPolicyAction::Invalidate:
+            *out_reason = TransferPolicyReason::PortableInvalidationUnavailable;
+            return TransferPolicyAction::Drop;
+        case TransferPolicyAction::Rewrite:
+            *out_reason = TransferPolicyReason::RewriteUnavailablePreservedRaw;
+            return TransferPolicyAction::Keep;
+        }
+        *out_reason = TransferPolicyReason::Default;
+        return TransferPolicyAction::Keep;
+    }
+
+    static TransferPolicyAction
+    resolve_projected_jumbf_policy(TransferPolicyAction requested,
+                                   TransferPolicyReason* out_reason) noexcept
+    {
+        if (!out_reason) {
+            return TransferPolicyAction::Keep;
+        }
+        switch (requested) {
+        case TransferPolicyAction::Keep:
+        case TransferPolicyAction::Rewrite:
+            *out_reason = TransferPolicyReason::ProjectedPayload;
+            return TransferPolicyAction::Keep;
+        case TransferPolicyAction::Drop:
+            *out_reason = TransferPolicyReason::ExplicitDrop;
+            return TransferPolicyAction::Drop;
+        case TransferPolicyAction::Invalidate:
+            *out_reason = TransferPolicyReason::PortableInvalidationUnavailable;
+            return TransferPolicyAction::Drop;
+        }
+        *out_reason = TransferPolicyReason::ProjectedPayload;
+        return TransferPolicyAction::Keep;
+    }
+
+    static TransferPolicyAction resolve_c2pa_transfer_policy(
+        TransferPolicyAction requested, bool raw_passthrough_available,
+        bool draft_invalidation_available, C2paPayloadClass source_class,
+        TransferPolicyReason* out_reason, TransferC2paMode* out_mode) noexcept
+    {
+        if (!out_reason) {
+            return TransferPolicyAction::Drop;
+        }
+        TransferC2paMode ignored_mode = TransferC2paMode::NotApplicable;
+        if (!out_mode) {
+            out_mode = &ignored_mode;
+        }
+        switch (requested) {
+        case TransferPolicyAction::Drop:
+            *out_reason = TransferPolicyReason::ExplicitDrop;
+            *out_mode   = TransferC2paMode::Drop;
+            return TransferPolicyAction::Drop;
+        case TransferPolicyAction::Invalidate:
+            if (draft_invalidation_available) {
+                *out_reason = TransferPolicyReason::DraftInvalidationPayload;
+                *out_mode   = TransferC2paMode::DraftUnsignedInvalidation;
+                return TransferPolicyAction::Keep;
+            }
+            *out_reason = TransferPolicyReason::PortableInvalidationUnavailable;
+            *out_mode   = TransferC2paMode::Drop;
+            return TransferPolicyAction::Drop;
+        case TransferPolicyAction::Keep:
+            if (raw_passthrough_available
+                && source_class
+                       == C2paPayloadClass::DraftUnsignedInvalidation) {
+                *out_reason = TransferPolicyReason::Default;
+                *out_mode   = TransferC2paMode::PreserveRaw;
+                return TransferPolicyAction::Keep;
+            }
+            *out_reason
+                = raw_passthrough_available
+                      ? TransferPolicyReason::ContentBoundTransferUnavailable
+                      : TransferPolicyReason::TargetSerializationUnavailable;
+            *out_mode = TransferC2paMode::Drop;
+            return TransferPolicyAction::Drop;
+        case TransferPolicyAction::Rewrite:
+            *out_reason = TransferPolicyReason::SignedRewriteUnavailable;
+            *out_mode   = TransferC2paMode::Drop;
+            return TransferPolicyAction::Drop;
+        }
+        *out_reason = TransferPolicyReason::TargetSerializationUnavailable;
+        *out_mode   = TransferC2paMode::Drop;
+        return TransferPolicyAction::Drop;
+    }
+
+    static TransferC2paSourceKind
+    classify_c2pa_source_kind(uint32_t c2pa_count,
+                              bool raw_passthrough_available,
+                              C2paPayloadClass source_class) noexcept
+    {
+        if (c2pa_count == 0U) {
+            return TransferC2paSourceKind::NotPresent;
+        }
+        if (!raw_passthrough_available) {
+            return TransferC2paSourceKind::DecodedOnly;
+        }
+        switch (source_class) {
+        case C2paPayloadClass::DraftUnsignedInvalidation:
+            return TransferC2paSourceKind::DraftUnsignedInvalidation;
+        case C2paPayloadClass::ContentBound:
+            return TransferC2paSourceKind::ContentBound;
+        case C2paPayloadClass::NotC2pa:
+            return TransferC2paSourceKind::DecodedOnly;
+        }
+        return TransferC2paSourceKind::DecodedOnly;
+    }
+
+    static TransferC2paPreparedOutput
+    classify_c2pa_prepared_output(uint32_t c2pa_count,
+                                  TransferPolicyAction effective,
+                                  TransferC2paMode mode) noexcept
+    {
+        if (c2pa_count == 0U) {
+            return TransferC2paPreparedOutput::NotPresent;
+        }
+        if (effective == TransferPolicyAction::Drop) {
+            return TransferC2paPreparedOutput::Dropped;
+        }
+        switch (mode) {
+        case TransferC2paMode::PreserveRaw:
+            return TransferC2paPreparedOutput::PreservedRaw;
+        case TransferC2paMode::DraftUnsignedInvalidation:
+            return TransferC2paPreparedOutput::GeneratedDraftUnsignedInvalidation;
+        case TransferC2paMode::SignedRewrite:
+            return TransferC2paPreparedOutput::SignedRewrite;
+        case TransferC2paMode::NotPresent:
+            return TransferC2paPreparedOutput::NotPresent;
+        case TransferC2paMode::Drop: return TransferC2paPreparedOutput::Dropped;
+        case TransferC2paMode::NotApplicable:
+            return TransferC2paPreparedOutput::NotApplicable;
+        }
+        return TransferC2paPreparedOutput::NotApplicable;
+    }
+
+    static uint32_t
+    count_existing_jpeg_segments_by_route(const JpegScanResult& scan,
+                                          std::string_view route) noexcept
+    {
+        uint32_t count = 0U;
+        for (size_t i = 0; i < scan.leading_segments.size(); ++i) {
+            if (scan.leading_segments[i].route == route) {
+                count += 1U;
+            }
+        }
+        return count;
+    }
+
+    static PreparedTransferC2paRewriteRequirements
+    build_c2pa_rewrite_requirements(TransferTargetFormat target_format,
+                                    TransferPolicyAction requested,
+                                    uint32_t c2pa_count,
+                                    TransferC2paSourceKind source_kind) noexcept
+    {
+        PreparedTransferC2paRewriteRequirements out;
+        out.target_format   = target_format;
+        out.source_kind     = source_kind;
+        out.matched_entries = c2pa_count;
+        if (c2pa_count == 0U) {
+            out.state   = TransferC2paRewriteState::NotApplicable;
+            out.message = "no c2pa entries in source metadata";
+            return out;
+        }
+        if (requested != TransferPolicyAction::Rewrite) {
+            out.state   = TransferC2paRewriteState::NotRequested;
+            out.message = "signed c2pa rewrite was not requested";
+            return out;
+        }
+
+        out.state = TransferC2paRewriteState::SigningMaterialRequired;
+        out.target_carrier_available = target_format
+                                       == TransferTargetFormat::Jpeg;
+        out.content_change_invalidates_existing = target_format
+                                                  == TransferTargetFormat::Jpeg;
+        out.requires_manifest_builder  = true;
+        out.requires_content_binding   = true;
+        out.requires_certificate_chain = true;
+        out.requires_private_key       = true;
+        out.requires_signing_time      = true;
+        out.message
+            = out.target_carrier_available
+                  ? "signed c2pa rewrite requires manifest rebuild, content "
+                    "binding, certificate chain, private key, and signing "
+                    "time"
+                  : "signed c2pa rewrite requires signing material and a "
+                    "target-specific carrier serializer";
+        return out;
+    }
+
+    static void append_policy_decision(
+        PreparedTransferBundle* bundle, TransferPolicySubject subject,
+        TransferPolicyAction requested, TransferPolicyAction effective,
+        TransferPolicyReason reason, uint32_t matched_entries,
+        std::string_view message,
+        TransferC2paMode c2pa_mode = TransferC2paMode::NotApplicable,
+        TransferC2paSourceKind c2pa_source_kind
+        = TransferC2paSourceKind::NotApplicable,
+        TransferC2paPreparedOutput c2pa_prepared_output
+        = TransferC2paPreparedOutput::NotApplicable) noexcept
     {
         if (!bundle) {
             return;
         }
         PreparedTransferPolicyDecision decision;
-        decision.subject         = subject;
-        decision.requested       = requested;
-        decision.effective       = effective;
-        decision.reason          = reason;
-        decision.matched_entries = matched_entries;
+        decision.subject              = subject;
+        decision.requested            = requested;
+        decision.effective            = effective;
+        decision.reason               = reason;
+        decision.c2pa_mode            = c2pa_mode;
+        decision.c2pa_source_kind     = c2pa_source_kind;
+        decision.c2pa_prepared_output = c2pa_prepared_output;
+        decision.matched_entries      = matched_entries;
         decision.message.assign(message.data(), message.size());
         bundle->policy_decisions.push_back(std::move(decision));
     }
@@ -724,6 +1378,21 @@ namespace {
         }
         out->warnings += 1U;
         append_message(&out->message, message);
+    }
+
+    static PreparedTransferPolicyDecision*
+    find_policy_decision(PreparedTransferBundle* bundle,
+                         TransferPolicySubject subject) noexcept
+    {
+        if (!bundle) {
+            return nullptr;
+        }
+        for (size_t i = 0; i < bundle->policy_decisions.size(); ++i) {
+            if (bundle->policy_decisions[i].subject == subject) {
+                return &bundle->policy_decisions[i];
+            }
+        }
+        return nullptr;
     }
 
     static TransferFileStatus map_file_status(MappedFileStatus status) noexcept
@@ -806,6 +1475,1259 @@ namespace {
         out->push_back(static_cast<std::byte>((v >> 16) & 0xFFU));
         out->push_back(static_cast<std::byte>((v >> 8) & 0xFFU));
         out->push_back(static_cast<std::byte>((v >> 0) & 0xFFU));
+    }
+
+    static bool parse_bmff_box_header(std::span<const std::byte> bytes,
+                                      uint32_t* out_header_len,
+                                      uint32_t* out_type) noexcept
+    {
+        if (!out_header_len || !out_type) {
+            return false;
+        }
+        uint32_t size32 = 0U;
+        uint32_t type   = 0U;
+        if (!read_u32be(bytes, 0U, &size32) || !read_u32be(bytes, 4U, &type)) {
+            return false;
+        }
+        uint32_t header_len = 8U;
+        if (size32 == 1U) {
+            uint64_t size64 = 0U;
+            if (!read_u64be(bytes, 8U, &size64) || size64 < 16U) {
+                return false;
+            }
+            header_len = 16U;
+        } else if (size32 != 0U && size32 < 8U) {
+            return false;
+        }
+        if (bytes.size() < header_len) {
+            return false;
+        }
+        *out_header_len = header_len;
+        *out_type       = type;
+        return true;
+    }
+
+    static bool payload_contains_ascii(std::span<const std::byte> bytes,
+                                       std::string_view text) noexcept
+    {
+        if (text.empty()) {
+            return true;
+        }
+        if (bytes.size() < text.size()) {
+            return false;
+        }
+        for (size_t i = 0; i + text.size() <= bytes.size(); ++i) {
+            bool match = true;
+            for (size_t j = 0; j < text.size(); ++j) {
+                if (std::to_integer<uint8_t>(bytes[i + j])
+                    != static_cast<uint8_t>(text[j])) {
+                    match = false;
+                    break;
+                }
+            }
+            if (match) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static C2paPayloadClass classify_c2pa_jumbf_payload(
+        std::span<const std::byte> logical_payload) noexcept
+    {
+        uint32_t header_len = 0U;
+        uint32_t type       = 0U;
+        if (!parse_bmff_box_header(logical_payload, &header_len, &type)) {
+            return C2paPayloadClass::NotC2pa;
+        }
+        if (type == fourcc('c', '2', 'p', 'a')) {
+            return is_openmeta_draft_c2pa_invalidation_payload(logical_payload)
+                       ? C2paPayloadClass::DraftUnsignedInvalidation
+                       : C2paPayloadClass::ContentBound;
+        }
+        if (type != fourcc('j', 'u', 'm', 'b')) {
+            return C2paPayloadClass::NotC2pa;
+        }
+
+        size_t off = header_len;
+        while (off < logical_payload.size()) {
+            uint32_t child_header_len = 0U;
+            uint32_t child_type       = 0U;
+            if (!parse_bmff_box_header(logical_payload.subspan(off),
+                                       &child_header_len, &child_type)) {
+                return C2paPayloadClass::NotC2pa;
+            }
+            uint32_t child_size32 = 0U;
+            if (!read_u32be(logical_payload, off + 0U, &child_size32)) {
+                return C2paPayloadClass::NotC2pa;
+            }
+            uint64_t child_size = child_size32;
+            if (child_size32 == 1U) {
+                if (!read_u64be(logical_payload, off + 8U, &child_size)) {
+                    return C2paPayloadClass::NotC2pa;
+                }
+            } else if (child_size32 == 0U) {
+                child_size = logical_payload.size() - off;
+            }
+            if (child_size < child_header_len
+                || child_size > logical_payload.size() - off) {
+                return C2paPayloadClass::NotC2pa;
+            }
+
+            if (child_type == fourcc('j', 'u', 'm', 'd')) {
+                const size_t payload_off = off + child_header_len;
+                const size_t payload_len = static_cast<size_t>(
+                    child_size - child_header_len);
+                size_t label_len = 0U;
+                while (label_len < payload_len
+                       && logical_payload[payload_off + label_len]
+                              != std::byte { 0x00 }) {
+                    label_len += 1U;
+                }
+                const std::string_view label(reinterpret_cast<const char*>(
+                                                 logical_payload.data()
+                                                 + payload_off),
+                                             label_len);
+                if (label != "c2pa") {
+                    return C2paPayloadClass::NotC2pa;
+                }
+                return is_openmeta_draft_c2pa_invalidation_payload(
+                           logical_payload)
+                           ? C2paPayloadClass::DraftUnsignedInvalidation
+                           : C2paPayloadClass::ContentBound;
+            }
+
+            off += static_cast<size_t>(child_size);
+        }
+        return C2paPayloadClass::NotC2pa;
+    }
+
+    static bool
+    is_c2pa_jumbf_payload(std::span<const std::byte> logical_payload) noexcept
+    {
+        return classify_c2pa_jumbf_payload(logical_payload)
+               != C2paPayloadClass::NotC2pa;
+    }
+
+    static bool is_source_jumbf_block(const ContainerBlockRef& block) noexcept
+    {
+        if (block.kind == ContainerBlockKind::Jumbf) {
+            return true;
+        }
+        return block.kind == ContainerBlockKind::CompressedMetadata
+               && block.compression == BlockCompression::Brotli
+               && (block.aux_u32 == fourcc('j', 'u', 'm', 'b')
+                   || block.aux_u32 == fourcc('c', '2', 'p', 'a'));
+    }
+
+    static bool
+    is_duplicate_jumbf_seed(std::span<const ContainerBlockRef> blocks,
+                            uint32_t seed_index) noexcept
+    {
+        if (seed_index >= blocks.size()) {
+            return true;
+        }
+        const ContainerBlockRef& seed = blocks[seed_index];
+        if (!is_source_jumbf_block(seed) || seed.part_count <= 1U) {
+            return false;
+        }
+        for (uint32_t i = 0U; i < seed_index; ++i) {
+            const ContainerBlockRef& prev = blocks[i];
+            if (!is_source_jumbf_block(prev)) {
+                continue;
+            }
+            if (prev.format == seed.format && prev.kind == seed.kind
+                && prev.id == seed.id && prev.group == seed.group
+                && prev.part_count == seed.part_count) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static void append_cbor_major_u64(std::vector<std::byte>* out,
+                                      uint8_t major, uint64_t value) noexcept
+    {
+        if (!out) {
+            return;
+        }
+        const uint8_t prefix = static_cast<uint8_t>(major << 5U);
+        if (value < 24U) {
+            out->push_back(static_cast<std::byte>(prefix | value));
+            return;
+        }
+        if (value <= 0xFFU) {
+            out->push_back(static_cast<std::byte>(prefix | 24U));
+            out->push_back(static_cast<std::byte>(value & 0xFFU));
+            return;
+        }
+        if (value <= 0xFFFFU) {
+            out->push_back(static_cast<std::byte>(prefix | 25U));
+            out->push_back(static_cast<std::byte>((value >> 8U) & 0xFFU));
+            out->push_back(static_cast<std::byte>((value >> 0U) & 0xFFU));
+            return;
+        }
+        if (value <= 0xFFFFFFFFULL) {
+            out->push_back(static_cast<std::byte>(prefix | 26U));
+            out->push_back(static_cast<std::byte>((value >> 24U) & 0xFFU));
+            out->push_back(static_cast<std::byte>((value >> 16U) & 0xFFU));
+            out->push_back(static_cast<std::byte>((value >> 8U) & 0xFFU));
+            out->push_back(static_cast<std::byte>((value >> 0U) & 0xFFU));
+            return;
+        }
+        out->push_back(static_cast<std::byte>(prefix | 27U));
+        out->push_back(static_cast<std::byte>((value >> 56U) & 0xFFU));
+        out->push_back(static_cast<std::byte>((value >> 48U) & 0xFFU));
+        out->push_back(static_cast<std::byte>((value >> 40U) & 0xFFU));
+        out->push_back(static_cast<std::byte>((value >> 32U) & 0xFFU));
+        out->push_back(static_cast<std::byte>((value >> 24U) & 0xFFU));
+        out->push_back(static_cast<std::byte>((value >> 16U) & 0xFFU));
+        out->push_back(static_cast<std::byte>((value >> 8U) & 0xFFU));
+        out->push_back(static_cast<std::byte>((value >> 0U) & 0xFFU));
+    }
+
+    static void append_cbor_text(std::vector<std::byte>* out,
+                                 std::string_view text) noexcept
+    {
+        if (!out) {
+            return;
+        }
+        append_cbor_major_u64(out, 3U, static_cast<uint64_t>(text.size()));
+        for (size_t i = 0; i < text.size(); ++i) {
+            out->push_back(
+                static_cast<std::byte>(static_cast<uint8_t>(text[i])));
+        }
+    }
+
+    static void
+    append_bmff_box_bytes(std::vector<std::byte>* out, uint32_t type,
+                          std::span<const std::byte> payload) noexcept
+    {
+        if (!out) {
+            return;
+        }
+        append_u32be(out, static_cast<uint32_t>(8U + payload.size()));
+        append_u32be(out, type);
+        out->insert(out->end(), payload.begin(), payload.end());
+    }
+
+    static bool is_openmeta_draft_c2pa_invalidation_payload(
+        std::span<const std::byte> bytes) noexcept
+    {
+        return payload_contains_ascii(bytes, "openmeta:c2pa_invalidation")
+               || payload_contains_ascii(bytes, "openmeta:c2pa_contract");
+    }
+
+    static std::vector<std::byte> build_draft_c2pa_invalidation_payload()
+    {
+        std::vector<std::byte> cbor;
+        cbor.reserve(160U);
+        append_cbor_major_u64(&cbor, 5U, 5U);
+        append_cbor_text(&cbor, "openmeta:c2pa_contract");
+        append_cbor_text(&cbor, "draft_invalidation");
+        append_cbor_text(&cbor, "openmeta:contract_version");
+        append_cbor_major_u64(&cbor, 0U, 1U);
+        append_cbor_text(&cbor, "openmeta:c2pa_invalidation");
+        cbor.push_back(std::byte { 0xF5 });
+        append_cbor_text(&cbor, "openmeta:reason");
+        append_cbor_text(&cbor, "content_changed");
+        append_cbor_text(&cbor, "openmeta:mode");
+        append_cbor_text(&cbor, "unsigned_draft");
+
+        std::vector<std::byte> jumd_payload;
+        append_ascii_bytes(&jumd_payload, "c2pa");
+        jumd_payload.push_back(std::byte { 0x00 });
+
+        std::vector<std::byte> jumd_box;
+        append_bmff_box_bytes(&jumd_box, fourcc('j', 'u', 'm', 'd'),
+                              std::span<const std::byte>(jumd_payload.data(),
+                                                         jumd_payload.size()));
+
+        std::vector<std::byte> cbor_box;
+        append_bmff_box_bytes(&cbor_box, fourcc('c', 'b', 'o', 'r'),
+                              std::span<const std::byte>(cbor.data(),
+                                                         cbor.size()));
+
+        std::vector<std::byte> jumb_payload;
+        jumb_payload.reserve(jumd_box.size() + cbor_box.size());
+        jumb_payload.insert(jumb_payload.end(), jumd_box.begin(),
+                            jumd_box.end());
+        jumb_payload.insert(jumb_payload.end(), cbor_box.begin(),
+                            cbor_box.end());
+
+        std::vector<std::byte> jumb_box;
+        append_bmff_box_bytes(&jumb_box, fourcc('j', 'u', 'm', 'b'),
+                              std::span<const std::byte>(jumb_payload.data(),
+                                                         jumb_payload.size()));
+        return jumb_box;
+    }
+
+    static void append_cbor_bytes(std::vector<std::byte>* out,
+                                  std::span<const std::byte> bytes) noexcept
+    {
+        if (!out) {
+            return;
+        }
+        append_cbor_major_u64(out, 2U, static_cast<uint64_t>(bytes.size()));
+        out->insert(out->end(), bytes.begin(), bytes.end());
+    }
+
+    static void append_cbor_f32_bits(std::vector<std::byte>* out,
+                                     uint32_t bits) noexcept
+    {
+        if (!out) {
+            return;
+        }
+        out->push_back(std::byte { 0xFA });
+        out->push_back(static_cast<std::byte>((bits >> 24U) & 0xFFU));
+        out->push_back(static_cast<std::byte>((bits >> 16U) & 0xFFU));
+        out->push_back(static_cast<std::byte>((bits >> 8U) & 0xFFU));
+        out->push_back(static_cast<std::byte>((bits >> 0U) & 0xFFU));
+    }
+
+    static void append_cbor_f64_bits(std::vector<std::byte>* out,
+                                     uint64_t bits) noexcept
+    {
+        if (!out) {
+            return;
+        }
+        out->push_back(std::byte { 0xFB });
+        out->push_back(static_cast<std::byte>((bits >> 56U) & 0xFFU));
+        out->push_back(static_cast<std::byte>((bits >> 48U) & 0xFFU));
+        out->push_back(static_cast<std::byte>((bits >> 40U) & 0xFFU));
+        out->push_back(static_cast<std::byte>((bits >> 32U) & 0xFFU));
+        out->push_back(static_cast<std::byte>((bits >> 24U) & 0xFFU));
+        out->push_back(static_cast<std::byte>((bits >> 16U) & 0xFFU));
+        out->push_back(static_cast<std::byte>((bits >> 8U) & 0xFFU));
+        out->push_back(static_cast<std::byte>((bits >> 0U) & 0xFFU));
+    }
+
+    static bool meta_scalar_to_u64(const MetaValue& value,
+                                   uint64_t* out) noexcept
+    {
+        if (!out || value.kind != MetaValueKind::Scalar) {
+            return false;
+        }
+        switch (value.elem_type) {
+        case MetaElementType::U8:
+        case MetaElementType::U16:
+        case MetaElementType::U32:
+        case MetaElementType::U64: *out = value.data.u64; return true;
+        case MetaElementType::I8:
+        case MetaElementType::I16:
+        case MetaElementType::I32:
+        case MetaElementType::I64:
+            if (value.data.i64 < 0) {
+                return false;
+            }
+            *out = static_cast<uint64_t>(value.data.i64);
+            return true;
+        default: return false;
+        }
+    }
+
+    static bool supported_projected_text_encoding(const MetaValue& value,
+                                                  std::string_view text) noexcept
+    {
+        if (value.kind != MetaValueKind::Text) {
+            return false;
+        }
+        switch (value.text_encoding) {
+        case TextEncoding::Ascii: return true;
+        case TextEncoding::Utf8: return true;
+        case TextEncoding::Unknown:
+            for (size_t i = 0; i < text.size(); ++i) {
+                if (static_cast<unsigned char>(text[i]) > 0x7FU) {
+                    return false;
+                }
+            }
+            return true;
+        case TextEncoding::Utf16LE:
+        case TextEncoding::Utf16BE: return false;
+        }
+        return false;
+    }
+
+    static bool looks_like_projected_simple_text(std::string_view text) noexcept
+    {
+        if (!starts_with(text, "simple(") || text.size() < 9U
+            || text.back() != ')') {
+            return false;
+        }
+        return decimal_text(text.substr(7U, text.size() - 8U));
+    }
+
+    static bool
+    looks_like_projected_large_negative_text(std::string_view text) noexcept
+    {
+        if (!starts_with(text, "-(1+") || text.size() < 7U
+            || text.back() != ')') {
+            return false;
+        }
+        return decimal_text(text.substr(4U, text.size() - 5U));
+    }
+
+    static uint32_t append_projected_cbor_node(ProjectedCborTree* tree) noexcept
+    {
+        if (!tree) {
+            return 0U;
+        }
+        tree->nodes.push_back(ProjectedCborNode());
+        return static_cast<uint32_t>(tree->nodes.size() - 1U);
+    }
+
+    static bool assign_projected_cbor_tag(ProjectedCborTree* tree,
+                                          uint32_t node_index,
+                                          const Entry& entry,
+                                          std::string* out_error) noexcept
+    {
+        if (!tree || node_index >= tree->nodes.size()) {
+            if (out_error) {
+                *out_error = "projected jumbf cbor tag target is invalid";
+            }
+            return false;
+        }
+        uint64_t tag = 0U;
+        if (!meta_scalar_to_u64(entry.value, &tag)) {
+            if (out_error) {
+                *out_error
+                    = "projected jumbf cbor tag is not a scalar unsigned integer";
+            }
+            return false;
+        }
+        ProjectedCborNode& node = tree->nodes[node_index];
+        if (node.has_tag && node.tag != tag) {
+            if (out_error) {
+                *out_error = "projected jumbf cbor tag is duplicated";
+            }
+            return false;
+        }
+        node.has_tag = true;
+        node.tag     = tag;
+        return true;
+    }
+
+    static bool assign_projected_cbor_leaf(ProjectedCborTree* tree,
+                                           uint32_t node_index,
+                                           const Entry& entry,
+                                           std::string* out_error) noexcept
+    {
+        if (!tree || node_index >= tree->nodes.size()) {
+            if (out_error) {
+                *out_error = "projected jumbf cbor leaf target is invalid";
+            }
+            return false;
+        }
+        ProjectedCborNode& node = tree->nodes[node_index];
+        if (!node.children.empty()) {
+            if (out_error) {
+                *out_error
+                    = "projected jumbf cbor node cannot be both container and scalar";
+            }
+            return false;
+        }
+        if (node.leaf && node.leaf != &entry) {
+            if (out_error) {
+                *out_error = "projected jumbf cbor leaf is duplicated";
+            }
+            return false;
+        }
+        node.kind = ProjectedCborNodeKind::Leaf;
+        node.leaf = &entry;
+        return true;
+    }
+
+    static bool find_or_add_projected_map_child(ProjectedCborTree* tree,
+                                                uint32_t parent_index,
+                                                std::string_view map_key,
+                                                uint32_t* out_child_index,
+                                                std::string* out_error) noexcept
+    {
+        if (!tree || !out_child_index || parent_index >= tree->nodes.size()) {
+            if (out_error) {
+                *out_error = "projected jumbf cbor map parent is invalid";
+            }
+            return false;
+        }
+        if (map_key.empty() || map_key == "@tag") {
+            if (out_error) {
+                *out_error = "projected jumbf cbor map key is empty";
+            }
+            return false;
+        }
+        if (decimal_text(map_key)) {
+            if (out_error) {
+                *out_error
+                    = "projected jumbf cbor numeric map keys are ambiguous";
+            }
+            return false;
+        }
+
+        ProjectedCborNode& parent = tree->nodes[parent_index];
+        if (parent.kind == ProjectedCborNodeKind::Leaf || parent.leaf) {
+            if (out_error) {
+                *out_error
+                    = "projected jumbf cbor scalar node cannot gain children";
+            }
+            return false;
+        }
+        if (parent.kind == ProjectedCborNodeKind::Unknown) {
+            parent.kind = ProjectedCborNodeKind::Map;
+        } else if (parent.kind != ProjectedCborNodeKind::Map) {
+            if (out_error) {
+                *out_error = "projected jumbf cbor container kind mismatch";
+            }
+            return false;
+        }
+
+        for (size_t i = 0; i < parent.children.size(); ++i) {
+            if (!parent.children[i].array_child
+                && parent.children[i].map_key == map_key) {
+                *out_child_index = parent.children[i].node_index;
+                return true;
+            }
+        }
+
+        const uint32_t child_index = append_projected_cbor_node(tree);
+        ProjectedCborChild child;
+        child.node_index  = child_index;
+        child.array_child = false;
+        child.map_key.assign(map_key.data(), map_key.size());
+        tree->nodes[parent_index].children.push_back(std::move(child));
+        *out_child_index = child_index;
+        return true;
+    }
+
+    static bool find_or_add_projected_array_child(
+        ProjectedCborTree* tree, uint32_t parent_index, uint32_t array_index,
+        uint32_t* out_child_index, std::string* out_error) noexcept
+    {
+        if (!tree || !out_child_index || parent_index >= tree->nodes.size()) {
+            if (out_error) {
+                *out_error = "projected jumbf cbor array parent is invalid";
+            }
+            return false;
+        }
+
+        ProjectedCborNode& parent = tree->nodes[parent_index];
+        if (parent.kind == ProjectedCborNodeKind::Leaf || parent.leaf) {
+            if (out_error) {
+                *out_error
+                    = "projected jumbf cbor scalar node cannot gain children";
+            }
+            return false;
+        }
+        if (parent.kind == ProjectedCborNodeKind::Unknown) {
+            parent.kind = ProjectedCborNodeKind::Array;
+        } else if (parent.kind != ProjectedCborNodeKind::Array) {
+            if (out_error) {
+                *out_error = "projected jumbf cbor container kind mismatch";
+            }
+            return false;
+        }
+
+        size_t insert_at = parent.children.size();
+        for (size_t i = 0; i < parent.children.size(); ++i) {
+            if (!parent.children[i].array_child) {
+                continue;
+            }
+            if (parent.children[i].array_index == array_index) {
+                *out_child_index = parent.children[i].node_index;
+                return true;
+            }
+            if (parent.children[i].array_index > array_index) {
+                insert_at = i;
+                break;
+            }
+        }
+
+        const uint32_t child_index = append_projected_cbor_node(tree);
+        ProjectedCborChild child;
+        child.node_index  = child_index;
+        child.array_child = true;
+        child.array_index = array_index;
+        tree->nodes[parent_index].children.insert(
+            tree->nodes[parent_index].children.begin()
+                + static_cast<std::ptrdiff_t>(insert_at),
+            std::move(child));
+        *out_child_index = child_index;
+        return true;
+    }
+
+    static bool build_projected_cbor_tree(const MetaStore& store,
+                                          std::string_view root_prefix,
+                                          ProjectedCborTree* out_tree,
+                                          std::string* out_error) noexcept
+    {
+        if (!out_tree || root_prefix.empty()) {
+            if (out_error) {
+                *out_error = "projected jumbf cbor root is invalid";
+            }
+            return false;
+        }
+
+        out_tree->root_prefix.assign(root_prefix.data(), root_prefix.size());
+        out_tree->nodes.clear();
+        out_tree->nodes.push_back(ProjectedCborNode());
+
+        static constexpr uint32_t kMaxProjectedDepth = 64U;
+        bool matched_any                             = false;
+
+        for (const Entry& e : store.entries()) {
+            if (any(e.flags, EntryFlags::Deleted)
+                || e.key.kind != MetaKeyKind::JumbfCborKey) {
+                continue;
+            }
+            const std::string_view full_key
+                = arena_string(store.arena(), e.key.data.jumbf_cbor_key.key);
+            if (contains_path_segment(full_key, "c2pa")) {
+                continue;
+            }
+            if (!starts_with(full_key, root_prefix)) {
+                continue;
+            }
+
+            const std::string_view relative = full_key.substr(
+                root_prefix.size());
+            matched_any           = true;
+            uint32_t current_node = 0U;
+            uint32_t depth        = 0U;
+            bool tag_only         = false;
+            size_t pos            = 0U;
+
+            while (pos < relative.size()) {
+                depth += 1U;
+                if (depth > kMaxProjectedDepth) {
+                    if (out_error) {
+                        *out_error
+                            = "projected jumbf cbor nesting exceeds transfer limits";
+                    }
+                    return false;
+                }
+                if (relative[pos] == '.') {
+                    pos += 1U;
+                    if (pos >= relative.size()) {
+                        if (out_error) {
+                            *out_error
+                                = "projected jumbf cbor path has a trailing separator";
+                        }
+                        return false;
+                    }
+                    if (relative.substr(pos) == "@tag") {
+                        tag_only = true;
+                        pos      = relative.size();
+                        break;
+                    }
+                    size_t end = pos;
+                    while (end < relative.size() && relative[end] != '.'
+                           && relative[end] != '[') {
+                        end += 1U;
+                    }
+                    const std::string_view map_key = relative.substr(pos,
+                                                                     end - pos);
+                    if (!find_or_add_projected_map_child(out_tree, current_node,
+                                                         map_key, &current_node,
+                                                         out_error)) {
+                        return false;
+                    }
+                    pos = end;
+                    continue;
+                }
+                if (relative[pos] == '[') {
+                    pos += 1U;
+                    const size_t index_begin = pos;
+                    while (pos < relative.size() && relative[pos] != ']') {
+                        pos += 1U;
+                    }
+                    if (pos >= relative.size() || pos == index_begin) {
+                        if (out_error) {
+                            *out_error
+                                = "projected jumbf cbor array index is malformed";
+                        }
+                        return false;
+                    }
+                    uint32_t array_index = 0U;
+                    if (!parse_u32_decimal(relative.substr(index_begin,
+                                                           pos - index_begin),
+                                           &array_index)) {
+                        if (out_error) {
+                            *out_error
+                                = "projected jumbf cbor array index is invalid";
+                        }
+                        return false;
+                    }
+                    if (!find_or_add_projected_array_child(
+                            out_tree, current_node, array_index, &current_node,
+                            out_error)) {
+                        return false;
+                    }
+                    pos += 1U;
+                    continue;
+                }
+                if (out_error) {
+                    *out_error
+                        = "projected jumbf cbor path has unsupported syntax";
+                }
+                return false;
+            }
+
+            if (tag_only) {
+                if (!assign_projected_cbor_tag(out_tree, current_node, e,
+                                               out_error)) {
+                    return false;
+                }
+                continue;
+            }
+
+            if (!assign_projected_cbor_leaf(out_tree, current_node, e,
+                                            out_error)) {
+                return false;
+            }
+        }
+
+        if (!matched_any) {
+            if (out_error) {
+                *out_error = "projected jumbf cbor root has no entries";
+            }
+            return false;
+        }
+        return true;
+    }
+
+    static bool emit_projected_cbor_leaf(const MetaStore& store,
+                                         const Entry& entry,
+                                         std::vector<std::byte>* out,
+                                         std::string* out_error) noexcept
+    {
+        if (!out) {
+            if (out_error) {
+                *out_error = "projected jumbf cbor output is null";
+            }
+            return false;
+        }
+
+        const MetaValue& value = entry.value;
+        if (value.kind == MetaValueKind::Scalar) {
+            switch (value.elem_type) {
+            case MetaElementType::U8:
+                if (out_error) {
+                    *out_error
+                        = "projected jumbf cbor U8 scalars are ambiguous "
+                          "(decoded bool/simple vs integer)";
+                }
+                return false;
+            case MetaElementType::U16:
+            case MetaElementType::U32:
+            case MetaElementType::U64:
+                append_cbor_major_u64(out, 0U, value.data.u64);
+                return true;
+            case MetaElementType::I8:
+            case MetaElementType::I16:
+            case MetaElementType::I32:
+            case MetaElementType::I64:
+                if (value.data.i64 >= 0) {
+                    append_cbor_major_u64(out, 0U,
+                                          static_cast<uint64_t>(value.data.i64));
+                } else {
+                    const uint64_t cbor_negative = static_cast<uint64_t>(
+                        -(value.data.i64 + 1));
+                    append_cbor_major_u64(out, 1U, cbor_negative);
+                }
+                return true;
+            case MetaElementType::F32:
+                append_cbor_f32_bits(out, value.data.f32_bits);
+                return true;
+            case MetaElementType::F64:
+                append_cbor_f64_bits(out, value.data.f64_bits);
+                return true;
+            case MetaElementType::URational:
+            case MetaElementType::SRational: break;
+            }
+        } else if (value.kind == MetaValueKind::Bytes) {
+            const std::span<const std::byte> bytes = store.arena().span(
+                value.data.span);
+            append_cbor_bytes(out, bytes);
+            return true;
+        } else if (value.kind == MetaValueKind::Text) {
+            const std::span<const std::byte> bytes = store.arena().span(
+                value.data.span);
+            const std::string_view text(reinterpret_cast<const char*>(
+                                            bytes.data()),
+                                        bytes.size());
+            if (!supported_projected_text_encoding(value, text)) {
+                if (out_error) {
+                    *out_error = "projected jumbf cbor text is not ASCII/UTF-8";
+                }
+                return false;
+            }
+            if (text == "null" || text == "undefined") {
+                if (out_error) {
+                    *out_error
+                        = "projected jumbf cbor sentinel text is ambiguous "
+                          "(decoded null/undefined vs string)";
+                }
+                return false;
+            }
+            if (looks_like_projected_simple_text(text)) {
+                if (out_error) {
+                    *out_error
+                        = "projected jumbf cbor simple-value text is ambiguous";
+                }
+                return false;
+            }
+            if (looks_like_projected_large_negative_text(text)) {
+                if (out_error) {
+                    *out_error
+                        = "projected jumbf cbor large-negative fallback text "
+                          "is ambiguous";
+                }
+                return false;
+            }
+            append_cbor_text(out, text);
+            return true;
+        }
+
+        if (out_error) {
+            *out_error = "projected jumbf cbor value kind is not serializable";
+        }
+        return false;
+    }
+
+    static bool emit_projected_cbor_node(const MetaStore& store,
+                                         const ProjectedCborTree& tree,
+                                         uint32_t node_index, uint32_t depth,
+                                         std::vector<std::byte>* out,
+                                         std::string* out_error) noexcept
+    {
+        if (!out || node_index >= tree.nodes.size()) {
+            if (out_error) {
+                *out_error = "projected jumbf cbor node is invalid";
+            }
+            return false;
+        }
+        if (depth > 64U) {
+            if (out_error) {
+                *out_error
+                    = "projected jumbf cbor nesting exceeds transfer limits";
+            }
+            return false;
+        }
+
+        const ProjectedCborNode& node = tree.nodes[node_index];
+        if (node.has_tag) {
+            append_cbor_major_u64(out, 6U, node.tag);
+        }
+
+        switch (node.kind) {
+        case ProjectedCborNodeKind::Leaf:
+            if (!node.leaf) {
+                if (out_error) {
+                    *out_error = "projected jumbf cbor leaf is missing";
+                }
+                return false;
+            }
+            return emit_projected_cbor_leaf(store, *node.leaf, out, out_error);
+        case ProjectedCborNodeKind::Map:
+            append_cbor_major_u64(out, 5U,
+                                  static_cast<uint64_t>(node.children.size()));
+            for (size_t i = 0; i < node.children.size(); ++i) {
+                if (node.children[i].array_child) {
+                    if (out_error) {
+                        *out_error
+                            = "projected jumbf cbor map child kind mismatch";
+                    }
+                    return false;
+                }
+                append_cbor_text(out, node.children[i].map_key);
+                if (!emit_projected_cbor_node(store, tree,
+                                              node.children[i].node_index,
+                                              depth + 1U, out, out_error)) {
+                    return false;
+                }
+            }
+            return true;
+        case ProjectedCborNodeKind::Array:
+            append_cbor_major_u64(out, 4U,
+                                  static_cast<uint64_t>(node.children.size()));
+            for (size_t i = 0; i < node.children.size(); ++i) {
+                if (!node.children[i].array_child
+                    || node.children[i].array_index != i) {
+                    if (out_error) {
+                        *out_error
+                            = "projected jumbf cbor array indices are sparse";
+                    }
+                    return false;
+                }
+                if (!emit_projected_cbor_node(store, tree,
+                                              node.children[i].node_index,
+                                              depth + 1U, out, out_error)) {
+                    return false;
+                }
+            }
+            return true;
+        case ProjectedCborNodeKind::Unknown:
+            if (out_error) {
+                *out_error = "projected jumbf cbor root is empty";
+            }
+            return false;
+        }
+        if (out_error) {
+            *out_error = "projected jumbf cbor node kind is unsupported";
+        }
+        return false;
+    }
+
+    static std::string build_projected_jumbf_label(std::string_view root_prefix)
+    {
+        std::string label("openmeta.projected.");
+        label.append(root_prefix.data(), root_prefix.size());
+        return label;
+    }
+
+    static bool build_projected_jumbf_logical_payload_for_root(
+        const MetaStore& store, std::string_view root_prefix,
+        std::vector<std::byte>* out_payload, std::string* out_error) noexcept
+    {
+        if (!out_payload || root_prefix.empty()) {
+            if (out_error) {
+                *out_error = "projected jumbf logical payload target is invalid";
+            }
+            return false;
+        }
+
+        ProjectedCborTree tree;
+        if (!build_projected_cbor_tree(store, root_prefix, &tree, out_error)) {
+            return false;
+        }
+
+        std::vector<std::byte> cbor_payload;
+        if (!emit_projected_cbor_node(store, tree, 0U, 0U, &cbor_payload,
+                                      out_error)) {
+            return false;
+        }
+
+        const std::string label = build_projected_jumbf_label(root_prefix);
+        std::vector<std::byte> jumd_payload;
+        append_ascii_bytes(&jumd_payload, label);
+        jumd_payload.push_back(std::byte { 0x00 });
+
+        std::vector<std::byte> jumd_box;
+        append_bmff_box_bytes(&jumd_box, fourcc('j', 'u', 'm', 'd'),
+                              std::span<const std::byte>(jumd_payload.data(),
+                                                         jumd_payload.size()));
+
+        std::vector<std::byte> cbor_box;
+        append_bmff_box_bytes(&cbor_box, fourcc('c', 'b', 'o', 'r'),
+                              std::span<const std::byte>(cbor_payload.data(),
+                                                         cbor_payload.size()));
+
+        std::vector<std::byte> jumb_payload;
+        jumb_payload.reserve(jumd_box.size() + cbor_box.size());
+        jumb_payload.insert(jumb_payload.end(), jumd_box.begin(),
+                            jumd_box.end());
+        jumb_payload.insert(jumb_payload.end(), cbor_box.begin(),
+                            cbor_box.end());
+
+        out_payload->clear();
+        append_bmff_box_bytes(out_payload, fourcc('j', 'u', 'm', 'b'),
+                              std::span<const std::byte>(jumb_payload.data(),
+                                                         jumb_payload.size()));
+        return true;
+    }
+
+    static bool build_projected_jumbf_logical_payloads(
+        const MetaStore& store,
+        std::vector<ProjectedJumbfPayload>* out_payloads,
+        std::string* out_error) noexcept
+    {
+        if (!out_payloads) {
+            if (out_error) {
+                *out_error = "projected jumbf logical payload output is null";
+            }
+            return false;
+        }
+
+        std::vector<std::string> roots;
+        for (const Entry& e : store.entries()) {
+            if (any(e.flags, EntryFlags::Deleted)
+                || e.key.kind != MetaKeyKind::JumbfCborKey) {
+                continue;
+            }
+            const std::string_view full_key
+                = arena_string(store.arena(), e.key.data.jumbf_cbor_key.key);
+            if (contains_path_segment(full_key, "c2pa")) {
+                continue;
+            }
+            std::string_view root;
+            std::string_view suffix;
+            if (!find_jumbf_cbor_root_prefix(full_key, &root, &suffix)) {
+                if (out_error) {
+                    *out_error
+                        = "projected jumbf cbor key does not contain a .cbor root";
+                }
+                return false;
+            }
+            append_unique_string(&roots, root);
+        }
+
+        if (roots.empty()) {
+            if (out_error) {
+                *out_error = "no non-c2pa jumbf cbor keys are available";
+            }
+            return false;
+        }
+
+        out_payloads->clear();
+        out_payloads->reserve(roots.size());
+        for (size_t i = 0; i < roots.size(); ++i) {
+            ProjectedJumbfPayload one;
+            one.root_prefix = roots[i];
+            if (!build_projected_jumbf_logical_payload_for_root(
+                    store, roots[i], &one.logical_payload, out_error)) {
+                return false;
+            }
+            out_payloads->push_back(std::move(one));
+        }
+        return true;
+    }
+
+    static bool append_jpeg_app11_jumbf_segments(
+        std::span<const std::byte> logical_payload, TransferBlockKind kind,
+        uint32_t* io_order, std::vector<PreparedTransferBlock>* out_blocks,
+        std::string* out_error) noexcept
+    {
+        if (!io_order || !out_blocks) {
+            if (out_error) {
+                *out_error = "jpeg app11 jumbf output is null";
+            }
+            return false;
+        }
+
+        uint32_t header_len = 0U;
+        uint32_t box_type   = 0U;
+        if (!parse_bmff_box_header(logical_payload, &header_len, &box_type)) {
+            if (out_error) {
+                *out_error
+                    = "jumbf payload does not start with a valid bmff box";
+            }
+            return false;
+        }
+
+        static constexpr uint32_t kMaxJpegSegmentPayload = 65533U;
+        const uint32_t fixed_overhead                    = 8U + header_len;
+        if (fixed_overhead > kMaxJpegSegmentPayload) {
+            if (out_error) {
+                *out_error = "jumbf app11 overhead exceeds jpeg segment limits";
+            }
+            return false;
+        }
+        const uint32_t max_chunk = kMaxJpegSegmentPayload - fixed_overhead;
+        const std::span<const std::byte> header
+            = logical_payload.subspan(0U, header_len);
+        const std::span<const std::byte> body = logical_payload.subspan(
+            header_len);
+
+        uint64_t body_off = 0U;
+        uint32_t seq      = 1U;
+        do {
+            const uint32_t chunk = static_cast<uint32_t>(
+                std::min<uint64_t>(max_chunk, body.size() - body_off));
+
+            PreparedTransferBlock block;
+            block.kind  = kind;
+            block.order = *io_order;
+            *io_order += 1U;
+            block.route    = (kind == TransferBlockKind::C2pa)
+                                 ? "jpeg:app11-c2pa"
+                                 : "jpeg:app11-jumbf";
+            block.box_type = {
+                static_cast<char>((box_type >> 24U) & 0xFFU),
+                static_cast<char>((box_type >> 16U) & 0xFFU),
+                static_cast<char>((box_type >> 8U) & 0xFFU),
+                static_cast<char>((box_type >> 0U) & 0xFFU),
+            };
+            append_ascii_bytes(&block.payload, "JP");
+            block.payload.push_back(std::byte { 0x00 });
+            block.payload.push_back(std::byte { 0x00 });
+            append_u32be(&block.payload, seq);
+            block.payload.insert(block.payload.end(), header.begin(),
+                                 header.end());
+            block.payload.insert(
+                block.payload.end(),
+                body.begin() + static_cast<std::ptrdiff_t>(body_off),
+                body.begin() + static_cast<std::ptrdiff_t>(body_off + chunk));
+            out_blocks->push_back(std::move(block));
+            body_off += chunk;
+            seq += 1U;
+        } while (body_off < body.size() || (body.empty() && seq == 2U));
+
+        return true;
+    }
+
+    static C2paPayloadClass classify_source_c2pa_payloads_for_jpeg(
+        std::span<const std::byte> file_bytes,
+        std::span<const ContainerBlockRef> blocks,
+        const PayloadOptions& options) noexcept
+    {
+        std::vector<std::byte> payload(1024U * 1024U);
+        std::vector<uint32_t> scratch(16384U);
+        bool saw_draft = false;
+
+        for (uint32_t i = 0U; i < blocks.size(); ++i) {
+            const ContainerBlockRef& block = blocks[i];
+            if (!is_source_jumbf_block(block)
+                || is_duplicate_jumbf_seed(blocks, i)) {
+                continue;
+            }
+
+            PayloadResult extracted;
+            for (;;) {
+                extracted = extract_payload(
+                    file_bytes, blocks, i,
+                    std::span<std::byte>(payload.data(), payload.size()),
+                    std::span<uint32_t>(scratch.data(), scratch.size()),
+                    options);
+                if (extracted.status == PayloadStatus::OutputTruncated
+                    && extracted.needed > payload.size()
+                    && extracted.needed <= static_cast<uint64_t>(SIZE_MAX)) {
+                    payload.resize(static_cast<size_t>(extracted.needed));
+                    continue;
+                }
+                break;
+            }
+
+            if (extracted.status != PayloadStatus::Ok
+                || extracted.written == 0U) {
+                continue;
+            }
+
+            const C2paPayloadClass payload_class = classify_c2pa_jumbf_payload(
+                std::span<const std::byte>(
+                    payload.data(), static_cast<size_t>(extracted.written)));
+            if (payload_class == C2paPayloadClass::ContentBound) {
+                return payload_class;
+            }
+            if (payload_class == C2paPayloadClass::DraftUnsignedInvalidation) {
+                saw_draft = true;
+            }
+        }
+
+        return saw_draft ? C2paPayloadClass::DraftUnsignedInvalidation
+                         : C2paPayloadClass::NotC2pa;
+    }
+
+    static SourceJumbfAppendResult append_source_jumbf_blocks_for_jpeg(
+        std::span<const std::byte> file_bytes,
+        std::span<const ContainerBlockRef> blocks,
+        const PayloadOptions& options, PreparedTransferBundle* bundle) noexcept
+    {
+        SourceJumbfAppendResult out;
+        if (!bundle) {
+            out.errors  = 1U;
+            out.message = "bundle is null";
+            return out;
+        }
+
+        PreparedTransferPolicyDecision* jumbf_policy
+            = find_policy_decision(bundle, TransferPolicySubject::Jumbf);
+        PreparedTransferPolicyDecision* c2pa_policy
+            = find_policy_decision(bundle, TransferPolicySubject::C2pa);
+        const bool keep_jumbf = jumbf_policy
+                                && jumbf_policy->effective
+                                       == TransferPolicyAction::Keep;
+        const bool keep_c2pa
+            = c2pa_policy
+              && c2pa_policy->effective == TransferPolicyAction::Keep
+              && c2pa_policy->c2pa_mode == TransferC2paMode::PreserveRaw;
+        if (!keep_jumbf && !keep_c2pa) {
+            return out;
+        }
+
+        uint32_t order = 140U;
+        for (size_t i = 0; i < bundle->blocks.size(); ++i) {
+            if (bundle->blocks[i].order >= order) {
+                order = bundle->blocks[i].order + 1U;
+            }
+        }
+
+        std::vector<std::byte> payload(1024U * 1024U);
+        std::vector<uint32_t> scratch(16384U);
+
+        for (uint32_t i = 0U; i < blocks.size(); ++i) {
+            const ContainerBlockRef& block = blocks[i];
+            if (!is_source_jumbf_block(block)
+                || is_duplicate_jumbf_seed(blocks, i)) {
+                continue;
+            }
+
+            PayloadResult extracted;
+            std::span<const std::byte> logical;
+            for (;;) {
+                extracted = extract_payload(
+                    file_bytes, blocks, i,
+                    std::span<std::byte>(payload.data(), payload.size()),
+                    std::span<uint32_t>(scratch.data(), scratch.size()),
+                    options);
+                if (extracted.status == PayloadStatus::OutputTruncated
+                    && extracted.needed > payload.size()
+                    && extracted.needed <= static_cast<uint64_t>(SIZE_MAX)) {
+                    payload.resize(static_cast<size_t>(extracted.needed));
+                    continue;
+                }
+                break;
+            }
+
+            if (extracted.status != PayloadStatus::Ok) {
+                out.errors += 1U;
+                append_message(&out.message,
+                               "failed to extract source jumbf payload");
+                continue;
+            }
+
+            logical = std::span<const std::byte>(payload.data(),
+                                                 static_cast<size_t>(
+                                                     extracted.written));
+            if (logical.empty()) {
+                continue;
+            }
+
+            const C2paPayloadClass payload_class = classify_c2pa_jumbf_payload(
+                logical);
+            if (payload_class == C2paPayloadClass::DraftUnsignedInvalidation) {
+                if (!keep_c2pa) {
+                    continue;
+                }
+                std::string error;
+                if (!append_jpeg_app11_jumbf_segments(logical,
+                                                      TransferBlockKind::C2pa,
+                                                      &order, &bundle->blocks,
+                                                      &error)) {
+                    out.errors += 1U;
+                    append_message(&out.message, error);
+                    continue;
+                }
+                out.emitted_blocks += 1U;
+                out.emitted_c2pa += 1U;
+                continue;
+            }
+            if (payload_class == C2paPayloadClass::ContentBound
+                || !keep_jumbf) {
+                continue;
+            }
+
+            std::string error;
+            if (!append_jpeg_app11_jumbf_segments(logical,
+                                                  TransferBlockKind::Jumbf,
+                                                  &order, &bundle->blocks,
+                                                  &error)) {
+                out.errors += 1U;
+                append_message(&out.message, error);
+                continue;
+            }
+            out.emitted_blocks += 1U;
+            out.emitted_jumbf += 1U;
+        }
+        return out;
     }
 
     static void append_u64be(std::vector<std::byte>* out, uint64_t v) noexcept
@@ -3088,10 +5010,11 @@ namespace {
 
 }  // namespace
 
-PrepareTransferResult
-prepare_metadata_for_target(const MetaStore& store,
-                            const PrepareTransferRequest& request,
-                            PreparedTransferBundle* out_bundle) noexcept
+static PrepareTransferResult
+prepare_metadata_for_target_impl(const MetaStore& store,
+                                 const PrepareTransferRequest& request,
+                                 const TransferPrepareCapabilities& caps,
+                                 PreparedTransferBundle* out_bundle) noexcept
 {
     PrepareTransferResult r;
     if (!out_bundle) {
@@ -3178,15 +5101,75 @@ prepare_metadata_for_target(const MetaStore& store,
                                 "EXIF")));
     }
 
-    TransferPolicyReason jumbf_reason = TransferPolicyReason::NotPresent;
+    const bool can_pack_source_jumbf = caps.jpeg_jumbf_passthrough
+                                       && request.target_format
+                                              == TransferTargetFormat::Jpeg;
+    const bool can_project_store_jumbf
+        = !can_pack_source_jumbf
+          && request.target_format == TransferTargetFormat::Jpeg
+          && count_non_c2pa_jumbf_cbor_entries(store) > 0U;
+
+    TransferPolicyAction effective_jumbf = request.profile.jumbf;
+    TransferPolicyReason jumbf_reason    = TransferPolicyReason::NotPresent;
     if (jumbf_count == 0U) {
         append_policy_decision(&bundle, TransferPolicySubject::Jumbf,
                                request.profile.jumbf, request.profile.jumbf,
                                TransferPolicyReason::NotPresent, 0U,
                                "no jumbf entries in source metadata");
+    } else if (can_pack_source_jumbf) {
+        effective_jumbf = resolve_raw_jumbf_policy(request.profile.jumbf,
+                                                   &jumbf_reason);
+        if (jumbf_reason
+            == TransferPolicyReason::PortableInvalidationUnavailable) {
+            add_prepare_warning(
+                &r, PrepareTransferCode::RequestedMetadataNotSerializable,
+                "jumbf invalidation is not available; dropping jumbf data");
+        } else if (jumbf_reason
+                   == TransferPolicyReason::RewriteUnavailablePreservedRaw) {
+            add_prepare_warning(
+                &r, PrepareTransferCode::RequestedMetadataNotSerializable,
+                "jumbf rewrite is not implemented; preserving raw jumbf "
+                "payloads");
+        }
+        append_policy_decision(
+            &bundle, TransferPolicySubject::Jumbf, request.profile.jumbf,
+            effective_jumbf, jumbf_reason, jumbf_count,
+            jumbf_reason == TransferPolicyReason::ExplicitDrop
+                ? "jumbf transfer disabled by profile"
+                : (jumbf_reason
+                           == TransferPolicyReason::PortableInvalidationUnavailable
+                       ? "jumbf invalidation is not available; dropping "
+                         "jumbf data"
+                       : (jumbf_reason
+                                  == TransferPolicyReason::
+                                      RewriteUnavailablePreservedRaw
+                              ? "jumbf rewrite is unavailable; preserving raw "
+                                "jumbf payloads"
+                              : "source jumbf payloads will be repacked into "
+                                "jpeg app11 segments")));
+    } else if (can_project_store_jumbf) {
+        effective_jumbf = resolve_projected_jumbf_policy(request.profile.jumbf,
+                                                         &jumbf_reason);
+        if (jumbf_reason
+            == TransferPolicyReason::PortableInvalidationUnavailable) {
+            add_prepare_warning(
+                &r, PrepareTransferCode::RequestedMetadataNotSerializable,
+                "jumbf invalidation is not available; dropping jumbf data");
+        }
+        append_policy_decision(
+            &bundle, TransferPolicySubject::Jumbf, request.profile.jumbf,
+            effective_jumbf, jumbf_reason, jumbf_count,
+            jumbf_reason == TransferPolicyReason::ExplicitDrop
+                ? "jumbf transfer disabled by profile"
+                : (jumbf_reason
+                           == TransferPolicyReason::PortableInvalidationUnavailable
+                       ? "jumbf invalidation is not available; dropping "
+                         "jumbf data"
+                       : "decoded non-c2pa jumbf cbor keys will be projected "
+                         "into generic jpeg app11 jumbf payloads"));
     } else {
-        const TransferPolicyAction effective_jumbf
-            = resolve_unserialized_policy(request.profile.jumbf, &jumbf_reason);
+        effective_jumbf = resolve_unserialized_policy(request.profile.jumbf,
+                                                      &jumbf_reason);
         if (request.profile.jumbf != TransferPolicyAction::Drop) {
             requested_present_but_unpacked = true;
             add_prepare_warning(
@@ -3202,29 +5185,88 @@ prepare_metadata_for_target(const MetaStore& store,
                 : "jumbf transfer is not yet serialized for current targets");
     }
 
-    TransferPolicyReason c2pa_reason = TransferPolicyReason::NotPresent;
+    TransferPolicyAction effective_c2pa = request.profile.c2pa;
+    TransferPolicyReason c2pa_reason    = TransferPolicyReason::NotPresent;
+    TransferC2paMode c2pa_mode          = TransferC2paMode::NotPresent;
+    TransferC2paSourceKind c2pa_source_kind = TransferC2paSourceKind::NotPresent;
+    TransferC2paPreparedOutput c2pa_prepared_output
+        = TransferC2paPreparedOutput::NotPresent;
     if (c2pa_count == 0U) {
         append_policy_decision(&bundle, TransferPolicySubject::C2pa,
                                request.profile.c2pa, request.profile.c2pa,
                                TransferPolicyReason::NotPresent, 0U,
-                               "no c2pa entries in source metadata");
+                               "no c2pa entries in source metadata",
+                               TransferC2paMode::NotPresent,
+                               TransferC2paSourceKind::NotPresent,
+                               TransferC2paPreparedOutput::NotPresent);
     } else {
-        const TransferPolicyAction effective_c2pa
-            = resolve_unserialized_policy(request.profile.c2pa, &c2pa_reason);
-        if (request.profile.c2pa != TransferPolicyAction::Drop) {
+        const bool can_generate_c2pa_invalidation
+            = request.target_format == TransferTargetFormat::Jpeg;
+        effective_c2pa = resolve_c2pa_transfer_policy(
+            request.profile.c2pa, can_pack_source_jumbf,
+            can_generate_c2pa_invalidation, caps.source_c2pa_payload_class,
+            &c2pa_reason, &c2pa_mode);
+        c2pa_source_kind
+            = classify_c2pa_source_kind(c2pa_count, can_pack_source_jumbf,
+                                        caps.source_c2pa_payload_class);
+        c2pa_prepared_output = classify_c2pa_prepared_output(c2pa_count,
+                                                             effective_c2pa,
+                                                             c2pa_mode);
+        if (request.profile.c2pa != TransferPolicyAction::Drop
+            && effective_c2pa == TransferPolicyAction::Drop) {
+            std::string_view warning_message
+                = "c2pa transfer is not yet serialized for jpeg/tiff "
+                  "targets; dropping c2pa data";
+            if (c2pa_reason == TransferPolicyReason::SignedRewriteUnavailable) {
+                warning_message
+                    = "c2pa signed rewrite/re-sign is not implemented; "
+                      "dropping c2pa data";
+            } else if (c2pa_reason
+                       == TransferPolicyReason::ContentBoundTransferUnavailable) {
+                warning_message
+                    = "c2pa transfer is content-bound; dropping c2pa data "
+                      "until invalidation/rewrite is available";
+            } else if (c2pa_reason
+                       == TransferPolicyReason::PortableInvalidationUnavailable) {
+                warning_message
+                    = "c2pa invalidation is not available for current "
+                      "targets; dropping c2pa data";
+            }
             requested_present_but_unpacked = true;
             add_prepare_warning(
                 &r, PrepareTransferCode::RequestedMetadataNotSerializable,
-                "c2pa transfer is not yet serialized for jpeg/tiff targets; "
-                "dropping c2pa data");
+                warning_message);
         }
-        append_policy_decision(
-            &bundle, TransferPolicySubject::C2pa, request.profile.c2pa,
-            effective_c2pa, c2pa_reason, c2pa_count,
-            request.profile.c2pa == TransferPolicyAction::Drop
-                ? "c2pa transfer disabled by profile"
-                : "c2pa transfer is not yet serialized for current targets");
+        std::string_view policy_message = "c2pa transfer is not yet "
+                                          "serialized for current targets";
+        if (request.profile.c2pa == TransferPolicyAction::Drop) {
+            policy_message = "c2pa transfer disabled by profile";
+        } else if (c2pa_mode == TransferC2paMode::PreserveRaw) {
+            policy_message = "existing draft unsigned c2pa invalidation "
+                             "payload will be preserved as raw jpeg app11 "
+                             "data";
+        } else if (c2pa_reason
+                   == TransferPolicyReason::DraftInvalidationPayload) {
+            policy_message = "draft unsigned c2pa invalidation payload will "
+                             "be emitted for content-changing jpeg outputs";
+        } else if (c2pa_reason
+                   == TransferPolicyReason::SignedRewriteUnavailable) {
+            policy_message = "c2pa signed rewrite/re-sign is not implemented "
+                             "for current targets";
+        } else if (can_pack_source_jumbf) {
+            policy_message = "c2pa transfer is content-bound; dropping until "
+                             "invalidation/rewrite is available";
+        }
+        append_policy_decision(&bundle, TransferPolicySubject::C2pa,
+                               request.profile.c2pa, effective_c2pa,
+                               c2pa_reason, c2pa_count, policy_message,
+                               c2pa_mode, c2pa_source_kind,
+                               c2pa_prepared_output);
     }
+    bundle.c2pa_rewrite = build_c2pa_rewrite_requirements(request.target_format,
+                                                          request.profile.c2pa,
+                                                          c2pa_count,
+                                                          c2pa_source_kind);
 
     if (request.include_exif_app1 && has_exif) {
         ExifPackBuild exif_build
@@ -3418,6 +5460,155 @@ prepare_metadata_for_target(const MetaStore& store,
         }
     }
 
+    if (request.target_format == TransferTargetFormat::Jpeg
+        && !can_pack_source_jumbf
+        && effective_jumbf == TransferPolicyAction::Keep
+        && jumbf_reason == TransferPolicyReason::ProjectedPayload) {
+        std::vector<ProjectedJumbfPayload> projected_jumbf_payloads;
+        std::string error;
+        if (!build_projected_jumbf_logical_payloads(store,
+                                                    &projected_jumbf_payloads,
+                                                    &error)) {
+            requested_present_but_unpacked = true;
+            if (r.code == PrepareTransferCode::None) {
+                r.code = PrepareTransferCode::RequestedMetadataNotSerializable;
+            }
+            r.warnings += 1U;
+            append_message(&r.message,
+                           error.empty()
+                               ? "decoded jumbf cbor keys could not be projected"
+                               : error);
+            PreparedTransferPolicyDecision* decision
+                = find_policy_decision(&bundle, TransferPolicySubject::Jumbf);
+            if (decision) {
+                decision->effective = TransferPolicyAction::Drop;
+                decision->reason
+                    = TransferPolicyReason::TargetSerializationUnavailable;
+                decision->message
+                    = error.empty()
+                          ? "decoded jumbf cbor keys could not be projected "
+                            "into generic jpeg app11 payloads"
+                          : error;
+            }
+        } else {
+            const size_t before = bundle.blocks.size();
+            uint32_t order      = next_prepared_block_order(bundle, 140U);
+            bool append_failed  = false;
+            for (size_t i = 0; i < projected_jumbf_payloads.size(); ++i) {
+                const ProjectedJumbfPayload& payload
+                    = projected_jumbf_payloads[i];
+                if (!append_jpeg_app11_jumbf_segments(
+                        std::span<const std::byte>(
+                            payload.logical_payload.data(),
+                            payload.logical_payload.size()),
+                        TransferBlockKind::Jumbf, &order, &bundle.blocks,
+                        &error)) {
+                    append_failed = true;
+                    break;
+                }
+            }
+            if (append_failed) {
+                requested_present_but_unpacked = true;
+                if (r.code == PrepareTransferCode::None) {
+                    r.code
+                        = PrepareTransferCode::RequestedMetadataNotSerializable;
+                }
+                r.warnings += 1U;
+                append_message(&r.message,
+                               error.empty()
+                                   ? "projected jumbf payload could not be "
+                                     "serialized to jpeg app11"
+                                   : error);
+                PreparedTransferPolicyDecision* decision
+                    = find_policy_decision(&bundle,
+                                           TransferPolicySubject::Jumbf);
+                if (decision) {
+                    decision->effective = TransferPolicyAction::Drop;
+                    decision->reason
+                        = TransferPolicyReason::TargetSerializationUnavailable;
+                    decision->message
+                        = error.empty()
+                              ? "projected jumbf payload could not be "
+                                "serialized to jpeg app11"
+                              : error;
+                }
+            } else if (bundle.blocks.size() == before) {
+                requested_present_but_unpacked = true;
+                if (r.code == PrepareTransferCode::None) {
+                    r.code
+                        = PrepareTransferCode::RequestedMetadataNotSerializable;
+                }
+                r.warnings += 1U;
+                append_message(&r.message, "projected jumbf payload was empty");
+                PreparedTransferPolicyDecision* decision
+                    = find_policy_decision(&bundle,
+                                           TransferPolicySubject::Jumbf);
+                if (decision) {
+                    decision->effective = TransferPolicyAction::Drop;
+                    decision->reason
+                        = TransferPolicyReason::TargetSerializationUnavailable;
+                    decision->message = "projected jumbf payload was empty";
+                }
+            }
+        }
+    }
+
+    if (request.target_format == TransferTargetFormat::Jpeg
+        && effective_c2pa == TransferPolicyAction::Keep
+        && c2pa_reason == TransferPolicyReason::DraftInvalidationPayload) {
+        const std::vector<std::byte> c2pa_payload
+            = build_draft_c2pa_invalidation_payload();
+        const size_t before = bundle.blocks.size();
+        uint32_t order      = next_prepared_block_order(bundle, 150U);
+        std::string error;
+        if (!append_jpeg_app11_jumbf_segments(
+                std::span<const std::byte>(c2pa_payload.data(),
+                                           c2pa_payload.size()),
+                TransferBlockKind::C2pa, &order, &bundle.blocks, &error)) {
+            requested_present_but_unpacked = true;
+            if (r.code == PrepareTransferCode::None) {
+                r.code = PrepareTransferCode::RequestedMetadataNotSerializable;
+            }
+            r.warnings += 1U;
+            append_message(
+                &r.message,
+                error.empty()
+                    ? "draft c2pa invalidation payload could not be serialized"
+                    : error);
+            PreparedTransferPolicyDecision* decision
+                = find_policy_decision(&bundle, TransferPolicySubject::C2pa);
+            if (decision) {
+                decision->effective = TransferPolicyAction::Drop;
+                decision->reason
+                    = TransferPolicyReason::TargetSerializationUnavailable;
+                decision->c2pa_mode = TransferC2paMode::Drop;
+                decision->c2pa_prepared_output
+                    = TransferC2paPreparedOutput::Dropped;
+                decision->message = "draft c2pa invalidation payload could "
+                                    "not be serialized";
+            }
+        } else if (bundle.blocks.size() == before) {
+            requested_present_but_unpacked = true;
+            if (r.code == PrepareTransferCode::None) {
+                r.code = PrepareTransferCode::RequestedMetadataNotSerializable;
+            }
+            r.warnings += 1U;
+            append_message(&r.message,
+                           "draft c2pa invalidation payload was empty");
+            PreparedTransferPolicyDecision* decision
+                = find_policy_decision(&bundle, TransferPolicySubject::C2pa);
+            if (decision) {
+                decision->effective = TransferPolicyAction::Drop;
+                decision->reason
+                    = TransferPolicyReason::TargetSerializationUnavailable;
+                decision->c2pa_mode = TransferC2paMode::Drop;
+                decision->c2pa_prepared_output
+                    = TransferC2paPreparedOutput::Dropped;
+                decision->message = "draft c2pa invalidation payload was empty";
+            }
+        }
+    }
+
     *out_bundle = std::move(bundle);
 
     if (requested_present_but_unpacked && out_bundle->blocks.empty()) {
@@ -3432,6 +5623,116 @@ prepare_metadata_for_target(const MetaStore& store,
         r.code = PrepareTransferCode::None;
     }
     return r;
+}
+
+PrepareTransferResult
+prepare_metadata_for_target(const MetaStore& store,
+                            const PrepareTransferRequest& request,
+                            PreparedTransferBundle* out_bundle) noexcept
+{
+    const TransferPrepareCapabilities caps {};
+    return prepare_metadata_for_target_impl(store, request, caps, out_bundle);
+}
+
+EmitTransferResult
+append_prepared_bundle_jpeg_jumbf(
+    PreparedTransferBundle* bundle, std::span<const std::byte> logical_payload,
+    const AppendPreparedJpegJumbfOptions& options) noexcept
+{
+    EmitTransferResult out;
+    if (!bundle) {
+        out.status  = TransferStatus::InvalidArgument;
+        out.code    = EmitTransferCode::InvalidArgument;
+        out.errors  = 1U;
+        out.message = "bundle is null";
+        return out;
+    }
+    if (bundle->target_format != TransferTargetFormat::Jpeg) {
+        out.status  = TransferStatus::Unsupported;
+        out.code    = EmitTransferCode::BundleTargetNotJpeg;
+        out.errors  = 1U;
+        out.message = "bundle target format is not jpeg";
+        return out;
+    }
+    if (logical_payload.empty()) {
+        out.status  = TransferStatus::InvalidArgument;
+        out.code    = EmitTransferCode::InvalidArgument;
+        out.errors  = 1U;
+        out.message = "logical jumbf payload is empty";
+        return out;
+    }
+
+    uint32_t header_len = 0U;
+    uint32_t box_type   = 0U;
+    if (!parse_bmff_box_header(logical_payload, &header_len, &box_type)) {
+        out.status  = TransferStatus::Malformed;
+        out.code    = EmitTransferCode::InvalidPayload;
+        out.errors  = 1U;
+        out.message = "jumbf payload does not start with a valid bmff box";
+        return out;
+    }
+    static constexpr uint32_t kMaxJpegSegmentPayload = 65533U;
+    if (8U + header_len > kMaxJpegSegmentPayload) {
+        out.status  = TransferStatus::LimitExceeded;
+        out.code    = EmitTransferCode::InvalidPayload;
+        out.errors  = 1U;
+        out.message = "jumbf app11 overhead exceeds jpeg segment limits";
+        return out;
+    }
+    if (is_c2pa_jumbf_payload(logical_payload)) {
+        out.status = TransferStatus::Unsupported;
+        out.code   = EmitTransferCode::ContentBoundPayloadUnsupported;
+        out.errors = 1U;
+        out.message
+            = "content-bound c2pa payloads require a dedicated invalidation or re-sign path";
+        return out;
+    }
+
+    if (options.replace_existing) {
+        out.skipped = remove_prepared_blocks_by_route(bundle,
+                                                      "jpeg:app11-jumbf");
+    }
+
+    uint32_t order = next_prepared_block_order(*bundle, 140U);
+    std::string error;
+    const size_t before = bundle->blocks.size();
+    if (!append_jpeg_app11_jumbf_segments(logical_payload,
+                                          TransferBlockKind::Jumbf, &order,
+                                          &bundle->blocks, &error)) {
+        out.status  = TransferStatus::Malformed;
+        out.code    = EmitTransferCode::InvalidPayload;
+        out.errors  = 1U;
+        out.message = error.empty()
+                          ? "failed to append jpeg app11 jumbf payload"
+                          : error;
+        return out;
+    }
+
+    bundle->profile.jumbf = TransferPolicyAction::Keep;
+    PreparedTransferPolicyDecision* decision
+        = find_policy_decision(bundle, TransferPolicySubject::Jumbf);
+    if (!decision) {
+        append_policy_decision(
+            bundle, TransferPolicySubject::Jumbf, TransferPolicyAction::Keep,
+            TransferPolicyAction::Keep, TransferPolicyReason::Default, 1U,
+            "explicit raw jumbf payload will be emitted as jpeg app11 segments");
+    } else {
+        decision->requested = TransferPolicyAction::Keep;
+        decision->effective = TransferPolicyAction::Keep;
+        decision->reason    = TransferPolicyReason::Default;
+        if (decision->matched_entries == 0U) {
+            decision->matched_entries = 1U;
+        } else {
+            decision->matched_entries += 1U;
+        }
+        decision->message
+            = "explicit raw jumbf payload will be emitted as jpeg app11 segments";
+    }
+
+    out.status  = TransferStatus::Ok;
+    out.code    = EmitTransferCode::None;
+    out.emitted = static_cast<uint32_t>(bundle->blocks.size() - before);
+    return out;
 }
 
 EmitTransferResult
@@ -3974,6 +6275,19 @@ plan_prepared_bundle_jpeg_edit(std::span<const std::byte> input_jpeg,
         }
         in_place_count += 1U;
     }
+    if (in_place_possible) {
+        for (size_t i = 0; i < scan.leading_segments.size(); ++i) {
+            if (!should_strip_existing_jpeg_segment(bundle,
+                                                    scan.leading_segments[i],
+                                                    desired)) {
+                continue;
+            }
+            if (!route_in_desired(scan.leading_segments[i].route, desired)) {
+                in_place_possible = false;
+                break;
+            }
+        }
+    }
     plan.in_place_possible = in_place_possible;
 
     JpegEditMode selected = JpegEditMode::MetadataRewrite;
@@ -4006,16 +6320,20 @@ plan_prepared_bundle_jpeg_edit(std::span<const std::byte> input_jpeg,
         return plan;
     }
 
-    uint32_t replaced_segments = 0;
+    uint32_t replaced_segments      = 0;
+    uint32_t removed_jumbf_segments = 0;
+    uint32_t removed_c2pa_segments  = 0;
     for (size_t i = 0; i < scan.leading_segments.size(); ++i) {
         const ExistingJpegSegment& e = scan.leading_segments[i];
-        if (!e.route_known) {
-            continue;
-        }
-        if (!route_in_desired(e.route, desired)) {
+        if (!should_strip_existing_jpeg_segment(bundle, e, desired)) {
             continue;
         }
         replaced_segments += 1U;
+        if (e.route == "jpeg:app11-jumbf") {
+            removed_jumbf_segments += 1U;
+        } else if (e.route == "jpeg:app11-c2pa") {
+            removed_c2pa_segments += 1U;
+        }
         replaced_bytes += static_cast<uint64_t>(4U + e.payload_len);
     }
 
@@ -4024,8 +6342,11 @@ plan_prepared_bundle_jpeg_edit(std::span<const std::byte> input_jpeg,
         added_bytes += static_cast<uint64_t>(4U + desired[i].payload.size());
     }
 
-    plan.replaced_segments = replaced_segments;
-    plan.appended_segments = static_cast<uint32_t>(desired.size());
+    plan.replaced_segments         = replaced_segments;
+    plan.appended_segments         = static_cast<uint32_t>(desired.size());
+    plan.removed_existing_segments = replaced_segments;
+    plan.removed_existing_jumbf_segments = removed_jumbf_segments;
+    plan.removed_existing_c2pa_segments  = removed_c2pa_segments;
     if (plan.input_size >= replaced_bytes) {
         plan.output_size = plan.input_size - replaced_bytes + added_bytes;
     } else {
@@ -4145,8 +6466,8 @@ apply_prepared_bundle_jpeg_edit(std::span<const std::byte> input_jpeg,
     bool inserted = false;
     for (size_t i = 0; i < scan.leading_segments.size(); ++i) {
         const ExistingJpegSegment& e = scan.leading_segments[i];
-        const bool replaced          = e.route_known
-                              && route_in_desired(e.route, desired);
+        const bool replaced = should_strip_existing_jpeg_segment(bundle, e,
+                                                                 desired);
         if (replaced) {
             if (!inserted) {
                 for (size_t si = 0; si < desired.size(); ++si) {
@@ -4333,8 +6654,8 @@ write_prepared_bundle_jpeg_edit(std::span<const std::byte> input_jpeg,
     bool inserted = false;
     for (size_t i = 0; i < scan.leading_segments.size(); ++i) {
         const ExistingJpegSegment& e = scan.leading_segments[i];
-        const bool replaced          = e.route_known
-                              && route_in_desired(e.route, desired);
+        const bool replaced = should_strip_existing_jpeg_segment(bundle, e,
+                                                                 desired);
         if (replaced) {
             if (!inserted) {
                 for (size_t si = 0; si < desired.size(); ++si) {
@@ -4670,8 +6991,112 @@ prepare_metadata_for_target_file(
     out.entry_count = static_cast<uint32_t>(store.entries().size());
     out.file_status = TransferFileStatus::Ok;
     out.code        = PrepareTransferFileCode::None;
-    out.prepare     = prepare_metadata_for_target(store, options.prepare,
-                                                  &out.bundle);
+    TransferPrepareCapabilities caps;
+    if (options.prepare.target_format == TransferTargetFormat::Jpeg) {
+        const std::span<const ContainerBlockRef> scanned_blocks(
+            blocks.data(), static_cast<size_t>(out.read.scan.written));
+        for (size_t i = 0; i < scanned_blocks.size(); ++i) {
+            if (is_source_jumbf_block(scanned_blocks[i])) {
+                caps.jpeg_jumbf_passthrough = true;
+                break;
+            }
+        }
+        if (caps.jpeg_jumbf_passthrough) {
+            caps.source_c2pa_payload_class
+                = classify_source_c2pa_payloads_for_jpeg(
+                    mapped.bytes(), scanned_blocks, decode_options.payload);
+        }
+    }
+
+    out.prepare = prepare_metadata_for_target_impl(store, options.prepare, caps,
+                                                   &out.bundle);
+
+    if (options.prepare.target_format == TransferTargetFormat::Jpeg) {
+        const JpegScanResult jpeg_scan = scan_leading_jpeg_segments(
+            mapped.bytes());
+        if (jpeg_scan.status == TransferStatus::Ok) {
+            out.bundle.c2pa_rewrite.existing_carrier_segments
+                = count_existing_jpeg_segments_by_route(jpeg_scan,
+                                                        "jpeg:app11-c2pa");
+        }
+    }
+
+    if (caps.jpeg_jumbf_passthrough
+        && out.prepare.status != TransferStatus::Malformed) {
+        const SourceJumbfAppendResult append_jumbf
+            = append_source_jumbf_blocks_for_jpeg(
+                mapped.bytes(),
+                std::span<const ContainerBlockRef>(
+                    blocks.data(), static_cast<size_t>(out.read.scan.written)),
+                decode_options.payload, &out.bundle);
+        if (append_jumbf.errors > 0U) {
+            out.prepare.warnings += append_jumbf.errors;
+            append_message(&out.prepare.message, append_jumbf.message);
+        }
+
+        PreparedTransferPolicyDecision* decision
+            = find_policy_decision(&out.bundle, TransferPolicySubject::Jumbf);
+        if (decision && decision->effective == TransferPolicyAction::Keep
+            && append_jumbf.emitted_jumbf == 0U) {
+            decision->effective = TransferPolicyAction::Drop;
+            decision->reason
+                = TransferPolicyReason::TargetSerializationUnavailable;
+            decision->message
+                = "source jumbf payloads could not be repacked into jpeg app11";
+            if (out.bundle.blocks.empty()) {
+                out.prepare.status = TransferStatus::Unsupported;
+                if (out.prepare.code == PrepareTransferCode::None) {
+                    out.prepare.code
+                        = PrepareTransferCode::RequestedMetadataNotSerializable;
+                }
+            }
+        }
+
+        PreparedTransferPolicyDecision* c2pa_decision
+            = find_policy_decision(&out.bundle, TransferPolicySubject::C2pa);
+        if (c2pa_decision
+            && c2pa_decision->c2pa_mode == TransferC2paMode::PreserveRaw
+            && append_jumbf.emitted_c2pa == 0U) {
+            c2pa_decision->effective = TransferPolicyAction::Drop;
+            c2pa_decision->reason
+                = TransferPolicyReason::TargetSerializationUnavailable;
+            c2pa_decision->c2pa_mode = TransferC2paMode::Drop;
+            c2pa_decision->c2pa_prepared_output
+                = TransferC2paPreparedOutput::Dropped;
+            c2pa_decision->message
+                = "source draft c2pa invalidation payload could not be "
+                  "repacked into jpeg app11";
+            if (out.bundle.blocks.empty()) {
+                out.prepare.status = TransferStatus::Unsupported;
+                if (out.prepare.code == PrepareTransferCode::None) {
+                    out.prepare.code
+                        = PrepareTransferCode::RequestedMetadataNotSerializable;
+                }
+            }
+        } else if (append_jumbf.emitted_blocks > 0U
+                   && out.prepare.status == TransferStatus::Unsupported
+                   && out.prepare.code
+                          == PrepareTransferCode::
+                              RequestedMetadataNotSerializable) {
+            out.prepare.status = TransferStatus::Ok;
+        }
+    }
+
+    if (options.prepare.target_format == TransferTargetFormat::Jpeg
+        && out.bundle.c2pa_rewrite.state
+               == TransferC2paRewriteState::SigningMaterialRequired) {
+        std::string rewrite_error;
+        if (!build_jpeg_c2pa_rewrite_chunks(mapped.bytes(), out.bundle,
+                                            &out.bundle.c2pa_rewrite,
+                                            &rewrite_error)) {
+            if (!rewrite_error.empty()) {
+                if (!out.bundle.c2pa_rewrite.message.empty()) {
+                    out.bundle.c2pa_rewrite.message.append("; ");
+                }
+                out.bundle.c2pa_rewrite.message.append(rewrite_error);
+            }
+        }
+    }
     return out;
 }
 
