@@ -1,5 +1,6 @@
 #include "openmeta/metadata_transfer.h"
 
+#include "openmeta/jumbf_decode.h"
 #include "openmeta/mapped_file.h"
 #include "openmeta/xmp_dump.h"
 
@@ -63,6 +64,23 @@ namespace {
         NotC2pa,
         DraftUnsignedInvalidation,
         ContentBound,
+    };
+
+    struct TransferC2paSemanticSummary final {
+        bool available                                         = false;
+        uint64_t manifest_present                              = 0;
+        uint64_t manifest_count                                = 0;
+        uint64_t claim_generator_present                       = 0;
+        uint64_t assertion_count                               = 0;
+        uint64_t claim_present                                 = 0;
+        uint64_t signature_present                             = 0;
+        uint64_t claim_count                                   = 0;
+        uint64_t signature_count                               = 0;
+        uint64_t signature_linked                              = 0;
+        uint64_t signature_orphan                              = 0;
+        uint64_t explicit_reference_signature_count            = 0;
+        uint64_t explicit_reference_unresolved_signature_count = 0;
+        uint64_t explicit_reference_ambiguous_signature_count  = 0;
     };
 
     struct TransferPrepareCapabilities final {
@@ -135,6 +153,9 @@ namespace {
         return std::string_view(reinterpret_cast<const char*>(bytes.data()),
                                 bytes.size());
     }
+
+    static bool meta_scalar_to_u64(const MetaValue& value,
+                                   uint64_t* out) noexcept;
 
     static bool path_separator(char c) noexcept
     {
@@ -1092,6 +1113,469 @@ namespace {
         return count;
     }
 
+    static bool read_transfer_jumbf_field_u64(const MetaStore& store,
+                                              std::string_view field_name,
+                                              uint64_t* out) noexcept
+    {
+        if (!out) {
+            return false;
+        }
+        MetaKeyView key;
+        key.kind                           = MetaKeyKind::JumbfField;
+        key.data.jumbf_field.field         = field_name;
+        const std::span<const EntryId> ids = store.find_all(key);
+        if (ids.size() != 1U) {
+            return false;
+        }
+        return meta_scalar_to_u64(store.entry(ids[0]).value, out);
+    }
+
+    static bool read_transfer_jumbf_field_text(const MetaStore& store,
+                                               std::string_view field_name,
+                                               std::string_view* out) noexcept
+    {
+        if (!out) {
+            return false;
+        }
+        MetaKeyView key;
+        key.kind                           = MetaKeyKind::JumbfField;
+        key.data.jumbf_field.field         = field_name;
+        const std::span<const EntryId> ids = store.find_all(key);
+        if (ids.size() != 1U) {
+            return false;
+        }
+        const MetaValue& value = store.entry(ids[0]).value;
+        if (value.kind != MetaValueKind::Text) {
+            return false;
+        }
+        *out = arena_string(store.arena(), value.data.span);
+        return true;
+    }
+
+    static bool collect_transfer_c2pa_semantic_summary(
+        const MetaStore& store, TransferC2paSemanticSummary* out) noexcept
+    {
+        if (!out) {
+            return false;
+        }
+        *out = TransferC2paSemanticSummary {};
+
+        uint64_t value = 0U;
+        bool available = false;
+        std::string_view text;
+
+        if (read_transfer_jumbf_field_u64(store, "c2pa.semantic.claim_count",
+                                          &value)) {
+            out->claim_count = value;
+            available        = true;
+        }
+        if (read_transfer_jumbf_field_u64(store,
+                                          "c2pa.semantic.signature_count",
+                                          &value)) {
+            out->signature_count = value;
+            available            = true;
+        }
+        if (read_transfer_jumbf_field_u64(
+                store, "c2pa.semantic.signature_linked_count", &value)) {
+            out->signature_linked = value;
+            available             = true;
+        }
+        if (read_transfer_jumbf_field_u64(
+                store, "c2pa.semantic.signature_orphan_count", &value)) {
+            out->signature_orphan = value;
+            available             = true;
+        }
+        if (read_transfer_jumbf_field_u64(
+                store, "c2pa.semantic.explicit_reference_signature_count",
+                &value)) {
+            out->explicit_reference_signature_count = value;
+            available                               = true;
+        }
+        if (read_transfer_jumbf_field_u64(
+                store,
+                "c2pa.semantic.explicit_reference_unresolved_signature_count",
+                &value)) {
+            out->explicit_reference_unresolved_signature_count = value;
+            available                                          = true;
+        }
+        if (read_transfer_jumbf_field_u64(
+                store,
+                "c2pa.semantic.explicit_reference_ambiguous_signature_count",
+                &value)) {
+            out->explicit_reference_ambiguous_signature_count = value;
+            available                                         = true;
+        }
+        if (read_transfer_jumbf_field_u64(store,
+                                          "c2pa.semantic.manifest_present",
+                                          &value)) {
+            out->manifest_present = value;
+            available             = true;
+        }
+        if (read_transfer_jumbf_field_u64(store, "c2pa.semantic.manifest_count",
+                                          &value)) {
+            out->manifest_count = value;
+            available           = true;
+        }
+        if (read_transfer_jumbf_field_u64(store, "c2pa.semantic.claim_present",
+                                          &value)) {
+            out->claim_present = value;
+            available          = true;
+        }
+        if (read_transfer_jumbf_field_u64(store,
+                                          "c2pa.semantic.signature_present",
+                                          &value)) {
+            out->signature_present = value;
+            available              = true;
+        }
+        if (read_transfer_jumbf_field_u64(store,
+                                          "c2pa.semantic.assertion_count",
+                                          &value)) {
+            out->assertion_count = value;
+            available            = true;
+        }
+        if (read_transfer_jumbf_field_text(store,
+                                           "c2pa.semantic.claim_generator",
+                                           &text)) {
+            out->claim_generator_present = text.empty() ? 0U : 1U;
+            available                    = true;
+        }
+
+        out->available = available;
+        return true;
+    }
+
+    static void copy_transfer_c2pa_semantic_summary(
+        const TransferC2paSemanticSummary& summary,
+        ValidatePreparedC2paSignResult* out) noexcept
+    {
+        if (!out) {
+            return;
+        }
+        out->semantic_manifest_present        = summary.manifest_present;
+        out->semantic_manifest_count          = summary.manifest_count;
+        out->semantic_claim_generator_present = summary.claim_generator_present;
+        out->semantic_assertion_count         = summary.assertion_count;
+        out->semantic_claim_count             = summary.claim_count;
+        out->semantic_signature_count         = summary.signature_count;
+        out->semantic_signature_linked        = summary.signature_linked;
+        out->semantic_signature_orphan        = summary.signature_orphan;
+        out->semantic_explicit_reference_signature_count
+            = summary.explicit_reference_signature_count;
+        out->semantic_explicit_reference_unresolved_signature_count
+            = summary.explicit_reference_unresolved_signature_count;
+        out->semantic_explicit_reference_ambiguous_signature_count
+            = summary.explicit_reference_ambiguous_signature_count;
+    }
+
+    static bool fail_transfer_c2pa_semantic_validation(
+        ValidatePreparedC2paSignResult* out, std::string_view reason,
+        std::string_view message, TransferStatus status) noexcept
+    {
+        if (!out) {
+            return false;
+        }
+        out->semantic_status = TransferC2paSemanticStatus::Invalid;
+        out->semantic_reason.assign(reason.data(), reason.size());
+        out->status = status;
+        out->code   = EmitTransferCode::InvalidPayload;
+        out->errors = 1U;
+        out->message.assign(message.data(), message.size());
+        return false;
+    }
+
+    static bool validate_transfer_c2pa_projection_prefix(
+        std::string_view child_prefix, std::string_view parent_prefix) noexcept
+    {
+        return !child_prefix.empty() && !parent_prefix.empty()
+               && starts_with(child_prefix, parent_prefix)
+               && child_prefix.size() > parent_prefix.size()
+               && child_prefix[parent_prefix.size()] == '.';
+    }
+
+    static bool validate_transfer_c2pa_semantics(
+        std::span<const std::byte> logical_payload,
+        const PreparedTransferC2paSignRequest& request,
+        ValidatePreparedC2paSignResult* out) noexcept
+    {
+        if (!out) {
+            return false;
+        }
+
+        MetaStore store;
+        const JumbfDecodeResult decode = decode_jumbf_payload(logical_payload,
+                                                              store);
+        if (decode.status != JumbfDecodeStatus::Ok) {
+            if (decode.status == JumbfDecodeStatus::LimitExceeded) {
+                return fail_transfer_c2pa_semantic_validation(
+                    out, "semantic_decode_limit_exceeded",
+                    "signed c2pa payload semantic decode exceeded limits",
+                    TransferStatus::LimitExceeded);
+            }
+            return fail_transfer_c2pa_semantic_validation(
+                out,
+                decode.status == JumbfDecodeStatus::Malformed
+                    ? "semantic_decode_malformed"
+                    : "semantic_decode_unsupported",
+                "signed c2pa payload semantic decode failed",
+                TransferStatus::Malformed);
+        }
+
+        store.finalize();
+
+        TransferC2paSemanticSummary summary;
+        if (!collect_transfer_c2pa_semantic_summary(store, &summary)
+            || !summary.available) {
+            return fail_transfer_c2pa_semantic_validation(
+                out, "semantic_fields_missing",
+                "signed c2pa payload is missing semantic summary fields",
+                TransferStatus::Malformed);
+        }
+
+        copy_transfer_c2pa_semantic_summary(summary, out);
+
+        std::string_view manifest_prefix;
+        std::string_view claim_prefix;
+        std::string_view signature_prefix;
+        std::string_view signature_algorithm;
+        std::string_view primary_signature_linked_claim_prefix;
+        uint64_t primary_claim_assertion_count                             = 0U;
+        uint64_t primary_claim_referenced_by_signature_count               = 0U;
+        uint64_t primary_signature_linked_claim_count                      = 0U;
+        uint64_t primary_signature_reference_key_hits                      = 0U;
+        uint64_t primary_signature_explicit_reference_present              = 0U;
+        uint64_t primary_signature_explicit_reference_resolved_claim_count = 0U;
+        const bool have_manifest_prefix = read_transfer_jumbf_field_text(
+            store, "c2pa.semantic.manifest.0.prefix", &manifest_prefix);
+        const bool have_claim_prefix = read_transfer_jumbf_field_text(
+            store, "c2pa.semantic.claim.0.prefix", &claim_prefix);
+        const bool have_signature_prefix = read_transfer_jumbf_field_text(
+            store, "c2pa.semantic.claim.0.signature.0.prefix",
+            &signature_prefix);
+        const bool have_signature_algorithm = read_transfer_jumbf_field_text(
+            store, "c2pa.semantic.claim.0.signature.0.algorithm",
+            &signature_algorithm);
+        const bool have_primary_signature_linked_claim_prefix
+            = read_transfer_jumbf_field_text(
+                store, "c2pa.semantic.signature.0.linked_claim.0.prefix",
+                &primary_signature_linked_claim_prefix);
+        (void)read_transfer_jumbf_field_u64(
+            store, "c2pa.semantic.claim.0.assertion_count",
+            &primary_claim_assertion_count);
+        (void)read_transfer_jumbf_field_u64(
+            store, "c2pa.semantic.claim.0.referenced_by_signature_count",
+            &primary_claim_referenced_by_signature_count);
+        (void)read_transfer_jumbf_field_u64(
+            store, "c2pa.semantic.signature.0.linked_claim_count",
+            &primary_signature_linked_claim_count);
+        (void)read_transfer_jumbf_field_u64(
+            store, "c2pa.semantic.signature.0.reference_key_hits",
+            &primary_signature_reference_key_hits);
+        (void)read_transfer_jumbf_field_u64(
+            store, "c2pa.semantic.signature.0.explicit_reference_present",
+            &primary_signature_explicit_reference_present);
+        (void)read_transfer_jumbf_field_u64(
+            store,
+            "c2pa.semantic.signature.0.explicit_reference_resolved_claim_count",
+            &primary_signature_explicit_reference_resolved_claim_count);
+        out->semantic_primary_claim_assertion_count
+            = primary_claim_assertion_count;
+        out->semantic_primary_claim_referenced_by_signature_count
+            = primary_claim_referenced_by_signature_count;
+        out->semantic_primary_signature_linked_claim_count
+            = primary_signature_linked_claim_count;
+        out->semantic_primary_signature_reference_key_hits
+            = primary_signature_reference_key_hits;
+        out->semantic_primary_signature_explicit_reference_present
+            = primary_signature_explicit_reference_present;
+        out->semantic_primary_signature_explicit_reference_resolved_claim_count
+            = primary_signature_explicit_reference_resolved_claim_count;
+
+        if (summary.manifest_present == 0U) {
+            return fail_transfer_c2pa_semantic_validation(
+                out, "manifest_missing",
+                "signed c2pa payload is missing a manifest",
+                TransferStatus::Malformed);
+        }
+        if (!request.manifest_label.empty() && summary.manifest_count != 1U) {
+            return fail_transfer_c2pa_semantic_validation(
+                out, "manifest_count_invalid",
+                "signed c2pa payload must contain exactly one manifest for the current sign request",
+                TransferStatus::Malformed);
+        }
+        if (!request.manifest_label.empty()) {
+            if (!have_manifest_prefix || manifest_prefix.empty()) {
+                return fail_transfer_c2pa_semantic_validation(
+                    out, "manifest_prefix_missing",
+                    "signed c2pa payload is missing the primary manifest prefix for the current sign request",
+                    TransferStatus::Malformed);
+            }
+            if (!have_claim_prefix
+                || !validate_transfer_c2pa_projection_prefix(claim_prefix,
+                                                             manifest_prefix)) {
+                return fail_transfer_c2pa_semantic_validation(
+                    out, "claim_prefix_mismatch",
+                    "signed c2pa payload claim prefix does not match the current manifest contract",
+                    TransferStatus::Malformed);
+            }
+            if (!have_signature_prefix
+                || !validate_transfer_c2pa_projection_prefix(signature_prefix,
+                                                             claim_prefix)) {
+                return fail_transfer_c2pa_semantic_validation(
+                    out, "signature_prefix_mismatch",
+                    "signed c2pa payload signature prefix does not match the current claim contract",
+                    TransferStatus::Malformed);
+            }
+        }
+        if (summary.claim_count == 0U || summary.claim_present == 0U) {
+            return fail_transfer_c2pa_semantic_validation(
+                out, "claim_missing", "signed c2pa payload is missing a claim",
+                TransferStatus::Malformed);
+        }
+        if (request.requires_manifest_builder
+            && summary.claim_generator_present == 0U) {
+            return fail_transfer_c2pa_semantic_validation(
+                out, "claim_generator_missing",
+                "signed c2pa payload is missing claim_generator for the current sign request",
+                TransferStatus::Malformed);
+        }
+        if (request.requires_content_binding && summary.assertion_count == 0U) {
+            return fail_transfer_c2pa_semantic_validation(
+                out, "content_binding_assertions_missing",
+                "signed c2pa payload is missing assertions for the current content-binding contract",
+                TransferStatus::Malformed);
+        }
+        if (request.requires_content_binding
+            && primary_claim_assertion_count == 0U) {
+            return fail_transfer_c2pa_semantic_validation(
+                out, "primary_claim_assertions_missing",
+                "signed c2pa payload primary claim is missing assertions for the current content-binding contract",
+                TransferStatus::Malformed);
+        }
+        if (summary.signature_count == 0U || summary.signature_present == 0U) {
+            return fail_transfer_c2pa_semantic_validation(
+                out, "signature_missing",
+                "signed c2pa payload is missing a signature",
+                TransferStatus::Malformed);
+        }
+        if (!have_signature_algorithm || signature_algorithm.empty()) {
+            return fail_transfer_c2pa_semantic_validation(
+                out, "signature_algorithm_missing",
+                "signed c2pa payload is missing the primary signature algorithm",
+                TransferStatus::Malformed);
+        }
+        if (primary_signature_reference_key_hits != 0U) {
+            if (primary_signature_explicit_reference_present == 0U) {
+                return fail_transfer_c2pa_semantic_validation(
+                    out, "primary_signature_reference_state_invalid",
+                    "signed c2pa payload primary signature has reference keys without explicit-reference state",
+                    TransferStatus::Malformed);
+            }
+            if (primary_signature_explicit_reference_resolved_claim_count
+                == 0U) {
+                return fail_transfer_c2pa_semantic_validation(
+                    out, "primary_signature_reference_unresolved",
+                    "signed c2pa payload primary signature explicit references do not resolve under the current sign request",
+                    TransferStatus::Malformed);
+            }
+        }
+        if (summary.signature_linked > summary.signature_count) {
+            return fail_transfer_c2pa_semantic_validation(
+                out, "signature_linked_count_invalid",
+                "signed c2pa payload has invalid linked-signature counts",
+                TransferStatus::Malformed);
+        }
+        if (summary.signature_orphan > summary.signature_count) {
+            return fail_transfer_c2pa_semantic_validation(
+                out, "signature_orphan_count_invalid",
+                "signed c2pa payload has invalid orphan-signature counts",
+                TransferStatus::Malformed);
+        }
+        if ((summary.signature_linked + summary.signature_orphan)
+            != summary.signature_count) {
+            return fail_transfer_c2pa_semantic_validation(
+                out, "signature_link_consistency_invalid",
+                "signed c2pa payload has inconsistent signature-link counts",
+                TransferStatus::Malformed);
+        }
+        if (summary.explicit_reference_signature_count
+            > summary.signature_count) {
+            return fail_transfer_c2pa_semantic_validation(
+                out, "explicit_reference_count_invalid",
+                "signed c2pa payload has invalid explicit-reference counts",
+                TransferStatus::Malformed);
+        }
+        if (summary.explicit_reference_unresolved_signature_count
+            > summary.explicit_reference_signature_count) {
+            return fail_transfer_c2pa_semantic_validation(
+                out, "explicit_reference_unresolved_count_invalid",
+                "signed c2pa payload has invalid unresolved explicit-reference counts",
+                TransferStatus::Malformed);
+        }
+        if (summary.explicit_reference_ambiguous_signature_count
+            > summary.explicit_reference_signature_count) {
+            return fail_transfer_c2pa_semantic_validation(
+                out, "explicit_reference_ambiguous_count_invalid",
+                "signed c2pa payload has invalid ambiguous explicit-reference counts",
+                TransferStatus::Malformed);
+        }
+        if (summary.explicit_reference_unresolved_signature_count
+            > (summary.explicit_reference_signature_count
+               - summary.explicit_reference_ambiguous_signature_count)) {
+            return fail_transfer_c2pa_semantic_validation(
+                out, "explicit_reference_consistency_invalid",
+                "signed c2pa payload has inconsistent explicit-reference counts",
+                TransferStatus::Malformed);
+        }
+        if (summary.signature_linked == 0U) {
+            return fail_transfer_c2pa_semantic_validation(
+                out, "signature_unlinked",
+                "signed c2pa payload does not link any signature to a claim",
+                TransferStatus::Malformed);
+        }
+        if (!request.manifest_label.empty()
+            && primary_signature_linked_claim_count != 0U) {
+            if (!have_primary_signature_linked_claim_prefix
+                || primary_signature_linked_claim_prefix.empty()) {
+                return fail_transfer_c2pa_semantic_validation(
+                    out, "primary_signature_claim_missing",
+                    "signed c2pa payload is missing the primary signature linked-claim prefix under the current sign request",
+                    TransferStatus::Malformed);
+            }
+            if (!have_claim_prefix
+                || primary_signature_linked_claim_prefix != claim_prefix) {
+                return fail_transfer_c2pa_semantic_validation(
+                    out, "primary_signature_claim_drift",
+                    "signed c2pa payload primary signature links to a different claim than the prepared sign request",
+                    TransferStatus::Malformed);
+            }
+        }
+        if (primary_claim_referenced_by_signature_count == 0U
+            || primary_signature_linked_claim_count == 0U) {
+            return fail_transfer_c2pa_semantic_validation(
+                out, "primary_claim_signature_link_missing",
+                "signed c2pa payload does not link the primary claim and signature under the current sign request",
+                TransferStatus::Malformed);
+        }
+        if (summary.explicit_reference_signature_count != 0U) {
+            if (summary.explicit_reference_unresolved_signature_count != 0U) {
+                return fail_transfer_c2pa_semantic_validation(
+                    out, "explicit_reference_unresolved",
+                    "signed c2pa payload has unresolved explicit references",
+                    TransferStatus::Malformed);
+            }
+            if (summary.explicit_reference_ambiguous_signature_count != 0U) {
+                return fail_transfer_c2pa_semantic_validation(
+                    out, "explicit_reference_ambiguous",
+                    "signed c2pa payload has ambiguous explicit references",
+                    TransferStatus::Malformed);
+            }
+        }
+
+        out->semantic_status = TransferC2paSemanticStatus::Ok;
+        out->semantic_reason = "ok";
+        return true;
+    }
+
     static TransferPolicyAction
     resolve_makernote_policy(TransferPolicyAction requested,
                              TransferPolicyReason* out_reason) noexcept
@@ -1446,6 +1930,14 @@ namespace {
         out->push_back(static_cast<std::byte>((v >> 8) & 0xFFU));
     }
 
+    static void append_u8(std::vector<std::byte>* out, uint8_t v) noexcept
+    {
+        if (!out) {
+            return;
+        }
+        out->push_back(static_cast<std::byte>(v));
+    }
+
     static void append_u32le(std::vector<std::byte>* out, uint32_t v) noexcept
     {
         if (!out) {
@@ -1455,6 +1947,121 @@ namespace {
         out->push_back(static_cast<std::byte>((v >> 8) & 0xFFU));
         out->push_back(static_cast<std::byte>((v >> 16) & 0xFFU));
         out->push_back(static_cast<std::byte>((v >> 24) & 0xFFU));
+    }
+
+    static void append_u64le(std::vector<std::byte>* out, uint64_t v) noexcept
+    {
+        if (!out) {
+            return;
+        }
+        out->push_back(static_cast<std::byte>((v >> 0) & 0xFFU));
+        out->push_back(static_cast<std::byte>((v >> 8) & 0xFFU));
+        out->push_back(static_cast<std::byte>((v >> 16) & 0xFFU));
+        out->push_back(static_cast<std::byte>((v >> 24) & 0xFFU));
+        out->push_back(static_cast<std::byte>((v >> 32) & 0xFFU));
+        out->push_back(static_cast<std::byte>((v >> 40) & 0xFFU));
+        out->push_back(static_cast<std::byte>((v >> 48) & 0xFFU));
+        out->push_back(static_cast<std::byte>((v >> 56) & 0xFFU));
+    }
+
+    static bool read_u8(std::span<const std::byte> bytes, size_t* io_off,
+                        uint8_t* out) noexcept
+    {
+        if (!io_off || !out || *io_off >= bytes.size()) {
+            return false;
+        }
+        *out = static_cast<uint8_t>(bytes[*io_off]);
+        *io_off += 1U;
+        return true;
+    }
+
+    static bool read_u32le(std::span<const std::byte> bytes, size_t* io_off,
+                           uint32_t* out) noexcept
+    {
+        if (!io_off || !out || *io_off + 4U > bytes.size()) {
+            return false;
+        }
+        const size_t off = *io_off;
+        *out             = static_cast<uint32_t>(
+            (static_cast<uint32_t>(static_cast<uint8_t>(bytes[off + 0U])) << 0U)
+            | (static_cast<uint32_t>(static_cast<uint8_t>(bytes[off + 1U]))
+               << 8U)
+            | (static_cast<uint32_t>(static_cast<uint8_t>(bytes[off + 2U]))
+               << 16U)
+            | (static_cast<uint32_t>(static_cast<uint8_t>(bytes[off + 3U]))
+               << 24U));
+        *io_off += 4U;
+        return true;
+    }
+
+    static bool read_u64le(std::span<const std::byte> bytes, size_t* io_off,
+                           uint64_t* out) noexcept
+    {
+        if (!io_off || !out || *io_off + 8U > bytes.size()) {
+            return false;
+        }
+        const size_t off = *io_off;
+        *out             = static_cast<uint64_t>(
+            (static_cast<uint64_t>(static_cast<uint8_t>(bytes[off + 0U])) << 0U)
+            | (static_cast<uint64_t>(static_cast<uint8_t>(bytes[off + 1U]))
+               << 8U)
+            | (static_cast<uint64_t>(static_cast<uint8_t>(bytes[off + 2U]))
+               << 16U)
+            | (static_cast<uint64_t>(static_cast<uint8_t>(bytes[off + 3U]))
+               << 24U)
+            | (static_cast<uint64_t>(static_cast<uint8_t>(bytes[off + 4U]))
+               << 32U)
+            | (static_cast<uint64_t>(static_cast<uint8_t>(bytes[off + 5U]))
+               << 40U)
+            | (static_cast<uint64_t>(static_cast<uint8_t>(bytes[off + 6U]))
+               << 48U)
+            | (static_cast<uint64_t>(static_cast<uint8_t>(bytes[off + 7U]))
+               << 56U));
+        *io_off += 8U;
+        return true;
+    }
+
+    static bool read_exact_bytes(std::span<const std::byte> bytes,
+                                 size_t* io_off, uint64_t size,
+                                 std::vector<std::byte>* out) noexcept
+    {
+        if (!io_off || !out || size > bytes.size() || *io_off > bytes.size()
+            || *io_off + size > bytes.size()) {
+            return false;
+        }
+        out->assign(bytes.begin() + static_cast<std::ptrdiff_t>(*io_off),
+                    bytes.begin()
+                        + static_cast<std::ptrdiff_t>(*io_off + size));
+        *io_off += static_cast<size_t>(size);
+        return true;
+    }
+
+    static bool read_string_le(std::span<const std::byte> bytes, size_t* io_off,
+                               std::string* out) noexcept
+    {
+        if (!out) {
+            return false;
+        }
+        uint64_t size = 0U;
+        if (!read_u64le(bytes, io_off, &size) || size > bytes.size()) {
+            return false;
+        }
+        std::vector<std::byte> tmp;
+        if (!read_exact_bytes(bytes, io_off, size, &tmp)) {
+            return false;
+        }
+        out->assign(reinterpret_cast<const char*>(tmp.data()), tmp.size());
+        return true;
+    }
+
+    static bool read_blob_le(std::span<const std::byte> bytes, size_t* io_off,
+                             std::vector<std::byte>* out) noexcept
+    {
+        uint64_t size = 0U;
+        if (!read_u64le(bytes, io_off, &size)) {
+            return false;
+        }
+        return read_exact_bytes(bytes, io_off, size, out);
     }
 
     static void append_u16be(std::vector<std::byte>* out, uint16_t v) noexcept
@@ -1505,6 +2112,79 @@ namespace {
         *out_header_len = header_len;
         *out_type       = type;
         return true;
+    }
+
+    static bool read_bmff_box_size(std::span<const std::byte> bytes,
+                                   uint64_t* out_size) noexcept
+    {
+        if (!out_size) {
+            return false;
+        }
+        uint32_t size32 = 0U;
+        if (!read_u32be(bytes, 0U, &size32)) {
+            return false;
+        }
+        if (size32 == 1U) {
+            uint64_t size64 = 0U;
+            if (!read_u64be(bytes, 8U, &size64) || size64 < 16U) {
+                return false;
+            }
+            *out_size = size64;
+            return true;
+        }
+        if (size32 == 0U) {
+            *out_size = static_cast<uint64_t>(bytes.size());
+            return true;
+        }
+        if (size32 < 8U) {
+            return false;
+        }
+        *out_size = size32;
+        return true;
+    }
+
+    static bool extract_first_cbor_box_payload(
+        std::span<const std::byte> logical_payload,
+        std::span<const std::byte>* out_payload) noexcept
+    {
+        if (!out_payload) {
+            return false;
+        }
+        *out_payload = std::span<const std::byte>();
+
+        uint32_t header_len = 0U;
+        uint32_t box_type   = 0U;
+        if (!parse_bmff_box_header(logical_payload, &header_len, &box_type)) {
+            return false;
+        }
+        if (box_type != fourcc('j', 'u', 'm', 'b')
+            && box_type != fourcc('c', '2', 'p', 'a')) {
+            return false;
+        }
+
+        size_t off = static_cast<size_t>(header_len);
+        while (off < logical_payload.size()) {
+            const std::span<const std::byte> child_bytes
+                = logical_payload.subspan(off);
+            uint32_t child_header_len = 0U;
+            uint32_t child_type       = 0U;
+            uint64_t child_size       = 0U;
+            if (!parse_bmff_box_header(child_bytes, &child_header_len,
+                                       &child_type)
+                || !read_bmff_box_size(child_bytes, &child_size)
+                || child_size < child_header_len
+                || child_size > child_bytes.size()) {
+                return false;
+            }
+            if (child_type == fourcc('c', 'b', 'o', 'r')) {
+                *out_payload = child_bytes.subspan(
+                    static_cast<size_t>(child_header_len),
+                    static_cast<size_t>(child_size - child_header_len));
+                return true;
+            }
+            off += static_cast<size_t>(child_size);
+        }
+        return false;
     }
 
     static bool payload_contains_ascii(std::span<const std::byte> bytes,
@@ -7102,6 +7782,1128 @@ prepare_metadata_for_target_file(
 
 namespace {
 
+    static constexpr char kC2paHandoffMagic[8]    = { 'O', 'M', 'C', '2',
+                                                      'P', 'H', '0', '1' };
+    static constexpr char kC2paSignedMagic[8]     = { 'O', 'M', 'C', '2',
+                                                      'P', 'S', '0', '1' };
+    static constexpr uint32_t kC2paPackageVersion = 1U;
+
+    static void append_bool_u8(std::vector<std::byte>* out, bool value) noexcept
+    {
+        if (!out) {
+            return;
+        }
+        out->push_back(value ? std::byte { 1U } : std::byte { 0U });
+    }
+
+    static void append_blob_le(std::vector<std::byte>* out,
+                               std::span<const std::byte> bytes) noexcept
+    {
+        append_u64le(out, static_cast<uint64_t>(bytes.size()));
+        if (!out || bytes.empty()) {
+            return;
+        }
+        out->insert(out->end(), bytes.begin(), bytes.end());
+    }
+
+    static void append_string_le(std::vector<std::byte>* out,
+                                 std::string_view value) noexcept
+    {
+        append_u64le(out, static_cast<uint64_t>(value.size()));
+        append_ascii_bytes(out, value);
+    }
+
+    static void append_c2pa_rewrite_chunks_le(
+        std::vector<std::byte>* out,
+        std::span<const PreparedTransferC2paRewriteChunk> chunks) noexcept
+    {
+        append_u32le(out, static_cast<uint32_t>(chunks.size()));
+        for (size_t i = 0; i < chunks.size(); ++i) {
+            append_u8(out, static_cast<uint8_t>(chunks[i].kind));
+            append_u64le(out, chunks[i].source_offset);
+            append_u64le(out, chunks[i].size);
+            append_u32le(out, chunks[i].block_index);
+            append_u8(out, chunks[i].jpeg_marker_code);
+        }
+    }
+
+    static bool parse_c2pa_rewrite_chunks_le(
+        std::span<const std::byte> bytes, size_t* io_off,
+        std::vector<PreparedTransferC2paRewriteChunk>* out) noexcept
+    {
+        if (!io_off || !out) {
+            return false;
+        }
+        out->clear();
+        uint32_t count = 0U;
+        if (!read_u32le(bytes, io_off, &count)) {
+            return false;
+        }
+        const size_t min_chunk_size = 1U + 8U + 8U + 4U + 1U;
+        if (count > 0U && (bytes.size() - *io_off) / min_chunk_size < count) {
+            return false;
+        }
+        out->reserve(count);
+        for (uint32_t i = 0U; i < count; ++i) {
+            uint8_t kind             = 0U;
+            uint64_t source_offset   = 0U;
+            uint64_t size            = 0U;
+            uint32_t block_index     = 0U;
+            uint8_t jpeg_marker_code = 0U;
+            if (!read_u8(bytes, io_off, &kind)
+                || !read_u64le(bytes, io_off, &source_offset)
+                || !read_u64le(bytes, io_off, &size)
+                || !read_u32le(bytes, io_off, &block_index)
+                || !read_u8(bytes, io_off, &jpeg_marker_code)) {
+                return false;
+            }
+            PreparedTransferC2paRewriteChunk chunk;
+            chunk.kind = static_cast<TransferC2paRewriteChunkKind>(kind);
+            chunk.source_offset    = source_offset;
+            chunk.size             = size;
+            chunk.block_index      = block_index;
+            chunk.jpeg_marker_code = jpeg_marker_code;
+            out->push_back(chunk);
+        }
+        return true;
+    }
+
+    static void append_c2pa_sign_request_le(
+        std::vector<std::byte>* out,
+        const PreparedTransferC2paSignRequest& request) noexcept
+    {
+        append_u8(out, static_cast<uint8_t>(request.status));
+        append_u8(out, static_cast<uint8_t>(request.rewrite_state));
+        append_u8(out, static_cast<uint8_t>(request.target_format));
+        append_u8(out, static_cast<uint8_t>(request.source_kind));
+        append_string_le(out, request.carrier_route);
+        append_string_le(out, request.manifest_label);
+        append_u32le(out, request.existing_carrier_segments);
+        append_u32le(out, request.source_range_chunks);
+        append_u32le(out, request.prepared_segment_chunks);
+        append_u64le(out, request.content_binding_bytes);
+        append_bool_u8(out, request.requires_manifest_builder);
+        append_bool_u8(out, request.requires_content_binding);
+        append_bool_u8(out, request.requires_certificate_chain);
+        append_bool_u8(out, request.requires_private_key);
+        append_bool_u8(out, request.requires_signing_time);
+        append_string_le(out, request.message);
+        append_c2pa_rewrite_chunks_le(out, request.content_binding_chunks);
+    }
+
+    static bool parse_bool_u8(std::span<const std::byte> bytes, size_t* io_off,
+                              bool* out) noexcept
+    {
+        uint8_t value = 0U;
+        if (!read_u8(bytes, io_off, &value) || value > 1U || !out) {
+            return false;
+        }
+        *out = (value != 0U);
+        return true;
+    }
+
+    static bool
+    parse_c2pa_sign_request_le(std::span<const std::byte> bytes, size_t* io_off,
+                               PreparedTransferC2paSignRequest* out) noexcept
+    {
+        if (!io_off || !out) {
+            return false;
+        }
+        PreparedTransferC2paSignRequest request;
+        uint8_t status        = 0U;
+        uint8_t rewrite_state = 0U;
+        uint8_t target_format = 0U;
+        uint8_t source_kind   = 0U;
+        if (!read_u8(bytes, io_off, &status)
+            || !read_u8(bytes, io_off, &rewrite_state)
+            || !read_u8(bytes, io_off, &target_format)
+            || !read_u8(bytes, io_off, &source_kind)
+            || !read_string_le(bytes, io_off, &request.carrier_route)
+            || !read_string_le(bytes, io_off, &request.manifest_label)
+            || !read_u32le(bytes, io_off, &request.existing_carrier_segments)
+            || !read_u32le(bytes, io_off, &request.source_range_chunks)
+            || !read_u32le(bytes, io_off, &request.prepared_segment_chunks)
+            || !read_u64le(bytes, io_off, &request.content_binding_bytes)
+            || !parse_bool_u8(bytes, io_off, &request.requires_manifest_builder)
+            || !parse_bool_u8(bytes, io_off, &request.requires_content_binding)
+            || !parse_bool_u8(bytes, io_off, &request.requires_certificate_chain)
+            || !parse_bool_u8(bytes, io_off, &request.requires_private_key)
+            || !parse_bool_u8(bytes, io_off, &request.requires_signing_time)
+            || !read_string_le(bytes, io_off, &request.message)
+            || !parse_c2pa_rewrite_chunks_le(bytes, io_off,
+                                             &request.content_binding_chunks)) {
+            return false;
+        }
+        request.status        = static_cast<TransferStatus>(status);
+        request.rewrite_state = static_cast<TransferC2paRewriteState>(
+            rewrite_state);
+        request.target_format = static_cast<TransferTargetFormat>(
+            target_format);
+        request.source_kind = static_cast<TransferC2paSourceKind>(source_kind);
+        *out                = std::move(request);
+        return true;
+    }
+
+    static void append_c2pa_signer_input_le(
+        std::vector<std::byte>* out,
+        const PreparedTransferC2paSignerInput& input) noexcept
+    {
+        append_string_le(out, input.signing_time);
+        append_blob_le(out, std::span<const std::byte>(
+                                input.certificate_chain_bytes.data(),
+                                input.certificate_chain_bytes.size()));
+        append_string_le(out, input.private_key_reference);
+        append_blob_le(out, std::span<const std::byte>(
+                                input.manifest_builder_output.data(),
+                                input.manifest_builder_output.size()));
+        append_blob_le(out, std::span<const std::byte>(
+                                input.signed_c2pa_logical_payload.data(),
+                                input.signed_c2pa_logical_payload.size()));
+    }
+
+    static bool
+    parse_c2pa_signer_input_le(std::span<const std::byte> bytes, size_t* io_off,
+                               PreparedTransferC2paSignerInput* out) noexcept
+    {
+        if (!io_off || !out) {
+            return false;
+        }
+        PreparedTransferC2paSignerInput input;
+        if (!read_string_le(bytes, io_off, &input.signing_time)
+            || !read_blob_le(bytes, io_off, &input.certificate_chain_bytes)
+            || !read_string_le(bytes, io_off, &input.private_key_reference)
+            || !read_blob_le(bytes, io_off, &input.manifest_builder_output)
+            || !read_blob_le(bytes, io_off,
+                             &input.signed_c2pa_logical_payload)) {
+            return false;
+        }
+        *out = std::move(input);
+        return true;
+    }
+
+    static void append_c2pa_binding_result_le(
+        std::vector<std::byte>* out,
+        const BuildPreparedC2paBindingResult& binding) noexcept
+    {
+        append_u8(out, static_cast<uint8_t>(binding.status));
+        append_u8(out, static_cast<uint8_t>(binding.code));
+        append_u64le(out, binding.written);
+        append_u32le(out, binding.errors);
+        append_string_le(out, binding.message);
+    }
+
+    static bool
+    parse_c2pa_binding_result_le(std::span<const std::byte> bytes,
+                                 size_t* io_off,
+                                 BuildPreparedC2paBindingResult* out) noexcept
+    {
+        if (!io_off || !out) {
+            return false;
+        }
+        BuildPreparedC2paBindingResult binding;
+        uint8_t status = 0U;
+        uint8_t code   = 0U;
+        if (!read_u8(bytes, io_off, &status) || !read_u8(bytes, io_off, &code)
+            || !read_u64le(bytes, io_off, &binding.written)
+            || !read_u32le(bytes, io_off, &binding.errors)
+            || !read_string_le(bytes, io_off, &binding.message)) {
+            return false;
+        }
+        binding.status = static_cast<TransferStatus>(status);
+        binding.code   = static_cast<EmitTransferCode>(code);
+        *out           = std::move(binding);
+        return true;
+    }
+
+    static PreparedTransferC2paPackageIoResult
+    deserialize_c2pa_package_header(std::span<const std::byte> bytes,
+                                    const char magic[8],
+                                    size_t* io_off) noexcept
+    {
+        PreparedTransferC2paPackageIoResult out;
+        if (!io_off) {
+            out.status  = TransferStatus::InvalidArgument;
+            out.code    = EmitTransferCode::InvalidArgument;
+            out.errors  = 1U;
+            out.message = "package cursor is null";
+            return out;
+        }
+        *io_off = 0U;
+        if (bytes.size() < 12U) {
+            out.status  = TransferStatus::Malformed;
+            out.code    = EmitTransferCode::InvalidPayload;
+            out.errors  = 1U;
+            out.message = "package is too small";
+            return out;
+        }
+        for (size_t i = 0; i < 8U; ++i) {
+            if (bytes[i] != static_cast<std::byte>(magic[i])) {
+                out.status  = TransferStatus::Malformed;
+                out.code    = EmitTransferCode::InvalidPayload;
+                out.errors  = 1U;
+                out.message = "package magic is invalid";
+                return out;
+            }
+        }
+        *io_off          = 8U;
+        uint32_t version = 0U;
+        if (!read_u32le(bytes, io_off, &version)) {
+            out.status  = TransferStatus::Malformed;
+            out.code    = EmitTransferCode::InvalidPayload;
+            out.errors  = 1U;
+            out.message = "package header is truncated";
+            return out;
+        }
+        if (version != kC2paPackageVersion) {
+            out.status  = TransferStatus::Unsupported;
+            out.code    = EmitTransferCode::InvalidPayload;
+            out.errors  = 1U;
+            out.message = "package version is unsupported";
+            return out;
+        }
+        out.status = TransferStatus::Ok;
+        out.code   = EmitTransferCode::None;
+        return out;
+    }
+
+}  // namespace
+
+TransferStatus
+build_prepared_c2pa_sign_request(
+    const PreparedTransferBundle& bundle,
+    PreparedTransferC2paSignRequest* out_request) noexcept
+{
+    if (!out_request) {
+        return TransferStatus::InvalidArgument;
+    }
+
+    PreparedTransferC2paSignRequest out;
+    const PreparedTransferC2paRewriteRequirements& rewrite = bundle.c2pa_rewrite;
+    out.rewrite_state              = rewrite.state;
+    out.target_format              = rewrite.target_format;
+    out.source_kind                = rewrite.source_kind;
+    out.existing_carrier_segments  = rewrite.existing_carrier_segments;
+    out.content_binding_bytes      = rewrite.content_binding_bytes;
+    out.content_binding_chunks     = rewrite.content_binding_chunks;
+    out.requires_manifest_builder  = rewrite.requires_manifest_builder;
+    out.requires_content_binding   = rewrite.requires_content_binding;
+    out.requires_certificate_chain = rewrite.requires_certificate_chain;
+    out.requires_private_key       = rewrite.requires_private_key;
+    out.requires_signing_time      = rewrite.requires_signing_time;
+    out.carrier_route              = "jpeg:app11-c2pa";
+    out.manifest_label             = "c2pa";
+    out.message                    = rewrite.message;
+
+    for (size_t i = 0; i < out.content_binding_chunks.size(); ++i) {
+        const PreparedTransferC2paRewriteChunk& chunk
+            = out.content_binding_chunks[i];
+        if (chunk.kind == TransferC2paRewriteChunkKind::SourceRange) {
+            out.source_range_chunks += 1U;
+        } else if (chunk.kind
+                   == TransferC2paRewriteChunkKind::PreparedJpegSegment) {
+            out.prepared_segment_chunks += 1U;
+        }
+    }
+
+    if (rewrite.state == TransferC2paRewriteState::NotApplicable) {
+        out.status = TransferStatus::Unsupported;
+        if (out.message.empty()) {
+            out.message = "c2pa rewrite is not applicable for current bundle";
+        }
+    } else if (rewrite.state == TransferC2paRewriteState::NotRequested) {
+        out.status = TransferStatus::Unsupported;
+        if (out.message.empty()) {
+            out.message = "c2pa signed rewrite was not requested";
+        }
+    } else if (bundle.target_format != TransferTargetFormat::Jpeg
+               || rewrite.target_format != TransferTargetFormat::Jpeg) {
+        out.status = TransferStatus::Unsupported;
+        out.carrier_route.clear();
+        out.manifest_label.clear();
+        if (out.message.empty()) {
+            out.message
+                = "c2pa sign request currently supports jpeg targets only";
+        }
+    } else if (!rewrite.target_carrier_available) {
+        out.status = TransferStatus::Unsupported;
+        if (out.message.empty()) {
+            out.message
+                = "c2pa sign request requires an available target carrier";
+        }
+    } else if (rewrite.content_binding_chunks.empty()
+               || rewrite.content_binding_bytes == 0U) {
+        out.status = TransferStatus::Unsupported;
+        if (out.message.empty()) {
+            out.message = "c2pa sign request is missing content-binding chunks";
+        }
+    } else {
+        out.status = TransferStatus::Ok;
+        if (out.message.empty()) {
+            out.message
+                = "c2pa sign request is ready for external signer input assembly";
+        }
+    }
+
+    *out_request = std::move(out);
+    return out_request->status;
+}
+
+static bool
+c2pa_rewrite_chunks_match(
+    std::span<const PreparedTransferC2paRewriteChunk> a,
+    std::span<const PreparedTransferC2paRewriteChunk> b) noexcept
+{
+    if (a.size() != b.size()) {
+        return false;
+    }
+    for (size_t i = 0; i < a.size(); ++i) {
+        if (a[i].kind != b[i].kind || a[i].source_offset != b[i].source_offset
+            || a[i].size != b[i].size || a[i].block_index != b[i].block_index
+            || a[i].jpeg_marker_code != b[i].jpeg_marker_code) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static TransferC2paSignedPayloadKind
+transfer_c2pa_signed_payload_kind(C2paPayloadClass payload_class) noexcept
+{
+    if (payload_class == C2paPayloadClass::ContentBound) {
+        return TransferC2paSignedPayloadKind::ContentBound;
+    }
+    if (payload_class == C2paPayloadClass::DraftUnsignedInvalidation) {
+        return TransferC2paSignedPayloadKind::DraftUnsignedInvalidation;
+    }
+    return TransferC2paSignedPayloadKind::GenericJumbf;
+}
+
+TransferStatus
+build_prepared_c2pa_handoff_package(
+    const PreparedTransferBundle& bundle,
+    std::span<const std::byte> target_input,
+    PreparedTransferC2paHandoffPackage* out_package) noexcept
+{
+    if (!out_package) {
+        return TransferStatus::InvalidArgument;
+    }
+
+    PreparedTransferC2paHandoffPackage out;
+    out.request.status = build_prepared_c2pa_sign_request(bundle, &out.request);
+    if (out.request.status != TransferStatus::Ok) {
+        out.binding.status  = out.request.status;
+        out.binding.code    = EmitTransferCode::InvalidArgument;
+        out.binding.errors  = 1U;
+        out.binding.message = out.request.message.empty()
+                                  ? "failed to build c2pa handoff request"
+                                  : out.request.message;
+        *out_package        = std::move(out);
+        return out_package->binding.status;
+    }
+
+    out.binding = build_prepared_c2pa_sign_request_binding(bundle, target_input,
+                                                           out.request,
+                                                           &out.binding_bytes);
+    *out_package = std::move(out);
+    return out_package->binding.status;
+}
+
+TransferStatus
+build_prepared_c2pa_signed_package(
+    const PreparedTransferBundle& bundle,
+    const PreparedTransferC2paSignerInput& input,
+    PreparedTransferC2paSignedPackage* out_package) noexcept
+{
+    if (!out_package) {
+        return TransferStatus::InvalidArgument;
+    }
+    PreparedTransferC2paSignedPackage out;
+    const TransferStatus status
+        = build_prepared_c2pa_sign_request(bundle, &out.request);
+    out.signer_input = input;
+    *out_package     = std::move(out);
+    return status;
+}
+
+BuildPreparedC2paBindingResult
+build_prepared_c2pa_sign_request_binding(
+    const PreparedTransferBundle& bundle,
+    std::span<const std::byte> target_input,
+    const PreparedTransferC2paSignRequest& request,
+    std::vector<std::byte>* out_bytes) noexcept
+{
+    BuildPreparedC2paBindingResult out;
+    if (!out_bytes) {
+        out.status  = TransferStatus::InvalidArgument;
+        out.code    = EmitTransferCode::InvalidArgument;
+        out.errors  = 1U;
+        out.message = "out_bytes is null";
+        return out;
+    }
+
+    out_bytes->clear();
+    if (request.status != TransferStatus::Ok) {
+        out.status  = TransferStatus::InvalidArgument;
+        out.code    = EmitTransferCode::InvalidArgument;
+        out.errors  = 1U;
+        out.message = "c2pa sign request is not ready";
+        return out;
+    }
+    if (bundle.target_format != TransferTargetFormat::Jpeg
+        || request.target_format != TransferTargetFormat::Jpeg) {
+        out.status = TransferStatus::Unsupported;
+        out.code   = EmitTransferCode::BundleTargetNotJpeg;
+        out.errors = 1U;
+        out.message
+            = "c2pa binding materialization currently supports jpeg only";
+        return out;
+    }
+    if (request.carrier_route != "jpeg:app11-c2pa"
+        || request.manifest_label != "c2pa") {
+        out.status  = TransferStatus::InvalidArgument;
+        out.code    = EmitTransferCode::PlanMismatch;
+        out.errors  = 1U;
+        out.message = "c2pa sign request carrier contract mismatch";
+        return out;
+    }
+
+    const PreparedTransferC2paRewriteRequirements& rewrite = bundle.c2pa_rewrite;
+    if (request.rewrite_state != rewrite.state
+        || request.source_kind != rewrite.source_kind
+        || request.content_binding_bytes != rewrite.content_binding_bytes
+        || !c2pa_rewrite_chunks_match(request.content_binding_chunks,
+                                      rewrite.content_binding_chunks)) {
+        out.status  = TransferStatus::InvalidArgument;
+        out.code    = EmitTransferCode::PlanMismatch;
+        out.errors  = 1U;
+        out.message = "c2pa sign request no longer matches prepared bundle";
+        return out;
+    }
+
+    out_bytes->reserve(static_cast<size_t>(request.content_binding_bytes));
+    uint64_t written = 0U;
+    for (size_t i = 0; i < request.content_binding_chunks.size(); ++i) {
+        const PreparedTransferC2paRewriteChunk& chunk
+            = request.content_binding_chunks[i];
+        if (chunk.kind == TransferC2paRewriteChunkKind::SourceRange) {
+            if (chunk.source_offset > target_input.size()
+                || chunk.size > target_input.size()
+                || chunk.source_offset + chunk.size > target_input.size()) {
+                out.status  = TransferStatus::Malformed;
+                out.code    = EmitTransferCode::InvalidPayload;
+                out.errors  = 1U;
+                out.message = "c2pa sign request source range is out of bounds";
+                out_bytes->clear();
+                return out;
+            }
+            const size_t begin = static_cast<size_t>(chunk.source_offset);
+            const std::span<const std::byte> range
+                = target_input.subspan(begin, static_cast<size_t>(chunk.size));
+            out_bytes->insert(out_bytes->end(), range.begin(), range.end());
+            written += chunk.size;
+            continue;
+        }
+
+        if (chunk.kind != TransferC2paRewriteChunkKind::PreparedJpegSegment) {
+            out.status  = TransferStatus::Malformed;
+            out.code    = EmitTransferCode::InvalidPayload;
+            out.errors  = 1U;
+            out.message = "c2pa sign request chunk kind is invalid";
+            out_bytes->clear();
+            return out;
+        }
+        if (chunk.block_index >= bundle.blocks.size()) {
+            out.status = TransferStatus::Malformed;
+            out.code   = EmitTransferCode::InvalidPayload;
+            out.errors = 1U;
+            out.message
+                = "c2pa sign request prepared segment index is out of range";
+            out_bytes->clear();
+            return out;
+        }
+
+        const PreparedTransferBlock& block = bundle.blocks[chunk.block_index];
+        const uint64_t expected_size       = static_cast<uint64_t>(
+            4U + block.payload.size());
+        if (expected_size != chunk.size) {
+            out.status = TransferStatus::InvalidArgument;
+            out.code   = EmitTransferCode::PlanMismatch;
+            out.errors = 1U;
+            out.message
+                = "c2pa sign request prepared segment size no longer matches";
+            out_bytes->clear();
+            return out;
+        }
+
+        const size_t before = out_bytes->size();
+        append_jpeg_segment(out_bytes, chunk.jpeg_marker_code,
+                            std::span<const std::byte>(block.payload.data(),
+                                                       block.payload.size()));
+        const uint64_t actual_size = static_cast<uint64_t>(out_bytes->size()
+                                                           - before);
+        if (actual_size != expected_size) {
+            out.status = TransferStatus::Malformed;
+            out.code   = EmitTransferCode::InvalidPayload;
+            out.errors = 1U;
+            out.message
+                = "c2pa sign request prepared segment emitted invalid size";
+            out_bytes->clear();
+            return out;
+        }
+        written += actual_size;
+    }
+
+    if (written != request.content_binding_bytes) {
+        out.status  = TransferStatus::InvalidArgument;
+        out.code    = EmitTransferCode::PlanMismatch;
+        out.errors  = 1U;
+        out.message = "c2pa sign request emitted size no longer matches bundle";
+        out_bytes->clear();
+        return out;
+    }
+
+    out.status  = TransferStatus::Ok;
+    out.code    = EmitTransferCode::None;
+    out.written = written;
+    out.message = "c2pa binding bytes materialized from prepared rewrite chunks";
+    return out;
+}
+
+PreparedTransferC2paPackageIoResult
+serialize_prepared_c2pa_handoff_package(
+    const PreparedTransferC2paHandoffPackage& package,
+    std::vector<std::byte>* out_bytes) noexcept
+{
+    PreparedTransferC2paPackageIoResult out;
+    if (!out_bytes) {
+        out.status  = TransferStatus::InvalidArgument;
+        out.code    = EmitTransferCode::InvalidArgument;
+        out.errors  = 1U;
+        out.message = "out_bytes is null";
+        return out;
+    }
+    out_bytes->clear();
+    out_bytes->reserve(64U + package.binding_bytes.size()
+                       + package.request.carrier_route.size()
+                       + package.request.manifest_label.size()
+                       + package.request.message.size()
+                       + package.binding.message.size());
+    append_ascii_bytes(out_bytes, std::string_view(kC2paHandoffMagic, 8U));
+    append_u32le(out_bytes, kC2paPackageVersion);
+    append_c2pa_sign_request_le(out_bytes, package.request);
+    append_c2pa_binding_result_le(out_bytes, package.binding);
+    append_blob_le(out_bytes,
+                   std::span<const std::byte>(package.binding_bytes.data(),
+                                              package.binding_bytes.size()));
+    out.status  = TransferStatus::Ok;
+    out.code    = EmitTransferCode::None;
+    out.bytes   = static_cast<uint64_t>(out_bytes->size());
+    out.message = "c2pa handoff package serialized";
+    return out;
+}
+
+PreparedTransferC2paPackageIoResult
+deserialize_prepared_c2pa_handoff_package(
+    std::span<const std::byte> bytes,
+    PreparedTransferC2paHandoffPackage* out_package) noexcept
+{
+    PreparedTransferC2paPackageIoResult out;
+    if (!out_package) {
+        out.status  = TransferStatus::InvalidArgument;
+        out.code    = EmitTransferCode::InvalidArgument;
+        out.errors  = 1U;
+        out.message = "out_package is null";
+        return out;
+    }
+    size_t off = 0U;
+    out = deserialize_c2pa_package_header(bytes, kC2paHandoffMagic, &off);
+    if (out.status != TransferStatus::Ok) {
+        return out;
+    }
+    PreparedTransferC2paHandoffPackage package;
+    if (!parse_c2pa_sign_request_le(bytes, &off, &package.request)
+        || !parse_c2pa_binding_result_le(bytes, &off, &package.binding)
+        || !read_blob_le(bytes, &off, &package.binding_bytes)
+        || off != bytes.size()) {
+        out.status  = TransferStatus::Malformed;
+        out.code    = EmitTransferCode::InvalidPayload;
+        out.errors  = 1U;
+        out.message = "c2pa handoff package is malformed";
+        return out;
+    }
+    *out_package = std::move(package);
+    out.status   = TransferStatus::Ok;
+    out.code     = EmitTransferCode::None;
+    out.bytes    = static_cast<uint64_t>(bytes.size());
+    out.message  = "c2pa handoff package parsed";
+    return out;
+}
+
+PreparedTransferC2paPackageIoResult
+serialize_prepared_c2pa_signed_package(
+    const PreparedTransferC2paSignedPackage& package,
+    std::vector<std::byte>* out_bytes) noexcept
+{
+    PreparedTransferC2paPackageIoResult out;
+    if (!out_bytes) {
+        out.status  = TransferStatus::InvalidArgument;
+        out.code    = EmitTransferCode::InvalidArgument;
+        out.errors  = 1U;
+        out.message = "out_bytes is null";
+        return out;
+    }
+    out_bytes->clear();
+    out_bytes->reserve(
+        64U + package.request.carrier_route.size()
+        + package.request.manifest_label.size() + package.request.message.size()
+        + package.signer_input.signing_time.size()
+        + package.signer_input.private_key_reference.size()
+        + package.signer_input.certificate_chain_bytes.size()
+        + package.signer_input.manifest_builder_output.size()
+        + package.signer_input.signed_c2pa_logical_payload.size());
+    append_ascii_bytes(out_bytes, std::string_view(kC2paSignedMagic, 8U));
+    append_u32le(out_bytes, kC2paPackageVersion);
+    append_c2pa_sign_request_le(out_bytes, package.request);
+    append_c2pa_signer_input_le(out_bytes, package.signer_input);
+    out.status  = TransferStatus::Ok;
+    out.code    = EmitTransferCode::None;
+    out.bytes   = static_cast<uint64_t>(out_bytes->size());
+    out.message = "signed c2pa package serialized";
+    return out;
+}
+
+PreparedTransferC2paPackageIoResult
+deserialize_prepared_c2pa_signed_package(
+    std::span<const std::byte> bytes,
+    PreparedTransferC2paSignedPackage* out_package) noexcept
+{
+    PreparedTransferC2paPackageIoResult out;
+    if (!out_package) {
+        out.status  = TransferStatus::InvalidArgument;
+        out.code    = EmitTransferCode::InvalidArgument;
+        out.errors  = 1U;
+        out.message = "out_package is null";
+        return out;
+    }
+    size_t off = 0U;
+    out        = deserialize_c2pa_package_header(bytes, kC2paSignedMagic, &off);
+    if (out.status != TransferStatus::Ok) {
+        return out;
+    }
+    PreparedTransferC2paSignedPackage package;
+    if (!parse_c2pa_sign_request_le(bytes, &off, &package.request)
+        || !parse_c2pa_signer_input_le(bytes, &off, &package.signer_input)
+        || off != bytes.size()) {
+        out.status  = TransferStatus::Malformed;
+        out.code    = EmitTransferCode::InvalidPayload;
+        out.errors  = 1U;
+        out.message = "signed c2pa package is malformed";
+        return out;
+    }
+    *out_package = std::move(package);
+    out.status   = TransferStatus::Ok;
+    out.code     = EmitTransferCode::None;
+    out.bytes    = static_cast<uint64_t>(bytes.size());
+    out.message  = "signed c2pa package parsed";
+    return out;
+}
+
+namespace {
+
+    static bool validate_staged_jpeg_c2pa_blocks(
+        std::span<const PreparedTransferBlock> blocks,
+        std::span<const std::byte> logical_payload, uint32_t header_len,
+        ValidatePreparedC2paSignResult* out) noexcept
+    {
+        if (!out || blocks.empty() || header_len == 0U
+            || logical_payload.size() < header_len) {
+            return false;
+        }
+
+        std::vector<std::byte> reconstructed;
+        reconstructed.reserve(logical_payload.size());
+        uint32_t expected_seq = 1U;
+        for (size_t i = 0; i < blocks.size(); ++i) {
+            const PreparedTransferBlock& block = blocks[i];
+            if (block.kind != TransferBlockKind::C2pa
+                || block.route != "jpeg:app11-c2pa"
+                || block.payload.size() < static_cast<size_t>(8U + header_len)
+                || block.payload[0] != std::byte { 'J' }
+                || block.payload[1] != std::byte { 'P' }
+                || block.payload[2] != std::byte { 0x00 }
+                || block.payload[3] != std::byte { 0x00 }) {
+                out->status = TransferStatus::Malformed;
+                out->code   = EmitTransferCode::InvalidPayload;
+                out->errors = 1U;
+                out->message
+                    = "validated signed c2pa carrier block is malformed";
+                return false;
+            }
+
+            uint32_t seq = 0U;
+            if (!read_u32be(block.payload, 4U, &seq) || seq != expected_seq) {
+                out->status = TransferStatus::Malformed;
+                out->code   = EmitTransferCode::InvalidPayload;
+                out->errors = 1U;
+                out->message
+                    = "validated signed c2pa carrier sequence is invalid";
+                return false;
+            }
+            expected_seq += 1U;
+
+            const std::span<const std::byte> payload_span(block.payload.data(),
+                                                          block.payload.size());
+            const std::span<const std::byte> header
+                = payload_span.subspan(8U, header_len);
+            if (!std::equal(header.begin(), header.end(),
+                            logical_payload.begin(),
+                            logical_payload.begin()
+                                + static_cast<std::ptrdiff_t>(header_len))) {
+                out->status = TransferStatus::Malformed;
+                out->code   = EmitTransferCode::InvalidPayload;
+                out->errors = 1U;
+                out->message
+                    = "validated signed c2pa carrier header does not match logical payload";
+                return false;
+            }
+            if (i == 0U) {
+                reconstructed.insert(reconstructed.end(), header.begin(),
+                                     header.end());
+            }
+            const std::span<const std::byte> body = payload_span.subspan(
+                8U + header_len);
+            reconstructed.insert(reconstructed.end(), body.begin(), body.end());
+            out->staged_payload_bytes += static_cast<uint64_t>(
+                block.payload.size());
+        }
+
+        if (reconstructed.size() != logical_payload.size()
+            || !std::equal(reconstructed.begin(), reconstructed.end(),
+                           logical_payload.begin(), logical_payload.end())) {
+            out->status = TransferStatus::Malformed;
+            out->code   = EmitTransferCode::InvalidPayload;
+            out->errors = 1U;
+            out->message
+                = "validated signed c2pa carrier does not reconstruct the logical payload";
+            return false;
+        }
+
+        out->staged_segments = static_cast<uint32_t>(blocks.size());
+        return true;
+    }
+
+    static ValidatePreparedC2paSignResult validate_prepared_c2pa_sign_stage(
+        const PreparedTransferBundle& bundle,
+        const PreparedTransferC2paSignRequest& request,
+        const PreparedTransferC2paSignerInput& input,
+        std::vector<PreparedTransferBlock>* out_staged_blocks) noexcept
+    {
+        ValidatePreparedC2paSignResult out;
+        out.logical_payload_bytes = static_cast<uint64_t>(
+            input.signed_c2pa_logical_payload.size());
+        if (out_staged_blocks) {
+            out_staged_blocks->clear();
+        }
+        if (bundle.target_format != TransferTargetFormat::Jpeg
+            || request.target_format != TransferTargetFormat::Jpeg) {
+            out.status = TransferStatus::Unsupported;
+            out.code   = EmitTransferCode::BundleTargetNotJpeg;
+            out.errors = 1U;
+            out.message
+                = "c2pa sign result staging currently supports jpeg only";
+            return out;
+        }
+        if (request.status != TransferStatus::Ok) {
+            out.status  = TransferStatus::InvalidArgument;
+            out.code    = EmitTransferCode::InvalidArgument;
+            out.errors  = 1U;
+            out.message = "c2pa sign request is not ready";
+            return out;
+        }
+        if (request.carrier_route != "jpeg:app11-c2pa"
+            || request.manifest_label != "c2pa") {
+            out.status  = TransferStatus::InvalidArgument;
+            out.code    = EmitTransferCode::PlanMismatch;
+            out.errors  = 1U;
+            out.message = "c2pa sign request carrier contract mismatch";
+            return out;
+        }
+        if (request.rewrite_state
+                != TransferC2paRewriteState::SigningMaterialRequired
+            && request.rewrite_state != TransferC2paRewriteState::Ready) {
+            out.status  = TransferStatus::InvalidArgument;
+            out.code    = EmitTransferCode::PlanMismatch;
+            out.errors  = 1U;
+            out.message = "c2pa sign request rewrite state is not signable";
+            return out;
+        }
+
+        const PreparedTransferC2paRewriteRequirements& rewrite
+            = bundle.c2pa_rewrite;
+        if (rewrite.state != TransferC2paRewriteState::SigningMaterialRequired
+            && rewrite.state != TransferC2paRewriteState::Ready) {
+            out.status = TransferStatus::InvalidArgument;
+            out.code   = EmitTransferCode::PlanMismatch;
+            out.errors = 1U;
+            out.message
+                = "bundle c2pa rewrite state is not ready for signer payloads";
+            return out;
+        }
+        if (rewrite.target_format != TransferTargetFormat::Jpeg
+            || !rewrite.target_carrier_available) {
+            out.status  = TransferStatus::Unsupported;
+            out.code    = EmitTransferCode::BundleTargetNotJpeg;
+            out.errors  = 1U;
+            out.message = "bundle c2pa rewrite carrier is unavailable";
+            return out;
+        }
+        if (request.source_kind != rewrite.source_kind
+            || request.content_binding_bytes != rewrite.content_binding_bytes
+            || !c2pa_rewrite_chunks_match(request.content_binding_chunks,
+                                          rewrite.content_binding_chunks)) {
+            out.status  = TransferStatus::InvalidArgument;
+            out.code    = EmitTransferCode::PlanMismatch;
+            out.errors  = 1U;
+            out.message = "c2pa sign request no longer matches prepared bundle";
+            return out;
+        }
+        if (request.requires_manifest_builder
+            && input.manifest_builder_output.empty()) {
+            out.status = TransferStatus::InvalidArgument;
+            out.code   = EmitTransferCode::InvalidArgument;
+            out.errors = 1U;
+            out.message = "missing manifest_builder_output for c2pa sign result";
+            return out;
+        }
+        if (request.requires_certificate_chain
+            && input.certificate_chain_bytes.empty()) {
+            out.status = TransferStatus::InvalidArgument;
+            out.code   = EmitTransferCode::InvalidArgument;
+            out.errors = 1U;
+            out.message = "missing certificate_chain_bytes for c2pa sign result";
+            return out;
+        }
+        if (request.requires_private_key
+            && input.private_key_reference.empty()) {
+            out.status  = TransferStatus::InvalidArgument;
+            out.code    = EmitTransferCode::InvalidArgument;
+            out.errors  = 1U;
+            out.message = "missing private_key_reference for c2pa sign result";
+            return out;
+        }
+        if (request.requires_signing_time && input.signing_time.empty()) {
+            out.status  = TransferStatus::InvalidArgument;
+            out.code    = EmitTransferCode::InvalidArgument;
+            out.errors  = 1U;
+            out.message = "missing signing_time for c2pa sign result";
+            return out;
+        }
+        if (input.signed_c2pa_logical_payload.empty()) {
+            out.status  = TransferStatus::InvalidArgument;
+            out.code    = EmitTransferCode::InvalidArgument;
+            out.errors  = 1U;
+            out.message = "signed_c2pa_logical_payload is empty";
+            return out;
+        }
+
+        uint32_t header_len = 0U;
+        uint32_t box_type   = 0U;
+        if (!parse_bmff_box_header(input.signed_c2pa_logical_payload,
+                                   &header_len, &box_type)) {
+            out.status = TransferStatus::Malformed;
+            out.code   = EmitTransferCode::InvalidPayload;
+            out.errors = 1U;
+            out.message
+                = "signed c2pa logical payload does not start with a valid bmff box";
+            return out;
+        }
+        static constexpr uint32_t kMaxJpegSegmentPayload = 65533U;
+        if (8U + header_len > kMaxJpegSegmentPayload) {
+            out.status = TransferStatus::LimitExceeded;
+            out.code   = EmitTransferCode::InvalidPayload;
+            out.errors = 1U;
+            out.message
+                = "signed c2pa app11 overhead exceeds jpeg segment limits";
+            return out;
+        }
+
+        const C2paPayloadClass payload_class = classify_c2pa_jumbf_payload(
+            input.signed_c2pa_logical_payload);
+        out.payload_kind = transfer_c2pa_signed_payload_kind(payload_class);
+        if (payload_class != C2paPayloadClass::ContentBound) {
+            out.status = TransferStatus::Unsupported;
+            out.code   = EmitTransferCode::ContentBoundPayloadUnsupported;
+            out.errors = 1U;
+            out.message
+                = "signed rewrite requires a content-bound c2pa logical payload";
+            return out;
+        }
+
+        if (!validate_transfer_c2pa_semantics(input.signed_c2pa_logical_payload,
+                                              request, &out)) {
+            return out;
+        }
+        if (request.requires_manifest_builder) {
+            std::span<const std::byte> manifest_builder_payload;
+            if (!extract_first_cbor_box_payload(
+                    input.signed_c2pa_logical_payload,
+                    &manifest_builder_payload)) {
+                (void)fail_transfer_c2pa_semantic_validation(
+                    &out, "manifest_builder_payload_missing",
+                    "signed c2pa payload is missing the primary cbor manifest payload",
+                    TransferStatus::Malformed);
+                return out;
+            }
+            const std::span<const std::byte> builder_output(
+                input.manifest_builder_output.data(),
+                input.manifest_builder_output.size());
+            if (builder_output.size() != manifest_builder_payload.size()
+                || !std::equal(builder_output.begin(), builder_output.end(),
+                               manifest_builder_payload.begin(),
+                               manifest_builder_payload.end())) {
+                (void)fail_transfer_c2pa_semantic_validation(
+                    &out, "manifest_builder_output_mismatch",
+                    "signed c2pa payload does not match manifest_builder_output",
+                    TransferStatus::Malformed);
+                return out;
+            }
+        }
+
+        std::vector<PreparedTransferBlock> staged_blocks;
+        uint32_t order = next_prepared_block_order(bundle, 150U);
+        std::string error;
+        if (!append_jpeg_app11_jumbf_segments(input.signed_c2pa_logical_payload,
+                                              TransferBlockKind::C2pa, &order,
+                                              &staged_blocks, &error)) {
+            out.status = TransferStatus::Malformed;
+            out.code   = EmitTransferCode::InvalidPayload;
+            out.errors = 1U;
+            out.message
+                = error.empty()
+                      ? "failed to stage signed c2pa payload for jpeg app11"
+                      : error;
+            return out;
+        }
+
+        if (!validate_staged_jpeg_c2pa_blocks(
+                std::span<const PreparedTransferBlock>(staged_blocks.data(),
+                                                       staged_blocks.size()),
+                input.signed_c2pa_logical_payload, header_len, &out)) {
+            return out;
+        }
+
+        out.status  = TransferStatus::Ok;
+        out.code    = EmitTransferCode::None;
+        out.message = "signed c2pa payload validated for jpeg app11 staging";
+        if (out_staged_blocks) {
+            *out_staged_blocks = std::move(staged_blocks);
+        }
+        return out;
+    }
+
+}  // namespace
+
+ValidatePreparedC2paSignResult
+validate_prepared_c2pa_sign_result(
+    const PreparedTransferBundle& bundle,
+    const PreparedTransferC2paSignRequest& request,
+    const PreparedTransferC2paSignerInput& input) noexcept
+{
+    return validate_prepared_c2pa_sign_stage(bundle, request, input, nullptr);
+}
+
+ValidatePreparedC2paSignResult
+validate_prepared_c2pa_signed_package(
+    const PreparedTransferBundle& bundle,
+    const PreparedTransferC2paSignedPackage& package) noexcept
+{
+    return validate_prepared_c2pa_sign_result(bundle, package.request,
+                                              package.signer_input);
+}
+
+EmitTransferResult
+apply_prepared_c2pa_sign_result(
+    PreparedTransferBundle* bundle,
+    const PreparedTransferC2paSignRequest& request,
+    const PreparedTransferC2paSignerInput& input) noexcept
+{
+    EmitTransferResult out;
+    if (!bundle) {
+        out.status  = TransferStatus::InvalidArgument;
+        out.code    = EmitTransferCode::InvalidArgument;
+        out.errors  = 1U;
+        out.message = "bundle is null";
+        return out;
+    }
+    std::vector<PreparedTransferBlock> staged_blocks;
+    const ValidatePreparedC2paSignResult validation
+        = validate_prepared_c2pa_sign_stage(*bundle, request, input,
+                                            &staged_blocks);
+    if (validation.status != TransferStatus::Ok) {
+        out.status  = validation.status;
+        out.code    = validation.code;
+        out.errors  = validation.errors;
+        out.message = validation.message;
+        return out;
+    }
+    const PreparedTransferC2paRewriteRequirements& rewrite
+        = bundle->c2pa_rewrite;
+
+    out.skipped = remove_prepared_blocks_by_route(bundle, "jpeg:app11-c2pa");
+    for (size_t i = 0; i < staged_blocks.size(); ++i) {
+        bundle->blocks.push_back(std::move(staged_blocks[i]));
+    }
+
+    bundle->profile.c2pa       = TransferPolicyAction::Rewrite;
+    bundle->c2pa_rewrite.state = TransferC2paRewriteState::Ready;
+    bundle->c2pa_rewrite.message
+        = "external signed c2pa payload is staged for jpeg app11 emission";
+
+    PreparedTransferPolicyDecision* decision
+        = find_policy_decision(bundle, TransferPolicySubject::C2pa);
+    if (!decision) {
+        append_policy_decision(
+            bundle, TransferPolicySubject::C2pa, TransferPolicyAction::Rewrite,
+            TransferPolicyAction::Keep,
+            TransferPolicyReason::ExternalSignedPayload,
+            rewrite.matched_entries == 0U ? 1U : rewrite.matched_entries,
+            "external signed c2pa payload will be emitted as jpeg app11 segments",
+            TransferC2paMode::SignedRewrite, rewrite.source_kind,
+            TransferC2paPreparedOutput::SignedRewrite);
+    } else {
+        decision->requested = TransferPolicyAction::Rewrite;
+        decision->effective = TransferPolicyAction::Keep;
+        decision->reason    = TransferPolicyReason::ExternalSignedPayload;
+        decision->c2pa_mode = TransferC2paMode::SignedRewrite;
+        decision->c2pa_source_kind = rewrite.source_kind;
+        decision->c2pa_prepared_output
+            = TransferC2paPreparedOutput::SignedRewrite;
+        if (decision->matched_entries == 0U) {
+            decision->matched_entries = rewrite.matched_entries == 0U
+                                            ? 1U
+                                            : rewrite.matched_entries;
+        }
+        decision->message
+            = "external signed c2pa payload will be emitted as jpeg app11 segments";
+    }
+
+    out.status  = TransferStatus::Ok;
+    out.code    = EmitTransferCode::None;
+    out.emitted = static_cast<uint32_t>(staged_blocks.size());
+    return out;
+}
+
+EmitTransferResult
+apply_prepared_c2pa_signed_package(
+    PreparedTransferBundle* bundle,
+    const PreparedTransferC2paSignedPackage& package) noexcept
+{
+    return apply_prepared_c2pa_sign_result(bundle, package.request,
+                                           package.signer_input);
+}
+
+namespace {
+
     static void apply_one_time_patch(PreparedTransferBundle* bundle,
                                      TimePatchField field,
                                      std::span<const std::byte> value,
@@ -8092,10 +9894,21 @@ execute_prepared_transfer_file(
     const ExecutePreparedTransferFileOptions& options) noexcept
 {
     ExecutePreparedTransferFileResult out;
+    const bool c2pa_stage_requested = options.c2pa_stage_requested
+                                      || options.c2pa_signed_package_provided;
+    out.execute.c2pa_stage_requested = c2pa_stage_requested;
     out.prepared = prepare_metadata_for_target_file(path, options.prepare);
 
     if (out.prepared.file_status != TransferFileStatus::Ok
-        || out.prepared.prepare.status != TransferStatus::Ok) {
+        || (out.prepared.prepare.status != TransferStatus::Ok
+            && !c2pa_stage_requested)) {
+        if (c2pa_stage_requested) {
+            out.execute.c2pa_stage.status = TransferStatus::Unsupported;
+            out.execute.c2pa_stage.code   = EmitTransferCode::InvalidArgument;
+            out.execute.c2pa_stage.errors = 1U;
+            out.execute.c2pa_stage.message
+                = "skipped c2pa sign staging due to read/prepare failure";
+        }
         out.execute.compile = skipped_emit_result(
             "skipped emit due to read/prepare failure");
         out.execute.emit = out.execute.compile;
@@ -8114,6 +9927,73 @@ execute_prepared_transfer_file(
         return out;
     }
 
+    if (c2pa_stage_requested) {
+        if (options.c2pa_signed_package_provided) {
+            out.execute.c2pa_stage_validation
+                = validate_prepared_c2pa_signed_package(
+                    out.prepared.bundle, options.c2pa_signed_package);
+            out.execute.c2pa_stage = apply_prepared_c2pa_signed_package(
+                &out.prepared.bundle, options.c2pa_signed_package);
+        } else {
+            PreparedTransferC2paSignRequest request;
+            const TransferStatus request_status
+                = build_prepared_c2pa_sign_request(out.prepared.bundle,
+                                                   &request);
+            if (request_status != TransferStatus::Ok) {
+                out.execute.c2pa_stage.status = request_status;
+                out.execute.c2pa_stage.code = EmitTransferCode::InvalidArgument;
+                out.execute.c2pa_stage.errors = 1U;
+                out.execute.c2pa_stage.message
+                    = request.message.empty()
+                          ? "failed to build c2pa sign request"
+                          : request.message;
+                out.execute.compile = skipped_emit_result(
+                    "skipped emit due to c2pa sign staging failure");
+                out.execute.emit = out.execute.compile;
+                if (!options.edit_target_path.empty()
+                    || options.execute.edit_requested) {
+                    out.execute.edit_requested   = true;
+                    out.execute.edit_plan_status = TransferStatus::Unsupported;
+                    out.execute.edit_plan_message
+                        = "skipped edit due to c2pa sign staging failure";
+                    out.execute.edit_apply.status = TransferStatus::Unsupported;
+                    out.execute.edit_apply.code
+                        = EmitTransferCode::InvalidArgument;
+                    out.execute.edit_apply.errors = 1U;
+                    out.execute.edit_apply.message
+                        = "skipped edit due to c2pa sign staging failure";
+                }
+                return out;
+            }
+
+            out.execute.c2pa_stage_validation
+                = validate_prepared_c2pa_sign_result(out.prepared.bundle,
+                                                     request,
+                                                     options.c2pa_signer_input);
+            out.execute.c2pa_stage
+                = apply_prepared_c2pa_sign_result(&out.prepared.bundle, request,
+                                                  options.c2pa_signer_input);
+        }
+        if (out.execute.c2pa_stage.status != TransferStatus::Ok) {
+            out.execute.compile = skipped_emit_result(
+                "skipped emit due to c2pa sign staging failure");
+            out.execute.emit = out.execute.compile;
+            if (!options.edit_target_path.empty()
+                || options.execute.edit_requested) {
+                out.execute.edit_requested   = true;
+                out.execute.edit_plan_status = TransferStatus::Unsupported;
+                out.execute.edit_plan_message
+                    = "skipped edit due to c2pa sign staging failure";
+                out.execute.edit_apply.status = TransferStatus::Unsupported;
+                out.execute.edit_apply.code = EmitTransferCode::InvalidArgument;
+                out.execute.edit_apply.errors = 1U;
+                out.execute.edit_apply.message
+                    = "skipped edit due to c2pa sign staging failure";
+            }
+            return out;
+        }
+    }
+
     if (!options.edit_target_path.empty()) {
         MappedFile edit_file;
         const MappedFileStatus edit_status
@@ -8122,10 +10002,15 @@ execute_prepared_transfer_file(
         if (edit_status != MappedFileStatus::Ok) {
             ExecutePreparedTransferOptions execute_options = options.execute;
             execute_options.edit_requested                 = false;
-            out.execute = execute_prepared_transfer(&out.prepared.bundle, {},
-                                                    execute_options);
-            out.execute.edit_requested   = true;
-            out.execute.edit_plan_status = map_mapped_file_status_to_transfer(
+            ExecutePreparedTransferResult execute
+                = execute_prepared_transfer(&out.prepared.bundle, {},
+                                            execute_options);
+            execute.c2pa_stage_requested  = out.execute.c2pa_stage_requested;
+            execute.c2pa_stage            = out.execute.c2pa_stage;
+            execute.c2pa_stage_validation = out.execute.c2pa_stage_validation;
+            out.execute                   = std::move(execute);
+            out.execute.edit_requested    = true;
+            out.execute.edit_plan_status  = map_mapped_file_status_to_transfer(
                 edit_status);
             out.execute.edit_plan_message = edit_target_file_error(edit_status);
             out.execute.edit_apply.status = out.execute.edit_plan_status;
@@ -8137,14 +10022,22 @@ execute_prepared_transfer_file(
 
         ExecutePreparedTransferOptions execute_options = options.execute;
         execute_options.edit_requested                 = true;
-        out.execute = execute_prepared_transfer(&out.prepared.bundle,
-                                                edit_file.bytes(),
-                                                execute_options);
+        ExecutePreparedTransferResult execute
+            = execute_prepared_transfer(&out.prepared.bundle, edit_file.bytes(),
+                                        execute_options);
+        execute.c2pa_stage_requested  = out.execute.c2pa_stage_requested;
+        execute.c2pa_stage            = out.execute.c2pa_stage;
+        execute.c2pa_stage_validation = out.execute.c2pa_stage_validation;
+        out.execute                   = std::move(execute);
         return out;
     }
 
-    out.execute = execute_prepared_transfer(&out.prepared.bundle, {},
-                                            options.execute);
+    ExecutePreparedTransferResult execute
+        = execute_prepared_transfer(&out.prepared.bundle, {}, options.execute);
+    execute.c2pa_stage_requested  = out.execute.c2pa_stage_requested;
+    execute.c2pa_stage            = out.execute.c2pa_stage;
+    execute.c2pa_stage_validation = out.execute.c2pa_stage_validation;
+    out.execute                   = std::move(execute);
     return out;
 }
 

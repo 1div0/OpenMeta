@@ -111,11 +111,45 @@ container call mapping.
     - For JPEG it also exposes `content_binding_chunks`, the exact
       rewrite-without-C2PA chunk sequence a future signer would hash or
       reconstruct.
+    - `build_prepared_c2pa_sign_request(...)` derives the external signer view
+      from that same data without changing the bundle contract.
+    - `build_prepared_c2pa_sign_request_binding(...)` materializes the exact
+      content-binding bytes from that request and the target JPEG input.
+    - `build_prepared_c2pa_handoff_package(...)` combines the signer request
+      and exact binding bytes into one public handoff object.
+    - `serialize_prepared_c2pa_handoff_package(...)` and
+      `deserialize_prepared_c2pa_handoff_package(...)` persist that object.
+    - `build_prepared_c2pa_signed_package(...)` combines the sign request and
+      signer-returned material into one persisted signed package.
+    - `serialize_prepared_c2pa_signed_package(...)` and
+      `deserialize_prepared_c2pa_signed_package(...)` persist that package.
+    - Thin wrappers expose that as CLI dump output and Python unsafe raw
+      bytes without duplicating the reconstruction logic.
+    - `validate_prepared_c2pa_sign_result(...)` validates a returned signed
+      logical C2PA payload before bundle mutation and reports staged carrier
+      size and segment count.
+    - Current JPEG validation also checks semantic manifest/claim/signature
+      consistency, resolved explicit references, request-aware manifest count
+      / `claim_generator` requirements, decoded-assertion presence when
+      content binding is required, the primary signature linking back to the
+      prepared primary claim under that same content-binding contract,
+      manifest/claim/signature projection shape under the prepared manifest
+      contract, exact primary manifest-CBOR equality against
+      `manifest_builder_output`, staged APP11 sequence order, and exact
+      logical-payload reconstruction.
+    - `apply_prepared_c2pa_sign_result(...)` accepts the external signer
+      output and stages a content-bound logical C2PA payload back into
+      prepared JPEG APP11 blocks after strict request validation.
+    - The file-level execution helper and thin CLI/Python wrappers can now
+      validate that stage step, apply it, and continue into normal JPEG
+      emit/edit flow.
     - File-based JPEG prepare can preserve an existing OpenMeta draft
       invalidation payload as raw APP11 C2PA (`TransferC2paMode::PreserveRaw`).
     - Content-bound `Keep` still resolves to `Drop`.
     - `Rewrite` resolves to `Drop` with explicit
-      `SignedRewriteUnavailable` until re-sign support exists.
+      `SignedRewriteUnavailable` until re-sign support exists, but externally
+      signed payload staging is now available once a signer has consumed the
+      request.
     - JPEG content-changing rewrite/edit removes existing APP11 C2PA from the
       target before inserting the new prepared payload.
 - Safety limits are enforced before backend calls (size, truncation, malformed).

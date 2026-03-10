@@ -94,10 +94,33 @@ Current baseline-gated status on tracked corpora:
     still required before signed rewrite can exist. For JPEG rewrite prep it
     also exposes a deterministic `content_binding_chunks` sequence describing
     the rewrite-without-C2PA byte stream as preserved source ranges plus
-    prepared JPEG segments.
+    prepared JPEG segments. `build_prepared_c2pa_sign_request(...)` derives an
+    explicit external signer request from that state,
+    `build_prepared_c2pa_sign_request_binding(...)` materializes the exact
+    content-binding bytes for an external signer,
+    `build_prepared_c2pa_handoff_package(...)` bundles both into one public
+    handoff object, `validate_prepared_c2pa_sign_result(...)` validates a
+    returned signed logical C2PA payload before bundle mutation, including
+    semantic manifest/claim/signature consistency plus request-aware manifest
+    count / `claim_generator` checks plus manifest/claim/signature projection
+    shape validation under the prepared manifest contract. When content
+    binding is required, the returned payload must also carry at least one
+    decoded assertion and the primary signature must link back to the
+    prepared primary claim, and when manifest builder output is required, the
+    returned payload must carry the same primary CBOR manifest payload bytes,
+    and
+    `apply_prepared_c2pa_sign_result(...)` stages externally signed logical
+    C2PA payloads back into prepared JPEG APP11 blocks.
+    OpenMeta can also serialize that handoff object and one persisted signed
+    package for external signer round-trips.
     `metatransfer` and `openmeta.transfer_probe(...)` now expose both the
     resolved transfer-policy decisions and JPEG edit-plan removal counts for
-    existing APP11 JUMBF/C2PA segments.
+    existing APP11 JUMBF/C2PA segments, plus the derived `c2pa_sign_request`
+    view for external signer integration, exact binding-byte materialization,
+    a `c2pa_stage_validate` result for signed-payload validation, a
+    `c2pa_stage` result when wrappers stage external signed payloads before
+    emit/edit, and persisted handoff/signed-package dump-load flows in both
+    the C++ and Python `metatransfer` wrappers.
   - `thumdump`: preview-only extractor, also supports positional
     `<source> <destination>` and explicit `-i/--input` + `-o/--out`; when
     multiple previews are found, `--out name.jpg` writes `name_1.jpg`,

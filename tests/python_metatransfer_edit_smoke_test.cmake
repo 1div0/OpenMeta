@@ -22,6 +22,13 @@ set(_target_jpg "${WORK_DIR}/target.jpg")
 set(_edited_jpg "${WORK_DIR}/edited.jpg")
 set(_target_tif "${WORK_DIR}/target.tif")
 set(_edited_tif "${WORK_DIR}/edited.tif")
+set(_c2pa_jpg "${WORK_DIR}/sample_c2pa.jpg")
+set(_c2pa_signed_jumb "${WORK_DIR}/signed_c2pa.jumb")
+set(_c2pa_manifest "${WORK_DIR}/manifest.cbor")
+set(_c2pa_cert "${WORK_DIR}/cert.der")
+set(_c2pa_handoff "${WORK_DIR}/handoff.omc2ph")
+set(_c2pa_signed_package "${WORK_DIR}/signed_package.omc2ps")
+set(_c2pa_from_package "${WORK_DIR}/edited_from_package.jpg")
 set(_check_tiff_py "${WORK_DIR}/check_tiff.py")
 
 execute_process(
@@ -58,6 +65,18 @@ execute_process(
 if(NOT _rv_target_tif EQUAL 0)
   message(FATAL_ERROR
     "failed to write python metatransfer target tiff fixture (${_rv_target_tif})\nstdout:\n${_out_target_tif}\nstderr:\n${_err_target_tif}")
+endif()
+
+execute_process(
+  COMMAND "${OPENMETA_PYTHON_EXECUTABLE}" -c
+    "from pathlib import Path; jumd=b'c2pa\\x00'; box=lambda t,p:(8+len(p)).to_bytes(4,'big')+t+p; cbor=bytes([0xA1,0x61,0x61,0x01]); seg_jumb=box(b'jumb', box(b'jumd', jumd)+box(b'cbor', cbor)); seg=b'JP\\x00\\x00'+(1).to_bytes(4,'big')+seg_jumb; signed_cbor=bytearray(); signed_cbor+=bytes([0xA1,0x68])+b'manifest'; signed_cbor+=bytes([0x81,0xA2,0x6F])+b'claim_generator'; signed_cbor+=bytes([0x64])+b'test'; signed_cbor+=bytes([0x66])+b'claims'; signed_cbor+=bytes([0x81,0xA2,0x6A])+b'assertions'; signed_cbor+=bytes([0x81,0xA1,0x65])+b'label'; signed_cbor+=bytes([0x6E])+b'c2pa.hash.data'; signed_cbor+=bytes([0x6A])+b'signatures'; signed_cbor+=bytes([0x81,0xA2,0x63])+b'alg'; signed_cbor+=bytes([0x65])+b'ES256'; signed_cbor+=bytes([0x69])+b'signature'; signed_cbor+=bytes([0x44,0x01,0x02,0x03,0x04]); signed_jumb=box(b'jumb', box(b'jumd', jumd)+box(b'cbor', bytes(signed_cbor))); Path(r'''${_c2pa_jpg}''').write_bytes(b'\\xFF\\xD8\\xFF\\xEB'+(len(seg)+2).to_bytes(2,'big')+seg+b'\\xFF\\xD9'); Path(r'''${_c2pa_signed_jumb}''').write_bytes(signed_jumb); Path(r'''${_c2pa_manifest}''').write_bytes(bytes(signed_cbor)); Path(r'''${_c2pa_cert}''').write_bytes(bytes([0x30,0x82,0x01,0x00]))"
+  RESULT_VARIABLE _rv_c2pa
+  OUTPUT_VARIABLE _out_c2pa
+  ERROR_VARIABLE _err_c2pa
+)
+if(NOT _rv_c2pa EQUAL 0)
+  message(FATAL_ERROR
+    "failed to write python metatransfer c2pa fixtures (${_rv_c2pa})\nstdout:\n${_out_c2pa}\nstderr:\n${_err_c2pa}")
 endif()
 
 execute_process(
@@ -180,6 +199,110 @@ execute_process(
 if(NOT _rv_tif_check EQUAL 0)
   message(FATAL_ERROR
     "python metatransfer tiff output check failed (${_rv_tif_check})\nstdout:\n${_out_tif_check}\nstderr:\n${_err_tif_check}")
+endif()
+
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env
+          "PYTHONPATH=${OPENMETA_PYTHONPATH}"
+          "${OPENMETA_PYTHON_EXECUTABLE}" -m openmeta.python.metatransfer
+          --no-build-info
+          --no-exif
+          --no-xmp
+          --no-icc
+          --no-iptc
+          --c2pa-policy rewrite
+          --dump-c2pa-handoff "${_c2pa_handoff}"
+          "${_c2pa_jpg}"
+  RESULT_VARIABLE _rv_handoff
+  OUTPUT_VARIABLE _out_handoff
+  ERROR_VARIABLE _err_handoff
+)
+if(NOT _rv_handoff EQUAL 0)
+  message(FATAL_ERROR
+    "python metatransfer c2pa handoff dump failed (${_rv_handoff})\nstdout:\n${_out_handoff}\nstderr:\n${_err_handoff}")
+endif()
+if(NOT _out_handoff MATCHES "c2pa_handoff: status=ok")
+  message(FATAL_ERROR
+    "python metatransfer c2pa handoff dump missing status ok\nstdout:\n${_out_handoff}\nstderr:\n${_err_handoff}")
+endif()
+if(NOT EXISTS "${_c2pa_handoff}")
+  message(FATAL_ERROR
+    "python metatransfer c2pa handoff dump did not write output\nstdout:\n${_out_handoff}\nstderr:\n${_err_handoff}")
+endif()
+
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env
+          "PYTHONPATH=${OPENMETA_PYTHONPATH}"
+          "${OPENMETA_PYTHON_EXECUTABLE}" -m openmeta.python.metatransfer
+          --no-build-info
+          --jpeg-c2pa-signed "${_c2pa_signed_jumb}"
+          --c2pa-manifest-output "${_c2pa_manifest}"
+          --c2pa-certificate-chain "${_c2pa_cert}"
+          --c2pa-key-ref "test-key-ref"
+          --c2pa-signing-time "2026-03-09T00:00:00Z"
+          --dump-c2pa-signed-package "${_c2pa_signed_package}"
+          "${_c2pa_jpg}"
+  RESULT_VARIABLE _rv_signed_package
+  OUTPUT_VARIABLE _out_signed_package
+  ERROR_VARIABLE _err_signed_package
+)
+if(NOT _rv_signed_package EQUAL 0)
+  message(FATAL_ERROR
+    "python metatransfer signed c2pa package dump failed (${_rv_signed_package})\nstdout:\n${_out_signed_package}\nstderr:\n${_err_signed_package}")
+endif()
+if(NOT _out_signed_package MATCHES "c2pa_signed_package: status=ok")
+  message(FATAL_ERROR
+    "python metatransfer signed c2pa package dump missing status ok\nstdout:\n${_out_signed_package}\nstderr:\n${_err_signed_package}")
+endif()
+if(NOT _out_signed_package MATCHES "c2pa_stage_semantics: status=ok reason=ok manifest=1 manifests=1 claim_generator=1 assertions=1 claims=1 signatures=1 linked=1 orphan=0 explicit_refs=0 unresolved=0 ambiguous=0")
+  message(FATAL_ERROR
+    "python metatransfer signed c2pa package dump missing semantic summary\nstdout:\n${_out_signed_package}\nstderr:\n${_err_signed_package}")
+endif()
+if(NOT _out_signed_package MATCHES "c2pa_stage_linkage: claim0_assertions=1 claim0_refs=1 sig0_links=1")
+  message(FATAL_ERROR
+    "python metatransfer signed c2pa package dump missing linkage summary\nstdout:\n${_out_signed_package}\nstderr:\n${_err_signed_package}")
+endif()
+if(NOT EXISTS "${_c2pa_signed_package}")
+  message(FATAL_ERROR
+    "python metatransfer signed c2pa package dump did not write output\nstdout:\n${_out_signed_package}\nstderr:\n${_err_signed_package}")
+endif()
+
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env
+          "PYTHONPATH=${OPENMETA_PYTHONPATH}"
+          "${OPENMETA_PYTHON_EXECUTABLE}" -m openmeta.python.metatransfer
+          --no-build-info
+          --load-c2pa-signed-package "${_c2pa_signed_package}"
+          --target-jpeg "${_c2pa_jpg}"
+          -o "${_c2pa_from_package}"
+          "${_c2pa_jpg}"
+  RESULT_VARIABLE _rv_from_package
+  OUTPUT_VARIABLE _out_from_package
+  ERROR_VARIABLE _err_from_package
+)
+if(NOT _rv_from_package EQUAL 0)
+  message(FATAL_ERROR
+    "python metatransfer signed c2pa package apply failed (${_rv_from_package})\nstdout:\n${_out_from_package}\nstderr:\n${_err_from_package}")
+endif()
+if(NOT _out_from_package MATCHES "c2pa_stage: status=ok")
+  message(FATAL_ERROR
+    "python metatransfer signed c2pa package apply missing stage ok\nstdout:\n${_out_from_package}\nstderr:\n${_err_from_package}")
+endif()
+if(NOT _out_from_package MATCHES "c2pa_stage_semantics: status=ok reason=ok manifest=1 manifests=1 claim_generator=1 assertions=1 claims=1 signatures=1 linked=1 orphan=0 explicit_refs=0 unresolved=0 ambiguous=0")
+  message(FATAL_ERROR
+    "python metatransfer signed c2pa package apply missing semantic summary\nstdout:\n${_out_from_package}\nstderr:\n${_err_from_package}")
+endif()
+if(NOT _out_from_package MATCHES "c2pa_stage_linkage: claim0_assertions=1 claim0_refs=1 sig0_links=1")
+  message(FATAL_ERROR
+    "python metatransfer signed c2pa package apply missing linkage summary\nstdout:\n${_out_from_package}\nstderr:\n${_err_from_package}")
+endif()
+if(NOT _out_from_package MATCHES "edit_apply: status=ok")
+  message(FATAL_ERROR
+    "python metatransfer signed c2pa package apply missing edit ok\nstdout:\n${_out_from_package}\nstderr:\n${_err_from_package}")
+endif()
+if(NOT EXISTS "${_c2pa_from_package}")
+  message(FATAL_ERROR
+    "python metatransfer signed c2pa package apply did not write output\nstdout:\n${_out_from_package}\nstderr:\n${_err_from_package}")
 endif()
 
 message(STATUS "python metatransfer edit smoke gate passed")

@@ -131,6 +131,15 @@ Portable sidecar note:
 ./build/metatransfer --no-exif --no-xmp --no-icc --no-iptc \
   --jpeg-jumbf payload.jumbf input.jpg
 
+#Stage externally signed logical C2PA into a JPEG rewrite flow
+./build/metatransfer --no-exif --no-xmp --no-icc --no-iptc \
+  --jpeg-c2pa-signed signed_c2pa.jumb \
+  --c2pa-manifest-output manifest.bin \
+  --c2pa-certificate-chain chain.bin \
+  --c2pa-key-ref signer-key \
+  --c2pa-signing-time 2026-03-09T00:00:00Z \
+  -o output.jpg input_with_c2pa.jpg
+
 #Plan edit strategy without writing output
 ./build/metatransfer --mode auto --dry-run input.jpg
 
@@ -193,8 +202,63 @@ Current v1 behavior is:
     - Current JPEG prepare also emits `content_binding_chunks`, a deterministic
       sequence of preserved source ranges and prepared JPEG segments that
       describes the rewrite output before any new C2PA payload is inserted.
-    - Current state is `SigningMaterialRequired`; signed rewrite/re-sign is
-      not implemented yet.
+    - Current state is usually `SigningMaterialRequired`; it advances to
+      `Ready` once an external signed payload is staged back into the bundle.
+  - `build_prepared_c2pa_sign_request(...)` derives an explicit external
+    signer request from `PreparedTransferBundle::c2pa_rewrite`.
+    - It reports carrier route, manifest label, source-range chunk count,
+      prepared-segment chunk count, and the full content-binding chunk list.
+    - CLI/Python thin wrappers expose this as `c2pa_sign_request`.
+  - `build_prepared_c2pa_sign_request_binding(...)` reconstructs the exact
+    content-binding byte stream from the request plus the target JPEG bytes.
+    - It fails closed on stale requests, bad source ranges, and block/size
+      mismatches.
+    - `metatransfer --dump-c2pa-binding` and
+      `unsafe_transfer_probe(include_c2pa_binding_bytes=True)` are thin
+      wrapper entry points for this helper.
+  - `build_prepared_c2pa_handoff_package(...)` bundles the signer request and
+    exact content-binding bytes into one public handoff object.
+    - Callers can persist or pass one object to an external signer.
+    - Wrappers still use the same core helper instead of rebuilding either
+      part on their own.
+  - `serialize_prepared_c2pa_handoff_package(...)` and
+    `deserialize_prepared_c2pa_handoff_package(...)` persist that handoff
+    object as one stable binary package.
+  - `build_prepared_c2pa_signed_package(...)` packages the sign request plus
+    signer material and returned logical payload for a second persisted
+    round-trip object.
+  - `serialize_prepared_c2pa_signed_package(...)` and
+    `deserialize_prepared_c2pa_signed_package(...)` persist that signed
+    package.
+  - `validate_prepared_c2pa_sign_result(...)` validates a returned signed
+    logical C2PA payload before bundle mutation.
+    - It reports payload kind, logical payload size, staged carrier size,
+      staged segment count, semantic validation status/reason, and validation
+      errors.
+    - Current semantic validation requires a manifest, at least one claim,
+      at least one signature, linked-signature consistency, no unresolved or
+      ambiguous explicit claim references, exactly one manifest for the
+      current sign request, `claim_generator` when the request requires
+      manifest-builder output, at least one decoded assertion when the
+      request requires content binding, the primary signature linking back to
+      the prepared primary claim under that same content-binding contract,
+      manifest/claim/signature projection shape under the prepared manifest
+      contract, and an exact match between the signer-provided
+      `manifest_builder_output` bytes and the primary CBOR manifest payload
+      embedded in the returned signed JUMBF.
+    - `apply_prepared_c2pa_sign_result(...)` uses the same validation path.
+    - Current JPEG validation now also checks that the staged APP11 sequence
+      reconstructs the logical payload byte-for-byte.
+  - `apply_prepared_c2pa_sign_result(...)` is the first bundle-level handoff
+    point back from an external signer.
+    - It validates the signer request against the current prepared bundle.
+    - It requires explicit signer material fields plus a content-bound logical
+      C2PA payload.
+    - On success it replaces prepared `jpeg:app11-c2pa` blocks and upgrades
+      the resolved C2PA policy to `SignedRewrite` with
+      `TransferPolicyReason::ExternalSignedPayload`.
+    - CLI/Python thin wrappers expose the validation result as
+      `c2pa_stage_validate` and the stage result as `c2pa_stage`.
   - Current policy resolution for JPEG/TIFF prepare is:
   - MakerNote: `Keep` by default, `Drop` when requested, `Invalidate`
     resolves to `Drop`, and `Rewrite` currently resolves to raw-preserve
@@ -222,6 +286,15 @@ Current v1 behavior is:
       `TransferPolicyReason::SignedRewriteUnavailable` until re-sign support
       exists, while `PreparedTransferBundle::c2pa_rewrite` reports the signer
       prerequisites that would be needed to perform it.
+    - OpenMeta still does not sign internally, but it can now stage
+      externally signed logical C2PA payloads back into prepared JPEG APP11
+      carrier blocks after request validation.
+    - `build_prepared_c2pa_handoff_package(...)` and
+      `validate_prepared_c2pa_sign_result(...)` are the public handoff and
+      pre-stage validation helpers for that external-signer path.
+    - `metatransfer` can now dump a persisted handoff package, dump a
+      persisted signed package, and load a persisted signed package back into
+      the same prepare/validate/apply flow.
   - JPEG edit/rewrite now recognizes existing APP11 JUMBF/C2PA carrier
     segments.
     - Existing C2PA APP11 payloads are dropped automatically when the output
@@ -611,6 +684,10 @@ PYTHONPATH=build-py/python python3 -m openmeta.python.metadump --format portable
 PYTHONPATH=build-py/python python3 -m openmeta.python.metatransfer file.jpg
 PYTHONPATH=build-py/python python3 -m openmeta.python.metatransfer --target-jpeg target.jpg -o edited.jpg source.jpg
 PYTHONPATH=build-py/python python3 -m openmeta.python.metatransfer --target-tiff target.tif --dry-run source.jpg
+PYTHONPATH=build-py/python python3 -m openmeta.python.metatransfer --jpeg-c2pa-signed signed_c2pa.jumb --c2pa-manifest-output manifest.bin --c2pa-certificate-chain chain.bin --c2pa-key-ref signer-key --c2pa-signing-time 2026-03-09T00:00:00Z -o edited.jpg input_with_c2pa.jpg
+PYTHONPATH=build-py/python python3 -m openmeta.python.metatransfer --c2pa-policy rewrite --dump-c2pa-handoff handoff.omc2ph input_with_c2pa.jpg
+PYTHONPATH=build-py/python python3 -m openmeta.python.metatransfer --jpeg-c2pa-signed signed_c2pa.jumb --c2pa-manifest-output manifest.bin --c2pa-certificate-chain chain.bin --c2pa-key-ref signer-key --c2pa-signing-time 2026-03-09T00:00:00Z --dump-c2pa-signed-package signed.omc2ps input_with_c2pa.jpg
+PYTHONPATH=build-py/python python3 -m openmeta.python.metatransfer --load-c2pa-signed-package signed.omc2ps --target-jpeg target.jpg -o edited.jpg input_with_c2pa.jpg
 ```
 
 ## Python Wheel

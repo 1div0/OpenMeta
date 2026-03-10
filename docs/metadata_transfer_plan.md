@@ -124,12 +124,63 @@ Read-path readiness is high:
     prepared contract without another API change
   - The JPEG rewrite prep path now emits deterministic content-binding chunks
     as preserved source ranges plus prepared JPEG segments
+  - `build_prepared_c2pa_sign_request(...)` now derives the explicit external
+    signer request from those rewrite chunks without another bundle-level API
+    addition
+  - `build_prepared_c2pa_sign_request_binding(...)` now materializes the exact
+    content-binding bytes for that request from preserved source ranges plus
+    prepared JPEG segments
+  - Thin wrappers now expose that byte stream directly:
+    `metatransfer --dump-c2pa-binding` and Python
+    `unsafe_transfer_probe(include_c2pa_binding_bytes=True)`
+  - `build_prepared_c2pa_handoff_package(...)` now bundles the external signer
+    request and exact binding bytes into one public handoff object
+  - `serialize_prepared_c2pa_handoff_package(...)` and
+    `deserialize_prepared_c2pa_handoff_package(...)` now persist that handoff
+    object
+  - `build_prepared_c2pa_signed_package(...)` now bundles the external signer
+    request and returned signer material into one persisted signed package
+  - `serialize_prepared_c2pa_signed_package(...)` and
+    `deserialize_prepared_c2pa_signed_package(...)` now persist that signed
+    package
+  - Python thin wrappers now expose the same persisted package flow:
+    `openmeta.unsafe_transfer_probe(include_c2pa_handoff_bytes=True)`,
+    `openmeta.unsafe_transfer_probe(include_c2pa_signed_package_bytes=True)`,
+    and `openmeta.python.metatransfer --dump-c2pa-handoff /
+    --dump-c2pa-signed-package / --load-c2pa-signed-package`
+  - Signed C2PA staging now requires both:
+    - structural carrier validity
+    - semantic manifest/claim/signature consistency from decoded
+      `c2pa.semantic.*` fields before JPEG APP11 staging succeeds
+    - request-aware manifest count / `claim_generator` checks before the
+      returned payload can drift away from the prepared sign request
+    - at least one decoded assertion when the prepared request requires
+      content binding
+    - the primary signature linking back to the prepared primary claim under
+      that same content-binding contract
+    - manifest/claim/signature projection shape checks under the prepared
+      manifest contract
+    - exact primary manifest-CBOR equality against the external signer’s
+      `manifest_builder_output`
+  - `validate_prepared_c2pa_sign_result(...)` now validates a returned signed
+    logical C2PA payload before bundle mutation and reports staged carrier
+    bytes and segment count
+  - JPEG signed-payload validation now also checks APP11 sequence order and
+    exact logical-payload reconstruction
+  - `apply_prepared_c2pa_sign_result(...)` now stages externally signed
+    content-bound logical C2PA payloads back into prepared JPEG APP11 blocks
+    after strict request/material validation
+  - `execute_prepared_transfer_file(...)` and the thin CLI/Python wrappers can
+    now carry optional signer material, validate signed C2PA output, stage it,
+    and continue through normal JPEG emit/edit execution in the same
+    high-level flow
   - JPEG edit/rewrite now treats existing APP11 JUMBF/C2PA as managed routes:
     content-changing edits drop stale C2PA, and explicit JUMBF `Drop` removes
     existing APP11 JUMBF segments
   - JPEG edit plans now report how many existing managed APP11 segments will be
     removed, including separate counts for JUMBF and C2PA
-  - Full C2PA preserve/re-sign is still unavailable
+  - OpenMeta still does not sign or re-sign internally; external signer output
+    can now be staged back into the prepared bundle contract
 
 ## Main Blockers For Transfer
 

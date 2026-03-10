@@ -137,6 +137,20 @@ namespace {
     }
 
 
+    static std::vector<std::byte> bytes_object_to_vector(nb::object obj)
+    {
+        std::vector<std::byte> out;
+        if (obj.is_none()) {
+            return out;
+        }
+        const nb::bytes value = nb::cast<nb::bytes>(obj);
+        const std::span<const std::byte> bytes(
+            reinterpret_cast<const std::byte*>(value.data()), value.size());
+        out.assign(bytes.begin(), bytes.end());
+        return out;
+    }
+
+
     static std::pair<std::string, bool> console_text(nb::bytes data,
                                                      uint32_t max_bytes)
     {
@@ -672,6 +686,8 @@ namespace {
         case TransferPolicyReason::ProjectedPayload: return "projected_payload";
         case TransferPolicyReason::DraftInvalidationPayload:
             return "draft_invalidation_payload";
+        case TransferPolicyReason::ExternalSignedPayload:
+            return "external_signed_payload";
         case TransferPolicyReason::ContentBoundTransferUnavailable:
             return "content_bound_transfer_unavailable";
         case TransferPolicyReason::SignedRewriteUnavailable:
@@ -749,6 +765,33 @@ namespace {
         case TransferC2paRewriteChunkKind::SourceRange: return "source_range";
         case TransferC2paRewriteChunkKind::PreparedJpegSegment:
             return "prepared_jpeg_segment";
+        }
+        return "unknown";
+    }
+
+    static const char* transfer_c2pa_signed_payload_kind_name(
+        TransferC2paSignedPayloadKind kind) noexcept
+    {
+        switch (kind) {
+        case TransferC2paSignedPayloadKind::NotApplicable:
+            return "not_applicable";
+        case TransferC2paSignedPayloadKind::GenericJumbf:
+            return "generic_jumbf";
+        case TransferC2paSignedPayloadKind::DraftUnsignedInvalidation:
+            return "draft_unsigned_invalidation";
+        case TransferC2paSignedPayloadKind::ContentBound:
+            return "content_bound";
+        }
+        return "unknown";
+    }
+
+    static const char* transfer_c2pa_semantic_status_name(
+        TransferC2paSemanticStatus status) noexcept
+    {
+        switch (status) {
+        case TransferC2paSemanticStatus::NotChecked: return "not_checked";
+        case TransferC2paSemanticStatus::Ok: return "ok";
+        case TransferC2paSemanticStatus::Invalid: return "invalid";
         }
         return "unknown";
     }
@@ -934,12 +977,20 @@ namespace {
         bool xmp_exiftool_gpsdatetime_alias,
         TransferPolicyAction makernote_policy,
         TransferPolicyAction jumbf_policy, TransferPolicyAction c2pa_policy,
-        uint64_t max_file_bytes, nb::object policy_obj, bool include_payloads,
+        uint64_t max_file_bytes, nb::object policy_obj,
+        nb::object c2pa_signed_package_obj,
+        nb::object c2pa_signed_logical_payload_obj,
+        nb::object c2pa_certificate_chain_obj,
+        nb::object c2pa_private_key_reference_obj,
+        nb::object c2pa_signing_time_obj,
+        nb::object c2pa_manifest_builder_output_obj, bool include_payloads,
         bool unsafe_payload_access, nb::object time_patches_obj,
         bool time_patch_strict_width, bool time_patch_require_slot,
         bool time_patch_auto_nul, nb::object edit_target_path_obj,
         bool edit_do_apply, bool include_edited_bytes,
-        bool unsafe_edited_bytes_access)
+        bool unsafe_edited_bytes_access, bool include_c2pa_binding_bytes,
+        bool unsafe_c2pa_binding_access, bool include_c2pa_handoff_bytes,
+        bool include_c2pa_signed_package_bytes, bool unsafe_c2pa_package_access)
     {
         PrepareTransferFileOptions prepare_options;
         prepare_options.include_pointer_tags       = include_pointer_tags;
@@ -989,6 +1040,58 @@ namespace {
             }
         }
 
+        const bool have_c2pa_signed_package = !c2pa_signed_package_obj.is_none();
+        const bool have_individual_c2pa_inputs
+            = !c2pa_signed_logical_payload_obj.is_none()
+              || !c2pa_certificate_chain_obj.is_none()
+              || !c2pa_private_key_reference_obj.is_none()
+              || !c2pa_signing_time_obj.is_none()
+              || !c2pa_manifest_builder_output_obj.is_none();
+        if (have_c2pa_signed_package && have_individual_c2pa_inputs) {
+            throw std::runtime_error(
+                "c2pa_signed_package is mutually exclusive with individual "
+                "signed c2pa inputs");
+        }
+
+        if (have_c2pa_signed_package) {
+            const std::vector<std::byte> package_bytes = bytes_object_to_vector(
+                c2pa_signed_package_obj);
+            PreparedTransferC2paSignedPackage package;
+            const PreparedTransferC2paPackageIoResult package_io
+                = deserialize_prepared_c2pa_signed_package(
+                    std::span<const std::byte>(package_bytes.data(),
+                                               package_bytes.size()),
+                    &package);
+            if (package_io.status != TransferStatus::Ok) {
+                throw std::runtime_error(
+                    package_io.message.empty()
+                        ? "failed to deserialize c2pa signed package"
+                        : package_io.message);
+            }
+            file_options.c2pa_signed_package_provided = true;
+            file_options.c2pa_signed_package          = std::move(package);
+            file_options.prepare.prepare.profile.c2pa
+                = TransferPolicyAction::Rewrite;
+        } else if (have_individual_c2pa_inputs) {
+            file_options.c2pa_stage_requested = true;
+            file_options.prepare.prepare.profile.c2pa
+                = TransferPolicyAction::Rewrite;
+            file_options.c2pa_signer_input.signed_c2pa_logical_payload
+                = bytes_object_to_vector(c2pa_signed_logical_payload_obj);
+            file_options.c2pa_signer_input.certificate_chain_bytes
+                = bytes_object_to_vector(c2pa_certificate_chain_obj);
+            if (!c2pa_private_key_reference_obj.is_none()) {
+                file_options.c2pa_signer_input.private_key_reference
+                    = nb::cast<std::string>(c2pa_private_key_reference_obj);
+            }
+            if (!c2pa_signing_time_obj.is_none()) {
+                file_options.c2pa_signer_input.signing_time
+                    = nb::cast<std::string>(c2pa_signing_time_obj);
+            }
+            file_options.c2pa_signer_input.manifest_builder_output
+                = bytes_object_to_vector(c2pa_manifest_builder_output_obj);
+        }
+
         ExecutePreparedTransferFileResult executed;
         {
             nb::gil_scoped_release gil_release;
@@ -1032,9 +1135,99 @@ namespace {
             exec.time_patch.patched_slots);
         out["time_patch_skipped_slots"] = nb::int_(
             exec.time_patch.skipped_slots);
-        out["time_patch_errors"]  = nb::int_(exec.time_patch.errors);
-        out["time_patch_message"] = nb::str(exec.time_patch.message.c_str(),
-                                            exec.time_patch.message.size());
+        out["time_patch_errors"]      = nb::int_(exec.time_patch.errors);
+        out["time_patch_message"]     = nb::str(exec.time_patch.message.c_str(),
+                                                exec.time_patch.message.size());
+        out["c2pa_stage_requested"]   = nb::bool_(exec.c2pa_stage_requested);
+        out["c2pa_stage_status"]      = exec.c2pa_stage.status;
+        out["c2pa_stage_status_name"] = nb::str(
+            transfer_status_name(exec.c2pa_stage.status));
+        out["c2pa_stage_code"]      = exec.c2pa_stage.code;
+        out["c2pa_stage_code_name"] = nb::str(
+            emit_transfer_code_name(exec.c2pa_stage.code));
+        out["c2pa_stage_emitted"] = nb::int_(exec.c2pa_stage.emitted);
+        out["c2pa_stage_skipped"] = nb::int_(exec.c2pa_stage.skipped);
+        out["c2pa_stage_errors"]  = nb::int_(exec.c2pa_stage.errors);
+        out["c2pa_stage_message"] = nb::str(exec.c2pa_stage.message.c_str(),
+                                            exec.c2pa_stage.message.size());
+        out["c2pa_stage_validation_status"] = exec.c2pa_stage_validation.status;
+        out["c2pa_stage_validation_status_name"] = nb::str(
+            transfer_status_name(exec.c2pa_stage_validation.status));
+        out["c2pa_stage_validation_code"] = exec.c2pa_stage_validation.code;
+        out["c2pa_stage_validation_code_name"] = nb::str(
+            emit_transfer_code_name(exec.c2pa_stage_validation.code));
+        out["c2pa_stage_validation_payload_kind"]
+            = exec.c2pa_stage_validation.payload_kind;
+        out["c2pa_stage_validation_payload_kind_name"] = nb::str(
+            transfer_c2pa_signed_payload_kind_name(
+                exec.c2pa_stage_validation.payload_kind));
+        out["c2pa_stage_validation_semantic_status"]
+            = exec.c2pa_stage_validation.semantic_status;
+        out["c2pa_stage_validation_semantic_status_name"] = nb::str(
+            transfer_c2pa_semantic_status_name(
+                exec.c2pa_stage_validation.semantic_status));
+        out["c2pa_stage_validation_semantic_reason"]
+            = nb::str(exec.c2pa_stage_validation.semantic_reason.c_str(),
+                      exec.c2pa_stage_validation.semantic_reason.size());
+        out["c2pa_stage_validation_logical_payload_bytes"] = nb::int_(
+            exec.c2pa_stage_validation.logical_payload_bytes);
+        out["c2pa_stage_validation_staged_payload_bytes"] = nb::int_(
+            exec.c2pa_stage_validation.staged_payload_bytes);
+        out["c2pa_stage_validation_semantic_manifest_present"] = nb::int_(
+            exec.c2pa_stage_validation.semantic_manifest_present);
+        out["c2pa_stage_validation_semantic_manifest_count"] = nb::int_(
+            exec.c2pa_stage_validation.semantic_manifest_count);
+        out["c2pa_stage_validation_semantic_claim_generator_present"] = nb::int_(
+            exec.c2pa_stage_validation.semantic_claim_generator_present);
+        out["c2pa_stage_validation_semantic_assertion_count"] = nb::int_(
+            exec.c2pa_stage_validation.semantic_assertion_count);
+        out["c2pa_stage_validation_semantic_primary_claim_assertion_count"]
+            = nb::int_(exec.c2pa_stage_validation
+                           .semantic_primary_claim_assertion_count);
+        out["c2pa_stage_validation_semantic_primary_claim_referenced_by_signature_count"]
+            = nb::int_(
+                exec.c2pa_stage_validation
+                    .semantic_primary_claim_referenced_by_signature_count);
+        out["c2pa_stage_validation_semantic_primary_signature_linked_claim_count"]
+            = nb::int_(exec.c2pa_stage_validation
+                           .semantic_primary_signature_linked_claim_count);
+        out["c2pa_stage_validation_semantic_primary_signature_reference_key_hits"]
+            = nb::int_(exec.c2pa_stage_validation
+                           .semantic_primary_signature_reference_key_hits);
+        out["c2pa_stage_validation_semantic_primary_signature_explicit_reference_present"]
+            = nb::int_(
+                exec.c2pa_stage_validation
+                    .semantic_primary_signature_explicit_reference_present);
+        out["c2pa_stage_validation_semantic_primary_signature_explicit_reference_resolved_claim_count"]
+            = nb::int_(
+                exec.c2pa_stage_validation
+                    .semantic_primary_signature_explicit_reference_resolved_claim_count);
+        out["c2pa_stage_validation_semantic_claim_count"] = nb::int_(
+            exec.c2pa_stage_validation.semantic_claim_count);
+        out["c2pa_stage_validation_semantic_signature_count"] = nb::int_(
+            exec.c2pa_stage_validation.semantic_signature_count);
+        out["c2pa_stage_validation_semantic_signature_linked"] = nb::int_(
+            exec.c2pa_stage_validation.semantic_signature_linked);
+        out["c2pa_stage_validation_semantic_signature_orphan"] = nb::int_(
+            exec.c2pa_stage_validation.semantic_signature_orphan);
+        out["c2pa_stage_validation_semantic_explicit_reference_signature_count"]
+            = nb::int_(exec.c2pa_stage_validation
+                           .semantic_explicit_reference_signature_count);
+        out["c2pa_stage_validation_semantic_explicit_reference_unresolved_signature_count"]
+            = nb::int_(
+                exec.c2pa_stage_validation
+                    .semantic_explicit_reference_unresolved_signature_count);
+        out["c2pa_stage_validation_semantic_explicit_reference_ambiguous_signature_count"]
+            = nb::int_(
+                exec.c2pa_stage_validation
+                    .semantic_explicit_reference_ambiguous_signature_count);
+        out["c2pa_stage_validation_staged_segments"] = nb::int_(
+            exec.c2pa_stage_validation.staged_segments);
+        out["c2pa_stage_validation_errors"] = nb::int_(
+            exec.c2pa_stage_validation.errors);
+        out["c2pa_stage_validation_message"]
+            = nb::str(exec.c2pa_stage_validation.message.c_str(),
+                      exec.c2pa_stage_validation.message.size());
 
         const bool allow_payload_bytes = include_payloads
                                          && unsafe_payload_access;
@@ -1148,6 +1341,256 @@ namespace {
                                           rewrite.message.size());
         out["c2pa_rewrite"]     = std::move(rewrite_dict);
 
+        PreparedTransferC2paSignRequest sign_request;
+        const TransferStatus sign_request_status
+            = build_prepared_c2pa_sign_request(prepared.bundle, &sign_request);
+        nb::dict sign_request_dict;
+        sign_request_dict["status"]      = sign_request_status;
+        sign_request_dict["status_name"] = nb::str(
+            transfer_status_name(sign_request_status));
+        sign_request_dict["rewrite_state"]      = sign_request.rewrite_state;
+        sign_request_dict["rewrite_state_name"] = nb::str(
+            transfer_c2pa_rewrite_state_name(sign_request.rewrite_state));
+        sign_request_dict["target_format"]      = sign_request.target_format;
+        sign_request_dict["target_format_name"] = nb::str(
+            transfer_target_format_name(sign_request.target_format));
+        sign_request_dict["source_kind"]      = sign_request.source_kind;
+        sign_request_dict["source_kind_name"] = nb::str(
+            transfer_c2pa_source_kind_name(sign_request.source_kind));
+        sign_request_dict["carrier_route"]
+            = nb::str(sign_request.carrier_route.c_str(),
+                      sign_request.carrier_route.size());
+        sign_request_dict["manifest_label"]
+            = nb::str(sign_request.manifest_label.c_str(),
+                      sign_request.manifest_label.size());
+        sign_request_dict["existing_carrier_segments"] = nb::int_(
+            sign_request.existing_carrier_segments);
+        sign_request_dict["source_range_chunks"] = nb::int_(
+            sign_request.source_range_chunks);
+        sign_request_dict["prepared_segment_chunks"] = nb::int_(
+            sign_request.prepared_segment_chunks);
+        sign_request_dict["content_binding_bytes"] = nb::int_(
+            sign_request.content_binding_bytes);
+        sign_request_dict["requires_manifest_builder"] = nb::bool_(
+            sign_request.requires_manifest_builder);
+        sign_request_dict["requires_content_binding"] = nb::bool_(
+            sign_request.requires_content_binding);
+        sign_request_dict["requires_certificate_chain"] = nb::bool_(
+            sign_request.requires_certificate_chain);
+        sign_request_dict["requires_private_key"] = nb::bool_(
+            sign_request.requires_private_key);
+        sign_request_dict["requires_signing_time"] = nb::bool_(
+            sign_request.requires_signing_time);
+        nb::list sign_request_chunks;
+        for (size_t i = 0; i < sign_request.content_binding_chunks.size();
+             ++i) {
+            const PreparedTransferC2paRewriteChunk& chunk
+                = sign_request.content_binding_chunks[i];
+            nb::dict one;
+            one["index"]     = nb::int_(static_cast<uint32_t>(i));
+            one["kind"]      = chunk.kind;
+            one["kind_name"] = nb::str(
+                transfer_c2pa_rewrite_chunk_kind_name(chunk.kind));
+            one["source_offset"]    = nb::int_(chunk.source_offset);
+            one["size"]             = nb::int_(chunk.size);
+            one["block_index"]      = nb::int_(chunk.block_index);
+            one["jpeg_marker_code"] = nb::int_(chunk.jpeg_marker_code);
+            if (chunk.block_index < prepared.bundle.blocks.size()) {
+                one["route"] = nb::str(
+                    prepared.bundle.blocks[chunk.block_index].route.c_str(),
+                    prepared.bundle.blocks[chunk.block_index].route.size());
+            } else {
+                one["route"] = nb::none();
+            }
+            sign_request_chunks.append(std::move(one));
+        }
+        sign_request_dict["content_binding_chunks"] = std::move(
+            sign_request_chunks);
+        sign_request_dict["message"] = nb::str(sign_request.message.c_str(),
+                                               sign_request.message.size());
+        out["c2pa_sign_request"]     = std::move(sign_request_dict);
+
+        PreparedTransferC2paHandoffPackage c2pa_handoff;
+        PreparedTransferC2paSignedPackage c2pa_signed_package;
+        PreparedTransferC2paPackageIoResult c2pa_handoff_io;
+        PreparedTransferC2paPackageIoResult c2pa_signed_package_io;
+        std::vector<std::byte> c2pa_handoff_bytes;
+        std::vector<std::byte> c2pa_signed_package_bytes;
+        out["c2pa_binding_requested"] = nb::bool_(include_c2pa_binding_bytes);
+        if (include_c2pa_binding_bytes && !unsafe_c2pa_binding_access) {
+            c2pa_handoff.binding.status = TransferStatus::UnsafeData;
+            c2pa_handoff.binding.code   = EmitTransferCode::InvalidArgument;
+            c2pa_handoff.binding.errors = 1U;
+            c2pa_handoff.binding.message
+                = "safe transfer_probe forbids c2pa binding bytes; use "
+                  "unsafe_transfer_probe(include_c2pa_binding_bytes=True)";
+        } else if (include_c2pa_binding_bytes) {
+            const std::string binding_path
+                = !file_options.edit_target_path.empty()
+                      ? file_options.edit_target_path
+                      : path;
+            try {
+                std::vector<std::byte> binding_input;
+                {
+                    nb::gil_scoped_release gil_release;
+                    binding_input = read_file_bytes(
+                        binding_path.c_str(),
+                        file_options.prepare.policy.max_file_bytes);
+                }
+                build_prepared_c2pa_handoff_package(
+                    prepared.bundle,
+                    std::span<const std::byte>(binding_input.data(),
+                                               binding_input.size()),
+                    &c2pa_handoff);
+            } catch (const std::exception& ex) {
+                c2pa_handoff.binding.status = TransferStatus::InvalidArgument;
+                c2pa_handoff.binding.code   = EmitTransferCode::InvalidArgument;
+                c2pa_handoff.binding.errors = 1U;
+                c2pa_handoff.binding.message = ex.what();
+            }
+        }
+        out["c2pa_binding_status"]      = c2pa_handoff.binding.status;
+        out["c2pa_binding_status_name"] = nb::str(
+            transfer_status_name(c2pa_handoff.binding.status));
+        out["c2pa_binding_code"]      = c2pa_handoff.binding.code;
+        out["c2pa_binding_code_name"] = nb::str(
+            emit_transfer_code_name(c2pa_handoff.binding.code));
+        out["c2pa_binding_bytes_written"] = nb::int_(
+            c2pa_handoff.binding.written);
+        out["c2pa_binding_errors"] = nb::int_(c2pa_handoff.binding.errors);
+        out["c2pa_binding_message"]
+            = nb::str(c2pa_handoff.binding.message.c_str(),
+                      c2pa_handoff.binding.message.size());
+        if (include_c2pa_binding_bytes && unsafe_c2pa_binding_access
+            && c2pa_handoff.binding.status == TransferStatus::Ok) {
+            out["c2pa_binding_bytes"]
+                = nb::bytes(reinterpret_cast<const char*>(
+                                c2pa_handoff.binding_bytes.data()),
+                            c2pa_handoff.binding_bytes.size());
+        } else {
+            out["c2pa_binding_bytes"] = nb::none();
+        }
+
+        out["c2pa_handoff_requested"] = nb::bool_(include_c2pa_handoff_bytes);
+        if (include_c2pa_handoff_bytes && !unsafe_c2pa_package_access) {
+            c2pa_handoff_io.status = TransferStatus::UnsafeData;
+            c2pa_handoff_io.code   = EmitTransferCode::InvalidArgument;
+            c2pa_handoff_io.errors = 1U;
+            c2pa_handoff_io.message
+                = "safe transfer_probe forbids c2pa handoff bytes; use "
+                  "unsafe_transfer_probe(include_c2pa_handoff_bytes=True)";
+        } else if (include_c2pa_handoff_bytes) {
+            const std::string binding_path
+                = !file_options.edit_target_path.empty()
+                      ? file_options.edit_target_path
+                      : path;
+            try {
+                std::vector<std::byte> binding_input;
+                {
+                    nb::gil_scoped_release gil_release;
+                    binding_input = read_file_bytes(
+                        binding_path.c_str(),
+                        file_options.prepare.policy.max_file_bytes);
+                }
+                build_prepared_c2pa_handoff_package(
+                    prepared.bundle,
+                    std::span<const std::byte>(binding_input.data(),
+                                               binding_input.size()),
+                    &c2pa_handoff);
+                if (c2pa_handoff.binding.status == TransferStatus::Ok) {
+                    c2pa_handoff_io = serialize_prepared_c2pa_handoff_package(
+                        c2pa_handoff, &c2pa_handoff_bytes);
+                } else {
+                    c2pa_handoff_io.status  = c2pa_handoff.binding.status;
+                    c2pa_handoff_io.code    = c2pa_handoff.binding.code;
+                    c2pa_handoff_io.bytes   = 0U;
+                    c2pa_handoff_io.errors  = c2pa_handoff.binding.errors;
+                    c2pa_handoff_io.message = c2pa_handoff.binding.message;
+                }
+            } catch (const std::exception& ex) {
+                c2pa_handoff_io.status  = TransferStatus::InvalidArgument;
+                c2pa_handoff_io.code    = EmitTransferCode::InvalidArgument;
+                c2pa_handoff_io.errors  = 1U;
+                c2pa_handoff_io.message = ex.what();
+            }
+        }
+        out["c2pa_handoff_status"]      = c2pa_handoff_io.status;
+        out["c2pa_handoff_status_name"] = nb::str(
+            transfer_status_name(c2pa_handoff_io.status));
+        out["c2pa_handoff_code"]      = c2pa_handoff_io.code;
+        out["c2pa_handoff_code_name"] = nb::str(
+            emit_transfer_code_name(c2pa_handoff_io.code));
+        out["c2pa_handoff_bytes_written"] = nb::int_(c2pa_handoff_io.bytes);
+        out["c2pa_handoff_errors"]        = nb::int_(c2pa_handoff_io.errors);
+        out["c2pa_handoff_message"] = nb::str(c2pa_handoff_io.message.c_str(),
+                                              c2pa_handoff_io.message.size());
+        if (include_c2pa_handoff_bytes && unsafe_c2pa_package_access
+            && c2pa_handoff_io.status == TransferStatus::Ok) {
+            out["c2pa_handoff_bytes"] = nb::bytes(
+                reinterpret_cast<const char*>(c2pa_handoff_bytes.data()),
+                c2pa_handoff_bytes.size());
+        } else {
+            out["c2pa_handoff_bytes"] = nb::none();
+        }
+
+        out["c2pa_signed_package_requested"] = nb::bool_(
+            include_c2pa_signed_package_bytes);
+        if (include_c2pa_signed_package_bytes && !unsafe_c2pa_package_access) {
+            c2pa_signed_package_io.status = TransferStatus::UnsafeData;
+            c2pa_signed_package_io.code   = EmitTransferCode::InvalidArgument;
+            c2pa_signed_package_io.errors = 1U;
+            c2pa_signed_package_io.message
+                = "safe transfer_probe forbids c2pa signed package bytes; "
+                  "use unsafe_transfer_probe("
+                  "include_c2pa_signed_package_bytes=True)";
+        } else if (include_c2pa_signed_package_bytes) {
+            if (have_c2pa_signed_package) {
+                c2pa_signed_package    = file_options.c2pa_signed_package;
+                c2pa_signed_package_io = serialize_prepared_c2pa_signed_package(
+                    c2pa_signed_package, &c2pa_signed_package_bytes);
+            } else {
+                const TransferStatus signed_package_status
+                    = build_prepared_c2pa_signed_package(
+                        prepared.bundle, file_options.c2pa_signer_input,
+                        &c2pa_signed_package);
+                if (signed_package_status != TransferStatus::Ok) {
+                    c2pa_signed_package_io.status = signed_package_status;
+                    c2pa_signed_package_io.code
+                        = EmitTransferCode::InvalidArgument;
+                    c2pa_signed_package_io.errors = 1U;
+                    c2pa_signed_package_io.message
+                        = c2pa_signed_package.request.message.empty()
+                              ? "failed to build c2pa signed package"
+                              : c2pa_signed_package.request.message;
+                } else {
+                    c2pa_signed_package_io
+                        = serialize_prepared_c2pa_signed_package(
+                            c2pa_signed_package, &c2pa_signed_package_bytes);
+                }
+            }
+        }
+        out["c2pa_signed_package_status"]      = c2pa_signed_package_io.status;
+        out["c2pa_signed_package_status_name"] = nb::str(
+            transfer_status_name(c2pa_signed_package_io.status));
+        out["c2pa_signed_package_code"]      = c2pa_signed_package_io.code;
+        out["c2pa_signed_package_code_name"] = nb::str(
+            emit_transfer_code_name(c2pa_signed_package_io.code));
+        out["c2pa_signed_package_bytes_written"] = nb::int_(
+            c2pa_signed_package_io.bytes);
+        out["c2pa_signed_package_errors"] = nb::int_(
+            c2pa_signed_package_io.errors);
+        out["c2pa_signed_package_message"]
+            = nb::str(c2pa_signed_package_io.message.c_str(),
+                      c2pa_signed_package_io.message.size());
+        if (include_c2pa_signed_package_bytes && unsafe_c2pa_package_access
+            && c2pa_signed_package_io.status == TransferStatus::Ok) {
+            out["c2pa_signed_package_bytes"] = nb::bytes(
+                reinterpret_cast<const char*>(c2pa_signed_package_bytes.data()),
+                c2pa_signed_package_bytes.size());
+        } else {
+            out["c2pa_signed_package_bytes"] = nb::none();
+        }
+
         out["compile_status"]      = exec.compile.status;
         out["compile_status_name"] = nb::str(
             transfer_status_name(exec.compile.status));
@@ -1246,6 +1689,47 @@ namespace {
             error_code     = "unsafe_edited_bytes_forbidden";
             error_message  = "safe transfer_probe forbids edited bytes; use "
                              "unsafe_transfer_probe(include_edited_bytes=True)";
+        } else if (include_c2pa_binding_bytes && !unsafe_c2pa_binding_access) {
+            overall_status = TransferStatus::UnsafeData;
+            error_stage    = "api";
+            error_code     = "unsafe_c2pa_binding_bytes_forbidden";
+            error_message  = "safe transfer_probe forbids c2pa binding bytes; "
+                             "use unsafe_transfer_probe("
+                             "include_c2pa_binding_bytes=True)";
+        } else if ((include_c2pa_handoff_bytes
+                    || include_c2pa_signed_package_bytes)
+                   && !unsafe_c2pa_package_access) {
+            overall_status = TransferStatus::UnsafeData;
+            error_stage    = "api";
+            error_code     = "unsafe_c2pa_package_bytes_forbidden";
+            error_message  = "safe transfer_probe forbids c2pa package bytes; "
+                             "use unsafe_transfer_probe("
+                             "include_c2pa_handoff_bytes=True or "
+                             "include_c2pa_signed_package_bytes=True)";
+        } else if (exec.c2pa_stage_requested
+                   && exec.c2pa_stage.status != TransferStatus::Ok) {
+            overall_status = exec.c2pa_stage.status;
+            error_stage    = "c2pa_stage";
+            error_code     = emit_transfer_code_name(exec.c2pa_stage.code);
+            error_message  = exec.c2pa_stage.message;
+        } else if (include_c2pa_signed_package_bytes
+                   && c2pa_signed_package_io.status != TransferStatus::Ok) {
+            overall_status = c2pa_signed_package_io.status;
+            error_stage    = "c2pa_signed_package";
+            error_code = emit_transfer_code_name(c2pa_signed_package_io.code);
+            error_message = c2pa_signed_package_io.message;
+        } else if (include_c2pa_handoff_bytes
+                   && c2pa_handoff_io.status != TransferStatus::Ok) {
+            overall_status = c2pa_handoff_io.status;
+            error_stage    = "c2pa_handoff";
+            error_code     = emit_transfer_code_name(c2pa_handoff_io.code);
+            error_message  = c2pa_handoff_io.message;
+        } else if (include_c2pa_binding_bytes
+                   && c2pa_handoff.binding.status != TransferStatus::Ok) {
+            overall_status = c2pa_handoff.binding.status;
+            error_stage    = "c2pa_binding";
+            error_code     = emit_transfer_code_name(c2pa_handoff.binding.code);
+            error_message  = c2pa_handoff.binding.message;
         } else if (exec.time_patch.status != TransferStatus::Ok) {
             overall_status = exec.time_patch.status;
             error_stage    = "time_patch";
@@ -1257,7 +1741,9 @@ namespace {
             error_stage   = "file";
             error_code    = prepare_transfer_file_code_name(prepared.code);
             error_message = prepared.prepare.message;
-        } else if (prepared.prepare.status != TransferStatus::Ok) {
+        } else if (prepared.prepare.status != TransferStatus::Ok
+                   && (!exec.c2pa_stage_requested
+                       || exec.c2pa_stage.status != TransferStatus::Ok)) {
             overall_status = prepared.prepare.status;
             error_stage    = "prepare";
             error_code     = prepare_transfer_code_name(prepared.prepare.code);
@@ -2060,6 +2546,8 @@ NB_MODULE(_openmeta, m)
         .value("ProjectedPayload", TransferPolicyReason::ProjectedPayload)
         .value("DraftInvalidationPayload",
                TransferPolicyReason::DraftInvalidationPayload)
+        .value("ExternalSignedPayload",
+               TransferPolicyReason::ExternalSignedPayload)
         .value("ContentBoundTransferUnavailable",
                TransferPolicyReason::ContentBoundTransferUnavailable)
         .value("SignedRewriteUnavailable",
@@ -2108,6 +2596,18 @@ NB_MODULE(_openmeta, m)
         .value("SourceRange", TransferC2paRewriteChunkKind::SourceRange)
         .value("PreparedJpegSegment",
                TransferC2paRewriteChunkKind::PreparedJpegSegment);
+
+    nb::enum_<TransferC2paSignedPayloadKind>(m, "TransferC2paSignedPayloadKind")
+        .value("NotApplicable", TransferC2paSignedPayloadKind::NotApplicable)
+        .value("GenericJumbf", TransferC2paSignedPayloadKind::GenericJumbf)
+        .value("DraftUnsignedInvalidation",
+               TransferC2paSignedPayloadKind::DraftUnsignedInvalidation)
+        .value("ContentBound", TransferC2paSignedPayloadKind::ContentBound);
+
+    nb::enum_<TransferC2paSemanticStatus>(m, "TransferC2paSemanticStatus")
+        .value("NotChecked", TransferC2paSemanticStatus::NotChecked)
+        .value("Ok", TransferC2paSemanticStatus::Ok)
+        .value("Invalid", TransferC2paSemanticStatus::Invalid);
 
     nb::enum_<TransferStatus>(m, "TransferStatus")
         .value("Ok", TransferStatus::Ok)
@@ -2993,20 +3493,32 @@ NB_MODULE(_openmeta, m)
            TransferPolicyAction makernote_policy,
            TransferPolicyAction jumbf_policy, TransferPolicyAction c2pa_policy,
            uint64_t max_file_bytes, nb::object policy_obj,
-           bool include_payloads, nb::object time_patches,
-           bool time_patch_strict_width, bool time_patch_require_slot,
-           bool time_patch_auto_nul, nb::object edit_target_path,
-           bool edit_apply, bool include_edited_bytes) {
+           nb::object c2pa_signed_package,
+           nb::object c2pa_signed_logical_payload,
+           nb::object c2pa_certificate_chain,
+           nb::object c2pa_private_key_reference, nb::object c2pa_signing_time,
+           nb::object c2pa_manifest_builder_output, bool include_payloads,
+           nb::object time_patches, bool time_patch_strict_width,
+           bool time_patch_require_slot, bool time_patch_auto_nul,
+           nb::object edit_target_path, bool edit_apply,
+           bool include_edited_bytes, bool include_c2pa_binding_bytes,
+           bool include_c2pa_handoff_bytes,
+           bool include_c2pa_signed_package_bytes) {
             return transfer_probe_to_python(
                 path, target_format, format, include_pointer_tags,
                 decode_makernote, decode_embedded_containers, decompress,
                 include_exif_app1, include_xmp_app1, include_icc_app2,
                 include_iptc_app13, xmp_include_existing,
                 xmp_exiftool_gpsdatetime_alias, makernote_policy, jumbf_policy,
-                c2pa_policy, max_file_bytes, policy_obj, include_payloads,
-                false, time_patches, time_patch_strict_width,
-                time_patch_require_slot, time_patch_auto_nul, edit_target_path,
-                edit_apply, include_edited_bytes, false);
+                c2pa_policy, max_file_bytes, policy_obj, c2pa_signed_package,
+                c2pa_signed_logical_payload, c2pa_certificate_chain,
+                c2pa_private_key_reference, c2pa_signing_time,
+                c2pa_manifest_builder_output, include_payloads, false,
+                time_patches, time_patch_strict_width, time_patch_require_slot,
+                time_patch_auto_nul, edit_target_path, edit_apply,
+                include_edited_bytes, false, include_c2pa_binding_bytes, false,
+                include_c2pa_handoff_bytes, include_c2pa_signed_package_bytes,
+                false);
         },
         "path"_a, "target_format"_a = TransferTargetFormat::Jpeg,
         "format"_a               = XmpSidecarFormat::Portable,
@@ -3019,11 +3531,19 @@ NB_MODULE(_openmeta, m)
         "makernote_policy"_a               = TransferPolicyAction::Keep,
         "jumbf_policy"_a                   = TransferPolicyAction::Keep,
         "c2pa_policy"_a = TransferPolicyAction::Keep, "max_file_bytes"_a = 0ULL,
-        "policy"_a = nb::none(), "include_payloads"_a = false,
-        "time_patches"_a = nb::none(), "time_patch_strict_width"_a = true,
-        "time_patch_require_slot"_a = false, "time_patch_auto_nul"_a = true,
-        "edit_target_path"_a = nb::none(), "edit_apply"_a = true,
-        "include_edited_bytes"_a = false);
+        "policy"_a = nb::none(), "c2pa_signed_package"_a = nb::none(),
+        "c2pa_signed_logical_payload"_a  = nb::none(),
+        "c2pa_certificate_chain"_a       = nb::none(),
+        "c2pa_private_key_reference"_a   = nb::none(),
+        "c2pa_signing_time"_a            = nb::none(),
+        "c2pa_manifest_builder_output"_a = nb::none(),
+        "include_payloads"_a = false, "time_patches"_a = nb::none(),
+        "time_patch_strict_width"_a = true, "time_patch_require_slot"_a = false,
+        "time_patch_auto_nul"_a = true, "edit_target_path"_a = nb::none(),
+        "edit_apply"_a = true, "include_edited_bytes"_a = false,
+        "include_c2pa_binding_bytes"_a        = false,
+        "include_c2pa_handoff_bytes"_a        = false,
+        "include_c2pa_signed_package_bytes"_a = false);
 
     m.def(
         "unsafe_transfer_probe",
@@ -3036,20 +3556,32 @@ NB_MODULE(_openmeta, m)
            TransferPolicyAction makernote_policy,
            TransferPolicyAction jumbf_policy, TransferPolicyAction c2pa_policy,
            uint64_t max_file_bytes, nb::object policy_obj,
-           bool include_payloads, nb::object time_patches,
-           bool time_patch_strict_width, bool time_patch_require_slot,
-           bool time_patch_auto_nul, nb::object edit_target_path,
-           bool edit_apply, bool include_edited_bytes) {
+           nb::object c2pa_signed_package,
+           nb::object c2pa_signed_logical_payload,
+           nb::object c2pa_certificate_chain,
+           nb::object c2pa_private_key_reference, nb::object c2pa_signing_time,
+           nb::object c2pa_manifest_builder_output, bool include_payloads,
+           nb::object time_patches, bool time_patch_strict_width,
+           bool time_patch_require_slot, bool time_patch_auto_nul,
+           nb::object edit_target_path, bool edit_apply,
+           bool include_edited_bytes, bool include_c2pa_binding_bytes,
+           bool include_c2pa_handoff_bytes,
+           bool include_c2pa_signed_package_bytes) {
             return transfer_probe_to_python(
                 path, target_format, format, include_pointer_tags,
                 decode_makernote, decode_embedded_containers, decompress,
                 include_exif_app1, include_xmp_app1, include_icc_app2,
                 include_iptc_app13, xmp_include_existing,
                 xmp_exiftool_gpsdatetime_alias, makernote_policy, jumbf_policy,
-                c2pa_policy, max_file_bytes, policy_obj, include_payloads, true,
+                c2pa_policy, max_file_bytes, policy_obj, c2pa_signed_package,
+                c2pa_signed_logical_payload, c2pa_certificate_chain,
+                c2pa_private_key_reference, c2pa_signing_time,
+                c2pa_manifest_builder_output, include_payloads, true,
                 time_patches, time_patch_strict_width, time_patch_require_slot,
                 time_patch_auto_nul, edit_target_path, edit_apply,
-                include_edited_bytes, true);
+                include_edited_bytes, true, include_c2pa_binding_bytes, true,
+                include_c2pa_handoff_bytes, include_c2pa_signed_package_bytes,
+                true);
         },
         "path"_a, "target_format"_a = TransferTargetFormat::Jpeg,
         "format"_a               = XmpSidecarFormat::Portable,
@@ -3062,11 +3594,19 @@ NB_MODULE(_openmeta, m)
         "makernote_policy"_a               = TransferPolicyAction::Keep,
         "jumbf_policy"_a                   = TransferPolicyAction::Keep,
         "c2pa_policy"_a = TransferPolicyAction::Keep, "max_file_bytes"_a = 0ULL,
-        "policy"_a = nb::none(), "include_payloads"_a = false,
-        "time_patches"_a = nb::none(), "time_patch_strict_width"_a = true,
-        "time_patch_require_slot"_a = false, "time_patch_auto_nul"_a = true,
-        "edit_target_path"_a = nb::none(), "edit_apply"_a = true,
-        "include_edited_bytes"_a = false);
+        "policy"_a = nb::none(), "c2pa_signed_package"_a = nb::none(),
+        "c2pa_signed_logical_payload"_a  = nb::none(),
+        "c2pa_certificate_chain"_a       = nb::none(),
+        "c2pa_private_key_reference"_a   = nb::none(),
+        "c2pa_signing_time"_a            = nb::none(),
+        "c2pa_manifest_builder_output"_a = nb::none(),
+        "include_payloads"_a = false, "time_patches"_a = nb::none(),
+        "time_patch_strict_width"_a = true, "time_patch_require_slot"_a = false,
+        "time_patch_auto_nul"_a = true, "edit_target_path"_a = nb::none(),
+        "edit_apply"_a = true, "include_edited_bytes"_a = false,
+        "include_c2pa_binding_bytes"_a        = false,
+        "include_c2pa_handoff_bytes"_a        = false,
+        "include_c2pa_signed_package_bytes"_a = false);
 
     m.def("console_text", &console_text, "data"_a, "max_bytes"_a = 4096U);
     m.def("hex_bytes", &hex_bytes, "data"_a, "max_bytes"_a = 4096U);

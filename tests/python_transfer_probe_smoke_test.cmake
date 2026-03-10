@@ -80,6 +80,30 @@ jumb = box(b'jumb', box(b'jumd', jumd) + box(b'cbor', cbor))
 seg = b'JP\\x00\\x00' + (1).to_bytes(4, 'big') + jumb
 p_c2pa.write_bytes(b'\\xFF\\xD8\\xFF\\xEB' + (len(seg) + 2).to_bytes(2, 'big') + seg + b'\\xFF\\xD9')
 
+signed_cbor = bytearray()
+signed_cbor += bytes([0xA1])
+signed_cbor += bytes([0x68]) + b'manifest'
+signed_cbor += bytes([0x81])
+signed_cbor += bytes([0xA2])
+signed_cbor += bytes([0x6F]) + b'claim_generator'
+signed_cbor += bytes([0x64]) + b'test'
+signed_cbor += bytes([0x66]) + b'claims'
+signed_cbor += bytes([0x81])
+signed_cbor += bytes([0xA2])
+signed_cbor += bytes([0x6A]) + b'assertions'
+signed_cbor += bytes([0x81])
+signed_cbor += bytes([0xA1])
+signed_cbor += bytes([0x65]) + b'label'
+signed_cbor += bytes([0x6E]) + b'c2pa.hash.data'
+signed_cbor += bytes([0x6A]) + b'signatures'
+signed_cbor += bytes([0x81])
+signed_cbor += bytes([0xA2])
+signed_cbor += bytes([0x63]) + b'alg'
+signed_cbor += bytes([0x65]) + b'ES256'
+signed_cbor += bytes([0x69]) + b'signature'
+signed_cbor += bytes([0x44, 0x01, 0x02, 0x03, 0x04])
+signed_jumb = box(b'jumb', box(b'jumd', jumd) + box(b'cbor', bytes(signed_cbor)))
+
 r4 = openmeta.transfer_probe(
     str(p_c2pa),
     include_exif_app1=False,
@@ -94,6 +118,8 @@ assert any(b['route'] == 'jpeg:app11-c2pa' for b in r4['blocks']), r4
 assert r4['c2pa_rewrite']['state_name'] == 'not_requested', r4
 assert r4['c2pa_rewrite']['matched_entries'] > 0, r4
 assert r4['c2pa_rewrite']['existing_carrier_segments'] == 1, r4
+assert r4['c2pa_sign_request']['status_name'] == 'unsupported', r4
+assert r4['c2pa_sign_request']['carrier_route'] == 'jpeg:app11-c2pa', r4
 
 r5 = openmeta.transfer_probe(
     str(p_c2pa),
@@ -114,6 +140,135 @@ assert r5['c2pa_rewrite']['requires_private_key'] is True, r5
 assert r5['c2pa_rewrite']['content_binding_bytes'] == 4, r5
 assert len(r5['c2pa_rewrite']['content_binding_chunks']) == 2, r5
 assert all(c['kind_name'] == 'source_range' for c in r5['c2pa_rewrite']['content_binding_chunks']), r5
+assert r5['c2pa_sign_request']['status_name'] == 'ok', r5
+assert r5['c2pa_sign_request']['carrier_route'] == 'jpeg:app11-c2pa', r5
+assert r5['c2pa_sign_request']['manifest_label'] == 'c2pa', r5
+assert r5['c2pa_sign_request']['source_range_chunks'] == 2, r5
+assert r5['c2pa_sign_request']['prepared_segment_chunks'] == 0, r5
+assert r5['c2pa_sign_request']['content_binding_bytes'] == 4, r5
+
+r5b = openmeta.unsafe_transfer_probe(
+    str(p_c2pa),
+    include_exif_app1=False,
+    include_xmp_app1=False,
+    include_icc_app2=False,
+    include_iptc_app13=False,
+    c2pa_policy=openmeta.TransferPolicyAction.Rewrite,
+    include_c2pa_binding_bytes=True,
+)
+assert r5b['c2pa_binding_requested'] is True, r5b
+assert r5b['c2pa_binding_status_name'] == 'ok', r5b
+assert r5b['c2pa_binding_code_name'] == 'none', r5b
+assert r5b['c2pa_binding_bytes_written'] == 4, r5b
+assert isinstance(r5b['c2pa_binding_bytes'], (bytes, bytearray)), r5b
+assert bytes(r5b['c2pa_binding_bytes']) == bytes([0xFF, 0xD8, 0xFF, 0xD9]), r5b
+assert r5b['c2pa_handoff_requested'] is False, r5b
+
+r5c = openmeta.unsafe_transfer_probe(
+    str(p_c2pa),
+    include_exif_app1=False,
+    include_xmp_app1=False,
+    include_icc_app2=False,
+    include_iptc_app13=False,
+    c2pa_policy=openmeta.TransferPolicyAction.Rewrite,
+    include_c2pa_handoff_bytes=True,
+)
+assert r5c['c2pa_handoff_requested'] is True, r5c
+assert r5c['c2pa_handoff_status_name'] == 'ok', r5c
+assert r5c['c2pa_handoff_code_name'] == 'none', r5c
+assert r5c['c2pa_handoff_bytes_written'] > 0, r5c
+assert isinstance(r5c['c2pa_handoff_bytes'], (bytes, bytearray)), r5c
+
+r6 = openmeta.unsafe_transfer_probe(
+    str(p_c2pa),
+    include_exif_app1=False,
+    include_xmp_app1=False,
+    include_icc_app2=False,
+    include_iptc_app13=False,
+    c2pa_signed_logical_payload=signed_jumb,
+    c2pa_certificate_chain=bytes([0x30, 0x82, 0x01, 0x00]),
+    c2pa_private_key_reference='test-key-ref',
+    c2pa_signing_time='2026-03-09T00:00:00Z',
+    c2pa_manifest_builder_output=bytes(signed_cbor),
+    edit_target_path=str(p_c2pa),
+    edit_apply=True,
+    include_edited_bytes=True,
+)
+assert r6['prepare_status'] == openmeta.TransferStatus.Unsupported, r6
+assert r6['c2pa_stage_requested'] is True, r6
+assert r6['c2pa_stage_validation_status_name'] == 'ok', r6
+assert r6['c2pa_stage_validation_code_name'] == 'none', r6
+assert r6['c2pa_stage_validation_payload_kind_name'] == 'content_bound', r6
+assert r6['c2pa_stage_validation_semantic_status_name'] == 'ok', r6
+assert r6['c2pa_stage_validation_semantic_reason'] == 'ok', r6
+assert r6['c2pa_stage_validation_semantic_manifest_present'] == 1, r6
+assert r6['c2pa_stage_validation_semantic_manifest_count'] == 1, r6
+assert r6['c2pa_stage_validation_semantic_claim_generator_present'] == 1, r6
+assert r6['c2pa_stage_validation_semantic_assertion_count'] == 1, r6
+assert r6['c2pa_stage_validation_semantic_primary_claim_assertion_count'] == 1, r6
+assert r6['c2pa_stage_validation_semantic_primary_claim_referenced_by_signature_count'] == 1, r6
+assert r6['c2pa_stage_validation_semantic_primary_signature_linked_claim_count'] == 1, r6
+assert r6['c2pa_stage_validation_semantic_primary_signature_reference_key_hits'] == 0, r6
+assert r6['c2pa_stage_validation_semantic_primary_signature_explicit_reference_present'] == 0, r6
+assert r6['c2pa_stage_validation_semantic_primary_signature_explicit_reference_resolved_claim_count'] == 0, r6
+assert r6['c2pa_stage_validation_semantic_claim_count'] == 1, r6
+assert r6['c2pa_stage_validation_semantic_signature_count'] == 1, r6
+assert r6['c2pa_stage_validation_semantic_signature_linked'] == 1, r6
+assert r6['c2pa_stage_validation_semantic_signature_orphan'] == 0, r6
+assert r6['c2pa_stage_validation_staged_segments'] == 1, r6
+assert r6['c2pa_stage_status_name'] == 'ok', r6
+assert any(d['subject_name'] == 'c2pa' and d['reason_name'] == 'external_signed_payload' and d['c2pa_mode_name'] == 'signed_rewrite' and d['c2pa_prepared_output_name'] == 'signed_rewrite' for d in r6['policy_decisions']), r6
+assert r6['c2pa_rewrite']['state_name'] == 'ready', r6
+assert r6['c2pa_sign_request']['status_name'] == 'ok', r6
+assert r6['overall_status'] == openmeta.TransferStatus.Ok, r6
+assert r6['edit_apply_status'] == openmeta.TransferStatus.Ok, r6
+assert isinstance(r6['edited_bytes'], (bytes, bytearray)), r6
+
+r6b = openmeta.unsafe_transfer_probe(
+    str(p_c2pa),
+    include_exif_app1=False,
+    include_xmp_app1=False,
+    include_icc_app2=False,
+    include_iptc_app13=False,
+    c2pa_signed_logical_payload=signed_jumb,
+    c2pa_certificate_chain=bytes([0x30, 0x82, 0x01, 0x00]),
+    c2pa_private_key_reference='test-key-ref',
+    c2pa_signing_time='2026-03-09T00:00:00Z',
+    c2pa_manifest_builder_output=bytes(signed_cbor),
+    include_c2pa_signed_package_bytes=True,
+)
+assert r6b['c2pa_signed_package_requested'] is True, r6b
+assert r6b['c2pa_signed_package_status_name'] == 'ok', r6b
+assert r6b['c2pa_signed_package_code_name'] == 'none', r6b
+assert r6b['c2pa_signed_package_bytes_written'] > 0, r6b
+assert isinstance(r6b['c2pa_signed_package_bytes'], (bytes, bytearray)), r6b
+
+r7 = openmeta.unsafe_transfer_probe(
+    str(p_c2pa),
+    include_exif_app1=False,
+    include_xmp_app1=False,
+    include_icc_app2=False,
+    include_iptc_app13=False,
+    c2pa_signed_package=bytes(r6b['c2pa_signed_package_bytes']),
+    edit_target_path=str(p_c2pa),
+    edit_apply=True,
+    include_edited_bytes=True,
+)
+assert r7['c2pa_stage_requested'] is True, r7
+assert r7['c2pa_stage_validation_status_name'] == 'ok', r7
+assert r7['c2pa_stage_validation_semantic_status_name'] == 'ok', r7
+assert r7['c2pa_stage_validation_semantic_manifest_count'] == 1, r7
+assert r7['c2pa_stage_validation_semantic_claim_generator_present'] == 1, r7
+assert r7['c2pa_stage_validation_semantic_assertion_count'] == 1, r7
+assert r7['c2pa_stage_validation_semantic_primary_claim_assertion_count'] == 1, r7
+assert r7['c2pa_stage_validation_semantic_primary_claim_referenced_by_signature_count'] == 1, r7
+assert r7['c2pa_stage_validation_semantic_primary_signature_linked_claim_count'] == 1, r7
+assert r7['c2pa_stage_validation_semantic_primary_signature_reference_key_hits'] == 0, r7
+assert r7['c2pa_stage_validation_semantic_primary_signature_explicit_reference_present'] == 0, r7
+assert r7['c2pa_stage_validation_semantic_primary_signature_explicit_reference_resolved_claim_count'] == 0, r7
+assert r7['c2pa_stage_status_name'] == 'ok', r7
+assert r7['overall_status'] == openmeta.TransferStatus.Ok, r7
+assert isinstance(r7['edited_bytes'], (bytes, bytearray)), r7
 print('openmeta.transfer_probe smoke ok')
 ")
 

@@ -220,6 +220,40 @@ append_u32be(std::vector<std::byte>* out, uint32_t v)
     out->push_back(static_cast<std::byte>((v >> 0U) & 0xFFU));
 }
 
+static bool
+read_test_u32be(std::span<const std::byte> bytes, size_t off,
+                uint32_t* out) noexcept
+{
+    if (!out || off + 4U > bytes.size()) {
+        return false;
+    }
+    *out = (static_cast<uint32_t>(std::to_integer<uint8_t>(bytes[off + 0U]))
+            << 24U)
+           | (static_cast<uint32_t>(std::to_integer<uint8_t>(bytes[off + 1U]))
+              << 16U)
+           | (static_cast<uint32_t>(std::to_integer<uint8_t>(bytes[off + 2U]))
+              << 8U)
+           | (static_cast<uint32_t>(std::to_integer<uint8_t>(bytes[off + 3U]))
+              << 0U);
+    return true;
+}
+
+static bool
+contains_byte_pair(std::span<const std::byte> bytes, uint8_t a,
+                   uint8_t b) noexcept
+{
+    if (bytes.size() < 2U) {
+        return false;
+    }
+    for (size_t i = 0; i + 1U < bytes.size(); ++i) {
+        if (std::to_integer<uint8_t>(bytes[i + 0U]) == a
+            && std::to_integer<uint8_t>(bytes[i + 1U]) == b) {
+            return true;
+        }
+    }
+    return false;
+}
+
 static void
 append_fourcc(std::vector<std::byte>* out, uint32_t v)
 {
@@ -241,6 +275,45 @@ append_bmff_box(std::vector<std::byte>* out, uint32_t type,
     append_u32be(out, static_cast<uint32_t>(8U + payload.size()));
     append_fourcc(out, type);
     out->insert(out->end(), payload.begin(), payload.end());
+}
+
+static void
+append_cbor_major_u64(std::vector<std::byte>* out, uint8_t major,
+                      uint64_t value)
+{
+    ASSERT_NE(out, nullptr);
+    const uint8_t prefix = static_cast<uint8_t>(major << 5U);
+    if (value < 24U) {
+        out->push_back(static_cast<std::byte>(prefix | value));
+        return;
+    }
+    if (value <= 0xFFU) {
+        out->push_back(static_cast<std::byte>(prefix | 24U));
+        out->push_back(static_cast<std::byte>(value & 0xFFU));
+        return;
+    }
+    if (value <= 0xFFFFU) {
+        out->push_back(static_cast<std::byte>(prefix | 25U));
+        out->push_back(static_cast<std::byte>((value >> 8U) & 0xFFU));
+        out->push_back(static_cast<std::byte>((value >> 0U) & 0xFFU));
+        return;
+    }
+    append_u32be(out, static_cast<uint32_t>(value));
+    out->insert(out->end() - 4U, static_cast<std::byte>(prefix | 26U));
+}
+
+static void
+append_cbor_text(std::vector<std::byte>* out, std::string_view text)
+{
+    append_cbor_major_u64(out, 3U, static_cast<uint64_t>(text.size()));
+    append_bytes(out, text);
+}
+
+static void
+append_cbor_bytes(std::vector<std::byte>* out, std::span<const std::byte> bytes)
+{
+    append_cbor_major_u64(out, 2U, static_cast<uint64_t>(bytes.size()));
+    out->insert(out->end(), bytes.begin(), bytes.end());
 }
 
 static std::vector<std::byte>
@@ -289,15 +362,9 @@ make_jpeg_with_segments(std::span<const TestJpegSegment> segments)
 }
 
 static std::vector<std::byte>
-make_app11_jumbf_payload(std::string_view label)
+make_app11_jumbf_payload_with_cbor(std::string_view label,
+                                   std::span<const std::byte> cbor_payload)
 {
-    const std::vector<std::byte> cbor_payload = {
-        std::byte { 0xA1 },
-        std::byte { 0x61 },
-        std::byte { 0x61 },
-        std::byte { 0x01 },
-    };
-
     std::vector<std::byte> jumd_payload;
     append_bytes(&jumd_payload, label);
     jumd_payload.push_back(std::byte { 0x00 });
@@ -309,8 +376,7 @@ make_app11_jumbf_payload(std::string_view label)
 
     std::vector<std::byte> cbor_box;
     append_bmff_box(&cbor_box, openmeta::fourcc('c', 'b', 'o', 'r'),
-                    std::span<const std::byte>(cbor_payload.data(),
-                                               cbor_payload.size()));
+                    cbor_payload);
 
     std::vector<std::byte> jumb_payload;
     jumb_payload.insert(jumb_payload.end(), jumd_box.begin(), jumd_box.end());
@@ -332,6 +398,20 @@ make_app11_jumbf_payload(std::string_view label)
 }
 
 static std::vector<std::byte>
+make_app11_jumbf_payload(std::string_view label)
+{
+    const std::vector<std::byte> cbor_payload = {
+        std::byte { 0xA1 },
+        std::byte { 0x61 },
+        std::byte { 0x61 },
+        std::byte { 0x01 },
+    };
+    return make_app11_jumbf_payload_with_cbor(
+        label,
+        std::span<const std::byte>(cbor_payload.data(), cbor_payload.size()));
+}
+
+static std::vector<std::byte>
 make_jpeg_with_app11_jumbf(std::string_view label)
 {
     const std::vector<std::byte> seg = make_app11_jumbf_payload(label);
@@ -341,11 +421,157 @@ make_jpeg_with_app11_jumbf(std::string_view label)
 }
 
 static std::vector<std::byte>
+make_logical_jumbf_payload_with_cbor(std::string_view label,
+                                     std::span<const std::byte> cbor_payload)
+{
+    const std::vector<std::byte> seg
+        = make_app11_jumbf_payload_with_cbor(label, cbor_payload);
+    EXPECT_GE(seg.size(), 8U);
+    return std::vector<std::byte>(seg.begin() + 8, seg.end());
+}
+
+static std::vector<std::byte>
 make_logical_jumbf_payload(std::string_view label)
 {
     const std::vector<std::byte> seg = make_app11_jumbf_payload(label);
     EXPECT_GE(seg.size(), 8U);
     return std::vector<std::byte>(seg.begin() + 8, seg.end());
+}
+
+static std::vector<std::byte>
+make_semantic_c2pa_cbor_payload(uint64_t manifest_count          = 1U,
+                                bool include_claim_generator     = true,
+                                bool include_signature_algorithm = true,
+                                bool include_assertions          = true)
+{
+    std::vector<std::byte> out;
+    append_cbor_major_u64(&out, 5U, 1U);
+    append_cbor_text(&out, "manifest");
+    append_cbor_major_u64(&out, 4U, manifest_count);
+    static const std::array<std::byte, 4> kSignature = {
+        std::byte { 0x01 },
+        std::byte { 0x02 },
+        std::byte { 0x03 },
+        std::byte { 0x04 },
+    };
+    for (uint64_t i = 0U; i < manifest_count; ++i) {
+        append_cbor_major_u64(&out, 5U, include_claim_generator ? 2U : 1U);
+        if (include_claim_generator) {
+            append_cbor_text(&out, "claim_generator");
+            append_cbor_text(&out, "test");
+        }
+        append_cbor_text(&out, "claims");
+        append_cbor_major_u64(&out, 4U, 1U);
+        append_cbor_major_u64(&out, 5U, include_assertions ? 2U : 1U);
+        if (include_assertions) {
+            append_cbor_text(&out, "assertions");
+            append_cbor_major_u64(&out, 4U, 1U);
+            append_cbor_major_u64(&out, 5U, 1U);
+            append_cbor_text(&out, "label");
+            append_cbor_text(&out, "c2pa.hash.data");
+        }
+        append_cbor_text(&out, "signatures");
+        append_cbor_major_u64(&out, 4U, 1U);
+        append_cbor_major_u64(&out, 5U, include_signature_algorithm ? 2U : 1U);
+        if (include_signature_algorithm) {
+            append_cbor_text(&out, "alg");
+            append_cbor_text(&out, "ES256");
+        }
+        append_cbor_text(&out, "signature");
+        append_cbor_bytes(&out, std::span<const std::byte>(kSignature.data(),
+                                                           kSignature.size()));
+    }
+    return out;
+}
+
+static std::vector<std::byte>
+make_semantic_c2pa_logical_payload(uint64_t manifest_count          = 1U,
+                                   bool include_claim_generator     = true,
+                                   bool include_signature_algorithm = true,
+                                   bool include_assertions          = true)
+{
+    const std::vector<std::byte> cbor_payload = make_semantic_c2pa_cbor_payload(
+        manifest_count, include_claim_generator, include_signature_algorithm,
+        include_assertions);
+    return make_logical_jumbf_payload_with_cbor(
+        "c2pa",
+        std::span<const std::byte>(cbor_payload.data(), cbor_payload.size()));
+}
+
+static std::vector<std::byte>
+make_semantic_c2pa_logical_payload_primary_signature_claim_ref(
+    uint64_t claim_ref_index)
+{
+    std::vector<std::byte> out;
+    static const std::array<std::byte, 3> kClaim0Payload = {
+        std::byte { 0x10 },
+        std::byte { 0x11 },
+        std::byte { 0x12 },
+    };
+    static const std::array<std::byte, 3> kClaim1Payload = {
+        std::byte { 0x20 },
+        std::byte { 0x21 },
+        std::byte { 0x22 },
+    };
+    append_cbor_major_u64(&out, 5U, 1U);
+    append_cbor_text(&out, "manifest");
+    append_cbor_major_u64(&out, 4U, 1U);
+    append_cbor_major_u64(&out, 5U, 2U);
+    append_cbor_text(&out, "claim_generator");
+    append_cbor_text(&out, "test");
+    append_cbor_text(&out, "claims");
+    append_cbor_major_u64(&out, 4U, 2U);
+
+    append_cbor_major_u64(&out, 5U, 3U);
+    append_cbor_text(&out, "assertions");
+    append_cbor_major_u64(&out, 4U, 1U);
+    append_cbor_major_u64(&out, 5U, 1U);
+    append_cbor_text(&out, "label");
+    append_cbor_text(&out, "c2pa.hash.data");
+    append_cbor_text(&out, "claim_payload");
+    append_cbor_bytes(&out, std::span<const std::byte>(kClaim0Payload.data(),
+                                                       kClaim0Payload.size()));
+    append_cbor_text(&out, "signatures");
+    append_cbor_major_u64(&out, 4U, 1U);
+    append_cbor_major_u64(&out, 5U, 3U);
+    append_cbor_text(&out, "alg");
+    append_cbor_text(&out, "ES256");
+    append_cbor_text(&out, "signature");
+    static const std::array<std::byte, 4> kSignature = {
+        std::byte { 0x01 },
+        std::byte { 0x02 },
+        std::byte { 0x03 },
+        std::byte { 0x04 },
+    };
+    append_cbor_bytes(&out, std::span<const std::byte>(kSignature.data(),
+                                                       kSignature.size()));
+    append_cbor_text(&out, "claim_ref");
+    append_cbor_major_u64(&out, 0U, claim_ref_index);
+
+    append_cbor_major_u64(&out, 5U, 2U);
+    append_cbor_text(&out, "assertions");
+    append_cbor_major_u64(&out, 4U, 1U);
+    append_cbor_major_u64(&out, 5U, 1U);
+    append_cbor_text(&out, "label");
+    append_cbor_text(&out, "c2pa.hash.data");
+    append_cbor_text(&out, "claim_payload");
+    append_cbor_bytes(&out, std::span<const std::byte>(kClaim1Payload.data(),
+                                                       kClaim1Payload.size()));
+
+    return make_logical_jumbf_payload_with_cbor(
+        "c2pa", std::span<const std::byte>(out.data(), out.size()));
+}
+
+static std::vector<std::byte>
+make_semantic_c2pa_logical_payload_primary_signature_refs_second_claim()
+{
+    return make_semantic_c2pa_logical_payload_primary_signature_claim_ref(1U);
+}
+
+static std::vector<std::byte>
+make_semantic_c2pa_logical_payload_unresolved_primary_signature_reference()
+{
+    return make_semantic_c2pa_logical_payload_primary_signature_claim_ref(7U);
 }
 
 static std::vector<std::byte>
@@ -436,6 +662,58 @@ make_app1_exif_payload()
     append_bytes(&t, "2000:01:02 03:04:05");
     t.push_back(std::byte { 0x00 });
     return t;
+}
+
+static openmeta::PreparedTransferC2paSignerInput
+make_test_c2pa_signer_input(std::span<const std::byte> logical_payload)
+{
+    openmeta::PreparedTransferC2paSignerInput input;
+    input.signing_time            = "2026-03-09T00:00:00Z";
+    input.certificate_chain_bytes = {
+        std::byte { 0x30 },
+        std::byte { 0x82 },
+        std::byte { 0x01 },
+        std::byte { 0x00 },
+    };
+    input.private_key_reference   = "test-key-ref";
+    input.manifest_builder_output = {
+        std::byte { 0xA1 }, std::byte { 0x64 }, std::byte { 't' },
+        std::byte { 'e' },  std::byte { 's' },  std::byte { 't' },
+        std::byte { 0x01 },
+    };
+    if (logical_payload.size() >= 8U) {
+        uint32_t outer_size = 0U;
+        uint32_t outer_type = 0U;
+        if (read_test_u32be(logical_payload, 0U, &outer_size)
+            && read_test_u32be(logical_payload, 4U, &outer_type)
+            && outer_size >= 8U && outer_size <= logical_payload.size()
+            && (outer_type == 0x6A756D62U || outer_type == 0x63327061U)) {
+            size_t off = 8U;
+            while (off + 8U <= logical_payload.size()) {
+                uint32_t child_size = 0U;
+                uint32_t child_type = 0U;
+                if (!read_test_u32be(logical_payload, off + 0U, &child_size)
+                    || !read_test_u32be(logical_payload, off + 4U, &child_type)
+                    || child_size < 8U
+                    || off + static_cast<size_t>(child_size)
+                           > logical_payload.size()) {
+                    break;
+                }
+                if (child_type == 0x63626F72U) {
+                    input.manifest_builder_output.assign(
+                        logical_payload.begin()
+                            + static_cast<std::ptrdiff_t>(off + 8U),
+                        logical_payload.begin()
+                            + static_cast<std::ptrdiff_t>(off + child_size));
+                    break;
+                }
+                off += static_cast<size_t>(child_size);
+            }
+        }
+    }
+    input.signed_c2pa_logical_payload.assign(logical_payload.begin(),
+                                             logical_payload.end());
+    return input;
 }
 
 static uint32_t
@@ -729,6 +1007,10 @@ TEST(MetadataTransferApi, PrepareFileBuildsDraftC2paInvalidationForJpegTarget)
     EXPECT_EQ(result.bundle.c2pa_rewrite.existing_carrier_segments, 1U);
     EXPECT_FALSE(result.bundle.c2pa_rewrite.requires_manifest_builder);
     EXPECT_FALSE(result.bundle.c2pa_rewrite.requires_private_key);
+    openmeta::PreparedTransferC2paSignRequest sign_request;
+    EXPECT_EQ(openmeta::build_prepared_c2pa_sign_request(result.bundle,
+                                                         &sign_request),
+              openmeta::TransferStatus::Unsupported);
     EXPECT_TRUE(payload_contains_ascii(
         std::span<const std::byte>(result.bundle.blocks[0].payload.data(),
                                    result.bundle.blocks[0].payload.size()),
@@ -840,6 +1122,16 @@ TEST(MetadataTransferApi, PrepareFileRejectsSignedRewriteForJpegTarget)
     EXPECT_EQ(result.bundle.c2pa_rewrite.content_binding_chunks[1].kind,
               openmeta::TransferC2paRewriteChunkKind::SourceRange);
     EXPECT_EQ(result.bundle.c2pa_rewrite.content_binding_chunks[1].size, 2U);
+    openmeta::PreparedTransferC2paSignRequest sign_request;
+    EXPECT_EQ(openmeta::build_prepared_c2pa_sign_request(result.bundle,
+                                                         &sign_request),
+              openmeta::TransferStatus::Ok);
+    EXPECT_EQ(sign_request.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(sign_request.carrier_route, "jpeg:app11-c2pa");
+    EXPECT_EQ(sign_request.manifest_label, "c2pa");
+    EXPECT_EQ(sign_request.source_range_chunks, 2U);
+    EXPECT_EQ(sign_request.prepared_segment_chunks, 0U);
+    EXPECT_EQ(sign_request.content_binding_bytes, 4U);
     EXPECT_TRUE(result.bundle.c2pa_rewrite.message.find("signed c2pa rewrite")
                 != std::string::npos);
 }
@@ -929,6 +1221,12 @@ TEST(MetadataTransferApi, PrepareFileRewriteBuildsBindingChunkForPreparedExif)
     EXPECT_EQ(result.bundle.c2pa_rewrite.state,
               openmeta::TransferC2paRewriteState::SigningMaterialRequired);
     EXPECT_GT(result.bundle.c2pa_rewrite.content_binding_bytes, 4U);
+    openmeta::PreparedTransferC2paSignRequest sign_request;
+    EXPECT_EQ(openmeta::build_prepared_c2pa_sign_request(result.bundle,
+                                                         &sign_request),
+              openmeta::TransferStatus::Ok);
+    EXPECT_GT(sign_request.prepared_segment_chunks, 0U);
+    EXPECT_GT(sign_request.content_binding_bytes, 4U);
 
     bool saw_prepared_exif = false;
     for (size_t i = 0;
@@ -946,6 +1244,994 @@ TEST(MetadataTransferApi, PrepareFileRewriteBuildsBindingChunkForPreparedExif)
         }
     }
     EXPECT_TRUE(saw_prepared_exif);
+}
+
+TEST(MetadataTransferApi,
+     BuildPreparedC2paSignRequestBindingMaterializesSourceOnlyBytes)
+{
+    const std::vector<std::byte> jpeg = make_jpeg_with_app11_jumbf("c2pa");
+    const std::string path            = unique_temp_path(".jpg");
+    ASSERT_TRUE(
+        write_bytes_file(path,
+                         std::span<const std::byte>(jpeg.data(), jpeg.size())));
+
+    openmeta::PrepareTransferFileOptions options;
+    options.prepare.include_exif_app1  = false;
+    options.prepare.include_xmp_app1   = false;
+    options.prepare.include_icc_app2   = false;
+    options.prepare.include_iptc_app13 = false;
+    options.prepare.profile.c2pa = openmeta::TransferPolicyAction::Rewrite;
+
+    const openmeta::PrepareTransferFileResult result
+        = openmeta::prepare_metadata_for_target_file(path.c_str(), options);
+    std::remove(path.c_str());
+
+    ASSERT_EQ(result.prepare.status, openmeta::TransferStatus::Unsupported);
+    openmeta::PreparedTransferC2paSignRequest sign_request;
+    ASSERT_EQ(openmeta::build_prepared_c2pa_sign_request(result.bundle,
+                                                         &sign_request),
+              openmeta::TransferStatus::Ok);
+
+    std::vector<std::byte> binding;
+    const openmeta::BuildPreparedC2paBindingResult build
+        = openmeta::build_prepared_c2pa_sign_request_binding(
+            result.bundle, std::span<const std::byte>(jpeg.data(), jpeg.size()),
+            sign_request, &binding);
+
+    EXPECT_EQ(build.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(build.code, openmeta::EmitTransferCode::None);
+    EXPECT_EQ(build.errors, 0U);
+    EXPECT_EQ(build.written, 4U);
+    ASSERT_EQ(binding.size(), 4U);
+    EXPECT_EQ(binding[0], std::byte { 0xFF });
+    EXPECT_EQ(binding[1], std::byte { 0xD8 });
+    EXPECT_EQ(binding[2], std::byte { 0xFF });
+    EXPECT_EQ(binding[3], std::byte { 0xD9 });
+}
+
+TEST(MetadataTransferApi,
+     BuildPreparedC2paSignRequestBindingMaterializesPreparedExifSegment)
+{
+    const std::vector<std::byte> exif = make_app1_exif_payload();
+    const std::vector<std::byte> c2pa = make_app11_jumbf_payload("c2pa");
+    const TestJpegSegment segments[]  = {
+        { 0xE1U, std::span<const std::byte>(exif.data(), exif.size()) },
+        { 0xEBU, std::span<const std::byte>(c2pa.data(), c2pa.size()) },
+    };
+    const std::vector<std::byte> jpeg = make_jpeg_with_segments(segments);
+    const std::string path            = unique_temp_path(".jpg");
+    ASSERT_TRUE(
+        write_bytes_file(path,
+                         std::span<const std::byte>(jpeg.data(), jpeg.size())));
+
+    openmeta::PrepareTransferFileOptions options;
+    options.prepare.include_xmp_app1   = false;
+    options.prepare.include_icc_app2   = false;
+    options.prepare.include_iptc_app13 = false;
+    options.prepare.profile.c2pa = openmeta::TransferPolicyAction::Rewrite;
+
+    const openmeta::PrepareTransferFileResult result
+        = openmeta::prepare_metadata_for_target_file(path.c_str(), options);
+    std::remove(path.c_str());
+
+    ASSERT_EQ(result.prepare.status, openmeta::TransferStatus::Ok);
+    openmeta::PreparedTransferC2paSignRequest sign_request;
+    ASSERT_EQ(openmeta::build_prepared_c2pa_sign_request(result.bundle,
+                                                         &sign_request),
+              openmeta::TransferStatus::Ok);
+
+    std::vector<std::byte> binding;
+    const openmeta::BuildPreparedC2paBindingResult build
+        = openmeta::build_prepared_c2pa_sign_request_binding(
+            result.bundle, std::span<const std::byte>(jpeg.data(), jpeg.size()),
+            sign_request, &binding);
+
+    EXPECT_EQ(build.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(build.code, openmeta::EmitTransferCode::None);
+    EXPECT_EQ(build.errors, 0U);
+    EXPECT_EQ(build.written, sign_request.content_binding_bytes);
+    EXPECT_GT(binding.size(), 4U);
+    ASSERT_GE(binding.size(), 6U);
+    EXPECT_EQ(binding[0], std::byte { 0xFF });
+    EXPECT_EQ(binding[1], std::byte { 0xD8 });
+    EXPECT_TRUE(contains_byte_pair(std::span<const std::byte>(binding.data(),
+                                                              binding.size()),
+                                   0xFFU, 0xE1U));
+    EXPECT_EQ(binding[binding.size() - 2U], std::byte { 0xFF });
+    EXPECT_EQ(binding[binding.size() - 1U], std::byte { 0xD9 });
+}
+
+TEST(MetadataTransferApi,
+     BuildPreparedC2paSignRequestBindingRejectsPlanMismatch)
+{
+    const std::vector<std::byte> jpeg = make_jpeg_with_app11_jumbf("c2pa");
+    const std::string path            = unique_temp_path(".jpg");
+    ASSERT_TRUE(
+        write_bytes_file(path,
+                         std::span<const std::byte>(jpeg.data(), jpeg.size())));
+
+    openmeta::PrepareTransferFileOptions options;
+    options.prepare.include_exif_app1  = false;
+    options.prepare.include_xmp_app1   = false;
+    options.prepare.include_icc_app2   = false;
+    options.prepare.include_iptc_app13 = false;
+    options.prepare.profile.c2pa = openmeta::TransferPolicyAction::Rewrite;
+
+    openmeta::PrepareTransferFileResult result
+        = openmeta::prepare_metadata_for_target_file(path.c_str(), options);
+    std::remove(path.c_str());
+
+    ASSERT_EQ(result.prepare.status, openmeta::TransferStatus::Unsupported);
+    openmeta::PreparedTransferC2paSignRequest sign_request;
+    ASSERT_EQ(openmeta::build_prepared_c2pa_sign_request(result.bundle,
+                                                         &sign_request),
+              openmeta::TransferStatus::Ok);
+
+    result.bundle.c2pa_rewrite.content_binding_bytes += 1U;
+    std::vector<std::byte> binding(1U, std::byte { 0xAA });
+    const openmeta::BuildPreparedC2paBindingResult build
+        = openmeta::build_prepared_c2pa_sign_request_binding(
+            result.bundle, std::span<const std::byte>(jpeg.data(), jpeg.size()),
+            sign_request, &binding);
+
+    EXPECT_EQ(build.status, openmeta::TransferStatus::InvalidArgument);
+    EXPECT_EQ(build.code, openmeta::EmitTransferCode::PlanMismatch);
+    EXPECT_EQ(build.errors, 1U);
+    EXPECT_TRUE(binding.empty());
+}
+
+TEST(MetadataTransferApi, BuildPreparedC2paHandoffPackageMaterializesBinding)
+{
+    const std::vector<std::byte> jpeg = make_jpeg_with_app11_jumbf("c2pa");
+    const std::string path            = unique_temp_path(".jpg");
+    ASSERT_TRUE(
+        write_bytes_file(path,
+                         std::span<const std::byte>(jpeg.data(), jpeg.size())));
+
+    openmeta::PrepareTransferFileOptions options;
+    options.prepare.include_exif_app1  = false;
+    options.prepare.include_xmp_app1   = false;
+    options.prepare.include_icc_app2   = false;
+    options.prepare.include_iptc_app13 = false;
+    options.prepare.profile.c2pa = openmeta::TransferPolicyAction::Rewrite;
+
+    const openmeta::PrepareTransferFileResult result
+        = openmeta::prepare_metadata_for_target_file(path.c_str(), options);
+    std::remove(path.c_str());
+
+    ASSERT_EQ(result.prepare.status, openmeta::TransferStatus::Unsupported);
+    openmeta::PreparedTransferC2paHandoffPackage handoff;
+    ASSERT_EQ(openmeta::build_prepared_c2pa_handoff_package(
+                  result.bundle,
+                  std::span<const std::byte>(jpeg.data(), jpeg.size()),
+                  &handoff),
+              openmeta::TransferStatus::Ok);
+    EXPECT_EQ(handoff.request.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(handoff.binding.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(handoff.binding.written, 4U);
+    ASSERT_EQ(handoff.binding_bytes.size(), 4U);
+    EXPECT_EQ(handoff.binding_bytes[0], std::byte { 0xFF });
+    EXPECT_EQ(handoff.binding_bytes[1], std::byte { 0xD8 });
+    EXPECT_EQ(handoff.binding_bytes[2], std::byte { 0xFF });
+    EXPECT_EQ(handoff.binding_bytes[3], std::byte { 0xD9 });
+}
+
+TEST(MetadataTransferApi, SerializePreparedC2paHandoffPackageRoundTrip)
+{
+    const std::vector<std::byte> jpeg = make_jpeg_with_app11_jumbf("c2pa");
+    const std::string path            = unique_temp_path(".jpg");
+    ASSERT_TRUE(
+        write_bytes_file(path,
+                         std::span<const std::byte>(jpeg.data(), jpeg.size())));
+
+    openmeta::PrepareTransferFileOptions options;
+    options.prepare.include_exif_app1  = false;
+    options.prepare.include_xmp_app1   = false;
+    options.prepare.include_icc_app2   = false;
+    options.prepare.include_iptc_app13 = false;
+    options.prepare.profile.c2pa = openmeta::TransferPolicyAction::Rewrite;
+
+    const openmeta::PrepareTransferFileResult result
+        = openmeta::prepare_metadata_for_target_file(path.c_str(), options);
+    std::remove(path.c_str());
+
+    ASSERT_EQ(result.prepare.status, openmeta::TransferStatus::Unsupported);
+    openmeta::PreparedTransferC2paHandoffPackage handoff;
+    ASSERT_EQ(openmeta::build_prepared_c2pa_handoff_package(
+                  result.bundle,
+                  std::span<const std::byte>(jpeg.data(), jpeg.size()),
+                  &handoff),
+              openmeta::TransferStatus::Ok);
+
+    std::vector<std::byte> encoded;
+    const openmeta::PreparedTransferC2paPackageIoResult encode
+        = openmeta::serialize_prepared_c2pa_handoff_package(handoff, &encoded);
+    ASSERT_EQ(encode.status, openmeta::TransferStatus::Ok);
+    ASSERT_FALSE(encoded.empty());
+
+    openmeta::PreparedTransferC2paHandoffPackage decoded;
+    const openmeta::PreparedTransferC2paPackageIoResult decode
+        = openmeta::deserialize_prepared_c2pa_handoff_package(
+            std::span<const std::byte>(encoded.data(), encoded.size()),
+            &decoded);
+    ASSERT_EQ(decode.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(decoded.request.status, handoff.request.status);
+    EXPECT_EQ(decoded.request.rewrite_state, handoff.request.rewrite_state);
+    EXPECT_EQ(decoded.request.carrier_route, handoff.request.carrier_route);
+    EXPECT_EQ(decoded.request.manifest_label, handoff.request.manifest_label);
+    EXPECT_EQ(decoded.request.content_binding_bytes,
+              handoff.request.content_binding_bytes);
+    EXPECT_EQ(decoded.binding.status, handoff.binding.status);
+    EXPECT_EQ(decoded.binding.code, handoff.binding.code);
+    EXPECT_EQ(decoded.binding.written, handoff.binding.written);
+    EXPECT_EQ(decoded.binding_bytes, handoff.binding_bytes);
+}
+
+TEST(MetadataTransferApi, SerializePreparedC2paSignedPackageRoundTrip)
+{
+    const std::vector<std::byte> jpeg = make_jpeg_with_app11_jumbf("c2pa");
+    const std::string path            = unique_temp_path(".jpg");
+    ASSERT_TRUE(
+        write_bytes_file(path,
+                         std::span<const std::byte>(jpeg.data(), jpeg.size())));
+
+    openmeta::PrepareTransferFileOptions options;
+    options.prepare.include_exif_app1  = false;
+    options.prepare.include_xmp_app1   = false;
+    options.prepare.include_icc_app2   = false;
+    options.prepare.include_iptc_app13 = false;
+    options.prepare.profile.c2pa = openmeta::TransferPolicyAction::Rewrite;
+
+    const openmeta::PrepareTransferFileResult result
+        = openmeta::prepare_metadata_for_target_file(path.c_str(), options);
+    std::remove(path.c_str());
+
+    ASSERT_EQ(result.prepare.status, openmeta::TransferStatus::Unsupported);
+    const std::vector<std::byte> logical = make_logical_jumbf_payload("c2pa");
+    const openmeta::PreparedTransferC2paSignerInput input
+        = make_test_c2pa_signer_input(
+            std::span<const std::byte>(logical.data(), logical.size()));
+    openmeta::PreparedTransferC2paSignedPackage package;
+    ASSERT_EQ(openmeta::build_prepared_c2pa_signed_package(result.bundle, input,
+                                                           &package),
+              openmeta::TransferStatus::Ok);
+
+    std::vector<std::byte> encoded;
+    const openmeta::PreparedTransferC2paPackageIoResult encode
+        = openmeta::serialize_prepared_c2pa_signed_package(package, &encoded);
+    ASSERT_EQ(encode.status, openmeta::TransferStatus::Ok);
+    ASSERT_FALSE(encoded.empty());
+
+    openmeta::PreparedTransferC2paSignedPackage decoded;
+    const openmeta::PreparedTransferC2paPackageIoResult decode
+        = openmeta::deserialize_prepared_c2pa_signed_package(
+            std::span<const std::byte>(encoded.data(), encoded.size()),
+            &decoded);
+    ASSERT_EQ(decode.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(decoded.request.status, package.request.status);
+    EXPECT_EQ(decoded.request.rewrite_state, package.request.rewrite_state);
+    EXPECT_EQ(decoded.request.carrier_route, package.request.carrier_route);
+    EXPECT_EQ(decoded.request.content_binding_chunks.size(),
+              package.request.content_binding_chunks.size());
+    EXPECT_EQ(decoded.signer_input.signing_time, input.signing_time);
+    EXPECT_EQ(decoded.signer_input.private_key_reference,
+              input.private_key_reference);
+    EXPECT_EQ(decoded.signer_input.certificate_chain_bytes,
+              input.certificate_chain_bytes);
+    EXPECT_EQ(decoded.signer_input.manifest_builder_output,
+              input.manifest_builder_output);
+    EXPECT_EQ(decoded.signer_input.signed_c2pa_logical_payload,
+              input.signed_c2pa_logical_payload);
+}
+
+TEST(MetadataTransferApi, ValidatePreparedC2paSignResultAcceptsContentBound)
+{
+    const std::vector<std::byte> jpeg = make_jpeg_with_app11_jumbf("c2pa");
+    const std::string path            = unique_temp_path(".jpg");
+    ASSERT_TRUE(
+        write_bytes_file(path,
+                         std::span<const std::byte>(jpeg.data(), jpeg.size())));
+
+    openmeta::PrepareTransferFileOptions options;
+    options.prepare.include_exif_app1  = false;
+    options.prepare.include_xmp_app1   = false;
+    options.prepare.include_icc_app2   = false;
+    options.prepare.include_iptc_app13 = false;
+    options.prepare.profile.c2pa = openmeta::TransferPolicyAction::Rewrite;
+
+    const openmeta::PrepareTransferFileResult result
+        = openmeta::prepare_metadata_for_target_file(path.c_str(), options);
+    std::remove(path.c_str());
+
+    ASSERT_EQ(result.prepare.status, openmeta::TransferStatus::Unsupported);
+    openmeta::PreparedTransferC2paSignRequest sign_request;
+    ASSERT_EQ(openmeta::build_prepared_c2pa_sign_request(result.bundle,
+                                                         &sign_request),
+              openmeta::TransferStatus::Ok);
+    const std::vector<std::byte> logical = make_semantic_c2pa_logical_payload();
+    const openmeta::PreparedTransferC2paSignerInput input
+        = make_test_c2pa_signer_input(
+            std::span<const std::byte>(logical.data(), logical.size()));
+
+    const openmeta::ValidatePreparedC2paSignResult validate
+        = openmeta::validate_prepared_c2pa_sign_result(result.bundle,
+                                                       sign_request, input);
+    EXPECT_EQ(validate.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(validate.code, openmeta::EmitTransferCode::None);
+    EXPECT_EQ(validate.payload_kind,
+              openmeta::TransferC2paSignedPayloadKind::ContentBound);
+    EXPECT_EQ(validate.semantic_status,
+              openmeta::TransferC2paSemanticStatus::Ok);
+    EXPECT_EQ(validate.semantic_reason, "ok");
+    EXPECT_EQ(validate.semantic_manifest_present, 1U);
+    EXPECT_EQ(validate.semantic_manifest_count, 1U);
+    EXPECT_EQ(validate.semantic_claim_generator_present, 1U);
+    EXPECT_EQ(validate.semantic_assertion_count, 1U);
+    EXPECT_EQ(validate.semantic_primary_claim_assertion_count, 1U);
+    EXPECT_EQ(validate.semantic_primary_claim_referenced_by_signature_count,
+              1U);
+    EXPECT_EQ(validate.semantic_primary_signature_linked_claim_count, 1U);
+    EXPECT_EQ(validate.semantic_primary_signature_reference_key_hits, 0U);
+    EXPECT_EQ(validate.semantic_primary_signature_explicit_reference_present,
+              0U);
+    EXPECT_EQ(
+        validate
+            .semantic_primary_signature_explicit_reference_resolved_claim_count,
+        0U);
+    EXPECT_EQ(validate.semantic_claim_count, 1U);
+    EXPECT_EQ(validate.semantic_signature_count, 1U);
+    EXPECT_EQ(validate.semantic_signature_linked, 1U);
+    EXPECT_EQ(validate.semantic_signature_orphan, 0U);
+    EXPECT_EQ(validate.logical_payload_bytes, logical.size());
+    EXPECT_GT(validate.staged_payload_bytes, 0U);
+    EXPECT_EQ(validate.staged_segments, 1U);
+    EXPECT_EQ(validate.errors, 0U);
+}
+
+TEST(MetadataTransferApi, ValidatePreparedC2paSignResultRejectsSemanticGap)
+{
+    const std::vector<std::byte> jpeg = make_jpeg_with_app11_jumbf("c2pa");
+    const std::string path            = unique_temp_path(".jpg");
+    ASSERT_TRUE(
+        write_bytes_file(path,
+                         std::span<const std::byte>(jpeg.data(), jpeg.size())));
+
+    openmeta::PrepareTransferFileOptions options;
+    options.prepare.include_exif_app1  = false;
+    options.prepare.include_xmp_app1   = false;
+    options.prepare.include_icc_app2   = false;
+    options.prepare.include_iptc_app13 = false;
+    options.prepare.profile.c2pa = openmeta::TransferPolicyAction::Rewrite;
+
+    const openmeta::PrepareTransferFileResult result
+        = openmeta::prepare_metadata_for_target_file(path.c_str(), options);
+    std::remove(path.c_str());
+
+    ASSERT_EQ(result.prepare.status, openmeta::TransferStatus::Unsupported);
+    openmeta::PreparedTransferC2paSignRequest sign_request;
+    ASSERT_EQ(openmeta::build_prepared_c2pa_sign_request(result.bundle,
+                                                         &sign_request),
+              openmeta::TransferStatus::Ok);
+    const std::vector<std::byte> logical = make_logical_jumbf_payload("c2pa");
+    const openmeta::PreparedTransferC2paSignerInput input
+        = make_test_c2pa_signer_input(
+            std::span<const std::byte>(logical.data(), logical.size()));
+
+    const openmeta::ValidatePreparedC2paSignResult validate
+        = openmeta::validate_prepared_c2pa_sign_result(result.bundle,
+                                                       sign_request, input);
+    EXPECT_EQ(validate.status, openmeta::TransferStatus::Malformed);
+    EXPECT_EQ(validate.code, openmeta::EmitTransferCode::InvalidPayload);
+    EXPECT_EQ(validate.payload_kind,
+              openmeta::TransferC2paSignedPayloadKind::ContentBound);
+    EXPECT_EQ(validate.semantic_status,
+              openmeta::TransferC2paSemanticStatus::Invalid);
+    EXPECT_EQ(validate.semantic_reason, "manifest_missing");
+    EXPECT_EQ(validate.semantic_manifest_present, 0U);
+    EXPECT_EQ(validate.semantic_manifest_count, 0U);
+    EXPECT_EQ(validate.semantic_claim_generator_present, 0U);
+    EXPECT_EQ(validate.semantic_claim_count, 0U);
+    EXPECT_EQ(validate.semantic_signature_count, 0U);
+    EXPECT_EQ(validate.staged_segments, 0U);
+    EXPECT_EQ(validate.errors, 1U);
+}
+
+TEST(MetadataTransferApi,
+     ValidatePreparedC2paSignResultRejectsManifestCountDrift)
+{
+    const std::vector<std::byte> jpeg = make_jpeg_with_app11_jumbf("c2pa");
+    const std::string path            = unique_temp_path(".jpg");
+    ASSERT_TRUE(
+        write_bytes_file(path,
+                         std::span<const std::byte>(jpeg.data(), jpeg.size())));
+
+    openmeta::PrepareTransferFileOptions options;
+    options.prepare.include_exif_app1  = false;
+    options.prepare.include_xmp_app1   = false;
+    options.prepare.include_icc_app2   = false;
+    options.prepare.include_iptc_app13 = false;
+    options.prepare.profile.c2pa = openmeta::TransferPolicyAction::Rewrite;
+
+    const openmeta::PrepareTransferFileResult result
+        = openmeta::prepare_metadata_for_target_file(path.c_str(), options);
+    std::remove(path.c_str());
+
+    ASSERT_EQ(result.prepare.status, openmeta::TransferStatus::Unsupported);
+    openmeta::PreparedTransferC2paSignRequest sign_request;
+    ASSERT_EQ(openmeta::build_prepared_c2pa_sign_request(result.bundle,
+                                                         &sign_request),
+              openmeta::TransferStatus::Ok);
+    const std::vector<std::byte> logical
+        = make_semantic_c2pa_logical_payload(2U, true);
+    const openmeta::PreparedTransferC2paSignerInput input
+        = make_test_c2pa_signer_input(
+            std::span<const std::byte>(logical.data(), logical.size()));
+
+    const openmeta::ValidatePreparedC2paSignResult validate
+        = openmeta::validate_prepared_c2pa_sign_result(result.bundle,
+                                                       sign_request, input);
+    EXPECT_EQ(validate.status, openmeta::TransferStatus::Malformed);
+    EXPECT_EQ(validate.code, openmeta::EmitTransferCode::InvalidPayload);
+    EXPECT_EQ(validate.payload_kind,
+              openmeta::TransferC2paSignedPayloadKind::ContentBound);
+    EXPECT_EQ(validate.semantic_status,
+              openmeta::TransferC2paSemanticStatus::Invalid);
+    EXPECT_EQ(validate.semantic_reason, "manifest_count_invalid");
+    EXPECT_EQ(validate.semantic_manifest_present, 1U);
+    EXPECT_EQ(validate.semantic_manifest_count, 2U);
+    EXPECT_EQ(validate.semantic_claim_generator_present, 1U);
+    EXPECT_EQ(validate.staged_segments, 0U);
+    EXPECT_EQ(validate.errors, 1U);
+}
+
+TEST(MetadataTransferApi,
+     ValidatePreparedC2paSignResultRejectsMissingClaimGenerator)
+{
+    const std::vector<std::byte> jpeg = make_jpeg_with_app11_jumbf("c2pa");
+    const std::string path            = unique_temp_path(".jpg");
+    ASSERT_TRUE(
+        write_bytes_file(path,
+                         std::span<const std::byte>(jpeg.data(), jpeg.size())));
+
+    openmeta::PrepareTransferFileOptions options;
+    options.prepare.include_exif_app1  = false;
+    options.prepare.include_xmp_app1   = false;
+    options.prepare.include_icc_app2   = false;
+    options.prepare.include_iptc_app13 = false;
+    options.prepare.profile.c2pa = openmeta::TransferPolicyAction::Rewrite;
+
+    const openmeta::PrepareTransferFileResult result
+        = openmeta::prepare_metadata_for_target_file(path.c_str(), options);
+    std::remove(path.c_str());
+
+    ASSERT_EQ(result.prepare.status, openmeta::TransferStatus::Unsupported);
+    openmeta::PreparedTransferC2paSignRequest sign_request;
+    ASSERT_EQ(openmeta::build_prepared_c2pa_sign_request(result.bundle,
+                                                         &sign_request),
+              openmeta::TransferStatus::Ok);
+    const std::vector<std::byte> logical
+        = make_semantic_c2pa_logical_payload(1U, false);
+    const openmeta::PreparedTransferC2paSignerInput input
+        = make_test_c2pa_signer_input(
+            std::span<const std::byte>(logical.data(), logical.size()));
+
+    const openmeta::ValidatePreparedC2paSignResult validate
+        = openmeta::validate_prepared_c2pa_sign_result(result.bundle,
+                                                       sign_request, input);
+    EXPECT_EQ(validate.status, openmeta::TransferStatus::Malformed);
+    EXPECT_EQ(validate.code, openmeta::EmitTransferCode::InvalidPayload);
+    EXPECT_EQ(validate.payload_kind,
+              openmeta::TransferC2paSignedPayloadKind::ContentBound);
+    EXPECT_EQ(validate.semantic_status,
+              openmeta::TransferC2paSemanticStatus::Invalid);
+    EXPECT_EQ(validate.semantic_reason, "claim_generator_missing");
+    EXPECT_EQ(validate.semantic_manifest_present, 1U);
+    EXPECT_EQ(validate.semantic_manifest_count, 1U);
+    EXPECT_EQ(validate.semantic_claim_generator_present, 0U);
+    EXPECT_EQ(validate.semantic_assertion_count, 1U);
+    EXPECT_EQ(validate.staged_segments, 0U);
+    EXPECT_EQ(validate.errors, 1U);
+}
+
+TEST(MetadataTransferApi,
+     ValidatePreparedC2paSignResultRejectsMissingContentBindingAssertions)
+{
+    const std::vector<std::byte> jpeg = make_jpeg_with_app11_jumbf("c2pa");
+    const std::string path            = unique_temp_path(".jpg");
+    ASSERT_TRUE(
+        write_bytes_file(path,
+                         std::span<const std::byte>(jpeg.data(), jpeg.size())));
+
+    openmeta::PrepareTransferFileOptions options;
+    options.prepare.include_exif_app1  = false;
+    options.prepare.include_xmp_app1   = false;
+    options.prepare.include_icc_app2   = false;
+    options.prepare.include_iptc_app13 = false;
+    options.prepare.profile.c2pa = openmeta::TransferPolicyAction::Rewrite;
+
+    const openmeta::PrepareTransferFileResult result
+        = openmeta::prepare_metadata_for_target_file(path.c_str(), options);
+    std::remove(path.c_str());
+
+    ASSERT_EQ(result.prepare.status, openmeta::TransferStatus::Unsupported);
+    openmeta::PreparedTransferC2paSignRequest sign_request;
+    ASSERT_EQ(openmeta::build_prepared_c2pa_sign_request(result.bundle,
+                                                         &sign_request),
+              openmeta::TransferStatus::Ok);
+    const std::vector<std::byte> logical
+        = make_semantic_c2pa_logical_payload(1U, true, true, false);
+    const openmeta::PreparedTransferC2paSignerInput input
+        = make_test_c2pa_signer_input(
+            std::span<const std::byte>(logical.data(), logical.size()));
+
+    const openmeta::ValidatePreparedC2paSignResult validate
+        = openmeta::validate_prepared_c2pa_sign_result(result.bundle,
+                                                       sign_request, input);
+    EXPECT_EQ(validate.status, openmeta::TransferStatus::Malformed);
+    EXPECT_EQ(validate.code, openmeta::EmitTransferCode::InvalidPayload);
+    EXPECT_EQ(validate.payload_kind,
+              openmeta::TransferC2paSignedPayloadKind::ContentBound);
+    EXPECT_EQ(validate.semantic_status,
+              openmeta::TransferC2paSemanticStatus::Invalid);
+    EXPECT_EQ(validate.semantic_reason, "content_binding_assertions_missing");
+    EXPECT_EQ(validate.semantic_manifest_present, 1U);
+    EXPECT_EQ(validate.semantic_manifest_count, 1U);
+    EXPECT_EQ(validate.semantic_claim_generator_present, 1U);
+    EXPECT_EQ(validate.semantic_assertion_count, 0U);
+    EXPECT_EQ(validate.semantic_primary_claim_assertion_count, 0U);
+    EXPECT_EQ(validate.staged_segments, 0U);
+    EXPECT_EQ(validate.errors, 1U);
+}
+
+TEST(MetadataTransferApi,
+     ValidatePreparedC2paSignResultRejectsMissingSignatureAlgorithm)
+{
+    const std::vector<std::byte> jpeg = make_jpeg_with_app11_jumbf("c2pa");
+    const std::string path            = unique_temp_path(".jpg");
+    ASSERT_TRUE(
+        write_bytes_file(path,
+                         std::span<const std::byte>(jpeg.data(), jpeg.size())));
+
+    openmeta::PrepareTransferFileOptions options;
+    options.prepare.include_exif_app1  = false;
+    options.prepare.include_xmp_app1   = false;
+    options.prepare.include_icc_app2   = false;
+    options.prepare.include_iptc_app13 = false;
+    options.prepare.profile.c2pa = openmeta::TransferPolicyAction::Rewrite;
+
+    const openmeta::PrepareTransferFileResult result
+        = openmeta::prepare_metadata_for_target_file(path.c_str(), options);
+    std::remove(path.c_str());
+
+    ASSERT_EQ(result.prepare.status, openmeta::TransferStatus::Unsupported);
+    openmeta::PreparedTransferC2paSignRequest sign_request;
+    ASSERT_EQ(openmeta::build_prepared_c2pa_sign_request(result.bundle,
+                                                         &sign_request),
+              openmeta::TransferStatus::Ok);
+    const std::vector<std::byte> logical
+        = make_semantic_c2pa_logical_payload(1U, true, false);
+    const openmeta::PreparedTransferC2paSignerInput input
+        = make_test_c2pa_signer_input(
+            std::span<const std::byte>(logical.data(), logical.size()));
+
+    const openmeta::ValidatePreparedC2paSignResult validate
+        = openmeta::validate_prepared_c2pa_sign_result(result.bundle,
+                                                       sign_request, input);
+    EXPECT_EQ(validate.status, openmeta::TransferStatus::Malformed);
+    EXPECT_EQ(validate.code, openmeta::EmitTransferCode::InvalidPayload);
+    EXPECT_EQ(validate.payload_kind,
+              openmeta::TransferC2paSignedPayloadKind::ContentBound);
+    EXPECT_EQ(validate.semantic_status,
+              openmeta::TransferC2paSemanticStatus::Invalid);
+    EXPECT_EQ(validate.semantic_reason, "signature_algorithm_missing");
+    EXPECT_EQ(validate.semantic_manifest_present, 1U);
+    EXPECT_EQ(validate.semantic_manifest_count, 1U);
+    EXPECT_EQ(validate.semantic_claim_generator_present, 1U);
+    EXPECT_EQ(validate.semantic_assertion_count, 1U);
+    EXPECT_EQ(validate.staged_segments, 0U);
+    EXPECT_EQ(validate.errors, 1U);
+}
+
+TEST(MetadataTransferApi,
+     ValidatePreparedC2paSignResultRejectsPrimarySignatureClaimDrift)
+{
+    const std::vector<std::byte> jpeg = make_jpeg_with_app11_jumbf("c2pa");
+    const std::string path            = unique_temp_path(".jpg");
+    ASSERT_TRUE(
+        write_bytes_file(path,
+                         std::span<const std::byte>(jpeg.data(), jpeg.size())));
+
+    openmeta::PrepareTransferFileOptions options;
+    options.prepare.include_exif_app1  = false;
+    options.prepare.include_xmp_app1   = false;
+    options.prepare.include_icc_app2   = false;
+    options.prepare.include_iptc_app13 = false;
+    options.prepare.profile.c2pa = openmeta::TransferPolicyAction::Rewrite;
+
+    const openmeta::PrepareTransferFileResult result
+        = openmeta::prepare_metadata_for_target_file(path.c_str(), options);
+    std::remove(path.c_str());
+
+    ASSERT_EQ(result.prepare.status, openmeta::TransferStatus::Unsupported);
+    openmeta::PreparedTransferC2paSignRequest sign_request;
+    ASSERT_EQ(openmeta::build_prepared_c2pa_sign_request(result.bundle,
+                                                         &sign_request),
+              openmeta::TransferStatus::Ok);
+    const std::vector<std::byte> logical
+        = make_semantic_c2pa_logical_payload_primary_signature_refs_second_claim();
+    const openmeta::PreparedTransferC2paSignerInput input
+        = make_test_c2pa_signer_input(
+            std::span<const std::byte>(logical.data(), logical.size()));
+
+    const openmeta::ValidatePreparedC2paSignResult validate
+        = openmeta::validate_prepared_c2pa_sign_result(result.bundle,
+                                                       sign_request, input);
+    EXPECT_EQ(validate.status, openmeta::TransferStatus::Malformed);
+    EXPECT_EQ(validate.code, openmeta::EmitTransferCode::InvalidPayload);
+    EXPECT_EQ(validate.payload_kind,
+              openmeta::TransferC2paSignedPayloadKind::ContentBound);
+    EXPECT_EQ(validate.semantic_status,
+              openmeta::TransferC2paSemanticStatus::Invalid);
+    EXPECT_EQ(validate.semantic_reason, "primary_signature_claim_drift");
+    EXPECT_EQ(validate.semantic_manifest_present, 1U);
+    EXPECT_EQ(validate.semantic_manifest_count, 1U);
+    EXPECT_EQ(validate.semantic_claim_generator_present, 1U);
+    EXPECT_EQ(validate.semantic_assertion_count, 2U);
+    EXPECT_EQ(validate.semantic_primary_claim_assertion_count, 1U);
+    EXPECT_EQ(validate.semantic_primary_claim_referenced_by_signature_count,
+              0U);
+    EXPECT_EQ(validate.semantic_primary_signature_linked_claim_count, 1U);
+    EXPECT_EQ(validate.semantic_primary_signature_reference_key_hits, 1U);
+    EXPECT_EQ(validate.semantic_primary_signature_explicit_reference_present,
+              1U);
+    EXPECT_EQ(
+        validate
+            .semantic_primary_signature_explicit_reference_resolved_claim_count,
+        1U);
+    EXPECT_EQ(validate.semantic_claim_count, 2U);
+    EXPECT_EQ(validate.semantic_signature_count, 1U);
+    EXPECT_EQ(validate.semantic_signature_linked, 1U);
+    EXPECT_EQ(validate.semantic_signature_orphan, 0U);
+    EXPECT_EQ(validate.staged_segments, 0U);
+    EXPECT_EQ(validate.errors, 1U);
+}
+
+TEST(MetadataTransferApi,
+     ValidatePreparedC2paSignResultRejectsPrimarySignatureReferenceUnresolved)
+{
+    const std::vector<std::byte> jpeg = make_jpeg_with_app11_jumbf("c2pa");
+    const std::string path            = unique_temp_path(".jpg");
+    ASSERT_TRUE(
+        write_bytes_file(path,
+                         std::span<const std::byte>(jpeg.data(), jpeg.size())));
+
+    openmeta::PrepareTransferFileOptions options;
+    options.prepare.include_exif_app1  = false;
+    options.prepare.include_xmp_app1   = false;
+    options.prepare.include_icc_app2   = false;
+    options.prepare.include_iptc_app13 = false;
+    options.prepare.profile.c2pa = openmeta::TransferPolicyAction::Rewrite;
+
+    const openmeta::PrepareTransferFileResult result
+        = openmeta::prepare_metadata_for_target_file(path.c_str(), options);
+    std::remove(path.c_str());
+
+    ASSERT_EQ(result.prepare.status, openmeta::TransferStatus::Unsupported);
+    openmeta::PreparedTransferC2paSignRequest sign_request;
+    ASSERT_EQ(openmeta::build_prepared_c2pa_sign_request(result.bundle,
+                                                         &sign_request),
+              openmeta::TransferStatus::Ok);
+    const std::vector<std::byte> logical
+        = make_semantic_c2pa_logical_payload_unresolved_primary_signature_reference();
+    const openmeta::PreparedTransferC2paSignerInput input
+        = make_test_c2pa_signer_input(
+            std::span<const std::byte>(logical.data(), logical.size()));
+
+    const openmeta::ValidatePreparedC2paSignResult validate
+        = openmeta::validate_prepared_c2pa_sign_result(result.bundle,
+                                                       sign_request, input);
+    EXPECT_EQ(validate.status, openmeta::TransferStatus::Malformed);
+    EXPECT_EQ(validate.code, openmeta::EmitTransferCode::InvalidPayload);
+    EXPECT_EQ(validate.payload_kind,
+              openmeta::TransferC2paSignedPayloadKind::ContentBound);
+    EXPECT_EQ(validate.semantic_status,
+              openmeta::TransferC2paSemanticStatus::Invalid);
+    EXPECT_EQ(validate.semantic_reason,
+              "primary_signature_reference_unresolved");
+    EXPECT_EQ(validate.semantic_manifest_present, 1U);
+    EXPECT_EQ(validate.semantic_manifest_count, 1U);
+    EXPECT_EQ(validate.semantic_claim_generator_present, 1U);
+    EXPECT_EQ(validate.semantic_assertion_count, 2U);
+    EXPECT_EQ(validate.semantic_primary_claim_assertion_count, 1U);
+    EXPECT_EQ(validate.semantic_primary_claim_referenced_by_signature_count,
+              0U);
+    EXPECT_EQ(validate.semantic_primary_signature_linked_claim_count, 0U);
+    EXPECT_EQ(validate.semantic_primary_signature_reference_key_hits, 1U);
+    EXPECT_EQ(validate.semantic_primary_signature_explicit_reference_present,
+              1U);
+    EXPECT_EQ(
+        validate
+            .semantic_primary_signature_explicit_reference_resolved_claim_count,
+        0U);
+    EXPECT_EQ(validate.semantic_claim_count, 2U);
+    EXPECT_EQ(validate.semantic_signature_count, 1U);
+    EXPECT_EQ(validate.semantic_signature_linked, 0U);
+    EXPECT_EQ(validate.semantic_signature_orphan, 1U);
+    EXPECT_EQ(validate.staged_segments, 0U);
+    EXPECT_EQ(validate.errors, 1U);
+}
+
+TEST(MetadataTransferApi,
+     ValidatePreparedC2paSignResultRejectsManifestBuilderOutputMismatch)
+{
+    const std::vector<std::byte> jpeg = make_jpeg_with_app11_jumbf("c2pa");
+    const std::string path            = unique_temp_path(".jpg");
+    ASSERT_TRUE(
+        write_bytes_file(path,
+                         std::span<const std::byte>(jpeg.data(), jpeg.size())));
+
+    openmeta::PrepareTransferFileOptions options;
+    options.prepare.include_exif_app1  = false;
+    options.prepare.include_xmp_app1   = false;
+    options.prepare.include_icc_app2   = false;
+    options.prepare.include_iptc_app13 = false;
+    options.prepare.profile.c2pa = openmeta::TransferPolicyAction::Rewrite;
+
+    const openmeta::PrepareTransferFileResult result
+        = openmeta::prepare_metadata_for_target_file(path.c_str(), options);
+    std::remove(path.c_str());
+
+    ASSERT_EQ(result.prepare.status, openmeta::TransferStatus::Unsupported);
+    openmeta::PreparedTransferC2paSignRequest sign_request;
+    ASSERT_EQ(openmeta::build_prepared_c2pa_sign_request(result.bundle,
+                                                         &sign_request),
+              openmeta::TransferStatus::Ok);
+    const std::vector<std::byte> logical = make_semantic_c2pa_logical_payload();
+    openmeta::PreparedTransferC2paSignerInput input
+        = make_test_c2pa_signer_input(
+            std::span<const std::byte>(logical.data(), logical.size()));
+    ASSERT_FALSE(input.manifest_builder_output.empty());
+    input.manifest_builder_output[0] ^= std::byte { 0x01 };
+
+    const openmeta::ValidatePreparedC2paSignResult validate
+        = openmeta::validate_prepared_c2pa_sign_result(result.bundle,
+                                                       sign_request, input);
+    EXPECT_EQ(validate.status, openmeta::TransferStatus::Malformed);
+    EXPECT_EQ(validate.code, openmeta::EmitTransferCode::InvalidPayload);
+    EXPECT_EQ(validate.payload_kind,
+              openmeta::TransferC2paSignedPayloadKind::ContentBound);
+    EXPECT_EQ(validate.semantic_status,
+              openmeta::TransferC2paSemanticStatus::Invalid);
+    EXPECT_EQ(validate.semantic_reason, "manifest_builder_output_mismatch");
+    EXPECT_EQ(validate.semantic_manifest_present, 1U);
+    EXPECT_EQ(validate.semantic_manifest_count, 1U);
+    EXPECT_EQ(validate.semantic_claim_generator_present, 1U);
+    EXPECT_EQ(validate.semantic_assertion_count, 1U);
+    EXPECT_EQ(validate.staged_segments, 0U);
+    EXPECT_EQ(validate.errors, 1U);
+}
+
+TEST(MetadataTransferApi, ValidatePreparedC2paSignResultRejectsGenericJumbf)
+{
+    const std::vector<std::byte> jpeg = make_jpeg_with_app11_jumbf("c2pa");
+    const std::string path            = unique_temp_path(".jpg");
+    ASSERT_TRUE(
+        write_bytes_file(path,
+                         std::span<const std::byte>(jpeg.data(), jpeg.size())));
+
+    openmeta::PrepareTransferFileOptions options;
+    options.prepare.include_exif_app1  = false;
+    options.prepare.include_xmp_app1   = false;
+    options.prepare.include_icc_app2   = false;
+    options.prepare.include_iptc_app13 = false;
+    options.prepare.profile.c2pa = openmeta::TransferPolicyAction::Rewrite;
+
+    const openmeta::PrepareTransferFileResult result
+        = openmeta::prepare_metadata_for_target_file(path.c_str(), options);
+    std::remove(path.c_str());
+
+    ASSERT_EQ(result.prepare.status, openmeta::TransferStatus::Unsupported);
+    openmeta::PreparedTransferC2paSignRequest sign_request;
+    ASSERT_EQ(openmeta::build_prepared_c2pa_sign_request(result.bundle,
+                                                         &sign_request),
+              openmeta::TransferStatus::Ok);
+    const std::vector<std::byte> logical = make_logical_jumbf_payload("acme");
+    const openmeta::PreparedTransferC2paSignerInput input
+        = make_test_c2pa_signer_input(
+            std::span<const std::byte>(logical.data(), logical.size()));
+
+    const openmeta::ValidatePreparedC2paSignResult validate
+        = openmeta::validate_prepared_c2pa_sign_result(result.bundle,
+                                                       sign_request, input);
+    EXPECT_EQ(validate.status, openmeta::TransferStatus::Unsupported);
+    EXPECT_EQ(validate.code,
+              openmeta::EmitTransferCode::ContentBoundPayloadUnsupported);
+    EXPECT_EQ(validate.payload_kind,
+              openmeta::TransferC2paSignedPayloadKind::GenericJumbf);
+    EXPECT_EQ(validate.staged_segments, 0U);
+    EXPECT_EQ(validate.errors, 1U);
+}
+
+TEST(MetadataTransferApi, ApplyPreparedC2paSignResultStagesSignedPayload)
+{
+    const std::vector<std::byte> jpeg = make_jpeg_with_app11_jumbf("c2pa");
+    const std::string path            = unique_temp_path(".jpg");
+    ASSERT_TRUE(
+        write_bytes_file(path,
+                         std::span<const std::byte>(jpeg.data(), jpeg.size())));
+
+    openmeta::PrepareTransferFileOptions options;
+    options.prepare.include_exif_app1  = false;
+    options.prepare.include_xmp_app1   = false;
+    options.prepare.include_icc_app2   = false;
+    options.prepare.include_iptc_app13 = false;
+    options.prepare.profile.c2pa = openmeta::TransferPolicyAction::Rewrite;
+
+    openmeta::PrepareTransferFileResult result
+        = openmeta::prepare_metadata_for_target_file(path.c_str(), options);
+    std::remove(path.c_str());
+
+    ASSERT_EQ(result.prepare.status, openmeta::TransferStatus::Unsupported);
+    openmeta::PreparedTransferC2paSignRequest sign_request;
+    ASSERT_EQ(openmeta::build_prepared_c2pa_sign_request(result.bundle,
+                                                         &sign_request),
+              openmeta::TransferStatus::Ok);
+
+    const std::vector<std::byte> logical = make_semantic_c2pa_logical_payload();
+    const openmeta::PreparedTransferC2paSignerInput input
+        = make_test_c2pa_signer_input(
+            std::span<const std::byte>(logical.data(), logical.size()));
+    const openmeta::EmitTransferResult apply
+        = openmeta::apply_prepared_c2pa_sign_result(&result.bundle,
+                                                    sign_request, input);
+
+    EXPECT_EQ(apply.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(apply.code, openmeta::EmitTransferCode::None);
+    EXPECT_EQ(apply.errors, 0U);
+    EXPECT_EQ(count_blocks_with_route(result.bundle, "jpeg:app11-c2pa"),
+              apply.emitted);
+    EXPECT_EQ(result.bundle.c2pa_rewrite.state,
+              openmeta::TransferC2paRewriteState::Ready);
+
+    const openmeta::PreparedTransferPolicyDecision* decision
+        = find_policy_decision(result.bundle,
+                               openmeta::TransferPolicySubject::C2pa);
+    ASSERT_NE(decision, nullptr);
+    EXPECT_EQ(decision->requested, openmeta::TransferPolicyAction::Rewrite);
+    EXPECT_EQ(decision->effective, openmeta::TransferPolicyAction::Keep);
+    EXPECT_EQ(decision->reason,
+              openmeta::TransferPolicyReason::ExternalSignedPayload);
+    EXPECT_EQ(decision->c2pa_mode, openmeta::TransferC2paMode::SignedRewrite);
+    EXPECT_EQ(decision->c2pa_prepared_output,
+              openmeta::TransferC2paPreparedOutput::SignedRewrite);
+
+    openmeta::PreparedTransferC2paSignRequest ready_request;
+    EXPECT_EQ(openmeta::build_prepared_c2pa_sign_request(result.bundle,
+                                                         &ready_request),
+              openmeta::TransferStatus::Ok);
+    EXPECT_EQ(ready_request.rewrite_state,
+              openmeta::TransferC2paRewriteState::Ready);
+}
+
+TEST(MetadataTransferApi, ApplyPreparedC2paSignResultRejectsMissingMaterial)
+{
+    const std::vector<std::byte> jpeg = make_jpeg_with_app11_jumbf("c2pa");
+    const std::string path            = unique_temp_path(".jpg");
+    ASSERT_TRUE(
+        write_bytes_file(path,
+                         std::span<const std::byte>(jpeg.data(), jpeg.size())));
+
+    openmeta::PrepareTransferFileOptions options;
+    options.prepare.include_exif_app1  = false;
+    options.prepare.include_xmp_app1   = false;
+    options.prepare.include_icc_app2   = false;
+    options.prepare.include_iptc_app13 = false;
+    options.prepare.profile.c2pa = openmeta::TransferPolicyAction::Rewrite;
+
+    openmeta::PrepareTransferFileResult result
+        = openmeta::prepare_metadata_for_target_file(path.c_str(), options);
+    std::remove(path.c_str());
+
+    ASSERT_EQ(result.prepare.status, openmeta::TransferStatus::Unsupported);
+    openmeta::PreparedTransferC2paSignRequest sign_request;
+    ASSERT_EQ(openmeta::build_prepared_c2pa_sign_request(result.bundle,
+                                                         &sign_request),
+              openmeta::TransferStatus::Ok);
+
+    const std::vector<std::byte> logical = make_semantic_c2pa_logical_payload();
+    openmeta::PreparedTransferC2paSignerInput input
+        = make_test_c2pa_signer_input(
+            std::span<const std::byte>(logical.data(), logical.size()));
+    input.manifest_builder_output.clear();
+
+    const openmeta::EmitTransferResult apply
+        = openmeta::apply_prepared_c2pa_sign_result(&result.bundle,
+                                                    sign_request, input);
+
+    EXPECT_EQ(apply.status, openmeta::TransferStatus::InvalidArgument);
+    EXPECT_EQ(apply.code, openmeta::EmitTransferCode::InvalidArgument);
+    EXPECT_EQ(count_blocks_with_route(result.bundle, "jpeg:app11-c2pa"), 0U);
+    EXPECT_EQ(result.bundle.c2pa_rewrite.state,
+              openmeta::TransferC2paRewriteState::SigningMaterialRequired);
+}
+
+TEST(MetadataTransferApi, ApplyPreparedC2paSignResultRejectsStaleRequest)
+{
+    const std::vector<std::byte> jpeg = make_jpeg_with_app11_jumbf("c2pa");
+    const std::string path            = unique_temp_path(".jpg");
+    ASSERT_TRUE(
+        write_bytes_file(path,
+                         std::span<const std::byte>(jpeg.data(), jpeg.size())));
+
+    openmeta::PrepareTransferFileOptions options;
+    options.prepare.include_exif_app1  = false;
+    options.prepare.include_xmp_app1   = false;
+    options.prepare.include_icc_app2   = false;
+    options.prepare.include_iptc_app13 = false;
+    options.prepare.profile.c2pa = openmeta::TransferPolicyAction::Rewrite;
+
+    openmeta::PrepareTransferFileResult result
+        = openmeta::prepare_metadata_for_target_file(path.c_str(), options);
+    std::remove(path.c_str());
+
+    ASSERT_EQ(result.prepare.status, openmeta::TransferStatus::Unsupported);
+    openmeta::PreparedTransferC2paSignRequest sign_request;
+    ASSERT_EQ(openmeta::build_prepared_c2pa_sign_request(result.bundle,
+                                                         &sign_request),
+              openmeta::TransferStatus::Ok);
+
+    result.bundle.c2pa_rewrite.content_binding_bytes += 1U;
+
+    const std::vector<std::byte> logical = make_semantic_c2pa_logical_payload();
+    const openmeta::PreparedTransferC2paSignerInput input
+        = make_test_c2pa_signer_input(
+            std::span<const std::byte>(logical.data(), logical.size()));
+    const openmeta::EmitTransferResult apply
+        = openmeta::apply_prepared_c2pa_sign_result(&result.bundle,
+                                                    sign_request, input);
+
+    EXPECT_EQ(apply.status, openmeta::TransferStatus::InvalidArgument);
+    EXPECT_EQ(apply.code, openmeta::EmitTransferCode::PlanMismatch);
+    EXPECT_EQ(count_blocks_with_route(result.bundle, "jpeg:app11-c2pa"), 0U);
+}
+
+TEST(MetadataTransferApi, ApplyPreparedC2paSignResultRejectsGenericJumbf)
+{
+    const std::vector<std::byte> jpeg = make_jpeg_with_app11_jumbf("c2pa");
+    const std::string path            = unique_temp_path(".jpg");
+    ASSERT_TRUE(
+        write_bytes_file(path,
+                         std::span<const std::byte>(jpeg.data(), jpeg.size())));
+
+    openmeta::PrepareTransferFileOptions options;
+    options.prepare.include_exif_app1  = false;
+    options.prepare.include_xmp_app1   = false;
+    options.prepare.include_icc_app2   = false;
+    options.prepare.include_iptc_app13 = false;
+    options.prepare.profile.c2pa = openmeta::TransferPolicyAction::Rewrite;
+
+    openmeta::PrepareTransferFileResult result
+        = openmeta::prepare_metadata_for_target_file(path.c_str(), options);
+    std::remove(path.c_str());
+
+    ASSERT_EQ(result.prepare.status, openmeta::TransferStatus::Unsupported);
+    openmeta::PreparedTransferC2paSignRequest sign_request;
+    ASSERT_EQ(openmeta::build_prepared_c2pa_sign_request(result.bundle,
+                                                         &sign_request),
+              openmeta::TransferStatus::Ok);
+
+    const std::vector<std::byte> logical = make_logical_jumbf_payload("acme");
+    const openmeta::PreparedTransferC2paSignerInput input
+        = make_test_c2pa_signer_input(
+            std::span<const std::byte>(logical.data(), logical.size()));
+    const openmeta::EmitTransferResult apply
+        = openmeta::apply_prepared_c2pa_sign_result(&result.bundle,
+                                                    sign_request, input);
+
+    EXPECT_EQ(apply.status, openmeta::TransferStatus::Unsupported);
+    EXPECT_EQ(apply.code,
+              openmeta::EmitTransferCode::ContentBoundPayloadUnsupported);
+    EXPECT_EQ(count_blocks_with_route(result.bundle, "jpeg:app11-c2pa"), 0U);
 }
 
 TEST(MetadataTransferApi, AppendPreparedBundleJpegJumbfAddsPreparedBlocks)
@@ -1010,7 +2296,7 @@ TEST(MetadataTransferApi, AppendPreparedBundleJpegJumbfRejectsC2paPayload)
     openmeta::PreparedTransferBundle bundle;
     bundle.target_format = openmeta::TransferTargetFormat::Jpeg;
 
-    const std::vector<std::byte> logical = make_logical_jumbf_payload("c2pa");
+    const std::vector<std::byte> logical = make_semantic_c2pa_logical_payload();
     const openmeta::EmitTransferResult result
         = openmeta::append_prepared_bundle_jpeg_jumbf(
             &bundle,
@@ -2563,6 +3849,114 @@ TEST(MetadataTransferApi, ExecutePreparedTransferFileRejectsEmptyPath)
               openmeta::TransferStatus::Unsupported);
     EXPECT_TRUE(result.execute.compile.message.find("read/prepare failure")
                 != std::string::npos);
+}
+
+TEST(MetadataTransferApi, ExecutePreparedTransferFileStagesSignedC2pa)
+{
+    const std::vector<std::byte> jpeg = make_jpeg_with_app11_jumbf("c2pa");
+    const std::string path            = unique_temp_path(".jpg");
+    ASSERT_TRUE(
+        write_bytes_file(path,
+                         std::span<const std::byte>(jpeg.data(), jpeg.size())));
+
+    openmeta::ExecutePreparedTransferFileOptions options;
+    options.prepare.prepare.include_exif_app1  = false;
+    options.prepare.prepare.include_xmp_app1   = false;
+    options.prepare.prepare.include_icc_app2   = false;
+    options.prepare.prepare.include_iptc_app13 = false;
+    options.prepare.prepare.profile.c2pa
+        = openmeta::TransferPolicyAction::Rewrite;
+    options.c2pa_stage_requested = true;
+
+    const std::vector<std::byte> logical = make_semantic_c2pa_logical_payload();
+    options.c2pa_signer_input            = make_test_c2pa_signer_input(
+        std::span<const std::byte>(logical.data(), logical.size()));
+
+    const openmeta::ExecutePreparedTransferFileResult result
+        = openmeta::execute_prepared_transfer_file(path.c_str(), options);
+    std::remove(path.c_str());
+
+    EXPECT_EQ(result.prepared.file_status, openmeta::TransferFileStatus::Ok);
+    EXPECT_EQ(result.prepared.prepare.status,
+              openmeta::TransferStatus::Unsupported);
+    EXPECT_TRUE(result.execute.c2pa_stage_requested);
+    EXPECT_EQ(result.execute.c2pa_stage_validation.status,
+              openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.execute.c2pa_stage_validation.code,
+              openmeta::EmitTransferCode::None);
+    EXPECT_EQ(result.execute.c2pa_stage_validation.payload_kind,
+              openmeta::TransferC2paSignedPayloadKind::ContentBound);
+    EXPECT_EQ(result.execute.c2pa_stage_validation.staged_segments, 1U);
+    EXPECT_EQ(result.execute.c2pa_stage.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.execute.emit.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(count_blocks_with_route(result.prepared.bundle, "jpeg:app11-c2pa"),
+              result.execute.c2pa_stage.emitted);
+    EXPECT_EQ(result.prepared.bundle.c2pa_rewrite.state,
+              openmeta::TransferC2paRewriteState::Ready);
+
+    const openmeta::PreparedTransferPolicyDecision* decision
+        = find_policy_decision(result.prepared.bundle,
+                               openmeta::TransferPolicySubject::C2pa);
+    ASSERT_NE(decision, nullptr);
+    EXPECT_EQ(decision->reason,
+              openmeta::TransferPolicyReason::ExternalSignedPayload);
+    EXPECT_EQ(decision->c2pa_mode, openmeta::TransferC2paMode::SignedRewrite);
+    EXPECT_EQ(decision->c2pa_prepared_output,
+              openmeta::TransferC2paPreparedOutput::SignedRewrite);
+}
+
+TEST(MetadataTransferApi,
+     ExecutePreparedTransferFileStagesSignedC2paFromPackage)
+{
+    const std::vector<std::byte> jpeg = make_jpeg_with_app11_jumbf("c2pa");
+    const std::string path            = unique_temp_path(".jpg");
+    ASSERT_TRUE(
+        write_bytes_file(path,
+                         std::span<const std::byte>(jpeg.data(), jpeg.size())));
+
+    openmeta::PrepareTransferFileOptions prepare_options;
+    prepare_options.prepare.include_exif_app1  = false;
+    prepare_options.prepare.include_xmp_app1   = false;
+    prepare_options.prepare.include_icc_app2   = false;
+    prepare_options.prepare.include_iptc_app13 = false;
+    prepare_options.prepare.profile.c2pa
+        = openmeta::TransferPolicyAction::Rewrite;
+
+    const openmeta::PrepareTransferFileResult prepared
+        = openmeta::prepare_metadata_for_target_file(path.c_str(),
+                                                     prepare_options);
+    ASSERT_EQ(prepared.prepare.status, openmeta::TransferStatus::Unsupported);
+
+    const std::vector<std::byte> logical = make_semantic_c2pa_logical_payload();
+    const openmeta::PreparedTransferC2paSignerInput input
+        = make_test_c2pa_signer_input(
+            std::span<const std::byte>(logical.data(), logical.size()));
+    openmeta::PreparedTransferC2paSignedPackage package;
+    ASSERT_EQ(openmeta::build_prepared_c2pa_signed_package(prepared.bundle,
+                                                           input, &package),
+              openmeta::TransferStatus::Ok);
+
+    openmeta::ExecutePreparedTransferFileOptions options;
+    options.prepare                      = prepare_options;
+    options.c2pa_stage_requested         = true;
+    options.c2pa_signed_package_provided = true;
+    options.c2pa_signed_package          = package;
+
+    const openmeta::ExecutePreparedTransferFileResult result
+        = openmeta::execute_prepared_transfer_file(path.c_str(), options);
+    std::remove(path.c_str());
+
+    EXPECT_EQ(result.prepared.file_status, openmeta::TransferFileStatus::Ok);
+    EXPECT_EQ(result.prepared.prepare.status,
+              openmeta::TransferStatus::Unsupported);
+    EXPECT_TRUE(result.execute.c2pa_stage_requested);
+    EXPECT_EQ(result.execute.c2pa_stage_validation.status,
+              openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.execute.c2pa_stage_validation.payload_kind,
+              openmeta::TransferC2paSignedPayloadKind::ContentBound);
+    EXPECT_EQ(result.execute.c2pa_stage.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.prepared.bundle.c2pa_rewrite.state,
+              openmeta::TransferC2paRewriteState::Ready);
 }
 
 TEST(MetadataTransferApi, ApplyTiffEditRejectsPlanMismatch)

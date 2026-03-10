@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+from pathlib import Path
 
 try:
     import openmeta
@@ -76,6 +77,16 @@ def _transfer_kind_name(kind: object) -> str:
     return mapping.get(kind, "unknown")
 
 
+def _transfer_policy_action(name: str) -> object:
+    mapping = {
+        "keep": openmeta.TransferPolicyAction.Keep,
+        "drop": openmeta.TransferPolicyAction.Drop,
+        "invalidate": openmeta.TransferPolicyAction.Invalidate,
+        "rewrite": openmeta.TransferPolicyAction.Rewrite,
+    }
+    return mapping[name]
+
+
 def _marker_name(marker: int) -> str:
     if 0xE0 <= marker <= 0xEF:
         return f"APP{marker - 0xE0}(0x{marker:02X})"
@@ -129,6 +140,9 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--no-icc", action="store_true", help="skip ICC APP2 preparation")
     ap.add_argument("--no-iptc", action="store_true", help="skip IPTC APP13 preparation")
     ap.add_argument("--makernotes", action="store_true", help="enable best-effort MakerNote decode in read phase")
+    ap.add_argument("--makernote-policy", choices=["keep", "drop", "invalidate", "rewrite"], default="keep", help="transfer policy for MakerNote payloads")
+    ap.add_argument("--jumbf-policy", choices=["keep", "drop", "invalidate", "rewrite"], default="keep", help="transfer policy for JUMBF payloads")
+    ap.add_argument("--c2pa-policy", choices=["keep", "drop", "invalidate", "rewrite"], default="keep", help="transfer policy for C2PA payloads")
     ap.add_argument("--no-decompress", action="store_true", help="disable payload decompression in read phase")
     ap.add_argument(
         "--unsafe-write-payloads",
@@ -148,6 +162,15 @@ def main(argv: list[str]) -> int:
     )
     ap.add_argument("--target-jpeg", type=str, default="", help="target JPEG stream for edit/apply")
     ap.add_argument("--target-tiff", type=str, default="", help="target TIFF stream for edit/apply")
+    ap.add_argument("--jpeg-c2pa-signed", type=str, default="", help="externally signed logical C2PA payload for JPEG staging")
+    ap.add_argument("--c2pa-manifest-output", type=str, default="", help="external manifest-builder output bytes for signed C2PA staging")
+    ap.add_argument("--c2pa-certificate-chain", type=str, default="", help="external certificate-chain bytes for signed C2PA staging")
+    ap.add_argument("--c2pa-key-ref", type=str, default="", help="private-key reference string for signed C2PA staging")
+    ap.add_argument("--c2pa-signing-time", type=str, default="", help="signing time for signed C2PA staging")
+    ap.add_argument("--dump-c2pa-binding", type=str, default="", help="write exact C2PA content-binding bytes for external signing")
+    ap.add_argument("--dump-c2pa-handoff", type=str, default="", help="write one persisted C2PA handoff package")
+    ap.add_argument("--dump-c2pa-signed-package", type=str, default="", help="write one persisted signed C2PA package")
+    ap.add_argument("--load-c2pa-signed-package", type=str, default="", help="load one persisted signed C2PA package for staging")
     ap.add_argument("-o", "--output", type=str, default="", help="write edited output file")
     ap.add_argument("--dry-run", action="store_true", help="plan edit only; do not write output")
     ap.add_argument("--force", action="store_true", help="overwrite existing payload files")
@@ -186,10 +209,44 @@ def main(argv: list[str]) -> int:
         return 2
     if args.target_jpeg and args.target_tiff:
         ap.error("--target-jpeg and --target-tiff are mutually exclusive")
+    if (
+        args.jpeg_c2pa_signed
+        or args.c2pa_manifest_output
+        or args.c2pa_certificate_chain
+        or args.c2pa_key_ref
+        or args.c2pa_signing_time
+    ) and args.target_tiff:
+        ap.error("signed C2PA staging is only supported for JPEG targets")
     if args.output and not (args.target_jpeg or args.target_tiff):
         ap.error("--output requires --target-jpeg or --target-tiff")
+    if args.dump_c2pa_binding and args.target_tiff:
+        ap.error("--dump-c2pa-binding is only supported for JPEG targets")
+    if (
+        args.dump_c2pa_handoff
+        or args.dump_c2pa_signed_package
+        or args.load_c2pa_signed_package
+    ) and args.target_tiff:
+        ap.error("C2PA package options are only supported for JPEG targets")
     if (args.target_jpeg or args.target_tiff) and len(input_paths) != 1:
         ap.error("edit mode supports exactly one source input")
+    if args.dump_c2pa_binding and len(input_paths) != 1:
+        ap.error("--dump-c2pa-binding supports exactly one input path per run")
+    if (
+        args.dump_c2pa_handoff
+        or args.dump_c2pa_signed_package
+        or args.load_c2pa_signed_package
+    ) and len(input_paths) != 1:
+        ap.error("C2PA package options support exactly one input path per run")
+    if args.load_c2pa_signed_package and (
+        args.jpeg_c2pa_signed
+        or args.c2pa_manifest_output
+        or args.c2pa_certificate_chain
+        or args.c2pa_key_ref
+        or args.c2pa_signing_time
+    ):
+        ap.error(
+            "--load-c2pa-signed-package is mutually exclusive with individual signed C2PA inputs"
+        )
 
     if args.portable:
         args.format = "portable"
@@ -227,6 +284,9 @@ def main(argv: list[str]) -> int:
         if args.format == "portable"
         else openmeta.XmpSidecarFormat.Lossless
     )
+    makernote_policy = _transfer_policy_action(args.makernote_policy)
+    jumbf_policy = _transfer_policy_action(args.jumbf_policy)
+    c2pa_policy = _transfer_policy_action(args.c2pa_policy)
 
     rc = 0
     target_format = (
@@ -238,11 +298,38 @@ def main(argv: list[str]) -> int:
     edit_requested = bool(target_path)
     edit_apply = bool(edit_requested and not args.dry_run)
     need_edited_bytes = bool(edit_apply and args.output)
+    need_c2pa_binding_bytes = bool(args.dump_c2pa_binding)
+    need_c2pa_handoff_bytes = bool(args.dump_c2pa_handoff)
+    need_c2pa_signed_package_bytes = bool(args.dump_c2pa_signed_package)
+    c2pa_signed_payload = (
+        Path(args.jpeg_c2pa_signed).read_bytes() if args.jpeg_c2pa_signed else None
+    )
+    c2pa_manifest_output = (
+        Path(args.c2pa_manifest_output).read_bytes()
+        if args.c2pa_manifest_output
+        else None
+    )
+    c2pa_certificate_chain = (
+        Path(args.c2pa_certificate_chain).read_bytes()
+        if args.c2pa_certificate_chain
+        else None
+    )
+    c2pa_signed_package = (
+        Path(args.load_c2pa_signed_package).read_bytes()
+        if args.load_c2pa_signed_package
+        else None
+    )
 
     for path in input_paths:
         probe_fn = (
             openmeta.unsafe_transfer_probe
-            if (write_payloads or need_edited_bytes)
+            if (
+                write_payloads
+                or need_edited_bytes
+                or need_c2pa_binding_bytes
+                or need_c2pa_handoff_bytes
+                or need_c2pa_signed_package_bytes
+            )
             else openmeta.transfer_probe
         )
         probe = probe_fn(
@@ -259,8 +346,17 @@ def main(argv: list[str]) -> int:
             include_iptc_app13=not args.no_iptc,
             xmp_include_existing=bool(args.xmp_include_existing),
             xmp_exiftool_gpsdatetime_alias=bool(args.xmp_exiftool_gpsdatetime_alias),
+            makernote_policy=makernote_policy,
+            jumbf_policy=jumbf_policy,
+            c2pa_policy=c2pa_policy,
             max_file_bytes=int(args.max_file_bytes),
             policy=policy,
+            c2pa_signed_package=c2pa_signed_package,
+            c2pa_signed_logical_payload=c2pa_signed_payload,
+            c2pa_certificate_chain=c2pa_certificate_chain,
+            c2pa_private_key_reference=(args.c2pa_key_ref or None),
+            c2pa_signing_time=(args.c2pa_signing_time or None),
+            c2pa_manifest_builder_output=c2pa_manifest_output,
             include_payloads=write_payloads,
             time_patches=time_patches if time_patches else None,
             time_patch_strict_width=not bool(args.time_patch_lax_width),
@@ -269,6 +365,9 @@ def main(argv: list[str]) -> int:
             edit_target_path=(target_path if edit_requested else None),
             edit_apply=edit_apply,
             include_edited_bytes=need_edited_bytes,
+            include_c2pa_binding_bytes=need_c2pa_binding_bytes,
+            include_c2pa_handoff_bytes=need_c2pa_handoff_bytes,
+            include_c2pa_signed_package_bytes=need_c2pa_signed_package_bytes,
         )
 
         print(f"== {path}")
@@ -372,6 +471,98 @@ def main(argv: list[str]) -> int:
                             f"size={int(chunk['size'])} "
                             f"route={chunk['route']}"
                         )
+        sign_request = probe["c2pa_sign_request"]
+        if (
+            str(sign_request["rewrite_state_name"]) != "not_applicable"
+            or int(sign_request["content_binding_bytes"]) > 0
+        ):
+            print(
+                f"  c2pa_sign_request: status={sign_request['status_name']} "
+                f"carrier={sign_request['carrier_route'] or '-'} "
+                f"manifest_label={sign_request['manifest_label'] or '-'} "
+                f"source_ranges={int(sign_request['source_range_chunks'])} "
+                f"prepared_segments={int(sign_request['prepared_segment_chunks'])} "
+                f"bytes={int(sign_request['content_binding_bytes'])}"
+            )
+        if sign_request["message"]:
+            print(f"  c2pa_sign_request_message={sign_request['message']}")
+        if probe["c2pa_binding_requested"]:
+            print(
+                f"  c2pa_binding: status={probe['c2pa_binding_status_name']} "
+                f"code={probe['c2pa_binding_code_name']} "
+                f"bytes={int(probe['c2pa_binding_bytes_written'])} "
+                f"errors={int(probe['c2pa_binding_errors'])}"
+            )
+            if probe["c2pa_binding_message"]:
+                print(f"  c2pa_binding_message={probe['c2pa_binding_message']}")
+        if probe["c2pa_handoff_requested"]:
+            print(
+                f"  c2pa_handoff: status={probe['c2pa_handoff_status_name']} "
+                f"code={probe['c2pa_handoff_code_name']} "
+                f"bytes={int(probe['c2pa_handoff_bytes_written'])} "
+                f"errors={int(probe['c2pa_handoff_errors'])}"
+            )
+            if probe["c2pa_handoff_message"]:
+                print(f"  c2pa_handoff_message={probe['c2pa_handoff_message']}")
+        if probe["c2pa_signed_package_requested"]:
+            print(
+                f"  c2pa_signed_package: status={probe['c2pa_signed_package_status_name']} "
+                f"code={probe['c2pa_signed_package_code_name']} "
+                f"bytes={int(probe['c2pa_signed_package_bytes_written'])} "
+                f"errors={int(probe['c2pa_signed_package_errors'])}"
+            )
+            if probe["c2pa_signed_package_message"]:
+                print(
+                    f"  c2pa_signed_package_message={probe['c2pa_signed_package_message']}"
+                )
+        if probe["c2pa_stage_requested"]:
+            print(
+                f"  c2pa_stage_validate: status={probe['c2pa_stage_validation_status_name']} "
+                f"code={probe['c2pa_stage_validation_code_name']} "
+                f"kind={probe['c2pa_stage_validation_payload_kind_name']} "
+                f"payload_bytes={int(probe['c2pa_stage_validation_logical_payload_bytes'])} "
+                f"carrier_bytes={int(probe['c2pa_stage_validation_staged_payload_bytes'])} "
+                f"segments={int(probe['c2pa_stage_validation_staged_segments'])} "
+                f"errors={int(probe['c2pa_stage_validation_errors'])}"
+            )
+            print(
+                f"  c2pa_stage_semantics: status={probe['c2pa_stage_validation_semantic_status_name']} "
+                f"reason={probe['c2pa_stage_validation_semantic_reason']} "
+                f"manifest={int(probe['c2pa_stage_validation_semantic_manifest_present'])} "
+                f"manifests={int(probe['c2pa_stage_validation_semantic_manifest_count'])} "
+                f"claim_generator={int(probe['c2pa_stage_validation_semantic_claim_generator_present'])} "
+                f"assertions={int(probe['c2pa_stage_validation_semantic_assertion_count'])} "
+                f"claims={int(probe['c2pa_stage_validation_semantic_claim_count'])} "
+                f"signatures={int(probe['c2pa_stage_validation_semantic_signature_count'])} "
+                f"linked={int(probe['c2pa_stage_validation_semantic_signature_linked'])} "
+                f"orphan={int(probe['c2pa_stage_validation_semantic_signature_orphan'])} "
+                f"explicit_refs={int(probe['c2pa_stage_validation_semantic_explicit_reference_signature_count'])} "
+                f"unresolved={int(probe['c2pa_stage_validation_semantic_explicit_reference_unresolved_signature_count'])} "
+                f"ambiguous={int(probe['c2pa_stage_validation_semantic_explicit_reference_ambiguous_signature_count'])}"
+            )
+            print(
+                f"  c2pa_stage_linkage: claim0_assertions={int(probe['c2pa_stage_validation_semantic_primary_claim_assertion_count'])} "
+                f"claim0_refs={int(probe['c2pa_stage_validation_semantic_primary_claim_referenced_by_signature_count'])} "
+                f"sig0_links={int(probe['c2pa_stage_validation_semantic_primary_signature_linked_claim_count'])}"
+            )
+            print(
+                f"  c2pa_stage_references: sig0_keys={int(probe['c2pa_stage_validation_semantic_primary_signature_reference_key_hits'])} "
+                f"sig0_present={int(probe['c2pa_stage_validation_semantic_primary_signature_explicit_reference_present'])} "
+                f"sig0_resolved={int(probe['c2pa_stage_validation_semantic_primary_signature_explicit_reference_resolved_claim_count'])}"
+            )
+            if probe["c2pa_stage_validation_message"]:
+                print(
+                    f"  c2pa_stage_validate_message={probe['c2pa_stage_validation_message']}"
+                )
+            print(
+                f"  c2pa_stage: status={probe['c2pa_stage_status_name']} "
+                f"code={probe['c2pa_stage_code_name']} "
+                f"emitted={int(probe['c2pa_stage_emitted'])} "
+                f"removed={int(probe['c2pa_stage_skipped'])} "
+                f"errors={int(probe['c2pa_stage_errors'])}"
+            )
+            if probe["c2pa_stage_message"]:
+                print(f"  c2pa_stage_message={probe['c2pa_stage_message']}")
         if probe["time_patch_message"]:
             print(f"  time_patch_message={probe['time_patch_message']}")
         if probe["error_message"]:
@@ -380,9 +571,78 @@ def main(argv: list[str]) -> int:
         if probe["file_status"] != openmeta.TransferFileStatus.Ok:
             rc = 1
             continue
-        if probe["overall_status"] != openmeta.TransferStatus.Ok:
-            rc = 1
-            continue
+
+        if args.dump_c2pa_binding:
+            if os.path.exists(args.dump_c2pa_binding) and not args.force:
+                sys.stderr.write(
+                    f"  c2pa binding output exists: {args.dump_c2pa_binding} (use --force)\n"
+                )
+                rc = 1
+                continue
+            binding = probe["c2pa_binding_bytes"]
+            if binding is None:
+                sys.stderr.write("  c2pa_binding_bytes missing from probe result\n")
+                rc = 1
+                continue
+            os.makedirs(os.path.dirname(args.dump_c2pa_binding) or ".", exist_ok=True)
+            with open(args.dump_c2pa_binding, "wb") as f:
+                f.write(binding)
+            print(
+                f"  c2pa_binding_output={args.dump_c2pa_binding} bytes={len(binding)}"
+            )
+        if args.dump_c2pa_handoff:
+            if os.path.exists(args.dump_c2pa_handoff) and not args.force:
+                sys.stderr.write(
+                    f"  c2pa handoff output exists: {args.dump_c2pa_handoff} (use --force)\n"
+                )
+                rc = 1
+                continue
+            handoff = probe["c2pa_handoff_bytes"]
+            if handoff is None:
+                sys.stderr.write("  c2pa_handoff_bytes missing from probe result\n")
+                rc = 1
+                continue
+            os.makedirs(os.path.dirname(args.dump_c2pa_handoff) or ".", exist_ok=True)
+            with open(args.dump_c2pa_handoff, "wb") as f:
+                f.write(handoff)
+            print(
+                f"  c2pa_handoff_output={args.dump_c2pa_handoff} bytes={len(handoff)}"
+            )
+        if args.dump_c2pa_signed_package:
+            if os.path.exists(args.dump_c2pa_signed_package) and not args.force:
+                sys.stderr.write(
+                    f"  signed c2pa package output exists: {args.dump_c2pa_signed_package} (use --force)\n"
+                )
+                rc = 1
+                continue
+            signed_package = probe["c2pa_signed_package_bytes"]
+            if signed_package is None:
+                sys.stderr.write(
+                    "  c2pa_signed_package_bytes missing from probe result\n"
+                )
+                rc = 1
+                continue
+            os.makedirs(
+                os.path.dirname(args.dump_c2pa_signed_package) or ".", exist_ok=True
+            )
+            with open(args.dump_c2pa_signed_package, "wb") as f:
+                f.write(signed_package)
+            print(
+                f"  c2pa_signed_package_output={args.dump_c2pa_signed_package} bytes={len(signed_package)}"
+            )
+
+        allow_output_only_success = (
+            not edit_requested
+            and not write_payloads
+            and (
+                (args.dump_c2pa_binding and probe["c2pa_binding_status"] == openmeta.TransferStatus.Ok)
+                or (args.dump_c2pa_handoff and probe["c2pa_handoff_status"] == openmeta.TransferStatus.Ok)
+                or (
+                    args.dump_c2pa_signed_package
+                    and probe["c2pa_signed_package_status"] == openmeta.TransferStatus.Ok
+                )
+            )
+        )
 
         for block in probe["blocks"]:
             idx = int(block["index"])
@@ -454,7 +714,10 @@ def main(argv: list[str]) -> int:
                     f.write(edited)
                 print(f"  output={args.output} bytes={len(edited)}")
 
-        if probe["overall_status"] != openmeta.TransferStatus.Ok:
+        if (
+            probe["overall_status"] != openmeta.TransferStatus.Ok
+            and not allow_output_only_success
+        ):
             rc = 1
             continue
         for m in probe["marker_summary"]:

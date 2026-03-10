@@ -125,6 +125,7 @@ enum class TransferPolicyReason : uint8_t {
     CarrierDisabled,
     ProjectedPayload,
     DraftInvalidationPayload,
+    ExternalSignedPayload,
     ContentBoundTransferUnavailable,
     SignedRewriteUnavailable,
     PortableInvalidationUnavailable,
@@ -201,6 +202,117 @@ struct PreparedTransferC2paRewriteRequirements final {
     bool requires_signing_time               = false;
     uint64_t content_binding_bytes           = 0;
     std::vector<PreparedTransferC2paRewriteChunk> content_binding_chunks;
+    std::string message;
+};
+
+/// Derived external signer input request for prepared C2PA rewrite.
+struct PreparedTransferC2paSignRequest final {
+    TransferStatus status = TransferStatus::Unsupported;
+    TransferC2paRewriteState rewrite_state
+        = TransferC2paRewriteState::NotApplicable;
+    TransferTargetFormat target_format = TransferTargetFormat::Jpeg;
+    TransferC2paSourceKind source_kind = TransferC2paSourceKind::NotApplicable;
+    std::string carrier_route;
+    std::string manifest_label;
+    uint32_t existing_carrier_segments = 0;
+    uint32_t source_range_chunks       = 0;
+    uint32_t prepared_segment_chunks   = 0;
+    uint64_t content_binding_bytes     = 0;
+    std::vector<PreparedTransferC2paRewriteChunk> content_binding_chunks;
+    bool requires_manifest_builder  = false;
+    bool requires_content_binding   = false;
+    bool requires_certificate_chain = false;
+    bool requires_private_key       = false;
+    bool requires_signing_time      = false;
+    std::string message;
+};
+
+/// External signer material returned for one prepared C2PA rewrite request.
+struct PreparedTransferC2paSignerInput final {
+    std::string signing_time;
+    std::vector<std::byte> certificate_chain_bytes;
+    std::string private_key_reference;
+    std::vector<std::byte> manifest_builder_output;
+    std::vector<std::byte> signed_c2pa_logical_payload;
+};
+
+/// Classified logical C2PA payload kind supplied by an external signer.
+enum class TransferC2paSignedPayloadKind : uint8_t {
+    NotApplicable,
+    GenericJumbf,
+    DraftUnsignedInvalidation,
+    ContentBound,
+};
+
+/// Semantic validation status for a staged logical C2PA payload.
+enum class TransferC2paSemanticStatus : uint8_t {
+    NotChecked,
+    Ok,
+    Invalid,
+};
+
+/// Result for materializing the exact content-binding byte stream.
+struct BuildPreparedC2paBindingResult final {
+    TransferStatus status = TransferStatus::Unsupported;
+    EmitTransferCode code = EmitTransferCode::None;
+    uint64_t written      = 0;
+    uint32_t errors       = 0;
+    std::string message;
+};
+
+/// Structured external-signer handoff package for one prepared rewrite.
+struct PreparedTransferC2paHandoffPackage final {
+    PreparedTransferC2paSignRequest request;
+    BuildPreparedC2paBindingResult binding;
+    std::vector<std::byte> binding_bytes;
+};
+
+/// Persistable external-signer result package for one prepared rewrite.
+struct PreparedTransferC2paSignedPackage final {
+    PreparedTransferC2paSignRequest request;
+    PreparedTransferC2paSignerInput signer_input;
+};
+
+/// Result for serializing or parsing persisted C2PA transfer packages.
+struct PreparedTransferC2paPackageIoResult final {
+    TransferStatus status = TransferStatus::Unsupported;
+    EmitTransferCode code = EmitTransferCode::None;
+    uint64_t bytes        = 0;
+    uint32_t errors       = 0;
+    std::string message;
+};
+
+/// Result for validating one externally signed C2PA payload before staging.
+struct ValidatePreparedC2paSignResult final {
+    TransferStatus status = TransferStatus::Unsupported;
+    EmitTransferCode code = EmitTransferCode::None;
+    TransferC2paSignedPayloadKind payload_kind
+        = TransferC2paSignedPayloadKind::NotApplicable;
+    TransferC2paSemanticStatus semantic_status
+        = TransferC2paSemanticStatus::NotChecked;
+    uint64_t logical_payload_bytes                                 = 0;
+    uint64_t staged_payload_bytes                                  = 0;
+    uint64_t semantic_manifest_present                             = 0;
+    uint64_t semantic_manifest_count                               = 0;
+    uint64_t semantic_claim_generator_present                      = 0;
+    uint64_t semantic_assertion_count                              = 0;
+    uint64_t semantic_primary_claim_assertion_count                = 0;
+    uint64_t semantic_primary_claim_referenced_by_signature_count  = 0;
+    uint64_t semantic_primary_signature_linked_claim_count         = 0;
+    uint64_t semantic_primary_signature_reference_key_hits         = 0;
+    uint64_t semantic_primary_signature_explicit_reference_present = 0;
+    uint64_t semantic_primary_signature_explicit_reference_resolved_claim_count
+        = 0;
+    uint64_t semantic_claim_count                                   = 0;
+    uint64_t semantic_signature_count                               = 0;
+    uint64_t semantic_signature_linked                              = 0;
+    uint64_t semantic_signature_orphan                              = 0;
+    uint64_t semantic_explicit_reference_signature_count            = 0;
+    uint64_t semantic_explicit_reference_unresolved_signature_count = 0;
+    uint64_t semantic_explicit_reference_ambiguous_signature_count  = 0;
+    uint32_t staged_segments                                        = 0;
+    uint32_t errors                                                 = 0;
+    std::string semantic_reason;
     std::string message;
 };
 
@@ -553,6 +665,10 @@ struct ExecutePreparedTransferOptions final {
 
 /// Result for \ref execute_prepared_transfer.
 struct ExecutePreparedTransferResult final {
+    bool c2pa_stage_requested = false;
+    ValidatePreparedC2paSignResult c2pa_stage_validation;
+    EmitTransferResult c2pa_stage;
+
     ApplyTimePatchResult time_patch;
 
     EmitTransferResult compile;
@@ -580,6 +696,10 @@ struct ExecutePreparedTransferFileOptions final {
     PrepareTransferFileOptions prepare;
     ExecutePreparedTransferOptions execute;
     std::string edit_target_path;
+    bool c2pa_stage_requested = false;
+    PreparedTransferC2paSignerInput c2pa_signer_input;
+    bool c2pa_signed_package_provided = false;
+    PreparedTransferC2paSignedPackage c2pa_signed_package;
 };
 
 /// Result for \ref execute_prepared_transfer_file.
@@ -777,6 +897,131 @@ PrepareTransferFileResult
 prepare_metadata_for_target_file(const char* path,
                                  const PrepareTransferFileOptions& options
                                  = PrepareTransferFileOptions {}) noexcept;
+
+/**
+ * \brief Derive an external signer request from a prepared C2PA rewrite bundle.
+ *
+ * The returned request is preparation-only. It does not build a manifest or
+ * perform signing. For JPEG targets, it exposes the deterministic
+ * rewrite-without-C2PA byte sequence as preserved source ranges plus prepared
+ * JPEG segments.
+ */
+TransferStatus
+build_prepared_c2pa_sign_request(
+    const PreparedTransferBundle& bundle,
+    PreparedTransferC2paSignRequest* out_request) noexcept;
+
+/**
+ * \brief Build a structured external-signer handoff package.
+ *
+ * This wraps \ref build_prepared_c2pa_sign_request and
+ * \ref build_prepared_c2pa_sign_request_binding into one reusable core result.
+ */
+TransferStatus
+build_prepared_c2pa_handoff_package(
+    const PreparedTransferBundle& bundle,
+    std::span<const std::byte> target_input,
+    PreparedTransferC2paHandoffPackage* out_package) noexcept;
+
+/**
+ * \brief Build a persistable signed-result package from a prepared bundle.
+ *
+ * This wraps \ref build_prepared_c2pa_sign_request and copies the external
+ * signer material into one reusable core object.
+ */
+TransferStatus
+build_prepared_c2pa_signed_package(
+    const PreparedTransferBundle& bundle,
+    const PreparedTransferC2paSignerInput& input,
+    PreparedTransferC2paSignedPackage* out_package) noexcept;
+
+/**
+ * \brief Stage externally signed C2PA rewrite output into a prepared bundle.
+ *
+ * This consumes the request built by \ref build_prepared_c2pa_sign_request and
+ * replaces prepared `jpeg:app11-c2pa` blocks with the external signed logical
+ * payload. OpenMeta does not perform signing here; it only validates the input
+ * contract and re-packs the logical payload into the target JPEG carrier.
+ */
+EmitTransferResult
+apply_prepared_c2pa_sign_result(
+    PreparedTransferBundle* bundle,
+    const PreparedTransferC2paSignRequest& request,
+    const PreparedTransferC2paSignerInput& input) noexcept;
+
+/**
+ * \brief Stage one persisted signed C2PA package into a prepared bundle.
+ */
+EmitTransferResult
+apply_prepared_c2pa_signed_package(
+    PreparedTransferBundle* bundle,
+    const PreparedTransferC2paSignedPackage& package) noexcept;
+
+/**
+ * \brief Materialize the exact content-binding byte stream for a C2PA sign request.
+ *
+ * This reconstructs the deterministic rewrite-without-C2PA byte sequence
+ * described by \p request by combining preserved source ranges from
+ * \p target_input with prepared JPEG segments from \p bundle.
+ */
+BuildPreparedC2paBindingResult
+build_prepared_c2pa_sign_request_binding(
+    const PreparedTransferBundle& bundle,
+    std::span<const std::byte> target_input,
+    const PreparedTransferC2paSignRequest& request,
+    std::vector<std::byte>* out_bytes) noexcept;
+
+/**
+ * \brief Validate one externally signed C2PA payload before staging it.
+ *
+ * This performs the same input and payload checks used by
+ * \ref apply_prepared_c2pa_sign_result, but does not mutate \p bundle.
+ */
+ValidatePreparedC2paSignResult
+validate_prepared_c2pa_sign_result(
+    const PreparedTransferBundle& bundle,
+    const PreparedTransferC2paSignRequest& request,
+    const PreparedTransferC2paSignerInput& input) noexcept;
+
+/**
+ * \brief Validate one persisted signed C2PA package before staging it.
+ */
+ValidatePreparedC2paSignResult
+validate_prepared_c2pa_signed_package(
+    const PreparedTransferBundle& bundle,
+    const PreparedTransferC2paSignedPackage& package) noexcept;
+
+/**
+ * \brief Serialize one C2PA handoff package into a stable binary transport.
+ */
+PreparedTransferC2paPackageIoResult
+serialize_prepared_c2pa_handoff_package(
+    const PreparedTransferC2paHandoffPackage& package,
+    std::vector<std::byte>* out_bytes) noexcept;
+
+/**
+ * \brief Parse one serialized C2PA handoff package.
+ */
+PreparedTransferC2paPackageIoResult
+deserialize_prepared_c2pa_handoff_package(
+    std::span<const std::byte> bytes,
+    PreparedTransferC2paHandoffPackage* out_package) noexcept;
+
+/**
+ * \brief Serialize one persisted signed C2PA package into a stable binary transport.
+ */
+PreparedTransferC2paPackageIoResult
+serialize_prepared_c2pa_signed_package(
+    const PreparedTransferC2paSignedPackage& package,
+    std::vector<std::byte>* out_bytes) noexcept;
+
+/**
+ * \brief Parse one serialized signed C2PA package.
+ */
+PreparedTransferC2paPackageIoResult
+deserialize_prepared_c2pa_signed_package(
+    std::span<const std::byte> bytes,
+    PreparedTransferC2paSignedPackage* out_package) noexcept;
 
 /**
  * \brief Compile a reusable execution plan for \ref execute_prepared_transfer_compiled.

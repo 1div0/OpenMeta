@@ -25,14 +25,22 @@ set(_split_tif_be "${WORK_DIR}/split_injected_be.tif")
 set(_jpg_rich "${WORK_DIR}/sample_rich.jpg")
 set(_c2pa_jpg "${WORK_DIR}/sample_c2pa.jpg")
 set(_jumbf_box "${WORK_DIR}/sample.jumbf")
+set(_signed_c2pa_box "${WORK_DIR}/signed_c2pa.jumb")
+set(_signed_c2pa_manifest "${WORK_DIR}/signed_c2pa_manifest.bin")
+set(_signed_c2pa_chain "${WORK_DIR}/signed_c2pa_chain.bin")
+set(_c2pa_binding_out "${WORK_DIR}/sample_c2pa.binding.bin")
+set(_c2pa_handoff_out "${WORK_DIR}/sample_c2pa.handoff.bin")
+set(_signed_c2pa_package_out "${WORK_DIR}/sample_c2pa.signed.bin")
+set(_signed_c2pa_edited "${WORK_DIR}/signed_c2pa_edited.jpg")
+set(_signed_c2pa_from_package "${WORK_DIR}/signed_c2pa_from_package.jpg")
 set(_split_tif_rich "${WORK_DIR}/split_rich.tif")
 set(_split_tif_be_rich "${WORK_DIR}/split_rich_be.tif")
 set(_rich_builder_py "${WORK_DIR}/build_rich_exif_fixture.py")
 set(_rich_checker_py "${WORK_DIR}/check_rich_tiff_transfer.py")
 file(MAKE_DIRECTORY "${_dump_dir}")
 
-# Minimal JPEG with APP1 Exif payload:
-# SOI + APP1(Exif + tiny TIFF IFD0 with DateTime ASCII tag) + EOI.
+#Minimal JPEG with APP1 Exif payload:
+#SOI + APP1(Exif + tiny TIFF IFD0 with DateTime ASCII tag) + EOI.
 execute_process(
   COMMAND python3 -c
     "from pathlib import Path; t=bytearray(); t+=b'II*\\x00'; t+=(8).to_bytes(4,'little'); t+=(1).to_bytes(2,'little'); t+=(0x0132).to_bytes(2,'little'); t+=(2).to_bytes(2,'little'); t+=(20).to_bytes(4,'little'); t+=(26).to_bytes(4,'little'); t+=(0).to_bytes(4,'little'); t+=b'2000:01:02 03:04:05\\x00'; app1=b'Exif\\x00\\x00'+bytes(t); ln=(len(app1)+2).to_bytes(2,'big'); jpg=b'\\xFF\\xD8\\xFF\\xE1'+ln+app1+b'\\xFF\\xD9'; Path(r'''${_jpg}''').write_bytes(jpg)"
@@ -45,7 +53,7 @@ if(NOT _rv_write EQUAL 0)
     "failed to write metatransfer fixture (${_rv_write})\nstdout:\n${_out_write}\nstderr:\n${_err_write}")
 endif()
 
-# Minimal metadata-free JPEG target (SOI+EOI)
+#Minimal metadata - free JPEG target(SOI + EOI)
 execute_process(
   COMMAND python3 -c
     "from pathlib import Path; Path(r'''${_target_jpg}''').write_bytes(bytes([255,216,255,217]))"
@@ -58,7 +66,7 @@ if(NOT _rv_write_target EQUAL 0)
     "failed to write target jpeg fixture (${_rv_write_target})\nstdout:\n${_out_write_target}\nstderr:\n${_err_write_target}")
 endif()
 
-# Minimal classic TIFF target (II + 42 + IFD0 at offset 8 with 0 entries)
+#Minimal classic TIFF target(II + 42 + IFD0 at offset 8 with 0 entries)
 execute_process(
   COMMAND python3 -c
     "from pathlib import Path; b=bytearray(); b+=b'II'; b+=(42).to_bytes(2,'little'); b+=(8).to_bytes(4,'little'); b+=(0).to_bytes(2,'little'); b+=(0).to_bytes(4,'little'); Path(r'''${_target_tif}''').write_bytes(bytes(b))"
@@ -106,6 +114,18 @@ execute_process(
 if(NOT _rv_write_c2pa EQUAL 0)
   message(FATAL_ERROR
     "failed to write c2pa jpeg fixture (${_rv_write_c2pa})\nstdout:\n${_out_write_c2pa}\nstderr:\n${_err_write_c2pa}")
+endif()
+
+execute_process(
+  COMMAND python3 -c
+    "from pathlib import Path; jumd=b'c2pa\\x00'; box=lambda t,p: (8+len(p)).to_bytes(4,'big')+t+p; cbor=bytearray(); cbor+=bytes([0xA1,0x68])+b'manifest'; cbor+=bytes([0x81,0xA2,0x6F])+b'claim_generator'; cbor+=bytes([0x64])+b'test'; cbor+=bytes([0x66])+b'claims'; cbor+=bytes([0x81,0xA2,0x6A])+b'assertions'; cbor+=bytes([0x81,0xA1,0x65])+b'label'; cbor+=bytes([0x6E])+b'c2pa.hash.data'; cbor+=bytes([0x6A])+b'signatures'; cbor+=bytes([0x81,0xA2,0x63])+b'alg'; cbor+=bytes([0x65])+b'ES256'; cbor+=bytes([0x69])+b'signature'; cbor+=bytes([0x44,0x01,0x02,0x03,0x04]); Path(r'''${_signed_c2pa_box}''').write_bytes(box(b'jumb', box(b'jumd', jumd)+box(b'cbor', bytes(cbor)))); Path(r'''${_signed_c2pa_manifest}''').write_bytes(bytes(cbor)); Path(r'''${_signed_c2pa_chain}''').write_bytes(bytes([0x30,0x82,0x01,0x00]))"
+  RESULT_VARIABLE _rv_write_signed_c2pa
+  OUTPUT_VARIABLE _out_write_signed_c2pa
+  ERROR_VARIABLE _err_write_signed_c2pa
+)
+if(NOT _rv_write_signed_c2pa EQUAL 0)
+  message(FATAL_ERROR
+    "failed to write signed c2pa fixtures (${_rv_write_signed_c2pa})\nstdout:\n${_out_write_signed_c2pa}\nstderr:\n${_err_write_signed_c2pa}")
 endif()
 
 file(WRITE "${_rich_builder_py}" [=[
@@ -460,6 +480,10 @@ if(NOT _out_c2pa MATCHES "c2pa_rewrite: state=not_requested target=jpeg source=c
   message(FATAL_ERROR
     "metatransfer c2pa invalidate missing rewrite summary\nstdout:\n${_out_c2pa}\nstderr:\n${_err_c2pa}")
 endif()
+if(NOT _out_c2pa MATCHES "c2pa_sign_request: status=unsupported carrier=jpeg:app11-c2pa manifest_label=c2pa source_ranges=0 prepared_segments=0 bytes=0")
+  message(FATAL_ERROR
+    "metatransfer c2pa invalidate missing sign-request summary\nstdout:\n${_out_c2pa}\nstderr:\n${_err_c2pa}")
+endif()
 
 execute_process(
   COMMAND "${METATRANSFER_BIN}" --no-build-info
@@ -495,6 +519,165 @@ endif()
 if(NOT _out_c2pa_rewrite MATCHES "c2pa_rewrite_chunk\\[0\\]: kind=source_range offset=0 size=2")
   message(FATAL_ERROR
     "metatransfer c2pa rewrite missing first binding chunk\nstdout:\n${_out_c2pa_rewrite}\nstderr:\n${_err_c2pa_rewrite}")
+endif()
+if(NOT _out_c2pa_rewrite MATCHES "c2pa_sign_request: status=ok carrier=jpeg:app11-c2pa manifest_label=c2pa source_ranges=2 prepared_segments=0 bytes=4")
+  message(FATAL_ERROR
+    "metatransfer c2pa rewrite missing sign-request summary\nstdout:\n${_out_c2pa_rewrite}\nstderr:\n${_err_c2pa_rewrite}")
+endif()
+
+execute_process(
+  COMMAND "${METATRANSFER_BIN}" --no-build-info
+          --no-exif --no-xmp --no-icc --no-iptc
+          --c2pa-policy rewrite
+          --dump-c2pa-binding "${_c2pa_binding_out}"
+          --force
+          "${_c2pa_jpg}"
+  RESULT_VARIABLE _rv_c2pa_binding
+  OUTPUT_VARIABLE _out_c2pa_binding
+  ERROR_VARIABLE _err_c2pa_binding
+)
+if(NOT _rv_c2pa_binding EQUAL 0)
+  message(FATAL_ERROR
+    "metatransfer c2pa binding dump failed (${_rv_c2pa_binding})\nstdout:\n${_out_c2pa_binding}\nstderr:\n${_err_c2pa_binding}")
+endif()
+if(NOT _out_c2pa_binding MATCHES "c2pa_binding: status=ok code=none bytes=4 errors=0 path=")
+  message(FATAL_ERROR
+    "metatransfer c2pa binding dump missing binding summary\nstdout:\n${_out_c2pa_binding}\nstderr:\n${_err_c2pa_binding}")
+endif()
+if(NOT EXISTS "${_c2pa_binding_out}")
+  message(FATAL_ERROR "expected c2pa binding dump was not written")
+endif()
+file(READ "${_c2pa_binding_out}" _c2pa_binding_hex HEX)
+if(NOT _c2pa_binding_hex STREQUAL "ffd8ffd9")
+  message(FATAL_ERROR
+    "c2pa binding dump bytes mismatch: ${_c2pa_binding_hex}")
+endif()
+
+execute_process(
+  COMMAND "${METATRANSFER_BIN}" --no-build-info
+          --no-exif --no-xmp --no-icc --no-iptc
+          --c2pa-policy rewrite
+          --dump-c2pa-handoff "${_c2pa_handoff_out}"
+          --force
+          "${_c2pa_jpg}"
+  RESULT_VARIABLE _rv_c2pa_handoff
+  OUTPUT_VARIABLE _out_c2pa_handoff
+  ERROR_VARIABLE _err_c2pa_handoff
+)
+if(NOT _rv_c2pa_handoff EQUAL 0)
+  message(FATAL_ERROR
+    "metatransfer c2pa handoff dump failed (${_rv_c2pa_handoff})\nstdout:\n${_out_c2pa_handoff}\nstderr:\n${_err_c2pa_handoff}")
+endif()
+if(NOT _out_c2pa_handoff MATCHES "c2pa_handoff_package: status=ok code=none bytes=[0-9]+ errors=0 path=")
+  message(FATAL_ERROR
+    "metatransfer c2pa handoff dump missing package summary\nstdout:\n${_out_c2pa_handoff}\nstderr:\n${_err_c2pa_handoff}")
+endif()
+if(NOT EXISTS "${_c2pa_handoff_out}")
+  message(FATAL_ERROR "expected c2pa handoff package was not written")
+endif()
+
+execute_process(
+  COMMAND "${METATRANSFER_BIN}" --no-build-info
+          --no-exif --no-xmp --no-icc --no-iptc
+          --jpeg-c2pa-signed "${_signed_c2pa_box}"
+          --c2pa-manifest-output "${_signed_c2pa_manifest}"
+          --c2pa-certificate-chain "${_signed_c2pa_chain}"
+          --c2pa-key-ref "test-key-ref"
+          --c2pa-signing-time "2026-03-09T00:00:00Z"
+          --dump-c2pa-signed-package "${_signed_c2pa_package_out}"
+          --output "${_signed_c2pa_edited}" --force
+          "${_c2pa_jpg}"
+  RESULT_VARIABLE _rv_c2pa_stage
+  OUTPUT_VARIABLE _out_c2pa_stage
+  ERROR_VARIABLE _err_c2pa_stage
+)
+if(NOT _rv_c2pa_stage EQUAL 0)
+  message(FATAL_ERROR
+    "metatransfer signed c2pa staging failed (${_rv_c2pa_stage})\nstdout:\n${_out_c2pa_stage}\nstderr:\n${_err_c2pa_stage}")
+endif()
+if(NOT _out_c2pa_stage MATCHES "prepare: status=unsupported")
+  message(FATAL_ERROR
+    "metatransfer signed c2pa staging missing initial prepare unsupported\nstdout:\n${_out_c2pa_stage}\nstderr:\n${_err_c2pa_stage}")
+endif()
+if(NOT _out_c2pa_stage MATCHES "c2pa_stage_validate: status=ok code=none kind=content_bound payload_bytes=[0-9]+ carrier_bytes=[0-9]+ segments=1 errors=0")
+  message(FATAL_ERROR
+    "metatransfer signed c2pa staging missing validation summary\nstdout:\n${_out_c2pa_stage}\nstderr:\n${_err_c2pa_stage}")
+endif()
+if(NOT _out_c2pa_stage MATCHES "c2pa_stage_semantics: status=ok reason=ok manifest=1 manifests=1 claim_generator=1 assertions=1 claims=1 signatures=1 linked=1 orphan=0 explicit_refs=0 unresolved=0 ambiguous=0")
+  message(FATAL_ERROR
+    "metatransfer signed c2pa staging missing semantic summary\nstdout:\n${_out_c2pa_stage}\nstderr:\n${_err_c2pa_stage}")
+endif()
+if(NOT _out_c2pa_stage MATCHES "c2pa_stage_linkage: claim0_assertions=1 claim0_refs=1 sig0_links=1")
+  message(FATAL_ERROR
+    "metatransfer signed c2pa staging missing linkage summary\nstdout:\n${_out_c2pa_stage}\nstderr:\n${_err_c2pa_stage}")
+endif()
+if(NOT _out_c2pa_stage MATCHES "c2pa_stage_references: sig0_keys=0 sig0_present=0 sig0_resolved=0")
+  message(FATAL_ERROR
+    "metatransfer signed c2pa staging missing reference summary\nstdout:\n${_out_c2pa_stage}\nstderr:\n${_err_c2pa_stage}")
+endif()
+if(NOT _out_c2pa_stage MATCHES "c2pa_stage: status=ok code=none emitted=1 removed=0 errors=0")
+  message(FATAL_ERROR
+    "metatransfer signed c2pa staging missing stage ok\nstdout:\n${_out_c2pa_stage}\nstderr:\n${_err_c2pa_stage}")
+endif()
+if(NOT _out_c2pa_stage MATCHES "policy\\[c2pa\\]: requested=rewrite effective=keep reason=external_signed_payload mode=signed_rewrite source=content_bound output=signed_rewrite")
+  message(FATAL_ERROR
+    "metatransfer signed c2pa staging missing signed rewrite policy\nstdout:\n${_out_c2pa_stage}\nstderr:\n${_err_c2pa_stage}")
+endif()
+if(NOT _out_c2pa_stage MATCHES "c2pa_rewrite: state=ready target=jpeg source=content_bound matched=[0-9]+ existing_segments=1 carrier_available=yes invalidates_existing=yes")
+  message(FATAL_ERROR
+    "metatransfer signed c2pa staging missing ready rewrite summary\nstdout:\n${_out_c2pa_stage}\nstderr:\n${_err_c2pa_stage}")
+endif()
+if(NOT _out_c2pa_stage MATCHES "c2pa_signed_package: status=ok code=none bytes=[0-9]+ errors=0 path=")
+  message(FATAL_ERROR
+    "metatransfer signed c2pa staging missing signed-package summary\nstdout:\n${_out_c2pa_stage}\nstderr:\n${_err_c2pa_stage}")
+endif()
+if(NOT _out_c2pa_stage MATCHES "edit_apply: status=ok")
+  message(FATAL_ERROR
+    "metatransfer signed c2pa staging missing edit apply ok\nstdout:\n${_out_c2pa_stage}\nstderr:\n${_err_c2pa_stage}")
+endif()
+if(NOT EXISTS "${_signed_c2pa_edited}")
+  message(FATAL_ERROR "expected edited signed c2pa jpeg was not written")
+endif()
+if(NOT EXISTS "${_signed_c2pa_package_out}")
+  message(FATAL_ERROR "expected signed c2pa package was not written")
+endif()
+
+execute_process(
+  COMMAND "${METATRANSFER_BIN}" --no-build-info
+          --no-exif --no-xmp --no-icc --no-iptc
+          --load-c2pa-signed-package "${_signed_c2pa_package_out}"
+          --output "${_signed_c2pa_from_package}" --force
+          "${_c2pa_jpg}"
+  RESULT_VARIABLE _rv_c2pa_stage_pkg
+  OUTPUT_VARIABLE _out_c2pa_stage_pkg
+  ERROR_VARIABLE _err_c2pa_stage_pkg
+)
+if(NOT _rv_c2pa_stage_pkg EQUAL 0)
+  message(FATAL_ERROR
+    "metatransfer signed c2pa package staging failed (${_rv_c2pa_stage_pkg})\nstdout:\n${_out_c2pa_stage_pkg}\nstderr:\n${_err_c2pa_stage_pkg}")
+endif()
+if(NOT _out_c2pa_stage_pkg MATCHES "c2pa_signed_package_input: status=ok code=none bytes=[0-9]+ errors=0 path=")
+  message(FATAL_ERROR
+    "metatransfer signed c2pa package staging missing package input summary\nstdout:\n${_out_c2pa_stage_pkg}\nstderr:\n${_err_c2pa_stage_pkg}")
+endif()
+if(NOT _out_c2pa_stage_pkg MATCHES "c2pa_stage_validate: status=ok code=none kind=content_bound payload_bytes=[0-9]+ carrier_bytes=[0-9]+ segments=1 errors=0")
+  message(FATAL_ERROR
+    "metatransfer signed c2pa package staging missing validation summary\nstdout:\n${_out_c2pa_stage_pkg}\nstderr:\n${_err_c2pa_stage_pkg}")
+endif()
+if(NOT _out_c2pa_stage_pkg MATCHES "c2pa_stage_semantics: status=ok reason=ok manifest=1 manifests=1 claim_generator=1 assertions=1 claims=1 signatures=1 linked=1 orphan=0 explicit_refs=0 unresolved=0 ambiguous=0")
+  message(FATAL_ERROR
+    "metatransfer signed c2pa package staging missing semantic summary\nstdout:\n${_out_c2pa_stage_pkg}\nstderr:\n${_err_c2pa_stage_pkg}")
+endif()
+if(NOT _out_c2pa_stage_pkg MATCHES "c2pa_stage_linkage: claim0_assertions=1 claim0_refs=1 sig0_links=1")
+  message(FATAL_ERROR
+    "metatransfer signed c2pa package staging missing linkage summary\nstdout:\n${_out_c2pa_stage_pkg}\nstderr:\n${_err_c2pa_stage_pkg}")
+endif()
+if(NOT _out_c2pa_stage_pkg MATCHES "c2pa_stage_references: sig0_keys=0 sig0_present=0 sig0_resolved=0")
+  message(FATAL_ERROR
+    "metatransfer signed c2pa package staging missing reference summary\nstdout:\n${_out_c2pa_stage_pkg}\nstderr:\n${_err_c2pa_stage_pkg}")
+endif()
+if(NOT EXISTS "${_signed_c2pa_from_package}")
+  message(FATAL_ERROR "expected edited jpeg from signed c2pa package was not written")
 endif()
 
 execute_process(
