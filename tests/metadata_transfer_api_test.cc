@@ -82,6 +82,42 @@ public:
         = openmeta::TransferStatus::InternalError;
 };
 
+class FakeJxlEmitter final : public openmeta::JxlTransferEmitter {
+public:
+    openmeta::TransferStatus add_box(std::array<char, 4> type,
+                                     std::span<const std::byte> payload,
+                                     bool compress) noexcept override
+    {
+        calls.push_back({ type, payload.size(), compress });
+        if (fail_after_calls != 0U && calls.size() >= fail_after_calls) {
+            return fail_status;
+        }
+        return openmeta::TransferStatus::Ok;
+    }
+
+    openmeta::TransferStatus close_boxes() noexcept override
+    {
+        close_calls += 1U;
+        if (fail_close) {
+            return fail_status;
+        }
+        return openmeta::TransferStatus::Ok;
+    }
+
+    struct Call final {
+        std::array<char, 4> type = { '\0', '\0', '\0', '\0' };
+        size_t bytes             = 0U;
+        bool compress            = false;
+    };
+
+    std::vector<Call> calls;
+    size_t close_calls      = 0U;
+    size_t fail_after_calls = 0U;
+    bool fail_close         = false;
+    openmeta::TransferStatus fail_status
+        = openmeta::TransferStatus::InternalError;
+};
+
 class BufferByteWriter final : public openmeta::TransferByteWriter {
 public:
     openmeta::TransferStatus
@@ -966,21 +1002,23 @@ static openmeta::PreparedTransferBundle
 make_bundle_with_draft_c2pa_signed_rewrite_contract()
 {
     openmeta::PreparedTransferBundle bundle;
-    bundle.target_format            = openmeta::TransferTargetFormat::Jpeg;
-    bundle.c2pa_rewrite.state       = openmeta::TransferC2paRewriteState::Ready;
+    bundle.target_format      = openmeta::TransferTargetFormat::Jpeg;
+    bundle.c2pa_rewrite.state = openmeta::TransferC2paRewriteState::Ready;
     bundle.c2pa_rewrite.target_format = openmeta::TransferTargetFormat::Jpeg;
-    bundle.c2pa_rewrite.source_kind = openmeta::TransferC2paSourceKind::ContentBound;
+    bundle.c2pa_rewrite.source_kind
+        = openmeta::TransferC2paSourceKind::ContentBound;
 
     openmeta::PreparedTransferPolicyDecision decision;
-    decision.subject              = openmeta::TransferPolicySubject::C2pa;
-    decision.requested            = openmeta::TransferPolicyAction::Rewrite;
-    decision.effective            = openmeta::TransferPolicyAction::Rewrite;
-    decision.reason               = openmeta::TransferPolicyReason::ExternalSignedPayload;
-    decision.c2pa_mode            = openmeta::TransferC2paMode::SignedRewrite;
-    decision.c2pa_source_kind     = openmeta::TransferC2paSourceKind::ContentBound;
-    decision.c2pa_prepared_output = openmeta::TransferC2paPreparedOutput::SignedRewrite;
-    decision.matched_entries      = 1U;
-    decision.message              = "test signed rewrite contract";
+    decision.subject   = openmeta::TransferPolicySubject::C2pa;
+    decision.requested = openmeta::TransferPolicyAction::Rewrite;
+    decision.effective = openmeta::TransferPolicyAction::Rewrite;
+    decision.reason    = openmeta::TransferPolicyReason::ExternalSignedPayload;
+    decision.c2pa_mode = openmeta::TransferC2paMode::SignedRewrite;
+    decision.c2pa_source_kind = openmeta::TransferC2paSourceKind::ContentBound;
+    decision.c2pa_prepared_output
+        = openmeta::TransferC2paPreparedOutput::SignedRewrite;
+    decision.matched_entries = 1U;
+    decision.message         = "test signed rewrite contract";
     bundle.policy_decisions.push_back(std::move(decision));
 
     openmeta::PreparedTransferBlock block;
@@ -1179,6 +1217,46 @@ TEST(MetadataTransferApi, PrepareFilePreservesJpegApp11JumbfForJpegTarget)
     EXPECT_EQ(decision->reason, openmeta::TransferPolicyReason::Default);
 }
 
+TEST(MetadataTransferApi, PrepareFilePreservesJpegApp11JumbfForJxlTarget)
+{
+    const std::vector<std::byte> jpeg = make_jpeg_with_app11_jumbf("acme");
+    const std::string path            = unique_temp_path(".jpg");
+    ASSERT_TRUE(
+        write_bytes_file(path,
+                         std::span<const std::byte>(jpeg.data(), jpeg.size())));
+
+    openmeta::PrepareTransferFileOptions options;
+    options.prepare.target_format       = openmeta::TransferTargetFormat::Jxl;
+    options.prepare.include_exif_app1  = false;
+    options.prepare.include_xmp_app1   = false;
+    options.prepare.include_icc_app2   = false;
+    options.prepare.include_iptc_app13 = false;
+
+    const openmeta::PrepareTransferFileResult result
+        = openmeta::prepare_metadata_for_target_file(path.c_str(), options);
+    std::remove(path.c_str());
+
+    EXPECT_EQ(result.file_status, openmeta::TransferFileStatus::Ok);
+    EXPECT_EQ(result.prepare.status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(result.bundle.blocks.size(), 1U);
+    EXPECT_EQ(result.bundle.blocks[0].kind, openmeta::TransferBlockKind::Jumbf);
+    EXPECT_EQ(result.bundle.blocks[0].route, "jxl:box-jumb");
+    EXPECT_EQ(result.bundle.blocks[0].box_type,
+              (std::array<char, 4> { 'j', 'u', 'm', 'b' }));
+    ASSERT_GE(result.bundle.blocks[0].payload.size(), 8U);
+    EXPECT_EQ(result.bundle.blocks[0].payload[4], std::byte { 'j' });
+    EXPECT_EQ(result.bundle.blocks[0].payload[5], std::byte { 'u' });
+    EXPECT_EQ(result.bundle.blocks[0].payload[6], std::byte { 'm' });
+    EXPECT_EQ(result.bundle.blocks[0].payload[7], std::byte { 'd' });
+
+    const openmeta::PreparedTransferPolicyDecision* decision
+        = find_policy_decision(result.bundle,
+                               openmeta::TransferPolicySubject::Jumbf);
+    ASSERT_NE(decision, nullptr);
+    EXPECT_EQ(decision->effective, openmeta::TransferPolicyAction::Keep);
+    EXPECT_EQ(decision->reason, openmeta::TransferPolicyReason::Default);
+}
+
 TEST(MetadataTransferApi, PrepareFileDropsC2paForJpegTarget)
 {
     const std::vector<std::byte> jpeg = make_jpeg_with_app11_jumbf("c2pa");
@@ -1323,6 +1401,51 @@ TEST(MetadataTransferApi, PrepareFilePreservesDraftC2paForJpegTarget)
         std::span<const std::byte>(result.bundle.blocks[0].payload.data(),
                                    result.bundle.blocks[0].payload.size()),
         "openmeta:c2pa_invalidation"));
+}
+
+TEST(MetadataTransferApi, PrepareFilePreservesDraftC2paForJxlTarget)
+{
+    const std::vector<std::byte> jpeg = make_jpeg_with_draft_c2pa_invalidation();
+    const std::string path            = unique_temp_path(".jpg");
+    ASSERT_TRUE(
+        write_bytes_file(path,
+                         std::span<const std::byte>(jpeg.data(), jpeg.size())));
+
+    openmeta::PrepareTransferFileOptions options;
+    options.prepare.target_format       = openmeta::TransferTargetFormat::Jxl;
+    options.prepare.include_exif_app1  = false;
+    options.prepare.include_xmp_app1   = false;
+    options.prepare.include_icc_app2   = false;
+    options.prepare.include_iptc_app13 = false;
+    options.prepare.profile.c2pa       = openmeta::TransferPolicyAction::Keep;
+
+    const openmeta::PrepareTransferFileResult result
+        = openmeta::prepare_metadata_for_target_file(path.c_str(), options);
+    std::remove(path.c_str());
+
+    EXPECT_EQ(result.file_status, openmeta::TransferFileStatus::Ok);
+    EXPECT_EQ(result.prepare.status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(result.bundle.blocks.size(), 1U);
+    EXPECT_EQ(result.bundle.blocks[0].kind, openmeta::TransferBlockKind::C2pa);
+    EXPECT_EQ(result.bundle.blocks[0].route, "jxl:box-jumb");
+    EXPECT_EQ(result.bundle.blocks[0].box_type,
+              (std::array<char, 4> { 'j', 'u', 'm', 'b' }));
+    EXPECT_TRUE(payload_contains_ascii(
+        std::span<const std::byte>(result.bundle.blocks[0].payload.data(),
+                                   result.bundle.blocks[0].payload.size()),
+        "openmeta:c2pa_invalidation"));
+
+    const openmeta::PreparedTransferPolicyDecision* decision
+        = find_policy_decision(result.bundle,
+                               openmeta::TransferPolicySubject::C2pa);
+    ASSERT_NE(decision, nullptr);
+    EXPECT_EQ(decision->effective, openmeta::TransferPolicyAction::Keep);
+    EXPECT_EQ(decision->reason, openmeta::TransferPolicyReason::Default);
+    EXPECT_EQ(decision->c2pa_mode, openmeta::TransferC2paMode::PreserveRaw);
+    EXPECT_EQ(decision->c2pa_source_kind,
+              openmeta::TransferC2paSourceKind::DraftUnsignedInvalidation);
+    EXPECT_EQ(decision->c2pa_prepared_output,
+              openmeta::TransferC2paPreparedOutput::PreservedRaw);
 }
 
 TEST(MetadataTransferApi, PrepareFileRejectsSignedRewriteForJpegTarget)
@@ -2850,6 +2973,86 @@ TEST(MetadataTransferApi, PrepareBuildsJpegExifApp1Block)
     EXPECT_EQ(read_u16le(p, ifd0_pos + 4U), 2U);
 }
 
+TEST(MetadataTransferApi, PrepareBuildsJxlExifAndXmpBoxes)
+{
+    openmeta::MetaStore store;
+    const openmeta::BlockId block = store.add_block(openmeta::BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    openmeta::Entry exif;
+    exif.key   = openmeta::make_exif_tag_key(store.arena(), "exififd", 0x9003U);
+    exif.value = openmeta::make_text(store.arena(), "2024:01:02 03:04:05",
+                                     openmeta::TextEncoding::Ascii);
+    exif.origin.block          = block;
+    exif.origin.order_in_block = 0U;
+    ASSERT_NE(store.add_entry(exif), openmeta::kInvalidEntryId);
+
+    openmeta::Entry xmp;
+    xmp.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://purl.org/dc/elements/1.1/", "title");
+    xmp.value                 = openmeta::make_text(store.arena(), "OpenMeta",
+                                                    openmeta::TextEncoding::Utf8);
+    xmp.origin.block          = block;
+    xmp.origin.order_in_block = 1U;
+    ASSERT_NE(store.add_entry(xmp), openmeta::kInvalidEntryId);
+    store.finalize();
+
+    openmeta::PrepareTransferRequest jpeg_request;
+    jpeg_request.target_format      = openmeta::TransferTargetFormat::Jpeg;
+    jpeg_request.include_icc_app2   = false;
+    jpeg_request.include_iptc_app13 = false;
+
+    openmeta::PreparedTransferBundle jpeg_bundle;
+    const openmeta::PrepareTransferResult jpeg_result
+        = openmeta::prepare_metadata_for_target(store, jpeg_request,
+                                                &jpeg_bundle);
+    ASSERT_EQ(jpeg_result.status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(jpeg_bundle.blocks.size(), 2U);
+    ASSERT_EQ(jpeg_bundle.time_patch_map.size(), 1U);
+
+    openmeta::PrepareTransferRequest jxl_request = jpeg_request;
+    jxl_request.target_format = openmeta::TransferTargetFormat::Jxl;
+
+    openmeta::PreparedTransferBundle jxl_bundle;
+    const openmeta::PrepareTransferResult jxl_result
+        = openmeta::prepare_metadata_for_target(store, jxl_request,
+                                                &jxl_bundle);
+
+    EXPECT_EQ(jxl_result.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(jxl_result.errors, 0U);
+    ASSERT_EQ(jxl_bundle.blocks.size(), 2U);
+    ASSERT_EQ(jxl_bundle.time_patch_map.size(),
+              jpeg_bundle.time_patch_map.size());
+
+    EXPECT_EQ(jxl_bundle.blocks[0].route, "jxl:box-exif");
+    EXPECT_EQ(jxl_bundle.blocks[0].box_type,
+              (std::array<char, 4> { 'E', 'x', 'i', 'f' }));
+    ASSERT_GE(jxl_bundle.blocks[0].payload.size(), 10U);
+    uint32_t tiff_offset = 0U;
+    ASSERT_TRUE(read_test_u32be(
+        std::span<const std::byte>(jxl_bundle.blocks[0].payload.data(),
+                                   jxl_bundle.blocks[0].payload.size()),
+        0U, &tiff_offset));
+    EXPECT_EQ(tiff_offset, 6U);
+    EXPECT_EQ(jxl_bundle.blocks[0].payload[4], std::byte { 'E' });
+    EXPECT_EQ(jxl_bundle.blocks[0].payload[5], std::byte { 'x' });
+    EXPECT_EQ(jxl_bundle.blocks[0].payload[6], std::byte { 'i' });
+    EXPECT_EQ(jxl_bundle.blocks[0].payload[7], std::byte { 'f' });
+
+    EXPECT_EQ(jxl_bundle.blocks[1].route, "jxl:box-xml");
+    EXPECT_EQ(jxl_bundle.blocks[1].box_type,
+              (std::array<char, 4> { 'x', 'm', 'l', ' ' }));
+    ASSERT_FALSE(jxl_bundle.blocks[1].payload.empty());
+    EXPECT_EQ(jxl_bundle.blocks[1].payload[0], std::byte { '<' });
+
+    EXPECT_EQ(jxl_bundle.time_patch_map[0].block_index, 0U);
+    EXPECT_EQ(jxl_bundle.time_patch_map[0].byte_offset,
+              static_cast<uint32_t>(jpeg_bundle.time_patch_map[0].byte_offset
+                                    + 4U));
+    EXPECT_EQ(jxl_bundle.time_patch_map[0].width,
+              jpeg_bundle.time_patch_map[0].width);
+}
+
 TEST(MetadataTransferApi, PrepareDropsMakerNoteWhenProfileRequestsDrop)
 {
     openmeta::MetaStore store;
@@ -3021,6 +3224,84 @@ TEST(MetadataTransferApi, PrepareProjectsDecodedJumbfCborKeysForJpegTarget)
     ASSERT_EQ(bundle.blocks.size(), 1U);
     EXPECT_EQ(bundle.blocks[0].kind, openmeta::TransferBlockKind::Jumbf);
     EXPECT_EQ(bundle.blocks[0].route, "jpeg:app11-jumbf");
+    EXPECT_TRUE(payload_contains_ascii(
+        std::span<const std::byte>(bundle.blocks[0].payload.data(),
+                                   bundle.blocks[0].payload.size()),
+        "openmeta.projected.box.0.1.cbor"));
+    EXPECT_TRUE(payload_contains_ascii(
+        std::span<const std::byte>(bundle.blocks[0].payload.data(),
+                                   bundle.blocks[0].payload.size()),
+        "OpenMeta"));
+
+    const openmeta::PreparedTransferPolicyDecision* decision
+        = find_policy_decision(bundle, openmeta::TransferPolicySubject::Jumbf);
+    ASSERT_NE(decision, nullptr);
+    EXPECT_EQ(decision->requested, openmeta::TransferPolicyAction::Keep);
+    EXPECT_EQ(decision->effective, openmeta::TransferPolicyAction::Keep);
+    EXPECT_EQ(decision->reason,
+              openmeta::TransferPolicyReason::ProjectedPayload);
+    EXPECT_EQ(decision->matched_entries, 4U);
+}
+
+TEST(MetadataTransferApi, PrepareProjectsDecodedJumbfCborKeysForJxlTarget)
+{
+    openmeta::MetaStore store;
+    const openmeta::BlockId block = store.add_block(openmeta::BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    openmeta::Entry title;
+    title.key                   = openmeta::make_jumbf_cbor_key(store.arena(),
+                                                                "box.0.1.cbor.manifest.title");
+    title.value                 = openmeta::make_text(store.arena(), "OpenMeta",
+                                                      openmeta::TextEncoding::Utf8);
+    title.origin.block          = block;
+    title.origin.order_in_block = 0U;
+    ASSERT_NE(store.add_entry(title), openmeta::kInvalidEntryId);
+
+    openmeta::Entry count;
+    count.key                   = openmeta::make_jumbf_cbor_key(store.arena(),
+                                                                "box.0.1.cbor.manifest.count");
+    count.value                 = openmeta::make_u32(2U);
+    count.origin.block          = block;
+    count.origin.order_in_block = 1U;
+    ASSERT_NE(store.add_entry(count), openmeta::kInvalidEntryId);
+
+    openmeta::Entry item0;
+    item0.key                   = openmeta::make_jumbf_cbor_key(store.arena(),
+                                                                "box.0.1.cbor.items[0]");
+    item0.value                 = openmeta::make_u32(7U);
+    item0.origin.block          = block;
+    item0.origin.order_in_block = 2U;
+    ASSERT_NE(store.add_entry(item0), openmeta::kInvalidEntryId);
+
+    openmeta::Entry item1;
+    item1.key                   = openmeta::make_jumbf_cbor_key(store.arena(),
+                                                                "box.0.1.cbor.items[1]");
+    item1.value                 = openmeta::make_text(store.arena(), "ok",
+                                                      openmeta::TextEncoding::Ascii);
+    item1.origin.block          = block;
+    item1.origin.order_in_block = 3U;
+    ASSERT_NE(store.add_entry(item1), openmeta::kInvalidEntryId);
+    store.finalize();
+
+    openmeta::PrepareTransferRequest request;
+    request.target_format      = openmeta::TransferTargetFormat::Jxl;
+    request.include_exif_app1  = false;
+    request.include_xmp_app1   = false;
+    request.include_icc_app2   = false;
+    request.include_iptc_app13 = false;
+
+    openmeta::PreparedTransferBundle bundle;
+    const openmeta::PrepareTransferResult result
+        = openmeta::prepare_metadata_for_target(store, request, &bundle);
+
+    EXPECT_EQ(result.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.errors, 0U);
+    ASSERT_EQ(bundle.blocks.size(), 1U);
+    EXPECT_EQ(bundle.blocks[0].kind, openmeta::TransferBlockKind::Jumbf);
+    EXPECT_EQ(bundle.blocks[0].route, "jxl:box-jumb");
+    EXPECT_EQ(bundle.blocks[0].box_type,
+              (std::array<char, 4> { 'j', 'u', 'm', 'b' }));
     EXPECT_TRUE(payload_contains_ascii(
         std::span<const std::byte>(bundle.blocks[0].payload.data(),
                                    bundle.blocks[0].payload.size()),
@@ -4184,6 +4465,57 @@ TEST(MetadataTransferApi, BuildPreparedBundleJpegPackageMatchesInPlaceOutput)
             package, writer);
     EXPECT_EQ(streamed.status, openmeta::TransferStatus::Ok);
     EXPECT_EQ(writer.out, expected);
+}
+
+TEST(MetadataTransferApi, BuildPreparedTransferEmitPackageJpegMatchesWriterEmit)
+{
+    openmeta::PreparedTransferBundle bundle;
+    bundle.target_format = openmeta::TransferTargetFormat::Jpeg;
+
+    openmeta::PreparedTransferBlock exif;
+    exif.route   = "jpeg:app1-exif";
+    exif.payload = { std::byte { 0x01 } };
+    bundle.blocks.push_back(exif);
+
+    openmeta::PreparedTransferBlock com;
+    com.route   = "jpeg:com";
+    com.payload = {};
+    bundle.blocks.push_back(com);
+
+    openmeta::EmitTransferOptions emit_options;
+    emit_options.skip_empty_payloads = false;
+
+    openmeta::PreparedTransferPackagePlan package;
+    const openmeta::EmitTransferResult packaged
+        = openmeta::build_prepared_transfer_emit_package(bundle, &package,
+                                                         emit_options);
+    ASSERT_EQ(packaged.status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(package.target_format, openmeta::TransferTargetFormat::Jpeg);
+    ASSERT_EQ(package.input_size, 0U);
+    ASSERT_EQ(package.output_size, 9U);
+    ASSERT_EQ(package.chunks.size(), 2U);
+    EXPECT_EQ(package.chunks[0].kind,
+              openmeta::TransferPackageChunkKind::PreparedTransferBlock);
+    EXPECT_EQ(package.chunks[1].kind,
+              openmeta::TransferPackageChunkKind::PreparedTransferBlock);
+
+    BufferByteWriter writer;
+    const std::vector<std::byte> empty_input;
+    const openmeta::EmitTransferResult streamed
+        = openmeta::write_prepared_transfer_package(
+            std::span<const std::byte>(empty_input.data(), empty_input.size()),
+            bundle, package, writer);
+    ASSERT_EQ(streamed.status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(writer.out.size(), 9U);
+    EXPECT_EQ(writer.out[0], std::byte { 0xFF });
+    EXPECT_EQ(writer.out[1], std::byte { 0xE1 });
+    EXPECT_EQ(writer.out[2], std::byte { 0x00 });
+    EXPECT_EQ(writer.out[3], std::byte { 0x03 });
+    EXPECT_EQ(writer.out[4], std::byte { 0x01 });
+    EXPECT_EQ(writer.out[5], std::byte { 0xFF });
+    EXPECT_EQ(writer.out[6], std::byte { 0xFE });
+    EXPECT_EQ(writer.out[7], std::byte { 0x00 });
+    EXPECT_EQ(writer.out[8], std::byte { 0x02 });
 }
 
 TEST(MetadataTransferApi, ExecutePreparedTransferJpegEditToWriter)
@@ -5452,8 +5784,9 @@ TEST(MetadataTransferApi,
     EXPECT_EQ(result.compile.status, openmeta::TransferStatus::Malformed);
     EXPECT_EQ(result.compile.code, openmeta::EmitTransferCode::InvalidPayload);
     EXPECT_EQ(result.compile.errors, 1U);
-    EXPECT_TRUE(result.compile.message.find("logical payload size is inconsistent")
-                != std::string::npos);
+    EXPECT_TRUE(
+        result.compile.message.find("logical payload size is inconsistent")
+        != std::string::npos);
     EXPECT_EQ(result.emit.status, openmeta::TransferStatus::Unsupported);
     EXPECT_EQ(result.emit.code, openmeta::EmitTransferCode::InvalidArgument);
     EXPECT_EQ(result.emit.errors, 1U);
@@ -5819,6 +6152,288 @@ TEST(MetadataTransferApi, EmitTiffPropagatesBackendWriteError)
     EXPECT_EQ(result.errors, 1U);
     EXPECT_EQ(result.failed_block_index, 0U);
     EXPECT_EQ(emitter.commit_calls, 0U);
+}
+
+TEST(MetadataTransferApi, EmitJxlKnownRoutes)
+{
+    openmeta::PreparedTransferBundle bundle;
+    bundle.target_format = openmeta::TransferTargetFormat::Jxl;
+
+    openmeta::PreparedTransferBlock exif;
+    exif.route    = "jxl:box-exif";
+    exif.box_type = { 'E', 'x', 'i', 'f' };
+    exif.payload = { std::byte { 0x00 }, std::byte { 0x00 }, std::byte { 0x00 },
+                     std::byte { 0x06 } };
+    bundle.blocks.push_back(exif);
+
+    openmeta::PreparedTransferBlock xmp;
+    xmp.route    = "jxl:box-xml";
+    xmp.box_type = { 'x', 'm', 'l', ' ' };
+    xmp.payload  = { std::byte { '<' }, std::byte { 'x' } };
+    bundle.blocks.push_back(xmp);
+
+    openmeta::PreparedTransferBlock jumbf;
+    jumbf.route    = "jxl:box-jumb";
+    jumbf.box_type = { 'j', 'u', 'm', 'b' };
+    jumbf.payload  = { std::byte { 0x00 }, std::byte { 0x00 }, std::byte { 0x00 },
+                       std::byte { 0x08 }, std::byte { 'j' }, std::byte { 'u' },
+                       std::byte { 'm' }, std::byte { 'd' } };
+    bundle.blocks.push_back(jumbf);
+
+    openmeta::PreparedTransferBlock c2pa;
+    c2pa.route    = "jxl:box-c2pa";
+    c2pa.box_type = { 'c', '2', 'p', 'a' };
+    c2pa.payload  = { std::byte { 0x00 }, std::byte { 0x00 }, std::byte { 0x00 },
+                      std::byte { 0x08 }, std::byte { 'j' }, std::byte { 'u' },
+                      std::byte { 'm' }, std::byte { 'd' } };
+    bundle.blocks.push_back(c2pa);
+
+    FakeJxlEmitter emitter;
+    const openmeta::EmitTransferResult result
+        = openmeta::emit_prepared_bundle_jxl(bundle, emitter);
+
+    EXPECT_EQ(result.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.code, openmeta::EmitTransferCode::None);
+    EXPECT_EQ(result.emitted, 4U);
+    EXPECT_EQ(result.errors, 0U);
+    EXPECT_EQ(emitter.close_calls, 1U);
+    ASSERT_EQ(emitter.calls.size(), 4U);
+    EXPECT_EQ(emitter.calls[0].type,
+              (std::array<char, 4> { 'E', 'x', 'i', 'f' }));
+    EXPECT_EQ(emitter.calls[0].bytes, 4U);
+    EXPECT_EQ(emitter.calls[0].compress, false);
+    EXPECT_EQ(emitter.calls[1].type,
+              (std::array<char, 4> { 'x', 'm', 'l', ' ' }));
+    EXPECT_EQ(emitter.calls[1].bytes, 2U);
+    EXPECT_EQ(emitter.calls[1].compress, false);
+    EXPECT_EQ(emitter.calls[2].type,
+              (std::array<char, 4> { 'j', 'u', 'm', 'b' }));
+    EXPECT_EQ(emitter.calls[2].bytes, 8U);
+    EXPECT_EQ(emitter.calls[2].compress, false);
+    EXPECT_EQ(emitter.calls[3].type,
+              (std::array<char, 4> { 'c', '2', 'p', 'a' }));
+    EXPECT_EQ(emitter.calls[3].bytes, 8U);
+    EXPECT_EQ(emitter.calls[3].compress, false);
+}
+
+TEST(MetadataTransferApi, BuildPreparedTransferEmitPackageJxlWritesBoxes)
+{
+    openmeta::PreparedTransferBundle bundle;
+    bundle.target_format = openmeta::TransferTargetFormat::Jxl;
+
+    openmeta::PreparedTransferBlock jumbf;
+    jumbf.route    = "jxl:box-jumb";
+    jumbf.box_type = { 'j', 'u', 'm', 'b' };
+    jumbf.payload  = { std::byte { 0x00 }, std::byte { 0x00 }, std::byte { 0x00 },
+                       std::byte { 0x08 }, std::byte { 'j' }, std::byte { 'u' },
+                       std::byte { 'm' }, std::byte { 'd' } };
+    bundle.blocks.push_back(jumbf);
+
+    openmeta::PreparedTransferBlock c2pa;
+    c2pa.route    = "jxl:box-c2pa";
+    c2pa.box_type = { 'c', '2', 'p', 'a' };
+    c2pa.payload  = { std::byte { 0x00 }, std::byte { 0x00 }, std::byte { 0x00 },
+                      std::byte { 0x08 }, std::byte { 'j' }, std::byte { 'u' },
+                      std::byte { 'm' }, std::byte { 'd' } };
+    bundle.blocks.push_back(c2pa);
+
+    openmeta::PreparedTransferPackagePlan package;
+    const openmeta::EmitTransferResult packaged
+        = openmeta::build_prepared_transfer_emit_package(bundle, &package);
+    ASSERT_EQ(packaged.status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(package.target_format, openmeta::TransferTargetFormat::Jxl);
+    ASSERT_EQ(package.input_size, 0U);
+    ASSERT_EQ(package.output_size, 32U);
+    ASSERT_EQ(package.chunks.size(), 2U);
+    EXPECT_EQ(package.chunks[0].kind,
+              openmeta::TransferPackageChunkKind::PreparedTransferBlock);
+    EXPECT_EQ(package.chunks[1].kind,
+              openmeta::TransferPackageChunkKind::PreparedTransferBlock);
+
+    BufferByteWriter writer;
+    const std::vector<std::byte> empty_input;
+    const openmeta::EmitTransferResult streamed
+        = openmeta::write_prepared_transfer_package(
+            std::span<const std::byte>(empty_input.data(), empty_input.size()),
+            bundle, package, writer);
+    ASSERT_EQ(streamed.status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(writer.out.size(), 32U);
+    uint32_t first_size = 0U;
+    ASSERT_TRUE(read_test_u32be(
+        std::span<const std::byte>(writer.out.data(), writer.out.size()), 0U,
+        &first_size));
+    EXPECT_EQ(first_size, 16U);
+    EXPECT_EQ(writer.out[4], std::byte { 'j' });
+    EXPECT_EQ(writer.out[5], std::byte { 'u' });
+    EXPECT_EQ(writer.out[6], std::byte { 'm' });
+    EXPECT_EQ(writer.out[7], std::byte { 'b' });
+    uint32_t second_size = 0U;
+    ASSERT_TRUE(read_test_u32be(
+        std::span<const std::byte>(writer.out.data(), writer.out.size()), 16U,
+        &second_size));
+    EXPECT_EQ(second_size, 16U);
+    EXPECT_EQ(writer.out[20], std::byte { 'c' });
+    EXPECT_EQ(writer.out[21], std::byte { '2' });
+    EXPECT_EQ(writer.out[22], std::byte { 'p' });
+    EXPECT_EQ(writer.out[23], std::byte { 'a' });
+}
+
+TEST(MetadataTransferApi, CompileJxlPlanKnownRoutes)
+{
+    openmeta::PreparedTransferBundle bundle;
+    bundle.target_format = openmeta::TransferTargetFormat::Jxl;
+
+    openmeta::PreparedTransferBlock exif;
+    exif.route    = "jxl:box-exif";
+    exif.box_type = { 'E', 'x', 'i', 'f' };
+    exif.payload  = { std::byte { 0x00 } };
+    bundle.blocks.push_back(exif);
+
+    openmeta::PreparedTransferBlock xmp;
+    xmp.route    = "jxl:box-xml";
+    xmp.box_type = { 'x', 'm', 'l', ' ' };
+    xmp.payload  = { std::byte { '<' } };
+    bundle.blocks.push_back(xmp);
+
+    openmeta::PreparedTransferBlock jumbf;
+    jumbf.route    = "jxl:box-jumb";
+    jumbf.box_type = { 'j', 'u', 'm', 'b' };
+    jumbf.payload  = { std::byte { 0x01 } };
+    bundle.blocks.push_back(jumbf);
+
+    openmeta::PreparedTransferBlock c2pa;
+    c2pa.route    = "jxl:box-c2pa";
+    c2pa.box_type = { 'c', '2', 'p', 'a' };
+    c2pa.payload  = { std::byte { 0x02 } };
+    bundle.blocks.push_back(c2pa);
+
+    openmeta::PreparedJxlEmitPlan plan;
+    const openmeta::EmitTransferResult result
+        = openmeta::compile_prepared_bundle_jxl(bundle, &plan);
+
+    EXPECT_EQ(result.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.code, openmeta::EmitTransferCode::None);
+    ASSERT_EQ(plan.ops.size(), 4U);
+    EXPECT_EQ(plan.ops[0].block_index, 0U);
+    EXPECT_EQ(plan.ops[0].box_type,
+              (std::array<char, 4> { 'E', 'x', 'i', 'f' }));
+    EXPECT_EQ(plan.ops[0].compress, false);
+    EXPECT_EQ(plan.ops[1].block_index, 1U);
+    EXPECT_EQ(plan.ops[1].box_type,
+              (std::array<char, 4> { 'x', 'm', 'l', ' ' }));
+    EXPECT_EQ(plan.ops[1].compress, false);
+    EXPECT_EQ(plan.ops[2].block_index, 2U);
+    EXPECT_EQ(plan.ops[2].box_type,
+              (std::array<char, 4> { 'j', 'u', 'm', 'b' }));
+    EXPECT_EQ(plan.ops[2].compress, false);
+    EXPECT_EQ(plan.ops[3].block_index, 3U);
+    EXPECT_EQ(plan.ops[3].box_type,
+              (std::array<char, 4> { 'c', '2', 'p', 'a' }));
+    EXPECT_EQ(plan.ops[3].compress, false);
+}
+
+TEST(MetadataTransferApi, EmitJxlCompiledPlan)
+{
+    openmeta::PreparedTransferBundle bundle;
+    bundle.target_format = openmeta::TransferTargetFormat::Jxl;
+
+    openmeta::PreparedTransferBlock exif;
+    exif.route    = "jxl:box-exif";
+    exif.box_type = { 'E', 'x', 'i', 'f' };
+    exif.payload  = { std::byte { 0x00 }, std::byte { 0x00 } };
+    bundle.blocks.push_back(exif);
+
+    openmeta::PreparedTransferBlock xmp;
+    xmp.route    = "jxl:box-xml";
+    xmp.box_type = { 'x', 'm', 'l', ' ' };
+    xmp.payload  = { std::byte { '<' }, std::byte { 'x' } };
+    bundle.blocks.push_back(xmp);
+
+    openmeta::PreparedTransferBlock jumbf;
+    jumbf.route    = "jxl:box-jumb";
+    jumbf.box_type = { 'j', 'u', 'm', 'b' };
+    jumbf.payload  = { std::byte { 0x00 }, std::byte { 0x00 }, std::byte { 0x00 },
+                       std::byte { 0x08 }, std::byte { 'j' }, std::byte { 'u' },
+                       std::byte { 'm' }, std::byte { 'd' } };
+    bundle.blocks.push_back(jumbf);
+
+    openmeta::PreparedTransferBlock c2pa;
+    c2pa.route    = "jxl:box-c2pa";
+    c2pa.box_type = { 'c', '2', 'p', 'a' };
+    c2pa.payload  = { std::byte { 0x00 }, std::byte { 0x00 }, std::byte { 0x00 },
+                      std::byte { 0x08 }, std::byte { 'j' }, std::byte { 'u' },
+                      std::byte { 'm' }, std::byte { 'd' } };
+    bundle.blocks.push_back(c2pa);
+
+    openmeta::PreparedJxlEmitPlan plan;
+    const openmeta::EmitTransferResult compile_result
+        = openmeta::compile_prepared_bundle_jxl(bundle, &plan);
+    ASSERT_EQ(compile_result.status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(plan.ops.size(), 4U);
+
+    FakeJxlEmitter emitter;
+    const openmeta::EmitTransferResult emit_result
+        = openmeta::emit_prepared_bundle_jxl_compiled(bundle, plan, emitter);
+    EXPECT_EQ(emit_result.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(emit_result.code, openmeta::EmitTransferCode::None);
+    EXPECT_EQ(emit_result.emitted, 4U);
+    EXPECT_EQ(emitter.close_calls, 1U);
+    ASSERT_EQ(emitter.calls.size(), 4U);
+    EXPECT_EQ(emitter.calls[0].type,
+              (std::array<char, 4> { 'E', 'x', 'i', 'f' }));
+    EXPECT_EQ(emitter.calls[1].type,
+              (std::array<char, 4> { 'x', 'm', 'l', ' ' }));
+    EXPECT_EQ(emitter.calls[2].type,
+              (std::array<char, 4> { 'j', 'u', 'm', 'b' }));
+    EXPECT_EQ(emitter.calls[3].type,
+              (std::array<char, 4> { 'c', '2', 'p', 'a' }));
+}
+
+TEST(MetadataTransferApi, EmitPreparedTransferCompiledJxlEmitterUsesBackend)
+{
+    openmeta::PreparedTransferBundle bundle;
+    bundle.target_format = openmeta::TransferTargetFormat::Jxl;
+
+    openmeta::PreparedTransferBlock exif;
+    exif.route    = "jxl:box-exif";
+    exif.box_type = { 'E', 'x', 'i', 'f' };
+    exif.payload = { std::byte { 0x00 }, std::byte { 0x00 }, std::byte { 0x00 },
+                     std::byte { 0x06 } };
+    bundle.blocks.push_back(exif);
+
+    openmeta::PreparedTransferBlock xmp;
+    xmp.route    = "jxl:box-xml";
+    xmp.box_type = { 'x', 'm', 'l', ' ' };
+    xmp.payload  = { std::byte { '<' }, std::byte { 'x' }, std::byte { 'm' } };
+    bundle.blocks.push_back(xmp);
+
+    openmeta::PreparedTransferExecutionPlan plan;
+    const openmeta::EmitTransferResult compile_result
+        = openmeta::compile_prepared_transfer_execution(bundle, {}, &plan);
+    ASSERT_EQ(compile_result.status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(plan.target_format, openmeta::TransferTargetFormat::Jxl);
+    ASSERT_EQ(plan.jxl_emit.ops.size(), 2U);
+    EXPECT_TRUE(plan.jpeg_emit.ops.empty());
+    EXPECT_TRUE(plan.tiff_emit.ops.empty());
+
+    FakeJxlEmitter emitter;
+    const openmeta::ExecutePreparedTransferResult result
+        = openmeta::emit_prepared_transfer_compiled(&bundle, plan, emitter);
+    EXPECT_EQ(result.compile.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.emit.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.emit.emitted, 2U);
+    EXPECT_EQ(result.compiled_ops, 2U);
+    EXPECT_EQ(emitter.close_calls, 1U);
+    ASSERT_EQ(emitter.calls.size(), 2U);
+    ASSERT_EQ(result.jxl_box_summary.size(), 2U);
+    EXPECT_EQ(result.jxl_box_summary[0].type,
+              (std::array<char, 4> { 'E', 'x', 'i', 'f' }));
+    EXPECT_EQ(result.jxl_box_summary[0].count, 1U);
+    EXPECT_EQ(result.jxl_box_summary[0].bytes, 4U);
+    EXPECT_EQ(result.jxl_box_summary[1].type,
+              (std::array<char, 4> { 'x', 'm', 'l', ' ' }));
+    EXPECT_EQ(result.jxl_box_summary[1].count, 1U);
+    EXPECT_EQ(result.jxl_box_summary[1].bytes, 3U);
 }
 
 TEST(MetadataTransferApi, EmitCompiledRejectsPlanMismatch)

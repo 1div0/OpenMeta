@@ -179,6 +179,27 @@ Current v1 behavior is:
   shared core API.
 - TIFF edit output uses the same sink API and only buffers the appended
   metadata tail; it no longer materializes a second full-file output buffer.
+  - JPEG XL prepare/emit now shares the same transfer contract for backend
+    emitter use:
+    - `prepare_metadata_for_target(..., TransferTargetFormat::Jxl, ...)`
+      currently builds `Exif`, `xml `, and bounded `jumb` box payloads from
+      `MetaStore`
+    - `compile_prepared_bundle_jxl(...)` and
+      `emit_prepared_bundle_jxl_compiled(...)` provide the same
+      `prepare once -> compile once -> emit many` shape as JPEG/TIFF
+    - `execute_prepared_transfer(...)` and
+      `emit_prepared_transfer_compiled(..., JxlTransferEmitter&)` now accept
+      JXL bundles
+    - file-based prepare can preserve source generic JUMBF payloads and raw
+      OpenMeta draft C2PA invalidation payloads as JXL boxes
+    - store-only prepare can project decoded non-C2PA `JumbfCborKey` roots
+      into generic JXL `jumb` boxes when no raw source payload is available
+    - `build_prepared_transfer_emit_package(...)` plus
+      `write_prepared_transfer_package(...)` can serialize direct JXL box
+      bytes from prepared bundles
+    - current JXL transfer still excludes ICC, IPTC, content-bound C2PA
+      rewrite/invalidation, edit/rewrite, and the `emit_output_writer`
+      execution hot path
   - `TransferProfile` now uses explicit `TransferPolicyAction` values for
     `makernote`, `jumbf`, and `c2pa`.
   - `PreparedTransferBundle::policy_decisions` records the resolved per-family
@@ -873,14 +894,17 @@ Draft C++ transfer entry points (prepare/emit scaffold):
     want preallocated output memory and deterministic overflow reporting before
     any JPEG marker bytes are written.
   - `PreparedTransferPackagePlan` is the shared final-output packaging layer
-    for current JPEG/TIFF rewrite paths.
+    for current JPEG/TIFF rewrite paths plus direct JPEG/JXL emit packaging.
     - `TransferPackageChunkKind::SourceRange` copies bytes from the original
       input stream.
+    - `TransferPackageChunkKind::PreparedTransferBlock` serializes one
+      prepared block directly for JPEG or JXL targets.
     - `TransferPackageChunkKind::PreparedJpegSegment` injects one prepared
       JPEG marker segment from the bundle.
     - `TransferPackageChunkKind::InlineBytes` carries deterministic generated
       bytes such as the patched TIFF IFD0 offset or appended TIFF tail.
-    - `build_prepared_bundle_jpeg_package(...)`,
+    - `build_prepared_transfer_emit_package(...)`,
+      `build_prepared_bundle_jpeg_package(...)`,
       `build_prepared_bundle_tiff_package(...)`, and
       `write_prepared_transfer_package(...)` expose that shared contract.
   - `emit_prepared_transfer_compiled(..., TiffTransferEmitter&)` is the

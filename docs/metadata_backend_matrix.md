@@ -47,6 +47,16 @@ backends without per-backend metadata logic duplication.
 - `Exif` box content must include the 4-byte TIFF header offset prefix.
 - Optional Brotli-compressed box storage (`brob`) is backend-controlled.
 - OpenMeta should prepare box payloads once and reuse in emit path.
+- Current OpenMeta transfer support on this path is intentionally bounded:
+  EXIF/XMP are prepared and emitted through `JxlTransferEmitter`, file-based
+  prepare can preserve source generic JUMBF payloads and raw OpenMeta draft
+  C2PA invalidation payloads as JXL boxes, and store-only prepare can project
+  decoded non-C2PA `JumbfCborKey` roots into generic JXL `jumb` boxes.
+  `build_prepared_transfer_emit_package(...)` plus
+  `write_prepared_transfer_package(...)` can also serialize direct JXL box
+  bytes from prepared bundles. ICC, IPTC, content-bound C2PA
+  rewrite/invalidation, edit/rewrite, and the `emit_output_writer`
+  execution hot path are still not part of the JXL transfer contract.
 
 ### EXR (OpenEXR)
 
@@ -173,7 +183,8 @@ container call mapping.
 ## Recommended Integration Order
 
 1. JPEG and TIFF direct backends (highest transfer value).
-2. JXL box emitter parity for EXIF/XMP/JUMBF.
+2. JXL box emitter parity for EXIF/XMP plus bounded JUMBF/C2PA preserve or
+   projection.
 3. OIIO bridge as optional host integration layer.
 4. EXR attribute adapter for EXR-native metadata workflows.
 

@@ -475,6 +475,7 @@ struct TiffEditPlan final {
 /// One chunk in a packaged transfer output plan.
 enum class TransferPackageChunkKind : uint8_t {
     SourceRange,
+    PreparedTransferBlock,
     PreparedJpegSegment,
     InlineBytes,
 };
@@ -523,6 +524,19 @@ struct PreparedTiffEmitPlan final {
     std::vector<PreparedTiffEmitOp> ops;
 };
 
+/// One precompiled JPEG XL emit operation (route -> box mapping).
+struct PreparedJxlEmitOp final {
+    uint32_t block_index         = 0;
+    std::array<char, 4> box_type = { '\0', '\0', '\0', '\0' };
+    bool compress                = false;
+};
+
+/// Reusable precompiled JPEG XL emit plan for a prepared transfer bundle.
+struct PreparedJxlEmitPlan final {
+    uint32_t contract_version = kMetadataTransferContractVersion;
+    std::vector<PreparedJxlEmitOp> ops;
+};
+
 /// Emission options shared by backend emit entry points.
 struct EmitTransferOptions final {
     bool skip_empty_payloads = true;
@@ -536,6 +550,7 @@ struct PreparedTransferExecutionPlan final {
     EmitTransferOptions emit;
     PreparedJpegEmitPlan jpeg_emit;
     PreparedTiffEmitPlan tiff_emit;
+    PreparedJxlEmitPlan jxl_emit;
 };
 
 /// File-read + decode options for \ref prepare_metadata_for_target_file.
@@ -609,6 +624,13 @@ struct EmittedTiffTagSummary final {
     uint16_t tag   = 0;
     uint32_t count = 0;
     uint64_t bytes = 0;
+};
+
+/// One emitted JPEG XL box summary entry.
+struct EmittedJxlBoxSummary final {
+    std::array<char, 4> type = { '\0', '\0', '\0', '\0' };
+    uint32_t count           = 0;
+    uint64_t bytes           = 0;
 };
 
 /// Streaming byte sink for edit/write transfer paths.
@@ -704,6 +726,7 @@ struct ExecutePreparedTransferResult final {
     EmitTransferResult emit;
     std::vector<EmittedJpegMarkerSummary> marker_summary;
     std::vector<EmittedTiffTagSummary> tiff_tag_summary;
+    std::vector<EmittedJxlBoxSummary> jxl_box_summary;
     bool tiff_commit          = false;
     uint64_t emit_output_size = 0;
 
@@ -849,6 +872,21 @@ emit_prepared_bundle_tiff(const PreparedTransferBundle& bundle,
                           = EmitTransferOptions {}) noexcept;
 
 /**
+ * \brief Emit prepared metadata blocks into a JPEG XL backend.
+ *
+ * Route mapping:
+ * - `jxl:box-exif` -> `Exif`
+ * - `jxl:box-xml` -> `xml `
+ * - `jxl:box-jumb` -> `jumb`
+ * - `jxl:box-c2pa` -> `c2pa`
+ */
+EmitTransferResult
+emit_prepared_bundle_jxl(const PreparedTransferBundle& bundle,
+                         JxlTransferEmitter& emitter,
+                         const EmitTransferOptions& options
+                         = EmitTransferOptions {}) noexcept;
+
+/**
  * \brief Compile a reusable TIFF emit plan from a prepared bundle.
  *
  * This maps route strings to TIFF tags once for high-throughput
@@ -869,6 +907,28 @@ emit_prepared_bundle_tiff_compiled(const PreparedTransferBundle& bundle,
                                    TiffTransferEmitter& emitter,
                                    const EmitTransferOptions& options
                                    = EmitTransferOptions {}) noexcept;
+
+/**
+ * \brief Compile a reusable JPEG XL emit plan from a prepared bundle.
+ *
+ * This maps route strings to JPEG XL box types once for high-throughput
+ * "prepare once, emit many" workflows.
+ */
+EmitTransferResult
+compile_prepared_bundle_jxl(const PreparedTransferBundle& bundle,
+                            PreparedJxlEmitPlan* out_plan,
+                            const EmitTransferOptions& options
+                            = EmitTransferOptions {}) noexcept;
+
+/**
+ * \brief Emit a prepared bundle using a precompiled JPEG XL emit plan.
+ */
+EmitTransferResult
+emit_prepared_bundle_jxl_compiled(const PreparedTransferBundle& bundle,
+                                  const PreparedJxlEmitPlan& plan,
+                                  JxlTransferEmitter& emitter,
+                                  const EmitTransferOptions& options
+                                  = EmitTransferOptions {}) noexcept;
 
 /**
  * \brief Compile a reusable JPEG emit plan from a prepared bundle.
@@ -1159,6 +1219,18 @@ emit_prepared_transfer_compiled(
     uint32_t emit_repeat                        = 1U) noexcept;
 
 /**
+ * \brief Hot-path helper: apply non-owning time patches and emit through a
+ * JPEG XL backend.
+ */
+ExecutePreparedTransferResult
+emit_prepared_transfer_compiled(
+    PreparedTransferBundle* bundle, const PreparedTransferExecutionPlan& plan,
+    JxlTransferEmitter& emitter,
+    std::span<const TimePatchView> time_patches = {},
+    const ApplyTimePatchOptions& time_patch     = ApplyTimePatchOptions {},
+    uint32_t emit_repeat                        = 1U) noexcept;
+
+/**
  * \brief High-level helper: read file, prepare a bundle, then execute transfer.
  *
  * This wraps \ref prepare_metadata_for_target_file plus
@@ -1239,17 +1311,26 @@ write_prepared_bundle_tiff_edit(std::span<const std::byte> input_tiff,
                                 const TiffEditPlan& plan,
                                 TransferByteWriter& writer) noexcept;
 
+/**
+ * \brief Build one deterministic direct-emit package plan for a prepared bundle.
+ *
+ * Current implementation supports JPEG marker emission and JPEG XL box
+ * emission without requiring an input container byte stream.
+ */
 EmitTransferResult
-build_prepared_bundle_jpeg_package(std::span<const std::byte> input_jpeg,
-                                   const PreparedTransferBundle& bundle,
-                                   const JpegEditPlan& plan,
-                                   PreparedTransferPackagePlan* out_plan) noexcept;
+build_prepared_transfer_emit_package(
+    const PreparedTransferBundle& bundle, PreparedTransferPackagePlan* out_plan,
+    const EmitTransferOptions& options = {}) noexcept;
 
 EmitTransferResult
-build_prepared_bundle_tiff_package(std::span<const std::byte> input_tiff,
-                                   const PreparedTransferBundle& bundle,
-                                   const TiffEditPlan& plan,
-                                   PreparedTransferPackagePlan* out_plan) noexcept;
+build_prepared_bundle_jpeg_package(
+    std::span<const std::byte> input_jpeg, const PreparedTransferBundle& bundle,
+    const JpegEditPlan& plan, PreparedTransferPackagePlan* out_plan) noexcept;
+
+EmitTransferResult
+build_prepared_bundle_tiff_package(
+    std::span<const std::byte> input_tiff, const PreparedTransferBundle& bundle,
+    const TiffEditPlan& plan, PreparedTransferPackagePlan* out_plan) noexcept;
 
 EmitTransferResult
 write_prepared_transfer_package(std::span<const std::byte> input,
