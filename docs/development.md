@@ -241,14 +241,29 @@ Current v1 behavior is:
       current sign request, `claim_generator` when the request requires
       manifest-builder output, at least one decoded assertion when the
       request requires content binding, the primary signature linking back to
-      the prepared primary claim under that same content-binding contract,
+      the prepared primary claim under that same content-binding contract, no
+      primary-signature explicit-reference ambiguity under that same request,
+      and no multi-signature drift where the primary claim is referenced by
+      more than one signature under the current sign request, and no extra
+      linked signatures beyond the prepared sign request,
       manifest/claim/signature projection shape under the prepared manifest
       contract, and an exact match between the signer-provided
       `manifest_builder_output` bytes and the primary CBOR manifest payload
       embedded in the returned signed JUMBF.
     - `apply_prepared_c2pa_sign_result(...)` uses the same validation path.
     - Current JPEG validation now also checks that the staged APP11 sequence
-      reconstructs the logical payload byte-for-byte.
+      reconstructs the logical payload byte-for-byte, that APP11 sequence
+      numbers are contiguous, that repeated APP11 C2PA headers stay
+      consistent, and that the logical root type plus BMFF declared size stay
+      internally consistent before final emit/write.
+    - Final JPEG emit/write also validates the prepared APP11 C2PA carrier
+      against the bundle's own C2PA contract.
+      - `GeneratedDraftUnsignedInvalidation` must carry a draft invalidation
+        payload.
+      - `SignedRewrite` must carry content-bound C2PA and
+        `PreparedTransferBundle::c2pa_rewrite` must already be `Ready`.
+      - `Dropped` and `NotPresent` may not leave a prepared APP11 C2PA carrier.
+      - Missing required carriers fail before backend bytes are written.
   - `apply_prepared_c2pa_sign_result(...)` is the first bundle-level handoff
     point back from an external signer.
     - It validates the signer request against the current prepared bundle.
@@ -857,6 +872,17 @@ Draft C++ transfer entry points (prepare/emit scaffold):
   - `SpanTransferByteWriter` is the fixed-buffer adapter for encoder paths that
     want preallocated output memory and deterministic overflow reporting before
     any JPEG marker bytes are written.
+  - `PreparedTransferPackagePlan` is the shared final-output packaging layer
+    for current JPEG/TIFF rewrite paths.
+    - `TransferPackageChunkKind::SourceRange` copies bytes from the original
+      input stream.
+    - `TransferPackageChunkKind::PreparedJpegSegment` injects one prepared
+      JPEG marker segment from the bundle.
+    - `TransferPackageChunkKind::InlineBytes` carries deterministic generated
+      bytes such as the patched TIFF IFD0 offset or appended TIFF tail.
+    - `build_prepared_bundle_jpeg_package(...)`,
+      `build_prepared_bundle_tiff_package(...)`, and
+      `write_prepared_transfer_package(...)` expose that shared contract.
   - `emit_prepared_transfer_compiled(..., TiffTransferEmitter&)` is the
     intended TIFF hot path; TIFF does not expose a metadata-only byte-writer
     emit contract.

@@ -472,6 +472,33 @@ struct TiffEditPlan final {
     std::string message;
 };
 
+/// One chunk in a packaged transfer output plan.
+enum class TransferPackageChunkKind : uint8_t {
+    SourceRange,
+    PreparedJpegSegment,
+    InlineBytes,
+};
+
+/// One deterministic output chunk for a packaged transfer write.
+struct PreparedTransferPackageChunk final {
+    TransferPackageChunkKind kind = TransferPackageChunkKind::SourceRange;
+    uint64_t output_offset        = 0;
+    uint64_t source_offset        = 0;
+    uint64_t size                 = 0;
+    uint32_t block_index          = 0xFFFFFFFFU;
+    uint8_t jpeg_marker_code      = 0U;
+    std::vector<std::byte> inline_bytes;
+};
+
+/// Deterministic chunk plan for a final transfer output.
+struct PreparedTransferPackagePlan final {
+    uint32_t contract_version          = kMetadataTransferContractVersion;
+    TransferTargetFormat target_format = TransferTargetFormat::Jpeg;
+    uint64_t input_size                = 0;
+    uint64_t output_size               = 0;
+    std::vector<PreparedTransferPackageChunk> chunks;
+};
+
 /// One precompiled JPEG emit operation (route -> marker mapping).
 struct PreparedJpegEmitOp final {
     uint32_t block_index = 0;
@@ -1210,6 +1237,24 @@ EmitTransferResult
 write_prepared_bundle_tiff_edit(std::span<const std::byte> input_tiff,
                                 const PreparedTransferBundle& bundle,
                                 const TiffEditPlan& plan,
+                                TransferByteWriter& writer) noexcept;
+
+EmitTransferResult
+build_prepared_bundle_jpeg_package(std::span<const std::byte> input_jpeg,
+                                   const PreparedTransferBundle& bundle,
+                                   const JpegEditPlan& plan,
+                                   PreparedTransferPackagePlan* out_plan) noexcept;
+
+EmitTransferResult
+build_prepared_bundle_tiff_package(std::span<const std::byte> input_tiff,
+                                   const PreparedTransferBundle& bundle,
+                                   const TiffEditPlan& plan,
+                                   PreparedTransferPackagePlan* out_plan) noexcept;
+
+EmitTransferResult
+write_prepared_transfer_package(std::span<const std::byte> input,
+                                const PreparedTransferBundle& bundle,
+                                const PreparedTransferPackagePlan& plan,
                                 TransferByteWriter& writer) noexcept;
 
 }  // namespace openmeta

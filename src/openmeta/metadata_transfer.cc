@@ -911,6 +911,22 @@ namespace {
         }
     };
 
+    static void append_package_source_chunk(
+        PreparedTransferPackagePlan* plan, uint64_t source_offset,
+        uint64_t size) noexcept;
+
+    static void append_package_inline_chunk(
+        PreparedTransferPackagePlan* plan,
+        std::span<const std::byte> bytes) noexcept;
+
+    static void append_package_jpeg_segment_chunk(
+        PreparedTransferPackagePlan* plan, uint32_t block_index,
+        uint8_t marker_code, size_t payload_size) noexcept;
+
+    static EmitTransferResult validate_prepared_transfer_package_plan(
+        std::span<const std::byte> input, const PreparedTransferBundle& bundle,
+        const PreparedTransferPackagePlan& plan) noexcept;
+
     static bool write_transfer_bytes(TransferByteWriter& writer,
                                      std::span<const std::byte> bytes,
                                      EmitTransferResult* out,
@@ -1477,6 +1493,13 @@ namespace {
                     "signed c2pa payload primary signature explicit references do not resolve under the current sign request",
                     TransferStatus::Malformed);
             }
+            if (primary_signature_explicit_reference_resolved_claim_count
+                > 1U) {
+                return fail_transfer_c2pa_semantic_validation(
+                    out, "primary_signature_reference_ambiguous",
+                    "signed c2pa payload primary signature explicit references resolve to multiple claims under the current sign request",
+                    TransferStatus::Malformed);
+            }
         }
         if (summary.signature_linked > summary.signature_count) {
             return fail_transfer_c2pa_semantic_validation(
@@ -1554,6 +1577,19 @@ namespace {
             return fail_transfer_c2pa_semantic_validation(
                 out, "primary_claim_signature_link_missing",
                 "signed c2pa payload does not link the primary claim and signature under the current sign request",
+                TransferStatus::Malformed);
+        }
+        if (!request.manifest_label.empty()
+            && primary_claim_referenced_by_signature_count > 1U) {
+            return fail_transfer_c2pa_semantic_validation(
+                out, "primary_claim_signature_ambiguous",
+                "signed c2pa payload primary claim is referenced by multiple signatures under the current sign request",
+                TransferStatus::Malformed);
+        }
+        if (!request.manifest_label.empty() && summary.signature_linked > 1U) {
+            return fail_transfer_c2pa_semantic_validation(
+                out, "linked_signature_count_drift",
+                "signed c2pa payload has extra linked signatures beyond the current sign request",
                 TransferStatus::Malformed);
         }
         if (summary.explicit_reference_signature_count != 0U) {
@@ -5608,44 +5644,6 @@ namespace {
         return true;
     }
 
-    static bool write_tiff_rewrite_with_tail(std::span<const std::byte> input,
-                                             const TiffRewriteTail& rewrite,
-                                             TransferByteWriter& writer,
-                                             EmitTransferResult* out) noexcept
-    {
-        if (!out || input.size() < 8U) {
-            return false;
-        }
-        if (!write_transfer_bytes(writer, input.subspan(0, 4U), out,
-                                  "tiff rewrite header write failed")) {
-            return false;
-        }
-        std::array<std::byte, 4> patched_ifd0 = {
-            std::byte { 0x00 },
-            std::byte { 0x00 },
-            std::byte { 0x00 },
-            std::byte { 0x00 },
-        };
-        write_u32_tiff_bytes(&patched_ifd0, rewrite.new_ifd0_off,
-                             rewrite.endian);
-        if (!write_transfer_bytes(writer,
-                                  std::span<const std::byte>(
-                                      patched_ifd0.data(), patched_ifd0.size()),
-                                  out,
-                                  "tiff rewrite ifd0 offset write failed")) {
-            return false;
-        }
-        if (!write_transfer_bytes(writer, input.subspan(8U), out,
-                                  "tiff rewrite body write failed")) {
-            return false;
-        }
-        return write_transfer_bytes(
-            writer,
-            std::span<const std::byte>(rewrite.tail_bytes.data(),
-                                       rewrite.tail_bytes.size()),
-            out, "tiff rewrite tail write failed");
-    }
-
     static bool
     rewrite_tiff_ifd0_tags(std::span<const std::byte> input,
                            const std::vector<TiffTagUpdate>& updates,
@@ -6415,6 +6413,290 @@ append_prepared_bundle_jpeg_jumbf(
     return out;
 }
 
+namespace {
+
+    static EmitTransferResult validate_prepared_jpeg_c2pa_contract(
+        const PreparedTransferBundle& bundle, bool saw_c2pa,
+        C2paPayloadClass payload_class) noexcept
+    {
+        EmitTransferResult out;
+        const PreparedTransferPolicyDecision* decision
+            = find_policy_decision(bundle, TransferPolicySubject::C2pa);
+        const bool rewrite_ready
+            = bundle.c2pa_rewrite.state == TransferC2paRewriteState::Ready;
+
+        if (!saw_c2pa) {
+            if (rewrite_ready
+                || (decision
+                    && (decision->c2pa_prepared_output
+                            == TransferC2paPreparedOutput::PreservedRaw
+                        || decision->c2pa_prepared_output
+                               == TransferC2paPreparedOutput::
+                                   GeneratedDraftUnsignedInvalidation
+                        || decision->c2pa_prepared_output
+                               == TransferC2paPreparedOutput::SignedRewrite))) {
+                out.status  = TransferStatus::Malformed;
+                out.code    = EmitTransferCode::InvalidPayload;
+                out.errors  = 1U;
+                out.message
+                    = "prepared jpeg c2pa carrier is missing for the bundle c2pa contract";
+                return out;
+            }
+            out.status = TransferStatus::Ok;
+            out.code   = EmitTransferCode::None;
+            return out;
+        }
+
+        if (!decision) {
+            out.status  = TransferStatus::Malformed;
+            out.code    = EmitTransferCode::InvalidPayload;
+            out.errors  = 1U;
+            out.message = "prepared jpeg c2pa carrier has no c2pa policy contract";
+            return out;
+        }
+        if (payload_class == C2paPayloadClass::NotC2pa) {
+            out.status  = TransferStatus::Malformed;
+            out.code    = EmitTransferCode::InvalidPayload;
+            out.errors  = 1U;
+            out.message
+                = "prepared jpeg c2pa carrier logical payload is not c2pa";
+            return out;
+        }
+
+        switch (decision->c2pa_prepared_output) {
+        case TransferC2paPreparedOutput::Dropped:
+        case TransferC2paPreparedOutput::NotPresent:
+        case TransferC2paPreparedOutput::NotApplicable:
+            out.status  = TransferStatus::Malformed;
+            out.code    = EmitTransferCode::InvalidPayload;
+            out.errors  = 1U;
+            out.message
+                = "prepared jpeg c2pa carrier is present but the bundle c2pa contract does not allow output";
+            return out;
+        case TransferC2paPreparedOutput::GeneratedDraftUnsignedInvalidation:
+            if (payload_class != C2paPayloadClass::DraftUnsignedInvalidation) {
+                out.status  = TransferStatus::Malformed;
+                out.code    = EmitTransferCode::InvalidPayload;
+                out.errors  = 1U;
+                out.message
+                    = "prepared jpeg c2pa carrier does not match the draft invalidation contract";
+                return out;
+            }
+            break;
+        case TransferC2paPreparedOutput::SignedRewrite:
+            if (payload_class != C2paPayloadClass::ContentBound) {
+                out.status  = TransferStatus::Malformed;
+                out.code    = EmitTransferCode::InvalidPayload;
+                out.errors  = 1U;
+                out.message
+                    = "prepared jpeg c2pa carrier does not match the signed rewrite contract";
+                return out;
+            }
+            if (!rewrite_ready) {
+                out.status  = TransferStatus::Malformed;
+                out.code    = EmitTransferCode::InvalidPayload;
+                out.errors  = 1U;
+                out.message
+                    = "prepared jpeg c2pa signed rewrite carrier is not ready";
+                return out;
+            }
+            break;
+        case TransferC2paPreparedOutput::PreservedRaw:
+            if (decision->c2pa_mode == TransferC2paMode::PreserveRaw
+                && decision->c2pa_source_kind
+                       == TransferC2paSourceKind::DraftUnsignedInvalidation
+                && payload_class
+                       != C2paPayloadClass::DraftUnsignedInvalidation) {
+                out.status  = TransferStatus::Malformed;
+                out.code    = EmitTransferCode::InvalidPayload;
+                out.errors  = 1U;
+                out.message
+                    = "prepared jpeg c2pa carrier does not match the preserved raw source kind";
+                return out;
+            }
+            if (decision->c2pa_mode == TransferC2paMode::PreserveRaw
+                && decision->c2pa_source_kind
+                       == TransferC2paSourceKind::ContentBound
+                && payload_class != C2paPayloadClass::ContentBound) {
+                out.status  = TransferStatus::Malformed;
+                out.code    = EmitTransferCode::InvalidPayload;
+                out.errors  = 1U;
+                out.message
+                    = "prepared jpeg c2pa carrier does not match the preserved raw source kind";
+                return out;
+            }
+            break;
+        }
+
+        if (rewrite_ready
+            && decision->c2pa_prepared_output
+                   != TransferC2paPreparedOutput::SignedRewrite) {
+            out.status  = TransferStatus::Malformed;
+            out.code    = EmitTransferCode::InvalidPayload;
+            out.errors  = 1U;
+            out.message
+                = "bundle c2pa rewrite state is ready but the prepared output contract is not signed rewrite";
+            return out;
+        }
+
+        out.status = TransferStatus::Ok;
+        out.code   = EmitTransferCode::None;
+        return out;
+    }
+
+    static EmitTransferResult validate_prepared_jpeg_c2pa_blocks_for_emit(
+        const PreparedTransferBundle& bundle,
+        const EmitTransferOptions& options) noexcept
+    {
+        EmitTransferResult out;
+        bool saw_c2pa             = false;
+        uint32_t first_c2pa_index = 0U;
+        uint32_t expected_seq     = 1U;
+        uint32_t first_header_len = 0U;
+        uint32_t first_box_type   = 0U;
+        uint64_t declared_size    = 0U;
+        uint64_t logical_size     = 0U;
+        std::span<const std::byte> first_header;
+        std::vector<std::byte> reconstructed;
+
+        for (uint32_t i = 0; i < bundle.blocks.size(); ++i) {
+            const PreparedTransferBlock& block = bundle.blocks[i];
+            if (block.route != "jpeg:app11-c2pa") {
+                continue;
+            }
+            if (options.skip_empty_payloads && block.payload.empty()) {
+                out.status             = TransferStatus::Malformed;
+                out.code               = EmitTransferCode::InvalidPayload;
+                out.errors             = 1U;
+                out.failed_block_index = i;
+                out.message
+                    = "prepared jpeg c2pa carrier block payload is empty";
+                return out;
+            }
+            if (block.kind != TransferBlockKind::C2pa) {
+                out.status             = TransferStatus::Malformed;
+                out.code               = EmitTransferCode::InvalidPayload;
+                out.errors             = 1U;
+                out.failed_block_index = i;
+                out.message = "prepared jpeg c2pa carrier block kind is invalid";
+                return out;
+            }
+            if (block.payload.size() < 16U
+                || block.payload[0] != std::byte { 'J' }
+                || block.payload[1] != std::byte { 'P' }
+                || block.payload[2] != std::byte { 0x00 }
+                || block.payload[3] != std::byte { 0x00 }) {
+                out.status             = TransferStatus::Malformed;
+                out.code               = EmitTransferCode::InvalidPayload;
+                out.errors             = 1U;
+                out.failed_block_index = i;
+                out.message
+                    = "prepared jpeg c2pa carrier block header is invalid";
+                return out;
+            }
+
+            uint32_t seq = 0U;
+            if (!read_u32be(block.payload, 4U, &seq) || seq != expected_seq) {
+                out.status             = TransferStatus::Malformed;
+                out.code               = EmitTransferCode::InvalidPayload;
+                out.errors             = 1U;
+                out.failed_block_index = i;
+                out.message = "prepared jpeg c2pa carrier sequence is invalid";
+                return out;
+            }
+
+            const std::span<const std::byte> payload_span(block.payload.data(),
+                                                          block.payload.size());
+            const std::span<const std::byte> logical = payload_span.subspan(8U);
+            uint32_t header_len                      = 0U;
+            uint32_t box_type                        = 0U;
+            if (!parse_bmff_box_header(logical, &header_len, &box_type)
+                || !read_bmff_box_size(logical, &declared_size)
+                || payload_span.size() < static_cast<size_t>(8U + header_len)) {
+                out.status             = TransferStatus::Malformed;
+                out.code               = EmitTransferCode::InvalidPayload;
+                out.errors             = 1U;
+                out.failed_block_index = i;
+                out.message
+                    = "prepared jpeg c2pa carrier bmff header is invalid";
+                return out;
+            }
+
+            const std::span<const std::byte> header
+                = payload_span.subspan(8U, header_len);
+            if (!saw_c2pa) {
+                saw_c2pa         = true;
+                first_c2pa_index = i;
+                first_header_len = header_len;
+                first_box_type   = box_type;
+                first_header     = header;
+                if (first_box_type != fourcc('j', 'u', 'm', 'b')
+                    && first_box_type != fourcc('c', '2', 'p', 'a')) {
+                    out.status             = TransferStatus::Malformed;
+                    out.code               = EmitTransferCode::InvalidPayload;
+                    out.errors             = 1U;
+                    out.failed_block_index = i;
+                    out.message
+                        = "prepared jpeg c2pa logical root type is invalid";
+                    return out;
+                }
+                reconstructed.insert(reconstructed.end(), header.begin(),
+                                     header.end());
+            } else if (header_len != first_header_len
+                       || box_type != first_box_type
+                       || header.size() != first_header.size()
+                       || !std::equal(header.begin(), header.end(),
+                                      first_header.begin(),
+                                      first_header.end())) {
+                out.status             = TransferStatus::Malformed;
+                out.code               = EmitTransferCode::InvalidPayload;
+                out.errors             = 1U;
+                out.failed_block_index = i;
+                out.message
+                    = "prepared jpeg c2pa carrier header is inconsistent";
+                return out;
+            }
+
+            logical_size += static_cast<uint64_t>(payload_span.size())
+                            - static_cast<uint64_t>(8U + header_len);
+            if (i == first_c2pa_index) {
+                logical_size += static_cast<uint64_t>(header_len);
+            }
+            const std::span<const std::byte> body
+                = payload_span.subspan(8U + header_len);
+            reconstructed.insert(reconstructed.end(), body.begin(), body.end());
+            expected_seq += 1U;
+        }
+
+        if (saw_c2pa && logical_size != declared_size) {
+            out.status             = TransferStatus::Malformed;
+            out.code               = EmitTransferCode::InvalidPayload;
+            out.errors             = 1U;
+            out.failed_block_index = first_c2pa_index;
+            out.message
+                = "prepared jpeg c2pa logical payload size is inconsistent";
+            return out;
+        }
+
+        const C2paPayloadClass payload_class
+            = saw_c2pa
+                  ? classify_c2pa_jumbf_payload(std::span<const std::byte>(
+                        reconstructed.data(), reconstructed.size()))
+                  : C2paPayloadClass::NotC2pa;
+        const EmitTransferResult contract
+            = validate_prepared_jpeg_c2pa_contract(bundle, saw_c2pa,
+                                                   payload_class);
+        if (contract.status != TransferStatus::Ok) {
+            return contract;
+        }
+
+        out.status = TransferStatus::Ok;
+        out.code   = EmitTransferCode::None;
+        return out;
+    }
+
+}  // namespace
+
 EmitTransferResult
 emit_prepared_bundle_jpeg(const PreparedTransferBundle& bundle,
                           JpegTransferEmitter& emitter,
@@ -6427,6 +6709,12 @@ emit_prepared_bundle_jpeg(const PreparedTransferBundle& bundle,
         r.errors  = 1U;
         r.message = "bundle target format is not jpeg";
         return r;
+    }
+
+    const EmitTransferResult c2pa_preflight
+        = validate_prepared_jpeg_c2pa_blocks_for_emit(bundle, options);
+    if (c2pa_preflight.status != TransferStatus::Ok) {
+        return c2pa_preflight;
     }
 
     for (uint32_t i = 0; i < bundle.blocks.size(); ++i) {
@@ -6710,6 +6998,12 @@ compile_prepared_bundle_jpeg(const PreparedTransferBundle& bundle,
         return r;
     }
 
+    const EmitTransferResult c2pa_preflight
+        = validate_prepared_jpeg_c2pa_blocks_for_emit(bundle, options);
+    if (c2pa_preflight.status != TransferStatus::Ok) {
+        return c2pa_preflight;
+    }
+
     for (uint32_t i = 0; i < bundle.blocks.size(); ++i) {
         const PreparedTransferBlock& block = bundle.blocks[i];
         if (options.skip_empty_payloads && block.payload.empty()) {
@@ -6765,6 +7059,12 @@ emit_prepared_bundle_jpeg_compiled(const PreparedTransferBundle& bundle,
         r.errors  = 1U;
         r.message = "compiled plan contract_version mismatch";
         return r;
+    }
+
+    const EmitTransferResult c2pa_preflight
+        = validate_prepared_jpeg_c2pa_blocks_for_emit(bundle, options);
+    if (c2pa_preflight.status != TransferStatus::Ok) {
+        return c2pa_preflight;
     }
 
     for (uint32_t i = 0; i < plan.ops.size(); ++i) {
@@ -6849,6 +7149,12 @@ write_prepared_bundle_jpeg_compiled(const PreparedTransferBundle& bundle,
         r.errors  = 1U;
         r.message = "compiled plan contract_version mismatch";
         return r;
+    }
+
+    const EmitTransferResult c2pa_preflight
+        = validate_prepared_jpeg_c2pa_blocks_for_emit(bundle, options);
+    if (c2pa_preflight.status != TransferStatus::Ok) {
+        return c2pa_preflight;
     }
 
     for (uint32_t i = 0; i < plan.ops.size(); ++i) {
@@ -7202,195 +7508,17 @@ write_prepared_bundle_jpeg_edit(std::span<const std::byte> input_jpeg,
                                 const JpegEditPlan& plan,
                                 TransferByteWriter& writer) noexcept
 {
-    EmitTransferResult out;
-    if (plan.status != TransferStatus::Ok) {
-        out.status  = TransferStatus::InvalidArgument;
-        out.code    = EmitTransferCode::InvalidArgument;
-        out.errors  = 1U;
-        out.message = "edit plan status is not ok";
+    PreparedTransferPackagePlan package;
+    EmitTransferResult out = build_prepared_bundle_jpeg_package(
+        input_jpeg, bundle, plan, &package);
+    if (out.status != TransferStatus::Ok) {
         return out;
     }
-    if (bundle.target_format != TransferTargetFormat::Jpeg) {
-        out.status  = TransferStatus::Unsupported;
-        out.code    = EmitTransferCode::BundleTargetNotJpeg;
-        out.errors  = 1U;
-        out.message = "bundle target format is not jpeg";
-        return out;
+    out = write_prepared_transfer_package(input_jpeg, bundle, package, writer);
+    if (out.status == TransferStatus::Ok) {
+        out.emitted = plan.emitted_segments;
+        out.skipped = plan.removed_existing_segments;
     }
-
-    std::vector<PlannedJpegSegment> desired;
-    const EmitTransferResult desired_status
-        = collect_planned_jpeg_segments(bundle, true, &desired);
-    if (desired_status.status != TransferStatus::Ok) {
-        return desired_status;
-    }
-
-    const JpegScanResult scan = scan_leading_jpeg_segments(input_jpeg);
-    if (scan.status != TransferStatus::Ok) {
-        out.status  = scan.status;
-        out.code    = EmitTransferCode::InvalidArgument;
-        out.errors  = 1U;
-        out.message = scan.message;
-        return out;
-    }
-
-    if (plan.selected_mode == JpegEditMode::InPlace) {
-        std::vector<PlannedJpegReplacement> replacements;
-        replacements.reserve(desired.size());
-        for (size_t i = 0; i < desired.size(); ++i) {
-            const PlannedJpegSegment& d = desired[i];
-            const size_t occ    = route_occurrence_before(desired, i, d.route);
-            size_t existing_idx = 0;
-            if (!find_existing_by_route_occurrence(scan.leading_segments,
-                                                   d.route, occ,
-                                                   &existing_idx)) {
-                out.status  = TransferStatus::Unsupported;
-                out.code    = EmitTransferCode::PlanMismatch;
-                out.errors  = 1U;
-                out.message = "in_place match not found for route: " + d.route;
-                return out;
-            }
-            const ExistingJpegSegment& e = scan.leading_segments[existing_idx];
-            if (e.payload_len != d.payload.size()) {
-                out.status  = TransferStatus::Unsupported;
-                out.code    = EmitTransferCode::PlanMismatch;
-                out.errors  = 1U;
-                out.message = "in_place size mismatch for route: " + d.route;
-                return out;
-            }
-            PlannedJpegReplacement repl;
-            repl.payload_off = e.payload_off;
-            repl.payload_len = e.payload_len;
-            repl.payload     = d.payload;
-            repl.route       = d.route;
-            replacements.push_back(std::move(repl));
-        }
-
-        std::sort(replacements.begin(), replacements.end(),
-                  PlannedJpegReplacementLess {});
-
-        size_t cursor = 0;
-        for (size_t i = 0; i < replacements.size(); ++i) {
-            const PlannedJpegReplacement& repl = replacements[i];
-            if (repl.payload_off < cursor
-                || repl.payload_off + repl.payload_len > input_jpeg.size()) {
-                out.status  = TransferStatus::Malformed;
-                out.code    = EmitTransferCode::PlanMismatch;
-                out.errors  = 1U;
-                out.message = "in_place payload range out of bounds";
-                return out;
-            }
-            if (!write_transfer_bytes(
-                    writer,
-                    input_jpeg.subspan(cursor, repl.payload_off - cursor), &out,
-                    "jpeg in_place prefix write failed")) {
-                return out;
-            }
-            if (!write_transfer_bytes(writer, repl.payload, &out,
-                                      "jpeg in_place payload write failed")) {
-                return out;
-            }
-            cursor = repl.payload_off + repl.payload_len;
-            out.emitted += 1U;
-        }
-
-        if (cursor > input_jpeg.size()) {
-            out.status  = TransferStatus::Malformed;
-            out.code    = EmitTransferCode::PlanMismatch;
-            out.errors  = 1U;
-            out.message = "jpeg in_place cursor is out of range";
-            return out;
-        }
-        if (!write_transfer_bytes(writer, input_jpeg.subspan(cursor), &out,
-                                  "jpeg in_place tail write failed")) {
-            return out;
-        }
-        out.status = TransferStatus::Ok;
-        out.code   = EmitTransferCode::None;
-        return out;
-    }
-
-    if (plan.selected_mode != JpegEditMode::MetadataRewrite) {
-        out.status  = TransferStatus::InvalidArgument;
-        out.code    = EmitTransferCode::InvalidArgument;
-        out.errors  = 1U;
-        out.message = "unsupported selected edit mode";
-        return out;
-    }
-
-    if (input_jpeg.size() < 2U) {
-        out.status  = TransferStatus::Malformed;
-        out.code    = EmitTransferCode::InvalidArgument;
-        out.errors  = 1U;
-        out.message = "jpeg input is too small";
-        return out;
-    }
-
-    if (!write_transfer_bytes(writer, input_jpeg.subspan(0, 2U), &out,
-                              "jpeg rewrite soi write failed")) {
-        return out;
-    }
-
-    bool inserted = false;
-    for (size_t i = 0; i < scan.leading_segments.size(); ++i) {
-        const ExistingJpegSegment& e = scan.leading_segments[i];
-        const bool replaced = should_strip_existing_jpeg_segment(bundle, e,
-                                                                 desired);
-        if (replaced) {
-            if (!inserted) {
-                for (size_t si = 0; si < desired.size(); ++si) {
-                    if (!write_jpeg_marker_segment(writer, desired[si].marker,
-                                                   desired[si].payload, &out)) {
-                        return out;
-                    }
-                }
-                inserted    = true;
-                out.emitted = static_cast<uint32_t>(desired.size());
-            }
-            out.skipped += 1U;
-            continue;
-        }
-
-        const size_t seg_end = e.payload_off + e.payload_len;
-        if (seg_end > input_jpeg.size() || e.marker_off > seg_end) {
-            out.status  = TransferStatus::Malformed;
-            out.code    = EmitTransferCode::PlanMismatch;
-            out.errors  = 1U;
-            out.message = "existing jpeg segment range is invalid";
-            return out;
-        }
-        if (!write_transfer_bytes(writer,
-                                  input_jpeg.subspan(e.marker_off,
-                                                     seg_end - e.marker_off),
-                                  &out, "jpeg rewrite segment write failed")) {
-            return out;
-        }
-    }
-
-    if (!inserted) {
-        for (size_t si = 0; si < desired.size(); ++si) {
-            if (!write_jpeg_marker_segment(writer, desired[si].marker,
-                                           desired[si].payload, &out)) {
-                return out;
-            }
-        }
-        out.emitted = static_cast<uint32_t>(desired.size());
-    }
-
-    if (scan.scan_end > input_jpeg.size()) {
-        out.status  = TransferStatus::Malformed;
-        out.code    = EmitTransferCode::PlanMismatch;
-        out.errors  = 1U;
-        out.message = "jpeg rewrite scan end is out of range";
-        return out;
-    }
-    if (!write_transfer_bytes(writer, input_jpeg.subspan(scan.scan_end), &out,
-                              "jpeg rewrite tail write failed")) {
-        return out;
-    }
-
-    out.status = TransferStatus::Ok;
-    out.code   = EmitTransferCode::None;
     return out;
 }
 
@@ -7505,7 +7633,256 @@ write_prepared_bundle_tiff_edit(std::span<const std::byte> input_tiff,
                                 const TiffEditPlan& plan,
                                 TransferByteWriter& writer) noexcept
 {
+    PreparedTransferPackagePlan package;
+    EmitTransferResult out = build_prepared_bundle_tiff_package(
+        input_tiff, bundle, plan, &package);
+    if (out.status != TransferStatus::Ok) {
+        return out;
+    }
+    out = write_prepared_transfer_package(input_tiff, bundle, package, writer);
+    if (out.status == TransferStatus::Ok) {
+        out.emitted = plan.tag_updates + (plan.has_exif_ifd ? 1U : 0U);
+    }
+    return out;
+}
+
+EmitTransferResult
+build_prepared_bundle_jpeg_package(std::span<const std::byte> input_jpeg,
+                                   const PreparedTransferBundle& bundle,
+                                   const JpegEditPlan& plan,
+                                   PreparedTransferPackagePlan* out_plan) noexcept
+{
     EmitTransferResult out;
+    if (!out_plan) {
+        out.status  = TransferStatus::InvalidArgument;
+        out.code    = EmitTransferCode::InvalidArgument;
+        out.errors  = 1U;
+        out.message = "out_plan is null";
+        return out;
+    }
+    out_plan->contract_version = bundle.contract_version;
+    out_plan->target_format    = bundle.target_format;
+    out_plan->input_size       = static_cast<uint64_t>(input_jpeg.size());
+    out_plan->output_size      = 0U;
+    out_plan->chunks.clear();
+
+    if (plan.status != TransferStatus::Ok) {
+        out.status  = TransferStatus::InvalidArgument;
+        out.code    = EmitTransferCode::InvalidArgument;
+        out.errors  = 1U;
+        out.message = "edit plan status is not ok";
+        return out;
+    }
+    if (bundle.target_format != TransferTargetFormat::Jpeg) {
+        out.status  = TransferStatus::Unsupported;
+        out.code    = EmitTransferCode::BundleTargetNotJpeg;
+        out.errors  = 1U;
+        out.message = "bundle target format is not jpeg";
+        return out;
+    }
+
+    EmitTransferOptions opts;
+    opts.skip_empty_payloads = true;
+    opts.stop_on_error       = true;
+    PreparedJpegEmitPlan compiled;
+    out = compile_prepared_bundle_jpeg(bundle, &compiled, opts);
+    if (out.status != TransferStatus::Ok) {
+        return out;
+    }
+
+    std::vector<PlannedJpegSegment> desired;
+    desired.reserve(compiled.ops.size());
+    std::vector<PreparedJpegEmitOp> desired_ops;
+    desired_ops.reserve(compiled.ops.size());
+    for (size_t i = 0; i < compiled.ops.size(); ++i) {
+        const PreparedJpegEmitOp& op = compiled.ops[i];
+        if (op.block_index >= bundle.blocks.size()) {
+            out.status  = TransferStatus::InvalidArgument;
+            out.code    = EmitTransferCode::PlanMismatch;
+            out.errors  = 1U;
+            out.message = "compiled jpeg op block index out of range";
+            return out;
+        }
+        const PreparedTransferBlock& block = bundle.blocks[op.block_index];
+        PlannedJpegSegment seg;
+        seg.marker  = op.marker_code;
+        seg.route   = block.route;
+        seg.payload = std::span<const std::byte>(block.payload.data(),
+                                                 block.payload.size());
+        desired.push_back(std::move(seg));
+        desired_ops.push_back(op);
+    }
+
+    const JpegScanResult scan = scan_leading_jpeg_segments(input_jpeg);
+    if (scan.status != TransferStatus::Ok) {
+        out.status  = scan.status;
+        out.code    = EmitTransferCode::InvalidArgument;
+        out.errors  = 1U;
+        out.message = scan.message;
+        return out;
+    }
+
+    if (plan.selected_mode == JpegEditMode::InPlace) {
+        std::vector<PlannedJpegReplacement> replacements;
+        replacements.reserve(desired.size());
+        for (size_t i = 0; i < desired.size(); ++i) {
+            const PlannedJpegSegment& d = desired[i];
+            const size_t occ            = route_occurrence_before(desired, i,
+                                                       d.route);
+            size_t existing_idx         = 0U;
+            if (!find_existing_by_route_occurrence(scan.leading_segments,
+                                                   d.route, occ,
+                                                   &existing_idx)) {
+                out.status  = TransferStatus::Unsupported;
+                out.code    = EmitTransferCode::PlanMismatch;
+                out.errors  = 1U;
+                out.message = "in_place match not found for route: " + d.route;
+                return out;
+            }
+            const ExistingJpegSegment& e = scan.leading_segments[existing_idx];
+            if (e.payload_len != d.payload.size()) {
+                out.status  = TransferStatus::Unsupported;
+                out.code    = EmitTransferCode::PlanMismatch;
+                out.errors  = 1U;
+                out.message = "in_place size mismatch for route: " + d.route;
+                return out;
+            }
+            PlannedJpegReplacement repl;
+            repl.payload_off = e.payload_off;
+            repl.payload_len = e.payload_len;
+            repl.payload     = d.payload;
+            repl.route       = d.route;
+            replacements.push_back(std::move(repl));
+        }
+        std::sort(replacements.begin(), replacements.end(),
+                  PlannedJpegReplacementLess {});
+
+        size_t cursor = 0U;
+        for (size_t i = 0; i < replacements.size(); ++i) {
+            const PlannedJpegReplacement& repl = replacements[i];
+            if (repl.payload_off < cursor
+                || repl.payload_off + repl.payload_len > input_jpeg.size()) {
+                out.status  = TransferStatus::Malformed;
+                out.code    = EmitTransferCode::PlanMismatch;
+                out.errors  = 1U;
+                out.message = "in_place payload range out of bounds";
+                return out;
+            }
+            append_package_source_chunk(
+                out_plan, static_cast<uint64_t>(cursor),
+                static_cast<uint64_t>(repl.payload_off - cursor));
+            append_package_inline_chunk(
+                out_plan, std::span<const std::byte>(repl.payload.data(),
+                                                     repl.payload.size()));
+            cursor = repl.payload_off + repl.payload_len;
+        }
+        if (cursor > input_jpeg.size()) {
+            out.status  = TransferStatus::Malformed;
+            out.code    = EmitTransferCode::PlanMismatch;
+            out.errors  = 1U;
+            out.message = "jpeg in_place cursor is out of range";
+            return out;
+        }
+        append_package_source_chunk(
+            out_plan, static_cast<uint64_t>(cursor),
+            static_cast<uint64_t>(input_jpeg.size() - cursor));
+        out_plan->output_size = plan.output_size;
+        out.status            = TransferStatus::Ok;
+        out.code              = EmitTransferCode::None;
+        return out;
+    }
+
+    if (plan.selected_mode != JpegEditMode::MetadataRewrite) {
+        out.status  = TransferStatus::InvalidArgument;
+        out.code    = EmitTransferCode::InvalidArgument;
+        out.errors  = 1U;
+        out.message = "unsupported selected edit mode";
+        return out;
+    }
+    if (input_jpeg.size() < 2U) {
+        out.status  = TransferStatus::Malformed;
+        out.code    = EmitTransferCode::InvalidArgument;
+        out.errors  = 1U;
+        out.message = "jpeg input is too small";
+        return out;
+    }
+
+    append_package_source_chunk(out_plan, 0U, 2U);
+
+    bool inserted = false;
+    for (size_t i = 0; i < scan.leading_segments.size(); ++i) {
+        const ExistingJpegSegment& e = scan.leading_segments[i];
+        const bool replaced = should_strip_existing_jpeg_segment(bundle, e,
+                                                                 desired);
+        if (replaced) {
+            if (!inserted) {
+                for (size_t si = 0; si < desired.size(); ++si) {
+                    append_package_jpeg_segment_chunk(
+                        out_plan, desired_ops[si].block_index,
+                        desired_ops[si].marker_code,
+                        desired[si].payload.size());
+                }
+                inserted = true;
+            }
+            continue;
+        }
+        const size_t seg_end = e.payload_off + e.payload_len;
+        if (seg_end > input_jpeg.size() || e.marker_off > seg_end) {
+            out.status  = TransferStatus::Malformed;
+            out.code    = EmitTransferCode::PlanMismatch;
+            out.errors  = 1U;
+            out.message = "existing jpeg segment range is invalid";
+            return out;
+        }
+        append_package_source_chunk(
+            out_plan, static_cast<uint64_t>(e.marker_off),
+            static_cast<uint64_t>(seg_end - e.marker_off));
+    }
+    if (!inserted) {
+        for (size_t si = 0; si < desired.size(); ++si) {
+            append_package_jpeg_segment_chunk(out_plan,
+                                              desired_ops[si].block_index,
+                                              desired_ops[si].marker_code,
+                                              desired[si].payload.size());
+        }
+    }
+    if (scan.scan_end > input_jpeg.size()) {
+        out.status  = TransferStatus::Malformed;
+        out.code    = EmitTransferCode::PlanMismatch;
+        out.errors  = 1U;
+        out.message = "jpeg rewrite scan end is out of range";
+        return out;
+    }
+    append_package_source_chunk(
+        out_plan, static_cast<uint64_t>(scan.scan_end),
+        static_cast<uint64_t>(input_jpeg.size() - scan.scan_end));
+
+    out_plan->output_size = plan.output_size;
+    out.status            = TransferStatus::Ok;
+    out.code              = EmitTransferCode::None;
+    return out;
+}
+
+EmitTransferResult
+build_prepared_bundle_tiff_package(std::span<const std::byte> input_tiff,
+                                   const PreparedTransferBundle& bundle,
+                                   const TiffEditPlan& plan,
+                                   PreparedTransferPackagePlan* out_plan) noexcept
+{
+    EmitTransferResult out;
+    if (!out_plan) {
+        out.status  = TransferStatus::InvalidArgument;
+        out.code    = EmitTransferCode::InvalidArgument;
+        out.errors  = 1U;
+        out.message = "out_plan is null";
+        return out;
+    }
+    out_plan->contract_version = bundle.contract_version;
+    out_plan->target_format    = bundle.target_format;
+    out_plan->input_size       = static_cast<uint64_t>(input_tiff.size());
+    out_plan->output_size      = 0U;
+    out_plan->chunks.clear();
+
     if (plan.status != TransferStatus::Ok) {
         out.status  = TransferStatus::InvalidArgument;
         out.code    = EmitTransferCode::InvalidArgument;
@@ -7546,19 +7923,88 @@ write_prepared_bundle_tiff_edit(std::span<const std::byte> input_tiff,
         out.message = err;
         return out;
     }
-    if (!write_tiff_rewrite_with_tail(input_tiff, rewrite, writer, &out)) {
-        if (out.code == EmitTransferCode::None) {
-            out.code = EmitTransferCode::BackendWriteFailed;
-        }
-        if (out.message.empty()) {
-            out.message = "tiff edit write failed";
-        }
+
+    if (input_tiff.size() < 8U) {
+        out.status  = TransferStatus::Malformed;
+        out.code    = EmitTransferCode::InvalidArgument;
+        out.errors  = 1U;
+        out.message = "tiff input is too small";
         return out;
     }
 
-    out.status  = TransferStatus::Ok;
-    out.code    = EmitTransferCode::None;
-    out.emitted = plan.tag_updates + (plan.has_exif_ifd ? 1U : 0U);
+    append_package_source_chunk(out_plan, 0U, 4U);
+    std::array<std::byte, 4> patched_ifd0 = {
+        std::byte { 0x00 },
+        std::byte { 0x00 },
+        std::byte { 0x00 },
+        std::byte { 0x00 },
+    };
+    write_u32_tiff_bytes(&patched_ifd0, rewrite.new_ifd0_off, rewrite.endian);
+    append_package_inline_chunk(out_plan,
+                                std::span<const std::byte>(patched_ifd0.data(),
+                                                           patched_ifd0.size()));
+    append_package_source_chunk(
+        out_plan, 8U, static_cast<uint64_t>(input_tiff.size() - 8U));
+    append_package_inline_chunk(
+        out_plan, std::span<const std::byte>(rewrite.tail_bytes.data(),
+                                             rewrite.tail_bytes.size()));
+    out_plan->output_size = plan.output_size;
+    out.status            = TransferStatus::Ok;
+    out.code              = EmitTransferCode::None;
+    return out;
+}
+
+EmitTransferResult
+write_prepared_transfer_package(std::span<const std::byte> input,
+                                const PreparedTransferBundle& bundle,
+                                const PreparedTransferPackagePlan& plan,
+                                TransferByteWriter& writer) noexcept
+{
+    EmitTransferResult out = validate_prepared_transfer_package_plan(input,
+                                                                     bundle,
+                                                                     plan);
+    if (out.status != TransferStatus::Ok) {
+        return out;
+    }
+
+    for (size_t i = 0; i < plan.chunks.size(); ++i) {
+        const PreparedTransferPackageChunk& chunk = plan.chunks[i];
+        switch (chunk.kind) {
+        case TransferPackageChunkKind::SourceRange:
+            if (!write_transfer_bytes(writer,
+                                      input.subspan(
+                                          static_cast<size_t>(chunk.source_offset),
+                                          static_cast<size_t>(chunk.size)),
+                                      &out,
+                                      "prepared transfer package source write failed")) {
+                return out;
+            }
+            break;
+        case TransferPackageChunkKind::PreparedJpegSegment: {
+            const PreparedTransferBlock& block = bundle.blocks[chunk.block_index];
+            if (!write_jpeg_marker_segment(
+                    writer, chunk.jpeg_marker_code,
+                    std::span<const std::byte>(block.payload.data(),
+                                               block.payload.size()),
+                    &out)) {
+                return out;
+            }
+            break;
+        }
+        case TransferPackageChunkKind::InlineBytes:
+            if (!write_transfer_bytes(
+                    writer,
+                    std::span<const std::byte>(chunk.inline_bytes.data(),
+                                               chunk.inline_bytes.size()),
+                    &out, "prepared transfer package inline write failed")) {
+                return out;
+            }
+            break;
+        }
+    }
+
+    out.status = TransferStatus::Ok;
+    out.code   = EmitTransferCode::None;
     return out;
 }
 
@@ -9301,6 +9747,169 @@ namespace {
             }
         }
         std::sort(out->begin(), out->end(), EmittedTiffTagSummaryLess {});
+    }
+
+    static uint64_t package_plan_next_output_offset(
+        const PreparedTransferPackagePlan& plan) noexcept
+    {
+        if (plan.chunks.empty()) {
+            return 0U;
+        }
+        const PreparedTransferPackageChunk& back = plan.chunks.back();
+        return back.output_offset + back.size;
+    }
+
+    static void append_package_source_chunk(
+        PreparedTransferPackagePlan* plan, uint64_t source_offset,
+        uint64_t size) noexcept
+    {
+        if (!plan || size == 0U) {
+            return;
+        }
+        PreparedTransferPackageChunk one;
+        one.kind         = TransferPackageChunkKind::SourceRange;
+        one.output_offset = package_plan_next_output_offset(*plan);
+        one.source_offset = source_offset;
+        one.size          = size;
+        plan->chunks.push_back(std::move(one));
+    }
+
+    static void append_package_inline_chunk(
+        PreparedTransferPackagePlan* plan,
+        std::span<const std::byte> bytes) noexcept
+    {
+        if (!plan || bytes.empty()) {
+            return;
+        }
+        PreparedTransferPackageChunk one;
+        one.kind          = TransferPackageChunkKind::InlineBytes;
+        one.output_offset = package_plan_next_output_offset(*plan);
+        one.size          = static_cast<uint64_t>(bytes.size());
+        one.inline_bytes.assign(bytes.begin(), bytes.end());
+        plan->chunks.push_back(std::move(one));
+    }
+
+    static void append_package_jpeg_segment_chunk(
+        PreparedTransferPackagePlan* plan, uint32_t block_index,
+        uint8_t marker_code, size_t payload_size) noexcept
+    {
+        if (!plan) {
+            return;
+        }
+        PreparedTransferPackageChunk one;
+        one.kind             = TransferPackageChunkKind::PreparedJpegSegment;
+        one.output_offset    = package_plan_next_output_offset(*plan);
+        one.block_index      = block_index;
+        one.jpeg_marker_code = marker_code;
+        one.size             = 4U + static_cast<uint64_t>(payload_size);
+        plan->chunks.push_back(std::move(one));
+    }
+
+    static EmitTransferResult validate_prepared_transfer_package_plan(
+        std::span<const std::byte> input, const PreparedTransferBundle& bundle,
+        const PreparedTransferPackagePlan& plan) noexcept
+    {
+        EmitTransferResult out;
+        if (plan.contract_version != bundle.contract_version) {
+            out.status  = TransferStatus::InvalidArgument;
+            out.code    = EmitTransferCode::PlanMismatch;
+            out.errors  = 1U;
+            out.message = "prepared transfer package contract_version mismatch";
+            return out;
+        }
+        if (plan.target_format != bundle.target_format) {
+            out.status  = TransferStatus::InvalidArgument;
+            out.code    = EmitTransferCode::PlanMismatch;
+            out.errors  = 1U;
+            out.message = "prepared transfer package target_format mismatch";
+            return out;
+        }
+        if (plan.input_size != static_cast<uint64_t>(input.size())) {
+            out.status  = TransferStatus::InvalidArgument;
+            out.code    = EmitTransferCode::PlanMismatch;
+            out.errors  = 1U;
+            out.message = "prepared transfer package input_size mismatch";
+            return out;
+        }
+
+        uint64_t expected_output = 0U;
+        for (size_t i = 0; i < plan.chunks.size(); ++i) {
+            const PreparedTransferPackageChunk& chunk = plan.chunks[i];
+            if (chunk.output_offset != expected_output) {
+                out.status  = TransferStatus::InvalidArgument;
+                out.code    = EmitTransferCode::PlanMismatch;
+                out.errors  = 1U;
+                out.message = "prepared transfer package output offsets are not contiguous";
+                return out;
+            }
+            switch (chunk.kind) {
+            case TransferPackageChunkKind::SourceRange:
+                if (chunk.source_offset > static_cast<uint64_t>(input.size())
+                    || chunk.size
+                           > static_cast<uint64_t>(input.size())
+                                 - chunk.source_offset) {
+                    out.status  = TransferStatus::Malformed;
+                    out.code    = EmitTransferCode::PlanMismatch;
+                    out.errors  = 1U;
+                    out.message = "prepared transfer package source range is out of bounds";
+                    return out;
+                }
+                break;
+            case TransferPackageChunkKind::PreparedJpegSegment:
+                if (bundle.target_format != TransferTargetFormat::Jpeg) {
+                    out.status  = TransferStatus::Unsupported;
+                    out.code    = EmitTransferCode::InvalidArgument;
+                    out.errors  = 1U;
+                    out.message = "prepared jpeg segment chunk requires jpeg target";
+                    return out;
+                }
+                if (chunk.block_index >= bundle.blocks.size()) {
+                    out.status  = TransferStatus::InvalidArgument;
+                    out.code    = EmitTransferCode::PlanMismatch;
+                    out.errors  = 1U;
+                    out.message = "prepared jpeg segment chunk block_index is out of range";
+                    return out;
+                }
+                if (chunk.size != 4U
+                        + static_cast<uint64_t>(
+                            bundle.blocks[chunk.block_index].payload.size())) {
+                    out.status  = TransferStatus::InvalidArgument;
+                    out.code    = EmitTransferCode::PlanMismatch;
+                    out.errors  = 1U;
+                    out.message = "prepared jpeg segment chunk size mismatch";
+                    return out;
+                }
+                break;
+            case TransferPackageChunkKind::InlineBytes:
+                if (chunk.size
+                    != static_cast<uint64_t>(chunk.inline_bytes.size())) {
+                    out.status  = TransferStatus::InvalidArgument;
+                    out.code    = EmitTransferCode::PlanMismatch;
+                    out.errors  = 1U;
+                    out.message = "prepared transfer package inline chunk size mismatch";
+                    return out;
+                }
+                break;
+            }
+            if (UINT64_MAX - expected_output < chunk.size) {
+                out.status  = TransferStatus::LimitExceeded;
+                out.code    = EmitTransferCode::InvalidPayload;
+                out.errors  = 1U;
+                out.message = "prepared transfer package output size overflow";
+                return out;
+            }
+            expected_output += chunk.size;
+        }
+        if (expected_output != plan.output_size) {
+            out.status  = TransferStatus::InvalidArgument;
+            out.code    = EmitTransferCode::PlanMismatch;
+            out.errors  = 1U;
+            out.message = "prepared transfer package output_size mismatch";
+            return out;
+        }
+        out.status = TransferStatus::Ok;
+        out.code   = EmitTransferCode::None;
+        return out;
     }
 
     static bool has_time_patch_width(const PreparedTransferBundle& bundle,
