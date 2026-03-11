@@ -80,6 +80,8 @@ C++ adapter entry points:
   from ``MetaStore``
 - ``build_exr_attribute_part_spans(...)`` groups that batch into contiguous
   per-part spans
+- ``build_exr_attribute_part_views(...)`` exposes zero-copy grouped per-part
+  views over the same batch
 - ``replay_exr_attribute_batch(...)`` replays the grouped batch through
   explicit host callbacks
 

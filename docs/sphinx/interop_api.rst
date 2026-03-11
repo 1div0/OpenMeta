@@ -75,6 +75,8 @@ Adapters
   It exports one owned EXR-native attribute batch from ``MetaStore`` for
   OpenEXR/OIIO header workflows.
   ``build_exr_attribute_part_spans(...)`` groups that batch by part, and
+  ``build_exr_attribute_part_views(...)`` exposes zero-copy grouped per-part
+  views,
   ``replay_exr_attribute_batch(...)`` replays the grouped batch through
   explicit host callbacks.
   Unknown/custom attrs remain opaque only when the original EXR type name is

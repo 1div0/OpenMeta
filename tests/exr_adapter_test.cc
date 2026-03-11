@@ -427,4 +427,57 @@ TEST(ExrAdapter, ReplayReportsCallbackFailure)
     EXPECT_EQ(replay.message, "emit_attribute callback failed");
 }
 
+
+TEST(ExrAdapter, BuildsGroupedPartViews)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+
+    Entry a0;
+    a0.key          = make_exr_attribute_key(store.arena(), 2U, "owner");
+    a0.value        = make_text(store.arena(), "A", TextEncoding::Ascii);
+    a0.origin.block = block;
+    a0.origin.order_in_block   = 0U;
+    a0.origin.wire_type.family = WireFamily::Other;
+    a0.origin.wire_type.code   = 20U;
+    (void)store.add_entry(a0);
+
+    Entry a1;
+    a1.key          = make_exr_attribute_key(store.arena(), 0U, "gain");
+    a1.value        = make_i32(1);
+    a1.origin.block = block;
+    a1.origin.order_in_block   = 1U;
+    a1.origin.wire_type.family = WireFamily::Other;
+    a1.origin.wire_type.code   = 11U;
+    (void)store.add_entry(a1);
+
+    Entry a2;
+    a2.key          = make_exr_attribute_key(store.arena(), 2U, "owner2");
+    a2.value        = make_text(store.arena(), "B", TextEncoding::Ascii);
+    a2.origin.block = block;
+    a2.origin.order_in_block   = 2U;
+    a2.origin.wire_type.family = WireFamily::Other;
+    a2.origin.wire_type.code   = 20U;
+    (void)store.add_entry(a2);
+
+    store.finalize();
+
+    ExrAdapterBatch batch;
+    const ExrAdapterResult build = build_exr_attribute_batch(store, &batch);
+    ASSERT_EQ(build.status, ExrAdapterStatus::Ok);
+
+    std::vector<ExrAdapterPartView> views;
+    const ExrAdapterStatus status = build_exr_attribute_part_views(batch,
+                                                                   &views);
+    ASSERT_EQ(status, ExrAdapterStatus::Ok);
+    ASSERT_EQ(views.size(), 2U);
+    EXPECT_EQ(views[0].part_index, 0U);
+    ASSERT_EQ(views[0].attributes.size(), 1U);
+    EXPECT_EQ(views[0].attributes[0].name, "gain");
+    EXPECT_EQ(views[1].part_index, 2U);
+    ASSERT_EQ(views[1].attributes.size(), 2U);
+    EXPECT_EQ(views[1].attributes[0].name, "owner");
+    EXPECT_EQ(views[1].attributes[1].name, "owner2");
+}
+
 }  // namespace openmeta

@@ -78,6 +78,12 @@ struct ExrAdapterReplayCallbacks final {
     void* user = nullptr;
 };
 
+/// One zero-copy per-part attribute view over \ref ExrAdapterBatch.
+struct ExrAdapterPartView final {
+    uint32_t part_index = 0;
+    std::span<const ExrAdapterAttribute> attributes;
+};
+
 /// Result for EXR adapter batch replay.
 struct ExrAdapterReplayResult final {
     ExrAdapterStatus status         = ExrAdapterStatus::Ok;
@@ -110,6 +116,13 @@ build_exr_attribute_batch(const MetaStore& store, ExrAdapterBatch* out,
 ExrAdapterStatus
 build_exr_attribute_part_spans(const ExrAdapterBatch& batch,
                                std::vector<ExrAdapterPartSpan>* out) noexcept;
+
+/**
+ * \brief Builds zero-copy per-part views over one \ref ExrAdapterBatch.
+ */
+ExrAdapterStatus
+build_exr_attribute_part_views(const ExrAdapterBatch& batch,
+                               std::vector<ExrAdapterPartView>* out) noexcept;
 
 /**
  * \brief Replays one \ref ExrAdapterBatch through explicit host callbacks.

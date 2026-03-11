@@ -498,6 +498,37 @@ build_exr_attribute_part_spans(const ExrAdapterBatch& batch,
 }
 
 
+ExrAdapterStatus
+build_exr_attribute_part_views(const ExrAdapterBatch& batch,
+                               std::vector<ExrAdapterPartView>* out) noexcept
+{
+    if (!out) {
+        return ExrAdapterStatus::InvalidArgument;
+    }
+
+    std::vector<ExrAdapterPartSpan> spans;
+    const ExrAdapterStatus status = build_exr_attribute_part_spans(batch,
+                                                                   &spans);
+    if (status != ExrAdapterStatus::Ok) {
+        out->clear();
+        return status;
+    }
+
+    out->clear();
+    out->reserve(spans.size());
+    const std::span<const ExrAdapterAttribute> attrs(batch.attributes.data(),
+                                                     batch.attributes.size());
+    for (size_t i = 0; i < spans.size(); ++i) {
+        ExrAdapterPartView view;
+        view.part_index = spans[i].part_index;
+        view.attributes = attrs.subspan(spans[i].first_attribute,
+                                        spans[i].attribute_count);
+        out->push_back(view);
+    }
+    return ExrAdapterStatus::Ok;
+}
+
+
 ExrAdapterReplayResult
 replay_exr_attribute_batch(const ExrAdapterBatch& batch,
                            const ExrAdapterReplayCallbacks& callbacks) noexcept

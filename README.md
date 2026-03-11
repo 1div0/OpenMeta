@@ -138,10 +138,12 @@ Current baseline-gated status on tracked corpora:
     transfer core: `build_exr_attribute_batch(...)` exports per-part EXR header
     attributes as owned `(part_index, name, type_name, value_bytes)` records,
     `build_exr_attribute_part_spans(...)` groups them into contiguous per-part
-    spans, and `replay_exr_attribute_batch(...)` replays the grouped batch
-    through explicit host callbacks. Known scalar/vector EXR types are
-    re-encoded deterministically, while unknown/custom attributes can be
-    preserved as opaque raw bytes when their original type name is available.
+    spans, `build_exr_attribute_part_views(...)` exposes zero-copy grouped
+    part views for host code, and `replay_exr_attribute_batch(...)` replays
+    the grouped batch through explicit host callbacks. Known scalar/vector EXR
+    types are re-encoded deterministically, while unknown/custom attributes
+    can be preserved as opaque raw bytes when their original type name is
+    available.
     JPEG XL is now a first transfer target in the same core API:
     `prepare_metadata_for_target(..., TransferTargetFormat::Jxl, ...)`
     can build `Exif` and `xml ` box payloads from `MetaStore`,

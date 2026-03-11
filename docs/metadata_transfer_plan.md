@@ -239,7 +239,8 @@ Read-path readiness is high:
    - `build_oiio_transfer_payload_batch(...)` is the first owned batch form of
      that bridge for caching or cross-layer handoff.
    - `build_exr_attribute_batch(...)`,
-     `build_exr_attribute_part_spans(...)`, and
+     `build_exr_attribute_part_spans(...)`,
+     `build_exr_attribute_part_views(...)`, and
      `replay_exr_attribute_batch(...)` are the EXR-native attribute bridge for
      OpenEXR/OIIO header workflows, intentionally outside the block-transfer
      core.
@@ -280,6 +281,7 @@ Two paths:
     cross-layer handoff without keeping the prepared bundle alive.
 - `build_exr_attribute_batch(store, out_batch, options)`
 - `build_exr_attribute_part_spans(batch, out_spans)`
+- `build_exr_attribute_part_views(batch, out_views)`
 - `replay_exr_attribute_batch(batch, callbacks)`
   - Store-based EXR-native attribute bridge:
     exports owned `(part_index, name, type_name, value_bytes)` records for

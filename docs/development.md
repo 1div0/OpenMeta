@@ -816,6 +816,8 @@ Current C++ adapter entry points:
     `part_index`, `name`, `type_name`, `value` bytes, and `is_opaque`
   - `build_exr_attribute_part_spans(...)`
     groups the batch into deterministic contiguous per-part spans
+  - `build_exr_attribute_part_views(...)`
+    exposes zero-copy grouped per-part views over the same batch
   - `replay_exr_attribute_batch(...)`
     replays the grouped batch through explicit host callbacks
   - unlike the prepared JPEG/TIFF/JXL transfer path, this bridge is
@@ -940,7 +942,8 @@ Draft C++ transfer entry points (prepare/emit scaffold):
       bridge when the host needs payload lifetime independent from the
       prepared bundle.
     - `build_exr_attribute_batch(...)`,
-      `build_exr_attribute_part_spans(...)`, and
+      `build_exr_attribute_part_spans(...)`,
+      `build_exr_attribute_part_views(...)`, and
       `replay_exr_attribute_batch(...)` are the EXR-native bridge for
       OpenEXR/OIIO header-attribute workflows. They stay outside the
       `PreparedTransferBundle` path because EXR metadata is attribute-native,
