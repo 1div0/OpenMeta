@@ -553,6 +553,42 @@ struct PreparedTransferExecutionPlan final {
     PreparedJxlEmitPlan jxl_emit;
 };
 
+/// One normalized adapter operation for external encoder or host integration.
+enum class TransferAdapterOpKind : uint8_t {
+    JpegMarker,
+    TiffTagBytes,
+    JxlBox,
+};
+
+/// One compiled adapter-facing operation derived from a prepared bundle.
+struct PreparedTransferAdapterOp final {
+    TransferAdapterOpKind kind   = TransferAdapterOpKind::JpegMarker;
+    uint32_t block_index         = 0U;
+    uint64_t payload_size        = 0U;
+    uint64_t serialized_size     = 0U;
+    uint8_t jpeg_marker_code     = 0U;
+    uint16_t tiff_tag            = 0U;
+    std::array<char, 4> box_type = { '\0', '\0', '\0', '\0' };
+    bool compress                = false;
+};
+
+/// One target-neutral adapter view over prepared transfer operations.
+struct PreparedTransferAdapterView final {
+    uint32_t contract_version          = kMetadataTransferContractVersion;
+    TransferTargetFormat target_format = TransferTargetFormat::Jpeg;
+    EmitTransferOptions emit;
+    std::vector<PreparedTransferAdapterOp> ops;
+};
+
+/// Generic host-side sink for adapter-view transfer operations.
+class TransferAdapterSink {
+public:
+    virtual ~TransferAdapterSink() = default;
+    virtual TransferStatus emit_op(const PreparedTransferAdapterOp& op,
+                                   std::span<const std::byte> payload) noexcept
+        = 0;
+};
+
 /// File-read + decode options for \ref prepare_metadata_for_target_file.
 struct PrepareTransferFileOptions final {
     bool include_pointer_tags       = true;
@@ -1122,6 +1158,30 @@ compile_prepared_transfer_execution(
     PreparedTransferExecutionPlan* out_plan) noexcept;
 
 /**
+ * \brief Build one target-neutral adapter view over prepared transfer ops.
+ *
+ * This compiles the same target-specific route mappings used by emit
+ * execution, then flattens them into one explicit operation list for host
+ * integrations that want to consume prepared blocks without parsing routes.
+ */
+EmitTransferResult
+build_prepared_transfer_adapter_view(const PreparedTransferBundle& bundle,
+                                     PreparedTransferAdapterView* out_view,
+                                     const EmitTransferOptions& options
+                                     = {}) noexcept;
+
+/**
+ * \brief Emit one prepared adapter view into a generic host-side sink.
+ *
+ * This lets host integrations consume the flattened adapter operation list
+ * without re-parsing routes or target-specific dispatch tokens.
+ */
+EmitTransferResult
+emit_prepared_transfer_adapter_view(const PreparedTransferBundle& bundle,
+                                    const PreparedTransferAdapterView& view,
+                                    TransferAdapterSink& sink) noexcept;
+
+/**
  * \brief Apply fixed-width time patch updates in-place on a prepared bundle.
  *
  * Patches are applied to byte ranges listed in `bundle.time_patch_map`
@@ -1318,9 +1378,10 @@ write_prepared_bundle_tiff_edit(std::span<const std::byte> input_tiff,
  * emission without requiring an input container byte stream.
  */
 EmitTransferResult
-build_prepared_transfer_emit_package(
-    const PreparedTransferBundle& bundle, PreparedTransferPackagePlan* out_plan,
-    const EmitTransferOptions& options = {}) noexcept;
+build_prepared_transfer_emit_package(const PreparedTransferBundle& bundle,
+                                     PreparedTransferPackagePlan* out_plan,
+                                     const EmitTransferOptions& options
+                                     = {}) noexcept;
 
 EmitTransferResult
 build_prepared_bundle_jpeg_package(

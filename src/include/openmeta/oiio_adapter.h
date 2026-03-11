@@ -1,10 +1,13 @@
 #pragma once
 
 #include "openmeta/interop_export.h"
+#include "openmeta/metadata_transfer.h"
 
 #include <cstddef>
 #include <cstdint>
+#include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 /**
@@ -60,6 +63,43 @@ struct OiioAdapterRequest final {
     uint32_t max_value_bytes     = 1024;
     bool include_empty           = false;
     bool include_normalized_ccm  = true;
+};
+
+/// Semantic block kind for OIIO-facing transfer payload export.
+enum class OiioTransferPayloadKind : uint8_t {
+    Unknown = 0,
+    ExifBlob,
+    XmpPacket,
+    IccProfile,
+    IptcBlock,
+    Jumbf,
+    C2pa,
+};
+
+/// One zero-copy prepared transfer payload view for OIIO-style hosts.
+struct OiioTransferPayloadView final {
+    OiioTransferPayloadKind semantic_kind = OiioTransferPayloadKind::Unknown;
+    std::string_view semantic_name;
+    std::string_view route;
+    PreparedTransferAdapterOp op;
+    std::span<const std::byte> payload;
+};
+
+/// One owned prepared transfer payload for OIIO-style hosts.
+struct OiioTransferPayload final {
+    OiioTransferPayloadKind semantic_kind = OiioTransferPayloadKind::Unknown;
+    std::string semantic_name;
+    std::string route;
+    PreparedTransferAdapterOp op;
+    std::vector<std::byte> payload;
+};
+
+/// One owned OIIO-facing transfer payload batch.
+struct OiioTransferPayloadBatch final {
+    uint32_t contract_version          = 0;
+    TransferTargetFormat target_format = TransferTargetFormat::Jpeg;
+    EmitTransferOptions emit;
+    std::vector<OiioTransferPayload> payloads;
 };
 
 /**
@@ -141,5 +181,31 @@ collect_oiio_attributes_typed_safe(const MetaStore& store,
                                    std::vector<OiioTypedAttribute>* out,
                                    const OiioAdapterRequest& request,
                                    InteropSafetyError* error) noexcept;
+
+/**
+ * \brief Builds one OIIO-facing zero-copy transfer payload list from a
+ *        prepared bundle.
+ *
+ * The returned payload views borrow both route strings and payload bytes from
+ * \p bundle. The caller must keep \p bundle alive while consuming the views.
+ */
+EmitTransferResult
+collect_oiio_transfer_payload_views(const PreparedTransferBundle& bundle,
+                                    std::vector<OiioTransferPayloadView>* out,
+                                    const EmitTransferOptions& options
+                                    = EmitTransferOptions {}) noexcept;
+
+/**
+ * \brief Builds one owned OIIO-facing transfer payload batch from a prepared
+ *        bundle.
+ *
+ * Unlike \ref collect_oiio_transfer_payload_views, the resulting payloads own
+ * their bytes and can outlive \p bundle.
+ */
+EmitTransferResult
+build_oiio_transfer_payload_batch(const PreparedTransferBundle& bundle,
+                                  OiioTransferPayloadBatch* out,
+                                  const EmitTransferOptions& options
+                                  = EmitTransferOptions {}) noexcept;
 
 }  // namespace openmeta

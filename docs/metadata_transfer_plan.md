@@ -231,7 +231,20 @@ Read-path readiness is high:
    target-agnostic JUMBF serialization is still incomplete.
 4. No deterministic conflict/precedence contract yet for EXIF/IPTC/XMP
    remap in slow-path transfer mode.
-5. No target-family write adapters yet beyond the current JPEG/TIFF draft path.
+5. Host-facing write bridging has started:
+   - `emit_prepared_transfer_adapter_view(...)` replays compiled transfer ops
+     into one generic host sink.
+   - `collect_oiio_transfer_payload_views(...)` is the first thin bridge on
+     top of that surface for OIIO/plugin write integrations.
+   - `build_oiio_transfer_payload_batch(...)` is the first owned batch form of
+     that bridge for caching or cross-layer handoff.
+   - `build_exr_attribute_batch(...)`,
+     `build_exr_attribute_part_spans(...)`, and
+     `replay_exr_attribute_batch(...)` are the EXR-native attribute bridge for
+     OpenEXR/OIIO header workflows, intentionally outside the block-transfer
+     core.
+   - broader host-specific persistence or replay formats remain follow-up
+     work.
 
 ## Runtime Model
 
@@ -252,6 +265,27 @@ Two paths:
 - `compile_prepared_transfer_execution(bundle, emit_options, out_plan)`
   - Compiles target-specific route mapping once and stores emit policy in a
     reusable execution plan.
+- `build_prepared_transfer_adapter_view(bundle, out_view, emit_options)`
+  - Flattens the same compiled route mapping into one target-neutral adapter
+    operation list for JPEG/TIFF/JXL host integrations.
+- `emit_prepared_transfer_adapter_view(bundle, view, sink)`
+  - Replays that compiled adapter view into one generic host sink without
+    route parsing.
+- `collect_oiio_transfer_payload_views(bundle, out_views, emit_options)`
+  - First thin host-facing bridge above the adapter view:
+    zero-copy OIIO/plugin payload list with semantic block kinds plus the
+    compiled per-target transfer op metadata.
+- `build_oiio_transfer_payload_batch(bundle, out_batch, emit_options)`
+  - Owned form of the same OIIO/plugin payload contract for caching or
+    cross-layer handoff without keeping the prepared bundle alive.
+- `build_exr_attribute_batch(store, out_batch, options)`
+- `build_exr_attribute_part_spans(batch, out_spans)`
+- `replay_exr_attribute_batch(batch, callbacks)`
+  - Store-based EXR-native attribute bridge:
+    exports owned `(part_index, name, type_name, value_bytes)` records for
+    OpenEXR/OIIO header integrations.
+  - Known EXR scalar/vector types are re-encoded deterministically.
+  - Unknown/custom attrs can remain opaque when `wire_type_name` is available.
 - `apply_time_patches_view(bundle, patch_views, time_patch_options)`
   - Applies non-owning fixed-width patch views without owned patch buffers.
 - `execute_prepared_transfer(bundle, edit_target?, options)`
@@ -356,6 +390,9 @@ Important:
 - Add TIFF tag payload packagers.
 
 5. Writer adapters
+- Generic host sink for compiled transfer adapter views.
+- OIIO zero-copy transfer payload bridge.
+- OIIO owned transfer payload batch.
 - JPEG writer adapter (inject prepared APP blocks).
 - TIFF writer adapter (set prepared metadata payloads).
 

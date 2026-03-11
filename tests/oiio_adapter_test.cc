@@ -457,4 +457,192 @@ TEST(OiioAdapter, ExportsBmffAuxSemanticInSafeMode)
     EXPECT_EQ(static_cast<uint32_t>(depth_typed->value.data.u64), 2U);
 }
 
+TEST(OiioAdapter, CollectsTransferPayloadViewsForJpeg)
+{
+    PreparedTransferBundle bundle;
+    bundle.target_format = TransferTargetFormat::Jpeg;
+
+    PreparedTransferBlock exif;
+    exif.route   = "jpeg:app1-exif";
+    exif.payload = { std::byte { 0x01 }, std::byte { 0x02 } };
+    bundle.blocks.push_back(exif);
+
+    PreparedTransferBlock xmp;
+    xmp.route   = "jpeg:app1-xmp";
+    xmp.payload = { std::byte { 'x' }, std::byte { 'm' }, std::byte { 'p' } };
+    bundle.blocks.push_back(xmp);
+
+    std::vector<OiioTransferPayloadView> views;
+    const EmitTransferResult result
+        = collect_oiio_transfer_payload_views(bundle, &views);
+
+    ASSERT_EQ(result.status, TransferStatus::Ok);
+    ASSERT_EQ(views.size(), 2U);
+
+    EXPECT_EQ(views[0].semantic_kind, OiioTransferPayloadKind::ExifBlob);
+    EXPECT_EQ(views[0].semantic_name, "ExifBlob");
+    EXPECT_EQ(views[0].route, "jpeg:app1-exif");
+    EXPECT_EQ(views[0].op.kind, TransferAdapterOpKind::JpegMarker);
+    EXPECT_EQ(views[0].op.jpeg_marker_code, 0xE1U);
+    EXPECT_EQ(views[0].payload.size(), 2U);
+    EXPECT_EQ(views[0].payload.data(), bundle.blocks[0].payload.data());
+
+    EXPECT_EQ(views[1].semantic_kind, OiioTransferPayloadKind::XmpPacket);
+    EXPECT_EQ(views[1].semantic_name, "XMPPacket");
+    EXPECT_EQ(views[1].route, "jpeg:app1-xmp");
+    EXPECT_EQ(views[1].op.kind, TransferAdapterOpKind::JpegMarker);
+    EXPECT_EQ(views[1].op.jpeg_marker_code, 0xE1U);
+    EXPECT_EQ(views[1].payload.size(), 3U);
+    EXPECT_EQ(views[1].payload.data(), bundle.blocks[1].payload.data());
+}
+
+TEST(OiioAdapter, CollectsTransferPayloadViewsForTiff)
+{
+    PreparedTransferBundle bundle;
+    bundle.target_format = TransferTargetFormat::Tiff;
+
+    PreparedTransferBlock icc;
+    icc.route   = "tiff:tag-34675-icc";
+    icc.payload = { std::byte { 0xAA }, std::byte { 0xBB } };
+    bundle.blocks.push_back(icc);
+
+    PreparedTransferBlock iptc;
+    iptc.route   = "tiff:tag-33723-iptc";
+    iptc.payload = { std::byte { 0xCC } };
+    bundle.blocks.push_back(iptc);
+
+    std::vector<OiioTransferPayloadView> views;
+    const EmitTransferResult result
+        = collect_oiio_transfer_payload_views(bundle, &views);
+
+    ASSERT_EQ(result.status, TransferStatus::Ok);
+    ASSERT_EQ(views.size(), 2U);
+
+    EXPECT_EQ(views[0].semantic_kind, OiioTransferPayloadKind::IccProfile);
+    EXPECT_EQ(views[0].semantic_name, "ICCProfile");
+    EXPECT_EQ(views[0].op.kind, TransferAdapterOpKind::TiffTagBytes);
+    EXPECT_EQ(views[0].op.tiff_tag, 34675U);
+    EXPECT_EQ(views[0].payload.data(), bundle.blocks[0].payload.data());
+
+    EXPECT_EQ(views[1].semantic_kind, OiioTransferPayloadKind::IptcBlock);
+    EXPECT_EQ(views[1].semantic_name, "IPTCBlock");
+    EXPECT_EQ(views[1].op.kind, TransferAdapterOpKind::TiffTagBytes);
+    EXPECT_EQ(views[1].op.tiff_tag, 33723U);
+    EXPECT_EQ(views[1].payload.data(), bundle.blocks[1].payload.data());
+}
+
+TEST(OiioAdapter, CollectsTransferPayloadViewsForJxl)
+{
+    PreparedTransferBundle bundle;
+    bundle.target_format = TransferTargetFormat::Jxl;
+
+    PreparedTransferBlock jumbf;
+    jumbf.route    = "jxl:box-jumb";
+    jumbf.box_type = { 'j', 'u', 'm', 'b' };
+    jumbf.payload  = { std::byte { 0x00 }, std::byte { 0x00 },
+                       std::byte { 0x00 }, std::byte { 0x08 } };
+    bundle.blocks.push_back(jumbf);
+
+    PreparedTransferBlock c2pa;
+    c2pa.route    = "jxl:box-c2pa";
+    c2pa.box_type = { 'c', '2', 'p', 'a' };
+    c2pa.payload  = { std::byte { 0x10 }, std::byte { 0x11 } };
+    bundle.blocks.push_back(c2pa);
+
+    std::vector<OiioTransferPayloadView> views;
+    const EmitTransferResult result
+        = collect_oiio_transfer_payload_views(bundle, &views);
+
+    ASSERT_EQ(result.status, TransferStatus::Ok);
+    ASSERT_EQ(views.size(), 2U);
+
+    EXPECT_EQ(views[0].semantic_kind, OiioTransferPayloadKind::Jumbf);
+    EXPECT_EQ(views[0].semantic_name, "JUMBF");
+    EXPECT_EQ(views[0].op.kind, TransferAdapterOpKind::JxlBox);
+    EXPECT_EQ(views[0].op.box_type,
+              (std::array<char, 4> { 'j', 'u', 'm', 'b' }));
+    EXPECT_EQ(views[0].payload.data(), bundle.blocks[0].payload.data());
+
+    EXPECT_EQ(views[1].semantic_kind, OiioTransferPayloadKind::C2pa);
+    EXPECT_EQ(views[1].semantic_name, "C2PA");
+    EXPECT_EQ(views[1].op.kind, TransferAdapterOpKind::JxlBox);
+    EXPECT_EQ(views[1].op.box_type,
+              (std::array<char, 4> { 'c', '2', 'p', 'a' }));
+    EXPECT_EQ(views[1].payload.data(), bundle.blocks[1].payload.data());
+}
+
+TEST(OiioAdapter, BuildsTransferPayloadBatchForJpeg)
+{
+    PreparedTransferBundle bundle;
+    bundle.target_format = TransferTargetFormat::Jpeg;
+
+    PreparedTransferBlock exif;
+    exif.route   = "jpeg:app1-exif";
+    exif.payload = { std::byte { 0x01 }, std::byte { 0x02 } };
+    bundle.blocks.push_back(exif);
+
+    PreparedTransferBlock xmp;
+    xmp.route   = "jpeg:app1-xmp";
+    xmp.payload = { std::byte { 'x' }, std::byte { 'm' }, std::byte { 'p' } };
+    bundle.blocks.push_back(xmp);
+
+    EmitTransferOptions options;
+    options.skip_empty_payloads = false;
+
+    OiioTransferPayloadBatch batch;
+    const EmitTransferResult result
+        = build_oiio_transfer_payload_batch(bundle, &batch, options);
+
+    ASSERT_EQ(result.status, TransferStatus::Ok);
+    EXPECT_EQ(batch.contract_version, bundle.contract_version);
+    EXPECT_EQ(batch.target_format, TransferTargetFormat::Jpeg);
+    EXPECT_FALSE(batch.emit.skip_empty_payloads);
+    ASSERT_EQ(batch.payloads.size(), 2U);
+
+    EXPECT_EQ(batch.payloads[0].semantic_kind,
+              OiioTransferPayloadKind::ExifBlob);
+    EXPECT_EQ(batch.payloads[0].semantic_name, "ExifBlob");
+    EXPECT_EQ(batch.payloads[0].route, "jpeg:app1-exif");
+    EXPECT_EQ(batch.payloads[0].op.kind, TransferAdapterOpKind::JpegMarker);
+    EXPECT_EQ(batch.payloads[0].op.jpeg_marker_code, 0xE1U);
+    EXPECT_EQ(batch.payloads[0].payload, bundle.blocks[0].payload);
+    EXPECT_NE(batch.payloads[0].payload.data(),
+              bundle.blocks[0].payload.data());
+
+    EXPECT_EQ(batch.payloads[1].semantic_kind,
+              OiioTransferPayloadKind::XmpPacket);
+    EXPECT_EQ(batch.payloads[1].semantic_name, "XMPPacket");
+    EXPECT_EQ(batch.payloads[1].route, "jpeg:app1-xmp");
+    EXPECT_EQ(batch.payloads[1].op.kind, TransferAdapterOpKind::JpegMarker);
+    EXPECT_EQ(batch.payloads[1].op.jpeg_marker_code, 0xE1U);
+    EXPECT_EQ(batch.payloads[1].payload, bundle.blocks[1].payload);
+    EXPECT_NE(batch.payloads[1].payload.data(),
+              bundle.blocks[1].payload.data());
+}
+
+TEST(OiioAdapter, TransferPayloadBatchOwnsBytesAfterSourceMutation)
+{
+    PreparedTransferBundle bundle;
+    bundle.target_format = TransferTargetFormat::Jxl;
+
+    PreparedTransferBlock jumbf;
+    jumbf.route    = "jxl:box-jumb";
+    jumbf.box_type = { 'j', 'u', 'm', 'b' };
+    jumbf.payload  = { std::byte { 0x10 }, std::byte { 0x11 } };
+    bundle.blocks.push_back(jumbf);
+
+    OiioTransferPayloadBatch batch;
+    ASSERT_EQ(build_oiio_transfer_payload_batch(bundle, &batch).status,
+              TransferStatus::Ok);
+    ASSERT_EQ(batch.payloads.size(), 1U);
+    ASSERT_EQ(batch.payloads[0].payload.size(), 2U);
+    EXPECT_EQ(batch.payloads[0].payload[0], std::byte { 0x10 });
+
+    bundle.blocks[0].payload[0] = std::byte { 0x7F };
+
+    EXPECT_EQ(batch.payloads[0].semantic_kind, OiioTransferPayloadKind::Jumbf);
+    EXPECT_EQ(batch.payloads[0].payload[0], std::byte { 0x10 });
+    EXPECT_EQ(bundle.blocks[0].payload[0], std::byte { 0x7F });
+}
+
 }  // namespace openmeta

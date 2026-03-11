@@ -123,6 +123,25 @@ Current baseline-gated status on tracked corpora:
     `write_prepared_transfer_package(...)` now expose deterministic
     final-output chunk plans for current JPEG/TIFF rewrite paths plus direct
     prepared-block emit packaging for JPEG/JXL.
+    `build_prepared_transfer_adapter_view(...)` now exposes the same prepared
+    bundle as one target-neutral operation list for JPEG/TIFF/JXL host
+    integrations that do not want to parse route strings, and
+    `emit_prepared_transfer_adapter_view(...)` streams that compiled view into
+    one generic host sink. `collect_oiio_transfer_payload_views(...)` is the
+    first thin bridge on top of that surface: it exposes one zero-copy
+    OIIO-facing payload list with explicit semantic kinds (`ExifBlob`,
+    `XMPPacket`, `ICCProfile`, `IPTCBlock`, `JUMBF`, `C2PA`) plus the compiled
+    per-target operation metadata. `build_oiio_transfer_payload_batch(...)`
+    is the owned form of that bridge for host layers that want to cache or
+    move transfer payloads without keeping the prepared bundle alive.
+    OpenMeta also now exposes an EXR-native attribute bridge outside the block
+    transfer core: `build_exr_attribute_batch(...)` exports per-part EXR header
+    attributes as owned `(part_index, name, type_name, value_bytes)` records,
+    `build_exr_attribute_part_spans(...)` groups them into contiguous per-part
+    spans, and `replay_exr_attribute_batch(...)` replays the grouped batch
+    through explicit host callbacks. Known scalar/vector EXR types are
+    re-encoded deterministically, while unknown/custom attributes can be
+    preserved as opaque raw bytes when their original type name is available.
     JPEG XL is now a first transfer target in the same core API:
     `prepare_metadata_for_target(..., TransferTargetFormat::Jxl, ...)`
     can build `Exif` and `xml ` box payloads from `MetaStore`,

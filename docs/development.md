@@ -776,6 +776,7 @@ Interop adapter APIs for ASF integration targets:
   (`Canonical`, `XmpPortable`, `Oiio`).
 - `openmeta/oiio_adapter.h`: flat OIIO-style name/value export.
 - `openmeta/ocio_adapter.h`: deterministic OCIO-style metadata tree export.
+- `openmeta/exr_adapter.h`: EXR-native per-part attribute export.
 
 Current Python binding entry points:
 
@@ -800,6 +801,26 @@ Current C++ adapter entry points:
   - `collect_oiio_attributes_typed(..., const OiioAdapterRequest&)` (typed values)
   - `collect_oiio_attributes_typed(..., const OiioAdapterOptions&)` (typed values)
   - typed payload model: `OiioTypedValue` / `OiioTypedAttribute`
+  - prepared transfer bridge:
+    `collect_oiio_transfer_payload_views(...)`
+    returns one zero-copy payload list over a `PreparedTransferBundle`
+    for host/plugin write integrations
+  - owned transfer bridge:
+    `build_oiio_transfer_payload_batch(...)`
+    copies that same payload contract into one stable owned batch for caching
+    or cross-layer handoff
+- `openmeta/exr_adapter.h`:
+  - `build_exr_attribute_batch(...)`
+    exports one owned EXR-native attribute batch from `MetaStore`
+  - the batch carries:
+    `part_index`, `name`, `type_name`, `value` bytes, and `is_opaque`
+  - `build_exr_attribute_part_spans(...)`
+    groups the batch into deterministic contiguous per-part spans
+  - `replay_exr_attribute_batch(...)`
+    replays the grouped batch through explicit host callbacks
+  - unlike the prepared JPEG/TIFF/JXL transfer path, this bridge is
+    store-based because typed `MetaValue` entries must be re-encoded into EXR
+    attribute bytes
 
 Python typed behavior:
 - `Document.oiio_attributes(...)` is safe-by-default and raises on unsafe raw
@@ -883,6 +904,11 @@ Draft C++ transfer entry points (prepare/emit scaffold):
     prepared bundle.
   - `compile_prepared_transfer_execution(...)` compiles a reusable execution
     plan that stores target-specific route mapping plus emit policy.
+  - `build_prepared_transfer_adapter_view(...)` flattens the same compiled
+    route mapping into one target-neutral operation list for JPEG/TIFF/JXL
+    host integrations.
+  - `emit_prepared_transfer_adapter_view(...)` replays that compiled view into
+    one generic host sink without route parsing.
   - `apply_time_patches_view(...)` accepts non-owning patch spans for
     per-frame patching without owned update buffers.
   - `execute_prepared_transfer_compiled(...)` runs the same shared
@@ -903,7 +929,25 @@ Draft C++ transfer entry points (prepare/emit scaffold):
       JPEG marker segment from the bundle.
     - `TransferPackageChunkKind::InlineBytes` carries deterministic generated
       bytes such as the patched TIFF IFD0 offset or appended TIFF tail.
+    - `PreparedTransferAdapterView` is the parallel adapter-facing surface for
+      host integrations that want explicit per-block operations without route
+      parsing.
+    - `collect_oiio_transfer_payload_views(...)` is the first thin
+      host-facing bridge on top of that adapter view, exposing one zero-copy
+      OIIO-oriented semantic payload list without adding new transfer core
+      logic.
+    - `build_oiio_transfer_payload_batch(...)` is the owned form of that
+      bridge when the host needs payload lifetime independent from the
+      prepared bundle.
+    - `build_exr_attribute_batch(...)`,
+      `build_exr_attribute_part_spans(...)`, and
+      `replay_exr_attribute_batch(...)` are the EXR-native bridge for
+      OpenEXR/OIIO header-attribute workflows. They stay outside the
+      `PreparedTransferBundle` path because EXR metadata is attribute-native,
+      not block-native.
     - `build_prepared_transfer_emit_package(...)`,
+      `build_prepared_transfer_adapter_view(...)`,
+      `emit_prepared_transfer_adapter_view(...)`,
       `build_prepared_bundle_jpeg_package(...)`,
       `build_prepared_bundle_tiff_package(...)`, and
       `write_prepared_transfer_package(...)` expose that shared contract.

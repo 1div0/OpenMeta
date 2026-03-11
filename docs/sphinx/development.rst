@@ -42,6 +42,7 @@ Interop adapters
 - Core traversal API: ``src/include/openmeta/interop_export.h``
 - OIIO adapter (flat name/value): ``src/include/openmeta/oiio_adapter.h``
 - OCIO adapter (namespace tree): ``src/include/openmeta/ocio_adapter.h``
+- EXR adapter (per-part attribute batch): ``src/include/openmeta/exr_adapter.h``
 
 Notes:
 
@@ -73,6 +74,14 @@ C++ adapter entry points:
 - ``collect_oiio_attributes_typed(..., const OiioAdapterRequest&)`` (typed values)
 - ``collect_oiio_attributes_typed(..., const OiioAdapterOptions&)`` (typed values)
   typed payload model: ``OiioTypedValue`` / ``OiioTypedAttribute``
+- ``build_exr_attribute_batch(...)`` in ``openmeta/exr_adapter.h``
+  exports one owned EXR-native attribute batch
+  (``part_index``, ``name``, ``type_name``, ``value``, ``is_opaque``)
+  from ``MetaStore``
+- ``build_exr_attribute_part_spans(...)`` groups that batch into contiguous
+  per-part spans
+- ``replay_exr_attribute_batch(...)`` replays the grouped batch through
+  explicit host callbacks
 
 Python typed behavior:
 

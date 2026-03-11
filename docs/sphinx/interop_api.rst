@@ -70,8 +70,15 @@ Adapters
   Stable request model: ``OcioAdapterRequest``.
   Strict safe variant: ``build_ocio_metadata_tree_safe(...)`` with
   ``InteropSafetyError``.
-- EXR flows use ``MetaKeyKind::ExrAttribute`` and map through ``Canonical`` or
-  OIIO-style names depending on target API.
+- EXR adapter: ``build_exr_attribute_batch(...)`` in
+  ``openmeta/exr_adapter.h``.
+  It exports one owned EXR-native attribute batch from ``MetaStore`` for
+  OpenEXR/OIIO header workflows.
+  ``build_exr_attribute_part_spans(...)`` groups that batch by part, and
+  ``replay_exr_attribute_batch(...)`` replays the grouped batch through
+  explicit host callbacks.
+  Unknown/custom attrs remain opaque only when the original EXR type name is
+  preserved in ``Origin::wire_type_name``.
 
 Reference Tests
 ---------------
@@ -79,6 +86,7 @@ Reference Tests
 - ``tests/interop_export_test.cc``
 - ``tests/oiio_adapter_test.cc``
 - ``tests/ocio_adapter_test.cc``
+- ``tests/exr_adapter_test.cc``
 
 Python Entry Points
 -------------------

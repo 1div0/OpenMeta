@@ -213,6 +213,7 @@ set(OPENMETA_SOURCES
   src/openmeta/exif_makernote_samsung.cc
   src/openmeta/exif_makernote_sony.cc
   src/openmeta/exif_makernote_tag_names.cc
+  src/openmeta/exr_adapter.cc
   src/openmeta/exr_decode.cc
   src/openmeta/exif_tag_names.cc
   src/openmeta/exif_tiff_decode.cc
@@ -538,6 +539,7 @@ if(OPENMETA_BUILD_TESTS)
     tests/icc_decode_test.cc
     tests/icc_interpret_test.cc
     tests/exif_tag_names_test.cc
+    tests/exr_adapter_test.cc
     tests/exr_decode_test.cc
     tests/exif_tiff_decode_test.cc
     tests/geotiff_decode_test.cc

@@ -1017,8 +1017,8 @@ namespace {
     {
         if (payload.size() > static_cast<size_t>(0xFFFFFFFFU - 8U)) {
             if (out) {
-                out->status  = TransferStatus::LimitExceeded;
-                out->code    = EmitTransferCode::InvalidPayload;
+                out->status = TransferStatus::LimitExceeded;
+                out->code   = EmitTransferCode::InvalidPayload;
                 out->errors += 1U;
                 out->message = "jxl box payload exceeds 32-bit box size";
             }
@@ -3356,10 +3356,11 @@ namespace {
         return true;
     }
 
-    static bool append_jxl_jumbf_box(
-        std::span<const std::byte> logical_payload, TransferBlockKind kind,
-        uint32_t* io_order, std::vector<PreparedTransferBlock>* out_blocks,
-        std::string* out_error) noexcept
+    static bool
+    append_jxl_jumbf_box(std::span<const std::byte> logical_payload,
+                         TransferBlockKind kind, uint32_t* io_order,
+                         std::vector<PreparedTransferBlock>* out_blocks,
+                         std::string* out_error) noexcept
     {
         if (!io_order || !out_blocks) {
             if (out_error) {
@@ -3386,8 +3387,8 @@ namespace {
         }
 
         PreparedTransferBlock block;
-        block.kind    = kind;
-        block.order   = *io_order;
+        block.kind  = kind;
+        block.order = *io_order;
         *io_order += 1U;
         block.box_type = {
             static_cast<char>((box_type >> 24U) & 0xFFU),
@@ -3396,7 +3397,7 @@ namespace {
             static_cast<char>((box_type >> 0U) & 0xFFU),
         };
         block.route = box_type == fourcc('c', '2', 'p', 'a') ? "jxl:box-c2pa"
-                                                              : "jxl:box-jumb";
+                                                             : "jxl:box-jumb";
         block.payload.assign(logical_payload.begin()
                                  + static_cast<std::ptrdiff_t>(header_len),
                              logical_payload.end());
@@ -3632,8 +3633,9 @@ namespace {
                 continue;
             }
 
-            logical = std::span<const std::byte>(
-                payload.data(), static_cast<size_t>(extracted.written));
+            logical = std::span<const std::byte>(payload.data(),
+                                                 static_cast<size_t>(
+                                                     extracted.written));
             if (logical.empty()) {
                 continue;
             }
@@ -3661,8 +3663,8 @@ namespace {
             }
 
             std::string error;
-            if (!append_jxl_jumbf_box(logical, TransferBlockKind::Jumbf,
-                                      &order, &bundle->blocks, &error)) {
+            if (!append_jxl_jumbf_box(logical, TransferBlockKind::Jumbf, &order,
+                                      &bundle->blocks, &error)) {
                 out.errors += 1U;
                 append_message(&out.message, error);
                 continue;
@@ -6055,7 +6057,7 @@ prepare_metadata_for_target_impl(const MetaStore& store,
                               ? "jumbf rewrite is unavailable; preserving raw "
                                 "jumbf payloads"
                               : (request.target_format
-                                             == TransferTargetFormat::Jxl
+                                         == TransferTargetFormat::Jxl
                                      ? "source jumbf payloads will be emitted "
                                        "as jxl boxes"
                                      : "source jumbf payloads will be repacked "
@@ -6454,8 +6456,7 @@ prepare_metadata_for_target_impl(const MetaStore& store,
                     = request.target_format == TransferTargetFormat::Jxl
                           ? append_jxl_jumbf_box(logical,
                                                  TransferBlockKind::Jumbf,
-                                                 &order, &bundle.blocks,
-                                                 &error)
+                                                 &order, &bundle.blocks, &error)
                           : append_jpeg_app11_jumbf_segments(
                                 logical, TransferBlockKind::Jumbf, &order,
                                 &bundle.blocks, &error);
@@ -8166,9 +8167,9 @@ write_prepared_bundle_tiff_edit(std::span<const std::byte> input_tiff,
 }
 
 EmitTransferResult
-build_prepared_transfer_emit_package(
-    const PreparedTransferBundle& bundle, PreparedTransferPackagePlan* out_plan,
-    const EmitTransferOptions& options) noexcept
+build_prepared_transfer_emit_package(const PreparedTransferBundle& bundle,
+                                     PreparedTransferPackagePlan* out_plan,
+                                     const EmitTransferOptions& options) noexcept
 {
     EmitTransferResult out;
     if (!out_plan) {
@@ -8204,7 +8205,7 @@ build_prepared_transfer_emit_package(
                 }
                 out.errors += 1U;
                 out.failed_block_index = i;
-                out.message            = "unsupported jpeg route: " + block.route;
+                out.message = "unsupported jpeg route: " + block.route;
                 if (options.stop_on_error) {
                     return out;
                 }
@@ -8229,18 +8230,18 @@ build_prepared_transfer_emit_package(
                 }
                 out.errors += 1U;
                 out.failed_block_index = i;
-                out.message            = "unsupported jxl route: " + block.route;
+                out.message = "unsupported jxl route: " + block.route;
                 if (options.stop_on_error) {
                     return out;
                 }
                 continue;
             }
             if (block.payload.size() > static_cast<size_t>(0xFFFFFFFFU - 8U)) {
-                out.status             = TransferStatus::LimitExceeded;
-                out.code               = EmitTransferCode::InvalidPayload;
+                out.status = TransferStatus::LimitExceeded;
+                out.code   = EmitTransferCode::InvalidPayload;
                 out.errors += 1U;
                 out.failed_block_index = i;
-                out.message            = "jxl box payload exceeds 32-bit box size";
+                out.message = "jxl box payload exceeds 32-bit box size";
                 if (options.stop_on_error) {
                     return out;
                 }
@@ -8250,10 +8251,11 @@ build_prepared_transfer_emit_package(
                 &plan, i, 8U + static_cast<uint64_t>(block.payload.size()));
         }
     } else {
-        out.status  = TransferStatus::Unsupported;
-        out.code    = EmitTransferCode::InvalidArgument;
-        out.errors  = 1U;
-        out.message = "emit package builder currently supports jpeg and jxl targets";
+        out.status = TransferStatus::Unsupported;
+        out.code   = EmitTransferCode::InvalidArgument;
+        out.errors = 1U;
+        out.message
+            = "emit package builder currently supports jpeg and jxl targets";
         return out;
     }
 
@@ -8616,11 +8618,12 @@ write_prepared_transfer_package(std::span<const std::byte> input,
             if (bundle.target_format == TransferTargetFormat::Jpeg) {
                 uint8_t marker = 0U;
                 if (!marker_from_jpeg_route(block.route, &marker)) {
-                    out.status             = TransferStatus::Unsupported;
-                    out.code               = EmitTransferCode::UnsupportedRoute;
+                    out.status = TransferStatus::Unsupported;
+                    out.code   = EmitTransferCode::UnsupportedRoute;
                     out.errors += 1U;
                     out.failed_block_index = chunk.block_index;
-                    out.message            = "prepared transfer block route is not a supported jpeg marker";
+                    out.message
+                        = "prepared transfer block route is not a supported jpeg marker";
                     return out;
                 }
                 if (!write_jpeg_marker_segment(
@@ -8634,11 +8637,12 @@ write_prepared_transfer_package(std::span<const std::byte> input,
                 std::array<char, 4> box_type = { '\0', '\0', '\0', '\0' };
                 bool compress                = false;
                 if (!jxl_box_from_route(block.route, &box_type, &compress)) {
-                    out.status             = TransferStatus::Unsupported;
-                    out.code               = EmitTransferCode::UnsupportedRoute;
+                    out.status = TransferStatus::Unsupported;
+                    out.code   = EmitTransferCode::UnsupportedRoute;
                     out.errors += 1U;
                     out.failed_block_index = chunk.block_index;
-                    out.message            = "prepared transfer block route is not a supported jxl box";
+                    out.message
+                        = "prepared transfer block route is not a supported jxl box";
                     return out;
                 }
                 if (!write_jxl_box(
@@ -8649,11 +8653,12 @@ write_prepared_transfer_package(std::span<const std::byte> input,
                     return out;
                 }
             } else {
-                out.status             = TransferStatus::Unsupported;
-                out.code               = EmitTransferCode::InvalidArgument;
+                out.status = TransferStatus::Unsupported;
+                out.code   = EmitTransferCode::InvalidArgument;
                 out.errors += 1U;
                 out.failed_block_index = chunk.block_index;
-                out.message            = "prepared transfer block chunks are only supported for jpeg and jxl targets";
+                out.message
+                    = "prepared transfer block chunks are only supported for jpeg and jxl targets";
                 return out;
             }
             break;
@@ -8791,7 +8796,8 @@ prepare_metadata_for_target_file(
             blocks.data(), static_cast<size_t>(out.read.scan.written));
         for (size_t i = 0; i < scanned_blocks.size(); ++i) {
             if (is_source_jumbf_block(scanned_blocks[i])) {
-                if (options.prepare.target_format == TransferTargetFormat::Jpeg) {
+                if (options.prepare.target_format
+                    == TransferTargetFormat::Jpeg) {
                     caps.jpeg_jumbf_passthrough = true;
                 } else {
                     caps.jxl_jumbf_passthrough = true;
@@ -10729,18 +10735,20 @@ namespace {
                         = bundle.blocks[chunk.block_index];
                     uint8_t marker = 0U;
                     if (!marker_from_jpeg_route(block.route, &marker)) {
-                        out.status  = TransferStatus::Unsupported;
-                        out.code    = EmitTransferCode::UnsupportedRoute;
-                        out.errors  = 1U;
-                        out.message = "prepared transfer block route is not a supported jpeg marker";
+                        out.status = TransferStatus::Unsupported;
+                        out.code   = EmitTransferCode::UnsupportedRoute;
+                        out.errors = 1U;
+                        out.message
+                            = "prepared transfer block route is not a supported jpeg marker";
                         return out;
                     }
                     if (chunk.size
                         != 4U + static_cast<uint64_t>(block.payload.size())) {
-                        out.status  = TransferStatus::InvalidArgument;
-                        out.code    = EmitTransferCode::PlanMismatch;
-                        out.errors  = 1U;
-                        out.message = "prepared transfer block jpeg size mismatch";
+                        out.status = TransferStatus::InvalidArgument;
+                        out.code   = EmitTransferCode::PlanMismatch;
+                        out.errors = 1U;
+                        out.message
+                            = "prepared transfer block jpeg size mismatch";
                         return out;
                     }
                 } else if (bundle.target_format == TransferTargetFormat::Jxl) {
@@ -10748,36 +10756,39 @@ namespace {
                         = bundle.blocks[chunk.block_index];
                     std::array<char, 4> box_type = { '\0', '\0', '\0', '\0' };
                     bool compress                = false;
-                    if (!jxl_box_from_route(block.route, &box_type,
-                                            &compress)) {
-                        out.status  = TransferStatus::Unsupported;
-                        out.code    = EmitTransferCode::UnsupportedRoute;
-                        out.errors  = 1U;
-                        out.message = "prepared transfer block route is not a supported jxl box";
+                    if (!jxl_box_from_route(block.route, &box_type, &compress)) {
+                        out.status = TransferStatus::Unsupported;
+                        out.code   = EmitTransferCode::UnsupportedRoute;
+                        out.errors = 1U;
+                        out.message
+                            = "prepared transfer block route is not a supported jxl box";
                         return out;
                     }
                     if (block.box_type
                             != std::array<char, 4> { '\0', '\0', '\0', '\0' }
                         && block.box_type != box_type) {
-                        out.status  = TransferStatus::Malformed;
-                        out.code    = EmitTransferCode::InvalidPayload;
-                        out.errors  = 1U;
-                        out.message = "prepared transfer block jxl box_type does not match route";
+                        out.status = TransferStatus::Malformed;
+                        out.code   = EmitTransferCode::InvalidPayload;
+                        out.errors = 1U;
+                        out.message
+                            = "prepared transfer block jxl box_type does not match route";
                         return out;
                     }
                     if (chunk.size
                         != 8U + static_cast<uint64_t>(block.payload.size())) {
-                        out.status  = TransferStatus::InvalidArgument;
-                        out.code    = EmitTransferCode::PlanMismatch;
-                        out.errors  = 1U;
-                        out.message = "prepared transfer block jxl size mismatch";
+                        out.status = TransferStatus::InvalidArgument;
+                        out.code   = EmitTransferCode::PlanMismatch;
+                        out.errors = 1U;
+                        out.message
+                            = "prepared transfer block jxl size mismatch";
                         return out;
                     }
                 } else {
-                    out.status  = TransferStatus::Unsupported;
-                    out.code    = EmitTransferCode::InvalidArgument;
-                    out.errors  = 1U;
-                    out.message = "prepared transfer block chunks are only supported for jpeg and jxl targets";
+                    out.status = TransferStatus::Unsupported;
+                    out.code   = EmitTransferCode::InvalidArgument;
+                    out.errors = 1U;
+                    out.message
+                        = "prepared transfer block chunks are only supported for jpeg and jxl targets";
                     return out;
                 }
                 break;
@@ -11321,6 +11332,191 @@ compile_prepared_transfer_execution(
         out.message = "unsupported target format for emit";
         return out;
     }
+}
+
+EmitTransferResult
+build_prepared_transfer_adapter_view(const PreparedTransferBundle& bundle,
+                                     PreparedTransferAdapterView* out_view,
+                                     const EmitTransferOptions& options) noexcept
+{
+    EmitTransferResult out;
+    if (!out_view) {
+        out.status  = TransferStatus::InvalidArgument;
+        out.code    = EmitTransferCode::InvalidArgument;
+        out.errors  = 1U;
+        out.message = "out_view is null";
+        return out;
+    }
+
+    PreparedTransferExecutionPlan plan;
+    out = compile_prepared_transfer_execution(bundle, options, &plan);
+    if (out.status != TransferStatus::Ok) {
+        return out;
+    }
+
+    PreparedTransferAdapterView view;
+    view.contract_version = bundle.contract_version;
+    view.target_format    = bundle.target_format;
+    view.emit             = options;
+
+    if (bundle.target_format == TransferTargetFormat::Jpeg) {
+        view.ops.reserve(plan.jpeg_emit.ops.size());
+        for (size_t i = 0; i < plan.jpeg_emit.ops.size(); ++i) {
+            const PreparedJpegEmitOp& src      = plan.jpeg_emit.ops[i];
+            const PreparedTransferBlock& block = bundle.blocks[src.block_index];
+            PreparedTransferAdapterOp op;
+            op.kind             = TransferAdapterOpKind::JpegMarker;
+            op.block_index      = src.block_index;
+            op.payload_size     = static_cast<uint64_t>(block.payload.size());
+            op.serialized_size  = 4U + op.payload_size;
+            op.jpeg_marker_code = src.marker_code;
+            view.ops.push_back(op);
+        }
+    } else if (bundle.target_format == TransferTargetFormat::Tiff) {
+        view.ops.reserve(plan.tiff_emit.ops.size());
+        for (size_t i = 0; i < plan.tiff_emit.ops.size(); ++i) {
+            const PreparedTiffEmitOp& src      = plan.tiff_emit.ops[i];
+            const PreparedTransferBlock& block = bundle.blocks[src.block_index];
+            PreparedTransferAdapterOp op;
+            op.kind            = TransferAdapterOpKind::TiffTagBytes;
+            op.block_index     = src.block_index;
+            op.payload_size    = static_cast<uint64_t>(block.payload.size());
+            op.serialized_size = op.payload_size;
+            op.tiff_tag        = src.tiff_tag;
+            view.ops.push_back(op);
+        }
+    } else if (bundle.target_format == TransferTargetFormat::Jxl) {
+        view.ops.reserve(plan.jxl_emit.ops.size());
+        for (size_t i = 0; i < plan.jxl_emit.ops.size(); ++i) {
+            const PreparedJxlEmitOp& src       = plan.jxl_emit.ops[i];
+            const PreparedTransferBlock& block = bundle.blocks[src.block_index];
+            PreparedTransferAdapterOp op;
+            op.kind            = TransferAdapterOpKind::JxlBox;
+            op.block_index     = src.block_index;
+            op.payload_size    = static_cast<uint64_t>(block.payload.size());
+            op.serialized_size = 8U + op.payload_size;
+            op.box_type        = src.box_type;
+            op.compress        = src.compress;
+            view.ops.push_back(op);
+        }
+    } else {
+        out.status  = TransferStatus::Unsupported;
+        out.code    = EmitTransferCode::InvalidArgument;
+        out.errors  = 1U;
+        out.message = "unsupported target format for adapter view";
+        return out;
+    }
+
+    *out_view   = std::move(view);
+    out.status  = TransferStatus::Ok;
+    out.code    = EmitTransferCode::None;
+    out.emitted = static_cast<uint32_t>(out_view->ops.size());
+    out.skipped = 0U;
+    out.errors  = 0U;
+    out.message.clear();
+    return out;
+}
+
+EmitTransferResult
+emit_prepared_transfer_adapter_view(const PreparedTransferBundle& bundle,
+                                    const PreparedTransferAdapterView& view,
+                                    TransferAdapterSink& sink) noexcept
+{
+    EmitTransferResult out;
+    if (view.contract_version != bundle.contract_version) {
+        out.status  = TransferStatus::InvalidArgument;
+        out.code    = EmitTransferCode::PlanMismatch;
+        out.errors  = 1U;
+        out.message = "adapter view contract_version mismatch";
+        return out;
+    }
+    if (view.target_format != bundle.target_format) {
+        out.status  = TransferStatus::InvalidArgument;
+        out.code    = EmitTransferCode::PlanMismatch;
+        out.errors  = 1U;
+        out.message = "adapter view target_format mismatch";
+        return out;
+    }
+
+    for (size_t i = 0; i < view.ops.size(); ++i) {
+        const PreparedTransferAdapterOp& op = view.ops[i];
+        if (op.block_index >= bundle.blocks.size()) {
+            out.status             = TransferStatus::InvalidArgument;
+            out.code               = EmitTransferCode::PlanMismatch;
+            out.errors             = 1U;
+            out.message            = "adapter view block_index is out of range";
+            out.failed_block_index = static_cast<uint32_t>(op.block_index);
+            return out;
+        }
+
+        const PreparedTransferBlock& block = bundle.blocks[op.block_index];
+        const uint64_t payload_size        = static_cast<uint64_t>(
+            block.payload.size());
+        if (op.payload_size != payload_size) {
+            out.status = TransferStatus::InvalidArgument;
+            out.code   = EmitTransferCode::PlanMismatch;
+            out.errors += 1U;
+            out.failed_block_index = op.block_index;
+            out.message            = "adapter view payload_size mismatch";
+            return out;
+        }
+
+        if (bundle.target_format == TransferTargetFormat::Jpeg) {
+            if (op.kind != TransferAdapterOpKind::JpegMarker
+                || op.serialized_size != 4U + payload_size) {
+                out.status = TransferStatus::InvalidArgument;
+                out.code   = EmitTransferCode::PlanMismatch;
+                out.errors += 1U;
+                out.failed_block_index = op.block_index;
+                out.message            = "adapter view jpeg op is inconsistent";
+                return out;
+            }
+        } else if (bundle.target_format == TransferTargetFormat::Tiff) {
+            if (op.kind != TransferAdapterOpKind::TiffTagBytes
+                || op.serialized_size != payload_size) {
+                out.status = TransferStatus::InvalidArgument;
+                out.code   = EmitTransferCode::PlanMismatch;
+                out.errors += 1U;
+                out.failed_block_index = op.block_index;
+                out.message            = "adapter view tiff op is inconsistent";
+                return out;
+            }
+        } else if (bundle.target_format == TransferTargetFormat::Jxl) {
+            if (op.kind != TransferAdapterOpKind::JxlBox
+                || op.serialized_size != 8U + payload_size) {
+                out.status = TransferStatus::InvalidArgument;
+                out.code   = EmitTransferCode::PlanMismatch;
+                out.errors += 1U;
+                out.failed_block_index = op.block_index;
+                out.message            = "adapter view jxl op is inconsistent";
+                return out;
+            }
+        } else {
+            out.status  = TransferStatus::Unsupported;
+            out.code    = EmitTransferCode::InvalidArgument;
+            out.errors  = 1U;
+            out.message = "unsupported target format for adapter view emit";
+            return out;
+        }
+
+        const TransferStatus st
+            = sink.emit_op(op,
+                           std::span<const std::byte>(block.payload.data(),
+                                                      block.payload.size()));
+        if (st != TransferStatus::Ok) {
+            out.status = st;
+            out.code   = EmitTransferCode::BackendWriteFailed;
+            out.errors += 1U;
+            out.failed_block_index = op.block_index;
+            out.message            = "adapter sink emit_op failed";
+            return out;
+        }
+        out.emitted += 1U;
+    }
+
+    out.status = TransferStatus::Ok;
+    out.code   = EmitTransferCode::None;
+    return out;
 }
 
 ExecutePreparedTransferResult

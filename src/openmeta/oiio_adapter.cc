@@ -53,8 +53,7 @@ namespace {
         }
         size_t cut = static_cast<size_t>(max_value_bytes);
         while (cut > 0U
-               && (static_cast<unsigned char>((*text)[cut]) & 0xC0U)
-                      == 0x80U) {
+               && (static_cast<unsigned char>((*text)[cut]) & 0xC0U) == 0x80U) {
             cut -= 1U;
         }
         text->resize(cut);
@@ -126,10 +125,10 @@ namespace {
         if (!out) {
             return;
         }
-        *out                 = OiioTypedValue {};
-        out->elem_type       = MetaElementType::F64;
-        out->text_encoding   = TextEncoding::Unknown;
-        out->count           = static_cast<uint32_t>(values.size());
+        *out               = OiioTypedValue {};
+        out->elem_type     = MetaElementType::F64;
+        out->text_encoding = TextEncoding::Unknown;
+        out->count         = static_cast<uint32_t>(values.size());
         if (values.empty()) {
             out->kind = MetaValueKind::Empty;
             return;
@@ -143,20 +142,21 @@ namespace {
         out->storage.resize(values.size() * sizeof(double));
         std::memcpy(out->storage.data(), values.data(),
                     values.size() * sizeof(double));
-        out->data.span = ByteSpan { 0U,
-                                    static_cast<uint32_t>(out->storage.size()) };
+        out->data.span
+            = ByteSpan { 0U, static_cast<uint32_t>(out->storage.size()) };
     }
 
-    static void append_normalized_ccm_typed(
-        const MetaStore& store, uint32_t max_value_bytes,
-        std::vector<OiioTypedAttribute>* out) noexcept
+    static void
+    append_normalized_ccm_typed(const MetaStore& store,
+                                uint32_t max_value_bytes,
+                                std::vector<OiioTypedAttribute>* out) noexcept
     {
         if (!out) {
             return;
         }
         CcmQueryOptions q;
         if (max_value_bytes != 0U) {
-            const uint32_t max_values = max_value_bytes / 8U;
+            const uint32_t max_values     = max_value_bytes / 8U;
             q.limits.max_values_per_field = std::max(1U, max_values);
         }
         std::vector<CcmField> fields;
@@ -411,6 +411,47 @@ namespace {
         InteropSafetyStatus status_ = InteropSafetyStatus::Ok;
     };
 
+    static const char*
+    oiio_transfer_semantic_name(OiioTransferPayloadKind kind) noexcept
+    {
+        switch (kind) {
+        case OiioTransferPayloadKind::ExifBlob: return "ExifBlob";
+        case OiioTransferPayloadKind::XmpPacket: return "XMPPacket";
+        case OiioTransferPayloadKind::IccProfile: return "ICCProfile";
+        case OiioTransferPayloadKind::IptcBlock: return "IPTCBlock";
+        case OiioTransferPayloadKind::Jumbf: return "JUMBF";
+        case OiioTransferPayloadKind::C2pa: return "C2PA";
+        case OiioTransferPayloadKind::Unknown: break;
+        }
+        return "Unknown";
+    }
+
+    static OiioTransferPayloadKind
+    oiio_transfer_kind_from_route(std::string_view route) noexcept
+    {
+        if (route == "jpeg:app1-exif" || route == "tiff:ifd-exif-app1"
+            || route == "jxl:box-exif") {
+            return OiioTransferPayloadKind::ExifBlob;
+        }
+        if (route == "jpeg:app1-xmp" || route == "tiff:tag-700-xmp"
+            || route == "jxl:box-xml") {
+            return OiioTransferPayloadKind::XmpPacket;
+        }
+        if (route == "jpeg:app2-icc" || route == "tiff:tag-34675-icc") {
+            return OiioTransferPayloadKind::IccProfile;
+        }
+        if (route == "jpeg:app13-iptc" || route == "tiff:tag-33723-iptc") {
+            return OiioTransferPayloadKind::IptcBlock;
+        }
+        if (route == "jpeg:app11-jumbf" || route == "jxl:box-jumb") {
+            return OiioTransferPayloadKind::Jumbf;
+        }
+        if (route == "jpeg:app11-c2pa" || route == "jxl:box-c2pa") {
+            return OiioTransferPayloadKind::C2pa;
+        }
+        return OiioTransferPayloadKind::Unknown;
+    }
+
 }  // namespace
 
 
@@ -551,6 +592,92 @@ collect_oiio_attributes_typed_safe(const MetaStore& store,
 {
     const OiioAdapterOptions options = make_oiio_adapter_options(request);
     return collect_oiio_attributes_typed_safe(store, out, options, error);
+}
+
+
+EmitTransferResult
+collect_oiio_transfer_payload_views(const PreparedTransferBundle& bundle,
+                                    std::vector<OiioTransferPayloadView>* out,
+                                    const EmitTransferOptions& options) noexcept
+{
+    EmitTransferResult result;
+    if (!out) {
+        result.status  = TransferStatus::InvalidArgument;
+        result.code    = EmitTransferCode::InvalidArgument;
+        result.errors  = 1U;
+        result.message = "out is null";
+        return result;
+    }
+
+    out->clear();
+
+    PreparedTransferAdapterView view;
+    result = build_prepared_transfer_adapter_view(bundle, &view, options);
+    if (result.status != TransferStatus::Ok) {
+        return result;
+    }
+
+    out->reserve(view.ops.size());
+    for (size_t i = 0; i < view.ops.size(); ++i) {
+        const PreparedTransferAdapterOp& op = view.ops[i];
+        const PreparedTransferBlock& block  = bundle.blocks[op.block_index];
+        OiioTransferPayloadView payload_view;
+        payload_view.semantic_kind = oiio_transfer_kind_from_route(block.route);
+        payload_view.semantic_name = oiio_transfer_semantic_name(
+            payload_view.semantic_kind);
+        payload_view.route   = block.route;
+        payload_view.op      = op;
+        payload_view.payload = std::span<const std::byte>(block.payload.data(),
+                                                          block.payload.size());
+        out->push_back(payload_view);
+    }
+
+    result.emitted = static_cast<uint32_t>(out->size());
+    return result;
+}
+
+
+EmitTransferResult
+build_oiio_transfer_payload_batch(const PreparedTransferBundle& bundle,
+                                  OiioTransferPayloadBatch* out,
+                                  const EmitTransferOptions& options) noexcept
+{
+    EmitTransferResult result;
+    if (!out) {
+        result.status  = TransferStatus::InvalidArgument;
+        result.code    = EmitTransferCode::InvalidArgument;
+        result.errors  = 1U;
+        result.message = "out is null";
+        return result;
+    }
+
+    std::vector<OiioTransferPayloadView> views;
+    result = collect_oiio_transfer_payload_views(bundle, &views, options);
+    if (result.status != TransferStatus::Ok) {
+        return result;
+    }
+
+    OiioTransferPayloadBatch batch;
+    batch.contract_version = bundle.contract_version;
+    batch.target_format    = bundle.target_format;
+    batch.emit             = options;
+    batch.payloads.reserve(views.size());
+
+    for (size_t i = 0; i < views.size(); ++i) {
+        const OiioTransferPayloadView& view = views[i];
+        OiioTransferPayload payload;
+        payload.semantic_kind = view.semantic_kind;
+        payload.semantic_name.assign(view.semantic_name.data(),
+                                     view.semantic_name.size());
+        payload.route.assign(view.route.data(), view.route.size());
+        payload.op = view.op;
+        payload.payload.assign(view.payload.begin(), view.payload.end());
+        batch.payloads.push_back(std::move(payload));
+    }
+
+    *out           = std::move(batch);
+    result.emitted = static_cast<uint32_t>(out->payloads.size());
+    return result;
 }
 
 }  // namespace openmeta
