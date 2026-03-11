@@ -85,9 +85,10 @@ namespace {
         if (!out || offset + 2 > bytes.size()) {
             return false;
         }
-        const uint16_t v = static_cast<uint16_t>(u8(bytes[offset + 0]) << 8)
-                           | static_cast<uint16_t>(u8(bytes[offset + 1]) << 0);
-        *out = v;
+        const uint16_t b0 = static_cast<uint16_t>(u8(bytes[offset + 0]));
+        const uint16_t b1 = static_cast<uint16_t>(u8(bytes[offset + 1]));
+        const uint16_t v  = static_cast<uint16_t>((b0 << 8) | b1);
+        *out              = v;
         return true;
     }
 
@@ -97,9 +98,10 @@ namespace {
         if (!out || offset + 2 > bytes.size()) {
             return false;
         }
-        const uint16_t v = static_cast<uint16_t>(u8(bytes[offset + 0]) << 0)
-                           | static_cast<uint16_t>(u8(bytes[offset + 1]) << 8);
-        *out = v;
+        const uint16_t b0 = static_cast<uint16_t>(u8(bytes[offset + 0]));
+        const uint16_t b1 = static_cast<uint16_t>(u8(bytes[offset + 1]));
+        const uint16_t v  = static_cast<uint16_t>(b0 | (b1 << 8));
+        *out              = v;
         return true;
     }
 
@@ -1037,13 +1039,15 @@ simple_meta_read(std::span<const std::byte> file_bytes, MetaStore& store,
             if (block.aux_u32 == fourcc('E', 'x', 'i', 'f')) {
                 // Exif box payload begins with a big-endian u32 TIFF offset.
                 if (block_bytes.size() < 4) {
-                    merge_exif_status(&exif.status, ExifDecodeStatus::Malformed);
+                    merge_exif_status(&exif.status,
+                                      ExifDecodeStatus::Malformed);
                     continue;
                 }
                 uint32_t off = 0;
                 if (!read_u32be(block_bytes, 0, &off)
                     || static_cast<uint64_t>(off) >= block_bytes.size()) {
-                    merge_exif_status(&exif.status, ExifDecodeStatus::Malformed);
+                    merge_exif_status(&exif.status,
+                                      ExifDecodeStatus::Malformed);
                     continue;
                 }
                 const std::span<const std::byte> tiff = block_bytes.subspan(
@@ -1064,12 +1068,13 @@ simple_meta_read(std::span<const std::byte> file_bytes, MetaStore& store,
                 exif.ifds_needed += one.ifds_needed;
                 exif.entries_decoded += one.entries_decoded;
 
-                const uint32_t room = (ifd_write_pos < out_ifds.size())
-                                          ? static_cast<uint32_t>(
+                const uint32_t room     = (ifd_write_pos < out_ifds.size())
+                                              ? static_cast<uint32_t>(
                                                 out_ifds.size() - ifd_write_pos)
-                                          : 0U;
-                const uint32_t advanced
-                    = (one.ifds_written < room) ? one.ifds_written : room;
+                                              : 0U;
+                const uint32_t advanced = (one.ifds_written < room)
+                                              ? one.ifds_written
+                                              : room;
                 ifd_write_pos += advanced;
                 exif.ifds_written = ifd_write_pos;
             } else if (block.aux_u32 == fourcc('x', 'm', 'l', ' ')) {

@@ -11,6 +11,45 @@ namespace {
     static uint32_t
     score_ricoh_faceinfo_blob(std::span<const std::byte> raw) noexcept;
 
+    static bool find_ricoh_header_marker(std::span<const std::byte> bytes,
+                                         uint64_t* out_offset) noexcept
+    {
+        if (!out_offset) {
+            return false;
+        }
+        *out_offset = UINT64_MAX;
+
+        static constexpr char kHdr[]          = "[Ricoh Camera Info]";
+        static constexpr size_t kLen          = sizeof(kHdr) - 1U;
+        static constexpr unsigned char kFirst = static_cast<unsigned char>(
+            kHdr[0]);
+
+        if (bytes.size() < kLen) {
+            return false;
+        }
+
+        const std::byte* const begin = bytes.data();
+        const std::byte* p           = begin;
+        size_t remaining             = bytes.size();
+        while (remaining >= kLen) {
+            const void* hit = std::memchr(p, kFirst, remaining - kLen + 1U);
+            if (!hit) {
+                return false;
+            }
+            const std::byte* const candidate = static_cast<const std::byte*>(
+                hit);
+            const size_t index = static_cast<size_t>(candidate - begin);
+            if (match_bytes(bytes, static_cast<uint64_t>(index), kHdr,
+                            static_cast<uint32_t>(kLen))) {
+                *out_offset = static_cast<uint64_t>(index);
+                return true;
+            }
+            p         = candidate + 1;
+            remaining = bytes.size() - static_cast<size_t>(p - begin);
+        }
+        return false;
+    }
+
     static bool decode_ricoh_type2_ricoh_header_ifd(
         std::span<const std::byte> mn, std::string_view mk_prefix,
         MetaStore& store, const ExifDecodeOptions& options,
@@ -677,16 +716,10 @@ namespace {
         //
         // Some samples include leading padding before the header, so locate the
         // marker string and decode relative to it.
-        static constexpr char kHdr[] = "[Ricoh Camera Info]";
-        const uint64_t kHdrLen       = sizeof(kHdr) - 1;  // no NUL
-
         uint64_t hdr = UINT64_MAX;
-        for (uint64_t i = 0; i + kHdrLen <= stable.size(); ++i) {
-            if (match_bytes(stable, i, kHdr, static_cast<uint32_t>(kHdrLen))) {
-                // Include the trailing NUL if present.
-                hdr = i + 20;
-                break;
-            }
+        if (find_ricoh_header_marker(stable, &hdr)) {
+            // Include the trailing NUL if present.
+            hdr += 20U;
         }
         if (hdr == UINT64_MAX) {
             // ExifTool validates this block via the header marker. If we don't see

@@ -536,6 +536,12 @@ TEST(OiioAdapter, CollectsTransferPayloadViewsForJxl)
     PreparedTransferBundle bundle;
     bundle.target_format = TransferTargetFormat::Jxl;
 
+    PreparedTransferBlock icc;
+    icc.route   = "jxl:icc-profile";
+    icc.payload = { std::byte { 0x49 }, std::byte { 0x43 },
+                    std::byte { 0x43 } };
+    bundle.blocks.push_back(icc);
+
     PreparedTransferBlock jumbf;
     jumbf.route    = "jxl:box-jumb";
     jumbf.box_type = { 'j', 'u', 'm', 'b' };
@@ -554,21 +560,26 @@ TEST(OiioAdapter, CollectsTransferPayloadViewsForJxl)
         = collect_oiio_transfer_payload_views(bundle, &views);
 
     ASSERT_EQ(result.status, TransferStatus::Ok);
-    ASSERT_EQ(views.size(), 2U);
+    ASSERT_EQ(views.size(), 3U);
 
-    EXPECT_EQ(views[0].semantic_kind, OiioTransferPayloadKind::Jumbf);
-    EXPECT_EQ(views[0].semantic_name, "JUMBF");
-    EXPECT_EQ(views[0].op.kind, TransferAdapterOpKind::JxlBox);
-    EXPECT_EQ(views[0].op.box_type,
-              (std::array<char, 4> { 'j', 'u', 'm', 'b' }));
+    EXPECT_EQ(views[0].semantic_kind, OiioTransferPayloadKind::IccProfile);
+    EXPECT_EQ(views[0].semantic_name, "ICCProfile");
+    EXPECT_EQ(views[0].op.kind, TransferAdapterOpKind::JxlIccProfile);
     EXPECT_EQ(views[0].payload.data(), bundle.blocks[0].payload.data());
 
-    EXPECT_EQ(views[1].semantic_kind, OiioTransferPayloadKind::C2pa);
-    EXPECT_EQ(views[1].semantic_name, "C2PA");
+    EXPECT_EQ(views[1].semantic_kind, OiioTransferPayloadKind::Jumbf);
+    EXPECT_EQ(views[1].semantic_name, "JUMBF");
     EXPECT_EQ(views[1].op.kind, TransferAdapterOpKind::JxlBox);
     EXPECT_EQ(views[1].op.box_type,
-              (std::array<char, 4> { 'c', '2', 'p', 'a' }));
+              (std::array<char, 4> { 'j', 'u', 'm', 'b' }));
     EXPECT_EQ(views[1].payload.data(), bundle.blocks[1].payload.data());
+
+    EXPECT_EQ(views[2].semantic_kind, OiioTransferPayloadKind::C2pa);
+    EXPECT_EQ(views[2].semantic_name, "C2PA");
+    EXPECT_EQ(views[2].op.kind, TransferAdapterOpKind::JxlBox);
+    EXPECT_EQ(views[2].op.box_type,
+              (std::array<char, 4> { 'c', '2', 'p', 'a' }));
+    EXPECT_EQ(views[2].payload.data(), bundle.blocks[2].payload.data());
 }
 
 TEST(OiioAdapter, BuildsTransferPayloadBatchForJpeg)

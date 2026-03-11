@@ -86,6 +86,33 @@ nikon_is_blank_serial(std::string_view s) noexcept
     return true;
 }
 
+template<size_t N>
+static std::span<const std::byte>
+nikon_copy_prefix(std::array<std::byte, N>* storage,
+                  std::span<const std::byte> raw, size_t count) noexcept
+{
+    if (!storage || count > N || count > raw.size()) {
+        return {};
+    }
+    std::memcpy(storage->data(), raw.data(), count);
+    return std::span<const std::byte>(storage->data(), count);
+}
+
+template<size_t N>
+static std::span<const std::byte>
+nikon_copy_subspan(std::array<std::byte, N>* storage,
+                   std::span<const std::byte> raw, uint64_t offset,
+                   size_t count) noexcept
+{
+    if (!storage || count > N || offset > raw.size()
+        || static_cast<uint64_t>(count) > (raw.size() - offset)) {
+        return {};
+    }
+    std::memcpy(storage->data(), raw.data() + static_cast<size_t>(offset),
+                count);
+    return std::span<const std::byte>(storage->data(), count);
+}
+
 static uint32_t
 nikon_u32le(uint8_t b0, uint8_t b1, uint8_t b2, uint8_t b3) noexcept
 {
@@ -648,24 +675,37 @@ decode_nikon_binary_subdirs(std::string_view mk_ifd0, MetaStore& store, bool le,
             MetaValue vals_out[32];
             uint32_t out_count = 0;
 
+            std::array<std::byte, 4> version_bytes;
+            const std::span<const std::byte> version
+                = nikon_copy_prefix(&version_bytes, raw_src, 4);
+            if (version.empty()) {
+                continue;
+            }
+
             tags_out[out_count] = 0x0000;
-            vals_out[out_count] = make_fixed_ascii_text(store.arena(),
-                                                        raw_src.subspan(0, 4));
+            vals_out[out_count] = make_fixed_ascii_text(store.arena(), version);
             out_count += 1;
 
             if (subtable == "picturecontrol3") {
                 if (raw_src.size() < 0x001c + 20) {
                     continue;
                 }
+                std::array<std::byte, 20> desc_bytes;
+                const std::span<const std::byte> desc
+                    = nikon_copy_subspan(&desc_bytes, raw_src, 0x0008, 20);
+                std::array<std::byte, 20> base_bytes;
+                const std::span<const std::byte> base
+                    = nikon_copy_subspan(&base_bytes, raw_src, 0x001c, 20);
+                if (desc.empty() || base.empty()) {
+                    continue;
+                }
                 tags_out[out_count] = 0x0008;
-                vals_out[out_count]
-                    = make_fixed_ascii_text(store.arena(),
-                                            raw_src.subspan(0x0008, 20));
+                vals_out[out_count] = make_fixed_ascii_text(store.arena(),
+                                                            desc);
                 out_count += 1;
                 tags_out[out_count] = 0x001c;
-                vals_out[out_count]
-                    = make_fixed_ascii_text(store.arena(),
-                                            raw_src.subspan(0x001c, 20));
+                vals_out[out_count] = make_fixed_ascii_text(store.arena(),
+                                                            base);
                 out_count += 1;
 
                 if (raw_src.size() > 0x0036) {
@@ -701,15 +741,22 @@ decode_nikon_binary_subdirs(std::string_view mk_ifd0, MetaStore& store, bool le,
                 if (raw_src.size() < 0x0018 + 20) {
                     continue;
                 }
+                std::array<std::byte, 20> desc_bytes;
+                const std::span<const std::byte> desc
+                    = nikon_copy_subspan(&desc_bytes, raw_src, 0x0004, 20);
+                std::array<std::byte, 20> base_bytes;
+                const std::span<const std::byte> base
+                    = nikon_copy_subspan(&base_bytes, raw_src, 0x0018, 20);
+                if (desc.empty() || base.empty()) {
+                    continue;
+                }
                 tags_out[out_count] = 0x0004;
-                vals_out[out_count]
-                    = make_fixed_ascii_text(store.arena(),
-                                            raw_src.subspan(0x0004, 20));
+                vals_out[out_count] = make_fixed_ascii_text(store.arena(),
+                                                            desc);
                 out_count += 1;
                 tags_out[out_count] = 0x0018;
-                vals_out[out_count]
-                    = make_fixed_ascii_text(store.arena(),
-                                            raw_src.subspan(0x0018, 20));
+                vals_out[out_count] = make_fixed_ascii_text(store.arena(),
+                                                            base);
                 out_count += 1;
 
                 if (raw_src.size() > 0x0030) {
@@ -1079,14 +1126,26 @@ decode_nikon_binary_subdirs(std::string_view mk_ifd0, MetaStore& store, bool le,
                 continue;
             }
 
+            std::array<std::byte, 4> version_bytes;
+            const std::span<const std::byte> version
+                = nikon_copy_prefix(&version_bytes, raw_src, 4);
+            if (version.empty()) {
+                continue;
+            }
+
+            const uint8_t v4 = u8(raw_src[4]);
+            const uint8_t v5 = u8(raw_src[5]);
+            const uint8_t v6 = u8(raw_src[6]);
+            const uint8_t v7 = u8(raw_src[7]);
+
             const uint16_t tags_out[]  = { 0x0000, 0x0004, 0x0005, 0x0006,
                                            0x0007 };
             const MetaValue vals_out[] = {
-                make_fixed_ascii_text(store.arena(), raw_src.subspan(0, 4)),
-                make_u8(u8(raw_src[4])),
-                make_u8(u8(raw_src[5])),
-                make_u8(u8(raw_src[6])),
-                make_u8(u8(raw_src[7])),
+                make_fixed_ascii_text(store.arena(), version),
+                make_u8(v4),
+                make_u8(v5),
+                make_u8(v6),
+                make_u8(v7),
             };
             decode_nikon_bin_dir_entries(ifd_name, store,
                                          std::span<const uint16_t>(tags_out),
@@ -1111,16 +1170,31 @@ decode_nikon_binary_subdirs(std::string_view mk_ifd0, MetaStore& store, bool le,
             const uint64_t loc_len = raw_src.size() - loc_off;
             const uint64_t max_loc = (loc_len < 70) ? loc_len : 70;
 
+            std::array<std::byte, 4> version_bytes;
+            const std::span<const std::byte> version
+                = nikon_copy_prefix(&version_bytes, raw_src, 4);
+            std::array<std::byte, 3> reserved_bytes;
+            const std::span<const std::byte> reserved
+                = nikon_copy_subspan(&reserved_bytes, raw_src, 5, 3);
+            std::array<std::byte, 70> location_bytes;
+            const std::span<const std::byte> location
+                = nikon_copy_subspan(&location_bytes, raw_src, loc_off,
+                                     static_cast<size_t>(max_loc));
+            if (version.empty() || reserved.empty() || location.empty()) {
+                continue;
+            }
+
+            const uint8_t location_source = u8(raw_src[4]);
+            const uint8_t record_status   = u8(raw_src[8]);
+
             const uint16_t tags_out[]  = { 0x0000, 0x0004, 0x0005, 0x0008,
                                            0x0009 };
             const MetaValue vals_out[] = {
-                make_fixed_ascii_text(store.arena(), raw_src.subspan(0, 4)),
-                make_u8(u8(raw_src[4])),
-                make_bytes(store.arena(), raw_src.subspan(5, 3)),
-                make_u8(u8(raw_src[8])),
-                make_bytes(store.arena(),
-                           raw_src.subspan(loc_off,
-                                           static_cast<size_t>(max_loc))),
+                make_fixed_ascii_text(store.arena(), version),
+                make_u8(location_source),
+                make_bytes(store.arena(), reserved),
+                make_u8(record_status),
+                make_bytes(store.arena(), location),
             };
             decode_nikon_bin_dir_entries(ifd_name, store,
                                          std::span<const uint16_t>(tags_out),
@@ -1701,10 +1775,17 @@ decode_nikon_binary_subdirs(std::string_view mk_ifd0, MetaStore& store, bool le,
                                                ver_bytes.size()));
                 out_count += 1;
 
+                uint32_t shotinfo_prefix_idx = 0;
+                std::array<std::byte, 5> shotinfo_prefix_bytes;
+                bool have_shotinfo_prefix = false;
                 if (raw_src.size() >= 9) {
                     tags_out[out_count] = 0x0004;
-                    vals_out[out_count] = make_bytes(store.arena(),
-                                                     raw_src.subspan(4, 5));
+                    shotinfo_prefix_idx = out_count;
+                    vals_out[out_count] = MetaValue {};
+                    std::memcpy(shotinfo_prefix_bytes.data(),
+                                raw_src.data() + 4,
+                                shotinfo_prefix_bytes.size());
+                    have_shotinfo_prefix = true;
                     out_count += 1;
                 }
 
@@ -1857,6 +1938,12 @@ decode_nikon_binary_subdirs(std::string_view mk_ifd0, MetaStore& store, bool le,
                             u8(raw_src[static_cast<size_t>(off)]));
                         out_count += 1;
                     }
+                }
+
+                if (have_shotinfo_prefix) {
+                    vals_out[shotinfo_prefix_idx]
+                        = make_bytes(store.arena(), std::span<const std::byte>(
+                                                        shotinfo_prefix_bytes));
                 }
 
                 decode_nikon_bin_dir_entries(
@@ -2711,6 +2798,10 @@ decode_nikon_binary_subdirs(std::string_view mk_ifd0, MetaStore& store, bool le,
                 MetaValue vals_out[16];
                 uint32_t out_count = 0;
 
+                uint32_t af_points_idx = 0;
+                std::array<std::byte, 5> af_points_bytes;
+                bool have_af_points = false;
+
                 tags_out[out_count] = 0x0000;
                 vals_out[out_count] = make_fixed_ascii_text(
                     store.arena(), std::span<const std::byte>(ver_bytes));
@@ -2738,8 +2829,11 @@ decode_nikon_binary_subdirs(std::string_view mk_ifd0, MetaStore& store, bool le,
                 if (raw_src.size() >= 0x000a + 5
                     && out_count < sizeof(tags_out) / sizeof(tags_out[0])) {
                     tags_out[out_count] = 0x000a;
-                    vals_out[out_count]
-                        = make_bytes(store.arena(), raw_src.subspan(0x000a, 5));
+                    af_points_idx       = out_count;
+                    vals_out[out_count] = MetaValue {};
+                    std::memcpy(af_points_bytes.data(), raw_src.data() + 0x000a,
+                                af_points_bytes.size());
+                    have_af_points = true;
                     out_count += 1;
                 }
 
@@ -2772,6 +2866,12 @@ decode_nikon_binary_subdirs(std::string_view mk_ifd0, MetaStore& store, bool le,
                     out_count += 1;
                 }
 
+                if (have_af_points) {
+                    vals_out[af_points_idx]
+                        = make_bytes(store.arena(), std::span<const std::byte>(
+                                                        af_points_bytes));
+                }
+
                 decode_nikon_bin_dir_entries(
                     ifd_name, store,
                     std::span<const uint16_t>(tags_out, out_count),
@@ -2783,6 +2883,10 @@ decode_nikon_binary_subdirs(std::string_view mk_ifd0, MetaStore& store, bool le,
             uint16_t tags_out[32];
             MetaValue vals_out[32];
             uint32_t out_count = 0;
+
+            uint32_t af_points_idx = 0;
+            std::array<std::byte, 5> af_points_bytes;
+            bool have_af_points = false;
 
             tags_out[out_count] = 0x0000;
             vals_out[out_count]
@@ -2805,8 +2909,11 @@ decode_nikon_binary_subdirs(std::string_view mk_ifd0, MetaStore& store, bool le,
             // AFInfo2Version=0100).
             if (raw_src.size() >= 0x0008 + 5) {
                 tags_out[out_count] = 0x0008;
-                vals_out[out_count] = make_bytes(store.arena(),
-                                                 raw_src.subspan(0x0008, 5));
+                af_points_idx       = out_count;
+                vals_out[out_count] = MetaValue {};
+                std::memcpy(af_points_bytes.data(), raw_src.data() + 0x0008,
+                            af_points_bytes.size());
+                have_af_points = true;
                 out_count += 1;
             }
 
@@ -2888,6 +2995,12 @@ decode_nikon_binary_subdirs(std::string_view mk_ifd0, MetaStore& store, bool le,
                 tags_out[out_count] = 0x0052;
                 vals_out[out_count] = make_u8(u8(raw_src[0x0052]));
                 out_count += 1;
+            }
+
+            if (have_af_points) {
+                vals_out[af_points_idx]
+                    = make_bytes(store.arena(),
+                                 std::span<const std::byte>(af_points_bytes));
             }
 
             decode_nikon_bin_dir_entries(

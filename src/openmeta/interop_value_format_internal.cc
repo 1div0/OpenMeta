@@ -122,6 +122,15 @@ namespace {
                                           MetaElementType elem_type,
                                           std::string* out) noexcept
     {
+        const uint32_t elem_size = meta_element_size(elem_type);
+        if (elem_size == 0U) {
+            return false;
+        }
+        if (offset > raw.size()
+            || static_cast<size_t>(elem_size) > (raw.size() - offset)) {
+            return false;
+        }
+
         switch (elem_type) {
         case MetaElementType::U8: {
             append_u64_dec(static_cast<uint8_t>(raw[offset]), out);
@@ -213,9 +222,8 @@ namespace {
             return false;
         }
 
-        uint32_t count            = value.count;
-        const uint32_t max_by_raw = static_cast<uint32_t>(raw.size()
-                                                          / elem_size);
+        size_t count            = static_cast<size_t>(value.count);
+        const size_t max_by_raw = raw.size() / elem_size;
         if (count > max_by_raw) {
             count = max_by_raw;
         }
@@ -224,9 +232,9 @@ namespace {
             return true;
         }
 
-        uint32_t max_elements = count;
+        size_t max_elements = count;
         if (max_value_bytes != 0U) {
-            const uint32_t bounded = max_value_bytes / 8U;
+            const size_t bounded = static_cast<size_t>(max_value_bytes) / 8U;
             if (bounded == 0U) {
                 max_elements = 1U;
             } else if (max_elements > bounded) {
@@ -237,11 +245,11 @@ namespace {
         }
 
         out->push_back('[');
-        for (uint32_t i = 0; i < max_elements; ++i) {
+        for (size_t i = 0; i < max_elements; ++i) {
             if (i != 0U) {
                 out->append(", ");
             }
-            const size_t off = static_cast<size_t>(i) * elem_size;
+            const size_t off = i * static_cast<size_t>(elem_size);
             if (!append_array_element_text(raw, off, value.elem_type, out)) {
                 return false;
             }

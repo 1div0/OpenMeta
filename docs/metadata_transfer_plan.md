@@ -86,7 +86,8 @@ Read-path readiness is high:
   payload bundles from `MetaStore`, with explicit warnings for
   unsupported/skipped EXIF/ICC/IPTC entries.
 - JXL prepare/emit now has a first bounded target path:
-  - prepare builds `Exif`, `xml `, and bounded `jumb` boxes from `MetaStore`
+  - prepare builds `Exif`, `xml `, and bounded `jumb` boxes plus the encoder
+    ICC profile from `MetaStore`
   - EXIF time-patch slots are preserved with the required 4-byte JXL Exif
     offset prefix adjustment
   - `compile_prepared_bundle_jxl(...)`,
@@ -94,15 +95,27 @@ Read-path readiness is high:
     `emit_prepared_bundle_jxl_compiled(...)`, and
     `emit_prepared_transfer_compiled(..., JxlTransferEmitter&)`
     now provide the same reusable emit shape as the JPEG/TIFF paths
+  - `jxl:icc-profile` is emitted through the dedicated encoder ICC path, not
+    as a JXL box
   - file-based prepare can preserve source generic JUMBF payloads and raw
-    OpenMeta draft C2PA invalidation payloads as JXL boxes
+    OpenMeta draft C2PA invalidation payloads as JXL boxes, and can generate
+    a draft unsigned invalidation payload for content-bound source C2PA
   - store-only prepare can project decoded non-C2PA `JumbfCborKey` roots into
     generic JXL `jumb` boxes when no raw source payload is available
+  - raw IPTC requested for JXL is projected into the existing `xml ` XMP box;
+    OpenMeta does not add a raw IPTC-IIM JXL carrier
   - `build_prepared_transfer_emit_package(...)` plus
     `write_prepared_transfer_package(...)` can serialize direct JXL box bytes
-    from prepared bundles
-  - ICC, IPTC, content-bound C2PA rewrite/invalidation, edit/rewrite, and
-    the `emit_output_writer` hot path remain separate follow-up work
+    from prepared bundles, and `execute_prepared_transfer(...)` can use that
+    same box-only serializer through `emit_output_writer`
+  - `jxl:icc-profile` still stays on the encoder ICC path and is rejected by
+    the JXL byte-writer path
+  - signed C2PA rewrite/re-sign and edit/rewrite remain separate follow-up
+    work
+  - `PreparedTransferPackageBatch` is now the owned replay form of the shared
+    package layer, so JPEG/TIFF rewrite packages and direct JPEG/JXL emit
+    packages can be cached or handed off without retaining the original input
+    stream or prepared bundle storage
 - Transfer policy contract is now explicit in the public API:
   - `TransferProfile::{makernote,jumbf,c2pa}` use `TransferPolicyAction`
   - `PreparedTransferBundle::policy_decisions` records resolved prepare-time

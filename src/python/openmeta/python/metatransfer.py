@@ -160,6 +160,7 @@ def main(argv: list[str]) -> int:
         default="",
         help="output directory for --unsafe-write-payloads",
     )
+    ap.add_argument("--target-jxl", action="store_true", help="target JPEG XL metadata emit summary")
     ap.add_argument("--target-jpeg", type=str, default="", help="target JPEG stream for edit/apply")
     ap.add_argument("--target-tiff", type=str, default="", help="target TIFF stream for edit/apply")
     ap.add_argument("--jpeg-c2pa-signed", type=str, default="", help="externally signed logical C2PA payload for JPEG staging")
@@ -207,25 +208,28 @@ def main(argv: list[str]) -> int:
     if not input_paths:
         ap.print_help(sys.stderr)
         return 2
-    if args.target_jpeg and args.target_tiff:
-        ap.error("--target-jpeg and --target-tiff are mutually exclusive")
+    target_count = int(bool(args.target_jpeg)) + int(bool(args.target_tiff)) + int(bool(args.target_jxl))
+    if target_count > 1:
+        ap.error("--target-jpeg, --target-tiff, and --target-jxl are mutually exclusive")
     if (
         args.jpeg_c2pa_signed
         or args.c2pa_manifest_output
         or args.c2pa_certificate_chain
         or args.c2pa_key_ref
         or args.c2pa_signing_time
-    ) and args.target_tiff:
+    ) and (args.target_tiff or args.target_jxl):
         ap.error("signed C2PA staging is only supported for JPEG targets")
     if args.output and not (args.target_jpeg or args.target_tiff):
+        if args.target_jxl:
+            ap.error("--output is not supported for JXL targets yet")
         ap.error("--output requires --target-jpeg or --target-tiff")
-    if args.dump_c2pa_binding and args.target_tiff:
+    if args.dump_c2pa_binding and (args.target_tiff or args.target_jxl):
         ap.error("--dump-c2pa-binding is only supported for JPEG targets")
     if (
         args.dump_c2pa_handoff
         or args.dump_c2pa_signed_package
         or args.load_c2pa_signed_package
-    ) and args.target_tiff:
+    ) and (args.target_tiff or args.target_jxl):
         ap.error("C2PA package options are only supported for JPEG targets")
     if (args.target_jpeg or args.target_tiff) and len(input_paths) != 1:
         ap.error("edit mode supports exactly one source input")
@@ -289,11 +293,12 @@ def main(argv: list[str]) -> int:
     c2pa_policy = _transfer_policy_action(args.c2pa_policy)
 
     rc = 0
-    target_format = (
-        openmeta.TransferTargetFormat.Tiff
-        if args.target_tiff
-        else openmeta.TransferTargetFormat.Jpeg
-    )
+    if args.target_tiff:
+        target_format = openmeta.TransferTargetFormat.Tiff
+    elif args.target_jxl:
+        target_format = openmeta.TransferTargetFormat.Jxl
+    else:
+        target_format = openmeta.TransferTargetFormat.Jpeg
     target_path = args.target_tiff if args.target_tiff else args.target_jpeg
     edit_requested = bool(target_path)
     edit_apply = bool(edit_requested and not args.dry_run)
@@ -728,6 +733,10 @@ def main(argv: list[str]) -> int:
         for t in probe["tiff_tag_summary"]:
             print(
                 f"  tiff_tag {int(t['tag'])} count={int(t['count'])} bytes={int(t['bytes'])}"
+            )
+        for b in probe["jxl_box_summary"]:
+            print(
+                f"  jxl_box {str(b['type'])} count={int(b['count'])} bytes={int(b['bytes'])}"
             )
         if probe["tiff_commit"]:
             print("  tiff_commit=true")

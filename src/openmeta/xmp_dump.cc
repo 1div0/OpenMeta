@@ -38,6 +38,8 @@ namespace {
         = "http://ns.adobe.com/photoshop/1.0/";
     static constexpr std::string_view kXmpNsIptc4xmpCore
         = "http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/";
+    static constexpr uint64_t kMaxInitialSidecarOutputBytes = 256ULL * 1024ULL
+                                                              * 1024ULL;
 
     static constexpr const char* kIndent1 = "  ";
     static constexpr const char* kIndent2 = "    ";
@@ -72,7 +74,7 @@ namespace {
             if (limit_hit) {
                 return;
             }
-            if (max_output != 0U && n > (UINT64_MAX - needed)) {
+            if (n > (UINT64_MAX - needed)) {
                 limit_hit = true;
                 return;
             }
@@ -3355,6 +3357,19 @@ dump_xmp_sidecar(const MetaStore& store, std::vector<std::byte>* out,
     uint64_t initial_bytes = options.initial_output_bytes;
     if (initial_bytes == 0U) {
         initial_bytes = 1024ULL * 1024ULL;
+    }
+    if (initial_bytes > kMaxInitialSidecarOutputBytes) {
+        initial_bytes = kMaxInitialSidecarOutputBytes;
+    }
+    if (options.format == XmpSidecarFormat::Portable
+        && options.portable.limits.max_output_bytes != 0U
+        && initial_bytes > options.portable.limits.max_output_bytes) {
+        initial_bytes = options.portable.limits.max_output_bytes;
+    }
+    if (options.format == XmpSidecarFormat::Lossless
+        && options.lossless.limits.max_output_bytes != 0U
+        && initial_bytes > options.lossless.limits.max_output_bytes) {
+        initial_bytes = options.lossless.limits.max_output_bytes;
     }
     if (initial_bytes > static_cast<uint64_t>(SIZE_MAX)) {
         r.status = XmpDumpStatus::LimitExceeded;

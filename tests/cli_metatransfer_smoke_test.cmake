@@ -825,6 +825,34 @@ endif()
 
 execute_process(
   COMMAND "${METATRANSFER_BIN}" --no-build-info
+          --target-jxl
+          --no-xmp
+          --no-icc
+          --no-iptc
+          "${_jpg}"
+  RESULT_VARIABLE _rv_jxl
+  OUTPUT_VARIABLE _out_jxl
+  ERROR_VARIABLE _err_jxl
+)
+if(NOT _rv_jxl EQUAL 0)
+  message(FATAL_ERROR
+    "metatransfer jxl emit summary failed (${_rv_jxl})\nstdout:\n${_out_jxl}\nstderr:\n${_err_jxl}")
+endif()
+if(NOT _out_jxl MATCHES "compile: status=ok")
+  message(FATAL_ERROR
+    "metatransfer jxl emit summary missing compile ok\nstdout:\n${_out_jxl}\nstderr:\n${_err_jxl}")
+endif()
+if(NOT _out_jxl MATCHES "emit: status=ok")
+  message(FATAL_ERROR
+    "metatransfer jxl emit summary missing emit ok\nstdout:\n${_out_jxl}\nstderr:\n${_err_jxl}")
+endif()
+if(NOT _out_jxl MATCHES "jxl_box Exif count=1")
+  message(FATAL_ERROR
+    "metatransfer jxl emit summary missing Exif box summary\nstdout:\n${_out_jxl}\nstderr:\n${_err_jxl}")
+endif()
+
+execute_process(
+  COMMAND "${METATRANSFER_BIN}" --no-build-info
           --source-meta "${_jpg_rich}"
           --target-tiff "${_target_tif}"
           --time-patch "DateTime=2024:12:31 23:59:59"

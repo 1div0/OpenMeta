@@ -89,8 +89,8 @@ struct ExportItem final {
 
 class MetadataSink {
 public:
-    virtual ~MetadataSink()                      = default;
-    virtual void on_item(const ExportItem& item) = 0;
+    virtual ~MetadataSink()                               = default;
+    virtual void on_item(const ExportItem& item) noexcept = 0;
 };
 
 /**

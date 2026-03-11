@@ -177,27 +177,36 @@ Current v1 behavior is:
 - JPEG edit output is streamed directly from the shared core path.
 - JPEG metadata-only emit can also stream marker bytes directly through the
   shared core API.
-- TIFF edit output uses the same sink API and only buffers the appended
+  - TIFF edit output uses the same sink API and only buffers the appended
   metadata tail; it no longer materializes a second full-file output buffer.
   - JPEG XL prepare/emit now shares the same transfer contract for backend
     emitter use:
     - `prepare_metadata_for_target(..., TransferTargetFormat::Jxl, ...)`
-      currently builds `Exif`, `xml `, and bounded `jumb` box payloads from
-      `MetaStore`
+      currently builds `Exif`, `xml `, and bounded `jumb` box payloads plus
+      the encoder ICC profile from `MetaStore`
     - `compile_prepared_bundle_jxl(...)` and
       `emit_prepared_bundle_jxl_compiled(...)` provide the same
       `prepare once -> compile once -> emit many` shape as JPEG/TIFF
     - `execute_prepared_transfer(...)` and
       `emit_prepared_transfer_compiled(..., JxlTransferEmitter&)` now accept
       JXL bundles
+    - `jxl:icc-profile` is emitted through `JxlTransferEmitter::set_icc_profile(...)`
+      and stays separate from the JXL box path
     - file-based prepare can preserve source generic JUMBF payloads and raw
       OpenMeta draft C2PA invalidation payloads as JXL boxes
     - store-only prepare can project decoded non-C2PA `JumbfCborKey` roots
       into generic JXL `jumb` boxes when no raw source payload is available
+    - IPTC requested for JXL is projected into the existing `xml ` XMP box;
+      OpenMeta does not create a raw IPTC-IIM JXL carrier
     - `build_prepared_transfer_emit_package(...)` plus
       `write_prepared_transfer_package(...)` can serialize direct JXL box
-      bytes from prepared bundles
-    - current JXL transfer still excludes ICC, IPTC, content-bound C2PA
+      bytes from prepared bundles, and
+      `build_prepared_transfer_package_batch(...)` can materialize those bytes
+      into one owned replay batch
+    - the package writer remains box-only, so it currently rejects
+      `jxl:icc-profile`
+    - JXL transfer now supports generated draft C2PA invalidation for
+      content-bound source payloads; signed rewrite is still unavailable
       rewrite/invalidation, edit/rewrite, and the `emit_output_writer`
       execution hot path
   - `TransferProfile` now uses explicit `TransferPolicyAction` values for
@@ -857,9 +866,11 @@ Draft C++ transfer entry points (prepare/emit scaffold):
     - `JxlTransferEmitter`
     - `ExrTransferEmitter`
   - `prepare_metadata_for_target(..., PreparedTransferBundle*)` currently
-    prepares JPEG/TIFF transfer blocks: EXIF APP1 (JPEG), XMP (JPEG APP1 /
-    TIFF tag 700), ICC (JPEG APP2 / TIFF tag 34675), IPTC (JPEG APP13 / TIFF
-    tag 33723), with explicit warnings for unsupported/skipped entries.
+    prepares JPEG/TIFF transfer blocks plus the current bounded JXL transfer
+    set: EXIF APP1 (JPEG), XMP (JPEG APP1 / TIFF tag 700 / JXL `xml ` box),
+    ICC (JPEG APP2 / TIFF tag 34675 / JXL encoder ICC profile), IPTC (JPEG
+    APP13 / TIFF tag 33723), bounded JUMBF/C2PA routes, with explicit
+    warnings for unsupported/skipped entries.
   - `emit_prepared_bundle_jpeg(...)` is implemented for route-based JPEG marker
     emission (`jpeg:appN...`, `jpeg:com`).
   - `emit_prepared_bundle_tiff(...)` is implemented for route-based TIFF tag
@@ -931,6 +942,10 @@ Draft C++ transfer entry points (prepare/emit scaffold):
       JPEG marker segment from the bundle.
     - `TransferPackageChunkKind::InlineBytes` carries deterministic generated
       bytes such as the patched TIFF IFD0 offset or appended TIFF tail.
+  - `PreparedTransferPackageBatch` is the owned replay form of that package
+    layer. It materializes each package chunk into stable bytes so host code
+    can cache or hand off the final metadata package without retaining the
+    original input stream or prepared bundle storage.
     - `PreparedTransferAdapterView` is the parallel adapter-facing surface for
       host integrations that want explicit per-block operations without route
       parsing.

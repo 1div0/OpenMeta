@@ -206,6 +206,37 @@ execute_process(
           "PYTHONPATH=${OPENMETA_PYTHONPATH}"
           "${OPENMETA_PYTHON_EXECUTABLE}" -m openmeta.python.metatransfer
           --no-build-info
+          --target-jxl
+          --no-xmp
+          --no-icc
+          --no-iptc
+          "${_src_jpg}"
+  RESULT_VARIABLE _rv_jxl
+  OUTPUT_VARIABLE _out_jxl
+  ERROR_VARIABLE _err_jxl
+)
+if(NOT _rv_jxl EQUAL 0)
+  message(FATAL_ERROR
+    "python metatransfer jxl summary failed (${_rv_jxl})\nstdout:\n${_out_jxl}\nstderr:\n${_err_jxl}")
+endif()
+if(NOT _out_jxl MATCHES "compile: status=ok")
+  message(FATAL_ERROR
+    "python metatransfer jxl summary missing compile ok\nstdout:\n${_out_jxl}\nstderr:\n${_err_jxl}")
+endif()
+if(NOT _out_jxl MATCHES "emit: status=ok")
+  message(FATAL_ERROR
+    "python metatransfer jxl summary missing emit ok\nstdout:\n${_out_jxl}\nstderr:\n${_err_jxl}")
+endif()
+if(NOT _out_jxl MATCHES "jxl_box Exif count=1")
+  message(FATAL_ERROR
+    "python metatransfer jxl summary missing Exif box summary\nstdout:\n${_out_jxl}\nstderr:\n${_err_jxl}")
+endif()
+
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env
+          "PYTHONPATH=${OPENMETA_PYTHONPATH}"
+          "${OPENMETA_PYTHON_EXECUTABLE}" -m openmeta.python.metatransfer
+          --no-build-info
           --no-exif
           --no-xmp
           --no-icc

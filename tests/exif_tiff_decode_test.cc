@@ -1,11 +1,13 @@
 #include "openmeta/exif_tiff_decode.h"
 
+#include "openmeta/byte_arena.h"
 #include "openmeta/simple_meta.h"
 
 #include <gtest/gtest.h>
 
 #include <array>
 #include <cstdint>
+#include <limits>
 #include <string_view>
 #include <vector>
 
@@ -32,6 +34,19 @@ namespace {
         out->push_back(std::byte { static_cast<uint8_t>((v >> 8) & 0xFF) });
         out->push_back(std::byte { static_cast<uint8_t>((v >> 16) & 0xFF) });
         out->push_back(std::byte { static_cast<uint8_t>((v >> 24) & 0xFF) });
+    }
+
+
+    static void append_u64le(std::vector<std::byte>* out, uint64_t v)
+    {
+        out->push_back(std::byte { static_cast<uint8_t>((v >> 0) & 0xFF) });
+        out->push_back(std::byte { static_cast<uint8_t>((v >> 8) & 0xFF) });
+        out->push_back(std::byte { static_cast<uint8_t>((v >> 16) & 0xFF) });
+        out->push_back(std::byte { static_cast<uint8_t>((v >> 24) & 0xFF) });
+        out->push_back(std::byte { static_cast<uint8_t>((v >> 32) & 0xFF) });
+        out->push_back(std::byte { static_cast<uint8_t>((v >> 40) & 0xFF) });
+        out->push_back(std::byte { static_cast<uint8_t>((v >> 48) & 0xFF) });
+        out->push_back(std::byte { static_cast<uint8_t>((v >> 56) & 0xFF) });
     }
 
 
@@ -67,6 +82,87 @@ namespace {
         key.data.exif_tag.ifd = ifd;
         key.data.exif_tag.tag = tag;
         return key;
+    }
+
+    TEST(ByteArena, AppendCopiesSelfAliasedSpanAcrossReallocation)
+    {
+        ByteArena arena;
+        arena.reserve(4);
+
+        const std::array<std::byte, 4> seed = {
+            std::byte { 'A' },
+            std::byte { 'B' },
+            std::byte { 'C' },
+            std::byte { 'D' },
+        };
+        const ByteSpan seed_span = arena.append(
+            std::span<const std::byte>(seed.data(), seed.size()));
+        const std::span<const std::byte> alias = arena.span(seed_span);
+        ASSERT_EQ(alias.size(), 4U);
+
+        const ByteSpan appended                = arena.append(alias);
+        const std::span<const std::byte> bytes = arena.bytes();
+        ASSERT_EQ(appended.offset, 4U);
+        ASSERT_EQ(appended.size, 4U);
+        ASSERT_EQ(bytes.size(), 8U);
+        EXPECT_EQ(bytes[0], std::byte { 'A' });
+        EXPECT_EQ(bytes[1], std::byte { 'B' });
+        EXPECT_EQ(bytes[2], std::byte { 'C' });
+        EXPECT_EQ(bytes[3], std::byte { 'D' });
+        EXPECT_EQ(bytes[4], std::byte { 'A' });
+        EXPECT_EQ(bytes[5], std::byte { 'B' });
+        EXPECT_EQ(bytes[6], std::byte { 'C' });
+        EXPECT_EQ(bytes[7], std::byte { 'D' });
+    }
+
+    TEST(ByteArena, AppendRejectsUnrepresentableSpan)
+    {
+        ByteArena arena;
+        const std::array<std::byte, 1> seed = { std::byte { 0x11 } };
+        const std::span<const std::byte> huge(seed.data(),
+                                              static_cast<size_t>(UINT32_MAX)
+                                                  + 1U);
+
+        const ByteSpan span = arena.append(huge);
+        EXPECT_EQ(span.offset, 0U);
+        EXPECT_EQ(span.size, 0U);
+        EXPECT_TRUE(arena.bytes().empty());
+    }
+
+    TEST(MetaValue, MakeBytesRejectsUnrepresentableSpan)
+    {
+        ByteArena arena;
+        const std::array<std::byte, 1> seed = { std::byte { 0x22 } };
+        const std::span<const std::byte> huge(seed.data(),
+                                              static_cast<size_t>(UINT32_MAX)
+                                                  + 1U);
+
+        const MetaValue value = make_bytes(arena, huge);
+        EXPECT_EQ(value.kind, MetaValueKind::Empty);
+        EXPECT_TRUE(arena.bytes().empty());
+    }
+
+    TEST(MetaValue, MakeTextRejectsUnrepresentableView)
+    {
+        ByteArena arena;
+        const char seed[1] = { 'A' };
+        const std::string_view huge(seed, static_cast<size_t>(UINT32_MAX) + 1U);
+
+        const MetaValue value = make_text(arena, huge, TextEncoding::Ascii);
+        EXPECT_EQ(value.kind, MetaValueKind::Empty);
+        EXPECT_TRUE(arena.bytes().empty());
+    }
+
+    TEST(MetaValue, MakeU16ArrayRejectsUnrepresentableByteSize)
+    {
+        ByteArena arena;
+        const std::array<uint16_t, 1> seed = { 7U };
+        const std::span<const uint16_t> huge(
+            seed.data(), static_cast<size_t>(UINT32_MAX / 2U) + 1U);
+
+        const MetaValue value = make_u16_array(arena, huge);
+        EXPECT_EQ(value.kind, MetaValueKind::Empty);
+        EXPECT_TRUE(arena.bytes().empty());
     }
 
 
@@ -502,6 +598,54 @@ TEST(ExifTiffDecode, ReportsLimitReasonForMaxEntriesPerIfd)
     EXPECT_EQ(res.limit_reason, ExifLimitReason::MaxEntriesPerIfd);
     EXPECT_EQ(res.limit_ifd_offset, 8U);
     EXPECT_EQ(res.limit_tag, 0U);
+}
+
+TEST(ExifTiffDecode, BigTiffReportsLimitReasonForMaxEntriesPerIfd)
+{
+    std::vector<std::byte> tiff;
+    append_bytes(&tiff, "II");
+    append_u16le(&tiff, 43);
+    append_u16le(&tiff, 8);
+    append_u16le(&tiff, 0);
+    append_u64le(&tiff, 16);
+    append_u64le(&tiff, std::numeric_limits<uint64_t>::max());
+
+    MetaStore store;
+    std::array<ExifIfdRef, 8> ifds {};
+    ExifDecodeOptions options;
+    options.limits.max_entries_per_ifd = 4096U;
+    const ExifDecodeResult res = decode_exif_tiff(tiff, store, ifds, options);
+    EXPECT_EQ(res.status, ExifDecodeStatus::LimitExceeded);
+    EXPECT_EQ(res.limit_reason, ExifLimitReason::MaxEntriesPerIfd);
+    EXPECT_EQ(res.limit_ifd_offset, 16U);
+    EXPECT_EQ(res.limit_tag, 0U);
+}
+
+TEST(ExifTiffDecode, BigTiffOutOfBoundsValueOffsetIsMalformed)
+{
+    std::vector<std::byte> tiff;
+    append_bytes(&tiff, "II");
+    append_u16le(&tiff, 43);
+    append_u16le(&tiff, 8);
+    append_u16le(&tiff, 0);
+    append_u64le(&tiff, 16);
+
+    append_u64le(&tiff, 1);
+    append_u16le(&tiff, 0x010F);
+    append_u16le(&tiff, 2);
+    append_u64le(&tiff, 16);
+    append_u64le(&tiff, std::numeric_limits<uint64_t>::max() - 7ULL);
+    append_u64le(&tiff, 0);
+
+    MetaStore store;
+    std::array<ExifIfdRef, 8> ifds {};
+    ExifDecodeOptions options;
+    options.include_pointer_tags = true;
+    const ExifDecodeResult res   = decode_exif_tiff(tiff, store, ifds, options);
+    EXPECT_EQ(res.status, ExifDecodeStatus::Malformed);
+
+    store.finalize();
+    EXPECT_TRUE(store.entries().empty());
 }
 
 

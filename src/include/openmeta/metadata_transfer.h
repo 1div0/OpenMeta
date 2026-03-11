@@ -500,6 +500,25 @@ struct PreparedTransferPackagePlan final {
     std::vector<PreparedTransferPackageChunk> chunks;
 };
 
+/// One owned output chunk materialized from a package plan.
+struct PreparedTransferPackageBlob final {
+    TransferPackageChunkKind kind = TransferPackageChunkKind::SourceRange;
+    uint64_t output_offset        = 0;
+    uint64_t source_offset        = 0;
+    uint32_t block_index          = 0xFFFFFFFFU;
+    uint8_t jpeg_marker_code      = 0U;
+    std::vector<std::byte> bytes;
+};
+
+/// One owned final-output batch independent from input bytes or bundle storage.
+struct PreparedTransferPackageBatch final {
+    uint32_t contract_version          = kMetadataTransferContractVersion;
+    TransferTargetFormat target_format = TransferTargetFormat::Jpeg;
+    uint64_t input_size                = 0;
+    uint64_t output_size               = 0;
+    std::vector<PreparedTransferPackageBlob> chunks;
+};
+
 /// One precompiled JPEG emit operation (route -> marker mapping).
 struct PreparedJpegEmitOp final {
     uint32_t block_index = 0;
@@ -524,8 +543,15 @@ struct PreparedTiffEmitPlan final {
     std::vector<PreparedTiffEmitOp> ops;
 };
 
-/// One precompiled JPEG XL emit operation (route -> box mapping).
+/// Kind of precompiled JPEG XL emit operation.
+enum class PreparedJxlEmitKind : uint8_t {
+    Box,
+    IccProfile,
+};
+
+/// One precompiled JPEG XL emit operation (route -> backend mapping).
 struct PreparedJxlEmitOp final {
+    PreparedJxlEmitKind kind     = PreparedJxlEmitKind::Box;
     uint32_t block_index         = 0;
     std::array<char, 4> box_type = { '\0', '\0', '\0', '\0' };
     bool compress                = false;
@@ -558,6 +584,7 @@ enum class TransferAdapterOpKind : uint8_t {
     JpegMarker,
     TiffTagBytes,
     JxlBox,
+    JxlIccProfile,
 };
 
 /// One compiled adapter-facing operation derived from a prepared bundle.
@@ -828,6 +855,9 @@ public:
 class JxlTransferEmitter {
 public:
     virtual ~JxlTransferEmitter() = default;
+    virtual TransferStatus
+    set_icc_profile(std::span<const std::byte> payload) noexcept
+        = 0;
     virtual TransferStatus add_box(std::array<char, 4> type,
                                    std::span<const std::byte> payload,
                                    bool compress) noexcept
@@ -911,6 +941,7 @@ emit_prepared_bundle_tiff(const PreparedTransferBundle& bundle,
  * \brief Emit prepared metadata blocks into a JPEG XL backend.
  *
  * Route mapping:
+ * - `jxl:icc-profile` -> encoder ICC profile
  * - `jxl:box-exif` -> `Exif`
  * - `jxl:box-xml` -> `xml `
  * - `jxl:box-jumb` -> `jumb`
@@ -1398,5 +1429,15 @@ write_prepared_transfer_package(std::span<const std::byte> input,
                                 const PreparedTransferBundle& bundle,
                                 const PreparedTransferPackagePlan& plan,
                                 TransferByteWriter& writer) noexcept;
+
+EmitTransferResult
+build_prepared_transfer_package_batch(
+    std::span<const std::byte> input, const PreparedTransferBundle& bundle,
+    const PreparedTransferPackagePlan& plan,
+    PreparedTransferPackageBatch* out_batch) noexcept;
+
+EmitTransferResult
+write_prepared_transfer_package_batch(const PreparedTransferPackageBatch& batch,
+                                      TransferByteWriter& writer) noexcept;
 
 }  // namespace openmeta

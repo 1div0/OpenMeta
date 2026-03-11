@@ -214,6 +214,32 @@ TEST(XmpDump, SidecarRequestApiRespectsOutputLimit)
 }
 
 
+TEST(XmpDump, SidecarApiClampsInitialOutputToConfiguredLimit)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, kInvalidBlockId);
+
+    Entry e;
+    e.key          = make_exif_tag_key(store.arena(), "ifd0", 0x010F);
+    e.value        = make_text(store.arena(), "Canon", TextEncoding::Ascii);
+    e.origin.block = block;
+    e.origin.order_in_block = 0;
+    (void)store.add_entry(e);
+    store.finalize();
+
+    XmpSidecarOptions options;
+    options.format                           = XmpSidecarFormat::Lossless;
+    options.initial_output_bytes             = 4096U;
+    options.lossless.limits.max_output_bytes = 32U;
+
+    std::vector<std::byte> out;
+    const XmpDumpResult r = dump_xmp_sidecar(store, &out, options);
+    ASSERT_EQ(r.status, XmpDumpStatus::LimitExceeded);
+    EXPECT_EQ(out.size(), 32U);
+}
+
+
 TEST(XmpDump, SidecarRequestPortableEscapesUnsafeText)
 {
     MetaStore store;

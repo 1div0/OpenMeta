@@ -52,6 +52,16 @@ namespace {
 
     static uint64_t pad2(uint64_t n) noexcept { return (n + 1U) & ~1ULL; }
 
+    static size_t
+    find_trailing_zero_padding_start(std::span<const std::byte> bytes) noexcept
+    {
+        size_t end = bytes.size();
+        while (end > 0U && u8(bytes[end - 1U]) == 0U) {
+            end -= 1U;
+        }
+        return end;
+    }
+
 }  // namespace
 
 PhotoshopIrbDecodeResult
@@ -71,7 +81,9 @@ decode_photoshop_irb(std::span<const std::byte> irb_bytes, MetaStore& store,
         return result;
     }
 
-    const BlockId block = store.add_block(BlockInfo {});
+    const BlockId block              = store.add_block(BlockInfo {});
+    const size_t trailing_zero_start = find_trailing_zero_padding_start(
+        irb_bytes);
 
     uint64_t total_value_bytes = 0;
     uint64_t p                 = 0;
@@ -85,15 +97,7 @@ decode_photoshop_irb(std::span<const std::byte> irb_bytes, MetaStore& store,
             break;
         }
         if (!match(irb_bytes, p, "8BIM", 4)) {
-            // Some variants may pad with zeros; treat trailing zeros as EOF.
-            bool only_zeros = true;
-            for (uint64_t i = p; i < irb_bytes.size(); ++i) {
-                if (u8(irb_bytes[i]) != 0U) {
-                    only_zeros = false;
-                    break;
-                }
-            }
-            if (only_zeros) {
+            if (p >= static_cast<uint64_t>(trailing_zero_start)) {
                 break;
             }
             result.status = PhotoshopIrbDecodeStatus::Malformed;

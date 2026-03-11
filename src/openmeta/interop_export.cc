@@ -151,14 +151,28 @@ namespace {
         bool has_panasonic_raw_version = false;
         bool has_dng_version           = false;
     };
+    static constexpr size_t kMaxIfdPolicyHints   = 64U;
+    static constexpr size_t kInvalidIfdHintIndex = static_cast<size_t>(-1);
+
+    static bool exif_tag_needs_ifd_hints(std::string_view ifd,
+                                         uint16_t tag) noexcept
+    {
+        if (tag == 0x0000U || tag == 0xC612U) {
+            return true;
+        }
+        if (tag != 0x0001U) {
+            return false;
+        }
+        return exif_tag_name(ifd, 0x0001U) == "PanasonicRawVersion";
+    }
 
     class ExifExportContext final {
     public:
         void scan(const ByteArena& arena,
                   std::span<const Entry> entries) noexcept
         {
-            hints_.clear();
-            hints_.reserve(16);
+            hint_count_ = 0U;
+            make_sony_  = false;
 
             for (size_t i = 0; i < entries.size(); ++i) {
                 const Entry& e = entries[i];
@@ -174,20 +188,6 @@ namespace {
                 if (ifd.empty() || is_makernote_ifd(ifd)) {
                     continue;
                 }
-                const size_t idx = ensure_ifd(ifd);
-                if (idx >= hints_.size()) {
-                    continue;
-                }
-                if (e.key.data.exif_tag.tag == 0x0000U) {
-                    hints_[idx].has_tag_zero = true;
-                }
-                if (e.key.data.exif_tag.tag == 0x0001U
-                    && exif_tag_name(ifd, 0x0001U) == "PanasonicRawVersion") {
-                    hints_[idx].has_panasonic_raw_version = true;
-                }
-                if (e.key.data.exif_tag.tag == 0xC612U) {
-                    hints_[idx].has_dng_version = true;
-                }
                 if (!make_sony_ && ifd == "ifd0"
                     && e.key.data.exif_tag.tag == 0x010FU
                     && e.value.kind == MetaValueKind::Text
@@ -200,6 +200,22 @@ namespace {
                         && (make[3] == 'Y' || make[3] == 'y')) {
                         make_sony_ = true;
                     }
+                }
+
+                if (!exif_tag_needs_ifd_hints(ifd, e.key.data.exif_tag.tag)) {
+                    continue;
+                }
+
+                const size_t idx = ensure_ifd(ifd);
+                if (idx >= hints_.size()) {
+                    continue;
+                }
+                if (e.key.data.exif_tag.tag == 0x0000U) {
+                    hints_[idx].has_tag_zero = true;
+                } else if (e.key.data.exif_tag.tag == 0x0001U) {
+                    hints_[idx].has_panasonic_raw_version = true;
+                } else if (e.key.data.exif_tag.tag == 0xC612U) {
+                    hints_[idx].has_dng_version = true;
                 }
             }
         }
@@ -227,19 +243,23 @@ namespace {
     private:
         size_t ensure_ifd(std::string_view ifd) noexcept
         {
-            for (size_t i = 0; i < hints_.size(); ++i) {
+            for (size_t i = 0; i < hint_count_; ++i) {
                 if (hints_[i].ifd == ifd) {
                     return i;
                 }
             }
-            hints_.push_back(IfdPolicyHints {});
-            hints_.back().ifd = ifd;
-            return hints_.size() - 1;
+            if (hint_count_ >= kMaxIfdPolicyHints) {
+                return kInvalidIfdHintIndex;
+            }
+            hints_[hint_count_]     = IfdPolicyHints {};
+            hints_[hint_count_].ifd = ifd;
+            hint_count_ += 1U;
+            return hint_count_ - 1U;
         }
 
         const IfdPolicyHints* lookup(std::string_view ifd) const noexcept
         {
-            for (size_t i = 0; i < hints_.size(); ++i) {
+            for (size_t i = 0; i < hint_count_; ++i) {
                 if (hints_[i].ifd == ifd) {
                     return &hints_[i];
                 }
@@ -247,8 +267,9 @@ namespace {
             return nullptr;
         }
 
-        std::vector<IfdPolicyHints> hints_;
-        bool make_sony_ = false;
+        std::array<IfdPolicyHints, kMaxIfdPolicyHints> hints_ {};
+        size_t hint_count_ = 0U;
+        bool make_sony_    = false;
     };
 
     static int parse_index_with_prefix(std::string_view token,

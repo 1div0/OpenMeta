@@ -37,10 +37,14 @@ public:
     void reserve(size_t size_bytes);
 
     /// Appends raw bytes and returns a \ref ByteSpan to the stored copy.
+    /// Returns an empty span if the payload would exceed \ref ByteSpan limits.
+    /// Source bytes may alias the current arena buffer.
     ByteSpan append(std::span<const std::byte> bytes);
     /// Appends the raw bytes of \p text (no terminator) and returns a span.
+    /// Returns an empty span if the payload would exceed \ref ByteSpan limits.
     ByteSpan append_string(std::string_view text);
     /// Allocates \p size_bytes with \p alignment and returns the written span.
+    /// Returns an empty span if the allocation cannot be represented.
     ByteSpan allocate(uint32_t size_bytes, uint32_t alignment);
 
     /// Returns a view of the full buffer.

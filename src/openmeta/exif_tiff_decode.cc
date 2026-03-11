@@ -15,6 +15,40 @@
 namespace openmeta {
 namespace {
 
+    static bool checked_add_u64(uint64_t a, uint64_t b, uint64_t* out) noexcept
+    {
+        if (!out || b > (UINT64_MAX - a)) {
+            return false;
+        }
+        *out = a + b;
+        return true;
+    }
+
+
+    static bool checked_mul_u64(uint64_t a, uint64_t b, uint64_t* out) noexcept
+    {
+        if (!out) {
+            return false;
+        }
+        if (a == 0U || b == 0U) {
+            *out = 0U;
+            return true;
+        }
+        if (a > (UINT64_MAX / b)) {
+            return false;
+        }
+        *out = a * b;
+        return true;
+    }
+
+
+    static bool span_contains_bytes(std::span<const std::byte> bytes,
+                                    uint64_t offset, uint64_t size) noexcept
+    {
+        const uint64_t total = static_cast<uint64_t>(bytes.size());
+        return offset <= total && size <= (total - offset);
+    }
+
     static constexpr uint8_t u8(std::byte b) noexcept
     {
         return static_cast<uint8_t>(b);
@@ -24,7 +58,7 @@ namespace {
     static bool read_u16be(std::span<const std::byte> bytes, uint64_t offset,
                            uint16_t* out) noexcept
     {
-        if (offset + 2 > bytes.size()) {
+        if (!span_contains_bytes(bytes, offset, 2U)) {
             return false;
         }
         const uint16_t v = static_cast<uint16_t>(u8(bytes[offset + 0]) << 8U)
@@ -37,7 +71,7 @@ namespace {
     static bool read_u16le(std::span<const std::byte> bytes, uint64_t offset,
                            uint16_t* out) noexcept
     {
-        if (offset + 2 > bytes.size()) {
+        if (!span_contains_bytes(bytes, offset, 2U)) {
             return false;
         }
         const uint16_t v = static_cast<uint16_t>(u8(bytes[offset + 0]) << 0U)
@@ -50,7 +84,7 @@ namespace {
     static bool read_u32be(std::span<const std::byte> bytes, uint64_t offset,
                            uint32_t* out) noexcept
     {
-        if (offset + 4 > bytes.size()) {
+        if (!span_contains_bytes(bytes, offset, 4U)) {
             return false;
         }
         const uint32_t v
@@ -66,7 +100,7 @@ namespace {
     static bool read_u32le(std::span<const std::byte> bytes, uint64_t offset,
                            uint32_t* out) noexcept
     {
-        if (offset + 4 > bytes.size()) {
+        if (!span_contains_bytes(bytes, offset, 4U)) {
             return false;
         }
         const uint32_t v
@@ -82,7 +116,7 @@ namespace {
     static bool read_u64be(std::span<const std::byte> bytes, uint64_t offset,
                            uint64_t* out) noexcept
     {
-        if (offset + 8 > bytes.size()) {
+        if (!span_contains_bytes(bytes, offset, 8U)) {
             return false;
         }
         uint64_t v = 0;
@@ -97,7 +131,7 @@ namespace {
     static bool read_u64le(std::span<const std::byte> bytes, uint64_t offset,
                            uint64_t* out) noexcept
     {
-        if (offset + 8 > bytes.size()) {
+        if (!span_contains_bytes(bytes, offset, 8U)) {
             return false;
         }
         uint64_t v = 0;
@@ -145,7 +179,7 @@ namespace {
     static bool is_classic_tiff_header(std::span<const std::byte> bytes,
                                        uint64_t offset) noexcept
     {
-        if (offset + 8 > bytes.size()) {
+        if (!span_contains_bytes(bytes, offset, 8U)) {
             return false;
         }
         const uint8_t a = u8(bytes[offset + 0]);
@@ -188,7 +222,7 @@ namespace {
     static bool match_bytes(std::span<const std::byte> bytes, uint64_t offset,
                             const char* s, uint32_t s_len) noexcept
     {
-        if (offset + s_len > bytes.size()) {
+        if (!span_contains_bytes(bytes, offset, s_len)) {
             return false;
         }
         return std::memcmp(bytes.data() + static_cast<size_t>(offset), s,
@@ -847,10 +881,21 @@ namespace {
             return false;
         }
 
-        const uint64_t entries_off = ifd_off + 2;
-        const uint64_t table_bytes = uint64_t(entry_count) * 12ULL;
-        const uint64_t needed      = entries_off + table_bytes + 4ULL;
-        if (needed > bytes.size()) {
+        uint64_t entries_off = 0;
+        if (!checked_add_u64(ifd_off, 2U, &entries_off)) {
+            return false;
+        }
+        uint64_t table_bytes = 0;
+        if (!checked_mul_u64(uint64_t(entry_count), 12ULL, &table_bytes)) {
+            return false;
+        }
+        uint64_t table_end = 0;
+        if (!checked_add_u64(entries_off, table_bytes, &table_end)) {
+            return false;
+        }
+        uint64_t needed = 0;
+        if (!checked_add_u64(table_end, 4ULL, &needed)
+            || needed > bytes.size()) {
             return false;
         }
 
@@ -879,7 +924,10 @@ namespace {
                 continue;
             }
 
-            const uint64_t value_bytes = count * unit;
+            uint64_t value_bytes = 0;
+            if (!checked_mul_u64(count, unit, &value_bytes)) {
+                continue;
+            }
             if (value_bytes > limits.max_value_bytes) {
                 continue;
             }
@@ -890,7 +938,7 @@ namespace {
                                                  ? value_field_off
                                                  : value_or_off32;
 
-            if (value_off + value_bytes > bytes.size()) {
+            if (!span_contains_bytes(bytes, value_off, value_bytes)) {
                 continue;
             }
             valid += 1;
@@ -965,9 +1013,22 @@ namespace {
         if (entry_count == 0 || entry_count > limits.max_entries_per_ifd) {
             return false;
         }
-        const uint64_t entries_off = ifd_off + 2;
-        const uint64_t needed = entries_off + (uint64_t(entry_count) * 12ULL)
-                                + 4ULL;
+        uint64_t entries_off = 0;
+        if (!checked_add_u64(ifd_off, 2U, &entries_off)) {
+            return false;
+        }
+        uint64_t table_bytes = 0;
+        if (!checked_mul_u64(uint64_t(entry_count), 12ULL, &table_bytes)) {
+            return false;
+        }
+        uint64_t table_end = 0;
+        if (!checked_add_u64(entries_off, table_bytes, &table_end)) {
+            return false;
+        }
+        uint64_t needed = 0;
+        if (!checked_add_u64(table_end, 4ULL, &needed)) {
+            return false;
+        }
         return needed <= bytes.size();
     }
 
@@ -989,7 +1050,10 @@ namespace {
         if (!read_tiff_u16(cfg, bytes, ifd_off, &entry_count)) {
             return;
         }
-        const uint64_t entries_off = ifd_off + 2;
+        uint64_t entries_off = 0;
+        if (!checked_add_u64(ifd_off, 2U, &entries_off)) {
+            return;
+        }
 
         const BlockId block = store.add_block(BlockInfo {});
         if (block == kInvalidBlockId) {
@@ -997,7 +1061,15 @@ namespace {
         }
 
         for (uint32_t i = 0; i < entry_count; ++i) {
-            const uint64_t eoff = entries_off + uint64_t(i) * 12ULL;
+            uint64_t entry_delta = 0;
+            uint64_t eoff        = 0;
+            if (!checked_mul_u64(uint64_t(i), 12ULL, &entry_delta)
+                || !checked_add_u64(entries_off, entry_delta, &eoff)) {
+                if (status_out) {
+                    update_status(status_out, ExifDecodeStatus::Malformed);
+                }
+                return;
+            }
 
             uint16_t tag  = 0;
             uint16_t type = 0;
@@ -1021,7 +1093,13 @@ namespace {
             if (count > (UINT64_MAX / unit)) {
                 continue;
             }
-            const uint64_t value_bytes = count * unit;
+            uint64_t value_bytes = 0;
+            if (!checked_mul_u64(count, unit, &value_bytes)) {
+                if (status_out) {
+                    update_status(status_out, ExifDecodeStatus::Malformed);
+                }
+                continue;
+            }
 
             const uint64_t inline_cap      = 4;
             const uint64_t value_field_off = eoff + 8;
@@ -1047,7 +1125,7 @@ namespace {
 
             if (value_bytes > options.limits.max_value_bytes) {
                 entry.flags |= EntryFlags::Truncated;
-            } else if (value_off + value_bytes > bytes.size()) {
+            } else if (!span_contains_bytes(bytes, value_off, value_bytes)) {
                 if (status_out) {
                     update_status(status_out, ExifDecodeStatus::Malformed);
                 }
@@ -1544,18 +1622,28 @@ namespace {
             if (count == 1) {
                 return make_u8(u8(bytes[value_off]));
             }
-            const uint32_t n = (count > UINT32_MAX)
-                                   ? UINT32_MAX
-                                   : static_cast<uint32_t>(count);
+            if (count > UINT32_MAX || value_bytes > UINT32_MAX) {
+                update_status(result, ExifDecodeStatus::LimitExceeded);
+                return MetaValue {};
+            }
             MetaValue v;
             v.kind      = MetaValueKind::Array;
             v.elem_type = MetaElementType::U8;
-            v.count     = n;
+            v.count     = static_cast<uint32_t>(count);
             v.data.span = arena.append(
                 bytes.subspan(value_off, static_cast<size_t>(value_bytes)));
+            if (value_bytes != 0U
+                && v.data.span.size != static_cast<uint32_t>(value_bytes)) {
+                update_status(result, ExifDecodeStatus::LimitExceeded);
+                return MetaValue {};
+            }
             return v;
         }
         case 2: {  // ASCII
+            if (value_bytes > UINT32_MAX) {
+                update_status(result, ExifDecodeStatus::LimitExceeded);
+                return MetaValue {};
+            }
             return decode_text_value(
                 arena,
                 bytes.subspan(value_off, static_cast<size_t>(value_bytes)),
@@ -1570,7 +1658,7 @@ namespace {
                 }
                 return make_u16(v);
             }
-            if (count > UINT32_MAX) {
+            if (count > (UINT32_MAX / 2U)) {
                 update_status(result, ExifDecodeStatus::LimitExceeded);
                 return MetaValue {};
             }
@@ -1580,6 +1668,11 @@ namespace {
             v.count     = static_cast<uint32_t>(count);
             v.data.span = arena.allocate(static_cast<uint32_t>(count * 2U),
                                          alignof(uint16_t));
+            if (count != 0U
+                && v.data.span.size != static_cast<uint32_t>(count * 2U)) {
+                update_status(result, ExifDecodeStatus::LimitExceeded);
+                return MetaValue {};
+            }
             const std::span<std::byte> dst = arena.span_mut(v.data.span);
             for (uint32_t i = 0; i < v.count; ++i) {
                 uint16_t value = 0;
@@ -1603,7 +1696,7 @@ namespace {
                 }
                 return make_u32(v);
             }
-            if (count > UINT32_MAX) {
+            if (count > (UINT32_MAX / 4U)) {
                 update_status(result, ExifDecodeStatus::LimitExceeded);
                 return MetaValue {};
             }
@@ -1613,6 +1706,11 @@ namespace {
             v.count     = static_cast<uint32_t>(count);
             v.data.span = arena.allocate(static_cast<uint32_t>(count * 4U),
                                          alignof(uint32_t));
+            if (count != 0U
+                && v.data.span.size != static_cast<uint32_t>(count * 4U)) {
+                update_status(result, ExifDecodeStatus::LimitExceeded);
+                return MetaValue {};
+            }
             const std::span<std::byte> dst = arena.span_mut(v.data.span);
             for (uint32_t i = 0; i < v.count; ++i) {
                 uint32_t value = 0;
@@ -1637,7 +1735,7 @@ namespace {
                 }
                 return make_urational(numer, denom);
             }
-            if (count > UINT32_MAX) {
+            if (count > (UINT32_MAX / sizeof(URational))) {
                 update_status(result, ExifDecodeStatus::LimitExceeded);
                 return MetaValue {};
             }
@@ -1648,6 +1746,12 @@ namespace {
             v.data.span = arena.allocate(static_cast<uint32_t>(
                                              count * sizeof(URational)),
                                          alignof(URational));
+            if (count != 0U
+                && v.data.span.size
+                       != static_cast<uint32_t>(count * sizeof(URational))) {
+                update_status(result, ExifDecodeStatus::LimitExceeded);
+                return MetaValue {};
+            }
             const std::span<std::byte> dst = arena.span_mut(v.data.span);
             for (uint32_t i = 0; i < v.count; ++i) {
                 uint32_t numer      = 0;
@@ -1668,18 +1772,28 @@ namespace {
             if (count == 1) {
                 return make_i8(static_cast<int8_t>(u8(bytes[value_off])));
             }
-            const uint32_t n = (count > UINT32_MAX)
-                                   ? UINT32_MAX
-                                   : static_cast<uint32_t>(count);
+            if (count > UINT32_MAX || value_bytes > UINT32_MAX) {
+                update_status(result, ExifDecodeStatus::LimitExceeded);
+                return MetaValue {};
+            }
             MetaValue v;
             v.kind      = MetaValueKind::Array;
             v.elem_type = MetaElementType::I8;
-            v.count     = n;
+            v.count     = static_cast<uint32_t>(count);
             v.data.span = arena.append(
                 bytes.subspan(value_off, static_cast<size_t>(value_bytes)));
+            if (value_bytes != 0U
+                && v.data.span.size != static_cast<uint32_t>(value_bytes)) {
+                update_status(result, ExifDecodeStatus::LimitExceeded);
+                return MetaValue {};
+            }
             return v;
         }
         case 7: {  // UNDEFINED
+            if (value_bytes > UINT32_MAX) {
+                update_status(result, ExifDecodeStatus::LimitExceeded);
+                return MetaValue {};
+            }
             return make_bytes(arena,
                               bytes.subspan(value_off,
                                             static_cast<size_t>(value_bytes)));
@@ -1693,7 +1807,7 @@ namespace {
                 }
                 return make_i16(static_cast<int16_t>(raw));
             }
-            if (count > UINT32_MAX) {
+            if (count > (UINT32_MAX / 2U)) {
                 update_status(result, ExifDecodeStatus::LimitExceeded);
                 return MetaValue {};
             }
@@ -1703,6 +1817,11 @@ namespace {
             v.count     = static_cast<uint32_t>(count);
             v.data.span = arena.allocate(static_cast<uint32_t>(count * 2U),
                                          alignof(int16_t));
+            if (count != 0U
+                && v.data.span.size != static_cast<uint32_t>(count * 2U)) {
+                update_status(result, ExifDecodeStatus::LimitExceeded);
+                return MetaValue {};
+            }
             const std::span<std::byte> dst = arena.span_mut(v.data.span);
             for (uint32_t i = 0; i < v.count; ++i) {
                 uint16_t raw = 0;
@@ -1726,7 +1845,7 @@ namespace {
                 }
                 return make_i32(static_cast<int32_t>(raw));
             }
-            if (count > UINT32_MAX) {
+            if (count > (UINT32_MAX / 4U)) {
                 update_status(result, ExifDecodeStatus::LimitExceeded);
                 return MetaValue {};
             }
@@ -1736,6 +1855,11 @@ namespace {
             v.count     = static_cast<uint32_t>(count);
             v.data.span = arena.allocate(static_cast<uint32_t>(count * 4U),
                                          alignof(int32_t));
+            if (count != 0U
+                && v.data.span.size != static_cast<uint32_t>(count * 4U)) {
+                update_status(result, ExifDecodeStatus::LimitExceeded);
+                return MetaValue {};
+            }
             const std::span<std::byte> dst = arena.span_mut(v.data.span);
             for (uint32_t i = 0; i < v.count; ++i) {
                 uint32_t raw = 0;
@@ -1762,7 +1886,7 @@ namespace {
                 return make_srational(static_cast<int32_t>(numer_u),
                                       static_cast<int32_t>(denom_u));
             }
-            if (count > UINT32_MAX) {
+            if (count > (UINT32_MAX / sizeof(SRational))) {
                 update_status(result, ExifDecodeStatus::LimitExceeded);
                 return MetaValue {};
             }
@@ -1773,6 +1897,12 @@ namespace {
             v.data.span = arena.allocate(static_cast<uint32_t>(
                                              count * sizeof(SRational)),
                                          alignof(SRational));
+            if (count != 0U
+                && v.data.span.size
+                       != static_cast<uint32_t>(count * sizeof(SRational))) {
+                update_status(result, ExifDecodeStatus::LimitExceeded);
+                return MetaValue {};
+            }
             const std::span<std::byte> dst = arena.span_mut(v.data.span);
             for (uint32_t i = 0; i < v.count; ++i) {
                 uint32_t numer_u    = 0;
@@ -1799,7 +1929,7 @@ namespace {
                 }
                 return make_f32_bits(bits);
             }
-            if (count > UINT32_MAX) {
+            if (count > (UINT32_MAX / 4U)) {
                 update_status(result, ExifDecodeStatus::LimitExceeded);
                 return MetaValue {};
             }
@@ -1809,6 +1939,11 @@ namespace {
             v.count     = static_cast<uint32_t>(count);
             v.data.span = arena.allocate(static_cast<uint32_t>(count * 4U),
                                          alignof(uint32_t));
+            if (count != 0U
+                && v.data.span.size != static_cast<uint32_t>(count * 4U)) {
+                update_status(result, ExifDecodeStatus::LimitExceeded);
+                return MetaValue {};
+            }
             const std::span<std::byte> dst = arena.span_mut(v.data.span);
             for (uint32_t i = 0; i < v.count; ++i) {
                 uint32_t bits = 0;
@@ -1831,7 +1966,7 @@ namespace {
                 }
                 return make_f64_bits(bits);
             }
-            if (count > UINT32_MAX) {
+            if (count > (UINT32_MAX / 8U)) {
                 update_status(result, ExifDecodeStatus::LimitExceeded);
                 return MetaValue {};
             }
@@ -1841,6 +1976,11 @@ namespace {
             v.count     = static_cast<uint32_t>(count);
             v.data.span = arena.allocate(static_cast<uint32_t>(count * 8U),
                                          alignof(uint64_t));
+            if (count != 0U
+                && v.data.span.size != static_cast<uint32_t>(count * 8U)) {
+                update_status(result, ExifDecodeStatus::LimitExceeded);
+                return MetaValue {};
+            }
             const std::span<std::byte> dst = arena.span_mut(v.data.span);
             for (uint32_t i = 0; i < v.count; ++i) {
                 uint64_t bits = 0;
@@ -1864,7 +2004,7 @@ namespace {
                 }
                 return make_u64(v);
             }
-            if (count > UINT32_MAX) {
+            if (count > (UINT32_MAX / 8U)) {
                 update_status(result, ExifDecodeStatus::LimitExceeded);
                 return MetaValue {};
             }
@@ -1874,6 +2014,11 @@ namespace {
             v.count     = static_cast<uint32_t>(count);
             v.data.span = arena.allocate(static_cast<uint32_t>(count * 8U),
                                          alignof(uint64_t));
+            if (count != 0U
+                && v.data.span.size != static_cast<uint32_t>(count * 8U)) {
+                update_status(result, ExifDecodeStatus::LimitExceeded);
+                return MetaValue {};
+            }
             const std::span<std::byte> dst = arena.span_mut(v.data.span);
             for (uint32_t i = 0; i < v.count; ++i) {
                 uint64_t value = 0;
@@ -1896,7 +2041,7 @@ namespace {
                 }
                 return make_i64(static_cast<int64_t>(raw));
             }
-            if (count > UINT32_MAX) {
+            if (count > (UINT32_MAX / 8U)) {
                 update_status(result, ExifDecodeStatus::LimitExceeded);
                 return MetaValue {};
             }
@@ -1906,6 +2051,11 @@ namespace {
             v.count     = static_cast<uint32_t>(count);
             v.data.span = arena.allocate(static_cast<uint32_t>(count * 8U),
                                          alignof(int64_t));
+            if (count != 0U
+                && v.data.span.size != static_cast<uint32_t>(count * 8U)) {
+                update_status(result, ExifDecodeStatus::LimitExceeded);
+                return MetaValue {};
+            }
             const std::span<std::byte> dst = arena.span_mut(v.data.span);
             for (uint32_t i = 0; i < v.count; ++i) {
                 uint64_t raw = 0;
@@ -1921,6 +2071,10 @@ namespace {
             return v;
         }
         case 129: {  // UTF-8 (EXIF)
+            if (value_bytes > UINT32_MAX) {
+                update_status(result, ExifDecodeStatus::LimitExceeded);
+                return MetaValue {};
+            }
             return decode_text_value(
                 arena,
                 bytes.subspan(value_off, static_cast<size_t>(value_bytes)),
@@ -2594,12 +2748,27 @@ decode_exif_tiff(std::span<const std::byte> tiff_bytes, MetaStore& store,
                 update_status(&sink.result, ExifDecodeStatus::Malformed);
                 continue;
             }
-            entry_count      = n16;
-            entries_off      = task.offset + 2;
-            entry_size       = 12;
-            next_ifd_off_pos = entries_off + entry_count * entry_size;
+            entry_count = n16;
+            if (entry_count > options.limits.max_entries_per_ifd) {
+                mark_limit_exceeded(&sink.result,
+                                    ExifLimitReason::MaxEntriesPerIfd,
+                                    task.offset, 0);
+                continue;
+            }
+            if (!checked_add_u64(task.offset, 2U, &entries_off)) {
+                update_status(&sink.result, ExifDecodeStatus::Malformed);
+                continue;
+            }
+            entry_size           = 12;
+            uint64_t table_bytes = 0;
+            if (!checked_mul_u64(entry_count, entry_size, &table_bytes)
+                || !checked_add_u64(entries_off, table_bytes,
+                                    &next_ifd_off_pos)) {
+                update_status(&sink.result, ExifDecodeStatus::Malformed);
+                continue;
+            }
             if (task.kind == ExifIfdKind::Ifd) {
-                if (next_ifd_off_pos + 4 <= tiff_bytes.size()) {
+                if (span_contains_bytes(tiff_bytes, next_ifd_off_pos, 4U)) {
                     uint32_t next32 = 0;
                     if (read_tiff_u32(cfg, tiff_bytes, next_ifd_off_pos, &next32)
                         && next32 != 0) {
@@ -2626,12 +2795,27 @@ decode_exif_tiff(std::span<const std::byte> tiff_bytes, MetaStore& store,
                 update_status(&sink.result, ExifDecodeStatus::Malformed);
                 continue;
             }
-            entry_count      = n64;
-            entries_off      = task.offset + 8;
-            entry_size       = 20;
-            next_ifd_off_pos = entries_off + entry_count * entry_size;
+            entry_count = n64;
+            if (entry_count > options.limits.max_entries_per_ifd) {
+                mark_limit_exceeded(&sink.result,
+                                    ExifLimitReason::MaxEntriesPerIfd,
+                                    task.offset, 0);
+                continue;
+            }
+            if (!checked_add_u64(task.offset, 8U, &entries_off)) {
+                update_status(&sink.result, ExifDecodeStatus::Malformed);
+                continue;
+            }
+            entry_size           = 20;
+            uint64_t table_bytes = 0;
+            if (!checked_mul_u64(entry_count, entry_size, &table_bytes)
+                || !checked_add_u64(entries_off, table_bytes,
+                                    &next_ifd_off_pos)) {
+                update_status(&sink.result, ExifDecodeStatus::Malformed);
+                continue;
+            }
             if (task.kind == ExifIfdKind::Ifd) {
-                if (next_ifd_off_pos + 8 <= tiff_bytes.size()) {
+                if (span_contains_bytes(tiff_bytes, next_ifd_off_pos, 8U)) {
                     uint64_t next64 = 0;
                     if (read_tiff_u64(cfg, tiff_bytes, next_ifd_off_pos, &next64)
                         && next64 != 0) {
@@ -2654,12 +2838,9 @@ decode_exif_tiff(std::span<const std::byte> tiff_bytes, MetaStore& store,
             }
         }
 
-        if (entry_count > options.limits.max_entries_per_ifd) {
-            mark_limit_exceeded(&sink.result, ExifLimitReason::MaxEntriesPerIfd,
-                                task.offset, 0);
-            continue;
-        }
-        if (entries_off + entry_count * entry_size > tiff_bytes.size()) {
+        uint64_t table_bytes = 0;
+        if (!checked_mul_u64(entry_count, entry_size, &table_bytes)
+            || !span_contains_bytes(tiff_bytes, entries_off, table_bytes)) {
             update_status(&sink.result, ExifDecodeStatus::Malformed);
             continue;
         }
@@ -2692,7 +2873,13 @@ decode_exif_tiff(std::span<const std::byte> tiff_bytes, MetaStore& store,
         exif_internal::GeoTiffTagRef geotiff_ascii;
 
         for (uint64_t i = 0; i < entry_count; ++i) {
-            const uint64_t eoff = entries_off + i * entry_size;
+            uint64_t entry_delta = 0;
+            uint64_t eoff        = 0;
+            if (!checked_mul_u64(i, entry_size, &entry_delta)
+                || !checked_add_u64(entries_off, entry_delta, &eoff)) {
+                update_status(&sink.result, ExifDecodeStatus::Malformed);
+                continue;
+            }
 
             uint16_t tag  = 0;
             uint16_t type = 0;
@@ -2737,7 +2924,11 @@ decode_exif_tiff(std::span<const std::byte> tiff_bytes, MetaStore& store,
                 update_status(&sink.result, ExifDecodeStatus::Malformed);
                 continue;
             }
-            const uint64_t value_bytes = count * unit;
+            uint64_t value_bytes = 0;
+            if (!checked_mul_u64(count, unit, &value_bytes)) {
+                update_status(&sink.result, ExifDecodeStatus::Malformed);
+                continue;
+            }
 
             uint64_t value_off        = 0;
             const uint64_t inline_cap = cfg.bigtiff ? 8U : 4U;
@@ -2746,7 +2937,7 @@ decode_exif_tiff(std::span<const std::byte> tiff_bytes, MetaStore& store,
             } else {
                 value_off = value_or_off;
             }
-            if (value_off + value_bytes > tiff_bytes.size()) {
+            if (!span_contains_bytes(tiff_bytes, value_off, value_bytes)) {
                 update_status(&sink.result, ExifDecodeStatus::Malformed);
                 continue;
             }
@@ -3014,16 +3205,7 @@ decode_exif_tiff(std::span<const std::byte> tiff_bytes, MetaStore& store,
                         }
 
                         uint32_t ifd0_off = 0;
-                        if (read_tiff_u32(mn_cfg, hdr_bytes, 4, &ifd0_off)) {
-                            const uint64_t ifd0_u64 = uint64_t(ifd0_off);
-                            if (ifd0_u64 < hdr_bytes.size()) {
-                                decode_classic_ifd_no_header(mn_cfg, hdr_bytes,
-                                                             ifd0_u64, mk_ifd0,
-                                                             store, mn_opts,
-                                                             &sink.result,
-                                                             EntryFlags::None);
-                            }
-                        }
+                        (void)read_tiff_u32(mn_cfg, hdr_bytes, 4, &ifd0_off);
                         exif_internal::decode_nikon_binary_subdirs(
                             mk_ifd0, store, mn_cfg.le, mn_opts, &sink.result);
                     }

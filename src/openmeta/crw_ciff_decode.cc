@@ -4,11 +4,11 @@
 #include "openmeta/meta_value.h"
 
 #include <array>
-#include <ctime>
-#include <cstdio>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
+#include <ctime>
 
 namespace openmeta::ciff_internal {
 namespace {
@@ -201,7 +201,7 @@ namespace {
             return make_bytes(arena, raw);
         }
         const uint64_t count64 = raw.size() / 2U;
-        if (count64 > UINT32_MAX) {
+        if (count64 > (UINT32_MAX / 2U)) {
             update_status(status_out, ExifDecodeStatus::LimitExceeded);
             return MetaValue {};
         }
@@ -211,6 +211,11 @@ namespace {
         v.count     = static_cast<uint32_t>(count64);
         v.data.span = arena.allocate(static_cast<uint32_t>(v.count * 2U),
                                      alignof(uint16_t));
+        if (v.count != 0U
+            && v.data.span.size != static_cast<uint32_t>(v.count * 2U)) {
+            update_status(status_out, ExifDecodeStatus::LimitExceeded);
+            return MetaValue {};
+        }
         const std::span<std::byte> dst = arena.span_mut(v.data.span);
         for (uint32_t i = 0; i < v.count; ++i) {
             uint16_t value = 0;
@@ -240,7 +245,7 @@ namespace {
             return make_bytes(arena, raw);
         }
         const uint64_t count64 = raw.size() / 4U;
-        if (count64 > UINT32_MAX) {
+        if (count64 > (UINT32_MAX / 4U)) {
             update_status(status_out, ExifDecodeStatus::LimitExceeded);
             return MetaValue {};
         }
@@ -250,6 +255,11 @@ namespace {
         v.count     = static_cast<uint32_t>(count64);
         v.data.span = arena.allocate(static_cast<uint32_t>(v.count * 4U),
                                      alignof(uint32_t));
+        if (v.count != 0U
+            && v.data.span.size != static_cast<uint32_t>(v.count * 4U)) {
+            update_status(status_out, ExifDecodeStatus::LimitExceeded);
+            return MetaValue {};
+        }
         const std::span<std::byte> dst = arena.span_mut(v.data.span);
         for (uint32_t i = 0; i < v.count; ++i) {
             uint32_t value = 0;
@@ -294,7 +304,7 @@ namespace {
         }
         uint16_t dir = 0;
         for (size_t i = 5; i < 9; ++i) {
-            const char c = ifd_token[i];
+            const char c    = ifd_token[i];
             uint16_t nibble = 0;
             if (c >= '0' && c <= '9') {
                 nibble = static_cast<uint16_t>(c - '0');
@@ -359,8 +369,8 @@ namespace {
         entry.value                 = value;
         entry.origin.block          = block;
         entry.origin.order_in_block = order_in_block;
-        entry.origin.wire_type      = WireType { WireFamily::Other, source_tag };
-        entry.origin.wire_count     = value.count;
+        entry.origin.wire_type  = WireType { WireFamily::Other, source_tag };
+        entry.origin.wire_count = value.count;
         (void)store.add_entry(entry);
         if (status_out) {
             status_out->entries_decoded += 1U;
@@ -391,14 +401,11 @@ namespace {
     }
 
 
-    static void add_crw_derived_entries(const CiffConfig& cfg,
-                                        std::string_view ifd_token,
-                                        uint16_t tag_id,
-                                        std::span<const std::byte> raw,
-                                        MetaStore& store, BlockId block,
-                                        uint32_t order_in_block,
-                                        const ExifDecodeLimits& limits,
-                                        ExifDecodeResult* status_out) noexcept
+    static void add_crw_derived_entries(
+        const CiffConfig& cfg, std::string_view ifd_token, uint16_t tag_id,
+        std::span<const std::byte> raw, MetaStore& store, BlockId block,
+        uint32_t order_in_block, const ExifDecodeLimits& limits,
+        ExifDecodeResult* status_out) noexcept
     {
         uint16_t dir_id = 0;
         if (!parse_ciff_dir_id(ifd_token, &dir_id)) {
@@ -426,17 +433,19 @@ namespace {
             }
 
             size_t model_begin = make_end;
-            if (model_begin < raw.size() && raw[model_begin] == std::byte { 0 }) {
+            if (model_begin < raw.size()
+                && raw[model_begin] == std::byte { 0 }) {
                 ++model_begin;
             }
             size_t model_end = model_begin;
-            while (model_end < raw.size() && raw[model_end] != std::byte { 0 }) {
+            while (model_end < raw.size()
+                   && raw[model_end] != std::byte { 0 }) {
                 ++model_end;
             }
             if (model_end > model_begin) {
-                const std::string_view model(
-                    reinterpret_cast<const char*>(raw.data() + model_begin),
-                    model_end - model_begin);
+                const std::string_view model(reinterpret_cast<const char*>(
+                                                 raw.data() + model_begin),
+                                             model_end - model_begin);
                 const MetaValue value = make_text(store.arena(), model,
                                                   TextEncoding::Ascii);
                 add_derived_exif_entry(store, block, next_order++, "ifd0",
@@ -454,9 +463,9 @@ namespace {
                     const std::string_view dt(buf.data(), 19);
                     const MetaValue value = make_text(store.arena(), dt,
                                                       TextEncoding::Ascii);
-                    add_derived_exif_entry(store, block, next_order++, "exififd",
-                                           0x9003U, value, tag_id, limits,
-                                           status_out);
+                    add_derived_exif_entry(store, block, next_order++,
+                                           "exififd", 0x9003U, value, tag_id,
+                                           limits, status_out);
                 }
             }
             return;
@@ -482,8 +491,8 @@ namespace {
             if (raw.size() >= 16U) {
                 int32_t rotation = 0;
                 if (read_i32(cfg, raw, 12, &rotation)) {
-                    const uint16_t orientation
-                        = ciff_rotation_to_orientation(rotation);
+                    const uint16_t orientation = ciff_rotation_to_orientation(
+                        rotation);
                     add_derived_exif_entry(store, block, next_order++, "ifd0",
                                            0x0112U, make_u16(orientation),
                                            tag_id, limits, status_out);
@@ -541,8 +550,7 @@ namespace {
         }
 
         const uint64_t entries_start = entry_off + 2;
-        const uint64_t needed
-            = entries_start + uint64_t(entry_count) * 10ULL;
+        const uint64_t needed = entries_start + uint64_t(entry_count) * 10ULL;
         if (needed > dir_bytes.size()) {
             update_status(status_out, ExifDecodeStatus::Malformed);
             return false;
@@ -661,22 +669,30 @@ namespace {
                 entry.flags |= EntryFlags::Truncated;
                 update_status(status_out, ExifDecodeStatus::LimitExceeded);
             } else {
-                const std::span<const std::byte> raw = dir_bytes.subspan(
-                    static_cast<size_t>(value_off),
-                    static_cast<size_t>(value_bytes));
+                const std::span<const std::byte> raw
+                    = dir_bytes.subspan(static_cast<size_t>(value_off),
+                                        static_cast<size_t>(value_bytes));
 
                 switch (ciff_type_bits(tag)) {
                 case 0x0000: {  // unsignedByte
                     if (raw.size() == 1) {
                         entry.value = make_u8(u8(raw[0]));
                     } else {
+                        if (raw.size() > UINT32_MAX) {
+                            update_status(status_out,
+                                          ExifDecodeStatus::LimitExceeded);
+                            break;
+                        }
                         MetaValue v;
                         v.kind      = MetaValueKind::Array;
                         v.elem_type = MetaElementType::U8;
-                        v.count     = (raw.size() > UINT32_MAX)
-                                          ? UINT32_MAX
-                                          : static_cast<uint32_t>(raw.size());
+                        v.count     = static_cast<uint32_t>(raw.size());
                         v.data.span = store.arena().append(raw);
+                        if (!raw.empty() && v.data.span.size != v.count) {
+                            update_status(status_out,
+                                          ExifDecodeStatus::LimitExceeded);
+                            break;
+                        }
                         entry.value = v;
                     }
                     break;
@@ -703,9 +719,9 @@ namespace {
                 status_out->entries_decoded += 1U;
             }
             if (value_bytes <= limits.max_value_bytes) {
-                const std::span<const std::byte> raw = dir_bytes.subspan(
-                    static_cast<size_t>(value_off),
-                    static_cast<size_t>(value_bytes));
+                const std::span<const std::byte> raw
+                    = dir_bytes.subspan(static_cast<size_t>(value_off),
+                                        static_cast<size_t>(value_bytes));
                 add_crw_derived_entries(cfg, ifd_token, tag_id, raw, store,
                                         block, i, limits, status_out);
             }
@@ -757,12 +773,11 @@ decode_crw_ciff(std::span<const std::byte> file_bytes, MetaStore& store,
         return false;
     }
 
-    const std::span<const std::byte> root
-        = file_bytes.subspan(static_cast<size_t>(root_off));
+    const std::span<const std::byte> root = file_bytes.subspan(
+        static_cast<size_t>(root_off));
     uint32_t dir_index = 0;
-    const bool any
-        = decode_directory(cfg, root, "ciff_root", store, limits, status_out,
-                           0, &dir_index);
+    const bool any     = decode_directory(cfg, root, "ciff_root", store, limits,
+                                          status_out, 0, &dir_index);
     if (any) {
         update_status(status_out, ExifDecodeStatus::Ok);
     }

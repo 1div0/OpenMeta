@@ -5,7 +5,14 @@
 
 #include <cstdio>
 #include <cstring>
+#include <limits>
 #include <string_view>
+
+#if defined(_WIN32)
+#    include <io.h>
+#elif defined(_POSIX_VERSION)
+#    include <sys/types.h>
+#endif
 
 namespace openmeta {
 namespace {
@@ -80,6 +87,79 @@ namespace {
     }
 
 
+    static bool seek_file(std::FILE* f, uint64_t offset, int whence) noexcept;
+    static bool tell_file_u64(std::FILE* f, uint64_t* out_offset) noexcept;
+
+    static constexpr uint32_t kMaxValidateRetryPasses   = 8U;
+    static constexpr uint64_t kMaxValidateBlocksHardCap = 1ULL << 17;
+
+    static uint64_t
+    validate_block_retry_cap(const OpenMetaResourcePolicy& policy) noexcept
+    {
+        uint64_t cap = static_cast<uint64_t>(policy.payload_limits.max_parts);
+        if (cap == 0U) {
+            cap = 1ULL << 14;
+        }
+        if (cap > UINT64_MAX / 8ULL) {
+            cap = UINT64_MAX;
+        } else {
+            cap *= 8ULL;
+        }
+        if (cap < 4096ULL) {
+            cap = 4096ULL;
+        }
+        if (cap > kMaxValidateBlocksHardCap) {
+            cap = kMaxValidateBlocksHardCap;
+        }
+        return cap;
+    }
+
+
+    static void fail_validate_retry_growth(ValidateResult* out,
+                                           std::string_view category,
+                                           uint64_t needed, uint64_t cap,
+                                           std::string_view detail) noexcept
+    {
+        if (!out) {
+            return;
+        }
+
+        char message[192];
+        std::snprintf(message, sizeof(message),
+                      "%.*s scratch growth exceeds validate cap (%llu > %llu)",
+                      static_cast<int>(detail.size()), detail.data(),
+                      static_cast<unsigned long long>(needed),
+                      static_cast<unsigned long long>(cap));
+
+        out->status = ValidateStatus::ReadFailed;
+        add_issue(out, ValidateIssueSeverity::Error, category,
+                  "scratch_limit_exceeded", message);
+        tally_issues(out);
+        out->failed = true;
+    }
+
+
+    static void fail_validate_retry_count(ValidateResult* out,
+                                          uint32_t retry_count) noexcept
+    {
+        if (!out) {
+            return;
+        }
+
+        char message[160];
+        std::snprintf(message, sizeof(message),
+                      "validate retry pass cap exceeded (%u > %u)",
+                      static_cast<unsigned>(retry_count),
+                      static_cast<unsigned>(kMaxValidateRetryPasses));
+
+        out->status = ValidateStatus::ReadFailed;
+        add_issue(out, ValidateIssueSeverity::Error, "read",
+                  "retry_limit_exceeded", message);
+        tally_issues(out);
+        out->failed = true;
+    }
+
+
     static bool file_size_u64(const char* path, uint64_t* out_size)
     {
         if (!path || !out_size) {
@@ -89,16 +169,62 @@ namespace {
         if (!f) {
             return false;
         }
-        if (std::fseek(f, 0, SEEK_END) != 0) {
-            std::fclose(f);
-            return false;
-        }
-        const long end = std::ftell(f);
+        const bool ok = seek_file(f, 0U, SEEK_END)
+                        && tell_file_u64(f, out_size);
         std::fclose(f);
-        if (end < 0) {
+        return ok;
+    }
+
+
+    static bool seek_file(std::FILE* f, uint64_t offset, int whence) noexcept
+    {
+        if (!f) {
             return false;
         }
-        *out_size = static_cast<uint64_t>(end);
+#if defined(_WIN32)
+        if (offset
+            > static_cast<uint64_t>(std::numeric_limits<__int64>::max())) {
+            return false;
+        }
+        return ::_fseeki64(f, static_cast<__int64>(offset), whence) == 0;
+#elif defined(_POSIX_VERSION)
+        if (offset > static_cast<uint64_t>(std::numeric_limits<off_t>::max())) {
+            return false;
+        }
+        return ::fseeko(f, static_cast<off_t>(offset), whence) == 0;
+#else
+        if (offset > static_cast<uint64_t>(std::numeric_limits<long>::max())) {
+            return false;
+        }
+        return std::fseek(f, static_cast<long>(offset), whence) == 0;
+#endif
+    }
+
+
+    static bool tell_file_u64(std::FILE* f, uint64_t* out_offset) noexcept
+    {
+        if (!f || !out_offset) {
+            return false;
+        }
+#if defined(_WIN32)
+        const __int64 pos = ::_ftelli64(f);
+        if (pos < 0) {
+            return false;
+        }
+        *out_offset = static_cast<uint64_t>(pos);
+#elif defined(_POSIX_VERSION)
+        const off_t pos = ::ftello(f);
+        if (pos < 0) {
+            return false;
+        }
+        *out_offset = static_cast<uint64_t>(pos);
+#else
+        const long pos = std::ftell(f);
+        if (pos < 0) {
+            return false;
+        }
+        *out_offset = static_cast<uint64_t>(pos);
+#endif
         return true;
     }
 
@@ -156,16 +282,15 @@ namespace {
         if (!f) {
             return ReadFileStatus::OpenFailed;
         }
-        if (std::fseek(f, 0, SEEK_END) != 0) {
+        if (!seek_file(f, 0U, SEEK_END)) {
             std::fclose(f);
             return ReadFileStatus::ReadFailed;
         }
-        const long end = std::ftell(f);
-        if (end < 0) {
+        uint64_t sz = 0;
+        if (!tell_file_u64(f, &sz)) {
             std::fclose(f);
             return ReadFileStatus::ReadFailed;
         }
-        const uint64_t sz = static_cast<uint64_t>(end);
         if (file_size) {
             *file_size = sz;
         }
@@ -173,12 +298,16 @@ namespace {
             std::fclose(f);
             return ReadFileStatus::TooLarge;
         }
-        if (std::fseek(f, 0, SEEK_SET) != 0) {
+        if (!seek_file(f, 0U, SEEK_SET)) {
             std::fclose(f);
             return ReadFileStatus::ReadFailed;
         }
-        out->resize(static_cast<size_t>(end));
-        if (end > 0) {
+        if (sz > static_cast<uint64_t>(SIZE_MAX)) {
+            std::fclose(f);
+            return ReadFileStatus::TooLarge;
+        }
+        out->resize(static_cast<size_t>(sz));
+        if (sz > 0U) {
             const size_t n = std::fread(out->data(), 1, out->size(), f);
             if (n != out->size()) {
                 std::fclose(f);
@@ -388,13 +517,28 @@ validate_file(const char* path, const ValidateOptions& options) noexcept
     decode_options.jumbf.verify_require_resolved_references
         = options.verify_require_resolved_references;
 
+    OpenMetaResourcePolicy normalized_policy = options.policy;
+    normalize_resource_policy(&normalized_policy);
+    const uint64_t max_block_retry = validate_block_retry_cap(
+        normalized_policy);
+    const uint64_t max_ifd_retry = static_cast<uint64_t>(
+        normalized_policy.exif_limits.max_ifds);
+    const uint64_t max_payload_retry
+        = normalized_policy.payload_limits.max_output_bytes;
+
     std::vector<ContainerBlockRef> blocks(128);
     std::vector<ExifIfdRef> ifd_refs(256);
     std::vector<std::byte> payload(1024 * 1024);
     std::vector<uint32_t> payload_parts(16384);
 
     MetaStore store;
+    uint32_t retry_count = 0U;
     for (;;) {
+        if (retry_count > kMaxValidateRetryPasses) {
+            fail_validate_retry_count(&out, retry_count);
+            return out;
+        }
+
         store    = MetaStore();
         out.read = simple_meta_read(
             file.bytes(), store,
@@ -406,12 +550,46 @@ validate_file(const char* path, const ValidateOptions& options) noexcept
 
         if (out.read.scan.status == ScanStatus::OutputTruncated
             && out.read.scan.needed > blocks.size()) {
+            if (out.read.scan.needed > max_block_retry) {
+                fail_validate_retry_growth(&out, "scan", out.read.scan.needed,
+                                           max_block_retry, "scan");
+                return out;
+            }
             blocks.resize(out.read.scan.needed);
+            retry_count += 1U;
+            continue;
+        }
+        if (out.read.exif.status == ExifDecodeStatus::OutputTruncated
+            && out.read.exif.ifds_needed > ifd_refs.size()) {
+            if (out.read.exif.ifds_needed > max_ifd_retry) {
+                fail_validate_retry_growth(&out, "exif",
+                                           out.read.exif.ifds_needed,
+                                           max_ifd_retry, "ifd scratch");
+                return out;
+            }
+            ifd_refs.resize(out.read.exif.ifds_needed);
+            retry_count += 1U;
             continue;
         }
         if (out.read.payload.status == PayloadStatus::OutputTruncated
             && out.read.payload.needed > payload.size()) {
+            if (max_payload_retry != 0U
+                && out.read.payload.needed > max_payload_retry) {
+                fail_validate_retry_growth(&out, "payload",
+                                           out.read.payload.needed,
+                                           max_payload_retry,
+                                           "payload scratch");
+                return out;
+            }
+            if (out.read.payload.needed > static_cast<uint64_t>(SIZE_MAX)) {
+                fail_validate_retry_growth(&out, "payload",
+                                           out.read.payload.needed,
+                                           static_cast<uint64_t>(SIZE_MAX),
+                                           "payload scratch");
+                return out;
+            }
             payload.resize(static_cast<size_t>(out.read.payload.needed));
+            retry_count += 1U;
             continue;
         }
         break;

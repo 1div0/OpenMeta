@@ -256,6 +256,36 @@ TEST(XmpDecodeTest, DecodesXmpToolkitOnXmpMetaRoot)
     ASSERT_EQ(e.value.kind, MetaValueKind::Text);
 }
 
+TEST(XmpDecodeTest, RejectsDoctypeAndEntityDeclarations)
+{
+    const std::string xmp
+        = "<!DOCTYPE x:xmpmeta [<!ENTITY boom 'boom'>]>"
+          "<x:xmpmeta xmlns:x='adobe:ns:meta/'>"
+          "<rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'>"
+          "<rdf:Description xmlns:xmp='http://ns.adobe.com/xap/1.0/'>"
+          "<xmp:CreatorTool>&boom;</xmp:CreatorTool>"
+          "</rdf:Description>"
+          "</rdf:RDF>"
+          "</x:xmpmeta>";
+
+    const std::span<const std::byte> bytes(reinterpret_cast<const std::byte*>(
+                                               xmp.data()),
+                                           xmp.size());
+
+    MetaStore strict_store;
+    const XmpDecodeResult strict = decode_xmp_packet(bytes, strict_store);
+    EXPECT_EQ(strict.status, XmpDecodeStatus::Malformed);
+    EXPECT_EQ(strict.entries_decoded, 0U);
+
+    MetaStore safe_store;
+    XmpDecodeOptions options;
+    options.malformed_mode     = XmpDecodeMalformedMode::OutputTruncated;
+    const XmpDecodeResult safe = decode_xmp_packet(bytes, safe_store,
+                                                   EntryFlags::None, options);
+    EXPECT_EQ(safe.status, XmpDecodeStatus::OutputTruncated);
+    EXPECT_EQ(safe.entries_decoded, 0U);
+}
+
 TEST(XmpDecodeTest, MalformedCanBeReportedAsOutputTruncated)
 {
     std::string xmp

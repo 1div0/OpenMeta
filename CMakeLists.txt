@@ -359,6 +359,23 @@ if(OPENMETA_BUILD_TOOLS)
       VERBATIM
     )
   endif()
+
+  if(TARGET metaread AND TARGET metadump AND TARGET thumdump
+     AND TARGET metavalidate AND TARGET metatransfer)
+    add_custom_target(openmeta_gate_cli_numeric_parse_smoke
+      DEPENDS metaread metadump thumdump metavalidate metatransfer
+      COMMAND ${CMAKE_COMMAND}
+        "-DMETAREAD_BIN=$<TARGET_FILE:metaread>"
+        "-DMETADUMP_BIN=$<TARGET_FILE:metadump>"
+        "-DTHUMDUMP_BIN=$<TARGET_FILE:thumdump>"
+        "-DMETAVALIDATE_BIN=$<TARGET_FILE:metavalidate>"
+        "-DMETATRANSFER_BIN=$<TARGET_FILE:metatransfer>"
+        "-DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/_cli_numeric_parse_smoke"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/cli_numeric_parse_smoke_test.cmake"
+      COMMENT "Running CLI numeric-parse smoke gate"
+      VERBATIM
+    )
+  endif()
 endif()
 
 if(OPENMETA_BUILD_PYTHON)
@@ -603,6 +620,21 @@ if(OPENMETA_BUILD_TESTS)
         "-DMETATRANSFER_BIN=$<TARGET_FILE:metatransfer>"
         "-DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/_cli_metatransfer_smoke"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/cli_metatransfer_smoke_test.cmake"
+    )
+  endif()
+
+  if(TARGET metaread AND TARGET metadump AND TARGET thumdump
+     AND TARGET metavalidate AND TARGET metatransfer)
+    add_test(
+      NAME openmeta_cli_numeric_parse_smoke
+      COMMAND ${CMAKE_COMMAND}
+        "-DMETAREAD_BIN=$<TARGET_FILE:metaread>"
+        "-DMETADUMP_BIN=$<TARGET_FILE:metadump>"
+        "-DTHUMDUMP_BIN=$<TARGET_FILE:thumdump>"
+        "-DMETAVALIDATE_BIN=$<TARGET_FILE:metavalidate>"
+        "-DMETATRANSFER_BIN=$<TARGET_FILE:metatransfer>"
+        "-DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/_cli_numeric_parse_smoke"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/cli_numeric_parse_smoke_test.cmake"
     )
   endif()
 

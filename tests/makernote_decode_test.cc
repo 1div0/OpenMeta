@@ -2407,6 +2407,22 @@ TEST(MakerNoteDecode, DecodesNikonBinarySubdirectoriesExtended)
     }
     {
         const std::span<const EntryId> ids = store.find_all(
+            exif_key("mk_nikon_afinfo2v0100_0", 0x0008));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Bytes);
+        const std::span<const std::byte> raw = store.arena().span(
+            e.value.data.span);
+        ASSERT_EQ(raw.size(), 5U);
+        EXPECT_EQ(raw[0], std::byte { 0xaa });
+        EXPECT_EQ(raw[1], std::byte { 0xbb });
+        EXPECT_EQ(raw[2], std::byte { 0xcc });
+        EXPECT_EQ(raw[3], std::byte { 0xdd });
+        EXPECT_EQ(raw[4], std::byte { 0xee });
+        EXPECT_TRUE(any(e.flags, EntryFlags::Derived));
+    }
+    {
+        const std::span<const EntryId> ids = store.find_all(
             exif_key("mk_nikon_afinfo2v0100_0", 0x001c));
         ASSERT_EQ(ids.size(), 1U);
         const Entry& e = store.entry(ids[0]);
@@ -2571,6 +2587,32 @@ TEST(MakerNoteDecode, DecodesPanasonicBinarySubDirs)
         ASSERT_EQ(ids.size(), 1U);
         const Entry& e = store.entry(ids[0]);
         EXPECT_EQ(e.value.kind, MetaValueKind::Text);
+        const std::span<const std::byte> raw = store.arena().span(
+            e.value.data.span);
+        const std::string_view v(reinterpret_cast<const char*>(raw.data()),
+                                 raw.size());
+        EXPECT_EQ(v.substr(0, 3), "Bob");
+    }
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("mk_panasonic_facerecinfo_0", 0x0018));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Array);
+        EXPECT_EQ(e.value.elem_type, MetaElementType::U16);
+        EXPECT_EQ(e.value.count, 4U);
+    }
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("mk_panasonic_facerecinfo_0", 0x0020));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Text);
+        const std::span<const std::byte> raw = store.arena().span(
+            e.value.data.span);
+        const std::string_view v(reinterpret_cast<const char*>(raw.data()),
+                                 raw.size());
+        EXPECT_EQ(v.substr(0, 2), "25");
     }
     {
         const std::span<const EntryId> ids = store.find_all(

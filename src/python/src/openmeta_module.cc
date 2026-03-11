@@ -400,7 +400,7 @@ namespace {
         {
         }
 
-        void on_item(const ExportItem& item) override
+        void on_item(const ExportItem& item) noexcept override
         {
             if (!out_) {
                 return;
@@ -1634,6 +1634,17 @@ namespace {
         }
         out["tiff_tag_summary"] = std::move(tiff_tag_summary);
         out["tiff_commit"]      = nb::bool_(exec.tiff_commit);
+
+        nb::list jxl_box_summary;
+        for (size_t i = 0; i < exec.jxl_box_summary.size(); ++i) {
+            nb::dict one;
+            one["type"]  = nb::str(exec.jxl_box_summary[i].type.data(),
+                                   exec.jxl_box_summary[i].type.size());
+            one["count"] = nb::int_(exec.jxl_box_summary[i].count);
+            one["bytes"] = nb::int_(exec.jxl_box_summary[i].bytes);
+            jxl_box_summary.append(std::move(one));
+        }
+        out["jxl_box_summary"] = std::move(jxl_box_summary);
 
         out["edit_requested"]        = nb::bool_(exec.edit_requested);
         out["edit_plan_status"]      = exec.edit_plan_status;

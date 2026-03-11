@@ -190,21 +190,41 @@ TEST(MetaStoreTest, BlockEntriesAreOrderedByOrigin)
 }
 
 
+TEST(MetaStoreTest, InvalidAccessorsReturnEmptySentinels)
+{
+    MetaStore store;
+
+    const BlockInfo& block = store.block_info(kInvalidBlockId);
+    EXPECT_EQ(block.format, 0U);
+    EXPECT_EQ(block.container, 0U);
+    EXPECT_EQ(block.id, 0U);
+
+    const Entry& entry = store.entry(kInvalidEntryId);
+    EXPECT_EQ(entry.origin.block, kInvalidBlockId);
+    EXPECT_EQ(entry.origin.order_in_block, 0U);
+    EXPECT_EQ(entry.origin.wire_type.family, WireFamily::None);
+    EXPECT_EQ(entry.origin.wire_type.code, 0U);
+    EXPECT_EQ(entry.origin.wire_count, 0U);
+
+    EXPECT_TRUE(store.entries_in_block(kInvalidBlockId).empty());
+}
+
+
 TEST(MetaStoreTest, PreservesWireTypeUtf8_129)
 {
     MetaStore store;
     const BlockId block = store.add_block(BlockInfo {});
 
     Entry e;
-    e.key          = make_exif_tag_key(store.arena(), "ifd0Id", 0x010e);
+    e.key = make_exif_tag_key(store.arena(), "ifd0Id", 0x010e);
     static constexpr const char* kUtf8Hello
         = "\xD0\x9F\xD1\x80\xD0\xB8\xD0\xB2\xD0\xB5\xD1\x82";
     e.value        = make_text(store.arena(), kUtf8Hello, TextEncoding::Utf8);
     e.origin.block = block;
     e.origin.order_in_block = 0;
     e.origin.wire_type      = WireType { WireFamily::Tiff, 129 };
-    e.origin.wire_count
-        = static_cast<uint32_t>(std::string_view(kUtf8Hello).size());
+    e.origin.wire_count     = static_cast<uint32_t>(
+        std::string_view(kUtf8Hello).size());
     store.add_entry(e);
     store.finalize();
 

@@ -5,10 +5,17 @@
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <limits>
 #include <span>
 #include <string>
 #include <string_view>
 #include <vector>
+
+#if defined(_WIN32)
+#    include <io.h>
+#elif defined(_POSIX_VERSION)
+#    include <sys/types.h>
+#endif
 
 namespace openmeta {
 namespace {
@@ -130,6 +137,46 @@ namespace {
     }
 
 
+    static bool write_sparse_file(const std::string& path, uint64_t size)
+    {
+        std::FILE* f = std::fopen(path.c_str(), "wb");
+        if (!f) {
+            return false;
+        }
+        if (size == 0U) {
+            return std::fclose(f) == 0;
+        }
+
+        const uint64_t last = size - 1U;
+#if defined(_WIN32)
+        if (last > static_cast<uint64_t>(std::numeric_limits<__int64>::max())
+            || ::_fseeki64(f, static_cast<__int64>(last), SEEK_SET) != 0) {
+            std::fclose(f);
+            return false;
+        }
+#elif defined(_POSIX_VERSION)
+        if (last > static_cast<uint64_t>(std::numeric_limits<off_t>::max())
+            || ::fseeko(f, static_cast<off_t>(last), SEEK_SET) != 0) {
+            std::fclose(f);
+            return false;
+        }
+#else
+        if (last > static_cast<uint64_t>(std::numeric_limits<long>::max())
+            || std::fseek(f, static_cast<long>(last), SEEK_SET) != 0) {
+            std::fclose(f);
+            return false;
+        }
+#endif
+
+        static constexpr unsigned char kZero = 0U;
+        if (std::fwrite(&kZero, 1, 1, f) != 1U) {
+            std::fclose(f);
+            return false;
+        }
+        return std::fclose(f) == 0;
+    }
+
+
     static std::vector<std::byte> make_minimal_jpeg()
     {
         return {
@@ -155,6 +202,24 @@ namespace {
             std::byte { 0x00 }, std::byte { 0x00 }, std::byte { 0x01 },
             std::byte { 0xFF }, std::byte { 0xD9 },
         };
+    }
+
+
+    static std::vector<std::byte> make_jpeg_with_com_segments(uint32_t count)
+    {
+        std::vector<std::byte> bytes;
+        bytes.reserve(static_cast<size_t>(count) * 4U + 4U);
+        bytes.push_back(std::byte { 0xFF });
+        bytes.push_back(std::byte { 0xD8 });
+        for (uint32_t i = 0; i < count; ++i) {
+            bytes.push_back(std::byte { 0xFF });
+            bytes.push_back(std::byte { 0xFE });
+            bytes.push_back(std::byte { 0x00 });
+            bytes.push_back(std::byte { 0x02 });
+        }
+        bytes.push_back(std::byte { 0xFF });
+        bytes.push_back(std::byte { 0xD9 });
+        return bytes;
     }
 
 
@@ -216,6 +281,23 @@ TEST(ValidateFile, ReportsMalformedExifAsError)
     EXPECT_TRUE(has_issue(result, "exif", "malformed"));
 }
 
+TEST(ValidateFile, ReportsLargeSparseFileSize)
+{
+    const std::string path                = make_temp_path(".bin");
+    static constexpr uint64_t kSparseSize = 0x80000010ULL;
+    ASSERT_TRUE(write_sparse_file(path, kSparseSize));
+    const ScopedFile cleanup(path);
+
+    ValidateOptions options;
+    options.policy.max_file_bytes = 1U;
+
+    const ValidateResult result = validate_file(path.c_str(), options);
+    EXPECT_EQ(result.status, ValidateStatus::TooLarge);
+    EXPECT_TRUE(result.failed);
+    EXPECT_EQ(result.file_size, kSparseSize);
+    EXPECT_TRUE(has_issue(result, "file", "too_large"));
+}
+
 TEST(ValidateFile, WarningsAsErrorsPromotesFailure)
 {
     const std::string jpeg_path = make_temp_path(".jpg");
@@ -246,6 +328,20 @@ TEST(ValidateFile, WarningsAsErrorsPromotesFailure)
     EXPECT_TRUE(strict_result.failed);
     EXPECT_EQ(strict_result.error_count, 0U);
     EXPECT_GE(strict_result.warning_count, 1U);
+}
+
+TEST(ValidateFile, RejectsExcessiveScanScratchGrowth)
+{
+    const std::string path = make_temp_path(".jpg");
+    ASSERT_TRUE(write_bytes_file(path, make_jpeg_with_com_segments(131073U)));
+    const ScopedFile cleanup(path);
+
+    const ValidateResult result = validate_file(path.c_str(),
+                                                ValidateOptions {});
+    EXPECT_EQ(result.status, ValidateStatus::ReadFailed);
+    EXPECT_TRUE(result.failed);
+    EXPECT_GE(result.error_count, 1U);
+    EXPECT_TRUE(has_issue(result, "scan", "scratch_limit_exceeded"));
 }
 
 }  // namespace openmeta

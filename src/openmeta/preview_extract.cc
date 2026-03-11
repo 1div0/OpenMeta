@@ -25,9 +25,10 @@ namespace {
         if (!out || offset + 2U > bytes.size()) {
             return false;
         }
-        const uint16_t v = static_cast<uint16_t>(u8(bytes[offset + 0]) << 0)
-                           | static_cast<uint16_t>(u8(bytes[offset + 1]) << 8);
-        *out = v;
+        const uint16_t b0 = static_cast<uint16_t>(u8(bytes[offset + 0]));
+        const uint16_t b1 = static_cast<uint16_t>(u8(bytes[offset + 1]));
+        const uint16_t v  = static_cast<uint16_t>(b0 | (b1 << 8));
+        *out              = v;
         return true;
     }
 
@@ -37,9 +38,10 @@ namespace {
         if (!out || offset + 2U > bytes.size()) {
             return false;
         }
-        const uint16_t v = static_cast<uint16_t>(u8(bytes[offset + 0]) << 8)
-                           | static_cast<uint16_t>(u8(bytes[offset + 1]) << 0);
-        *out = v;
+        const uint16_t b0 = static_cast<uint16_t>(u8(bytes[offset + 0]));
+        const uint16_t b1 = static_cast<uint16_t>(u8(bytes[offset + 1]));
+        const uint16_t v  = static_cast<uint16_t>((b0 << 8) | b1);
+        *out              = v;
         return true;
     }
 

@@ -117,12 +117,17 @@ Current baseline-gated status on tracked corpora:
     OpenMeta can also serialize that handoff object and one persisted signed
     package for external signer round-trips.
     `PreparedTransferPackagePlan`,
+    `PreparedTransferPackageBatch`,
     `build_prepared_transfer_emit_package(...)`,
     `build_prepared_bundle_jpeg_package(...)`,
     `build_prepared_bundle_tiff_package(...)`, and
     `write_prepared_transfer_package(...)` now expose deterministic
     final-output chunk plans for current JPEG/TIFF rewrite paths plus direct
-    prepared-block emit packaging for JPEG/JXL.
+    prepared-block emit packaging for JPEG/JXL. The new owned batch path
+    (`build_prepared_transfer_package_batch(...)` /
+    `write_prepared_transfer_package_batch(...)`) lets callers cache or hand
+    off those final bytes without retaining the original input stream or
+    prepared bundle storage.
     `build_prepared_transfer_adapter_view(...)` now exposes the same prepared
     bundle as one target-neutral operation list for JPEG/TIFF/JXL host
     integrations that do not want to parse route strings, and
@@ -146,20 +151,28 @@ Current baseline-gated status on tracked corpora:
     available.
     JPEG XL is now a first transfer target in the same core API:
     `prepare_metadata_for_target(..., TransferTargetFormat::Jxl, ...)`
-    can build `Exif` and `xml ` box payloads from `MetaStore`,
-    `compile_prepared_bundle_jxl(...)` precomputes route-to-box dispatch once,
-    and `emit_prepared_bundle_jxl(...)` /
-    `emit_prepared_bundle_jxl_compiled(...)` emit those boxes through a
-    `JxlTransferEmitter`. JXL transfer also supports bounded JUMBF/C2PA
+    can build `Exif` and `xml ` box payloads plus an encoder ICC profile from
+    `MetaStore`. `compile_prepared_bundle_jxl(...)` precomputes route dispatch
+    once, and `emit_prepared_bundle_jxl(...)` /
+    `emit_prepared_bundle_jxl_compiled(...)` emit those payloads through a
+    `JxlTransferEmitter`: `Exif`/`xml ``/`jumb`/`c2pa` stay on the box path,
+    while `jxl:icc-profile` uses the encoder ICC-profile path and is not
+    serialized as a box. JXL transfer also supports bounded JUMBF/C2PA
     packaging on the same contract: file-based prepare can preserve source
     generic JUMBF payloads and raw OpenMeta draft C2PA invalidation payloads
-    as JXL boxes, and store-only prepare can project decoded non-C2PA
-    `JumbfCborKey` roots into generic JXL `jumb` boxes when no raw source
-    payload is available. `build_prepared_transfer_emit_package(...)` plus
-    `write_prepared_transfer_package(...)` can also serialize direct JXL box
-    output bytes from prepared bundles. ICC, IPTC, content-bound C2PA
-    rewrite/invalidation, edit/rewrite, and the `emit_output_writer` hot path
-    are still out of scope for the JXL path.
+    as JXL boxes, generate a draft unsigned invalidation payload for
+    content-bound source C2PA, and store-only prepare can project decoded
+    non-C2PA `JumbfCborKey` roots into generic JXL `jumb` boxes when no raw
+    source payload is available. JXL IPTC uses the same bounded model: when
+    raw IPTC is requested for JXL, OpenMeta projects it into the `xml ` XMP
+    box rather than inventing a raw IIM carrier.
+    `build_prepared_transfer_emit_package(...)` plus
+    `write_prepared_transfer_package(...)` can serialize direct JXL box output
+    bytes from prepared bundles, and `execute_prepared_transfer(...)` can use
+    that same box-only path through `emit_output_writer`. `jxl:icc-profile`
+    still stays on the encoder ICC path and is not serialized through the
+    byte-writer path. Signed C2PA rewrite/re-sign and edit/rewrite are still
+    out of scope for the JXL path.
     `metatransfer` and `openmeta.transfer_probe(...)` now expose both the
     resolved transfer-policy decisions and JPEG edit-plan removal counts for
     existing APP11 JUMBF/C2PA segments, plus the derived `c2pa_sign_request`

@@ -126,4 +126,29 @@ TEST(PhotoshopIrbDecodeTest, EstimateMatchesDecodeCounters)
     EXPECT_EQ(decoded.entries_decoded, estimate.entries_decoded);
 }
 
+TEST(PhotoshopIrbDecodeTest, AcceptsTrailingZeroPadding)
+{
+    const std::array<std::byte, 3> payload = {
+        std::byte { 0x01 },
+        std::byte { 0x02 },
+        std::byte { 0x03 },
+    };
+    std::vector<std::byte> irb;
+    append_irb_resource(0x1234, payload, &irb);
+    irb.push_back(std::byte { 0x00 });
+    irb.push_back(std::byte { 0x00 });
+    irb.push_back(std::byte { 0x00 });
+    irb.push_back(std::byte { 0x00 });
+
+    const PhotoshopIrbDecodeResult estimate = measure_photoshop_irb(irb);
+    EXPECT_EQ(estimate.status, PhotoshopIrbDecodeStatus::Ok);
+    EXPECT_EQ(estimate.resources_decoded, 1U);
+
+    MetaStore store;
+    const PhotoshopIrbDecodeResult decoded = decode_photoshop_irb(irb, store);
+    EXPECT_EQ(decoded.status, PhotoshopIrbDecodeStatus::Ok);
+    EXPECT_EQ(decoded.resources_decoded, 1U);
+    EXPECT_EQ(decoded.entries_decoded, 1U);
+}
+
 }  // namespace openmeta

@@ -33,8 +33,7 @@ namespace {
         }
         size_t cut = static_cast<size_t>(max_value_bytes);
         while (cut > 0U
-               && (static_cast<unsigned char>((*text)[cut]) & 0xC0U)
-                      == 0x80U) {
+               && (static_cast<unsigned char>((*text)[cut]) & 0xC0U) == 0x80U) {
             cut -= 1U;
         }
         text->resize(cut);
@@ -89,9 +88,9 @@ namespace {
         }
         CcmQueryOptions q;
         if (max_value_bytes != 0U) {
-            const uint32_t max_values = max_value_bytes / 8U;
+            const uint32_t max_values     = max_value_bytes / 8U;
             q.limits.max_values_per_field = (max_values == 0U) ? 1U
-                                                                : max_values;
+                                                               : max_values;
         }
         std::vector<CcmField> fields;
         (void)collect_dng_ccm_fields(store, &fields, q);
@@ -135,7 +134,7 @@ namespace {
         {
         }
 
-        void on_item(const ExportItem& item) override
+        void on_item(const ExportItem& item) noexcept override
         {
             if (!root_ || !item.entry) {
                 return;
@@ -197,7 +196,7 @@ namespace {
         {
         }
 
-        void on_item(const ExportItem& item) override
+        void on_item(const ExportItem& item) noexcept override
         {
             if (status_ != InteropSafetyStatus::Ok || !root_ || !item.entry) {
                 return;

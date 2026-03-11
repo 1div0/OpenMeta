@@ -4,14 +4,38 @@
 
 namespace openmeta {
 
-static uint32_t
-align_up_u32(uint32_t value, uint32_t alignment) noexcept
+static bool
+checked_add_size(size_t a, size_t b, size_t* out) noexcept
 {
-    if (alignment <= 1U) {
-        return value;
+    if (!out) {
+        return false;
     }
-    const uint32_t mask = alignment - 1U;
-    return (value + mask) & ~mask;
+    if (a > (SIZE_MAX - b)) {
+        return false;
+    }
+    *out = a + b;
+    return true;
+}
+
+
+static bool
+align_up_size(size_t value, uint32_t alignment, size_t* out) noexcept
+{
+    if (!out) {
+        return false;
+    }
+    if (alignment <= 1U) {
+        *out = value;
+        return true;
+    }
+    const size_t mask = static_cast<size_t>(alignment - 1U);
+    size_t aligned    = 0;
+    if (!checked_add_size(value, mask, &aligned)) {
+        return false;
+    }
+    aligned = aligned & ~mask;
+    *out    = aligned;
+    return true;
 }
 
 
@@ -32,10 +56,37 @@ ByteArena::reserve(size_t size_bytes)
 ByteSpan
 ByteArena::append(std::span<const std::byte> bytes)
 {
-    const uint32_t offset = static_cast<uint32_t>(buffer_.size());
-    buffer_.resize(buffer_.size() + bytes.size());
+    const size_t old_size = buffer_.size();
+    if (old_size > static_cast<size_t>(UINT32_MAX)
+        || bytes.size() > static_cast<size_t>(UINT32_MAX)) {
+        return ByteSpan {};
+    }
+    size_t new_size = 0;
+    if (!checked_add_size(old_size, bytes.size(), &new_size)
+        || new_size > static_cast<size_t>(UINT32_MAX)) {
+        return ByteSpan {};
+    }
+
+    const uint32_t offset       = static_cast<uint32_t>(old_size);
+    const std::byte* const base = buffer_.empty() ? nullptr : buffer_.data();
+
+    bool aliases_buffer = false;
+    size_t src_offset   = 0;
+    if (!bytes.empty() && base) {
+        const std::byte* const src = bytes.data();
+        if (src >= base && src < (base + old_size)
+            && bytes.size() <= static_cast<size_t>((base + old_size) - src)) {
+            aliases_buffer = true;
+            src_offset     = static_cast<size_t>(src - base);
+        }
+    }
+
+    buffer_.resize(new_size);
     if (!bytes.empty()) {
-        std::memcpy(buffer_.data() + offset, bytes.data(), bytes.size());
+        const std::byte* const src = aliases_buffer
+                                         ? (buffer_.data() + src_offset)
+                                         : bytes.data();
+        std::memmove(buffer_.data() + offset, src, bytes.size());
     }
     return ByteSpan { offset, static_cast<uint32_t>(bytes.size()) };
 }
@@ -54,13 +105,25 @@ ByteArena::append_string(std::string_view text)
 ByteSpan
 ByteArena::allocate(uint32_t size_bytes, uint32_t alignment)
 {
-    const uint32_t start = align_up_u32(static_cast<uint32_t>(buffer_.size()),
-                                        alignment);
+    const size_t old_size = buffer_.size();
+    if (old_size > static_cast<size_t>(UINT32_MAX)) {
+        return ByteSpan {};
+    }
+    size_t start = 0;
+    if (!align_up_size(old_size, alignment, &start)
+        || start > static_cast<size_t>(UINT32_MAX)) {
+        return ByteSpan {};
+    }
+    size_t total_size = 0;
+    if (!checked_add_size(start, static_cast<size_t>(size_bytes), &total_size)
+        || total_size > static_cast<size_t>(UINT32_MAX)) {
+        return ByteSpan {};
+    }
     if (start > buffer_.size()) {
         buffer_.resize(start, std::byte { 0 });
     }
-    const uint32_t offset = start;
-    buffer_.resize(static_cast<size_t>(start) + size_bytes);
+    const uint32_t offset = static_cast<uint32_t>(start);
+    buffer_.resize(total_size);
     return ByteSpan { offset, size_bytes };
 }
 

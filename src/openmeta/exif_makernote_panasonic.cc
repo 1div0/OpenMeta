@@ -1,8 +1,26 @@
 #include "exif_tiff_decode_internal.h"
 
+#include <array>
+#include <cstring>
+
 namespace openmeta::exif_internal {
 
 namespace {
+
+    template<size_t N>
+    static std::span<const std::byte>
+    panasonic_copy_subspan(std::array<std::byte, N>* storage,
+                           std::span<const std::byte> raw, uint64_t offset,
+                           size_t count) noexcept
+    {
+        if (!storage || count > N || offset > raw.size()
+            || static_cast<uint64_t>(count) > (raw.size() - offset)) {
+            return {};
+        }
+        std::memcpy(storage->data(), raw.data() + static_cast<size_t>(offset),
+                    count);
+        return std::span<const std::byte>(storage->data(), count);
+    }
 
     static bool read_u32_endian(bool le, std::span<const std::byte> bytes,
                                 uint64_t offset, uint32_t* out) noexcept
@@ -103,11 +121,10 @@ namespace {
                          TextEncoding::Ascii);
     }
 
-    static void decode_panasonic_facedetinfo(std::string_view ifd_name,
-                                             std::span<const std::byte> raw,
-                                             bool le, MetaStore& store,
-                                             const ExifDecodeLimits& limits,
-                                             ExifDecodeResult* status_out) noexcept
+    static void decode_panasonic_facedetinfo(
+        std::string_view ifd_name, std::span<const std::byte> raw, bool le,
+        MetaStore& store, const ExifDecodeLimits& limits,
+        ExifDecodeResult* status_out) noexcept
     {
         if (ifd_name.empty() || raw.size() < 2U) {
             return;
@@ -164,11 +181,10 @@ namespace {
                              limits, status_out);
     }
 
-    static void decode_panasonic_facerecinfo(std::string_view ifd_name,
-                                             std::span<const std::byte> raw,
-                                             bool le, MetaStore& store,
-                                             const ExifDecodeLimits& limits,
-                                             ExifDecodeResult* status_out) noexcept
+    static void decode_panasonic_facerecinfo(
+        std::string_view ifd_name, std::span<const std::byte> raw, bool le,
+        MetaStore& store, const ExifDecodeLimits& limits,
+        ExifDecodeResult* status_out) noexcept
     {
         if (ifd_name.empty() || raw.size() < 2U) {
             return;
@@ -195,10 +211,15 @@ namespace {
             const uint64_t age_off  = 32ULL + uint64_t(i) * 48ULL;
 
             if (name_off + 20U <= raw.size() && 20U <= limits.max_value_bytes) {
+                std::array<std::byte, 20> name_bytes;
+                const std::span<const std::byte> name
+                    = panasonic_copy_subspan(&name_bytes, raw, name_off, 20);
+                if (name.empty()) {
+                    continue;
+                }
                 tags_out[out_count] = static_cast<uint16_t>(name_off);
-                vals_out[out_count]
-                    = make_fixed_ascii_text(store.arena(),
-                                            raw.subspan(name_off, 20));
+                vals_out[out_count] = make_fixed_ascii_text(store.arena(),
+                                                            name);
                 out_count += 1;
             }
 
@@ -206,8 +227,7 @@ namespace {
                 uint16_t pos[4];
                 bool ok = true;
                 for (uint32_t j = 0; j < 4; ++j) {
-                    if (!read_u16_endian(le, raw,
-                                         pos_off + uint64_t(j) * 2ULL,
+                    if (!read_u16_endian(le, raw, pos_off + uint64_t(j) * 2ULL,
                                          &pos[j])) {
                         ok = false;
                         break;
@@ -223,10 +243,14 @@ namespace {
             }
 
             if (age_off + 20U <= raw.size() && 20U <= limits.max_value_bytes) {
+                std::array<std::byte, 20> age_bytes;
+                const std::span<const std::byte> age
+                    = panasonic_copy_subspan(&age_bytes, raw, age_off, 20);
+                if (age.empty()) {
+                    continue;
+                }
                 tags_out[out_count] = static_cast<uint16_t>(age_off);
-                vals_out[out_count]
-                    = make_fixed_ascii_text(store.arena(),
-                                            raw.subspan(age_off, 20));
+                vals_out[out_count] = make_fixed_ascii_text(store.arena(), age);
                 out_count += 1;
             }
         }
@@ -278,8 +302,8 @@ namespace {
     }
 
     static bool decode_panasonic_type2(std::span<const std::byte> mn_decl,
-                                       std::string_view mk_prefix,
-                                       bool le, MetaStore& store,
+                                       std::string_view mk_prefix, bool le,
+                                       MetaStore& store,
                                        const ExifDecodeLimits& limits,
                                        ExifDecodeResult* status_out) noexcept
     {
@@ -310,7 +334,7 @@ namespace {
         vals_out[out_count] = make_fixed_ascii_text(store.arena(), type);
         out_count += 1;
 
-        uint16_t gain = 0;
+        uint16_t gain           = 0;
         const uint64_t gain_off = 3ULL * 2ULL;
         if (gain_off + 2U <= mn_decl.size()
             && read_u16_endian(le, mn_decl, gain_off, &gain)) {
@@ -326,11 +350,9 @@ namespace {
         return true;
     }
 
-    static void
-    decode_panasonic_binary_subdirs(std::string_view mk_ifd0, bool le,
-                                    MetaStore& store,
-                                    const ExifDecodeOptions& options,
-                                    ExifDecodeResult* status_out) noexcept
+    static void decode_panasonic_binary_subdirs(
+        std::string_view mk_ifd0, bool le, MetaStore& store,
+        const ExifDecodeOptions& options, ExifDecodeResult* status_out) noexcept
     {
         if (mk_ifd0.empty()) {
             return;
@@ -359,17 +381,17 @@ namespace {
                 continue;
             }
 
-            const std::span<const std::byte> raw
-                = arena.span(e.value.data.span);
+            const std::span<const std::byte> raw = arena.span(
+                e.value.data.span);
             if (raw.empty()) {
                 continue;
             }
 
             if (e.key.data.exif_tag.tag == 0x004e) {  // FaceDetInfo
                 const std::string_view ifd_name
-                    = make_mk_subtable_ifd_token(
-                        mk_prefix, "facedetinfo", idx_facedet++,
-                        std::span<char>(sub_ifd_buf));
+                    = make_mk_subtable_ifd_token(mk_prefix, "facedetinfo",
+                                                 idx_facedet++,
+                                                 std::span<char>(sub_ifd_buf));
                 decode_panasonic_facedetinfo(ifd_name, raw, le, store,
                                              options.limits, status_out);
                 continue;
@@ -377,9 +399,9 @@ namespace {
 
             if (e.key.data.exif_tag.tag == 0x0061) {  // FaceRecInfo
                 const std::string_view ifd_name
-                    = make_mk_subtable_ifd_token(
-                        mk_prefix, "facerecinfo", idx_facerec++,
-                        std::span<char>(sub_ifd_buf));
+                    = make_mk_subtable_ifd_token(mk_prefix, "facerecinfo",
+                                                 idx_facerec++,
+                                                 std::span<char>(sub_ifd_buf));
                 decode_panasonic_facerecinfo(ifd_name, raw, le, store,
                                              options.limits, status_out);
                 continue;
@@ -387,9 +409,9 @@ namespace {
 
             if (e.key.data.exif_tag.tag == 0x2003) {  // TimeInfo
                 const std::string_view ifd_name
-                    = make_mk_subtable_ifd_token(
-                        mk_prefix, "timeinfo", idx_time++,
-                        std::span<char>(sub_ifd_buf));
+                    = make_mk_subtable_ifd_token(mk_prefix, "timeinfo",
+                                                 idx_time++,
+                                                 std::span<char>(sub_ifd_buf));
                 decode_panasonic_timeinfo(ifd_name, raw, le, store,
                                           options.limits, status_out);
                 continue;
@@ -399,83 +421,84 @@ namespace {
 
 }  // namespace
 
-bool decode_panasonic_makernote(
-        const TiffConfig& parent_cfg, std::span<const std::byte> tiff_bytes,
-        uint64_t maker_note_off, uint64_t maker_note_bytes,
-        std::string_view mk_ifd0, MetaStore& store,
-        const ExifDecodeOptions& options, ExifDecodeResult* status_out) noexcept
-    {
-        if (mk_ifd0.empty()) {
-            return false;
-        }
-        if (maker_note_off > tiff_bytes.size()) {
-            return false;
-        }
-        if (maker_note_bytes > (tiff_bytes.size() - maker_note_off)) {
-            return false;
-        }
-
-        const std::span<const std::byte> mn_decl
-            = tiff_bytes.subspan(static_cast<size_t>(maker_note_off),
-                                 static_cast<size_t>(maker_note_bytes));
-
-        ClassicIfdCandidate best;
-        bool found = false;
-
-        const uint64_t scan_bytes = (maker_note_bytes < 512U) ? maker_note_bytes
-                                                              : 512U;
-        const uint64_t scan_end   = maker_note_off + scan_bytes;
-        const uint64_t mn_end     = maker_note_off + maker_note_bytes;
-
-        for (uint64_t abs_off = maker_note_off; abs_off + 2 <= scan_end;
-             abs_off += 2) {
-            for (int endian = 0; endian < 2; ++endian) {
-                TiffConfig cfg;
-                cfg.le      = (endian == 0);
-                cfg.bigtiff = false;
-
-                ClassicIfdCandidate cand;
-                if (!score_classic_ifd_candidate(cfg, tiff_bytes, abs_off,
-                                                 options.limits, &cand)) {
-                    continue;
-                }
-
-                // Some real-world Panasonic MakerNotes report a byte count that
-                // truncates the trailing next-IFD pointer (4 bytes). Allow the
-                // entry table itself to fit even if the final pointer doesn't.
-                const uint64_t needed = 2U + (uint64_t(cand.entry_count) * 12ULL);
-                if (abs_off + needed > mn_end) {
-                    continue;
-                }
-
-                if (!found || cand.valid_entries > best.valid_entries
-                    || (cand.valid_entries == best.valid_entries
-                        && cand.offset < best.offset)) {
-                    best  = cand;
-                    found = true;
-                }
-            }
-        }
-
-        if (!found) {
-            // Panasonic Type2: fixed-layout binary MakerNote.
-            if (decode_panasonic_type2(mn_decl, "mk_panasonic", parent_cfg.le,
-                                       store, options.limits, status_out)) {
-                return true;
-            }
-            return false;
-        }
-
-        TiffConfig best_cfg;
-        best_cfg.le      = best.le;
-        best_cfg.bigtiff = false;
-
-        decode_classic_ifd_no_header(best_cfg, tiff_bytes, best.offset, mk_ifd0,
-                                     store, options, status_out,
-                                     EntryFlags::None);
-        decode_panasonic_binary_subdirs(mk_ifd0, best_cfg.le, store, options,
-                                        status_out);
-        return true;
+bool
+decode_panasonic_makernote(const TiffConfig& parent_cfg,
+                           std::span<const std::byte> tiff_bytes,
+                           uint64_t maker_note_off, uint64_t maker_note_bytes,
+                           std::string_view mk_ifd0, MetaStore& store,
+                           const ExifDecodeOptions& options,
+                           ExifDecodeResult* status_out) noexcept
+{
+    if (mk_ifd0.empty()) {
+        return false;
     }
+    if (maker_note_off > tiff_bytes.size()) {
+        return false;
+    }
+    if (maker_note_bytes > (tiff_bytes.size() - maker_note_off)) {
+        return false;
+    }
+
+    const std::span<const std::byte> mn_decl
+        = tiff_bytes.subspan(static_cast<size_t>(maker_note_off),
+                             static_cast<size_t>(maker_note_bytes));
+
+    ClassicIfdCandidate best;
+    bool found = false;
+
+    const uint64_t scan_bytes = (maker_note_bytes < 512U) ? maker_note_bytes
+                                                          : 512U;
+    const uint64_t scan_end   = maker_note_off + scan_bytes;
+    const uint64_t mn_end     = maker_note_off + maker_note_bytes;
+
+    for (uint64_t abs_off = maker_note_off; abs_off + 2 <= scan_end;
+         abs_off += 2) {
+        for (int endian = 0; endian < 2; ++endian) {
+            TiffConfig cfg;
+            cfg.le      = (endian == 0);
+            cfg.bigtiff = false;
+
+            ClassicIfdCandidate cand;
+            if (!score_classic_ifd_candidate(cfg, tiff_bytes, abs_off,
+                                             options.limits, &cand)) {
+                continue;
+            }
+
+            // Some real-world Panasonic MakerNotes report a byte count that
+            // truncates the trailing next-IFD pointer (4 bytes). Allow the
+            // entry table itself to fit even if the final pointer doesn't.
+            const uint64_t needed = 2U + (uint64_t(cand.entry_count) * 12ULL);
+            if (abs_off + needed > mn_end) {
+                continue;
+            }
+
+            if (!found || cand.valid_entries > best.valid_entries
+                || (cand.valid_entries == best.valid_entries
+                    && cand.offset < best.offset)) {
+                best  = cand;
+                found = true;
+            }
+        }
+    }
+
+    if (!found) {
+        // Panasonic Type2: fixed-layout binary MakerNote.
+        if (decode_panasonic_type2(mn_decl, "mk_panasonic", parent_cfg.le,
+                                   store, options.limits, status_out)) {
+            return true;
+        }
+        return false;
+    }
+
+    TiffConfig best_cfg;
+    best_cfg.le      = best.le;
+    best_cfg.bigtiff = false;
+
+    decode_classic_ifd_no_header(best_cfg, tiff_bytes, best.offset, mk_ifd0,
+                                 store, options, status_out, EntryFlags::None);
+    decode_panasonic_binary_subdirs(mk_ifd0, best_cfg.le, store, options,
+                                    status_out);
+    return true;
+}
 
 }  // namespace openmeta::exif_internal

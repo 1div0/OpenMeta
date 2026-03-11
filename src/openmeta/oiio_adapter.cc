@@ -192,7 +192,7 @@ namespace {
         {
         }
 
-        void on_item(const ExportItem& item) override
+        void on_item(const ExportItem& item) noexcept override
         {
             if (!out_ || !item.entry) {
                 return;
@@ -233,7 +233,7 @@ namespace {
         {
         }
 
-        void on_item(const ExportItem& item) override
+        void on_item(const ExportItem& item) noexcept override
         {
             if (!out_ || !item.entry) {
                 return;
@@ -273,7 +273,7 @@ namespace {
         {
         }
 
-        void on_item(const ExportItem& item) override
+        void on_item(const ExportItem& item) noexcept override
         {
             if (status_ != InteropSafetyStatus::Ok || !out_ || !item.entry) {
                 return;
@@ -344,7 +344,7 @@ namespace {
         {
         }
 
-        void on_item(const ExportItem& item) override
+        void on_item(const ExportItem& item) noexcept override
         {
             if (status_ != InteropSafetyStatus::Ok || !out_ || !item.entry) {
                 return;
@@ -437,7 +437,8 @@ namespace {
             || route == "jxl:box-xml") {
             return OiioTransferPayloadKind::XmpPacket;
         }
-        if (route == "jpeg:app2-icc" || route == "tiff:tag-34675-icc") {
+        if (route == "jpeg:app2-icc" || route == "tiff:tag-34675-icc"
+            || route == "jxl:icc-profile") {
             return OiioTransferPayloadKind::IccProfile;
         }
         if (route == "jpeg:app13-iptc" || route == "tiff:tag-33723-iptc") {

@@ -18,6 +18,14 @@ namespace {
 
 #if defined(OPENMETA_HAS_EXPAT) && OPENMETA_HAS_EXPAT
 
+#    if defined(XML_MAJOR_VERSION)  \
+        && ((XML_MAJOR_VERSION > 2) \
+            || (XML_MAJOR_VERSION == 2 && XML_MINOR_VERSION >= 6))
+#        define OPENMETA_EXPAT_HAS_REPARSE_DEFERRAL 1
+#    else
+#        define OPENMETA_EXPAT_HAS_REPARSE_DEFERRAL 0
+#    endif
+
     static constexpr std::string_view kRdfNs
         = "http://www.w3.org/1999/02/22-rdf-syntax-ns#";
     static constexpr std::string_view kXmlNs
@@ -209,6 +217,40 @@ namespace {
         if (ctx->parser) {
             XML_StopParser(ctx->parser, XML_FALSE);
         }
+    }
+
+
+    static void XMLCALL start_doctype_decl(void* user_data,
+                                           const XML_Char* /*doctype_name*/,
+                                           const XML_Char* /*sysid*/,
+                                           const XML_Char* /*pubid*/,
+                                           int /*has_internal_subset*/)
+    {
+        Ctx* ctx = reinterpret_cast<Ctx*>(user_data);
+        stop_parser(ctx, XmpDecodeStatus::Malformed);
+    }
+
+
+    static void XMLCALL
+    entity_decl(void* user_data, const XML_Char* /*entity_name*/,
+                int /*is_parameter_entity*/, const XML_Char* /*value*/,
+                int /*value_length*/, const XML_Char* /*base*/,
+                const XML_Char* /*system_id*/, const XML_Char* /*public_id*/,
+                const XML_Char* /*notation_name*/)
+    {
+        Ctx* ctx = reinterpret_cast<Ctx*>(user_data);
+        stop_parser(ctx, XmpDecodeStatus::Malformed);
+    }
+
+
+    static int XMLCALL external_entity_ref_handler(
+        XML_Parser parser, const XML_Char* /*context*/,
+        const XML_Char* /*base*/, const XML_Char* /*system_id*/,
+        const XML_Char* /*public_id*/)
+    {
+        Ctx* ctx = reinterpret_cast<Ctx*>(XML_GetUserData(parser));
+        stop_parser(ctx, XmpDecodeStatus::Malformed);
+        return XML_STATUS_ERROR;
     }
 
 
@@ -591,6 +633,19 @@ decode_xmp_packet(std::span<const std::byte> xmp_bytes, MetaStore& store,
     XML_SetUserData(ctx.parser, &ctx);
     XML_SetElementHandler(ctx.parser, &start_element, &end_element);
     XML_SetCharacterDataHandler(ctx.parser, &char_data);
+    XML_SetStartDoctypeDeclHandler(ctx.parser, &start_doctype_decl);
+    XML_SetEntityDeclHandler(ctx.parser, &entity_decl);
+    XML_SetExternalEntityRefHandler(ctx.parser, &external_entity_ref_handler);
+    (void)XML_SetParamEntityParsing(ctx.parser, XML_PARAM_ENTITY_PARSING_NEVER);
+#    if defined(XML_DTD) || (defined(XML_GE) && XML_GE == 1)
+    (void)XML_SetBillionLaughsAttackProtectionMaximumAmplification(ctx.parser,
+                                                                   32.0f);
+    (void)XML_SetBillionLaughsAttackProtectionActivationThreshold(
+        ctx.parser, 8ULL * 1024ULL);
+#    endif
+#    if OPENMETA_EXPAT_HAS_REPARSE_DEFERRAL
+    (void)XML_SetReparseDeferralEnabled(ctx.parser, XML_TRUE);
+#    endif
 
     const char* data = reinterpret_cast<const char*>(pkt.data());
     const int size   = (pkt.size() > static_cast<size_t>(INT32_MAX))

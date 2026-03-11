@@ -1,11 +1,14 @@
+#include "openmeta/console_format.h"
 #include "openmeta/interop_export.h"
 
+#include "../src/openmeta/interop_value_format_internal.h"
 #include "openmeta/meta_key.h"
 #include "openmeta/meta_value.h"
 
 #include <gtest/gtest.h>
 
 #include <array>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -19,7 +22,7 @@ namespace {
         {
         }
 
-        void on_item(const ExportItem& item) override
+        void on_item(const ExportItem& item) noexcept override
         {
             if (!out_) {
                 return;
@@ -65,23 +68,37 @@ namespace {
     }
 
 
-    static MetaStore make_export_store()
+    static MetaStore make_export_store(size_t unknown_ifd_count = 0U)
     {
         MetaStore store;
         const BlockId block = store.add_block(BlockInfo {});
+
+        for (size_t i = 0; i < unknown_ifd_count; ++i) {
+            Entry noise;
+            noise.key                   = make_exif_tag_key(store.arena(),
+                                                            std::string("noise_ifd_")
+                                                                + std::to_string(i),
+                                                            0x1234);
+            noise.value                 = make_u32(static_cast<uint32_t>(i));
+            noise.origin.block          = block;
+            noise.origin.order_in_block = static_cast<uint32_t>(i);
+            (void)store.add_entry(noise);
+        }
+
+        const uint32_t order_base = static_cast<uint32_t>(unknown_ifd_count);
 
         Entry make;
         make.key   = make_exif_tag_key(store.arena(), "ifd0", 0x010F);
         make.value = make_text(store.arena(), "Canon", TextEncoding::Ascii);
         make.origin.block          = block;
-        make.origin.order_in_block = 0;
+        make.origin.order_in_block = order_base + 0U;
         (void)store.add_entry(make);
 
         Entry exposure;
         exposure.key   = make_exif_tag_key(store.arena(), "exififd", 0x829A);
         exposure.value = make_urational(1, 1250);
         exposure.origin.block          = block;
-        exposure.origin.order_in_block = 1;
+        exposure.origin.order_in_block = order_base + 1U;
         (void)store.add_entry(exposure);
 
         Entry modify_date;
@@ -89,21 +106,21 @@ namespace {
         modify_date.value = make_text(store.arena(), "2026:02:11 10:00:00",
                                       TextEncoding::Ascii);
         modify_date.origin.block          = block;
-        modify_date.origin.order_in_block = 2;
+        modify_date.origin.order_in_block = order_base + 2U;
         (void)store.add_entry(modify_date);
 
         Entry iso;
         iso.key          = make_exif_tag_key(store.arena(), "exififd", 0x8827);
         iso.value        = make_u16(200);
         iso.origin.block = block;
-        iso.origin.order_in_block = 3;
+        iso.origin.order_in_block = order_base + 3U;
         (void)store.add_entry(iso);
 
         Entry exposure_bias;
         exposure_bias.key = make_exif_tag_key(store.arena(), "exififd", 0x9204);
         exposure_bias.value                 = make_srational(0, 1);
         exposure_bias.origin.block          = block;
-        exposure_bias.origin.order_in_block = 4;
+        exposure_bias.origin.order_in_block = order_base + 4U;
         (void)store.add_entry(exposure_bias);
 
         Entry create_date;
@@ -111,28 +128,28 @@ namespace {
         create_date.value = make_text(store.arena(), "2026:02:11 10:00:00",
                                       TextEncoding::Ascii);
         create_date.origin.block          = block;
-        create_date.origin.order_in_block = 5;
+        create_date.origin.order_in_block = order_base + 5U;
         (void)store.add_entry(create_date);
 
         Entry unknown_ifd0;
         unknown_ifd0.key   = make_exif_tag_key(store.arena(), "ifd0", 0xC5D8);
         unknown_ifd0.value = make_u32(1);
         unknown_ifd0.origin.block          = block;
-        unknown_ifd0.origin.order_in_block = 6;
+        unknown_ifd0.origin.order_in_block = order_base + 6U;
         (void)store.add_entry(unknown_ifd0);
 
         Entry pointer;
         pointer.key          = make_exif_tag_key(store.arena(), "ifd0", 0x8769);
         pointer.value        = make_u32(1234);
         pointer.origin.block = block;
-        pointer.origin.order_in_block = 7;
+        pointer.origin.order_in_block = order_base + 7U;
         (void)store.add_entry(pointer);
 
         Entry maker_note;
         maker_note.key   = make_exif_tag_key(store.arena(), "mk_canon", 0x0001);
         maker_note.value = make_u16(9);
         maker_note.origin.block          = block;
-        maker_note.origin.order_in_block = 8;
+        maker_note.origin.order_in_block = order_base + 8U;
         (void)store.add_entry(maker_note);
 
         Entry xmp_packet;
@@ -140,7 +157,7 @@ namespace {
         xmp_packet.value = make_text(store.arena(), "<xmpmeta/>",
                                      TextEncoding::Utf8);
         xmp_packet.origin.block          = block;
-        xmp_packet.origin.order_in_block = 9;
+        xmp_packet.origin.order_in_block = order_base + 9U;
         (void)store.add_entry(xmp_packet);
 
         Entry xmp_prop;
@@ -149,14 +166,14 @@ namespace {
                                                                "FNumber");
         xmp_prop.value                 = make_urational(28, 10);
         xmp_prop.origin.block          = block;
-        xmp_prop.origin.order_in_block = 10;
+        xmp_prop.origin.order_in_block = order_base + 10U;
         (void)store.add_entry(xmp_prop);
 
         Entry exr_attr;
         exr_attr.key   = make_exr_attribute_key(store.arena(), 0U, "owner");
         exr_attr.value = make_text(store.arena(), "showA", TextEncoding::Utf8);
         exr_attr.origin.block          = block;
-        exr_attr.origin.order_in_block = 11;
+        exr_attr.origin.order_in_block = order_base + 11U;
         (void)store.add_entry(exr_attr);
 
         Entry exr_skipped;
@@ -165,7 +182,7 @@ namespace {
         exr_skipped.value        = make_text(store.arena(), "zip",
                                              TextEncoding::Ascii);
         exr_skipped.origin.block = block;
-        exr_skipped.origin.order_in_block = 12;
+        exr_skipped.origin.order_in_block = order_base + 12U;
         (void)store.add_entry(exr_skipped);
 
         const std::array<uint8_t, 4> dng_version = { 1, 6, 0, 0 };
@@ -176,7 +193,7 @@ namespace {
                             std::span<const uint8_t>(dng_version.data(),
                                                      dng_version.size()));
         dng_ver.origin.block          = block;
-        dng_ver.origin.order_in_block = 13;
+        dng_ver.origin.order_in_block = order_base + 13U;
         (void)store.add_entry(dng_ver);
 
         const URational cm_values[9] = {
@@ -190,14 +207,14 @@ namespace {
             = make_urational_array(store.arena(),
                                    std::span<const URational>(cm_values, 9));
         dng_cm1.origin.block          = block;
-        dng_cm1.origin.order_in_block = 14;
+        dng_cm1.origin.order_in_block = order_base + 14U;
         (void)store.add_entry(dng_cm1);
 
         Entry icc_header;
         icc_header.key          = make_icc_header_field_key(4);
         icc_header.value        = make_u32(make_fourcc('a', 'p', 'p', 'l'));
         icc_header.origin.block = block;
-        icc_header.origin.order_in_block = 15;
+        icc_header.origin.order_in_block = order_base + 15U;
         (void)store.add_entry(icc_header);
 
         const std::array<std::byte, 4> icc_tag_data = {
@@ -213,7 +230,7 @@ namespace {
                          std::span<const std::byte>(icc_tag_data.data(),
                                                     icc_tag_data.size()));
         icc_tag.origin.block          = block;
-        icc_tag.origin.order_in_block = 16;
+        icc_tag.origin.order_in_block = order_base + 16U;
         (void)store.add_entry(icc_tag);
 
         store.finalize();
@@ -316,6 +333,62 @@ TEST(InteropExport, OiioStyleRespectsMakerNoteSwitch)
     EXPECT_FALSE(contains_name(names_without_mk, "XMLPacket"));
     EXPECT_FALSE(contains_prefix(names_without_mk, "MakerNote:mk_canon:"));
     EXPECT_TRUE(contains_prefix(names_with_mk, "MakerNote:mk_canon:"));
+}
+
+
+TEST(InteropExport, OiioStyleRetainsKnownHintsWithUnknownIfdNoise)
+{
+    const MetaStore store = make_export_store(512U);
+    std::vector<std::string> names;
+    NameCollectSink sink(&names);
+
+    ExportOptions options;
+    options.style              = ExportNameStyle::Oiio;
+    options.include_makernotes = false;
+    visit_metadata(store, options, sink);
+
+    EXPECT_TRUE(contains_name(names, "ModifyDate"));
+    EXPECT_TRUE(contains_name(names, "DNG:ColorMatrix1"));
+    EXPECT_TRUE(contains_name(names, "Exif:CreateDate"));
+}
+
+
+TEST(InteropExport, ConsoleFormattingHelpersRemainDeterministic)
+{
+    std::string out;
+    const bool dangerous = append_console_escaped_ascii("A\nB\x80", 0U, &out);
+    EXPECT_TRUE(dangerous);
+    EXPECT_EQ(out, "A\\nB\\x80");
+
+    out.clear();
+    const std::array<std::byte, 4> bytes = {
+        std::byte { 0x01 },
+        std::byte { 0x02 },
+        std::byte { 0x03 },
+        std::byte { 0x04 },
+    };
+    append_hex_bytes(std::span<const std::byte>(bytes.data(), bytes.size()), 2U,
+                     &out);
+    EXPECT_EQ(out, "0102...");
+}
+
+
+TEST(InteropExport, FormatValueForTextNormalizesTruncatedArrayElementToEmpty)
+{
+    MetaStore store;
+    const std::array<std::byte, 1> raw = { std::byte { 0x2A } };
+
+    MetaValue value;
+    value.kind      = MetaValueKind::Array;
+    value.elem_type = MetaElementType::U16;
+    value.count     = 1U;
+    value.data.span = store.arena().append(
+        std::span<const std::byte>(raw.data(), raw.size()));
+
+    std::string out;
+    EXPECT_TRUE(interop_internal::format_value_for_text(store.arena(), value,
+                                                        0U, &out));
+    EXPECT_EQ(out, "[]");
 }
 
 

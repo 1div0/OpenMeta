@@ -3,6 +3,25 @@
 #include <algorithm>
 
 namespace openmeta {
+namespace {
+
+    static const BlockInfo kEmptyBlockInfo {};
+    static const Entry kEmptyEntry {};
+
+    static std::span<const EntryId>
+    make_entry_id_span(const std::vector<EntryId>& ids, uint32_t start,
+                       uint32_t count) noexcept
+    {
+        const size_t ids_size = ids.size();
+        const size_t first    = static_cast<size_t>(start);
+        const size_t n        = static_cast<size_t>(count);
+        if (first > ids_size || n > (ids_size - first)) {
+            return std::span<const EntryId>();
+        }
+        return std::span<const EntryId>(ids.data() + first, n);
+    }
+
+}  // namespace
 
 ByteArena&
 MetaStore::arena() noexcept
@@ -85,6 +104,9 @@ MetaStore::block_count() const noexcept
 const BlockInfo&
 MetaStore::block_info(BlockId id) const noexcept
 {
+    if (static_cast<size_t>(id) >= blocks_.size()) {
+        return kEmptyBlockInfo;
+    }
     return blocks_[id];
 }
 
@@ -99,6 +121,9 @@ MetaStore::entries() const noexcept
 const Entry&
 MetaStore::entry(EntryId id) const noexcept
 {
+    if (static_cast<size_t>(id) >= entries_.size()) {
+        return kEmptyEntry;
+    }
     return entries_[id];
 }
 
@@ -110,8 +135,7 @@ MetaStore::entries_in_block(BlockId block) const noexcept
         return std::span<const EntryId>();
     }
     const BlockSpan span = block_spans_[block];
-    return std::span<const EntryId>(entries_by_block_.data() + span.start,
-                                    span.count);
+    return make_entry_id_span(entries_by_block_, span.start, span.count);
 }
 
 
@@ -128,10 +152,12 @@ MetaStore::find_all(const MetaKeyView& key) const noexcept
         const size_t mid      = lo + ((hi - lo) / 2U);
         const KeySpan span    = key_spans_[mid];
         const EntryId repr_id = span.repr;
+        if (static_cast<size_t>(repr_id) >= entries_.size()) {
+            return std::span<const EntryId>();
+        }
         const int cmp = compare_key_view(arena_, key, entries_[repr_id].key);
         if (cmp == 0) {
-            return std::span<const EntryId>(entries_by_key_.data() + span.start,
-                                            span.count);
+            return make_entry_id_span(entries_by_key_, span.start, span.count);
         }
         if (cmp < 0) {
             hi = mid;

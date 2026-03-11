@@ -4,6 +4,30 @@
 
 namespace openmeta {
 
+static bool
+fits_u32_size(size_t value) noexcept
+{
+    return value <= static_cast<size_t>(UINT32_MAX);
+}
+
+
+static bool
+checked_mul_size(size_t a, size_t b, size_t* out) noexcept
+{
+    if (!out) {
+        return false;
+    }
+    if (a == 0U || b == 0U) {
+        *out = 0U;
+        return true;
+    }
+    if (a > (SIZE_MAX / b)) {
+        return false;
+    }
+    *out = a * b;
+    return true;
+}
+
 MetaValue
 make_u8(uint8_t value) noexcept
 {
@@ -151,10 +175,17 @@ make_srational(int32_t numer, int32_t denom) noexcept
 MetaValue
 make_bytes(ByteArena& arena, std::span<const std::byte> bytes)
 {
+    if (!fits_u32_size(bytes.size())) {
+        return MetaValue {};
+    }
     MetaValue v;
+    const ByteSpan span = arena.append(bytes);
+    if (!bytes.empty() && span.size != static_cast<uint32_t>(bytes.size())) {
+        return MetaValue {};
+    }
     v.kind      = MetaValueKind::Bytes;
     v.count     = static_cast<uint32_t>(bytes.size());
-    v.data.span = arena.append(bytes);
+    v.data.span = span;
     return v;
 }
 
@@ -162,11 +193,18 @@ make_bytes(ByteArena& arena, std::span<const std::byte> bytes)
 MetaValue
 make_text(ByteArena& arena, std::string_view text, TextEncoding encoding)
 {
+    if (!fits_u32_size(text.size())) {
+        return MetaValue {};
+    }
     MetaValue v;
+    const ByteSpan span = arena.append_string(text);
+    if (!text.empty() && span.size != static_cast<uint32_t>(text.size())) {
+        return MetaValue {};
+    }
     v.kind          = MetaValueKind::Text;
     v.text_encoding = encoding;
     v.count         = static_cast<uint32_t>(text.size());
-    v.data.span     = arena.append_string(text);
+    v.data.span     = span;
     return v;
 }
 
@@ -175,6 +213,9 @@ MetaValue
 make_array(ByteArena& arena, MetaElementType elem_type,
            std::span<const std::byte> raw_elements, uint32_t element_size)
 {
+    if (!fits_u32_size(raw_elements.size())) {
+        return MetaValue {};
+    }
     MetaValue v;
     v.kind                     = MetaValueKind::Array;
     v.elem_type                = elem_type;
@@ -183,6 +224,9 @@ make_array(ByteArena& arena, MetaElementType elem_type,
         v.count = total_bytes / element_size;
     }
     v.data.span = arena.append(raw_elements);
+    if (!raw_elements.empty() && v.data.span.size != total_bytes) {
+        return MetaValue {};
+    }
     return v;
 }
 
@@ -191,14 +235,26 @@ static MetaValue
 make_array_copy(ByteArena& arena, MetaElementType elem_type, const void* data,
                 size_t count, size_t element_size, size_t alignment)
 {
-    MetaValue v;
-    v.kind      = MetaValueKind::Array;
-    v.elem_type = elem_type;
-    v.count     = static_cast<uint32_t>(count);
+    if (!fits_u32_size(count) || !fits_u32_size(element_size)
+        || !fits_u32_size(alignment)) {
+        return MetaValue {};
+    }
+    size_t size_bytes = 0;
+    if (!checked_mul_size(count, element_size, &size_bytes)
+        || !fits_u32_size(size_bytes)) {
+        return MetaValue {};
+    }
 
-    const size_t size_bytes = count * element_size;
-    const ByteSpan span     = arena.allocate(static_cast<uint32_t>(size_bytes),
-                                             static_cast<uint32_t>(alignment));
+    const ByteSpan span = arena.allocate(static_cast<uint32_t>(size_bytes),
+                                         static_cast<uint32_t>(alignment));
+    if (size_bytes != 0U && span.size != static_cast<uint32_t>(size_bytes)) {
+        return MetaValue {};
+    }
+
+    MetaValue v;
+    v.kind                         = MetaValueKind::Array;
+    v.elem_type                    = elem_type;
+    v.count                        = static_cast<uint32_t>(count);
     const std::span<std::byte> dst = arena.span_mut(span);
     if (!dst.empty() && size_bytes > 0U) {
         std::memcpy(dst.data(), data, size_bytes);

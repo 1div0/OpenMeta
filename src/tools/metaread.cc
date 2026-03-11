@@ -1,3 +1,4 @@
+#include "cli_parse.h"
 #include "openmeta/build_info.h"
 #include "openmeta/console_format.h"
 #include "openmeta/container_payload.h"
@@ -391,16 +392,7 @@ namespace {
 
     static bool parse_u64_arg(const char* s, uint64_t* out)
     {
-        if (!s || !*s) {
-            return false;
-        }
-        char* end            = nullptr;
-        unsigned long long v = std::strtoull(s, &end, 10);
-        if (!end || *end != '\0') {
-            return false;
-        }
-        *out = static_cast<uint64_t>(v);
-        return true;
+        return tool_parse::parse_decimal_u64(s, out);
     }
 
 
@@ -1641,19 +1633,7 @@ namespace {
 
     static bool parse_u32_arg(const char* s, uint32_t* out)
     {
-        if (!s || !*s) {
-            return false;
-        }
-        char* end       = nullptr;
-        unsigned long v = std::strtoul(s, &end, 10);
-        if (!end || *end != '\0') {
-            return false;
-        }
-        if (v > 0xFFFFFFFFUL) {
-            return false;
-        }
-        *out = static_cast<uint32_t>(v);
-        return true;
+        return tool_parse::parse_decimal_u32(s, out);
     }
 
 

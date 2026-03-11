@@ -41,3 +41,5 @@
 /Makefile
 /compile_commands.json
 /ext
+
+__pycache__
