@@ -123,13 +123,23 @@ Current baseline-gated status on tracked corpora:
     `build_prepared_bundle_tiff_package(...)`, and
     `write_prepared_transfer_package(...)` now expose deterministic
     final-output chunk plans for current JPEG/TIFF rewrite paths plus direct
-    prepared-block emit packaging for JPEG/JXL. The new owned batch path
+    prepared-block emit packaging for JPEG/JXL/WebP. The new owned batch path
     (`build_prepared_transfer_package_batch(...)` /
     `write_prepared_transfer_package_batch(...)`) lets callers cache or hand
     off those final bytes without retaining the original input stream or
-    prepared bundle storage.
+    prepared bundle storage, and
+    `serialize_prepared_transfer_package_batch(...)` /
+    `deserialize_prepared_transfer_package_batch(...)` persist that owned
+    batch for cross-process or cross-layer handoff.
+    `collect_prepared_transfer_package_views(...)` now exposes the first
+    target-neutral semantic view over that persisted package, and
+    `replay_prepared_transfer_package_batch(...)` is the matching target-neutral
+    callback replay path. The OIIO bridge can consume the same batch directly through
+    `collect_oiio_transfer_package_views(...)` or replay it through
+    `replay_oiio_transfer_package_batch(...)`, without reopening the source
+    file or keeping the original prepared bundle alive.
     `build_prepared_transfer_adapter_view(...)` now exposes the same prepared
-    bundle as one target-neutral operation list for JPEG/TIFF/JXL host
+    bundle as one target-neutral operation list for JPEG/TIFF/JXL/WebP host
     integrations that do not want to parse route strings, and
     `emit_prepared_transfer_adapter_view(...)` streams that compiled view into
     one generic host sink. `collect_oiio_transfer_payload_views(...)` is the
@@ -173,6 +183,42 @@ Current baseline-gated status on tracked corpora:
     still stays on the encoder ICC path and is not serialized through the
     byte-writer path. Signed C2PA rewrite/re-sign and edit/rewrite are still
     out of scope for the JXL path.
+    WebP is now the next bounded transfer target on the same contract:
+    `prepare_metadata_for_target(..., TransferTargetFormat::Webp, ...)`
+    can build `EXIF`, `XMP `, and `ICCP` RIFF metadata chunks from
+    `MetaStore`. When IPTC is requested for WebP without an explicit XMP
+    carrier, OpenMeta projects it into the `XMP ` chunk rather than inventing
+    a raw IIM chunk. Bounded C2PA support follows the same draft model as the
+    JXL path: raw OpenMeta draft invalidation payloads and generated draft
+    invalidation output are carried as `C2PA` chunks. The core API now
+    exposes `compile_prepared_bundle_webp(...)`,
+    `emit_prepared_bundle_webp(...)`,
+    `emit_prepared_bundle_webp_compiled(...)`, and the generic
+    `emit_prepared_transfer_compiled(..., WebpTransferEmitter&)` path, while
+    `build_prepared_transfer_emit_package(...)` /
+    `write_prepared_transfer_package(...)` can serialize direct WebP chunk
+    output bytes. Full WebP file rewrite/edit and signed C2PA rewrite are
+    still follow-up work.
+    ISO-BMFF metadata-item transfer is now the next bounded target family on
+    the same core API:
+    `prepare_metadata_for_target(..., TransferTargetFormat::{Heif,Avif,Cr3}, ...)`
+    can build `bmff:item-exif`, `bmff:item-xmp`, bounded `bmff:item-jumb`,
+    and bounded `bmff:item-c2pa` payloads. EXIF uses the BMFF item payload
+    shape with the 4-byte big-endian TIFF-offset prefix plus full
+    `Exif\0\0` data; IPTC is projected into `bmff:item-xmp` rather than
+    inventing a raw IPTC-IIM BMFF carrier. File-based prepare can preserve
+    source generic JUMBF payloads and raw OpenMeta draft C2PA invalidation
+    payloads as BMFF metadata items, and store-only prepare can project
+    decoded non-C2PA `JumbfCborKey` roots into `bmff:item-jumb` when no raw
+    source payload is available. The bounded BMFF surface is summary/emitter/
+    package-batch oriented: `compile_prepared_bundle_bmff(...)`,
+    `emit_prepared_bundle_bmff(...)`,
+    `emit_prepared_bundle_bmff_compiled(...)`, and
+    `emit_prepared_transfer_compiled(..., BmffTransferEmitter&)` expose the
+    reusable item-emitter path, while the shared package-batch persistence
+    and replay layers can own and hand off stable BMFF item payload bytes.
+    Full BMFF file rewrite/edit, BMFF ICC/property packaging, and signed C2PA
+    rewrite/re-sign remain follow-up work.
     `metatransfer` and `openmeta.transfer_probe(...)` now expose both the
     resolved transfer-policy decisions and JPEG edit-plan removal counts for
     existing APP11 JUMBF/C2PA segments, plus the derived `c2pa_sign_request`

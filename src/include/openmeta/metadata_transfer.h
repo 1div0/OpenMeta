@@ -31,6 +31,10 @@ enum class TransferTargetFormat : uint8_t {
     Jpeg,
     Tiff,
     Jxl,
+    Webp,
+    Heif,
+    Avif,
+    Cr3,
     Exr,
 };
 
@@ -480,6 +484,17 @@ enum class TransferPackageChunkKind : uint8_t {
     InlineBytes,
 };
 
+/// Semantic metadata family carried by one transfer payload or package chunk.
+enum class TransferSemanticKind : uint8_t {
+    Unknown = 0,
+    Exif,
+    Xmp,
+    Icc,
+    Iptc,
+    Jumbf,
+    C2pa,
+};
+
 /// One deterministic output chunk for a packaged transfer write.
 struct PreparedTransferPackageChunk final {
     TransferPackageChunkKind kind = TransferPackageChunkKind::SourceRange;
@@ -507,6 +522,7 @@ struct PreparedTransferPackageBlob final {
     uint64_t source_offset        = 0;
     uint32_t block_index          = 0xFFFFFFFFU;
     uint8_t jpeg_marker_code      = 0U;
+    std::string route;
     std::vector<std::byte> bytes;
 };
 
@@ -517,6 +533,50 @@ struct PreparedTransferPackageBatch final {
     uint64_t input_size                = 0;
     uint64_t output_size               = 0;
     std::vector<PreparedTransferPackageBlob> chunks;
+};
+
+/// One zero-copy semantic view over a persisted transfer package chunk.
+struct PreparedTransferPackageView final {
+    TransferSemanticKind semantic_kind = TransferSemanticKind::Unknown;
+    std::string_view route;
+    TransferPackageChunkKind package_kind
+        = TransferPackageChunkKind::SourceRange;
+    uint64_t output_offset   = 0;
+    uint8_t jpeg_marker_code = 0U;
+    std::span<const std::byte> bytes;
+};
+
+/// Replay callbacks for \ref replay_prepared_transfer_package_batch.
+struct PreparedTransferPackageReplayCallbacks final {
+    TransferStatus (*begin_batch)(void* user,
+                                  TransferTargetFormat target_format,
+                                  uint32_t chunk_count) noexcept
+        = nullptr;
+    TransferStatus (*emit_chunk)(
+        void* user, const PreparedTransferPackageView* view) noexcept
+        = nullptr;
+    TransferStatus (*end_batch)(void* user,
+                                TransferTargetFormat target_format) noexcept
+        = nullptr;
+    void* user = nullptr;
+};
+
+/// Result for target-neutral package-batch replay.
+struct PreparedTransferPackageReplayResult final {
+    TransferStatus status       = TransferStatus::Ok;
+    EmitTransferCode code       = EmitTransferCode::None;
+    uint32_t replayed           = 0;
+    uint32_t failed_chunk_index = 0xFFFFFFFFU;
+    std::string message;
+};
+
+/// Result for serializing or parsing persisted transfer package batches.
+struct PreparedTransferPackageIoResult final {
+    TransferStatus status = TransferStatus::Unsupported;
+    EmitTransferCode code = EmitTransferCode::None;
+    uint64_t bytes        = 0;
+    uint32_t errors       = 0;
+    std::string message;
 };
 
 /// One precompiled JPEG emit operation (route -> marker mapping).
@@ -563,6 +623,37 @@ struct PreparedJxlEmitPlan final {
     std::vector<PreparedJxlEmitOp> ops;
 };
 
+/// One precompiled WebP emit operation (route -> RIFF chunk mapping).
+struct PreparedWebpEmitOp final {
+    uint32_t block_index           = 0;
+    std::array<char, 4> chunk_type = { '\0', '\0', '\0', '\0' };
+};
+
+/// Reusable precompiled WebP emit plan for a prepared transfer bundle.
+struct PreparedWebpEmitPlan final {
+    uint32_t contract_version = kMetadataTransferContractVersion;
+    std::vector<PreparedWebpEmitOp> ops;
+};
+
+/// Kind of precompiled ISO-BMFF metadata emit operation.
+enum class PreparedBmffEmitKind : uint8_t {
+    Item,
+    MimeXmp,
+};
+
+/// One precompiled ISO-BMFF metadata emit operation.
+struct PreparedBmffEmitOp final {
+    PreparedBmffEmitKind kind = PreparedBmffEmitKind::Item;
+    uint32_t block_index      = 0;
+    uint32_t item_type        = 0U;
+};
+
+/// Reusable precompiled ISO-BMFF metadata emit plan.
+struct PreparedBmffEmitPlan final {
+    uint32_t contract_version = kMetadataTransferContractVersion;
+    std::vector<PreparedBmffEmitOp> ops;
+};
+
 /// Emission options shared by backend emit entry points.
 struct EmitTransferOptions final {
     bool skip_empty_payloads = true;
@@ -577,6 +668,8 @@ struct PreparedTransferExecutionPlan final {
     PreparedJpegEmitPlan jpeg_emit;
     PreparedTiffEmitPlan tiff_emit;
     PreparedJxlEmitPlan jxl_emit;
+    PreparedWebpEmitPlan webp_emit;
+    PreparedBmffEmitPlan bmff_emit;
 };
 
 /// One normalized adapter operation for external encoder or host integration.
@@ -585,6 +678,8 @@ enum class TransferAdapterOpKind : uint8_t {
     TiffTagBytes,
     JxlBox,
     JxlIccProfile,
+    WebpChunk,
+    BmffItem,
 };
 
 /// One compiled adapter-facing operation derived from a prepared bundle.
@@ -596,6 +691,9 @@ struct PreparedTransferAdapterOp final {
     uint8_t jpeg_marker_code     = 0U;
     uint16_t tiff_tag            = 0U;
     std::array<char, 4> box_type = { '\0', '\0', '\0', '\0' };
+    std::array<char, 4> chunk_type = { '\0', '\0', '\0', '\0' };
+    uint32_t bmff_item_type      = 0U;
+    bool bmff_mime_xmp           = false;
     bool compress                = false;
 };
 
@@ -696,6 +794,21 @@ struct EmittedJxlBoxSummary final {
     uint64_t bytes           = 0;
 };
 
+/// One emitted WebP chunk summary entry.
+struct EmittedWebpChunkSummary final {
+    std::array<char, 4> type = { '\0', '\0', '\0', '\0' };
+    uint32_t count           = 0;
+    uint64_t bytes           = 0;
+};
+
+/// One emitted ISO-BMFF metadata item summary entry.
+struct EmittedBmffItemSummary final {
+    uint32_t item_type = 0U;
+    uint32_t count     = 0U;
+    uint64_t bytes     = 0U;
+    bool mime_xmp      = false;
+};
+
 /// Streaming byte sink for edit/write transfer paths.
 class TransferByteWriter {
 public:
@@ -790,6 +903,8 @@ struct ExecutePreparedTransferResult final {
     std::vector<EmittedJpegMarkerSummary> marker_summary;
     std::vector<EmittedTiffTagSummary> tiff_tag_summary;
     std::vector<EmittedJxlBoxSummary> jxl_box_summary;
+    std::vector<EmittedWebpChunkSummary> webp_chunk_summary;
+    std::vector<EmittedBmffItemSummary> bmff_item_summary;
     bool tiff_commit          = false;
     uint64_t emit_output_size = 0;
 
@@ -863,6 +978,34 @@ public:
                                    bool compress) noexcept
         = 0;
     virtual TransferStatus close_boxes() noexcept = 0;
+};
+
+/**
+ * \brief Backend contract for WebP metadata chunk emission.
+ */
+class WebpTransferEmitter {
+public:
+    virtual ~WebpTransferEmitter() = default;
+    virtual TransferStatus add_chunk(std::array<char, 4> type,
+                                     std::span<const std::byte> payload) noexcept
+        = 0;
+    virtual TransferStatus close_chunks() noexcept = 0;
+};
+
+/**
+ * \brief Backend contract for ISO-BMFF metadata item emission.
+ */
+class BmffTransferEmitter {
+public:
+    virtual ~BmffTransferEmitter() = default;
+    virtual TransferStatus
+    add_item(uint32_t item_type,
+             std::span<const std::byte> payload) noexcept
+        = 0;
+    virtual TransferStatus
+    add_mime_xmp_item(std::span<const std::byte> payload) noexcept
+        = 0;
+    virtual TransferStatus close_items() noexcept = 0;
 };
 
 /// EXR attribute payload for transfer emission.
@@ -954,6 +1097,36 @@ emit_prepared_bundle_jxl(const PreparedTransferBundle& bundle,
                          = EmitTransferOptions {}) noexcept;
 
 /**
+ * \brief Emit prepared metadata blocks into a WebP backend.
+ *
+ * Route mapping:
+ * - `webp:chunk-exif` -> `EXIF`
+ * - `webp:chunk-xmp` -> `XMP `
+ * - `webp:chunk-iccp` -> `ICCP`
+ * - `webp:chunk-c2pa` -> `C2PA`
+ */
+EmitTransferResult
+emit_prepared_bundle_webp(const PreparedTransferBundle& bundle,
+                          WebpTransferEmitter& emitter,
+                          const EmitTransferOptions& options
+                          = EmitTransferOptions {}) noexcept;
+
+/**
+ * \brief Emit prepared metadata blocks into an ISO-BMFF metadata backend.
+ *
+ * Route mapping:
+ * - `bmff:item-exif` -> `Exif` item payload
+ * - `bmff:item-xmp` -> `mime` item carrying XMP
+ * - `bmff:item-jumb` -> `jumb` item payload
+ * - `bmff:item-c2pa` -> `c2pa` item payload
+ */
+EmitTransferResult
+emit_prepared_bundle_bmff(const PreparedTransferBundle& bundle,
+                          BmffTransferEmitter& emitter,
+                          const EmitTransferOptions& options
+                          = EmitTransferOptions {}) noexcept;
+
+/**
  * \brief Compile a reusable TIFF emit plan from a prepared bundle.
  *
  * This maps route strings to TIFF tags once for high-throughput
@@ -996,6 +1169,46 @@ emit_prepared_bundle_jxl_compiled(const PreparedTransferBundle& bundle,
                                   JxlTransferEmitter& emitter,
                                   const EmitTransferOptions& options
                                   = EmitTransferOptions {}) noexcept;
+
+/**
+ * \brief Compile a reusable WebP emit plan from a prepared bundle.
+ */
+EmitTransferResult
+compile_prepared_bundle_webp(const PreparedTransferBundle& bundle,
+                             PreparedWebpEmitPlan* out_plan,
+                             const EmitTransferOptions& options
+                             = EmitTransferOptions {}) noexcept;
+
+/**
+ * \brief Compile a reusable ISO-BMFF metadata emit plan from a prepared
+ * bundle.
+ */
+EmitTransferResult
+compile_prepared_bundle_bmff(const PreparedTransferBundle& bundle,
+                             PreparedBmffEmitPlan* out_plan,
+                             const EmitTransferOptions& options
+                             = EmitTransferOptions {}) noexcept;
+
+/**
+ * \brief Emit a prepared bundle using a precompiled WebP emit plan.
+ */
+EmitTransferResult
+emit_prepared_bundle_webp_compiled(const PreparedTransferBundle& bundle,
+                                   const PreparedWebpEmitPlan& plan,
+                                   WebpTransferEmitter& emitter,
+                                   const EmitTransferOptions& options
+                                   = EmitTransferOptions {}) noexcept;
+
+/**
+ * \brief Emit a prepared bundle using a precompiled ISO-BMFF metadata emit
+ * plan.
+ */
+EmitTransferResult
+emit_prepared_bundle_bmff_compiled(const PreparedTransferBundle& bundle,
+                                   const PreparedBmffEmitPlan& plan,
+                                   BmffTransferEmitter& emitter,
+                                   const EmitTransferOptions& options
+                                   = EmitTransferOptions {}) noexcept;
 
 /**
  * \brief Compile a reusable JPEG emit plan from a prepared bundle.
@@ -1322,6 +1535,30 @@ emit_prepared_transfer_compiled(
     uint32_t emit_repeat                        = 1U) noexcept;
 
 /**
+ * \brief Hot-path helper: apply non-owning time patches and emit through a
+ * WebP backend.
+ */
+ExecutePreparedTransferResult
+emit_prepared_transfer_compiled(
+    PreparedTransferBundle* bundle, const PreparedTransferExecutionPlan& plan,
+    WebpTransferEmitter& emitter,
+    std::span<const TimePatchView> time_patches = {},
+    const ApplyTimePatchOptions& time_patch     = ApplyTimePatchOptions {},
+    uint32_t emit_repeat                        = 1U) noexcept;
+
+/**
+ * \brief Hot-path helper: apply non-owning time patches and emit through an
+ * ISO-BMFF metadata backend.
+ */
+ExecutePreparedTransferResult
+emit_prepared_transfer_compiled(
+    PreparedTransferBundle* bundle, const PreparedTransferExecutionPlan& plan,
+    BmffTransferEmitter& emitter,
+    std::span<const TimePatchView> time_patches = {},
+    const ApplyTimePatchOptions& time_patch     = ApplyTimePatchOptions {},
+    uint32_t emit_repeat                        = 1U) noexcept;
+
+/**
  * \brief High-level helper: read file, prepare a bundle, then execute transfer.
  *
  * This wraps \ref prepare_metadata_for_target_file plus
@@ -1439,5 +1676,30 @@ build_prepared_transfer_package_batch(
 EmitTransferResult
 write_prepared_transfer_package_batch(const PreparedTransferPackageBatch& batch,
                                       TransferByteWriter& writer) noexcept;
+
+/// Classifies one prepared transfer route into a target-neutral semantic kind.
+TransferSemanticKind
+classify_transfer_route_semantic_kind(std::string_view route) noexcept;
+
+/// Builds zero-copy semantic package views over one persisted package batch.
+EmitTransferResult
+collect_prepared_transfer_package_views(
+    const PreparedTransferPackageBatch& batch,
+    std::vector<PreparedTransferPackageView>* out) noexcept;
+
+PreparedTransferPackageReplayResult
+replay_prepared_transfer_package_batch(
+    const PreparedTransferPackageBatch& batch,
+    const PreparedTransferPackageReplayCallbacks& callbacks) noexcept;
+
+PreparedTransferPackageIoResult
+serialize_prepared_transfer_package_batch(
+    const PreparedTransferPackageBatch& batch,
+    std::vector<std::byte>* out_bytes) noexcept;
+
+PreparedTransferPackageIoResult
+deserialize_prepared_transfer_package_batch(
+    std::span<const std::byte> bytes,
+    PreparedTransferPackageBatch* out_batch) noexcept;
 
 }  // namespace openmeta

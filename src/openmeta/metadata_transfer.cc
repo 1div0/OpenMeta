@@ -86,6 +86,7 @@ namespace {
     struct TransferPrepareCapabilities final {
         bool jpeg_jumbf_passthrough                = false;
         bool jxl_jumbf_passthrough                 = false;
+        bool bmff_jumbf_passthrough                = false;
         C2paPayloadClass source_c2pa_payload_class = C2paPayloadClass::NotC2pa;
     };
 
@@ -437,6 +438,66 @@ namespace {
     static bool jxl_route_is_icc_profile(std::string_view route) noexcept
     {
         return route == "jxl:icc-profile";
+    }
+
+    static bool webp_chunk_from_route(std::string_view route,
+                                      std::array<char, 4>* out_type) noexcept
+    {
+        if (!out_type) {
+            return false;
+        }
+        if (route == "webp:chunk-exif") {
+            *out_type = { 'E', 'X', 'I', 'F' };
+            return true;
+        }
+        if (route == "webp:chunk-xmp") {
+            *out_type = { 'X', 'M', 'P', ' ' };
+            return true;
+        }
+        if (route == "webp:chunk-iccp") {
+            *out_type = { 'I', 'C', 'C', 'P' };
+            return true;
+        }
+        if (route == "webp:chunk-c2pa") {
+            *out_type = { 'C', '2', 'P', 'A' };
+            return true;
+        }
+        return false;
+    }
+
+    static bool transfer_target_is_bmff(TransferTargetFormat target) noexcept
+    {
+        return target == TransferTargetFormat::Heif
+               || target == TransferTargetFormat::Avif
+               || target == TransferTargetFormat::Cr3;
+    }
+
+    static bool bmff_item_from_route(std::string_view route,
+                                     uint32_t* out_item_type,
+                                     bool* out_mime_xmp) noexcept
+    {
+        if (!out_item_type || !out_mime_xmp) {
+            return false;
+        }
+        *out_mime_xmp = false;
+        if (route == "bmff:item-exif") {
+            *out_item_type = fourcc('E', 'x', 'i', 'f');
+            return true;
+        }
+        if (route == "bmff:item-xmp") {
+            *out_item_type = fourcc('m', 'i', 'm', 'e');
+            *out_mime_xmp  = true;
+            return true;
+        }
+        if (route == "bmff:item-jumb") {
+            *out_item_type = fourcc('j', 'u', 'm', 'b');
+            return true;
+        }
+        if (route == "bmff:item-c2pa") {
+            *out_item_type = fourcc('c', '2', 'p', 'a');
+            return true;
+        }
+        return false;
     }
 
     struct PlannedJpegSegment final {
@@ -981,6 +1042,16 @@ namespace {
                                   std::vector<std::byte>* out_bytes,
                                   EmitTransferResult* out) noexcept;
 
+    static bool write_webp_chunk(TransferByteWriter& writer,
+                                 std::array<char, 4> chunk_type,
+                                 std::span<const std::byte> payload,
+                                 EmitTransferResult* out) noexcept;
+
+    static bool serialize_webp_chunk(std::array<char, 4> chunk_type,
+                                     std::span<const std::byte> payload,
+                                     std::vector<std::byte>* out_bytes,
+                                     EmitTransferResult* out) noexcept;
+
     static bool materialize_prepared_transfer_package_chunk(
         std::span<const std::byte> input, const PreparedTransferBundle& bundle,
         const PreparedTransferPackageChunk& chunk,
@@ -1130,6 +1201,103 @@ namespace {
         out_bytes->push_back(static_cast<std::byte>(box_type[2]));
         out_bytes->push_back(static_cast<std::byte>(box_type[3]));
         out_bytes->insert(out_bytes->end(), payload.begin(), payload.end());
+        return true;
+    }
+
+    static bool write_webp_chunk(TransferByteWriter& writer,
+                                 std::array<char, 4> chunk_type,
+                                 std::span<const std::byte> payload,
+                                 EmitTransferResult* out) noexcept
+    {
+        if (payload.size() > static_cast<size_t>(0xFFFFFFFFU)) {
+            if (out) {
+                out->status = TransferStatus::LimitExceeded;
+                out->code   = EmitTransferCode::InvalidPayload;
+                out->errors += 1U;
+                out->message = "webp chunk payload exceeds 32-bit chunk size";
+            }
+            return false;
+        }
+
+        std::array<std::byte, 8> header = {
+            static_cast<std::byte>(chunk_type[0]),
+            static_cast<std::byte>(chunk_type[1]),
+            static_cast<std::byte>(chunk_type[2]),
+            static_cast<std::byte>(chunk_type[3]),
+            std::byte { 0x00 },
+            std::byte { 0x00 },
+            std::byte { 0x00 },
+            std::byte { 0x00 },
+        };
+        const uint32_t chunk_size = static_cast<uint32_t>(payload.size());
+        header[4] = static_cast<std::byte>((chunk_size >> 0U) & 0xFFU);
+        header[5] = static_cast<std::byte>((chunk_size >> 8U) & 0xFFU);
+        header[6] = static_cast<std::byte>((chunk_size >> 16U) & 0xFFU);
+        header[7] = static_cast<std::byte>((chunk_size >> 24U) & 0xFFU);
+        if (!write_transfer_bytes(writer,
+                                  std::span<const std::byte>(header.data(),
+                                                             header.size()),
+                                  out, "webp package header write failed")) {
+            return false;
+        }
+        if (!write_transfer_bytes(writer, payload, out,
+                                  "webp package payload write failed")) {
+            return false;
+        }
+        if ((chunk_size & 1U) != 0U) {
+            const std::byte pad = std::byte { 0x00 };
+            return write_transfer_bytes(writer,
+                                        std::span<const std::byte>(&pad, 1U),
+                                        out, "webp package pad write failed");
+        }
+        return true;
+    }
+
+    static bool serialize_webp_chunk(std::array<char, 4> chunk_type,
+                                     std::span<const std::byte> payload,
+                                     std::vector<std::byte>* out_bytes,
+                                     EmitTransferResult* out) noexcept
+    {
+        if (!out_bytes) {
+            if (out) {
+                out->status = TransferStatus::InvalidArgument;
+                out->code   = EmitTransferCode::InvalidArgument;
+                out->errors += 1U;
+                out->message = "webp chunk output buffer is null";
+            }
+            return false;
+        }
+        if (payload.size() > static_cast<size_t>(0xFFFFFFFFU)) {
+            if (out) {
+                out->status = TransferStatus::LimitExceeded;
+                out->code   = EmitTransferCode::InvalidPayload;
+                out->errors += 1U;
+                out->message = "webp chunk payload exceeds 32-bit chunk size";
+            }
+            return false;
+        }
+        const uint32_t chunk_size      = static_cast<uint32_t>(payload.size());
+        const uint64_t serialized_size = 8U + static_cast<uint64_t>(chunk_size)
+                                         + static_cast<uint64_t>(
+                                             (chunk_size & 1U) != 0U);
+        out_bytes->clear();
+        out_bytes->reserve(static_cast<size_t>(serialized_size));
+        out_bytes->push_back(static_cast<std::byte>(chunk_type[0]));
+        out_bytes->push_back(static_cast<std::byte>(chunk_type[1]));
+        out_bytes->push_back(static_cast<std::byte>(chunk_type[2]));
+        out_bytes->push_back(static_cast<std::byte>(chunk_type[3]));
+        out_bytes->push_back(
+            static_cast<std::byte>((chunk_size >> 0U) & 0xFFU));
+        out_bytes->push_back(
+            static_cast<std::byte>((chunk_size >> 8U) & 0xFFU));
+        out_bytes->push_back(
+            static_cast<std::byte>((chunk_size >> 16U) & 0xFFU));
+        out_bytes->push_back(
+            static_cast<std::byte>((chunk_size >> 24U) & 0xFFU));
+        out_bytes->insert(out_bytes->end(), payload.begin(), payload.end());
+        if ((chunk_size & 1U) != 0U) {
+            out_bytes->push_back(std::byte { 0x00 });
+        }
         return true;
     }
 
@@ -3489,6 +3657,93 @@ namespace {
         return true;
     }
 
+    static bool
+    append_webp_c2pa_chunk(std::span<const std::byte> logical_payload,
+                           uint32_t* io_order,
+                           std::vector<PreparedTransferBlock>* out_blocks,
+                           std::string* out_error) noexcept
+    {
+        if (!io_order || !out_blocks) {
+            if (out_error) {
+                *out_error = "webp c2pa output is null";
+            }
+            return false;
+        }
+        if (logical_payload.empty()) {
+            if (out_error) {
+                *out_error = "webp c2pa payload is empty";
+            }
+            return false;
+        }
+        PreparedTransferBlock block;
+        block.kind  = TransferBlockKind::C2pa;
+        block.order = *io_order;
+        *io_order += 1U;
+        block.route = "webp:chunk-c2pa";
+        block.payload.assign(logical_payload.begin(), logical_payload.end());
+        out_blocks->push_back(std::move(block));
+        return true;
+    }
+
+    static bool
+    append_bmff_metadata_item(std::span<const std::byte> logical_payload,
+                              std::string_view route, TransferBlockKind kind,
+                              uint32_t* io_order,
+                              std::vector<PreparedTransferBlock>* out_blocks,
+                              std::string* out_error) noexcept
+    {
+        if (!io_order || !out_blocks) {
+            if (out_error) {
+                *out_error = "bmff metadata output is null";
+            }
+            return false;
+        }
+        if (logical_payload.empty()) {
+            if (out_error) {
+                *out_error = "bmff metadata payload is empty";
+            }
+            return false;
+        }
+
+        uint32_t header_len = 0U;
+        uint32_t box_type   = 0U;
+        if (!parse_bmff_box_header(logical_payload, &header_len, &box_type)) {
+            if (out_error) {
+                *out_error
+                    = "bmff metadata payload does not start with a valid bmff box";
+            }
+            return false;
+        }
+
+        if (route == "bmff:item-jumb") {
+            if (box_type != fourcc('j', 'u', 'm', 'b')) {
+                if (out_error) {
+                    *out_error
+                        = "bmff jumb transfer only supports jumb root boxes";
+                }
+                return false;
+            }
+        } else if (route == "bmff:item-c2pa") {
+            if (box_type != fourcc('j', 'u', 'm', 'b')
+                && box_type != fourcc('c', '2', 'p', 'a')) {
+                if (out_error) {
+                    *out_error
+                        = "bmff c2pa transfer only supports jumb/c2pa root boxes";
+                }
+                return false;
+            }
+        }
+
+        PreparedTransferBlock block;
+        block.kind  = kind;
+        block.order = *io_order;
+        *io_order += 1U;
+        block.route = std::string(route);
+        block.payload.assign(logical_payload.begin(), logical_payload.end());
+        out_blocks->push_back(std::move(block));
+        return true;
+    }
+
     static C2paPayloadClass classify_source_c2pa_payloads_for_jpeg(
         std::span<const std::byte> file_bytes,
         std::span<const ContainerBlockRef> blocks,
@@ -3749,6 +4004,112 @@ namespace {
             std::string error;
             if (!append_jxl_jumbf_box(logical, TransferBlockKind::Jumbf, &order,
                                       &bundle->blocks, &error)) {
+                out.errors += 1U;
+                append_message(&out.message, error);
+                continue;
+            }
+            out.emitted_blocks += 1U;
+            out.emitted_jumbf += 1U;
+        }
+        return out;
+    }
+
+    static SourceJumbfAppendResult append_source_jumbf_blocks_for_bmff(
+        std::span<const std::byte> file_bytes,
+        std::span<const ContainerBlockRef> blocks,
+        const PayloadOptions& options, PreparedTransferBundle* bundle) noexcept
+    {
+        SourceJumbfAppendResult out;
+        if (!bundle) {
+            out.errors  = 1U;
+            out.message = "bundle is null";
+            return out;
+        }
+
+        PreparedTransferPolicyDecision* jumbf_policy
+            = find_policy_decision(bundle, TransferPolicySubject::Jumbf);
+        PreparedTransferPolicyDecision* c2pa_policy
+            = find_policy_decision(bundle, TransferPolicySubject::C2pa);
+        const bool keep_jumbf = jumbf_policy
+                                && jumbf_policy->effective
+                                       == TransferPolicyAction::Keep;
+        const bool keep_c2pa
+            = c2pa_policy
+              && c2pa_policy->effective == TransferPolicyAction::Keep
+              && c2pa_policy->c2pa_mode == TransferC2paMode::PreserveRaw;
+        if (!keep_jumbf && !keep_c2pa) {
+            return out;
+        }
+
+        uint32_t order = next_prepared_block_order(*bundle, 140U);
+        std::vector<std::byte> payload(1024U * 1024U);
+        std::vector<uint32_t> scratch(16384U);
+
+        for (uint32_t i = 0U; i < blocks.size(); ++i) {
+            const ContainerBlockRef& block = blocks[i];
+            if (!is_source_jumbf_block(block)
+                || is_duplicate_jumbf_seed(blocks, i)) {
+                continue;
+            }
+
+            PayloadResult extracted;
+            std::span<const std::byte> logical;
+            for (;;) {
+                extracted = extract_payload(
+                    file_bytes, blocks, i,
+                    std::span<std::byte>(payload.data(), payload.size()),
+                    std::span<uint32_t>(scratch.data(), scratch.size()),
+                    options);
+                if (extracted.status == PayloadStatus::OutputTruncated
+                    && extracted.needed > payload.size()
+                    && extracted.needed <= static_cast<uint64_t>(SIZE_MAX)) {
+                    payload.resize(static_cast<size_t>(extracted.needed));
+                    continue;
+                }
+                break;
+            }
+
+            if (extracted.status != PayloadStatus::Ok) {
+                out.errors += 1U;
+                append_message(&out.message,
+                               "failed to extract source jumbf payload");
+                continue;
+            }
+
+            logical = std::span<const std::byte>(payload.data(),
+                                                 static_cast<size_t>(
+                                                     extracted.written));
+            if (logical.empty()) {
+                continue;
+            }
+
+            const C2paPayloadClass payload_class = classify_c2pa_jumbf_payload(
+                logical);
+            if (payload_class == C2paPayloadClass::DraftUnsignedInvalidation) {
+                if (!keep_c2pa) {
+                    continue;
+                }
+                std::string error;
+                if (!append_bmff_metadata_item(logical, "bmff:item-c2pa",
+                                               TransferBlockKind::C2pa, &order,
+                                               &bundle->blocks, &error)) {
+                    out.errors += 1U;
+                    append_message(&out.message, error);
+                    continue;
+                }
+                out.emitted_blocks += 1U;
+                out.emitted_c2pa += 1U;
+                continue;
+            }
+            if (payload_class == C2paPayloadClass::ContentBound
+                || !keep_jumbf) {
+                continue;
+            }
+
+            std::string error;
+            if (!append_bmff_metadata_item(logical, "bmff:item-jumb",
+                                           TransferBlockKind::Jumbf, &order,
+                                           &bundle->blocks, &error)) {
                 out.errors += 1U;
                 append_message(&out.message, error);
                 continue;
@@ -6022,11 +6383,14 @@ prepare_metadata_for_target_impl(const MetaStore& store,
 
     if (request.target_format != TransferTargetFormat::Jpeg
         && request.target_format != TransferTargetFormat::Tiff
-        && request.target_format != TransferTargetFormat::Jxl) {
-        r.status    = TransferStatus::Unsupported;
-        r.code      = PrepareTransferCode::UnsupportedTargetFormat;
-        r.errors    = 1U;
-        r.message   = "prepare currently supports jpeg, tiff, and jxl targets";
+        && request.target_format != TransferTargetFormat::Jxl
+        && request.target_format != TransferTargetFormat::Webp
+        && !transfer_target_is_bmff(request.target_format)) {
+        r.status = TransferStatus::Unsupported;
+        r.code   = PrepareTransferCode::UnsupportedTargetFormat;
+        r.errors = 1U;
+        r.message
+            = "prepare currently supports jpeg, tiff, jxl, webp, and bmff targets";
         *out_bundle = std::move(bundle);
         return r;
     }
@@ -6097,11 +6461,14 @@ prepare_metadata_for_target_impl(const MetaStore& store,
         = (caps.jpeg_jumbf_passthrough
            && request.target_format == TransferTargetFormat::Jpeg)
           || (caps.jxl_jumbf_passthrough
-              && request.target_format == TransferTargetFormat::Jxl);
+              && request.target_format == TransferTargetFormat::Jxl)
+          || (caps.bmff_jumbf_passthrough
+              && transfer_target_is_bmff(request.target_format));
     const bool can_project_store_jumbf
         = !can_pack_source_jumbf
           && (request.target_format == TransferTargetFormat::Jpeg
-              || request.target_format == TransferTargetFormat::Jxl)
+              || request.target_format == TransferTargetFormat::Jxl
+              || transfer_target_is_bmff(request.target_format))
           && count_non_c2pa_jumbf_cbor_entries(store) > 0U;
 
     TransferPolicyAction effective_jumbf = request.profile.jumbf;
@@ -6144,8 +6511,13 @@ prepare_metadata_for_target_impl(const MetaStore& store,
                                          == TransferTargetFormat::Jxl
                                      ? "source jumbf payloads will be emitted "
                                        "as jxl boxes"
-                                     : "source jumbf payloads will be repacked "
-                                       "into jpeg app11 segments"))));
+                                     : (transfer_target_is_bmff(
+                                            request.target_format)
+                                            ? "source jumbf payloads will be "
+                                              "emitted as bmff metadata items"
+                                            : "source jumbf payloads will be "
+                                              "repacked into jpeg app11 "
+                                              "segments")))));
     } else if (can_project_store_jumbf) {
         effective_jumbf = resolve_projected_jumbf_policy(request.profile.jumbf,
                                                          &jumbf_reason);
@@ -6167,9 +6539,12 @@ prepare_metadata_for_target_impl(const MetaStore& store,
                        : (request.target_format == TransferTargetFormat::Jxl
                               ? "decoded non-c2pa jumbf cbor keys will be "
                                 "projected into generic jxl jumbf boxes"
-                              : "decoded non-c2pa jumbf cbor keys will be "
-                                "projected into generic jpeg app11 jumbf "
-                                "payloads")));
+                              : (transfer_target_is_bmff(request.target_format)
+                                     ? "decoded non-c2pa jumbf cbor keys will "
+                                       "be projected into bmff metadata items"
+                                     : "decoded non-c2pa jumbf cbor keys will "
+                                       "be projected into generic jpeg app11 "
+                                       "jumbf payloads"))));
     } else {
         effective_jumbf = resolve_unserialized_policy(request.profile.jumbf,
                                                       &jumbf_reason);
@@ -6205,7 +6580,9 @@ prepare_metadata_for_target_impl(const MetaStore& store,
     } else {
         const bool can_generate_c2pa_invalidation
             = request.target_format == TransferTargetFormat::Jpeg
-              || request.target_format == TransferTargetFormat::Jxl;
+              || request.target_format == TransferTargetFormat::Jxl
+              || request.target_format == TransferTargetFormat::Webp
+              || transfer_target_is_bmff(request.target_format);
         effective_c2pa = resolve_c2pa_transfer_policy(
             request.profile.c2pa, can_pack_source_jumbf,
             can_generate_c2pa_invalidation, caps.source_c2pa_payload_class,
@@ -6246,22 +6623,42 @@ prepare_metadata_for_target_impl(const MetaStore& store,
         if (request.profile.c2pa == TransferPolicyAction::Drop) {
             policy_message = "c2pa transfer disabled by profile";
         } else if (c2pa_mode == TransferC2paMode::PreserveRaw) {
-            policy_message = request.target_format == TransferTargetFormat::Jxl
-                                 ? "existing draft unsigned c2pa invalidation "
-                                   "payload will be preserved as raw jxl box "
-                                   "data"
-                                 : "existing draft unsigned c2pa invalidation "
-                                   "payload will be preserved as raw jpeg "
-                                   "app11 data";
+            if (request.target_format == TransferTargetFormat::Jxl) {
+                policy_message = "existing draft unsigned c2pa invalidation "
+                                 "payload will be preserved as raw jxl box "
+                                 "data";
+            } else if (request.target_format == TransferTargetFormat::Webp) {
+                policy_message = "existing draft unsigned c2pa invalidation "
+                                 "payload will be preserved as raw webp c2pa "
+                                 "chunk data";
+            } else if (transfer_target_is_bmff(request.target_format)) {
+                policy_message = "existing draft unsigned c2pa invalidation "
+                                 "payload will be preserved as raw bmff "
+                                 "metadata item data";
+            } else {
+                policy_message = "existing draft unsigned c2pa invalidation "
+                                 "payload will be preserved as raw jpeg "
+                                 "app11 data";
+            }
         } else if (c2pa_reason
                    == TransferPolicyReason::DraftInvalidationPayload) {
-            policy_message = request.target_format == TransferTargetFormat::Jxl
-                                 ? "draft unsigned c2pa invalidation payload "
-                                   "will be emitted for content-changing jxl "
-                                   "outputs"
-                                 : "draft unsigned c2pa invalidation payload "
-                                   "will be emitted for content-changing jpeg "
-                                   "outputs";
+            if (request.target_format == TransferTargetFormat::Jxl) {
+                policy_message = "draft unsigned c2pa invalidation payload "
+                                 "will be emitted for content-changing jxl "
+                                 "outputs";
+            } else if (request.target_format == TransferTargetFormat::Webp) {
+                policy_message = "draft unsigned c2pa invalidation payload "
+                                 "will be emitted for content-changing webp "
+                                 "outputs";
+            } else if (transfer_target_is_bmff(request.target_format)) {
+                policy_message = "draft unsigned c2pa invalidation payload "
+                                 "will be emitted for content-changing bmff "
+                                 "outputs";
+            } else {
+                policy_message = "draft unsigned c2pa invalidation payload "
+                                 "will be emitted for content-changing jpeg "
+                                 "outputs";
+            }
         } else if (c2pa_reason
                    == TransferPolicyReason::SignedRewriteUnavailable) {
             policy_message = "c2pa signed rewrite/re-sign is not implemented "
@@ -6297,6 +6694,15 @@ prepare_metadata_for_target_impl(const MetaStore& store,
                 // TIFF backends can consume this as a serialized Exif APP1 blob
                 // and materialize ExifIFD pointers/entries natively.
                 b.route   = "tiff:ifd-exif-app1";
+                b.payload = std::move(exif_build.app1_payload);
+            } else if (transfer_target_is_bmff(request.target_format)) {
+                b.route = "bmff:item-exif";
+                append_u32be(&b.payload, 6U);
+                b.payload.insert(b.payload.end(),
+                                 exif_build.app1_payload.begin(),
+                                 exif_build.app1_payload.end());
+            } else if (request.target_format == TransferTargetFormat::Webp) {
+                b.route   = "webp:chunk-exif";
                 b.payload = std::move(exif_build.app1_payload);
             } else {
                 b.route    = "jxl:box-exif";
@@ -6358,6 +6764,12 @@ prepare_metadata_for_target_impl(const MetaStore& store,
                                  xmp_packet.end());
             } else if (request.target_format == TransferTargetFormat::Tiff) {
                 b.route   = "tiff:tag-700-xmp";
+                b.payload = std::move(xmp_packet);
+            } else if (transfer_target_is_bmff(request.target_format)) {
+                b.route   = "bmff:item-xmp";
+                b.payload = std::move(xmp_packet);
+            } else if (request.target_format == TransferTargetFormat::Webp) {
+                b.route   = "webp:chunk-xmp";
                 b.payload = std::move(xmp_packet);
             } else {
                 b.route    = "jxl:box-xml";
@@ -6426,6 +6838,42 @@ prepare_metadata_for_target_impl(const MetaStore& store,
                                "tiff icc packer could not serialize current "
                                "icc set");
             }
+        } else if (request.target_format == TransferTargetFormat::Webp) {
+            std::vector<std::byte> icc_profile;
+            uint32_t skipped_icc = 0U;
+            if (build_icc_profile_bytes(store, &icc_profile, &skipped_icc)
+                && !icc_profile.empty()) {
+                PreparedTransferBlock b;
+                b.kind    = TransferBlockKind::Icc;
+                b.order   = 120U;
+                b.route   = "webp:chunk-iccp";
+                b.payload = std::move(icc_profile);
+                bundle.blocks.push_back(std::move(b));
+                if (skipped_icc > 0U) {
+                    r.warnings += 1U;
+                    append_message(&r.message,
+                                   "icc serializer skipped "
+                                       + std::to_string(skipped_icc)
+                                       + " unsupported icc entries");
+                }
+            } else {
+                requested_present_but_unpacked = true;
+                if (r.code == PrepareTransferCode::None) {
+                    r.code = PrepareTransferCode::IccPackFailed;
+                }
+                r.warnings += 1U;
+                append_message(&r.message,
+                               "webp icc packer could not serialize current "
+                               "icc set");
+            }
+        } else if (transfer_target_is_bmff(request.target_format)) {
+            requested_present_but_unpacked = true;
+            if (r.code == PrepareTransferCode::None) {
+                r.code = PrepareTransferCode::IccPackFailed;
+            }
+            r.warnings += 1U;
+            append_message(&r.message,
+                           "bmff icc packaging is not implemented yet");
         } else {
             std::vector<std::byte> icc_profile;
             uint32_t skipped_icc = 0U;
@@ -6526,11 +6974,17 @@ prepare_metadata_for_target_impl(const MetaStore& store,
                                                           xmp_req);
                 if (xr.status == XmpDumpStatus::Ok && !xmp_packet.empty()) {
                     PreparedTransferBlock b;
-                    b.kind     = TransferBlockKind::Xmp;
-                    b.order    = 130U;
-                    b.route    = "jxl:box-xml";
-                    b.box_type = { 'x', 'm', 'l', ' ' };
-                    b.payload  = std::move(xmp_packet);
+                    b.kind  = TransferBlockKind::Xmp;
+                    b.order = 130U;
+                    if (request.target_format == TransferTargetFormat::Webp) {
+                        b.route = "webp:chunk-xmp";
+                    } else if (transfer_target_is_bmff(request.target_format)) {
+                        b.route = "bmff:item-xmp";
+                    } else {
+                        b.route    = "jxl:box-xml";
+                        b.box_type = { 'x', 'm', 'l', ' ' };
+                    }
+                    b.payload = std::move(xmp_packet);
                     bundle.blocks.push_back(std::move(b));
                 } else {
                     requested_present_but_unpacked = true;
@@ -6540,15 +6994,22 @@ prepare_metadata_for_target_impl(const MetaStore& store,
                     r.warnings += 1U;
                     append_message(
                         &r.message,
-                        "jxl iptc projection to xml could not serialize "
-                        "current iptc set");
+                        request.target_format == TransferTargetFormat::Webp
+                            ? "webp iptc projection to xmp could not serialize "
+                              "current iptc set"
+                            : (transfer_target_is_bmff(request.target_format)
+                                   ? "bmff iptc projection to xmp could not "
+                                     "serialize current iptc set"
+                                   : "jxl iptc projection to xml could not serialize "
+                                     "current iptc set"));
                 }
             }
         }
     }
 
     if ((request.target_format == TransferTargetFormat::Jpeg
-         || request.target_format == TransferTargetFormat::Jxl)
+         || request.target_format == TransferTargetFormat::Jxl
+         || transfer_target_is_bmff(request.target_format))
         && !can_pack_source_jumbf
         && effective_jumbf == TransferPolicyAction::Keep
         && jumbf_reason == TransferPolicyReason::ProjectedPayload) {
@@ -6588,14 +7049,21 @@ prepare_metadata_for_target_impl(const MetaStore& store,
                 const std::span<const std::byte> logical(
                     payload.logical_payload.data(),
                     payload.logical_payload.size());
-                const bool appended
-                    = request.target_format == TransferTargetFormat::Jxl
-                          ? append_jxl_jumbf_box(logical,
-                                                 TransferBlockKind::Jumbf,
-                                                 &order, &bundle.blocks, &error)
-                          : append_jpeg_app11_jumbf_segments(
-                                logical, TransferBlockKind::Jumbf, &order,
-                                &bundle.blocks, &error);
+                bool appended = false;
+                if (request.target_format == TransferTargetFormat::Jxl) {
+                    appended = append_jxl_jumbf_box(logical,
+                                                    TransferBlockKind::Jumbf,
+                                                    &order, &bundle.blocks,
+                                                    &error);
+                } else if (transfer_target_is_bmff(request.target_format)) {
+                    appended = append_bmff_metadata_item(
+                        logical, "bmff:item-jumb", TransferBlockKind::Jumbf,
+                        &order, &bundle.blocks, &error);
+                } else {
+                    appended = append_jpeg_app11_jumbf_segments(
+                        logical, TransferBlockKind::Jumbf, &order,
+                        &bundle.blocks, &error);
+                }
                 if (!appended) {
                     append_failed = true;
                     break;
@@ -6648,7 +7116,9 @@ prepare_metadata_for_target_impl(const MetaStore& store,
     }
 
     if ((request.target_format == TransferTargetFormat::Jpeg
-         || request.target_format == TransferTargetFormat::Jxl)
+         || request.target_format == TransferTargetFormat::Jxl
+         || request.target_format == TransferTargetFormat::Webp
+         || transfer_target_is_bmff(request.target_format))
         && effective_c2pa == TransferPolicyAction::Keep
         && c2pa_reason == TransferPolicyReason::DraftInvalidationPayload) {
         const std::vector<std::byte> c2pa_payload
@@ -6656,17 +7126,26 @@ prepare_metadata_for_target_impl(const MetaStore& store,
         const size_t before = bundle.blocks.size();
         uint32_t order      = next_prepared_block_order(bundle, 150U);
         std::string error;
-        const bool appended
-            = request.target_format == TransferTargetFormat::Jxl
-                  ? append_jxl_jumbf_box(
-                        std::span<const std::byte>(c2pa_payload.data(),
-                                                   c2pa_payload.size()),
-                        TransferBlockKind::C2pa, &order, &bundle.blocks, &error)
-                  : append_jpeg_app11_jumbf_segments(
-                        std::span<const std::byte>(c2pa_payload.data(),
-                                                   c2pa_payload.size()),
-                        TransferBlockKind::C2pa, &order, &bundle.blocks,
-                        &error);
+        const std::span<const std::byte> c2pa_bytes(c2pa_payload.data(),
+                                                    c2pa_payload.size());
+        bool appended = false;
+        if (request.target_format == TransferTargetFormat::Jxl) {
+            appended = append_jxl_jumbf_box(c2pa_bytes, TransferBlockKind::C2pa,
+                                            &order, &bundle.blocks, &error);
+        } else if (request.target_format == TransferTargetFormat::Webp) {
+            appended = append_webp_c2pa_chunk(c2pa_bytes, &order,
+                                              &bundle.blocks, &error);
+        } else if (transfer_target_is_bmff(request.target_format)) {
+            appended = append_bmff_metadata_item(c2pa_bytes, "bmff:item-c2pa",
+                                                 TransferBlockKind::C2pa,
+                                                 &order, &bundle.blocks,
+                                                 &error);
+        } else {
+            appended = append_jpeg_app11_jumbf_segments(c2pa_bytes,
+                                                        TransferBlockKind::C2pa,
+                                                        &order, &bundle.blocks,
+                                                        &error);
+        }
         if (!appended) {
             requested_present_but_unpacked = true;
             if (r.code == PrepareTransferCode::None) {
@@ -7672,6 +8151,435 @@ emit_prepared_bundle_jxl_compiled(const PreparedTransferBundle& bundle,
 }
 
 EmitTransferResult
+emit_prepared_bundle_webp(const PreparedTransferBundle& bundle,
+                          WebpTransferEmitter& emitter,
+                          const EmitTransferOptions& options) noexcept
+{
+    EmitTransferResult r;
+    if (bundle.target_format != TransferTargetFormat::Webp) {
+        r.status  = TransferStatus::Unsupported;
+        r.code    = EmitTransferCode::InvalidArgument;
+        r.errors  = 1U;
+        r.message = "bundle target format is not webp";
+        return r;
+    }
+
+    for (uint32_t i = 0; i < bundle.blocks.size(); ++i) {
+        const PreparedTransferBlock& block = bundle.blocks[i];
+        if (options.skip_empty_payloads && block.payload.empty()) {
+            r.skipped += 1U;
+            continue;
+        }
+
+        std::array<char, 4> chunk_type = { '\0', '\0', '\0', '\0' };
+        if (!webp_chunk_from_route(block.route, &chunk_type)) {
+            r.status = TransferStatus::Unsupported;
+            if (r.code == EmitTransferCode::None) {
+                r.code = EmitTransferCode::UnsupportedRoute;
+            }
+            r.errors += 1U;
+            r.failed_block_index = i;
+            r.message            = "unsupported webp route: " + block.route;
+            if (options.stop_on_error) {
+                return r;
+            }
+            continue;
+        }
+
+        const TransferStatus st = emitter.add_chunk(
+            chunk_type, std::span<const std::byte>(block.payload.data(),
+                                                   block.payload.size()));
+        if (st != TransferStatus::Ok) {
+            r.status = st;
+            if (r.code == EmitTransferCode::None) {
+                r.code = EmitTransferCode::BackendWriteFailed;
+            }
+            r.errors += 1U;
+            r.failed_block_index = i;
+            r.message            = "webp emitter add_chunk failed";
+            if (options.stop_on_error) {
+                return r;
+            }
+            continue;
+        }
+        r.emitted += 1U;
+    }
+
+    if (r.errors == 0U) {
+        const TransferStatus close_st = emitter.close_chunks();
+        if (close_st != TransferStatus::Ok) {
+            r.status  = close_st;
+            r.code    = EmitTransferCode::BackendWriteFailed;
+            r.errors  = 1U;
+            r.message = "webp emitter close_chunks failed";
+            return r;
+        }
+        r.status = TransferStatus::Ok;
+        r.code   = EmitTransferCode::None;
+    }
+    return r;
+}
+
+EmitTransferResult
+compile_prepared_bundle_webp(const PreparedTransferBundle& bundle,
+                             PreparedWebpEmitPlan* out_plan,
+                             const EmitTransferOptions& options) noexcept
+{
+    EmitTransferResult r;
+    if (!out_plan) {
+        r.status  = TransferStatus::InvalidArgument;
+        r.code    = EmitTransferCode::InvalidArgument;
+        r.errors  = 1U;
+        r.message = "out_plan is null";
+        return r;
+    }
+    out_plan->contract_version = bundle.contract_version;
+    out_plan->ops.clear();
+
+    if (bundle.target_format != TransferTargetFormat::Webp) {
+        r.status  = TransferStatus::Unsupported;
+        r.code    = EmitTransferCode::InvalidArgument;
+        r.errors  = 1U;
+        r.message = "bundle target format is not webp";
+        return r;
+    }
+
+    for (uint32_t i = 0; i < bundle.blocks.size(); ++i) {
+        const PreparedTransferBlock& block = bundle.blocks[i];
+        if (options.skip_empty_payloads && block.payload.empty()) {
+            r.skipped += 1U;
+            continue;
+        }
+
+        PreparedWebpEmitOp op;
+        if (!webp_chunk_from_route(block.route, &op.chunk_type)) {
+            r.status = TransferStatus::Unsupported;
+            if (r.code == EmitTransferCode::None) {
+                r.code = EmitTransferCode::UnsupportedRoute;
+            }
+            r.errors += 1U;
+            r.failed_block_index = i;
+            r.message            = "unsupported webp route: " + block.route;
+            if (options.stop_on_error) {
+                return r;
+            }
+            continue;
+        }
+        op.block_index = i;
+        out_plan->ops.push_back(op);
+    }
+
+    if (r.errors == 0U) {
+        r.status = TransferStatus::Ok;
+        r.code   = EmitTransferCode::None;
+    }
+    return r;
+}
+
+EmitTransferResult
+emit_prepared_bundle_webp_compiled(const PreparedTransferBundle& bundle,
+                                   const PreparedWebpEmitPlan& plan,
+                                   WebpTransferEmitter& emitter,
+                                   const EmitTransferOptions& options) noexcept
+{
+    EmitTransferResult r;
+    if (bundle.target_format != TransferTargetFormat::Webp) {
+        r.status  = TransferStatus::Unsupported;
+        r.code    = EmitTransferCode::InvalidArgument;
+        r.errors  = 1U;
+        r.message = "bundle target format is not webp";
+        return r;
+    }
+    if (plan.contract_version != bundle.contract_version) {
+        r.status  = TransferStatus::InvalidArgument;
+        r.code    = EmitTransferCode::PlanMismatch;
+        r.errors  = 1U;
+        r.message = "compiled plan contract_version mismatch";
+        return r;
+    }
+
+    for (uint32_t i = 0; i < plan.ops.size(); ++i) {
+        const PreparedWebpEmitOp& op = plan.ops[i];
+        if (op.block_index >= bundle.blocks.size()) {
+            r.status = TransferStatus::InvalidArgument;
+            if (r.code == EmitTransferCode::None) {
+                r.code = EmitTransferCode::PlanMismatch;
+            }
+            r.errors += 1U;
+            r.failed_block_index = op.block_index;
+            r.message            = "compiled plan block_index out of range";
+            if (options.stop_on_error) {
+                return r;
+            }
+            continue;
+        }
+
+        const PreparedTransferBlock& block = bundle.blocks[op.block_index];
+        if (options.skip_empty_payloads && block.payload.empty()) {
+            r.skipped += 1U;
+            continue;
+        }
+
+        const TransferStatus st = emitter.add_chunk(
+            op.chunk_type, std::span<const std::byte>(block.payload.data(),
+                                                      block.payload.size()));
+        if (st != TransferStatus::Ok) {
+            r.status = st;
+            if (r.code == EmitTransferCode::None) {
+                r.code = EmitTransferCode::BackendWriteFailed;
+            }
+            r.errors += 1U;
+            r.failed_block_index = op.block_index;
+            r.message            = "webp emitter add_chunk failed";
+            if (options.stop_on_error) {
+                return r;
+            }
+            continue;
+        }
+        r.emitted += 1U;
+    }
+
+    if (r.errors == 0U) {
+        const TransferStatus close_st = emitter.close_chunks();
+        if (close_st != TransferStatus::Ok) {
+            r.status  = close_st;
+            r.code    = EmitTransferCode::BackendWriteFailed;
+            r.errors  = 1U;
+            r.message = "webp emitter close_chunks failed";
+            return r;
+        }
+        r.status = TransferStatus::Ok;
+        r.code   = EmitTransferCode::None;
+    }
+    return r;
+}
+
+EmitTransferResult
+emit_prepared_bundle_bmff(const PreparedTransferBundle& bundle,
+                          BmffTransferEmitter& emitter,
+                          const EmitTransferOptions& options) noexcept
+{
+    EmitTransferResult r;
+    if (!transfer_target_is_bmff(bundle.target_format)) {
+        r.status  = TransferStatus::Unsupported;
+        r.code    = EmitTransferCode::InvalidArgument;
+        r.errors  = 1U;
+        r.message = "bundle target format is not bmff";
+        return r;
+    }
+
+    for (uint32_t i = 0; i < bundle.blocks.size(); ++i) {
+        const PreparedTransferBlock& block = bundle.blocks[i];
+        if (options.skip_empty_payloads && block.payload.empty()) {
+            r.skipped += 1U;
+            continue;
+        }
+
+        uint32_t item_type = 0U;
+        bool mime_xmp      = false;
+        if (!bmff_item_from_route(block.route, &item_type, &mime_xmp)) {
+            r.status = TransferStatus::Unsupported;
+            if (r.code == EmitTransferCode::None) {
+                r.code = EmitTransferCode::UnsupportedRoute;
+            }
+            r.errors += 1U;
+            r.failed_block_index = i;
+            r.message            = "unsupported bmff route: " + block.route;
+            if (options.stop_on_error) {
+                return r;
+            }
+            continue;
+        }
+
+        const TransferStatus st
+            = mime_xmp ? emitter.add_mime_xmp_item(
+                             std::span<const std::byte>(block.payload.data(),
+                                                        block.payload.size()))
+                       : emitter.add_item(item_type, std::span<const std::byte>(
+                                                         block.payload.data(),
+                                                         block.payload.size()));
+        if (st != TransferStatus::Ok) {
+            r.status = st;
+            if (r.code == EmitTransferCode::None) {
+                r.code = EmitTransferCode::BackendWriteFailed;
+            }
+            r.errors += 1U;
+            r.failed_block_index = i;
+            r.message = mime_xmp ? "bmff emitter add_mime_xmp_item failed"
+                                 : "bmff emitter add_item failed";
+            if (options.stop_on_error) {
+                return r;
+            }
+            continue;
+        }
+        r.emitted += 1U;
+    }
+
+    if (r.errors == 0U) {
+        const TransferStatus close_st = emitter.close_items();
+        if (close_st != TransferStatus::Ok) {
+            r.status  = close_st;
+            r.code    = EmitTransferCode::BackendWriteFailed;
+            r.errors  = 1U;
+            r.message = "bmff emitter close_items failed";
+            return r;
+        }
+        r.status = TransferStatus::Ok;
+        r.code   = EmitTransferCode::None;
+    }
+    return r;
+}
+
+EmitTransferResult
+compile_prepared_bundle_bmff(const PreparedTransferBundle& bundle,
+                             PreparedBmffEmitPlan* out_plan,
+                             const EmitTransferOptions& options) noexcept
+{
+    EmitTransferResult r;
+    if (!out_plan) {
+        r.status  = TransferStatus::InvalidArgument;
+        r.code    = EmitTransferCode::InvalidArgument;
+        r.errors  = 1U;
+        r.message = "out_plan is null";
+        return r;
+    }
+    out_plan->contract_version = bundle.contract_version;
+    out_plan->ops.clear();
+
+    if (!transfer_target_is_bmff(bundle.target_format)) {
+        r.status  = TransferStatus::Unsupported;
+        r.code    = EmitTransferCode::InvalidArgument;
+        r.errors  = 1U;
+        r.message = "bundle target format is not bmff";
+        return r;
+    }
+
+    for (uint32_t i = 0; i < bundle.blocks.size(); ++i) {
+        const PreparedTransferBlock& block = bundle.blocks[i];
+        if (options.skip_empty_payloads && block.payload.empty()) {
+            r.skipped += 1U;
+            continue;
+        }
+
+        uint32_t item_type = 0U;
+        bool mime_xmp      = false;
+        if (!bmff_item_from_route(block.route, &item_type, &mime_xmp)) {
+            r.status = TransferStatus::Unsupported;
+            if (r.code == EmitTransferCode::None) {
+                r.code = EmitTransferCode::UnsupportedRoute;
+            }
+            r.errors += 1U;
+            r.failed_block_index = i;
+            r.message            = "unsupported bmff route: " + block.route;
+            if (options.stop_on_error) {
+                return r;
+            }
+            continue;
+        }
+
+        PreparedBmffEmitOp op;
+        op.kind        = mime_xmp ? PreparedBmffEmitKind::MimeXmp
+                                  : PreparedBmffEmitKind::Item;
+        op.block_index = i;
+        op.item_type   = item_type;
+        out_plan->ops.push_back(op);
+    }
+
+    if (r.errors == 0U) {
+        r.status = TransferStatus::Ok;
+        r.code   = EmitTransferCode::None;
+    }
+    return r;
+}
+
+EmitTransferResult
+emit_prepared_bundle_bmff_compiled(const PreparedTransferBundle& bundle,
+                                   const PreparedBmffEmitPlan& plan,
+                                   BmffTransferEmitter& emitter,
+                                   const EmitTransferOptions& options) noexcept
+{
+    EmitTransferResult r;
+    if (!transfer_target_is_bmff(bundle.target_format)) {
+        r.status  = TransferStatus::Unsupported;
+        r.code    = EmitTransferCode::InvalidArgument;
+        r.errors  = 1U;
+        r.message = "bundle target format is not bmff";
+        return r;
+    }
+    if (plan.contract_version != bundle.contract_version) {
+        r.status  = TransferStatus::InvalidArgument;
+        r.code    = EmitTransferCode::PlanMismatch;
+        r.errors  = 1U;
+        r.message = "compiled plan contract_version mismatch";
+        return r;
+    }
+
+    for (uint32_t i = 0; i < plan.ops.size(); ++i) {
+        const PreparedBmffEmitOp& op = plan.ops[i];
+        if (op.block_index >= bundle.blocks.size()) {
+            r.status = TransferStatus::InvalidArgument;
+            if (r.code == EmitTransferCode::None) {
+                r.code = EmitTransferCode::PlanMismatch;
+            }
+            r.errors += 1U;
+            r.failed_block_index = op.block_index;
+            r.message            = "compiled plan block_index out of range";
+            if (options.stop_on_error) {
+                return r;
+            }
+            continue;
+        }
+
+        const PreparedTransferBlock& block = bundle.blocks[op.block_index];
+        if (options.skip_empty_payloads && block.payload.empty()) {
+            r.skipped += 1U;
+            continue;
+        }
+
+        TransferStatus st = TransferStatus::Ok;
+        if (op.kind == PreparedBmffEmitKind::MimeXmp) {
+            st = emitter.add_mime_xmp_item(
+                std::span<const std::byte>(block.payload.data(),
+                                           block.payload.size()));
+        } else {
+            st = emitter.add_item(
+                op.item_type, std::span<const std::byte>(block.payload.data(),
+                                                         block.payload.size()));
+        }
+        if (st != TransferStatus::Ok) {
+            r.status = st;
+            if (r.code == EmitTransferCode::None) {
+                r.code = EmitTransferCode::BackendWriteFailed;
+            }
+            r.errors += 1U;
+            r.failed_block_index = op.block_index;
+            r.message            = op.kind == PreparedBmffEmitKind::MimeXmp
+                                       ? "bmff emitter add_mime_xmp_item failed"
+                                       : "bmff emitter add_item failed";
+            if (options.stop_on_error) {
+                return r;
+            }
+            continue;
+        }
+        r.emitted += 1U;
+    }
+
+    if (r.errors == 0U) {
+        const TransferStatus close_st = emitter.close_items();
+        if (close_st != TransferStatus::Ok) {
+            r.status  = close_st;
+            r.code    = EmitTransferCode::BackendWriteFailed;
+            r.errors  = 1U;
+            r.message = "bmff emitter close_items failed";
+            return r;
+        }
+        r.status = TransferStatus::Ok;
+        r.code   = EmitTransferCode::None;
+    }
+    return r;
+}
+
+EmitTransferResult
 compile_prepared_bundle_jpeg(const PreparedTransferBundle& bundle,
                              PreparedJpegEmitPlan* out_plan,
                              const EmitTransferOptions& options) noexcept
@@ -8429,12 +9337,66 @@ build_prepared_transfer_emit_package(const PreparedTransferBundle& bundle,
             append_package_prepared_block_chunk(
                 &plan, i, 8U + static_cast<uint64_t>(block.payload.size()));
         }
+    } else if (bundle.target_format == TransferTargetFormat::Webp) {
+        for (uint32_t i = 0; i < bundle.blocks.size(); ++i) {
+            const PreparedTransferBlock& block = bundle.blocks[i];
+            if (options.skip_empty_payloads && block.payload.empty()) {
+                out.skipped += 1U;
+                continue;
+            }
+            std::array<char, 4> chunk_type = { '\0', '\0', '\0', '\0' };
+            if (!webp_chunk_from_route(block.route, &chunk_type)) {
+                out.status = TransferStatus::Unsupported;
+                if (out.code == EmitTransferCode::None) {
+                    out.code = EmitTransferCode::UnsupportedRoute;
+                }
+                out.errors += 1U;
+                out.failed_block_index = i;
+                out.message = "unsupported webp route: " + block.route;
+                if (options.stop_on_error) {
+                    return out;
+                }
+                continue;
+            }
+            append_package_prepared_block_chunk(
+                &plan, i,
+                8U + static_cast<uint64_t>(block.payload.size())
+                    + static_cast<uint64_t>((block.payload.size() & 1U) != 0U));
+        }
+    } else if (transfer_target_is_bmff(bundle.target_format)) {
+        for (uint32_t i = 0; i < bundle.blocks.size(); ++i) {
+            const PreparedTransferBlock& block = bundle.blocks[i];
+            if (options.skip_empty_payloads && block.payload.empty()) {
+                out.skipped += 1U;
+                continue;
+            }
+            uint32_t item_type = 0U;
+            bool mime_xmp      = false;
+            if (!bmff_item_from_route(block.route, &item_type, &mime_xmp)) {
+                out.status = TransferStatus::Unsupported;
+                if (out.code == EmitTransferCode::None) {
+                    out.code = EmitTransferCode::UnsupportedRoute;
+                }
+                out.errors += 1U;
+                out.failed_block_index = i;
+                out.message = "unsupported bmff route: " + block.route;
+                if (options.stop_on_error) {
+                    return out;
+                }
+                continue;
+            }
+            (void)item_type;
+            (void)mime_xmp;
+            append_package_prepared_block_chunk(&plan, i,
+                                                static_cast<uint64_t>(
+                                                    block.payload.size()));
+        }
     } else {
         out.status = TransferStatus::Unsupported;
         out.code   = EmitTransferCode::InvalidArgument;
         out.errors = 1U;
         out.message
-            = "emit package builder currently supports jpeg and jxl targets";
+            = "emit package builder currently supports jpeg, jxl, webp, and bmff targets";
         return out;
     }
 
@@ -8831,13 +9793,31 @@ write_prepared_transfer_package(std::span<const std::byte> input,
                         &out)) {
                     return out;
                 }
+            } else if (bundle.target_format == TransferTargetFormat::Webp) {
+                std::array<char, 4> chunk_type = { '\0', '\0', '\0', '\0' };
+                if (!webp_chunk_from_route(block.route, &chunk_type)) {
+                    out.status = TransferStatus::Unsupported;
+                    out.code   = EmitTransferCode::UnsupportedRoute;
+                    out.errors += 1U;
+                    out.failed_block_index = chunk.block_index;
+                    out.message
+                        = "prepared transfer block route is not a supported webp chunk";
+                    return out;
+                }
+                if (!write_webp_chunk(
+                        writer, chunk_type,
+                        std::span<const std::byte>(block.payload.data(),
+                                                   block.payload.size()),
+                        &out)) {
+                    return out;
+                }
             } else {
                 out.status = TransferStatus::Unsupported;
                 out.code   = EmitTransferCode::InvalidArgument;
                 out.errors += 1U;
                 out.failed_block_index = chunk.block_index;
                 out.message
-                    = "prepared transfer block chunks are only supported for jpeg and jxl targets";
+                    = "prepared transfer block chunks are only supported for jpeg, jxl, and webp targets";
                 return out;
             }
             break;
@@ -8893,6 +9873,11 @@ build_prepared_transfer_package_batch(
         one.source_offset    = chunk.source_offset;
         one.block_index      = chunk.block_index;
         one.jpeg_marker_code = chunk.jpeg_marker_code;
+        if ((chunk.kind == TransferPackageChunkKind::PreparedTransferBlock
+             || chunk.kind == TransferPackageChunkKind::PreparedJpegSegment)
+            && chunk.block_index < bundle.blocks.size()) {
+            one.route = bundle.blocks[chunk.block_index].route;
+        }
         if (!materialize_prepared_transfer_package_chunk(input, bundle, chunk,
                                                          &one.bytes, &out)) {
             return out;
@@ -8934,6 +9919,152 @@ write_prepared_transfer_package_batch(const PreparedTransferPackageBatch& batch,
     out.status = TransferStatus::Ok;
     out.code   = EmitTransferCode::None;
     return out;
+}
+
+
+TransferSemanticKind
+classify_transfer_route_semantic_kind(std::string_view route) noexcept
+{
+    if (route == "jpeg:app1-exif" || route == "tiff:ifd-exif-app1"
+        || route == "jxl:box-exif" || route == "webp:chunk-exif"
+        || route == "bmff:item-exif") {
+        return TransferSemanticKind::Exif;
+    }
+    if (route == "jpeg:app1-xmp" || route == "tiff:tag-700-xmp"
+        || route == "jxl:box-xml" || route == "webp:chunk-xmp"
+        || route == "bmff:item-xmp") {
+        return TransferSemanticKind::Xmp;
+    }
+    if (route == "jpeg:app2-icc" || route == "tiff:tag-34675-icc"
+        || route == "jxl:icc-profile" || route == "webp:chunk-iccp") {
+        return TransferSemanticKind::Icc;
+    }
+    if (route == "jpeg:app13-iptc" || route == "tiff:tag-33723-iptc") {
+        return TransferSemanticKind::Iptc;
+    }
+    if (route == "jpeg:app11-jumbf" || route == "jxl:box-jumb"
+        || route == "bmff:item-jumb") {
+        return TransferSemanticKind::Jumbf;
+    }
+    if (route == "jpeg:app11-c2pa" || route == "jxl:box-c2pa"
+        || route == "webp:chunk-c2pa" || route == "bmff:item-c2pa") {
+        return TransferSemanticKind::C2pa;
+    }
+    return TransferSemanticKind::Unknown;
+}
+
+
+EmitTransferResult
+collect_prepared_transfer_package_views(
+    const PreparedTransferPackageBatch& batch,
+    std::vector<PreparedTransferPackageView>* out) noexcept
+{
+    EmitTransferResult result = validate_prepared_transfer_package_batch(batch);
+    if (result.status != TransferStatus::Ok) {
+        return result;
+    }
+    if (!out) {
+        result.status  = TransferStatus::InvalidArgument;
+        result.code    = EmitTransferCode::InvalidArgument;
+        result.errors  = 1U;
+        result.message = "out is null";
+        return result;
+    }
+
+    out->clear();
+    out->reserve(batch.chunks.size());
+    for (size_t i = 0; i < batch.chunks.size(); ++i) {
+        const PreparedTransferPackageBlob& chunk = batch.chunks[i];
+        PreparedTransferPackageView one;
+        one.semantic_kind = classify_transfer_route_semantic_kind(chunk.route);
+        one.route         = chunk.route;
+        one.package_kind  = chunk.kind;
+        one.output_offset = chunk.output_offset;
+        one.jpeg_marker_code = chunk.jpeg_marker_code;
+        one.bytes            = std::span<const std::byte>(chunk.bytes.data(),
+                                                          chunk.bytes.size());
+        out->push_back(one);
+    }
+
+    result.status  = TransferStatus::Ok;
+    result.code    = EmitTransferCode::None;
+    result.emitted = static_cast<uint32_t>(out->size());
+    return result;
+}
+
+
+PreparedTransferPackageReplayResult
+replay_prepared_transfer_package_batch(
+    const PreparedTransferPackageBatch& batch,
+    const PreparedTransferPackageReplayCallbacks& callbacks) noexcept
+{
+    PreparedTransferPackageReplayResult result;
+    const EmitTransferResult validated
+        = validate_prepared_transfer_package_batch(batch);
+    if (validated.status != TransferStatus::Ok) {
+        result.status  = validated.status;
+        result.code    = validated.code;
+        result.message = validated.message;
+        return result;
+    }
+    if (!callbacks.emit_chunk) {
+        result.status  = TransferStatus::InvalidArgument;
+        result.code    = EmitTransferCode::InvalidArgument;
+        result.message = "emit_chunk callback is null";
+        return result;
+    }
+
+    if (callbacks.begin_batch) {
+        const TransferStatus begin_status
+            = callbacks.begin_batch(callbacks.user, batch.target_format,
+                                    static_cast<uint32_t>(batch.chunks.size()));
+        if (begin_status != TransferStatus::Ok) {
+            result.status = begin_status;
+            result.code   = EmitTransferCode::BackendWriteFailed;
+            result.message
+                = "prepared transfer package replay begin callback failed";
+            return result;
+        }
+    }
+
+    for (size_t i = 0; i < batch.chunks.size(); ++i) {
+        const PreparedTransferPackageBlob& chunk = batch.chunks[i];
+        PreparedTransferPackageView view;
+        view.semantic_kind = classify_transfer_route_semantic_kind(chunk.route);
+        view.route         = chunk.route;
+        view.package_kind  = chunk.kind;
+        view.output_offset = chunk.output_offset;
+        view.jpeg_marker_code = chunk.jpeg_marker_code;
+        view.bytes            = std::span<const std::byte>(chunk.bytes.data(),
+                                                           chunk.bytes.size());
+        const TransferStatus emit_status = callbacks.emit_chunk(callbacks.user,
+                                                                &view);
+        if (emit_status != TransferStatus::Ok) {
+            result.status             = emit_status;
+            result.code               = EmitTransferCode::BackendWriteFailed;
+            result.failed_chunk_index = static_cast<uint32_t>(i);
+            result.message
+                = "prepared transfer package replay emit callback failed";
+            return result;
+        }
+        result.replayed += 1U;
+    }
+
+    if (callbacks.end_batch) {
+        const TransferStatus end_status
+            = callbacks.end_batch(callbacks.user, batch.target_format);
+        if (end_status != TransferStatus::Ok) {
+            result.status = end_status;
+            result.code   = EmitTransferCode::BackendWriteFailed;
+            result.message
+                = "prepared transfer package replay end callback failed";
+            return result;
+        }
+    }
+
+    result.status = TransferStatus::Ok;
+    result.code   = EmitTransferCode::None;
+    return result;
 }
 
 PrepareTransferFileResult
@@ -9047,7 +10178,8 @@ prepare_metadata_for_target_file(
     out.code        = PrepareTransferFileCode::None;
     TransferPrepareCapabilities caps;
     if (options.prepare.target_format == TransferTargetFormat::Jpeg
-        || options.prepare.target_format == TransferTargetFormat::Jxl) {
+        || options.prepare.target_format == TransferTargetFormat::Jxl
+        || transfer_target_is_bmff(options.prepare.target_format)) {
         const std::span<const ContainerBlockRef> scanned_blocks(
             blocks.data(), static_cast<size_t>(out.read.scan.written));
         for (size_t i = 0; i < scanned_blocks.size(); ++i) {
@@ -9055,13 +10187,17 @@ prepare_metadata_for_target_file(
                 if (options.prepare.target_format
                     == TransferTargetFormat::Jpeg) {
                     caps.jpeg_jumbf_passthrough = true;
-                } else {
+                } else if (options.prepare.target_format
+                           == TransferTargetFormat::Jxl) {
                     caps.jxl_jumbf_passthrough = true;
+                } else {
+                    caps.bmff_jumbf_passthrough = true;
                 }
                 break;
             }
         }
-        if (caps.jpeg_jumbf_passthrough || caps.jxl_jumbf_passthrough) {
+        if (caps.jpeg_jumbf_passthrough || caps.jxl_jumbf_passthrough
+            || caps.bmff_jumbf_passthrough) {
             caps.source_c2pa_payload_class
                 = classify_source_c2pa_payloads_for_jpeg(
                     mapped.bytes(), scanned_blocks, decode_options.payload);
@@ -9199,6 +10335,65 @@ prepare_metadata_for_target_file(
                               RequestedMetadataNotSerializable) {
             out.prepare.status = TransferStatus::Ok;
         }
+    } else if (caps.bmff_jumbf_passthrough
+               && out.prepare.status != TransferStatus::Malformed) {
+        const SourceJumbfAppendResult append_jumbf
+            = append_source_jumbf_blocks_for_bmff(
+                mapped.bytes(),
+                std::span<const ContainerBlockRef>(
+                    blocks.data(), static_cast<size_t>(out.read.scan.written)),
+                decode_options.payload, &out.bundle);
+        if (append_jumbf.errors > 0U) {
+            out.prepare.warnings += append_jumbf.errors;
+            append_message(&out.prepare.message, append_jumbf.message);
+        }
+
+        PreparedTransferPolicyDecision* decision
+            = find_policy_decision(&out.bundle, TransferPolicySubject::Jumbf);
+        if (decision && decision->effective == TransferPolicyAction::Keep
+            && append_jumbf.emitted_jumbf == 0U) {
+            decision->effective = TransferPolicyAction::Drop;
+            decision->reason
+                = TransferPolicyReason::TargetSerializationUnavailable;
+            decision->message
+                = "source jumbf payloads could not be emitted as bmff metadata items";
+            if (out.bundle.blocks.empty()) {
+                out.prepare.status = TransferStatus::Unsupported;
+                if (out.prepare.code == PrepareTransferCode::None) {
+                    out.prepare.code
+                        = PrepareTransferCode::RequestedMetadataNotSerializable;
+                }
+            }
+        }
+
+        PreparedTransferPolicyDecision* c2pa_decision
+            = find_policy_decision(&out.bundle, TransferPolicySubject::C2pa);
+        if (c2pa_decision
+            && c2pa_decision->c2pa_mode == TransferC2paMode::PreserveRaw
+            && append_jumbf.emitted_c2pa == 0U) {
+            c2pa_decision->effective = TransferPolicyAction::Drop;
+            c2pa_decision->reason
+                = TransferPolicyReason::TargetSerializationUnavailable;
+            c2pa_decision->c2pa_mode = TransferC2paMode::Drop;
+            c2pa_decision->c2pa_prepared_output
+                = TransferC2paPreparedOutput::Dropped;
+            c2pa_decision->message
+                = "source draft c2pa invalidation payload could not be "
+                  "emitted as a bmff metadata item";
+            if (out.bundle.blocks.empty()) {
+                out.prepare.status = TransferStatus::Unsupported;
+                if (out.prepare.code == PrepareTransferCode::None) {
+                    out.prepare.code
+                        = PrepareTransferCode::RequestedMetadataNotSerializable;
+                }
+            }
+        } else if (append_jumbf.emitted_blocks > 0U
+                   && out.prepare.status == TransferStatus::Unsupported
+                   && out.prepare.code
+                          == PrepareTransferCode::
+                              RequestedMetadataNotSerializable) {
+            out.prepare.status = TransferStatus::Ok;
+        }
     }
 
     if (options.prepare.target_format == TransferTargetFormat::Jpeg
@@ -9221,11 +10416,14 @@ prepare_metadata_for_target_file(
 
 namespace {
 
-    static constexpr char kC2paHandoffMagic[8]    = { 'O', 'M', 'C', '2',
-                                                      'P', 'H', '0', '1' };
-    static constexpr char kC2paSignedMagic[8]     = { 'O', 'M', 'C', '2',
-                                                      'P', 'S', '0', '1' };
-    static constexpr uint32_t kC2paPackageVersion = 1U;
+    static constexpr char kC2paHandoffMagic[8] = { 'O', 'M', 'C', '2',
+                                                   'P', 'H', '0', '1' };
+    static constexpr char kC2paSignedMagic[8]  = { 'O', 'M', 'C', '2',
+                                                   'P', 'S', '0', '1' };
+    static constexpr char kTransferPackageBatchMagic[8]
+        = { 'O', 'M', 'T', 'P', 'K', 'G', '0', '1' };
+    static constexpr uint32_t kC2paPackageVersion          = 1U;
+    static constexpr uint32_t kTransferPackageBatchVersion = 2U;
 
     static void append_bool_u8(std::vector<std::byte>* out, bool value) noexcept
     {
@@ -9498,6 +10696,57 @@ namespace {
             out.code    = EmitTransferCode::InvalidPayload;
             out.errors  = 1U;
             out.message = "package version is unsupported";
+            return out;
+        }
+        out.status = TransferStatus::Ok;
+        out.code   = EmitTransferCode::None;
+        return out;
+    }
+
+    static PreparedTransferPackageIoResult
+    deserialize_transfer_package_batch_header(std::span<const std::byte> bytes,
+                                              size_t* io_off) noexcept
+    {
+        PreparedTransferPackageIoResult out;
+        if (!io_off) {
+            out.status  = TransferStatus::InvalidArgument;
+            out.code    = EmitTransferCode::InvalidArgument;
+            out.errors  = 1U;
+            out.message = "package batch cursor is null";
+            return out;
+        }
+        *io_off = 0U;
+        if (bytes.size() < 12U) {
+            out.status  = TransferStatus::Malformed;
+            out.code    = EmitTransferCode::InvalidPayload;
+            out.errors  = 1U;
+            out.message = "package batch is too small";
+            return out;
+        }
+        for (size_t i = 0; i < 8U; ++i) {
+            if (bytes[i]
+                != static_cast<std::byte>(kTransferPackageBatchMagic[i])) {
+                out.status  = TransferStatus::Malformed;
+                out.code    = EmitTransferCode::InvalidPayload;
+                out.errors  = 1U;
+                out.message = "package batch magic is invalid";
+                return out;
+            }
+        }
+        *io_off          = 8U;
+        uint32_t version = 0U;
+        if (!read_u32le(bytes, io_off, &version)) {
+            out.status  = TransferStatus::Malformed;
+            out.code    = EmitTransferCode::InvalidPayload;
+            out.errors  = 1U;
+            out.message = "package batch header is truncated";
+            return out;
+        }
+        if (version != kTransferPackageBatchVersion) {
+            out.status  = TransferStatus::Unsupported;
+            out.code    = EmitTransferCode::InvalidPayload;
+            out.errors  = 1U;
+            out.message = "package batch version is unsupported";
             return out;
         }
         out.status = TransferStatus::Ok;
@@ -9944,6 +11193,154 @@ deserialize_prepared_c2pa_signed_package(
     out.code     = EmitTransferCode::None;
     out.bytes    = static_cast<uint64_t>(bytes.size());
     out.message  = "signed c2pa package parsed";
+    return out;
+}
+
+PreparedTransferPackageIoResult
+serialize_prepared_transfer_package_batch(
+    const PreparedTransferPackageBatch& batch,
+    std::vector<std::byte>* out_bytes) noexcept
+{
+    PreparedTransferPackageIoResult out;
+    if (!out_bytes) {
+        out.status  = TransferStatus::InvalidArgument;
+        out.code    = EmitTransferCode::InvalidArgument;
+        out.errors  = 1U;
+        out.message = "out_bytes is null";
+        return out;
+    }
+
+    const EmitTransferResult validated
+        = validate_prepared_transfer_package_batch(batch);
+    if (validated.status != TransferStatus::Ok) {
+        out.status  = validated.status;
+        out.code    = validated.code;
+        out.errors  = validated.errors;
+        out.message = validated.message;
+        return out;
+    }
+
+    out_bytes->clear();
+    out_bytes->reserve(40U + batch.chunks.size() * 30U
+                       + static_cast<size_t>(batch.output_size));
+    append_ascii_bytes(out_bytes,
+                       std::string_view(kTransferPackageBatchMagic, 8U));
+    append_u32le(out_bytes, kTransferPackageBatchVersion);
+    append_u32le(out_bytes, batch.contract_version);
+    append_u8(out_bytes, static_cast<uint8_t>(batch.target_format));
+    append_u64le(out_bytes, batch.input_size);
+    append_u64le(out_bytes, batch.output_size);
+    append_u32le(out_bytes, static_cast<uint32_t>(batch.chunks.size()));
+    for (size_t i = 0; i < batch.chunks.size(); ++i) {
+        const PreparedTransferPackageBlob& chunk = batch.chunks[i];
+        append_u8(out_bytes, static_cast<uint8_t>(chunk.kind));
+        append_u64le(out_bytes, chunk.output_offset);
+        append_u64le(out_bytes, chunk.source_offset);
+        append_u32le(out_bytes, chunk.block_index);
+        append_u8(out_bytes, chunk.jpeg_marker_code);
+        append_string_le(out_bytes, chunk.route);
+        append_blob_le(out_bytes,
+                       std::span<const std::byte>(chunk.bytes.data(),
+                                                  chunk.bytes.size()));
+    }
+    out.status  = TransferStatus::Ok;
+    out.code    = EmitTransferCode::None;
+    out.bytes   = static_cast<uint64_t>(out_bytes->size());
+    out.message = "prepared transfer package batch serialized";
+    return out;
+}
+
+PreparedTransferPackageIoResult
+deserialize_prepared_transfer_package_batch(
+    std::span<const std::byte> bytes,
+    PreparedTransferPackageBatch* out_batch) noexcept
+{
+    PreparedTransferPackageIoResult out;
+    if (!out_batch) {
+        out.status  = TransferStatus::InvalidArgument;
+        out.code    = EmitTransferCode::InvalidArgument;
+        out.errors  = 1U;
+        out.message = "out_batch is null";
+        return out;
+    }
+
+    size_t off = 0U;
+    out        = deserialize_transfer_package_batch_header(bytes, &off);
+    if (out.status != TransferStatus::Ok) {
+        return out;
+    }
+
+    PreparedTransferPackageBatch batch;
+    uint32_t contract_version = 0U;
+    uint8_t target_format     = 0U;
+    uint32_t count            = 0U;
+    if (!read_u32le(bytes, &off, &contract_version)
+        || !read_u8(bytes, &off, &target_format)
+        || !read_u64le(bytes, &off, &batch.input_size)
+        || !read_u64le(bytes, &off, &batch.output_size)
+        || !read_u32le(bytes, &off, &count)) {
+        out.status  = TransferStatus::Malformed;
+        out.code    = EmitTransferCode::InvalidPayload;
+        out.errors  = 1U;
+        out.message = "prepared transfer package batch header is malformed";
+        return out;
+    }
+
+    batch.contract_version = contract_version;
+    batch.target_format    = static_cast<TransferTargetFormat>(target_format);
+    batch.chunks.reserve(count);
+
+    const size_t min_chunk_size = 1U + 8U + 8U + 4U + 1U + 8U + 8U;
+    if (count > 0U && (bytes.size() - off) / min_chunk_size < count) {
+        out.status  = TransferStatus::Malformed;
+        out.code    = EmitTransferCode::InvalidPayload;
+        out.errors  = 1U;
+        out.message = "prepared transfer package batch chunk list is truncated";
+        return out;
+    }
+
+    for (uint32_t i = 0U; i < count; ++i) {
+        PreparedTransferPackageBlob chunk;
+        uint8_t kind = 0U;
+        if (!read_u8(bytes, &off, &kind)
+            || !read_u64le(bytes, &off, &chunk.output_offset)
+            || !read_u64le(bytes, &off, &chunk.source_offset)
+            || !read_u32le(bytes, &off, &chunk.block_index)
+            || !read_u8(bytes, &off, &chunk.jpeg_marker_code)
+            || !read_string_le(bytes, &off, &chunk.route)
+            || !read_blob_le(bytes, &off, &chunk.bytes)) {
+            out.status  = TransferStatus::Malformed;
+            out.code    = EmitTransferCode::InvalidPayload;
+            out.errors  = 1U;
+            out.message = "prepared transfer package batch chunk is malformed";
+            return out;
+        }
+        chunk.kind = static_cast<TransferPackageChunkKind>(kind);
+        batch.chunks.push_back(std::move(chunk));
+    }
+    if (off != bytes.size()) {
+        out.status  = TransferStatus::Malformed;
+        out.code    = EmitTransferCode::InvalidPayload;
+        out.errors  = 1U;
+        out.message = "prepared transfer package batch has trailing bytes";
+        return out;
+    }
+
+    const EmitTransferResult validated
+        = validate_prepared_transfer_package_batch(batch);
+    if (validated.status != TransferStatus::Ok) {
+        out.status  = validated.status;
+        out.code    = validated.code;
+        out.errors  = validated.errors;
+        out.message = validated.message;
+        return out;
+    }
+
+    *out_batch  = std::move(batch);
+    out.status  = TransferStatus::Ok;
+    out.code    = EmitTransferCode::None;
+    out.bytes   = static_cast<uint64_t>(bytes.size());
+    out.message = "prepared transfer package batch parsed";
     return out;
 }
 
@@ -10511,6 +11908,35 @@ namespace {
         }
     };
 
+    struct EmittedWebpChunkSummaryLess final {
+        bool operator()(const EmittedWebpChunkSummary& a,
+                        const EmittedWebpChunkSummary& b) const noexcept
+        {
+            if (a.type[0] != b.type[0]) {
+                return a.type[0] < b.type[0];
+            }
+            if (a.type[1] != b.type[1]) {
+                return a.type[1] < b.type[1];
+            }
+            if (a.type[2] != b.type[2]) {
+                return a.type[2] < b.type[2];
+            }
+            return a.type[3] < b.type[3];
+        }
+    };
+
+    struct EmittedBmffItemSummaryLess final {
+        bool operator()(const EmittedBmffItemSummary& a,
+                        const EmittedBmffItemSummary& b) const noexcept
+        {
+            if (a.item_type != b.item_type) {
+                return a.item_type < b.item_type;
+            }
+            return static_cast<uint32_t>(a.mime_xmp)
+                   < static_cast<uint32_t>(b.mime_xmp);
+        }
+    };
+
     class ExecuteRecordingJpegEmitter final : public JpegTransferEmitter {
     public:
         void reset() noexcept
@@ -10672,6 +12098,114 @@ namespace {
         }
 
         std::vector<EmittedJxlBoxSummary> boxes_;
+    };
+
+    class ExecuteRecordingWebpEmitter final : public WebpTransferEmitter {
+    public:
+        void reset() noexcept { chunks_.clear(); }
+
+        TransferStatus
+        add_chunk(std::array<char, 4> type,
+                  std::span<const std::byte> payload) noexcept override
+        {
+            add_chunk_bytes(type, static_cast<uint64_t>(payload.size()));
+            return TransferStatus::Ok;
+        }
+
+        TransferStatus close_chunks() noexcept override
+        {
+            return TransferStatus::Ok;
+        }
+
+        void
+        build_summary(std::vector<EmittedWebpChunkSummary>* out) const noexcept
+        {
+            if (!out) {
+                return;
+            }
+            *out = chunks_;
+            std::sort(out->begin(), out->end(), EmittedWebpChunkSummaryLess {});
+        }
+
+    private:
+        void add_chunk_bytes(std::array<char, 4> type, uint64_t bytes) noexcept
+        {
+            for (size_t i = 0; i < chunks_.size(); ++i) {
+                if (chunks_[i].type != type) {
+                    continue;
+                }
+                chunks_[i].count += 1U;
+                chunks_[i].bytes += bytes;
+                return;
+            }
+            EmittedWebpChunkSummary one;
+            one.type  = type;
+            one.count = 1U;
+            one.bytes = bytes;
+            chunks_.push_back(one);
+        }
+
+        std::vector<EmittedWebpChunkSummary> chunks_;
+    };
+
+    class ExecuteRecordingBmffEmitter final : public BmffTransferEmitter {
+    public:
+        void reset() noexcept { items_.clear(); }
+
+        TransferStatus
+        add_item(uint32_t item_type,
+                 std::span<const std::byte> payload) noexcept override
+        {
+            add_item_bytes(item_type, false,
+                           static_cast<uint64_t>(payload.size()));
+            return TransferStatus::Ok;
+        }
+
+        TransferStatus
+        add_mime_xmp_item(std::span<const std::byte> payload) noexcept override
+        {
+            add_item_bytes(fourcc('m', 'i', 'm', 'e'), true,
+                           static_cast<uint64_t>(payload.size()));
+            return TransferStatus::Ok;
+        }
+
+        TransferStatus close_items() noexcept override
+        {
+            return TransferStatus::Ok;
+        }
+
+        void
+        build_summary(std::vector<EmittedBmffItemSummary>* out) const noexcept
+        {
+            if (!out) {
+                return;
+            }
+            *out = items_;
+            std::sort(out->begin(), out->end(), EmittedBmffItemSummaryLess {});
+        }
+
+    private:
+        void add_item_bytes(uint32_t item_type, bool mime_xmp,
+                            uint64_t bytes) noexcept
+        {
+            for (size_t i = 0; i < items_.size(); ++i) {
+                if (items_[i].item_type != item_type
+                    || items_[i].mime_xmp != mime_xmp) {
+                    continue;
+                }
+                items_[i].count += 1U;
+                items_[i].bytes += bytes;
+                return;
+            }
+            EmittedBmffItemSummary one;
+            one.item_type = item_type;
+            one.count     = 1U;
+            one.bytes     = bytes;
+            one.mime_xmp  = mime_xmp;
+            items_.push_back(one);
+        }
+
+        std::vector<EmittedBmffItemSummary> items_;
     };
 
     class CountingTransferByteWriter final : public TransferByteWriter {
@@ -10862,6 +12396,97 @@ namespace {
         std::sort(out->begin(), out->end(), EmittedJxlBoxSummaryLess {});
     }
 
+    static void build_webp_emit_summary_from_plan(
+        const PreparedTransferBundle& bundle, const PreparedWebpEmitPlan& plan,
+        const EmitTransferOptions& options, uint32_t repeat,
+        std::vector<EmittedWebpChunkSummary>* out) noexcept
+    {
+        if (!out) {
+            return;
+        }
+        out->clear();
+        for (uint32_t rep = 0; rep < repeat; ++rep) {
+            for (size_t i = 0; i < plan.ops.size(); ++i) {
+                const PreparedWebpEmitOp& op = plan.ops[i];
+                if (op.block_index >= bundle.blocks.size()) {
+                    continue;
+                }
+                const PreparedTransferBlock& block
+                    = bundle.blocks[op.block_index];
+                if (options.skip_empty_payloads && block.payload.empty()) {
+                    continue;
+                }
+                bool merged = false;
+                for (size_t j = 0; j < out->size(); ++j) {
+                    if ((*out)[j].type != op.chunk_type) {
+                        continue;
+                    }
+                    (*out)[j].count += 1U;
+                    (*out)[j].bytes += static_cast<uint64_t>(
+                        block.payload.size());
+                    merged = true;
+                    break;
+                }
+                if (merged) {
+                    continue;
+                }
+                EmittedWebpChunkSummary one;
+                one.type  = op.chunk_type;
+                one.count = 1U;
+                one.bytes = static_cast<uint64_t>(block.payload.size());
+                out->push_back(one);
+            }
+        }
+        std::sort(out->begin(), out->end(), EmittedWebpChunkSummaryLess {});
+    }
+
+    static void build_bmff_emit_summary_from_plan(
+        const PreparedTransferBundle& bundle, const PreparedBmffEmitPlan& plan,
+        const EmitTransferOptions& options, uint32_t repeat,
+        std::vector<EmittedBmffItemSummary>* out) noexcept
+    {
+        if (!out) {
+            return;
+        }
+        out->clear();
+        for (uint32_t rep = 0; rep < repeat; ++rep) {
+            for (size_t i = 0; i < plan.ops.size(); ++i) {
+                const PreparedBmffEmitOp& op = plan.ops[i];
+                if (op.block_index >= bundle.blocks.size()) {
+                    continue;
+                }
+                const PreparedTransferBlock& block
+                    = bundle.blocks[op.block_index];
+                if (options.skip_empty_payloads && block.payload.empty()) {
+                    continue;
+                }
+                bool merged = false;
+                for (size_t j = 0; j < out->size(); ++j) {
+                    if ((*out)[j].item_type != op.item_type
+                        || (*out)[j].mime_xmp
+                               != (op.kind == PreparedBmffEmitKind::MimeXmp)) {
+                        continue;
+                    }
+                    (*out)[j].count += 1U;
+                    (*out)[j].bytes += static_cast<uint64_t>(
+                        block.payload.size());
+                    merged = true;
+                    break;
+                }
+                if (merged) {
+                    continue;
+                }
+                EmittedBmffItemSummary one;
+                one.item_type = op.item_type;
+                one.count     = 1U;
+                one.bytes     = static_cast<uint64_t>(block.payload.size());
+                one.mime_xmp  = op.kind == PreparedBmffEmitKind::MimeXmp;
+                out->push_back(one);
+            }
+        }
+        std::sort(out->begin(), out->end(), EmittedBmffItemSummaryLess {});
+    }
+
     static uint64_t package_plan_next_output_offset(
         const PreparedTransferPackagePlan& plan) noexcept
     {
@@ -11048,12 +12673,61 @@ namespace {
                             = "prepared transfer block jxl size mismatch";
                         return out;
                     }
+                } else if (bundle.target_format == TransferTargetFormat::Webp) {
+                    const PreparedTransferBlock& block
+                        = bundle.blocks[chunk.block_index];
+                    std::array<char, 4> chunk_type = { '\0', '\0', '\0', '\0' };
+                    if (!webp_chunk_from_route(block.route, &chunk_type)) {
+                        out.status = TransferStatus::Unsupported;
+                        out.code   = EmitTransferCode::UnsupportedRoute;
+                        out.errors = 1U;
+                        out.message
+                            = "prepared transfer block route is not a supported webp chunk";
+                        return out;
+                    }
+                    const uint64_t expected_size
+                        = 8U + static_cast<uint64_t>(block.payload.size())
+                          + static_cast<uint64_t>((block.payload.size() & 1U)
+                                                  != 0U);
+                    if (chunk.size != expected_size) {
+                        out.status = TransferStatus::InvalidArgument;
+                        out.code   = EmitTransferCode::PlanMismatch;
+                        out.errors = 1U;
+                        out.message
+                            = "prepared transfer block webp size mismatch";
+                        return out;
+                    }
+                } else if (transfer_target_is_bmff(bundle.target_format)) {
+                    const PreparedTransferBlock& block
+                        = bundle.blocks[chunk.block_index];
+                    uint32_t item_type = 0U;
+                    bool mime_xmp      = false;
+                    if (!bmff_item_from_route(block.route, &item_type,
+                                              &mime_xmp)) {
+                        out.status = TransferStatus::Unsupported;
+                        out.code   = EmitTransferCode::UnsupportedRoute;
+                        out.errors = 1U;
+                        out.message
+                            = "prepared transfer block route is not a supported bmff item";
+                        return out;
+                    }
+                    (void)item_type;
+                    (void)mime_xmp;
+                    if (chunk.size
+                        != static_cast<uint64_t>(block.payload.size())) {
+                        out.status = TransferStatus::InvalidArgument;
+                        out.code   = EmitTransferCode::PlanMismatch;
+                        out.errors = 1U;
+                        out.message
+                            = "prepared transfer block bmff size mismatch";
+                        return out;
+                    }
                 } else {
                     out.status = TransferStatus::Unsupported;
                     out.code   = EmitTransferCode::InvalidArgument;
                     out.errors = 1U;
                     out.message
-                        = "prepared transfer block chunks are only supported for jpeg and jxl targets";
+                        = "prepared transfer block chunks are only supported for jpeg, jxl, webp, and bmff targets";
                     return out;
                 }
                 break;
@@ -11237,12 +12911,46 @@ namespace {
                                                block.payload.size()),
                     out_bytes, out);
             }
+            if (bundle.target_format == TransferTargetFormat::Webp) {
+                std::array<char, 4> chunk_type = { '\0', '\0', '\0', '\0' };
+                if (!webp_chunk_from_route(block.route, &chunk_type)) {
+                    out->status = TransferStatus::Unsupported;
+                    out->code   = EmitTransferCode::UnsupportedRoute;
+                    out->errors += 1U;
+                    out->failed_block_index = chunk.block_index;
+                    out->message
+                        = "prepared transfer block route is not a supported webp chunk";
+                    return false;
+                }
+                return serialize_webp_chunk(
+                    chunk_type,
+                    std::span<const std::byte>(block.payload.data(),
+                                               block.payload.size()),
+                    out_bytes, out);
+            }
+            if (transfer_target_is_bmff(bundle.target_format)) {
+                uint32_t item_type = 0U;
+                bool mime_xmp      = false;
+                if (!bmff_item_from_route(block.route, &item_type, &mime_xmp)) {
+                    out->status = TransferStatus::Unsupported;
+                    out->code   = EmitTransferCode::UnsupportedRoute;
+                    out->errors += 1U;
+                    out->failed_block_index = chunk.block_index;
+                    out->message
+                        = "prepared transfer block route is not a supported bmff item";
+                    return false;
+                }
+                (void)item_type;
+                (void)mime_xmp;
+                out_bytes->assign(block.payload.begin(), block.payload.end());
+                return true;
+            }
             out->status = TransferStatus::Unsupported;
             out->code   = EmitTransferCode::InvalidArgument;
             out->errors += 1U;
             out->failed_block_index = chunk.block_index;
             out->message
-                = "prepared transfer block chunks are only supported for jpeg and jxl targets";
+                = "prepared transfer block chunks are only supported for jpeg, jxl, webp, and bmff targets";
             return false;
         }
         case TransferPackageChunkKind::InlineBytes:
@@ -11356,6 +13064,12 @@ namespace {
             return static_cast<uint32_t>(plan.tiff_emit.ops.size());
         case TransferTargetFormat::Jxl:
             return static_cast<uint32_t>(plan.jxl_emit.ops.size());
+        case TransferTargetFormat::Webp:
+            return static_cast<uint32_t>(plan.webp_emit.ops.size());
+        case TransferTargetFormat::Heif:
+        case TransferTargetFormat::Avif:
+        case TransferTargetFormat::Cr3:
+            return static_cast<uint32_t>(plan.bmff_emit.ops.size());
         default: break;
         }
         return 0U;
@@ -11408,6 +13122,28 @@ namespace {
                 out.code   = EmitTransferCode::PlanMismatch;
                 out.errors = 1U;
                 out.message = "compiled jxl emit plan contract_version mismatch";
+                return out;
+            }
+            break;
+        case TransferTargetFormat::Webp:
+            if (plan.webp_emit.contract_version != bundle.contract_version) {
+                out.status = TransferStatus::InvalidArgument;
+                out.code   = EmitTransferCode::PlanMismatch;
+                out.errors = 1U;
+                out.message
+                    = "compiled webp emit plan contract_version mismatch";
+                return out;
+            }
+            break;
+        case TransferTargetFormat::Heif:
+        case TransferTargetFormat::Avif:
+        case TransferTargetFormat::Cr3:
+            if (plan.bmff_emit.contract_version != bundle.contract_version) {
+                out.status = TransferStatus::InvalidArgument;
+                out.code   = EmitTransferCode::PlanMismatch;
+                out.errors = 1U;
+                out.message
+                    = "compiled bmff emit plan contract_version mismatch";
                 return out;
             }
             break;
@@ -11564,7 +13300,7 @@ namespace {
             case TransferTargetFormat::Tiff: {
                 if (options.emit_output_writer) {
                     out.emit = skipped_emit_result(
-                        "emit_output_writer is only supported for jpeg");
+                        "emit_output_writer is not supported for tiff");
                 } else {
                     ExecuteRecordingTiffEmitter emitter;
                     emitter.reset();
@@ -11650,6 +13386,97 @@ namespace {
                     }
                     if (out.emit.status == TransferStatus::Ok) {
                         emitter.build_summary(&out.jxl_box_summary);
+                    }
+                }
+                break;
+            }
+            case TransferTargetFormat::Webp: {
+                if (options.emit_output_writer) {
+                    PreparedTransferPackagePlan package;
+                    out.emit = build_prepared_transfer_emit_package(
+                        *bundle, &package, effective_plan->emit);
+                    if (out.emit.status != TransferStatus::Ok) {
+                        break;
+                    }
+                    const uint64_t writer_hint
+                        = options.emit_output_writer->remaining_capacity_hint();
+                    if (writer_hint != UINT64_MAX) {
+                        uint64_t needed_bytes = package.output_size;
+                        if (emit_repeat != 0U
+                            && needed_bytes > (UINT64_MAX / emit_repeat)) {
+                            out.emit.status = TransferStatus::LimitExceeded;
+                            out.emit.code = EmitTransferCode::BackendWriteFailed;
+                            out.emit.errors = 1U;
+                            out.emit.message
+                                = "emit_output_writer capacity exceeded";
+                            break;
+                        }
+                        needed_bytes *= emit_repeat;
+                        if (needed_bytes > writer_hint) {
+                            out.emit.status = TransferStatus::LimitExceeded;
+                            out.emit.code = EmitTransferCode::BackendWriteFailed;
+                            out.emit.errors = 1U;
+                            out.emit.message
+                                = "emit_output_writer capacity exceeded";
+                            break;
+                        }
+                    }
+
+                    CountingTransferByteWriter writer(
+                        *options.emit_output_writer);
+                    const std::span<const std::byte> empty_input;
+                    for (uint32_t rep = 0; rep < emit_repeat; ++rep) {
+                        out.emit = write_prepared_transfer_package(empty_input,
+                                                                   *bundle,
+                                                                   package,
+                                                                   writer);
+                        if (out.emit.status != TransferStatus::Ok) {
+                            break;
+                        }
+                    }
+                    out.emit_output_size = writer.bytes_written();
+                    if (out.emit.status == TransferStatus::Ok) {
+                        build_webp_emit_summary_from_plan(
+                            *bundle, effective_plan->webp_emit,
+                            effective_plan->emit, emit_repeat,
+                            &out.webp_chunk_summary);
+                    }
+                } else {
+                    ExecuteRecordingWebpEmitter emitter;
+                    emitter.reset();
+                    for (uint32_t rep = 0; rep < emit_repeat; ++rep) {
+                        out.emit = emit_prepared_bundle_webp_compiled(
+                            *bundle, effective_plan->webp_emit, emitter,
+                            effective_plan->emit);
+                        if (out.emit.status != TransferStatus::Ok) {
+                            break;
+                        }
+                    }
+                    if (out.emit.status == TransferStatus::Ok) {
+                        emitter.build_summary(&out.webp_chunk_summary);
+                    }
+                }
+                break;
+            }
+            case TransferTargetFormat::Heif:
+            case TransferTargetFormat::Avif:
+            case TransferTargetFormat::Cr3: {
+                if (options.emit_output_writer) {
+                    out.emit = skipped_emit_result(
+                        "emit_output_writer is not supported for bmff targets");
+                } else {
+                    ExecuteRecordingBmffEmitter emitter;
+                    emitter.reset();
+                    for (uint32_t rep = 0; rep < emit_repeat; ++rep) {
+                        out.emit = emit_prepared_bundle_bmff_compiled(
+                            *bundle, effective_plan->bmff_emit, emitter,
+                            effective_plan->emit);
+                        if (out.emit.status != TransferStatus::Ok) {
+                            break;
+                        }
+                    }
+                    if (out.emit.status == TransferStatus::Ok) {
+                        emitter.build_summary(&out.bmff_item_summary);
                     }
                 }
                 break;
@@ -11758,6 +13585,10 @@ compile_prepared_transfer_execution(
     out_plan->tiff_emit.ops.clear();
     out_plan->jxl_emit.contract_version = bundle.contract_version;
     out_plan->jxl_emit.ops.clear();
+    out_plan->webp_emit.contract_version = bundle.contract_version;
+    out_plan->webp_emit.ops.clear();
+    out_plan->bmff_emit.contract_version = bundle.contract_version;
+    out_plan->bmff_emit.ops.clear();
 
     switch (bundle.target_format) {
     case TransferTargetFormat::Jpeg:
@@ -11769,6 +13600,14 @@ compile_prepared_transfer_execution(
     case TransferTargetFormat::Jxl:
         return compile_prepared_bundle_jxl(bundle, &out_plan->jxl_emit,
                                            options);
+    case TransferTargetFormat::Webp:
+        return compile_prepared_bundle_webp(bundle, &out_plan->webp_emit,
+                                            options);
+    case TransferTargetFormat::Heif:
+    case TransferTargetFormat::Avif:
+    case TransferTargetFormat::Cr3:
+        return compile_prepared_bundle_bmff(bundle, &out_plan->bmff_emit,
+                                            options);
     default:
         out.status  = TransferStatus::Unsupported;
         out.code    = EmitTransferCode::InvalidArgument;
@@ -11845,6 +13684,35 @@ build_prepared_transfer_adapter_view(const PreparedTransferBundle& bundle,
                                      : 8U + op.payload_size;
             op.box_type        = src.box_type;
             op.compress        = src.compress;
+            view.ops.push_back(op);
+        }
+    } else if (bundle.target_format == TransferTargetFormat::Webp) {
+        view.ops.reserve(plan.webp_emit.ops.size());
+        for (size_t i = 0; i < plan.webp_emit.ops.size(); ++i) {
+            const PreparedWebpEmitOp& src      = plan.webp_emit.ops[i];
+            const PreparedTransferBlock& block = bundle.blocks[src.block_index];
+            PreparedTransferAdapterOp op;
+            op.kind            = TransferAdapterOpKind::WebpChunk;
+            op.block_index     = src.block_index;
+            op.payload_size    = static_cast<uint64_t>(block.payload.size());
+            op.serialized_size = 8U + op.payload_size
+                                 + static_cast<uint64_t>(
+                                     (block.payload.size() & 1U) != 0U);
+            op.chunk_type = src.chunk_type;
+            view.ops.push_back(op);
+        }
+    } else if (transfer_target_is_bmff(bundle.target_format)) {
+        view.ops.reserve(plan.bmff_emit.ops.size());
+        for (size_t i = 0; i < plan.bmff_emit.ops.size(); ++i) {
+            const PreparedBmffEmitOp& src      = plan.bmff_emit.ops[i];
+            const PreparedTransferBlock& block = bundle.blocks[src.block_index];
+            PreparedTransferAdapterOp op;
+            op.kind            = TransferAdapterOpKind::BmffItem;
+            op.block_index     = src.block_index;
+            op.payload_size    = static_cast<uint64_t>(block.payload.size());
+            op.serialized_size = op.payload_size;
+            op.bmff_item_type  = src.item_type;
+            op.bmff_mime_xmp   = src.kind == PreparedBmffEmitKind::MimeXmp;
             view.ops.push_back(op);
         }
     } else {
@@ -11946,6 +13814,34 @@ emit_prepared_transfer_adapter_view(const PreparedTransferBundle& bundle,
                 out.errors += 1U;
                 out.failed_block_index = op.block_index;
                 out.message            = "adapter view jxl op is inconsistent";
+                return out;
+            }
+        } else if (bundle.target_format == TransferTargetFormat::Webp) {
+            const uint64_t expected_size = 8U + payload_size
+                                           + static_cast<uint64_t>(
+                                               (payload_size & 1U) != 0U);
+            if (op.kind != TransferAdapterOpKind::WebpChunk
+                || op.serialized_size != expected_size) {
+                out.status = TransferStatus::InvalidArgument;
+                out.code   = EmitTransferCode::PlanMismatch;
+                out.errors += 1U;
+                out.failed_block_index = op.block_index;
+                out.message            = "adapter view webp op is inconsistent";
+                return out;
+            }
+        } else if (transfer_target_is_bmff(bundle.target_format)) {
+            uint32_t item_type = 0U;
+            bool mime_xmp      = false;
+            if (!bmff_item_from_route(block.route, &item_type, &mime_xmp)
+                || op.kind != TransferAdapterOpKind::BmffItem
+                || op.serialized_size != payload_size
+                || op.bmff_item_type != item_type
+                || op.bmff_mime_xmp != mime_xmp) {
+                out.status = TransferStatus::InvalidArgument;
+                out.code   = EmitTransferCode::PlanMismatch;
+                out.errors += 1U;
+                out.failed_block_index = op.block_index;
+                out.message            = "adapter view bmff op is inconsistent";
                 return out;
             }
         } else {
@@ -12166,6 +14062,98 @@ emit_prepared_transfer_compiled(PreparedTransferBundle* bundle,
     if (out.emit.status == TransferStatus::Ok) {
         build_jxl_emit_summary_from_plan(*bundle, plan.jxl_emit, plan.emit,
                                          repeat, &out.jxl_box_summary);
+    }
+    return out;
+}
+
+ExecutePreparedTransferResult
+emit_prepared_transfer_compiled(PreparedTransferBundle* bundle,
+                                const PreparedTransferExecutionPlan& plan,
+                                WebpTransferEmitter& emitter,
+                                std::span<const TimePatchView> time_patches,
+                                const ApplyTimePatchOptions& time_patch,
+                                uint32_t emit_repeat) noexcept
+{
+    ExecutePreparedTransferResult out;
+    if (!bundle) {
+        return execute_prepared_transfer_compiled(bundle, plan);
+    }
+
+    if (!time_patches.empty()) {
+        out.time_patch = apply_time_patches_view(bundle, time_patches,
+                                                 time_patch);
+        if (out.time_patch.status != TransferStatus::Ok) {
+            out.compile = skipped_emit_result(
+                "skipped emit due to time patch failure");
+            out.emit = out.compile;
+            return out;
+        }
+    }
+
+    out.compile      = validate_prepared_transfer_execution_plan(*bundle, plan);
+    out.compiled_ops = prepared_transfer_execution_plan_ops(plan);
+    if (out.compile.status != TransferStatus::Ok) {
+        out.emit = skipped_emit_result("skipped emit due to compile failure");
+        return out;
+    }
+
+    const uint32_t repeat = emit_repeat == 0U ? 1U : emit_repeat;
+    for (uint32_t rep = 0; rep < repeat; ++rep) {
+        out.emit = emit_prepared_bundle_webp_compiled(*bundle, plan.webp_emit,
+                                                      emitter, plan.emit);
+        if (out.emit.status != TransferStatus::Ok) {
+            break;
+        }
+    }
+    if (out.emit.status == TransferStatus::Ok) {
+        build_webp_emit_summary_from_plan(*bundle, plan.webp_emit, plan.emit,
+                                          repeat, &out.webp_chunk_summary);
+    }
+    return out;
+}
+
+ExecutePreparedTransferResult
+emit_prepared_transfer_compiled(PreparedTransferBundle* bundle,
+                                const PreparedTransferExecutionPlan& plan,
+                                BmffTransferEmitter& emitter,
+                                std::span<const TimePatchView> time_patches,
+                                const ApplyTimePatchOptions& time_patch,
+                                uint32_t emit_repeat) noexcept
+{
+    ExecutePreparedTransferResult out;
+    if (!bundle) {
+        return execute_prepared_transfer_compiled(bundle, plan);
+    }
+
+    if (!time_patches.empty()) {
+        out.time_patch = apply_time_patches_view(bundle, time_patches,
+                                                 time_patch);
+        if (out.time_patch.status != TransferStatus::Ok) {
+            out.compile = skipped_emit_result(
+                "skipped emit due to time patch failure");
+            out.emit = out.compile;
+            return out;
+        }
+    }
+
+    out.compile      = validate_prepared_transfer_execution_plan(*bundle, plan);
+    out.compiled_ops = prepared_transfer_execution_plan_ops(plan);
+    if (out.compile.status != TransferStatus::Ok) {
+        out.emit = skipped_emit_result("skipped emit due to compile failure");
+        return out;
+    }
+
+    const uint32_t repeat = emit_repeat == 0U ? 1U : emit_repeat;
+    for (uint32_t rep = 0; rep < repeat; ++rep) {
+        out.emit = emit_prepared_bundle_bmff_compiled(*bundle, plan.bmff_emit,
+                                                      emitter, plan.emit);
+        if (out.emit.status != TransferStatus::Ok) {
+            break;
+        }
+    }
+    if (out.emit.status == TransferStatus::Ok) {
+        build_bmff_emit_summary_from_plan(*bundle, plan.bmff_emit, plan.emit,
+                                          repeat, &out.bmff_item_summary);
     }
     return out;
 }

@@ -65,6 +65,59 @@ backends without per-backend metadata logic duplication.
   Signed C2PA rewrite/re-sign and edit/rewrite are still not part of the JXL
   transfer contract.
 
+### WebP (RIFF metadata chunks)
+
+- Metadata is carried as RIFF chunks, not TIFF tags or BMFF boxes.
+- Standard chunk carriers:
+  - `EXIF`
+  - `XMP `
+  - `ICCP`
+  - bounded `C2PA`
+- OpenMeta now has a bounded WebP transfer path on the core transfer API:
+  `prepare_metadata_for_target(..., TransferTargetFormat::Webp, ...)`,
+  `compile_prepared_bundle_webp(...)`,
+  `emit_prepared_bundle_webp(...)`,
+  `emit_prepared_bundle_webp_compiled(...)`, and
+  `emit_prepared_transfer_compiled(..., WebpTransferEmitter&)`.
+- IPTC requested for WebP is projected into the existing `XMP ` chunk;
+  OpenMeta does not create a raw IPTC-IIM WebP carrier.
+- `build_prepared_transfer_emit_package(...)` plus
+  `write_prepared_transfer_package(...)` can serialize direct WebP chunk bytes
+  from prepared bundles, and the owned package batch/replay path can persist
+  or hand off those bytes without keeping the source bundle alive.
+- Full WebP file rewrite/edit and signed C2PA rewrite/re-sign are still
+  outside the current WebP transfer contract.
+
+### ISO-BMFF metadata items (HEIF / AVIF / CR3)
+
+- This bounded transfer path is metadata-item oriented, not a full BMFF file
+  rewrite/edit path.
+- Current prepared item routes:
+  - `bmff:item-exif`
+  - `bmff:item-xmp`
+  - `bmff:item-jumb`
+  - `bmff:item-c2pa`
+- EXIF item payloads use the BMFF Exif item shape:
+  - 4-byte big-endian TIFF offset prefix
+  - followed by full `Exif\0\0` bytes
+- IPTC requested for BMFF is projected into `bmff:item-xmp`; OpenMeta does
+  not create a raw IPTC-IIM BMFF carrier.
+- File-based prepare can preserve source generic JUMBF payloads and raw
+  OpenMeta draft C2PA invalidation payloads as BMFF metadata items.
+- Store-only prepare can project decoded non-C2PA `JumbfCborKey` roots into
+  `bmff:item-jumb` when no raw source payload is available.
+- Core emitter surface:
+  - `compile_prepared_bundle_bmff(...)`
+  - `emit_prepared_bundle_bmff(...)`
+  - `emit_prepared_bundle_bmff_compiled(...)`
+  - `emit_prepared_transfer_compiled(..., BmffTransferEmitter&)`
+- The shared package-batch persistence/replay layer can own and hand off
+  stable BMFF item payload bytes.
+- Out of scope for the current BMFF contract:
+  - full BMFF file rewrite/edit
+  - BMFF ICC/property packaging
+  - signed C2PA rewrite/re-sign
+
 ### EXR (OpenEXR)
 
 - EXR metadata is typed header attributes, not EXIF/TIFF IFD blocks.
@@ -197,6 +250,21 @@ container call mapping.
       contract: each package chunk is materialized into stable bytes so the
       final metadata package can be cached or handed off without the original
       input stream or prepared bundle storage.
+    - `serialize_prepared_transfer_package_batch(...)` and
+      `deserialize_prepared_transfer_package_batch(...)` persist that owned
+      batch so host layers can move it across process or plugin boundaries
+      without reopening the source file or rebuilding the bundle.
+    - `collect_prepared_transfer_package_views(...)` is the target-neutral
+      semantic package surface above that persisted batch.
+    - `replay_prepared_transfer_package_batch(...)` is the target-neutral
+      callback replay surface above that same persisted batch.
+    - `collect_oiio_transfer_package_views(...)` is the first host bridge on
+      top of that persisted batch: it provides zero-copy semantic package
+      views for OIIO-style integrations after deserialize by mapping the
+      target-neutral semantic surface into OIIO-facing names.
+    - `replay_oiio_transfer_package_batch(...)` is the higher-level replay
+      path on top of that same persisted batch, so OIIO/plugin hosts can
+      consume the stable package through callbacks without reparsing routes.
     - `build_prepared_transfer_adapter_view(...)` now provides the parallel
       target-neutral adapter view for JPEG/TIFF/JXL host integrations that
       want explicit compiled operations without route parsing.

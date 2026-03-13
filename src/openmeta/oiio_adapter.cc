@@ -427,30 +427,89 @@ namespace {
     }
 
     static OiioTransferPayloadKind
-    oiio_transfer_kind_from_route(std::string_view route) noexcept
+    oiio_transfer_kind_from_semantic(TransferSemanticKind kind) noexcept
     {
-        if (route == "jpeg:app1-exif" || route == "tiff:ifd-exif-app1"
-            || route == "jxl:box-exif") {
+        switch (kind) {
+        case TransferSemanticKind::Exif:
             return OiioTransferPayloadKind::ExifBlob;
-        }
-        if (route == "jpeg:app1-xmp" || route == "tiff:tag-700-xmp"
-            || route == "jxl:box-xml") {
+        case TransferSemanticKind::Xmp:
             return OiioTransferPayloadKind::XmpPacket;
-        }
-        if (route == "jpeg:app2-icc" || route == "tiff:tag-34675-icc"
-            || route == "jxl:icc-profile") {
+        case TransferSemanticKind::Icc:
             return OiioTransferPayloadKind::IccProfile;
-        }
-        if (route == "jpeg:app13-iptc" || route == "tiff:tag-33723-iptc") {
+        case TransferSemanticKind::Iptc:
             return OiioTransferPayloadKind::IptcBlock;
-        }
-        if (route == "jpeg:app11-jumbf" || route == "jxl:box-jumb") {
-            return OiioTransferPayloadKind::Jumbf;
-        }
-        if (route == "jpeg:app11-c2pa" || route == "jxl:box-c2pa") {
-            return OiioTransferPayloadKind::C2pa;
+        case TransferSemanticKind::Jumbf: return OiioTransferPayloadKind::Jumbf;
+        case TransferSemanticKind::C2pa: return OiioTransferPayloadKind::C2pa;
+        case TransferSemanticKind::Unknown: break;
         }
         return OiioTransferPayloadKind::Unknown;
+    }
+
+    static OiioTransferPackageView make_oiio_transfer_package_view(
+        const PreparedTransferPackageView& chunk) noexcept
+    {
+        OiioTransferPackageView one;
+        one.semantic_kind = oiio_transfer_kind_from_semantic(
+            chunk.semantic_kind);
+        one.semantic_name    = oiio_transfer_semantic_name(one.semantic_kind);
+        one.route            = chunk.route;
+        one.package_kind     = chunk.package_kind;
+        one.output_offset    = chunk.output_offset;
+        one.jpeg_marker_code = chunk.jpeg_marker_code;
+        one.bytes            = chunk.bytes;
+        return one;
+    }
+
+    struct OiioPackageReplayAdapterState final {
+        const OiioTransferPackageReplayCallbacks* callbacks = nullptr;
+    };
+
+    static TransferStatus
+    oiio_replay_begin_batch(void* user, TransferTargetFormat target_format,
+                            uint32_t chunk_count) noexcept
+    {
+        if (!user) {
+            return TransferStatus::InvalidArgument;
+        }
+        const OiioPackageReplayAdapterState* state
+            = static_cast<const OiioPackageReplayAdapterState*>(user);
+        if (!state->callbacks || !state->callbacks->begin_batch) {
+            return TransferStatus::Ok;
+        }
+        return state->callbacks->begin_batch(state->callbacks->user,
+                                             target_format, chunk_count);
+    }
+
+    static TransferStatus oiio_replay_emit_chunk(
+        void* user, const PreparedTransferPackageView* package_view) noexcept
+    {
+        if (!user || !package_view) {
+            return TransferStatus::InvalidArgument;
+        }
+        const OiioPackageReplayAdapterState* state
+            = static_cast<const OiioPackageReplayAdapterState*>(user);
+        if (!state->callbacks || !state->callbacks->emit_chunk) {
+            return TransferStatus::InvalidArgument;
+        }
+        const OiioTransferPackageView view = make_oiio_transfer_package_view(
+            *package_view);
+        return state->callbacks->emit_chunk(state->callbacks->user, &view);
+    }
+
+    static TransferStatus
+    oiio_replay_end_batch(void* user,
+                          TransferTargetFormat target_format) noexcept
+    {
+        if (!user) {
+            return TransferStatus::InvalidArgument;
+        }
+        const OiioPackageReplayAdapterState* state
+            = static_cast<const OiioPackageReplayAdapterState*>(user);
+        if (!state->callbacks || !state->callbacks->end_batch) {
+            return TransferStatus::Ok;
+        }
+        return state->callbacks->end_batch(state->callbacks->user,
+                                           target_format);
     }
 
 }  // namespace
@@ -623,7 +682,8 @@ collect_oiio_transfer_payload_views(const PreparedTransferBundle& bundle,
         const PreparedTransferAdapterOp& op = view.ops[i];
         const PreparedTransferBlock& block  = bundle.blocks[op.block_index];
         OiioTransferPayloadView payload_view;
-        payload_view.semantic_kind = oiio_transfer_kind_from_route(block.route);
+        payload_view.semantic_kind = oiio_transfer_kind_from_semantic(
+            classify_transfer_route_semantic_kind(block.route));
         payload_view.semantic_name = oiio_transfer_semantic_name(
             payload_view.semantic_kind);
         payload_view.route   = block.route;
@@ -678,6 +738,74 @@ build_oiio_transfer_payload_batch(const PreparedTransferBundle& bundle,
 
     *out           = std::move(batch);
     result.emitted = static_cast<uint32_t>(out->payloads.size());
+    return result;
+}
+
+
+EmitTransferResult
+collect_oiio_transfer_package_views(
+    const PreparedTransferPackageBatch& batch,
+    std::vector<OiioTransferPackageView>* out) noexcept
+{
+    EmitTransferResult result;
+    if (!out) {
+        result.status  = TransferStatus::InvalidArgument;
+        result.code    = EmitTransferCode::InvalidArgument;
+        result.errors  = 1U;
+        result.message = "out is null";
+        return result;
+    }
+
+    std::vector<PreparedTransferPackageView> package_views;
+    result = collect_prepared_transfer_package_views(batch, &package_views);
+    if (result.status != TransferStatus::Ok) {
+        return result;
+    }
+
+    out->clear();
+    out->reserve(package_views.size());
+    for (size_t i = 0; i < package_views.size(); ++i) {
+        out->push_back(make_oiio_transfer_package_view(package_views[i]));
+    }
+
+    result.status  = TransferStatus::Ok;
+    result.code    = EmitTransferCode::None;
+    result.emitted = static_cast<uint32_t>(out->size());
+    return result;
+}
+
+
+OiioTransferPackageReplayResult
+replay_oiio_transfer_package_batch(
+    const PreparedTransferPackageBatch& batch,
+    const OiioTransferPackageReplayCallbacks& callbacks) noexcept
+{
+    if (!callbacks.emit_chunk) {
+        OiioTransferPackageReplayResult result;
+        result.status  = TransferStatus::InvalidArgument;
+        result.code    = EmitTransferCode::InvalidArgument;
+        result.message = "emit_chunk callback is null";
+        return result;
+    }
+
+    OiioPackageReplayAdapterState state;
+    state.callbacks = &callbacks;
+
+    PreparedTransferPackageReplayCallbacks generic_callbacks;
+    generic_callbacks.begin_batch = oiio_replay_begin_batch;
+    generic_callbacks.emit_chunk  = oiio_replay_emit_chunk;
+    generic_callbacks.end_batch   = oiio_replay_end_batch;
+    generic_callbacks.user        = &state;
+
+    const PreparedTransferPackageReplayResult replay
+        = replay_prepared_transfer_package_batch(batch, generic_callbacks);
+
+    OiioTransferPackageReplayResult result;
+    result.status             = replay.status;
+    result.code               = replay.code;
+    result.replayed           = replay.replayed;
+    result.failed_chunk_index = replay.failed_chunk_index;
+    result.message            = replay.message;
     return result;
 }
 

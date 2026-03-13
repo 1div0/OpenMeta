@@ -853,6 +853,62 @@ endif()
 
 execute_process(
   COMMAND "${METATRANSFER_BIN}" --no-build-info
+          --target-webp
+          --no-xmp
+          --no-icc
+          --no-iptc
+          "${_jpg}"
+  RESULT_VARIABLE _rv_webp
+  OUTPUT_VARIABLE _out_webp
+  ERROR_VARIABLE _err_webp
+)
+if(NOT _rv_webp EQUAL 0)
+  message(FATAL_ERROR
+    "metatransfer webp emit summary failed (${_rv_webp})\nstdout:\n${_out_webp}\nstderr:\n${_err_webp}")
+endif()
+if(NOT _out_webp MATCHES "compile: status=ok")
+  message(FATAL_ERROR
+    "metatransfer webp emit summary missing compile ok\nstdout:\n${_out_webp}\nstderr:\n${_err_webp}")
+endif()
+if(NOT _out_webp MATCHES "emit: status=ok")
+  message(FATAL_ERROR
+    "metatransfer webp emit summary missing emit ok\nstdout:\n${_out_webp}\nstderr:\n${_err_webp}")
+endif()
+if(NOT _out_webp MATCHES "webp_chunk EXIF count=1")
+  message(FATAL_ERROR
+    "metatransfer webp emit summary missing EXIF chunk summary\nstdout:\n${_out_webp}\nstderr:\n${_err_webp}")
+endif()
+
+execute_process(
+  COMMAND "${METATRANSFER_BIN}" --no-build-info
+          --target-heif
+          --no-xmp
+          --no-icc
+          --no-iptc
+          "${_jpg}"
+  RESULT_VARIABLE _rv_heif
+  OUTPUT_VARIABLE _out_heif
+  ERROR_VARIABLE _err_heif
+)
+if(NOT _rv_heif EQUAL 0)
+  message(FATAL_ERROR
+    "metatransfer heif emit summary failed (${_rv_heif})\nstdout:\n${_out_heif}\nstderr:\n${_err_heif}")
+endif()
+if(NOT _out_heif MATCHES "compile: status=ok")
+  message(FATAL_ERROR
+    "metatransfer heif emit summary missing compile ok\nstdout:\n${_out_heif}\nstderr:\n${_err_heif}")
+endif()
+if(NOT _out_heif MATCHES "emit: status=ok")
+  message(FATAL_ERROR
+    "metatransfer heif emit summary missing emit ok\nstdout:\n${_out_heif}\nstderr:\n${_err_heif}")
+endif()
+if(NOT _out_heif MATCHES "bmff_item Exif count=1")
+  message(FATAL_ERROR
+    "metatransfer heif emit summary missing Exif item summary\nstdout:\n${_out_heif}\nstderr:\n${_err_heif}")
+endif()
+
+execute_process(
+  COMMAND "${METATRANSFER_BIN}" --no-build-info
           --source-meta "${_jpg_rich}"
           --target-tiff "${_target_tif}"
           --time-patch "DateTime=2024:12:31 23:59:59"

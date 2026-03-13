@@ -95,6 +95,12 @@ def _marker_name(marker: int) -> str:
     return f"0x{marker:02X}"
 
 
+def _bmff_item_name(item_type: int, mime_xmp: bool) -> str:
+    if mime_xmp:
+        return "mime/xmp"
+    return "".join(chr((item_type >> shift) & 0xFF) for shift in (24, 16, 8, 0))
+
+
 def _sanitize_filename(s: str) -> str:
     out = []
     for ch in s:
@@ -161,6 +167,10 @@ def main(argv: list[str]) -> int:
         help="output directory for --unsafe-write-payloads",
     )
     ap.add_argument("--target-jxl", action="store_true", help="target JPEG XL metadata emit summary")
+    ap.add_argument("--target-webp", action="store_true", help="target WebP metadata chunk emit summary")
+    ap.add_argument("--target-heif", action="store_true", help="target HEIF metadata item emit summary")
+    ap.add_argument("--target-avif", action="store_true", help="target AVIF metadata item emit summary")
+    ap.add_argument("--target-cr3", action="store_true", help="target CR3 metadata item emit summary")
     ap.add_argument("--target-jpeg", type=str, default="", help="target JPEG stream for edit/apply")
     ap.add_argument("--target-tiff", type=str, default="", help="target TIFF stream for edit/apply")
     ap.add_argument("--jpeg-c2pa-signed", type=str, default="", help="externally signed logical C2PA payload for JPEG staging")
@@ -208,28 +218,61 @@ def main(argv: list[str]) -> int:
     if not input_paths:
         ap.print_help(sys.stderr)
         return 2
-    target_count = int(bool(args.target_jpeg)) + int(bool(args.target_tiff)) + int(bool(args.target_jxl))
+    target_count = (
+        int(bool(args.target_jpeg))
+        + int(bool(args.target_tiff))
+        + int(bool(args.target_jxl))
+        + int(bool(args.target_webp))
+        + int(bool(args.target_heif))
+        + int(bool(args.target_avif))
+        + int(bool(args.target_cr3))
+    )
     if target_count > 1:
-        ap.error("--target-jpeg, --target-tiff, and --target-jxl are mutually exclusive")
+        ap.error("--target-jpeg, --target-tiff, --target-jxl, --target-webp, --target-heif, --target-avif, and --target-cr3 are mutually exclusive")
     if (
         args.jpeg_c2pa_signed
         or args.c2pa_manifest_output
         or args.c2pa_certificate_chain
         or args.c2pa_key_ref
         or args.c2pa_signing_time
-    ) and (args.target_tiff or args.target_jxl):
+    ) and (
+        args.target_tiff
+        or args.target_jxl
+        or args.target_webp
+        or args.target_heif
+        or args.target_avif
+        or args.target_cr3
+    ):
         ap.error("signed C2PA staging is only supported for JPEG targets")
     if args.output and not (args.target_jpeg or args.target_tiff):
         if args.target_jxl:
             ap.error("--output is not supported for JXL targets yet")
+        if args.target_webp:
+            ap.error("--output is not supported for WebP targets yet")
+        if args.target_heif or args.target_avif or args.target_cr3:
+            ap.error("--output is not supported for BMFF targets yet")
         ap.error("--output requires --target-jpeg or --target-tiff")
-    if args.dump_c2pa_binding and (args.target_tiff or args.target_jxl):
+    if args.dump_c2pa_binding and (
+        args.target_tiff
+        or args.target_jxl
+        or args.target_webp
+        or args.target_heif
+        or args.target_avif
+        or args.target_cr3
+    ):
         ap.error("--dump-c2pa-binding is only supported for JPEG targets")
     if (
         args.dump_c2pa_handoff
         or args.dump_c2pa_signed_package
         or args.load_c2pa_signed_package
-    ) and (args.target_tiff or args.target_jxl):
+    ) and (
+        args.target_tiff
+        or args.target_jxl
+        or args.target_webp
+        or args.target_heif
+        or args.target_avif
+        or args.target_cr3
+    ):
         ap.error("C2PA package options are only supported for JPEG targets")
     if (args.target_jpeg or args.target_tiff) and len(input_paths) != 1:
         ap.error("edit mode supports exactly one source input")
@@ -297,6 +340,14 @@ def main(argv: list[str]) -> int:
         target_format = openmeta.TransferTargetFormat.Tiff
     elif args.target_jxl:
         target_format = openmeta.TransferTargetFormat.Jxl
+    elif args.target_webp:
+        target_format = openmeta.TransferTargetFormat.Webp
+    elif args.target_heif:
+        target_format = openmeta.TransferTargetFormat.Heif
+    elif args.target_avif:
+        target_format = openmeta.TransferTargetFormat.Avif
+    elif args.target_cr3:
+        target_format = openmeta.TransferTargetFormat.Cr3
     else:
         target_format = openmeta.TransferTargetFormat.Jpeg
     target_path = args.target_tiff if args.target_tiff else args.target_jpeg
@@ -737,6 +788,16 @@ def main(argv: list[str]) -> int:
         for b in probe["jxl_box_summary"]:
             print(
                 f"  jxl_box {str(b['type'])} count={int(b['count'])} bytes={int(b['bytes'])}"
+            )
+        for c in probe["webp_chunk_summary"]:
+            print(
+                f"  webp_chunk {str(c['type'])} count={int(c['count'])} bytes={int(c['bytes'])}"
+            )
+        for item in probe["bmff_item_summary"]:
+            print(
+                "  bmff_item "
+                f"{_bmff_item_name(int(item['item_type']), bool(item['mime_xmp']))} "
+                f"count={int(item['count'])} bytes={int(item['bytes'])}"
             )
         if probe["tiff_commit"]:
             print("  tiff_commit=true")

@@ -5,6 +5,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <span>
 #include <string>
 #include <string_view>
@@ -100,6 +101,42 @@ struct OiioTransferPayloadBatch final {
     TransferTargetFormat target_format = TransferTargetFormat::Jpeg;
     EmitTransferOptions emit;
     std::vector<OiioTransferPayload> payloads;
+};
+
+/// One zero-copy packaged transfer view for OIIO-style hosts.
+struct OiioTransferPackageView final {
+    OiioTransferPayloadKind semantic_kind = OiioTransferPayloadKind::Unknown;
+    std::string_view semantic_name;
+    std::string_view route;
+    TransferPackageChunkKind package_kind
+        = TransferPackageChunkKind::SourceRange;
+    uint64_t output_offset   = 0;
+    uint8_t jpeg_marker_code = 0U;
+    std::span<const std::byte> bytes;
+};
+
+/// Replay callbacks for \ref replay_oiio_transfer_package_batch.
+struct OiioTransferPackageReplayCallbacks final {
+    TransferStatus (*begin_batch)(void* user,
+                                  TransferTargetFormat target_format,
+                                  uint32_t chunk_count) noexcept
+        = nullptr;
+    TransferStatus (*emit_chunk)(void* user,
+                                 const OiioTransferPackageView* view) noexcept
+        = nullptr;
+    TransferStatus (*end_batch)(void* user,
+                                TransferTargetFormat target_format) noexcept
+        = nullptr;
+    void* user = nullptr;
+};
+
+/// Result for OIIO package-batch replay.
+struct OiioTransferPackageReplayResult final {
+    TransferStatus status       = TransferStatus::Ok;
+    EmitTransferCode code       = EmitTransferCode::None;
+    uint32_t replayed           = 0;
+    uint32_t failed_chunk_index = std::numeric_limits<uint32_t>::max();
+    std::string message;
 };
 
 /**
@@ -207,5 +244,31 @@ build_oiio_transfer_payload_batch(const PreparedTransferBundle& bundle,
                                   OiioTransferPayloadBatch* out,
                                   const EmitTransferOptions& options
                                   = EmitTransferOptions {}) noexcept;
+
+/**
+ * \brief Builds one zero-copy OIIO-facing package view list from a persisted
+ *        transfer package batch.
+ *
+ * The returned views borrow route strings and chunk bytes from \p batch. This
+ * is the host-facing path for stable packaged transfer output that no longer
+ * depends on the original prepared bundle lifetime.
+ */
+EmitTransferResult
+collect_oiio_transfer_package_views(
+    const PreparedTransferPackageBatch& batch,
+    std::vector<OiioTransferPackageView>* out) noexcept;
+
+/**
+ * \brief Replays one persisted transfer package batch through explicit host
+ *        callbacks.
+ *
+ * \ref OiioTransferPackageReplayCallbacks::emit_chunk must be non-null.
+ * \ref OiioTransferPackageReplayCallbacks::begin_batch and
+ * \ref OiioTransferPackageReplayCallbacks::end_batch are optional.
+ */
+OiioTransferPackageReplayResult
+replay_oiio_transfer_package_batch(
+    const PreparedTransferPackageBatch& batch,
+    const OiioTransferPackageReplayCallbacks& callbacks) noexcept;
 
 }  // namespace openmeta

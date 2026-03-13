@@ -81,6 +81,10 @@ namespace {
             "  --target-jpeg <path>   Target JPEG stream for edit/apply phase\n"
             "  --target-tiff <path>   Target TIFF stream for edit/apply phase\n"
             "  --target-jxl           Target JPEG XL metadata emit summary\n"
+            "  --target-webp          Target WebP metadata chunk emit summary\n"
+            "  --target-heif          Target HEIF metadata item emit summary\n"
+            "  --target-avif          Target AVIF metadata item emit summary\n"
+            "  --target-cr3           Target CR3 metadata item emit summary\n"
             "  -o, --output <path>    Write edited output file\n"
             "  --force                Overwrite existing payload files\n"
             "  --dry-run              Plan edit only; do not write output\n"
@@ -454,6 +458,10 @@ namespace {
         case TransferTargetFormat::Jpeg: return "jpeg";
         case TransferTargetFormat::Tiff: return "tiff";
         case TransferTargetFormat::Jxl: return "jxl";
+        case TransferTargetFormat::Webp: return "webp";
+        case TransferTargetFormat::Heif: return "heif";
+        case TransferTargetFormat::Avif: return "avif";
+        case TransferTargetFormat::Cr3: return "cr3";
         case TransferTargetFormat::Exr: return "exr";
         }
         return "unknown";
@@ -855,6 +863,33 @@ namespace {
         return std::string(type.data(), type.size());
     }
 
+    static std::string webp_chunk_name(const std::array<char, 4>& type)
+    {
+        return std::string(type.data(), type.size());
+    }
+
+    static std::string bmff_item_name(uint32_t item_type,
+                                      bool mime_xmp) noexcept
+    {
+        if (mime_xmp) {
+            return "mime/xmp";
+        }
+        char out[5];
+        out[0] = static_cast<char>((item_type >> 24) & 0xFFU);
+        out[1] = static_cast<char>((item_type >> 16) & 0xFFU);
+        out[2] = static_cast<char>((item_type >> 8) & 0xFFU);
+        out[3] = static_cast<char>(item_type & 0xFFU);
+        out[4] = '\0';
+        return std::string(out, 4U);
+    }
+
+    static bool target_format_is_bmff(TransferTargetFormat format) noexcept
+    {
+        return format == TransferTargetFormat::Heif
+               || format == TransferTargetFormat::Avif
+               || format == TransferTargetFormat::Cr3;
+    }
+
 }  // namespace
 }  // namespace openmeta
 
@@ -876,7 +911,11 @@ main(int argc, char** argv)
     std::string source_meta_path;
     std::string target_jpeg_path;
     std::string target_tiff_path;
-    bool target_jxl = false;
+    bool target_jxl  = false;
+    bool target_webp = false;
+    bool target_heif = false;
+    bool target_avif = false;
+    bool target_cr3  = false;
     std::string jpeg_jumbf_path;
     std::string jpeg_c2pa_signed_path;
     std::string c2pa_manifest_output_path;
@@ -1106,6 +1145,22 @@ main(int argc, char** argv)
             target_jxl = true;
             continue;
         }
+        if (std::strcmp(arg, "--target-webp") == 0) {
+            target_webp = true;
+            continue;
+        }
+        if (std::strcmp(arg, "--target-heif") == 0) {
+            target_heif = true;
+            continue;
+        }
+        if (std::strcmp(arg, "--target-avif") == 0) {
+            target_avif = true;
+            continue;
+        }
+        if (std::strcmp(arg, "--target-cr3") == 0) {
+            target_cr3 = true;
+            continue;
+        }
         if ((std::strcmp(arg, "-o") == 0 || std::strcmp(arg, "--output") == 0)
             && i + 1 < argc) {
             output_path = argv[i + 1];
@@ -1280,15 +1335,27 @@ main(int argc, char** argv)
     const uint32_t target_count
         = static_cast<uint32_t>(!target_jpeg_path.empty())
           + static_cast<uint32_t>(!target_tiff_path.empty())
-          + static_cast<uint32_t>(target_jxl);
+          + static_cast<uint32_t>(target_jxl)
+          + static_cast<uint32_t>(target_webp)
+          + static_cast<uint32_t>(target_heif)
+          + static_cast<uint32_t>(target_avif)
+          + static_cast<uint32_t>(target_cr3);
     if (target_count > 1U) {
         std::fprintf(
             stderr,
-            "--target-jpeg, --target-tiff, and --target-jxl are mutually exclusive\n");
+            "--target-jpeg, --target-tiff, --target-jxl, --target-webp, --target-heif, --target-avif, and --target-cr3 are mutually exclusive\n");
         return 2;
     }
     if (target_jxl) {
         options.prepare.target_format = TransferTargetFormat::Jxl;
+    } else if (target_webp) {
+        options.prepare.target_format = TransferTargetFormat::Webp;
+    } else if (target_heif) {
+        options.prepare.target_format = TransferTargetFormat::Heif;
+    } else if (target_avif) {
+        options.prepare.target_format = TransferTargetFormat::Avif;
+    } else if (target_cr3) {
+        options.prepare.target_format = TransferTargetFormat::Cr3;
     } else if (!target_tiff_path.empty()) {
         options.prepare.target_format = TransferTargetFormat::Tiff;
     } else {
@@ -1342,8 +1409,16 @@ main(int argc, char** argv)
         return 2;
     }
     if (!output_path.empty()
-        && options.prepare.target_format == TransferTargetFormat::Jxl) {
-        std::fprintf(stderr, "--output is not supported for JXL targets yet\n");
+        && (options.prepare.target_format == TransferTargetFormat::Jxl
+            || options.prepare.target_format == TransferTargetFormat::Webp
+            || target_format_is_bmff(options.prepare.target_format))) {
+        std::fprintf(stderr,
+                     options.prepare.target_format == TransferTargetFormat::Jxl
+                         ? "--output is not supported for JXL targets yet\n"
+                     : options.prepare.target_format
+                             == TransferTargetFormat::Webp
+                         ? "--output is not supported for WebP targets yet\n"
+                         : "--output is not supported for BMFF targets yet\n");
         return 2;
     }
 
@@ -2314,6 +2389,89 @@ main(int argc, char** argv)
                 const EmittedJxlBoxSummary& one = exec.jxl_box_summary[bi];
                 std::printf("  jxl_box %s count=%u bytes=%llu\n",
                             jxl_box_name(one.type).c_str(), one.count,
+                            static_cast<unsigned long long>(one.bytes));
+            }
+            continue;
+        }
+
+        if (prepared.bundle.target_format == TransferTargetFormat::Webp) {
+            std::printf(
+                "  compile: status=%s code=%s ops=%u skipped=%u errors=%u\n",
+                transfer_status_name(exec.compile.status),
+                emit_transfer_code_name(exec.compile.code),
+                static_cast<unsigned>(exec.compiled_ops), exec.compile.skipped,
+                exec.compile.errors);
+            if (!exec.compile.message.empty()) {
+                std::printf("  compile_message=%s\n",
+                            exec.compile.message.c_str());
+            }
+            if (exec.compile.status != TransferStatus::Ok) {
+                any_failed = true;
+                continue;
+            }
+
+            std::printf(
+                "  emit: status=%s code=%s emitted=%u skipped=%u errors=%u\n",
+                transfer_status_name(exec.emit.status),
+                emit_transfer_code_name(exec.emit.code), exec.emit.emitted,
+                exec.emit.skipped, exec.emit.errors);
+            if (emit_repeat > 1U) {
+                std::printf("  emit_repeat=%u\n", emit_repeat);
+            }
+            if (!exec.emit.message.empty()) {
+                std::printf("  emit_message=%s\n", exec.emit.message.c_str());
+            }
+            if (exec.emit.status != TransferStatus::Ok) {
+                any_failed = true;
+                continue;
+            }
+
+            for (size_t ci = 0; ci < exec.webp_chunk_summary.size(); ++ci) {
+                const EmittedWebpChunkSummary& one = exec.webp_chunk_summary[ci];
+                std::printf("  webp_chunk %s count=%u bytes=%llu\n",
+                            webp_chunk_name(one.type).c_str(), one.count,
+                            static_cast<unsigned long long>(one.bytes));
+            }
+            continue;
+        }
+
+        if (target_format_is_bmff(prepared.bundle.target_format)) {
+            std::printf(
+                "  compile: status=%s code=%s ops=%u skipped=%u errors=%u\n",
+                transfer_status_name(exec.compile.status),
+                emit_transfer_code_name(exec.compile.code),
+                static_cast<unsigned>(exec.compiled_ops), exec.compile.skipped,
+                exec.compile.errors);
+            if (!exec.compile.message.empty()) {
+                std::printf("  compile_message=%s\n",
+                            exec.compile.message.c_str());
+            }
+            if (exec.compile.status != TransferStatus::Ok) {
+                any_failed = true;
+                continue;
+            }
+
+            std::printf(
+                "  emit: status=%s code=%s emitted=%u skipped=%u errors=%u\n",
+                transfer_status_name(exec.emit.status),
+                emit_transfer_code_name(exec.emit.code), exec.emit.emitted,
+                exec.emit.skipped, exec.emit.errors);
+            if (emit_repeat > 1U) {
+                std::printf("  emit_repeat=%u\n", emit_repeat);
+            }
+            if (!exec.emit.message.empty()) {
+                std::printf("  emit_message=%s\n", exec.emit.message.c_str());
+            }
+            if (exec.emit.status != TransferStatus::Ok) {
+                any_failed = true;
+                continue;
+            }
+
+            for (size_t bi = 0; bi < exec.bmff_item_summary.size(); ++bi) {
+                const EmittedBmffItemSummary& one = exec.bmff_item_summary[bi];
+                std::printf("  bmff_item %s count=%u bytes=%llu\n",
+                            bmff_item_name(one.item_type, one.mime_xmp).c_str(),
+                            one.count,
                             static_cast<unsigned long long>(one.bytes));
             }
             continue;

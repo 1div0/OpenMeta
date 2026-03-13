@@ -209,6 +209,49 @@ Current v1 behavior is:
       content-bound source payloads; signed rewrite is still unavailable
       rewrite/invalidation, edit/rewrite, and the `emit_output_writer`
       execution hot path
+  - WebP prepare/emit now uses the same bounded transfer contract:
+    - `prepare_metadata_for_target(..., TransferTargetFormat::Webp, ...)`
+      currently builds `EXIF`, `XMP `, `ICCP`, and bounded `C2PA` RIFF
+      metadata chunks from `MetaStore`
+    - `compile_prepared_bundle_webp(...)` and
+      `emit_prepared_bundle_webp_compiled(...)` provide the same
+      `prepare once -> compile once -> emit many` shape as JPEG/TIFF/JXL
+    - `execute_prepared_transfer(...)` and
+      `emit_prepared_transfer_compiled(..., WebpTransferEmitter&)` now accept
+      WebP bundles
+    - IPTC requested for WebP is projected into the existing `XMP ` chunk;
+      OpenMeta does not create a raw IPTC-IIM WebP carrier
+    - draft OpenMeta invalidation payloads and generated invalidation output
+      use the `C2PA` RIFF chunk path
+    - `build_prepared_transfer_emit_package(...)` plus
+      `write_prepared_transfer_package(...)` can serialize direct WebP chunk
+      bytes from prepared bundles, and
+      `build_prepared_transfer_package_batch(...)` can materialize those bytes
+      into one owned replay batch
+    - full WebP file rewrite/edit and signed C2PA rewrite remain follow-up
+      work
+  - ISO-BMFF metadata-item transfer now uses the same bounded contract for
+    `HEIF` / `AVIF` / `CR3` targets:
+    - `prepare_metadata_for_target(..., TransferTargetFormat::{Heif,Avif,Cr3}, ...)`
+      currently builds `bmff:item-exif`, `bmff:item-xmp`, bounded
+      `bmff:item-jumb`, and bounded `bmff:item-c2pa` payloads
+    - EXIF is prepared as a BMFF item payload with the 4-byte big-endian
+      TIFF-offset prefix plus full `Exif\0\0` bytes
+    - IPTC requested for BMFF is projected into `bmff:item-xmp`; OpenMeta
+      does not create a raw IPTC-IIM BMFF carrier
+    - file-based prepare can preserve source generic JUMBF payloads and raw
+      OpenMeta draft C2PA invalidation payloads as BMFF metadata items
+    - store-only prepare can project decoded non-C2PA `JumbfCborKey` roots
+      into `bmff:item-jumb` when no raw source payload is available
+    - `compile_prepared_bundle_bmff(...)`,
+      `emit_prepared_bundle_bmff(...)`,
+      `emit_prepared_bundle_bmff_compiled(...)`, and
+      `emit_prepared_transfer_compiled(..., BmffTransferEmitter&)` provide
+      the reusable item-emitter path
+    - the shared package-batch persistence/replay layer can own and hand off
+      those stable BMFF item payload bytes
+    - full BMFF file rewrite/edit, BMFF ICC/property packaging, and signed
+      C2PA rewrite remain follow-up work
   - `TransferProfile` now uses explicit `TransferPolicyAction` values for
     `makernote`, `jumbf`, and `c2pa`.
   - `PreparedTransferBundle::policy_decisions` records the resolved per-family
@@ -864,13 +907,16 @@ Draft C++ transfer entry points (prepare/emit scaffold):
     - `JpegTransferEmitter`
     - `TiffTransferEmitter`
     - `JxlTransferEmitter`
+    - `WebpTransferEmitter`
     - `ExrTransferEmitter`
   - `prepare_metadata_for_target(..., PreparedTransferBundle*)` currently
-    prepares JPEG/TIFF transfer blocks plus the current bounded JXL transfer
-    set: EXIF APP1 (JPEG), XMP (JPEG APP1 / TIFF tag 700 / JXL `xml ` box),
-    ICC (JPEG APP2 / TIFF tag 34675 / JXL encoder ICC profile), IPTC (JPEG
-    APP13 / TIFF tag 33723), bounded JUMBF/C2PA routes, with explicit
-    warnings for unsupported/skipped entries.
+    prepares JPEG/TIFF transfer blocks plus the current bounded JXL/WebP/BMFF
+    transfer set: EXIF APP1 (JPEG) / JXL `Exif` / WebP `EXIF` / BMFF EXIF
+    item, XMP (JPEG APP1 / TIFF tag 700 / JXL `xml ` box / WebP `XMP `
+    chunk / BMFF XMP item), ICC (JPEG APP2 / TIFF tag 34675 / JXL encoder ICC
+    profile / WebP `ICCP` chunk), IPTC (JPEG APP13 / TIFF tag 33723 or
+    projected into JXL/WebP/BMFF XMP), bounded JUMBF/C2PA routes, with
+    explicit warnings for unsupported/skipped entries.
   - `emit_prepared_bundle_jpeg(...)` is implemented for route-based JPEG marker
     emission (`jpeg:appN...`, `jpeg:com`).
   - `emit_prepared_bundle_tiff(...)` is implemented for route-based TIFF tag
@@ -918,8 +964,8 @@ Draft C++ transfer entry points (prepare/emit scaffold):
   - `compile_prepared_transfer_execution(...)` compiles a reusable execution
     plan that stores target-specific route mapping plus emit policy.
   - `build_prepared_transfer_adapter_view(...)` flattens the same compiled
-    route mapping into one target-neutral operation list for JPEG/TIFF/JXL
-    host integrations.
+    route mapping into one target-neutral operation list for
+    JPEG/TIFF/JXL/WebP/BMFF host integrations.
   - `emit_prepared_transfer_adapter_view(...)` replays that compiled view into
     one generic host sink without route parsing.
   - `apply_time_patches_view(...)` accepts non-owning patch spans for
@@ -933,11 +979,12 @@ Draft C++ transfer entry points (prepare/emit scaffold):
     want preallocated output memory and deterministic overflow reporting before
     any JPEG marker bytes are written.
   - `PreparedTransferPackagePlan` is the shared final-output packaging layer
-    for current JPEG/TIFF rewrite paths plus direct JPEG/JXL emit packaging.
+    for current JPEG/TIFF rewrite paths plus direct JPEG/JXL/WebP/BMFF emit
+    packaging.
     - `TransferPackageChunkKind::SourceRange` copies bytes from the original
       input stream.
     - `TransferPackageChunkKind::PreparedTransferBlock` serializes one
-      prepared block directly for JPEG or JXL targets.
+      prepared block directly for JPEG, JXL, WebP, or BMFF targets.
     - `TransferPackageChunkKind::PreparedJpegSegment` injects one prepared
       JPEG marker segment from the bundle.
     - `TransferPackageChunkKind::InlineBytes` carries deterministic generated
@@ -946,6 +993,22 @@ Draft C++ transfer entry points (prepare/emit scaffold):
     layer. It materializes each package chunk into stable bytes so host code
     can cache or hand off the final metadata package without retaining the
     original input stream or prepared bundle storage.
+  - `serialize_prepared_transfer_package_batch(...)` and
+    `deserialize_prepared_transfer_package_batch(...)` persist that owned
+    batch for cross-process or cross-layer replay.
+  - `collect_prepared_transfer_package_views(...)` is the target-neutral
+    semantic view above that persisted batch. It exposes semantic package
+    chunks (`Exif`, `Xmp`, `Icc`, `Iptc`, `Jumbf`, `C2pa`, or `Unknown`)
+    without pushing route parsing into host adapters.
+  - `replay_prepared_transfer_package_batch(...)` is the matching target-neutral
+    callback replay path over the same persisted batch.
+  - `collect_oiio_transfer_package_views(...)` is the first host bridge above
+    that persisted batch: it now maps the target-neutral semantic package view
+    into OIIO-oriented names, so the host no longer depends on the original
+    prepared bundle lifetime or route parsing.
+  - `replay_oiio_transfer_package_batch(...)` is the higher-level consume path
+    above that same persisted batch, replaying semantic package chunks through
+    explicit host callbacks in deterministic output order.
     - `PreparedTransferAdapterView` is the parallel adapter-facing surface for
       host integrations that want explicit per-block operations without route
       parsing.

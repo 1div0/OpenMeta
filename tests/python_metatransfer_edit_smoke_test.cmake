@@ -237,6 +237,68 @@ execute_process(
           "PYTHONPATH=${OPENMETA_PYTHONPATH}"
           "${OPENMETA_PYTHON_EXECUTABLE}" -m openmeta.python.metatransfer
           --no-build-info
+          --target-webp
+          --no-xmp
+          --no-icc
+          --no-iptc
+          "${_src_jpg}"
+  RESULT_VARIABLE _rv_webp
+  OUTPUT_VARIABLE _out_webp
+  ERROR_VARIABLE _err_webp
+)
+if(NOT _rv_webp EQUAL 0)
+  message(FATAL_ERROR
+    "python metatransfer webp summary failed (${_rv_webp})\nstdout:\n${_out_webp}\nstderr:\n${_err_webp}")
+endif()
+if(NOT _out_webp MATCHES "compile: status=ok")
+  message(FATAL_ERROR
+    "python metatransfer webp summary missing compile ok\nstdout:\n${_out_webp}\nstderr:\n${_err_webp}")
+endif()
+if(NOT _out_webp MATCHES "emit: status=ok")
+  message(FATAL_ERROR
+    "python metatransfer webp summary missing emit ok\nstdout:\n${_out_webp}\nstderr:\n${_err_webp}")
+endif()
+if(NOT _out_webp MATCHES "webp_chunk EXIF count=1")
+  message(FATAL_ERROR
+    "python metatransfer webp summary missing EXIF chunk summary\nstdout:\n${_out_webp}\nstderr:\n${_err_webp}")
+endif()
+
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env
+          "PYTHONPATH=${OPENMETA_PYTHONPATH}"
+          "${OPENMETA_PYTHON_EXECUTABLE}" -m openmeta.python.metatransfer
+          --no-build-info
+          --target-avif
+          --no-xmp
+          --no-icc
+          --no-iptc
+          "${_src_jpg}"
+  RESULT_VARIABLE _rv_avif
+  OUTPUT_VARIABLE _out_avif
+  ERROR_VARIABLE _err_avif
+)
+if(NOT _rv_avif EQUAL 0)
+  message(FATAL_ERROR
+    "python metatransfer avif summary failed (${_rv_avif})\nstdout:\n${_out_avif}\nstderr:\n${_err_avif}")
+endif()
+if(NOT _out_avif MATCHES "compile: status=ok")
+  message(FATAL_ERROR
+    "python metatransfer avif summary missing compile ok\nstdout:\n${_out_avif}\nstderr:\n${_err_avif}")
+endif()
+if(NOT _out_avif MATCHES "emit: status=ok")
+  message(FATAL_ERROR
+    "python metatransfer avif summary missing emit ok\nstdout:\n${_out_avif}\nstderr:\n${_err_avif}")
+endif()
+if(NOT _out_avif MATCHES "bmff_item Exif count=1")
+  message(FATAL_ERROR
+    "python metatransfer avif summary missing Exif item summary\nstdout:\n${_out_avif}\nstderr:\n${_err_avif}")
+endif()
+
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env
+          "PYTHONPATH=${OPENMETA_PYTHONPATH}"
+          "${OPENMETA_PYTHON_EXECUTABLE}" -m openmeta.python.metatransfer
+          --no-build-info
           --no-exif
           --no-xmp
           --no-icc

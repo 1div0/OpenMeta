@@ -803,6 +803,10 @@ namespace {
         case TransferTargetFormat::Jpeg: return "jpeg";
         case TransferTargetFormat::Tiff: return "tiff";
         case TransferTargetFormat::Jxl: return "jxl";
+        case TransferTargetFormat::Webp: return "webp";
+        case TransferTargetFormat::Heif: return "heif";
+        case TransferTargetFormat::Avif: return "avif";
+        case TransferTargetFormat::Cr3: return "cr3";
         case TransferTargetFormat::Exr: return "exr";
         }
         return "unknown";
@@ -1645,6 +1649,28 @@ namespace {
             jxl_box_summary.append(std::move(one));
         }
         out["jxl_box_summary"] = std::move(jxl_box_summary);
+
+        nb::list webp_chunk_summary;
+        for (size_t i = 0; i < exec.webp_chunk_summary.size(); ++i) {
+            nb::dict one;
+            one["type"]  = nb::str(exec.webp_chunk_summary[i].type.data(),
+                                   exec.webp_chunk_summary[i].type.size());
+            one["count"] = nb::int_(exec.webp_chunk_summary[i].count);
+            one["bytes"] = nb::int_(exec.webp_chunk_summary[i].bytes);
+            webp_chunk_summary.append(std::move(one));
+        }
+        out["webp_chunk_summary"] = std::move(webp_chunk_summary);
+
+        nb::list bmff_item_summary;
+        for (size_t i = 0; i < exec.bmff_item_summary.size(); ++i) {
+            nb::dict one;
+            one["item_type"] = nb::int_(exec.bmff_item_summary[i].item_type);
+            one["count"]     = nb::int_(exec.bmff_item_summary[i].count);
+            one["bytes"]     = nb::int_(exec.bmff_item_summary[i].bytes);
+            one["mime_xmp"]  = nb::bool_(exec.bmff_item_summary[i].mime_xmp);
+            bmff_item_summary.append(std::move(one));
+        }
+        out["bmff_item_summary"] = std::move(bmff_item_summary);
 
         out["edit_requested"]        = nb::bool_(exec.edit_requested);
         out["edit_plan_status"]      = exec.edit_plan_status;
@@ -2536,6 +2562,10 @@ NB_MODULE(_openmeta, m)
         .value("Jpeg", TransferTargetFormat::Jpeg)
         .value("Tiff", TransferTargetFormat::Tiff)
         .value("Jxl", TransferTargetFormat::Jxl)
+        .value("Webp", TransferTargetFormat::Webp)
+        .value("Heif", TransferTargetFormat::Heif)
+        .value("Avif", TransferTargetFormat::Avif)
+        .value("Cr3", TransferTargetFormat::Cr3)
         .value("Exr", TransferTargetFormat::Exr);
 
     nb::enum_<TransferPolicySubject>(m, "TransferPolicySubject")
