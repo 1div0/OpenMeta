@@ -55,6 +55,12 @@ namespace {
         uint32_t emitted_chunks = 0;
     };
 
+    struct PayloadReplayState final {
+        std::vector<std::string> events;
+        uint32_t fail_on_payload  = std::numeric_limits<uint32_t>::max();
+        uint32_t emitted_payloads = 0;
+    };
+
     static TransferStatus replay_begin_package(void* user,
                                                TransferTargetFormat target,
                                                uint32_t chunk_count) noexcept
@@ -94,6 +100,51 @@ namespace {
             return TransferStatus::InvalidArgument;
         }
         PackageReplayState* state = static_cast<PackageReplayState*>(user);
+        state->events.push_back(
+            "end:" + std::to_string(static_cast<uint32_t>(target)));
+        return TransferStatus::Ok;
+    }
+
+    static TransferStatus replay_begin_payload(void* user,
+                                               TransferTargetFormat target,
+                                               uint32_t payload_count) noexcept
+    {
+        if (!user) {
+            return TransferStatus::InvalidArgument;
+        }
+        PayloadReplayState* state = static_cast<PayloadReplayState*>(user);
+        state->events.push_back("begin:"
+                                + std::to_string(static_cast<uint32_t>(target))
+                                + ":" + std::to_string(payload_count));
+        return TransferStatus::Ok;
+    }
+
+    static TransferStatus
+    replay_emit_payload(void* user,
+                        const OiioTransferPayloadView* view) noexcept
+    {
+        if (!user || !view) {
+            return TransferStatus::InvalidArgument;
+        }
+        PayloadReplayState* state = static_cast<PayloadReplayState*>(user);
+        if (state->emitted_payloads == state->fail_on_payload) {
+            return TransferStatus::Unsupported;
+        }
+        state->events.push_back(std::string("payload:")
+                                + std::string(view->route) + ":"
+                                + std::string(view->semantic_name) + ":"
+                                + std::to_string(view->payload.size()));
+        state->emitted_payloads += 1U;
+        return TransferStatus::Ok;
+    }
+
+    static TransferStatus
+    replay_end_payload(void* user, TransferTargetFormat target) noexcept
+    {
+        if (!user) {
+            return TransferStatus::InvalidArgument;
+        }
+        PayloadReplayState* state = static_cast<PayloadReplayState*>(user);
         state->events.push_back(
             "end:" + std::to_string(static_cast<uint32_t>(target)));
         return TransferStatus::Ok;
@@ -704,12 +755,18 @@ TEST(OiioAdapter, CollectsTransferPayloadViewsForBmff)
     c2pa.payload = { std::byte { 0x10 }, std::byte { 0x11 } };
     bundle.blocks.push_back(c2pa);
 
+    PreparedTransferBlock icc;
+    icc.route   = "bmff:property-colr-icc";
+    icc.payload = { std::byte { 'p' }, std::byte { 'r' }, std::byte { 'o' },
+                    std::byte { 'f' }, std::byte { 0x20 } };
+    bundle.blocks.push_back(icc);
+
     std::vector<OiioTransferPayloadView> views;
     const EmitTransferResult result
         = collect_oiio_transfer_payload_views(bundle, &views);
 
     ASSERT_EQ(result.status, TransferStatus::Ok);
-    ASSERT_EQ(views.size(), 3U);
+    ASSERT_EQ(views.size(), 4U);
 
     EXPECT_EQ(views[0].semantic_kind, OiioTransferPayloadKind::ExifBlob);
     EXPECT_EQ(views[0].op.kind, TransferAdapterOpKind::BmffItem);
@@ -725,6 +782,11 @@ TEST(OiioAdapter, CollectsTransferPayloadViewsForBmff)
     EXPECT_EQ(views[2].op.kind, TransferAdapterOpKind::BmffItem);
     EXPECT_EQ(views[2].op.bmff_item_type, fourcc('c', '2', 'p', 'a'));
     EXPECT_FALSE(views[2].op.bmff_mime_xmp);
+
+    EXPECT_EQ(views[3].semantic_kind, OiioTransferPayloadKind::IccProfile);
+    EXPECT_EQ(views[3].op.kind, TransferAdapterOpKind::BmffProperty);
+    EXPECT_EQ(views[3].op.bmff_property_type, fourcc('c', 'o', 'l', 'r'));
+    EXPECT_EQ(views[3].op.bmff_property_subtype, fourcc('p', 'r', 'o', 'f'));
 }
 
 TEST(OiioAdapter, BuildsTransferPayloadBatchForJpeg)
@@ -799,6 +861,86 @@ TEST(OiioAdapter, TransferPayloadBatchOwnsBytesAfterSourceMutation)
     EXPECT_EQ(batch.payloads[0].semantic_kind, OiioTransferPayloadKind::Jumbf);
     EXPECT_EQ(batch.payloads[0].payload[0], std::byte { 0x10 });
     EXPECT_EQ(bundle.blocks[0].payload[0], std::byte { 0x7F });
+}
+
+TEST(OiioAdapter, CollectsTransferPayloadViewsFromPersistedBatch)
+{
+    PreparedTransferBundle bundle;
+    bundle.target_format = TransferTargetFormat::Jxl;
+
+    PreparedTransferBlock jumbf;
+    jumbf.route    = "jxl:box-jumb";
+    jumbf.box_type = { 'j', 'u', 'm', 'b' };
+    jumbf.payload  = { std::byte { 0x00 }, std::byte { 0x00 },
+                       std::byte { 0x00 }, std::byte { 0x08 } };
+    bundle.blocks.push_back(jumbf);
+
+    PreparedTransferPayloadBatch built_batch;
+    ASSERT_EQ(build_prepared_transfer_payload_batch(bundle, &built_batch).status,
+              TransferStatus::Ok);
+
+    std::vector<std::byte> encoded;
+    ASSERT_EQ(
+        serialize_prepared_transfer_payload_batch(built_batch, &encoded).status,
+        TransferStatus::Ok);
+
+    PreparedTransferPayloadBatch decoded_batch;
+    ASSERT_EQ(deserialize_prepared_transfer_payload_batch(
+                  std::span<const std::byte>(encoded.data(), encoded.size()),
+                  &decoded_batch)
+                  .status,
+              TransferStatus::Ok);
+
+    std::vector<OiioTransferPayloadView> views;
+    const EmitTransferResult result
+        = collect_oiio_transfer_payload_views(decoded_batch, &views);
+
+    ASSERT_EQ(result.status, TransferStatus::Ok);
+    ASSERT_EQ(views.size(), 1U);
+    EXPECT_EQ(views[0].semantic_kind, OiioTransferPayloadKind::Jumbf);
+    EXPECT_EQ(views[0].semantic_name, "JUMBF");
+    EXPECT_EQ(views[0].route, "jxl:box-jumb");
+    EXPECT_EQ(views[0].op.kind, TransferAdapterOpKind::JxlBox);
+    ASSERT_EQ(views[0].payload.size(), 4U);
+    EXPECT_EQ(views[0].payload[0], std::byte { 0x00 });
+}
+
+TEST(OiioAdapter, ReplaysTransferPayloadBatchInOrder)
+{
+    PreparedTransferBundle bundle;
+    bundle.target_format = TransferTargetFormat::Jpeg;
+
+    PreparedTransferBlock exif;
+    exif.route   = "jpeg:app1-exif";
+    exif.payload = { std::byte { 0x01 }, std::byte { 0x02 } };
+    bundle.blocks.push_back(exif);
+
+    PreparedTransferBlock xmp;
+    xmp.route   = "jpeg:app1-xmp";
+    xmp.payload = { std::byte { 'x' }, std::byte { 'm' }, std::byte { 'p' } };
+    bundle.blocks.push_back(xmp);
+
+    PreparedTransferPayloadBatch batch;
+    ASSERT_EQ(build_prepared_transfer_payload_batch(bundle, &batch).status,
+              TransferStatus::Ok);
+
+    PayloadReplayState state;
+    OiioTransferPayloadReplayCallbacks callbacks;
+    callbacks.begin_batch  = replay_begin_payload;
+    callbacks.emit_payload = replay_emit_payload;
+    callbacks.end_batch    = replay_end_payload;
+    callbacks.user         = &state;
+
+    const OiioTransferPayloadReplayResult replay
+        = replay_oiio_transfer_payload_batch(batch, callbacks);
+
+    ASSERT_EQ(replay.status, TransferStatus::Ok);
+    EXPECT_EQ(replay.replayed, 2U);
+    ASSERT_EQ(state.events.size(), 4U);
+    EXPECT_EQ(state.events[0], "begin:0:2");
+    EXPECT_EQ(state.events[1], "payload:jpeg:app1-exif:ExifBlob:2");
+    EXPECT_EQ(state.events[2], "payload:jpeg:app1-xmp:XMPPacket:3");
+    EXPECT_EQ(state.events[3], "end:0");
 }
 
 TEST(OiioAdapter, CollectsTransferPackageViewsForJpeg)

@@ -445,6 +445,32 @@ namespace {
         return OiioTransferPayloadKind::Unknown;
     }
 
+    static OiioTransferPayloadView make_oiio_transfer_payload_view(
+        const PreparedTransferPayloadView& payload) noexcept
+    {
+        OiioTransferPayloadView one;
+        one.semantic_kind = oiio_transfer_kind_from_semantic(
+            payload.semantic_kind);
+        one.semantic_name = oiio_transfer_semantic_name(one.semantic_kind);
+        one.route         = payload.route;
+        one.op            = payload.op;
+        one.payload       = payload.payload;
+        return one;
+    }
+
+    static OiioTransferPayload
+    make_oiio_transfer_payload(const PreparedTransferPayload& payload) noexcept
+    {
+        OiioTransferPayload one;
+        one.semantic_kind = oiio_transfer_kind_from_semantic(
+            payload.semantic_kind);
+        one.semantic_name = oiio_transfer_semantic_name(one.semantic_kind);
+        one.route         = payload.route;
+        one.op            = payload.op;
+        one.payload       = payload.payload;
+        return one;
+    }
+
     static OiioTransferPackageView make_oiio_transfer_package_view(
         const PreparedTransferPackageView& chunk) noexcept
     {
@@ -463,6 +489,58 @@ namespace {
     struct OiioPackageReplayAdapterState final {
         const OiioTransferPackageReplayCallbacks* callbacks = nullptr;
     };
+
+    struct OiioPayloadReplayAdapterState final {
+        const OiioTransferPayloadReplayCallbacks* callbacks = nullptr;
+    };
+
+    static TransferStatus
+    oiio_replay_begin_payload(void* user, TransferTargetFormat target_format,
+                              uint32_t payload_count) noexcept
+    {
+        if (!user) {
+            return TransferStatus::InvalidArgument;
+        }
+        const OiioPayloadReplayAdapterState* state
+            = static_cast<const OiioPayloadReplayAdapterState*>(user);
+        if (!state->callbacks || !state->callbacks->begin_batch) {
+            return TransferStatus::Ok;
+        }
+        return state->callbacks->begin_batch(state->callbacks->user,
+                                             target_format, payload_count);
+    }
+
+    static TransferStatus oiio_replay_emit_payload(
+        void* user, const PreparedTransferPayloadView* payload) noexcept
+    {
+        if (!user || !payload) {
+            return TransferStatus::InvalidArgument;
+        }
+        const OiioPayloadReplayAdapterState* state
+            = static_cast<const OiioPayloadReplayAdapterState*>(user);
+        if (!state->callbacks || !state->callbacks->emit_payload) {
+            return TransferStatus::InvalidArgument;
+        }
+        const OiioTransferPayloadView view = make_oiio_transfer_payload_view(
+            *payload);
+        return state->callbacks->emit_payload(state->callbacks->user, &view);
+    }
+
+    static TransferStatus
+    oiio_replay_end_payload(void* user,
+                            TransferTargetFormat target_format) noexcept
+    {
+        if (!user) {
+            return TransferStatus::InvalidArgument;
+        }
+        const OiioPayloadReplayAdapterState* state
+            = static_cast<const OiioPayloadReplayAdapterState*>(user);
+        if (!state->callbacks || !state->callbacks->end_batch) {
+            return TransferStatus::Ok;
+        }
+        return state->callbacks->end_batch(state->callbacks->user,
+                                           target_format);
+    }
 
     static TransferStatus
     oiio_replay_begin_batch(void* user, TransferTargetFormat target_format,
@@ -660,8 +738,8 @@ collect_oiio_transfer_payload_views(const PreparedTransferBundle& bundle,
                                     std::vector<OiioTransferPayloadView>* out,
                                     const EmitTransferOptions& options) noexcept
 {
-    EmitTransferResult result;
     if (!out) {
+        EmitTransferResult result;
         result.status  = TransferStatus::InvalidArgument;
         result.code    = EmitTransferCode::InvalidArgument;
         result.errors  = 1U;
@@ -669,31 +747,18 @@ collect_oiio_transfer_payload_views(const PreparedTransferBundle& bundle,
         return result;
     }
 
-    out->clear();
-
-    PreparedTransferAdapterView view;
-    result = build_prepared_transfer_adapter_view(bundle, &view, options);
+    std::vector<PreparedTransferPayloadView> views;
+    EmitTransferResult result
+        = collect_prepared_transfer_payload_views(bundle, &views, options);
     if (result.status != TransferStatus::Ok) {
         return result;
     }
 
-    out->reserve(view.ops.size());
-    for (size_t i = 0; i < view.ops.size(); ++i) {
-        const PreparedTransferAdapterOp& op = view.ops[i];
-        const PreparedTransferBlock& block  = bundle.blocks[op.block_index];
-        OiioTransferPayloadView payload_view;
-        payload_view.semantic_kind = oiio_transfer_kind_from_semantic(
-            classify_transfer_route_semantic_kind(block.route));
-        payload_view.semantic_name = oiio_transfer_semantic_name(
-            payload_view.semantic_kind);
-        payload_view.route   = block.route;
-        payload_view.op      = op;
-        payload_view.payload = std::span<const std::byte>(block.payload.data(),
-                                                          block.payload.size());
-        out->push_back(payload_view);
+    out->clear();
+    out->reserve(views.size());
+    for (size_t i = 0; i < views.size(); ++i) {
+        out->push_back(make_oiio_transfer_payload_view(views[i]));
     }
-
-    result.emitted = static_cast<uint32_t>(out->size());
     return result;
 }
 
@@ -702,6 +767,43 @@ EmitTransferResult
 build_oiio_transfer_payload_batch(const PreparedTransferBundle& bundle,
                                   OiioTransferPayloadBatch* out,
                                   const EmitTransferOptions& options) noexcept
+{
+    if (!out) {
+        EmitTransferResult result;
+        result.status  = TransferStatus::InvalidArgument;
+        result.code    = EmitTransferCode::InvalidArgument;
+        result.errors  = 1U;
+        result.message = "out is null";
+        return result;
+    }
+
+    PreparedTransferPayloadBatch payload_batch;
+    EmitTransferResult result
+        = build_prepared_transfer_payload_batch(bundle, &payload_batch,
+                                                options);
+    if (result.status != TransferStatus::Ok) {
+        return result;
+    }
+
+    OiioTransferPayloadBatch batch;
+    batch.contract_version = payload_batch.contract_version;
+    batch.target_format    = payload_batch.target_format;
+    batch.emit             = payload_batch.emit;
+    batch.payloads.reserve(payload_batch.payloads.size());
+
+    for (size_t i = 0; i < payload_batch.payloads.size(); ++i) {
+        batch.payloads.push_back(
+            make_oiio_transfer_payload(payload_batch.payloads[i]));
+    }
+
+    *out = std::move(batch);
+    return result;
+}
+
+EmitTransferResult
+collect_oiio_transfer_payload_views(
+    const PreparedTransferPayloadBatch& batch,
+    std::vector<OiioTransferPayloadView>* out) noexcept
 {
     EmitTransferResult result;
     if (!out) {
@@ -712,32 +814,51 @@ build_oiio_transfer_payload_batch(const PreparedTransferBundle& bundle,
         return result;
     }
 
-    std::vector<OiioTransferPayloadView> views;
-    result = collect_oiio_transfer_payload_views(bundle, &views, options);
+    std::vector<PreparedTransferPayloadView> views;
+    result = collect_prepared_transfer_payload_views(batch, &views);
     if (result.status != TransferStatus::Ok) {
         return result;
     }
 
-    OiioTransferPayloadBatch batch;
-    batch.contract_version = bundle.contract_version;
-    batch.target_format    = bundle.target_format;
-    batch.emit             = options;
-    batch.payloads.reserve(views.size());
-
+    out->clear();
+    out->reserve(views.size());
     for (size_t i = 0; i < views.size(); ++i) {
-        const OiioTransferPayloadView& view = views[i];
-        OiioTransferPayload payload;
-        payload.semantic_kind = view.semantic_kind;
-        payload.semantic_name.assign(view.semantic_name.data(),
-                                     view.semantic_name.size());
-        payload.route.assign(view.route.data(), view.route.size());
-        payload.op = view.op;
-        payload.payload.assign(view.payload.begin(), view.payload.end());
-        batch.payloads.push_back(std::move(payload));
+        out->push_back(make_oiio_transfer_payload_view(views[i]));
+    }
+    return result;
+}
+
+OiioTransferPayloadReplayResult
+replay_oiio_transfer_payload_batch(
+    const PreparedTransferPayloadBatch& batch,
+    const OiioTransferPayloadReplayCallbacks& callbacks) noexcept
+{
+    if (!callbacks.emit_payload) {
+        OiioTransferPayloadReplayResult result;
+        result.status  = TransferStatus::InvalidArgument;
+        result.code    = EmitTransferCode::InvalidArgument;
+        result.message = "emit_payload callback is null";
+        return result;
     }
 
-    *out           = std::move(batch);
-    result.emitted = static_cast<uint32_t>(out->payloads.size());
+    OiioPayloadReplayAdapterState state;
+    state.callbacks = &callbacks;
+
+    PreparedTransferPayloadReplayCallbacks generic_callbacks;
+    generic_callbacks.begin_batch  = oiio_replay_begin_payload;
+    generic_callbacks.emit_payload = oiio_replay_emit_payload;
+    generic_callbacks.end_batch    = oiio_replay_end_payload;
+    generic_callbacks.user         = &state;
+
+    const PreparedTransferPayloadReplayResult replay
+        = replay_prepared_transfer_payload_batch(batch, generic_callbacks);
+
+    OiioTransferPayloadReplayResult result;
+    result.status               = replay.status;
+    result.code                 = replay.code;
+    result.replayed             = replay.replayed;
+    result.failed_payload_index = replay.failed_payload_index;
+    result.message              = replay.message;
     return result;
 }
 

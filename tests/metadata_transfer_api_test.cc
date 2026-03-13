@@ -173,7 +173,7 @@ public:
     add_item(uint32_t item_type,
              std::span<const std::byte> payload) noexcept override
     {
-        calls.push_back({ item_type, payload.size(), false });
+        calls.push_back({ item_type, 0U, 0U, payload.size(), false, false });
         if (fail_after_calls != 0U && calls.size() >= fail_after_calls) {
             return fail_status;
         }
@@ -183,8 +183,31 @@ public:
     openmeta::TransferStatus
     add_mime_xmp_item(std::span<const std::byte> payload) noexcept override
     {
-        calls.push_back(
-            { openmeta::fourcc('m', 'i', 'm', 'e'), payload.size(), true });
+        calls.push_back({ openmeta::fourcc('m', 'i', 'm', 'e'), 0U, 0U,
+                          payload.size(), true, false });
+        if (fail_after_calls != 0U && calls.size() >= fail_after_calls) {
+            return fail_status;
+        }
+        return openmeta::TransferStatus::Ok;
+    }
+
+    openmeta::TransferStatus
+    add_property(uint32_t property_type,
+                 std::span<const std::byte> payload) noexcept override
+    {
+        uint32_t property_subtype = 0U;
+        if (payload.size() >= 4U) {
+            property_subtype
+                = (static_cast<uint32_t>(std::to_integer<uint8_t>(payload[0]))
+                   << 24)
+                  | (static_cast<uint32_t>(std::to_integer<uint8_t>(payload[1]))
+                     << 16)
+                  | (static_cast<uint32_t>(std::to_integer<uint8_t>(payload[2]))
+                     << 8)
+                  | static_cast<uint32_t>(std::to_integer<uint8_t>(payload[3]));
+        }
+        calls.push_back({ 0U, property_type, property_subtype, payload.size(),
+                          false, true });
         if (fail_after_calls != 0U && calls.size() >= fail_after_calls) {
             return fail_status;
         }
@@ -201,9 +224,12 @@ public:
     }
 
     struct Call final {
-        uint32_t item_type = 0U;
-        size_t bytes       = 0U;
-        bool mime_xmp      = false;
+        uint32_t item_type        = 0U;
+        uint32_t property_type    = 0U;
+        uint32_t property_subtype = 0U;
+        size_t bytes              = 0U;
+        bool mime_xmp             = false;
+        bool property             = false;
     };
 
     std::vector<Call> calls;
@@ -221,17 +247,19 @@ public:
             std::span<const std::byte> payload) noexcept override
     {
         Call one;
-        one.kind             = op.kind;
-        one.block_index      = op.block_index;
-        one.payload_size     = payload.size();
-        one.serialized_size  = op.serialized_size;
-        one.jpeg_marker_code = op.jpeg_marker_code;
-        one.tiff_tag         = op.tiff_tag;
-        one.box_type         = op.box_type;
-        one.chunk_type       = op.chunk_type;
-        one.bmff_item_type   = op.bmff_item_type;
-        one.bmff_mime_xmp    = op.bmff_mime_xmp;
-        one.compress         = op.compress;
+        one.kind                  = op.kind;
+        one.block_index           = op.block_index;
+        one.payload_size          = payload.size();
+        one.serialized_size       = op.serialized_size;
+        one.jpeg_marker_code      = op.jpeg_marker_code;
+        one.tiff_tag              = op.tiff_tag;
+        one.box_type              = op.box_type;
+        one.chunk_type            = op.chunk_type;
+        one.bmff_item_type        = op.bmff_item_type;
+        one.bmff_property_type    = op.bmff_property_type;
+        one.bmff_property_subtype = op.bmff_property_subtype;
+        one.bmff_mime_xmp         = op.bmff_mime_xmp;
+        one.compress              = op.compress;
         calls.push_back(one);
         if (fail_after_calls != 0U && calls.size() >= fail_after_calls) {
             return fail_status;
@@ -250,6 +278,8 @@ public:
         std::array<char, 4> box_type   = { '\0', '\0', '\0', '\0' };
         std::array<char, 4> chunk_type = { '\0', '\0', '\0', '\0' };
         uint32_t bmff_item_type        = 0U;
+        uint32_t bmff_property_type    = 0U;
+        uint32_t bmff_property_subtype = 0U;
         bool bmff_mime_xmp             = false;
         bool compress                  = false;
     };
@@ -5585,6 +5615,46 @@ TEST(MetadataTransferApi, PrepareBuildsWebpIccChunk)
     EXPECT_EQ(bundle.blocks[0].payload[0], std::byte { 0x00 });
 }
 
+TEST(MetadataTransferApi, PrepareBuildsBmffIccProperty)
+{
+    openmeta::MetaStore store;
+    const openmeta::BlockId block = store.add_block(openmeta::BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    std::vector<std::byte> icc_tag_bytes(24U, std::byte { 0x55 });
+    openmeta::Entry e;
+    e.key   = openmeta::make_icc_tag_key(0x64657363U);
+    e.value = openmeta::make_bytes(
+        store.arena(),
+        std::span<const std::byte>(icc_tag_bytes.data(), icc_tag_bytes.size()));
+    e.origin.block          = block;
+    e.origin.order_in_block = 0U;
+    ASSERT_NE(store.add_entry(e), openmeta::kInvalidEntryId);
+    store.finalize();
+
+    openmeta::PrepareTransferRequest request;
+    request.target_format      = openmeta::TransferTargetFormat::Heif;
+    request.include_exif_app1  = false;
+    request.include_xmp_app1   = false;
+    request.include_icc_app2   = true;
+    request.include_iptc_app13 = false;
+
+    openmeta::PreparedTransferBundle bundle;
+    const openmeta::PrepareTransferResult result
+        = openmeta::prepare_metadata_for_target(store, request, &bundle);
+
+    EXPECT_EQ(result.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.errors, 0U);
+    ASSERT_EQ(bundle.blocks.size(), 1U);
+    EXPECT_EQ(bundle.blocks[0].kind, openmeta::TransferBlockKind::Icc);
+    EXPECT_EQ(bundle.blocks[0].route, "bmff:property-colr-icc");
+    ASSERT_GE(bundle.blocks[0].payload.size(), 28U);
+    EXPECT_EQ(bundle.blocks[0].payload[0], std::byte { 'p' });
+    EXPECT_EQ(bundle.blocks[0].payload[1], std::byte { 'r' });
+    EXPECT_EQ(bundle.blocks[0].payload[2], std::byte { 'o' });
+    EXPECT_EQ(bundle.blocks[0].payload[3], std::byte { 'f' });
+}
+
 TEST(MetadataTransferApi, PrepareBuildsJpegIptcApp13FromDatasets)
 {
     openmeta::MetaStore store;
@@ -7486,6 +7556,340 @@ TEST(MetadataTransferApi, CollectPreparedTransferPackageViewsForJpeg)
     EXPECT_EQ(views[1].bytes[1], std::byte { 0xE1 });
 }
 
+TEST(MetadataTransferApi, CollectPreparedTransferPayloadViewsForBmff)
+{
+    openmeta::PreparedTransferBundle bundle;
+    bundle.target_format = openmeta::TransferTargetFormat::Heif;
+
+    openmeta::PreparedTransferBlock xmp;
+    xmp.route   = "bmff:item-xmp";
+    xmp.payload = { std::byte { '<' }, std::byte { 'x' } };
+    bundle.blocks.push_back(xmp);
+
+    openmeta::PreparedTransferBlock icc;
+    icc.route   = "bmff:property-colr-icc";
+    icc.payload = { std::byte { 'p' }, std::byte { 'r' }, std::byte { 'o' },
+                    std::byte { 'f' }, std::byte { 0x20 } };
+    bundle.blocks.push_back(icc);
+
+    std::vector<openmeta::PreparedTransferPayloadView> views;
+    const openmeta::EmitTransferResult collected
+        = openmeta::collect_prepared_transfer_payload_views(bundle, &views);
+
+    ASSERT_EQ(collected.status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(views.size(), 2U);
+
+    EXPECT_EQ(views[0].semantic_kind, openmeta::TransferSemanticKind::Xmp);
+    EXPECT_EQ(views[0].semantic_name, "XMP");
+    EXPECT_EQ(views[0].route, "bmff:item-xmp");
+    EXPECT_EQ(views[0].op.kind, openmeta::TransferAdapterOpKind::BmffItem);
+    EXPECT_EQ(views[0].op.bmff_item_type, openmeta::fourcc('m', 'i', 'm', 'e'));
+    EXPECT_TRUE(views[0].op.bmff_mime_xmp);
+    EXPECT_EQ(views[0].payload.data(), bundle.blocks[0].payload.data());
+
+    EXPECT_EQ(views[1].semantic_kind, openmeta::TransferSemanticKind::Icc);
+    EXPECT_EQ(views[1].semantic_name, "ICC");
+    EXPECT_EQ(views[1].route, "bmff:property-colr-icc");
+    EXPECT_EQ(views[1].op.kind, openmeta::TransferAdapterOpKind::BmffProperty);
+    EXPECT_EQ(views[1].op.bmff_property_type,
+              openmeta::fourcc('c', 'o', 'l', 'r'));
+    EXPECT_EQ(views[1].op.bmff_property_subtype,
+              openmeta::fourcc('p', 'r', 'o', 'f'));
+    EXPECT_EQ(views[1].payload.data(), bundle.blocks[1].payload.data());
+}
+
+TEST(MetadataTransferApi, BuildPreparedTransferPayloadBatchOwnsBytes)
+{
+    openmeta::PreparedTransferBundle bundle;
+    bundle.target_format = openmeta::TransferTargetFormat::Jxl;
+
+    openmeta::PreparedTransferBlock jumbf;
+    jumbf.route    = "jxl:box-jumb";
+    jumbf.box_type = { 'j', 'u', 'm', 'b' };
+    jumbf.payload  = { std::byte { 0x10 }, std::byte { 0x11 } };
+    bundle.blocks.push_back(jumbf);
+
+    openmeta::PreparedTransferPayloadBatch batch;
+    const openmeta::EmitTransferResult built
+        = openmeta::build_prepared_transfer_payload_batch(bundle, &batch);
+
+    ASSERT_EQ(built.status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(batch.payloads.size(), 1U);
+    EXPECT_EQ(batch.contract_version, bundle.contract_version);
+    EXPECT_EQ(batch.target_format, bundle.target_format);
+    EXPECT_EQ(batch.payloads[0].semantic_kind,
+              openmeta::TransferSemanticKind::Jumbf);
+    EXPECT_EQ(batch.payloads[0].semantic_name, "JUMBF");
+    EXPECT_EQ(batch.payloads[0].route, "jxl:box-jumb");
+    EXPECT_EQ(batch.payloads[0].payload, bundle.blocks[0].payload);
+    EXPECT_NE(batch.payloads[0].payload.data(),
+              bundle.blocks[0].payload.data());
+
+    bundle.blocks[0].payload[0] = std::byte { 0x7F };
+    EXPECT_EQ(batch.payloads[0].payload[0], std::byte { 0x10 });
+}
+
+TEST(MetadataTransferApi, SerializePreparedTransferPayloadBatchRoundTrip)
+{
+    openmeta::PreparedTransferBundle bundle;
+    bundle.target_format = openmeta::TransferTargetFormat::Heif;
+
+    openmeta::PreparedTransferBlock xmp;
+    xmp.route   = "bmff:item-xmp";
+    xmp.payload = { std::byte { '<' }, std::byte { 'x' } };
+    bundle.blocks.push_back(xmp);
+
+    openmeta::PreparedTransferBlock icc;
+    icc.route   = "bmff:property-colr-icc";
+    icc.payload = { std::byte { 'p' }, std::byte { 'r' }, std::byte { 'o' },
+                    std::byte { 'f' }, std::byte { 0x20 } };
+    bundle.blocks.push_back(icc);
+
+    openmeta::PreparedTransferPayloadBatch batch;
+    ASSERT_EQ(
+        openmeta::build_prepared_transfer_payload_batch(bundle, &batch).status,
+        openmeta::TransferStatus::Ok);
+
+    std::vector<std::byte> encoded;
+    const openmeta::PreparedTransferPayloadIoResult serialized
+        = openmeta::serialize_prepared_transfer_payload_batch(batch, &encoded);
+    ASSERT_EQ(serialized.status, openmeta::TransferStatus::Ok);
+    ASSERT_FALSE(encoded.empty());
+
+    openmeta::PreparedTransferPayloadBatch decoded;
+    const openmeta::PreparedTransferPayloadIoResult parsed
+        = openmeta::deserialize_prepared_transfer_payload_batch(
+            std::span<const std::byte>(encoded.data(), encoded.size()),
+            &decoded);
+    ASSERT_EQ(parsed.status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(decoded.contract_version, batch.contract_version);
+    ASSERT_EQ(decoded.target_format, batch.target_format);
+    ASSERT_EQ(decoded.emit.skip_empty_payloads, batch.emit.skip_empty_payloads);
+    ASSERT_EQ(decoded.emit.stop_on_error, batch.emit.stop_on_error);
+    ASSERT_EQ(decoded.payloads.size(), batch.payloads.size());
+    EXPECT_EQ(decoded.payloads[0].route, batch.payloads[0].route);
+    EXPECT_EQ(decoded.payloads[0].semantic_kind,
+              batch.payloads[0].semantic_kind);
+    EXPECT_EQ(decoded.payloads[0].semantic_name,
+              batch.payloads[0].semantic_name);
+    EXPECT_EQ(decoded.payloads[0].op.kind, batch.payloads[0].op.kind);
+    EXPECT_EQ(decoded.payloads[0].payload, batch.payloads[0].payload);
+    EXPECT_EQ(decoded.payloads[1].route, batch.payloads[1].route);
+    EXPECT_EQ(decoded.payloads[1].semantic_kind,
+              batch.payloads[1].semantic_kind);
+    EXPECT_EQ(decoded.payloads[1].semantic_name,
+              batch.payloads[1].semantic_name);
+    EXPECT_EQ(decoded.payloads[1].op.kind, batch.payloads[1].op.kind);
+    EXPECT_EQ(decoded.payloads[1].payload, batch.payloads[1].payload);
+}
+
+namespace {
+
+    struct PayloadReplayState final {
+        std::vector<std::string> events;
+        uint32_t fail_on_payload = 0xFFFFFFFFU;
+        uint32_t emitted         = 0U;
+    };
+
+    static openmeta::TransferStatus
+    replay_begin_payload_batch(void* user,
+                               openmeta::TransferTargetFormat target,
+                               uint32_t payload_count) noexcept
+    {
+        if (!user) {
+            return openmeta::TransferStatus::InvalidArgument;
+        }
+        PayloadReplayState* state = static_cast<PayloadReplayState*>(user);
+        state->events.push_back("begin:"
+                                + std::to_string(static_cast<uint32_t>(target))
+                                + ":" + std::to_string(payload_count));
+        return openmeta::TransferStatus::Ok;
+    }
+
+    static openmeta::TransferStatus replay_emit_payload(
+        void* user, const openmeta::PreparedTransferPayloadView* view) noexcept
+    {
+        if (!user || !view) {
+            return openmeta::TransferStatus::InvalidArgument;
+        }
+        PayloadReplayState* state = static_cast<PayloadReplayState*>(user);
+        if (state->emitted == state->fail_on_payload) {
+            return openmeta::TransferStatus::Unsupported;
+        }
+        state->events.push_back(std::string("payload:")
+                                + std::string(view->route) + ":"
+                                + std::string(view->semantic_name) + ":"
+                                + std::to_string(view->payload.size()));
+        state->emitted += 1U;
+        return openmeta::TransferStatus::Ok;
+    }
+
+    static openmeta::TransferStatus
+    replay_end_payload_batch(void* user,
+                             openmeta::TransferTargetFormat target) noexcept
+    {
+        if (!user) {
+            return openmeta::TransferStatus::InvalidArgument;
+        }
+        PayloadReplayState* state = static_cast<PayloadReplayState*>(user);
+        state->events.push_back(
+            "end:" + std::to_string(static_cast<uint32_t>(target)));
+        return openmeta::TransferStatus::Ok;
+    }
+
+}  // namespace
+
+TEST(MetadataTransferApi,
+     DeserializePreparedTransferPayloadBatchRejectsBadMagic)
+{
+    openmeta::PreparedTransferBundle bundle;
+    bundle.target_format = openmeta::TransferTargetFormat::Jpeg;
+
+    openmeta::PreparedTransferBlock exif;
+    exif.route   = "jpeg:app1-exif";
+    exif.payload = { std::byte { 0x01 }, std::byte { 0x02 } };
+    bundle.blocks.push_back(exif);
+
+    openmeta::PreparedTransferPayloadBatch batch;
+    ASSERT_EQ(
+        openmeta::build_prepared_transfer_payload_batch(bundle, &batch).status,
+        openmeta::TransferStatus::Ok);
+
+    std::vector<std::byte> encoded;
+    ASSERT_EQ(openmeta::serialize_prepared_transfer_payload_batch(batch,
+                                                                  &encoded)
+                  .status,
+              openmeta::TransferStatus::Ok);
+    ASSERT_GE(encoded.size(), 8U);
+    encoded[0] = std::byte { 0x00 };
+
+    openmeta::PreparedTransferPayloadBatch decoded;
+    const openmeta::PreparedTransferPayloadIoResult parsed
+        = openmeta::deserialize_prepared_transfer_payload_batch(
+            std::span<const std::byte>(encoded.data(), encoded.size()),
+            &decoded);
+    ASSERT_EQ(parsed.status, openmeta::TransferStatus::Malformed);
+    ASSERT_EQ(parsed.code, openmeta::EmitTransferCode::InvalidPayload);
+}
+
+TEST(MetadataTransferApi, CollectPreparedTransferPayloadViewsFromBatch)
+{
+    openmeta::PreparedTransferBundle bundle;
+    bundle.target_format = openmeta::TransferTargetFormat::Webp;
+
+    openmeta::PreparedTransferBlock exif;
+    exif.route   = "webp:chunk-exif";
+    exif.payload = { std::byte { 0x01 }, std::byte { 0x02 } };
+    bundle.blocks.push_back(exif);
+
+    openmeta::PreparedTransferBlock xmp;
+    xmp.route   = "webp:chunk-xmp";
+    xmp.payload = { std::byte { 'x' }, std::byte { 'm' }, std::byte { 'p' } };
+    bundle.blocks.push_back(xmp);
+
+    openmeta::PreparedTransferPayloadBatch batch;
+    ASSERT_EQ(
+        openmeta::build_prepared_transfer_payload_batch(bundle, &batch).status,
+        openmeta::TransferStatus::Ok);
+
+    std::vector<openmeta::PreparedTransferPayloadView> views;
+    const openmeta::EmitTransferResult collected
+        = openmeta::collect_prepared_transfer_payload_views(batch, &views);
+
+    ASSERT_EQ(collected.status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(views.size(), 2U);
+    EXPECT_EQ(views[0].semantic_kind, openmeta::TransferSemanticKind::Exif);
+    EXPECT_EQ(views[0].semantic_name, "Exif");
+    EXPECT_EQ(views[0].route, "webp:chunk-exif");
+    EXPECT_EQ(views[0].op.kind, openmeta::TransferAdapterOpKind::WebpChunk);
+    EXPECT_EQ(views[0].payload.data(), batch.payloads[0].payload.data());
+    EXPECT_EQ(views[1].semantic_kind, openmeta::TransferSemanticKind::Xmp);
+    EXPECT_EQ(views[1].semantic_name, "XMP");
+    EXPECT_EQ(views[1].route, "webp:chunk-xmp");
+    EXPECT_EQ(views[1].op.kind, openmeta::TransferAdapterOpKind::WebpChunk);
+    EXPECT_EQ(views[1].payload.data(), batch.payloads[1].payload.data());
+}
+
+TEST(MetadataTransferApi, ReplayPreparedTransferPayloadBatchInOrder)
+{
+    openmeta::PreparedTransferBundle bundle;
+    bundle.target_format = openmeta::TransferTargetFormat::Jpeg;
+
+    openmeta::PreparedTransferBlock exif;
+    exif.route   = "jpeg:app1-exif";
+    exif.payload = { std::byte { 0x01 }, std::byte { 0x02 } };
+    bundle.blocks.push_back(exif);
+
+    openmeta::PreparedTransferBlock xmp;
+    xmp.route   = "jpeg:app1-xmp";
+    xmp.payload = { std::byte { 'x' }, std::byte { 'm' }, std::byte { 'p' } };
+    bundle.blocks.push_back(xmp);
+
+    openmeta::PreparedTransferPayloadBatch batch;
+    ASSERT_EQ(
+        openmeta::build_prepared_transfer_payload_batch(bundle, &batch).status,
+        openmeta::TransferStatus::Ok);
+
+    PayloadReplayState state;
+    openmeta::PreparedTransferPayloadReplayCallbacks callbacks;
+    callbacks.begin_batch  = replay_begin_payload_batch;
+    callbacks.emit_payload = replay_emit_payload;
+    callbacks.end_batch    = replay_end_payload_batch;
+    callbacks.user         = &state;
+
+    const openmeta::PreparedTransferPayloadReplayResult replay
+        = openmeta::replay_prepared_transfer_payload_batch(batch, callbacks);
+
+    ASSERT_EQ(replay.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(replay.replayed, 2U);
+    ASSERT_EQ(state.events.size(), 4U);
+    EXPECT_EQ(state.events[0], "begin:0:2");
+    EXPECT_EQ(state.events[1], "payload:jpeg:app1-exif:Exif:2");
+    EXPECT_EQ(state.events[2], "payload:jpeg:app1-xmp:XMP:3");
+    EXPECT_EQ(state.events[3], "end:0");
+}
+
+TEST(MetadataTransferApi, ReplayPreparedTransferPayloadBatchReportsFailure)
+{
+    openmeta::PreparedTransferBundle bundle;
+    bundle.target_format = openmeta::TransferTargetFormat::Jpeg;
+
+    openmeta::PreparedTransferBlock exif;
+    exif.route   = "jpeg:app1-exif";
+    exif.payload = { std::byte { 0x01 }, std::byte { 0x02 } };
+    bundle.blocks.push_back(exif);
+
+    openmeta::PreparedTransferBlock xmp;
+    xmp.route   = "jpeg:app1-xmp";
+    xmp.payload = { std::byte { 'x' }, std::byte { 'm' }, std::byte { 'p' } };
+    bundle.blocks.push_back(xmp);
+
+    openmeta::PreparedTransferPayloadBatch batch;
+    ASSERT_EQ(
+        openmeta::build_prepared_transfer_payload_batch(bundle, &batch).status,
+        openmeta::TransferStatus::Ok);
+
+    PayloadReplayState state;
+    state.fail_on_payload = 1U;
+
+    openmeta::PreparedTransferPayloadReplayCallbacks callbacks;
+    callbacks.begin_batch  = replay_begin_payload_batch;
+    callbacks.emit_payload = replay_emit_payload;
+    callbacks.end_batch    = replay_end_payload_batch;
+    callbacks.user         = &state;
+
+    const openmeta::PreparedTransferPayloadReplayResult replay
+        = openmeta::replay_prepared_transfer_payload_batch(batch, callbacks);
+
+    ASSERT_EQ(replay.status, openmeta::TransferStatus::Unsupported);
+    EXPECT_EQ(replay.code, openmeta::EmitTransferCode::BackendWriteFailed);
+    EXPECT_EQ(replay.replayed, 1U);
+    EXPECT_EQ(replay.failed_payload_index, 1U);
+    ASSERT_EQ(state.events.size(), 2U);
+    EXPECT_EQ(state.events[0], "begin:0:2");
+    EXPECT_EQ(state.events[1], "payload:jpeg:app1-exif:Exif:2");
+}
+
 TEST(MetadataTransferApi, CollectPreparedTransferPackageViewsKeepsUnknownChunks)
 {
     openmeta::PreparedTransferPackageBatch batch;
@@ -8048,12 +8452,18 @@ TEST(MetadataTransferApi, CompileBmffPlanKnownRoutes)
     c2pa.payload = { std::byte { 0x03 } };
     bundle.blocks.push_back(c2pa);
 
+    openmeta::PreparedTransferBlock icc;
+    icc.route   = "bmff:property-colr-icc";
+    icc.payload = { std::byte { 'p' }, std::byte { 'r' }, std::byte { 'o' },
+                    std::byte { 'f' }, std::byte { 0x01 } };
+    bundle.blocks.push_back(icc);
+
     openmeta::PreparedBmffEmitPlan plan;
     const openmeta::EmitTransferResult result
         = openmeta::compile_prepared_bundle_bmff(bundle, &plan);
 
     ASSERT_EQ(result.status, openmeta::TransferStatus::Ok);
-    ASSERT_EQ(plan.ops.size(), 4U);
+    ASSERT_EQ(plan.ops.size(), 5U);
     EXPECT_EQ(plan.ops[0].kind, openmeta::PreparedBmffEmitKind::Item);
     EXPECT_EQ(plan.ops[0].item_type, openmeta::fourcc('E', 'x', 'i', 'f'));
     EXPECT_EQ(plan.ops[1].kind, openmeta::PreparedBmffEmitKind::MimeXmp);
@@ -8062,6 +8472,10 @@ TEST(MetadataTransferApi, CompileBmffPlanKnownRoutes)
     EXPECT_EQ(plan.ops[2].item_type, openmeta::fourcc('j', 'u', 'm', 'b'));
     EXPECT_EQ(plan.ops[3].kind, openmeta::PreparedBmffEmitKind::Item);
     EXPECT_EQ(plan.ops[3].item_type, openmeta::fourcc('c', '2', 'p', 'a'));
+    EXPECT_EQ(plan.ops[4].kind, openmeta::PreparedBmffEmitKind::Property);
+    EXPECT_EQ(plan.ops[4].property_type, openmeta::fourcc('c', 'o', 'l', 'r'));
+    EXPECT_EQ(plan.ops[4].property_subtype,
+              openmeta::fourcc('p', 'r', 'o', 'f'));
 }
 
 TEST(MetadataTransferApi, EmitBmffCompiledPlan)
@@ -8079,6 +8493,12 @@ TEST(MetadataTransferApi, EmitBmffCompiledPlan)
     xmp.payload = { std::byte { '<' }, std::byte { 'x' }, std::byte { 'm' } };
     bundle.blocks.push_back(xmp);
 
+    openmeta::PreparedTransferBlock icc;
+    icc.route   = "bmff:property-colr-icc";
+    icc.payload = { std::byte { 'p' }, std::byte { 'r' }, std::byte { 'o' },
+                    std::byte { 'f' }, std::byte { 0x40 } };
+    bundle.blocks.push_back(icc);
+
     openmeta::PreparedBmffEmitPlan plan;
     ASSERT_EQ(openmeta::compile_prepared_bundle_bmff(bundle, &plan).status,
               openmeta::TransferStatus::Ok);
@@ -8087,13 +8507,18 @@ TEST(MetadataTransferApi, EmitBmffCompiledPlan)
     const openmeta::EmitTransferResult result
         = openmeta::emit_prepared_bundle_bmff_compiled(bundle, plan, emitter);
     EXPECT_EQ(result.status, openmeta::TransferStatus::Ok);
-    EXPECT_EQ(result.emitted, 2U);
+    EXPECT_EQ(result.emitted, 3U);
     EXPECT_EQ(emitter.close_calls, 1U);
-    ASSERT_EQ(emitter.calls.size(), 2U);
+    ASSERT_EQ(emitter.calls.size(), 3U);
     EXPECT_EQ(emitter.calls[0].item_type, openmeta::fourcc('E', 'x', 'i', 'f'));
     EXPECT_FALSE(emitter.calls[0].mime_xmp);
     EXPECT_EQ(emitter.calls[1].item_type, openmeta::fourcc('m', 'i', 'm', 'e'));
     EXPECT_TRUE(emitter.calls[1].mime_xmp);
+    EXPECT_TRUE(emitter.calls[2].property);
+    EXPECT_EQ(emitter.calls[2].property_type,
+              openmeta::fourcc('c', 'o', 'l', 'r'));
+    EXPECT_EQ(emitter.calls[2].property_subtype,
+              openmeta::fourcc('p', 'r', 'o', 'f'));
 }
 
 TEST(MetadataTransferApi, BuildPreparedTransferAdapterViewBmff)
@@ -8111,17 +8536,28 @@ TEST(MetadataTransferApi, BuildPreparedTransferAdapterViewBmff)
     xmp.payload = { std::byte { '<' }, std::byte { 'x' } };
     bundle.blocks.push_back(xmp);
 
+    openmeta::PreparedTransferBlock icc;
+    icc.route   = "bmff:property-colr-icc";
+    icc.payload = { std::byte { 'p' }, std::byte { 'r' }, std::byte { 'o' },
+                    std::byte { 'f' }, std::byte { 0x55 } };
+    bundle.blocks.push_back(icc);
+
     openmeta::PreparedTransferAdapterView view;
     ASSERT_EQ(
         openmeta::build_prepared_transfer_adapter_view(bundle, &view).status,
         openmeta::TransferStatus::Ok);
-    ASSERT_EQ(view.ops.size(), 2U);
+    ASSERT_EQ(view.ops.size(), 3U);
     EXPECT_EQ(view.ops[0].kind, openmeta::TransferAdapterOpKind::BmffItem);
     EXPECT_EQ(view.ops[0].bmff_item_type, openmeta::fourcc('E', 'x', 'i', 'f'));
     EXPECT_FALSE(view.ops[0].bmff_mime_xmp);
     EXPECT_EQ(view.ops[1].kind, openmeta::TransferAdapterOpKind::BmffItem);
     EXPECT_EQ(view.ops[1].bmff_item_type, openmeta::fourcc('m', 'i', 'm', 'e'));
     EXPECT_TRUE(view.ops[1].bmff_mime_xmp);
+    EXPECT_EQ(view.ops[2].kind, openmeta::TransferAdapterOpKind::BmffProperty);
+    EXPECT_EQ(view.ops[2].bmff_property_type,
+              openmeta::fourcc('c', 'o', 'l', 'r'));
+    EXPECT_EQ(view.ops[2].bmff_property_subtype,
+              openmeta::fourcc('p', 'r', 'o', 'f'));
 }
 
 TEST(MetadataTransferApi, EmitPreparedTransferAdapterViewBmff)
@@ -8139,6 +8575,12 @@ TEST(MetadataTransferApi, EmitPreparedTransferAdapterViewBmff)
     xmp.payload = { std::byte { '<' } };
     bundle.blocks.push_back(xmp);
 
+    openmeta::PreparedTransferBlock icc;
+    icc.route   = "bmff:property-colr-icc";
+    icc.payload = { std::byte { 'p' }, std::byte { 'r' }, std::byte { 'o' },
+                    std::byte { 'f' }, std::byte { 0x21 } };
+    bundle.blocks.push_back(icc);
+
     openmeta::PreparedTransferAdapterView view;
     ASSERT_EQ(
         openmeta::build_prepared_transfer_adapter_view(bundle, &view).status,
@@ -8148,8 +8590,8 @@ TEST(MetadataTransferApi, EmitPreparedTransferAdapterViewBmff)
     const openmeta::EmitTransferResult result
         = openmeta::emit_prepared_transfer_adapter_view(bundle, view, sink);
     EXPECT_EQ(result.status, openmeta::TransferStatus::Ok);
-    EXPECT_EQ(result.emitted, 2U);
-    ASSERT_EQ(sink.calls.size(), 2U);
+    EXPECT_EQ(result.emitted, 3U);
+    ASSERT_EQ(sink.calls.size(), 3U);
     EXPECT_EQ(sink.calls[0].kind, openmeta::TransferAdapterOpKind::BmffItem);
     EXPECT_EQ(sink.calls[0].bmff_item_type,
               openmeta::fourcc('E', 'x', 'i', 'f'));
@@ -8157,6 +8599,12 @@ TEST(MetadataTransferApi, EmitPreparedTransferAdapterViewBmff)
     EXPECT_EQ(sink.calls[1].bmff_item_type,
               openmeta::fourcc('m', 'i', 'm', 'e'));
     EXPECT_TRUE(sink.calls[1].bmff_mime_xmp);
+    EXPECT_EQ(sink.calls[2].kind,
+              openmeta::TransferAdapterOpKind::BmffProperty);
+    EXPECT_EQ(sink.calls[2].bmff_property_type,
+              openmeta::fourcc('c', 'o', 'l', 'r'));
+    EXPECT_EQ(sink.calls[2].bmff_property_subtype,
+              openmeta::fourcc('p', 'r', 'o', 'f'));
 }
 
 TEST(MetadataTransferApi, EmitPreparedTransferCompiledBmffEmitterUsesBackend)
@@ -8174,20 +8622,26 @@ TEST(MetadataTransferApi, EmitPreparedTransferCompiledBmffEmitterUsesBackend)
     xmp.payload = { std::byte { '<' }, std::byte { 'x' }, std::byte { 'm' } };
     bundle.blocks.push_back(xmp);
 
+    openmeta::PreparedTransferBlock icc;
+    icc.route   = "bmff:property-colr-icc";
+    icc.payload = { std::byte { 'p' }, std::byte { 'r' }, std::byte { 'o' },
+                    std::byte { 'f' }, std::byte { 0x7F } };
+    bundle.blocks.push_back(icc);
+
     openmeta::PreparedTransferExecutionPlan plan;
     ASSERT_EQ(
         openmeta::compile_prepared_transfer_execution(bundle, {}, &plan).status,
         openmeta::TransferStatus::Ok);
     ASSERT_EQ(plan.target_format, openmeta::TransferTargetFormat::Avif);
-    ASSERT_EQ(plan.bmff_emit.ops.size(), 2U);
+    ASSERT_EQ(plan.bmff_emit.ops.size(), 3U);
 
     FakeBmffEmitter emitter;
     const openmeta::ExecutePreparedTransferResult result
         = openmeta::emit_prepared_transfer_compiled(&bundle, plan, emitter);
     EXPECT_EQ(result.compile.status, openmeta::TransferStatus::Ok);
     EXPECT_EQ(result.emit.status, openmeta::TransferStatus::Ok);
-    EXPECT_EQ(result.emit.emitted, 2U);
-    EXPECT_EQ(result.compiled_ops, 2U);
+    EXPECT_EQ(result.emit.emitted, 3U);
+    EXPECT_EQ(result.compiled_ops, 3U);
     EXPECT_EQ(emitter.close_calls, 1U);
     ASSERT_EQ(result.bmff_item_summary.size(), 2U);
     EXPECT_EQ(result.bmff_item_summary[0].item_type,
@@ -8196,6 +8650,11 @@ TEST(MetadataTransferApi, EmitPreparedTransferCompiledBmffEmitterUsesBackend)
     EXPECT_EQ(result.bmff_item_summary[1].item_type,
               openmeta::fourcc('m', 'i', 'm', 'e'));
     EXPECT_TRUE(result.bmff_item_summary[1].mime_xmp);
+    ASSERT_EQ(result.bmff_property_summary.size(), 1U);
+    EXPECT_EQ(result.bmff_property_summary[0].property_type,
+              openmeta::fourcc('c', 'o', 'l', 'r'));
+    EXPECT_EQ(result.bmff_property_summary[0].property_subtype,
+              openmeta::fourcc('p', 'r', 'o', 'f'));
 }
 
 TEST(MetadataTransferApi, EmitCompiledRejectsPlanMismatch)

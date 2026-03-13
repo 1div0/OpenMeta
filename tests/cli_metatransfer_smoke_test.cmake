@@ -14,6 +14,7 @@ file(REMOVE_RECURSE "${WORK_DIR}")
 file(MAKE_DIRECTORY "${WORK_DIR}")
 
 set(_jpg "${WORK_DIR}/sample.jpg")
+set(_icc_jpg "${WORK_DIR}/sample_icc.jpg")
 set(_target_jpg "${WORK_DIR}/target.jpg")
 set(_dump_dir "${WORK_DIR}/payloads")
 set(_edited_jpg "${WORK_DIR}/edited.jpg")
@@ -31,6 +32,7 @@ set(_signed_c2pa_chain "${WORK_DIR}/signed_c2pa_chain.bin")
 set(_c2pa_binding_out "${WORK_DIR}/sample_c2pa.binding.bin")
 set(_c2pa_handoff_out "${WORK_DIR}/sample_c2pa.handoff.bin")
 set(_signed_c2pa_package_out "${WORK_DIR}/sample_c2pa.signed.bin")
+set(_transfer_payload_batch_out "${WORK_DIR}/sample.payload_batch.omtpld")
 set(_signed_c2pa_edited "${WORK_DIR}/signed_c2pa_edited.jpg")
 set(_signed_c2pa_from_package "${WORK_DIR}/signed_c2pa_from_package.jpg")
 set(_split_tif_rich "${WORK_DIR}/split_rich.tif")
@@ -51,6 +53,18 @@ execute_process(
 if(NOT _rv_write EQUAL 0)
   message(FATAL_ERROR
     "failed to write metatransfer fixture (${_rv_write})\nstdout:\n${_out_write}\nstderr:\n${_err_write}")
+endif()
+
+execute_process(
+  COMMAND python3 -c
+    "from pathlib import Path; p=bytearray(156); p[0:4]=(156).to_bytes(4,'big'); p[36:40]=b'acsp'; p[128:132]=(1).to_bytes(4,'big'); p[132:136]=b'desc'; p[136:140]=(144).to_bytes(4,'big'); p[140:144]=(12).to_bytes(4,'big'); p[144:156]=bytes([0x11])*12; app2=b'ICC_PROFILE\\x00\\x01\\x01'+bytes(p); ln=(len(app2)+2).to_bytes(2,'big'); jpg=b'\\xFF\\xD8\\xFF\\xE2'+ln+app2+b'\\xFF\\xD9'; Path(r'''${_icc_jpg}''').write_bytes(jpg)"
+  RESULT_VARIABLE _rv_write_icc
+  OUTPUT_VARIABLE _out_write_icc
+  ERROR_VARIABLE _err_write_icc
+)
+if(NOT _rv_write_icc EQUAL 0)
+  message(FATAL_ERROR
+    "failed to write icc jpeg fixture (${_rv_write_icc})\nstdout:\n${_out_write_icc}\nstderr:\n${_err_write_icc}")
 endif()
 
 #Minimal metadata - free JPEG target(SOI + EOI)
@@ -527,6 +541,27 @@ endif()
 
 execute_process(
   COMMAND "${METATRANSFER_BIN}" --no-build-info
+          --dump-transfer-payload-batch "${_transfer_payload_batch_out}"
+          --force
+          "${_jpg}"
+  RESULT_VARIABLE _rv_payload_batch
+  OUTPUT_VARIABLE _out_payload_batch
+  ERROR_VARIABLE _err_payload_batch
+)
+if(NOT _rv_payload_batch EQUAL 0)
+  message(FATAL_ERROR
+    "metatransfer payload batch dump failed (${_rv_payload_batch})\nstdout:\n${_out_payload_batch}\nstderr:\n${_err_payload_batch}")
+endif()
+if(NOT _out_payload_batch MATCHES "transfer_payload_batch: status=ok code=none bytes=[0-9]+ errors=0 path=")
+  message(FATAL_ERROR
+    "metatransfer payload batch dump missing summary\nstdout:\n${_out_payload_batch}\nstderr:\n${_err_payload_batch}")
+endif()
+if(NOT EXISTS "${_transfer_payload_batch_out}")
+  message(FATAL_ERROR "expected transfer payload batch dump was not written")
+endif()
+
+execute_process(
+  COMMAND "${METATRANSFER_BIN}" --no-build-info
           --no-exif --no-xmp --no-icc --no-iptc
           --c2pa-policy rewrite
           --dump-c2pa-binding "${_c2pa_binding_out}"
@@ -905,6 +940,26 @@ endif()
 if(NOT _out_heif MATCHES "bmff_item Exif count=1")
   message(FATAL_ERROR
     "metatransfer heif emit summary missing Exif item summary\nstdout:\n${_out_heif}\nstderr:\n${_err_heif}")
+endif()
+
+execute_process(
+  COMMAND "${METATRANSFER_BIN}" --no-build-info
+          --target-heif
+          --no-exif
+          --no-xmp
+          --no-iptc
+          "${_icc_jpg}"
+  RESULT_VARIABLE _rv_heif_icc
+  OUTPUT_VARIABLE _out_heif_icc
+  ERROR_VARIABLE _err_heif_icc
+)
+if(NOT _rv_heif_icc EQUAL 0)
+  message(FATAL_ERROR
+    "metatransfer heif icc summary failed (${_rv_heif_icc})\nstdout:\n${_out_heif_icc}\nstderr:\n${_err_heif_icc}")
+endif()
+if(NOT _out_heif_icc MATCHES "bmff_property colr/prof count=1")
+  message(FATAL_ERROR
+    "metatransfer heif icc summary missing colr/prof property\nstdout:\n${_out_heif_icc}\nstderr:\n${_err_heif_icc}")
 endif()
 
 execute_process(

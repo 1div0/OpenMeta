@@ -103,6 +103,30 @@ struct OiioTransferPayloadBatch final {
     std::vector<OiioTransferPayload> payloads;
 };
 
+/// Replay callbacks for \ref replay_oiio_transfer_payload_batch.
+struct OiioTransferPayloadReplayCallbacks final {
+    TransferStatus (*begin_batch)(void* user,
+                                  TransferTargetFormat target_format,
+                                  uint32_t payload_count) noexcept
+        = nullptr;
+    TransferStatus (*emit_payload)(void* user,
+                                   const OiioTransferPayloadView* view) noexcept
+        = nullptr;
+    TransferStatus (*end_batch)(void* user,
+                                TransferTargetFormat target_format) noexcept
+        = nullptr;
+    void* user = nullptr;
+};
+
+/// Result for OIIO payload-batch replay.
+struct OiioTransferPayloadReplayResult final {
+    TransferStatus status         = TransferStatus::Ok;
+    EmitTransferCode code         = EmitTransferCode::None;
+    uint32_t replayed             = 0;
+    uint32_t failed_payload_index = std::numeric_limits<uint32_t>::max();
+    std::string message;
+};
+
 /// One zero-copy packaged transfer view for OIIO-style hosts.
 struct OiioTransferPackageView final {
     OiioTransferPayloadKind semantic_kind = OiioTransferPayloadKind::Unknown;
@@ -244,6 +268,30 @@ build_oiio_transfer_payload_batch(const PreparedTransferBundle& bundle,
                                   OiioTransferPayloadBatch* out,
                                   const EmitTransferOptions& options
                                   = EmitTransferOptions {}) noexcept;
+
+/**
+ * \brief Builds one zero-copy OIIO-facing payload view list from a persisted
+ *        transfer payload batch.
+ *
+ * The returned views borrow route strings and payload bytes from \p batch.
+ */
+EmitTransferResult
+collect_oiio_transfer_payload_views(
+    const PreparedTransferPayloadBatch& batch,
+    std::vector<OiioTransferPayloadView>* out) noexcept;
+
+/**
+ * \brief Replays one persisted transfer payload batch through explicit host
+ *        callbacks.
+ *
+ * \ref OiioTransferPayloadReplayCallbacks::emit_payload must be non-null.
+ * \ref OiioTransferPayloadReplayCallbacks::begin_batch and
+ * \ref OiioTransferPayloadReplayCallbacks::end_batch are optional.
+ */
+OiioTransferPayloadReplayResult
+replay_oiio_transfer_payload_batch(
+    const PreparedTransferPayloadBatch& batch,
+    const OiioTransferPayloadReplayCallbacks& callbacks) noexcept;
 
 /**
  * \brief Builds one zero-copy OIIO-facing package view list from a persisted

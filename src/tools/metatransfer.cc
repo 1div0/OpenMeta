@@ -72,6 +72,8 @@ namespace {
             "                         Write one persisted signed C2PA package from current signer inputs\n"
             "  --load-c2pa-signed-package <path>\n"
             "                         Load one persisted signed C2PA package for staging\n"
+            "  --dump-transfer-payload-batch <path>\n"
+            "                         Write one persisted semantic transfer payload batch\n"
             "  --no-decompress        Disable payload decompression in read phase\n"
             "  --unsafe-write-payloads\n"
             "                         Write prepared raw block payload bytes to files\n"
@@ -868,19 +870,31 @@ namespace {
         return std::string(type.data(), type.size());
     }
 
+    static std::string bmff_fourcc_name(uint32_t v) noexcept
+    {
+        char out[5];
+        out[0] = static_cast<char>((v >> 24) & 0xFFU);
+        out[1] = static_cast<char>((v >> 16) & 0xFFU);
+        out[2] = static_cast<char>((v >> 8) & 0xFFU);
+        out[3] = static_cast<char>(v & 0xFFU);
+        out[4] = '\0';
+        return std::string(out, 4U);
+    }
+
     static std::string bmff_item_name(uint32_t item_type,
                                       bool mime_xmp) noexcept
     {
         if (mime_xmp) {
             return "mime/xmp";
         }
-        char out[5];
-        out[0] = static_cast<char>((item_type >> 24) & 0xFFU);
-        out[1] = static_cast<char>((item_type >> 16) & 0xFFU);
-        out[2] = static_cast<char>((item_type >> 8) & 0xFFU);
-        out[3] = static_cast<char>(item_type & 0xFFU);
-        out[4] = '\0';
-        return std::string(out, 4U);
+        return bmff_fourcc_name(item_type);
+    }
+
+    static std::string bmff_property_name(uint32_t property_type,
+                                          uint32_t property_subtype) noexcept
+    {
+        return bmff_fourcc_name(property_type) + "/"
+               + bmff_fourcc_name(property_subtype);
     }
 
     static bool target_format_is_bmff(TransferTargetFormat format) noexcept
@@ -926,6 +940,7 @@ main(int argc, char** argv)
     std::string c2pa_handoff_output_path;
     std::string c2pa_signed_package_output_path;
     std::string c2pa_signed_package_input_path;
+    std::string transfer_payload_batch_output_path;
     std::string output_path;
     std::vector<std::string> input_paths;
     std::vector<PendingTimePatch> pending_time_patches;
@@ -1109,6 +1124,12 @@ main(int argc, char** argv)
             && i + 1 < argc) {
             c2pa_signed_package_input_path = argv[i + 1];
             c2pa_stage_requested           = true;
+            i += 1;
+            continue;
+        }
+        if (std::strcmp(arg, "--dump-transfer-payload-batch") == 0
+            && i + 1 < argc) {
+            transfer_payload_batch_output_path = argv[i + 1];
             i += 1;
             continue;
         }
@@ -1332,6 +1353,13 @@ main(int argc, char** argv)
             "C2PA package options support exactly one input path per run\n");
         return 2;
     }
+    if (!transfer_payload_batch_output_path.empty()
+        && input_paths.size() != 1U) {
+        std::fprintf(
+            stderr,
+            "--dump-transfer-payload-batch supports exactly one input path per run\n");
+        return 2;
+    }
     const uint32_t target_count
         = static_cast<uint32_t>(!target_jpeg_path.empty())
           + static_cast<uint32_t>(!target_tiff_path.empty())
@@ -1470,11 +1498,14 @@ main(int argc, char** argv)
         PreparedTransferC2paSignedPackage c2pa_signed_package;
         PreparedTransferC2paPackageIoResult c2pa_handoff_io;
         PreparedTransferC2paPackageIoResult c2pa_signed_package_io;
-        bool did_append_jumbf             = false;
-        bool did_stage_c2pa               = false;
-        bool did_dump_c2pa_binding        = false;
-        bool did_dump_c2pa_handoff        = false;
-        bool did_dump_c2pa_signed_package = false;
+        PreparedTransferPayloadBatch transfer_payload_batch;
+        PreparedTransferPayloadIoResult transfer_payload_batch_io;
+        bool did_append_jumbf                = false;
+        bool did_stage_c2pa                  = false;
+        bool did_dump_c2pa_binding           = false;
+        bool did_dump_c2pa_handoff           = false;
+        bool did_dump_c2pa_signed_package    = false;
+        bool did_dump_transfer_payload_batch = false;
         if (prepared.file_status == TransferFileStatus::Ok
             && prepared.prepare.status == TransferStatus::Ok
             && !jpeg_jumbf_path.empty()) {
@@ -1692,6 +1723,50 @@ main(int argc, char** argv)
                     c2pa_signed_package_io.message
                         = "failed to write signed c2pa package output";
                     c2pa_signed_package_io.bytes = 0U;
+                }
+            }
+        }
+        if (prepared.file_status == TransferFileStatus::Ok
+            && !transfer_payload_batch_output_path.empty()) {
+            did_dump_transfer_payload_batch = true;
+            const EmitTransferResult payload_batch_status
+                = build_prepared_transfer_payload_batch(prepared.bundle,
+                                                        &transfer_payload_batch);
+            if (payload_batch_status.status != TransferStatus::Ok) {
+                transfer_payload_batch_io.status = payload_batch_status.status;
+                transfer_payload_batch_io.code   = payload_batch_status.code;
+                transfer_payload_batch_io.errors = payload_batch_status.errors;
+                transfer_payload_batch_io.message = payload_batch_status.message;
+            } else {
+                std::vector<std::byte> payload_batch_bytes;
+                transfer_payload_batch_io
+                    = serialize_prepared_transfer_payload_batch(
+                        transfer_payload_batch, &payload_batch_bytes);
+                if (transfer_payload_batch_io.status == TransferStatus::Ok) {
+                    if (!force
+                        && file_exists(transfer_payload_batch_output_path)) {
+                        transfer_payload_batch_io.status
+                            = TransferStatus::InvalidArgument;
+                        transfer_payload_batch_io.code
+                            = EmitTransferCode::InvalidArgument;
+                        transfer_payload_batch_io.errors = 1U;
+                        transfer_payload_batch_io.message
+                            = "transfer payload batch output exists (use --force)";
+                        transfer_payload_batch_io.bytes = 0U;
+                    } else if (!write_file_bytes(
+                                   transfer_payload_batch_output_path,
+                                   std::span<const std::byte>(
+                                       payload_batch_bytes.data(),
+                                       payload_batch_bytes.size()))) {
+                        transfer_payload_batch_io.status
+                            = TransferStatus::InternalError;
+                        transfer_payload_batch_io.code
+                            = EmitTransferCode::BackendWriteFailed;
+                        transfer_payload_batch_io.errors = 1U;
+                        transfer_payload_batch_io.message
+                            = "failed to write transfer payload batch output";
+                        transfer_payload_batch_io.bytes = 0U;
+                    }
                 }
             }
         }
@@ -2021,6 +2096,19 @@ main(int argc, char** argv)
                             c2pa_signed_package_io.message.c_str());
             }
         }
+        if (did_dump_transfer_payload_batch) {
+            std::printf(
+                "  transfer_payload_batch: status=%s code=%s bytes=%llu errors=%u path=%s\n",
+                transfer_status_name(transfer_payload_batch_io.status),
+                emit_transfer_code_name(transfer_payload_batch_io.code),
+                static_cast<unsigned long long>(transfer_payload_batch_io.bytes),
+                transfer_payload_batch_io.errors,
+                transfer_payload_batch_output_path.c_str());
+            if (!transfer_payload_batch_io.message.empty()) {
+                std::printf("  transfer_payload_batch_message=%s\n",
+                            transfer_payload_batch_io.message.c_str());
+            }
+        }
 
         if (prepared.file_status != TransferFileStatus::Ok
             || (prepared.prepare.status != TransferStatus::Ok
@@ -2029,7 +2117,10 @@ main(int argc, char** argv)
                 && (!did_dump_c2pa_binding
                     || c2pa_handoff.binding.status != TransferStatus::Ok)
                 && (!did_dump_c2pa_handoff
-                    || c2pa_handoff_io.status != TransferStatus::Ok))) {
+                    || c2pa_handoff_io.status != TransferStatus::Ok)
+                && (!did_dump_transfer_payload_batch
+                    || transfer_payload_batch_io.status
+                           != TransferStatus::Ok))) {
             any_failed = true;
             continue;
         }
@@ -2062,13 +2153,20 @@ main(int argc, char** argv)
             any_failed = true;
             continue;
         }
+        if (did_dump_transfer_payload_batch
+            && transfer_payload_batch_io.status != TransferStatus::Ok) {
+            any_failed = true;
+            continue;
+        }
         if (prepared.prepare.status != TransferStatus::Ok
             && (!did_stage_c2pa
                 || c2pa_stage_result.status != TransferStatus::Ok)
             && ((did_dump_c2pa_binding
                  && c2pa_handoff.binding.status == TransferStatus::Ok)
                 || (did_dump_c2pa_handoff
-                    && c2pa_handoff_io.status == TransferStatus::Ok))
+                    && c2pa_handoff_io.status == TransferStatus::Ok)
+                || (did_dump_transfer_payload_batch
+                    && transfer_payload_batch_io.status == TransferStatus::Ok))
             && !exec_options.edit_requested) {
             continue;
         }
@@ -2471,6 +2569,16 @@ main(int argc, char** argv)
                 const EmittedBmffItemSummary& one = exec.bmff_item_summary[bi];
                 std::printf("  bmff_item %s count=%u bytes=%llu\n",
                             bmff_item_name(one.item_type, one.mime_xmp).c_str(),
+                            one.count,
+                            static_cast<unsigned long long>(one.bytes));
+            }
+            for (size_t bi = 0; bi < exec.bmff_property_summary.size(); ++bi) {
+                const EmittedBmffPropertySummary& one
+                    = exec.bmff_property_summary[bi];
+                std::printf("  bmff_property %s count=%u bytes=%llu\n",
+                            bmff_property_name(one.property_type,
+                                               one.property_subtype)
+                                .c_str(),
                             one.count,
                             static_cast<unsigned long long>(one.bytes));
             }

@@ -18,6 +18,7 @@ file(REMOVE_RECURSE "${WORK_DIR}")
 file(MAKE_DIRECTORY "${WORK_DIR}")
 
 set(_src_jpg "${WORK_DIR}/source.jpg")
+set(_src_icc_jpg "${WORK_DIR}/source_icc.jpg")
 set(_target_jpg "${WORK_DIR}/target.jpg")
 set(_edited_jpg "${WORK_DIR}/edited.jpg")
 set(_target_tif "${WORK_DIR}/target.tif")
@@ -28,6 +29,7 @@ set(_c2pa_manifest "${WORK_DIR}/manifest.cbor")
 set(_c2pa_cert "${WORK_DIR}/cert.der")
 set(_c2pa_handoff "${WORK_DIR}/handoff.omc2ph")
 set(_c2pa_signed_package "${WORK_DIR}/signed_package.omc2ps")
+set(_transfer_payload_batch "${WORK_DIR}/payload_batch.omtpld")
 set(_c2pa_from_package "${WORK_DIR}/edited_from_package.jpg")
 set(_check_tiff_py "${WORK_DIR}/check_tiff.py")
 
@@ -41,6 +43,18 @@ execute_process(
 if(NOT _rv_src EQUAL 0)
   message(FATAL_ERROR
     "failed to write python metatransfer source fixture (${_rv_src})\nstdout:\n${_out_src}\nstderr:\n${_err_src}")
+endif()
+
+execute_process(
+  COMMAND "${OPENMETA_PYTHON_EXECUTABLE}" -c
+    "from pathlib import Path; p=bytearray(156); p[0:4]=(156).to_bytes(4,'big'); p[36:40]=b'acsp'; p[128:132]=(1).to_bytes(4,'big'); p[132:136]=b'desc'; p[136:140]=(144).to_bytes(4,'big'); p[140:144]=(12).to_bytes(4,'big'); p[144:156]=bytes([0x11])*12; app2=b'ICC_PROFILE\\x00\\x01\\x01'+bytes(p); ln=(len(app2)+2).to_bytes(2,'big'); Path(r'''${_src_icc_jpg}''').write_bytes(b'\\xFF\\xD8\\xFF\\xE2'+ln+app2+b'\\xFF\\xD9')"
+  RESULT_VARIABLE _rv_src_icc
+  OUTPUT_VARIABLE _out_src_icc
+  ERROR_VARIABLE _err_src_icc
+)
+if(NOT _rv_src_icc EQUAL 0)
+  message(FATAL_ERROR
+    "failed to write python metatransfer icc source fixture (${_rv_src_icc})\nstdout:\n${_out_src_icc}\nstderr:\n${_err_src_icc}")
 endif()
 
 execute_process(
@@ -292,6 +306,53 @@ endif()
 if(NOT _out_avif MATCHES "bmff_item Exif count=1")
   message(FATAL_ERROR
     "python metatransfer avif summary missing Exif item summary\nstdout:\n${_out_avif}\nstderr:\n${_err_avif}")
+endif()
+
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env
+          "PYTHONPATH=${OPENMETA_PYTHONPATH}"
+          "${OPENMETA_PYTHON_EXECUTABLE}" -m openmeta.python.metatransfer
+          --no-build-info
+          --target-avif
+          --no-exif
+          --no-xmp
+          --no-iptc
+          "${_src_icc_jpg}"
+  RESULT_VARIABLE _rv_avif_icc
+  OUTPUT_VARIABLE _out_avif_icc
+  ERROR_VARIABLE _err_avif_icc
+)
+if(NOT _rv_avif_icc EQUAL 0)
+  message(FATAL_ERROR
+    "python metatransfer avif icc summary failed (${_rv_avif_icc})\nstdout:\n${_out_avif_icc}\nstderr:\n${_err_avif_icc}")
+endif()
+if(NOT _out_avif_icc MATCHES "bmff_property colr/prof count=1")
+  message(FATAL_ERROR
+    "python metatransfer avif icc summary missing colr/prof property\nstdout:\n${_out_avif_icc}\nstderr:\n${_err_avif_icc}")
+endif()
+
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env
+          "PYTHONPATH=${OPENMETA_PYTHONPATH}"
+          "${OPENMETA_PYTHON_EXECUTABLE}" -m openmeta.python.metatransfer
+          --no-build-info
+          --dump-transfer-payload-batch "${_transfer_payload_batch}"
+          "${_src_jpg}"
+  RESULT_VARIABLE _rv_payload_batch
+  OUTPUT_VARIABLE _out_payload_batch
+  ERROR_VARIABLE _err_payload_batch
+)
+if(NOT _rv_payload_batch EQUAL 0)
+  message(FATAL_ERROR
+    "python metatransfer payload batch dump failed (${_rv_payload_batch})\nstdout:\n${_out_payload_batch}\nstderr:\n${_err_payload_batch}")
+endif()
+if(NOT _out_payload_batch MATCHES "transfer_payload_batch: status=ok")
+  message(FATAL_ERROR
+    "python metatransfer payload batch dump missing status ok\nstdout:\n${_out_payload_batch}\nstderr:\n${_err_payload_batch}")
+endif()
+if(NOT EXISTS "${_transfer_payload_batch}")
+  message(FATAL_ERROR
+    "python metatransfer payload batch dump did not write output\nstdout:\n${_out_payload_batch}\nstderr:\n${_err_payload_batch}")
 endif()
 
 execute_process(

@@ -140,6 +140,9 @@ Portable sidecar note:
   --c2pa-signing-time 2026-03-09T00:00:00Z \
   -o output.jpg input_with_c2pa.jpg
 
+#Persist the semantic transfer payload batch for cross-process handoff
+./build/metatransfer --dump-transfer-payload-batch payloads.omtpld input.jpg
+
 #Plan edit strategy without writing output
 ./build/metatransfer --mode auto --dry-run input.jpg
 
@@ -234,11 +237,15 @@ Current v1 behavior is:
     `HEIF` / `AVIF` / `CR3` targets:
     - `prepare_metadata_for_target(..., TransferTargetFormat::{Heif,Avif,Cr3}, ...)`
       currently builds `bmff:item-exif`, `bmff:item-xmp`, bounded
-      `bmff:item-jumb`, and bounded `bmff:item-c2pa` payloads
+      `bmff:item-jumb`, bounded `bmff:item-c2pa`, and
+      `bmff:property-colr-icc` payloads
     - EXIF is prepared as a BMFF item payload with the 4-byte big-endian
       TIFF-offset prefix plus full `Exif\0\0` bytes
     - IPTC requested for BMFF is projected into `bmff:item-xmp`; OpenMeta
       does not create a raw IPTC-IIM BMFF carrier
+    - ICC requested for BMFF uses the bounded property path:
+      `bmff:property-colr-icc` carries `u32be('prof') + <icc-profile>` as the
+      payload bytes for a `colr` property, not a BMFF metadata item
     - file-based prepare can preserve source generic JUMBF payloads and raw
       OpenMeta draft C2PA invalidation payloads as BMFF metadata items
     - store-only prepare can project decoded non-C2PA `JumbfCborKey` roots
@@ -247,11 +254,14 @@ Current v1 behavior is:
       `emit_prepared_bundle_bmff(...)`,
       `emit_prepared_bundle_bmff_compiled(...)`, and
       `emit_prepared_transfer_compiled(..., BmffTransferEmitter&)` provide
-      the reusable item-emitter path
+      the reusable item/property-emitter path
     - the shared package-batch persistence/replay layer can own and hand off
-      those stable BMFF item payload bytes
-    - full BMFF file rewrite/edit, BMFF ICC/property packaging, and signed
-      C2PA rewrite remain follow-up work
+      those stable BMFF item and property payload bytes
+    - CLI/Python `metatransfer` wrappers expose this bounded path as
+      summary-only BMFF output, including `bmff_property colr/prof ...`
+      summaries
+    - full BMFF file rewrite/edit and signed C2PA rewrite remain follow-up
+      work
   - `TransferProfile` now uses explicit `TransferPolicyAction` values for
     `makernote`, `jumbf`, and `c2pa`.
   - `PreparedTransferBundle::policy_decisions` records the resolved per-family
@@ -776,6 +786,7 @@ PYTHONPATH=build-py/python python3 -m openmeta.python.metatransfer --jpeg-c2pa-s
 PYTHONPATH=build-py/python python3 -m openmeta.python.metatransfer --c2pa-policy rewrite --dump-c2pa-handoff handoff.omc2ph input_with_c2pa.jpg
 PYTHONPATH=build-py/python python3 -m openmeta.python.metatransfer --jpeg-c2pa-signed signed_c2pa.jumb --c2pa-manifest-output manifest.bin --c2pa-certificate-chain chain.bin --c2pa-key-ref signer-key --c2pa-signing-time 2026-03-09T00:00:00Z --dump-c2pa-signed-package signed.omc2ps input_with_c2pa.jpg
 PYTHONPATH=build-py/python python3 -m openmeta.python.metatransfer --load-c2pa-signed-package signed.omc2ps --target-jpeg target.jpg -o edited.jpg input_with_c2pa.jpg
+PYTHONPATH=build-py/python python3 -m openmeta.python.metatransfer --dump-transfer-payload-batch payloads.omtpld input.jpg
 ```
 
 ## Python Wheel
@@ -861,6 +872,12 @@ Current C++ adapter entry points:
     `build_oiio_transfer_payload_batch(...)`
     copies that same payload contract into one stable owned batch for caching
     or cross-layer handoff
+  - persisted payload bridge:
+    `collect_oiio_transfer_payload_views(const PreparedTransferPayloadBatch&, ...)`
+    and `replay_oiio_transfer_payload_batch(...)`
+    consume the same semantic payload contract after
+    `serialize_prepared_transfer_payload_batch(...)` /
+    `deserialize_prepared_transfer_payload_batch(...)`
 - `openmeta/exr_adapter.h`:
   - `build_exr_attribute_batch(...)`
     exports one owned EXR-native attribute batch from `MetaStore`
@@ -996,6 +1013,14 @@ Draft C++ transfer entry points (prepare/emit scaffold):
   - `serialize_prepared_transfer_package_batch(...)` and
     `deserialize_prepared_transfer_package_batch(...)` persist that owned
     batch for cross-process or cross-layer replay.
+  - `collect_prepared_transfer_payload_views(...)` and
+    `build_prepared_transfer_payload_batch(...)` provide the matching
+    target-neutral semantic surface one level earlier, directly over prepared
+    bundles.
+  - `serialize_prepared_transfer_payload_batch(...)` and
+    `deserialize_prepared_transfer_payload_batch(...)` persist that semantic
+    payload batch when a host wants cross-process handoff before final package
+    materialization.
   - `collect_prepared_transfer_package_views(...)` is the target-neutral
     semantic view above that persisted batch. It exposes semantic package
     chunks (`Exif`, `Xmp`, `Icc`, `Iptc`, `Jumbf`, `C2pa`, or `Unknown`)
@@ -1006,6 +1031,10 @@ Draft C++ transfer entry points (prepare/emit scaffold):
     that persisted batch: it now maps the target-neutral semantic package view
     into OIIO-oriented names, so the host no longer depends on the original
     prepared bundle lifetime or route parsing.
+  - `collect_oiio_transfer_payload_views(...)` and
+    `build_oiio_transfer_payload_batch(...)` now sit on top of the generic
+    semantic payload layer rather than re-classifying prepared blocks inside
+    the OIIO adapter.
   - `replay_oiio_transfer_package_batch(...)` is the higher-level consume path
     above that same persisted batch, replaying semantic package chunks through
     explicit host callbacks in deterministic output order.

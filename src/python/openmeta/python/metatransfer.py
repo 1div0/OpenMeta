@@ -101,6 +101,16 @@ def _bmff_item_name(item_type: int, mime_xmp: bool) -> str:
     return "".join(chr((item_type >> shift) & 0xFF) for shift in (24, 16, 8, 0))
 
 
+def _bmff_property_name(property_type: int, property_subtype: int) -> str:
+    return (
+        "".join(chr((property_type >> shift) & 0xFF) for shift in (24, 16, 8, 0))
+        + "/"
+        + "".join(
+            chr((property_subtype >> shift) & 0xFF) for shift in (24, 16, 8, 0)
+        )
+    )
+
+
 def _sanitize_filename(s: str) -> str:
     out = []
     for ch in s:
@@ -182,6 +192,7 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--dump-c2pa-handoff", type=str, default="", help="write one persisted C2PA handoff package")
     ap.add_argument("--dump-c2pa-signed-package", type=str, default="", help="write one persisted signed C2PA package")
     ap.add_argument("--load-c2pa-signed-package", type=str, default="", help="load one persisted signed C2PA package for staging")
+    ap.add_argument("--dump-transfer-payload-batch", type=str, default="", help="write one persisted semantic transfer payload batch")
     ap.add_argument("-o", "--output", type=str, default="", help="write edited output file")
     ap.add_argument("--dry-run", action="store_true", help="plan edit only; do not write output")
     ap.add_argument("--force", action="store_true", help="overwrite existing payload files")
@@ -284,6 +295,8 @@ def main(argv: list[str]) -> int:
         or args.load_c2pa_signed_package
     ) and len(input_paths) != 1:
         ap.error("C2PA package options support exactly one input path per run")
+    if args.dump_transfer_payload_batch and len(input_paths) != 1:
+        ap.error("--dump-transfer-payload-batch supports exactly one input path per run")
     if args.load_c2pa_signed_package and (
         args.jpeg_c2pa_signed
         or args.c2pa_manifest_output
@@ -357,6 +370,7 @@ def main(argv: list[str]) -> int:
     need_c2pa_binding_bytes = bool(args.dump_c2pa_binding)
     need_c2pa_handoff_bytes = bool(args.dump_c2pa_handoff)
     need_c2pa_signed_package_bytes = bool(args.dump_c2pa_signed_package)
+    need_transfer_payload_batch_bytes = bool(args.dump_transfer_payload_batch)
     c2pa_signed_payload = (
         Path(args.jpeg_c2pa_signed).read_bytes() if args.jpeg_c2pa_signed else None
     )
@@ -385,6 +399,7 @@ def main(argv: list[str]) -> int:
                 or need_c2pa_binding_bytes
                 or need_c2pa_handoff_bytes
                 or need_c2pa_signed_package_bytes
+                or need_transfer_payload_batch_bytes
             )
             else openmeta.transfer_probe
         )
@@ -424,6 +439,7 @@ def main(argv: list[str]) -> int:
             include_c2pa_binding_bytes=need_c2pa_binding_bytes,
             include_c2pa_handoff_bytes=need_c2pa_handoff_bytes,
             include_c2pa_signed_package_bytes=need_c2pa_signed_package_bytes,
+            include_transfer_payload_batch_bytes=need_transfer_payload_batch_bytes,
         )
 
         print(f"== {path}")
@@ -571,6 +587,17 @@ def main(argv: list[str]) -> int:
                 print(
                     f"  c2pa_signed_package_message={probe['c2pa_signed_package_message']}"
                 )
+        if probe["transfer_payload_batch_requested"]:
+            print(
+                f"  transfer_payload_batch: status={probe['transfer_payload_batch_status_name']} "
+                f"code={probe['transfer_payload_batch_code_name']} "
+                f"bytes={int(probe['transfer_payload_batch_bytes_written'])} "
+                f"errors={int(probe['transfer_payload_batch_errors'])}"
+            )
+            if probe["transfer_payload_batch_message"]:
+                print(
+                    f"  transfer_payload_batch_message={probe['transfer_payload_batch_message']}"
+                )
         if probe["c2pa_stage_requested"]:
             print(
                 f"  c2pa_stage_validate: status={probe['c2pa_stage_validation_status_name']} "
@@ -686,6 +713,29 @@ def main(argv: list[str]) -> int:
             print(
                 f"  c2pa_signed_package_output={args.dump_c2pa_signed_package} bytes={len(signed_package)}"
             )
+        if args.dump_transfer_payload_batch:
+            if os.path.exists(args.dump_transfer_payload_batch) and not args.force:
+                sys.stderr.write(
+                    f"  transfer payload batch output exists: {args.dump_transfer_payload_batch} (use --force)\n"
+                )
+                rc = 1
+                continue
+            payload_batch = probe["transfer_payload_batch_bytes"]
+            if payload_batch is None:
+                sys.stderr.write(
+                    "  transfer_payload_batch_bytes missing from probe result\n"
+                )
+                rc = 1
+                continue
+            os.makedirs(
+                os.path.dirname(args.dump_transfer_payload_batch) or ".",
+                exist_ok=True,
+            )
+            with open(args.dump_transfer_payload_batch, "wb") as f:
+                f.write(payload_batch)
+            print(
+                f"  transfer_payload_batch_output={args.dump_transfer_payload_batch} bytes={len(payload_batch)}"
+            )
 
         allow_output_only_success = (
             not edit_requested
@@ -696,6 +746,10 @@ def main(argv: list[str]) -> int:
                 or (
                     args.dump_c2pa_signed_package
                     and probe["c2pa_signed_package_status"] == openmeta.TransferStatus.Ok
+                )
+                or (
+                    args.dump_transfer_payload_batch
+                    and probe["transfer_payload_batch_status"] == openmeta.TransferStatus.Ok
                 )
             )
         )
@@ -798,6 +852,12 @@ def main(argv: list[str]) -> int:
                 "  bmff_item "
                 f"{_bmff_item_name(int(item['item_type']), bool(item['mime_xmp']))} "
                 f"count={int(item['count'])} bytes={int(item['bytes'])}"
+            )
+        for prop in probe["bmff_property_summary"]:
+            print(
+                "  bmff_property "
+                f"{_bmff_property_name(int(prop['property_type']), int(prop['property_subtype']))} "
+                f"count={int(prop['count'])} bytes={int(prop['bytes'])}"
             )
         if probe["tiff_commit"]:
             print("  tiff_commit=true")

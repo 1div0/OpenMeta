@@ -994,7 +994,9 @@ namespace {
         bool edit_do_apply, bool include_edited_bytes,
         bool unsafe_edited_bytes_access, bool include_c2pa_binding_bytes,
         bool unsafe_c2pa_binding_access, bool include_c2pa_handoff_bytes,
-        bool include_c2pa_signed_package_bytes, bool unsafe_c2pa_package_access)
+        bool include_c2pa_signed_package_bytes,
+        bool include_transfer_payload_batch_bytes,
+        bool unsafe_c2pa_package_access)
     {
         PrepareTransferFileOptions prepare_options;
         prepare_options.include_pointer_tags       = include_pointer_tags;
@@ -1595,6 +1597,57 @@ namespace {
             out["c2pa_signed_package_bytes"] = nb::none();
         }
 
+        PreparedTransferPayloadBatch transfer_payload_batch;
+        PreparedTransferPayloadIoResult transfer_payload_batch_io;
+        std::vector<std::byte> transfer_payload_batch_bytes;
+        out["transfer_payload_batch_requested"] = nb::bool_(
+            include_transfer_payload_batch_bytes);
+        if (include_transfer_payload_batch_bytes && !unsafe_payload_access) {
+            transfer_payload_batch_io.status = TransferStatus::UnsafeData;
+            transfer_payload_batch_io.code = EmitTransferCode::InvalidArgument;
+            transfer_payload_batch_io.errors = 1U;
+            transfer_payload_batch_io.message
+                = "safe transfer_probe forbids transfer payload batch bytes; "
+                  "use unsafe_transfer_probe("
+                  "include_transfer_payload_batch_bytes=True)";
+        } else if (include_transfer_payload_batch_bytes) {
+            const EmitTransferResult payload_batch_status
+                = build_prepared_transfer_payload_batch(prepared.bundle,
+                                                        &transfer_payload_batch);
+            if (payload_batch_status.status != TransferStatus::Ok) {
+                transfer_payload_batch_io.status = payload_batch_status.status;
+                transfer_payload_batch_io.code   = payload_batch_status.code;
+                transfer_payload_batch_io.errors = payload_batch_status.errors;
+                transfer_payload_batch_io.message = payload_batch_status.message;
+            } else {
+                transfer_payload_batch_io
+                    = serialize_prepared_transfer_payload_batch(
+                        transfer_payload_batch, &transfer_payload_batch_bytes);
+            }
+        }
+        out["transfer_payload_batch_status"] = transfer_payload_batch_io.status;
+        out["transfer_payload_batch_status_name"] = nb::str(
+            transfer_status_name(transfer_payload_batch_io.status));
+        out["transfer_payload_batch_code"] = transfer_payload_batch_io.code;
+        out["transfer_payload_batch_code_name"] = nb::str(
+            emit_transfer_code_name(transfer_payload_batch_io.code));
+        out["transfer_payload_batch_bytes_written"] = nb::int_(
+            transfer_payload_batch_io.bytes);
+        out["transfer_payload_batch_errors"] = nb::int_(
+            transfer_payload_batch_io.errors);
+        out["transfer_payload_batch_message"]
+            = nb::str(transfer_payload_batch_io.message.c_str(),
+                      transfer_payload_batch_io.message.size());
+        if (include_transfer_payload_batch_bytes && unsafe_payload_access
+            && transfer_payload_batch_io.status == TransferStatus::Ok) {
+            out["transfer_payload_batch_bytes"]
+                = nb::bytes(reinterpret_cast<const char*>(
+                                transfer_payload_batch_bytes.data()),
+                            transfer_payload_batch_bytes.size());
+        } else {
+            out["transfer_payload_batch_bytes"] = nb::none();
+        }
+
         out["compile_status"]      = exec.compile.status;
         out["compile_status_name"] = nb::str(
             transfer_status_name(exec.compile.status));
@@ -1672,6 +1725,19 @@ namespace {
         }
         out["bmff_item_summary"] = std::move(bmff_item_summary);
 
+        nb::list bmff_property_summary;
+        for (size_t i = 0; i < exec.bmff_property_summary.size(); ++i) {
+            nb::dict one;
+            one["property_type"] = nb::int_(
+                exec.bmff_property_summary[i].property_type);
+            one["property_subtype"] = nb::int_(
+                exec.bmff_property_summary[i].property_subtype);
+            one["count"] = nb::int_(exec.bmff_property_summary[i].count);
+            one["bytes"] = nb::int_(exec.bmff_property_summary[i].bytes);
+            bmff_property_summary.append(std::move(one));
+        }
+        out["bmff_property_summary"] = std::move(bmff_property_summary);
+
         out["edit_requested"]        = nb::bool_(exec.edit_requested);
         out["edit_plan_status"]      = exec.edit_plan_status;
         out["edit_plan_status_name"] = nb::str(
@@ -1720,6 +1786,14 @@ namespace {
             error_code     = "unsafe_payloads_forbidden";
             error_message  = "safe transfer_probe forbids payload bytes; use "
                              "unsafe_transfer_probe(include_payloads=True)";
+        } else if (include_transfer_payload_batch_bytes
+                   && !unsafe_payload_access) {
+            overall_status = TransferStatus::UnsafeData;
+            error_stage    = "api";
+            error_code     = "unsafe_transfer_payload_batch_forbidden";
+            error_message  = "safe transfer_probe forbids transfer payload "
+                             "batch bytes; use unsafe_transfer_probe("
+                             "include_transfer_payload_batch_bytes=True)";
         } else if (include_edited_bytes && !unsafe_edited_bytes_access) {
             overall_status = TransferStatus::UnsafeData;
             error_stage    = "api";
@@ -1767,6 +1841,13 @@ namespace {
             error_stage    = "c2pa_binding";
             error_code     = emit_transfer_code_name(c2pa_handoff.binding.code);
             error_message  = c2pa_handoff.binding.message;
+        } else if (include_transfer_payload_batch_bytes
+                   && transfer_payload_batch_io.status != TransferStatus::Ok) {
+            overall_status = transfer_payload_batch_io.status;
+            error_stage    = "transfer_payload_batch";
+            error_code     = emit_transfer_code_name(
+                transfer_payload_batch_io.code);
+            error_message = transfer_payload_batch_io.message;
         } else if (exec.time_patch.status != TransferStatus::Ok) {
             overall_status = exec.time_patch.status;
             error_stage    = "time_patch";
@@ -3544,7 +3625,8 @@ NB_MODULE(_openmeta, m)
            nb::object edit_target_path, bool edit_apply,
            bool include_edited_bytes, bool include_c2pa_binding_bytes,
            bool include_c2pa_handoff_bytes,
-           bool include_c2pa_signed_package_bytes) {
+           bool include_c2pa_signed_package_bytes,
+           bool include_transfer_payload_batch_bytes) {
             return transfer_probe_to_python(
                 path, target_format, format, include_pointer_tags,
                 decode_makernote, decode_embedded_containers, decompress,
@@ -3559,7 +3641,7 @@ NB_MODULE(_openmeta, m)
                 time_patch_auto_nul, edit_target_path, edit_apply,
                 include_edited_bytes, false, include_c2pa_binding_bytes, false,
                 include_c2pa_handoff_bytes, include_c2pa_signed_package_bytes,
-                false);
+                include_transfer_payload_batch_bytes, false);
         },
         "path"_a, "target_format"_a = TransferTargetFormat::Jpeg,
         "format"_a               = XmpSidecarFormat::Portable,
@@ -3582,9 +3664,10 @@ NB_MODULE(_openmeta, m)
         "time_patch_strict_width"_a = true, "time_patch_require_slot"_a = false,
         "time_patch_auto_nul"_a = true, "edit_target_path"_a = nb::none(),
         "edit_apply"_a = true, "include_edited_bytes"_a = false,
-        "include_c2pa_binding_bytes"_a        = false,
-        "include_c2pa_handoff_bytes"_a        = false,
-        "include_c2pa_signed_package_bytes"_a = false);
+        "include_c2pa_binding_bytes"_a           = false,
+        "include_c2pa_handoff_bytes"_a           = false,
+        "include_c2pa_signed_package_bytes"_a    = false,
+        "include_transfer_payload_batch_bytes"_a = false);
 
     m.def(
         "unsafe_transfer_probe",
@@ -3607,7 +3690,8 @@ NB_MODULE(_openmeta, m)
            nb::object edit_target_path, bool edit_apply,
            bool include_edited_bytes, bool include_c2pa_binding_bytes,
            bool include_c2pa_handoff_bytes,
-           bool include_c2pa_signed_package_bytes) {
+           bool include_c2pa_signed_package_bytes,
+           bool include_transfer_payload_batch_bytes) {
             return transfer_probe_to_python(
                 path, target_format, format, include_pointer_tags,
                 decode_makernote, decode_embedded_containers, decompress,
@@ -3622,7 +3706,7 @@ NB_MODULE(_openmeta, m)
                 time_patch_auto_nul, edit_target_path, edit_apply,
                 include_edited_bytes, true, include_c2pa_binding_bytes, true,
                 include_c2pa_handoff_bytes, include_c2pa_signed_package_bytes,
-                true);
+                include_transfer_payload_batch_bytes, true);
         },
         "path"_a, "target_format"_a = TransferTargetFormat::Jpeg,
         "format"_a               = XmpSidecarFormat::Portable,
@@ -3645,9 +3729,10 @@ NB_MODULE(_openmeta, m)
         "time_patch_strict_width"_a = true, "time_patch_require_slot"_a = false,
         "time_patch_auto_nul"_a = true, "edit_target_path"_a = nb::none(),
         "edit_apply"_a = true, "include_edited_bytes"_a = false,
-        "include_c2pa_binding_bytes"_a        = false,
-        "include_c2pa_handoff_bytes"_a        = false,
-        "include_c2pa_signed_package_bytes"_a = false);
+        "include_c2pa_binding_bytes"_a           = false,
+        "include_c2pa_handoff_bytes"_a           = false,
+        "include_c2pa_signed_package_bytes"_a    = false,
+        "include_transfer_payload_batch_bytes"_a = false);
 
     m.def("console_text", &console_text, "data"_a, "max_bytes"_a = 4096U);
     m.def("hex_bytes", &hex_bytes, "data"_a, "max_bytes"_a = 4096U);

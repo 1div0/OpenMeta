@@ -72,6 +72,18 @@ assert r3['overall_status'] == openmeta.TransferStatus.Ok, r3
 assert r3['blocks'], r3
 assert isinstance(r3['blocks'][0]['payload'], (bytes, bytearray)), r3
 
+r3b = openmeta.unsafe_transfer_probe(
+    str(p),
+    format=openmeta.XmpSidecarFormat.Portable,
+    include_transfer_payload_batch_bytes=True,
+)
+assert r3b['transfer_payload_batch_requested'] is True, r3b
+assert r3b['transfer_payload_batch_status_name'] == 'ok', r3b
+assert r3b['transfer_payload_batch_code_name'] == 'none', r3b
+assert r3b['transfer_payload_batch_bytes_written'] > 0, r3b
+assert isinstance(r3b['transfer_payload_batch_bytes'], (bytes, bytearray)), r3b
+assert bytes(r3b['transfer_payload_batch_bytes'])[:8] == b'OMTPLD01', r3b
+
 p_c2pa = Path(r'''${WORK_DIR}/sample_c2pa.jpg''')
 cbor = bytes([0xA1, 0x61, 0x61, 0x01])
 jumd = b'c2pa\\x00'

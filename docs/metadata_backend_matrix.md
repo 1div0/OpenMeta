@@ -97,11 +97,17 @@ backends without per-backend metadata logic duplication.
   - `bmff:item-xmp`
   - `bmff:item-jumb`
   - `bmff:item-c2pa`
+- Current prepared property routes:
+  - `bmff:property-colr-icc`
 - EXIF item payloads use the BMFF Exif item shape:
   - 4-byte big-endian TIFF offset prefix
   - followed by full `Exif\0\0` bytes
 - IPTC requested for BMFF is projected into `bmff:item-xmp`; OpenMeta does
   not create a raw IPTC-IIM BMFF carrier.
+- ICC requested for BMFF uses the bounded property path:
+  - `bmff:property-colr-icc`
+  - payload bytes are `u32be('prof') + <icc-profile>`
+  - this is a `colr` property payload, not a metadata item
 - File-based prepare can preserve source generic JUMBF payloads and raw
   OpenMeta draft C2PA invalidation payloads as BMFF metadata items.
 - Store-only prepare can project decoded non-C2PA `JumbfCborKey` roots into
@@ -112,10 +118,11 @@ backends without per-backend metadata logic duplication.
   - `emit_prepared_bundle_bmff_compiled(...)`
   - `emit_prepared_transfer_compiled(..., BmffTransferEmitter&)`
 - The shared package-batch persistence/replay layer can own and hand off
-  stable BMFF item payload bytes.
+  stable BMFF item and property payload bytes.
+- `metatransfer` / `openmeta.transfer_probe(...)` expose this bounded path as
+  summary-only BMFF output, including `bmff_property colr/prof ...`.
 - Out of scope for the current BMFF contract:
   - full BMFF file rewrite/edit
-  - BMFF ICC/property packaging
   - signed C2PA rewrite/re-sign
 
 ### EXR (OpenEXR)
@@ -254,6 +261,13 @@ container call mapping.
       `deserialize_prepared_transfer_package_batch(...)` persist that owned
       batch so host layers can move it across process or plugin boundaries
       without reopening the source file or rebuilding the bundle.
+    - `collect_prepared_transfer_payload_views(...)` and
+      `build_prepared_transfer_payload_batch(...)` now provide the matching
+      target-neutral semantic payload surface directly over prepared bundles.
+    - `serialize_prepared_transfer_payload_batch(...)` and
+      `deserialize_prepared_transfer_payload_batch(...)` persist that earlier
+      semantic payload batch for cross-process or cross-layer handoff before
+      final package materialization.
     - `collect_prepared_transfer_package_views(...)` is the target-neutral
       semantic package surface above that persisted batch.
     - `replay_prepared_transfer_package_batch(...)` is the target-neutral
@@ -270,12 +284,15 @@ container call mapping.
       want explicit compiled operations without route parsing.
     - `emit_prepared_transfer_adapter_view(...)` replays that compiled view
       through one generic host sink.
-    - `collect_oiio_transfer_payload_views(...)` is the first thin
-      host-facing bridge above that surface: it exposes zero-copy semantic
-      payload views for OIIO/plugin write integrations.
-    - `build_oiio_transfer_payload_batch(...)` is the owned batch form for
-      host layers that need transfer payload lifetime independent from the
-      prepared bundle.
+    - `collect_oiio_transfer_payload_views(...)` and
+      `build_oiio_transfer_payload_batch(...)` now sit on top of that core
+      semantic payload surface, mapping it into OIIO-facing names rather than
+      re-classifying prepared blocks inside the adapter.
+    - `replay_prepared_transfer_payload_batch(...)`,
+      `collect_oiio_transfer_payload_views(const PreparedTransferPayloadBatch&, ...)`,
+      and `replay_oiio_transfer_payload_batch(...)`
+      now reuse that same earlier persisted semantic payload stage directly,
+      before final package materialization.
     - File-based JPEG prepare can preserve an existing OpenMeta draft
       invalidation payload as raw APP11 C2PA (`TransferC2paMode::PreserveRaw`).
     - Content-bound `Keep` still resolves to `Drop`.

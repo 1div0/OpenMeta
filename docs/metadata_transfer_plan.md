@@ -119,6 +119,16 @@ Read-path readiness is high:
   - `serialize_prepared_transfer_package_batch(...)` and
     `deserialize_prepared_transfer_package_batch(...)` now persist that owned
     package batch for cross-process or cross-layer handoff
+  - `collect_prepared_transfer_payload_views(...)` and
+    `build_prepared_transfer_payload_batch(...)` now provide the matching
+    target-neutral semantic payload surface directly over prepared bundles
+  - `serialize_prepared_transfer_payload_batch(...)` and
+    `deserialize_prepared_transfer_payload_batch(...)` now persist that
+    earlier semantic payload batch for cross-process or cross-layer handoff
+    before final package materialization
+  - thin wrappers can now dump that persisted semantic payload batch directly:
+    `metatransfer --dump-transfer-payload-batch ...` and
+    `openmeta.python.metatransfer --dump-transfer-payload-batch ...`
   - `collect_prepared_transfer_package_views(...)` now provides the first
     target-neutral semantic view over that persisted batch, so higher-level
     adapters stop owning route parsing for packaged output
@@ -128,6 +138,9 @@ Read-path readiness is high:
     package views from that owned batch by mapping the target-neutral view
     into OIIO semantics, so OIIO-style hosts can consume the stable packaged
     output without the original prepared bundle lifetime
+  - `collect_oiio_transfer_payload_views(...)` and
+    `build_oiio_transfer_payload_batch(...)` now sit on top of the core
+    semantic payload layer instead of owning route classification/copy logic
 
 - WebP prepare/emit now has the same bounded transfer shape:
   - prepare builds `EXIF`, `XMP `, `ICCP`, and bounded `C2PA` RIFF metadata
@@ -149,12 +162,16 @@ Read-path readiness is high:
     package chunks in deterministic output order through callbacks
 - ISO-BMFF metadata-item transfer now has a first bounded target-family path:
   - prepare builds `bmff:item-exif`, `bmff:item-xmp`, bounded
-    `bmff:item-jumb`, and bounded `bmff:item-c2pa` payloads for
+    `bmff:item-jumb`, bounded `bmff:item-c2pa`, and
+    `bmff:property-colr-icc` payloads for
     `TransferTargetFormat::{Heif,Avif,Cr3}`
   - EXIF item payloads use the BMFF Exif item shape with the 4-byte
     big-endian TIFF-offset prefix plus full `Exif\0\0` bytes
   - IPTC requested for BMFF is projected into `bmff:item-xmp`; OpenMeta does
     not add a raw IPTC-IIM BMFF carrier
+  - ICC requested for BMFF uses a bounded property path:
+    `bmff:property-colr-icc` carries `u32be('prof') + <icc-profile>` as the
+    payload bytes for a `colr` property
   - file-based prepare can preserve source generic JUMBF payloads and raw
     OpenMeta draft C2PA invalidation payloads as BMFF metadata items
   - store-only prepare can project decoded non-C2PA `JumbfCborKey` roots into
@@ -163,13 +180,12 @@ Read-path readiness is high:
     `emit_prepared_bundle_bmff(...)`,
     `emit_prepared_bundle_bmff_compiled(...)`, and
     `emit_prepared_transfer_compiled(..., BmffTransferEmitter&)` now provide
-    the reusable metadata-item emitter path
+    the reusable metadata-item/property emitter path
   - the shared package-batch persistence/replay layer can own and hand off
-    those stable BMFF item payload bytes
+    those stable BMFF item and property payload bytes
   - CLI/Python `metatransfer` wrappers now expose summary-only
     `--target-heif`, `--target-avif`, and `--target-cr3` paths
-  - full BMFF file rewrite/edit, BMFF ICC/property packaging, and signed
-    C2PA rewrite remain follow-up work
+  - full BMFF file rewrite/edit and signed C2PA rewrite remain follow-up work
 - Transfer policy contract is now explicit in the public API:
   - `TransferProfile::{makernote,jumbf,c2pa}` use `TransferPolicyAction`
   - `PreparedTransferBundle::policy_decisions` records resolved prepare-time
@@ -346,6 +362,14 @@ Two paths:
 - `build_oiio_transfer_payload_batch(bundle, out_batch, emit_options)`
   - Owned form of the same OIIO/plugin payload contract for caching or
     cross-layer handoff without keeping the prepared bundle alive.
+- `serialize_prepared_transfer_payload_batch(batch, out_bytes)` /
+  `deserialize_prepared_transfer_payload_batch(bytes, out_batch)`
+  - Persist and reload that earlier semantic payload stage directly.
+- `replay_prepared_transfer_payload_batch(batch, callbacks)`
+- `collect_oiio_transfer_payload_views(batch, out_views)`
+- `replay_oiio_transfer_payload_batch(batch, callbacks)`
+  - Reuse the same persisted semantic payload contract through
+    target-neutral or OIIO-facing replay/view helpers.
 - `build_exr_attribute_batch(store, out_batch, options)`
 - `build_exr_attribute_part_spans(batch, out_spans)`
 - `build_exr_attribute_part_views(batch, out_views)`

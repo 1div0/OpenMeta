@@ -639,6 +639,7 @@ struct PreparedWebpEmitPlan final {
 enum class PreparedBmffEmitKind : uint8_t {
     Item,
     MimeXmp,
+    Property,
 };
 
 /// One precompiled ISO-BMFF metadata emit operation.
@@ -646,6 +647,8 @@ struct PreparedBmffEmitOp final {
     PreparedBmffEmitKind kind = PreparedBmffEmitKind::Item;
     uint32_t block_index      = 0;
     uint32_t item_type        = 0U;
+    uint32_t property_type    = 0U;
+    uint32_t property_subtype = 0U;
 };
 
 /// Reusable precompiled ISO-BMFF metadata emit plan.
@@ -680,21 +683,24 @@ enum class TransferAdapterOpKind : uint8_t {
     JxlIccProfile,
     WebpChunk,
     BmffItem,
+    BmffProperty,
 };
 
 /// One compiled adapter-facing operation derived from a prepared bundle.
 struct PreparedTransferAdapterOp final {
-    TransferAdapterOpKind kind   = TransferAdapterOpKind::JpegMarker;
-    uint32_t block_index         = 0U;
-    uint64_t payload_size        = 0U;
-    uint64_t serialized_size     = 0U;
-    uint8_t jpeg_marker_code     = 0U;
-    uint16_t tiff_tag            = 0U;
-    std::array<char, 4> box_type = { '\0', '\0', '\0', '\0' };
+    TransferAdapterOpKind kind     = TransferAdapterOpKind::JpegMarker;
+    uint32_t block_index           = 0U;
+    uint64_t payload_size          = 0U;
+    uint64_t serialized_size       = 0U;
+    uint8_t jpeg_marker_code       = 0U;
+    uint16_t tiff_tag              = 0U;
+    std::array<char, 4> box_type   = { '\0', '\0', '\0', '\0' };
     std::array<char, 4> chunk_type = { '\0', '\0', '\0', '\0' };
-    uint32_t bmff_item_type      = 0U;
-    bool bmff_mime_xmp           = false;
-    bool compress                = false;
+    uint32_t bmff_item_type        = 0U;
+    uint32_t bmff_property_type    = 0U;
+    uint32_t bmff_property_subtype = 0U;
+    bool bmff_mime_xmp             = false;
+    bool compress                  = false;
 };
 
 /// One target-neutral adapter view over prepared transfer operations.
@@ -703,6 +709,65 @@ struct PreparedTransferAdapterView final {
     TransferTargetFormat target_format = TransferTargetFormat::Jpeg;
     EmitTransferOptions emit;
     std::vector<PreparedTransferAdapterOp> ops;
+};
+
+/// One zero-copy semantic payload view over a prepared transfer bundle.
+struct PreparedTransferPayloadView final {
+    TransferSemanticKind semantic_kind = TransferSemanticKind::Unknown;
+    std::string_view semantic_name;
+    std::string_view route;
+    PreparedTransferAdapterOp op;
+    std::span<const std::byte> payload;
+};
+
+/// One owned semantic payload copied from a prepared transfer bundle.
+struct PreparedTransferPayload final {
+    TransferSemanticKind semantic_kind = TransferSemanticKind::Unknown;
+    std::string semantic_name;
+    std::string route;
+    PreparedTransferAdapterOp op;
+    std::vector<std::byte> payload;
+};
+
+/// One owned semantic payload batch independent from bundle payload storage.
+struct PreparedTransferPayloadBatch final {
+    uint32_t contract_version          = kMetadataTransferContractVersion;
+    TransferTargetFormat target_format = TransferTargetFormat::Jpeg;
+    EmitTransferOptions emit;
+    std::vector<PreparedTransferPayload> payloads;
+};
+
+/// Result for serializing or parsing persisted transfer payload batches.
+struct PreparedTransferPayloadIoResult final {
+    TransferStatus status = TransferStatus::Unsupported;
+    EmitTransferCode code = EmitTransferCode::None;
+    uint64_t bytes        = 0;
+    uint32_t errors       = 0;
+    std::string message;
+};
+
+/// Replay callbacks for \ref replay_prepared_transfer_payload_batch.
+struct PreparedTransferPayloadReplayCallbacks final {
+    TransferStatus (*begin_batch)(void* user,
+                                  TransferTargetFormat target_format,
+                                  uint32_t payload_count) noexcept
+        = nullptr;
+    TransferStatus (*emit_payload)(
+        void* user, const PreparedTransferPayloadView* view) noexcept
+        = nullptr;
+    TransferStatus (*end_batch)(void* user,
+                                TransferTargetFormat target_format) noexcept
+        = nullptr;
+    void* user = nullptr;
+};
+
+/// Result for target-neutral payload-batch replay.
+struct PreparedTransferPayloadReplayResult final {
+    TransferStatus status         = TransferStatus::Ok;
+    EmitTransferCode code         = EmitTransferCode::None;
+    uint32_t replayed             = 0;
+    uint32_t failed_payload_index = 0xFFFFFFFFU;
+    std::string message;
 };
 
 /// Generic host-side sink for adapter-view transfer operations.
@@ -809,6 +874,14 @@ struct EmittedBmffItemSummary final {
     bool mime_xmp      = false;
 };
 
+/// One emitted ISO-BMFF metadata property summary entry.
+struct EmittedBmffPropertySummary final {
+    uint32_t property_type    = 0U;
+    uint32_t property_subtype = 0U;
+    uint32_t count            = 0U;
+    uint64_t bytes            = 0U;
+};
+
 /// Streaming byte sink for edit/write transfer paths.
 class TransferByteWriter {
 public:
@@ -905,6 +978,7 @@ struct ExecutePreparedTransferResult final {
     std::vector<EmittedJxlBoxSummary> jxl_box_summary;
     std::vector<EmittedWebpChunkSummary> webp_chunk_summary;
     std::vector<EmittedBmffItemSummary> bmff_item_summary;
+    std::vector<EmittedBmffPropertySummary> bmff_property_summary;
     bool tiff_commit          = false;
     uint64_t emit_output_size = 0;
 
@@ -986,8 +1060,9 @@ public:
 class WebpTransferEmitter {
 public:
     virtual ~WebpTransferEmitter() = default;
-    virtual TransferStatus add_chunk(std::array<char, 4> type,
-                                     std::span<const std::byte> payload) noexcept
+    virtual TransferStatus
+    add_chunk(std::array<char, 4> type,
+              std::span<const std::byte> payload) noexcept
         = 0;
     virtual TransferStatus close_chunks() noexcept = 0;
 };
@@ -998,12 +1073,15 @@ public:
 class BmffTransferEmitter {
 public:
     virtual ~BmffTransferEmitter() = default;
-    virtual TransferStatus
-    add_item(uint32_t item_type,
-             std::span<const std::byte> payload) noexcept
+    virtual TransferStatus add_item(uint32_t item_type,
+                                    std::span<const std::byte> payload) noexcept
         = 0;
     virtual TransferStatus
     add_mime_xmp_item(std::span<const std::byte> payload) noexcept
+        = 0;
+    virtual TransferStatus
+    add_property(uint32_t property_type,
+                 std::span<const std::byte> payload) noexcept
         = 0;
     virtual TransferStatus close_items() noexcept = 0;
 };
@@ -1119,6 +1197,7 @@ emit_prepared_bundle_webp(const PreparedTransferBundle& bundle,
  * - `bmff:item-xmp` -> `mime` item carrying XMP
  * - `bmff:item-jumb` -> `jumb` item payload
  * - `bmff:item-c2pa` -> `c2pa` item payload
+ * - `bmff:property-colr-icc` -> `colr` property payload with `prof` ICC data
  */
 EmitTransferResult
 emit_prepared_bundle_bmff(const PreparedTransferBundle& bundle,
@@ -1680,6 +1759,45 @@ write_prepared_transfer_package_batch(const PreparedTransferPackageBatch& batch,
 /// Classifies one prepared transfer route into a target-neutral semantic kind.
 TransferSemanticKind
 classify_transfer_route_semantic_kind(std::string_view route) noexcept;
+
+/// Stable display name for one semantic transfer kind.
+std::string_view
+transfer_semantic_name(TransferSemanticKind kind) noexcept;
+
+/// Builds zero-copy semantic payload views over one prepared transfer bundle.
+EmitTransferResult
+collect_prepared_transfer_payload_views(
+    const PreparedTransferBundle& bundle,
+    std::vector<PreparedTransferPayloadView>* out,
+    const EmitTransferOptions& options = EmitTransferOptions {}) noexcept;
+
+/// Builds zero-copy semantic payload views over one persisted payload batch.
+EmitTransferResult
+collect_prepared_transfer_payload_views(
+    const PreparedTransferPayloadBatch& batch,
+    std::vector<PreparedTransferPayloadView>* out) noexcept;
+
+/// Builds one owned semantic payload batch from one prepared transfer bundle.
+EmitTransferResult
+build_prepared_transfer_payload_batch(const PreparedTransferBundle& bundle,
+                                      PreparedTransferPayloadBatch* out,
+                                      const EmitTransferOptions& options
+                                      = EmitTransferOptions {}) noexcept;
+
+PreparedTransferPayloadIoResult
+serialize_prepared_transfer_payload_batch(
+    const PreparedTransferPayloadBatch& batch,
+    std::vector<std::byte>* out_bytes) noexcept;
+
+PreparedTransferPayloadIoResult
+deserialize_prepared_transfer_payload_batch(
+    std::span<const std::byte> bytes,
+    PreparedTransferPayloadBatch* out_batch) noexcept;
+
+PreparedTransferPayloadReplayResult
+replay_prepared_transfer_payload_batch(
+    const PreparedTransferPayloadBatch& batch,
+    const PreparedTransferPayloadReplayCallbacks& callbacks) noexcept;
 
 /// Builds zero-copy semantic package views over one persisted package batch.
 EmitTransferResult

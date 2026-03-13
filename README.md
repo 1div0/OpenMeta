@@ -131,13 +131,25 @@ Current baseline-gated status on tracked corpora:
     `serialize_prepared_transfer_package_batch(...)` /
     `deserialize_prepared_transfer_package_batch(...)` persist that owned
     batch for cross-process or cross-layer handoff.
+    `collect_prepared_transfer_payload_views(...)` and
+    `build_prepared_transfer_payload_batch(...)` now provide the matching
+    target-neutral semantic surface directly over prepared bundles, before the
+    final package layer is materialized, and
+    `serialize_prepared_transfer_payload_batch(...)` /
+    `deserialize_prepared_transfer_payload_batch(...)` persist that earlier
+    semantic payload batch when callers want cross-process or cross-layer
+    handoff before final package materialization. The thin `metatransfer`
+    wrappers can now dump that persisted semantic payload batch directly
+    through `--dump-transfer-payload-batch`.
     `collect_prepared_transfer_package_views(...)` now exposes the first
     target-neutral semantic view over that persisted package, and
     `replay_prepared_transfer_package_batch(...)` is the matching target-neutral
     callback replay path. The OIIO bridge can consume the same batch directly through
     `collect_oiio_transfer_package_views(...)` or replay it through
     `replay_oiio_transfer_package_batch(...)`, without reopening the source
-    file or keeping the original prepared bundle alive.
+    file or keeping the original prepared bundle alive. OIIO payload
+    views/batches now sit on top of the core semantic payload layer instead
+    of rebuilding classification and copies independently.
     `build_prepared_transfer_adapter_view(...)` now exposes the same prepared
     bundle as one target-neutral operation list for JPEG/TIFF/JXL/WebP host
     integrations that do not want to parse route strings, and
@@ -149,6 +161,13 @@ Current baseline-gated status on tracked corpora:
     per-target operation metadata. `build_oiio_transfer_payload_batch(...)`
     is the owned form of that bridge for host layers that want to cache or
     move transfer payloads without keeping the prepared bundle alive.
+    `serialize_prepared_transfer_payload_batch(...)` /
+    `deserialize_prepared_transfer_payload_batch(...)` persist that semantic
+    payload layer directly, and
+    `replay_prepared_transfer_payload_batch(...)` plus
+    `replay_oiio_transfer_payload_batch(...)` expose the matching
+    target-neutral and OIIO-facing callback replay paths over the persisted
+    payload batch.
     OpenMeta also now exposes an EXR-native attribute bridge outside the block
     transfer core: `build_exr_attribute_batch(...)` exports per-part EXR header
     attributes as owned `(part_index, name, type_name, value_bytes)` records,
@@ -203,22 +222,27 @@ Current baseline-gated status on tracked corpora:
     the same core API:
     `prepare_metadata_for_target(..., TransferTargetFormat::{Heif,Avif,Cr3}, ...)`
     can build `bmff:item-exif`, `bmff:item-xmp`, bounded `bmff:item-jumb`,
-    and bounded `bmff:item-c2pa` payloads. EXIF uses the BMFF item payload
-    shape with the 4-byte big-endian TIFF-offset prefix plus full
-    `Exif\0\0` data; IPTC is projected into `bmff:item-xmp` rather than
-    inventing a raw IPTC-IIM BMFF carrier. File-based prepare can preserve
-    source generic JUMBF payloads and raw OpenMeta draft C2PA invalidation
-    payloads as BMFF metadata items, and store-only prepare can project
-    decoded non-C2PA `JumbfCborKey` roots into `bmff:item-jumb` when no raw
-    source payload is available. The bounded BMFF surface is summary/emitter/
-    package-batch oriented: `compile_prepared_bundle_bmff(...)`,
+    bounded `bmff:item-c2pa`, and `bmff:property-colr-icc` payloads. EXIF
+    uses the BMFF item payload shape with the 4-byte big-endian TIFF-offset
+    prefix plus full `Exif\0\0` data; IPTC is projected into
+    `bmff:item-xmp` rather than inventing a raw IPTC-IIM BMFF carrier. ICC
+    uses the bounded property path: `bmff:property-colr-icc` carries a `colr`
+    property payload whose bytes are `u32be('prof') + <icc-profile>`, not a
+    metadata item. File-based prepare can preserve source generic JUMBF
+    payloads and raw OpenMeta draft C2PA invalidation payloads as BMFF
+    metadata items, and store-only prepare can project decoded non-C2PA
+    `JumbfCborKey` roots into `bmff:item-jumb` when no raw source payload is
+    available. The bounded BMFF surface is summary/emitter/package-batch
+    oriented: `compile_prepared_bundle_bmff(...)`,
     `emit_prepared_bundle_bmff(...)`,
     `emit_prepared_bundle_bmff_compiled(...)`, and
     `emit_prepared_transfer_compiled(..., BmffTransferEmitter&)` expose the
-    reusable item-emitter path, while the shared package-batch persistence
-    and replay layers can own and hand off stable BMFF item payload bytes.
-    Full BMFF file rewrite/edit, BMFF ICC/property packaging, and signed C2PA
-    rewrite/re-sign remain follow-up work.
+    reusable item/property-emitter path, while the shared package-batch
+    persistence and replay layers can own and hand off stable BMFF item and
+    property payload bytes. `metatransfer` and `openmeta.transfer_probe(...)`
+    expose summary-only BMFF output for this bounded path, including
+    `bmff_item ...` and `bmff_property colr/prof ...` lines. Full BMFF file
+    rewrite/edit and signed C2PA rewrite/re-sign remain follow-up work.
     `metatransfer` and `openmeta.transfer_probe(...)` now expose both the
     resolved transfer-policy decisions and JPEG edit-plan removal counts for
     existing APP11 JUMBF/C2PA segments, plus the derived `c2pa_sign_request`
