@@ -139,8 +139,11 @@ Current baseline-gated status on tracked corpora:
     `deserialize_prepared_transfer_payload_batch(...)` persist that earlier
     semantic payload batch when callers want cross-process or cross-layer
     handoff before final package materialization. The thin `metatransfer`
-    wrappers can now dump that persisted semantic payload batch directly
-    through `--dump-transfer-payload-batch`.
+    wrappers can now dump and inspect that persisted semantic payload batch
+    directly through `--dump-transfer-payload-batch` and
+    `--load-transfer-payload-batch`. Python exposes the same persisted-batch
+    inspect path through `inspect_transfer_payload_batch(...)` and
+    `unsafe_inspect_transfer_payload_batch(...)`.
     `collect_prepared_transfer_package_views(...)` now exposes the first
     target-neutral semantic view over that persisted package, and
     `replay_prepared_transfer_package_batch(...)` is the matching target-neutral

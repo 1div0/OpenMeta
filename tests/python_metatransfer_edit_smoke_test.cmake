@@ -360,6 +360,29 @@ execute_process(
           "PYTHONPATH=${OPENMETA_PYTHONPATH}"
           "${OPENMETA_PYTHON_EXECUTABLE}" -m openmeta.python.metatransfer
           --no-build-info
+          --load-transfer-payload-batch "${_transfer_payload_batch}"
+  RESULT_VARIABLE _rv_payload_batch_load
+  OUTPUT_VARIABLE _out_payload_batch_load
+  ERROR_VARIABLE _err_payload_batch_load
+)
+if(NOT _rv_payload_batch_load EQUAL 0)
+  message(FATAL_ERROR
+    "python metatransfer payload batch load failed (${_rv_payload_batch_load})\nstdout:\n${_out_payload_batch_load}\nstderr:\n${_err_payload_batch_load}")
+endif()
+if(NOT _out_payload_batch_load MATCHES "transfer_payload_batch: status=ok code=none bytes=[0-9]+ payloads=[0-9]+ target=jpeg")
+  message(FATAL_ERROR
+    "python metatransfer payload batch load missing summary\nstdout:\n${_out_payload_batch_load}\nstderr:\n${_err_payload_batch_load}")
+endif()
+if(NOT _out_payload_batch_load MATCHES "\\[0\\] semantic=Exif route=jpeg:app1-exif")
+  message(FATAL_ERROR
+    "python metatransfer payload batch load missing first payload summary\nstdout:\n${_out_payload_batch_load}\nstderr:\n${_err_payload_batch_load}")
+endif()
+
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env
+          "PYTHONPATH=${OPENMETA_PYTHONPATH}"
+          "${OPENMETA_PYTHON_EXECUTABLE}" -m openmeta.python.metatransfer
+          --no-build-info
           --no-exif
           --no-xmp
           --no-icc

@@ -111,6 +111,29 @@ def _bmff_property_name(property_type: int, property_subtype: int) -> str:
     )
 
 
+def _transfer_payload_op_summary(payload: dict[object, object]) -> str:
+    op_kind = str(payload["op_kind_name"])
+    if op_kind == "jpeg_marker":
+        return f"{op_kind} marker={_marker_name(int(payload['jpeg_marker_code']))}"
+    if op_kind == "tiff_tag":
+        return f"{op_kind} tag=0x{int(payload['tiff_tag']):04X}"
+    if op_kind == "jxl_box":
+        return f"{op_kind} type={payload['box_type']}"
+    if op_kind == "webp_chunk":
+        return f"{op_kind} type={payload['chunk_type']}"
+    if op_kind == "bmff_item":
+        return (
+            f"{op_kind} type="
+            f"{_bmff_item_name(int(payload['bmff_item_type']), bool(payload['bmff_mime_xmp']))}"
+        )
+    if op_kind == "bmff_property":
+        return (
+            f"{op_kind} type="
+            f"{_bmff_property_name(int(payload['bmff_property_type']), int(payload['bmff_property_subtype']))}"
+        )
+    return op_kind
+
+
 def _sanitize_filename(s: str) -> str:
     out = []
     for ch in s:
@@ -193,6 +216,7 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--dump-c2pa-signed-package", type=str, default="", help="write one persisted signed C2PA package")
     ap.add_argument("--load-c2pa-signed-package", type=str, default="", help="load one persisted signed C2PA package for staging")
     ap.add_argument("--dump-transfer-payload-batch", type=str, default="", help="write one persisted semantic transfer payload batch")
+    ap.add_argument("--load-transfer-payload-batch", type=str, default="", help="load and inspect one persisted semantic transfer payload batch")
     ap.add_argument("-o", "--output", type=str, default="", help="write edited output file")
     ap.add_argument("--dry-run", action="store_true", help="plan edit only; do not write output")
     ap.add_argument("--force", action="store_true", help="overwrite existing payload files")
@@ -226,9 +250,7 @@ def main(argv: list[str]) -> int:
     args = ap.parse_args(argv)
 
     input_paths = list(args.input) + list(args.files)
-    if not input_paths:
-        ap.print_help(sys.stderr)
-        return 2
+    write_payloads = bool(args.unsafe_write_payloads or args.write_payloads)
     target_count = (
         int(bool(args.target_jpeg))
         + int(bool(args.target_tiff))
@@ -238,6 +260,29 @@ def main(argv: list[str]) -> int:
         + int(bool(args.target_avif))
         + int(bool(args.target_cr3))
     )
+    if args.load_transfer_payload_batch:
+        if input_paths:
+            ap.error("--load-transfer-payload-batch is mutually exclusive with source input paths")
+        if (
+            target_count > 0
+            or args.output
+            or args.dry_run
+            or write_payloads
+            or args.dump_transfer_payload_batch
+            or args.dump_c2pa_binding
+            or args.dump_c2pa_handoff
+            or args.dump_c2pa_signed_package
+            or args.load_c2pa_signed_package
+            or args.jpeg_c2pa_signed
+            or args.c2pa_manifest_output
+            or args.c2pa_certificate_chain
+            or args.c2pa_key_ref
+            or args.c2pa_signing_time
+        ):
+            ap.error("--load-transfer-payload-batch is an inspect-only mode")
+    elif not input_paths:
+        ap.print_help(sys.stderr)
+        return 2
     if target_count > 1:
         ap.error("--target-jpeg, --target-tiff, --target-jxl, --target-webp, --target-heif, --target-avif, and --target-cr3 are mutually exclusive")
     if (
@@ -312,7 +357,6 @@ def main(argv: list[str]) -> int:
         args.format = "portable"
     if args.lossless:
         args.format = "lossless"
-    write_payloads = bool(args.unsafe_write_payloads or args.write_payloads)
     try:
         time_patches = _parse_time_patch_specs(list(args.time_patch))
     except ValueError as ex:
@@ -389,6 +433,32 @@ def main(argv: list[str]) -> int:
         if args.load_c2pa_signed_package
         else None
     )
+
+    if args.load_transfer_payload_batch:
+        batch_bytes = Path(args.load_transfer_payload_batch).read_bytes()
+        inspected = openmeta.inspect_transfer_payload_batch(batch_bytes)
+        print(f"== transfer_payload_batch={args.load_transfer_payload_batch}")
+        print(
+            f"  transfer_payload_batch: status={inspected['status_name']} "
+            f"code={inspected['code_name']} "
+            f"bytes={int(inspected['bytes_read'])} "
+            f"payloads={int(inspected['payload_count'])} "
+            f"target={inspected['target_format_name']}"
+        )
+        if inspected["message"]:
+            print(f"  transfer_payload_batch_message={inspected['message']}")
+        if inspected["overall_status"] != openmeta.TransferStatus.Ok:
+            if inspected["error_message"]:
+                print(f"  error_message={inspected['error_message']}")
+            return 1
+        for payload in inspected["payloads"]:
+            print(
+                f"  [{int(payload['index'])}] semantic={payload['semantic_name']} "
+                f"route={payload['route']} "
+                f"size={int(payload['size'])} "
+                f"op={_transfer_payload_op_summary(payload)}"
+            )
+        return 0
 
     for path in input_paths:
         probe_fn = (

@@ -129,6 +129,13 @@ Read-path readiness is high:
   - thin wrappers can now dump that persisted semantic payload batch directly:
     `metatransfer --dump-transfer-payload-batch ...` and
     `openmeta.python.metatransfer --dump-transfer-payload-batch ...`
+  - thin wrappers can now also load and inspect that persisted semantic
+    payload batch directly:
+    `metatransfer --load-transfer-payload-batch ...` and
+    `openmeta.python.metatransfer --load-transfer-payload-batch ...`
+  - Python bindings now expose the same inspect surface directly through
+    `inspect_transfer_payload_batch(...)` and
+    `unsafe_inspect_transfer_payload_batch(...)`
   - `collect_prepared_transfer_package_views(...)` now provides the first
     target-neutral semantic view over that persisted batch, so higher-level
     adapters stop owning route parsing for packaged output

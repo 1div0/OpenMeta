@@ -562,6 +562,26 @@ endif()
 
 execute_process(
   COMMAND "${METATRANSFER_BIN}" --no-build-info
+          --load-transfer-payload-batch "${_transfer_payload_batch_out}"
+  RESULT_VARIABLE _rv_payload_batch_load
+  OUTPUT_VARIABLE _out_payload_batch_load
+  ERROR_VARIABLE _err_payload_batch_load
+)
+if(NOT _rv_payload_batch_load EQUAL 0)
+  message(FATAL_ERROR
+    "metatransfer payload batch load failed (${_rv_payload_batch_load})\nstdout:\n${_out_payload_batch_load}\nstderr:\n${_err_payload_batch_load}")
+endif()
+if(NOT _out_payload_batch_load MATCHES "transfer_payload_batch: status=ok code=none bytes=[0-9]+ payloads=[0-9]+ target=jpeg")
+  message(FATAL_ERROR
+    "metatransfer payload batch load missing summary\nstdout:\n${_out_payload_batch_load}\nstderr:\n${_err_payload_batch_load}")
+endif()
+if(NOT _out_payload_batch_load MATCHES "\\[0\\] semantic=Exif route=jpeg:app1-exif")
+  message(FATAL_ERROR
+    "metatransfer payload batch load missing first payload summary\nstdout:\n${_out_payload_batch_load}\nstderr:\n${_err_payload_batch_load}")
+endif()
+
+execute_process(
+  COMMAND "${METATRANSFER_BIN}" --no-build-info
           --no-exif --no-xmp --no-icc --no-iptc
           --c2pa-policy rewrite
           --dump-c2pa-binding "${_c2pa_binding_out}"

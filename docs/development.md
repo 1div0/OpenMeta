@@ -143,6 +143,9 @@ Portable sidecar note:
 #Persist the semantic transfer payload batch for cross-process handoff
 ./build/metatransfer --dump-transfer-payload-batch payloads.omtpld input.jpg
 
+#Load and inspect one persisted semantic transfer payload batch
+./build/metatransfer --load-transfer-payload-batch payloads.omtpld
+
 #Plan edit strategy without writing output
 ./build/metatransfer --mode auto --dry-run input.jpg
 
@@ -787,6 +790,7 @@ PYTHONPATH=build-py/python python3 -m openmeta.python.metatransfer --c2pa-policy
 PYTHONPATH=build-py/python python3 -m openmeta.python.metatransfer --jpeg-c2pa-signed signed_c2pa.jumb --c2pa-manifest-output manifest.bin --c2pa-certificate-chain chain.bin --c2pa-key-ref signer-key --c2pa-signing-time 2026-03-09T00:00:00Z --dump-c2pa-signed-package signed.omc2ps input_with_c2pa.jpg
 PYTHONPATH=build-py/python python3 -m openmeta.python.metatransfer --load-c2pa-signed-package signed.omc2ps --target-jpeg target.jpg -o edited.jpg input_with_c2pa.jpg
 PYTHONPATH=build-py/python python3 -m openmeta.python.metatransfer --dump-transfer-payload-batch payloads.omtpld input.jpg
+PYTHONPATH=build-py/python python3 -m openmeta.python.metatransfer --load-transfer-payload-batch payloads.omtpld
 ```
 
 ## Python Wheel

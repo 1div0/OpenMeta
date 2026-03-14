@@ -74,6 +74,8 @@ namespace {
             "                         Load one persisted signed C2PA package for staging\n"
             "  --dump-transfer-payload-batch <path>\n"
             "                         Write one persisted semantic transfer payload batch\n"
+            "  --load-transfer-payload-batch <path>\n"
+            "                         Load and inspect one persisted semantic transfer payload batch\n"
             "  --no-decompress        Disable payload decompression in read phase\n"
             "  --unsafe-write-payloads\n"
             "                         Write prepared raw block payload bytes to files\n"
@@ -465,6 +467,21 @@ namespace {
         case TransferTargetFormat::Avif: return "avif";
         case TransferTargetFormat::Cr3: return "cr3";
         case TransferTargetFormat::Exr: return "exr";
+        }
+        return "unknown";
+    }
+
+    static const char*
+    transfer_adapter_op_kind_name(TransferAdapterOpKind kind) noexcept
+    {
+        switch (kind) {
+        case TransferAdapterOpKind::JpegMarker: return "jpeg_marker";
+        case TransferAdapterOpKind::TiffTagBytes: return "tiff_tag";
+        case TransferAdapterOpKind::JxlBox: return "jxl_box";
+        case TransferAdapterOpKind::JxlIccProfile: return "jxl_icc_profile";
+        case TransferAdapterOpKind::WebpChunk: return "webp_chunk";
+        case TransferAdapterOpKind::BmffItem: return "bmff_item";
+        case TransferAdapterOpKind::BmffProperty: return "bmff_property";
         }
         return "unknown";
     }
@@ -904,6 +921,45 @@ namespace {
                || format == TransferTargetFormat::Cr3;
     }
 
+    static void
+    print_transfer_payload_view_summary(const PreparedTransferPayloadView& view,
+                                        uint32_t index)
+    {
+        std::printf("  [%u] semantic=%s route=%s size=%llu op=%s", index,
+                    view.semantic_name.data(), view.route.data(),
+                    static_cast<unsigned long long>(view.payload.size()),
+                    transfer_adapter_op_kind_name(view.op.kind));
+        switch (view.op.kind) {
+        case TransferAdapterOpKind::JpegMarker:
+            std::printf(" marker=%s",
+                        marker_name(view.op.jpeg_marker_code).c_str());
+            break;
+        case TransferAdapterOpKind::TiffTagBytes:
+            std::printf(" tag=0x%04X", static_cast<unsigned>(view.op.tiff_tag));
+            break;
+        case TransferAdapterOpKind::JxlBox:
+            std::printf(" type=%s", jxl_box_name(view.op.box_type).c_str());
+            break;
+        case TransferAdapterOpKind::JxlIccProfile: break;
+        case TransferAdapterOpKind::WebpChunk:
+            std::printf(" type=%s",
+                        webp_chunk_name(view.op.chunk_type).c_str());
+            break;
+        case TransferAdapterOpKind::BmffItem:
+            std::printf(" type=%s", bmff_item_name(view.op.bmff_item_type,
+                                                   view.op.bmff_mime_xmp)
+                                        .c_str());
+            break;
+        case TransferAdapterOpKind::BmffProperty:
+            std::printf(" type=%s",
+                        bmff_property_name(view.op.bmff_property_type,
+                                           view.op.bmff_property_subtype)
+                            .c_str());
+            break;
+        }
+        std::printf("\n");
+    }
+
 }  // namespace
 }  // namespace openmeta
 
@@ -941,6 +997,7 @@ main(int argc, char** argv)
     std::string c2pa_signed_package_output_path;
     std::string c2pa_signed_package_input_path;
     std::string transfer_payload_batch_output_path;
+    std::string transfer_payload_batch_input_path;
     std::string output_path;
     std::vector<std::string> input_paths;
     std::vector<PendingTimePatch> pending_time_patches;
@@ -1133,6 +1190,12 @@ main(int argc, char** argv)
             i += 1;
             continue;
         }
+        if (std::strcmp(arg, "--load-transfer-payload-batch") == 0
+            && i + 1 < argc) {
+            transfer_payload_batch_input_path = argv[i + 1];
+            i += 1;
+            continue;
+        }
         if (std::strcmp(arg, "--no-decompress") == 0) {
             options.decompress = false;
             continue;
@@ -1321,7 +1384,7 @@ main(int argc, char** argv)
             input_paths.push_back(target_tiff_path);
         }
     }
-    if (input_paths.empty()) {
+    if (input_paths.empty() && transfer_payload_batch_input_path.empty()) {
         usage(argv[0]);
         return 2;
     }
@@ -1368,6 +1431,80 @@ main(int argc, char** argv)
           + static_cast<uint32_t>(target_heif)
           + static_cast<uint32_t>(target_avif)
           + static_cast<uint32_t>(target_cr3);
+    if (!transfer_payload_batch_input_path.empty()) {
+        if (!input_paths.empty() || !source_meta_path.empty()
+            || !target_jpeg_path.empty() || !target_tiff_path.empty()
+            || target_count != 0U || !jpeg_jumbf_path.empty()
+            || c2pa_stage_requested || !c2pa_binding_output_path.empty()
+            || !c2pa_handoff_output_path.empty()
+            || !c2pa_signed_package_output_path.empty()
+            || !c2pa_signed_package_input_path.empty()
+            || !transfer_payload_batch_output_path.empty()
+            || !output_path.empty() || dry_run || write_payloads) {
+            std::fprintf(
+                stderr,
+                "--load-transfer-payload-batch is an inspect-only mode and is mutually exclusive with source transfer/edit options\n");
+            return 2;
+        }
+
+        if (show_build_info) {
+            print_build_info_header();
+        }
+
+        std::vector<std::byte> batch_bytes;
+        if (!read_file_bytes(transfer_payload_batch_input_path, &batch_bytes)) {
+            std::fprintf(stderr, "failed to read transfer payload batch: %s\n",
+                         transfer_payload_batch_input_path.c_str());
+            return 1;
+        }
+
+        PreparedTransferPayloadBatch batch;
+        const PreparedTransferPayloadIoResult batch_io
+            = deserialize_prepared_transfer_payload_batch(
+                std::span<const std::byte>(batch_bytes.data(),
+                                           batch_bytes.size()),
+                &batch);
+        std::vector<PreparedTransferPayloadView> payload_views;
+        EmitTransferResult inspect;
+        if (batch_io.status == TransferStatus::Ok) {
+            inspect = collect_prepared_transfer_payload_views(batch,
+                                                              &payload_views);
+        } else {
+            inspect.status  = batch_io.status;
+            inspect.code    = batch_io.code;
+            inspect.errors  = batch_io.errors;
+            inspect.message = batch_io.message;
+        }
+
+        std::printf("== transfer_payload_batch=%s\n",
+                    transfer_payload_batch_input_path.c_str());
+        std::printf(
+            "  transfer_payload_batch: status=%s code=%s bytes=%llu payloads=%u target=%s\n",
+            transfer_status_name(batch_io.status),
+            emit_transfer_code_name(batch_io.code),
+            static_cast<unsigned long long>(batch_io.bytes),
+            static_cast<unsigned>(payload_views.size()),
+            transfer_target_format_name(batch.target_format));
+        if (!batch_io.message.empty()) {
+            std::printf("  transfer_payload_batch_message=%s\n",
+                        batch_io.message.c_str());
+        }
+        if (inspect.status != TransferStatus::Ok) {
+            std::printf("  inspect: status=%s code=%s errors=%u\n",
+                        transfer_status_name(inspect.status),
+                        emit_transfer_code_name(inspect.code),
+                        static_cast<unsigned>(inspect.errors));
+            if (!inspect.message.empty()) {
+                std::printf("  inspect_message=%s\n", inspect.message.c_str());
+            }
+            return 1;
+        }
+        for (size_t i = 0; i < payload_views.size(); ++i) {
+            print_transfer_payload_view_summary(payload_views[i],
+                                                static_cast<uint32_t>(i));
+        }
+        return 0;
+    }
     if (target_count > 1U) {
         std::fprintf(
             stderr,

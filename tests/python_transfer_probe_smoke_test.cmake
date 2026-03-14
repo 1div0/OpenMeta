@@ -84,6 +84,24 @@ assert r3b['transfer_payload_batch_bytes_written'] > 0, r3b
 assert isinstance(r3b['transfer_payload_batch_bytes'], (bytes, bytearray)), r3b
 assert bytes(r3b['transfer_payload_batch_bytes'])[:8] == b'OMTPLD01', r3b
 
+inspected = openmeta.inspect_transfer_payload_batch(
+    r3b['transfer_payload_batch_bytes'],
+)
+assert inspected['status_name'] == 'ok', inspected
+assert inspected['code_name'] == 'none', inspected
+assert inspected['target_format_name'] == 'jpeg', inspected
+assert inspected['payload_count'] >= 1, inspected
+assert inspected['payloads'][0]['semantic_name'] == 'Exif', inspected
+assert inspected['payloads'][0]['payload'] is None, inspected
+
+inspected_u = openmeta.unsafe_inspect_transfer_payload_batch(
+    r3b['transfer_payload_batch_bytes'],
+    include_payloads=True,
+)
+assert inspected_u['overall_status'] == openmeta.TransferStatus.Ok, inspected_u
+assert inspected_u['payload_count'] >= 1, inspected_u
+assert isinstance(inspected_u['payloads'][0]['payload'], (bytes, bytearray)), inspected_u
+
 p_c2pa = Path(r'''${WORK_DIR}/sample_c2pa.jpg''')
 cbor = bytes([0xA1, 0x61, 0x61, 0x01])
 jumd = b'c2pa\\x00'

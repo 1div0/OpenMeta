@@ -812,6 +812,21 @@ namespace {
         return "unknown";
     }
 
+    static const char*
+    transfer_adapter_op_kind_name(TransferAdapterOpKind kind) noexcept
+    {
+        switch (kind) {
+        case TransferAdapterOpKind::JpegMarker: return "jpeg_marker";
+        case TransferAdapterOpKind::TiffTagBytes: return "tiff_tag";
+        case TransferAdapterOpKind::JxlBox: return "jxl_box";
+        case TransferAdapterOpKind::JxlIccProfile: return "jxl_icc_profile";
+        case TransferAdapterOpKind::WebpChunk: return "webp_chunk";
+        case TransferAdapterOpKind::BmffItem: return "bmff_item";
+        case TransferAdapterOpKind::BmffProperty: return "bmff_property";
+        }
+        return "unknown";
+    }
+
     static TransferStatus
     transfer_status_from_file_status(TransferFileStatus status) noexcept
     {
@@ -969,6 +984,125 @@ namespace {
 
             out.push_back(std::move(one));
         }
+        return out;
+    }
+
+    static nb::dict
+    inspect_transfer_payload_batch_to_python(nb::object payload_batch_obj,
+                                             bool include_payloads,
+                                             bool unsafe_payload_access)
+    {
+        if (payload_batch_obj.is_none()) {
+            throw std::runtime_error(
+                "transfer_payload_batch must be bytes-like");
+        }
+
+        const std::vector<std::byte> payload_batch_bytes
+            = bytes_object_to_vector(payload_batch_obj);
+        PreparedTransferPayloadBatch batch;
+        const PreparedTransferPayloadIoResult batch_io
+            = deserialize_prepared_transfer_payload_batch(
+                std::span<const std::byte>(payload_batch_bytes.data(),
+                                           payload_batch_bytes.size()),
+                &batch);
+
+        std::vector<PreparedTransferPayloadView> payload_views;
+        EmitTransferResult inspect_result;
+        if (batch_io.status == TransferStatus::Ok) {
+            inspect_result
+                = collect_prepared_transfer_payload_views(batch,
+                                                          &payload_views);
+        } else {
+            inspect_result.status  = batch_io.status;
+            inspect_result.code    = batch_io.code;
+            inspect_result.errors  = batch_io.errors;
+            inspect_result.message = batch_io.message;
+        }
+
+        nb::dict out;
+        out["requested_payload_bytes"] = nb::bool_(include_payloads);
+        out["status"]                  = batch_io.status;
+        out["status_name"]   = nb::str(transfer_status_name(batch_io.status));
+        out["code"]          = batch_io.code;
+        out["code_name"]     = nb::str(emit_transfer_code_name(batch_io.code));
+        out["bytes_read"]    = nb::int_(batch_io.bytes);
+        out["errors"]        = nb::int_(batch_io.errors);
+        out["message"]       = nb::str(batch_io.message.c_str(),
+                                       batch_io.message.size());
+        out["target_format"] = batch.target_format;
+        out["target_format_name"] = nb::str(
+            transfer_target_format_name(batch.target_format));
+        out["payload_count"] = nb::int_(payload_views.size());
+
+        const bool allow_payload_bytes = include_payloads
+                                         && unsafe_payload_access;
+        nb::list payloads;
+        for (size_t i = 0; i < payload_views.size(); ++i) {
+            const PreparedTransferPayloadView& view = payload_views[i];
+            nb::dict one;
+            one["index"]         = nb::int_(static_cast<uint32_t>(i));
+            one["semantic_kind"] = nb::int_(
+                static_cast<uint32_t>(view.semantic_kind));
+            one["semantic_name"] = nb::str(view.semantic_name.data(),
+                                           view.semantic_name.size());
+            one["route"] = nb::str(view.route.data(), view.route.size());
+            one["size"]  = nb::int_(static_cast<uint64_t>(view.payload.size()));
+            one["op_kind"]      = nb::int_(static_cast<uint32_t>(view.op.kind));
+            one["op_kind_name"] = nb::str(
+                transfer_adapter_op_kind_name(view.op.kind));
+            one["jpeg_marker_code"]      = nb::int_(view.op.jpeg_marker_code);
+            one["tiff_tag"]              = nb::int_(view.op.tiff_tag);
+            one["box_type"]              = nb::str(view.op.box_type.data(),
+                                                   view.op.box_type.size());
+            one["chunk_type"]            = nb::str(view.op.chunk_type.data(),
+                                                   view.op.chunk_type.size());
+            one["bmff_item_type"]        = nb::int_(view.op.bmff_item_type);
+            one["bmff_property_type"]    = nb::int_(view.op.bmff_property_type);
+            one["bmff_property_subtype"] = nb::int_(
+                view.op.bmff_property_subtype);
+            one["bmff_mime_xmp"] = nb::bool_(view.op.bmff_mime_xmp);
+            one["compress"]      = nb::bool_(view.op.compress);
+            if (allow_payload_bytes) {
+                one["payload"] = nb::bytes(reinterpret_cast<const char*>(
+                                               view.payload.data()),
+                                           view.payload.size());
+            } else {
+                one["payload"] = nb::none();
+            }
+            payloads.append(std::move(one));
+        }
+        out["payloads"] = std::move(payloads);
+
+        TransferStatus overall_status = TransferStatus::Ok;
+        std::string error_stage       = "none";
+        std::string error_code        = "none";
+        std::string error_message;
+        if (include_payloads && !unsafe_payload_access) {
+            overall_status = TransferStatus::UnsafeData;
+            error_stage    = "api";
+            error_code     = "unsafe_payloads_forbidden";
+            error_message
+                = "safe inspect_transfer_payload_batch forbids payload bytes; "
+                  "use unsafe_inspect_transfer_payload_batch("
+                  "include_payloads=True)";
+        } else if (batch_io.status != TransferStatus::Ok) {
+            overall_status = batch_io.status;
+            error_stage    = "payload_batch";
+            error_code     = emit_transfer_code_name(batch_io.code);
+            error_message  = batch_io.message;
+        } else if (inspect_result.status != TransferStatus::Ok) {
+            overall_status = inspect_result.status;
+            error_stage    = "inspect";
+            error_code     = emit_transfer_code_name(inspect_result.code);
+            error_message  = inspect_result.message;
+        }
+        out["overall_status"]      = overall_status;
+        out["overall_status_name"] = nb::str(
+            transfer_status_name(overall_status));
+        out["error_stage"]   = nb::str(error_stage.c_str(), error_stage.size());
+        out["error_code"]    = nb::str(error_code.c_str(), error_code.size());
+        out["error_message"] = nb::str(error_message.c_str(),
+                                       error_message.size());
         return out;
     }
 
@@ -3733,6 +3867,24 @@ NB_MODULE(_openmeta, m)
         "include_c2pa_handoff_bytes"_a           = false,
         "include_c2pa_signed_package_bytes"_a    = false,
         "include_transfer_payload_batch_bytes"_a = false);
+
+    m.def(
+        "inspect_transfer_payload_batch",
+        [](nb::object payload_batch, bool include_payloads) {
+            return inspect_transfer_payload_batch_to_python(payload_batch,
+                                                            include_payloads,
+                                                            false);
+        },
+        "payload_batch"_a, "include_payloads"_a = false);
+
+    m.def(
+        "unsafe_inspect_transfer_payload_batch",
+        [](nb::object payload_batch, bool include_payloads) {
+            return inspect_transfer_payload_batch_to_python(payload_batch,
+                                                            include_payloads,
+                                                            true);
+        },
+        "payload_batch"_a, "include_payloads"_a = false);
 
     m.def("console_text", &console_text, "data"_a, "max_bytes"_a = 4096U);
     m.def("hex_bytes", &hex_bytes, "data"_a, "max_bytes"_a = 4096U);
