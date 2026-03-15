@@ -134,6 +134,16 @@ def _transfer_payload_op_summary(payload: dict[object, object]) -> str:
     return op_kind
 
 
+def _transfer_package_chunk_summary(chunk: dict[object, object]) -> str:
+    summary = (
+        f"{chunk['package_kind_name']} offset={int(chunk['output_offset'])}"
+    )
+    marker = int(chunk["jpeg_marker_code"])
+    if marker != 0:
+        summary += f" marker={_marker_name(marker)}"
+    return summary
+
+
 def _sanitize_filename(s: str) -> str:
     out = []
     for ch in s:
@@ -201,22 +211,28 @@ def main(argv: list[str]) -> int:
     )
     ap.add_argument("--target-jxl", action="store_true", help="target JPEG XL metadata emit summary")
     ap.add_argument("--target-webp", action="store_true", help="target WebP metadata chunk emit summary")
-    ap.add_argument("--target-heif", action="store_true", help="target HEIF metadata item emit summary")
-    ap.add_argument("--target-avif", action="store_true", help="target AVIF metadata item emit summary")
-    ap.add_argument("--target-cr3", action="store_true", help="target CR3 metadata item emit summary")
+    ap.add_argument("--target-heif", action="store_true", help="target HEIF metadata transfer")
+    ap.add_argument("--target-avif", action="store_true", help="target AVIF metadata transfer")
+    ap.add_argument("--target-cr3", action="store_true", help="target CR3 metadata transfer")
     ap.add_argument("--target-jpeg", type=str, default="", help="target JPEG stream for edit/apply")
     ap.add_argument("--target-tiff", type=str, default="", help="target TIFF stream for edit/apply")
-    ap.add_argument("--jpeg-c2pa-signed", type=str, default="", help="externally signed logical C2PA payload for JPEG staging")
+    ap.add_argument("--source-meta", type=str, default="", help="source metadata file for edit/apply against a separate target file")
+    ap.add_argument("--jpeg-c2pa-signed", type=str, default="", help="externally signed logical C2PA payload for JPEG, JXL, or bounded BMFF staging")
     ap.add_argument("--c2pa-manifest-output", type=str, default="", help="external manifest-builder output bytes for signed C2PA staging")
     ap.add_argument("--c2pa-certificate-chain", type=str, default="", help="external certificate-chain bytes for signed C2PA staging")
     ap.add_argument("--c2pa-key-ref", type=str, default="", help="private-key reference string for signed C2PA staging")
     ap.add_argument("--c2pa-signing-time", type=str, default="", help="signing time for signed C2PA staging")
-    ap.add_argument("--dump-c2pa-binding", type=str, default="", help="write exact C2PA content-binding bytes for external signing")
-    ap.add_argument("--dump-c2pa-handoff", type=str, default="", help="write one persisted C2PA handoff package")
-    ap.add_argument("--dump-c2pa-signed-package", type=str, default="", help="write one persisted signed C2PA package")
-    ap.add_argument("--load-c2pa-signed-package", type=str, default="", help="load one persisted signed C2PA package for staging")
+    ap.add_argument("--dump-c2pa-binding", type=str, default="", help="write exact C2PA content-binding bytes for external signing on JPEG, JXL, or bounded BMFF targets")
+    ap.add_argument("--dump-c2pa-handoff", type=str, default="", help="write one persisted C2PA handoff package for JPEG, JXL, or bounded BMFF targets")
+    ap.add_argument("--dump-c2pa-signed-package", type=str, default="", help="write one persisted signed C2PA package for JPEG, JXL, or bounded BMFF targets")
+    ap.add_argument("--load-c2pa-signed-package", type=str, default="", help="load one persisted signed C2PA package for JPEG, JXL, or bounded BMFF staging")
     ap.add_argument("--dump-transfer-payload-batch", type=str, default="", help="write one persisted semantic transfer payload batch")
     ap.add_argument("--load-transfer-payload-batch", type=str, default="", help="load and inspect one persisted semantic transfer payload batch")
+    ap.add_argument("--dump-transfer-package-batch", type=str, default="", help="write one persisted final transfer package batch")
+    ap.add_argument("--load-transfer-package-batch", type=str, default="", help="load and inspect one persisted final transfer package batch")
+    ap.add_argument("--dump-jxl-encoder-handoff", type=str, default="", help="write one persisted JXL encoder ICC handoff")
+    ap.add_argument("--load-jxl-encoder-handoff", type=str, default="", help="load and inspect one persisted JXL encoder ICC handoff")
+    ap.add_argument("--load-transfer-artifact", type=str, default="", help="load and inspect one persisted transfer artifact of any supported kind")
     ap.add_argument("-o", "--output", type=str, default="", help="write edited output file")
     ap.add_argument("--dry-run", action="store_true", help="plan edit only; do not write output")
     ap.add_argument("--force", action="store_true", help="overwrite existing payload files")
@@ -260,15 +276,25 @@ def main(argv: list[str]) -> int:
         + int(bool(args.target_avif))
         + int(bool(args.target_cr3))
     )
+    inspect_mode_count = (
+        int(bool(args.load_transfer_payload_batch))
+        + int(bool(args.load_transfer_package_batch))
+        + int(bool(args.load_jxl_encoder_handoff))
+        + int(bool(args.load_transfer_artifact))
+    )
+    if inspect_mode_count > 1:
+        ap.error("--load-transfer-payload-batch, --load-transfer-package-batch, --load-jxl-encoder-handoff, and --load-transfer-artifact are mutually exclusive")
     if args.load_transfer_payload_batch:
         if input_paths:
             ap.error("--load-transfer-payload-batch is mutually exclusive with source input paths")
         if (
             target_count > 0
+            or args.source_meta
             or args.output
             or args.dry_run
             or write_payloads
             or args.dump_transfer_payload_batch
+            or args.dump_transfer_package_batch
             or args.dump_c2pa_binding
             or args.dump_c2pa_handoff
             or args.dump_c2pa_signed_package
@@ -278,8 +304,78 @@ def main(argv: list[str]) -> int:
             or args.c2pa_certificate_chain
             or args.c2pa_key_ref
             or args.c2pa_signing_time
+            or args.dump_jxl_encoder_handoff
         ):
             ap.error("--load-transfer-payload-batch is an inspect-only mode")
+    elif args.load_transfer_package_batch:
+        if input_paths:
+            ap.error("--load-transfer-package-batch is mutually exclusive with source input paths")
+        if (
+            target_count > 0
+            or args.source_meta
+            or args.output
+            or args.dry_run
+            or write_payloads
+            or args.dump_transfer_payload_batch
+            or args.dump_transfer_package_batch
+            or args.dump_c2pa_binding
+            or args.dump_c2pa_handoff
+            or args.dump_c2pa_signed_package
+            or args.load_c2pa_signed_package
+            or args.jpeg_c2pa_signed
+            or args.c2pa_manifest_output
+            or args.c2pa_certificate_chain
+            or args.c2pa_key_ref
+            or args.c2pa_signing_time
+            or args.dump_jxl_encoder_handoff
+        ):
+            ap.error("--load-transfer-package-batch is an inspect-only mode")
+    elif args.load_jxl_encoder_handoff:
+        if input_paths:
+            ap.error("--load-jxl-encoder-handoff is mutually exclusive with source input paths")
+        if (
+            target_count > 0
+            or args.source_meta
+            or args.output
+            or args.dry_run
+            or write_payloads
+            or args.dump_transfer_payload_batch
+            or args.dump_transfer_package_batch
+            or args.dump_c2pa_binding
+            or args.dump_c2pa_handoff
+            or args.dump_c2pa_signed_package
+            or args.load_c2pa_signed_package
+            or args.jpeg_c2pa_signed
+            or args.c2pa_manifest_output
+            or args.c2pa_certificate_chain
+            or args.c2pa_key_ref
+            or args.c2pa_signing_time
+            or args.dump_jxl_encoder_handoff
+        ):
+            ap.error("--load-jxl-encoder-handoff is an inspect-only mode")
+    elif args.load_transfer_artifact:
+        if input_paths:
+            ap.error("--load-transfer-artifact is mutually exclusive with source input paths")
+        if (
+            target_count > 0
+            or args.source_meta
+            or args.output
+            or args.dry_run
+            or write_payloads
+            or args.dump_transfer_payload_batch
+            or args.dump_transfer_package_batch
+            or args.dump_c2pa_binding
+            or args.dump_c2pa_handoff
+            or args.dump_c2pa_signed_package
+            or args.load_c2pa_signed_package
+            or args.jpeg_c2pa_signed
+            or args.c2pa_manifest_output
+            or args.c2pa_certificate_chain
+            or args.c2pa_key_ref
+            or args.c2pa_signing_time
+            or args.dump_jxl_encoder_handoff
+        ):
+            ap.error("--load-transfer-artifact is an inspect-only mode")
     elif not input_paths:
         ap.print_help(sys.stderr)
         return 2
@@ -293,44 +389,44 @@ def main(argv: list[str]) -> int:
         or args.c2pa_signing_time
     ) and (
         args.target_tiff
-        or args.target_jxl
         or args.target_webp
+    ):
+        ap.error("signed C2PA staging is only supported for JPEG, JXL, and BMFF targets")
+    if args.output and not (
+        args.target_jpeg
+        or args.target_tiff
+        or args.target_jxl
         or args.target_heif
         or args.target_avif
         or args.target_cr3
     ):
-        ap.error("signed C2PA staging is only supported for JPEG targets")
-    if args.output and not (args.target_jpeg or args.target_tiff):
-        if args.target_jxl:
-            ap.error("--output is not supported for JXL targets yet")
         if args.target_webp:
             ap.error("--output is not supported for WebP targets yet")
-        if args.target_heif or args.target_avif or args.target_cr3:
-            ap.error("--output is not supported for BMFF targets yet")
-        ap.error("--output requires --target-jpeg or --target-tiff")
+        ap.error(
+            "--output requires --target-jpeg, --target-tiff, --target-jxl, "
+            "--target-heif, --target-avif, or --target-cr3"
+        )
     if args.dump_c2pa_binding and (
         args.target_tiff
-        or args.target_jxl
         or args.target_webp
-        or args.target_heif
-        or args.target_avif
-        or args.target_cr3
     ):
-        ap.error("--dump-c2pa-binding is only supported for JPEG targets")
+        ap.error("--dump-c2pa-binding is only supported for JPEG, JXL, and BMFF targets")
     if (
         args.dump_c2pa_handoff
         or args.dump_c2pa_signed_package
         or args.load_c2pa_signed_package
     ) and (
         args.target_tiff
-        or args.target_jxl
         or args.target_webp
+    ):
+        ap.error("C2PA package options are only supported for JPEG, JXL, and BMFF targets")
+    if (
+        args.target_jpeg
+        or args.target_tiff
         or args.target_heif
         or args.target_avif
         or args.target_cr3
-    ):
-        ap.error("C2PA package options are only supported for JPEG targets")
-    if (args.target_jpeg or args.target_tiff) and len(input_paths) != 1:
+    ) and len(input_paths) != 1:
         ap.error("edit mode supports exactly one source input")
     if args.dump_c2pa_binding and len(input_paths) != 1:
         ap.error("--dump-c2pa-binding supports exactly one input path per run")
@@ -342,6 +438,10 @@ def main(argv: list[str]) -> int:
         ap.error("C2PA package options support exactly one input path per run")
     if args.dump_transfer_payload_batch and len(input_paths) != 1:
         ap.error("--dump-transfer-payload-batch supports exactly one input path per run")
+    if args.dump_transfer_package_batch and len(input_paths) != 1:
+        ap.error("--dump-transfer-package-batch supports exactly one input path per run")
+    if args.dump_jxl_encoder_handoff and len(input_paths) != 1:
+        ap.error("--dump-jxl-encoder-handoff supports exactly one input path per run")
     if args.load_c2pa_signed_package and (
         args.jpeg_c2pa_signed
         or args.c2pa_manifest_output
@@ -408,6 +508,18 @@ def main(argv: list[str]) -> int:
     else:
         target_format = openmeta.TransferTargetFormat.Jpeg
     target_path = args.target_tiff if args.target_tiff else args.target_jpeg
+    if (
+        not target_path
+        and (
+            args.target_jxl
+            or args.target_heif
+            or args.target_avif
+            or args.target_cr3
+        )
+        and (args.output or args.dry_run)
+        and len(input_paths) == 1
+    ):
+        target_path = input_paths[0]
     edit_requested = bool(target_path)
     edit_apply = bool(edit_requested and not args.dry_run)
     need_edited_bytes = bool(edit_apply and args.output)
@@ -415,6 +527,8 @@ def main(argv: list[str]) -> int:
     need_c2pa_handoff_bytes = bool(args.dump_c2pa_handoff)
     need_c2pa_signed_package_bytes = bool(args.dump_c2pa_signed_package)
     need_transfer_payload_batch_bytes = bool(args.dump_transfer_payload_batch)
+    need_transfer_package_batch_bytes = bool(args.dump_transfer_package_batch)
+    need_jxl_encoder_handoff_bytes = bool(args.dump_jxl_encoder_handoff)
     c2pa_signed_payload = (
         Path(args.jpeg_c2pa_signed).read_bytes() if args.jpeg_c2pa_signed else None
     )
@@ -459,8 +573,112 @@ def main(argv: list[str]) -> int:
                 f"op={_transfer_payload_op_summary(payload)}"
             )
         return 0
+    if args.load_transfer_package_batch:
+        batch_bytes = Path(args.load_transfer_package_batch).read_bytes()
+        inspected = openmeta.inspect_transfer_package_batch(batch_bytes)
+        print(f"== transfer_package_batch={args.load_transfer_package_batch}")
+        print(
+            f"  transfer_package_batch: status={inspected['status_name']} "
+            f"code={inspected['code_name']} "
+            f"bytes={int(inspected['bytes_read'])} "
+            f"chunks={int(inspected['chunk_count'])} "
+            f"target={inspected['target_format_name']}"
+        )
+        if inspected["message"]:
+            print(f"  transfer_package_batch_message={inspected['message']}")
+        if inspected["overall_status"] != openmeta.TransferStatus.Ok:
+            if inspected["error_message"]:
+                print(f"  error_message={inspected['error_message']}")
+            return 1
+        for chunk in inspected["chunks"]:
+            route = str(chunk["route"]) if chunk["route"] else "-"
+            print(
+                f"  [{int(chunk['index'])}] semantic={chunk['semantic_name']} "
+                f"route={route} "
+                f"size={int(chunk['size'])} "
+                f"chunk={_transfer_package_chunk_summary(chunk)}"
+            )
+        return 0
+    if args.load_jxl_encoder_handoff:
+        handoff_bytes = Path(args.load_jxl_encoder_handoff).read_bytes()
+        inspected = openmeta.inspect_jxl_encoder_handoff(handoff_bytes)
+        print(f"== jxl_encoder_handoff={args.load_jxl_encoder_handoff}")
+        print(
+            f"  jxl_encoder_handoff: status={inspected['status_name']} "
+            f"code={inspected['code_name']} "
+            f"bytes={int(inspected['bytes_read'])} "
+            f"box_count={int(inspected['box_count'])} "
+            f"box_payload_bytes={int(inspected['box_payload_bytes'])}"
+        )
+        if inspected["message"]:
+            print(f"  jxl_encoder_handoff_message={inspected['message']}")
+        if inspected["overall_status"] != openmeta.TransferStatus.Ok:
+            if inspected["error_message"]:
+                print(f"  error_message={inspected['error_message']}")
+            return 1
+        if bool(inspected["has_icc_profile"]):
+            print(f"  jxl_icc_profile bytes={int(inspected['icc_profile_bytes'])}")
+        return 0
+    if args.load_transfer_artifact:
+        artifact_bytes = Path(args.load_transfer_artifact).read_bytes()
+        inspected = openmeta.inspect_transfer_artifact(artifact_bytes)
+        print(f"== transfer_artifact={args.load_transfer_artifact}")
+        target_name = (
+            str(inspected["target_format_name"])
+            if inspected["target_format_name"] is not None
+            else "-"
+        )
+        print(
+            f"  transfer_artifact: status={inspected['status_name']} "
+            f"code={inspected['code_name']} "
+            f"kind={inspected['kind_name']} "
+            f"bytes={int(inspected['bytes_read'])} "
+            f"target={target_name}"
+        )
+        if inspected["message"]:
+            print(f"  transfer_artifact_message={inspected['message']}")
+        if inspected["overall_status"] != openmeta.TransferStatus.Ok:
+            if inspected["error_message"]:
+                print(f"  error_message={inspected['error_message']}")
+            return 1
+        kind_name = str(inspected["kind_name"])
+        if kind_name == "transfer_payload_batch":
+            print(
+                f"  transfer_payload_batch: payloads={int(inspected['entry_count'])} "
+                f"payload_bytes={int(inspected['payload_bytes'])}"
+            )
+        elif kind_name == "transfer_package_batch":
+            print(
+                f"  transfer_package_batch: chunks={int(inspected['entry_count'])} "
+                f"payload_bytes={int(inspected['payload_bytes'])}"
+            )
+        elif kind_name == "jxl_encoder_handoff":
+            print(
+                f"  jxl_encoder_handoff: box_count={int(inspected['entry_count'])} "
+                f"box_payload_bytes={int(inspected['box_payload_bytes'])}"
+            )
+            if bool(inspected["has_icc_profile"]):
+                print(
+                    f"  jxl_icc_profile bytes={int(inspected['icc_profile_bytes'])}"
+                )
+        elif kind_name == "c2pa_handoff_package":
+            print(
+                f"  c2pa_handoff: carrier={inspected['carrier_route'] or '-'} "
+                f"manifest_label={inspected['manifest_label'] or '-'} "
+                f"binding_bytes={int(inspected['binding_bytes'])} "
+                f"chunks={int(inspected['entry_count'])}"
+            )
+        elif kind_name == "c2pa_signed_package":
+            print(
+                f"  c2pa_signed_package: carrier={inspected['carrier_route'] or '-'} "
+                f"manifest_label={inspected['manifest_label'] or '-'} "
+                f"signed_payload_bytes={int(inspected['signed_payload_bytes'])} "
+                f"chunks={int(inspected['entry_count'])}"
+            )
+        return 0
 
     for path in input_paths:
+        source_path = args.source_meta if args.source_meta else path
         probe_fn = (
             openmeta.unsafe_transfer_probe
             if (
@@ -470,11 +688,13 @@ def main(argv: list[str]) -> int:
                 or need_c2pa_handoff_bytes
                 or need_c2pa_signed_package_bytes
                 or need_transfer_payload_batch_bytes
+                or need_transfer_package_batch_bytes
+                or need_jxl_encoder_handoff_bytes
             )
             else openmeta.transfer_probe
         )
         probe = probe_fn(
-            path,
+            source_path,
             target_format=target_format,
             format=sidecar_format,
             include_pointer_tags=True,
@@ -509,10 +729,14 @@ def main(argv: list[str]) -> int:
             include_c2pa_binding_bytes=need_c2pa_binding_bytes,
             include_c2pa_handoff_bytes=need_c2pa_handoff_bytes,
             include_c2pa_signed_package_bytes=need_c2pa_signed_package_bytes,
+            include_jxl_encoder_handoff_bytes=need_jxl_encoder_handoff_bytes,
             include_transfer_payload_batch_bytes=need_transfer_payload_batch_bytes,
+            include_transfer_package_batch_bytes=need_transfer_package_batch_bytes,
         )
 
-        print(f"== {path}")
+        print(f"== {source_path}")
+        if source_path != path:
+            print(f"   target={path}")
         print(
             f"  file_status={probe['file_status_name']} size={probe['file_size']} entries={probe['entry_count']}"
         )
@@ -604,6 +828,12 @@ def main(argv: list[str]) -> int:
                             f"offset={int(chunk['source_offset'])} "
                             f"size={int(chunk['size'])}"
                         )
+                    elif str(chunk["kind_name"]) == "prepared_bmff_meta_box":
+                        print(
+                            f"  c2pa_rewrite_chunk[{int(chunk['index'])}]: "
+                            f"kind={chunk['kind_name']} "
+                            f"size={int(chunk['size'])}"
+                        )
                     else:
                         print(
                             f"  c2pa_rewrite_chunk[{int(chunk['index'])}]: "
@@ -667,6 +897,28 @@ def main(argv: list[str]) -> int:
             if probe["transfer_payload_batch_message"]:
                 print(
                     f"  transfer_payload_batch_message={probe['transfer_payload_batch_message']}"
+                )
+        if probe["transfer_package_batch_requested"]:
+            print(
+                f"  transfer_package_batch: status={probe['transfer_package_batch_status_name']} "
+                f"code={probe['transfer_package_batch_code_name']} "
+                f"bytes={int(probe['transfer_package_batch_bytes_written'])} "
+                f"errors={int(probe['transfer_package_batch_errors'])}"
+            )
+            if probe["transfer_package_batch_message"]:
+                print(
+                    f"  transfer_package_batch_message={probe['transfer_package_batch_message']}"
+                )
+        if probe["jxl_encoder_handoff_requested"]:
+            print(
+                f"  jxl_encoder_handoff: status={probe['jxl_encoder_handoff_status_name']} "
+                f"code={probe['jxl_encoder_handoff_code_name']} "
+                f"bytes={int(probe['jxl_encoder_handoff_bytes_written'])} "
+                f"errors={int(probe['jxl_encoder_handoff_errors'])}"
+            )
+            if probe["jxl_encoder_handoff_message"]:
+                print(
+                    f"  jxl_encoder_handoff_message={probe['jxl_encoder_handoff_message']}"
                 )
         if probe["c2pa_stage_requested"]:
             print(
@@ -806,6 +1058,52 @@ def main(argv: list[str]) -> int:
             print(
                 f"  transfer_payload_batch_output={args.dump_transfer_payload_batch} bytes={len(payload_batch)}"
             )
+        if args.dump_transfer_package_batch:
+            if os.path.exists(args.dump_transfer_package_batch) and not args.force:
+                sys.stderr.write(
+                    f"  transfer package batch output exists: {args.dump_transfer_package_batch} (use --force)\n"
+                )
+                rc = 1
+                continue
+            package_batch = probe["transfer_package_batch_bytes"]
+            if package_batch is None:
+                sys.stderr.write(
+                    "  transfer_package_batch_bytes missing from probe result\n"
+                )
+                rc = 1
+                continue
+            os.makedirs(
+                os.path.dirname(args.dump_transfer_package_batch) or ".",
+                exist_ok=True,
+            )
+            with open(args.dump_transfer_package_batch, "wb") as f:
+                f.write(package_batch)
+            print(
+                f"  transfer_package_batch_output={args.dump_transfer_package_batch} bytes={len(package_batch)}"
+            )
+        if args.dump_jxl_encoder_handoff:
+            if os.path.exists(args.dump_jxl_encoder_handoff) and not args.force:
+                sys.stderr.write(
+                    f"  jxl encoder handoff output exists: {args.dump_jxl_encoder_handoff} (use --force)\n"
+                )
+                rc = 1
+                continue
+            jxl_handoff = probe["jxl_encoder_handoff_bytes"]
+            if jxl_handoff is None:
+                sys.stderr.write(
+                    "  jxl_encoder_handoff_bytes missing from probe result\n"
+                )
+                rc = 1
+                continue
+            os.makedirs(
+                os.path.dirname(args.dump_jxl_encoder_handoff) or ".",
+                exist_ok=True,
+            )
+            with open(args.dump_jxl_encoder_handoff, "wb") as f:
+                f.write(jxl_handoff)
+            print(
+                f"  jxl_encoder_handoff_output={args.dump_jxl_encoder_handoff} bytes={len(jxl_handoff)}"
+            )
 
         allow_output_only_success = (
             not edit_requested
@@ -820,6 +1118,14 @@ def main(argv: list[str]) -> int:
                 or (
                     args.dump_transfer_payload_batch
                     and probe["transfer_payload_batch_status"] == openmeta.TransferStatus.Ok
+                )
+                or (
+                    args.dump_transfer_package_batch
+                    and probe["transfer_package_batch_status"] == openmeta.TransferStatus.Ok
+                )
+                or (
+                    args.dump_jxl_encoder_handoff
+                    and probe["jxl_encoder_handoff_status"] == openmeta.TransferStatus.Ok
                 )
             )
         )
@@ -908,6 +1214,15 @@ def main(argv: list[str]) -> int:
         for t in probe["tiff_tag_summary"]:
             print(
                 f"  tiff_tag {int(t['tag'])} count={int(t['count'])} bytes={int(t['bytes'])}"
+            )
+        jxl_handoff = probe.get("jxl_encoder_handoff")
+        if (
+            jxl_handoff is not None
+            and str(jxl_handoff["status_name"]) == "ok"
+            and bool(jxl_handoff["has_icc_profile"])
+        ):
+            print(
+                f"  jxl_icc_profile bytes={int(jxl_handoff['icc_profile_bytes'])}"
             )
         for b in probe["jxl_box_summary"]:
             print(

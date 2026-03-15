@@ -1,5 +1,6 @@
 #include "openmeta/metadata_transfer.h"
 
+#include "openmeta/container_payload.h"
 #include "openmeta/jumbf_decode.h"
 #include "openmeta/mapped_file.h"
 #include "openmeta/xmp_dump.h"
@@ -9,12 +10,44 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <string>
 #include <string_view>
 #include <vector>
 
 namespace openmeta {
+
+enum class JxlRewriteFamily : uint8_t {
+    Unknown,
+    Exif,
+    Xmp,
+    Jumbf,
+    C2pa,
+};
+
+struct JxlRewritePolicy final {
+    bool exif  = false;
+    bool xmp   = false;
+    bool jumbf = false;
+    bool c2pa  = false;
+};
+
+static EmitTransferResult
+build_prepared_bundle_jxl_package(std::span<const std::byte> input_jxl,
+                                  const PreparedTransferBundle& bundle,
+                                  PreparedTransferPackagePlan* out_plan,
+                                  uint32_t* out_removed_boxes) noexcept;
+
+static EmitTransferResult
+build_prepared_bundle_jxl_package_impl(std::span<const std::byte> input_jxl,
+                                       const PreparedTransferBundle& bundle,
+                                       const JxlRewritePolicy& policy,
+                                       PreparedTransferPackagePlan* out_plan,
+                                       uint32_t* out_removed_boxes) noexcept;
+
 namespace {
+
+    struct TransferBmffBox;
 
     struct SerializedIfdEntry final {
         uint16_t tag          = 0;
@@ -327,6 +360,13 @@ namespace {
 
     static bool
     is_c2pa_jumbf_payload(std::span<const std::byte> logical_payload) noexcept;
+
+    static JxlRewritePolicy
+    collect_jxl_rewrite_policy(const PreparedTransferBundle& bundle) noexcept;
+
+    static bool jxl_source_box_matches_rewrite_policy(
+        std::span<const std::byte> bytes, const TransferBmffBox& box,
+        const JxlRewritePolicy& policy) noexcept;
 
     static bool marker_from_jpeg_route(std::string_view route,
                                        uint8_t* out_marker) noexcept
@@ -852,6 +892,47 @@ namespace {
         out->content_binding_bytes += size;
     }
 
+    static void append_c2pa_rewrite_jxl_box_chunk(
+        PreparedTransferC2paRewriteRequirements* out, uint32_t block_index,
+        uint64_t size) noexcept
+    {
+        if (!out || size == 0U) {
+            return;
+        }
+        PreparedTransferC2paRewriteChunk chunk;
+        chunk.kind        = TransferC2paRewriteChunkKind::PreparedJxlBox;
+        chunk.block_index = block_index;
+        chunk.size        = size;
+        out->content_binding_chunks.push_back(std::move(chunk));
+        out->content_binding_bytes += size;
+    }
+
+    static void append_c2pa_rewrite_bmff_meta_chunk(
+        PreparedTransferC2paRewriteRequirements* out, uint64_t size) noexcept
+    {
+        if (!out || size == 0U) {
+            return;
+        }
+        PreparedTransferC2paRewriteChunk chunk;
+        chunk.kind = TransferC2paRewriteChunkKind::PreparedBmffMetaBox;
+        chunk.size = size;
+        out->content_binding_chunks.push_back(std::move(chunk));
+        out->content_binding_bytes += size;
+    }
+
+    static uint32_t
+    remove_prepared_blocks_by_route(PreparedTransferBundle* bundle,
+                                    std::string_view route) noexcept;
+
+    static EmitTransferResult build_prepared_bundle_bmff_package_impl_ex(
+        std::span<const std::byte> input_bmff,
+        const PreparedTransferBundle& bundle, bool allow_empty_metadata,
+        PreparedTransferPackagePlan* out_plan,
+        uint32_t* out_removed_meta_boxes) noexcept;
+
+    static uint32_t
+    remove_prepared_jxl_c2pa_blocks(PreparedTransferBundle* bundle) noexcept;
+
     static bool build_jpeg_c2pa_rewrite_chunks(
         std::span<const std::byte> input_jpeg,
         const PreparedTransferBundle& bundle,
@@ -989,6 +1070,156 @@ namespace {
         return true;
     }
 
+    static bool build_bmff_c2pa_rewrite_chunks(
+        std::span<const std::byte> input_bmff,
+        const PreparedTransferBundle& bundle,
+        PreparedTransferC2paRewriteRequirements* rewrite,
+        std::string* err) noexcept
+    {
+        if (!rewrite) {
+            if (err) {
+                *err = "c2pa rewrite output is null";
+            }
+            return false;
+        }
+        rewrite->content_binding_bytes = 0U;
+        rewrite->content_binding_chunks.clear();
+
+        if (rewrite->state
+            != TransferC2paRewriteState::SigningMaterialRequired) {
+            return true;
+        }
+        if (!transfer_target_is_bmff(bundle.target_format)) {
+            if (err) {
+                *err = "c2pa rewrite binding chunks currently require bmff";
+            }
+            return false;
+        }
+        if (input_bmff.empty()) {
+            if (err) {
+                *err = "bmff input is empty";
+            }
+            return false;
+        }
+
+        PreparedTransferBundle binding_bundle = bundle;
+        (void)remove_prepared_blocks_by_route(&binding_bundle,
+                                              "bmff:item-c2pa");
+
+        PreparedTransferPackagePlan plan;
+        uint32_t removed_meta_boxes = 0U;
+        const EmitTransferResult plan_status
+            = build_prepared_bundle_bmff_package_impl_ex(input_bmff,
+                                                         binding_bundle, true,
+                                                         &plan,
+                                                         &removed_meta_boxes);
+        if (plan_status.status != TransferStatus::Ok) {
+            if (err) {
+                *err = plan_status.message.empty()
+                           ? "failed to build bmff rewrite binding chunks"
+                           : plan_status.message;
+            }
+            return false;
+        }
+
+        for (size_t i = 0; i < plan.chunks.size(); ++i) {
+            const PreparedTransferPackageChunk& chunk = plan.chunks[i];
+            if (chunk.kind == TransferPackageChunkKind::SourceRange) {
+                append_c2pa_rewrite_source_chunk(rewrite, chunk.source_offset,
+                                                 chunk.size);
+                continue;
+            }
+            if (chunk.kind == TransferPackageChunkKind::InlineBytes) {
+                append_c2pa_rewrite_bmff_meta_chunk(rewrite, chunk.size);
+                continue;
+            }
+            if (err) {
+                *err = "bmff rewrite binding contains unsupported package chunk";
+            }
+            rewrite->content_binding_bytes = 0U;
+            rewrite->content_binding_chunks.clear();
+            return false;
+        }
+        return true;
+    }
+
+    static bool build_jxl_c2pa_rewrite_chunks(
+        std::span<const std::byte> input_jxl,
+        const PreparedTransferBundle& bundle,
+        PreparedTransferC2paRewriteRequirements* rewrite,
+        std::string* err) noexcept
+    {
+        if (!rewrite) {
+            if (err) {
+                *err = "c2pa rewrite output is null";
+            }
+            return false;
+        }
+        rewrite->content_binding_bytes = 0U;
+        rewrite->content_binding_chunks.clear();
+
+        if (rewrite->state
+            != TransferC2paRewriteState::SigningMaterialRequired) {
+            return true;
+        }
+        if (bundle.target_format != TransferTargetFormat::Jxl) {
+            if (err) {
+                *err = "c2pa rewrite binding chunks currently require jxl";
+            }
+            return false;
+        }
+        if (input_jxl.empty()) {
+            if (err) {
+                *err = "jxl input is empty";
+            }
+            return false;
+        }
+
+        PreparedTransferBundle binding_bundle = bundle;
+        const uint32_t removed_c2pa           = remove_prepared_jxl_c2pa_blocks(
+            &binding_bundle);
+        JxlRewritePolicy policy = collect_jxl_rewrite_policy(binding_bundle);
+        if (removed_c2pa > 0U || rewrite->existing_carrier_segments > 0U) {
+            policy.c2pa = true;
+        }
+
+        PreparedTransferPackagePlan plan;
+        uint32_t removed_boxes = 0U;
+        const EmitTransferResult plan_status
+            = build_prepared_bundle_jxl_package_impl(input_jxl, binding_bundle,
+                                                     policy, &plan,
+                                                     &removed_boxes);
+        if (plan_status.status != TransferStatus::Ok) {
+            if (err) {
+                *err = plan_status.message.empty()
+                           ? "failed to build jxl rewrite binding chunks"
+                           : plan_status.message;
+            }
+            return false;
+        }
+
+        for (size_t i = 0; i < plan.chunks.size(); ++i) {
+            const PreparedTransferPackageChunk& chunk = plan.chunks[i];
+            if (chunk.kind == TransferPackageChunkKind::SourceRange) {
+                append_c2pa_rewrite_source_chunk(rewrite, chunk.source_offset,
+                                                 chunk.size);
+                continue;
+            }
+            if (chunk.kind == TransferPackageChunkKind::PreparedTransferBlock) {
+                append_c2pa_rewrite_jxl_box_chunk(rewrite, chunk.block_index,
+                                                  chunk.size);
+                continue;
+            }
+            if (err) {
+                *err = "jxl rewrite binding contains unsupported package chunk";
+            }
+            rewrite->content_binding_bytes = 0U;
+            rewrite->content_binding_chunks.clear();
+            return false;
+        }
+        return true;
+    }
+
     static void append_jpeg_segment(std::vector<std::byte>* out, uint8_t marker,
                                     std::span<const std::byte> payload) noexcept
     {
@@ -1031,6 +1262,21 @@ namespace {
     append_package_inline_chunk(PreparedTransferPackagePlan* plan,
                                 std::span<const std::byte> bytes) noexcept;
 
+    static EmitTransferResult build_prepared_bundle_bmff_package_impl_ex(
+        std::span<const std::byte> input_bmff,
+        const PreparedTransferBundle& bundle, bool allow_empty_metadata,
+        PreparedTransferPackagePlan* out_plan,
+        uint32_t* out_removed_meta_boxes) noexcept;
+
+    static uint32_t
+    remove_prepared_blocks_by_route(PreparedTransferBundle* bundle,
+                                    std::string_view route) noexcept;
+
+    static bool
+    build_bmff_metadata_only_meta_box(const PreparedTransferBundle& bundle,
+                                      std::vector<std::byte>* out_meta,
+                                      EmitTransferResult* out) noexcept;
+
     static void
     append_package_prepared_block_chunk(PreparedTransferPackagePlan* plan,
                                         uint32_t block_index,
@@ -1051,9 +1297,15 @@ namespace {
     static EmitTransferResult validate_prepared_transfer_payload_batch(
         const PreparedTransferPayloadBatch& batch) noexcept;
 
+    static EmitTransferResult validate_prepared_jxl_encoder_handoff(
+        const PreparedJxlEncoderHandoff& handoff) noexcept;
+
     static constexpr char kTransferPayloadBatchMagic[8]
         = { 'O', 'M', 'T', 'P', 'L', 'D', '0', '1' };
     static constexpr uint32_t kTransferPayloadBatchVersion = 1U;
+    static constexpr char kJxlEncoderHandoffMagic[8]    = { 'O', 'M', 'J', 'X',
+                                                            'I', 'C', 'C', '1' };
+    static constexpr uint32_t kJxlEncoderHandoffVersion = 1U;
 
     static void append_bool_u8(std::vector<std::byte>* out,
                                bool value) noexcept;
@@ -1378,6 +1630,33 @@ namespace {
         uint32_t removed = 0U;
         for (size_t read = 0U; read < bundle->blocks.size(); ++read) {
             if (bundle->blocks[read].route == route) {
+                removed += 1U;
+                continue;
+            }
+            if (write != read) {
+                bundle->blocks[write] = std::move(bundle->blocks[read]);
+            }
+            write += 1U;
+        }
+        bundle->blocks.resize(write);
+        return removed;
+    }
+
+    static uint32_t
+    remove_prepared_jxl_c2pa_blocks(PreparedTransferBundle* bundle) noexcept
+    {
+        if (!bundle || bundle->blocks.empty()) {
+            return 0U;
+        }
+
+        size_t write     = 0U;
+        uint32_t removed = 0U;
+        for (size_t read = 0U; read < bundle->blocks.size(); ++read) {
+            const PreparedTransferBlock& block = bundle->blocks[read];
+            const bool is_jxl_c2pa = block.kind == TransferBlockKind::C2pa
+                                     && (block.route == "jxl:box-jumb"
+                                         || block.route == "jxl:box-c2pa");
+            if (is_jxl_c2pa) {
                 removed += 1U;
                 continue;
             }
@@ -2209,10 +2488,17 @@ namespace {
         }
 
         out.state = TransferC2paRewriteState::SigningMaterialRequired;
-        out.target_carrier_available = target_format
-                                       == TransferTargetFormat::Jpeg;
-        out.content_change_invalidates_existing = target_format
-                                                  == TransferTargetFormat::Jpeg;
+        out.target_carrier_available
+            = target_format == TransferTargetFormat::Jpeg
+              || target_format == TransferTargetFormat::Jxl
+              || transfer_target_is_bmff(target_format);
+        out.content_change_invalidates_existing
+            = target_format == TransferTargetFormat::Jpeg
+              || target_format == TransferTargetFormat::Jxl
+              || transfer_target_is_bmff(target_format);
+        if (transfer_target_is_bmff(target_format)) {
+            out.existing_carrier_segments = c2pa_count;
+        }
         out.requires_manifest_builder  = true;
         out.requires_content_binding   = true;
         out.requires_certificate_chain = true;
@@ -3800,6 +4086,100 @@ namespace {
         return true;
     }
 
+    static PayloadResult extract_source_jumbf_logical_payload(
+        std::span<const std::byte> file_bytes,
+        std::span<const ContainerBlockRef> blocks, uint32_t seed_index,
+        std::span<std::byte> out_payload, std::span<uint32_t> scratch_indices,
+        const PayloadOptions& options) noexcept
+    {
+        PayloadResult res;
+        if (seed_index >= blocks.size()) {
+            res.status = PayloadStatus::Malformed;
+            return res;
+        }
+
+        const ContainerBlockRef& block = blocks[seed_index];
+        const bool direct_jxl_box      = block.format == ContainerFormat::Jxl
+                                    && block.kind == ContainerBlockKind::Jumbf
+                                    && block.compression
+                                           == BlockCompression::None
+                                    && block.outer_size != 0U;
+        if (!direct_jxl_box) {
+            return extract_payload(file_bytes, blocks, seed_index, out_payload,
+                                   scratch_indices, options);
+        }
+        if (block.outer_offset > file_bytes.size()
+            || block.outer_size > file_bytes.size() - block.outer_offset) {
+            res.status = PayloadStatus::Malformed;
+            return res;
+        }
+        if (options.limits.max_output_bytes != 0U
+            && block.outer_size > options.limits.max_output_bytes) {
+            res.status = PayloadStatus::LimitExceeded;
+            res.needed = block.outer_size;
+            return res;
+        }
+        res.needed = block.outer_size;
+        if (block.outer_size > out_payload.size()) {
+            res.status = PayloadStatus::OutputTruncated;
+            return res;
+        }
+
+        const std::span<const std::byte> src
+            = file_bytes.subspan(static_cast<size_t>(block.outer_offset),
+                                 static_cast<size_t>(block.outer_size));
+        std::memcpy(out_payload.data(), src.data(), src.size());
+        res.written = static_cast<uint64_t>(src.size());
+        return res;
+    }
+
+    static uint32_t
+    count_source_c2pa_payload_blocks(std::span<const std::byte> file_bytes,
+                                     std::span<const ContainerBlockRef> blocks,
+                                     const PayloadOptions& options) noexcept
+    {
+        std::vector<std::byte> payload(1024U * 1024U);
+        std::vector<uint32_t> scratch(16384U);
+        uint32_t count = 0U;
+
+        for (uint32_t i = 0U; i < blocks.size(); ++i) {
+            const ContainerBlockRef& block = blocks[i];
+            if (!is_source_jumbf_block(block)
+                || is_duplicate_jumbf_seed(blocks, i)) {
+                continue;
+            }
+
+            PayloadResult extracted;
+            for (;;) {
+                extracted = extract_source_jumbf_logical_payload(
+                    file_bytes, blocks, i,
+                    std::span<std::byte>(payload.data(), payload.size()),
+                    std::span<uint32_t>(scratch.data(), scratch.size()),
+                    options);
+                if (extracted.status == PayloadStatus::OutputTruncated
+                    && extracted.needed > payload.size()
+                    && extracted.needed <= static_cast<uint64_t>(SIZE_MAX)) {
+                    payload.resize(static_cast<size_t>(extracted.needed));
+                    continue;
+                }
+                break;
+            }
+
+            if (extracted.status != PayloadStatus::Ok
+                || extracted.written == 0U) {
+                continue;
+            }
+
+            const C2paPayloadClass payload_class = classify_c2pa_jumbf_payload(
+                std::span<const std::byte>(
+                    payload.data(), static_cast<size_t>(extracted.written)));
+            if (payload_class != C2paPayloadClass::NotC2pa) {
+                count += 1U;
+            }
+        }
+        return count;
+    }
+
     static C2paPayloadClass classify_source_c2pa_payloads_for_jpeg(
         std::span<const std::byte> file_bytes,
         std::span<const ContainerBlockRef> blocks,
@@ -3818,7 +4198,7 @@ namespace {
 
             PayloadResult extracted;
             for (;;) {
-                extracted = extract_payload(
+                extracted = extract_source_jumbf_logical_payload(
                     file_bytes, blocks, i,
                     std::span<std::byte>(payload.data(), payload.size()),
                     std::span<uint32_t>(scratch.data(), scratch.size()),
@@ -3899,7 +4279,7 @@ namespace {
             PayloadResult extracted;
             std::span<const std::byte> logical;
             for (;;) {
-                extracted = extract_payload(
+                extracted = extract_source_jumbf_logical_payload(
                     file_bytes, blocks, i,
                     std::span<std::byte>(payload.data(), payload.size()),
                     std::span<uint32_t>(scratch.data(), scratch.size()),
@@ -7972,6 +8352,7 @@ emit_prepared_bundle_jxl(const PreparedTransferBundle& bundle,
         return r;
     }
 
+    bool saw_icc = false;
     for (uint32_t i = 0; i < bundle.blocks.size(); ++i) {
         const PreparedTransferBlock& block = bundle.blocks[i];
         if (options.skip_empty_payloads && block.payload.empty()) {
@@ -7980,6 +8361,20 @@ emit_prepared_bundle_jxl(const PreparedTransferBundle& bundle,
         }
 
         if (jxl_route_is_icc_profile(block.route)) {
+            if (saw_icc) {
+                r.status = TransferStatus::Malformed;
+                if (r.code == EmitTransferCode::None) {
+                    r.code = EmitTransferCode::InvalidPayload;
+                }
+                r.errors += 1U;
+                r.failed_block_index = i;
+                r.message = "multiple jxl icc profiles are not supported";
+                if (options.stop_on_error) {
+                    return r;
+                }
+                continue;
+            }
+            saw_icc                 = true;
             const TransferStatus st = emitter.set_icc_profile(
                 std::span<const std::byte>(block.payload.data(),
                                            block.payload.size()));
@@ -8090,6 +8485,7 @@ compile_prepared_bundle_jxl(const PreparedTransferBundle& bundle,
         return r;
     }
 
+    bool saw_icc = false;
     for (uint32_t i = 0; i < bundle.blocks.size(); ++i) {
         const PreparedTransferBlock& block = bundle.blocks[i];
         if (options.skip_empty_payloads && block.payload.empty()) {
@@ -8099,7 +8495,21 @@ compile_prepared_bundle_jxl(const PreparedTransferBundle& bundle,
 
         PreparedJxlEmitOp op;
         if (jxl_route_is_icc_profile(block.route)) {
+            if (saw_icc) {
+                r.status = TransferStatus::Malformed;
+                if (r.code == EmitTransferCode::None) {
+                    r.code = EmitTransferCode::InvalidPayload;
+                }
+                r.errors += 1U;
+                r.failed_block_index = i;
+                r.message = "multiple jxl icc profiles are not supported";
+                if (options.stop_on_error) {
+                    return r;
+                }
+                continue;
+            }
             op.kind = PreparedJxlEmitKind::IccProfile;
+            saw_icc = true;
         } else if (!jxl_box_from_route(block.route, &op.box_type,
                                        &op.compress)) {
             r.status = TransferStatus::Unsupported;
@@ -8162,6 +8572,7 @@ emit_prepared_bundle_jxl_compiled(const PreparedTransferBundle& bundle,
         return r;
     }
 
+    bool saw_icc = false;
     for (uint32_t i = 0; i < plan.ops.size(); ++i) {
         const PreparedJxlEmitOp& op = plan.ops[i];
         if (op.block_index >= bundle.blocks.size()) {
@@ -8186,9 +8597,23 @@ emit_prepared_bundle_jxl_compiled(const PreparedTransferBundle& bundle,
 
         TransferStatus st = TransferStatus::Ok;
         if (op.kind == PreparedJxlEmitKind::IccProfile) {
-            st = emitter.set_icc_profile(
+            if (saw_icc) {
+                r.status = TransferStatus::Malformed;
+                if (r.code == EmitTransferCode::None) {
+                    r.code = EmitTransferCode::PlanMismatch;
+                }
+                r.errors += 1U;
+                r.failed_block_index = op.block_index;
+                r.message = "compiled plan contains multiple jxl icc profiles";
+                if (options.stop_on_error) {
+                    return r;
+                }
+                continue;
+            }
+            saw_icc = true;
+            st      = emitter.set_icc_profile(
                 std::span<const std::byte>(block.payload.data(),
-                                           block.payload.size()));
+                                                block.payload.size()));
         } else {
             st = emitter.add_box(
                 op.box_type,
@@ -8227,6 +8652,140 @@ emit_prepared_bundle_jxl_compiled(const PreparedTransferBundle& bundle,
         r.code   = EmitTransferCode::None;
     }
     return r;
+}
+
+EmitTransferResult
+build_prepared_jxl_encoder_handoff_view(
+    const PreparedTransferBundle& bundle,
+    PreparedJxlEncoderHandoffView* out_view,
+    const EmitTransferOptions& options) noexcept
+{
+    EmitTransferResult r;
+    if (!out_view) {
+        r.status  = TransferStatus::InvalidArgument;
+        r.code    = EmitTransferCode::InvalidArgument;
+        r.errors  = 1U;
+        r.message = "out_view is null";
+        return r;
+    }
+
+    *out_view                  = PreparedJxlEncoderHandoffView {};
+    out_view->contract_version = bundle.contract_version;
+
+    if (bundle.target_format != TransferTargetFormat::Jxl) {
+        r.status  = TransferStatus::Unsupported;
+        r.code    = EmitTransferCode::InvalidArgument;
+        r.errors  = 1U;
+        r.message = "bundle target format is not jxl";
+        return r;
+    }
+
+    for (uint32_t i = 0; i < bundle.blocks.size(); ++i) {
+        const PreparedTransferBlock& block = bundle.blocks[i];
+        if (options.skip_empty_payloads && block.payload.empty()) {
+            r.skipped += 1U;
+            continue;
+        }
+
+        if (jxl_route_is_icc_profile(block.route)) {
+            if (out_view->has_icc_profile) {
+                r.status = TransferStatus::Malformed;
+                if (r.code == EmitTransferCode::None) {
+                    r.code = EmitTransferCode::InvalidPayload;
+                }
+                r.errors += 1U;
+                r.failed_block_index = i;
+                r.message = "multiple jxl icc profiles are not supported";
+                if (options.stop_on_error) {
+                    return r;
+                }
+                continue;
+            }
+            out_view->has_icc_profile   = true;
+            out_view->icc_block_index   = i;
+            out_view->icc_profile_bytes = static_cast<uint64_t>(
+                block.payload.size());
+            out_view->icc_profile
+                = std::span<const std::byte>(block.payload.data(),
+                                             block.payload.size());
+            r.emitted += 1U;
+            continue;
+        }
+
+        std::array<char, 4> box_type = { '\0', '\0', '\0', '\0' };
+        bool compress                = false;
+        if (!jxl_box_from_route(block.route, &box_type, &compress)) {
+            r.status = TransferStatus::Unsupported;
+            if (r.code == EmitTransferCode::None) {
+                r.code = EmitTransferCode::UnsupportedRoute;
+            }
+            r.errors += 1U;
+            r.failed_block_index = i;
+            r.message            = "unsupported jxl route: " + block.route;
+            if (options.stop_on_error) {
+                return r;
+            }
+            continue;
+        }
+        if (block.box_type != std::array<char, 4> { '\0', '\0', '\0', '\0' }
+            && block.box_type != box_type) {
+            r.status = TransferStatus::Malformed;
+            if (r.code == EmitTransferCode::None) {
+                r.code = EmitTransferCode::InvalidPayload;
+            }
+            r.errors += 1U;
+            r.failed_block_index = i;
+            r.message            = "prepared jxl box_type does not match route";
+            if (options.stop_on_error) {
+                return r;
+            }
+            continue;
+        }
+
+        out_view->box_count += 1U;
+        out_view->box_payload_bytes += static_cast<uint64_t>(
+            block.payload.size());
+        r.emitted += 1U;
+    }
+
+    if (r.errors == 0U) {
+        r.status  = TransferStatus::Ok;
+        r.code    = EmitTransferCode::None;
+        r.message = "jxl encoder handoff view built";
+    }
+    return r;
+}
+
+EmitTransferResult
+build_prepared_jxl_encoder_handoff(const PreparedTransferBundle& bundle,
+                                   PreparedJxlEncoderHandoff* out_handoff,
+                                   const EmitTransferOptions& options) noexcept
+{
+    EmitTransferResult result;
+    if (!out_handoff) {
+        result.status  = TransferStatus::InvalidArgument;
+        result.code    = EmitTransferCode::InvalidArgument;
+        result.errors  = 1U;
+        result.message = "out_handoff is null";
+        return result;
+    }
+
+    PreparedJxlEncoderHandoffView view;
+    result = build_prepared_jxl_encoder_handoff_view(bundle, &view, options);
+    if (result.status != TransferStatus::Ok) {
+        return result;
+    }
+
+    PreparedJxlEncoderHandoff handoff;
+    handoff.contract_version  = view.contract_version;
+    handoff.has_icc_profile   = view.has_icc_profile;
+    handoff.icc_block_index   = view.icc_block_index;
+    handoff.box_count         = view.box_count;
+    handoff.box_payload_bytes = view.box_payload_bytes;
+    handoff.icc_profile.assign(view.icc_profile.begin(),
+                               view.icc_profile.end());
+    *out_handoff = std::move(handoff);
+    return result;
 }
 
 EmitTransferResult
@@ -9361,6 +9920,18 @@ write_prepared_bundle_tiff_edit(std::span<const std::byte> input_tiff,
     return out;
 }
 
+static EmitTransferResult
+build_prepared_bundle_bmff_package(std::span<const std::byte> input_bmff,
+                                   const PreparedTransferBundle& bundle,
+                                   PreparedTransferPackagePlan* out_plan,
+                                   uint32_t* out_removed_meta_boxes) noexcept;
+
+static EmitTransferResult
+build_prepared_bundle_jxl_package(std::span<const std::byte> input_jxl,
+                                  const PreparedTransferBundle& bundle,
+                                  PreparedTransferPackagePlan* out_plan,
+                                  uint32_t* out_removed_boxes) noexcept;
+
 EmitTransferResult
 build_prepared_transfer_emit_package(const PreparedTransferBundle& bundle,
                                      PreparedTransferPackagePlan* out_plan,
@@ -10029,6 +10600,85 @@ write_prepared_transfer_package_batch(const PreparedTransferPackageBatch& batch,
     return out;
 }
 
+EmitTransferResult
+build_executed_transfer_package_batch(
+    std::span<const std::byte> edit_input, const PreparedTransferBundle& bundle,
+    const ExecutePreparedTransferResult& execute,
+    PreparedTransferPackageBatch* out_batch) noexcept
+{
+    EmitTransferResult out;
+    if (!out_batch) {
+        out.status  = TransferStatus::InvalidArgument;
+        out.code    = EmitTransferCode::InvalidArgument;
+        out.errors  = 1U;
+        out.message = "prepared transfer package batch output is null";
+        return out;
+    }
+
+    PreparedTransferPackagePlan plan;
+    if (bundle.target_format == TransferTargetFormat::Jpeg
+        && execute.edit_requested) {
+        if (execute.edit_plan_status != TransferStatus::Ok) {
+            out.status  = execute.edit_plan_status;
+            out.code    = EmitTransferCode::InvalidArgument;
+            out.errors  = 1U;
+            out.message = execute.edit_plan_message.empty()
+                              ? "jpeg edit plan is not available"
+                              : execute.edit_plan_message;
+            return out;
+        }
+        out = build_prepared_bundle_jpeg_package(edit_input, bundle,
+                                                 execute.jpeg_edit_plan, &plan);
+    } else if (bundle.target_format == TransferTargetFormat::Tiff
+               && execute.edit_requested) {
+        if (execute.edit_plan_status != TransferStatus::Ok) {
+            out.status  = execute.edit_plan_status;
+            out.code    = EmitTransferCode::InvalidArgument;
+            out.errors  = 1U;
+            out.message = execute.edit_plan_message.empty()
+                              ? "tiff edit plan is not available"
+                              : execute.edit_plan_message;
+            return out;
+        }
+        out = build_prepared_bundle_tiff_package(edit_input, bundle,
+                                                 execute.tiff_edit_plan, &plan);
+    } else if (bundle.target_format == TransferTargetFormat::Jxl
+               && execute.edit_requested) {
+        if (execute.edit_plan_status != TransferStatus::Ok) {
+            out.status  = execute.edit_plan_status;
+            out.code    = EmitTransferCode::InvalidArgument;
+            out.errors  = 1U;
+            out.message = execute.edit_plan_message.empty()
+                              ? "jxl edit plan is not available"
+                              : execute.edit_plan_message;
+            return out;
+        }
+        out = build_prepared_bundle_jxl_package(edit_input, bundle, &plan,
+                                                nullptr);
+    } else if (transfer_target_is_bmff(bundle.target_format)
+               && execute.edit_requested) {
+        if (execute.edit_plan_status != TransferStatus::Ok) {
+            out.status  = execute.edit_plan_status;
+            out.code    = EmitTransferCode::InvalidArgument;
+            out.errors  = 1U;
+            out.message = execute.edit_plan_message.empty()
+                              ? "bmff edit plan is not available"
+                              : execute.edit_plan_message;
+            return out;
+        }
+        out = build_prepared_bundle_bmff_package(edit_input, bundle, &plan,
+                                                 nullptr);
+    } else {
+        out = build_prepared_transfer_emit_package(bundle, &plan);
+    }
+    if (out.status != TransferStatus::Ok) {
+        return out;
+    }
+
+    return build_prepared_transfer_package_batch(edit_input, bundle, plan,
+                                                 out_batch);
+}
+
 
 TransferSemanticKind
 classify_transfer_route_semantic_kind(std::string_view route) noexcept
@@ -10075,6 +10725,25 @@ transfer_semantic_name(TransferSemanticKind kind) noexcept
     case TransferSemanticKind::Unknown: break;
     }
     return "Unknown";
+}
+
+std::string_view
+prepared_transfer_artifact_kind_name(PreparedTransferArtifactKind kind) noexcept
+{
+    switch (kind) {
+    case PreparedTransferArtifactKind::TransferPayloadBatch:
+        return "transfer_payload_batch";
+    case PreparedTransferArtifactKind::TransferPackageBatch:
+        return "transfer_package_batch";
+    case PreparedTransferArtifactKind::C2paHandoffPackage:
+        return "c2pa_handoff_package";
+    case PreparedTransferArtifactKind::C2paSignedPackage:
+        return "c2pa_signed_package";
+    case PreparedTransferArtifactKind::JxlEncoderHandoff:
+        return "jxl_encoder_handoff";
+    case PreparedTransferArtifactKind::Unknown: break;
+    }
+    return "unknown";
 }
 
 EmitTransferResult
@@ -10201,6 +10870,139 @@ build_prepared_transfer_payload_batch(
     *out           = std::move(batch);
     result.emitted = static_cast<uint32_t>(out->payloads.size());
     return result;
+}
+
+PreparedJxlEncoderHandoffIoResult
+serialize_prepared_jxl_encoder_handoff(const PreparedJxlEncoderHandoff& handoff,
+                                       std::vector<std::byte>* out_bytes) noexcept
+{
+    PreparedJxlEncoderHandoffIoResult out;
+    if (!out_bytes) {
+        out.status  = TransferStatus::InvalidArgument;
+        out.code    = EmitTransferCode::InvalidArgument;
+        out.errors  = 1U;
+        out.message = "out_bytes is null";
+        return out;
+    }
+
+    const EmitTransferResult validated = validate_prepared_jxl_encoder_handoff(
+        handoff);
+    if (validated.status != TransferStatus::Ok) {
+        out.status  = validated.status;
+        out.code    = validated.code;
+        out.errors  = validated.errors;
+        out.message = validated.message;
+        return out;
+    }
+
+    out_bytes->clear();
+    out_bytes->reserve(32U + handoff.icc_profile.size());
+    append_ascii_bytes(out_bytes,
+                       std::string_view(kJxlEncoderHandoffMagic, 8U));
+    append_u32le(out_bytes, kJxlEncoderHandoffVersion);
+    append_u32le(out_bytes, handoff.contract_version);
+    append_bool_u8(out_bytes, handoff.has_icc_profile);
+    append_u32le(out_bytes, handoff.icc_block_index);
+    append_u32le(out_bytes, handoff.box_count);
+    append_u64le(out_bytes, handoff.box_payload_bytes);
+    append_blob_le(out_bytes,
+                   std::span<const std::byte>(handoff.icc_profile.data(),
+                                              handoff.icc_profile.size()));
+    out.status  = TransferStatus::Ok;
+    out.code    = EmitTransferCode::None;
+    out.bytes   = static_cast<uint64_t>(out_bytes->size());
+    out.message = "prepared jxl encoder handoff serialized";
+    return out;
+}
+
+PreparedJxlEncoderHandoffIoResult
+deserialize_prepared_jxl_encoder_handoff(
+    std::span<const std::byte> bytes,
+    PreparedJxlEncoderHandoff* out_handoff) noexcept
+{
+    PreparedJxlEncoderHandoffIoResult out;
+    if (!out_handoff) {
+        out.status  = TransferStatus::InvalidArgument;
+        out.code    = EmitTransferCode::InvalidArgument;
+        out.errors  = 1U;
+        out.message = "out_handoff is null";
+        return out;
+    }
+
+    if (bytes.size() < 12U) {
+        out.status  = TransferStatus::Malformed;
+        out.code    = EmitTransferCode::InvalidPayload;
+        out.errors  = 1U;
+        out.message = "prepared jxl encoder handoff is truncated";
+        return out;
+    }
+
+    for (size_t i = 0; i < 8U; ++i) {
+        if (bytes[i] != static_cast<std::byte>(kJxlEncoderHandoffMagic[i])) {
+            out.status  = TransferStatus::Unsupported;
+            out.code    = EmitTransferCode::InvalidPayload;
+            out.errors  = 1U;
+            out.message = "jxl encoder handoff magic is invalid";
+            return out;
+        }
+    }
+
+    size_t off       = 8U;
+    uint32_t version = 0U;
+    if (!read_u32le(bytes, &off, &version)) {
+        out.status  = TransferStatus::Malformed;
+        out.code    = EmitTransferCode::InvalidPayload;
+        out.errors  = 1U;
+        out.message = "jxl encoder handoff header is truncated";
+        return out;
+    }
+    if (version != kJxlEncoderHandoffVersion) {
+        out.status  = TransferStatus::Unsupported;
+        out.code    = EmitTransferCode::InvalidPayload;
+        out.errors  = 1U;
+        out.message = "jxl encoder handoff version is unsupported";
+        return out;
+    }
+
+    PreparedJxlEncoderHandoff handoff;
+    uint8_t has_icc = 0U;
+    if (!read_u32le(bytes, &off, &handoff.contract_version)
+        || !read_u8(bytes, &off, &has_icc) || has_icc > 1U
+        || !read_u32le(bytes, &off, &handoff.icc_block_index)
+        || !read_u32le(bytes, &off, &handoff.box_count)
+        || !read_u64le(bytes, &off, &handoff.box_payload_bytes)
+        || !read_blob_le(bytes, &off, &handoff.icc_profile)) {
+        out.status  = TransferStatus::Malformed;
+        out.code    = EmitTransferCode::InvalidPayload;
+        out.errors  = 1U;
+        out.message = "jxl encoder handoff body is malformed";
+        return out;
+    }
+    handoff.has_icc_profile = (has_icc != 0U);
+    if (off != bytes.size()) {
+        out.status  = TransferStatus::Malformed;
+        out.code    = EmitTransferCode::InvalidPayload;
+        out.errors  = 1U;
+        out.message = "jxl encoder handoff has trailing bytes";
+        return out;
+    }
+
+    const EmitTransferResult validated = validate_prepared_jxl_encoder_handoff(
+        handoff);
+    if (validated.status != TransferStatus::Ok) {
+        out.status  = validated.status;
+        out.code    = validated.code;
+        out.errors  = validated.errors;
+        out.message = validated.message;
+        return out;
+    }
+
+    *out_handoff = std::move(handoff);
+    out.status   = TransferStatus::Ok;
+    out.code     = EmitTransferCode::None;
+    out.bytes    = static_cast<uint64_t>(bytes.size());
+    out.message  = "prepared jxl encoder handoff parsed";
+    return out;
 }
 
 PreparedTransferPayloadIoResult
@@ -10716,6 +11518,13 @@ prepare_metadata_for_target_file(
                 = count_existing_jpeg_segments_by_route(jpeg_scan,
                                                         "jpeg:app11-c2pa");
         }
+    } else if (options.prepare.target_format == TransferTargetFormat::Jxl) {
+        out.bundle.c2pa_rewrite.existing_carrier_segments
+            = count_source_c2pa_payload_blocks(
+                mapped.bytes(),
+                std::span<const ContainerBlockRef>(
+                    blocks.data(), static_cast<size_t>(out.read.scan.written)),
+                decode_options.payload);
     }
 
     if (caps.jpeg_jumbf_passthrough
@@ -10902,6 +11711,34 @@ prepare_metadata_for_target_file(
                == TransferC2paRewriteState::SigningMaterialRequired) {
         std::string rewrite_error;
         if (!build_jpeg_c2pa_rewrite_chunks(mapped.bytes(), out.bundle,
+                                            &out.bundle.c2pa_rewrite,
+                                            &rewrite_error)) {
+            if (!rewrite_error.empty()) {
+                if (!out.bundle.c2pa_rewrite.message.empty()) {
+                    out.bundle.c2pa_rewrite.message.append("; ");
+                }
+                out.bundle.c2pa_rewrite.message.append(rewrite_error);
+            }
+        }
+    } else if (options.prepare.target_format == TransferTargetFormat::Jxl
+               && out.bundle.c2pa_rewrite.state
+                      == TransferC2paRewriteState::SigningMaterialRequired) {
+        std::string rewrite_error;
+        if (!build_jxl_c2pa_rewrite_chunks(mapped.bytes(), out.bundle,
+                                           &out.bundle.c2pa_rewrite,
+                                           &rewrite_error)) {
+            if (!rewrite_error.empty()) {
+                if (!out.bundle.c2pa_rewrite.message.empty()) {
+                    out.bundle.c2pa_rewrite.message.append("; ");
+                }
+                out.bundle.c2pa_rewrite.message.append(rewrite_error);
+            }
+        }
+    } else if (transfer_target_is_bmff(options.prepare.target_format)
+               && out.bundle.c2pa_rewrite.state
+                      == TransferC2paRewriteState::SigningMaterialRequired) {
+        std::string rewrite_error;
+        if (!build_bmff_c2pa_rewrite_chunks(mapped.bytes(), out.bundle,
                                             &out.bundle.c2pa_rewrite,
                                             &rewrite_error)) {
             if (!rewrite_error.empty()) {
@@ -11357,9 +12194,18 @@ build_prepared_c2pa_sign_request(
     out.requires_certificate_chain = rewrite.requires_certificate_chain;
     out.requires_private_key       = rewrite.requires_private_key;
     out.requires_signing_time      = rewrite.requires_signing_time;
-    out.carrier_route              = "jpeg:app11-c2pa";
-    out.manifest_label             = "c2pa";
     out.message                    = rewrite.message;
+
+    if (rewrite.target_format == TransferTargetFormat::Jxl) {
+        out.carrier_route  = "jxl:box-jumb";
+        out.manifest_label = "c2pa";
+    } else if (transfer_target_is_bmff(rewrite.target_format)) {
+        out.carrier_route  = "bmff:item-c2pa";
+        out.manifest_label = "c2pa";
+    } else {
+        out.carrier_route  = "jpeg:app11-c2pa";
+        out.manifest_label = "c2pa";
+    }
 
     for (size_t i = 0; i < out.content_binding_chunks.size(); ++i) {
         const PreparedTransferC2paRewriteChunk& chunk
@@ -11368,6 +12214,11 @@ build_prepared_c2pa_sign_request(
             out.source_range_chunks += 1U;
         } else if (chunk.kind
                    == TransferC2paRewriteChunkKind::PreparedJpegSegment) {
+            out.prepared_segment_chunks += 1U;
+        } else if (chunk.kind == TransferC2paRewriteChunkKind::PreparedJxlBox) {
+            out.prepared_segment_chunks += 1U;
+        } else if (chunk.kind
+                   == TransferC2paRewriteChunkKind::PreparedBmffMetaBox) {
             out.prepared_segment_chunks += 1U;
         }
     }
@@ -11382,14 +12233,16 @@ build_prepared_c2pa_sign_request(
         if (out.message.empty()) {
             out.message = "c2pa signed rewrite was not requested";
         }
-    } else if (bundle.target_format != TransferTargetFormat::Jpeg
-               || rewrite.target_format != TransferTargetFormat::Jpeg) {
+    } else if (bundle.target_format != rewrite.target_format
+               || (rewrite.target_format != TransferTargetFormat::Jpeg
+                   && rewrite.target_format != TransferTargetFormat::Jxl
+                   && !transfer_target_is_bmff(rewrite.target_format))) {
         out.status = TransferStatus::Unsupported;
         out.carrier_route.clear();
         out.manifest_label.clear();
         if (out.message.empty()) {
-            out.message
-                = "c2pa sign request currently supports jpeg targets only";
+            out.message = "c2pa sign request currently supports jpeg, jxl, "
+                          "and bmff targets only";
         }
     } else if (!rewrite.target_carrier_available) {
         out.status = TransferStatus::Unsupported;
@@ -11431,6 +12284,32 @@ c2pa_rewrite_chunks_match(
         }
     }
     return true;
+}
+
+static TransferStatus
+build_bmff_c2pa_binding_meta_box(const PreparedTransferBundle& bundle,
+                                 std::vector<std::byte>* out_bytes,
+                                 std::string* out_message) noexcept
+{
+    if (!out_bytes) {
+        if (out_message) {
+            *out_message = "bmff binding meta output is null";
+        }
+        return TransferStatus::InvalidArgument;
+    }
+    PreparedTransferBundle binding_bundle = bundle;
+    (void)remove_prepared_blocks_by_route(&binding_bundle, "bmff:item-c2pa");
+
+    EmitTransferResult build;
+    if (!build_bmff_metadata_only_meta_box(binding_bundle, out_bytes, &build)) {
+        if (out_message) {
+            *out_message = build.message.empty()
+                               ? "failed to build bmff binding meta box"
+                               : build.message;
+        }
+        return build.status;
+    }
+    return TransferStatus::Ok;
 }
 
 static TransferC2paSignedPayloadKind
@@ -11516,16 +12395,23 @@ build_prepared_c2pa_sign_request_binding(
         out.message = "c2pa sign request is not ready";
         return out;
     }
-    if (bundle.target_format != TransferTargetFormat::Jpeg
-        || request.target_format != TransferTargetFormat::Jpeg) {
+    const bool is_jpeg = bundle.target_format == TransferTargetFormat::Jpeg
+                         && request.target_format == TransferTargetFormat::Jpeg;
+    const bool is_jxl = bundle.target_format == TransferTargetFormat::Jxl
+                        && request.target_format == TransferTargetFormat::Jxl;
+    const bool is_bmff = transfer_target_is_bmff(bundle.target_format)
+                         && bundle.target_format == request.target_format;
+    if (!is_jpeg && !is_jxl && !is_bmff) {
         out.status = TransferStatus::Unsupported;
-        out.code   = EmitTransferCode::BundleTargetNotJpeg;
+        out.code   = EmitTransferCode::InvalidArgument;
         out.errors = 1U;
         out.message
-            = "c2pa binding materialization currently supports jpeg only";
+            = "c2pa binding materialization currently supports jpeg, jxl, and bmff only";
         return out;
     }
-    if (request.carrier_route != "jpeg:app11-c2pa"
+    if (((is_jpeg && request.carrier_route != "jpeg:app11-c2pa")
+         || (is_jxl && request.carrier_route != "jxl:box-jumb")
+         || (is_bmff && request.carrier_route != "bmff:item-c2pa"))
         || request.manifest_label != "c2pa") {
         out.status  = TransferStatus::InvalidArgument;
         out.code    = EmitTransferCode::PlanMismatch;
@@ -11571,7 +12457,162 @@ build_prepared_c2pa_sign_request_binding(
             continue;
         }
 
-        if (chunk.kind != TransferC2paRewriteChunkKind::PreparedJpegSegment) {
+        if (is_jpeg
+            && chunk.kind
+                   == TransferC2paRewriteChunkKind::PreparedJpegSegment) {
+            if (chunk.block_index >= bundle.blocks.size()) {
+                out.status = TransferStatus::Malformed;
+                out.code   = EmitTransferCode::InvalidPayload;
+                out.errors = 1U;
+                out.message
+                    = "c2pa sign request prepared segment index is out of range";
+                out_bytes->clear();
+                return out;
+            }
+
+            const PreparedTransferBlock& block
+                = bundle.blocks[chunk.block_index];
+            const uint64_t expected_size = static_cast<uint64_t>(
+                4U + block.payload.size());
+            if (expected_size != chunk.size) {
+                out.status = TransferStatus::InvalidArgument;
+                out.code   = EmitTransferCode::PlanMismatch;
+                out.errors = 1U;
+                out.message
+                    = "c2pa sign request prepared segment size no longer matches";
+                out_bytes->clear();
+                return out;
+            }
+
+            const size_t before = out_bytes->size();
+            append_jpeg_segment(
+                out_bytes, chunk.jpeg_marker_code,
+                std::span<const std::byte>(block.payload.data(),
+                                           block.payload.size()));
+            const uint64_t actual_size = static_cast<uint64_t>(out_bytes->size()
+                                                               - before);
+            if (actual_size != expected_size) {
+                out.status = TransferStatus::Malformed;
+                out.code   = EmitTransferCode::InvalidPayload;
+                out.errors = 1U;
+                out.message
+                    = "c2pa sign request prepared segment emitted invalid size";
+                out_bytes->clear();
+                return out;
+            }
+            written += actual_size;
+            continue;
+        }
+
+        if (is_jxl
+            && chunk.kind == TransferC2paRewriteChunkKind::PreparedJxlBox) {
+            if (chunk.block_index >= bundle.blocks.size()) {
+                out.status = TransferStatus::Malformed;
+                out.code   = EmitTransferCode::InvalidPayload;
+                out.errors = 1U;
+                out.message
+                    = "c2pa sign request prepared jxl box index is out of range";
+                out_bytes->clear();
+                return out;
+            }
+
+            const PreparedTransferBlock& block
+                = bundle.blocks[chunk.block_index];
+            std::array<char, 4> box_type = { '\0', '\0', '\0', '\0' };
+            bool compress                = false;
+            if (!jxl_box_from_route(block.route, &box_type, &compress)
+                || compress) {
+                out.status  = TransferStatus::Malformed;
+                out.code    = EmitTransferCode::InvalidPayload;
+                out.errors  = 1U;
+                out.message = "c2pa sign request prepared jxl route is invalid";
+                out_bytes->clear();
+                return out;
+            }
+            const uint64_t expected_size = static_cast<uint64_t>(
+                8U + block.payload.size());
+            if (expected_size != chunk.size) {
+                out.status = TransferStatus::InvalidArgument;
+                out.code   = EmitTransferCode::PlanMismatch;
+                out.errors = 1U;
+                out.message
+                    = "c2pa sign request prepared jxl box size no longer matches";
+                out_bytes->clear();
+                return out;
+            }
+            if (block.box_type != std::array<char, 4> { '\0', '\0', '\0', '\0' }
+                && block.box_type != box_type) {
+                out.status = TransferStatus::InvalidArgument;
+                out.code   = EmitTransferCode::PlanMismatch;
+                out.errors = 1U;
+                out.message
+                    = "c2pa sign request prepared jxl box_type no longer matches";
+                out_bytes->clear();
+                return out;
+            }
+
+            const uint32_t type
+                = (static_cast<uint32_t>(static_cast<uint8_t>(box_type[0]))
+                   << 24U)
+                  | (static_cast<uint32_t>(static_cast<uint8_t>(box_type[1]))
+                     << 16U)
+                  | (static_cast<uint32_t>(static_cast<uint8_t>(box_type[2]))
+                     << 8U)
+                  | static_cast<uint32_t>(static_cast<uint8_t>(box_type[3]));
+            const size_t before = out_bytes->size();
+            append_bmff_box_bytes(
+                out_bytes, type,
+                std::span<const std::byte>(block.payload.data(),
+                                           block.payload.size()));
+            const uint64_t actual_size = static_cast<uint64_t>(out_bytes->size()
+                                                               - before);
+            if (actual_size != expected_size) {
+                out.status = TransferStatus::Malformed;
+                out.code   = EmitTransferCode::InvalidPayload;
+                out.errors = 1U;
+                out.message
+                    = "c2pa sign request prepared jxl box emitted invalid size";
+                out_bytes->clear();
+                return out;
+            }
+            written += actual_size;
+            continue;
+        }
+
+        if (is_bmff
+            && chunk.kind
+                   == TransferC2paRewriteChunkKind::PreparedBmffMetaBox) {
+            std::vector<std::byte> meta_box;
+            std::string build_message;
+            const TransferStatus build_status
+                = build_bmff_c2pa_binding_meta_box(bundle, &meta_box,
+                                                   &build_message);
+            if (build_status != TransferStatus::Ok) {
+                out.status  = build_status;
+                out.code    = EmitTransferCode::InvalidPayload;
+                out.errors  = 1U;
+                out.message = build_message.empty()
+                                  ? "failed to build bmff c2pa binding meta box"
+                                  : build_message;
+                out_bytes->clear();
+                return out;
+            }
+            if (static_cast<uint64_t>(meta_box.size()) != chunk.size) {
+                out.status = TransferStatus::InvalidArgument;
+                out.code   = EmitTransferCode::PlanMismatch;
+                out.errors = 1U;
+                out.message
+                    = "c2pa sign request bmff meta box size no longer matches";
+                out_bytes->clear();
+                return out;
+            }
+            out_bytes->insert(out_bytes->end(), meta_box.begin(),
+                              meta_box.end());
+            written += static_cast<uint64_t>(meta_box.size());
+            continue;
+        }
+
+        {
             out.status  = TransferStatus::Malformed;
             out.code    = EmitTransferCode::InvalidPayload;
             out.errors  = 1U;
@@ -11579,45 +12620,6 @@ build_prepared_c2pa_sign_request_binding(
             out_bytes->clear();
             return out;
         }
-        if (chunk.block_index >= bundle.blocks.size()) {
-            out.status = TransferStatus::Malformed;
-            out.code   = EmitTransferCode::InvalidPayload;
-            out.errors = 1U;
-            out.message
-                = "c2pa sign request prepared segment index is out of range";
-            out_bytes->clear();
-            return out;
-        }
-
-        const PreparedTransferBlock& block = bundle.blocks[chunk.block_index];
-        const uint64_t expected_size       = static_cast<uint64_t>(
-            4U + block.payload.size());
-        if (expected_size != chunk.size) {
-            out.status = TransferStatus::InvalidArgument;
-            out.code   = EmitTransferCode::PlanMismatch;
-            out.errors = 1U;
-            out.message
-                = "c2pa sign request prepared segment size no longer matches";
-            out_bytes->clear();
-            return out;
-        }
-
-        const size_t before = out_bytes->size();
-        append_jpeg_segment(out_bytes, chunk.jpeg_marker_code,
-                            std::span<const std::byte>(block.payload.data(),
-                                                       block.payload.size()));
-        const uint64_t actual_size = static_cast<uint64_t>(out_bytes->size()
-                                                           - before);
-        if (actual_size != expected_size) {
-            out.status = TransferStatus::Malformed;
-            out.code   = EmitTransferCode::InvalidPayload;
-            out.errors = 1U;
-            out.message
-                = "c2pa sign request prepared segment emitted invalid size";
-            out_bytes->clear();
-            return out;
-        }
-        written += actual_size;
     }
 
     if (written != request.content_binding_bytes) {
@@ -11923,6 +12925,171 @@ deserialize_prepared_transfer_package_batch(
     return out;
 }
 
+static bool
+has_transfer_artifact_magic(std::span<const std::byte> bytes,
+                            const char magic[8]) noexcept
+{
+    if (bytes.size() < 8U) {
+        return false;
+    }
+    for (size_t i = 0; i < 8U; ++i) {
+        if (bytes[i] != static_cast<std::byte>(magic[i])) {
+            return false;
+        }
+    }
+    return true;
+}
+
+PreparedTransferArtifactIoResult
+inspect_prepared_transfer_artifact(
+    std::span<const std::byte> bytes,
+    PreparedTransferArtifactInfo* out_info) noexcept
+{
+    PreparedTransferArtifactIoResult out;
+    if (!out_info) {
+        out.status  = TransferStatus::InvalidArgument;
+        out.code    = EmitTransferCode::InvalidArgument;
+        out.errors  = 1U;
+        out.message = "out_info is null";
+        return out;
+    }
+
+    *out_info = PreparedTransferArtifactInfo {};
+    if (bytes.size() < 8U) {
+        out.status  = TransferStatus::Malformed;
+        out.code    = EmitTransferCode::InvalidPayload;
+        out.errors  = 1U;
+        out.message = "transfer artifact is truncated";
+        return out;
+    }
+
+    if (has_transfer_artifact_magic(bytes, kTransferPayloadBatchMagic)) {
+        PreparedTransferPayloadBatch batch;
+        const PreparedTransferPayloadIoResult parsed
+            = deserialize_prepared_transfer_payload_batch(bytes, &batch);
+        out.status  = parsed.status;
+        out.code    = parsed.code;
+        out.bytes   = parsed.bytes;
+        out.errors  = parsed.errors;
+        out.message = parsed.message;
+        if (parsed.status != TransferStatus::Ok) {
+            return out;
+        }
+        out_info->kind = PreparedTransferArtifactKind::TransferPayloadBatch;
+        out_info->has_contract_version = true;
+        out_info->contract_version     = batch.contract_version;
+        out_info->has_target_format    = true;
+        out_info->target_format        = batch.target_format;
+        out_info->entry_count = static_cast<uint32_t>(batch.payloads.size());
+        for (size_t i = 0; i < batch.payloads.size(); ++i) {
+            out_info->payload_bytes += batch.payloads[i].payload.size();
+        }
+        return out;
+    }
+
+    if (has_transfer_artifact_magic(bytes, kTransferPackageBatchMagic)) {
+        PreparedTransferPackageBatch batch;
+        const PreparedTransferPackageIoResult parsed
+            = deserialize_prepared_transfer_package_batch(bytes, &batch);
+        out.status  = parsed.status;
+        out.code    = parsed.code;
+        out.bytes   = parsed.bytes;
+        out.errors  = parsed.errors;
+        out.message = parsed.message;
+        if (parsed.status != TransferStatus::Ok) {
+            return out;
+        }
+        out_info->kind = PreparedTransferArtifactKind::TransferPackageBatch;
+        out_info->has_contract_version = true;
+        out_info->contract_version     = batch.contract_version;
+        out_info->has_target_format    = true;
+        out_info->target_format        = batch.target_format;
+        out_info->entry_count = static_cast<uint32_t>(batch.chunks.size());
+        for (size_t i = 0; i < batch.chunks.size(); ++i) {
+            out_info->payload_bytes += batch.chunks[i].bytes.size();
+        }
+        return out;
+    }
+
+    if (has_transfer_artifact_magic(bytes, kC2paHandoffMagic)) {
+        PreparedTransferC2paHandoffPackage package;
+        const PreparedTransferC2paPackageIoResult parsed
+            = deserialize_prepared_c2pa_handoff_package(bytes, &package);
+        out.status  = parsed.status;
+        out.code    = parsed.code;
+        out.bytes   = parsed.bytes;
+        out.errors  = parsed.errors;
+        out.message = parsed.message;
+        if (parsed.status != TransferStatus::Ok) {
+            return out;
+        }
+        out_info->kind = PreparedTransferArtifactKind::C2paHandoffPackage;
+        out_info->has_target_format = true;
+        out_info->target_format     = package.request.target_format;
+        out_info->entry_count       = static_cast<uint32_t>(
+            package.request.content_binding_chunks.size());
+        out_info->binding_bytes  = package.binding_bytes.size();
+        out_info->carrier_route  = package.request.carrier_route;
+        out_info->manifest_label = package.request.manifest_label;
+        return out;
+    }
+
+    if (has_transfer_artifact_magic(bytes, kC2paSignedMagic)) {
+        PreparedTransferC2paSignedPackage package;
+        const PreparedTransferC2paPackageIoResult parsed
+            = deserialize_prepared_c2pa_signed_package(bytes, &package);
+        out.status  = parsed.status;
+        out.code    = parsed.code;
+        out.bytes   = parsed.bytes;
+        out.errors  = parsed.errors;
+        out.message = parsed.message;
+        if (parsed.status != TransferStatus::Ok) {
+            return out;
+        }
+        out_info->kind = PreparedTransferArtifactKind::C2paSignedPackage;
+        out_info->has_target_format = true;
+        out_info->target_format     = package.request.target_format;
+        out_info->entry_count       = static_cast<uint32_t>(
+            package.request.content_binding_chunks.size());
+        out_info->signed_payload_bytes
+            = package.signer_input.signed_c2pa_logical_payload.size();
+        out_info->carrier_route  = package.request.carrier_route;
+        out_info->manifest_label = package.request.manifest_label;
+        return out;
+    }
+
+    if (has_transfer_artifact_magic(bytes, kJxlEncoderHandoffMagic)) {
+        PreparedJxlEncoderHandoff handoff;
+        const PreparedJxlEncoderHandoffIoResult parsed
+            = deserialize_prepared_jxl_encoder_handoff(bytes, &handoff);
+        out.status  = parsed.status;
+        out.code    = parsed.code;
+        out.bytes   = parsed.bytes;
+        out.errors  = parsed.errors;
+        out.message = parsed.message;
+        if (parsed.status != TransferStatus::Ok) {
+            return out;
+        }
+        out_info->kind = PreparedTransferArtifactKind::JxlEncoderHandoff;
+        out_info->has_contract_version = true;
+        out_info->contract_version     = handoff.contract_version;
+        out_info->has_target_format    = true;
+        out_info->target_format        = TransferTargetFormat::Jxl;
+        out_info->entry_count          = handoff.box_count;
+        out_info->has_icc_profile      = handoff.has_icc_profile;
+        out_info->icc_block_index      = handoff.icc_block_index;
+        out_info->icc_profile_bytes    = handoff.icc_profile.size();
+        out_info->box_payload_bytes    = handoff.box_payload_bytes;
+        return out;
+    }
+
+    out.status  = TransferStatus::Unsupported;
+    out.code    = EmitTransferCode::InvalidPayload;
+    out.errors  = 1U;
+    out.message = "transfer artifact magic is unknown";
+    return out;
+}
+
 namespace {
 
     static bool validate_staged_jpeg_c2pa_blocks(
@@ -12007,6 +13174,79 @@ namespace {
         return true;
     }
 
+    static bool validate_staged_bmff_c2pa_blocks(
+        std::span<const PreparedTransferBlock> blocks,
+        std::span<const std::byte> logical_payload,
+        ValidatePreparedC2paSignResult* out) noexcept
+    {
+        if (!out || blocks.size() != 1U) {
+            return false;
+        }
+
+        const PreparedTransferBlock& block = blocks[0];
+        if (block.kind != TransferBlockKind::C2pa
+            || block.route != "bmff:item-c2pa"
+            || block.payload.size() != logical_payload.size()
+            || !std::equal(block.payload.begin(), block.payload.end(),
+                           logical_payload.begin(), logical_payload.end())) {
+            out->status = TransferStatus::Malformed;
+            out->code   = EmitTransferCode::InvalidPayload;
+            out->errors = 1U;
+            out->message
+                = "validated signed c2pa bmff item does not match the logical payload";
+            return false;
+        }
+
+        out->staged_segments      = 1U;
+        out->staged_payload_bytes = static_cast<uint64_t>(block.payload.size());
+        return true;
+    }
+
+    static bool validate_staged_jxl_c2pa_blocks(
+        std::span<const PreparedTransferBlock> blocks,
+        std::span<const std::byte> logical_payload,
+        ValidatePreparedC2paSignResult* out) noexcept
+    {
+        if (!out || blocks.size() != 1U) {
+            return false;
+        }
+
+        uint32_t header_len = 0U;
+        uint32_t box_type   = 0U;
+        if (!parse_bmff_box_header(logical_payload, &header_len, &box_type)
+            || header_len != 8U || box_type != fourcc('j', 'u', 'm', 'b')) {
+            out->status = TransferStatus::Malformed;
+            out->code   = EmitTransferCode::InvalidPayload;
+            out->errors = 1U;
+            out->message
+                = "validated signed c2pa jxl carrier requires a jumb root box";
+            return false;
+        }
+
+        const PreparedTransferBlock& block = blocks[0];
+        if (block.kind != TransferBlockKind::C2pa
+            || block.route != "jxl:box-jumb"
+            || block.box_type != std::array<char, 4> { 'j', 'u', 'm', 'b' }
+            || block.payload.size() + static_cast<size_t>(header_len)
+                   != logical_payload.size()
+            || !std::equal(block.payload.begin(), block.payload.end(),
+                           logical_payload.begin()
+                               + static_cast<std::ptrdiff_t>(header_len),
+                           logical_payload.end())) {
+            out->status = TransferStatus::Malformed;
+            out->code   = EmitTransferCode::InvalidPayload;
+            out->errors = 1U;
+            out->message
+                = "validated signed c2pa jxl box does not match the logical payload";
+            return false;
+        }
+
+        out->staged_segments      = 1U;
+        out->staged_payload_bytes = static_cast<uint64_t>(
+            8U + block.payload.size());
+        return true;
+    }
+
     static ValidatePreparedC2paSignResult validate_prepared_c2pa_sign_stage(
         const PreparedTransferBundle& bundle,
         const PreparedTransferC2paSignRequest& request,
@@ -12019,13 +13259,20 @@ namespace {
         if (out_staged_blocks) {
             out_staged_blocks->clear();
         }
-        if (bundle.target_format != TransferTargetFormat::Jpeg
-            || request.target_format != TransferTargetFormat::Jpeg) {
+        const bool is_jpeg = bundle.target_format == TransferTargetFormat::Jpeg
+                             && request.target_format
+                                    == TransferTargetFormat::Jpeg;
+        const bool is_jxl = bundle.target_format == TransferTargetFormat::Jxl
+                            && request.target_format
+                                   == TransferTargetFormat::Jxl;
+        const bool is_bmff = transfer_target_is_bmff(bundle.target_format)
+                             && bundle.target_format == request.target_format;
+        if (!is_jpeg && !is_jxl && !is_bmff) {
             out.status = TransferStatus::Unsupported;
-            out.code   = EmitTransferCode::BundleTargetNotJpeg;
+            out.code   = EmitTransferCode::InvalidArgument;
             out.errors = 1U;
             out.message
-                = "c2pa sign result staging currently supports jpeg only";
+                = "c2pa sign result staging currently supports jpeg, jxl, and bmff only";
             return out;
         }
         if (request.status != TransferStatus::Ok) {
@@ -12035,7 +13282,9 @@ namespace {
             out.message = "c2pa sign request is not ready";
             return out;
         }
-        if (request.carrier_route != "jpeg:app11-c2pa"
+        if (((is_jpeg && request.carrier_route != "jpeg:app11-c2pa")
+             || (is_jxl && request.carrier_route != "jxl:box-jumb")
+             || (is_bmff && request.carrier_route != "bmff:item-c2pa"))
             || request.manifest_label != "c2pa") {
             out.status  = TransferStatus::InvalidArgument;
             out.code    = EmitTransferCode::PlanMismatch;
@@ -12064,10 +13313,10 @@ namespace {
                 = "bundle c2pa rewrite state is not ready for signer payloads";
             return out;
         }
-        if (rewrite.target_format != TransferTargetFormat::Jpeg
+        if (rewrite.target_format != bundle.target_format
             || !rewrite.target_carrier_available) {
             out.status  = TransferStatus::Unsupported;
-            out.code    = EmitTransferCode::BundleTargetNotJpeg;
+            out.code    = EmitTransferCode::InvalidArgument;
             out.errors  = 1U;
             out.message = "bundle c2pa rewrite carrier is unavailable";
             return out;
@@ -12132,14 +13381,24 @@ namespace {
                 = "signed c2pa logical payload does not start with a valid bmff box";
             return out;
         }
-        static constexpr uint32_t kMaxJpegSegmentPayload = 65533U;
-        if (8U + header_len > kMaxJpegSegmentPayload) {
-            out.status = TransferStatus::LimitExceeded;
-            out.code   = EmitTransferCode::InvalidPayload;
-            out.errors = 1U;
-            out.message
-                = "signed c2pa app11 overhead exceeds jpeg segment limits";
-            return out;
+        if (is_jpeg) {
+            static constexpr uint32_t kMaxJpegSegmentPayload = 65533U;
+            if (8U + header_len > kMaxJpegSegmentPayload) {
+                out.status = TransferStatus::LimitExceeded;
+                out.code   = EmitTransferCode::InvalidPayload;
+                out.errors = 1U;
+                out.message
+                    = "signed c2pa app11 overhead exceeds jpeg segment limits";
+                return out;
+            }
+        } else if (is_jxl) {
+            if (header_len != 8U || box_type != fourcc('j', 'u', 'm', 'b')) {
+                out.status = TransferStatus::Malformed;
+                out.code   = EmitTransferCode::InvalidPayload;
+                out.errors = 1U;
+                out.message = "signed c2pa jxl rewrite requires a jumb root box";
+                return out;
+            }
         }
 
         const C2paPayloadClass payload_class = classify_c2pa_jumbf_payload(
@@ -12187,29 +13446,66 @@ namespace {
         std::vector<PreparedTransferBlock> staged_blocks;
         uint32_t order = next_prepared_block_order(bundle, 150U);
         std::string error;
-        if (!append_jpeg_app11_jumbf_segments(input.signed_c2pa_logical_payload,
-                                              TransferBlockKind::C2pa, &order,
-                                              &staged_blocks, &error)) {
+        bool staged = false;
+        if (is_jpeg) {
+            staged = append_jpeg_app11_jumbf_segments(
+                input.signed_c2pa_logical_payload, TransferBlockKind::C2pa,
+                &order, &staged_blocks, &error);
+        } else if (is_jxl) {
+            staged = append_jxl_jumbf_box(input.signed_c2pa_logical_payload,
+                                          TransferBlockKind::C2pa, &order,
+                                          &staged_blocks, &error);
+        } else {
+            staged = append_bmff_metadata_item(
+                input.signed_c2pa_logical_payload, "bmff:item-c2pa",
+                TransferBlockKind::C2pa, &order, &staged_blocks, &error);
+        }
+        if (!staged) {
             out.status = TransferStatus::Malformed;
             out.code   = EmitTransferCode::InvalidPayload;
             out.errors = 1U;
             out.message
                 = error.empty()
-                      ? "failed to stage signed c2pa payload for jpeg app11"
+                      ? (is_jpeg
+                             ? "failed to stage signed c2pa payload for jpeg app11"
+                             : (is_jxl
+                                    ? "failed to stage signed c2pa payload for jxl jumb box"
+                                    : "failed to stage signed c2pa payload for bmff item"))
                       : error;
             return out;
         }
 
-        if (!validate_staged_jpeg_c2pa_blocks(
-                std::span<const PreparedTransferBlock>(staged_blocks.data(),
-                                                       staged_blocks.size()),
-                input.signed_c2pa_logical_payload, header_len, &out)) {
-            return out;
+        if (is_jpeg) {
+            if (!validate_staged_jpeg_c2pa_blocks(
+                    std::span<const PreparedTransferBlock>(staged_blocks.data(),
+                                                           staged_blocks.size()),
+                    input.signed_c2pa_logical_payload, header_len, &out)) {
+                return out;
+            }
+        } else if (is_jxl) {
+            if (!validate_staged_jxl_c2pa_blocks(
+                    std::span<const PreparedTransferBlock>(staged_blocks.data(),
+                                                           staged_blocks.size()),
+                    input.signed_c2pa_logical_payload, &out)) {
+                return out;
+            }
+        } else {
+            if (!validate_staged_bmff_c2pa_blocks(
+                    std::span<const PreparedTransferBlock>(staged_blocks.data(),
+                                                           staged_blocks.size()),
+                    input.signed_c2pa_logical_payload, &out)) {
+                return out;
+            }
         }
 
-        out.status  = TransferStatus::Ok;
-        out.code    = EmitTransferCode::None;
-        out.message = "signed c2pa payload validated for jpeg app11 staging";
+        out.status = TransferStatus::Ok;
+        out.code   = EmitTransferCode::None;
+        out.message
+            = is_jpeg
+                  ? "signed c2pa payload validated for jpeg app11 staging"
+                  : (is_jxl
+                         ? "signed c2pa payload validated for jxl jumb box staging"
+                         : "signed c2pa payload validated for bmff item staging");
         if (out_staged_blocks) {
             *out_staged_blocks = std::move(staged_blocks);
         }
@@ -12263,16 +13559,35 @@ apply_prepared_c2pa_sign_result(
     }
     const PreparedTransferC2paRewriteRequirements& rewrite
         = bundle->c2pa_rewrite;
+    const bool is_jxl  = bundle->target_format == TransferTargetFormat::Jxl;
+    const bool is_bmff = transfer_target_is_bmff(bundle->target_format);
+    const std::string_view carrier_route
+        = is_bmff ? std::string_view("bmff:item-c2pa")
+                  : (is_jxl ? std::string_view("jxl:box-jumb")
+                            : std::string_view("jpeg:app11-c2pa"));
+    const std::string staged_message
+        = is_bmff
+              ? "external signed c2pa payload is staged for bmff item emission"
+              : (is_jxl
+                     ? "external signed c2pa payload is staged for jxl jumb box emission"
+                     : "external signed c2pa payload is staged for jpeg app11 emission");
+    const std::string decision_message
+        = is_bmff
+              ? "external signed c2pa payload will be emitted as a bmff metadata item"
+              : (is_jxl
+                     ? "external signed c2pa payload will be emitted as a jxl jumb box"
+                     : "external signed c2pa payload will be emitted as jpeg app11 segments");
 
-    out.skipped = remove_prepared_blocks_by_route(bundle, "jpeg:app11-c2pa");
+    out.skipped = is_jxl
+                      ? remove_prepared_jxl_c2pa_blocks(bundle)
+                      : remove_prepared_blocks_by_route(bundle, carrier_route);
     for (size_t i = 0; i < staged_blocks.size(); ++i) {
         bundle->blocks.push_back(std::move(staged_blocks[i]));
     }
 
-    bundle->profile.c2pa       = TransferPolicyAction::Rewrite;
-    bundle->c2pa_rewrite.state = TransferC2paRewriteState::Ready;
-    bundle->c2pa_rewrite.message
-        = "external signed c2pa payload is staged for jpeg app11 emission";
+    bundle->profile.c2pa         = TransferPolicyAction::Rewrite;
+    bundle->c2pa_rewrite.state   = TransferC2paRewriteState::Ready;
+    bundle->c2pa_rewrite.message = staged_message;
 
     PreparedTransferPolicyDecision* decision
         = find_policy_decision(bundle, TransferPolicySubject::C2pa);
@@ -12282,9 +13597,8 @@ apply_prepared_c2pa_sign_result(
             TransferPolicyAction::Keep,
             TransferPolicyReason::ExternalSignedPayload,
             rewrite.matched_entries == 0U ? 1U : rewrite.matched_entries,
-            "external signed c2pa payload will be emitted as jpeg app11 segments",
-            TransferC2paMode::SignedRewrite, rewrite.source_kind,
-            TransferC2paPreparedOutput::SignedRewrite);
+            decision_message, TransferC2paMode::SignedRewrite,
+            rewrite.source_kind, TransferC2paPreparedOutput::SignedRewrite);
     } else {
         decision->requested = TransferPolicyAction::Rewrite;
         decision->effective = TransferPolicyAction::Keep;
@@ -12298,8 +13612,7 @@ apply_prepared_c2pa_sign_result(
                                             ? 1U
                                             : rewrite.matched_entries;
         }
-        decision->message
-            = "external signed c2pa payload will be emitted as jpeg app11 segments";
+        decision->message = decision_message;
     }
 
     out.status  = TransferStatus::Ok;
@@ -13250,6 +14563,754 @@ namespace {
         plan->chunks.push_back(std::move(one));
     }
 
+    struct TransferBmffBox final {
+        uint64_t offset      = 0;
+        uint64_t size        = 0;
+        uint64_t header_size = 0;
+        uint32_t type        = 0;
+        bool has_uuid        = false;
+        std::array<std::byte, 16> uuid {};
+    };
+
+    struct BmffRewriteItemSource final {
+        uint32_t block_index = 0U;
+        uint16_t item_id     = 0U;
+        uint32_t item_type   = 0U;
+        bool mime_xmp        = false;
+    };
+
+    struct BmffRewritePropertySource final {
+        uint32_t block_index      = 0U;
+        uint32_t property_type    = 0U;
+        uint32_t property_subtype = 0U;
+    };
+
+    static constexpr std::array<std::byte, 16> kOpenMetaBmffTransferMetaUuid = {
+        std::byte { 'O' }, std::byte { 'p' }, std::byte { 'e' },
+        std::byte { 'n' }, std::byte { 'M' }, std::byte { 'e' },
+        std::byte { 't' }, std::byte { 'a' }, std::byte { 'B' },
+        std::byte { 'm' }, std::byte { 'f' }, std::byte { 'f' },
+        std::byte { 'M' }, std::byte { 'e' }, std::byte { 't' },
+        std::byte { 'a' },
+    };
+
+    static bool parse_transfer_bmff_box(std::span<const std::byte> bytes,
+                                        uint64_t offset, uint64_t parent_end,
+                                        TransferBmffBox* out) noexcept
+    {
+        if (!out || offset + 8U > parent_end || offset + 8U > bytes.size()) {
+            return false;
+        }
+
+        uint32_t size32 = 0U;
+        uint32_t type   = 0U;
+        if (!read_u32be(bytes, offset + 0U, &size32)
+            || !read_u32be(bytes, offset + 4U, &type)) {
+            return false;
+        }
+
+        uint64_t header_size = 8U;
+        uint64_t box_size    = static_cast<uint64_t>(size32);
+        if (size32 == 1U) {
+            if (!read_u64be(bytes, offset + 8U, &box_size)) {
+                return false;
+            }
+            header_size = 16U;
+        } else if (size32 == 0U) {
+            box_size = parent_end - offset;
+        }
+
+        if (box_size < header_size || offset + box_size > parent_end
+            || offset + box_size > bytes.size()) {
+            return false;
+        }
+
+        bool has_uuid = false;
+        std::array<std::byte, 16> uuid {};
+        if (type == fourcc('u', 'u', 'i', 'd')) {
+            if (header_size + 16U > box_size) {
+                return false;
+            }
+            has_uuid = true;
+            for (uint32_t i = 0; i < uuid.size(); ++i) {
+                uuid[i] = bytes[offset + header_size + i];
+            }
+            header_size += 16U;
+        }
+
+        out->offset      = offset;
+        out->size        = box_size;
+        out->header_size = header_size;
+        out->type        = type;
+        out->has_uuid    = has_uuid;
+        out->uuid        = uuid;
+        return true;
+    }
+
+    static bool bmff_uuid_equals(const std::array<std::byte, 16>& a,
+                                 const std::array<std::byte, 16>& b) noexcept
+    {
+        for (size_t i = 0; i < a.size(); ++i) {
+            if (a[i] != b[i]) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    static void append_bmff_fullbox_fields(std::vector<std::byte>* out,
+                                           uint8_t version,
+                                           uint32_t flags) noexcept
+    {
+        if (!out) {
+            return;
+        }
+        out->push_back(static_cast<std::byte>(version));
+        out->push_back(static_cast<std::byte>((flags >> 16U) & 0xFFU));
+        out->push_back(static_cast<std::byte>((flags >> 8U) & 0xFFU));
+        out->push_back(static_cast<std::byte>((flags >> 0U) & 0xFFU));
+    }
+
+    static void append_cstring_ascii(std::vector<std::byte>* out,
+                                     std::string_view value) noexcept
+    {
+        if (!out) {
+            return;
+        }
+        append_ascii_bytes(out, value);
+        out->push_back(std::byte { 0x00 });
+    }
+
+    static bool
+    append_bmff_box_bytes_checked(std::vector<std::byte>* out, uint32_t type,
+                                  std::span<const std::byte> payload) noexcept
+    {
+        if (!out || payload.size() > (0xFFFFFFFFULL - 8ULL)) {
+            return false;
+        }
+        append_bmff_box_bytes(out, type, payload);
+        return true;
+    }
+
+    static bool append_bmff_uuid_box_bytes_checked(
+        std::vector<std::byte>* out, const std::array<std::byte, 16>& uuid,
+        std::span<const std::byte> payload) noexcept
+    {
+        if (!out || payload.size() > (0xFFFFFFFFULL - 24ULL)) {
+            return false;
+        }
+        append_u32be(out, static_cast<uint32_t>(24U + payload.size()));
+        append_u32be(out, fourcc('u', 'u', 'i', 'd'));
+        for (size_t i = 0; i < uuid.size(); ++i) {
+            out->push_back(uuid[i]);
+        }
+        out->insert(out->end(), payload.begin(), payload.end());
+        return true;
+    }
+
+    static const char* bmff_rewrite_item_name(uint32_t item_type,
+                                              bool mime_xmp) noexcept
+    {
+        if (mime_xmp) {
+            return "XMP";
+        }
+        if (item_type == fourcc('E', 'x', 'i', 'f')) {
+            return "Exif";
+        }
+        if (item_type == fourcc('j', 'u', 'm', 'b')) {
+            return "JUMBF";
+        }
+        if (item_type == fourcc('c', '2', 'p', 'a')) {
+            return "C2PA";
+        }
+        return "Item";
+    }
+
+    static bool
+    bmff_meta_has_openmeta_transfer_marker(std::span<const std::byte> bytes,
+                                           const TransferBmffBox& meta) noexcept
+    {
+        if (meta.type != fourcc('m', 'e', 't', 'a')
+            || meta.offset + meta.header_size > bytes.size()
+            || meta.size < meta.header_size + 4U) {
+            return false;
+        }
+
+        const uint64_t payload_begin = meta.offset + meta.header_size + 4U;
+        const uint64_t payload_end   = meta.offset + meta.size;
+        uint64_t off                 = payload_begin;
+        while (off + 8U <= payload_end) {
+            TransferBmffBox child;
+            if (!parse_transfer_bmff_box(bytes, off, payload_end, &child)) {
+                return false;
+            }
+            if (child.type == fourcc('u', 'u', 'i', 'd') && child.has_uuid
+                && bmff_uuid_equals(child.uuid, kOpenMetaBmffTransferMetaUuid)) {
+                return true;
+            }
+            if (child.size == 0U) {
+                break;
+            }
+            off += child.size;
+        }
+        return false;
+    }
+
+    static bool
+    is_supported_jxl_container(std::span<const std::byte> bytes) noexcept
+    {
+        if (bytes.size() < 12U) {
+            return false;
+        }
+
+        uint32_t first_size = 0U;
+        uint32_t first_type = 0U;
+        uint32_t magic      = 0U;
+        return read_u32be(bytes, 0U, &first_size)
+               && read_u32be(bytes, 4U, &first_type)
+               && read_u32be(bytes, 8U, &magic) && first_size == 12U
+               && first_type == fourcc('J', 'X', 'L', ' ')
+               && magic == 0x0D0A870AU;
+    }
+
+    static JxlRewritePolicy
+    collect_jxl_rewrite_policy(const PreparedTransferBundle& bundle) noexcept
+    {
+        JxlRewritePolicy policy;
+        for (size_t i = 0; i < bundle.blocks.size(); ++i) {
+            const PreparedTransferBlock& block = bundle.blocks[i];
+            if (block.payload.empty()) {
+                continue;
+            }
+            if (block.route == "jxl:box-exif") {
+                policy.exif = true;
+                continue;
+            }
+            if (block.route == "jxl:box-xml") {
+                policy.xmp = true;
+                continue;
+            }
+            if (block.route == "jxl:box-c2pa") {
+                policy.c2pa = true;
+                continue;
+            }
+            if (block.route == "jxl:box-jumb") {
+                if (block.kind == TransferBlockKind::C2pa) {
+                    policy.c2pa = true;
+                } else {
+                    policy.jumbf = true;
+                }
+            }
+        }
+        return policy;
+    }
+
+    static JxlRewriteFamily
+    classify_source_jxl_rewrite_family(std::span<const std::byte> bytes,
+                                       const TransferBmffBox& box) noexcept
+    {
+        if (box.type == fourcc('E', 'x', 'i', 'f')) {
+            return JxlRewriteFamily::Exif;
+        }
+        if (box.type == fourcc('x', 'm', 'l', ' ')) {
+            return JxlRewriteFamily::Xmp;
+        }
+        if (box.type == fourcc('c', '2', 'p', 'a')) {
+            return JxlRewriteFamily::C2pa;
+        }
+        if (box.type == fourcc('j', 'u', 'm', 'b')) {
+            if (box.offset + box.size > bytes.size()) {
+                return JxlRewriteFamily::Unknown;
+            }
+            const std::span<const std::byte> logical
+                = bytes.subspan(static_cast<size_t>(box.offset),
+                                static_cast<size_t>(box.size));
+            return is_c2pa_jumbf_payload(logical) ? JxlRewriteFamily::C2pa
+                                                  : JxlRewriteFamily::Jumbf;
+        }
+        if (box.type != fourcc('b', 'r', 'o', 'b')
+            || box.size < box.header_size + 4U
+            || box.offset + box.header_size + 4U > bytes.size()) {
+            return JxlRewriteFamily::Unknown;
+        }
+
+        uint32_t real_type = 0U;
+        if (!read_u32be(bytes, box.offset + box.header_size, &real_type)) {
+            return JxlRewriteFamily::Unknown;
+        }
+        if (real_type == fourcc('E', 'x', 'i', 'f')) {
+            return JxlRewriteFamily::Exif;
+        }
+        if (real_type == fourcc('x', 'm', 'l', ' ')) {
+            return JxlRewriteFamily::Xmp;
+        }
+        if (real_type == fourcc('c', '2', 'p', 'a')) {
+            return JxlRewriteFamily::C2pa;
+        }
+        if (real_type == fourcc('j', 'u', 'm', 'b')) {
+            ContainerBlockRef block;
+            block.format       = ContainerFormat::Jxl;
+            block.kind         = ContainerBlockKind::CompressedMetadata;
+            block.compression  = BlockCompression::Brotli;
+            block.chunking     = BlockChunking::BrobU32BeRealTypePrefix;
+            block.outer_offset = box.offset;
+            block.outer_size   = box.size;
+            block.data_offset  = box.offset + box.header_size + 4U;
+            block.data_size    = box.size - box.header_size - 4U;
+            block.id           = box.type;
+            block.aux_u32      = real_type;
+
+            const std::array<ContainerBlockRef, 1> blocks = { block };
+            PayloadOptions options;
+            options.decompress = true;
+
+            std::vector<std::byte> payload(4096U);
+            const std::span<const ContainerBlockRef> block_span(blocks.data(),
+                                                                blocks.size());
+            PayloadResult extracted
+                = extract_payload(bytes, block_span, 0U,
+                                  std::span<std::byte>(payload.data(),
+                                                       payload.size()),
+                                  std::span<uint32_t> {}, options);
+            if (extracted.status == PayloadStatus::OutputTruncated) {
+                if (extracted.needed > static_cast<uint64_t>(
+                        std::numeric_limits<size_t>::max())
+                    || extracted.needed
+                           > static_cast<uint64_t>(0xFFFFFFFFU - 8U)) {
+                    return JxlRewriteFamily::Unknown;
+                }
+                payload.resize(static_cast<size_t>(extracted.needed));
+                extracted = extract_payload(bytes, block_span, 0U,
+                                            std::span<std::byte>(payload.data(),
+                                                                 payload.size()),
+                                            std::span<uint32_t> {}, options);
+            }
+            if (extracted.status != PayloadStatus::Ok
+                || extracted.written > static_cast<uint64_t>(
+                       std::numeric_limits<size_t>::max())
+                || extracted.written
+                       > static_cast<uint64_t>(0xFFFFFFFFU - 8U)) {
+                return JxlRewriteFamily::Unknown;
+            }
+            payload.resize(static_cast<size_t>(extracted.written));
+
+            std::vector<std::byte> logical;
+            append_bmff_box_bytes(&logical, real_type,
+                                  std::span<const std::byte>(payload.data(),
+                                                             payload.size()));
+            return is_c2pa_jumbf_payload(
+                       std::span<const std::byte>(logical.data(),
+                                                  logical.size()))
+                       ? JxlRewriteFamily::C2pa
+                       : JxlRewriteFamily::Jumbf;
+        }
+        return JxlRewriteFamily::Unknown;
+    }
+
+    static bool jxl_source_box_matches_rewrite_policy(
+        std::span<const std::byte> bytes, const TransferBmffBox& box,
+        const JxlRewritePolicy& policy) noexcept
+    {
+        switch (classify_source_jxl_rewrite_family(bytes, box)) {
+        case JxlRewriteFamily::Exif: return policy.exif;
+        case JxlRewriteFamily::Xmp: return policy.xmp;
+        case JxlRewriteFamily::Jumbf: return policy.jumbf;
+        case JxlRewriteFamily::C2pa: return policy.c2pa;
+        default: return false;
+        }
+    }
+
+    static bool collect_bmff_rewrite_sources(
+        const PreparedTransferBundle& bundle,
+        std::vector<BmffRewriteItemSource>* out_items,
+        std::vector<BmffRewritePropertySource>* out_props,
+        EmitTransferResult* out) noexcept
+    {
+        if (!out_items || !out_props || !out) {
+            return false;
+        }
+
+        out_items->clear();
+        out_props->clear();
+        out_items->reserve(bundle.blocks.size());
+        out_props->reserve(bundle.blocks.size());
+
+        uint32_t next_item_id = 1U;
+        for (uint32_t i = 0; i < bundle.blocks.size(); ++i) {
+            const PreparedTransferBlock& block = bundle.blocks[i];
+            if (block.payload.empty()) {
+                continue;
+            }
+
+            uint32_t item_type        = 0U;
+            bool mime_xmp             = false;
+            uint32_t property_type    = 0U;
+            uint32_t property_subtype = 0U;
+            if (bmff_item_from_route(block.route, &item_type, &mime_xmp)) {
+                if (next_item_id > 0xFFFFU) {
+                    out->status = TransferStatus::LimitExceeded;
+                    out->code   = EmitTransferCode::InvalidPayload;
+                    out->errors = 1U;
+                    out->message
+                        = "bmff rewrite item count exceeds 16-bit iloc item_id";
+                    return false;
+                }
+                BmffRewriteItemSource one;
+                one.block_index = i;
+                one.item_id     = static_cast<uint16_t>(next_item_id);
+                one.item_type   = item_type;
+                one.mime_xmp    = mime_xmp;
+                out_items->push_back(one);
+                next_item_id += 1U;
+                continue;
+            }
+            if (bmff_property_from_route(block.route, &property_type,
+                                         &property_subtype)) {
+                BmffRewritePropertySource one;
+                one.block_index      = i;
+                one.property_type    = property_type;
+                one.property_subtype = property_subtype;
+                out_props->push_back(one);
+                continue;
+            }
+
+            out->status             = TransferStatus::Unsupported;
+            out->code               = EmitTransferCode::UnsupportedRoute;
+            out->errors             = 1U;
+            out->failed_block_index = i;
+            out->message = "unsupported bmff rewrite route: " + block.route;
+            return false;
+        }
+
+        if (out_items->empty() && out_props->empty()) {
+            out->status  = TransferStatus::Unsupported;
+            out->code    = EmitTransferCode::InvalidArgument;
+            out->errors  = 1U;
+            out->message = "no bmff metadata blocks available for edit";
+            return false;
+        }
+        return true;
+    }
+
+    static bool
+    build_bmff_metadata_only_meta_box(const PreparedTransferBundle& bundle,
+                                      std::vector<std::byte>* out_meta,
+                                      EmitTransferResult* out) noexcept
+    {
+        if (!out_meta || !out) {
+            return false;
+        }
+
+        std::vector<BmffRewriteItemSource> items;
+        std::vector<BmffRewritePropertySource> props;
+        if (!collect_bmff_rewrite_sources(bundle, &items, &props, out)) {
+            return false;
+        }
+
+        std::vector<std::byte> meta_children;
+        {
+            static constexpr char kMarkerText[]
+                = "openmeta:bmff_transfer_meta:v1";
+            const std::span<const std::byte> marker_payload(
+                reinterpret_cast<const std::byte*>(kMarkerText),
+                sizeof(kMarkerText) - 1U);
+            if (!append_bmff_uuid_box_bytes_checked(
+                    &meta_children, kOpenMetaBmffTransferMetaUuid,
+                    marker_payload)) {
+                out->status  = TransferStatus::LimitExceeded;
+                out->code    = EmitTransferCode::InvalidPayload;
+                out->errors  = 1U;
+                out->message = "bmff transfer marker box exceeds 32-bit size";
+                return false;
+            }
+        }
+
+        if (!items.empty()) {
+            std::vector<std::byte> iinf_payload;
+            append_bmff_fullbox_fields(&iinf_payload, 0U, 0U);
+            append_u16be(&iinf_payload, static_cast<uint16_t>(items.size()));
+
+            std::vector<uint32_t> item_offsets;
+            item_offsets.reserve(items.size());
+            std::vector<std::byte> idat_payload;
+
+            for (size_t i = 0; i < items.size(); ++i) {
+                const PreparedTransferBlock& block
+                    = bundle.blocks[items[i].block_index];
+                if (idat_payload.size() > 0xFFFFFFFFULL
+                    || block.payload.size()
+                           > (0xFFFFFFFFULL - idat_payload.size())) {
+                    out->status = TransferStatus::LimitExceeded;
+                    out->code   = EmitTransferCode::InvalidPayload;
+                    out->errors = 1U;
+                    out->message = "bmff idat payload exceeds 32-bit iloc range";
+                    return false;
+                }
+                item_offsets.push_back(
+                    static_cast<uint32_t>(idat_payload.size()));
+                idat_payload.insert(idat_payload.end(), block.payload.begin(),
+                                    block.payload.end());
+
+                std::vector<std::byte> infe_payload;
+                append_bmff_fullbox_fields(&infe_payload, 2U, 0U);
+                append_u16be(&infe_payload, items[i].item_id);
+                append_u16be(&infe_payload, 0U);
+                append_u32be(&infe_payload, items[i].item_type);
+                append_cstring_ascii(&infe_payload,
+                                     bmff_rewrite_item_name(items[i].item_type,
+                                                            items[i].mime_xmp));
+                if (items[i].mime_xmp) {
+                    append_cstring_ascii(&infe_payload, "application/rdf+xml");
+                    append_cstring_ascii(&infe_payload, "");
+                }
+                if (!append_bmff_box_bytes_checked(
+                        &iinf_payload, fourcc('i', 'n', 'f', 'e'),
+                        std::span<const std::byte>(infe_payload.data(),
+                                                   infe_payload.size()))) {
+                    out->status  = TransferStatus::LimitExceeded;
+                    out->code    = EmitTransferCode::InvalidPayload;
+                    out->errors  = 1U;
+                    out->message = "bmff infe box exceeds 32-bit size";
+                    return false;
+                }
+            }
+
+            if (!append_bmff_box_bytes_checked(
+                    &meta_children, fourcc('i', 'i', 'n', 'f'),
+                    std::span<const std::byte>(iinf_payload.data(),
+                                               iinf_payload.size()))
+                || !append_bmff_box_bytes_checked(
+                    &meta_children, fourcc('i', 'd', 'a', 't'),
+                    std::span<const std::byte>(idat_payload.data(),
+                                               idat_payload.size()))) {
+                out->status  = TransferStatus::LimitExceeded;
+                out->code    = EmitTransferCode::InvalidPayload;
+                out->errors  = 1U;
+                out->message = "bmff item table exceeds 32-bit size";
+                return false;
+            }
+
+            std::vector<std::byte> iloc_payload;
+            append_bmff_fullbox_fields(&iloc_payload, 1U, 0U);
+            iloc_payload.push_back(std::byte { 0x44 });
+            iloc_payload.push_back(std::byte { 0x40 });
+            append_u16be(&iloc_payload, static_cast<uint16_t>(items.size()));
+            for (size_t i = 0; i < items.size(); ++i) {
+                const PreparedTransferBlock& block
+                    = bundle.blocks[items[i].block_index];
+                append_u16be(&iloc_payload, items[i].item_id);
+                append_u16be(&iloc_payload, 0x0001U);
+                append_u16be(&iloc_payload, 0U);
+                append_u32be(&iloc_payload, 0U);
+                append_u16be(&iloc_payload, 1U);
+                append_u32be(&iloc_payload, item_offsets[i]);
+                append_u32be(&iloc_payload,
+                             static_cast<uint32_t>(block.payload.size()));
+            }
+
+            if (!append_bmff_box_bytes_checked(
+                    &meta_children, fourcc('i', 'l', 'o', 'c'),
+                    std::span<const std::byte>(iloc_payload.data(),
+                                               iloc_payload.size()))) {
+                out->status  = TransferStatus::LimitExceeded;
+                out->code    = EmitTransferCode::InvalidPayload;
+                out->errors  = 1U;
+                out->message = "bmff iloc box exceeds 32-bit size";
+                return false;
+            }
+        }
+
+        if (!props.empty()) {
+            std::vector<std::byte> ipco_payload;
+            for (size_t i = 0; i < props.size(); ++i) {
+                const PreparedTransferBlock& block
+                    = bundle.blocks[props[i].block_index];
+                if (!append_bmff_box_bytes_checked(
+                        &ipco_payload, props[i].property_type,
+                        std::span<const std::byte>(block.payload.data(),
+                                                   block.payload.size()))) {
+                    out->status  = TransferStatus::LimitExceeded;
+                    out->code    = EmitTransferCode::InvalidPayload;
+                    out->errors  = 1U;
+                    out->message = "bmff property box exceeds 32-bit size";
+                    return false;
+                }
+            }
+
+            std::vector<std::byte> iprp_payload;
+            if (!append_bmff_box_bytes_checked(
+                    &iprp_payload, fourcc('i', 'p', 'c', 'o'),
+                    std::span<const std::byte>(ipco_payload.data(),
+                                               ipco_payload.size()))
+                || !append_bmff_box_bytes_checked(
+                    &meta_children, fourcc('i', 'p', 'r', 'p'),
+                    std::span<const std::byte>(iprp_payload.data(),
+                                               iprp_payload.size()))) {
+                out->status  = TransferStatus::LimitExceeded;
+                out->code    = EmitTransferCode::InvalidPayload;
+                out->errors  = 1U;
+                out->message = "bmff property table exceeds 32-bit size";
+                return false;
+            }
+        }
+
+        std::vector<std::byte> meta_payload;
+        meta_payload.reserve(meta_children.size() + 4U);
+        append_bmff_fullbox_fields(&meta_payload, 0U, 0U);
+        meta_payload.insert(meta_payload.end(), meta_children.begin(),
+                            meta_children.end());
+
+        out_meta->clear();
+        if (!append_bmff_box_bytes_checked(
+                out_meta, fourcc('m', 'e', 't', 'a'),
+                std::span<const std::byte>(meta_payload.data(),
+                                           meta_payload.size()))) {
+            out->status  = TransferStatus::LimitExceeded;
+            out->code    = EmitTransferCode::InvalidPayload;
+            out->errors  = 1U;
+            out->message = "bmff meta box exceeds 32-bit size";
+            return false;
+        }
+        return true;
+    }
+
+    static EmitTransferResult build_prepared_bundle_bmff_package_impl_ex(
+        std::span<const std::byte> input_bmff,
+        const PreparedTransferBundle& bundle, bool allow_empty_metadata,
+        PreparedTransferPackagePlan* out_plan,
+        uint32_t* out_removed_meta_boxes) noexcept
+    {
+        EmitTransferResult out;
+        if (!out_plan) {
+            out.status  = TransferStatus::InvalidArgument;
+            out.code    = EmitTransferCode::InvalidArgument;
+            out.errors  = 1U;
+            out.message = "out_plan is null";
+            return out;
+        }
+        if (!transfer_target_is_bmff(bundle.target_format)) {
+            out.status  = TransferStatus::Unsupported;
+            out.code    = EmitTransferCode::InvalidArgument;
+            out.errors  = 1U;
+            out.message = "bundle target format is not bmff";
+            return out;
+        }
+        if (input_bmff.empty()) {
+            out.status  = TransferStatus::InvalidArgument;
+            out.code    = EmitTransferCode::InvalidArgument;
+            out.errors  = 1U;
+            out.message = "bmff edit requires input bytes";
+            return out;
+        }
+
+        PreparedTransferPackagePlan plan;
+        plan.contract_version = bundle.contract_version;
+        plan.target_format    = bundle.target_format;
+        plan.input_size       = static_cast<uint64_t>(input_bmff.size());
+
+        bool found_ftyp        = false;
+        uint32_t removed_metas = 0U;
+        uint64_t offset        = 0U;
+        while (offset < input_bmff.size()) {
+            TransferBmffBox box;
+            if (!parse_transfer_bmff_box(input_bmff, offset, input_bmff.size(),
+                                         &box)) {
+                out.status  = TransferStatus::Malformed;
+                out.code    = EmitTransferCode::InvalidPayload;
+                out.errors  = 1U;
+                out.message = "failed to parse top-level bmff box";
+                return out;
+            }
+
+            uint32_t size32 = 0U;
+            if (!read_u32be(input_bmff, offset, &size32)) {
+                out.status  = TransferStatus::Malformed;
+                out.code    = EmitTransferCode::InvalidPayload;
+                out.errors  = 1U;
+                out.message = "failed to read top-level bmff box size";
+                return out;
+            }
+            if (size32 == 0U) {
+                out.status = TransferStatus::Unsupported;
+                out.code   = EmitTransferCode::InvalidArgument;
+                out.errors = 1U;
+                out.message
+                    = "bmff edit does not support top-level size-0 boxes";
+                return out;
+            }
+
+            if (box.type == fourcc('f', 't', 'y', 'p')) {
+                found_ftyp = true;
+            }
+            if (box.type == fourcc('m', 'e', 't', 'a')
+                && bmff_meta_has_openmeta_transfer_marker(input_bmff, box)) {
+                removed_metas += 1U;
+            } else {
+                append_package_source_chunk(&plan, box.offset, box.size);
+            }
+            if (box.size == 0U) {
+                break;
+            }
+            offset += box.size;
+        }
+
+        if (!found_ftyp) {
+            out.status  = TransferStatus::Unsupported;
+            out.code    = EmitTransferCode::InvalidArgument;
+            out.errors  = 1U;
+            out.message = "input is not a supported bmff file";
+            return out;
+        }
+
+        std::vector<std::byte> meta_box;
+        if (build_bmff_metadata_only_meta_box(bundle, &meta_box, &out)) {
+            append_package_inline_chunk(
+                &plan,
+                std::span<const std::byte>(meta_box.data(), meta_box.size()));
+        } else if (allow_empty_metadata
+                   && out.status == TransferStatus::Unsupported
+                   && out.code == EmitTransferCode::InvalidArgument) {
+            out.status = TransferStatus::Ok;
+            out.code   = EmitTransferCode::None;
+            out.errors = 0U;
+            out.message
+                = "bmff rewrite removed prior OpenMeta metadata meta box";
+        } else {
+            return out;
+        }
+        plan.output_size = package_plan_next_output_offset(plan);
+        *out_plan        = std::move(plan);
+
+        if (out_removed_meta_boxes) {
+            *out_removed_meta_boxes = removed_metas;
+        }
+        out.status  = TransferStatus::Ok;
+        out.code    = EmitTransferCode::None;
+        out.emitted = meta_box.empty() ? 0U : 1U;
+        if (meta_box.empty()) {
+            if (removed_metas != 0U) {
+                out.message = "removed prior OpenMeta bmff metadata meta box";
+            } else {
+                out.message = "bmff rewrite preserved existing top-level boxes";
+            }
+        } else if (removed_metas != 0U) {
+            out.message = "replaced prior OpenMeta bmff metadata meta box";
+        } else {
+            out.message = "appended OpenMeta bmff metadata meta box";
+        }
+        return out;
+    }
+
+    static EmitTransferResult build_prepared_bundle_bmff_package_impl(
+        std::span<const std::byte> input_bmff,
+        const PreparedTransferBundle& bundle,
+        PreparedTransferPackagePlan* out_plan,
+        uint32_t* out_removed_meta_boxes) noexcept
+    {
+        return build_prepared_bundle_bmff_package_impl_ex(
+            input_bmff, bundle, false, out_plan, out_removed_meta_boxes);
+    }
+
     static EmitTransferResult validate_prepared_transfer_package_plan(
         std::span<const std::byte> input, const PreparedTransferBundle& bundle,
         const PreparedTransferPackagePlan& plan) noexcept
@@ -13679,6 +15740,40 @@ namespace {
             }
         }
 
+        out.status = TransferStatus::Ok;
+        out.code   = EmitTransferCode::None;
+        return out;
+    }
+
+    static EmitTransferResult validate_prepared_jxl_encoder_handoff(
+        const PreparedJxlEncoderHandoff& handoff) noexcept
+    {
+        EmitTransferResult out;
+        if (handoff.contract_version != kMetadataTransferContractVersion) {
+            out.status = TransferStatus::InvalidArgument;
+            out.code   = EmitTransferCode::PlanMismatch;
+            out.errors = 1U;
+            out.message
+                = "prepared jxl encoder handoff contract_version mismatch";
+            return out;
+        }
+        if (!handoff.has_icc_profile) {
+            if (handoff.icc_block_index != 0xFFFFFFFFU
+                || !handoff.icc_profile.empty()) {
+                out.status = TransferStatus::InvalidArgument;
+                out.code   = EmitTransferCode::PlanMismatch;
+                out.errors = 1U;
+                out.message
+                    = "prepared jxl encoder handoff has unexpected icc payload";
+                return out;
+            }
+        } else if (handoff.icc_profile.empty()) {
+            out.status  = TransferStatus::Malformed;
+            out.code    = EmitTransferCode::InvalidPayload;
+            out.errors  = 1U;
+            out.message = "prepared jxl encoder handoff icc profile is empty";
+            return out;
+        }
         out.status = TransferStatus::Ok;
         out.code   = EmitTransferCode::None;
         return out;
@@ -14393,6 +16488,129 @@ namespace {
                     }
                 }
             }
+        } else if (bundle->target_format == TransferTargetFormat::Jxl) {
+            PreparedTransferPackagePlan package;
+            uint32_t removed_boxes = 0U;
+            out.edit_apply.status  = TransferStatus::Unsupported;
+            out.edit_apply.code    = EmitTransferCode::InvalidArgument;
+            out.edit_apply.message = "jxl edit apply not requested";
+
+            const EmitTransferResult plan_result
+                = build_prepared_bundle_jxl_package(edit_input, *bundle,
+                                                    &package, &removed_boxes);
+            out.edit_plan_status  = plan_result.status;
+            out.edit_plan_message = plan_result.message;
+            out.edit_output_size  = plan_result.status == TransferStatus::Ok
+                                        ? package.output_size
+                                        : 0U;
+
+            if (plan_result.status == TransferStatus::Ok
+                && out.edit_plan_message.empty()) {
+                out.edit_plan_message
+                    = removed_boxes == 0U
+                          ? "jxl append rewrite planned"
+                          : "jxl append rewrite planned after removing prior matching metadata boxes";
+            }
+
+            if (plan_result.status == TransferStatus::Ok
+                && options.edit_apply) {
+                if (options.edit_output_writer) {
+                    out.edit_apply = write_prepared_transfer_package(
+                        edit_input, *bundle, package,
+                        *options.edit_output_writer);
+                } else {
+                    PreparedTransferPackageBatch batch;
+                    out.edit_apply = build_prepared_transfer_package_batch(
+                        edit_input, *bundle, package, &batch);
+                    if (out.edit_apply.status == TransferStatus::Ok) {
+                        if (batch.output_size > static_cast<uint64_t>(
+                                std::numeric_limits<size_t>::max())) {
+                            out.edit_apply.status
+                                = TransferStatus::LimitExceeded;
+                            out.edit_apply.code
+                                = EmitTransferCode::InvalidPayload;
+                            out.edit_apply.errors = 1U;
+                            out.edit_apply.message
+                                = "jxl edited output exceeds size_t";
+                        } else {
+                            out.edited_output.clear();
+                            out.edited_output.reserve(
+                                static_cast<size_t>(batch.output_size));
+                            for (size_t i = 0; i < batch.chunks.size(); ++i) {
+                                const PreparedTransferPackageBlob& chunk
+                                    = batch.chunks[i];
+                                out.edited_output.insert(out.edited_output.end(),
+                                                         chunk.bytes.begin(),
+                                                         chunk.bytes.end());
+                            }
+                            out.edit_output_size = static_cast<uint64_t>(
+                                out.edited_output.size());
+                        }
+                    }
+                }
+            }
+        } else if (transfer_target_is_bmff(bundle->target_format)) {
+            PreparedTransferPackagePlan package;
+            uint32_t removed_meta_boxes = 0U;
+            out.edit_apply.status       = TransferStatus::Unsupported;
+            out.edit_apply.code         = EmitTransferCode::InvalidArgument;
+            out.edit_apply.message      = "bmff edit apply not requested";
+
+            const EmitTransferResult plan_result
+                = build_prepared_bundle_bmff_package(edit_input, *bundle,
+                                                     &package,
+                                                     &removed_meta_boxes);
+            out.edit_plan_status  = plan_result.status;
+            out.edit_plan_message = plan_result.message;
+            out.edit_output_size  = plan_result.status == TransferStatus::Ok
+                                        ? package.output_size
+                                        : 0U;
+
+            if (plan_result.status == TransferStatus::Ok
+                && out.edit_plan_message.empty()) {
+                out.edit_plan_message
+                    = removed_meta_boxes == 0U
+                          ? "bmff append rewrite planned"
+                          : "bmff append rewrite planned after removing prior OpenMeta metadata meta box";
+            }
+
+            if (plan_result.status == TransferStatus::Ok
+                && options.edit_apply) {
+                if (options.edit_output_writer) {
+                    out.edit_apply = write_prepared_transfer_package(
+                        edit_input, *bundle, package,
+                        *options.edit_output_writer);
+                } else {
+                    PreparedTransferPackageBatch batch;
+                    out.edit_apply = build_prepared_transfer_package_batch(
+                        edit_input, *bundle, package, &batch);
+                    if (out.edit_apply.status == TransferStatus::Ok) {
+                        if (batch.output_size > static_cast<uint64_t>(
+                                std::numeric_limits<size_t>::max())) {
+                            out.edit_apply.status
+                                = TransferStatus::LimitExceeded;
+                            out.edit_apply.code
+                                = EmitTransferCode::InvalidPayload;
+                            out.edit_apply.errors = 1U;
+                            out.edit_apply.message
+                                = "bmff edited output exceeds size_t";
+                        } else {
+                            out.edited_output.clear();
+                            out.edited_output.reserve(
+                                static_cast<size_t>(batch.output_size));
+                            for (size_t i = 0; i < batch.chunks.size(); ++i) {
+                                const PreparedTransferPackageBlob& chunk
+                                    = batch.chunks[i];
+                                out.edited_output.insert(out.edited_output.end(),
+                                                         chunk.bytes.begin(),
+                                                         chunk.bytes.end());
+                            }
+                            out.edit_output_size = static_cast<uint64_t>(
+                                out.edited_output.size());
+                        }
+                    }
+                }
+            }
         } else {
             out.edit_plan_status   = TransferStatus::Unsupported;
             out.edit_plan_message  = "unsupported target format for edit";
@@ -14406,6 +16624,166 @@ namespace {
     }
 
 }  // namespace
+
+static EmitTransferResult
+build_prepared_bundle_jxl_package_impl(std::span<const std::byte> input_jxl,
+                                       const PreparedTransferBundle& bundle,
+                                       const JxlRewritePolicy& policy,
+                                       PreparedTransferPackagePlan* out_plan,
+                                       uint32_t* out_removed_boxes) noexcept
+{
+    EmitTransferResult out;
+    if (!out_plan) {
+        out.status  = TransferStatus::InvalidArgument;
+        out.code    = EmitTransferCode::InvalidArgument;
+        out.errors  = 1U;
+        out.message = "out_plan is null";
+        return out;
+    }
+    if (bundle.target_format != TransferTargetFormat::Jxl) {
+        out.status  = TransferStatus::Unsupported;
+        out.code    = EmitTransferCode::InvalidArgument;
+        out.errors  = 1U;
+        out.message = "bundle target format is not jxl";
+        return out;
+    }
+    if (input_jxl.empty()) {
+        out.status  = TransferStatus::InvalidArgument;
+        out.code    = EmitTransferCode::InvalidArgument;
+        out.errors  = 1U;
+        out.message = "jxl edit requires input bytes";
+        return out;
+    }
+    if (!is_supported_jxl_container(input_jxl)) {
+        out.status  = TransferStatus::Unsupported;
+        out.code    = EmitTransferCode::InvalidArgument;
+        out.errors  = 1U;
+        out.message = "input is not a supported jxl container";
+        return out;
+    }
+
+    PreparedTransferPackagePlan plan;
+    plan.contract_version = bundle.contract_version;
+    plan.target_format    = bundle.target_format;
+    plan.input_size       = static_cast<uint64_t>(input_jxl.size());
+
+    uint32_t removed_boxes = 0U;
+    uint64_t offset        = 0U;
+    while (offset < input_jxl.size()) {
+        TransferBmffBox box;
+        if (!parse_transfer_bmff_box(input_jxl, offset, input_jxl.size(),
+                                     &box)) {
+            out.status  = TransferStatus::Malformed;
+            out.code    = EmitTransferCode::InvalidPayload;
+            out.errors  = 1U;
+            out.message = "failed to parse top-level jxl box";
+            return out;
+        }
+
+        if (jxl_source_box_matches_rewrite_policy(input_jxl, box, policy)) {
+            removed_boxes += 1U;
+        } else {
+            append_package_source_chunk(&plan, box.offset, box.size);
+        }
+
+        if (box.size == 0U) {
+            break;
+        }
+        offset += box.size;
+    }
+
+    uint32_t appended_boxes = 0U;
+    for (uint32_t i = 0; i < bundle.blocks.size(); ++i) {
+        const PreparedTransferBlock& block = bundle.blocks[i];
+        if (block.payload.empty()) {
+            continue;
+        }
+
+        std::array<char, 4> box_type = { '\0', '\0', '\0', '\0' };
+        bool compress                = false;
+        if (!jxl_box_from_route(block.route, &box_type, &compress)) {
+            out.status = block.route == "jxl:icc-profile"
+                             ? TransferStatus::Unsupported
+                             : TransferStatus::InvalidArgument;
+            out.code   = EmitTransferCode::UnsupportedRoute;
+            out.errors = 1U;
+            out.message
+                = block.route == "jxl:icc-profile"
+                      ? "jxl edit does not support encoder ICC profile route"
+                      : "unsupported jxl route: " + block.route;
+            out.failed_block_index = i;
+            return out;
+        }
+        if (compress) {
+            out.status  = TransferStatus::Unsupported;
+            out.code    = EmitTransferCode::UnsupportedRoute;
+            out.errors  = 1U;
+            out.message = "jxl edit does not support compressed metadata boxes";
+            out.failed_block_index = i;
+            return out;
+        }
+        if (block.payload.size() > static_cast<size_t>(0xFFFFFFFFU - 8U)) {
+            out.status             = TransferStatus::LimitExceeded;
+            out.code               = EmitTransferCode::InvalidPayload;
+            out.errors             = 1U;
+            out.message            = "jxl box payload exceeds 32-bit box size";
+            out.failed_block_index = i;
+            return out;
+        }
+
+        append_package_prepared_block_chunk(
+            &plan, i, 8U + static_cast<uint64_t>(block.payload.size()));
+        appended_boxes += 1U;
+    }
+
+    if (appended_boxes == 0U && removed_boxes == 0U) {
+        out.status  = TransferStatus::InvalidArgument;
+        out.code    = EmitTransferCode::InvalidArgument;
+        out.errors  = 1U;
+        out.message = "jxl edit requires at least one metadata box update";
+        return out;
+    }
+
+    plan.output_size = package_plan_next_output_offset(plan);
+    *out_plan        = std::move(plan);
+
+    if (out_removed_boxes) {
+        *out_removed_boxes = removed_boxes;
+    }
+
+    out.status  = TransferStatus::Ok;
+    out.code    = EmitTransferCode::None;
+    out.emitted = appended_boxes;
+    if (appended_boxes == 0U) {
+        out.message = "removed prior matching jxl metadata boxes";
+    } else if (removed_boxes == 0U) {
+        out.message = "appended prepared jxl metadata boxes";
+    } else {
+        out.message = "replaced prior matching jxl metadata boxes";
+    }
+    return out;
+}
+
+static EmitTransferResult
+build_prepared_bundle_jxl_package(std::span<const std::byte> input_jxl,
+                                  const PreparedTransferBundle& bundle,
+                                  PreparedTransferPackagePlan* out_plan,
+                                  uint32_t* out_removed_boxes) noexcept
+{
+    const JxlRewritePolicy policy = collect_jxl_rewrite_policy(bundle);
+    return build_prepared_bundle_jxl_package_impl(input_jxl, bundle, policy,
+                                                  out_plan, out_removed_boxes);
+}
+
+static EmitTransferResult
+build_prepared_bundle_bmff_package(std::span<const std::byte> input_bmff,
+                                   const PreparedTransferBundle& bundle,
+                                   PreparedTransferPackagePlan* out_plan,
+                                   uint32_t* out_removed_meta_boxes) noexcept
+{
+    return build_prepared_bundle_bmff_package_impl(input_bmff, bundle, out_plan,
+                                                   out_removed_meta_boxes);
+}
 
 EmitTransferResult
 compile_prepared_transfer_execution(

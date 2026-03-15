@@ -178,9 +178,11 @@ enum class TransferC2paRewriteState : uint8_t {
 enum class TransferC2paRewriteChunkKind : uint8_t {
     SourceRange,
     PreparedJpegSegment,
+    PreparedJxlBox,
+    PreparedBmffMetaBox,
 };
 
-/// One deterministic chunk in the JPEG rewrite-without-C2PA byte stream.
+/// One deterministic chunk in the rewrite-without-C2PA byte stream.
 struct PreparedTransferC2paRewriteChunk final {
     TransferC2paRewriteChunkKind kind
         = TransferC2paRewriteChunkKind::SourceRange;
@@ -623,6 +625,74 @@ struct PreparedJxlEmitPlan final {
     std::vector<PreparedJxlEmitOp> ops;
 };
 
+/// Encoder-side handoff view for prepared JPEG XL metadata.
+struct PreparedJxlEncoderHandoffView final {
+    uint32_t contract_version  = kMetadataTransferContractVersion;
+    bool has_icc_profile       = false;
+    uint32_t icc_block_index   = 0xFFFFFFFFU;
+    uint64_t icc_profile_bytes = 0U;
+    std::span<const std::byte> icc_profile;
+    uint32_t box_count         = 0U;
+    uint64_t box_payload_bytes = 0U;
+};
+
+/// Owned JXL encoder-side handoff independent from bundle payload storage.
+struct PreparedJxlEncoderHandoff final {
+    uint32_t contract_version  = kMetadataTransferContractVersion;
+    bool has_icc_profile       = false;
+    uint32_t icc_block_index   = 0xFFFFFFFFU;
+    uint32_t box_count         = 0U;
+    uint64_t box_payload_bytes = 0U;
+    std::vector<std::byte> icc_profile;
+};
+
+/// Result for serializing or parsing persisted JXL encoder handoff data.
+struct PreparedJxlEncoderHandoffIoResult final {
+    TransferStatus status = TransferStatus::Unsupported;
+    EmitTransferCode code = EmitTransferCode::None;
+    uint64_t bytes        = 0U;
+    uint32_t errors       = 0U;
+    std::string message;
+};
+
+/// Persisted transfer artifact family recognized by the generic inspect path.
+enum class PreparedTransferArtifactKind : uint8_t {
+    Unknown = 0,
+    TransferPayloadBatch,
+    TransferPackageBatch,
+    C2paHandoffPackage,
+    C2paSignedPackage,
+    JxlEncoderHandoff,
+};
+
+/// Common summary for one persisted transfer artifact.
+struct PreparedTransferArtifactInfo final {
+    PreparedTransferArtifactKind kind  = PreparedTransferArtifactKind::Unknown;
+    bool has_contract_version          = false;
+    uint32_t contract_version          = 0U;
+    bool has_target_format             = false;
+    TransferTargetFormat target_format = TransferTargetFormat::Jpeg;
+    uint32_t entry_count               = 0U;
+    uint64_t payload_bytes             = 0U;
+    uint64_t binding_bytes             = 0U;
+    uint64_t signed_payload_bytes      = 0U;
+    bool has_icc_profile               = false;
+    uint32_t icc_block_index           = 0xFFFFFFFFU;
+    uint64_t icc_profile_bytes         = 0U;
+    uint64_t box_payload_bytes         = 0U;
+    std::string carrier_route;
+    std::string manifest_label;
+};
+
+/// Result for identifying and inspecting one persisted transfer artifact.
+struct PreparedTransferArtifactIoResult final {
+    TransferStatus status = TransferStatus::Unsupported;
+    EmitTransferCode code = EmitTransferCode::None;
+    uint64_t bytes        = 0U;
+    uint32_t errors       = 0U;
+    std::string message;
+};
+
 /// One precompiled WebP emit operation (route -> RIFF chunk mapping).
 struct PreparedWebpEmitOp final {
     uint32_t block_index           = 0;
@@ -1011,6 +1081,20 @@ struct ExecutePreparedTransferFileResult final {
 };
 
 /**
+ * \brief Materializes the final persisted package batch for one executed
+ * transfer state.
+ *
+ * For direct emit targets this builds the target-neutral emit package batch.
+ * For JPEG/TIFF/BMFF edit flows this builds the rewrite package batch from the
+ * selected edit state and input bytes.
+ */
+EmitTransferResult
+build_executed_transfer_package_batch(
+    std::span<const std::byte> edit_input, const PreparedTransferBundle& bundle,
+    const ExecutePreparedTransferResult& execute,
+    PreparedTransferPackageBatch* out_batch) noexcept;
+
+/**
  * \brief Backend contract for JPEG metadata emission.
  */
 class JpegTransferEmitter {
@@ -1250,6 +1334,34 @@ emit_prepared_bundle_jxl_compiled(const PreparedTransferBundle& bundle,
                                   = EmitTransferOptions {}) noexcept;
 
 /**
+ * \brief Builds one encoder-side handoff view for prepared JPEG XL metadata.
+ *
+ * This exposes the single encoder ICC profile separately from the normal JXL
+ * box path. Boxes remain on the regular `jxl:box-*` route contract.
+ */
+EmitTransferResult
+build_prepared_jxl_encoder_handoff_view(const PreparedTransferBundle& bundle,
+                                        PreparedJxlEncoderHandoffView* out_view,
+                                        const EmitTransferOptions& options
+                                        = EmitTransferOptions {}) noexcept;
+
+EmitTransferResult
+build_prepared_jxl_encoder_handoff(const PreparedTransferBundle& bundle,
+                                   PreparedJxlEncoderHandoff* out_handoff,
+                                   const EmitTransferOptions& options
+                                   = EmitTransferOptions {}) noexcept;
+
+PreparedJxlEncoderHandoffIoResult
+serialize_prepared_jxl_encoder_handoff(
+    const PreparedJxlEncoderHandoff& handoff,
+    std::vector<std::byte>* out_bytes) noexcept;
+
+PreparedJxlEncoderHandoffIoResult
+deserialize_prepared_jxl_encoder_handoff(
+    std::span<const std::byte> bytes,
+    PreparedJxlEncoderHandoff* out_handoff) noexcept;
+
+/**
  * \brief Compile a reusable WebP emit plan from a prepared bundle.
  */
 EmitTransferResult
@@ -1348,9 +1460,9 @@ prepare_metadata_for_target_file(const char* path,
  * \brief Derive an external signer request from a prepared C2PA rewrite bundle.
  *
  * The returned request is preparation-only. It does not build a manifest or
- * perform signing. For JPEG targets, it exposes the deterministic
+ * perform signing. For supported targets, it exposes the deterministic
  * rewrite-without-C2PA byte sequence as preserved source ranges plus prepared
- * JPEG segments.
+ * target carrier chunks.
  */
 TransferStatus
 build_prepared_c2pa_sign_request(
@@ -1385,9 +1497,10 @@ build_prepared_c2pa_signed_package(
  * \brief Stage externally signed C2PA rewrite output into a prepared bundle.
  *
  * This consumes the request built by \ref build_prepared_c2pa_sign_request and
- * replaces prepared `jpeg:app11-c2pa` blocks with the external signed logical
- * payload. OpenMeta does not perform signing here; it only validates the input
- * contract and re-packs the logical payload into the target JPEG carrier.
+ * replaces prepared target C2PA carrier blocks with the external signed
+ * logical payload. OpenMeta does not perform signing here; it only validates
+ * the input contract and re-packs the logical payload into the prepared target
+ * carrier.
  */
 EmitTransferResult
 apply_prepared_c2pa_sign_result(
@@ -1408,7 +1521,7 @@ apply_prepared_c2pa_signed_package(
  *
  * This reconstructs the deterministic rewrite-without-C2PA byte sequence
  * described by \p request by combining preserved source ranges from
- * \p target_input with prepared JPEG segments from \p bundle.
+ * \p target_input with prepared target carrier chunks from \p bundle.
  */
 BuildPreparedC2paBindingResult
 build_prepared_c2pa_sign_request_binding(
@@ -1764,6 +1877,10 @@ classify_transfer_route_semantic_kind(std::string_view route) noexcept;
 std::string_view
 transfer_semantic_name(TransferSemanticKind kind) noexcept;
 
+/// Stable display name for one persisted transfer artifact kind.
+std::string_view
+prepared_transfer_artifact_kind_name(PreparedTransferArtifactKind kind) noexcept;
+
 /// Builds zero-copy semantic payload views over one prepared transfer bundle.
 EmitTransferResult
 collect_prepared_transfer_payload_views(
@@ -1788,6 +1905,11 @@ PreparedTransferPayloadIoResult
 serialize_prepared_transfer_payload_batch(
     const PreparedTransferPayloadBatch& batch,
     std::vector<std::byte>* out_bytes) noexcept;
+
+PreparedTransferArtifactIoResult
+inspect_prepared_transfer_artifact(
+    std::span<const std::byte> bytes,
+    PreparedTransferArtifactInfo* out_info) noexcept;
 
 PreparedTransferPayloadIoResult
 deserialize_prepared_transfer_payload_batch(

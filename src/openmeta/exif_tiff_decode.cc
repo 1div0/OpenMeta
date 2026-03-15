@@ -3089,6 +3089,13 @@ decode_exif_tiff(std::span<const std::byte> tiff_bytes, MetaStore& store,
                     continue;
                 }
 
+                if (vendor == MakerNoteVendor::Fuji
+                    && exif_internal::decode_fuji_makernote(
+                        tiff_bytes, value_off, value_bytes, mk_ifd0, store,
+                        mn_opts, &sink.result)) {
+                    continue;
+                }
+
                 // Sony MakerNote: classic IFD located within the blob, but
                 // value offsets are commonly relative to the outer EXIF/TIFF.
                 if (vendor == MakerNoteVendor::Sony
@@ -3267,112 +3274,6 @@ decode_exif_tiff(std::span<const std::byte> tiff_bytes, MetaStore& store,
                                                                cfg.le, mn_opts,
                                                                &sink.result);
                     continue;
-                }
-
-                // 2) FUJIFILM MakerNote variants:
-                // - "FUJIFILM" or "GENERALE": u32le IFD offset at +8.
-                // - GE Type2: FujiFilm-compatible IFD at +12 with a non-standard
-                //   base offset (Start=+12, Base=+6), plus a best-effort extra
-                //   pass for "crazy offsets" observed in the wild.
-                if (vendor == MakerNoteVendor::Fuji) {
-                    static constexpr char kGe2Magic[] = "GE\x0C\0\0\0\x16\0\0\0";
-                    if (mn.size() >= 12 && match_bytes(mn, 0, kGe2Magic, 10)) {
-                        // ExifTool's MakerNoteGE2 uses:
-                        //   Start = valuePtr + 12
-                        //   Base  = start - 6
-                        // and applies a hard patch for offsets in some tags.
-                        TiffConfig fuji_cfg;
-                        fuji_cfg.le      = true;
-                        fuji_cfg.bigtiff = false;
-
-                        // GE2 maker notes are missing the entry count at the
-                        // start of the IFD. ExifTool patches it to 25.
-                        static constexpr uint16_t kGe2EntryCount = 25;
-
-                        std::array<std::byte, 4096> patched;
-
-                        // Primary pass (Base = valuePtr + 6, IFD at +12).
-                        if (value_off <= (UINT64_MAX - 6ULL)
-                            && value_bytes >= 6ULL) {
-                            const uint64_t base0 = value_off + 6ULL;
-                            const uint64_t n0    = value_bytes - 6ULL;
-                            if (n0 >= 8ULL && n0 <= patched.size()
-                                && base0 + n0 <= tiff_bytes.size()) {
-                                const std::span<const std::byte> src0
-                                    = tiff_bytes.subspan(
-                                        static_cast<size_t>(base0),
-                                        static_cast<size_t>(n0));
-                                std::memcpy(patched.data(), src0.data(),
-                                            src0.size());
-                                patched[6] = std::byte { static_cast<uint8_t>(
-                                    kGe2EntryCount & 0xFFU) };
-                                patched[7] = std::byte { static_cast<uint8_t>(
-                                    (kGe2EntryCount >> 8) & 0xFFU) };
-
-                                decode_classic_ifd_no_header(
-                                    fuji_cfg,
-                                    std::span<const std::byte>(
-                                        patched.data(), static_cast<size_t>(n0)),
-                                    6, mk_ifd0, store, mn_opts, &sink.result,
-                                    EntryFlags::None);
-                            }
-                        }
-
-                        // Second pass with an adjusted base. This is a
-                        // best-effort compatibility hack to recover tag ids in
-                        // some GE maker notes with broken value offsets.
-                        //
-                        // ExifTool uses: FixOffsets => '$valuePtr -= 210 if $tagID >= 0x1303'
-                        // We approximate this by decoding a second time with a
-                        // shifted base.
-                        if (value_off >= 204ULL
-                            && value_bytes <= (UINT64_MAX - 204ULL)) {
-                            const uint64_t base1 = value_off - 204ULL;
-                            const uint64_t n1    = value_bytes + 204ULL;
-                            if (n1 >= 218ULL && n1 <= patched.size()
-                                && base1 + n1 <= tiff_bytes.size()) {
-                                const std::span<const std::byte> src1
-                                    = tiff_bytes.subspan(
-                                        static_cast<size_t>(base1),
-                                        static_cast<size_t>(n1));
-                                std::memcpy(patched.data(), src1.data(),
-                                            src1.size());
-                                patched[216] = std::byte { static_cast<uint8_t>(
-                                    kGe2EntryCount & 0xFFU) };
-                                patched[217] = std::byte { static_cast<uint8_t>(
-                                    (kGe2EntryCount >> 8) & 0xFFU) };
-
-                                decode_classic_ifd_no_header(
-                                    fuji_cfg,
-                                    std::span<const std::byte>(
-                                        patched.data(), static_cast<size_t>(n1)),
-                                    216, mk_ifd0, store, mn_opts, &sink.result,
-                                    EntryFlags::None);
-                            }
-                        }
-
-                        continue;
-                    }
-
-                    if (mn.size() >= 12
-                        && (match_bytes(mn, 0, "FUJIFILM", 8)
-                            || match_bytes(mn, 0, "GENERALE", 8))) {
-                        uint32_t ifd_off32 = 0;
-                        if (read_u32le(mn, 8, &ifd_off32)) {
-                            const uint64_t ifd_off = ifd_off32;
-                            if (ifd_off < mn.size()) {
-                                TiffConfig fuji_cfg;
-                                fuji_cfg.le      = true;
-                                fuji_cfg.bigtiff = false;
-                                decode_classic_ifd_no_header(fuji_cfg, mn,
-                                                             ifd_off, mk_ifd0,
-                                                             store, mn_opts,
-                                                             &sink.result,
-                                                             EntryFlags::None);
-                                continue;
-                            }
-                        }
-                    }
                 }
 
                 // JVC MakerNote: "JVC " header + a classic IFD at +4 (start

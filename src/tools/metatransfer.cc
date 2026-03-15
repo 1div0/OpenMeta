@@ -57,6 +57,7 @@ namespace {
             "  --replace-jpeg-jumbf  Remove prepared jpeg:app11-jumbf blocks before append\n"
             "  --jpeg-c2pa-signed <path>\n"
             "                         Stage one externally signed logical C2PA payload\n"
+            "                         for JPEG, JXL, or bounded BMFF targets\n"
             "  --c2pa-manifest-output <path>\n"
             "                         External manifest-builder output bytes for signed C2PA staging\n"
             "  --c2pa-certificate-chain <path>\n"
@@ -66,16 +67,30 @@ namespace {
             "                         Signing time for signed C2PA staging\n"
             "  --dump-c2pa-binding <path>\n"
             "                         Write exact C2PA content-binding bytes for external signing\n"
+            "                         on JPEG, JXL, or bounded BMFF targets\n"
             "  --dump-c2pa-handoff <path>\n"
             "                         Write one persisted C2PA handoff package\n"
+            "                         for JPEG, JXL, or bounded BMFF targets\n"
             "  --dump-c2pa-signed-package <path>\n"
             "                         Write one persisted signed C2PA package from current signer inputs\n"
+            "                         for JPEG, JXL, or bounded BMFF targets\n"
             "  --load-c2pa-signed-package <path>\n"
             "                         Load one persisted signed C2PA package for staging\n"
+            "                         on JPEG, JXL, or bounded BMFF targets\n"
             "  --dump-transfer-payload-batch <path>\n"
             "                         Write one persisted semantic transfer payload batch\n"
             "  --load-transfer-payload-batch <path>\n"
             "                         Load and inspect one persisted semantic transfer payload batch\n"
+            "  --dump-transfer-package-batch <path>\n"
+            "                         Write one persisted final transfer package batch\n"
+            "  --load-transfer-package-batch <path>\n"
+            "                         Load and inspect one persisted final transfer package batch\n"
+            "  --dump-jxl-encoder-handoff <path>\n"
+            "                         Write one persisted JXL encoder ICC handoff\n"
+            "  --load-jxl-encoder-handoff <path>\n"
+            "                         Load and inspect one persisted JXL encoder ICC handoff\n"
+            "  --load-transfer-artifact <path>\n"
+            "                         Load and inspect one persisted transfer artifact of any supported kind\n"
             "  --no-decompress        Disable payload decompression in read phase\n"
             "  --unsafe-write-payloads\n"
             "                         Write prepared raw block payload bytes to files\n"
@@ -86,9 +101,9 @@ namespace {
             "  --target-tiff <path>   Target TIFF stream for edit/apply phase\n"
             "  --target-jxl           Target JPEG XL metadata emit summary\n"
             "  --target-webp          Target WebP metadata chunk emit summary\n"
-            "  --target-heif          Target HEIF metadata item emit summary\n"
-            "  --target-avif          Target AVIF metadata item emit summary\n"
-            "  --target-cr3           Target CR3 metadata item emit summary\n"
+            "  --target-heif          Target HEIF metadata transfer\n"
+            "  --target-avif          Target AVIF metadata transfer\n"
+            "  --target-cr3           Target CR3 metadata transfer\n"
             "  -o, --output <path>    Write edited output file\n"
             "  --force                Overwrite existing payload files\n"
             "  --dry-run              Plan edit only; do not write output\n"
@@ -424,6 +439,10 @@ namespace {
         case TransferC2paRewriteChunkKind::SourceRange: return "source_range";
         case TransferC2paRewriteChunkKind::PreparedJpegSegment:
             return "prepared_jpeg_segment";
+        case TransferC2paRewriteChunkKind::PreparedJxlBox:
+            return "prepared_jxl_box";
+        case TransferC2paRewriteChunkKind::PreparedBmffMetaBox:
+            return "prepared_bmff_meta_box";
         }
         return "unknown";
     }
@@ -960,6 +979,40 @@ namespace {
         std::printf("\n");
     }
 
+    static const char*
+    transfer_package_chunk_kind_name(TransferPackageChunkKind kind) noexcept
+    {
+        switch (kind) {
+        case TransferPackageChunkKind::SourceRange: return "source_range";
+        case TransferPackageChunkKind::InlineBytes: return "inline_bytes";
+        case TransferPackageChunkKind::PreparedTransferBlock:
+            return "prepared_transfer_block";
+        case TransferPackageChunkKind::PreparedJpegSegment:
+            return "prepared_jpeg_segment";
+        }
+        return "unknown";
+    }
+
+    static void
+    print_transfer_package_view_summary(const PreparedTransferPackageView& view,
+                                        uint32_t index)
+    {
+        const std::string_view semantic = transfer_semantic_name(
+            view.semantic_kind);
+        const char* route = view.route.empty() ? "-" : view.route.data();
+        std::printf(
+            "  [%u] semantic=%.*s route=%s size=%llu chunk=%s offset=%llu",
+            index, static_cast<int>(semantic.size()), semantic.data(), route,
+            static_cast<unsigned long long>(view.bytes.size()),
+            transfer_package_chunk_kind_name(view.package_kind),
+            static_cast<unsigned long long>(view.output_offset));
+        if (view.jpeg_marker_code != 0U) {
+            std::printf(" marker=%s",
+                        marker_name(view.jpeg_marker_code).c_str());
+        }
+        std::printf("\n");
+    }
+
 }  // namespace
 }  // namespace openmeta
 
@@ -998,6 +1051,11 @@ main(int argc, char** argv)
     std::string c2pa_signed_package_input_path;
     std::string transfer_payload_batch_output_path;
     std::string transfer_payload_batch_input_path;
+    std::string transfer_package_batch_output_path;
+    std::string transfer_package_batch_input_path;
+    std::string jxl_encoder_handoff_output_path;
+    std::string jxl_encoder_handoff_input_path;
+    std::string transfer_artifact_input_path;
     std::string output_path;
     std::vector<std::string> input_paths;
     std::vector<PendingTimePatch> pending_time_patches;
@@ -1196,6 +1254,35 @@ main(int argc, char** argv)
             i += 1;
             continue;
         }
+        if (std::strcmp(arg, "--dump-transfer-package-batch") == 0
+            && i + 1 < argc) {
+            transfer_package_batch_output_path = argv[i + 1];
+            i += 1;
+            continue;
+        }
+        if (std::strcmp(arg, "--load-transfer-package-batch") == 0
+            && i + 1 < argc) {
+            transfer_package_batch_input_path = argv[i + 1];
+            i += 1;
+            continue;
+        }
+        if (std::strcmp(arg, "--dump-jxl-encoder-handoff") == 0
+            && i + 1 < argc) {
+            jxl_encoder_handoff_output_path = argv[i + 1];
+            i += 1;
+            continue;
+        }
+        if (std::strcmp(arg, "--load-jxl-encoder-handoff") == 0
+            && i + 1 < argc) {
+            jxl_encoder_handoff_input_path = argv[i + 1];
+            i += 1;
+            continue;
+        }
+        if (std::strcmp(arg, "--load-transfer-artifact") == 0 && i + 1 < argc) {
+            transfer_artifact_input_path = argv[i + 1];
+            i += 1;
+            continue;
+        }
         if (std::strcmp(arg, "--no-decompress") == 0) {
             options.decompress = false;
             continue;
@@ -1384,7 +1471,10 @@ main(int argc, char** argv)
             input_paths.push_back(target_tiff_path);
         }
     }
-    if (input_paths.empty() && transfer_payload_batch_input_path.empty()) {
+    if (input_paths.empty() && transfer_payload_batch_input_path.empty()
+        && transfer_package_batch_input_path.empty()
+        && jxl_encoder_handoff_input_path.empty()
+        && transfer_artifact_input_path.empty()) {
         usage(argv[0]);
         return 2;
     }
@@ -1423,6 +1513,19 @@ main(int argc, char** argv)
             "--dump-transfer-payload-batch supports exactly one input path per run\n");
         return 2;
     }
+    if (!transfer_package_batch_output_path.empty()
+        && input_paths.size() != 1U) {
+        std::fprintf(
+            stderr,
+            "--dump-transfer-package-batch supports exactly one input path per run\n");
+        return 2;
+    }
+    if (!jxl_encoder_handoff_output_path.empty() && input_paths.size() != 1U) {
+        std::fprintf(
+            stderr,
+            "--dump-jxl-encoder-handoff supports exactly one input path per run\n");
+        return 2;
+    }
     const uint32_t target_count
         = static_cast<uint32_t>(!target_jpeg_path.empty())
           + static_cast<uint32_t>(!target_tiff_path.empty())
@@ -1431,6 +1534,17 @@ main(int argc, char** argv)
           + static_cast<uint32_t>(target_heif)
           + static_cast<uint32_t>(target_avif)
           + static_cast<uint32_t>(target_cr3);
+    const uint32_t inspect_input_count
+        = static_cast<uint32_t>(!transfer_payload_batch_input_path.empty())
+          + static_cast<uint32_t>(!transfer_package_batch_input_path.empty())
+          + static_cast<uint32_t>(!jxl_encoder_handoff_input_path.empty())
+          + static_cast<uint32_t>(!transfer_artifact_input_path.empty());
+    if (inspect_input_count > 1U) {
+        std::fprintf(
+            stderr,
+            "--load-transfer-payload-batch, --load-transfer-package-batch, --load-jxl-encoder-handoff, and --load-transfer-artifact are mutually exclusive\n");
+        return 2;
+    }
     if (!transfer_payload_batch_input_path.empty()) {
         if (!input_paths.empty() || !source_meta_path.empty()
             || !target_jpeg_path.empty() || !target_tiff_path.empty()
@@ -1440,6 +1554,7 @@ main(int argc, char** argv)
             || !c2pa_signed_package_output_path.empty()
             || !c2pa_signed_package_input_path.empty()
             || !transfer_payload_batch_output_path.empty()
+            || !transfer_package_batch_output_path.empty()
             || !output_path.empty() || dry_run || write_payloads) {
             std::fprintf(
                 stderr,
@@ -1505,6 +1620,236 @@ main(int argc, char** argv)
         }
         return 0;
     }
+    if (!jxl_encoder_handoff_input_path.empty()) {
+        if (!input_paths.empty() || !source_meta_path.empty()
+            || !target_jpeg_path.empty() || !target_tiff_path.empty()
+            || target_count != 0U || !jpeg_jumbf_path.empty()
+            || c2pa_stage_requested || !c2pa_binding_output_path.empty()
+            || !c2pa_handoff_output_path.empty()
+            || !c2pa_signed_package_output_path.empty()
+            || !c2pa_signed_package_input_path.empty()
+            || !transfer_payload_batch_output_path.empty()
+            || !transfer_package_batch_output_path.empty()
+            || !jxl_encoder_handoff_output_path.empty() || !output_path.empty()
+            || dry_run || write_payloads) {
+            std::fprintf(
+                stderr,
+                "--load-jxl-encoder-handoff is an inspect-only mode and is mutually exclusive with source transfer/edit options\n");
+            return 2;
+        }
+
+        if (show_build_info) {
+            print_build_info_header();
+        }
+
+        std::vector<std::byte> handoff_bytes;
+        if (!read_file_bytes(jxl_encoder_handoff_input_path, &handoff_bytes)) {
+            std::fprintf(stderr, "failed to read jxl encoder handoff: %s\n",
+                         jxl_encoder_handoff_input_path.c_str());
+            return 1;
+        }
+
+        PreparedJxlEncoderHandoff handoff;
+        const PreparedJxlEncoderHandoffIoResult handoff_io
+            = deserialize_prepared_jxl_encoder_handoff(
+                std::span<const std::byte>(handoff_bytes.data(),
+                                           handoff_bytes.size()),
+                &handoff);
+        std::printf("== jxl_encoder_handoff=%s\n",
+                    jxl_encoder_handoff_input_path.c_str());
+        std::printf(
+            "  jxl_encoder_handoff: status=%s code=%s bytes=%llu box_count=%u box_payload_bytes=%llu\n",
+            transfer_status_name(handoff_io.status),
+            emit_transfer_code_name(handoff_io.code),
+            static_cast<unsigned long long>(handoff_io.bytes),
+            handoff.box_count,
+            static_cast<unsigned long long>(handoff.box_payload_bytes));
+        if (!handoff_io.message.empty()) {
+            std::printf("  jxl_encoder_handoff_message=%s\n",
+                        handoff_io.message.c_str());
+        }
+        if (handoff_io.status != TransferStatus::Ok) {
+            return 1;
+        }
+        if (handoff.has_icc_profile) {
+            std::printf("  jxl_icc_profile bytes=%llu\n",
+                        static_cast<unsigned long long>(
+                            handoff.icc_profile.size()));
+        }
+        return 0;
+    }
+    if (!transfer_artifact_input_path.empty()) {
+        if (!input_paths.empty() || !source_meta_path.empty()
+            || !target_jpeg_path.empty() || !target_tiff_path.empty()
+            || target_count != 0U || !jpeg_jumbf_path.empty()
+            || c2pa_stage_requested || !c2pa_binding_output_path.empty()
+            || !c2pa_handoff_output_path.empty()
+            || !c2pa_signed_package_output_path.empty()
+            || !c2pa_signed_package_input_path.empty()
+            || !transfer_payload_batch_output_path.empty()
+            || !transfer_package_batch_output_path.empty()
+            || !jxl_encoder_handoff_output_path.empty() || !output_path.empty()
+            || dry_run || write_payloads) {
+            std::fprintf(
+                stderr,
+                "--load-transfer-artifact is an inspect-only mode and is mutually exclusive with source transfer/edit options\n");
+            return 2;
+        }
+
+        if (show_build_info) {
+            print_build_info_header();
+        }
+
+        std::vector<std::byte> artifact_bytes;
+        if (!read_file_bytes(transfer_artifact_input_path, &artifact_bytes)) {
+            std::fprintf(stderr, "failed to read transfer artifact: %s\n",
+                         transfer_artifact_input_path.c_str());
+            return 1;
+        }
+
+        PreparedTransferArtifactInfo info;
+        const PreparedTransferArtifactIoResult artifact_io
+            = inspect_prepared_transfer_artifact(
+                std::span<const std::byte>(artifact_bytes.data(),
+                                           artifact_bytes.size()),
+                &info);
+        std::printf("== transfer_artifact=%s\n",
+                    transfer_artifact_input_path.c_str());
+        std::printf(
+            "  transfer_artifact: status=%s code=%s kind=%s bytes=%llu target=%s\n",
+            transfer_status_name(artifact_io.status),
+            emit_transfer_code_name(artifact_io.code),
+            prepared_transfer_artifact_kind_name(info.kind).data(),
+            static_cast<unsigned long long>(artifact_io.bytes),
+            info.has_target_format
+                ? transfer_target_format_name(info.target_format)
+                : "-");
+        if (!artifact_io.message.empty()) {
+            std::printf("  transfer_artifact_message=%s\n",
+                        artifact_io.message.c_str());
+        }
+        if (artifact_io.status != TransferStatus::Ok) {
+            return 1;
+        }
+        switch (info.kind) {
+        case PreparedTransferArtifactKind::TransferPayloadBatch:
+            std::printf(
+                "  transfer_payload_batch: payloads=%u payload_bytes=%llu\n",
+                static_cast<unsigned>(info.entry_count),
+                static_cast<unsigned long long>(info.payload_bytes));
+            break;
+        case PreparedTransferArtifactKind::TransferPackageBatch:
+            std::printf(
+                "  transfer_package_batch: chunks=%u payload_bytes=%llu\n",
+                static_cast<unsigned>(info.entry_count),
+                static_cast<unsigned long long>(info.payload_bytes));
+            break;
+        case PreparedTransferArtifactKind::C2paHandoffPackage:
+            std::printf(
+                "  c2pa_handoff: carrier=%s manifest_label=%s binding_bytes=%llu chunks=%u\n",
+                info.carrier_route.empty() ? "-" : info.carrier_route.c_str(),
+                info.manifest_label.empty() ? "-" : info.manifest_label.c_str(),
+                static_cast<unsigned long long>(info.binding_bytes),
+                static_cast<unsigned>(info.entry_count));
+            break;
+        case PreparedTransferArtifactKind::C2paSignedPackage:
+            std::printf(
+                "  c2pa_signed_package: carrier=%s manifest_label=%s signed_payload_bytes=%llu chunks=%u\n",
+                info.carrier_route.empty() ? "-" : info.carrier_route.c_str(),
+                info.manifest_label.empty() ? "-" : info.manifest_label.c_str(),
+                static_cast<unsigned long long>(info.signed_payload_bytes),
+                static_cast<unsigned>(info.entry_count));
+            break;
+        case PreparedTransferArtifactKind::JxlEncoderHandoff:
+            std::printf(
+                "  jxl_encoder_handoff: box_count=%u box_payload_bytes=%llu\n",
+                static_cast<unsigned>(info.entry_count),
+                static_cast<unsigned long long>(info.box_payload_bytes));
+            if (info.has_icc_profile) {
+                std::printf("  jxl_icc_profile bytes=%llu\n",
+                            static_cast<unsigned long long>(
+                                info.icc_profile_bytes));
+            }
+            break;
+        case PreparedTransferArtifactKind::Unknown: break;
+        }
+        return 0;
+    }
+    if (!transfer_package_batch_input_path.empty()) {
+        if (!input_paths.empty() || !source_meta_path.empty()
+            || !target_jpeg_path.empty() || !target_tiff_path.empty()
+            || target_count != 0U || !jpeg_jumbf_path.empty()
+            || c2pa_stage_requested || !c2pa_binding_output_path.empty()
+            || !c2pa_handoff_output_path.empty()
+            || !c2pa_signed_package_output_path.empty()
+            || !c2pa_signed_package_input_path.empty()
+            || !transfer_payload_batch_output_path.empty()
+            || !transfer_package_batch_output_path.empty()
+            || !output_path.empty() || dry_run || write_payloads) {
+            std::fprintf(
+                stderr,
+                "--load-transfer-package-batch is an inspect-only mode and is mutually exclusive with source transfer/edit options\n");
+            return 2;
+        }
+
+        if (show_build_info) {
+            print_build_info_header();
+        }
+
+        std::vector<std::byte> batch_bytes;
+        if (!read_file_bytes(transfer_package_batch_input_path, &batch_bytes)) {
+            std::fprintf(stderr, "failed to read transfer package batch: %s\n",
+                         transfer_package_batch_input_path.c_str());
+            return 1;
+        }
+
+        PreparedTransferPackageBatch batch;
+        const PreparedTransferPackageIoResult batch_io
+            = deserialize_prepared_transfer_package_batch(
+                std::span<const std::byte>(batch_bytes.data(),
+                                           batch_bytes.size()),
+                &batch);
+        std::vector<PreparedTransferPackageView> chunk_views;
+        EmitTransferResult inspect;
+        if (batch_io.status == TransferStatus::Ok) {
+            inspect = collect_prepared_transfer_package_views(batch,
+                                                              &chunk_views);
+        } else {
+            inspect.status  = batch_io.status;
+            inspect.code    = batch_io.code;
+            inspect.errors  = batch_io.errors;
+            inspect.message = batch_io.message;
+        }
+
+        std::printf("== transfer_package_batch=%s\n",
+                    transfer_package_batch_input_path.c_str());
+        std::printf(
+            "  transfer_package_batch: status=%s code=%s bytes=%llu chunks=%u target=%s\n",
+            transfer_status_name(batch_io.status),
+            emit_transfer_code_name(batch_io.code),
+            static_cast<unsigned long long>(batch_io.bytes),
+            static_cast<unsigned>(chunk_views.size()),
+            transfer_target_format_name(batch.target_format));
+        if (!batch_io.message.empty()) {
+            std::printf("  transfer_package_batch_message=%s\n",
+                        batch_io.message.c_str());
+        }
+        if (inspect.status != TransferStatus::Ok) {
+            std::printf("  inspect: status=%s code=%s errors=%u\n",
+                        transfer_status_name(inspect.status),
+                        emit_transfer_code_name(inspect.code),
+                        static_cast<unsigned>(inspect.errors));
+            if (!inspect.message.empty()) {
+                std::printf("  inspect_message=%s\n", inspect.message.c_str());
+            }
+            return 1;
+        }
+        for (size_t i = 0; i < chunk_views.size(); ++i) {
+            print_transfer_package_view_summary(chunk_views[i],
+                                                static_cast<uint32_t>(i));
+        }
+        return 0;
+    }
     if (target_count > 1U) {
         std::fprintf(
             stderr,
@@ -1532,25 +1877,31 @@ main(int argc, char** argv)
                      "--jpeg-jumbf is only supported for JPEG targets\n");
         return 2;
     }
-    if (c2pa_stage_requested
-        && options.prepare.target_format != TransferTargetFormat::Jpeg) {
-        std::fprintf(stderr,
-                     "signed c2pa staging is only supported for JPEG targets\n");
+    const bool c2pa_wrapper_target_ok
+        = options.prepare.target_format == TransferTargetFormat::Jpeg
+          || options.prepare.target_format == TransferTargetFormat::Jxl
+          || options.prepare.target_format == TransferTargetFormat::Heif
+          || options.prepare.target_format == TransferTargetFormat::Avif
+          || options.prepare.target_format == TransferTargetFormat::Cr3;
+    if (c2pa_stage_requested && !c2pa_wrapper_target_ok) {
+        std::fprintf(
+            stderr,
+            "signed c2pa staging is only supported for JPEG, JXL, and BMFF targets\n");
         return 2;
     }
-    if (!c2pa_binding_output_path.empty()
-        && options.prepare.target_format != TransferTargetFormat::Jpeg) {
-        std::fprintf(stderr,
-                     "--dump-c2pa-binding is only supported for JPEG targets\n");
+    if (!c2pa_binding_output_path.empty() && !c2pa_wrapper_target_ok) {
+        std::fprintf(
+            stderr,
+            "--dump-c2pa-binding is only supported for JPEG, JXL, and BMFF targets\n");
         return 2;
     }
     if ((!c2pa_handoff_output_path.empty()
          || !c2pa_signed_package_output_path.empty()
          || !c2pa_signed_package_input_path.empty())
-        && options.prepare.target_format != TransferTargetFormat::Jpeg) {
+        && !c2pa_wrapper_target_ok) {
         std::fprintf(
             stderr,
-            "C2PA package options are only supported for JPEG targets\n");
+            "C2PA package options are only supported for JPEG, JXL, and BMFF targets\n");
         return 2;
     }
     if (!c2pa_signed_package_input_path.empty()
@@ -1574,16 +1925,11 @@ main(int argc, char** argv)
         return 2;
     }
     if (!output_path.empty()
-        && (options.prepare.target_format == TransferTargetFormat::Jxl
-            || options.prepare.target_format == TransferTargetFormat::Webp
-            || target_format_is_bmff(options.prepare.target_format))) {
+        && options.prepare.target_format == TransferTargetFormat::Webp) {
         std::fprintf(stderr,
-                     options.prepare.target_format == TransferTargetFormat::Jxl
-                         ? "--output is not supported for JXL targets yet\n"
-                     : options.prepare.target_format
-                             == TransferTargetFormat::Webp
+                     options.prepare.target_format == TransferTargetFormat::Webp
                          ? "--output is not supported for WebP targets yet\n"
-                         : "--output is not supported for BMFF targets yet\n");
+                         : "--output is not supported for this target yet\n");
         return 2;
     }
 
@@ -1620,6 +1966,12 @@ main(int argc, char** argv)
         const bool need_tiff_edit
             = options.prepare.target_format == TransferTargetFormat::Tiff
               && (dry_run || !output_path.empty() || !target_tiff_path.empty());
+        const bool need_jxl_edit = options.prepare.target_format
+                                       == TransferTargetFormat::Jxl
+                                   && (dry_run || !output_path.empty());
+        const bool need_bmff_edit = target_format_is_bmff(
+                                        options.prepare.target_format)
+                                    && (dry_run || !output_path.empty());
 
         const bool output_exists = !output_path.empty()
                                    && file_exists(output_path);
@@ -1637,12 +1989,18 @@ main(int argc, char** argv)
         PreparedTransferC2paPackageIoResult c2pa_signed_package_io;
         PreparedTransferPayloadBatch transfer_payload_batch;
         PreparedTransferPayloadIoResult transfer_payload_batch_io;
+        PreparedTransferPackageBatch transfer_package_batch;
+        PreparedTransferPackageIoResult transfer_package_batch_io;
+        PreparedJxlEncoderHandoff jxl_encoder_handoff;
+        PreparedJxlEncoderHandoffIoResult jxl_encoder_handoff_io;
         bool did_append_jumbf                = false;
         bool did_stage_c2pa                  = false;
         bool did_dump_c2pa_binding           = false;
         bool did_dump_c2pa_handoff           = false;
         bool did_dump_c2pa_signed_package    = false;
         bool did_dump_transfer_payload_batch = false;
+        bool did_dump_transfer_package_batch = false;
+        bool did_dump_jxl_encoder_handoff    = false;
         if (prepared.file_status == TransferFileStatus::Ok
             && prepared.prepare.status == TransferStatus::Ok
             && !jpeg_jumbf_path.empty()) {
@@ -1907,6 +2265,58 @@ main(int argc, char** argv)
                 }
             }
         }
+        if (prepared.file_status == TransferFileStatus::Ok
+            && !jxl_encoder_handoff_output_path.empty()) {
+            did_dump_jxl_encoder_handoff = true;
+            if (prepared.bundle.target_format != TransferTargetFormat::Jxl) {
+                jxl_encoder_handoff_io.status = TransferStatus::InvalidArgument;
+                jxl_encoder_handoff_io.code = EmitTransferCode::InvalidArgument;
+                jxl_encoder_handoff_io.errors = 1U;
+                jxl_encoder_handoff_io.message
+                    = "jxl encoder handoff dump requires --target-jxl";
+            } else {
+                const EmitTransferResult handoff_status
+                    = build_prepared_jxl_encoder_handoff(prepared.bundle,
+                                                         &jxl_encoder_handoff);
+                if (handoff_status.status != TransferStatus::Ok) {
+                    jxl_encoder_handoff_io.status  = handoff_status.status;
+                    jxl_encoder_handoff_io.code    = handoff_status.code;
+                    jxl_encoder_handoff_io.errors  = handoff_status.errors;
+                    jxl_encoder_handoff_io.message = handoff_status.message;
+                } else {
+                    std::vector<std::byte> handoff_bytes;
+                    jxl_encoder_handoff_io
+                        = serialize_prepared_jxl_encoder_handoff(
+                            jxl_encoder_handoff, &handoff_bytes);
+                    if (jxl_encoder_handoff_io.status == TransferStatus::Ok) {
+                        if (!force
+                            && file_exists(jxl_encoder_handoff_output_path)) {
+                            jxl_encoder_handoff_io.status
+                                = TransferStatus::InvalidArgument;
+                            jxl_encoder_handoff_io.code
+                                = EmitTransferCode::InvalidArgument;
+                            jxl_encoder_handoff_io.errors = 1U;
+                            jxl_encoder_handoff_io.message
+                                = "jxl encoder handoff output exists (use --force)";
+                            jxl_encoder_handoff_io.bytes = 0U;
+                        } else if (!write_file_bytes(
+                                       jxl_encoder_handoff_output_path,
+                                       std::span<const std::byte>(
+                                           handoff_bytes.data(),
+                                           handoff_bytes.size()))) {
+                            jxl_encoder_handoff_io.status
+                                = TransferStatus::InternalError;
+                            jxl_encoder_handoff_io.code
+                                = EmitTransferCode::BackendWriteFailed;
+                            jxl_encoder_handoff_io.errors = 1U;
+                            jxl_encoder_handoff_io.message
+                                = "failed to write jxl encoder handoff output";
+                            jxl_encoder_handoff_io.bytes = 0U;
+                        }
+                    }
+                }
+            }
+        }
 
         ExecutePreparedTransferOptions exec_options;
         exec_options.time_patches = build_transfer_time_patch_inputs(
@@ -1915,14 +2325,16 @@ main(int argc, char** argv)
         exec_options.time_patch_auto_nul = time_patch_auto_nul;
         exec_options.emit_repeat         = emit_repeat;
         exec_options.jpeg_edit           = edit_plan_opts;
-        exec_options.edit_requested      = need_jpeg_edit || need_tiff_edit;
-        exec_options.edit_apply          = !dry_run && !output_path.empty();
+        exec_options.edit_requested      = need_jpeg_edit || need_tiff_edit
+                                      || need_jxl_edit || need_bmff_edit;
+        exec_options.edit_apply = !dry_run && !output_path.empty();
         if (use_output_writer) {
             exec_options.edit_output_writer = &output_writer;
         }
 
         ExecutePreparedTransferResult exec;
         MappedFile mapped_edit_file;
+        bool did_execute = false;
         if (prepared.file_status == TransferFileStatus::Ok
             && (prepared.prepare.status == TransferStatus::Ok
                 || (did_stage_c2pa
@@ -1944,6 +2356,70 @@ main(int argc, char** argv)
             }
             exec = execute_prepared_transfer(&prepared.bundle, edit_input,
                                              exec_options);
+            did_execute = true;
+        }
+        if (prepared.file_status == TransferFileStatus::Ok
+            && !transfer_package_batch_output_path.empty()) {
+            did_dump_transfer_package_batch = true;
+            if (!did_execute) {
+                transfer_package_batch_io.status
+                    = TransferStatus::InvalidArgument;
+                transfer_package_batch_io.code
+                    = EmitTransferCode::InvalidArgument;
+                transfer_package_batch_io.errors = 1U;
+                transfer_package_batch_io.message
+                    = "transfer execution is not available for package batch dump";
+            } else {
+                std::span<const std::byte> package_input;
+                if (exec.edit_requested) {
+                    package_input = mapped_edit_file.bytes();
+                }
+                const EmitTransferResult package_batch_status
+                    = build_executed_transfer_package_batch(
+                        package_input, prepared.bundle, exec,
+                        &transfer_package_batch);
+                if (package_batch_status.status != TransferStatus::Ok) {
+                    transfer_package_batch_io.status
+                        = package_batch_status.status;
+                    transfer_package_batch_io.code = package_batch_status.code;
+                    transfer_package_batch_io.errors
+                        = package_batch_status.errors;
+                    transfer_package_batch_io.message
+                        = package_batch_status.message;
+                } else {
+                    std::vector<std::byte> package_batch_bytes;
+                    transfer_package_batch_io
+                        = serialize_prepared_transfer_package_batch(
+                            transfer_package_batch, &package_batch_bytes);
+                    if (transfer_package_batch_io.status
+                        == TransferStatus::Ok) {
+                        if (!force
+                            && file_exists(transfer_package_batch_output_path)) {
+                            transfer_package_batch_io.status
+                                = TransferStatus::InvalidArgument;
+                            transfer_package_batch_io.code
+                                = EmitTransferCode::InvalidArgument;
+                            transfer_package_batch_io.errors = 1U;
+                            transfer_package_batch_io.message
+                                = "transfer package batch output exists (use --force)";
+                            transfer_package_batch_io.bytes = 0U;
+                        } else if (!write_file_bytes(
+                                       transfer_package_batch_output_path,
+                                       std::span<const std::byte>(
+                                           package_batch_bytes.data(),
+                                           package_batch_bytes.size()))) {
+                            transfer_package_batch_io.status
+                                = TransferStatus::InternalError;
+                            transfer_package_batch_io.code
+                                = EmitTransferCode::BackendWriteFailed;
+                            transfer_package_batch_io.errors = 1U;
+                            transfer_package_batch_io.message
+                                = "failed to write transfer package batch output";
+                            transfer_package_batch_io.bytes = 0U;
+                        }
+                    }
+                }
+            }
         }
 
         std::printf("  file_status=%s code=%s size=%llu entries=%u\n",
@@ -2137,6 +2613,14 @@ main(int argc, char** argv)
                             transfer_c2pa_rewrite_chunk_kind_name(chunk.kind),
                             static_cast<unsigned long long>(chunk.source_offset),
                             static_cast<unsigned long long>(chunk.size));
+                    } else if (chunk.kind
+                               == TransferC2paRewriteChunkKind::
+                                   PreparedBmffMetaBox) {
+                        std::printf(
+                            "  c2pa_rewrite_chunk[%u]: kind=%s size=%llu\n",
+                            static_cast<unsigned>(ci),
+                            transfer_c2pa_rewrite_chunk_kind_name(chunk.kind),
+                            static_cast<unsigned long long>(chunk.size));
                     } else {
                         std::printf(
                             "  c2pa_rewrite_chunk[%u]: kind=%s block=%u marker=0x%02X size=%llu route=%s\n",
@@ -2246,6 +2730,32 @@ main(int argc, char** argv)
                             transfer_payload_batch_io.message.c_str());
             }
         }
+        if (did_dump_transfer_package_batch) {
+            std::printf(
+                "  transfer_package_batch: status=%s code=%s bytes=%llu errors=%u path=%s\n",
+                transfer_status_name(transfer_package_batch_io.status),
+                emit_transfer_code_name(transfer_package_batch_io.code),
+                static_cast<unsigned long long>(transfer_package_batch_io.bytes),
+                transfer_package_batch_io.errors,
+                transfer_package_batch_output_path.c_str());
+            if (!transfer_package_batch_io.message.empty()) {
+                std::printf("  transfer_package_batch_message=%s\n",
+                            transfer_package_batch_io.message.c_str());
+            }
+        }
+        if (did_dump_jxl_encoder_handoff) {
+            std::printf(
+                "  jxl_encoder_handoff: status=%s code=%s bytes=%llu errors=%u path=%s\n",
+                transfer_status_name(jxl_encoder_handoff_io.status),
+                emit_transfer_code_name(jxl_encoder_handoff_io.code),
+                static_cast<unsigned long long>(jxl_encoder_handoff_io.bytes),
+                jxl_encoder_handoff_io.errors,
+                jxl_encoder_handoff_output_path.c_str());
+            if (!jxl_encoder_handoff_io.message.empty()) {
+                std::printf("  jxl_encoder_handoff_message=%s\n",
+                            jxl_encoder_handoff_io.message.c_str());
+            }
+        }
 
         if (prepared.file_status != TransferFileStatus::Ok
             || (prepared.prepare.status != TransferStatus::Ok
@@ -2256,8 +2766,11 @@ main(int argc, char** argv)
                 && (!did_dump_c2pa_handoff
                     || c2pa_handoff_io.status != TransferStatus::Ok)
                 && (!did_dump_transfer_payload_batch
-                    || transfer_payload_batch_io.status
-                           != TransferStatus::Ok))) {
+                    || transfer_payload_batch_io.status != TransferStatus::Ok)
+                && (!did_dump_transfer_package_batch
+                    || transfer_package_batch_io.status != TransferStatus::Ok)
+                && (!did_dump_jxl_encoder_handoff
+                    || jxl_encoder_handoff_io.status != TransferStatus::Ok))) {
             any_failed = true;
             continue;
         }
@@ -2295,6 +2808,16 @@ main(int argc, char** argv)
             any_failed = true;
             continue;
         }
+        if (did_dump_transfer_package_batch
+            && transfer_package_batch_io.status != TransferStatus::Ok) {
+            any_failed = true;
+            continue;
+        }
+        if (did_dump_jxl_encoder_handoff
+            && jxl_encoder_handoff_io.status != TransferStatus::Ok) {
+            any_failed = true;
+            continue;
+        }
         if (prepared.prepare.status != TransferStatus::Ok
             && (!did_stage_c2pa
                 || c2pa_stage_result.status != TransferStatus::Ok)
@@ -2303,7 +2826,9 @@ main(int argc, char** argv)
                 || (did_dump_c2pa_handoff
                     && c2pa_handoff_io.status == TransferStatus::Ok)
                 || (did_dump_transfer_payload_batch
-                    && transfer_payload_batch_io.status == TransferStatus::Ok))
+                    && transfer_payload_batch_io.status == TransferStatus::Ok)
+                || (did_dump_jxl_encoder_handoff
+                    && jxl_encoder_handoff_io.status == TransferStatus::Ok))
             && !exec_options.edit_requested) {
             continue;
         }
@@ -2589,6 +3114,75 @@ main(int argc, char** argv)
         }
 
         if (prepared.bundle.target_format == TransferTargetFormat::Jxl) {
+            if (exec.edit_requested) {
+                if (exec.edit_plan_status == TransferStatus::Ok) {
+                    std::printf(
+                        "  edit_plan: status=%s input=%llu output=%llu\n",
+                        transfer_status_name(exec.edit_plan_status),
+                        static_cast<unsigned long long>(exec.edit_input_size),
+                        static_cast<unsigned long long>(exec.edit_output_size));
+                } else {
+                    std::printf("  edit_plan: status=%s\n",
+                                transfer_status_name(exec.edit_plan_status));
+                }
+                if (!exec.edit_plan_message.empty()) {
+                    std::printf("  edit_plan_message=%s\n",
+                                exec.edit_plan_message.c_str());
+                }
+                if (exec.edit_plan_status != TransferStatus::Ok) {
+                    any_failed = true;
+                }
+            }
+
+            if (!output_path.empty()) {
+                if (!force && output_exists) {
+                    std::fprintf(stderr,
+                                 "  edit_apply: exists: %s (use --force)\n",
+                                 output_path.c_str());
+                    any_failed = true;
+                    continue;
+                }
+                if (!dry_run) {
+                    std::printf(
+                        "  edit_apply: status=%s code=%s emitted=%u skipped=%u errors=%u\n",
+                        transfer_status_name(exec.edit_apply.status),
+                        emit_transfer_code_name(exec.edit_apply.code),
+                        exec.edit_apply.emitted, exec.edit_apply.skipped,
+                        exec.edit_apply.errors);
+                    if (!exec.edit_apply.message.empty()) {
+                        std::printf("  edit_apply_message=%s\n",
+                                    exec.edit_apply.message.c_str());
+                    }
+                    if (exec.edit_apply.status != TransferStatus::Ok) {
+                        any_failed = true;
+                        continue;
+                    }
+                    if (use_output_writer) {
+                        if (output_writer.finish() != TransferStatus::Ok) {
+                            std::fprintf(stderr,
+                                         "  edit_apply: write_failed: %s\n",
+                                         output_path.c_str());
+                            any_failed = true;
+                            continue;
+                        }
+                    } else if (!write_file_bytes(
+                                   output_path,
+                                   std::span<const std::byte>(
+                                       exec.edited_output.data(),
+                                       exec.edited_output.size()))) {
+                        std::fprintf(stderr, "  edit_apply: write_failed: %s\n",
+                                     output_path.c_str());
+                        any_failed = true;
+                        continue;
+                    }
+                    std::printf("  output=%s bytes=%llu\n", output_path.c_str(),
+                                static_cast<unsigned long long>(
+                                    use_output_writer
+                                        ? output_writer.bytes_written()
+                                        : exec.edited_output.size()));
+                }
+            }
+
             std::printf(
                 "  compile: status=%s code=%s ops=%u skipped=%u errors=%u\n",
                 transfer_status_name(exec.compile.status),
@@ -2625,6 +3219,28 @@ main(int argc, char** argv)
                 std::printf("  jxl_box %s count=%u bytes=%llu\n",
                             jxl_box_name(one.type).c_str(), one.count,
                             static_cast<unsigned long long>(one.bytes));
+            }
+            PreparedJxlEncoderHandoffView handoff;
+            const EmitTransferResult handoff_result
+                = build_prepared_jxl_encoder_handoff_view(prepared.bundle,
+                                                          &handoff);
+            if (handoff_result.status != TransferStatus::Ok) {
+                std::printf(
+                    "  jxl_encoder_handoff: status=%s code=%s errors=%u\n",
+                    transfer_status_name(handoff_result.status),
+                    emit_transfer_code_name(handoff_result.code),
+                    handoff_result.errors);
+                if (!handoff_result.message.empty()) {
+                    std::printf("  jxl_encoder_handoff_message=%s\n",
+                                handoff_result.message.c_str());
+                }
+                any_failed = true;
+                continue;
+            }
+            if (handoff.has_icc_profile) {
+                std::printf("  jxl_icc_profile bytes=%llu\n",
+                            static_cast<unsigned long long>(
+                                handoff.icc_profile_bytes));
             }
             continue;
         }
@@ -2671,6 +3287,76 @@ main(int argc, char** argv)
         }
 
         if (target_format_is_bmff(prepared.bundle.target_format)) {
+            if (exec.edit_requested) {
+                if (exec.edit_plan_status == TransferStatus::Ok) {
+                    std::printf(
+                        "  bmff_edit: status=%s input=%llu output=%llu\n",
+                        transfer_status_name(exec.edit_plan_status),
+                        static_cast<unsigned long long>(exec.edit_input_size),
+                        static_cast<unsigned long long>(exec.edit_output_size));
+                } else {
+                    std::printf("  bmff_edit: status=%s\n",
+                                transfer_status_name(exec.edit_plan_status));
+                }
+                if (!exec.edit_plan_message.empty()) {
+                    std::printf("  bmff_edit_message=%s\n",
+                                exec.edit_plan_message.c_str());
+                }
+                if (exec.edit_plan_status != TransferStatus::Ok) {
+                    any_failed = true;
+                }
+            }
+
+            if (!output_path.empty()) {
+                if (!force && output_exists) {
+                    std::fprintf(stderr,
+                                 "  bmff_edit_apply: exists: %s (use --force)\n",
+                                 output_path.c_str());
+                    any_failed = true;
+                    continue;
+                }
+                if (!dry_run) {
+                    std::printf(
+                        "  bmff_edit_apply: status=%s code=%s emitted=%u skipped=%u errors=%u\n",
+                        transfer_status_name(exec.edit_apply.status),
+                        emit_transfer_code_name(exec.edit_apply.code),
+                        exec.edit_apply.emitted, exec.edit_apply.skipped,
+                        exec.edit_apply.errors);
+                    if (!exec.edit_apply.message.empty()) {
+                        std::printf("  bmff_edit_apply_message=%s\n",
+                                    exec.edit_apply.message.c_str());
+                    }
+                    if (exec.edit_apply.status != TransferStatus::Ok) {
+                        any_failed = true;
+                        continue;
+                    }
+                    if (use_output_writer) {
+                        if (output_writer.finish() != TransferStatus::Ok) {
+                            std::fprintf(stderr,
+                                         "  bmff_edit_apply: write_failed: %s\n",
+                                         output_path.c_str());
+                            any_failed = true;
+                            continue;
+                        }
+                    } else if (!write_file_bytes(
+                                   output_path,
+                                   std::span<const std::byte>(
+                                       exec.edited_output.data(),
+                                       exec.edited_output.size()))) {
+                        std::fprintf(stderr,
+                                     "  bmff_edit_apply: write_failed: %s\n",
+                                     output_path.c_str());
+                        any_failed = true;
+                        continue;
+                    }
+                    std::printf("  output=%s bytes=%llu\n", output_path.c_str(),
+                                static_cast<unsigned long long>(
+                                    use_output_writer
+                                        ? output_writer.bytes_written()
+                                        : exec.edited_output.size()));
+                }
+            }
+
             std::printf(
                 "  compile: status=%s code=%s ops=%u skipped=%u errors=%u\n",
                 transfer_status_name(exec.compile.status),

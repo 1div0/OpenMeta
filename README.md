@@ -94,8 +94,10 @@ Current baseline-gated status on tracked corpora:
     still required before signed rewrite can exist. For JPEG rewrite prep it
     also exposes a deterministic `content_binding_chunks` sequence describing
     the rewrite-without-C2PA byte stream as preserved source ranges plus
-    prepared JPEG segments. `build_prepared_c2pa_sign_request(...)` derives an
-    explicit external signer request from that state,
+    prepared JPEG segments; the bounded BMFF rewrite path now uses the same
+    contract with preserved source ranges plus one prepared metadata-only
+    `meta` box. `build_prepared_c2pa_sign_request(...)` derives an explicit
+    external signer request from that state,
     `build_prepared_c2pa_sign_request_binding(...)` materializes the exact
     content-binding bytes for an external signer,
     `build_prepared_c2pa_handoff_package(...)` bundles both into one public
@@ -113,7 +115,8 @@ Current baseline-gated status on tracked corpora:
     also rejected. When manifest builder output is required, the returned
     payload must also carry the same primary CBOR manifest payload bytes, and
     `apply_prepared_c2pa_sign_result(...)` stages externally signed logical
-    C2PA payloads back into prepared JPEG APP11 blocks.
+    C2PA payloads back into prepared JPEG APP11 blocks or bounded
+    `bmff:item-c2pa` items, depending on target format.
     OpenMeta can also serialize that handoff object and one persisted signed
     package for external signer round-trips.
     `PreparedTransferPackagePlan`,
@@ -141,9 +144,14 @@ Current baseline-gated status on tracked corpora:
     handoff before final package materialization. The thin `metatransfer`
     wrappers can now dump and inspect that persisted semantic payload batch
     directly through `--dump-transfer-payload-batch` and
-    `--load-transfer-payload-batch`. Python exposes the same persisted-batch
-    inspect path through `inspect_transfer_payload_batch(...)` and
-    `unsafe_inspect_transfer_payload_batch(...)`.
+    `--load-transfer-payload-batch`, and they now expose the same dump/load
+    path for persisted final package batches through
+    `--dump-transfer-package-batch` and `--load-transfer-package-batch`.
+    Python exposes the same persisted-batch inspect paths through
+    `inspect_transfer_payload_batch(...)`,
+    `unsafe_inspect_transfer_payload_batch(...)`,
+    `inspect_transfer_package_batch(...)`, and
+    `unsafe_inspect_transfer_package_batch(...)`.
     `collect_prepared_transfer_package_views(...)` now exposes the first
     target-neutral semantic view over that persisted package, and
     `replay_prepared_transfer_package_batch(...)` is the matching target-neutral
@@ -198,13 +206,45 @@ Current baseline-gated status on tracked corpora:
     source payload is available. JXL IPTC uses the same bounded model: when
     raw IPTC is requested for JXL, OpenMeta projects it into the `xml ` XMP
     box rather than inventing a raw IIM carrier.
+    `build_prepared_jxl_encoder_handoff_view(...)` is the explicit
+    encoder-side ICC contract for JXL, and
+    `build_prepared_jxl_encoder_handoff(...)` /
+    `serialize_prepared_jxl_encoder_handoff(...)` add the owned persisted
+    form of that contract for cross-process or delayed encoder handoff. The
+    handoff exposes at most one prepared `jxl:icc-profile` payload plus the
+    remaining JXL box counts, and the JXL compile/emit path rejects multiple
+    prepared ICC profiles instead of passing them through to the backend.
+    OpenMeta now also provides one generic persisted-artifact inspect path
+    across the persisted transfer family:
+    `inspect_prepared_transfer_artifact(...)` identifies payload batches,
+    package batches, persisted C2PA handoff/signed packages, and persisted
+    JXL encoder handoffs by magic and returns one shared summary surface.
     `build_prepared_transfer_emit_package(...)` plus
     `write_prepared_transfer_package(...)` can serialize direct JXL box output
     bytes from prepared bundles, and `execute_prepared_transfer(...)` can use
-    that same box-only path through `emit_output_writer`. `jxl:icc-profile`
-    still stays on the encoder ICC path and is not serialized through the
-    byte-writer path. Signed C2PA rewrite/re-sign and edit/rewrite are still
-    out of scope for the JXL path.
+    that same box-only path through `emit_output_writer`. OpenMeta now also
+    supports a bounded JXL file-edit path on existing container files: it
+    preserves the JXL signature and non-managed top-level boxes, replaces only
+    the metadata families present in the prepared bundle, and appends the
+    prepared JXL boxes. Unrelated source `Exif` / `xml ` / `jumb` / `c2pa`
+    boxes are preserved, and uncompressed `jumb` source boxes are
+    distinguished as generic JUMBF vs C2PA for that replacement decision.
+    When Brotli support is available, the same family check also covers
+    compressed `brob(realtype=jumb)` source boxes. The file-edit path is
+    box-only, so `jxl:icc-profile` stays on the encoder ICC path and is still
+    not serialized through the byte-writer or file-edit paths.
+    Bounded external-signer C2PA rewrite now also covers JXL:
+    `build_prepared_c2pa_sign_request(...)`,
+    `build_prepared_c2pa_sign_request_binding(...)`,
+    `validate_prepared_c2pa_sign_result(...)`,
+    `apply_prepared_c2pa_sign_result(...)`, and
+    `execute_prepared_transfer_file(...)` can validate and stage one
+    externally signed content-bound logical C2PA payload back as a `jumb`
+    box before bounded JXL edit. Full in-process re-sign remains out of
+    scope. The
+    `metatransfer` CLI and Python helper now expose this bounded path through
+    `--target-jxl ... --source-meta ... --output ...` when the prepared bundle
+    does not require `jxl:icc-profile`.
     WebP is now the next bounded transfer target on the same contract:
     `prepare_metadata_for_target(..., TransferTargetFormat::Webp, ...)`
     can build `EXIF`, `XMP `, and `ICCP` RIFF metadata chunks from
@@ -235,17 +275,31 @@ Current baseline-gated status on tracked corpora:
     payloads and raw OpenMeta draft C2PA invalidation payloads as BMFF
     metadata items, and store-only prepare can project decoded non-C2PA
     `JumbfCborKey` roots into `bmff:item-jumb` when no raw source payload is
-    available. The bounded BMFF surface is summary/emitter/package-batch
-    oriented: `compile_prepared_bundle_bmff(...)`,
+    available. The bounded BMFF surface is emitter/package-batch oriented:
+    `compile_prepared_bundle_bmff(...)`,
     `emit_prepared_bundle_bmff(...)`,
     `emit_prepared_bundle_bmff_compiled(...)`, and
     `emit_prepared_transfer_compiled(..., BmffTransferEmitter&)` expose the
     reusable item/property-emitter path, while the shared package-batch
     persistence and replay layers can own and hand off stable BMFF item and
-    property payload bytes. `metatransfer` and `openmeta.transfer_probe(...)`
-    expose summary-only BMFF output for this bounded path, including
-    `bmff_item ...` and `bmff_property colr/prof ...` lines. Full BMFF file
-    rewrite/edit and signed C2PA rewrite/re-sign remain follow-up work.
+    property payload bytes. The same bounded contract now has an append-style
+    BMFF edit path: OpenMeta preserves the existing top-level BMFF boxes,
+    strips prior OpenMeta-authored metadata-only `meta` boxes, and appends one
+    new OpenMeta-authored metadata-only `meta` box carrying the prepared BMFF
+    items/properties. The same bounded BMFF contract now also participates in
+    the core/file-helper external-signer path: rewrite binding can be
+    reconstructed from preserved source ranges plus that prepared
+    metadata-only `meta` box, and validated signed logical C2PA can be staged
+    back as `bmff:item-c2pa` before bounded BMFF edit. `metatransfer` and
+    `openmeta.transfer_probe(...)` still expose BMFF summaries through
+    `bmff_item ...` and `bmff_property colr/prof ...` lines, and
+    `metatransfer --target-heif` / `--target-avif` / `--target-cr3` now
+    support bounded metadata-only edit when paired with `--source-meta` and
+    `--output`. The same thin CLI/Python signer-input options now support
+    JXL and bounded BMFF targets, in addition to JPEG, for
+    binding/handoff/signed-package dump-load flows and signed C2PA staging.
+    The option name `--jpeg-c2pa-signed` remains for compatibility even when
+    the target is JXL or BMFF.
     `metatransfer` and `openmeta.transfer_probe(...)` now expose both the
     resolved transfer-policy decisions and JPEG edit-plan removal counts for
     existing APP11 JUMBF/C2PA segments, plus the derived `c2pa_sign_request`

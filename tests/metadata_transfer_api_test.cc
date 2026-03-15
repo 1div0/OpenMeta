@@ -1,3 +1,4 @@
+#include "openmeta/container_scan.h"
 #include "openmeta/metadata_transfer.h"
 
 #include <gtest/gtest.h>
@@ -8,9 +9,15 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <limits>
 #include <string>
 #include <utility>
 #include <vector>
+
+#if defined(OPENMETA_HAS_BROTLI) && OPENMETA_HAS_BROTLI \
+    && defined(OPENMETA_HAS_BROTLI_ENCODER) && OPENMETA_HAS_BROTLI_ENCODER
+#    include <brotli/encode.h>
+#endif
 
 namespace {
 
@@ -535,6 +542,175 @@ append_bmff_box(std::vector<std::byte>* out, uint32_t type,
     out->insert(out->end(), payload.begin(), payload.end());
 }
 
+static std::vector<std::byte>
+make_minimal_bmff_file()
+{
+    std::vector<std::byte> ftyp_payload;
+    append_fourcc(&ftyp_payload, openmeta::fourcc('h', 'e', 'i', 'c'));
+    append_u32be(&ftyp_payload, 0U);
+    append_fourcc(&ftyp_payload, openmeta::fourcc('m', 'i', 'f', '1'));
+    append_fourcc(&ftyp_payload, openmeta::fourcc('h', 'e', 'i', 'c'));
+
+    static const std::array<std::byte, 4> kMediaData = {
+        std::byte { 0x11 },
+        std::byte { 0x22 },
+        std::byte { 0x33 },
+        std::byte { 0x44 },
+    };
+
+    std::vector<std::byte> out;
+    append_bmff_box(&out, openmeta::fourcc('f', 't', 'y', 'p'),
+                    std::span<const std::byte>(ftyp_payload.data(),
+                                               ftyp_payload.size()));
+    append_bmff_box(&out, openmeta::fourcc('m', 'd', 'a', 't'),
+                    std::span<const std::byte>(kMediaData.data(),
+                                               kMediaData.size()));
+    return out;
+}
+
+static std::vector<std::byte>
+make_minimal_jxl_file()
+{
+    static const std::array<std::byte, 4> kCodestream = {
+        std::byte { 0x11 },
+        std::byte { 0x22 },
+        std::byte { 0x33 },
+        std::byte { 0x44 },
+    };
+
+    std::vector<std::byte> out;
+    append_u32be(&out, 12U);
+    append_fourcc(&out, openmeta::fourcc('J', 'X', 'L', ' '));
+    append_u32be(&out, 0x0D0A870AU);
+    append_bmff_box(&out, openmeta::fourcc('j', 'x', 'l', 'c'),
+                    std::span<const std::byte>(kCodestream.data(),
+                                               kCodestream.size()));
+    return out;
+}
+
+#if defined(OPENMETA_HAS_BROTLI) && OPENMETA_HAS_BROTLI \
+    && defined(OPENMETA_HAS_BROTLI_ENCODER) && OPENMETA_HAS_BROTLI_ENCODER
+static std::vector<std::byte>
+brotli_compress(std::span<const std::byte> input)
+{
+    const size_t max_out = BrotliEncoderMaxCompressedSize(input.size());
+    std::vector<uint8_t> out(max_out);
+    size_t out_size = out.size();
+
+    const int quality            = 4;
+    const int lgwin              = 22;
+    const BrotliEncoderMode mode = BROTLI_MODE_GENERIC;
+
+    const uint8_t* in_u8 = reinterpret_cast<const uint8_t*>(input.data());
+    const bool ok = BrotliEncoderCompress(quality, lgwin, mode, input.size(),
+                                          in_u8, &out_size, out.data());
+    if (!ok) {
+        return {};
+    }
+
+    std::vector<std::byte> bytes(out_size);
+    for (size_t i = 0; i < out_size; ++i) {
+        bytes[i] = std::byte { out[i] };
+    }
+    return bytes;
+}
+
+static void
+append_jxl_brob_box(std::vector<std::byte>* out, uint32_t real_type,
+                    std::span<const std::byte> logical_payload)
+{
+    ASSERT_TRUE(out != nullptr);
+    ASSERT_GE(logical_payload.size(), 8U);
+    const std::span<const std::byte> payload(logical_payload.data() + 8U,
+                                             logical_payload.size() - 8U);
+    const std::vector<std::byte> compressed = brotli_compress(payload);
+    ASSERT_FALSE(compressed.empty());
+
+    std::vector<std::byte> brob_payload;
+    append_fourcc(&brob_payload, real_type);
+    brob_payload.insert(brob_payload.end(), compressed.begin(),
+                        compressed.end());
+    append_bmff_box(out, openmeta::fourcc('b', 'r', 'o', 'b'),
+                    std::span<const std::byte>(brob_payload.data(),
+                                               brob_payload.size()));
+}
+#endif
+
+static std::vector<std::byte>
+make_app1_exif_payload();
+
+static std::vector<std::byte>
+make_test_jxl_exif_box_payload()
+{
+    std::vector<std::byte> out;
+    const std::vector<std::byte> app1 = make_app1_exif_payload();
+    append_u32be(&out, 6U);
+    out.insert(out.end(), app1.begin(), app1.end());
+    return out;
+}
+
+static std::vector<std::byte>
+make_test_bmff_exif_item_payload()
+{
+    static const std::array<uint8_t, 24> kRaw = {
+        0x00, 0x00, 0x00, 0x06, 0x45, 0x78, 0x69, 0x66, 0x00, 0x00, 0x4D, 0x4D,
+        0x00, 0x2A, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    };
+
+    std::vector<std::byte> out;
+    out.reserve(kRaw.size());
+    for (size_t i = 0; i < kRaw.size(); ++i) {
+        out.push_back(static_cast<std::byte>(kRaw[i]));
+    }
+    return out;
+}
+
+static std::vector<std::byte>
+make_semantic_c2pa_logical_payload(uint64_t manifest_count,
+                                   bool include_claim_generator,
+                                   bool include_signature_algorithm,
+                                   bool include_content_binding_assertion);
+
+static std::vector<std::byte>
+make_test_bmff_with_c2pa(bool include_exif)
+{
+    const std::vector<std::byte> input = make_minimal_bmff_file();
+    const std::vector<std::byte> logical
+        = make_semantic_c2pa_logical_payload(1U, true, true, true);
+
+    openmeta::PreparedTransferBundle bundle;
+    bundle.target_format = openmeta::TransferTargetFormat::Heif;
+
+    if (include_exif) {
+        openmeta::PreparedTransferBlock exif;
+        exif.kind    = openmeta::TransferBlockKind::Exif;
+        exif.order   = 100U;
+        exif.route   = "bmff:item-exif";
+        exif.payload = make_test_bmff_exif_item_payload();
+        bundle.blocks.push_back(std::move(exif));
+    }
+
+    openmeta::PreparedTransferBlock c2pa;
+    c2pa.kind  = openmeta::TransferBlockKind::C2pa;
+    c2pa.order = 150U;
+    c2pa.route = "bmff:item-c2pa";
+    c2pa.payload.assign(logical.begin(), logical.end());
+    bundle.blocks.push_back(std::move(c2pa));
+
+    openmeta::ExecutePreparedTransferOptions options;
+    options.edit_requested = true;
+    options.edit_apply     = true;
+
+    const openmeta::ExecutePreparedTransferResult result
+        = openmeta::execute_prepared_transfer(
+            &bundle, std::span<const std::byte>(input.data(), input.size()),
+            options);
+    if (result.edit_apply.status != openmeta::TransferStatus::Ok) {
+        return {};
+    }
+    return result.edited_output;
+}
+
 static void
 append_cbor_major_u64(std::vector<std::byte>* out, uint8_t major,
                       uint64_t value)
@@ -754,6 +930,26 @@ make_semantic_c2pa_logical_payload(uint64_t manifest_count          = 1U,
     return make_logical_jumbf_payload_with_cbor(
         "c2pa",
         std::span<const std::byte>(cbor_payload.data(), cbor_payload.size()));
+}
+
+static std::vector<std::byte>
+make_test_jxl_with_c2pa(bool include_exif)
+{
+    std::vector<std::byte> out = make_minimal_jxl_file();
+    if (include_exif) {
+        const std::vector<std::byte> exif_payload
+            = make_test_jxl_exif_box_payload();
+        append_bmff_box(&out, openmeta::fourcc('E', 'x', 'i', 'f'),
+                        std::span<const std::byte>(exif_payload.data(),
+                                                   exif_payload.size()));
+    }
+
+    const std::vector<std::byte> logical = make_semantic_c2pa_logical_payload();
+    EXPECT_GE(logical.size(), 8U);
+    append_bmff_box(&out, openmeta::fourcc('j', 'u', 'm', 'b'),
+                    std::span<const std::byte>(logical.data() + 8U,
+                                               logical.size() - 8U));
+    return out;
 }
 
 static std::vector<std::byte>
@@ -1724,7 +1920,7 @@ TEST(MetadataTransferApi, PrepareFileBuildsDraftC2paInvalidationForJxlTarget)
     EXPECT_EQ(result.bundle.c2pa_rewrite.source_kind,
               openmeta::TransferC2paSourceKind::ContentBound);
     EXPECT_GT(result.bundle.c2pa_rewrite.matched_entries, 0U);
-    EXPECT_EQ(result.bundle.c2pa_rewrite.existing_carrier_segments, 0U);
+    EXPECT_EQ(result.bundle.c2pa_rewrite.existing_carrier_segments, 1U);
     EXPECT_FALSE(result.bundle.c2pa_rewrite.requires_manifest_builder);
     EXPECT_FALSE(result.bundle.c2pa_rewrite.requires_private_key);
     openmeta::PreparedTransferC2paSignRequest sign_request;
@@ -1735,6 +1931,80 @@ TEST(MetadataTransferApi, PrepareFileBuildsDraftC2paInvalidationForJxlTarget)
         std::span<const std::byte>(result.bundle.blocks[0].payload.data(),
                                    result.bundle.blocks[0].payload.size()),
         "openmeta:c2pa_contract"));
+}
+
+TEST(MetadataTransferApi, PrepareFileRejectsSignedRewriteForJxlTarget)
+{
+    const std::vector<std::byte> jxl = make_test_jxl_with_c2pa(false);
+    const std::string path           = unique_temp_path(".jxl");
+    ASSERT_TRUE(write_bytes_file(path, std::span<const std::byte>(jxl.data(),
+                                                                  jxl.size())));
+
+    openmeta::PrepareTransferFileOptions options;
+    options.prepare.target_format      = openmeta::TransferTargetFormat::Jxl;
+    options.prepare.include_exif_app1  = false;
+    options.prepare.include_xmp_app1   = false;
+    options.prepare.include_icc_app2   = false;
+    options.prepare.include_iptc_app13 = false;
+    options.prepare.profile.c2pa = openmeta::TransferPolicyAction::Rewrite;
+
+    const openmeta::PrepareTransferFileResult result
+        = openmeta::prepare_metadata_for_target_file(path.c_str(), options);
+    std::remove(path.c_str());
+
+    EXPECT_EQ(result.file_status, openmeta::TransferFileStatus::Ok);
+    EXPECT_EQ(result.prepare.status, openmeta::TransferStatus::Unsupported);
+
+    const openmeta::PreparedTransferPolicyDecision* decision
+        = find_policy_decision(result.bundle,
+                               openmeta::TransferPolicySubject::C2pa);
+    ASSERT_NE(decision, nullptr);
+    EXPECT_EQ(decision->effective, openmeta::TransferPolicyAction::Drop);
+    EXPECT_EQ(decision->reason,
+              openmeta::TransferPolicyReason::SignedRewriteUnavailable);
+    EXPECT_EQ(decision->c2pa_mode, openmeta::TransferC2paMode::Drop);
+    EXPECT_EQ(decision->c2pa_source_kind,
+              openmeta::TransferC2paSourceKind::ContentBound);
+    EXPECT_EQ(decision->c2pa_prepared_output,
+              openmeta::TransferC2paPreparedOutput::Dropped);
+    EXPECT_EQ(result.bundle.c2pa_rewrite.state,
+              openmeta::TransferC2paRewriteState::SigningMaterialRequired);
+    EXPECT_EQ(result.bundle.c2pa_rewrite.target_format,
+              openmeta::TransferTargetFormat::Jxl);
+    EXPECT_EQ(result.bundle.c2pa_rewrite.source_kind,
+              openmeta::TransferC2paSourceKind::ContentBound);
+    EXPECT_GT(result.bundle.c2pa_rewrite.matched_entries, 0U);
+    EXPECT_EQ(result.bundle.c2pa_rewrite.existing_carrier_segments, 1U);
+    EXPECT_TRUE(result.bundle.c2pa_rewrite.target_carrier_available);
+    EXPECT_TRUE(result.bundle.c2pa_rewrite.content_change_invalidates_existing);
+    EXPECT_TRUE(result.bundle.c2pa_rewrite.requires_manifest_builder);
+    EXPECT_TRUE(result.bundle.c2pa_rewrite.requires_content_binding);
+    EXPECT_TRUE(result.bundle.c2pa_rewrite.requires_certificate_chain);
+    EXPECT_TRUE(result.bundle.c2pa_rewrite.requires_private_key);
+    EXPECT_TRUE(result.bundle.c2pa_rewrite.requires_signing_time);
+    EXPECT_EQ(result.bundle.c2pa_rewrite.content_binding_bytes,
+              static_cast<uint64_t>(make_minimal_jxl_file().size()));
+    ASSERT_EQ(result.bundle.c2pa_rewrite.content_binding_chunks.size(), 1U);
+    EXPECT_EQ(result.bundle.c2pa_rewrite.content_binding_chunks[0].kind,
+              openmeta::TransferC2paRewriteChunkKind::SourceRange);
+    EXPECT_EQ(result.bundle.c2pa_rewrite.content_binding_chunks[0].source_offset,
+              0U);
+    EXPECT_EQ(result.bundle.c2pa_rewrite.content_binding_chunks[0].size,
+              static_cast<uint64_t>(make_minimal_jxl_file().size()));
+
+    openmeta::PreparedTransferC2paSignRequest sign_request;
+    EXPECT_EQ(openmeta::build_prepared_c2pa_sign_request(result.bundle,
+                                                         &sign_request),
+              openmeta::TransferStatus::Ok);
+    EXPECT_EQ(sign_request.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(sign_request.carrier_route, "jxl:box-jumb");
+    EXPECT_EQ(sign_request.manifest_label, "c2pa");
+    EXPECT_EQ(sign_request.source_range_chunks, 1U);
+    EXPECT_EQ(sign_request.prepared_segment_chunks, 0U);
+    EXPECT_EQ(sign_request.content_binding_bytes,
+              static_cast<uint64_t>(make_minimal_jxl_file().size()));
+    EXPECT_TRUE(result.bundle.c2pa_rewrite.message.find("signed c2pa rewrite")
+                != std::string::npos);
 }
 
 TEST(MetadataTransferApi, PrepareFileRejectsSignedRewriteForJpegTarget)
@@ -1988,7 +2258,7 @@ TEST(MetadataTransferApi,
         = openmeta::prepare_metadata_for_target_file(path.c_str(), options);
     std::remove(path.c_str());
 
-    ASSERT_EQ(result.prepare.status, openmeta::TransferStatus::Ok);
+    ASSERT_NE(result.prepare.status, openmeta::TransferStatus::Malformed);
     openmeta::PreparedTransferC2paSignRequest sign_request;
     ASSERT_EQ(openmeta::build_prepared_c2pa_sign_request(result.bundle,
                                                          &sign_request),
@@ -2052,6 +2322,225 @@ TEST(MetadataTransferApi,
     EXPECT_EQ(build.code, openmeta::EmitTransferCode::PlanMismatch);
     EXPECT_EQ(build.errors, 1U);
     EXPECT_TRUE(binding.empty());
+}
+
+TEST(MetadataTransferApi,
+     BuildPreparedC2paSignRequestBindingMaterializesJxlSourceOnlyBytes)
+{
+    const std::vector<std::byte> jxl = make_test_jxl_with_c2pa(false);
+    const std::string path           = unique_temp_path(".jxl");
+    ASSERT_TRUE(write_bytes_file(path, std::span<const std::byte>(jxl.data(),
+                                                                  jxl.size())));
+
+    openmeta::PrepareTransferFileOptions options;
+    options.prepare.target_format      = openmeta::TransferTargetFormat::Jxl;
+    options.prepare.include_exif_app1  = false;
+    options.prepare.include_xmp_app1   = false;
+    options.prepare.include_icc_app2   = false;
+    options.prepare.include_iptc_app13 = false;
+    options.prepare.profile.c2pa = openmeta::TransferPolicyAction::Rewrite;
+
+    const openmeta::PrepareTransferFileResult result
+        = openmeta::prepare_metadata_for_target_file(path.c_str(), options);
+    std::remove(path.c_str());
+
+    ASSERT_EQ(result.prepare.status, openmeta::TransferStatus::Unsupported);
+    openmeta::PreparedTransferC2paSignRequest sign_request;
+    ASSERT_EQ(openmeta::build_prepared_c2pa_sign_request(result.bundle,
+                                                         &sign_request),
+              openmeta::TransferStatus::Ok);
+
+    std::vector<std::byte> binding;
+    const openmeta::BuildPreparedC2paBindingResult build
+        = openmeta::build_prepared_c2pa_sign_request_binding(
+            result.bundle, std::span<const std::byte>(jxl.data(), jxl.size()),
+            sign_request, &binding);
+
+    const std::vector<std::byte> expected = make_minimal_jxl_file();
+    EXPECT_EQ(build.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(build.code, openmeta::EmitTransferCode::None);
+    EXPECT_EQ(build.errors, 0U);
+    EXPECT_EQ(build.written, expected.size());
+    EXPECT_EQ(binding, expected);
+}
+
+TEST(MetadataTransferApi,
+     BuildPreparedC2paSignRequestBindingMaterializesPreparedJxlExifBox)
+{
+    const std::vector<std::byte> jxl = make_test_jxl_with_c2pa(true);
+    const std::string path           = unique_temp_path(".jxl");
+    ASSERT_TRUE(write_bytes_file(path, std::span<const std::byte>(jxl.data(),
+                                                                  jxl.size())));
+
+    openmeta::PrepareTransferFileOptions options;
+    options.prepare.target_format      = openmeta::TransferTargetFormat::Jxl;
+    options.prepare.include_xmp_app1   = false;
+    options.prepare.include_icc_app2   = false;
+    options.prepare.include_iptc_app13 = false;
+    options.prepare.profile.c2pa = openmeta::TransferPolicyAction::Rewrite;
+
+    const openmeta::PrepareTransferFileResult result
+        = openmeta::prepare_metadata_for_target_file(path.c_str(), options);
+    std::remove(path.c_str());
+
+    ASSERT_EQ(result.prepare.status, openmeta::TransferStatus::Ok);
+    ASSERT_GT(result.prepare.warnings, 0U);
+    openmeta::PreparedTransferC2paSignRequest sign_request;
+    ASSERT_EQ(openmeta::build_prepared_c2pa_sign_request(result.bundle,
+                                                         &sign_request),
+              openmeta::TransferStatus::Ok);
+    EXPECT_GT(sign_request.prepared_segment_chunks, 0U);
+
+    std::vector<std::byte> binding;
+    const openmeta::BuildPreparedC2paBindingResult build
+        = openmeta::build_prepared_c2pa_sign_request_binding(
+            result.bundle, std::span<const std::byte>(jxl.data(), jxl.size()),
+            sign_request, &binding);
+
+    EXPECT_EQ(build.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(build.code, openmeta::EmitTransferCode::None);
+    EXPECT_EQ(build.errors, 0U);
+    EXPECT_EQ(build.written, sign_request.content_binding_bytes);
+
+    std::vector<std::byte> expected = make_minimal_jxl_file();
+    const std::vector<std::byte> exif_payload = make_test_jxl_exif_box_payload();
+    append_bmff_box(&expected, openmeta::fourcc('E', 'x', 'i', 'f'),
+                    std::span<const std::byte>(exif_payload.data(),
+                                               exif_payload.size()));
+    EXPECT_EQ(binding, expected);
+
+    bool saw_prepared_exif = false;
+    for (size_t i = 0;
+         i < result.bundle.c2pa_rewrite.content_binding_chunks.size(); ++i) {
+        const openmeta::PreparedTransferC2paRewriteChunk& chunk
+            = result.bundle.c2pa_rewrite.content_binding_chunks[i];
+        if (chunk.kind
+            != openmeta::TransferC2paRewriteChunkKind::PreparedJxlBox) {
+            continue;
+        }
+        ASSERT_LT(chunk.block_index, result.bundle.blocks.size());
+        if (result.bundle.blocks[chunk.block_index].route == "jxl:box-exif") {
+            saw_prepared_exif = true;
+        }
+    }
+    EXPECT_TRUE(saw_prepared_exif);
+}
+
+TEST(MetadataTransferApi,
+     BuildPreparedC2paSignRequestBindingMaterializesBmffSourceOnlyBytes)
+{
+    const std::vector<std::byte> bmff = make_test_bmff_with_c2pa(false);
+    ASSERT_FALSE(bmff.empty());
+    const std::string path = unique_temp_path(".heic");
+    ASSERT_TRUE(
+        write_bytes_file(path,
+                         std::span<const std::byte>(bmff.data(), bmff.size())));
+
+    openmeta::PrepareTransferFileOptions options;
+    options.prepare.target_format      = openmeta::TransferTargetFormat::Heif;
+    options.prepare.include_exif_app1  = false;
+    options.prepare.include_xmp_app1   = false;
+    options.prepare.include_icc_app2   = false;
+    options.prepare.include_iptc_app13 = false;
+    options.prepare.profile.c2pa = openmeta::TransferPolicyAction::Rewrite;
+
+    const openmeta::PrepareTransferFileResult result
+        = openmeta::prepare_metadata_for_target_file(path.c_str(), options);
+    std::remove(path.c_str());
+
+    ASSERT_EQ(result.prepare.status, openmeta::TransferStatus::Unsupported);
+    openmeta::PreparedTransferC2paSignRequest sign_request;
+    ASSERT_EQ(openmeta::build_prepared_c2pa_sign_request(result.bundle,
+                                                         &sign_request),
+              openmeta::TransferStatus::Ok);
+    EXPECT_EQ(sign_request.target_format, openmeta::TransferTargetFormat::Heif);
+    EXPECT_EQ(sign_request.carrier_route, "bmff:item-c2pa");
+
+    std::vector<std::byte> binding;
+    const openmeta::BuildPreparedC2paBindingResult build
+        = openmeta::build_prepared_c2pa_sign_request_binding(
+            result.bundle, std::span<const std::byte>(bmff.data(), bmff.size()),
+            sign_request, &binding);
+
+    const std::vector<std::byte> expected = make_minimal_bmff_file();
+    EXPECT_EQ(build.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(build.code, openmeta::EmitTransferCode::None);
+    EXPECT_EQ(build.errors, 0U);
+    EXPECT_EQ(build.written, expected.size());
+    EXPECT_EQ(binding, expected);
+}
+
+TEST(MetadataTransferApi,
+     BuildPreparedC2paSignRequestBindingMaterializesBmffMetaBox)
+{
+    const std::vector<std::byte> input = make_minimal_bmff_file();
+
+    openmeta::PreparedTransferBundle bundle;
+    bundle.target_format = openmeta::TransferTargetFormat::Heif;
+
+    openmeta::PreparedTransferBlock exif;
+    exif.kind    = openmeta::TransferBlockKind::Exif;
+    exif.order   = 100U;
+    exif.route   = "bmff:item-exif";
+    exif.payload = make_test_bmff_exif_item_payload();
+    bundle.blocks.push_back(std::move(exif));
+
+    openmeta::ExecutePreparedTransferOptions execute_options;
+    execute_options.edit_requested = true;
+    execute_options.edit_apply     = true;
+    const openmeta::ExecutePreparedTransferResult expected
+        = openmeta::execute_prepared_transfer(
+            &bundle, std::span<const std::byte>(input.data(), input.size()),
+            execute_options);
+    ASSERT_EQ(expected.edit_apply.status, openmeta::TransferStatus::Ok);
+    ASSERT_GT(expected.edited_output.size(), input.size());
+
+    bundle.c2pa_rewrite.state
+        = openmeta::TransferC2paRewriteState::SigningMaterialRequired;
+    bundle.c2pa_rewrite.target_format = openmeta::TransferTargetFormat::Heif;
+    bundle.c2pa_rewrite.source_kind
+        = openmeta::TransferC2paSourceKind::ContentBound;
+    bundle.c2pa_rewrite.target_carrier_available   = true;
+    bundle.c2pa_rewrite.requires_manifest_builder  = true;
+    bundle.c2pa_rewrite.requires_content_binding   = true;
+    bundle.c2pa_rewrite.requires_certificate_chain = true;
+    bundle.c2pa_rewrite.requires_private_key       = true;
+    bundle.c2pa_rewrite.requires_signing_time      = true;
+
+    openmeta::PreparedTransferC2paRewriteChunk source_chunk;
+    source_chunk.kind = openmeta::TransferC2paRewriteChunkKind::SourceRange;
+    source_chunk.source_offset = 0U;
+    source_chunk.size          = static_cast<uint64_t>(input.size());
+
+    openmeta::PreparedTransferC2paRewriteChunk meta_chunk;
+    meta_chunk.kind
+        = openmeta::TransferC2paRewriteChunkKind::PreparedBmffMetaBox;
+    meta_chunk.size = static_cast<uint64_t>(expected.edited_output.size()
+                                            - input.size());
+
+    bundle.c2pa_rewrite.content_binding_chunks.push_back(source_chunk);
+    bundle.c2pa_rewrite.content_binding_chunks.push_back(meta_chunk);
+    bundle.c2pa_rewrite.content_binding_bytes = static_cast<uint64_t>(
+        expected.edited_output.size());
+
+    openmeta::PreparedTransferC2paSignRequest sign_request;
+    ASSERT_EQ(openmeta::build_prepared_c2pa_sign_request(bundle, &sign_request),
+              openmeta::TransferStatus::Ok);
+    ASSERT_EQ(sign_request.content_binding_chunks.size(), 2U);
+    EXPECT_EQ(sign_request.content_binding_chunks[1].kind,
+              openmeta::TransferC2paRewriteChunkKind::PreparedBmffMetaBox);
+
+    std::vector<std::byte> binding;
+    const openmeta::BuildPreparedC2paBindingResult build
+        = openmeta::build_prepared_c2pa_sign_request_binding(
+            bundle, std::span<const std::byte>(input.data(), input.size()),
+            sign_request, &binding);
+
+    EXPECT_EQ(build.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(build.code, openmeta::EmitTransferCode::None);
+    EXPECT_EQ(build.errors, 0U);
+    EXPECT_EQ(build.written, sign_request.content_binding_bytes);
+    EXPECT_EQ(binding, expected.edited_output);
 }
 
 TEST(MetadataTransferApi, BuildPreparedC2paHandoffPackageMaterializesBinding)
@@ -2258,6 +2747,98 @@ TEST(MetadataTransferApi, ValidatePreparedC2paSignResultAcceptsContentBound)
     EXPECT_EQ(validate.semantic_signature_orphan, 0U);
     EXPECT_EQ(validate.logical_payload_bytes, logical.size());
     EXPECT_GT(validate.staged_payload_bytes, 0U);
+    EXPECT_EQ(validate.staged_segments, 1U);
+    EXPECT_EQ(validate.errors, 0U);
+}
+
+TEST(MetadataTransferApi, ValidatePreparedC2paSignResultAcceptsContentBoundBmff)
+{
+    const std::vector<std::byte> bmff = make_test_bmff_with_c2pa(false);
+    ASSERT_FALSE(bmff.empty());
+    const std::string path = unique_temp_path(".heic");
+    ASSERT_TRUE(
+        write_bytes_file(path,
+                         std::span<const std::byte>(bmff.data(), bmff.size())));
+
+    openmeta::PrepareTransferFileOptions options;
+    options.prepare.target_format      = openmeta::TransferTargetFormat::Heif;
+    options.prepare.include_exif_app1  = false;
+    options.prepare.include_xmp_app1   = false;
+    options.prepare.include_icc_app2   = false;
+    options.prepare.include_iptc_app13 = false;
+    options.prepare.profile.c2pa = openmeta::TransferPolicyAction::Rewrite;
+
+    const openmeta::PrepareTransferFileResult result
+        = openmeta::prepare_metadata_for_target_file(path.c_str(), options);
+    std::remove(path.c_str());
+
+    ASSERT_EQ(result.prepare.status, openmeta::TransferStatus::Unsupported);
+    openmeta::PreparedTransferC2paSignRequest sign_request;
+    ASSERT_EQ(openmeta::build_prepared_c2pa_sign_request(result.bundle,
+                                                         &sign_request),
+              openmeta::TransferStatus::Ok);
+    const std::vector<std::byte> logical = make_semantic_c2pa_logical_payload();
+    const openmeta::PreparedTransferC2paSignerInput input
+        = make_test_c2pa_signer_input(
+            std::span<const std::byte>(logical.data(), logical.size()));
+
+    const openmeta::ValidatePreparedC2paSignResult validate
+        = openmeta::validate_prepared_c2pa_sign_result(result.bundle,
+                                                       sign_request, input);
+    EXPECT_EQ(validate.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(validate.code, openmeta::EmitTransferCode::None);
+    EXPECT_EQ(validate.payload_kind,
+              openmeta::TransferC2paSignedPayloadKind::ContentBound);
+    EXPECT_EQ(validate.semantic_status,
+              openmeta::TransferC2paSemanticStatus::Ok);
+    EXPECT_EQ(validate.semantic_reason, "ok");
+    EXPECT_EQ(validate.logical_payload_bytes, logical.size());
+    EXPECT_EQ(validate.staged_payload_bytes, logical.size());
+    EXPECT_EQ(validate.staged_segments, 1U);
+    EXPECT_EQ(validate.errors, 0U);
+}
+
+TEST(MetadataTransferApi, ValidatePreparedC2paSignResultAcceptsContentBoundJxl)
+{
+    const std::vector<std::byte> jxl = make_test_jxl_with_c2pa(false);
+    const std::string path           = unique_temp_path(".jxl");
+    ASSERT_TRUE(write_bytes_file(path, std::span<const std::byte>(jxl.data(),
+                                                                  jxl.size())));
+
+    openmeta::PrepareTransferFileOptions options;
+    options.prepare.target_format      = openmeta::TransferTargetFormat::Jxl;
+    options.prepare.include_exif_app1  = false;
+    options.prepare.include_xmp_app1   = false;
+    options.prepare.include_icc_app2   = false;
+    options.prepare.include_iptc_app13 = false;
+    options.prepare.profile.c2pa = openmeta::TransferPolicyAction::Rewrite;
+
+    const openmeta::PrepareTransferFileResult result
+        = openmeta::prepare_metadata_for_target_file(path.c_str(), options);
+    std::remove(path.c_str());
+
+    ASSERT_EQ(result.prepare.status, openmeta::TransferStatus::Unsupported);
+    openmeta::PreparedTransferC2paSignRequest sign_request;
+    ASSERT_EQ(openmeta::build_prepared_c2pa_sign_request(result.bundle,
+                                                         &sign_request),
+              openmeta::TransferStatus::Ok);
+    const std::vector<std::byte> logical = make_semantic_c2pa_logical_payload();
+    const openmeta::PreparedTransferC2paSignerInput input
+        = make_test_c2pa_signer_input(
+            std::span<const std::byte>(logical.data(), logical.size()));
+
+    const openmeta::ValidatePreparedC2paSignResult validate
+        = openmeta::validate_prepared_c2pa_sign_result(result.bundle,
+                                                       sign_request, input);
+    EXPECT_EQ(validate.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(validate.code, openmeta::EmitTransferCode::None);
+    EXPECT_EQ(validate.payload_kind,
+              openmeta::TransferC2paSignedPayloadKind::ContentBound);
+    EXPECT_EQ(validate.semantic_status,
+              openmeta::TransferC2paSemanticStatus::Ok);
+    EXPECT_EQ(validate.semantic_reason, "ok");
+    EXPECT_EQ(validate.logical_payload_bytes, logical.size());
+    EXPECT_EQ(validate.staged_payload_bytes, logical.size());
     EXPECT_EQ(validate.staged_segments, 1U);
     EXPECT_EQ(validate.errors, 0U);
 }
@@ -2978,6 +3559,117 @@ TEST(MetadataTransferApi, ApplyPreparedC2paSignResultStagesSignedPayload)
               openmeta::TransferStatus::Ok);
     EXPECT_EQ(ready_request.rewrite_state,
               openmeta::TransferC2paRewriteState::Ready);
+}
+
+TEST(MetadataTransferApi, ApplyPreparedC2paSignResultStagesSignedPayloadBmff)
+{
+    const std::vector<std::byte> bmff = make_test_bmff_with_c2pa(false);
+    ASSERT_FALSE(bmff.empty());
+    const std::string path = unique_temp_path(".heic");
+    ASSERT_TRUE(
+        write_bytes_file(path,
+                         std::span<const std::byte>(bmff.data(), bmff.size())));
+
+    openmeta::PrepareTransferFileOptions options;
+    options.prepare.target_format      = openmeta::TransferTargetFormat::Heif;
+    options.prepare.include_exif_app1  = false;
+    options.prepare.include_xmp_app1   = false;
+    options.prepare.include_icc_app2   = false;
+    options.prepare.include_iptc_app13 = false;
+    options.prepare.profile.c2pa = openmeta::TransferPolicyAction::Rewrite;
+
+    openmeta::PrepareTransferFileResult result
+        = openmeta::prepare_metadata_for_target_file(path.c_str(), options);
+    std::remove(path.c_str());
+
+    ASSERT_EQ(result.prepare.status, openmeta::TransferStatus::Unsupported);
+    openmeta::PreparedTransferC2paSignRequest sign_request;
+    ASSERT_EQ(openmeta::build_prepared_c2pa_sign_request(result.bundle,
+                                                         &sign_request),
+              openmeta::TransferStatus::Ok);
+
+    const std::vector<std::byte> logical = make_semantic_c2pa_logical_payload();
+    const openmeta::PreparedTransferC2paSignerInput input
+        = make_test_c2pa_signer_input(
+            std::span<const std::byte>(logical.data(), logical.size()));
+    const openmeta::EmitTransferResult apply
+        = openmeta::apply_prepared_c2pa_sign_result(&result.bundle,
+                                                    sign_request, input);
+
+    EXPECT_EQ(apply.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(apply.code, openmeta::EmitTransferCode::None);
+    EXPECT_EQ(apply.errors, 0U);
+    EXPECT_EQ(count_blocks_with_route(result.bundle, "bmff:item-c2pa"),
+              apply.emitted);
+    EXPECT_EQ(result.bundle.c2pa_rewrite.state,
+              openmeta::TransferC2paRewriteState::Ready);
+
+    const openmeta::PreparedTransferPolicyDecision* decision
+        = find_policy_decision(result.bundle,
+                               openmeta::TransferPolicySubject::C2pa);
+    ASSERT_NE(decision, nullptr);
+    EXPECT_EQ(decision->requested, openmeta::TransferPolicyAction::Rewrite);
+    EXPECT_EQ(decision->effective, openmeta::TransferPolicyAction::Keep);
+    EXPECT_EQ(decision->reason,
+              openmeta::TransferPolicyReason::ExternalSignedPayload);
+    EXPECT_EQ(decision->c2pa_mode, openmeta::TransferC2paMode::SignedRewrite);
+    EXPECT_EQ(decision->c2pa_prepared_output,
+              openmeta::TransferC2paPreparedOutput::SignedRewrite);
+}
+
+TEST(MetadataTransferApi, ApplyPreparedC2paSignResultStagesSignedPayloadJxl)
+{
+    const std::vector<std::byte> jxl = make_test_jxl_with_c2pa(false);
+    const std::string path           = unique_temp_path(".jxl");
+    ASSERT_TRUE(write_bytes_file(path, std::span<const std::byte>(jxl.data(),
+                                                                  jxl.size())));
+
+    openmeta::PrepareTransferFileOptions options;
+    options.prepare.target_format      = openmeta::TransferTargetFormat::Jxl;
+    options.prepare.include_exif_app1  = false;
+    options.prepare.include_xmp_app1   = false;
+    options.prepare.include_icc_app2   = false;
+    options.prepare.include_iptc_app13 = false;
+    options.prepare.profile.c2pa = openmeta::TransferPolicyAction::Rewrite;
+
+    openmeta::PrepareTransferFileResult result
+        = openmeta::prepare_metadata_for_target_file(path.c_str(), options);
+    std::remove(path.c_str());
+
+    ASSERT_EQ(result.prepare.status, openmeta::TransferStatus::Unsupported);
+    openmeta::PreparedTransferC2paSignRequest sign_request;
+    ASSERT_EQ(openmeta::build_prepared_c2pa_sign_request(result.bundle,
+                                                         &sign_request),
+              openmeta::TransferStatus::Ok);
+
+    const std::vector<std::byte> logical = make_semantic_c2pa_logical_payload();
+    const openmeta::PreparedTransferC2paSignerInput input
+        = make_test_c2pa_signer_input(
+            std::span<const std::byte>(logical.data(), logical.size()));
+    const openmeta::EmitTransferResult apply
+        = openmeta::apply_prepared_c2pa_sign_result(&result.bundle,
+                                                    sign_request, input);
+
+    EXPECT_EQ(apply.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(apply.code, openmeta::EmitTransferCode::None);
+    EXPECT_EQ(apply.errors, 0U);
+    EXPECT_EQ(count_blocks_with_route(result.bundle, "jxl:box-jumb"),
+              apply.emitted);
+    EXPECT_EQ(count_blocks_with_route(result.bundle, "jxl:box-c2pa"), 0U);
+    EXPECT_EQ(result.bundle.c2pa_rewrite.state,
+              openmeta::TransferC2paRewriteState::Ready);
+
+    const openmeta::PreparedTransferPolicyDecision* decision
+        = find_policy_decision(result.bundle,
+                               openmeta::TransferPolicySubject::C2pa);
+    ASSERT_NE(decision, nullptr);
+    EXPECT_EQ(decision->requested, openmeta::TransferPolicyAction::Rewrite);
+    EXPECT_EQ(decision->effective, openmeta::TransferPolicyAction::Keep);
+    EXPECT_EQ(decision->reason,
+              openmeta::TransferPolicyReason::ExternalSignedPayload);
+    EXPECT_EQ(decision->c2pa_mode, openmeta::TransferC2paMode::SignedRewrite);
+    EXPECT_EQ(decision->c2pa_prepared_output,
+              openmeta::TransferC2paPreparedOutput::SignedRewrite);
 }
 
 TEST(MetadataTransferApi, ApplyPreparedC2paSignResultRejectsMissingMaterial)
@@ -4969,6 +5661,64 @@ TEST(MetadataTransferApi, ExecutePreparedTransferJpegEditToWriter)
     EXPECT_EQ(writer.out.size(), input.size());
 }
 
+TEST(MetadataTransferApi,
+     BuildExecutedTransferPackageBatchJpegEditMatchesBufferedApply)
+{
+    openmeta::MetaStore store;
+    const openmeta::BlockId block = store.add_block(openmeta::BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    openmeta::Entry e;
+    e.key   = openmeta::make_exif_tag_key(store.arena(), "ifd0", 0x0132U);
+    e.value = openmeta::make_text(store.arena(), "2024:01:02 03:04:05",
+                                  openmeta::TextEncoding::Ascii);
+    e.origin.block          = block;
+    e.origin.order_in_block = 0;
+    ASSERT_NE(store.add_entry(e), openmeta::kInvalidEntryId);
+    store.finalize();
+
+    openmeta::PrepareTransferRequest request;
+    request.include_xmp_app1   = false;
+    request.include_icc_app2   = false;
+    request.include_iptc_app13 = false;
+
+    openmeta::PreparedTransferBundle bundle;
+    ASSERT_EQ(
+        openmeta::prepare_metadata_for_target(store, request, &bundle).status,
+        openmeta::TransferStatus::Ok);
+
+    const std::array<TestJpegSegment, 0> no_segments {};
+    const std::vector<std::byte> input = make_jpeg_with_segments(no_segments);
+
+    openmeta::ExecutePreparedTransferOptions options;
+    options.edit_requested = true;
+    const openmeta::ExecutePreparedTransferResult exec
+        = openmeta::execute_prepared_transfer(
+            &bundle, std::span<const std::byte>(input.data(), input.size()),
+            options);
+    ASSERT_EQ(exec.edit_plan_status, openmeta::TransferStatus::Ok);
+
+    openmeta::PreparedTransferPackageBatch batch;
+    ASSERT_EQ(openmeta::build_executed_transfer_package_batch(
+                  std::span<const std::byte>(input.data(), input.size()),
+                  bundle, exec, &batch)
+                  .status,
+              openmeta::TransferStatus::Ok);
+
+    std::vector<std::byte> expected;
+    ASSERT_EQ(openmeta::apply_prepared_bundle_jpeg_edit(
+                  std::span<const std::byte>(input.data(), input.size()),
+                  bundle, exec.jpeg_edit_plan, &expected)
+                  .status,
+              openmeta::TransferStatus::Ok);
+
+    BufferByteWriter writer;
+    ASSERT_EQ(
+        openmeta::write_prepared_transfer_package_batch(batch, writer).status,
+        openmeta::TransferStatus::Ok);
+    EXPECT_EQ(writer.out, expected);
+}
+
 TEST(MetadataTransferApi, ExecutePreparedTransferTiffEditAndEmit)
 {
     openmeta::MetaStore store;
@@ -5341,6 +6091,124 @@ TEST(MetadataTransferApi, ExecutePreparedTransferFileStagesSignedC2pa)
               openmeta::TransferC2paPreparedOutput::SignedRewrite);
 }
 
+TEST(MetadataTransferApi, ExecutePreparedTransferFileStagesSignedC2paBmff)
+{
+    const std::vector<std::byte> bmff = make_test_bmff_with_c2pa(false);
+    ASSERT_FALSE(bmff.empty());
+    const std::string path = unique_temp_path(".heic");
+    ASSERT_TRUE(
+        write_bytes_file(path,
+                         std::span<const std::byte>(bmff.data(), bmff.size())));
+
+    openmeta::ExecutePreparedTransferFileOptions options;
+    options.prepare.prepare.target_format = openmeta::TransferTargetFormat::Heif;
+    options.prepare.prepare.include_exif_app1  = false;
+    options.prepare.prepare.include_xmp_app1   = false;
+    options.prepare.prepare.include_icc_app2   = false;
+    options.prepare.prepare.include_iptc_app13 = false;
+    options.prepare.prepare.profile.c2pa
+        = openmeta::TransferPolicyAction::Rewrite;
+    options.c2pa_stage_requested   = true;
+    options.edit_target_path       = path;
+    options.execute.edit_requested = true;
+    options.execute.edit_apply     = true;
+
+    const std::vector<std::byte> logical = make_semantic_c2pa_logical_payload();
+    options.c2pa_signer_input            = make_test_c2pa_signer_input(
+        std::span<const std::byte>(logical.data(), logical.size()));
+
+    const openmeta::ExecutePreparedTransferFileResult result
+        = openmeta::execute_prepared_transfer_file(path.c_str(), options);
+    std::remove(path.c_str());
+
+    EXPECT_EQ(result.prepared.file_status, openmeta::TransferFileStatus::Ok);
+    EXPECT_EQ(result.prepared.prepare.status,
+              openmeta::TransferStatus::Unsupported);
+    EXPECT_TRUE(result.execute.c2pa_stage_requested);
+    EXPECT_EQ(result.execute.c2pa_stage_validation.status,
+              openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.execute.c2pa_stage_validation.code,
+              openmeta::EmitTransferCode::None);
+    EXPECT_EQ(result.execute.c2pa_stage_validation.payload_kind,
+              openmeta::TransferC2paSignedPayloadKind::ContentBound);
+    EXPECT_EQ(result.execute.c2pa_stage_validation.staged_segments, 1U);
+    EXPECT_EQ(result.execute.c2pa_stage.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.execute.edit_plan_status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.execute.edit_apply.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(count_blocks_with_route(result.prepared.bundle, "bmff:item-c2pa"),
+              result.execute.c2pa_stage.emitted);
+    EXPECT_EQ(result.prepared.bundle.c2pa_rewrite.state,
+              openmeta::TransferC2paRewriteState::Ready);
+
+    std::array<openmeta::ContainerBlockRef, 16> blocks {};
+    const openmeta::ScanResult scan = openmeta::scan_bmff(
+        std::span<const std::byte>(result.execute.edited_output.data(),
+                                   result.execute.edited_output.size()),
+        std::span<openmeta::ContainerBlockRef>(blocks.data(), blocks.size()));
+    ASSERT_EQ(scan.status, openmeta::ScanStatus::Ok);
+    EXPECT_GE(scan.written, 1U);
+}
+
+TEST(MetadataTransferApi, ExecutePreparedTransferFileStagesSignedC2paJxl)
+{
+    const std::vector<std::byte> jxl = make_test_jxl_with_c2pa(false);
+    const std::string path           = unique_temp_path(".jxl");
+    ASSERT_TRUE(write_bytes_file(path, std::span<const std::byte>(jxl.data(),
+                                                                  jxl.size())));
+
+    openmeta::ExecutePreparedTransferFileOptions options;
+    options.prepare.prepare.target_format = openmeta::TransferTargetFormat::Jxl;
+    options.prepare.prepare.include_exif_app1  = false;
+    options.prepare.prepare.include_xmp_app1   = false;
+    options.prepare.prepare.include_icc_app2   = false;
+    options.prepare.prepare.include_iptc_app13 = false;
+    options.prepare.prepare.profile.c2pa
+        = openmeta::TransferPolicyAction::Rewrite;
+    options.c2pa_stage_requested   = true;
+    options.edit_target_path       = path;
+    options.execute.edit_requested = true;
+    options.execute.edit_apply     = true;
+
+    const std::vector<std::byte> logical = make_semantic_c2pa_logical_payload();
+    options.c2pa_signer_input            = make_test_c2pa_signer_input(
+        std::span<const std::byte>(logical.data(), logical.size()));
+
+    const openmeta::ExecutePreparedTransferFileResult result
+        = openmeta::execute_prepared_transfer_file(path.c_str(), options);
+    std::remove(path.c_str());
+
+    EXPECT_EQ(result.prepared.file_status, openmeta::TransferFileStatus::Ok);
+    EXPECT_EQ(result.prepared.prepare.status,
+              openmeta::TransferStatus::Unsupported);
+    EXPECT_TRUE(result.execute.c2pa_stage_requested);
+    EXPECT_EQ(result.execute.c2pa_stage_validation.status,
+              openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.execute.c2pa_stage_validation.code,
+              openmeta::EmitTransferCode::None);
+    EXPECT_EQ(result.execute.c2pa_stage_validation.payload_kind,
+              openmeta::TransferC2paSignedPayloadKind::ContentBound);
+    EXPECT_EQ(result.execute.c2pa_stage_validation.staged_segments, 1U);
+    EXPECT_EQ(result.execute.c2pa_stage.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.execute.edit_plan_status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.execute.edit_apply.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(count_blocks_with_route(result.prepared.bundle, "jxl:box-jumb"),
+              result.execute.c2pa_stage.emitted);
+    EXPECT_EQ(result.prepared.bundle.c2pa_rewrite.state,
+              openmeta::TransferC2paRewriteState::Ready);
+    ASSERT_FALSE(result.execute.edited_output.empty());
+
+    openmeta::PreparedTransferBundle bundle = result.prepared.bundle;
+    openmeta::ExecutePreparedTransferOptions execute_options;
+    execute_options.edit_requested = true;
+    execute_options.edit_apply     = true;
+    const openmeta::ExecutePreparedTransferResult direct
+        = openmeta::execute_prepared_transfer(
+            &bundle, std::span<const std::byte>(jxl.data(), jxl.size()),
+            execute_options);
+    ASSERT_EQ(direct.edit_apply.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.execute.edited_output, direct.edited_output);
+}
+
 TEST(MetadataTransferApi,
      ExecutePreparedTransferFileStagesSignedC2paFromPackage)
 {
@@ -5576,6 +6444,223 @@ TEST(MetadataTransferApi, PrepareBuildsJxlIccProfile)
     EXPECT_EQ(bundle.blocks[0].box_type, (std::array<char, 4> {}));
     EXPECT_GE(bundle.blocks[0].payload.size(), 24U);
     EXPECT_EQ(bundle.blocks[0].payload[0], std::byte { 0x00 });
+}
+
+TEST(MetadataTransferApi, BuildPreparedJxlEncoderHandoffViewWithIcc)
+{
+    openmeta::PreparedTransferBundle bundle;
+    bundle.target_format = openmeta::TransferTargetFormat::Jxl;
+
+    openmeta::PreparedTransferBlock icc;
+    icc.route   = "jxl:icc-profile";
+    icc.payload = { std::byte { 0x49 }, std::byte { 0x43 }, std::byte { 0x43 },
+                    std::byte { 0x50 } };
+    bundle.blocks.push_back(icc);
+
+    openmeta::PreparedTransferBlock exif;
+    exif.route    = "jxl:box-exif";
+    exif.box_type = { 'E', 'x', 'i', 'f' };
+    exif.payload = { std::byte { 0x00 }, std::byte { 0x00 }, std::byte { 0x00 },
+                     std::byte { 0x06 } };
+    bundle.blocks.push_back(exif);
+
+    openmeta::PreparedTransferBlock xmp;
+    xmp.route    = "jxl:box-xml";
+    xmp.box_type = { 'x', 'm', 'l', ' ' };
+    xmp.payload  = { std::byte { '<' }, std::byte { 'x' }, std::byte { 'm' } };
+    bundle.blocks.push_back(xmp);
+
+    openmeta::PreparedJxlEncoderHandoffView view;
+    const openmeta::EmitTransferResult result
+        = openmeta::build_prepared_jxl_encoder_handoff_view(bundle, &view);
+
+    EXPECT_EQ(result.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.code, openmeta::EmitTransferCode::None);
+    EXPECT_EQ(result.emitted, 3U);
+    EXPECT_EQ(view.contract_version, bundle.contract_version);
+    EXPECT_TRUE(view.has_icc_profile);
+    EXPECT_EQ(view.icc_block_index, 0U);
+    EXPECT_EQ(view.icc_profile_bytes, 4U);
+    ASSERT_EQ(view.icc_profile.size(), 4U);
+    EXPECT_EQ(view.icc_profile[0], std::byte { 0x49 });
+    EXPECT_EQ(view.box_count, 2U);
+    EXPECT_EQ(view.box_payload_bytes, 7U);
+}
+
+TEST(MetadataTransferApi, BuildPreparedJxlEncoderHandoffViewRejectsMultipleIcc)
+{
+    openmeta::PreparedTransferBundle bundle;
+    bundle.target_format = openmeta::TransferTargetFormat::Jxl;
+
+    openmeta::PreparedTransferBlock icc_a;
+    icc_a.route   = "jxl:icc-profile";
+    icc_a.payload = { std::byte { 0x01 } };
+    bundle.blocks.push_back(icc_a);
+
+    openmeta::PreparedTransferBlock icc_b;
+    icc_b.route   = "jxl:icc-profile";
+    icc_b.payload = { std::byte { 0x02 } };
+    bundle.blocks.push_back(icc_b);
+
+    openmeta::PreparedJxlEncoderHandoffView view;
+    const openmeta::EmitTransferResult result
+        = openmeta::build_prepared_jxl_encoder_handoff_view(bundle, &view);
+
+    EXPECT_EQ(result.status, openmeta::TransferStatus::Malformed);
+    EXPECT_EQ(result.code, openmeta::EmitTransferCode::InvalidPayload);
+    EXPECT_EQ(result.failed_block_index, 1U);
+    EXPECT_TRUE(result.message.find("multiple jxl icc profiles")
+                != std::string::npos);
+    EXPECT_TRUE(view.has_icc_profile);
+    EXPECT_EQ(view.icc_block_index, 0U);
+}
+
+TEST(MetadataTransferApi, BuildPreparedJxlEncoderHandoffViewRejectsNonJxlBundle)
+{
+    openmeta::PreparedTransferBundle bundle;
+    bundle.target_format = openmeta::TransferTargetFormat::Jpeg;
+
+    openmeta::PreparedJxlEncoderHandoffView view;
+    const openmeta::EmitTransferResult result
+        = openmeta::build_prepared_jxl_encoder_handoff_view(bundle, &view);
+
+    EXPECT_EQ(result.status, openmeta::TransferStatus::Unsupported);
+    EXPECT_EQ(result.code, openmeta::EmitTransferCode::InvalidArgument);
+    EXPECT_EQ(result.errors, 1U);
+}
+
+TEST(MetadataTransferApi, BuildPreparedJxlEncoderHandoffOwnsIcc)
+{
+    openmeta::PreparedTransferBundle bundle;
+    bundle.target_format = openmeta::TransferTargetFormat::Jxl;
+
+    openmeta::PreparedTransferBlock icc;
+    icc.route   = "jxl:icc-profile";
+    icc.payload = { std::byte { 0x49 }, std::byte { 0x43 }, std::byte { 0x43 },
+                    std::byte { 0x50 } };
+    bundle.blocks.push_back(icc);
+
+    openmeta::PreparedTransferBlock exif;
+    exif.route    = "jxl:box-exif";
+    exif.box_type = { 'E', 'x', 'i', 'f' };
+    exif.payload  = { std::byte { 0x00 }, std::byte { 0x00 } };
+    bundle.blocks.push_back(exif);
+
+    openmeta::PreparedJxlEncoderHandoff handoff;
+    const openmeta::EmitTransferResult result
+        = openmeta::build_prepared_jxl_encoder_handoff(bundle, &handoff);
+
+    EXPECT_EQ(result.status, openmeta::TransferStatus::Ok);
+    EXPECT_TRUE(handoff.has_icc_profile);
+    EXPECT_EQ(handoff.icc_block_index, 0U);
+    EXPECT_EQ(handoff.box_count, 1U);
+    ASSERT_EQ(handoff.icc_profile.size(), 4U);
+
+    bundle.blocks[0].payload[0] = std::byte { 0x00 };
+    EXPECT_EQ(handoff.icc_profile[0], std::byte { 0x49 });
+}
+
+TEST(MetadataTransferApi, SerializePreparedJxlEncoderHandoffRoundTrip)
+{
+    openmeta::PreparedJxlEncoderHandoff handoff;
+    handoff.has_icc_profile   = true;
+    handoff.icc_block_index   = 3U;
+    handoff.box_count         = 2U;
+    handoff.box_payload_bytes = 7U;
+    handoff.icc_profile       = { std::byte { 0x49 }, std::byte { 0x43 },
+                                  std::byte { 0x43 }, std::byte { 0x50 } };
+
+    std::vector<std::byte> bytes;
+    const openmeta::PreparedJxlEncoderHandoffIoResult write
+        = openmeta::serialize_prepared_jxl_encoder_handoff(handoff, &bytes);
+    ASSERT_EQ(write.status, openmeta::TransferStatus::Ok);
+    ASSERT_GE(bytes.size(), 8U);
+
+    openmeta::PreparedJxlEncoderHandoff parsed;
+    const openmeta::PreparedJxlEncoderHandoffIoResult read
+        = openmeta::deserialize_prepared_jxl_encoder_handoff(
+            std::span<const std::byte>(bytes.data(), bytes.size()), &parsed);
+    EXPECT_EQ(read.status, openmeta::TransferStatus::Ok);
+    EXPECT_TRUE(parsed.has_icc_profile);
+    EXPECT_EQ(parsed.icc_block_index, 3U);
+    EXPECT_EQ(parsed.box_count, 2U);
+    EXPECT_EQ(parsed.box_payload_bytes, 7U);
+    EXPECT_EQ(parsed.icc_profile, handoff.icc_profile);
+}
+
+TEST(MetadataTransferApi, DeserializePreparedJxlEncoderHandoffRejectsBadMagic)
+{
+    const std::array<std::byte, 12> bytes
+        = { std::byte { 'B' },  std::byte { 'A' },  std::byte { 'D' },
+            std::byte { 'M' },  std::byte { 'A' },  std::byte { 'G' },
+            std::byte { 'I' },  std::byte { 'C' },  std::byte { 0x01 },
+            std::byte { 0x00 }, std::byte { 0x00 }, std::byte { 0x00 } };
+    openmeta::PreparedJxlEncoderHandoff handoff;
+    const openmeta::PreparedJxlEncoderHandoffIoResult result
+        = openmeta::deserialize_prepared_jxl_encoder_handoff(
+            std::span<const std::byte>(bytes.data(), bytes.size()), &handoff);
+    EXPECT_EQ(result.status, openmeta::TransferStatus::Unsupported);
+    EXPECT_EQ(result.code, openmeta::EmitTransferCode::InvalidPayload);
+}
+
+TEST(MetadataTransferApi, InspectPreparedTransferArtifactRecognizesJxlHandoff)
+{
+    openmeta::PreparedJxlEncoderHandoff handoff;
+    handoff.has_icc_profile   = true;
+    handoff.icc_block_index   = 1U;
+    handoff.box_count         = 2U;
+    handoff.box_payload_bytes = 11U;
+    handoff.icc_profile       = { std::byte { 0x49 }, std::byte { 0x43 },
+                                  std::byte { 0x43 } };
+
+    std::vector<std::byte> bytes;
+    const openmeta::PreparedJxlEncoderHandoffIoResult write
+        = openmeta::serialize_prepared_jxl_encoder_handoff(handoff, &bytes);
+    ASSERT_EQ(write.status, openmeta::TransferStatus::Ok);
+
+    openmeta::PreparedTransferArtifactInfo info;
+    const openmeta::PreparedTransferArtifactIoResult inspect
+        = openmeta::inspect_prepared_transfer_artifact(
+            std::span<const std::byte>(bytes.data(), bytes.size()), &info);
+    EXPECT_EQ(inspect.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(info.kind,
+              openmeta::PreparedTransferArtifactKind::JxlEncoderHandoff);
+    EXPECT_TRUE(info.has_target_format);
+    EXPECT_EQ(info.target_format, openmeta::TransferTargetFormat::Jxl);
+    EXPECT_TRUE(info.has_icc_profile);
+    EXPECT_EQ(info.icc_profile_bytes, 3U);
+    EXPECT_EQ(info.box_payload_bytes, 11U);
+}
+
+TEST(MetadataTransferApi,
+     InspectPreparedTransferArtifactRecognizesC2paSignedPackage)
+{
+    openmeta::PreparedTransferC2paSignedPackage package;
+    package.request.target_format  = openmeta::TransferTargetFormat::Jpeg;
+    package.request.carrier_route  = "jpeg:app11-c2pa";
+    package.request.manifest_label = "c2pa";
+    package.request.content_binding_chunks.resize(2U);
+    package.signer_input.signed_c2pa_logical_payload
+        = { std::byte { 0x01 }, std::byte { 0x02 }, std::byte { 0x03 } };
+
+    std::vector<std::byte> bytes;
+    const openmeta::PreparedTransferC2paPackageIoResult write
+        = openmeta::serialize_prepared_c2pa_signed_package(package, &bytes);
+    ASSERT_EQ(write.status, openmeta::TransferStatus::Ok);
+
+    openmeta::PreparedTransferArtifactInfo info;
+    const openmeta::PreparedTransferArtifactIoResult inspect
+        = openmeta::inspect_prepared_transfer_artifact(
+            std::span<const std::byte>(bytes.data(), bytes.size()), &info);
+    EXPECT_EQ(inspect.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(info.kind,
+              openmeta::PreparedTransferArtifactKind::C2paSignedPackage);
+    EXPECT_TRUE(info.has_target_format);
+    EXPECT_EQ(info.target_format, openmeta::TransferTargetFormat::Jpeg);
+    EXPECT_EQ(info.entry_count, 2U);
+    EXPECT_EQ(info.signed_payload_bytes, 3U);
+    EXPECT_EQ(info.carrier_route, "jpeg:app11-c2pa");
+    EXPECT_EQ(info.manifest_label, "c2pa");
 }
 
 TEST(MetadataTransferApi, PrepareBuildsWebpIccChunk)
@@ -6888,6 +7973,382 @@ TEST(MetadataTransferApi, ExecutePreparedTransferJxlEmitToWriterRejectsIcc)
     EXPECT_TRUE(writer.out.empty());
 }
 
+TEST(MetadataTransferApi, ExecutePreparedTransferJxlEditAppendsBoxes)
+{
+    openmeta::PreparedTransferBundle bundle;
+    bundle.target_format = openmeta::TransferTargetFormat::Jxl;
+
+    openmeta::PreparedTransferBlock exif;
+    exif.route    = "jxl:box-exif";
+    exif.box_type = { 'E', 'x', 'i', 'f' };
+    exif.payload  = make_test_jxl_exif_box_payload();
+    bundle.blocks.push_back(exif);
+
+    openmeta::PreparedTransferBlock xmp;
+    xmp.route    = "jxl:box-xml";
+    xmp.box_type = { 'x', 'm', 'l', ' ' };
+    xmp.payload  = { std::byte { '<' }, std::byte { 'x' }, std::byte { '/' },
+                     std::byte { '>' } };
+    bundle.blocks.push_back(xmp);
+
+    const std::vector<std::byte> input = make_minimal_jxl_file();
+
+    openmeta::ExecutePreparedTransferOptions options;
+    options.edit_requested = true;
+    options.edit_apply     = true;
+
+    const openmeta::ExecutePreparedTransferResult result
+        = openmeta::execute_prepared_transfer(
+            &bundle, std::span<const std::byte>(input.data(), input.size()),
+            options);
+
+    EXPECT_EQ(result.edit_plan_status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.edit_apply.status, openmeta::TransferStatus::Ok);
+    EXPECT_GT(result.edit_output_size, static_cast<uint64_t>(input.size()));
+    ASSERT_FALSE(result.edited_output.empty());
+
+    std::array<openmeta::ContainerBlockRef, 8> blocks {};
+    const openmeta::ScanResult scan = openmeta::scan_jxl(
+        std::span<const std::byte>(result.edited_output.data(),
+                                   result.edited_output.size()),
+        std::span<openmeta::ContainerBlockRef>(blocks.data(), blocks.size()));
+    ASSERT_EQ(scan.status, openmeta::ScanStatus::Ok);
+    ASSERT_EQ(scan.written, 2U);
+    uint32_t exif_count = 0U;
+    uint32_t xmp_count  = 0U;
+    for (uint32_t i = 0U; i < scan.written; ++i) {
+        if (blocks[i].kind == openmeta::ContainerBlockKind::Exif) {
+            exif_count += 1U;
+        } else if (blocks[i].kind == openmeta::ContainerBlockKind::Xmp) {
+            xmp_count += 1U;
+        }
+    }
+    EXPECT_EQ(exif_count, 1U);
+    EXPECT_EQ(xmp_count, 1U);
+}
+
+TEST(MetadataTransferApi, ExecutePreparedTransferJxlEditPreservesUnrelatedBoxes)
+{
+    openmeta::PreparedTransferBundle bundle;
+    bundle.target_format = openmeta::TransferTargetFormat::Jxl;
+
+    openmeta::PreparedTransferBlock jumbf;
+    jumbf.route    = "jxl:box-jumb";
+    jumbf.box_type = { 'j', 'u', 'm', 'b' };
+    jumbf.payload  = { std::byte { 0x00 }, std::byte { 0x00 },
+                       std::byte { 0x00 }, std::byte { 0x08 },
+                       std::byte { 'j' },  std::byte { 'u' },
+                       std::byte { 'm' },  std::byte { 'd' } };
+    bundle.blocks.push_back(jumbf);
+
+    std::vector<std::byte> input = make_minimal_jxl_file();
+    const std::vector<std::byte> exif_payload = make_test_jxl_exif_box_payload();
+    append_bmff_box(&input, openmeta::fourcc('E', 'x', 'i', 'f'),
+                    std::span<const std::byte>(exif_payload.data(),
+                                               exif_payload.size()));
+    static const std::array<std::byte, 4> kXml
+        = { std::byte { '<' }, std::byte { 'x' }, std::byte { '/' },
+            std::byte { '>' } };
+    append_bmff_box(&input, openmeta::fourcc('x', 'm', 'l', ' '),
+                    std::span<const std::byte>(kXml.data(), kXml.size()));
+
+    openmeta::ExecutePreparedTransferOptions options;
+    options.edit_requested = true;
+    options.edit_apply     = true;
+
+    const openmeta::ExecutePreparedTransferResult result
+        = openmeta::execute_prepared_transfer(
+            &bundle, std::span<const std::byte>(input.data(), input.size()),
+            options);
+
+    EXPECT_EQ(result.edit_plan_status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.edit_apply.status, openmeta::TransferStatus::Ok);
+    ASSERT_FALSE(result.edited_output.empty());
+
+    std::array<openmeta::ContainerBlockRef, 8> blocks {};
+    const openmeta::ScanResult scan = openmeta::scan_jxl(
+        std::span<const std::byte>(result.edited_output.data(),
+                                   result.edited_output.size()),
+        std::span<openmeta::ContainerBlockRef>(blocks.data(), blocks.size()));
+    ASSERT_EQ(scan.status, openmeta::ScanStatus::Ok);
+    ASSERT_EQ(scan.written, 3U);
+    EXPECT_EQ(blocks[0].kind, openmeta::ContainerBlockKind::Exif);
+    EXPECT_EQ(blocks[1].kind, openmeta::ContainerBlockKind::Xmp);
+    EXPECT_EQ(blocks[2].kind, openmeta::ContainerBlockKind::Jumbf);
+    EXPECT_EQ(blocks[2].id, openmeta::fourcc('j', 'u', 'm', 'b'));
+}
+
+TEST(MetadataTransferApi,
+     ExecutePreparedTransferJxlEditPreservesSourceC2paWhenReplacingJumbf)
+{
+    openmeta::PreparedTransferBundle bundle;
+    bundle.target_format = openmeta::TransferTargetFormat::Jxl;
+
+    openmeta::PreparedTransferBlock jumbf;
+    jumbf.route    = "jxl:box-jumb";
+    jumbf.box_type = { 'j', 'u', 'm', 'b' };
+    jumbf.payload  = { std::byte { 0x00 }, std::byte { 0x00 },
+                       std::byte { 0x00 }, std::byte { 0x08 },
+                       std::byte { 'j' },  std::byte { 'u' },
+                       std::byte { 'm' },  std::byte { 'd' } };
+    bundle.blocks.push_back(jumbf);
+
+    const std::vector<std::byte> input = make_test_jxl_with_c2pa(false);
+
+    openmeta::ExecutePreparedTransferOptions options;
+    options.edit_requested = true;
+    options.edit_apply     = true;
+
+    const openmeta::ExecutePreparedTransferResult result
+        = openmeta::execute_prepared_transfer(
+            &bundle, std::span<const std::byte>(input.data(), input.size()),
+            options);
+
+    EXPECT_EQ(result.edit_plan_status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.edit_apply.status, openmeta::TransferStatus::Ok);
+    ASSERT_FALSE(result.edited_output.empty());
+
+    std::array<openmeta::ContainerBlockRef, 8> blocks {};
+    const openmeta::ScanResult scan = openmeta::scan_jxl(
+        std::span<const std::byte>(result.edited_output.data(),
+                                   result.edited_output.size()),
+        std::span<openmeta::ContainerBlockRef>(blocks.data(), blocks.size()));
+    ASSERT_EQ(scan.status, openmeta::ScanStatus::Ok);
+    ASSERT_EQ(scan.written, 2U);
+    EXPECT_EQ(blocks[0].kind, openmeta::ContainerBlockKind::Jumbf);
+    EXPECT_EQ(blocks[1].kind, openmeta::ContainerBlockKind::Jumbf);
+}
+
+#if defined(OPENMETA_HAS_BROTLI) && OPENMETA_HAS_BROTLI \
+    && defined(OPENMETA_HAS_BROTLI_ENCODER) && OPENMETA_HAS_BROTLI_ENCODER
+TEST(MetadataTransferApi, ExecutePreparedTransferJxlEditReplacesCompressedJumbf)
+{
+    openmeta::PreparedTransferBundle bundle;
+    bundle.target_format = openmeta::TransferTargetFormat::Jxl;
+
+    openmeta::PreparedTransferBlock jumbf;
+    jumbf.route    = "jxl:box-jumb";
+    jumbf.box_type = { 'j', 'u', 'm', 'b' };
+    jumbf.payload  = { std::byte { 0x00 }, std::byte { 0x00 },
+                       std::byte { 0x00 }, std::byte { 0x08 },
+                       std::byte { 'j' },  std::byte { 'u' },
+                       std::byte { 'm' },  std::byte { 'd' } };
+    bundle.blocks.push_back(jumbf);
+
+    std::vector<std::byte> input         = make_minimal_jxl_file();
+    const std::vector<std::byte> logical = make_logical_jumbf_payload("acme");
+    append_jxl_brob_box(&input, openmeta::fourcc('j', 'u', 'm', 'b'),
+                        std::span<const std::byte>(logical.data(),
+                                                   logical.size()));
+
+    openmeta::ExecutePreparedTransferOptions options;
+    options.edit_requested = true;
+    options.edit_apply     = true;
+
+    const openmeta::ExecutePreparedTransferResult result
+        = openmeta::execute_prepared_transfer(
+            &bundle, std::span<const std::byte>(input.data(), input.size()),
+            options);
+
+    EXPECT_EQ(result.edit_plan_status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.edit_apply.status, openmeta::TransferStatus::Ok);
+    ASSERT_FALSE(result.edited_output.empty());
+
+    std::array<openmeta::ContainerBlockRef, 8> blocks {};
+    const openmeta::ScanResult scan = openmeta::scan_jxl(
+        std::span<const std::byte>(result.edited_output.data(),
+                                   result.edited_output.size()),
+        std::span<openmeta::ContainerBlockRef>(blocks.data(), blocks.size()));
+    ASSERT_EQ(scan.status, openmeta::ScanStatus::Ok);
+    ASSERT_EQ(scan.written, 1U);
+    EXPECT_EQ(blocks[0].kind, openmeta::ContainerBlockKind::Jumbf);
+}
+
+TEST(MetadataTransferApi, ExecutePreparedTransferJxlEditReplacesCompressedC2pa)
+{
+    openmeta::PreparedTransferBundle bundle;
+    bundle.target_format = openmeta::TransferTargetFormat::Jxl;
+
+    const std::vector<std::byte> logical = make_semantic_c2pa_logical_payload();
+    ASSERT_GE(logical.size(), 8U);
+
+    openmeta::PreparedTransferBlock c2pa;
+    c2pa.kind     = openmeta::TransferBlockKind::C2pa;
+    c2pa.route    = "jxl:box-jumb";
+    c2pa.box_type = { 'j', 'u', 'm', 'b' };
+    c2pa.payload.assign(logical.begin() + 8U, logical.end());
+    bundle.blocks.push_back(c2pa);
+
+    std::vector<std::byte> input = make_minimal_jxl_file();
+    append_jxl_brob_box(&input, openmeta::fourcc('j', 'u', 'm', 'b'),
+                        std::span<const std::byte>(logical.data(),
+                                                   logical.size()));
+
+    openmeta::ExecutePreparedTransferOptions options;
+    options.edit_requested = true;
+    options.edit_apply     = true;
+
+    const openmeta::ExecutePreparedTransferResult result
+        = openmeta::execute_prepared_transfer(
+            &bundle, std::span<const std::byte>(input.data(), input.size()),
+            options);
+
+    EXPECT_EQ(result.edit_plan_status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.edit_apply.status, openmeta::TransferStatus::Ok);
+    ASSERT_FALSE(result.edited_output.empty());
+
+    std::array<openmeta::ContainerBlockRef, 8> blocks {};
+    const openmeta::ScanResult scan = openmeta::scan_jxl(
+        std::span<const std::byte>(result.edited_output.data(),
+                                   result.edited_output.size()),
+        std::span<openmeta::ContainerBlockRef>(blocks.data(), blocks.size()));
+    ASSERT_EQ(scan.status, openmeta::ScanStatus::Ok);
+    ASSERT_EQ(scan.written, 1U);
+    EXPECT_EQ(blocks[0].kind, openmeta::ContainerBlockKind::Jumbf);
+}
+#endif
+
+TEST(MetadataTransferApi, ExecutePreparedTransferJxlEditReplacesMatchingBoxes)
+{
+    openmeta::PreparedTransferBundle bundle;
+    bundle.target_format = openmeta::TransferTargetFormat::Jxl;
+
+    openmeta::PreparedTransferBlock exif;
+    exif.route    = "jxl:box-exif";
+    exif.box_type = { 'E', 'x', 'i', 'f' };
+    exif.payload  = make_test_jxl_exif_box_payload();
+    bundle.blocks.push_back(exif);
+
+    std::vector<std::byte> input          = make_minimal_jxl_file();
+    const std::vector<std::byte> old_exif = make_test_jxl_exif_box_payload();
+    append_bmff_box(&input, openmeta::fourcc('E', 'x', 'i', 'f'),
+                    std::span<const std::byte>(old_exif.data(),
+                                               old_exif.size()));
+    static const std::array<std::byte, 4> kXml
+        = { std::byte { '<' }, std::byte { 'x' }, std::byte { '/' },
+            std::byte { '>' } };
+    append_bmff_box(&input, openmeta::fourcc('x', 'm', 'l', ' '),
+                    std::span<const std::byte>(kXml.data(), kXml.size()));
+
+    openmeta::ExecutePreparedTransferOptions options;
+    options.edit_requested = true;
+    options.edit_apply     = true;
+
+    const openmeta::ExecutePreparedTransferResult result
+        = openmeta::execute_prepared_transfer(
+            &bundle, std::span<const std::byte>(input.data(), input.size()),
+            options);
+
+    EXPECT_EQ(result.edit_plan_status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.edit_apply.status, openmeta::TransferStatus::Ok);
+    ASSERT_FALSE(result.edited_output.empty());
+
+    std::array<openmeta::ContainerBlockRef, 8> blocks {};
+    const openmeta::ScanResult scan = openmeta::scan_jxl(
+        std::span<const std::byte>(result.edited_output.data(),
+                                   result.edited_output.size()),
+        std::span<openmeta::ContainerBlockRef>(blocks.data(), blocks.size()));
+    ASSERT_EQ(scan.status, openmeta::ScanStatus::Ok);
+    ASSERT_EQ(scan.written, 2U);
+    uint32_t exif_count = 0U;
+    uint32_t xmp_count  = 0U;
+    for (uint32_t i = 0U; i < scan.written; ++i) {
+        if (blocks[i].kind == openmeta::ContainerBlockKind::Exif) {
+            exif_count += 1U;
+        } else if (blocks[i].kind == openmeta::ContainerBlockKind::Xmp) {
+            xmp_count += 1U;
+        }
+    }
+    EXPECT_EQ(exif_count, 1U);
+    EXPECT_EQ(xmp_count, 1U);
+}
+
+TEST(MetadataTransferApi, ExecutePreparedTransferJxlEditRejectsIccProfile)
+{
+    openmeta::PreparedTransferBundle bundle;
+    bundle.target_format = openmeta::TransferTargetFormat::Jxl;
+
+    openmeta::PreparedTransferBlock icc;
+    icc.route   = "jxl:icc-profile";
+    icc.payload = { std::byte { 0x49 }, std::byte { 0x43 },
+                    std::byte { 0x43 } };
+    bundle.blocks.push_back(icc);
+
+    const std::vector<std::byte> input = make_minimal_jxl_file();
+
+    openmeta::ExecutePreparedTransferOptions options;
+    options.edit_requested = true;
+    options.edit_apply     = true;
+
+    const openmeta::ExecutePreparedTransferResult result
+        = openmeta::execute_prepared_transfer(
+            &bundle, std::span<const std::byte>(input.data(), input.size()),
+            options);
+    EXPECT_EQ(result.edit_plan_status, openmeta::TransferStatus::Unsupported);
+    EXPECT_TRUE(result.edit_plan_message.find("encoder ICC profile route")
+                != std::string::npos);
+    EXPECT_NE(result.edit_apply.status, openmeta::TransferStatus::Ok);
+}
+
+TEST(MetadataTransferApi, BuildExecutedTransferPackageBatchJxlMatchesEdit)
+{
+    openmeta::PreparedTransferBundle bundle;
+    bundle.target_format = openmeta::TransferTargetFormat::Jxl;
+
+    openmeta::PreparedTransferBlock exif;
+    exif.route    = "jxl:box-exif";
+    exif.box_type = { 'E', 'x', 'i', 'f' };
+    exif.payload  = make_test_jxl_exif_box_payload();
+    bundle.blocks.push_back(exif);
+
+    openmeta::PreparedTransferBlock xmp;
+    xmp.route    = "jxl:box-xml";
+    xmp.box_type = { 'x', 'm', 'l', ' ' };
+    xmp.payload  = { std::byte { '<' }, std::byte { 'x' }, std::byte { 'm' } };
+    bundle.blocks.push_back(xmp);
+
+    const std::vector<std::byte> input = make_minimal_jxl_file();
+
+    openmeta::ExecutePreparedTransferOptions plan_only_options;
+    plan_only_options.edit_requested = true;
+    const openmeta::ExecutePreparedTransferResult plan_only
+        = openmeta::execute_prepared_transfer(
+            &bundle, std::span<const std::byte>(input.data(), input.size()),
+            plan_only_options);
+    ASSERT_EQ(plan_only.edit_plan_status, openmeta::TransferStatus::Ok);
+
+    openmeta::PreparedTransferPackageBatch batch;
+    const openmeta::EmitTransferResult batch_result
+        = openmeta::build_executed_transfer_package_batch(
+            std::span<const std::byte>(input.data(), input.size()), bundle,
+            plan_only, &batch);
+    ASSERT_EQ(batch_result.status, openmeta::TransferStatus::Ok);
+
+    openmeta::ExecutePreparedTransferOptions apply_options;
+    apply_options.edit_requested = true;
+    apply_options.edit_apply     = true;
+    const openmeta::ExecutePreparedTransferResult applied
+        = openmeta::execute_prepared_transfer(
+            &bundle, std::span<const std::byte>(input.data(), input.size()),
+            apply_options);
+    ASSERT_EQ(applied.edit_apply.status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(batch.output_size,
+              static_cast<uint64_t>(applied.edited_output.size()));
+    ASSERT_LE(batch.output_size,
+              static_cast<uint64_t>(std::numeric_limits<size_t>::max()));
+
+    std::vector<std::byte> bytes(static_cast<size_t>(batch.output_size));
+    openmeta::SpanTransferByteWriter writer(
+        std::span<std::byte>(bytes.data(), bytes.size()));
+    const openmeta::EmitTransferResult write_result
+        = openmeta::write_prepared_transfer_package_batch(batch, writer);
+    ASSERT_EQ(write_result.status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(writer.bytes_written(), applied.edited_output.size());
+    EXPECT_EQ(std::memcmp(bytes.data(), applied.edited_output.data(),
+                          applied.edited_output.size()),
+              0);
+}
+
 TEST(MetadataTransferApi, ExecutePreparedTransferWebpEmitToWriter)
 {
     openmeta::PreparedTransferBundle bundle;
@@ -7442,6 +8903,48 @@ TEST(MetadataTransferApi, BuildPreparedTransferPackageBatchJxlOwnsEmitBytes)
     const openmeta::EmitTransferResult streamed
         = openmeta::write_prepared_transfer_package_batch(batch, writer);
     ASSERT_EQ(streamed.status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(writer.out.size(), 16U);
+    EXPECT_EQ(writer.out[4], std::byte { 'j' });
+    EXPECT_EQ(writer.out[5], std::byte { 'u' });
+    EXPECT_EQ(writer.out[6], std::byte { 'm' });
+    EXPECT_EQ(writer.out[7], std::byte { 'b' });
+    EXPECT_EQ(writer.out[12], std::byte { 'j' });
+}
+
+TEST(MetadataTransferApi, BuildExecutedTransferPackageBatchJxlOwnsEmitBytes)
+{
+    openmeta::PreparedTransferBundle bundle;
+    bundle.target_format = openmeta::TransferTargetFormat::Jxl;
+
+    openmeta::PreparedTransferBlock jumbf;
+    jumbf.route    = "jxl:box-jumb";
+    jumbf.box_type = { 'j', 'u', 'm', 'b' };
+    jumbf.payload  = { std::byte { 0x00 }, std::byte { 0x00 },
+                       std::byte { 0x00 }, std::byte { 0x08 },
+                       std::byte { 'j' },  std::byte { 'u' },
+                       std::byte { 'm' },  std::byte { 'd' } };
+    bundle.blocks.push_back(jumbf);
+
+    openmeta::ExecutePreparedTransferOptions options;
+    const openmeta::ExecutePreparedTransferResult exec
+        = openmeta::execute_prepared_transfer(&bundle, {}, options);
+    ASSERT_EQ(exec.compile.status, openmeta::TransferStatus::Ok);
+
+    const std::vector<std::byte> empty_input;
+    openmeta::PreparedTransferPackageBatch batch;
+    ASSERT_EQ(openmeta::build_executed_transfer_package_batch(
+                  std::span<const std::byte>(empty_input.data(),
+                                             empty_input.size()),
+                  bundle, exec, &batch)
+                  .status,
+              openmeta::TransferStatus::Ok);
+
+    bundle.blocks[0].payload[4] = std::byte { 0x99 };
+
+    BufferByteWriter writer;
+    ASSERT_EQ(
+        openmeta::write_prepared_transfer_package_batch(batch, writer).status,
+        openmeta::TransferStatus::Ok);
     ASSERT_EQ(writer.out.size(), 16U);
     EXPECT_EQ(writer.out[4], std::byte { 'j' });
     EXPECT_EQ(writer.out[5], std::byte { 'u' });
@@ -8136,6 +9639,32 @@ TEST(MetadataTransferApi, CompileJxlPlanKnownRoutes)
     EXPECT_EQ(plan.ops[4].compress, false);
 }
 
+TEST(MetadataTransferApi, CompileJxlPlanRejectsMultipleIccProfiles)
+{
+    openmeta::PreparedTransferBundle bundle;
+    bundle.target_format = openmeta::TransferTargetFormat::Jxl;
+
+    openmeta::PreparedTransferBlock icc_a;
+    icc_a.route   = "jxl:icc-profile";
+    icc_a.payload = { std::byte { 0x49 } };
+    bundle.blocks.push_back(icc_a);
+
+    openmeta::PreparedTransferBlock icc_b;
+    icc_b.route   = "jxl:icc-profile";
+    icc_b.payload = { std::byte { 0x43 } };
+    bundle.blocks.push_back(icc_b);
+
+    openmeta::PreparedJxlEmitPlan plan;
+    const openmeta::EmitTransferResult result
+        = openmeta::compile_prepared_bundle_jxl(bundle, &plan);
+
+    EXPECT_EQ(result.status, openmeta::TransferStatus::Malformed);
+    EXPECT_EQ(result.code, openmeta::EmitTransferCode::InvalidPayload);
+    EXPECT_EQ(result.failed_block_index, 1U);
+    EXPECT_TRUE(result.message.find("multiple jxl icc profiles")
+                != std::string::npos);
+}
+
 TEST(MetadataTransferApi, EmitJxlCompiledPlan)
 {
     openmeta::PreparedTransferBundle bundle;
@@ -8655,6 +10184,166 @@ TEST(MetadataTransferApi, EmitPreparedTransferCompiledBmffEmitterUsesBackend)
               openmeta::fourcc('c', 'o', 'l', 'r'));
     EXPECT_EQ(result.bmff_property_summary[0].property_subtype,
               openmeta::fourcc('p', 'r', 'o', 'f'));
+}
+
+TEST(MetadataTransferApi, ExecutePreparedTransferBmffEditAppendsMetaBox)
+{
+    openmeta::PreparedTransferBundle bundle;
+    bundle.target_format = openmeta::TransferTargetFormat::Heif;
+
+    openmeta::PreparedTransferBlock exif;
+    exif.route   = "bmff:item-exif";
+    exif.payload = make_test_bmff_exif_item_payload();
+    bundle.blocks.push_back(exif);
+
+    openmeta::PreparedTransferBlock xmp;
+    xmp.route   = "bmff:item-xmp";
+    xmp.payload = { std::byte { '<' }, std::byte { 'x' }, std::byte { '/' },
+                    std::byte { '>' } };
+    bundle.blocks.push_back(xmp);
+
+    openmeta::PreparedTransferBlock icc;
+    icc.route   = "bmff:property-colr-icc";
+    icc.payload = { std::byte { 'p' },  std::byte { 'r' },  std::byte { 'o' },
+                    std::byte { 'f' },  std::byte { 0x01 }, std::byte { 0x02 },
+                    std::byte { 0x03 }, std::byte { 0x04 } };
+    bundle.blocks.push_back(icc);
+
+    const std::vector<std::byte> input = make_minimal_bmff_file();
+
+    openmeta::ExecutePreparedTransferOptions options;
+    options.edit_requested = true;
+    options.edit_apply     = true;
+
+    const openmeta::ExecutePreparedTransferResult result
+        = openmeta::execute_prepared_transfer(
+            &bundle, std::span<const std::byte>(input.data(), input.size()),
+            options);
+
+    EXPECT_EQ(result.edit_plan_status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.edit_apply.status, openmeta::TransferStatus::Ok);
+    EXPECT_GT(result.edit_output_size, static_cast<uint64_t>(input.size()));
+    ASSERT_FALSE(result.edited_output.empty());
+
+    std::array<openmeta::ContainerBlockRef, 16> blocks {};
+    const openmeta::ScanResult scan = openmeta::scan_bmff(
+        std::span<const std::byte>(result.edited_output.data(),
+                                   result.edited_output.size()),
+        std::span<openmeta::ContainerBlockRef>(blocks.data(), blocks.size()));
+    ASSERT_EQ(scan.status, openmeta::ScanStatus::Ok);
+    ASSERT_EQ(scan.written, 3U);
+    EXPECT_EQ(blocks[0].kind, openmeta::ContainerBlockKind::Exif);
+    EXPECT_EQ(blocks[1].kind, openmeta::ContainerBlockKind::Xmp);
+    EXPECT_EQ(blocks[2].kind, openmeta::ContainerBlockKind::Icc);
+}
+
+TEST(MetadataTransferApi, ExecutePreparedTransferBmffEditReplacesPriorMetaBox)
+{
+    openmeta::PreparedTransferBundle bundle;
+    bundle.target_format = openmeta::TransferTargetFormat::Avif;
+
+    openmeta::PreparedTransferBlock exif;
+    exif.route   = "bmff:item-exif";
+    exif.payload = make_test_bmff_exif_item_payload();
+    bundle.blocks.push_back(exif);
+
+    openmeta::PreparedTransferBlock xmp;
+    xmp.route   = "bmff:item-xmp";
+    xmp.payload = { std::byte { '<' }, std::byte { 'x' }, std::byte { 'm' },
+                    std::byte { 'p' } };
+    bundle.blocks.push_back(xmp);
+
+    const std::vector<std::byte> input = make_minimal_bmff_file();
+
+    openmeta::ExecutePreparedTransferOptions options;
+    options.edit_requested = true;
+    options.edit_apply     = true;
+
+    const openmeta::ExecutePreparedTransferResult first
+        = openmeta::execute_prepared_transfer(
+            &bundle, std::span<const std::byte>(input.data(), input.size()),
+            options);
+    ASSERT_EQ(first.edit_plan_status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(first.edit_apply.status, openmeta::TransferStatus::Ok);
+
+    const openmeta::ExecutePreparedTransferResult second
+        = openmeta::execute_prepared_transfer(
+            &bundle,
+            std::span<const std::byte>(first.edited_output.data(),
+                                       first.edited_output.size()),
+            options);
+    ASSERT_EQ(second.edit_plan_status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(second.edit_apply.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(second.edit_output_size, first.edit_output_size);
+
+    std::array<openmeta::ContainerBlockRef, 16> blocks {};
+    const openmeta::ScanResult scan = openmeta::scan_bmff(
+        std::span<const std::byte>(second.edited_output.data(),
+                                   second.edited_output.size()),
+        std::span<openmeta::ContainerBlockRef>(blocks.data(), blocks.size()));
+    ASSERT_EQ(scan.status, openmeta::ScanStatus::Ok);
+    ASSERT_EQ(scan.written, 2U);
+    EXPECT_EQ(blocks[0].kind, openmeta::ContainerBlockKind::Exif);
+    EXPECT_EQ(blocks[1].kind, openmeta::ContainerBlockKind::Xmp);
+}
+
+TEST(MetadataTransferApi, BuildExecutedTransferPackageBatchBmffMatchesEdit)
+{
+    openmeta::PreparedTransferBundle bundle;
+    bundle.target_format = openmeta::TransferTargetFormat::Cr3;
+
+    openmeta::PreparedTransferBlock exif;
+    exif.route   = "bmff:item-exif";
+    exif.payload = make_test_bmff_exif_item_payload();
+    bundle.blocks.push_back(exif);
+
+    openmeta::PreparedTransferBlock icc;
+    icc.route   = "bmff:property-colr-icc";
+    icc.payload = { std::byte { 'p' },  std::byte { 'r' },  std::byte { 'o' },
+                    std::byte { 'f' },  std::byte { 0x10 }, std::byte { 0x20 },
+                    std::byte { 0x30 }, std::byte { 0x40 } };
+    bundle.blocks.push_back(icc);
+
+    const std::vector<std::byte> input = make_minimal_bmff_file();
+
+    openmeta::ExecutePreparedTransferOptions plan_only_options;
+    plan_only_options.edit_requested = true;
+    const openmeta::ExecutePreparedTransferResult plan_only
+        = openmeta::execute_prepared_transfer(
+            &bundle, std::span<const std::byte>(input.data(), input.size()),
+            plan_only_options);
+    ASSERT_EQ(plan_only.edit_plan_status, openmeta::TransferStatus::Ok);
+
+    openmeta::PreparedTransferPackageBatch batch;
+    const openmeta::EmitTransferResult batch_result
+        = openmeta::build_executed_transfer_package_batch(
+            std::span<const std::byte>(input.data(), input.size()), bundle,
+            plan_only, &batch);
+    ASSERT_EQ(batch_result.status, openmeta::TransferStatus::Ok);
+
+    openmeta::ExecutePreparedTransferOptions apply_options;
+    apply_options.edit_requested = true;
+    apply_options.edit_apply     = true;
+    const openmeta::ExecutePreparedTransferResult applied
+        = openmeta::execute_prepared_transfer(
+            &bundle, std::span<const std::byte>(input.data(), input.size()),
+            apply_options);
+    ASSERT_EQ(applied.edit_apply.status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(batch.output_size,
+              static_cast<uint64_t>(applied.edited_output.size()));
+    ASSERT_LE(batch.output_size,
+              static_cast<uint64_t>(std::numeric_limits<size_t>::max()));
+
+    std::vector<std::byte> bytes(static_cast<size_t>(batch.output_size));
+    openmeta::SpanTransferByteWriter writer(
+        std::span<std::byte>(bytes.data(), bytes.size()));
+    const openmeta::EmitTransferResult write_result
+        = openmeta::write_prepared_transfer_package_batch(batch, writer);
+    ASSERT_EQ(write_result.status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(writer.bytes_written(), applied.edited_output.size());
+    EXPECT_EQ(std::memcmp(bytes.data(), applied.edited_output.data(),
+                          applied.edited_output.size()),
+              0);
 }
 
 TEST(MetadataTransferApi, EmitCompiledRejectsPlanMismatch)

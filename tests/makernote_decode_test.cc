@@ -730,6 +730,97 @@ namespace {
         return mn;
     }
 
+    static std::vector<std::byte> make_canon_colordata8_makernote()
+    {
+        // Canon MakerNote with a ColorData blob that matches the ColorData8
+        // heuristic and exposes the derived ColorCalib table.
+        static constexpr uint32_t kColorCount = 0x0143U;
+        std::vector<std::byte> color(size_t(kColorCount) * 2U, std::byte { 0 });
+
+        write_u16le_at(&color, 0x0000U * 2U, 8);
+        write_u16le_at(&color, 0x003FU * 2U, 777);
+        write_u16le_at(&color, 0x0043U * 2U, 6100);
+
+        write_u16le_at(&color, 0x0107U * 2U, 100);
+        write_u16le_at(&color, 0x0108U * 2U,
+                       static_cast<uint16_t>(0xFFFFU - 24U));
+        write_u16le_at(&color, 0x0109U * 2U, 300);
+        write_u16le_at(&color, 0x010AU * 2U, 5200);
+
+        write_u16le_at(&color, 0x010BU * 2U,
+                       static_cast<uint16_t>(0xFFFFU - 9U));
+        write_u16le_at(&color, 0x010CU * 2U, 20);
+        write_u16le_at(&color, 0x010DU * 2U,
+                       static_cast<uint16_t>(0xFFFFU - 29U));
+        write_u16le_at(&color, 0x010EU * 2U, 40);
+
+        std::vector<std::byte> mn;
+        append_u16le(&mn, 1);       // entry count
+        append_u16le(&mn, 0x4001);  // CanonColorData
+        append_u16le(&mn, 3);       // SHORT
+        append_u32le(&mn, kColorCount);
+        append_u32le(&mn, 18);  // value offset (MakerNote-relative)
+        append_u32le(&mn, 0);   // next IFD
+        EXPECT_EQ(mn.size(), 18U);
+        mn.insert(mn.end(), color.begin(), color.end());
+        return mn;
+    }
+
+    static std::vector<std::byte> make_canon_filterinfo_makernote()
+    {
+        // Canon MakerNote with a FilterInfo BinaryData directory:
+        // - MiniatureFilterOrientation (0x0402) -> scalar 2
+        // - MiniatureFilterPosition (0x0403) -> u32[2] {300, 700}
+        std::vector<std::byte> filter;
+        append_u32le(&filter, 0);   // length patched below
+        append_u32le(&filter, 0);   // reserved
+        append_u32le(&filter, 4);   // recNum
+        append_u32le(&filter, 36);  // recLen
+        append_u32le(&filter, 2);   // recCount
+
+        append_u32le(&filter, 0x0402);
+        append_u32le(&filter, 1);
+        append_u32le(&filter, 2);
+
+        append_u32le(&filter, 0x0403);
+        append_u32le(&filter, 2);
+        append_u32le(&filter, 300);
+        append_u32le(&filter, 700);
+
+        write_u32le_at(&filter, 0, static_cast<uint32_t>(filter.size()));
+        EXPECT_EQ(filter.size(), 48U);
+
+        std::vector<std::byte> mn;
+        append_u16le(&mn, 1);       // entry count
+        append_u16le(&mn, 0x4024);  // CanonFilterInfo
+        append_u16le(&mn, 4);       // LONG
+        append_u32le(&mn, static_cast<uint32_t>(filter.size() / 4U));
+        append_u32le(&mn, 18);  // value offset (MakerNote-relative)
+        append_u32le(&mn, 0);   // next IFD
+        EXPECT_EQ(mn.size(), 18U);
+        mn.insert(mn.end(), filter.begin(), filter.end());
+        return mn;
+    }
+
+    static std::vector<std::byte> make_canon_timeinfo_makernote()
+    {
+        // Canon MakerNote with a minimal TimeInfo LONG table.
+        std::vector<std::byte> mn;
+        append_u16le(&mn, 1);       // entry count
+        append_u16le(&mn, 0x0035);  // CanonTimeInfo
+        append_u16le(&mn, 4);       // LONG
+        append_u32le(&mn, 4);
+        append_u32le(&mn, 18);  // value offset (MakerNote-relative)
+        append_u32le(&mn, 0);   // next IFD
+        EXPECT_EQ(mn.size(), 18U);
+
+        append_u32le(&mn, 0);
+        append_u32le(&mn, 540);
+        append_u32le(&mn, 1234);
+        append_u32le(&mn, 1);
+        return mn;
+    }
+
 
     static std::vector<std::byte> make_casio_type2_makernote()
     {
@@ -818,6 +909,30 @@ namespace {
         append_u32le(&mn, 1);
         append_u32le(&mn, 0x00000042U);
         append_u32le(&mn, 0);
+        return mn;
+    }
+
+    static std::vector<std::byte> make_fuji_ge2_makernote()
+    {
+        std::vector<std::byte> mn(318, std::byte { 0 });
+
+        static constexpr char kGe2Magic[] = "GE\x0C\0\0\0\x16\0\0\0";
+        std::memcpy(mn.data(), kGe2Magic, 10);
+
+        const size_t entry0 = 14;
+        mn[entry0 + 0]      = std::byte { 0x01 };
+        mn[entry0 + 1]      = std::byte { 0x00 };
+        mn[entry0 + 2]      = std::byte { 0x03 };
+        mn[entry0 + 3]      = std::byte { 0x00 };
+        mn[entry0 + 4]      = std::byte { 0x01 };
+        mn[entry0 + 5]      = std::byte { 0x00 };
+        mn[entry0 + 6]      = std::byte { 0x00 };
+        mn[entry0 + 7]      = std::byte { 0x00 };
+        mn[entry0 + 8]      = std::byte { 0x42 };
+        mn[entry0 + 9]      = std::byte { 0x00 };
+        mn[entry0 + 10]     = std::byte { 0x00 };
+        mn[entry0 + 11]     = std::byte { 0x00 };
+
         return mn;
     }
 
@@ -2012,6 +2127,142 @@ TEST(MakerNoteDecode, DecodesCanonAfInfo2IntoDerivedIfd)
     }
 }
 
+TEST(MakerNoteDecode, DecodesCanonColorData8AndColorCalibIntoDerivedIfds)
+{
+    const std::vector<std::byte> mn   = make_canon_colordata8_makernote();
+    const std::vector<std::byte> tiff = make_test_tiff_with_makernote("Canon",
+                                                                      mn);
+
+    MetaStore store;
+    std::array<ExifIfdRef, 8> ifds {};
+    ExifDecodeOptions options;
+    options.decode_makernote   = true;
+    const ExifDecodeResult res = decode_exif_tiff(tiff, store, ifds, options);
+    EXPECT_EQ(res.status, ExifDecodeStatus::Ok);
+
+    store.finalize();
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("mk_canon_colorcalib_0", 0x0000));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Array);
+        EXPECT_EQ(e.value.elem_type, MetaElementType::I16);
+        EXPECT_EQ(e.value.count, 4U);
+        EXPECT_TRUE(any(e.flags, EntryFlags::Derived));
+
+        const std::span<const std::byte> got = store.arena().span(
+            e.value.data.span);
+        ASSERT_GE(got.size(), 8U);
+        int16_t vals[4] = {};
+        std::memcpy(vals, got.data(), sizeof(vals));
+        EXPECT_EQ(vals[0], 100);
+        EXPECT_EQ(vals[1], -25);
+        EXPECT_EQ(vals[2], 300);
+        EXPECT_EQ(vals[3], 5200);
+    }
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("mk_canon_colordata8_0", 0x0043));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
+        EXPECT_EQ(e.value.elem_type, MetaElementType::U16);
+        EXPECT_EQ(e.value.data.u64, 6100U);
+        EXPECT_TRUE(any(e.flags, EntryFlags::Derived));
+    }
+}
+
+TEST(MakerNoteDecode, DecodesCanonFilterInfoBinaryDirectoryIntoDerivedIfd)
+{
+    const std::vector<std::byte> mn   = make_canon_filterinfo_makernote();
+    const std::vector<std::byte> tiff = make_test_tiff_with_makernote("Canon",
+                                                                      mn);
+
+    MetaStore store;
+    std::array<ExifIfdRef, 8> ifds {};
+    ExifDecodeOptions options;
+    options.decode_makernote   = true;
+    const ExifDecodeResult res = decode_exif_tiff(tiff, store, ifds, options);
+    EXPECT_EQ(res.status, ExifDecodeStatus::Ok);
+
+    store.finalize();
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("mk_canon_filterinfo_0", 0x0402));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
+        EXPECT_EQ(e.value.elem_type, MetaElementType::U32);
+        EXPECT_EQ(e.value.data.u64, 2U);
+        EXPECT_TRUE(any(e.flags, EntryFlags::Derived));
+    }
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("mk_canon_filterinfo_0", 0x0403));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Array);
+        EXPECT_EQ(e.value.elem_type, MetaElementType::U32);
+        EXPECT_EQ(e.value.count, 2U);
+        EXPECT_TRUE(any(e.flags, EntryFlags::Derived));
+
+        const std::span<const std::byte> got = store.arena().span(
+            e.value.data.span);
+        ASSERT_GE(got.size(), 8U);
+        uint32_t vals[2] = {};
+        std::memcpy(vals, got.data(), sizeof(vals));
+        EXPECT_EQ(vals[0], 300U);
+        EXPECT_EQ(vals[1], 700U);
+    }
+}
+
+TEST(MakerNoteDecode, DecodesCanonTimeInfoIntoDerivedIfd)
+{
+    const std::vector<std::byte> mn   = make_canon_timeinfo_makernote();
+    const std::vector<std::byte> tiff = make_test_tiff_with_makernote("Canon",
+                                                                      mn);
+
+    MetaStore store;
+    std::array<ExifIfdRef, 8> ifds {};
+    ExifDecodeOptions options;
+    options.decode_makernote   = true;
+    const ExifDecodeResult res = decode_exif_tiff(tiff, store, ifds, options);
+    EXPECT_EQ(res.status, ExifDecodeStatus::Ok);
+
+    store.finalize();
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("mk_canon_timeinfo_0", 0x0001));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
+        EXPECT_EQ(e.value.elem_type, MetaElementType::U32);
+        EXPECT_EQ(e.value.data.u64, 540U);
+        EXPECT_TRUE(any(e.flags, EntryFlags::Derived));
+    }
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("mk_canon_timeinfo_0", 0x0002));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
+        EXPECT_EQ(e.value.elem_type, MetaElementType::U32);
+        EXPECT_EQ(e.value.data.u64, 1234U);
+        EXPECT_TRUE(any(e.flags, EntryFlags::Derived));
+    }
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("mk_canon_timeinfo_0", 0x0003));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
+        EXPECT_EQ(e.value.elem_type, MetaElementType::U32);
+        EXPECT_EQ(e.value.data.u64, 1U);
+        EXPECT_TRUE(any(e.flags, EntryFlags::Derived));
+    }
+}
+
 
 TEST(MakerNoteDecode, DecodesCasioType2MakerNoteQvcDirectory)
 {
@@ -2223,6 +2474,29 @@ TEST(MakerNoteDecode, DecodesCasioQvciApp1Block)
 TEST(MakerNoteDecode, DecodesFujiMakerNoteWithSignatureAndOffset)
 {
     const std::vector<std::byte> mn   = make_fuji_makernote();
+    const std::vector<std::byte> tiff = make_test_tiff_with_makernote("Canon",
+                                                                      mn);
+
+    MetaStore store;
+    std::array<ExifIfdRef, 8> ifds {};
+    ExifDecodeOptions options;
+    options.decode_makernote   = true;
+    const ExifDecodeResult res = decode_exif_tiff(tiff, store, ifds, options);
+    EXPECT_EQ(res.status, ExifDecodeStatus::Ok);
+
+    store.finalize();
+    const std::span<const EntryId> ids = store.find_all(
+        exif_key("mk_fuji0", 0x0001));
+    ASSERT_EQ(ids.size(), 1U);
+    const Entry& e = store.entry(ids[0]);
+    EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
+    EXPECT_EQ(e.value.elem_type, MetaElementType::U16);
+    EXPECT_EQ(e.value.data.u64, 0x42U);
+}
+
+TEST(MakerNoteDecode, DecodesFujiGeType2MakerNote)
+{
+    const std::vector<std::byte> mn   = make_fuji_ge2_makernote();
     const std::vector<std::byte> tiff = make_test_tiff_with_makernote("Canon",
                                                                       mn);
 

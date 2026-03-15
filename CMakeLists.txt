@@ -200,6 +200,7 @@ set(OPENMETA_SOURCES
   src/openmeta/exif_makernote_canon.cc
   src/openmeta/exif_makernote_casio.cc
   src/openmeta/exif_makernote_flir.cc
+  src/openmeta/exif_makernote_fujifilm.cc
   src/openmeta/exif_makernote_hp.cc
   src/openmeta/exif_makernote_nintendo.cc
   src/openmeta/exif_makernote_nikon.cc

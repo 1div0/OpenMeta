@@ -18,6 +18,9 @@ set(_icc_jpg "${WORK_DIR}/sample_icc.jpg")
 set(_target_jpg "${WORK_DIR}/target.jpg")
 set(_dump_dir "${WORK_DIR}/payloads")
 set(_edited_jpg "${WORK_DIR}/edited.jpg")
+set(_target_jxl "${WORK_DIR}/target.jxl")
+set(_edited_jxl "${WORK_DIR}/edited.jxl")
+set(_jxl_handoff "${WORK_DIR}/jxl_encoder_handoff.omjxic")
 set(_split_jpg "${WORK_DIR}/split_injected.jpg")
 set(_target_tif "${WORK_DIR}/target.tif")
 set(_split_tif "${WORK_DIR}/split_injected.tif")
@@ -25,16 +28,27 @@ set(_target_tif_be "${WORK_DIR}/target_be.tif")
 set(_split_tif_be "${WORK_DIR}/split_injected_be.tif")
 set(_jpg_rich "${WORK_DIR}/sample_rich.jpg")
 set(_c2pa_jpg "${WORK_DIR}/sample_c2pa.jpg")
+set(_c2pa_jxl "${WORK_DIR}/sample_c2pa.jxl")
+set(_c2pa_heif "${WORK_DIR}/sample_c2pa.heif")
 set(_jumbf_box "${WORK_DIR}/sample.jumbf")
 set(_signed_c2pa_box "${WORK_DIR}/signed_c2pa.jumb")
 set(_signed_c2pa_manifest "${WORK_DIR}/signed_c2pa_manifest.bin")
 set(_signed_c2pa_chain "${WORK_DIR}/signed_c2pa_chain.bin")
 set(_c2pa_binding_out "${WORK_DIR}/sample_c2pa.binding.bin")
+set(_c2pa_jxl_binding_out "${WORK_DIR}/sample_c2pa_jxl.binding.bin")
+set(_c2pa_heif_binding_out "${WORK_DIR}/sample_c2pa_heif.binding.bin")
 set(_c2pa_handoff_out "${WORK_DIR}/sample_c2pa.handoff.bin")
+set(_c2pa_heif_handoff_out "${WORK_DIR}/sample_c2pa_heif.handoff.bin")
 set(_signed_c2pa_package_out "${WORK_DIR}/sample_c2pa.signed.bin")
+set(_signed_c2pa_jxl_package_out "${WORK_DIR}/sample_c2pa_jxl.signed.bin")
+set(_signed_c2pa_heif_package_out "${WORK_DIR}/sample_c2pa_heif.signed.bin")
 set(_transfer_payload_batch_out "${WORK_DIR}/sample.payload_batch.omtpld")
+set(_transfer_package_batch_out "${WORK_DIR}/sample.package_batch.omtpkg")
 set(_signed_c2pa_edited "${WORK_DIR}/signed_c2pa_edited.jpg")
+set(_signed_c2pa_jxl_edited "${WORK_DIR}/signed_c2pa_edited.jxl")
 set(_signed_c2pa_from_package "${WORK_DIR}/signed_c2pa_from_package.jpg")
+set(_signed_c2pa_heif_edited "${WORK_DIR}/signed_c2pa_edited.heif")
+set(_signed_c2pa_heif_from_package "${WORK_DIR}/signed_c2pa_from_package.heif")
 set(_split_tif_rich "${WORK_DIR}/split_rich.tif")
 set(_split_tif_be_rich "${WORK_DIR}/split_rich_be.tif")
 set(_rich_builder_py "${WORK_DIR}/build_rich_exif_fixture.py")
@@ -78,6 +92,19 @@ execute_process(
 if(NOT _rv_write_target EQUAL 0)
   message(FATAL_ERROR
     "failed to write target jpeg fixture (${_rv_write_target})\nstdout:\n${_out_write_target}\nstderr:\n${_err_write_target}")
+endif()
+
+# Minimal JXL container target: signature + jxlc codestream box.
+execute_process(
+  COMMAND python3 -c
+    "from pathlib import Path; u32=lambda v:(v).to_bytes(4,'big'); box=lambda t,p:u32(8+len(p))+t+p; Path(r'''${_target_jxl}''').write_bytes(u32(12)+b'JXL '+u32(0x0D0A870A)+box(b'jxlc', bytes([0x11,0x22,0x33,0x44])))"
+  RESULT_VARIABLE _rv_write_jxl
+  OUTPUT_VARIABLE _out_write_jxl
+  ERROR_VARIABLE _err_write_jxl
+)
+if(NOT _rv_write_jxl EQUAL 0)
+  message(FATAL_ERROR
+    "failed to write target jxl fixture (${_rv_write_jxl})\nstdout:\n${_out_write_jxl}\nstderr:\n${_err_write_jxl}")
 endif()
 
 #Minimal classic TIFF target(II + 42 + IFD0 at offset 8 with 0 entries)
@@ -132,6 +159,18 @@ endif()
 
 execute_process(
   COMMAND python3 -c
+    "from pathlib import Path; u32=lambda v:(v).to_bytes(4,'big'); box=lambda t,p:u32(8+len(p))+t+p; cbor=bytes([0xA1,0x61,0x61,0x01]); jumd=b'c2pa\\x00'; logical=box(b'jumb', box(b'jumd', jumd)+box(b'cbor', cbor)); Path(r'''${_c2pa_jxl}''').write_bytes(u32(12)+b'JXL '+u32(0x0D0A870A)+box(b'jxlc', bytes([0x11,0x22,0x33,0x44]))+box(b'jumb', logical[8:]))"
+  RESULT_VARIABLE _rv_write_c2pa_jxl
+  OUTPUT_VARIABLE _out_write_c2pa_jxl
+  ERROR_VARIABLE _err_write_c2pa_jxl
+)
+if(NOT _rv_write_c2pa_jxl EQUAL 0)
+  message(FATAL_ERROR
+    "failed to write c2pa jxl fixture (${_rv_write_c2pa_jxl})\nstdout:\n${_out_write_c2pa_jxl}\nstderr:\n${_err_write_c2pa_jxl}")
+endif()
+
+execute_process(
+  COMMAND python3 -c
     "from pathlib import Path; jumd=b'c2pa\\x00'; box=lambda t,p: (8+len(p)).to_bytes(4,'big')+t+p; cbor=bytearray(); cbor+=bytes([0xA1,0x68])+b'manifest'; cbor+=bytes([0x81,0xA2,0x6F])+b'claim_generator'; cbor+=bytes([0x64])+b'test'; cbor+=bytes([0x66])+b'claims'; cbor+=bytes([0x81,0xA2,0x6A])+b'assertions'; cbor+=bytes([0x81,0xA1,0x65])+b'label'; cbor+=bytes([0x6E])+b'c2pa.hash.data'; cbor+=bytes([0x6A])+b'signatures'; cbor+=bytes([0x81,0xA2,0x63])+b'alg'; cbor+=bytes([0x65])+b'ES256'; cbor+=bytes([0x69])+b'signature'; cbor+=bytes([0x44,0x01,0x02,0x03,0x04]); Path(r'''${_signed_c2pa_box}''').write_bytes(box(b'jumb', box(b'jumd', jumd)+box(b'cbor', bytes(cbor)))); Path(r'''${_signed_c2pa_manifest}''').write_bytes(bytes(cbor)); Path(r'''${_signed_c2pa_chain}''').write_bytes(bytes([0x30,0x82,0x01,0x00]))"
   RESULT_VARIABLE _rv_write_signed_c2pa
   OUTPUT_VARIABLE _out_write_signed_c2pa
@@ -140,6 +179,18 @@ execute_process(
 if(NOT _rv_write_signed_c2pa EQUAL 0)
   message(FATAL_ERROR
     "failed to write signed c2pa fixtures (${_rv_write_signed_c2pa})\nstdout:\n${_out_write_signed_c2pa}\nstderr:\n${_err_write_signed_c2pa}")
+endif()
+
+execute_process(
+  COMMAND python3 -c
+    "from pathlib import Path; u32=lambda v:(v).to_bytes(4,'big'); box=lambda t,p:u32(8+len(p))+t+p; uuidbox=lambda u,p:u32(24+len(p))+b'uuid'+u+p; logical=Path(r'''${_signed_c2pa_box}''').read_bytes(); marker=b'openmeta:bmff_transfer_meta:v1'; uuid=b'OpenMetaBmffMeta'; infe=b'\\x02\\x00\\x00\\x00'+(1).to_bytes(2,'big')+(0).to_bytes(2,'big')+b'c2pa'+b'C2PA\\x00'; iinf=box(b'iinf', b'\\x00\\x00\\x00\\x00'+(1).to_bytes(2,'big')+box(b'infe', infe)); idat=box(b'idat', logical); iloc=box(b'iloc', b'\\x01\\x00\\x00\\x00'+bytes([0x44,0x40])+(1).to_bytes(2,'big')+(1).to_bytes(2,'big')+(1).to_bytes(2,'big')+(0).to_bytes(2,'big')+(0).to_bytes(4,'big')+(1).to_bytes(2,'big')+(0).to_bytes(4,'big')+len(logical).to_bytes(4,'big')); meta=box(b'meta', b'\\x00\\x00\\x00\\x00'+uuidbox(uuid, marker)+iinf+idat+iloc); ftyp=box(b'ftyp', b'heic'+u32(0)+b'mif1heic'); mdat=box(b'mdat', bytes([0x11,0x22,0x33,0x44])); Path(r'''${_c2pa_heif}''').write_bytes(ftyp+mdat+meta)"
+  RESULT_VARIABLE _rv_write_c2pa_heif
+  OUTPUT_VARIABLE _out_write_c2pa_heif
+  ERROR_VARIABLE _err_write_c2pa_heif
+)
+if(NOT _rv_write_c2pa_heif EQUAL 0)
+  message(FATAL_ERROR
+    "failed to write c2pa heif fixture (${_rv_write_c2pa_heif})\nstdout:\n${_out_write_c2pa_heif}\nstderr:\n${_err_write_c2pa_heif}")
 endif()
 
 file(WRITE "${_rich_builder_py}" [=[
@@ -582,6 +633,63 @@ endif()
 
 execute_process(
   COMMAND "${METATRANSFER_BIN}" --no-build-info
+          --load-transfer-artifact "${_transfer_payload_batch_out}"
+  RESULT_VARIABLE _rv_artifact_payload_load
+  OUTPUT_VARIABLE _out_artifact_payload_load
+  ERROR_VARIABLE _err_artifact_payload_load
+)
+if(NOT _rv_artifact_payload_load EQUAL 0)
+  message(FATAL_ERROR
+    "metatransfer generic artifact load for payload batch failed (${_rv_artifact_payload_load})\nstdout:\n${_out_artifact_payload_load}\nstderr:\n${_err_artifact_payload_load}")
+endif()
+if(NOT _out_artifact_payload_load MATCHES "transfer_artifact: status=ok code=none kind=transfer_payload_batch bytes=[0-9]+ target=jpeg")
+  message(FATAL_ERROR
+    "metatransfer generic artifact load missing payload-batch summary\nstdout:\n${_out_artifact_payload_load}\nstderr:\n${_err_artifact_payload_load}")
+endif()
+
+execute_process(
+  COMMAND "${METATRANSFER_BIN}" --no-build-info
+          --dump-transfer-package-batch "${_transfer_package_batch_out}"
+          --force
+          "${_jpg}"
+  RESULT_VARIABLE _rv_package_batch
+  OUTPUT_VARIABLE _out_package_batch
+  ERROR_VARIABLE _err_package_batch
+)
+if(NOT _rv_package_batch EQUAL 0)
+  message(FATAL_ERROR
+    "metatransfer package batch dump failed (${_rv_package_batch})\nstdout:\n${_out_package_batch}\nstderr:\n${_err_package_batch}")
+endif()
+if(NOT _out_package_batch MATCHES "transfer_package_batch: status=ok code=none bytes=[0-9]+ errors=0 path=")
+  message(FATAL_ERROR
+    "metatransfer package batch dump missing summary\nstdout:\n${_out_package_batch}\nstderr:\n${_err_package_batch}")
+endif()
+if(NOT EXISTS "${_transfer_package_batch_out}")
+  message(FATAL_ERROR "expected transfer package batch dump was not written")
+endif()
+
+execute_process(
+  COMMAND "${METATRANSFER_BIN}" --no-build-info
+          --load-transfer-package-batch "${_transfer_package_batch_out}"
+  RESULT_VARIABLE _rv_package_batch_load
+  OUTPUT_VARIABLE _out_package_batch_load
+  ERROR_VARIABLE _err_package_batch_load
+)
+if(NOT _rv_package_batch_load EQUAL 0)
+  message(FATAL_ERROR
+    "metatransfer package batch load failed (${_rv_package_batch_load})\nstdout:\n${_out_package_batch_load}\nstderr:\n${_err_package_batch_load}")
+endif()
+if(NOT _out_package_batch_load MATCHES "transfer_package_batch: status=ok code=none bytes=[0-9]+ chunks=[0-9]+ target=jpeg")
+  message(FATAL_ERROR
+    "metatransfer package batch load missing summary\nstdout:\n${_out_package_batch_load}\nstderr:\n${_err_package_batch_load}")
+endif()
+if(NOT _out_package_batch_load MATCHES "\\[0\\] semantic=Exif route=jpeg:app1-exif")
+  message(FATAL_ERROR
+    "metatransfer package batch load missing first chunk summary\nstdout:\n${_out_package_batch_load}\nstderr:\n${_err_package_batch_load}")
+endif()
+
+execute_process(
+  COMMAND "${METATRANSFER_BIN}" --no-build-info
           --no-exif --no-xmp --no-icc --no-iptc
           --c2pa-policy rewrite
           --dump-c2pa-binding "${_c2pa_binding_out}"
@@ -733,6 +841,237 @@ if(NOT _out_c2pa_stage_pkg MATCHES "c2pa_stage_references: sig0_keys=0 sig0_pres
 endif()
 if(NOT EXISTS "${_signed_c2pa_from_package}")
   message(FATAL_ERROR "expected edited jpeg from signed c2pa package was not written")
+endif()
+
+execute_process(
+  COMMAND "${METATRANSFER_BIN}" --no-build-info
+          --target-jxl
+          --no-exif --no-xmp --no-icc --no-iptc
+          --c2pa-policy rewrite
+          --dump-c2pa-binding "${_c2pa_jxl_binding_out}"
+          --force
+          "${_c2pa_jxl}"
+  RESULT_VARIABLE _rv_c2pa_jxl_binding
+  OUTPUT_VARIABLE _out_c2pa_jxl_binding
+  ERROR_VARIABLE _err_c2pa_jxl_binding
+)
+if(NOT _rv_c2pa_jxl_binding EQUAL 0)
+  message(FATAL_ERROR
+    "metatransfer jxl c2pa binding dump failed (${_rv_c2pa_jxl_binding})\nstdout:\n${_out_c2pa_jxl_binding}\nstderr:\n${_err_c2pa_jxl_binding}")
+endif()
+if(NOT _out_c2pa_jxl_binding MATCHES "c2pa_sign_request: status=ok carrier=jxl:box-jumb")
+  message(FATAL_ERROR
+    "metatransfer jxl c2pa binding dump missing sign-request summary\nstdout:\n${_out_c2pa_jxl_binding}\nstderr:\n${_err_c2pa_jxl_binding}")
+endif()
+if(NOT _out_c2pa_jxl_binding MATCHES "c2pa_binding: status=ok code=none bytes=24 errors=0 path=")
+  message(FATAL_ERROR
+    "metatransfer jxl c2pa binding dump missing binding summary\nstdout:\n${_out_c2pa_jxl_binding}\nstderr:\n${_err_c2pa_jxl_binding}")
+endif()
+if(NOT EXISTS "${_c2pa_jxl_binding_out}")
+  message(FATAL_ERROR "expected jxl c2pa binding dump was not written")
+endif()
+file(READ "${_c2pa_jxl_binding_out}" _c2pa_jxl_binding_hex HEX)
+if(NOT _c2pa_jxl_binding_hex STREQUAL "0000000c4a584c200d0a870a0000000c6a786c6311223344")
+  message(FATAL_ERROR
+    "jxl c2pa binding dump bytes mismatch: ${_c2pa_jxl_binding_hex}")
+endif()
+
+execute_process(
+  COMMAND "${METATRANSFER_BIN}" --no-build-info
+          --target-jxl
+          --no-exif --no-xmp --no-icc --no-iptc
+          --jpeg-c2pa-signed "${_signed_c2pa_box}"
+          --c2pa-manifest-output "${_signed_c2pa_manifest}"
+          --c2pa-certificate-chain "${_signed_c2pa_chain}"
+          --c2pa-key-ref "test-key-ref"
+          --c2pa-signing-time "2026-03-09T00:00:00Z"
+          --dump-c2pa-signed-package "${_signed_c2pa_jxl_package_out}"
+          --output "${_signed_c2pa_jxl_edited}" --force
+          "${_c2pa_jxl}"
+  RESULT_VARIABLE _rv_c2pa_jxl_stage
+  OUTPUT_VARIABLE _out_c2pa_jxl_stage
+  ERROR_VARIABLE _err_c2pa_jxl_stage
+)
+if(NOT _rv_c2pa_jxl_stage EQUAL 0)
+  message(FATAL_ERROR
+    "metatransfer jxl signed c2pa staging failed (${_rv_c2pa_jxl_stage})\nstdout:\n${_out_c2pa_jxl_stage}\nstderr:\n${_err_c2pa_jxl_stage}")
+endif()
+if(NOT _out_c2pa_jxl_stage MATCHES "prepare: status=unsupported")
+  message(FATAL_ERROR
+    "metatransfer jxl signed c2pa staging missing initial prepare unsupported\nstdout:\n${_out_c2pa_jxl_stage}\nstderr:\n${_err_c2pa_jxl_stage}")
+endif()
+if(NOT _out_c2pa_jxl_stage MATCHES "c2pa_stage_validate: status=ok code=none kind=content_bound payload_bytes=[0-9]+ carrier_bytes=[0-9]+ segments=1 errors=0")
+  message(FATAL_ERROR
+    "metatransfer jxl signed c2pa staging missing validation summary\nstdout:\n${_out_c2pa_jxl_stage}\nstderr:\n${_err_c2pa_jxl_stage}")
+endif()
+if(NOT _out_c2pa_jxl_stage MATCHES "c2pa_stage: status=ok code=none emitted=1 removed=0 errors=0")
+  message(FATAL_ERROR
+    "metatransfer jxl signed c2pa staging missing stage ok\nstdout:\n${_out_c2pa_jxl_stage}\nstderr:\n${_err_c2pa_jxl_stage}")
+endif()
+if(NOT _out_c2pa_jxl_stage MATCHES "policy\\[c2pa\\]: requested=rewrite effective=keep reason=external_signed_payload mode=signed_rewrite source=content_bound output=signed_rewrite")
+  message(FATAL_ERROR
+    "metatransfer jxl signed c2pa staging missing signed rewrite policy\nstdout:\n${_out_c2pa_jxl_stage}\nstderr:\n${_err_c2pa_jxl_stage}")
+endif()
+if(NOT _out_c2pa_jxl_stage MATCHES "c2pa_rewrite: state=ready target=jxl source=content_bound matched=[0-9]+ existing_segments=1 carrier_available=yes invalidates_existing=yes")
+  message(FATAL_ERROR
+    "metatransfer jxl signed c2pa staging missing ready rewrite summary\nstdout:\n${_out_c2pa_jxl_stage}\nstderr:\n${_err_c2pa_jxl_stage}")
+endif()
+if(NOT _out_c2pa_jxl_stage MATCHES "c2pa_signed_package: status=ok code=none bytes=[0-9]+ errors=0 path=")
+  message(FATAL_ERROR
+    "metatransfer jxl signed c2pa staging missing signed-package summary\nstdout:\n${_out_c2pa_jxl_stage}\nstderr:\n${_err_c2pa_jxl_stage}")
+endif()
+if(NOT _out_c2pa_jxl_stage MATCHES "edit_apply: status=ok")
+  message(FATAL_ERROR
+    "metatransfer jxl signed c2pa staging missing edit apply ok\nstdout:\n${_out_c2pa_jxl_stage}\nstderr:\n${_err_c2pa_jxl_stage}")
+endif()
+if(NOT EXISTS "${_signed_c2pa_jxl_edited}")
+  message(FATAL_ERROR "expected edited signed c2pa jxl was not written")
+endif()
+if(NOT EXISTS "${_signed_c2pa_jxl_package_out}")
+  message(FATAL_ERROR "expected signed c2pa jxl package was not written")
+endif()
+
+execute_process(
+  COMMAND "${METATRANSFER_BIN}" --no-build-info
+          --target-heif
+          --no-exif --no-xmp --no-icc --no-iptc
+          --c2pa-policy rewrite
+          --dump-c2pa-binding "${_c2pa_heif_binding_out}"
+          --force
+          "${_c2pa_heif}"
+  RESULT_VARIABLE _rv_c2pa_heif_binding
+  OUTPUT_VARIABLE _out_c2pa_heif_binding
+  ERROR_VARIABLE _err_c2pa_heif_binding
+)
+if(NOT _rv_c2pa_heif_binding EQUAL 0)
+  message(FATAL_ERROR
+    "metatransfer heif c2pa binding dump failed (${_rv_c2pa_heif_binding})\nstdout:\n${_out_c2pa_heif_binding}\nstderr:\n${_err_c2pa_heif_binding}")
+endif()
+if(NOT _out_c2pa_heif_binding MATCHES "c2pa_sign_request: status=ok carrier=bmff:item-c2pa")
+  message(FATAL_ERROR
+    "metatransfer heif c2pa binding dump missing sign-request summary\nstdout:\n${_out_c2pa_heif_binding}\nstderr:\n${_err_c2pa_heif_binding}")
+endif()
+if(NOT _out_c2pa_heif_binding MATCHES "c2pa_binding: status=ok code=none bytes=36 errors=0 path=")
+  message(FATAL_ERROR
+    "metatransfer heif c2pa binding dump missing binding summary\nstdout:\n${_out_c2pa_heif_binding}\nstderr:\n${_err_c2pa_heif_binding}")
+endif()
+if(NOT EXISTS "${_c2pa_heif_binding_out}")
+  message(FATAL_ERROR "expected heif c2pa binding dump was not written")
+endif()
+file(READ "${_c2pa_heif_binding_out}" _c2pa_heif_binding_hex HEX)
+if(NOT _c2pa_heif_binding_hex STREQUAL "000000186674797068656963000000006d696631686569630000000c6d64617411223344")
+  message(FATAL_ERROR
+    "heif c2pa binding dump bytes mismatch: ${_c2pa_heif_binding_hex}")
+endif()
+
+execute_process(
+  COMMAND "${METATRANSFER_BIN}" --no-build-info
+          --target-heif
+          --no-exif --no-xmp --no-icc --no-iptc
+          --c2pa-policy rewrite
+          --dump-c2pa-handoff "${_c2pa_heif_handoff_out}"
+          --force
+          "${_c2pa_heif}"
+  RESULT_VARIABLE _rv_c2pa_heif_handoff
+  OUTPUT_VARIABLE _out_c2pa_heif_handoff
+  ERROR_VARIABLE _err_c2pa_heif_handoff
+)
+if(NOT _rv_c2pa_heif_handoff EQUAL 0)
+  message(FATAL_ERROR
+    "metatransfer heif c2pa handoff dump failed (${_rv_c2pa_heif_handoff})\nstdout:\n${_out_c2pa_heif_handoff}\nstderr:\n${_err_c2pa_heif_handoff}")
+endif()
+if(NOT _out_c2pa_heif_handoff MATCHES "c2pa_handoff_package: status=ok code=none bytes=[0-9]+ errors=0 path=")
+  message(FATAL_ERROR
+    "metatransfer heif c2pa handoff dump missing package summary\nstdout:\n${_out_c2pa_heif_handoff}\nstderr:\n${_err_c2pa_heif_handoff}")
+endif()
+if(NOT EXISTS "${_c2pa_heif_handoff_out}")
+  message(FATAL_ERROR "expected heif c2pa handoff package was not written")
+endif()
+
+execute_process(
+  COMMAND "${METATRANSFER_BIN}" --no-build-info
+          --target-heif
+          --no-exif --no-xmp --no-icc --no-iptc
+          --jpeg-c2pa-signed "${_signed_c2pa_box}"
+          --c2pa-manifest-output "${_signed_c2pa_manifest}"
+          --c2pa-certificate-chain "${_signed_c2pa_chain}"
+          --c2pa-key-ref "test-key-ref"
+          --c2pa-signing-time "2026-03-09T00:00:00Z"
+          --dump-c2pa-signed-package "${_signed_c2pa_heif_package_out}"
+          --output "${_signed_c2pa_heif_edited}" --force
+          "${_c2pa_heif}"
+  RESULT_VARIABLE _rv_c2pa_heif_stage
+  OUTPUT_VARIABLE _out_c2pa_heif_stage
+  ERROR_VARIABLE _err_c2pa_heif_stage
+)
+if(NOT _rv_c2pa_heif_stage EQUAL 0)
+  message(FATAL_ERROR
+    "metatransfer heif signed c2pa staging failed (${_rv_c2pa_heif_stage})\nstdout:\n${_out_c2pa_heif_stage}\nstderr:\n${_err_c2pa_heif_stage}")
+endif()
+if(NOT _out_c2pa_heif_stage MATCHES "prepare: status=unsupported")
+  message(FATAL_ERROR
+    "metatransfer heif signed c2pa staging missing initial prepare unsupported\nstdout:\n${_out_c2pa_heif_stage}\nstderr:\n${_err_c2pa_heif_stage}")
+endif()
+if(NOT _out_c2pa_heif_stage MATCHES "c2pa_stage_validate: status=ok code=none kind=content_bound payload_bytes=[0-9]+ carrier_bytes=[0-9]+ segments=1 errors=0")
+  message(FATAL_ERROR
+    "metatransfer heif signed c2pa staging missing validation summary\nstdout:\n${_out_c2pa_heif_stage}\nstderr:\n${_err_c2pa_heif_stage}")
+endif()
+if(NOT _out_c2pa_heif_stage MATCHES "c2pa_stage: status=ok code=none emitted=1 removed=0 errors=0")
+  message(FATAL_ERROR
+    "metatransfer heif signed c2pa staging missing stage ok\nstdout:\n${_out_c2pa_heif_stage}\nstderr:\n${_err_c2pa_heif_stage}")
+endif()
+if(NOT _out_c2pa_heif_stage MATCHES "policy\\[c2pa\\]: requested=rewrite effective=keep reason=external_signed_payload mode=signed_rewrite source=content_bound output=signed_rewrite")
+  message(FATAL_ERROR
+    "metatransfer heif signed c2pa staging missing signed rewrite policy\nstdout:\n${_out_c2pa_heif_stage}\nstderr:\n${_err_c2pa_heif_stage}")
+endif()
+if(NOT _out_c2pa_heif_stage MATCHES "c2pa_rewrite: state=ready target=heif source=content_bound matched=[0-9]+ existing_segments=[0-9]+ carrier_available=yes invalidates_existing=yes")
+  message(FATAL_ERROR
+    "metatransfer heif signed c2pa staging missing ready rewrite summary\nstdout:\n${_out_c2pa_heif_stage}\nstderr:\n${_err_c2pa_heif_stage}")
+endif()
+if(NOT _out_c2pa_heif_stage MATCHES "c2pa_signed_package: status=ok code=none bytes=[0-9]+ errors=0 path=")
+  message(FATAL_ERROR
+    "metatransfer heif signed c2pa staging missing signed-package summary\nstdout:\n${_out_c2pa_heif_stage}\nstderr:\n${_err_c2pa_heif_stage}")
+endif()
+if(NOT _out_c2pa_heif_stage MATCHES "bmff_edit_apply: status=ok")
+  message(FATAL_ERROR
+    "metatransfer heif signed c2pa staging missing bmff edit apply ok\nstdout:\n${_out_c2pa_heif_stage}\nstderr:\n${_err_c2pa_heif_stage}")
+endif()
+if(NOT EXISTS "${_signed_c2pa_heif_edited}")
+  message(FATAL_ERROR "expected edited signed c2pa heif was not written")
+endif()
+if(NOT EXISTS "${_signed_c2pa_heif_package_out}")
+  message(FATAL_ERROR "expected signed c2pa heif package was not written")
+endif()
+
+execute_process(
+  COMMAND "${METATRANSFER_BIN}" --no-build-info
+          --target-heif
+          --no-exif --no-xmp --no-icc --no-iptc
+          --load-c2pa-signed-package "${_signed_c2pa_heif_package_out}"
+          --output "${_signed_c2pa_heif_from_package}" --force
+          "${_c2pa_heif}"
+  RESULT_VARIABLE _rv_c2pa_heif_stage_pkg
+  OUTPUT_VARIABLE _out_c2pa_heif_stage_pkg
+  ERROR_VARIABLE _err_c2pa_heif_stage_pkg
+)
+if(NOT _rv_c2pa_heif_stage_pkg EQUAL 0)
+  message(FATAL_ERROR
+    "metatransfer heif signed c2pa package staging failed (${_rv_c2pa_heif_stage_pkg})\nstdout:\n${_out_c2pa_heif_stage_pkg}\nstderr:\n${_err_c2pa_heif_stage_pkg}")
+endif()
+if(NOT _out_c2pa_heif_stage_pkg MATCHES "c2pa_signed_package_input: status=ok code=none bytes=[0-9]+ errors=0 path=")
+  message(FATAL_ERROR
+    "metatransfer heif signed c2pa package staging missing package input summary\nstdout:\n${_out_c2pa_heif_stage_pkg}\nstderr:\n${_err_c2pa_heif_stage_pkg}")
+endif()
+if(NOT _out_c2pa_heif_stage_pkg MATCHES "c2pa_stage: status=ok code=none emitted=1 removed=0 errors=0")
+  message(FATAL_ERROR
+    "metatransfer heif signed c2pa package staging missing stage ok\nstdout:\n${_out_c2pa_heif_stage_pkg}\nstderr:\n${_err_c2pa_heif_stage_pkg}")
+endif()
+if(NOT _out_c2pa_heif_stage_pkg MATCHES "bmff_edit_apply: status=ok")
+  message(FATAL_ERROR
+    "metatransfer heif signed c2pa package staging missing bmff edit apply ok\nstdout:\n${_out_c2pa_heif_stage_pkg}\nstderr:\n${_err_c2pa_heif_stage_pkg}")
+endif()
+if(NOT EXISTS "${_signed_c2pa_heif_from_package}")
+  message(FATAL_ERROR "expected edited signed c2pa heif from package was not written")
 endif()
 
 execute_process(
@@ -908,6 +1247,122 @@ endif()
 
 execute_process(
   COMMAND "${METATRANSFER_BIN}" --no-build-info
+          --target-jxl
+          --no-exif
+          --no-xmp
+          --no-iptc
+          "${_icc_jpg}"
+  RESULT_VARIABLE _rv_jxl_icc
+  OUTPUT_VARIABLE _out_jxl_icc
+  ERROR_VARIABLE _err_jxl_icc
+)
+if(NOT _rv_jxl_icc EQUAL 0)
+  message(FATAL_ERROR
+    "metatransfer jxl icc summary failed (${_rv_jxl_icc})\nstdout:\n${_out_jxl_icc}\nstderr:\n${_err_jxl_icc}")
+endif()
+if(NOT _out_jxl_icc MATCHES "jxl_icc_profile bytes=[1-9][0-9]*")
+  message(FATAL_ERROR
+    "metatransfer jxl icc summary missing encoder icc handoff\nstdout:\n${_out_jxl_icc}\nstderr:\n${_err_jxl_icc}")
+endif()
+
+execute_process(
+  COMMAND "${METATRANSFER_BIN}" --no-build-info
+          --target-jxl
+          --no-exif
+          --no-xmp
+          --no-iptc
+          --dump-jxl-encoder-handoff "${_jxl_handoff}"
+          "${_icc_jpg}"
+  RESULT_VARIABLE _rv_jxl_handoff
+  OUTPUT_VARIABLE _out_jxl_handoff
+  ERROR_VARIABLE _err_jxl_handoff
+)
+if(NOT _rv_jxl_handoff EQUAL 0)
+  message(FATAL_ERROR
+    "metatransfer jxl encoder handoff dump failed (${_rv_jxl_handoff})\nstdout:\n${_out_jxl_handoff}\nstderr:\n${_err_jxl_handoff}")
+endif()
+if(NOT _out_jxl_handoff MATCHES "jxl_encoder_handoff: status=ok")
+  message(FATAL_ERROR
+    "metatransfer jxl encoder handoff dump missing status ok\nstdout:\n${_out_jxl_handoff}\nstderr:\n${_err_jxl_handoff}")
+endif()
+if(NOT EXISTS "${_jxl_handoff}")
+  message(FATAL_ERROR
+    "metatransfer jxl encoder handoff dump did not write output\nstdout:\n${_out_jxl_handoff}\nstderr:\n${_err_jxl_handoff}")
+endif()
+
+execute_process(
+  COMMAND "${METATRANSFER_BIN}" --no-build-info
+          --load-jxl-encoder-handoff "${_jxl_handoff}"
+  RESULT_VARIABLE _rv_jxl_handoff_load
+  OUTPUT_VARIABLE _out_jxl_handoff_load
+  ERROR_VARIABLE _err_jxl_handoff_load
+)
+if(NOT _rv_jxl_handoff_load EQUAL 0)
+  message(FATAL_ERROR
+    "metatransfer jxl encoder handoff load failed (${_rv_jxl_handoff_load})\nstdout:\n${_out_jxl_handoff_load}\nstderr:\n${_err_jxl_handoff_load}")
+endif()
+if(NOT _out_jxl_handoff_load MATCHES "jxl_icc_profile bytes=[1-9][0-9]*")
+  message(FATAL_ERROR
+    "metatransfer jxl encoder handoff load missing icc summary\nstdout:\n${_out_jxl_handoff_load}\nstderr:\n${_err_jxl_handoff_load}")
+endif()
+
+execute_process(
+  COMMAND "${METATRANSFER_BIN}" --no-build-info
+          --load-transfer-artifact "${_jxl_handoff}"
+  RESULT_VARIABLE _rv_artifact_jxl_load
+  OUTPUT_VARIABLE _out_artifact_jxl_load
+  ERROR_VARIABLE _err_artifact_jxl_load
+)
+if(NOT _rv_artifact_jxl_load EQUAL 0)
+  message(FATAL_ERROR
+    "metatransfer generic artifact load for jxl handoff failed (${_rv_artifact_jxl_load})\nstdout:\n${_out_artifact_jxl_load}\nstderr:\n${_err_artifact_jxl_load}")
+endif()
+if(NOT _out_artifact_jxl_load MATCHES "transfer_artifact: status=ok code=none kind=jxl_encoder_handoff bytes=[0-9]+ target=jxl")
+  message(FATAL_ERROR
+    "metatransfer generic artifact load missing jxl handoff summary\nstdout:\n${_out_artifact_jxl_load}\nstderr:\n${_err_artifact_jxl_load}")
+endif()
+if(NOT _out_artifact_jxl_load MATCHES "jxl_icc_profile bytes=[1-9][0-9]*")
+  message(FATAL_ERROR
+    "metatransfer generic artifact load missing jxl icc summary\nstdout:\n${_out_artifact_jxl_load}\nstderr:\n${_err_artifact_jxl_load}")
+endif()
+
+execute_process(
+  COMMAND "${METATRANSFER_BIN}" --no-build-info
+          --target-jxl
+          --no-icc
+          --source-meta "${_jpg}"
+          --output "${_edited_jxl}" --force
+          "${_target_jxl}"
+  RESULT_VARIABLE _rv_jxl_edit
+  OUTPUT_VARIABLE _out_jxl_edit
+  ERROR_VARIABLE _err_jxl_edit
+)
+if(NOT _rv_jxl_edit EQUAL 0)
+  message(FATAL_ERROR
+    "metatransfer jxl edit failed (${_rv_jxl_edit})\nstdout:\n${_out_jxl_edit}\nstderr:\n${_err_jxl_edit}")
+endif()
+if(NOT _out_jxl_edit MATCHES "edit_apply: status=ok")
+  message(FATAL_ERROR
+    "metatransfer jxl edit missing edit apply ok\nstdout:\n${_out_jxl_edit}\nstderr:\n${_err_jxl_edit}")
+endif()
+if(NOT EXISTS "${_edited_jxl}")
+  message(FATAL_ERROR
+    "metatransfer jxl edit did not write output\nstdout:\n${_out_jxl_edit}\nstderr:\n${_err_jxl_edit}")
+endif()
+execute_process(
+  COMMAND python3 -c
+    "from pathlib import Path; import sys; b=Path(r'''${_edited_jxl}''').read_bytes(); sys.exit(0 if (len(b)>=12 and b[4:8]==b'JXL ' and b.find(b'Exif')!=-1) else 1)"
+  RESULT_VARIABLE _rv_jxl_edit_check
+  OUTPUT_VARIABLE _out_jxl_edit_check
+  ERROR_VARIABLE _err_jxl_edit_check
+)
+if(NOT _rv_jxl_edit_check EQUAL 0)
+  message(FATAL_ERROR
+    "metatransfer jxl edit output check failed\nstdout:\n${_out_jxl_edit}\nstderr:\n${_err_jxl_edit}\ncheck_stderr:\n${_err_jxl_edit_check}")
+endif()
+
+execute_process(
+  COMMAND "${METATRANSFER_BIN}" --no-build-info
           --target-webp
           --no-xmp
           --no-icc
@@ -960,6 +1415,69 @@ endif()
 if(NOT _out_heif MATCHES "bmff_item Exif count=1")
   message(FATAL_ERROR
     "metatransfer heif emit summary missing Exif item summary\nstdout:\n${_out_heif}\nstderr:\n${_err_heif}")
+endif()
+
+set(_heif_target "${WORK_DIR}/heif_target.bin")
+execute_process(
+  COMMAND python3 -c "from pathlib import Path; Path(r'${_heif_target}').write_bytes(bytes.fromhex('000000186674797068656963000000006d696631686569630000000c6d64617411223344'))"
+  RESULT_VARIABLE _rv_heif_target
+  OUTPUT_VARIABLE _out_heif_target
+  ERROR_VARIABLE _err_heif_target
+)
+if(NOT _rv_heif_target EQUAL 0)
+  message(FATAL_ERROR
+    "failed to create HEIF target file (${_rv_heif_target})\nstdout:\n${_out_heif_target}\nstderr:\n${_err_heif_target}")
+endif()
+
+set(_heif_out "${WORK_DIR}/metatransfer_heif_edit.bin")
+execute_process(
+  COMMAND "${METATRANSFER_BIN}" --no-build-info
+          --source-meta "${_jpg}"
+          --target-heif
+          --no-xmp
+          --no-icc
+          --no-iptc
+          --output "${_heif_out}" --force
+          "${_heif_target}"
+  RESULT_VARIABLE _rv_heif_edit
+  OUTPUT_VARIABLE _out_heif_edit
+  ERROR_VARIABLE _err_heif_edit
+)
+if(NOT _rv_heif_edit EQUAL 0)
+  message(FATAL_ERROR
+    "metatransfer heif edit failed (${_rv_heif_edit})\nstdout:\n${_out_heif_edit}\nstderr:\n${_err_heif_edit}")
+endif()
+if(NOT _out_heif_edit MATCHES "bmff_edit: status=ok")
+  message(FATAL_ERROR
+    "metatransfer heif edit missing bmff_edit ok\nstdout:\n${_out_heif_edit}\nstderr:\n${_err_heif_edit}")
+endif()
+if(NOT _out_heif_edit MATCHES "bmff_edit_apply: status=ok")
+  message(FATAL_ERROR
+    "metatransfer heif edit missing bmff_edit_apply ok\nstdout:\n${_out_heif_edit}\nstderr:\n${_err_heif_edit}")
+endif()
+if(NOT EXISTS "${_heif_out}")
+  message(FATAL_ERROR
+    "metatransfer heif edit did not write output\nstdout:\n${_out_heif_edit}\nstderr:\n${_err_heif_edit}")
+endif()
+
+execute_process(
+  COMMAND "${METATRANSFER_BIN}" --no-build-info
+          --target-heif
+          --no-xmp
+          --no-icc
+          --no-iptc
+          "${_heif_out}"
+  RESULT_VARIABLE _rv_heif_roundtrip
+  OUTPUT_VARIABLE _out_heif_roundtrip
+  ERROR_VARIABLE _err_heif_roundtrip
+)
+if(NOT _rv_heif_roundtrip EQUAL 0)
+  message(FATAL_ERROR
+    "metatransfer heif roundtrip summary failed (${_rv_heif_roundtrip})\nstdout:\n${_out_heif_roundtrip}\nstderr:\n${_err_heif_roundtrip}")
+endif()
+if(NOT _out_heif_roundtrip MATCHES "bmff_item Exif count=1")
+  message(FATAL_ERROR
+    "metatransfer heif roundtrip summary missing Exif item summary\nstdout:\n${_out_heif_roundtrip}\nstderr:\n${_err_heif_roundtrip}")
 endif()
 
 execute_process(

@@ -765,6 +765,10 @@ namespace {
         case TransferC2paRewriteChunkKind::SourceRange: return "source_range";
         case TransferC2paRewriteChunkKind::PreparedJpegSegment:
             return "prepared_jpeg_segment";
+        case TransferC2paRewriteChunkKind::PreparedJxlBox:
+            return "prepared_jxl_box";
+        case TransferC2paRewriteChunkKind::PreparedBmffMetaBox:
+            return "prepared_bmff_meta_box";
         }
         return "unknown";
     }
@@ -1106,6 +1110,265 @@ namespace {
         return out;
     }
 
+    static const char*
+    transfer_package_chunk_kind_name(TransferPackageChunkKind kind) noexcept
+    {
+        switch (kind) {
+        case TransferPackageChunkKind::SourceRange: return "source_range";
+        case TransferPackageChunkKind::InlineBytes: return "inline_bytes";
+        case TransferPackageChunkKind::PreparedTransferBlock:
+            return "prepared_transfer_block";
+        case TransferPackageChunkKind::PreparedJpegSegment:
+            return "prepared_jpeg_segment";
+        }
+        return "unknown";
+    }
+
+    static nb::dict
+    inspect_transfer_package_batch_to_python(nb::object package_batch_obj,
+                                             bool include_chunk_bytes,
+                                             bool unsafe_payload_access)
+    {
+        if (package_batch_obj.is_none()) {
+            throw std::runtime_error(
+                "transfer_package_batch must be bytes-like");
+        }
+
+        const std::vector<std::byte> package_batch_bytes
+            = bytes_object_to_vector(package_batch_obj);
+        PreparedTransferPackageBatch batch;
+        const PreparedTransferPackageIoResult batch_io
+            = deserialize_prepared_transfer_package_batch(
+                std::span<const std::byte>(package_batch_bytes.data(),
+                                           package_batch_bytes.size()),
+                &batch);
+
+        std::vector<PreparedTransferPackageView> chunk_views;
+        EmitTransferResult inspect_result;
+        if (batch_io.status == TransferStatus::Ok) {
+            inspect_result
+                = collect_prepared_transfer_package_views(batch, &chunk_views);
+        } else {
+            inspect_result.status  = batch_io.status;
+            inspect_result.code    = batch_io.code;
+            inspect_result.errors  = batch_io.errors;
+            inspect_result.message = batch_io.message;
+        }
+
+        nb::dict out;
+        out["requested_chunk_bytes"] = nb::bool_(include_chunk_bytes);
+        out["status"]                = batch_io.status;
+        out["status_name"]   = nb::str(transfer_status_name(batch_io.status));
+        out["code"]          = batch_io.code;
+        out["code_name"]     = nb::str(emit_transfer_code_name(batch_io.code));
+        out["bytes_read"]    = nb::int_(batch_io.bytes);
+        out["errors"]        = nb::int_(batch_io.errors);
+        out["message"]       = nb::str(batch_io.message.c_str(),
+                                       batch_io.message.size());
+        out["target_format"] = batch.target_format;
+        out["target_format_name"] = nb::str(
+            transfer_target_format_name(batch.target_format));
+        out["chunk_count"] = nb::int_(chunk_views.size());
+
+        const bool allow_chunk_bytes = include_chunk_bytes
+                                       && unsafe_payload_access;
+        nb::list chunks;
+        for (size_t i = 0; i < chunk_views.size(); ++i) {
+            const PreparedTransferPackageView& view = chunk_views[i];
+            nb::dict one;
+            one["index"]         = nb::int_(static_cast<uint32_t>(i));
+            one["semantic_kind"] = nb::int_(
+                static_cast<uint32_t>(view.semantic_kind));
+            const std::string_view semantic_name = transfer_semantic_name(
+                view.semantic_kind);
+            one["semantic_name"] = nb::str(semantic_name.data(),
+                                           semantic_name.size());
+            one["route"]        = nb::str(view.route.data(), view.route.size());
+            one["package_kind"] = nb::int_(
+                static_cast<uint32_t>(view.package_kind));
+            one["package_kind_name"] = nb::str(
+                transfer_package_chunk_kind_name(view.package_kind));
+            one["output_offset"]    = nb::int_(view.output_offset);
+            one["jpeg_marker_code"] = nb::int_(view.jpeg_marker_code);
+            one["size"] = nb::int_(static_cast<uint64_t>(view.bytes.size()));
+            if (allow_chunk_bytes) {
+                one["bytes"] = nb::bytes(reinterpret_cast<const char*>(
+                                             view.bytes.data()),
+                                         view.bytes.size());
+            } else {
+                one["bytes"] = nb::none();
+            }
+            chunks.append(std::move(one));
+        }
+        out["chunks"] = std::move(chunks);
+
+        TransferStatus overall_status = TransferStatus::Ok;
+        std::string error_stage       = "none";
+        std::string error_code        = "none";
+        std::string error_message;
+        if (include_chunk_bytes && !unsafe_payload_access) {
+            overall_status = TransferStatus::UnsafeData;
+            error_stage    = "api";
+            error_code     = "unsafe_chunk_bytes_forbidden";
+            error_message
+                = "safe inspect_transfer_package_batch forbids chunk bytes; "
+                  "use unsafe_inspect_transfer_package_batch("
+                  "include_chunk_bytes=True)";
+        } else if (batch_io.status != TransferStatus::Ok) {
+            overall_status = batch_io.status;
+            error_stage    = "package_batch";
+            error_code     = emit_transfer_code_name(batch_io.code);
+            error_message  = batch_io.message;
+        } else if (inspect_result.status != TransferStatus::Ok) {
+            overall_status = inspect_result.status;
+            error_stage    = "inspect";
+            error_code     = emit_transfer_code_name(inspect_result.code);
+            error_message  = inspect_result.message;
+        }
+        out["overall_status"]      = overall_status;
+        out["overall_status_name"] = nb::str(
+            transfer_status_name(overall_status));
+        out["error_stage"]   = nb::str(error_stage.c_str(), error_stage.size());
+        out["error_code"]    = nb::str(error_code.c_str(), error_code.size());
+        out["error_message"] = nb::str(error_message.c_str(),
+                                       error_message.size());
+        return out;
+    }
+
+    static nb::dict
+    inspect_jxl_encoder_handoff_to_python(nb::object handoff_obj,
+                                          bool include_icc_profile,
+                                          bool unsafe_payload_access)
+    {
+        if (handoff_obj.is_none()) {
+            throw std::runtime_error("jxl_encoder_handoff must be bytes-like");
+        }
+
+        const std::vector<std::byte> handoff_bytes = bytes_object_to_vector(
+            handoff_obj);
+        PreparedJxlEncoderHandoff handoff;
+        const PreparedJxlEncoderHandoffIoResult handoff_io
+            = deserialize_prepared_jxl_encoder_handoff(
+                std::span<const std::byte>(handoff_bytes.data(),
+                                           handoff_bytes.size()),
+                &handoff);
+
+        nb::dict out;
+        out["requested_icc_profile_bytes"] = nb::bool_(include_icc_profile);
+        out["status"]                      = handoff_io.status;
+        out["status_name"] = nb::str(transfer_status_name(handoff_io.status));
+        out["code"]        = handoff_io.code;
+        out["code_name"]   = nb::str(emit_transfer_code_name(handoff_io.code));
+        out["bytes_read"]  = nb::int_(handoff_io.bytes);
+        out["errors"]      = nb::int_(handoff_io.errors);
+        out["message"]     = nb::str(handoff_io.message.c_str(),
+                                     handoff_io.message.size());
+        out["has_icc_profile"]   = nb::bool_(handoff.has_icc_profile);
+        out["icc_block_index"]   = nb::int_(handoff.icc_block_index);
+        out["icc_profile_bytes"] = nb::int_(
+            static_cast<uint64_t>(handoff.icc_profile.size()));
+        out["box_count"]         = nb::int_(handoff.box_count);
+        out["box_payload_bytes"] = nb::int_(handoff.box_payload_bytes);
+        if (include_icc_profile && unsafe_payload_access
+            && handoff_io.status == TransferStatus::Ok) {
+            out["icc_profile"] = nb::bytes(reinterpret_cast<const char*>(
+                                               handoff.icc_profile.data()),
+                                           handoff.icc_profile.size());
+        } else {
+            out["icc_profile"] = nb::none();
+        }
+
+        TransferStatus overall_status = TransferStatus::Ok;
+        std::string error_stage       = "none";
+        std::string error_code        = "none";
+        std::string error_message;
+        if (include_icc_profile && !unsafe_payload_access) {
+            overall_status = TransferStatus::UnsafeData;
+            error_stage    = "api";
+            error_code     = "unsafe_icc_profile_forbidden";
+            error_message
+                = "safe inspect_jxl_encoder_handoff forbids icc profile "
+                  "bytes; use unsafe_inspect_jxl_encoder_handoff("
+                  "include_icc_profile=True)";
+        } else if (handoff_io.status != TransferStatus::Ok) {
+            overall_status = handoff_io.status;
+            error_stage    = "jxl_encoder_handoff";
+            error_code     = emit_transfer_code_name(handoff_io.code);
+            error_message  = handoff_io.message;
+        }
+        out["overall_status"]      = overall_status;
+        out["overall_status_name"] = nb::str(
+            transfer_status_name(overall_status));
+        out["error_stage"]   = nb::str(error_stage.c_str(), error_stage.size());
+        out["error_code"]    = nb::str(error_code.c_str(), error_code.size());
+        out["error_message"] = nb::str(error_message.c_str(),
+                                       error_message.size());
+        return out;
+    }
+
+    static nb::dict inspect_transfer_artifact_to_python(nb::object artifact_obj)
+    {
+        if (artifact_obj.is_none()) {
+            throw std::runtime_error("transfer_artifact must be bytes-like");
+        }
+
+        const std::vector<std::byte> artifact_bytes = bytes_object_to_vector(
+            artifact_obj);
+        PreparedTransferArtifactInfo info;
+        const PreparedTransferArtifactIoResult artifact_io
+            = inspect_prepared_transfer_artifact(
+                std::span<const std::byte>(artifact_bytes.data(),
+                                           artifact_bytes.size()),
+                &info);
+
+        nb::dict out;
+        out["status"]      = artifact_io.status;
+        out["status_name"] = nb::str(transfer_status_name(artifact_io.status));
+        out["code"]        = artifact_io.code;
+        out["code_name"]   = nb::str(emit_transfer_code_name(artifact_io.code));
+        out["bytes_read"]  = nb::int_(artifact_io.bytes);
+        out["errors"]      = nb::int_(artifact_io.errors);
+        out["message"]     = nb::str(artifact_io.message.c_str(),
+                                     artifact_io.message.size());
+        out["kind"]        = nb::int_(static_cast<uint32_t>(info.kind));
+        {
+            const std::string_view kind_name
+                = prepared_transfer_artifact_kind_name(info.kind);
+            out["kind_name"] = nb::str(kind_name.data(), kind_name.size());
+        }
+        out["has_contract_version"] = nb::bool_(info.has_contract_version);
+        out["contract_version"]     = nb::int_(info.contract_version);
+        out["has_target_format"]    = nb::bool_(info.has_target_format);
+        if (info.has_target_format) {
+            out["target_format"]      = info.target_format;
+            out["target_format_name"] = nb::str(
+                transfer_target_format_name(info.target_format));
+        } else {
+            out["target_format"]      = nb::none();
+            out["target_format_name"] = nb::none();
+        }
+        out["entry_count"]          = nb::int_(info.entry_count);
+        out["payload_bytes"]        = nb::int_(info.payload_bytes);
+        out["binding_bytes"]        = nb::int_(info.binding_bytes);
+        out["signed_payload_bytes"] = nb::int_(info.signed_payload_bytes);
+        out["has_icc_profile"]      = nb::bool_(info.has_icc_profile);
+        out["icc_block_index"]      = nb::int_(info.icc_block_index);
+        out["icc_profile_bytes"]    = nb::int_(info.icc_profile_bytes);
+        out["box_payload_bytes"]    = nb::int_(info.box_payload_bytes);
+        out["carrier_route"]        = nb::str(info.carrier_route.c_str(),
+                                              info.carrier_route.size());
+        out["manifest_label"]       = nb::str(info.manifest_label.c_str(),
+                                              info.manifest_label.size());
+        out["overall_status"]       = artifact_io.status;
+        out["overall_status_name"]  = nb::str(
+            transfer_status_name(artifact_io.status));
+        out["error_stage"] = nb::str("artifact");
+        out["error_code"]  = nb::str(emit_transfer_code_name(artifact_io.code));
+        out["error_message"] = nb::str(artifact_io.message.c_str(),
+                                       artifact_io.message.size());
+        return out;
+    }
+
     static nb::dict transfer_probe_to_python(
         const std::string& path, TransferTargetFormat target_format,
         XmpSidecarFormat format, bool include_pointer_tags,
@@ -1129,7 +1392,9 @@ namespace {
         bool unsafe_edited_bytes_access, bool include_c2pa_binding_bytes,
         bool unsafe_c2pa_binding_access, bool include_c2pa_handoff_bytes,
         bool include_c2pa_signed_package_bytes,
+        bool include_jxl_encoder_handoff_bytes,
         bool include_transfer_payload_batch_bytes,
+        bool include_transfer_package_batch_bytes,
         bool unsafe_c2pa_package_access)
     {
         PrepareTransferFileOptions prepare_options;
@@ -1782,6 +2047,99 @@ namespace {
             out["transfer_payload_batch_bytes"] = nb::none();
         }
 
+        PreparedTransferPackageBatch transfer_package_batch;
+        PreparedTransferPackageIoResult transfer_package_batch_io;
+        std::vector<std::byte> transfer_package_batch_bytes;
+        out["transfer_package_batch_requested"] = nb::bool_(
+            include_transfer_package_batch_bytes);
+        if (include_transfer_package_batch_bytes && !unsafe_payload_access) {
+            transfer_package_batch_io.status = TransferStatus::UnsafeData;
+            transfer_package_batch_io.code = EmitTransferCode::InvalidArgument;
+            transfer_package_batch_io.errors = 1U;
+            transfer_package_batch_io.message
+                = "safe transfer_probe forbids transfer package batch bytes; "
+                  "use unsafe_transfer_probe("
+                  "include_transfer_package_batch_bytes=True)";
+        } else if (include_transfer_package_batch_bytes) {
+            try {
+                if (prepared.file_status != TransferFileStatus::Ok
+                    || (prepared.prepare.status != TransferStatus::Ok
+                        && (!exec.c2pa_stage_requested
+                            || exec.c2pa_stage.status != TransferStatus::Ok))) {
+                    transfer_package_batch_io.status
+                        = TransferStatus::InvalidArgument;
+                    transfer_package_batch_io.code
+                        = EmitTransferCode::InvalidArgument;
+                    transfer_package_batch_io.errors = 1U;
+                    transfer_package_batch_io.message
+                        = "transfer execution is not available for package batch";
+                } else {
+                    std::vector<std::byte> package_input;
+                    if (exec.edit_requested) {
+                        const std::string package_path
+                            = !file_options.edit_target_path.empty()
+                                  ? file_options.edit_target_path
+                                  : path;
+                        {
+                            nb::gil_scoped_release gil_release;
+                            package_input = read_file_bytes(
+                                package_path.c_str(),
+                                file_options.prepare.policy.max_file_bytes);
+                        }
+                    }
+                    const EmitTransferResult package_batch_status
+                        = build_executed_transfer_package_batch(
+                            std::span<const std::byte>(package_input.data(),
+                                                       package_input.size()),
+                            prepared.bundle, exec, &transfer_package_batch);
+                    if (package_batch_status.status != TransferStatus::Ok) {
+                        transfer_package_batch_io.status
+                            = package_batch_status.status;
+                        transfer_package_batch_io.code
+                            = package_batch_status.code;
+                        transfer_package_batch_io.errors
+                            = package_batch_status.errors;
+                        transfer_package_batch_io.message
+                            = package_batch_status.message;
+                    } else {
+                        transfer_package_batch_io
+                            = serialize_prepared_transfer_package_batch(
+                                transfer_package_batch,
+                                &transfer_package_batch_bytes);
+                    }
+                }
+            } catch (const std::exception& ex) {
+                transfer_package_batch_io.status
+                    = TransferStatus::InvalidArgument;
+                transfer_package_batch_io.code
+                    = EmitTransferCode::InvalidArgument;
+                transfer_package_batch_io.errors  = 1U;
+                transfer_package_batch_io.message = ex.what();
+            }
+        }
+        out["transfer_package_batch_status"] = transfer_package_batch_io.status;
+        out["transfer_package_batch_status_name"] = nb::str(
+            transfer_status_name(transfer_package_batch_io.status));
+        out["transfer_package_batch_code"] = transfer_package_batch_io.code;
+        out["transfer_package_batch_code_name"] = nb::str(
+            emit_transfer_code_name(transfer_package_batch_io.code));
+        out["transfer_package_batch_bytes_written"] = nb::int_(
+            transfer_package_batch_io.bytes);
+        out["transfer_package_batch_errors"] = nb::int_(
+            transfer_package_batch_io.errors);
+        out["transfer_package_batch_message"]
+            = nb::str(transfer_package_batch_io.message.c_str(),
+                      transfer_package_batch_io.message.size());
+        if (include_transfer_package_batch_bytes && unsafe_payload_access
+            && transfer_package_batch_io.status == TransferStatus::Ok) {
+            out["transfer_package_batch_bytes"]
+                = nb::bytes(reinterpret_cast<const char*>(
+                                transfer_package_batch_bytes.data()),
+                            transfer_package_batch_bytes.size());
+        } else {
+            out["transfer_package_batch_bytes"] = nb::none();
+        }
+
         out["compile_status"]      = exec.compile.status;
         out["compile_status_name"] = nb::str(
             transfer_status_name(exec.compile.status));
@@ -1836,6 +2194,88 @@ namespace {
             jxl_box_summary.append(std::move(one));
         }
         out["jxl_box_summary"] = std::move(jxl_box_summary);
+        if (prepared.bundle.target_format == TransferTargetFormat::Jxl) {
+            PreparedJxlEncoderHandoffView jxl_handoff;
+            const EmitTransferResult jxl_handoff_result
+                = build_prepared_jxl_encoder_handoff_view(prepared.bundle,
+                                                          &jxl_handoff);
+            nb::dict one;
+            one["status"]      = jxl_handoff_result.status;
+            one["status_name"] = nb::str(
+                transfer_status_name(jxl_handoff_result.status));
+            one["code"]      = jxl_handoff_result.code;
+            one["code_name"] = nb::str(
+                emit_transfer_code_name(jxl_handoff_result.code));
+            one["errors"]          = nb::int_(jxl_handoff_result.errors);
+            one["message"]         = nb::str(jxl_handoff_result.message.c_str(),
+                                             jxl_handoff_result.message.size());
+            one["has_icc_profile"] = nb::bool_(jxl_handoff.has_icc_profile);
+            one["icc_block_index"] = nb::int_(jxl_handoff.icc_block_index);
+            one["icc_profile_bytes"] = nb::int_(jxl_handoff.icc_profile_bytes);
+            one["box_count"]         = nb::int_(jxl_handoff.box_count);
+            one["box_payload_bytes"] = nb::int_(jxl_handoff.box_payload_bytes);
+            out["jxl_encoder_handoff"] = std::move(one);
+        } else {
+            out["jxl_encoder_handoff"] = nb::none();
+        }
+        PreparedJxlEncoderHandoff jxl_encoder_handoff_owned;
+        PreparedJxlEncoderHandoffIoResult jxl_encoder_handoff_io;
+        std::vector<std::byte> jxl_encoder_handoff_bytes;
+        out["jxl_encoder_handoff_requested"] = nb::bool_(
+            include_jxl_encoder_handoff_bytes);
+        if (include_jxl_encoder_handoff_bytes && !unsafe_payload_access) {
+            jxl_encoder_handoff_io.status = TransferStatus::UnsafeData;
+            jxl_encoder_handoff_io.code   = EmitTransferCode::InvalidArgument;
+            jxl_encoder_handoff_io.errors = 1U;
+            jxl_encoder_handoff_io.message
+                = "safe transfer_probe forbids jxl encoder handoff bytes; "
+                  "use unsafe_transfer_probe("
+                  "include_jxl_encoder_handoff_bytes=True)";
+        } else if (include_jxl_encoder_handoff_bytes) {
+            if (prepared.bundle.target_format != TransferTargetFormat::Jxl) {
+                jxl_encoder_handoff_io.status = TransferStatus::InvalidArgument;
+                jxl_encoder_handoff_io.code = EmitTransferCode::InvalidArgument;
+                jxl_encoder_handoff_io.errors = 1U;
+                jxl_encoder_handoff_io.message
+                    = "jxl encoder handoff bytes require target_format=Jxl";
+            } else {
+                const EmitTransferResult handoff_status
+                    = build_prepared_jxl_encoder_handoff(
+                        prepared.bundle, &jxl_encoder_handoff_owned);
+                if (handoff_status.status != TransferStatus::Ok) {
+                    jxl_encoder_handoff_io.status  = handoff_status.status;
+                    jxl_encoder_handoff_io.code    = handoff_status.code;
+                    jxl_encoder_handoff_io.errors  = handoff_status.errors;
+                    jxl_encoder_handoff_io.message = handoff_status.message;
+                } else {
+                    jxl_encoder_handoff_io
+                        = serialize_prepared_jxl_encoder_handoff(
+                            jxl_encoder_handoff_owned,
+                            &jxl_encoder_handoff_bytes);
+                }
+            }
+        }
+        out["jxl_encoder_handoff_status"]      = jxl_encoder_handoff_io.status;
+        out["jxl_encoder_handoff_status_name"] = nb::str(
+            transfer_status_name(jxl_encoder_handoff_io.status));
+        out["jxl_encoder_handoff_code"]      = jxl_encoder_handoff_io.code;
+        out["jxl_encoder_handoff_code_name"] = nb::str(
+            emit_transfer_code_name(jxl_encoder_handoff_io.code));
+        out["jxl_encoder_handoff_bytes_written"] = nb::int_(
+            jxl_encoder_handoff_io.bytes);
+        out["jxl_encoder_handoff_errors"] = nb::int_(
+            jxl_encoder_handoff_io.errors);
+        out["jxl_encoder_handoff_message"]
+            = nb::str(jxl_encoder_handoff_io.message.c_str(),
+                      jxl_encoder_handoff_io.message.size());
+        if (include_jxl_encoder_handoff_bytes && unsafe_payload_access
+            && jxl_encoder_handoff_io.status == TransferStatus::Ok) {
+            out["jxl_encoder_handoff_bytes"] = nb::bytes(
+                reinterpret_cast<const char*>(jxl_encoder_handoff_bytes.data()),
+                jxl_encoder_handoff_bytes.size());
+        } else {
+            out["jxl_encoder_handoff_bytes"] = nb::none();
+        }
 
         nb::list webp_chunk_summary;
         for (size_t i = 0; i < exec.webp_chunk_summary.size(); ++i) {
@@ -1928,6 +2368,14 @@ namespace {
             error_message  = "safe transfer_probe forbids transfer payload "
                              "batch bytes; use unsafe_transfer_probe("
                              "include_transfer_payload_batch_bytes=True)";
+        } else if (include_transfer_package_batch_bytes
+                   && !unsafe_payload_access) {
+            overall_status = TransferStatus::UnsafeData;
+            error_stage    = "api";
+            error_code     = "unsafe_transfer_package_batch_forbidden";
+            error_message  = "safe transfer_probe forbids transfer package "
+                             "batch bytes; use unsafe_transfer_probe("
+                             "include_transfer_package_batch_bytes=True)";
         } else if (include_edited_bytes && !unsafe_edited_bytes_access) {
             overall_status = TransferStatus::UnsafeData;
             error_stage    = "api";
@@ -1982,6 +2430,13 @@ namespace {
             error_code     = emit_transfer_code_name(
                 transfer_payload_batch_io.code);
             error_message = transfer_payload_batch_io.message;
+        } else if (include_transfer_package_batch_bytes
+                   && transfer_package_batch_io.status != TransferStatus::Ok) {
+            overall_status = transfer_package_batch_io.status;
+            error_stage    = "transfer_package_batch";
+            error_code     = emit_transfer_code_name(
+                transfer_package_batch_io.code);
+            error_message = transfer_package_batch_io.message;
         } else if (exec.time_patch.status != TransferStatus::Ok) {
             overall_status = exec.time_patch.status;
             error_stage    = "time_patch";
@@ -2851,7 +3306,10 @@ NB_MODULE(_openmeta, m)
     nb::enum_<TransferC2paRewriteChunkKind>(m, "TransferC2paRewriteChunkKind")
         .value("SourceRange", TransferC2paRewriteChunkKind::SourceRange)
         .value("PreparedJpegSegment",
-               TransferC2paRewriteChunkKind::PreparedJpegSegment);
+               TransferC2paRewriteChunkKind::PreparedJpegSegment)
+        .value("PreparedJxlBox", TransferC2paRewriteChunkKind::PreparedJxlBox)
+        .value("PreparedBmffMetaBox",
+               TransferC2paRewriteChunkKind::PreparedBmffMetaBox);
 
     nb::enum_<TransferC2paSignedPayloadKind>(m, "TransferC2paSignedPayloadKind")
         .value("NotApplicable", TransferC2paSignedPayloadKind::NotApplicable)
@@ -3760,7 +4218,9 @@ NB_MODULE(_openmeta, m)
            bool include_edited_bytes, bool include_c2pa_binding_bytes,
            bool include_c2pa_handoff_bytes,
            bool include_c2pa_signed_package_bytes,
-           bool include_transfer_payload_batch_bytes) {
+           bool include_jxl_encoder_handoff_bytes,
+           bool include_transfer_payload_batch_bytes,
+           bool include_transfer_package_batch_bytes) {
             return transfer_probe_to_python(
                 path, target_format, format, include_pointer_tags,
                 decode_makernote, decode_embedded_containers, decompress,
@@ -3775,7 +4235,9 @@ NB_MODULE(_openmeta, m)
                 time_patch_auto_nul, edit_target_path, edit_apply,
                 include_edited_bytes, false, include_c2pa_binding_bytes, false,
                 include_c2pa_handoff_bytes, include_c2pa_signed_package_bytes,
-                include_transfer_payload_batch_bytes, false);
+                include_jxl_encoder_handoff_bytes,
+                include_transfer_payload_batch_bytes,
+                include_transfer_package_batch_bytes, false);
         },
         "path"_a, "target_format"_a = TransferTargetFormat::Jpeg,
         "format"_a               = XmpSidecarFormat::Portable,
@@ -3801,7 +4263,9 @@ NB_MODULE(_openmeta, m)
         "include_c2pa_binding_bytes"_a           = false,
         "include_c2pa_handoff_bytes"_a           = false,
         "include_c2pa_signed_package_bytes"_a    = false,
-        "include_transfer_payload_batch_bytes"_a = false);
+        "include_jxl_encoder_handoff_bytes"_a    = false,
+        "include_transfer_payload_batch_bytes"_a = false,
+        "include_transfer_package_batch_bytes"_a = false);
 
     m.def(
         "unsafe_transfer_probe",
@@ -3825,7 +4289,9 @@ NB_MODULE(_openmeta, m)
            bool include_edited_bytes, bool include_c2pa_binding_bytes,
            bool include_c2pa_handoff_bytes,
            bool include_c2pa_signed_package_bytes,
-           bool include_transfer_payload_batch_bytes) {
+           bool include_jxl_encoder_handoff_bytes,
+           bool include_transfer_payload_batch_bytes,
+           bool include_transfer_package_batch_bytes) {
             return transfer_probe_to_python(
                 path, target_format, format, include_pointer_tags,
                 decode_makernote, decode_embedded_containers, decompress,
@@ -3840,7 +4306,9 @@ NB_MODULE(_openmeta, m)
                 time_patch_auto_nul, edit_target_path, edit_apply,
                 include_edited_bytes, true, include_c2pa_binding_bytes, true,
                 include_c2pa_handoff_bytes, include_c2pa_signed_package_bytes,
-                include_transfer_payload_batch_bytes, true);
+                include_jxl_encoder_handoff_bytes,
+                include_transfer_payload_batch_bytes,
+                include_transfer_package_batch_bytes, true);
         },
         "path"_a, "target_format"_a = TransferTargetFormat::Jpeg,
         "format"_a               = XmpSidecarFormat::Portable,
@@ -3866,7 +4334,9 @@ NB_MODULE(_openmeta, m)
         "include_c2pa_binding_bytes"_a           = false,
         "include_c2pa_handoff_bytes"_a           = false,
         "include_c2pa_signed_package_bytes"_a    = false,
-        "include_transfer_payload_batch_bytes"_a = false);
+        "include_jxl_encoder_handoff_bytes"_a    = false,
+        "include_transfer_payload_batch_bytes"_a = false,
+        "include_transfer_package_batch_bytes"_a = false);
 
     m.def(
         "inspect_transfer_payload_batch",
@@ -3885,6 +4355,49 @@ NB_MODULE(_openmeta, m)
                                                             true);
         },
         "payload_batch"_a, "include_payloads"_a = false);
+
+    m.def(
+        "inspect_transfer_package_batch",
+        [](nb::object package_batch, bool include_chunk_bytes) {
+            return inspect_transfer_package_batch_to_python(package_batch,
+                                                            include_chunk_bytes,
+                                                            false);
+        },
+        "package_batch"_a, "include_chunk_bytes"_a = false);
+
+    m.def(
+        "unsafe_inspect_transfer_package_batch",
+        [](nb::object package_batch, bool include_chunk_bytes) {
+            return inspect_transfer_package_batch_to_python(package_batch,
+                                                            include_chunk_bytes,
+                                                            true);
+        },
+        "package_batch"_a, "include_chunk_bytes"_a = false);
+
+    m.def(
+        "inspect_jxl_encoder_handoff",
+        [](nb::object handoff, bool include_icc_profile) {
+            return inspect_jxl_encoder_handoff_to_python(handoff,
+                                                         include_icc_profile,
+                                                         false);
+        },
+        "handoff"_a, "include_icc_profile"_a = false);
+
+    m.def(
+        "unsafe_inspect_jxl_encoder_handoff",
+        [](nb::object handoff, bool include_icc_profile) {
+            return inspect_jxl_encoder_handoff_to_python(handoff,
+                                                         include_icc_profile,
+                                                         true);
+        },
+        "handoff"_a, "include_icc_profile"_a = false);
+
+    m.def(
+        "inspect_transfer_artifact",
+        [](nb::object artifact) {
+            return inspect_transfer_artifact_to_python(artifact);
+        },
+        "artifact"_a);
 
     m.def("console_text", &console_text, "data"_a, "max_bytes"_a = 4096U);
     m.def("hex_bytes", &hex_bytes, "data"_a, "max_bytes"_a = 4096U);

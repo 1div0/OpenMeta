@@ -38,6 +38,19 @@ app1 = b'Exif\\x00\\x00' + bytes(t)
 ln = (len(app1) + 2).to_bytes(2, 'big')
 p.write_bytes(b'\\xFF\\xD8\\xFF\\xE1' + ln + app1 + b'\\xFF\\xD9')
 
+p_icc = Path(r'''${WORK_DIR}/sample_icc.jpg''')
+icc = bytearray(156)
+icc[0:4] = (156).to_bytes(4, 'big')
+icc[36:40] = b'acsp'
+icc[128:132] = (1).to_bytes(4, 'big')
+icc[132:136] = b'desc'
+icc[136:140] = (144).to_bytes(4, 'big')
+icc[140:144] = (12).to_bytes(4, 'big')
+icc[144:156] = bytes([0x11]) * 12
+app2 = b'ICC_PROFILE\\x00\\x01\\x01' + bytes(icc)
+ln2 = (len(app2) + 2).to_bytes(2, 'big')
+p_icc.write_bytes(b'\\xFF\\xD8\\xFF\\xE2' + ln2 + app2 + b'\\xFF\\xD9')
+
 r = openmeta.transfer_probe(
     str(p),
     format=openmeta.XmpSidecarFormat.Portable,
@@ -51,6 +64,55 @@ assert r['time_patch_patched_slots'] >= 1, r
 assert r['emit_status'] == openmeta.TransferStatus.Ok, r
 assert len(r['blocks']) >= 1, r
 assert len(r['marker_summary']) >= 1, r
+
+r_jxl = openmeta.transfer_probe(
+    str(p_icc),
+    target_format=openmeta.TransferTargetFormat.Jxl,
+    format=openmeta.XmpSidecarFormat.Portable,
+)
+assert r_jxl['overall_status'] == openmeta.TransferStatus.Ok, r_jxl
+assert r_jxl['emit_status_name'] == 'ok', r_jxl
+assert r_jxl['jxl_encoder_handoff'] is not None, r_jxl
+assert r_jxl['jxl_encoder_handoff']['status_name'] == 'ok', r_jxl
+assert r_jxl['jxl_encoder_handoff']['has_icc_profile'] is True, r_jxl
+assert r_jxl['jxl_encoder_handoff']['icc_profile_bytes'] > 0, r_jxl
+
+r_jxl_u = openmeta.unsafe_transfer_probe(
+    str(p_icc),
+    target_format=openmeta.TransferTargetFormat.Jxl,
+    format=openmeta.XmpSidecarFormat.Portable,
+    include_jxl_encoder_handoff_bytes=True,
+)
+assert r_jxl_u['jxl_encoder_handoff_requested'] is True, r_jxl_u
+assert r_jxl_u['jxl_encoder_handoff_status_name'] == 'ok', r_jxl_u
+assert r_jxl_u['jxl_encoder_handoff_code_name'] == 'none', r_jxl_u
+assert r_jxl_u['jxl_encoder_handoff_bytes_written'] > 0, r_jxl_u
+assert isinstance(r_jxl_u['jxl_encoder_handoff_bytes'], (bytes, bytearray)), r_jxl_u
+assert bytes(r_jxl_u['jxl_encoder_handoff_bytes'])[:8] == b'OMJXICC1', r_jxl_u
+
+jxl_handoff = openmeta.inspect_jxl_encoder_handoff(
+    r_jxl_u['jxl_encoder_handoff_bytes'],
+)
+assert jxl_handoff['status_name'] == 'ok', jxl_handoff
+assert jxl_handoff['code_name'] == 'none', jxl_handoff
+assert jxl_handoff['has_icc_profile'] is True, jxl_handoff
+assert jxl_handoff['icc_profile_bytes'] > 0, jxl_handoff
+assert jxl_handoff['icc_profile'] is None, jxl_handoff
+
+jxl_handoff_u = openmeta.unsafe_inspect_jxl_encoder_handoff(
+    r_jxl_u['jxl_encoder_handoff_bytes'],
+    include_icc_profile=True,
+)
+assert jxl_handoff_u['overall_status'] == openmeta.TransferStatus.Ok, jxl_handoff_u
+assert isinstance(jxl_handoff_u['icc_profile'], (bytes, bytearray)), jxl_handoff_u
+
+artifact_jxl = openmeta.inspect_transfer_artifact(
+    r_jxl_u['jxl_encoder_handoff_bytes'],
+)
+assert artifact_jxl['status_name'] == 'ok', artifact_jxl
+assert artifact_jxl['kind_name'] == 'jxl_encoder_handoff', artifact_jxl
+assert artifact_jxl['target_format_name'] == 'jxl', artifact_jxl
+assert artifact_jxl['icc_profile_bytes'] > 0, artifact_jxl
 
 r2 = openmeta.transfer_probe(
     str(p),
@@ -76,6 +138,7 @@ r3b = openmeta.unsafe_transfer_probe(
     str(p),
     format=openmeta.XmpSidecarFormat.Portable,
     include_transfer_payload_batch_bytes=True,
+    include_transfer_package_batch_bytes=True,
 )
 assert r3b['transfer_payload_batch_requested'] is True, r3b
 assert r3b['transfer_payload_batch_status_name'] == 'ok', r3b
@@ -83,6 +146,20 @@ assert r3b['transfer_payload_batch_code_name'] == 'none', r3b
 assert r3b['transfer_payload_batch_bytes_written'] > 0, r3b
 assert isinstance(r3b['transfer_payload_batch_bytes'], (bytes, bytearray)), r3b
 assert bytes(r3b['transfer_payload_batch_bytes'])[:8] == b'OMTPLD01', r3b
+assert r3b['transfer_package_batch_requested'] is True, r3b
+assert r3b['transfer_package_batch_status_name'] == 'ok', r3b
+assert r3b['transfer_package_batch_code_name'] == 'none', r3b
+assert r3b['transfer_package_batch_bytes_written'] > 0, r3b
+assert isinstance(r3b['transfer_package_batch_bytes'], (bytes, bytearray)), r3b
+assert bytes(r3b['transfer_package_batch_bytes'])[:8] == b'OMTPKG01', r3b
+
+artifact_payload = openmeta.inspect_transfer_artifact(
+    r3b['transfer_payload_batch_bytes'],
+)
+assert artifact_payload['status_name'] == 'ok', artifact_payload
+assert artifact_payload['kind_name'] == 'transfer_payload_batch', artifact_payload
+assert artifact_payload['target_format_name'] == 'jpeg', artifact_payload
+assert artifact_payload['entry_count'] >= 1, artifact_payload
 
 inspected = openmeta.inspect_transfer_payload_batch(
     r3b['transfer_payload_batch_bytes'],
@@ -101,6 +178,24 @@ inspected_u = openmeta.unsafe_inspect_transfer_payload_batch(
 assert inspected_u['overall_status'] == openmeta.TransferStatus.Ok, inspected_u
 assert inspected_u['payload_count'] >= 1, inspected_u
 assert isinstance(inspected_u['payloads'][0]['payload'], (bytes, bytearray)), inspected_u
+
+pkg = openmeta.inspect_transfer_package_batch(
+    r3b['transfer_package_batch_bytes'],
+)
+assert pkg['status_name'] == 'ok', pkg
+assert pkg['code_name'] == 'none', pkg
+assert pkg['target_format_name'] == 'jpeg', pkg
+assert pkg['chunk_count'] >= 1, pkg
+assert pkg['chunks'][0]['semantic_name'] == 'Exif', pkg
+assert pkg['chunks'][0]['bytes'] is None, pkg
+
+pkg_u = openmeta.unsafe_inspect_transfer_package_batch(
+    r3b['transfer_package_batch_bytes'],
+    include_chunk_bytes=True,
+)
+assert pkg_u['overall_status'] == openmeta.TransferStatus.Ok, pkg_u
+assert pkg_u['chunk_count'] >= 1, pkg_u
+assert isinstance(pkg_u['chunks'][0]['bytes'], (bytes, bytearray)), pkg_u
 
 p_c2pa = Path(r'''${WORK_DIR}/sample_c2pa.jpg''')
 cbor = bytes([0xA1, 0x61, 0x61, 0x01])
@@ -133,6 +228,56 @@ signed_cbor += bytes([0x65]) + b'ES256'
 signed_cbor += bytes([0x69]) + b'signature'
 signed_cbor += bytes([0x44, 0x01, 0x02, 0x03, 0x04])
 signed_jumb = box(b'jumb', box(b'jumd', jumd) + box(b'cbor', bytes(signed_cbor)))
+
+p_c2pa_heif = Path(r'''${WORK_DIR}/sample_c2pa.heif''')
+u32 = lambda v: v.to_bytes(4, 'big')
+bmff_box = lambda t, payload: u32(8 + len(payload)) + t + payload
+bmff_uuid_box = lambda uuid, payload: u32(24 + len(payload)) + b'uuid' + uuid + payload
+bmff_marker = b'openmeta:bmff_transfer_meta:v1'
+bmff_uuid = b'OpenMetaBmffMeta'
+bmff_infe = (
+    b'\\x02\\x00\\x00\\x00'
+    + (1).to_bytes(2, 'big')
+    + (0).to_bytes(2, 'big')
+    + b'c2pa'
+    + b'C2PA\\x00'
+)
+bmff_iinf = bmff_box(
+    b'iinf',
+    b'\\x00\\x00\\x00\\x00' + (1).to_bytes(2, 'big') + bmff_box(b'infe', bmff_infe),
+)
+bmff_idat = bmff_box(b'idat', bytes(signed_jumb))
+bmff_iloc = bmff_box(
+    b'iloc',
+    b'\\x01\\x00\\x00\\x00'
+    + bytes([0x44, 0x40])
+    + (1).to_bytes(2, 'big')
+    + (1).to_bytes(2, 'big')
+    + (1).to_bytes(2, 'big')
+    + (0).to_bytes(2, 'big')
+    + (0).to_bytes(4, 'big')
+    + (1).to_bytes(2, 'big')
+    + (0).to_bytes(4, 'big')
+    + len(signed_jumb).to_bytes(4, 'big'),
+)
+bmff_meta = bmff_box(
+    b'meta',
+    b'\\x00\\x00\\x00\\x00'
+    + bmff_uuid_box(bmff_uuid, bmff_marker)
+    + bmff_iinf
+    + bmff_idat
+    + bmff_iloc,
+)
+p_c2pa_heif.write_bytes(
+    bmff_box(b'ftyp', b'heic' + u32(0) + b'mif1heic')
+    + bmff_box(b'mdat', bytes([0x11, 0x22, 0x33, 0x44]))
+    + bmff_meta
+)
+
+p_target_jxl = Path(r'''${WORK_DIR}/target.jxl''')
+p_target_jxl.write_bytes(
+    u32(12) + b'JXL ' + u32(0x0D0A870A) + bmff_box(b'jxlc', bytes([0x11, 0x22, 0x33, 0x44]))
+)
 
 r4 = openmeta.transfer_probe(
     str(p_c2pa),
@@ -299,6 +444,61 @@ assert r7['c2pa_stage_validation_semantic_primary_signature_explicit_reference_r
 assert r7['c2pa_stage_status_name'] == 'ok', r7
 assert r7['overall_status'] == openmeta.TransferStatus.Ok, r7
 assert isinstance(r7['edited_bytes'], (bytes, bytearray)), r7
+
+r8 = openmeta.unsafe_transfer_probe(
+    str(p_c2pa_heif),
+    target_format=openmeta.TransferTargetFormat.Heif,
+    include_exif_app1=False,
+    include_xmp_app1=False,
+    include_icc_app2=False,
+    include_iptc_app13=False,
+    c2pa_policy=openmeta.TransferPolicyAction.Rewrite,
+    include_c2pa_binding_bytes=True,
+)
+assert r8['c2pa_binding_requested'] is True, r8
+assert r8['c2pa_binding_status_name'] == 'ok', r8
+assert r8['c2pa_binding_code_name'] == 'none', r8
+assert r8['c2pa_binding_bytes_written'] == 36, r8
+assert bytes(r8['c2pa_binding_bytes']) == bytes.fromhex('000000186674797068656963000000006d696631686569630000000c6d64617411223344'), r8
+assert r8['c2pa_sign_request']['carrier_route'] == 'bmff:item-c2pa', r8
+
+r9 = openmeta.unsafe_transfer_probe(
+    str(p_c2pa_heif),
+    target_format=openmeta.TransferTargetFormat.Heif,
+    include_exif_app1=False,
+    include_xmp_app1=False,
+    include_icc_app2=False,
+    include_iptc_app13=False,
+    c2pa_signed_logical_payload=signed_jumb,
+    c2pa_certificate_chain=bytes([0x30, 0x82, 0x01, 0x00]),
+    c2pa_private_key_reference='test-key-ref',
+    c2pa_signing_time='2026-03-09T00:00:00Z',
+    c2pa_manifest_builder_output=bytes(signed_cbor),
+    edit_target_path=str(p_c2pa_heif),
+    edit_apply=True,
+    include_edited_bytes=True,
+)
+assert r9['c2pa_stage_requested'] is True, r9
+assert r9['c2pa_stage_validation_status_name'] == 'ok', r9
+assert r9['c2pa_stage_status_name'] == 'ok', r9
+assert r9['c2pa_stage_skipped'] == 0, r9
+assert r9['c2pa_rewrite']['target_format_name'] == 'heif', r9
+assert r9['c2pa_rewrite']['state_name'] == 'ready', r9
+assert r9['edit_apply_status'] == openmeta.TransferStatus.Ok, r9
+assert isinstance(r9['edited_bytes'], (bytes, bytearray)), r9
+
+r10 = openmeta.unsafe_transfer_probe(
+    str(p),
+    target_format=openmeta.TransferTargetFormat.Jxl,
+    include_icc_app2=False,
+    edit_target_path=str(p_target_jxl),
+    edit_apply=True,
+    include_edited_bytes=True,
+)
+assert r10['edit_plan_status_name'] == 'ok', r10
+assert r10['edit_apply_status_name'] == 'ok', r10
+assert isinstance(r10['edited_bytes'], (bytes, bytearray)), r10
+assert bytes(r10['edited_bytes'])[4:8] == b'JXL ', r10
 print('openmeta.transfer_probe smoke ok')
 ")
 
