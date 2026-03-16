@@ -31,14 +31,13 @@ Status labels used below:
 
 | Container / input type | Block discovery | Structured decode in `simple_meta_read` | Notes |
 | --- | --- | --- | --- |
-| JPEG | EXIF, XMP, extended XMP, ICC, MPF, Photoshop IRB, comment, vendor APP1/APP4 maker blocks, JUMBF/C2PA (APP11) | EXIF, MakerNote (opt-in), XMP, ICC, IPTC (from IRB), Photoshop IRB, MPF, draft JUMBF/C2PA decode, DJI/FLIR/Casio vendor paths | One of the most complete paths today. |
-| PNG | EXIF, XMP/text chunks, ICC, text, JUMBF/C2PA (caBX) | EXIF, XMP, ICC, draft JUMBF/C2PA decode | Generic text chunks are discovered;
-  not all become structured entries.| | WebP | EXIF, XMP, ICC,
+| JPEG | EXIF, XMP, extended XMP, ICC, MPF, Photoshop IRB, comment, vendor APP1/APP4 maker blocks, JUMBF/C2PA (APP11) | EXIF, MakerNote (opt-in), XMP, ICC, IPTC (from IRB), Photoshop IRB, MPF, structured comment (`MetaKeyKind::Comment`), draft JUMBF/C2PA decode, DJI/FLIR/Casio vendor paths | One of the most complete paths today. |
+| PNG | EXIF, XMP/text chunks, ICC, text, JUMBF/C2PA (caBX) | EXIF, XMP, ICC, structured PNG text (`MetaKeyKind::PngText`), draft JUMBF/C2PA decode | `tEXt`, `zTXt`, and non-XMP `iTXt` now promote to `keyword + field` entries; XMP `iTXt` stays on the XMP path. | | WebP | EXIF, XMP, ICC,
       JUMBF / C2PA(C2PA chunk) | EXIF, XMP, ICC,
       draft JUMBF / C2PA decode | RIFF chunk metadata path.| | GIF
           | XMP app - extension,
-      ICC app - extension | XMP,
-      ICC | Metadata is reassembled from GIF sub - blocks.|
+      ICC app - extension, comment extension | XMP,
+      ICC, structured comment (`MetaKeyKind::Comment`) | Metadata is reassembled from GIF sub - blocks; comment extensions now decode into one generic comment key.|
           | TIFF / DNG / TIFF - based RAW
           | TIFF stream + embedded XMP / IPTC / IRB / ICC / MakerNote tags;
   best - effort JUMBF / C2PA in tag blobs(BMFF `jumb`/`c2pa`)
@@ -46,12 +45,12 @@ Status labels used below:
       MakerNote(opt - in), XMP, IPTC, Photoshop IRB, ICC, GeoTIFF keys,
       draft JUMBF / C2PA decode | Includes RW2 / ORF TIFF - variant headers.|
           | CRW(CIFF) | CIFF root block | Partial(derived EXIF bridge fields)
-          | Best - effort mapping from CIFF to common EXIF fields.| | RAF / X3F
+          | Best - effort mapping from CIFF to common EXIF fields; scanner now reports `ContainerFormat::Crw`.| | RAF / X3F
           | Embedded TIFF located heuristically;
   RAF standalone XMP signature scan
       | Same as TIFF decode after embed
       detection(plus RAF XMP best - effort decode when present)
-      | Reported as `ContainerFormat::Unknown` with TIFF decode path.| | JP2
+      | Reported as `ContainerFormat::Raf` / `ContainerFormat::X3f` with the existing TIFF decode path.| | JP2
       | UUID / direct metadata boxes(EXIF / XMP / IPTC / ICC / GeoTIFF) | EXIF,
       XMP, IPTC, ICC,
       GeoTIFF | GeoJP2 TIFF payload is decoded via EXIF / TIFF path.| | JXL | `Exif`, `xml `, `jumb`, `brob` compressed
@@ -65,7 +64,7 @@ Status labels used below:
       and JUMBF / C2PA payloads by realtype.| | HEIF / AVIF / CR3(BMFF)
           | `meta` item graph(`iinf`/`iloc`),
       ICC from `iprp / ipco colr`, CR3 Canon UUID metadata | EXIF, XMP, ICC,
-      CR3 maker blocks; BMFF derived fields (`ftyp`, primary item props, draft `iref` edge fields, typed `iref.<type>.*` rows, `iref` graph summary fields, `auxC`-typed aux fields), draft JUMBF/C2PA block decode | Draft `iref` relation emission is available (`iref.*`), including typed rows for `auxl`/`dimg`/`thmb`/`cdsc`, per-type edge counters and per-type unique source/target counters (`iref.<type>.from_item_unique_count`, `iref.<type>.to_item_unique_count`), per-type graph-summary aliases (`iref.graph.<type>.edge_count`, `iref.graph.<type>.from_item_unique_count`, `iref.graph.<type>.to_item_unique_count`), per-type item summaries (`iref.<type>.item_count`, `iref.<type>.item_id`, `iref.<type>.item_*_edge_count`), and graph-summary fields (`iref.item_count`, `iref.from_item_unique_count`, `iref.to_item_unique_count`, `iref.item_*_edge_count`). Aux semantics are typed via `auxC` (`aux.item_id`, `aux.semantic`, `aux.type`, `aux.subtype_hex`, `aux.subtype_kind`, `aux.subtype_text`, `aux.subtype_uuid`, `aux.subtype_u32`, `aux.subtype_u64`, `primary.auxl_semantic`, `primary.depth_item_id`, ...), with subtype kinds including `ascii_z`, `u64be`, and `uuid`. `iloc` supports construction_method 0(file), 1(`idat`), and 2(item offset via `iref/iloc` references; slices spanning multiple referenced extents are emitted as multipart blocks). `iloc` items with `data_reference_index` that resolve to self-contained `dref/url ` entries are treated as local;
+      CR3 maker blocks; BMFF derived fields (`ftyp`, `meta.primary_item_id`, `primary.width`, `primary.height`, `primary.rotation_degrees`, `primary.mirror`, `iinf/infe` item-info rows, draft `iref` edge fields, typed `iref.<type>.*` rows, `iref` graph summary fields, `auxC`-typed aux fields), draft JUMBF/C2PA block decode | Draft `iref` relation emission is available (`iref.*`), including typed rows for `auxl`/`dimg`/`thmb`/`cdsc`, per-type edge counters and per-type unique source/target counters (`iref.<type>.from_item_unique_count`, `iref.<type>.to_item_unique_count`), per-type graph-summary aliases (`iref.graph.<type>.edge_count`, `iref.graph.<type>.from_item_unique_count`, `iref.graph.<type>.to_item_unique_count`), per-type item summaries (`iref.<type>.item_count`, `iref.<type>.item_id`, `iref.<type>.item_*_edge_count`), graph-summary fields (`iref.item_count`, `iref.from_item_unique_count`, `iref.to_item_unique_count`, `iref.item_*_edge_count`), and item-info fields (`item.info_count`, `item.id`, `item.type`, `item.name`, `item.content_type`, `item.content_encoding`, `item.uri_type`, plus `primary.item_type`, `primary.item_name`, `primary.content_type`, `primary.content_encoding`, and `primary.uri_type` when `pitm` is present). Item-info rows are emitted from `iinf/infe` even when `meta` has no `pitm`. Aux semantics are typed via `auxC` (`aux.item_id`, `aux.semantic`, `aux.type`, `aux.subtype_hex`, `aux.subtype_kind`, `aux.subtype_text`, `aux.subtype_uuid`, `aux.subtype_u32`, `aux.subtype_u64`, `primary.auxl_semantic`, `primary.depth_item_id`, ...), with subtype kinds including `ascii_z`, `u64be`, and `uuid`. `iloc` supports construction_method 0(file), 1(`idat`), and 2(item offset via `iref/iloc` references; slices spanning multiple referenced extents are emitted as multipart blocks). `iloc` items with `data_reference_index` that resolve to self-contained `dref/url ` entries are treated as local;
   non - self - contained references are skipped safely per item,
       and out - of - range known - item extents are skipped best
           - effort.JUMBF / C2PA is draft phase
@@ -107,7 +106,7 @@ Status labels used below:
       | GeoTIFF key(`GeotiffKey`) | Yes | Yes(generated key - name table) | Yes
       | | EXR attribute(`ExrAttribute`) | Yes(header attrs)
       | Attribute names are native in file
-      | Yes(lossless + OIIO / OCIO adapters) | | BMFF derived(`BmffField`)
+      | Yes(lossless + OIIO / OCIO adapters) | | Comment(`Comment`) | Yes(JPEG COM, GIF comment extension) | One generic comment key with text-or-bytes payload fallback | Yes | | PNG text(`PngText`) | Yes(`tEXt`, `zTXt`, non-XMP `iTXt`) | Explicit `keyword + field` keys (`text`, `language`, `translated_keyword`) | Yes | | BMFF derived(`BmffField`)
       | Partial(primary item / ftyp + draft relation fields
                 + typed `iref.<type>.*` rows + `iref` graph summaries
                 + `auxC` typing)

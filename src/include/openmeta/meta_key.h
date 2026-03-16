@@ -15,6 +15,7 @@ namespace openmeta {
 /// Namespace for different metadata key spaces.
 enum class MetaKeyKind : uint8_t {
     ExifTag,
+    Comment,
     ExrAttribute,
     IptcDataset,
     XmpProperty,
@@ -26,6 +27,7 @@ enum class MetaKeyKind : uint8_t {
     BmffField,
     JumbfField,
     JumbfCborKey,
+    PngText,
 };
 
 /**
@@ -42,6 +44,10 @@ struct MetaKey final {
             ByteSpan ifd;
             uint16_t tag = 0;
         } exif_tag;
+
+        struct Comment final {
+            uint8_t reserved = 0;
+        } comment;
 
         struct ExrAttribute final {
             uint32_t part_index = 0;
@@ -90,6 +96,11 @@ struct MetaKey final {
             ByteSpan key;
         } jumbf_cbor_key;
 
+        struct PngText final {
+            ByteSpan keyword;
+            ByteSpan field;
+        } png_text;
+
         Data() noexcept
             : exif_tag()
         {
@@ -110,6 +121,10 @@ struct MetaKeyView final {
             std::string_view ifd;
             uint16_t tag = 0;
         } exif_tag;
+
+        struct Comment final {
+            uint8_t reserved = 0;
+        } comment;
 
         struct ExrAttribute final {
             uint32_t part_index = 0;
@@ -158,6 +173,11 @@ struct MetaKeyView final {
             std::string_view key;
         } jumbf_cbor_key;
 
+        struct PngText final {
+            std::string_view keyword;
+            std::string_view field;
+        } png_text;
+
         Data() noexcept
             : exif_tag()
         {
@@ -168,6 +188,8 @@ struct MetaKeyView final {
 /// Creates a key for an EXIF/TIFF tag within a named IFD token (e.g. "ifd0", "exififd").
 MetaKey
 make_exif_tag_key(ByteArena& arena, std::string_view ifd, uint16_t tag);
+MetaKey
+make_comment_key() noexcept;
 /// Creates a key for an OpenEXR attribute name in a specific part.
 MetaKey
 make_exr_attribute_key(ByteArena& arena, uint32_t part_index,
@@ -193,6 +215,9 @@ MetaKey
 make_jumbf_field_key(ByteArena& arena, std::string_view field);
 MetaKey
 make_jumbf_cbor_key(ByteArena& arena, std::string_view key);
+MetaKey
+make_png_text_key(ByteArena& arena, std::string_view keyword,
+                  std::string_view field);
 
 /// Orders keys for deterministic storage/indexing.
 int

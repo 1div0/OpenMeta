@@ -431,6 +431,7 @@ namespace {
     {
         switch (k) {
         case MetaKeyKind::ExifTag: return "ExifTag";
+        case MetaKeyKind::Comment: return "Comment";
         case MetaKeyKind::ExrAttribute: return "ExrAttribute";
         case MetaKeyKind::IptcDataset: return "IptcDataset";
         case MetaKeyKind::XmpProperty: return "XmpProperty";
@@ -442,6 +443,7 @@ namespace {
         case MetaKeyKind::BmffField: return "BmffField";
         case MetaKeyKind::JumbfField: return "JumbfField";
         case MetaKeyKind::JumbfCborKey: return "JumbfCborKey";
+        case MetaKeyKind::PngText: return "PngText";
         }
         return "Unknown";
     }
@@ -857,6 +859,7 @@ namespace {
             w->append(buf);
             break;
         }
+        case MetaKeyKind::Comment: w->append("comment"); break;
         case MetaKeyKind::ExrAttribute: {
             const std::string_view name
                 = arena_string(arena, e.key.data.exr_attribute.name);
@@ -928,6 +931,17 @@ namespace {
             append_xml_safe_ascii(key, w);
             break;
         }
+        case MetaKeyKind::PngText: {
+            const std::string_view keyword
+                = arena_string(arena, e.key.data.png_text.keyword);
+            const std::string_view field
+                = arena_string(arena, e.key.data.png_text.field);
+            w->append("png_text:");
+            append_xml_safe_ascii(keyword, w);
+            w->append(":");
+            append_xml_safe_ascii(field, w);
+            break;
+        }
         }
         w->append("</omd:key>\n");
 
@@ -960,6 +974,11 @@ namespace {
             const std::string_view name
                 = arena_string(arena, e.key.data.exr_attribute.name);
             emit_text_element(w, kIndent4, "omd:attrName", name);
+        } else if (e.key.kind == MetaKeyKind::PngText) {
+            emit_text_element(w, kIndent4, "omd:pngKeyword",
+                              arena_string(arena, e.key.data.png_text.keyword));
+            emit_text_element(w, kIndent4, "omd:pngField",
+                              arena_string(arena, e.key.data.png_text.field));
         }
     }
 

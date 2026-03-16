@@ -11,6 +11,10 @@
 #include <string_view>
 #include <vector>
 
+#if defined(OPENMETA_HAS_ZLIB) && OPENMETA_HAS_ZLIB
+#    include <zlib.h>
+#endif
+
 namespace openmeta {
 namespace {
 
@@ -82,6 +86,32 @@ namespace {
         key.data.exif_tag.ifd = ifd;
         key.data.exif_tag.tag = tag;
         return key;
+    }
+
+    static MetaKeyView png_text_key(std::string_view keyword,
+                                    std::string_view field)
+    {
+        MetaKeyView key;
+        key.kind                  = MetaKeyKind::PngText;
+        key.data.png_text.keyword = keyword;
+        key.data.png_text.field   = field;
+        return key;
+    }
+
+    static MetaKeyView comment_key() noexcept
+    {
+        MetaKeyView key;
+        key.kind = MetaKeyKind::Comment;
+        return key;
+    }
+
+    static void append_png_chunk(std::vector<std::byte>* out, uint32_t type,
+                                 std::span<const std::byte> data)
+    {
+        append_u32be(out, static_cast<uint32_t>(data.size()));
+        append_u32be(out, type);
+        out->insert(out->end(), data.begin(), data.end());
+        append_u32be(out, 0U);
     }
 
     TEST(ByteArena, AppendCopiesSelfAliasedSpanAcrossReallocation)
@@ -782,6 +812,9 @@ TEST(SimpleMetaRead, DecodesRafEmbeddedTiff)
                            payload_parts, exif_options, payload_options);
     EXPECT_EQ(res.scan.status, ScanStatus::Ok);
     EXPECT_EQ(res.exif.status, ExifDecodeStatus::Ok);
+    ASSERT_GE(res.scan.written, 1U);
+    EXPECT_EQ(blocks[0].format, ContainerFormat::Raf);
+    EXPECT_EQ(blocks[0].kind, ContainerBlockKind::Exif);
 
     store.finalize();
     const std::span<const EntryId> ids = store.find_all(
@@ -815,12 +848,196 @@ TEST(SimpleMetaRead, DecodesX3fEmbeddedExifTiff)
                            payload_parts, exif_options, payload_options);
     EXPECT_EQ(res.scan.status, ScanStatus::Ok);
     EXPECT_EQ(res.exif.status, ExifDecodeStatus::Ok);
+    ASSERT_GE(res.scan.written, 1U);
+    EXPECT_EQ(blocks[0].format, ContainerFormat::X3f);
+    EXPECT_EQ(blocks[0].kind, ContainerBlockKind::Exif);
 
     store.finalize();
     const std::span<const EntryId> ids = store.find_all(
         exif_key("ifd0", 0x010F));
     ASSERT_EQ(ids.size(), 1U);
     EXPECT_EQ(arena_string(store.arena(), store.entry(ids[0]).value), "Canon");
+}
+
+
+TEST(SimpleMetaRead, PromotesPngTextChunksIntoStructuredEntries)
+{
+    std::vector<std::byte> png = {
+        std::byte { 0x89 }, std::byte { 0x50 }, std::byte { 0x4E },
+        std::byte { 0x47 }, std::byte { 0x0D }, std::byte { 0x0A },
+        std::byte { 0x1A }, std::byte { 0x0A },
+    };
+
+    std::vector<std::byte> text_chunk;
+    append_bytes(&text_chunk, "Author");
+    text_chunk.push_back(std::byte { 0x00 });
+    append_bytes(&text_chunk, "Alice");
+    append_png_chunk(&png, fourcc('t', 'E', 'X', 't'), text_chunk);
+
+    std::vector<std::byte> itxt;
+    append_bytes(&itxt, "Description");
+    itxt.push_back(std::byte { 0x00 });
+    itxt.push_back(std::byte { 0x00 });
+    itxt.push_back(std::byte { 0x00 });
+    append_bytes(&itxt, "en");
+    itxt.push_back(std::byte { 0x00 });
+    append_bytes(&itxt, "Beschreibung");
+    itxt.push_back(std::byte { 0x00 });
+    append_bytes(&itxt, "OpenMeta PNG");
+    append_png_chunk(&png, fourcc('i', 'T', 'X', 't'), itxt);
+
+#if defined(OPENMETA_HAS_ZLIB) && OPENMETA_HAS_ZLIB
+    const std::string_view comment_text = "Shot A";
+    uLongf comp_cap = compressBound(static_cast<uLong>(comment_text.size()));
+    std::vector<std::byte> comp(static_cast<size_t>(comp_cap));
+    const int zres
+        = compress2(reinterpret_cast<Bytef*>(comp.data()), &comp_cap,
+                    reinterpret_cast<const Bytef*>(comment_text.data()),
+                    static_cast<uLong>(comment_text.size()),
+                    Z_BEST_COMPRESSION);
+    ASSERT_EQ(zres, Z_OK);
+    comp.resize(static_cast<size_t>(comp_cap));
+
+    std::vector<std::byte> ztxt;
+    append_bytes(&ztxt, "Comment");
+    ztxt.push_back(std::byte { 0x00 });
+    ztxt.push_back(std::byte { 0x00 });
+    ztxt.insert(ztxt.end(), comp.begin(), comp.end());
+    append_png_chunk(&png, fourcc('z', 'T', 'X', 't'), ztxt);
+#endif
+
+    append_png_chunk(&png, fourcc('I', 'E', 'N', 'D'), {});
+
+    MetaStore store;
+    std::array<ContainerBlockRef, 8> blocks {};
+    std::array<ExifIfdRef, 8> ifds {};
+    std::array<std::byte, 4096> payload_scratch {};
+    std::array<uint32_t, 16> payload_parts {};
+    SimpleMetaDecodeOptions options;
+    options.payload.decompress = true;
+    const SimpleMetaResult res = simple_meta_read(png, store, blocks, ifds,
+                                                  payload_scratch,
+                                                  payload_parts, options);
+    EXPECT_EQ(res.scan.status, ScanStatus::Ok);
+
+    store.finalize();
+
+    const std::span<const EntryId> author_ids = store.find_all(
+        png_text_key("Author", "text"));
+    ASSERT_EQ(author_ids.size(), 1U);
+    EXPECT_EQ(store.entry(author_ids[0]).value.kind, MetaValueKind::Text);
+    EXPECT_EQ(store.entry(author_ids[0]).value.text_encoding,
+              TextEncoding::Unknown);
+    EXPECT_EQ(arena_string(store.arena(), store.entry(author_ids[0]).value),
+              "Alice");
+
+    const std::span<const EntryId> description_text_ids = store.find_all(
+        png_text_key("Description", "text"));
+    ASSERT_EQ(description_text_ids.size(), 1U);
+    EXPECT_EQ(store.entry(description_text_ids[0]).value.text_encoding,
+              TextEncoding::Utf8);
+    EXPECT_EQ(arena_string(store.arena(),
+                           store.entry(description_text_ids[0]).value),
+              "OpenMeta PNG");
+
+    const std::span<const EntryId> description_lang_ids = store.find_all(
+        png_text_key("Description", "language"));
+    ASSERT_EQ(description_lang_ids.size(), 1U);
+    EXPECT_EQ(store.entry(description_lang_ids[0]).value.text_encoding,
+              TextEncoding::Ascii);
+    EXPECT_EQ(arena_string(store.arena(),
+                           store.entry(description_lang_ids[0]).value),
+              "en");
+
+    const std::span<const EntryId> description_translated_ids = store.find_all(
+        png_text_key("Description", "translated_keyword"));
+    ASSERT_EQ(description_translated_ids.size(), 1U);
+    EXPECT_EQ(arena_string(store.arena(),
+                           store.entry(description_translated_ids[0]).value),
+              "Beschreibung");
+
+#if defined(OPENMETA_HAS_ZLIB) && OPENMETA_HAS_ZLIB
+    const std::span<const EntryId> comment_ids = store.find_all(
+        png_text_key("Comment", "text"));
+    ASSERT_EQ(comment_ids.size(), 1U);
+    EXPECT_EQ(arena_string(store.arena(), store.entry(comment_ids[0]).value),
+              "Shot A");
+#endif
+}
+
+
+TEST(SimpleMetaRead, DecodesJpegCommentBlock)
+{
+    std::vector<std::byte> jpeg;
+    jpeg.push_back(std::byte { 0xFF });
+    jpeg.push_back(std::byte { 0xD8 });
+
+    jpeg.push_back(std::byte { 0xFF });
+    jpeg.push_back(std::byte { 0xFE });
+    append_u16be(&jpeg, 23U);
+    append_bytes(&jpeg, "OpenMeta JPEG comment");
+
+    jpeg.push_back(std::byte { 0xFF });
+    jpeg.push_back(std::byte { 0xD9 });
+
+    MetaStore store;
+    std::array<ContainerBlockRef, 8> blocks {};
+    std::array<ExifIfdRef, 8> ifds {};
+    std::array<std::byte, 256> payload_scratch {};
+    std::array<uint32_t, 8> payload_parts {};
+    const SimpleMetaDecodeOptions options {};
+    const SimpleMetaResult res = simple_meta_read(jpeg, store, blocks, ifds,
+                                                  payload_scratch,
+                                                  payload_parts, options);
+    EXPECT_EQ(res.scan.status, ScanStatus::Ok);
+
+    store.finalize();
+    const std::span<const EntryId> ids = store.find_all(comment_key());
+    ASSERT_EQ(ids.size(), 1U);
+    EXPECT_EQ(store.entry(ids[0]).value.kind, MetaValueKind::Text);
+    EXPECT_EQ(store.entry(ids[0]).value.text_encoding, TextEncoding::Ascii);
+    EXPECT_EQ(arena_string(store.arena(), store.entry(ids[0]).value),
+              "OpenMeta JPEG comment");
+}
+
+
+TEST(SimpleMetaRead, DecodesGifCommentExtension)
+{
+    std::vector<std::byte> gif;
+    append_bytes(&gif, "GIF89a");
+    gif.push_back(std::byte { 0x01 });
+    gif.push_back(std::byte { 0x00 });
+    gif.push_back(std::byte { 0x01 });
+    gif.push_back(std::byte { 0x00 });
+    gif.push_back(std::byte { 0x00 });
+    gif.push_back(std::byte { 0x00 });
+    gif.push_back(std::byte { 0x00 });
+
+    gif.push_back(std::byte { 0x21 });
+    gif.push_back(std::byte { 0xFE });
+    gif.push_back(std::byte { 0x08 });
+    append_bytes(&gif, "gif text");
+    gif.push_back(std::byte { 0x00 });
+    gif.push_back(std::byte { 0x3B });
+
+    MetaStore store;
+    std::array<ContainerBlockRef, 8> blocks {};
+    std::array<ExifIfdRef, 8> ifds {};
+    std::array<std::byte, 256> payload_scratch {};
+    std::array<uint32_t, 8> payload_parts {};
+    const SimpleMetaDecodeOptions options {};
+    const SimpleMetaResult res = simple_meta_read(gif, store, blocks, ifds,
+                                                  payload_scratch,
+                                                  payload_parts, options);
+    EXPECT_EQ(res.scan.status, ScanStatus::Ok);
+
+    store.finalize();
+    const std::span<const EntryId> ids = store.find_all(comment_key());
+    ASSERT_EQ(ids.size(), 1U);
+    EXPECT_EQ(store.entry(ids[0]).value.kind, MetaValueKind::Text);
+    EXPECT_EQ(store.entry(ids[0]).value.text_encoding, TextEncoding::Ascii);
+    EXPECT_EQ(arena_string(store.arena(), store.entry(ids[0]).value),
+              "gif text");
 }
 
 }  // namespace openmeta

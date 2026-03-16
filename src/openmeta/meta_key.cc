@@ -38,6 +38,15 @@ make_exif_tag_key(ByteArena& arena, std::string_view ifd, uint16_t tag)
 
 
 MetaKey
+make_comment_key() noexcept
+{
+    MetaKey key;
+    key.kind = MetaKeyKind::Comment;
+    return key;
+}
+
+
+MetaKey
 make_exr_attribute_key(ByteArena& arena, uint32_t part_index,
                        std::string_view name)
 {
@@ -152,6 +161,18 @@ make_jumbf_cbor_key(ByteArena& arena, std::string_view key_text)
 }
 
 
+MetaKey
+make_png_text_key(ByteArena& arena, std::string_view keyword,
+                  std::string_view field)
+{
+    MetaKey key;
+    key.kind                  = MetaKeyKind::PngText;
+    key.data.png_text.keyword = arena.append_string(keyword);
+    key.data.png_text.field   = arena.append_string(field);
+    return key;
+}
+
+
 int
 compare_key(const ByteArena& arena, const MetaKey& a, const MetaKey& b) noexcept
 {
@@ -174,6 +195,7 @@ compare_key(const ByteArena& arena, const MetaKey& a, const MetaKey& b) noexcept
         }
         return 0;
     }
+    case MetaKeyKind::Comment: return 0;
     case MetaKeyKind::ExrAttribute: {
         if (a.data.exr_attribute.part_index < b.data.exr_attribute.part_index) {
             return -1;
@@ -253,6 +275,16 @@ compare_key(const ByteArena& arena, const MetaKey& a, const MetaKey& b) noexcept
     case MetaKeyKind::JumbfCborKey:
         return compare_bytes(arena.span(a.data.jumbf_cbor_key.key),
                              arena.span(b.data.jumbf_cbor_key.key));
+    case MetaKeyKind::PngText: {
+        const int keyword_cmp
+            = compare_bytes(arena.span(a.data.png_text.keyword),
+                            arena.span(b.data.png_text.keyword));
+        if (keyword_cmp != 0) {
+            return keyword_cmp;
+        }
+        return compare_bytes(arena.span(a.data.png_text.field),
+                             arena.span(b.data.png_text.field));
+    }
     }
     return 0;
 }
@@ -284,6 +316,7 @@ compare_key_view(const ByteArena& arena, const MetaKeyView& a,
         }
         return 0;
     }
+    case MetaKeyKind::Comment: return 0;
     case MetaKeyKind::ExrAttribute: {
         if (a.data.exr_attribute.part_index < b.data.exr_attribute.part_index) {
             return -1;
@@ -383,6 +416,20 @@ compare_key_view(const ByteArena& arena, const MetaKeyView& a,
             reinterpret_cast<const std::byte*>(a.data.jumbf_cbor_key.key.data()),
             a.data.jumbf_cbor_key.key.size());
         return compare_bytes(a_key, arena.span(b.data.jumbf_cbor_key.key));
+    }
+    case MetaKeyKind::PngText: {
+        const std::span<const std::byte> a_keyword(
+            reinterpret_cast<const std::byte*>(a.data.png_text.keyword.data()),
+            a.data.png_text.keyword.size());
+        const int keyword_cmp
+            = compare_bytes(a_keyword, arena.span(b.data.png_text.keyword));
+        if (keyword_cmp != 0) {
+            return keyword_cmp;
+        }
+        const std::span<const std::byte> a_field(
+            reinterpret_cast<const std::byte*>(a.data.png_text.field.data()),
+            a.data.png_text.field.size());
+        return compare_bytes(a_field, arena.span(b.data.png_text.field));
     }
     }
     return 0;

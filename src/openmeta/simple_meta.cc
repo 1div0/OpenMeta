@@ -79,6 +79,285 @@ namespace {
         return true;
     }
 
+    static bool has_nul(std::span<const std::byte> bytes) noexcept
+    {
+        for (size_t i = 0; i < bytes.size(); ++i) {
+            if (bytes[i] == std::byte { 0 }) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static bool bytes_ascii(std::span<const std::byte> bytes) noexcept
+    {
+        for (size_t i = 0; i < bytes.size(); ++i) {
+            if (u8(bytes[i]) > 0x7FU) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    static bool bytes_valid_utf8(std::span<const std::byte> bytes) noexcept
+    {
+        size_t i = 0;
+        while (i < bytes.size()) {
+            const uint8_t c0 = u8(bytes[i]);
+            if ((c0 & 0x80U) == 0U) {
+                i += 1U;
+                continue;
+            }
+
+            uint32_t needed = 0;
+            uint32_t min_cp = 0;
+            uint32_t cp     = 0;
+
+            if ((c0 & 0xE0U) == 0xC0U) {
+                needed = 1U;
+                min_cp = 0x80U;
+                cp     = c0 & 0x1FU;
+            } else if ((c0 & 0xF0U) == 0xE0U) {
+                needed = 2U;
+                min_cp = 0x800U;
+                cp     = c0 & 0x0FU;
+            } else if ((c0 & 0xF8U) == 0xF0U) {
+                needed = 3U;
+                min_cp = 0x10000U;
+                cp     = c0 & 0x07U;
+            } else {
+                return false;
+            }
+
+            if (i + needed >= bytes.size()) {
+                return false;
+            }
+            for (uint32_t j = 0; j < needed; ++j) {
+                const uint8_t cx = u8(bytes[i + 1U + j]);
+                if ((cx & 0xC0U) != 0x80U) {
+                    return false;
+                }
+                cp = (cp << 6) | static_cast<uint32_t>(cx & 0x3FU);
+            }
+
+            if (cp < min_cp || cp > 0x10FFFFU) {
+                return false;
+            }
+            if (cp >= 0xD800U && cp <= 0xDFFFU) {
+                return false;
+            }
+            i += 1U + needed;
+        }
+        return true;
+    }
+
+    static bool comment_emit_entry(MetaStore& store,
+                                   std::span<const std::byte> bytes) noexcept
+    {
+        const BlockId block_id = store.add_block(BlockInfo {});
+        if (block_id == kInvalidBlockId) {
+            return false;
+        }
+
+        Entry entry;
+        entry.key                     = make_comment_key();
+        entry.origin.block            = block_id;
+        entry.origin.order_in_block   = 0U;
+        entry.origin.wire_type.family = WireFamily::Other;
+
+        const std::string_view text(reinterpret_cast<const char*>(bytes.data()),
+                                    bytes.size());
+        if (!has_nul(bytes) && bytes_ascii(bytes)) {
+            entry.value = make_text(store.arena(), text, TextEncoding::Ascii);
+        } else if (!has_nul(bytes) && bytes_valid_utf8(bytes)) {
+            entry.value = make_text(store.arena(), text, TextEncoding::Utf8);
+        } else {
+            entry.value = make_bytes(store.arena(), bytes);
+        }
+
+        return store.add_entry(entry) != kInvalidEntryId;
+    }
+
+    static bool decode_comment_block(std::span<const std::byte> block_bytes,
+                                     const ContainerBlockRef& block,
+                                     MetaStore& store) noexcept
+    {
+        if (block.kind != ContainerBlockKind::Comment) {
+            return false;
+        }
+        return comment_emit_entry(store, block_bytes);
+    }
+
+    static std::string_view
+    make_string_view(std::span<const std::byte> bytes) noexcept
+    {
+        return std::string_view(reinterpret_cast<const char*>(bytes.data()),
+                                bytes.size());
+    }
+
+    static bool
+    png_text_emit_entry(MetaStore& store, BlockId block, uint32_t* io_order,
+                        std::string_view keyword, std::string_view field,
+                        std::string_view text, TextEncoding encoding) noexcept
+    {
+        if (!io_order) {
+            return false;
+        }
+        Entry entry;
+        entry.key          = make_png_text_key(store.arena(), keyword, field);
+        entry.value        = make_text(store.arena(), text, encoding);
+        entry.origin.block = block;
+        entry.origin.order_in_block   = *io_order;
+        entry.origin.wire_type.family = WireFamily::Other;
+        if (store.add_entry(entry) == kInvalidEntryId) {
+            return false;
+        }
+        *io_order += 1U;
+        return true;
+    }
+
+    static bool decode_png_text_block(std::span<const std::byte> file_bytes,
+                                      const ContainerBlockRef& block,
+                                      std::span<const std::byte> block_bytes,
+                                      bool payload_decompressed,
+                                      MetaStore& store) noexcept
+    {
+        if (block.format != ContainerFormat::Png
+            || block.kind != ContainerBlockKind::Text) {
+            return false;
+        }
+        if (block.outer_offset > file_bytes.size()
+            || block.outer_size > file_bytes.size() - block.outer_offset
+            || block.outer_size < 12U) {
+            return false;
+        }
+
+        const std::span<const std::byte> outer
+            = file_bytes.subspan(static_cast<size_t>(block.outer_offset),
+                                 static_cast<size_t>(block.outer_size));
+        uint32_t data_size = 0;
+        uint32_t type      = 0;
+        if (!read_u32be(outer, 0, &data_size) || !read_u32be(outer, 4, &type)) {
+            return false;
+        }
+        if (static_cast<uint64_t>(data_size) + 12U != block.outer_size) {
+            return false;
+        }
+
+        const std::span<const std::byte> data
+            = outer.subspan(8, static_cast<size_t>(data_size));
+        if (type == fourcc('t', 'E', 'X', 't')) {
+            size_t keyword_end = 0;
+            while (keyword_end < data.size() && u8(data[keyword_end]) != 0U) {
+                keyword_end += 1U;
+            }
+            if (keyword_end >= data.size()) {
+                return false;
+            }
+            const std::string_view keyword = make_string_view(
+                data.subspan(0, keyword_end));
+            const std::string_view text = make_string_view(
+                data.subspan(keyword_end + 1));
+            const BlockId block_id = store.add_block(BlockInfo {});
+            if (block_id == kInvalidBlockId) {
+                return false;
+            }
+            uint32_t order = 0;
+            return png_text_emit_entry(store, block_id, &order, keyword, "text",
+                                       text, TextEncoding::Unknown);
+        }
+
+        if (type == fourcc('z', 'T', 'X', 't')) {
+            if (!payload_decompressed) {
+                return false;
+            }
+            size_t keyword_end = 0;
+            while (keyword_end < data.size() && u8(data[keyword_end]) != 0U) {
+                keyword_end += 1U;
+            }
+            if (keyword_end + 2U > data.size()) {
+                return false;
+            }
+            const std::string_view keyword = make_string_view(
+                data.subspan(0, keyword_end));
+            const std::string_view text = make_string_view(block_bytes);
+            const BlockId block_id      = store.add_block(BlockInfo {});
+            if (block_id == kInvalidBlockId) {
+                return false;
+            }
+            uint32_t order = 0;
+            return png_text_emit_entry(store, block_id, &order, keyword, "text",
+                                       text, TextEncoding::Unknown);
+        }
+
+        if (type == fourcc('i', 'T', 'X', 't')) {
+            size_t p = 0;
+            while (p < data.size() && u8(data[p]) != 0U) {
+                p += 1U;
+            }
+            if (p + 3U > data.size()) {
+                return false;
+            }
+
+            const std::string_view keyword = make_string_view(
+                data.subspan(0, p));
+            const bool compressed = (u8(data[p + 1]) != 0U);
+            if (compressed && !payload_decompressed) {
+                return false;
+            }
+
+            size_t lang = p + 3U;
+            while (lang < data.size() && u8(data[lang]) != 0U) {
+                lang += 1U;
+            }
+            if (lang >= data.size()) {
+                return false;
+            }
+
+            const size_t translated_start = lang + 1U;
+            size_t translated_end         = translated_start;
+            while (translated_end < data.size()
+                   && u8(data[translated_end]) != 0U) {
+                translated_end += 1U;
+            }
+            if (translated_end >= data.size()) {
+                return false;
+            }
+
+            const std::string_view language = make_string_view(
+                data.subspan(p + 3U, lang - (p + 3U)));
+            const std::string_view translated = make_string_view(
+                data.subspan(translated_start,
+                             translated_end - translated_start));
+            const std::string_view text = make_string_view(block_bytes);
+            const BlockId block_id      = store.add_block(BlockInfo {});
+            if (block_id == kInvalidBlockId) {
+                return false;
+            }
+            uint32_t order = 0;
+
+            bool ok = true;
+            if (!language.empty()) {
+                ok = png_text_emit_entry(store, block_id, &order, keyword,
+                                         "language", language,
+                                         TextEncoding::Ascii)
+                     && ok;
+            }
+            if (!translated.empty()) {
+                ok = png_text_emit_entry(store, block_id, &order, keyword,
+                                         "translated_keyword", translated,
+                                         TextEncoding::Utf8)
+                     && ok;
+            }
+            ok = png_text_emit_entry(store, block_id, &order, keyword, "text",
+                                     text, TextEncoding::Utf8)
+                 && ok;
+            return ok;
+        }
+
+        return false;
+    }
+
     static bool read_u16be(std::span<const std::byte> bytes, uint64_t offset,
                            uint16_t* out) noexcept
     {
@@ -946,6 +1225,14 @@ simple_meta_read(std::span<const std::byte> file_bytes, MetaStore& store,
                                                           options.xmp);
             merge_xmp_status(&xmp.status, one.status);
             xmp.entries_decoded += one.entries_decoded;
+        } else if (block.kind == ContainerBlockKind::Text) {
+            const bool payload_decompressed = (block.compression
+                                               == BlockCompression::None)
+                                              || options.payload.decompress;
+            (void)decode_png_text_block(file_bytes, block, block_bytes,
+                                        payload_decompressed, store);
+        } else if (block.kind == ContainerBlockKind::Comment) {
+            (void)decode_comment_block(block_bytes, block, store);
         } else if (block.kind == ContainerBlockKind::Jumbf) {
             const JumbfDecodeResult one
                 = decode_jumbf_payload(block_bytes, store, EntryFlags::None,

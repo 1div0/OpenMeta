@@ -453,6 +453,21 @@ namespace {
         uint32_t to_item_id   = 0;
     };
 
+    struct ItemInfo final {
+        uint32_t item_id          = 0;
+        uint16_t protection_index = 0;
+        bool have_type            = false;
+        uint32_t item_type        = 0;
+        std::array<char, 96> name {};
+        uint16_t name_len = 0;
+        std::array<char, 96> content_type {};
+        uint16_t content_type_len = 0;
+        std::array<char, 96> content_encoding {};
+        uint16_t content_encoding_len = 0;
+        std::array<char, 96> uri_type {};
+        uint16_t uri_type_len = 0;
+    };
+
 
     struct PrimaryProps final {
         bool have_item_id = false;
@@ -472,6 +487,9 @@ namespace {
         uint32_t iref_edge_count = 0;
         uint32_t iref_edge_total = 0;
         bool iref_truncated      = false;
+
+        std::array<ItemInfo, 256> item_infos {};
+        uint32_t item_info_count = 0;
 
         std::array<uint32_t, 128> primary_auxl_item_ids {};
         uint32_t primary_auxl_count = 0;
@@ -660,6 +678,27 @@ namespace {
             }
         }
         return UINT32_MAX;
+    }
+
+    static uint32_t find_item_info_index(const PrimaryProps& out,
+                                         uint32_t item_id) noexcept
+    {
+        for (uint32_t i = 0; i < out.item_info_count; ++i) {
+            if (out.item_infos[i].item_id == item_id) {
+                return i;
+            }
+        }
+        return UINT32_MAX;
+    }
+
+    static const ItemInfo* find_item_info(const PrimaryProps& out,
+                                          uint32_t item_id) noexcept
+    {
+        const uint32_t idx = find_item_info_index(out, item_id);
+        if (idx == UINT32_MAX || idx >= out.item_infos.size()) {
+            return nullptr;
+        }
+        return &out.item_infos[idx];
     }
 
     static const AuxItemInfo* find_aux_item_info(const PrimaryProps& out,
@@ -1062,6 +1101,209 @@ namespace {
         }
 
         return false;
+    }
+
+    static bool bmff_read_cstr(std::span<const std::byte> bytes,
+                               uint64_t* io_off, uint64_t end, char* out,
+                               size_t out_cap, uint16_t* out_len) noexcept
+    {
+        if (!io_off || !out || !out_len || out_cap == 0U) {
+            return false;
+        }
+        if (*io_off > end || end > bytes.size()) {
+            return false;
+        }
+        uint64_t p = *io_off;
+        while (p < end && bytes[p] != std::byte { 0x00 }) {
+            p += 1;
+        }
+        if (p >= end) {
+            return false;
+        }
+        const size_t len = static_cast<size_t>(p - *io_off);
+        const size_t n   = (len < out_cap) ? len : out_cap;
+        for (size_t i = 0; i < n; ++i) {
+            out[i] = static_cast<char>(u8(bytes[*io_off + i]));
+        }
+        *out_len = static_cast<uint16_t>(n);
+        *io_off  = p + 1;
+        return true;
+    }
+
+    static bool bmff_parse_infe(std::span<const std::byte> bytes,
+                                const BmffBox& infe, ItemInfo* out) noexcept
+    {
+        if (!out) {
+            return false;
+        }
+        *out = ItemInfo {};
+
+        const uint64_t payload_off  = infe.offset + infe.header_size;
+        const uint64_t payload_size = infe.size - infe.header_size;
+        const uint64_t payload_end  = payload_off + payload_size;
+        if (payload_size < 4 || payload_end > bytes.size()) {
+            return false;
+        }
+
+        const uint8_t version = u8(bytes[payload_off + 0]);
+        uint64_t p            = payload_off + 4;
+
+        if (version <= 1U) {
+            uint16_t item_id16 = 0;
+            uint16_t prot16    = 0;
+            if (!read_u16be(bytes, p, &item_id16)
+                || !read_u16be(bytes, p + 2, &prot16)) {
+                return false;
+            }
+            out->item_id          = static_cast<uint32_t>(item_id16);
+            out->protection_index = prot16;
+            p += 4;
+            if (!bmff_read_cstr(bytes, &p, payload_end, out->name.data(),
+                                out->name.size(), &out->name_len)) {
+                return false;
+            }
+            if (!bmff_read_cstr(bytes, &p, payload_end,
+                                out->content_type.data(),
+                                out->content_type.size(),
+                                &out->content_type_len)) {
+                return false;
+            }
+            if (!bmff_read_cstr(bytes, &p, payload_end,
+                                out->content_encoding.data(),
+                                out->content_encoding.size(),
+                                &out->content_encoding_len)) {
+                return false;
+            }
+            if (out->content_type_len != 0U) {
+                out->have_type = true;
+                out->item_type = fourcc('m', 'i', 'm', 'e');
+            }
+            return true;
+        }
+
+        if (version == 2U) {
+            uint16_t item_id16 = 0;
+            uint16_t prot16    = 0;
+            uint32_t item_type = 0;
+            if (!read_u16be(bytes, p, &item_id16)
+                || !read_u16be(bytes, p + 2, &prot16)
+                || !read_u32be(bytes, p + 4, &item_type)) {
+                return false;
+            }
+            out->item_id          = static_cast<uint32_t>(item_id16);
+            out->protection_index = prot16;
+            out->have_type        = true;
+            out->item_type        = item_type;
+            p += 8;
+        } else if (version == 3U) {
+            uint32_t item_id32 = 0;
+            uint16_t prot16    = 0;
+            uint32_t item_type = 0;
+            if (!read_u32be(bytes, p, &item_id32)
+                || !read_u16be(bytes, p + 4, &prot16)
+                || !read_u32be(bytes, p + 6, &item_type)) {
+                return false;
+            }
+            out->item_id          = item_id32;
+            out->protection_index = prot16;
+            out->have_type        = true;
+            out->item_type        = item_type;
+            p += 10;
+        } else {
+            return false;
+        }
+
+        if (!bmff_read_cstr(bytes, &p, payload_end, out->name.data(),
+                            out->name.size(), &out->name_len)) {
+            return false;
+        }
+
+        if (out->item_type == fourcc('m', 'i', 'm', 'e')) {
+            if (!bmff_read_cstr(bytes, &p, payload_end,
+                                out->content_type.data(),
+                                out->content_type.size(),
+                                &out->content_type_len)) {
+                return false;
+            }
+            if (!bmff_read_cstr(bytes, &p, payload_end,
+                                out->content_encoding.data(),
+                                out->content_encoding.size(),
+                                &out->content_encoding_len)) {
+                return false;
+            }
+        } else if (out->item_type == fourcc('u', 'r', 'i', ' ')) {
+            if (!bmff_read_cstr(bytes, &p, payload_end, out->uri_type.data(),
+                                out->uri_type.size(), &out->uri_type_len)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    static void bmff_collect_iinf_items(std::span<const std::byte> bytes,
+                                        const BmffBox& iinf,
+                                        PrimaryProps* out) noexcept
+    {
+        if (!out) {
+            return;
+        }
+
+        const uint64_t payload_off  = iinf.offset + iinf.header_size;
+        const uint64_t payload_size = iinf.size - iinf.header_size;
+        const uint64_t payload_end  = payload_off + payload_size;
+        if (payload_size < 6 || payload_end > bytes.size()) {
+            return;
+        }
+
+        const uint8_t version = u8(bytes[payload_off + 0]);
+        uint64_t p            = payload_off + 4;
+        uint32_t entry_count  = 0;
+        if (version == 0U) {
+            uint16_t entry_count16 = 0;
+            if (!read_u16be(bytes, p, &entry_count16)) {
+                return;
+            }
+            entry_count = static_cast<uint32_t>(entry_count16);
+            p += 2;
+        } else {
+            if (!read_u32be(bytes, p, &entry_count)) {
+                return;
+            }
+            p += 4;
+        }
+
+        const uint32_t take_entries
+            = (entry_count < static_cast<uint32_t>(out->item_infos.size()))
+                  ? entry_count
+                  : static_cast<uint32_t>(out->item_infos.size());
+        const uint32_t kMaxBoxes = 1U << 16;
+        uint32_t seen            = 0;
+        while (p + 8 <= payload_end && seen < kMaxBoxes
+               && out->item_info_count < take_entries) {
+            seen += 1;
+            BmffBox child;
+            if (!parse_bmff_box(bytes, p, payload_end, &child)) {
+                break;
+            }
+            if (child.type == fourcc('i', 'n', 'f', 'e')) {
+                ItemInfo info {};
+                if (bmff_parse_infe(bytes, child, &info)) {
+                    const uint32_t idx = find_item_info_index(*out,
+                                                              info.item_id);
+                    if (idx != UINT32_MAX && idx < out->item_infos.size()) {
+                        out->item_infos[idx] = info;
+                    } else if (out->item_info_count < out->item_infos.size()) {
+                        out->item_infos[out->item_info_count] = info;
+                        out->item_info_count += 1;
+                    }
+                }
+            }
+            p += child.size;
+            if (child.size == 0) {
+                break;
+            }
+        }
     }
 
 
@@ -1592,9 +1834,11 @@ namespace {
         }
 
         BmffBox pitm {};
+        BmffBox iinf {};
         BmffBox iprp {};
         BmffBox iref {};
         bool has_pitm = false;
+        bool has_iinf = false;
         bool has_iprp = false;
         bool has_iref = false;
 
@@ -1616,6 +1860,9 @@ namespace {
             if (child.type == fourcc('p', 'i', 't', 'm')) {
                 pitm     = child;
                 has_pitm = true;
+            } else if (child.type == fourcc('i', 'i', 'n', 'f')) {
+                iinf     = child;
+                has_iinf = true;
             } else if (child.type == fourcc('i', 'p', 'r', 'p')) {
                 iprp     = child;
                 has_iprp = true;
@@ -1630,8 +1877,12 @@ namespace {
             }
         }
 
+        if (has_iinf) {
+            bmff_collect_iinf_items(bytes, iinf, out);
+        }
+
         if (!has_pitm) {
-            return false;
+            return (out->item_info_count > 0U);
         }
         uint32_t primary_id = 0;
         if (!bmff_parse_pitm(bytes, pitm, &primary_id)) {
@@ -1756,529 +2007,630 @@ namespace {
 
             if (box.type == fourcc('m', 'e', 't', 'a')) {
                 PrimaryProps p {};
-                if (bmff_decode_meta_primary(bytes, box, &p)
-                    && p.have_item_id) {
-                    emit_u32_field(*ctx->store, ctx->block, (*ctx->order)++,
-                                   "meta.primary_item_id", p.item_id);
-                    if (p.have_width_height) {
+                if (bmff_decode_meta_primary(bytes, box, &p)) {
+                    if (p.item_info_count > 0) {
                         emit_u32_field(*ctx->store, ctx->block, (*ctx->order)++,
-                                       "primary.width", p.width);
-                        emit_u32_field(*ctx->store, ctx->block, (*ctx->order)++,
-                                       "primary.height", p.height);
-                    }
-                    if (p.have_rotation) {
-                        emit_u16_field(*ctx->store, ctx->block, (*ctx->order)++,
-                                       "primary.rotation_degrees",
-                                       p.rotation_degrees);
-                    }
-                    if (p.have_mirror) {
-                        emit_u8_field(*ctx->store, ctx->block, (*ctx->order)++,
-                                      "primary.mirror", p.mirror);
-                    }
-                    if (p.iref_edge_total > 0) {
-                        emit_u32_field(*ctx->store, ctx->block, (*ctx->order)++,
-                                       "iref.edge_count", p.iref_edge_total);
-                        if (p.iref_truncated) {
-                            emit_u8_field(*ctx->store, ctx->block,
-                                          (*ctx->order)++,
-                                          "iref.edge_truncated", 1);
+                                       "item.info_count", p.item_info_count);
+                        for (uint32_t i = 0; i < p.item_info_count; ++i) {
+                            const ItemInfo& info = p.item_infos[i];
+                            emit_u32_field(*ctx->store, ctx->block,
+                                           (*ctx->order)++, "item.id",
+                                           info.item_id);
+                            emit_u16_field(*ctx->store, ctx->block,
+                                           (*ctx->order)++,
+                                           "item.protection_index",
+                                           info.protection_index);
+                            if (info.have_type) {
+                                emit_u32_field(*ctx->store, ctx->block,
+                                               (*ctx->order)++, "item.type",
+                                               info.item_type);
+                            }
+                            if (info.name_len != 0U) {
+                                emit_text_field(
+                                    *ctx->store, ctx->block, (*ctx->order)++,
+                                    "item.name",
+                                    std::string_view(info.name.data(),
+                                                     info.name_len));
+                            }
+                            if (info.content_type_len != 0U) {
+                                emit_text_field(
+                                    *ctx->store, ctx->block, (*ctx->order)++,
+                                    "item.content_type",
+                                    std::string_view(info.content_type.data(),
+                                                     info.content_type_len));
+                            }
+                            if (info.content_encoding_len != 0U) {
+                                emit_text_field(*ctx->store, ctx->block,
+                                                (*ctx->order)++,
+                                                "item.content_encoding",
+                                                std::string_view(
+                                                    info.content_encoding.data(),
+                                                    info.content_encoding_len));
+                            }
+                            if (info.uri_type_len != 0U) {
+                                emit_text_field(
+                                    *ctx->store, ctx->block, (*ctx->order)++,
+                                    "item.uri_type",
+                                    std::string_view(info.uri_type.data(),
+                                                     info.uri_type_len));
+                            }
                         }
-                        uint32_t auxl_edge_count = 0;
-                        uint32_t dimg_edge_count = 0;
-                        uint32_t thmb_edge_count = 0;
-                        uint32_t cdsc_edge_count = 0;
-                        std::array<uint32_t, 512> auxl_from_ids {};
-                        std::array<uint32_t, 512> auxl_to_ids {};
-                        std::array<uint32_t, 512> dimg_from_ids {};
-                        std::array<uint32_t, 512> dimg_to_ids {};
-                        std::array<uint32_t, 512> thmb_from_ids {};
-                        std::array<uint32_t, 512> thmb_to_ids {};
-                        std::array<uint32_t, 512> cdsc_from_ids {};
-                        std::array<uint32_t, 512> cdsc_to_ids {};
-                        std::array<uint32_t, 512> auxl_item_ids {};
-                        std::array<uint32_t, 512> auxl_item_out_counts {};
-                        std::array<uint32_t, 512> auxl_item_in_counts {};
-                        std::array<uint32_t, 512> dimg_item_ids {};
-                        std::array<uint32_t, 512> dimg_item_out_counts {};
-                        std::array<uint32_t, 512> dimg_item_in_counts {};
-                        std::array<uint32_t, 512> thmb_item_ids {};
-                        std::array<uint32_t, 512> thmb_item_out_counts {};
-                        std::array<uint32_t, 512> thmb_item_in_counts {};
-                        std::array<uint32_t, 512> cdsc_item_ids {};
-                        std::array<uint32_t, 512> cdsc_item_out_counts {};
-                        std::array<uint32_t, 512> cdsc_item_in_counts {};
-                        uint32_t auxl_from_count = 0;
-                        uint32_t auxl_to_count   = 0;
-                        uint32_t dimg_from_count = 0;
-                        uint32_t dimg_to_count   = 0;
-                        uint32_t thmb_from_count = 0;
-                        uint32_t thmb_to_count   = 0;
-                        uint32_t cdsc_from_count = 0;
-                        uint32_t cdsc_to_count   = 0;
-                        uint32_t auxl_item_count = 0;
-                        uint32_t dimg_item_count = 0;
-                        uint32_t thmb_item_count = 0;
-                        uint32_t cdsc_item_count = 0;
-                        std::array<uint32_t, 512> iref_item_ids {};
-                        std::array<uint32_t, 512> iref_item_out_edge_counts {};
-                        std::array<uint32_t, 512> iref_item_in_edge_counts {};
-                        uint32_t iref_item_count = 0;
-                        for (uint32_t i = 0; i < p.iref_edge_count; ++i) {
-                            emit_u32_field(*ctx->store, ctx->block,
-                                           (*ctx->order)++, "iref.ref_type",
-                                           p.iref_edges[i].ref_type);
-                            emit_u32_field(*ctx->store, ctx->block,
-                                           (*ctx->order)++, "iref.from_item_id",
-                                           p.iref_edges[i].from_item_id);
-                            emit_u32_field(*ctx->store, ctx->block,
-                                           (*ctx->order)++, "iref.to_item_id",
-                                           p.iref_edges[i].to_item_id);
-                            bump_item_edge_count(iref_item_ids,
-                                                 iref_item_out_edge_counts,
-                                                 &iref_item_count,
-                                                 p.iref_edges[i].from_item_id);
-                            bump_item_edge_count(iref_item_ids,
-                                                 iref_item_in_edge_counts,
-                                                 &iref_item_count,
-                                                 p.iref_edges[i].to_item_id);
-                            if (p.iref_edges[i].ref_type
-                                == fourcc('a', 'u', 'x', 'l')) {
-                                auxl_edge_count += 1;
-                                push_primary_rel_unique(
-                                    auxl_from_ids, &auxl_from_count,
-                                    p.iref_edges[i].from_item_id);
-                                push_primary_rel_unique(
-                                    auxl_to_ids, &auxl_to_count,
-                                    p.iref_edges[i].to_item_id);
+                    }
+                    if (p.have_item_id) {
+                        emit_u32_field(*ctx->store, ctx->block, (*ctx->order)++,
+                                       "meta.primary_item_id", p.item_id);
+                        if (const ItemInfo* primary
+                            = find_item_info(p, p.item_id)) {
+                            emit_u16_field(*ctx->store, ctx->block,
+                                           (*ctx->order)++,
+                                           "primary.protection_index",
+                                           primary->protection_index);
+                            if (primary->have_type) {
                                 emit_u32_field(*ctx->store, ctx->block,
                                                (*ctx->order)++,
-                                               "iref.auxl.from_item_id",
+                                               "primary.item_type",
+                                               primary->item_type);
+                            }
+                            if (primary->name_len != 0U) {
+                                emit_text_field(
+                                    *ctx->store, ctx->block, (*ctx->order)++,
+                                    "primary.item_name",
+                                    std::string_view(primary->name.data(),
+                                                     primary->name_len));
+                            }
+                            if (primary->content_type_len != 0U) {
+                                emit_text_field(*ctx->store, ctx->block,
+                                                (*ctx->order)++,
+                                                "primary.content_type",
+                                                std::string_view(
+                                                    primary->content_type.data(),
+                                                    primary->content_type_len));
+                            }
+                            if (primary->content_encoding_len != 0U) {
+                                emit_text_field(
+                                    *ctx->store, ctx->block, (*ctx->order)++,
+                                    "primary.content_encoding",
+                                    std::string_view(
+                                        primary->content_encoding.data(),
+                                        primary->content_encoding_len));
+                            }
+                            if (primary->uri_type_len != 0U) {
+                                emit_text_field(
+                                    *ctx->store, ctx->block, (*ctx->order)++,
+                                    "primary.uri_type",
+                                    std::string_view(primary->uri_type.data(),
+                                                     primary->uri_type_len));
+                            }
+                        }
+                        if (p.have_width_height) {
+                            emit_u32_field(*ctx->store, ctx->block,
+                                           (*ctx->order)++, "primary.width",
+                                           p.width);
+                            emit_u32_field(*ctx->store, ctx->block,
+                                           (*ctx->order)++, "primary.height",
+                                           p.height);
+                        }
+                        if (p.have_rotation) {
+                            emit_u16_field(*ctx->store, ctx->block,
+                                           (*ctx->order)++,
+                                           "primary.rotation_degrees",
+                                           p.rotation_degrees);
+                        }
+                        if (p.have_mirror) {
+                            emit_u8_field(*ctx->store, ctx->block,
+                                          (*ctx->order)++, "primary.mirror",
+                                          p.mirror);
+                        }
+                        if (p.iref_edge_total > 0) {
+                            emit_u32_field(*ctx->store, ctx->block,
+                                           (*ctx->order)++, "iref.edge_count",
+                                           p.iref_edge_total);
+                            if (p.iref_truncated) {
+                                emit_u8_field(*ctx->store, ctx->block,
+                                              (*ctx->order)++,
+                                              "iref.edge_truncated", 1);
+                            }
+                            uint32_t auxl_edge_count = 0;
+                            uint32_t dimg_edge_count = 0;
+                            uint32_t thmb_edge_count = 0;
+                            uint32_t cdsc_edge_count = 0;
+                            std::array<uint32_t, 512> auxl_from_ids {};
+                            std::array<uint32_t, 512> auxl_to_ids {};
+                            std::array<uint32_t, 512> dimg_from_ids {};
+                            std::array<uint32_t, 512> dimg_to_ids {};
+                            std::array<uint32_t, 512> thmb_from_ids {};
+                            std::array<uint32_t, 512> thmb_to_ids {};
+                            std::array<uint32_t, 512> cdsc_from_ids {};
+                            std::array<uint32_t, 512> cdsc_to_ids {};
+                            std::array<uint32_t, 512> auxl_item_ids {};
+                            std::array<uint32_t, 512> auxl_item_out_counts {};
+                            std::array<uint32_t, 512> auxl_item_in_counts {};
+                            std::array<uint32_t, 512> dimg_item_ids {};
+                            std::array<uint32_t, 512> dimg_item_out_counts {};
+                            std::array<uint32_t, 512> dimg_item_in_counts {};
+                            std::array<uint32_t, 512> thmb_item_ids {};
+                            std::array<uint32_t, 512> thmb_item_out_counts {};
+                            std::array<uint32_t, 512> thmb_item_in_counts {};
+                            std::array<uint32_t, 512> cdsc_item_ids {};
+                            std::array<uint32_t, 512> cdsc_item_out_counts {};
+                            std::array<uint32_t, 512> cdsc_item_in_counts {};
+                            uint32_t auxl_from_count = 0;
+                            uint32_t auxl_to_count   = 0;
+                            uint32_t dimg_from_count = 0;
+                            uint32_t dimg_to_count   = 0;
+                            uint32_t thmb_from_count = 0;
+                            uint32_t thmb_to_count   = 0;
+                            uint32_t cdsc_from_count = 0;
+                            uint32_t cdsc_to_count   = 0;
+                            uint32_t auxl_item_count = 0;
+                            uint32_t dimg_item_count = 0;
+                            uint32_t thmb_item_count = 0;
+                            uint32_t cdsc_item_count = 0;
+                            std::array<uint32_t, 512> iref_item_ids {};
+                            std::array<uint32_t, 512>
+                                iref_item_out_edge_counts {};
+                            std::array<uint32_t, 512> iref_item_in_edge_counts {};
+                            uint32_t iref_item_count = 0;
+                            for (uint32_t i = 0; i < p.iref_edge_count; ++i) {
+                                emit_u32_field(*ctx->store, ctx->block,
+                                               (*ctx->order)++, "iref.ref_type",
+                                               p.iref_edges[i].ref_type);
+                                emit_u32_field(*ctx->store, ctx->block,
+                                               (*ctx->order)++,
+                                               "iref.from_item_id",
                                                p.iref_edges[i].from_item_id);
                                 emit_u32_field(*ctx->store, ctx->block,
                                                (*ctx->order)++,
-                                               "iref.auxl.to_item_id",
+                                               "iref.to_item_id",
                                                p.iref_edges[i].to_item_id);
                                 bump_item_edge_count(
-                                    auxl_item_ids, auxl_item_out_counts,
-                                    &auxl_item_count,
+                                    iref_item_ids, iref_item_out_edge_counts,
+                                    &iref_item_count,
                                     p.iref_edges[i].from_item_id);
-                                bump_item_edge_count(auxl_item_ids,
-                                                     auxl_item_in_counts,
-                                                     &auxl_item_count,
+                                bump_item_edge_count(iref_item_ids,
+                                                     iref_item_in_edge_counts,
+                                                     &iref_item_count,
                                                      p.iref_edges[i].to_item_id);
-                                emit_text_field(
-                                    *ctx->store, ctx->block, (*ctx->order)++,
-                                    "iref.auxl.semantic",
-                                    aux_semantic_name(find_aux_item_semantic(
-                                        p, p.iref_edges[i].to_item_id)));
-                                if (const AuxItemInfo* info = find_aux_item_info(
-                                        p, p.iref_edges[i].to_item_id)) {
-                                    if (info->aux_type_len > 0) {
-                                        emit_text_field(
-                                            *ctx->store, ctx->block,
-                                            (*ctx->order)++, "iref.auxl.type",
-                                            std::string_view(
-                                                info->aux_type.data(),
-                                                info->aux_type_len));
-                                    }
-                                    if (info->aux_subtype_len > 0) {
-                                        const AuxSubtypeInterpretation interp
-                                            = interpret_aux_subtype(
-                                                std::span<const std::byte>(
-                                                    info->aux_subtype.data(),
-                                                    info->aux_subtype_len),
-                                                info->aux_subtype_total_len,
-                                                info->aux_subtype_truncated);
-                                        emit_text_field(*ctx->store, ctx->block,
-                                                        (*ctx->order)++,
-                                                        "iref.auxl.subtype_kind",
-                                                        interp.kind);
-                                        if (interp.has_text) {
+                                if (p.iref_edges[i].ref_type
+                                    == fourcc('a', 'u', 'x', 'l')) {
+                                    auxl_edge_count += 1;
+                                    push_primary_rel_unique(
+                                        auxl_from_ids, &auxl_from_count,
+                                        p.iref_edges[i].from_item_id);
+                                    push_primary_rel_unique(
+                                        auxl_to_ids, &auxl_to_count,
+                                        p.iref_edges[i].to_item_id);
+                                    emit_u32_field(*ctx->store, ctx->block,
+                                                   (*ctx->order)++,
+                                                   "iref.auxl.from_item_id",
+                                                   p.iref_edges[i].from_item_id);
+                                    emit_u32_field(*ctx->store, ctx->block,
+                                                   (*ctx->order)++,
+                                                   "iref.auxl.to_item_id",
+                                                   p.iref_edges[i].to_item_id);
+                                    bump_item_edge_count(
+                                        auxl_item_ids, auxl_item_out_counts,
+                                        &auxl_item_count,
+                                        p.iref_edges[i].from_item_id);
+                                    bump_item_edge_count(
+                                        auxl_item_ids, auxl_item_in_counts,
+                                        &auxl_item_count,
+                                        p.iref_edges[i].to_item_id);
+                                    emit_text_field(
+                                        *ctx->store, ctx->block,
+                                        (*ctx->order)++, "iref.auxl.semantic",
+                                        aux_semantic_name(find_aux_item_semantic(
+                                            p, p.iref_edges[i].to_item_id)));
+                                    if (const AuxItemInfo* info
+                                        = find_aux_item_info(
+                                            p, p.iref_edges[i].to_item_id)) {
+                                        if (info->aux_type_len > 0) {
                                             emit_text_field(
                                                 *ctx->store, ctx->block,
                                                 (*ctx->order)++,
-                                                "iref.auxl.subtype_text",
+                                                "iref.auxl.type",
                                                 std::string_view(
-                                                    interp.text.data(),
-                                                    interp.text_len));
-                                            if (interp.kind == "uuid") {
+                                                    info->aux_type.data(),
+                                                    info->aux_type_len));
+                                        }
+                                        if (info->aux_subtype_len > 0) {
+                                            const AuxSubtypeInterpretation interp
+                                                = interpret_aux_subtype(
+                                                    std::span<const std::byte>(
+                                                        info->aux_subtype.data(),
+                                                        info->aux_subtype_len),
+                                                    info->aux_subtype_total_len,
+                                                    info->aux_subtype_truncated);
+                                            emit_text_field(
+                                                *ctx->store, ctx->block,
+                                                (*ctx->order)++,
+                                                "iref.auxl.subtype_kind",
+                                                interp.kind);
+                                            if (interp.has_text) {
                                                 emit_text_field(
                                                     *ctx->store, ctx->block,
                                                     (*ctx->order)++,
-                                                    "iref.auxl.subtype_uuid",
+                                                    "iref.auxl.subtype_text",
                                                     std::string_view(
                                                         interp.text.data(),
                                                         interp.text_len));
-                                            }
-                                        }
-                                        if (interp.has_u32) {
-                                            emit_u32_field(
-                                                *ctx->store, ctx->block,
-                                                (*ctx->order)++,
-                                                "iref.auxl.subtype_u32",
-                                                interp.u32);
-                                        }
-                                        if (interp.has_u64) {
-                                            emit_u64_field(
-                                                *ctx->store, ctx->block,
-                                                (*ctx->order)++,
-                                                "iref.auxl.subtype_u64",
-                                                interp.u64);
-                                        }
-                                        const std::string hex
-                                            = bytes_to_hex_string(
-                                                std::span<const std::byte>(
-                                                    info->aux_subtype.data(),
-                                                    info->aux_subtype_len));
-                                        emit_text_field(*ctx->store, ctx->block,
+                                                if (interp.kind == "uuid") {
+                                                    emit_text_field(
+                                                        *ctx->store, ctx->block,
                                                         (*ctx->order)++,
-                                                        "iref.auxl.subtype_hex",
-                                                        hex);
-                                    }
-                                }
-                            } else if (p.iref_edges[i].ref_type
-                                       == fourcc('d', 'i', 'm', 'g')) {
-                                dimg_edge_count += 1;
-                                push_primary_rel_unique(
-                                    dimg_from_ids, &dimg_from_count,
-                                    p.iref_edges[i].from_item_id);
-                                push_primary_rel_unique(
-                                    dimg_to_ids, &dimg_to_count,
-                                    p.iref_edges[i].to_item_id);
-                                emit_u32_field(*ctx->store, ctx->block,
-                                               (*ctx->order)++,
-                                               "iref.dimg.from_item_id",
-                                               p.iref_edges[i].from_item_id);
-                                emit_u32_field(*ctx->store, ctx->block,
-                                               (*ctx->order)++,
-                                               "iref.dimg.to_item_id",
-                                               p.iref_edges[i].to_item_id);
-                                bump_item_edge_count(
-                                    dimg_item_ids, dimg_item_out_counts,
-                                    &dimg_item_count,
-                                    p.iref_edges[i].from_item_id);
-                                bump_item_edge_count(dimg_item_ids,
-                                                     dimg_item_in_counts,
-                                                     &dimg_item_count,
-                                                     p.iref_edges[i].to_item_id);
-                            } else if (p.iref_edges[i].ref_type
-                                       == fourcc('t', 'h', 'm', 'b')) {
-                                thmb_edge_count += 1;
-                                push_primary_rel_unique(
-                                    thmb_from_ids, &thmb_from_count,
-                                    p.iref_edges[i].from_item_id);
-                                push_primary_rel_unique(
-                                    thmb_to_ids, &thmb_to_count,
-                                    p.iref_edges[i].to_item_id);
-                                emit_u32_field(*ctx->store, ctx->block,
-                                               (*ctx->order)++,
-                                               "iref.thmb.from_item_id",
-                                               p.iref_edges[i].from_item_id);
-                                emit_u32_field(*ctx->store, ctx->block,
-                                               (*ctx->order)++,
-                                               "iref.thmb.to_item_id",
-                                               p.iref_edges[i].to_item_id);
-                                bump_item_edge_count(
-                                    thmb_item_ids, thmb_item_out_counts,
-                                    &thmb_item_count,
-                                    p.iref_edges[i].from_item_id);
-                                bump_item_edge_count(thmb_item_ids,
-                                                     thmb_item_in_counts,
-                                                     &thmb_item_count,
-                                                     p.iref_edges[i].to_item_id);
-                            } else if (p.iref_edges[i].ref_type
-                                       == fourcc('c', 'd', 's', 'c')) {
-                                cdsc_edge_count += 1;
-                                push_primary_rel_unique(
-                                    cdsc_from_ids, &cdsc_from_count,
-                                    p.iref_edges[i].from_item_id);
-                                push_primary_rel_unique(
-                                    cdsc_to_ids, &cdsc_to_count,
-                                    p.iref_edges[i].to_item_id);
-                                emit_u32_field(*ctx->store, ctx->block,
-                                               (*ctx->order)++,
-                                               "iref.cdsc.from_item_id",
-                                               p.iref_edges[i].from_item_id);
-                                emit_u32_field(*ctx->store, ctx->block,
-                                               (*ctx->order)++,
-                                               "iref.cdsc.to_item_id",
-                                               p.iref_edges[i].to_item_id);
-                                bump_item_edge_count(
-                                    cdsc_item_ids, cdsc_item_out_counts,
-                                    &cdsc_item_count,
-                                    p.iref_edges[i].from_item_id);
-                                bump_item_edge_count(cdsc_item_ids,
-                                                     cdsc_item_in_counts,
-                                                     &cdsc_item_count,
-                                                     p.iref_edges[i].to_item_id);
-                            }
-                        }
-                        if (auxl_edge_count > 0) {
-                            emit_u32_field(*ctx->store, ctx->block,
-                                           (*ctx->order)++,
-                                           "iref.auxl.edge_count",
-                                           auxl_edge_count);
-                            emit_u32_field(*ctx->store, ctx->block,
-                                           (*ctx->order)++,
-                                           "iref.auxl.from_item_unique_count",
-                                           auxl_from_count);
-                            emit_u32_field(*ctx->store, ctx->block,
-                                           (*ctx->order)++,
-                                           "iref.auxl.to_item_unique_count",
-                                           auxl_to_count);
-                            emit_iref_typed_item_summary(*ctx->store,
-                                                         ctx->block, ctx->order,
-                                                         "auxl", auxl_item_ids,
-                                                         auxl_item_out_counts,
-                                                         auxl_item_in_counts,
-                                                         auxl_item_count);
-                            emit_iref_typed_graph_summary(*ctx->store,
-                                                          ctx->block,
-                                                          ctx->order, "auxl",
-                                                          auxl_edge_count,
-                                                          auxl_from_count,
-                                                          auxl_to_count);
-                        }
-                        if (dimg_edge_count > 0) {
-                            emit_u32_field(*ctx->store, ctx->block,
-                                           (*ctx->order)++,
-                                           "iref.dimg.edge_count",
-                                           dimg_edge_count);
-                            emit_u32_field(*ctx->store, ctx->block,
-                                           (*ctx->order)++,
-                                           "iref.dimg.from_item_unique_count",
-                                           dimg_from_count);
-                            emit_u32_field(*ctx->store, ctx->block,
-                                           (*ctx->order)++,
-                                           "iref.dimg.to_item_unique_count",
-                                           dimg_to_count);
-                            emit_iref_typed_item_summary(*ctx->store,
-                                                         ctx->block, ctx->order,
-                                                         "dimg", dimg_item_ids,
-                                                         dimg_item_out_counts,
-                                                         dimg_item_in_counts,
-                                                         dimg_item_count);
-                            emit_iref_typed_graph_summary(*ctx->store,
-                                                          ctx->block,
-                                                          ctx->order, "dimg",
-                                                          dimg_edge_count,
-                                                          dimg_from_count,
-                                                          dimg_to_count);
-                        }
-                        if (thmb_edge_count > 0) {
-                            emit_u32_field(*ctx->store, ctx->block,
-                                           (*ctx->order)++,
-                                           "iref.thmb.edge_count",
-                                           thmb_edge_count);
-                            emit_u32_field(*ctx->store, ctx->block,
-                                           (*ctx->order)++,
-                                           "iref.thmb.from_item_unique_count",
-                                           thmb_from_count);
-                            emit_u32_field(*ctx->store, ctx->block,
-                                           (*ctx->order)++,
-                                           "iref.thmb.to_item_unique_count",
-                                           thmb_to_count);
-                            emit_iref_typed_item_summary(*ctx->store,
-                                                         ctx->block, ctx->order,
-                                                         "thmb", thmb_item_ids,
-                                                         thmb_item_out_counts,
-                                                         thmb_item_in_counts,
-                                                         thmb_item_count);
-                            emit_iref_typed_graph_summary(*ctx->store,
-                                                          ctx->block,
-                                                          ctx->order, "thmb",
-                                                          thmb_edge_count,
-                                                          thmb_from_count,
-                                                          thmb_to_count);
-                        }
-                        if (cdsc_edge_count > 0) {
-                            emit_u32_field(*ctx->store, ctx->block,
-                                           (*ctx->order)++,
-                                           "iref.cdsc.edge_count",
-                                           cdsc_edge_count);
-                            emit_u32_field(*ctx->store, ctx->block,
-                                           (*ctx->order)++,
-                                           "iref.cdsc.from_item_unique_count",
-                                           cdsc_from_count);
-                            emit_u32_field(*ctx->store, ctx->block,
-                                           (*ctx->order)++,
-                                           "iref.cdsc.to_item_unique_count",
-                                           cdsc_to_count);
-                            emit_iref_typed_item_summary(*ctx->store,
-                                                         ctx->block, ctx->order,
-                                                         "cdsc", cdsc_item_ids,
-                                                         cdsc_item_out_counts,
-                                                         cdsc_item_in_counts,
-                                                         cdsc_item_count);
-                            emit_iref_typed_graph_summary(*ctx->store,
-                                                          ctx->block,
-                                                          ctx->order, "cdsc",
-                                                          cdsc_edge_count,
-                                                          cdsc_from_count,
-                                                          cdsc_to_count);
-                        }
-                        if (iref_item_count > 0) {
-                            uint32_t unique_from_count = 0;
-                            uint32_t unique_to_count   = 0;
-                            for (uint32_t i = 0; i < iref_item_count; ++i) {
-                                if (iref_item_out_edge_counts[i] > 0) {
-                                    unique_from_count += 1U;
-                                }
-                                if (iref_item_in_edge_counts[i] > 0) {
-                                    unique_to_count += 1U;
-                                }
-                            }
-                            emit_u32_field(*ctx->store, ctx->block,
-                                           (*ctx->order)++, "iref.item_count",
-                                           iref_item_count);
-                            emit_u32_field(*ctx->store, ctx->block,
-                                           (*ctx->order)++,
-                                           "iref.from_item_unique_count",
-                                           unique_from_count);
-                            emit_u32_field(*ctx->store, ctx->block,
-                                           (*ctx->order)++,
-                                           "iref.to_item_unique_count",
-                                           unique_to_count);
-                            for (uint32_t i = 0; i < iref_item_count; ++i) {
-                                emit_u32_field(*ctx->store, ctx->block,
-                                               (*ctx->order)++, "iref.item_id",
-                                               iref_item_ids[i]);
-                                emit_u32_field(*ctx->store, ctx->block,
-                                               (*ctx->order)++,
-                                               "iref.item_out_edge_count",
-                                               iref_item_out_edge_counts[i]);
-                                emit_u32_field(*ctx->store, ctx->block,
-                                               (*ctx->order)++,
-                                               "iref.item_in_edge_count",
-                                               iref_item_in_edge_counts[i]);
-                            }
-                        }
-                        for (uint32_t i = 0; i < p.aux_item_count; ++i) {
-                            emit_u32_field(*ctx->store, ctx->block,
-                                           (*ctx->order)++, "aux.item_id",
-                                           p.aux_items[i].item_id);
-                            emit_text_field(*ctx->store, ctx->block,
-                                            (*ctx->order)++, "aux.semantic",
-                                            aux_semantic_name(
-                                                p.aux_items[i].semantic));
-                            if (p.aux_items[i].aux_type_len > 0) {
-                                emit_text_field(
-                                    *ctx->store, ctx->block, (*ctx->order)++,
-                                    "aux.type",
-                                    std::string_view(
-                                        p.aux_items[i].aux_type.data(),
-                                        p.aux_items[i].aux_type_len));
-                            }
-                            if (p.aux_items[i].aux_subtype_len > 0) {
-                                const AuxSubtypeInterpretation interp
-                                    = interpret_aux_subtype(
-                                        std::span<const std::byte>(
-                                            p.aux_items[i].aux_subtype.data(),
-                                            p.aux_items[i].aux_subtype_len),
-                                        p.aux_items[i].aux_subtype_total_len,
-                                        p.aux_items[i].aux_subtype_truncated);
-                                emit_text_field(*ctx->store, ctx->block,
+                                                        "iref.auxl.subtype_uuid",
+                                                        std::string_view(
+                                                            interp.text.data(),
+                                                            interp.text_len));
+                                                }
+                                            }
+                                            if (interp.has_u32) {
+                                                emit_u32_field(
+                                                    *ctx->store, ctx->block,
+                                                    (*ctx->order)++,
+                                                    "iref.auxl.subtype_u32",
+                                                    interp.u32);
+                                            }
+                                            if (interp.has_u64) {
+                                                emit_u64_field(
+                                                    *ctx->store, ctx->block,
+                                                    (*ctx->order)++,
+                                                    "iref.auxl.subtype_u64",
+                                                    interp.u64);
+                                            }
+                                            const std::string hex
+                                                = bytes_to_hex_string(
+                                                    std::span<const std::byte>(
+                                                        info->aux_subtype.data(),
+                                                        info->aux_subtype_len));
+                                            emit_text_field(
+                                                *ctx->store, ctx->block,
                                                 (*ctx->order)++,
-                                                "aux.subtype_kind",
-                                                interp.kind);
-                                if (interp.has_text) {
-                                    emit_text_field(
-                                        *ctx->store, ctx->block,
-                                        (*ctx->order)++, "aux.subtype_text",
-                                        std::string_view(interp.text.data(),
-                                                         interp.text_len));
-                                    if (interp.kind == "uuid") {
-                                        emit_text_field(
-                                            *ctx->store, ctx->block,
-                                            (*ctx->order)++, "aux.subtype_uuid",
-                                            std::string_view(interp.text.data(),
-                                                             interp.text_len));
+                                                "iref.auxl.subtype_hex", hex);
+                                        }
                                     }
-                                }
-                                if (interp.has_u32) {
+                                } else if (p.iref_edges[i].ref_type
+                                           == fourcc('d', 'i', 'm', 'g')) {
+                                    dimg_edge_count += 1;
+                                    push_primary_rel_unique(
+                                        dimg_from_ids, &dimg_from_count,
+                                        p.iref_edges[i].from_item_id);
+                                    push_primary_rel_unique(
+                                        dimg_to_ids, &dimg_to_count,
+                                        p.iref_edges[i].to_item_id);
                                     emit_u32_field(*ctx->store, ctx->block,
                                                    (*ctx->order)++,
-                                                   "aux.subtype_u32",
-                                                   interp.u32);
-                                }
-                                if (interp.has_u64) {
-                                    emit_u64_field(*ctx->store, ctx->block,
+                                                   "iref.dimg.from_item_id",
+                                                   p.iref_edges[i].from_item_id);
+                                    emit_u32_field(*ctx->store, ctx->block,
                                                    (*ctx->order)++,
-                                                   "aux.subtype_u64",
-                                                   interp.u64);
-                                }
-                                const std::string hex = bytes_to_hex_string(
-                                    std::span<const std::byte>(
-                                        p.aux_items[i].aux_subtype.data(),
-                                        p.aux_items[i].aux_subtype_len));
-                                emit_text_field(*ctx->store, ctx->block,
-                                                (*ctx->order)++,
-                                                "aux.subtype_hex", hex);
-                                emit_u32_field(
-                                    *ctx->store, ctx->block, (*ctx->order)++,
-                                    "aux.subtype_len",
-                                    static_cast<uint32_t>(
-                                        p.aux_items[i].aux_subtype_total_len));
-                                if (p.aux_items[i].aux_subtype_truncated) {
-                                    emit_u8_field(*ctx->store, ctx->block,
-                                                  (*ctx->order)++,
-                                                  "aux.subtype_truncated", 1);
+                                                   "iref.dimg.to_item_id",
+                                                   p.iref_edges[i].to_item_id);
+                                    bump_item_edge_count(
+                                        dimg_item_ids, dimg_item_out_counts,
+                                        &dimg_item_count,
+                                        p.iref_edges[i].from_item_id);
+                                    bump_item_edge_count(
+                                        dimg_item_ids, dimg_item_in_counts,
+                                        &dimg_item_count,
+                                        p.iref_edges[i].to_item_id);
+                                } else if (p.iref_edges[i].ref_type
+                                           == fourcc('t', 'h', 'm', 'b')) {
+                                    thmb_edge_count += 1;
+                                    push_primary_rel_unique(
+                                        thmb_from_ids, &thmb_from_count,
+                                        p.iref_edges[i].from_item_id);
+                                    push_primary_rel_unique(
+                                        thmb_to_ids, &thmb_to_count,
+                                        p.iref_edges[i].to_item_id);
+                                    emit_u32_field(*ctx->store, ctx->block,
+                                                   (*ctx->order)++,
+                                                   "iref.thmb.from_item_id",
+                                                   p.iref_edges[i].from_item_id);
+                                    emit_u32_field(*ctx->store, ctx->block,
+                                                   (*ctx->order)++,
+                                                   "iref.thmb.to_item_id",
+                                                   p.iref_edges[i].to_item_id);
+                                    bump_item_edge_count(
+                                        thmb_item_ids, thmb_item_out_counts,
+                                        &thmb_item_count,
+                                        p.iref_edges[i].from_item_id);
+                                    bump_item_edge_count(
+                                        thmb_item_ids, thmb_item_in_counts,
+                                        &thmb_item_count,
+                                        p.iref_edges[i].to_item_id);
+                                } else if (p.iref_edges[i].ref_type
+                                           == fourcc('c', 'd', 's', 'c')) {
+                                    cdsc_edge_count += 1;
+                                    push_primary_rel_unique(
+                                        cdsc_from_ids, &cdsc_from_count,
+                                        p.iref_edges[i].from_item_id);
+                                    push_primary_rel_unique(
+                                        cdsc_to_ids, &cdsc_to_count,
+                                        p.iref_edges[i].to_item_id);
+                                    emit_u32_field(*ctx->store, ctx->block,
+                                                   (*ctx->order)++,
+                                                   "iref.cdsc.from_item_id",
+                                                   p.iref_edges[i].from_item_id);
+                                    emit_u32_field(*ctx->store, ctx->block,
+                                                   (*ctx->order)++,
+                                                   "iref.cdsc.to_item_id",
+                                                   p.iref_edges[i].to_item_id);
+                                    bump_item_edge_count(
+                                        cdsc_item_ids, cdsc_item_out_counts,
+                                        &cdsc_item_count,
+                                        p.iref_edges[i].from_item_id);
+                                    bump_item_edge_count(
+                                        cdsc_item_ids, cdsc_item_in_counts,
+                                        &cdsc_item_count,
+                                        p.iref_edges[i].to_item_id);
                                 }
                             }
-                        }
-                        for (uint32_t i = 0; i < p.primary_auxl_count; ++i) {
-                            emit_u32_field(*ctx->store, ctx->block,
-                                           (*ctx->order)++,
-                                           "primary.auxl_item_id",
-                                           p.primary_auxl_item_ids[i]);
-                            emit_text_field(*ctx->store, ctx->block,
-                                            (*ctx->order)++,
-                                            "primary.auxl_semantic",
-                                            aux_semantic_name(
-                                                p.primary_auxl_semantics[i]));
-                        }
-                        for (uint32_t i = 0; i < p.primary_alpha_count; ++i) {
-                            emit_u32_field(*ctx->store, ctx->block,
-                                           (*ctx->order)++,
-                                           "primary.alpha_item_id",
-                                           p.primary_alpha_item_ids[i]);
-                        }
-                        for (uint32_t i = 0; i < p.primary_depth_count; ++i) {
-                            emit_u32_field(*ctx->store, ctx->block,
-                                           (*ctx->order)++,
-                                           "primary.depth_item_id",
-                                           p.primary_depth_item_ids[i]);
-                        }
-                        for (uint32_t i = 0; i < p.primary_disparity_count;
-                             ++i) {
-                            emit_u32_field(*ctx->store, ctx->block,
-                                           (*ctx->order)++,
-                                           "primary.disparity_item_id",
-                                           p.primary_disparity_item_ids[i]);
-                        }
-                        for (uint32_t i = 0; i < p.primary_matte_count; ++i) {
-                            emit_u32_field(*ctx->store, ctx->block,
-                                           (*ctx->order)++,
-                                           "primary.matte_item_id",
-                                           p.primary_matte_item_ids[i]);
-                        }
-                        for (uint32_t i = 0; i < p.primary_dimg_count; ++i) {
-                            emit_u32_field(*ctx->store, ctx->block,
-                                           (*ctx->order)++,
-                                           "primary.dimg_item_id",
-                                           p.primary_dimg_item_ids[i]);
-                        }
-                        for (uint32_t i = 0; i < p.primary_thmb_count; ++i) {
-                            emit_u32_field(*ctx->store, ctx->block,
-                                           (*ctx->order)++,
-                                           "primary.thmb_item_id",
-                                           p.primary_thmb_item_ids[i]);
-                        }
-                        for (uint32_t i = 0; i < p.primary_cdsc_count; ++i) {
-                            emit_u32_field(*ctx->store, ctx->block,
-                                           (*ctx->order)++,
-                                           "primary.cdsc_item_id",
-                                           p.primary_cdsc_item_ids[i]);
+                            if (auxl_edge_count > 0) {
+                                emit_u32_field(*ctx->store, ctx->block,
+                                               (*ctx->order)++,
+                                               "iref.auxl.edge_count",
+                                               auxl_edge_count);
+                                emit_u32_field(
+                                    *ctx->store, ctx->block, (*ctx->order)++,
+                                    "iref.auxl.from_item_unique_count",
+                                    auxl_from_count);
+                                emit_u32_field(*ctx->store, ctx->block,
+                                               (*ctx->order)++,
+                                               "iref.auxl.to_item_unique_count",
+                                               auxl_to_count);
+                                emit_iref_typed_item_summary(
+                                    *ctx->store, ctx->block, ctx->order, "auxl",
+                                    auxl_item_ids, auxl_item_out_counts,
+                                    auxl_item_in_counts, auxl_item_count);
+                                emit_iref_typed_graph_summary(
+                                    *ctx->store, ctx->block, ctx->order, "auxl",
+                                    auxl_edge_count, auxl_from_count,
+                                    auxl_to_count);
+                            }
+                            if (dimg_edge_count > 0) {
+                                emit_u32_field(*ctx->store, ctx->block,
+                                               (*ctx->order)++,
+                                               "iref.dimg.edge_count",
+                                               dimg_edge_count);
+                                emit_u32_field(
+                                    *ctx->store, ctx->block, (*ctx->order)++,
+                                    "iref.dimg.from_item_unique_count",
+                                    dimg_from_count);
+                                emit_u32_field(*ctx->store, ctx->block,
+                                               (*ctx->order)++,
+                                               "iref.dimg.to_item_unique_count",
+                                               dimg_to_count);
+                                emit_iref_typed_item_summary(
+                                    *ctx->store, ctx->block, ctx->order, "dimg",
+                                    dimg_item_ids, dimg_item_out_counts,
+                                    dimg_item_in_counts, dimg_item_count);
+                                emit_iref_typed_graph_summary(
+                                    *ctx->store, ctx->block, ctx->order, "dimg",
+                                    dimg_edge_count, dimg_from_count,
+                                    dimg_to_count);
+                            }
+                            if (thmb_edge_count > 0) {
+                                emit_u32_field(*ctx->store, ctx->block,
+                                               (*ctx->order)++,
+                                               "iref.thmb.edge_count",
+                                               thmb_edge_count);
+                                emit_u32_field(
+                                    *ctx->store, ctx->block, (*ctx->order)++,
+                                    "iref.thmb.from_item_unique_count",
+                                    thmb_from_count);
+                                emit_u32_field(*ctx->store, ctx->block,
+                                               (*ctx->order)++,
+                                               "iref.thmb.to_item_unique_count",
+                                               thmb_to_count);
+                                emit_iref_typed_item_summary(
+                                    *ctx->store, ctx->block, ctx->order, "thmb",
+                                    thmb_item_ids, thmb_item_out_counts,
+                                    thmb_item_in_counts, thmb_item_count);
+                                emit_iref_typed_graph_summary(
+                                    *ctx->store, ctx->block, ctx->order, "thmb",
+                                    thmb_edge_count, thmb_from_count,
+                                    thmb_to_count);
+                            }
+                            if (cdsc_edge_count > 0) {
+                                emit_u32_field(*ctx->store, ctx->block,
+                                               (*ctx->order)++,
+                                               "iref.cdsc.edge_count",
+                                               cdsc_edge_count);
+                                emit_u32_field(
+                                    *ctx->store, ctx->block, (*ctx->order)++,
+                                    "iref.cdsc.from_item_unique_count",
+                                    cdsc_from_count);
+                                emit_u32_field(*ctx->store, ctx->block,
+                                               (*ctx->order)++,
+                                               "iref.cdsc.to_item_unique_count",
+                                               cdsc_to_count);
+                                emit_iref_typed_item_summary(
+                                    *ctx->store, ctx->block, ctx->order, "cdsc",
+                                    cdsc_item_ids, cdsc_item_out_counts,
+                                    cdsc_item_in_counts, cdsc_item_count);
+                                emit_iref_typed_graph_summary(
+                                    *ctx->store, ctx->block, ctx->order, "cdsc",
+                                    cdsc_edge_count, cdsc_from_count,
+                                    cdsc_to_count);
+                            }
+                            if (iref_item_count > 0) {
+                                uint32_t unique_from_count = 0;
+                                uint32_t unique_to_count   = 0;
+                                for (uint32_t i = 0; i < iref_item_count; ++i) {
+                                    if (iref_item_out_edge_counts[i] > 0) {
+                                        unique_from_count += 1U;
+                                    }
+                                    if (iref_item_in_edge_counts[i] > 0) {
+                                        unique_to_count += 1U;
+                                    }
+                                }
+                                emit_u32_field(*ctx->store, ctx->block,
+                                               (*ctx->order)++,
+                                               "iref.item_count",
+                                               iref_item_count);
+                                emit_u32_field(*ctx->store, ctx->block,
+                                               (*ctx->order)++,
+                                               "iref.from_item_unique_count",
+                                               unique_from_count);
+                                emit_u32_field(*ctx->store, ctx->block,
+                                               (*ctx->order)++,
+                                               "iref.to_item_unique_count",
+                                               unique_to_count);
+                                for (uint32_t i = 0; i < iref_item_count; ++i) {
+                                    emit_u32_field(*ctx->store, ctx->block,
+                                                   (*ctx->order)++,
+                                                   "iref.item_id",
+                                                   iref_item_ids[i]);
+                                    emit_u32_field(*ctx->store, ctx->block,
+                                                   (*ctx->order)++,
+                                                   "iref.item_out_edge_count",
+                                                   iref_item_out_edge_counts[i]);
+                                    emit_u32_field(*ctx->store, ctx->block,
+                                                   (*ctx->order)++,
+                                                   "iref.item_in_edge_count",
+                                                   iref_item_in_edge_counts[i]);
+                                }
+                            }
+                            for (uint32_t i = 0; i < p.aux_item_count; ++i) {
+                                emit_u32_field(*ctx->store, ctx->block,
+                                               (*ctx->order)++, "aux.item_id",
+                                               p.aux_items[i].item_id);
+                                emit_text_field(*ctx->store, ctx->block,
+                                                (*ctx->order)++, "aux.semantic",
+                                                aux_semantic_name(
+                                                    p.aux_items[i].semantic));
+                                if (p.aux_items[i].aux_type_len > 0) {
+                                    emit_text_field(
+                                        *ctx->store, ctx->block,
+                                        (*ctx->order)++, "aux.type",
+                                        std::string_view(
+                                            p.aux_items[i].aux_type.data(),
+                                            p.aux_items[i].aux_type_len));
+                                }
+                                if (p.aux_items[i].aux_subtype_len > 0) {
+                                    const AuxSubtypeInterpretation interp
+                                        = interpret_aux_subtype(
+                                            std::span<const std::byte>(
+                                                p.aux_items[i].aux_subtype.data(),
+                                                p.aux_items[i].aux_subtype_len),
+                                            p.aux_items[i].aux_subtype_total_len,
+                                            p.aux_items[i]
+                                                .aux_subtype_truncated);
+                                    emit_text_field(*ctx->store, ctx->block,
+                                                    (*ctx->order)++,
+                                                    "aux.subtype_kind",
+                                                    interp.kind);
+                                    if (interp.has_text) {
+                                        emit_text_field(
+                                            *ctx->store, ctx->block,
+                                            (*ctx->order)++, "aux.subtype_text",
+                                            std::string_view(interp.text.data(),
+                                                             interp.text_len));
+                                        if (interp.kind == "uuid") {
+                                            emit_text_field(
+                                                *ctx->store, ctx->block,
+                                                (*ctx->order)++,
+                                                "aux.subtype_uuid",
+                                                std::string_view(
+                                                    interp.text.data(),
+                                                    interp.text_len));
+                                        }
+                                    }
+                                    if (interp.has_u32) {
+                                        emit_u32_field(*ctx->store, ctx->block,
+                                                       (*ctx->order)++,
+                                                       "aux.subtype_u32",
+                                                       interp.u32);
+                                    }
+                                    if (interp.has_u64) {
+                                        emit_u64_field(*ctx->store, ctx->block,
+                                                       (*ctx->order)++,
+                                                       "aux.subtype_u64",
+                                                       interp.u64);
+                                    }
+                                    const std::string hex = bytes_to_hex_string(
+                                        std::span<const std::byte>(
+                                            p.aux_items[i].aux_subtype.data(),
+                                            p.aux_items[i].aux_subtype_len));
+                                    emit_text_field(*ctx->store, ctx->block,
+                                                    (*ctx->order)++,
+                                                    "aux.subtype_hex", hex);
+                                    emit_u32_field(
+                                        *ctx->store, ctx->block,
+                                        (*ctx->order)++, "aux.subtype_len",
+                                        static_cast<uint32_t>(
+                                            p.aux_items[i]
+                                                .aux_subtype_total_len));
+                                    if (p.aux_items[i].aux_subtype_truncated) {
+                                        emit_u8_field(*ctx->store, ctx->block,
+                                                      (*ctx->order)++,
+                                                      "aux.subtype_truncated",
+                                                      1);
+                                    }
+                                }
+                            }
+                            for (uint32_t i = 0; i < p.primary_auxl_count;
+                                 ++i) {
+                                emit_u32_field(*ctx->store, ctx->block,
+                                               (*ctx->order)++,
+                                               "primary.auxl_item_id",
+                                               p.primary_auxl_item_ids[i]);
+                                emit_text_field(
+                                    *ctx->store, ctx->block, (*ctx->order)++,
+                                    "primary.auxl_semantic",
+                                    aux_semantic_name(
+                                        p.primary_auxl_semantics[i]));
+                            }
+                            for (uint32_t i = 0; i < p.primary_alpha_count;
+                                 ++i) {
+                                emit_u32_field(*ctx->store, ctx->block,
+                                               (*ctx->order)++,
+                                               "primary.alpha_item_id",
+                                               p.primary_alpha_item_ids[i]);
+                            }
+                            for (uint32_t i = 0; i < p.primary_depth_count;
+                                 ++i) {
+                                emit_u32_field(*ctx->store, ctx->block,
+                                               (*ctx->order)++,
+                                               "primary.depth_item_id",
+                                               p.primary_depth_item_ids[i]);
+                            }
+                            for (uint32_t i = 0; i < p.primary_disparity_count;
+                                 ++i) {
+                                emit_u32_field(*ctx->store, ctx->block,
+                                               (*ctx->order)++,
+                                               "primary.disparity_item_id",
+                                               p.primary_disparity_item_ids[i]);
+                            }
+                            for (uint32_t i = 0; i < p.primary_matte_count;
+                                 ++i) {
+                                emit_u32_field(*ctx->store, ctx->block,
+                                               (*ctx->order)++,
+                                               "primary.matte_item_id",
+                                               p.primary_matte_item_ids[i]);
+                            }
+                            for (uint32_t i = 0; i < p.primary_dimg_count;
+                                 ++i) {
+                                emit_u32_field(*ctx->store, ctx->block,
+                                               (*ctx->order)++,
+                                               "primary.dimg_item_id",
+                                               p.primary_dimg_item_ids[i]);
+                            }
+                            for (uint32_t i = 0; i < p.primary_thmb_count;
+                                 ++i) {
+                                emit_u32_field(*ctx->store, ctx->block,
+                                               (*ctx->order)++,
+                                               "primary.thmb_item_id",
+                                               p.primary_thmb_item_ids[i]);
+                            }
+                            for (uint32_t i = 0; i < p.primary_cdsc_count;
+                                 ++i) {
+                                emit_u32_field(*ctx->store, ctx->block,
+                                               (*ctx->order)++,
+                                               "primary.cdsc_item_id",
+                                               p.primary_cdsc_item_ids[i]);
+                            }
                         }
                     }
                     ctx->meta_done = true;

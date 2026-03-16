@@ -207,6 +207,9 @@ namespace {
         case ContainerFormat::Webp: return "webp";
         case ContainerFormat::Gif: return "gif";
         case ContainerFormat::Tiff: return "tiff";
+        case ContainerFormat::Crw: return "crw";
+        case ContainerFormat::Raf: return "raf";
+        case ContainerFormat::X3f: return "x3f";
         case ContainerFormat::Jp2: return "jp2";
         case ContainerFormat::Jxl: return "jxl";
         case ContainerFormat::Heif: return "heif";
@@ -1188,6 +1191,10 @@ namespace {
             }
 
             switch (entry.key.kind) {
+            case MetaKeyKind::Comment:
+                row.key_s  = "comment";
+                row.name_s = "-";
+                break;
             case MetaKeyKind::ExrAttribute: {
                 char buf[32];
                 std::snprintf(buf, sizeof(buf), "part:%u",
@@ -1275,6 +1282,17 @@ namespace {
                                    entry.key.data.jumbf_cbor_key.key);
                 row.key_s.assign(key.data(), key.size());
                 row.name_s = "-";
+                break;
+            }
+            case MetaKeyKind::PngText: {
+                const std::string_view keyword
+                    = arena_string(store.arena(),
+                                   entry.key.data.png_text.keyword);
+                const std::string_view field
+                    = arena_string(store.arena(),
+                                   entry.key.data.png_text.field);
+                row.key_s.assign(keyword.data(), keyword.size());
+                row.name_s.assign(field.data(), field.size());
                 break;
             }
             case MetaKeyKind::GeotiffKey: {
@@ -2066,6 +2084,10 @@ main(int argc, char** argv)
                 print_generic_block_table(store, block, "exr", ids,
                                           max_elements, max_bytes,
                                           max_cell_chars);
+            } else if (first.key.kind == MetaKeyKind::Comment) {
+                print_generic_block_table(store, block, "comment", ids,
+                                          max_elements, max_bytes,
+                                          max_cell_chars);
             } else if (first.key.kind == MetaKeyKind::IccHeaderField
                        || first.key.kind == MetaKeyKind::IccTag) {
                 print_generic_block_table(store, block, "icc", ids,
@@ -2097,6 +2119,10 @@ main(int argc, char** argv)
                                           max_cell_chars);
             } else if (first.key.kind == MetaKeyKind::GeotiffKey) {
                 print_generic_block_table(store, block, "geotiff", ids,
+                                          max_elements, max_bytes,
+                                          max_cell_chars);
+            } else if (first.key.kind == MetaKeyKind::PngText) {
+                print_generic_block_table(store, block, "png_text", ids,
                                           max_elements, max_bytes,
                                           max_cell_chars);
             }

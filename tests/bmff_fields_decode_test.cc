@@ -33,6 +33,13 @@ namespace {
         append_u32be(out, fourcc_v);
     }
 
+    static void append_bytes(std::vector<std::byte>* out, const char* s)
+    {
+        for (size_t i = 0; s[i] != '\0'; ++i) {
+            out->push_back(std::byte { static_cast<uint8_t>(s[i]) });
+        }
+    }
+
     static void append_fullbox_header(std::vector<std::byte>* out,
                                       uint8_t version)
     {
@@ -71,6 +78,23 @@ namespace {
                 continue;
             }
             out.push_back(static_cast<uint32_t>(e.value.data.u64));
+        }
+        return out;
+    }
+
+    static std::vector<uint8_t> collect_u8_values(const MetaStore& store,
+                                                  std::string_view field)
+    {
+        std::vector<uint8_t> out;
+        const std::span<const EntryId> ids = store.find_all(bmff_key(field));
+        out.reserve(ids.size());
+        for (size_t i = 0; i < ids.size(); ++i) {
+            const Entry& e = store.entry(ids[i]);
+            if (e.value.kind != MetaValueKind::Scalar
+                || e.value.elem_type != MetaElementType::U8) {
+                continue;
+            }
+            out.push_back(static_cast<uint8_t>(e.value.data.u64));
         }
         return out;
     }
@@ -117,7 +141,7 @@ TEST(BmffDerivedFieldsDecode, EmitsFtypAndPrimaryProps)
 {
     // Minimal ISO-BMFF/HEIF with:
     // - ftyp(major_brand='heic', compat=['mif1'])
-    // - meta(pitm primary item id=1, iprp/ipco(ispe+irot), ipma associates props)
+    // - meta(pitm primary item id=1, iprp/ipco(ispe+irot+imir), ipma associates props)
 
     std::vector<std::byte> file;
 
@@ -139,7 +163,7 @@ TEST(BmffDerivedFieldsDecode, EmitsFtypAndPrimaryProps)
         std::vector<std::byte> pitm_box;
         append_bmff_box(&pitm_box, fourcc('p', 'i', 't', 'm'), pitm_payload);
 
-        // ipco: ispe + irot
+        // ipco: ispe + irot + imir
         std::vector<std::byte> ispe_payload;
         append_fullbox_header(&ispe_payload, 0);
         append_u32be(&ispe_payload, 640);
@@ -152,22 +176,30 @@ TEST(BmffDerivedFieldsDecode, EmitsFtypAndPrimaryProps)
         std::vector<std::byte> irot_box;
         append_bmff_box(&irot_box, fourcc('i', 'r', 'o', 't'), irot_payload);
 
+        std::vector<std::byte> imir_payload;
+        imir_payload.push_back(std::byte { 1 });
+        std::vector<std::byte> imir_box;
+        append_bmff_box(&imir_box, fourcc('i', 'm', 'i', 'r'), imir_payload);
+
         std::vector<std::byte> ipco_payload;
         ipco_payload.insert(ipco_payload.end(), ispe_box.begin(),
                             ispe_box.end());
         ipco_payload.insert(ipco_payload.end(), irot_box.begin(),
                             irot_box.end());
+        ipco_payload.insert(ipco_payload.end(), imir_box.begin(),
+                            imir_box.end());
         std::vector<std::byte> ipco_box;
         append_bmff_box(&ipco_box, fourcc('i', 'p', 'c', 'o'), ipco_payload);
 
-        // ipma (FullBox version 0): item 1 has properties [1,2]
+        // ipma (FullBox version 0): item 1 has properties [1,2,3]
         std::vector<std::byte> ipma_payload;
         append_fullbox_header(&ipma_payload, 0);
         append_u32be(&ipma_payload, 1);           // entry_count
         append_u16be(&ipma_payload, 1);           // item_ID
-        ipma_payload.push_back(std::byte { 2 });  // association_count
+        ipma_payload.push_back(std::byte { 3 });  // association_count
         ipma_payload.push_back(std::byte { 1 });  // property_index=1
         ipma_payload.push_back(std::byte { 2 });  // property_index=2
+        ipma_payload.push_back(std::byte { 3 });  // property_index=3
         std::vector<std::byte> ipma_box;
         append_bmff_box(&ipma_box, fourcc('i', 'p', 'm', 'a'), ipma_payload);
 
@@ -212,7 +244,7 @@ TEST(BmffDerivedFieldsDecode, EmitsFtypAndPrimaryProps)
                   fourcc('h', 'e', 'i', 'c'));
     }
 
-    // primary.width/height/rotation
+    // primary.width/height/rotation/mirror
     {
         const std::span<const EntryId> w = store.find_all(
             bmff_key("primary.width"));
@@ -220,14 +252,18 @@ TEST(BmffDerivedFieldsDecode, EmitsFtypAndPrimaryProps)
             bmff_key("primary.height"));
         const std::span<const EntryId> r = store.find_all(
             bmff_key("primary.rotation_degrees"));
+        const std::vector<uint8_t> m = collect_u8_values(store,
+                                                         "primary.mirror");
         ASSERT_EQ(w.size(), 1U);
         ASSERT_EQ(h.size(), 1U);
         ASSERT_EQ(r.size(), 1U);
+        ASSERT_EQ(m.size(), 1U);
         EXPECT_EQ(static_cast<uint32_t>(store.entry(w[0]).value.data.u64),
                   640U);
         EXPECT_EQ(static_cast<uint32_t>(store.entry(h[0]).value.data.u64),
                   480U);
         EXPECT_EQ(static_cast<uint16_t>(store.entry(r[0]).value.data.u64), 90U);
+        EXPECT_EQ(m[0], 1U);
     }
 }
 
@@ -1530,6 +1566,386 @@ TEST(BmffDerivedFieldsDecode, EmitsPerTypeUniqueCountsWithDuplicateEdges)
     EXPECT_EQ(cdsc_item_ids[1], 8U);
     EXPECT_EQ(cdsc_item_ids[2], 9U);
     EXPECT_EQ(cdsc_item_ids[3], 5U);
+}
+
+TEST(BmffDerivedFieldsDecode, EmitsItemInfoRowsAndPrimaryAliases)
+{
+    std::vector<std::byte> file;
+
+    {
+        std::vector<std::byte> ftyp_payload;
+        append_fourcc(&ftyp_payload, fourcc('h', 'e', 'i', 'c'));
+        append_u32be(&ftyp_payload, 0);
+        append_fourcc(&ftyp_payload, fourcc('m', 'i', 'f', '1'));
+        append_bmff_box(&file, fourcc('f', 't', 'y', 'p'), ftyp_payload);
+    }
+
+    {
+        const uint32_t kMimeItem = 0x10001U;
+        const uint32_t kExifItem = 0x10002U;
+
+        std::vector<std::byte> pitm_payload;
+        append_fullbox_header(&pitm_payload, 1);
+        append_u32be(&pitm_payload, kExifItem);
+        std::vector<std::byte> pitm_box;
+        append_bmff_box(&pitm_box, fourcc('p', 'i', 't', 'm'), pitm_payload);
+
+        std::vector<std::byte> infe1_payload;
+        append_fullbox_header(&infe1_payload, 3);
+        append_u32be(&infe1_payload, kMimeItem);
+        append_u16be(&infe1_payload, 0);
+        append_fourcc(&infe1_payload, fourcc('m', 'i', 'm', 'e'));
+        append_bytes(&infe1_payload, "preview");
+        infe1_payload.push_back(std::byte { 0 });
+        append_bytes(&infe1_payload, "image/png");
+        infe1_payload.push_back(std::byte { 0 });
+        append_bytes(&infe1_payload, "gzip");
+        infe1_payload.push_back(std::byte { 0 });
+        std::vector<std::byte> infe1_box;
+        append_bmff_box(&infe1_box, fourcc('i', 'n', 'f', 'e'), infe1_payload);
+
+        std::vector<std::byte> infe2_payload;
+        append_fullbox_header(&infe2_payload, 3);
+        append_u32be(&infe2_payload, kExifItem);
+        append_u16be(&infe2_payload, 0);
+        append_fourcc(&infe2_payload, fourcc('E', 'x', 'i', 'f'));
+        append_bytes(&infe2_payload, "exif");
+        infe2_payload.push_back(std::byte { 0 });
+        std::vector<std::byte> infe2_box;
+        append_bmff_box(&infe2_box, fourcc('i', 'n', 'f', 'e'), infe2_payload);
+
+        std::vector<std::byte> iinf_payload;
+        append_fullbox_header(&iinf_payload, 2);
+        append_u32be(&iinf_payload, 2);
+        iinf_payload.insert(iinf_payload.end(), infe1_box.begin(),
+                            infe1_box.end());
+        iinf_payload.insert(iinf_payload.end(), infe2_box.begin(),
+                            infe2_box.end());
+        std::vector<std::byte> iinf_box;
+        append_bmff_box(&iinf_box, fourcc('i', 'i', 'n', 'f'), iinf_payload);
+
+        std::vector<std::byte> meta_payload;
+        append_fullbox_header(&meta_payload, 0);
+        meta_payload.insert(meta_payload.end(), pitm_box.begin(),
+                            pitm_box.end());
+        meta_payload.insert(meta_payload.end(), iinf_box.begin(),
+                            iinf_box.end());
+        append_bmff_box(&file, fourcc('m', 'e', 't', 'a'), meta_payload);
+    }
+
+    MetaStore store;
+    std::array<ContainerBlockRef, 16> blocks {};
+    std::array<ExifIfdRef, 8> ifds {};
+    std::array<std::byte, 1024> payload {};
+    std::array<uint32_t, 32> payload_scratch {};
+    ExifDecodeOptions exif_opts;
+    PayloadOptions payload_opts;
+
+    (void)simple_meta_read(file, store, blocks, ifds, payload, payload_scratch,
+                           exif_opts, payload_opts);
+    store.finalize();
+
+    const std::vector<uint32_t> info_count
+        = collect_u32_values(store, "item.info_count");
+    ASSERT_EQ(info_count.size(), 1U);
+    EXPECT_EQ(info_count[0], 2U);
+
+    const std::vector<uint32_t> item_ids = collect_u32_values(store, "item.id");
+    ASSERT_EQ(item_ids.size(), 2U);
+    EXPECT_EQ(item_ids[0], 0x10001U);
+    EXPECT_EQ(item_ids[1], 0x10002U);
+
+    const std::vector<uint32_t> item_types = collect_u32_values(store,
+                                                                "item.type");
+    ASSERT_EQ(item_types.size(), 2U);
+    EXPECT_EQ(item_types[0], fourcc('m', 'i', 'm', 'e'));
+    EXPECT_EQ(item_types[1], fourcc('E', 'x', 'i', 'f'));
+
+    const std::vector<std::string> item_names
+        = collect_text_values(store, "item.name");
+    ASSERT_EQ(item_names.size(), 2U);
+    EXPECT_EQ(item_names[0], "preview");
+    EXPECT_EQ(item_names[1], "exif");
+
+    const std::vector<std::string> content_types
+        = collect_text_values(store, "item.content_type");
+    ASSERT_EQ(content_types.size(), 1U);
+    EXPECT_EQ(content_types[0], "image/png");
+
+    const std::vector<std::string> content_encoding
+        = collect_text_values(store, "item.content_encoding");
+    ASSERT_EQ(content_encoding.size(), 1U);
+    EXPECT_EQ(content_encoding[0], "gzip");
+
+    const std::vector<uint32_t> primary_type
+        = collect_u32_values(store, "primary.item_type");
+    ASSERT_EQ(primary_type.size(), 1U);
+    EXPECT_EQ(primary_type[0], fourcc('E', 'x', 'i', 'f'));
+
+    const std::vector<std::string> primary_name
+        = collect_text_values(store, "primary.item_name");
+    ASSERT_EQ(primary_name.size(), 1U);
+    EXPECT_EQ(primary_name[0], "exif");
+
+    EXPECT_TRUE(collect_text_values(store, "primary.content_type").empty());
+}
+
+TEST(BmffDerivedFieldsDecode, EmitsPrimaryMimeItemInfoFromInfeV2)
+{
+    std::vector<std::byte> file;
+
+    {
+        std::vector<std::byte> ftyp_payload;
+        append_fourcc(&ftyp_payload, fourcc('h', 'e', 'i', 'c'));
+        append_u32be(&ftyp_payload, 0);
+        append_fourcc(&ftyp_payload, fourcc('m', 'i', 'f', '1'));
+        append_bmff_box(&file, fourcc('f', 't', 'y', 'p'), ftyp_payload);
+    }
+
+    {
+        std::vector<std::byte> pitm_payload;
+        append_fullbox_header(&pitm_payload, 0);
+        append_u16be(&pitm_payload, 1);
+        std::vector<std::byte> pitm_box;
+        append_bmff_box(&pitm_box, fourcc('p', 'i', 't', 'm'), pitm_payload);
+
+        std::vector<std::byte> infe_payload;
+        append_fullbox_header(&infe_payload, 2);
+        append_u16be(&infe_payload, 1);
+        append_u16be(&infe_payload, 7);
+        append_fourcc(&infe_payload, fourcc('m', 'i', 'm', 'e'));
+        append_bytes(&infe_payload, "payload");
+        infe_payload.push_back(std::byte { 0 });
+        append_bytes(&infe_payload, "application/rdf+xml");
+        infe_payload.push_back(std::byte { 0 });
+        append_bytes(&infe_payload, "gzip");
+        infe_payload.push_back(std::byte { 0 });
+        std::vector<std::byte> infe_box;
+        append_bmff_box(&infe_box, fourcc('i', 'n', 'f', 'e'), infe_payload);
+
+        std::vector<std::byte> iinf_payload;
+        append_fullbox_header(&iinf_payload, 2);
+        append_u32be(&iinf_payload, 1);
+        iinf_payload.insert(iinf_payload.end(), infe_box.begin(),
+                            infe_box.end());
+        std::vector<std::byte> iinf_box;
+        append_bmff_box(&iinf_box, fourcc('i', 'i', 'n', 'f'), iinf_payload);
+
+        std::vector<std::byte> meta_payload;
+        append_fullbox_header(&meta_payload, 0);
+        meta_payload.insert(meta_payload.end(), pitm_box.begin(),
+                            pitm_box.end());
+        meta_payload.insert(meta_payload.end(), iinf_box.begin(),
+                            iinf_box.end());
+        append_bmff_box(&file, fourcc('m', 'e', 't', 'a'), meta_payload);
+    }
+
+    MetaStore store;
+    std::array<ContainerBlockRef, 16> blocks {};
+    std::array<ExifIfdRef, 8> ifds {};
+    std::array<std::byte, 1024> payload {};
+    std::array<uint32_t, 32> payload_scratch {};
+    ExifDecodeOptions exif_opts;
+    PayloadOptions payload_opts;
+
+    (void)simple_meta_read(file, store, blocks, ifds, payload, payload_scratch,
+                           exif_opts, payload_opts);
+    store.finalize();
+
+    const std::vector<uint32_t> primary_type
+        = collect_u32_values(store, "primary.item_type");
+    ASSERT_EQ(primary_type.size(), 1U);
+    EXPECT_EQ(primary_type[0], fourcc('m', 'i', 'm', 'e'));
+
+    const std::vector<std::string> primary_name
+        = collect_text_values(store, "primary.item_name");
+    ASSERT_EQ(primary_name.size(), 1U);
+    EXPECT_EQ(primary_name[0], "payload");
+
+    const std::vector<std::string> primary_content_type
+        = collect_text_values(store, "primary.content_type");
+    ASSERT_EQ(primary_content_type.size(), 1U);
+    EXPECT_EQ(primary_content_type[0], "application/rdf+xml");
+
+    const std::vector<std::string> primary_content_encoding
+        = collect_text_values(store, "primary.content_encoding");
+    ASSERT_EQ(primary_content_encoding.size(), 1U);
+    EXPECT_EQ(primary_content_encoding[0], "gzip");
+}
+
+TEST(BmffDerivedFieldsDecode, EmitsItemInfoRowsWithoutPitm)
+{
+    std::vector<std::byte> file;
+
+    {
+        std::vector<std::byte> ftyp_payload;
+        append_fourcc(&ftyp_payload, fourcc('h', 'e', 'i', 'c'));
+        append_u32be(&ftyp_payload, 0);
+        append_fourcc(&ftyp_payload, fourcc('m', 'i', 'f', '1'));
+        append_bmff_box(&file, fourcc('f', 't', 'y', 'p'), ftyp_payload);
+    }
+
+    {
+        std::vector<std::byte> infe_payload;
+        append_fullbox_header(&infe_payload, 2);
+        append_u16be(&infe_payload, 3);
+        append_u16be(&infe_payload, 0);
+        append_fourcc(&infe_payload, fourcc('m', 'i', 'm', 'e'));
+        append_bytes(&infe_payload, "sidecar");
+        infe_payload.push_back(std::byte { 0 });
+        append_bytes(&infe_payload, "application/json");
+        infe_payload.push_back(std::byte { 0 });
+        infe_payload.push_back(std::byte { 0 });
+        std::vector<std::byte> infe_box;
+        append_bmff_box(&infe_box, fourcc('i', 'n', 'f', 'e'), infe_payload);
+
+        std::vector<std::byte> iinf_payload;
+        append_fullbox_header(&iinf_payload, 2);
+        append_u32be(&iinf_payload, 1);
+        iinf_payload.insert(iinf_payload.end(), infe_box.begin(),
+                            infe_box.end());
+        std::vector<std::byte> iinf_box;
+        append_bmff_box(&iinf_box, fourcc('i', 'i', 'n', 'f'), iinf_payload);
+
+        std::vector<std::byte> meta_payload;
+        append_fullbox_header(&meta_payload, 0);
+        meta_payload.insert(meta_payload.end(), iinf_box.begin(),
+                            iinf_box.end());
+        append_bmff_box(&file, fourcc('m', 'e', 't', 'a'), meta_payload);
+    }
+
+    MetaStore store;
+    std::array<ContainerBlockRef, 16> blocks {};
+    std::array<ExifIfdRef, 8> ifds {};
+    std::array<std::byte, 1024> payload {};
+    std::array<uint32_t, 32> payload_scratch {};
+    ExifDecodeOptions exif_opts;
+    PayloadOptions payload_opts;
+
+    (void)simple_meta_read(file, store, blocks, ifds, payload, payload_scratch,
+                           exif_opts, payload_opts);
+    store.finalize();
+
+    const std::vector<uint32_t> info_count
+        = collect_u32_values(store, "item.info_count");
+    ASSERT_EQ(info_count.size(), 1U);
+    EXPECT_EQ(info_count[0], 1U);
+
+    const std::vector<uint32_t> item_ids = collect_u32_values(store, "item.id");
+    ASSERT_EQ(item_ids.size(), 1U);
+    EXPECT_EQ(item_ids[0], 3U);
+
+    const std::vector<uint32_t> item_types = collect_u32_values(store,
+                                                                "item.type");
+    ASSERT_EQ(item_types.size(), 1U);
+    EXPECT_EQ(item_types[0], fourcc('m', 'i', 'm', 'e'));
+
+    const std::vector<std::string> item_names
+        = collect_text_values(store, "item.name");
+    ASSERT_EQ(item_names.size(), 1U);
+    EXPECT_EQ(item_names[0], "sidecar");
+
+    const std::vector<std::string> content_types
+        = collect_text_values(store, "item.content_type");
+    ASSERT_EQ(content_types.size(), 1U);
+    EXPECT_EQ(content_types[0], "application/json");
+
+    EXPECT_TRUE(collect_u32_values(store, "meta.primary_item_id").empty());
+    EXPECT_TRUE(collect_u32_values(store, "primary.item_type").empty());
+    EXPECT_TRUE(collect_text_values(store, "primary.item_name").empty());
+}
+
+TEST(BmffDerivedFieldsDecode, EmitsPrimaryUriItemInfoFromInfeV2)
+{
+    std::vector<std::byte> file;
+
+    {
+        std::vector<std::byte> ftyp_payload;
+        append_fourcc(&ftyp_payload, fourcc('h', 'e', 'i', 'c'));
+        append_u32be(&ftyp_payload, 0);
+        append_fourcc(&ftyp_payload, fourcc('m', 'i', 'f', '1'));
+        append_bmff_box(&file, fourcc('f', 't', 'y', 'p'), ftyp_payload);
+    }
+
+    {
+        std::vector<std::byte> pitm_payload;
+        append_fullbox_header(&pitm_payload, 0);
+        append_u16be(&pitm_payload, 1);
+        std::vector<std::byte> pitm_box;
+        append_bmff_box(&pitm_box, fourcc('p', 'i', 't', 'm'), pitm_payload);
+
+        std::vector<std::byte> infe_payload;
+        append_fullbox_header(&infe_payload, 2);
+        append_u16be(&infe_payload, 1);
+        append_u16be(&infe_payload, 3);
+        append_fourcc(&infe_payload, fourcc('u', 'r', 'i', ' '));
+        append_bytes(&infe_payload, "link");
+        infe_payload.push_back(std::byte { 0 });
+        append_bytes(&infe_payload, "https://ns.example/item");
+        infe_payload.push_back(std::byte { 0 });
+        std::vector<std::byte> infe_box;
+        append_bmff_box(&infe_box, fourcc('i', 'n', 'f', 'e'), infe_payload);
+
+        std::vector<std::byte> iinf_payload;
+        append_fullbox_header(&iinf_payload, 2);
+        append_u32be(&iinf_payload, 1);
+        iinf_payload.insert(iinf_payload.end(), infe_box.begin(),
+                            infe_box.end());
+        std::vector<std::byte> iinf_box;
+        append_bmff_box(&iinf_box, fourcc('i', 'i', 'n', 'f'), iinf_payload);
+
+        std::vector<std::byte> meta_payload;
+        append_fullbox_header(&meta_payload, 0);
+        meta_payload.insert(meta_payload.end(), pitm_box.begin(),
+                            pitm_box.end());
+        meta_payload.insert(meta_payload.end(), iinf_box.begin(),
+                            iinf_box.end());
+        append_bmff_box(&file, fourcc('m', 'e', 't', 'a'), meta_payload);
+    }
+
+    MetaStore store;
+    std::array<ContainerBlockRef, 16> blocks {};
+    std::array<ExifIfdRef, 8> ifds {};
+    std::array<std::byte, 1024> payload {};
+    std::array<uint32_t, 32> payload_scratch {};
+    ExifDecodeOptions exif_opts;
+    PayloadOptions payload_opts;
+
+    (void)simple_meta_read(file, store, blocks, ifds, payload, payload_scratch,
+                           exif_opts, payload_opts);
+    store.finalize();
+
+    const std::vector<uint32_t> item_types = collect_u32_values(store,
+                                                                "item.type");
+    ASSERT_EQ(item_types.size(), 1U);
+    EXPECT_EQ(item_types[0], fourcc('u', 'r', 'i', ' '));
+
+    const std::vector<std::string> item_names
+        = collect_text_values(store, "item.name");
+    ASSERT_EQ(item_names.size(), 1U);
+    EXPECT_EQ(item_names[0], "link");
+
+    const std::vector<std::string> item_uri_type
+        = collect_text_values(store, "item.uri_type");
+    ASSERT_EQ(item_uri_type.size(), 1U);
+    EXPECT_EQ(item_uri_type[0], "https://ns.example/item");
+
+    const std::vector<uint32_t> primary_type
+        = collect_u32_values(store, "primary.item_type");
+    ASSERT_EQ(primary_type.size(), 1U);
+    EXPECT_EQ(primary_type[0], fourcc('u', 'r', 'i', ' '));
+
+    const std::vector<std::string> primary_name
+        = collect_text_values(store, "primary.item_name");
+    ASSERT_EQ(primary_name.size(), 1U);
+    EXPECT_EQ(primary_name[0], "link");
+
+    const std::vector<std::string> primary_uri_type
+        = collect_text_values(store, "primary.uri_type");
+    ASSERT_EQ(primary_uri_type.size(), 1U);
+    EXPECT_EQ(primary_uri_type[0], "https://ns.example/item");
+
+    EXPECT_TRUE(collect_text_values(store, "primary.content_type").empty());
 }
 
 }  // namespace openmeta

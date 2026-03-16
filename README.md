@@ -25,7 +25,8 @@ Current baseline-gated status on tracked corpora:
 ## Features
 
 - Container scanning: locate metadata blocks in `jpeg`, `png`, `webp`, `gif`,
-  `tiff/dng`, `jp2`, `jxl`, `heif/avif/cr3` (ISO-BMFF).
+  `tiff/dng`, `crw/ciff`, `raf`, `x3f`, `jp2`, `jxl`, `heif/avif/cr3`
+  (ISO-BMFF).
 - Payload extraction: reassemble chunked streams and optionally decompress
   (zlib/deflate, brotli) with strict limits.
 - Structured decode into `MetaStore`:
@@ -38,9 +39,19 @@ Current baseline-gated status on tracked corpora:
   - Photoshop IRB: 8BIM resources (raw payload preserved; IPTC from 0x0404 is
     decoded as derived datasets when present).
   - IPTC-IIM: dataset streams (raw dataset bytes preserved).
-  - ISO-BMFF derived fields (`MetaKeyKind::BmffField`): `ftyp.*` and primary item
-    properties (`pitm`, `iprp/ipco ispe/irot/imir`, `ipma`), typed `iref.<type>.*`
-    rows (`auxl`/`dimg`/`thmb`/`cdsc`), graph-summary counters, and `auxC`-typed
+  - Comment (`MetaKeyKind::Comment`): structured JPEG COM and GIF comment
+    extension payloads.
+  - PNG text (`MetaKeyKind::PngText`): structured `keyword + field` entries for
+    `tEXt`, `zTXt`, and non-XMP `iTXt` chunks.
+  - ISO-BMFF derived fields (`MetaKeyKind::BmffField`): `ftyp.*`, primary item
+    properties (`meta.primary_item_id`, `primary.width`, `primary.height`,
+    `primary.rotation_degrees`, `primary.mirror` from `pitm` +
+    `iprp/ipco ispe/irot/imir` + `ipma`), item-info rows from `iinf/infe`
+    (`item.info_count`, `item.id`, `item.type`, `item.name`,
+    `item.content_type`, `item.content_encoding`, `item.uri_type`; emitted
+    even when `meta` has no `pitm`), plus `primary.item_*` aliases when `pitm`
+    is present, typed `iref.<type>.*` rows
+    (`auxl`/`dimg`/`thmb`/`cdsc`), graph-summary counters, and `auxC`-typed
     auxiliary semantics.
 - CLI tools:
   - `metaread`: human-readable dump; output is sanitized.

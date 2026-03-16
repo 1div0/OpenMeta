@@ -599,7 +599,8 @@ scan_jpeg(std::span<const std::byte> bytes,
                         }
                     }
 
-                    if (box_size >= hdr_len && seg_payload_size >= 8U + hdr_len) {
+                    if (box_size >= hdr_len
+                        && seg_payload_size >= 8U + hdr_len) {
                         ContainerBlockRef jumbf;
                         jumbf.format       = ContainerFormat::Jpeg;
                         jumbf.kind         = ContainerBlockKind::Jumbf;
@@ -870,9 +871,9 @@ namespace {
         return size32 >= 8U;
     }
 
-    static uint32_t
-    find_next_jumbf_block(const BlockSink& sink, uint32_t begin,
-                          ContainerFormat format, uint32_t id) noexcept
+    static uint32_t find_next_jumbf_block(const BlockSink& sink, uint32_t begin,
+                                          ContainerFormat format,
+                                          uint32_t id) noexcept
     {
         const uint32_t written = sink.result.written;
         for (uint32_t i = begin; i < written; ++i) {
@@ -885,10 +886,10 @@ namespace {
         return written;
     }
 
-    static void
-    normalize_split_jumbf_blocks(BlockSink* sink,
-                                 std::span<const std::byte> bytes,
-                                 ContainerFormat format, uint32_t id) noexcept
+    static void normalize_split_jumbf_blocks(BlockSink* sink,
+                                             std::span<const std::byte> bytes,
+                                             ContainerFormat format,
+                                             uint32_t id) noexcept
     {
         if (!sink || !sink->out || sink->result.written == 0U) {
             return;
@@ -912,8 +913,8 @@ namespace {
             uint32_t next_header  = written;
             uint32_t probe_search = i + 1U;
             while (true) {
-                const uint32_t j
-                    = find_next_jumbf_block(*sink, probe_search, format, id);
+                const uint32_t j = find_next_jumbf_block(*sink, probe_search,
+                                                         format, id);
                 if (j >= written) {
                     break;
                 }
@@ -926,18 +927,18 @@ namespace {
             }
 
             if (run_count > 1U) {
-                uint64_t group
-                    = (static_cast<uint64_t>(id) << 32U)
-                      ^ (static_cast<uint64_t>(i) + 1ULL);
+                uint64_t group = (static_cast<uint64_t>(id) << 32U)
+                                 ^ (static_cast<uint64_t>(i) + 1ULL);
                 if (group == 0U) {
                     group = 1U;
                 }
                 uint32_t part_index = 0U;
                 uint32_t k_search   = i;
                 while (part_index < run_count) {
-                    const uint32_t k = find_next_jumbf_block(
-                        *sink, k_search, format, id);
-                    if (k >= written || (next_header < written && k >= next_header)) {
+                    const uint32_t k = find_next_jumbf_block(*sink, k_search,
+                                                             format, id);
+                    if (k >= written
+                        || (next_header < written && k >= next_header)) {
                         break;
                     }
                     ContainerBlockRef& b = sink->out[k];
@@ -1077,6 +1078,19 @@ scan_png(std::span<const std::byte> bytes,
                     ContainerBlockRef block;
                     block.format       = ContainerFormat::Png;
                     block.kind         = ContainerBlockKind::Xmp;
+                    block.outer_offset = chunk_off;
+                    block.outer_size   = chunk_size;
+                    block.data_offset  = text_off;
+                    block.data_size    = end - text_off;
+                    block.id           = type;
+                    if (comp_flag != 0) {
+                        block.compression = BlockCompression::Deflate;
+                    }
+                    sink_emit(&sink, block);
+                } else if (text_off <= end) {
+                    ContainerBlockRef block;
+                    block.format       = ContainerFormat::Png;
+                    block.kind         = ContainerBlockKind::Text;
                     block.outer_offset = chunk_off;
                     block.outer_size   = chunk_size;
                     block.data_offset  = text_off;
@@ -1282,6 +1296,37 @@ scan_gif(std::span<const std::byte> bytes,
                 return sink.result;
             }
             const uint8_t label = u8(bytes[offset + 1]);
+            if (label == 0xFE) {  // comment extension
+                uint64_t p              = offset + 2;
+                const uint64_t data_off = p;
+                while (p < bytes.size()) {
+                    const uint8_t sub = u8(bytes[p]);
+                    p += 1;
+                    if (sub == 0) {
+                        break;
+                    }
+                    if (p + sub > bytes.size()) {
+                        sink.result.status = ScanStatus::Malformed;
+                        return sink.result;
+                    }
+                    p += sub;
+                }
+                const uint64_t ext_end = p;
+
+                ContainerBlockRef block;
+                block.format       = ContainerFormat::Gif;
+                block.kind         = ContainerBlockKind::Comment;
+                block.chunking     = BlockChunking::GifSubBlocks;
+                block.outer_offset = offset;
+                block.outer_size   = ext_end - offset;
+                block.data_offset  = data_off;
+                block.data_size    = ext_end - data_off;
+                block.id           = 0x21FE;  // extension + comment label
+                sink_emit(&sink, block);
+
+                offset = ext_end;
+                continue;
+            }
             if (label == 0xFF) {  // application extension
                 if (offset + 3 > bytes.size()) {
                     sink.result.status = ScanStatus::Malformed;
@@ -4554,7 +4599,7 @@ scan_auto(std::span<const std::byte> bytes,
             for (uint32_t i = 0; i < written; ++i) {
                 out[i].outer_offset += tiff_off;
                 out[i].data_offset += tiff_off;
-                out[i].format = ContainerFormat::Unknown;
+                out[i].format = ContainerFormat::Raf;
             }
 
             // RAF files can also embed an XMP packet as a standalone blob
@@ -4618,7 +4663,7 @@ scan_auto(std::span<const std::byte> bytes,
                         if (end > data_off && end > sig_off) {
                             if (written < out.size()) {
                                 ContainerBlockRef block;
-                                block.format       = ContainerFormat::Unknown;
+                                block.format       = ContainerFormat::Raf;
                                 block.kind         = ContainerBlockKind::Xmp;
                                 block.outer_offset = sig_off;
                                 block.outer_size   = end - sig_off;
@@ -4665,7 +4710,7 @@ scan_auto(std::span<const std::byte> bytes,
             for (uint32_t i = 0; i < written; ++i) {
                 out[i].outer_offset += tiff_off;
                 out[i].data_offset += tiff_off;
-                out[i].format = ContainerFormat::Unknown;
+                out[i].format = ContainerFormat::X3f;
             }
             return res;
         }
@@ -4692,7 +4737,7 @@ scan_auto(std::span<const std::byte> bytes,
                     }
 
                     ContainerBlockRef block;
-                    block.format       = ContainerFormat::Unknown;
+                    block.format       = ContainerFormat::Crw;
                     block.kind         = ContainerBlockKind::Ciff;
                     block.outer_offset = 0;
                     block.outer_size   = static_cast<uint64_t>(bytes.size());

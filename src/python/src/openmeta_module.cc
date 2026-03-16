@@ -3102,6 +3102,9 @@ NB_MODULE(_openmeta, m)
         .value("Webp", ContainerFormat::Webp)
         .value("Gif", ContainerFormat::Gif)
         .value("Tiff", ContainerFormat::Tiff)
+        .value("Crw", ContainerFormat::Crw)
+        .value("Raf", ContainerFormat::Raf)
+        .value("X3f", ContainerFormat::X3f)
         .value("Jp2", ContainerFormat::Jp2)
         .value("Jxl", ContainerFormat::Jxl)
         .value("Heif", ContainerFormat::Heif)
@@ -3144,6 +3147,7 @@ NB_MODULE(_openmeta, m)
 
     nb::enum_<MetaKeyKind>(m, "MetaKeyKind")
         .value("ExifTag", MetaKeyKind::ExifTag)
+        .value("Comment", MetaKeyKind::Comment)
         .value("ExrAttribute", MetaKeyKind::ExrAttribute)
         .value("IptcDataset", MetaKeyKind::IptcDataset)
         .value("XmpProperty", MetaKeyKind::XmpProperty)
@@ -3154,7 +3158,8 @@ NB_MODULE(_openmeta, m)
         .value("PrintImField", MetaKeyKind::PrintImField)
         .value("BmffField", MetaKeyKind::BmffField)
         .value("JumbfField", MetaKeyKind::JumbfField)
-        .value("JumbfCborKey", MetaKeyKind::JumbfCborKey);
+        .value("JumbfCborKey", MetaKeyKind::JumbfCborKey)
+        .value("PngText", MetaKeyKind::PngText);
 
     nb::enum_<WireFamily>(m, "WireFamily")
         .value("None", WireFamily::None)
@@ -3979,6 +3984,28 @@ NB_MODULE(_openmeta, m)
                              en.key.data.xmp_property.property_path);
                          return nb::str(s.c_str(), s.size());
                      })
+        .def_prop_ro("png_text_keyword",
+                     [](const PyEntry& e) -> nb::object {
+                         const Entry& en = e.doc->store.entry(e.id);
+                         if (en.key.kind != MetaKeyKind::PngText) {
+                             return nb::none();
+                         }
+                         const std::string s
+                             = arena_string(e.doc->store.arena(),
+                                            en.key.data.png_text.keyword);
+                         return nb::str(s.c_str(), s.size());
+                     })
+        .def_prop_ro("png_text_field",
+                     [](const PyEntry& e) -> nb::object {
+                         const Entry& en = e.doc->store.entry(e.id);
+                         if (en.key.kind != MetaKeyKind::PngText) {
+                             return nb::none();
+                         }
+                         const std::string s
+                             = arena_string(e.doc->store.arena(),
+                                            en.key.data.png_text.field);
+                         return nb::str(s.c_str(), s.size());
+                     })
         .def_prop_ro("name",
                      [](const PyEntry& e) -> nb::object {
                          const Entry& en = e.doc->store.entry(e.id);
@@ -3992,6 +4019,9 @@ NB_MODULE(_openmeta, m)
                                  return nb::none();
                              }
                              return nb::str(n.data(), n.size());
+                         }
+                         if (en.key.kind == MetaKeyKind::Comment) {
+                             return nb::str("comment");
                          }
                          if (en.key.kind == MetaKeyKind::GeotiffKey) {
                              const std::string_view n = geotiff_key_name(
@@ -4031,6 +4061,12 @@ NB_MODULE(_openmeta, m)
                              const std::string s
                                  = arena_string(e.doc->store.arena(),
                                                 en.key.data.jumbf_cbor_key.key);
+                             return nb::str(s.c_str(), s.size());
+                         }
+                         if (en.key.kind == MetaKeyKind::PngText) {
+                             const std::string s
+                                 = arena_string(e.doc->store.arena(),
+                                                en.key.data.png_text.keyword);
                              return nb::str(s.c_str(), s.size());
                          }
                          return nb::none();
@@ -4129,6 +4165,20 @@ NB_MODULE(_openmeta, m)
                                    en.key.data.jumbf_cbor_key.key);
                 append_console_escaped_ascii(key, 64, &s);
                 s.append("\"");
+            } else if (en.key.kind == MetaKeyKind::PngText) {
+                s.append("png_text=\"");
+                const std::string keyword
+                    = arena_string(e.doc->store.arena(),
+                                   en.key.data.png_text.keyword);
+                const std::string field
+                    = arena_string(e.doc->store.arena(),
+                                   en.key.data.png_text.field);
+                append_console_escaped_ascii(keyword, 64, &s);
+                s.append(".");
+                append_console_escaped_ascii(field, 32, &s);
+                s.append("\"");
+            } else if (en.key.kind == MetaKeyKind::Comment) {
+                s.append("comment");
             } else {
                 s.append("kind=");
                 s.append(std::to_string(static_cast<unsigned>(en.key.kind)));

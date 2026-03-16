@@ -72,6 +72,7 @@ copy_key(const MetaKey& key, const ByteArena& src, ByteArena& dst)
     case MetaKeyKind::ExifTag:
         out.data.exif_tag.ifd = dst.append(src.span(key.data.exif_tag.ifd));
         return out;
+    case MetaKeyKind::Comment: return out;
     case MetaKeyKind::ExrAttribute:
         out.data.exr_attribute.name = dst.append(
             src.span(key.data.exr_attribute.name));
@@ -102,6 +103,11 @@ copy_key(const MetaKey& key, const ByteArena& src, ByteArena& dst)
     case MetaKeyKind::JumbfCborKey:
         out.data.jumbf_cbor_key.key = dst.append(
             src.span(key.data.jumbf_cbor_key.key));
+        return out;
+    case MetaKeyKind::PngText:
+        out.data.png_text.keyword = dst.append(
+            src.span(key.data.png_text.keyword));
+        out.data.png_text.field = dst.append(src.span(key.data.png_text.field));
         return out;
     }
     return out;

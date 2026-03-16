@@ -735,6 +735,7 @@ namespace {
             append_u16_hex(e.key.data.exif_tag.tag, out_name);
             return true;
         }
+        case MetaKeyKind::Comment: out_name->append("comment"); return true;
         case MetaKeyKind::ExrAttribute: {
             out_name->append("exr:part:");
             append_u64_dec(e.key.data.exr_attribute.part_index, out_name);
@@ -799,6 +800,13 @@ namespace {
             out_name->append("jumbf_cbor:");
             out_name->append(
                 arena_string(arena, e.key.data.jumbf_cbor_key.key));
+            return true;
+        }
+        case MetaKeyKind::PngText: {
+            out_name->append("png_text:");
+            out_name->append(arena_string(arena, e.key.data.png_text.keyword));
+            out_name->append(":");
+            out_name->append(arena_string(arena, e.key.data.png_text.field));
             return true;
         }
         }

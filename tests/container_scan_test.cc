@@ -205,7 +205,7 @@ namespace {
                                : static_cast<uint32_t>(blocks.size());
         for (uint32_t i = 0; i < n; ++i) {
             const ContainerBlockRef& b = blocks[i];
-            if (b.format == ContainerFormat::Unknown
+            if (b.format == ContainerFormat::Raf
                 && b.kind == ContainerBlockKind::Xmp
                 && b.data_offset == static_cast<uint64_t>(data_off)) {
                 found = true;
@@ -217,6 +217,48 @@ namespace {
         }
 
         EXPECT_TRUE(found);
+    }
+
+    TEST(ContainerScan, X3fEmbeddedExifUsesX3fFormat)
+    {
+        std::vector<std::byte> x3f;
+        append_bytes(&x3f, "FOVb");
+        x3f.resize(128, std::byte { 0 });
+        append_bytes(&x3f, "Exif");
+        x3f.push_back(std::byte { 0 });
+        x3f.push_back(std::byte { 0 });
+        append_bytes(&x3f, "II");
+        append_u16le(&x3f, 42);
+        append_u32le(&x3f, 8);
+        append_u16le(&x3f, 0);
+        append_u32le(&x3f, 0);
+
+        std::array<ContainerBlockRef, 8> blocks {};
+        const ScanResult res
+            = scan_auto(std::span<const std::byte>(x3f.data(), x3f.size()),
+                        blocks);
+        ASSERT_EQ(res.status, ScanStatus::Ok);
+        ASSERT_EQ(res.written, 1U);
+        EXPECT_EQ(blocks[0].format, ContainerFormat::X3f);
+        EXPECT_EQ(blocks[0].kind, ContainerBlockKind::Exif);
+    }
+
+    TEST(ContainerScan, CrwRootBlockUsesCrwFormat)
+    {
+        std::vector<std::byte> crw;
+        append_bytes(&crw, "II");
+        append_u32le(&crw, 14U);
+        append_bytes(&crw, "HEAPCCDR");
+
+        std::array<ContainerBlockRef, 8> blocks {};
+        const ScanResult res
+            = scan_auto(std::span<const std::byte>(crw.data(), crw.size()),
+                        blocks);
+        ASSERT_EQ(res.status, ScanStatus::Ok);
+        ASSERT_EQ(res.written, 1U);
+        EXPECT_EQ(blocks[0].format, ContainerFormat::Crw);
+        EXPECT_EQ(blocks[0].kind, ContainerBlockKind::Ciff);
+        EXPECT_EQ(blocks[0].aux_u32, 14U);
     }
 
     TEST(ContainerScan, BmffStartsWithMoovStillScans)
@@ -703,6 +745,16 @@ namespace {
         append_bytes(&itxt1, "Z");
         append_png_chunk(&png, fourcc('i', 'T', 'X', 't'), itxt1);
 
+        std::vector<std::byte> itxt2;
+        append_bytes(&itxt2, "Description");
+        itxt2.push_back(std::byte { 0x00 });
+        itxt2.push_back(std::byte { 0x00 });  // comp flag
+        itxt2.push_back(std::byte { 0x00 });  // comp method
+        itxt2.push_back(std::byte { 0x00 });  // lang
+        itxt2.push_back(std::byte { 0x00 });  // trans
+        append_bytes(&itxt2, "OpenMeta PNG");
+        append_png_chunk(&png, fourcc('i', 'T', 'X', 't'), itxt2);
+
         // iCCP with dummy compressed bytes.
         std::vector<std::byte> iccp;
         append_bytes(&iccp, "icc");
@@ -723,7 +775,7 @@ namespace {
         std::array<ContainerBlockRef, 16> blocks {};
         const ScanResult res = scan_png(png, blocks);
         ASSERT_EQ(res.status, ScanStatus::Ok);
-        ASSERT_EQ(res.written, 4U);
+        ASSERT_EQ(res.written, 5U);
 
         EXPECT_EQ(blocks[0].kind, ContainerBlockKind::Xmp);
         EXPECT_EQ(blocks[0].compression, BlockCompression::None);
@@ -732,15 +784,18 @@ namespace {
         EXPECT_EQ(blocks[1].kind, ContainerBlockKind::Xmp);
         EXPECT_EQ(blocks[1].compression, BlockCompression::Deflate);
 
-        EXPECT_EQ(blocks[2].kind, ContainerBlockKind::Icc);
-        EXPECT_EQ(blocks[2].compression, BlockCompression::Deflate);
+        EXPECT_EQ(blocks[2].kind, ContainerBlockKind::Text);
+        EXPECT_EQ(blocks[2].compression, BlockCompression::None);
 
-        EXPECT_EQ(blocks[3].kind, ContainerBlockKind::Exif);
-        EXPECT_EQ(png[blocks[3].data_offset + 0], std::byte { 'I' });
+        EXPECT_EQ(blocks[3].kind, ContainerBlockKind::Icc);
+        EXPECT_EQ(blocks[3].compression, BlockCompression::Deflate);
+
+        EXPECT_EQ(blocks[4].kind, ContainerBlockKind::Exif);
+        EXPECT_EQ(png[blocks[4].data_offset + 0], std::byte { 'I' });
 
         const ScanResult auto_res = scan_auto(png, blocks);
         EXPECT_EQ(auto_res.status, ScanStatus::Ok);
-        EXPECT_EQ(auto_res.written, 4U);
+        EXPECT_EQ(auto_res.written, 5U);
     }
 
     TEST(ContainerScan, PngCaBxChunkClassifiedAsJumbf)
@@ -952,15 +1007,24 @@ namespace {
         append_bytes(&gif, "abc");
         gif.push_back(std::byte { 0x00 });
 
+        gif.push_back(std::byte { 0x21 });
+        gif.push_back(std::byte { 0xFE });
+        gif.push_back(std::byte { 0x07 });
+        append_bytes(&gif, "comment");
+        gif.push_back(std::byte { 0x00 });
+
         gif.push_back(std::byte { 0x3B });
 
         std::array<ContainerBlockRef, 4> blocks {};
         const ScanResult res = scan_gif(gif, blocks);
         ASSERT_EQ(res.status, ScanStatus::Ok);
-        ASSERT_EQ(res.written, 1U);
+        ASSERT_EQ(res.written, 2U);
         EXPECT_EQ(blocks[0].kind, ContainerBlockKind::Xmp);
         EXPECT_EQ(blocks[0].chunking, BlockChunking::GifSubBlocks);
         EXPECT_EQ(gif[blocks[0].data_offset], std::byte { 0x03 });
+        EXPECT_EQ(blocks[1].kind, ContainerBlockKind::Comment);
+        EXPECT_EQ(blocks[1].chunking, BlockChunking::GifSubBlocks);
+        EXPECT_EQ(gif[blocks[1].data_offset], std::byte { 0x07 });
     }
 
 
