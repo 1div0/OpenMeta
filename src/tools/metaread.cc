@@ -857,7 +857,9 @@ namespace {
                 row.tag_s = buf;
             }
             {
-                const std::string_view name = exif_tag_name(ifd, tag);
+                const std::string_view name
+                    = exif_entry_name(store, entry,
+                                      ExifTagNamePolicy::ExifToolCompat);
                 if (name.empty()) {
                     row.name_s = "-";
                 } else {

@@ -10,6 +10,14 @@
 
 namespace openmeta {
 
+class MetaStore;
+struct Entry;
+
+enum class ExifTagNamePolicy : uint8_t {
+    Canonical,
+    ExifToolCompat,
+};
+
 /**
  * \brief Returns a human-readable EXIF/TIFF tag name for a given IFD token and tag id.
  *
@@ -19,5 +27,15 @@ namespace openmeta {
  */
 std::string_view
 exif_tag_name(std::string_view ifd, uint16_t tag) noexcept;
+
+/**
+ * \brief Returns a human-readable name for an EXIF-tag entry.
+ *
+ * Canonical names come from the static tag registry. Compatibility policy may
+ * use decode-time contextual variants for ambiguous MakerNote tags.
+ */
+std::string_view
+exif_entry_name(const MetaStore& store, const Entry& entry,
+                ExifTagNamePolicy policy) noexcept;
 
 }  // namespace openmeta

@@ -53,6 +53,13 @@ Current baseline-gated status on tracked corpora:
     is present, typed `iref.<type>.*` rows
     (`auxl`/`dimg`/`thmb`/`cdsc`), graph-summary counters, and `auxC`-typed
     auxiliary semantics.
+- EXIF/MakerNote display naming now has two explicit layers:
+  - canonical tag names from `exif_tag_name(...)`
+  - contextual compatibility names from
+    `exif_entry_name(..., ExifTagNamePolicy::ExifToolCompat)`
+  The first bounded contextual case is Olympus `focusinfo:0x1600`, which is
+  resolved at decode time from sibling MakerNote structure instead of forcing
+  one global alias.
 - CLI tools:
   - `metaread`: human-readable dump; output is sanitized.
   - `metavalidate`: metadata validation tool (decode-status health + DNG/CCM checks),

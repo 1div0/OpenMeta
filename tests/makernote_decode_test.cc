@@ -1,3 +1,4 @@
+#include "openmeta/exif_tag_names.h"
 #include "openmeta/exif_tiff_decode.h"
 #include "openmeta/simple_meta.h"
 
@@ -1923,6 +1924,77 @@ namespace {
         append_u32le(&mn, 1);
         append_u32le(&mn, 321);
         append_u32le(&mn, 0);
+
+        return mn;
+    }
+
+    static std::vector<std::byte>
+    make_olympus_makernote_omsystem_focusinfo_name_context(
+        bool with_camera_settings_stabilization)
+    {
+        std::vector<std::byte> mn;
+        append_bytes(&mn, "OM SYSTEM");
+        mn.push_back(std::byte { 0 });
+        mn.push_back(std::byte { 0 });
+        mn.push_back(std::byte { 0 });
+        append_bytes(&mn, "II");
+        append_u16le(&mn, 3);
+        EXPECT_EQ(mn.size(), 16U);
+
+        static constexpr uint32_t kMainIfdOff      = 16U;
+        static constexpr uint32_t kMainEntryCount  = 2U;
+        static constexpr uint32_t kSubIfdEntrySize = 18U;
+        static constexpr uint32_t kMainIfdSize     = 2U + kMainEntryCount * 12U
+                                                 + 4U;
+        static constexpr uint32_t kCameraSettingsIfdOff = kMainIfdOff
+                                                          + kMainIfdSize;
+        static constexpr uint32_t kFocusInfoIfdOff = kCameraSettingsIfdOff
+                                                     + kSubIfdEntrySize;
+        static constexpr uint32_t kFocusInfoValueOff = kFocusInfoIfdOff
+                                                       + kSubIfdEntrySize;
+
+        append_u16le(&mn, static_cast<uint16_t>(kMainEntryCount));
+
+        append_u16le(&mn, 0x2020);  // CameraSettings
+        append_u16le(&mn, 13);
+        append_u32le(&mn, 1);
+        append_u32le(&mn, kCameraSettingsIfdOff);
+
+        append_u16le(&mn, 0x2050);  // FocusInfo
+        append_u16le(&mn, 13);
+        append_u32le(&mn, 1);
+        append_u32le(&mn, kFocusInfoIfdOff);
+
+        append_u32le(&mn, 0);
+        EXPECT_EQ(mn.size(), kCameraSettingsIfdOff);
+
+        append_u16le(&mn, 1);
+        if (with_camera_settings_stabilization) {
+            append_u16le(&mn, 0x0604);
+            append_u16le(&mn, 4);
+            append_u32le(&mn, 1);
+            append_u32le(&mn, 1);
+        } else {
+            append_u16le(&mn, 0x0100);
+            append_u16le(&mn, 3);
+            append_u32le(&mn, 1);
+            append_u16le(&mn, 7);
+            append_u16le(&mn, 0);
+        }
+        append_u32le(&mn, 0);
+        EXPECT_EQ(mn.size(), kFocusInfoIfdOff);
+
+        append_u16le(&mn, 1);
+        append_u16le(&mn, 0x1600);
+        append_u16le(&mn, 7);
+        append_u32le(&mn, 8);
+        append_u32le(&mn, kFocusInfoValueOff);
+        append_u32le(&mn, 0);
+        EXPECT_EQ(mn.size(), kFocusInfoValueOff);
+
+        for (uint8_t i = 0; i < 8U; ++i) {
+            mn.push_back(std::byte { static_cast<uint8_t>(i + 1U) });
+        }
 
         return mn;
     }
@@ -5941,6 +6013,68 @@ TEST(MakerNoteDecode, DecodesOlympusOmSystemMainSubIfdMatrix)
         ASSERT_EQ(ids.size(), 1U);
         EXPECT_EQ(store.entry(ids[0]).value.data.u64, 321U);
     }
+}
+
+
+TEST(MakerNoteDecode,
+     MarksOlympusFocusInfo1600PlaceholderWhenCameraSettingsAlreadyExposeImageStabilization)
+{
+    const std::vector<std::byte> mn
+        = make_olympus_makernote_omsystem_focusinfo_name_context(true);
+    const std::vector<std::byte> tiff = make_test_tiff_with_makernote("OMDS",
+                                                                      mn);
+
+    MetaStore store;
+    std::array<ExifIfdRef, 32> ifds {};
+    ExifDecodeOptions options;
+    options.decode_makernote   = true;
+    const ExifDecodeResult res = decode_exif_tiff(tiff, store, ifds, options);
+    EXPECT_EQ(res.status, ExifDecodeStatus::Ok);
+
+    store.finalize();
+    const std::span<const EntryId> ids = store.find_all(
+        exif_key("mk_olympus_focusinfo_0", 0x1600));
+    ASSERT_EQ(ids.size(), 1U);
+    const Entry& e = store.entry(ids[0]);
+    EXPECT_TRUE(any(e.flags, EntryFlags::ContextualName));
+    EXPECT_EQ(e.origin.name_context_kind,
+              EntryNameContextKind::OlympusFocusInfo1600);
+    EXPECT_EQ(e.origin.name_context_variant, 2U);
+    EXPECT_EQ(exif_entry_name(store, e, ExifTagNamePolicy::Canonical),
+              std::string_view("ImageStabilization"));
+    EXPECT_EQ(exif_entry_name(store, e, ExifTagNamePolicy::ExifToolCompat),
+              std::string_view("Olympus_FocusInfo_0x1600"));
+}
+
+
+TEST(MakerNoteDecode,
+     MarksOlympusFocusInfo1600SemanticWhenNoSeparateImageStabilizationExists)
+{
+    const std::vector<std::byte> mn
+        = make_olympus_makernote_omsystem_focusinfo_name_context(false);
+    const std::vector<std::byte> tiff = make_test_tiff_with_makernote("OMDS",
+                                                                      mn);
+
+    MetaStore store;
+    std::array<ExifIfdRef, 32> ifds {};
+    ExifDecodeOptions options;
+    options.decode_makernote   = true;
+    const ExifDecodeResult res = decode_exif_tiff(tiff, store, ifds, options);
+    EXPECT_EQ(res.status, ExifDecodeStatus::Ok);
+
+    store.finalize();
+    const std::span<const EntryId> ids = store.find_all(
+        exif_key("mk_olympus_focusinfo_0", 0x1600));
+    ASSERT_EQ(ids.size(), 1U);
+    const Entry& e = store.entry(ids[0]);
+    EXPECT_TRUE(any(e.flags, EntryFlags::ContextualName));
+    EXPECT_EQ(e.origin.name_context_kind,
+              EntryNameContextKind::OlympusFocusInfo1600);
+    EXPECT_EQ(e.origin.name_context_variant, 1U);
+    EXPECT_EQ(exif_entry_name(store, e, ExifTagNamePolicy::Canonical),
+              std::string_view("ImageStabilization"));
+    EXPECT_EQ(exif_entry_name(store, e, ExifTagNamePolicy::ExifToolCompat),
+              std::string_view("ImageStabilization"));
 }
 
 TEST(MakerNoteDecode, DecodesPanasonicBinarySubDirs)

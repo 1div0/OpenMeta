@@ -608,6 +608,10 @@ Internal helper conventions (used by vendor decoders):
 - `MakerNoteLayout` + `OffsetPolicy`: makes "value offsets are relative to X" explicit for vendor formats. `OffsetPolicy` supports both the common unsigned base (default) and a signed base for vendors that require it (eg Canon).
 - `ExifContext`: a small, decode-time cache for frequently accessed EXIF values (avoids repeated linear scans of `store.entries()`).
 - MakerNote tag-name tables are generated from `registry/exif/makernotes/*.jsonl` and looked up via binary search (`exif_makernote_tag_names.cc`).
+- Canonical EXIF names stay context-free via `exif_tag_name(...)`. When corpus
+  compatibility requires a decode-time alias split, stamp the variant on the
+  `Entry` provenance and resolve it only on explicit display surfaces through
+  `exif_entry_name(..., ExifTagNamePolicy::ExifToolCompat)`.
 - GeoTIFF key-name table is generated from `registry/geotiff/keys.jsonl` and looked up via binary search (`geotiff_key_names.cc`).
 
 ## Tests (GoogleTest)

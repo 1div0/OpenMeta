@@ -31,6 +31,12 @@ enum class WireFamily : uint8_t {
     Other,
 };
 
+/// Decode-time contextual-name selector for compatibility/display surfaces.
+enum class EntryNameContextKind : uint8_t {
+    None,
+    OlympusFocusInfo1600,
+};
+
 /// Wire-format element type + family (e.g. TIFF type code).
 struct WireType final {
     WireFamily family = WireFamily::None;
@@ -45,6 +51,8 @@ struct Origin final {
     uint32_t wire_count = 0;
     /// Optional wire type name (for formats with named types, e.g. OpenEXR custom attrs).
     ByteSpan wire_type_name;
+    EntryNameContextKind name_context_kind = EntryNameContextKind::None;
+    uint8_t name_context_variant           = 0;
 };
 
 /**

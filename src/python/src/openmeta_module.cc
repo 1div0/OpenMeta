@@ -4010,11 +4010,9 @@ NB_MODULE(_openmeta, m)
                      [](const PyEntry& e) -> nb::object {
                          const Entry& en = e.doc->store.entry(e.id);
                          if (en.key.kind == MetaKeyKind::ExifTag) {
-                             const std::string ifd
-                                 = arena_string(e.doc->store.arena(),
-                                                en.key.data.exif_tag.ifd);
-                             const std::string_view n
-                                 = exif_tag_name(ifd, en.key.data.exif_tag.tag);
+                             const std::string_view n = exif_entry_name(
+                                 e.doc->store, en,
+                                 ExifTagNamePolicy::ExifToolCompat);
                              if (n.empty()) {
                                  return nb::none();
                              }

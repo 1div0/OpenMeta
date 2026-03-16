@@ -293,6 +293,47 @@ namespace {
     }
 
 
+    static bool store_has_exif_tag(const MetaStore& store, std::string_view ifd,
+                                   uint16_t tag) noexcept
+    {
+        const ByteArena& arena               = store.arena();
+        const std::span<const Entry> entries = store.entries();
+        for (size_t i = 0; i < entries.size(); ++i) {
+            const Entry& e = entries[i];
+            if (e.key.kind != MetaKeyKind::ExifTag) {
+                continue;
+            }
+            if (e.key.data.exif_tag.tag != tag) {
+                continue;
+            }
+            if (arena_string(arena, e.key.data.exif_tag.ifd) == ifd) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+
+    static void maybe_mark_contextual_name(std::string_view ifd_name,
+                                           uint16_t tag, const MetaStore& store,
+                                           Entry* entry) noexcept
+    {
+        if (!entry) {
+            return;
+        }
+        if (ifd_name == "mk_olympus_focusinfo_0" && tag == 0x1600u) {
+            entry->flags |= EntryFlags::ContextualName;
+            entry->origin.name_context_kind
+                = EntryNameContextKind::OlympusFocusInfo1600;
+            entry->origin.name_context_variant
+                = store_has_exif_tag(store, "mk_olympus_camerasettings_0",
+                                     0x0604u)
+                      ? 2U
+                      : 1U;
+        }
+    }
+
+
     static std::string_view find_first_exif_ascii_value(const MetaStore& store,
                                                         std::string_view ifd,
                                                         uint16_t tag) noexcept
@@ -1138,6 +1179,7 @@ namespace {
             }
 
             entry.flags |= extra_flags;
+            maybe_mark_contextual_name(ifd_name, tag, store, &entry);
 
             (void)store.add_entry(entry);
             if (status_out) {
@@ -2997,6 +3039,7 @@ decode_exif_tiff(std::span<const std::byte> tiff_bytes, MetaStore& store,
                 continue;
             }
 
+            maybe_mark_contextual_name(ifd_name, tag, store, &entry);
             (void)store.add_entry(entry);
             sink.result.entries_decoded += 1;
 

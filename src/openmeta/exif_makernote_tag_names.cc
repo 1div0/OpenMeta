@@ -245,14 +245,26 @@ namespace {
 
     static bool olympus_focusinfo_prefers_placeholder(uint16_t tag) noexcept
     {
-        return tag == 0x1600u || tag == 0x2100u;
+        return tag == 0x2100u;
     }
 
 
     static bool olympus_fetags_prefers_cross_table_name(uint16_t tag) noexcept
     {
-        return tag == 0x020Au || tag == 0x0306u || tag == 0x030Au
-               || tag == 0x0311u || tag == 0x1204u;
+        return tag == 0x0311u || tag == 0x1204u;
+    }
+
+
+    static bool olympus_camerasettings_prefers_placeholder(uint16_t tag) noexcept
+    {
+        return tag == 0x030Au || tag == 0x030Bu || tag == 0x0821u;
+    }
+
+
+    static bool
+    olympus_imageprocessing_prefers_placeholder(uint16_t tag) noexcept
+    {
+        return tag == 0x2110u;
     }
 
 
@@ -375,8 +387,19 @@ makernote_tag_name(std::string_view ifd, uint16_t tag) noexcept
             && olympus_main_prefers_placeholder(tag)) {
             return synthesize_olympus_placeholder_name(parts.subtable, tag);
         }
+        if (vendor_key == "olympus" && parts.subtable == "unknowninfo") {
+            return synthesize_olympus_placeholder_name(parts.subtable, tag);
+        }
         if (vendor_key == "olympus" && parts.subtable == "focusinfo"
             && olympus_focusinfo_prefers_placeholder(tag)) {
+            return synthesize_olympus_placeholder_name(parts.subtable, tag);
+        }
+        if (vendor_key == "olympus" && parts.subtable == "camerasettings"
+            && olympus_camerasettings_prefers_placeholder(tag)) {
+            return synthesize_olympus_placeholder_name(parts.subtable, tag);
+        }
+        if (vendor_key == "olympus" && parts.subtable == "imageprocessing"
+            && olympus_imageprocessing_prefers_placeholder(tag)) {
             return synthesize_olympus_placeholder_name(parts.subtable, tag);
         }
         return name;

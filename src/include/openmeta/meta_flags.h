@@ -22,6 +22,8 @@ enum class EntryFlags : uint8_t {
     Truncated = 1U << 3U,
     /// Value payload could not be read from the underlying container.
     Unreadable = 1U << 4U,
+    /// Entry name has a decode-time contextual display variant.
+    ContextualName = 1U << 5U,
 };
 
 constexpr EntryFlags

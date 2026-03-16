@@ -1,4 +1,5 @@
 #include "openmeta/exif_tag_names.h"
+#include "openmeta/meta_store.h"
 
 #include <cstdint>
 
@@ -7,6 +8,14 @@ std::string_view
 makernote_tag_name(std::string_view ifd, uint16_t tag) noexcept;
 
 namespace {
+
+    static std::string_view arena_string(const ByteArena& arena,
+                                         ByteSpan span) noexcept
+    {
+        const std::span<const std::byte> bytes = arena.span(span);
+        return std::string_view(reinterpret_cast<const char*>(bytes.data()),
+                                bytes.size());
+    }
 
     enum class ExifIfdGroup : uint8_t {
         TiffIfd,
@@ -48,8 +57,7 @@ namespace {
 #include "exif_standard_tag_names_generated.inc"
 
     static std::string_view find_tag_name(const StandardTagNameEntry* entries,
-                                          uint32_t count,
-                                          uint16_t tag) noexcept
+                                          uint32_t count, uint16_t tag) noexcept
     {
         if (!entries || count == 0) {
             return {};
@@ -118,6 +126,28 @@ namespace {
                              tag);
     }
 
+
+    static std::string_view
+    contextual_exif_entry_name(const Entry& entry, ExifTagNamePolicy policy,
+                               std::string_view canonical) noexcept
+    {
+        if (policy != ExifTagNamePolicy::ExifToolCompat
+            || !any(entry.flags, EntryFlags::ContextualName)) {
+            return canonical;
+        }
+
+        switch (entry.origin.name_context_kind) {
+        case EntryNameContextKind::None: return canonical;
+        case EntryNameContextKind::OlympusFocusInfo1600:
+            switch (entry.origin.name_context_variant) {
+            case 1: return "ImageStabilization";
+            case 2: return "Olympus_FocusInfo_0x1600";
+            default: return canonical;
+            }
+        }
+        return canonical;
+    }
+
 }  // namespace
 
 std::string_view
@@ -152,6 +182,22 @@ exif_tag_name(std::string_view ifd, uint16_t tag) noexcept
     case ExifIfdGroup::Unknown: return {};
     }
     return {};
+}
+
+
+std::string_view
+exif_entry_name(const MetaStore& store, const Entry& entry,
+                ExifTagNamePolicy policy) noexcept
+{
+    if (entry.key.kind != MetaKeyKind::ExifTag) {
+        return {};
+    }
+
+    const std::string_view ifd = arena_string(store.arena(),
+                                              entry.key.data.exif_tag.ifd);
+    const std::string_view canonical
+        = exif_tag_name(ifd, entry.key.data.exif_tag.tag);
+    return contextual_exif_entry_name(entry, policy, canonical);
 }
 
 }  // namespace openmeta
