@@ -27,8 +27,8 @@
 {"kind":"exif.tag","ifd":"makernote:olympus:camerasettings","tag":"0x0307","name":"AFFineTuneAdj"}
 {"kind":"exif.tag","ifd":"makernote:olympus:camerasettings","tag":"0x0308","name":"FocusBracketStepSize"}
 {"kind":"exif.tag","ifd":"makernote:olympus:camerasettings","tag":"0x0309","name":"AISubjectTrackingMode"}
-{"kind":"exif.tag","ifd":"makernote:olympus:camerasettings","tag":"0x030a","name":"Olympus_CameraSettings_0x030a"}
-{"kind":"exif.tag","ifd":"makernote:olympus:camerasettings","tag":"0x030b","name":"Olympus_CameraSettings_0x030b"}
+{"kind":"exif.tag","ifd":"makernote:olympus:camerasettings","tag":"0x030a","name":"AFTargetInfo"}
+{"kind":"exif.tag","ifd":"makernote:olympus:camerasettings","tag":"0x030b","name":"SubjectDetectInfo"}
 {"kind":"exif.tag","ifd":"makernote:olympus:camerasettings","tag":"0x030c","name":"Olympus_CameraSettings_0x030c"}
 {"kind":"exif.tag","ifd":"makernote:olympus:camerasettings","tag":"0x030d","name":"Olympus_CameraSettings_0x030d"}
 {"kind":"exif.tag","ifd":"makernote:olympus:camerasettings","tag":"0x030e","name":"Olympus_CameraSettings_0x030e"}
@@ -95,7 +95,7 @@
 {"kind":"exif.tag","ifd":"makernote:olympus:camerasettings","tag":"0x0804","name":"StackedImage"}
 {"kind":"exif.tag","ifd":"makernote:olympus:camerasettings","tag":"0x0810","name":"Olympus_CameraSettings_0x0810"}
 {"kind":"exif.tag","ifd":"makernote:olympus:camerasettings","tag":"0x0811","name":"Olympus_CameraSettings_0x0811"}
-{"kind":"exif.tag","ifd":"makernote:olympus:camerasettings","tag":"0x0821","name":"Olympus_CameraSettings_0x0821"}
+{"kind":"exif.tag","ifd":"makernote:olympus:camerasettings","tag":"0x0821","name":"ISOAutoSettings"}
 {"kind":"exif.tag","ifd":"makernote:olympus:camerasettings","tag":"0x0900","name":"ManometerPressure"}
 {"kind":"exif.tag","ifd":"makernote:olympus:camerasettings","tag":"0x0901","name":"ManometerReading"}
 {"kind":"exif.tag","ifd":"makernote:olympus:camerasettings","tag":"0x0902","name":"ExtendedWBDetect"}
@@ -514,7 +514,7 @@
 {"kind":"exif.tag","ifd":"makernote:olympus:focusinfo","tag":"0x2007","name":"Olympus_FocusInfo_0x2007"}
 {"kind":"exif.tag","ifd":"makernote:olympus:focusinfo","tag":"0x2010","name":"Olympus_FocusInfo_0x2010"}
 {"kind":"exif.tag","ifd":"makernote:olympus:focusinfo","tag":"0x2011","name":"Olympus_FocusInfo_0x2011"}
-{"kind":"exif.tag","ifd":"makernote:olympus:focusinfo","tag":"0x2100","name":"Olympus_FocusInfo_0x2100"}
+{"kind":"exif.tag","ifd":"makernote:olympus:focusinfo","tag":"0x2100","name":"AntiShockWaitingTime"}
 {"kind":"exif.tag","ifd":"makernote:olympus:focusinfo","tag":"0x0328","name":"Olympus_FocusInfo_0x0328"}
 {"kind":"exif.tag","ifd":"makernote:olympus:focusinfo","tag":"0x0403","name":"Olympus_FocusInfo_0x0403"}
 {"kind":"exif.tag","ifd":"makernote:olympus:imageprocessing","tag":"0x0000","name":"ImageProcessingVersion"}
@@ -776,7 +776,7 @@
 {"kind":"exif.tag","ifd":"makernote:olympus:imageprocessing","tag":"0x2106","name":"Olympus_ImageProcessing_0x2106"}
 {"kind":"exif.tag","ifd":"makernote:olympus:imageprocessing","tag":"0x2107","name":"Olympus_ImageProcessing_0x2107"}
 {"kind":"exif.tag","ifd":"makernote:olympus:imageprocessing","tag":"0x2108","name":"Olympus_ImageProcessing_0x2108"}
-{"kind":"exif.tag","ifd":"makernote:olympus:imageprocessing","tag":"0x2110","name":"Olympus_ImageProcessing_0x2110"}
+{"kind":"exif.tag","ifd":"makernote:olympus:imageprocessing","tag":"0x2110","name":"GNDFilterType"}
 {"kind":"exif.tag","ifd":"makernote:olympus:imageprocessing","tag":"0x0123","name":"Olympus_ImageProcessing_0x0123"}
 {"kind":"exif.tag","ifd":"makernote:olympus:imageprocessing","tag":"0x0201","name":"Olympus_ImageProcessing_0x0201"}
 {"kind":"exif.tag","ifd":"makernote:olympus:imageprocessing","tag":"0x0202","name":"Olympus_ImageProcessing_0x0202"}

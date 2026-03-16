@@ -182,6 +182,80 @@ namespace {
     }
 
 
+    static std::string_view
+    synthesize_olympus_placeholder_name(std::string_view subtable,
+                                        uint16_t tag) noexcept
+    {
+        std::string_view prefix;
+        if (subtable.empty() || subtable == "main") {
+            prefix = "Olympus_0x";
+        } else if (subtable == "camerasettings") {
+            prefix = "Olympus_CameraSettings_0x";
+        } else if (subtable == "fetags") {
+            prefix = "Olympus_FETags_0x";
+        } else if (subtable == "focusinfo") {
+            prefix = "Olympus_FocusInfo_0x";
+        } else if (subtable == "imageprocessing") {
+            prefix = "Olympus_ImageProcessing_0x";
+        } else if (subtable == "rawdevelopment") {
+            prefix = "Olympus_RawDevelopment_0x";
+        } else if (subtable == "rawdevelopment2") {
+            prefix = "Olympus_RawDevelopment2_0x";
+        } else if (subtable == "rawinfo") {
+            prefix = "Olympus_RawInfo_0x";
+        } else if (subtable == "unknowninfo") {
+            prefix = "Olympus_UnknownInfo_0x";
+        } else {
+            return {};
+        }
+
+        static thread_local char buf[48];
+        static constexpr char kHex[] = "0123456789ABCDEF";
+        if (prefix.size() + 4 >= sizeof(buf)) {
+            return {};
+        }
+
+        for (size_t i = 0; i < prefix.size(); ++i) {
+            buf[i] = prefix[i];
+        }
+        buf[prefix.size() + 0] = kHex[(tag >> 12) & 0xF];
+        buf[prefix.size() + 1] = kHex[(tag >> 8) & 0xF];
+        buf[prefix.size() + 2] = kHex[(tag >> 4) & 0xF];
+        buf[prefix.size() + 3] = kHex[(tag >> 0) & 0xF];
+        buf[prefix.size() + 4] = '\0';
+        return std::string_view(buf, prefix.size() + 4);
+    }
+
+
+    static bool
+    olympus_subtable_prefers_placeholder(std::string_view subtable) noexcept
+    {
+        return subtable == "camerasettings" || subtable == "fetags"
+               || subtable == "focusinfo" || subtable == "imageprocessing"
+               || subtable == "rawdevelopment" || subtable == "rawdevelopment2"
+               || subtable == "rawinfo" || subtable == "unknowninfo";
+    }
+
+
+    static bool olympus_main_prefers_placeholder(uint16_t tag) noexcept
+    {
+        return tag == 0x0400u || tag == 0x0401u;
+    }
+
+
+    static bool olympus_focusinfo_prefers_placeholder(uint16_t tag) noexcept
+    {
+        return tag == 0x1600u || tag == 0x2100u;
+    }
+
+
+    static bool olympus_fetags_prefers_cross_table_name(uint16_t tag) noexcept
+    {
+        return tag == 0x020Au || tag == 0x0306u || tag == 0x030Au
+               || tag == 0x0311u || tag == 0x1204u;
+    }
+
+
     static std::string_view find_tag_name_by_key_prefix(std::string_view prefix,
                                                         uint16_t tag) noexcept
     {
@@ -296,6 +370,15 @@ makernote_tag_name(std::string_view ifd, uint16_t tag) noexcept
     }
     std::string_view name = find_tag_name(table->entries, table->count, tag);
     if (!name.empty()) {
+        if (vendor_key == "olympus"
+            && (parts.subtable.empty() || parts.subtable == "main")
+            && olympus_main_prefers_placeholder(tag)) {
+            return synthesize_olympus_placeholder_name(parts.subtable, tag);
+        }
+        if (vendor_key == "olympus" && parts.subtable == "focusinfo"
+            && olympus_focusinfo_prefers_placeholder(tag)) {
+            return synthesize_olympus_placeholder_name(parts.subtable, tag);
+        }
         return name;
     }
 
@@ -356,15 +439,46 @@ makernote_tag_name(std::string_view ifd, uint16_t tag) noexcept
         }
     }
 
+    if (vendor_key == "olympus" && parts.subtable == "fetags"
+        && olympus_fetags_prefers_cross_table_name(tag)) {
+        static constexpr std::string_view kOlympusFeFallbacks[] = {
+            "camerasettings", "focusinfo", "imageprocessing",
+            "rawinfo",        "equipment", "main",
+        };
+        name = find_name_in_candidate_tables(vendor_key, tag,
+                                             std::span<const std::string_view>(
+                                                 kOlympusFeFallbacks),
+                                             table_key_buf,
+                                             sizeof(table_key_buf));
+        if (!name.empty()) {
+            return name;
+        }
+    }
+
+    if (vendor_key == "olympus"
+        && olympus_subtable_prefers_placeholder(parts.subtable)) {
+        return synthesize_olympus_placeholder_name(parts.subtable, tag);
+    }
+
     // Some MakerNote subtables omit tags that still exist in the vendor's
     // main table. Fallback improves practical name coverage without changing
     // decode semantics.
     const MakerNoteTableMap* main_table
         = try_table(vendor_key, "main", table_key_buf, sizeof(table_key_buf));
     if (!main_table || main_table == table) {
+        if (vendor_key == "olympus") {
+            return synthesize_olympus_placeholder_name(parts.subtable, tag);
+        }
         return {};
     }
-    return find_tag_name(main_table->entries, main_table->count, tag);
+    name = find_tag_name(main_table->entries, main_table->count, tag);
+    if (!name.empty()) {
+        return name;
+    }
+    if (vendor_key == "olympus") {
+        return synthesize_olympus_placeholder_name(parts.subtable, tag);
+    }
+    return {};
 }
 
 }  // namespace openmeta

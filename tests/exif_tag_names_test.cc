@@ -51,3 +51,53 @@ TEST(ExifTagNames, MakerNoteSubtableFallsBackToVendorMain)
     EXPECT_EQ(exif_tag_name("mk_olympus_equipment0", 0x0040),
               std::string_view("CompressedImageSize"));
 }
+
+
+TEST(ExifTagNames, OlympusFeTagsFallBackToKnownOlympusSubtables)
+{
+    using openmeta::exif_tag_name;
+
+    EXPECT_EQ(exif_tag_name("mk_olympus_fetags_0", 0x0101),
+              std::string_view("Olympus_FETags_0x0101"));
+    EXPECT_EQ(exif_tag_name("mk_olympus_fetags_0", 0x0201),
+              std::string_view("Olympus_FETags_0x0201"));
+    EXPECT_EQ(exif_tag_name("mk_olympus_fetags_0", 0x020A),
+              std::string_view("MaxAperture"));
+    EXPECT_EQ(exif_tag_name("mk_olympus_fetags_0", 0x0306),
+              std::string_view("AFFineTune"));
+    EXPECT_EQ(exif_tag_name("mk_olympus_fetags_0", 0x030A),
+              std::string_view("AFTargetInfo"));
+    EXPECT_EQ(exif_tag_name("mk_olympus_fetags_0", 0x0311),
+              std::string_view("CoringValues"));
+    EXPECT_EQ(exif_tag_name("mk_olympus_fetags_0", 0x1204),
+              std::string_view("ExternalFlashBounce"));
+}
+
+
+TEST(ExifTagNames, OlympusMissingSubtableTagsUseStablePlaceholderNames)
+{
+    using openmeta::exif_tag_name;
+
+    EXPECT_EQ(exif_tag_name("mk_olympus_camerasettings_0", 0x0402),
+              std::string_view("Olympus_CameraSettings_0x0402"));
+    EXPECT_EQ(exif_tag_name("mk_olympus_focusinfo_0", 0x020B),
+              std::string_view("Olympus_FocusInfo_0x020B"));
+    EXPECT_EQ(exif_tag_name("mk_olympus_focusinfo_0", 0x0213),
+              std::string_view("Olympus_FocusInfo_0x0213"));
+    EXPECT_EQ(exif_tag_name("mk_olympus_focusinfo_0", 0x1600),
+              std::string_view("Olympus_FocusInfo_0x1600"));
+    EXPECT_EQ(exif_tag_name("mk_olympus_focusinfo_0", 0x2100),
+              std::string_view("Olympus_FocusInfo_0x2100"));
+    EXPECT_EQ(exif_tag_name("mk_olympus_imageprocessing_0", 0x1000),
+              std::string_view("Olympus_ImageProcessing_0x1000"));
+    EXPECT_EQ(exif_tag_name("mk_olympus_imageprocessing_0", 0x1115),
+              std::string_view("Olympus_ImageProcessing_0x1115"));
+    EXPECT_EQ(exif_tag_name("mk_olympus_rawdevelopment2_0", 0x0114),
+              std::string_view("Olympus_RawDevelopment2_0x0114"));
+    EXPECT_EQ(exif_tag_name("mk_olympus0", 0x0225),
+              std::string_view("Olympus_0x0225"));
+    EXPECT_EQ(exif_tag_name("mk_olympus0", 0x0400),
+              std::string_view("Olympus_0x0400"));
+    EXPECT_EQ(exif_tag_name("mk_olympus_unknowninfo_0", 0x2100),
+              std::string_view("Olympus_UnknownInfo_0x2100"));
+}
