@@ -144,6 +144,33 @@ namespace {
             case 2: return "Olympus_FocusInfo_0x1600";
             default: return canonical;
             }
+        case EntryNameContextKind::CanonMain0038:
+            switch (entry.origin.name_context_variant) {
+            case 1: return "Canon_0x0038";
+            default: return canonical;
+            }
+        case EntryNameContextKind::CanonCustomFunctions20103:
+            switch (entry.origin.name_context_variant) {
+            case 1: return "ISOExpansion";
+            case 2: return "ISOSpeedRange";
+            default: return canonical;
+            }
+        case EntryNameContextKind::CanonCustomFunctions2010C:
+            switch (entry.origin.name_context_variant) {
+            case 1: return "CanonCustom_Functions2_0x010c";
+            default: return canonical;
+            }
+        case EntryNameContextKind::CanonCustomFunctions20510:
+            switch (entry.origin.name_context_variant) {
+            case 1: return "SuperimposedDisplay";
+            default: return canonical;
+            }
+        case EntryNameContextKind::CanonCustomFunctions20701:
+            switch (entry.origin.name_context_variant) {
+            case 1: return "ShutterButtonAFOnButton";
+            case 2: return "AFAndMeteringButtons";
+            default: return canonical;
+            }
         }
         return canonical;
     }

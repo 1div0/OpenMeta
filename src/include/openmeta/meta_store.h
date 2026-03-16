@@ -35,6 +35,11 @@ enum class WireFamily : uint8_t {
 enum class EntryNameContextKind : uint8_t {
     None,
     OlympusFocusInfo1600,
+    CanonMain0038,
+    CanonCustomFunctions20103,
+    CanonCustomFunctions2010C,
+    CanonCustomFunctions20510,
+    CanonCustomFunctions20701,
 };
 
 /// Wire-format element type + family (e.g. TIFF type code).

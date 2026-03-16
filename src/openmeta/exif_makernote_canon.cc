@@ -40,6 +40,1003 @@ canon_looks_like_text(std::span<const std::byte> raw) noexcept
     return true;
 }
 
+static std::string_view
+canon_arena_string(const ByteArena& arena, ByteSpan span) noexcept
+{
+    const std::span<const std::byte> bytes = arena.span(span);
+    return std::string_view(reinterpret_cast<const char*>(bytes.data()),
+                            bytes.size());
+}
+
+static std::string_view
+canon_find_first_exif_ascii_value(const MetaStore& store, std::string_view ifd,
+                                  uint16_t tag) noexcept
+{
+    const ByteArena& arena               = store.arena();
+    const std::span<const Entry> entries = store.entries();
+
+    for (size_t i = 0; i < entries.size(); ++i) {
+        const Entry& e = entries[i];
+        if (e.key.kind != MetaKeyKind::ExifTag) {
+            continue;
+        }
+        if (e.key.data.exif_tag.tag != tag) {
+            continue;
+        }
+        if (canon_arena_string(arena, e.key.data.exif_tag.ifd) != ifd) {
+            continue;
+        }
+
+        if (e.value.kind == MetaValueKind::Text) {
+            return canon_arena_string(arena, e.value.data.span);
+        }
+        if (e.value.kind != MetaValueKind::Bytes) {
+            continue;
+        }
+
+        const std::span<const std::byte> raw = arena.span(e.value.data.span);
+        size_t n                             = 0;
+        while (n < raw.size() && raw[n] != std::byte { 0 }) {
+            n += 1;
+        }
+        while (n > 0 && raw[n - 1] == std::byte { ' ' }) {
+            n -= 1;
+        }
+        if (n == 0) {
+            continue;
+        }
+        return std::string_view(reinterpret_cast<const char*>(raw.data()), n);
+    }
+
+    return {};
+}
+
+static std::string_view
+canon_copy_string_view(std::string_view src, std::span<char> buf) noexcept
+{
+    if (src.empty() || buf.empty()) {
+        return {};
+    }
+
+    size_t n = src.size();
+    if (n >= buf.size()) {
+        n = buf.size() - 1U;
+    }
+    if (n != 0U) {
+        std::memcpy(buf.data(), src.data(), n);
+    }
+    buf[n] = '\0';
+    return std::string_view(buf.data(), n);
+}
+
+static std::string_view
+canon_find_model_text(const MetaStore& store, std::span<char> buf) noexcept
+{
+    const std::string_view stored_model
+        = canon_find_first_exif_ascii_value(store, "ifd0", 0x0110);
+    if (!stored_model.empty()) {
+        return canon_copy_string_view(stored_model, buf);
+    }
+
+    const std::string_view canon_image_type
+        = canon_find_first_exif_ascii_value(store, "mk_canon0", 0x0006);
+    return canon_copy_string_view(canon_image_type, buf);
+}
+
+static char
+canon_ascii_lower(char c) noexcept
+{
+    if (c >= 'A' && c <= 'Z') {
+        return static_cast<char>(c - 'A' + 'a');
+    }
+    return c;
+}
+
+static bool
+canon_ascii_contains_insensitive(std::string_view haystack,
+                                 std::string_view needle) noexcept
+{
+    if (needle.empty()) {
+        return true;
+    }
+    if (haystack.size() < needle.size()) {
+        return false;
+    }
+
+    const size_t last = haystack.size() - needle.size();
+    for (size_t i = 0; i <= last; ++i) {
+        bool matched = true;
+        for (size_t j = 0; j < needle.size(); ++j) {
+            if (canon_ascii_lower(haystack[i + j])
+                != canon_ascii_lower(needle[j])) {
+                matched = false;
+                break;
+            }
+        }
+        if (matched) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static bool
+canon_model_matches_any(std::string_view model,
+                        std::span<const std::string_view> needles) noexcept
+{
+    if (model.empty()) {
+        return false;
+    }
+    for (size_t i = 0; i < needles.size(); ++i) {
+        if (canon_ascii_contains_insensitive(model, needles[i])) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool
+canon_custom_functions2_0701_prefers_shutter_button(
+    std::string_view model) noexcept
+{
+    static constexpr std::string_view kCanonModels[] = {
+        "EOS 40D",        "EOS 50D",
+        "EOS 5D Mark II", "EOS-1D Mark III",
+        "EOS-1D Mark IV", "EOS-1Ds Mark III",
+        "EOS 450D",       "EOS 650D",
+        "EOS 700D",       "EOS 750D",
+        "EOS 760D",       "EOS 8000D",
+        "EOS 100D",       "EOS 1200D",
+        "EOS 1300D",      "EOS 2000D",
+        "EOS 4000D",      "EOS M",
+        "EOS M2",         "EOS Rebel SL1",
+        "EOS Rebel T4i",  "EOS Rebel T5",
+        "EOS Rebel T5i",  "EOS Rebel T6",
+        "EOS Rebel T6i",  "EOS Rebel T6s",
+        "EOS Rebel T7",   "EOS DIGITAL REBEL XSi",
+        "EOS Kiss X2",    "EOS Kiss X6i",
+        "EOS Kiss X7",    "EOS Kiss X7i",
+        "EOS Kiss X8i",   "EOS Kiss X70",
+        "EOS Kiss X90",
+    };
+    return canon_model_matches_any(model, kCanonModels);
+}
+
+static bool
+canon_custom_functions2_010c_prefers_placeholder(std::string_view model) noexcept
+{
+    static constexpr std::string_view kCanonModels[] = {
+        "EOS R10",         "EOS R7",   "EOS R8",         "EOS R1",
+        "EOS R5 Mark II",  "EOS R5m2", "EOS R6 Mark II", "EOS R6m2",
+        "EOS R6 Mark III", "EOS C50",  "PowerShot V10",
+    };
+    return canon_model_matches_any(model, kCanonModels);
+}
+
+static bool
+canon_custom_functions2_0701_prefers_af_and_metering(
+    std::string_view model) noexcept
+{
+    static constexpr std::string_view kCanonModels[] = {
+        "EOS 60D",
+    };
+    return canon_model_matches_any(model, kCanonModels);
+}
+
+static bool
+canon_custom_functions2_0510_prefers_superimposed_display(
+    std::string_view model) noexcept
+{
+    static constexpr std::string_view kCanonModels[] = {
+        "EOS 40D", "EOS 50D", "EOS 60D", "EOS 70D", "EOS 6D", "EOS 5D Mark II",
+    };
+    return canon_model_matches_any(model, kCanonModels);
+}
+
+static bool
+canon_camerainfo_prefers_psinfo(std::string_view model) noexcept
+{
+    static constexpr std::string_view kCanonModels[] = {
+        "EOS 50D",          "EOS 5D Mark II",
+        "EOS 1000D",        "EOS DIGITAL REBEL XS",
+        "EOS Kiss F",       "EOS-1D Mark III",
+        "EOS-1Ds Mark III",
+    };
+    return canon_model_matches_any(model, kCanonModels);
+}
+
+static bool
+canon_camerainfo_prefers_psinfo2(std::string_view model) noexcept
+{
+    static constexpr std::string_view kCanonModels[] = {
+        "EOS 60D",
+        "EOS 6D",
+        "EOS 5D Mark III",
+    };
+    return canon_model_matches_any(model, kCanonModels);
+}
+
+static std::string_view
+canon_camerainfo_subtable_suffix(std::string_view model,
+                                 uint32_t tag_extent) noexcept
+{
+    static constexpr std::string_view k1DxModels[] = {
+        "EOS-1D X",
+    };
+    static constexpr std::string_view k1DMarkIvModels[] = {
+        "EOS-1D Mark IV",
+    };
+    static constexpr std::string_view k1DMarkIiiModels[] = {
+        "EOS-1D Mark III",
+        "EOS-1Ds Mark III",
+    };
+    static constexpr std::string_view k1DMarkIInModels[] = {
+        "EOS-1D Mark II N",
+    };
+    static constexpr std::string_view k1DMarkIiModels[] = {
+        "EOS-1D Mark II",
+        "EOS-1Ds Mark II",
+    };
+    static constexpr std::string_view k1DModels[] = {
+        "EOS-1D",
+        "EOS-1DS",
+    };
+    static constexpr std::string_view kUnknownModels[] = {
+        "EOS 5DS", "EOS 5DS R", "EOS R1", "EOS R5m2", "EOS R5 Mark II",
+    };
+    static constexpr std::string_view k5DMarkIiiModels[] = {
+        "EOS 5D Mark III",
+    };
+    static constexpr std::string_view k5DMarkIiModels[] = {
+        "EOS 5D Mark II",
+    };
+    static constexpr std::string_view k5DModels[] = {
+        "EOS 5D",
+    };
+    static constexpr std::string_view k80DModels[] = {
+        "EOS 80D",
+    };
+    static constexpr std::string_view k750DModels[] = {
+        "EOS 750D",      "EOS 760D",     "EOS Rebel T6i",
+        "EOS Rebel T6s", "EOS Kiss X8i", "EOS 8000D",
+    };
+    static constexpr std::string_view k7DModels[] = {
+        "EOS 7D",
+    };
+    static constexpr std::string_view k70DModels[] = {
+        "EOS 70D",
+    };
+    static constexpr std::string_view k6DModels[] = {
+        "EOS 6D",
+    };
+    static constexpr std::string_view k650DModels[] = {
+        "EOS 650D",      "EOS 700D",      "EOS Rebel T4i",
+        "EOS Rebel T5i", "EOS Kiss X6i",  "EOS Kiss X7i",
+        "EOS 100D",      "EOS Rebel SL1", "EOS Kiss X7",
+    };
+    static constexpr std::string_view k1100DModels[] = {
+        "EOS 1100D",
+        "EOS Rebel T3",
+        "EOS Kiss X50",
+    };
+    static constexpr std::string_view k600DModels[] = {
+        "EOS 600D",     "EOS Rebel T3i", "EOS Kiss X5", "EOS 1200D",
+        "EOS Rebel T5", "EOS Kiss X70",  "EOS 1300D",   "EOS Rebel T6",
+        "EOS Kiss X80", "EOS 2000D",     "EOS 4000D",   "EOS Rebel T7",
+        "EOS Kiss X90",
+    };
+    static constexpr std::string_view k60DModels[] = {
+        "EOS 60D",
+    };
+    static constexpr std::string_view k550DModels[] = {
+        "EOS 550D",
+        "EOS Rebel T2i",
+        "EOS Kiss X4",
+    };
+    static constexpr std::string_view k500DModels[] = {
+        "EOS 500D",
+        "EOS Rebel T1i",
+        "EOS Kiss X3",
+    };
+    static constexpr std::string_view k50DModels[] = {
+        "EOS 50D",
+    };
+    static constexpr std::string_view k450DModels[] = {
+        "EOS 450D",
+        "EOS DIGITAL REBEL XSi",
+        "EOS Kiss X2",
+    };
+    static constexpr std::string_view k1000DModels[] = {
+        "EOS 1000D",
+        "EOS DIGITAL REBEL XS",
+        "EOS Kiss F",
+    };
+    static constexpr std::string_view k40DModels[] = {
+        "EOS 40D",
+    };
+    static constexpr std::string_view kG5XIiModels[] = {
+        "PowerShot G5 X Mark II",
+        "G5 X Mark II",
+    };
+    static constexpr std::string_view kUnknown32Models[] = {
+        "PowerShot S1 IS",
+        "PowerShot S1IS",
+    };
+    static constexpr std::string_view kCompactModels[] = {
+        "PowerShot",
+        "IXUS",
+        "IXY",
+    };
+
+    if (canon_model_matches_any(model, k1DxModels)) {
+        return "camerainfo1dx";
+    }
+    if (canon_model_matches_any(model, k1DMarkIvModels)) {
+        return "camerainfo1dmkiv";
+    }
+    if (canon_model_matches_any(model, k1DMarkIiiModels)) {
+        return "camerainfo1dmkiii";
+    }
+    if (canon_model_matches_any(model, k1DMarkIInModels)) {
+        return "camerainfo1dmkiin";
+    }
+    if (canon_model_matches_any(model, k1DMarkIiModels)) {
+        return "camerainfo1dmkii";
+    }
+    if (canon_model_matches_any(model, k1DModels)) {
+        return "camerainfo1d";
+    }
+    if (canon_model_matches_any(model, kUnknownModels)) {
+        return "camerainfounknown";
+    }
+    if (canon_model_matches_any(model, k5DMarkIiiModels)) {
+        return "camerainfo5dmkiii";
+    }
+    if (canon_model_matches_any(model, k5DMarkIiModels)) {
+        return "camerainfo5dmkii";
+    }
+    if (canon_model_matches_any(model, k5DModels)) {
+        return "camerainfo5d";
+    }
+    if (canon_model_matches_any(model, k80DModels)) {
+        return "camerainfo80d";
+    }
+    if (canon_model_matches_any(model, k750DModels)) {
+        return "camerainfo750d";
+    }
+    if (canon_model_matches_any(model, k7DModels)) {
+        return "camerainfo7d";
+    }
+    if (canon_model_matches_any(model, k70DModels)) {
+        return "camerainfo70d";
+    }
+    if (canon_model_matches_any(model, k6DModels)) {
+        return "camerainfo6d";
+    }
+    if (canon_ascii_contains_insensitive(model, "EOS Kiss X70")) {
+        return "camerainfo600d";
+    }
+    if (canon_model_matches_any(model, k650DModels)) {
+        return "camerainfo650d";
+    }
+    if (canon_model_matches_any(model, k1100DModels)) {
+        return "camerainfo1100d";
+    }
+    if (canon_model_matches_any(model, k600DModels)) {
+        return "camerainfo600d";
+    }
+    if (canon_model_matches_any(model, k60DModels)) {
+        return "camerainfo60d";
+    }
+    if (canon_model_matches_any(model, k550DModels)) {
+        return "camerainfo550d";
+    }
+    if (canon_model_matches_any(model, k500DModels)) {
+        return "camerainfo500d";
+    }
+    if (canon_model_matches_any(model, k50DModels)) {
+        return "camerainfo50d";
+    }
+    if (canon_model_matches_any(model, k450DModels)) {
+        return "camerainfo450d";
+    }
+    if (canon_model_matches_any(model, k1000DModels)) {
+        return "camerainfo1000d";
+    }
+    if (canon_model_matches_any(model, k40DModels)) {
+        return "camerainfo40d";
+    }
+    if (canon_model_matches_any(model, kG5XIiModels)) {
+        return "camerainfog5xii";
+    }
+    if (canon_model_matches_any(model, kUnknown32Models)) {
+        return "camerainfounknown32";
+    }
+    if (canon_model_matches_any(model, kCompactModels)) {
+        if (tag_extent >= 0x0099U) {
+            return "camerainfopowershot2";
+        }
+        if (tag_extent >= 0x0091U) {
+            return "camerainfopowershot";
+        }
+    }
+
+    return "camerainfo";
+}
+
+static uint32_t
+canon_camerainfo_candidate_tag_extent(const TiffConfig& cfg,
+                                      std::span<const std::byte> bytes,
+                                      const ClassicIfdCandidate& cand) noexcept
+{
+    if (cand.entry_count == 0) {
+        return 0U;
+    }
+
+    uint32_t max_tag               = 0U;
+    const uint64_t first_entry_off = cand.offset + 2U;
+    for (uint32_t i = 0; i < cand.entry_count; ++i) {
+        ClassicIfdEntry entry;
+        const uint64_t entry_off = first_entry_off + uint64_t(i) * 12ULL;
+        if (!read_classic_ifd_entry(cfg, bytes, entry_off, &entry)) {
+            break;
+        }
+        if (entry.tag > max_tag) {
+            max_tag = entry.tag;
+        }
+    }
+
+    return max_tag;
+}
+
+static bool
+canon_camerainfo_candidate_has_tag(const TiffConfig& cfg,
+                                   std::span<const std::byte> bytes,
+                                   const ClassicIfdCandidate& cand,
+                                   uint16_t wanted_tag) noexcept
+{
+    if (cand.entry_count == 0) {
+        return false;
+    }
+
+    const uint64_t first_entry_off = cand.offset + 2U;
+    for (uint32_t i = 0; i < cand.entry_count; ++i) {
+        ClassicIfdEntry entry;
+        const uint64_t entry_off = first_entry_off + uint64_t(i) * 12ULL;
+        if (!read_classic_ifd_entry(cfg, bytes, entry_off, &entry)) {
+            return false;
+        }
+        if (entry.tag == wanted_tag) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static std::string_view
+canon_camerainfo_subtable_suffix_from_candidate(
+    const TiffConfig& cfg, std::span<const std::byte> bytes,
+    const ClassicIfdCandidate& cand) noexcept
+{
+    if (canon_camerainfo_candidate_has_tag(cfg, bytes, cand, 0x01ACU)
+        || canon_camerainfo_candidate_has_tag(cfg, bytes, cand, 0x01EBU)) {
+        return "camerainfo7d";
+    }
+    if (canon_camerainfo_candidate_has_tag(cfg, bytes, cand, 0x045AU)
+        || canon_camerainfo_candidate_has_tag(cfg, bytes, cand, 0x04AEU)) {
+        return "camerainfo80d";
+    }
+    if (canon_camerainfo_candidate_has_tag(cfg, bytes, cand, 0x043DU)
+        || canon_camerainfo_candidate_has_tag(cfg, bytes, cand, 0x0449U)) {
+        return "camerainfo750d";
+    }
+    if (canon_camerainfo_candidate_has_tag(cfg, bytes, cand, 0x025EU)
+        || canon_camerainfo_candidate_has_tag(cfg, bytes, cand, 0x02BFU)) {
+        return "camerainfo70d";
+    }
+    if (canon_camerainfo_candidate_has_tag(cfg, bytes, cand, 0x0256U)
+        || canon_camerainfo_candidate_has_tag(cfg, bytes, cand, 0x02B6U)) {
+        return "camerainfo6d";
+    }
+    if (canon_camerainfo_candidate_has_tag(cfg, bytes, cand, 0x023CU)
+        || canon_camerainfo_candidate_has_tag(cfg, bytes, cand, 0x029CU)) {
+        return "camerainfo5dmkiii";
+    }
+    if (canon_camerainfo_candidate_has_tag(cfg, bytes, cand, 0x021BU)
+        || canon_camerainfo_candidate_has_tag(cfg, bytes, cand, 0x0220U)
+        || canon_camerainfo_candidate_has_tag(cfg, bytes, cand, 0x0280U)) {
+        return "camerainfo650d";
+    }
+    if (canon_camerainfo_candidate_has_tag(cfg, bytes, cand, 0x0199U)
+        || canon_camerainfo_candidate_has_tag(cfg, bytes, cand, 0x01E5U)) {
+        return "camerainfo600d";
+    }
+    if (canon_camerainfo_candidate_has_tag(cfg, bytes, cand, 0x0136U)
+        || canon_camerainfo_candidate_has_tag(cfg, bytes, cand, 0x017EU)) {
+        return "camerainfo1dmkiii";
+    }
+    if (canon_camerainfo_candidate_has_tag(cfg, bytes, cand, 0x010BU)
+        || canon_camerainfo_candidate_has_tag(cfg, bytes, cand, 0x0143U)) {
+        return "camerainfo1000d";
+    }
+
+    return {};
+}
+
+static bool
+canon_psinfo2_tail_looks_valid(const TiffConfig& cfg,
+                               std::span<const std::byte> bytes,
+                               uint64_t value_off,
+                               uint64_t value_bytes) noexcept
+{
+    if (value_bytes < 0x00f4U + 2U) {
+        return false;
+    }
+    if (value_off > bytes.size()) {
+        return false;
+    }
+    if (value_bytes > (bytes.size() - value_off)) {
+        return false;
+    }
+
+    static constexpr uint16_t kMaxPictureStyleId = 0x00ffU;
+    static constexpr uint16_t kStyleTags[]       = {
+        0x00f0U,
+        0x00f2U,
+        0x00f4U,
+    };
+
+    for (size_t i = 0; i < (sizeof(kStyleTags) / sizeof(kStyleTags[0])); ++i) {
+        uint16_t v = 0;
+        if (!read_tiff_u16(cfg, bytes, value_off + uint64_t(kStyleTags[i]),
+                           &v)) {
+            return false;
+        }
+        if (v > kMaxPictureStyleId) {
+            return false;
+        }
+    }
+    return true;
+}
+
+enum class CanonCameraInfoFieldKind : uint8_t {
+    U8,
+    U16,
+    U16Rev,
+    U16Array4,
+    U32Array4,
+    U32,
+    AsciiFixed,
+};
+
+struct CanonCameraInfoField final {
+    uint16_t tag;
+    CanonCameraInfoFieldKind kind;
+    uint8_t bytes;
+};
+
+static std::span<const CanonCameraInfoField>
+canon_camerainfo_extra_fields(std::string_view ifd_name) noexcept
+{
+    static constexpr CanonCameraInfoField k40d[] = {
+        { 0x0043, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x0045, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x00D6, CanonCameraInfoFieldKind::U16Rev, 2 },
+        { 0x00D8, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x00DA, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x00FF, CanonCameraInfoFieldKind::AsciiFixed, 6 },
+    };
+    static constexpr CanonCameraInfoField k450d[] = {
+        { 0x0043, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x0045, CanonCameraInfoFieldKind::U16, 2 },
+    };
+    static constexpr CanonCameraInfoField k1000d[] = {
+        { 0x0043, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x0045, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x00E2, CanonCameraInfoFieldKind::U16Rev, 2 },
+        { 0x00E4, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x00E6, CanonCameraInfoFieldKind::U16, 2 },
+    };
+    static constexpr CanonCameraInfoField k500d[] = {
+        { 0x0050, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x0052, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x0077, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x00AB, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x00BC, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x00BE, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x00F6, CanonCameraInfoFieldKind::U16Rev, 2 },
+        { 0x00F8, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x00FA, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x01DF, CanonCameraInfoFieldKind::U32, 4 },
+    };
+    static constexpr CanonCameraInfoField k50d[] = {
+        { 0x0050, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x0052, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x00A7, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x00BD, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x00BF, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x00EA, CanonCameraInfoFieldKind::U16Rev, 2 },
+        { 0x00EC, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x00EE, CanonCameraInfoFieldKind::U16, 2 },
+    };
+    static constexpr CanonCameraInfoField k550d[] = {
+        { 0x0054, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x0056, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x0078, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x007C, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x00B0, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x00FF, CanonCameraInfoFieldKind::U16Rev, 2 },
+        { 0x0101, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x0103, CanonCameraInfoFieldKind::U16, 2 },
+    };
+    static constexpr CanonCameraInfoField k600d[] = {
+        { 0x001E, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x003A, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x0057, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x0059, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x007B, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x007F, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x00B3, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x00EA, CanonCameraInfoFieldKind::U16Rev, 2 },
+        { 0x00EC, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x00EE, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x0199, CanonCameraInfoFieldKind::AsciiFixed, 6 },
+    };
+    static constexpr CanonCameraInfoField k1100d[] = {
+        { 0x001E, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x0038, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x0057, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x0059, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x007B, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x007F, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x00B3, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x00EA, CanonCameraInfoFieldKind::U16Rev, 2 },
+    };
+    static constexpr CanonCameraInfoField k650d[] = {
+        { 0x0023, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x007D, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x008C, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x008E, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x00BC, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x00C0, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x00F4, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x0127, CanonCameraInfoFieldKind::U16Rev, 2 },
+        { 0x0129, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x012B, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x021B, CanonCameraInfoFieldKind::AsciiFixed, 6 },
+        { 0x0220, CanonCameraInfoFieldKind::AsciiFixed, 6 },
+        { 0x0270, CanonCameraInfoFieldKind::U32, 4 },
+        { 0x0274, CanonCameraInfoFieldKind::U32, 4 },
+        { 0x027C, CanonCameraInfoFieldKind::U32, 4 },
+        { 0x0280, CanonCameraInfoFieldKind::U32, 4 },
+    };
+    static constexpr CanonCameraInfoField k60d[] = {
+        { 0x0055, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x0057, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x007D, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x00E8, CanonCameraInfoFieldKind::U16Rev, 2 },
+        { 0x00EA, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x00EC, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x01E5, CanonCameraInfoFieldKind::U32, 4 },
+    };
+    static constexpr CanonCameraInfoField k5dmkii[] = {
+        { 0x0050, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x0052, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x00A7, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x00BD, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x00BF, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x00E6, CanonCameraInfoFieldKind::U16Rev, 2 },
+        { 0x00E8, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x00EA, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x017E, CanonCameraInfoFieldKind::AsciiFixed, 6 },
+    };
+    static constexpr CanonCameraInfoField k5dmkiii[] = {
+        { 0x0023, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x007D, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x008C, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x008E, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x00BC, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x00C0, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x00F4, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x023C, CanonCameraInfoFieldKind::AsciiFixed, 6 },
+        { 0x028C, CanonCameraInfoFieldKind::U32, 4 },
+        { 0x0290, CanonCameraInfoFieldKind::U32, 4 },
+        { 0x0298, CanonCameraInfoFieldKind::U32, 4 },
+        { 0x029C, CanonCameraInfoFieldKind::U32, 4 },
+    };
+    static constexpr CanonCameraInfoField k6d[] = {
+        { 0x0023, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x0083, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x0092, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x0094, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x00C2, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x00C6, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x00FA, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x0161, CanonCameraInfoFieldKind::U16Rev, 2 },
+        { 0x0163, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x0165, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x0256, CanonCameraInfoFieldKind::AsciiFixed, 6 },
+        { 0x02AA, CanonCameraInfoFieldKind::U32, 4 },
+        { 0x02B6, CanonCameraInfoFieldKind::U32, 4 },
+    };
+    static constexpr CanonCameraInfoField k1dmkiii[] = {
+        { 0x0043, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x0045, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x005E, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x0062, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x0086, CanonCameraInfoFieldKind::U16, 2 },
+    };
+    static constexpr CanonCameraInfoField k1dmkii[] = {
+        { 0x0066, CanonCameraInfoFieldKind::U8, 1 },
+        { 0x0075, CanonCameraInfoFieldKind::AsciiFixed, 5 },
+    };
+    static constexpr CanonCameraInfoField k1dmkiin[] = {
+        { 0x0074, CanonCameraInfoFieldKind::U8, 1 },
+        { 0x0079, CanonCameraInfoFieldKind::AsciiFixed, 5 },
+    };
+    static constexpr CanonCameraInfoField k1dmkiv[] = {
+        { 0x0054, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x0056, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x0078, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x007C, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x022C, CanonCameraInfoFieldKind::U32, 4 },
+    };
+    static constexpr CanonCameraInfoField k7d[] = {
+        { 0x0056, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x007B, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x00AF, CanonCameraInfoFieldKind::U8, 1 },
+        { 0x00C9, CanonCameraInfoFieldKind::U8, 1 },
+    };
+    static constexpr CanonCameraInfoField k5d[] = {
+        { 0x000C, CanonCameraInfoFieldKind::U16Rev, 2 },
+        { 0x0017, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x0027, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x0028, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x0038, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x0054, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x0058, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x006C, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x0093, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x0095, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x0097, CanonCameraInfoFieldKind::U16Rev, 2 },
+        { 0x00A4, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x00AC, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x00CC, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x00D0, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x00E8, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x00E9, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x00EA, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x00EB, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x00EC, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x00ED, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x00EE, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x00EF, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x00F0, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x00F1, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x00F2, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x00F3, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x00F4, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x00F5, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x00F6, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x00F7, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x00F8, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x00F9, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x00FA, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x00FB, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x00FC, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x00FD, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x00FE, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x00FF, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x0100, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x0101, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x0102, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x0103, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x0104, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x0105, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x0106, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x0107, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x0108, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x0109, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x010A, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x010B, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x010C, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x010E, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x0110, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x011C, CanonCameraInfoFieldKind::U32, 4 },
+    };
+    static constexpr CanonCameraInfoField k1dx[] = {
+        { 0x0023, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x007D, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x008C, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x008E, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x00BC, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x00C0, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x00F4, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x01A7, CanonCameraInfoFieldKind::U16Rev, 2 },
+        { 0x01A9, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x01AB, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x0280, CanonCameraInfoFieldKind::AsciiFixed, 6 },
+        { 0x02D0, CanonCameraInfoFieldKind::U32, 4 },
+        { 0x02DC, CanonCameraInfoFieldKind::U32, 4 },
+    };
+    static constexpr CanonCameraInfoField k70d[] = {
+        { 0x0023, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x0084, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x0093, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x0095, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x00C7, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x0166, CanonCameraInfoFieldKind::U16Rev, 2 },
+        { 0x0168, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x016A, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x025E, CanonCameraInfoFieldKind::AsciiFixed, 6 },
+        { 0x02B3, CanonCameraInfoFieldKind::U32, 4 },
+        { 0x02BF, CanonCameraInfoFieldKind::U32, 4 },
+    };
+    static constexpr CanonCameraInfoField k750d[] = {
+        { 0x0023, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x0096, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x00A5, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x00A7, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x0131, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x0135, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x0169, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x0184, CanonCameraInfoFieldKind::U16Rev, 2 },
+        { 0x0186, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x0188, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x043D, CanonCameraInfoFieldKind::AsciiFixed, 6 },
+        { 0x0449, CanonCameraInfoFieldKind::AsciiFixed, 6 },
+    };
+    static constexpr CanonCameraInfoField k80d[] = {
+        { 0x0023, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x0096, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x00A5, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x00A7, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x013A, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x0189, CanonCameraInfoFieldKind::U16Rev, 2 },
+        { 0x018B, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x018D, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x045A, CanonCameraInfoFieldKind::AsciiFixed, 6 },
+        { 0x04AE, CanonCameraInfoFieldKind::U32, 4 },
+        { 0x04BA, CanonCameraInfoFieldKind::U32, 4 },
+    };
+
+    if (ifd_name.find("camerainfo1dx") != std::string_view::npos) {
+        return std::span<const CanonCameraInfoField>(k1dx);
+    }
+    if (ifd_name.find("camerainfo80d") != std::string_view::npos) {
+        return std::span<const CanonCameraInfoField>(k80d);
+    }
+    if (ifd_name.find("camerainfo750d") != std::string_view::npos) {
+        return std::span<const CanonCameraInfoField>(k750d);
+    }
+    if (ifd_name.find("camerainfo7d") != std::string_view::npos) {
+        return std::span<const CanonCameraInfoField>(k7d);
+    }
+    if (ifd_name.find("camerainfo70d") != std::string_view::npos) {
+        return std::span<const CanonCameraInfoField>(k70d);
+    }
+    if (ifd_name.find("camerainfo6d") != std::string_view::npos) {
+        return std::span<const CanonCameraInfoField>(k6d);
+    }
+    if (ifd_name.find("camerainfo5dmkiii") != std::string_view::npos) {
+        return std::span<const CanonCameraInfoField>(k5dmkiii);
+    }
+    if (ifd_name.find("camerainfo5dmkii") != std::string_view::npos) {
+        return std::span<const CanonCameraInfoField>(k5dmkii);
+    }
+    if (ifd_name.find("camerainfo5d") != std::string_view::npos) {
+        return std::span<const CanonCameraInfoField>(k5d);
+    }
+    if (ifd_name.find("camerainfo1dmkiv") != std::string_view::npos) {
+        return std::span<const CanonCameraInfoField>(k1dmkiv);
+    }
+    if (ifd_name.find("camerainfo1dmkiii") != std::string_view::npos
+        || ifd_name.find("camerainfo1dsmkiii") != std::string_view::npos) {
+        return std::span<const CanonCameraInfoField>(k1dmkiii);
+    }
+    if (ifd_name.find("camerainfo1dmkiin") != std::string_view::npos) {
+        return std::span<const CanonCameraInfoField>(k1dmkiin);
+    }
+    if (ifd_name.find("camerainfo1dmkii") != std::string_view::npos) {
+        return std::span<const CanonCameraInfoField>(k1dmkii);
+    }
+    if (ifd_name.find("camerainfo60d") != std::string_view::npos) {
+        return std::span<const CanonCameraInfoField>(k60d);
+    }
+    if (ifd_name.find("camerainfo650d") != std::string_view::npos) {
+        return std::span<const CanonCameraInfoField>(k650d);
+    }
+    if (ifd_name.find("camerainfo1100d") != std::string_view::npos) {
+        return std::span<const CanonCameraInfoField>(k1100d);
+    }
+    if (ifd_name.find("camerainfo600d") != std::string_view::npos) {
+        return std::span<const CanonCameraInfoField>(k600d);
+    }
+    if (ifd_name.find("camerainfo550d") != std::string_view::npos) {
+        return std::span<const CanonCameraInfoField>(k550d);
+    }
+    if (ifd_name.find("camerainfo50d") != std::string_view::npos) {
+        return std::span<const CanonCameraInfoField>(k50d);
+    }
+    if (ifd_name.find("camerainfo500d") != std::string_view::npos) {
+        return std::span<const CanonCameraInfoField>(k500d);
+    }
+    if (ifd_name.find("camerainfo1000d") != std::string_view::npos) {
+        return std::span<const CanonCameraInfoField>(k1000d);
+    }
+    if (ifd_name.find("camerainfo450d") != std::string_view::npos) {
+        return std::span<const CanonCameraInfoField>(k450d);
+    }
+    if (ifd_name.find("camerainfo40d") != std::string_view::npos) {
+        return std::span<const CanonCameraInfoField>(k40d);
+    }
+    return {};
+}
+
+static uint32_t
+canon_colordata_family(uint32_t count, int16_t version) noexcept
+{
+    switch (count) {
+    case 582: return 1;
+    case 653: return 2;
+    case 796: return 3;
+    case 674:
+    case 692:
+    case 702:
+    case 1227:
+    case 1250:
+    case 1251:
+    case 1337:
+    case 1338:
+    case 1346: return 4;
+    case 5120: return 5;
+    case 1273:
+    case 1275: return 6;
+    case 1312:
+    case 1313:
+    case 1316:
+    case 1506: return 7;
+    case 1353:
+    case 1560:
+    case 1592:
+    case 1602: return 8;
+    case 1816:
+    case 1820:
+    case 1824: return 9;
+    case 2024:
+    case 3656: return 10;
+    case 3973: return 11;
+    case 3778: return (version == 65) ? 12U : 11U;
+    case 4528: return 12;
+    default: return 0;
+    }
+}
+
+static bool
+canon_colordata_family_name(uint32_t family, std::string_view* out) noexcept
+{
+    if (!out) {
+        return false;
+    }
+    switch (family) {
+    case 1: *out = "colordata1"; return true;
+    case 2: *out = "colordata2"; return true;
+    case 3: *out = "colordata3"; return true;
+    case 4: *out = "colordata4"; return true;
+    case 5: *out = "colordata5"; return true;
+    case 6: *out = "colordata6"; return true;
+    case 7: *out = "colordata7"; return true;
+    case 8: *out = "colordata8"; return true;
+    case 9: *out = "colordata9"; return true;
+    case 10: *out = "colordata10"; return true;
+    case 11: *out = "colordata11"; return true;
+    case 12: *out = "colordata12"; return true;
+    default: return false;
+    }
+}
+
 static bool
 canon_add_base_and_off32(int64_t base, uint32_t off32,
                          uint64_t* abs_off_out) noexcept
@@ -89,7 +1086,8 @@ canon_should_emit_unknown_table_tags(std::string_view ifd_name) noexcept
            || ifd_name.find("mk_canon_shotinfo_") == 0
            || ifd_name.find("mk_canon_fileinfo_") == 0
            || ifd_name.find("mk_canon_afinfo_") == 0
-           || ifd_name.find("mk_canon_filterinfo_") == 0;
+           || ifd_name.find("mk_canon_filterinfo_") == 0
+           || ifd_name.find("mk_canon_colordata") == 0;
 }
 
 
@@ -330,317 +1328,307 @@ decode_canon_camerainfo_fixed_fields(const TiffConfig& cfg,
         return;
     }
 
-    enum class FieldKind : uint8_t {
-        U8,
-        U16,
-        U16Rev,
-        U16Array4,
-        U32Array4,
-        U32,
-        AsciiFixed,
-    };
-
-    struct Field final {
-        uint16_t tag;
-        FieldKind kind;
-        uint8_t bytes;
-    };
-
     // ExifTool exposes CanonCameraInfo fixed-layout fields with tag ids equal
     // to byte offsets within the blob.
-    static constexpr Field kFields[] = {
-        { 0x0018, FieldKind::U16Array4, 8 },  // WB_RGGBLevelsAuto
-        { 0x0022, FieldKind::U16Array4, 8 },  // WB_RGGBLevelsAsShot
-        { 0x0026, FieldKind::U16, 2 },        // ColorTempAsShot
-        { 0x0027, FieldKind::U16Array4, 8 },  // WB_RGGBLevelsDaylight
-        { 0x002b, FieldKind::U16, 2 },        // ColorTempDaylight
-        { 0x002c, FieldKind::U16Array4, 8 },  // WB_RGGBLevelsShade
-        { 0x002d, FieldKind::U8, 1 },         // FocalType
-        { 0x0031, FieldKind::U16Array4, 8 },  // WB_RGGBLevelsCloudy
-        { 0x0035, FieldKind::U16, 2 },        // ColorTempCloudy
-        { 0x0036, FieldKind::U16Array4, 8 },  // WB_RGGBLevelsTungsten
-        { 0x0037, FieldKind::U16, 2 },        // ColorTemperature
-        { 0x0039, FieldKind::U8, 1 },         // CanonImageSize
-        { 0x003a, FieldKind::U16, 2 },        // ColorTempTungsten
-        { 0x003b, FieldKind::U16Array4, 8 },  // WB_RGGBLevelsFluorescent
-        { 0x0045, FieldKind::U16Array4, 8 },  // WB_RGGBLevelsFlash
-        { 0x004a, FieldKind::U16Array4, 8 },  // WB_RGGBLevelsUnknown2
-        { 0x004f, FieldKind::U16Array4, 8 },  // WB_RGGBLevelsUnknown3
-        { 0x0059, FieldKind::U16Array4, 8 },  // WB_RGGBLevelsUnknown5
-        { 0x005e, FieldKind::U16Array4, 8 },  // WB_RGGBLevelsUnknown6
-        { 0x0063, FieldKind::U16Array4, 8 },  // WB_RGGBLevelsUnknown7
-        { 0x006d, FieldKind::U16Array4, 8 },  // WB_RGGBLevelsUnknown9
-        { 0x006e, FieldKind::U8, 1 },         // Saturation
-        { 0x0072, FieldKind::U8, 1 },         // Sharpness
-        { 0x0077, FieldKind::U16Array4, 8 },  // WB_RGGBLevelsUnknown11
-        { 0x0081, FieldKind::U16Array4, 8 },  // WB_RGGBLevelsUnknown13
-        { 0x0086, FieldKind::U16Array4, 8 },  // WB_RGGBLevelsUnknown14
-        { 0x008b, FieldKind::U16Array4, 8 },  // WB_RGGBLevelsUnknown15
-        { 0x009a, FieldKind::U16Array4, 8 },  // WB_RGGBLevelsPC3
-        { 0x009f, FieldKind::U16Array4, 8 },  // WB_RGGBLevelsUnknown16
-
-        { 0x0041, FieldKind::U8, 1 },   // SharpnessFrequency
-        { 0x0042, FieldKind::U8, 1 },   // Sharpness
-        { 0x0044, FieldKind::U8, 1 },   // WhiteBalance (older)
-        { 0x0048, FieldKind::U16, 2 },  // ColorTemperature (older)
-        { 0x004B, FieldKind::U8, 1 },   // PictureStyle (older)
-
-        { 0x0047, FieldKind::U8, 1 },   // SharpnessFrequency (alt)
-        { 0x004A, FieldKind::U8, 1 },   // WhiteBalance (alt)
-        { 0x004E, FieldKind::U16, 2 },  // ColorTemperature (alt)
-        { 0x0051, FieldKind::U8, 1 },   // PictureStyle (alt)
-
-        { 0x006F, FieldKind::U16, 2 },     // WhiteBalance (450D/...)
-        { 0x0073, FieldKind::U16, 2 },     // ColorTemperature (450D/...)
-        { 0x00DE, FieldKind::U16Rev, 2 },  // LensType (450D/...)
-        { 0x00A5, FieldKind::U16, 2 },     // FocusDistanceUpper
-
-        { 0x0095, FieldKind::AsciiFixed, 64 },  // LensModel (string[64])
-
-        { 0x0107, FieldKind::AsciiFixed, 6 },   // FirmwareVersion (450D/...)
-        { 0x010a, FieldKind::U8, 1 },           // ColorToneUserDef2
-        { 0x010B, FieldKind::AsciiFixed, 6 },   // FirmwareVersion (1000D/...)
-        { 0x010c, FieldKind::U8, 1 },           // UserDef1PictureStyle
-        { 0x010F, FieldKind::AsciiFixed, 32 },  // OwnerName (450D/...)
-        { 0x0110, FieldKind::U8, 1 },           // UserDef3PictureStyle
-        { 0x0133, FieldKind::U32, 4 },          // DirectoryIndex (450D/...)
-        { 0x0136, FieldKind::AsciiFixed,
-          6 },                          // FirmwareVersion (1D Mark III/...)
-        { 0x0137, FieldKind::U32, 4 },  // DirectoryIndex (1000D/...)
-        { 0x013a, FieldKind::U16, 2 },  // ColorTemperature
-        { 0x013F, FieldKind::U32, 4 },  // FileIndex (450D/...)
-        { 0x0143, FieldKind::U32, 4 },  // FileIndex (1000D/...)
-
-        { 0x0111, FieldKind::U16Rev, 2 },  // LensType (1D Mark III/...)
-        { 0x0113, FieldKind::U16, 2 },     // MinFocalLength (1D Mark III/...)
-        { 0x0115, FieldKind::U16, 2 },     // MaxFocalLength (1D Mark III/...)
-        { 0x0112, FieldKind::U16Rev, 2 },  // LensType (7D/...)
-        { 0x0114, FieldKind::U16, 2 },     // MinFocalLength (7D/...)
-        { 0x0116, FieldKind::U16, 2 },     // MaxFocalLength (7D/...)
-
-        { 0x0127, FieldKind::U16Rev, 2 },  // LensType (650D/...)
-        { 0x0129, FieldKind::U16, 2 },     // MinFocalLength (650D/...)
-        { 0x012B, FieldKind::U16, 2 },     // MaxFocalLength (650D/...)
-
-        { 0x0131, FieldKind::U16, 2 },     // WhiteBalance (750D/...)
-        { 0x0135, FieldKind::U16, 2 },     // ColorTemperature (750D/...)
-        { 0x0169, FieldKind::U8, 1 },      // PictureStyle (750D/...)
-        { 0x0184, FieldKind::U16Rev, 2 },  // LensType (750D/...)
-        { 0x0186, FieldKind::U16, 2 },     // MinFocalLength (750D/...)
-        { 0x0188, FieldKind::U16, 2 },     // MaxFocalLength (750D/...)
-
-        { 0x0190, FieldKind::AsciiFixed, 6 },  // FirmwareVersion (50D/...)
-        { 0x0199, FieldKind::AsciiFixed,
-          6 },  // FirmwareVersion (60D fw variants)
-        { 0x019B, FieldKind::AsciiFixed, 6 },  // FirmwareVersion (60D/...)
-        { 0x01A4, FieldKind::AsciiFixed, 6 },  // FirmwareVersion (500D/...)
-
-        { 0x01D3, FieldKind::U32, 4 },         // FileIndex (50D/...)
-        { 0x01D9, FieldKind::U32, 4 },         // FileIndex (60D/...)
-        { 0x01DB, FieldKind::U32, 4 },         // FileIndex (60D/...)
-        { 0x01E4, FieldKind::U32, 4 },         // FileIndex (500D/...)
-        { 0x01E7, FieldKind::U32, 4 },         // DirectoryIndex (60D/...)
-        { 0x01ED, FieldKind::AsciiFixed, 6 },  // FirmwareVersion (var)
-        { 0x01F0, FieldKind::U32, 4 },         // DirectoryIndex (500D/...)
-        { 0x01F7, FieldKind::U32, 4 },         // DirectoryIndex (var)
-
-        { 0x0201, FieldKind::U32, 4 },  // SoftFocusFilter (int32u[1])
-
-        { 0x021B, FieldKind::AsciiFixed, 6 },  // FirmwareVersion (var)
-        { 0x0220, FieldKind::AsciiFixed, 6 },  // FirmwareVersion (var)
-        { 0x0238, FieldKind::U32, 4 },         // DirectoryIndex (var)
-        { 0x023C, FieldKind::AsciiFixed, 6 },  // FirmwareVersion (var)
-        { 0x0256, FieldKind::AsciiFixed, 6 },  // FirmwareVersion (var)
-        { 0x025E, FieldKind::AsciiFixed, 6 },  // FirmwareVersion (var)
-
-        { 0x016B, FieldKind::AsciiFixed, 16 },  // LensSerialNumber
-        { 0x014f, FieldKind::U16Rev, 2 },       // LensType
-        { 0x0151, FieldKind::U16, 2 },          // MinFocalLength
-        { 0x0153, FieldKind::U16Rev, 2 },       // LensType
-        { 0x0155, FieldKind::U16, 2 },          // MinFocalLength
-        { 0x0157, FieldKind::U16, 2 },          // MaxFocalLength
-        { 0x015e, FieldKind::AsciiFixed, 6 },   // FirmwareVersion
-        { 0x0164, FieldKind::AsciiFixed, 16 },  // LensSerialNumber
-        { 0x0161, FieldKind::U16Rev, 2 },       // LensType
-        { 0x0163, FieldKind::U16, 2 },          // MinFocalLength
-        { 0x0165, FieldKind::U16, 2 },          // MaxFocalLength
-        { 0x0166, FieldKind::U16Rev, 2 },       // LensType
-        { 0x0168, FieldKind::U16, 2 },          // MinFocalLength
-        { 0x016a, FieldKind::U16, 2 },          // MaxFocalLength
-        { 0x0172, FieldKind::U32, 4 },          // FileIndex (var)
-        { 0x0176, FieldKind::U32, 4 },          // ShutterCount (var)
-        { 0x017E, FieldKind::U32, 4 },          // DirectoryIndex (var)
-
-        { 0x045E, FieldKind::AsciiFixed, 20 },  // TimeStamp
-        { 0x045A, FieldKind::AsciiFixed, 6 },   // FirmwareVersion (var)
-        { 0x04AE, FieldKind::U32, 4 },          // FileIndex (var)
-        { 0x04BA, FieldKind::U32, 4 },          // DirectoryIndex (var)
-        { 0x05C1, FieldKind::AsciiFixed, 6 },   // FirmwareVersion (var)
-
-        { 0x043D, FieldKind::AsciiFixed, 6 },  // FirmwareVersion (750D/760D)
-        { 0x0449, FieldKind::AsciiFixed, 6 },  // FirmwareVersion (750D/760D)
-
-        { 0x0270, FieldKind::U32, 4 },         // FileIndex (var)
-        { 0x0274, FieldKind::U32, 4 },         // FileIndex (var)
-        { 0x027C, FieldKind::U32, 4 },         // DirectoryIndex (var)
-        { 0x028C, FieldKind::U32, 4 },         // FileIndex (var)
-        { 0x0290, FieldKind::U32, 4 },         // FileIndex2 (var)
-        { 0x0293, FieldKind::U32, 4 },         // ShutterCount (var)
-        { 0x0298, FieldKind::U32, 4 },         // DirectoryIndex (var)
-        { 0x029C, FieldKind::U32, 4 },         // DirectoryIndex2 (var)
-        { 0x01A7, FieldKind::U16Rev, 2 },      // LensType
-        { 0x01A9, FieldKind::U16, 2 },         // MinFocalLength
-        { 0x01AB, FieldKind::U16, 2 },         // MaxFocalLength
-        { 0x0189, FieldKind::U16Rev, 2 },      // LensType
-        { 0x018B, FieldKind::U16, 2 },         // MinFocalLength
-        { 0x018D, FieldKind::U16, 2 },         // MaxFocalLength
-        { 0x01AC, FieldKind::AsciiFixed, 6 },  // FirmwareVersion (var)
-        { 0x01BB, FieldKind::U32, 4 },         // FileIndex (var)
-        { 0x01C7, FieldKind::U32, 4 },         // DirectoryIndex (var)
-        { 0x01EB, FieldKind::U32, 4 },         // FileIndex (var)
-        { 0x02AA, FieldKind::U32, 4 },         // FileIndex (var)
-        { 0x02B6, FieldKind::U32, 4 },         // DirectoryIndex (var)
-        { 0x02B3, FieldKind::U32, 4 },         // FileIndex (var)
-        { 0x02BF, FieldKind::U32, 4 },         // DirectoryIndex (var)
-
-        { 0x0933, FieldKind::AsciiFixed, 64 },  // LensModel (string[64])
-        { 0x0937, FieldKind::AsciiFixed, 64 },  // LensModel (string[64])
-        { 0x092B, FieldKind::AsciiFixed, 64 },  // LensModel (string[64])
-
-        { 0x0AF1, FieldKind::U32, 4 },  // ShutterCount (var)
-        { 0x0B21, FieldKind::U32, 4 },  // DirectoryIndex (var)
-        { 0x0B2D, FieldKind::U32, 4 },  // FileIndex (var)
-
-        { 0x026a, FieldKind::U32Array4, 16 },  // RawMeasuredRGGB
+    static constexpr CanonCameraInfoField kFields[] = {
+        { 0x0018, CanonCameraInfoFieldKind::U16Array4, 8 },  // WB_RGGBLevelsAuto
+        { 0x0022, CanonCameraInfoFieldKind::U16Array4,
+          8 },                                         // WB_RGGBLevelsAsShot
+        { 0x0026, CanonCameraInfoFieldKind::U16, 2 },  // ColorTempAsShot
+        { 0x0027, CanonCameraInfoFieldKind::U16Array4,
+          8 },                                         // WB_RGGBLevelsDaylight
+        { 0x002b, CanonCameraInfoFieldKind::U16, 2 },  // ColorTempDaylight
+        { 0x002c, CanonCameraInfoFieldKind::U16Array4,
+          8 },                                        // WB_RGGBLevelsShade
+        { 0x002d, CanonCameraInfoFieldKind::U8, 1 },  // FocalType
+        { 0x0031, CanonCameraInfoFieldKind::U16Array4,
+          8 },                                         // WB_RGGBLevelsCloudy
+        { 0x0035, CanonCameraInfoFieldKind::U16, 2 },  // ColorTempCloudy
+        { 0x0036, CanonCameraInfoFieldKind::U16Array4,
+          8 },                                         // WB_RGGBLevelsTungsten
+        { 0x0037, CanonCameraInfoFieldKind::U16, 2 },  // ColorTemperature
+        { 0x0039, CanonCameraInfoFieldKind::U8, 1 },   // CanonImageSize
+        { 0x003a, CanonCameraInfoFieldKind::U16, 2 },  // ColorTempTungsten
+        { 0x003b, CanonCameraInfoFieldKind::U16Array4,
+          8 },  // WB_RGGBLevelsFluorescent
+        { 0x0045, CanonCameraInfoFieldKind::U16Array4,
+          8 },  // WB_RGGBLevelsFlash
+        { 0x004a, CanonCameraInfoFieldKind::U16Array4,
+          8 },  // WB_RGGBLevelsUnknown2
+        { 0x004f, CanonCameraInfoFieldKind::U16Array4,
+          8 },  // WB_RGGBLevelsUnknown3
+        { 0x0059, CanonCameraInfoFieldKind::U16Array4,
+          8 },  // WB_RGGBLevelsUnknown5
+        { 0x005e, CanonCameraInfoFieldKind::U16Array4,
+          8 },  // WB_RGGBLevelsUnknown6
+        { 0x0063, CanonCameraInfoFieldKind::U16Array4,
+          8 },  // WB_RGGBLevelsUnknown7
+        { 0x006d, CanonCameraInfoFieldKind::U16Array4,
+          8 },                                        // WB_RGGBLevelsUnknown9
+        { 0x006e, CanonCameraInfoFieldKind::U8, 1 },  // Saturation
+        { 0x0072, CanonCameraInfoFieldKind::U8, 1 },  // Sharpness
+        { 0x0077, CanonCameraInfoFieldKind::U16Array4,
+          8 },  // WB_RGGBLevelsUnknown11
+        { 0x0081, CanonCameraInfoFieldKind::U16Array4,
+          8 },  // WB_RGGBLevelsUnknown13
+        { 0x0086, CanonCameraInfoFieldKind::U16Array4,
+          8 },  // WB_RGGBLevelsUnknown14
+        { 0x008b, CanonCameraInfoFieldKind::U16Array4,
+          8 },  // WB_RGGBLevelsUnknown15
+        { 0x009a, CanonCameraInfoFieldKind::U16Array4, 8 },  // WB_RGGBLevelsPC3
+        { 0x009f, CanonCameraInfoFieldKind::U16Array4,
+          8 },  // WB_RGGBLevelsUnknown16
+        { 0x0041, CanonCameraInfoFieldKind::U8, 1 },
+        { 0x0042, CanonCameraInfoFieldKind::U8, 1 },
+        { 0x0044, CanonCameraInfoFieldKind::U8, 1 },
+        { 0x0048, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x004B, CanonCameraInfoFieldKind::U8, 1 },
+        { 0x0047, CanonCameraInfoFieldKind::U8, 1 },
+        { 0x004A, CanonCameraInfoFieldKind::U8, 1 },
+        { 0x004E, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x0051, CanonCameraInfoFieldKind::U8, 1 },
+        { 0x006F, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x0073, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x00DE, CanonCameraInfoFieldKind::U16Rev, 2 },
+        { 0x00A5, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x0095, CanonCameraInfoFieldKind::AsciiFixed, 64 },
+        { 0x0107, CanonCameraInfoFieldKind::AsciiFixed, 6 },
+        { 0x010a, CanonCameraInfoFieldKind::U8, 1 },
+        { 0x010B, CanonCameraInfoFieldKind::AsciiFixed, 6 },
+        { 0x010c, CanonCameraInfoFieldKind::U8, 1 },
+        { 0x010F, CanonCameraInfoFieldKind::AsciiFixed, 32 },
+        { 0x0110, CanonCameraInfoFieldKind::U8, 1 },
+        { 0x0133, CanonCameraInfoFieldKind::U32, 4 },
+        { 0x0136, CanonCameraInfoFieldKind::AsciiFixed, 6 },
+        { 0x0137, CanonCameraInfoFieldKind::U32, 4 },
+        { 0x013a, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x013F, CanonCameraInfoFieldKind::U32, 4 },
+        { 0x0143, CanonCameraInfoFieldKind::U32, 4 },
+        { 0x0111, CanonCameraInfoFieldKind::U16Rev, 2 },
+        { 0x0113, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x0115, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x0112, CanonCameraInfoFieldKind::U16Rev, 2 },
+        { 0x0114, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x0116, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x0127, CanonCameraInfoFieldKind::U16Rev, 2 },
+        { 0x0129, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x012B, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x0131, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x0135, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x0169, CanonCameraInfoFieldKind::U8, 1 },
+        { 0x0184, CanonCameraInfoFieldKind::U16Rev, 2 },
+        { 0x0186, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x0188, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x0190, CanonCameraInfoFieldKind::AsciiFixed, 6 },
+        { 0x0199, CanonCameraInfoFieldKind::AsciiFixed, 6 },
+        { 0x019B, CanonCameraInfoFieldKind::AsciiFixed, 6 },
+        { 0x01A4, CanonCameraInfoFieldKind::AsciiFixed, 6 },
+        { 0x01D3, CanonCameraInfoFieldKind::U32, 4 },
+        { 0x01D9, CanonCameraInfoFieldKind::U32, 4 },
+        { 0x01DB, CanonCameraInfoFieldKind::U32, 4 },
+        { 0x01E4, CanonCameraInfoFieldKind::U32, 4 },
+        { 0x01E7, CanonCameraInfoFieldKind::U32, 4 },
+        { 0x01ED, CanonCameraInfoFieldKind::AsciiFixed, 6 },
+        { 0x01F0, CanonCameraInfoFieldKind::U32, 4 },
+        { 0x01F7, CanonCameraInfoFieldKind::U32, 4 },
+        { 0x0201, CanonCameraInfoFieldKind::U32, 4 },
+        { 0x021B, CanonCameraInfoFieldKind::AsciiFixed, 6 },
+        { 0x0220, CanonCameraInfoFieldKind::AsciiFixed, 6 },
+        { 0x0238, CanonCameraInfoFieldKind::U32, 4 },
+        { 0x023C, CanonCameraInfoFieldKind::AsciiFixed, 6 },
+        { 0x0256, CanonCameraInfoFieldKind::AsciiFixed, 6 },
+        { 0x025E, CanonCameraInfoFieldKind::AsciiFixed, 6 },
+        { 0x016B, CanonCameraInfoFieldKind::AsciiFixed, 16 },
+        { 0x014f, CanonCameraInfoFieldKind::U16Rev, 2 },
+        { 0x0151, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x0153, CanonCameraInfoFieldKind::U16Rev, 2 },
+        { 0x0155, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x0157, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x015e, CanonCameraInfoFieldKind::AsciiFixed, 6 },
+        { 0x0164, CanonCameraInfoFieldKind::AsciiFixed, 16 },
+        { 0x0161, CanonCameraInfoFieldKind::U16Rev, 2 },
+        { 0x0163, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x0165, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x0166, CanonCameraInfoFieldKind::U16Rev, 2 },
+        { 0x0168, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x016a, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x0172, CanonCameraInfoFieldKind::U32, 4 },
+        { 0x0176, CanonCameraInfoFieldKind::U32, 4 },
+        { 0x017E, CanonCameraInfoFieldKind::U32, 4 },
+        { 0x045E, CanonCameraInfoFieldKind::AsciiFixed, 20 },
+        { 0x045A, CanonCameraInfoFieldKind::AsciiFixed, 6 },
+        { 0x04AE, CanonCameraInfoFieldKind::U32, 4 },
+        { 0x04BA, CanonCameraInfoFieldKind::U32, 4 },
+        { 0x05C1, CanonCameraInfoFieldKind::AsciiFixed, 6 },
+        { 0x043D, CanonCameraInfoFieldKind::AsciiFixed, 6 },
+        { 0x0449, CanonCameraInfoFieldKind::AsciiFixed, 6 },
+        { 0x0270, CanonCameraInfoFieldKind::U32, 4 },
+        { 0x0274, CanonCameraInfoFieldKind::U32, 4 },
+        { 0x027C, CanonCameraInfoFieldKind::U32, 4 },
+        { 0x028C, CanonCameraInfoFieldKind::U32, 4 },
+        { 0x0290, CanonCameraInfoFieldKind::U32, 4 },
+        { 0x0293, CanonCameraInfoFieldKind::U32, 4 },
+        { 0x0298, CanonCameraInfoFieldKind::U32, 4 },
+        { 0x029C, CanonCameraInfoFieldKind::U32, 4 },
+        { 0x01A7, CanonCameraInfoFieldKind::U16Rev, 2 },
+        { 0x01A9, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x01AB, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x0189, CanonCameraInfoFieldKind::U16Rev, 2 },
+        { 0x018B, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x018D, CanonCameraInfoFieldKind::U16, 2 },
+        { 0x01AC, CanonCameraInfoFieldKind::AsciiFixed, 6 },
+        { 0x01BB, CanonCameraInfoFieldKind::U32, 4 },
+        { 0x01C7, CanonCameraInfoFieldKind::U32, 4 },
+        { 0x01EB, CanonCameraInfoFieldKind::U32, 4 },
+        { 0x02AA, CanonCameraInfoFieldKind::U32, 4 },
+        { 0x02B6, CanonCameraInfoFieldKind::U32, 4 },
+        { 0x02B3, CanonCameraInfoFieldKind::U32, 4 },
+        { 0x02BF, CanonCameraInfoFieldKind::U32, 4 },
+        { 0x0933, CanonCameraInfoFieldKind::AsciiFixed, 64 },
+        { 0x0937, CanonCameraInfoFieldKind::AsciiFixed, 64 },
+        { 0x092B, CanonCameraInfoFieldKind::AsciiFixed, 64 },
+        { 0x0AF1, CanonCameraInfoFieldKind::U32, 4 },
+        { 0x0B21, CanonCameraInfoFieldKind::U32, 4 },
+        { 0x0B2D, CanonCameraInfoFieldKind::U32, 4 },
+        { 0x026a, CanonCameraInfoFieldKind::U32Array4, 16 },
     };
 
-    uint32_t order = 0;
-    for (size_t fi = 0; fi < sizeof(kFields) / sizeof(kFields[0]); ++fi) {
-        const Field f = kFields[fi];
-        if (uint64_t(f.tag) + f.bytes > value_bytes) {
-            continue;
-        }
+    uint32_t order                                           = 0;
+    const std::span<const CanonCameraInfoField> field_sets[] = {
+        std::span<const CanonCameraInfoField>(kFields),
+        canon_camerainfo_extra_fields(ifd_name),
+    };
 
-        if (status_out
-            && (status_out->entries_decoded + 1U)
-                   > options.limits.max_total_entries) {
-            update_status(status_out, ExifDecodeStatus::LimitExceeded);
-            return;
-        }
-
-        Entry e;
-        e.key          = make_exif_tag_key(store.arena(), ifd_name, f.tag);
-        e.origin.block = block;
-        e.origin.order_in_block = order++;
-        e.flags |= EntryFlags::Derived;
-
-        switch (f.kind) {
-        case FieldKind::U8: {
-            e.origin.wire_type  = WireType { WireFamily::Tiff, 1 };
-            e.origin.wire_count = 1;
-            e.value             = make_u8(u8(cam[f.tag]));
-            break;
-        }
-        case FieldKind::U16: {
-            uint16_t v    = 0;
-            const bool ok = cfg.le ? read_u16le(cam, f.tag, &v)
-                                   : read_u16be(cam, f.tag, &v);
-            if (!ok) {
+    for (size_t set_i = 0; set_i < (sizeof(field_sets) / sizeof(field_sets[0]));
+         ++set_i) {
+        const std::span<const CanonCameraInfoField> fields = field_sets[set_i];
+        for (size_t fi = 0; fi < fields.size(); ++fi) {
+            const CanonCameraInfoField f = fields[fi];
+            if (uint64_t(f.tag) + f.bytes > value_bytes) {
                 continue;
             }
-            e.origin.wire_type  = WireType { WireFamily::Tiff, 3 };
-            e.origin.wire_count = 1;
-            e.value             = make_u16(v);
-            break;
-        }
-        case FieldKind::U16Rev: {
-            uint16_t v    = 0;
-            const bool ok = cfg.le ? read_u16be(cam, f.tag, &v)
-                                   : read_u16le(cam, f.tag, &v);
-            if (!ok) {
-                continue;
+
+            if (status_out
+                && (status_out->entries_decoded + 1U)
+                       > options.limits.max_total_entries) {
+                update_status(status_out, ExifDecodeStatus::LimitExceeded);
+                return;
             }
-            e.origin.wire_type  = WireType { WireFamily::Tiff, 3 };
-            e.origin.wire_count = 1;
-            e.value             = make_u16(v);
-            break;
-        }
-        case FieldKind::U16Array4: {
-            uint16_t v[4] = {};
-            bool ok       = true;
-            for (uint32_t i = 0; i < 4; ++i) {
-                const uint64_t off = uint64_t(f.tag) + uint64_t(i) * 2ULL;
-                uint16_t t         = 0;
-                if (!(cfg.le ? read_u16le(cam, off, &t)
-                             : read_u16be(cam, off, &t))) {
-                    ok = false;
-                    break;
+
+            Entry e;
+            e.key          = make_exif_tag_key(store.arena(), ifd_name, f.tag);
+            e.origin.block = block;
+            e.origin.order_in_block = order++;
+            e.flags |= EntryFlags::Derived;
+
+            switch (f.kind) {
+            case CanonCameraInfoFieldKind::U8: {
+                e.origin.wire_type  = WireType { WireFamily::Tiff, 1 };
+                e.origin.wire_count = 1;
+                e.value             = make_u8(u8(cam[f.tag]));
+                break;
+            }
+            case CanonCameraInfoFieldKind::U16: {
+                uint16_t v    = 0;
+                const bool ok = cfg.le ? read_u16le(cam, f.tag, &v)
+                                       : read_u16be(cam, f.tag, &v);
+                if (!ok) {
+                    continue;
                 }
-                v[i] = t;
+                e.origin.wire_type  = WireType { WireFamily::Tiff, 3 };
+                e.origin.wire_count = 1;
+                e.value             = make_u16(v);
+                break;
             }
-            if (!ok) {
-                continue;
-            }
-            e.origin.wire_type  = WireType { WireFamily::Tiff, 3 };
-            e.origin.wire_count = 4;
-            e.value             = make_u16_array(store.arena(),
-                                                 std::span<const uint16_t>(v));
-            break;
-        }
-        case FieldKind::U32: {
-            uint32_t v    = 0;
-            const bool ok = cfg.le ? read_u32le(cam, f.tag, &v)
-                                   : read_u32be(cam, f.tag, &v);
-            if (!ok) {
-                continue;
-            }
-            e.origin.wire_type  = WireType { WireFamily::Tiff, 4 };
-            e.origin.wire_count = 1;
-            e.value             = make_u32(v);
-            break;
-        }
-        case FieldKind::U32Array4: {
-            uint32_t v[4] = {};
-            bool ok       = true;
-            for (uint32_t i = 0; i < 4; ++i) {
-                const uint64_t off = uint64_t(f.tag) + uint64_t(i) * 4ULL;
-                uint32_t t         = 0;
-                if (!(cfg.le ? read_u32le(cam, off, &t)
-                             : read_u32be(cam, off, &t))) {
-                    ok = false;
-                    break;
+            case CanonCameraInfoFieldKind::U16Rev: {
+                uint16_t v    = 0;
+                const bool ok = cfg.le ? read_u16be(cam, f.tag, &v)
+                                       : read_u16le(cam, f.tag, &v);
+                if (!ok) {
+                    continue;
                 }
-                v[i] = t;
+                e.origin.wire_type  = WireType { WireFamily::Tiff, 3 };
+                e.origin.wire_count = 1;
+                e.value             = make_u16(v);
+                break;
             }
-            if (!ok) {
-                continue;
-            }
-            e.origin.wire_type  = WireType { WireFamily::Tiff, 4 };
-            e.origin.wire_count = 4;
-            e.value             = make_u32_array(store.arena(),
-                                                 std::span<const uint32_t>(v));
-            break;
-        }
-        case FieldKind::AsciiFixed: {
-            const char* p = reinterpret_cast<const char*>(cam.data()
-                                                          + size_t(f.tag));
-            size_t n      = 0;
-            for (; n < f.bytes; ++n) {
-                if (p[n] == '\0') {
-                    break;
+            case CanonCameraInfoFieldKind::U16Array4: {
+                uint16_t v[4] = {};
+                bool ok       = true;
+                for (uint32_t i = 0; i < 4; ++i) {
+                    const uint64_t off = uint64_t(f.tag) + uint64_t(i) * 2ULL;
+                    uint16_t t         = 0;
+                    if (!(cfg.le ? read_u16le(cam, off, &t)
+                                 : read_u16be(cam, off, &t))) {
+                        ok = false;
+                        break;
+                    }
+                    v[i] = t;
                 }
+                if (!ok) {
+                    continue;
+                }
+                e.origin.wire_type  = WireType { WireFamily::Tiff, 3 };
+                e.origin.wire_count = 4;
+                e.value             = make_u16_array(store.arena(),
+                                                     std::span<const uint16_t>(v));
+                break;
             }
-            const std::string_view txt(p, n);
-            e.origin.wire_type  = WireType { WireFamily::Tiff, 2 };
-            e.origin.wire_count = f.bytes;
-            e.value = make_text(store.arena(), txt, TextEncoding::Ascii);
-            break;
-        }
-        }
+            case CanonCameraInfoFieldKind::U32: {
+                uint32_t v    = 0;
+                const bool ok = cfg.le ? read_u32le(cam, f.tag, &v)
+                                       : read_u32be(cam, f.tag, &v);
+                if (!ok) {
+                    continue;
+                }
+                e.origin.wire_type  = WireType { WireFamily::Tiff, 4 };
+                e.origin.wire_count = 1;
+                e.value             = make_u32(v);
+                break;
+            }
+            case CanonCameraInfoFieldKind::U32Array4: {
+                uint32_t v[4] = {};
+                bool ok       = true;
+                for (uint32_t i = 0; i < 4; ++i) {
+                    const uint64_t off = uint64_t(f.tag) + uint64_t(i) * 4ULL;
+                    uint32_t t         = 0;
+                    if (!(cfg.le ? read_u32le(cam, off, &t)
+                                 : read_u32be(cam, off, &t))) {
+                        ok = false;
+                        break;
+                    }
+                    v[i] = t;
+                }
+                if (!ok) {
+                    continue;
+                }
+                e.origin.wire_type  = WireType { WireFamily::Tiff, 4 };
+                e.origin.wire_count = 4;
+                e.value             = make_u32_array(store.arena(),
+                                                     std::span<const uint32_t>(v));
+                break;
+            }
+            case CanonCameraInfoFieldKind::AsciiFixed: {
+                const char* p = reinterpret_cast<const char*>(cam.data()
+                                                              + size_t(f.tag));
+                size_t n      = 0;
+                for (; n < f.bytes; ++n) {
+                    if (p[n] == '\0') {
+                        break;
+                    }
+                }
+                const std::string_view txt(p, n);
+                e.origin.wire_type  = WireType { WireFamily::Tiff, 2 };
+                e.origin.wire_count = f.bytes;
+                e.value = make_text(store.arena(), txt, TextEncoding::Ascii);
+                break;
+            }
+            }
 
-        (void)store.add_entry(e);
-        if (status_out) {
-            status_out->entries_decoded += 1;
+            (void)store.add_entry(e);
+            if (status_out) {
+                status_out->entries_decoded += 1;
+            }
         }
     }
 }
@@ -811,36 +1799,49 @@ decode_canon_u16_table(const TiffConfig& cfg, std::span<const std::byte> bytes,
 }
 
 static std::string_view
-canoncustom_subtable_for_tag_0x000f(std::string_view model) noexcept
+canoncustom_subtable_for_tag_0x000f(std::string_view model,
+                                    uint32_t count) noexcept
 {
-    if (model.find("EOS 5D") != std::string_view::npos) {
+    if (canon_ascii_contains_insensitive(model, "EOS 5D")) {
         return "functions5d";
     }
-    if (model.find("EOS 10D") != std::string_view::npos) {
+    if (canon_ascii_contains_insensitive(model, "EOS 10D")) {
         return "functions10d";
     }
-    if (model.find("EOS 20D") != std::string_view::npos) {
+    if (canon_ascii_contains_insensitive(model, "EOS 20D")) {
         return "functions20d";
     }
-    if (model.find("EOS 30D") != std::string_view::npos) {
+    if (canon_ascii_contains_insensitive(model, "EOS 30D")) {
         return "functions30d";
     }
-    if (model.find("350D") != std::string_view::npos
-        || model.find("REBEL XT") != std::string_view::npos
-        || model.find("Kiss Digital N") != std::string_view::npos) {
-        return "functions350d";
-    }
-    if (model.find("400D") != std::string_view::npos
-        || model.find("REBEL XTi") != std::string_view::npos
-        || model.find("Kiss Digital X") != std::string_view::npos
-        || model.find("K236") != std::string_view::npos) {
+    if (canon_ascii_contains_insensitive(model, "400D")
+        || canon_ascii_contains_insensitive(model, "REBEL XTi")
+        || canon_ascii_contains_insensitive(model, "Kiss Digital X")
+        || canon_ascii_contains_insensitive(model, "K236")) {
         return "functions400d";
     }
-    if (model.find("EOS D30") != std::string_view::npos) {
+    if (canon_ascii_contains_insensitive(model, "350D")
+        || canon_ascii_contains_insensitive(model, "REBEL XT")
+        || canon_ascii_contains_insensitive(model, "Kiss Digital N")) {
+        return "functions350d";
+    }
+    if (canon_ascii_contains_insensitive(model, "EOS D30")) {
         return "functionsd30";
     }
-    if (model.find("EOS D60") != std::string_view::npos) {
+    if (canon_ascii_contains_insensitive(model, "EOS D60")) {
         return "functionsd30";
+    }
+    switch (count) {
+    case 9: return "functions350d";
+    case 11: return "functions400d";
+    case 15: return "functionsd30";
+    case 16: return "functionsd30";
+    case 17: return "functions10d";
+    case 18: return "functions20d";
+    case 19: return "functions30d";
+    case 21: return "functions5d";
+    case 22: return "functions1d";
+    default: break;
     }
     return "functionsunknown";
 }
@@ -1005,12 +2006,16 @@ decode_canon_psinfo_table(std::span<const std::byte> bytes, uint64_t value_off,
         return;
     }
 
-    // psinfo: fixed-layout Canon picture style table (byte offsets).
+    // psinfo/psinfo2: fixed-layout Canon picture style tables (byte offsets).
     // Most fields are int32, with a few u16 fields near the end.
-    static constexpr uint16_t kUserDefTag1 = 0x00d8;
-    static constexpr uint16_t kUserDefTag2 = 0x00da;
-    static constexpr uint16_t kUserDefTag3 = 0x00dc;
-    static constexpr uint16_t kMaxTag      = 0x00dc;
+    const bool is_psinfo2       = ifd_name.find("mk_canon_psinfo2") == 0;
+    const uint16_t kUserDefTag1 = is_psinfo2 ? uint16_t(0x00f0)
+                                             : uint16_t(0x00d8);
+    const uint16_t kUserDefTag2 = is_psinfo2 ? uint16_t(0x00f2)
+                                             : uint16_t(0x00da);
+    const uint16_t kUserDefTag3 = is_psinfo2 ? uint16_t(0x00f4)
+                                             : uint16_t(0x00dc);
+    const uint16_t kMaxTag = is_psinfo2 ? uint16_t(0x00f4) : uint16_t(0x00dc);
 
     const BlockId block = store.add_block(BlockInfo {});
     if (block == kInvalidBlockId) {
@@ -1422,6 +2427,10 @@ decode_canon_custom_functions2(const TiffConfig& cfg,
         return true;
     }
 
+    char canon_model_buf[128];
+    std::memset(canon_model_buf, 0, sizeof(canon_model_buf));
+    const std::string_view canon_model
+        = canon_find_model_text(store, std::span<char>(canon_model_buf));
     const uint64_t end = value_off + value_bytes;
     uint64_t pos       = value_off + 8;
     uint32_t order     = 0;
@@ -1526,6 +2535,40 @@ decode_canon_custom_functions2(const TiffConfig& cfg,
             entry.origin.wire_type      = WireType { WireFamily::Other, 4 };
             entry.origin.wire_count     = num;
             entry.flags |= EntryFlags::Derived;
+            if (tag32 == 0x0103u) {
+                entry.flags |= EntryFlags::ContextualName;
+                entry.origin.name_context_kind
+                    = EntryNameContextKind::CanonCustomFunctions20103;
+                entry.origin.name_context_variant = (num > 1U) ? 2U : 1U;
+            } else if (tag32 == 0x010Cu && num > 1U && num != 3U
+                       && canon_custom_functions2_010c_prefers_placeholder(
+                           canon_model)) {
+                entry.flags |= EntryFlags::ContextualName;
+                entry.origin.name_context_kind
+                    = EntryNameContextKind::CanonCustomFunctions2010C;
+                entry.origin.name_context_variant = 1U;
+            } else if (tag32 == 0x0510u
+                       && canon_custom_functions2_0510_prefers_superimposed_display(
+                           canon_model)) {
+                entry.flags |= EntryFlags::ContextualName;
+                entry.origin.name_context_kind
+                    = EntryNameContextKind::CanonCustomFunctions20510;
+                entry.origin.name_context_variant = 1U;
+            } else if (tag32 == 0x0701u) {
+                if (canon_custom_functions2_0701_prefers_af_and_metering(
+                        canon_model)) {
+                    entry.flags |= EntryFlags::ContextualName;
+                    entry.origin.name_context_kind
+                        = EntryNameContextKind::CanonCustomFunctions20701;
+                    entry.origin.name_context_variant = 2U;
+                } else if (canon_custom_functions2_0701_prefers_shutter_button(
+                               canon_model)) {
+                    entry.flags |= EntryFlags::ContextualName;
+                    entry.origin.name_context_kind
+                        = EntryNameContextKind::CanonCustomFunctions20701;
+                    entry.origin.name_context_variant = 1U;
+                }
+            }
 
             if (num == 1) {
                 uint32_t v = 0;
@@ -1777,68 +2820,143 @@ decode_canon_u32_bin_dir(const TiffConfig& cfg,
 }
 
 static void
-decode_canon_colorcalib_from_colordata(
+decode_canon_colordata_embedded_u16_table(
     const TiffConfig& cfg, std::span<const std::byte> tiff_bytes,
-    uint64_t colordata_off, uint32_t colordata_count, MetaStore& store,
+    uint64_t colordata_off, uint32_t colordata_count, uint32_t word_off,
+    uint32_t word_count, std::string_view mk_prefix, std::string_view subtable,
+    MetaStore& store, const ExifDecodeOptions& options,
+    ExifDecodeResult* status_out) noexcept
+{
+    if (word_count == 0 || word_off > colordata_count
+        || word_count > (colordata_count - word_off)) {
+        return;
+    }
+
+    const uint64_t sub_off = colordata_off + 2ULL * uint64_t(word_off);
+    if (sub_off > tiff_bytes.size()) {
+        return;
+    }
+    if ((uint64_t(tiff_bytes.size()) - sub_off)
+        < (2ULL * uint64_t(word_count))) {
+        return;
+    }
+
+    char sub_ifd_buf[64];
+    const std::string_view sub_ifd
+        = make_mk_subtable_ifd_token(mk_prefix, subtable, 0,
+                                     std::span<char>(sub_ifd_buf));
+    decode_canon_u16_table(cfg, tiff_bytes, sub_off, word_count, sub_ifd, store,
+                           options, status_out);
+}
+
+static void
+decode_canon_colordata_embedded_tables(
+    const TiffConfig& cfg, std::span<const std::byte> tiff_bytes,
+    uint64_t colordata_off, uint32_t colordata_count, uint32_t family,
+    int16_t version, std::string_view mk_prefix, MetaStore& store,
     const ExifDecodeOptions& options, ExifDecodeResult* status_out) noexcept
 {
-    // Canon "ColorCalib" appears inside ColorData8 at word offset 0x0107
-    // (byte offset 0x020e), with 15 records of 4 int16 values (120 bytes).
-    if (colordata_count <= 0x0107u + 4u * 15u - 1u) {
+    switch (family) {
+    case 1:
+        decode_canon_colordata_embedded_u16_table(cfg, tiff_bytes,
+                                                  colordata_off,
+                                                  colordata_count, 0x4b, 60,
+                                                  mk_prefix, "colorcalib",
+                                                  store, options, status_out);
         return;
-    }
-
-    const uint64_t base = colordata_off + 2ULL * 0x0107ULL;
-    const uint64_t need = 120ULL;
-    if (base + need > tiff_bytes.size()) {
+    case 2:
+        decode_canon_colordata_embedded_u16_table(cfg, tiff_bytes,
+                                                  colordata_off,
+                                                  colordata_count, 0xa4, 60,
+                                                  mk_prefix, "colorcalib",
+                                                  store, options, status_out);
         return;
-    }
-
-    const BlockId block = store.add_block(BlockInfo {});
-    if (block == kInvalidBlockId) {
+    case 3:
+        decode_canon_colordata_embedded_u16_table(cfg, tiff_bytes,
+                                                  colordata_off,
+                                                  colordata_count, 0x85, 60,
+                                                  mk_prefix, "colorcalib",
+                                                  store, options, status_out);
         return;
-    }
-
-    const std::string_view ifd_name = "mk_canon_colorcalib_0";
-
-    uint32_t order = 0;
-    for (uint32_t k = 0; k < 15; ++k) {
-        if (status_out
-            && (status_out->entries_decoded + 1U)
-                   > options.limits.max_total_entries) {
-            update_status(status_out, ExifDecodeStatus::LimitExceeded);
-            return;
+    case 4:
+        decode_canon_colordata_embedded_u16_table(cfg, tiff_bytes,
+                                                  colordata_off,
+                                                  colordata_count, 0x3f, 105,
+                                                  mk_prefix, "colorcoefs",
+                                                  store, options, status_out);
+        decode_canon_colordata_embedded_u16_table(cfg, tiff_bytes,
+                                                  colordata_off,
+                                                  colordata_count, 0xa8, 60,
+                                                  mk_prefix, "colorcalib",
+                                                  store, options, status_out);
+        return;
+    case 5:
+        if (version == -3) {
+            decode_canon_colordata_embedded_u16_table(
+                cfg, tiff_bytes, colordata_off, colordata_count, 0x47, 115,
+                mk_prefix, "colorcoefs", store, options, status_out);
+            decode_canon_colordata_embedded_u16_table(
+                cfg, tiff_bytes, colordata_off, colordata_count, 0xba, 75,
+                mk_prefix, "colorcalib2", store, options, status_out);
+        } else if (version == -4) {
+            decode_canon_colordata_embedded_u16_table(
+                cfg, tiff_bytes, colordata_off, colordata_count, 0x47, 184,
+                mk_prefix, "colorcoefs2", store, options, status_out);
+            decode_canon_colordata_embedded_u16_table(
+                cfg, tiff_bytes, colordata_off, colordata_count, 0xff, 75,
+                mk_prefix, "colorcalib2", store, options, status_out);
         }
-
-        const uint16_t tag = static_cast<uint16_t>(4U * k);
-
-        int16_t vals_i16[4];
-        for (uint32_t j = 0; j < 4; ++j) {
-            uint16_t u         = 0;
-            const uint64_t off = base + uint64_t((4U * k + j) * 2U);
-            if (!read_tiff_u16(cfg, tiff_bytes, off, &u)) {
-                if (status_out) {
-                    update_status(status_out, ExifDecodeStatus::Malformed);
-                }
-                return;
-            }
-            vals_i16[j] = static_cast<int16_t>(u);
-        }
-
-        Entry entry;
-        entry.key          = make_exif_tag_key(store.arena(), ifd_name, tag);
-        entry.origin.block = block;
-        entry.origin.order_in_block = order++;
-        entry.origin.wire_type      = WireType { WireFamily::Other, 2 };
-        entry.origin.wire_count     = 4;
-        entry.value                 = make_i16_array(store.arena(),
-                                                     std::span<const int16_t>(vals_i16));
-        entry.flags |= EntryFlags::Derived;
-
-        (void)store.add_entry(entry);
-        if (status_out) {
-            status_out->entries_decoded += 1;
-        }
+        return;
+    case 6:
+        decode_canon_colordata_embedded_u16_table(cfg, tiff_bytes,
+                                                  colordata_off,
+                                                  colordata_count, 0xbc, 60,
+                                                  mk_prefix, "colorcalib",
+                                                  store, options, status_out);
+        return;
+    case 7:
+        decode_canon_colordata_embedded_u16_table(cfg, tiff_bytes,
+                                                  colordata_off,
+                                                  colordata_count, 0xd5, 60,
+                                                  mk_prefix, "colorcalib",
+                                                  store, options, status_out);
+        return;
+    case 8:
+        decode_canon_colordata_embedded_u16_table(cfg, tiff_bytes,
+                                                  colordata_off,
+                                                  colordata_count, 0x107, 60,
+                                                  mk_prefix, "colorcalib",
+                                                  store, options, status_out);
+        return;
+    case 9:
+        decode_canon_colordata_embedded_u16_table(cfg, tiff_bytes,
+                                                  colordata_off,
+                                                  colordata_count, 0x10a, 60,
+                                                  mk_prefix, "colorcalib",
+                                                  store, options, status_out);
+        return;
+    case 10:
+        decode_canon_colordata_embedded_u16_table(cfg, tiff_bytes,
+                                                  colordata_off,
+                                                  colordata_count, 0x118, 60,
+                                                  mk_prefix, "colorcalib",
+                                                  store, options, status_out);
+        return;
+    case 11:
+        decode_canon_colordata_embedded_u16_table(cfg, tiff_bytes,
+                                                  colordata_off,
+                                                  colordata_count, 0x12c, 60,
+                                                  mk_prefix, "colorcalib",
+                                                  store, options, status_out);
+        return;
+    case 12:
+        decode_canon_colordata_embedded_u16_table(cfg, tiff_bytes,
+                                                  colordata_off,
+                                                  colordata_count, 0x140, 60,
+                                                  mk_prefix, "colorcalib",
+                                                  store, options, status_out);
+        return;
+    default: return;
     }
 }
 
@@ -1918,8 +3036,10 @@ decode_canon_makernote(const TiffConfig& cfg,
 
     ExifContext ctx(store);
 
-    std::string_view model;
-    (void)ctx.find_first_text("ifd0", 0x0110 /* Model */, &model);
+    char model_buf[128];
+    std::memset(model_buf, 0, sizeof(model_buf));
+    std::string_view model = canon_find_model_text(store,
+                                                   std::span<char>(model_buf));
 
     int32_t offset_schema         = 0;
     const bool have_offset_schema = ctx.find_first_i32("exififd", 0xea1d,
@@ -1993,10 +3113,20 @@ decode_canon_makernote(const TiffConfig& cfg,
                                         abs_value_off, value_bytes,
                                         store.arena(), options.limits,
                                         status_out);
+        if (tag == 0x0038u && type == 7
+            && entry.value.kind == MetaValueKind::Bytes) {
+            entry.flags |= EntryFlags::ContextualName;
+            entry.origin.name_context_kind = EntryNameContextKind::CanonMain0038;
+            entry.origin.name_context_variant = 1U;
+        }
 
         (void)store.add_entry(entry);
         if (status_out) {
             status_out->entries_decoded += 1;
+        }
+
+        if (tag == 0x0006 && model.empty()) {
+            model = canon_find_model_text(store, std::span<char>(model_buf));
         }
 
         // Decode common Canon BinaryData subdirectories into derived blocks.
@@ -2011,12 +3141,41 @@ decode_canon_makernote(const TiffConfig& cfg,
             const std::span<const std::byte> cam
                 = tiff_bytes.subspan(static_cast<size_t>(abs_value_off),
                                      static_cast<size_t>(value_bytes));
-            const std::string_view sub_ifd
-                = make_mk_subtable_ifd_token(mk_prefix, "camerainfo", 0,
-                                             std::span<char>(sub_ifd_buf));
             ClassicIfdCandidate best;
-            if (find_best_classic_ifd_candidate(cam, 512, options.limits,
-                                                &best)) {
+            const bool has_best
+                = find_best_classic_ifd_candidate(cam, 512, options.limits,
+                                                  &best);
+            uint32_t cam_tag_extent = (cam.size() > 0U) ? static_cast<uint32_t>(
+                                                              cam.size() - 1U)
+                                                        : 0U;
+            if (has_best) {
+                TiffConfig cam_cfg;
+                cam_cfg.le      = best.le;
+                cam_cfg.bigtiff = false;
+                const uint32_t ifd_tag_extent
+                    = canon_camerainfo_candidate_tag_extent(cam_cfg, cam, best);
+                if (ifd_tag_extent > cam_tag_extent) {
+                    cam_tag_extent = ifd_tag_extent;
+                }
+            }
+            std::string_view cam_subtable
+                = canon_camerainfo_subtable_suffix(model, cam_tag_extent);
+            if (cam_subtable == "camerainfo" && has_best) {
+                TiffConfig cam_cfg;
+                cam_cfg.le      = best.le;
+                cam_cfg.bigtiff = false;
+                const std::string_view fallback_subtable
+                    = canon_camerainfo_subtable_suffix_from_candidate(cam_cfg,
+                                                                      cam,
+                                                                      best);
+                if (!fallback_subtable.empty()) {
+                    cam_subtable = fallback_subtable;
+                }
+            }
+            const std::string_view sub_ifd
+                = make_mk_subtable_ifd_token(mk_prefix, cam_subtable, 0,
+                                             std::span<char>(sub_ifd_buf));
+            if (has_best) {
                 TiffConfig cam_cfg;
                 cam_cfg.le      = best.le;
                 cam_cfg.bigtiff = false;
@@ -2059,8 +3218,18 @@ decode_canon_makernote(const TiffConfig& cfg,
             const uint64_t ps_bytes = value_bytes - 0x025b;
             if (ps_bytes >= 0x00dc + 2U
                 && ps_off + ps_bytes <= tiff_bytes.size()) {
+                const bool use_psinfo2
+                    = canon_camerainfo_prefers_psinfo2(model)
+                          ? true
+                          : (canon_camerainfo_prefers_psinfo(model)
+                                 ? false
+                                 : canon_psinfo2_tail_looks_valid(
+                                       mk_cfg, tiff_bytes, ps_off, ps_bytes));
+                const std::string_view ps_table
+                    = use_psinfo2 ? std::string_view("psinfo2")
+                                  : std::string_view("psinfo");
                 const std::string_view sub_ifd
-                    = make_mk_subtable_ifd_token(mk_prefix, "psinfo", 0,
+                    = make_mk_subtable_ifd_token(mk_prefix, ps_table, 0,
                                                  std::span<char>(sub_ifd_buf));
                 decode_canon_psinfo_table(tiff_bytes, ps_off, ps_bytes, sub_ifd,
                                           store, options, status_out);
@@ -2110,8 +3279,20 @@ decode_canon_makernote(const TiffConfig& cfg,
                                                CanonCustomMode::LowByteAsU8,
                                                store, options, status_out);
             } else if (tag == 0x000f) {  // CustomFunctions (older models)
+                uint32_t effective_count = count32;
+                uint16_t first_word      = 0;
+                if (count32 != 0
+                    && read_tiff_u16(mk_cfg, tiff_bytes, abs_value_off,
+                                     &first_word)) {
+                    const uint16_t expected = static_cast<uint16_t>(count32
+                                                                    * 2U);
+                    if (first_word == expected || first_word + 2U == expected) {
+                        effective_count -= 1U;
+                    }
+                }
                 const std::string_view subtable
-                    = canoncustom_subtable_for_tag_0x000f(model);
+                    = canoncustom_subtable_for_tag_0x000f(model,
+                                                          effective_count);
                 char canoncustom_ifd_buf[96];
                 const std::string_view canoncustom_ifd
                     = make_mk_subtable_ifd_token("mk_canoncustom", subtable, 0,
@@ -2274,6 +3455,11 @@ decode_canon_makernote(const TiffConfig& cfg,
                                        status_out);
             } else if (tag == 0x4001) {  // ColorData (multiple versions)
                 bool looks_like_colorcalib = false;
+                uint16_t colordata_version = 0;
+                (void)read_tiff_u16(mk_cfg, tiff_bytes, abs_value_off,
+                                    &colordata_version);
+                const int16_t colordata_version_i16 = static_cast<int16_t>(
+                    colordata_version);
                 if (count32 > 0x0107u + 3u) {
                     uint16_t maybe_temp = 0;
                     if (read_tiff_u16(mk_cfg, tiff_bytes,
@@ -2285,9 +3471,12 @@ decode_canon_makernote(const TiffConfig& cfg,
                     }
                 }
 
-                const std::string_view table = looks_like_colorcalib
-                                                   ? "colordata8"
-                                                   : "colordata";
+                const uint32_t family
+                    = canon_colordata_family(count32, colordata_version_i16);
+                std::string_view table;
+                if (!canon_colordata_family_name(family, &table)) {
+                    table = looks_like_colorcalib ? "colordata8" : "colordata";
+                }
                 const std::string_view sub_ifd
                     = make_mk_subtable_ifd_token(mk_prefix, table, 0,
                                                  std::span<char>(sub_ifd_buf));
@@ -2295,12 +3484,12 @@ decode_canon_makernote(const TiffConfig& cfg,
                                        count32, sub_ifd, store, options,
                                        status_out);
 
-                if (looks_like_colorcalib) {
-                    decode_canon_colorcalib_from_colordata(mk_cfg, tiff_bytes,
-                                                           abs_value_off,
-                                                           count32, store,
-                                                           options, status_out);
-                }
+                decode_canon_colordata_embedded_tables(mk_cfg, tiff_bytes,
+                                                       abs_value_off, count32,
+                                                       family,
+                                                       colordata_version_i16,
+                                                       mk_prefix, store,
+                                                       options, status_out);
             }
         } else if (type == 4 && count32 != 0) {  // LONG
             if (tag == 0x0035) {                 // TimeInfo
@@ -2318,8 +3507,12 @@ decode_canon_makernote(const TiffConfig& cfg,
                                        count32, sub_ifd, store, options,
                                        status_out);
             } else if (tag == 0x000d) {  // CanonCameraInfo (older models)
+                const uint32_t cam_tag_extent = (count32 > 0U) ? (count32 - 1U)
+                                                               : 0U;
+                const std::string_view cam_subtable
+                    = canon_camerainfo_subtable_suffix(model, cam_tag_extent);
                 const std::string_view sub_ifd
-                    = make_mk_subtable_ifd_token(mk_prefix, "camerainfo", 0,
+                    = make_mk_subtable_ifd_token(mk_prefix, cam_subtable, 0,
                                                  std::span<char>(sub_ifd_buf));
                 decode_canon_u32_table(mk_cfg, tiff_bytes, abs_value_off,
                                        count32, sub_ifd, store, options,

@@ -330,6 +330,21 @@ namespace {
                                      0x0604u)
                       ? 2U
                       : 1U;
+            return;
+        }
+        if (ifd_name == "mk_canon0" && tag == 0x0038u
+            && entry->value.kind == MetaValueKind::Bytes) {
+            entry->flags |= EntryFlags::ContextualName;
+            entry->origin.name_context_kind = EntryNameContextKind::CanonMain0038;
+            entry->origin.name_context_variant = 1U;
+            return;
+        }
+        if (ifd_name == "mk_canoncustom_functions2_0" && tag == 0x0103u) {
+            entry->flags |= EntryFlags::ContextualName;
+            entry->origin.name_context_kind
+                = EntryNameContextKind::CanonCustomFunctions20103;
+            entry->origin.name_context_variant
+                = (entry->origin.wire_count > 1U) ? 2U : 1U;
         }
     }
 

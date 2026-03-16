@@ -32,6 +32,8 @@ TEST(ExifTagNames, MapsCommonTags)
     EXPECT_EQ(exif_tag_name("mk_canon0", 0x0003),
               std::string_view("CanonFlashInfo"));
     EXPECT_EQ(exif_tag_name("mk_fuji0", 0x1000), std::string_view("Quality"));
+    EXPECT_EQ(exif_tag_name("mk_fuji0", 0x1200),
+              std::string_view("FujiFilm_0x1200"));
 }
 
 
@@ -112,6 +114,57 @@ TEST(ExifTagNames, OlympusMissingSubtableTagsUseStablePlaceholderNames)
 }
 
 
+TEST(ExifTagNames, CanonMainUnknownTagsUseStablePlaceholderNames)
+{
+    using openmeta::exif_tag_name;
+
+    EXPECT_EQ(exif_tag_name("mk_canon0", 0x001F),
+              std::string_view("Canon_0x001f"));
+    EXPECT_EQ(exif_tag_name("mk_canon0", 0x0033),
+              std::string_view("Canon_0x0033"));
+    EXPECT_EQ(exif_tag_name("mk_canon0", 0x4017),
+              std::string_view("Canon_0x4017"));
+}
+
+
+TEST(ExifTagNames, CanonModelFamiliesDoNotFallBackToMainTableNames)
+{
+    using openmeta::exif_tag_name;
+
+    EXPECT_EQ(exif_tag_name("mk_canon_colordata7_0", 0x0080),
+              std::string_view("WB_RGGBLevelsDaylight"));
+    EXPECT_TRUE(exif_tag_name("mk_canon_colordata7_0", 0x0095).empty());
+    EXPECT_EQ(exif_tag_name("mk_canon_colordata7_0", 0x00D0),
+              std::string_view("WB_RGGBLevelsUnknown20"));
+
+    EXPECT_EQ(exif_tag_name("mk_canon_colordata12_0", 0x0073),
+              std::string_view("WB_RGGBLevelsMeasured"));
+    EXPECT_EQ(exif_tag_name("mk_canon_colordata12_0", 0x016B),
+              std::string_view("PerChannelBlackLevel"));
+    EXPECT_EQ(exif_tag_name("mk_canon_colordata12_0", 0x0280),
+              std::string_view("NormalWhiteLevel"));
+    EXPECT_TRUE(exif_tag_name("mk_canon_colordata12_0", 0x0083).empty());
+    EXPECT_TRUE(exif_tag_name("mk_canon_colordata12_0", 0x010C).empty());
+    EXPECT_EQ(exif_tag_name("mk_canon_camerainfo1100d_0", 0x019B),
+              std::string_view("FirmwareVersion"));
+}
+
+
+TEST(ExifTagNames, CanonCustomFunctions2UnknownTagsUseStablePlaceholderNames)
+{
+    using openmeta::exif_tag_name;
+
+    EXPECT_EQ(exif_tag_name("mk_canoncustom_functions2_0", 0x0115),
+              std::string_view("CanonCustom_Functions2_0x0115"));
+    EXPECT_EQ(exif_tag_name("mk_canoncustom_functions2_0", 0x081A),
+              std::string_view("CanonCustom_Functions2_0x081a"));
+    EXPECT_EQ(exif_tag_name("mk_canoncustom_functions5d_0", 0x0015),
+              std::string_view("CanonCustom_Functions5D_0x0015"));
+    EXPECT_EQ(exif_tag_name("mk_canoncustom_functionsd30_0", 0x0000),
+              std::string_view("CanonCustom_FunctionsD30_0x0000"));
+}
+
+
 TEST(ExifTagNames, ContextualEntryNamesKeepCanonicalKeysStable)
 {
     using openmeta::BlockInfo;
@@ -163,4 +216,162 @@ TEST(ExifTagNames, ContextualEntryNamesKeepCanonicalKeysStable)
     EXPECT_EQ(exif_entry_name(store, semantic,
                               ExifTagNamePolicy::ExifToolCompat),
               std::string_view("ImageStabilization"));
+}
+
+
+TEST(ExifTagNames, ContextualEntryNamesSelectCanonCompatVariants)
+{
+    using openmeta::BlockInfo;
+    using openmeta::Entry;
+    using openmeta::EntryFlags;
+    using openmeta::EntryId;
+    using openmeta::EntryNameContextKind;
+    using openmeta::exif_entry_name;
+    using openmeta::ExifTagNamePolicy;
+    using openmeta::make_exif_tag_key;
+    using openmeta::MetaStore;
+
+    MetaStore store;
+    const openmeta::BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    Entry canon_main;
+    canon_main.key = make_exif_tag_key(store.arena(), "mk_canon0", 0x0038);
+    canon_main.origin.block = block;
+    canon_main.flags |= EntryFlags::ContextualName;
+    canon_main.origin.name_context_kind = EntryNameContextKind::CanonMain0038;
+    canon_main.origin.name_context_variant = 1U;
+    const EntryId canon_main_id            = store.add_entry(canon_main);
+    ASSERT_NE(canon_main_id, openmeta::kInvalidEntryId);
+
+    const Entry& canon_main_entry = store.entry(canon_main_id);
+    EXPECT_EQ(exif_entry_name(store, canon_main_entry,
+                              ExifTagNamePolicy::Canonical),
+              std::string_view("BatteryType"));
+    EXPECT_EQ(exif_entry_name(store, canon_main_entry,
+                              ExifTagNamePolicy::ExifToolCompat),
+              std::string_view("Canon_0x0038"));
+
+    Entry iso_expansion;
+    iso_expansion.key          = make_exif_tag_key(store.arena(),
+                                                   "mk_canoncustom_functions2_0",
+                                                   0x0103);
+    iso_expansion.origin.block = block;
+    iso_expansion.flags |= EntryFlags::ContextualName;
+    iso_expansion.origin.name_context_kind
+        = EntryNameContextKind::CanonCustomFunctions20103;
+    iso_expansion.origin.name_context_variant = 1U;
+    const EntryId iso_expansion_id            = store.add_entry(iso_expansion);
+    ASSERT_NE(iso_expansion_id, openmeta::kInvalidEntryId);
+
+    const Entry& iso_expansion_entry = store.entry(iso_expansion_id);
+    EXPECT_EQ(exif_entry_name(store, iso_expansion_entry,
+                              ExifTagNamePolicy::Canonical),
+              std::string_view("ISOSpeedRange"));
+    EXPECT_EQ(exif_entry_name(store, iso_expansion_entry,
+                              ExifTagNamePolicy::ExifToolCompat),
+              std::string_view("ISOExpansion"));
+
+    Entry iso_speed_range;
+    iso_speed_range.key          = make_exif_tag_key(store.arena(),
+                                                     "mk_canoncustom_functions2_0",
+                                                     0x0103);
+    iso_speed_range.origin.block = block;
+    iso_speed_range.flags |= EntryFlags::ContextualName;
+    iso_speed_range.origin.name_context_kind
+        = EntryNameContextKind::CanonCustomFunctions20103;
+    iso_speed_range.origin.name_context_variant = 2U;
+    const EntryId iso_speed_range_id = store.add_entry(iso_speed_range);
+    ASSERT_NE(iso_speed_range_id, openmeta::kInvalidEntryId);
+
+    const Entry& iso_speed_range_entry = store.entry(iso_speed_range_id);
+    EXPECT_EQ(exif_entry_name(store, iso_speed_range_entry,
+                              ExifTagNamePolicy::Canonical),
+              std::string_view("ISOSpeedRange"));
+    EXPECT_EQ(exif_entry_name(store, iso_speed_range_entry,
+                              ExifTagNamePolicy::ExifToolCompat),
+              std::string_view("ISOSpeedRange"));
+
+    Entry shutter_speed_range;
+    shutter_speed_range.key          = make_exif_tag_key(store.arena(),
+                                                         "mk_canoncustom_functions2_0",
+                                                         0x010C);
+    shutter_speed_range.origin.block = block;
+    shutter_speed_range.flags |= EntryFlags::ContextualName;
+    shutter_speed_range.origin.name_context_kind
+        = EntryNameContextKind::CanonCustomFunctions2010C;
+    shutter_speed_range.origin.name_context_variant = 1U;
+    const EntryId shutter_speed_range_id = store.add_entry(shutter_speed_range);
+    ASSERT_NE(shutter_speed_range_id, openmeta::kInvalidEntryId);
+
+    const Entry& shutter_speed_range_entry = store.entry(
+        shutter_speed_range_id);
+    EXPECT_EQ(exif_entry_name(store, shutter_speed_range_entry,
+                              ExifTagNamePolicy::Canonical),
+              std::string_view("ShutterSpeedRange"));
+    EXPECT_EQ(exif_entry_name(store, shutter_speed_range_entry,
+                              ExifTagNamePolicy::ExifToolCompat),
+              std::string_view("CanonCustom_Functions2_0x010c"));
+
+    Entry superimposed_display;
+    superimposed_display.key          = make_exif_tag_key(store.arena(),
+                                                          "mk_canoncustom_functions2_0",
+                                                          0x0510);
+    superimposed_display.origin.block = block;
+    superimposed_display.flags |= EntryFlags::ContextualName;
+    superimposed_display.origin.name_context_kind
+        = EntryNameContextKind::CanonCustomFunctions20510;
+    superimposed_display.origin.name_context_variant = 1U;
+    const EntryId superimposed_display_id            = store.add_entry(
+        superimposed_display);
+    ASSERT_NE(superimposed_display_id, openmeta::kInvalidEntryId);
+
+    const Entry& superimposed_display_entry = store.entry(
+        superimposed_display_id);
+    EXPECT_EQ(exif_entry_name(store, superimposed_display_entry,
+                              ExifTagNamePolicy::Canonical),
+              std::string_view("VFDisplayIllumination"));
+    EXPECT_EQ(exif_entry_name(store, superimposed_display_entry,
+                              ExifTagNamePolicy::ExifToolCompat),
+              std::string_view("SuperimposedDisplay"));
+
+    Entry shutter_button;
+    shutter_button.key          = make_exif_tag_key(store.arena(),
+                                                    "mk_canoncustom_functions2_0",
+                                                    0x0701);
+    shutter_button.origin.block = block;
+    shutter_button.flags |= EntryFlags::ContextualName;
+    shutter_button.origin.name_context_kind
+        = EntryNameContextKind::CanonCustomFunctions20701;
+    shutter_button.origin.name_context_variant = 1U;
+    const EntryId shutter_button_id = store.add_entry(shutter_button);
+    ASSERT_NE(shutter_button_id, openmeta::kInvalidEntryId);
+
+    const Entry& shutter_button_entry = store.entry(shutter_button_id);
+    EXPECT_EQ(exif_entry_name(store, shutter_button_entry,
+                              ExifTagNamePolicy::Canonical),
+              std::string_view("Shutter-AELock"));
+    EXPECT_EQ(exif_entry_name(store, shutter_button_entry,
+                              ExifTagNamePolicy::ExifToolCompat),
+              std::string_view("ShutterButtonAFOnButton"));
+
+    Entry af_and_metering;
+    af_and_metering.key          = make_exif_tag_key(store.arena(),
+                                                     "mk_canoncustom_functions2_0",
+                                                     0x0701);
+    af_and_metering.origin.block = block;
+    af_and_metering.flags |= EntryFlags::ContextualName;
+    af_and_metering.origin.name_context_kind
+        = EntryNameContextKind::CanonCustomFunctions20701;
+    af_and_metering.origin.name_context_variant = 2U;
+    const EntryId af_and_metering_id = store.add_entry(af_and_metering);
+    ASSERT_NE(af_and_metering_id, openmeta::kInvalidEntryId);
+
+    const Entry& af_and_metering_entry = store.entry(af_and_metering_id);
+    EXPECT_EQ(exif_entry_name(store, af_and_metering_entry,
+                              ExifTagNamePolicy::Canonical),
+              std::string_view("Shutter-AELock"));
+    EXPECT_EQ(exif_entry_name(store, af_and_metering_entry,
+                              ExifTagNamePolicy::ExifToolCompat),
+              std::string_view("AFAndMeteringButtons"));
 }

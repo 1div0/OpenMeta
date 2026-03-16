@@ -227,6 +227,99 @@ namespace {
     }
 
 
+    static std::string_view
+    synthesize_canon_placeholder_name(std::string_view subtable,
+                                      uint16_t tag) noexcept
+    {
+        if (!(subtable.empty() || subtable == "main")) {
+            return {};
+        }
+
+        static thread_local char buf[16];
+        static constexpr std::string_view kPrefix = "Canon_0x";
+        static constexpr char kHex[]              = "0123456789abcdef";
+        if (kPrefix.size() + 4 >= sizeof(buf)) {
+            return {};
+        }
+
+        for (size_t i = 0; i < kPrefix.size(); ++i) {
+            buf[i] = kPrefix[i];
+        }
+        buf[kPrefix.size() + 0] = kHex[(tag >> 12) & 0xF];
+        buf[kPrefix.size() + 1] = kHex[(tag >> 8) & 0xF];
+        buf[kPrefix.size() + 2] = kHex[(tag >> 4) & 0xF];
+        buf[kPrefix.size() + 3] = kHex[(tag >> 0) & 0xF];
+        buf[kPrefix.size() + 4] = '\0';
+        return std::string_view(buf, kPrefix.size() + 4);
+    }
+
+
+    static std::string_view
+    synthesize_canoncustom_functions2_placeholder_name(uint16_t tag) noexcept
+    {
+        static thread_local char buf[32];
+        static constexpr std::string_view kPrefix = "CanonCustom_Functions2_0x";
+        static constexpr char kHex[]              = "0123456789abcdef";
+        if (kPrefix.size() + 4 >= sizeof(buf)) {
+            return {};
+        }
+
+        for (size_t i = 0; i < kPrefix.size(); ++i) {
+            buf[i] = kPrefix[i];
+        }
+        buf[kPrefix.size() + 0] = kHex[(tag >> 12) & 0xF];
+        buf[kPrefix.size() + 1] = kHex[(tag >> 8) & 0xF];
+        buf[kPrefix.size() + 2] = kHex[(tag >> 4) & 0xF];
+        buf[kPrefix.size() + 3] = kHex[(tag >> 0) & 0xF];
+        buf[kPrefix.size() + 4] = '\0';
+        return std::string_view(buf, kPrefix.size() + 4);
+    }
+
+
+    static std::string_view
+    synthesize_canoncustom_functionsd30_placeholder_name(uint16_t tag) noexcept
+    {
+        static thread_local char buf[35];
+        static constexpr std::string_view kPrefix
+            = "CanonCustom_FunctionsD30_0x";
+        static constexpr char kHex[] = "0123456789abcdef";
+        if (kPrefix.size() + 4 >= sizeof(buf)) {
+            return {};
+        }
+
+        for (size_t i = 0; i < kPrefix.size(); ++i) {
+            buf[i] = kPrefix[i];
+        }
+        buf[kPrefix.size() + 0] = kHex[(tag >> 12) & 0xF];
+        buf[kPrefix.size() + 1] = kHex[(tag >> 8) & 0xF];
+        buf[kPrefix.size() + 2] = kHex[(tag >> 4) & 0xF];
+        buf[kPrefix.size() + 3] = kHex[(tag >> 0) & 0xF];
+        buf[kPrefix.size() + 4] = '\0';
+        return std::string_view(buf, kPrefix.size() + 4);
+    }
+
+    static std::string_view
+    synthesize_canoncustom_functions5d_placeholder_name(uint16_t tag) noexcept
+    {
+        static thread_local char buf[34];
+        static constexpr std::string_view kPrefix = "CanonCustom_Functions5D_0x";
+        static constexpr char kHex[] = "0123456789abcdef";
+        if (kPrefix.size() + 4 >= sizeof(buf)) {
+            return {};
+        }
+
+        for (size_t i = 0; i < kPrefix.size(); ++i) {
+            buf[i] = kPrefix[i];
+        }
+        buf[kPrefix.size() + 0] = kHex[(tag >> 12) & 0xF];
+        buf[kPrefix.size() + 1] = kHex[(tag >> 8) & 0xF];
+        buf[kPrefix.size() + 2] = kHex[(tag >> 4) & 0xF];
+        buf[kPrefix.size() + 3] = kHex[(tag >> 0) & 0xF];
+        buf[kPrefix.size() + 4] = '\0';
+        return std::string_view(buf, kPrefix.size() + 4);
+    }
+
+
     static bool
     olympus_subtable_prefers_placeholder(std::string_view subtable) noexcept
     {
@@ -266,32 +359,6 @@ namespace {
     {
         return tag == 0x2110u;
     }
-
-
-    static std::string_view find_tag_name_by_key_prefix(std::string_view prefix,
-                                                        uint16_t tag) noexcept
-    {
-        const uint32_t count = static_cast<uint32_t>(
-            sizeof(kMakerNoteTables) / sizeof(kMakerNoteTables[0]));
-        for (uint32_t i = 0; i < count; ++i) {
-            const MakerNoteTableMap& table = kMakerNoteTables[i];
-            if (!table.key) {
-                continue;
-            }
-            const std::string_view key(table.key);
-            if (key.size() < prefix.size()
-                || key.substr(0, prefix.size()) != prefix) {
-                continue;
-            }
-            const std::string_view name = find_tag_name(table.entries,
-                                                        table.count, tag);
-            if (!name.empty()) {
-                return name;
-            }
-        }
-        return {};
-    }
-
 
     static std::string_view
     find_unique_tag_name_by_key_prefix(std::string_view prefix,
@@ -349,6 +416,13 @@ namespace {
         return {};
     }
 
+
+    static bool canon_subtable_family(std::string_view subtable,
+                                      std::string_view family) noexcept
+    {
+        return !subtable.empty() && subtable.starts_with(family);
+    }
+
 }  // namespace
 
 std::string_view
@@ -365,6 +439,22 @@ makernote_tag_name(std::string_view ifd, uint16_t tag) noexcept
     if (vendor_key == "fuji") {
         vendor_key = "fujifilm";
     }
+
+    const bool canon_colordata_generic = vendor_key == "canon"
+                                         && parts.subtable == "colordata";
+    const bool canon_colordata_specific
+        = vendor_key == "canon"
+          && canon_subtable_family(parts.subtable, "colordata")
+          && parts.subtable != "colordata";
+    const bool canon_camerainfo_generic = vendor_key == "canon"
+                                          && parts.subtable == "camerainfo";
+    const bool canon_camerainfo_specific
+        = vendor_key == "canon"
+          && canon_subtable_family(parts.subtable, "camerainfo")
+          && parts.subtable != "camerainfo";
+    const bool canon_psinfo_family = vendor_key == "canon"
+                                     && canon_subtable_family(parts.subtable,
+                                                              "psinfo");
 
     char table_key_buf[96];
 
@@ -408,17 +498,30 @@ makernote_tag_name(std::string_view ifd, uint16_t tag) noexcept
     // Canon uses many model/version-specific table names for common decoded
     // subtables (`camerainfo*`, `colordata*`) while decode emits stable token
     // names (`mk_canon_camerainfo_*`, `mk_canon_colordata_*`).
-    if (vendor_key == "canon" && parts.subtable == "colordata") {
-        name = find_tag_name_by_key_prefix("makernote:canon:colordata", tag);
+    if (canon_colordata_generic) {
+        name = find_unique_tag_name_by_key_prefix("makernote:canon:colordata",
+                                                  tag);
         if (!name.empty()) {
             return name;
         }
+        return {};
     }
-    if (vendor_key == "canon" && parts.subtable == "camerainfo") {
-        name = find_tag_name_by_key_prefix("makernote:canon:camerainfo", tag);
+    if (canon_colordata_specific) {
+        return {};
+    }
+    if (canon_camerainfo_generic) {
+        name = find_unique_tag_name_by_key_prefix("makernote:canon:camerainfo",
+                                                  tag);
         if (!name.empty()) {
             return name;
         }
+        return {};
+    }
+    if (canon_camerainfo_specific) {
+        return {};
+    }
+    if (canon_psinfo_family) {
+        return {};
     }
 
     if (vendor_key == "panasonic" && parts.subtable.empty()) {
@@ -481,6 +584,23 @@ makernote_tag_name(std::string_view ifd, uint16_t tag) noexcept
     if (vendor_key == "olympus"
         && olympus_subtable_prefers_placeholder(parts.subtable)) {
         return synthesize_olympus_placeholder_name(parts.subtable, tag);
+    }
+
+    if (vendor_key == "canon"
+        && (parts.subtable.empty() || parts.subtable == "main")) {
+        return synthesize_canon_placeholder_name(parts.subtable, tag);
+    }
+    if (vendor_key == "canon" && !parts.subtable.empty()) {
+        return {};
+    }
+    if (vendor_key == "canoncustom" && parts.subtable == "functions2") {
+        return synthesize_canoncustom_functions2_placeholder_name(tag);
+    }
+    if (vendor_key == "canoncustom" && parts.subtable == "functionsd30") {
+        return synthesize_canoncustom_functionsd30_placeholder_name(tag);
+    }
+    if (vendor_key == "canoncustom" && parts.subtable == "functions5d") {
+        return synthesize_canoncustom_functions5d_placeholder_name(tag);
     }
 
     // Some MakerNote subtables omit tags that still exist in the vendor's
