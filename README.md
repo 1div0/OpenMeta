@@ -33,7 +33,14 @@ Current baseline-gated status on tracked corpora:
   - EXIF: TIFF-IFD tags (including pointer IFDs).
   - CRW/CIFF bridge: derives common EXIF fields (`Make`, `Model`,
     `DateTimeOriginal`, `SubjectDistance`, `PixelXDimension`,
-    `PixelYDimension`, `Orientation`) from legacy Canon CRW directory tags.
+    `PixelYDimension`, `Orientation`, bounded `ImageDescription`,
+    `CameraOwnerName`) from legacy Canon CRW directory tags, and now names
+    common native CIFF fields such as `CanonFileDescription`, `OwnerName`,
+    `CanonFirmwareVersion`, `OriginalFileName`, and `CanonFlashInfo`, plus
+    bounded native projections for CIFF `TimeStamp`, `ImageInfo`, and
+    `ExposureInfo` subtables, along with semantic scalar decode for common
+    native fields like `ShutterReleaseMethod`, `BaseISO`, `FileNumber`, and
+    `MeasuredEV`.
   - XMP: RDF/XML packets into properties (schema namespace URI + property path).
   - ICC: profile header + tag table (raw tag bytes preserved).
   - Photoshop IRB: 8BIM resources (raw payload preserved; IPTC from 0x0404 is
@@ -50,9 +57,14 @@ Current baseline-gated status on tracked corpora:
     (`item.info_count`, `item.id`, `item.type`, `item.name`,
     `item.content_type`, `item.content_encoding`, `item.uri_type`; emitted
     even when `meta` has no `pitm`), plus `primary.item_*` aliases when `pitm`
-    is present, typed `iref.<type>.*` rows
-    (`auxl`/`dimg`/`thmb`/`cdsc`), graph-summary counters, and `auxC`-typed
-    auxiliary semantics.
+    is present, generic `iref.ref_type_name` rows, typed `iref.<type>.*` rows
+    for known relation families plus safe ASCII FourCC relation types,
+    graph-summary counters, and `auxC`-typed auxiliary semantics, including
+    bounded `aux.item_count`,
+    `aux.alpha_count`, `aux.depth_count`, `aux.disparity_count`,
+    `aux.matte_count`, and `primary.depth_count`, `primary.alpha_count`,
+    `primary.disparity_count`, `primary.matte_count`, plus other
+    `primary.*_count` relation aliases.
 - EXIF/MakerNote display naming now has two explicit layers:
   - canonical tag names from `exif_tag_name(...)`
   - contextual compatibility names from
@@ -248,9 +260,10 @@ Current baseline-gated status on tracked corpora:
     boxes are preserved, and uncompressed `jumb` source boxes are
     distinguished as generic JUMBF vs C2PA for that replacement decision.
     When Brotli support is available, the same family check also covers
-    compressed `brob(realtype=jumb)` source boxes. The file-edit path is
-    box-only, so `jxl:icc-profile` stays on the encoder ICC path and is still
-    not serialized through the byte-writer or file-edit paths.
+    compressed `brob(realtype=Exif / xml / jumb / c2pa)` source boxes. The
+    file-edit path is box-only, so `jxl:icc-profile` stays on the encoder ICC
+    path and is still not serialized through the byte-writer or file-edit
+    paths.
     Bounded external-signer C2PA rewrite now also covers JXL:
     `build_prepared_c2pa_sign_request(...)`,
     `build_prepared_c2pa_sign_request_binding(...)`,

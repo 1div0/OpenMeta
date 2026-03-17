@@ -17,6 +17,60 @@ namespace {
                                 bytes.size());
     }
 
+    static bool parse_ciff_dir_id(std::string_view ifd, uint16_t* out) noexcept
+    {
+        if (!out) {
+            return false;
+        }
+        if (ifd == "ciff_root") {
+            *out = 0xFFFFU;
+            return true;
+        }
+        if (!ifd.starts_with("ciff_") || ifd.size() < 10U || ifd[9] != '_') {
+            return false;
+        }
+
+        uint16_t dir_id = 0U;
+        for (size_t i = 5U; i < 9U; ++i) {
+            const char c    = ifd[i];
+            uint16_t nibble = 0U;
+            if (c >= '0' && c <= '9') {
+                nibble = static_cast<uint16_t>(c - '0');
+            } else if (c >= 'A' && c <= 'F') {
+                nibble = static_cast<uint16_t>(10 + (c - 'A'));
+            } else if (c >= 'a' && c <= 'f') {
+                nibble = static_cast<uint16_t>(10 + (c - 'a'));
+            } else {
+                return false;
+            }
+            dir_id = static_cast<uint16_t>((dir_id << 4U) | nibble);
+        }
+
+        *out = dir_id;
+        return true;
+    }
+
+
+    static std::string_view
+    ciff_synthetic_table_suffix(std::string_view ifd) noexcept
+    {
+        if (!ifd.starts_with("ciff_") || ifd.size() < 12U) {
+            return {};
+        }
+        size_t pos = 10U;
+        while (pos < ifd.size() && ifd[pos] != '_') {
+            const char c = ifd[pos];
+            if (c < '0' || c > '9') {
+                return {};
+            }
+            ++pos;
+        }
+        if (pos >= ifd.size() || ifd[pos] != '_') {
+            return {};
+        }
+        return ifd.substr(pos + 1U);
+    }
+
     enum class ExifIfdGroup : uint8_t {
         TiffIfd,
         ExifIfd,
@@ -127,6 +181,107 @@ namespace {
     }
 
 
+    static std::string_view ciff_tag_name(std::string_view ifd,
+                                          uint16_t tag) noexcept
+    {
+        uint16_t dir_id = 0U;
+        if (!parse_ciff_dir_id(ifd, &dir_id)) {
+            return {};
+        }
+        const std::string_view synthetic = ciff_synthetic_table_suffix(ifd);
+
+        if (synthetic == "timestamp") {
+            switch (tag) {
+            case 0x0000U: return "DateTimeOriginal";
+            case 0x0001U: return "TimeZoneCode";
+            case 0x0002U: return "TimeZoneInfo";
+            default: return {};
+            }
+        }
+
+        if (synthetic == "imageinfo") {
+            switch (tag) {
+            case 0x0000U: return "ImageWidth";
+            case 0x0001U: return "ImageHeight";
+            case 0x0002U: return "PixelAspectRatio";
+            case 0x0003U: return "Rotation";
+            case 0x0004U: return "ComponentBitDepth";
+            case 0x0005U: return "ColorBitDepth";
+            case 0x0006U: return "ColorBW";
+            default: return {};
+            }
+        }
+
+        if (synthetic == "exposureinfo") {
+            switch (tag) {
+            case 0x0000U: return "ExposureCompensation";
+            case 0x0001U: return "ShutterSpeedValue";
+            case 0x0002U: return "ApertureValue";
+            default: return {};
+            }
+        }
+
+        if (dir_id == 0xFFFFU) {
+            switch (tag) {
+            case 0x2005U: return "RawData";
+            default: return {};
+            }
+        }
+
+        switch (dir_id) {
+        case 0x2804U:
+            switch (tag) {
+            case 0x0805U: return "CanonFileDescription";
+            case 0x0815U: return "CanonImageType";
+            default: return {};
+            }
+        case 0x2807U:
+            switch (tag) {
+            case 0x080AU: return "MakeModel";
+            case 0x0810U: return "OwnerName";
+            default: return {};
+            }
+        case 0x3002U:
+            switch (tag) {
+            case 0x1010U: return "ShutterReleaseMethod";
+            case 0x1011U: return "ShutterReleaseTiming";
+            case 0x1807U: return "TargetDistanceSetting";
+            default: return {};
+            }
+        case 0x3003U:
+            switch (tag) {
+            case 0x1814U: return "MeasuredEV";
+            default: return {};
+            }
+        case 0x3004U:
+            switch (tag) {
+            case 0x080BU: return "CanonFirmwareVersion";
+            case 0x080DU: return "ROMOperationMode";
+            case 0x101CU: return "BaseISO";
+            case 0x180BU: return "UnknownNumber";
+            default: return {};
+            }
+        case 0x300AU:
+            switch (tag) {
+            case 0x0816U: return "OriginalFileName";
+            case 0x0817U: return "ThumbnailFileName";
+            case 0x100AU: return "TargetImageType";
+            case 0x1804U: return "RecordID";
+            case 0x180EU: return "TimeStamp";
+            case 0x1810U: return "ImageInfo";
+            case 0x1817U: return "FileNumber";
+            default: return {};
+            }
+        case 0x300BU:
+            switch (tag) {
+            case 0x1028U: return "CanonFlashInfo";
+            default: return {};
+            }
+        default: return {};
+        }
+    }
+
+
     static std::string_view
     contextual_exif_entry_name(const Entry& entry, ExifTagNamePolicy policy,
                                std::string_view canonical) noexcept
@@ -182,6 +337,9 @@ exif_tag_name(std::string_view ifd, uint16_t tag) noexcept
 {
     const ExifIfdGroup group = exif_ifd_group(ifd);
     if (group == ExifIfdGroup::Unknown) {
+        if (ifd == "ciff_root" || ifd.starts_with("ciff_")) {
+            return ciff_tag_name(ifd, tag);
+        }
         if (ifd.starts_with("mk_")) {
             return makernote_tag_name(ifd, tag);
         }

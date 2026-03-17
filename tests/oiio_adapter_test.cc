@@ -318,9 +318,12 @@ TEST(OiioAdapter, CollectsOiioNamedAttributes)
     const InteropSafetyStatus safe_status
         = collect_oiio_attributes_safe(store, &safe_attrs, request,
                                        &safe_error);
-    EXPECT_EQ(safe_status, InteropSafetyStatus::UnsafeData);
-    EXPECT_EQ(safe_error.reason, InteropSafetyReason::UnsafeBytes);
-    EXPECT_EQ(safe_error.field_name, "bmff:meta.test");
+    ASSERT_EQ(safe_status, InteropSafetyStatus::Ok);
+    EXPECT_TRUE(safe_error.message.empty());
+
+    const OiioAttribute* safe_bmff = find_attr(safe_attrs, "bmff:meta.test");
+    ASSERT_NE(safe_bmff, nullptr);
+    EXPECT_FALSE(safe_bmff->value.empty());
 
     std::vector<OiioTypedAttribute> safe_typed_attrs;
     const InteropSafetyStatus safe_typed_status
@@ -377,6 +380,233 @@ TEST(OiioAdapter, SafeExportSucceedsWithoutBytesValues)
     ASSERT_NE(owner_attr, nullptr);
     EXPECT_EQ(owner_attr->value.kind, MetaValueKind::Text);
     EXPECT_EQ(owner_attr->value.text_encoding, TextEncoding::Utf8);
+}
+
+TEST(OiioAdapter, SafeExportAllowsStandardExifByteTags)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+
+    const std::array<std::byte, 4> exif_version = {
+        std::byte { '0' },
+        std::byte { '2' },
+        std::byte { '3' },
+        std::byte { '1' },
+    };
+    Entry exif_ver;
+    exif_ver.key          = make_exif_tag_key(store.arena(), "exififd", 0x9000);
+    exif_ver.value        = make_bytes(store.arena(),
+                                       std::span<const std::byte>(exif_version.data(),
+                                                                  exif_version.size()));
+    exif_ver.origin.block = block;
+    exif_ver.origin.order_in_block = 0;
+    (void)store.add_entry(exif_ver);
+
+    const std::array<std::byte, 4> components = {
+        std::byte { 1 },
+        std::byte { 2 },
+        std::byte { 3 },
+        std::byte { 0 },
+    };
+    Entry components_cfg;
+    components_cfg.key = make_exif_tag_key(store.arena(), "exififd", 0x9101);
+    components_cfg.value
+        = make_bytes(store.arena(),
+                     std::span<const std::byte>(components.data(),
+                                                components.size()));
+    components_cfg.origin.block          = block;
+    components_cfg.origin.order_in_block = 1;
+    (void)store.add_entry(components_cfg);
+
+    const std::array<std::byte, 4> flashpix_version = {
+        std::byte { '0' },
+        std::byte { '1' },
+        std::byte { '0' },
+        std::byte { '0' },
+    };
+    Entry flashpix_ver;
+    flashpix_ver.key = make_exif_tag_key(store.arena(), "exififd", 0xA000);
+    flashpix_ver.value
+        = make_bytes(store.arena(),
+                     std::span<const std::byte>(flashpix_version.data(),
+                                                flashpix_version.size()));
+    flashpix_ver.origin.block          = block;
+    flashpix_ver.origin.order_in_block = 2;
+    (void)store.add_entry(flashpix_ver);
+
+    const std::array<std::byte, 4> gps_version = {
+        std::byte { 2 },
+        std::byte { 3 },
+        std::byte { 0 },
+        std::byte { 0 },
+    };
+    Entry gps_ver;
+    gps_ver.key          = make_exif_tag_key(store.arena(), "gpsifd", 0x0000);
+    gps_ver.value        = make_bytes(store.arena(),
+                                      std::span<const std::byte>(gps_version.data(),
+                                                                 gps_version.size()));
+    gps_ver.origin.block = block;
+    gps_ver.origin.order_in_block = 3;
+    (void)store.add_entry(gps_ver);
+
+    store.finalize();
+
+    OiioAdapterRequest request;
+    request.max_value_bytes = 256U;
+
+    InteropSafetyError safe_error;
+    std::vector<OiioAttribute> safe_attrs;
+    const InteropSafetyStatus safe_status
+        = collect_oiio_attributes_safe(store, &safe_attrs, request,
+                                       &safe_error);
+    ASSERT_EQ(safe_status, InteropSafetyStatus::Ok);
+    EXPECT_TRUE(safe_error.message.empty());
+
+    const OiioAttribute* exif_ver_attr = find_attr(safe_attrs,
+                                                   "Exif:ExifVersion");
+    ASSERT_NE(exif_ver_attr, nullptr);
+    EXPECT_EQ(exif_ver_attr->value, "0231");
+
+    const OiioAttribute* components_attr
+        = find_attr(safe_attrs, "Exif:ComponentsConfiguration");
+    ASSERT_NE(components_attr, nullptr);
+    EXPECT_EQ(components_attr->value, "[1, 2, 3, 0]");
+
+    const OiioAttribute* flashpix_attr = find_attr(safe_attrs,
+                                                   "Exif:FlashpixVersion");
+    ASSERT_NE(flashpix_attr, nullptr);
+    EXPECT_EQ(flashpix_attr->value, "0100");
+
+    const OiioAttribute* gps_ver_attr = find_attr(safe_attrs,
+                                                  "GPS:GPSVersionID");
+    ASSERT_NE(gps_ver_attr, nullptr);
+    EXPECT_EQ(gps_ver_attr->value, "[2, 3, 0, 0]");
+
+    std::vector<OiioTypedAttribute> safe_typed_attrs;
+    const InteropSafetyStatus safe_typed_status
+        = collect_oiio_attributes_typed_safe(store, &safe_typed_attrs, request,
+                                             &safe_error);
+    ASSERT_EQ(safe_typed_status, InteropSafetyStatus::Ok);
+
+    const OiioTypedAttribute* typed_exif_ver
+        = find_typed_attr(safe_typed_attrs, "Exif:ExifVersion");
+    ASSERT_NE(typed_exif_ver, nullptr);
+    EXPECT_EQ(typed_exif_ver->value.kind, MetaValueKind::Text);
+    EXPECT_EQ(typed_exif_ver->value.text_encoding, TextEncoding::Utf8);
+}
+
+TEST(OiioAdapter, SafeExportDecodesByteBackedTextValues)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+
+    const std::array<std::byte, 6> make_raw = {
+        std::byte { 'C' }, std::byte { 'a' }, std::byte { 'n' },
+        std::byte { 'o' }, std::byte { 'n' }, std::byte { 0 },
+    };
+    Entry make;
+    make.key          = make_exif_tag_key(store.arena(), "ifd0", 0x010F);
+    make.value        = make_bytes(store.arena(),
+                                   std::span<const std::byte>(make_raw.data(),
+                                                              make_raw.size()));
+    make.origin.block = block;
+    make.origin.order_in_block = 0;
+    (void)store.add_entry(make);
+
+    const std::array<std::byte, 13> user_comment_raw = {
+        std::byte { 'A' }, std::byte { 'S' }, std::byte { 'C' },
+        std::byte { 'I' }, std::byte { 'I' }, std::byte { 0 },
+        std::byte { 0 },   std::byte { 0 },   std::byte { 'h' },
+        std::byte { 'e' }, std::byte { 'l' }, std::byte { 'l' },
+        std::byte { 'o' },
+    };
+    Entry user_comment;
+    user_comment.key = make_exif_tag_key(store.arena(), "exififd", 0x9286);
+    user_comment.value
+        = make_bytes(store.arena(),
+                     std::span<const std::byte>(user_comment_raw.data(),
+                                                user_comment_raw.size()));
+    user_comment.origin.block          = block;
+    user_comment.origin.order_in_block = 1;
+    (void)store.add_entry(user_comment);
+
+    store.finalize();
+
+    OiioAdapterRequest request;
+    request.max_value_bytes = 256U;
+
+    InteropSafetyError safe_error;
+    std::vector<OiioAttribute> safe_attrs;
+    const InteropSafetyStatus safe_status
+        = collect_oiio_attributes_safe(store, &safe_attrs, request,
+                                       &safe_error);
+    ASSERT_EQ(safe_status, InteropSafetyStatus::Ok);
+
+    const OiioAttribute* make_attr = find_attr(safe_attrs, "Make");
+    ASSERT_NE(make_attr, nullptr);
+    EXPECT_EQ(make_attr->value, "Canon");
+
+    const OiioAttribute* user_comment_attr = find_attr(safe_attrs,
+                                                       "Exif:UserComment");
+    ASSERT_NE(user_comment_attr, nullptr);
+    EXPECT_EQ(user_comment_attr->value, "hello");
+
+    std::vector<OiioTypedAttribute> typed_attrs;
+    const InteropSafetyStatus typed_status
+        = collect_oiio_attributes_typed_safe(store, &typed_attrs, request,
+                                             &safe_error);
+    ASSERT_EQ(typed_status, InteropSafetyStatus::Ok);
+
+    const OiioTypedAttribute* typed_make = find_typed_attr(typed_attrs, "Make");
+    ASSERT_NE(typed_make, nullptr);
+    EXPECT_EQ(typed_make->value.kind, MetaValueKind::Text);
+    EXPECT_EQ(typed_make->value.text_encoding, TextEncoding::Utf8);
+
+    const OiioTypedAttribute* typed_user_comment
+        = find_typed_attr(typed_attrs, "Exif:UserComment");
+    ASSERT_NE(typed_user_comment, nullptr);
+    EXPECT_EQ(typed_user_comment->value.kind, MetaValueKind::Text);
+    EXPECT_EQ(typed_user_comment->value.text_encoding, TextEncoding::Utf8);
+}
+
+TEST(OiioAdapter, SafeExportHexEncodesInvalidTextValues)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+
+    const char invalid_make_bytes[] = { 'C', 'a', 'n', 'o', 'n', '\x01' };
+    Entry make;
+    make.key          = make_exif_tag_key(store.arena(), "ifd0", 0x010F);
+    make.value        = make_text(store.arena(),
+                                  std::string_view(invalid_make_bytes,
+                                                   sizeof(invalid_make_bytes)),
+                                  TextEncoding::Ascii);
+    make.origin.block = block;
+    make.origin.order_in_block = 0;
+    (void)store.add_entry(make);
+
+    store.finalize();
+
+    OiioAdapterRequest request;
+    request.max_value_bytes = 256U;
+
+    InteropSafetyError safe_error;
+    std::vector<OiioAttribute> safe_attrs;
+    const InteropSafetyStatus safe_status
+        = collect_oiio_attributes_safe(store, &safe_attrs, request,
+                                       &safe_error);
+    ASSERT_EQ(safe_status, InteropSafetyStatus::Ok);
+    EXPECT_TRUE(safe_error.message.empty());
+
+    const OiioAttribute* make_attr = find_attr(safe_attrs, "Make");
+    ASSERT_NE(make_attr, nullptr);
+    EXPECT_EQ(make_attr->value, "0x43616E6F6E01");
+
+    std::vector<OiioTypedAttribute> typed_attrs;
+    const InteropSafetyStatus typed_status
+        = collect_oiio_attributes_typed_safe(store, &typed_attrs, request,
+                                             &safe_error);
+    EXPECT_EQ(typed_status, InteropSafetyStatus::UnsafeData);
 }
 
 TEST(OiioAdapter, TypedExportIncludesNormalizedDngCcm)

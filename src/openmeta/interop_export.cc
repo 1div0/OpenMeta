@@ -860,7 +860,8 @@ namespace {
             out_name->append(prefix);
             out_name->append(":");
 
-            if (exif_ctx && exif_ctx->ifd_has_dng_version(ifd)) {
+            if (policy == ExportNamePolicy::Spec && exif_ctx
+                && exif_ctx->ifd_has_dng_version(ifd)) {
                 const std::string_view dng_name = dng_color_field_name(
                     e.key.data.exif_tag.tag);
                 if (!dng_name.empty()) {
@@ -1059,7 +1060,8 @@ namespace {
                 out_name->append(":");
             }
 
-            if (exif_ctx && exif_ctx->ifd_has_dng_version(ifd)) {
+            if (policy == ExportNamePolicy::Spec && exif_ctx
+                && exif_ctx->ifd_has_dng_version(ifd)) {
                 const std::string_view dng_name = dng_color_field_name(
                     e.key.data.exif_tag.tag);
                 if (!dng_name.empty()) {

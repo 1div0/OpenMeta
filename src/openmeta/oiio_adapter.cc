@@ -1,11 +1,13 @@
 #include "openmeta/oiio_adapter.h"
 
 #include "openmeta/ccm_query.h"
+#include "openmeta/console_format.h"
 
 #include "interop_safety_internal.h"
 #include "interop_value_format_internal.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cstring>
 
 namespace openmeta {
@@ -58,6 +60,267 @@ namespace {
         }
         text->resize(cut);
         text->append("...");
+    }
+
+    static bool exif_ifd_is_gps(const ByteArena& arena,
+                                const Entry& entry) noexcept
+    {
+        if (entry.key.kind != MetaKeyKind::ExifTag) {
+            return false;
+        }
+        const std::span<const std::byte> raw = arena.span(
+            entry.key.data.exif_tag.ifd);
+        const std::string_view ifd(reinterpret_cast<const char*>(raw.data()),
+                                   raw.size());
+        return ifd == "gpsifd" || ifd == "gpsinfo" || ifd.ends_with("_gpsifd");
+    }
+
+    static bool exif_byte_tag_allows_safe_oiio_text(const ByteArena& arena,
+                                                    const Entry& entry) noexcept
+    {
+        if (entry.key.kind != MetaKeyKind::ExifTag) {
+            return false;
+        }
+        switch (entry.key.data.exif_tag.tag) {
+        case 0x9000U:  // ExifVersion
+        case 0x9101U:  // ComponentsConfiguration
+        case 0xA000U:  // FlashpixVersion
+        case 0xA300U:  // FileSource
+        case 0xA301U:  // SceneType
+        case 0xA302U:  // CFAPattern
+            return true;
+        case 0x0000U: return exif_ifd_is_gps(arena, entry);  // GPSVersionID
+        default: return false;
+        }
+    }
+
+    static std::span<const std::byte>
+    trim_trailing_nul_bytes(std::span<const std::byte> raw) noexcept
+    {
+        size_t size = raw.size();
+        while (size > 0U && raw[size - 1U] == std::byte { 0 }) {
+            size -= 1U;
+        }
+        return raw.first(size);
+    }
+
+    static std::span<const std::byte>
+    trim_trailing_utf16_nuls(std::span<const std::byte> raw) noexcept
+    {
+        size_t size = raw.size();
+        while (size >= 2U && raw[size - 2U] == std::byte { 0 }
+               && raw[size - 1U] == std::byte { 0 }) {
+            size -= 2U;
+        }
+        return raw.first(size);
+    }
+
+    static bool bytes_equal(std::span<const std::byte> raw, const char* text,
+                            size_t text_size) noexcept
+    {
+        if (raw.size() != text_size) {
+            return false;
+        }
+        return std::memcmp(raw.data(), text, text_size) == 0;
+    }
+
+    static bool format_decoded_text_bytes_for_oiio(
+        std::span<const std::byte> raw, TextEncoding encoding,
+        uint32_t max_value_bytes, std::string_view field_name,
+        std::string_view key_path, std::string* out) noexcept
+    {
+        if (!out) {
+            return false;
+        }
+        out->clear();
+        if (raw.empty()) {
+            return false;
+        }
+        InteropSafetyError error {};
+        const SafeTextStatus status
+            = decode_text_to_utf8_safe(raw, encoding, field_name, key_path, out,
+                                       &error);
+        if (status != SafeTextStatus::Ok) {
+            out->clear();
+            return false;
+        }
+        truncate_utf8_for_limit(out, max_value_bytes);
+        return true;
+    }
+
+    static bool
+    format_user_comment_bytes_for_oiio(std::span<const std::byte> raw,
+                                       uint32_t max_value_bytes,
+                                       std::string* out) noexcept
+    {
+        if (!out || raw.size() < 8U) {
+            return false;
+        }
+
+        const std::span<const std::byte> prefix = raw.first(8U);
+        std::span<const std::byte> payload      = raw.subspan(8U);
+        if (bytes_equal(prefix, "ASCII\0\0\0", 8U)) {
+            payload = trim_trailing_nul_bytes(payload);
+            return format_decoded_text_bytes_for_oiio(payload,
+                                                      TextEncoding::Ascii,
+                                                      max_value_bytes,
+                                                      "UserComment",
+                                                      "Exif:UserComment", out);
+        }
+        if (bytes_equal(prefix, "UTF8\0\0\0\0", 8U)) {
+            payload = trim_trailing_nul_bytes(payload);
+            return format_decoded_text_bytes_for_oiio(payload,
+                                                      TextEncoding::Utf8,
+                                                      max_value_bytes,
+                                                      "UserComment",
+                                                      "Exif:UserComment", out);
+        }
+        if (bytes_equal(prefix, "UNICODE\0", 8U)) {
+            payload = trim_trailing_utf16_nuls(payload);
+            if (payload.size() >= 2U) {
+                const uint16_t bom_le = static_cast<uint16_t>(
+                    static_cast<uint16_t>(static_cast<uint8_t>(payload[0]))
+                    | static_cast<uint16_t>(
+                        static_cast<uint16_t>(static_cast<uint8_t>(payload[1]))
+                        << 8U));
+                if (bom_le == 0xFEFFU) {
+                    return format_decoded_text_bytes_for_oiio(
+                        payload.subspan(2U), TextEncoding::Utf16LE,
+                        max_value_bytes, "UserComment", "Exif:UserComment",
+                        out);
+                }
+                if (bom_le == 0xFFFEU) {
+                    return format_decoded_text_bytes_for_oiio(
+                        payload.subspan(2U), TextEncoding::Utf16BE,
+                        max_value_bytes, "UserComment", "Exif:UserComment",
+                        out);
+                }
+            }
+            return format_decoded_text_bytes_for_oiio(payload,
+                                                      TextEncoding::Utf16LE,
+                                                      max_value_bytes,
+                                                      "UserComment",
+                                                      "Exif:UserComment", out);
+        }
+
+        return false;
+    }
+
+    static bool format_text_like_bytes_for_oiio(std::string_view field_name,
+                                                std::string_view key_path,
+                                                const Entry& entry,
+                                                std::span<const std::byte> raw,
+                                                uint32_t max_value_bytes,
+                                                std::string* out) noexcept
+    {
+        if (!out) {
+            return false;
+        }
+        if (entry.key.kind != MetaKeyKind::ExifTag) {
+            return false;
+        }
+        if (entry.key.kind == MetaKeyKind::ExifTag
+            && entry.key.data.exif_tag.tag == 0x9286U
+            && format_user_comment_bytes_for_oiio(raw, max_value_bytes, out)) {
+            return true;
+        }
+
+        const std::span<const std::byte> trimmed = trim_trailing_nul_bytes(raw);
+        if (trimmed.empty()) {
+            return false;
+        }
+
+        if (format_decoded_text_bytes_for_oiio(trimmed, TextEncoding::Ascii,
+                                               max_value_bytes, field_name,
+                                               key_path, out)) {
+            return true;
+        }
+        return format_decoded_text_bytes_for_oiio(trimmed, TextEncoding::Utf8,
+                                                  max_value_bytes, field_name,
+                                                  key_path, out);
+    }
+
+    static bool format_small_byte_sequence_text(std::span<const std::byte> raw,
+                                                std::string* out) noexcept
+    {
+        if (!out || raw.empty()) {
+            return false;
+        }
+        out->clear();
+        if (raw.size() == 1U) {
+            *out = std::to_string(
+                static_cast<unsigned>(static_cast<uint8_t>(raw[0])));
+            return true;
+        }
+        out->push_back('[');
+        for (size_t i = 0U; i < raw.size(); ++i) {
+            if (i != 0U) {
+                out->append(", ");
+            }
+            out->append(std::to_string(
+                static_cast<unsigned>(static_cast<uint8_t>(raw[i]))));
+        }
+        out->push_back(']');
+        return true;
+    }
+
+    static bool format_safe_exif_bytes_for_oiio(const ByteArena& arena,
+                                                const Entry& entry,
+                                                uint32_t max_value_bytes,
+                                                std::string* out) noexcept
+    {
+        if (!out || !exif_byte_tag_allows_safe_oiio_text(arena, entry)) {
+            return false;
+        }
+
+        const MetaValue& value = entry.value;
+        if (value.kind != MetaValueKind::Bytes) {
+            return false;
+        }
+
+        const std::span<const std::byte> raw = arena.span(value.data.span);
+        if (raw.empty()) {
+            return false;
+        }
+
+        const uint16_t tag = entry.key.data.exif_tag.tag;
+        if (tag == 0x9000U || tag == 0xA000U) {
+            out->clear();
+            for (size_t i = 0U; i < raw.size(); ++i) {
+                const unsigned char c = static_cast<unsigned char>(
+                    static_cast<uint8_t>(raw[i]));
+                if (c == 0U) {
+                    break;
+                }
+                if (!std::isprint(c)) {
+                    out->clear();
+                    break;
+                }
+                out->push_back(static_cast<char>(c));
+            }
+            if (!out->empty()) {
+                truncate_utf8_for_limit(out, max_value_bytes);
+                return true;
+            }
+        }
+
+        if (!format_small_byte_sequence_text(raw, out)) {
+            return false;
+        }
+        truncate_utf8_for_limit(out, max_value_bytes);
+        return true;
+    }
+
+    static void format_safe_bytes_hex_for_oiio(std::span<const std::byte> raw,
+                                               uint32_t max_value_bytes,
+                                               std::string* out) noexcept
+    {
+        if (!out) {
+            return;
+        }
+        out->clear();
+        out->append("0x");
+        append_hex_bytes(raw, max_value_bytes, out);
     }
 
     static bool copy_typed_value(const ByteArena& arena, const MetaValue& in,
@@ -291,17 +554,32 @@ namespace {
                                                item.name, item.name,
                                                &value_text, error_);
                 if (s == SafeTextStatus::Error) {
-                    status_ = InteropSafetyStatus::UnsafeData;
-                    return;
+                    format_safe_bytes_hex_for_oiio(raw, max_value_bytes_,
+                                                   &value_text);
+                    if (error_) {
+                        *error_ = InteropSafetyError {};
+                    }
+                    has_value = !value_text.empty();
+                } else {
+                    has_value = (s == SafeTextStatus::Ok);
+                    truncate_utf8_for_limit(&value_text, max_value_bytes_);
                 }
-                has_value = (s == SafeTextStatus::Ok);
-                truncate_utf8_for_limit(&value_text, max_value_bytes_);
             } else if (value.kind == MetaValueKind::Bytes) {
-                set_safety_error(error_, InteropSafetyReason::UnsafeBytes,
-                                 item.name, item.name,
-                                 "unsafe bytes value in OIIO attribute");
-                status_ = InteropSafetyStatus::UnsafeData;
-                return;
+                const std::span<const std::byte> raw = arena_.span(
+                    value.data.span);
+                if (format_safe_exif_bytes_for_oiio(arena_, *item.entry,
+                                                    max_value_bytes_,
+                                                    &value_text)
+                    || format_text_like_bytes_for_oiio(item.name, item.name,
+                                                       *item.entry, raw,
+                                                       max_value_bytes_,
+                                                       &value_text)) {
+                    has_value = !value_text.empty();
+                } else {
+                    format_safe_bytes_hex_for_oiio(raw, max_value_bytes_,
+                                                   &value_text);
+                    has_value = !value_text.empty();
+                }
             } else {
                 has_value = interop_internal::format_value_for_text(
                     arena_, value, max_value_bytes_, &value_text);
@@ -384,11 +662,35 @@ namespace {
                 attribute.value.data.span = ByteSpan { 0U,
                                                        attribute.value.count };
             } else if (value.kind == MetaValueKind::Bytes) {
-                set_safety_error(error_, InteropSafetyReason::UnsafeBytes,
-                                 item.name, item.name,
-                                 "unsafe bytes value in typed OIIO attribute");
-                status_ = InteropSafetyStatus::UnsafeData;
-                return;
+                const std::span<const std::byte> raw = arena_.span(
+                    value.data.span);
+                std::string formatted;
+                if (!format_safe_exif_bytes_for_oiio(arena_, *item.entry,
+                                                     max_value_bytes_,
+                                                     &formatted)
+                    && !format_text_like_bytes_for_oiio(item.name, item.name,
+                                                        *item.entry, raw,
+                                                        max_value_bytes_,
+                                                        &formatted)) {
+                    set_safety_error(
+                        error_, InteropSafetyReason::UnsafeBytes, item.name,
+                        item.name,
+                        "unsafe bytes value in typed OIIO attribute");
+                    status_ = InteropSafetyStatus::UnsafeData;
+                    return;
+                }
+                has_value                     = !formatted.empty();
+                attribute.value.kind          = MetaValueKind::Text;
+                attribute.value.elem_type     = MetaElementType::U8;
+                attribute.value.text_encoding = TextEncoding::Utf8;
+                attribute.value.storage.assign(
+                    reinterpret_cast<const std::byte*>(formatted.data()),
+                    reinterpret_cast<const std::byte*>(formatted.data())
+                        + formatted.size());
+                attribute.value.count = static_cast<uint32_t>(
+                    attribute.value.storage.size());
+                attribute.value.data.span = ByteSpan { 0U,
+                                                       attribute.value.count };
             }
 
             if (!has_value && !include_empty_

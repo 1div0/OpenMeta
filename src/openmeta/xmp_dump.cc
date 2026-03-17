@@ -1,5 +1,6 @@
 #include "openmeta/xmp_dump.h"
 
+#include "interop_safety_internal.h"
 #include "openmeta/exif_tag_names.h"
 #include "openmeta/geotiff_key_names.h"
 #include "openmeta/meta_key.h"
@@ -1770,6 +1771,221 @@ namespace {
         return true;
     }
 
+    static bool
+    emit_portable_property_text_utf8(SpanWriter* w, std::string_view prefix,
+                                     std::string_view name,
+                                     std::string_view value) noexcept
+    {
+        if (!w || prefix.empty() || name.empty()) {
+            return false;
+        }
+        w->append(kIndent3);
+        w->append("<");
+        w->append(prefix);
+        w->append(":");
+        w->append(name);
+        w->append(">");
+        append_xml_safe_utf8(value, w);
+        w->append("</");
+        w->append(prefix);
+        w->append(":");
+        w->append(name);
+        w->append(">\n");
+        return true;
+    }
+
+    static bool exif_tag_is_portable_date_text(uint16_t tag) noexcept
+    {
+        switch (tag) {
+        case 0x0132U:  // DateTime
+        case 0x9003U:  // DateTimeOriginal
+        case 0x9004U:  // DateTimeDigitized
+        case 0xC71BU:  // PreviewDateTime
+            return true;
+        default: return false;
+        }
+    }
+
+    static bool exif_tag_is_windows_xp_text(uint16_t tag) noexcept
+    {
+        switch (tag) {
+        case 0x9C9BU:  // XPTitle
+        case 0x9C9CU:  // XPComment
+        case 0x9C9DU:  // XPAuthor
+        case 0x9C9EU:  // XPKeywords
+        case 0x9C9FU:  // XPSubject
+            return true;
+        default: return false;
+        }
+    }
+
+    static bool portable_skip_invalid_rational_tag(uint16_t tag) noexcept
+    {
+        switch (tag) {
+        case 0x011AU:  // XResolution
+        case 0x011BU:  // YResolution
+        case 0x920BU:  // FlashEnergy
+        case 0xA20BU:  // FlashEnergy alias
+        case 0xA20EU:  // FocalPlaneXResolution
+        case 0xA20FU:  // FocalPlaneYResolution
+        case 0xA500U:  // Gamma
+        case 0xC620U:  // DefaultScale
+        case 0xC62AU:  // BaselineExposure
+        case 0xC793U:  // OriginalDefaultCropSize
+            return true;
+        default: return false;
+        }
+    }
+
+    static bool trim_ascii_nuls_and_spaces(std::string_view input,
+                                           std::string_view* out) noexcept
+    {
+        if (!out) {
+            return false;
+        }
+        size_t begin = 0U;
+        size_t end   = input.size();
+        while (begin < end) {
+            const char c = input[begin];
+            if (c != '\0' && !std::isspace(static_cast<unsigned char>(c))) {
+                break;
+            }
+            begin += 1U;
+        }
+        while (end > begin) {
+            const char c = input[end - 1U];
+            if (c != '\0' && !std::isspace(static_cast<unsigned char>(c))) {
+                break;
+            }
+            end -= 1U;
+        }
+        *out = input.substr(begin, end - begin);
+        return true;
+    }
+
+    static bool exif_date_text_to_xmp(std::string_view input,
+                                      std::string* out) noexcept
+    {
+        if (!out) {
+            return false;
+        }
+        out->clear();
+
+        std::string_view s;
+        if (!trim_ascii_nuls_and_spaces(input, &s)) {
+            return false;
+        }
+        if (s.size() < 19U) {
+            return false;
+        }
+
+        const char date_sep         = s[4];
+        const char time_sep         = s[13];
+        const char date_time_sep    = s[10];
+        const bool date_sep_ok      = (date_sep == ':' || date_sep == '-');
+        const bool time_sep_ok      = (time_sep == ':' || time_sep == '.');
+        const bool date_time_sep_ok = (date_time_sep == ' '
+                                       || date_time_sep == 'T'
+                                       || date_time_sep == 't');
+        if (!date_sep_ok || !time_sep_ok || !date_time_sep_ok
+            || s[7] != date_sep || s[16] != time_sep) {
+            return false;
+        }
+        for (size_t i = 0U; i < 19U; ++i) {
+            if (i == 4U || i == 7U || i == 10U || i == 13U || i == 16U) {
+                continue;
+            }
+            if (s[i] < '0' || s[i] > '9') {
+                return false;
+            }
+        }
+
+        out->reserve(25U);
+        out->append(s.substr(0U, 4U));
+        out->push_back('-');
+        out->append(s.substr(5U, 2U));
+        out->push_back('-');
+        out->append(s.substr(8U, 2U));
+        out->push_back('T');
+        out->append(s.substr(11U, 2U));
+        out->push_back(':');
+        out->append(s.substr(14U, 2U));
+        out->push_back(':');
+        out->append(s.substr(17U, 2U));
+
+        std::string_view suffix;
+        (void)trim_ascii_nuls_and_spaces(s.substr(19U), &suffix);
+        if (suffix.empty()) {
+            return true;
+        }
+
+        if (suffix == "Z" || suffix == "z" || suffix == "UTC"
+            || suffix == "utc") {
+            out->push_back('Z');
+            return true;
+        }
+
+        if ((suffix[0] == '+' || suffix[0] == '-') && suffix.size() >= 3U) {
+            if (suffix.size() == 5U
+                && std::isdigit(static_cast<unsigned char>(suffix[1]))
+                && std::isdigit(static_cast<unsigned char>(suffix[2]))
+                && std::isdigit(static_cast<unsigned char>(suffix[3]))
+                && std::isdigit(static_cast<unsigned char>(suffix[4]))) {
+                out->push_back(suffix[0]);
+                out->push_back(suffix[1]);
+                out->push_back(suffix[2]);
+                out->push_back(':');
+                out->push_back(suffix[3]);
+                out->push_back(suffix[4]);
+                return true;
+            }
+            if (suffix.size() == 6U
+                && std::isdigit(static_cast<unsigned char>(suffix[1]))
+                && std::isdigit(static_cast<unsigned char>(suffix[2]))
+                && suffix[3] == ':'
+                && std::isdigit(static_cast<unsigned char>(suffix[4]))
+                && std::isdigit(static_cast<unsigned char>(suffix[5]))) {
+                out->append(suffix);
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    static bool decode_windows_xp_utf16le_text(std::span<const std::byte> raw,
+                                               std::string* out) noexcept
+    {
+        if (!out) {
+            return false;
+        }
+        out->clear();
+        if (raw.empty()) {
+            return true;
+        }
+        size_t size = raw.size();
+        while (size >= 2U && raw[size - 2U] == std::byte { 0x00 }
+               && raw[size - 1U] == std::byte { 0x00 }) {
+            size -= 2U;
+        }
+        if (size == 0U) {
+            return true;
+        }
+        if ((size % 2U) != 0U) {
+            return false;
+        }
+
+        InteropSafetyError error {};
+        const interop_internal::SafeTextStatus status
+            = interop_internal::decode_text_to_utf8_safe(raw.first(size),
+                                                         TextEncoding::Utf16LE,
+                                                         "WindowsXPText",
+                                                         "tiff:xp", out,
+                                                         &error);
+        return status == interop_internal::SafeTextStatus::Ok
+               || status == interop_internal::SafeTextStatus::Empty;
+    }
+
     static bool scalar_u64_value(const MetaValue& v, uint64_t* out) noexcept
     {
         if (!out || v.kind != MetaValueKind::Scalar) {
@@ -2621,6 +2837,45 @@ namespace {
         }
 
         if (prefix != "exif") {
+            if (prefix == "tiff" && exif_tag_is_windows_xp_text(tag)) {
+                std::span<const std::byte> raw {};
+                if (v.kind == MetaValueKind::Bytes
+                    || v.kind == MetaValueKind::Text
+                    || v.kind == MetaValueKind::Array) {
+                    raw = arena.span(v.data.span);
+                } else {
+                    return false;
+                }
+                std::string decoded;
+                if (!decode_windows_xp_utf16le_text(raw, &decoded)) {
+                    return true;
+                }
+                return emit_portable_property_text_utf8(w, prefix, name,
+                                                        decoded);
+            }
+            if (prefix == "tiff" && exif_tag_is_portable_date_text(tag)
+                && (v.kind == MetaValueKind::Text
+                    || v.kind == MetaValueKind::Bytes)) {
+                std::string_view raw_text {};
+                if (v.kind == MetaValueKind::Text) {
+                    raw_text = arena_string(arena, v.data.span);
+                } else {
+                    const std::span<const std::byte> raw = arena.span(
+                        v.data.span);
+                    if (!bytes_are_ascii_text(raw)) {
+                        return true;
+                    }
+                    raw_text = std::string_view(reinterpret_cast<const char*>(
+                                                    raw.data()),
+                                                raw.size());
+                }
+                std::string normalized;
+                if (exif_date_text_to_xmp(raw_text, &normalized)) {
+                    return emit_portable_property_text(w, prefix, name,
+                                                       normalized);
+                }
+                return false;
+            }
             return false;
         }
 
@@ -2630,16 +2885,59 @@ namespace {
             return emit_portable_property_text(w, prefix, name, gps_ref_text);
         }
 
+        if (exif_tag_is_portable_date_text(tag)
+            && (v.kind == MetaValueKind::Text
+                || v.kind == MetaValueKind::Bytes)) {
+            std::string_view raw_text {};
+            if (v.kind == MetaValueKind::Text) {
+                raw_text = arena_string(arena, v.data.span);
+            } else {
+                const std::span<const std::byte> raw = arena.span(v.data.span);
+                if (!bytes_are_ascii_text(raw)) {
+                    return true;
+                }
+                raw_text = std::string_view(reinterpret_cast<const char*>(
+                                                raw.data()),
+                                            raw.size());
+            }
+            std::string normalized;
+            if (exif_date_text_to_xmp(raw_text, &normalized)) {
+                return emit_portable_property_text(w, prefix, name, normalized);
+            }
+        }
+
+        if ((tag == 0x9286U || tag == 0xA40BU) && v.kind == MetaValueKind::Array
+            && v.elem_type != MetaElementType::U8) {
+            // Portable XMP should not serialize malformed numeric-array
+            // payloads for EXIF blob/text tags like UserComment and
+            // DeviceSettingDescription. ExifTool effectively collapses these
+            // to a meaningless first scalar on XMP re-read, so skip them.
+            return true;
+        }
+
         if (tag == 0xA432U) {  // LensSpecification
             return emit_exif_lens_specification_decimal_seq(w, prefix, name,
                                                             arena, v);
         }
 
-        if (tag == 0x0002U || tag == 0x0004U) {  // GPSLatitude/GPSLongitude
+        if (tag == 0x0002U || tag == 0x0004U || tag == 0x0014U
+            || tag == 0x0016U) {  // GPSLatitude/GPSLongitude/GPSDest*
             std::string gps_coord;
-            const uint16_t ref_tag = (tag == 0x0002U) ? 0x0001U : 0x0003U;
+            uint16_t ref_tag = 0U;
+            bool is_latitude = false;
+            if (tag == 0x0002U) {
+                ref_tag     = 0x0001U;
+                is_latitude = true;
+            } else if (tag == 0x0004U) {
+                ref_tag = 0x0003U;
+            } else if (tag == 0x0014U) {
+                ref_tag     = 0x0013U;
+                is_latitude = true;
+            } else {
+                ref_tag = 0x0015U;
+            }
             if (exif_gps_coord_text(arena, entries, ifd, v, ref_tag,
-                                    tag == 0x0002U, &gps_coord)) {
+                                    is_latitude, &gps_coord)) {
                 return emit_portable_property_text(w, prefix, name, gps_coord);
             }
             // Skip malformed/ambiguous GPS coordinates in portable output.
@@ -2653,6 +2951,21 @@ namespace {
             }
             // GPSTimeStamp in XMP is a date-time type; when EXIF lacks
             // supporting GPSDateStamp or carries invalid parts, skip it.
+            return true;
+        }
+
+        if (tag == 0x0006U) {  // GPSAltitude
+            URational altitude {};
+            if (!first_valid_urational_value(arena, v, &altitude)) {
+                return true;
+            }
+            double d = 0.0;
+            std::string altitude_text;
+            if (urational_to_double(altitude, &d) && std::isfinite(d)
+                && d >= 0.0 && format_decimal_trimmed(d, 8U, &altitude_text)) {
+                return emit_portable_property_text(w, prefix, name,
+                                                   altitude_text);
+            }
             return true;
         }
 
@@ -2702,7 +3015,7 @@ namespace {
             double apex = 0.0;
             if (urational_to_double(ur, &apex)) {
                 const double fnum = std::pow(2.0, apex * 0.5);
-                if (std::isfinite(fnum) && fnum <= 1.0e5) {
+                if (std::isfinite(fnum) && fnum <= 1024.0) {
                     std::snprintf(buf, sizeof(buf), "%.1f", fnum);
                     return emit_portable_property_text(w, prefix, name, buf);
                 }
@@ -2914,10 +3227,11 @@ namespace {
             return false;
         }
 
-        // Portable output should skip malformed rationals for common scalar tags.
-        if ((tag == 0x011AU || tag == 0x011BU || tag == 0xC620U
-             || tag == 0xC793U)
-            && has_invalid_urational_value(arena, e.value)) {
+        // Portable output should skip malformed rationals for scalar tags that
+        // ExifTool normalizes to undefined or omits on XMP re-read.
+        if (portable_skip_invalid_rational_tag(tag)
+            && (has_invalid_urational_value(arena, e.value)
+                || has_invalid_srational_value(arena, e.value))) {
             return false;
         }
         if (tag == 0x9203U && has_invalid_srational_value(arena, e.value)) {

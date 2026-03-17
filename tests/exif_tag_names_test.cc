@@ -37,6 +37,36 @@ TEST(ExifTagNames, MapsCommonTags)
 }
 
 
+TEST(ExifTagNames, MapsNativeCrwCiffTags)
+{
+    using openmeta::exif_tag_name;
+
+    EXPECT_EQ(exif_tag_name("ciff_root", 0x2005), std::string_view("RawData"));
+    EXPECT_EQ(exif_tag_name("ciff_2804_0", 0x0805),
+              std::string_view("CanonFileDescription"));
+    EXPECT_EQ(exif_tag_name("ciff_2807_1", 0x080A),
+              std::string_view("MakeModel"));
+    EXPECT_EQ(exif_tag_name("ciff_2807_1", 0x0810),
+              std::string_view("OwnerName"));
+    EXPECT_EQ(exif_tag_name("ciff_300A_2", 0x0816),
+              std::string_view("OriginalFileName"));
+    EXPECT_EQ(exif_tag_name("ciff_300A_2", 0x1810),
+              std::string_view("ImageInfo"));
+    EXPECT_EQ(exif_tag_name("ciff_3003_3", 0x1814),
+              std::string_view("MeasuredEV"));
+    EXPECT_EQ(exif_tag_name("ciff_3004_3", 0x101C),
+              std::string_view("BaseISO"));
+    EXPECT_EQ(exif_tag_name("ciff_300B_4", 0x1028),
+              std::string_view("CanonFlashInfo"));
+    EXPECT_EQ(exif_tag_name("ciff_300A_2_timestamp", 0x0001),
+              std::string_view("TimeZoneCode"));
+    EXPECT_EQ(exif_tag_name("ciff_300A_2_imageinfo", 0x0002),
+              std::string_view("PixelAspectRatio"));
+    EXPECT_EQ(exif_tag_name("ciff_3002_1_exposureinfo", 0x0001),
+              std::string_view("ShutterSpeedValue"));
+}
+
+
 TEST(ExifTagNames, UnknownReturnsEmpty)
 {
     using openmeta::exif_tag_name;

@@ -279,7 +279,7 @@ TEST(InteropExport, PortableStyleSkipsPointersAndMakerNotes)
     EXPECT_TRUE(contains_name(names, "exif:ExposureCompensation"));
     EXPECT_TRUE(contains_name(names, "exif:CreateDate"));
     EXPECT_TRUE(contains_name(names, "exif:FNumber"));
-    EXPECT_TRUE(contains_name(names, "dng:ColorMatrix1"));
+    EXPECT_TRUE(contains_name(names, "tiff:ColorMatrix1"));
     EXPECT_TRUE(contains_name(names, "icc:cmm_type"));
     EXPECT_TRUE(contains_name(names, "icc:tag:0x64657363"));
     EXPECT_FALSE(contains_name(names, "tiff:DateTime"));
@@ -321,7 +321,7 @@ TEST(InteropExport, OiioStyleRespectsMakerNoteSwitch)
     EXPECT_TRUE(contains_name(names_without_mk, "Exif:ISO"));
     EXPECT_TRUE(contains_name(names_without_mk, "Exif:ExposureCompensation"));
     EXPECT_TRUE(contains_name(names_without_mk, "Exif:CreateDate"));
-    EXPECT_TRUE(contains_name(names_without_mk, "DNG:ColorMatrix1"));
+    EXPECT_TRUE(contains_name(names_without_mk, "ColorMatrix1"));
     EXPECT_TRUE(contains_name(names_without_mk, "ICC:cmm_type"));
     EXPECT_TRUE(contains_name(names_without_mk, "ICC:tag:0x64657363"));
     EXPECT_TRUE(contains_name(names_without_mk, "Copyright"));
@@ -348,7 +348,7 @@ TEST(InteropExport, OiioStyleRetainsKnownHintsWithUnknownIfdNoise)
     visit_metadata(store, options, sink);
 
     EXPECT_TRUE(contains_name(names, "ModifyDate"));
-    EXPECT_TRUE(contains_name(names, "DNG:ColorMatrix1"));
+    EXPECT_TRUE(contains_name(names, "ColorMatrix1"));
     EXPECT_TRUE(contains_name(names, "Exif:CreateDate"));
 }
 
@@ -415,6 +415,7 @@ TEST(InteropExport, SpecPolicyPreservesNativeTagNames)
     }
 
     EXPECT_TRUE(contains_name(portable_names, "tiff:DateTime"));
+    EXPECT_TRUE(contains_name(portable_names, "dng:ColorMatrix1"));
     EXPECT_TRUE(contains_name(portable_names, "exif:ISOSpeedRatings"));
     EXPECT_TRUE(contains_name(portable_names, "exif:ExposureBiasValue"));
     EXPECT_TRUE(contains_name(portable_names, "exif:DateTimeDigitized"));
@@ -423,6 +424,7 @@ TEST(InteropExport, SpecPolicyPreservesNativeTagNames)
     EXPECT_FALSE(contains_name(portable_names, "tiff:Exif_0xc5d8"));
 
     EXPECT_TRUE(contains_name(oiio_names, "DateTime"));
+    EXPECT_TRUE(contains_name(oiio_names, "DNG:ColorMatrix1"));
     EXPECT_TRUE(contains_name(oiio_names, "Exif:ISOSpeedRatings"));
     EXPECT_TRUE(contains_name(oiio_names, "Exif:ExposureBiasValue"));
     EXPECT_TRUE(contains_name(oiio_names, "Exif:DateTimeDigitized"));

@@ -175,7 +175,9 @@ collect_oiio_attributes(const MetaStore& store, std::vector<OiioAttribute>* out,
  * \brief Strict safe export for OIIO-style name/value attributes.
  *
  * Unlike \ref collect_oiio_attributes, this API fails when unsafe payloads are
- * encountered (for example raw bytes or invalid/unsafe text sequences).
+ * encountered (for example invalid/unsafe text sequences). Byte payloads are
+ * normalized to safe textual form when possible and otherwise emitted as ASCII
+ * hex text.
  */
 InteropSafetyStatus
 collect_oiio_attributes_safe(const MetaStore& store,
@@ -196,7 +198,8 @@ collect_oiio_attributes_typed(const MetaStore& store,
  * \brief Strict safe export for OIIO-style typed attributes.
  *
  * Text values are validated and normalized to UTF-8 with
- * \ref TextEncoding::Utf8. Raw bytes payloads are rejected.
+ * \ref TextEncoding::Utf8. Byte payloads are accepted only when they can be
+ * normalized to safe UTF-8 text; otherwise they are rejected.
  */
 InteropSafetyStatus
 collect_oiio_attributes_typed_safe(const MetaStore& store,

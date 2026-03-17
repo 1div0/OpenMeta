@@ -25,6 +25,12 @@ namespace {
         out->push_back(std::byte { static_cast<uint8_t>((v >> 0) & 0xFFU) });
     }
 
+    static void append_u16le(std::vector<std::byte>* out, uint16_t v)
+    {
+        out->push_back(std::byte { static_cast<uint8_t>((v >> 0) & 0xFFU) });
+        out->push_back(std::byte { static_cast<uint8_t>((v >> 8) & 0xFFU) });
+    }
+
     static void append_u32be(std::vector<std::byte>* out, uint32_t v)
     {
         out->push_back(std::byte { static_cast<uint8_t>((v >> 24) & 0xFFU) });
@@ -210,6 +216,32 @@ namespace {
         k.kind                   = MetaKeyKind::JumbfField;
         k.data.jumbf_field.field = field;
         return !store.find_all(k).empty();
+    }
+
+    static bool store_has_exif_text_value(const MetaStore& store,
+                                          std::string_view ifd, uint16_t tag,
+                                          std::string_view expected)
+    {
+        MetaKeyView key;
+        key.kind                           = MetaKeyKind::ExifTag;
+        key.data.exif_tag.ifd              = ifd;
+        key.data.exif_tag.tag              = tag;
+        const std::span<const EntryId> ids = store.find_all(key);
+        for (size_t i = 0; i < ids.size(); ++i) {
+            const Entry& e = store.entry(ids[i]);
+            if (e.value.kind != MetaValueKind::Text) {
+                continue;
+            }
+            const std::span<const std::byte> bytes = store.arena().span(
+                e.value.data.span);
+            const std::string_view text(reinterpret_cast<const char*>(
+                                            bytes.data()),
+                                        bytes.size());
+            if (text == expected) {
+                return true;
+            }
+        }
+        return false;
     }
 
 
@@ -639,6 +671,53 @@ namespace {
         return bytes;
     }
 
+    TEST(C2paContainers, JxlBrobDispatchesExif)
+    {
+        std::vector<std::byte> exif_payload;
+        append_u32be(&exif_payload, 4U);
+        append_bytes(&exif_payload, "II");
+        append_u16le(&exif_payload, 42U);
+        append_u32le(&exif_payload, 8U);
+        append_u16le(&exif_payload, 1U);
+        append_u16le(&exif_payload, 0x010FU);
+        append_u16le(&exif_payload, 2U);
+        append_u32le(&exif_payload, 6U);
+        append_u32le(&exif_payload, 26U);
+        append_u32le(&exif_payload, 0U);
+        append_bytes(&exif_payload, "Canon");
+        exif_payload.push_back(std::byte { 0x00 });
+
+        const std::vector<std::byte> brotli = brotli_compress(exif_payload);
+        ASSERT_FALSE(brotli.empty());
+
+        std::vector<std::byte> brob_payload;
+        append_fourcc(&brob_payload, fourcc('E', 'x', 'i', 'f'));
+        brob_payload.insert(brob_payload.end(), brotli.begin(), brotli.end());
+
+        std::vector<std::byte> jxl;
+        append_u32be(&jxl, 12);
+        append_fourcc(&jxl, fourcc('J', 'X', 'L', ' '));
+        append_u32be(&jxl, 0x0D0A870A);
+        append_bmff_box(&jxl, fourcc('b', 'r', 'o', 'b'), brob_payload);
+
+        MetaStore store;
+        std::array<ContainerBlockRef, 32> blocks {};
+        std::array<ExifIfdRef, 16> ifds {};
+        std::array<std::byte, 65536> payload {};
+        std::array<uint32_t, 128> payload_parts {};
+        SimpleMetaDecodeOptions options;
+
+        const SimpleMetaResult read = simple_meta_read(jxl, store, blocks, ifds,
+                                                       payload, payload_parts,
+                                                       options);
+        EXPECT_EQ(read.scan.status, ScanStatus::Ok);
+        EXPECT_EQ(read.exif.status, ExifDecodeStatus::Ok);
+        EXPECT_GT(read.exif.entries_decoded, 0U);
+
+        store.finalize();
+        EXPECT_TRUE(store_has_exif_text_value(store, "ifd0", 0x010FU, "Canon"));
+    }
+
     TEST(C2paContainers, JxlBrobDispatchesJumbf)
     {
         // brob(realtype=jumb) where the compressed bytes contain the *payload*
@@ -680,6 +759,11 @@ namespace {
     }
 
 #else
+
+    TEST(C2paContainers, JxlBrobDispatchesExif)
+    {
+        GTEST_SKIP() << "Brotli decode+encode support is not enabled.";
+    }
 
     TEST(C2paContainers, JxlBrobDispatchesJumbf)
     {

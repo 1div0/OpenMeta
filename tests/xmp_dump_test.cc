@@ -33,6 +33,22 @@ namespace {
         return count;
     }
 
+    static std::vector<std::byte>
+    make_utf16le_ascii_bytes(std::string_view s, bool nul_terminate = true)
+    {
+        std::vector<std::byte> out;
+        out.reserve((s.size() + (nul_terminate ? 1U : 0U)) * 2U);
+        for (size_t i = 0U; i < s.size(); ++i) {
+            out.push_back(static_cast<std::byte>(s[i]));
+            out.push_back(std::byte { 0x00 });
+        }
+        if (nul_terminate) {
+            out.push_back(std::byte { 0x00 });
+            out.push_back(std::byte { 0x00 });
+        }
+        return out;
+    }
+
 }  // namespace
 
 TEST(XmpDump, EmitsValidPacketAndKey)
@@ -667,6 +683,117 @@ TEST(XmpDump, PortableNormalizesRationalAndSkipsXmlPacket)
     EXPECT_EQ(s.find("<tiff:DNGPrivateData>"), std::string_view::npos);
 }
 
+TEST(XmpDump, PortableNormalizesExifDateTagsToXmpDateTime)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, kInvalidBlockId);
+
+    Entry dt;
+    dt.key          = make_exif_tag_key(store.arena(), "ifd0", 0x0132);
+    dt.value        = make_text(store.arena(), "2010-11-14 16:25:16 UTC",
+                                TextEncoding::Ascii);
+    dt.origin.block = block;
+    dt.origin.order_in_block = 0;
+    (void)store.add_entry(dt);
+
+    Entry dto;
+    dto.key          = make_exif_tag_key(store.arena(), "exififd", 0x9003);
+    dto.value        = make_text(store.arena(), "2010:11:14 16:25:16",
+                                 TextEncoding::Ascii);
+    dto.origin.block = block;
+    dto.origin.order_in_block = 1;
+    (void)store.add_entry(dto);
+
+    Entry pdt;
+    pdt.key          = make_exif_tag_key(store.arena(), "ifd0", 0xC71B);
+    pdt.value        = make_text(store.arena(), "2010:11:14 16:25:16+0900",
+                                 TextEncoding::Ascii);
+    pdt.origin.block = block;
+    pdt.origin.order_in_block = 2;
+    (void)store.add_entry(pdt);
+
+    store.finalize();
+
+    XmpPortableOptions opts;
+    opts.include_exif         = true;
+    opts.include_existing_xmp = false;
+
+    std::vector<std::byte> out(4096);
+    const XmpDumpResult r
+        = dump_xmp_portable(store, std::span<std::byte>(out.data(), out.size()),
+                            opts);
+    ASSERT_EQ(r.status, XmpDumpStatus::Ok);
+
+    const std::string_view s(reinterpret_cast<const char*>(out.data()),
+                             static_cast<size_t>(r.written));
+    EXPECT_NE(s.find("<tiff:DateTime>2010-11-14T16:25:16Z</tiff:DateTime>"),
+              std::string_view::npos);
+    EXPECT_NE(
+        s.find(
+            "<exif:DateTimeOriginal>2010-11-14T16:25:16</exif:DateTimeOriginal>"),
+        std::string_view::npos);
+    EXPECT_NE(
+        s.find(
+            "<tiff:PreviewDateTime>2010-11-14T16:25:16+09:00</tiff:PreviewDateTime>"),
+        std::string_view::npos);
+}
+
+TEST(XmpDump, PortableDecodesWindowsXpTextTagsAsUtf8Text)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, kInvalidBlockId);
+
+    const std::vector<std::byte> keywords = make_utf16le_ascii_bytes(
+        "alpha;beta");
+    Entry xp_keywords;
+    xp_keywords.key          = make_exif_tag_key(store.arena(), "ifd0", 0x9C9E);
+    xp_keywords.value        = make_array(store.arena(), MetaElementType::U8,
+                                          std::span<const std::byte>(keywords.data(),
+                                                                     keywords.size()),
+                                          1U);
+    xp_keywords.origin.block = block;
+    xp_keywords.origin.order_in_block = 0;
+    (void)store.add_entry(xp_keywords);
+
+    const std::array<std::byte, 8> empty_subject = {
+        std::byte { 0x00 }, std::byte { 0x00 }, std::byte { 0x00 },
+        std::byte { 0x00 }, std::byte { 0x00 }, std::byte { 0x00 },
+        std::byte { 0x00 }, std::byte { 0x00 },
+    };
+    Entry xp_subject;
+    xp_subject.key = make_exif_tag_key(store.arena(), "ifd0", 0x9C9F);
+    xp_subject.value
+        = make_array(store.arena(), MetaElementType::U8,
+                     std::span<const std::byte>(empty_subject.data(),
+                                                empty_subject.size()),
+                     1U);
+    xp_subject.origin.block          = block;
+    xp_subject.origin.order_in_block = 1;
+    (void)store.add_entry(xp_subject);
+
+    store.finalize();
+
+    XmpPortableOptions opts;
+    opts.include_exif         = true;
+    opts.include_existing_xmp = false;
+
+    std::vector<std::byte> out(4096);
+    const XmpDumpResult r
+        = dump_xmp_portable(store, std::span<std::byte>(out.data(), out.size()),
+                            opts);
+    ASSERT_EQ(r.status, XmpDumpStatus::Ok);
+
+    const std::string_view s(reinterpret_cast<const char*>(out.data()),
+                             static_cast<size_t>(r.written));
+    EXPECT_NE(s.find("<tiff:XPKeywords>alpha;beta</tiff:XPKeywords>"),
+              std::string_view::npos);
+    EXPECT_NE(s.find("<tiff:XPSubject></tiff:XPSubject>"),
+              std::string_view::npos);
+    EXPECT_EQ(s.find("<rdf:Seq>"), std::string_view::npos);
+}
+
 TEST(XmpDump, PortableCanonicalizesExistingXmpPropertyNames)
 {
     MetaStore store;
@@ -1035,6 +1162,154 @@ TEST(XmpDump, PortableSkipsInvalidGpsRationalValues)
 }
 
 
+TEST(XmpDump, PortableEmitsGpsDestinationCoordsAndAltitudeFromArrays)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, kInvalidBlockId);
+
+    Entry gps_dest_lat_ref;
+    gps_dest_lat_ref.key   = make_exif_tag_key(store.arena(), "gpsifd", 0x0013);
+    gps_dest_lat_ref.value = make_text(store.arena(), "N", TextEncoding::Ascii);
+    gps_dest_lat_ref.origin.block          = block;
+    gps_dest_lat_ref.origin.order_in_block = 0;
+    (void)store.add_entry(gps_dest_lat_ref);
+
+    const std::array<URational, 3> gps_dest_lat = {
+        URational { 35, 1 },
+        URational { 48, 1 },
+        URational { 8, 1 },
+    };
+    Entry gps_dest_lat_entry;
+    gps_dest_lat_entry.key = make_exif_tag_key(store.arena(), "gpsifd", 0x0014);
+    gps_dest_lat_entry.value
+        = make_urational_array(store.arena(),
+                               std::span<const URational>(gps_dest_lat.data(),
+                                                          gps_dest_lat.size()));
+    gps_dest_lat_entry.origin.block          = block;
+    gps_dest_lat_entry.origin.order_in_block = 1;
+    (void)store.add_entry(gps_dest_lat_entry);
+
+    Entry gps_dest_lon_ref;
+    gps_dest_lon_ref.key   = make_exif_tag_key(store.arena(), "gpsifd", 0x0015);
+    gps_dest_lon_ref.value = make_text(store.arena(), "E", TextEncoding::Ascii);
+    gps_dest_lon_ref.origin.block          = block;
+    gps_dest_lon_ref.origin.order_in_block = 2;
+    (void)store.add_entry(gps_dest_lon_ref);
+
+    const std::array<URational, 3> gps_dest_lon = {
+        URational { 139, 1 },
+        URational { 34, 1 },
+        URational { 55, 1 },
+    };
+    Entry gps_dest_lon_entry;
+    gps_dest_lon_entry.key = make_exif_tag_key(store.arena(), "gpsifd", 0x0016);
+    gps_dest_lon_entry.value
+        = make_urational_array(store.arena(),
+                               std::span<const URational>(gps_dest_lon.data(),
+                                                          gps_dest_lon.size()));
+    gps_dest_lon_entry.origin.block          = block;
+    gps_dest_lon_entry.origin.order_in_block = 3;
+    (void)store.add_entry(gps_dest_lon_entry);
+
+    const std::array<URational, 3> gps_altitude = {
+        URational { 277, 1 },
+        URational { 58, 1 },
+        URational { 25, 1 },
+    };
+    Entry gps_alt;
+    gps_alt.key = make_exif_tag_key(store.arena(), "gpsifd", 0x0006);
+    gps_alt.value
+        = make_urational_array(store.arena(),
+                               std::span<const URational>(gps_altitude.data(),
+                                                          gps_altitude.size()));
+    gps_alt.origin.block          = block;
+    gps_alt.origin.order_in_block = 4;
+    (void)store.add_entry(gps_alt);
+
+    store.finalize();
+
+    XmpPortableOptions opts;
+    opts.include_exif         = true;
+    opts.include_existing_xmp = false;
+
+    std::vector<std::byte> out(8192);
+    const XmpDumpResult r
+        = dump_xmp_portable(store, std::span<std::byte>(out.data(), out.size()),
+                            opts);
+    ASSERT_EQ(r.status, XmpDumpStatus::Ok);
+
+    const std::string_view s(reinterpret_cast<const char*>(out.data()),
+                             static_cast<size_t>(r.written));
+    EXPECT_NE(
+        s.find("<exif:GPSDestLatitude>35,48.13333333N</exif:GPSDestLatitude>"),
+        std::string_view::npos);
+    EXPECT_NE(
+        s.find(
+            "<exif:GPSDestLongitude>139,34.91666667E</exif:GPSDestLongitude>"),
+        std::string_view::npos);
+    EXPECT_NE(s.find("<exif:GPSAltitude>277</exif:GPSAltitude>"),
+              std::string_view::npos);
+}
+
+
+TEST(XmpDump, PortableSkipsMalformedNumericBlobExifTags)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, kInvalidBlockId);
+
+    const std::array<uint32_t, 4> user_comment_words = {
+        5000U,
+        5006U,
+        116U,
+        1U,
+    };
+    Entry user_comment;
+    user_comment.key = make_exif_tag_key(store.arena(), "exififd", 0x9286);
+    user_comment.value
+        = make_u32_array(store.arena(),
+                         std::span<const uint32_t>(user_comment_words.data(),
+                                                   user_comment_words.size()));
+    user_comment.origin.block          = block;
+    user_comment.origin.order_in_block = 0;
+    (void)store.add_entry(user_comment);
+
+    const std::array<uint16_t, 4> device_setting_words = {
+        5000U,
+        5001U,
+        55U,
+        104U,
+    };
+    Entry device_setting;
+    device_setting.key   = make_exif_tag_key(store.arena(), "exififd", 0xA40B);
+    device_setting.value = make_u16_array(
+        store.arena(), std::span<const uint16_t>(device_setting_words.data(),
+                                                 device_setting_words.size()));
+    device_setting.origin.block          = block;
+    device_setting.origin.order_in_block = 1;
+    (void)store.add_entry(device_setting);
+
+    store.finalize();
+
+    XmpPortableOptions opts;
+    opts.include_exif         = true;
+    opts.include_existing_xmp = false;
+
+    std::vector<std::byte> out(8192);
+    const XmpDumpResult r
+        = dump_xmp_portable(store, std::span<std::byte>(out.data(), out.size()),
+                            opts);
+    ASSERT_EQ(r.status, XmpDumpStatus::Ok);
+
+    const std::string_view s(reinterpret_cast<const char*>(out.data()),
+                             static_cast<size_t>(r.written));
+    EXPECT_EQ(s.find("<exif:UserComment>"), std::string_view::npos);
+    EXPECT_EQ(s.find("<exif:DeviceSettingDescription>"),
+              std::string_view::npos);
+}
+
+
 TEST(XmpDump, PortableSkipsInvalidApexRationalValues)
 {
     MetaStore store;
@@ -1183,6 +1458,45 @@ TEST(XmpDump, PortableApexTagsUseFirstValidArrayElement)
 }
 
 
+TEST(XmpDump, PortableSkipsAbsurdApexApertureValues)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, kInvalidBlockId);
+
+    Entry aperture;
+    aperture.key          = make_exif_tag_key(store.arena(), "exififd", 0x9202);
+    aperture.value        = make_urational(30, 1);  // 2^(15) = 32768.0
+    aperture.origin.block = block;
+    aperture.origin.order_in_block = 0;
+    (void)store.add_entry(aperture);
+
+    Entry max_aperture;
+    max_aperture.key   = make_exif_tag_key(store.arena(), "exififd", 0x9205);
+    max_aperture.value = make_urational(30, 1);
+    max_aperture.origin.block          = block;
+    max_aperture.origin.order_in_block = 1;
+    (void)store.add_entry(max_aperture);
+
+    store.finalize();
+
+    XmpPortableOptions opts;
+    opts.include_exif         = true;
+    opts.include_existing_xmp = false;
+
+    std::vector<std::byte> out(4096);
+    const XmpDumpResult r
+        = dump_xmp_portable(store, std::span<std::byte>(out.data(), out.size()),
+                            opts);
+    ASSERT_EQ(r.status, XmpDumpStatus::Ok);
+
+    const std::string_view s(reinterpret_cast<const char*>(out.data()),
+                             static_cast<size_t>(r.written));
+    EXPECT_EQ(s.find("<exif:ApertureValue>"), std::string_view::npos);
+    EXPECT_EQ(s.find("<exif:MaxApertureValue>"), std::string_view::npos);
+}
+
+
 TEST(XmpDump, PortableFormatsGpsCoordinatesFromSrationalValues)
 {
     MetaStore store;
@@ -1313,6 +1627,78 @@ TEST(XmpDump, PortableSkipsInvalidTiffAndDngRationalTags)
     EXPECT_EQ(s.find("<tiff:YResolution>"), std::string_view::npos);
     EXPECT_EQ(s.find("<tiff:OriginalDefaultCropSize>"), std::string_view::npos);
     EXPECT_NE(s.find("<tiff:Model>DNG Test</tiff:Model>"),
+              std::string_view::npos);
+}
+
+TEST(XmpDump, PortableSkipsInvalidUndefinedRationalTags)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, kInvalidBlockId);
+
+    Entry flash_energy;
+    flash_energy.key   = make_exif_tag_key(store.arena(), "exififd", 0x920B);
+    flash_energy.value = make_urational(0, 0);
+    flash_energy.origin.block          = block;
+    flash_energy.origin.order_in_block = 0;
+    (void)store.add_entry(flash_energy);
+
+    Entry focal_plane_x;
+    focal_plane_x.key   = make_exif_tag_key(store.arena(), "exififd", 0xA20E);
+    focal_plane_x.value = make_urational(0, 0);
+    focal_plane_x.origin.block          = block;
+    focal_plane_x.origin.order_in_block = 1;
+    (void)store.add_entry(focal_plane_x);
+
+    Entry focal_plane_y;
+    focal_plane_y.key   = make_exif_tag_key(store.arena(), "exififd", 0xA20F);
+    focal_plane_y.value = make_urational(0, 0);
+    focal_plane_y.origin.block          = block;
+    focal_plane_y.origin.order_in_block = 2;
+    (void)store.add_entry(focal_plane_y);
+
+    Entry gamma;
+    gamma.key          = make_exif_tag_key(store.arena(), "exififd", 0xA500);
+    gamma.value        = make_urational(0, 0);
+    gamma.origin.block = block;
+    gamma.origin.order_in_block = 3;
+    (void)store.add_entry(gamma);
+
+    Entry baseline_exposure;
+    baseline_exposure.key   = make_exif_tag_key(store.arena(), "ifd0", 0xC62A);
+    baseline_exposure.value = make_srational(0, 0);
+    baseline_exposure.origin.block          = block;
+    baseline_exposure.origin.order_in_block = 4;
+    (void)store.add_entry(baseline_exposure);
+
+    Entry model;
+    model.key          = make_exif_tag_key(store.arena(), "ifd0", 0x0110);
+    model.value        = make_text(store.arena(), "Portable Skip Test",
+                                   TextEncoding::Ascii);
+    model.origin.block = block;
+    model.origin.order_in_block = 5;
+    (void)store.add_entry(model);
+
+    store.finalize();
+
+    XmpPortableOptions opts;
+    opts.include_exif         = true;
+    opts.include_existing_xmp = false;
+
+    std::vector<std::byte> out(4096);
+    const XmpDumpResult r
+        = dump_xmp_portable(store, std::span<std::byte>(out.data(), out.size()),
+                            opts);
+    ASSERT_EQ(r.status, XmpDumpStatus::Ok);
+
+    const std::string_view s(reinterpret_cast<const char*>(out.data()),
+                             static_cast<size_t>(r.written));
+    EXPECT_EQ(s.find("<exif:FlashEnergy>"), std::string_view::npos);
+    EXPECT_EQ(s.find("<exif:FocalPlaneXResolution>"), std::string_view::npos);
+    EXPECT_EQ(s.find("<exif:FocalPlaneYResolution>"), std::string_view::npos);
+    EXPECT_EQ(s.find("<exif:Gamma>"), std::string_view::npos);
+    EXPECT_EQ(s.find("<tiff:BaselineExposure>"), std::string_view::npos);
+    EXPECT_NE(s.find("<tiff:Model>Portable Skip Test</tiff:Model>"),
               std::string_view::npos);
 }
 

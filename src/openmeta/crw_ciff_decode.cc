@@ -185,6 +185,47 @@ namespace {
     }
 
 
+    static bool extract_padded_ascii_text(std::span<const std::byte> raw,
+                                          std::string_view* out) noexcept
+    {
+        if (!out) {
+            return false;
+        }
+        *out = std::string_view();
+        if (raw.empty()) {
+            *out = std::string_view();
+            return true;
+        }
+
+        size_t end = 0U;
+        while (end < raw.size() && raw[end] != std::byte { 0 }) {
+            ++end;
+        }
+        if (end < raw.size()) {
+            for (size_t i = end + 1U; i < raw.size(); ++i) {
+                if (raw[i] != std::byte { 0 }) {
+                    return false;
+                }
+            }
+        }
+
+        *out = std::string_view(reinterpret_cast<const char*>(raw.data()), end);
+        return true;
+    }
+
+
+    static MetaValue
+    decode_padded_ascii_text(ByteArena& arena,
+                             std::span<const std::byte> raw) noexcept
+    {
+        std::string_view text;
+        if (!extract_padded_ascii_text(raw, &text)) {
+            return make_bytes(arena, raw);
+        }
+        return make_text(arena, text, TextEncoding::Ascii);
+    }
+
+
     static MetaValue decode_u16_array(const CiffConfig& cfg, ByteArena& arena,
                                       std::span<const std::byte> raw,
                                       ExifDecodeResult* status_out) noexcept
@@ -322,6 +363,116 @@ namespace {
     }
 
 
+    static bool ciff_tag_is_padded_ascii_text(uint16_t dir_id,
+                                              uint16_t tag_id) noexcept
+    {
+        switch (dir_id) {
+        case 0x2804U: return tag_id == 0x0805U || tag_id == 0x0815U;
+        case 0x2807U: return tag_id == 0x0810U;
+        case 0x3004U: return tag_id == 0x080BU || tag_id == 0x080DU;
+        case 0x300AU: return tag_id == 0x0816U || tag_id == 0x0817U;
+        default: return false;
+        }
+    }
+
+
+    static bool trailing_zero_bytes(std::span<const std::byte> raw,
+                                    size_t offset) noexcept
+    {
+        if (offset > raw.size()) {
+            return false;
+        }
+        for (size_t i = offset; i < raw.size(); ++i) {
+            if (raw[i] != std::byte { 0 }) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+
+    static bool decode_known_ciff_scalar_u16(const CiffConfig& cfg,
+                                             std::span<const std::byte> raw,
+                                             MetaValue* out) noexcept
+    {
+        if (!out || raw.size() < 2U || !trailing_zero_bytes(raw, 2U)) {
+            return false;
+        }
+        uint16_t value = 0;
+        if (!read_u16(cfg, raw, 0, &value)) {
+            return false;
+        }
+        *out = make_u16(value);
+        return true;
+    }
+
+
+    static bool decode_known_ciff_scalar_u32(const CiffConfig& cfg,
+                                             std::span<const std::byte> raw,
+                                             MetaValue* out) noexcept
+    {
+        if (!out || raw.size() < 4U || !trailing_zero_bytes(raw, 4U)) {
+            return false;
+        }
+        uint32_t value = 0;
+        if (!read_u32(cfg, raw, 0, &value)) {
+            return false;
+        }
+        *out = make_u32(value);
+        return true;
+    }
+
+
+    static bool decode_known_ciff_scalar_f32(const CiffConfig& cfg,
+                                             std::span<const std::byte> raw,
+                                             MetaValue* out) noexcept
+    {
+        if (!out || raw.size() < 4U || !trailing_zero_bytes(raw, 4U)) {
+            return false;
+        }
+        uint32_t bits = 0;
+        if (!read_u32(cfg, raw, 0, &bits)) {
+            return false;
+        }
+        *out = make_f32_bits(bits);
+        return true;
+    }
+
+
+    static bool decode_known_ciff_native_scalar_value(
+        const CiffConfig& cfg, uint16_t dir_id, uint16_t tag_id,
+        std::span<const std::byte> raw, MetaValue* out) noexcept
+    {
+        switch (dir_id) {
+        case 0x3002U:
+            switch (tag_id) {
+            case 0x1010U:
+            case 0x1011U: return decode_known_ciff_scalar_u16(cfg, raw, out);
+            case 0x1807U: return decode_known_ciff_scalar_f32(cfg, raw, out);
+            default: return false;
+            }
+        case 0x3003U:
+            switch (tag_id) {
+            case 0x1814U: return decode_known_ciff_scalar_f32(cfg, raw, out);
+            default: return false;
+            }
+        case 0x3004U:
+            switch (tag_id) {
+            case 0x101CU: return decode_known_ciff_scalar_u16(cfg, raw, out);
+            default: return false;
+            }
+        case 0x300AU:
+            switch (tag_id) {
+            case 0x100AU: return decode_known_ciff_scalar_u16(cfg, raw, out);
+            case 0x1804U:
+            case 0x1817U: return decode_known_ciff_scalar_u32(cfg, raw, out);
+            default: return false;
+            }
+        default: return false;
+        }
+    }
+
+
     static uint16_t ciff_rotation_to_orientation(int32_t degrees) noexcept
     {
         switch (degrees) {
@@ -375,6 +526,29 @@ namespace {
         if (status_out) {
             status_out->entries_decoded += 1U;
         }
+    }
+
+
+    static void add_derived_ciff_entry(
+        MetaStore& store, BlockId block, uint32_t order_in_block,
+        std::string_view parent_ifd, std::string_view suffix, uint16_t tag,
+        const MetaValue& value, uint16_t source_tag,
+        const ExifDecodeLimits& limits, ExifDecodeResult* status_out) noexcept
+    {
+        std::array<char, 64> buf {};
+        const int n = std::snprintf(buf.data(), buf.size(), "%.*s_%.*s",
+                                    static_cast<int>(parent_ifd.size()),
+                                    parent_ifd.data(),
+                                    static_cast<int>(suffix.size()),
+                                    suffix.data());
+        if (n <= 0 || static_cast<size_t>(n) >= buf.size()) {
+            update_status(status_out, ExifDecodeStatus::LimitExceeded);
+            return;
+        }
+        add_derived_exif_entry(store, block, order_in_block,
+                               std::string_view(buf.data(),
+                                                static_cast<size_t>(n)),
+                               tag, value, source_tag, limits, status_out);
     }
 
 
@@ -455,9 +629,37 @@ namespace {
             return;
         }
 
+        if (dir_id == 0x2804U && tag_id == 0x0805U) {
+            std::string_view text;
+            if (extract_padded_ascii_text(raw, &text) && !text.empty()) {
+                const MetaValue value = make_text(store.arena(), text,
+                                                  TextEncoding::Ascii);
+                add_derived_exif_entry(store, block, next_order++, "ifd0",
+                                       0x010EU, value, tag_id, limits,
+                                       status_out);
+            }
+            return;
+        }
+
+        if (dir_id == 0x2807U && tag_id == 0x0810U) {
+            std::string_view text;
+            if (extract_padded_ascii_text(raw, &text) && !text.empty()) {
+                const MetaValue value = make_text(store.arena(), text,
+                                                  TextEncoding::Ascii);
+                add_derived_exif_entry(store, block, next_order++, "exififd",
+                                       0xA430U, value, tag_id, limits,
+                                       status_out);
+            }
+            return;
+        }
+
         if (dir_id == 0x300AU && tag_id == 0x180EU && raw.size() >= 4U) {
             uint32_t unix_seconds = 0;
             if (read_u32(cfg, raw, 0, &unix_seconds)) {
+                add_derived_ciff_entry(store, block, next_order++, ifd_token,
+                                       "timestamp", 0x0000U,
+                                       make_u32(unix_seconds), tag_id, limits,
+                                       status_out);
                 std::array<char, 20> buf {};
                 if (format_exif_datetime(unix_seconds, &buf)) {
                     const std::string_view dt(buf.data(), 19);
@@ -468,6 +670,24 @@ namespace {
                                            limits, status_out);
                 }
             }
+            if (raw.size() >= 8U) {
+                int32_t tz_code = 0;
+                if (read_i32(cfg, raw, 4U, &tz_code)) {
+                    add_derived_ciff_entry(store, block, next_order++,
+                                           ifd_token, "timestamp", 0x0001U,
+                                           make_i32(tz_code), tag_id, limits,
+                                           status_out);
+                }
+            }
+            if (raw.size() >= 12U) {
+                uint32_t tz_info = 0;
+                if (read_u32(cfg, raw, 8U, &tz_info)) {
+                    add_derived_ciff_entry(store, block, next_order++,
+                                           ifd_token, "timestamp", 0x0002U,
+                                           make_u32(tz_info), tag_id, limits,
+                                           status_out);
+                }
+            }
             return;
         }
 
@@ -475,6 +695,10 @@ namespace {
             if (raw.size() >= 4U) {
                 uint32_t width = 0;
                 if (read_u32(cfg, raw, 0, &width)) {
+                    add_derived_ciff_entry(store, block, next_order++,
+                                           ifd_token, "imageinfo", 0x0000U,
+                                           make_u32(width), tag_id, limits,
+                                           status_out);
                     add_derived_exif_entry(store, block, next_order++,
                                            "exififd", 0xA002U, make_u32(width),
                                            tag_id, limits, status_out);
@@ -483,19 +707,63 @@ namespace {
             if (raw.size() >= 8U) {
                 uint32_t height = 0;
                 if (read_u32(cfg, raw, 4, &height)) {
+                    add_derived_ciff_entry(store, block, next_order++,
+                                           ifd_token, "imageinfo", 0x0001U,
+                                           make_u32(height), tag_id, limits,
+                                           status_out);
                     add_derived_exif_entry(store, block, next_order++,
                                            "exififd", 0xA003U, make_u32(height),
                                            tag_id, limits, status_out);
                 }
             }
+            if (raw.size() >= 12U) {
+                uint32_t aspect_bits = 0;
+                if (read_u32(cfg, raw, 8U, &aspect_bits)) {
+                    add_derived_ciff_entry(store, block, next_order++,
+                                           ifd_token, "imageinfo", 0x0002U,
+                                           make_f32_bits(aspect_bits), tag_id,
+                                           limits, status_out);
+                }
+            }
             if (raw.size() >= 16U) {
                 int32_t rotation = 0;
                 if (read_i32(cfg, raw, 12, &rotation)) {
+                    add_derived_ciff_entry(store, block, next_order++,
+                                           ifd_token, "imageinfo", 0x0003U,
+                                           make_i32(rotation), tag_id, limits,
+                                           status_out);
                     const uint16_t orientation = ciff_rotation_to_orientation(
                         rotation);
                     add_derived_exif_entry(store, block, next_order++, "ifd0",
                                            0x0112U, make_u16(orientation),
                                            tag_id, limits, status_out);
+                }
+            }
+            if (raw.size() >= 20U) {
+                uint32_t component_depth = 0;
+                if (read_u32(cfg, raw, 16U, &component_depth)) {
+                    add_derived_ciff_entry(store, block, next_order++,
+                                           ifd_token, "imageinfo", 0x0004U,
+                                           make_u32(component_depth), tag_id,
+                                           limits, status_out);
+                }
+            }
+            if (raw.size() >= 24U) {
+                uint32_t color_depth = 0;
+                if (read_u32(cfg, raw, 20U, &color_depth)) {
+                    add_derived_ciff_entry(store, block, next_order++,
+                                           ifd_token, "imageinfo", 0x0005U,
+                                           make_u32(color_depth), tag_id,
+                                           limits, status_out);
+                }
+            }
+            if (raw.size() >= 28U) {
+                uint32_t color_bw = 0;
+                if (read_u32(cfg, raw, 24U, &color_bw)) {
+                    add_derived_ciff_entry(store, block, next_order++,
+                                           ifd_token, "imageinfo", 0x0006U,
+                                           make_u32(color_bw), tag_id, limits,
+                                           status_out);
                 }
             }
             return;
@@ -507,6 +775,19 @@ namespace {
                 add_derived_exif_entry(store, block, next_order++, "exififd",
                                        0x9206U, make_u32(distance), tag_id,
                                        limits, status_out);
+            }
+            return;
+        }
+
+        if (dir_id == 0x3002U && tag_id == 0x1818U && raw.size() >= 12U) {
+            for (uint16_t i = 0; i < 3U; ++i) {
+                uint32_t bits = 0;
+                if (!read_u32(cfg, raw, static_cast<uint64_t>(i) * 4U, &bits)) {
+                    break;
+                }
+                add_derived_ciff_entry(store, block, next_order++, ifd_token,
+                                       "exposureinfo", i, make_f32_bits(bits),
+                                       tag_id, limits, status_out);
             }
         }
     }
@@ -562,7 +843,9 @@ namespace {
             return false;
         }
 
-        const ByteSpan ifd_span = store.arena().append_string(ifd_token);
+        const ByteSpan ifd_span   = store.arena().append_string(ifd_token);
+        uint16_t ifd_dir_id       = 0U;
+        const bool has_ifd_dir_id = parse_ciff_dir_id(ifd_token, &ifd_dir_id);
 
         bool any = false;
 
@@ -673,44 +956,69 @@ namespace {
                     = dir_bytes.subspan(static_cast<size_t>(value_off),
                                         static_cast<size_t>(value_bytes));
 
-                switch (ciff_type_bits(tag)) {
-                case 0x0000: {  // unsignedByte
-                    if (raw.size() == 1) {
-                        entry.value = make_u8(u8(raw[0]));
-                    } else {
-                        if (raw.size() > UINT32_MAX) {
-                            update_status(status_out,
-                                          ExifDecodeStatus::LimitExceeded);
-                            break;
+                if (has_ifd_dir_id
+                    && decode_known_ciff_native_scalar_value(cfg, ifd_dir_id,
+                                                             tag_id, raw,
+                                                             &entry.value)) {
+                    (void)0;
+                } else {
+                    switch (ciff_type_bits(tag)) {
+                    case 0x0000: {  // unsignedByte
+                        if (raw.size() == 1) {
+                            entry.value = make_u8(u8(raw[0]));
+                        } else {
+                            if (raw.size() > UINT32_MAX) {
+                                update_status(status_out,
+                                              ExifDecodeStatus::LimitExceeded);
+                                break;
+                            }
+                            MetaValue v;
+                            v.kind      = MetaValueKind::Array;
+                            v.elem_type = MetaElementType::U8;
+                            v.count     = static_cast<uint32_t>(raw.size());
+                            v.data.span = store.arena().append(raw);
+                            if (!raw.empty() && v.data.span.size != v.count) {
+                                update_status(status_out,
+                                              ExifDecodeStatus::LimitExceeded);
+                                break;
+                            }
+                            entry.value = v;
                         }
-                        MetaValue v;
-                        v.kind      = MetaValueKind::Array;
-                        v.elem_type = MetaElementType::U8;
-                        v.count     = static_cast<uint32_t>(raw.size());
-                        v.data.span = store.arena().append(raw);
-                        if (!raw.empty() && v.data.span.size != v.count) {
-                            update_status(status_out,
-                                          ExifDecodeStatus::LimitExceeded);
-                            break;
-                        }
-                        entry.value = v;
+                        break;
                     }
-                    break;
-                }
-                case 0x0800:  // asciiString
-                    entry.value = decode_text_value(store.arena(), raw,
-                                                    TextEncoding::Ascii);
-                    break;
-                case 0x1000:  // unsignedShort
-                    entry.value = decode_u16_array(cfg, store.arena(), raw,
-                                                   status_out);
-                    break;
-                case 0x1800:  // unsignedLong
-                    entry.value = decode_u32_array(cfg, store.arena(), raw,
-                                                   status_out);
-                    break;
-                case 0x2000:  // undefined
-                default: entry.value = make_bytes(store.arena(), raw); break;
+                    case 0x0800:  // asciiString
+                        if (has_ifd_dir_id
+                            && ciff_tag_is_padded_ascii_text(ifd_dir_id,
+                                                             tag_id)) {
+                            entry.value
+                                = decode_padded_ascii_text(store.arena(), raw);
+                        } else {
+                            entry.value = decode_text_value(store.arena(), raw,
+                                                            TextEncoding::Ascii);
+                        }
+                        break;
+                    case 0x1000:  // unsignedShort
+                        entry.value = decode_u16_array(cfg, store.arena(), raw,
+                                                       status_out);
+                        break;
+                    case 0x1800:  // unsignedLong
+                        entry.value = decode_u32_array(cfg, store.arena(), raw,
+                                                       status_out);
+                        break;
+                    case 0x2000:  // undefined
+                        if (has_ifd_dir_id
+                            && ciff_tag_is_padded_ascii_text(ifd_dir_id,
+                                                             tag_id)) {
+                            entry.value
+                                = decode_padded_ascii_text(store.arena(), raw);
+                            break;
+                        }
+                        entry.value = make_bytes(store.arena(), raw);
+                        break;
+                    default:
+                        entry.value = make_bytes(store.arena(), raw);
+                        break;
+                    }
                 }
             }
 
