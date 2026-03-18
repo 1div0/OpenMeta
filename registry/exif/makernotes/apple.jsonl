@@ -35,6 +35,7 @@
 {"kind":"exif.tag","ifd":"makernote:apple:main","tag":"0x0040","name":"SemanticStyle"}
 {"kind":"exif.tag","ifd":"makernote:apple:main","tag":"0x0041","name":"SemanticStyleRenderingVer"}
 {"kind":"exif.tag","ifd":"makernote:apple:main","tag":"0x0042","name":"SemanticStylePreset"}
+{"kind":"exif.tag","ifd":"makernote:apple:main","tag":"0x0045","name":"FrontFacingCamera"}
 {"kind":"exif.tag","ifd":"makernote:apple:main","tag":"0x004e","name":"Apple_0x004e"}
 {"kind":"exif.tag","ifd":"makernote:apple:main","tag":"0x004f","name":"Apple_0x004f"}
 {"kind":"exif.tag","ifd":"makernote:apple:main","tag":"0x0054","name":"Apple_0x0054"}
