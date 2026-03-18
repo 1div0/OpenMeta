@@ -22,6 +22,7 @@ enum class MetaKeyKind : uint8_t {
     IccHeaderField,
     IccTag,
     PhotoshopIrb,
+    PhotoshopIrbField,
     GeotiffKey,
     PrintImField,
     BmffField,
@@ -75,6 +76,11 @@ struct MetaKey final {
         struct PhotoshopIrb final {
             uint16_t resource_id = 0;
         } photoshop_irb;
+
+        struct PhotoshopIrbField final {
+            uint16_t resource_id = 0;
+            ByteSpan field;
+        } photoshop_irb_field;
 
         struct GeotiffKey final {
             uint16_t key_id = 0;
@@ -153,6 +159,11 @@ struct MetaKeyView final {
             uint16_t resource_id = 0;
         } photoshop_irb;
 
+        struct PhotoshopIrbField final {
+            uint16_t resource_id = 0;
+            std::string_view field;
+        } photoshop_irb_field;
+
         struct GeotiffKey final {
             uint16_t key_id = 0;
         } geotiff_key;
@@ -205,6 +216,9 @@ MetaKey
 make_icc_tag_key(uint32_t signature) noexcept;
 MetaKey
 make_photoshop_irb_key(uint16_t resource_id) noexcept;
+MetaKey
+make_photoshop_irb_field_key(ByteArena& arena, uint16_t resource_id,
+                             std::string_view field);
 MetaKey
 make_geotiff_key(uint16_t key_id) noexcept;
 MetaKey

@@ -3154,6 +3154,7 @@ NB_MODULE(_openmeta, m)
         .value("IccHeaderField", MetaKeyKind::IccHeaderField)
         .value("IccTag", MetaKeyKind::IccTag)
         .value("PhotoshopIrb", MetaKeyKind::PhotoshopIrb)
+        .value("PhotoshopIrbField", MetaKeyKind::PhotoshopIrbField)
         .value("GeotiffKey", MetaKeyKind::GeotiffKey)
         .value("PrintImField", MetaKeyKind::PrintImField)
         .value("BmffField", MetaKeyKind::BmffField)
@@ -3941,10 +3942,26 @@ NB_MODULE(_openmeta, m)
         .def_prop_ro("photoshop_resource_id",
                      [](const PyEntry& e) -> nb::object {
                          const Entry& en = e.doc->store.entry(e.id);
-                         if (en.key.kind != MetaKeyKind::PhotoshopIrb) {
+                         if (en.key.kind == MetaKeyKind::PhotoshopIrb) {
+                             return nb::int_(
+                                 en.key.data.photoshop_irb.resource_id);
+                         }
+                         if (en.key.kind == MetaKeyKind::PhotoshopIrbField) {
+                             return nb::int_(
+                                 en.key.data.photoshop_irb_field.resource_id);
+                         }
+                         return nb::none();
+                     })
+        .def_prop_ro("photoshop_field",
+                     [](const PyEntry& e) -> nb::object {
+                         const Entry& en = e.doc->store.entry(e.id);
+                         if (en.key.kind != MetaKeyKind::PhotoshopIrbField) {
                              return nb::none();
                          }
-                         return nb::int_(en.key.data.photoshop_irb.resource_id);
+                         const std::string s = arena_string(
+                             e.doc->store.arena(),
+                             en.key.data.photoshop_irb_field.field);
+                         return nb::str(s.c_str(), s.size());
                      })
         .def_prop_ro("icc_header_offset",
                      [](const PyEntry& e) -> nb::object {
@@ -4006,69 +4023,76 @@ NB_MODULE(_openmeta, m)
                                             en.key.data.png_text.field);
                          return nb::str(s.c_str(), s.size());
                      })
-        .def_prop_ro("name",
-                     [](const PyEntry& e) -> nb::object {
-                         const Entry& en = e.doc->store.entry(e.id);
-                         if (en.key.kind == MetaKeyKind::ExifTag) {
-                             const std::string_view n = exif_entry_name(
-                                 e.doc->store, en,
-                                 ExifTagNamePolicy::ExifToolCompat);
-                             if (n.empty()) {
-                                 return nb::none();
-                             }
-                             return nb::str(n.data(), n.size());
-                         }
-                         if (en.key.kind == MetaKeyKind::Comment) {
-                             return nb::str("comment");
-                         }
-                         if (en.key.kind == MetaKeyKind::GeotiffKey) {
-                             const std::string_view n = geotiff_key_name(
-                                 en.key.data.geotiff_key.key_id);
-                             if (n.empty()) {
-                                 return nb::none();
-                             }
-                             return nb::str(n.data(), n.size());
-                         }
-                         if (en.key.kind == MetaKeyKind::IccTag) {
-                             const std::string_view n = icc_tag_name(
-                                 en.key.data.icc_tag.signature);
-                             if (n.empty()) {
-                                 return nb::none();
-                             }
-                             return nb::str(n.data(), n.size());
-                         }
-                         if (en.key.kind == MetaKeyKind::ExrAttribute) {
-                             const std::string s
-                                 = arena_string(e.doc->store.arena(),
-                                                en.key.data.exr_attribute.name);
-                             return nb::str(s.c_str(), s.size());
-                         }
-                         if (en.key.kind == MetaKeyKind::BmffField) {
-                             const std::string s
-                                 = arena_string(e.doc->store.arena(),
-                                                en.key.data.bmff_field.field);
-                             return nb::str(s.c_str(), s.size());
-                         }
-                         if (en.key.kind == MetaKeyKind::JumbfField) {
-                             const std::string s
-                                 = arena_string(e.doc->store.arena(),
-                                                en.key.data.jumbf_field.field);
-                             return nb::str(s.c_str(), s.size());
-                         }
-                         if (en.key.kind == MetaKeyKind::JumbfCborKey) {
-                             const std::string s
-                                 = arena_string(e.doc->store.arena(),
-                                                en.key.data.jumbf_cbor_key.key);
-                             return nb::str(s.c_str(), s.size());
-                         }
-                         if (en.key.kind == MetaKeyKind::PngText) {
-                             const std::string s
-                                 = arena_string(e.doc->store.arena(),
-                                                en.key.data.png_text.keyword);
-                             return nb::str(s.c_str(), s.size());
-                         }
-                         return nb::none();
-                     })
+        .def_prop_ro(
+            "name",
+            [](const PyEntry& e) -> nb::object {
+                const Entry& en = e.doc->store.entry(e.id);
+                if (en.key.kind == MetaKeyKind::ExifTag) {
+                    const std::string_view n
+                        = exif_entry_name(e.doc->store, en,
+                                          ExifTagNamePolicy::ExifToolCompat);
+                    if (n.empty()) {
+                        return nb::none();
+                    }
+                    return nb::str(n.data(), n.size());
+                }
+                if (en.key.kind == MetaKeyKind::Comment) {
+                    return nb::str("comment");
+                }
+                if (en.key.kind == MetaKeyKind::GeotiffKey) {
+                    const std::string_view n = geotiff_key_name(
+                        en.key.data.geotiff_key.key_id);
+                    if (n.empty()) {
+                        return nb::none();
+                    }
+                    return nb::str(n.data(), n.size());
+                }
+                if (en.key.kind == MetaKeyKind::IccTag) {
+                    const std::string_view n = icc_tag_name(
+                        en.key.data.icc_tag.signature);
+                    if (n.empty()) {
+                        return nb::none();
+                    }
+                    return nb::str(n.data(), n.size());
+                }
+                if (en.key.kind == MetaKeyKind::ExrAttribute) {
+                    const std::string s
+                        = arena_string(e.doc->store.arena(),
+                                       en.key.data.exr_attribute.name);
+                    return nb::str(s.c_str(), s.size());
+                }
+                if (en.key.kind == MetaKeyKind::PhotoshopIrbField) {
+                    const std::string s
+                        = arena_string(e.doc->store.arena(),
+                                       en.key.data.photoshop_irb_field.field);
+                    return nb::str(s.c_str(), s.size());
+                }
+                if (en.key.kind == MetaKeyKind::BmffField) {
+                    const std::string s
+                        = arena_string(e.doc->store.arena(),
+                                       en.key.data.bmff_field.field);
+                    return nb::str(s.c_str(), s.size());
+                }
+                if (en.key.kind == MetaKeyKind::JumbfField) {
+                    const std::string s
+                        = arena_string(e.doc->store.arena(),
+                                       en.key.data.jumbf_field.field);
+                    return nb::str(s.c_str(), s.size());
+                }
+                if (en.key.kind == MetaKeyKind::JumbfCborKey) {
+                    const std::string s
+                        = arena_string(e.doc->store.arena(),
+                                       en.key.data.jumbf_cbor_key.key);
+                    return nb::str(s.c_str(), s.size());
+                }
+                if (en.key.kind == MetaKeyKind::PngText) {
+                    const std::string s
+                        = arena_string(e.doc->store.arena(),
+                                       en.key.data.png_text.keyword);
+                    return nb::str(s.c_str(), s.size());
+                }
+                return nb::none();
+            })
         .def_prop_ro("value_kind",
                      [](const PyEntry& e) {
                          return e.doc->store.entry(e.id).value.kind;
@@ -4148,6 +4172,19 @@ NB_MODULE(_openmeta, m)
                     = arena_string(e.doc->store.arena(),
                                    en.key.data.exr_attribute.name);
                 append_console_escaped_ascii(name, 64, &s);
+                s.append("\"");
+            } else if (en.key.kind == MetaKeyKind::PhotoshopIrbField) {
+                s.append("psirb=0x");
+                char tag_buf[8];
+                std::snprintf(tag_buf, sizeof(tag_buf), "%04X",
+                              static_cast<unsigned>(
+                                  en.key.data.photoshop_irb_field.resource_id));
+                s.append(tag_buf);
+                s.append(", field=\"");
+                const std::string field
+                    = arena_string(e.doc->store.arena(),
+                                   en.key.data.photoshop_irb_field.field);
+                append_console_escaped_ascii(field, 64, &s);
                 s.append("\"");
             } else if (en.key.kind == MetaKeyKind::JumbfField) {
                 s.append("jumbf=\"");

@@ -3950,6 +3950,7 @@ namespace {
 
     struct ManifestProjection final {
         std::string prefix;
+        bool is_active_manifest                      = false;
         uint64_t claim_count                         = 0U;
         uint64_t assertion_count                     = 0U;
         uint64_t signature_count                     = 0U;
@@ -4182,6 +4183,38 @@ namespace {
         return !out_prefix->empty();
     }
 
+    static bool
+    extract_manifest_prefix_from_cbor_key(std::string_view key,
+                                          std::string* out_prefix) noexcept
+    {
+        if (!out_prefix || key.empty()) {
+            return false;
+        }
+        static constexpr std::string_view marker(".manifests.");
+        const size_t pos = key.find(marker);
+        if (pos == std::string_view::npos) {
+            return false;
+        }
+        const size_t label_begin = pos + marker.size();
+        if (label_begin >= key.size()) {
+            return false;
+        }
+        size_t label_end = label_begin;
+        while (label_end < key.size() && !cbor_path_separator(key[label_end])) {
+            label_end += 1U;
+        }
+        if (label_end == label_begin) {
+            return false;
+        }
+        out_prefix->assign(key.substr(0U, label_end));
+        return !out_prefix->empty();
+    }
+
+    static bool manifest_prefix_is_active(std::string_view prefix) noexcept
+    {
+        return string_ends_with(prefix, ".manifests.active_manifest");
+    }
+
     static void append_unique_string_value(std::vector<std::string>* values,
                                            std::string_view value) noexcept
     {
@@ -4383,6 +4416,8 @@ namespace {
         std::vector<ClaimProjection> claims;
         std::vector<std::string> global_assertions;
         std::vector<SignatureProjection> signatures;
+        std::vector<ManifestProjection> manifests;
+        manifests.reserve(8U);
 
         const std::span<const Entry> entries = ctx->store->entries();
         for (const Entry& e : entries) {
@@ -4395,6 +4430,17 @@ namespace {
             const std::string_view key
                 = arena_string_view(ctx->store->arena(),
                                     e.key.data.jumbf_cbor_key.key);
+            std::string manifest_prefix_from_key;
+            if (extract_manifest_prefix_from_cbor_key(
+                    key, &manifest_prefix_from_key)) {
+                const size_t manifest_index
+                    = add_or_get_manifest_projection(&manifests,
+                                                     manifest_prefix_from_key);
+                if (manifest_index != static_cast<size_t>(-1)
+                    && manifest_prefix_is_active(manifest_prefix_from_key)) {
+                    manifests[manifest_index].is_active_manifest = true;
+                }
+            }
             if (cbor_key_has_segment(key, "manifest")
                 || cbor_key_has_segment(key, "manifests")) {
                 has_manifest = true;
@@ -4653,8 +4699,7 @@ namespace {
             signature_linked_count = label_signature_linked;
         }
 
-        std::vector<ManifestProjection> manifests;
-        manifests.reserve(claims.size() + signatures.size());
+        manifests.reserve(manifests.size() + claims.size() + signatures.size());
 
         for (const ClaimProjection& claim : claims) {
             std::string manifest_prefix;
@@ -4668,6 +4713,9 @@ namespace {
                 continue;
             }
             ManifestProjection& manifest = manifests[manifest_index];
+            if (manifest_prefix_is_active(manifest_prefix)) {
+                manifest.is_active_manifest = true;
+            }
             manifest.claim_count += 1U;
             manifest.assertion_count += static_cast<uint64_t>(
                 claim.assertions.size());
@@ -4685,6 +4733,9 @@ namespace {
                 continue;
             }
             ManifestProjection& manifest = manifests[manifest_index];
+            if (manifest_prefix_is_active(manifest_prefix)) {
+                manifest.is_active_manifest = true;
+            }
             manifest.signature_count += 1U;
             if (signature.linked_claim_count != 0U) {
                 manifest.signature_linked_count += 1U;
@@ -4716,6 +4767,19 @@ namespace {
         if (manifest_count == 0U && has_manifest) {
             manifest_count = 1U;
         }
+        uint64_t active_manifest_count = 0U;
+        std::string active_manifest_prefix;
+        for (const ManifestProjection& manifest : manifests) {
+            if (!manifest.is_active_manifest) {
+                continue;
+            }
+            active_manifest_count += 1U;
+            if (active_manifest_count == 1U) {
+                active_manifest_prefix = manifest.prefix;
+            } else {
+                active_manifest_prefix.clear();
+            }
+        }
 
         if (has_manifest || has_claim || has_assertions || has_signature) {
             if (!append_c2pa_marker(ctx, "cbor.semantic")) {
@@ -4746,6 +4810,21 @@ namespace {
         if (!emit_field_u64(ctx, "c2pa.semantic.manifest_count", manifest_count,
                             EntryFlags::Derived)) {
             return false;
+        }
+        if (!emit_field_u8(ctx, "c2pa.semantic.active_manifest_present",
+                           active_manifest_count != 0U ? 1U : 0U,
+                           EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(ctx, "c2pa.semantic.active_manifest_count",
+                            active_manifest_count, EntryFlags::Derived)) {
+            return false;
+        }
+        if (!active_manifest_prefix.empty()) {
+            if (!emit_field_text(ctx, "c2pa.semantic.active_manifest.prefix",
+                                 active_manifest_prefix, EntryFlags::Derived)) {
+                return false;
+            }
         }
         if (!emit_field_u64(ctx, "c2pa.semantic.assertion_key_hits",
                             assertion_key_hits, EntryFlags::Derived)) {
@@ -4848,6 +4927,14 @@ namespace {
             field.append(".prefix");
             if (!emit_field_text(ctx, field, manifest.prefix,
                                  EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(".is_active");
+            if (!emit_field_u8(ctx, field,
+                               manifest.is_active_manifest ? 1U : 0U,
+                               EntryFlags::Derived)) {
                 return false;
             }
 

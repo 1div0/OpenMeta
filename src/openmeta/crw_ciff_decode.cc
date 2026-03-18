@@ -113,6 +113,22 @@ namespace {
     }
 
 
+    static bool read_i16(const CiffConfig& cfg,
+                         std::span<const std::byte> bytes, uint64_t offset,
+                         int16_t* out) noexcept
+    {
+        if (!out) {
+            return false;
+        }
+        uint16_t u = 0;
+        if (!read_u16(cfg, bytes, offset, &u)) {
+            return false;
+        }
+        *out = static_cast<int16_t>(u);
+        return true;
+    }
+
+
     static void update_status(ExifDecodeResult* out,
                               ExifDecodeStatus in) noexcept
     {
@@ -369,7 +385,9 @@ namespace {
         switch (dir_id) {
         case 0x2804U: return tag_id == 0x0805U || tag_id == 0x0815U;
         case 0x2807U: return tag_id == 0x0810U;
-        case 0x3004U: return tag_id == 0x080BU || tag_id == 0x080DU;
+        case 0x3004U:
+            return tag_id == 0x080BU || tag_id == 0x080CU
+                   || tag_id == 0x080DU;
         case 0x300AU: return tag_id == 0x0816U || tag_id == 0x0817U;
         default: return false;
         }
@@ -447,7 +465,8 @@ namespace {
         case 0x3002U:
             switch (tag_id) {
             case 0x1010U:
-            case 0x1011U: return decode_known_ciff_scalar_u16(cfg, raw, out);
+            case 0x1011U:
+            case 0x1016U: return decode_known_ciff_scalar_u16(cfg, raw, out);
             case 0x1807U: return decode_known_ciff_scalar_f32(cfg, raw, out);
             default: return false;
             }
@@ -459,12 +478,15 @@ namespace {
         case 0x3004U:
             switch (tag_id) {
             case 0x101CU: return decode_known_ciff_scalar_u16(cfg, raw, out);
+            case 0x1834U:
+            case 0x183BU: return decode_known_ciff_scalar_u32(cfg, raw, out);
             default: return false;
             }
         case 0x300AU:
             switch (tag_id) {
             case 0x100AU: return decode_known_ciff_scalar_u16(cfg, raw, out);
             case 0x1804U:
+            case 0x1806U:
             case 0x1817U: return decode_known_ciff_scalar_u32(cfg, raw, out);
             default: return false;
             }
@@ -601,6 +623,9 @@ namespace {
                                             make_end);
                 const MetaValue value = make_text(store.arena(), make,
                                                   TextEncoding::Ascii);
+                add_derived_ciff_entry(store, block, next_order++, ifd_token,
+                                       "makemodel", 0x0000U, value, tag_id,
+                                       limits, status_out);
                 add_derived_exif_entry(store, block, next_order++, "ifd0",
                                        0x010FU, value, tag_id, limits,
                                        status_out);
@@ -622,6 +647,9 @@ namespace {
                                              model_end - model_begin);
                 const MetaValue value = make_text(store.arena(), model,
                                                   TextEncoding::Ascii);
+                add_derived_ciff_entry(store, block, next_order++, ifd_token,
+                                       "makemodel", 0x0006U, value, tag_id,
+                                       limits, status_out);
                 add_derived_exif_entry(store, block, next_order++, "ifd0",
                                        0x0110U, value, tag_id, limits,
                                        status_out);
@@ -769,6 +797,26 @@ namespace {
             return;
         }
 
+        if (dir_id == 0x300AU && tag_id == 0x1803U && raw.size() >= 4U) {
+            uint32_t file_format = 0;
+            if (read_u32(cfg, raw, 0, &file_format)) {
+                add_derived_ciff_entry(store, block, next_order++, ifd_token,
+                                       "imageformat", 0x0000U,
+                                       make_u32(file_format), tag_id, limits,
+                                       status_out);
+            }
+            if (raw.size() >= 8U) {
+                uint32_t ratio_bits = 0;
+                if (read_u32(cfg, raw, 4U, &ratio_bits)) {
+                    add_derived_ciff_entry(store, block, next_order++,
+                                           ifd_token, "imageformat", 0x0001U,
+                                           make_f32_bits(ratio_bits), tag_id,
+                                           limits, status_out);
+                }
+            }
+            return;
+        }
+
         if (dir_id == 0x3002U && tag_id == 0x1807U && raw.size() >= 4U) {
             uint32_t distance = 0;
             if (read_u32(cfg, raw, 0, &distance)) {
@@ -788,6 +836,114 @@ namespace {
                 add_derived_ciff_entry(store, block, next_order++, ifd_token,
                                        "exposureinfo", i, make_f32_bits(bits),
                                        tag_id, limits, status_out);
+            }
+        }
+
+        if (dir_id == 0x3002U && tag_id == 0x1813U && raw.size() >= 4U) {
+            for (uint16_t i = 0; i < 2U; ++i) {
+                const uint64_t offset = static_cast<uint64_t>(i) * 4U;
+                if (offset + 4U > raw.size()) {
+                    break;
+                }
+                uint32_t bits = 0;
+                if (!read_u32(cfg, raw, offset, &bits)) {
+                    break;
+                }
+                add_derived_ciff_entry(store, block, next_order++, ifd_token,
+                                       "flashinfo", i, make_f32_bits(bits),
+                                       tag_id, limits, status_out);
+            }
+        }
+
+        if (dir_id == 0x3004U && tag_id == 0x1835U && raw.size() >= 4U) {
+            uint32_t table_number = 0;
+            if (read_u32(cfg, raw, 0, &table_number)) {
+                add_derived_ciff_entry(store, block, next_order++, ifd_token,
+                                       "decodertable", 0x0000U,
+                                       make_u32(table_number), tag_id, limits,
+                                       status_out);
+            }
+            if (raw.size() >= 12U) {
+                uint32_t data_offset = 0;
+                if (read_u32(cfg, raw, 8U, &data_offset)) {
+                    add_derived_ciff_entry(store, block, next_order++,
+                                           ifd_token, "decodertable", 0x0002U,
+                                           make_u32(data_offset), tag_id,
+                                           limits, status_out);
+                }
+            }
+            if (raw.size() >= 16U) {
+                uint32_t data_length = 0;
+                if (read_u32(cfg, raw, 12U, &data_length)) {
+                    add_derived_ciff_entry(store, block, next_order++,
+                                           ifd_token, "decodertable", 0x0003U,
+                                           make_u32(data_length), tag_id,
+                                           limits, status_out);
+                }
+            }
+        }
+
+        if (dir_id == 0x300BU && tag_id == 0x1029U && raw.size() >= 2U) {
+            for (uint16_t i = 0; i < 4U; ++i) {
+                const uint64_t offset = static_cast<uint64_t>(i) * 2U;
+                if (offset + 2U > raw.size()) {
+                    break;
+                }
+                uint16_t value = 0;
+                if (!read_u16(cfg, raw, offset, &value)) {
+                    break;
+                }
+                add_derived_ciff_entry(store, block, next_order++, ifd_token,
+                                       "focallength", i, make_u16(value),
+                                       tag_id, limits, status_out);
+            }
+        }
+
+        if (dir_id == 0x300BU && tag_id == 0x102AU && raw.size() >= 2U) {
+            for (uint16_t i = 1U; i <= 10U; ++i) {
+                const uint64_t offset = static_cast<uint64_t>(i - 1U) * 2U;
+                if (offset + 2U > raw.size()) {
+                    break;
+                }
+                int16_t value = 0;
+                if (!read_i16(cfg, raw, offset, &value)) {
+                    break;
+                }
+                add_derived_ciff_entry(store, block, next_order++, ifd_token,
+                                       "shotinfo", i, make_i16(value), tag_id,
+                                       limits, status_out);
+            }
+        }
+
+        if (dir_id == 0x300BU && tag_id == 0x10B5U && raw.size() >= 10U) {
+            for (uint16_t i = 1U; i <= 4U; ++i) {
+                const uint64_t offset = static_cast<uint64_t>(i) * 2U;
+                if (offset + 2U > raw.size()) {
+                    break;
+                }
+                uint16_t value = 0;
+                if (!read_u16(cfg, raw, offset, &value)) {
+                    break;
+                }
+                add_derived_ciff_entry(store, block, next_order++, ifd_token,
+                                       "rawjpginfo", i, make_u16(value), tag_id,
+                                       limits, status_out);
+            }
+        }
+
+        if (dir_id == 0x300BU && tag_id == 0x1030U && raw.size() >= 12U) {
+            for (uint16_t i = 1U; i <= 5U; ++i) {
+                const uint64_t offset = static_cast<uint64_t>(i) * 2U;
+                if (offset + 2U > raw.size()) {
+                    break;
+                }
+                uint16_t value = 0;
+                if (!read_u16(cfg, raw, offset, &value)) {
+                    break;
+                }
+                add_derived_ciff_entry(store, block, next_order++, ifd_token,
+                                       "whitesample", i, make_u16(value), tag_id,
+                                       limits, status_out);
             }
         }
     }

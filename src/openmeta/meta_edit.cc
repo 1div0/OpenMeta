@@ -88,6 +88,10 @@ copy_key(const MetaKey& key, const ByteArena& src, ByteArena& dst)
     case MetaKeyKind::IccTag:
     case MetaKeyKind::PhotoshopIrb:
     case MetaKeyKind::GeotiffKey: return out;
+    case MetaKeyKind::PhotoshopIrbField:
+        out.data.photoshop_irb_field.field = dst.append(
+            src.span(key.data.photoshop_irb_field.field));
+        return out;
     case MetaKeyKind::PrintImField:
         out.data.printim_field.field = dst.append(
             src.span(key.data.printim_field.field));

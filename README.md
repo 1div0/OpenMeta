@@ -35,16 +35,29 @@ Current baseline-gated status on tracked corpora:
     `DateTimeOriginal`, `SubjectDistance`, `PixelXDimension`,
     `PixelYDimension`, `Orientation`, bounded `ImageDescription`,
     `CameraOwnerName`) from legacy Canon CRW directory tags, and now names
-    common native CIFF fields such as `CanonFileDescription`, `OwnerName`,
-    `CanonFirmwareVersion`, `OriginalFileName`, and `CanonFlashInfo`, plus
-    bounded native projections for CIFF `TimeStamp`, `ImageInfo`, and
-    `ExposureInfo` subtables, along with semantic scalar decode for common
-    native fields like `ShutterReleaseMethod`, `BaseISO`, `FileNumber`, and
-    `MeasuredEV`.
+    common native CIFF fields such as `MakeModel`, `CanonFileDescription`,
+    `OwnerName`, `CanonFirmwareVersion`, `ComponentVersion`,
+    `OriginalFileName`, `ImageFormat`, `CanonFlashInfo`, `FlashInfo`,
+    `FocalLength`, `DecoderTable`,
+    `RawJpgInfo`, `WhiteSample`, and `CanonShotInfo`, plus bounded native
+    projections for CIFF `MakeModel`, `ImageFormat`, `TimeStamp`, `ImageInfo`,
+    `ExposureInfo`, `FlashInfo`, `FocalLength`, `DecoderTable`,
+    `RawJpgInfo`, `WhiteSample`, and the leading raw signed
+    `CanonShotInfo` fields, along with
+    semantic scalar decode for common native fields like
+    `ShutterReleaseMethod`, `ReleaseSetting`, `BaseISO`, `RecordID`,
+    `SelfTimerTime`, `FileNumber`, `CanonModelID`, `SerialNumberFormat`,
+    and `MeasuredEV`.
   - XMP: RDF/XML packets into properties (schema namespace URI + property path).
   - ICC: profile header + tag table (raw tag bytes preserved).
   - Photoshop IRB: 8BIM resources (raw payload preserved; IPTC from 0x0404 is
-    decoded as derived datasets when present).
+    decoded as derived datasets when present; fixed-layout interpreted fields
+    from `ResolutionInfo`/`PrintFlags`/`EffectiveBW`/`TargetLayerID`/
+    `CopyrightFlag`/`URL`/`GlobalAngle`/`Watermark`/`ICC_Untagged`/
+    `EffectsVisible`/`IDsBaseValue`/`IndexedColorTableCount`/
+    `TransparentIndex`/`GlobalAltitude`/`IPTCDigest`/`PrintScaleInfo`/
+    `PixelInfo`/
+    `LayerGroupsEnabledID` are emitted as `MetaKeyKind::PhotoshopIrbField`).
   - IPTC-IIM: dataset streams (raw dataset bytes preserved).
   - Comment (`MetaKeyKind::Comment`): structured JPEG COM and GIF comment
     extension payloads.
@@ -59,12 +72,20 @@ Current baseline-gated status on tracked corpora:
     even when `meta` has no `pitm`), plus `primary.item_*` aliases when `pitm`
     is present, generic `iref.ref_type_name` rows, typed `iref.<type>.*` rows
     for known relation families plus safe ASCII FourCC relation types,
-    graph-summary counters, and `auxC`-typed auxiliary semantics, including
-    bounded `aux.item_count`,
+    graph-summary counters, bounded primary-linked image-role rows
+    (`primary.linked_item_role_count`, `primary.linked_item_id`,
+    `primary.linked_item_type`, `primary.linked_item_name`,
+    `primary.linked_item_role`), and `auxC`-typed auxiliary semantics,
+    including bounded `aux.item_count`,
     `aux.alpha_count`, `aux.depth_count`, `aux.disparity_count`,
     `aux.matte_count`, and `primary.depth_count`, `primary.alpha_count`,
     `primary.disparity_count`, `primary.matte_count`, plus other
     `primary.*_count` relation aliases.
+  - JUMBF/C2PA: draft structural box + bounded CBOR decode with draft
+    `c2pa.semantic.*` projection fields for manifest/claim/signature linkage,
+    including active-manifest summary rows
+    (`active_manifest_present`, `active_manifest_count`,
+    `active_manifest.prefix`, `manifest.{i}.is_active`).
 - EXIF/MakerNote display naming now has two explicit layers:
   - canonical tag names from `exif_tag_name(...)`
   - contextual compatibility names from

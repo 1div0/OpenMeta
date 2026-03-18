@@ -1069,12 +1069,11 @@ namespace {
 
     static const char* photoshop_resource_name(uint16_t id) noexcept
     {
-        switch (id) {
-        case 0x0404: return "IPTC_NAA";
-        case 0x0422: return "EXIF_DATA_1";
-        case 0x0423: return "EXIF_DATA_3";
-        default: return "-";
+        const std::string_view name = photoshop_irb_resource_name(id);
+        if (name.empty()) {
+            return "-";
         }
+        return name.data();
     }
 
 
@@ -1231,6 +1230,21 @@ namespace {
                 row.key_s  = buf;
                 row.name_s = photoshop_resource_name(
                     entry.key.data.photoshop_irb.resource_id);
+                break;
+            }
+            case MetaKeyKind::PhotoshopIrbField: {
+                char buf[64];
+                const std::string_view field
+                    = arena_string(store.arena(),
+                                   entry.key.data.photoshop_irb_field.field);
+                std::snprintf(
+                    buf, sizeof(buf), "0x%04X:%.*s",
+                    static_cast<unsigned>(
+                        entry.key.data.photoshop_irb_field.resource_id),
+                    static_cast<int>(field.size()), field.data());
+                row.key_s  = buf;
+                row.name_s = photoshop_resource_name(
+                    entry.key.data.photoshop_irb_field.resource_id);
                 break;
             }
             case MetaKeyKind::IccHeaderField: {

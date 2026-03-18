@@ -50,20 +50,62 @@ TEST(ExifTagNames, MapsNativeCrwCiffTags)
               std::string_view("OwnerName"));
     EXPECT_EQ(exif_tag_name("ciff_300A_2", 0x0816),
               std::string_view("OriginalFileName"));
+    EXPECT_EQ(exif_tag_name("ciff_300A_2", 0x1803),
+              std::string_view("ImageFormat"));
+    EXPECT_EQ(exif_tag_name("ciff_300A_2", 0x1806),
+              std::string_view("SelfTimerTime"));
     EXPECT_EQ(exif_tag_name("ciff_300A_2", 0x1810),
               std::string_view("ImageInfo"));
     EXPECT_EQ(exif_tag_name("ciff_3003_3", 0x1814),
               std::string_view("MeasuredEV"));
     EXPECT_EQ(exif_tag_name("ciff_3004_3", 0x101C),
               std::string_view("BaseISO"));
+    EXPECT_EQ(exif_tag_name("ciff_3004_3", 0x080C),
+              std::string_view("ComponentVersion"));
+    EXPECT_EQ(exif_tag_name("ciff_3004_3", 0x1834),
+              std::string_view("CanonModelID"));
+    EXPECT_EQ(exif_tag_name("ciff_3004_3", 0x1835),
+              std::string_view("DecoderTable"));
+    EXPECT_EQ(exif_tag_name("ciff_3004_3", 0x183B),
+              std::string_view("SerialNumberFormat"));
     EXPECT_EQ(exif_tag_name("ciff_300B_4", 0x1028),
               std::string_view("CanonFlashInfo"));
+    EXPECT_EQ(exif_tag_name("ciff_300B_4", 0x1029),
+              std::string_view("FocalLength"));
+    EXPECT_EQ(exif_tag_name("ciff_300B_4", 0x102A),
+              std::string_view("CanonShotInfo"));
+    EXPECT_EQ(exif_tag_name("ciff_300B_4", 0x1030),
+              std::string_view("WhiteSample"));
+    EXPECT_EQ(exif_tag_name("ciff_300B_4", 0x10B5),
+              std::string_view("RawJpgInfo"));
     EXPECT_EQ(exif_tag_name("ciff_300A_2_timestamp", 0x0001),
               std::string_view("TimeZoneCode"));
+    EXPECT_EQ(exif_tag_name("ciff_300A_2_imageformat", 0x0001),
+              std::string_view("TargetCompressionRatio"));
+    EXPECT_EQ(exif_tag_name("ciff_2807_1_makemodel", 0x0000),
+              std::string_view("Make"));
+    EXPECT_EQ(exif_tag_name("ciff_2807_1_makemodel", 0x0006),
+              std::string_view("Model"));
     EXPECT_EQ(exif_tag_name("ciff_300A_2_imageinfo", 0x0002),
               std::string_view("PixelAspectRatio"));
+    EXPECT_EQ(exif_tag_name("ciff_3002_1", 0x1813),
+              std::string_view("FlashInfo"));
     EXPECT_EQ(exif_tag_name("ciff_3002_1_exposureinfo", 0x0001),
               std::string_view("ShutterSpeedValue"));
+    EXPECT_TRUE(exif_tag_name("ciff_3004_3", 0x1812).empty());
+    EXPECT_TRUE(exif_tag_name("ciff_300B_4", 0x1819).empty());
+    EXPECT_EQ(exif_tag_name("ciff_3002_1_flashinfo", 0x0000),
+              std::string_view("FlashGuideNumber"));
+    EXPECT_EQ(exif_tag_name("ciff_300B_4_focallength", 0x0002),
+              std::string_view("FocalPlaneXSize"));
+    EXPECT_EQ(exif_tag_name("ciff_300B_4_shotinfo", 0x0005),
+              std::string_view("TargetExposureTime"));
+    EXPECT_EQ(exif_tag_name("ciff_3004_3_decodertable", 0x0002),
+              std::string_view("CompressedDataOffset"));
+    EXPECT_EQ(exif_tag_name("ciff_300B_4_rawjpginfo", 0x0003),
+              std::string_view("RawJpgWidth"));
+    EXPECT_EQ(exif_tag_name("ciff_300B_4_whitesample", 0x0005),
+              std::string_view("WhiteSampleBits"));
 }
 
 

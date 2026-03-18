@@ -775,6 +775,15 @@ namespace {
             append_u16_hex(e.key.data.photoshop_irb.resource_id, out_name);
             return true;
         }
+        case MetaKeyKind::PhotoshopIrbField: {
+            out_name->append("psirb_field:");
+            append_u16_hex(e.key.data.photoshop_irb_field.resource_id,
+                           out_name);
+            out_name->append(":");
+            out_name->append(
+                arena_string(arena, e.key.data.photoshop_irb_field.field));
+            return true;
+        }
         case MetaKeyKind::GeotiffKey: {
             out_name->append("geotiff:");
             append_u64_dec(e.key.data.geotiff_key.key_id, out_name);

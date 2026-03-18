@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <span>
+#include <string_view>
 
 /**
  * \file photoshop_irb_decode.h
@@ -53,6 +54,27 @@ struct PhotoshopIrbDecodeResult final {
  * - \ref MetaKeyKind::PhotoshopIrb (resource id)
  * - \ref MetaValueKind::Bytes (raw resource payload)
  *
+ * A bounded interpreted subset is additionally emitted as
+ * \ref MetaKeyKind::PhotoshopIrbField entries for fixed-layout resources:
+ * - ResolutionInfo (0x03ED)
+ * - PrintFlags (0x03F3)
+ * - EffectiveBW (0x03FB)
+ * - TargetLayerID (0x0400)
+ * - CopyrightFlag (0x040A)
+ * - URL (0x040B)
+ * - GlobalAngle (0x040D)
+ * - Watermark (0x0410)
+ * - ICC_Untagged (0x0411)
+ * - EffectsVisible (0x0412)
+ * - IDsBaseValue (0x0414)
+ * - IndexedColorTableCount (0x0416)
+ * - TransparentIndex (0x0417)
+ * - GlobalAltitude (0x0419)
+ * - IPTCDigest (0x0425)
+ * - PrintScaleInfo (0x0426)
+ * - PixelInfo / PixelAspectRatio (0x0428)
+ * - LayerGroupsEnabledID (0x0430)
+ *
  * If enabled, IPTC-IIM is additionally decoded from resource id 0x0404
  * (IPTC/NAA) into separate \ref MetaKeyKind::IptcDataset entries marked as
  * \ref EntryFlags::Derived.
@@ -69,5 +91,8 @@ PhotoshopIrbDecodeResult
 measure_photoshop_irb(std::span<const std::byte> irb_bytes,
                       const PhotoshopIrbDecodeOptions& options
                       = PhotoshopIrbDecodeOptions {}) noexcept;
+
+std::string_view
+photoshop_irb_resource_name(uint16_t resource_id) noexcept;
 
 }  // namespace openmeta

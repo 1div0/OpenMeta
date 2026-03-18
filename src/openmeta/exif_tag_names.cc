@@ -212,11 +212,91 @@ namespace {
             }
         }
 
+        if (synthetic == "imageformat") {
+            switch (tag) {
+            case 0x0000U: return "FileFormat";
+            case 0x0001U: return "TargetCompressionRatio";
+            default: return {};
+            }
+        }
+
+        if (synthetic == "makemodel") {
+            switch (tag) {
+            case 0x0000U: return "Make";
+            case 0x0006U: return "Model";
+            default: return {};
+            }
+        }
+
         if (synthetic == "exposureinfo") {
             switch (tag) {
             case 0x0000U: return "ExposureCompensation";
             case 0x0001U: return "ShutterSpeedValue";
             case 0x0002U: return "ApertureValue";
+            default: return {};
+            }
+        }
+
+        if (synthetic == "flashinfo") {
+            switch (tag) {
+            case 0x0000U: return "FlashGuideNumber";
+            case 0x0001U: return "FlashThreshold";
+            default: return {};
+            }
+        }
+
+        if (synthetic == "focallength") {
+            switch (tag) {
+            case 0x0000U: return "FocalType";
+            case 0x0001U: return "FocalLength";
+            case 0x0002U: return "FocalPlaneXSize";
+            case 0x0003U: return "FocalPlaneYSize";
+            default: return {};
+            }
+        }
+
+        if (synthetic == "shotinfo") {
+            switch (tag) {
+            case 0x0001U: return "AutoISO";
+            case 0x0002U: return "BaseISO";
+            case 0x0003U: return "MeasuredEV";
+            case 0x0004U: return "TargetAperture";
+            case 0x0005U: return "TargetExposureTime";
+            case 0x0006U: return "ExposureCompensation";
+            case 0x0007U: return "WhiteBalance";
+            case 0x0008U: return "SlowShutter";
+            case 0x0009U: return "SequenceNumber";
+            case 0x000AU: return "OpticalZoomCode";
+            default: return {};
+            }
+        }
+
+        if (synthetic == "decodertable") {
+            switch (tag) {
+            case 0x0000U: return "DecoderTableNumber";
+            case 0x0002U: return "CompressedDataOffset";
+            case 0x0003U: return "CompressedDataLength";
+            default: return {};
+            }
+        }
+
+        if (synthetic == "rawjpginfo") {
+            switch (tag) {
+            case 0x0001U: return "RawJpgQuality";
+            case 0x0002U: return "RawJpgSize";
+            case 0x0003U: return "RawJpgWidth";
+            case 0x0004U: return "RawJpgHeight";
+            default: return {};
+            }
+        }
+
+        if (synthetic == "whitesample") {
+            switch (tag) {
+            case 0x0001U: return "WhiteSampleWidth";
+            case 0x0002U: return "WhiteSampleHeight";
+            case 0x0003U: return "WhiteSampleLeftBorder";
+            case 0x0004U: return "WhiteSampleTopBorder";
+            case 0x0005U: return "WhiteSampleBits";
             default: return {};
             }
         }
@@ -245,7 +325,9 @@ namespace {
             switch (tag) {
             case 0x1010U: return "ShutterReleaseMethod";
             case 0x1011U: return "ShutterReleaseTiming";
+            case 0x1016U: return "ReleaseSetting";
             case 0x1807U: return "TargetDistanceSetting";
+            case 0x1813U: return "FlashInfo";
             default: return {};
             }
         case 0x3003U:
@@ -256,9 +338,13 @@ namespace {
         case 0x3004U:
             switch (tag) {
             case 0x080BU: return "CanonFirmwareVersion";
+            case 0x080CU: return "ComponentVersion";
             case 0x080DU: return "ROMOperationMode";
             case 0x101CU: return "BaseISO";
             case 0x180BU: return "UnknownNumber";
+            case 0x1834U: return "CanonModelID";
+            case 0x1835U: return "DecoderTable";
+            case 0x183BU: return "SerialNumberFormat";
             default: return {};
             }
         case 0x300AU:
@@ -266,7 +352,9 @@ namespace {
             case 0x0816U: return "OriginalFileName";
             case 0x0817U: return "ThumbnailFileName";
             case 0x100AU: return "TargetImageType";
+            case 0x1803U: return "ImageFormat";
             case 0x1804U: return "RecordID";
+            case 0x1806U: return "SelfTimerTime";
             case 0x180EU: return "TimeStamp";
             case 0x1810U: return "ImageInfo";
             case 0x1817U: return "FileNumber";
@@ -274,7 +362,11 @@ namespace {
             }
         case 0x300BU:
             switch (tag) {
+            case 0x1030U: return "WhiteSample";
             case 0x1028U: return "CanonFlashInfo";
+            case 0x1029U: return "FocalLength";
+            case 0x102AU: return "CanonShotInfo";
+            case 0x10B5U: return "RawJpgInfo";
             default: return {};
             }
         default: return {};

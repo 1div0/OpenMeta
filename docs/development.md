@@ -511,7 +511,7 @@ This policy surface is intentionally marked draft and may be refined.
   plus `format_icc_tag_display_value(...)` for shared CLI/Python rendering)
 - ISO-BMFF (HEIF/AVIF/CR3) container-derived fields: `src/openmeta/bmff_fields_decode.cc`
   - Emitted during `simple_meta_read(...)` as `MetaKeyKind::BmffField` entries.
-  - Current fields: `ftyp.*`, primary item properties (`meta.primary_item_id`, `primary.width`, `primary.height`, `primary.rotation_degrees`, `primary.mirror` from `pitm` + `iprp/ipco ispe/irot/imir` + `ipma`), item-info rows from `iinf/infe` (`item.info_count`, `item.id`, `item.type`, `item.name`, `item.content_type`, `item.content_encoding`, `item.uri_type`; emitted even when `meta` has no `pitm`, plus `primary.item_type`, `primary.item_name`, `primary.content_type`, `primary.content_encoding`, `primary.uri_type` aliases when `pitm` is present), bounded `iref.*` relation fields (`ref_type`, `ref_type_name`, `from_item_id`, `to_item_id`, `edge_count`), typed derived relation rows (`iref.auxl.*`, `iref.dimg.*`, `iref.thmb.*`, `iref.cdsc.*`, and other safe ASCII FourCC relation families), per-type relation counters (`iref.<type>.edge_count`) and per-type unique source/target counters (`iref.<type>.from_item_unique_count`, `iref.<type>.to_item_unique_count`), per-type graph-summary aliases (`iref.graph.<type>.edge_count`, `iref.graph.<type>.from_item_unique_count`, `iref.graph.<type>.to_item_unique_count`), typed relation item summaries (`iref.<type>.item_count`, `iref.<type>.item_id`, `iref.<type>.item_out_edge_count`, `iref.<type>.item_in_edge_count`), relation-graph summaries (`iref.item_count`, `iref.from_item_unique_count`, `iref.to_item_unique_count`, row-wise `iref.item_id` + `iref.item_out_edge_count` + `iref.item_in_edge_count`), and `auxC`-based aux semantics (`aux.item_count`, `aux.item_id`, `aux.semantic`, `aux.type`, `aux.subtype_hex`, `aux.subtype_kind`, `aux.subtype_text`, `aux.subtype_uuid`, `aux.subtype_u32`, `aux.subtype_u64`, `aux.alpha_count`, `aux.depth_count`, `aux.disparity_count`, `aux.matte_count`, `primary.auxl_count`, `primary.auxl_semantic`, `primary.depth_count`, `primary.depth_item_id`, `primary.alpha_count`, `primary.alpha_item_id`, `primary.disparity_count`, `primary.disparity_item_id`, `primary.matte_count`, `primary.matte_item_id`, `primary.dimg_count`, `primary.dimg_item_id`, `primary.thmb_count`, `primary.thmb_item_id`, `primary.cdsc_count`, `primary.cdsc_item_id`, ...). Higher-level image-role interpretation above the current relation/aux surfaces is still follow-up work.
+  - Current fields: `ftyp.*`, primary item properties (`meta.primary_item_id`, `primary.width`, `primary.height`, `primary.rotation_degrees`, `primary.mirror` from `pitm` + `iprp/ipco ispe/irot/imir` + `ipma`), item-info rows from `iinf/infe` (`item.info_count`, `item.id`, `item.type`, `item.name`, `item.content_type`, `item.content_encoding`, `item.uri_type`; emitted even when `meta` has no `pitm`, plus `primary.item_type`, `primary.item_name`, `primary.content_type`, `primary.content_encoding`, `primary.uri_type` aliases when `pitm` is present), bounded `iref.*` relation fields (`ref_type`, `ref_type_name`, `from_item_id`, `to_item_id`, `edge_count`), typed derived relation rows (`iref.auxl.*`, `iref.dimg.*`, `iref.thmb.*`, `iref.cdsc.*`, and other safe ASCII FourCC relation families), per-type relation counters (`iref.<type>.edge_count`) and per-type unique source/target counters (`iref.<type>.from_item_unique_count`, `iref.<type>.to_item_unique_count`), per-type graph-summary aliases (`iref.graph.<type>.edge_count`, `iref.graph.<type>.from_item_unique_count`, `iref.graph.<type>.to_item_unique_count`), typed relation item summaries (`iref.<type>.item_count`, `iref.<type>.item_id`, `iref.<type>.item_out_edge_count`, `iref.<type>.item_in_edge_count`), relation-graph summaries (`iref.item_count`, `iref.from_item_unique_count`, `iref.to_item_unique_count`, row-wise `iref.item_id` + `iref.item_out_edge_count` + `iref.item_in_edge_count`), bounded primary-linked image-role rows (`primary.linked_item_role_count`, row-wise `primary.linked_item_id` + `primary.linked_item_type` + `primary.linked_item_name` + `primary.linked_item_role` when `iinf/infe` data exists), and `auxC`-based aux semantics (`aux.item_count`, `aux.item_id`, `aux.semantic`, `aux.type`, `aux.subtype_hex`, `aux.subtype_kind`, `aux.subtype_text`, `aux.subtype_uuid`, `aux.subtype_u32`, `aux.subtype_u64`, `aux.alpha_count`, `aux.depth_count`, `aux.disparity_count`, `aux.matte_count`, `primary.auxl_count`, `primary.auxl_semantic`, `primary.depth_count`, `primary.depth_item_id`, `primary.alpha_count`, `primary.alpha_item_id`, `primary.disparity_count`, `primary.disparity_item_id`, `primary.matte_count`, `primary.matte_item_id`, `primary.dimg_count`, `primary.dimg_item_id`, `primary.thmb_count`, `primary.thmb_item_id`, `primary.cdsc_count`, `primary.cdsc_item_id`, ...). Full multi-image scene modeling beyond that primary-linked role surface is still follow-up work.
   - `auxC` subtype interpretation now includes `ascii_z` and `u64be` kinds in addition to earlier numeric/FourCC/UUID/ASCII forms.
   - Parsing is intentionally bounded (depth/box count caps) and ignores unknown properties.
 - JUMBF/C2PA decode (draft phase-3): `src/openmeta/jumbf_decode.cc`
@@ -524,15 +524,18 @@ This policy surface is intentionally marked draft and may be refined.
     major}`) and broader scalar
     decode coverage (simple values + half/float/double bit-preserving paths).
   - Draft semantic projection emits stable `c2pa.semantic.*` fields
-    (`manifest_present`, `claim_present`, `assertion_present`,
-    `signature_present`, `assertion_key_hits`, `cbor_key_count`,
-    `signature_count`,
+    (`manifest_present`, `active_manifest_present`,
+    `active_manifest_count`, `active_manifest.prefix`, `claim_present`,
+    `assertion_present`, `signature_present`, `assertion_key_hits`,
+    `cbor_key_count`, `signature_count`,
     `claim_generator` when ASCII-safe), plus draft per-claim fields
     (`claim_count`, `assertion_count`, `claim.{i}.prefix`,
     `claim.{i}.assertion_count`, `claim.{i}.key_hits`,
     `claim.{i}.signature_count`, `claim.{i}.signature_key_hits`,
     `claim.{i}.claim_generator` when ASCII-safe) and per-assertion fields
     (`claim.{i}.assertion.{j}.prefix`, `claim.{i}.assertion.{j}.key_hits`),
+    plus per-manifest active-state fields
+    (`manifest.{i}.is_active`),
     plus draft per-claim signature fields
     (`claim.{i}.signature.{k}.prefix`, `claim.{i}.signature.{k}.key_hits`,
     `claim.{i}.signature.{k}.algorithm` when available), plus draft
@@ -612,6 +615,15 @@ Internal helper conventions (used by vendor decoders):
   compatibility requires a decode-time alias split, stamp the variant on the
   `Entry` provenance and resolve it only on explicit display surfaces through
   `exif_entry_name(..., ExifTagNamePolicy::ExifToolCompat)`.
+- Photoshop IRB stays lossless at the raw-resource layer (`PhotoshopIrb`).
+  Add interpreted IRB fields only for fixed-layout resources and emit them as
+  separate `PhotoshopIrbField` entries instead of weakening the raw payload
+  surface. The current bounded interpreted subset includes `ResolutionInfo`,
+  `PrintFlags`, `EffectiveBW`, `TargetLayerID`, `CopyrightFlag`, `URL`,
+  `GlobalAngle`, `Watermark`, `ICC_Untagged`, `EffectsVisible`,
+  `IDsBaseValue`, `IndexedColorTableCount`, `TransparentIndex`,
+  `GlobalAltitude`, `IPTCDigest`, `PrintScaleInfo`, `PixelInfo`, and
+  `LayerGroupsEnabledID`.
 - GeoTIFF key-name table is generated from `registry/geotiff/keys.jsonl` and looked up via binary search (`geotiff_key_names.cc`).
 
 ## Tests (GoogleTest)

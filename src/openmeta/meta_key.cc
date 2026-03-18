@@ -112,6 +112,18 @@ make_photoshop_irb_key(uint16_t resource_id) noexcept
 
 
 MetaKey
+make_photoshop_irb_field_key(ByteArena& arena, uint16_t resource_id,
+                             std::string_view field)
+{
+    MetaKey key;
+    key.kind                                 = MetaKeyKind::PhotoshopIrbField;
+    key.data.photoshop_irb_field.resource_id = resource_id;
+    key.data.photoshop_irb_field.field       = arena.append_string(field);
+    return key;
+}
+
+
+MetaKey
 make_geotiff_key(uint16_t key_id) noexcept
 {
     MetaKey key;
@@ -255,6 +267,18 @@ compare_key(const ByteArena& arena, const MetaKey& a, const MetaKey& b) noexcept
             return 1;
         }
         return 0;
+    case MetaKeyKind::PhotoshopIrbField: {
+        if (a.data.photoshop_irb_field.resource_id
+            < b.data.photoshop_irb_field.resource_id) {
+            return -1;
+        }
+        if (a.data.photoshop_irb_field.resource_id
+            > b.data.photoshop_irb_field.resource_id) {
+            return 1;
+        }
+        return compare_bytes(arena.span(a.data.photoshop_irb_field.field),
+                             arena.span(b.data.photoshop_irb_field.field));
+    }
     case MetaKeyKind::GeotiffKey:
         if (a.data.geotiff_key.key_id < b.data.geotiff_key.key_id) {
             return -1;
@@ -288,7 +312,6 @@ compare_key(const ByteArena& arena, const MetaKey& a, const MetaKey& b) noexcept
     }
     return 0;
 }
-
 
 int
 compare_key_view(const ByteArena& arena, const MetaKeyView& a,
@@ -384,6 +407,22 @@ compare_key_view(const ByteArena& arena, const MetaKeyView& a,
             return 1;
         }
         return 0;
+    case MetaKeyKind::PhotoshopIrbField: {
+        if (a.data.photoshop_irb_field.resource_id
+            < b.data.photoshop_irb_field.resource_id) {
+            return -1;
+        }
+        if (a.data.photoshop_irb_field.resource_id
+            > b.data.photoshop_irb_field.resource_id) {
+            return 1;
+        }
+        const std::span<const std::byte> a_field(
+            reinterpret_cast<const std::byte*>(
+                a.data.photoshop_irb_field.field.data()),
+            a.data.photoshop_irb_field.field.size());
+        return compare_bytes(a_field,
+                             arena.span(b.data.photoshop_irb_field.field));
+    }
     case MetaKeyKind::GeotiffKey:
         if (a.data.geotiff_key.key_id < b.data.geotiff_key.key_id) {
             return -1;

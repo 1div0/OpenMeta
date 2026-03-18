@@ -439,6 +439,7 @@ namespace {
         case MetaKeyKind::IccHeaderField: return "IccHeaderField";
         case MetaKeyKind::IccTag: return "IccTag";
         case MetaKeyKind::PhotoshopIrb: return "PhotoshopIrb";
+        case MetaKeyKind::PhotoshopIrbField: return "PhotoshopIrbField";
         case MetaKeyKind::GeotiffKey: return "GeotiffKey";
         case MetaKeyKind::PrintImField: return "PrintImField";
         case MetaKeyKind::BmffField: return "BmffField";
@@ -899,6 +900,13 @@ namespace {
         case MetaKeyKind::PhotoshopIrb:
             w->append("psirb:");
             append_u16_hex(e.key.data.photoshop_irb.resource_id, w);
+            break;
+        case MetaKeyKind::PhotoshopIrbField:
+            w->append("psirb_field:");
+            append_u16_hex(e.key.data.photoshop_irb_field.resource_id, w);
+            w->append(":");
+            w->append(
+                arena_string(arena, e.key.data.photoshop_irb_field.field));
             break;
         case MetaKeyKind::GeotiffKey:
             w->append("geotiff:");

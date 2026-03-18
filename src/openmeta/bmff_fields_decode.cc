@@ -512,6 +512,17 @@ namespace {
         Matte     = 4,
     };
 
+    enum class PrimaryLinkedRole : uint8_t {
+        Auxiliary          = 0,
+        Alpha              = 1,
+        Depth              = 2,
+        Disparity          = 3,
+        Matte              = 4,
+        DerivedImage       = 5,
+        Thumbnail          = 6,
+        ContentDescription = 7,
+    };
+
     struct AuxCProp final {
         uint32_t index       = 0;  // 1-based ipco index
         AuxSemantic semantic = AuxSemantic::Unknown;
@@ -802,6 +813,127 @@ namespace {
         case AuxSemantic::Matte: return "matte";
         }
         return "unknown";
+    }
+
+    static std::string_view
+    primary_linked_role_name(PrimaryLinkedRole role) noexcept
+    {
+        switch (role) {
+        case PrimaryLinkedRole::Auxiliary: return "auxiliary";
+        case PrimaryLinkedRole::Alpha: return "alpha";
+        case PrimaryLinkedRole::Depth: return "depth";
+        case PrimaryLinkedRole::Disparity: return "disparity";
+        case PrimaryLinkedRole::Matte: return "matte";
+        case PrimaryLinkedRole::DerivedImage: return "derived";
+        case PrimaryLinkedRole::Thumbnail: return "thumbnail";
+        case PrimaryLinkedRole::ContentDescription:
+            return "content_description";
+        }
+        return "auxiliary";
+    }
+
+    static PrimaryLinkedRole
+    primary_linked_role_for_aux_semantic(AuxSemantic semantic) noexcept
+    {
+        switch (semantic) {
+        case AuxSemantic::Alpha: return PrimaryLinkedRole::Alpha;
+        case AuxSemantic::Depth: return PrimaryLinkedRole::Depth;
+        case AuxSemantic::Disparity: return PrimaryLinkedRole::Disparity;
+        case AuxSemantic::Matte: return PrimaryLinkedRole::Matte;
+        case AuxSemantic::Unknown: break;
+        }
+        return PrimaryLinkedRole::Auxiliary;
+    }
+
+    static void push_primary_linked_role(std::span<uint32_t> item_ids,
+                                         std::span<PrimaryLinkedRole> roles,
+                                         uint32_t* io_count, uint32_t item_id,
+                                         PrimaryLinkedRole role) noexcept
+    {
+        if (!io_count) {
+            return;
+        }
+        const uint32_t cap = static_cast<uint32_t>(
+            std::min(item_ids.size(), roles.size()));
+        for (uint32_t i = 0; i < *io_count && i < cap; ++i) {
+            if (item_ids[i] == item_id && roles[i] == role) {
+                return;
+            }
+        }
+        if (*io_count < cap) {
+            item_ids[*io_count] = item_id;
+            roles[*io_count]    = role;
+            *io_count += 1U;
+        }
+    }
+
+    static void emit_primary_linked_item_roles(MetaStore& store, BlockId block,
+                                               uint32_t* io_order,
+                                               const PrimaryProps& p) noexcept
+    {
+        if (!io_order) {
+            return;
+        }
+
+        std::array<uint32_t, 256> role_item_ids {};
+        std::array<PrimaryLinkedRole, 256> roles {};
+        uint32_t role_count = 0;
+
+        for (uint32_t i = 0; i < p.primary_auxl_count; ++i) {
+            push_primary_linked_role(role_item_ids, roles, &role_count,
+                                     p.primary_auxl_item_ids[i],
+                                     primary_linked_role_for_aux_semantic(
+                                         p.primary_auxl_semantics[i]));
+        }
+        for (uint32_t i = 0; i < p.primary_dimg_count; ++i) {
+            push_primary_linked_role(role_item_ids, roles, &role_count,
+                                     p.primary_dimg_item_ids[i],
+                                     PrimaryLinkedRole::DerivedImage);
+        }
+        for (uint32_t i = 0; i < p.primary_thmb_count; ++i) {
+            push_primary_linked_role(role_item_ids, roles, &role_count,
+                                     p.primary_thmb_item_ids[i],
+                                     PrimaryLinkedRole::Thumbnail);
+        }
+        for (uint32_t i = 0; i < p.primary_cdsc_count; ++i) {
+            push_primary_linked_role(role_item_ids, roles, &role_count,
+                                     p.primary_cdsc_item_ids[i],
+                                     PrimaryLinkedRole::ContentDescription);
+        }
+
+        if (role_count == 0U) {
+            return;
+        }
+
+        emit_u32_field(store, block, (*io_order)++,
+                       "primary.linked_item_role_count", role_count);
+        for (uint32_t i = 0; i < role_count; ++i) {
+            emit_u32_field(store, block, (*io_order)++,
+                           "primary.linked_item_id", role_item_ids[i]);
+            const ItemInfo* info = nullptr;
+            for (uint32_t item_info_index = 0;
+                 item_info_index < p.item_info_count; ++item_info_index) {
+                if (p.item_infos[item_info_index].item_id == role_item_ids[i]) {
+                    info = &p.item_infos[item_info_index];
+                    break;
+                }
+            }
+            if (info) {
+                if (info->have_type) {
+                    emit_u32_field(store, block, (*io_order)++,
+                                   "primary.linked_item_type", info->item_type);
+                }
+                if (info->name_len != 0U) {
+                    emit_text_field(store, block, (*io_order)++,
+                                    "primary.linked_item_name",
+                                    std::string_view(info->name.data(),
+                                                     info->name_len));
+                }
+            }
+            emit_text_field(store, block, (*io_order)++,
+                            "primary.linked_item_role",
+                            primary_linked_role_name(roles[i]));
+        }
     }
 
     static uint32_t count_aux_items_with_semantic(const PrimaryProps& out,
@@ -2902,6 +3034,9 @@ namespace {
                                                "primary.cdsc_item_id",
                                                p.primary_cdsc_item_ids[i]);
                             }
+                            emit_primary_linked_item_roles(*ctx->store,
+                                                           ctx->block,
+                                                           ctx->order, p);
                         }
                     }
                     ctx->meta_done = true;

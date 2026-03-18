@@ -67,6 +67,20 @@ namespace {
         out->insert(out->end(), payload.begin(), payload.end());
     }
 
+    static void append_infe_v2(std::vector<std::byte>* out, uint16_t item_id,
+                               uint16_t protection_index, uint32_t item_type,
+                               const char* name)
+    {
+        std::vector<std::byte> payload;
+        append_fullbox_header(&payload, 2);
+        append_u16be(&payload, item_id);
+        append_u16be(&payload, protection_index);
+        append_u32be(&payload, item_type);
+        append_bytes(&payload, name);
+        payload.push_back(std::byte { 0 });
+        append_bmff_box(out, fourcc('i', 'n', 'f', 'e'), payload);
+    }
+
     static MetaKeyView bmff_key(std::string_view field)
     {
         MetaKeyView key;
@@ -715,10 +729,30 @@ TEST(BmffDerivedFieldsDecode, EmitsPrimaryAuxSemanticsFromAuxC)
         std::vector<std::byte> iprp_box;
         append_bmff_box(&iprp_box, fourcc('i', 'p', 'r', 'p'), iprp_payload);
 
+        std::vector<std::byte> iinf_payload;
+        append_fullbox_header(&iinf_payload, 2);
+        append_u32be(&iinf_payload, 6);
+        append_infe_v2(&iinf_payload, 2, 0, fourcc('a', 'u', 'x', 'l'),
+                       "depth_aux");
+        append_infe_v2(&iinf_payload, 3, 0, fourcc('a', 'u', 'x', 'l'),
+                       "alpha_aux");
+        append_infe_v2(&iinf_payload, 4, 0, fourcc('d', 'e', 'r', 'v'),
+                       "derived");
+        append_infe_v2(&iinf_payload, 5, 0, fourcc('t', 'h', 'm', 'b'),
+                       "thumb");
+        append_infe_v2(&iinf_payload, 6, 0, fourcc('c', 'd', 's', 'c'),
+                       "caption");
+        append_infe_v2(&iinf_payload, 7, 0, fourcc('a', 'u', 'x', 'l'),
+                       "other_aux");
+        std::vector<std::byte> iinf_box;
+        append_bmff_box(&iinf_box, fourcc('i', 'i', 'n', 'f'), iinf_payload);
+
         std::vector<std::byte> meta_payload;
         append_fullbox_header(&meta_payload, 0);
         meta_payload.insert(meta_payload.end(), pitm_box.begin(),
                             pitm_box.end());
+        meta_payload.insert(meta_payload.end(), iinf_box.begin(),
+                            iinf_box.end());
         meta_payload.insert(meta_payload.end(), iref_box.begin(),
                             iref_box.end());
         meta_payload.insert(meta_payload.end(), iprp_box.begin(),
@@ -869,6 +903,208 @@ TEST(BmffDerivedFieldsDecode, EmitsPrimaryAuxSemanticsFromAuxC)
     ASSERT_EQ(auxl_subtype_u32.size(), 2U);
     EXPECT_EQ(auxl_subtype_u32[0], 43707U);
     EXPECT_EQ(auxl_subtype_u32[1], 17U);
+}
+
+TEST(BmffDerivedFieldsDecode, EmitsPrimaryLinkedItemRoles)
+{
+    std::vector<std::byte> file;
+
+    {
+        std::vector<std::byte> ftyp_payload;
+        append_fourcc(&ftyp_payload, fourcc('h', 'e', 'i', 'c'));
+        append_u32be(&ftyp_payload, 0);
+        append_fourcc(&ftyp_payload, fourcc('m', 'i', 'f', '1'));
+        append_bmff_box(&file, fourcc('f', 't', 'y', 'p'), ftyp_payload);
+    }
+
+    {
+        std::vector<std::byte> pitm_payload;
+        append_fullbox_header(&pitm_payload, 0);
+        append_u16be(&pitm_payload, 1);
+        std::vector<std::byte> pitm_box;
+        append_bmff_box(&pitm_box, fourcc('p', 'i', 't', 'm'), pitm_payload);
+
+        std::vector<std::byte> auxl_payload;
+        append_u16be(&auxl_payload, 1);
+        append_u16be(&auxl_payload, 3);
+        append_u16be(&auxl_payload, 2);
+        append_u16be(&auxl_payload, 3);
+        append_u16be(&auxl_payload, 7);
+        std::vector<std::byte> auxl_box;
+        append_bmff_box(&auxl_box, fourcc('a', 'u', 'x', 'l'), auxl_payload);
+
+        std::vector<std::byte> dimg_payload;
+        append_u16be(&dimg_payload, 1);
+        append_u16be(&dimg_payload, 1);
+        append_u16be(&dimg_payload, 4);
+        std::vector<std::byte> dimg_box;
+        append_bmff_box(&dimg_box, fourcc('d', 'i', 'm', 'g'), dimg_payload);
+
+        std::vector<std::byte> thmb_payload;
+        append_u16be(&thmb_payload, 1);
+        append_u16be(&thmb_payload, 1);
+        append_u16be(&thmb_payload, 5);
+        std::vector<std::byte> thmb_box;
+        append_bmff_box(&thmb_box, fourcc('t', 'h', 'm', 'b'), thmb_payload);
+
+        std::vector<std::byte> cdsc_payload;
+        append_u16be(&cdsc_payload, 1);
+        append_u16be(&cdsc_payload, 1);
+        append_u16be(&cdsc_payload, 6);
+        std::vector<std::byte> cdsc_box;
+        append_bmff_box(&cdsc_box, fourcc('c', 'd', 's', 'c'), cdsc_payload);
+
+        std::vector<std::byte> iref_payload;
+        append_fullbox_header(&iref_payload, 0);
+        iref_payload.insert(iref_payload.end(), auxl_box.begin(),
+                            auxl_box.end());
+        iref_payload.insert(iref_payload.end(), dimg_box.begin(),
+                            dimg_box.end());
+        iref_payload.insert(iref_payload.end(), thmb_box.begin(),
+                            thmb_box.end());
+        iref_payload.insert(iref_payload.end(), cdsc_box.begin(),
+                            cdsc_box.end());
+        std::vector<std::byte> iref_box;
+        append_bmff_box(&iref_box, fourcc('i', 'r', 'e', 'f'), iref_payload);
+
+        std::vector<std::byte> auxc_depth_payload;
+        static constexpr char kDepth[] = "urn:mpeg:hevc:2015:auxid:2";
+        append_auxc_payload(&auxc_depth_payload, kDepth, {});
+        std::vector<std::byte> auxc_depth_box;
+        append_bmff_box(&auxc_depth_box, fourcc('a', 'u', 'x', 'C'),
+                        auxc_depth_payload);
+
+        std::vector<std::byte> auxc_alpha_payload;
+        static constexpr char kAlpha[] = "urn:mpeg:hevc:2015:auxid:1";
+        append_auxc_payload(&auxc_alpha_payload, kAlpha, {});
+        std::vector<std::byte> auxc_alpha_box;
+        append_bmff_box(&auxc_alpha_box, fourcc('a', 'u', 'x', 'C'),
+                        auxc_alpha_payload);
+
+        std::vector<std::byte> ipco_payload;
+        ipco_payload.insert(ipco_payload.end(), auxc_depth_box.begin(),
+                            auxc_depth_box.end());
+        ipco_payload.insert(ipco_payload.end(), auxc_alpha_box.begin(),
+                            auxc_alpha_box.end());
+        std::vector<std::byte> ipco_box;
+        append_bmff_box(&ipco_box, fourcc('i', 'p', 'c', 'o'), ipco_payload);
+
+        std::vector<std::byte> ipma_payload;
+        append_fullbox_header(&ipma_payload, 0);
+        append_u32be(&ipma_payload, 4);
+
+        append_u16be(&ipma_payload, 1);
+        ipma_payload.push_back(std::byte { 0 });
+
+        append_u16be(&ipma_payload, 2);
+        ipma_payload.push_back(std::byte { 1 });
+        ipma_payload.push_back(std::byte { 1 });
+
+        append_u16be(&ipma_payload, 3);
+        ipma_payload.push_back(std::byte { 1 });
+        ipma_payload.push_back(std::byte { 2 });
+
+        append_u16be(&ipma_payload, 7);
+        ipma_payload.push_back(std::byte { 0 });
+
+        std::vector<std::byte> ipma_box;
+        append_bmff_box(&ipma_box, fourcc('i', 'p', 'm', 'a'), ipma_payload);
+
+        std::vector<std::byte> iprp_payload;
+        iprp_payload.insert(iprp_payload.end(), ipco_box.begin(),
+                            ipco_box.end());
+        iprp_payload.insert(iprp_payload.end(), ipma_box.begin(),
+                            ipma_box.end());
+        std::vector<std::byte> iprp_box;
+        append_bmff_box(&iprp_box, fourcc('i', 'p', 'r', 'p'), iprp_payload);
+
+        std::vector<std::byte> iinf_payload;
+        append_fullbox_header(&iinf_payload, 2);
+        append_u32be(&iinf_payload, 6);
+        append_infe_v2(&iinf_payload, 2, 0, fourcc('a', 'u', 'x', 'l'),
+                       "depth_aux");
+        append_infe_v2(&iinf_payload, 3, 0, fourcc('a', 'u', 'x', 'l'),
+                       "alpha_aux");
+        append_infe_v2(&iinf_payload, 4, 0, fourcc('d', 'e', 'r', 'v'),
+                       "derived");
+        append_infe_v2(&iinf_payload, 5, 0, fourcc('t', 'h', 'm', 'b'),
+                       "thumb");
+        append_infe_v2(&iinf_payload, 6, 0, fourcc('c', 'd', 's', 'c'),
+                       "caption");
+        append_infe_v2(&iinf_payload, 7, 0, fourcc('a', 'u', 'x', 'l'),
+                       "other_aux");
+        std::vector<std::byte> iinf_box;
+        append_bmff_box(&iinf_box, fourcc('i', 'i', 'n', 'f'), iinf_payload);
+
+        std::vector<std::byte> meta_payload;
+        append_fullbox_header(&meta_payload, 0);
+        meta_payload.insert(meta_payload.end(), pitm_box.begin(),
+                            pitm_box.end());
+        meta_payload.insert(meta_payload.end(), iinf_box.begin(),
+                            iinf_box.end());
+        meta_payload.insert(meta_payload.end(), iref_box.begin(),
+                            iref_box.end());
+        meta_payload.insert(meta_payload.end(), iprp_box.begin(),
+                            iprp_box.end());
+        append_bmff_box(&file, fourcc('m', 'e', 't', 'a'), meta_payload);
+    }
+
+    MetaStore store;
+    std::array<ContainerBlockRef, 16> blocks {};
+    std::array<ExifIfdRef, 8> ifds {};
+    std::array<std::byte, 1024> payload {};
+    std::array<uint32_t, 32> payload_scratch {};
+    ExifDecodeOptions exif_opts;
+    PayloadOptions payload_opts;
+
+    (void)simple_meta_read(file, store, blocks, ifds, payload, payload_scratch,
+                           exif_opts, payload_opts);
+    store.finalize();
+
+    const std::vector<uint32_t> role_count
+        = collect_u32_values(store, "primary.linked_item_role_count");
+    ASSERT_EQ(role_count.size(), 1U);
+    EXPECT_EQ(role_count[0], 6U);
+
+    const std::vector<uint32_t> role_item_ids
+        = collect_u32_values(store, "primary.linked_item_id");
+    ASSERT_EQ(role_item_ids.size(), 6U);
+    EXPECT_EQ(role_item_ids[0], 2U);
+    EXPECT_EQ(role_item_ids[1], 3U);
+    EXPECT_EQ(role_item_ids[2], 7U);
+    EXPECT_EQ(role_item_ids[3], 4U);
+    EXPECT_EQ(role_item_ids[4], 5U);
+    EXPECT_EQ(role_item_ids[5], 6U);
+
+    const std::vector<uint32_t> role_item_types
+        = collect_u32_values(store, "primary.linked_item_type");
+    ASSERT_EQ(role_item_types.size(), 6U);
+    EXPECT_EQ(role_item_types[0], fourcc('a', 'u', 'x', 'l'));
+    EXPECT_EQ(role_item_types[1], fourcc('a', 'u', 'x', 'l'));
+    EXPECT_EQ(role_item_types[2], fourcc('a', 'u', 'x', 'l'));
+    EXPECT_EQ(role_item_types[3], fourcc('d', 'e', 'r', 'v'));
+    EXPECT_EQ(role_item_types[4], fourcc('t', 'h', 'm', 'b'));
+    EXPECT_EQ(role_item_types[5], fourcc('c', 'd', 's', 'c'));
+
+    const std::vector<std::string> role_item_names
+        = collect_text_values(store, "primary.linked_item_name");
+    ASSERT_EQ(role_item_names.size(), 6U);
+    EXPECT_EQ(role_item_names[0], "depth_aux");
+    EXPECT_EQ(role_item_names[1], "alpha_aux");
+    EXPECT_EQ(role_item_names[2], "other_aux");
+    EXPECT_EQ(role_item_names[3], "derived");
+    EXPECT_EQ(role_item_names[4], "thumb");
+    EXPECT_EQ(role_item_names[5], "caption");
+
+    const std::vector<std::string> roles
+        = collect_text_values(store, "primary.linked_item_role");
+    ASSERT_EQ(roles.size(), 6U);
+    EXPECT_EQ(roles[0], "depth");
+    EXPECT_EQ(roles[1], "alpha");
+    EXPECT_EQ(roles[2], "auxiliary");
+    EXPECT_EQ(roles[3], "derived");
+    EXPECT_EQ(roles[4], "thumbnail");
+    EXPECT_EQ(roles[5], "content_description");
 }
 
 TEST(BmffDerivedFieldsDecode, EmitsDisparityAndMatteAuxCountsFromAuxC)

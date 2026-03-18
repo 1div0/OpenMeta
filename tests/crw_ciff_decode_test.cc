@@ -78,6 +78,15 @@ namespace {
     }
 
 
+    static std::vector<std::byte> make_u32_pair(uint32_t first, uint32_t second)
+    {
+        std::vector<std::byte> out;
+        append_u32le(&out, first);
+        append_u32le(&out, second);
+        return out;
+    }
+
+
     static std::string_view arena_string(const ByteArena& arena,
                                          const MetaValue& v)
     {
@@ -185,10 +194,22 @@ namespace {
         std::vector<std::byte> subject_distance;
         append_u32le(&subject_distance, 123U);
 
+        std::vector<std::byte> image_format;
+        append_u32le(&image_format, 0x00020001U);
+        append_u32le(&image_format, f32_bits(10.0f));
+
         std::vector<std::byte> exposure_info;
         append_u32le(&exposure_info, f32_bits(0.33333334f));
         append_u32le(&exposure_info, f32_bits(6.875f));
         append_u32le(&exposure_info, f32_bits(3.0f));
+
+        const std::vector<std::byte> flash_info = make_u32_pair(f32_bits(0.0f),
+                                                                f32_bits(0.0f));
+        std::vector<std::byte> focal_length;
+        append_u16le(&focal_length, 2U);
+        append_u16le(&focal_length, 473U);
+        append_u16le(&focal_length, 309U);
+        append_u16le(&focal_length, 206U);
 
         std::vector<std::byte> datetime_original;
         append_u32le(&datetime_original, 1700000000U);
@@ -205,11 +226,16 @@ namespace {
             std::vector<CiffValueEntry> { { 0x080AU, make_model } });
         const std::vector<std::byte> dir3002 = make_ciff_directory(
             std::vector<CiffValueEntry> {
+                { 0x1813U, flash_info },
                 { 0x1807U, subject_distance },
                 { 0x1818U, exposure_info },
             });
+        const std::vector<std::byte> dir300b = make_ciff_directory(
+            std::vector<CiffValueEntry> { { 0x1028U, flash_info },
+                                          { 0x1029U, focal_length } });
         const std::vector<std::byte> dir300a = make_ciff_directory(
-            std::vector<CiffValueEntry> { { 0x180EU, datetime_original },
+            std::vector<CiffValueEntry> { { 0x1803U, image_format },
+                                          { 0x180EU, datetime_original },
                                           { 0x1810U, dimensions_orientation } });
 
         const std::vector<std::byte> root = make_ciff_directory(
@@ -217,6 +243,7 @@ namespace {
                 { 0x2807U, dir2807 },
                 { 0x3002U, dir3002 },
                 { 0x300AU, dir300a },
+                { 0x300BU, dir300b },
             });
 
         std::vector<std::byte> file;
@@ -242,11 +269,16 @@ namespace {
             std::vector<CiffValueEntry> {
                 { 0x0816U, make_padded_ascii("IMG_0001.CRW", 32U) },
             });
+        const std::vector<std::byte> dir3004 = make_ciff_directory(
+            std::vector<CiffValueEntry> {
+                { 0x080CU, make_padded_ascii("Ver 2.10", 32U) },
+            });
 
         const std::vector<std::byte> root = make_ciff_directory(
             std::vector<CiffValueEntry> {
                 { 0x2804U, dir2804 },
                 { 0x2807U, dir2807 },
+                { 0x3004U, dir3004 },
                 { 0x300AU, dir300a },
             });
 
@@ -265,6 +297,7 @@ namespace {
             std::vector<CiffValueEntry> {
                 { 0x5010U, make_padded_u16_scalar(2U) },
                 { 0x5011U, make_padded_u16_scalar(1U) },
+                { 0x5016U, make_padded_u16_scalar(3U) },
                 { 0x5807U, make_padded_f32_scalar(12.5f) },
             });
         const std::vector<std::byte> dir3003 = make_ciff_inline_directory(
@@ -274,11 +307,14 @@ namespace {
         const std::vector<std::byte> dir3004 = make_ciff_inline_directory(
             std::vector<CiffValueEntry> {
                 { 0x501CU, make_padded_u16_scalar(100U) },
+                { 0x5834U, make_padded_u32_scalar(0x80000169U) },
+                { 0x583BU, make_padded_u32_scalar(2U) },
             });
         const std::vector<std::byte> dir300a = make_ciff_inline_directory(
             std::vector<CiffValueEntry> {
                 { 0x500AU, make_padded_u16_scalar(7U) },
                 { 0x5804U, make_padded_u32_scalar(42U) },
+                { 0x5806U, make_padded_u32_scalar(1000U) },
                 { 0x5817U, make_padded_u32_scalar(162U) },
             });
 
@@ -288,6 +324,103 @@ namespace {
                 { 0x3003U, dir3003 },
                 { 0x3004U, dir3004 },
                 { 0x300AU, dir300a },
+            });
+
+        std::vector<std::byte> file;
+        append_bytes(&file, "II");
+        append_u32le(&file, 14U);
+        append_bytes(&file, "HEAPCCDR");
+        file.insert(file.end(), root.begin(), root.end());
+        return file;
+    }
+
+
+    static std::vector<std::byte> make_crw_with_decoder_table()
+    {
+        std::vector<std::byte> decoder_table;
+        append_u32le(&decoder_table, 7U);
+        append_u32le(&decoder_table, 0U);
+        append_u32le(&decoder_table, 4096U);
+        append_u32le(&decoder_table, 8192U);
+
+        const std::vector<std::byte> dir3004 = make_ciff_directory(
+            std::vector<CiffValueEntry> {
+                { 0x1835U, decoder_table },
+            });
+
+        const std::vector<std::byte> root = make_ciff_directory(
+            std::vector<CiffValueEntry> {
+                { 0x3004U, dir3004 },
+            });
+
+        std::vector<std::byte> file;
+        append_bytes(&file, "II");
+        append_u32le(&file, 14U);
+        append_bytes(&file, "HEAPCCDR");
+        file.insert(file.end(), root.begin(), root.end());
+        return file;
+    }
+
+
+    static std::vector<std::byte> make_crw_with_rawjpginfo_and_whitesample()
+    {
+        std::vector<std::byte> raw_jpg_info;
+        append_u16le(&raw_jpg_info, 0U);
+        append_u16le(&raw_jpg_info, 3U);
+        append_u16le(&raw_jpg_info, 2U);
+        append_u16le(&raw_jpg_info, 2048U);
+        append_u16le(&raw_jpg_info, 1536U);
+
+        std::vector<std::byte> white_sample;
+        append_u16le(&white_sample, 0U);
+        append_u16le(&white_sample, 64U);
+        append_u16le(&white_sample, 48U);
+        append_u16le(&white_sample, 4U);
+        append_u16le(&white_sample, 2U);
+        append_u16le(&white_sample, 10U);
+
+        const std::vector<std::byte> dir300b = make_ciff_directory(
+            std::vector<CiffValueEntry> {
+                { 0x1030U, white_sample },
+                { 0x10B5U, raw_jpg_info },
+            });
+
+        const std::vector<std::byte> root = make_ciff_directory(
+            std::vector<CiffValueEntry> {
+                { 0x300BU, dir300b },
+            });
+
+        std::vector<std::byte> file;
+        append_bytes(&file, "II");
+        append_u32le(&file, 14U);
+        append_bytes(&file, "HEAPCCDR");
+        file.insert(file.end(), root.begin(), root.end());
+        return file;
+    }
+
+
+    static std::vector<std::byte> make_crw_with_shotinfo()
+    {
+        std::vector<std::byte> shot_info;
+        append_u16le(&shot_info, 100U);
+        append_u16le(&shot_info, 200U);
+        append_u16le(&shot_info, 300U);
+        append_u16le(&shot_info, 400U);
+        append_u16le(&shot_info, static_cast<uint16_t>(-64));
+        append_u16le(&shot_info, 3U);
+        append_u16le(&shot_info, 1U);
+        append_u16le(&shot_info, 2U);
+        append_u16le(&shot_info, 9U);
+        append_u16le(&shot_info, 6U);
+
+        const std::vector<std::byte> dir300b = make_ciff_directory(
+            std::vector<CiffValueEntry> {
+                { 0x102AU, shot_info },
+            });
+
+        const std::vector<std::byte> root = make_ciff_directory(
+            std::vector<CiffValueEntry> {
+                { 0x300BU, dir300b },
             });
 
         std::vector<std::byte> file;
@@ -401,7 +534,15 @@ TEST(CrwCiffDecode, DecodesNamedPaddedAsciiFieldsAndDerivedExifText)
     }
     {
         const std::span<const EntryId> ids = store.find_all(
-            exif_key("ciff_300A_2", 0x0816));
+            exif_key("ciff_3004_2", 0x080C));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        ASSERT_EQ(e.value.kind, MetaValueKind::Text);
+        EXPECT_EQ(arena_string(store.arena(), e.value), "Ver 2.10");
+    }
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("ciff_300A_3", 0x0816));
         ASSERT_EQ(ids.size(), 1U);
         const Entry& e = store.entry(ids[0]);
         ASSERT_EQ(e.value.kind, MetaValueKind::Text);
@@ -448,6 +589,40 @@ TEST(CrwCiffDecode, ProjectsNativeCiffSubtables)
 
     store.finalize();
 
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("ciff_2807_0_makemodel", 0x0000));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        ASSERT_EQ(e.value.kind, MetaValueKind::Text);
+        EXPECT_EQ(arena_string(store.arena(), e.value), "Canon");
+    }
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("ciff_2807_0_makemodel", 0x0006));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        ASSERT_EQ(e.value.kind, MetaValueKind::Text);
+        EXPECT_EQ(arena_string(store.arena(), e.value), "PowerShot Pro70");
+    }
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("ciff_300A_2_imageformat", 0x0000));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
+        EXPECT_EQ(e.value.elem_type, MetaElementType::U32);
+        EXPECT_EQ(e.value.data.u64, 0x00020001U);
+    }
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("ciff_300A_2_imageformat", 0x0001));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
+        EXPECT_EQ(e.value.elem_type, MetaElementType::F32);
+        EXPECT_EQ(e.value.data.f32_bits, f32_bits(10.0f));
+    }
     {
         const std::span<const EntryId> ids = store.find_all(
             exif_key("ciff_300A_2_timestamp", 0x0000));
@@ -502,6 +677,60 @@ TEST(CrwCiffDecode, ProjectsNativeCiffSubtables)
         EXPECT_EQ(e.value.elem_type, MetaElementType::F32);
         EXPECT_EQ(e.value.data.f32_bits, f32_bits(3.0f));
     }
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("ciff_3002_1_flashinfo", 0x0000));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
+        EXPECT_EQ(e.value.elem_type, MetaElementType::F32);
+        EXPECT_EQ(e.value.data.f32_bits, f32_bits(0.0f));
+    }
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("ciff_3002_1_flashinfo", 0x0001));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
+        EXPECT_EQ(e.value.elem_type, MetaElementType::F32);
+        EXPECT_EQ(e.value.data.f32_bits, f32_bits(0.0f));
+    }
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("ciff_300B_3_focallength", 0x0000));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
+        EXPECT_EQ(e.value.elem_type, MetaElementType::U16);
+        EXPECT_EQ(e.value.data.u64, 2U);
+    }
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("ciff_300B_3_focallength", 0x0001));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
+        EXPECT_EQ(e.value.elem_type, MetaElementType::U16);
+        EXPECT_EQ(e.value.data.u64, 473U);
+    }
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("ciff_300B_3_focallength", 0x0002));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
+        EXPECT_EQ(e.value.elem_type, MetaElementType::U16);
+        EXPECT_EQ(e.value.data.u64, 309U);
+    }
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("ciff_300B_3_focallength", 0x0003));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
+        EXPECT_EQ(e.value.elem_type, MetaElementType::U16);
+        EXPECT_EQ(e.value.data.u64, 206U);
+    }
 }
 
 
@@ -546,6 +775,15 @@ TEST(CrwCiffDecode, DecodesKnownNativeCiffScalarFieldsSemantically)
     }
     {
         const std::span<const EntryId> ids = store.find_all(
+            exif_key("ciff_3002_0", 0x1016));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
+        EXPECT_EQ(e.value.elem_type, MetaElementType::U16);
+        EXPECT_EQ(e.value.data.u64, 3U);
+    }
+    {
+        const std::span<const EntryId> ids = store.find_all(
             exif_key("ciff_3002_0", 0x1807));
         ASSERT_EQ(ids.size(), 1U);
         const Entry& e = store.entry(ids[0]);
@@ -573,6 +811,24 @@ TEST(CrwCiffDecode, DecodesKnownNativeCiffScalarFieldsSemantically)
     }
     {
         const std::span<const EntryId> ids = store.find_all(
+            exif_key("ciff_3004_2", 0x1834));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
+        EXPECT_EQ(e.value.elem_type, MetaElementType::U32);
+        EXPECT_EQ(e.value.data.u64, 0x80000169U);
+    }
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("ciff_3004_2", 0x183B));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
+        EXPECT_EQ(e.value.elem_type, MetaElementType::U32);
+        EXPECT_EQ(e.value.data.u64, 2U);
+    }
+    {
+        const std::span<const EntryId> ids = store.find_all(
             exif_key("ciff_300A_3", 0x100A));
         ASSERT_EQ(ids.size(), 1U);
         const Entry& e = store.entry(ids[0]);
@@ -591,12 +847,219 @@ TEST(CrwCiffDecode, DecodesKnownNativeCiffScalarFieldsSemantically)
     }
     {
         const std::span<const EntryId> ids = store.find_all(
+            exif_key("ciff_300A_3", 0x1806));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
+        EXPECT_EQ(e.value.elem_type, MetaElementType::U32);
+        EXPECT_EQ(e.value.data.u64, 1000U);
+    }
+    {
+        const std::span<const EntryId> ids = store.find_all(
             exif_key("ciff_300A_3", 0x1817));
         ASSERT_EQ(ids.size(), 1U);
         const Entry& e = store.entry(ids[0]);
         EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
         EXPECT_EQ(e.value.elem_type, MetaElementType::U32);
         EXPECT_EQ(e.value.data.u64, 162U);
+    }
+}
+
+
+TEST(CrwCiffDecode, ProjectsNativeDecoderTableFields)
+{
+    const std::vector<std::byte> file = make_crw_with_decoder_table();
+
+    MetaStore store;
+    std::array<ContainerBlockRef, 16> blocks {};
+    std::array<ExifIfdRef, 16> ifds {};
+    std::array<std::byte, 4096> payload {};
+    std::array<uint32_t, 64> payload_scratch {};
+
+    ExifDecodeOptions exif_opts;
+    PayloadOptions payload_opts;
+
+    const SimpleMetaResult res = simple_meta_read(file, store, blocks, ifds,
+                                                  payload, payload_scratch,
+                                                  exif_opts, payload_opts);
+    EXPECT_EQ(res.scan.status, ScanStatus::Ok);
+    EXPECT_EQ(res.exif.status, ExifDecodeStatus::Ok);
+
+    store.finalize();
+
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("ciff_3004_0", 0x1835));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Array);
+        EXPECT_EQ(e.value.elem_type, MetaElementType::U32);
+        EXPECT_EQ(e.value.count, 4U);
+    }
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("ciff_3004_0_decodertable", 0x0000));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
+        EXPECT_EQ(e.value.elem_type, MetaElementType::U32);
+        EXPECT_EQ(e.value.data.u64, 7U);
+    }
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("ciff_3004_0_decodertable", 0x0002));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
+        EXPECT_EQ(e.value.elem_type, MetaElementType::U32);
+        EXPECT_EQ(e.value.data.u64, 4096U);
+    }
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("ciff_3004_0_decodertable", 0x0003));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
+        EXPECT_EQ(e.value.elem_type, MetaElementType::U32);
+        EXPECT_EQ(e.value.data.u64, 8192U);
+    }
+}
+
+
+TEST(CrwCiffDecode, ProjectsNativeRawJpgInfoAndWhiteSampleFields)
+{
+    const std::vector<std::byte> file = make_crw_with_rawjpginfo_and_whitesample();
+
+    MetaStore store;
+    std::array<ContainerBlockRef, 16> blocks {};
+    std::array<ExifIfdRef, 16> ifds {};
+    std::array<std::byte, 4096> payload {};
+    std::array<uint32_t, 64> payload_scratch {};
+
+    ExifDecodeOptions exif_opts;
+    PayloadOptions payload_opts;
+
+    const SimpleMetaResult res = simple_meta_read(file, store, blocks, ifds,
+                                                  payload, payload_scratch,
+                                                  exif_opts, payload_opts);
+    EXPECT_EQ(res.scan.status, ScanStatus::Ok);
+    EXPECT_EQ(res.exif.status, ExifDecodeStatus::Ok);
+
+    store.finalize();
+
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("ciff_300B_0", 0x10B5));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Array);
+        EXPECT_EQ(e.value.elem_type, MetaElementType::U16);
+        EXPECT_EQ(e.value.count, 5U);
+    }
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("ciff_300B_0_rawjpginfo", 0x0001));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
+        EXPECT_EQ(e.value.elem_type, MetaElementType::U16);
+        EXPECT_EQ(e.value.data.u64, 3U);
+    }
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("ciff_300B_0_rawjpginfo", 0x0004));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
+        EXPECT_EQ(e.value.elem_type, MetaElementType::U16);
+        EXPECT_EQ(e.value.data.u64, 1536U);
+    }
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("ciff_300B_0", 0x1030));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Array);
+        EXPECT_EQ(e.value.elem_type, MetaElementType::U16);
+        EXPECT_EQ(e.value.count, 6U);
+    }
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("ciff_300B_0_whitesample", 0x0001));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
+        EXPECT_EQ(e.value.elem_type, MetaElementType::U16);
+        EXPECT_EQ(e.value.data.u64, 64U);
+    }
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("ciff_300B_0_whitesample", 0x0005));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
+        EXPECT_EQ(e.value.elem_type, MetaElementType::U16);
+        EXPECT_EQ(e.value.data.u64, 10U);
+    }
+}
+
+
+TEST(CrwCiffDecode, ProjectsNativeShotInfoLeadFields)
+{
+    const std::vector<std::byte> file = make_crw_with_shotinfo();
+
+    MetaStore store;
+    std::array<ContainerBlockRef, 16> blocks {};
+    std::array<ExifIfdRef, 16> ifds {};
+    std::array<std::byte, 4096> payload {};
+    std::array<uint32_t, 64> payload_scratch {};
+
+    ExifDecodeOptions exif_opts;
+    PayloadOptions payload_opts;
+
+    const SimpleMetaResult res = simple_meta_read(file, store, blocks, ifds,
+                                                  payload, payload_scratch,
+                                                  exif_opts, payload_opts);
+    EXPECT_EQ(res.scan.status, ScanStatus::Ok);
+    EXPECT_EQ(res.exif.status, ExifDecodeStatus::Ok);
+
+    store.finalize();
+
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("ciff_300B_0", 0x102A));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Array);
+        EXPECT_EQ(e.value.elem_type, MetaElementType::U16);
+        EXPECT_EQ(e.value.count, 10U);
+    }
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("ciff_300B_0_shotinfo", 0x0001));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
+        EXPECT_EQ(e.value.elem_type, MetaElementType::I16);
+        EXPECT_EQ(e.value.data.i64, 100);
+    }
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("ciff_300B_0_shotinfo", 0x0005));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
+        EXPECT_EQ(e.value.elem_type, MetaElementType::I16);
+        EXPECT_EQ(e.value.data.i64, -64);
+    }
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("ciff_300B_0_shotinfo", 0x000A));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
+        EXPECT_EQ(e.value.elem_type, MetaElementType::I16);
+        EXPECT_EQ(e.value.data.i64, 6);
     }
 }
 

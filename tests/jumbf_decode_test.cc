@@ -1207,9 +1207,16 @@ TEST(JumbfDecode, EmitsDraftC2paSemanticProjectionFields)
 
     EXPECT_EQ(read_u8_field("c2pa.detected"), 1U);
     EXPECT_EQ(read_u8_field("c2pa.semantic.manifest_present"), 1U);
+    EXPECT_EQ(read_jumbf_field_u64(store,
+                                   "c2pa.semantic.active_manifest_present"),
+              1U);
     EXPECT_EQ(read_u8_field("c2pa.semantic.claim_present"), 1U);
     EXPECT_EQ(read_u8_field("c2pa.semantic.assertion_present"), 1U);
     EXPECT_EQ(read_u8_field("c2pa.semantic.signature_present"), 1U);
+    EXPECT_EQ(read_u64_field("c2pa.semantic.active_manifest_count"), 1U);
+    EXPECT_EQ(read_jumbf_field_text(store,
+                                    "c2pa.semantic.active_manifest.prefix"),
+              "box.0.1.cbor.manifests.active_manifest");
     EXPECT_GE(read_u64_field("c2pa.semantic.cbor_key_count"), 5U);
     EXPECT_GE(read_u64_field("c2pa.semantic.assertion_key_hits"), 1U);
 
@@ -1334,18 +1341,6 @@ TEST(JumbfDecode, EmitsDraftC2paPerClaimProjectionFields)
         return e.value.data.u64;
     };
 
-    auto read_u8_field = [&](std::string_view field_name) -> uint8_t {
-        MetaKeyView key;
-        key.kind                           = MetaKeyKind::JumbfField;
-        key.data.jumbf_field.field         = field_name;
-        const std::span<const EntryId> ids = store.find_all(key);
-        EXPECT_EQ(ids.size(), 1U);
-        const Entry& e = store.entry(ids[0]);
-        EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
-        EXPECT_EQ(e.value.elem_type, MetaElementType::U8);
-        return static_cast<uint8_t>(e.value.data.u64);
-    };
-
     auto read_text_field = [&](std::string_view field_name) -> std::string {
         MetaKeyView key;
         key.kind                           = MetaKeyKind::JumbfField;
@@ -1366,10 +1361,18 @@ TEST(JumbfDecode, EmitsDraftC2paPerClaimProjectionFields)
     EXPECT_EQ(read_u64_field("c2pa.semantic.signature_linked_count"), 1U);
     EXPECT_EQ(read_u64_field("c2pa.semantic.signature_orphan_count"), 0U);
     EXPECT_EQ(read_u64_field("c2pa.semantic.manifest_count"), 1U);
+    EXPECT_EQ(read_u64_field("c2pa.semantic.active_manifest_count"), 1U);
+    EXPECT_EQ(read_jumbf_field_u64(store,
+                                   "c2pa.semantic.active_manifest_present"),
+              1U);
+    EXPECT_EQ(read_text_field("c2pa.semantic.active_manifest.prefix"),
+              "box.0.1.cbor.manifests.active_manifest");
     EXPECT_GE(read_u64_field("c2pa.semantic.signature_key_hits"), 2U);
 
     EXPECT_EQ(read_text_field("c2pa.semantic.manifest.0.prefix"),
               "box.0.1.cbor.manifests.active_manifest");
+    EXPECT_EQ(read_jumbf_field_u64(store, "c2pa.semantic.manifest.0.is_active"),
+              1U);
     EXPECT_EQ(read_u64_field("c2pa.semantic.manifest.0.claim_count"), 2U);
     EXPECT_EQ(read_u64_field("c2pa.semantic.manifest.0.assertion_count"), 3U);
     EXPECT_EQ(read_u64_field("c2pa.semantic.manifest.0.signature_count"), 1U);
@@ -1645,6 +1648,18 @@ TEST(JumbfDecode, EmitsDraftC2paPerManifestProjectionFields)
         return e.value.data.u64;
     };
 
+    auto read_u8_field = [&](std::string_view field_name) -> uint8_t {
+        MetaKeyView key;
+        key.kind                           = MetaKeyKind::JumbfField;
+        key.data.jumbf_field.field         = field_name;
+        const std::span<const EntryId> ids = store.find_all(key);
+        EXPECT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
+        EXPECT_EQ(e.value.elem_type, MetaElementType::U8);
+        return static_cast<uint8_t>(e.value.data.u64);
+    };
+
     auto read_text_field = [&](std::string_view field_name) -> std::string {
         MetaKeyView key;
         key.kind                           = MetaKeyKind::JumbfField;
@@ -1660,6 +1675,7 @@ TEST(JumbfDecode, EmitsDraftC2paPerManifestProjectionFields)
     };
 
     EXPECT_EQ(read_u64_field("c2pa.semantic.manifest_count"), 2U);
+    EXPECT_EQ(read_u64_field("c2pa.semantic.active_manifest_count"), 0U);
     EXPECT_EQ(read_u64_field("c2pa.semantic.claim_count"), 2U);
     EXPECT_EQ(read_u64_field("c2pa.semantic.assertion_count"), 3U);
     EXPECT_EQ(read_u64_field("c2pa.semantic.signature_count"), 2U);
@@ -1668,6 +1684,8 @@ TEST(JumbfDecode, EmitsDraftC2paPerManifestProjectionFields)
 
     EXPECT_EQ(read_text_field("c2pa.semantic.manifest.0.prefix"),
               "box.0.1.cbor.manifests.manifest0");
+    EXPECT_EQ(read_jumbf_field_u64(store, "c2pa.semantic.manifest.0.is_active"),
+              0U);
     EXPECT_EQ(read_u64_field("c2pa.semantic.manifest.0.claim_count"), 1U);
     EXPECT_EQ(read_u64_field("c2pa.semantic.manifest.0.assertion_count"), 1U);
     EXPECT_EQ(read_u64_field("c2pa.semantic.manifest.0.signature_count"), 1U);
@@ -1683,6 +1701,8 @@ TEST(JumbfDecode, EmitsDraftC2paPerManifestProjectionFields)
 
     EXPECT_EQ(read_text_field("c2pa.semantic.manifest.1.prefix"),
               "box.0.1.cbor.manifests.manifest1");
+    EXPECT_EQ(read_jumbf_field_u64(store, "c2pa.semantic.manifest.1.is_active"),
+              0U);
     EXPECT_EQ(read_u64_field("c2pa.semantic.manifest.1.claim_count"), 1U);
     EXPECT_EQ(read_u64_field("c2pa.semantic.manifest.1.assertion_count"), 2U);
     EXPECT_EQ(read_u64_field("c2pa.semantic.manifest.1.signature_count"), 1U);
@@ -1695,6 +1715,9 @@ TEST(JumbfDecode, EmitsDraftC2paPerManifestProjectionFields)
     EXPECT_EQ(read_u64_field(
                   "c2pa.semantic.manifest.1.explicit_reference_signature_count"),
               0U);
+    EXPECT_TRUE(
+        read_jumbf_field_text(store, "c2pa.semantic.active_manifest.prefix")
+            .empty());
 }
 
 TEST(JumbfDecode, EmitsDraftC2paExplicitReferenceAmbiguityFields)
@@ -3254,7 +3277,7 @@ TEST(JumbfDecode,
 }
 
 TEST(JumbfDecode,
-     EmitsDraftC2paExplicitReferenceIndexLabelUriConflictCollapsedWhenConsistent)
+     EmitsDraftC2paExplicitReferenceIndexLabelUriConsistentReferencesCollapse)
 {
     const std::array<std::byte, 4U> claim0 = {
         std::byte { 0xA1 },
@@ -3336,7 +3359,7 @@ TEST(JumbfDecode,
     EXPECT_EQ(read_jumbf_field_u64(
                   store,
                   "c2pa.semantic.explicit_reference_ambiguous_signature_count"),
-              1U);
+              0U);
     EXPECT_EQ(read_jumbf_field_u64(
                   store,
                   "c2pa.semantic.explicit_reference_unresolved_signature_count"),
@@ -3345,11 +3368,11 @@ TEST(JumbfDecode,
         read_jumbf_field_u64(
             store,
             "c2pa.semantic.signature.0.explicit_reference_resolved_claim_count"),
-        2U);
+        1U);
     EXPECT_EQ(read_jumbf_field_u64(
                   store,
                   "c2pa.semantic.signature.0.explicit_reference_ambiguous"),
-              1U);
+              0U);
 }
 
 TEST(JumbfDecode,
