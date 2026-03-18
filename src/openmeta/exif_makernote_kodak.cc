@@ -47,6 +47,31 @@ namespace {
     }
 
 
+    static std::string_view make_kodak_makernote_ifd_token(
+        const ExifDecodeOptions& options, std::string_view subtable,
+        std::string_view fallback, std::span<char> scratch) noexcept
+    {
+        const std::string_view token
+            = make_mk_subtable_ifd_token(options.tokens.ifd_prefix, subtable, 0,
+                                         scratch);
+        return token.empty() ? fallback : token;
+    }
+
+
+    static std::string_view
+    select_kodak_absolute_ifd_subtable(std::string_view model,
+                                       bool has_byte_order_marker) noexcept
+    {
+        if (has_byte_order_marker) {
+            return "type10";
+        }
+        if (model.find("PIXPRO S-1") != std::string_view::npos) {
+            return "type11";
+        }
+        return "type8";
+    }
+
+
     static bool decode_kodak_kdk(std::span<const std::byte> mn,
                                  std::string_view mk_ifd0, MetaStore& store,
                                  const ExifDecodeOptions& options,
@@ -930,7 +955,8 @@ namespace {
 
 
     static bool decode_kodak_tiff(std::span<const std::byte> mn,
-                                  std::string_view mk_ifd0, MetaStore& store,
+                                  std::string_view mk_ifd0,
+                                  std::string_view model, MetaStore& store,
                                   const ExifDecodeOptions& options,
                                   ExifDecodeResult* status_out) noexcept
     {
@@ -945,6 +971,8 @@ namespace {
         cfg.bigtiff = false;
 
         uint64_t ifd0_off = 0;
+        char main_ifd_scratch[32];
+        std::string_view main_ifd = mk_ifd0;
 
         if ((b0 == 'I' && b1 == 'I') || (b0 == 'M' && b1 == 'M')) {
             cfg.le = (b0 == 'I');
@@ -955,6 +983,9 @@ namespace {
             }
 
             if (version == 42) {
+                main_ifd = make_kodak_makernote_ifd_token(
+                    options, select_kodak_absolute_ifd_subtable(model, false),
+                    mk_ifd0, std::span<char>(main_ifd_scratch));
                 uint32_t ifd0_off32 = 0;
                 if (!read_tiff_u32(cfg, mn, 4, &ifd0_off32)) {
                     return false;
@@ -985,28 +1016,34 @@ namespace {
                         if (have0 && have1 && tiff_type_size(type0) == 0
                             && tiff_type_size(type1) != 0) {
                             return decode_kodak_padded_ifd(cfg, mn, ifd0_off,
-                                                           mk_ifd0, store,
+                                                           main_ifd, store,
                                                            options, status_out);
                         }
                     }
                 }
 
-                decode_classic_ifd_no_header(cfg, mn, ifd0_off, mk_ifd0, store,
+                decode_classic_ifd_no_header(cfg, mn, ifd0_off, main_ifd, store,
                                              options, status_out,
                                              EntryFlags::None);
             } else {
                 // Kodak Type10: endian marker then classic IFD immediately
                 // after it (Start => $valuePtr + 2 in ExifTool).
+                main_ifd = make_kodak_makernote_ifd_token(
+                    options, select_kodak_absolute_ifd_subtable(model, true),
+                    mk_ifd0, std::span<char>(main_ifd_scratch));
                 ifd0_off = 2;
                 if (!looks_like_classic_ifd(cfg, mn, ifd0_off, options.limits)) {
                     return false;
                 }
-                decode_classic_ifd_no_header(cfg, mn, ifd0_off, mk_ifd0, store,
+                decode_classic_ifd_no_header(cfg, mn, ifd0_off, main_ifd, store,
                                              options, status_out,
                                              EntryFlags::None);
             }
         } else {
             // Kodak Type8a: classic IFD without a TIFF header (ByteOrder unknown).
+            main_ifd = make_kodak_makernote_ifd_token(
+                options, select_kodak_absolute_ifd_subtable(model, false),
+                mk_ifd0, std::span<char>(main_ifd_scratch));
             ClassicIfdCandidate best;
             bool have_best = false;
             for (int endian = 0; endian < 2; ++endian) {
@@ -1028,7 +1065,7 @@ namespace {
             }
             cfg.le   = best.le;
             ifd0_off = 0;
-            decode_classic_ifd_no_header(cfg, mn, ifd0_off, mk_ifd0, store,
+            decode_classic_ifd_no_header(cfg, mn, ifd0_off, main_ifd, store,
                                          options, status_out, EntryFlags::None);
         }
 
@@ -1190,7 +1227,7 @@ namespace {
     static bool decode_kodak_type8_absolute(
         const TiffConfig& parent_cfg, std::span<const std::byte> tiff_bytes,
         uint64_t maker_note_off, uint64_t maker_note_bytes,
-        std::string_view mk_ifd0, MetaStore& store,
+        std::string_view mk_ifd0, std::string_view model, MetaStore& store,
         const ExifDecodeOptions& options, ExifDecodeResult* status_out) noexcept
     {
         if (mk_ifd0.empty()) {
@@ -1225,10 +1262,18 @@ namespace {
         uint64_t ifd0_off = maker_note_off;
         TiffConfig cfg;
         cfg.bigtiff = false;
+        const bool has_byte_order_marker
+            = mn.size() >= 2
+              && ((u8(mn[0]) == 'I' && u8(mn[1]) == 'I')
+                  || (u8(mn[0]) == 'M' && u8(mn[1]) == 'M'));
 
-        if (mn.size() >= 2
-            && ((u8(mn[0]) == 'I' && u8(mn[1]) == 'I')
-                || (u8(mn[0]) == 'M' && u8(mn[1]) == 'M'))) {
+        char main_ifd_scratch[32];
+        const std::string_view main_ifd = make_kodak_makernote_ifd_token(
+            options,
+            select_kodak_absolute_ifd_subtable(model, has_byte_order_marker),
+            mk_ifd0, std::span<char>(main_ifd_scratch));
+
+        if (has_byte_order_marker) {
             // Kodak Type10: endian marker then IFD at +2.
             cfg.le   = (u8(mn[0]) == 'I');
             ifd0_off = maker_note_off + 2;
@@ -1262,7 +1307,7 @@ namespace {
             ifd0_off = maker_note_off;
         }
 
-        decode_classic_ifd_no_header(cfg, tiff_bytes, ifd0_off, mk_ifd0, store,
+        decode_classic_ifd_no_header(cfg, tiff_bytes, ifd0_off, main_ifd, store,
                                      options, status_out, EntryFlags::None);
 
         uint16_t entry_count = 0;
@@ -1474,8 +1519,15 @@ decode_kodak_makernote(const TiffConfig& parent_cfg,
         return decode_kodak_kdk(mn, mk_ifd0, store, options, status_out);
     }
 
-    if (decode_kodak_serial_only(mn, mk_ifd0, store, options, status_out)) {
-        return true;
+    {
+        char scratch[32];
+        const std::string_view type7_ifd
+            = make_kodak_makernote_ifd_token(options, "type7", mk_ifd0,
+                                             std::span<char>(scratch));
+        if (decode_kodak_serial_only(mn, type7_ifd, store, options,
+                                     status_out)) {
+            return true;
+        }
     }
 
     ExifContext ctx(store);
@@ -1483,24 +1535,42 @@ decode_kodak_makernote(const TiffConfig& parent_cfg,
     (void)ctx.find_first_text("ifd0", 0x0110 /* Model */, &model);
     if (!model.empty()) {
         if (model.find("DX3215") != std::string_view::npos) {
-            return decode_kodak_type6(mn, mk_ifd0, false, store, options,
+            char scratch[32];
+            const std::string_view type6_ifd
+                = make_kodak_makernote_ifd_token(options, "type6", mk_ifd0,
+                                                 std::span<char>(scratch));
+            return decode_kodak_type6(mn, type6_ifd, false, store, options,
                                       status_out);
         }
         if (model.find("DX3700") != std::string_view::npos) {
-            return decode_kodak_type6(mn, mk_ifd0, true, store, options,
+            char scratch[32];
+            const std::string_view type6_ifd
+                = make_kodak_makernote_ifd_token(options, "type6", mk_ifd0,
+                                                 std::span<char>(scratch));
+            return decode_kodak_type6(mn, type6_ifd, true, store, options,
                                       status_out);
         }
     }
 
-    if (decode_kodak_type9(mn, mk_ifd0, store, options, status_out)) {
-        return true;
+    {
+        char scratch[32];
+        const std::string_view type9_ifd
+            = make_kodak_makernote_ifd_token(options, "type9", mk_ifd0,
+                                             std::span<char>(scratch));
+        if (decode_kodak_type9(mn, type9_ifd, store, options, status_out)) {
+            return true;
+        }
     }
 
     if (!model.empty()) {
         if (model.find("DC200") != std::string_view::npos
             || model.find("DC210") != std::string_view::npos
             || model.find("DC215") != std::string_view::npos) {
-            if (decode_kodak_type4(mn, mk_ifd0, store, options, status_out)) {
+            char scratch[32];
+            const std::string_view type4_ifd
+                = make_kodak_makernote_ifd_token(options, "type4", mk_ifd0,
+                                                 std::span<char>(scratch));
+            if (decode_kodak_type4(mn, type4_ifd, store, options, status_out)) {
                 return true;
             }
         }
@@ -1509,7 +1579,11 @@ decode_kodak_makernote(const TiffConfig& parent_cfg,
             || model.find("DC280") != std::string_view::npos
             || model.find("DC3400") != std::string_view::npos
             || model.find("DC5000") != std::string_view::npos) {
-            if (decode_kodak_type3(mn, mk_ifd0, store, options, status_out)) {
+            char scratch[32];
+            const std::string_view type3_ifd
+                = make_kodak_makernote_ifd_token(options, "type3", mk_ifd0,
+                                                 std::span<char>(scratch));
+            if (decode_kodak_type3(mn, type3_ifd, store, options, status_out)) {
                 return true;
             }
         }
@@ -1521,23 +1595,33 @@ decode_kodak_makernote(const TiffConfig& parent_cfg,
             || model.find("CX4310") != std::string_view::npos
             || model.find("CX6200") != std::string_view::npos
             || model.find("CX6230") != std::string_view::npos) {
-            if (decode_kodak_type5(mn, mk_ifd0, store, options, status_out)) {
+            char scratch[32];
+            const std::string_view type5_ifd
+                = make_kodak_makernote_ifd_token(options, "type5", mk_ifd0,
+                                                 std::span<char>(scratch));
+            if (decode_kodak_type5(mn, type5_ifd, store, options, status_out)) {
                 return true;
             }
         }
     }
 
-    if (decode_kodak_type2(mn, mk_ifd0, store, options, status_out)) {
-        return true;
+    {
+        char scratch[32];
+        const std::string_view type2_ifd
+            = make_kodak_makernote_ifd_token(options, "type2", mk_ifd0,
+                                             std::span<char>(scratch));
+        if (decode_kodak_type2(mn, type2_ifd, store, options, status_out)) {
+            return true;
+        }
     }
 
     if (decode_kodak_type8_absolute(parent_cfg, tiff_bytes, maker_note_off,
-                                    maker_note_bytes, mk_ifd0, store, options,
-                                    status_out)) {
+                                    maker_note_bytes, mk_ifd0, model, store,
+                                    options, status_out)) {
         return true;
     }
 
-    return decode_kodak_tiff(mn, mk_ifd0, store, options, status_out);
+    return decode_kodak_tiff(mn, mk_ifd0, model, store, options, status_out);
 }
 
 }  // namespace openmeta::exif_internal

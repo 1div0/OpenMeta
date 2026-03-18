@@ -1512,6 +1512,35 @@ namespace {
         return mn;
     }
 
+    static std::vector<std::byte> make_kodak_type2_makernote()
+    {
+        std::vector<std::byte> mn(0x74U, std::byte { 0 });
+
+        const char maker[] = "Hewlett-Packard";
+        const char model[] = "HP PhotoSmart 618";
+        std::memcpy(mn.data() + 0x08, maker, sizeof(maker) - 1U);
+        std::memcpy(mn.data() + 0x28, model, sizeof(model) - 1U);
+
+        write_u32be_at(&mn, 0x6c, 800U);
+        write_u32be_at(&mn, 0x70, 600U);
+        return mn;
+    }
+
+    static std::vector<std::byte> make_kodak_type5_makernote()
+    {
+        std::vector<std::byte> mn(0x2cU, std::byte { 0 });
+        write_u32be_at(&mn, 0x14, 33333U);
+        mn[0x1a] = std::byte { 4 };
+        write_u16be_at(&mn, 0x1c, 45U);
+        write_u16be_at(&mn, 0x1e, 140U);
+        write_u16be_at(&mn, 0x20, 1U);
+        write_u16be_at(&mn, 0x22, 2U);
+        mn[0x27] = std::byte { 1 };
+        mn[0x2a] = std::byte { 0 };
+        mn[0x2b] = std::byte { 1 };
+        return mn;
+    }
+
     static std::vector<std::byte> make_reconyx_h2_makernote()
     {
         std::vector<std::byte> mn(0x009CU, std::byte { 0 });
@@ -6771,6 +6800,79 @@ TEST(MakerNoteDecode, DecodesKodakKdkMakerNote)
             store.arena().span(e.value.data.span).size());
         EXPECT_EQ(v, "03:04:05.06");
     }
+}
+
+
+TEST(MakerNoteDecode, DecodesKodakType2MakerNoteIntoTypedTable)
+{
+    const std::vector<std::byte> mn   = make_kodak_type2_makernote();
+    const std::vector<std::byte> tiff = make_test_tiff_with_makernote("KODAK",
+                                                                      mn);
+
+    MetaStore store;
+    std::array<ExifIfdRef, 8> ifds {};
+    ExifDecodeOptions options;
+    options.decode_makernote   = true;
+    const ExifDecodeResult res = decode_exif_tiff(tiff, store, ifds, options);
+    EXPECT_EQ(res.status, ExifDecodeStatus::Ok);
+
+    store.finalize();
+    const std::span<const EntryId> ids = store.find_all(
+        exif_key("mk_kodak_type2_0", 0x0028));
+    ASSERT_EQ(ids.size(), 1U);
+    const Entry& e = store.entry(ids[0]);
+    EXPECT_EQ(exif_entry_name(store, e, ExifTagNamePolicy::Canonical),
+              std::string_view("KodakModel"));
+}
+
+
+TEST(MakerNoteDecode, DecodesKodakSerialOnlyMakerNoteIntoType7Table)
+{
+    std::vector<std::byte> mn;
+    append_bytes(&mn, "C33000641478");
+    const std::vector<std::byte> tiff = make_test_tiff_with_makernote("KODAK",
+                                                                      mn);
+
+    MetaStore store;
+    std::array<ExifIfdRef, 8> ifds {};
+    ExifDecodeOptions options;
+    options.decode_makernote   = true;
+    const ExifDecodeResult res = decode_exif_tiff(tiff, store, ifds, options);
+    EXPECT_EQ(res.status, ExifDecodeStatus::Ok);
+
+    store.finalize();
+    const std::span<const EntryId> ids = store.find_all(
+        exif_key("mk_kodak_type7_0", 0x0000));
+    ASSERT_EQ(ids.size(), 1U);
+    const Entry& e = store.entry(ids[0]);
+    EXPECT_EQ(exif_entry_name(store, e, ExifTagNamePolicy::Canonical),
+              std::string_view("SerialNumber"));
+}
+
+
+TEST(MakerNoteDecode, DecodesKodakType5MakerNoteIntoTypedTable)
+{
+    const std::vector<std::byte> mn = make_kodak_type5_makernote();
+    const std::vector<std::byte> tiff
+        = make_test_tiff_with_makernote_and_model("KODAK", "CX4200", mn);
+
+    MetaStore store;
+    std::array<ExifIfdRef, 8> ifds {};
+    ExifDecodeOptions options;
+    options.decode_makernote   = true;
+    const ExifDecodeResult res = decode_exif_tiff(tiff, store, ifds, options);
+    EXPECT_EQ(res.status, ExifDecodeStatus::Ok);
+
+    store.finalize();
+    const std::span<const EntryId> ids = store.find_all(
+        exif_key("mk_kodak_type5_0", 0x0014));
+    ASSERT_EQ(ids.size(), 1U);
+    const Entry& e = store.entry(ids[0]);
+    EXPECT_EQ(exif_entry_name(store, e, ExifTagNamePolicy::Canonical),
+              std::string_view("ExposureTime"));
+    EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
+    EXPECT_EQ(e.value.elem_type, MetaElementType::U32);
+    EXPECT_EQ(e.value.data.u64, 33333U);
 }
 
 

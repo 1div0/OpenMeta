@@ -619,11 +619,23 @@ Internal helper conventions (used by vendor decoders):
   Add interpreted IRB fields only for fixed-layout resources and emit them as
   separate `PhotoshopIrbField` entries instead of weakening the raw payload
   surface. The current bounded interpreted subset includes `ResolutionInfo`,
-  `PrintFlags`, `EffectiveBW`, `TargetLayerID`, `CopyrightFlag`, `URL`,
+  `VersionInfo`, `PrintFlags`, `EffectiveBW`, `TargetLayerID`,
+  `LayersGroupInfo`, `JPEG_Quality`, `CopyrightFlag`, `URL`,
   `GlobalAngle`, `Watermark`, `ICC_Untagged`, `EffectsVisible`,
-  `IDsBaseValue`, `IndexedColorTableCount`, `TransparentIndex`,
-  `GlobalAltitude`, `IPTCDigest`, `PrintScaleInfo`, `PixelInfo`, and
-  `LayerGroupsEnabledID`.
+  `IDsBaseValue`,
+  `IndexedColorTableCount`, `TransparentIndex`, `GlobalAltitude`,
+  `SliceInfo`, `WorkflowURL`, `URL_List`, `IPTCDigest`, `PrintScaleInfo`,
+  `PixelInfo`, `LayerSelectionIDs`, `LayerGroupsEnabledID`,
+  `ChannelOptions`, `PrintFlagsInfo`, and `ClippingPathName`.
+- Legacy 8-bit Photoshop text stays opt-in and explicit. The IRB decoder
+  exposes a bounded `PhotoshopIrbStringCharset` policy and currently uses it
+  only for `ClippingPathName`, defaulting to Latin for ExifTool-compatible
+  behavior instead of guessing from bytes.
+- `ChannelOptions` stays bounded and explicit: emit one count row, then one
+  `ChannelIndex` row plus the channel fields in stable order for each 13-byte
+  record instead of inventing dynamic field names.
+- `PrintFlagsInfo` is bounded to the stable `exiv2`-documented 10-byte layout:
+  version, center-crop flag, bleed-width value, and bleed-width scale.
 - GeoTIFF key-name table is generated from `registry/geotiff/keys.jsonl` and looked up via binary search (`geotiff_key_names.cc`).
 
 ## Tests (GoogleTest)

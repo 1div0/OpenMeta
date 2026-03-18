@@ -255,6 +255,74 @@ namespace {
 
 
     static std::string_view
+    synthesize_flir_placeholder_name(std::string_view subtable,
+                                     uint16_t tag) noexcept
+    {
+        if (!(subtable.empty() || subtable == "main")) {
+            return {};
+        }
+
+        static thread_local char buf[16];
+        static constexpr std::string_view kPrefix = "FLIR_0x";
+        static constexpr char kHex[]              = "0123456789abcdef";
+        if (kPrefix.size() + 4 >= sizeof(buf)) {
+            return {};
+        }
+
+        for (size_t i = 0; i < kPrefix.size(); ++i) {
+            buf[i] = kPrefix[i];
+        }
+        buf[kPrefix.size() + 0] = kHex[(tag >> 12) & 0xF];
+        buf[kPrefix.size() + 1] = kHex[(tag >> 8) & 0xF];
+        buf[kPrefix.size() + 2] = kHex[(tag >> 4) & 0xF];
+        buf[kPrefix.size() + 3] = kHex[(tag >> 0) & 0xF];
+        buf[kPrefix.size() + 4] = '\0';
+        return std::string_view(buf, kPrefix.size() + 4);
+    }
+
+
+    static std::string_view
+    synthesize_kodak_type_placeholder_name(std::string_view subtable,
+                                           uint16_t tag) noexcept
+    {
+        if (!subtable.starts_with("type") || subtable.size() <= 4) {
+            return {};
+        }
+        for (size_t i = 4; i < subtable.size(); ++i) {
+            if (!is_ascii_digit(subtable[i])) {
+                return {};
+            }
+        }
+
+        static thread_local char buf[32];
+        static constexpr char kHex[]              = "0123456789abcdef";
+        static constexpr std::string_view kPrefix = "Kodak_Type";
+        const size_t need = kPrefix.size() + (subtable.size() - 4U)
+                            + sizeof("_0x0000") - 1U;
+        if (need >= sizeof(buf)) {
+            return {};
+        }
+
+        size_t n = 0;
+        for (size_t i = 0; i < kPrefix.size(); ++i) {
+            buf[n++] = kPrefix[i];
+        }
+        for (size_t i = 4; i < subtable.size(); ++i) {
+            buf[n++] = subtable[i];
+        }
+        buf[n++] = '_';
+        buf[n++] = '0';
+        buf[n++] = 'x';
+        buf[n++] = kHex[(tag >> 12) & 0xF];
+        buf[n++] = kHex[(tag >> 8) & 0xF];
+        buf[n++] = kHex[(tag >> 4) & 0xF];
+        buf[n++] = kHex[(tag >> 0) & 0xF];
+        buf[n]   = '\0';
+        return std::string_view(buf, n);
+    }
+
+
+    static std::string_view
     synthesize_canoncustom_functions2_placeholder_name(uint16_t tag) noexcept
     {
         static thread_local char buf[32];
@@ -585,10 +653,17 @@ makernote_tag_name(std::string_view ifd, uint16_t tag) noexcept
         && olympus_subtable_prefers_placeholder(parts.subtable)) {
         return synthesize_olympus_placeholder_name(parts.subtable, tag);
     }
+    if (vendor_key == "kodak" && !parts.subtable.empty()) {
+        return synthesize_kodak_type_placeholder_name(parts.subtable, tag);
+    }
 
     if (vendor_key == "canon"
         && (parts.subtable.empty() || parts.subtable == "main")) {
         return synthesize_canon_placeholder_name(parts.subtable, tag);
+    }
+    if (vendor_key == "flir"
+        && (parts.subtable.empty() || parts.subtable == "main")) {
+        return synthesize_flir_placeholder_name(parts.subtable, tag);
     }
     if (vendor_key == "canon" && !parts.subtable.empty()) {
         return {};

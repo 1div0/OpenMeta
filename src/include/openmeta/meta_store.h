@@ -35,6 +35,7 @@ enum class WireFamily : uint8_t {
 enum class EntryNameContextKind : uint8_t {
     None,
     OlympusFocusInfo1600,
+    KodakMain0028,
     CanonMain0038,
     CanonCustomFunctions20103,
     CanonCustomFunctions2010C,

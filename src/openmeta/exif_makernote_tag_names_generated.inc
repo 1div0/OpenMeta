@@ -2654,6 +2654,123 @@ static constexpr MakerNoteTagNameEntry kMakernoteDjiMain[] = {
     { 0x000Bu, "CameraRoll" },
 };
 
+static constexpr MakerNoteTagNameEntry kMakernoteFlirFffCamerainfo[] = {
+    { 0x0020u, "Emissivity" },
+    { 0x0024u, "ObjectDistance" },
+    { 0x0028u, "ReflectedApparentTemperature" },
+    { 0x002Cu, "AtmosphericTemperature" },
+    { 0x0030u, "IRWindowTemperature" },
+    { 0x0034u, "IRWindowTransmission" },
+    { 0x003Cu, "RelativeHumidity" },
+    { 0x0058u, "PlanckR1" },
+    { 0x005Cu, "PlanckB" },
+    { 0x0060u, "PlanckF" },
+    { 0x0070u, "AtmosphericTransAlpha1" },
+    { 0x0074u, "AtmosphericTransAlpha2" },
+    { 0x0078u, "AtmosphericTransBeta1" },
+    { 0x007Cu, "AtmosphericTransBeta2" },
+    { 0x0080u, "AtmosphericTransX" },
+    { 0x0090u, "CameraTemperatureRangeMax" },
+    { 0x0094u, "CameraTemperatureRangeMin" },
+    { 0x0098u, "CameraTemperatureMaxClip" },
+    { 0x009Cu, "CameraTemperatureMinClip" },
+    { 0x00A0u, "CameraTemperatureMaxWarn" },
+    { 0x00A4u, "CameraTemperatureMinWarn" },
+    { 0x00A8u, "CameraTemperatureMaxSaturated" },
+    { 0x00ACu, "CameraTemperatureMinSaturated" },
+    { 0x00D4u, "CameraModel" },
+    { 0x00F4u, "CameraPartNumber" },
+    { 0x0104u, "CameraSerialNumber" },
+    { 0x0114u, "CameraSoftware" },
+    { 0x0170u, "LensModel" },
+    { 0x0190u, "LensPartNumber" },
+    { 0x01A0u, "LensSerialNumber" },
+    { 0x01B4u, "FieldOfView" },
+    { 0x01ECu, "FilterModel" },
+    { 0x01FCu, "FilterPartNumber" },
+    { 0x021Cu, "FilterSerialNumber" },
+    { 0x0308u, "PlanckO" },
+    { 0x030Cu, "PlanckR2" },
+    { 0x0310u, "RawValueRangeMin" },
+    { 0x0312u, "RawValueRangeMax" },
+    { 0x0338u, "RawValueMedian" },
+    { 0x033Cu, "RawValueRange" },
+    { 0x0384u, "DateTimeOriginal" },
+    { 0x0390u, "FocusStepCount" },
+    { 0x045Cu, "FocusDistance" },
+    { 0x0464u, "FrameRate" },
+};
+
+static constexpr MakerNoteTagNameEntry kMakernoteFlirFffEmbeddedimage[] = {
+    { 0x0001u, "EmbeddedImageWidth" },
+    { 0x0002u, "EmbeddedImageHeight" },
+    { 0x0010u, "EmbeddedImageType" },
+};
+
+static constexpr MakerNoteTagNameEntry kMakernoteFlirFffGpsinfo[] = {
+    { 0x0000u, "GPSValid" },
+    { 0x0004u, "GPSVersionID" },
+    { 0x0008u, "GPSLatitudeRef" },
+    { 0x000Au, "GPSLongitudeRef" },
+    { 0x0010u, "GPSLatitude" },
+    { 0x0018u, "GPSLongitude" },
+    { 0x0020u, "GPSAltitude" },
+    { 0x0040u, "GPSDOP" },
+    { 0x0044u, "GPSSpeedRef" },
+    { 0x0046u, "GPSTrackRef" },
+    { 0x0048u, "GPSImgDirectionRef" },
+    { 0x004Cu, "GPSSpeed" },
+    { 0x0050u, "GPSTrack" },
+    { 0x0054u, "GPSImgDirection" },
+    { 0x0058u, "GPSMapDatum" },
+};
+
+static constexpr MakerNoteTagNameEntry kMakernoteFlirFffHeader[] = {
+    { 0x0004u, "CreatorSoftware" },
+};
+
+static constexpr MakerNoteTagNameEntry kMakernoteFlirFffMeterlink[] = {
+    { 0x001Au, "Reading1Units" },
+    { 0x001Cu, "Reading1Description" },
+    { 0x0020u, "Reading1Device" },
+    { 0x0060u, "Reading1Value" },
+    { 0x007Eu, "Reading2Units" },
+    { 0x0080u, "Reading2Description" },
+    { 0x0084u, "Reading2Device" },
+    { 0x00C4u, "Reading2Value" },
+};
+
+static constexpr MakerNoteTagNameEntry kMakernoteFlirFffPaletteinfo[] = {
+    { 0x0000u, "PaletteColors" },
+    { 0x0006u, "AboveColor" },
+    { 0x0009u, "BelowColor" },
+    { 0x000Cu, "OverflowColor" },
+    { 0x000Fu, "UnderflowColor" },
+    { 0x0012u, "Isotherm1Color" },
+    { 0x0015u, "Isotherm2Color" },
+    { 0x001Au, "PaletteMethod" },
+    { 0x001Bu, "PaletteStretch" },
+    { 0x0030u, "PaletteFileName" },
+    { 0x0050u, "PaletteName" },
+    { 0x0070u, "Palette" },
+};
+
+static constexpr MakerNoteTagNameEntry kMakernoteFlirFffPip[] = {
+    { 0x0000u, "Real2IR" },
+    { 0x0002u, "OffsetX" },
+    { 0x0003u, "OffsetY" },
+    { 0x0004u, "PiPX1" },
+    { 0x0005u, "PiPX2" },
+    { 0x0006u, "PiPY1" },
+    { 0x0007u, "PiPY2" },
+};
+
+static constexpr MakerNoteTagNameEntry kMakernoteFlirFffRawdata[] = {
+    { 0x0001u, "RawThermalImageWidth" },
+    { 0x0002u, "RawThermalImageHeight" },
+    { 0x0010u, "RawThermalImageType" },
+};
+
 static constexpr MakerNoteTagNameEntry kMakernoteFlirGpsUuid[] = {
     { 0x0001u, "GPSLatitude" },
     { 0x0002u, "GPSLongitude" },
@@ -2837,6 +2954,14 @@ static constexpr MakerNoteTagNameEntry kMakernoteGoogleHdrplusmakernote[] = {
 static constexpr MakerNoteTagNameEntry kMakernoteGoogleShotlogdata[] = {
     { 0x0002u, "MeteringFrameCount" },
     { 0x0003u, "OriginalPayloadFrameCount" },
+};
+
+static constexpr MakerNoteTagNameEntry kMakernoteHpMain[] = {
+    { 0x0200u, "HP_0x0200" },
+    { 0x0201u, "HP_0x0201" },
+    { 0x0202u, "HP_0x0202" },
+    { 0x0203u, "HP_0x0203" },
+    { 0x0300u, "HP_0x0300" },
 };
 
 static constexpr MakerNoteTagNameEntry kMakernoteHpType4[] = {
@@ -10489,6 +10614,14 @@ static constexpr MakerNoteTableMap kMakerNoteTables[] = {
     { "makernote:casio:qvci", kMakernoteCasioQvci, static_cast<uint32_t>(sizeof(kMakernoteCasioQvci) / sizeof(kMakernoteCasioQvci[0])) },
     { "makernote:casio:type2", kMakernoteCasioType2, static_cast<uint32_t>(sizeof(kMakernoteCasioType2) / sizeof(kMakernoteCasioType2[0])) },
     { "makernote:dji:main", kMakernoteDjiMain, static_cast<uint32_t>(sizeof(kMakernoteDjiMain) / sizeof(kMakernoteDjiMain[0])) },
+    { "makernote:flir:fff_camerainfo", kMakernoteFlirFffCamerainfo, static_cast<uint32_t>(sizeof(kMakernoteFlirFffCamerainfo) / sizeof(kMakernoteFlirFffCamerainfo[0])) },
+    { "makernote:flir:fff_embeddedimage", kMakernoteFlirFffEmbeddedimage, static_cast<uint32_t>(sizeof(kMakernoteFlirFffEmbeddedimage) / sizeof(kMakernoteFlirFffEmbeddedimage[0])) },
+    { "makernote:flir:fff_gpsinfo", kMakernoteFlirFffGpsinfo, static_cast<uint32_t>(sizeof(kMakernoteFlirFffGpsinfo) / sizeof(kMakernoteFlirFffGpsinfo[0])) },
+    { "makernote:flir:fff_header", kMakernoteFlirFffHeader, static_cast<uint32_t>(sizeof(kMakernoteFlirFffHeader) / sizeof(kMakernoteFlirFffHeader[0])) },
+    { "makernote:flir:fff_meterlink", kMakernoteFlirFffMeterlink, static_cast<uint32_t>(sizeof(kMakernoteFlirFffMeterlink) / sizeof(kMakernoteFlirFffMeterlink[0])) },
+    { "makernote:flir:fff_paletteinfo", kMakernoteFlirFffPaletteinfo, static_cast<uint32_t>(sizeof(kMakernoteFlirFffPaletteinfo) / sizeof(kMakernoteFlirFffPaletteinfo[0])) },
+    { "makernote:flir:fff_pip", kMakernoteFlirFffPip, static_cast<uint32_t>(sizeof(kMakernoteFlirFffPip) / sizeof(kMakernoteFlirFffPip[0])) },
+    { "makernote:flir:fff_rawdata", kMakernoteFlirFffRawdata, static_cast<uint32_t>(sizeof(kMakernoteFlirFffRawdata) / sizeof(kMakernoteFlirFffRawdata[0])) },
     { "makernote:flir:gps_uuid", kMakernoteFlirGpsUuid, static_cast<uint32_t>(sizeof(kMakernoteFlirGpsUuid) / sizeof(kMakernoteFlirGpsUuid[0])) },
     { "makernote:flir:main", kMakernoteFlirMain, static_cast<uint32_t>(sizeof(kMakernoteFlirMain) / sizeof(kMakernoteFlirMain[0])) },
     { "makernote:flir:moreinfo", kMakernoteFlirMoreinfo, static_cast<uint32_t>(sizeof(kMakernoteFlirMoreinfo) / sizeof(kMakernoteFlirMoreinfo[0])) },
@@ -10503,6 +10636,7 @@ static constexpr MakerNoteTableMap kMakerNoteTables[] = {
     { "makernote:ge:main", kMakernoteGeMain, static_cast<uint32_t>(sizeof(kMakernoteGeMain) / sizeof(kMakernoteGeMain[0])) },
     { "makernote:google:hdrplusmakernote", kMakernoteGoogleHdrplusmakernote, static_cast<uint32_t>(sizeof(kMakernoteGoogleHdrplusmakernote) / sizeof(kMakernoteGoogleHdrplusmakernote[0])) },
     { "makernote:google:shotlogdata", kMakernoteGoogleShotlogdata, static_cast<uint32_t>(sizeof(kMakernoteGoogleShotlogdata) / sizeof(kMakernoteGoogleShotlogdata[0])) },
+    { "makernote:hp:main", kMakernoteHpMain, static_cast<uint32_t>(sizeof(kMakernoteHpMain) / sizeof(kMakernoteHpMain[0])) },
     { "makernote:hp:type4", kMakernoteHpType4, static_cast<uint32_t>(sizeof(kMakernoteHpType4) / sizeof(kMakernoteHpType4[0])) },
     { "makernote:hp:type6", kMakernoteHpType6, static_cast<uint32_t>(sizeof(kMakernoteHpType6) / sizeof(kMakernoteHpType6[0])) },
     { "makernote:jvc:main", kMakernoteJvcMain, static_cast<uint32_t>(sizeof(kMakernoteJvcMain) / sizeof(kMakernoteJvcMain[0])) },

@@ -103,12 +103,18 @@ Status labels used below:
       | Yes(lossless; portable behavior depends on mapping path) |
 | Photoshop IRB(`PhotoshopIrb`) | Yes(raw resources) and bounded
       interpreted `PhotoshopIrbField` entries for `ResolutionInfo`,
-      `PrintFlags`, `EffectiveBW`, `TargetLayerID`, `CopyrightFlag`, `URL`,
+      `VersionInfo`, `PrintFlags`, `EffectiveBW`, `TargetLayerID`,
+      `LayersGroupInfo`, `JPEG_Quality`, `CopyrightFlag`, `URL`,
       `GlobalAngle`, `Watermark`, `ICC_Untagged`, `EffectsVisible`,
-      `IDsBaseValue`, `IndexedColorTableCount`, `TransparentIndex`,
-      `GlobalAltitude`, `IPTCDigest`, `PrintScaleInfo`, `PixelInfo`, and
-      `LayerGroupsEnabledID` | Resource id based plus fixed-layout
-      derived fields | Yes(lossless) | | MPF | Yes | EXIF - like tag mapping | Yes |
+      `IDsBaseValue`,
+      `IndexedColorTableCount`, `TransparentIndex`, `GlobalAltitude`,
+      `SliceInfo`, `WorkflowURL`, `URL_List`, `IPTCDigest`, `PrintScaleInfo`,
+      `PixelInfo`, `LayerSelectionIDs`, `LayerGroupsEnabledID`,
+      `ChannelOptions`, `PrintFlagsInfo`, and `ClippingPathName` |
+      Resource id based plus fixed-layout derived fields; `ChannelOptions`
+      uses a bounded indexed field family, and legacy 8-bit Pascal-string
+      text uses an explicit Photoshop charset policy (default Latin) |
+      Yes(lossless) | | MPF | Yes | EXIF - like tag mapping | Yes |
       | GeoTIFF key(`GeotiffKey`) | Yes | Yes(generated key - name table) | Yes
       | | EXR attribute(`ExrAttribute`) | Yes(header attrs)
       | Attribute names are native in file

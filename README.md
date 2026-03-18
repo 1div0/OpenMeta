@@ -52,12 +52,16 @@ Current baseline-gated status on tracked corpora:
   - ICC: profile header + tag table (raw tag bytes preserved).
   - Photoshop IRB: 8BIM resources (raw payload preserved; IPTC from 0x0404 is
     decoded as derived datasets when present; fixed-layout interpreted fields
-    from `ResolutionInfo`/`PrintFlags`/`EffectiveBW`/`TargetLayerID`/
-    `CopyrightFlag`/`URL`/`GlobalAngle`/`Watermark`/`ICC_Untagged`/
-    `EffectsVisible`/`IDsBaseValue`/`IndexedColorTableCount`/
-    `TransparentIndex`/`GlobalAltitude`/`IPTCDigest`/`PrintScaleInfo`/
-    `PixelInfo`/
-    `LayerGroupsEnabledID` are emitted as `MetaKeyKind::PhotoshopIrbField`).
+    from `ResolutionInfo`/`VersionInfo`/`PrintFlags`/`EffectiveBW`/
+    `TargetLayerID`/`LayersGroupInfo`/`JPEG_Quality`/`CopyrightFlag`/`URL`/`GlobalAngle`/
+    `Watermark`/`ICC_Untagged`/`EffectsVisible`/`IDsBaseValue`/
+    `IndexedColorTableCount`/`TransparentIndex`/`GlobalAltitude`/
+    `SliceInfo`/`WorkflowURL`/`URL_List`/`IPTCDigest`/`PrintScaleInfo`/`PixelInfo`/
+    `LayerSelectionIDs`/`LayerGroupsEnabledID`/`ChannelOptions`/
+    `PrintFlagsInfo`/`ClippingPathName` are emitted as
+    `MetaKeyKind::PhotoshopIrbField`; legacy 8-bit Pascal-string text uses an
+    explicit Photoshop charset policy, defaulting to Latin for
+    ExifTool-compatible decode).
   - IPTC-IIM: dataset streams (raw dataset bytes preserved).
   - Comment (`MetaKeyKind::Comment`): structured JPEG COM and GIF comment
     extension payloads.

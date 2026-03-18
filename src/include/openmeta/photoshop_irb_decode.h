@@ -26,6 +26,12 @@ enum class PhotoshopIrbDecodeStatus : uint8_t {
     LimitExceeded,
 };
 
+/// Charset policy for legacy 8-bit Photoshop IRB text payloads.
+enum class PhotoshopIrbStringCharset : uint8_t {
+    Latin,
+    Ascii,
+};
+
 /// Resource limits applied during IRB decode to bound hostile inputs.
 struct PhotoshopIrbDecodeLimits final {
     uint32_t max_resources    = 1U << 16;
@@ -35,7 +41,8 @@ struct PhotoshopIrbDecodeLimits final {
 
 /// Decoder options for \ref decode_photoshop_irb.
 struct PhotoshopIrbDecodeOptions final {
-    bool decode_iptc_iim = true;
+    bool decode_iptc_iim                     = true;
+    PhotoshopIrbStringCharset string_charset = PhotoshopIrbStringCharset::Latin;
     PhotoshopIrbDecodeLimits limits;
     IptcIimDecodeOptions iptc;
 };
@@ -57,9 +64,12 @@ struct PhotoshopIrbDecodeResult final {
  * A bounded interpreted subset is additionally emitted as
  * \ref MetaKeyKind::PhotoshopIrbField entries for fixed-layout resources:
  * - ResolutionInfo (0x03ED)
+ * - VersionInfo (0x0421)
  * - PrintFlags (0x03F3)
  * - EffectiveBW (0x03FB)
  * - TargetLayerID (0x0400)
+ * - LayersGroupInfo (0x0402)
+ * - JPEG_Quality (0x0406)
  * - CopyrightFlag (0x040A)
  * - URL (0x040B)
  * - GlobalAngle (0x040D)
@@ -70,10 +80,17 @@ struct PhotoshopIrbDecodeResult final {
  * - IndexedColorTableCount (0x0416)
  * - TransparentIndex (0x0417)
  * - GlobalAltitude (0x0419)
+ * - SliceInfo (0x041A)
+ * - WorkflowURL (0x041B)
+ * - URL_List (0x041E)
  * - IPTCDigest (0x0425)
  * - PrintScaleInfo (0x0426)
  * - PixelInfo / PixelAspectRatio (0x0428)
+ * - LayerSelectionIDs (0x042D)
  * - LayerGroupsEnabledID (0x0430)
+ * - ChannelOptions (0x0435)
+ * - PrintFlagsInfo (0x2710)
+ * - ClippingPathName (0x0BB7)
  *
  * If enabled, IPTC-IIM is additionally decoded from resource id 0x0404
  * (IPTC/NAA) into separate \ref MetaKeyKind::IptcDataset entries marked as

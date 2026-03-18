@@ -391,6 +391,11 @@ namespace {
             case 2: return "Olympus_FocusInfo_0x1600";
             default: return canonical;
             }
+        case EntryNameContextKind::KodakMain0028:
+            switch (entry.origin.name_context_variant) {
+            case 1: return "KodakModel";
+            default: return canonical;
+            }
         case EntryNameContextKind::CanonMain0038:
             switch (entry.origin.name_context_variant) {
             case 1: return "Canon_0x0038";

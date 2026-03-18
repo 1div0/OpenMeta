@@ -32,6 +32,8 @@ TEST(ExifTagNames, MapsCommonTags)
     EXPECT_EQ(exif_tag_name("mk_canon0", 0x0003),
               std::string_view("CanonFlashInfo"));
     EXPECT_EQ(exif_tag_name("mk_fuji0", 0x1000), std::string_view("Quality"));
+    EXPECT_EQ(exif_tag_name("mk_kodak0", 0x0028),
+              std::string_view("Distance1"));
     EXPECT_EQ(exif_tag_name("mk_fuji0", 0x1200),
               std::string_view("FujiFilm_0x1200"));
 }
@@ -106,6 +108,84 @@ TEST(ExifTagNames, MapsNativeCrwCiffTags)
               std::string_view("RawJpgWidth"));
     EXPECT_EQ(exif_tag_name("ciff_300B_4_whitesample", 0x0005),
               std::string_view("WhiteSampleBits"));
+}
+
+
+TEST(ExifTagNames, MapsFlirFffSubtables)
+{
+    using openmeta::exif_tag_name;
+
+    EXPECT_EQ(exif_tag_name("mk_flir_fff_header_0", 0x0004),
+              std::string_view("CreatorSoftware"));
+    EXPECT_EQ(exif_tag_name("mk_flir_fff_camerainfo_0", 0x0020),
+              std::string_view("Emissivity"));
+    EXPECT_EQ(exif_tag_name("mk_flir_fff_camerainfo_0", 0x00D4),
+              std::string_view("CameraModel"));
+    EXPECT_EQ(exif_tag_name("mk_flir_fff_paletteinfo_0", 0x0050),
+              std::string_view("PaletteName"));
+    EXPECT_EQ(exif_tag_name("mk_flir_fff_rawdata_0", 0x0010),
+              std::string_view("RawThermalImageType"));
+    EXPECT_EQ(exif_tag_name("mk_flir_fff_embeddedimage_0", 0x0010),
+              std::string_view("EmbeddedImageType"));
+    EXPECT_EQ(exif_tag_name("mk_flir_fff_pip_0", 0x0004),
+              std::string_view("PiPX1"));
+    EXPECT_EQ(exif_tag_name("mk_flir_fff_gpsinfo_0", 0x0010),
+              std::string_view("GPSLatitude"));
+    EXPECT_EQ(exif_tag_name("mk_flir_fff_meterlink_0", 0x0060),
+              std::string_view("Reading1Value"));
+}
+
+
+TEST(ExifTagNames, MapsHpMainAndTypedSubtables)
+{
+    using openmeta::exif_tag_name;
+
+    EXPECT_EQ(exif_tag_name("mk_hp0", 0x0200), std::string_view("HP_0x0200"));
+    EXPECT_EQ(exif_tag_name("mk_hp0", 0x0300), std::string_view("HP_0x0300"));
+    EXPECT_EQ(exif_tag_name("mk_hp_type4_0", 0x000c),
+              std::string_view("MaxAperture"));
+    EXPECT_EQ(exif_tag_name("mk_hp_type6_0", 0x0058),
+              std::string_view("SerialNumber"));
+}
+
+
+TEST(ExifTagNames, MapsKodakTypedTablesAndPlaceholders)
+{
+    using openmeta::exif_tag_name;
+
+    EXPECT_EQ(exif_tag_name("mk_kodak_type2_0", 0x0028),
+              std::string_view("KodakModel"));
+    EXPECT_EQ(exif_tag_name("mk_kodak_type3_0", 0x0038),
+              std::string_view("ExposureTime"));
+    EXPECT_EQ(exif_tag_name("mk_kodak_type5_0", 0x0014),
+              std::string_view("ExposureTime"));
+    EXPECT_EQ(exif_tag_name("mk_kodak_type7_0", 0x0000),
+              std::string_view("SerialNumber"));
+    EXPECT_EQ(exif_tag_name("mk_kodak_type10_0", 0x0002),
+              std::string_view("PreviewImageSize"));
+    EXPECT_EQ(exif_tag_name("mk_kodak_type10_0", 0x0015),
+              std::string_view("Kodak_Type10_0x0015"));
+    EXPECT_EQ(exif_tag_name("mk_kodak_type8_0", 0x0200),
+              std::string_view("Kodak_Type8_0x0200"));
+    EXPECT_EQ(exif_tag_name("mk_kodak_type11_0", 0x0207),
+              std::string_view("KodakModel"));
+    EXPECT_EQ(exif_tag_name("mk_kodak_type11_0", 0x0200),
+              std::string_view("Kodak_Type11_0x0200"));
+}
+
+
+TEST(ExifTagNames, FlirMainUnknownTagsUseStablePlaceholderNames)
+{
+    using openmeta::exif_tag_name;
+
+    EXPECT_EQ(exif_tag_name("mk_flir0", 0x0007),
+              std::string_view("FLIR_0x0007"));
+    EXPECT_EQ(exif_tag_name("mk_flir0", 0x000A),
+              std::string_view("FLIR_0x000a"));
+    EXPECT_EQ(exif_tag_name("mk_flir0", 0x0112),
+              std::string_view("FLIR_0x0112"));
+    EXPECT_EQ(exif_tag_name("mk_flir_fff_gpsinfo_0", 0x0008),
+              std::string_view("GPSLatitudeRef"));
 }
 
 
@@ -446,4 +526,39 @@ TEST(ExifTagNames, ContextualEntryNamesSelectCanonCompatVariants)
     EXPECT_EQ(exif_entry_name(store, af_and_metering_entry,
                               ExifTagNamePolicy::ExifToolCompat),
               std::string_view("AFAndMeteringButtons"));
+}
+
+
+TEST(ExifTagNames, ContextualEntryNamesSelectKodakCompatVariants)
+{
+    using openmeta::BlockInfo;
+    using openmeta::Entry;
+    using openmeta::EntryFlags;
+    using openmeta::EntryId;
+    using openmeta::EntryNameContextKind;
+    using openmeta::exif_entry_name;
+    using openmeta::ExifTagNamePolicy;
+    using openmeta::make_exif_tag_key;
+    using openmeta::MetaStore;
+
+    MetaStore store;
+    const openmeta::BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    Entry kodak_model;
+    kodak_model.key = make_exif_tag_key(store.arena(), "mk_kodak0", 0x0028);
+    kodak_model.origin.block = block;
+    kodak_model.flags |= EntryFlags::ContextualName;
+    kodak_model.origin.name_context_kind = EntryNameContextKind::KodakMain0028;
+    kodak_model.origin.name_context_variant = 1U;
+    const EntryId kodak_model_id            = store.add_entry(kodak_model);
+    ASSERT_NE(kodak_model_id, openmeta::kInvalidEntryId);
+
+    const Entry& kodak_model_entry = store.entry(kodak_model_id);
+    EXPECT_EQ(exif_entry_name(store, kodak_model_entry,
+                              ExifTagNamePolicy::Canonical),
+              std::string_view("Distance1"));
+    EXPECT_EQ(exif_entry_name(store, kodak_model_entry,
+                              ExifTagNamePolicy::ExifToolCompat),
+              std::string_view("KodakModel"));
 }

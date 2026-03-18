@@ -332,10 +332,20 @@ namespace {
                       : 1U;
             return;
         }
+        if (ifd_name == "mk_kodak0" && tag == 0x0028u
+            && entry->value.kind == MetaValueKind::Text
+            && store_has_exif_tag(store, "mk_kodak0", 0x0008u)) {
+            entry->flags |= EntryFlags::ContextualName;
+            entry->origin.name_context_kind
+                = EntryNameContextKind::KodakMain0028;
+            entry->origin.name_context_variant = 1U;
+            return;
+        }
         if (ifd_name == "mk_canon0" && tag == 0x0038u
             && entry->value.kind == MetaValueKind::Bytes) {
             entry->flags |= EntryFlags::ContextualName;
-            entry->origin.name_context_kind = EntryNameContextKind::CanonMain0038;
+            entry->origin.name_context_kind
+                = EntryNameContextKind::CanonMain0038;
             entry->origin.name_context_variant = 1U;
             return;
         }
@@ -343,8 +353,9 @@ namespace {
             entry->flags |= EntryFlags::ContextualName;
             entry->origin.name_context_kind
                 = EntryNameContextKind::CanonCustomFunctions20103;
-            entry->origin.name_context_variant
-                = (entry->origin.wire_count > 1U) ? 2U : 1U;
+            entry->origin.name_context_variant = (entry->origin.wire_count > 1U)
+                                                     ? 2U
+                                                     : 1U;
         }
     }
 
@@ -1314,6 +1325,7 @@ namespace {
             entry.origin.wire_count     = values[i].count;
             entry.value                 = values[i];
             entry.flags |= EntryFlags::Derived;
+            maybe_mark_contextual_name(ifd_name, tags[i], store, &entry);
 
             (void)store.add_entry(entry);
             if (status_out) {
