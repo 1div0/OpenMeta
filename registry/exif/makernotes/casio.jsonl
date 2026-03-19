@@ -41,6 +41,7 @@
 {"kind":"exif.tag","ifd":"makernote:casio:main","tag":"0x0017","name":"ColorFilter"}
 {"kind":"exif.tag","ifd":"makernote:casio:main","tag":"0x0018","name":"AFPoint"}
 {"kind":"exif.tag","ifd":"makernote:casio:main","tag":"0x0019","name":"FlashIntensity"}
+{"kind":"exif.tag","ifd":"makernote:casio:main","tag":"0x0e00","name":"PrintIM"}
 {"kind":"exif.tag","ifd":"makernote:casio:qvci","tag":"0x002c","name":"CasioQuality"}
 {"kind":"exif.tag","ifd":"makernote:casio:qvci","tag":"0x0037","name":"FocalRange"}
 {"kind":"exif.tag","ifd":"makernote:casio:qvci","tag":"0x004d","name":"DateTimeOriginal"}

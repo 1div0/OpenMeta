@@ -110,6 +110,36 @@ canon_copy_string_view(std::string_view src, std::span<char> buf) noexcept
 }
 
 static std::string_view
+canon_copy_ascii_bytes(std::span<const std::byte> raw,
+                       std::span<char> buf) noexcept
+{
+    if (raw.empty() || buf.empty()) {
+        return {};
+    }
+
+    size_t n = 0;
+    while (n < raw.size() && raw[n] != std::byte { 0 }) {
+        n += 1;
+    }
+    while (n > 0 && raw[n - 1] == std::byte { ' ' }) {
+        n -= 1;
+    }
+    if (n == 0) {
+        return {};
+    }
+    if (!canon_looks_like_text(raw.first(n))) {
+        return {};
+    }
+
+    if (n >= buf.size()) {
+        n = buf.size() - 1U;
+    }
+    std::memcpy(buf.data(), raw.data(), n);
+    buf[n] = '\0';
+    return std::string_view(buf.data(), n);
+}
+
+static std::string_view
 canon_find_model_text(const MetaStore& store, std::span<char> buf) noexcept
 {
     const std::string_view stored_model
@@ -121,6 +151,41 @@ canon_find_model_text(const MetaStore& store, std::span<char> buf) noexcept
     const std::string_view canon_image_type
         = canon_find_first_exif_ascii_value(store, "mk_canon0", 0x0006);
     return canon_copy_string_view(canon_image_type, buf);
+}
+
+static std::string_view
+canon_find_model_text_in_main_ifd(const TiffConfig& mk_cfg,
+                                  std::span<const std::byte> tiff_bytes,
+                                  uint64_t entries_off, uint16_t entry_count,
+                                  const MakerNoteLayout& layout,
+                                  std::span<char> buf) noexcept
+{
+    for (uint32_t i = 0; i < entry_count; ++i) {
+        const uint64_t eoff = entries_off + uint64_t(i) * 12ULL;
+
+        ClassicIfdEntry ifd_entry;
+        if (!read_classic_ifd_entry(mk_cfg, tiff_bytes, eoff, &ifd_entry)) {
+            return {};
+        }
+        if (ifd_entry.tag != 0x0006U) {
+            continue;
+        }
+
+        ClassicIfdValueRef ref;
+        if (!resolve_classic_ifd_value_ref(layout, eoff, ifd_entry, &ref,
+                                           nullptr)) {
+            return {};
+        }
+        if (ref.value_off + ref.value_bytes > tiff_bytes.size()) {
+            return {};
+        }
+        return canon_copy_ascii_bytes(
+            tiff_bytes.subspan(static_cast<size_t>(ref.value_off),
+                               static_cast<size_t>(ref.value_bytes)),
+            buf);
+    }
+
+    return {};
 }
 
 static char
@@ -255,6 +320,155 @@ canon_camerainfo_prefers_psinfo2(std::string_view model) noexcept
         "EOS 5D Mark III",
     };
     return canon_model_matches_any(model, kCanonModels);
+}
+
+static bool canon_model_is_1d_family(std::string_view model) noexcept
+{
+    static constexpr std::string_view kCanonModels[] = {
+        "EOS-1D",
+        "EOS-1DS",
+    };
+    return canon_model_matches_any(model, kCanonModels);
+}
+
+static bool canon_model_is_1ds(std::string_view model) noexcept
+{
+    static constexpr std::string_view kCanonModels[] = {
+        "EOS-1DS",
+    };
+    return canon_model_matches_any(model, kCanonModels);
+}
+
+static bool canon_model_is_early_kelvin_group(std::string_view model) noexcept
+{
+    static constexpr std::string_view kCanonModels[] = {
+        "EOS 10D",
+        "EOS 300D",
+        "EOS DIGITAL REBEL",
+        "EOS Kiss Digital",
+    };
+    return canon_model_matches_any(model, kCanonModels);
+}
+
+static bool
+canon_model_is_1100d_blacklevel_group(std::string_view model) noexcept
+{
+    static constexpr std::string_view kCanonModels[] = {
+        "EOS 1100D",
+        "EOS Kiss X50",
+        "EOS REBEL T3",
+        "EOS 60D",
+    };
+    return canon_model_matches_any(model, kCanonModels);
+}
+
+static bool
+canon_model_is_1100d_maxfocal_group(std::string_view model) noexcept
+{
+    static constexpr std::string_view kCanonModels[] = {
+        "EOS 1100D",
+        "EOS Kiss X50",
+        "EOS REBEL T3",
+    };
+    return canon_model_matches_any(model, kCanonModels);
+}
+
+static bool
+canon_model_is_1200d_wb_unknown7_group(std::string_view model) noexcept
+{
+    static constexpr std::string_view kCanonModels[] = {
+        "EOS 1200D",
+        "EOS Kiss X70",
+        "EOS REBEL T5",
+    };
+    return canon_model_matches_any(model, kCanonModels);
+}
+
+static bool
+canon_model_is_r1_r5m2_battery_group(std::string_view model) noexcept
+{
+    static constexpr std::string_view kCanonModels[] = {
+        "EOS R1",
+        "EOS R5m2",
+        "EOS R5 Mark II",
+    };
+    return canon_model_matches_any(model, kCanonModels);
+}
+
+static void canon_maybe_mark_contextual_name(std::string_view canon_model,
+                                             std::string_view ifd_name,
+                                             uint16_t tag,
+                                             Entry* entry) noexcept
+{
+    if (!entry || canon_model.empty()) {
+        return;
+    }
+
+    if (ifd_name == "mk_canon_shotinfo_0" && tag == 0x000EU
+        && canon_model_is_1d_family(canon_model)) {
+        entry->flags |= EntryFlags::ContextualName;
+        entry->origin.name_context_kind
+            = EntryNameContextKind::CanonShotInfo000E;
+        entry->origin.name_context_variant = 1U;
+        return;
+    }
+    if (ifd_name == "mk_canon_camerasettings_0" && tag == 0x0021U
+        && canon_model_is_early_kelvin_group(canon_model)) {
+        entry->flags |= EntryFlags::ContextualName;
+        entry->origin.name_context_kind
+            = EntryNameContextKind::CanonCameraSettings0021;
+        entry->origin.name_context_variant = 1U;
+        return;
+    }
+    if (ifd_name == "mk_canon_colordata4_0") {
+        if (tag == 0x00EAU
+            && canon_model_is_1200d_wb_unknown7_group(canon_model)) {
+            entry->flags |= EntryFlags::ContextualName;
+            entry->origin.name_context_kind
+                = EntryNameContextKind::CanonColorData400EA;
+            entry->origin.name_context_variant = 1U;
+            return;
+        }
+        if (tag == 0x00EEU
+            && canon_model_is_1100d_maxfocal_group(canon_model)) {
+            entry->flags |= EntryFlags::ContextualName;
+            entry->origin.name_context_kind
+                = EntryNameContextKind::CanonColorData400EE;
+            entry->origin.name_context_variant = 1U;
+            return;
+        }
+        if (tag == 0x02CFU
+            && canon_model_is_1100d_blacklevel_group(canon_model)) {
+            entry->flags |= EntryFlags::ContextualName;
+            entry->origin.name_context_kind
+                = EntryNameContextKind::CanonColorData402CF;
+            entry->origin.name_context_variant = 1U;
+            return;
+        }
+    }
+    if (ifd_name == "mk_canon_colorcalib_0" && tag == 0x0038U
+        && canon_model_is_r1_r5m2_battery_group(canon_model)) {
+        entry->flags |= EntryFlags::ContextualName;
+        entry->origin.name_context_kind
+            = EntryNameContextKind::CanonColorCalib0038;
+        entry->origin.name_context_variant = 1U;
+        return;
+    }
+    if (ifd_name == "mk_canon_camerainfo1d_0" && tag == 0x0048U
+        && canon_model_is_1ds(canon_model)) {
+        entry->flags |= EntryFlags::ContextualName;
+        entry->origin.name_context_kind
+            = EntryNameContextKind::CanonCameraInfo1D0048;
+        entry->origin.name_context_variant = 1U;
+        return;
+    }
+    if (ifd_name == "mk_canon_camerainfo600d_0" && tag == 0x00EAU
+        && canon_model_is_1200d_wb_unknown7_group(canon_model)) {
+        entry->flags |= EntryFlags::ContextualName;
+        entry->origin.name_context_kind
+            = EntryNameContextKind::CanonCameraInfo600D00EA;
+        entry->origin.name_context_variant = 1U;
+    }
 }
 
 static std::string_view
@@ -420,11 +634,11 @@ canon_camerainfo_subtable_suffix(std::string_view model,
     if (canon_model_matches_any(model, k650DModels)) {
         return "camerainfo650d";
     }
-    if (canon_model_matches_any(model, k1100DModels)) {
-        return "camerainfo1100d";
-    }
     if (canon_model_matches_any(model, k600DModels)) {
         return "camerainfo600d";
+    }
+    if (canon_model_matches_any(model, k1100DModels)) {
+        return "camerainfo1100d";
     }
     if (canon_model_matches_any(model, k60DModels)) {
         return "camerainfo60d";
@@ -1314,6 +1528,7 @@ static void
 decode_canon_camerainfo_fixed_fields(const TiffConfig& cfg,
                                      std::span<const std::byte> cam,
                                      std::string_view ifd_name,
+                                     std::string_view canon_model,
                                      MetaStore& store,
                                      const ExifDecodeOptions& options,
                                      ExifDecodeResult* status_out) noexcept
@@ -1625,6 +1840,7 @@ decode_canon_camerainfo_fixed_fields(const TiffConfig& cfg,
             }
             }
 
+            canon_maybe_mark_contextual_name(canon_model, ifd_name, f.tag, &e);
             (void)store.add_entry(e);
             if (status_out) {
                 status_out->entries_decoded += 1;
@@ -1649,7 +1865,8 @@ decode_canon_custom_word_table(const TiffConfig& cfg,
                                uint64_t value_off, uint32_t count,
                                std::string_view ifd_name, uint16_t tag_base,
                                CanonCustomTagMode tag_mode,
-                               CanonCustomMode mode, MetaStore& store,
+                               CanonCustomMode mode,
+                               std::string_view canon_model, MetaStore& store,
                                const ExifDecodeOptions& options,
                                ExifDecodeResult* status_out) noexcept
 {
@@ -1726,6 +1943,7 @@ decode_canon_custom_word_table(const TiffConfig& cfg,
             entry.value             = make_u16(w);
         }
 
+        canon_maybe_mark_contextual_name(canon_model, ifd_name, tag, &entry);
         (void)store.add_entry(entry);
         if (status_out) {
             status_out->entries_decoded += 1;
@@ -1737,6 +1955,7 @@ static void
 decode_canon_u16_table(const TiffConfig& cfg, std::span<const std::byte> bytes,
                        uint64_t value_off, uint32_t count,
                        std::string_view ifd_name, MetaStore& store,
+                       std::string_view canon_model,
                        const ExifDecodeOptions& options,
                        ExifDecodeResult* status_out) noexcept
 {
@@ -1791,6 +2010,7 @@ decode_canon_u16_table(const TiffConfig& cfg, std::span<const std::byte> bytes,
         entry.value                 = make_u16(v);
         entry.flags |= EntryFlags::Derived;
 
+        canon_maybe_mark_contextual_name(canon_model, ifd_name, tag, &entry);
         (void)store.add_entry(entry);
         if (status_out) {
             status_out->entries_decoded += 1;
@@ -2824,7 +3044,8 @@ decode_canon_colordata_embedded_u16_table(
     const TiffConfig& cfg, std::span<const std::byte> tiff_bytes,
     uint64_t colordata_off, uint32_t colordata_count, uint32_t word_off,
     uint32_t word_count, std::string_view mk_prefix, std::string_view subtable,
-    MetaStore& store, const ExifDecodeOptions& options,
+    std::string_view canon_model, MetaStore& store,
+    const ExifDecodeOptions& options,
     ExifDecodeResult* status_out) noexcept
 {
     if (word_count == 0 || word_off > colordata_count
@@ -2846,14 +3067,15 @@ decode_canon_colordata_embedded_u16_table(
         = make_mk_subtable_ifd_token(mk_prefix, subtable, 0,
                                      std::span<char>(sub_ifd_buf));
     decode_canon_u16_table(cfg, tiff_bytes, sub_off, word_count, sub_ifd, store,
-                           options, status_out);
+                           canon_model, options, status_out);
 }
 
 static void
 decode_canon_colordata_embedded_tables(
     const TiffConfig& cfg, std::span<const std::byte> tiff_bytes,
     uint64_t colordata_off, uint32_t colordata_count, uint32_t family,
-    int16_t version, std::string_view mk_prefix, MetaStore& store,
+    int16_t version, std::string_view mk_prefix, std::string_view canon_model,
+    MetaStore& store,
     const ExifDecodeOptions& options, ExifDecodeResult* status_out) noexcept
 {
     switch (family) {
@@ -2862,6 +3084,7 @@ decode_canon_colordata_embedded_tables(
                                                   colordata_off,
                                                   colordata_count, 0x4b, 60,
                                                   mk_prefix, "colorcalib",
+                                                  canon_model,
                                                   store, options, status_out);
         return;
     case 2:
@@ -2869,6 +3092,7 @@ decode_canon_colordata_embedded_tables(
                                                   colordata_off,
                                                   colordata_count, 0xa4, 60,
                                                   mk_prefix, "colorcalib",
+                                                  canon_model,
                                                   store, options, status_out);
         return;
     case 3:
@@ -2876,6 +3100,7 @@ decode_canon_colordata_embedded_tables(
                                                   colordata_off,
                                                   colordata_count, 0x85, 60,
                                                   mk_prefix, "colorcalib",
+                                                  canon_model,
                                                   store, options, status_out);
         return;
     case 4:
@@ -2883,28 +3108,34 @@ decode_canon_colordata_embedded_tables(
                                                   colordata_off,
                                                   colordata_count, 0x3f, 105,
                                                   mk_prefix, "colorcoefs",
+                                                  canon_model,
                                                   store, options, status_out);
         decode_canon_colordata_embedded_u16_table(cfg, tiff_bytes,
                                                   colordata_off,
                                                   colordata_count, 0xa8, 60,
                                                   mk_prefix, "colorcalib",
+                                                  canon_model,
                                                   store, options, status_out);
         return;
     case 5:
         if (version == -3) {
             decode_canon_colordata_embedded_u16_table(
                 cfg, tiff_bytes, colordata_off, colordata_count, 0x47, 115,
-                mk_prefix, "colorcoefs", store, options, status_out);
+                mk_prefix, "colorcoefs", canon_model, store, options,
+                status_out);
             decode_canon_colordata_embedded_u16_table(
                 cfg, tiff_bytes, colordata_off, colordata_count, 0xba, 75,
-                mk_prefix, "colorcalib2", store, options, status_out);
+                mk_prefix, "colorcalib2", canon_model, store, options,
+                status_out);
         } else if (version == -4) {
             decode_canon_colordata_embedded_u16_table(
                 cfg, tiff_bytes, colordata_off, colordata_count, 0x47, 184,
-                mk_prefix, "colorcoefs2", store, options, status_out);
+                mk_prefix, "colorcoefs2", canon_model, store, options,
+                status_out);
             decode_canon_colordata_embedded_u16_table(
                 cfg, tiff_bytes, colordata_off, colordata_count, 0xff, 75,
-                mk_prefix, "colorcalib2", store, options, status_out);
+                mk_prefix, "colorcalib2", canon_model, store, options,
+                status_out);
         }
         return;
     case 6:
@@ -2912,6 +3143,7 @@ decode_canon_colordata_embedded_tables(
                                                   colordata_off,
                                                   colordata_count, 0xbc, 60,
                                                   mk_prefix, "colorcalib",
+                                                  canon_model,
                                                   store, options, status_out);
         return;
     case 7:
@@ -2919,6 +3151,7 @@ decode_canon_colordata_embedded_tables(
                                                   colordata_off,
                                                   colordata_count, 0xd5, 60,
                                                   mk_prefix, "colorcalib",
+                                                  canon_model,
                                                   store, options, status_out);
         return;
     case 8:
@@ -2926,6 +3159,7 @@ decode_canon_colordata_embedded_tables(
                                                   colordata_off,
                                                   colordata_count, 0x107, 60,
                                                   mk_prefix, "colorcalib",
+                                                  canon_model,
                                                   store, options, status_out);
         return;
     case 9:
@@ -2933,6 +3167,7 @@ decode_canon_colordata_embedded_tables(
                                                   colordata_off,
                                                   colordata_count, 0x10a, 60,
                                                   mk_prefix, "colorcalib",
+                                                  canon_model,
                                                   store, options, status_out);
         return;
     case 10:
@@ -2940,6 +3175,7 @@ decode_canon_colordata_embedded_tables(
                                                   colordata_off,
                                                   colordata_count, 0x118, 60,
                                                   mk_prefix, "colorcalib",
+                                                  canon_model,
                                                   store, options, status_out);
         return;
     case 11:
@@ -2947,6 +3183,7 @@ decode_canon_colordata_embedded_tables(
                                                   colordata_off,
                                                   colordata_count, 0x12c, 60,
                                                   mk_prefix, "colorcalib",
+                                                  canon_model,
                                                   store, options, status_out);
         return;
     case 12:
@@ -2954,6 +3191,7 @@ decode_canon_colordata_embedded_tables(
                                                   colordata_off,
                                                   colordata_count, 0x140, 60,
                                                   mk_prefix, "colorcalib",
+                                                  canon_model,
                                                   store, options, status_out);
         return;
     default: return;
@@ -3054,6 +3292,13 @@ decode_canon_makernote(const TiffConfig& cfg,
     layout.bytes                              = tiff_bytes;
     layout.offsets.out_of_line_base_is_signed = true;
     layout.offsets.out_of_line_base_i64       = value_base;
+
+    if (model.empty()) {
+        model = canon_find_model_text_in_main_ifd(mk_cfg, tiff_bytes,
+                                                  entries_off, entry_count,
+                                                  layout,
+                                                  std::span<char>(model_buf));
+    }
 
     const BlockId block = store.add_block(BlockInfo {});
     if (block == kInvalidBlockId) {
@@ -3187,8 +3432,8 @@ decode_canon_makernote(const TiffConfig& cfg,
             // CanonCameraInfo fixed-layout fields are common and are used by
             // ExifTool for a number of camera models. Decode them even if an
             // embedded IFD candidate was found.
-            decode_canon_camerainfo_fixed_fields(mk_cfg, cam, sub_ifd, store,
-                                                 options, status_out);
+            decode_canon_camerainfo_fixed_fields(mk_cfg, cam, sub_ifd, model,
+                                                 store, options, status_out);
         }
 
         // Canon LensInfo (tag 0x4019) contains the raw lens serial bytes.
@@ -3254,7 +3499,7 @@ decode_canon_makernote(const TiffConfig& cfg,
                 = make_mk_subtable_ifd_token(mk_prefix, "vignettingcorr", 0,
                                              std::span<char>(sub_ifd_buf));
             decode_canon_u16_table(mk_cfg, tiff_bytes, abs_value_off, count16,
-                                   sub_ifd, store, options, status_out);
+                                   sub_ifd, store, model, options, status_out);
         }
 
         if (type == 3 && count32 != 0) {  // SHORT
@@ -3263,7 +3508,7 @@ decode_canon_makernote(const TiffConfig& cfg,
                     = make_mk_subtable_ifd_token(mk_prefix, "camerasettings", 0,
                                                  std::span<char>(sub_ifd_buf));
                 decode_canon_u16_table(mk_cfg, tiff_bytes, abs_value_off,
-                                       count32, sub_ifd, store, options,
+                                       count32, sub_ifd, store, model, options,
                                        status_out);
             } else if (tag == 0x0090) {  // CustomFunctions1D (EOS-1D/1Ds)
                 char canoncustom_ifd_buf[96];
@@ -3277,7 +3522,8 @@ decode_canon_makernote(const TiffConfig& cfg,
                                                canoncustom_ifd, 0x0000,
                                                CanonCustomTagMode::HighByte,
                                                CanonCustomMode::LowByteAsU8,
-                                               store, options, status_out);
+                                               model, store, options,
+                                               status_out);
             } else if (tag == 0x000f) {  // CustomFunctions (older models)
                 uint32_t effective_count = count32;
                 uint16_t first_word      = 0;
@@ -3303,7 +3549,8 @@ decode_canon_makernote(const TiffConfig& cfg,
                                                canoncustom_ifd, 0x0000,
                                                CanonCustomTagMode::HighByte,
                                                CanonCustomMode::LowByteAsU8,
-                                               store, options, status_out);
+                                               model, store, options,
+                                               status_out);
             } else if (tag == 0x0091) {  // PersonalFunctions
                 char canoncustom_ifd_buf[96];
                 const std::string_view canoncustom_ifd
@@ -3315,8 +3562,8 @@ decode_canon_makernote(const TiffConfig& cfg,
                                                abs_value_off, count32,
                                                canoncustom_ifd, 0x0001,
                                                CanonCustomTagMode::Index,
-                                               CanonCustomMode::U16, store,
-                                               options, status_out);
+                                               CanonCustomMode::U16, model,
+                                               store, options, status_out);
             } else if (tag == 0x0092) {  // PersonalFunctionValues
                 char canoncustom_ifd_buf[96];
                 const std::string_view canoncustom_ifd
@@ -3328,14 +3575,14 @@ decode_canon_makernote(const TiffConfig& cfg,
                                                abs_value_off, count32,
                                                canoncustom_ifd, 0x0001,
                                                CanonCustomTagMode::Index,
-                                               CanonCustomMode::U16, store,
-                                               options, status_out);
+                                               CanonCustomMode::U16, model,
+                                               store, options, status_out);
             } else if (tag == 0x0005) {  // CanonPanorama
                 const std::string_view sub_ifd
                     = make_mk_subtable_ifd_token(mk_prefix, "panorama", 0,
                                                  std::span<char>(sub_ifd_buf));
                 decode_canon_u16_table(mk_cfg, tiff_bytes, abs_value_off,
-                                       count32, sub_ifd, store, options,
+                                       count32, sub_ifd, store, model, options,
                                        status_out);
             } else if (tag == 0x0026) {  // CanonAFInfo2
                 const std::string_view sub_ifd
@@ -3366,42 +3613,42 @@ decode_canon_makernote(const TiffConfig& cfg,
                     = make_mk_subtable_ifd_token(mk_prefix, table, 0,
                                                  std::span<char>(sub_ifd_buf));
                 decode_canon_u16_table(mk_cfg, tiff_bytes, abs_value_off,
-                                       count32, sub_ifd, store, options,
+                                       count32, sub_ifd, store, model, options,
                                        status_out);
             } else if (tag == 0x0012) {  // CanonAFInfo (older models)
                 const std::string_view sub_ifd
                     = make_mk_subtable_ifd_token(mk_prefix, "afinfo", 0,
                                                  std::span<char>(sub_ifd_buf));
                 decode_canon_u16_table(mk_cfg, tiff_bytes, abs_value_off,
-                                       count32, sub_ifd, store, options,
+                                       count32, sub_ifd, store, model, options,
                                        status_out);
             } else if (tag == 0x0004) {  // CanonShotInfo
                 const std::string_view sub_ifd
                     = make_mk_subtable_ifd_token(mk_prefix, "shotinfo", 0,
                                                  std::span<char>(sub_ifd_buf));
                 decode_canon_u16_table(mk_cfg, tiff_bytes, abs_value_off,
-                                       count32, sub_ifd, store, options,
+                                       count32, sub_ifd, store, model, options,
                                        status_out);
             } else if (tag == 0x0093) {  // CanonFileInfo
                 const std::string_view sub_ifd
                     = make_mk_subtable_ifd_token(mk_prefix, "fileinfo", 0,
                                                  std::span<char>(sub_ifd_buf));
                 decode_canon_u16_table(mk_cfg, tiff_bytes, abs_value_off,
-                                       count32, sub_ifd, store, options,
+                                       count32, sub_ifd, store, model, options,
                                        status_out);
             } else if (tag == 0x0098) {  // CropInfo
                 const std::string_view sub_ifd
                     = make_mk_subtable_ifd_token(mk_prefix, "cropinfo", 0,
                                                  std::span<char>(sub_ifd_buf));
                 decode_canon_u16_table(mk_cfg, tiff_bytes, abs_value_off,
-                                       count32, sub_ifd, store, options,
+                                       count32, sub_ifd, store, model, options,
                                        status_out);
             } else if (tag == 0x001d) {  // MyColors
                 const std::string_view sub_ifd
                     = make_mk_subtable_ifd_token(mk_prefix, "mycolors", 0,
                                                  std::span<char>(sub_ifd_buf));
                 decode_canon_u16_table(mk_cfg, tiff_bytes, abs_value_off,
-                                       count32, sub_ifd, store, options,
+                                       count32, sub_ifd, store, model, options,
                                        status_out);
             } else if (tag == 0x00aa) {  // MeasuredColor
                 // Emit the full MeasuredRGGB array (4x u16) as tag 0x0001.
@@ -3436,22 +3683,22 @@ decode_canon_makernote(const TiffConfig& cfg,
                     }
                 } else {
                     decode_canon_u16_table(mk_cfg, tiff_bytes, abs_value_off,
-                                           count32, sub_ifd, store, options,
-                                           status_out);
+                                           count32, sub_ifd, store, model,
+                                           options, status_out);
                 }
             } else if (tag == 0x00e0) {  // SensorInfo
                 const std::string_view sub_ifd
                     = make_mk_subtable_ifd_token(mk_prefix, "sensorinfo", 0,
                                                  std::span<char>(sub_ifd_buf));
                 decode_canon_u16_table(mk_cfg, tiff_bytes, abs_value_off,
-                                       count32, sub_ifd, store, options,
+                                       count32, sub_ifd, store, model, options,
                                        status_out);
             } else if (tag == 0x00A0) {  // ProcessingInfo
                 const std::string_view sub_ifd
                     = make_mk_subtable_ifd_token(mk_prefix, "processing", 0,
                                                  std::span<char>(sub_ifd_buf));
                 decode_canon_u16_table(mk_cfg, tiff_bytes, abs_value_off,
-                                       count32, sub_ifd, store, options,
+                                       count32, sub_ifd, store, model, options,
                                        status_out);
             } else if (tag == 0x4001) {  // ColorData (multiple versions)
                 bool looks_like_colorcalib = false;
@@ -3481,14 +3728,14 @@ decode_canon_makernote(const TiffConfig& cfg,
                     = make_mk_subtable_ifd_token(mk_prefix, table, 0,
                                                  std::span<char>(sub_ifd_buf));
                 decode_canon_u16_table(mk_cfg, tiff_bytes, abs_value_off,
-                                       count32, sub_ifd, store, options,
+                                       count32, sub_ifd, store, model, options,
                                        status_out);
 
                 decode_canon_colordata_embedded_tables(mk_cfg, tiff_bytes,
                                                        abs_value_off, count32,
                                                        family,
                                                        colordata_version_i16,
-                                                       mk_prefix, store,
+                                                       mk_prefix, model, store,
                                                        options, status_out);
             }
         } else if (type == 4 && count32 != 0) {  // LONG

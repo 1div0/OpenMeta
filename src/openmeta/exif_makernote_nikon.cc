@@ -72,6 +72,133 @@ nikon_parse_u32_digits(std::string_view s, uint32_t* out) noexcept
     return true;
 }
 
+static uint8_t
+nikon_ascii_lower(uint8_t c) noexcept
+{
+    return (c >= 'A' && c <= 'Z') ? static_cast<uint8_t>(c + 32U) : c;
+}
+
+static bool
+nikon_ascii_equals_insensitive(std::string_view a, std::string_view b) noexcept
+{
+    if (a.size() != b.size()) {
+        return false;
+    }
+    for (size_t i = 0; i < a.size(); ++i) {
+        if (nikon_ascii_lower(static_cast<uint8_t>(a[i]))
+            != nikon_ascii_lower(static_cast<uint8_t>(b[i]))) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static std::string_view
+nikon_find_first_exif_ascii_value(const MetaStore& store, std::string_view ifd,
+                                  uint16_t tag) noexcept
+{
+    const ByteArena& arena               = store.arena();
+    const std::span<const Entry> entries = store.entries();
+    for (size_t i = 0; i < entries.size(); ++i) {
+        const Entry& e = entries[i];
+        if (e.key.kind != MetaKeyKind::ExifTag) {
+            continue;
+        }
+        if (e.key.data.exif_tag.tag != tag) {
+            continue;
+        }
+        if (arena_string(arena, e.key.data.exif_tag.ifd) != ifd) {
+            continue;
+        }
+        if (e.value.kind == MetaValueKind::Text) {
+            return arena_string(arena, e.value.data.span);
+        }
+    }
+    return {};
+}
+
+static bool
+nikonsettings_model_is_d7500(std::string_view model) noexcept
+{
+    return nikon_ascii_equals_insensitive(model, "NIKON D7500");
+}
+
+static bool
+nikonsettings_model_is_d780(std::string_view model) noexcept
+{
+    return nikon_ascii_equals_insensitive(model, "NIKON D780");
+}
+
+static bool
+nikonsettings_model_is_d850(std::string_view model) noexcept
+{
+    return nikon_ascii_equals_insensitive(model, "NIKON D850");
+}
+
+static bool
+nikonsettings_model_is_z30(std::string_view model) noexcept
+{
+    return nikon_ascii_equals_insensitive(model, "NIKON Z 30");
+}
+
+static bool
+nikonsettings_main_prefers_placeholder(uint16_t tag,
+                                       std::string_view model) noexcept
+{
+    const bool d7500 = nikonsettings_model_is_d7500(model);
+    const bool d780  = nikonsettings_model_is_d780(model);
+    const bool d850  = nikonsettings_model_is_d850(model);
+    const bool z30   = nikonsettings_model_is_z30(model);
+
+    switch (tag) {
+    case 0x0103u:
+    case 0x0104u:
+    case 0x010Bu:
+    case 0x010Cu:
+    case 0x013Au:
+    case 0x013Cu: return true;
+    case 0x0001u:
+    case 0x0002u:
+    case 0x000Du: return d7500 || d780;
+    case 0x001Du:
+    case 0x0020u:
+    case 0x002Du:
+    case 0x0034u:
+    case 0x0047u:
+    case 0x0052u:
+    case 0x0053u:
+    case 0x0054u:
+    case 0x006Cu: return d7500 || d780;
+    case 0x0080u: return d7500 || d780 || d850 || z30;
+    case 0x0097u:
+    case 0x00A0u:
+    case 0x00A2u:
+    case 0x00A3u:
+    case 0x00A5u:
+    case 0x00A7u:
+    case 0x00B6u: return d780 || d850 || z30;
+    case 0x00B1u: return d7500 || d780;
+    default: return false;
+    }
+}
+
+static void
+maybe_mark_nikonsettings_contextual_name(const MetaStore& store, uint16_t tag,
+                                         Entry* entry) noexcept
+{
+    if (!entry) {
+        return;
+    }
+    const std::string_view model
+        = nikon_find_first_exif_ascii_value(store, "ifd0", 0x0110);
+    if (!nikonsettings_main_prefers_placeholder(tag, model)) {
+        return;
+    }
+    entry->flags |= EntryFlags::ContextualName;
+    entry->origin.name_context_kind = EntryNameContextKind::NikonSettingsMain;
+    entry->origin.name_context_variant = 1U;
+}
+
 static bool
 nikon_is_blank_serial(std::string_view s) noexcept
 {
@@ -460,6 +587,7 @@ decode_nikon_settings_dir(std::string_view ifd_name,
         default: entry.value = make_u32(val32); break;
         }
 
+        maybe_mark_nikonsettings_contextual_name(store, tag, &entry);
         (void)store.add_entry(entry);
         if (status_out) {
             status_out->entries_decoded += 1;

@@ -7,10 +7,182 @@ namespace openmeta::exif_internal {
 
 namespace {
 
+    static char pentax_ascii_lower(char c) noexcept
+    {
+        if (c >= 'A' && c <= 'Z') {
+            return static_cast<char>(c - 'A' + 'a');
+        }
+        return c;
+    }
+
+    static bool
+    pentax_ascii_contains_insensitive(std::string_view haystack,
+                                      std::string_view needle) noexcept
+    {
+        if (needle.empty()) {
+            return true;
+        }
+        if (haystack.size() < needle.size()) {
+            return false;
+        }
+
+        const size_t last = haystack.size() - needle.size();
+        for (size_t i = 0; i <= last; ++i) {
+            bool matched = true;
+            for (size_t j = 0; j < needle.size(); ++j) {
+                if (pentax_ascii_lower(haystack[i + j])
+                    != pentax_ascii_lower(needle[j])) {
+                    matched = false;
+                    break;
+                }
+            }
+            if (matched) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static bool
+    pentax_main_0062_prefers_placeholder(const MetaStore& store) noexcept
+    {
+        ExifContext ctx(store);
+        std::string_view make;
+        if (!ctx.find_first_text("ifd0", 0x010F, &make)) {
+            return false;
+        }
+        return pentax_ascii_contains_insensitive(make, "kodak")
+               || pentax_ascii_contains_insensitive(make, "samsung");
+    }
+
     struct PentaxSubdirCandidate final {
         uint16_t tag = 0;
         MetaValue value;
     };
+
+    static bool pentax_ifd_has_type2_signature(TiffConfig cfg,
+                                               std::span<const std::byte> bytes,
+                                               uint64_t ifd_off) noexcept
+    {
+        uint16_t entry_count = 0;
+        if (!read_tiff_u16(cfg, bytes, ifd_off, &entry_count)
+            || entry_count == 0) {
+            return false;
+        }
+        const uint64_t entries_off = ifd_off + 2U;
+        const uint64_t needed = entries_off + uint64_t(entry_count) * 12ULL;
+        if (needed > bytes.size()) {
+            return false;
+        }
+
+        for (uint32_t i = 0; i < entry_count; ++i) {
+            uint16_t tag = 0;
+            if (!read_tiff_u16(cfg, bytes, entries_off + uint64_t(i) * 12ULL,
+                               &tag)) {
+                return false;
+            }
+            if (tag == 0x1000u || tag == 0x1001u) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static bool pentax_makernote_has_type2_signature(
+        std::span<const std::byte> bytes) noexcept
+    {
+        TiffConfig cfg;
+        cfg.bigtiff = false;
+
+        if (bytes.size() >= 8 && match_bytes(bytes, 0, "AOC\0", 4)) {
+            const uint8_t b4 = u8(bytes[4]);
+            const uint8_t b5 = u8(bytes[5]);
+            if (b4 == 0x49 && b5 == 0x49) {
+                cfg.le = true;
+            } else if (b4 == 0x4D && b5 == 0x4D) {
+                cfg.le = false;
+            } else if (b4 == 0x20 && b5 == 0x20) {
+                cfg.le = false;
+            } else if (b4 == 0x00 && b5 == 0x00 && bytes.size() >= 10) {
+                const uint8_t t0 = u8(bytes[8]);
+                const uint8_t t1 = u8(bytes[9]);
+                if (t0 == 0x01 && t1 == 0x00) {
+                    cfg.le = true;
+                } else if (t0 == 0x00 && t1 == 0x01) {
+                    cfg.le = false;
+                } else {
+                    cfg.le = false;
+                }
+            } else {
+                cfg.le = false;
+            }
+            return pentax_ifd_has_type2_signature(cfg, bytes, 6);
+        }
+
+        cfg.le = true;
+        if (pentax_ifd_has_type2_signature(cfg, bytes, 0)) {
+            return true;
+        }
+        cfg.le = false;
+        return pentax_ifd_has_type2_signature(cfg, bytes, 0);
+    }
+
+    static bool pentax_model_uses_type2(const MetaStore& store) noexcept
+    {
+        ExifContext ctx(store);
+        std::string_view model;
+        if (!ctx.find_first_text("ifd0", 0x0110, &model)) {
+            return false;
+        }
+        const auto exact_prefix = [](std::string_view value,
+                                     std::string_view prefix) noexcept {
+            if (value.size() < prefix.size()
+                || value.substr(0, prefix.size()) != prefix) {
+                return false;
+            }
+            if (value.size() == prefix.size()) {
+                return true;
+            }
+            const char next = value[prefix.size()];
+            return next == '\0';
+        };
+        return exact_prefix(model, "PENTAX Optio 330")
+               || exact_prefix(model, "PENTAX Optio 430")
+               || exact_prefix(model, "Optio 330")
+               || exact_prefix(model, "Optio 430");
+    }
+
+    static bool
+    pentax_has_detected_faces(std::span<const PentaxSubdirCandidate> cands,
+                              const ByteArena& arena) noexcept
+    {
+        for (size_t i = 0; i < cands.size(); ++i) {
+            const PentaxSubdirCandidate& cand = cands[i];
+            if (cand.tag == 0x0060) {
+                if (cand.value.kind == MetaValueKind::Scalar) {
+                    return cand.value.data.u64 != 0;
+                }
+                if (cand.value.kind == MetaValueKind::Bytes
+                    || cand.value.kind == MetaValueKind::Array) {
+                    const std::span<const std::byte> raw = arena.span(
+                        cand.value.data.span);
+                    return !raw.empty() && u8(raw[0]) != 0;
+                }
+            }
+            if (cand.tag == 0x0076) {
+                if (cand.value.kind == MetaValueKind::Scalar) {
+                    return cand.value.data.u64 != 0;
+                }
+                if (cand.value.kind == MetaValueKind::Bytes
+                    || cand.value.kind == MetaValueKind::Array) {
+                    const std::span<const std::byte> raw = arena.span(
+                        cand.value.data.span);
+                    return raw.size() >= 2 && u8(raw[1]) != 0;
+                }
+            }
+        }
+        return false;
+    }
 
     static void decode_pentax_u8_table(std::string_view ifd_name,
                                        std::span<const std::byte> raw,
@@ -152,33 +324,36 @@ namespace {
 
         char sub_ifd_buf[96];
 
-        uint32_t idx_camerasettings = 0;
-        uint32_t idx_aeinfo         = 0;
-        uint32_t idx_lensinfo       = 0;
-        uint32_t idx_flashinfo      = 0;
-        uint32_t idx_camerainfo     = 0;
-        uint32_t idx_batteryinfo    = 0;
-        uint32_t idx_afinfo         = 0;
-        uint32_t idx_kelvinwb       = 0;
-        uint32_t idx_colorinfo      = 0;
-        uint32_t idx_evstepinfo     = 0;
-        uint32_t idx_shotinfo       = 0;
-        uint32_t idx_facepos        = 0;
-        uint32_t idx_facesize       = 0;
-        uint32_t idx_filterinfo     = 0;
-        uint32_t idx_levelinfo      = 0;
-        uint32_t idx_wblevels       = 0;
-        uint32_t idx_lensinfoq      = 0;
-        uint32_t idx_pixelshift     = 0;
-        uint32_t idx_afpointinfo    = 0;
-        uint32_t idx_tempinfo       = 0;
-        uint32_t idx_srinfo         = 0;
-        uint32_t idx_faceinfo       = 0;
-        uint32_t idx_awbinfo        = 0;
-        uint32_t idx_timeinfo       = 0;
-        uint32_t idx_lensrec        = 0;
-        uint32_t idx_lenscorr       = 0;
-        uint32_t idx_lensdata       = 0;
+        uint32_t idx_camerasettings    = 0;
+        uint32_t idx_aeinfo            = 0;
+        uint32_t idx_lensinfo          = 0;
+        uint32_t idx_flashinfo         = 0;
+        uint32_t idx_camerainfo        = 0;
+        uint32_t idx_batteryinfo       = 0;
+        uint32_t idx_afinfo            = 0;
+        uint32_t idx_kelvinwb          = 0;
+        uint32_t idx_colorinfo         = 0;
+        uint32_t idx_evstepinfo        = 0;
+        uint32_t idx_shotinfo          = 0;
+        uint32_t idx_facepos           = 0;
+        uint32_t idx_facesize          = 0;
+        uint32_t idx_filterinfo        = 0;
+        uint32_t idx_levelinfo         = 0;
+        uint32_t idx_wblevels          = 0;
+        uint32_t idx_lensinfoq         = 0;
+        uint32_t idx_pixelshift        = 0;
+        uint32_t idx_afpointinfo       = 0;
+        uint32_t idx_tempinfo          = 0;
+        uint32_t idx_srinfo            = 0;
+        uint32_t idx_faceinfo          = 0;
+        uint32_t idx_awbinfo           = 0;
+        uint32_t idx_timeinfo          = 0;
+        uint32_t idx_lensrec           = 0;
+        uint32_t idx_lenscorr          = 0;
+        uint32_t idx_lensdata          = 0;
+        const bool have_detected_faces = pentax_has_detected_faces(
+            std::span<const PentaxSubdirCandidate>(cands, cand_count),
+            store.arena());
 
         const std::string_view mk_prefix = "mk_pentax";
 
@@ -500,6 +675,9 @@ namespace {
             }
 
             if (tag == 0x0227) {  // FacePos
+                if (!have_detected_faces) {
+                    continue;
+                }
                 const std::string_view ifd_name
                     = make_mk_subtable_ifd_token(mk_prefix, "facepos",
                                                  idx_facepos++,
@@ -513,6 +691,9 @@ namespace {
             }
 
             if (tag == 0x0228) {  // FaceSize
+                if (!have_detected_faces) {
+                    continue;
+                }
                 const std::string_view ifd_name
                     = make_mk_subtable_ifd_token(mk_prefix, "facesize",
                                                  idx_facesize++,
@@ -641,6 +822,21 @@ decode_pentax_makernote(std::span<const std::byte> maker_note_bytes,
         return false;
     }
 
+    char alt_ifd_buf[48] {};
+    bool use_type2 = pentax_makernote_has_type2_signature(maker_note_bytes)
+                     || pentax_model_uses_type2(store);
+    const bool pentax_main_0062_placeholder
+        = !use_type2 && pentax_main_0062_prefers_placeholder(store);
+    std::string_view pentax_ifd0 = mk_ifd0;
+    if (use_type2) {
+        pentax_ifd0 = make_mk_subtable_ifd_token("mk_pentax", "type2", 0,
+                                                 std::span<char>(alt_ifd_buf));
+        if (pentax_ifd0.empty()) {
+            use_type2   = false;
+            pentax_ifd0 = mk_ifd0;
+        }
+    }
+
     // Ricoh-branded cameras (eg. GR III, WG-6) may store Pentax MakerNotes with
     // a "RICOH\0" prefix and a byte-order mark at +6. The IFD begins at +8.
     if (maker_note_bytes.size() >= 10
@@ -657,11 +853,13 @@ decode_pentax_makernote(std::span<const std::byte> maker_note_bytes,
             return false;
         }
 
-        decode_classic_ifd_no_header(cfg, maker_note_bytes, ifd_off, mk_ifd0,
-                                     store, options, status_out,
+        decode_classic_ifd_no_header(cfg, maker_note_bytes, ifd_off,
+                                     pentax_ifd0, store, options, status_out,
                                      EntryFlags::None);
-        decode_pentax_binary_subdirs(mk_ifd0, store, cfg.le, options,
-                                     status_out);
+        if (!use_type2) {
+            decode_pentax_binary_subdirs(pentax_ifd0, store, cfg.le, options,
+                                         status_out);
+        }
         return true;
     }
 
@@ -681,10 +879,13 @@ decode_pentax_makernote(std::span<const std::byte> maker_note_bytes,
                 pent_cfg.bigtiff = false;
                 pent_cfg.le      = best.le;
                 decode_classic_ifd_no_header(pent_cfg, body, best.offset,
-                                             mk_ifd0, store, options,
+                                             pentax_ifd0, store, options,
                                              status_out, EntryFlags::None);
-                decode_pentax_binary_subdirs(mk_ifd0, store, pent_cfg.le,
-                                             options, status_out);
+                if (!use_type2) {
+                    decode_pentax_binary_subdirs(pentax_ifd0, store,
+                                                 pent_cfg.le, options,
+                                                 status_out);
+                }
                 return true;
             }
             return false;
@@ -712,11 +913,13 @@ decode_pentax_makernote(std::span<const std::byte> maker_note_bytes,
                 return false;
             }
         }
-        decode_classic_ifd_no_header(alt_cfg, maker_note_bytes, 0, mk_ifd0,
+        decode_classic_ifd_no_header(alt_cfg, maker_note_bytes, 0, pentax_ifd0,
                                      store, options, status_out,
                                      EntryFlags::None);
-        decode_pentax_binary_subdirs(mk_ifd0, store, alt_cfg.le, options,
-                                     status_out);
+        if (!use_type2) {
+            decode_pentax_binary_subdirs(pentax_ifd0, store, alt_cfg.le,
+                                         options, status_out);
+        }
         return true;
     }
 
@@ -810,7 +1013,7 @@ decode_pentax_makernote(std::span<const std::byte> maker_note_bytes,
         }
 
         Entry entry;
-        entry.key          = make_exif_tag_key(store.arena(), mk_ifd0, tag);
+        entry.key          = make_exif_tag_key(store.arena(), pentax_ifd0, tag);
         entry.origin.block = block;
         entry.origin.order_in_block = i;
         entry.origin.wire_type      = WireType { WireFamily::Tiff, type };
@@ -833,13 +1036,20 @@ decode_pentax_makernote(std::span<const std::byte> maker_note_bytes,
                                             status_out);
         }
 
+        if (pentax_main_0062_placeholder && tag == 0x0062U) {
+            entry.flags |= EntryFlags::ContextualName;
+            entry.origin.name_context_kind
+                = EntryNameContextKind::PentaxMain0062;
+            entry.origin.name_context_variant = 1U;
+        }
+
         (void)store.add_entry(entry);
         if (status_out) {
             status_out->entries_decoded += 1;
         }
     }
 
-    if (!mk_ifd0.empty()) {
+    if (!use_type2 && !pentax_ifd0.empty()) {
         bool have_tag_0000 = false;
         bool have_tag_0064 = false;
 
@@ -850,7 +1060,7 @@ decode_pentax_makernote(std::span<const std::byte> maker_note_bytes,
             if (e.key.kind != MetaKeyKind::ExifTag) {
                 continue;
             }
-            if (arena_string(arena, e.key.data.exif_tag.ifd) != mk_ifd0) {
+            if (arena_string(arena, e.key.data.exif_tag.ifd) != pentax_ifd0) {
                 continue;
             }
             if (e.key.data.exif_tag.tag == 0x0000) {
@@ -886,14 +1096,17 @@ decode_pentax_makernote(std::span<const std::byte> maker_note_bytes,
         }
 
         if (out_count > 0) {
-            emit_bin_dir_entries(mk_ifd0, store,
+            emit_bin_dir_entries(pentax_ifd0, store,
                                  std::span<const uint16_t>(tags_out, out_count),
                                  std::span<const MetaValue>(vals_out, out_count),
                                  options.limits, status_out);
         }
     }
 
-    decode_pentax_binary_subdirs(mk_ifd0, store, cfg.le, options, status_out);
+    if (!use_type2) {
+        decode_pentax_binary_subdirs(pentax_ifd0, store, cfg.le, options,
+                                     status_out);
+    }
 
     return true;
 }

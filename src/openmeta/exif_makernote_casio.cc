@@ -300,6 +300,31 @@ namespace {
         }
     }
 
+    static bool
+    casio_type2_uses_legacy_main_compat(const TiffConfig& cfg,
+                                        std::span<const std::byte> mn,
+                                        uint64_t entry_count) noexcept
+    {
+        bool has_legacy_printim = false;
+        bool has_modern_tag     = false;
+
+        for (uint64_t i = 0; i < entry_count; ++i) {
+            const uint64_t eoff = 8U + i * 12ULL;
+            ClassicIfdEntry e;
+            if (!read_classic_ifd_entry(cfg, mn, eoff, &e)) {
+                return false;
+            }
+            if (e.tag == 0x0E00U) {
+                has_legacy_printim = true;
+            }
+            if (e.tag >= 0x2000U) {
+                has_modern_tag = true;
+            }
+        }
+
+        return has_legacy_printim && !has_modern_tag;
+    }
+
 }  // namespace
 
 bool
@@ -389,6 +414,9 @@ decode_casio_makernote(const TiffConfig& parent_cfg,
     mn_cfg.le      = le;
     mn_cfg.bigtiff = false;
 
+    const bool legacy_main_compat
+        = casio_type2_uses_legacy_main_compat(mn_cfg, mn, entry_count);
+
     for (uint64_t i = 0; i < entry_count; ++i) {
         const uint64_t eoff = entries_off + i * 12ULL;
 
@@ -405,8 +433,8 @@ decode_casio_makernote(const TiffConfig& parent_cfg,
         const uint64_t inline_cap      = 4;
         const uint64_t value_field_off = eoff + 8;
         const bool inline_value        = (value_bytes <= inline_cap);
-        const uint64_t value_off = inline_value ? value_field_off
-                                                : uint64_t(e.value_or_off32);
+        const uint64_t value_off       = inline_value ? value_field_off
+                                                      : uint64_t(e.value_or_off32);
 
         if (status_out
             && (status_out->entries_decoded + 1U)
@@ -421,6 +449,12 @@ decode_casio_makernote(const TiffConfig& parent_cfg,
         entry.origin.order_in_block = static_cast<uint32_t>(i);
         entry.origin.wire_type      = WireType { WireFamily::Tiff, e.type };
         entry.origin.wire_count     = e.count32;
+        if (legacy_main_compat && (e.tag <= 0x0019U || e.tag == 0x0E00U)) {
+            entry.flags |= EntryFlags::ContextualName;
+            entry.origin.name_context_kind
+                = EntryNameContextKind::CasioType2Legacy;
+            entry.origin.name_context_variant = 1U;
+        }
 
         if (value_bytes > options.limits.max_value_bytes) {
             if (status_out) {
@@ -434,9 +468,10 @@ decode_casio_makernote(const TiffConfig& parent_cfg,
                 }
                 entry.flags |= EntryFlags::Unreadable;
             } else {
-                entry.value = decode_tiff_value(
-                    mn_cfg, mn, e.type, uint64_t(e.count32), value_off,
-                    value_bytes, store.arena(), options.limits, status_out);
+                entry.value = decode_tiff_value(mn_cfg, mn, e.type,
+                                                uint64_t(e.count32), value_off,
+                                                value_bytes, store.arena(),
+                                                options.limits, status_out);
             }
         } else {
             // QVC directories use TIFF-relative offsets for out-of-line values.
@@ -447,10 +482,10 @@ decode_casio_makernote(const TiffConfig& parent_cfg,
                 }
                 entry.flags |= EntryFlags::Unreadable;
             } else {
-                entry.value = decode_tiff_value(
-                    parent_cfg, tiff_bytes, e.type, uint64_t(e.count32),
-                    value_off, value_bytes, store.arena(), options.limits,
-                    status_out);
+                entry.value = decode_tiff_value(parent_cfg, tiff_bytes, e.type,
+                                                uint64_t(e.count32), value_off,
+                                                value_bytes, store.arena(),
+                                                options.limits, status_out);
             }
         }
 

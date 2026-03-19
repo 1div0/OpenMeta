@@ -39,6 +39,7 @@ static constexpr MakerNoteTagNameEntry kMakernoteAppleMain[] = {
     { 0x0040u, "SemanticStyle" },
     { 0x0041u, "SemanticStyleRenderingVer" },
     { 0x0042u, "SemanticStylePreset" },
+    { 0x0045u, "FrontFacingCamera" },
     { 0x004Eu, "Apple_0x004e" },
     { 0x004Fu, "Apple_0x004f" },
     { 0x0054u, "Apple_0x0054" },
@@ -2578,6 +2579,7 @@ static constexpr MakerNoteTagNameEntry kMakernoteCasioMain[] = {
     { 0x0017u, "ColorFilter" },
     { 0x0018u, "AFPoint" },
     { 0x0019u, "FlashIntensity" },
+    { 0x0E00u, "PrintIM" },
 };
 
 static constexpr MakerNoteTagNameEntry kMakernoteCasioQvci[] = {
@@ -2652,6 +2654,30 @@ static constexpr MakerNoteTagNameEntry kMakernoteDjiMain[] = {
     { 0x0009u, "CameraPitch" },
     { 0x000Au, "CameraYaw" },
     { 0x000Bu, "CameraRoll" },
+};
+
+static constexpr MakerNoteTagNameEntry kMakernoteDjiThermalparams[] = {
+    { 0x0044u, "ObjectDistance" },
+    { 0x0046u, "RelativeHumidity" },
+    { 0x0048u, "Emissivity" },
+    { 0x004Au, "Reflection" },
+    { 0x004Cu, "AmbientTemperature" },
+};
+
+static constexpr MakerNoteTagNameEntry kMakernoteDjiThermalparams2[] = {
+    { 0x0000u, "AmbientTemperature" },
+    { 0x0004u, "ObjectDistance" },
+    { 0x0008u, "Emissivity" },
+    { 0x000Cu, "RelativeHumidity" },
+    { 0x0010u, "ReflectedTemperature" },
+    { 0x0065u, "IDString" },
+};
+
+static constexpr MakerNoteTagNameEntry kMakernoteDjiThermalparams3[] = {
+    { 0x0004u, "RelativeHumidity" },
+    { 0x0006u, "ObjectDistance" },
+    { 0x0008u, "Emissivity" },
+    { 0x000Au, "ReflectedTemperature" },
 };
 
 static constexpr MakerNoteTagNameEntry kMakernoteFlirFffCamerainfo[] = {
@@ -10614,6 +10640,9 @@ static constexpr MakerNoteTableMap kMakerNoteTables[] = {
     { "makernote:casio:qvci", kMakernoteCasioQvci, static_cast<uint32_t>(sizeof(kMakernoteCasioQvci) / sizeof(kMakernoteCasioQvci[0])) },
     { "makernote:casio:type2", kMakernoteCasioType2, static_cast<uint32_t>(sizeof(kMakernoteCasioType2) / sizeof(kMakernoteCasioType2[0])) },
     { "makernote:dji:main", kMakernoteDjiMain, static_cast<uint32_t>(sizeof(kMakernoteDjiMain) / sizeof(kMakernoteDjiMain[0])) },
+    { "makernote:dji:thermalparams", kMakernoteDjiThermalparams, static_cast<uint32_t>(sizeof(kMakernoteDjiThermalparams) / sizeof(kMakernoteDjiThermalparams[0])) },
+    { "makernote:dji:thermalparams2", kMakernoteDjiThermalparams2, static_cast<uint32_t>(sizeof(kMakernoteDjiThermalparams2) / sizeof(kMakernoteDjiThermalparams2[0])) },
+    { "makernote:dji:thermalparams3", kMakernoteDjiThermalparams3, static_cast<uint32_t>(sizeof(kMakernoteDjiThermalparams3) / sizeof(kMakernoteDjiThermalparams3[0])) },
     { "makernote:flir:fff_camerainfo", kMakernoteFlirFffCamerainfo, static_cast<uint32_t>(sizeof(kMakernoteFlirFffCamerainfo) / sizeof(kMakernoteFlirFffCamerainfo[0])) },
     { "makernote:flir:fff_embeddedimage", kMakernoteFlirFffEmbeddedimage, static_cast<uint32_t>(sizeof(kMakernoteFlirFffEmbeddedimage) / sizeof(kMakernoteFlirFffEmbeddedimage[0])) },
     { "makernote:flir:fff_gpsinfo", kMakernoteFlirFffGpsinfo, static_cast<uint32_t>(sizeof(kMakernoteFlirFffGpsinfo) / sizeof(kMakernoteFlirFffGpsinfo[0])) },

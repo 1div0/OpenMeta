@@ -7,9 +7,104 @@
 namespace openmeta::exif_internal {
 namespace {
 
+    static void maybe_mark_ricoh_main_contextual_name(Entry* entry) noexcept
+    {
+        if (!entry || entry->key.kind != MetaKeyKind::ExifTag) {
+            return;
+        }
+
+        const uint16_t tag  = entry->key.data.exif_tag.tag;
+        const bool is_short = entry->origin.wire_type.family == WireFamily::Tiff
+                              && entry->origin.wire_type.code == 3U;
+        if ((tag == 0x1002U || tag == 0x1004U) && !is_short) {
+            entry->flags |= EntryFlags::ContextualName;
+            entry->origin.name_context_kind
+                = EntryNameContextKind::RicohMainCompat;
+            entry->origin.name_context_variant = 1U;
+            return;
+        }
+        if (tag == 0x1003U && is_short) {
+            entry->flags |= EntryFlags::ContextualName;
+            entry->origin.name_context_kind
+                = EntryNameContextKind::RicohMainCompat;
+            entry->origin.name_context_variant = 2U;
+        }
+    }
+
     static uint32_t score_ascii_blob(std::span<const std::byte> raw) noexcept;
     static uint32_t
     score_ricoh_faceinfo_blob(std::span<const std::byte> raw) noexcept;
+
+    static void decode_ricoh_serialinfo(std::string_view mk_prefix,
+                                        std::span<const std::byte> raw,
+                                        MetaStore& store,
+                                        const ExifDecodeOptions& options,
+                                        ExifDecodeResult* status_out) noexcept
+    {
+        if (mk_prefix.empty() || raw.size() < 16U) {
+            return;
+        }
+        if (raw.size() > options.limits.max_value_bytes) {
+            if (status_out) {
+                update_status(status_out, ExifDecodeStatus::LimitExceeded);
+            }
+            return;
+        }
+
+        char scratch[64];
+        const std::string_view ifd_name
+            = make_mk_subtable_ifd_token(mk_prefix, "serialinfo", 0,
+                                         std::span<char>(scratch));
+        if (ifd_name.empty()) {
+            return;
+        }
+
+        const BlockId block = store.add_block(BlockInfo {});
+        if (block == kInvalidBlockId) {
+            return;
+        }
+
+        static constexpr uint16_t kTags[] = { 0x0000U, 0x0010U, 0x0020U,
+                                              0x0030U };
+        for (uint32_t i = 0; i < sizeof(kTags) / sizeof(kTags[0]); ++i) {
+            const uint16_t tag = kTags[i];
+            const size_t off   = static_cast<size_t>(tag);
+            if (off >= raw.size()) {
+                continue;
+            }
+
+            const size_t avail = raw.size() - off;
+            const size_t count = (avail < 16U) ? avail : 16U;
+            const std::span<const std::byte> field = raw.subspan(off, count);
+
+            size_t text_len = 0;
+            while (text_len < field.size()
+                   && field[text_len] != std::byte { 0 }) {
+                ++text_len;
+            }
+            while (text_len > 0U && field[text_len - 1U] == std::byte { ' ' }) {
+                --text_len;
+            }
+
+            Entry entry;
+            entry.key = make_exif_tag_key(store.arena(), ifd_name, tag);
+            entry.origin.block          = block;
+            entry.origin.order_in_block = i;
+            entry.origin.wire_type      = WireType { WireFamily::Other, 1 };
+            entry.origin.wire_count     = static_cast<uint32_t>(count);
+            entry.flags |= EntryFlags::Derived;
+            entry.value = make_text(
+                store.arena(),
+                std::string_view(reinterpret_cast<const char*>(field.data()),
+                                 text_len),
+                TextEncoding::Ascii);
+
+            (void)store.add_entry(entry);
+            if (status_out) {
+                status_out->entries_decoded += 1U;
+            }
+        }
+    }
 
     static bool find_ricoh_header_marker(std::span<const std::byte> bytes,
                                          uint64_t* out_offset) noexcept
@@ -160,11 +255,11 @@ namespace {
 
     static bool
     decode_ricoh_type2_padded_ifd(std::span<const std::byte> mn,
-                                  std::string_view mk_ifd0, MetaStore& store,
+                                  std::string_view mk_prefix, MetaStore& store,
                                   const ExifDecodeOptions& options,
                                   ExifDecodeResult* status_out) noexcept
     {
-        if (mn.size() < 16 || mk_ifd0.empty()) {
+        if (mn.size() < 16 || mk_prefix.empty()) {
             return false;
         }
 
@@ -214,6 +309,14 @@ namespace {
             return false;
         }
 
+        char scratch[64];
+        const std::string_view ifd_name
+            = make_mk_subtable_ifd_token(mk_prefix, "type2", 0,
+                                         std::span<char>(scratch));
+        if (ifd_name.empty()) {
+            return false;
+        }
+
         const BlockId block = store.add_block(BlockInfo {});
         if (block == kInvalidBlockId) {
             return false;
@@ -240,7 +343,7 @@ namespace {
                                                                 status_out);
 
             Entry entry;
-            entry.key = make_exif_tag_key(store.arena(), mk_ifd0, e.tag);
+            entry.key = make_exif_tag_key(store.arena(), ifd_name, e.tag);
             entry.origin.block          = block;
             entry.origin.order_in_block = i;
             entry.origin.wire_type      = WireType { WireFamily::Tiff, e.type };
@@ -456,6 +559,7 @@ namespace {
                 }
             }
 
+            maybe_mark_ricoh_main_contextual_name(&entry);
             (void)store.add_entry(entry);
             if (status_out) {
                 status_out->entries_decoded += 1;
@@ -832,6 +936,13 @@ namespace {
                                                    static_cast<size_t>(
                                                        value_bytes)),
                                 store, options, status_out);
+                        } else if (e.tag == 0x002C) {
+                            decode_ricoh_serialinfo(
+                                mk_prefix,
+                                tiff_bytes.subspan(static_cast<size_t>(off_abs),
+                                                   static_cast<size_t>(
+                                                       value_bytes)),
+                                store, options, status_out);
                         }
 
                         entry.value
@@ -894,6 +1005,13 @@ namespace {
                             if (value_off + value_bytes <= stable.size()) {
                                 if (e.tag == 0x001A) {
                                     decode_ricoh_faceinfo(
+                                        mk_prefix,
+                                        stable.subspan(
+                                            static_cast<size_t>(value_off),
+                                            static_cast<size_t>(value_bytes)),
+                                        store, options, status_out);
+                                } else if (e.tag == 0x002C) {
+                                    decode_ricoh_serialinfo(
                                         mk_prefix,
                                         stable.subspan(
                                             static_cast<size_t>(value_off),
@@ -962,7 +1080,8 @@ decode_ricoh_makernote(const TiffConfig& parent_cfg,
     }
 
     // Ricoh "Type2" maker notes (eg. Ricoh HZ15, Pentax XG-1).
-    if (decode_ricoh_type2_padded_ifd(mn, mk_ifd0, store, options, status_out)) {
+    if (decode_ricoh_type2_padded_ifd(mn, mk_prefix, store, options,
+                                      status_out)) {
         return true;
     }
 

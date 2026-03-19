@@ -256,6 +256,22 @@ namespace {
         return true;
     }
 
+    static bool ascii_equals_insensitive(std::string_view a,
+                                         std::string_view b) noexcept
+    {
+        if (a.size() != b.size()) {
+            return false;
+        }
+        for (size_t i = 0; i < a.size(); ++i) {
+            const uint8_t aa = ascii_lower(static_cast<uint8_t>(a[i]));
+            const uint8_t bb = ascii_lower(static_cast<uint8_t>(b[i]));
+            if (aa != bb) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     static bool ascii_contains_insensitive(std::string_view s,
                                            std::string_view needle) noexcept
     {
@@ -281,6 +297,80 @@ namespace {
             }
         }
         return false;
+    }
+
+
+    static bool
+    motorola_main_6420_prefers_placeholder(std::string_view model) noexcept
+    {
+        return ascii_equals_insensitive(model, "XT1052")
+               || ascii_equals_insensitive(model, "XT1060")
+               || ascii_equals_insensitive(model, "XT1068")
+               || ascii_equals_insensitive(model, "XT1080")
+               || ascii_equals_insensitive(model, "XT1572")
+               || ascii_equals_insensitive(model, "XT1580")
+               || ascii_equals_insensitive(model, "Moto G (4)");
+    }
+
+    static bool nikonsettings_model_is_d7500(std::string_view model) noexcept
+    {
+        return ascii_equals_insensitive(model, "NIKON D7500");
+    }
+
+    static bool nikonsettings_model_is_d780(std::string_view model) noexcept
+    {
+        return ascii_equals_insensitive(model, "NIKON D780");
+    }
+
+    static bool nikonsettings_model_is_d850(std::string_view model) noexcept
+    {
+        return ascii_equals_insensitive(model, "NIKON D850");
+    }
+
+    static bool nikonsettings_model_is_z30(std::string_view model) noexcept
+    {
+        return ascii_equals_insensitive(model, "NIKON Z 30");
+    }
+
+    static bool
+    nikonsettings_main_prefers_placeholder(uint16_t tag,
+                                           std::string_view model) noexcept
+    {
+        const bool d7500 = nikonsettings_model_is_d7500(model);
+        const bool d780  = nikonsettings_model_is_d780(model);
+        const bool d850  = nikonsettings_model_is_d850(model);
+        const bool z30   = nikonsettings_model_is_z30(model);
+
+        switch (tag) {
+        case 0x0103u:
+        case 0x0104u:
+        case 0x010Bu:
+        case 0x010Cu:
+        case 0x013Au:
+        case 0x013Cu: return true;
+        case 0x0001u:
+        case 0x0002u:
+        case 0x000Du: return d7500 || d780;
+        case 0x001Du:
+        case 0x0020u:
+        case 0x002Du:
+        case 0x0034u:
+        case 0x0047u:
+        case 0x0052u:
+        case 0x0053u:
+        case 0x0054u:
+        case 0x006Cu: return d7500 || d780;
+        case 0x0080u: return d7500 || d780 || d850 || z30;
+        case 0x0097u:
+        case 0x00A0u:
+        case 0x00A2u:
+        case 0x00A3u:
+        case 0x00A5u:
+        case 0x00A7u:
+        case 0x00B6u: return d780 || d850 || z30;
+        case 0x00B1u: return d7500 || d780;
+        default: return false;
+        }
     }
 
 
@@ -311,6 +401,121 @@ namespace {
             }
         }
         return false;
+    }
+
+    static std::string_view find_first_exif_ascii_value(const MetaStore& store,
+                                                        std::string_view ifd,
+                                                        uint16_t tag) noexcept;
+
+    static bool
+    casio_type2_prefers_legacy_main_names(std::string_view model) noexcept
+    {
+        return ascii_starts_with_insensitive(model, "GV-")
+               || ascii_starts_with_insensitive(model, "QV-")
+               || ascii_starts_with_insensitive(model, "XV-");
+    }
+
+    static bool fujifilm_main_prefers_placeholder(uint16_t tag,
+                                                  std::string_view make) noexcept
+    {
+        if (make.starts_with("GENERAL IMAGING")) {
+            return false;
+        }
+
+        switch (tag) {
+        case 0x1051U:
+        case 0x1150U:
+        case 0x1151U:
+        case 0x1152U:
+        case 0x1304U:
+        case 0x144AU:
+        case 0x144BU:
+        case 0x144CU: return true;
+        default: return false;
+        }
+    }
+
+    static bool canon_model_matches_any(
+        std::string_view model,
+        std::span<const std::string_view> needles) noexcept
+    {
+        for (size_t i = 0; i < needles.size(); ++i) {
+            if (ascii_contains_insensitive(model, needles[i])) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static bool canon_model_is_1d_family(std::string_view model) noexcept
+    {
+        static constexpr std::string_view kModels[] = {
+            "EOS-1D",
+            "EOS-1DS",
+        };
+        return canon_model_matches_any(model, kModels);
+    }
+
+    static bool canon_model_is_1ds(std::string_view model) noexcept
+    {
+        return ascii_contains_insensitive(model, "EOS-1DS");
+    }
+
+    static bool
+    canon_model_is_early_kelvin_group(std::string_view model) noexcept
+    {
+        static constexpr std::string_view kModels[] = {
+            "EOS 10D",
+            "EOS 300D",
+            "EOS DIGITAL REBEL",
+            "EOS Kiss Digital",
+        };
+        return canon_model_matches_any(model, kModels);
+    }
+
+    static bool
+    canon_model_is_1100d_blacklevel_group(std::string_view model) noexcept
+    {
+        static constexpr std::string_view kModels[] = {
+            "EOS 1100D",
+            "EOS Kiss X50",
+            "EOS REBEL T3",
+            "EOS 60D",
+        };
+        return canon_model_matches_any(model, kModels);
+    }
+
+    static bool
+    canon_model_is_1100d_maxfocal_group(std::string_view model) noexcept
+    {
+        static constexpr std::string_view kModels[] = {
+            "EOS 1100D",
+            "EOS Kiss X50",
+            "EOS REBEL T3",
+        };
+        return canon_model_matches_any(model, kModels);
+    }
+
+    static bool
+    canon_model_is_1200d_wb_unknown7_group(std::string_view model) noexcept
+    {
+        static constexpr std::string_view kModels[] = {
+            "EOS 1200D",
+            "EOS Kiss X70",
+            "EOS REBEL T5",
+        };
+        return canon_model_matches_any(model, kModels);
+    }
+
+    static bool
+    canon_model_is_r1_r5m2_battery_group(std::string_view model) noexcept
+    {
+        static constexpr std::string_view kModels[] = {
+            "EOS R1",
+            "EOS R5m2",
+            "EOS R5 Mark II",
+        };
+        return canon_model_matches_any(model, kModels);
     }
 
 
@@ -348,6 +553,136 @@ namespace {
                 = EntryNameContextKind::CanonMain0038;
             entry->origin.name_context_variant = 1U;
             return;
+        }
+        if (ifd_name.starts_with("mk_canon")) {
+            const std::string_view model
+                = find_first_exif_ascii_value(store, "ifd0",
+                                              0x0110 /* Model */);
+            if (ifd_name == "mk_canon_shotinfo_0" && tag == 0x000EU
+                && canon_model_is_1d_family(model)) {
+                entry->flags |= EntryFlags::ContextualName;
+                entry->origin.name_context_kind
+                    = EntryNameContextKind::CanonShotInfo000E;
+                entry->origin.name_context_variant = 1U;
+                return;
+            }
+            if (ifd_name == "mk_canon_camerasettings_0" && tag == 0x0021U
+                && canon_model_is_early_kelvin_group(model)) {
+                entry->flags |= EntryFlags::ContextualName;
+                entry->origin.name_context_kind
+                    = EntryNameContextKind::CanonCameraSettings0021;
+                entry->origin.name_context_variant = 1U;
+                return;
+            }
+            if (ifd_name == "mk_canon_colordata4_0") {
+                if (tag == 0x00EAU
+                    && canon_model_is_1200d_wb_unknown7_group(model)) {
+                    entry->flags |= EntryFlags::ContextualName;
+                    entry->origin.name_context_kind
+                        = EntryNameContextKind::CanonColorData400EA;
+                    entry->origin.name_context_variant = 1U;
+                    return;
+                }
+                if (tag == 0x00EEU
+                    && canon_model_is_1100d_maxfocal_group(model)) {
+                    entry->flags |= EntryFlags::ContextualName;
+                    entry->origin.name_context_kind
+                        = EntryNameContextKind::CanonColorData400EE;
+                    entry->origin.name_context_variant = 1U;
+                    return;
+                }
+                if (tag == 0x02CFU
+                    && canon_model_is_1100d_blacklevel_group(model)) {
+                    entry->flags |= EntryFlags::ContextualName;
+                    entry->origin.name_context_kind
+                        = EntryNameContextKind::CanonColorData402CF;
+                    entry->origin.name_context_variant = 1U;
+                    return;
+                }
+            }
+            if (ifd_name == "mk_canon_colorcalib_0" && tag == 0x0038U
+                && canon_model_is_r1_r5m2_battery_group(model)) {
+                entry->flags |= EntryFlags::ContextualName;
+                entry->origin.name_context_kind
+                    = EntryNameContextKind::CanonColorCalib0038;
+                entry->origin.name_context_variant = 1U;
+                return;
+            }
+            if (ifd_name == "mk_canon_camerainfo1d_0" && tag == 0x0048U
+                && canon_model_is_1ds(model)) {
+                entry->flags |= EntryFlags::ContextualName;
+                entry->origin.name_context_kind
+                    = EntryNameContextKind::CanonCameraInfo1D0048;
+                entry->origin.name_context_variant = 1U;
+                return;
+            }
+        }
+        if (ifd_name == "mk_casio_type2_0"
+            && (tag <= 0x0019U || tag == 0x0E00U)) {
+            const std::string_view model
+                = find_first_exif_ascii_value(store, "ifd0",
+                                              0x0110 /* Model */);
+            if (casio_type2_prefers_legacy_main_names(model)) {
+                entry->flags |= EntryFlags::ContextualName;
+                entry->origin.name_context_kind
+                    = EntryNameContextKind::CasioType2Legacy;
+                entry->origin.name_context_variant = 1U;
+                return;
+            }
+        }
+        if (ifd_name == "mk_fuji0") {
+            const std::string_view make
+                = find_first_exif_ascii_value(store, "ifd0", 0x010F /* Make */);
+            if (fujifilm_main_prefers_placeholder(tag, make)) {
+                entry->flags |= EntryFlags::ContextualName;
+                entry->origin.name_context_kind
+                    = EntryNameContextKind::FujifilmMain1304;
+                entry->origin.name_context_variant = 1U;
+                return;
+            }
+        }
+        if (ifd_name == "mk_motorola0" && tag == 0x6420u) {
+            const std::string_view model
+                = find_first_exif_ascii_value(store, "ifd0",
+                                              0x0110 /* Model */);
+            if (motorola_main_6420_prefers_placeholder(model)) {
+                entry->flags |= EntryFlags::ContextualName;
+                entry->origin.name_context_kind
+                    = EntryNameContextKind::MotorolaMain6420;
+                entry->origin.name_context_variant = 1U;
+                return;
+            }
+        }
+        if (ifd_name == "mk_ricoh0") {
+            const bool is_short = entry->origin.wire_type.family
+                                      == WireFamily::Tiff
+                                  && entry->origin.wire_type.code == 3U;
+            if ((tag == 0x1002u || tag == 0x1004u) && !is_short) {
+                entry->flags |= EntryFlags::ContextualName;
+                entry->origin.name_context_kind
+                    = EntryNameContextKind::RicohMainCompat;
+                entry->origin.name_context_variant = 1U;
+                return;
+            }
+            if (tag == 0x1003u && is_short) {
+                entry->flags |= EntryFlags::ContextualName;
+                entry->origin.name_context_kind
+                    = EntryNameContextKind::RicohMainCompat;
+                entry->origin.name_context_variant = 2U;
+                return;
+            }
+        }
+        if (ifd_name.starts_with("mk_nikonsettings_main_")) {
+            const std::string_view model
+                = find_first_exif_ascii_value(store, "ifd0",
+                                              0x0110 /* Model */);
+            if (nikonsettings_main_prefers_placeholder(tag, model)) {
+                entry->flags |= EntryFlags::ContextualName;
+                entry->origin.name_context_kind
+                    = EntryNameContextKind::NikonSettingsMain;
+                entry->origin.name_context_variant = 1U;
+                return;
+            }
         }
         if (ifd_name == "mk_canoncustom_functions2_0" && tag == 0x0103u) {
             entry->flags |= EntryFlags::ContextualName;

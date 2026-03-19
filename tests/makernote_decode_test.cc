@@ -527,6 +527,18 @@ namespace {
         return mn;
     }
 
+    static std::vector<std::byte> make_motorola_makernote_custom_rendered()
+    {
+        std::vector<std::byte> mn;
+        append_u16le(&mn, 1);       // entry count
+        append_u16le(&mn, 0x6420);  // CustomRendered / Motorola_0x6420
+        append_u16le(&mn, 9);       // SLONG
+        append_u32le(&mn, 1);       // count
+        append_u32le(&mn, 0);       // value (inline)
+        append_u32le(&mn, 0);       // next IFD
+        return mn;
+    }
+
     static std::vector<std::byte> make_minolta_makernote_with_binary_subdirs()
     {
         static constexpr uint16_t kEntryCount = 3;
@@ -1288,6 +1300,59 @@ namespace {
         return mn;
     }
 
+    static std::vector<std::byte> make_casio_type2_legacy_makernote()
+    {
+        std::vector<std::byte> mn;
+        append_bytes(&mn, "QVC");
+        mn.push_back(std::byte { 0 });
+        append_u32be(&mn, 3);  // entry count
+
+        append_u16be(&mn, 0x0002);
+        append_u16be(&mn, 3);
+        append_u32be(&mn, 1);
+        append_u16be(&mn, 3);
+        append_u16be(&mn, 0);
+
+        append_u16be(&mn, 0x0008);
+        append_u16be(&mn, 3);
+        append_u32be(&mn, 1);
+        append_u16be(&mn, 1);
+        append_u16be(&mn, 0);
+
+        append_u16be(&mn, 0x0E00);
+        append_u16be(&mn, 7);
+        append_u32be(&mn, 4);
+        append_u32be(&mn, 0x01020304U);
+
+        return mn;
+    }
+
+    static std::vector<std::byte> make_casio_type2_legacy_ifd_makernote()
+    {
+        std::vector<std::byte> mn;
+        append_u16le(&mn, 3);
+
+        append_u16le(&mn, 0x0002);
+        append_u16le(&mn, 3);
+        append_u32le(&mn, 1);
+        append_u16le(&mn, 3);
+        append_u16le(&mn, 0);
+
+        append_u16le(&mn, 0x0008);
+        append_u16le(&mn, 3);
+        append_u32le(&mn, 1);
+        append_u16le(&mn, 1);
+        append_u16le(&mn, 0);
+
+        append_u16le(&mn, 0x0E00);
+        append_u16le(&mn, 7);
+        append_u32le(&mn, 4);
+        append_u32le(&mn, 0x04030201U);
+
+        append_u32le(&mn, 0);
+        return mn;
+    }
+
     static std::vector<std::byte> make_casio_type2_makernote_fr10_variant()
     {
         // Casio MakerNote "QVC" directory variant observed in some models:
@@ -1442,6 +1507,49 @@ namespace {
         return mn;
     }
 
+    static std::vector<std::byte> make_fuji_makernote_placeholder_fields()
+    {
+        std::vector<std::byte> mn;
+        append_bytes(&mn, "FUJIFILM");
+        append_u32le(&mn, 12);
+        EXPECT_EQ(mn.size(), 12U);
+
+        static constexpr uint16_t kEntryCount = 5;
+        append_u16le(&mn, kEntryCount);
+
+        append_u16le(&mn, 0x1051);
+        append_u16le(&mn, 3);
+        append_u32le(&mn, 1U);
+        append_u16le(&mn, 0U);
+        append_u16le(&mn, 0U);
+
+        append_u16le(&mn, 0x1150);
+        append_u16le(&mn, 4);
+        append_u32le(&mn, 1U);
+        append_u32le(&mn, 32U);
+
+        append_u16le(&mn, 0x1151);
+        append_u16le(&mn, 3);
+        append_u32le(&mn, 1U);
+        append_u16le(&mn, 155U);
+        append_u16le(&mn, 0U);
+
+        append_u16le(&mn, 0x1152);
+        append_u16le(&mn, 3);
+        append_u32le(&mn, 1U);
+        append_u16le(&mn, 155U);
+        append_u16le(&mn, 0U);
+
+        append_u16le(&mn, 0x144A);
+        append_u16le(&mn, 3);
+        append_u32le(&mn, 1U);
+        append_u16le(&mn, 419U);
+        append_u16le(&mn, 0U);
+
+        append_u32le(&mn, 0U);
+        return mn;
+    }
+
     static std::vector<std::byte> make_fuji_ge2_makernote()
     {
         std::vector<std::byte> mn(318, std::byte { 0 });
@@ -1538,6 +1646,39 @@ namespace {
         mn[0x27] = std::byte { 1 };
         mn[0x2a] = std::byte { 0 };
         mn[0x2b] = std::byte { 1 };
+        return mn;
+    }
+
+    static std::vector<std::byte> make_kodak_absolute_ifd_makernote()
+    {
+        std::vector<std::byte> mn;
+        append_u16le(&mn, 4);
+
+        append_u16le(&mn, 0x0104);
+        append_u16le(&mn, 3);
+        append_u32le(&mn, 1);
+        append_u16le(&mn, 9);
+        append_u16le(&mn, 0);
+
+        append_u16le(&mn, 0x0200);
+        append_u16le(&mn, 3);
+        append_u32le(&mn, 1);
+        append_u16le(&mn, 1);
+        append_u16le(&mn, 0);
+
+        append_u16le(&mn, 0x0203);
+        append_u16le(&mn, 3);
+        append_u32le(&mn, 1);
+        append_u16le(&mn, 2);
+        append_u16le(&mn, 0);
+
+        append_u16le(&mn, 0x0300);
+        append_u16le(&mn, 3);
+        append_u32le(&mn, 1);
+        append_u16le(&mn, 3);
+        append_u16le(&mn, 0);
+
+        append_u32le(&mn, 0);
         return mn;
     }
 
@@ -2626,6 +2767,56 @@ namespace {
         return mn;
     }
 
+    static std::vector<std::byte>
+    make_nikon_makernote_with_single_settings_long_tag(uint16_t settings_tag,
+                                                       uint32_t value)
+    {
+        std::vector<std::byte> mn;
+        append_bytes(&mn, "Nikon");
+        mn.push_back(std::byte { 0 });
+        mn.push_back(std::byte { 2 });
+        mn.push_back(std::byte { 0 });
+        mn.push_back(std::byte { 0 });
+        mn.push_back(std::byte { 0 });
+        EXPECT_EQ(mn.size(), 10U);
+
+        append_bytes(&mn, "II");
+        append_u16le(&mn, 42);
+        append_u32le(&mn, 8);
+
+        static constexpr uint16_t kEntryCount = 2;
+        append_u16le(&mn, kEntryCount);
+
+        const uint32_t settings_off
+            = 8U + 2U + static_cast<uint32_t>(kEntryCount) * 12U + 4U;
+
+        append_u16le(&mn, 0x0001);
+        append_u16le(&mn, 4);
+        append_u32le(&mn, 1);
+        append_u32le(&mn, 0x01020304U);
+
+        append_u16le(&mn, 0x004E);  // NikonSettings
+        append_u16le(&mn, 7);
+        append_u32le(&mn, 32U);
+        append_u32le(&mn, settings_off);
+
+        append_u32le(&mn, 0);
+        EXPECT_EQ(mn.size(), static_cast<size_t>(10U + settings_off));
+
+        {
+            std::vector<std::byte> settings(32U, std::byte { 0 });
+            write_u32le_at(&settings, 20U, 1U);
+
+            write_u16le_at(&settings, 24U + 0U, settings_tag);
+            write_u16be_at(&settings, 24U + 2U, 4);
+            write_u32le_at(&settings, 24U + 4U, value);
+
+            mn.insert(mn.end(), settings.begin(), settings.end());
+        }
+
+        return mn;
+    }
+
     static std::vector<std::byte> make_panasonic_makernote_with_subdirs()
     {
         // Minimal Panasonic MakerNote sample:
@@ -2891,6 +3082,110 @@ namespace {
         return mn;
     }
 
+    static std::vector<std::byte> make_pentax_type2_makernote()
+    {
+        // Optio 330/430 route: classic Pentax MakerNote bytes, but model-driven
+        // decode should land them under mk_pentax_type2_0 instead of mk_pentax0.
+        std::vector<std::byte> mn;
+        append_bytes(&mn, "AOC");
+        mn.push_back(std::byte { 0 });
+        append_bytes(&mn, "II");
+
+        static constexpr uint16_t kEntryCount = 4;
+        append_u16le(&mn, kEntryCount);
+
+        append_u16le(&mn, 0x0001);
+        append_u16le(&mn, 3);
+        append_u32le(&mn, 1U);
+        append_u16le(&mn, 2U);
+        append_u16le(&mn, 0U);
+
+        append_u16le(&mn, 0x0004);
+        append_u16le(&mn, 3);
+        append_u32le(&mn, 1U);
+        append_u16le(&mn, 1U);
+        append_u16le(&mn, 0U);
+
+        append_u16le(&mn, 0x0005);
+        append_u16le(&mn, 3);
+        append_u32le(&mn, 1U);
+        append_u16le(&mn, 7U);
+        append_u16le(&mn, 0U);
+
+        append_u16le(&mn, 0x1000);
+        append_u16le(&mn, 3);
+        append_u32le(&mn, 1U);
+        append_u16le(&mn, 0x1234U);
+        append_u16le(&mn, 0U);
+
+        append_u32le(&mn, 0);
+        return mn;
+    }
+
+    static std::vector<std::byte> make_pentax_makernote_with_main_0062()
+    {
+        std::vector<std::byte> mn;
+        append_bytes(&mn, "AOC");
+        mn.push_back(std::byte { 0 });
+        append_bytes(&mn, "II");
+        append_u16le(&mn, 1);
+
+        append_u16le(&mn, 0x0062);
+        append_u16le(&mn, 3);
+        append_u32le(&mn, 1U);
+        append_u16le(&mn, 7U);
+        append_u16le(&mn, 0U);
+
+        append_u32le(&mn, 0);
+        return mn;
+    }
+
+    static std::vector<std::byte> make_pentax_makernote_with_zero_face_tables()
+    {
+        // FacePos/FaceSize should only be expanded when the MakerNote reports
+        // actual faces. This sample keeps the raw tables but sets face count 0.
+        std::vector<std::byte> mn;
+        append_bytes(&mn, "AOC");
+        mn.push_back(std::byte { 0 });
+        append_bytes(&mn, "II");
+
+        static constexpr uint16_t kEntryCount = 3;
+        append_u16le(&mn, kEntryCount);
+
+        const uint32_t facepos_off  = 8U + uint32_t(kEntryCount) * 12U + 4U;
+        const uint32_t facesize_off = facepos_off + 4U;
+
+        append_u16le(&mn, 0x0060);
+        append_u16le(&mn, 1);
+        append_u32le(&mn, 1U);
+        append_u32le(&mn, 0U);
+
+        append_u16le(&mn, 0x0227);
+        append_u16le(&mn, 7);
+        append_u32le(&mn, 4U);
+        append_u32le(&mn, facepos_off);
+
+        append_u16le(&mn, 0x0228);
+        append_u16le(&mn, 7);
+        append_u32le(&mn, 4U);
+        append_u32le(&mn, facesize_off);
+
+        append_u32le(&mn, 0);
+        EXPECT_EQ(mn.size(), static_cast<size_t>(facepos_off));
+
+        mn.push_back(std::byte { 0x10 });
+        mn.push_back(std::byte { 0x11 });
+        mn.push_back(std::byte { 0x12 });
+        mn.push_back(std::byte { 0x13 });
+        EXPECT_EQ(mn.size(), static_cast<size_t>(facesize_off));
+
+        mn.push_back(std::byte { 0x20 });
+        mn.push_back(std::byte { 0x21 });
+        mn.push_back(std::byte { 0x22 });
+        mn.push_back(std::byte { 0x23 });
+        return mn;
+    }
+
     static std::vector<std::byte> make_ricoh_type2_makernote()
     {
         // Minimal Ricoh Type2 sample:
@@ -2904,26 +3199,71 @@ namespace {
         append_u16le(&mn, kEntryCount);
         append_u16le(&mn, 0);
 
-        const uint32_t model_off = 12U + uint32_t(kEntryCount) * 12U + 4U;
-        const uint32_t make_off  = model_off + 6U;
-
         append_u16le(&mn, 0x0207);
         append_u16le(&mn, 2);
-        append_u32le(&mn, 6U);
-        append_u32le(&mn, model_off);
+        append_u32le(&mn, 5U);
+        const size_t model_off_pos = mn.size();
+        append_u32le(&mn, 0U);
 
         append_u16le(&mn, 0x0300);
         append_u16le(&mn, 2);
         append_u32le(&mn, 6U);
-        append_u32le(&mn, make_off);
+        const size_t make_off_pos = mn.size();
+        append_u32le(&mn, 0U);
 
         append_u32le(&mn, 0);
-        EXPECT_EQ(mn.size(), static_cast<size_t>(model_off));
+
+        const uint32_t model_off = static_cast<uint32_t>(mn.size());
+        write_u32le_at(&mn, model_off_pos, model_off);
 
         append_bytes(&mn, "GRIII");
         mn.push_back(std::byte { 0 });
-        EXPECT_EQ(mn.size(), static_cast<size_t>(make_off));
 
+        const uint32_t make_off = static_cast<uint32_t>(mn.size());
+        write_u32le_at(&mn, make_off_pos, make_off);
+
+        append_bytes(&mn, "RICOH");
+        mn.push_back(std::byte { 0 });
+        return mn;
+    }
+
+    static std::vector<std::byte> make_ricoh_type2_padded_ifd_makernote()
+    {
+        std::vector<std::byte> mn;
+        append_bytes(&mn, "II");
+        append_u16le(&mn, 42U);
+        append_u32le(&mn, 8U);
+
+        static constexpr uint16_t kEntryCount = 3U;
+        append_u16le(&mn, kEntryCount);
+        append_u16le(&mn, 0U);
+
+        append_u16le(&mn, 0x0104U);
+        append_u16le(&mn, 4U);
+        append_u32le(&mn, 1U);
+        append_u32le(&mn, 1U);
+
+        const size_t model_off_pos = mn.size() + 8U;
+        append_u16le(&mn, 0x0207U);
+        append_u16le(&mn, 2U);
+        append_u32le(&mn, 5U);
+        append_u32le(&mn, 0U);
+
+        const size_t make_off_pos = mn.size() + 8U;
+        append_u16le(&mn, 0x0300U);
+        append_u16le(&mn, 2U);
+        append_u32le(&mn, 6U);
+        append_u32le(&mn, 0U);
+
+        append_u32le(&mn, 0U);
+
+        const uint32_t model_off = static_cast<uint32_t>(mn.size());
+        write_u32le_at(&mn, model_off_pos, model_off);
+        append_bytes(&mn, "HZ15");
+        mn.push_back(std::byte { 0 });
+
+        const uint32_t make_off = static_cast<uint32_t>(mn.size());
+        write_u32le_at(&mn, make_off_pos, make_off);
         append_bytes(&mn, "RICOH");
         mn.push_back(std::byte { 0 });
         return mn;
@@ -2967,24 +3307,30 @@ namespace {
     static std::vector<std::byte> make_samsung_type2_makernote()
     {
         // Minimal Samsung Type2 MakerNote sample:
-        // classic IFD at offset 0 with PictureWizard (0x0021) UNDEFINED[10].
+        // classic IFD at offset 0 with one unknown Type2 tag and
+        // PictureWizard (0x0021) UNDEFINED[10].
         std::vector<std::byte> mn;
-        append_u16le(&mn, 1);  // entry count
+        append_u16le(&mn, 2);  // entry count
+
+        append_u16le(&mn, 0x0004);
+        append_u16le(&mn, 7);
+        append_u32le(&mn, 4);
+        append_bytes(&mn, "ABCD");
 
         append_u16le(&mn, 0x0021);  // PictureWizard
         append_u16le(&mn, 7);       // UNDEFINED
         append_u32le(&mn, 10);      // count (5 * u16)
-        append_u32le(&mn, 18);      // value offset (payload starts at +18)
+        append_u32le(&mn, 30);      // value offset (payload starts at +30)
 
         append_u32le(&mn, 0);  // next IFD
-        EXPECT_EQ(mn.size(), 18U);
+        EXPECT_EQ(mn.size(), 30U);
 
         append_u16le(&mn, 1);
         append_u16le(&mn, 2);
         append_u16le(&mn, 3);
         append_u16le(&mn, 4);
         append_u16le(&mn, 5);
-        EXPECT_EQ(mn.size(), 28U);
+        EXPECT_EQ(mn.size(), 40U);
         return mn;
     }
 
@@ -3009,6 +3355,28 @@ namespace {
         append_u16le(&mn, 44);
         append_u16le(&mn, 55);
         EXPECT_EQ(mn.size(), 28U);
+        return mn;
+    }
+
+    static std::vector<std::byte>
+    make_samsung_type2_makernote_with_a002_and_a003()
+    {
+        std::vector<std::byte> mn;
+        append_u16le(&mn, 2);
+
+        append_u16le(&mn, 0xA002);
+        append_u16le(&mn, 3);
+        append_u32le(&mn, 1U);
+        append_u16le(&mn, 0x1234U);
+        append_u16le(&mn, 0U);
+
+        append_u16le(&mn, 0xA003);
+        append_u16le(&mn, 3);
+        append_u32le(&mn, 1U);
+        append_u16le(&mn, 0x5678U);
+        append_u16le(&mn, 0U);
+
+        append_u32le(&mn, 0);
         return mn;
     }
 
@@ -5449,6 +5817,40 @@ TEST(MakerNoteDecode, SelectsCanonCameraInfo600dSubIfdForKissX70Alias)
     }
 }
 
+TEST(MakerNoteDecode, SelectsCanonCameraInfo600dSubIfdForRebelT3iAlias)
+{
+    const std::vector<std::byte> cam
+        = make_canon_camera_info_blob_with_ascii(0x00ee, "1.1.4", 6U);
+    const std::vector<std::byte> mn = make_canon_camera_info_blob_makernote(
+        cam);
+    const std::vector<std::byte> tiff
+        = make_test_tiff_with_makernote_and_model("Canon",
+                                                  "Canon EOS REBEL T3i", mn);
+
+    MetaStore store;
+    std::array<ExifIfdRef, 8> ifds {};
+    ExifDecodeOptions options;
+    options.decode_makernote   = true;
+    const ExifDecodeResult res = decode_exif_tiff(tiff, store, ifds, options);
+    EXPECT_EQ(res.status, ExifDecodeStatus::Ok);
+
+    store.finalize();
+    EXPECT_TRUE(
+        store.find_all(exif_key("mk_canon_camerainfo1100d_0", 0x00ee)).empty());
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("mk_canon_camerainfo600d_0", 0x00ee));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Text);
+        const std::span<const std::byte> raw = store.arena().span(
+            e.value.data.span);
+        EXPECT_EQ(std::string_view(reinterpret_cast<const char*>(raw.data()),
+                                   raw.size()),
+                  "1.1.4");
+    }
+}
+
 TEST(MakerNoteDecode, SelectsCanonCameraInfo7dSubIfdFromModel)
 {
     const std::vector<std::byte> cam
@@ -6328,6 +6730,104 @@ TEST(MakerNoteDecode, DecodesCasioType2MakerNoteFr10VariantLeDirectory)
     EXPECT_EQ(e.value.count, 2U);
 }
 
+TEST(MakerNoteDecode, MarksCasioLegacyType2CompatNames)
+{
+    const std::vector<std::byte> mn   = make_casio_type2_legacy_makernote();
+    const std::vector<std::byte> tiff = make_test_tiff_with_makernote("CASIO",
+                                                                      mn);
+
+    MetaStore store;
+    std::array<ExifIfdRef, 8> ifds {};
+    ExifDecodeOptions options;
+    options.decode_makernote   = true;
+    const ExifDecodeResult res = decode_exif_tiff(tiff, store, ifds, options);
+    EXPECT_EQ(res.status, ExifDecodeStatus::Ok);
+
+    store.finalize();
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("mk_casio_type2_0", 0x0002));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_TRUE(any(e.flags, EntryFlags::ContextualName));
+        EXPECT_EQ(e.origin.name_context_kind,
+                  EntryNameContextKind::CasioType2Legacy);
+        EXPECT_EQ(exif_entry_name(store, e, ExifTagNamePolicy::Canonical),
+                  std::string_view("PreviewImageSize"));
+        EXPECT_EQ(exif_entry_name(store, e, ExifTagNamePolicy::ExifToolCompat),
+                  std::string_view("Quality"));
+    }
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("mk_casio_type2_0", 0x0008));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_TRUE(any(e.flags, EntryFlags::ContextualName));
+        EXPECT_EQ(e.origin.name_context_kind,
+                  EntryNameContextKind::CasioType2Legacy);
+        EXPECT_EQ(exif_entry_name(store, e, ExifTagNamePolicy::Canonical),
+                  std::string_view("QualityMode"));
+        EXPECT_EQ(exif_entry_name(store, e, ExifTagNamePolicy::ExifToolCompat),
+                  std::string_view("Casio_0x0008"));
+    }
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("mk_casio_type2_0", 0x0E00));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_TRUE(any(e.flags, EntryFlags::ContextualName));
+        EXPECT_EQ(e.origin.name_context_kind,
+                  EntryNameContextKind::CasioType2Legacy);
+        EXPECT_EQ(exif_entry_name(store, e, ExifTagNamePolicy::ExifToolCompat),
+                  std::string_view("PrintIM"));
+    }
+}
+
+TEST(MakerNoteDecode, MarksCasioLegacyType2CompatNamesOnGenericRoute)
+{
+    const std::vector<std::byte> mn = make_casio_type2_legacy_ifd_makernote();
+    const std::vector<std::byte> tiff
+        = make_test_tiff_with_makernote_and_model("CASIO", "QV-2100", mn);
+
+    MetaStore store;
+    std::array<ExifIfdRef, 8> ifds {};
+    ExifDecodeOptions options;
+    options.decode_makernote   = true;
+    const ExifDecodeResult res = decode_exif_tiff(tiff, store, ifds, options);
+    EXPECT_EQ(res.status, ExifDecodeStatus::Ok);
+
+    store.finalize();
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("mk_casio_type2_0", 0x0002));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_TRUE(any(e.flags, EntryFlags::ContextualName));
+        EXPECT_EQ(e.origin.name_context_kind,
+                  EntryNameContextKind::CasioType2Legacy);
+        EXPECT_EQ(exif_entry_name(store, e, ExifTagNamePolicy::ExifToolCompat),
+                  std::string_view("Quality"));
+    }
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("mk_casio_type2_0", 0x0008));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_TRUE(any(e.flags, EntryFlags::ContextualName));
+        EXPECT_EQ(exif_entry_name(store, e, ExifTagNamePolicy::ExifToolCompat),
+                  std::string_view("Casio_0x0008"));
+    }
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("mk_casio_type2_0", 0x0E00));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_TRUE(any(e.flags, EntryFlags::ContextualName));
+        EXPECT_EQ(exif_entry_name(store, e, ExifTagNamePolicy::ExifToolCompat),
+                  std::string_view("PrintIM"));
+    }
+}
+
 
 TEST(MakerNoteDecode, DecodesCasioType2MakerNoteOutOfLineTiffRelativeOffsets)
 {
@@ -6696,6 +7196,99 @@ TEST(MakerNoteDecode, DecodesFujiMakerNoteWithMultipleValueKinds)
     }
 }
 
+TEST(MakerNoteDecode, MarksFujifilm1304PlaceholderForFujifilmMake)
+{
+    const std::vector<std::byte> mn = make_fuji_ge2_makernote_extended();
+    const std::vector<std::byte> tiff
+        = make_test_tiff_with_makernote("FUJIFILM", mn);
+
+    MetaStore store;
+    std::array<ExifIfdRef, 8> ifds {};
+    ExifDecodeOptions options;
+    options.decode_makernote   = true;
+    const ExifDecodeResult res = decode_exif_tiff(tiff, store, ifds, options);
+    EXPECT_EQ(res.status, ExifDecodeStatus::Ok);
+
+    store.finalize();
+    const std::span<const EntryId> ids = store.find_all(
+        exif_key("mk_fuji0", 0x1304));
+    ASSERT_EQ(ids.size(), 1U);
+    const Entry& e = store.entry(ids[0]);
+    EXPECT_TRUE(any(e.flags, EntryFlags::ContextualName));
+    EXPECT_EQ(e.origin.name_context_kind,
+              EntryNameContextKind::FujifilmMain1304);
+    EXPECT_EQ(exif_entry_name(store, e, ExifTagNamePolicy::Canonical),
+              std::string_view("GEImageSize"));
+    EXPECT_EQ(exif_entry_name(store, e, ExifTagNamePolicy::ExifToolCompat),
+              std::string_view("FujiFilm_0x1304"));
+}
+
+TEST(MakerNoteDecode, LeavesFujifilm1304CanonicalForGeneralImagingMake)
+{
+    const std::vector<std::byte> mn = make_fuji_ge2_makernote_extended();
+    const std::vector<std::byte> tiff
+        = make_test_tiff_with_makernote("GENERAL IMAGING", mn);
+
+    MetaStore store;
+    std::array<ExifIfdRef, 8> ifds {};
+    ExifDecodeOptions options;
+    options.decode_makernote   = true;
+    const ExifDecodeResult res = decode_exif_tiff(tiff, store, ifds, options);
+    EXPECT_EQ(res.status, ExifDecodeStatus::Ok);
+
+    store.finalize();
+    const std::span<const EntryId> ids = store.find_all(
+        exif_key("mk_fuji0", 0x1304));
+    ASSERT_EQ(ids.size(), 1U);
+    const Entry& e = store.entry(ids[0]);
+    EXPECT_FALSE(any(e.flags, EntryFlags::ContextualName));
+    EXPECT_EQ(exif_entry_name(store, e, ExifTagNamePolicy::Canonical),
+              std::string_view("GEImageSize"));
+    EXPECT_EQ(exif_entry_name(store, e, ExifTagNamePolicy::ExifToolCompat),
+              std::string_view("GEImageSize"));
+}
+
+TEST(MakerNoteDecode, MarksFujifilmCompatPlaceholdersForOpaqueMainTags)
+{
+    const std::vector<std::byte> mn = make_fuji_makernote_placeholder_fields();
+    const std::vector<std::byte> tiff
+        = make_test_tiff_with_makernote("FUJIFILM", mn);
+
+    MetaStore store;
+    std::array<ExifIfdRef, 8> ifds {};
+    ExifDecodeOptions options;
+    options.decode_makernote   = true;
+    const ExifDecodeResult res = decode_exif_tiff(tiff, store, ifds, options);
+    EXPECT_EQ(res.status, ExifDecodeStatus::Ok);
+
+    store.finalize();
+
+    const struct {
+        uint16_t tag;
+        std::string_view canonical;
+        std::string_view compat;
+    } checks[] = {
+        { 0x1051U, "CropFlag", "FujiFilm_0x1051" },
+        { 0x1150U, "CompositeImageMode", "FujiFilm_0x1150" },
+        { 0x1151U, "CompositeImageCount1", "FujiFilm_0x1151" },
+        { 0x1152U, "CompositeImageCount2", "FujiFilm_0x1152" },
+        { 0x144AU, "WBRed", "FujiFilm_0x144a" },
+    };
+    for (size_t i = 0; i < sizeof(checks) / sizeof(checks[0]); ++i) {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("mk_fuji0", checks[i].tag));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_TRUE(any(e.flags, EntryFlags::ContextualName));
+        EXPECT_EQ(e.origin.name_context_kind,
+                  EntryNameContextKind::FujifilmMain1304);
+        EXPECT_EQ(exif_entry_name(store, e, ExifTagNamePolicy::Canonical),
+                  checks[i].canonical);
+        EXPECT_EQ(exif_entry_name(store, e, ExifTagNamePolicy::ExifToolCompat),
+                  checks[i].compat);
+    }
+}
+
 TEST(MakerNoteDecode, DecodesFujiGeType2MakerNote)
 {
     const std::vector<std::byte> mn   = make_fuji_ge2_makernote();
@@ -6873,6 +7466,95 @@ TEST(MakerNoteDecode, DecodesKodakType5MakerNoteIntoTypedTable)
     EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
     EXPECT_EQ(e.value.elem_type, MetaElementType::U32);
     EXPECT_EQ(e.value.data.u64, 33333U);
+}
+
+
+TEST(MakerNoteDecode, KeepsKodakAbsoluteLegacyPCohortInType8Table)
+{
+    static constexpr const char* kModels[] = {
+        "KODAK P712 ZOOM DIGITAL CAMERA",
+        "KODAK P850 ZOOM DIGITAL CAMERA",
+        "KODAK P880 ZOOM DIGITAL CAMERA",
+    };
+
+    for (const char* model : kModels) {
+        const std::vector<std::byte> mn = make_kodak_absolute_ifd_makernote();
+        const std::vector<std::byte> tiff
+            = make_test_tiff_with_makernote_and_model("KODAK", model, mn);
+
+        MetaStore store;
+        std::array<ExifIfdRef, 8> ifds {};
+        ExifDecodeOptions options;
+        options.decode_makernote   = true;
+        const ExifDecodeResult res = decode_exif_tiff(tiff, store, ifds,
+                                                      options);
+        EXPECT_EQ(res.status, ExifDecodeStatus::Ok) << model;
+
+        store.finalize();
+        const std::span<const EntryId> type8_ids = store.find_all(
+            exif_key("mk_kodak_type8_0", 0x0200));
+        ASSERT_EQ(type8_ids.size(), 1U) << model;
+        EXPECT_EQ(store.entry(type8_ids[0]).value.data.u64, 1U) << model;
+    }
+}
+
+
+TEST(MakerNoteDecode, KeepsKodakAbsolutePixproModelsInType8Table)
+{
+    const std::vector<std::byte> mn = make_kodak_absolute_ifd_makernote();
+    const std::vector<std::byte> tiff
+        = make_test_tiff_with_makernote_and_model("KODAK", "PIXPRO AZ251", mn);
+
+    MetaStore store;
+    std::array<ExifIfdRef, 8> ifds {};
+    ExifDecodeOptions options;
+    options.decode_makernote   = true;
+    const ExifDecodeResult res = decode_exif_tiff(tiff, store, ifds, options);
+    EXPECT_EQ(res.status, ExifDecodeStatus::Ok);
+
+    store.finalize();
+    const std::span<const EntryId> type8_ids = store.find_all(
+        exif_key("mk_kodak_type8_0", 0x0200));
+    ASSERT_EQ(type8_ids.size(), 1U);
+    EXPECT_EQ(store.entry(type8_ids[0]).value.data.u64, 1U);
+
+    const std::span<const EntryId> camerainfo_ids = store.find_all(
+        exif_key("mk_kodak_camerainfo_0", 0x0200));
+    EXPECT_TRUE(camerainfo_ids.empty());
+}
+
+
+TEST(MakerNoteDecode, RoutesKodakAbsolutePixproType11CohortIntoType11Table)
+{
+    static constexpr const char* kModels[] = {
+        "PIXPRO 4KVR360",
+        "KODAK PIXPRO SL10",
+        "KODAK PIXPRO SP360",
+    };
+
+    for (const char* model : kModels) {
+        const std::vector<std::byte> mn = make_kodak_absolute_ifd_makernote();
+        const std::vector<std::byte> tiff
+            = make_test_tiff_with_makernote_and_model("KODAK", model, mn);
+
+        MetaStore store;
+        std::array<ExifIfdRef, 8> ifds {};
+        ExifDecodeOptions options;
+        options.decode_makernote   = true;
+        const ExifDecodeResult res = decode_exif_tiff(tiff, store, ifds,
+                                                      options);
+        EXPECT_EQ(res.status, ExifDecodeStatus::Ok) << model;
+
+        store.finalize();
+        const std::span<const EntryId> type11_ids = store.find_all(
+            exif_key("mk_kodak_type11_0", 0x0200));
+        ASSERT_EQ(type11_ids.size(), 1U) << model;
+        EXPECT_EQ(store.entry(type11_ids[0]).value.data.u64, 1U) << model;
+
+        const std::span<const EntryId> type8_ids = store.find_all(
+            exif_key("mk_kodak_type8_0", 0x0200));
+        EXPECT_TRUE(type8_ids.empty()) << model;
+    }
 }
 
 
@@ -7263,6 +7945,143 @@ TEST(MakerNoteDecode, DecodesNikonPreviewSettingsAndAFTuneBlocks)
         EXPECT_EQ(e.value.count, 1U);
         EXPECT_TRUE(any(e.flags, EntryFlags::Derived));
     }
+}
+
+TEST(MakerNoteDecode, MarksNikonSettings0001PlaceholderForD780)
+{
+    const std::vector<std::byte> mn
+        = make_nikon_makernote_with_single_settings_long_tag(0x0001, 33U);
+    const std::vector<std::byte> tiff
+        = make_test_tiff_with_makernote_and_model("Nikon", "NIKON D780", mn);
+
+    MetaStore store;
+    std::array<ExifIfdRef, 8> ifds {};
+    ExifDecodeOptions options;
+    options.decode_makernote   = true;
+    const ExifDecodeResult res = decode_exif_tiff(tiff, store, ifds, options);
+    EXPECT_EQ(res.status, ExifDecodeStatus::Ok);
+
+    store.finalize();
+    const std::span<const EntryId> ids = store.find_all(
+        exif_key("mk_nikonsettings_main_0", 0x0001));
+    ASSERT_EQ(ids.size(), 1U);
+    const Entry& e = store.entry(ids[0]);
+    EXPECT_TRUE(any(e.flags, EntryFlags::ContextualName));
+    EXPECT_EQ(e.origin.name_context_kind,
+              EntryNameContextKind::NikonSettingsMain);
+    EXPECT_EQ(e.origin.name_context_variant, 1U);
+    EXPECT_EQ(exif_entry_name(store, e, ExifTagNamePolicy::Canonical),
+              std::string_view("ISOAutoHiLimit"));
+    EXPECT_EQ(exif_entry_name(store, e, ExifTagNamePolicy::ExifToolCompat),
+              std::string_view("NikonSettings_0x0001"));
+}
+
+TEST(MakerNoteDecode, LeavesNikonSettings0001CanonicalForD6)
+{
+    const std::vector<std::byte> mn
+        = make_nikon_makernote_with_single_settings_long_tag(0x0001, 37U);
+    const std::vector<std::byte> tiff
+        = make_test_tiff_with_makernote_and_model("Nikon", "NIKON D6", mn);
+
+    MetaStore store;
+    std::array<ExifIfdRef, 8> ifds {};
+    ExifDecodeOptions options;
+    options.decode_makernote   = true;
+    const ExifDecodeResult res = decode_exif_tiff(tiff, store, ifds, options);
+    EXPECT_EQ(res.status, ExifDecodeStatus::Ok);
+
+    store.finalize();
+    const std::span<const EntryId> ids = store.find_all(
+        exif_key("mk_nikonsettings_main_0", 0x0001));
+    ASSERT_EQ(ids.size(), 1U);
+    const Entry& e = store.entry(ids[0]);
+    EXPECT_FALSE(any(e.flags, EntryFlags::ContextualName));
+    EXPECT_EQ(exif_entry_name(store, e, ExifTagNamePolicy::Canonical),
+              std::string_view("ISOAutoHiLimit"));
+    EXPECT_EQ(exif_entry_name(store, e, ExifTagNamePolicy::ExifToolCompat),
+              std::string_view("ISOAutoHiLimit"));
+}
+
+TEST(MakerNoteDecode, MarksNikonSettings001DPlaceholderForD780ButNotZ5)
+{
+    const std::vector<std::byte> mn
+        = make_nikon_makernote_with_single_settings_long_tag(0x001D, 1U);
+
+    {
+        const std::vector<std::byte> tiff
+            = make_test_tiff_with_makernote_and_model("Nikon", "NIKON D780",
+                                                      mn);
+
+        MetaStore store;
+        std::array<ExifIfdRef, 8> ifds {};
+        ExifDecodeOptions options;
+        options.decode_makernote   = true;
+        const ExifDecodeResult res = decode_exif_tiff(tiff, store, ifds,
+                                                      options);
+        EXPECT_EQ(res.status, ExifDecodeStatus::Ok);
+
+        store.finalize();
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("mk_nikonsettings_main_0", 0x001D));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_TRUE(any(e.flags, EntryFlags::ContextualName));
+        EXPECT_EQ(e.origin.name_context_kind,
+                  EntryNameContextKind::NikonSettingsMain);
+        EXPECT_EQ(exif_entry_name(store, e, ExifTagNamePolicy::ExifToolCompat),
+                  std::string_view("NikonSettings_0x001d"));
+    }
+
+    {
+        const std::vector<std::byte> tiff
+            = make_test_tiff_with_makernote_and_model("Nikon", "NIKON Z 5", mn);
+
+        MetaStore store;
+        std::array<ExifIfdRef, 8> ifds {};
+        ExifDecodeOptions options;
+        options.decode_makernote   = true;
+        const ExifDecodeResult res = decode_exif_tiff(tiff, store, ifds,
+                                                      options);
+        EXPECT_EQ(res.status, ExifDecodeStatus::Ok);
+
+        store.finalize();
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("mk_nikonsettings_main_0", 0x001D));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_FALSE(any(e.flags, EntryFlags::ContextualName));
+        EXPECT_EQ(exif_entry_name(store, e, ExifTagNamePolicy::ExifToolCompat),
+                  std::string_view("AF-CPrioritySel"));
+    }
+}
+
+TEST(MakerNoteDecode, MarksNikonSettings0103PlaceholderForD6)
+{
+    const std::vector<std::byte> mn
+        = make_nikon_makernote_with_single_settings_long_tag(0x0103, 3U);
+    const std::vector<std::byte> tiff
+        = make_test_tiff_with_makernote_and_model("Nikon", "NIKON D6", mn);
+
+    MetaStore store;
+    std::array<ExifIfdRef, 8> ifds {};
+    ExifDecodeOptions options;
+    options.decode_makernote   = true;
+    const ExifDecodeResult res = decode_exif_tiff(tiff, store, ifds, options);
+    EXPECT_EQ(res.status, ExifDecodeStatus::Ok);
+
+    store.finalize();
+    const std::span<const EntryId> ids = store.find_all(
+        exif_key("mk_nikonsettings_main_0", 0x0103));
+    ASSERT_EQ(ids.size(), 1U);
+    const Entry& e = store.entry(ids[0]);
+    EXPECT_TRUE(any(e.flags, EntryFlags::ContextualName));
+    EXPECT_EQ(e.origin.name_context_kind,
+              EntryNameContextKind::NikonSettingsMain);
+    EXPECT_EQ(e.origin.name_context_variant, 1U);
+    EXPECT_EQ(exif_entry_name(store, e, ExifTagNamePolicy::Canonical),
+              std::string_view("HDMIOutputHDR"));
+    EXPECT_EQ(exif_entry_name(store, e, ExifTagNamePolicy::ExifToolCompat),
+              std::string_view("NikonSettings_0x0103"));
 }
 
 TEST(MakerNoteDecode, DecodesNintendoCameraInfoDerivedSubdirectory)
@@ -7725,6 +8544,62 @@ TEST(MakerNoteDecode,
               std::string_view("ImageStabilization"));
 }
 
+
+TEST(MakerNoteDecode, MarksMotorola6420PlaceholderForLegacyXtModels)
+{
+    const std::vector<std::byte> mn = make_motorola_makernote_custom_rendered();
+    const std::vector<std::byte> tiff
+        = make_test_tiff_with_makernote_and_model("Motorola", "XT1060", mn);
+
+    MetaStore store;
+    std::array<ExifIfdRef, 32> ifds {};
+    ExifDecodeOptions options;
+    options.decode_makernote   = true;
+    const ExifDecodeResult res = decode_exif_tiff(tiff, store, ifds, options);
+    EXPECT_EQ(res.status, ExifDecodeStatus::Ok);
+
+    store.finalize();
+    const std::span<const EntryId> ids = store.find_all(
+        exif_key("mk_motorola0", 0x6420));
+    ASSERT_EQ(ids.size(), 1U);
+    const Entry& e = store.entry(ids[0]);
+    EXPECT_TRUE(any(e.flags, EntryFlags::ContextualName));
+    EXPECT_EQ(e.origin.name_context_kind,
+              EntryNameContextKind::MotorolaMain6420);
+    EXPECT_EQ(e.origin.name_context_variant, 1U);
+    EXPECT_EQ(exif_entry_name(store, e, ExifTagNamePolicy::Canonical),
+              std::string_view("CustomRendered"));
+    EXPECT_EQ(exif_entry_name(store, e, ExifTagNamePolicy::ExifToolCompat),
+              std::string_view("Motorola_0x6420"));
+}
+
+
+TEST(MakerNoteDecode, LeavesMotorola6420CanonicalForModernModels)
+{
+    const std::vector<std::byte> mn = make_motorola_makernote_custom_rendered();
+    const std::vector<std::byte> tiff
+        = make_test_tiff_with_makernote_and_model("Motorola",
+                                                  "motorola edge 50 neo", mn);
+
+    MetaStore store;
+    std::array<ExifIfdRef, 32> ifds {};
+    ExifDecodeOptions options;
+    options.decode_makernote   = true;
+    const ExifDecodeResult res = decode_exif_tiff(tiff, store, ifds, options);
+    EXPECT_EQ(res.status, ExifDecodeStatus::Ok);
+
+    store.finalize();
+    const std::span<const EntryId> ids = store.find_all(
+        exif_key("mk_motorola0", 0x6420));
+    ASSERT_EQ(ids.size(), 1U);
+    const Entry& e = store.entry(ids[0]);
+    EXPECT_FALSE(any(e.flags, EntryFlags::ContextualName));
+    EXPECT_EQ(exif_entry_name(store, e, ExifTagNamePolicy::Canonical),
+              std::string_view("CustomRendered"));
+    EXPECT_EQ(exif_entry_name(store, e, ExifTagNamePolicy::ExifToolCompat),
+              std::string_view("CustomRendered"));
+}
+
 TEST(MakerNoteDecode, DecodesPanasonicBinarySubDirs)
 {
     std::vector<std::byte> mn   = make_panasonic_makernote_with_subdirs();
@@ -8106,6 +8981,16 @@ TEST(MakerNoteDecode, DecodesPentaxBinarySubdirectories)
     }
     {
         const std::span<const EntryId> ids = store.find_all(
+            exif_key("mk_pentax_aeinfo2_0", 0x0001));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(exif_entry_name(store, e, ExifTagNamePolicy::Canonical),
+                  std::string_view("Pentax_0x0001"));
+        EXPECT_EQ(exif_entry_name(store, e, ExifTagNamePolicy::ExifToolCompat),
+                  std::string_view("Pentax_0x0001"));
+    }
+    {
+        const std::span<const EntryId> ids = store.find_all(
             exif_key("mk_pentax_aeinfo2_0", 0x0000));
         ASSERT_EQ(ids.size(), 1U);
         EXPECT_EQ(store.entry(ids[0]).value.kind, MetaValueKind::Scalar);
@@ -8132,6 +9017,125 @@ TEST(MakerNoteDecode, DecodesPentaxBinarySubdirectories)
         EXPECT_EQ(store.entry(ids[0]).value.kind, MetaValueKind::Scalar);
         EXPECT_EQ(store.entry(ids[0]).value.data.u64, 0xA5U);
     }
+}
+
+TEST(MakerNoteDecode, RoutesPentaxOptio330MakerNoteToType2Ifd)
+{
+    const std::vector<std::byte> mn = make_pentax_type2_makernote();
+    const std::vector<std::byte> tiff
+        = make_test_tiff_with_makernote_and_model("PENTAX", "PENTAX Optio 330",
+                                                  mn);
+
+    MetaStore store;
+    std::array<ExifIfdRef, 8> ifds {};
+    ExifDecodeOptions options;
+    options.decode_makernote   = true;
+    const ExifDecodeResult res = decode_exif_tiff(tiff, store, ifds, options);
+    EXPECT_EQ(res.status, ExifDecodeStatus::Ok);
+
+    store.finalize();
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("mk_pentax_type2_0", 0x0001));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(exif_entry_name(store, e, ExifTagNamePolicy::Canonical),
+                  std::string_view("RecordingMode"));
+    }
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("mk_pentax_type2_0", 0x0005));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(exif_entry_name(store, e, ExifTagNamePolicy::Canonical),
+                  std::string_view("Pentax_Type2_0x0005"));
+        EXPECT_EQ(exif_entry_name(store, e, ExifTagNamePolicy::ExifToolCompat),
+                  std::string_view("Pentax_Type2_0x0005"));
+    }
+    EXPECT_TRUE(store.find_all(exif_key("mk_pentax0", 0x0001)).empty());
+}
+
+TEST(MakerNoteDecode, RoutesPentaxMakerNoteWithType2SignatureTagsToType2Ifd)
+{
+    const std::vector<std::byte> mn   = make_pentax_type2_makernote();
+    const std::vector<std::byte> tiff = make_test_tiff_with_makernote("PENTAX",
+                                                                      mn);
+
+    MetaStore store;
+    std::array<ExifIfdRef, 8> ifds {};
+    ExifDecodeOptions options;
+    options.decode_makernote   = true;
+    const ExifDecodeResult res = decode_exif_tiff(tiff, store, ifds, options);
+    EXPECT_EQ(res.status, ExifDecodeStatus::Ok);
+
+    store.finalize();
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("mk_pentax_type2_0", 0x1000));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(exif_entry_name(store, e, ExifTagNamePolicy::Canonical),
+                  std::string_view("HometownCityCode"));
+    }
+    EXPECT_TRUE(store.find_all(exif_key("mk_pentax0", 0x0001)).empty());
+}
+
+TEST(MakerNoteDecode, MarksPentax0062PlaceholderForKodakOemFiles)
+{
+    const std::vector<std::byte> mn = make_pentax_makernote_with_main_0062();
+    const std::vector<std::byte> tiff
+        = make_test_tiff_with_makernote("EASTMAN KODAK COMPANY", mn);
+
+    MetaStore store;
+    std::array<ExifIfdRef, 32> ifds {};
+    ExifDecodeOptions options;
+    options.decode_makernote   = true;
+    const ExifDecodeResult res = decode_exif_tiff(tiff, store, ifds, options);
+    EXPECT_EQ(res.status, ExifDecodeStatus::Ok);
+
+    store.finalize();
+    const std::span<const EntryId> ids = store.find_all(
+        exif_key("mk_pentax0", 0x0062));
+    ASSERT_EQ(ids.size(), 1U);
+    const Entry& e = store.entry(ids[0]);
+    EXPECT_TRUE(any(e.flags, EntryFlags::ContextualName));
+    EXPECT_EQ(e.origin.name_context_kind, EntryNameContextKind::PentaxMain0062);
+    EXPECT_EQ(e.origin.name_context_variant, 1U);
+    EXPECT_EQ(exif_entry_name(store, e, ExifTagNamePolicy::Canonical),
+              std::string_view("RawDevelopmentProcess"));
+    EXPECT_EQ(exif_entry_name(store, e, ExifTagNamePolicy::ExifToolCompat),
+              std::string_view("Pentax_0x0062"));
+}
+
+TEST(MakerNoteDecode, DoesNotExpandPentaxFaceTablesWhenFaceCountIsZero)
+{
+    const std::vector<std::byte> mn
+        = make_pentax_makernote_with_zero_face_tables();
+    const std::vector<std::byte> tiff = make_test_tiff_with_makernote("PENTAX",
+                                                                      mn);
+
+    MetaStore store;
+    std::array<ExifIfdRef, 8> ifds {};
+    ExifDecodeOptions options;
+    options.decode_makernote   = true;
+    const ExifDecodeResult res = decode_exif_tiff(tiff, store, ifds, options);
+    EXPECT_EQ(res.status, ExifDecodeStatus::Ok);
+
+    store.finalize();
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("mk_pentax0", 0x0227));
+        ASSERT_EQ(ids.size(), 1U);
+    }
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("mk_pentax0", 0x0228));
+        ASSERT_EQ(ids.size(), 1U);
+    }
+    EXPECT_TRUE(
+        store.find_all(exif_key("mk_pentax_facepos_0", 0x0000)).empty());
+    EXPECT_TRUE(
+        store.find_all(exif_key("mk_pentax_facesize_0", 0x0000)).empty());
 }
 
 TEST(MakerNoteDecode, DecodesRicohType2MakerNote)
@@ -8171,6 +9175,37 @@ TEST(MakerNoteDecode, DecodesRicohType2MakerNote)
                 store.arena().span(e.value.data.span).data()),
             store.arena().span(e.value.data.span).size());
         EXPECT_EQ(v, "RICOH");
+    }
+}
+
+TEST(MakerNoteDecode, DecodesRicohPaddedType2MakerNoteUnderType2Ifd)
+{
+    const std::vector<std::byte> mn   = make_ricoh_type2_padded_ifd_makernote();
+    const std::vector<std::byte> tiff = make_test_tiff_with_makernote("RICOH",
+                                                                      mn);
+
+    MetaStore store;
+    std::array<ExifIfdRef, 32> ifds {};
+    ExifDecodeOptions options;
+    options.decode_makernote   = true;
+    const ExifDecodeResult res = decode_exif_tiff(tiff, store, ifds, options);
+    EXPECT_EQ(res.status, ExifDecodeStatus::Ok);
+
+    store.finalize();
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("mk_ricoh_type2_0", 0x0104));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
+        EXPECT_EQ(e.value.data.u64, 1U);
+    }
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("mk_ricoh_type2_0", 0x0207));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Text);
     }
 }
 
@@ -8223,6 +9258,10 @@ TEST(MakerNoteDecode, DecodesSamsungStmnMakerNoteAndSamsungIfd)
             exif_key("mk_samsung_ifd_0", 0x0004));
         ASSERT_EQ(ids.size(), 1U);
         const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(exif_entry_name(store, e, ExifTagNamePolicy::Canonical),
+                  std::string_view("Samsung_IFD_0x0004"));
+        EXPECT_EQ(exif_entry_name(store, e, ExifTagNamePolicy::ExifToolCompat),
+                  std::string_view("Samsung_IFD_0x0004"));
         EXPECT_EQ(e.value.kind, MetaValueKind::Text);
         const std::span<const std::byte> raw = store.arena().span(
             e.value.data.span);
@@ -8263,6 +9302,16 @@ TEST(MakerNoteDecode, DecodesSamsungType2PictureWizard)
             exif_key("mk_samsung_picturewizard_0", 0x0004));
         ASSERT_EQ(ids.size(), 1U);
         EXPECT_EQ(store.entry(ids[0]).value.data.u64, 5U);
+    }
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("mk_samsung_type2_0", 0x0004));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(exif_entry_name(store, e, ExifTagNamePolicy::Canonical),
+                  std::string_view("Samsung_Type2_0x0004"));
+        EXPECT_EQ(exif_entry_name(store, e, ExifTagNamePolicy::ExifToolCompat),
+                  std::string_view("Samsung_Type2_0x0004"));
     }
 }
 
@@ -8327,6 +9376,31 @@ TEST(MakerNoteDecode, DecodesSamsungCompatTag0FromMalformedType2)
                                  store.arena().span(e.value.data.span).data()),
                              store.arena().span(e.value.data.span).size());
     EXPECT_EQ(v, "2024");
+}
+
+TEST(MakerNoteDecode, MapsSamsungType2A002ToCompatPlaceholder)
+{
+    const std::vector<std::byte> mn
+        = make_samsung_type2_makernote_with_a002_and_a003();
+    const std::vector<std::byte> tiff = make_test_tiff_with_makernote("SAMSUNG",
+                                                                      mn);
+
+    MetaStore store;
+    std::array<ExifIfdRef, 8> ifds {};
+    ExifDecodeOptions options;
+    options.decode_makernote   = true;
+    const ExifDecodeResult res = decode_exif_tiff(tiff, store, ifds, options);
+    EXPECT_EQ(res.status, ExifDecodeStatus::Ok);
+
+    store.finalize();
+    const std::span<const EntryId> ids = store.find_all(
+        exif_key("mk_samsung_type2_0", 0xA002));
+    ASSERT_EQ(ids.size(), 1U);
+    const Entry& e = store.entry(ids[0]);
+    EXPECT_EQ(exif_entry_name(store, e, ExifTagNamePolicy::Canonical),
+              std::string_view("SerialNumber"));
+    EXPECT_EQ(exif_entry_name(store, e, ExifTagNamePolicy::ExifToolCompat),
+              std::string_view("Samsung_Type2_0xa002"));
 }
 
 TEST(MakerNoteDecode, DecodesReconyxHyperfire2MakerNote)

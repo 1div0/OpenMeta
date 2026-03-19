@@ -280,35 +280,360 @@ namespace {
         return std::string_view(buf, kPrefix.size() + 4);
     }
 
-
     static std::string_view
-    synthesize_kodak_type_placeholder_name(std::string_view subtable,
-                                           uint16_t tag) noexcept
+    synthesize_panasonic_placeholder_name(std::string_view subtable,
+                                          uint16_t tag) noexcept
     {
-        if (!subtable.starts_with("type") || subtable.size() <= 4) {
+        if (!(subtable.empty() || subtable == "main")) {
             return {};
         }
-        for (size_t i = 4; i < subtable.size(); ++i) {
-            if (!is_ascii_digit(subtable[i])) {
+
+        static thread_local char buf[21];
+        static constexpr std::string_view kPrefix = "Panasonic_0x";
+        static constexpr char kHex[]              = "0123456789abcdef";
+        if (kPrefix.size() + 4 >= sizeof(buf)) {
+            return {};
+        }
+
+        for (size_t i = 0; i < kPrefix.size(); ++i) {
+            buf[i] = kPrefix[i];
+        }
+        buf[kPrefix.size() + 0] = kHex[(tag >> 12) & 0xF];
+        buf[kPrefix.size() + 1] = kHex[(tag >> 8) & 0xF];
+        buf[kPrefix.size() + 2] = kHex[(tag >> 4) & 0xF];
+        buf[kPrefix.size() + 3] = kHex[(tag >> 0) & 0xF];
+        buf[kPrefix.size() + 4] = '\0';
+        return std::string_view(buf, kPrefix.size() + 4);
+    }
+
+    static std::string_view
+    synthesize_apple_placeholder_name(std::string_view subtable,
+                                      uint16_t tag) noexcept
+    {
+        if (!(subtable.empty() || subtable == "main")) {
+            return {};
+        }
+
+        static thread_local char buf[17];
+        static constexpr std::string_view kPrefix = "Apple_0x";
+        static constexpr char kHex[]              = "0123456789abcdef";
+        if (kPrefix.size() + 4 >= sizeof(buf)) {
+            return {};
+        }
+
+        for (size_t i = 0; i < kPrefix.size(); ++i) {
+            buf[i] = kPrefix[i];
+        }
+        buf[kPrefix.size() + 0] = kHex[(tag >> 12) & 0xF];
+        buf[kPrefix.size() + 1] = kHex[(tag >> 8) & 0xF];
+        buf[kPrefix.size() + 2] = kHex[(tag >> 4) & 0xF];
+        buf[kPrefix.size() + 3] = kHex[(tag >> 0) & 0xF];
+        buf[kPrefix.size() + 4] = '\0';
+        return std::string_view(buf, kPrefix.size() + 4);
+    }
+
+    static std::string_view
+    synthesize_dji_placeholder_name(std::string_view subtable,
+                                    uint16_t tag) noexcept
+    {
+        if (!(subtable.empty() || subtable == "main")) {
+            return {};
+        }
+
+        static thread_local char buf[15];
+        static constexpr std::string_view kPrefix = "DJI_0x";
+        static constexpr char kHex[]              = "0123456789abcdef";
+        if (kPrefix.size() + 4 >= sizeof(buf)) {
+            return {};
+        }
+
+        for (size_t i = 0; i < kPrefix.size(); ++i) {
+            buf[i] = kPrefix[i];
+        }
+        buf[kPrefix.size() + 0] = kHex[(tag >> 12) & 0xF];
+        buf[kPrefix.size() + 1] = kHex[(tag >> 8) & 0xF];
+        buf[kPrefix.size() + 2] = kHex[(tag >> 4) & 0xF];
+        buf[kPrefix.size() + 3] = kHex[(tag >> 0) & 0xF];
+        buf[kPrefix.size() + 4] = '\0';
+        return std::string_view(buf, kPrefix.size() + 4);
+    }
+
+    static std::string_view
+    synthesize_fujifilm_placeholder_name(std::string_view subtable,
+                                         uint16_t tag) noexcept
+    {
+        if (!(subtable.empty() || subtable == "main")) {
+            return {};
+        }
+
+        static thread_local char buf[20];
+        static constexpr std::string_view kPrefix = "FujiFilm_0x";
+        static constexpr char kHex[]              = "0123456789abcdef";
+        if (kPrefix.size() + 4 >= sizeof(buf)) {
+            return {};
+        }
+
+        for (size_t i = 0; i < kPrefix.size(); ++i) {
+            buf[i] = kPrefix[i];
+        }
+        buf[kPrefix.size() + 0] = kHex[(tag >> 12) & 0xF];
+        buf[kPrefix.size() + 1] = kHex[(tag >> 8) & 0xF];
+        buf[kPrefix.size() + 2] = kHex[(tag >> 4) & 0xF];
+        buf[kPrefix.size() + 3] = kHex[(tag >> 0) & 0xF];
+        buf[kPrefix.size() + 4] = '\0';
+        return std::string_view(buf, kPrefix.size() + 4);
+    }
+
+    static std::string_view
+    synthesize_motorola_placeholder_name(std::string_view subtable,
+                                         uint16_t tag) noexcept
+    {
+        if (!(subtable.empty() || subtable == "main")) {
+            return {};
+        }
+
+        static thread_local char buf[20];
+        static constexpr std::string_view kPrefix = "Motorola_0x";
+        static constexpr char kHex[]              = "0123456789abcdef";
+        if (kPrefix.size() + 4 >= sizeof(buf)) {
+            return {};
+        }
+
+        for (size_t i = 0; i < kPrefix.size(); ++i) {
+            buf[i] = kPrefix[i];
+        }
+        buf[kPrefix.size() + 0] = kHex[(tag >> 12) & 0xF];
+        buf[kPrefix.size() + 1] = kHex[(tag >> 8) & 0xF];
+        buf[kPrefix.size() + 2] = kHex[(tag >> 4) & 0xF];
+        buf[kPrefix.size() + 3] = kHex[(tag >> 0) & 0xF];
+        buf[kPrefix.size() + 4] = '\0';
+        return std::string_view(buf, kPrefix.size() + 4);
+    }
+
+    static std::string_view
+    synthesize_pentax_placeholder_name(std::string_view subtable,
+                                       uint16_t tag) noexcept
+    {
+        if (subtable != "type2" && tag == 0x003EU) {
+            return "PreviewImageBorders";
+        }
+
+        std::string_view prefix = "Pentax_0x";
+        if (subtable == "type2") {
+            prefix = "Pentax_Type2_0x";
+        }
+
+        static thread_local char buf[24];
+        static constexpr char kHex[] = "0123456789abcdef";
+        if (prefix.size() + 4 >= sizeof(buf)) {
+            return {};
+        }
+
+        for (size_t i = 0; i < prefix.size(); ++i) {
+            buf[i] = prefix[i];
+        }
+        buf[prefix.size() + 0] = kHex[(tag >> 12) & 0xF];
+        buf[prefix.size() + 1] = kHex[(tag >> 8) & 0xF];
+        buf[prefix.size() + 2] = kHex[(tag >> 4) & 0xF];
+        buf[prefix.size() + 3] = kHex[(tag >> 0) & 0xF];
+        buf[prefix.size() + 4] = '\0';
+        return std::string_view(buf, prefix.size() + 4);
+    }
+
+    static std::string_view
+    synthesize_samsung_placeholder_name(std::string_view subtable,
+                                        uint16_t tag) noexcept
+    {
+        std::string_view prefix;
+        if (subtable == "ifd") {
+            prefix = "Samsung_IFD_0x";
+        } else if (subtable == "type2") {
+            prefix = "Samsung_Type2_0x";
+        } else {
+            return {};
+        }
+
+        static thread_local char buf[32];
+        static constexpr char kHex[] = "0123456789abcdef";
+        if (prefix.size() + 4 >= sizeof(buf)) {
+            return {};
+        }
+
+        for (size_t i = 0; i < prefix.size(); ++i) {
+            buf[i] = prefix[i];
+        }
+        buf[prefix.size() + 0] = kHex[(tag >> 12) & 0xF];
+        buf[prefix.size() + 1] = kHex[(tag >> 8) & 0xF];
+        buf[prefix.size() + 2] = kHex[(tag >> 4) & 0xF];
+        buf[prefix.size() + 3] = kHex[(tag >> 0) & 0xF];
+        buf[prefix.size() + 4] = '\0';
+        return std::string_view(buf, prefix.size() + 4);
+    }
+
+    static std::string_view
+    synthesize_casio_placeholder_name(std::string_view subtable,
+                                      uint16_t tag) noexcept
+    {
+        if (subtable != "type2") {
+            return {};
+        }
+
+        static thread_local char buf[24];
+        static constexpr std::string_view kPrefix = "Casio_Type2_0x";
+        static constexpr char kHex[]              = "0123456789abcdef";
+        if (kPrefix.size() + 4 >= sizeof(buf)) {
+            return {};
+        }
+
+        for (size_t i = 0; i < kPrefix.size(); ++i) {
+            buf[i] = kPrefix[i];
+        }
+        buf[kPrefix.size() + 0] = kHex[(tag >> 12) & 0xF];
+        buf[kPrefix.size() + 1] = kHex[(tag >> 8) & 0xF];
+        buf[kPrefix.size() + 2] = kHex[(tag >> 4) & 0xF];
+        buf[kPrefix.size() + 3] = kHex[(tag >> 0) & 0xF];
+        buf[kPrefix.size() + 4] = '\0';
+        return std::string_view(buf, kPrefix.size() + 4);
+    }
+
+    static std::string_view
+    synthesize_minolta_placeholder_name(std::string_view subtable,
+                                        uint16_t tag) noexcept
+    {
+        if (!(subtable.empty() || subtable == "main")) {
+            return {};
+        }
+
+        static thread_local char buf[18];
+        static constexpr std::string_view kPrefix = "Minolta_0x";
+        static constexpr char kHex[]              = "0123456789abcdef";
+        if (kPrefix.size() + 4 >= sizeof(buf)) {
+            return {};
+        }
+
+        for (size_t i = 0; i < kPrefix.size(); ++i) {
+            buf[i] = kPrefix[i];
+        }
+        buf[kPrefix.size() + 0] = kHex[(tag >> 12) & 0xF];
+        buf[kPrefix.size() + 1] = kHex[(tag >> 8) & 0xF];
+        buf[kPrefix.size() + 2] = kHex[(tag >> 4) & 0xF];
+        buf[kPrefix.size() + 3] = kHex[(tag >> 0) & 0xF];
+        buf[kPrefix.size() + 4] = '\0';
+        return std::string_view(buf, kPrefix.size() + 4);
+    }
+
+    static std::string_view
+    synthesize_ricoh_placeholder_name(std::string_view subtable,
+                                      uint16_t tag) noexcept
+    {
+        std::string_view prefix;
+        if (subtable.empty() || subtable == "main") {
+            prefix = "Ricoh_0x";
+        } else if (subtable == "subdir") {
+            prefix = "Ricoh_Subdir_0x";
+        } else if (subtable == "imageinfo") {
+            prefix = "Ricoh_ImageInfo_0x";
+        } else if (subtable == "thetasubdir") {
+            prefix = "Ricoh_ThetaSubdir_0x";
+        } else if (subtable == "type2") {
+            prefix = "Ricoh_Type2_0x";
+        } else {
+            return {};
+        }
+
+        static thread_local char buf[32];
+        static constexpr char kHex[] = "0123456789abcdef";
+        if (prefix.size() + 4U >= sizeof(buf)) {
+            return {};
+        }
+
+        for (size_t i = 0; i < prefix.size(); ++i) {
+            buf[i] = prefix[i];
+        }
+        buf[prefix.size() + 0U] = kHex[(tag >> 12U) & 0xFU];
+        buf[prefix.size() + 1U] = kHex[(tag >> 8U) & 0xFU];
+        buf[prefix.size() + 2U] = kHex[(tag >> 4U) & 0xFU];
+        buf[prefix.size() + 3U] = kHex[(tag >> 0U) & 0xFU];
+        buf[prefix.size() + 4U] = '\0';
+        return std::string_view(buf, prefix.size() + 4U);
+    }
+
+    static std::string_view
+    synthesize_nikonsettings_placeholder_name(std::string_view subtable,
+                                              uint16_t tag) noexcept
+    {
+        if (!(subtable.empty() || subtable == "main")) {
+            return {};
+        }
+
+        static thread_local char buf[25];
+        static constexpr std::string_view kPrefix = "NikonSettings_0x";
+        static constexpr char kHex[]              = "0123456789abcdef";
+        if (kPrefix.size() + 4 >= sizeof(buf)) {
+            return {};
+        }
+
+        for (size_t i = 0; i < kPrefix.size(); ++i) {
+            buf[i] = kPrefix[i];
+        }
+        buf[kPrefix.size() + 0] = kHex[(tag >> 12) & 0xF];
+        buf[kPrefix.size() + 1] = kHex[(tag >> 8) & 0xF];
+        buf[kPrefix.size() + 2] = kHex[(tag >> 4) & 0xF];
+        buf[kPrefix.size() + 3] = kHex[(tag >> 0) & 0xF];
+        buf[kPrefix.size() + 4] = '\0';
+        return std::string_view(buf, kPrefix.size() + 4);
+    }
+
+
+    static std::string_view
+    synthesize_kodak_placeholder_name(std::string_view subtable,
+                                      uint16_t tag) noexcept
+    {
+        std::string_view prefix_digits = subtable;
+        std::string_view prefix;
+
+        if (subtable.starts_with("type") && subtable.size() > 4) {
+            prefix_digits = subtable.substr(4);
+            prefix        = "Kodak_Type";
+        } else if (subtable.starts_with("subifd") && subtable.size() > 6) {
+            prefix_digits = subtable.substr(6);
+            if (subtable == "subifd255") {
+                prefix_digits = "0";
+                prefix        = "Kodak_SubIFD";
+            } else if (subtable == "subifd0" || subtable == "subifd1"
+                       || subtable == "subifd2" || subtable == "subifd5"
+                       || subtable == "subifd3") {
+                prefix = "Kodak_SubIFD";
+            } else {
+                return {};
+            }
+        } else if (subtable == "camerainfo") {
+            prefix_digits = {};
+            prefix        = "Kodak_CameraInfo";
+        } else {
+            return {};
+        }
+
+        for (size_t i = 0; i < prefix_digits.size(); ++i) {
+            if (!is_ascii_digit(prefix_digits[i])) {
                 return {};
             }
         }
 
         static thread_local char buf[32];
-        static constexpr char kHex[]              = "0123456789abcdef";
-        static constexpr std::string_view kPrefix = "Kodak_Type";
-        const size_t need = kPrefix.size() + (subtable.size() - 4U)
+        static constexpr char kHex[] = "0123456789abcdef";
+        const size_t need            = prefix.size() + prefix_digits.size()
                             + sizeof("_0x0000") - 1U;
         if (need >= sizeof(buf)) {
             return {};
         }
 
         size_t n = 0;
-        for (size_t i = 0; i < kPrefix.size(); ++i) {
-            buf[n++] = kPrefix[i];
+        for (size_t i = 0; i < prefix.size(); ++i) {
+            buf[n++] = prefix[i];
         }
-        for (size_t i = 4; i < subtable.size(); ++i) {
-            buf[n++] = subtable[i];
+        for (size_t i = 0; i < prefix_digits.size(); ++i) {
+            buf[n++] = prefix_digits[i];
         }
         buf[n++] = '_';
         buf[n++] = '0';
@@ -401,6 +726,12 @@ namespace {
     static bool olympus_main_prefers_placeholder(uint16_t tag) noexcept
     {
         return tag == 0x0400u || tag == 0x0401u;
+    }
+
+    static bool apple_main_prefers_placeholder(uint16_t tag) noexcept
+    {
+        return tag == 0x001Fu || tag == 0x0023u || tag == 0x002Du
+               || tag == 0x002Eu;
     }
 
 
@@ -536,14 +867,30 @@ makernote_tag_name(std::string_view ifd, uint16_t tag) noexcept
                           sizeof(table_key_buf));
     }
     if (!table) {
+        if (vendor_key == "kodak" && !parts.subtable.empty()) {
+            return synthesize_kodak_placeholder_name(parts.subtable, tag);
+        }
         return {};
     }
     std::string_view name = find_tag_name(table->entries, table->count, tag);
     if (!name.empty()) {
+        if (vendor_key == "minolta"
+            && (parts.subtable.empty() || parts.subtable == "main")
+            && tag == 0x0103U) {
+            return "MinoltaImageSize";
+        }
+        if (vendor_key == "samsung" && parts.subtable == "ifd") {
+            return synthesize_samsung_placeholder_name(parts.subtable, tag);
+        }
         if (vendor_key == "olympus"
             && (parts.subtable.empty() || parts.subtable == "main")
             && olympus_main_prefers_placeholder(tag)) {
             return synthesize_olympus_placeholder_name(parts.subtable, tag);
+        }
+        if (vendor_key == "apple"
+            && (parts.subtable.empty() || parts.subtable == "main")
+            && apple_main_prefers_placeholder(tag)) {
+            return synthesize_apple_placeholder_name(parts.subtable, tag);
         }
         if (vendor_key == "olympus" && parts.subtable == "unknowninfo") {
             return synthesize_olympus_placeholder_name(parts.subtable, tag);
@@ -653,8 +1000,52 @@ makernote_tag_name(std::string_view ifd, uint16_t tag) noexcept
         && olympus_subtable_prefers_placeholder(parts.subtable)) {
         return synthesize_olympus_placeholder_name(parts.subtable, tag);
     }
+    if (vendor_key == "apple"
+        && (parts.subtable.empty() || parts.subtable == "main")) {
+        return synthesize_apple_placeholder_name(parts.subtable, tag);
+    }
+    if (vendor_key == "panasonic"
+        && (parts.subtable.empty() || parts.subtable == "main")) {
+        return synthesize_panasonic_placeholder_name(parts.subtable, tag);
+    }
+    if (vendor_key == "fujifilm"
+        && (parts.subtable.empty() || parts.subtable == "main")) {
+        return synthesize_fujifilm_placeholder_name(parts.subtable, tag);
+    }
+    if (vendor_key == "dji"
+        && (parts.subtable.empty() || parts.subtable == "main")) {
+        return synthesize_dji_placeholder_name(parts.subtable, tag);
+    }
+    if (vendor_key == "samsung"
+        && (parts.subtable == "ifd" || parts.subtable == "type2")) {
+        return synthesize_samsung_placeholder_name(parts.subtable, tag);
+    }
+    if (vendor_key == "casio" && parts.subtable == "type2") {
+        return synthesize_casio_placeholder_name(parts.subtable, tag);
+    }
+    if (vendor_key == "minolta"
+        && (parts.subtable.empty() || parts.subtable == "main")) {
+        return synthesize_minolta_placeholder_name(parts.subtable, tag);
+    }
+    if (vendor_key == "motorola"
+        && (parts.subtable.empty() || parts.subtable == "main")) {
+        return synthesize_motorola_placeholder_name(parts.subtable, tag);
+    }
+    if (vendor_key == "pentax") {
+        return synthesize_pentax_placeholder_name(parts.subtable, tag);
+    }
+    if (vendor_key == "ricoh"
+        && (parts.subtable.empty() || parts.subtable == "main"
+            || parts.subtable == "subdir" || parts.subtable == "imageinfo"
+            || parts.subtable == "thetasubdir" || parts.subtable == "type2")) {
+        return synthesize_ricoh_placeholder_name(parts.subtable, tag);
+    }
+    if (vendor_key == "nikonsettings"
+        && (parts.subtable.empty() || parts.subtable == "main")) {
+        return synthesize_nikonsettings_placeholder_name(parts.subtable, tag);
+    }
     if (vendor_key == "kodak" && !parts.subtable.empty()) {
-        return synthesize_kodak_type_placeholder_name(parts.subtable, tag);
+        return synthesize_kodak_placeholder_name(parts.subtable, tag);
     }
 
     if (vendor_key == "canon"
@@ -691,10 +1082,55 @@ makernote_tag_name(std::string_view ifd, uint16_t tag) noexcept
     }
     name = find_tag_name(main_table->entries, main_table->count, tag);
     if (!name.empty()) {
+        if (vendor_key == "apple"
+            && (parts.subtable.empty() || parts.subtable == "main")
+            && apple_main_prefers_placeholder(tag)) {
+            return synthesize_apple_placeholder_name(parts.subtable, tag);
+        }
         return name;
     }
     if (vendor_key == "olympus") {
         return synthesize_olympus_placeholder_name(parts.subtable, tag);
+    }
+    if (vendor_key == "apple"
+        && (parts.subtable.empty() || parts.subtable == "main")) {
+        return synthesize_apple_placeholder_name(parts.subtable, tag);
+    }
+    if (vendor_key == "panasonic"
+        && (parts.subtable.empty() || parts.subtable == "main")) {
+        return synthesize_panasonic_placeholder_name(parts.subtable, tag);
+    }
+    if (vendor_key == "fujifilm"
+        && (parts.subtable.empty() || parts.subtable == "main")) {
+        return synthesize_fujifilm_placeholder_name(parts.subtable, tag);
+    }
+    if (vendor_key == "dji"
+        && (parts.subtable.empty() || parts.subtable == "main")) {
+        return synthesize_dji_placeholder_name(parts.subtable, tag);
+    }
+    if (vendor_key == "casio" && parts.subtable == "type2") {
+        return synthesize_casio_placeholder_name(parts.subtable, tag);
+    }
+    if (vendor_key == "minolta"
+        && (parts.subtable.empty() || parts.subtable == "main")) {
+        return synthesize_minolta_placeholder_name(parts.subtable, tag);
+    }
+    if (vendor_key == "motorola"
+        && (parts.subtable.empty() || parts.subtable == "main")) {
+        return synthesize_motorola_placeholder_name(parts.subtable, tag);
+    }
+    if (vendor_key == "pentax") {
+        return synthesize_pentax_placeholder_name(parts.subtable, tag);
+    }
+    if (vendor_key == "ricoh"
+        && (parts.subtable.empty() || parts.subtable == "main"
+            || parts.subtable == "subdir" || parts.subtable == "imageinfo"
+            || parts.subtable == "thetasubdir" || parts.subtable == "type2")) {
+        return synthesize_ricoh_placeholder_name(parts.subtable, tag);
+    }
+    if (vendor_key == "nikonsettings"
+        && (parts.subtable.empty() || parts.subtable == "main")) {
+        return synthesize_nikonsettings_placeholder_name(parts.subtable, tag);
     }
     return {};
 }

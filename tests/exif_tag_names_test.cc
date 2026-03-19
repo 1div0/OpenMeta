@@ -171,6 +171,297 @@ TEST(ExifTagNames, MapsKodakTypedTablesAndPlaceholders)
               std::string_view("KodakModel"));
     EXPECT_EQ(exif_tag_name("mk_kodak_type11_0", 0x0200),
               std::string_view("Kodak_Type11_0x0200"));
+    EXPECT_EQ(exif_tag_name("mk_kodak_subifd1_0", 0x0001),
+              std::string_view("Kodak_SubIFD1_0x0001"));
+    EXPECT_EQ(exif_tag_name("mk_kodak_subifd1_0", 0x1007),
+              std::string_view("Kodak_SubIFD1_0x1007"));
+    EXPECT_EQ(exif_tag_name("mk_kodak_subifd0_0", 0xFA04),
+              std::string_view("Kodak_SubIFD0_0xfa04"));
+    EXPECT_EQ(exif_tag_name("mk_kodak_subifd2_0", 0x6002),
+              std::string_view("SceneModeUsed"));
+    EXPECT_EQ(exif_tag_name("mk_kodak_subifd2_0", 0x0001),
+              std::string_view("Kodak_SubIFD2_0x0001"));
+    EXPECT_EQ(exif_tag_name("mk_kodak_subifd5_0", 0x0033),
+              std::string_view("Kodak_SubIFD5_0x0033"));
+    EXPECT_EQ(exif_tag_name("mk_kodak_subifd5_0", 0x0047),
+              std::string_view("Kodak_SubIFD5_0x0047"));
+    EXPECT_EQ(exif_tag_name("mk_kodak_subifd255_0", 0xFA75),
+              std::string_view("Kodak_SubIFD0_0xfa75"));
+    EXPECT_EQ(exif_tag_name("mk_kodak_camerainfo_0", 0xFA01),
+              std::string_view("Kodak_CameraInfo_0xfa01"));
+    EXPECT_EQ(exif_tag_name("mk_kodak_camerainfo_0", 0xFF00),
+              std::string_view("Kodak_CameraInfo_0xff00"));
+}
+
+TEST(ExifTagNames, MapsAppleMainTagsAndPlaceholders)
+{
+    using openmeta::exif_tag_name;
+
+    EXPECT_EQ(exif_tag_name("mk_apple0", 0x0001),
+              std::string_view("MakerNoteVersion"));
+    EXPECT_EQ(exif_tag_name("mk_apple0", 0x000D),
+              std::string_view("Apple_0x000d"));
+    EXPECT_EQ(exif_tag_name("mk_apple0", 0x001F),
+              std::string_view("Apple_0x001f"));
+    EXPECT_EQ(exif_tag_name("mk_apple0", 0x0023),
+              std::string_view("Apple_0x0023"));
+    EXPECT_EQ(exif_tag_name("mk_apple0", 0x002D),
+              std::string_view("Apple_0x002d"));
+    EXPECT_EQ(exif_tag_name("mk_apple0", 0x002E),
+              std::string_view("Apple_0x002e"));
+    EXPECT_EQ(exif_tag_name("mk_apple0", 0x0045),
+              std::string_view("FrontFacingCamera"));
+    EXPECT_EQ(exif_tag_name("mk_apple0", 0x0050),
+              std::string_view("Apple_0x0050"));
+}
+
+TEST(ExifTagNames, MapsFujifilmMainPlaceholders)
+{
+    using openmeta::exif_tag_name;
+
+    EXPECT_EQ(exif_tag_name("mk_fuji0", 0x1026),
+              std::string_view("FujiFilm_0x1026"));
+    EXPECT_EQ(exif_tag_name("mk_fuji0", 0x1303),
+              std::string_view("FujiFilm_0x1303"));
+    EXPECT_EQ(exif_tag_name("mk_fuji0", 0x1430),
+              std::string_view("FujiFilm_0x1430"));
+}
+
+TEST(ExifTagNames, MapsDjiMainAndThermalTables)
+{
+    using openmeta::exif_tag_name;
+
+    EXPECT_EQ(exif_tag_name("mk_dji0", 0x0001), std::string_view("Make"));
+    EXPECT_EQ(exif_tag_name("mk_dji0", 0x0002), std::string_view("DJI_0x0002"));
+    EXPECT_EQ(exif_tag_name("mk_dji0", 0x0010), std::string_view("DJI_0x0010"));
+    EXPECT_EQ(exif_tag_name("mk_dji_thermalparams_0", 0x0044),
+              std::string_view("ObjectDistance"));
+    EXPECT_EQ(exif_tag_name("mk_dji_thermalparams2_0", 0x0000),
+              std::string_view("AmbientTemperature"));
+    EXPECT_EQ(exif_tag_name("mk_dji_thermalparams2_0", 0x0004),
+              std::string_view("ObjectDistance"));
+    EXPECT_EQ(exif_tag_name("mk_dji_thermalparams2_0", 0x000C),
+              std::string_view("RelativeHumidity"));
+    EXPECT_EQ(exif_tag_name("mk_dji_thermalparams2_0", 0x0010),
+              std::string_view("ReflectedTemperature"));
+    EXPECT_EQ(exif_tag_name("mk_dji_thermalparams2_0", 0x0065),
+              std::string_view("IDString"));
+    EXPECT_EQ(exif_tag_name("mk_dji_thermalparams3_0", 0x0004),
+              std::string_view("RelativeHumidity"));
+    EXPECT_EQ(exif_tag_name("mk_dji_thermalparams3_0", 0x0006),
+              std::string_view("ObjectDistance"));
+    EXPECT_EQ(exif_tag_name("mk_dji_thermalparams3_0", 0x0008),
+              std::string_view("Emissivity"));
+    EXPECT_EQ(exif_tag_name("mk_dji_thermalparams3_0", 0x000A),
+              std::string_view("ReflectedTemperature"));
+}
+
+
+TEST(ExifTagNames, MapsMotorolaMainAndPlaceholders)
+{
+    using openmeta::exif_tag_name;
+
+    EXPECT_EQ(exif_tag_name("mk_motorola0", 0x5500),
+              std::string_view("BuildNumber"));
+    EXPECT_EQ(exif_tag_name("mk_motorola0", 0x5501),
+              std::string_view("SerialNumber"));
+    EXPECT_EQ(exif_tag_name("mk_motorola0", 0x6420),
+              std::string_view("CustomRendered"));
+    EXPECT_EQ(exif_tag_name("mk_motorola0", 0x64D0),
+              std::string_view("DriveMode"));
+    EXPECT_EQ(exif_tag_name("mk_motorola0", 0x665E),
+              std::string_view("Sensor"));
+    EXPECT_EQ(exif_tag_name("mk_motorola0", 0x6705),
+              std::string_view("ManufactureDate"));
+    EXPECT_EQ(exif_tag_name("mk_motorola0", 0x5540),
+              std::string_view("Motorola_0x5540"));
+    EXPECT_EQ(exif_tag_name("mk_motorola0", 0x6400),
+              std::string_view("Motorola_0x6400"));
+    EXPECT_EQ(exif_tag_name("mk_motorola0", 0x6703),
+              std::string_view("Motorola_0x6703"));
+}
+
+TEST(ExifTagNames, MapsRicohMainAndSubtablePlaceholders)
+{
+    using openmeta::exif_tag_name;
+
+    EXPECT_EQ(exif_tag_name("mk_ricoh0", 0x0006),
+              std::string_view("Ricoh_0x0006"));
+    EXPECT_EQ(exif_tag_name("mk_ricoh0", 0x1002),
+              std::string_view("DriveMode"));
+    EXPECT_EQ(exif_tag_name("mk_ricoh_subdir_0", 0x0007),
+              std::string_view("Ricoh_Subdir_0x0007"));
+    EXPECT_EQ(exif_tag_name("mk_ricoh_imageinfo_0", 0x0003),
+              std::string_view("Ricoh_ImageInfo_0x0003"));
+    EXPECT_EQ(exif_tag_name("mk_ricoh_thetasubdir_0", 0x0003),
+              std::string_view("Accelerometer"));
+    EXPECT_EQ(exif_tag_name("mk_ricoh_thetasubdir_0", 0x1001),
+              std::string_view("Ricoh_ThetaSubdir_0x1001"));
+    EXPECT_EQ(exif_tag_name("mk_ricoh_type2_0", 0x0104),
+              std::string_view("Ricoh_Type2_0x0104"));
+}
+
+TEST(ExifTagNames, MapsPentaxMainAndSubtablePlaceholders)
+{
+    using openmeta::exif_tag_name;
+
+    EXPECT_EQ(exif_tag_name("mk_pentax0", 0x003E),
+              std::string_view("PreviewImageBorders"));
+    EXPECT_EQ(exif_tag_name("mk_pentax0", 0x005E),
+              std::string_view("Pentax_0x005e"));
+    EXPECT_EQ(exif_tag_name("mk_pentax0", 0x0227),
+              std::string_view("Pentax_0x0227"));
+    EXPECT_EQ(exif_tag_name("mk_pentax_type2_0", 0x0005),
+              std::string_view("Pentax_Type2_0x0005"));
+    EXPECT_EQ(exif_tag_name("mk_pentax_faceinfo_0", 0x0001),
+              std::string_view("Pentax_0x0001"));
+    EXPECT_EQ(exif_tag_name("mk_pentax_facepos_0", 0x0011),
+              std::string_view("Pentax_0x0011"));
+    EXPECT_EQ(exif_tag_name("mk_pentax_colorinfo_0", 0x000A),
+              std::string_view("Pentax_0x000a"));
+}
+
+TEST(ExifTagNames, MapsCasioType2Placeholders)
+{
+    using openmeta::exif_tag_name;
+
+    EXPECT_EQ(exif_tag_name("mk_casio0", 0x0E00), std::string_view("PrintIM"));
+    EXPECT_EQ(exif_tag_name("mk_casio_type2_0", 0x2002),
+              std::string_view("Casio_Type2_0x2002"));
+    EXPECT_EQ(exif_tag_name("mk_casio_type2_0", 0x2003),
+              std::string_view("Casio_Type2_0x2003"));
+    EXPECT_EQ(exif_tag_name("mk_casio_type2_0", 0x3005),
+              std::string_view("Casio_Type2_0x3005"));
+}
+
+TEST(ExifTagNames, MapsSamsungIfdAndType2Placeholders)
+{
+    using openmeta::exif_tag_name;
+
+    EXPECT_EQ(exif_tag_name("mk_samsung_ifd_0", 0x0002),
+              std::string_view("Samsung_IFD_0x0002"));
+    EXPECT_EQ(exif_tag_name("mk_samsung_ifd_0", 0x0006),
+              std::string_view("Samsung_IFD_0x0006"));
+    EXPECT_EQ(exif_tag_name("mk_samsung_type2_0", 0x0060),
+              std::string_view("Samsung_Type2_0x0060"));
+    EXPECT_EQ(exif_tag_name("mk_samsung_type2_0", 0x00E1),
+              std::string_view("Samsung_Type2_0x00e1"));
+    EXPECT_EQ(exif_tag_name("mk_samsung_type2_0", 0xA002),
+              std::string_view("SerialNumber"));
+}
+
+TEST(ExifTagNames, MapsMinoltaMainPlaceholdersAndImageSizeAlias)
+{
+    using openmeta::exif_tag_name;
+
+    EXPECT_EQ(exif_tag_name("mk_minolta0", 0x0103),
+              std::string_view("MinoltaImageSize"));
+    EXPECT_EQ(exif_tag_name("mk_minolta0", 0x0106),
+              std::string_view("Minolta_0x0106"));
+    EXPECT_EQ(exif_tag_name("mk_minolta0", 0x010D),
+              std::string_view("Minolta_0x010d"));
+    EXPECT_EQ(exif_tag_name("mk_minolta0", 0x0200),
+              std::string_view("Minolta_0x0200"));
+}
+
+TEST(ExifTagNames, ContextualEntryNamesSelectCasioLegacyType2Compat)
+{
+    using openmeta::BlockInfo;
+    using openmeta::Entry;
+    using openmeta::EntryFlags;
+    using openmeta::EntryId;
+    using openmeta::EntryNameContextKind;
+    using openmeta::exif_entry_name;
+    using openmeta::ExifTagNamePolicy;
+    using openmeta::make_exif_tag_key;
+    using openmeta::MetaStore;
+
+    MetaStore store;
+    const openmeta::BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    Entry quality;
+    quality.key = make_exif_tag_key(store.arena(), "mk_casio_type2_0", 0x0002);
+    quality.origin.block = block;
+    quality.flags |= EntryFlags::ContextualName;
+    quality.origin.name_context_kind = EntryNameContextKind::CasioType2Legacy;
+    quality.origin.name_context_variant = 1U;
+    const EntryId quality_id            = store.add_entry(quality);
+    ASSERT_NE(quality_id, openmeta::kInvalidEntryId);
+
+    Entry placeholder;
+    placeholder.key = make_exif_tag_key(store.arena(), "mk_casio_type2_0",
+                                        0x0008);
+    placeholder.origin.block = block;
+    placeholder.flags |= EntryFlags::ContextualName;
+    placeholder.origin.name_context_kind
+        = EntryNameContextKind::CasioType2Legacy;
+    placeholder.origin.name_context_variant = 1U;
+    const EntryId placeholder_id            = store.add_entry(placeholder);
+    ASSERT_NE(placeholder_id, openmeta::kInvalidEntryId);
+
+    Entry printim;
+    printim.key = make_exif_tag_key(store.arena(), "mk_casio_type2_0", 0x0E00);
+    printim.origin.block = block;
+    printim.flags |= EntryFlags::ContextualName;
+    printim.origin.name_context_kind = EntryNameContextKind::CasioType2Legacy;
+    printim.origin.name_context_variant = 1U;
+    const EntryId printim_id            = store.add_entry(printim);
+    ASSERT_NE(printim_id, openmeta::kInvalidEntryId);
+
+    const Entry& quality_entry = store.entry(quality_id);
+    EXPECT_EQ(exif_entry_name(store, quality_entry,
+                              ExifTagNamePolicy::Canonical),
+              std::string_view("PreviewImageSize"));
+    EXPECT_EQ(exif_entry_name(store, quality_entry,
+                              ExifTagNamePolicy::ExifToolCompat),
+              std::string_view("Quality"));
+
+    const Entry& placeholder_entry = store.entry(placeholder_id);
+    EXPECT_EQ(exif_entry_name(store, placeholder_entry,
+                              ExifTagNamePolicy::Canonical),
+              std::string_view("QualityMode"));
+    EXPECT_EQ(exif_entry_name(store, placeholder_entry,
+                              ExifTagNamePolicy::ExifToolCompat),
+              std::string_view("Casio_0x0008"));
+
+    const Entry& printim_entry = store.entry(printim_id);
+    EXPECT_EQ(exif_entry_name(store, printim_entry,
+                              ExifTagNamePolicy::Canonical),
+              std::string_view("Casio_Type2_0x0e00"));
+    EXPECT_EQ(exif_entry_name(store, printim_entry,
+                              ExifTagNamePolicy::ExifToolCompat),
+              std::string_view("PrintIM"));
+}
+
+TEST(ExifTagNames, MapsNikonSettingsMainAndPlaceholders)
+{
+    using openmeta::exif_tag_name;
+
+    EXPECT_EQ(exif_tag_name("mk_nikonsettings_main_0", 0x0001),
+              std::string_view("ISOAutoHiLimit"));
+    EXPECT_EQ(exif_tag_name("mk_nikonsettings_main_0", 0x0046),
+              std::string_view("OpticalVR"));
+    EXPECT_EQ(exif_tag_name("mk_nikonsettings_main_0", 0x0016),
+              std::string_view("NikonSettings_0x0016"));
+    EXPECT_EQ(exif_tag_name("mk_nikonsettings_main_0", 0x0107),
+              std::string_view("NikonSettings_0x0107"));
+    EXPECT_EQ(exif_tag_name("mk_nikonsettings_main_0", 0x00FA),
+              std::string_view("NikonSettings_0x00fa"));
+}
+
+TEST(ExifTagNames, MapsPanasonicMainPlaceholdersAndLegacyFallbacks)
+{
+    using openmeta::exif_tag_name;
+
+    EXPECT_EQ(exif_tag_name("mk_panasonic0", 0x0022),
+              std::string_view("Panasonic_0x0022"));
+    EXPECT_EQ(exif_tag_name("mk_panasonic0", 0x0037),
+              std::string_view("Panasonic_0x0037"));
+    EXPECT_EQ(exif_tag_name("mk_panasonic0", 0x0058),
+              std::string_view("ThumbnailWidth"));
+    EXPECT_EQ(exif_tag_name("mk_panasonic0", 0x00DE),
+              std::string_view("AFAreaSize"));
 }
 
 
@@ -404,6 +695,58 @@ TEST(ExifTagNames, ContextualEntryNamesSelectCanonCompatVariants)
                               ExifTagNamePolicy::ExifToolCompat),
               std::string_view("Canon_0x0038"));
 
+    const struct {
+        std::string_view ifd;
+        uint16_t tag;
+        EntryNameContextKind kind;
+        std::string_view canonical;
+        std::string_view compat;
+    } canon_compat_cases[] = {
+        { "mk_canon_shotinfo_0", 0x000E,
+          EntryNameContextKind::CanonShotInfo000E, "AFPointsInFocus",
+          "MinFocalLength" },
+        { "mk_canon_camerasettings_0", 0x0021,
+          EntryNameContextKind::CanonCameraSettings0021, "AESetting",
+          "WB_RGGBLevelsKelvin" },
+        { "mk_canon_colordata4_0", 0x00EA,
+          EntryNameContextKind::CanonColorData400EA, "",
+          "WB_RGGBLevelsUnknown7" },
+        { "mk_canon_colordata4_0", 0x00EE,
+          EntryNameContextKind::CanonColorData400EE, "", "MaxFocalLength" },
+        { "mk_canon_colordata4_0", 0x02CF,
+          EntryNameContextKind::CanonColorData402CF, "NormalWhiteLevel",
+          "PerChannelBlackLevel" },
+        { "mk_canon_colorcalib_0", 0x0038,
+          EntryNameContextKind::CanonColorCalib0038, "CameraColorCalibration15",
+          "BatteryType" },
+        { "mk_canon_camerainfo1d_0", 0x0048,
+          EntryNameContextKind::CanonCameraInfo1D0048, "ColorTemperature",
+          "Sharpness" },
+        { "mk_canon_camerainfo600d_0", 0x00EA,
+          EntryNameContextKind::CanonCameraInfo600D00EA, "LensType",
+          "MinFocalLength" },
+    };
+
+    for (size_t i = 0;
+         i < sizeof(canon_compat_cases) / sizeof(canon_compat_cases[0]); ++i) {
+        Entry entry;
+        entry.key = make_exif_tag_key(store.arena(), canon_compat_cases[i].ifd,
+                                      canon_compat_cases[i].tag);
+        entry.origin.block = block;
+        entry.flags |= EntryFlags::ContextualName;
+        entry.origin.name_context_kind    = canon_compat_cases[i].kind;
+        entry.origin.name_context_variant = 1U;
+        const EntryId id                  = store.add_entry(entry);
+        ASSERT_NE(id, openmeta::kInvalidEntryId);
+
+        const Entry& stored = store.entry(id);
+        EXPECT_EQ(exif_entry_name(store, stored, ExifTagNamePolicy::Canonical),
+                  canon_compat_cases[i].canonical);
+        EXPECT_EQ(exif_entry_name(store, stored,
+                                  ExifTagNamePolicy::ExifToolCompat),
+                  canon_compat_cases[i].compat);
+    }
+
     Entry iso_expansion;
     iso_expansion.key          = make_exif_tag_key(store.arena(),
                                                    "mk_canoncustom_functions2_0",
@@ -561,4 +904,447 @@ TEST(ExifTagNames, ContextualEntryNamesSelectKodakCompatVariants)
     EXPECT_EQ(exif_entry_name(store, kodak_model_entry,
                               ExifTagNamePolicy::ExifToolCompat),
               std::string_view("KodakModel"));
+}
+
+
+TEST(ExifTagNames, ContextualEntryNamesSelectMotorolaCompatVariants)
+{
+    using openmeta::BlockInfo;
+    using openmeta::Entry;
+    using openmeta::EntryFlags;
+    using openmeta::EntryId;
+    using openmeta::EntryNameContextKind;
+    using openmeta::exif_entry_name;
+    using openmeta::ExifTagNamePolicy;
+    using openmeta::make_exif_tag_key;
+    using openmeta::MetaStore;
+
+    MetaStore store;
+    const openmeta::BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    Entry placeholder;
+    placeholder.key = make_exif_tag_key(store.arena(), "mk_motorola0", 0x6420);
+    placeholder.origin.block = block;
+    placeholder.flags |= EntryFlags::ContextualName;
+    placeholder.origin.name_context_kind
+        = EntryNameContextKind::MotorolaMain6420;
+    placeholder.origin.name_context_variant = 1U;
+    const EntryId placeholder_id            = store.add_entry(placeholder);
+    ASSERT_NE(placeholder_id, openmeta::kInvalidEntryId);
+
+    const Entry& placeholder_entry = store.entry(placeholder_id);
+    EXPECT_EQ(exif_entry_name(store, placeholder_entry,
+                              ExifTagNamePolicy::Canonical),
+              std::string_view("CustomRendered"));
+    EXPECT_EQ(exif_entry_name(store, placeholder_entry,
+                              ExifTagNamePolicy::ExifToolCompat),
+              std::string_view("Motorola_0x6420"));
+}
+
+TEST(ExifTagNames, ContextualEntryNamesSelectFujifilmCompatVariants)
+{
+    using openmeta::BlockInfo;
+    using openmeta::Entry;
+    using openmeta::EntryFlags;
+    using openmeta::EntryId;
+    using openmeta::EntryNameContextKind;
+    using openmeta::exif_entry_name;
+    using openmeta::ExifTagNamePolicy;
+    using openmeta::make_exif_tag_key;
+    using openmeta::MetaStore;
+
+    MetaStore store;
+    const openmeta::BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    Entry placeholder;
+    placeholder.key = make_exif_tag_key(store.arena(), "mk_fuji0", 0x1304);
+    placeholder.origin.block = block;
+    placeholder.flags |= EntryFlags::ContextualName;
+    placeholder.origin.name_context_kind
+        = EntryNameContextKind::FujifilmMain1304;
+    placeholder.origin.name_context_variant = 1U;
+    const EntryId placeholder_id            = store.add_entry(placeholder);
+    ASSERT_NE(placeholder_id, openmeta::kInvalidEntryId);
+
+    const Entry& placeholder_entry = store.entry(placeholder_id);
+    EXPECT_EQ(exif_entry_name(store, placeholder_entry,
+                              ExifTagNamePolicy::Canonical),
+              std::string_view("GEImageSize"));
+    EXPECT_EQ(exif_entry_name(store, placeholder_entry,
+                              ExifTagNamePolicy::ExifToolCompat),
+              std::string_view("FujiFilm_0x1304"));
+
+    Entry wb_placeholder;
+    wb_placeholder.key = make_exif_tag_key(store.arena(), "mk_fuji0", 0x144A);
+    wb_placeholder.origin.block = block;
+    wb_placeholder.flags |= EntryFlags::ContextualName;
+    wb_placeholder.origin.name_context_kind
+        = EntryNameContextKind::FujifilmMain1304;
+    wb_placeholder.origin.name_context_variant = 1U;
+    const EntryId wb_placeholder_id = store.add_entry(wb_placeholder);
+    ASSERT_NE(wb_placeholder_id, openmeta::kInvalidEntryId);
+
+    const Entry& wb_placeholder_entry = store.entry(wb_placeholder_id);
+    EXPECT_EQ(exif_entry_name(store, wb_placeholder_entry,
+                              ExifTagNamePolicy::Canonical),
+              std::string_view("WBRed"));
+    EXPECT_EQ(exif_entry_name(store, wb_placeholder_entry,
+                              ExifTagNamePolicy::ExifToolCompat),
+              std::string_view("FujiFilm_0x144a"));
+}
+
+
+TEST(ExifTagNames, ContextualEntryNamesSelectRicohCompatVariants)
+{
+    using openmeta::BlockInfo;
+    using openmeta::Entry;
+    using openmeta::EntryFlags;
+    using openmeta::EntryId;
+    using openmeta::EntryNameContextKind;
+    using openmeta::exif_entry_name;
+    using openmeta::ExifTagNamePolicy;
+    using openmeta::make_exif_tag_key;
+    using openmeta::MetaStore;
+
+    MetaStore store;
+    const openmeta::BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    Entry placeholder;
+    placeholder.key = make_exif_tag_key(store.arena(), "mk_ricoh0", 0x1002);
+    placeholder.origin.block = block;
+    placeholder.flags |= EntryFlags::ContextualName;
+    placeholder.origin.name_context_kind = EntryNameContextKind::RicohMainCompat;
+    placeholder.origin.name_context_variant = 1U;
+    const EntryId placeholder_id            = store.add_entry(placeholder);
+    ASSERT_NE(placeholder_id, openmeta::kInvalidEntryId);
+
+    Entry white_balance;
+    white_balance.key = make_exif_tag_key(store.arena(), "mk_ricoh0", 0x1003);
+    white_balance.origin.block = block;
+    white_balance.flags |= EntryFlags::ContextualName;
+    white_balance.origin.name_context_kind
+        = EntryNameContextKind::RicohMainCompat;
+    white_balance.origin.name_context_variant = 2U;
+    const EntryId white_balance_id            = store.add_entry(white_balance);
+    ASSERT_NE(white_balance_id, openmeta::kInvalidEntryId);
+
+    const Entry& placeholder_entry = store.entry(placeholder_id);
+    EXPECT_EQ(exif_entry_name(store, placeholder_entry,
+                              ExifTagNamePolicy::Canonical),
+              std::string_view("DriveMode"));
+    EXPECT_EQ(exif_entry_name(store, placeholder_entry,
+                              ExifTagNamePolicy::ExifToolCompat),
+              std::string_view("Ricoh_0x1002"));
+
+    const Entry& white_balance_entry = store.entry(white_balance_id);
+    EXPECT_EQ(exif_entry_name(store, white_balance_entry,
+                              ExifTagNamePolicy::Canonical),
+              std::string_view("Sharpness"));
+    EXPECT_EQ(exif_entry_name(store, white_balance_entry,
+                              ExifTagNamePolicy::ExifToolCompat),
+              std::string_view("WhiteBalance"));
+}
+
+TEST(ExifTagNames, ContextualEntryNamesSelectPentaxCompatVariants)
+{
+    using openmeta::BlockInfo;
+    using openmeta::Entry;
+    using openmeta::EntryFlags;
+    using openmeta::EntryId;
+    using openmeta::EntryNameContextKind;
+    using openmeta::exif_entry_name;
+    using openmeta::ExifTagNamePolicy;
+    using openmeta::make_exif_tag_key;
+    using openmeta::MetaStore;
+
+    MetaStore store;
+    const openmeta::BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    Entry raw_development_process;
+    raw_development_process.key = make_exif_tag_key(store.arena(), "mk_pentax0",
+                                                    0x0062);
+    raw_development_process.origin.block = block;
+    raw_development_process.flags |= EntryFlags::ContextualName;
+    raw_development_process.origin.name_context_kind
+        = EntryNameContextKind::PentaxMain0062;
+    raw_development_process.origin.name_context_variant = 1U;
+    const EntryId raw_development_process_id            = store.add_entry(
+        raw_development_process);
+    ASSERT_NE(raw_development_process_id, openmeta::kInvalidEntryId);
+
+    const Entry& raw_development_process_entry = store.entry(
+        raw_development_process_id);
+    EXPECT_EQ(exif_entry_name(store, raw_development_process_entry,
+                              ExifTagNamePolicy::Canonical),
+              std::string_view("RawDevelopmentProcess"));
+    EXPECT_EQ(exif_entry_name(store, raw_development_process_entry,
+                              ExifTagNamePolicy::ExifToolCompat),
+              std::string_view("Pentax_0x0062"));
+}
+
+TEST(ExifTagNames, EntryNamesSelectSamsungType2A002CompatWithPeerEntries)
+{
+    using openmeta::BlockInfo;
+    using openmeta::Entry;
+    using openmeta::EntryId;
+    using openmeta::exif_entry_name;
+    using openmeta::ExifTagNamePolicy;
+    using openmeta::make_exif_tag_key;
+    using openmeta::MetaStore;
+
+    MetaStore store;
+    const openmeta::BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    Entry serial_number;
+    serial_number.key = make_exif_tag_key(store.arena(), "mk_samsung_type2_0",
+                                          0xA002);
+    serial_number.origin.block     = block;
+    const EntryId serial_number_id = store.add_entry(serial_number);
+    ASSERT_NE(serial_number_id, openmeta::kInvalidEntryId);
+
+    Entry lens_type;
+    lens_type.key = make_exif_tag_key(store.arena(), "mk_samsung_type2_0",
+                                      0xA003);
+    lens_type.origin.block     = block;
+    const EntryId lens_type_id = store.add_entry(lens_type);
+    ASSERT_NE(lens_type_id, openmeta::kInvalidEntryId);
+
+    const Entry& serial_number_entry = store.entry(serial_number_id);
+    EXPECT_EQ(exif_entry_name(store, serial_number_entry,
+                              ExifTagNamePolicy::Canonical),
+              std::string_view("SerialNumber"));
+    EXPECT_EQ(exif_entry_name(store, serial_number_entry,
+                              ExifTagNamePolicy::ExifToolCompat),
+              std::string_view("Samsung_Type2_0xa002"));
+
+    const Entry& lens_type_entry = store.entry(lens_type_id);
+    EXPECT_EQ(exif_entry_name(store, lens_type_entry,
+                              ExifTagNamePolicy::ExifToolCompat),
+              std::string_view("LensType"));
+}
+
+TEST(ExifTagNames, EntryNamesSelectSamsungType2A002CompatWithoutPeerEntries)
+{
+    using openmeta::BlockInfo;
+    using openmeta::Entry;
+    using openmeta::EntryId;
+    using openmeta::exif_entry_name;
+    using openmeta::ExifTagNamePolicy;
+    using openmeta::make_exif_tag_key;
+    using openmeta::MetaStore;
+
+    MetaStore store;
+    const openmeta::BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    Entry serial_number;
+    serial_number.key = make_exif_tag_key(store.arena(), "mk_samsung_type2_0",
+                                          0xA002);
+    serial_number.origin.block     = block;
+    const EntryId serial_number_id = store.add_entry(serial_number);
+    ASSERT_NE(serial_number_id, openmeta::kInvalidEntryId);
+
+    const Entry& serial_number_entry = store.entry(serial_number_id);
+    EXPECT_EQ(exif_entry_name(store, serial_number_entry,
+                              ExifTagNamePolicy::Canonical),
+              std::string_view("SerialNumber"));
+    EXPECT_EQ(exif_entry_name(store, serial_number_entry,
+                              ExifTagNamePolicy::ExifToolCompat),
+              std::string_view("Samsung_Type2_0xa002"));
+}
+
+TEST(ExifTagNames, EntryNamesSelectMinoltaMainCompatPlaceholders)
+{
+    using openmeta::BlockInfo;
+    using openmeta::Entry;
+    using openmeta::EntryId;
+    using openmeta::exif_entry_name;
+    using openmeta::ExifTagNamePolicy;
+    using openmeta::make_exif_tag_key;
+    using openmeta::MetaStore;
+
+    MetaStore store;
+    const openmeta::BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    Entry first;
+    first.key = make_exif_tag_key(store.arena(), "mk_minolta0", 0x0018);
+    first.origin.block     = block;
+    const EntryId first_id = store.add_entry(first);
+    ASSERT_NE(first_id, openmeta::kInvalidEntryId);
+
+    Entry second;
+    second.key = make_exif_tag_key(store.arena(), "mk_minolta0", 0x0113);
+    second.origin.block     = block;
+    const EntryId second_id = store.add_entry(second);
+    ASSERT_NE(second_id, openmeta::kInvalidEntryId);
+
+    const Entry& first_entry = store.entry(first_id);
+    EXPECT_EQ(exif_entry_name(store, first_entry, ExifTagNamePolicy::Canonical),
+              std::string_view("ImageStabilization"));
+    EXPECT_EQ(exif_entry_name(store, first_entry,
+                              ExifTagNamePolicy::ExifToolCompat),
+              std::string_view("Minolta_0x0018"));
+
+    const Entry& second_entry = store.entry(second_id);
+    EXPECT_EQ(exif_entry_name(store, second_entry, ExifTagNamePolicy::Canonical),
+              std::string_view("ImageStabilization"));
+    EXPECT_EQ(exif_entry_name(store, second_entry,
+                              ExifTagNamePolicy::ExifToolCompat),
+              std::string_view("Minolta_0x0113"));
+}
+
+TEST(ExifTagNames, ContextualEntryNamesSelectNikonSettingsCompatVariants)
+{
+    using openmeta::BlockInfo;
+    using openmeta::Entry;
+    using openmeta::EntryFlags;
+    using openmeta::EntryId;
+    using openmeta::EntryNameContextKind;
+    using openmeta::exif_entry_name;
+    using openmeta::ExifTagNamePolicy;
+    using openmeta::make_exif_tag_key;
+    using openmeta::MetaStore;
+
+    MetaStore store;
+    const openmeta::BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    Entry placeholder;
+    placeholder.key          = make_exif_tag_key(store.arena(),
+                                                 "mk_nikonsettings_main_0", 0x0001);
+    placeholder.origin.block = block;
+    placeholder.flags |= EntryFlags::ContextualName;
+    placeholder.origin.name_context_kind
+        = EntryNameContextKind::NikonSettingsMain;
+    placeholder.origin.name_context_variant = 1U;
+    const EntryId placeholder_id            = store.add_entry(placeholder);
+    ASSERT_NE(placeholder_id, openmeta::kInvalidEntryId);
+
+    const Entry& placeholder_entry = store.entry(placeholder_id);
+    EXPECT_EQ(exif_entry_name(store, placeholder_entry,
+                              ExifTagNamePolicy::Canonical),
+              std::string_view("ISOAutoHiLimit"));
+    EXPECT_EQ(exif_entry_name(store, placeholder_entry,
+                              ExifTagNamePolicy::ExifToolCompat),
+              std::string_view("NikonSettings_0x0001"));
+}
+
+TEST(ExifTagNames, EntryNamesSelectPanasonicMainCompatPlaceholders)
+{
+    using openmeta::BlockInfo;
+    using openmeta::Entry;
+    using openmeta::EntryId;
+    using openmeta::exif_entry_name;
+    using openmeta::ExifTagNamePolicy;
+    using openmeta::make_exif_tag_key;
+    using openmeta::make_u16;
+    using openmeta::MetaStore;
+
+    MetaStore store;
+    const openmeta::BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    Entry thumbnail_width;
+    thumbnail_width.key = make_exif_tag_key(store.arena(), "mk_panasonic0",
+                                            0x0058);
+    thumbnail_width.origin.block     = block;
+    const EntryId thumbnail_width_id = store.add_entry(thumbnail_width);
+    ASSERT_NE(thumbnail_width_id, openmeta::kInvalidEntryId);
+
+    Entry af_area_size;
+    af_area_size.key = make_exif_tag_key(store.arena(), "mk_panasonic0",
+                                         0x00DE);
+    af_area_size.origin.block     = block;
+    const EntryId af_area_size_id = store.add_entry(af_area_size);
+    ASSERT_NE(af_area_size_id, openmeta::kInvalidEntryId);
+
+    Entry lens_type;
+    lens_type.key = make_exif_tag_key(store.arena(), "mk_panasonic0", 0x0051);
+    lens_type.origin.block     = block;
+    const EntryId lens_type_id = store.add_entry(lens_type);
+    ASSERT_NE(lens_type_id, openmeta::kInvalidEntryId);
+
+    Entry lens_type_make_placeholder;
+    lens_type_make_placeholder.key          = make_exif_tag_key(store.arena(),
+                                                                "mk_panasonic0", 0x00C4);
+    lens_type_make_placeholder.value        = make_u16(65535U);
+    lens_type_make_placeholder.origin.block = block;
+    const EntryId lens_type_make_placeholder_id = store.add_entry(
+        lens_type_make_placeholder);
+    ASSERT_NE(lens_type_make_placeholder_id, openmeta::kInvalidEntryId);
+
+    Entry lens_type_make_named;
+    lens_type_make_named.key = make_exif_tag_key(store.arena(), "mk_panasonic0",
+                                                 0x00C4);
+    lens_type_make_named.value            = make_u16(0U);
+    lens_type_make_named.origin.block     = block;
+    const EntryId lens_type_make_named_id = store.add_entry(
+        lens_type_make_named);
+    ASSERT_NE(lens_type_make_named_id, openmeta::kInvalidEntryId);
+
+    const Entry& thumbnail_width_entry = store.entry(thumbnail_width_id);
+    EXPECT_EQ(exif_entry_name(store, thumbnail_width_entry,
+                              ExifTagNamePolicy::Canonical),
+              std::string_view("ThumbnailWidth"));
+    EXPECT_EQ(exif_entry_name(store, thumbnail_width_entry,
+                              ExifTagNamePolicy::ExifToolCompat),
+              std::string_view("Panasonic_0x0058"));
+
+    const Entry& af_area_size_entry = store.entry(af_area_size_id);
+    EXPECT_EQ(exif_entry_name(store, af_area_size_entry,
+                              ExifTagNamePolicy::Canonical),
+              std::string_view("AFAreaSize"));
+    EXPECT_EQ(exif_entry_name(store, af_area_size_entry,
+                              ExifTagNamePolicy::ExifToolCompat),
+              std::string_view("Panasonic_0x00de"));
+
+    const Entry& lens_type_entry = store.entry(lens_type_id);
+    EXPECT_EQ(exif_entry_name(store, lens_type_entry,
+                              ExifTagNamePolicy::Canonical),
+              std::string_view("LensType"));
+    EXPECT_EQ(exif_entry_name(store, lens_type_entry,
+                              ExifTagNamePolicy::ExifToolCompat),
+              std::string_view("LensType"));
+
+    const Entry& lens_type_make_placeholder_entry = store.entry(
+        lens_type_make_placeholder_id);
+    EXPECT_EQ(exif_entry_name(store, lens_type_make_placeholder_entry,
+                              ExifTagNamePolicy::Canonical),
+              std::string_view("LensTypeMake"));
+    EXPECT_EQ(exif_entry_name(store, lens_type_make_placeholder_entry,
+                              ExifTagNamePolicy::ExifToolCompat),
+              std::string_view("Panasonic_0x00c4"));
+
+    const Entry& lens_type_make_named_entry = store.entry(
+        lens_type_make_named_id);
+    EXPECT_EQ(exif_entry_name(store, lens_type_make_named_entry,
+                              ExifTagNamePolicy::Canonical),
+              std::string_view("LensTypeMake"));
+    EXPECT_EQ(exif_entry_name(store, lens_type_make_named_entry,
+                              ExifTagNamePolicy::ExifToolCompat),
+              std::string_view("LensTypeMake"));
+
+    Entry legacy_model_placeholder;
+    legacy_model_placeholder.key              = make_exif_tag_key(store.arena(),
+                                                                  "mk_panasonic0", 0x0004);
+    legacy_model_placeholder.value            = make_u16(1U);
+    legacy_model_placeholder.origin.block     = block;
+    const EntryId legacy_model_placeholder_id = store.add_entry(
+        legacy_model_placeholder);
+    ASSERT_NE(legacy_model_placeholder_id, openmeta::kInvalidEntryId);
+
+    const Entry& legacy_model_placeholder_entry = store.entry(
+        legacy_model_placeholder_id);
+    EXPECT_EQ(exif_entry_name(store, legacy_model_placeholder_entry,
+                              ExifTagNamePolicy::Canonical),
+              std::string_view("Model"));
+    EXPECT_EQ(exif_entry_name(store, legacy_model_placeholder_entry,
+                              ExifTagNamePolicy::ExifToolCompat),
+              std::string_view("Panasonic_0x0004"));
 }

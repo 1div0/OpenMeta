@@ -71,6 +71,132 @@ namespace {
         return ifd.substr(pos + 1U);
     }
 
+    static std::string_view
+    synthesize_fujifilm_main_placeholder_name(uint16_t tag) noexcept
+    {
+        static thread_local char buf[20];
+        static constexpr std::string_view kPrefix = "FujiFilm_0x";
+        static constexpr char kHex[]              = "0123456789abcdef";
+        if (kPrefix.size() + 4U >= sizeof(buf)) {
+            return {};
+        }
+
+        for (size_t i = 0; i < kPrefix.size(); ++i) {
+            buf[i] = kPrefix[i];
+        }
+        buf[kPrefix.size() + 0U] = kHex[(tag >> 12U) & 0xFU];
+        buf[kPrefix.size() + 1U] = kHex[(tag >> 8U) & 0xFU];
+        buf[kPrefix.size() + 2U] = kHex[(tag >> 4U) & 0xFU];
+        buf[kPrefix.size() + 3U] = kHex[(tag >> 0U) & 0xFU];
+        buf[kPrefix.size() + 4U] = '\0';
+        return std::string_view(buf, kPrefix.size() + 4U);
+    }
+
+    static std::string_view
+    synthesize_casio_main_placeholder_name(uint16_t tag) noexcept
+    {
+        static thread_local char buf[16];
+        static constexpr std::string_view kPrefix = "Casio_0x";
+        static constexpr char kHex[]              = "0123456789abcdef";
+        if (kPrefix.size() + 4U >= sizeof(buf)) {
+            return {};
+        }
+
+        for (size_t i = 0; i < kPrefix.size(); ++i) {
+            buf[i] = kPrefix[i];
+        }
+        buf[kPrefix.size() + 0U] = kHex[(tag >> 12U) & 0xFU];
+        buf[kPrefix.size() + 1U] = kHex[(tag >> 8U) & 0xFU];
+        buf[kPrefix.size() + 2U] = kHex[(tag >> 4U) & 0xFU];
+        buf[kPrefix.size() + 3U] = kHex[(tag >> 0U) & 0xFU];
+        buf[kPrefix.size() + 4U] = '\0';
+        return std::string_view(buf, kPrefix.size() + 4U);
+    }
+
+    static std::string_view
+    synthesize_nikonsettings_placeholder_name(uint16_t tag) noexcept
+    {
+        static thread_local char buf[25];
+        static constexpr std::string_view kPrefix = "NikonSettings_0x";
+        static constexpr char kHex[]              = "0123456789abcdef";
+        if (kPrefix.size() + 4U >= sizeof(buf)) {
+            return {};
+        }
+
+        for (size_t i = 0; i < kPrefix.size(); ++i) {
+            buf[i] = kPrefix[i];
+        }
+        buf[kPrefix.size() + 0U] = kHex[(tag >> 12U) & 0xFU];
+        buf[kPrefix.size() + 1U] = kHex[(tag >> 8U) & 0xFU];
+        buf[kPrefix.size() + 2U] = kHex[(tag >> 4U) & 0xFU];
+        buf[kPrefix.size() + 3U] = kHex[(tag >> 0U) & 0xFU];
+        buf[kPrefix.size() + 4U] = '\0';
+        return std::string_view(buf, kPrefix.size() + 4U);
+    }
+
+    static std::string_view
+    synthesize_minolta_main_placeholder_name(uint16_t tag) noexcept
+    {
+        static thread_local char buf[18];
+        static constexpr std::string_view kPrefix = "Minolta_0x";
+        static constexpr char kHex[]              = "0123456789abcdef";
+        if (kPrefix.size() + 4U >= sizeof(buf)) {
+            return {};
+        }
+
+        for (size_t i = 0; i < kPrefix.size(); ++i) {
+            buf[i] = kPrefix[i];
+        }
+        buf[kPrefix.size() + 0U] = kHex[(tag >> 12U) & 0xFU];
+        buf[kPrefix.size() + 1U] = kHex[(tag >> 8U) & 0xFU];
+        buf[kPrefix.size() + 2U] = kHex[(tag >> 4U) & 0xFU];
+        buf[kPrefix.size() + 3U] = kHex[(tag >> 0U) & 0xFU];
+        buf[kPrefix.size() + 4U] = '\0';
+        return std::string_view(buf, kPrefix.size() + 4U);
+    }
+
+    static std::string_view
+    synthesize_panasonic_main_placeholder_name(uint16_t tag) noexcept
+    {
+        static thread_local char buf[21];
+        static constexpr std::string_view kPrefix = "Panasonic_0x";
+        static constexpr char kHex[]              = "0123456789abcdef";
+        if (kPrefix.size() + 4U >= sizeof(buf)) {
+            return {};
+        }
+
+        for (size_t i = 0; i < kPrefix.size(); ++i) {
+            buf[i] = kPrefix[i];
+        }
+        buf[kPrefix.size() + 0U] = kHex[(tag >> 12U) & 0xFU];
+        buf[kPrefix.size() + 1U] = kHex[(tag >> 8U) & 0xFU];
+        buf[kPrefix.size() + 2U] = kHex[(tag >> 4U) & 0xFU];
+        buf[kPrefix.size() + 3U] = kHex[(tag >> 0U) & 0xFU];
+        buf[kPrefix.size() + 4U] = '\0';
+        return std::string_view(buf, kPrefix.size() + 4U);
+    }
+
+    static std::string_view
+    synthesize_ricoh_main_placeholder_name(uint16_t tag) noexcept
+    {
+        static thread_local char buf[16];
+        static constexpr std::string_view kPrefix = "Ricoh_0x";
+        static constexpr char kHex[]              = "0123456789abcdef";
+        if (kPrefix.size() + 4U >= sizeof(buf)) {
+            return {};
+        }
+
+        for (size_t i = 0; i < kPrefix.size(); ++i) {
+            buf[i] = kPrefix[i];
+        }
+        buf[kPrefix.size() + 0U] = kHex[(tag >> 12U) & 0xFU];
+        buf[kPrefix.size() + 1U] = kHex[(tag >> 8U) & 0xFU];
+        buf[kPrefix.size() + 2U] = kHex[(tag >> 4U) & 0xFU];
+        buf[kPrefix.size() + 3U] = kHex[(tag >> 0U) & 0xFU];
+        buf[kPrefix.size() + 4U] = '\0';
+        return std::string_view(buf, kPrefix.size() + 4U);
+    }
+
     enum class ExifIfdGroup : uint8_t {
         TiffIfd,
         ExifIfd,
@@ -375,16 +501,93 @@ namespace {
 
 
     static std::string_view
-    contextual_exif_entry_name(const Entry& entry, ExifTagNamePolicy policy,
+    contextual_exif_entry_name(const MetaStore& store, const Entry& entry,
+                               ExifTagNamePolicy policy,
                                std::string_view canonical) noexcept
     {
-        if (policy != ExifTagNamePolicy::ExifToolCompat
-            || !any(entry.flags, EntryFlags::ContextualName)) {
+        if (policy != ExifTagNamePolicy::ExifToolCompat) {
+            return canonical;
+        }
+
+        const ByteArena& arena = store.arena();
+        if (canonical == "SerialNumber"
+            && entry.key.kind == MetaKeyKind::ExifTag
+            && entry.key.data.exif_tag.tag == 0xA002U
+            && arena_string(arena, entry.key.data.exif_tag.ifd)
+                   == "mk_samsung_type2_0") {
+            return "Samsung_Type2_0xa002";
+        }
+        if (canonical == "ImageStabilization"
+            && entry.key.kind == MetaKeyKind::ExifTag) {
+            const std::string_view ifd = arena_string(arena,
+                                                      entry.key.data.exif_tag.ifd);
+            const uint16_t tag = entry.key.data.exif_tag.tag;
+            if (ifd == "mk_minolta0" && (tag == 0x0018U || tag == 0x0113U)) {
+                return synthesize_minolta_main_placeholder_name(tag);
+            }
+        }
+        if (entry.key.kind == MetaKeyKind::ExifTag) {
+            const std::string_view ifd = arena_string(arena,
+                                                      entry.key.data.exif_tag.ifd);
+            const uint16_t tag = entry.key.data.exif_tag.tag;
+            if (ifd == "mk_panasonic0") {
+                if (canonical == "Model"
+                    && (tag == 0x0004U || tag == 0x000CU || tag == 0x0016U)
+                    && entry.value.kind != MetaValueKind::Text) {
+                    return synthesize_panasonic_main_placeholder_name(tag);
+                }
+                switch (tag) {
+                case 0x0058U:
+                case 0x005AU:
+                case 0x005CU:
+                case 0x00DEU:
+                case 0x00E9U:
+                case 0x00F1U:
+                case 0x00F3U:
+                case 0x00F4U:
+                case 0x00F5U:
+                    return synthesize_panasonic_main_placeholder_name(tag);
+                case 0x00C4U:
+                    if (entry.value.kind == MetaValueKind::Scalar
+                        && entry.value.data.u64 == 65535ULL) {
+                        return synthesize_panasonic_main_placeholder_name(tag);
+                    }
+                    break;
+                default: break;
+                }
+            }
+        }
+
+        if (!any(entry.flags, EntryFlags::ContextualName)) {
             return canonical;
         }
 
         switch (entry.origin.name_context_kind) {
         case EntryNameContextKind::None: return canonical;
+        case EntryNameContextKind::CasioType2Legacy:
+            switch (entry.origin.name_context_variant) {
+            case 1: {
+                const std::string_view legacy
+                    = makernote_tag_name("mk_casio0",
+                                         entry.key.data.exif_tag.tag);
+                if (!legacy.empty()) {
+                    return legacy;
+                }
+                if (entry.key.data.exif_tag.tag == 0x0E00U) {
+                    return "PrintIM";
+                }
+                return synthesize_casio_main_placeholder_name(
+                    entry.key.data.exif_tag.tag);
+            }
+            default: return canonical;
+            }
+        case EntryNameContextKind::FujifilmMain1304:
+            switch (entry.origin.name_context_variant) {
+            case 1:
+                return synthesize_fujifilm_main_placeholder_name(
+                    entry.key.data.exif_tag.tag);
+            default: return canonical;
+            }
         case EntryNameContextKind::OlympusFocusInfo1600:
             switch (entry.origin.name_context_variant) {
             case 1: return "ImageStabilization";
@@ -396,9 +599,74 @@ namespace {
             case 1: return "KodakModel";
             default: return canonical;
             }
+        case EntryNameContextKind::MotorolaMain6420:
+            switch (entry.origin.name_context_variant) {
+            case 1: return "Motorola_0x6420";
+            default: return canonical;
+            }
+        case EntryNameContextKind::RicohMainCompat:
+            switch (entry.origin.name_context_variant) {
+            case 1:
+                return synthesize_ricoh_main_placeholder_name(
+                    entry.key.data.exif_tag.tag);
+            case 2: return "WhiteBalance";
+            default: return canonical;
+            }
+        case EntryNameContextKind::NikonSettingsMain:
+            switch (entry.origin.name_context_variant) {
+            case 1:
+                return synthesize_nikonsettings_placeholder_name(
+                    entry.key.data.exif_tag.tag);
+            default: return canonical;
+            }
+        case EntryNameContextKind::PentaxMain0062:
+            switch (entry.origin.name_context_variant) {
+            case 1: return "Pentax_0x0062";
+            default: return canonical;
+            }
         case EntryNameContextKind::CanonMain0038:
             switch (entry.origin.name_context_variant) {
             case 1: return "Canon_0x0038";
+            default: return canonical;
+            }
+        case EntryNameContextKind::CanonShotInfo000E:
+            switch (entry.origin.name_context_variant) {
+            case 1: return "MinFocalLength";
+            default: return canonical;
+            }
+        case EntryNameContextKind::CanonCameraSettings0021:
+            switch (entry.origin.name_context_variant) {
+            case 1: return "WB_RGGBLevelsKelvin";
+            default: return canonical;
+            }
+        case EntryNameContextKind::CanonColorData400EA:
+            switch (entry.origin.name_context_variant) {
+            case 1: return "WB_RGGBLevelsUnknown7";
+            default: return canonical;
+            }
+        case EntryNameContextKind::CanonColorData400EE:
+            switch (entry.origin.name_context_variant) {
+            case 1: return "MaxFocalLength";
+            default: return canonical;
+            }
+        case EntryNameContextKind::CanonColorData402CF:
+            switch (entry.origin.name_context_variant) {
+            case 1: return "PerChannelBlackLevel";
+            default: return canonical;
+            }
+        case EntryNameContextKind::CanonColorCalib0038:
+            switch (entry.origin.name_context_variant) {
+            case 1: return "BatteryType";
+            default: return canonical;
+            }
+        case EntryNameContextKind::CanonCameraInfo1D0048:
+            switch (entry.origin.name_context_variant) {
+            case 1: return "Sharpness";
+            default: return canonical;
+            }
+        case EntryNameContextKind::CanonCameraInfo600D00EA:
+            switch (entry.origin.name_context_variant) {
+            case 1: return "MinFocalLength";
             default: return canonical;
             }
         case EntryNameContextKind::CanonCustomFunctions20103:
@@ -479,7 +747,7 @@ exif_entry_name(const MetaStore& store, const Entry& entry,
                                               entry.key.data.exif_tag.ifd);
     const std::string_view canonical
         = exif_tag_name(ifd, entry.key.data.exif_tag.tag);
-    return contextual_exif_entry_name(entry, policy, canonical);
+    return contextual_exif_entry_name(store, entry, policy, canonical);
 }
 
 }  // namespace openmeta

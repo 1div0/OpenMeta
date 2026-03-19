@@ -58,6 +58,15 @@ namespace {
     }
 
 
+    static bool is_kodak_absolute_type11_model(std::string_view model) noexcept
+    {
+        return model.find("PIXPRO S-1") != std::string_view::npos
+               || model.find("PIXPRO 4KVR360") != std::string_view::npos
+               || model.find("PIXPRO SL10") != std::string_view::npos
+               || model.find("PIXPRO SP360") != std::string_view::npos;
+    }
+
+
     static std::string_view
     select_kodak_absolute_ifd_subtable(std::string_view model,
                                        bool has_byte_order_marker) noexcept
@@ -65,7 +74,7 @@ namespace {
         if (has_byte_order_marker) {
             return "type10";
         }
-        if (model.find("PIXPRO S-1") != std::string_view::npos) {
+        if (is_kodak_absolute_type11_model(model)) {
             return "type11";
         }
         return "type8";
