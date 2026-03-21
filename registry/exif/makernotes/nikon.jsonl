@@ -205,6 +205,9 @@
 {"kind":"exif.tag","ifd":"makernote:nikon:flashinfo0100","tag":"0x0011","name":"FlashGroupAOutput"}
 {"kind":"exif.tag","ifd":"makernote:nikon:flashinfo0100","tag":"0x0012","name":"FlashGroupBCompensation"}
 {"kind":"exif.tag","ifd":"makernote:nikon:flashinfo0100","tag":"0x0012","name":"FlashGroupBOutput"}
+{"kind":"exif.tag","ifd":"makernote:nikon:flashinfo0100","tag":"0x0027","name":"FlashOutput"}
+{"kind":"exif.tag","ifd":"makernote:nikon:flashinfo0100","tag":"0x0028","name":"FlashGroupAOutput"}
+{"kind":"exif.tag","ifd":"makernote:nikon:flashinfo0100","tag":"0x0029","name":"FlashGroupBOutput"}
 {"kind":"exif.tag","ifd":"makernote:nikon:flashinfo0102","tag":"0x0000","name":"FlashInfoVersion"}
 {"kind":"exif.tag","ifd":"makernote:nikon:flashinfo0102","tag":"0x0004","name":"FlashSource"}
 {"kind":"exif.tag","ifd":"makernote:nikon:flashinfo0102","tag":"0x0006","name":"ExternalFlashFirmware"}
@@ -232,6 +235,9 @@
 {"kind":"exif.tag","ifd":"makernote:nikon:flashinfo0103","tag":"0x000e","name":"RepeatingFlashCount"}
 {"kind":"exif.tag","ifd":"makernote:nikon:flashinfo0103","tag":"0x000f","name":"FlashGNDistance"}
 {"kind":"exif.tag","ifd":"makernote:nikon:flashinfo0103","tag":"0x0010","name":"FlashColorFilter"}
+{"kind":"exif.tag","ifd":"makernote:nikon:flashinfo0103","tag":"0x0011","name":"FlashGroupAControlMode"}
+{"kind":"exif.tag","ifd":"makernote:nikon:flashinfo0103","tag":"0x0012","name":"FlashGroupBControlMode"}
+{"kind":"exif.tag","ifd":"makernote:nikon:flashinfo0103","tag":"0x0012","name":"FlashGroupCControlMode"}
 {"kind":"exif.tag","ifd":"makernote:nikon:flashinfo0103","tag":"0x0013","name":"FlashGroupACompensation"}
 {"kind":"exif.tag","ifd":"makernote:nikon:flashinfo0103","tag":"0x0013","name":"FlashGroupAOutput"}
 {"kind":"exif.tag","ifd":"makernote:nikon:flashinfo0103","tag":"0x0014","name":"FlashGroupBCompensation"}
@@ -250,6 +256,9 @@
 {"kind":"exif.tag","ifd":"makernote:nikon:flashinfo0106","tag":"0x000e","name":"RepeatingFlashCount"}
 {"kind":"exif.tag","ifd":"makernote:nikon:flashinfo0106","tag":"0x000f","name":"FlashGNDistance"}
 {"kind":"exif.tag","ifd":"makernote:nikon:flashinfo0106","tag":"0x0010","name":"FlashColorFilter"}
+{"kind":"exif.tag","ifd":"makernote:nikon:flashinfo0106","tag":"0x0013","name":"FlashGroupAOutput"}
+{"kind":"exif.tag","ifd":"makernote:nikon:flashinfo0106","tag":"0x0014","name":"FlashGroupBOutput"}
+{"kind":"exif.tag","ifd":"makernote:nikon:flashinfo0106","tag":"0x0015","name":"FlashGroupCOutput"}
 {"kind":"exif.tag","ifd":"makernote:nikon:flashinfo0106","tag":"0x0027","name":"FlashCompensation"}
 {"kind":"exif.tag","ifd":"makernote:nikon:flashinfo0106","tag":"0x0027","name":"FlashOutput"}
 {"kind":"exif.tag","ifd":"makernote:nikon:flashinfo0106","tag":"0x0028","name":"FlashGroupACompensation"}
@@ -387,6 +396,7 @@
 {"kind":"exif.tag","ifd":"makernote:nikon:lensdata0800","tag":"0x002f","name":"NewLensData"}
 {"kind":"exif.tag","ifd":"makernote:nikon:lensdata0800","tag":"0x0030","name":"LensID"}
 {"kind":"exif.tag","ifd":"makernote:nikon:lensdata0800","tag":"0x0034","name":"LensFirmwareVersion"}
+{"kind":"exif.tag","ifd":"makernote:nikon:lensdata0800","tag":"0x0035","name":"LensMountType"}
 {"kind":"exif.tag","ifd":"makernote:nikon:lensdata0800","tag":"0x0036","name":"MaxAperture"}
 {"kind":"exif.tag","ifd":"makernote:nikon:lensdata0800","tag":"0x0038","name":"FNumber"}
 {"kind":"exif.tag","ifd":"makernote:nikon:lensdata0800","tag":"0x003c","name":"FocalLength"}
@@ -431,6 +441,7 @@
 {"kind":"exif.tag","ifd":"makernote:nikon:main","tag":"0x0020","name":"ImageAuthentication"}
 {"kind":"exif.tag","ifd":"makernote:nikon:main","tag":"0x0022","name":"ActiveD-Lighting"}
 {"kind":"exif.tag","ifd":"makernote:nikon:main","tag":"0x0023","name":"PictureControlData"}
+{"kind":"exif.tag","ifd":"makernote:nikon:main","tag":"0x0025","name":"ISOInfo"}
 {"kind":"exif.tag","ifd":"makernote:nikon:main","tag":"0x002a","name":"VignetteControl"}
 {"kind":"exif.tag","ifd":"makernote:nikon:main","tag":"0x0034","name":"ShutterMode"}
 {"kind":"exif.tag","ifd":"makernote:nikon:main","tag":"0x0037","name":"MechanicalShutterCount"}
@@ -662,7 +673,7 @@
 {"kind":"exif.tag","ifd":"makernote:nikon:menusettingsz8","tag":"0x0380","name":"MovieHighResZoom"}
 {"kind":"exif.tag","ifd":"makernote:nikon:menusettingsz8v1","tag":"0x0694","name":"TimeZone"}
 {"kind":"exif.tag","ifd":"makernote:nikon:menusettingsz8v1","tag":"0x069a","name":"MonitorBrightness"}
-{"kind":"exif.tag","ifd":"makernote:nikon:menusettingsz8v1","tag":"0x06a2","name":"Language"}
+{"kind":"exif.tag","ifd":"makernote:nikon:menusettingsz8v1","tag":"0x0692","name":"Language"}
 {"kind":"exif.tag","ifd":"makernote:nikon:menusettingsz8v1","tag":"0x06b0","name":"AFFineTune"}
 {"kind":"exif.tag","ifd":"makernote:nikon:menusettingsz8v1","tag":"0x06b4","name":"NonCPULens1FocalLength"}
 {"kind":"exif.tag","ifd":"makernote:nikon:menusettingsz8v1","tag":"0x06b6","name":"NonCPULens2FocalLength"}
@@ -1219,6 +1230,7 @@
 {"kind":"exif.tag","ifd":"makernote:nikon:shotinfod4","tag":"0x0004","name":"FirmwareVersion"}
 {"kind":"exif.tag","ifd":"makernote:nikon:shotinfod40","tag":"0x0000","name":"ShotInfoVersion"}
 {"kind":"exif.tag","ifd":"makernote:nikon:shotinfod40","tag":"0x0246","name":"ShutterCount"}
+{"kind":"exif.tag","ifd":"makernote:nikon:shotinfod40","tag":"0x024a","name":"VibrationReduction"}
 {"kind":"exif.tag","ifd":"makernote:nikon:shotinfod4s","tag":"0x0000","name":"ShotInfoVersion"}
 {"kind":"exif.tag","ifd":"makernote:nikon:shotinfod4s","tag":"0x0004","name":"FirmwareVersion"}
 {"kind":"exif.tag","ifd":"makernote:nikon:shotinfod4s","tag":"0x01d0","name":"SecondarySlotFunction"}
@@ -1259,6 +1271,7 @@
 {"kind":"exif.tag","ifd":"makernote:nikon:shotinfod780","tag":"0x0004","name":"FirmwareVersion"}
 {"kind":"exif.tag","ifd":"makernote:nikon:shotinfod80","tag":"0x0000","name":"ShotInfoVersion"}
 {"kind":"exif.tag","ifd":"makernote:nikon:shotinfod80","tag":"0x024a","name":"ShutterCount"}
+{"kind":"exif.tag","ifd":"makernote:nikon:shotinfod80","tag":"0x024e","name":"VibrationReduction"}
 {"kind":"exif.tag","ifd":"makernote:nikon:shotinfod80","tag":"0x02c4","name":"NikonImageSize"}
 {"kind":"exif.tag","ifd":"makernote:nikon:shotinfod800","tag":"0x0000","name":"ShotInfoVersion"}
 {"kind":"exif.tag","ifd":"makernote:nikon:shotinfod800","tag":"0x0004","name":"FirmwareVersion"}

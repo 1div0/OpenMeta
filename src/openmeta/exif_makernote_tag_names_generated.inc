@@ -4726,6 +4726,9 @@ static constexpr MakerNoteTagNameEntry kMakernoteNikonFlashinfo0100[] = {
     { 0x0010u, "FlashGroupBControlMode" },
     { 0x0011u, "FlashGroupAOutput" },
     { 0x0012u, "FlashGroupBOutput" },
+    { 0x0027u, "FlashOutput" },
+    { 0x0028u, "FlashGroupAOutput" },
+    { 0x0029u, "FlashGroupBOutput" },
 };
 
 static constexpr MakerNoteTagNameEntry kMakernoteNikonFlashinfo0102[] = {
@@ -4754,6 +4757,9 @@ static constexpr MakerNoteTagNameEntry kMakernoteNikonFlashinfo0103[] = {
     { 0x000Eu, "RepeatingFlashCount" },
     { 0x000Fu, "FlashGNDistance" },
     { 0x0010u, "FlashColorFilter" },
+    { 0x0011u, "FlashGroupAControlMode" },
+    { 0x0012u, "FlashGroupBControlMode" },
+    { 0x0012u, "FlashGroupBControlMode" },
     { 0x0013u, "FlashGroupAOutput" },
     { 0x0014u, "FlashGroupBOutput" },
     { 0x0015u, "FlashGroupCOutput" },
@@ -4772,6 +4778,9 @@ static constexpr MakerNoteTagNameEntry kMakernoteNikonFlashinfo0106[] = {
     { 0x000Eu, "RepeatingFlashCount" },
     { 0x000Fu, "FlashGNDistance" },
     { 0x0010u, "FlashColorFilter" },
+    { 0x0013u, "FlashGroupAOutput" },
+    { 0x0014u, "FlashGroupBOutput" },
+    { 0x0015u, "FlashGroupCOutput" },
     { 0x0027u, "FlashOutput" },
     { 0x0028u, "FlashGroupAOutput" },
     { 0x0029u, "FlashGroupBOutput" },
@@ -4953,6 +4962,7 @@ static constexpr MakerNoteTagNameEntry kMakernoteNikonLensdata0800[] = {
     { 0x002Fu, "NewLensData" },
     { 0x0030u, "LensID" },
     { 0x0034u, "LensFirmwareVersion" },
+    { 0x0035u, "LensMountType" },
     { 0x0036u, "MaxAperture" },
     { 0x0038u, "FNumber" },
     { 0x003Cu, "FocalLength" },
@@ -5006,6 +5016,7 @@ static constexpr MakerNoteTagNameEntry kMakernoteNikonMain[] = {
     { 0x0020u, "ImageAuthentication" },
     { 0x0022u, "ActiveD-Lighting" },
     { 0x0023u, "PictureControlData" },
+    { 0x0025u, "ISOInfo" },
     { 0x002Au, "VignetteControl" },
     { 0x0034u, "ShutterMode" },
     { 0x0037u, "MechanicalShutterCount" },
@@ -5256,9 +5267,9 @@ static constexpr MakerNoteTagNameEntry kMakernoteNikonMenusettingsz8[] = {
 };
 
 static constexpr MakerNoteTagNameEntry kMakernoteNikonMenusettingsz8v1[] = {
+    { 0x0692u, "Language" },
     { 0x0694u, "TimeZone" },
     { 0x069Au, "MonitorBrightness" },
-    { 0x06A2u, "Language" },
     { 0x06B0u, "AFFineTune" },
     { 0x06B4u, "NonCPULens1FocalLength" },
     { 0x06B6u, "NonCPULens2FocalLength" },
@@ -5923,6 +5934,7 @@ static constexpr MakerNoteTagNameEntry kMakernoteNikonShotinfod4[] = {
 static constexpr MakerNoteTagNameEntry kMakernoteNikonShotinfod40[] = {
     { 0x0000u, "ShotInfoVersion" },
     { 0x0246u, "ShutterCount" },
+    { 0x024Au, "VibrationReduction" },
 };
 
 static constexpr MakerNoteTagNameEntry kMakernoteNikonShotinfod4s[] = {
@@ -5999,6 +6011,7 @@ static constexpr MakerNoteTagNameEntry kMakernoteNikonShotinfod780[] = {
 static constexpr MakerNoteTagNameEntry kMakernoteNikonShotinfod80[] = {
     { 0x0000u, "ShotInfoVersion" },
     { 0x024Au, "ShutterCount" },
+    { 0x024Eu, "VibrationReduction" },
     { 0x02C4u, "NikonImageSize" },
 };
 

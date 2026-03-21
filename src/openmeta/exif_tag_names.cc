@@ -135,6 +135,19 @@ namespace {
     }
 
     static std::string_view
+    find_first_makernote_name(std::span<const std::string_view> ifds,
+                              uint16_t tag) noexcept
+    {
+        for (size_t i = 0; i < ifds.size(); ++i) {
+            const std::string_view name = makernote_tag_name(ifds[i], tag);
+            if (!name.empty()) {
+                return name;
+            }
+        }
+        return {};
+    }
+
+    static std::string_view
     synthesize_minolta_main_placeholder_name(uint16_t tag) noexcept
     {
         static thread_local char buf[18];
@@ -519,16 +532,16 @@ namespace {
         }
         if (canonical == "ImageStabilization"
             && entry.key.kind == MetaKeyKind::ExifTag) {
-            const std::string_view ifd = arena_string(arena,
-                                                      entry.key.data.exif_tag.ifd);
+            const std::string_view ifd
+                = arena_string(arena, entry.key.data.exif_tag.ifd);
             const uint16_t tag = entry.key.data.exif_tag.tag;
             if (ifd == "mk_minolta0" && (tag == 0x0018U || tag == 0x0113U)) {
                 return synthesize_minolta_main_placeholder_name(tag);
             }
         }
         if (entry.key.kind == MetaKeyKind::ExifTag) {
-            const std::string_view ifd = arena_string(arena,
-                                                      entry.key.data.exif_tag.ifd);
+            const std::string_view ifd
+                = arena_string(arena, entry.key.data.exif_tag.ifd);
             const uint16_t tag = entry.key.data.exif_tag.tag;
             if (ifd == "mk_panasonic0") {
                 if (canonical == "Model"
@@ -617,6 +630,100 @@ namespace {
             case 1:
                 return synthesize_nikonsettings_placeholder_name(
                     entry.key.data.exif_tag.tag);
+            case 2: return "MovieFunc1Button";
+            case 3: return "MovieFunc2Button";
+            default: return canonical;
+            }
+        case EntryNameContextKind::NikonMainZ:
+            switch (entry.key.data.exif_tag.tag) {
+            case 0x002BU: return "ImageArea";
+            case 0x002CU: return "AFImageHeight";
+            case 0x002EU: return "AFAreaXPosition";
+            case 0x002FU: return "FocusPositionHorizontal";
+            case 0x0031U: return "FocusPositionVertical";
+            case 0x0032U: return "AFAreaWidth";
+            case 0x0035U: return "LensMountType";
+            default: return canonical;
+            }
+        case EntryNameContextKind::NikonFlashInfoGroups:
+            switch (entry.key.data.exif_tag.tag) {
+            case 0x0011U:
+                return (entry.origin.name_context_variant == 5U)
+                           ? std::string_view("FlashGroupAControlMode")
+                           : canonical;
+            case 0x0012U:
+                if (entry.origin.name_context_variant == 6U) {
+                    return "FlashGroupBControlMode";
+                }
+                if (entry.origin.name_context_variant == 7U) {
+                    return "FlashGroupCControlMode";
+                }
+                return canonical;
+            case 0x0028U:
+                return (entry.origin.name_context_variant == 1U)
+                           ? std::string_view("FlashGroupACompensation")
+                           : std::string_view("FlashGroupAOutput");
+            case 0x0029U:
+                return (entry.origin.name_context_variant == 1U)
+                           ? std::string_view("FlashGroupBCompensation")
+                           : std::string_view("FlashGroupBOutput");
+            case 0x002AU:
+                return (entry.origin.name_context_variant == 1U)
+                           ? std::string_view("FlashGroupCCompensation")
+                           : std::string_view("FlashGroupCOutput");
+            default: return canonical;
+            }
+        case EntryNameContextKind::NikonFlashInfoLegacy:
+            switch (entry.origin.name_context_variant) {
+            case 1U:
+                if (entry.key.data.exif_tag.tag == 0x0027U) {
+                    return "FlashCompensation";
+                }
+                return canonical;
+            case 2U: return "FlashGroupACompensation";
+            case 3U: return "FlashGroupBCompensation";
+            case 4U: return "FlashGroupCCompensation";
+            case 5U: return "FlashGroupAControlMode";
+            case 6U: return "FlashGroupBControlMode";
+            case 7U: return "FlashGroupCControlMode";
+            case 8U: return "FlashCompensation";
+            default: return canonical;
+            }
+        case EntryNameContextKind::NikonShotInfoZ8:
+            switch (entry.origin.name_context_variant) {
+            case 1: {
+                static constexpr std::string_view kCompatIfds[] = {
+                    "mk_nikon_shotinfoz8_0",
+                    "mk_nikon_menusettingsz8_0",
+                    "mk_nikon_menusettingsz8v1_0",
+                    "mk_nikon_menusettingsz8v2_0",
+                };
+                const std::string_view compat = find_first_makernote_name(
+                    std::span<const std::string_view>(kCompatIfds),
+                    entry.key.data.exif_tag.tag);
+                if (!compat.empty()) {
+                    return compat;
+                }
+                return canonical;
+            }
+            default: return canonical;
+            }
+        case EntryNameContextKind::NikonShotInfoD850:
+            switch (entry.origin.name_context_variant) {
+            case 1: {
+                static constexpr std::string_view kCompatIfds[] = {
+                    "mk_nikon_shotinfod850_0",
+                    "mk_nikon_menusettingsd850_0",
+                    "mk_nikon_moresettingsd850_0",
+                };
+                const std::string_view compat = find_first_makernote_name(
+                    std::span<const std::string_view>(kCompatIfds),
+                    entry.key.data.exif_tag.tag);
+                if (!compat.empty()) {
+                    return compat;
+                }
+                return canonical;
+            }
             default: return canonical;
             }
         case EntryNameContextKind::PentaxMain0062:

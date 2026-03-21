@@ -18,6 +18,324 @@ namespace {
 
 #include "exif_makernote_tag_names_generated.inc"
 
+    static constexpr MakerNoteTagNameEntry kMakernoteNikoncustomSettingsd4Extra[]
+        = {
+              { 0x0000u, "CustomSettingsBank" },
+              { 0x0001u, "AF-CPrioritySelection" },
+              { 0x0002u, "AFActivation" },
+              { 0x0004u, "Pitch" },
+              { 0x0005u, "ShootingInfoDisplay" },
+              { 0x0006u, "ReverseIndicators" },
+              { 0x0007u, "ExposureControlStepSize" },
+              { 0x0008u, "CenterWeightedAreaSize" },
+              { 0x0009u, "FineTuneOptCenterWeighted" },
+              { 0x000Au, "MultiSelectorShootMode" },
+              { 0x000Bu, "ExposureDelayMode" },
+              { 0x000Cu, "MaxContinuousRelease" },
+              { 0x000Du, "AutoBracketSet" },
+              { 0x000Eu, "FuncButton" },
+              { 0x000Fu, "PreviewButton" },
+              { 0x0010u, "AssignBktButton" },
+              { 0x0012u, "CommandDialsChangeMainSub" },
+              { 0x0013u, "StandbyTimer" },
+              { 0x0014u, "SelfTimerTime" },
+              { 0x0015u, "ImageReviewMonitorOffTime" },
+              { 0x0016u, "MenuMonitorOffTime" },
+              { 0x0017u, "FlashSyncSpeed" },
+              { 0x001Fu, "ModelingFlash" },
+              { 0x0024u, "PlaybackMonitorOffTime" },
+              { 0x0025u, "PlaybackZoom" },
+              { 0x0026u, "ShutterSpeedLock" },
+              { 0x0029u, "MovieFunctionButton" },
+              { 0x002Au, "VerticalMultiSelector" },
+              { 0x002Bu, "VerticalFuncButtonPlusDials" },
+              { 0x002Eu, "DynamicAreaAFDisplay" },
+              { 0x002Fu, "AFOnButton" },
+              { 0x0030u, "SubSelectorAssignment" },
+              { 0x0031u, "SubSelector" },
+              { 0x0032u, "MatrixMetering" },
+              { 0x0033u, "LimitAFAreaModeSelection" },
+              { 0x0034u, "MovieFunctionButtonPlusDials" },
+              { 0x0035u, "MovieSubSelectorAssignmentPlusDials" },
+              { 0x0036u, "AssignRemoteFnButton" },
+              { 0x0037u, "LensFocusFunctionButtons" },
+          };
+
+    static constexpr MakerNoteTagNameEntry kMakernoteNikoncustomSettingsd5Extra[]
+        = {
+              { 0x0000u, "CustomSettingsBank" },
+              { 0x0001u, "AF-CPrioritySelection" },
+              { 0x0002u, "FocusPointWrap" },
+              { 0x0004u, "ISODisplay" },
+              { 0x0005u, "LCDIllumination" },
+              { 0x0006u, "ReverseIndicators" },
+              { 0x0007u, "ExposureControlStepSize" },
+              { 0x0008u, "CenterWeightedAreaSize" },
+              { 0x0009u, "FineTuneOptCenterWeighted" },
+              { 0x000Au, "MultiSelectorShootMode" },
+              { 0x000Bu, "ExposureDelayMode" },
+              { 0x000Cu, "MaxContinuousRelease" },
+              { 0x000Du, "AutoBracketOrder" },
+              { 0x000Eu, "Func1Button" },
+              { 0x000Fu, "PreviewButton" },
+              { 0x0010u, "AssignBktButton" },
+              { 0x0012u, "CommandDialsChangeMainSub" },
+              { 0x0013u, "StandbyTimer" },
+              { 0x0014u, "SelfTimerTime" },
+              { 0x0015u, "ImageReviewMonitorOffTime" },
+              { 0x0016u, "MenuMonitorOffTime" },
+              { 0x0017u, "FlashSyncSpeed" },
+              { 0x001Fu, "ModelingFlash" },
+              { 0x0024u, "PlaybackMonitorOffTime" },
+              { 0x0025u, "MultiSelectorLiveView" },
+              { 0x0026u, "ShutterSpeedLock" },
+              { 0x0029u, "MovieFunc1Button" },
+              { 0x002Au, "Func1ButtonPlusDials" },
+              { 0x002Bu, "PreviewButtonPlusDials" },
+              { 0x002Du, "AssignMovieRecordButtonPlusDials" },
+              { 0x002Eu, "FineTuneOptHighlightWeighted" },
+              { 0x002Fu, "DynamicAreaAFDisplay" },
+              { 0x0030u, "MatrixMetering" },
+              { 0x0031u, "LimitAFAreaModeSelection" },
+              { 0x0034u, "LensFocusFunctionButtons" },
+              { 0x0042u, "VerticalMultiSelector" },
+              { 0x0043u, "VerticalFuncButton" },
+              { 0x0044u, "VerticalFuncPlusDials" },
+              { 0x0046u, "AF-OnButton" },
+              { 0x0047u, "SubSelector" },
+              { 0x0048u, "SubSelectorCenter" },
+              { 0x0049u, "SubSelectorPlusDials" },
+              { 0x004Au, "AssignMovieSubselector" },
+              { 0x004Bu, "AssignMovieFunc1ButtonPlusDials" },
+              { 0x004Cu, "AssignMovieSubselectorPlusDials" },
+              { 0x004Du, "SyncReleaseMode" },
+              { 0x004Eu, "Three-DTrackingWatchArea" },
+              { 0x004Fu, "VerticalAFOnButton" },
+              { 0x0050u, "Func2Button" },
+              { 0x0051u, "Func2ButtonPlusDials" },
+              { 0x0052u, "AssignMovieFunc2Button" },
+              { 0x0053u, "Func3Button" },
+          };
+
+    static constexpr MakerNoteTagNameEntry
+        kMakernoteNikoncustomSettingsd500Extra[]
+        = {
+              { 0x0000u, "CustomSettingsBank" },
+              { 0x0001u, "AF-CPrioritySelection" },
+              { 0x0002u, "FocusPointWrap" },
+              { 0x0004u, "ISODisplay" },
+              { 0x0005u, "LCDIllumination" },
+              { 0x0006u, "ReverseIndicators" },
+              { 0x0007u, "ExposureControlStepSize" },
+              { 0x0008u, "CenterWeightedAreaSize" },
+              { 0x0009u, "FineTuneOptCenterWeighted" },
+              { 0x000Au, "MultiSelectorShootMode" },
+              { 0x000Bu, "ExposureDelayMode" },
+              { 0x000Cu, "MaxContinuousRelease" },
+              { 0x000Du, "AutoBracketOrder" },
+              { 0x000Eu, "Func1Button" },
+              { 0x000Fu, "PreviewButton" },
+              { 0x0010u, "AssignBktButton" },
+              { 0x0012u, "CommandDialsChangeMainSub" },
+              { 0x0013u, "StandbyTimer" },
+              { 0x0014u, "SelfTimerTime" },
+              { 0x0015u, "ImageReviewMonitorOffTime" },
+              { 0x0016u, "MenuMonitorOffTime" },
+              { 0x0017u, "FlashSyncSpeed" },
+              { 0x001Fu, "ModelingFlash" },
+              { 0x0024u, "PlaybackMonitorOffTime" },
+              { 0x0025u, "MultiSelectorLiveView" },
+              { 0x0026u, "ShutterSpeedLock" },
+              { 0x0029u, "MovieFunc1Button" },
+              { 0x002Au, "Func1ButtonPlusDials" },
+              { 0x002Bu, "PreviewButtonPlusDials" },
+              { 0x002Du, "AssignMovieRecordButtonPlusDials" },
+              { 0x002Eu, "FineTuneOptHighlightWeighted" },
+              { 0x002Fu, "DynamicAreaAFDisplay" },
+              { 0x0030u, "MatrixMetering" },
+              { 0x0031u, "LimitAFAreaModeSelection" },
+              { 0x0034u, "LensFocusFunctionButtons" },
+              { 0x0042u, "VerticalMultiSelector" },
+              { 0x0043u, "AssignMB-D17FuncButton" },
+              { 0x0044u, "AssignMB-D17FuncButtonPlusDials" },
+              { 0x0046u, "AF-OnButton" },
+              { 0x0047u, "SubSelector" },
+              { 0x0048u, "SubSelectorCenter" },
+              { 0x0049u, "SubSelectorPlusDials" },
+              { 0x004Au, "AssignMovieSubselector" },
+              { 0x004Bu, "AssignMovieFunc1ButtonPlusDials" },
+              { 0x004Cu, "AssignMovieSubselectorPlusDials" },
+              { 0x004Du, "SyncReleaseMode" },
+              { 0x004Eu, "Three-DTrackingWatchArea" },
+              { 0x004Fu, "AssignMB-D17AF-OnButton" },
+              { 0x0050u, "Func2Button" },
+              { 0x0052u, "AssignMovieFunc2Button" },
+          };
+
+    static constexpr MakerNoteTagNameEntry
+        kMakernoteNikoncustomSettingsd610Extra[]
+        = {
+              { 0x0000u, "AF-CPrioritySelection" },
+              { 0x0001u, "FocusPointWrap" },
+              { 0x0005u, "EasyExposureCompensation" },
+              { 0x0006u, "ExposureControlStep" },
+              { 0x0007u, "CenterWeightedAreaSize" },
+              { 0x0008u, "FineTuneOptCenterWeighted" },
+              { 0x0011u, "ShutterReleaseButtonAE-L" },
+              { 0x0012u, "StandbyTimer" },
+              { 0x0013u, "SelfTimerTime" },
+              { 0x0014u, "ImageReviewMonitorOffTime" },
+              { 0x0015u, "MenuMonitorOffTime" },
+              { 0x0023u, "PlaybackMonitorOffTime" },
+          };
+
+    static constexpr MakerNoteTagNameEntry
+        kMakernoteNikoncustomSettingsd7000Extra[]
+        = {
+              { 0x0000u, "AF-CPrioritySelection" },
+              { 0x0001u, "FocusPointWrap" },
+              { 0x0002u, "BatteryOrder" },
+              { 0x0003u, "BeepPitch" },
+              { 0x0004u, "ShootingInfoDisplay" },
+              { 0x0005u, "ReverseIndicators" },
+              { 0x0006u, "ExposureControlStep" },
+              { 0x0007u, "CenterWeightedAreaSize" },
+              { 0x000Au, "ExposureDelayMode" },
+              { 0x000Bu, "MaxContinuousRelease" },
+              { 0x000Cu, "AutoBracketSet" },
+              { 0x000Du, "FuncButton" },
+              { 0x000Eu, "PreviewButton" },
+              { 0x000Fu, "OKButton" },
+              { 0x0010u, "AELockButton" },
+              { 0x0011u, "CommandDialsReverseRotation" },
+              { 0x0012u, "MeteringTime" },
+              { 0x0013u, "SelfTimerTime" },
+              { 0x0014u, "ImageReviewTime" },
+              { 0x0015u, "MenuMonitorOffTime" },
+              { 0x0016u, "FlashSyncSpeed" },
+              { 0x0017u, "FlashControlBuilt-in" },
+              { 0x001Eu, "FlashWarning" },
+              { 0x0022u, "LiveViewAFAreaMode" },
+              { 0x0023u, "PlaybackMonitorOffTime" },
+          };
+
+    static constexpr MakerNoteTagNameEntry
+        kMakernoteNikoncustomSettingsd800Extra[]
+        = {
+              { 0x000Cu, "AutoBracketingSet" },
+              { 0x0016u, "FlashSyncSpeed" },
+              { 0x0017u, "FlashControlBuilt-in" },
+              { 0x0019u, "CommanderChannel" },
+              { 0x001Bu, "CommanderInternalFlash" },
+              { 0x001Cu, "CommanderGroupAMode" },
+              { 0x001Du, "CommanderGroupBMode" },
+              { 0x001Eu, "ModelingFlash" },
+              { 0x001Fu, "CommanderGroupA_TTL-AAComp" },
+              { 0x0020u, "CommanderGroupB_TTL-AAComp" },
+          };
+
+    static constexpr MakerNoteTagNameEntry
+        kMakernoteNikoncustomSettingsd810Extra[]
+        = {
+              { 0x0000u, "LightSwitch" },
+              { 0x0001u, "AF-CPrioritySelection" },
+              { 0x0002u, "AFActivation" },
+              { 0x0003u, "BatteryOrder" },
+              { 0x0004u, "Pitch" },
+              { 0x0005u, "ShootingInfoDisplay" },
+              { 0x0006u, "ReverseIndicators" },
+              { 0x0007u, "ExposureControlStepSize" },
+              { 0x0008u, "CenterWeightedAreaSize" },
+              { 0x0009u, "FineTuneOptCenterWeighted" },
+              { 0x000Au, "MultiSelectorShootMode" },
+              { 0x000Bu, "ExposureDelayMode" },
+              { 0x000Cu, "MaxContinuousRelease" },
+              { 0x000Du, "AutoBracketSet" },
+              { 0x000Eu, "FuncButton" },
+              { 0x000Fu, "PreviewButton" },
+              { 0x0010u, "AssignBktButton" },
+              { 0x0011u, "AELockButton" },
+              { 0x0012u, "CommandDialsChangeMainSub" },
+              { 0x0013u, "StandbyTimer" },
+              { 0x0014u, "SelfTimerTime" },
+              { 0x0015u, "ImageReviewMonitorOffTime" },
+              { 0x0016u, "MenuMonitorOffTime" },
+              { 0x0017u, "FlashSyncSpeed" },
+              { 0x0018u, "FlashControlBuilt-in" },
+              { 0x001Fu, "ModelingFlash" },
+              { 0x0024u, "PlaybackMonitorOffTime" },
+              { 0x0025u, "MultiSelectorLiveView" },
+              { 0x0026u, "ShutterSpeedLock" },
+              { 0x0028u, "MovieAELockButtonAssignment" },
+              { 0x0029u, "MovieFunctionButton" },
+              { 0x002Au, "FuncButtonPlusDials" },
+              { 0x002Bu, "PreviewButtonPlusDials" },
+              { 0x002Cu, "AELockButtonPlusDials" },
+              { 0x002Du, "AssignMovieRecordButton" },
+              { 0x002Eu, "FineTuneOptHighlightWeighted" },
+              { 0x002Fu, "DynamicAreaAFDisplay" },
+              { 0x0030u, "MatrixMetering" },
+              { 0x0031u, "LimitAFAreaModeSelection" },
+              { 0x0032u, "AF-OnForMB-D12" },
+              { 0x0033u, "AssignRemoteFnButton" },
+              { 0x0034u, "LensFocusFunctionButtons" },
+          };
+
+    static constexpr MakerNoteTagNameEntry
+        kMakernoteNikoncustomSettingsd850Extra[]
+        = {
+              { 0x0000u, "CustomSettingsBank" },
+              { 0x0001u, "AF-CPrioritySelection" },
+              { 0x0002u, "FocusPointWrap" },
+              { 0x0004u, "ISODisplay" },
+              { 0x0005u, "LCDIllumination" },
+              { 0x0006u, "ReverseIndicators" },
+              { 0x0007u, "ExposureControlStepSize" },
+              { 0x0008u, "CenterWeightedAreaSize" },
+              { 0x0009u, "FineTuneOptCenterWeighted" },
+              { 0x000Au, "MultiSelectorShootMode" },
+              { 0x000Bu, "ExposureDelayMode" },
+              { 0x000Cu, "MaxContinuousRelease" },
+              { 0x000Du, "AutoBracketOrder" },
+              { 0x000Eu, "Func1Button" },
+              { 0x000Fu, "PreviewButton" },
+              { 0x0010u, "AssignBktButton" },
+              { 0x0012u, "CommandDialsChangeMainSub" },
+              { 0x0013u, "StandbyTimer" },
+              { 0x0014u, "SelfTimerTime" },
+              { 0x0015u, "ImageReviewMonitorOffTime" },
+              { 0x0016u, "MenuMonitorOffTime" },
+              { 0x0017u, "FlashSyncSpeed" },
+              { 0x001Fu, "ModelingFlash" },
+              { 0x0024u, "PlaybackMonitorOffTime" },
+              { 0x0025u, "MultiSelectorLiveView" },
+              { 0x0026u, "ShutterSpeedLock" },
+              { 0x0029u, "MovieFunc1Button" },
+              { 0x002Au, "Func1ButtonPlusDials" },
+              { 0x002Bu, "PreviewButtonPlusDials" },
+              { 0x002Du, "AssignMovieRecordButtonPlusDials" },
+              { 0x002Eu, "FineTuneOptHighlightWeighted" },
+              { 0x002Fu, "DynamicAreaAFDisplay" },
+              { 0x0030u, "MatrixMetering" },
+              { 0x0031u, "LimitAFAreaModeSelection" },
+              { 0x0034u, "LensFocusFunctionButtons" },
+              { 0x0042u, "VerticalMultiSelector" },
+              { 0x0043u, "AssignMB-D18FuncButton" },
+              { 0x0044u, "AssignMB-D18FuncButtonPlusDials" },
+              { 0x0046u, "AF-OnButton" },
+              { 0x0047u, "SubSelector" },
+              { 0x0048u, "SubSelectorCenter" },
+              { 0x0049u, "SubSelectorPlusDials" },
+              { 0x004Au, "AssignMovieSubselector" },
+              { 0x004Bu, "AssignMovieFunc1ButtonPlusDials" },
+              { 0x004Cu, "AssignMovieSubselectorPlusDials" },
+              { 0x004Du, "SyncReleaseMode" },
+              { 0x004Eu, "Three-DTrackingWatchArea" },
+              { 0x004Fu, "AssignMB-D18AF-OnButton" },
+              { 0x0050u, "Func2Button" },
+              { 0x0052u, "AssignMovieFunc2Button" },
+          };
+
     static bool is_ascii_digit(char c) noexcept { return c >= '0' && c <= '9'; }
 
 
@@ -141,6 +459,78 @@ namespace {
 
         if (lo < count && entries[lo].tag == tag && entries[lo].name) {
             return entries[lo].name;
+        }
+        return {};
+    }
+
+
+    static std::string_view
+    find_nikoncustom_extra_name(std::string_view subtable,
+                                uint16_t tag) noexcept
+    {
+        if (subtable == "settingsd4") {
+            return find_tag_name(
+                kMakernoteNikoncustomSettingsd4Extra,
+                static_cast<uint32_t>(
+                    sizeof(kMakernoteNikoncustomSettingsd4Extra)
+                    / sizeof(kMakernoteNikoncustomSettingsd4Extra[0])),
+                tag);
+        }
+        if (subtable == "settingsd5") {
+            return find_tag_name(
+                kMakernoteNikoncustomSettingsd5Extra,
+                static_cast<uint32_t>(
+                    sizeof(kMakernoteNikoncustomSettingsd5Extra)
+                    / sizeof(kMakernoteNikoncustomSettingsd5Extra[0])),
+                tag);
+        }
+        if (subtable == "settingsd500") {
+            return find_tag_name(
+                kMakernoteNikoncustomSettingsd500Extra,
+                static_cast<uint32_t>(
+                    sizeof(kMakernoteNikoncustomSettingsd500Extra)
+                    / sizeof(kMakernoteNikoncustomSettingsd500Extra[0])),
+                tag);
+        }
+        if (subtable == "settingsd610") {
+            return find_tag_name(
+                kMakernoteNikoncustomSettingsd610Extra,
+                static_cast<uint32_t>(
+                    sizeof(kMakernoteNikoncustomSettingsd610Extra)
+                    / sizeof(kMakernoteNikoncustomSettingsd610Extra[0])),
+                tag);
+        }
+        if (subtable == "settingsd7000") {
+            return find_tag_name(
+                kMakernoteNikoncustomSettingsd7000Extra,
+                static_cast<uint32_t>(
+                    sizeof(kMakernoteNikoncustomSettingsd7000Extra)
+                    / sizeof(kMakernoteNikoncustomSettingsd7000Extra[0])),
+                tag);
+        }
+        if (subtable == "settingsd800") {
+            return find_tag_name(
+                kMakernoteNikoncustomSettingsd800Extra,
+                static_cast<uint32_t>(
+                    sizeof(kMakernoteNikoncustomSettingsd800Extra)
+                    / sizeof(kMakernoteNikoncustomSettingsd800Extra[0])),
+                tag);
+        }
+        if (subtable == "settingsd810") {
+            return find_tag_name(
+                kMakernoteNikoncustomSettingsd810Extra,
+                static_cast<uint32_t>(
+                    sizeof(kMakernoteNikoncustomSettingsd810Extra)
+                    / sizeof(kMakernoteNikoncustomSettingsd810Extra[0])),
+                tag);
+        }
+        if (subtable == "settingsd850") {
+            return find_tag_name(
+                kMakernoteNikoncustomSettingsd850Extra,
+                static_cast<uint32_t>(
+                    sizeof(kMakernoteNikoncustomSettingsd850Extra)
+                    / sizeof(kMakernoteNikoncustomSettingsd850Extra[0])),
+                tag);
         }
         return {};
     }
@@ -559,6 +949,32 @@ namespace {
     }
 
     static std::string_view
+    synthesize_sigma_placeholder_name(std::string_view subtable,
+                                      uint16_t tag) noexcept
+    {
+        if (!(subtable.empty() || subtable == "main")) {
+            return {};
+        }
+
+        static thread_local char buf[16];
+        static constexpr std::string_view kPrefix = "Sigma_0x";
+        static constexpr char kHex[]              = "0123456789abcdef";
+        if (kPrefix.size() + 4U >= sizeof(buf)) {
+            return {};
+        }
+
+        for (size_t i = 0; i < kPrefix.size(); ++i) {
+            buf[i] = kPrefix[i];
+        }
+        buf[kPrefix.size() + 0U] = kHex[(tag >> 12U) & 0xFU];
+        buf[kPrefix.size() + 1U] = kHex[(tag >> 8U) & 0xFU];
+        buf[kPrefix.size() + 2U] = kHex[(tag >> 4U) & 0xFU];
+        buf[kPrefix.size() + 3U] = kHex[(tag >> 0U) & 0xFU];
+        buf[kPrefix.size() + 4U] = '\0';
+        return std::string_view(buf, kPrefix.size() + 4U);
+    }
+
+    static std::string_view
     synthesize_nikonsettings_placeholder_name(std::string_view subtable,
                                               uint16_t tag) noexcept
     {
@@ -568,6 +984,32 @@ namespace {
 
         static thread_local char buf[25];
         static constexpr std::string_view kPrefix = "NikonSettings_0x";
+        static constexpr char kHex[]              = "0123456789abcdef";
+        if (kPrefix.size() + 4 >= sizeof(buf)) {
+            return {};
+        }
+
+        for (size_t i = 0; i < kPrefix.size(); ++i) {
+            buf[i] = kPrefix[i];
+        }
+        buf[kPrefix.size() + 0] = kHex[(tag >> 12) & 0xF];
+        buf[kPrefix.size() + 1] = kHex[(tag >> 8) & 0xF];
+        buf[kPrefix.size() + 2] = kHex[(tag >> 4) & 0xF];
+        buf[kPrefix.size() + 3] = kHex[(tag >> 0) & 0xF];
+        buf[kPrefix.size() + 4] = '\0';
+        return std::string_view(buf, kPrefix.size() + 4);
+    }
+
+    static std::string_view
+    synthesize_nikon_placeholder_name(std::string_view subtable,
+                                      uint16_t tag) noexcept
+    {
+        if (!(subtable.empty() || subtable == "main")) {
+            return {};
+        }
+
+        static thread_local char buf[17];
+        static constexpr std::string_view kPrefix = "Nikon_0x";
         static constexpr char kHex[]              = "0123456789abcdef";
         if (kPrefix.size() + 4 >= sizeof(buf)) {
             return {};
@@ -839,6 +1281,14 @@ makernote_tag_name(std::string_view ifd, uint16_t tag) noexcept
         vendor_key = "fujifilm";
     }
 
+    if (vendor_key == "nikoncustom" && !parts.subtable.empty()) {
+        const std::string_view extra_name
+            = find_nikoncustom_extra_name(parts.subtable, tag);
+        if (!extra_name.empty()) {
+            return extra_name;
+        }
+    }
+
     const bool canon_colordata_generic = vendor_key == "canon"
                                          && parts.subtable == "colordata";
     const bool canon_colordata_specific
@@ -870,10 +1320,19 @@ makernote_tag_name(std::string_view ifd, uint16_t tag) noexcept
         if (vendor_key == "kodak" && !parts.subtable.empty()) {
             return synthesize_kodak_placeholder_name(parts.subtable, tag);
         }
+        if (vendor_key == "sigma"
+            && (parts.subtable.empty() || parts.subtable == "main")) {
+            return synthesize_sigma_placeholder_name(parts.subtable, tag);
+        }
         return {};
     }
     std::string_view name = find_tag_name(table->entries, table->count, tag);
     if (!name.empty()) {
+        if (vendor_key == "sigma"
+            && (parts.subtable.empty() || parts.subtable == "main")
+            && tag == 0x000CU) {
+            return "ExposureAdjust";
+        }
         if (vendor_key == "minolta"
             && (parts.subtable.empty() || parts.subtable == "main")
             && tag == 0x0103U) {
@@ -1016,6 +1475,10 @@ makernote_tag_name(std::string_view ifd, uint16_t tag) noexcept
         && (parts.subtable.empty() || parts.subtable == "main")) {
         return synthesize_dji_placeholder_name(parts.subtable, tag);
     }
+    if (vendor_key == "sigma"
+        && (parts.subtable.empty() || parts.subtable == "main")) {
+        return synthesize_sigma_placeholder_name(parts.subtable, tag);
+    }
     if (vendor_key == "samsung"
         && (parts.subtable == "ifd" || parts.subtable == "type2")) {
         return synthesize_samsung_placeholder_name(parts.subtable, tag);
@@ -1043,6 +1506,10 @@ makernote_tag_name(std::string_view ifd, uint16_t tag) noexcept
     if (vendor_key == "nikonsettings"
         && (parts.subtable.empty() || parts.subtable == "main")) {
         return synthesize_nikonsettings_placeholder_name(parts.subtable, tag);
+    }
+    if (vendor_key == "nikon"
+        && (parts.subtable.empty() || parts.subtable == "main")) {
+        return synthesize_nikon_placeholder_name(parts.subtable, tag);
     }
     if (vendor_key == "kodak" && !parts.subtable.empty()) {
         return synthesize_kodak_placeholder_name(parts.subtable, tag);
@@ -1108,6 +1575,10 @@ makernote_tag_name(std::string_view ifd, uint16_t tag) noexcept
         && (parts.subtable.empty() || parts.subtable == "main")) {
         return synthesize_dji_placeholder_name(parts.subtable, tag);
     }
+    if (vendor_key == "sigma"
+        && (parts.subtable.empty() || parts.subtable == "main")) {
+        return synthesize_sigma_placeholder_name(parts.subtable, tag);
+    }
     if (vendor_key == "casio" && parts.subtable == "type2") {
         return synthesize_casio_placeholder_name(parts.subtable, tag);
     }
@@ -1131,6 +1602,10 @@ makernote_tag_name(std::string_view ifd, uint16_t tag) noexcept
     if (vendor_key == "nikonsettings"
         && (parts.subtable.empty() || parts.subtable == "main")) {
         return synthesize_nikonsettings_placeholder_name(parts.subtable, tag);
+    }
+    if (vendor_key == "nikon"
+        && (parts.subtable.empty() || parts.subtable == "main")) {
+        return synthesize_nikon_placeholder_name(parts.subtable, tag);
     }
     return {};
 }

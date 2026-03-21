@@ -113,6 +113,22 @@ namespace {
     }
 
 
+    static bool read_i32_endian(bool le, std::span<const std::byte> bytes,
+                                uint64_t offset, int32_t* out) noexcept
+    {
+        if (!out) {
+            return false;
+        }
+        uint32_t raw = 0;
+        if (!(le ? read_u32le(bytes, offset, &raw)
+                 : read_u32be(bytes, offset, &raw))) {
+            return false;
+        }
+        *out = static_cast<int32_t>(raw);
+        return true;
+    }
+
+
     static bool read_u64be(std::span<const std::byte> bytes, uint64_t offset,
                            uint64_t* out) noexcept
     {
@@ -332,25 +348,122 @@ namespace {
         return ascii_equals_insensitive(model, "NIKON Z 30");
     }
 
+    static bool nikonsettings_model_is_z5(std::string_view model) noexcept
+    {
+        return ascii_equals_insensitive(model, "NIKON Z 5");
+    }
+
+    static bool nikonsettings_model_is_z50(std::string_view model) noexcept
+    {
+        return ascii_equals_insensitive(model, "NIKON Z 50");
+    }
+
+    static bool nikonsettings_model_is_z6(std::string_view model) noexcept
+    {
+        return ascii_equals_insensitive(model, "NIKON Z 6");
+    }
+
+    static bool nikonsettings_model_is_z6ii(std::string_view model) noexcept
+    {
+        return ascii_equals_insensitive(model, "NIKON Z 6_2");
+    }
+
+    static bool nikonsettings_model_is_z7(std::string_view model) noexcept
+    {
+        return ascii_equals_insensitive(model, "NIKON Z 7");
+    }
+
+    static bool nikonsettings_model_is_z7ii(std::string_view model) noexcept
+    {
+        return ascii_equals_insensitive(model, "NIKON Z 7_2");
+    }
+
+    static bool nikonsettings_model_is_zfc(std::string_view model) noexcept
+    {
+        return ascii_equals_insensitive(model, "NIKON Z fc");
+    }
+
+    static bool nikon_model_is_z8(std::string_view model) noexcept
+    {
+        return ascii_equals_insensitive(model, "NIKON Z 8");
+    }
+
+    static bool nikon_main_model_is_z_family(std::string_view model) noexcept
+    {
+        return ascii_equals_insensitive(model, "NIKON Z fc")
+               || ascii_equals_insensitive(model, "NIKON Z f")
+               || ascii_starts_with_insensitive(model, "NIKON Z ")
+               || ascii_starts_with_insensitive(model, "NIKON Z5")
+               || ascii_starts_with_insensitive(model, "NIKON Z6")
+               || ascii_starts_with_insensitive(model, "NIKON Z7")
+               || ascii_starts_with_insensitive(model, "NIKON Z50");
+    }
+
     static bool
-    nikonsettings_main_prefers_placeholder(uint16_t tag,
-                                           std::string_view model) noexcept
+    nikon_main_z_tag_prefers_compat_name(uint16_t tag) noexcept
+    {
+        switch (tag) {
+        case 0x002BU:
+        case 0x002CU:
+        case 0x002EU:
+        case 0x002FU:
+        case 0x0031U:
+        case 0x0032U:
+        case 0x0035U: return true;
+        default: return false;
+        }
+    }
+
+    static bool nikonsettings_model_uses_iso_placeholder_names(
+        std::string_view model) noexcept
+    {
+        return nikonsettings_model_is_z5(model)
+               || nikonsettings_model_is_z50(model)
+               || nikonsettings_model_is_z30(model)
+               || nikonsettings_model_is_z6(model)
+               || nikonsettings_model_is_z6ii(model)
+               || nikonsettings_model_is_zfc(model);
+    }
+
+    static bool
+    nikonsettings_model_uses_movie_func_aliases(std::string_view model) noexcept
+    {
+        return nikonsettings_model_is_z5(model)
+               || nikonsettings_model_is_z50(model)
+               || nikonsettings_model_is_z6(model)
+               || nikonsettings_model_is_z6ii(model)
+               || nikonsettings_model_is_z7(model)
+               || nikonsettings_model_is_z7ii(model)
+               || nikonsettings_model_is_zfc(model);
+    }
+
+    static uint8_t
+    nikonsettings_main_context_variant(uint16_t tag,
+                                       std::string_view model) noexcept
     {
         const bool d7500 = nikonsettings_model_is_d7500(model);
         const bool d780  = nikonsettings_model_is_d780(model);
         const bool d850  = nikonsettings_model_is_d850(model);
         const bool z30   = nikonsettings_model_is_z30(model);
+        const bool z_iso_placeholders
+            = nikonsettings_model_uses_iso_placeholder_names(model);
+        const bool z_movie_aliases
+            = nikonsettings_model_uses_movie_func_aliases(model);
 
         switch (tag) {
         case 0x0103u:
         case 0x0104u:
-        case 0x010Bu:
         case 0x010Cu:
         case 0x013Au:
-        case 0x013Cu: return true;
+        case 0x013Cu: return 1U;
+        case 0x010Bu: return 1U;
         case 0x0001u:
         case 0x0002u:
-        case 0x000Du: return d7500 || d780;
+        case 0x000Du:
+            if (d7500 || d780 || d850 || z30 || z_iso_placeholders) {
+                return 1U;
+            }
+            return 0U;
         case 0x001Du:
         case 0x0020u:
         case 0x002Du:
@@ -359,17 +472,44 @@ namespace {
         case 0x0052u:
         case 0x0053u:
         case 0x0054u:
-        case 0x006Cu: return d7500 || d780;
-        case 0x0080u: return d7500 || d780 || d850 || z30;
+        case 0x006Cu:
+            if (d7500 || d780 || d850 || z30) {
+                return 1U;
+            }
+            return 0U;
+        case 0x0080u:
+            if (d7500 || d780 || d850 || z30) {
+                return 1U;
+            }
+            return 0U;
         case 0x0097u:
         case 0x00A0u:
         case 0x00A2u:
         case 0x00A3u:
         case 0x00A5u:
         case 0x00A7u:
-        case 0x00B6u: return d780 || d850 || z30;
-        case 0x00B1u: return d7500 || d780;
-        default: return false;
+        case 0x00B6u:
+            if (d780 || d850 || z30) {
+                return 1U;
+            }
+            return 0U;
+        case 0x00B1u:
+            if (d7500 || d780 || d850 || z30) {
+                return 1U;
+            }
+            if (z_movie_aliases) {
+                return 2U;
+            }
+            return 0U;
+        case 0x00B3u:
+            if (d850 || z30) {
+                return 1U;
+            }
+            if (z_movie_aliases) {
+                return 3U;
+            }
+            return 0U;
+        default: return 0U;
         }
     }
 
@@ -435,9 +575,9 @@ namespace {
         }
     }
 
-    static bool canon_model_matches_any(
-        std::string_view model,
-        std::span<const std::string_view> needles) noexcept
+    static bool
+    canon_model_matches_any(std::string_view model,
+                            std::span<const std::string_view> needles) noexcept
     {
         for (size_t i = 0; i < needles.size(); ++i) {
             if (ascii_contains_insensitive(model, needles[i])) {
@@ -676,10 +816,49 @@ namespace {
             const std::string_view model
                 = find_first_exif_ascii_value(store, "ifd0",
                                               0x0110 /* Model */);
-            if (nikonsettings_main_prefers_placeholder(tag, model)) {
+            if (tag == 0x010BU && nikonsettings_model_is_zfc(model)
+                && entry->value.kind == MetaValueKind::Scalar
+                && entry->value.elem_type == MetaElementType::U32
+                && entry->value.data.u64 == 1U) {
+                return;
+            }
+            const uint8_t variant = nikonsettings_main_context_variant(tag,
+                                                                       model);
+            if (variant != 0U) {
                 entry->flags |= EntryFlags::ContextualName;
                 entry->origin.name_context_kind
                     = EntryNameContextKind::NikonSettingsMain;
+                entry->origin.name_context_variant = variant;
+                return;
+            }
+        }
+        if (ifd_name == "mk_nikon0") {
+            const std::string_view model
+                = find_first_exif_ascii_value(store, "ifd0",
+                                              0x0110 /* Model */);
+            if (nikon_main_model_is_z_family(model)
+                && nikon_main_z_tag_prefers_compat_name(tag)) {
+                entry->flags |= EntryFlags::ContextualName;
+                entry->origin.name_context_kind = EntryNameContextKind::NikonMainZ;
+                entry->origin.name_context_variant = 1U;
+                return;
+            }
+        }
+        if (ifd_name == "mk_nikon_shotinfo_0") {
+            const std::string_view model
+                = find_first_exif_ascii_value(store, "ifd0",
+                                              0x0110 /* Model */);
+            if (nikonsettings_model_is_d850(model)) {
+                entry->flags |= EntryFlags::ContextualName;
+                entry->origin.name_context_kind
+                    = EntryNameContextKind::NikonShotInfoD850;
+                entry->origin.name_context_variant = 1U;
+                return;
+            }
+            if (nikon_model_is_z8(model)) {
+                entry->flags |= EntryFlags::ContextualName;
+                entry->origin.name_context_kind
+                    = EntryNameContextKind::NikonShotInfoZ8;
                 entry->origin.name_context_variant = 1U;
                 return;
             }
@@ -745,6 +924,7 @@ namespace {
         Nikon,
         Canon,
         Sony,
+        Sigma,
         Minolta,
         Fuji,
         Apple,
@@ -782,6 +962,10 @@ namespace {
         if (maker_note_bytes.size() >= 4
             && match_bytes(maker_note_bytes, 0, "SONY", 4)) {
             return MakerNoteVendor::Sony;
+        }
+        if (maker_note_bytes.size() >= 5
+            && match_bytes(maker_note_bytes, 0, "SIGMA", 5)) {
+            return MakerNoteVendor::Sigma;
         }
         if (maker_note_bytes.size() >= 8
             && match_bytes(maker_note_bytes, 0, "FUJIFILM", 8)) {
@@ -1012,6 +1196,9 @@ namespace {
             if (ascii_starts_with_insensitive(make, "Sony")) {
                 return MakerNoteVendor::Sony;
             }
+            if (ascii_starts_with_insensitive(make, "SIGMA")) {
+                return MakerNoteVendor::Sigma;
+            }
             if (ascii_starts_with_insensitive(make, "Konica Minolta")
                 || ascii_starts_with_insensitive(make, "Minolta")) {
                 return MakerNoteVendor::Minolta;
@@ -1108,6 +1295,13 @@ namespace {
             opts->tokens.exif_ifd_token    = "mk_sony_exififd";
             opts->tokens.gps_ifd_token     = "mk_sony_gpsifd";
             opts->tokens.interop_ifd_token = "mk_sony_interopifd";
+            return;
+        case MakerNoteVendor::Sigma:
+            opts->tokens.ifd_prefix        = "mk_sigma";
+            opts->tokens.subifd_prefix     = "mk_sigma_subifd";
+            opts->tokens.exif_ifd_token    = "mk_sigma_exififd";
+            opts->tokens.gps_ifd_token     = "mk_sigma_gpsifd";
+            opts->tokens.interop_ifd_token = "mk_sigma_interopifd";
             return;
         case MakerNoteVendor::Minolta:
             opts->tokens.ifd_prefix        = "mk_minolta";
@@ -1666,6 +1860,281 @@ namespace {
             if (status_out) {
                 status_out->entries_decoded += 1;
             }
+        }
+    }
+
+
+    static const Entry* find_first_exif_entry(const MetaStore& store,
+                                              std::string_view ifd_name,
+                                              uint16_t tag) noexcept
+    {
+        const ByteArena& arena               = store.arena();
+        const std::span<const Entry> entries = store.entries();
+        for (size_t i = 0; i < entries.size(); ++i) {
+            const Entry& entry = entries[i];
+            if (entry.key.kind != MetaKeyKind::ExifTag) {
+                continue;
+            }
+            if (entry.key.data.exif_tag.tag != tag) {
+                continue;
+            }
+            if (arena_string(arena, entry.key.data.exif_tag.ifd) != ifd_name) {
+                continue;
+            }
+            return &entry;
+        }
+        return nullptr;
+    }
+
+
+    static bool decode_nikon_distortioninfo_block(
+        std::span<const std::byte> raw, bool le, uint32_t index,
+        MetaStore& store, const ExifDecodeLimits& limits,
+        ExifDecodeResult* status_out) noexcept
+    {
+        if (raw.size() < 5U) {
+            return false;
+        }
+
+        char ifd_buf[96];
+        const std::string_view ifd_name
+            = exif_internal::make_mk_subtable_ifd_token(
+                "mk_nikon", "distortioninfo", index,
+                std::span<char>(ifd_buf));
+        if (ifd_name.empty()) {
+            return false;
+        }
+
+        uint16_t tags_out[5];
+        MetaValue vals_out[5];
+        uint32_t out_count = 0;
+
+        tags_out[out_count] = 0x0000;
+        vals_out[out_count]
+            = exif_internal::make_fixed_ascii_text(store.arena(), raw.first(4));
+        out_count += 1;
+
+        tags_out[out_count] = 0x0004;
+        vals_out[out_count] = make_u8(u8(raw[4]));
+        out_count += 1;
+
+        static constexpr uint16_t kCoeffTags[] = { 0x0014, 0x001C, 0x0024 };
+        for (size_t i = 0; i < sizeof(kCoeffTags) / sizeof(kCoeffTags[0]);
+             ++i) {
+            const uint16_t tag = kCoeffTags[i];
+            if (static_cast<uint64_t>(tag) + 8U > raw.size()) {
+                continue;
+            }
+
+            int32_t numer = 0;
+            int32_t denom = 0;
+            if (!read_i32_endian(le, raw, static_cast<uint64_t>(tag), &numer)
+                || !read_i32_endian(le, raw, static_cast<uint64_t>(tag) + 4U,
+                                    &denom)) {
+                continue;
+            }
+
+            tags_out[out_count] = tag;
+            vals_out[out_count] = make_srational(numer, denom);
+            out_count += 1;
+        }
+
+        exif_internal::emit_bin_dir_entries(
+            ifd_name, store, std::span<const uint16_t>(tags_out, out_count),
+            std::span<const MetaValue>(vals_out, out_count), limits,
+            status_out);
+        return true;
+    }
+
+
+    static void maybe_decode_nikon_nefinfo_blocks(
+        MetaStore& store, const ExifDecodeOptions& options,
+        ExifDecodeResult* status_out) noexcept
+    {
+        if (!options.decode_makernote) {
+            return;
+        }
+
+        const std::string_view make
+            = find_first_exif_ascii_value(store, "ifd0", 0x010F);
+        if (!ascii_starts_with_insensitive(make, "Nikon")) {
+            return;
+        }
+
+        exif_internal::ExifContext ctx(store);
+        static constexpr std::string_view kNefInfoIfds[] = {
+            "subifd1",
+            "subifd0",
+            "subifd2",
+        };
+
+        uint32_t idx_distortioninfo = 0;
+        for (size_t i = 0; i < sizeof(kNefInfoIfds) / sizeof(kNefInfoIfds[0]);
+             ++i) {
+            MetaValue nefinfo;
+            if (!ctx.find_first_value(kNefInfoIfds[i], 0xC7D5, &nefinfo)
+                || nefinfo.kind != MetaValueKind::Bytes) {
+                continue;
+            }
+
+            const std::span<const std::byte> raw
+                = store.arena().span(nefinfo.data.span);
+            const uint64_t hdr_off = find_embedded_tiff_header(raw, 64U);
+            if (hdr_off == UINT64_MAX || hdr_off >= raw.size()) {
+                continue;
+            }
+
+            const std::span<const std::byte> tiff_bytes = raw.subspan(
+                static_cast<size_t>(hdr_off));
+            if (tiff_bytes.size() < 8U) {
+                continue;
+            }
+
+            TiffConfig cfg;
+            cfg.bigtiff = false;
+            cfg.le = (u8(tiff_bytes[0]) == 'I' && u8(tiff_bytes[1]) == 'I');
+
+            uint32_t ifd_off = 0;
+            if (!read_tiff_u32(cfg, tiff_bytes, 4U, &ifd_off)
+                || ifd_off >= tiff_bytes.size()) {
+                continue;
+            }
+
+            uint16_t entry_count = 0;
+            if (!read_tiff_u16(cfg, tiff_bytes, ifd_off, &entry_count)) {
+                continue;
+            }
+
+            exif_internal::MakerNoteLayout layout;
+            layout.cfg   = cfg;
+            layout.bytes = tiff_bytes;
+
+            for (uint16_t entry_idx = 0; entry_idx < entry_count; ++entry_idx) {
+                const uint64_t entry_off
+                    = uint64_t(ifd_off) + 2U + uint64_t(entry_idx) * 12U;
+                exif_internal::ClassicIfdEntry entry;
+                if (!exif_internal::read_classic_ifd_entry(cfg, tiff_bytes,
+                                                           entry_off, &entry)
+                    || entry.tag != 0x0005U || entry.type != 7U) {
+                    continue;
+                }
+
+                exif_internal::ClassicIfdValueRef ref;
+                if (!exif_internal::resolve_classic_ifd_value_ref(
+                        layout, entry_off, entry, &ref, status_out)
+                    || !span_contains_bytes(tiff_bytes, ref.value_off,
+                                            ref.value_bytes)) {
+                    continue;
+                }
+
+                const std::span<const std::byte> block = tiff_bytes.subspan(
+                    static_cast<size_t>(ref.value_off),
+                    static_cast<size_t>(ref.value_bytes));
+                if (decode_nikon_distortioninfo_block(
+                        block, cfg.le, idx_distortioninfo++, store,
+                        options.limits, status_out)) {
+                    break;
+                }
+            }
+        }
+    }
+
+
+    static bool sigma_copy_f32_triplet(const ByteArena& arena,
+                                       const MetaValue& value, uint32_t start,
+                                       std::array<uint32_t, 3>* out) noexcept
+    {
+        if (!out || value.kind != MetaValueKind::Array
+            || value.elem_type != MetaElementType::F32 || value.count < 3U
+            || start > (value.count - 3U)) {
+            return false;
+        }
+
+        const std::span<const std::byte> raw = arena.span(value.data.span);
+        const uint64_t start_byte            = uint64_t(start) * 4U;
+        const uint64_t need_bytes            = start_byte + 12U;
+        if (need_bytes > raw.size()) {
+            return false;
+        }
+
+        for (uint32_t i = 0; i < 3U; ++i) {
+            uint32_t bits = 0U;
+            std::memcpy(&bits,
+                        raw.data()
+                            + static_cast<size_t>(start_byte + uint64_t(i) * 4U),
+                        sizeof(bits));
+            (*out)[i] = bits;
+        }
+        return true;
+    }
+
+
+    static void
+    decode_sigma_binary_subdirs(std::string_view mk_ifd0, MetaStore& store,
+                                const ExifDecodeLimits& limits,
+                                ExifDecodeResult* status_out) noexcept
+    {
+        if (mk_ifd0.empty()) {
+            return;
+        }
+        if (store_has_exif_tag(store, "mk_sigma_wbsettings_0", 0x0000U)
+            || store_has_exif_tag(store, "mk_sigma_wbsettings2_0", 0x0000U)) {
+            return;
+        }
+
+        struct SigmaSubdirSpec final {
+            uint16_t source_tag;
+            const char* subtable;
+        };
+        static constexpr SigmaSubdirSpec kSpecs[] = {
+            { 0x0120U, "wbsettings" },
+            { 0x0121U, "wbsettings2" },
+        };
+        static constexpr uint16_t kSigmaWbTags[] = {
+            0x0000U, 0x0003U, 0x0006U, 0x0009U, 0x000CU,
+            0x000FU, 0x0012U, 0x0015U, 0x0018U, 0x001BU,
+        };
+
+        char ifd_buf[64];
+        for (size_t spec_i = 0; spec_i < (sizeof(kSpecs) / sizeof(kSpecs[0]));
+             ++spec_i) {
+            const Entry* source
+                = find_first_exif_entry(store, mk_ifd0,
+                                        kSpecs[spec_i].source_tag);
+            if (!source) {
+                continue;
+            }
+
+            std::array<MetaValue, 10> values {};
+            bool ok = true;
+            for (uint32_t i = 0; i < 10U; ++i) {
+                std::array<uint32_t, 3> bits {};
+                if (!sigma_copy_f32_triplet(store.arena(), source->value,
+                                            i * 3U, &bits)) {
+                    ok = false;
+                    break;
+                }
+                values[i] = make_f32_bits_array(
+                    store.arena(),
+                    std::span<const uint32_t>(bits.data(), bits.size()));
+            }
+            if (!ok) {
+                continue;
+            }
+
+            const std::string_view sub_ifd = make_mk_subtable_ifd_token(
+                "mk_sigma", kSpecs[spec_i].subtable, 0U,
+                std::span<char>(ifd_buf, sizeof(ifd_buf)));
+            if (sub_ifd.empty()) {
+                continue;
+            }
+            emit_bin_dir_entries(
+                sub_ifd, store,
+                std::span<const uint16_t>(kSigmaWbTags,
+                                          sizeof(kSigmaWbTags)
+                                              / sizeof(kSigmaWbTags[0])),
+                std::span<const MetaValue>(values.data(), values.size()),
+                limits, status_out);
         }
     }
     static uint64_t tiff_type_size(uint16_t type) noexcept
@@ -3419,6 +3888,34 @@ decode_exif_tiff(std::span<const std::byte> tiff_bytes, MetaStore& store,
                     store, plim);
             }
 
+            // DNGPrivateData (0xC634) may embed a vendor MakerNote block.
+            // Pentax raw DNG files store a `PENTAX \0...` block here that
+            // ExifTool exposes as the Pentax MakerNote group.
+            if (options.decode_makernote && tag == 0xC634 && value_bytes != 0U
+                && value_bytes <= options.limits.max_value_bytes) {
+                const std::span<const std::byte> dng_private
+                    = tiff_bytes.subspan(static_cast<size_t>(value_off),
+                                         static_cast<size_t>(value_bytes));
+                const MakerNoteVendor vendor
+                    = detect_makernote_vendor(dng_private, store);
+
+                if (vendor == MakerNoteVendor::Pentax) {
+                    ExifDecodeOptions mn_opts = options;
+                    mn_opts.decode_printim    = false;
+                    mn_opts.decode_makernote  = false;
+                    set_makernote_tokens(&mn_opts, vendor);
+
+                    char token_scratch_buf2[64];
+                    const std::string_view mk_ifd0
+                        = ifd_token(mn_opts.tokens, ExifIfdKind::Ifd, 0,
+                                    std::span<char>(token_scratch_buf2));
+                    (void)exif_internal::decode_pentax_makernote(dng_private,
+                                                                 mk_ifd0, store,
+                                                                 mn_opts,
+                                                                 &sink.result);
+                }
+            }
+
             // MakerNote (0x927C) is vendor-defined. As a minimal starting point,
             // attempt to decode embedded TIFF headers found inside the blob
             // (covers common cases like Nikon).
@@ -3712,6 +4209,11 @@ decode_exif_tiff(std::span<const std::byte> tiff_bytes, MetaStore& store,
                                                  mk_ifd0, store, mn_opts,
                                                  &sink.result,
                                                  EntryFlags::None);
+                    if (vendor == MakerNoteVendor::Sigma) {
+                        decode_sigma_binary_subdirs(mk_ifd0, store,
+                                                    mn_opts.limits,
+                                                    &sink.result);
+                    }
                     if (vendor == MakerNoteVendor::Sony) {
                         exif_internal::decode_sony_cipher_subdirs(mk_ifd0,
                                                                   store,
@@ -3726,6 +4228,10 @@ decode_exif_tiff(std::span<const std::byte> tiff_bytes, MetaStore& store,
                 decode_classic_ifd_no_header(cfg, mn, 0, mk_ifd0, store,
                                              mn_opts, &sink.result,
                                              EntryFlags::None);
+                if (vendor == MakerNoteVendor::Sigma) {
+                    decode_sigma_binary_subdirs(mk_ifd0, store, mn_opts.limits,
+                                                &sink.result);
+                }
                 if (vendor == MakerNoteVendor::Sony) {
                     exif_internal::decode_sony_cipher_subdirs(mk_ifd0, store,
                                                               mn_opts,
@@ -3741,6 +4247,7 @@ decode_exif_tiff(std::span<const std::byte> tiff_bytes, MetaStore& store,
         }
     }
 
+    maybe_decode_nikon_nefinfo_blocks(store, options, &sink.result);
     exif_internal::decode_nikon_preview_aliases(store, options, &sink.result);
 
     return sink.result;

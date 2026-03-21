@@ -1150,7 +1150,6 @@ simple_meta_read(std::span<const std::byte> file_bytes, MetaStore& store,
                             any_exif = true;
 
                             ExifDecodeOptions embed_opts = options.exif;
-                            embed_opts.decode_makernote  = false;
                             embed_opts.decode_printim    = false;
                             embed_opts.decode_embedded_containers = false;
 

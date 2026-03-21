@@ -70,6 +70,37 @@ namespace {
     }
 
 
+    static void write_u32le_at(std::vector<std::byte>* out, size_t off,
+                               uint32_t v)
+    {
+        ASSERT_TRUE(out != nullptr);
+        ASSERT_LE(off + 4U, out->size());
+        (*out)[off + 0U] = std::byte { static_cast<uint8_t>((v >> 0) & 0xFF) };
+        (*out)[off + 1U] = std::byte { static_cast<uint8_t>((v >> 8) & 0xFF) };
+        (*out)[off + 2U]
+            = std::byte { static_cast<uint8_t>((v >> 16) & 0xFF) };
+        (*out)[off + 3U]
+            = std::byte { static_cast<uint8_t>((v >> 24) & 0xFF) };
+    }
+
+
+    static void write_i32le_at(std::vector<std::byte>* out, size_t off,
+                               int32_t v)
+    {
+        uint32_t bits = 0U;
+        std::memcpy(&bits, &v, sizeof(bits));
+        write_u32le_at(out, off, bits);
+    }
+
+
+    static uint32_t f32_bits(float v) noexcept
+    {
+        uint32_t bits = 0U;
+        std::memcpy(&bits, &v, sizeof(bits));
+        return bits;
+    }
+
+
     static std::string_view arena_string(const ByteArena& arena,
                                          const MetaValue& v)
     {
@@ -241,6 +272,361 @@ namespace {
         EXPECT_EQ(tiff.size(), 62U);
         append_bytes(&tiff, "2024:01:01 00:00:00");
         tiff.push_back(std::byte { 0 });
+        return tiff;
+    }
+
+
+    static std::vector<std::byte> make_test_panasonic_makernote()
+    {
+        std::vector<std::byte> mn;
+        append_bytes(&mn, "Panasonic");
+        mn.push_back(std::byte { 0 });
+        mn.push_back(std::byte { 0 });
+        mn.push_back(std::byte { 0 });
+
+        append_u16le(&mn, 1);       // entry count
+        append_u16le(&mn, 0x0003);  // WhiteBalance
+        append_u16le(&mn, 3);       // SHORT
+        append_u32le(&mn, 1);
+        append_u16le(&mn, 4);       // cloudy
+        append_u16le(&mn, 0);
+        append_u32le(&mn, 0);       // next IFD
+        return mn;
+    }
+
+
+    static std::vector<std::byte> make_test_panasonic_tiff_le()
+    {
+        const std::vector<std::byte> mn = make_test_panasonic_makernote();
+
+        std::vector<std::byte> tiff;
+        append_bytes(&tiff, "II");
+        append_u16le(&tiff, 42);
+        append_u32le(&tiff, 8);
+
+        // IFD0: Make + ExifIFDPointer.
+        append_u16le(&tiff, 2);
+
+        append_u16le(&tiff, 0x010F);  // Make
+        append_u16le(&tiff, 2);       // ASCII
+        append_u32le(&tiff, 10);      // "Panasonic\0"
+        append_u32le(&tiff, 38);
+
+        append_u16le(&tiff, 0x8769);  // ExifIFDPointer
+        append_u16le(&tiff, 4);
+        append_u32le(&tiff, 1);
+        append_u32le(&tiff, 48);
+
+        append_u32le(&tiff, 0);
+
+        EXPECT_EQ(tiff.size(), 38U);
+        append_bytes(&tiff, "Panasonic");
+        tiff.push_back(std::byte { 0 });
+
+        EXPECT_EQ(tiff.size(), 48U);
+
+        // ExifIFD: DateTimeOriginal + MakerNote.
+        append_u16le(&tiff, 2);
+
+        append_u16le(&tiff, 0x9003);  // DateTimeOriginal
+        append_u16le(&tiff, 2);       // ASCII
+        append_u32le(&tiff, 20);
+        append_u32le(&tiff, 78);
+
+        append_u16le(&tiff, 0x927C);  // MakerNote
+        append_u16le(&tiff, 7);       // UNDEFINED
+        append_u32le(&tiff, static_cast<uint32_t>(mn.size()));
+        append_u32le(&tiff, 98);
+
+        append_u32le(&tiff, 0);
+
+        EXPECT_EQ(tiff.size(), 78U);
+        append_bytes(&tiff, "2024:01:01 00:00:00");
+        tiff.push_back(std::byte { 0 });
+
+        EXPECT_EQ(tiff.size(), 98U);
+        tiff.insert(tiff.end(), mn.begin(), mn.end());
+        return tiff;
+    }
+
+
+    static std::vector<std::byte> make_test_pentax_dng_private_data()
+    {
+        std::vector<std::byte> data;
+        append_bytes(&data, "PENTAX ");
+        data.push_back(std::byte { 0 });
+        append_bytes(&data, "II");
+
+        append_u16le(&data, 1);       // entry count
+        append_u16le(&data, 0x000C);  // FlashMode
+        append_u16le(&data, 3);       // SHORT
+        append_u32le(&data, 1);
+        append_u16le(&data, 2);       // off, did not fire
+        append_u16le(&data, 0);
+        append_u32le(&data, 0);       // next IFD
+        return data;
+    }
+
+
+    static std::vector<std::byte> make_test_pentax_dng_tiff_le()
+    {
+        const std::vector<std::byte> dng_private
+            = make_test_pentax_dng_private_data();
+
+        std::vector<std::byte> tiff;
+        append_bytes(&tiff, "II");
+        append_u16le(&tiff, 42);
+        append_u32le(&tiff, 8);
+
+        append_u16le(&tiff, 3);
+
+        append_u16le(&tiff, 0x010F);  // Make
+        append_u16le(&tiff, 2);
+        append_u32le(&tiff, 7);       // "PENTAX\0"
+        append_u32le(&tiff, 50);
+
+        append_u16le(&tiff, 0x0110);  // Model
+        append_u16le(&tiff, 2);
+        append_u32le(&tiff, 11);      // "PENTAX K-1\0"
+        append_u32le(&tiff, 57);
+
+        append_u16le(&tiff, 0xC634);  // DNGPrivateData
+        append_u16le(&tiff, 1);       // BYTE
+        append_u32le(&tiff, static_cast<uint32_t>(dng_private.size()));
+        append_u32le(&tiff, 68);
+
+        append_u32le(&tiff, 0);
+
+        EXPECT_EQ(tiff.size(), 50U);
+        append_bytes(&tiff, "PENTAX");
+        tiff.push_back(std::byte { 0 });
+
+        EXPECT_EQ(tiff.size(), 57U);
+        append_bytes(&tiff, "PENTAX K-1");
+        tiff.push_back(std::byte { 0 });
+
+        EXPECT_EQ(tiff.size(), 68U);
+        tiff.insert(tiff.end(), dng_private.begin(), dng_private.end());
+        return tiff;
+    }
+
+
+    static std::vector<std::byte> make_test_nikon_nefinfo_tiff_le()
+    {
+        std::vector<std::byte> nefinfo;
+        append_bytes(&nefinfo, "Nikon");
+        nefinfo.push_back(std::byte { 0 });
+        nefinfo.push_back(std::byte { 1 });
+        nefinfo.push_back(std::byte { 1 });
+        nefinfo.push_back(std::byte { 0 });
+        nefinfo.push_back(std::byte { 0 });
+        append_bytes(&nefinfo, "II");
+        append_u16le(&nefinfo, 42);
+        append_u32le(&nefinfo, 8);
+
+        append_u16le(&nefinfo, 1);       // entry count
+        append_u16le(&nefinfo, 0x0005);  // DistortionInfo
+        append_u16le(&nefinfo, 7);       // UNDEFINED
+        append_u32le(&nefinfo, 44);
+        append_u32le(&nefinfo, 26);
+        append_u32le(&nefinfo, 0);
+        EXPECT_EQ(nefinfo.size(), 36U);
+
+        std::vector<std::byte> distortion(44U, std::byte { 0 });
+        std::memcpy(distortion.data(), "0100", 4U);
+        distortion[4] = std::byte { 1 };
+        write_i32le_at(&distortion, 0x14U, -1429);
+        write_u32le_at(&distortion, 0x18U, 100000U);
+        write_i32le_at(&distortion, 0x1cU, 1221);
+        write_u32le_at(&distortion, 0x20U, 100000U);
+        write_i32le_at(&distortion, 0x24U, -615);
+        write_u32le_at(&distortion, 0x28U, 100000U);
+        nefinfo.insert(nefinfo.end(), distortion.begin(), distortion.end());
+
+        std::vector<std::byte> tiff;
+        append_bytes(&tiff, "II");
+        append_u16le(&tiff, 42);
+        append_u32le(&tiff, 8);
+
+        append_u16le(&tiff, 3);
+
+        append_u16le(&tiff, 0x010F);  // Make
+        append_u16le(&tiff, 2);
+        append_u32le(&tiff, 6);
+        append_u32le(&tiff, 50);
+
+        append_u16le(&tiff, 0x0110);  // Model
+        append_u16le(&tiff, 2);
+        append_u32le(&tiff, 10);
+        append_u32le(&tiff, 56);
+
+        append_u16le(&tiff, 0x014A);  // SubIFDs
+        append_u16le(&tiff, 4);
+        append_u32le(&tiff, 1);
+        append_u32le(&tiff, 66);
+
+        append_u32le(&tiff, 0);
+        EXPECT_EQ(tiff.size(), 50U);
+
+        append_bytes(&tiff, "Nikon");
+        tiff.push_back(std::byte { 0 });
+        EXPECT_EQ(tiff.size(), 56U);
+
+        append_bytes(&tiff, "NIKON Z 5");
+        tiff.push_back(std::byte { 0 });
+        EXPECT_EQ(tiff.size(), 66U);
+
+        append_u16le(&tiff, 1);
+        append_u16le(&tiff, 0xC7D5);
+        append_u16le(&tiff, 7);
+        append_u32le(&tiff, static_cast<uint32_t>(nefinfo.size()));
+        append_u32le(&tiff, 84);
+        append_u32le(&tiff, 0);
+        EXPECT_EQ(tiff.size(), 84U);
+
+        tiff.insert(tiff.end(), nefinfo.begin(), nefinfo.end());
+        return tiff;
+    }
+
+
+    static std::vector<std::byte> make_test_sigma_makernote()
+    {
+        std::vector<std::byte> mn;
+        append_bytes(&mn, "SIGMA");
+        mn.push_back(std::byte { 0 });
+        mn.push_back(std::byte { 0 });
+        mn.push_back(std::byte { 0 });
+
+        append_u16be(&mn, 2);       // entry count
+
+        append_u16be(&mn, 0x0002);  // SerialNumber
+        append_u16be(&mn, 2);       // ASCII
+        append_u32be(&mn, 9);
+        append_u32be(&mn, 38);
+
+        append_u16be(&mn, 0x0003);  // DriveMode
+        append_u16be(&mn, 2);       // ASCII
+        append_u32be(&mn, 6);
+        append_u32be(&mn, 47);
+
+        append_u32be(&mn, 0);  // next IFD
+
+        EXPECT_EQ(mn.size(), 38U);
+        append_bytes(&mn, "90301541");
+        mn.push_back(std::byte { 0 });
+
+        EXPECT_EQ(mn.size(), 47U);
+        append_bytes(&mn, "2 Sec");
+        mn.push_back(std::byte { 0 });
+        return mn;
+    }
+
+
+    static std::vector<std::byte> make_test_sigma_tiff_le()
+    {
+        const std::vector<std::byte> mn = make_test_sigma_makernote();
+
+        std::vector<std::byte> tiff;
+        append_bytes(&tiff, "II");
+        append_u16le(&tiff, 42);
+        append_u32le(&tiff, 8);
+
+        append_u16le(&tiff, 2);
+
+        append_u16le(&tiff, 0x010F);  // Make
+        append_u16le(&tiff, 2);
+        append_u32le(&tiff, 6);
+        append_u32le(&tiff, 38);
+
+        append_u16le(&tiff, 0x8769);  // ExifIFD
+        append_u16le(&tiff, 4);
+        append_u32le(&tiff, 1);
+        append_u32le(&tiff, 44);
+
+        append_u32le(&tiff, 0);
+
+        EXPECT_EQ(tiff.size(), 38U);
+        append_bytes(&tiff, "SIGMA");
+        tiff.push_back(std::byte { 0 });
+
+        EXPECT_EQ(tiff.size(), 44U);
+        append_u16le(&tiff, 1);
+
+        append_u16le(&tiff, 0x927C);  // MakerNote
+        append_u16le(&tiff, 7);       // UNDEFINED
+        append_u32le(&tiff, static_cast<uint32_t>(mn.size()));
+        append_u32le(&tiff, 62);
+
+        append_u32le(&tiff, 0);
+
+        EXPECT_EQ(tiff.size(), 62U);
+        tiff.insert(tiff.end(), mn.begin(), mn.end());
+        return tiff;
+    }
+
+
+    static std::vector<std::byte> make_test_sigma_wb_makernote()
+    {
+        std::vector<std::byte> mn;
+        append_bytes(&mn, "SIGMA");
+        mn.push_back(std::byte { 0 });
+        mn.push_back(std::byte { 0 });
+        mn.push_back(std::byte { 0 });
+
+        append_u16be(&mn, 1);       // entry count
+        append_u16be(&mn, 0x0120);  // WBSettings
+        append_u16be(&mn, 11);      // FLOAT
+        append_u32be(&mn, 30);
+        append_u32be(&mn, 26);
+        append_u32be(&mn, 0);  // next IFD
+
+        EXPECT_EQ(mn.size(), 26U);
+        for (uint32_t i = 0; i < 30U; ++i) {
+            append_u32be(&mn, f32_bits(static_cast<float>(i + 1U)));
+        }
+        return mn;
+    }
+
+
+    static std::vector<std::byte> make_test_sigma_wb_tiff_le()
+    {
+        const std::vector<std::byte> mn = make_test_sigma_wb_makernote();
+
+        std::vector<std::byte> tiff;
+        append_bytes(&tiff, "II");
+        append_u16le(&tiff, 42);
+        append_u32le(&tiff, 8);
+
+        append_u16le(&tiff, 2);
+
+        append_u16le(&tiff, 0x010F);  // Make
+        append_u16le(&tiff, 2);
+        append_u32le(&tiff, 6);
+        append_u32le(&tiff, 38);
+
+        append_u16le(&tiff, 0x8769);  // ExifIFD
+        append_u16le(&tiff, 4);
+        append_u32le(&tiff, 1);
+        append_u32le(&tiff, 44);
+
+        append_u32le(&tiff, 0);
+
+        EXPECT_EQ(tiff.size(), 38U);
+        append_bytes(&tiff, "SIGMA");
+        tiff.push_back(std::byte { 0 });
+
+        EXPECT_EQ(tiff.size(), 44U);
+        append_u16le(&tiff, 1);
+
+        append_u16le(&tiff, 0x927C);  // MakerNote
+        append_u16le(&tiff, 7);       // UNDEFINED
+        append_u32le(&tiff, static_cast<uint32_t>(mn.size()));
+        append_u32le(&tiff, 62);
+
+        append_u32le(&tiff, 0);
+
+        EXPECT_EQ(tiff.size(), 62U);
+        tiff.insert(tiff.end(), mn.begin(), mn.end());
         return tiff;
     }
 
@@ -788,6 +1174,221 @@ TEST(SimpleMetaRead, DecodesEmbeddedJpegFromRawTag002E)
     ASSERT_EQ(ids.size(), 1U);
     EXPECT_EQ(arena_string(store.arena(), store.entry(ids[0]).value),
               "2024:01:01 00:00:00");
+}
+
+
+TEST(SimpleMetaRead, DecodesEmbeddedJpegMakerNoteFromRawTag002E)
+{
+    const std::vector<std::byte> tiff = make_test_panasonic_tiff_le();
+
+    std::vector<std::byte> jpeg;
+    jpeg.push_back(std::byte { 0xFF });
+    jpeg.push_back(std::byte { 0xD8 });
+
+    std::vector<std::byte> payload;
+    append_bytes(&payload, "Exif");
+    payload.push_back(std::byte { 0 });
+    payload.push_back(std::byte { 0 });
+    payload.insert(payload.end(), tiff.begin(), tiff.end());
+
+    const uint16_t seg_len = static_cast<uint16_t>(payload.size() + 2U);
+    jpeg.push_back(std::byte { 0xFF });
+    jpeg.push_back(std::byte { 0xE1 });
+    jpeg.push_back(std::byte { static_cast<uint8_t>((seg_len >> 8) & 0xFF) });
+    jpeg.push_back(std::byte { static_cast<uint8_t>((seg_len >> 0) & 0xFF) });
+    jpeg.insert(jpeg.end(), payload.begin(), payload.end());
+
+    jpeg.push_back(std::byte { 0xFF });
+    jpeg.push_back(std::byte { 0xD9 });
+
+    std::vector<std::byte> outer;
+    append_bytes(&outer, "II");
+    append_u16le(&outer, 42);
+    append_u32le(&outer, 8);
+
+    append_u16le(&outer, 1);
+    append_u16le(&outer, 0x002E);  // JpgFromRaw
+    append_u16le(&outer, 7);       // UNDEFINED
+    append_u32le(&outer, static_cast<uint32_t>(jpeg.size()));
+    append_u32le(&outer, 26);
+    append_u32le(&outer, 0);
+
+    EXPECT_EQ(outer.size(), 26U);
+    outer.insert(outer.end(), jpeg.begin(), jpeg.end());
+
+    MetaStore store;
+    std::array<ContainerBlockRef, 8> blocks {};
+    std::array<ExifIfdRef, 16> ifds {};
+    std::array<std::byte, 8192> payload_scratch {};
+    std::array<uint32_t, 64> payload_parts {};
+    ExifDecodeOptions exif_options;
+    exif_options.decode_makernote          = true;
+    exif_options.decode_embedded_containers = true;
+    PayloadOptions payload_options;
+
+    const SimpleMetaResult res
+        = simple_meta_read(outer, store, blocks, ifds, payload_scratch,
+                           payload_parts, exif_options, payload_options);
+    EXPECT_EQ(res.scan.status, ScanStatus::Ok);
+    EXPECT_EQ(res.exif.status, ExifDecodeStatus::Ok);
+
+    store.finalize();
+
+    const std::span<const EntryId> dt_ids = store.find_all(
+        exif_key("exififd", 0x9003));
+    ASSERT_EQ(dt_ids.size(), 1U);
+    EXPECT_EQ(arena_string(store.arena(), store.entry(dt_ids[0]).value),
+              "2024:01:01 00:00:00");
+
+    const std::span<const EntryId> wb_ids = store.find_all(
+        exif_key("mk_panasonic0", 0x0003));
+    ASSERT_EQ(wb_ids.size(), 1U);
+    EXPECT_EQ(store.entry(wb_ids[0]).value.kind, MetaValueKind::Scalar);
+    EXPECT_EQ(store.entry(wb_ids[0]).value.elem_type,
+              MetaElementType::U16);
+    EXPECT_EQ(store.entry(wb_ids[0]).value.data.u64, 4U);
+}
+
+
+TEST(ExifTiffDecode, DecodesPentaxMakerNoteFromDngPrivateData)
+{
+    const std::vector<std::byte> tiff = make_test_pentax_dng_tiff_le();
+
+    MetaStore store;
+    std::array<ExifIfdRef, 8> ifds {};
+    ExifDecodeOptions options;
+    options.decode_makernote = true;
+    const ExifDecodeResult res = decode_exif_tiff(tiff, store, ifds, options);
+    EXPECT_EQ(res.status, ExifDecodeStatus::Ok);
+
+    store.finalize();
+
+    const std::span<const EntryId> ids = store.find_all(
+        exif_key("mk_pentax0", 0x000C));
+    ASSERT_EQ(ids.size(), 1U);
+    EXPECT_EQ(store.entry(ids[0]).value.kind, MetaValueKind::Scalar);
+    EXPECT_EQ(store.entry(ids[0]).value.elem_type, MetaElementType::U16);
+    EXPECT_EQ(store.entry(ids[0]).value.data.u64, 2U);
+}
+
+
+TEST(ExifTiffDecode, DecodesNikonNefInfoDistortionInfoAsMakerNoteFields)
+{
+    const std::vector<std::byte> tiff = make_test_nikon_nefinfo_tiff_le();
+
+    MetaStore store;
+    std::array<ExifIfdRef, 8> ifds {};
+    ExifDecodeOptions options;
+    options.decode_makernote = true;
+    const ExifDecodeResult res = decode_exif_tiff(tiff, store, ifds, options);
+    EXPECT_EQ(res.status, ExifDecodeStatus::Ok);
+
+    store.finalize();
+
+    const std::span<const EntryId> version_ids = store.find_all(
+        exif_key("mk_nikon_distortioninfo_0", 0x0000));
+    ASSERT_EQ(version_ids.size(), 1U);
+    EXPECT_EQ(arena_string(store.arena(), store.entry(version_ids[0]).value),
+              "0100");
+
+    const std::span<const EntryId> enabled_ids = store.find_all(
+        exif_key("mk_nikon_distortioninfo_0", 0x0004));
+    ASSERT_EQ(enabled_ids.size(), 1U);
+    EXPECT_EQ(store.entry(enabled_ids[0]).value.kind, MetaValueKind::Scalar);
+    EXPECT_EQ(store.entry(enabled_ids[0]).value.elem_type,
+              MetaElementType::U8);
+    EXPECT_EQ(store.entry(enabled_ids[0]).value.data.u64, 1U);
+
+    const std::span<const EntryId> coeff1_ids = store.find_all(
+        exif_key("mk_nikon_distortioninfo_0", 0x0014));
+    ASSERT_EQ(coeff1_ids.size(), 1U);
+    EXPECT_EQ(store.entry(coeff1_ids[0]).value.kind, MetaValueKind::Scalar);
+    EXPECT_EQ(store.entry(coeff1_ids[0]).value.elem_type,
+              MetaElementType::SRational);
+    EXPECT_EQ(store.entry(coeff1_ids[0]).value.data.sr.numer, -1429);
+    EXPECT_EQ(store.entry(coeff1_ids[0]).value.data.sr.denom, 100000);
+
+    EXPECT_EQ(store.find_all(exif_key("mk_nikon_distortioninfo_0", 0x001C)).size(),
+              1U);
+    EXPECT_EQ(store.find_all(exif_key("mk_nikon_distortioninfo_0", 0x0024)).size(),
+              1U);
+}
+
+
+TEST(ExifTiffDecode, DecodesSigmaMakerNoteUnderSigmaIfd)
+{
+    const std::vector<std::byte> tiff = make_test_sigma_tiff_le();
+
+    MetaStore store;
+    std::array<ExifIfdRef, 8> ifds {};
+    ExifDecodeOptions options;
+    options.decode_makernote = true;
+    const ExifDecodeResult res = decode_exif_tiff(tiff, store, ifds, options);
+    EXPECT_EQ(res.status, ExifDecodeStatus::Ok);
+
+    store.finalize();
+
+    const std::span<const EntryId> serial_ids = store.find_all(
+        exif_key("mk_sigma0", 0x0002));
+    ASSERT_EQ(serial_ids.size(), 1U);
+    EXPECT_EQ(store.entry(serial_ids[0]).value.kind, MetaValueKind::Text);
+    EXPECT_EQ(arena_string(store.arena(), store.entry(serial_ids[0]).value),
+              "90301541");
+
+    const std::span<const EntryId> drive_mode_ids = store.find_all(
+        exif_key("mk_sigma0", 0x0003));
+    ASSERT_EQ(drive_mode_ids.size(), 1U);
+
+    EXPECT_TRUE(store.find_all(exif_key("mkifd0", 0x0002)).empty());
+}
+
+
+TEST(ExifTiffDecode, DecodesSigmaWbSettingsSubtables)
+{
+    const std::vector<std::byte> tiff = make_test_sigma_wb_tiff_le();
+
+    MetaStore store;
+    std::array<ExifIfdRef, 8> ifds {};
+    ExifDecodeOptions options;
+    options.decode_makernote = true;
+    const ExifDecodeResult res = decode_exif_tiff(tiff, store, ifds, options);
+    EXPECT_EQ(res.status, ExifDecodeStatus::Ok);
+
+    store.finalize();
+
+    const std::span<const EntryId> auto_ids = store.find_all(
+        exif_key("mk_sigma_wbsettings_0", 0x0000));
+    ASSERT_EQ(auto_ids.size(), 1U);
+    const Entry& auto_entry = store.entry(auto_ids[0]);
+    EXPECT_EQ(auto_entry.value.kind, MetaValueKind::Array);
+    EXPECT_EQ(auto_entry.value.elem_type, MetaElementType::F32);
+    EXPECT_EQ(auto_entry.value.count, 3U);
+
+    const std::span<const std::byte> auto_raw = store.arena().span(
+        auto_entry.value.data.span);
+    ASSERT_EQ(auto_raw.size(), 12U);
+    uint32_t first_bits = 0U;
+    uint32_t last_bits  = 0U;
+    std::memcpy(&first_bits, auto_raw.data() + 0, sizeof(first_bits));
+    std::memcpy(&last_bits, auto_raw.data() + 8, sizeof(last_bits));
+    EXPECT_EQ(first_bits, f32_bits(1.0f));
+    EXPECT_EQ(last_bits, f32_bits(3.0f));
+
+    const std::span<const EntryId> custom3_ids = store.find_all(
+        exif_key("mk_sigma_wbsettings_0", 0x001B));
+    ASSERT_EQ(custom3_ids.size(), 1U);
+    const Entry& custom3_entry = store.entry(custom3_ids[0]);
+    EXPECT_EQ(custom3_entry.value.kind, MetaValueKind::Array);
+    EXPECT_EQ(custom3_entry.value.elem_type, MetaElementType::F32);
+    EXPECT_EQ(custom3_entry.value.count, 3U);
+
+    const std::span<const std::byte> custom3_raw = store.arena().span(
+        custom3_entry.value.data.span);
+    ASSERT_EQ(custom3_raw.size(), 12U);
+    std::memcpy(&first_bits, custom3_raw.data() + 0, sizeof(first_bits));
+    std::memcpy(&last_bits, custom3_raw.data() + 8, sizeof(last_bits));
+    EXPECT_EQ(first_bits, f32_bits(28.0f));
+    EXPECT_EQ(last_bits, f32_bits(30.0f));
 }
 
 
