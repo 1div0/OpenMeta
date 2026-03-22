@@ -317,6 +317,18 @@ namespace {
 
 
     static bool
+    minolta_main_0103_prefers_placeholder(std::string_view model) noexcept
+    {
+        return ascii_equals_insensitive(model, "DiMAGE A200");
+    }
+
+    static bool
+    minolta_main_0103_prefers_quality(std::string_view model) noexcept
+    {
+        return ascii_equals_insensitive(model, "DiMAGE 7Hi");
+    }
+
+    static bool
     motorola_main_6420_prefers_placeholder(std::string_view model) noexcept
     {
         return ascii_equals_insensitive(model, "XT1052")
@@ -326,6 +338,213 @@ namespace {
                || ascii_equals_insensitive(model, "XT1572")
                || ascii_equals_insensitive(model, "XT1580")
                || ascii_equals_insensitive(model, "Moto G (4)");
+    }
+
+    static bool
+    sigma_main_0033_prefers_placeholder(std::string_view model) noexcept
+    {
+        return ascii_equals_insensitive(model, "SIGMA DP1 Merrill")
+               || ascii_equals_insensitive(model, "SIGMA dp2 Quattro");
+    }
+
+    static bool
+    sigma_main_fp_l_prefers_placeholder(std::string_view model,
+                                        uint16_t tag) noexcept
+    {
+        if (!ascii_equals_insensitive(model, "SIGMA fp L")) {
+            return false;
+        }
+        switch (tag) {
+        case 0x0026U:
+        case 0x0027U:
+        case 0x002AU:
+        case 0x002BU:
+        case 0x0048U:
+        case 0x0056U:
+            return true;
+        default:
+            return false;
+        }
+    }
+
+    static bool
+    sigma_main_sd_quattro_h_prefers_placeholder(std::string_view model,
+                                                uint16_t tag) noexcept
+    {
+        if (!ascii_equals_insensitive(model, "sd Quattro H")) {
+            return false;
+        }
+        return tag == 0x0034U || tag == 0x004BU;
+    }
+
+    static std::string_view sony_trim_model(std::string_view model) noexcept
+    {
+        while (!model.empty()) {
+            const char c = model.back();
+            if (c != '\0' && c != ' ') {
+                break;
+            }
+            model.remove_suffix(1);
+        }
+        return model;
+    }
+
+    static bool sony_model_is_stellar(std::string_view model) noexcept
+    {
+        model = sony_trim_model(model);
+        return ascii_equals_insensitive(model, "Stellar");
+    }
+
+    static bool sony_model_is_hasselblad_hv(std::string_view model) noexcept
+    {
+        model = sony_trim_model(model);
+        return ascii_equals_insensitive(model, "HV");
+    }
+
+    static bool sony_model_is_dsc(std::string_view model) noexcept
+    {
+        model = sony_trim_model(model);
+        return ascii_starts_with_insensitive(model, "DSC-");
+    }
+
+    static bool sony_model_is_zv(std::string_view model) noexcept
+    {
+        model = sony_trim_model(model);
+        return ascii_starts_with_insensitive(model, "ZV-");
+    }
+
+    static bool sony_model_is_slt(std::string_view model) noexcept
+    {
+        model = sony_trim_model(model);
+        return ascii_starts_with_insensitive(model, "SLT-");
+    }
+
+    static bool sony_model_is_ilca(std::string_view model) noexcept
+    {
+        model = sony_trim_model(model);
+        return ascii_starts_with_insensitive(model, "ILCA-");
+    }
+
+    static bool sony_model_is_ilca_68_or_77m2(std::string_view model) noexcept
+    {
+        model = sony_trim_model(model);
+        return ascii_equals_insensitive(model, "ILCA-68")
+               || ascii_equals_insensitive(model, "ILCA-77M2");
+    }
+
+    static bool
+    sony_main_201d_uses_semantic_name(std::string_view model) noexcept
+    {
+        model = sony_trim_model(model);
+        if (ascii_starts_with_insensitive(model, "NEX-")
+            || ascii_starts_with_insensitive(model, "ILCE-")
+            || ascii_starts_with_insensitive(model, "ILME-")
+            || sony_model_is_zv(model)) {
+            return true;
+        }
+        return ascii_equals_insensitive(model, "DSC-RX10M4")
+               || ascii_equals_insensitive(model, "DSC-RX100M6")
+               || ascii_equals_insensitive(model, "DSC-RX100M7")
+               || ascii_equals_insensitive(model, "DSC-RX100M5A")
+               || ascii_equals_insensitive(model, "DSC-HX95")
+               || ascii_equals_insensitive(model, "DSC-HX99")
+               || ascii_equals_insensitive(model, "DSC-RX0M2");
+    }
+
+    static bool
+    sony_main_focus_area_uses_semantic_name(std::string_view model) noexcept
+    {
+        model = sony_trim_model(model);
+        if (ascii_starts_with_insensitive(model, "NEX-")
+            || ascii_starts_with_insensitive(model, "ILCE-")
+            || ascii_starts_with_insensitive(model, "ILME-")
+            || sony_model_is_zv(model) || sony_model_is_slt(model)
+            || sony_model_is_ilca(model)
+            || sony_model_is_hasselblad_hv(model)) {
+            return true;
+        }
+        return ascii_equals_insensitive(model, "DSC-RX10M4")
+               || ascii_equals_insensitive(model, "DSC-RX100M6")
+               || ascii_equals_insensitive(model, "DSC-RX100M7")
+               || ascii_equals_insensitive(model, "DSC-RX100M5A")
+               || ascii_equals_insensitive(model, "DSC-HX95")
+               || ascii_equals_insensitive(model, "DSC-HX99")
+               || ascii_equals_insensitive(model, "DSC-RX0M2");
+    }
+
+    static bool
+    sony_model_is_model_name_placeholder(std::string_view model) noexcept
+    {
+        model = sony_trim_model(model);
+        return ascii_equals_insensitive(model, "MODEL-NAME");
+    }
+
+    static bool
+    sony_main_201b_uses_semantic_name(std::string_view model) noexcept
+    {
+        if (sony_model_is_model_name_placeholder(model)) {
+            return true;
+        }
+        return sony_main_focus_area_uses_semantic_name(model);
+    }
+
+    static bool
+    sony_main_201c_uses_semantic_name(std::string_view model) noexcept
+    {
+        return sony_main_focus_area_uses_semantic_name(model);
+    }
+
+    static bool
+    sony_main_201e_uses_semantic_name(std::string_view model) noexcept
+    {
+        return !sony_model_is_model_name_placeholder(model);
+    }
+
+    static bool
+    sony_main_2021_uses_semantic_name(std::string_view model) noexcept
+    {
+        if (sony_model_is_model_name_placeholder(model)) {
+            return true;
+        }
+        return sony_main_focus_area_uses_semantic_name(model);
+    }
+
+    static bool
+    sony_main_2020_uses_semantic_name(std::string_view model) noexcept
+    {
+        model = sony_trim_model(model);
+        if (sony_model_is_ilca_68_or_77m2(model)) {
+            return true;
+        }
+        return !sony_model_is_ilca(model) && !sony_model_is_dsc(model)
+               && !sony_model_is_zv(model);
+    }
+
+    static bool
+    sony_main_2022_uses_semantic_name(std::string_view model) noexcept
+    {
+        model = sony_trim_model(model);
+        return ascii_equals_insensitive(model, "ILCE-5100")
+               || ascii_equals_insensitive(model, "ILCE-6000")
+               || ascii_equals_insensitive(model, "ILCE-7M2")
+               || ascii_equals_insensitive(model, "ILCE-7RM2");
+    }
+
+    static bool
+    sony_main_b050_uses_semantic_name(std::string_view model) noexcept
+    {
+        return sony_model_is_dsc(model) || sony_model_is_stellar(model);
+    }
+
+    static bool
+    sony_tag9406_0005_prefers_battery_level_name(std::string_view model) noexcept
+    {
+        model = sony_trim_model(model);
+        return ascii_equals_insensitive(model, "ILCE-6700")
+               || ascii_equals_insensitive(model, "ILCE-7CR")
+               || ascii_equals_insensitive(model, "ILCE-7M5")
+               || ascii_equals_insensitive(model, "ILCE-9M3")
+               || ascii_equals_insensitive(model, "ZV-E10M2");
     }
 
     static bool nikonsettings_model_is_d7500(std::string_view model) noexcept
@@ -386,6 +605,25 @@ namespace {
     static bool nikon_model_is_z8(std::string_view model) noexcept
     {
         return ascii_equals_insensitive(model, "NIKON Z 8");
+    }
+
+    static bool nikon_model_is_d800(std::string_view model) noexcept
+    {
+        return ascii_equals_insensitive(model, "NIKON D800");
+    }
+
+    static bool nikon_model_is_d800e(std::string_view model) noexcept
+    {
+        return ascii_equals_insensitive(model, "NIKON D800E");
+    }
+
+    static bool
+    nikon_main_model_is_legacy_compact_type2(std::string_view model) noexcept
+    {
+        return ascii_equals_insensitive(model, "E700")
+               || ascii_equals_insensitive(model, "E800")
+               || ascii_equals_insensitive(model, "E900")
+               || ascii_equals_insensitive(model, "E950");
     }
 
     static bool nikon_main_model_is_z_family(std::string_view model) noexcept
@@ -648,6 +886,25 @@ namespace {
     }
 
     static bool
+    canon_model_is_7d_colordata_psinfo_group(std::string_view model) noexcept
+    {
+        static constexpr std::string_view kModels[] = {
+            "EOS 7D",
+        };
+        return canon_model_matches_any(model, kModels);
+    }
+
+    static bool
+    canon_model_is_colordata7_psinfo2_group(std::string_view model) noexcept
+    {
+        static constexpr std::string_view kModels[] = {
+            "EOS Kiss X7i",
+            "EOS-1D X",
+        };
+        return canon_model_matches_any(model, kModels);
+    }
+
+    static bool
     canon_model_is_r1_r5m2_battery_group(std::string_view model) noexcept
     {
         static constexpr std::string_view kModels[] = {
@@ -686,6 +943,25 @@ namespace {
             entry->origin.name_context_variant = 1U;
             return;
         }
+        if (ifd_name == "mk_minolta0" && tag == 0x0103U) {
+            const std::string_view model
+                = find_first_exif_ascii_value(store, "ifd0",
+                                              0x0110 /* Model */);
+            if (minolta_main_0103_prefers_placeholder(model)) {
+                entry->flags |= EntryFlags::ContextualName;
+                entry->origin.name_context_kind
+                    = EntryNameContextKind::MinoltaMainCompat;
+                entry->origin.name_context_variant = 1U;
+                return;
+            }
+            if (minolta_main_0103_prefers_quality(model)) {
+                entry->flags |= EntryFlags::ContextualName;
+                entry->origin.name_context_kind
+                    = EntryNameContextKind::MinoltaMainCompat;
+                entry->origin.name_context_variant = 2U;
+                return;
+            }
+        }
         if (ifd_name == "mk_canon0" && tag == 0x0038u
             && entry->value.kind == MetaValueKind::Bytes) {
             entry->flags |= EntryFlags::ContextualName;
@@ -715,6 +991,14 @@ namespace {
                 return;
             }
             if (ifd_name == "mk_canon_colordata4_0") {
+                if (tag == 0x00DAU
+                    && canon_model_is_7d_colordata_psinfo_group(model)) {
+                    entry->flags |= EntryFlags::ContextualName;
+                    entry->origin.name_context_kind
+                        = EntryNameContextKind::CanonColorData4PSInfo;
+                    entry->origin.name_context_variant = 1U;
+                    return;
+                }
                 if (tag == 0x00EAU
                     && canon_model_is_1200d_wb_unknown7_group(model)) {
                     entry->flags |= EntryFlags::ContextualName;
@@ -740,6 +1024,25 @@ namespace {
                     return;
                 }
             }
+            if (ifd_name == "mk_canon_colordata7_0"
+                && canon_model_is_colordata7_psinfo2_group(model)) {
+                uint8_t variant = 0U;
+                switch (tag) {
+                case 0x00E4U: variant = 1U; break;
+                case 0x00E8U: variant = 2U; break;
+                case 0x00ECU: variant = 3U; break;
+                case 0x00F0U: variant = 4U; break;
+                case 0x00F2U: variant = 5U; break;
+                default: break;
+                }
+                if (variant != 0U) {
+                    entry->flags |= EntryFlags::ContextualName;
+                    entry->origin.name_context_kind
+                        = EntryNameContextKind::CanonColorData7PSInfo2;
+                    entry->origin.name_context_variant = variant;
+                    return;
+                }
+            }
             if (ifd_name == "mk_canon_colorcalib_0" && tag == 0x0038U
                 && canon_model_is_r1_r5m2_battery_group(model)) {
                 entry->flags |= EntryFlags::ContextualName;
@@ -758,7 +1061,9 @@ namespace {
             }
         }
         if (ifd_name == "mk_casio_type2_0"
-            && (tag <= 0x0019U || tag == 0x0E00U)) {
+            && (tag <= 0x0019U || tag == 0x001AU || tag == 0x001CU
+                || tag == 0x001DU || tag == 0x001EU || tag == 0x0E00U
+                || tag == 0x2023U)) {
             const std::string_view model
                 = find_first_exif_ascii_value(store, "ifd0",
                                               0x0110 /* Model */);
@@ -789,6 +1094,92 @@ namespace {
                 entry->flags |= EntryFlags::ContextualName;
                 entry->origin.name_context_kind
                     = EntryNameContextKind::MotorolaMain6420;
+                entry->origin.name_context_variant = 1U;
+                return;
+            }
+        }
+        if (ifd_name == "mk_sigma0") {
+            const std::string_view model
+                = find_first_exif_ascii_value(store, "ifd0",
+                                              0x0110 /* Model */);
+            bool prefer_placeholder = false;
+            if (tag == 0x0033U
+                && sigma_main_0033_prefers_placeholder(model)) {
+                prefer_placeholder = true;
+            }
+            if (tag == 0x0034U
+                && (sigma_main_0033_prefers_placeholder(model)
+                    || sigma_main_sd_quattro_h_prefers_placeholder(model,
+                                                                    tag))) {
+                prefer_placeholder = true;
+            }
+            if (sigma_main_fp_l_prefers_placeholder(model, tag)
+                || sigma_main_sd_quattro_h_prefers_placeholder(model, tag)) {
+                prefer_placeholder = true;
+            }
+            if (prefer_placeholder) {
+                entry->flags |= EntryFlags::ContextualName;
+                entry->origin.name_context_kind
+                    = EntryNameContextKind::SigmaMainCompat;
+                entry->origin.name_context_variant = 1U;
+                return;
+            }
+        }
+        if (ifd_name == "mk_sony0") {
+            const std::string_view model
+                = find_first_exif_ascii_value(store, "ifd0",
+                                              0x0110 /* Model */);
+            bool prefer_placeholder = false;
+            switch (tag) {
+            case 0x201BU:
+                prefer_placeholder = !sony_main_201b_uses_semantic_name(model);
+                break;
+            case 0x201CU:
+                prefer_placeholder = !sony_main_201c_uses_semantic_name(model);
+                break;
+            case 0x201DU:
+                prefer_placeholder = !sony_main_201d_uses_semantic_name(model);
+                break;
+            case 0x201EU:
+                prefer_placeholder = !sony_main_201e_uses_semantic_name(model);
+                break;
+            case 0x2020U:
+                prefer_placeholder = !sony_main_2020_uses_semantic_name(model);
+                break;
+            case 0x2021U:
+                prefer_placeholder = !sony_main_2021_uses_semantic_name(model);
+                break;
+            case 0x2022U:
+                prefer_placeholder = !sony_main_2022_uses_semantic_name(model);
+                break;
+            case 0x205CU:
+                prefer_placeholder = true;
+                break;
+            case 0xB042U:
+            case 0xB043U:
+                prefer_placeholder = !sony_main_201d_uses_semantic_name(model);
+                break;
+            case 0xB050U:
+                prefer_placeholder = !sony_main_b050_uses_semantic_name(model);
+                break;
+            default: break;
+            }
+            if (prefer_placeholder) {
+                entry->flags |= EntryFlags::ContextualName;
+                entry->origin.name_context_kind
+                    = EntryNameContextKind::SonyMainCompat;
+                entry->origin.name_context_variant = 1U;
+                return;
+            }
+        }
+        if (ifd_name == "mk_sony_tag9406_0" && tag == 0x0005U) {
+            const std::string_view model
+                = find_first_exif_ascii_value(store, "ifd0",
+                                              0x0110 /* Model */);
+            if (sony_tag9406_0005_prefers_battery_level_name(model)) {
+                entry->flags |= EntryFlags::ContextualName;
+                entry->origin.name_context_kind
+                    = EntryNameContextKind::SonyTag94060005;
                 entry->origin.name_context_variant = 1U;
                 return;
             }
@@ -836,6 +1227,17 @@ namespace {
             const std::string_view model
                 = find_first_exif_ascii_value(store, "ifd0",
                                               0x0110 /* Model */);
+            if (nikon_main_model_is_legacy_compact_type2(model)
+                && (tag == 0x0002U || tag == 0x0003U || tag == 0x0004U
+                    || tag == 0x0005U || tag == 0x0006U || tag == 0x0007U
+                    || tag == 0x0008U || tag == 0x0009U || tag == 0x000AU
+                    || tag == 0x000BU || tag == 0x0F00U)) {
+                entry->flags |= EntryFlags::ContextualName;
+                entry->origin.name_context_kind
+                    = EntryNameContextKind::NikonMainCompactType2;
+                entry->origin.name_context_variant = 1U;
+                return;
+            }
             if (nikon_main_model_is_z_family(model)
                 && nikon_main_z_tag_prefers_compat_name(tag)) {
                 entry->flags |= EntryFlags::ContextualName;
@@ -848,6 +1250,13 @@ namespace {
             const std::string_view model
                 = find_first_exif_ascii_value(store, "ifd0",
                                               0x0110 /* Model */);
+            if (nikon_model_is_d800(model) || nikon_model_is_d800e(model)) {
+                entry->flags |= EntryFlags::ContextualName;
+                entry->origin.name_context_kind
+                    = EntryNameContextKind::NikonShotInfoD800;
+                entry->origin.name_context_variant = 1U;
+                return;
+            }
             if (nikonsettings_model_is_d850(model)) {
                 entry->flags |= EntryFlags::ContextualName;
                 entry->origin.name_context_kind
@@ -943,6 +1352,7 @@ namespace {
         Reconyx,
         Hp,
         Nintendo,
+        PhaseOne,
     };
 
     static MakerNoteVendor
@@ -1046,6 +1456,21 @@ namespace {
         if (maker_note_bytes.size() >= 4
             && match_bytes(maker_note_bytes, 0, "DCI\0", 4)) {
             return MakerNoteVendor::Casio;
+        }
+        // Phase One IIQ MakerNotes start with "IIIITwaR"/"IIIICwaR" or the
+        // big-endian "MMMMRaw." variant. Detect these before the generic
+        // Kodak/HP "IIII" fallbacks.
+        if (maker_note_bytes.size() >= 8) {
+            const std::string_view make
+                = find_first_exif_ascii_value(store, "ifd0",
+                                              0x010F /* Make */);
+            if (ascii_starts_with_insensitive(make, "Phase One")
+                && ((match_bytes(maker_note_bytes, 0, "IIII", 4)
+                     && match_bytes(maker_note_bytes, 5, "waR", 3))
+                    || (match_bytes(maker_note_bytes, 0, "MMMM", 4)
+                        && match_bytes(maker_note_bytes, 4, "Raw", 3)))) {
+                return MakerNoteVendor::PhaseOne;
+            }
         }
         // HP MakerNote: fixed-layout blobs that start with "IIII" followed by
         // a type byte (0x04/0x05/0x06) and a NUL (ExifTool: MakerNoteHP4/HP6).
@@ -1261,6 +1686,9 @@ namespace {
             if (ascii_starts_with_insensitive(make, "Nintendo")) {
                 return MakerNoteVendor::Nintendo;
             }
+            if (ascii_starts_with_insensitive(make, "Phase One")) {
+                return MakerNoteVendor::PhaseOne;
+            }
         }
 
         return MakerNoteVendor::Unknown;
@@ -1430,6 +1858,13 @@ namespace {
             opts->tokens.exif_ifd_token    = "mk_nintendo_exififd";
             opts->tokens.gps_ifd_token     = "mk_nintendo_gpsifd";
             opts->tokens.interop_ifd_token = "mk_nintendo_interopifd";
+            return;
+        case MakerNoteVendor::PhaseOne:
+            opts->tokens.ifd_prefix        = "mk_phaseone";
+            opts->tokens.subifd_prefix     = "mk_phaseone_subifd";
+            opts->tokens.exif_ifd_token    = "mk_phaseone_exififd";
+            opts->tokens.gps_ifd_token     = "mk_phaseone_gpsifd";
+            opts->tokens.interop_ifd_token = "mk_phaseone_interopifd";
             return;
         case MakerNoteVendor::Unknown: break;
         }
@@ -1864,6 +2299,258 @@ namespace {
     }
 
 
+    static bool phaseone_read_u32(bool le, std::span<const std::byte> bytes,
+                                  uint64_t offset, uint32_t* out) noexcept
+    {
+        return le ? read_u32le(bytes, offset, out)
+                  : read_u32be(bytes, offset, out);
+    }
+
+
+    static bool looks_like_phaseone_main_dir(
+        std::span<const std::byte> bytes, uint64_t dir_start,
+        bool* le_out) noexcept
+    {
+        if (!span_contains_bytes(bytes, dir_start, 12U) || !le_out) {
+            return false;
+        }
+        if (match_bytes(bytes, dir_start, "IIII", 4)
+            && match_bytes(bytes, dir_start + 5U, "waR", 3)) {
+            *le_out = true;
+            return true;
+        }
+        if (match_bytes(bytes, dir_start, "MMMM", 4)
+            && match_bytes(bytes, dir_start + 4U, "Raw", 3)) {
+            *le_out = false;
+            return true;
+        }
+        return false;
+    }
+
+
+    static bool looks_like_phaseone_sensorcal_dir(
+        std::span<const std::byte> bytes, uint64_t dir_start,
+        bool* le_out) noexcept
+    {
+        if (!span_contains_bytes(bytes, dir_start, 12U) || !le_out) {
+            return false;
+        }
+        if (match_bytes(bytes, dir_start, "IIII\x01\x00\x00\x00", 8)) {
+            *le_out = true;
+            return true;
+        }
+        if (match_bytes(bytes, dir_start, "MMMM\x00\x00\x00\x01", 8)) {
+            *le_out = false;
+            return true;
+        }
+        return false;
+    }
+
+
+    static MetaValue decode_phaseone_value(bool le,
+                                           std::span<const std::byte> bytes,
+                                           uint64_t value_off, uint32_t size,
+                                           uint32_t format_size,
+                                           ByteArena& arena) noexcept
+    {
+        if (!span_contains_bytes(bytes, value_off, size)) {
+            return MetaValue {};
+        }
+        const std::span<const std::byte> raw
+            = bytes.subspan(static_cast<size_t>(value_off),
+                            static_cast<size_t>(size));
+        if (format_size == 1U) {
+            return make_fixed_ascii_text(arena, raw);
+        }
+        if (size == 1U) {
+            return make_u8(u8(raw[0]));
+        }
+        if (size == 2U) {
+            uint16_t v = 0;
+            if (read_u16_endian(le, bytes, value_off, &v)) {
+                if (format_size == 2U) {
+                    return make_i16(static_cast<int16_t>(v));
+                }
+                return make_u16(v);
+            }
+        }
+        if (size == 4U) {
+            uint32_t v = 0;
+            if (phaseone_read_u32(le, bytes, value_off, &v)) {
+                return make_u32(v);
+            }
+        }
+        return make_bytes(arena, raw);
+    }
+
+
+    static bool decode_phaseone_ifd(std::span<const std::byte> bytes,
+                                    uint64_t dir_start, uint64_t dir_len,
+                                    uint32_t entry_size,
+                                    std::string_view ifd_name,
+                                    MetaStore& store,
+                                    const ExifDecodeOptions& options,
+                                    ExifDecodeResult* status_out) noexcept
+    {
+        if (ifd_name.empty() || dir_len < 12U) {
+            return false;
+        }
+
+        bool le = true;
+        if (entry_size == 16U) {
+            if (!looks_like_phaseone_main_dir(bytes, dir_start, &le)) {
+                return false;
+            }
+        } else if (entry_size == 12U) {
+            if (!looks_like_phaseone_sensorcal_dir(bytes, dir_start, &le)) {
+                return false;
+            }
+        } else {
+            return false;
+        }
+
+        uint32_t ifd_start = 0;
+        if (!phaseone_read_u32(le, bytes, dir_start + 8U, &ifd_start)) {
+            return false;
+        }
+        if (uint64_t(ifd_start) + 8U > dir_len) {
+            return false;
+        }
+
+        const uint64_t count_off = dir_start + uint64_t(ifd_start);
+        uint32_t entry_count = 0;
+        if (!phaseone_read_u32(le, bytes, count_off, &entry_count)) {
+            return false;
+        }
+        if (entry_count < 1U || entry_count > 300U) {
+            return false;
+        }
+
+        uint64_t table_bytes = 0;
+        if (!checked_mul_u64(uint64_t(entry_count), uint64_t(entry_size),
+                             &table_bytes)) {
+            return false;
+        }
+        uint64_t ifd_end = 0;
+        if (!checked_add_u64(uint64_t(ifd_start), 8U + table_bytes, &ifd_end)
+            || ifd_end > dir_len) {
+            return false;
+        }
+
+        const BlockId block = store.add_block(BlockInfo {});
+        if (block == kInvalidBlockId) {
+            return false;
+        }
+
+        for (uint32_t i = 0; i < entry_count; ++i) {
+            uint64_t entry_off = 0;
+            if (!checked_add_u64(count_off + 8U,
+                                 uint64_t(i) * uint64_t(entry_size),
+                                 &entry_off)) {
+                if (status_out) {
+                    update_status(status_out, ExifDecodeStatus::Malformed);
+                }
+                return false;
+            }
+
+            uint32_t tag32 = 0;
+            if (!phaseone_read_u32(le, bytes, entry_off, &tag32)) {
+                return false;
+            }
+            if (tag32 > 0xFFFFU) {
+                continue;
+            }
+            const uint16_t tag = static_cast<uint16_t>(tag32);
+
+            uint32_t format_size = 4;
+            if (entry_size == 16U
+                && !phaseone_read_u32(le, bytes, entry_off + 4U,
+                                      &format_size)) {
+                return false;
+            }
+            if (format_size != 1U && format_size != 2U && format_size != 4U) {
+                format_size = 1U;
+            }
+
+            const uint64_t size_off = entry_off + uint64_t(entry_size) - 8U;
+            uint32_t size           = 0;
+            if (!phaseone_read_u32(le, bytes, size_off, &size)) {
+                return false;
+            }
+
+            const uint64_t value_ptr_off
+                = entry_off + uint64_t(entry_size) - 4U;
+            uint64_t value_off = value_ptr_off;
+            if (size > 4U) {
+                uint32_t rel = 0;
+                if (!phaseone_read_u32(le, bytes, value_ptr_off, &rel)) {
+                    return false;
+                }
+                value_off = dir_start + uint64_t(rel);
+            }
+
+            Entry entry;
+            entry.key = make_exif_tag_key(store.arena(), ifd_name, tag);
+            entry.origin.block          = block;
+            entry.origin.order_in_block = i;
+            entry.origin.wire_type      = WireType { WireFamily::Other,
+                                                     uint16_t(format_size) };
+            entry.origin.wire_count
+                = (format_size != 0U) ? (size / format_size) : size;
+
+            uint64_t value_end = 0;
+            const bool readable
+                = checked_add_u64(value_off, uint64_t(size), &value_end)
+                  && value_end <= (dir_start + dir_len)
+                  && span_contains_bytes(bytes, value_off, size);
+
+            if (size > options.limits.max_value_bytes) {
+                entry.flags |= EntryFlags::Truncated;
+            } else if (!readable) {
+                entry.flags |= EntryFlags::Unreadable;
+                if (status_out) {
+                    update_status(status_out, ExifDecodeStatus::Malformed);
+                }
+            } else if (size != 0U) {
+                entry.value = decode_phaseone_value(le, bytes, value_off, size,
+                                                    format_size,
+                                                    store.arena());
+            }
+
+            maybe_mark_contextual_name(ifd_name, tag, store, &entry);
+            (void)store.add_entry(entry);
+            if (status_out) {
+                status_out->entries_decoded += 1U;
+            }
+
+            if (entry_size == 16U && tag == 0x0110U && size != 0U && readable) {
+                char scratch[64];
+                const std::string_view sub_ifd
+                    = make_mk_subtable_ifd_token("mk_phaseone",
+                                                 "sensorcalibration", 0,
+                                                 std::span<char>(scratch));
+                if (!sub_ifd.empty()) {
+                    (void)decode_phaseone_ifd(bytes, value_off, uint64_t(size),
+                                              12U, sub_ifd, store, options,
+                                              status_out);
+                }
+            }
+        }
+
+        return true;
+    }
+
+
+    static bool decode_phaseone_makernote(
+        std::span<const std::byte> mn, std::string_view mk_ifd0,
+        MetaStore& store, const ExifDecodeOptions& options,
+        ExifDecodeResult* status_out) noexcept
+    {
+        return decode_phaseone_ifd(mn, 0, uint64_t(mn.size()), 16U, mk_ifd0,
+                                   store, options, status_out);
+    }
+
+
     static const Entry* find_first_exif_entry(const MetaStore& store,
                                               std::string_view ifd_name,
                                               uint16_t tag) noexcept
@@ -1946,6 +2633,60 @@ namespace {
         return true;
     }
 
+    static bool decode_nikon_vignetteinfo_block(
+        std::span<const std::byte> raw, bool le, uint32_t index,
+        MetaStore& store, const ExifDecodeLimits& limits,
+        ExifDecodeResult* status_out) noexcept
+    {
+        if (raw.size() < 4U) {
+            return false;
+        }
+
+        char ifd_buf[96];
+        const std::string_view ifd_name
+            = exif_internal::make_mk_subtable_ifd_token(
+                "mk_nikon", "vignetteinfo", index, std::span<char>(ifd_buf));
+        if (ifd_name.empty()) {
+            return false;
+        }
+
+        uint16_t tags_out[4];
+        MetaValue vals_out[4];
+        uint32_t out_count = 0;
+
+        tags_out[out_count] = 0x0000;
+        vals_out[out_count]
+            = exif_internal::make_fixed_ascii_text(store.arena(), raw.first(4));
+        out_count += 1;
+
+        static constexpr uint16_t kCoeffTags[] = { 0x0024, 0x0034, 0x0044 };
+        for (size_t i = 0; i < sizeof(kCoeffTags) / sizeof(kCoeffTags[0]);
+             ++i) {
+            const uint16_t tag = kCoeffTags[i];
+            if (static_cast<uint64_t>(tag) + 8U > raw.size()) {
+                continue;
+            }
+
+            int32_t numer = 0;
+            int32_t denom = 0;
+            if (!read_i32_endian(le, raw, static_cast<uint64_t>(tag), &numer)
+                || !read_i32_endian(le, raw, static_cast<uint64_t>(tag) + 4U,
+                                    &denom)) {
+                continue;
+            }
+
+            tags_out[out_count] = tag;
+            vals_out[out_count] = make_srational(numer, denom);
+            out_count += 1;
+        }
+
+        exif_internal::emit_bin_dir_entries(
+            ifd_name, store, std::span<const uint16_t>(tags_out, out_count),
+            std::span<const MetaValue>(vals_out, out_count), limits,
+            status_out);
+        return true;
+    }
+
 
     static void maybe_decode_nikon_nefinfo_blocks(
         MetaStore& store, const ExifDecodeOptions& options,
@@ -1968,7 +2709,9 @@ namespace {
             "subifd2",
         };
 
+        uint32_t idx_nefinfo        = 0;
         uint32_t idx_distortioninfo = 0;
+        uint32_t idx_vignetteinfo   = 0;
         for (size_t i = 0; i < sizeof(kNefInfoIfds) / sizeof(kNefInfoIfds[0]);
              ++i) {
             MetaValue nefinfo;
@@ -2005,6 +2748,17 @@ namespace {
                 continue;
             }
 
+            char nefinfo_ifd_buf[96];
+            const std::string_view nefinfo_ifd
+                = exif_internal::make_mk_subtable_ifd_token(
+                    "mk_nikon", "nefinfo", idx_nefinfo++,
+                    std::span<char>(nefinfo_ifd_buf));
+            if (!nefinfo_ifd.empty()) {
+                decode_classic_ifd_no_header(cfg, tiff_bytes, ifd_off,
+                                             nefinfo_ifd, store, options,
+                                             status_out, EntryFlags::Derived);
+            }
+
             exif_internal::MakerNoteLayout layout;
             layout.cfg   = cfg;
             layout.bytes = tiff_bytes;
@@ -2015,7 +2769,7 @@ namespace {
                 exif_internal::ClassicIfdEntry entry;
                 if (!exif_internal::read_classic_ifd_entry(cfg, tiff_bytes,
                                                            entry_off, &entry)
-                    || entry.tag != 0x0005U || entry.type != 7U) {
+                    || entry.type != 7U) {
                     continue;
                 }
 
@@ -2030,10 +2784,17 @@ namespace {
                 const std::span<const std::byte> block = tiff_bytes.subspan(
                     static_cast<size_t>(ref.value_off),
                     static_cast<size_t>(ref.value_bytes));
-                if (decode_nikon_distortioninfo_block(
+                if (entry.tag == 0x0005U) {
+                    (void)decode_nikon_distortioninfo_block(
                         block, cfg.le, idx_distortioninfo++, store,
-                        options.limits, status_out)) {
-                    break;
+                        options.limits, status_out);
+                    continue;
+                }
+                if (entry.tag == 0x0006U) {
+                    (void)decode_nikon_vignetteinfo_block(
+                        block, cfg.le, idx_vignetteinfo++, store,
+                        options.limits, status_out);
+                    continue;
                 }
             }
         }
@@ -3919,8 +4680,13 @@ decode_exif_tiff(std::span<const std::byte> tiff_bytes, MetaStore& store,
             // MakerNote (0x927C) is vendor-defined. As a minimal starting point,
             // attempt to decode embedded TIFF headers found inside the blob
             // (covers common cases like Nikon).
-            if (options.decode_makernote && tag == 0x927C && value_bytes != 0U
-                && value_bytes <= options.limits.max_value_bytes) {
+            if (options.decode_makernote && tag == 0x927C && value_bytes != 0U) {
+                const MakerNoteVendor hinted_vendor = detect_makernote_vendor(
+                    std::span<const std::byte> {}, store);
+                if (value_bytes > options.limits.max_value_bytes
+                    && hinted_vendor != MakerNoteVendor::PhaseOne) {
+                    continue;
+                }
                 const std::span<const std::byte> mn
                     = tiff_bytes.subspan(static_cast<size_t>(value_off),
                                          static_cast<size_t>(value_bytes));
@@ -4070,6 +4836,12 @@ decode_exif_tiff(std::span<const std::byte> tiff_bytes, MetaStore& store,
                     && exif_internal::decode_reconyx_makernote(mn, mk_ifd0,
                                                                store, mn_opts,
                                                                &sink.result)) {
+                    continue;
+                }
+
+                if (vendor == MakerNoteVendor::PhaseOne
+                    && decode_phaseone_makernote(mn, mk_ifd0, store, mn_opts,
+                                                 &sink.result)) {
                     continue;
                 }
 

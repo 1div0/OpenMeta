@@ -135,6 +135,25 @@ namespace {
     }
 
     static std::string_view
+    nikon_main_compact_type2_compat_name(uint16_t tag) noexcept
+    {
+        switch (tag) {
+        case 0x0002U: return "Nikon_Type2_0x0002";
+        case 0x0003U: return "Quality";
+        case 0x0004U: return "ColorMode";
+        case 0x0005U: return "ImageAdjustment";
+        case 0x0006U: return "CCDSensitivity";
+        case 0x0007U: return "WhiteBalance";
+        case 0x0008U: return "Focus";
+        case 0x0009U: return "Nikon_Type2_0x0009";
+        case 0x000AU: return "DigitalZoom";
+        case 0x000BU: return "Converter";
+        case 0x0F00U: return "Nikon_Type2_0x0f00";
+        default: return {};
+        }
+    }
+
+    static std::string_view
     find_first_makernote_name(std::span<const std::string_view> ifds,
                               uint16_t tag) noexcept
     {
@@ -190,11 +209,108 @@ namespace {
     }
 
     static std::string_view
+    synthesize_sigma_main_placeholder_name(uint16_t tag) noexcept
+    {
+        static thread_local char buf[16];
+        static constexpr std::string_view kPrefix = "Sigma_0x";
+        static constexpr char kHex[]              = "0123456789abcdef";
+        if (kPrefix.size() + 4U >= sizeof(buf)) {
+            return {};
+        }
+
+        for (size_t i = 0; i < kPrefix.size(); ++i) {
+            buf[i] = kPrefix[i];
+        }
+        buf[kPrefix.size() + 0U] = kHex[(tag >> 12U) & 0xFU];
+        buf[kPrefix.size() + 1U] = kHex[(tag >> 8U) & 0xFU];
+        buf[kPrefix.size() + 2U] = kHex[(tag >> 4U) & 0xFU];
+        buf[kPrefix.size() + 3U] = kHex[(tag >> 0U) & 0xFU];
+        buf[kPrefix.size() + 4U] = '\0';
+        return std::string_view(buf, kPrefix.size() + 4U);
+    }
+
+    static std::string_view
+    synthesize_canonraw_placeholder_name(uint16_t tag) noexcept
+    {
+        static thread_local char buf[19];
+        static constexpr std::string_view kPrefix = "CanonRaw_0x";
+        static constexpr char kHex[]             = "0123456789abcdef";
+        if (kPrefix.size() + 4U >= sizeof(buf)) {
+            return {};
+        }
+
+        for (size_t i = 0; i < kPrefix.size(); ++i) {
+            buf[i] = kPrefix[i];
+        }
+        buf[kPrefix.size() + 0U] = kHex[(tag >> 12U) & 0xFU];
+        buf[kPrefix.size() + 1U] = kHex[(tag >> 8U) & 0xFU];
+        buf[kPrefix.size() + 2U] = kHex[(tag >> 4U) & 0xFU];
+        buf[kPrefix.size() + 3U] = kHex[(tag >> 0U) & 0xFU];
+        buf[kPrefix.size() + 4U] = '\0';
+        return std::string_view(buf, kPrefix.size() + 4U);
+    }
+
+    static bool sigma_main_prefers_placeholder(uint16_t tag) noexcept
+    {
+        switch (tag) {
+        case 0x001AU:
+        case 0x001BU:
+        case 0x0022U:
+        case 0x0024U:
+        case 0x002CU:
+        case 0x0031U:
+        case 0x0032U:
+        case 0x0035U:
+        case 0x0039U:
+        case 0x003AU:
+        case 0x003BU:
+        case 0x003CU:
+        case 0x0047U:
+        case 0x0113U:
+            return true;
+        default:
+            return false;
+        }
+    }
+
+    static std::string_view sigma_main_fixed_compat_name(uint16_t tag) noexcept
+    {
+        switch (tag) {
+        case 0x001CU: return "PreviewImageStart";
+        case 0x001DU: return "PreviewImageLength";
+        case 0x001FU: return "MakerNoteVersion";
+        case 0x0030U: return "Calibration";
+        default: return {};
+        }
+    }
+
+    static std::string_view
     synthesize_ricoh_main_placeholder_name(uint16_t tag) noexcept
     {
         static thread_local char buf[16];
         static constexpr std::string_view kPrefix = "Ricoh_0x";
         static constexpr char kHex[]              = "0123456789abcdef";
+        if (kPrefix.size() + 4U >= sizeof(buf)) {
+            return {};
+        }
+
+        for (size_t i = 0; i < kPrefix.size(); ++i) {
+            buf[i] = kPrefix[i];
+        }
+        buf[kPrefix.size() + 0U] = kHex[(tag >> 12U) & 0xFU];
+        buf[kPrefix.size() + 1U] = kHex[(tag >> 8U) & 0xFU];
+        buf[kPrefix.size() + 2U] = kHex[(tag >> 4U) & 0xFU];
+        buf[kPrefix.size() + 3U] = kHex[(tag >> 0U) & 0xFU];
+        buf[kPrefix.size() + 4U] = '\0';
+        return std::string_view(buf, kPrefix.size() + 4U);
+    }
+
+    static std::string_view
+    synthesize_sony_main_placeholder_name(uint16_t tag) noexcept
+    {
+        static thread_local char buf[15];
+        static constexpr std::string_view kPrefix = "Sony_0x";
+        static constexpr char kHex[]             = "0123456789abcdef";
         if (kPrefix.size() + 4U >= sizeof(buf)) {
             return {};
         }
@@ -440,76 +556,89 @@ namespace {
             }
         }
 
+        std::string_view name;
         if (dir_id == 0xFFFFU) {
             switch (tag) {
-            case 0x2005U: return "RawData";
-            default: return {};
+            case 0x2005U: name = "RawData"; break;
+            default: break;
             }
+            return name;
         }
 
         switch (dir_id) {
         case 0x2804U:
             switch (tag) {
-            case 0x0805U: return "CanonFileDescription";
-            case 0x0815U: return "CanonImageType";
-            default: return {};
+            case 0x0805U: name = "CanonFileDescription"; break;
+            case 0x0815U: name = "CanonImageType"; break;
+            default: break;
             }
+            break;
         case 0x2807U:
             switch (tag) {
-            case 0x080AU: return "MakeModel";
-            case 0x0810U: return "OwnerName";
-            default: return {};
+            case 0x080AU: name = "MakeModel"; break;
+            case 0x0810U: name = "OwnerName"; break;
+            default: break;
             }
+            break;
         case 0x3002U:
             switch (tag) {
-            case 0x1010U: return "ShutterReleaseMethod";
-            case 0x1011U: return "ShutterReleaseTiming";
-            case 0x1016U: return "ReleaseSetting";
-            case 0x1807U: return "TargetDistanceSetting";
-            case 0x1813U: return "FlashInfo";
-            default: return {};
+            case 0x1010U: name = "ShutterReleaseMethod"; break;
+            case 0x1011U: name = "ShutterReleaseTiming"; break;
+            case 0x1016U: name = "ReleaseSetting"; break;
+            case 0x1807U: name = "TargetDistanceSetting"; break;
+            case 0x1813U: name = "FlashInfo"; break;
+            default: break;
             }
+            break;
         case 0x3003U:
             switch (tag) {
-            case 0x1814U: return "MeasuredEV";
-            default: return {};
+            case 0x1814U: name = "MeasuredEV"; break;
+            default: break;
             }
+            break;
         case 0x3004U:
             switch (tag) {
-            case 0x080BU: return "CanonFirmwareVersion";
-            case 0x080CU: return "ComponentVersion";
-            case 0x080DU: return "ROMOperationMode";
-            case 0x101CU: return "BaseISO";
-            case 0x180BU: return "UnknownNumber";
-            case 0x1834U: return "CanonModelID";
-            case 0x1835U: return "DecoderTable";
-            case 0x183BU: return "SerialNumberFormat";
-            default: return {};
+            case 0x080BU: name = "CanonFirmwareVersion"; break;
+            case 0x080CU: name = "ComponentVersion"; break;
+            case 0x080DU: name = "ROMOperationMode"; break;
+            case 0x101CU: name = "BaseISO"; break;
+            case 0x180BU: name = "UnknownNumber"; break;
+            case 0x1834U: name = "CanonModelID"; break;
+            case 0x1835U: name = "DecoderTable"; break;
+            case 0x183BU: name = "SerialNumberFormat"; break;
+            default: break;
             }
+            break;
         case 0x300AU:
             switch (tag) {
-            case 0x0816U: return "OriginalFileName";
-            case 0x0817U: return "ThumbnailFileName";
-            case 0x100AU: return "TargetImageType";
-            case 0x1803U: return "ImageFormat";
-            case 0x1804U: return "RecordID";
-            case 0x1806U: return "SelfTimerTime";
-            case 0x180EU: return "TimeStamp";
-            case 0x1810U: return "ImageInfo";
-            case 0x1817U: return "FileNumber";
-            default: return {};
+            case 0x0816U: name = "OriginalFileName"; break;
+            case 0x0817U: name = "ThumbnailFileName"; break;
+            case 0x100AU: name = "TargetImageType"; break;
+            case 0x1803U: name = "ImageFormat"; break;
+            case 0x1804U: name = "RecordID"; break;
+            case 0x1806U: name = "SelfTimerTime"; break;
+            case 0x180EU: name = "TimeStamp"; break;
+            case 0x1810U: name = "ImageInfo"; break;
+            case 0x1817U: name = "FileNumber"; break;
+            default: break;
             }
+            break;
         case 0x300BU:
             switch (tag) {
-            case 0x1030U: return "WhiteSample";
-            case 0x1028U: return "CanonFlashInfo";
-            case 0x1029U: return "FocalLength";
-            case 0x102AU: return "CanonShotInfo";
-            case 0x10B5U: return "RawJpgInfo";
-            default: return {};
+            case 0x1030U: name = "WhiteSample"; break;
+            case 0x1028U: name = "CanonFlashInfo"; break;
+            case 0x1029U: name = "FocalLength"; break;
+            case 0x102AU: name = "CanonShotInfo"; break;
+            case 0x10B5U: name = "RawJpgInfo"; break;
+            default: break;
             }
-        default: return {};
+            break;
+        default: break;
         }
+        if (!name.empty()) {
+            return name;
+        }
+        return synthesize_canonraw_placeholder_name(tag);
     }
 
 
@@ -543,11 +672,20 @@ namespace {
             const std::string_view ifd
                 = arena_string(arena, entry.key.data.exif_tag.ifd);
             const uint16_t tag = entry.key.data.exif_tag.tag;
-            if (ifd == "mk_panasonic0") {
-                if (canonical == "Model"
-                    && (tag == 0x0004U || tag == 0x000CU || tag == 0x0016U)
-                    && entry.value.kind != MetaValueKind::Text) {
-                    return synthesize_panasonic_main_placeholder_name(tag);
+            if (ifd == "mk_sigma0") {
+                const std::string_view compat = sigma_main_fixed_compat_name(tag);
+                if (!compat.empty()) {
+                    return compat;
+                }
+                if (sigma_main_prefers_placeholder(tag)) {
+                    return synthesize_sigma_main_placeholder_name(tag);
+                }
+            }
+        if (ifd == "mk_panasonic0") {
+            if (canonical == "Model"
+                && (tag == 0x0004U || tag == 0x000CU || tag == 0x0016U)
+                && entry.value.kind != MetaValueKind::Text) {
+                return synthesize_panasonic_main_placeholder_name(tag);
                 }
                 switch (tag) {
                 case 0x0058U:
@@ -568,6 +706,10 @@ namespace {
                     break;
                 default: break;
                 }
+            }
+            if (ifd == "mk_nikon_menusettingsz8_0" && tag == 0x027CU
+                && canonical == "HighFrequencyFlickerReduction") {
+                return "HighFrequencyFlickerReductionShooting";
             }
         }
 
@@ -612,9 +754,36 @@ namespace {
             case 1: return "KodakModel";
             default: return canonical;
             }
+        case EntryNameContextKind::MinoltaMainCompat:
+            switch (entry.origin.name_context_variant) {
+            case 1:
+                return synthesize_minolta_main_placeholder_name(
+                    entry.key.data.exif_tag.tag);
+            case 2: return "MinoltaQuality";
+            default: return canonical;
+            }
         case EntryNameContextKind::MotorolaMain6420:
             switch (entry.origin.name_context_variant) {
             case 1: return "Motorola_0x6420";
+            default: return canonical;
+            }
+        case EntryNameContextKind::SonyMainCompat:
+            switch (entry.origin.name_context_variant) {
+            case 1:
+                return synthesize_sony_main_placeholder_name(
+                    entry.key.data.exif_tag.tag);
+            default: return canonical;
+            }
+        case EntryNameContextKind::SonyTag94060005:
+            switch (entry.origin.name_context_variant) {
+            case 1: return "BatteryLevel";
+            default: return canonical;
+            }
+        case EntryNameContextKind::SigmaMainCompat:
+            switch (entry.origin.name_context_variant) {
+            case 1:
+                return synthesize_sigma_main_placeholder_name(
+                    entry.key.data.exif_tag.tag);
             default: return canonical;
             }
         case EntryNameContextKind::RicohMainCompat:
@@ -645,6 +814,11 @@ namespace {
             case 0x0035U: return "LensMountType";
             default: return canonical;
             }
+        case EntryNameContextKind::NikonMainCompactType2: {
+            const std::string_view compat = nikon_main_compact_type2_compat_name(
+                entry.key.data.exif_tag.tag);
+            return compat.empty() ? canonical : compat;
+        }
         case EntryNameContextKind::NikonFlashInfoGroups:
             switch (entry.key.data.exif_tag.tag) {
             case 0x0011U:
@@ -687,6 +861,22 @@ namespace {
             case 6U: return "FlashGroupBControlMode";
             case 7U: return "FlashGroupCControlMode";
             case 8U: return "FlashCompensation";
+            default: return canonical;
+            }
+        case EntryNameContextKind::NikonShotInfoD800:
+            switch (entry.origin.name_context_variant) {
+            case 1: {
+                static constexpr std::string_view kCompatIfds[] = {
+                    "mk_nikon_shotinfod800_0",
+                };
+                const std::string_view compat = find_first_makernote_name(
+                    std::span<const std::string_view>(kCompatIfds),
+                    entry.key.data.exif_tag.tag);
+                if (!compat.empty()) {
+                    return compat;
+                }
+                return canonical;
+            }
             default: return canonical;
             }
         case EntryNameContextKind::NikonShotInfoZ8:
@@ -744,6 +934,20 @@ namespace {
         case EntryNameContextKind::CanonCameraSettings0021:
             switch (entry.origin.name_context_variant) {
             case 1: return "WB_RGGBLevelsKelvin";
+            default: return canonical;
+            }
+        case EntryNameContextKind::CanonColorData4PSInfo:
+            switch (entry.origin.name_context_variant) {
+            case 1: return "UserDef2PictureStyle";
+            default: return canonical;
+            }
+        case EntryNameContextKind::CanonColorData7PSInfo2:
+            switch (entry.origin.name_context_variant) {
+            case 1: return "ColorToneUserDef3";
+            case 2: return "FilterEffectUserDef3";
+            case 3: return "ToningEffectUserDef3";
+            case 4: return "UserDef1PictureStyle";
+            case 5: return "UserDef2PictureStyle";
             default: return canonical;
             }
         case EntryNameContextKind::CanonColorData400EA:

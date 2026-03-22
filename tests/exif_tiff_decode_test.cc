@@ -6,6 +6,7 @@
 #include <gtest/gtest.h>
 
 #include <array>
+#include <cstring>
 #include <cstdint>
 #include <limits>
 #include <string_view>
@@ -424,13 +425,17 @@ namespace {
         append_u16le(&nefinfo, 42);
         append_u32le(&nefinfo, 8);
 
-        append_u16le(&nefinfo, 1);       // entry count
+        append_u16le(&nefinfo, 2);       // entry count
         append_u16le(&nefinfo, 0x0005);  // DistortionInfo
         append_u16le(&nefinfo, 7);       // UNDEFINED
         append_u32le(&nefinfo, 44);
-        append_u32le(&nefinfo, 26);
+        append_u32le(&nefinfo, 38);
+        append_u16le(&nefinfo, 0x000B);  // Unknown NEFInfo block
+        append_u16le(&nefinfo, 7);       // UNDEFINED
+        append_u32le(&nefinfo, 14);
+        append_u32le(&nefinfo, 82);
         append_u32le(&nefinfo, 0);
-        EXPECT_EQ(nefinfo.size(), 36U);
+        EXPECT_EQ(nefinfo.size(), 48U);
 
         std::vector<std::byte> distortion(44U, std::byte { 0 });
         std::memcpy(distortion.data(), "0100", 4U);
@@ -442,6 +447,16 @@ namespace {
         write_i32le_at(&distortion, 0x24U, -615);
         write_u32le_at(&distortion, 0x28U, 100000U);
         nefinfo.insert(nefinfo.end(), distortion.begin(), distortion.end());
+
+        const std::byte raw_nefinfo_unknown[] = {
+            std::byte { '0' }, std::byte { '1' }, std::byte { '0' },
+            std::byte { '0' }, std::byte { 0x0c }, std::byte { 0x00 },
+            std::byte { 0x08 }, std::byte { 0x00 }, std::byte { 0x40 },
+            std::byte { 0x20 }, std::byte { 0x80 }, std::byte { 0x15 },
+            std::byte { 0x3d }, std::byte { 0x0e },
+        };
+        nefinfo.insert(nefinfo.end(), std::begin(raw_nefinfo_unknown),
+                       std::end(raw_nefinfo_unknown));
 
         std::vector<std::byte> tiff;
         append_bytes(&tiff, "II");
@@ -1290,6 +1305,19 @@ TEST(ExifTiffDecode, DecodesNikonNefInfoDistortionInfoAsMakerNoteFields)
     ASSERT_EQ(version_ids.size(), 1U);
     EXPECT_EQ(arena_string(store.arena(), store.entry(version_ids[0]).value),
               "0100");
+
+    const std::span<const EntryId> nefinfo_dist_ids = store.find_all(
+        exif_key("mk_nikon_nefinfo_0", 0x0005));
+    ASSERT_EQ(nefinfo_dist_ids.size(), 1U);
+    EXPECT_EQ(store.entry(nefinfo_dist_ids[0]).value.kind,
+              MetaValueKind::Bytes);
+
+    const std::span<const EntryId> nefinfo_unknown_ids = store.find_all(
+        exif_key("mk_nikon_nefinfo_0", 0x000B));
+    ASSERT_EQ(nefinfo_unknown_ids.size(), 1U);
+    EXPECT_EQ(store.entry(nefinfo_unknown_ids[0]).value.kind,
+              MetaValueKind::Bytes);
+    EXPECT_EQ(store.entry(nefinfo_unknown_ids[0]).value.count, 14U);
 
     const std::span<const EntryId> enabled_ids = store.find_all(
         exif_key("mk_nikon_distortioninfo_0", 0x0004));

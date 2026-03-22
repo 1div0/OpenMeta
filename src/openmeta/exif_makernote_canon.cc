@@ -273,8 +273,28 @@ canon_custom_functions2_010c_prefers_placeholder(std::string_view model) noexcep
 {
     static constexpr std::string_view kCanonModels[] = {
         "EOS R10",         "EOS R7",   "EOS R8",         "EOS R1",
+        "EOS R3",
         "EOS R5 Mark II",  "EOS R5m2", "EOS R6 Mark II", "EOS R6m2",
         "EOS R6 Mark III", "EOS C50",  "PowerShot V10",
+    };
+    return canon_model_matches_any(model, kCanonModels);
+}
+
+static bool
+canon_model_is_7d_colordata_psinfo_group(std::string_view model) noexcept
+{
+    static constexpr std::string_view kCanonModels[] = {
+        "EOS 7D",
+    };
+    return canon_model_matches_any(model, kCanonModels);
+}
+
+static bool
+canon_model_is_colordata7_psinfo2_group(std::string_view model) noexcept
+{
+    static constexpr std::string_view kCanonModels[] = {
+        "EOS Kiss X7i",
+        "EOS-1D X",
     };
     return canon_model_matches_any(model, kCanonModels);
 }
@@ -421,6 +441,14 @@ static void canon_maybe_mark_contextual_name(std::string_view canon_model,
         return;
     }
     if (ifd_name == "mk_canon_colordata4_0") {
+        if (tag == 0x00DAU && canon_model_is_7d_colordata_psinfo_group(
+                                canon_model)) {
+            entry->flags |= EntryFlags::ContextualName;
+            entry->origin.name_context_kind
+                = EntryNameContextKind::CanonColorData4PSInfo;
+            entry->origin.name_context_variant = 1U;
+            return;
+        }
         if (tag == 0x00EAU
             && canon_model_is_1200d_wb_unknown7_group(canon_model)) {
             entry->flags |= EntryFlags::ContextualName;
@@ -443,6 +471,25 @@ static void canon_maybe_mark_contextual_name(std::string_view canon_model,
             entry->origin.name_context_kind
                 = EntryNameContextKind::CanonColorData402CF;
             entry->origin.name_context_variant = 1U;
+            return;
+        }
+    }
+    if (ifd_name == "mk_canon_colordata7_0"
+        && canon_model_is_colordata7_psinfo2_group(canon_model)) {
+        uint8_t variant = 0U;
+        switch (tag) {
+        case 0x00E4U: variant = 1U; break;
+        case 0x00E8U: variant = 2U; break;
+        case 0x00ECU: variant = 3U; break;
+        case 0x00F0U: variant = 4U; break;
+        case 0x00F2U: variant = 5U; break;
+        default: break;
+        }
+        if (variant != 0U) {
+            entry->flags |= EntryFlags::ContextualName;
+            entry->origin.name_context_kind
+                = EntryNameContextKind::CanonColorData7PSInfo2;
+            entry->origin.name_context_variant = variant;
             return;
         }
     }
@@ -1277,6 +1324,28 @@ canon_add_base_and_off32(int64_t base, uint32_t off32,
 }
 
 static bool
+canon_add_special_base_and_off32(int64_t base, uint32_t off32,
+                                 uint64_t* abs_off_out) noexcept
+{
+    if (!abs_off_out) {
+        return false;
+    }
+
+    const int64_t off = static_cast<int64_t>(off32);
+    if (base > 0 && base > (INT64_MAX - off)) {
+        return false;
+    }
+
+    const int64_t abs_off = base + off;
+    if (abs_off < 0) {
+        return false;
+    }
+
+    *abs_off_out = static_cast<uint64_t>(abs_off);
+    return true;
+}
+
+static bool
 canon_dir_bytes(uint16_t entry_count, uint64_t* out) noexcept
 {
     if (!out) {
@@ -1302,6 +1371,233 @@ canon_should_emit_unknown_table_tags(std::string_view ifd_name) noexcept
            || ifd_name.find("mk_canon_afinfo_") == 0
            || ifd_name.find("mk_canon_filterinfo_") == 0
            || ifd_name.find("mk_canon_colordata") == 0;
+}
+
+static int64_t
+canon_compute_auto_value_base(const TiffConfig& cfg,
+                              std::span<const std::byte> tiff_bytes,
+                              uint64_t maker_note_off, uint16_t entry_count,
+                              uint64_t ifd_needed_bytes,
+                              const ExifDecodeLimits& limits) noexcept
+{
+    if (entry_count == 0 || ifd_needed_bytes == 0 || tiff_bytes.empty()) {
+        return INT64_MIN;
+    }
+
+    const uint64_t entries_off = maker_note_off + 2ULL;
+    uint64_t min_off32         = UINT64_MAX;
+
+    for (uint32_t i = 0; i < entry_count; ++i) {
+        const uint64_t eoff = entries_off + uint64_t(i) * 12ULL;
+
+        uint16_t type = 0;
+        if (!read_tiff_u16(cfg, tiff_bytes, eoff + 2U, &type)) {
+            break;
+        }
+
+        uint32_t count32        = 0;
+        uint32_t value_or_off32 = 0;
+        if (!read_tiff_u32(cfg, tiff_bytes, eoff + 4U, &count32)
+            || !read_tiff_u32(cfg, tiff_bytes, eoff + 8U, &value_or_off32)) {
+            break;
+        }
+
+        const uint64_t unit = tiff_type_size(type);
+        const uint64_t count = count32;
+        if (unit == 0 || count == 0 || count > (UINT64_MAX / unit)) {
+            continue;
+        }
+
+        const uint64_t value_bytes = count * unit;
+        if (value_bytes <= 4ULL || value_bytes > limits.max_value_bytes) {
+            continue;
+        }
+
+        const uint64_t off = uint64_t(value_or_off32);
+        if (off < ifd_needed_bytes) {
+            continue;
+        }
+        min_off32 = (off < min_off32) ? off : min_off32;
+    }
+
+    if (min_off32 == UINT64_MAX) {
+        return INT64_MIN;
+    }
+
+    const uint64_t value_area_off = maker_note_off + ifd_needed_bytes;
+    if (value_area_off > uint64_t(INT64_MAX)
+        || min_off32 > uint64_t(INT64_MAX)) {
+        return INT64_MIN;
+    }
+
+    return static_cast<int64_t>(value_area_off)
+           - static_cast<int64_t>(min_off32);
+}
+
+static int64_t
+canon_compute_schema_value_base(uint64_t maker_note_off,
+                                bool have_offset_schema,
+                                int32_t offset_schema) noexcept
+{
+    if (!have_offset_schema || maker_note_off > uint64_t(INT64_MAX)) {
+        return INT64_MIN;
+    }
+
+    const int64_t base_mn   = static_cast<int64_t>(maker_note_off);
+    const int64_t schema64  = static_cast<int64_t>(offset_schema);
+    if ((schema64 > 0 && base_mn > (INT64_MAX - schema64))
+        || (schema64 < 0 && base_mn < (INT64_MIN - schema64))) {
+        return INT64_MIN;
+    }
+    return base_mn + schema64;
+}
+
+static bool
+canon_custom_functions2_signature_matches(
+    std::span<const std::byte> tiff_bytes, uint64_t abs_value_off,
+    uint64_t value_bytes) noexcept
+{
+    if (value_bytes < 8ULL || abs_value_off > tiff_bytes.size()
+        || value_bytes > (tiff_bytes.size() - abs_value_off)) {
+        return false;
+    }
+
+    const TiffConfig payload_cfg { true, false };
+    uint16_t len16 = 0;
+    uint32_t group_count = 0;
+    if (!read_tiff_u16(payload_cfg, tiff_bytes, abs_value_off, &len16)
+        || !read_tiff_u32(payload_cfg, tiff_bytes, abs_value_off + 4ULL,
+                          &group_count)) {
+        return false;
+    }
+    if (uint64_t(len16) != value_bytes) {
+        return false;
+    }
+    return group_count <= 0x10000U;
+}
+
+static bool
+canon_u32_binary_dir_signature_matches(std::span<const std::byte> tiff_bytes,
+                                       uint64_t abs_value_off,
+                                       uint64_t value_bytes) noexcept
+{
+    if (value_bytes < 8ULL || abs_value_off > tiff_bytes.size()
+        || value_bytes > (tiff_bytes.size() - abs_value_off)) {
+        return false;
+    }
+
+    const TiffConfig payload_cfg { true, false };
+    uint32_t len32 = 0;
+    if (!read_tiff_u32(payload_cfg, tiff_bytes, abs_value_off, &len32)) {
+        return false;
+    }
+    return uint64_t(len32) == value_bytes;
+}
+
+static uint64_t
+canon_choose_custom_functions2_offset(std::span<const std::byte> tiff_bytes,
+                                      uint32_t value_or_off32,
+                                      uint64_t default_abs_value_off,
+                                      uint64_t value_bytes,
+                                      uint64_t maker_note_off,
+                                      int64_t auto_value_base,
+                                      int64_t schema_value_base) noexcept
+{
+    if (canon_custom_functions2_signature_matches(
+            tiff_bytes, default_abs_value_off, value_bytes)) {
+        return default_abs_value_off;
+    }
+
+    uint64_t abs_value_off = 0;
+    if (auto_value_base != INT64_MIN
+        && canon_add_special_base_and_off32(auto_value_base, value_or_off32,
+                                            &abs_value_off)
+        && abs_value_off != default_abs_value_off
+        && canon_custom_functions2_signature_matches(
+            tiff_bytes, abs_value_off, value_bytes)) {
+        return abs_value_off;
+    }
+
+    if (schema_value_base != INT64_MIN
+        && canon_add_special_base_and_off32(schema_value_base, value_or_off32,
+                                            &abs_value_off)
+        && abs_value_off != default_abs_value_off
+        && canon_custom_functions2_signature_matches(
+            tiff_bytes, abs_value_off, value_bytes)) {
+        return abs_value_off;
+    }
+
+    if (maker_note_off <= uint64_t(INT64_MAX)
+        && canon_add_special_base_and_off32(
+            static_cast<int64_t>(maker_note_off), value_or_off32,
+            &abs_value_off)
+        && abs_value_off != default_abs_value_off
+        && canon_custom_functions2_signature_matches(
+            tiff_bytes, abs_value_off, value_bytes)) {
+        return abs_value_off;
+    }
+
+    if (canon_add_special_base_and_off32(0, value_or_off32, &abs_value_off)
+        && abs_value_off != default_abs_value_off
+        && canon_custom_functions2_signature_matches(
+            tiff_bytes, abs_value_off, value_bytes)) {
+        return abs_value_off;
+    }
+
+    return default_abs_value_off;
+}
+
+static uint64_t
+canon_choose_u32_binary_dir_offset(std::span<const std::byte> tiff_bytes,
+                                   uint32_t value_or_off32,
+                                   uint64_t default_abs_value_off,
+                                   uint64_t value_bytes,
+                                   uint64_t maker_note_off,
+                                   int64_t auto_value_base,
+                                   int64_t schema_value_base) noexcept
+{
+    if (canon_u32_binary_dir_signature_matches(
+            tiff_bytes, default_abs_value_off, value_bytes)) {
+        return default_abs_value_off;
+    }
+
+    uint64_t abs_value_off = 0;
+    if (auto_value_base != INT64_MIN
+        && canon_add_special_base_and_off32(auto_value_base, value_or_off32,
+                                            &abs_value_off)
+        && abs_value_off != default_abs_value_off
+        && canon_u32_binary_dir_signature_matches(
+            tiff_bytes, abs_value_off, value_bytes)) {
+        return abs_value_off;
+    }
+
+    if (schema_value_base != INT64_MIN
+        && canon_add_special_base_and_off32(schema_value_base, value_or_off32,
+                                            &abs_value_off)
+        && abs_value_off != default_abs_value_off
+        && canon_u32_binary_dir_signature_matches(
+            tiff_bytes, abs_value_off, value_bytes)) {
+        return abs_value_off;
+    }
+
+    if (maker_note_off <= uint64_t(INT64_MAX)
+        && canon_add_special_base_and_off32(
+            static_cast<int64_t>(maker_note_off), value_or_off32,
+            &abs_value_off)
+        && abs_value_off != default_abs_value_off
+        && canon_u32_binary_dir_signature_matches(
+            tiff_bytes, abs_value_off, value_bytes)) {
+        return abs_value_off;
+    }
+
+    if (canon_add_special_base_and_off32(0, value_or_off32, &abs_value_off)
+        && abs_value_off != default_abs_value_off
+        && canon_u32_binary_dir_signature_matches(
+            tiff_bytes, abs_value_off, value_bytes)) {
+        return abs_value_off;
+    }
+
+    return default_abs_value_off;
 }
 
 
@@ -1408,17 +1704,118 @@ guess_canon_value_base(const TiffConfig& cfg,
         }
     }
 
+    const auto score_signature_base = [&](int64_t base) noexcept -> uint32_t {
+        uint32_t score = 0;
+        for (uint32_t i = 0; i < entry_count; ++i) {
+            const uint64_t eoff = entries_off + uint64_t(i) * 12ULL;
+
+            uint16_t tag = 0;
+            uint16_t type = 0;
+            uint32_t count32 = 0;
+            uint32_t value_or_off32 = 0;
+            if (!read_tiff_u16(cfg, tiff_bytes, eoff + 0, &tag)
+                || !read_tiff_u16(cfg, tiff_bytes, eoff + 2, &type)
+                || !read_tiff_u32(cfg, tiff_bytes, eoff + 4, &count32)
+                || !read_tiff_u32(cfg, tiff_bytes, eoff + 8, &value_or_off32)) {
+                break;
+            }
+
+            const uint64_t unit = tiff_type_size(type);
+            const uint64_t count = count32;
+            if (unit == 0 || count == 0 || count > (UINT64_MAX / unit)) {
+                continue;
+            }
+            const uint64_t value_bytes = count * unit;
+            if (value_bytes <= 4 || value_bytes > limits.max_value_bytes) {
+                continue;
+            }
+
+            uint64_t abs_off = 0;
+            if (!canon_add_base_and_off32(base, value_or_off32, &abs_off)) {
+                continue;
+            }
+            if (abs_off + value_bytes > tiff_bytes.size()) {
+                continue;
+            }
+
+            if (tag == 0x0099U && value_bytes >= 8U) {
+                uint16_t len16 = 0;
+                uint32_t len32 = 0;
+                if ((read_tiff_u16(cfg, tiff_bytes, abs_off, &len16)
+                     && uint64_t(len16) == value_bytes)
+                    || (read_tiff_u32(cfg, tiff_bytes, abs_off, &len32)
+                        && uint64_t(len32) == value_bytes)) {
+                    score += 24U;
+                }
+                continue;
+            }
+
+            if (tag == 0x4024U && value_bytes >= 8U) {
+                uint32_t len32 = 0;
+                if (read_tiff_u32(cfg, tiff_bytes, abs_off, &len32)
+                    && uint64_t(len32) == value_bytes) {
+                    score += 24U;
+                }
+                continue;
+            }
+
+            if ((tag == 0x0006U || tag == 0x0007U || tag == 0x0009U
+                 || tag == 0x0095U || tag == 0x0096U || tag == 0x4010U
+                 || tag == 0x4012U)
+                && (type == 2U || type == 129U)) {
+                const std::span<const std::byte> raw
+                    = tiff_bytes.subspan(static_cast<size_t>(abs_off),
+                                         static_cast<size_t>(value_bytes));
+                if (canon_looks_like_text(raw)) {
+                    score += 8U;
+                }
+            }
+        }
+        return score;
+    };
+
     struct Candidate final {
         int64_t base   = 0;
         uint32_t score = 0;
         uint32_t in_mn = 0;
     };
 
-    Candidate cands[4];
+    Candidate cands[4] {};
     cands[0].base = base_abs;
     cands[1].base = base_mn;
     cands[2].base = (base_auto != INT64_MIN) ? base_auto : base_abs;
     cands[3].base = (base_schema != INT64_MIN) ? base_schema : base_abs;
+
+    uint32_t sig_scores[4] {};
+    sig_scores[0] = score_signature_base(base_abs);
+    sig_scores[1] = score_signature_base(base_mn);
+    if (base_auto != INT64_MIN) {
+        sig_scores[2] = score_signature_base(base_auto);
+    }
+    if (base_schema != INT64_MIN) {
+        sig_scores[3] = score_signature_base(base_schema);
+    }
+
+    uint32_t best_sig = sig_scores[0];
+    size_t best_sig_index = 0;
+    bool sig_tied = false;
+    for (size_t i = 1; i < 4; ++i) {
+        if ((i == 2 && base_auto == INT64_MIN)
+            || (i == 3 && base_schema == INT64_MIN)) {
+            continue;
+        }
+        if (sig_scores[i] > best_sig) {
+            best_sig = sig_scores[i];
+            best_sig_index = i;
+            sig_tied = false;
+        } else if (sig_scores[i] == best_sig && sig_scores[i] != 0U) {
+            sig_tied = true;
+        }
+    }
+
+    if (best_sig != 0U && !sig_tied) {
+        return cands[best_sig_index].base;
+    }
 
     for (size_t c = 0; c < 4; ++c) {
         Candidate& cand = cands[c];
@@ -2618,6 +3015,7 @@ decode_canon_custom_functions2(const TiffConfig& cfg,
                                const ExifDecodeOptions& options,
                                ExifDecodeResult* status_out) noexcept
 {
+    (void)cfg;
     if (mk_ifd0.empty()) {
         return false;
     }
@@ -2628,8 +3026,12 @@ decode_canon_custom_functions2(const TiffConfig& cfg,
         return false;
     }
 
+    // CanonCustom2 blobs use little-endian payloads even in big-endian EXIF
+    // containers, so decode the internal record stream with a fixed LE view.
+    const TiffConfig payload_cfg { true, false };
+
     uint16_t len16 = 0;
-    if (!read_tiff_u16(cfg, tiff_bytes, value_off + 0, &len16)) {
+    if (!read_tiff_u16(payload_cfg, tiff_bytes, value_off + 0, &len16)) {
         return false;
     }
     if (len16 != value_bytes) {
@@ -2637,7 +3039,7 @@ decode_canon_custom_functions2(const TiffConfig& cfg,
     }
 
     uint32_t group_count = 0;
-    if (!read_tiff_u32(cfg, tiff_bytes, value_off + 4, &group_count)) {
+    if (!read_tiff_u32(payload_cfg, tiff_bytes, value_off + 4, &group_count)) {
         return false;
     }
     (void)group_count;
@@ -2659,9 +3061,9 @@ decode_canon_custom_functions2(const TiffConfig& cfg,
         uint32_t rec_num   = 0;
         uint32_t rec_len   = 0;
         uint32_t rec_count = 0;
-        if (!read_tiff_u32(cfg, tiff_bytes, pos + 0, &rec_num)
-            || !read_tiff_u32(cfg, tiff_bytes, pos + 4, &rec_len)
-            || !read_tiff_u32(cfg, tiff_bytes, pos + 8, &rec_count)) {
+        if (!read_tiff_u32(payload_cfg, tiff_bytes, pos + 0, &rec_num)
+            || !read_tiff_u32(payload_cfg, tiff_bytes, pos + 4, &rec_len)
+            || !read_tiff_u32(payload_cfg, tiff_bytes, pos + 8, &rec_count)) {
             if (status_out) {
                 update_status(status_out, ExifDecodeStatus::Malformed);
             }
@@ -2687,8 +3089,8 @@ decode_canon_custom_functions2(const TiffConfig& cfg,
         for (; rec_pos + 8 <= rec_end && i < rec_count; ++i) {
             uint32_t tag32 = 0;
             uint32_t num   = 0;
-            if (!read_tiff_u32(cfg, tiff_bytes, rec_pos + 0, &tag32)
-                || !read_tiff_u32(cfg, tiff_bytes, rec_pos + 4, &num)) {
+            if (!read_tiff_u32(payload_cfg, tiff_bytes, rec_pos + 0, &tag32)
+                || !read_tiff_u32(payload_cfg, tiff_bytes, rec_pos + 4, &num)) {
                 if (status_out) {
                     update_status(status_out, ExifDecodeStatus::Malformed);
                 }
@@ -2707,7 +3109,8 @@ decode_canon_custom_functions2(const TiffConfig& cfg,
                 const uint64_t next_rec = rec_pos + 8 + uint64_t(num) * 4ULL;
                 if (next_rec + 8 < rec_end) {
                     uint32_t tmp = 0;
-                    if (read_tiff_u32(cfg, tiff_bytes, next_rec + 4, &tmp)
+                    if (read_tiff_u32(payload_cfg, tiff_bytes,
+                                      next_rec + 4, &tmp)
                         && tmp == 0x070f) {
                         num += 1;
                     }
@@ -2792,7 +3195,7 @@ decode_canon_custom_functions2(const TiffConfig& cfg,
 
             if (num == 1) {
                 uint32_t v = 0;
-                if (!read_tiff_u32(cfg, tiff_bytes, payload_off, &v)) {
+                if (!read_tiff_u32(payload_cfg, tiff_bytes, payload_off, &v)) {
                     if (status_out) {
                         update_status(status_out, ExifDecodeStatus::Malformed);
                     }
@@ -2823,7 +3226,7 @@ decode_canon_custom_functions2(const TiffConfig& cfg,
 
                 for (uint32_t k = 0; k < num; ++k) {
                     uint32_t v = 0;
-                    if (!read_tiff_u32(cfg, tiff_bytes,
+                    if (!read_tiff_u32(payload_cfg, tiff_bytes,
                                        payload_off + uint64_t(k) * 4ULL, &v)) {
                         if (status_out) {
                             update_status(status_out,
@@ -2864,6 +3267,7 @@ decode_canon_u32_bin_dir(const TiffConfig& cfg,
                          const ExifDecodeOptions& options,
                          ExifDecodeResult* status_out) noexcept
 {
+    (void)cfg;
     if (ifd_name.empty()) {
         return false;
     }
@@ -2874,8 +3278,12 @@ decode_canon_u32_bin_dir(const TiffConfig& cfg,
         return false;
     }
 
+    // Canon BinaryData directories use little-endian payloads even in
+    // big-endian EXIF containers.
+    const TiffConfig payload_cfg { true, false };
+
     uint32_t len32 = 0;
-    if (!read_tiff_u32(cfg, tiff_bytes, value_off + 0, &len32)) {
+    if (!read_tiff_u32(payload_cfg, tiff_bytes, value_off + 0, &len32)) {
         return false;
     }
     if (len32 != value_bytes) {
@@ -2895,9 +3303,9 @@ decode_canon_u32_bin_dir(const TiffConfig& cfg,
         uint32_t rec_num   = 0;
         uint32_t rec_len   = 0;
         uint32_t rec_count = 0;
-        if (!read_tiff_u32(cfg, tiff_bytes, pos + 0, &rec_num)
-            || !read_tiff_u32(cfg, tiff_bytes, pos + 4, &rec_len)
-            || !read_tiff_u32(cfg, tiff_bytes, pos + 8, &rec_count)) {
+        if (!read_tiff_u32(payload_cfg, tiff_bytes, pos + 0, &rec_num)
+            || !read_tiff_u32(payload_cfg, tiff_bytes, pos + 4, &rec_len)
+            || !read_tiff_u32(payload_cfg, tiff_bytes, pos + 8, &rec_count)) {
             if (status_out) {
                 update_status(status_out, ExifDecodeStatus::Malformed);
             }
@@ -2923,8 +3331,8 @@ decode_canon_u32_bin_dir(const TiffConfig& cfg,
         for (; rec_pos + 8 <= rec_end && i < rec_count; ++i) {
             uint32_t tag32 = 0;
             uint32_t num   = 0;
-            if (!read_tiff_u32(cfg, tiff_bytes, rec_pos + 0, &tag32)
-                || !read_tiff_u32(cfg, tiff_bytes, rec_pos + 4, &num)) {
+            if (!read_tiff_u32(payload_cfg, tiff_bytes, rec_pos + 0, &tag32)
+                || !read_tiff_u32(payload_cfg, tiff_bytes, rec_pos + 4, &num)) {
                 if (status_out) {
                     update_status(status_out, ExifDecodeStatus::Malformed);
                 }
@@ -2975,7 +3383,7 @@ decode_canon_u32_bin_dir(const TiffConfig& cfg,
 
             if (num == 1) {
                 uint32_t v = 0;
-                if (!read_tiff_u32(cfg, tiff_bytes, payload_off, &v)) {
+                if (!read_tiff_u32(payload_cfg, tiff_bytes, payload_off, &v)) {
                     if (status_out) {
                         update_status(status_out, ExifDecodeStatus::Malformed);
                     }
@@ -3006,7 +3414,7 @@ decode_canon_u32_bin_dir(const TiffConfig& cfg,
 
                 for (uint32_t k = 0; k < num; ++k) {
                     uint32_t v = 0;
-                    if (!read_tiff_u32(cfg, tiff_bytes,
+                    if (!read_tiff_u32(payload_cfg, tiff_bytes,
                                        payload_off + uint64_t(k) * 4ULL, &v)) {
                         if (status_out) {
                             update_status(status_out,
@@ -3198,6 +3606,57 @@ decode_canon_colordata_embedded_tables(
     }
 }
 
+static void
+decode_canon_colordata_blob(const TiffConfig& cfg,
+                            std::span<const std::byte> tiff_bytes,
+                            uint64_t colordata_off, uint32_t colordata_count,
+                            uint32_t family_count_hint,
+                            std::string_view mk_prefix,
+                            std::string_view canon_model, MetaStore& store,
+                            const ExifDecodeOptions& options,
+                            ExifDecodeResult* status_out) noexcept
+{
+    bool looks_like_colorcalib = false;
+    uint16_t colordata_version = 0;
+    (void)read_tiff_u16(cfg, tiff_bytes, colordata_off, &colordata_version);
+    const int16_t colordata_version_i16
+        = static_cast<int16_t>(colordata_version);
+    if (colordata_count > 0x0107u + 3u) {
+        uint16_t maybe_temp = 0;
+        if (read_tiff_u16(cfg, tiff_bytes,
+                          colordata_off + 2ULL * uint64_t(0x0107u + 3u),
+                          &maybe_temp)) {
+            looks_like_colorcalib
+                = (maybe_temp >= 1500u && maybe_temp <= 20000u);
+        }
+    }
+
+    uint32_t family
+        = canon_colordata_family(colordata_count, colordata_version_i16);
+    if (family == 0 && family_count_hint != colordata_count) {
+        family = canon_colordata_family(family_count_hint,
+                                        colordata_version_i16);
+    }
+
+    std::string_view table;
+    if (!canon_colordata_family_name(family, &table)) {
+        table = looks_like_colorcalib ? "colordata8" : "colordata";
+    }
+
+    char sub_ifd_buf[64];
+    const std::string_view sub_ifd
+        = make_mk_subtable_ifd_token(mk_prefix, table, 0,
+                                     std::span<char>(sub_ifd_buf));
+    decode_canon_u16_table(cfg, tiff_bytes, colordata_off, colordata_count,
+                           sub_ifd, store, canon_model, options, status_out);
+
+    decode_canon_colordata_embedded_tables(cfg, tiff_bytes, colordata_off,
+                                           colordata_count, family,
+                                           colordata_version_i16, mk_prefix,
+                                           canon_model, store, options,
+                                           status_out);
+}
+
 
 bool
 decode_canon_makernote(const TiffConfig& cfg,
@@ -3286,6 +3745,11 @@ decode_canon_makernote(const TiffConfig& cfg,
     const int64_t value_base = guess_canon_value_base(
         mk_cfg, tiff_bytes, maker_note_off, maker_note_span_bytes, entry_count,
         needed, options.limits, have_offset_schema, offset_schema);
+    const int64_t auto_value_base = canon_compute_auto_value_base(
+        mk_cfg, tiff_bytes, maker_note_off, entry_count, needed,
+        options.limits);
+    const int64_t schema_value_base = canon_compute_schema_value_base(
+        maker_note_off, have_offset_schema, offset_schema);
 
     MakerNoteLayout layout;
     layout.cfg                                = mk_cfg;
@@ -3482,12 +3946,18 @@ decode_canon_makernote(const TiffConfig& cfg,
         }
 
         if (tag == 0x0099 && value_bytes != 0U) {  // CustomFunctions2
+            const uint64_t canoncustom_abs_value_off
+                = canon_choose_custom_functions2_offset(
+                    tiff_bytes, ifd_entry.value_or_off32, abs_value_off,
+                    value_bytes, maker_note_off, auto_value_base,
+                    schema_value_base);
             char canoncustom_ifd_buf[96];
             const std::string_view canoncustom_ifd = make_mk_subtable_ifd_token(
                 "mk_canoncustom", "functions2", 0,
                 std::span<char>(canoncustom_ifd_buf));
             (void)decode_canon_custom_functions2(mk_cfg, tiff_bytes,
-                                                 abs_value_off, value_bytes,
+                                                 canoncustom_abs_value_off,
+                                                 value_bytes,
                                                  canoncustom_ifd, store,
                                                  options, status_out);
         }
@@ -3500,6 +3970,13 @@ decode_canon_makernote(const TiffConfig& cfg,
                                              std::span<char>(sub_ifd_buf));
             decode_canon_u16_table(mk_cfg, tiff_bytes, abs_value_off, count16,
                                    sub_ifd, store, model, options, status_out);
+        }
+        if (tag == 0x4001 && type == 7 && value_bytes >= 2U
+            && (value_bytes % 2U) == 0U) {
+            const uint32_t count16 = static_cast<uint32_t>(value_bytes / 2U);
+            decode_canon_colordata_blob(mk_cfg, tiff_bytes, abs_value_off,
+                                        count16, count32, mk_prefix, model,
+                                        store, options, status_out);
         }
 
         if (type == 3 && count32 != 0) {  // SHORT
@@ -3701,42 +4178,9 @@ decode_canon_makernote(const TiffConfig& cfg,
                                        count32, sub_ifd, store, model, options,
                                        status_out);
             } else if (tag == 0x4001) {  // ColorData (multiple versions)
-                bool looks_like_colorcalib = false;
-                uint16_t colordata_version = 0;
-                (void)read_tiff_u16(mk_cfg, tiff_bytes, abs_value_off,
-                                    &colordata_version);
-                const int16_t colordata_version_i16 = static_cast<int16_t>(
-                    colordata_version);
-                if (count32 > 0x0107u + 3u) {
-                    uint16_t maybe_temp = 0;
-                    if (read_tiff_u16(mk_cfg, tiff_bytes,
-                                      abs_value_off
-                                          + 2ULL * uint64_t(0x0107u + 3u),
-                                      &maybe_temp)) {
-                        looks_like_colorcalib = (maybe_temp >= 1500u
-                                                 && maybe_temp <= 20000u);
-                    }
-                }
-
-                const uint32_t family
-                    = canon_colordata_family(count32, colordata_version_i16);
-                std::string_view table;
-                if (!canon_colordata_family_name(family, &table)) {
-                    table = looks_like_colorcalib ? "colordata8" : "colordata";
-                }
-                const std::string_view sub_ifd
-                    = make_mk_subtable_ifd_token(mk_prefix, table, 0,
-                                                 std::span<char>(sub_ifd_buf));
-                decode_canon_u16_table(mk_cfg, tiff_bytes, abs_value_off,
-                                       count32, sub_ifd, store, model, options,
-                                       status_out);
-
-                decode_canon_colordata_embedded_tables(mk_cfg, tiff_bytes,
-                                                       abs_value_off, count32,
-                                                       family,
-                                                       colordata_version_i16,
-                                                       mk_prefix, model, store,
-                                                       options, status_out);
+                decode_canon_colordata_blob(mk_cfg, tiff_bytes, abs_value_off,
+                                            count32, count32, mk_prefix, model,
+                                            store, options, status_out);
             }
         } else if (type == 4 && count32 != 0) {  // LONG
             if (tag == 0x0035) {                 // TimeInfo
@@ -3844,11 +4288,17 @@ decode_canon_makernote(const TiffConfig& cfg,
                                        count32, sub_ifd, store, options,
                                        status_out);
             } else if (tag == 0x4024) {  // FilterInfo (BinaryData directory)
+                const uint64_t filterinfo_abs_value_off
+                    = canon_choose_u32_binary_dir_offset(
+                        tiff_bytes, ifd_entry.value_or_off32, abs_value_off,
+                        value_bytes, maker_note_off, auto_value_base,
+                        schema_value_base);
                 const std::string_view sub_ifd
                     = make_mk_subtable_ifd_token(mk_prefix, "filterinfo", 0,
                                                  std::span<char>(sub_ifd_buf));
                 (void)decode_canon_u32_bin_dir(mk_cfg, tiff_bytes,
-                                               abs_value_off, value_bytes,
+                                               filterinfo_abs_value_off,
+                                               value_bytes,
                                                sub_ifd, store, options,
                                                status_out);
                 // Some files expose FilterInfo as a flat LONG table where

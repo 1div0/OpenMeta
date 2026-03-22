@@ -1285,6 +1285,7 @@
 {"kind":"exif.tag","ifd":"makernote:nikon:shotinfod800","tag":"0x05fb","name":"ShutterCount"}
 {"kind":"exif.tag","ifd":"makernote:nikon:shotinfod810","tag":"0x0000","name":"ShotInfoVersion"}
 {"kind":"exif.tag","ifd":"makernote:nikon:shotinfod810","tag":"0x0004","name":"FirmwareVersion"}
+{"kind":"exif.tag","ifd":"makernote:nikon:shotinfod810","tag":"0x013c","name":"SecondarySlotFunction"}
 {"kind":"exif.tag","ifd":"makernote:nikon:shotinfod850","tag":"0x0000","name":"ShotInfoVersion"}
 {"kind":"exif.tag","ifd":"makernote:nikon:shotinfod850","tag":"0x0004","name":"FirmwareVersion"}
 {"kind":"exif.tag","ifd":"makernote:nikon:shotinfod90","tag":"0x0000","name":"ShotInfoVersion"}

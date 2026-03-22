@@ -336,6 +336,12 @@ namespace {
               { 0x0052u, "AssignMovieFunc2Button" },
           };
 
+    static constexpr MakerNoteTagNameEntry
+        kMakernoteNikoncustomSettingsz8Extra[]
+        = {
+              { 0x0203u, "MovieAFAreaMode" },
+          };
+
     static bool is_ascii_digit(char c) noexcept { return c >= '0' && c <= '9'; }
 
 
@@ -530,6 +536,14 @@ namespace {
                 static_cast<uint32_t>(
                     sizeof(kMakernoteNikoncustomSettingsd850Extra)
                     / sizeof(kMakernoteNikoncustomSettingsd850Extra[0])),
+                tag);
+        }
+        if (subtable == "settingsz8") {
+            return find_tag_name(
+                kMakernoteNikoncustomSettingsz8Extra,
+                static_cast<uint32_t>(
+                    sizeof(kMakernoteNikoncustomSettingsz8Extra)
+                    / sizeof(kMakernoteNikoncustomSettingsz8Extra[0])),
                 tag);
         }
         return {};
@@ -749,6 +763,36 @@ namespace {
     }
 
     static std::string_view
+    synthesize_phaseone_placeholder_name(std::string_view subtable,
+                                         uint16_t tag) noexcept
+    {
+        std::string_view prefix;
+        if (subtable.empty() || subtable == "main") {
+            prefix = "PhaseOne_0x";
+        } else if (subtable == "sensorcalibration") {
+            prefix = "SensorCalibration_0x";
+        } else {
+            return {};
+        }
+
+        static thread_local char buf[48];
+        static constexpr char kHex[] = "0123456789abcdef";
+        if (prefix.size() + 4 >= sizeof(buf)) {
+            return {};
+        }
+
+        for (size_t i = 0; i < prefix.size(); ++i) {
+            buf[i] = prefix[i];
+        }
+        buf[prefix.size() + 0] = kHex[(tag >> 12) & 0xF];
+        buf[prefix.size() + 1] = kHex[(tag >> 8) & 0xF];
+        buf[prefix.size() + 2] = kHex[(tag >> 4) & 0xF];
+        buf[prefix.size() + 3] = kHex[(tag >> 0) & 0xF];
+        buf[prefix.size() + 4] = '\0';
+        return std::string_view(buf, prefix.size() + 4);
+    }
+
+    static std::string_view
     synthesize_fujifilm_placeholder_name(std::string_view subtable,
                                          uint16_t tag) noexcept
     {
@@ -784,6 +828,58 @@ namespace {
 
         static thread_local char buf[20];
         static constexpr std::string_view kPrefix = "Motorola_0x";
+        static constexpr char kHex[]              = "0123456789abcdef";
+        if (kPrefix.size() + 4 >= sizeof(buf)) {
+            return {};
+        }
+
+        for (size_t i = 0; i < kPrefix.size(); ++i) {
+            buf[i] = kPrefix[i];
+        }
+        buf[kPrefix.size() + 0] = kHex[(tag >> 12) & 0xF];
+        buf[kPrefix.size() + 1] = kHex[(tag >> 8) & 0xF];
+        buf[kPrefix.size() + 2] = kHex[(tag >> 4) & 0xF];
+        buf[kPrefix.size() + 3] = kHex[(tag >> 0) & 0xF];
+        buf[kPrefix.size() + 4] = '\0';
+        return std::string_view(buf, kPrefix.size() + 4);
+    }
+
+    static std::string_view
+    synthesize_ge_placeholder_name(std::string_view subtable,
+                                   uint16_t tag) noexcept
+    {
+        if (!(subtable.empty() || subtable == "main")) {
+            return {};
+        }
+
+        static thread_local char buf[12];
+        static constexpr std::string_view kPrefix = "GE_0x";
+        static constexpr char kHex[]              = "0123456789abcdef";
+        if (kPrefix.size() + 4 >= sizeof(buf)) {
+            return {};
+        }
+
+        for (size_t i = 0; i < kPrefix.size(); ++i) {
+            buf[i] = kPrefix[i];
+        }
+        buf[kPrefix.size() + 0] = kHex[(tag >> 12) & 0xF];
+        buf[kPrefix.size() + 1] = kHex[(tag >> 8) & 0xF];
+        buf[kPrefix.size() + 2] = kHex[(tag >> 4) & 0xF];
+        buf[kPrefix.size() + 3] = kHex[(tag >> 0) & 0xF];
+        buf[kPrefix.size() + 4] = '\0';
+        return std::string_view(buf, kPrefix.size() + 4);
+    }
+
+    static std::string_view
+    synthesize_jvc_placeholder_name(std::string_view subtable,
+                                    uint16_t tag) noexcept
+    {
+        if (!(subtable.empty() || subtable == "main")) {
+            return {};
+        }
+
+        static thread_local char buf[13];
+        static constexpr std::string_view kPrefix = "JVC_0x";
         static constexpr char kHex[]              = "0123456789abcdef";
         if (kPrefix.size() + 4 >= sizeof(buf)) {
             return {};
@@ -975,6 +1071,31 @@ namespace {
     }
 
     static std::string_view
+    synthesize_sony_placeholder_name(std::string_view subtable,
+                                     uint16_t tag) noexcept
+    {
+        static thread_local char buf[15];
+        if (!subtable.empty() && subtable != "main") {
+            return {};
+        }
+        static constexpr std::string_view kPrefix = "Sony_0x";
+        static constexpr char kHex[]              = "0123456789abcdef";
+        if (kPrefix.size() + 4U >= sizeof(buf)) {
+            return {};
+        }
+
+        for (size_t i = 0; i < kPrefix.size(); ++i) {
+            buf[i] = kPrefix[i];
+        }
+        buf[kPrefix.size() + 0U] = kHex[(tag >> 12U) & 0xFU];
+        buf[kPrefix.size() + 1U] = kHex[(tag >> 8U) & 0xFU];
+        buf[kPrefix.size() + 2U] = kHex[(tag >> 4U) & 0xFU];
+        buf[kPrefix.size() + 3U] = kHex[(tag >> 0U) & 0xFU];
+        buf[kPrefix.size() + 4U] = '\0';
+        return std::string_view(buf, kPrefix.size() + 4U);
+    }
+
+    static std::string_view
     synthesize_nikonsettings_placeholder_name(std::string_view subtable,
                                               uint16_t tag) noexcept
     {
@@ -1010,6 +1131,27 @@ namespace {
 
         static thread_local char buf[17];
         static constexpr std::string_view kPrefix = "Nikon_0x";
+        static constexpr char kHex[]              = "0123456789abcdef";
+        if (kPrefix.size() + 4 >= sizeof(buf)) {
+            return {};
+        }
+
+        for (size_t i = 0; i < kPrefix.size(); ++i) {
+            buf[i] = kPrefix[i];
+        }
+        buf[kPrefix.size() + 0] = kHex[(tag >> 12) & 0xF];
+        buf[kPrefix.size() + 1] = kHex[(tag >> 8) & 0xF];
+        buf[kPrefix.size() + 2] = kHex[(tag >> 4) & 0xF];
+        buf[kPrefix.size() + 3] = kHex[(tag >> 0) & 0xF];
+        buf[kPrefix.size() + 4] = '\0';
+        return std::string_view(buf, kPrefix.size() + 4);
+    }
+
+    static std::string_view
+    synthesize_nikon_nefinfo_placeholder_name(uint16_t tag) noexcept
+    {
+        static thread_local char buf[25];
+        static constexpr std::string_view kPrefix = "Nikon_NEFInfo_0x";
         static constexpr char kHex[]              = "0123456789abcdef";
         if (kPrefix.size() + 4 >= sizeof(buf)) {
             return {};
@@ -1258,6 +1400,20 @@ namespace {
     }
 
 
+    static std::string_view
+    nikon_subtable_alias(std::string_view subtable) noexcept
+    {
+        if (subtable == "lensdata0100") {
+            return "lensdata00";
+        }
+        if (subtable == "lensdata0101" || subtable == "lensdata0201"
+            || subtable == "lensdata0202" || subtable == "lensdata0203") {
+            return "lensdata01";
+        }
+        return {};
+    }
+
+
     static bool canon_subtable_family(std::string_view subtable,
                                       std::string_view family) noexcept
     {
@@ -1311,14 +1467,41 @@ makernote_tag_name(std::string_view ifd, uint16_t tag) noexcept
     if (!parts.subtable.empty()) {
         table = try_table(vendor_key, parts.subtable, table_key_buf,
                           sizeof(table_key_buf));
+        if (!table && vendor_key == "nikon") {
+            const std::string_view alias = nikon_subtable_alias(parts.subtable);
+            if (!alias.empty()) {
+                table = try_table(vendor_key, alias, table_key_buf,
+                                  sizeof(table_key_buf));
+            }
+        }
+    }
+    if (!table && vendor_key == "nikon" && parts.subtable == "nefinfo") {
+        switch (tag) {
+        case 0x0005U: return "DistortionInfo";
+        case 0x0006U: return "VignetteInfo";
+        default: return synthesize_nikon_nefinfo_placeholder_name(tag);
+        }
     }
     if (!table) {
         table = try_table(vendor_key, "main", table_key_buf,
                           sizeof(table_key_buf));
     }
     if (!table) {
+        if (vendor_key == "phaseone"
+            && (parts.subtable.empty() || parts.subtable == "main"
+                || parts.subtable == "sensorcalibration")) {
+            return synthesize_phaseone_placeholder_name(parts.subtable, tag);
+        }
         if (vendor_key == "kodak" && !parts.subtable.empty()) {
             return synthesize_kodak_placeholder_name(parts.subtable, tag);
+        }
+        if (vendor_key == "ge"
+            && (parts.subtable.empty() || parts.subtable == "main")) {
+            return synthesize_ge_placeholder_name(parts.subtable, tag);
+        }
+        if (vendor_key == "jvc"
+            && (parts.subtable.empty() || parts.subtable == "main")) {
+            return synthesize_jvc_placeholder_name(parts.subtable, tag);
         }
         if (vendor_key == "sigma"
             && (parts.subtable.empty() || parts.subtable == "main")) {
@@ -1459,6 +1642,23 @@ makernote_tag_name(std::string_view ifd, uint16_t tag) noexcept
         && olympus_subtable_prefers_placeholder(parts.subtable)) {
         return synthesize_olympus_placeholder_name(parts.subtable, tag);
     }
+    if (vendor_key == "nikon" && parts.subtable == "nefinfo") {
+        switch (tag) {
+        case 0x0005U: return "DistortionInfo";
+        case 0x0006U: return "VignetteInfo";
+        default: return synthesize_nikon_nefinfo_placeholder_name(tag);
+        }
+    }
+    if (vendor_key == "nikon"
+        && (parts.subtable.empty() || parts.subtable == "main")
+        && tag == 0x0024U) {
+        return "WorldTime";
+    }
+    if (vendor_key == "phaseone"
+        && (parts.subtable.empty() || parts.subtable == "main"
+            || parts.subtable == "sensorcalibration")) {
+        return synthesize_phaseone_placeholder_name(parts.subtable, tag);
+    }
     if (vendor_key == "apple"
         && (parts.subtable.empty() || parts.subtable == "main")) {
         return synthesize_apple_placeholder_name(parts.subtable, tag);
@@ -1494,6 +1694,18 @@ makernote_tag_name(std::string_view ifd, uint16_t tag) noexcept
         && (parts.subtable.empty() || parts.subtable == "main")) {
         return synthesize_motorola_placeholder_name(parts.subtable, tag);
     }
+    if (vendor_key == "ge"
+        && (parts.subtable.empty() || parts.subtable == "main")) {
+        return synthesize_ge_placeholder_name(parts.subtable, tag);
+    }
+    if (vendor_key == "jvc"
+        && (parts.subtable.empty() || parts.subtable == "main")) {
+        return synthesize_jvc_placeholder_name(parts.subtable, tag);
+    }
+    if (vendor_key == "sony"
+        && (parts.subtable.empty() || parts.subtable == "main")) {
+        return synthesize_sony_placeholder_name(parts.subtable, tag);
+    }
     if (vendor_key == "pentax") {
         return synthesize_pentax_placeholder_name(parts.subtable, tag);
     }
@@ -1506,6 +1718,13 @@ makernote_tag_name(std::string_view ifd, uint16_t tag) noexcept
     if (vendor_key == "nikonsettings"
         && (parts.subtable.empty() || parts.subtable == "main")) {
         return synthesize_nikonsettings_placeholder_name(parts.subtable, tag);
+    }
+    if (vendor_key == "nikon" && parts.subtable == "nefinfo") {
+        switch (tag) {
+        case 0x0005U: return "DistortionInfo";
+        case 0x0006U: return "VignetteInfo";
+        default: return synthesize_nikon_nefinfo_placeholder_name(tag);
+        }
     }
     if (vendor_key == "nikon"
         && (parts.subtable.empty() || parts.subtable == "main")) {
@@ -1559,6 +1778,11 @@ makernote_tag_name(std::string_view ifd, uint16_t tag) noexcept
     if (vendor_key == "olympus") {
         return synthesize_olympus_placeholder_name(parts.subtable, tag);
     }
+    if (vendor_key == "phaseone"
+        && (parts.subtable.empty() || parts.subtable == "main"
+            || parts.subtable == "sensorcalibration")) {
+        return synthesize_phaseone_placeholder_name(parts.subtable, tag);
+    }
     if (vendor_key == "apple"
         && (parts.subtable.empty() || parts.subtable == "main")) {
         return synthesize_apple_placeholder_name(parts.subtable, tag);
@@ -1590,6 +1814,18 @@ makernote_tag_name(std::string_view ifd, uint16_t tag) noexcept
         && (parts.subtable.empty() || parts.subtable == "main")) {
         return synthesize_motorola_placeholder_name(parts.subtable, tag);
     }
+    if (vendor_key == "ge"
+        && (parts.subtable.empty() || parts.subtable == "main")) {
+        return synthesize_ge_placeholder_name(parts.subtable, tag);
+    }
+    if (vendor_key == "jvc"
+        && (parts.subtable.empty() || parts.subtable == "main")) {
+        return synthesize_jvc_placeholder_name(parts.subtable, tag);
+    }
+    if (vendor_key == "sony"
+        && (parts.subtable.empty() || parts.subtable == "main")) {
+        return synthesize_sony_placeholder_name(parts.subtable, tag);
+    }
     if (vendor_key == "pentax") {
         return synthesize_pentax_placeholder_name(parts.subtable, tag);
     }
@@ -1602,6 +1838,13 @@ makernote_tag_name(std::string_view ifd, uint16_t tag) noexcept
     if (vendor_key == "nikonsettings"
         && (parts.subtable.empty() || parts.subtable == "main")) {
         return synthesize_nikonsettings_placeholder_name(parts.subtable, tag);
+    }
+    if (vendor_key == "nikon" && parts.subtable == "nefinfo") {
+        switch (tag) {
+        case 0x0005U: return "DistortionInfo";
+        case 0x0006U: return "VignetteInfo";
+        default: return synthesize_nikon_nefinfo_placeholder_name(tag);
+        }
     }
     if (vendor_key == "nikon"
         && (parts.subtable.empty() || parts.subtable == "main")) {

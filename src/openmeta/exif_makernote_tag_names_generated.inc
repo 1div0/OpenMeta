@@ -6031,6 +6031,7 @@ static constexpr MakerNoteTagNameEntry kMakernoteNikonShotinfod800[] = {
 static constexpr MakerNoteTagNameEntry kMakernoteNikonShotinfod810[] = {
     { 0x0000u, "ShotInfoVersion" },
     { 0x0004u, "FirmwareVersion" },
+    { 0x013Cu, "SecondarySlotFunction" },
 };
 
 static constexpr MakerNoteTagNameEntry kMakernoteNikonShotinfod850[] = {
@@ -6968,6 +6969,12 @@ static constexpr MakerNoteTagNameEntry kMakernoteNintendoCamerainfo[] = {
     { 0x0018u, "InternalSerialNumber" },
     { 0x0028u, "Parallax" },
     { 0x0030u, "Category" },
+};
+
+static constexpr MakerNoteTagNameEntry kMakernoteNintendoMain[] = {
+    { 0x1000u, "Nintendo_0x1000" },
+    { 0x1001u, "Nintendo_0x1001" },
+    { 0x1101u, "CameraInfo" },
 };
 
 static constexpr MakerNoteTagNameEntry kMakernoteOlympusAfinfo[] = {
@@ -10866,6 +10873,7 @@ static constexpr MakerNoteTableMap kMakerNoteTables[] = {
     { "makernote:nikoncustom:settingsz9v4", kMakernoteNikoncustomSettingsz9v4, static_cast<uint32_t>(sizeof(kMakernoteNikoncustomSettingsz9v4) / sizeof(kMakernoteNikoncustomSettingsz9v4[0])) },
     { "makernote:nikonsettings:main", kMakernoteNikonsettingsMain, static_cast<uint32_t>(sizeof(kMakernoteNikonsettingsMain) / sizeof(kMakernoteNikonsettingsMain[0])) },
     { "makernote:nintendo:camerainfo", kMakernoteNintendoCamerainfo, static_cast<uint32_t>(sizeof(kMakernoteNintendoCamerainfo) / sizeof(kMakernoteNintendoCamerainfo[0])) },
+    { "makernote:nintendo:main", kMakernoteNintendoMain, static_cast<uint32_t>(sizeof(kMakernoteNintendoMain) / sizeof(kMakernoteNintendoMain[0])) },
     { "makernote:olympus:afinfo", kMakernoteOlympusAfinfo, static_cast<uint32_t>(sizeof(kMakernoteOlympusAfinfo) / sizeof(kMakernoteOlympusAfinfo[0])) },
     { "makernote:olympus:aftargetinfo", kMakernoteOlympusAftargetinfo, static_cast<uint32_t>(sizeof(kMakernoteOlympusAftargetinfo) / sizeof(kMakernoteOlympusAftargetinfo[0])) },
     { "makernote:olympus:avi", kMakernoteOlympusAvi, static_cast<uint32_t>(sizeof(kMakernoteOlympusAvi) / sizeof(kMakernoteOlympusAvi[0])) },
