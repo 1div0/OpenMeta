@@ -526,16 +526,21 @@ This policy surface is intentionally marked draft and may be refined.
   - Draft semantic projection emits stable `c2pa.semantic.*` fields
     (`manifest_present`, `active_manifest_present`,
     `active_manifest_count`, `active_manifest.prefix`, `claim_present`,
-    `assertion_present`, `signature_present`, `assertion_key_hits`,
-    `cbor_key_count`, `signature_count`,
+    `assertion_present`, `ingredient_present`, `signature_present`,
+    `assertion_key_hits`, `ingredient_key_hits`, `cbor_key_count`,
+    `signature_count`,
     `claim_generator` when ASCII-safe), plus draft per-claim fields
-    (`claim_count`, `assertion_count`, `claim.{i}.prefix`,
+    (`claim_count`, `assertion_count`, `ingredient_count`,
+    `claim.{i}.prefix`,
     `claim.{i}.assertion_count`, `claim.{i}.key_hits`,
+    `claim.{i}.ingredient_count`,
     `claim.{i}.signature_count`, `claim.{i}.signature_key_hits`,
-    `claim.{i}.claim_generator` when ASCII-safe) and per-assertion fields
+    `claim.{i}.claim_generator` when ASCII-safe), per-assertion fields
     (`claim.{i}.assertion.{j}.prefix`, `claim.{i}.assertion.{j}.key_hits`),
-    plus per-manifest active-state fields
-    (`manifest.{i}.is_active`),
+    and per-ingredient fields
+    (`claim.{i}.ingredient.{j}.prefix`,
+    `claim.{i}.ingredient.{j}.key_hits`), plus per-manifest active-state
+    fields (`manifest.{i}.is_active`, `manifest.{i}.ingredient_count`),
     plus draft per-claim signature fields
     (`claim.{i}.signature.{k}.prefix`, `claim.{i}.signature.{k}.key_hits`,
     `claim.{i}.signature.{k}.algorithm` when available), plus draft

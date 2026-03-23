@@ -3914,6 +3914,10 @@ namespace {
             std::string prefix;
             uint64_t key_hits = 0U;
         };
+        struct IngredientProjection final {
+            std::string prefix;
+            uint64_t key_hits = 0U;
+        };
         struct SignatureProjection final {
             std::string prefix;
             uint64_t key_hits  = 0U;
@@ -3926,6 +3930,7 @@ namespace {
         uint64_t signature_key_hits            = 0U;
         uint64_t referenced_by_signature_count = 0U;
         std::vector<AssertionProjection> assertions;
+        std::vector<IngredientProjection> ingredients;
         std::vector<SignatureProjection> signatures;
         bool has_claim_generator = false;
         std::string claim_generator;
@@ -3953,6 +3958,7 @@ namespace {
         bool is_active_manifest                      = false;
         uint64_t claim_count                         = 0U;
         uint64_t assertion_count                     = 0U;
+        uint64_t ingredient_count                    = 0U;
         uint64_t signature_count                     = 0U;
         uint64_t signature_linked_count              = 0U;
         uint64_t signature_orphan_count              = 0U;
@@ -3974,6 +3980,15 @@ namespace {
         bool
         operator()(const ClaimProjection::AssertionProjection& a,
                    const ClaimProjection::AssertionProjection& b) const noexcept
+        {
+            return a.prefix < b.prefix;
+        }
+    };
+
+    struct IngredientProjectionLess final {
+        bool
+        operator()(const ClaimProjection::IngredientProjection& a,
+                   const ClaimProjection::IngredientProjection& b) const noexcept
         {
             return a.prefix < b.prefix;
         }
@@ -4090,6 +4105,36 @@ namespace {
         signature.prefix.assign(prefix.data(), prefix.size());
         signatures->push_back(signature);
         return signatures->size() - 1U;
+    }
+
+    static size_t find_ingredient_projection(
+        const std::vector<ClaimProjection::IngredientProjection>& ingredients,
+        std::string_view prefix) noexcept
+    {
+        for (size_t index = 0U; index < ingredients.size(); ++index) {
+            if (ingredients[index].prefix == prefix) {
+                return index;
+            }
+        }
+        return static_cast<size_t>(-1);
+    }
+
+    static size_t add_or_get_ingredient_projection(
+        std::vector<ClaimProjection::IngredientProjection>* ingredients,
+        std::string_view prefix) noexcept
+    {
+        if (!ingredients) {
+            return static_cast<size_t>(-1);
+        }
+        const size_t existing = find_ingredient_projection(*ingredients,
+                                                           prefix);
+        if (existing != static_cast<size_t>(-1)) {
+            return existing;
+        }
+        ClaimProjection::IngredientProjection ingredient;
+        ingredient.prefix.assign(prefix.data(), prefix.size());
+        ingredients->push_back(ingredient);
+        return ingredients->size() - 1U;
     }
 
     static size_t find_signature_projection(
@@ -4405,16 +4450,19 @@ namespace {
 
         uint64_t cbor_key_count     = 0U;
         uint64_t assertion_key_hits = 0U;
+        uint64_t ingredient_key_hits = 0U;
         uint64_t signature_key_hits = 0U;
         uint64_t reference_key_hits = 0U;
         bool has_manifest           = false;
         bool has_claim              = false;
         bool has_assertions         = false;
+        bool has_ingredients        = false;
         bool has_signature          = false;
         bool has_claim_generator    = false;
         std::string claim_generator;
         std::vector<ClaimProjection> claims;
         std::vector<std::string> global_assertions;
+        std::vector<std::string> global_ingredients;
         std::vector<SignatureProjection> signatures;
         std::vector<ManifestProjection> manifests;
         manifests.reserve(8U);
@@ -4453,6 +4501,11 @@ namespace {
                 || cbor_key_has_segment(key, "assertions")) {
                 has_assertions = true;
                 assertion_key_hits += 1U;
+            }
+            if (cbor_key_has_segment(key, "ingredient")
+                || cbor_key_has_segment(key, "ingredients")) {
+                has_ingredients = true;
+                ingredient_key_hits += 1U;
             }
             if (cbor_key_has_segment(key, "signature")
                 || cbor_key_has_segment(key, "signatures")) {
@@ -4515,6 +4568,27 @@ namespace {
                                                               assertion_prefix);
                         if (assertion_index != static_cast<size_t>(-1)) {
                             claim.assertions[assertion_index].key_hits += 1U;
+                        }
+                    }
+                }
+            }
+
+            std::string ingredient_prefix;
+            if (find_indexed_segment_prefix(key, ".ingredients[",
+                                            &ingredient_prefix)) {
+                if (!vector_contains_string(global_ingredients,
+                                            ingredient_prefix)) {
+                    global_ingredients.push_back(ingredient_prefix);
+                }
+                for (ClaimProjection& claim : claims) {
+                    if (string_starts_with(ingredient_prefix, claim.prefix)
+                        && ingredient_prefix.size() > claim.prefix.size()
+                        && ingredient_prefix[claim.prefix.size()] == '.') {
+                        const size_t ingredient_index
+                            = add_or_get_ingredient_projection(
+                                &claim.ingredients, ingredient_prefix);
+                        if (ingredient_index != static_cast<size_t>(-1)) {
+                            claim.ingredients[ingredient_index].key_hits += 1U;
                         }
                     }
                 }
@@ -4719,6 +4793,8 @@ namespace {
             manifest.claim_count += 1U;
             manifest.assertion_count += static_cast<uint64_t>(
                 claim.assertions.size());
+            manifest.ingredient_count += static_cast<uint64_t>(
+                claim.ingredients.size());
         }
 
         for (const SignatureProjection& signature : signatures) {
@@ -4781,7 +4857,8 @@ namespace {
             }
         }
 
-        if (has_manifest || has_claim || has_assertions || has_signature) {
+        if (has_manifest || has_claim || has_assertions || has_ingredients
+            || has_signature) {
             if (!append_c2pa_marker(ctx, "cbor.semantic")) {
                 return false;
             }
@@ -4801,6 +4878,11 @@ namespace {
         }
         if (!emit_field_u8(ctx, "c2pa.semantic.assertion_present",
                            has_assertions ? 1U : 0U, EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u8(ctx, "c2pa.semantic.ingredient_present",
+                           has_ingredients ? 1U : 0U,
+                           EntryFlags::Derived)) {
             return false;
         }
         if (!emit_field_u8(ctx, "c2pa.semantic.signature_present",
@@ -4828,6 +4910,10 @@ namespace {
         }
         if (!emit_field_u64(ctx, "c2pa.semantic.assertion_key_hits",
                             assertion_key_hits, EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(ctx, "c2pa.semantic.ingredient_key_hits",
+                            ingredient_key_hits, EntryFlags::Derived)) {
             return false;
         }
         if (!emit_field_u64(ctx, "c2pa.semantic.signature_key_hits",
@@ -4880,6 +4966,11 @@ namespace {
         }
         if (!emit_field_u64(ctx, "c2pa.semantic.assertion_count",
                             global_assertions.size(), EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(ctx, "c2pa.semantic.ingredient_count",
+                            global_ingredients.size(),
+                            EntryFlags::Derived)) {
             return false;
         }
         uint64_t signature_count = use_label_counts ? label_signature_count
@@ -4948,6 +5039,13 @@ namespace {
             field.assign(field_prefix);
             field.append(".assertion_count");
             if (!emit_field_u64(ctx, field, manifest.assertion_count,
+                                EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(".ingredient_count");
+            if (!emit_field_u64(ctx, field, manifest.ingredient_count,
                                 EntryFlags::Derived)) {
                 return false;
             }
@@ -5037,6 +5135,13 @@ namespace {
             }
 
             field.assign(field_prefix);
+            field.append(".ingredient_count");
+            if (!emit_field_u64(ctx, field, claim.ingredients.size(),
+                                EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
             field.append(".signature_count");
             if (!emit_field_u64(ctx, field, claim.signatures.size(),
                                 EntryFlags::Derived)) {
@@ -5080,6 +5185,34 @@ namespace {
                 field.assign(assertion_field);
                 field.append(".key_hits");
                 if (!emit_field_u64(ctx, field, assertion.key_hits,
+                                    EntryFlags::Derived)) {
+                    return false;
+                }
+            }
+
+            std::vector<ClaimProjection::IngredientProjection> ingredients
+                = claim.ingredients;
+            std::sort(ingredients.begin(), ingredients.end(),
+                      IngredientProjectionLess {});
+            for (size_t ingredient_index = 0U;
+                 ingredient_index < ingredients.size(); ++ingredient_index) {
+                const ClaimProjection::IngredientProjection& ingredient
+                    = ingredients[ingredient_index];
+                std::string ingredient_field(field_prefix);
+                ingredient_field.append(".ingredient.");
+                ingredient_field.append(std::to_string(
+                    static_cast<unsigned long long>(ingredient_index)));
+
+                field.assign(ingredient_field);
+                field.append(".prefix");
+                if (!emit_field_text(ctx, field, ingredient.prefix,
+                                     EntryFlags::Derived)) {
+                    return false;
+                }
+
+                field.assign(ingredient_field);
+                field.append(".key_hits");
+                if (!emit_field_u64(ctx, field, ingredient.key_hits,
                                     EntryFlags::Derived)) {
                     return false;
                 }

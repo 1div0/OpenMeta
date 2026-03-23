@@ -166,10 +166,13 @@ for quick packaging checks.
   (including active-manifest summary fields such as
   `active_manifest_present`, `active_manifest_count`,
   `active_manifest.prefix`, and `manifest.{k}.is_active`, plus per-claim,
-  per-assertion, per-claim-signature, and per-signature draft projections,
-  reference-link projections such as
+  per-assertion, per-ingredient, per-claim-signature, and per-signature draft
+  projections, reference-link projections such as
   `reference_key_hits`, `cross_claim_link_count`,
-  `signature.{k}.linked_claim.{m}.prefix`, and draft linkage counters such as
+  `signature.{k}.linked_claim.{m}.prefix`, draft ingredient counters such as
+  `ingredient_present`, `ingredient_count`,
+  `claim.{i}.ingredient_count`, `manifest.{k}.ingredient_count`,
+  `claim.{i}.ingredient.{j}.prefix`, and draft linkage counters such as
   `signature_linked_count`/`signature_orphan_count`). Draft verify scaffold
   status (`c2pa.verify.*`) includes malformed-signature detection and optional
   OpenSSL-backed cryptographic verification for signatures that expose explicit

@@ -1430,6 +1430,96 @@ TEST(JumbfDecode, EmitsDraftC2paPerClaimProjectionFields)
     EXPECT_TRUE(store.find_all(missing_claim_signature).empty());
 }
 
+TEST(JumbfDecode, EmitsDraftC2paIngredientProjectionFields)
+{
+    std::vector<std::byte> cbor_payload;
+    append_cbor_map(&cbor_payload, 1U);
+    append_cbor_text(&cbor_payload, "manifests");
+    append_cbor_map(&cbor_payload, 1U);
+    append_cbor_text(&cbor_payload, "active_manifest");
+    append_cbor_map(&cbor_payload, 1U);
+    append_cbor_text(&cbor_payload, "claims");
+    append_cbor_array(&cbor_payload, 2U);
+
+    append_cbor_map(&cbor_payload, 1U);
+    append_cbor_text(&cbor_payload, "ingredients");
+    append_cbor_array(&cbor_payload, 2U);
+    append_cbor_map(&cbor_payload, 1U);
+    append_cbor_text(&cbor_payload, "title");
+    append_cbor_text(&cbor_payload, "base");
+    append_cbor_map(&cbor_payload, 1U);
+    append_cbor_text(&cbor_payload, "title");
+    append_cbor_text(&cbor_payload, "edit");
+
+    append_cbor_map(&cbor_payload, 1U);
+    append_cbor_text(&cbor_payload, "ingredients");
+    append_cbor_array(&cbor_payload, 1U);
+    append_cbor_map(&cbor_payload, 1U);
+    append_cbor_text(&cbor_payload, "title");
+    append_cbor_text(&cbor_payload, "parent");
+
+    const std::vector<std::byte> payload = make_jumbf_payload_with_cbor(
+        cbor_payload);
+
+    MetaStore store;
+    const JumbfDecodeResult result = decode_jumbf_payload(payload, store);
+    EXPECT_EQ(result.status, JumbfDecodeStatus::Ok);
+    store.finalize();
+
+    auto read_u64_field = [&](std::string_view field_name) -> uint64_t {
+        MetaKeyView key;
+        key.kind                   = MetaKeyKind::JumbfField;
+        key.data.jumbf_field.field = field_name;
+        const std::span<const EntryId> ids = store.find_all(key);
+        EXPECT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
+        EXPECT_EQ(e.value.elem_type, MetaElementType::U64);
+        return e.value.data.u64;
+    };
+
+    auto read_text_field = [&](std::string_view field_name) -> std::string {
+        MetaKeyView key;
+        key.kind                   = MetaKeyKind::JumbfField;
+        key.data.jumbf_field.field = field_name;
+        const std::span<const EntryId> ids = store.find_all(key);
+        EXPECT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Text);
+        const std::span<const std::byte> text = store.arena().span(
+            e.value.data.span);
+        return std::string(reinterpret_cast<const char*>(text.data()),
+                           text.size());
+    };
+
+    EXPECT_EQ(read_jumbf_field_u64(store,
+                                   "c2pa.semantic.active_manifest_present"),
+              1U);
+    EXPECT_EQ(read_u64_field("c2pa.semantic.claim_count"), 2U);
+    EXPECT_EQ(read_u64_field("c2pa.semantic.ingredient_count"), 3U);
+    EXPECT_GE(read_u64_field("c2pa.semantic.ingredient_key_hits"), 3U);
+
+    EXPECT_EQ(read_u64_field("c2pa.semantic.manifest.0.claim_count"), 2U);
+    EXPECT_EQ(read_u64_field("c2pa.semantic.manifest.0.ingredient_count"), 3U);
+
+    EXPECT_EQ(read_u64_field("c2pa.semantic.claim.0.ingredient_count"), 2U);
+    EXPECT_EQ(read_u64_field("c2pa.semantic.claim.1.ingredient_count"), 1U);
+
+    EXPECT_EQ(
+        read_text_field("c2pa.semantic.claim.0.ingredient.0.prefix"),
+        "box.0.1.cbor.manifests.active_manifest.claims[0].ingredients[0]");
+    EXPECT_EQ(
+        read_text_field("c2pa.semantic.claim.0.ingredient.1.prefix"),
+        "box.0.1.cbor.manifests.active_manifest.claims[0].ingredients[1]");
+    EXPECT_EQ(
+        read_text_field("c2pa.semantic.claim.1.ingredient.0.prefix"),
+        "box.0.1.cbor.manifests.active_manifest.claims[1].ingredients[0]");
+
+    EXPECT_GE(read_u64_field("c2pa.semantic.claim.0.ingredient.0.key_hits"), 1U);
+    EXPECT_GE(read_u64_field("c2pa.semantic.claim.0.ingredient.1.key_hits"), 1U);
+    EXPECT_GE(read_u64_field("c2pa.semantic.claim.1.ingredient.0.key_hits"), 1U);
+}
+
 TEST(JumbfDecode, EmitsDraftC2paReferenceLinkedProjectionFields)
 {
     const std::array<std::byte, 4U> claim0 = {

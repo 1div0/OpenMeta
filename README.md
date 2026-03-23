@@ -86,10 +86,12 @@ Current baseline-gated status on tracked corpora:
     `primary.disparity_count`, `primary.matte_count`, plus other
     `primary.*_count` relation aliases.
   - JUMBF/C2PA: draft structural box + bounded CBOR decode with draft
-    `c2pa.semantic.*` projection fields for manifest/claim/signature linkage,
-    including active-manifest summary rows
+    `c2pa.semantic.*` projection fields for manifest/claim/signature linkage
+    and ingredient structure, including active-manifest summary rows
     (`active_manifest_present`, `active_manifest_count`,
-    `active_manifest.prefix`, `manifest.{i}.is_active`).
+    `active_manifest.prefix`, `manifest.{i}.is_active`) and draft ingredient
+    fields such as `ingredient_present`, `ingredient_count`,
+    `claim.{i}.ingredient_count`, and `claim.{i}.ingredient.{j}.prefix`.
 - EXIF/MakerNote display naming now has two explicit layers:
   - canonical tag names from `exif_tag_name(...)`
   - contextual compatibility names from
