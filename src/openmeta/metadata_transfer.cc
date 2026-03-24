@@ -15,6 +15,10 @@
 #include <string_view>
 #include <vector>
 
+#if defined(OPENMETA_HAS_ZLIB) && OPENMETA_HAS_ZLIB
+#    include <zlib.h>
+#endif
+
 namespace openmeta {
 
 enum class JxlRewriteFamily : uint8_t {
@@ -25,11 +29,39 @@ enum class JxlRewriteFamily : uint8_t {
     C2pa,
 };
 
+enum class PngRewriteFamily : uint8_t {
+    Unknown,
+    Exif,
+    Xmp,
+    Icc,
+};
+
+enum class WebpRewriteFamily : uint8_t {
+    Unknown,
+    Exif,
+    Xmp,
+    Icc,
+    C2pa,
+};
+
 struct JxlRewritePolicy final {
     bool exif  = false;
     bool xmp   = false;
     bool jumbf = false;
     bool c2pa  = false;
+};
+
+struct PngRewritePolicy final {
+    bool exif = false;
+    bool xmp  = false;
+    bool icc  = false;
+};
+
+struct WebpRewritePolicy final {
+    bool exif = false;
+    bool xmp  = false;
+    bool icc  = false;
+    bool c2pa = false;
 };
 
 static EmitTransferResult
@@ -45,7 +77,45 @@ build_prepared_bundle_jxl_package_impl(std::span<const std::byte> input_jxl,
                                        PreparedTransferPackagePlan* out_plan,
                                        uint32_t* out_removed_boxes) noexcept;
 
+static EmitTransferResult
+build_prepared_bundle_png_package(std::span<const std::byte> input_png,
+                                  const PreparedTransferBundle& bundle,
+                                  PreparedTransferPackagePlan* out_plan,
+                                  uint32_t* out_removed_chunks) noexcept;
+
+static EmitTransferResult
+build_prepared_bundle_webp_package(std::span<const std::byte> input_webp,
+                                   const PreparedTransferBundle& bundle,
+                                   PreparedTransferPackagePlan* out_plan,
+                                   uint32_t* out_removed_chunks) noexcept;
+
 namespace {
+
+    static constexpr std::array<std::byte, 8> kPngSignature = {
+        std::byte { 0x89 }, std::byte { 0x50 }, std::byte { 0x4E },
+        std::byte { 0x47 }, std::byte { 0x0D }, std::byte { 0x0A },
+        std::byte { 0x1A }, std::byte { 0x0A },
+    };
+
+    struct TransferPngChunk final {
+        uint64_t offset      = 0U;
+        uint64_t size        = 0U;
+        uint64_t data_offset = 0U;
+        uint64_t data_size   = 0U;
+        uint32_t type        = 0U;
+    };
+
+    static constexpr uint8_t kWebpVp8xIccBit  = 0x20U;
+    static constexpr uint8_t kWebpVp8xExifBit = 0x08U;
+    static constexpr uint8_t kWebpVp8xXmpBit  = 0x04U;
+
+    struct TransferWebpChunk final {
+        uint64_t offset      = 0U;
+        uint64_t size        = 0U;
+        uint64_t data_offset = 0U;
+        uint64_t data_size   = 0U;
+        uint32_t type        = 0U;
+    };
 
     struct TransferBmffBox;
 
@@ -500,6 +570,48 @@ namespace {
         }
         if (route == "webp:chunk-c2pa") {
             *out_type = { 'C', '2', 'P', 'A' };
+            return true;
+        }
+        return false;
+    }
+
+    static bool png_chunk_from_route(std::string_view route,
+                                     std::array<char, 4>* out_type) noexcept
+    {
+        if (!out_type) {
+            return false;
+        }
+        if (route == "png:chunk-exif") {
+            *out_type = { 'e', 'X', 'I', 'f' };
+            return true;
+        }
+        if (route == "png:chunk-xmp") {
+            *out_type = { 'i', 'T', 'X', 't' };
+            return true;
+        }
+        if (route == "png:chunk-iccp") {
+            *out_type = { 'i', 'C', 'C', 'P' };
+            return true;
+        }
+        return false;
+    }
+
+    static bool jp2_box_from_route(std::string_view route,
+                                   std::array<char, 4>* out_type) noexcept
+    {
+        if (!out_type) {
+            return false;
+        }
+        if (route == "jp2:box-exif") {
+            *out_type = { 'E', 'x', 'i', 'f' };
+            return true;
+        }
+        if (route == "jp2:box-xml") {
+            *out_type = { 'x', 'm', 'l', ' ' };
+            return true;
+        }
+        if (route == "jp2:box-jp2h-colr") {
+            *out_type = { 'j', 'p', '2', 'h' };
             return true;
         }
         return false;
@@ -1345,6 +1457,16 @@ namespace {
                                      std::vector<std::byte>* out_bytes,
                                      EmitTransferResult* out) noexcept;
 
+    static bool write_png_chunk(TransferByteWriter& writer,
+                                std::array<char, 4> chunk_type,
+                                std::span<const std::byte> payload,
+                                EmitTransferResult* out) noexcept;
+
+    static bool serialize_png_chunk(std::array<char, 4> chunk_type,
+                                    std::span<const std::byte> payload,
+                                    std::vector<std::byte>* out_bytes,
+                                    EmitTransferResult* out) noexcept;
+
     static bool materialize_prepared_transfer_package_chunk(
         std::span<const std::byte> input, const PreparedTransferBundle& bundle,
         const PreparedTransferPackageChunk& chunk,
@@ -1591,6 +1713,143 @@ namespace {
         if ((chunk_size & 1U) != 0U) {
             out_bytes->push_back(std::byte { 0x00 });
         }
+        return true;
+    }
+
+    static uint32_t png_crc32_update(uint32_t crc,
+                                     std::span<const std::byte> bytes) noexcept
+    {
+        uint32_t value = crc;
+        for (size_t i = 0; i < bytes.size(); ++i) {
+            value ^= static_cast<uint32_t>(
+                std::to_integer<uint8_t>(bytes[i]));
+            for (uint32_t bit = 0; bit < 8U; ++bit) {
+                const uint32_t mask = 0U - (value & 1U);
+                value = (value >> 1U) ^ (0xEDB88320U & mask);
+            }
+        }
+        return value;
+    }
+
+    static uint32_t png_chunk_crc(std::array<char, 4> chunk_type,
+                                  std::span<const std::byte> payload) noexcept
+    {
+        std::array<std::byte, 4> type_bytes = {
+            static_cast<std::byte>(chunk_type[0]),
+            static_cast<std::byte>(chunk_type[1]),
+            static_cast<std::byte>(chunk_type[2]),
+            static_cast<std::byte>(chunk_type[3]),
+        };
+        uint32_t crc = 0xFFFFFFFFU;
+        crc          = png_crc32_update(
+            crc, std::span<const std::byte>(type_bytes.data(),
+                                            type_bytes.size()));
+        crc = png_crc32_update(crc, payload);
+        return crc ^ 0xFFFFFFFFU;
+    }
+
+    static bool write_png_chunk(TransferByteWriter& writer,
+                                std::array<char, 4> chunk_type,
+                                std::span<const std::byte> payload,
+                                EmitTransferResult* out) noexcept
+    {
+        if (payload.size() > static_cast<size_t>(0xFFFFFFFFU)) {
+            if (out) {
+                out->status = TransferStatus::LimitExceeded;
+                out->code   = EmitTransferCode::InvalidPayload;
+                out->errors += 1U;
+                out->message = "png chunk payload exceeds 32-bit chunk size";
+            }
+            return false;
+        }
+
+        std::array<std::byte, 8> header = {
+            std::byte { 0x00 },
+            std::byte { 0x00 },
+            std::byte { 0x00 },
+            std::byte { 0x00 },
+            static_cast<std::byte>(chunk_type[0]),
+            static_cast<std::byte>(chunk_type[1]),
+            static_cast<std::byte>(chunk_type[2]),
+            static_cast<std::byte>(chunk_type[3]),
+        };
+        const uint32_t chunk_size = static_cast<uint32_t>(payload.size());
+        header[0] = static_cast<std::byte>((chunk_size >> 24U) & 0xFFU);
+        header[1] = static_cast<std::byte>((chunk_size >> 16U) & 0xFFU);
+        header[2] = static_cast<std::byte>((chunk_size >> 8U) & 0xFFU);
+        header[3] = static_cast<std::byte>((chunk_size >> 0U) & 0xFFU);
+        if (!write_transfer_bytes(writer,
+                                  std::span<const std::byte>(header.data(),
+                                                             header.size()),
+                                  out, "png package header write failed")) {
+            return false;
+        }
+        if (!write_transfer_bytes(writer, payload, out,
+                                  "png package payload write failed")) {
+            return false;
+        }
+
+        std::array<std::byte, 4> crc_bytes = {
+            std::byte { 0x00 },
+            std::byte { 0x00 },
+            std::byte { 0x00 },
+            std::byte { 0x00 },
+        };
+        const uint32_t crc = png_chunk_crc(chunk_type, payload);
+        crc_bytes[0]       = static_cast<std::byte>((crc >> 24U) & 0xFFU);
+        crc_bytes[1]       = static_cast<std::byte>((crc >> 16U) & 0xFFU);
+        crc_bytes[2]       = static_cast<std::byte>((crc >> 8U) & 0xFFU);
+        crc_bytes[3]       = static_cast<std::byte>((crc >> 0U) & 0xFFU);
+        return write_transfer_bytes(writer,
+                                    std::span<const std::byte>(crc_bytes.data(),
+                                                               crc_bytes.size()),
+                                    out, "png package crc write failed");
+    }
+
+    static bool serialize_png_chunk(std::array<char, 4> chunk_type,
+                                    std::span<const std::byte> payload,
+                                    std::vector<std::byte>* out_bytes,
+                                    EmitTransferResult* out) noexcept
+    {
+        if (!out_bytes) {
+            if (out) {
+                out->status = TransferStatus::InvalidArgument;
+                out->code   = EmitTransferCode::InvalidArgument;
+                out->errors += 1U;
+                out->message = "png chunk output buffer is null";
+            }
+            return false;
+        }
+        if (payload.size() > static_cast<size_t>(0xFFFFFFFFU)) {
+            if (out) {
+                out->status = TransferStatus::LimitExceeded;
+                out->code   = EmitTransferCode::InvalidPayload;
+                out->errors += 1U;
+                out->message = "png chunk payload exceeds 32-bit chunk size";
+            }
+            return false;
+        }
+        const uint32_t chunk_size = static_cast<uint32_t>(payload.size());
+        out_bytes->clear();
+        out_bytes->reserve(12U + payload.size());
+        out_bytes->push_back(
+            static_cast<std::byte>((chunk_size >> 24U) & 0xFFU));
+        out_bytes->push_back(
+            static_cast<std::byte>((chunk_size >> 16U) & 0xFFU));
+        out_bytes->push_back(
+            static_cast<std::byte>((chunk_size >> 8U) & 0xFFU));
+        out_bytes->push_back(
+            static_cast<std::byte>((chunk_size >> 0U) & 0xFFU));
+        out_bytes->push_back(static_cast<std::byte>(chunk_type[0]));
+        out_bytes->push_back(static_cast<std::byte>(chunk_type[1]));
+        out_bytes->push_back(static_cast<std::byte>(chunk_type[2]));
+        out_bytes->push_back(static_cast<std::byte>(chunk_type[3]));
+        out_bytes->insert(out_bytes->end(), payload.begin(), payload.end());
+        const uint32_t crc = png_chunk_crc(chunk_type, payload);
+        out_bytes->push_back(static_cast<std::byte>((crc >> 24U) & 0xFFU));
+        out_bytes->push_back(static_cast<std::byte>((crc >> 16U) & 0xFFU));
+        out_bytes->push_back(static_cast<std::byte>((crc >> 8U) & 0xFFU));
+        out_bytes->push_back(static_cast<std::byte>((crc >> 0U) & 0xFFU));
         return true;
     }
 
@@ -2697,6 +2956,23 @@ namespace {
             | (static_cast<uint32_t>(static_cast<uint8_t>(bytes[off + 3U]))
                << 24U));
         *io_off += 4U;
+        return true;
+    }
+
+    static bool read_u32le(std::span<const std::byte> bytes, size_t off,
+                           uint32_t* out) noexcept
+    {
+        if (!out || off + 4U > bytes.size()) {
+            return false;
+        }
+        *out = static_cast<uint32_t>(
+            (static_cast<uint32_t>(static_cast<uint8_t>(bytes[off + 0U])) << 0U)
+            | (static_cast<uint32_t>(static_cast<uint8_t>(bytes[off + 1U]))
+               << 8U)
+            | (static_cast<uint32_t>(static_cast<uint8_t>(bytes[off + 2U]))
+               << 16U)
+            | (static_cast<uint32_t>(static_cast<uint8_t>(bytes[off + 3U]))
+               << 24U));
         return true;
     }
 
@@ -6227,6 +6503,146 @@ namespace {
         return true;
     }
 
+    static bool build_png_exif_chunk_payload(
+        std::span<const std::byte> exif_app1,
+        std::vector<std::byte>* out_payload, std::string* err) noexcept
+    {
+        if (!out_payload) {
+            if (err) {
+                *err = "png exif output buffer is null";
+            }
+            return false;
+        }
+        out_payload->clear();
+        if (exif_app1.size() < 14U) {
+            if (err) {
+                *err = "png exif source app1 payload too small";
+            }
+            return false;
+        }
+        const char kExifPrefix[6] = { 'E', 'x', 'i', 'f', '\0', '\0' };
+        for (size_t i = 0; i < 6U; ++i) {
+            if (std::to_integer<uint8_t>(exif_app1[i])
+                != static_cast<uint8_t>(kExifPrefix[i])) {
+                if (err) {
+                    *err = "png exif source payload missing Exif\\0\\0 prefix";
+                }
+                return false;
+            }
+        }
+        out_payload->assign(exif_app1.begin() + 6, exif_app1.end());
+        return !out_payload->empty();
+    }
+
+    static bool build_png_xmp_itxt_payload(
+        std::span<const std::byte> xmp_packet,
+        std::vector<std::byte>* out_payload) noexcept
+    {
+        if (!out_payload) {
+            return false;
+        }
+        static constexpr char kPngXmpKeyword[] = "XML:com.adobe.xmp";
+        out_payload->clear();
+        out_payload->reserve(sizeof(kPngXmpKeyword) - 1U + 5U
+                             + xmp_packet.size());
+        for (size_t i = 0; i + 1U < sizeof(kPngXmpKeyword); ++i) {
+            out_payload->push_back(
+                static_cast<std::byte>(kPngXmpKeyword[i]));
+        }
+        out_payload->push_back(std::byte { 0x00 });
+        out_payload->push_back(std::byte { 0x00 });
+        out_payload->push_back(std::byte { 0x00 });
+        out_payload->push_back(std::byte { 0x00 });
+        out_payload->push_back(std::byte { 0x00 });
+        out_payload->insert(out_payload->end(), xmp_packet.begin(),
+                            xmp_packet.end());
+        return true;
+    }
+
+    static bool build_png_iccp_payload(
+        std::span<const std::byte> icc_profile,
+        std::vector<std::byte>* out_payload, std::string* err) noexcept
+    {
+        if (!out_payload) {
+            if (err) {
+                *err = "png iccp output buffer is null";
+            }
+            return false;
+        }
+        out_payload->clear();
+#if defined(OPENMETA_HAS_ZLIB) && OPENMETA_HAS_ZLIB
+        const uLong src_size = static_cast<uLong>(icc_profile.size());
+        const uLongf cap     = compressBound(src_size);
+        std::vector<std::byte> compressed(static_cast<size_t>(cap));
+        uLongf actual = cap;
+        const int zr  = compress2(
+            reinterpret_cast<Bytef*>(compressed.data()), &actual,
+            reinterpret_cast<const Bytef*>(icc_profile.data()), src_size,
+            Z_BEST_COMPRESSION);
+        if (zr != Z_OK) {
+            if (err) {
+                *err = "png iccp zlib compression failed";
+            }
+            return false;
+        }
+        compressed.resize(static_cast<size_t>(actual));
+        static constexpr char kPngIccProfileName[] = "icc";
+        out_payload->reserve(sizeof(kPngIccProfileName) - 1U + 2U
+                             + compressed.size());
+        for (size_t i = 0; i + 1U < sizeof(kPngIccProfileName); ++i) {
+            out_payload->push_back(
+                static_cast<std::byte>(kPngIccProfileName[i]));
+        }
+        out_payload->push_back(std::byte { 0x00 });
+        out_payload->push_back(std::byte { 0x00 });
+        out_payload->insert(out_payload->end(), compressed.begin(),
+                            compressed.end());
+        return true;
+#else
+        (void)icc_profile;
+        if (err) {
+            *err = "png iccp requires zlib";
+        }
+        return false;
+#endif
+    }
+
+    static bool build_jp2_colr_icc_payload(
+        std::span<const std::byte> icc_profile,
+        std::vector<std::byte>* out_payload, std::string* err) noexcept
+    {
+        if (!out_payload) {
+            if (err) {
+                *err = "jp2 colr output buffer is null";
+            }
+            return false;
+        }
+        out_payload->clear();
+        if (icc_profile.empty()) {
+            if (err) {
+                *err = "jp2 colr source icc payload is empty";
+            }
+            return false;
+        }
+        const uint64_t colr_payload_size = 3U + icc_profile.size();
+        if (colr_payload_size > static_cast<uint64_t>(0xFFFFFFFFU - 8U)) {
+            if (err) {
+                *err = "jp2 colr payload exceeds 32-bit box size";
+            }
+            return false;
+        }
+        out_payload->reserve(static_cast<size_t>(8U + colr_payload_size));
+        append_u32be(out_payload,
+                     static_cast<uint32_t>(8U + colr_payload_size));
+        append_fourcc(out_payload, { 'c', 'o', 'l', 'r' });
+        out_payload->push_back(std::byte { 0x02U });
+        out_payload->push_back(std::byte { 0x00U });
+        out_payload->push_back(std::byte { 0x00U });
+        out_payload->insert(out_payload->end(), icc_profile.begin(),
+                            icc_profile.end());
+        return true;
+    }
+
     static std::vector<TiffTagUpdate>
     collect_tiff_tag_updates(const PreparedTransferBundle& bundle) noexcept
     {
@@ -6819,6 +7235,8 @@ prepare_metadata_for_target_impl(const MetaStore& store,
 
     if (request.target_format != TransferTargetFormat::Jpeg
         && request.target_format != TransferTargetFormat::Tiff
+        && request.target_format != TransferTargetFormat::Png
+        && request.target_format != TransferTargetFormat::Jp2
         && request.target_format != TransferTargetFormat::Jxl
         && request.target_format != TransferTargetFormat::Webp
         && !transfer_target_is_bmff(request.target_format)) {
@@ -6826,7 +7244,7 @@ prepare_metadata_for_target_impl(const MetaStore& store,
         r.code   = PrepareTransferCode::UnsupportedTargetFormat;
         r.errors = 1U;
         r.message
-            = "prepare currently supports jpeg, tiff, jxl, webp, and bmff targets";
+            = "prepare currently supports jpeg, tiff, png, jxl, webp, and bmff targets";
         *out_bundle = std::move(bundle);
         return r;
     }
@@ -7123,6 +7541,7 @@ prepare_metadata_for_target_impl(const MetaStore& store,
             PreparedTransferBlock b;
             b.kind  = TransferBlockKind::Exif;
             b.order = 100U;
+            bool ready = true;
             if (request.target_format == TransferTargetFormat::Jpeg) {
                 b.route   = "jpeg:app1-exif";
                 b.payload = std::move(exif_build.app1_payload);
@@ -7131,6 +7550,35 @@ prepare_metadata_for_target_impl(const MetaStore& store,
                 // and materialize ExifIFD pointers/entries natively.
                 b.route   = "tiff:ifd-exif-app1";
                 b.payload = std::move(exif_build.app1_payload);
+            } else if (request.target_format == TransferTargetFormat::Png) {
+                std::string err;
+                if (!build_png_exif_chunk_payload(
+                        std::span<const std::byte>(
+                            exif_build.app1_payload.data(),
+                            exif_build.app1_payload.size()),
+                        &b.payload, &err)) {
+                    requested_present_but_unpacked = true;
+                    if (r.code == PrepareTransferCode::None) {
+                        r.code = PrepareTransferCode::ExifPackFailed;
+                    }
+                    r.warnings += 1U;
+                    append_message(
+                        &r.message,
+                        err.empty()
+                            ? "png exif payload conversion failed"
+                            : err);
+                    ready = false;
+                }
+                if (ready) {
+                    b.route = "png:chunk-exif";
+                }
+            } else if (request.target_format == TransferTargetFormat::Jp2) {
+                b.route    = "jp2:box-exif";
+                b.box_type = { 'E', 'x', 'i', 'f' };
+                append_u32be(&b.payload, 6U);
+                b.payload.insert(b.payload.end(),
+                                 exif_build.app1_payload.begin(),
+                                 exif_build.app1_payload.end());
             } else if (transfer_target_is_bmff(request.target_format)) {
                 b.route = "bmff:item-exif";
                 append_u32be(&b.payload, 6U);
@@ -7148,15 +7596,19 @@ prepare_metadata_for_target_impl(const MetaStore& store,
                                  exif_build.app1_payload.begin(),
                                  exif_build.app1_payload.end());
             }
-            bundle.blocks.push_back(std::move(b));
-            for (size_t i = 0; i < exif_build.time_patch_map.size(); ++i) {
-                TimePatchSlot slot = exif_build.time_patch_map[i];
-                slot.block_index   = block_index;
-                if (request.target_format == TransferTargetFormat::Jxl) {
-                    slot.byte_offset = static_cast<uint32_t>(slot.byte_offset
-                                                             + 4U);
+            if (ready) {
+                bundle.blocks.push_back(std::move(b));
+                for (size_t i = 0; i < exif_build.time_patch_map.size(); ++i) {
+                    TimePatchSlot slot = exif_build.time_patch_map[i];
+                    slot.block_index   = block_index;
+                    if (request.target_format == TransferTargetFormat::Jxl
+                        || request.target_format
+                               == TransferTargetFormat::Jp2) {
+                        slot.byte_offset = static_cast<uint32_t>(
+                            slot.byte_offset + 4U);
+                    }
+                    bundle.time_patch_map.push_back(slot);
                 }
-                bundle.time_patch_map.push_back(slot);
             }
             if (exif_build.skipped_count > 0U) {
                 r.warnings += 1U;
@@ -7201,6 +7653,16 @@ prepare_metadata_for_target_impl(const MetaStore& store,
             } else if (request.target_format == TransferTargetFormat::Tiff) {
                 b.route   = "tiff:tag-700-xmp";
                 b.payload = std::move(xmp_packet);
+            } else if (request.target_format == TransferTargetFormat::Png) {
+                b.route = "png:chunk-xmp";
+                build_png_xmp_itxt_payload(
+                    std::span<const std::byte>(xmp_packet.data(),
+                                               xmp_packet.size()),
+                    &b.payload);
+            } else if (request.target_format == TransferTargetFormat::Jp2) {
+                b.route    = "jp2:box-xml";
+                b.box_type = { 'x', 'm', 'l', ' ' };
+                b.payload  = std::move(xmp_packet);
             } else if (transfer_target_is_bmff(request.target_format)) {
                 b.route   = "bmff:item-xmp";
                 b.payload = std::move(xmp_packet);
@@ -7272,6 +7734,93 @@ prepare_metadata_for_target_impl(const MetaStore& store,
                 r.warnings += 1U;
                 append_message(&r.message,
                                "tiff icc packer could not serialize current "
+                               "icc set");
+            }
+        } else if (request.target_format == TransferTargetFormat::Png) {
+            std::vector<std::byte> icc_profile;
+            uint32_t skipped_icc = 0U;
+            if (build_icc_profile_bytes(store, &icc_profile, &skipped_icc)
+                && !icc_profile.empty()) {
+                PreparedTransferBlock b;
+                std::string err;
+                if (!build_png_iccp_payload(
+                        std::span<const std::byte>(icc_profile.data(),
+                                                   icc_profile.size()),
+                        &b.payload, &err)) {
+                    requested_present_but_unpacked = true;
+                    if (r.code == PrepareTransferCode::None) {
+                        r.code = PrepareTransferCode::IccPackFailed;
+                    }
+                    r.warnings += 1U;
+                    append_message(
+                        &r.message,
+                        err.empty() ? "png iccp payload conversion failed"
+                                    : err);
+                } else {
+                    b.kind  = TransferBlockKind::Icc;
+                    b.order = 120U;
+                    b.route = "png:chunk-iccp";
+                    bundle.blocks.push_back(std::move(b));
+                    if (skipped_icc > 0U) {
+                        r.warnings += 1U;
+                        append_message(&r.message,
+                                       "icc serializer skipped "
+                                           + std::to_string(skipped_icc)
+                                           + " unsupported icc entries");
+                    }
+                }
+            } else {
+                requested_present_but_unpacked = true;
+                if (r.code == PrepareTransferCode::None) {
+                    r.code = PrepareTransferCode::IccPackFailed;
+                }
+                r.warnings += 1U;
+                append_message(&r.message,
+                               "png icc packer could not serialize current "
+                               "icc set");
+            }
+        } else if (request.target_format == TransferTargetFormat::Jp2) {
+            std::vector<std::byte> icc_profile;
+            uint32_t skipped_icc = 0U;
+            if (build_icc_profile_bytes(store, &icc_profile, &skipped_icc)
+                && !icc_profile.empty()) {
+                PreparedTransferBlock b;
+                std::string err;
+                if (!build_jp2_colr_icc_payload(
+                        std::span<const std::byte>(icc_profile.data(),
+                                                   icc_profile.size()),
+                        &b.payload, &err)) {
+                    requested_present_but_unpacked = true;
+                    if (r.code == PrepareTransferCode::None) {
+                        r.code = PrepareTransferCode::IccPackFailed;
+                    }
+                    r.warnings += 1U;
+                    append_message(
+                        &r.message,
+                        err.empty() ? "jp2 colr payload conversion failed"
+                                    : err);
+                } else {
+                    b.kind     = TransferBlockKind::Icc;
+                    b.order    = 120U;
+                    b.route    = "jp2:box-jp2h-colr";
+                    b.box_type = { 'j', 'p', '2', 'h' };
+                    bundle.blocks.push_back(std::move(b));
+                    if (skipped_icc > 0U) {
+                        r.warnings += 1U;
+                        append_message(&r.message,
+                                       "icc serializer skipped "
+                                           + std::to_string(skipped_icc)
+                                           + " unsupported icc entries");
+                    }
+                }
+            } else {
+                requested_present_but_unpacked = true;
+                if (r.code == PrepareTransferCode::None) {
+                    r.code = PrepareTransferCode::IccPackFailed;
+                }
+                r.warnings += 1U;
+                append_message(&r.message,
+                               "jp2 icc packer could not serialize current "
                                "icc set");
             }
         } else if (request.target_format == TransferTargetFormat::Webp) {
@@ -7437,30 +7986,58 @@ prepare_metadata_for_target_impl(const MetaStore& store,
                     b.order = 130U;
                     if (request.target_format == TransferTargetFormat::Webp) {
                         b.route = "webp:chunk-xmp";
+                        b.payload = std::move(xmp_packet);
+                    } else if (request.target_format
+                               == TransferTargetFormat::Png) {
+                        b.route = "png:chunk-xmp";
+                        build_png_xmp_itxt_payload(
+                            std::span<const std::byte>(xmp_packet.data(),
+                                                       xmp_packet.size()),
+                            &b.payload);
+                    } else if (request.target_format
+                               == TransferTargetFormat::Jp2) {
+                        b.route    = "jp2:box-xml";
+                        b.box_type = { 'x', 'm', 'l', ' ' };
+                        b.payload  = std::move(xmp_packet);
                     } else if (transfer_target_is_bmff(request.target_format)) {
                         b.route = "bmff:item-xmp";
+                        b.payload = std::move(xmp_packet);
                     } else {
                         b.route    = "jxl:box-xml";
                         b.box_type = { 'x', 'm', 'l', ' ' };
+                        b.payload  = std::move(xmp_packet);
                     }
-                    b.payload = std::move(xmp_packet);
                     bundle.blocks.push_back(std::move(b));
                 } else {
+                    std::string_view message
+                        = "jxl iptc projection to xml could not serialize "
+                          "current iptc set";
+                    if (request.target_format == TransferTargetFormat::Webp) {
+                        message
+                            = "webp iptc projection to xmp could not "
+                              "serialize current iptc set";
+                    } else if (request.target_format
+                               == TransferTargetFormat::Png) {
+                        message
+                            = "png iptc projection to xmp could not "
+                            "serialize current iptc set";
+                    } else if (request.target_format
+                               == TransferTargetFormat::Jp2) {
+                        message
+                            = "jp2 iptc projection to xml could not "
+                              "serialize current iptc set";
+                    } else if (transfer_target_is_bmff(
+                                   request.target_format)) {
+                        message
+                            = "bmff iptc projection to xmp could not "
+                              "serialize current iptc set";
+                    }
                     requested_present_but_unpacked = true;
                     if (r.code == PrepareTransferCode::None) {
                         r.code = PrepareTransferCode::IptcPackFailed;
                     }
                     r.warnings += 1U;
-                    append_message(
-                        &r.message,
-                        request.target_format == TransferTargetFormat::Webp
-                            ? "webp iptc projection to xmp could not serialize "
-                              "current iptc set"
-                            : (transfer_target_is_bmff(request.target_format)
-                                   ? "bmff iptc projection to xmp could not "
-                                     "serialize current iptc set"
-                                   : "jxl iptc projection to xml could not serialize "
-                                     "current iptc set"));
+                    append_message(&r.message, message);
                 }
             }
         }
@@ -8993,6 +9570,414 @@ emit_prepared_bundle_webp_compiled(const PreparedTransferBundle& bundle,
 }
 
 EmitTransferResult
+emit_prepared_bundle_png(const PreparedTransferBundle& bundle,
+                         PngTransferEmitter& emitter,
+                         const EmitTransferOptions& options) noexcept
+{
+    EmitTransferResult r;
+    if (bundle.target_format != TransferTargetFormat::Png) {
+        r.status  = TransferStatus::Unsupported;
+        r.code    = EmitTransferCode::InvalidArgument;
+        r.errors  = 1U;
+        r.message = "bundle target format is not png";
+        return r;
+    }
+
+    for (uint32_t i = 0; i < bundle.blocks.size(); ++i) {
+        const PreparedTransferBlock& block = bundle.blocks[i];
+        if (options.skip_empty_payloads && block.payload.empty()) {
+            r.skipped += 1U;
+            continue;
+        }
+
+        std::array<char, 4> chunk_type = { '\0', '\0', '\0', '\0' };
+        if (!png_chunk_from_route(block.route, &chunk_type)) {
+            r.status = TransferStatus::Unsupported;
+            if (r.code == EmitTransferCode::None) {
+                r.code = EmitTransferCode::UnsupportedRoute;
+            }
+            r.errors += 1U;
+            r.failed_block_index = i;
+            r.message            = "unsupported png route: " + block.route;
+            if (options.stop_on_error) {
+                return r;
+            }
+            continue;
+        }
+
+        const TransferStatus st = emitter.add_chunk(
+            chunk_type, std::span<const std::byte>(block.payload.data(),
+                                                   block.payload.size()));
+        if (st != TransferStatus::Ok) {
+            r.status = st;
+            if (r.code == EmitTransferCode::None) {
+                r.code = EmitTransferCode::BackendWriteFailed;
+            }
+            r.errors += 1U;
+            r.failed_block_index = i;
+            r.message            = "png emitter add_chunk failed";
+            if (options.stop_on_error) {
+                return r;
+            }
+            continue;
+        }
+        r.emitted += 1U;
+    }
+
+    if (r.errors == 0U) {
+        const TransferStatus close_st = emitter.close_chunks();
+        if (close_st != TransferStatus::Ok) {
+            r.status  = close_st;
+            r.code    = EmitTransferCode::BackendWriteFailed;
+            r.errors  = 1U;
+            r.message = "png emitter close_chunks failed";
+            return r;
+        }
+        r.status = TransferStatus::Ok;
+        r.code   = EmitTransferCode::None;
+    }
+    return r;
+}
+
+EmitTransferResult
+compile_prepared_bundle_png(const PreparedTransferBundle& bundle,
+                            PreparedPngEmitPlan* out_plan,
+                            const EmitTransferOptions& options) noexcept
+{
+    EmitTransferResult r;
+    if (!out_plan) {
+        r.status  = TransferStatus::InvalidArgument;
+        r.code    = EmitTransferCode::InvalidArgument;
+        r.errors  = 1U;
+        r.message = "out_plan is null";
+        return r;
+    }
+    out_plan->contract_version = bundle.contract_version;
+    out_plan->ops.clear();
+
+    if (bundle.target_format != TransferTargetFormat::Png) {
+        r.status  = TransferStatus::Unsupported;
+        r.code    = EmitTransferCode::InvalidArgument;
+        r.errors  = 1U;
+        r.message = "bundle target format is not png";
+        return r;
+    }
+
+    for (uint32_t i = 0; i < bundle.blocks.size(); ++i) {
+        const PreparedTransferBlock& block = bundle.blocks[i];
+        if (options.skip_empty_payloads && block.payload.empty()) {
+            r.skipped += 1U;
+            continue;
+        }
+
+        PreparedPngEmitOp op;
+        if (!png_chunk_from_route(block.route, &op.chunk_type)) {
+            r.status = TransferStatus::Unsupported;
+            if (r.code == EmitTransferCode::None) {
+                r.code = EmitTransferCode::UnsupportedRoute;
+            }
+            r.errors += 1U;
+            r.failed_block_index = i;
+            r.message            = "unsupported png route: " + block.route;
+            if (options.stop_on_error) {
+                return r;
+            }
+            continue;
+        }
+        op.block_index = i;
+        out_plan->ops.push_back(op);
+    }
+
+    if (r.errors == 0U) {
+        r.status = TransferStatus::Ok;
+        r.code   = EmitTransferCode::None;
+    }
+    return r;
+}
+
+EmitTransferResult
+emit_prepared_bundle_png_compiled(const PreparedTransferBundle& bundle,
+                                  const PreparedPngEmitPlan& plan,
+                                  PngTransferEmitter& emitter,
+                                  const EmitTransferOptions& options) noexcept
+{
+    EmitTransferResult r;
+    if (bundle.target_format != TransferTargetFormat::Png) {
+        r.status  = TransferStatus::Unsupported;
+        r.code    = EmitTransferCode::InvalidArgument;
+        r.errors  = 1U;
+        r.message = "bundle target format is not png";
+        return r;
+    }
+    if (plan.contract_version != bundle.contract_version) {
+        r.status  = TransferStatus::InvalidArgument;
+        r.code    = EmitTransferCode::PlanMismatch;
+        r.errors  = 1U;
+        r.message = "compiled plan contract_version mismatch";
+        return r;
+    }
+
+    for (uint32_t i = 0; i < plan.ops.size(); ++i) {
+        const PreparedPngEmitOp& op = plan.ops[i];
+        if (op.block_index >= bundle.blocks.size()) {
+            r.status = TransferStatus::InvalidArgument;
+            if (r.code == EmitTransferCode::None) {
+                r.code = EmitTransferCode::PlanMismatch;
+            }
+            r.errors += 1U;
+            r.failed_block_index = op.block_index;
+            r.message            = "compiled plan block_index out of range";
+            if (options.stop_on_error) {
+                return r;
+            }
+            continue;
+        }
+
+        const PreparedTransferBlock& block = bundle.blocks[op.block_index];
+        if (options.skip_empty_payloads && block.payload.empty()) {
+            r.skipped += 1U;
+            continue;
+        }
+
+        const TransferStatus st = emitter.add_chunk(
+            op.chunk_type, std::span<const std::byte>(block.payload.data(),
+                                                      block.payload.size()));
+        if (st != TransferStatus::Ok) {
+            r.status = st;
+            if (r.code == EmitTransferCode::None) {
+                r.code = EmitTransferCode::BackendWriteFailed;
+            }
+            r.errors += 1U;
+            r.failed_block_index = op.block_index;
+            r.message            = "png emitter add_chunk failed";
+            if (options.stop_on_error) {
+                return r;
+            }
+            continue;
+        }
+        r.emitted += 1U;
+    }
+
+    if (r.errors == 0U) {
+        const TransferStatus close_st = emitter.close_chunks();
+        if (close_st != TransferStatus::Ok) {
+            r.status  = close_st;
+            r.code    = EmitTransferCode::BackendWriteFailed;
+            r.errors  = 1U;
+            r.message = "png emitter close_chunks failed";
+            return r;
+        }
+        r.status = TransferStatus::Ok;
+        r.code   = EmitTransferCode::None;
+    }
+    return r;
+}
+
+EmitTransferResult
+emit_prepared_bundle_jp2(const PreparedTransferBundle& bundle,
+                         Jp2TransferEmitter& emitter,
+                         const EmitTransferOptions& options) noexcept
+{
+    EmitTransferResult r;
+    if (bundle.target_format != TransferTargetFormat::Jp2) {
+        r.status  = TransferStatus::Unsupported;
+        r.code    = EmitTransferCode::InvalidArgument;
+        r.errors  = 1U;
+        r.message = "bundle target format is not jp2";
+        return r;
+    }
+
+    for (uint32_t i = 0; i < bundle.blocks.size(); ++i) {
+        const PreparedTransferBlock& block = bundle.blocks[i];
+        if (options.skip_empty_payloads && block.payload.empty()) {
+            r.skipped += 1U;
+            continue;
+        }
+
+        std::array<char, 4> box_type = { '\0', '\0', '\0', '\0' };
+        if (!jp2_box_from_route(block.route, &box_type)) {
+            r.status = TransferStatus::Unsupported;
+            if (r.code == EmitTransferCode::None) {
+                r.code = EmitTransferCode::UnsupportedRoute;
+            }
+            r.errors += 1U;
+            r.failed_block_index = i;
+            r.message            = "unsupported jp2 route: " + block.route;
+            if (options.stop_on_error) {
+                return r;
+            }
+            continue;
+        }
+
+        const TransferStatus st = emitter.add_box(
+            box_type, std::span<const std::byte>(block.payload.data(),
+                                                 block.payload.size()));
+        if (st != TransferStatus::Ok) {
+            r.status = st;
+            if (r.code == EmitTransferCode::None) {
+                r.code = EmitTransferCode::BackendWriteFailed;
+            }
+            r.errors += 1U;
+            r.failed_block_index = i;
+            r.message            = "jp2 emitter add_box failed";
+            if (options.stop_on_error) {
+                return r;
+            }
+            continue;
+        }
+        r.emitted += 1U;
+    }
+
+    if (r.errors == 0U) {
+        const TransferStatus close_st = emitter.close_boxes();
+        if (close_st != TransferStatus::Ok) {
+            r.status  = close_st;
+            r.code    = EmitTransferCode::BackendWriteFailed;
+            r.errors  = 1U;
+            r.message = "jp2 emitter close_boxes failed";
+            return r;
+        }
+        r.status = TransferStatus::Ok;
+        r.code   = EmitTransferCode::None;
+    }
+    return r;
+}
+
+EmitTransferResult
+compile_prepared_bundle_jp2(const PreparedTransferBundle& bundle,
+                            PreparedJp2EmitPlan* out_plan,
+                            const EmitTransferOptions& options) noexcept
+{
+    EmitTransferResult r;
+    if (!out_plan) {
+        r.status  = TransferStatus::InvalidArgument;
+        r.code    = EmitTransferCode::InvalidArgument;
+        r.errors  = 1U;
+        r.message = "out_plan is null";
+        return r;
+    }
+    out_plan->contract_version = bundle.contract_version;
+    out_plan->ops.clear();
+
+    if (bundle.target_format != TransferTargetFormat::Jp2) {
+        r.status  = TransferStatus::Unsupported;
+        r.code    = EmitTransferCode::InvalidArgument;
+        r.errors  = 1U;
+        r.message = "bundle target format is not jp2";
+        return r;
+    }
+
+    for (uint32_t i = 0; i < bundle.blocks.size(); ++i) {
+        const PreparedTransferBlock& block = bundle.blocks[i];
+        if (options.skip_empty_payloads && block.payload.empty()) {
+            r.skipped += 1U;
+            continue;
+        }
+
+        PreparedJp2EmitOp op;
+        if (!jp2_box_from_route(block.route, &op.box_type)) {
+            r.status = TransferStatus::Unsupported;
+            if (r.code == EmitTransferCode::None) {
+                r.code = EmitTransferCode::UnsupportedRoute;
+            }
+            r.errors += 1U;
+            r.failed_block_index = i;
+            r.message            = "unsupported jp2 route: " + block.route;
+            if (options.stop_on_error) {
+                return r;
+            }
+            continue;
+        }
+        op.block_index = i;
+        out_plan->ops.push_back(op);
+    }
+
+    if (r.errors == 0U) {
+        r.status = TransferStatus::Ok;
+        r.code   = EmitTransferCode::None;
+    }
+    return r;
+}
+
+EmitTransferResult
+emit_prepared_bundle_jp2_compiled(const PreparedTransferBundle& bundle,
+                                  const PreparedJp2EmitPlan& plan,
+                                  Jp2TransferEmitter& emitter,
+                                  const EmitTransferOptions& options) noexcept
+{
+    EmitTransferResult r;
+    if (bundle.target_format != TransferTargetFormat::Jp2) {
+        r.status  = TransferStatus::Unsupported;
+        r.code    = EmitTransferCode::InvalidArgument;
+        r.errors  = 1U;
+        r.message = "bundle target format is not jp2";
+        return r;
+    }
+    if (plan.contract_version != bundle.contract_version) {
+        r.status  = TransferStatus::InvalidArgument;
+        r.code    = EmitTransferCode::PlanMismatch;
+        r.errors  = 1U;
+        r.message = "compiled plan contract_version mismatch";
+        return r;
+    }
+
+    for (uint32_t i = 0; i < plan.ops.size(); ++i) {
+        const PreparedJp2EmitOp& op = plan.ops[i];
+        if (op.block_index >= bundle.blocks.size()) {
+            r.status = TransferStatus::InvalidArgument;
+            if (r.code == EmitTransferCode::None) {
+                r.code = EmitTransferCode::PlanMismatch;
+            }
+            r.errors += 1U;
+            r.failed_block_index = op.block_index;
+            r.message            = "compiled plan block_index out of range";
+            if (options.stop_on_error) {
+                return r;
+            }
+            continue;
+        }
+
+        const PreparedTransferBlock& block = bundle.blocks[op.block_index];
+        if (options.skip_empty_payloads && block.payload.empty()) {
+            r.skipped += 1U;
+            continue;
+        }
+
+        const TransferStatus st = emitter.add_box(
+            op.box_type, std::span<const std::byte>(block.payload.data(),
+                                                    block.payload.size()));
+        if (st != TransferStatus::Ok) {
+            r.status = st;
+            if (r.code == EmitTransferCode::None) {
+                r.code = EmitTransferCode::BackendWriteFailed;
+            }
+            r.errors += 1U;
+            r.failed_block_index = op.block_index;
+            r.message            = "jp2 emitter add_box failed";
+            if (options.stop_on_error) {
+                return r;
+            }
+            continue;
+        }
+        r.emitted += 1U;
+    }
+
+    if (r.errors == 0U) {
+        const TransferStatus close_st = emitter.close_boxes();
+        if (close_st != TransferStatus::Ok) {
+            r.status  = close_st;
+            r.code    = EmitTransferCode::BackendWriteFailed;
+            r.errors  = 1U;
+            r.message = "jp2 emitter close_boxes failed";
+            return r;
+        }
+        r.status = TransferStatus::Ok;
+        r.code   = EmitTransferCode::None;
+    }
+    return r;
+}
+
+EmitTransferResult
 emit_prepared_bundle_bmff(const PreparedTransferBundle& bundle,
                           BmffTransferEmitter& emitter,
                           const EmitTransferOptions& options) noexcept
@@ -10042,6 +11027,65 @@ build_prepared_transfer_emit_package(const PreparedTransferBundle& bundle,
                 8U + static_cast<uint64_t>(block.payload.size())
                     + static_cast<uint64_t>((block.payload.size() & 1U) != 0U));
         }
+    } else if (bundle.target_format == TransferTargetFormat::Png) {
+        for (uint32_t i = 0; i < bundle.blocks.size(); ++i) {
+            const PreparedTransferBlock& block = bundle.blocks[i];
+            if (options.skip_empty_payloads && block.payload.empty()) {
+                out.skipped += 1U;
+                continue;
+            }
+            std::array<char, 4> chunk_type = { '\0', '\0', '\0', '\0' };
+            if (!png_chunk_from_route(block.route, &chunk_type)) {
+                out.status = TransferStatus::Unsupported;
+                if (out.code == EmitTransferCode::None) {
+                    out.code = EmitTransferCode::UnsupportedRoute;
+                }
+                out.errors += 1U;
+                out.failed_block_index = i;
+                out.message = "unsupported png route: " + block.route;
+                if (options.stop_on_error) {
+                    return out;
+                }
+                continue;
+            }
+            append_package_prepared_block_chunk(
+                &plan, i, 12U + static_cast<uint64_t>(block.payload.size()));
+        }
+    } else if (bundle.target_format == TransferTargetFormat::Jp2) {
+        for (uint32_t i = 0; i < bundle.blocks.size(); ++i) {
+            const PreparedTransferBlock& block = bundle.blocks[i];
+            if (options.skip_empty_payloads && block.payload.empty()) {
+                out.skipped += 1U;
+                continue;
+            }
+            std::array<char, 4> box_type = { '\0', '\0', '\0', '\0' };
+            if (!jp2_box_from_route(block.route, &box_type)) {
+                out.status = TransferStatus::Unsupported;
+                if (out.code == EmitTransferCode::None) {
+                    out.code = EmitTransferCode::UnsupportedRoute;
+                }
+                out.errors += 1U;
+                out.failed_block_index = i;
+                out.message = "unsupported jp2 route: " + block.route;
+                if (options.stop_on_error) {
+                    return out;
+                }
+                continue;
+            }
+            if (block.payload.size() > static_cast<size_t>(0xFFFFFFFFU - 8U)) {
+                out.status = TransferStatus::LimitExceeded;
+                out.code   = EmitTransferCode::InvalidPayload;
+                out.errors += 1U;
+                out.failed_block_index = i;
+                out.message = "jp2 box payload exceeds 32-bit box size";
+                if (options.stop_on_error) {
+                    return out;
+                }
+                continue;
+            }
+            append_package_prepared_block_chunk(
+                &plan, i, 8U + static_cast<uint64_t>(block.payload.size()));
+        }
     } else if (transfer_target_is_bmff(bundle.target_format)) {
         for (uint32_t i = 0; i < bundle.blocks.size(); ++i) {
             const PreparedTransferBlock& block = bundle.blocks[i];
@@ -10075,7 +11119,7 @@ build_prepared_transfer_emit_package(const PreparedTransferBundle& bundle,
         out.code   = EmitTransferCode::InvalidArgument;
         out.errors = 1U;
         out.message
-            = "emit package builder currently supports jpeg, jxl, webp, and bmff targets";
+            = "emit package builder currently supports jpeg, png, jp2, jxl, webp, and bmff targets";
         return out;
     }
 
@@ -10490,13 +11534,49 @@ write_prepared_transfer_package(std::span<const std::byte> input,
                         &out)) {
                     return out;
                 }
+            } else if (bundle.target_format == TransferTargetFormat::Png) {
+                std::array<char, 4> chunk_type = { '\0', '\0', '\0', '\0' };
+                if (!png_chunk_from_route(block.route, &chunk_type)) {
+                    out.status = TransferStatus::Unsupported;
+                    out.code   = EmitTransferCode::UnsupportedRoute;
+                    out.errors += 1U;
+                    out.failed_block_index = chunk.block_index;
+                    out.message
+                        = "prepared transfer block route is not a supported png chunk";
+                    return out;
+                }
+                if (!write_png_chunk(
+                        writer, chunk_type,
+                        std::span<const std::byte>(block.payload.data(),
+                                                   block.payload.size()),
+                        &out)) {
+                    return out;
+                }
+            } else if (bundle.target_format == TransferTargetFormat::Jp2) {
+                std::array<char, 4> box_type = { '\0', '\0', '\0', '\0' };
+                if (!jp2_box_from_route(block.route, &box_type)) {
+                    out.status = TransferStatus::Unsupported;
+                    out.code   = EmitTransferCode::UnsupportedRoute;
+                    out.errors += 1U;
+                    out.failed_block_index = chunk.block_index;
+                    out.message
+                        = "prepared transfer block route is not a supported jp2 box";
+                    return out;
+                }
+                if (!write_jxl_box(
+                        writer, box_type,
+                        std::span<const std::byte>(block.payload.data(),
+                                                   block.payload.size()),
+                        &out)) {
+                    return out;
+                }
             } else {
                 out.status = TransferStatus::Unsupported;
                 out.code   = EmitTransferCode::InvalidArgument;
                 out.errors += 1U;
                 out.failed_block_index = chunk.block_index;
                 out.message
-                    = "prepared transfer block chunks are only supported for jpeg, jxl, and webp targets";
+                    = "prepared transfer block chunks are only supported for jpeg, png, jp2, jxl, and webp targets";
                 return out;
             }
             break;
@@ -10655,6 +11735,32 @@ build_executed_transfer_package_batch(
         }
         out = build_prepared_bundle_jxl_package(edit_input, bundle, &plan,
                                                 nullptr);
+    } else if (bundle.target_format == TransferTargetFormat::Webp
+               && execute.edit_requested) {
+        if (execute.edit_plan_status != TransferStatus::Ok) {
+            out.status  = execute.edit_plan_status;
+            out.code    = EmitTransferCode::InvalidArgument;
+            out.errors  = 1U;
+            out.message = execute.edit_plan_message.empty()
+                              ? "webp edit plan is not available"
+                              : execute.edit_plan_message;
+            return out;
+        }
+        out = build_prepared_bundle_webp_package(edit_input, bundle, &plan,
+                                                 nullptr);
+    } else if (bundle.target_format == TransferTargetFormat::Png
+               && execute.edit_requested) {
+        if (execute.edit_plan_status != TransferStatus::Ok) {
+            out.status  = execute.edit_plan_status;
+            out.code    = EmitTransferCode::InvalidArgument;
+            out.errors  = 1U;
+            out.message = execute.edit_plan_message.empty()
+                              ? "png edit plan is not available"
+                              : execute.edit_plan_message;
+            return out;
+        }
+        out = build_prepared_bundle_png_package(edit_input, bundle, &plan,
+                                                nullptr);
     } else if (transfer_target_is_bmff(bundle.target_format)
                && execute.edit_requested) {
         if (execute.edit_plan_status != TransferStatus::Ok) {
@@ -10684,17 +11790,23 @@ TransferSemanticKind
 classify_transfer_route_semantic_kind(std::string_view route) noexcept
 {
     if (route == "jpeg:app1-exif" || route == "tiff:ifd-exif-app1"
-        || route == "jxl:box-exif" || route == "webp:chunk-exif"
+        || route == "png:chunk-exif" || route == "jxl:box-exif"
+        || route == "jp2:box-exif"
+        || route == "webp:chunk-exif"
         || route == "bmff:item-exif") {
         return TransferSemanticKind::Exif;
     }
     if (route == "jpeg:app1-xmp" || route == "tiff:tag-700-xmp"
-        || route == "jxl:box-xml" || route == "webp:chunk-xmp"
+        || route == "png:chunk-xmp" || route == "jxl:box-xml"
+        || route == "jp2:box-xml"
+        || route == "webp:chunk-xmp"
         || route == "bmff:item-xmp") {
         return TransferSemanticKind::Xmp;
     }
     if (route == "jpeg:app2-icc" || route == "tiff:tag-34675-icc"
-        || route == "jxl:icc-profile" || route == "webp:chunk-iccp"
+        || route == "png:chunk-iccp" || route == "jxl:icc-profile"
+        || route == "jp2:box-jp2h-colr"
+        || route == "webp:chunk-iccp"
         || route == "bmff:property-colr-icc") {
         return TransferSemanticKind::Icc;
     }
@@ -13817,6 +14929,40 @@ namespace {
         }
     };
 
+    struct EmittedPngChunkSummaryLess final {
+        bool operator()(const EmittedPngChunkSummary& a,
+                        const EmittedPngChunkSummary& b) const noexcept
+        {
+            if (a.type[0] != b.type[0]) {
+                return a.type[0] < b.type[0];
+            }
+            if (a.type[1] != b.type[1]) {
+                return a.type[1] < b.type[1];
+            }
+            if (a.type[2] != b.type[2]) {
+                return a.type[2] < b.type[2];
+            }
+            return a.type[3] < b.type[3];
+        }
+    };
+
+    struct EmittedJp2BoxSummaryLess final {
+        bool operator()(const EmittedJp2BoxSummary& a,
+                        const EmittedJp2BoxSummary& b) const noexcept
+        {
+            if (a.type[0] != b.type[0]) {
+                return a.type[0] < b.type[0];
+            }
+            if (a.type[1] != b.type[1]) {
+                return a.type[1] < b.type[1];
+            }
+            if (a.type[2] != b.type[2]) {
+                return a.type[2] < b.type[2];
+            }
+            return a.type[3] < b.type[3];
+        }
+    };
+
     struct EmittedBmffItemSummaryLess final {
         bool operator()(const EmittedBmffItemSummary& a,
                         const EmittedBmffItemSummary& b) const noexcept
@@ -14049,6 +15195,101 @@ namespace {
         }
 
         std::vector<EmittedWebpChunkSummary> chunks_;
+    };
+
+    class ExecuteRecordingPngEmitter final : public PngTransferEmitter {
+    public:
+        void reset() noexcept { chunks_.clear(); }
+
+        TransferStatus
+        add_chunk(std::array<char, 4> type,
+                  std::span<const std::byte> payload) noexcept override
+        {
+            add_chunk_bytes(type, static_cast<uint64_t>(payload.size()));
+            return TransferStatus::Ok;
+        }
+
+        TransferStatus close_chunks() noexcept override
+        {
+            return TransferStatus::Ok;
+        }
+
+        void
+        build_summary(std::vector<EmittedPngChunkSummary>* out) const noexcept
+        {
+            if (!out) {
+                return;
+            }
+            *out = chunks_;
+            std::sort(out->begin(), out->end(), EmittedPngChunkSummaryLess {});
+        }
+
+    private:
+        void add_chunk_bytes(std::array<char, 4> type, uint64_t bytes) noexcept
+        {
+            for (size_t i = 0; i < chunks_.size(); ++i) {
+                if (chunks_[i].type != type) {
+                    continue;
+                }
+                chunks_[i].count += 1U;
+                chunks_[i].bytes += bytes;
+                return;
+            }
+            EmittedPngChunkSummary one;
+            one.type  = type;
+            one.count = 1U;
+            one.bytes = bytes;
+            chunks_.push_back(one);
+        }
+
+        std::vector<EmittedPngChunkSummary> chunks_;
+    };
+
+    class ExecuteRecordingJp2Emitter final : public Jp2TransferEmitter {
+    public:
+        void reset() noexcept { boxes_.clear(); }
+
+        TransferStatus add_box(std::array<char, 4> type,
+                               std::span<const std::byte> payload) noexcept
+            override
+        {
+            add_box_bytes(type, static_cast<uint64_t>(payload.size()));
+            return TransferStatus::Ok;
+        }
+
+        TransferStatus close_boxes() noexcept override
+        {
+            return TransferStatus::Ok;
+        }
+
+        void build_summary(std::vector<EmittedJp2BoxSummary>* out) const noexcept
+        {
+            if (!out) {
+                return;
+            }
+            *out = boxes_;
+            std::sort(out->begin(), out->end(), EmittedJp2BoxSummaryLess {});
+        }
+
+    private:
+        void add_box_bytes(std::array<char, 4> type, uint64_t bytes) noexcept
+        {
+            for (size_t i = 0; i < boxes_.size(); ++i) {
+                if (boxes_[i].type != type) {
+                    continue;
+                }
+                boxes_[i].count += 1U;
+                boxes_[i].bytes += bytes;
+                return;
+            }
+            EmittedJp2BoxSummary one;
+            one.type  = type;
+            one.count = 1U;
+            one.bytes = bytes;
+            boxes_.push_back(one);
+        }
+
+        std::vector<EmittedJp2BoxSummary> boxes_;
     };
 
     class ExecuteRecordingBmffEmitter final : public BmffTransferEmitter {
@@ -14398,6 +15639,94 @@ namespace {
         std::sort(out->begin(), out->end(), EmittedWebpChunkSummaryLess {});
     }
 
+    static void build_png_emit_summary_from_plan(
+        const PreparedTransferBundle& bundle, const PreparedPngEmitPlan& plan,
+        const EmitTransferOptions& options, uint32_t repeat,
+        std::vector<EmittedPngChunkSummary>* out) noexcept
+    {
+        if (!out) {
+            return;
+        }
+        out->clear();
+        for (uint32_t rep = 0; rep < repeat; ++rep) {
+            for (size_t i = 0; i < plan.ops.size(); ++i) {
+                const PreparedPngEmitOp& op = plan.ops[i];
+                if (op.block_index >= bundle.blocks.size()) {
+                    continue;
+                }
+                const PreparedTransferBlock& block
+                    = bundle.blocks[op.block_index];
+                if (options.skip_empty_payloads && block.payload.empty()) {
+                    continue;
+                }
+                bool merged = false;
+                for (size_t j = 0; j < out->size(); ++j) {
+                    if ((*out)[j].type != op.chunk_type) {
+                        continue;
+                    }
+                    (*out)[j].count += 1U;
+                    (*out)[j].bytes += static_cast<uint64_t>(
+                        block.payload.size());
+                    merged = true;
+                    break;
+                }
+                if (merged) {
+                    continue;
+                }
+                EmittedPngChunkSummary one;
+                one.type  = op.chunk_type;
+                one.count = 1U;
+                one.bytes = static_cast<uint64_t>(block.payload.size());
+                out->push_back(one);
+            }
+        }
+        std::sort(out->begin(), out->end(), EmittedPngChunkSummaryLess {});
+    }
+
+    static void build_jp2_emit_summary_from_plan(
+        const PreparedTransferBundle& bundle, const PreparedJp2EmitPlan& plan,
+        const EmitTransferOptions& options, uint32_t repeat,
+        std::vector<EmittedJp2BoxSummary>* out) noexcept
+    {
+        if (!out) {
+            return;
+        }
+        out->clear();
+        for (uint32_t rep = 0U; rep < repeat; ++rep) {
+            for (size_t i = 0; i < plan.ops.size(); ++i) {
+                const PreparedJp2EmitOp& op = plan.ops[i];
+                if (op.block_index >= bundle.blocks.size()) {
+                    continue;
+                }
+                const PreparedTransferBlock& block
+                    = bundle.blocks[op.block_index];
+                if (options.skip_empty_payloads && block.payload.empty()) {
+                    continue;
+                }
+                bool merged = false;
+                for (size_t j = 0; j < out->size(); ++j) {
+                    if ((*out)[j].type != op.box_type) {
+                        continue;
+                    }
+                    (*out)[j].count += 1U;
+                    (*out)[j].bytes += static_cast<uint64_t>(
+                        block.payload.size());
+                    merged = true;
+                    break;
+                }
+                if (merged) {
+                    continue;
+                }
+                EmittedJp2BoxSummary one;
+                one.type  = op.box_type;
+                one.count = 1U;
+                one.bytes = static_cast<uint64_t>(block.payload.size());
+                out->push_back(one);
+            }
+        }
+        std::sort(out->begin(), out->end(), EmittedJp2BoxSummaryLess {});
+    }
+
     static void build_bmff_emit_summary_from_plan(
         const PreparedTransferBundle& bundle, const PreparedBmffEmitPlan& plan,
         const EmitTransferOptions& options, uint32_t repeat,
@@ -14561,6 +15890,230 @@ namespace {
         one.jpeg_marker_code = marker_code;
         one.size             = 4U + static_cast<uint64_t>(payload_size);
         plan->chunks.push_back(std::move(one));
+    }
+
+    static PngRewritePolicy
+    collect_png_rewrite_policy(const PreparedTransferBundle& bundle) noexcept
+    {
+        PngRewritePolicy policy;
+        for (size_t i = 0; i < bundle.blocks.size(); ++i) {
+            const PreparedTransferBlock& block = bundle.blocks[i];
+            if (block.payload.empty()) {
+                continue;
+            }
+            if (block.route == "png:chunk-exif") {
+                policy.exif = true;
+                continue;
+            }
+            if (block.route == "png:chunk-xmp") {
+                policy.xmp = true;
+                continue;
+            }
+            if (block.route == "png:chunk-iccp") {
+                policy.icc = true;
+            }
+        }
+        return policy;
+    }
+
+    static WebpRewritePolicy
+    collect_webp_rewrite_policy(const PreparedTransferBundle& bundle) noexcept
+    {
+        WebpRewritePolicy policy;
+        for (size_t i = 0; i < bundle.blocks.size(); ++i) {
+            const PreparedTransferBlock& block = bundle.blocks[i];
+            if (block.payload.empty()) {
+                continue;
+            }
+            if (block.route == "webp:chunk-exif") {
+                policy.exif = true;
+                continue;
+            }
+            if (block.route == "webp:chunk-xmp") {
+                policy.xmp = true;
+                continue;
+            }
+            if (block.route == "webp:chunk-iccp") {
+                policy.icc = true;
+                continue;
+            }
+            if (block.route == "webp:chunk-c2pa") {
+                policy.c2pa = true;
+            }
+        }
+        return policy;
+    }
+
+    static bool parse_transfer_png_chunk(std::span<const std::byte> bytes,
+                                         uint64_t offset,
+                                         TransferPngChunk* out) noexcept
+    {
+        if (!out || offset + 12U > bytes.size()) {
+            return false;
+        }
+
+        uint32_t size = 0U;
+        uint32_t type = 0U;
+        if (!read_u32be(bytes, offset + 0U, &size)
+            || !read_u32be(bytes, offset + 4U, &type)) {
+            return false;
+        }
+
+        const uint64_t data_offset = offset + 8U;
+        const uint64_t chunk_size   = 12U + static_cast<uint64_t>(size);
+        if (data_offset + static_cast<uint64_t>(size) + 4U > bytes.size()) {
+            return false;
+        }
+
+        out->offset      = offset;
+        out->size        = chunk_size;
+        out->data_offset = data_offset;
+        out->data_size   = static_cast<uint64_t>(size);
+        out->type        = type;
+        return true;
+    }
+
+    static bool parse_transfer_webp_chunk(std::span<const std::byte> bytes,
+                                          uint64_t offset, uint64_t file_end,
+                                          TransferWebpChunk* out) noexcept
+    {
+        if (!out || offset + 8U > file_end || offset + 8U > bytes.size()) {
+            return false;
+        }
+
+        uint32_t type = 0U;
+        uint32_t size = 0U;
+        if (!read_u32be(bytes, offset + 0U, &type)
+            || !read_u32le(bytes, offset + 4U, &size)) {
+            return false;
+        }
+
+        const uint64_t data_offset = offset + 8U;
+        const uint64_t data_size   = static_cast<uint64_t>(size);
+        uint64_t chunk_size        = 8U + data_size;
+        if ((data_size & 1U) != 0U) {
+            chunk_size += 1U;
+        }
+        if (data_offset + data_size > file_end
+            || offset + chunk_size > file_end
+            || offset + chunk_size > bytes.size()) {
+            return false;
+        }
+
+        out->offset      = offset;
+        out->size        = chunk_size;
+        out->data_offset = data_offset;
+        out->data_size   = data_size;
+        out->type        = type;
+        return true;
+    }
+
+    static bool png_bytes_equal(std::span<const std::byte> bytes,
+                                uint64_t offset, const char* text,
+                                uint64_t size) noexcept
+    {
+        if (!text || offset + size > bytes.size()) {
+            return false;
+        }
+        for (uint64_t i = 0U; i < size; ++i) {
+            if (bytes[offset + i]
+                != static_cast<std::byte>(static_cast<uint8_t>(text[i]))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    static bool png_itxt_is_xmp(std::span<const std::byte> bytes,
+                                const TransferPngChunk& chunk) noexcept
+    {
+        if (chunk.type != fourcc('i', 'T', 'X', 't')) {
+            return false;
+        }
+        if (chunk.data_offset + chunk.data_size > bytes.size()) {
+            return false;
+        }
+
+        const uint64_t begin = chunk.data_offset;
+        const uint64_t end   = chunk.data_offset + chunk.data_size;
+        uint64_t p           = begin;
+        while (p < end
+               && std::to_integer<uint8_t>(bytes[static_cast<size_t>(p)])
+                      != 0U) {
+            p += 1U;
+        }
+        if (p + 3U > end) {
+            return false;
+        }
+
+        static constexpr char kXmpKeyword[] = "XML:com.adobe.xmp";
+        static constexpr uint64_t kXmpKeywordLen
+            = static_cast<uint64_t>(sizeof(kXmpKeyword) - 1U);
+        if ((p - begin) != kXmpKeywordLen) {
+            return false;
+        }
+        return png_bytes_equal(bytes, begin, kXmpKeyword, kXmpKeywordLen);
+    }
+
+    static PngRewriteFamily
+    classify_source_png_rewrite_family(std::span<const std::byte> bytes,
+                                       const TransferPngChunk& chunk) noexcept
+    {
+        if (chunk.type == fourcc('e', 'X', 'I', 'f')) {
+            return PngRewriteFamily::Exif;
+        }
+        if (chunk.type == fourcc('i', 'C', 'C', 'P')) {
+            return PngRewriteFamily::Icc;
+        }
+        if (png_itxt_is_xmp(bytes, chunk)) {
+            return PngRewriteFamily::Xmp;
+        }
+        return PngRewriteFamily::Unknown;
+    }
+
+    static bool png_source_chunk_matches_rewrite_policy(
+        std::span<const std::byte> bytes, const TransferPngChunk& chunk,
+        const PngRewritePolicy& policy) noexcept
+    {
+        switch (classify_source_png_rewrite_family(bytes, chunk)) {
+        case PngRewriteFamily::Exif: return policy.exif;
+        case PngRewriteFamily::Xmp: return policy.xmp;
+        case PngRewriteFamily::Icc: return policy.icc;
+        case PngRewriteFamily::Unknown: break;
+        }
+        return false;
+    }
+
+    static WebpRewriteFamily
+    classify_source_webp_rewrite_family(const TransferWebpChunk& chunk) noexcept
+    {
+        if (chunk.type == fourcc('E', 'X', 'I', 'F')) {
+            return WebpRewriteFamily::Exif;
+        }
+        if (chunk.type == fourcc('X', 'M', 'P', ' ')) {
+            return WebpRewriteFamily::Xmp;
+        }
+        if (chunk.type == fourcc('I', 'C', 'C', 'P')) {
+            return WebpRewriteFamily::Icc;
+        }
+        if (chunk.type == fourcc('C', '2', 'P', 'A')) {
+            return WebpRewriteFamily::C2pa;
+        }
+        return WebpRewriteFamily::Unknown;
+    }
+
+    static bool webp_source_chunk_matches_rewrite_policy(
+        const TransferWebpChunk& chunk,
+        const WebpRewritePolicy& policy) noexcept
+    {
+        switch (classify_source_webp_rewrite_family(chunk)) {
+        case WebpRewriteFamily::Exif: return policy.exif;
+        case WebpRewriteFamily::Xmp: return policy.xmp;
+        case WebpRewriteFamily::Icc: return policy.icc;
+        case WebpRewriteFamily::C2pa: return policy.c2pa;
+        case WebpRewriteFamily::Unknown: break;
+        }
+        return false;
     }
 
     struct TransferBmffBox final {
@@ -15448,6 +17001,58 @@ namespace {
                             = "prepared transfer block webp size mismatch";
                         return out;
                     }
+                } else if (bundle.target_format == TransferTargetFormat::Png) {
+                    const PreparedTransferBlock& block
+                        = bundle.blocks[chunk.block_index];
+                    std::array<char, 4> chunk_type = { '\0', '\0', '\0', '\0' };
+                    if (!png_chunk_from_route(block.route, &chunk_type)) {
+                        out.status = TransferStatus::Unsupported;
+                        out.code   = EmitTransferCode::UnsupportedRoute;
+                        out.errors = 1U;
+                        out.message
+                            = "prepared transfer block route is not a supported png chunk";
+                        return out;
+                    }
+                    if (chunk.size
+                        != 12U + static_cast<uint64_t>(block.payload.size())) {
+                        out.status = TransferStatus::InvalidArgument;
+                        out.code   = EmitTransferCode::PlanMismatch;
+                        out.errors = 1U;
+                        out.message
+                            = "prepared transfer block png size mismatch";
+                        return out;
+                    }
+                } else if (bundle.target_format == TransferTargetFormat::Jp2) {
+                    const PreparedTransferBlock& block
+                        = bundle.blocks[chunk.block_index];
+                    std::array<char, 4> box_type = { '\0', '\0', '\0', '\0' };
+                    if (!jp2_box_from_route(block.route, &box_type)) {
+                        out.status = TransferStatus::Unsupported;
+                        out.code   = EmitTransferCode::UnsupportedRoute;
+                        out.errors = 1U;
+                        out.message
+                            = "prepared transfer block route is not a supported jp2 box";
+                        return out;
+                    }
+                    if (block.box_type
+                            != std::array<char, 4> { '\0', '\0', '\0', '\0' }
+                        && block.box_type != box_type) {
+                        out.status = TransferStatus::Malformed;
+                        out.code   = EmitTransferCode::InvalidPayload;
+                        out.errors = 1U;
+                        out.message
+                            = "prepared transfer block jp2 box_type does not match route";
+                        return out;
+                    }
+                    if (chunk.size
+                        != 8U + static_cast<uint64_t>(block.payload.size())) {
+                        out.status = TransferStatus::InvalidArgument;
+                        out.code   = EmitTransferCode::PlanMismatch;
+                        out.errors = 1U;
+                        out.message
+                            = "prepared transfer block jp2 size mismatch";
+                        return out;
+                    }
                 } else if (transfer_target_is_bmff(bundle.target_format)) {
                     const PreparedTransferBlock& block
                         = bundle.blocks[chunk.block_index];
@@ -15478,7 +17083,7 @@ namespace {
                     out.code   = EmitTransferCode::InvalidArgument;
                     out.errors = 1U;
                     out.message
-                        = "prepared transfer block chunks are only supported for jpeg, jxl, webp, and bmff targets";
+                        = "prepared transfer block chunks are only supported for jpeg, png, jp2, jxl, webp, and bmff targets";
                     return out;
                 }
                 break;
@@ -15706,6 +17311,32 @@ namespace {
                 }
                 break;
             }
+            case TransferAdapterOpKind::PngChunk: {
+                std::array<char, 4> chunk_type = { '\0', '\0', '\0', '\0' };
+                if (!png_chunk_from_route(payload.route, &chunk_type)
+                    || chunk_type != payload.op.chunk_type) {
+                    out.status = TransferStatus::InvalidArgument;
+                    out.code   = EmitTransferCode::PlanMismatch;
+                    out.errors = 1U;
+                    out.message
+                        = "prepared transfer payload batch png op mismatch";
+                    return out;
+                }
+                break;
+            }
+            case TransferAdapterOpKind::Jp2Box: {
+                std::array<char, 4> box_type = { '\0', '\0', '\0', '\0' };
+                if (!jp2_box_from_route(payload.route, &box_type)
+                    || box_type != payload.op.box_type) {
+                    out.status = TransferStatus::InvalidArgument;
+                    out.code   = EmitTransferCode::PlanMismatch;
+                    out.errors = 1U;
+                    out.message
+                        = "prepared transfer payload batch jp2 box op mismatch";
+                    return out;
+                }
+                break;
+            }
             case TransferAdapterOpKind::BmffItem: {
                 uint32_t item_type = 0U;
                 bool mime_xmp      = false;
@@ -15861,6 +17492,40 @@ namespace {
                                                block.payload.size()),
                     out_bytes, out);
             }
+            if (bundle.target_format == TransferTargetFormat::Png) {
+                std::array<char, 4> chunk_type = { '\0', '\0', '\0', '\0' };
+                if (!png_chunk_from_route(block.route, &chunk_type)) {
+                    out->status = TransferStatus::Unsupported;
+                    out->code   = EmitTransferCode::UnsupportedRoute;
+                    out->errors += 1U;
+                    out->failed_block_index = chunk.block_index;
+                    out->message
+                        = "prepared transfer block route is not a supported png chunk";
+                    return false;
+                }
+                return serialize_png_chunk(
+                    chunk_type,
+                    std::span<const std::byte>(block.payload.data(),
+                                               block.payload.size()),
+                    out_bytes, out);
+            }
+            if (bundle.target_format == TransferTargetFormat::Jp2) {
+                std::array<char, 4> box_type = { '\0', '\0', '\0', '\0' };
+                if (!jp2_box_from_route(block.route, &box_type)) {
+                    out->status = TransferStatus::Unsupported;
+                    out->code   = EmitTransferCode::UnsupportedRoute;
+                    out->errors += 1U;
+                    out->failed_block_index = chunk.block_index;
+                    out->message
+                        = "prepared transfer block route is not a supported jp2 box";
+                    return false;
+                }
+                return serialize_jxl_box(
+                    box_type,
+                    std::span<const std::byte>(block.payload.data(),
+                                               block.payload.size()),
+                    out_bytes, out);
+            }
             if (transfer_target_is_bmff(bundle.target_format)) {
                 uint32_t item_type        = 0U;
                 bool mime_xmp             = false;
@@ -15889,7 +17554,7 @@ namespace {
             out->errors += 1U;
             out->failed_block_index = chunk.block_index;
             out->message
-                = "prepared transfer block chunks are only supported for jpeg, jxl, webp, and bmff targets";
+                = "prepared transfer block chunks are only supported for jpeg, png, jp2, jxl, webp, and bmff targets";
             return false;
         }
         case TransferPackageChunkKind::InlineBytes:
@@ -16005,6 +17670,10 @@ namespace {
             return static_cast<uint32_t>(plan.jxl_emit.ops.size());
         case TransferTargetFormat::Webp:
             return static_cast<uint32_t>(plan.webp_emit.ops.size());
+        case TransferTargetFormat::Png:
+            return static_cast<uint32_t>(plan.png_emit.ops.size());
+        case TransferTargetFormat::Jp2:
+            return static_cast<uint32_t>(plan.jp2_emit.ops.size());
         case TransferTargetFormat::Heif:
         case TransferTargetFormat::Avif:
         case TransferTargetFormat::Cr3:
@@ -16071,6 +17740,26 @@ namespace {
                 out.errors = 1U;
                 out.message
                     = "compiled webp emit plan contract_version mismatch";
+                return out;
+            }
+            break;
+        case TransferTargetFormat::Png:
+            if (plan.png_emit.contract_version != bundle.contract_version) {
+                out.status = TransferStatus::InvalidArgument;
+                out.code   = EmitTransferCode::PlanMismatch;
+                out.errors = 1U;
+                out.message
+                    = "compiled png emit plan contract_version mismatch";
+                return out;
+            }
+            break;
+        case TransferTargetFormat::Jp2:
+            if (plan.jp2_emit.contract_version != bundle.contract_version) {
+                out.status = TransferStatus::InvalidArgument;
+                out.code   = EmitTransferCode::PlanMismatch;
+                out.errors = 1U;
+                out.message
+                    = "compiled jp2 emit plan contract_version mismatch";
                 return out;
             }
             break;
@@ -16397,6 +18086,142 @@ namespace {
                 }
                 break;
             }
+            case TransferTargetFormat::Png: {
+                if (options.emit_output_writer) {
+                    PreparedTransferPackagePlan package;
+                    out.emit = build_prepared_transfer_emit_package(
+                        *bundle, &package, effective_plan->emit);
+                    if (out.emit.status != TransferStatus::Ok) {
+                        break;
+                    }
+                    const uint64_t writer_hint
+                        = options.emit_output_writer->remaining_capacity_hint();
+                    if (writer_hint != UINT64_MAX) {
+                        uint64_t needed_bytes = package.output_size;
+                        if (emit_repeat != 0U
+                            && needed_bytes > (UINT64_MAX / emit_repeat)) {
+                            out.emit.status = TransferStatus::LimitExceeded;
+                            out.emit.code = EmitTransferCode::BackendWriteFailed;
+                            out.emit.errors = 1U;
+                            out.emit.message
+                                = "emit_output_writer capacity exceeded";
+                            break;
+                        }
+                        needed_bytes *= emit_repeat;
+                        if (needed_bytes > writer_hint) {
+                            out.emit.status = TransferStatus::LimitExceeded;
+                            out.emit.code = EmitTransferCode::BackendWriteFailed;
+                            out.emit.errors = 1U;
+                            out.emit.message
+                                = "emit_output_writer capacity exceeded";
+                            break;
+                        }
+                    }
+
+                    CountingTransferByteWriter writer(
+                        *options.emit_output_writer);
+                    const std::span<const std::byte> empty_input;
+                    for (uint32_t rep = 0; rep < emit_repeat; ++rep) {
+                        out.emit = write_prepared_transfer_package(empty_input,
+                                                                   *bundle,
+                                                                   package,
+                                                                   writer);
+                        if (out.emit.status != TransferStatus::Ok) {
+                            break;
+                        }
+                    }
+                    out.emit_output_size = writer.bytes_written();
+                    if (out.emit.status == TransferStatus::Ok) {
+                        build_png_emit_summary_from_plan(
+                            *bundle, effective_plan->png_emit,
+                            effective_plan->emit, emit_repeat,
+                            &out.png_chunk_summary);
+                    }
+                } else {
+                    ExecuteRecordingPngEmitter emitter;
+                    emitter.reset();
+                    for (uint32_t rep = 0; rep < emit_repeat; ++rep) {
+                        out.emit = emit_prepared_bundle_png_compiled(
+                            *bundle, effective_plan->png_emit, emitter,
+                            effective_plan->emit);
+                        if (out.emit.status != TransferStatus::Ok) {
+                            break;
+                        }
+                    }
+                    if (out.emit.status == TransferStatus::Ok) {
+                        emitter.build_summary(&out.png_chunk_summary);
+                    }
+                }
+                break;
+            }
+            case TransferTargetFormat::Jp2: {
+                if (options.emit_output_writer) {
+                    PreparedTransferPackagePlan package;
+                    out.emit = build_prepared_transfer_emit_package(
+                        *bundle, &package, effective_plan->emit);
+                    if (out.emit.status != TransferStatus::Ok) {
+                        break;
+                    }
+                    const uint64_t writer_hint
+                        = options.emit_output_writer->remaining_capacity_hint();
+                    if (writer_hint != UINT64_MAX) {
+                        uint64_t needed_bytes = package.output_size;
+                        if (emit_repeat != 0U
+                            && needed_bytes > (UINT64_MAX / emit_repeat)) {
+                            out.emit.status = TransferStatus::LimitExceeded;
+                            out.emit.code = EmitTransferCode::BackendWriteFailed;
+                            out.emit.errors = 1U;
+                            out.emit.message
+                                = "emit_output_writer capacity exceeded";
+                            break;
+                        }
+                        needed_bytes *= emit_repeat;
+                        if (needed_bytes > writer_hint) {
+                            out.emit.status = TransferStatus::LimitExceeded;
+                            out.emit.code = EmitTransferCode::BackendWriteFailed;
+                            out.emit.errors = 1U;
+                            out.emit.message
+                                = "emit_output_writer capacity exceeded";
+                            break;
+                        }
+                    }
+
+                    CountingTransferByteWriter writer(
+                        *options.emit_output_writer);
+                    const std::span<const std::byte> empty_input;
+                    for (uint32_t rep = 0; rep < emit_repeat; ++rep) {
+                        out.emit = write_prepared_transfer_package(empty_input,
+                                                                   *bundle,
+                                                                   package,
+                                                                   writer);
+                        if (out.emit.status != TransferStatus::Ok) {
+                            break;
+                        }
+                    }
+                    out.emit_output_size = writer.bytes_written();
+                    if (out.emit.status == TransferStatus::Ok) {
+                        build_jp2_emit_summary_from_plan(
+                            *bundle, effective_plan->jp2_emit,
+                            effective_plan->emit, emit_repeat,
+                            &out.jp2_box_summary);
+                    }
+                } else {
+                    ExecuteRecordingJp2Emitter emitter;
+                    emitter.reset();
+                    for (uint32_t rep = 0; rep < emit_repeat; ++rep) {
+                        out.emit = emit_prepared_bundle_jp2_compiled(
+                            *bundle, effective_plan->jp2_emit, emitter,
+                            effective_plan->emit);
+                        if (out.emit.status != TransferStatus::Ok) {
+                            break;
+                        }
+                    }
+                    if (out.emit.status == TransferStatus::Ok) {
+                        emitter.build_summary(&out.jp2_box_summary);
+                    }
+                }
+                break;
+            }
             case TransferTargetFormat::Heif:
             case TransferTargetFormat::Avif:
             case TransferTargetFormat::Cr3: {
@@ -16549,6 +18374,130 @@ namespace {
                     }
                 }
             }
+        } else if (bundle->target_format == TransferTargetFormat::Webp) {
+            PreparedTransferPackagePlan package;
+            uint32_t removed_chunks = 0U;
+            out.edit_apply.status   = TransferStatus::Unsupported;
+            out.edit_apply.code     = EmitTransferCode::InvalidArgument;
+            out.edit_apply.message  = "webp edit apply not requested";
+
+            const EmitTransferResult plan_result
+                = build_prepared_bundle_webp_package(edit_input, *bundle,
+                                                     &package,
+                                                     &removed_chunks);
+            out.edit_plan_status  = plan_result.status;
+            out.edit_plan_message = plan_result.message;
+            out.edit_output_size  = plan_result.status == TransferStatus::Ok
+                                        ? package.output_size
+                                        : 0U;
+
+            if (plan_result.status == TransferStatus::Ok
+                && out.edit_plan_message.empty()) {
+                out.edit_plan_message
+                    = removed_chunks == 0U
+                          ? "webp metadata rewrite planned"
+                          : "webp metadata rewrite planned after removing prior matching metadata chunks";
+            }
+
+            if (plan_result.status == TransferStatus::Ok
+                && options.edit_apply) {
+                if (options.edit_output_writer) {
+                    out.edit_apply = write_prepared_transfer_package(
+                        edit_input, *bundle, package,
+                        *options.edit_output_writer);
+                } else {
+                    PreparedTransferPackageBatch batch;
+                    out.edit_apply = build_prepared_transfer_package_batch(
+                        edit_input, *bundle, package, &batch);
+                    if (out.edit_apply.status == TransferStatus::Ok) {
+                        if (batch.output_size > static_cast<uint64_t>(
+                                std::numeric_limits<size_t>::max())) {
+                            out.edit_apply.status
+                                = TransferStatus::LimitExceeded;
+                            out.edit_apply.code
+                                = EmitTransferCode::InvalidPayload;
+                            out.edit_apply.errors = 1U;
+                            out.edit_apply.message
+                                = "webp edited output exceeds size_t";
+                        } else {
+                            out.edited_output.clear();
+                            out.edited_output.reserve(
+                                static_cast<size_t>(batch.output_size));
+                            for (size_t i = 0; i < batch.chunks.size(); ++i) {
+                                const PreparedTransferPackageBlob& chunk
+                                    = batch.chunks[i];
+                                out.edited_output.insert(out.edited_output.end(),
+                                                         chunk.bytes.begin(),
+                                                         chunk.bytes.end());
+                            }
+                            out.edit_output_size = static_cast<uint64_t>(
+                                out.edited_output.size());
+                        }
+                    }
+                }
+            }
+        } else if (bundle->target_format == TransferTargetFormat::Png) {
+            PreparedTransferPackagePlan package;
+            uint32_t removed_chunks = 0U;
+            out.edit_apply.status   = TransferStatus::Unsupported;
+            out.edit_apply.code     = EmitTransferCode::InvalidArgument;
+            out.edit_apply.message  = "png edit apply not requested";
+
+            const EmitTransferResult plan_result
+                = build_prepared_bundle_png_package(edit_input, *bundle,
+                                                    &package,
+                                                    &removed_chunks);
+            out.edit_plan_status  = plan_result.status;
+            out.edit_plan_message = plan_result.message;
+            out.edit_output_size  = plan_result.status == TransferStatus::Ok
+                                        ? package.output_size
+                                        : 0U;
+
+            if (plan_result.status == TransferStatus::Ok
+                && out.edit_plan_message.empty()) {
+                out.edit_plan_message
+                    = removed_chunks == 0U
+                          ? "png metadata rewrite planned after ihdr"
+                          : "png metadata rewrite planned after removing prior matching metadata chunks";
+            }
+
+            if (plan_result.status == TransferStatus::Ok
+                && options.edit_apply) {
+                if (options.edit_output_writer) {
+                    out.edit_apply = write_prepared_transfer_package(
+                        edit_input, *bundle, package,
+                        *options.edit_output_writer);
+                } else {
+                    PreparedTransferPackageBatch batch;
+                    out.edit_apply = build_prepared_transfer_package_batch(
+                        edit_input, *bundle, package, &batch);
+                    if (out.edit_apply.status == TransferStatus::Ok) {
+                        if (batch.output_size > static_cast<uint64_t>(
+                                std::numeric_limits<size_t>::max())) {
+                            out.edit_apply.status
+                                = TransferStatus::LimitExceeded;
+                            out.edit_apply.code
+                                = EmitTransferCode::InvalidPayload;
+                            out.edit_apply.errors = 1U;
+                            out.edit_apply.message
+                                = "png edited output exceeds size_t";
+                        } else {
+                            out.edited_output.clear();
+                            out.edited_output.reserve(
+                                static_cast<size_t>(batch.output_size));
+                            for (size_t i = 0; i < batch.chunks.size(); ++i) {
+                                const PreparedTransferPackageBlob& chunk
+                                    = batch.chunks[i];
+                                out.edited_output.insert(out.edited_output.end(),
+                                                         chunk.bytes.begin(),
+                                                         chunk.bytes.end());
+                            }
+                            out.edit_output_size = static_cast<uint64_t>(
+                                out.edited_output.size());
+                        }
+                    }
+                }
+            }
         } else if (transfer_target_is_bmff(bundle->target_format)) {
             PreparedTransferPackagePlan package;
             uint32_t removed_meta_boxes = 0U;
@@ -16624,6 +18573,445 @@ namespace {
     }
 
 }  // namespace
+
+static EmitTransferResult
+build_prepared_bundle_webp_package(std::span<const std::byte> input_webp,
+                                   const PreparedTransferBundle& bundle,
+                                   PreparedTransferPackagePlan* out_plan,
+                                   uint32_t* out_removed_chunks) noexcept
+{
+    EmitTransferResult out;
+    if (!out_plan) {
+        out.status  = TransferStatus::InvalidArgument;
+        out.code    = EmitTransferCode::InvalidArgument;
+        out.errors  = 1U;
+        out.message = "out_plan is null";
+        return out;
+    }
+    if (bundle.target_format != TransferTargetFormat::Webp) {
+        out.status  = TransferStatus::Unsupported;
+        out.code    = EmitTransferCode::InvalidArgument;
+        out.errors  = 1U;
+        out.message = "bundle target format is not webp";
+        return out;
+    }
+    if (input_webp.size() < 12U) {
+        out.status  = TransferStatus::InvalidArgument;
+        out.code    = EmitTransferCode::InvalidArgument;
+        out.errors  = 1U;
+        out.message = "webp edit requires input bytes";
+        return out;
+    }
+    if (!png_bytes_equal(input_webp, 0U, "RIFF", 4U)
+        || !png_bytes_equal(input_webp, 8U, "WEBP", 4U)) {
+        out.status  = TransferStatus::Unsupported;
+        out.code    = EmitTransferCode::InvalidArgument;
+        out.errors  = 1U;
+        out.message = "input is not a supported webp riff stream";
+        return out;
+    }
+
+    uint32_t riff_size = 0U;
+    if (!read_u32le(input_webp, 4U, &riff_size)) {
+        out.status  = TransferStatus::Malformed;
+        out.code    = EmitTransferCode::InvalidPayload;
+        out.errors  = 1U;
+        out.message = "failed to read webp riff size";
+        return out;
+    }
+    const uint64_t logical_end = static_cast<uint64_t>(riff_size) + 8U;
+    if (logical_end < 12U || logical_end > input_webp.size()) {
+        out.status  = TransferStatus::Malformed;
+        out.code    = EmitTransferCode::InvalidPayload;
+        out.errors  = 1U;
+        out.message = "webp riff size is out of range";
+        return out;
+    }
+    if (logical_end != input_webp.size()) {
+        out.status  = TransferStatus::Unsupported;
+        out.code    = EmitTransferCode::InvalidArgument;
+        out.errors  = 1U;
+        out.message
+            = "webp edit does not support trailing bytes outside riff size";
+        return out;
+    }
+
+    const WebpRewritePolicy policy = collect_webp_rewrite_policy(bundle);
+
+    std::vector<TransferWebpChunk> chunks;
+    chunks.reserve(32U);
+    bool saw_vp8x               = false;
+    size_t vp8x_index           = 0U;
+    bool retained_exif          = false;
+    bool retained_xmp           = false;
+    bool retained_icc           = false;
+    uint64_t offset             = 12U;
+    while (offset < logical_end) {
+        TransferWebpChunk chunk;
+        if (!parse_transfer_webp_chunk(input_webp, offset, logical_end,
+                                       &chunk)) {
+            out.status  = TransferStatus::Malformed;
+            out.code    = EmitTransferCode::InvalidPayload;
+            out.errors  = 1U;
+            out.message = "failed to parse webp chunk during rewrite";
+            return out;
+        }
+        if (chunk.type == fourcc('V', 'P', '8', 'X')) {
+            if (saw_vp8x) {
+                out.status  = TransferStatus::Malformed;
+                out.code    = EmitTransferCode::InvalidPayload;
+                out.errors  = 1U;
+                out.message = "webp rewrite requires at most one vp8x chunk";
+                return out;
+            }
+            if (chunk.data_size < 10U) {
+                out.status  = TransferStatus::Malformed;
+                out.code    = EmitTransferCode::InvalidPayload;
+                out.errors  = 1U;
+                out.message = "webp vp8x chunk is truncated";
+                return out;
+            }
+            saw_vp8x   = true;
+            vp8x_index = chunks.size();
+        }
+        if (!webp_source_chunk_matches_rewrite_policy(chunk, policy)) {
+            switch (classify_source_webp_rewrite_family(chunk)) {
+            case WebpRewriteFamily::Exif: retained_exif = true; break;
+            case WebpRewriteFamily::Xmp: retained_xmp = true; break;
+            case WebpRewriteFamily::Icc: retained_icc = true; break;
+            case WebpRewriteFamily::C2pa:
+            case WebpRewriteFamily::Unknown: break;
+            }
+        }
+        chunks.push_back(chunk);
+        offset += chunk.size;
+        if (chunk.size == 0U) {
+            break;
+        }
+    }
+    if (offset != logical_end) {
+        out.status  = TransferStatus::Malformed;
+        out.code    = EmitTransferCode::InvalidPayload;
+        out.errors  = 1U;
+        out.message = "webp chunk stream does not consume riff payload";
+        return out;
+    }
+
+    uint32_t appended_chunks = 0U;
+    bool inserted_exif       = false;
+    bool inserted_xmp        = false;
+    bool inserted_icc        = false;
+    for (uint32_t i = 0U; i < bundle.blocks.size(); ++i) {
+        const PreparedTransferBlock& block = bundle.blocks[i];
+        if (block.payload.empty()) {
+            continue;
+        }
+        std::array<char, 4> chunk_type = { '\0', '\0', '\0', '\0' };
+        if (!webp_chunk_from_route(block.route, &chunk_type)) {
+            out.status             = TransferStatus::Unsupported;
+            out.code               = EmitTransferCode::UnsupportedRoute;
+            out.errors             = 1U;
+            out.failed_block_index = i;
+            out.message = "unsupported webp route: " + block.route;
+            return out;
+        }
+        if (block.route == "webp:chunk-exif") {
+            inserted_exif = true;
+        } else if (block.route == "webp:chunk-xmp") {
+            inserted_xmp = true;
+        } else if (block.route == "webp:chunk-iccp") {
+            inserted_icc = true;
+        }
+        appended_chunks += 1U;
+    }
+
+    const bool final_exif  = retained_exif || inserted_exif;
+    const bool final_xmp   = retained_xmp || inserted_xmp;
+    const bool final_icc   = retained_icc || inserted_icc;
+    const bool needs_vp8x  = final_exif || final_xmp || final_icc;
+    if (needs_vp8x && !saw_vp8x) {
+        out.status  = TransferStatus::Unsupported;
+        out.code    = EmitTransferCode::InvalidArgument;
+        out.errors  = 1U;
+        out.message
+            = "webp edit requires an existing vp8x chunk for exif/xmp/icc metadata";
+        return out;
+    }
+
+    PreparedTransferPackagePlan plan;
+    plan.contract_version = bundle.contract_version;
+    plan.target_format    = bundle.target_format;
+    plan.input_size       = static_cast<uint64_t>(input_webp.size());
+
+    PreparedTransferPackageChunk header_chunk;
+    header_chunk.kind          = TransferPackageChunkKind::InlineBytes;
+    header_chunk.output_offset = 0U;
+    header_chunk.size          = 12U;
+    header_chunk.inline_bytes.assign(input_webp.begin(), input_webp.begin() + 12U);
+    plan.chunks.push_back(std::move(header_chunk));
+
+    uint32_t removed_chunks = 0U;
+    bool inserted_chunks    = false;
+
+    if (!saw_vp8x) {
+        for (uint32_t i = 0U; i < bundle.blocks.size(); ++i) {
+            const PreparedTransferBlock& block = bundle.blocks[i];
+            if (block.payload.empty()) {
+                continue;
+            }
+            append_package_prepared_block_chunk(
+                &plan, i,
+                8U + static_cast<uint64_t>(block.payload.size())
+                    + static_cast<uint64_t>((block.payload.size() & 1U) != 0U));
+        }
+        inserted_chunks = appended_chunks != 0U;
+    }
+
+    for (size_t ci = 0U; ci < chunks.size(); ++ci) {
+        const TransferWebpChunk& chunk = chunks[ci];
+        if (saw_vp8x && ci == vp8x_index) {
+            std::vector<std::byte> patched(
+                input_webp.begin() + static_cast<std::ptrdiff_t>(chunk.offset),
+                input_webp.begin()
+                    + static_cast<std::ptrdiff_t>(chunk.offset + chunk.size));
+            uint8_t flags = std::to_integer<uint8_t>(patched[8U]);
+            if (final_icc) {
+                flags = static_cast<uint8_t>(flags | kWebpVp8xIccBit);
+            } else {
+                flags = static_cast<uint8_t>(flags & ~kWebpVp8xIccBit);
+            }
+            if (final_exif) {
+                flags = static_cast<uint8_t>(flags | kWebpVp8xExifBit);
+            } else {
+                flags = static_cast<uint8_t>(flags & ~kWebpVp8xExifBit);
+            }
+            if (final_xmp) {
+                flags = static_cast<uint8_t>(flags | kWebpVp8xXmpBit);
+            } else {
+                flags = static_cast<uint8_t>(flags & ~kWebpVp8xXmpBit);
+            }
+            patched[8U] = std::byte { flags };
+            append_package_inline_chunk(
+                &plan,
+                std::span<const std::byte>(patched.data(), patched.size()));
+            if (!inserted_chunks) {
+                for (uint32_t i = 0U; i < bundle.blocks.size(); ++i) {
+                    const PreparedTransferBlock& block = bundle.blocks[i];
+                    if (block.payload.empty()) {
+                        continue;
+                    }
+                    append_package_prepared_block_chunk(
+                        &plan, i,
+                        8U + static_cast<uint64_t>(block.payload.size())
+                            + static_cast<uint64_t>(
+                                (block.payload.size() & 1U) != 0U));
+                }
+                inserted_chunks = appended_chunks != 0U;
+            }
+            continue;
+        }
+        if (webp_source_chunk_matches_rewrite_policy(chunk, policy)) {
+            removed_chunks += 1U;
+            continue;
+        }
+        append_package_source_chunk(&plan, chunk.offset, chunk.size);
+    }
+
+    if (appended_chunks == 0U && removed_chunks == 0U) {
+        out.status  = TransferStatus::InvalidArgument;
+        out.code    = EmitTransferCode::InvalidArgument;
+        out.errors  = 1U;
+        out.message = "webp edit requires at least one metadata chunk update";
+        return out;
+    }
+
+    plan.output_size = package_plan_next_output_offset(plan);
+    if (plan.output_size < 8U
+        || plan.output_size - 8U > static_cast<uint64_t>(0xFFFFFFFFU)) {
+        out.status  = TransferStatus::LimitExceeded;
+        out.code    = EmitTransferCode::InvalidPayload;
+        out.errors  = 1U;
+        out.message = "webp edited output exceeds 32-bit riff size";
+        return out;
+    }
+
+    const uint32_t new_riff_size = static_cast<uint32_t>(plan.output_size - 8U);
+    plan.chunks[0].inline_bytes[4U]
+        = std::byte { static_cast<uint8_t>((new_riff_size >> 0U) & 0xFFU) };
+    plan.chunks[0].inline_bytes[5U]
+        = std::byte { static_cast<uint8_t>((new_riff_size >> 8U) & 0xFFU) };
+    plan.chunks[0].inline_bytes[6U]
+        = std::byte { static_cast<uint8_t>((new_riff_size >> 16U) & 0xFFU) };
+    plan.chunks[0].inline_bytes[7U]
+        = std::byte { static_cast<uint8_t>((new_riff_size >> 24U) & 0xFFU) };
+
+    *out_plan = std::move(plan);
+    if (out_removed_chunks) {
+        *out_removed_chunks = removed_chunks;
+    }
+
+    out.status  = TransferStatus::Ok;
+    out.code    = EmitTransferCode::None;
+    out.emitted = appended_chunks;
+    if (appended_chunks == 0U) {
+        out.message = "removed prior matching webp metadata chunks";
+    } else if (removed_chunks == 0U) {
+        out.message = saw_vp8x
+                          ? "inserted prepared webp metadata chunks after vp8x"
+                          : "inserted prepared webp metadata chunks after riff header";
+    } else {
+        out.message = "replaced prior matching webp metadata chunks";
+    }
+    return out;
+}
+
+static EmitTransferResult
+build_prepared_bundle_png_package(std::span<const std::byte> input_png,
+                                  const PreparedTransferBundle& bundle,
+                                  PreparedTransferPackagePlan* out_plan,
+                                  uint32_t* out_removed_chunks) noexcept
+{
+    EmitTransferResult out;
+    if (!out_plan) {
+        out.status  = TransferStatus::InvalidArgument;
+        out.code    = EmitTransferCode::InvalidArgument;
+        out.errors  = 1U;
+        out.message = "out_plan is null";
+        return out;
+    }
+    if (bundle.target_format != TransferTargetFormat::Png) {
+        out.status  = TransferStatus::Unsupported;
+        out.code    = EmitTransferCode::InvalidArgument;
+        out.errors  = 1U;
+        out.message = "bundle target format is not png";
+        return out;
+    }
+    if (input_png.size() < kPngSignature.size()) {
+        out.status  = TransferStatus::InvalidArgument;
+        out.code    = EmitTransferCode::InvalidArgument;
+        out.errors  = 1U;
+        out.message = "png edit requires input bytes";
+        return out;
+    }
+    bool has_signature = input_png.size() >= kPngSignature.size();
+    for (size_t i = 0U; has_signature && i < kPngSignature.size(); ++i) {
+        if (input_png[i] != kPngSignature[i]) {
+            has_signature = false;
+        }
+    }
+    if (!has_signature) {
+        out.status  = TransferStatus::Unsupported;
+        out.code    = EmitTransferCode::InvalidArgument;
+        out.errors  = 1U;
+        out.message = "input is not a supported png stream";
+        return out;
+    }
+
+    PreparedTransferPackagePlan plan;
+    plan.contract_version = bundle.contract_version;
+    plan.target_format    = bundle.target_format;
+    plan.input_size       = static_cast<uint64_t>(input_png.size());
+
+    const PngRewritePolicy policy = collect_png_rewrite_policy(bundle);
+
+    TransferPngChunk ihdr;
+    if (!parse_transfer_png_chunk(
+            input_png, static_cast<uint64_t>(kPngSignature.size()), &ihdr)
+        || ihdr.type != fourcc('I', 'H', 'D', 'R')) {
+        out.status  = TransferStatus::Malformed;
+        out.code    = EmitTransferCode::InvalidPayload;
+        out.errors  = 1U;
+        out.message = "failed to parse png ihdr chunk";
+        return out;
+    }
+
+    append_package_source_chunk(&plan, 0U, ihdr.offset + ihdr.size);
+    uint32_t appended_chunks = 0U;
+    for (uint32_t i = 0U; i < bundle.blocks.size(); ++i) {
+        const PreparedTransferBlock& block = bundle.blocks[i];
+        if (block.payload.empty()) {
+            continue;
+        }
+        std::array<char, 4> chunk_type = { '\0', '\0', '\0', '\0' };
+        if (!png_chunk_from_route(block.route, &chunk_type)) {
+            out.status             = TransferStatus::Unsupported;
+            out.code               = EmitTransferCode::UnsupportedRoute;
+            out.errors             = 1U;
+            out.failed_block_index = i;
+            out.message = "unsupported png route: " + block.route;
+            return out;
+        }
+        append_package_prepared_block_chunk(
+            &plan, i, 12U + static_cast<uint64_t>(block.payload.size()));
+        appended_chunks += 1U;
+    }
+
+    uint32_t removed_chunks = 0U;
+    bool saw_iend           = false;
+    uint64_t offset         = ihdr.offset + ihdr.size;
+    while (offset < input_png.size()) {
+        TransferPngChunk chunk;
+        if (!parse_transfer_png_chunk(input_png, offset, &chunk)) {
+            out.status  = TransferStatus::Malformed;
+            out.code    = EmitTransferCode::InvalidPayload;
+            out.errors  = 1U;
+            out.message = "failed to parse png chunk during rewrite";
+            return out;
+        }
+
+        if (png_source_chunk_matches_rewrite_policy(input_png, chunk, policy)) {
+            removed_chunks += 1U;
+        } else {
+            const uint64_t keep_size
+                = chunk.type == fourcc('I', 'E', 'N', 'D')
+                      ? static_cast<uint64_t>(input_png.size()) - chunk.offset
+                      : chunk.size;
+            append_package_source_chunk(&plan, chunk.offset, keep_size);
+        }
+
+        offset += chunk.size;
+        if (chunk.type == fourcc('I', 'E', 'N', 'D')) {
+            saw_iend = true;
+            break;
+        }
+        if (chunk.size == 0U) {
+            break;
+        }
+    }
+
+    if (!saw_iend) {
+        out.status  = TransferStatus::Malformed;
+        out.code    = EmitTransferCode::InvalidPayload;
+        out.errors  = 1U;
+        out.message = "png rewrite requires a terminal iend chunk";
+        return out;
+    }
+    if (appended_chunks == 0U && removed_chunks == 0U) {
+        out.status  = TransferStatus::InvalidArgument;
+        out.code    = EmitTransferCode::InvalidArgument;
+        out.errors  = 1U;
+        out.message = "png edit requires at least one metadata chunk update";
+        return out;
+    }
+
+    plan.output_size = package_plan_next_output_offset(plan);
+    *out_plan        = std::move(plan);
+    if (out_removed_chunks) {
+        *out_removed_chunks = removed_chunks;
+    }
+
+    out.status  = TransferStatus::Ok;
+    out.code    = EmitTransferCode::None;
+    out.emitted = appended_chunks;
+    if (appended_chunks == 0U) {
+        out.message = "removed prior matching png metadata chunks";
+    } else if (removed_chunks == 0U) {
+        out.message = "inserted prepared png metadata chunks after ihdr";
+    } else {
+        out.message = "replaced prior matching png metadata chunks";
+    }
+    return out;
+}
 
 static EmitTransferResult
 build_prepared_bundle_jxl_package_impl(std::span<const std::byte> input_jxl,
@@ -16810,6 +19198,10 @@ compile_prepared_transfer_execution(
     out_plan->jxl_emit.ops.clear();
     out_plan->webp_emit.contract_version = bundle.contract_version;
     out_plan->webp_emit.ops.clear();
+    out_plan->png_emit.contract_version = bundle.contract_version;
+    out_plan->png_emit.ops.clear();
+    out_plan->jp2_emit.contract_version = bundle.contract_version;
+    out_plan->jp2_emit.ops.clear();
     out_plan->bmff_emit.contract_version = bundle.contract_version;
     out_plan->bmff_emit.ops.clear();
 
@@ -16826,6 +19218,12 @@ compile_prepared_transfer_execution(
     case TransferTargetFormat::Webp:
         return compile_prepared_bundle_webp(bundle, &out_plan->webp_emit,
                                             options);
+    case TransferTargetFormat::Png:
+        return compile_prepared_bundle_png(bundle, &out_plan->png_emit,
+                                           options);
+    case TransferTargetFormat::Jp2:
+        return compile_prepared_bundle_jp2(bundle, &out_plan->jp2_emit,
+                                           options);
     case TransferTargetFormat::Heif:
     case TransferTargetFormat::Avif:
     case TransferTargetFormat::Cr3:
@@ -16922,6 +19320,32 @@ build_prepared_transfer_adapter_view(const PreparedTransferBundle& bundle,
                                  + static_cast<uint64_t>(
                                      (block.payload.size() & 1U) != 0U);
             op.chunk_type = src.chunk_type;
+            view.ops.push_back(op);
+        }
+    } else if (bundle.target_format == TransferTargetFormat::Png) {
+        view.ops.reserve(plan.png_emit.ops.size());
+        for (size_t i = 0; i < plan.png_emit.ops.size(); ++i) {
+            const PreparedPngEmitOp& src       = plan.png_emit.ops[i];
+            const PreparedTransferBlock& block = bundle.blocks[src.block_index];
+            PreparedTransferAdapterOp op;
+            op.kind            = TransferAdapterOpKind::PngChunk;
+            op.block_index     = src.block_index;
+            op.payload_size    = static_cast<uint64_t>(block.payload.size());
+            op.serialized_size = 12U + op.payload_size;
+            op.chunk_type      = src.chunk_type;
+            view.ops.push_back(op);
+        }
+    } else if (bundle.target_format == TransferTargetFormat::Jp2) {
+        view.ops.reserve(plan.jp2_emit.ops.size());
+        for (size_t i = 0; i < plan.jp2_emit.ops.size(); ++i) {
+            const PreparedJp2EmitOp& src       = plan.jp2_emit.ops[i];
+            const PreparedTransferBlock& block = bundle.blocks[src.block_index];
+            PreparedTransferAdapterOp op;
+            op.kind            = TransferAdapterOpKind::Jp2Box;
+            op.block_index     = src.block_index;
+            op.payload_size    = static_cast<uint64_t>(block.payload.size());
+            op.serialized_size = 8U + op.payload_size;
+            op.box_type        = src.box_type;
             view.ops.push_back(op);
         }
     } else if (transfer_target_is_bmff(bundle.target_format)) {
@@ -17054,6 +19478,28 @@ emit_prepared_transfer_adapter_view(const PreparedTransferBundle& bundle,
                 out.errors += 1U;
                 out.failed_block_index = op.block_index;
                 out.message            = "adapter view webp op is inconsistent";
+                return out;
+            }
+        } else if (bundle.target_format == TransferTargetFormat::Png) {
+            const uint64_t expected_size = 12U + payload_size;
+            if (op.kind != TransferAdapterOpKind::PngChunk
+                || op.serialized_size != expected_size) {
+                out.status = TransferStatus::InvalidArgument;
+                out.code   = EmitTransferCode::PlanMismatch;
+                out.errors += 1U;
+                out.failed_block_index = op.block_index;
+                out.message            = "adapter view png op is inconsistent";
+                return out;
+            }
+        } else if (bundle.target_format == TransferTargetFormat::Jp2) {
+            const uint64_t expected_size = 8U + payload_size;
+            if (op.kind != TransferAdapterOpKind::Jp2Box
+                || op.serialized_size != expected_size) {
+                out.status = TransferStatus::InvalidArgument;
+                out.code   = EmitTransferCode::PlanMismatch;
+                out.errors += 1U;
+                out.failed_block_index = op.block_index;
+                out.message            = "adapter view jp2 op is inconsistent";
                 return out;
             }
         } else if (transfer_target_is_bmff(bundle.target_format)) {
@@ -17348,6 +19794,98 @@ emit_prepared_transfer_compiled(PreparedTransferBundle* bundle,
     if (out.emit.status == TransferStatus::Ok) {
         build_webp_emit_summary_from_plan(*bundle, plan.webp_emit, plan.emit,
                                           repeat, &out.webp_chunk_summary);
+    }
+    return out;
+}
+
+ExecutePreparedTransferResult
+emit_prepared_transfer_compiled(PreparedTransferBundle* bundle,
+                                const PreparedTransferExecutionPlan& plan,
+                                PngTransferEmitter& emitter,
+                                std::span<const TimePatchView> time_patches,
+                                const ApplyTimePatchOptions& time_patch,
+                                uint32_t emit_repeat) noexcept
+{
+    ExecutePreparedTransferResult out;
+    if (!bundle) {
+        return execute_prepared_transfer_compiled(bundle, plan);
+    }
+
+    if (!time_patches.empty()) {
+        out.time_patch = apply_time_patches_view(bundle, time_patches,
+                                                 time_patch);
+        if (out.time_patch.status != TransferStatus::Ok) {
+            out.compile = skipped_emit_result(
+                "skipped emit due to time patch failure");
+            out.emit = out.compile;
+            return out;
+        }
+    }
+
+    out.compile      = validate_prepared_transfer_execution_plan(*bundle, plan);
+    out.compiled_ops = prepared_transfer_execution_plan_ops(plan);
+    if (out.compile.status != TransferStatus::Ok) {
+        out.emit = skipped_emit_result("skipped emit due to compile failure");
+        return out;
+    }
+
+    const uint32_t repeat = emit_repeat == 0U ? 1U : emit_repeat;
+    for (uint32_t rep = 0; rep < repeat; ++rep) {
+        out.emit = emit_prepared_bundle_png_compiled(*bundle, plan.png_emit,
+                                                     emitter, plan.emit);
+        if (out.emit.status != TransferStatus::Ok) {
+            break;
+        }
+    }
+    if (out.emit.status == TransferStatus::Ok) {
+        build_png_emit_summary_from_plan(*bundle, plan.png_emit, plan.emit,
+                                         repeat, &out.png_chunk_summary);
+    }
+    return out;
+}
+
+ExecutePreparedTransferResult
+emit_prepared_transfer_compiled(PreparedTransferBundle* bundle,
+                                const PreparedTransferExecutionPlan& plan,
+                                Jp2TransferEmitter& emitter,
+                                std::span<const TimePatchView> time_patches,
+                                const ApplyTimePatchOptions& time_patch,
+                                uint32_t emit_repeat) noexcept
+{
+    ExecutePreparedTransferResult out;
+    if (!bundle) {
+        return execute_prepared_transfer_compiled(bundle, plan);
+    }
+
+    if (!time_patches.empty()) {
+        out.time_patch = apply_time_patches_view(bundle, time_patches,
+                                                 time_patch);
+        if (out.time_patch.status != TransferStatus::Ok) {
+            out.compile = skipped_emit_result(
+                "skipped emit due to time patch failure");
+            out.emit = out.compile;
+            return out;
+        }
+    }
+
+    out.compile      = validate_prepared_transfer_execution_plan(*bundle, plan);
+    out.compiled_ops = prepared_transfer_execution_plan_ops(plan);
+    if (out.compile.status != TransferStatus::Ok) {
+        out.emit = skipped_emit_result("skipped emit due to compile failure");
+        return out;
+    }
+
+    const uint32_t repeat = emit_repeat == 0U ? 1U : emit_repeat;
+    for (uint32_t rep = 0; rep < repeat; ++rep) {
+        out.emit = emit_prepared_bundle_jp2_compiled(*bundle, plan.jp2_emit,
+                                                     emitter, plan.emit);
+        if (out.emit.status != TransferStatus::Ok) {
+            break;
+        }
+    }
+    if (out.emit.status == TransferStatus::Ok) {
+        build_jp2_emit_summary_from_plan(*bundle, plan.jp2_emit, plan.emit,
+                                         repeat, &out.jp2_box_summary);
     }
     return out;
 }

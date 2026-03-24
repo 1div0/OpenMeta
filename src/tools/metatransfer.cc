@@ -99,6 +99,8 @@ namespace {
             "  --source-meta <path>   Metadata source for prepare phase\n"
             "  --target-jpeg <path>   Target JPEG stream for edit/apply phase\n"
             "  --target-tiff <path>   Target TIFF stream for edit/apply phase\n"
+            "  --target-png           Target PNG metadata transfer\n"
+            "  --target-jp2           Target JP2 metadata box emit summary\n"
             "  --target-jxl           Target JPEG XL metadata emit summary\n"
             "  --target-webp          Target WebP metadata chunk emit summary\n"
             "  --target-heif          Target HEIF metadata transfer\n"
@@ -486,6 +488,8 @@ namespace {
         case TransferTargetFormat::Avif: return "avif";
         case TransferTargetFormat::Cr3: return "cr3";
         case TransferTargetFormat::Exr: return "exr";
+        case TransferTargetFormat::Png: return "png";
+        case TransferTargetFormat::Jp2: return "jp2";
         }
         return "unknown";
     }
@@ -499,6 +503,8 @@ namespace {
         case TransferAdapterOpKind::JxlBox: return "jxl_box";
         case TransferAdapterOpKind::JxlIccProfile: return "jxl_icc_profile";
         case TransferAdapterOpKind::WebpChunk: return "webp_chunk";
+        case TransferAdapterOpKind::PngChunk: return "png_chunk";
+        case TransferAdapterOpKind::Jp2Box: return "jp2_box";
         case TransferAdapterOpKind::BmffItem: return "bmff_item";
         case TransferAdapterOpKind::BmffProperty: return "bmff_property";
         }
@@ -906,6 +912,11 @@ namespace {
         return std::string(type.data(), type.size());
     }
 
+    static std::string png_chunk_name(const std::array<char, 4>& type)
+    {
+        return std::string(type.data(), type.size());
+    }
+
     static std::string bmff_fourcc_name(uint32_t v) noexcept
     {
         char out[5];
@@ -963,6 +974,13 @@ namespace {
         case TransferAdapterOpKind::WebpChunk:
             std::printf(" type=%s",
                         webp_chunk_name(view.op.chunk_type).c_str());
+            break;
+        case TransferAdapterOpKind::PngChunk:
+            std::printf(" type=%s",
+                        png_chunk_name(view.op.chunk_type).c_str());
+            break;
+        case TransferAdapterOpKind::Jp2Box:
+            std::printf(" type=%s", jxl_box_name(view.op.box_type).c_str());
             break;
         case TransferAdapterOpKind::BmffItem:
             std::printf(" type=%s", bmff_item_name(view.op.bmff_item_type,
@@ -1034,6 +1052,8 @@ main(int argc, char** argv)
     std::string source_meta_path;
     std::string target_jpeg_path;
     std::string target_tiff_path;
+    bool target_png  = false;
+    bool target_jp2  = false;
     bool target_jxl  = false;
     bool target_webp = false;
     bool target_heif = false;
@@ -1312,6 +1332,14 @@ main(int argc, char** argv)
             i += 1;
             continue;
         }
+        if (std::strcmp(arg, "--target-png") == 0) {
+            target_png = true;
+            continue;
+        }
+        if (std::strcmp(arg, "--target-jp2") == 0) {
+            target_jp2 = true;
+            continue;
+        }
         if (std::strcmp(arg, "--target-jxl") == 0) {
             target_jxl = true;
             continue;
@@ -1529,6 +1557,8 @@ main(int argc, char** argv)
     const uint32_t target_count
         = static_cast<uint32_t>(!target_jpeg_path.empty())
           + static_cast<uint32_t>(!target_tiff_path.empty())
+          + static_cast<uint32_t>(target_png)
+          + static_cast<uint32_t>(target_jp2)
           + static_cast<uint32_t>(target_jxl)
           + static_cast<uint32_t>(target_webp)
           + static_cast<uint32_t>(target_heif)
@@ -1853,10 +1883,14 @@ main(int argc, char** argv)
     if (target_count > 1U) {
         std::fprintf(
             stderr,
-            "--target-jpeg, --target-tiff, --target-jxl, --target-webp, --target-heif, --target-avif, and --target-cr3 are mutually exclusive\n");
+            "--target-jpeg, --target-tiff, --target-png, --target-jp2, --target-jxl, --target-webp, --target-heif, --target-avif, and --target-cr3 are mutually exclusive\n");
         return 2;
     }
-    if (target_jxl) {
+    if (target_png) {
+        options.prepare.target_format = TransferTargetFormat::Png;
+    } else if (target_jp2) {
+        options.prepare.target_format = TransferTargetFormat::Jp2;
+    } else if (target_jxl) {
         options.prepare.target_format = TransferTargetFormat::Jxl;
     } else if (target_webp) {
         options.prepare.target_format = TransferTargetFormat::Webp;
@@ -1924,15 +1958,6 @@ main(int argc, char** argv)
             "--mode/--require-in-place are only valid for JPEG targets\n");
         return 2;
     }
-    if (!output_path.empty()
-        && options.prepare.target_format == TransferTargetFormat::Webp) {
-        std::fprintf(stderr,
-                     options.prepare.target_format == TransferTargetFormat::Webp
-                         ? "--output is not supported for WebP targets yet\n"
-                         : "--output is not supported for this target yet\n");
-        return 2;
-    }
-
     if (show_build_info) {
         print_build_info_header();
     }
@@ -1966,6 +1991,12 @@ main(int argc, char** argv)
         const bool need_tiff_edit
             = options.prepare.target_format == TransferTargetFormat::Tiff
               && (dry_run || !output_path.empty() || !target_tiff_path.empty());
+        const bool need_webp_edit = options.prepare.target_format
+                                        == TransferTargetFormat::Webp
+                                    && (dry_run || !output_path.empty());
+        const bool need_png_edit = options.prepare.target_format
+                                       == TransferTargetFormat::Png
+                                   && (dry_run || !output_path.empty());
         const bool need_jxl_edit = options.prepare.target_format
                                        == TransferTargetFormat::Jxl
                                    && (dry_run || !output_path.empty());
@@ -2326,6 +2357,7 @@ main(int argc, char** argv)
         exec_options.emit_repeat         = emit_repeat;
         exec_options.jpeg_edit           = edit_plan_opts;
         exec_options.edit_requested      = need_jpeg_edit || need_tiff_edit
+                                      || need_webp_edit || need_png_edit
                                       || need_jxl_edit || need_bmff_edit;
         exec_options.edit_apply = !dry_run && !output_path.empty();
         if (use_output_writer) {
@@ -3246,6 +3278,78 @@ main(int argc, char** argv)
         }
 
         if (prepared.bundle.target_format == TransferTargetFormat::Webp) {
+            if (exec.edit_requested) {
+                if (exec.edit_plan_status == TransferStatus::Ok) {
+                    std::printf(
+                        "  webp_edit: status=%s input=%llu output=%llu\n",
+                        transfer_status_name(exec.edit_plan_status),
+                        static_cast<unsigned long long>(exec.edit_input_size),
+                        static_cast<unsigned long long>(exec.edit_output_size));
+                } else {
+                    std::printf("  webp_edit: status=%s\n",
+                                transfer_status_name(exec.edit_plan_status));
+                }
+                if (!exec.edit_plan_message.empty()) {
+                    std::printf("  webp_edit_message=%s\n",
+                                exec.edit_plan_message.c_str());
+                }
+                if (exec.edit_plan_status != TransferStatus::Ok) {
+                    any_failed = true;
+                }
+            }
+
+            if (!output_path.empty()) {
+                if (!force && output_exists) {
+                    std::fprintf(
+                        stderr,
+                        "  webp_edit_apply: exists: %s (use --force)\n",
+                        output_path.c_str());
+                    any_failed = true;
+                    continue;
+                }
+                if (!dry_run) {
+                    std::printf(
+                        "  webp_edit_apply: status=%s code=%s emitted=%u skipped=%u errors=%u\n",
+                        transfer_status_name(exec.edit_apply.status),
+                        emit_transfer_code_name(exec.edit_apply.code),
+                        exec.edit_apply.emitted, exec.edit_apply.skipped,
+                        exec.edit_apply.errors);
+                    if (!exec.edit_apply.message.empty()) {
+                        std::printf("  webp_edit_apply_message=%s\n",
+                                    exec.edit_apply.message.c_str());
+                    }
+                    if (exec.edit_apply.status != TransferStatus::Ok) {
+                        any_failed = true;
+                        continue;
+                    }
+                    if (use_output_writer) {
+                        if (output_writer.finish() != TransferStatus::Ok) {
+                            std::fprintf(
+                                stderr,
+                                "  webp_edit_apply: write_failed: %s\n",
+                                output_path.c_str());
+                            any_failed = true;
+                            continue;
+                        }
+                    } else if (!write_file_bytes(
+                                   output_path,
+                                   std::span<const std::byte>(
+                                       exec.edited_output.data(),
+                                       exec.edited_output.size()))) {
+                        std::fprintf(stderr,
+                                     "  webp_edit_apply: write_failed: %s\n",
+                                     output_path.c_str());
+                        any_failed = true;
+                        continue;
+                    }
+                    std::printf("  output=%s bytes=%llu\n", output_path.c_str(),
+                                static_cast<unsigned long long>(
+                                    use_output_writer
+                                        ? output_writer.bytes_written()
+                                        : exec.edited_output.size()));
+                }
+            }
+
             std::printf(
                 "  compile: status=%s code=%s ops=%u skipped=%u errors=%u\n",
                 transfer_status_name(exec.compile.status),
@@ -3281,6 +3385,158 @@ main(int argc, char** argv)
                 const EmittedWebpChunkSummary& one = exec.webp_chunk_summary[ci];
                 std::printf("  webp_chunk %s count=%u bytes=%llu\n",
                             webp_chunk_name(one.type).c_str(), one.count,
+                            static_cast<unsigned long long>(one.bytes));
+            }
+            continue;
+        }
+
+        if (prepared.bundle.target_format == TransferTargetFormat::Png) {
+            if (exec.edit_requested) {
+                if (exec.edit_plan_status == TransferStatus::Ok) {
+                    std::printf(
+                        "  png_edit: status=%s input=%llu output=%llu\n",
+                        transfer_status_name(exec.edit_plan_status),
+                        static_cast<unsigned long long>(exec.edit_input_size),
+                        static_cast<unsigned long long>(exec.edit_output_size));
+                } else {
+                    std::printf("  png_edit: status=%s\n",
+                                transfer_status_name(exec.edit_plan_status));
+                }
+                if (!exec.edit_plan_message.empty()) {
+                    std::printf("  png_edit_message=%s\n",
+                                exec.edit_plan_message.c_str());
+                }
+                if (exec.edit_plan_status != TransferStatus::Ok) {
+                    any_failed = true;
+                }
+            }
+
+            if (!output_path.empty()) {
+                if (!force && output_exists) {
+                    std::fprintf(stderr,
+                                 "  png_edit_apply: exists: %s (use --force)\n",
+                                 output_path.c_str());
+                    any_failed = true;
+                    continue;
+                }
+                if (!dry_run) {
+                    std::printf(
+                        "  png_edit_apply: status=%s code=%s emitted=%u skipped=%u errors=%u\n",
+                        transfer_status_name(exec.edit_apply.status),
+                        emit_transfer_code_name(exec.edit_apply.code),
+                        exec.edit_apply.emitted, exec.edit_apply.skipped,
+                        exec.edit_apply.errors);
+                    if (!exec.edit_apply.message.empty()) {
+                        std::printf("  png_edit_apply_message=%s\n",
+                                    exec.edit_apply.message.c_str());
+                    }
+                    if (exec.edit_apply.status != TransferStatus::Ok) {
+                        any_failed = true;
+                        continue;
+                    }
+                    if (use_output_writer) {
+                        if (output_writer.finish() != TransferStatus::Ok) {
+                            std::fprintf(stderr,
+                                         "  png_edit_apply: write_failed: %s\n",
+                                         output_path.c_str());
+                            any_failed = true;
+                            continue;
+                        }
+                    } else if (!write_file_bytes(
+                                   output_path,
+                                   std::span<const std::byte>(
+                                       exec.edited_output.data(),
+                                       exec.edited_output.size()))) {
+                        std::fprintf(stderr,
+                                     "  png_edit_apply: write_failed: %s\n",
+                                     output_path.c_str());
+                        any_failed = true;
+                        continue;
+                    }
+                    std::printf("  output=%s bytes=%llu\n", output_path.c_str(),
+                                static_cast<unsigned long long>(
+                                    use_output_writer
+                                        ? output_writer.bytes_written()
+                                        : exec.edited_output.size()));
+                }
+            }
+
+            std::printf(
+                "  compile: status=%s code=%s ops=%u skipped=%u errors=%u\n",
+                transfer_status_name(exec.compile.status),
+                emit_transfer_code_name(exec.compile.code),
+                static_cast<unsigned>(exec.compiled_ops), exec.compile.skipped,
+                exec.compile.errors);
+            if (!exec.compile.message.empty()) {
+                std::printf("  compile_message=%s\n",
+                            exec.compile.message.c_str());
+            }
+            if (exec.compile.status != TransferStatus::Ok) {
+                any_failed = true;
+                continue;
+            }
+
+            std::printf(
+                "  emit: status=%s code=%s emitted=%u skipped=%u errors=%u\n",
+                transfer_status_name(exec.emit.status),
+                emit_transfer_code_name(exec.emit.code), exec.emit.emitted,
+                exec.emit.skipped, exec.emit.errors);
+            if (emit_repeat > 1U) {
+                std::printf("  emit_repeat=%u\n", emit_repeat);
+            }
+            if (!exec.emit.message.empty()) {
+                std::printf("  emit_message=%s\n", exec.emit.message.c_str());
+            }
+            if (exec.emit.status != TransferStatus::Ok) {
+                any_failed = true;
+                continue;
+            }
+
+            for (size_t ci = 0; ci < exec.png_chunk_summary.size(); ++ci) {
+                const EmittedPngChunkSummary& one = exec.png_chunk_summary[ci];
+                std::printf("  png_chunk %s count=%u bytes=%llu\n",
+                            png_chunk_name(one.type).c_str(), one.count,
+                            static_cast<unsigned long long>(one.bytes));
+            }
+            continue;
+        }
+
+        if (prepared.bundle.target_format == TransferTargetFormat::Jp2) {
+            std::printf(
+                "  compile: status=%s code=%s ops=%u skipped=%u errors=%u\n",
+                transfer_status_name(exec.compile.status),
+                emit_transfer_code_name(exec.compile.code),
+                static_cast<unsigned>(exec.compiled_ops), exec.compile.skipped,
+                exec.compile.errors);
+            if (!exec.compile.message.empty()) {
+                std::printf("  compile_message=%s\n",
+                            exec.compile.message.c_str());
+            }
+            if (exec.compile.status != TransferStatus::Ok) {
+                any_failed = true;
+                continue;
+            }
+
+            std::printf(
+                "  emit: status=%s code=%s emitted=%u skipped=%u errors=%u\n",
+                transfer_status_name(exec.emit.status),
+                emit_transfer_code_name(exec.emit.code), exec.emit.emitted,
+                exec.emit.skipped, exec.emit.errors);
+            if (emit_repeat > 1U) {
+                std::printf("  emit_repeat=%u\n", emit_repeat);
+            }
+            if (!exec.emit.message.empty()) {
+                std::printf("  emit_message=%s\n", exec.emit.message.c_str());
+            }
+            if (exec.emit.status != TransferStatus::Ok) {
+                any_failed = true;
+                continue;
+            }
+
+            for (size_t bi = 0; bi < exec.jp2_box_summary.size(); ++bi) {
+                const EmittedJp2BoxSummary& one = exec.jp2_box_summary[bi];
+                std::printf("  jp2_box %s count=%u bytes=%llu\n",
+                            jxl_box_name(one.type).c_str(), one.count,
                             static_cast<unsigned long long>(one.bytes));
             }
             continue;

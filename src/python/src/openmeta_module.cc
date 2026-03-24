@@ -812,6 +812,8 @@ namespace {
         case TransferTargetFormat::Avif: return "avif";
         case TransferTargetFormat::Cr3: return "cr3";
         case TransferTargetFormat::Exr: return "exr";
+        case TransferTargetFormat::Png: return "png";
+        case TransferTargetFormat::Jp2: return "jp2";
         }
         return "unknown";
     }
@@ -825,6 +827,8 @@ namespace {
         case TransferAdapterOpKind::JxlBox: return "jxl_box";
         case TransferAdapterOpKind::JxlIccProfile: return "jxl_icc_profile";
         case TransferAdapterOpKind::WebpChunk: return "webp_chunk";
+        case TransferAdapterOpKind::PngChunk: return "png_chunk";
+        case TransferAdapterOpKind::Jp2Box: return "jp2_box";
         case TransferAdapterOpKind::BmffItem: return "bmff_item";
         case TransferAdapterOpKind::BmffProperty: return "bmff_property";
         }
@@ -2288,6 +2292,28 @@ namespace {
         }
         out["webp_chunk_summary"] = std::move(webp_chunk_summary);
 
+        nb::list png_chunk_summary;
+        for (size_t i = 0; i < exec.png_chunk_summary.size(); ++i) {
+            nb::dict one;
+            one["type"]  = nb::str(exec.png_chunk_summary[i].type.data(),
+                                   exec.png_chunk_summary[i].type.size());
+            one["count"] = nb::int_(exec.png_chunk_summary[i].count);
+            one["bytes"] = nb::int_(exec.png_chunk_summary[i].bytes);
+            png_chunk_summary.append(std::move(one));
+        }
+        out["png_chunk_summary"] = std::move(png_chunk_summary);
+
+        nb::list jp2_box_summary;
+        for (size_t i = 0; i < exec.jp2_box_summary.size(); ++i) {
+            nb::dict one;
+            one["type"]  = nb::str(exec.jp2_box_summary[i].type.data(),
+                                   exec.jp2_box_summary[i].type.size());
+            one["count"] = nb::int_(exec.jp2_box_summary[i].count);
+            one["bytes"] = nb::int_(exec.jp2_box_summary[i].bytes);
+            jp2_box_summary.append(std::move(one));
+        }
+        out["jp2_box_summary"] = std::move(jp2_box_summary);
+
         nb::list bmff_item_summary;
         for (size_t i = 0; i < exec.bmff_item_summary.size(); ++i) {
             nb::dict one;
@@ -3242,7 +3268,9 @@ NB_MODULE(_openmeta, m)
         .value("Heif", TransferTargetFormat::Heif)
         .value("Avif", TransferTargetFormat::Avif)
         .value("Cr3", TransferTargetFormat::Cr3)
-        .value("Exr", TransferTargetFormat::Exr);
+        .value("Exr", TransferTargetFormat::Exr)
+        .value("Png", TransferTargetFormat::Png)
+        .value("Jp2", TransferTargetFormat::Jp2);
 
     nb::enum_<TransferPolicySubject>(m, "TransferPolicySubject")
         .value("MakerNote", TransferPolicySubject::MakerNote)

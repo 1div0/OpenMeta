@@ -191,10 +191,63 @@ Read-path readiness is high:
     `write_prepared_transfer_package(...)` can serialize direct WebP chunk
     bytes from prepared bundles, and the owned package batch path can persist
     or replay those bytes without retaining the original bundle
-  - full WebP file rewrite/edit and signed C2PA rewrite remain follow-up work
+  - bounded WebP file rewrite/edit is now available:
+    existing RIFF/WebP bytes are preserved, matching managed metadata chunks
+    are removed, and prepared metadata chunks are reinserted with `VP8X`
+    feature flags updated when needed
+  - the WebP edit path currently manages only the OpenMeta-owned metadata
+    families (`EXIF`, `XMP `, `ICCP`, and bounded `C2PA`), not arbitrary WebP
+    chunk editing
+  - stronger signed C2PA rewrite still remains follow-up work
   - `replay_oiio_transfer_package_batch(...)` now provides the first explicit
     host/plugin replay surface over that persisted batch, replaying semantic
     package chunks in deterministic output order through callbacks
+- PNG prepare/emit now has the same bounded direct-chunk target path:
+  - prepare builds `eXIf`, `iTXt`, and `iCCP` PNG metadata chunks from
+    `MetaStore`
+  - PNG EXIF uses the native `eXIf` payload shape, so the prepared payload
+    drops the JPEG APP1 `Exif\0\0` prefix and starts at the TIFF header
+  - PNG XMP uses uncompressed `iTXt` with the standard
+    `XML:com.adobe.xmp` keyword
+  - PNG ICC uses compressed `iCCP` payloads when zlib is available
+  - IPTC requested for PNG is projected into the same `iTXt` XMP carrier;
+    OpenMeta does not add a raw IPTC-IIM PNG carrier
+  - `compile_prepared_bundle_png(...)`,
+    `emit_prepared_bundle_png(...)`,
+    `emit_prepared_bundle_png_compiled(...)`, and
+    `emit_prepared_transfer_compiled(..., PngTransferEmitter&)`
+    now provide the same reusable emit shape as JPEG/TIFF/JXL/WebP
+  - `build_prepared_transfer_emit_package(...)` plus
+    `write_prepared_transfer_package(...)` can serialize direct PNG chunk
+    bytes from prepared bundles, and the owned package batch path can persist
+    or replay those bytes without retaining the original bundle
+  - bounded PNG file rewrite/edit is now available:
+    existing PNG bytes are preserved, matching managed metadata chunks are
+    removed, and prepared PNG metadata chunks are inserted immediately after
+    `IHDR`
+  - the PNG edit path currently manages only the OpenMeta-owned metadata
+    families (`eXIf`, XMP `iTXt`, and `iCCP`), not arbitrary PNG chunk edits
+- JP2 prepare/emit now has a first bounded direct-box target path:
+  - prepare builds `Exif`, `xml `, and `jp2h`/`colr` metadata boxes from
+    `MetaStore`
+  - JP2 EXIF uses the JP2/JPX Exif box payload shape with the required
+    big-endian TIFF-offset prefix before the embedded `Exif\0\0` bytes
+  - JP2 XMP uses the standard top-level `xml ` box
+  - JP2 ICC uses a bounded `jp2h` path carrying one `colr` ICC child box
+  - IPTC requested for JP2 is projected into the same `xml ` XMP carrier;
+    OpenMeta does not add a raw IPTC-IIM JP2 carrier
+  - `compile_prepared_bundle_jp2(...)`,
+    `emit_prepared_bundle_jp2(...)`,
+    `emit_prepared_bundle_jp2_compiled(...)`, and
+    `emit_prepared_transfer_compiled(..., Jp2TransferEmitter&)`
+    now provide the same reusable emit shape as JPEG/TIFF/JXL/WebP/PNG
+  - `build_prepared_transfer_emit_package(...)` plus
+    `write_prepared_transfer_package(...)` can serialize direct JP2 box bytes
+    from prepared bundles, and the owned package batch path can persist or
+    replay those bytes without retaining the original bundle
+  - read-backed roundtrip is covered through the native JP2 EXIF/XMP path
+  - JP2 is still emit/package only today; there is no JP2 file rewrite/edit
+    path yet
 - ISO-BMFF metadata-item transfer now has a first bounded target-family path:
   - prepare builds `bmff:item-exif`, `bmff:item-xmp`, bounded
     `bmff:item-jumb`, bounded `bmff:item-c2pa`, and

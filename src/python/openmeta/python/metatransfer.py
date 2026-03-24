@@ -119,7 +119,11 @@ def _transfer_payload_op_summary(payload: dict[object, object]) -> str:
         return f"{op_kind} tag=0x{int(payload['tiff_tag']):04X}"
     if op_kind == "jxl_box":
         return f"{op_kind} type={payload['box_type']}"
+    if op_kind == "jp2_box":
+        return f"{op_kind} type={payload['box_type']}"
     if op_kind == "webp_chunk":
+        return f"{op_kind} type={payload['chunk_type']}"
+    if op_kind == "png_chunk":
         return f"{op_kind} type={payload['chunk_type']}"
     if op_kind == "bmff_item":
         return (
@@ -211,6 +215,8 @@ def main(argv: list[str]) -> int:
     )
     ap.add_argument("--target-jxl", action="store_true", help="target JPEG XL metadata emit summary")
     ap.add_argument("--target-webp", action="store_true", help="target WebP metadata chunk emit summary")
+    ap.add_argument("--target-png", action="store_true", help="target PNG metadata transfer")
+    ap.add_argument("--target-jp2", action="store_true", help="target JP2 metadata box emit summary")
     ap.add_argument("--target-heif", action="store_true", help="target HEIF metadata transfer")
     ap.add_argument("--target-avif", action="store_true", help="target AVIF metadata transfer")
     ap.add_argument("--target-cr3", action="store_true", help="target CR3 metadata transfer")
@@ -272,6 +278,8 @@ def main(argv: list[str]) -> int:
         + int(bool(args.target_tiff))
         + int(bool(args.target_jxl))
         + int(bool(args.target_webp))
+        + int(bool(args.target_png))
+        + int(bool(args.target_jp2))
         + int(bool(args.target_heif))
         + int(bool(args.target_avif))
         + int(bool(args.target_cr3))
@@ -380,7 +388,7 @@ def main(argv: list[str]) -> int:
         ap.print_help(sys.stderr)
         return 2
     if target_count > 1:
-        ap.error("--target-jpeg, --target-tiff, --target-jxl, --target-webp, --target-heif, --target-avif, and --target-cr3 are mutually exclusive")
+        ap.error("--target-jpeg, --target-tiff, --target-png, --target-jp2, --target-jxl, --target-webp, --target-heif, --target-avif, and --target-cr3 are mutually exclusive")
     if (
         args.jpeg_c2pa_signed
         or args.c2pa_manifest_output
@@ -390,25 +398,28 @@ def main(argv: list[str]) -> int:
     ) and (
         args.target_tiff
         or args.target_webp
+        or args.target_png
     ):
         ap.error("signed C2PA staging is only supported for JPEG, JXL, and BMFF targets")
     if args.output and not (
         args.target_jpeg
         or args.target_tiff
+        or args.target_webp
+        or args.target_png
         or args.target_jxl
         or args.target_heif
         or args.target_avif
         or args.target_cr3
     ):
-        if args.target_webp:
-            ap.error("--output is not supported for WebP targets yet")
         ap.error(
-            "--output requires --target-jpeg, --target-tiff, --target-jxl, "
-            "--target-heif, --target-avif, or --target-cr3"
+            "--output requires --target-jpeg, --target-tiff, --target-webp, "
+            "--target-png, --target-jxl, --target-heif, --target-avif, or "
+            "--target-cr3"
         )
     if args.dump_c2pa_binding and (
         args.target_tiff
         or args.target_webp
+        or args.target_png
     ):
         ap.error("--dump-c2pa-binding is only supported for JPEG, JXL, and BMFF targets")
     if (
@@ -418,11 +429,14 @@ def main(argv: list[str]) -> int:
     ) and (
         args.target_tiff
         or args.target_webp
+        or args.target_png
     ):
         ap.error("C2PA package options are only supported for JPEG, JXL, and BMFF targets")
     if (
         args.target_jpeg
         or args.target_tiff
+        or args.target_webp
+        or args.target_png
         or args.target_heif
         or args.target_avif
         or args.target_cr3
@@ -495,6 +509,10 @@ def main(argv: list[str]) -> int:
     rc = 0
     if args.target_tiff:
         target_format = openmeta.TransferTargetFormat.Tiff
+    elif args.target_png:
+        target_format = openmeta.TransferTargetFormat.Png
+    elif args.target_jp2:
+        target_format = openmeta.TransferTargetFormat.Jp2
     elif args.target_jxl:
         target_format = openmeta.TransferTargetFormat.Jxl
     elif args.target_webp:
@@ -511,7 +529,9 @@ def main(argv: list[str]) -> int:
     if (
         not target_path
         and (
-            args.target_jxl
+            args.target_webp
+            or args.target_png
+            or args.target_jxl
             or args.target_heif
             or args.target_avif
             or args.target_cr3
@@ -1231,6 +1251,14 @@ def main(argv: list[str]) -> int:
         for c in probe["webp_chunk_summary"]:
             print(
                 f"  webp_chunk {str(c['type'])} count={int(c['count'])} bytes={int(c['bytes'])}"
+            )
+        for c in probe["png_chunk_summary"]:
+            print(
+                f"  png_chunk {str(c['type'])} count={int(c['count'])} bytes={int(c['bytes'])}"
+            )
+        for b in probe["jp2_box_summary"]:
+            print(
+                f"  jp2_box {str(b['type'])} count={int(b['count'])} bytes={int(b['bytes'])}"
             )
         for item in probe["bmff_item_summary"]:
             print(

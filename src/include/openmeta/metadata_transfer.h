@@ -36,6 +36,8 @@ enum class TransferTargetFormat : uint8_t {
     Avif,
     Cr3,
     Exr,
+    Png,
+    Jp2,
 };
 
 /// Prepared payload block category.
@@ -705,6 +707,30 @@ struct PreparedWebpEmitPlan final {
     std::vector<PreparedWebpEmitOp> ops;
 };
 
+/// One precompiled PNG emit operation (route -> PNG chunk mapping).
+struct PreparedPngEmitOp final {
+    uint32_t block_index           = 0;
+    std::array<char, 4> chunk_type = { '\0', '\0', '\0', '\0' };
+};
+
+/// Reusable precompiled PNG emit plan for a prepared transfer bundle.
+struct PreparedPngEmitPlan final {
+    uint32_t contract_version = kMetadataTransferContractVersion;
+    std::vector<PreparedPngEmitOp> ops;
+};
+
+/// One precompiled JP2 emit operation (route -> JP2 box mapping).
+struct PreparedJp2EmitOp final {
+    uint32_t block_index         = 0;
+    std::array<char, 4> box_type = { '\0', '\0', '\0', '\0' };
+};
+
+/// Reusable precompiled JP2 emit plan for a prepared transfer bundle.
+struct PreparedJp2EmitPlan final {
+    uint32_t contract_version = kMetadataTransferContractVersion;
+    std::vector<PreparedJp2EmitOp> ops;
+};
+
 /// Kind of precompiled ISO-BMFF metadata emit operation.
 enum class PreparedBmffEmitKind : uint8_t {
     Item,
@@ -742,6 +768,8 @@ struct PreparedTransferExecutionPlan final {
     PreparedTiffEmitPlan tiff_emit;
     PreparedJxlEmitPlan jxl_emit;
     PreparedWebpEmitPlan webp_emit;
+    PreparedPngEmitPlan png_emit;
+    PreparedJp2EmitPlan jp2_emit;
     PreparedBmffEmitPlan bmff_emit;
 };
 
@@ -752,8 +780,10 @@ enum class TransferAdapterOpKind : uint8_t {
     JxlBox,
     JxlIccProfile,
     WebpChunk,
+    PngChunk,
     BmffItem,
     BmffProperty,
+    Jp2Box,
 };
 
 /// One compiled adapter-facing operation derived from a prepared bundle.
@@ -936,6 +966,20 @@ struct EmittedWebpChunkSummary final {
     uint64_t bytes           = 0;
 };
 
+/// One emitted PNG chunk summary entry.
+struct EmittedPngChunkSummary final {
+    std::array<char, 4> type = { '\0', '\0', '\0', '\0' };
+    uint32_t count           = 0;
+    uint64_t bytes           = 0;
+};
+
+/// One emitted JP2 box summary entry.
+struct EmittedJp2BoxSummary final {
+    std::array<char, 4> type = { '\0', '\0', '\0', '\0' };
+    uint32_t count           = 0;
+    uint64_t bytes           = 0;
+};
+
 /// One emitted ISO-BMFF metadata item summary entry.
 struct EmittedBmffItemSummary final {
     uint32_t item_type = 0U;
@@ -1047,6 +1091,8 @@ struct ExecutePreparedTransferResult final {
     std::vector<EmittedTiffTagSummary> tiff_tag_summary;
     std::vector<EmittedJxlBoxSummary> jxl_box_summary;
     std::vector<EmittedWebpChunkSummary> webp_chunk_summary;
+    std::vector<EmittedPngChunkSummary> png_chunk_summary;
+    std::vector<EmittedJp2BoxSummary> jp2_box_summary;
     std::vector<EmittedBmffItemSummary> bmff_item_summary;
     std::vector<EmittedBmffPropertySummary> bmff_property_summary;
     bool tiff_commit          = false;
@@ -1149,6 +1195,32 @@ public:
               std::span<const std::byte> payload) noexcept
         = 0;
     virtual TransferStatus close_chunks() noexcept = 0;
+};
+
+/**
+ * \brief Backend contract for PNG metadata chunk emission.
+ */
+class PngTransferEmitter {
+public:
+    virtual ~PngTransferEmitter() = default;
+    virtual TransferStatus
+    add_chunk(std::array<char, 4> type,
+              std::span<const std::byte> payload) noexcept
+        = 0;
+    virtual TransferStatus close_chunks() noexcept = 0;
+};
+
+/**
+ * \brief Backend contract for JP2 metadata box emission.
+ */
+class Jp2TransferEmitter {
+public:
+    virtual ~Jp2TransferEmitter() = default;
+    virtual TransferStatus
+    add_box(std::array<char, 4> type,
+            std::span<const std::byte> payload) noexcept
+        = 0;
+    virtual TransferStatus close_boxes() noexcept = 0;
 };
 
 /**
@@ -1274,6 +1346,34 @@ emit_prepared_bundle_webp(const PreparedTransferBundle& bundle,
                           = EmitTransferOptions {}) noexcept;
 
 /**
+ * \brief Emit prepared metadata blocks into a PNG backend.
+ *
+ * Route mapping:
+ * - `png:chunk-exif` -> `eXIf`
+ * - `png:chunk-xmp` -> `iTXt`
+ * - `png:chunk-iccp` -> `iCCP`
+ */
+EmitTransferResult
+emit_prepared_bundle_png(const PreparedTransferBundle& bundle,
+                         PngTransferEmitter& emitter,
+                         const EmitTransferOptions& options
+                         = EmitTransferOptions {}) noexcept;
+
+/**
+ * \brief Emit prepared metadata blocks into a JP2 backend.
+ *
+ * Route mapping:
+ * - `jp2:box-exif` -> `Exif`
+ * - `jp2:box-xml` -> `xml `
+ * - `jp2:box-jp2h-colr` -> `jp2h` carrying one `colr` ICC child box
+ */
+EmitTransferResult
+emit_prepared_bundle_jp2(const PreparedTransferBundle& bundle,
+                         Jp2TransferEmitter& emitter,
+                         const EmitTransferOptions& options
+                         = EmitTransferOptions {}) noexcept;
+
+/**
  * \brief Emit prepared metadata blocks into an ISO-BMFF metadata backend.
  *
  * Route mapping:
@@ -1371,6 +1471,24 @@ compile_prepared_bundle_webp(const PreparedTransferBundle& bundle,
                              = EmitTransferOptions {}) noexcept;
 
 /**
+ * \brief Compile a reusable PNG emit plan from a prepared bundle.
+ */
+EmitTransferResult
+compile_prepared_bundle_png(const PreparedTransferBundle& bundle,
+                            PreparedPngEmitPlan* out_plan,
+                            const EmitTransferOptions& options
+                            = EmitTransferOptions {}) noexcept;
+
+/**
+ * \brief Compile a reusable JP2 emit plan from a prepared bundle.
+ */
+EmitTransferResult
+compile_prepared_bundle_jp2(const PreparedTransferBundle& bundle,
+                            PreparedJp2EmitPlan* out_plan,
+                            const EmitTransferOptions& options
+                            = EmitTransferOptions {}) noexcept;
+
+/**
  * \brief Compile a reusable ISO-BMFF metadata emit plan from a prepared
  * bundle.
  */
@@ -1389,6 +1507,26 @@ emit_prepared_bundle_webp_compiled(const PreparedTransferBundle& bundle,
                                    WebpTransferEmitter& emitter,
                                    const EmitTransferOptions& options
                                    = EmitTransferOptions {}) noexcept;
+
+/**
+ * \brief Emit a prepared bundle using a precompiled PNG emit plan.
+ */
+EmitTransferResult
+emit_prepared_bundle_png_compiled(const PreparedTransferBundle& bundle,
+                                  const PreparedPngEmitPlan& plan,
+                                  PngTransferEmitter& emitter,
+                                  const EmitTransferOptions& options
+                                  = EmitTransferOptions {}) noexcept;
+
+/**
+ * \brief Emit a prepared bundle using a precompiled JP2 emit plan.
+ */
+EmitTransferResult
+emit_prepared_bundle_jp2_compiled(const PreparedTransferBundle& bundle,
+                                  const PreparedJp2EmitPlan& plan,
+                                  Jp2TransferEmitter& emitter,
+                                  const EmitTransferOptions& options
+                                  = EmitTransferOptions {}) noexcept;
 
 /**
  * \brief Emit a prepared bundle using a precompiled ISO-BMFF metadata emit
@@ -1734,6 +1872,30 @@ ExecutePreparedTransferResult
 emit_prepared_transfer_compiled(
     PreparedTransferBundle* bundle, const PreparedTransferExecutionPlan& plan,
     WebpTransferEmitter& emitter,
+    std::span<const TimePatchView> time_patches = {},
+    const ApplyTimePatchOptions& time_patch     = ApplyTimePatchOptions {},
+    uint32_t emit_repeat                        = 1U) noexcept;
+
+/**
+ * \brief Hot-path helper: apply non-owning time patches and emit through a
+ * PNG backend.
+ */
+ExecutePreparedTransferResult
+emit_prepared_transfer_compiled(
+    PreparedTransferBundle* bundle, const PreparedTransferExecutionPlan& plan,
+    PngTransferEmitter& emitter,
+    std::span<const TimePatchView> time_patches = {},
+    const ApplyTimePatchOptions& time_patch     = ApplyTimePatchOptions {},
+    uint32_t emit_repeat                        = 1U) noexcept;
+
+/**
+ * \brief Hot-path helper: apply non-owning time patches and emit through a
+ * JP2 backend.
+ */
+ExecutePreparedTransferResult
+emit_prepared_transfer_compiled(
+    PreparedTransferBundle* bundle, const PreparedTransferExecutionPlan& plan,
+    Jp2TransferEmitter& emitter,
     std::span<const TimePatchView> time_patches = {},
     const ApplyTimePatchOptions& time_patch     = ApplyTimePatchOptions {},
     uint32_t emit_repeat                        = 1U) noexcept;
