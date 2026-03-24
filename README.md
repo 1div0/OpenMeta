@@ -91,7 +91,74 @@ Current baseline-gated status on tracked corpora:
     (`active_manifest_present`, `active_manifest_count`,
     `active_manifest.prefix`, `manifest.{i}.is_active`) and draft ingredient
     fields such as `ingredient_present`, `ingredient_count`,
-    `claim.{i}.ingredient_count`, and `claim.{i}.ingredient.{j}.prefix`.
+    `claim.{i}.ingredient_count`, `claim.{i}.ingredient.{j}.prefix`, and
+    ASCII-safe ingredient text fields such as
+    `claim.{i}.ingredient.{j}.title`,
+    `claim.{i}.ingredient.{j}.relationship`, and
+    `claim.{i}.ingredient.{j}.thumbnail_url`, plus bounded summary counts such
+    as `ingredient_relationship_count`,
+    `ingredient_thumbnail_url_count`, `ingredient_claim_count`,
+    `ingredient_claim_with_signature_count`,
+    `ingredient_claim_referenced_by_signature_count`, and
+    per-claim linked-ingredient summary fields such as
+    `claim.{i}.linked_ingredient_signature_count`,
+    `claim.{i}.linked_ingredient_title_count`,
+    `claim.{i}.linked_ingredient_relationship_count`,
+    `claim.{i}.linked_ingredient_thumbnail_url_count`,
+    `claim.{i}.linked_ingredient_relationship_kind_count`, plus
+    explicit-reference split variants like
+    `claim.{i}.linked_ingredient_explicit_reference_title_count`, plus
+    aggregate linked-claim topology counts like
+    `ingredient_linked_claim_count`,
+    `ingredient_linked_claim_direct_source_count`, and
+    `ingredient_manifest_count`, `ingredient_signature_count`,
+    `ingredient_linked_signature_count`, and
+    `ingredient_linked_direct_claim_count`,
+    `ingredient_linked_cross_claim_count`,
+    `ingredient_linked_signature_direct_source_count`,
+    `ingredient_linked_signature_cross_source_count`,
+    `ingredient_linked_signature_mixed_source_count`,
+    `ingredient_linked_signature_direct_title_count`,
+    `ingredient_linked_signature_cross_title_count`,
+    `ingredient_linked_signature_direct_relationship_count`,
+    `ingredient_linked_signature_cross_relationship_count`,
+    `ingredient_linked_signature_direct_thumbnail_url_count`,
+    `ingredient_linked_signature_cross_thumbnail_url_count`,
+    `ingredient_linked_signature_title_count`,
+    `ingredient_linked_signature_relationship_count`,
+    `ingredient_linked_signature_relationship_kind_count`,
+    `ingredient_linked_signature_relationship.<value>_count`,
+    `ingredient_linked_signature_thumbnail_url_count`, plus
+    linked-signature explicit-reference split counters such as
+    `ingredient_linked_signature_explicit_reference_direct_title_count`,
+    `ingredient_linked_signature_explicit_reference_cross_title_count`,
+    `ingredient_linked_signature_explicit_reference_title_count`,
+    `ingredient_linked_signature_explicit_reference_relationship_count`,
+    `ingredient_linked_signature_explicit_reference_relationship_kind_count`,
+    `ingredient_linked_signature_explicit_reference_relationship.<value>_count`,
+    `ingredient_linked_signature_explicit_reference_thumbnail_url_count`,
+    `ingredient_linked_signature_explicit_reference_direct_claim_count`,
+    `ingredient_linked_signature_explicit_reference_cross_claim_count`,
+    `ingredient_linked_signature_explicit_reference_direct_source_count`,
+    `ingredient_linked_signature_explicit_reference_cross_source_count`,
+    `ingredient_linked_signature_explicit_reference_mixed_source_count`,
+    and the corresponding `..._unresolved_*` and `..._ambiguous_*`
+    subsets, and
+    `ingredient_explicit_reference_signature_count`,
+    `ingredient_explicit_reference_unresolved_signature_count`, and
+    `ingredient_explicit_reference_ambiguous_signature_count`, plus
+    per-signature ingredient-link fields such as
+    `signature.{i}.linked_ingredient_claim_count`,
+    `signature.{i}.linked_direct_ingredient_claim_count`,
+    `signature.{i}.linked_cross_ingredient_claim_count`,
+    `signature.{i}.linked_ingredient_title_count`,
+    `signature.{i}.linked_ingredient_relationship_count`,
+    `signature.{i}.linked_ingredient_relationship_kind_count`,
+    `signature.{i}.linked_ingredient_relationship.<value>_count`, and
+    `signature.{i}.linked_ingredient_thumbnail_url_count`, and
+    `signature.{i}.direct_claim_has_ingredients`, plus path-sanitized
+    relationship alias counts such as
+    `ingredient_relationship.parentOf_count`.
 - EXIF/MakerNote display naming now has two explicit layers:
   - canonical tag names from `exif_tag_name(...)`
   - contextual compatibility names from

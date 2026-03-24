@@ -3917,6 +3917,12 @@ namespace {
         struct IngredientProjection final {
             std::string prefix;
             uint64_t key_hits = 0U;
+            bool has_title = false;
+            std::string title;
+            bool has_relationship = false;
+            std::string relationship;
+            bool has_thumbnail_url = false;
+            std::string thumbnail_url;
         };
         struct SignatureProjection final {
             std::string prefix;
@@ -3924,14 +3930,79 @@ namespace {
             bool has_algorithm = false;
             std::string algorithm;
         };
+        struct NamedCount final {
+            std::string key;
+            uint64_t count = 0U;
+        };
 
         std::string prefix;
         uint64_t key_hits                      = 0U;
         uint64_t signature_key_hits            = 0U;
         uint64_t referenced_by_signature_count = 0U;
+        uint64_t ingredient_title_count        = 0U;
+        uint64_t ingredient_relationship_count = 0U;
+        uint64_t ingredient_thumbnail_url_count = 0U;
+        uint64_t linked_ingredient_signature_count = 0U;
+        uint64_t linked_direct_ingredient_signature_count = 0U;
+        uint64_t linked_cross_ingredient_signature_count = 0U;
+        uint64_t linked_ingredient_title_count = 0U;
+        uint64_t linked_ingredient_relationship_count = 0U;
+        uint64_t linked_ingredient_thumbnail_url_count = 0U;
+        uint64_t linked_ingredient_explicit_reference_signature_count = 0U;
+        uint64_t
+            linked_ingredient_explicit_reference_direct_signature_count
+            = 0U;
+        uint64_t
+            linked_ingredient_explicit_reference_cross_signature_count
+            = 0U;
+        uint64_t linked_ingredient_explicit_reference_title_count = 0U;
+        uint64_t linked_ingredient_explicit_reference_relationship_count = 0U;
+        uint64_t linked_ingredient_explicit_reference_thumbnail_url_count
+            = 0U;
+        uint64_t
+            linked_ingredient_explicit_reference_unresolved_signature_count
+            = 0U;
+        uint64_t
+            linked_ingredient_explicit_reference_unresolved_direct_signature_count
+            = 0U;
+        uint64_t
+            linked_ingredient_explicit_reference_unresolved_cross_signature_count
+            = 0U;
+        uint64_t linked_ingredient_explicit_reference_unresolved_title_count
+            = 0U;
+        uint64_t
+            linked_ingredient_explicit_reference_unresolved_relationship_count
+            = 0U;
+        uint64_t
+            linked_ingredient_explicit_reference_unresolved_thumbnail_url_count
+            = 0U;
+        uint64_t linked_ingredient_explicit_reference_ambiguous_signature_count
+            = 0U;
+        uint64_t
+            linked_ingredient_explicit_reference_ambiguous_direct_signature_count
+            = 0U;
+        uint64_t
+            linked_ingredient_explicit_reference_ambiguous_cross_signature_count
+            = 0U;
+        uint64_t linked_ingredient_explicit_reference_ambiguous_title_count
+            = 0U;
+        uint64_t
+            linked_ingredient_explicit_reference_ambiguous_relationship_count
+            = 0U;
+        uint64_t
+            linked_ingredient_explicit_reference_ambiguous_thumbnail_url_count
+            = 0U;
         std::vector<AssertionProjection> assertions;
         std::vector<IngredientProjection> ingredients;
         std::vector<SignatureProjection> signatures;
+        std::vector<NamedCount> ingredient_relationship_counts;
+        std::vector<NamedCount> linked_ingredient_relationship_counts;
+        std::vector<NamedCount>
+            linked_ingredient_explicit_reference_relationship_counts;
+        std::vector<NamedCount>
+            linked_ingredient_explicit_reference_unresolved_relationship_counts;
+        std::vector<NamedCount>
+            linked_ingredient_explicit_reference_ambiguous_relationship_counts;
         bool has_claim_generator = false;
         std::string claim_generator;
     };
@@ -3943,22 +4014,222 @@ namespace {
         uint64_t explicit_reference_index_hits           = 0U;
         uint64_t explicit_reference_label_hits           = 0U;
         uint64_t linked_claim_count                      = 0U;
+        uint64_t linked_ingredient_claim_count           = 0U;
+        uint64_t linked_direct_ingredient_claim_count    = 0U;
+        uint64_t linked_cross_ingredient_claim_count     = 0U;
+        uint64_t linked_direct_ingredient_title_count    = 0U;
+        uint64_t linked_cross_ingredient_title_count     = 0U;
+        uint64_t linked_direct_ingredient_relationship_count = 0U;
+        uint64_t linked_cross_ingredient_relationship_count = 0U;
+        uint64_t linked_direct_ingredient_thumbnail_url_count = 0U;
+        uint64_t linked_cross_ingredient_thumbnail_url_count = 0U;
+        uint64_t linked_ingredient_title_count           = 0U;
+        uint64_t linked_ingredient_relationship_count    = 0U;
+        uint64_t linked_ingredient_thumbnail_url_count   = 0U;
         uint64_t cross_claim_link_count                  = 0U;
         bool has_explicit_reference                      = false;
+        bool direct_claim_has_ingredients                = false;
         uint64_t explicit_reference_resolved_claim_count = 0U;
         bool explicit_reference_unresolved               = false;
         bool explicit_reference_ambiguous                = false;
         bool has_algorithm                               = false;
+        std::string direct_claim_prefix;
         std::string algorithm;
         std::vector<std::string> linked_claim_prefixes;
+        std::vector<ClaimProjection::NamedCount>
+            linked_ingredient_relationship_counts;
     };
 
     struct ManifestProjection final {
         std::string prefix;
         bool is_active_manifest                      = false;
         uint64_t claim_count                         = 0U;
+        uint64_t ingredient_claim_count              = 0U;
+        uint64_t ingredient_claim_with_signature_count = 0U;
+        uint64_t ingredient_claim_referenced_by_signature_count = 0U;
+        uint64_t ingredient_signature_count          = 0U;
+        uint64_t ingredient_linked_claim_count       = 0U;
+        uint64_t ingredient_linked_claim_explicit_reference_count = 0U;
+        uint64_t ingredient_linked_claim_explicit_reference_unresolved_count
+            = 0U;
+        uint64_t ingredient_linked_claim_explicit_reference_ambiguous_count
+            = 0U;
+        uint64_t ingredient_linked_claim_direct_source_count = 0U;
+        uint64_t ingredient_linked_claim_cross_source_count = 0U;
+        uint64_t ingredient_linked_claim_mixed_source_count = 0U;
+        uint64_t
+            ingredient_linked_claim_explicit_reference_direct_source_count
+            = 0U;
+        uint64_t
+            ingredient_linked_claim_explicit_reference_cross_source_count
+            = 0U;
+        uint64_t
+            ingredient_linked_claim_explicit_reference_mixed_source_count
+            = 0U;
+        uint64_t
+            ingredient_linked_claim_explicit_reference_unresolved_direct_source_count
+            = 0U;
+        uint64_t
+            ingredient_linked_claim_explicit_reference_unresolved_cross_source_count
+            = 0U;
+        uint64_t
+            ingredient_linked_claim_explicit_reference_unresolved_mixed_source_count
+            = 0U;
+        uint64_t
+            ingredient_linked_claim_explicit_reference_ambiguous_direct_source_count
+            = 0U;
+        uint64_t
+            ingredient_linked_claim_explicit_reference_ambiguous_cross_source_count
+            = 0U;
+        uint64_t
+            ingredient_linked_claim_explicit_reference_ambiguous_mixed_source_count
+            = 0U;
+        uint64_t ingredient_linked_signature_count   = 0U;
+        uint64_t ingredient_linked_direct_claim_count = 0U;
+        uint64_t ingredient_linked_cross_claim_count = 0U;
+        uint64_t ingredient_linked_signature_direct_source_count = 0U;
+        uint64_t ingredient_linked_signature_cross_source_count = 0U;
+        uint64_t ingredient_linked_signature_mixed_source_count = 0U;
+        uint64_t ingredient_linked_signature_direct_title_count = 0U;
+        uint64_t ingredient_linked_signature_cross_title_count = 0U;
+        uint64_t ingredient_linked_signature_direct_relationship_count = 0U;
+        uint64_t ingredient_linked_signature_cross_relationship_count
+            = 0U;
+        uint64_t ingredient_linked_signature_direct_thumbnail_url_count = 0U;
+        uint64_t ingredient_linked_signature_cross_thumbnail_url_count
+            = 0U;
+        uint64_t ingredient_linked_signature_title_count = 0U;
+        uint64_t ingredient_linked_signature_relationship_count = 0U;
+        uint64_t ingredient_linked_signature_thumbnail_url_count = 0U;
+        uint64_t ingredient_linked_signature_explicit_reference_direct_claim_count
+            = 0U;
+        uint64_t ingredient_linked_signature_explicit_reference_cross_claim_count
+            = 0U;
+        uint64_t ingredient_linked_signature_explicit_reference_direct_source_count
+            = 0U;
+        uint64_t ingredient_linked_signature_explicit_reference_cross_source_count
+            = 0U;
+        uint64_t ingredient_linked_signature_explicit_reference_mixed_source_count
+            = 0U;
+        uint64_t
+            ingredient_linked_signature_explicit_reference_direct_title_count
+            = 0U;
+        uint64_t
+            ingredient_linked_signature_explicit_reference_cross_title_count
+            = 0U;
+        uint64_t
+            ingredient_linked_signature_explicit_reference_direct_relationship_count
+            = 0U;
+        uint64_t
+            ingredient_linked_signature_explicit_reference_cross_relationship_count
+            = 0U;
+        uint64_t
+            ingredient_linked_signature_explicit_reference_direct_thumbnail_url_count
+            = 0U;
+        uint64_t
+            ingredient_linked_signature_explicit_reference_cross_thumbnail_url_count
+            = 0U;
+        uint64_t ingredient_linked_signature_explicit_reference_title_count
+            = 0U;
+        uint64_t
+            ingredient_linked_signature_explicit_reference_relationship_count
+            = 0U;
+        uint64_t
+            ingredient_linked_signature_explicit_reference_thumbnail_url_count
+            = 0U;
+        uint64_t
+            ingredient_linked_signature_explicit_reference_unresolved_direct_claim_count
+            = 0U;
+        uint64_t
+            ingredient_linked_signature_explicit_reference_unresolved_cross_claim_count
+            = 0U;
+        uint64_t
+            ingredient_linked_signature_explicit_reference_unresolved_direct_source_count
+            = 0U;
+        uint64_t
+            ingredient_linked_signature_explicit_reference_unresolved_cross_source_count
+            = 0U;
+        uint64_t
+            ingredient_linked_signature_explicit_reference_unresolved_mixed_source_count
+            = 0U;
+        uint64_t
+            ingredient_linked_signature_explicit_reference_unresolved_direct_title_count
+            = 0U;
+        uint64_t
+            ingredient_linked_signature_explicit_reference_unresolved_cross_title_count
+            = 0U;
+        uint64_t
+            ingredient_linked_signature_explicit_reference_unresolved_direct_relationship_count
+            = 0U;
+        uint64_t
+            ingredient_linked_signature_explicit_reference_unresolved_cross_relationship_count
+            = 0U;
+        uint64_t
+            ingredient_linked_signature_explicit_reference_unresolved_direct_thumbnail_url_count
+            = 0U;
+        uint64_t
+            ingredient_linked_signature_explicit_reference_unresolved_cross_thumbnail_url_count
+            = 0U;
+        uint64_t
+            ingredient_linked_signature_explicit_reference_unresolved_title_count
+            = 0U;
+        uint64_t
+            ingredient_linked_signature_explicit_reference_unresolved_relationship_count
+            = 0U;
+        uint64_t
+            ingredient_linked_signature_explicit_reference_unresolved_thumbnail_url_count
+            = 0U;
+        uint64_t
+            ingredient_linked_signature_explicit_reference_ambiguous_direct_claim_count
+            = 0U;
+        uint64_t
+            ingredient_linked_signature_explicit_reference_ambiguous_cross_claim_count
+            = 0U;
+        uint64_t
+            ingredient_linked_signature_explicit_reference_ambiguous_direct_source_count
+            = 0U;
+        uint64_t
+            ingredient_linked_signature_explicit_reference_ambiguous_cross_source_count
+            = 0U;
+        uint64_t
+            ingredient_linked_signature_explicit_reference_ambiguous_mixed_source_count
+            = 0U;
+        uint64_t
+            ingredient_linked_signature_explicit_reference_ambiguous_direct_title_count
+            = 0U;
+        uint64_t
+            ingredient_linked_signature_explicit_reference_ambiguous_cross_title_count
+            = 0U;
+        uint64_t
+            ingredient_linked_signature_explicit_reference_ambiguous_direct_relationship_count
+            = 0U;
+        uint64_t
+            ingredient_linked_signature_explicit_reference_ambiguous_cross_relationship_count
+            = 0U;
+        uint64_t
+            ingredient_linked_signature_explicit_reference_ambiguous_direct_thumbnail_url_count
+            = 0U;
+        uint64_t
+            ingredient_linked_signature_explicit_reference_ambiguous_cross_thumbnail_url_count
+            = 0U;
+        uint64_t
+            ingredient_linked_signature_explicit_reference_ambiguous_title_count
+            = 0U;
+        uint64_t
+            ingredient_linked_signature_explicit_reference_ambiguous_relationship_count
+            = 0U;
+        uint64_t
+            ingredient_linked_signature_explicit_reference_ambiguous_thumbnail_url_count
+            = 0U;
+        uint64_t ingredient_explicit_reference_signature_count = 0U;
+        uint64_t ingredient_explicit_reference_unresolved_signature_count
+            = 0U;
+        uint64_t ingredient_explicit_reference_ambiguous_signature_count
+            = 0U;
         uint64_t assertion_count                     = 0U;
         uint64_t ingredient_count                    = 0U;
+        uint64_t ingredient_relationship_count       = 0U;
+        uint64_t ingredient_thumbnail_url_count      = 0U;
         uint64_t signature_count                     = 0U;
         uint64_t signature_linked_count              = 0U;
         uint64_t signature_orphan_count              = 0U;
@@ -3966,6 +4237,15 @@ namespace {
         uint64_t explicit_reference_signature_count  = 0U;
         uint64_t explicit_reference_unresolved_count = 0U;
         uint64_t explicit_reference_ambiguous_count  = 0U;
+        std::vector<ClaimProjection::NamedCount> ingredient_relationship_counts;
+        std::vector<ClaimProjection::NamedCount>
+            ingredient_linked_signature_relationship_counts;
+        std::vector<ClaimProjection::NamedCount>
+            ingredient_linked_signature_explicit_reference_relationship_counts;
+        std::vector<ClaimProjection::NamedCount>
+            ingredient_linked_signature_explicit_reference_unresolved_relationship_counts;
+        std::vector<ClaimProjection::NamedCount>
+            ingredient_linked_signature_explicit_reference_ambiguous_relationship_counts;
     };
 
     struct ClaimProjectionLess final {
@@ -4315,6 +4595,87 @@ namespace {
         values->resize(w);
     }
 
+    static size_t find_named_count(
+        const std::vector<ClaimProjection::NamedCount>& counts,
+        std::string_view key) noexcept
+    {
+        for (size_t index = 0U; index < counts.size(); ++index) {
+            if (counts[index].key == key) {
+                return index;
+            }
+        }
+        return static_cast<size_t>(-1);
+    }
+
+    static void add_or_increment_named_count(
+        std::vector<ClaimProjection::NamedCount>* counts,
+        std::string_view key, uint64_t add) noexcept
+    {
+        if (!counts || key.empty() || add == 0U) {
+            return;
+        }
+        const size_t existing = find_named_count(*counts, key);
+        if (existing != static_cast<size_t>(-1)) {
+            (*counts)[existing].count += add;
+            return;
+        }
+        ClaimProjection::NamedCount named_count;
+        named_count.key.assign(key.data(), key.size());
+        named_count.count = add;
+        counts->push_back(named_count);
+    }
+
+    struct NamedCountLess final {
+        bool operator()(const ClaimProjection::NamedCount& a,
+                        const ClaimProjection::NamedCount& b) const noexcept
+        {
+            return a.key < b.key;
+        }
+    };
+
+    static void sort_named_counts(
+        std::vector<ClaimProjection::NamedCount>* counts) noexcept
+    {
+        if (!counts) {
+            return;
+        }
+        std::sort(counts->begin(), counts->end(), NamedCountLess {});
+    }
+
+    static bool sanitize_ascii_summary_segment(std::string_view text,
+                                               uint32_t max_output_bytes,
+                                               std::string* out) noexcept
+    {
+        if (!out) {
+            return false;
+        }
+        out->clear();
+        if (text.empty()) {
+            out->assign("_");
+            return true;
+        }
+        const size_t limit = (max_output_bytes != 0U
+                              && text.size() > max_output_bytes)
+                                 ? static_cast<size_t>(max_output_bytes)
+                                 : text.size();
+        for (size_t i = 0U; i < limit; ++i) {
+            const unsigned char c = static_cast<unsigned char>(text[i]);
+            const bool allowed = (c >= 'a' && c <= 'z')
+                                 || (c >= 'A' && c <= 'Z')
+                                 || (c >= '0' && c <= '9') || c == '_'
+                                 || c == '-' || c == '.';
+            if (allowed) {
+                out->push_back(static_cast<char>(c));
+            } else {
+                out->push_back('_');
+            }
+        }
+        if (out->empty()) {
+            out->assign("_");
+        }
+        return true;
+    }
+
     static bool payload_bytes_equal(std::span<const std::byte> a,
                                     std::span<const std::byte> b) noexcept
     {
@@ -4589,6 +4950,68 @@ namespace {
                                 &claim.ingredients, ingredient_prefix);
                         if (ingredient_index != static_cast<size_t>(-1)) {
                             claim.ingredients[ingredient_index].key_hits += 1U;
+                            const bool ingredient_title_key
+                                = key_is_in_prefix_scope(key, ingredient_prefix)
+                                  && (key_matches_field(key, ingredient_prefix,
+                                                        "title")
+                                      || string_ends_with_ascii_icase(
+                                          key, ".title")
+                                      || string_ends_with_ascii_icase(
+                                          key, ".dc_title")
+                                      || string_ends_with_ascii_icase(
+                                          key, ".dc.title"));
+                            if (!claim.ingredients[ingredient_index].has_title
+                                && ingredient_title_key
+                                && e.value.kind == MetaValueKind::Text) {
+                                const std::span<const std::byte> text
+                                    = ctx->store->arena().span(
+                                        e.value.data.span);
+                                if (bytes_all_ascii_printable(text)) {
+                                    claim.ingredients[ingredient_index].title
+                                        .assign(
+                                            reinterpret_cast<const char*>(
+                                                text.data()),
+                                            text.size());
+                                    claim.ingredients[ingredient_index]
+                                        .has_title = true;
+                                }
+                            }
+                            if (!claim.ingredients[ingredient_index]
+                                     .has_relationship
+                                && key_matches_field(key, ingredient_prefix,
+                                                     "relationship")
+                                && e.value.kind == MetaValueKind::Text) {
+                                const std::span<const std::byte> text
+                                    = ctx->store->arena().span(
+                                        e.value.data.span);
+                                if (bytes_all_ascii_printable(text)) {
+                                    claim.ingredients[ingredient_index]
+                                        .relationship.assign(
+                                            reinterpret_cast<const char*>(
+                                                text.data()),
+                                            text.size());
+                                    claim.ingredients[ingredient_index]
+                                        .has_relationship = true;
+                                }
+                            }
+                            if (!claim.ingredients[ingredient_index]
+                                     .has_thumbnail_url
+                                && key_matches_field(key, ingredient_prefix,
+                                                     "thumbnailUrl")
+                                && e.value.kind == MetaValueKind::Text) {
+                                const std::span<const std::byte> text
+                                    = ctx->store->arena().span(
+                                        e.value.data.span);
+                                if (bytes_all_ascii_printable(text)) {
+                                    claim.ingredients[ingredient_index]
+                                        .thumbnail_url.assign(
+                                            reinterpret_cast<const char*>(
+                                                text.data()),
+                                            text.size());
+                                    claim.ingredients[ingredient_index]
+                                        .has_thumbnail_url = true;
+                                }
+                            }
                         }
                     }
                 }
@@ -4695,6 +5118,155 @@ namespace {
         uint64_t explicit_reference_ambiguous_signature_count  = 0U;
         uint64_t explicit_reference_index_hits                 = 0U;
         uint64_t explicit_reference_label_hits                 = 0U;
+        uint64_t ingredient_signature_count                   = 0U;
+        uint64_t ingredient_linked_signature_count            = 0U;
+        uint64_t ingredient_linked_direct_claim_count        = 0U;
+        uint64_t ingredient_linked_cross_claim_count         = 0U;
+        uint64_t ingredient_linked_signature_direct_source_count = 0U;
+        uint64_t ingredient_linked_signature_cross_source_count = 0U;
+        uint64_t ingredient_linked_signature_mixed_source_count = 0U;
+        uint64_t ingredient_linked_signature_direct_title_count = 0U;
+        uint64_t ingredient_linked_signature_cross_title_count = 0U;
+        uint64_t ingredient_linked_signature_direct_relationship_count = 0U;
+        uint64_t ingredient_linked_signature_cross_relationship_count
+            = 0U;
+        uint64_t ingredient_linked_signature_direct_thumbnail_url_count = 0U;
+        uint64_t ingredient_linked_signature_cross_thumbnail_url_count
+            = 0U;
+        uint64_t ingredient_linked_signature_title_count      = 0U;
+        uint64_t ingredient_linked_signature_relationship_count = 0U;
+        uint64_t ingredient_linked_signature_thumbnail_url_count = 0U;
+        uint64_t ingredient_linked_signature_explicit_reference_direct_claim_count
+            = 0U;
+        uint64_t ingredient_linked_signature_explicit_reference_cross_claim_count
+            = 0U;
+        uint64_t ingredient_linked_signature_explicit_reference_direct_source_count
+            = 0U;
+        uint64_t ingredient_linked_signature_explicit_reference_cross_source_count
+            = 0U;
+        uint64_t ingredient_linked_signature_explicit_reference_mixed_source_count
+            = 0U;
+        uint64_t ingredient_linked_signature_explicit_reference_direct_title_count
+            = 0U;
+        uint64_t ingredient_linked_signature_explicit_reference_cross_title_count
+            = 0U;
+        uint64_t
+            ingredient_linked_signature_explicit_reference_direct_relationship_count
+            = 0U;
+        uint64_t
+            ingredient_linked_signature_explicit_reference_cross_relationship_count
+            = 0U;
+        uint64_t
+            ingredient_linked_signature_explicit_reference_direct_thumbnail_url_count
+            = 0U;
+        uint64_t
+            ingredient_linked_signature_explicit_reference_cross_thumbnail_url_count
+            = 0U;
+        uint64_t ingredient_linked_signature_explicit_reference_title_count
+            = 0U;
+        uint64_t
+            ingredient_linked_signature_explicit_reference_relationship_count
+            = 0U;
+        uint64_t
+            ingredient_linked_signature_explicit_reference_thumbnail_url_count
+            = 0U;
+        uint64_t
+            ingredient_linked_signature_explicit_reference_unresolved_direct_claim_count
+            = 0U;
+        uint64_t
+            ingredient_linked_signature_explicit_reference_unresolved_cross_claim_count
+            = 0U;
+        uint64_t
+            ingredient_linked_signature_explicit_reference_unresolved_direct_source_count
+            = 0U;
+        uint64_t
+            ingredient_linked_signature_explicit_reference_unresolved_cross_source_count
+            = 0U;
+        uint64_t
+            ingredient_linked_signature_explicit_reference_unresolved_mixed_source_count
+            = 0U;
+        uint64_t
+            ingredient_linked_signature_explicit_reference_unresolved_direct_title_count
+            = 0U;
+        uint64_t
+            ingredient_linked_signature_explicit_reference_unresolved_cross_title_count
+            = 0U;
+        uint64_t
+            ingredient_linked_signature_explicit_reference_unresolved_direct_relationship_count
+            = 0U;
+        uint64_t
+            ingredient_linked_signature_explicit_reference_unresolved_cross_relationship_count
+            = 0U;
+        uint64_t
+            ingredient_linked_signature_explicit_reference_unresolved_direct_thumbnail_url_count
+            = 0U;
+        uint64_t
+            ingredient_linked_signature_explicit_reference_unresolved_cross_thumbnail_url_count
+            = 0U;
+        uint64_t
+            ingredient_linked_signature_explicit_reference_unresolved_title_count
+            = 0U;
+        uint64_t
+            ingredient_linked_signature_explicit_reference_unresolved_relationship_count
+            = 0U;
+        uint64_t
+            ingredient_linked_signature_explicit_reference_unresolved_thumbnail_url_count
+            = 0U;
+        uint64_t
+            ingredient_linked_signature_explicit_reference_ambiguous_direct_claim_count
+            = 0U;
+        uint64_t
+            ingredient_linked_signature_explicit_reference_ambiguous_cross_claim_count
+            = 0U;
+        uint64_t
+            ingredient_linked_signature_explicit_reference_ambiguous_direct_source_count
+            = 0U;
+        uint64_t
+            ingredient_linked_signature_explicit_reference_ambiguous_cross_source_count
+            = 0U;
+        uint64_t
+            ingredient_linked_signature_explicit_reference_ambiguous_mixed_source_count
+            = 0U;
+        uint64_t
+            ingredient_linked_signature_explicit_reference_ambiguous_direct_title_count
+            = 0U;
+        uint64_t
+            ingredient_linked_signature_explicit_reference_ambiguous_cross_title_count
+            = 0U;
+        uint64_t
+            ingredient_linked_signature_explicit_reference_ambiguous_direct_relationship_count
+            = 0U;
+        uint64_t
+            ingredient_linked_signature_explicit_reference_ambiguous_cross_relationship_count
+            = 0U;
+        uint64_t
+            ingredient_linked_signature_explicit_reference_ambiguous_direct_thumbnail_url_count
+            = 0U;
+        uint64_t
+            ingredient_linked_signature_explicit_reference_ambiguous_cross_thumbnail_url_count
+            = 0U;
+        uint64_t
+            ingredient_linked_signature_explicit_reference_ambiguous_title_count
+            = 0U;
+        uint64_t
+            ingredient_linked_signature_explicit_reference_ambiguous_relationship_count
+            = 0U;
+        uint64_t
+            ingredient_linked_signature_explicit_reference_ambiguous_thumbnail_url_count
+            = 0U;
+        uint64_t ingredient_explicit_reference_signature_count = 0U;
+        uint64_t ingredient_explicit_reference_unresolved_signature_count
+            = 0U;
+        uint64_t ingredient_explicit_reference_ambiguous_signature_count
+            = 0U;
+        std::vector<ClaimProjection::NamedCount>
+            ingredient_linked_signature_relationship_counts;
+        std::vector<ClaimProjection::NamedCount>
+            ingredient_linked_signature_explicit_reference_relationship_counts;
+        std::vector<ClaimProjection::NamedCount>
+            ingredient_linked_signature_explicit_reference_unresolved_relationship_counts;
+        std::vector<ClaimProjection::NamedCount>
+            ingredient_linked_signature_explicit_reference_ambiguous_relationship_counts;
         if (!use_label_counts) {
             const uint64_t max_detached_bytes = cbor_limit_or_default(
                 ctx->options.limits.max_cbor_bytes_bytes, 8U * 1024U * 1024U);
@@ -4725,6 +5297,9 @@ namespace {
             for (SignatureProjection& signature : signatures) {
                 signature.linked_claim_count = static_cast<uint64_t>(
                     signature.linked_claim_prefixes.size());
+                signature.linked_ingredient_claim_count = 0U;
+                signature.linked_direct_ingredient_claim_count = 0U;
+                signature.linked_cross_ingredient_claim_count = 0U;
                 if (signature.has_explicit_reference) {
                     explicit_reference_signature_count += 1U;
                     explicit_reference_index_hits
@@ -4752,10 +5327,36 @@ namespace {
                     direct_claim_prefix = claim.prefix;
                     break;
                 }
+                signature.direct_claim_prefix = direct_claim_prefix;
+                signature.direct_claim_has_ingredients = false;
+                if (!direct_claim_prefix.empty()) {
+                    const size_t direct_claim_index
+                        = find_claim_projection(claims, direct_claim_prefix);
+                    if (direct_claim_index != static_cast<size_t>(-1)
+                        && !claims[direct_claim_index].ingredients.empty()) {
+                        signature.direct_claim_has_ingredients = true;
+                    }
+                }
+                if (signature.direct_claim_has_ingredients) {
+                    ingredient_signature_count += 1U;
+                    if (signature.has_explicit_reference) {
+                        if (signature.explicit_reference_unresolved) {
+                            ingredient_explicit_reference_unresolved_signature_count
+                                += 1U;
+                        }
+                        if (signature.explicit_reference_ambiguous) {
+                            ingredient_explicit_reference_ambiguous_signature_count
+                                += 1U;
+                        }
+                    }
+                }
 
                 signature.cross_claim_link_count = 0U;
                 for (const std::string& linked_claim_prefix :
                      signature.linked_claim_prefixes) {
+                    const bool is_direct_link = !direct_claim_prefix.empty()
+                                                && linked_claim_prefix
+                                                       == direct_claim_prefix;
                     if (direct_claim_prefix.empty()
                         || linked_claim_prefix != direct_claim_prefix) {
                         signature.cross_claim_link_count += 1U;
@@ -4763,8 +5364,24 @@ namespace {
                     const size_t linked_claim_index
                         = find_claim_projection(claims, linked_claim_prefix);
                     if (linked_claim_index != static_cast<size_t>(-1)) {
+                        if (!claims[linked_claim_index].ingredients.empty()) {
+                            signature.linked_ingredient_claim_count += 1U;
+                            if (is_direct_link) {
+                                signature.linked_direct_ingredient_claim_count
+                                    += 1U;
+                            } else {
+                                signature.linked_cross_ingredient_claim_count
+                                    += 1U;
+                            }
+                        }
                         claims[linked_claim_index].referenced_by_signature_count
                             += 1U;
+                    }
+                }
+                if (signature.linked_ingredient_claim_count != 0U) {
+                    ingredient_linked_signature_count += 1U;
+                    if (signature.has_explicit_reference) {
+                        ingredient_explicit_reference_signature_count += 1U;
                     }
                 }
                 cross_claim_link_count += signature.cross_claim_link_count;
@@ -4775,6 +5392,304 @@ namespace {
 
         manifests.reserve(manifests.size() + claims.size() + signatures.size());
 
+        uint64_t ingredient_relationship_count = 0U;
+        uint64_t ingredient_thumbnail_url_count = 0U;
+        std::vector<ClaimProjection::NamedCount> ingredient_relationship_counts;
+        for (ClaimProjection& claim : claims) {
+            claim.ingredient_title_count = 0U;
+            claim.ingredient_relationship_count = 0U;
+            claim.ingredient_thumbnail_url_count = 0U;
+            claim.linked_ingredient_signature_count = 0U;
+            claim.linked_direct_ingredient_signature_count = 0U;
+            claim.linked_cross_ingredient_signature_count = 0U;
+            claim.linked_ingredient_title_count = 0U;
+            claim.linked_ingredient_relationship_count = 0U;
+            claim.linked_ingredient_thumbnail_url_count = 0U;
+            claim.linked_ingredient_explicit_reference_signature_count = 0U;
+            claim.linked_ingredient_explicit_reference_direct_signature_count
+                = 0U;
+            claim.linked_ingredient_explicit_reference_cross_signature_count
+                = 0U;
+            claim.linked_ingredient_explicit_reference_title_count = 0U;
+            claim.linked_ingredient_explicit_reference_relationship_count = 0U;
+            claim.linked_ingredient_explicit_reference_thumbnail_url_count
+                = 0U;
+            claim.linked_ingredient_explicit_reference_unresolved_signature_count
+                = 0U;
+            claim
+                .linked_ingredient_explicit_reference_unresolved_direct_signature_count
+                = 0U;
+            claim
+                .linked_ingredient_explicit_reference_unresolved_cross_signature_count
+                = 0U;
+            claim.linked_ingredient_explicit_reference_unresolved_title_count
+                = 0U;
+            claim
+                .linked_ingredient_explicit_reference_unresolved_relationship_count
+                = 0U;
+            claim
+                .linked_ingredient_explicit_reference_unresolved_thumbnail_url_count
+                = 0U;
+            claim.linked_ingredient_explicit_reference_ambiguous_signature_count
+                = 0U;
+            claim
+                .linked_ingredient_explicit_reference_ambiguous_direct_signature_count
+                = 0U;
+            claim
+                .linked_ingredient_explicit_reference_ambiguous_cross_signature_count
+                = 0U;
+            claim.linked_ingredient_explicit_reference_ambiguous_title_count
+                = 0U;
+            claim
+                .linked_ingredient_explicit_reference_ambiguous_relationship_count
+                = 0U;
+            claim
+                .linked_ingredient_explicit_reference_ambiguous_thumbnail_url_count
+                = 0U;
+            claim.ingredient_relationship_counts.clear();
+            claim.linked_ingredient_relationship_counts.clear();
+            claim.linked_ingredient_explicit_reference_relationship_counts
+                .clear();
+            claim.linked_ingredient_explicit_reference_unresolved_relationship_counts
+                .clear();
+            claim.linked_ingredient_explicit_reference_ambiguous_relationship_counts
+                .clear();
+            for (const ClaimProjection::IngredientProjection& ingredient :
+                claim.ingredients) {
+                if (ingredient.has_title) {
+                    claim.ingredient_title_count += 1U;
+                }
+                if (ingredient.has_relationship) {
+                    std::string relationship_key;
+                    if (sanitize_ascii_summary_segment(
+                            ingredient.relationship,
+                            ctx->options.limits.max_cbor_key_bytes,
+                            &relationship_key)) {
+                        add_or_increment_named_count(
+                            &claim.ingredient_relationship_counts,
+                            relationship_key, 1U);
+                        add_or_increment_named_count(
+                            &ingredient_relationship_counts,
+                            relationship_key, 1U);
+                    }
+                    claim.ingredient_relationship_count += 1U;
+                    ingredient_relationship_count += 1U;
+                }
+                if (ingredient.has_thumbnail_url) {
+                    claim.ingredient_thumbnail_url_count += 1U;
+                    ingredient_thumbnail_url_count += 1U;
+                }
+            }
+        }
+
+        for (SignatureProjection& signature : signatures) {
+            signature.linked_direct_ingredient_title_count = 0U;
+            signature.linked_cross_ingredient_title_count = 0U;
+            signature.linked_direct_ingredient_relationship_count = 0U;
+            signature.linked_cross_ingredient_relationship_count = 0U;
+            signature.linked_direct_ingredient_thumbnail_url_count = 0U;
+            signature.linked_cross_ingredient_thumbnail_url_count = 0U;
+            signature.linked_ingredient_title_count = 0U;
+            signature.linked_ingredient_relationship_count = 0U;
+            signature.linked_ingredient_thumbnail_url_count = 0U;
+            signature.linked_ingredient_relationship_counts.clear();
+            for (const std::string& linked_claim_prefix :
+                 signature.linked_claim_prefixes) {
+                const bool is_direct_link
+                    = !signature.direct_claim_prefix.empty()
+                      && linked_claim_prefix == signature.direct_claim_prefix;
+                const size_t linked_claim_index
+                    = find_claim_projection(claims, linked_claim_prefix);
+                if (linked_claim_index == static_cast<size_t>(-1)) {
+                    continue;
+                }
+                ClaimProjection& linked_claim = claims[linked_claim_index];
+                if (!linked_claim.ingredients.empty()) {
+                    linked_claim.linked_ingredient_signature_count += 1U;
+                    if (is_direct_link) {
+                        linked_claim.linked_direct_ingredient_signature_count
+                            += 1U;
+                    } else {
+                        linked_claim.linked_cross_ingredient_signature_count
+                            += 1U;
+                    }
+                    linked_claim.linked_ingredient_title_count
+                        += linked_claim.ingredient_title_count;
+                    linked_claim.linked_ingredient_relationship_count
+                        += linked_claim.ingredient_relationship_count;
+                    linked_claim.linked_ingredient_thumbnail_url_count
+                        += linked_claim.ingredient_thumbnail_url_count;
+                    for (const ClaimProjection::NamedCount& named_count :
+                         linked_claim.ingredient_relationship_counts) {
+                        add_or_increment_named_count(
+                            &linked_claim
+                                 .linked_ingredient_relationship_counts,
+                            named_count.key, named_count.count);
+                    }
+                    if (signature.has_explicit_reference) {
+                        linked_claim
+                            .linked_ingredient_explicit_reference_signature_count
+                            += 1U;
+                        if (is_direct_link) {
+                            linked_claim
+                                .linked_ingredient_explicit_reference_direct_signature_count
+                                += 1U;
+                        } else {
+                            linked_claim
+                                .linked_ingredient_explicit_reference_cross_signature_count
+                                += 1U;
+                        }
+                        linked_claim
+                            .linked_ingredient_explicit_reference_title_count
+                            += linked_claim.ingredient_title_count;
+                        linked_claim
+                            .linked_ingredient_explicit_reference_relationship_count
+                            += linked_claim.ingredient_relationship_count;
+                        linked_claim
+                            .linked_ingredient_explicit_reference_thumbnail_url_count
+                            += linked_claim.ingredient_thumbnail_url_count;
+                        for (const ClaimProjection::NamedCount& named_count :
+                             linked_claim.ingredient_relationship_counts) {
+                            add_or_increment_named_count(
+                                &linked_claim
+                                     .linked_ingredient_explicit_reference_relationship_counts,
+                                named_count.key, named_count.count);
+                        }
+                        if (signature.explicit_reference_unresolved) {
+                            linked_claim
+                                .linked_ingredient_explicit_reference_unresolved_signature_count
+                                += 1U;
+                            if (is_direct_link) {
+                                linked_claim
+                                    .linked_ingredient_explicit_reference_unresolved_direct_signature_count
+                                    += 1U;
+                            } else {
+                                linked_claim
+                                    .linked_ingredient_explicit_reference_unresolved_cross_signature_count
+                                    += 1U;
+                            }
+                            linked_claim
+                                .linked_ingredient_explicit_reference_unresolved_title_count
+                                += linked_claim.ingredient_title_count;
+                            linked_claim
+                                .linked_ingredient_explicit_reference_unresolved_relationship_count
+                                += linked_claim
+                                       .ingredient_relationship_count;
+                            linked_claim
+                                .linked_ingredient_explicit_reference_unresolved_thumbnail_url_count
+                                += linked_claim
+                                       .ingredient_thumbnail_url_count;
+                            for (const ClaimProjection::NamedCount& named_count :
+                                 linked_claim.ingredient_relationship_counts) {
+                                add_or_increment_named_count(
+                                    &linked_claim
+                                         .linked_ingredient_explicit_reference_unresolved_relationship_counts,
+                                    named_count.key, named_count.count);
+                            }
+                        }
+                        if (signature.explicit_reference_ambiguous) {
+                            linked_claim
+                                .linked_ingredient_explicit_reference_ambiguous_signature_count
+                                += 1U;
+                            if (is_direct_link) {
+                                linked_claim
+                                    .linked_ingredient_explicit_reference_ambiguous_direct_signature_count
+                                    += 1U;
+                            } else {
+                                linked_claim
+                                    .linked_ingredient_explicit_reference_ambiguous_cross_signature_count
+                                    += 1U;
+                            }
+                            linked_claim
+                                .linked_ingredient_explicit_reference_ambiguous_title_count
+                                += linked_claim.ingredient_title_count;
+                            linked_claim
+                                .linked_ingredient_explicit_reference_ambiguous_relationship_count
+                                += linked_claim
+                                       .ingredient_relationship_count;
+                            linked_claim
+                                .linked_ingredient_explicit_reference_ambiguous_thumbnail_url_count
+                                += linked_claim
+                                       .ingredient_thumbnail_url_count;
+                            for (const ClaimProjection::NamedCount& named_count :
+                                 linked_claim.ingredient_relationship_counts) {
+                                add_or_increment_named_count(
+                                    &linked_claim
+                                         .linked_ingredient_explicit_reference_ambiguous_relationship_counts,
+                                    named_count.key, named_count.count);
+                            }
+                        }
+                    }
+                }
+                signature.linked_ingredient_title_count
+                    += linked_claim.ingredient_title_count;
+                signature.linked_ingredient_relationship_count
+                    += linked_claim.ingredient_relationship_count;
+                signature.linked_ingredient_thumbnail_url_count
+                    += linked_claim.ingredient_thumbnail_url_count;
+                if (is_direct_link) {
+                    signature.linked_direct_ingredient_title_count
+                        += linked_claim.ingredient_title_count;
+                    signature.linked_direct_ingredient_relationship_count
+                        += linked_claim.ingredient_relationship_count;
+                    signature.linked_direct_ingredient_thumbnail_url_count
+                        += linked_claim.ingredient_thumbnail_url_count;
+                } else {
+                    signature.linked_cross_ingredient_title_count
+                        += linked_claim.ingredient_title_count;
+                    signature.linked_cross_ingredient_relationship_count
+                        += linked_claim.ingredient_relationship_count;
+                    signature.linked_cross_ingredient_thumbnail_url_count
+                        += linked_claim.ingredient_thumbnail_url_count;
+                }
+                for (const ClaimProjection::NamedCount& named_count :
+                     linked_claim.ingredient_relationship_counts) {
+                    add_or_increment_named_count(
+                        &signature.linked_ingredient_relationship_counts,
+                        named_count.key, named_count.count);
+                }
+            }
+        }
+
+        uint64_t ingredient_claim_count = 0U;
+        uint64_t ingredient_claim_with_signature_count = 0U;
+        uint64_t ingredient_claim_referenced_by_signature_count = 0U;
+        uint64_t ingredient_linked_claim_count = 0U;
+        uint64_t ingredient_linked_claim_explicit_reference_count = 0U;
+        uint64_t ingredient_linked_claim_explicit_reference_unresolved_count
+            = 0U;
+        uint64_t ingredient_linked_claim_explicit_reference_ambiguous_count
+            = 0U;
+        uint64_t ingredient_linked_claim_direct_source_count = 0U;
+        uint64_t ingredient_linked_claim_cross_source_count = 0U;
+        uint64_t ingredient_linked_claim_mixed_source_count = 0U;
+        uint64_t
+            ingredient_linked_claim_explicit_reference_direct_source_count
+            = 0U;
+        uint64_t
+            ingredient_linked_claim_explicit_reference_cross_source_count
+            = 0U;
+        uint64_t
+            ingredient_linked_claim_explicit_reference_mixed_source_count
+            = 0U;
+        uint64_t
+            ingredient_linked_claim_explicit_reference_unresolved_direct_source_count
+            = 0U;
+        uint64_t
+            ingredient_linked_claim_explicit_reference_unresolved_cross_source_count
+            = 0U;
+        uint64_t
+            ingredient_linked_claim_explicit_reference_unresolved_mixed_source_count
+            = 0U;
+        uint64_t
+            ingredient_linked_claim_explicit_reference_ambiguous_direct_source_count
+            = 0U;
+        uint64_t
+            ingredient_linked_claim_explicit_reference_ambiguous_cross_source_count
+            = 0U;
+        uint64_t
+            ingredient_linked_claim_explicit_reference_ambiguous_mixed_source_count
+            = 0U;
         for (const ClaimProjection& claim : claims) {
             std::string manifest_prefix;
             if (!extract_manifest_prefix_from_projection_prefix(
@@ -4791,10 +5706,164 @@ namespace {
                 manifest.is_active_manifest = true;
             }
             manifest.claim_count += 1U;
+            if (!claim.ingredients.empty()) {
+                ingredient_claim_count += 1U;
+                manifest.ingredient_claim_count += 1U;
+                if (!claim.signatures.empty()) {
+                    ingredient_claim_with_signature_count += 1U;
+                    manifest.ingredient_claim_with_signature_count += 1U;
+                }
+                if (claim.referenced_by_signature_count != 0U) {
+                    ingredient_claim_referenced_by_signature_count += 1U;
+                    manifest
+                        .ingredient_claim_referenced_by_signature_count += 1U;
+                }
+                if (claim.linked_ingredient_signature_count != 0U) {
+                    ingredient_linked_claim_count += 1U;
+                    manifest.ingredient_linked_claim_count += 1U;
+                }
+                if (claim.linked_direct_ingredient_signature_count != 0U) {
+                    ingredient_linked_claim_direct_source_count += 1U;
+                    manifest.ingredient_linked_claim_direct_source_count += 1U;
+                }
+                if (claim.linked_cross_ingredient_signature_count != 0U) {
+                    ingredient_linked_claim_cross_source_count += 1U;
+                    manifest.ingredient_linked_claim_cross_source_count += 1U;
+                }
+                if (claim.linked_direct_ingredient_signature_count != 0U
+                    && claim.linked_cross_ingredient_signature_count != 0U) {
+                    ingredient_linked_claim_mixed_source_count += 1U;
+                    manifest.ingredient_linked_claim_mixed_source_count += 1U;
+                }
+                if (claim.linked_ingredient_explicit_reference_signature_count
+                    != 0U) {
+                    ingredient_linked_claim_explicit_reference_count += 1U;
+                    manifest
+                        .ingredient_linked_claim_explicit_reference_count += 1U;
+                }
+                if (claim
+                        .linked_ingredient_explicit_reference_direct_signature_count
+                    != 0U) {
+                    ingredient_linked_claim_explicit_reference_direct_source_count
+                        += 1U;
+                    manifest
+                        .ingredient_linked_claim_explicit_reference_direct_source_count
+                        += 1U;
+                }
+                if (claim
+                        .linked_ingredient_explicit_reference_cross_signature_count
+                    != 0U) {
+                    ingredient_linked_claim_explicit_reference_cross_source_count
+                        += 1U;
+                    manifest
+                        .ingredient_linked_claim_explicit_reference_cross_source_count
+                        += 1U;
+                }
+                if (claim
+                        .linked_ingredient_explicit_reference_direct_signature_count
+                        != 0U
+                    && claim
+                           .linked_ingredient_explicit_reference_cross_signature_count
+                           != 0U) {
+                    ingredient_linked_claim_explicit_reference_mixed_source_count
+                        += 1U;
+                    manifest
+                        .ingredient_linked_claim_explicit_reference_mixed_source_count
+                        += 1U;
+                }
+                if (claim
+                        .linked_ingredient_explicit_reference_unresolved_signature_count
+                    != 0U) {
+                    ingredient_linked_claim_explicit_reference_unresolved_count
+                        += 1U;
+                    manifest
+                        .ingredient_linked_claim_explicit_reference_unresolved_count
+                        += 1U;
+                }
+                if (claim
+                        .linked_ingredient_explicit_reference_unresolved_direct_signature_count
+                    != 0U) {
+                    ingredient_linked_claim_explicit_reference_unresolved_direct_source_count
+                        += 1U;
+                    manifest
+                        .ingredient_linked_claim_explicit_reference_unresolved_direct_source_count
+                        += 1U;
+                }
+                if (claim
+                        .linked_ingredient_explicit_reference_unresolved_cross_signature_count
+                    != 0U) {
+                    ingredient_linked_claim_explicit_reference_unresolved_cross_source_count
+                        += 1U;
+                    manifest
+                        .ingredient_linked_claim_explicit_reference_unresolved_cross_source_count
+                        += 1U;
+                }
+                if (claim
+                        .linked_ingredient_explicit_reference_unresolved_direct_signature_count
+                        != 0U
+                    && claim
+                           .linked_ingredient_explicit_reference_unresolved_cross_signature_count
+                           != 0U) {
+                    ingredient_linked_claim_explicit_reference_unresolved_mixed_source_count
+                        += 1U;
+                    manifest
+                        .ingredient_linked_claim_explicit_reference_unresolved_mixed_source_count
+                        += 1U;
+                }
+                if (claim
+                        .linked_ingredient_explicit_reference_ambiguous_signature_count
+                    != 0U) {
+                    ingredient_linked_claim_explicit_reference_ambiguous_count
+                        += 1U;
+                    manifest
+                        .ingredient_linked_claim_explicit_reference_ambiguous_count
+                        += 1U;
+                }
+                if (claim
+                        .linked_ingredient_explicit_reference_ambiguous_direct_signature_count
+                    != 0U) {
+                    ingredient_linked_claim_explicit_reference_ambiguous_direct_source_count
+                        += 1U;
+                    manifest
+                        .ingredient_linked_claim_explicit_reference_ambiguous_direct_source_count
+                        += 1U;
+                }
+                if (claim
+                        .linked_ingredient_explicit_reference_ambiguous_cross_signature_count
+                    != 0U) {
+                    ingredient_linked_claim_explicit_reference_ambiguous_cross_source_count
+                        += 1U;
+                    manifest
+                        .ingredient_linked_claim_explicit_reference_ambiguous_cross_source_count
+                        += 1U;
+                }
+                if (claim
+                        .linked_ingredient_explicit_reference_ambiguous_direct_signature_count
+                        != 0U
+                    && claim
+                           .linked_ingredient_explicit_reference_ambiguous_cross_signature_count
+                           != 0U) {
+                    ingredient_linked_claim_explicit_reference_ambiguous_mixed_source_count
+                        += 1U;
+                    manifest
+                        .ingredient_linked_claim_explicit_reference_ambiguous_mixed_source_count
+                        += 1U;
+                }
+            }
             manifest.assertion_count += static_cast<uint64_t>(
                 claim.assertions.size());
             manifest.ingredient_count += static_cast<uint64_t>(
                 claim.ingredients.size());
+            manifest.ingredient_relationship_count
+                += claim.ingredient_relationship_count;
+            manifest.ingredient_thumbnail_url_count
+                += claim.ingredient_thumbnail_url_count;
+            for (const ClaimProjection::NamedCount& named_count :
+                 claim.ingredient_relationship_counts) {
+                add_or_increment_named_count(
+                    &manifest.ingredient_relationship_counts,
+                    named_count.key, named_count.count);
+            }
         }
 
         for (const SignatureProjection& signature : signatures) {
@@ -4813,8 +5882,392 @@ namespace {
                 manifest.is_active_manifest = true;
             }
             manifest.signature_count += 1U;
+            if (signature.direct_claim_has_ingredients) {
+                manifest.ingredient_signature_count += 1U;
+                if (signature.explicit_reference_unresolved) {
+                    manifest
+                        .ingredient_explicit_reference_unresolved_signature_count
+                        += 1U;
+                }
+                if (signature.explicit_reference_ambiguous) {
+                    manifest
+                        .ingredient_explicit_reference_ambiguous_signature_count
+                        += 1U;
+                }
+            }
             if (signature.linked_claim_count != 0U) {
                 manifest.signature_linked_count += 1U;
+            }
+            if (signature.linked_ingredient_claim_count != 0U) {
+                manifest.ingredient_linked_signature_count += 1U;
+                manifest.ingredient_linked_direct_claim_count
+                    += signature.linked_direct_ingredient_claim_count;
+                manifest.ingredient_linked_cross_claim_count
+                    += signature.linked_cross_ingredient_claim_count;
+                ingredient_linked_direct_claim_count
+                    += signature.linked_direct_ingredient_claim_count;
+                ingredient_linked_cross_claim_count
+                    += signature.linked_cross_ingredient_claim_count;
+                if (signature.linked_direct_ingredient_claim_count != 0U) {
+                    manifest.ingredient_linked_signature_direct_source_count
+                        += 1U;
+                    ingredient_linked_signature_direct_source_count += 1U;
+                }
+                if (signature.linked_cross_ingredient_claim_count != 0U) {
+                    manifest.ingredient_linked_signature_cross_source_count
+                        += 1U;
+                    ingredient_linked_signature_cross_source_count += 1U;
+                }
+                if (signature.linked_direct_ingredient_claim_count != 0U
+                    && signature.linked_cross_ingredient_claim_count != 0U) {
+                    manifest.ingredient_linked_signature_mixed_source_count
+                        += 1U;
+                    ingredient_linked_signature_mixed_source_count += 1U;
+                }
+                manifest.ingredient_linked_signature_direct_title_count
+                    += signature.linked_direct_ingredient_title_count;
+                manifest.ingredient_linked_signature_cross_title_count
+                    += signature.linked_cross_ingredient_title_count;
+                manifest.ingredient_linked_signature_direct_relationship_count
+                    += signature.linked_direct_ingredient_relationship_count;
+                manifest.ingredient_linked_signature_cross_relationship_count
+                    += signature.linked_cross_ingredient_relationship_count;
+                manifest.ingredient_linked_signature_direct_thumbnail_url_count
+                    += signature.linked_direct_ingredient_thumbnail_url_count;
+                manifest.ingredient_linked_signature_cross_thumbnail_url_count
+                    += signature.linked_cross_ingredient_thumbnail_url_count;
+                ingredient_linked_signature_direct_title_count
+                    += signature.linked_direct_ingredient_title_count;
+                ingredient_linked_signature_cross_title_count
+                    += signature.linked_cross_ingredient_title_count;
+                ingredient_linked_signature_direct_relationship_count
+                    += signature.linked_direct_ingredient_relationship_count;
+                ingredient_linked_signature_cross_relationship_count
+                    += signature.linked_cross_ingredient_relationship_count;
+                ingredient_linked_signature_direct_thumbnail_url_count
+                    += signature.linked_direct_ingredient_thumbnail_url_count;
+                ingredient_linked_signature_cross_thumbnail_url_count
+                    += signature.linked_cross_ingredient_thumbnail_url_count;
+                manifest.ingredient_linked_signature_title_count
+                    += signature.linked_ingredient_title_count;
+                manifest.ingredient_linked_signature_relationship_count
+                    += signature.linked_ingredient_relationship_count;
+                manifest.ingredient_linked_signature_thumbnail_url_count
+                    += signature.linked_ingredient_thumbnail_url_count;
+                ingredient_linked_signature_title_count
+                    += signature.linked_ingredient_title_count;
+                ingredient_linked_signature_relationship_count
+                    += signature.linked_ingredient_relationship_count;
+                ingredient_linked_signature_thumbnail_url_count
+                    += signature.linked_ingredient_thumbnail_url_count;
+                for (const ClaimProjection::NamedCount& named_count :
+                     signature.linked_ingredient_relationship_counts) {
+                    add_or_increment_named_count(
+                        &manifest
+                             .ingredient_linked_signature_relationship_counts,
+                        named_count.key, named_count.count);
+                    add_or_increment_named_count(
+                        &ingredient_linked_signature_relationship_counts,
+                        named_count.key, named_count.count);
+                }
+                if (signature.has_explicit_reference) {
+                    manifest.ingredient_explicit_reference_signature_count
+                        += 1U;
+                    manifest
+                        .ingredient_linked_signature_explicit_reference_direct_claim_count
+                        += signature.linked_direct_ingredient_claim_count;
+                    manifest
+                        .ingredient_linked_signature_explicit_reference_cross_claim_count
+                        += signature.linked_cross_ingredient_claim_count;
+                    ingredient_linked_signature_explicit_reference_direct_claim_count
+                        += signature.linked_direct_ingredient_claim_count;
+                    ingredient_linked_signature_explicit_reference_cross_claim_count
+                        += signature.linked_cross_ingredient_claim_count;
+                    if (signature.linked_direct_ingredient_claim_count != 0U) {
+                        manifest
+                            .ingredient_linked_signature_explicit_reference_direct_source_count
+                            += 1U;
+                        ingredient_linked_signature_explicit_reference_direct_source_count
+                            += 1U;
+                    }
+                    if (signature.linked_cross_ingredient_claim_count != 0U) {
+                        manifest
+                            .ingredient_linked_signature_explicit_reference_cross_source_count
+                            += 1U;
+                        ingredient_linked_signature_explicit_reference_cross_source_count
+                            += 1U;
+                    }
+                    if (signature.linked_direct_ingredient_claim_count != 0U
+                        && signature.linked_cross_ingredient_claim_count
+                               != 0U) {
+                        manifest
+                            .ingredient_linked_signature_explicit_reference_mixed_source_count
+                            += 1U;
+                        ingredient_linked_signature_explicit_reference_mixed_source_count
+                            += 1U;
+                    }
+                    manifest
+                        .ingredient_linked_signature_explicit_reference_direct_title_count
+                        += signature.linked_direct_ingredient_title_count;
+                    manifest
+                        .ingredient_linked_signature_explicit_reference_cross_title_count
+                        += signature.linked_cross_ingredient_title_count;
+                    manifest
+                        .ingredient_linked_signature_explicit_reference_direct_relationship_count
+                        += signature
+                               .linked_direct_ingredient_relationship_count;
+                    manifest
+                        .ingredient_linked_signature_explicit_reference_cross_relationship_count
+                        += signature
+                               .linked_cross_ingredient_relationship_count;
+                    manifest
+                        .ingredient_linked_signature_explicit_reference_direct_thumbnail_url_count
+                        += signature
+                               .linked_direct_ingredient_thumbnail_url_count;
+                    manifest
+                        .ingredient_linked_signature_explicit_reference_cross_thumbnail_url_count
+                        += signature
+                               .linked_cross_ingredient_thumbnail_url_count;
+                    ingredient_linked_signature_explicit_reference_direct_title_count
+                        += signature.linked_direct_ingredient_title_count;
+                    ingredient_linked_signature_explicit_reference_cross_title_count
+                        += signature.linked_cross_ingredient_title_count;
+                    ingredient_linked_signature_explicit_reference_direct_relationship_count
+                        += signature.linked_direct_ingredient_relationship_count;
+                    ingredient_linked_signature_explicit_reference_cross_relationship_count
+                        += signature.linked_cross_ingredient_relationship_count;
+                    ingredient_linked_signature_explicit_reference_direct_thumbnail_url_count
+                        += signature.linked_direct_ingredient_thumbnail_url_count;
+                    ingredient_linked_signature_explicit_reference_cross_thumbnail_url_count
+                        += signature.linked_cross_ingredient_thumbnail_url_count;
+                    manifest
+                        .ingredient_linked_signature_explicit_reference_title_count
+                        += signature.linked_ingredient_title_count;
+                    manifest
+                        .ingredient_linked_signature_explicit_reference_relationship_count
+                        += signature.linked_ingredient_relationship_count;
+                    manifest
+                        .ingredient_linked_signature_explicit_reference_thumbnail_url_count
+                        += signature.linked_ingredient_thumbnail_url_count;
+                    ingredient_linked_signature_explicit_reference_title_count
+                        += signature.linked_ingredient_title_count;
+                    ingredient_linked_signature_explicit_reference_relationship_count
+                        += signature.linked_ingredient_relationship_count;
+                    ingredient_linked_signature_explicit_reference_thumbnail_url_count
+                        += signature.linked_ingredient_thumbnail_url_count;
+                    for (const ClaimProjection::NamedCount& named_count :
+                         signature.linked_ingredient_relationship_counts) {
+                        add_or_increment_named_count(
+                            &manifest
+                                 .ingredient_linked_signature_explicit_reference_relationship_counts,
+                            named_count.key, named_count.count);
+                        add_or_increment_named_count(
+                            &ingredient_linked_signature_explicit_reference_relationship_counts,
+                            named_count.key, named_count.count);
+                    }
+                    if (signature.explicit_reference_unresolved) {
+                        manifest
+                            .ingredient_linked_signature_explicit_reference_unresolved_direct_claim_count
+                            += signature.linked_direct_ingredient_claim_count;
+                        manifest
+                            .ingredient_linked_signature_explicit_reference_unresolved_cross_claim_count
+                            += signature.linked_cross_ingredient_claim_count;
+                        ingredient_linked_signature_explicit_reference_unresolved_direct_claim_count
+                            += signature.linked_direct_ingredient_claim_count;
+                        ingredient_linked_signature_explicit_reference_unresolved_cross_claim_count
+                            += signature.linked_cross_ingredient_claim_count;
+                        if (signature.linked_direct_ingredient_claim_count
+                            != 0U) {
+                            manifest
+                                .ingredient_linked_signature_explicit_reference_unresolved_direct_source_count
+                                += 1U;
+                            ingredient_linked_signature_explicit_reference_unresolved_direct_source_count
+                                += 1U;
+                        }
+                        if (signature.linked_cross_ingredient_claim_count
+                            != 0U) {
+                            manifest
+                                .ingredient_linked_signature_explicit_reference_unresolved_cross_source_count
+                                += 1U;
+                            ingredient_linked_signature_explicit_reference_unresolved_cross_source_count
+                                += 1U;
+                        }
+                        if (signature.linked_direct_ingredient_claim_count
+                                != 0U
+                            && signature.linked_cross_ingredient_claim_count
+                                   != 0U) {
+                            manifest
+                                .ingredient_linked_signature_explicit_reference_unresolved_mixed_source_count
+                                += 1U;
+                            ingredient_linked_signature_explicit_reference_unresolved_mixed_source_count
+                                += 1U;
+                        }
+                        manifest
+                            .ingredient_linked_signature_explicit_reference_unresolved_direct_title_count
+                            += signature.linked_direct_ingredient_title_count;
+                        manifest
+                            .ingredient_linked_signature_explicit_reference_unresolved_cross_title_count
+                            += signature.linked_cross_ingredient_title_count;
+                        manifest
+                            .ingredient_linked_signature_explicit_reference_unresolved_direct_relationship_count
+                            += signature
+                                   .linked_direct_ingredient_relationship_count;
+                        manifest
+                            .ingredient_linked_signature_explicit_reference_unresolved_cross_relationship_count
+                            += signature
+                                   .linked_cross_ingredient_relationship_count;
+                        manifest
+                            .ingredient_linked_signature_explicit_reference_unresolved_direct_thumbnail_url_count
+                            += signature
+                                   .linked_direct_ingredient_thumbnail_url_count;
+                        manifest
+                            .ingredient_linked_signature_explicit_reference_unresolved_cross_thumbnail_url_count
+                            += signature
+                                   .linked_cross_ingredient_thumbnail_url_count;
+                        ingredient_linked_signature_explicit_reference_unresolved_direct_title_count
+                            += signature.linked_direct_ingredient_title_count;
+                        ingredient_linked_signature_explicit_reference_unresolved_cross_title_count
+                            += signature.linked_cross_ingredient_title_count;
+                        ingredient_linked_signature_explicit_reference_unresolved_direct_relationship_count
+                            += signature
+                                   .linked_direct_ingredient_relationship_count;
+                        ingredient_linked_signature_explicit_reference_unresolved_cross_relationship_count
+                            += signature
+                                   .linked_cross_ingredient_relationship_count;
+                        ingredient_linked_signature_explicit_reference_unresolved_direct_thumbnail_url_count
+                            += signature
+                                   .linked_direct_ingredient_thumbnail_url_count;
+                        ingredient_linked_signature_explicit_reference_unresolved_cross_thumbnail_url_count
+                            += signature
+                                   .linked_cross_ingredient_thumbnail_url_count;
+                        manifest
+                            .ingredient_linked_signature_explicit_reference_unresolved_title_count
+                            += signature.linked_ingredient_title_count;
+                        manifest
+                            .ingredient_linked_signature_explicit_reference_unresolved_relationship_count
+                            += signature.linked_ingredient_relationship_count;
+                        manifest
+                            .ingredient_linked_signature_explicit_reference_unresolved_thumbnail_url_count
+                            += signature.linked_ingredient_thumbnail_url_count;
+                        ingredient_linked_signature_explicit_reference_unresolved_title_count
+                            += signature.linked_ingredient_title_count;
+                        ingredient_linked_signature_explicit_reference_unresolved_relationship_count
+                            += signature.linked_ingredient_relationship_count;
+                        ingredient_linked_signature_explicit_reference_unresolved_thumbnail_url_count
+                            += signature.linked_ingredient_thumbnail_url_count;
+                        for (const ClaimProjection::NamedCount& named_count :
+                             signature.linked_ingredient_relationship_counts) {
+                            add_or_increment_named_count(
+                                &manifest
+                                     .ingredient_linked_signature_explicit_reference_unresolved_relationship_counts,
+                                named_count.key, named_count.count);
+                            add_or_increment_named_count(
+                                &ingredient_linked_signature_explicit_reference_unresolved_relationship_counts,
+                                named_count.key, named_count.count);
+                        }
+                    }
+                    if (signature.explicit_reference_ambiguous) {
+                        manifest
+                            .ingredient_linked_signature_explicit_reference_ambiguous_direct_claim_count
+                            += signature.linked_direct_ingredient_claim_count;
+                        manifest
+                            .ingredient_linked_signature_explicit_reference_ambiguous_cross_claim_count
+                            += signature.linked_cross_ingredient_claim_count;
+                        ingredient_linked_signature_explicit_reference_ambiguous_direct_claim_count
+                            += signature.linked_direct_ingredient_claim_count;
+                        ingredient_linked_signature_explicit_reference_ambiguous_cross_claim_count
+                            += signature.linked_cross_ingredient_claim_count;
+                        if (signature.linked_direct_ingredient_claim_count
+                            != 0U) {
+                            manifest
+                                .ingredient_linked_signature_explicit_reference_ambiguous_direct_source_count
+                                += 1U;
+                            ingredient_linked_signature_explicit_reference_ambiguous_direct_source_count
+                                += 1U;
+                        }
+                        if (signature.linked_cross_ingredient_claim_count
+                            != 0U) {
+                            manifest
+                                .ingredient_linked_signature_explicit_reference_ambiguous_cross_source_count
+                                += 1U;
+                            ingredient_linked_signature_explicit_reference_ambiguous_cross_source_count
+                                += 1U;
+                        }
+                        if (signature.linked_direct_ingredient_claim_count
+                                != 0U
+                            && signature.linked_cross_ingredient_claim_count
+                                   != 0U) {
+                            manifest
+                                .ingredient_linked_signature_explicit_reference_ambiguous_mixed_source_count
+                                += 1U;
+                            ingredient_linked_signature_explicit_reference_ambiguous_mixed_source_count
+                                += 1U;
+                        }
+                        manifest
+                            .ingredient_linked_signature_explicit_reference_ambiguous_direct_title_count
+                            += signature.linked_direct_ingredient_title_count;
+                        manifest
+                            .ingredient_linked_signature_explicit_reference_ambiguous_cross_title_count
+                            += signature.linked_cross_ingredient_title_count;
+                        manifest
+                            .ingredient_linked_signature_explicit_reference_ambiguous_direct_relationship_count
+                            += signature
+                                   .linked_direct_ingredient_relationship_count;
+                        manifest
+                            .ingredient_linked_signature_explicit_reference_ambiguous_cross_relationship_count
+                            += signature
+                                   .linked_cross_ingredient_relationship_count;
+                        manifest
+                            .ingredient_linked_signature_explicit_reference_ambiguous_direct_thumbnail_url_count
+                            += signature
+                                   .linked_direct_ingredient_thumbnail_url_count;
+                        manifest
+                            .ingredient_linked_signature_explicit_reference_ambiguous_cross_thumbnail_url_count
+                            += signature
+                                   .linked_cross_ingredient_thumbnail_url_count;
+                        ingredient_linked_signature_explicit_reference_ambiguous_direct_title_count
+                            += signature.linked_direct_ingredient_title_count;
+                        ingredient_linked_signature_explicit_reference_ambiguous_cross_title_count
+                            += signature.linked_cross_ingredient_title_count;
+                        ingredient_linked_signature_explicit_reference_ambiguous_direct_relationship_count
+                            += signature
+                                   .linked_direct_ingredient_relationship_count;
+                        ingredient_linked_signature_explicit_reference_ambiguous_cross_relationship_count
+                            += signature
+                                   .linked_cross_ingredient_relationship_count;
+                        ingredient_linked_signature_explicit_reference_ambiguous_direct_thumbnail_url_count
+                            += signature
+                                   .linked_direct_ingredient_thumbnail_url_count;
+                        ingredient_linked_signature_explicit_reference_ambiguous_cross_thumbnail_url_count
+                            += signature
+                                   .linked_cross_ingredient_thumbnail_url_count;
+                        manifest
+                            .ingredient_linked_signature_explicit_reference_ambiguous_title_count
+                            += signature.linked_ingredient_title_count;
+                        manifest
+                            .ingredient_linked_signature_explicit_reference_ambiguous_relationship_count
+                            += signature.linked_ingredient_relationship_count;
+                        manifest
+                            .ingredient_linked_signature_explicit_reference_ambiguous_thumbnail_url_count
+                            += signature.linked_ingredient_thumbnail_url_count;
+                        ingredient_linked_signature_explicit_reference_ambiguous_title_count
+                            += signature.linked_ingredient_title_count;
+                        ingredient_linked_signature_explicit_reference_ambiguous_relationship_count
+                            += signature.linked_ingredient_relationship_count;
+                        ingredient_linked_signature_explicit_reference_ambiguous_thumbnail_url_count
+                            += signature.linked_ingredient_thumbnail_url_count;
+                        for (const ClaimProjection::NamedCount& named_count :
+                             signature.linked_ingredient_relationship_counts) {
+                            add_or_increment_named_count(
+                                &manifest
+                                     .ingredient_linked_signature_explicit_reference_ambiguous_relationship_counts,
+                                named_count.key, named_count.count);
+                            add_or_increment_named_count(
+                                &ingredient_linked_signature_explicit_reference_ambiguous_relationship_counts,
+                                named_count.key, named_count.count);
+                        }
+                    }
+                }
             }
             manifest.cross_claim_link_count += signature.cross_claim_link_count;
             if (signature.has_explicit_reference) {
@@ -4973,6 +6426,745 @@ namespace {
                             EntryFlags::Derived)) {
             return false;
         }
+        if (!emit_field_u64(ctx, "c2pa.semantic.ingredient_claim_count",
+                            ingredient_claim_count, EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(ctx,
+                            "c2pa.semantic.ingredient_claim_with_signature_count",
+                            ingredient_claim_with_signature_count,
+                            EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(
+                ctx,
+                "c2pa.semantic.ingredient_claim_referenced_by_signature_count",
+                ingredient_claim_referenced_by_signature_count,
+                EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(ctx, "c2pa.semantic.ingredient_signature_count",
+                            ingredient_signature_count,
+                            EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(ctx, "c2pa.semantic.ingredient_linked_claim_count",
+                            ingredient_linked_claim_count,
+                            EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(
+                ctx,
+                "c2pa.semantic.ingredient_linked_claim_direct_source_count",
+                ingredient_linked_claim_direct_source_count,
+                EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(
+                ctx,
+                "c2pa.semantic.ingredient_linked_claim_cross_source_count",
+                ingredient_linked_claim_cross_source_count,
+                EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(
+                ctx,
+                "c2pa.semantic.ingredient_linked_claim_mixed_source_count",
+                ingredient_linked_claim_mixed_source_count,
+                EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(
+                ctx,
+                "c2pa.semantic."
+                "ingredient_linked_claim_explicit_reference_count",
+                ingredient_linked_claim_explicit_reference_count,
+                EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(
+                ctx,
+                "c2pa.semantic."
+                "ingredient_linked_claim_explicit_reference_direct_source_count",
+                ingredient_linked_claim_explicit_reference_direct_source_count,
+                EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(
+                ctx,
+                "c2pa.semantic."
+                "ingredient_linked_claim_explicit_reference_cross_source_count",
+                ingredient_linked_claim_explicit_reference_cross_source_count,
+                EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(
+                ctx,
+                "c2pa.semantic."
+                "ingredient_linked_claim_explicit_reference_mixed_source_count",
+                ingredient_linked_claim_explicit_reference_mixed_source_count,
+                EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(
+                ctx,
+                "c2pa.semantic."
+                "ingredient_linked_claim_explicit_reference_unresolved_count",
+                ingredient_linked_claim_explicit_reference_unresolved_count,
+                EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(
+                ctx,
+                "c2pa.semantic."
+                "ingredient_linked_claim_explicit_reference_unresolved_direct_source_count",
+                ingredient_linked_claim_explicit_reference_unresolved_direct_source_count,
+                EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(
+                ctx,
+                "c2pa.semantic."
+                "ingredient_linked_claim_explicit_reference_unresolved_cross_source_count",
+                ingredient_linked_claim_explicit_reference_unresolved_cross_source_count,
+                EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(
+                ctx,
+                "c2pa.semantic."
+                "ingredient_linked_claim_explicit_reference_unresolved_mixed_source_count",
+                ingredient_linked_claim_explicit_reference_unresolved_mixed_source_count,
+                EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(
+                ctx,
+                "c2pa.semantic."
+                "ingredient_linked_claim_explicit_reference_ambiguous_count",
+                ingredient_linked_claim_explicit_reference_ambiguous_count,
+                EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(
+                ctx,
+                "c2pa.semantic."
+                "ingredient_linked_claim_explicit_reference_ambiguous_direct_source_count",
+                ingredient_linked_claim_explicit_reference_ambiguous_direct_source_count,
+                EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(
+                ctx,
+                "c2pa.semantic."
+                "ingredient_linked_claim_explicit_reference_ambiguous_cross_source_count",
+                ingredient_linked_claim_explicit_reference_ambiguous_cross_source_count,
+                EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(
+                ctx,
+                "c2pa.semantic."
+                "ingredient_linked_claim_explicit_reference_ambiguous_mixed_source_count",
+                ingredient_linked_claim_explicit_reference_ambiguous_mixed_source_count,
+                EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(ctx,
+                            "c2pa.semantic.ingredient_linked_signature_count",
+                            ingredient_linked_signature_count,
+                            EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(
+                ctx,
+                "c2pa.semantic.ingredient_linked_direct_claim_count",
+                ingredient_linked_direct_claim_count,
+                EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(
+                ctx,
+                "c2pa.semantic.ingredient_linked_cross_claim_count",
+                ingredient_linked_cross_claim_count,
+                EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(
+                ctx,
+                "c2pa.semantic."
+                "ingredient_linked_signature_direct_source_count",
+                ingredient_linked_signature_direct_source_count,
+                EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(
+                ctx,
+                "c2pa.semantic."
+                "ingredient_linked_signature_cross_source_count",
+                ingredient_linked_signature_cross_source_count,
+                EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(
+                ctx,
+                "c2pa.semantic."
+                "ingredient_linked_signature_mixed_source_count",
+                ingredient_linked_signature_mixed_source_count,
+                EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(
+                ctx,
+                "c2pa.semantic."
+                "ingredient_linked_signature_direct_title_count",
+                ingredient_linked_signature_direct_title_count,
+                EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(
+                ctx,
+                "c2pa.semantic."
+                "ingredient_linked_signature_cross_title_count",
+                ingredient_linked_signature_cross_title_count,
+                EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(
+                ctx,
+                "c2pa.semantic."
+                "ingredient_linked_signature_direct_relationship_count",
+                ingredient_linked_signature_direct_relationship_count,
+                EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(
+                ctx,
+                "c2pa.semantic."
+                "ingredient_linked_signature_cross_relationship_count",
+                ingredient_linked_signature_cross_relationship_count,
+                EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(
+                ctx,
+                "c2pa.semantic."
+                "ingredient_linked_signature_direct_thumbnail_url_count",
+                ingredient_linked_signature_direct_thumbnail_url_count,
+                EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(
+                ctx,
+                "c2pa.semantic."
+                "ingredient_linked_signature_cross_thumbnail_url_count",
+                ingredient_linked_signature_cross_thumbnail_url_count,
+                EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(
+                ctx,
+                "c2pa.semantic.ingredient_linked_signature_title_count",
+                ingredient_linked_signature_title_count,
+                EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(
+                ctx,
+                "c2pa.semantic.ingredient_linked_signature_relationship_count",
+                ingredient_linked_signature_relationship_count,
+                EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(
+                ctx,
+                "c2pa.semantic."
+                "ingredient_linked_signature_thumbnail_url_count",
+                ingredient_linked_signature_thumbnail_url_count,
+                EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(
+                ctx,
+                "c2pa.semantic."
+                "ingredient_linked_signature_explicit_reference_direct_claim_count",
+                ingredient_linked_signature_explicit_reference_direct_claim_count,
+                EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(
+                ctx,
+                "c2pa.semantic."
+                "ingredient_linked_signature_explicit_reference_cross_claim_count",
+                ingredient_linked_signature_explicit_reference_cross_claim_count,
+                EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(
+                ctx,
+                "c2pa.semantic."
+                "ingredient_linked_signature_explicit_reference_direct_source_count",
+                ingredient_linked_signature_explicit_reference_direct_source_count,
+                EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(
+                ctx,
+                "c2pa.semantic."
+                "ingredient_linked_signature_explicit_reference_cross_source_count",
+                ingredient_linked_signature_explicit_reference_cross_source_count,
+                EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(
+                ctx,
+                "c2pa.semantic."
+                "ingredient_linked_signature_explicit_reference_mixed_source_count",
+                ingredient_linked_signature_explicit_reference_mixed_source_count,
+                EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(
+                ctx,
+                "c2pa.semantic."
+                "ingredient_linked_signature_explicit_reference_direct_title_count",
+                ingredient_linked_signature_explicit_reference_direct_title_count,
+                EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(
+                ctx,
+                "c2pa.semantic."
+                "ingredient_linked_signature_explicit_reference_cross_title_count",
+                ingredient_linked_signature_explicit_reference_cross_title_count,
+                EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(
+                ctx,
+                "c2pa.semantic."
+                "ingredient_linked_signature_explicit_reference_direct_relationship_count",
+                ingredient_linked_signature_explicit_reference_direct_relationship_count,
+                EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(
+                ctx,
+                "c2pa.semantic."
+                "ingredient_linked_signature_explicit_reference_cross_relationship_count",
+                ingredient_linked_signature_explicit_reference_cross_relationship_count,
+                EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(
+                ctx,
+                "c2pa.semantic."
+                "ingredient_linked_signature_explicit_reference_direct_thumbnail_url_count",
+                ingredient_linked_signature_explicit_reference_direct_thumbnail_url_count,
+                EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(
+                ctx,
+                "c2pa.semantic."
+                "ingredient_linked_signature_explicit_reference_cross_thumbnail_url_count",
+                ingredient_linked_signature_explicit_reference_cross_thumbnail_url_count,
+                EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(
+                ctx,
+                "c2pa.semantic."
+                "ingredient_linked_signature_explicit_reference_title_count",
+                ingredient_linked_signature_explicit_reference_title_count,
+                EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(
+                ctx,
+                "c2pa.semantic."
+                "ingredient_linked_signature_explicit_reference_relationship_count",
+                ingredient_linked_signature_explicit_reference_relationship_count,
+                EntryFlags::Derived)) {
+            return false;
+        }
+        sort_named_counts(
+            &ingredient_linked_signature_explicit_reference_relationship_counts);
+        if (!emit_field_u64(
+                ctx,
+                "c2pa.semantic."
+                "ingredient_linked_signature_explicit_reference_relationship_kind_count",
+                static_cast<uint64_t>(
+                    ingredient_linked_signature_explicit_reference_relationship_counts
+                        .size()),
+                EntryFlags::Derived)) {
+            return false;
+        }
+        for (const ClaimProjection::NamedCount& named_count :
+             ingredient_linked_signature_explicit_reference_relationship_counts) {
+            std::string relationship_field(
+                "c2pa.semantic."
+                "ingredient_linked_signature_explicit_reference_relationship.");
+            relationship_field.append(named_count.key);
+            relationship_field.append("_count");
+            if (!emit_field_u64(ctx, relationship_field, named_count.count,
+                                EntryFlags::Derived)) {
+                return false;
+            }
+        }
+        if (!emit_field_u64(
+                ctx,
+                "c2pa.semantic."
+                "ingredient_linked_signature_explicit_reference_thumbnail_url_count",
+                ingredient_linked_signature_explicit_reference_thumbnail_url_count,
+                EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(
+                ctx,
+                "c2pa.semantic."
+                "ingredient_linked_signature_explicit_reference_unresolved_direct_claim_count",
+                ingredient_linked_signature_explicit_reference_unresolved_direct_claim_count,
+                EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(
+                ctx,
+                "c2pa.semantic."
+                "ingredient_linked_signature_explicit_reference_unresolved_cross_claim_count",
+                ingredient_linked_signature_explicit_reference_unresolved_cross_claim_count,
+                EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(
+                ctx,
+                "c2pa.semantic."
+                "ingredient_linked_signature_explicit_reference_unresolved_direct_source_count",
+                ingredient_linked_signature_explicit_reference_unresolved_direct_source_count,
+                EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(
+                ctx,
+                "c2pa.semantic."
+                "ingredient_linked_signature_explicit_reference_unresolved_cross_source_count",
+                ingredient_linked_signature_explicit_reference_unresolved_cross_source_count,
+                EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(
+                ctx,
+                "c2pa.semantic."
+                "ingredient_linked_signature_explicit_reference_unresolved_mixed_source_count",
+                ingredient_linked_signature_explicit_reference_unresolved_mixed_source_count,
+                EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(
+                ctx,
+                "c2pa.semantic."
+                "ingredient_linked_signature_explicit_reference_unresolved_direct_title_count",
+                ingredient_linked_signature_explicit_reference_unresolved_direct_title_count,
+                EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(
+                ctx,
+                "c2pa.semantic."
+                "ingredient_linked_signature_explicit_reference_unresolved_cross_title_count",
+                ingredient_linked_signature_explicit_reference_unresolved_cross_title_count,
+                EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(
+                ctx,
+                "c2pa.semantic."
+                "ingredient_linked_signature_explicit_reference_unresolved_direct_relationship_count",
+                ingredient_linked_signature_explicit_reference_unresolved_direct_relationship_count,
+                EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(
+                ctx,
+                "c2pa.semantic."
+                "ingredient_linked_signature_explicit_reference_unresolved_cross_relationship_count",
+                ingredient_linked_signature_explicit_reference_unresolved_cross_relationship_count,
+                EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(
+                ctx,
+                "c2pa.semantic."
+                "ingredient_linked_signature_explicit_reference_unresolved_direct_thumbnail_url_count",
+                ingredient_linked_signature_explicit_reference_unresolved_direct_thumbnail_url_count,
+                EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(
+                ctx,
+                "c2pa.semantic."
+                "ingredient_linked_signature_explicit_reference_unresolved_cross_thumbnail_url_count",
+                ingredient_linked_signature_explicit_reference_unresolved_cross_thumbnail_url_count,
+                EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(
+                ctx,
+                "c2pa.semantic."
+                "ingredient_linked_signature_explicit_reference_unresolved_title_count",
+                ingredient_linked_signature_explicit_reference_unresolved_title_count,
+                EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(
+                ctx,
+                "c2pa.semantic."
+                "ingredient_linked_signature_explicit_reference_unresolved_relationship_count",
+                ingredient_linked_signature_explicit_reference_unresolved_relationship_count,
+                EntryFlags::Derived)) {
+            return false;
+        }
+        sort_named_counts(
+            &ingredient_linked_signature_explicit_reference_unresolved_relationship_counts);
+        if (!emit_field_u64(
+                ctx,
+                "c2pa.semantic."
+                "ingredient_linked_signature_explicit_reference_unresolved_relationship_kind_count",
+                static_cast<uint64_t>(
+                    ingredient_linked_signature_explicit_reference_unresolved_relationship_counts
+                        .size()),
+                EntryFlags::Derived)) {
+            return false;
+        }
+        for (const ClaimProjection::NamedCount& named_count :
+             ingredient_linked_signature_explicit_reference_unresolved_relationship_counts) {
+            std::string relationship_field(
+                "c2pa.semantic."
+                "ingredient_linked_signature_explicit_reference_unresolved_relationship.");
+            relationship_field.append(named_count.key);
+            relationship_field.append("_count");
+            if (!emit_field_u64(ctx, relationship_field, named_count.count,
+                                EntryFlags::Derived)) {
+                return false;
+            }
+        }
+        if (!emit_field_u64(
+                ctx,
+                "c2pa.semantic."
+                "ingredient_linked_signature_explicit_reference_unresolved_thumbnail_url_count",
+                ingredient_linked_signature_explicit_reference_unresolved_thumbnail_url_count,
+                EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(
+                ctx,
+                "c2pa.semantic."
+                "ingredient_linked_signature_explicit_reference_ambiguous_direct_claim_count",
+                ingredient_linked_signature_explicit_reference_ambiguous_direct_claim_count,
+                EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(
+                ctx,
+                "c2pa.semantic."
+                "ingredient_linked_signature_explicit_reference_ambiguous_cross_claim_count",
+                ingredient_linked_signature_explicit_reference_ambiguous_cross_claim_count,
+                EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(
+                ctx,
+                "c2pa.semantic."
+                "ingredient_linked_signature_explicit_reference_ambiguous_direct_source_count",
+                ingredient_linked_signature_explicit_reference_ambiguous_direct_source_count,
+                EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(
+                ctx,
+                "c2pa.semantic."
+                "ingredient_linked_signature_explicit_reference_ambiguous_cross_source_count",
+                ingredient_linked_signature_explicit_reference_ambiguous_cross_source_count,
+                EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(
+                ctx,
+                "c2pa.semantic."
+                "ingredient_linked_signature_explicit_reference_ambiguous_mixed_source_count",
+                ingredient_linked_signature_explicit_reference_ambiguous_mixed_source_count,
+                EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(
+                ctx,
+                "c2pa.semantic."
+                "ingredient_linked_signature_explicit_reference_ambiguous_direct_title_count",
+                ingredient_linked_signature_explicit_reference_ambiguous_direct_title_count,
+                EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(
+                ctx,
+                "c2pa.semantic."
+                "ingredient_linked_signature_explicit_reference_ambiguous_cross_title_count",
+                ingredient_linked_signature_explicit_reference_ambiguous_cross_title_count,
+                EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(
+                ctx,
+                "c2pa.semantic."
+                "ingredient_linked_signature_explicit_reference_ambiguous_direct_relationship_count",
+                ingredient_linked_signature_explicit_reference_ambiguous_direct_relationship_count,
+                EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(
+                ctx,
+                "c2pa.semantic."
+                "ingredient_linked_signature_explicit_reference_ambiguous_cross_relationship_count",
+                ingredient_linked_signature_explicit_reference_ambiguous_cross_relationship_count,
+                EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(
+                ctx,
+                "c2pa.semantic."
+                "ingredient_linked_signature_explicit_reference_ambiguous_direct_thumbnail_url_count",
+                ingredient_linked_signature_explicit_reference_ambiguous_direct_thumbnail_url_count,
+                EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(
+                ctx,
+                "c2pa.semantic."
+                "ingredient_linked_signature_explicit_reference_ambiguous_cross_thumbnail_url_count",
+                ingredient_linked_signature_explicit_reference_ambiguous_cross_thumbnail_url_count,
+                EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(
+                ctx,
+                "c2pa.semantic."
+                "ingredient_linked_signature_explicit_reference_ambiguous_title_count",
+                ingredient_linked_signature_explicit_reference_ambiguous_title_count,
+                EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(
+                ctx,
+                "c2pa.semantic."
+                "ingredient_linked_signature_explicit_reference_ambiguous_relationship_count",
+                ingredient_linked_signature_explicit_reference_ambiguous_relationship_count,
+                EntryFlags::Derived)) {
+            return false;
+        }
+        sort_named_counts(
+            &ingredient_linked_signature_explicit_reference_ambiguous_relationship_counts);
+        if (!emit_field_u64(
+                ctx,
+                "c2pa.semantic."
+                "ingredient_linked_signature_explicit_reference_ambiguous_relationship_kind_count",
+                static_cast<uint64_t>(
+                    ingredient_linked_signature_explicit_reference_ambiguous_relationship_counts
+                        .size()),
+                EntryFlags::Derived)) {
+            return false;
+        }
+        for (const ClaimProjection::NamedCount& named_count :
+             ingredient_linked_signature_explicit_reference_ambiguous_relationship_counts) {
+            std::string relationship_field(
+                "c2pa.semantic."
+                "ingredient_linked_signature_explicit_reference_ambiguous_relationship.");
+            relationship_field.append(named_count.key);
+            relationship_field.append("_count");
+            if (!emit_field_u64(ctx, relationship_field, named_count.count,
+                                EntryFlags::Derived)) {
+                return false;
+            }
+        }
+        if (!emit_field_u64(
+                ctx,
+                "c2pa.semantic."
+                "ingredient_linked_signature_explicit_reference_ambiguous_thumbnail_url_count",
+                ingredient_linked_signature_explicit_reference_ambiguous_thumbnail_url_count,
+                EntryFlags::Derived)) {
+            return false;
+        }
+        sort_named_counts(&ingredient_linked_signature_relationship_counts);
+        if (!emit_field_u64(
+                ctx,
+                "c2pa.semantic."
+                "ingredient_linked_signature_relationship_kind_count",
+                static_cast<uint64_t>(
+                    ingredient_linked_signature_relationship_counts.size()),
+                EntryFlags::Derived)) {
+            return false;
+        }
+        for (const ClaimProjection::NamedCount& named_count :
+             ingredient_linked_signature_relationship_counts) {
+            std::string relationship_field(
+                "c2pa.semantic.ingredient_linked_signature_relationship.");
+            relationship_field.append(named_count.key);
+            relationship_field.append("_count");
+            if (!emit_field_u64(ctx, relationship_field, named_count.count,
+                                EntryFlags::Derived)) {
+                return false;
+            }
+        }
+        if (!emit_field_u64(
+                ctx,
+                "c2pa.semantic.ingredient_explicit_reference_signature_count",
+                ingredient_explicit_reference_signature_count,
+                EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(
+                ctx,
+                "c2pa.semantic."
+                "ingredient_explicit_reference_unresolved_signature_count",
+                ingredient_explicit_reference_unresolved_signature_count,
+                EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(
+                ctx,
+                "c2pa.semantic."
+                "ingredient_explicit_reference_ambiguous_signature_count",
+                ingredient_explicit_reference_ambiguous_signature_count,
+                EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(ctx,
+                            "c2pa.semantic.ingredient_relationship_count",
+                            ingredient_relationship_count,
+                            EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u64(ctx,
+                            "c2pa.semantic.ingredient_thumbnail_url_count",
+                            ingredient_thumbnail_url_count,
+                            EntryFlags::Derived)) {
+            return false;
+        }
+        sort_named_counts(&ingredient_relationship_counts);
+        if (!emit_field_u64(
+                ctx, "c2pa.semantic.ingredient_relationship_kind_count",
+                static_cast<uint64_t>(ingredient_relationship_counts.size()),
+                EntryFlags::Derived)) {
+            return false;
+        }
+        for (const ClaimProjection::NamedCount& named_count :
+             ingredient_relationship_counts) {
+            std::string relationship_field("c2pa.semantic.ingredient_relationship.");
+            relationship_field.append(named_count.key);
+            relationship_field.append("_count");
+            if (!emit_field_u64(ctx, relationship_field, named_count.count,
+                                EntryFlags::Derived)) {
+                return false;
+            }
+        }
         uint64_t signature_count = use_label_counts ? label_signature_count
                                                     : signatures.size();
         if (signature_count == 0U && has_signature) {
@@ -4994,6 +7186,17 @@ namespace {
                          : 0U);
         if (!emit_field_u64(ctx, "c2pa.semantic.signature_orphan_count",
                             signature_orphan_count, EntryFlags::Derived)) {
+            return false;
+        }
+        uint64_t ingredient_manifest_count = 0U;
+        for (const ManifestProjection& manifest : manifests) {
+            if (manifest.ingredient_claim_count != 0U) {
+                ingredient_manifest_count += 1U;
+            }
+        }
+        if (!emit_field_u64(ctx, "c2pa.semantic.ingredient_manifest_count",
+                            ingredient_manifest_count,
+                            EntryFlags::Derived)) {
             return false;
         }
         if (has_claim_generator) {
@@ -5037,6 +7240,901 @@ namespace {
             }
 
             field.assign(field_prefix);
+            field.append(".ingredient_claim_count");
+            if (!emit_field_u64(ctx, field, manifest.ingredient_claim_count,
+                                EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(".ingredient_claim_with_signature_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    manifest.ingredient_claim_with_signature_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(".ingredient_claim_referenced_by_signature_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    manifest.ingredient_claim_referenced_by_signature_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(".ingredient_signature_count");
+            if (!emit_field_u64(ctx, field,
+                                manifest.ingredient_signature_count,
+                                EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(".ingredient_linked_claim_count");
+            if (!emit_field_u64(ctx, field,
+                                manifest.ingredient_linked_claim_count,
+                                EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(".ingredient_linked_claim_direct_source_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    manifest.ingredient_linked_claim_direct_source_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(".ingredient_linked_claim_cross_source_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    manifest.ingredient_linked_claim_cross_source_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(".ingredient_linked_claim_mixed_source_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    manifest.ingredient_linked_claim_mixed_source_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(
+                ".ingredient_linked_claim_explicit_reference_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    manifest.ingredient_linked_claim_explicit_reference_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(
+                ".ingredient_linked_claim_explicit_reference_direct_source_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    manifest
+                        .ingredient_linked_claim_explicit_reference_direct_source_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(
+                ".ingredient_linked_claim_explicit_reference_cross_source_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    manifest
+                        .ingredient_linked_claim_explicit_reference_cross_source_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(
+                ".ingredient_linked_claim_explicit_reference_mixed_source_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    manifest
+                        .ingredient_linked_claim_explicit_reference_mixed_source_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(
+                ".ingredient_linked_claim_explicit_reference_unresolved_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    manifest
+                        .ingredient_linked_claim_explicit_reference_unresolved_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(
+                ".ingredient_linked_claim_explicit_reference_unresolved_direct_source_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    manifest
+                        .ingredient_linked_claim_explicit_reference_unresolved_direct_source_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(
+                ".ingredient_linked_claim_explicit_reference_unresolved_cross_source_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    manifest
+                        .ingredient_linked_claim_explicit_reference_unresolved_cross_source_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(
+                ".ingredient_linked_claim_explicit_reference_unresolved_mixed_source_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    manifest
+                        .ingredient_linked_claim_explicit_reference_unresolved_mixed_source_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(
+                ".ingredient_linked_claim_explicit_reference_ambiguous_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    manifest
+                        .ingredient_linked_claim_explicit_reference_ambiguous_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(
+                ".ingredient_linked_claim_explicit_reference_ambiguous_direct_source_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    manifest
+                        .ingredient_linked_claim_explicit_reference_ambiguous_direct_source_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(
+                ".ingredient_linked_claim_explicit_reference_ambiguous_cross_source_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    manifest
+                        .ingredient_linked_claim_explicit_reference_ambiguous_cross_source_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(
+                ".ingredient_linked_claim_explicit_reference_ambiguous_mixed_source_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    manifest
+                        .ingredient_linked_claim_explicit_reference_ambiguous_mixed_source_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(".ingredient_linked_signature_count");
+            if (!emit_field_u64(ctx, field,
+                                manifest.ingredient_linked_signature_count,
+                                EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(".ingredient_linked_direct_claim_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    manifest.ingredient_linked_direct_claim_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(".ingredient_linked_cross_claim_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    manifest.ingredient_linked_cross_claim_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(".ingredient_linked_signature_direct_source_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    manifest.ingredient_linked_signature_direct_source_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(".ingredient_linked_signature_cross_source_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    manifest.ingredient_linked_signature_cross_source_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(".ingredient_linked_signature_mixed_source_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    manifest.ingredient_linked_signature_mixed_source_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(".ingredient_linked_signature_direct_title_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    manifest.ingredient_linked_signature_direct_title_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(".ingredient_linked_signature_cross_title_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    manifest.ingredient_linked_signature_cross_title_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(".ingredient_linked_signature_direct_relationship_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    manifest.ingredient_linked_signature_direct_relationship_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(".ingredient_linked_signature_cross_relationship_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    manifest.ingredient_linked_signature_cross_relationship_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(".ingredient_linked_signature_direct_thumbnail_url_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    manifest.ingredient_linked_signature_direct_thumbnail_url_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(".ingredient_linked_signature_cross_thumbnail_url_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    manifest.ingredient_linked_signature_cross_thumbnail_url_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(".ingredient_linked_signature_title_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    manifest.ingredient_linked_signature_title_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(".ingredient_linked_signature_relationship_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    manifest.ingredient_linked_signature_relationship_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(".ingredient_linked_signature_thumbnail_url_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    manifest.ingredient_linked_signature_thumbnail_url_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+            field.assign(field_prefix);
+            field.append(
+                ".ingredient_linked_signature_explicit_reference_direct_claim_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    manifest
+                        .ingredient_linked_signature_explicit_reference_direct_claim_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+            field.assign(field_prefix);
+            field.append(
+                ".ingredient_linked_signature_explicit_reference_cross_claim_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    manifest
+                        .ingredient_linked_signature_explicit_reference_cross_claim_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+            field.assign(field_prefix);
+            field.append(
+                ".ingredient_linked_signature_explicit_reference_direct_source_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    manifest
+                        .ingredient_linked_signature_explicit_reference_direct_source_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+            field.assign(field_prefix);
+            field.append(
+                ".ingredient_linked_signature_explicit_reference_cross_source_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    manifest
+                        .ingredient_linked_signature_explicit_reference_cross_source_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+            field.assign(field_prefix);
+            field.append(
+                ".ingredient_linked_signature_explicit_reference_mixed_source_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    manifest
+                        .ingredient_linked_signature_explicit_reference_mixed_source_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+            field.assign(field_prefix);
+            field.append(
+                ".ingredient_linked_signature_explicit_reference_direct_title_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    manifest
+                        .ingredient_linked_signature_explicit_reference_direct_title_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+            field.assign(field_prefix);
+            field.append(
+                ".ingredient_linked_signature_explicit_reference_cross_title_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    manifest
+                        .ingredient_linked_signature_explicit_reference_cross_title_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+            field.assign(field_prefix);
+            field.append(
+                ".ingredient_linked_signature_explicit_reference_direct_relationship_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    manifest
+                        .ingredient_linked_signature_explicit_reference_direct_relationship_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+            field.assign(field_prefix);
+            field.append(
+                ".ingredient_linked_signature_explicit_reference_cross_relationship_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    manifest
+                        .ingredient_linked_signature_explicit_reference_cross_relationship_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+            field.assign(field_prefix);
+            field.append(
+                ".ingredient_linked_signature_explicit_reference_direct_thumbnail_url_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    manifest
+                        .ingredient_linked_signature_explicit_reference_direct_thumbnail_url_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+            field.assign(field_prefix);
+            field.append(
+                ".ingredient_linked_signature_explicit_reference_cross_thumbnail_url_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    manifest
+                        .ingredient_linked_signature_explicit_reference_cross_thumbnail_url_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+            field.assign(field_prefix);
+            field.append(
+                ".ingredient_linked_signature_explicit_reference_title_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    manifest
+                        .ingredient_linked_signature_explicit_reference_title_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+            field.assign(field_prefix);
+            field.append(
+                ".ingredient_linked_signature_explicit_reference_relationship_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    manifest
+                        .ingredient_linked_signature_explicit_reference_relationship_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+            std::vector<ClaimProjection::NamedCount>
+                manifest_explicit_reference_relationship_counts
+                = manifest
+                      .ingredient_linked_signature_explicit_reference_relationship_counts;
+            sort_named_counts(&manifest_explicit_reference_relationship_counts);
+            field.assign(field_prefix);
+            field.append(
+                ".ingredient_linked_signature_explicit_reference_relationship_kind_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    static_cast<uint64_t>(
+                        manifest_explicit_reference_relationship_counts.size()),
+                    EntryFlags::Derived)) {
+                return false;
+            }
+            for (const ClaimProjection::NamedCount& named_count :
+                 manifest_explicit_reference_relationship_counts) {
+                std::string relationship_field(field_prefix);
+                relationship_field.append(
+                    ".ingredient_linked_signature_explicit_reference_relationship.");
+                relationship_field.append(named_count.key);
+                relationship_field.append("_count");
+                if (!emit_field_u64(
+                        ctx, relationship_field, named_count.count,
+                        EntryFlags::Derived)) {
+                    return false;
+                }
+            }
+            field.assign(field_prefix);
+            field.append(
+                ".ingredient_linked_signature_explicit_reference_thumbnail_url_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    manifest
+                        .ingredient_linked_signature_explicit_reference_thumbnail_url_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+            field.assign(field_prefix);
+            field.append(
+                ".ingredient_linked_signature_explicit_reference_unresolved_direct_claim_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    manifest
+                        .ingredient_linked_signature_explicit_reference_unresolved_direct_claim_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+            field.assign(field_prefix);
+            field.append(
+                ".ingredient_linked_signature_explicit_reference_unresolved_cross_claim_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    manifest
+                        .ingredient_linked_signature_explicit_reference_unresolved_cross_claim_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+            field.assign(field_prefix);
+            field.append(
+                ".ingredient_linked_signature_explicit_reference_unresolved_direct_source_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    manifest
+                        .ingredient_linked_signature_explicit_reference_unresolved_direct_source_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+            field.assign(field_prefix);
+            field.append(
+                ".ingredient_linked_signature_explicit_reference_unresolved_cross_source_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    manifest
+                        .ingredient_linked_signature_explicit_reference_unresolved_cross_source_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+            field.assign(field_prefix);
+            field.append(
+                ".ingredient_linked_signature_explicit_reference_unresolved_mixed_source_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    manifest
+                        .ingredient_linked_signature_explicit_reference_unresolved_mixed_source_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+            field.assign(field_prefix);
+            field.append(
+                ".ingredient_linked_signature_explicit_reference_unresolved_direct_title_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    manifest
+                        .ingredient_linked_signature_explicit_reference_unresolved_direct_title_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+            field.assign(field_prefix);
+            field.append(
+                ".ingredient_linked_signature_explicit_reference_unresolved_cross_title_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    manifest
+                        .ingredient_linked_signature_explicit_reference_unresolved_cross_title_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+            field.assign(field_prefix);
+            field.append(
+                ".ingredient_linked_signature_explicit_reference_unresolved_direct_relationship_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    manifest
+                        .ingredient_linked_signature_explicit_reference_unresolved_direct_relationship_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+            field.assign(field_prefix);
+            field.append(
+                ".ingredient_linked_signature_explicit_reference_unresolved_cross_relationship_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    manifest
+                        .ingredient_linked_signature_explicit_reference_unresolved_cross_relationship_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+            field.assign(field_prefix);
+            field.append(
+                ".ingredient_linked_signature_explicit_reference_unresolved_direct_thumbnail_url_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    manifest
+                        .ingredient_linked_signature_explicit_reference_unresolved_direct_thumbnail_url_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+            field.assign(field_prefix);
+            field.append(
+                ".ingredient_linked_signature_explicit_reference_unresolved_cross_thumbnail_url_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    manifest
+                        .ingredient_linked_signature_explicit_reference_unresolved_cross_thumbnail_url_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+            field.assign(field_prefix);
+            field.append(
+                ".ingredient_linked_signature_explicit_reference_unresolved_title_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    manifest
+                        .ingredient_linked_signature_explicit_reference_unresolved_title_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+            field.assign(field_prefix);
+            field.append(
+                ".ingredient_linked_signature_explicit_reference_unresolved_relationship_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    manifest
+                        .ingredient_linked_signature_explicit_reference_unresolved_relationship_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+            std::vector<ClaimProjection::NamedCount>
+                manifest_unresolved_relationship_counts
+                = manifest
+                      .ingredient_linked_signature_explicit_reference_unresolved_relationship_counts;
+            sort_named_counts(&manifest_unresolved_relationship_counts);
+            field.assign(field_prefix);
+            field.append(
+                ".ingredient_linked_signature_explicit_reference_unresolved_relationship_kind_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    static_cast<uint64_t>(
+                        manifest_unresolved_relationship_counts.size()),
+                    EntryFlags::Derived)) {
+                return false;
+            }
+            for (const ClaimProjection::NamedCount& named_count :
+                 manifest_unresolved_relationship_counts) {
+                std::string relationship_field(field_prefix);
+                relationship_field.append(
+                    ".ingredient_linked_signature_explicit_reference_unresolved_relationship.");
+                relationship_field.append(named_count.key);
+                relationship_field.append("_count");
+                if (!emit_field_u64(
+                        ctx, relationship_field, named_count.count,
+                        EntryFlags::Derived)) {
+                    return false;
+                }
+            }
+            field.assign(field_prefix);
+            field.append(
+                ".ingredient_linked_signature_explicit_reference_unresolved_thumbnail_url_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    manifest
+                        .ingredient_linked_signature_explicit_reference_unresolved_thumbnail_url_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+            field.assign(field_prefix);
+            field.append(
+                ".ingredient_linked_signature_explicit_reference_ambiguous_direct_claim_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    manifest
+                        .ingredient_linked_signature_explicit_reference_ambiguous_direct_claim_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+            field.assign(field_prefix);
+            field.append(
+                ".ingredient_linked_signature_explicit_reference_ambiguous_cross_claim_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    manifest
+                        .ingredient_linked_signature_explicit_reference_ambiguous_cross_claim_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+            field.assign(field_prefix);
+            field.append(
+                ".ingredient_linked_signature_explicit_reference_ambiguous_direct_source_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    manifest
+                        .ingredient_linked_signature_explicit_reference_ambiguous_direct_source_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+            field.assign(field_prefix);
+            field.append(
+                ".ingredient_linked_signature_explicit_reference_ambiguous_cross_source_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    manifest
+                        .ingredient_linked_signature_explicit_reference_ambiguous_cross_source_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+            field.assign(field_prefix);
+            field.append(
+                ".ingredient_linked_signature_explicit_reference_ambiguous_mixed_source_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    manifest
+                        .ingredient_linked_signature_explicit_reference_ambiguous_mixed_source_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+            field.assign(field_prefix);
+            field.append(
+                ".ingredient_linked_signature_explicit_reference_ambiguous_direct_title_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    manifest
+                        .ingredient_linked_signature_explicit_reference_ambiguous_direct_title_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+            field.assign(field_prefix);
+            field.append(
+                ".ingredient_linked_signature_explicit_reference_ambiguous_cross_title_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    manifest
+                        .ingredient_linked_signature_explicit_reference_ambiguous_cross_title_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+            field.assign(field_prefix);
+            field.append(
+                ".ingredient_linked_signature_explicit_reference_ambiguous_direct_relationship_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    manifest
+                        .ingredient_linked_signature_explicit_reference_ambiguous_direct_relationship_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+            field.assign(field_prefix);
+            field.append(
+                ".ingredient_linked_signature_explicit_reference_ambiguous_cross_relationship_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    manifest
+                        .ingredient_linked_signature_explicit_reference_ambiguous_cross_relationship_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+            field.assign(field_prefix);
+            field.append(
+                ".ingredient_linked_signature_explicit_reference_ambiguous_direct_thumbnail_url_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    manifest
+                        .ingredient_linked_signature_explicit_reference_ambiguous_direct_thumbnail_url_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+            field.assign(field_prefix);
+            field.append(
+                ".ingredient_linked_signature_explicit_reference_ambiguous_cross_thumbnail_url_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    manifest
+                        .ingredient_linked_signature_explicit_reference_ambiguous_cross_thumbnail_url_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+            field.assign(field_prefix);
+            field.append(
+                ".ingredient_linked_signature_explicit_reference_ambiguous_title_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    manifest
+                        .ingredient_linked_signature_explicit_reference_ambiguous_title_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+            field.assign(field_prefix);
+            field.append(
+                ".ingredient_linked_signature_explicit_reference_ambiguous_relationship_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    manifest
+                        .ingredient_linked_signature_explicit_reference_ambiguous_relationship_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+            std::vector<ClaimProjection::NamedCount>
+                manifest_ambiguous_relationship_counts
+                = manifest
+                      .ingredient_linked_signature_explicit_reference_ambiguous_relationship_counts;
+            sort_named_counts(&manifest_ambiguous_relationship_counts);
+            field.assign(field_prefix);
+            field.append(
+                ".ingredient_linked_signature_explicit_reference_ambiguous_relationship_kind_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    static_cast<uint64_t>(
+                        manifest_ambiguous_relationship_counts.size()),
+                    EntryFlags::Derived)) {
+                return false;
+            }
+            for (const ClaimProjection::NamedCount& named_count :
+                 manifest_ambiguous_relationship_counts) {
+                std::string relationship_field(field_prefix);
+                relationship_field.append(
+                    ".ingredient_linked_signature_explicit_reference_ambiguous_relationship.");
+                relationship_field.append(named_count.key);
+                relationship_field.append("_count");
+                if (!emit_field_u64(
+                        ctx, relationship_field, named_count.count,
+                        EntryFlags::Derived)) {
+                    return false;
+                }
+            }
+            field.assign(field_prefix);
+            field.append(
+                ".ingredient_linked_signature_explicit_reference_ambiguous_thumbnail_url_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    manifest
+                        .ingredient_linked_signature_explicit_reference_ambiguous_thumbnail_url_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+
+            std::vector<ClaimProjection::NamedCount>
+                manifest_linked_signature_relationship_counts
+                = manifest.ingredient_linked_signature_relationship_counts;
+            sort_named_counts(&manifest_linked_signature_relationship_counts);
+            field.assign(field_prefix);
+            field.append(".ingredient_linked_signature_relationship_kind_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    static_cast<uint64_t>(
+                        manifest_linked_signature_relationship_counts.size()),
+                    EntryFlags::Derived)) {
+                return false;
+            }
+            for (const ClaimProjection::NamedCount& named_count :
+                 manifest_linked_signature_relationship_counts) {
+                std::string relationship_field(field_prefix);
+                relationship_field
+                    .append(".ingredient_linked_signature_relationship.");
+                relationship_field.append(named_count.key);
+                relationship_field.append("_count");
+                if (!emit_field_u64(
+                        ctx, relationship_field, named_count.count,
+                        EntryFlags::Derived)) {
+                    return false;
+                }
+            }
+
+            field.assign(field_prefix);
+            field.append(".ingredient_explicit_reference_signature_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    manifest.ingredient_explicit_reference_signature_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(
+                ".ingredient_explicit_reference_unresolved_signature_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    manifest
+                        .ingredient_explicit_reference_unresolved_signature_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(
+                ".ingredient_explicit_reference_ambiguous_signature_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    manifest
+                        .ingredient_explicit_reference_ambiguous_signature_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
             field.append(".assertion_count");
             if (!emit_field_u64(ctx, field, manifest.assertion_count,
                                 EntryFlags::Derived)) {
@@ -5048,6 +8146,45 @@ namespace {
             if (!emit_field_u64(ctx, field, manifest.ingredient_count,
                                 EntryFlags::Derived)) {
                 return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(".ingredient_relationship_count");
+            if (!emit_field_u64(ctx, field,
+                                manifest.ingredient_relationship_count,
+                                EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(".ingredient_thumbnail_url_count");
+            if (!emit_field_u64(ctx, field,
+                                manifest.ingredient_thumbnail_url_count,
+                                EntryFlags::Derived)) {
+                return false;
+            }
+
+            std::vector<ClaimProjection::NamedCount> manifest_relationship_counts
+                = manifest.ingredient_relationship_counts;
+            sort_named_counts(&manifest_relationship_counts);
+            field.assign(field_prefix);
+            field.append(".ingredient_relationship_kind_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    static_cast<uint64_t>(manifest_relationship_counts.size()),
+                    EntryFlags::Derived)) {
+                return false;
+            }
+            for (const ClaimProjection::NamedCount& named_count :
+                 manifest_relationship_counts) {
+                std::string relationship_field(field_prefix);
+                relationship_field.append(".ingredient_relationship.");
+                relationship_field.append(named_count.key);
+                relationship_field.append("_count");
+                if (!emit_field_u64(ctx, relationship_field, named_count.count,
+                                    EntryFlags::Derived)) {
+                    return false;
+                }
             }
 
             field.assign(field_prefix);
@@ -5142,6 +8279,399 @@ namespace {
             }
 
             field.assign(field_prefix);
+            field.append(".ingredient_relationship_count");
+            if (!emit_field_u64(ctx, field,
+                                claim.ingredient_relationship_count,
+                                EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(".ingredient_thumbnail_url_count");
+            if (!emit_field_u64(ctx, field,
+                                claim.ingredient_thumbnail_url_count,
+                                EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(".linked_ingredient_signature_count");
+            if (!emit_field_u64(ctx, field,
+                                claim.linked_ingredient_signature_count,
+                                EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(".linked_direct_ingredient_signature_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    claim.linked_direct_ingredient_signature_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(".linked_cross_ingredient_signature_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    claim.linked_cross_ingredient_signature_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(".linked_ingredient_title_count");
+            if (!emit_field_u64(ctx, field,
+                                claim.linked_ingredient_title_count,
+                                EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(".linked_ingredient_relationship_count");
+            if (!emit_field_u64(ctx, field,
+                                claim.linked_ingredient_relationship_count,
+                                EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(".linked_ingredient_thumbnail_url_count");
+            if (!emit_field_u64(ctx, field,
+                                claim.linked_ingredient_thumbnail_url_count,
+                                EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(
+                ".linked_ingredient_explicit_reference_signature_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    claim.linked_ingredient_explicit_reference_signature_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(
+                ".linked_ingredient_explicit_reference_direct_signature_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    claim
+                        .linked_ingredient_explicit_reference_direct_signature_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(
+                ".linked_ingredient_explicit_reference_cross_signature_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    claim
+                        .linked_ingredient_explicit_reference_cross_signature_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(".linked_ingredient_explicit_reference_title_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    claim.linked_ingredient_explicit_reference_title_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(
+                ".linked_ingredient_explicit_reference_relationship_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    claim
+                        .linked_ingredient_explicit_reference_relationship_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(
+                ".linked_ingredient_explicit_reference_thumbnail_url_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    claim
+                        .linked_ingredient_explicit_reference_thumbnail_url_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(
+                ".linked_ingredient_explicit_reference_unresolved_signature_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    claim
+                        .linked_ingredient_explicit_reference_unresolved_signature_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(
+                ".linked_ingredient_explicit_reference_unresolved_direct_signature_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    claim
+                        .linked_ingredient_explicit_reference_unresolved_direct_signature_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(
+                ".linked_ingredient_explicit_reference_unresolved_cross_signature_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    claim
+                        .linked_ingredient_explicit_reference_unresolved_cross_signature_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(
+                ".linked_ingredient_explicit_reference_unresolved_title_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    claim
+                        .linked_ingredient_explicit_reference_unresolved_title_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(
+                ".linked_ingredient_explicit_reference_unresolved_relationship_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    claim
+                        .linked_ingredient_explicit_reference_unresolved_relationship_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(
+                ".linked_ingredient_explicit_reference_unresolved_thumbnail_url_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    claim
+                        .linked_ingredient_explicit_reference_unresolved_thumbnail_url_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(
+                ".linked_ingredient_explicit_reference_ambiguous_signature_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    claim
+                        .linked_ingredient_explicit_reference_ambiguous_signature_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(
+                ".linked_ingredient_explicit_reference_ambiguous_direct_signature_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    claim
+                        .linked_ingredient_explicit_reference_ambiguous_direct_signature_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(
+                ".linked_ingredient_explicit_reference_ambiguous_cross_signature_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    claim
+                        .linked_ingredient_explicit_reference_ambiguous_cross_signature_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(
+                ".linked_ingredient_explicit_reference_ambiguous_title_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    claim
+                        .linked_ingredient_explicit_reference_ambiguous_title_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(
+                ".linked_ingredient_explicit_reference_ambiguous_relationship_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    claim
+                        .linked_ingredient_explicit_reference_ambiguous_relationship_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(
+                ".linked_ingredient_explicit_reference_ambiguous_thumbnail_url_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    claim
+                        .linked_ingredient_explicit_reference_ambiguous_thumbnail_url_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+
+            std::vector<ClaimProjection::NamedCount>
+                claim_linked_relationship_counts
+                = claim.linked_ingredient_relationship_counts;
+            sort_named_counts(&claim_linked_relationship_counts);
+            field.assign(field_prefix);
+            field.append(".linked_ingredient_relationship_kind_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    static_cast<uint64_t>(
+                        claim_linked_relationship_counts.size()),
+                    EntryFlags::Derived)) {
+                return false;
+            }
+            for (const ClaimProjection::NamedCount& named_count :
+                 claim_linked_relationship_counts) {
+                std::string relationship_field(field_prefix);
+                relationship_field.append(".linked_ingredient_relationship.");
+                relationship_field.append(named_count.key);
+                relationship_field.append("_count");
+                if (!emit_field_u64(ctx, relationship_field, named_count.count,
+                                    EntryFlags::Derived)) {
+                    return false;
+                }
+            }
+
+            std::vector<ClaimProjection::NamedCount>
+                claim_linked_explicit_relationship_counts
+                = claim
+                       .linked_ingredient_explicit_reference_relationship_counts;
+            sort_named_counts(&claim_linked_explicit_relationship_counts);
+            field.assign(field_prefix);
+            field.append(
+                ".linked_ingredient_explicit_reference_relationship_kind_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    static_cast<uint64_t>(
+                        claim_linked_explicit_relationship_counts.size()),
+                    EntryFlags::Derived)) {
+                return false;
+            }
+            for (const ClaimProjection::NamedCount& named_count :
+                 claim_linked_explicit_relationship_counts) {
+                std::string relationship_field(field_prefix);
+                relationship_field.append(
+                    ".linked_ingredient_explicit_reference_relationship.");
+                relationship_field.append(named_count.key);
+                relationship_field.append("_count");
+                if (!emit_field_u64(ctx, relationship_field, named_count.count,
+                                    EntryFlags::Derived)) {
+                    return false;
+                }
+            }
+
+            std::vector<ClaimProjection::NamedCount>
+                claim_linked_unresolved_relationship_counts
+                = claim
+                       .linked_ingredient_explicit_reference_unresolved_relationship_counts;
+            sort_named_counts(&claim_linked_unresolved_relationship_counts);
+            field.assign(field_prefix);
+            field.append(
+                ".linked_ingredient_explicit_reference_unresolved_relationship_kind_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    static_cast<uint64_t>(
+                        claim_linked_unresolved_relationship_counts.size()),
+                    EntryFlags::Derived)) {
+                return false;
+            }
+            for (const ClaimProjection::NamedCount& named_count :
+                 claim_linked_unresolved_relationship_counts) {
+                std::string relationship_field(field_prefix);
+                relationship_field.append(
+                    ".linked_ingredient_explicit_reference_unresolved_relationship.");
+                relationship_field.append(named_count.key);
+                relationship_field.append("_count");
+                if (!emit_field_u64(ctx, relationship_field, named_count.count,
+                                    EntryFlags::Derived)) {
+                    return false;
+                }
+            }
+
+            std::vector<ClaimProjection::NamedCount>
+                claim_linked_ambiguous_relationship_counts
+                = claim
+                       .linked_ingredient_explicit_reference_ambiguous_relationship_counts;
+            sort_named_counts(&claim_linked_ambiguous_relationship_counts);
+            field.assign(field_prefix);
+            field.append(
+                ".linked_ingredient_explicit_reference_ambiguous_relationship_kind_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    static_cast<uint64_t>(
+                        claim_linked_ambiguous_relationship_counts.size()),
+                    EntryFlags::Derived)) {
+                return false;
+            }
+            for (const ClaimProjection::NamedCount& named_count :
+                 claim_linked_ambiguous_relationship_counts) {
+                std::string relationship_field(field_prefix);
+                relationship_field.append(
+                    ".linked_ingredient_explicit_reference_ambiguous_relationship.");
+                relationship_field.append(named_count.key);
+                relationship_field.append("_count");
+                if (!emit_field_u64(ctx, relationship_field, named_count.count,
+                                    EntryFlags::Derived)) {
+                    return false;
+                }
+            }
+
+            std::vector<ClaimProjection::NamedCount> claim_relationship_counts
+                = claim.ingredient_relationship_counts;
+            sort_named_counts(&claim_relationship_counts);
+            field.assign(field_prefix);
+            field.append(".ingredient_relationship_kind_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    static_cast<uint64_t>(claim_relationship_counts.size()),
+                    EntryFlags::Derived)) {
+                return false;
+            }
+            for (const ClaimProjection::NamedCount& named_count :
+                 claim_relationship_counts) {
+                std::string relationship_field(field_prefix);
+                relationship_field.append(".ingredient_relationship.");
+                relationship_field.append(named_count.key);
+                relationship_field.append("_count");
+                if (!emit_field_u64(ctx, relationship_field, named_count.count,
+                                    EntryFlags::Derived)) {
+                    return false;
+                }
+            }
+
+            field.assign(field_prefix);
             field.append(".signature_count");
             if (!emit_field_u64(ctx, field, claim.signatures.size(),
                                 EntryFlags::Derived)) {
@@ -5215,6 +8745,35 @@ namespace {
                 if (!emit_field_u64(ctx, field, ingredient.key_hits,
                                     EntryFlags::Derived)) {
                     return false;
+                }
+
+                if (ingredient.has_title) {
+                    field.assign(ingredient_field);
+                    field.append(".title");
+                    if (!emit_field_text(ctx, field, ingredient.title,
+                                         EntryFlags::Derived)) {
+                        return false;
+                    }
+                }
+
+                if (ingredient.has_relationship) {
+                    field.assign(ingredient_field);
+                    field.append(".relationship");
+                    if (!emit_field_text(ctx, field,
+                                         ingredient.relationship,
+                                         EntryFlags::Derived)) {
+                        return false;
+                    }
+                }
+
+                if (ingredient.has_thumbnail_url) {
+                    field.assign(ingredient_field);
+                    field.append(".thumbnail_url");
+                    if (!emit_field_text(ctx, field,
+                                         ingredient.thumbnail_url,
+                                         EntryFlags::Derived)) {
+                        return false;
+                    }
                 }
             }
 
@@ -5317,6 +8876,94 @@ namespace {
             field.append(".linked_claim_count");
             if (!emit_field_u64(ctx, field, signature.linked_claim_count,
                                 EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(".linked_ingredient_claim_count");
+            if (!emit_field_u64(ctx, field,
+                                signature.linked_ingredient_claim_count,
+                                EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(".linked_direct_ingredient_claim_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    signature.linked_direct_ingredient_claim_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(".linked_cross_ingredient_claim_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    signature.linked_cross_ingredient_claim_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(".linked_ingredient_title_count");
+            if (!emit_field_u64(ctx, field,
+                                signature.linked_ingredient_title_count,
+                                EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(".linked_ingredient_relationship_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    signature.linked_ingredient_relationship_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+
+            std::vector<ClaimProjection::NamedCount>
+                signature_relationship_counts
+                = signature.linked_ingredient_relationship_counts;
+            sort_named_counts(&signature_relationship_counts);
+
+            field.assign(field_prefix);
+            field.append(".linked_ingredient_relationship_kind_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    static_cast<uint64_t>(
+                        signature_relationship_counts.size()),
+                    EntryFlags::Derived)) {
+                return false;
+            }
+            for (const ClaimProjection::NamedCount& named_count :
+                 signature_relationship_counts) {
+                std::string relationship_field(field_prefix);
+                relationship_field.append(".linked_ingredient_relationship.");
+                relationship_field.append(named_count.key);
+                relationship_field.append("_count");
+                if (!emit_field_u64(
+                        ctx, relationship_field, named_count.count,
+                        EntryFlags::Derived)) {
+                    return false;
+                }
+            }
+
+            field.assign(field_prefix);
+            field.append(".linked_ingredient_thumbnail_url_count");
+            if (!emit_field_u64(
+                    ctx, field,
+                    signature.linked_ingredient_thumbnail_url_count,
+                    EntryFlags::Derived)) {
+                return false;
+            }
+
+            field.assign(field_prefix);
+            field.append(".direct_claim_has_ingredients");
+            if (!emit_field_u8(ctx, field,
+                               signature.direct_claim_has_ingredients ? 1U
+                                                                      : 0U,
+                               EntryFlags::Derived)) {
                 return false;
             }
 

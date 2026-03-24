@@ -1444,12 +1444,18 @@ TEST(JumbfDecode, EmitsDraftC2paIngredientProjectionFields)
     append_cbor_map(&cbor_payload, 1U);
     append_cbor_text(&cbor_payload, "ingredients");
     append_cbor_array(&cbor_payload, 2U);
-    append_cbor_map(&cbor_payload, 1U);
+    append_cbor_map(&cbor_payload, 3U);
     append_cbor_text(&cbor_payload, "title");
     append_cbor_text(&cbor_payload, "base");
-    append_cbor_map(&cbor_payload, 1U);
-    append_cbor_text(&cbor_payload, "title");
+    append_cbor_text(&cbor_payload, "relationship");
+    append_cbor_text(&cbor_payload, "parentOf");
+    append_cbor_text(&cbor_payload, "thumbnailUrl");
+    append_cbor_text(&cbor_payload, "https://example.invalid/base.jpg");
+    append_cbor_map(&cbor_payload, 2U);
+    append_cbor_text(&cbor_payload, "dc:title");
     append_cbor_text(&cbor_payload, "edit");
+    append_cbor_text(&cbor_payload, "relationship");
+    append_cbor_text(&cbor_payload, "componentOf");
 
     append_cbor_map(&cbor_payload, 1U);
     append_cbor_text(&cbor_payload, "ingredients");
@@ -1478,12 +1484,28 @@ TEST(JumbfDecode, EmitsDraftC2paIngredientProjectionFields)
         return e.value.data.u64;
     };
 
-    auto read_text_field = [&](std::string_view field_name) -> std::string {
+    auto read_u8_field = [&](std::string_view field_name) -> uint8_t {
         MetaKeyView key;
         key.kind                   = MetaKeyKind::JumbfField;
         key.data.jumbf_field.field = field_name;
         const std::span<const EntryId> ids = store.find_all(key);
         EXPECT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
+        EXPECT_EQ(e.value.elem_type, MetaElementType::U8);
+        return static_cast<uint8_t>(e.value.data.u64);
+    };
+
+    auto read_text_field = [&](std::string_view field_name) -> std::string {
+        MetaKeyView key;
+        key.kind                   = MetaKeyKind::JumbfField;
+        key.data.jumbf_field.field = field_name;
+        const std::span<const EntryId> ids = store.find_all(key);
+        if (ids.size() != 1U) {
+            std::string missing("missing:");
+            missing.append(field_name.data(), field_name.size());
+            return missing;
+        }
         const Entry& e = store.entry(ids[0]);
         EXPECT_EQ(e.value.kind, MetaValueKind::Text);
         const std::span<const std::byte> text = store.arena().span(
@@ -1498,12 +1520,79 @@ TEST(JumbfDecode, EmitsDraftC2paIngredientProjectionFields)
     EXPECT_EQ(read_u64_field("c2pa.semantic.claim_count"), 2U);
     EXPECT_EQ(read_u64_field("c2pa.semantic.ingredient_count"), 3U);
     EXPECT_GE(read_u64_field("c2pa.semantic.ingredient_key_hits"), 3U);
+    EXPECT_EQ(read_u64_field("c2pa.semantic.ingredient_relationship_count"),
+              2U);
+    EXPECT_EQ(read_u64_field("c2pa.semantic.ingredient_thumbnail_url_count"),
+              1U);
+    EXPECT_EQ(
+        read_u64_field("c2pa.semantic.ingredient_relationship_kind_count"),
+        2U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic.ingredient_relationship.parentOf_count"),
+        1U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic.ingredient_relationship.componentOf_count"),
+        1U);
 
     EXPECT_EQ(read_u64_field("c2pa.semantic.manifest.0.claim_count"), 2U);
     EXPECT_EQ(read_u64_field("c2pa.semantic.manifest.0.ingredient_count"), 3U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic.manifest.0.ingredient_relationship_count"),
+        2U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic.manifest.0.ingredient_thumbnail_url_count"),
+        1U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic.manifest.0.ingredient_relationship_kind_count"),
+        2U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic.manifest.0.ingredient_relationship.parentOf_count"),
+        1U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic.manifest.0.ingredient_relationship.componentOf_count"),
+        1U);
 
     EXPECT_EQ(read_u64_field("c2pa.semantic.claim.0.ingredient_count"), 2U);
     EXPECT_EQ(read_u64_field("c2pa.semantic.claim.1.ingredient_count"), 1U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic.claim.0.ingredient_relationship_count"),
+        2U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic.claim.0.ingredient_thumbnail_url_count"),
+        1U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic.claim.0.ingredient_relationship_kind_count"),
+        2U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic.claim.0.ingredient_relationship.parentOf_count"),
+        1U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic.claim.0.ingredient_relationship.componentOf_count"),
+        1U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic.claim.1.ingredient_relationship_count"),
+        0U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic.claim.1.ingredient_thumbnail_url_count"),
+        0U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic.claim.1.ingredient_relationship_kind_count"),
+        0U);
 
     EXPECT_EQ(
         read_text_field("c2pa.semantic.claim.0.ingredient.0.prefix"),
@@ -1518,6 +1607,28 @@ TEST(JumbfDecode, EmitsDraftC2paIngredientProjectionFields)
     EXPECT_GE(read_u64_field("c2pa.semantic.claim.0.ingredient.0.key_hits"), 1U);
     EXPECT_GE(read_u64_field("c2pa.semantic.claim.0.ingredient.1.key_hits"), 1U);
     EXPECT_GE(read_u64_field("c2pa.semantic.claim.1.ingredient.0.key_hits"), 1U);
+
+    EXPECT_EQ(read_text_field("c2pa.semantic.claim.0.ingredient.0.title"),
+              "base");
+    EXPECT_EQ(
+        read_text_field("c2pa.semantic.claim.0.ingredient.0.relationship"),
+        "parentOf");
+    EXPECT_EQ(
+        read_text_field("c2pa.semantic.claim.0.ingredient.0.thumbnail_url"),
+        "https://example.invalid/base.jpg");
+    EXPECT_EQ(read_text_field("c2pa.semantic.claim.0.ingredient.1.title"),
+              "edit");
+    EXPECT_EQ(
+        read_text_field("c2pa.semantic.claim.0.ingredient.1.relationship"),
+        "componentOf");
+    EXPECT_EQ(read_text_field("c2pa.semantic.claim.1.ingredient.0.title"),
+              "parent");
+
+    MetaKeyView missing_thumbnail_key;
+    missing_thumbnail_key.kind = MetaKeyKind::JumbfField;
+    missing_thumbnail_key.data.jumbf_field.field
+        = "c2pa.semantic.claim.1.ingredient.0.thumbnail_url";
+    EXPECT_TRUE(store.find_all(missing_thumbnail_key).empty());
 }
 
 TEST(JumbfDecode, EmitsDraftC2paReferenceLinkedProjectionFields)
@@ -1680,6 +1791,1942 @@ TEST(JumbfDecode, EmitsDraftC2paReferenceLinkedProjectionFields)
               "box.0.1.cbor.manifests.active_manifest.claims[1]");
     EXPECT_EQ(read_text_field("c2pa.semantic.signature.1.linked_claim.0.prefix"),
               "box.0.1.cbor.manifests.active_manifest.claims[0]");
+}
+
+TEST(JumbfDecode, EmitsDraftC2paIngredientClaimTopologyFields)
+{
+    std::vector<std::byte> cbor_payload;
+    append_cbor_map(&cbor_payload, 1U);
+    append_cbor_text(&cbor_payload, "manifests");
+    append_cbor_map(&cbor_payload, 1U);
+    append_cbor_text(&cbor_payload, "active_manifest");
+    append_cbor_map(&cbor_payload, 1U);
+    append_cbor_text(&cbor_payload, "claims");
+    append_cbor_array(&cbor_payload, 3U);
+
+    append_cbor_map(&cbor_payload, 2U);
+    append_cbor_text(&cbor_payload, "ingredients");
+    append_cbor_array(&cbor_payload, 1U);
+    append_cbor_map(&cbor_payload, 2U);
+    append_cbor_text(&cbor_payload, "title");
+    append_cbor_text(&cbor_payload, "base");
+    append_cbor_text(&cbor_payload, "thumbnailUrl");
+    append_cbor_text(&cbor_payload, "https://example.test/base");
+    append_cbor_text(&cbor_payload, "signatures");
+    append_cbor_array(&cbor_payload, 1U);
+    append_cbor_map(&cbor_payload, 1U);
+    append_cbor_text(&cbor_payload, "alg");
+    append_cbor_text(&cbor_payload, "es256");
+
+    append_cbor_map(&cbor_payload, 1U);
+    append_cbor_text(&cbor_payload, "ingredients");
+    append_cbor_array(&cbor_payload, 1U);
+    append_cbor_map(&cbor_payload, 1U);
+    append_cbor_text(&cbor_payload, "title");
+    append_cbor_text(&cbor_payload, "parent");
+
+    append_cbor_map(&cbor_payload, 1U);
+    append_cbor_text(&cbor_payload, "signatures");
+    append_cbor_array(&cbor_payload, 1U);
+    append_cbor_map(&cbor_payload, 1U);
+    append_cbor_text(&cbor_payload, "alg");
+    append_cbor_text(&cbor_payload, "es256");
+
+    const std::vector<std::byte> payload = make_jumbf_payload_with_cbor(
+        cbor_payload);
+
+    MetaStore store;
+    const JumbfDecodeResult result = decode_jumbf_payload(payload, store);
+    EXPECT_EQ(result.status, JumbfDecodeStatus::Ok);
+    store.finalize();
+
+    auto read_u64_field = [&](std::string_view field_name) -> uint64_t {
+        MetaKeyView key;
+        key.kind                   = MetaKeyKind::JumbfField;
+        key.data.jumbf_field.field = field_name;
+        const std::span<const EntryId> ids = store.find_all(key);
+        EXPECT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
+        EXPECT_EQ(e.value.elem_type, MetaElementType::U64);
+        return e.value.data.u64;
+    };
+
+    auto read_u8_field = [&](std::string_view field_name) -> uint8_t {
+        MetaKeyView key;
+        key.kind                   = MetaKeyKind::JumbfField;
+        key.data.jumbf_field.field = field_name;
+        const std::span<const EntryId> ids = store.find_all(key);
+        EXPECT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
+        EXPECT_EQ(e.value.elem_type, MetaElementType::U8);
+        return static_cast<uint8_t>(e.value.data.u64);
+    };
+
+    EXPECT_EQ(read_u64_field("c2pa.semantic.claim_count"), 3U);
+    EXPECT_EQ(read_u64_field("c2pa.semantic.ingredient_count"), 2U);
+    EXPECT_EQ(read_u64_field("c2pa.semantic.ingredient_claim_count"), 2U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic.ingredient_claim_with_signature_count"),
+        1U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic.ingredient_claim_referenced_by_signature_count"),
+        1U);
+    EXPECT_EQ(read_u64_field("c2pa.semantic.ingredient_manifest_count"), 1U);
+
+    EXPECT_EQ(read_u64_field("c2pa.semantic.manifest.0.claim_count"), 3U);
+    EXPECT_EQ(
+        read_u64_field("c2pa.semantic.manifest.0.ingredient_claim_count"),
+        2U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_claim_with_signature_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_claim_referenced_by_signature_count"),
+              1U);
+
+    EXPECT_EQ(
+        read_u64_field("c2pa.semantic.claim.0.referenced_by_signature_count"),
+        1U);
+    EXPECT_EQ(
+        read_u64_field("c2pa.semantic.claim.1.referenced_by_signature_count"),
+        0U);
+}
+
+TEST(JumbfDecode, EmitsDraftC2paIngredientSignatureTopologyFields)
+{
+    const std::array<std::byte, 4U> claim0 = {
+        std::byte { 0xA1 },
+        std::byte { 0x61 },
+        std::byte { 0x61 },
+        std::byte { 0x01 },
+    };
+    const std::array<std::byte, 4U> claim1 = {
+        std::byte { 0xA1 },
+        std::byte { 0x61 },
+        std::byte { 0x62 },
+        std::byte { 0x02 },
+    };
+    const std::array<std::byte, 4U> claim2 = {
+        std::byte { 0xA1 },
+        std::byte { 0x61 },
+        std::byte { 0x63 },
+        std::byte { 0x03 },
+    };
+
+    std::vector<std::byte> cbor_payload;
+    append_cbor_map(&cbor_payload, 1U);
+    append_cbor_text(&cbor_payload, "manifests");
+    append_cbor_map(&cbor_payload, 1U);
+    append_cbor_text(&cbor_payload, "active_manifest");
+    append_cbor_map(&cbor_payload, 1U);
+    append_cbor_text(&cbor_payload, "claims");
+    append_cbor_array(&cbor_payload, 3U);
+
+    append_cbor_map(&cbor_payload, 3U);
+    append_cbor_text(&cbor_payload, "claim");
+    append_cbor_bytes(&cbor_payload,
+                      std::span<const std::byte>(claim0.data(), claim0.size()));
+    append_cbor_text(&cbor_payload, "ingredients");
+    append_cbor_array(&cbor_payload, 1U);
+    append_cbor_map(&cbor_payload, 2U);
+    append_cbor_text(&cbor_payload, "title");
+    append_cbor_text(&cbor_payload, "base");
+    append_cbor_text(&cbor_payload, "thumbnailUrl");
+    append_cbor_text(&cbor_payload, "https://example.test/base");
+    append_cbor_text(&cbor_payload, "signatures");
+    append_cbor_array(&cbor_payload, 1U);
+    append_cbor_map(&cbor_payload, 1U);
+    append_cbor_text(&cbor_payload, "alg");
+    append_cbor_text(&cbor_payload, "es256");
+
+    append_cbor_map(&cbor_payload, 2U);
+    append_cbor_text(&cbor_payload, "claim");
+    append_cbor_bytes(&cbor_payload,
+                      std::span<const std::byte>(claim1.data(), claim1.size()));
+    append_cbor_text(&cbor_payload, "signatures");
+    append_cbor_array(&cbor_payload, 1U);
+    append_cbor_map(&cbor_payload, 2U);
+    append_cbor_text(&cbor_payload, "alg");
+    append_cbor_text(&cbor_payload, "es256");
+    append_cbor_text(&cbor_payload, "claim_ref");
+    append_cbor_i64(&cbor_payload, 0);
+
+    append_cbor_map(&cbor_payload, 2U);
+    append_cbor_text(&cbor_payload, "claim");
+    append_cbor_bytes(&cbor_payload,
+                      std::span<const std::byte>(claim2.data(), claim2.size()));
+    append_cbor_text(&cbor_payload, "signatures");
+    append_cbor_array(&cbor_payload, 1U);
+    append_cbor_map(&cbor_payload, 1U);
+    append_cbor_text(&cbor_payload, "alg");
+    append_cbor_text(&cbor_payload, "es256");
+
+    const std::vector<std::byte> payload = make_jumbf_payload_with_cbor(
+        cbor_payload);
+
+    MetaStore store;
+    const JumbfDecodeResult result = decode_jumbf_payload(payload, store);
+    EXPECT_EQ(result.status, JumbfDecodeStatus::Ok);
+    store.finalize();
+
+    auto read_u64_field = [&](std::string_view field_name) -> uint64_t {
+        MetaKeyView key;
+        key.kind                   = MetaKeyKind::JumbfField;
+        key.data.jumbf_field.field = field_name;
+        const std::span<const EntryId> ids = store.find_all(key);
+        EXPECT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
+        EXPECT_EQ(e.value.elem_type, MetaElementType::U64);
+        return e.value.data.u64;
+    };
+
+    auto read_u8_field = [&](std::string_view field_name) -> uint8_t {
+        MetaKeyView key;
+        key.kind                   = MetaKeyKind::JumbfField;
+        key.data.jumbf_field.field = field_name;
+        const std::span<const EntryId> ids = store.find_all(key);
+        EXPECT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
+        EXPECT_EQ(e.value.elem_type, MetaElementType::U8);
+        return static_cast<uint8_t>(e.value.data.u64);
+    };
+
+    EXPECT_EQ(read_u64_field("c2pa.semantic.claim_count"), 3U);
+    EXPECT_EQ(read_u64_field("c2pa.semantic.signature_count"), 3U);
+    EXPECT_EQ(read_u64_field("c2pa.semantic.signature_linked_count"), 3U);
+    EXPECT_EQ(read_u64_field("c2pa.semantic.explicit_reference_signature_count"),
+              1U);
+    EXPECT_EQ(read_u64_field("c2pa.semantic.ingredient_claim_count"), 1U);
+    EXPECT_EQ(read_u64_field("c2pa.semantic.ingredient_signature_count"), 1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.ingredient_linked_signature_count"),
+              2U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.ingredient_linked_direct_claim_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.ingredient_linked_cross_claim_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_signature_direct_source_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_signature_cross_source_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_signature_mixed_source_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_signature_direct_title_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_signature_cross_title_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_signature_direct_relationship_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_signature_cross_relationship_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_signature_direct_thumbnail_url_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_signature_cross_thumbnail_url_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.ingredient_linked_signature_title_count"),
+              2U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_signature_thumbnail_url_count"),
+              2U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_explicit_reference_signature_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_signature_explicit_reference_direct_"
+                  "title_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_signature_explicit_reference_cross_"
+                  "title_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_signature_explicit_reference_direct_"
+                  "relationship_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_signature_explicit_reference_cross_"
+                  "relationship_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_signature_explicit_reference_direct_"
+                  "thumbnail_url_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_signature_explicit_reference_cross_"
+                  "thumbnail_url_count"),
+              1U);
+    EXPECT_EQ(read_u64_field("c2pa.semantic.ingredient_linked_claim_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.ingredient_linked_claim_direct_source_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.ingredient_linked_claim_cross_source_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.ingredient_linked_claim_mixed_source_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_claim_explicit_reference_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_claim_explicit_reference_direct_source_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_claim_explicit_reference_cross_source_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_claim_explicit_reference_mixed_source_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_claim_explicit_reference_unresolved_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_claim_explicit_reference_unresolved_"
+                  "direct_source_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_claim_explicit_reference_unresolved_"
+                  "cross_source_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_claim_explicit_reference_unresolved_"
+                  "mixed_source_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_claim_explicit_reference_ambiguous_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_claim_explicit_reference_ambiguous_"
+                  "direct_source_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_claim_explicit_reference_ambiguous_"
+                  "cross_source_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_claim_explicit_reference_ambiguous_"
+                  "mixed_source_count"),
+              0U);
+
+    EXPECT_EQ(read_u64_field("c2pa.semantic.manifest.0.signature_count"), 3U);
+    EXPECT_EQ(
+        read_u64_field("c2pa.semantic.manifest.0.ingredient_signature_count"),
+        1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_signature_count"),
+              2U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_direct_claim_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_cross_claim_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_signature_direct_source_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_signature_cross_source_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_signature_mixed_source_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_signature_direct_title_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_signature_cross_title_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_signature_direct_relationship_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_signature_cross_relationship_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_signature_direct_thumbnail_url_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_signature_cross_thumbnail_url_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_signature_title_count"),
+              2U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_signature_thumbnail_url_count"),
+              2U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_explicit_reference_signature_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_signature_explicit_reference_direct_"
+                  "title_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_signature_explicit_reference_cross_"
+                  "title_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_signature_explicit_reference_direct_"
+                  "relationship_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_signature_explicit_reference_cross_"
+                  "relationship_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_signature_explicit_reference_direct_"
+                  "thumbnail_url_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_signature_explicit_reference_cross_"
+                  "thumbnail_url_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0.ingredient_linked_claim_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_claim_direct_source_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_claim_cross_source_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_claim_mixed_source_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_claim_explicit_reference_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_claim_explicit_reference_direct_source_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_claim_explicit_reference_cross_source_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_claim_explicit_reference_mixed_source_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_claim_explicit_reference_unresolved_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_claim_explicit_reference_unresolved_"
+                  "direct_source_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_claim_explicit_reference_unresolved_"
+                  "cross_source_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_claim_explicit_reference_unresolved_"
+                  "mixed_source_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_claim_explicit_reference_ambiguous_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_claim_explicit_reference_ambiguous_"
+                  "direct_source_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_claim_explicit_reference_ambiguous_"
+                  "cross_source_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_claim_explicit_reference_ambiguous_"
+                  "mixed_source_count"),
+              0U);
+
+    EXPECT_EQ(
+        read_u64_field("c2pa.semantic.claim.0.referenced_by_signature_count"),
+        2U);
+    EXPECT_EQ(
+        read_u64_field("c2pa.semantic.claim.1.referenced_by_signature_count"),
+        0U);
+    EXPECT_EQ(
+        read_u64_field("c2pa.semantic.claim.2.referenced_by_signature_count"),
+        1U);
+    EXPECT_EQ(
+        read_u64_field("c2pa.semantic.claim.0.linked_ingredient_signature_count"),
+        2U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic.claim.0.linked_direct_ingredient_signature_count"),
+        1U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic.claim.0.linked_cross_ingredient_signature_count"),
+        1U);
+    EXPECT_EQ(
+        read_u64_field("c2pa.semantic.claim.0.linked_ingredient_title_count"),
+        2U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic.claim.0.linked_ingredient_relationship_count"),
+        0U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic.claim.0.linked_ingredient_thumbnail_url_count"),
+        2U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic.claim.0."
+            "linked_ingredient_explicit_reference_signature_count"),
+        1U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic.claim.0."
+            "linked_ingredient_explicit_reference_direct_signature_count"),
+        0U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic.claim.0."
+            "linked_ingredient_explicit_reference_cross_signature_count"),
+        1U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic.claim.0."
+            "linked_ingredient_explicit_reference_title_count"),
+        1U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic.claim.0."
+            "linked_ingredient_explicit_reference_relationship_count"),
+        0U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic.claim.0."
+            "linked_ingredient_explicit_reference_thumbnail_url_count"),
+        1U);
+    EXPECT_EQ(
+        read_u64_field("c2pa.semantic.claim.1.linked_ingredient_signature_count"),
+        0U);
+    EXPECT_EQ(
+        read_u64_field("c2pa.semantic.claim.2.linked_ingredient_signature_count"),
+        0U);
+
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic.signature.0.linked_ingredient_claim_count"),
+        1U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic.signature.0.linked_direct_ingredient_claim_count"),
+        1U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic.signature.0.linked_cross_ingredient_claim_count"),
+        0U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic.signature.1.linked_ingredient_claim_count"),
+        1U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic.signature.1.linked_direct_ingredient_claim_count"),
+        0U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic.signature.1.linked_cross_ingredient_claim_count"),
+        1U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic.signature.2.linked_ingredient_claim_count"),
+        0U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic.signature.2.linked_direct_ingredient_claim_count"),
+        0U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic.signature.2.linked_cross_ingredient_claim_count"),
+        0U);
+    EXPECT_EQ(
+        read_u8_field(
+            "c2pa.semantic.signature.0.direct_claim_has_ingredients"),
+        1U);
+    EXPECT_EQ(
+        read_u8_field(
+            "c2pa.semantic.signature.1.direct_claim_has_ingredients"),
+        0U);
+    EXPECT_EQ(
+        read_u8_field(
+            "c2pa.semantic.signature.2.direct_claim_has_ingredients"),
+        0U);
+}
+
+TEST(JumbfDecode, EmitsDraftC2paIngredientSignatureRelationshipKindFields)
+{
+    const std::array<std::byte, 4U> claim0 = {
+        std::byte { 0xA1 },
+        std::byte { 0x61 },
+        std::byte { 0x61 },
+        std::byte { 0x01 },
+    };
+    const std::array<std::byte, 4U> claim1 = {
+        std::byte { 0xA1 },
+        std::byte { 0x61 },
+        std::byte { 0x62 },
+        std::byte { 0x02 },
+    };
+    const std::array<std::byte, 4U> claim2 = {
+        std::byte { 0xA1 },
+        std::byte { 0x61 },
+        std::byte { 0x63 },
+        std::byte { 0x03 },
+    };
+
+    std::vector<std::byte> cbor_payload;
+    append_cbor_map(&cbor_payload, 1U);
+    append_cbor_text(&cbor_payload, "manifests");
+    append_cbor_map(&cbor_payload, 1U);
+    append_cbor_text(&cbor_payload, "active_manifest");
+    append_cbor_map(&cbor_payload, 1U);
+    append_cbor_text(&cbor_payload, "claims");
+    append_cbor_array(&cbor_payload, 3U);
+
+    append_cbor_map(&cbor_payload, 3U);
+    append_cbor_text(&cbor_payload, "claim");
+    append_cbor_bytes(&cbor_payload,
+                      std::span<const std::byte>(claim0.data(), claim0.size()));
+    append_cbor_text(&cbor_payload, "ingredients");
+    append_cbor_array(&cbor_payload, 2U);
+    append_cbor_map(&cbor_payload, 3U);
+    append_cbor_text(&cbor_payload, "relationship");
+    append_cbor_text(&cbor_payload, "parentOf");
+    append_cbor_text(&cbor_payload, "title");
+    append_cbor_text(&cbor_payload, "Ingredient 0");
+    append_cbor_text(&cbor_payload, "thumbnailUrl");
+    append_cbor_text(&cbor_payload, "https://example.test/thumb0");
+    append_cbor_map(&cbor_payload, 2U);
+    append_cbor_text(&cbor_payload, "relationship");
+    append_cbor_text(&cbor_payload, "componentOf");
+    append_cbor_text(&cbor_payload, "title");
+    append_cbor_text(&cbor_payload, "Ingredient 1");
+    append_cbor_text(&cbor_payload, "signatures");
+    append_cbor_array(&cbor_payload, 0U);
+
+    append_cbor_map(&cbor_payload, 2U);
+    append_cbor_text(&cbor_payload, "claim");
+    append_cbor_bytes(&cbor_payload,
+                      std::span<const std::byte>(claim1.data(), claim1.size()));
+    append_cbor_text(&cbor_payload, "signatures");
+    append_cbor_array(&cbor_payload, 1U);
+    append_cbor_map(&cbor_payload, 2U);
+    append_cbor_text(&cbor_payload, "alg");
+    append_cbor_text(&cbor_payload, "es256");
+    append_cbor_text(&cbor_payload, "claim_ref");
+    append_cbor_i64(&cbor_payload, 0);
+
+    append_cbor_map(&cbor_payload, 2U);
+    append_cbor_text(&cbor_payload, "claim");
+    append_cbor_bytes(&cbor_payload,
+                      std::span<const std::byte>(claim2.data(), claim2.size()));
+    append_cbor_text(&cbor_payload, "signatures");
+    append_cbor_array(&cbor_payload, 1U);
+    append_cbor_map(&cbor_payload, 1U);
+    append_cbor_text(&cbor_payload, "alg");
+    append_cbor_text(&cbor_payload, "es256");
+
+    const std::vector<std::byte> payload = make_jumbf_payload_with_cbor(
+        cbor_payload);
+
+    MetaStore store;
+    const JumbfDecodeResult result = decode_jumbf_payload(payload, store);
+    EXPECT_EQ(result.status, JumbfDecodeStatus::Ok);
+    store.finalize();
+
+    auto read_u64_field = [&](std::string_view field_name) -> uint64_t {
+        MetaKeyView key;
+        key.kind                   = MetaKeyKind::JumbfField;
+        key.data.jumbf_field.field = field_name;
+        const std::span<const EntryId> ids = store.find_all(key);
+        EXPECT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
+        EXPECT_EQ(e.value.elem_type, MetaElementType::U64);
+        return e.value.data.u64;
+    };
+
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.signature.0."
+                  "linked_ingredient_title_count"),
+              2U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.signature.0."
+                  "linked_ingredient_relationship_count"),
+              2U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.signature.0."
+                  "linked_ingredient_relationship_kind_count"),
+              2U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.signature.0."
+                  "linked_ingredient_relationship.parentOf_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.signature.0."
+                  "linked_ingredient_relationship.componentOf_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.signature.0."
+                  "linked_ingredient_thumbnail_url_count"),
+              1U);
+
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.signature.1."
+                  "linked_ingredient_title_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.signature.1."
+                  "linked_ingredient_relationship_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.signature.1."
+                  "linked_ingredient_relationship_kind_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.signature.1."
+                  "linked_ingredient_thumbnail_url_count"),
+              0U);
+
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_signature_relationship_count"),
+              2U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_signature_relationship_kind_count"),
+              2U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_signature_relationship.parentOf_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_signature_relationship.componentOf_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_signature_direct_title_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_signature_cross_title_count"),
+              2U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_signature_direct_relationship_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_signature_cross_relationship_count"),
+              2U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_signature_direct_thumbnail_url_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_signature_cross_thumbnail_url_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_signature_explicit_reference_direct_"
+                  "title_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_signature_explicit_reference_cross_"
+                  "title_count"),
+              2U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_signature_explicit_reference_direct_"
+                  "relationship_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_signature_explicit_reference_cross_"
+                  "relationship_count"),
+              2U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_signature_explicit_reference_direct_"
+                  "thumbnail_url_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_signature_explicit_reference_cross_"
+                  "thumbnail_url_count"),
+              1U);
+
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_signature_relationship_count"),
+              2U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_signature_relationship_kind_count"),
+              2U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_signature_relationship.parentOf_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_signature_relationship.componentOf_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_signature_direct_title_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_signature_cross_title_count"),
+              2U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_signature_direct_relationship_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_signature_cross_relationship_count"),
+              2U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_signature_direct_thumbnail_url_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_signature_cross_thumbnail_url_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_signature_explicit_reference_direct_"
+                  "title_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_signature_explicit_reference_cross_"
+                  "title_count"),
+              2U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_signature_explicit_reference_direct_"
+                  "relationship_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_signature_explicit_reference_cross_"
+                  "relationship_count"),
+              2U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_signature_explicit_reference_direct_"
+                  "thumbnail_url_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_signature_explicit_reference_cross_"
+                  "thumbnail_url_count"),
+              1U);
+    EXPECT_EQ(read_u64_field("c2pa.semantic.ingredient_linked_claim_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_claim_explicit_reference_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_claim_explicit_reference_unresolved_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_claim_explicit_reference_ambiguous_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0.ingredient_linked_claim_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_claim_explicit_reference_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_claim_explicit_reference_unresolved_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_claim_explicit_reference_ambiguous_count"),
+              0U);
+
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.claim.0."
+                  "linked_ingredient_relationship_kind_count"),
+              2U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.claim.0."
+                  "linked_ingredient_relationship.parentOf_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.claim.0."
+                  "linked_ingredient_relationship.componentOf_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.claim.0."
+                  "linked_ingredient_explicit_reference_relationship_kind_count"),
+              2U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.claim.0."
+                  "linked_ingredient_explicit_reference_relationship."
+                  "parentOf_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.claim.0."
+                  "linked_ingredient_explicit_reference_relationship."
+                  "componentOf_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.claim.0."
+                  "linked_ingredient_explicit_reference_unresolved_"
+                  "relationship_kind_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.claim.0."
+                  "linked_ingredient_explicit_reference_ambiguous_"
+                  "relationship_kind_count"),
+              0U);
+}
+
+TEST(JumbfDecode,
+     EmitsDraftC2paIngredientExplicitReferenceStatusTopologyFields)
+{
+    const std::array<std::byte, 4U> claim0 = {
+        std::byte { 0xA1 },
+        std::byte { 0x61 },
+        std::byte { 0x61 },
+        std::byte { 0x01 },
+    };
+    const std::array<std::byte, 4U> claim1 = {
+        std::byte { 0xA1 },
+        std::byte { 0x61 },
+        std::byte { 0x62 },
+        std::byte { 0x02 },
+    };
+    const std::array<std::byte, 4U> claim2 = {
+        std::byte { 0xA1 },
+        std::byte { 0x61 },
+        std::byte { 0x63 },
+        std::byte { 0x03 },
+    };
+
+    std::vector<std::byte> cbor_payload;
+    append_cbor_map(&cbor_payload, 1U);
+    append_cbor_text(&cbor_payload, "manifests");
+    append_cbor_map(&cbor_payload, 1U);
+    append_cbor_text(&cbor_payload, "active_manifest");
+    append_cbor_map(&cbor_payload, 1U);
+    append_cbor_text(&cbor_payload, "claims");
+    append_cbor_array(&cbor_payload, 3U);
+
+    append_cbor_map(&cbor_payload, 3U);
+    append_cbor_text(&cbor_payload, "claim");
+    append_cbor_bytes(&cbor_payload,
+                      std::span<const std::byte>(claim0.data(), claim0.size()));
+    append_cbor_text(&cbor_payload, "ingredients");
+    append_cbor_array(&cbor_payload, 1U);
+    append_cbor_map(&cbor_payload, 1U);
+    append_cbor_text(&cbor_payload, "title");
+    append_cbor_text(&cbor_payload, "base");
+    append_cbor_text(&cbor_payload, "signatures");
+    append_cbor_array(&cbor_payload, 1U);
+    append_cbor_map(&cbor_payload, 2U);
+    append_cbor_text(&cbor_payload, "alg");
+    append_cbor_text(&cbor_payload, "es256");
+    append_cbor_text(&cbor_payload, "claim_ref_id");
+    append_cbor_i64(&cbor_payload, 999);
+
+    append_cbor_map(&cbor_payload, 3U);
+    append_cbor_text(&cbor_payload, "claim");
+    append_cbor_bytes(&cbor_payload,
+                      std::span<const std::byte>(claim1.data(), claim1.size()));
+    append_cbor_text(&cbor_payload, "ingredients");
+    append_cbor_array(&cbor_payload, 1U);
+    append_cbor_map(&cbor_payload, 3U);
+    append_cbor_text(&cbor_payload, "title");
+    append_cbor_text(&cbor_payload, "parent");
+    append_cbor_text(&cbor_payload, "relationship");
+    append_cbor_text(&cbor_payload, "componentOf");
+    append_cbor_text(&cbor_payload, "thumbnailUrl");
+    append_cbor_text(&cbor_payload, "https://example.test/parent");
+    append_cbor_text(&cbor_payload, "signatures");
+    append_cbor_array(&cbor_payload, 1U);
+    append_cbor_map(&cbor_payload, 4U);
+    append_cbor_text(&cbor_payload, "alg");
+    append_cbor_text(&cbor_payload, "es256");
+    append_cbor_text(&cbor_payload, "claim_id");
+    append_cbor_i64(&cbor_payload, 1);
+    append_cbor_text(&cbor_payload, "reference");
+    append_cbor_map(&cbor_payload, 2U);
+    append_cbor_text(&cbor_payload, "id");
+    append_cbor_i64(&cbor_payload, 2);
+    append_cbor_text(&cbor_payload, "uri");
+    append_cbor_text(&cbor_payload, "https://example.test/asset?jumbf="
+                                    "c2pa.claim.missing0");
+    append_cbor_text(&cbor_payload, "claim_reference");
+    append_cbor_text(&cbor_payload, "c2pa.claim.missing0");
+
+    append_cbor_map(&cbor_payload, 1U);
+    append_cbor_text(&cbor_payload, "claim");
+    append_cbor_bytes(&cbor_payload,
+                      std::span<const std::byte>(claim2.data(), claim2.size()));
+
+    const std::vector<std::byte> payload = make_jumbf_payload_with_cbor(
+        cbor_payload);
+
+    MetaStore store;
+    const JumbfDecodeResult result = decode_jumbf_payload(payload, store);
+    EXPECT_EQ(result.status, JumbfDecodeStatus::Ok);
+    store.finalize();
+
+    auto read_u64_field = [&](std::string_view field_name) -> uint64_t {
+        MetaKeyView key;
+        key.kind                   = MetaKeyKind::JumbfField;
+        key.data.jumbf_field.field = field_name;
+        const std::span<const EntryId> ids = store.find_all(key);
+        EXPECT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
+        EXPECT_EQ(e.value.elem_type, MetaElementType::U64);
+        return e.value.data.u64;
+    };
+
+    auto read_u8_field = [&](std::string_view field_name) -> uint8_t {
+        MetaKeyView key;
+        key.kind                   = MetaKeyKind::JumbfField;
+        key.data.jumbf_field.field = field_name;
+        const std::span<const EntryId> ids = store.find_all(key);
+        EXPECT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
+        EXPECT_EQ(e.value.elem_type, MetaElementType::U8);
+        return static_cast<uint8_t>(e.value.data.u64);
+    };
+
+    EXPECT_EQ(read_u64_field("c2pa.semantic.explicit_reference_signature_count"),
+              2U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.explicit_reference_unresolved_signature_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.explicit_reference_ambiguous_signature_count"),
+              1U);
+
+    EXPECT_EQ(read_u64_field("c2pa.semantic.ingredient_signature_count"), 2U);
+    EXPECT_EQ(read_u64_field("c2pa.semantic.ingredient_linked_claim_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.ingredient_linked_claim_direct_source_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.ingredient_linked_claim_cross_source_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.ingredient_linked_claim_mixed_source_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_claim_explicit_reference_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_claim_explicit_reference_direct_source_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_claim_explicit_reference_cross_source_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_claim_explicit_reference_mixed_source_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_claim_explicit_reference_unresolved_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_claim_explicit_reference_unresolved_"
+                  "direct_source_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_claim_explicit_reference_unresolved_"
+                  "cross_source_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_claim_explicit_reference_unresolved_"
+                  "mixed_source_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_claim_explicit_reference_ambiguous_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_claim_explicit_reference_ambiguous_"
+                  "direct_source_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_claim_explicit_reference_ambiguous_"
+                  "cross_source_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_claim_explicit_reference_ambiguous_"
+                  "mixed_source_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_explicit_reference_unresolved_signature_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_explicit_reference_ambiguous_signature_count"),
+              1U);
+
+    EXPECT_EQ(read_u64_field("c2pa.semantic.manifest.0.ingredient_signature_count"),
+              2U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0.ingredient_linked_claim_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_claim_direct_source_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_claim_cross_source_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_claim_mixed_source_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_claim_explicit_reference_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_claim_explicit_reference_direct_source_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_claim_explicit_reference_cross_source_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_claim_explicit_reference_mixed_source_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_claim_explicit_reference_unresolved_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_claim_explicit_reference_unresolved_"
+                  "direct_source_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_claim_explicit_reference_unresolved_"
+                  "cross_source_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_claim_explicit_reference_unresolved_"
+                  "mixed_source_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_claim_explicit_reference_ambiguous_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_claim_explicit_reference_ambiguous_"
+                  "direct_source_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_claim_explicit_reference_ambiguous_"
+                  "cross_source_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_claim_explicit_reference_ambiguous_"
+                  "mixed_source_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_explicit_reference_unresolved_signature_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_explicit_reference_ambiguous_signature_count"),
+              1U);
+
+    EXPECT_EQ(
+        read_u64_field("c2pa.semantic.claim.0.linked_ingredient_signature_count"),
+        0U);
+    EXPECT_EQ(
+        read_u64_field("c2pa.semantic.claim.1.linked_ingredient_signature_count"),
+        1U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic.claim.1.linked_direct_ingredient_signature_count"),
+        1U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic.claim.1.linked_cross_ingredient_signature_count"),
+        0U);
+    EXPECT_EQ(
+        read_u64_field("c2pa.semantic.claim.1.linked_ingredient_title_count"),
+        1U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic.claim.1.linked_ingredient_relationship_count"),
+        1U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic.claim.1.linked_ingredient_thumbnail_url_count"),
+        1U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic.claim.1."
+            "linked_ingredient_explicit_reference_signature_count"),
+        1U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic.claim.1."
+            "linked_ingredient_explicit_reference_direct_signature_count"),
+        1U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic.claim.1."
+            "linked_ingredient_explicit_reference_cross_signature_count"),
+        0U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic.claim.1."
+            "linked_ingredient_explicit_reference_title_count"),
+        1U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic.claim.1."
+            "linked_ingredient_explicit_reference_relationship_count"),
+        1U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic.claim.1."
+            "linked_ingredient_explicit_reference_thumbnail_url_count"),
+        1U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic.claim.1."
+            "linked_ingredient_relationship_kind_count"),
+        1U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic.claim.1."
+            "linked_ingredient_relationship.componentOf_count"),
+        1U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic.claim.1."
+            "linked_ingredient_explicit_reference_relationship_kind_count"),
+        1U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic.claim.1."
+            "linked_ingredient_explicit_reference_relationship."
+            "componentOf_count"),
+        1U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic.claim.1."
+            "linked_ingredient_explicit_reference_unresolved_signature_count"),
+        0U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic.claim.1."
+            "linked_ingredient_explicit_reference_unresolved_direct_signature_count"),
+        0U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic.claim.1."
+            "linked_ingredient_explicit_reference_unresolved_cross_signature_count"),
+        0U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic.claim.1."
+            "linked_ingredient_explicit_reference_unresolved_title_count"),
+        0U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic.claim.1."
+            "linked_ingredient_explicit_reference_unresolved_relationship_count"),
+        0U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic.claim.1."
+            "linked_ingredient_explicit_reference_unresolved_thumbnail_url_count"),
+        0U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic.claim.1."
+            "linked_ingredient_explicit_reference_unresolved_"
+            "relationship_kind_count"),
+        0U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic.claim.1."
+            "linked_ingredient_explicit_reference_ambiguous_signature_count"),
+        1U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic.claim.1."
+            "linked_ingredient_explicit_reference_ambiguous_direct_signature_count"),
+        1U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic.claim.1."
+            "linked_ingredient_explicit_reference_ambiguous_cross_signature_count"),
+        0U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic.claim.1."
+            "linked_ingredient_explicit_reference_ambiguous_title_count"),
+        1U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic.claim.1."
+            "linked_ingredient_explicit_reference_ambiguous_relationship_count"),
+        1U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic.claim.1."
+            "linked_ingredient_explicit_reference_ambiguous_thumbnail_url_count"),
+        1U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic.claim.1."
+            "linked_ingredient_explicit_reference_ambiguous_"
+            "relationship_kind_count"),
+        1U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic.claim.1."
+            "linked_ingredient_explicit_reference_ambiguous_relationship."
+            "componentOf_count"),
+        1U);
+
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_signature_explicit_reference_direct_claim_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_signature_explicit_reference_cross_claim_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_signature_explicit_reference_direct_source_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_signature_explicit_reference_cross_source_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_signature_explicit_reference_mixed_source_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_signature_explicit_reference_direct_"
+                  "title_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_signature_explicit_reference_cross_"
+                  "title_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_signature_explicit_reference_direct_"
+                  "relationship_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_signature_explicit_reference_cross_"
+                  "relationship_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_signature_explicit_reference_direct_"
+                  "thumbnail_url_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_signature_explicit_reference_cross_"
+                  "thumbnail_url_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_signature_explicit_reference_title_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_signature_explicit_reference_unresolved_"
+                  "direct_title_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_signature_explicit_reference_unresolved_"
+                  "cross_title_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_signature_explicit_reference_unresolved_"
+                  "direct_relationship_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_signature_explicit_reference_unresolved_"
+                  "cross_relationship_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_signature_explicit_reference_unresolved_"
+                  "direct_thumbnail_url_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_signature_explicit_reference_unresolved_"
+                  "cross_thumbnail_url_count"),
+              0U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic."
+            "ingredient_linked_signature_explicit_reference_relationship_count"),
+        1U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic."
+            "ingredient_linked_signature_explicit_reference_relationship_kind_count"),
+        1U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic."
+            "ingredient_linked_signature_explicit_reference_relationship."
+            "componentOf_count"),
+        1U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic."
+            "ingredient_linked_signature_explicit_reference_thumbnail_url_count"),
+        1U);
+
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_signature_explicit_reference_unresolved_"
+                  "direct_claim_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_signature_explicit_reference_unresolved_"
+                  "cross_claim_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_signature_explicit_reference_unresolved_"
+                  "direct_source_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_signature_explicit_reference_unresolved_"
+                  "cross_source_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_signature_explicit_reference_unresolved_"
+                  "mixed_source_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_signature_explicit_reference_unresolved_"
+                  "title_count"),
+              0U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic."
+            "ingredient_linked_signature_explicit_reference_unresolved_"
+            "relationship_count"),
+        0U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic."
+            "ingredient_linked_signature_explicit_reference_unresolved_"
+            "relationship_kind_count"),
+        0U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic."
+            "ingredient_linked_signature_explicit_reference_unresolved_"
+            "thumbnail_url_count"),
+        0U);
+
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_signature_explicit_reference_ambiguous_"
+                  "direct_claim_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_signature_explicit_reference_ambiguous_"
+                  "cross_claim_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_signature_explicit_reference_ambiguous_"
+                  "direct_source_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_signature_explicit_reference_ambiguous_"
+                  "cross_source_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_signature_explicit_reference_ambiguous_"
+                  "mixed_source_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_signature_explicit_reference_ambiguous_"
+                  "direct_title_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_signature_explicit_reference_ambiguous_"
+                  "cross_title_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_signature_explicit_reference_ambiguous_"
+                  "direct_relationship_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_signature_explicit_reference_ambiguous_"
+                  "cross_relationship_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_signature_explicit_reference_ambiguous_"
+                  "direct_thumbnail_url_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_signature_explicit_reference_ambiguous_"
+                  "cross_thumbnail_url_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic."
+                  "ingredient_linked_signature_explicit_reference_ambiguous_"
+                  "title_count"),
+              1U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic."
+            "ingredient_linked_signature_explicit_reference_ambiguous_"
+            "relationship_count"),
+        1U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic."
+            "ingredient_linked_signature_explicit_reference_ambiguous_"
+            "relationship_kind_count"),
+        1U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic."
+            "ingredient_linked_signature_explicit_reference_ambiguous_"
+            "relationship.componentOf_count"),
+        1U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic."
+            "ingredient_linked_signature_explicit_reference_ambiguous_"
+            "thumbnail_url_count"),
+        1U);
+
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_signature_explicit_reference_direct_"
+                  "claim_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_signature_explicit_reference_cross_"
+                  "claim_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_signature_explicit_reference_direct_"
+                  "source_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_signature_explicit_reference_cross_"
+                  "source_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_signature_explicit_reference_mixed_"
+                  "source_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_signature_explicit_reference_direct_"
+                  "title_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_signature_explicit_reference_cross_"
+                  "title_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_signature_explicit_reference_direct_"
+                  "relationship_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_signature_explicit_reference_cross_"
+                  "relationship_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_signature_explicit_reference_direct_"
+                  "thumbnail_url_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_signature_explicit_reference_cross_"
+                  "thumbnail_url_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_signature_explicit_reference_title_count"),
+              1U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic.manifest.0."
+            "ingredient_linked_signature_explicit_reference_relationship_count"),
+        1U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic.manifest.0."
+            "ingredient_linked_signature_explicit_reference_relationship_kind_"
+            "count"),
+        1U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic.manifest.0."
+            "ingredient_linked_signature_explicit_reference_relationship."
+            "componentOf_count"),
+        1U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic.manifest.0."
+            "ingredient_linked_signature_explicit_reference_"
+            "thumbnail_url_count"),
+        1U);
+
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_signature_explicit_reference_unresolved_"
+                  "direct_claim_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_signature_explicit_reference_unresolved_"
+                  "cross_claim_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_signature_explicit_reference_unresolved_"
+                  "direct_source_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_signature_explicit_reference_unresolved_"
+                  "cross_source_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_signature_explicit_reference_unresolved_"
+                  "mixed_source_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_signature_explicit_reference_unresolved_"
+                  "direct_title_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_signature_explicit_reference_unresolved_"
+                  "cross_title_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_signature_explicit_reference_unresolved_"
+                  "direct_relationship_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_signature_explicit_reference_unresolved_"
+                  "cross_relationship_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_signature_explicit_reference_unresolved_"
+                  "direct_thumbnail_url_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_signature_explicit_reference_unresolved_"
+                  "cross_thumbnail_url_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_signature_explicit_reference_unresolved_"
+                  "title_count"),
+              0U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic.manifest.0."
+            "ingredient_linked_signature_explicit_reference_unresolved_"
+            "relationship_count"),
+        0U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic.manifest.0."
+            "ingredient_linked_signature_explicit_reference_unresolved_"
+            "relationship_kind_count"),
+        0U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic.manifest.0."
+            "ingredient_linked_signature_explicit_reference_unresolved_"
+            "thumbnail_url_count"),
+        0U);
+
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_signature_explicit_reference_ambiguous_"
+                  "direct_claim_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_signature_explicit_reference_ambiguous_"
+                  "cross_claim_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_signature_explicit_reference_ambiguous_"
+                  "direct_source_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_signature_explicit_reference_ambiguous_"
+                  "cross_source_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_signature_explicit_reference_ambiguous_"
+                  "mixed_source_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_signature_explicit_reference_ambiguous_"
+                  "direct_title_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_signature_explicit_reference_ambiguous_"
+                  "cross_title_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_signature_explicit_reference_ambiguous_"
+                  "direct_relationship_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_signature_explicit_reference_ambiguous_"
+                  "cross_relationship_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_signature_explicit_reference_ambiguous_"
+                  "direct_thumbnail_url_count"),
+              1U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_signature_explicit_reference_ambiguous_"
+                  "cross_thumbnail_url_count"),
+              0U);
+    EXPECT_EQ(read_u64_field(
+                  "c2pa.semantic.manifest.0."
+                  "ingredient_linked_signature_explicit_reference_ambiguous_"
+                  "title_count"),
+              1U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic.manifest.0."
+            "ingredient_linked_signature_explicit_reference_ambiguous_"
+            "relationship_count"),
+        1U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic.manifest.0."
+            "ingredient_linked_signature_explicit_reference_ambiguous_"
+            "relationship_kind_count"),
+        1U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic.manifest.0."
+            "ingredient_linked_signature_explicit_reference_ambiguous_"
+            "relationship.componentOf_count"),
+        1U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic.manifest.0."
+            "ingredient_linked_signature_explicit_reference_ambiguous_"
+            "thumbnail_url_count"),
+        1U);
+
+    EXPECT_EQ(read_u8_field(
+                  "c2pa.semantic.signature.0.explicit_reference_unresolved"),
+              1U);
+    EXPECT_EQ(read_u8_field(
+                  "c2pa.semantic.signature.1.explicit_reference_ambiguous"),
+              1U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic.signature.0.linked_ingredient_claim_count"),
+        0U);
+    EXPECT_EQ(
+        read_u64_field(
+            "c2pa.semantic.signature.1.linked_ingredient_claim_count"),
+        1U);
+    EXPECT_EQ(
+        read_u8_field(
+            "c2pa.semantic.signature.0.direct_claim_has_ingredients"),
+        1U);
+    EXPECT_EQ(
+        read_u8_field(
+            "c2pa.semantic.signature.1.direct_claim_has_ingredients"),
+        1U);
 }
 
 TEST(JumbfDecode, EmitsDraftC2paPerManifestProjectionFields)

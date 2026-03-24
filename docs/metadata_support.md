@@ -172,8 +172,77 @@ for quick packaging checks.
   `signature.{k}.linked_claim.{m}.prefix`, draft ingredient counters such as
   `ingredient_present`, `ingredient_count`,
   `claim.{i}.ingredient_count`, `manifest.{k}.ingredient_count`,
-  `claim.{i}.ingredient.{j}.prefix`, and draft linkage counters such as
-  `signature_linked_count`/`signature_orphan_count`). Draft verify scaffold
+  `claim.{i}.ingredient.{j}.prefix`, and ASCII-safe ingredient text fields
+  such as `claim.{i}.ingredient.{j}.title`,
+  `claim.{i}.ingredient.{j}.relationship`, and
+  `claim.{i}.ingredient.{j}.thumbnail_url`, plus bounded ingredient summary
+  counts such as `ingredient_relationship_count`,
+  `ingredient_thumbnail_url_count`,
+  per-claim linked-ingredient summary fields such as
+  `claim.{i}.linked_ingredient_signature_count`,
+  `claim.{i}.linked_ingredient_title_count`,
+  `claim.{i}.linked_ingredient_relationship_count`,
+  `claim.{i}.linked_ingredient_thumbnail_url_count`,
+  `claim.{i}.linked_ingredient_relationship_kind_count`,
+  and explicit-reference split variants like
+  `claim.{i}.linked_ingredient_explicit_reference_title_count`,
+  plus aggregate linked-claim topology counts like
+  `ingredient_linked_claim_count` and
+  `ingredient_linked_claim_direct_source_count`,
+  `ingredient_claim_count`,
+  `ingredient_claim_with_signature_count`,
+  `ingredient_claim_referenced_by_signature_count`,
+  `ingredient_manifest_count`,
+  `ingredient_signature_count`,
+  `ingredient_linked_signature_count`,
+  `ingredient_linked_direct_claim_count`,
+  `ingredient_linked_cross_claim_count`,
+  `ingredient_linked_signature_direct_source_count`,
+  `ingredient_linked_signature_cross_source_count`,
+  `ingredient_linked_signature_mixed_source_count`,
+  `ingredient_linked_signature_direct_title_count`,
+  `ingredient_linked_signature_cross_title_count`,
+  `ingredient_linked_signature_direct_relationship_count`,
+  `ingredient_linked_signature_cross_relationship_count`,
+  `ingredient_linked_signature_direct_thumbnail_url_count`,
+  `ingredient_linked_signature_cross_thumbnail_url_count`,
+  `ingredient_linked_signature_title_count`,
+  `ingredient_linked_signature_relationship_count`,
+  `ingredient_linked_signature_relationship_kind_count`,
+  `ingredient_linked_signature_relationship.<value>_count`,
+  `ingredient_linked_signature_thumbnail_url_count`,
+  `ingredient_linked_signature_explicit_reference_direct_title_count`,
+  `ingredient_linked_signature_explicit_reference_cross_title_count`,
+  `ingredient_linked_signature_explicit_reference_title_count`,
+  `ingredient_linked_signature_explicit_reference_relationship_count`,
+  `ingredient_linked_signature_explicit_reference_relationship_kind_count`,
+  `ingredient_linked_signature_explicit_reference_relationship.<value>_count`,
+  `ingredient_linked_signature_explicit_reference_thumbnail_url_count`,
+  `ingredient_linked_signature_explicit_reference_direct_claim_count`,
+  `ingredient_linked_signature_explicit_reference_cross_claim_count`,
+  `ingredient_linked_signature_explicit_reference_direct_source_count`,
+  `ingredient_linked_signature_explicit_reference_cross_source_count`,
+  `ingredient_linked_signature_explicit_reference_mixed_source_count`,
+  plus corresponding `..._unresolved_*` and `..._ambiguous_*` split
+  aggregates,
+  `ingredient_explicit_reference_signature_count`,
+  `ingredient_explicit_reference_unresolved_signature_count`,
+  `ingredient_explicit_reference_ambiguous_signature_count`,
+  `signature.{k}.linked_ingredient_claim_count`,
+  `signature.{k}.linked_direct_ingredient_claim_count`,
+  `signature.{k}.linked_cross_ingredient_claim_count`,
+  `signature.{k}.linked_ingredient_title_count`,
+  `signature.{k}.linked_ingredient_relationship_count`,
+  `signature.{k}.linked_ingredient_relationship_kind_count`,
+  `signature.{k}.linked_ingredient_relationship.<value>_count`,
+  `signature.{k}.linked_ingredient_thumbnail_url_count`, and
+  `signature.{k}.direct_claim_has_ingredients`,
+  `claim.{i}.ingredient_relationship_count`, and
+  `manifest.{k}.ingredient_relationship_count`,
+  `manifest.{k}.ingredient_claim_count`, plus path-sanitized
+  relationship alias counts such as
+  `ingredient_relationship.parentOf_count`, plus draft linkage counters such
+  as `signature_linked_count`/`signature_orphan_count`). Draft verify scaffold
   status (`c2pa.verify.*`) includes malformed-signature detection and optional
   OpenSSL-backed cryptographic verification for signatures that expose explicit
   algorithm + signing-input + key material fields (including COSE_Sign1
