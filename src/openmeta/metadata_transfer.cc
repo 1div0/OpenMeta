@@ -29,6 +29,12 @@ enum class JxlRewriteFamily : uint8_t {
     C2pa,
 };
 
+enum class Jp2RewriteFamily : uint8_t {
+    Unknown,
+    Exif,
+    Xmp,
+};
+
 enum class PngRewriteFamily : uint8_t {
     Unknown,
     Exif,
@@ -49,6 +55,12 @@ struct JxlRewritePolicy final {
     bool xmp   = false;
     bool jumbf = false;
     bool c2pa  = false;
+};
+
+struct Jp2RewritePolicy final {
+    bool exif = false;
+    bool xmp  = false;
+    bool icc  = false;
 };
 
 struct PngRewritePolicy final {
@@ -82,6 +94,12 @@ build_prepared_bundle_png_package(std::span<const std::byte> input_png,
                                   const PreparedTransferBundle& bundle,
                                   PreparedTransferPackagePlan* out_plan,
                                   uint32_t* out_removed_chunks) noexcept;
+
+static EmitTransferResult
+build_prepared_bundle_jp2_package(std::span<const std::byte> input_jp2,
+                                  const PreparedTransferBundle& bundle,
+                                  PreparedTransferPackagePlan* out_plan,
+                                  uint32_t* out_removed_boxes) noexcept;
 
 static EmitTransferResult
 build_prepared_bundle_webp_package(std::span<const std::byte> input_webp,
@@ -11761,6 +11779,19 @@ build_executed_transfer_package_batch(
         }
         out = build_prepared_bundle_png_package(edit_input, bundle, &plan,
                                                 nullptr);
+    } else if (bundle.target_format == TransferTargetFormat::Jp2
+               && execute.edit_requested) {
+        if (execute.edit_plan_status != TransferStatus::Ok) {
+            out.status  = execute.edit_plan_status;
+            out.code    = EmitTransferCode::InvalidArgument;
+            out.errors  = 1U;
+            out.message = execute.edit_plan_message.empty()
+                              ? "jp2 edit plan is not available"
+                              : execute.edit_plan_message;
+            return out;
+        }
+        out = build_prepared_bundle_jp2_package(edit_input, bundle, &plan,
+                                                nullptr);
     } else if (transfer_target_is_bmff(bundle.target_format)
                && execute.edit_requested) {
         if (execute.edit_plan_status != TransferStatus::Ok) {
@@ -15944,6 +15975,30 @@ namespace {
         return policy;
     }
 
+    static Jp2RewritePolicy
+    collect_jp2_rewrite_policy(const PreparedTransferBundle& bundle) noexcept
+    {
+        Jp2RewritePolicy policy;
+        for (size_t i = 0; i < bundle.blocks.size(); ++i) {
+            const PreparedTransferBlock& block = bundle.blocks[i];
+            if (block.payload.empty()) {
+                continue;
+            }
+            if (block.route == "jp2:box-exif") {
+                policy.exif = true;
+                continue;
+            }
+            if (block.route == "jp2:box-xml") {
+                policy.xmp = true;
+                continue;
+            }
+            if (block.route == "jp2:box-jp2h-colr") {
+                policy.icc = true;
+            }
+        }
+        return policy;
+    }
+
     static bool parse_transfer_png_chunk(std::span<const std::byte> bytes,
                                          uint64_t offset,
                                          TransferPngChunk* out) noexcept
@@ -16198,6 +16253,29 @@ namespace {
         out->has_uuid    = has_uuid;
         out->uuid        = uuid;
         return true;
+    }
+
+    static Jp2RewriteFamily
+    classify_source_jp2_rewrite_family(const TransferBmffBox& box) noexcept
+    {
+        if (box.type == fourcc('E', 'x', 'i', 'f')) {
+            return Jp2RewriteFamily::Exif;
+        }
+        if (box.type == fourcc('x', 'm', 'l', ' ')) {
+            return Jp2RewriteFamily::Xmp;
+        }
+        return Jp2RewriteFamily::Unknown;
+    }
+
+    static bool jp2_source_box_matches_rewrite_policy(
+        const TransferBmffBox& box, const Jp2RewritePolicy& policy) noexcept
+    {
+        switch (classify_source_jp2_rewrite_family(box)) {
+        case Jp2RewriteFamily::Exif: return policy.exif;
+        case Jp2RewriteFamily::Xmp: return policy.xmp;
+        case Jp2RewriteFamily::Unknown: break;
+        }
+        return false;
     }
 
     static bool bmff_uuid_equals(const std::array<std::byte, 16>& a,
@@ -18498,6 +18576,68 @@ namespace {
                     }
                 }
             }
+        } else if (bundle->target_format == TransferTargetFormat::Jp2) {
+            PreparedTransferPackagePlan package;
+            uint32_t removed_boxes = 0U;
+            out.edit_apply.status  = TransferStatus::Unsupported;
+            out.edit_apply.code    = EmitTransferCode::InvalidArgument;
+            out.edit_apply.message = "jp2 edit apply not requested";
+
+            const EmitTransferResult plan_result
+                = build_prepared_bundle_jp2_package(edit_input, *bundle,
+                                                    &package,
+                                                    &removed_boxes);
+            out.edit_plan_status  = plan_result.status;
+            out.edit_plan_message = plan_result.message;
+            out.edit_output_size  = plan_result.status == TransferStatus::Ok
+                                        ? package.output_size
+                                        : 0U;
+
+            if (plan_result.status == TransferStatus::Ok
+                && out.edit_plan_message.empty()) {
+                out.edit_plan_message
+                    = removed_boxes == 0U
+                          ? "jp2 metadata rewrite planned"
+                          : "jp2 metadata rewrite planned after removing prior matching metadata boxes";
+            }
+
+            if (plan_result.status == TransferStatus::Ok
+                && options.edit_apply) {
+                if (options.edit_output_writer) {
+                    out.edit_apply = write_prepared_transfer_package(
+                        edit_input, *bundle, package,
+                        *options.edit_output_writer);
+                } else {
+                    PreparedTransferPackageBatch batch;
+                    out.edit_apply = build_prepared_transfer_package_batch(
+                        edit_input, *bundle, package, &batch);
+                    if (out.edit_apply.status == TransferStatus::Ok) {
+                        if (batch.output_size > static_cast<uint64_t>(
+                                std::numeric_limits<size_t>::max())) {
+                            out.edit_apply.status
+                                = TransferStatus::LimitExceeded;
+                            out.edit_apply.code
+                                = EmitTransferCode::InvalidPayload;
+                            out.edit_apply.errors = 1U;
+                            out.edit_apply.message
+                                = "jp2 edited output exceeds size_t";
+                        } else {
+                            out.edited_output.clear();
+                            out.edited_output.reserve(
+                                static_cast<size_t>(batch.output_size));
+                            for (size_t i = 0; i < batch.chunks.size(); ++i) {
+                                const PreparedTransferPackageBlob& chunk
+                                    = batch.chunks[i];
+                                out.edited_output.insert(out.edited_output.end(),
+                                                         chunk.bytes.begin(),
+                                                         chunk.bytes.end());
+                            }
+                            out.edit_output_size = static_cast<uint64_t>(
+                                out.edited_output.size());
+                        }
+                    }
+                }
+            }
         } else if (transfer_target_is_bmff(bundle->target_format)) {
             PreparedTransferPackagePlan package;
             uint32_t removed_meta_boxes = 0U;
@@ -19011,6 +19151,321 @@ build_prepared_bundle_png_package(std::span<const std::byte> input_png,
         out.message = "replaced prior matching png metadata chunks";
     }
     return out;
+}
+
+static bool
+find_jp2_rewrite_icc_block_index(const PreparedTransferBundle& bundle,
+                                 uint32_t* out_block_index,
+                                 EmitTransferResult* out) noexcept;
+
+static bool build_rewritten_jp2_header_box(
+    std::span<const std::byte> input_jp2, const TransferBmffBox& jp2h_box,
+    const PreparedTransferBundle& bundle, uint32_t icc_block_index,
+    std::vector<std::byte>* out_box_bytes, EmitTransferResult* out) noexcept;
+
+static EmitTransferResult
+build_prepared_bundle_jp2_package(std::span<const std::byte> input_jp2,
+                                  const PreparedTransferBundle& bundle,
+                                  PreparedTransferPackagePlan* out_plan,
+                                  uint32_t* out_removed_boxes) noexcept
+{
+    EmitTransferResult out;
+    if (!out_plan) {
+        out.status  = TransferStatus::InvalidArgument;
+        out.code    = EmitTransferCode::InvalidArgument;
+        out.errors  = 1U;
+        out.message = "out_plan is null";
+        return out;
+    }
+    if (bundle.target_format != TransferTargetFormat::Jp2) {
+        out.status  = TransferStatus::Unsupported;
+        out.code    = EmitTransferCode::InvalidArgument;
+        out.errors  = 1U;
+        out.message = "bundle target format is not jp2";
+        return out;
+    }
+    if (input_jp2.empty()) {
+        out.status  = TransferStatus::InvalidArgument;
+        out.code    = EmitTransferCode::InvalidArgument;
+        out.errors  = 1U;
+        out.message = "jp2 edit requires input bytes";
+        return out;
+    }
+
+    const Jp2RewritePolicy policy = collect_jp2_rewrite_policy(bundle);
+    uint32_t icc_block_index      = 0xFFFFFFFFU;
+    if (policy.icc
+        && !find_jp2_rewrite_icc_block_index(bundle, &icc_block_index, &out)) {
+        return out;
+    }
+
+    PreparedTransferPackagePlan plan;
+    plan.contract_version = bundle.contract_version;
+    plan.target_format    = bundle.target_format;
+    plan.input_size       = static_cast<uint64_t>(input_jp2.size());
+
+    bool found_signature = false;
+    bool found_ftyp      = false;
+    bool found_jp2h      = false;
+    bool rewrote_jp2h    = false;
+    uint32_t removed_boxes = 0U;
+    uint32_t emitted_updates = 0U;
+    uint64_t offset = 0U;
+    while (offset < input_jp2.size()) {
+        TransferBmffBox box;
+        if (!parse_transfer_bmff_box(input_jp2, offset, input_jp2.size(),
+                                     &box)) {
+            out.status  = TransferStatus::Malformed;
+            out.code    = EmitTransferCode::InvalidPayload;
+            out.errors  = 1U;
+            out.message = "failed to parse top-level jp2 box";
+            return out;
+        }
+
+        if (box.type == fourcc('j', 'P', ' ', ' ')) {
+            found_signature = true;
+        } else if (box.type == fourcc('f', 't', 'y', 'p')) {
+            found_ftyp = true;
+        } else if (box.type == fourcc('j', 'p', '2', 'h')) {
+            if (policy.icc) {
+                if (found_jp2h) {
+                    out.status  = TransferStatus::Unsupported;
+                    out.code    = EmitTransferCode::UnsupportedRoute;
+                    out.errors  = 1U;
+                    out.message = "jp2 edit does not support multiple jp2h boxes";
+                    return out;
+                }
+                found_jp2h = true;
+                std::vector<std::byte> rebuilt_box;
+                if (!build_rewritten_jp2_header_box(
+                        input_jp2, box, bundle, icc_block_index,
+                        &rebuilt_box, &out)) {
+                    return out;
+                }
+                append_package_inline_chunk(
+                    &plan,
+                    std::span<const std::byte>(rebuilt_box.data(),
+                                               rebuilt_box.size()));
+                rewrote_jp2h = true;
+                emitted_updates += 1U;
+                if (box.size == 0U) {
+                    break;
+                }
+                offset += box.size;
+                continue;
+            }
+        }
+
+        if (jp2_source_box_matches_rewrite_policy(box, policy)) {
+            removed_boxes += 1U;
+        } else {
+            append_package_source_chunk(&plan, box.offset, box.size);
+        }
+
+        if (box.size == 0U) {
+            break;
+        }
+        offset += box.size;
+    }
+
+    if (!found_signature || !found_ftyp) {
+        out.status  = TransferStatus::Unsupported;
+        out.code    = EmitTransferCode::InvalidArgument;
+        out.errors  = 1U;
+        out.message = "input is not a supported jp2 file";
+        return out;
+    }
+    if (policy.icc && !found_jp2h) {
+        out.status  = TransferStatus::Unsupported;
+        out.code    = EmitTransferCode::UnsupportedRoute;
+        out.errors  = 1U;
+        out.message = "jp2 edit requires an existing jp2h box for jp2h colr route";
+        return out;
+    }
+
+    uint32_t appended_boxes = 0U;
+    for (uint32_t i = 0U; i < bundle.blocks.size(); ++i) {
+        const PreparedTransferBlock& block = bundle.blocks[i];
+        if (block.payload.empty()) {
+            continue;
+        }
+
+        if (block.route == "jp2:box-jp2h-colr") {
+            continue;
+        }
+
+        std::array<char, 4> box_type = { '\0', '\0', '\0', '\0' };
+        if (!jp2_box_from_route(block.route, &box_type)) {
+            out.status             = TransferStatus::Unsupported;
+            out.code               = EmitTransferCode::UnsupportedRoute;
+            out.errors             = 1U;
+            out.failed_block_index = i;
+            out.message = "unsupported jp2 route: " + block.route;
+            return out;
+        }
+        if (block.payload.size() > static_cast<size_t>(0xFFFFFFFFU - 8U)) {
+            out.status             = TransferStatus::LimitExceeded;
+            out.code               = EmitTransferCode::InvalidPayload;
+            out.errors             = 1U;
+            out.failed_block_index = i;
+            out.message = "jp2 box payload exceeds 32-bit box size";
+            return out;
+        }
+
+        append_package_prepared_block_chunk(
+            &plan, i, 8U + static_cast<uint64_t>(block.payload.size()));
+        appended_boxes += 1U;
+    }
+    emitted_updates += appended_boxes;
+
+    if (emitted_updates == 0U && removed_boxes == 0U) {
+        out.status  = TransferStatus::InvalidArgument;
+        out.code    = EmitTransferCode::InvalidArgument;
+        out.errors  = 1U;
+        out.message = "jp2 edit requires at least one metadata box update";
+        return out;
+    }
+
+    plan.output_size = package_plan_next_output_offset(plan);
+    *out_plan        = std::move(plan);
+    if (out_removed_boxes) {
+        *out_removed_boxes = removed_boxes;
+    }
+
+    out.status  = TransferStatus::Ok;
+    out.code    = EmitTransferCode::None;
+    out.emitted = emitted_updates;
+    if (removed_boxes == 0U && rewrote_jp2h && appended_boxes == 0U) {
+        out.message = "updated jp2 header metadata boxes";
+    } else if (appended_boxes == 0U && !rewrote_jp2h) {
+        out.message = "removed prior matching jp2 metadata boxes";
+    } else if (removed_boxes == 0U && !rewrote_jp2h) {
+        out.message = "appended prepared jp2 metadata boxes";
+    } else if (removed_boxes == 0U) {
+        out.message = "updated jp2 header metadata boxes and appended prepared jp2 metadata boxes";
+    } else {
+        out.message = rewrote_jp2h
+                          ? "replaced prior matching jp2 metadata boxes and updated jp2 header"
+                          : "replaced prior matching jp2 metadata boxes";
+    }
+    return out;
+}
+
+static bool
+find_jp2_rewrite_icc_block_index(const PreparedTransferBundle& bundle,
+                                 uint32_t* out_block_index,
+                                 EmitTransferResult* out) noexcept
+{
+    if (!out_block_index || !out) {
+        return false;
+    }
+
+    *out_block_index = 0xFFFFFFFFU;
+    for (uint32_t i = 0U; i < bundle.blocks.size(); ++i) {
+        const PreparedTransferBlock& block = bundle.blocks[i];
+        if (block.payload.empty() || block.route != "jp2:box-jp2h-colr") {
+            continue;
+        }
+        if (*out_block_index != 0xFFFFFFFFU) {
+            out->status             = TransferStatus::Unsupported;
+            out->code               = EmitTransferCode::UnsupportedRoute;
+            out->errors             = 1U;
+            out->failed_block_index = i;
+            out->message
+                = "jp2 edit supports only one jp2h colr block";
+            return false;
+        }
+        *out_block_index = i;
+    }
+    return true;
+}
+
+static bool build_rewritten_jp2_header_box(
+    std::span<const std::byte> input_jp2, const TransferBmffBox& jp2h_box,
+    const PreparedTransferBundle& bundle, uint32_t icc_block_index,
+    std::vector<std::byte>* out_box_bytes, EmitTransferResult* out) noexcept
+{
+    if (!out_box_bytes || !out) {
+        return false;
+    }
+    if (jp2h_box.type != fourcc('j', 'p', '2', 'h')
+        || jp2h_box.offset + jp2h_box.size > input_jp2.size()
+        || jp2h_box.size < jp2h_box.header_size) {
+        out->status  = TransferStatus::Malformed;
+        out->code    = EmitTransferCode::InvalidPayload;
+        out->errors  = 1U;
+        out->message = "jp2 header box is malformed";
+        return false;
+    }
+    if (icc_block_index >= bundle.blocks.size()) {
+        out->status  = TransferStatus::InvalidArgument;
+        out->code    = EmitTransferCode::InvalidArgument;
+        out->errors  = 1U;
+        out->message = "jp2 header rewrite icc block is out of range";
+        return false;
+    }
+
+    const PreparedTransferBlock& icc_block = bundle.blocks[icc_block_index];
+    if (icc_block.route != "jp2:box-jp2h-colr") {
+        out->status  = TransferStatus::InvalidArgument;
+        out->code    = EmitTransferCode::UnsupportedRoute;
+        out->errors  = 1U;
+        out->message = "jp2 header rewrite icc block route mismatch";
+        return false;
+    }
+
+    const uint64_t payload_begin = jp2h_box.offset + jp2h_box.header_size;
+    const uint64_t payload_end   = jp2h_box.offset + jp2h_box.size;
+    std::vector<std::byte> rebuilt_payload;
+    rebuilt_payload.reserve(static_cast<size_t>(jp2h_box.size
+                                                - jp2h_box.header_size
+                                                + icc_block.payload.size()));
+
+    bool inserted_icc = false;
+    uint64_t child_off = payload_begin;
+    while (child_off < payload_end) {
+        TransferBmffBox child;
+        if (!parse_transfer_bmff_box(input_jp2, child_off, payload_end,
+                                     &child)) {
+            out->status  = TransferStatus::Malformed;
+            out->code    = EmitTransferCode::InvalidPayload;
+            out->errors  = 1U;
+            out->message = "failed to parse jp2 header child box";
+            return false;
+        }
+
+        if (child.type == fourcc('c', 'o', 'l', 'r')) {
+            if (!inserted_icc) {
+                rebuilt_payload.insert(rebuilt_payload.end(),
+                                       icc_block.payload.begin(),
+                                       icc_block.payload.end());
+                inserted_icc = true;
+            }
+        } else {
+            rebuilt_payload.insert(
+                rebuilt_payload.end(),
+                input_jp2.begin()
+                    + static_cast<std::ptrdiff_t>(child.offset),
+                input_jp2.begin()
+                    + static_cast<std::ptrdiff_t>(child.offset + child.size));
+        }
+
+        if (child.size == 0U) {
+            break;
+        }
+        child_off += child.size;
+    }
+
+    if (!inserted_icc) {
+        rebuilt_payload.insert(rebuilt_payload.end(), icc_block.payload.begin(),
+                               icc_block.payload.end());
+    }
+
+    return serialize_jxl_box(
+        { 'j', 'p', '2', 'h' },
+        std::span<const std::byte>(rebuilt_payload.data(),
+                                   rebuilt_payload.size()),
+        out_box_bytes, out);
 }
 
 static EmitTransferResult

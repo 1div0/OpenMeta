@@ -20,6 +20,8 @@ set(_dump_dir "${WORK_DIR}/payloads")
 set(_edited_jpg "${WORK_DIR}/edited.jpg")
 set(_target_jxl "${WORK_DIR}/target.jxl")
 set(_edited_jxl "${WORK_DIR}/edited.jxl")
+set(_target_jp2 "${WORK_DIR}/target.jp2")
+set(_edited_jp2 "${WORK_DIR}/edited.jp2")
 set(_jxl_handoff "${WORK_DIR}/jxl_encoder_handoff.omjxic")
 set(_split_jpg "${WORK_DIR}/split_injected.jpg")
 set(_target_tif "${WORK_DIR}/target.tif")
@@ -105,6 +107,19 @@ execute_process(
 if(NOT _rv_write_jxl EQUAL 0)
   message(FATAL_ERROR
     "failed to write target jxl fixture (${_rv_write_jxl})\nstdout:\n${_out_write_jxl}\nstderr:\n${_err_write_jxl}")
+endif()
+
+# Minimal JP2 target: signature + ftyp + free box.
+execute_process(
+  COMMAND python3 -c
+    "from pathlib import Path; u32=lambda v:(v).to_bytes(4,'big'); box=lambda t,p:u32(8+len(p))+t+p; ftyp=b'jp2 '+u32(0)+b'jp2 '; sig=u32(12)+b'jP  '+u32(0x0D0A870A); Path(r'''${_target_jp2}''').write_bytes(sig+box(b'ftyp', ftyp)+box(b'free', bytes([0x11,0x22,0x33])))"
+  RESULT_VARIABLE _rv_write_jp2
+  OUTPUT_VARIABLE _out_write_jp2
+  ERROR_VARIABLE _err_write_jp2
+)
+if(NOT _rv_write_jp2 EQUAL 0)
+  message(FATAL_ERROR
+    "failed to write target jp2 fixture (${_rv_write_jp2})\nstdout:\n${_out_write_jp2}\nstderr:\n${_err_write_jp2}")
 endif()
 
 #Minimal classic TIFF target(II + 42 + IFD0 at offset 8 with 0 entries)
@@ -1359,6 +1374,84 @@ execute_process(
 if(NOT _rv_jxl_edit_check EQUAL 0)
   message(FATAL_ERROR
     "metatransfer jxl edit output check failed\nstdout:\n${_out_jxl_edit}\nstderr:\n${_err_jxl_edit}\ncheck_stderr:\n${_err_jxl_edit_check}")
+endif()
+
+execute_process(
+  COMMAND "${METATRANSFER_BIN}" --no-build-info
+          --target-jp2
+          --no-xmp
+          --no-icc
+          --no-iptc
+          "${_jpg}"
+  RESULT_VARIABLE _rv_jp2
+  OUTPUT_VARIABLE _out_jp2
+  ERROR_VARIABLE _err_jp2
+)
+if(NOT _rv_jp2 EQUAL 0)
+  message(FATAL_ERROR
+    "metatransfer jp2 summary failed (${_rv_jp2})\nstdout:\n${_out_jp2}\nstderr:\n${_err_jp2}")
+endif()
+if(NOT _out_jp2 MATCHES "compile: status=ok")
+  message(FATAL_ERROR
+    "metatransfer jp2 summary missing compile ok\nstdout:\n${_out_jp2}\nstderr:\n${_err_jp2}")
+endif()
+if(NOT _out_jp2 MATCHES "emit: status=ok")
+  message(FATAL_ERROR
+    "metatransfer jp2 summary missing emit ok\nstdout:\n${_out_jp2}\nstderr:\n${_err_jp2}")
+endif()
+if(NOT _out_jp2 MATCHES "jp2_box Exif count=1")
+  message(FATAL_ERROR
+    "metatransfer jp2 summary missing Exif box summary\nstdout:\n${_out_jp2}\nstderr:\n${_err_jp2}")
+endif()
+
+execute_process(
+  COMMAND "${METATRANSFER_BIN}" --no-build-info
+          --source-meta "${_jpg}"
+          --target-jp2
+          --no-xmp
+          --no-icc
+          --no-iptc
+          --output "${_edited_jp2}" --force
+          "${_target_jp2}"
+  RESULT_VARIABLE _rv_jp2_edit
+  OUTPUT_VARIABLE _out_jp2_edit
+  ERROR_VARIABLE _err_jp2_edit
+)
+if(NOT _rv_jp2_edit EQUAL 0)
+  message(FATAL_ERROR
+    "metatransfer jp2 edit failed (${_rv_jp2_edit})\nstdout:\n${_out_jp2_edit}\nstderr:\n${_err_jp2_edit}")
+endif()
+if(NOT _out_jp2_edit MATCHES "jp2_edit: status=ok")
+  message(FATAL_ERROR
+    "metatransfer jp2 edit missing jp2_edit ok\nstdout:\n${_out_jp2_edit}\nstderr:\n${_err_jp2_edit}")
+endif()
+if(NOT _out_jp2_edit MATCHES "jp2_edit_apply: status=ok")
+  message(FATAL_ERROR
+    "metatransfer jp2 edit missing jp2_edit_apply ok\nstdout:\n${_out_jp2_edit}\nstderr:\n${_err_jp2_edit}")
+endif()
+if(NOT EXISTS "${_edited_jp2}")
+  message(FATAL_ERROR
+    "metatransfer jp2 edit did not write output\nstdout:\n${_out_jp2_edit}\nstderr:\n${_err_jp2_edit}")
+endif()
+
+execute_process(
+  COMMAND "${METATRANSFER_BIN}" --no-build-info
+          --target-jp2
+          --no-xmp
+          --no-icc
+          --no-iptc
+          "${_edited_jp2}"
+  RESULT_VARIABLE _rv_jp2_roundtrip
+  OUTPUT_VARIABLE _out_jp2_roundtrip
+  ERROR_VARIABLE _err_jp2_roundtrip
+)
+if(NOT _rv_jp2_roundtrip EQUAL 0)
+  message(FATAL_ERROR
+    "metatransfer jp2 roundtrip summary failed (${_rv_jp2_roundtrip})\nstdout:\n${_out_jp2_roundtrip}\nstderr:\n${_err_jp2_roundtrip}")
+endif()
+if(NOT _out_jp2_roundtrip MATCHES "jp2_box Exif count=1")
+  message(FATAL_ERROR
+    "metatransfer jp2 roundtrip summary missing Exif box summary\nstdout:\n${_out_jp2_roundtrip}\nstderr:\n${_err_jp2_roundtrip}")
 endif()
 
 execute_process(

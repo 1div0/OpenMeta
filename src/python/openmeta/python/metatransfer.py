@@ -214,9 +214,9 @@ def main(argv: list[str]) -> int:
         help="output directory for --unsafe-write-payloads",
     )
     ap.add_argument("--target-jxl", action="store_true", help="target JPEG XL metadata emit summary")
-    ap.add_argument("--target-webp", action="store_true", help="target WebP metadata chunk emit summary")
+    ap.add_argument("--target-webp", action="store_true", help="target WebP metadata transfer")
     ap.add_argument("--target-png", action="store_true", help="target PNG metadata transfer")
-    ap.add_argument("--target-jp2", action="store_true", help="target JP2 metadata box emit summary")
+    ap.add_argument("--target-jp2", action="store_true", help="target JP2 metadata transfer")
     ap.add_argument("--target-heif", action="store_true", help="target HEIF metadata transfer")
     ap.add_argument("--target-avif", action="store_true", help="target AVIF metadata transfer")
     ap.add_argument("--target-cr3", action="store_true", help="target CR3 metadata transfer")
@@ -406,6 +406,7 @@ def main(argv: list[str]) -> int:
         or args.target_tiff
         or args.target_webp
         or args.target_png
+        or args.target_jp2
         or args.target_jxl
         or args.target_heif
         or args.target_avif
@@ -413,8 +414,8 @@ def main(argv: list[str]) -> int:
     ):
         ap.error(
             "--output requires --target-jpeg, --target-tiff, --target-webp, "
-            "--target-png, --target-jxl, --target-heif, --target-avif, or "
-            "--target-cr3"
+            "--target-png, --target-jp2, --target-jxl, --target-heif, "
+            "--target-avif, or --target-cr3"
         )
     if args.dump_c2pa_binding and (
         args.target_tiff
@@ -531,6 +532,7 @@ def main(argv: list[str]) -> int:
         and (
             args.target_webp
             or args.target_png
+            or args.target_jp2
             or args.target_jxl
             or args.target_heif
             or args.target_avif

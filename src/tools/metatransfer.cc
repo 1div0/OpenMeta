@@ -100,9 +100,9 @@ namespace {
             "  --target-jpeg <path>   Target JPEG stream for edit/apply phase\n"
             "  --target-tiff <path>   Target TIFF stream for edit/apply phase\n"
             "  --target-png           Target PNG metadata transfer\n"
-            "  --target-jp2           Target JP2 metadata box emit summary\n"
+            "  --target-jp2           Target JP2 metadata transfer\n"
             "  --target-jxl           Target JPEG XL metadata emit summary\n"
-            "  --target-webp          Target WebP metadata chunk emit summary\n"
+            "  --target-webp          Target WebP metadata transfer\n"
             "  --target-heif          Target HEIF metadata transfer\n"
             "  --target-avif          Target AVIF metadata transfer\n"
             "  --target-cr3           Target CR3 metadata transfer\n"
@@ -1997,6 +1997,9 @@ main(int argc, char** argv)
         const bool need_png_edit = options.prepare.target_format
                                        == TransferTargetFormat::Png
                                    && (dry_run || !output_path.empty());
+        const bool need_jp2_edit = options.prepare.target_format
+                                       == TransferTargetFormat::Jp2
+                                   && (dry_run || !output_path.empty());
         const bool need_jxl_edit = options.prepare.target_format
                                        == TransferTargetFormat::Jxl
                                    && (dry_run || !output_path.empty());
@@ -2358,7 +2361,8 @@ main(int argc, char** argv)
         exec_options.jpeg_edit           = edit_plan_opts;
         exec_options.edit_requested      = need_jpeg_edit || need_tiff_edit
                                       || need_webp_edit || need_png_edit
-                                      || need_jxl_edit || need_bmff_edit;
+                                      || need_jp2_edit || need_jxl_edit
+                                      || need_bmff_edit;
         exec_options.edit_apply = !dry_run && !output_path.empty();
         if (use_output_writer) {
             exec_options.edit_output_writer = &output_writer;
@@ -3502,6 +3506,76 @@ main(int argc, char** argv)
         }
 
         if (prepared.bundle.target_format == TransferTargetFormat::Jp2) {
+            if (exec.edit_requested) {
+                if (exec.edit_plan_status == TransferStatus::Ok) {
+                    std::printf(
+                        "  jp2_edit: status=%s input=%llu output=%llu\n",
+                        transfer_status_name(exec.edit_plan_status),
+                        static_cast<unsigned long long>(exec.edit_input_size),
+                        static_cast<unsigned long long>(exec.edit_output_size));
+                } else {
+                    std::printf("  jp2_edit: status=%s\n",
+                                transfer_status_name(exec.edit_plan_status));
+                }
+                if (!exec.edit_plan_message.empty()) {
+                    std::printf("  jp2_edit_message=%s\n",
+                                exec.edit_plan_message.c_str());
+                }
+                if (exec.edit_plan_status != TransferStatus::Ok) {
+                    any_failed = true;
+                }
+            }
+
+            if (!output_path.empty()) {
+                if (!force && output_exists) {
+                    std::fprintf(stderr,
+                                 "  jp2_edit_apply: exists: %s (use --force)\n",
+                                 output_path.c_str());
+                    any_failed = true;
+                    continue;
+                }
+                if (!dry_run) {
+                    std::printf(
+                        "  jp2_edit_apply: status=%s code=%s emitted=%u skipped=%u errors=%u\n",
+                        transfer_status_name(exec.edit_apply.status),
+                        emit_transfer_code_name(exec.edit_apply.code),
+                        exec.edit_apply.emitted, exec.edit_apply.skipped,
+                        exec.edit_apply.errors);
+                    if (!exec.edit_apply.message.empty()) {
+                        std::printf("  jp2_edit_apply_message=%s\n",
+                                    exec.edit_apply.message.c_str());
+                    }
+                    if (exec.edit_apply.status != TransferStatus::Ok) {
+                        any_failed = true;
+                        continue;
+                    }
+                    if (use_output_writer) {
+                        if (output_writer.finish() != TransferStatus::Ok) {
+                            std::fprintf(stderr,
+                                         "  jp2_edit_apply: write_failed: %s\n",
+                                         output_path.c_str());
+                            any_failed = true;
+                            continue;
+                        }
+                    } else if (!write_file_bytes(
+                                   output_path,
+                                   std::span<const std::byte>(
+                                       exec.edited_output.data(),
+                                       exec.edited_output.size()))) {
+                        std::fprintf(stderr,
+                                     "  jp2_edit_apply: write_failed: %s\n",
+                                     output_path.c_str());
+                        any_failed = true;
+                        continue;
+                    }
+                    std::printf("  output=%s bytes=%llu\n", output_path.c_str(),
+                                static_cast<unsigned long long>(
+                                    use_output_writer
+                                        ? output_writer.bytes_written()
+                                        : exec.edited_output.size()));
+                }
+            }
+
             std::printf(
                 "  compile: status=%s code=%s ops=%u skipped=%u errors=%u\n",
                 transfer_status_name(exec.compile.status),

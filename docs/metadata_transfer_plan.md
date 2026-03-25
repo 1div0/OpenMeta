@@ -3,651 +3,267 @@
 Date: March 5, 2026
 
 Related:
-- `docs/metadata_backend_matrix.md` (backend capability matrix and unified
-  writer contract draft)
+- [metadata_backend_matrix.md](metadata_backend_matrix.md)
 
 ## Goal
 
-Implement a first write milestone for metadata transfer:
+The transfer core is for metadata-only workflows:
+- source: camera RAW and other supported inputs
+- target: export-oriented container metadata
+- scope: prepare once, then emit or edit many times
 
-- Source: camera RAW and other supported inputs
-- Target: TIFF and JPEG
-- Mode: no-edits metadata transfer (preserve semantics as-is where possible)
+Pixel transcoding is out of scope.
 
-This plan is for metadata-only transfer. Pixel encode/decode policy is out of scope.
+## Design Rule
 
-## Performance Requirement (Primary)
+Transfer should not bottleneck high-throughput pipelines.
 
-Metadata transfer must not bottleneck high-throughput pipelines (machine-vision
-and GPU encode pipelines at high FPS).
+The core rule is:
+- do the expensive work once during `prepare`
+- reuse prebuilt metadata payloads during `compile` and `emit`
+- keep per-frame work limited to optional time patching plus final container
+  write calls
 
-Design rule:
-- Do expensive work once (`prepare`), then reuse prebuilt metadata blocks for
-  many frames (`emit`).
-- Per-frame work should be reduced to optional timestamp patching plus final
-  container write calls.
+## Current Status
 
-## Current Status Snapshot
+Source-side readiness is already strong:
+- tracked EXIF read gates are green on `HEIC/HEIF`, `CR3`, and mixed RAW corpora
+- tracked MakerNote gates are green
+- portable XMP gates are green
+- EXR header interop gates are green
 
-Read-path readiness is high:
+The main remaining work is now on the target side.
 
-- EXIF read gates are green on tracked HEIC/HEIF, CR3, and RAW corpora.
-- MakerNote tag-id coverage is at 100% on tracked ExifTool sample-image baselines.
-- EXR header metadata interop is at 100% for name/type/value-class checks.
-- Portable XMP sidecar export is stable with high fidelity and 100% parse/roundtrip rates in baseline gates.
-- Draft C2PA semantic gates are stable (invariant checks passing), including new BMFF edge fixtures.
-- Draft transfer API scaffold is available in `openmeta/metadata_transfer.h`
-  (`PreparedTransferBundle` + backend emitter contracts).
-- Route-based bundle emission is implemented for both targets:
-  - JPEG: `emit_prepared_bundle_jpeg(...)`
-  - TIFF: `emit_prepared_bundle_tiff(...)`
-- Reusable compiled emit plans are implemented for both targets:
-  - `compile_prepared_bundle_jpeg(...)` +
-    `emit_prepared_bundle_jpeg_compiled(...)`
-  - `compile_prepared_bundle_tiff(...)` +
-    `emit_prepared_bundle_tiff_compiled(...)`
-- High-level file wrapper is implemented:
-  `prepare_metadata_for_target_file(...)` (`read/decode -> prepare bundle`).
-- Shared execution helpers are implemented:
-  - `execute_prepared_transfer(...)`
-  - `compile_prepared_transfer_execution(...)`
-  - `execute_prepared_transfer_compiled(...)`
-  - `execute_prepared_transfer_file(...)`
-  These now cover both `time_patch -> compile -> emit -> optional edit` and
-  `prepare once -> compile once -> patch/emit many`.
-- Streaming edit sinks are implemented in the shared core API:
-  - `TransferByteWriter`
-  - `SpanTransferByteWriter`
-  - `PreparedTransferExecutionPlan`
-  - `TimePatchView`
-  - `write_prepared_bundle_jpeg(...)`
-  - `write_prepared_bundle_jpeg_compiled(...)`
-  - `write_prepared_bundle_jpeg_edit(...)`
-  - `write_prepared_bundle_tiff_edit(...)`
-  - `apply_time_patches_view(...)`
-  - `write_prepared_transfer_compiled(...)`
-  - `emit_prepared_transfer_compiled(..., JpegTransferEmitter&)`
-  - `emit_prepared_transfer_compiled(..., TiffTransferEmitter&)`
-  - `ExecutePreparedTransferOptions::emit_output_writer`
-  - `ExecutePreparedTransferOptions::edit_output_writer`
-  JPEG can stream both metadata-only emit bytes and edited output directly to a
-  sink. TIFF edit output streams original input plus a planned metadata tail,
-  avoiding a temporary full-file rewrite buffer.
-- Thin-wrapper tooling is in place:
-  - C++ CLI: `metatransfer`
-  - Python binding helper: `openmeta.transfer_probe(...)`
-  - Python script: `openmeta.python.metatransfer`
-- Core edit planning/apply APIs now cover both targets:
-  - JPEG: `plan_prepared_bundle_jpeg_edit(...)` /
-    `apply_prepared_bundle_jpeg_edit(...)`
-  - TIFF: `plan_prepared_bundle_tiff_edit(...)` /
-    `apply_prepared_bundle_tiff_edit(...)`
-- JPEG prepare path now emits APP1 EXIF + APP1 XMP + APP2 ICC + APP13 IPTC
-  payload bundles from `MetaStore`, with explicit warnings for
-  unsupported/skipped EXIF/ICC/IPTC entries.
-- JXL prepare/emit now has a first bounded target path:
-  - prepare builds `Exif`, `xml `, and bounded `jumb` boxes plus the encoder
-    ICC profile from `MetaStore`
-  - EXIF time-patch slots are preserved with the required 4-byte JXL Exif
-    offset prefix adjustment
-  - `compile_prepared_bundle_jxl(...)`,
-    `emit_prepared_bundle_jxl(...)`,
-    `emit_prepared_bundle_jxl_compiled(...)`, and
-    `emit_prepared_transfer_compiled(..., JxlTransferEmitter&)`
-    now provide the same reusable emit shape as the JPEG/TIFF paths
-  - `jxl:icc-profile` is emitted through the dedicated encoder ICC path, not
-    as a JXL box
-  - file-based prepare can preserve source generic JUMBF payloads and raw
-    OpenMeta draft C2PA invalidation payloads as JXL boxes, and can generate
-    a draft unsigned invalidation payload for content-bound source C2PA
-  - store-only prepare can project decoded non-C2PA `JumbfCborKey` roots into
-    generic JXL `jumb` boxes when no raw source payload is available
-  - raw IPTC requested for JXL is projected into the existing `xml ` XMP box;
-    OpenMeta does not add a raw IPTC-IIM JXL carrier
-  - `build_prepared_jxl_encoder_handoff_view(...)` is the explicit
-    encoder-side ICC handoff contract for JXL, and
-    `build_prepared_jxl_encoder_handoff(...)` plus
-    `serialize_prepared_jxl_encoder_handoff(...)` provide the owned
-    persisted form: at most one prepared `jxl:icc-profile` plus the
-    remaining JXL box counts
-  - `inspect_prepared_transfer_artifact(...)` now gives one target-neutral
-    inspect surface over the persisted transfer family instead of separate
-    wrapper-only format detection
-  - the JXL compile/emit path now rejects multiple prepared ICC profiles so
-    the handoff contract matches backend execution
-  - `build_prepared_transfer_emit_package(...)` plus
-    `write_prepared_transfer_package(...)` can serialize direct JXL box bytes
-    from prepared bundles, and `execute_prepared_transfer(...)` can use that
-    same box-only serializer through `emit_output_writer`
-  - bounded JXL file edit now uses the same package core:
-    it preserves the signature and non-managed top-level boxes, replaces only
-    the metadata families present in the prepared bundle, and appends the
-    prepared JXL boxes to an existing JXL container file
-  - unrelated source JXL metadata boxes are preserved, and uncompressed
-    source `jumb` boxes are distinguished as generic JUMBF vs C2PA for that
-    replacement decision
-  - when Brotli support is available, the same replacement decision now also
-    classifies compressed `brob(realtype=jumb)` source boxes as generic JUMBF
-    vs C2PA before edit planning
-  - `jxl:icc-profile` still stays on the encoder ICC path and is rejected by
-    the JXL byte-writer and file-edit paths
-  - signed C2PA rewrite/re-sign remains separate follow-up work
-  - `PreparedTransferPackageBatch` is now the owned replay form of the shared
-    package layer, so JPEG/TIFF rewrite packages and direct JPEG/JXL emit
-    packages can be cached or handed off without retaining the original input
-    stream or prepared bundle storage
-  - `serialize_prepared_transfer_package_batch(...)` and
-    `deserialize_prepared_transfer_package_batch(...)` now persist that owned
-    package batch for cross-process or cross-layer handoff
-  - `collect_prepared_transfer_payload_views(...)` and
-    `build_prepared_transfer_payload_batch(...)` now provide the matching
-    target-neutral semantic payload surface directly over prepared bundles
-  - `serialize_prepared_transfer_payload_batch(...)` and
-    `deserialize_prepared_transfer_payload_batch(...)` now persist that
-    earlier semantic payload batch for cross-process or cross-layer handoff
-    before final package materialization
-  - thin wrappers can now dump that persisted semantic payload batch directly:
-    `metatransfer --dump-transfer-payload-batch ...` and
-    `openmeta.python.metatransfer --dump-transfer-payload-batch ...`
-  - thin wrappers can now also load and inspect that persisted semantic
-    payload batch directly:
-    `metatransfer --load-transfer-payload-batch ...` and
-    `openmeta.python.metatransfer --load-transfer-payload-batch ...`
-  - Python bindings now expose the same inspect surface directly through
-    `inspect_transfer_payload_batch(...)` and
-    `unsafe_inspect_transfer_payload_batch(...)`
-  - thin wrappers now also dump, load, and inspect persisted final package
-    batches directly:
-    `metatransfer --dump-transfer-package-batch ...`,
-    `metatransfer --load-transfer-package-batch ...`,
-    `openmeta.python.metatransfer --dump-transfer-package-batch ...`,
-    `openmeta.python.metatransfer --load-transfer-package-batch ...`,
-    `inspect_transfer_package_batch(...)`, and
-    `unsafe_inspect_transfer_package_batch(...)`
-  - `collect_prepared_transfer_package_views(...)` now provides the first
-    target-neutral semantic view over that persisted batch, so higher-level
-    adapters stop owning route parsing for packaged output
-  - `replay_prepared_transfer_package_batch(...)` now provides the matching
-    target-neutral callback replay path over the same persisted batch
-  - `collect_oiio_transfer_package_views(...)` now exposes zero-copy semantic
-    package views from that owned batch by mapping the target-neutral view
-    into OIIO semantics, so OIIO-style hosts can consume the stable packaged
-    output without the original prepared bundle lifetime
-  - `collect_oiio_transfer_payload_views(...)` and
-    `build_oiio_transfer_payload_batch(...)` now sit on top of the core
-    semantic payload layer instead of owning route classification/copy logic
+## Target Status Matrix
 
-- WebP prepare/emit now has the same bounded transfer shape:
-  - prepare builds `EXIF`, `XMP `, `ICCP`, and bounded `C2PA` RIFF metadata
-    chunks from `MetaStore`
-  - IPTC requested for WebP is projected into the existing `XMP ` chunk;
-    OpenMeta does not add a raw IPTC-IIM carrier
-  - `compile_prepared_bundle_webp(...)`,
-    `emit_prepared_bundle_webp(...)`,
-    `emit_prepared_bundle_webp_compiled(...)`, and
-    `emit_prepared_transfer_compiled(..., WebpTransferEmitter&)`
-    now provide the same reusable emit shape as JPEG/TIFF/JXL
-  - `build_prepared_transfer_emit_package(...)` plus
-    `write_prepared_transfer_package(...)` can serialize direct WebP chunk
-    bytes from prepared bundles, and the owned package batch path can persist
-    or replay those bytes without retaining the original bundle
-  - bounded WebP file rewrite/edit is now available:
-    existing RIFF/WebP bytes are preserved, matching managed metadata chunks
-    are removed, and prepared metadata chunks are reinserted with `VP8X`
-    feature flags updated when needed
-  - the WebP edit path currently manages only the OpenMeta-owned metadata
-    families (`EXIF`, `XMP `, `ICCP`, and bounded `C2PA`), not arbitrary WebP
-    chunk editing
-  - stronger signed C2PA rewrite still remains follow-up work
-  - `replay_oiio_transfer_package_batch(...)` now provides the first explicit
-    host/plugin replay surface over that persisted batch, replaying semantic
-    package chunks in deterministic output order through callbacks
-- PNG prepare/emit now has the same bounded direct-chunk target path:
-  - prepare builds `eXIf`, `iTXt`, and `iCCP` PNG metadata chunks from
-    `MetaStore`
-  - PNG EXIF uses the native `eXIf` payload shape, so the prepared payload
-    drops the JPEG APP1 `Exif\0\0` prefix and starts at the TIFF header
-  - PNG XMP uses uncompressed `iTXt` with the standard
-    `XML:com.adobe.xmp` keyword
-  - PNG ICC uses compressed `iCCP` payloads when zlib is available
-  - IPTC requested for PNG is projected into the same `iTXt` XMP carrier;
-    OpenMeta does not add a raw IPTC-IIM PNG carrier
-  - `compile_prepared_bundle_png(...)`,
-    `emit_prepared_bundle_png(...)`,
-    `emit_prepared_bundle_png_compiled(...)`, and
-    `emit_prepared_transfer_compiled(..., PngTransferEmitter&)`
-    now provide the same reusable emit shape as JPEG/TIFF/JXL/WebP
-  - `build_prepared_transfer_emit_package(...)` plus
-    `write_prepared_transfer_package(...)` can serialize direct PNG chunk
-    bytes from prepared bundles, and the owned package batch path can persist
-    or replay those bytes without retaining the original bundle
-  - bounded PNG file rewrite/edit is now available:
-    existing PNG bytes are preserved, matching managed metadata chunks are
-    removed, and prepared PNG metadata chunks are inserted immediately after
-    `IHDR`
-  - the PNG edit path currently manages only the OpenMeta-owned metadata
-    families (`eXIf`, XMP `iTXt`, and `iCCP`), not arbitrary PNG chunk edits
-- JP2 prepare/emit now has a first bounded direct-box target path:
-  - prepare builds `Exif`, `xml `, and `jp2h`/`colr` metadata boxes from
-    `MetaStore`
-  - JP2 EXIF uses the JP2/JPX Exif box payload shape with the required
-    big-endian TIFF-offset prefix before the embedded `Exif\0\0` bytes
-  - JP2 XMP uses the standard top-level `xml ` box
-  - JP2 ICC uses a bounded `jp2h` path carrying one `colr` ICC child box
-  - IPTC requested for JP2 is projected into the same `xml ` XMP carrier;
-    OpenMeta does not add a raw IPTC-IIM JP2 carrier
-  - `compile_prepared_bundle_jp2(...)`,
-    `emit_prepared_bundle_jp2(...)`,
-    `emit_prepared_bundle_jp2_compiled(...)`, and
-    `emit_prepared_transfer_compiled(..., Jp2TransferEmitter&)`
-    now provide the same reusable emit shape as JPEG/TIFF/JXL/WebP/PNG
-  - `build_prepared_transfer_emit_package(...)` plus
-    `write_prepared_transfer_package(...)` can serialize direct JP2 box bytes
-    from prepared bundles, and the owned package batch path can persist or
-    replay those bytes without retaining the original bundle
-  - read-backed roundtrip is covered through the native JP2 EXIF/XMP path
-  - JP2 is still emit/package only today; there is no JP2 file rewrite/edit
-    path yet
-- ISO-BMFF metadata-item transfer now has a first bounded target-family path:
-  - prepare builds `bmff:item-exif`, `bmff:item-xmp`, bounded
-    `bmff:item-jumb`, bounded `bmff:item-c2pa`, and
-    `bmff:property-colr-icc` payloads for
-    `TransferTargetFormat::{Heif,Avif,Cr3}`
-  - EXIF item payloads use the BMFF Exif item shape with the 4-byte
-    big-endian TIFF-offset prefix plus full `Exif\0\0` bytes
-  - IPTC requested for BMFF is projected into `bmff:item-xmp`; OpenMeta does
-    not add a raw IPTC-IIM BMFF carrier
-  - ICC requested for BMFF uses a bounded property path:
-    `bmff:property-colr-icc` carries `u32be('prof') + <icc-profile>` as the
-    payload bytes for a `colr` property
-  - file-based prepare can preserve source generic JUMBF payloads and raw
-    OpenMeta draft C2PA invalidation payloads as BMFF metadata items
-  - store-only prepare can project decoded non-C2PA `JumbfCborKey` roots into
-    `bmff:item-jumb` when no raw source payload is available
-  - `compile_prepared_bundle_bmff(...)`,
-    `emit_prepared_bundle_bmff(...)`,
-    `emit_prepared_bundle_bmff_compiled(...)`, and
-    `emit_prepared_transfer_compiled(..., BmffTransferEmitter&)` now provide
-    the reusable metadata-item/property emitter path
-  - the shared package-batch persistence/replay layer can own and hand off
-    those stable BMFF item and property payload bytes
-  - OpenMeta now has a bounded append-style BMFF edit path:
-    existing top-level BMFF boxes are preserved, prior OpenMeta-authored
-    metadata-only `meta` boxes are stripped, and one new OpenMeta-authored
-    metadata-only `meta` box is appended with the prepared BMFF items and
-    properties
-  - CLI/Python `metatransfer` wrappers now expose both BMFF summary and
-    bounded edit paths; `--target-heif`, `--target-avif`, and `--target-cr3`
-    support `--source-meta ... --output ...` against an existing BMFF target
-    file
-  - the same bounded BMFF edit contract now also participates in the core /
-    file-helper C2PA signer path:
-    sign-request derivation, binding-byte materialization, signed-payload
-    validation, and staged `bmff:item-c2pa` apply are available for BMFF
-    targets before bounded metadata-only edit
-  - thin CLI/Python signer-input wrappers now cover JPEG, JXL, and bounded
-    BMFF targets; the option name `--jpeg-c2pa-signed` stays as the
-    compatibility surface
-- Transfer policy contract is now explicit in the public API:
-  - `TransferProfile::{makernote,jumbf,c2pa}` use `TransferPolicyAction`
-  - `PreparedTransferBundle::policy_decisions` records resolved prepare-time
-    decisions and reasons
-  - `metatransfer` / `openmeta.transfer_probe(...)` can now accept explicit
-    `keep|drop|invalidate|rewrite` policy selections for MakerNote/JUMBF/C2PA
-    and report the resolved decisions back to the caller
-  - C2PA decisions now carry an explicit structured contract:
-    - `TransferC2paMode`
-    - `TransferC2paSourceKind`
-    - `TransferC2paPreparedOutput`
-  - `PreparedTransferBundle::c2pa_rewrite` now carries the separate
-    future-signing contract for `c2pa=rewrite`:
-    - `TransferC2paRewriteState`
-    - source kind
-    - matched decoded-entry count
-    - existing carrier segment count
-    - signer prerequisites
-    - `content_binding_chunks` for the rewrite-without-C2PA byte stream:
-      preserved source ranges plus prepared JPEG segments for JPEG, or
-      preserved source ranges plus one prepared metadata-only `meta` box for
-      the bounded BMFF edit path
-  - MakerNote `Drop` is active in the EXIF prepare path
-  - File-based JPEG prepare can now preserve source JUMBF payloads by repacking
-    them into APP11 segments
-  - Store-only JPEG prepare can now project decoded non-C2PA
-    `JumbfCborKey` roots into generic APP11 JUMBF payloads
-  - `append_prepared_bundle_jpeg_jumbf(...)` now provides the first explicit
-    public raw JUMBF -> JPEG APP11 serializer path for prepared bundles
-  - `c2pa=invalidate` for JPEG targets now emits a draft unsigned APP11 C2PA
-    invalidation payload instead of drop-only behavior
-  - The generated draft invalidation payload now carries an OpenMeta contract
-    marker and contract version
-  - File-based JPEG prepare can preserve an existing OpenMeta draft unsigned
-    invalidation payload as raw APP11 C2PA
-  - `c2pa=rewrite` now resolves to `Drop` with explicit
-    `SignedRewriteUnavailable`
-  - File-based JPEG prepare now records rewrite prerequisites even when
-    signed rewrite is unavailable, so a future signer can consume the same
-    prepared contract without another API change
-  - The JPEG rewrite prep path now emits deterministic content-binding chunks
-    as preserved source ranges plus prepared JPEG segments
-  - `build_prepared_c2pa_sign_request(...)` now derives the explicit external
-    signer request from those rewrite chunks without another bundle-level API
-    addition
-  - `build_prepared_c2pa_sign_request_binding(...)` now materializes the exact
-    content-binding bytes for that request from preserved source ranges plus
-    prepared JPEG segments on JPEG, or preserved source ranges plus one
-    prepared metadata-only `meta` box on the bounded BMFF path
-  - Thin wrappers now expose that byte stream directly:
-    `metatransfer --dump-c2pa-binding` and Python
-    `unsafe_transfer_probe(include_c2pa_binding_bytes=True)` for JPEG and
-    bounded BMFF targets
-  - `build_prepared_c2pa_handoff_package(...)` now bundles the external signer
-    request and exact binding bytes into one public handoff object
-  - `serialize_prepared_c2pa_handoff_package(...)` and
-    `deserialize_prepared_c2pa_handoff_package(...)` now persist that handoff
-    object
-  - `build_prepared_c2pa_signed_package(...)` now bundles the external signer
-    request and returned signer material into one persisted signed package
-  - `serialize_prepared_c2pa_signed_package(...)` and
-    `deserialize_prepared_c2pa_signed_package(...)` now persist that signed
-    package
-  - Python thin wrappers now expose the same persisted package flow:
-    `openmeta.unsafe_transfer_probe(include_c2pa_handoff_bytes=True)`,
-    `openmeta.unsafe_transfer_probe(include_c2pa_signed_package_bytes=True)`,
-    and `openmeta.python.metatransfer --dump-c2pa-handoff /
-    --dump-c2pa-signed-package / --load-c2pa-signed-package`
-  - Signed C2PA staging now requires both:
-    - structural carrier validity
-    - semantic manifest/claim/signature consistency from decoded
-      `c2pa.semantic.*` fields before JPEG APP11 staging succeeds
-    - request-aware manifest count / `claim_generator` checks before the
-      returned payload can drift away from the prepared sign request
-    - at least one decoded assertion when the prepared request requires
-      content binding
-    - the primary signature linking back to the prepared primary claim under
-      that same content-binding contract
-    - rejection of primary-signature explicit references that resolve to
-      multiple claims under the prepared sign request
-    - rejection of multi-signature drift where the prepared primary claim is
-      referenced by more than one signature under the current sign request
-    - rejection of extra linked signatures beyond the prepared sign request,
-      even when the primary claim/signature pair still looks valid
-    - manifest/claim/signature projection shape checks under the prepared
-      manifest contract
-    - exact primary manifest-CBOR equality against the external signer’s
-      `manifest_builder_output`
-  - `validate_prepared_c2pa_sign_result(...)` now validates a returned signed
-    logical C2PA payload before bundle mutation and reports staged carrier
-    bytes and segment count
-  - JPEG signed-payload validation now also checks APP11 sequence order,
-    repeated-header consistency, root-type validity, BMFF declared-size
-    consistency, and exact logical-payload reconstruction before final
-    emit/write
-  - Final JPEG emit/write now also validates prepared APP11 C2PA carriers
-    against the resolved bundle contract:
-    - required carriers may not be missing
-    - draft invalidation output may not carry a content-bound signed-rewrite
-      payload
-    - signed rewrite output may not carry a draft invalidation payload
-    - `TransferC2paRewriteState::Ready` may not appear without
-      `TransferC2paPreparedOutput::SignedRewrite`
-  - `apply_prepared_c2pa_sign_result(...)` now stages externally signed
-    content-bound logical C2PA payloads back into prepared JPEG APP11 blocks
-    or bounded BMFF `bmff:item-c2pa` items after strict request/material
-    validation
-  - `execute_prepared_transfer_file(...)` can now carry optional signer
-    material, validate signed C2PA output, stage it, and continue through
-    normal JPEG emit/edit, bounded JXL edit, or bounded BMFF edit execution
-    in the same high-level flow
-  - thin CLI/Python signer-input wrappers now cover JPEG, JXL, and bounded
-    BMFF targets
-  - JPEG edit/rewrite now treats existing APP11 JUMBF/C2PA as managed routes:
-    content-changing edits drop stale C2PA, and explicit JUMBF `Drop` removes
-    existing APP11 JUMBF segments
-  - JPEG edit plans now report how many existing managed APP11 segments will be
-    removed, including separate counts for JUMBF and C2PA
-  - OpenMeta still does not sign or re-sign internally; external signer output
-    can now be staged back into the prepared bundle contract
+| Target | Status | Current shape | Main limits |
+| --- | --- | --- | --- |
+| JPEG | First-class | Prepared bundle, compiled emit, byte-writer emit, edit planning/apply, file helper, bounded JUMBF/C2PA staging | Not a full arbitrary metadata editor yet |
+| TIFF | First-class | Prepared bundle, compiled emit, edit planning/apply, file helper, streaming edit path | Broader TIFF/DNG rewrite coverage is still narrower than JPEG |
+| PNG | Bounded but real | Prepared bundle, compiled emit, bounded chunk rewrite/edit, file-helper roundtrip | Not a general PNG chunk editor |
+| WebP | Bounded but real | Prepared bundle, compiled emit, bounded chunk rewrite/edit, file-helper roundtrip | Not a general WebP chunk editor |
+| JP2 | Bounded but real | Prepared bundle, compiled emit, bounded box rewrite/edit, file-helper roundtrip | `jp2h` synthesis is still out of scope |
+| JXL | Bounded but real | Prepared bundle, compiled emit, bounded box rewrite/edit, file-helper roundtrip | Still narrower than JPEG/TIFF |
+| HEIF / AVIF / CR3 | Bounded but real | Prepared bundle, compiled emit, bounded BMFF item/property edit, file-helper roundtrip | Not broad BMFF writer parity |
+| EXR | Bridge-only today | EXR-native attribute export and replay for host integrations | No first-class transfer target path yet |
 
-## Main Blockers For Transfer
+## What Is Already Implemented
 
-1. No general target-agnostic streaming/container-packaging API yet beyond the
-   current JPEG/TIFF final-output package plan.
-   Metadata-only TIFF byte-writer emit and broader target families are still
-   missing.
-2. C2PA still has no real preserve/re-sign path; JPEG now has a draft
-   invalidation payload path, but full signed-manifest rewrite/re-sign is still
-   missing.
-3. JUMBF transfer now has three draft paths for JPEG:
-   file-based APP11 preserve, explicit raw logical append, and a bounded
-   `MetaStore` projection path from decoded non-C2PA CBOR roots. General
-   target-agnostic JUMBF serialization is still incomplete.
-4. No deterministic conflict/precedence contract yet for EXIF/IPTC/XMP
-   remap in slow-path transfer mode.
-5. Host-facing write bridging has started:
-   - `emit_prepared_transfer_adapter_view(...)` replays compiled transfer ops
-     into one generic host sink.
-   - `collect_oiio_transfer_payload_views(...)` is the first thin bridge on
-     top of that surface for OIIO/plugin write integrations.
-   - `build_oiio_transfer_payload_batch(...)` is the first owned batch form of
-     that bridge for caching or cross-layer handoff.
-   - `build_exr_attribute_batch(...)`,
-     `build_exr_attribute_part_spans(...)`,
-     `build_exr_attribute_part_views(...)`, and
-     `replay_exr_attribute_batch(...)` are the EXR-native attribute bridge for
-     OpenEXR/OIIO header workflows, intentionally outside the block-transfer
-     core.
-   - broader host-specific persistence or replay formats remain follow-up
-     work.
+### Core API
 
-## Runtime Model
+The shared transfer core already provides:
+- `prepare_metadata_for_target(...)`
+- `prepare_metadata_for_target_file(...)`
+- `compile_prepared_transfer_execution(...)`
+- `execute_prepared_transfer(...)`
+- `execute_prepared_transfer_compiled(...)`
+- `execute_prepared_transfer_file(...)`
 
-Two paths:
+This supports both:
+- `prepare -> compile -> emit`
+- `prepare -> compile -> patch -> emit/edit`
 
-1. Fast path (default)
-- No semantic remap.
-- No full EXIF rebuild per frame.
-- Reuse prebuilt target-ready blocks.
+### Core Utility Layers
 
-2. Slow path (explicit)
-- Full normalize/remap/re-encode when requested.
+These support the public transfer flow:
+- `TransferByteWriter`
+- `SpanTransferByteWriter`
+- prepared payload and package batch persistence
+- adapter views for host integrations
+- explicit time-patch support for fixed-width EXIF date/time fields
+- transfer-policy decisions for MakerNote, JUMBF, and C2PA
 
-## Proposed API Direction (Draft)
+### Current File-Helper Regression Coverage
 
-- `prepare_metadata_for_target(source_store, target_format, profile)`
-  - Output: immutable `PreparedTransferBundle` + diagnostics.
-- `compile_prepared_transfer_execution(bundle, emit_options, out_plan)`
-  - Compiles target-specific route mapping once and stores emit policy in a
-    reusable execution plan.
-- `build_prepared_transfer_adapter_view(bundle, out_view, emit_options)`
-  - Flattens the same compiled route mapping into one target-neutral adapter
-    operation list for JPEG/TIFF/JXL host integrations.
-- `emit_prepared_transfer_adapter_view(bundle, view, sink)`
-  - Replays that compiled adapter view into one generic host sink without
-    route parsing.
-- `collect_oiio_transfer_payload_views(bundle, out_views, emit_options)`
-  - First thin host-facing bridge above the adapter view:
-    zero-copy OIIO/plugin payload list with semantic block kinds plus the
-    compiled per-target transfer op metadata.
-- `build_oiio_transfer_payload_batch(bundle, out_batch, emit_options)`
-  - Owned form of the same OIIO/plugin payload contract for caching or
-    cross-layer handoff without keeping the prepared bundle alive.
-- `serialize_prepared_transfer_payload_batch(batch, out_bytes)` /
-  `deserialize_prepared_transfer_payload_batch(bytes, out_batch)`
-  - Persist and reload that earlier semantic payload stage directly.
-- `replay_prepared_transfer_payload_batch(batch, callbacks)`
-- `collect_oiio_transfer_payload_views(batch, out_views)`
-- `replay_oiio_transfer_payload_batch(batch, callbacks)`
-  - Reuse the same persisted semantic payload contract through
-    target-neutral or OIIO-facing replay/view helpers.
-- `build_exr_attribute_batch(store, out_batch, options)`
-- `build_exr_attribute_part_spans(batch, out_spans)`
-- `build_exr_attribute_part_views(batch, out_views)`
-- `replay_exr_attribute_batch(batch, callbacks)`
-  - Store-based EXR-native attribute bridge:
-    exports owned `(part_index, name, type_name, value_bytes)` records for
-    OpenEXR/OIIO header integrations.
-  - Known EXR scalar/vector types are re-encoded deterministically.
-  - Unknown/custom attrs can remain opaque when `wire_type_name` is available.
-- `apply_time_patches_view(bundle, patch_views, time_patch_options)`
-  - Applies non-owning fixed-width patch views without owned patch buffers.
-- `execute_prepared_transfer(bundle, edit_target?, options)`
-  - Applies optional frame patch data.
-  - Compiles and runs the shared core execution path in one call.
-  - Can stream JPEG metadata emit bytes and JPEG/TIFF edited output through a
-    `TransferByteWriter` sink.
-- `execute_prepared_transfer_compiled(bundle, plan, edit_target?, options)`
-  - Reuses a precompiled execution plan for repeated emit/edit work.
-- `write_prepared_transfer_compiled(bundle, plan, writer, patch_views, ...)`
-  - Narrow hot-path helper for `prepare once -> compile once -> patch -> write`.
-  - `SpanTransferByteWriter` provides the preallocated fixed-buffer adapter for
-    encoder integration without a custom writer subclass, with deterministic
-    overflow rejection before JPEG emit writes begin.
-- `build_prepared_bundle_jpeg_package(input, bundle, jpeg_plan, out_plan)`
-- `build_prepared_bundle_tiff_package(input, bundle, tiff_plan, out_plan)`
-- `build_prepared_transfer_emit_package(bundle, out_plan, emit_options)`
-- `write_prepared_transfer_package(input, bundle, package_plan, writer)`
-  - Shared final-output package contract for current JPEG/TIFF rewrite paths
-    plus direct JPEG/JXL emit packaging.
-  - Exposes deterministic source ranges, prepared direct blocks, prepared JPEG
-    segments, and inline generated bytes through one public chunk plan.
-- `emit_prepared_transfer_compiled(bundle, plan, backend, patch_views, ...)`
-  - Direct backend-emitter hot path for JPEG/TIFF integrations.
-  - TIFF intentionally uses this backend path or rewrite/edit, not a
-    metadata-only byte-writer emit API.
-- `execute_prepared_transfer_file(source_path, options)`
-  - Thin-wrapper entry point for CLI/Python.
+OpenMeta now has explicit end-to-end read-backed transfer tests for:
+- source JPEG -> JPEG edit/apply -> read-back
+- source JPEG -> TIFF edit/apply -> read-back
+- source JPEG -> PNG edit/apply -> read-back
+- source JPEG -> WebP edit/apply -> read-back
+- source JPEG -> JP2 edit/apply -> read-back
+- source JPEG -> JXL edit/apply -> read-back
+- source JPEG -> HEIF edit/apply -> read-back
+- source JPEG -> AVIF edit/apply -> read-back
+- source JPEG -> CR3 edit/apply -> read-back
 
-Bundle contents (conceptual):
-- Target-ready EXIF payload.
-- Target-ready XMP packet(s).
-- Target-ready ICC/IPTC/IRB payload(s).
-- Optional JUMBF/C2PA payload(s) according to policy.
-- `TimePatchMap` (offsets and expected lengths for patchable fields).
+That does not make all targets equally mature, but it does mean the transfer
+core has real roundtrip regression gates across the primary supported export
+families.
 
-## V1 Scope (No-Edits)
+## Per-Target Notes
 
-For TIFF/JPEG targets:
+### JPEG
 
-- EXIF: reserialize for target container, rebuild offsets, preserve known-safe tags.
-- XMP: preserve packet, repackage for target container limits.
-- ICC: preserve payload, repackage for target container limits.
-- IPTC/IRB: preserve payload, repackage where target supports it.
-- MakerNote: preserve raw bytes by default; explicit drop policy is active in
-  the current prepare path.
-- JUMBF: file-based JPEG transfer can preserve raw source payloads by
-  repacking them into APP11 segments, and JPEG rewrite/edit removes existing
-  APP11 JUMBF segments when the resolved policy is `Drop`.
-- C2PA: `Invalidate` on JPEG now emits a draft unsigned APP11 C2PA
-  invalidation payload, and JPEG content-changing rewrite/edit removes
-  existing APP11 C2PA from the target before inserting the new prepared
-  payload. Preserve/re-sign and signed rewrite remain future work.
+Strongest current target.
 
-## Time Patch Plan (V1)
+Implemented:
+- EXIF as APP1
+- XMP as APP1
+- ICC as APP2
+- IPTC as APP13
+- edit planning and apply
+- byte-writer emit
+- bounded JUMBF/C2PA staging
 
-Support per-frame capture time injection without full EXIF rebuild.
+### TIFF
 
-Approach:
-- Build EXIF template once with fixed-width slots.
-- Record patch offsets in `TimePatchMap`.
-- Patch only specific bytes per frame.
+Also a first-class target.
 
-Patchable EXIF fields:
-- `DateTime` (`0x0132`) as `YYYY:MM:DD HH:MM:SS\0` (fixed 20 bytes).
-- `DateTimeOriginal` (`0x9003`) fixed 20 bytes.
-- `DateTimeDigitized` (`0x9004`) fixed 20 bytes.
-- `SubSecTime` (`0x9290`), `SubSecTimeOriginal` (`0x9291`),
-  `SubSecTimeDigitized` (`0x9292`) for milliseconds (for example `"123"`).
-- `OffsetTime` (`0x9010`), `OffsetTimeOriginal` (`0x9011`),
-  `OffsetTimeDigitized` (`0x9012`) as `+HH:MM`/`-HH:MM` (fixed 7 bytes including NUL).
-- Optional UTC pair:
-  - `GPSDateStamp` (`YYYY:MM:DD\0`)
-  - `GPSTimeStamp` (RATIONAL triplet: h/m/s with fixed denominator policy).
+Implemented:
+- EXIF, XMP, ICC, and IPTC transfer
+- edit planning and apply
+- file-based helper flow
+- streaming edit output
 
-Important:
-- Milliseconds are stored in `SubSecTime*`, not in `DateTime*`.
-- Patch path must validate expected slot size before write.
-- If a required slot is absent, emit diagnostic and follow profile behavior
-  (`warn`, `fail`, or `skip`).
+### PNG
 
-## Proposed Implementation Plan
+Implemented as a bounded chunk target:
+- `eXIf`
+- XMP `iTXt`
+- `iCCP`
+- bounded rewrite/edit for managed metadata chunks
 
-1. Contract and policy layer
-- Keep `TransferProfile` action-based and extend it only when new target
-  serializers can honor a policy directly.
-- Define deterministic precedence and conflict behavior for overlapping
-  families (`JUMBF` vs `C2PA`, carrier-disabled EXIF, content-changing edits).
+### WebP
 
-2. Block preparation API
-- Add target-agnostic API:
-  - `prepare_metadata_for_target(source, target_format, profile)`.
-- Output prepared container-ready block payloads plus diagnostics.
+Implemented as a bounded RIFF metadata target:
+- `EXIF`
+- `XMP `
+- `ICCP`
+- bounded `C2PA`
+- bounded rewrite/edit for managed metadata chunks
 
-3. EXIF serializers (first hard dependency)
-- Implement EXIF->JPEG APP1 serializer.
-- Implement EXIF->TIFF serializer.
-- Add strict tag filtering for target-layout-only pointers/offset tags.
+### JP2
 
-4. XMP/ICC/IPTC packagers
-- Add JPEG chunking/splitting rules.
-- Add TIFF tag payload packagers.
+Implemented as a bounded box target:
+- `Exif`
+- `xml `
+- bounded `jp2h` / `colr`
+- bounded rewrite/edit for top-level managed metadata
+- replacement of managed `colr` in an existing `jp2h`
 
-5. Writer adapters
-- Generic host sink for compiled transfer adapter views.
-- OIIO zero-copy transfer payload bridge.
-- OIIO owned transfer payload batch.
-- JPEG writer adapter (inject prepared APP blocks).
-- TIFF writer adapter (set prepared metadata payloads).
+### JXL
 
-6. Transfer gates
-- Add corpus gates: source -> transfer -> target -> compare.
-- Validate block presence, critical tag value parity, and no malformed outputs.
+Implemented as a bounded box target:
+- `Exif`
+- `xml `
+- bounded `jumb`
+- bounded `c2pa`
+- encoder ICC handoff
+- bounded box-based edit path
 
-7. Time patch implementation and gates
-- Implement `TimePatchMap` generation during EXIF prepare.
-- Add `apply_time_patch(bundle_mutable_view, capture_time)` API.
-- Add tests for:
-  - fixed-width patch safety,
-  - timezone and subsec formatting,
-  - GPS timestamp optional mode,
-  - multi-thread parallel patch usage with per-thread buffers.
+### HEIF / AVIF / CR3
 
-## Concurrency Model
+Implemented as a bounded BMFF target family:
+- `bmff:item-exif`
+- `bmff:item-xmp`
+- bounded `bmff:item-jumb`
+- bounded `bmff:item-c2pa`
+- bounded `bmff:property-colr-icc`
+- bounded metadata-only `meta` rewrite path
 
-- `PreparedTransferBundle` is immutable and shared across threads.
-- Per-thread mutable emit buffer/view is used for patching and write call
-  integration.
-- No global locks in fast path.
-- No structural reallocations in emit path.
+### EXR
 
-## Success Criteria (V1)
+Implemented today as an integration bridge, not a first-class transfer target:
+- `build_exr_attribute_batch(...)`
+- `build_exr_attribute_part_spans(...)`
+- `build_exr_attribute_part_views(...)`
+- `replay_exr_attribute_batch(...)`
 
-Functional:
-- Source metadata transfers to TIFF/JPEG with expected block presence.
-- EXIF core time fields can be patched per frame.
-- Safety checks reject malformed patch operations.
+This is useful for OpenEXR / OIIO-style hosts, but it is not yet a true
+`prepare -> compile -> emit/edit` path in the same sense as JPEG or TIFF.
 
-Performance:
-- Prepare cost amortized over many frames.
-- Per-frame metadata path is constant-time relative to metadata size class
-  (bounded patch + write call overhead).
-- Meets pipeline target where metadata path is a small fraction of frame budget.
+## Transfer Policies
 
-## Postponed Tasks (Explicit)
+The public transfer contract already models three policy subjects:
+- MakerNote
+- JUMBF
+- C2PA
 
-Not required for V1 no-edits transfer:
+Each uses explicit `TransferPolicyAction` values:
+- `Keep`
+- `Drop`
+- `Invalidate`
+- `Rewrite`
 
-- Full C2PA conformance verification.
-- Advanced ICC interpretation parity.
-- Advanced CCM normalization/validation parity.
-- Full EXIF/IPTC/XMP sync engine and merge heuristics.
-- Fuzzy metadata search/query UX.
+Prepared bundles also record the resolved policy decisions and reasons so
+callers do not have to infer behavior from warning text alone.
 
-## Discussion Items
+## Time Patch Plan
 
-1. When content changes, should C2PA default to explicit invalidate or always drop?
-2. What target families should gain first-class JUMBF/C2PA serializers first
-   (JPEG APP11, JXL boxes, BMFF)?
-3. Strictness profile defaults for transfer diagnostics: warning vs hard-fail.
-4. How much of transfer-policy diagnostics should be surfaced directly in
-   CLI/Python thin wrappers.
+Time patching is intentionally narrow and fixed-width.
+
+Current model:
+- build EXIF payloads once
+- record patch slots in the bundle
+- patch only the affected bytes during execution
+
+Primary fields:
+- `DateTime`
+- `DateTimeOriginal`
+- `DateTimeDigitized`
+- `SubSecTime*`
+- `OffsetTime*`
+
+This is meant for fast repeated transfer, not general metadata editing.
+
+## Main Blockers
+
+### 1. General edit UX
+
+OpenMeta still does not present one fully mature, general-purpose metadata
+editor across all formats. The current transfer core is real, but still more
+bounded than ExifTool or Exiv2.
+
+### 2. EXIF / IPTC / XMP sync policy
+
+This remains one of the biggest product gaps for writer adoption.
+
+Missing pieces include:
+- conflict resolution rules
+- sidecar vs embedded policy
+- canonical writeback policy
+- broader namespace reconciliation behavior
+
+### 3. MakerNote-safe rewrite expectations
+
+Read parity is strong, but broad rewrite guarantees for vendor metadata are not
+yet at the level of mature editing tools.
+
+### 4. EXR direction
+
+The architectural question is now explicit:
+- keep EXR as an attribute bridge only, or
+- promote it to a first-class transfer target
+
+## Recommended Next Priorities
+
+1. Keep transfer ahead of further read-breadth work.
+2. Stabilize the current target family:
+   - JPEG
+   - TIFF
+   - PNG
+   - WebP
+   - JP2
+   - JXL
+   - bounded BMFF
+3. Decide the EXR direction explicitly.
+4. Add more transfer-focused roundtrip and compare gates where they improve
+   confidence for adopters.
+5. Add an explicit EXIF / IPTC / XMP sync policy.
+
+## Postponed Work
+
+Still out of scope for the current milestone:
+- full arbitrary metadata editing parity
+- full C2PA signed rewrite / trust-policy parity
+- full EXIF / IPTC / XMP sync engine
+- broad TIFF/DNG and BMFF rewrite parity beyond the bounded current targets
+
+## Practical Summary
+
+OpenMeta is no longer blocked by read-path quality for adoption-oriented
+transfer work.
+
+The main opportunity now is to make the current bounded transfer core easier
+to use and easier to trust across the primary export targets, instead of
+continuing to expand read-only surface area first.
