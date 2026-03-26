@@ -2025,6 +2025,146 @@ TEST(XmpDump, PortableIptcDoesNotOverrideExistingXmpWhenIncluded)
               std::string_view::npos);
 }
 
+TEST(XmpDump, PortableExistingXmpCanOverrideExifProjection)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, kInvalidBlockId);
+
+    Entry exif_make;
+    exif_make.key = make_exif_tag_key(store.arena(), "ifd0", 0x010FU);
+    exif_make.value
+        = make_text(store.arena(), "Canon", TextEncoding::Ascii);
+    exif_make.origin.block          = block;
+    exif_make.origin.order_in_block = 0;
+    (void)store.add_entry(exif_make);
+
+    Entry xmp_make;
+    xmp_make.key = make_xmp_property_key(store.arena(),
+                                         "http://ns.adobe.com/tiff/1.0/",
+                                         "Make");
+    xmp_make.value = make_text(store.arena(), "Nikon", TextEncoding::Utf8);
+    xmp_make.origin.block          = block;
+    xmp_make.origin.order_in_block = 1;
+    (void)store.add_entry(xmp_make);
+
+    store.finalize();
+
+    XmpPortableOptions opts;
+    opts.include_exif         = true;
+    opts.include_existing_xmp = true;
+    opts.conflict_policy      = XmpConflictPolicy::ExistingWins;
+
+    std::vector<std::byte> out(4096);
+    const XmpDumpResult r
+        = dump_xmp_portable(store, std::span<std::byte>(out.data(), out.size()),
+                            opts);
+    ASSERT_EQ(r.status, XmpDumpStatus::Ok);
+
+    const std::string_view s(reinterpret_cast<const char*>(out.data()),
+                             static_cast<size_t>(r.written));
+    EXPECT_NE(s.find("<tiff:Make>Nikon</tiff:Make>"), std::string_view::npos);
+    EXPECT_EQ(s.find("<tiff:Make>Canon</tiff:Make>"), std::string_view::npos);
+}
+
+TEST(XmpDump, PortableGeneratedIptcCanOverrideExistingXmp)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, kInvalidBlockId);
+
+    const std::string caption = "From IPTC";
+    Entry caption_abstract;
+    caption_abstract.key = make_iptc_dataset_key(2U, 120U);
+    caption_abstract.value
+        = make_bytes(store.arena(),
+                     std::span<const std::byte>(
+                         reinterpret_cast<const std::byte*>(caption.data()),
+                         caption.size()));
+    caption_abstract.origin.block          = block;
+    caption_abstract.origin.order_in_block = 0;
+    (void)store.add_entry(caption_abstract);
+
+    Entry xmp_description;
+    xmp_description.key = make_xmp_property_key(
+        store.arena(), "http://purl.org/dc/elements/1.1/", "description");
+    xmp_description.value = make_text(store.arena(), "From XMP",
+                                      TextEncoding::Utf8);
+    xmp_description.origin.block          = block;
+    xmp_description.origin.order_in_block = 1;
+    (void)store.add_entry(xmp_description);
+
+    store.finalize();
+
+    XmpPortableOptions opts;
+    opts.include_exif         = false;
+    opts.include_iptc         = true;
+    opts.include_existing_xmp = true;
+    opts.conflict_policy      = XmpConflictPolicy::GeneratedWins;
+
+    std::vector<std::byte> out(4096);
+    const XmpDumpResult r
+        = dump_xmp_portable(store, std::span<std::byte>(out.data(), out.size()),
+                            opts);
+    ASSERT_EQ(r.status, XmpDumpStatus::Ok);
+
+    const std::string_view s(reinterpret_cast<const char*>(out.data()),
+                             static_cast<size_t>(r.written));
+    EXPECT_NE(s.find("<dc:description>From IPTC</dc:description>"),
+              std::string_view::npos);
+    EXPECT_EQ(s.find("<dc:description>From XMP</dc:description>"),
+              std::string_view::npos);
+}
+
+TEST(XmpDump, PortableGeneratedIptcCanOverrideExistingIndexedXmp)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, kInvalidBlockId);
+
+    const std::string keyword = "iptc-keyword";
+    Entry iptc_keyword;
+    iptc_keyword.key = make_iptc_dataset_key(2U, 25U);
+    iptc_keyword.value
+        = make_bytes(store.arena(),
+                     std::span<const std::byte>(
+                         reinterpret_cast<const std::byte*>(keyword.data()),
+                         keyword.size()));
+    iptc_keyword.origin.block          = block;
+    iptc_keyword.origin.order_in_block = 0;
+    (void)store.add_entry(iptc_keyword);
+
+    Entry xmp_subject;
+    xmp_subject.key = make_xmp_property_key(
+        store.arena(), "http://purl.org/dc/elements/1.1/", "subject[1]");
+    xmp_subject.value = make_text(store.arena(), "xmp-keyword",
+                                  TextEncoding::Utf8);
+    xmp_subject.origin.block          = block;
+    xmp_subject.origin.order_in_block = 1;
+    (void)store.add_entry(xmp_subject);
+
+    store.finalize();
+
+    XmpPortableOptions opts;
+    opts.include_exif         = false;
+    opts.include_iptc         = true;
+    opts.include_existing_xmp = true;
+    opts.conflict_policy      = XmpConflictPolicy::GeneratedWins;
+
+    std::vector<std::byte> out(4096);
+    const XmpDumpResult r
+        = dump_xmp_portable(store, std::span<std::byte>(out.data(), out.size()),
+                            opts);
+    ASSERT_EQ(r.status, XmpDumpStatus::Ok);
+
+    const std::string_view s(reinterpret_cast<const char*>(out.data()),
+                             static_cast<size_t>(r.written));
+    EXPECT_NE(s.find("<dc:subject>"), std::string_view::npos);
+    EXPECT_NE(s.find("<rdf:li>iptc-keyword</rdf:li>"),
+              std::string_view::npos);
+    EXPECT_EQ(s.find("<rdf:li>xmp-keyword</rdf:li>"), std::string_view::npos);
+}
+
 TEST(XmpDump, PortableMapsIptcToPhotoshopAndIptcCoreProperties)
 {
     MetaStore store;

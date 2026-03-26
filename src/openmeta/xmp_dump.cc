@@ -16,6 +16,7 @@
 #include <functional>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -3139,26 +3140,43 @@ namespace {
         }
     };
 
-    using PortablePropertyKeySet
-        = std::unordered_set<PortablePropertyKey, PortablePropertyKeyHash,
-                             PortablePropertyKeyEq>;
+    enum class PortablePropertyOwner : uint8_t {
+        Exif,
+        ExistingXmp,
+        Iptc,
+    };
 
-    static bool add_portable_property_key(PortablePropertyKeySet* keys,
-                                          std::string_view prefix,
-                                          std::string_view name) noexcept
+    using PortablePropertyOwnerMap
+        = std::unordered_map<PortablePropertyKey, PortablePropertyOwner,
+                             PortablePropertyKeyHash, PortablePropertyKeyEq>;
+
+    static bool claim_portable_property_key(
+        PortablePropertyOwnerMap* claims, std::string_view prefix,
+        std::string_view name, PortablePropertyOwner owner,
+        bool* out_new_claim) noexcept
     {
-        if (!keys || prefix.empty() || name.empty()) {
+        if (!claims || prefix.empty() || name.empty() || !out_new_claim) {
             return false;
         }
-        return keys->insert(PortablePropertyKey { prefix, name }).second;
+
+        *out_new_claim = false;
+        const PortablePropertyKey key { prefix, name };
+        const PortablePropertyOwnerMap::const_iterator it = claims->find(key);
+        if (it == claims->end()) {
+            (*claims)[key] = owner;
+            *out_new_claim = true;
+            return true;
+        }
+
+        return it->second == owner;
     }
 
     static bool process_portable_existing_xmp_entry(
         const ByteArena& arena, const Entry& e, uint32_t order, SpanWriter* w,
-        PortablePropertyKeySet* emitted_keys,
+        PortablePropertyOwnerMap* claims,
         std::vector<PortableIndexedProperty>* indexed) noexcept
     {
-        if (!w || !emitted_keys || !indexed
+        if (!w || !claims || !indexed
             || e.key.kind != MetaKeyKind::XmpProperty) {
             return false;
         }
@@ -3179,8 +3197,11 @@ namespace {
                 || xmp_property_is_nonportable_blob(prefix, portable_name)) {
                 return false;
             }
-            if (!add_portable_property_key(emitted_keys, prefix,
-                                           portable_name)) {
+            bool new_claim = false;
+            if (!claim_portable_property_key(claims, prefix, portable_name,
+                                             PortablePropertyOwner::ExistingXmp,
+                                             &new_claim)
+                || !new_claim) {
                 return false;
             }
             return emit_portable_property(w, prefix, portable_name, arena,
@@ -3200,6 +3221,13 @@ namespace {
             return false;
         }
 
+        bool new_claim = false;
+        if (!claim_portable_property_key(claims, prefix, portable_base,
+                                         PortablePropertyOwner::ExistingXmp,
+                                         &new_claim)) {
+            return false;
+        }
+
         PortableIndexedProperty item;
         item.prefix = prefix;
         item.base   = portable_base;
@@ -3214,9 +3242,9 @@ namespace {
     process_portable_exif_entry(const ByteArena& arena,
                                 std::span<const Entry> entries, const Entry& e,
                                 bool exiftool_gpsdatetime_alias, SpanWriter* w,
-                                PortablePropertyKeySet* emitted_keys) noexcept
+                                PortablePropertyOwnerMap* claims) noexcept
     {
-        if (!w || !emitted_keys || e.key.kind != MetaKeyKind::ExifTag) {
+        if (!w || !claims || e.key.kind != MetaKeyKind::ExifTag) {
             return false;
         }
 
@@ -3269,8 +3297,11 @@ namespace {
             return false;
         }
 
-        if (!add_portable_property_key(emitted_keys, prefix,
-                                       portable_tag_name)) {
+        bool new_claim = false;
+        if (!claim_portable_property_key(claims, prefix, portable_tag_name,
+                                         PortablePropertyOwner::Exif,
+                                         &new_claim)
+            || !new_claim) {
             return false;
         }
 
@@ -3391,10 +3422,10 @@ namespace {
 
     static bool process_portable_iptc_entry(
         const ByteArena& arena, const Entry& e, uint32_t order, SpanWriter* w,
-        PortablePropertyKeySet* emitted_keys,
+        PortablePropertyOwnerMap* claims,
         std::vector<PortableIndexedProperty>* indexed) noexcept
     {
-        if (!w || !emitted_keys || !indexed
+        if (!w || !claims || !indexed
             || e.key.kind != MetaKeyKind::IptcDataset) {
             return false;
         }
@@ -3412,6 +3443,12 @@ namespace {
         }
 
         if (indexed_property) {
+            bool new_claim = false;
+            if (!claim_portable_property_key(claims, prefix, name,
+                                             PortablePropertyOwner::Iptc,
+                                             &new_claim)) {
+                return false;
+            }
             PortableIndexedProperty item;
             item.prefix    = prefix;
             item.base      = name;
@@ -3423,7 +3460,11 @@ namespace {
             return false;
         }
 
-        if (!add_portable_property_key(emitted_keys, prefix, name)) {
+        bool new_claim = false;
+        if (!claim_portable_property_key(claims, prefix, name,
+                                         PortablePropertyOwner::Iptc,
+                                         &new_claim)
+            || !new_claim) {
             return false;
         }
 
@@ -3514,12 +3555,9 @@ namespace {
     static void
     emit_portable_indexed_groups(SpanWriter* w, const ByteArena& arena,
                                  std::vector<PortableIndexedProperty>* indexed,
-                                 PortablePropertyKeySet* emitted_keys,
-                                 uint32_t max_entries,
-                                 uint32_t* emitted) noexcept
+                                 uint32_t max_entries, uint32_t* emitted) noexcept
     {
-        if (!w || !indexed || !emitted_keys || !emitted || w->limit_hit
-            || indexed->empty()) {
+        if (!w || !indexed || !emitted || w->limit_hit || indexed->empty()) {
             return;
         }
 
@@ -3541,12 +3579,6 @@ namespace {
                 j += 1U;
             }
 
-            if (!add_portable_property_key(emitted_keys, (*indexed)[i].prefix,
-                                           (*indexed)[i].base)) {
-                i = j;
-                continue;
-            }
-
             if (emit_portable_indexed_property_group(
                     w, (*indexed)[i].prefix, (*indexed)[i].base, arena,
                     std::span<const PortableIndexedProperty>(indexed->data() + i,
@@ -3555,6 +3587,73 @@ namespace {
             }
 
             i = j;
+        }
+    }
+
+    enum class PortablePassKind : uint8_t {
+        ExistingXmp,
+        Exif,
+        Iptc,
+    };
+
+    static void emit_portable_pass(
+        PortablePassKind pass, const ByteArena& arena,
+        std::span<const Entry> entries, const XmpPortableOptions& options,
+        SpanWriter* w, PortablePropertyOwnerMap* claims,
+        std::vector<PortableIndexedProperty>* indexed, uint32_t* emitted,
+        uint32_t* iptc_order) noexcept
+    {
+        if (!w || !claims || !indexed || !emitted || !iptc_order
+            || w->limit_hit) {
+            return;
+        }
+
+        for (size_t i = 0; i < entries.size(); ++i) {
+            if (options.limits.max_entries != 0U
+                && *emitted >= options.limits.max_entries) {
+                w->limit_hit = true;
+                break;
+            }
+
+            const Entry& e = entries[i];
+            if (any(e.flags, EntryFlags::Deleted)) {
+                continue;
+            }
+
+            if (pass == PortablePassKind::Exif) {
+                if (!options.include_exif || e.key.kind != MetaKeyKind::ExifTag) {
+                    continue;
+                }
+                if (process_portable_exif_entry(
+                        arena, entries, e, options.exiftool_gpsdatetime_alias,
+                        w, claims)) {
+                    *emitted += 1U;
+                }
+                continue;
+            }
+
+            if (pass == PortablePassKind::ExistingXmp) {
+                if (!options.include_existing_xmp
+                    || e.key.kind != MetaKeyKind::XmpProperty) {
+                    continue;
+                }
+                if (process_portable_existing_xmp_entry(
+                        arena, e, static_cast<uint32_t>(i), w, claims,
+                        indexed)) {
+                    *emitted += 1U;
+                }
+                continue;
+            }
+
+            if (!options.include_iptc
+                || e.key.kind != MetaKeyKind::IptcDataset) {
+                continue;
+            }
+            if (process_portable_iptc_entry(arena, e, *iptc_order, w, claims,
+                                            indexed)) {
+                *emitted += 1U;
+            }
+            *iptc_order += 1U;
         }
     }
 
@@ -3584,90 +3683,36 @@ dump_xmp_portable(const MetaStore& store, std::span<std::byte> out,
 
     std::vector<PortableIndexedProperty> indexed;
     indexed.reserve(128);
-    PortablePropertyKeySet emitted_keys;
-    emitted_keys.reserve(256);
+    PortablePropertyOwnerMap claims;
+    claims.reserve(256);
 
     uint32_t emitted    = 0;
     uint32_t iptc_order = 0U;
 
-    // Pass 1: EXIF.
-    for (size_t i = 0; i < es.size(); ++i) {
-        if (options.limits.max_entries != 0U
-            && emitted >= options.limits.max_entries) {
-            w.limit_hit = true;
-            break;
-        }
-
-        const Entry& e = es[i];
-        if (any(e.flags, EntryFlags::Deleted)) {
-            continue;
-        }
-
-        if (e.key.kind == MetaKeyKind::ExifTag) {
-            if (!options.include_exif) {
-                continue;
-            }
-            if (process_portable_exif_entry(arena, es, e,
-                                            options.exiftool_gpsdatetime_alias,
-                                            &w, &emitted_keys)) {
-                emitted += 1U;
-            }
-            continue;
-        }
+    if (options.conflict_policy == XmpConflictPolicy::ExistingWins) {
+        emit_portable_pass(PortablePassKind::ExistingXmp, arena, es, options,
+                           &w, &claims, &indexed, &emitted, &iptc_order);
+        emit_portable_pass(PortablePassKind::Exif, arena, es, options, &w,
+                           &claims, &indexed, &emitted, &iptc_order);
+        emit_portable_pass(PortablePassKind::Iptc, arena, es, options, &w,
+                           &claims, &indexed, &emitted, &iptc_order);
+    } else if (options.conflict_policy == XmpConflictPolicy::GeneratedWins) {
+        emit_portable_pass(PortablePassKind::Exif, arena, es, options, &w,
+                           &claims, &indexed, &emitted, &iptc_order);
+        emit_portable_pass(PortablePassKind::Iptc, arena, es, options, &w,
+                           &claims, &indexed, &emitted, &iptc_order);
+        emit_portable_pass(PortablePassKind::ExistingXmp, arena, es, options,
+                           &w, &claims, &indexed, &emitted, &iptc_order);
+    } else {
+        emit_portable_pass(PortablePassKind::Exif, arena, es, options, &w,
+                           &claims, &indexed, &emitted, &iptc_order);
+        emit_portable_pass(PortablePassKind::ExistingXmp, arena, es, options,
+                           &w, &claims, &indexed, &emitted, &iptc_order);
+        emit_portable_pass(PortablePassKind::Iptc, arena, es, options, &w,
+                           &claims, &indexed, &emitted, &iptc_order);
     }
 
-    // Pass 2: existing XMP.
-    for (size_t i = 0; i < es.size(); ++i) {
-        if (options.limits.max_entries != 0U
-            && emitted >= options.limits.max_entries) {
-            w.limit_hit = true;
-            break;
-        }
-
-        const Entry& e = es[i];
-        if (any(e.flags, EntryFlags::Deleted)) {
-            continue;
-        }
-
-        if (e.key.kind == MetaKeyKind::XmpProperty
-            && options.include_existing_xmp) {
-            if (process_portable_existing_xmp_entry(arena, e,
-                                                    static_cast<uint32_t>(i),
-                                                    &w, &emitted_keys,
-                                                    &indexed)) {
-                emitted += 1U;
-            }
-            continue;
-        }
-    }
-
-    // Pass 3: IPTC-IIM mappings (dc/photoshop/Iptc4xmpCore), preserving source
-    // order.
-    if (options.include_iptc) {
-        for (size_t i = 0; i < es.size(); ++i) {
-            if (options.limits.max_entries != 0U
-                && emitted >= options.limits.max_entries) {
-                w.limit_hit = true;
-                break;
-            }
-
-            const Entry& e = es[i];
-            if (any(e.flags, EntryFlags::Deleted)) {
-                continue;
-            }
-
-            if (e.key.kind != MetaKeyKind::IptcDataset) {
-                continue;
-            }
-            if (process_portable_iptc_entry(
-                    arena, e, iptc_order, &w, &emitted_keys, &indexed)) {
-                emitted += 1U;
-            }
-            iptc_order += 1U;
-        }
-    }
-
-    emit_portable_indexed_groups(&w, arena, &indexed, &emitted_keys,
+    emit_portable_indexed_groups(&w, arena, &indexed,
                                  options.limits.max_entries, &emitted);
 
     emit_xmp_packet_end(&w);
@@ -3758,6 +3803,7 @@ make_xmp_sidecar_options(const XmpSidecarRequest& request) noexcept
     options.portable.include_exif         = request.include_exif;
     options.portable.include_iptc         = request.include_iptc;
     options.portable.include_existing_xmp = request.include_existing_xmp;
+    options.portable.conflict_policy      = request.portable_conflict_policy;
     options.portable.exiftool_gpsdatetime_alias
         = request.portable_exiftool_gpsdatetime_alias;
 

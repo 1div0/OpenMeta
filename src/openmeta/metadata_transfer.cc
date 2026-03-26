@@ -1979,6 +1979,154 @@ namespace {
         dst->append(msg.data(), msg.size());
     }
 
+    static void xmp_sidecar_candidates(const char* path, std::string* out_a,
+                                       std::string* out_b) noexcept
+    {
+        if (out_a) {
+            out_a->clear();
+        }
+        if (out_b) {
+            out_b->clear();
+        }
+        if (!path || !*path || !out_a || !out_b) {
+            return;
+        }
+
+        const std::string s(path);
+        *out_b = s;
+        out_b->append(".xmp");
+
+        const size_t sep = s.find_last_of("/\\");
+        const size_t dot = s.find_last_of('.');
+        if (dot != std::string::npos
+            && (sep == std::string::npos || dot > sep)) {
+            *out_a = s.substr(0, dot);
+            out_a->append(".xmp");
+        } else {
+            *out_a = *out_b;
+        }
+
+        if (*out_a == *out_b) {
+            out_b->clear();
+        }
+    }
+
+    static bool load_existing_xmp_sidecar_bytes(
+        const char* base_path, uint64_t max_file_bytes, std::string* out_path,
+        std::vector<std::byte>* out_bytes, TransferStatus* out_status,
+        std::string* out_message) noexcept
+    {
+        if (out_path) {
+            out_path->clear();
+        }
+        if (out_bytes) {
+            out_bytes->clear();
+        }
+        if (out_status) {
+            *out_status = TransferStatus::Unsupported;
+        }
+        if (out_message) {
+            out_message->clear();
+        }
+        if (!base_path || !*base_path || !out_path || !out_bytes
+            || !out_status || !out_message) {
+            return false;
+        }
+
+        std::string sidecar_a;
+        std::string sidecar_b;
+        xmp_sidecar_candidates(base_path, &sidecar_a, &sidecar_b);
+        const std::array<std::string_view, 2> candidates = {
+            std::string_view(sidecar_a),
+            std::string_view(sidecar_b),
+        };
+
+        bool saw_candidate_file = false;
+        for (size_t i = 0; i < candidates.size(); ++i) {
+            if (candidates[i].empty()) {
+                continue;
+            }
+
+            MappedFile mapped;
+            const MappedFileStatus status = mapped.open(
+                std::string(candidates[i]).c_str(), max_file_bytes);
+            if (status == MappedFileStatus::Ok) {
+                *out_path = std::string(candidates[i]);
+                out_bytes->assign(mapped.bytes().begin(), mapped.bytes().end());
+                *out_status = TransferStatus::Ok;
+                return true;
+            }
+
+            if (status == MappedFileStatus::OpenFailed) {
+                continue;
+            }
+
+            saw_candidate_file = true;
+            *out_path          = std::string(candidates[i]);
+            *out_status = status == MappedFileStatus::TooLarge
+                              ? TransferStatus::LimitExceeded
+                              : TransferStatus::Unsupported;
+            if (status == MappedFileStatus::TooLarge) {
+                *out_message = "existing xmp sidecar exceeds size limit";
+            } else if (status == MappedFileStatus::StatFailed) {
+                *out_message = "failed to stat existing xmp sidecar";
+            } else {
+                *out_message = "failed to map existing xmp sidecar";
+            }
+            return false;
+        }
+
+        *out_status = TransferStatus::Ok;
+        if (!saw_candidate_file) {
+            *out_message = "no existing xmp sidecar found";
+        }
+        return false;
+    }
+
+    static void decode_existing_xmp_sidecar_into_store(
+        std::span<const std::byte> sidecar_bytes,
+        const XmpDecodeOptions& decode_options, bool preserve_store_on_failure,
+        MetaStore* store, bool* out_loaded, TransferStatus* out_status,
+        std::string* out_message) noexcept
+    {
+        if (sidecar_bytes.empty() || !store || !out_loaded || !out_status
+            || !out_message) {
+            return;
+        }
+
+        XmpDecodeStatus decoded_status = XmpDecodeStatus::Malformed;
+        if (preserve_store_on_failure) {
+            MetaStore merged_store = *store;
+            const XmpDecodeResult decoded = decode_xmp_packet(
+                sidecar_bytes, merged_store, EntryFlags::None, decode_options);
+            decoded_status = decoded.status;
+            if (decoded.status == XmpDecodeStatus::Ok) {
+                *store       = std::move(merged_store);
+                *out_loaded  = true;
+                *out_status  = TransferStatus::Ok;
+                out_message->clear();
+                return;
+            }
+        } else {
+            const XmpDecodeResult decoded = decode_xmp_packet(
+                sidecar_bytes, *store, EntryFlags::None, decode_options);
+            decoded_status = decoded.status;
+            if (decoded.status == XmpDecodeStatus::Ok) {
+                *out_loaded  = true;
+                *out_status  = TransferStatus::Ok;
+                out_message->clear();
+                return;
+            }
+            *store = MetaStore();
+        }
+
+        *out_loaded = false;
+        *out_status = decoded_status == XmpDecodeStatus::LimitExceeded
+                          ? TransferStatus::LimitExceeded
+                          : TransferStatus::Malformed;
+        out_message->assign("existing xmp sidecar decode failed");
+    }
+
     static uint32_t
     next_prepared_block_order(const PreparedTransferBundle& bundle,
                               uint32_t base) noexcept
@@ -2004,6 +2152,29 @@ namespace {
         uint32_t removed = 0U;
         for (size_t read = 0U; read < bundle->blocks.size(); ++read) {
             if (bundle->blocks[read].route == route) {
+                removed += 1U;
+                continue;
+            }
+            if (write != read) {
+                bundle->blocks[write] = std::move(bundle->blocks[read]);
+            }
+            write += 1U;
+        }
+        bundle->blocks.resize(write);
+        return removed;
+    }
+
+    static uint32_t remove_prepared_blocks_by_kind(PreparedTransferBundle* bundle,
+                                                   TransferBlockKind kind) noexcept
+    {
+        if (!bundle || bundle->blocks.empty()) {
+            return 0U;
+        }
+
+        size_t write     = 0U;
+        uint32_t removed = 0U;
+        for (size_t read = 0U; read < bundle->blocks.size(); ++read) {
+            if (bundle->blocks[read].kind == kind) {
                 removed += 1U;
                 continue;
             }
@@ -7907,12 +8078,14 @@ prepare_metadata_for_target_impl(const MetaStore& store,
         xmp_req.include_exif = request.xmp_project_exif;
         xmp_req.include_iptc = request.xmp_project_iptc;
         xmp_req.include_existing_xmp = request.xmp_include_existing;
+        xmp_req.portable_conflict_policy = request.xmp_conflict_policy;
         xmp_req.portable_exiftool_gpsdatetime_alias
             = request.xmp_exiftool_gpsdatetime_alias;
 
         std::vector<std::byte> xmp_packet;
         const XmpDumpResult xr = dump_xmp_sidecar(store, &xmp_packet, xmp_req);
         if (xr.status == XmpDumpStatus::Ok && !xmp_packet.empty()) {
+            bundle.generated_xmp_sidecar = xmp_packet;
             PreparedTransferBlock b;
             b.kind  = TransferBlockKind::Xmp;
             b.order = 110U;
@@ -8273,11 +8446,14 @@ prepare_metadata_for_target_impl(const MetaStore& store,
                 xmp_req.include_exif         = false;
                 xmp_req.include_iptc         = true;
                 xmp_req.include_existing_xmp = false;
+                xmp_req.portable_conflict_policy
+                    = request.xmp_conflict_policy;
 
                 std::vector<std::byte> xmp_packet;
                 const XmpDumpResult xr = dump_xmp_sidecar(store, &xmp_packet,
                                                           xmp_req);
                 if (xr.status == XmpDumpStatus::Ok && !xmp_packet.empty()) {
+                    bundle.generated_xmp_sidecar = xmp_packet;
                     PreparedTransferBlock b;
                     b.kind  = TransferBlockKind::Xmp;
                     b.order = 130U;
@@ -13107,10 +13283,39 @@ prepare_metadata_for_target_file(
     std::vector<ExifIfdRef> ifds(512U);
     std::vector<std::byte> payload(1024U * 1024U);
     std::vector<uint32_t> payload_parts(16384U);
+    std::vector<std::byte> existing_xmp_sidecar_bytes;
     MetaStore store;
+    const bool sidecar_source_precedence
+        = options.xmp_existing_sidecar_precedence
+          == XmpExistingSidecarPrecedence::SourceWins;
+
+    if (options.xmp_existing_sidecar_mode
+        == XmpExistingSidecarMode::MergeIfPresent) {
+        const char* sidecar_base_path = path;
+        if (!options.xmp_existing_sidecar_base_path.empty()) {
+            sidecar_base_path = options.xmp_existing_sidecar_base_path.c_str();
+        }
+        (void)load_existing_xmp_sidecar_bytes(
+            sidecar_base_path, policy.max_file_bytes,
+            &out.xmp_existing_sidecar_path, &existing_xmp_sidecar_bytes,
+            &out.xmp_existing_sidecar_status, &out.xmp_existing_sidecar_message);
+    }
 
     for (;;) {
         store    = MetaStore();
+        if (!sidecar_source_precedence
+            && !existing_xmp_sidecar_bytes.empty()) {
+            decode_existing_xmp_sidecar_into_store(
+                std::span<const std::byte>(existing_xmp_sidecar_bytes.data(),
+                                           existing_xmp_sidecar_bytes.size()),
+                decode_options.xmp, false, &store,
+                &out.xmp_existing_sidecar_loaded,
+                &out.xmp_existing_sidecar_status,
+                &out.xmp_existing_sidecar_message);
+            if (!out.xmp_existing_sidecar_loaded) {
+                existing_xmp_sidecar_bytes.clear();
+            }
+        }
         out.read = simple_meta_read(
             mapped.bytes(), store,
             std::span<ContainerBlockRef>(blocks.data(), blocks.size()),
@@ -13146,6 +13351,18 @@ prepare_metadata_for_target_file(
         }
         if (!retried) {
             break;
+        }
+    }
+
+    if (sidecar_source_precedence && !existing_xmp_sidecar_bytes.empty()) {
+        decode_existing_xmp_sidecar_into_store(
+            std::span<const std::byte>(existing_xmp_sidecar_bytes.data(),
+                                       existing_xmp_sidecar_bytes.size()),
+            decode_options.xmp, true, &store, &out.xmp_existing_sidecar_loaded,
+            &out.xmp_existing_sidecar_status,
+            &out.xmp_existing_sidecar_message);
+        if (!out.xmp_existing_sidecar_loaded) {
+            existing_xmp_sidecar_bytes.clear();
         }
     }
 
@@ -13191,8 +13408,20 @@ prepare_metadata_for_target_file(
         }
     }
 
-    out.prepare = prepare_metadata_for_target_impl(store, options.prepare, caps,
+    PrepareTransferRequest prepare_request = options.prepare;
+    if (options.xmp_existing_sidecar_mode
+        == XmpExistingSidecarMode::MergeIfPresent) {
+        prepare_request.xmp_include_existing = true;
+    }
+    out.prepare = prepare_metadata_for_target_impl(store, prepare_request, caps,
                                                    &out.bundle);
+    if (options.xmp_existing_sidecar_mode
+            == XmpExistingSidecarMode::MergeIfPresent
+        && !out.xmp_existing_sidecar_message.empty()
+        && out.xmp_existing_sidecar_status != TransferStatus::Ok) {
+        out.prepare.warnings += 1U;
+        append_message(&out.prepare.message, out.xmp_existing_sidecar_message);
+    }
 
     if (options.prepare.target_format == TransferTargetFormat::Jpeg) {
         const JpegScanResult jpeg_scan = scan_leading_jpeg_segments(
@@ -21183,10 +21412,45 @@ execute_prepared_transfer_file(
     const ExecutePreparedTransferFileOptions& options) noexcept
 {
     ExecutePreparedTransferFileResult out;
+    out.xmp_sidecar_requested
+        = options.xmp_writeback_mode == XmpWritebackMode::SidecarOnly;
     const bool c2pa_stage_requested = options.c2pa_stage_requested
                                       || options.c2pa_signed_package_provided;
     out.execute.c2pa_stage_requested = c2pa_stage_requested;
     out.prepared = prepare_metadata_for_target_file(path, options.prepare);
+
+    if (out.xmp_sidecar_requested) {
+        if (options.edit_target_path.empty()) {
+            out.xmp_sidecar_status = TransferStatus::Unsupported;
+            out.xmp_sidecar_message
+                = "xmp sidecar writeback requires edit_target_path";
+        } else {
+            const char* sidecar_base_path = options.edit_target_path.c_str();
+            if (!options.xmp_sidecar_base_path.empty()) {
+                sidecar_base_path = options.xmp_sidecar_base_path.c_str();
+            }
+            std::string sidecar_a;
+            std::string sidecar_b;
+            xmp_sidecar_candidates(sidecar_base_path, &sidecar_a,
+                                   &sidecar_b);
+            out.xmp_sidecar_path = sidecar_a;
+            if (!out.prepared.bundle.generated_xmp_sidecar.empty()) {
+                out.xmp_sidecar_output = out.prepared.bundle.generated_xmp_sidecar;
+                out.xmp_sidecar_status = TransferStatus::Ok;
+                const uint32_t removed_xmp = remove_prepared_blocks_by_kind(
+                    &out.prepared.bundle, TransferBlockKind::Xmp);
+                if (removed_xmp == 0U) {
+                    out.xmp_sidecar_message
+                        = "prepared xmp sidecar bytes available without "
+                          "embedded xmp carrier blocks";
+                }
+            } else {
+                out.xmp_sidecar_status  = TransferStatus::Ok;
+                out.xmp_sidecar_message = "prepared bundle did not produce xmp "
+                                          "sidecar bytes";
+            }
+        }
+    }
 
     if (out.prepared.file_status != TransferFileStatus::Ok
         || (out.prepared.prepare.status != TransferStatus::Ok
@@ -21212,6 +21476,13 @@ execute_prepared_transfer_file(
             out.execute.edit_apply.errors = 1U;
             out.execute.edit_apply.message
                 = "skipped edit due to read/prepare failure";
+        }
+        if (out.xmp_sidecar_requested
+            && out.xmp_sidecar_status == TransferStatus::Ok
+            && out.xmp_sidecar_output.empty()) {
+            out.xmp_sidecar_status = TransferStatus::Unsupported;
+            out.xmp_sidecar_message
+                = "skipped xmp sidecar writeback due to read/prepare failure";
         }
         return out;
     }

@@ -92,6 +92,17 @@ In practice:
 - Writer-side sync behavior is now partially explicit instead of implicit:
   generated XMP can independently keep or suppress EXIF-derived and
   IPTC-derived projection during transfer preparation.
+- Generated portable XMP also has an explicit conflict policy for existing
+  decoded XMP versus generated EXIF/IPTC mappings:
+  current behavior, `existing_wins`, or `generated_wins`.
+- Transfer preparation can also fold an existing sibling `.xmp` sidecar from
+  the destination path into generated portable XMP when that bounded mode is
+  requested, with explicit `sidecar_wins` or `source_wins` precedence against
+  source-embedded existing XMP.
+- File-helper execution, `metatransfer`, and the Python transfer wrapper now
+  share a bounded XMP carrier choice:
+  embedded XMP only, or sidecar-only writeback to a sibling `.xmp` when a
+  generated XMP packet exists for the prepared transfer.
 - Prepared bundles record resolved policy decisions for MakerNote, JUMBF,
   C2PA, EXIF-to-XMP projection, and IPTC-to-XMP projection.
 - This is still not a full MWG-style sync engine. OpenMeta does not yet try to

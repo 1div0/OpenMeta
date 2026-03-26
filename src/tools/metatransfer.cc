@@ -40,10 +40,22 @@ namespace {
             "  --portable             Alias for --format portable\n"
             "  --lossless             Alias for --format lossless\n"
             "  --xmp-include-existing Include existing decoded XMP in generated XMP\n"
+            "  --xmp-include-existing-sidecar\n"
+            "                         Include an existing sibling .xmp sidecar from\n"
+            "                         the output/edit target path in generated XMP\n"
+            "  --xmp-existing-sidecar-precedence <sidecar_wins|source_wins>\n"
+            "                         Conflict precedence between an existing output\n"
+            "                         sidecar and source-embedded existing XMP\n"
             "  --xmp-no-exif-projection\n"
             "                         Do not mirror EXIF-derived properties into generated XMP\n"
             "  --xmp-no-iptc-projection\n"
             "                         Do not mirror IPTC-derived properties into generated XMP\n"
+            "  --xmp-conflict-policy <current|existing_wins|generated_wins>\n"
+            "                         Conflict policy between existing decoded XMP and\n"
+            "                         generated portable EXIF/IPTC XMP properties\n"
+            "  --xmp-writeback <embedded|sidecar>\n"
+            "                         Keep generated XMP embedded, or strip embedded XMP\n"
+            "                         carriers and persist a sibling .xmp sidecar when --output is used\n"
             "  --xmp-exiftool-gpsdatetime-alias\n"
             "                         Emit exif:GPSDateTime alias in portable mode\n"
             "  --no-exif              Skip EXIF APP1 preparation\n"
@@ -328,6 +340,117 @@ namespace {
             return true;
         }
         return false;
+    }
+
+
+    static bool parse_xmp_conflict_policy(const char* s,
+                                          XmpConflictPolicy* out) noexcept
+    {
+        if (!s || !out) {
+            return false;
+        }
+        if (std::strcmp(s, "current") == 0) {
+            *out = XmpConflictPolicy::CurrentBehavior;
+            return true;
+        }
+        if (std::strcmp(s, "existing_wins") == 0) {
+            *out = XmpConflictPolicy::ExistingWins;
+            return true;
+        }
+        if (std::strcmp(s, "generated_wins") == 0) {
+            *out = XmpConflictPolicy::GeneratedWins;
+            return true;
+        }
+        return false;
+    }
+
+    static bool
+    parse_xmp_writeback_mode(const char* s, XmpWritebackMode* out) noexcept
+    {
+        if (!s || !out) {
+            return false;
+        }
+        if (std::strcmp(s, "embedded") == 0) {
+            *out = XmpWritebackMode::EmbeddedOnly;
+            return true;
+        }
+        if (std::strcmp(s, "sidecar") == 0) {
+            *out = XmpWritebackMode::SidecarOnly;
+            return true;
+        }
+        return false;
+    }
+
+    static bool parse_xmp_existing_sidecar_precedence(
+        const char* s, XmpExistingSidecarPrecedence* out) noexcept
+    {
+        if (!s || !out) {
+            return false;
+        }
+        if (std::strcmp(s, "sidecar_wins") == 0) {
+            *out = XmpExistingSidecarPrecedence::SidecarWins;
+            return true;
+        }
+        if (std::strcmp(s, "source_wins") == 0) {
+            *out = XmpExistingSidecarPrecedence::SourceWins;
+            return true;
+        }
+        return false;
+    }
+
+    static void xmp_sidecar_candidates(const char* path, std::string* out_a,
+                                       std::string* out_b) noexcept
+    {
+        if (out_a) {
+            out_a->clear();
+        }
+        if (out_b) {
+            out_b->clear();
+        }
+        if (!path || !*path || !out_a || !out_b) {
+            return;
+        }
+
+        const std::string s(path);
+        *out_b = s;
+        out_b->append(".xmp");
+
+        const size_t sep = s.find_last_of("/\\");
+        const size_t dot = s.find_last_of('.');
+        if (dot != std::string::npos
+            && (sep == std::string::npos || dot > sep)) {
+            *out_a = s.substr(0, dot);
+            out_a->append(".xmp");
+        } else {
+            *out_a = *out_b;
+        }
+
+        if (*out_a == *out_b) {
+            out_b->clear();
+        }
+    }
+
+    static uint32_t remove_prepared_blocks_by_kind(PreparedTransferBundle* bundle,
+                                                   TransferBlockKind kind)
+    {
+        if (!bundle || bundle->blocks.empty()) {
+            return 0U;
+        }
+
+        size_t write     = 0U;
+        uint32_t removed = 0U;
+        for (size_t read = 0U; read < bundle->blocks.size(); ++read) {
+            if (bundle->blocks[read].kind == kind) {
+                removed += 1U;
+                continue;
+            }
+            if (write != read) {
+                bundle->blocks[write] = std::move(bundle->blocks[read]);
+            }
+            write += 1U;
+        }
+        bundle->blocks.resize(write);
+        return removed;
     }
 
 
@@ -766,6 +889,34 @@ namespace {
         return written == bytes.size();
     }
 
+    static bool maybe_write_xmp_sidecar_output(const std::string& path,
+                                               std::span<const std::byte> bytes,
+                                               bool dry_run, bool force)
+    {
+        if (path.empty() || bytes.empty()) {
+            return true;
+        }
+        if (dry_run) {
+            std::printf("  xmp_sidecar_output=%s bytes=%llu\n", path.c_str(),
+                        static_cast<unsigned long long>(bytes.size()));
+            return true;
+        }
+        if (!force && file_exists(path)) {
+            std::fprintf(stderr,
+                         "  xmp_sidecar_write: exists: %s (use --force)\n",
+                         path.c_str());
+            return false;
+        }
+        if (!write_file_bytes(path, bytes)) {
+            std::fprintf(stderr, "  xmp_sidecar_write: write_failed: %s\n",
+                         path.c_str());
+            return false;
+        }
+        std::printf("  xmp_sidecar_output=%s bytes=%llu\n", path.c_str(),
+                    static_cast<unsigned long long>(bytes.size()));
+        return true;
+    }
+
 
     static bool read_file_bytes(const std::string& path,
                                 std::vector<std::byte>* out)
@@ -1097,6 +1248,10 @@ main(int argc, char** argv)
     PrepareTransferFileOptions options;
     options.prepare.target_format = TransferTargetFormat::Jpeg;
     options.prepare.xmp_portable  = true;
+    bool xmp_include_existing_sidecar = false;
+    XmpExistingSidecarPrecedence xmp_existing_sidecar_precedence
+        = XmpExistingSidecarPrecedence::SidecarWins;
+    XmpWritebackMode xmp_writeback_mode = XmpWritebackMode::EmbeddedOnly;
 
     for (int i = 1; i < argc; ++i) {
         const char* arg = argv[i];
@@ -1152,12 +1307,69 @@ main(int argc, char** argv)
             options.prepare.xmp_include_existing = true;
             continue;
         }
+        if (std::strcmp(arg, "--xmp-include-existing-sidecar") == 0) {
+            xmp_include_existing_sidecar = true;
+            continue;
+        }
+        if (std::strcmp(arg, "--xmp-existing-sidecar-precedence") == 0) {
+            if (i + 1 >= argc) {
+                std::fprintf(
+                    stderr,
+                    "missing value for --xmp-existing-sidecar-precedence\n");
+                return 2;
+            }
+            XmpExistingSidecarPrecedence precedence
+                = XmpExistingSidecarPrecedence::SidecarWins;
+            if (!parse_xmp_existing_sidecar_precedence(argv[i + 1],
+                                                       &precedence)) {
+                std::fprintf(
+                    stderr,
+                    "invalid --xmp-existing-sidecar-precedence value "
+                    "(expected sidecar_wins|source_wins)\n");
+                return 2;
+            }
+            xmp_existing_sidecar_precedence = precedence;
+            i += 1;
+            continue;
+        }
         if (std::strcmp(arg, "--xmp-no-exif-projection") == 0) {
             options.prepare.xmp_project_exif = false;
             continue;
         }
         if (std::strcmp(arg, "--xmp-no-iptc-projection") == 0) {
             options.prepare.xmp_project_iptc = false;
+            continue;
+        }
+        if (std::strcmp(arg, "--xmp-conflict-policy") == 0) {
+            if (i + 1 >= argc) {
+                std::fprintf(stderr, "missing value for --xmp-conflict-policy\n");
+                return 2;
+            }
+            XmpConflictPolicy policy = XmpConflictPolicy::CurrentBehavior;
+            if (!parse_xmp_conflict_policy(argv[i + 1], &policy)) {
+                std::fprintf(
+                    stderr,
+                    "invalid --xmp-conflict-policy value "
+                    "(expected current|existing_wins|generated_wins)\n");
+                return 2;
+            }
+            options.prepare.xmp_conflict_policy = policy;
+            i += 1;
+            continue;
+        }
+        if (std::strcmp(arg, "--xmp-writeback") == 0) {
+            if (i + 1 >= argc) {
+                std::fprintf(stderr, "missing value for --xmp-writeback\n");
+                return 2;
+            }
+            if (!parse_xmp_writeback_mode(argv[i + 1],
+                                          &xmp_writeback_mode)) {
+                std::fprintf(stderr,
+                             "invalid --xmp-writeback value "
+                             "(expected embedded|sidecar)\n");
+                return 2;
+            }
+            i += 1;
             continue;
         }
         if (std::strcmp(arg, "--xmp-exiftool-gpsdatetime-alias") == 0) {
@@ -1942,6 +2154,12 @@ main(int argc, char** argv)
         std::fprintf(stderr, "--output is not supported for --target-exr\n");
         return 2;
     }
+    if (xmp_writeback_mode == XmpWritebackMode::SidecarOnly
+        && output_path.empty()) {
+        std::fprintf(stderr,
+                     "--xmp-writeback sidecar requires --output\n");
+        return 2;
+    }
     const bool c2pa_wrapper_target_ok
         = options.prepare.target_format == TransferTargetFormat::Jpeg
           || options.prepare.target_format == TransferTargetFormat::Jxl
@@ -2043,6 +2261,24 @@ main(int argc, char** argv)
         FileByteWriter output_writer(output_path);
         const bool use_output_writer = !output_path.empty() && !dry_run
                                        && (!output_exists || force);
+        if (xmp_include_existing_sidecar) {
+            options.xmp_existing_sidecar_mode
+                = XmpExistingSidecarMode::MergeIfPresent;
+            options.xmp_existing_sidecar_precedence
+                = xmp_existing_sidecar_precedence;
+            if (!output_path.empty()) {
+                options.xmp_existing_sidecar_base_path = output_path;
+            } else if (!target_path.empty()) {
+                options.xmp_existing_sidecar_base_path = target_path;
+            } else {
+                options.xmp_existing_sidecar_base_path = source_path;
+            }
+        } else {
+            options.xmp_existing_sidecar_mode = XmpExistingSidecarMode::Ignore;
+            options.xmp_existing_sidecar_precedence
+                = XmpExistingSidecarPrecedence::SidecarWins;
+            options.xmp_existing_sidecar_base_path.clear();
+        }
         PrepareTransferFileResult prepared
             = prepare_metadata_for_target_file(source_path.c_str(), options);
         EmitTransferResult append_jumbf_result;
@@ -2172,6 +2408,36 @@ main(int argc, char** argv)
                 }
             }
             did_stage_c2pa = true;
+        }
+
+        const bool xmp_sidecar_requested
+            = xmp_writeback_mode == XmpWritebackMode::SidecarOnly;
+        TransferStatus xmp_sidecar_status = TransferStatus::Unsupported;
+        std::string xmp_sidecar_message;
+        std::string xmp_sidecar_path;
+        std::vector<std::byte> xmp_sidecar_output;
+        if (prepared.file_status == TransferFileStatus::Ok
+            && xmp_sidecar_requested) {
+            if (output_path.empty()) {
+                xmp_sidecar_message
+                    = "xmp sidecar writeback requires --output";
+            } else {
+                std::string sidecar_a;
+                std::string sidecar_b;
+                xmp_sidecar_candidates(output_path.c_str(), &sidecar_a,
+                                       &sidecar_b);
+                xmp_sidecar_path = sidecar_a;
+                if (!prepared.bundle.generated_xmp_sidecar.empty()) {
+                    xmp_sidecar_output = prepared.bundle.generated_xmp_sidecar;
+                    xmp_sidecar_status = TransferStatus::Ok;
+                    (void)remove_prepared_blocks_by_kind(
+                        &prepared.bundle, TransferBlockKind::Xmp);
+                } else {
+                    xmp_sidecar_status  = TransferStatus::Ok;
+                    xmp_sidecar_message = "prepared bundle did not produce xmp "
+                                          "sidecar bytes";
+                }
+            }
         }
 
         PreparedTransferC2paSignRequest sign_request;
@@ -2509,6 +2775,38 @@ main(int argc, char** argv)
         if (!prepared.prepare.message.empty()) {
             std::printf("  prepare_message=%s\n",
                         prepared.prepare.message.c_str());
+        }
+        if (xmp_include_existing_sidecar) {
+            std::printf("  xmp_existing_sidecar: status=%s loaded=%s",
+                        transfer_status_name(
+                            prepared.xmp_existing_sidecar_status),
+                        prepared.xmp_existing_sidecar_loaded ? "yes" : "no");
+            if (!prepared.xmp_existing_sidecar_path.empty()) {
+                std::printf(" path=%s",
+                            prepared.xmp_existing_sidecar_path.c_str());
+            }
+            std::printf("\n");
+            if (!prepared.xmp_existing_sidecar_message.empty()) {
+                std::printf("  xmp_existing_sidecar_message=%s\n",
+                            prepared.xmp_existing_sidecar_message.c_str());
+            }
+        }
+        if (xmp_sidecar_requested) {
+            std::printf("  xmp_sidecar: status=%s",
+                        transfer_status_name(xmp_sidecar_status));
+            if (!xmp_sidecar_path.empty()) {
+                std::printf(" path=%s", xmp_sidecar_path.c_str());
+            }
+            std::printf(" bytes=%llu\n",
+                        static_cast<unsigned long long>(
+                            xmp_sidecar_output.size()));
+            if (!xmp_sidecar_message.empty()) {
+                std::printf("  xmp_sidecar_message=%s\n",
+                            xmp_sidecar_message.c_str());
+            }
+            if (xmp_sidecar_status != TransferStatus::Ok) {
+                any_failed = true;
+            }
         }
         if (did_append_jumbf) {
             std::printf(
@@ -3022,6 +3320,18 @@ main(int argc, char** argv)
                                     use_output_writer
                                         ? output_writer.bytes_written()
                                         : exec.edited_output.size()));
+                    if (xmp_sidecar_requested
+                        && xmp_sidecar_status == TransferStatus::Ok
+                        && !xmp_sidecar_output.empty()
+                        && !maybe_write_xmp_sidecar_output(
+                            xmp_sidecar_path,
+                            std::span<const std::byte>(
+                                xmp_sidecar_output.data(),
+                                xmp_sidecar_output.size()),
+                            dry_run, force)) {
+                        any_failed = true;
+                        continue;
+                    }
                 }
             }
 
@@ -3135,6 +3445,18 @@ main(int argc, char** argv)
                                     use_output_writer
                                         ? output_writer.bytes_written()
                                         : exec.edited_output.size()));
+                    if (xmp_sidecar_requested
+                        && xmp_sidecar_status == TransferStatus::Ok
+                        && !xmp_sidecar_output.empty()
+                        && !maybe_write_xmp_sidecar_output(
+                            xmp_sidecar_path,
+                            std::span<const std::byte>(
+                                xmp_sidecar_output.data(),
+                                xmp_sidecar_output.size()),
+                            dry_run, force)) {
+                        any_failed = true;
+                        continue;
+                    }
                 }
             }
 
@@ -3247,6 +3569,18 @@ main(int argc, char** argv)
                                     use_output_writer
                                         ? output_writer.bytes_written()
                                         : exec.edited_output.size()));
+                    if (xmp_sidecar_requested
+                        && xmp_sidecar_status == TransferStatus::Ok
+                        && !xmp_sidecar_output.empty()
+                        && !maybe_write_xmp_sidecar_output(
+                            xmp_sidecar_path,
+                            std::span<const std::byte>(
+                                xmp_sidecar_output.data(),
+                                xmp_sidecar_output.size()),
+                            dry_run, force)) {
+                        any_failed = true;
+                        continue;
+                    }
                 }
             }
 
@@ -3382,6 +3716,18 @@ main(int argc, char** argv)
                                     use_output_writer
                                         ? output_writer.bytes_written()
                                         : exec.edited_output.size()));
+                    if (xmp_sidecar_requested
+                        && xmp_sidecar_status == TransferStatus::Ok
+                        && !xmp_sidecar_output.empty()
+                        && !maybe_write_xmp_sidecar_output(
+                            xmp_sidecar_path,
+                            std::span<const std::byte>(
+                                xmp_sidecar_output.data(),
+                                xmp_sidecar_output.size()),
+                            dry_run, force)) {
+                        any_failed = true;
+                        continue;
+                    }
                 }
             }
 
@@ -3493,6 +3839,18 @@ main(int argc, char** argv)
                                     use_output_writer
                                         ? output_writer.bytes_written()
                                         : exec.edited_output.size()));
+                    if (xmp_sidecar_requested
+                        && xmp_sidecar_status == TransferStatus::Ok
+                        && !xmp_sidecar_output.empty()
+                        && !maybe_write_xmp_sidecar_output(
+                            xmp_sidecar_path,
+                            std::span<const std::byte>(
+                                xmp_sidecar_output.data(),
+                                xmp_sidecar_output.size()),
+                            dry_run, force)) {
+                        any_failed = true;
+                        continue;
+                    }
                 }
             }
 
@@ -3604,6 +3962,18 @@ main(int argc, char** argv)
                                     use_output_writer
                                         ? output_writer.bytes_written()
                                         : exec.edited_output.size()));
+                    if (xmp_sidecar_requested
+                        && xmp_sidecar_status == TransferStatus::Ok
+                        && !xmp_sidecar_output.empty()
+                        && !maybe_write_xmp_sidecar_output(
+                            xmp_sidecar_path,
+                            std::span<const std::byte>(
+                                xmp_sidecar_output.data(),
+                                xmp_sidecar_output.size()),
+                            dry_run, force)) {
+                        any_failed = true;
+                        continue;
+                    }
                 }
             }
 
@@ -3758,6 +4128,18 @@ main(int argc, char** argv)
                                     use_output_writer
                                         ? output_writer.bytes_written()
                                         : exec.edited_output.size()));
+                    if (xmp_sidecar_requested
+                        && xmp_sidecar_status == TransferStatus::Ok
+                        && !xmp_sidecar_output.empty()
+                        && !maybe_write_xmp_sidecar_output(
+                            xmp_sidecar_path,
+                            std::span<const std::byte>(
+                                xmp_sidecar_output.data(),
+                                xmp_sidecar_output.size()),
+                            dry_run, force)) {
+                        any_failed = true;
+                        continue;
+                    }
                 }
             }
 

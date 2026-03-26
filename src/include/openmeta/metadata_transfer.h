@@ -3,6 +3,7 @@
 #include "openmeta/meta_store.h"
 #include "openmeta/resource_policy.h"
 #include "openmeta/simple_meta.h"
+#include "openmeta/xmp_dump.h"
 
 #include <array>
 #include <cstddef>
@@ -393,6 +394,7 @@ struct PreparedTransferBundle final {
     std::vector<PreparedTransferPolicyDecision> policy_decisions;
     std::vector<PreparedTransferBlock> blocks;
     std::vector<TimePatchSlot> time_patch_map;
+    std::vector<std::byte> generated_xmp_sidecar;
 };
 
 /// Options for explicit raw JUMBF append into a prepared JPEG bundle.
@@ -413,6 +415,8 @@ struct PrepareTransferRequest final {
     bool xmp_project_exif               = true;
     bool xmp_project_iptc               = true;
     bool xmp_include_existing           = true;
+    XmpConflictPolicy xmp_conflict_policy
+        = XmpConflictPolicy::CurrentBehavior;
     bool xmp_exiftool_gpsdatetime_alias = false;
 };
 
@@ -896,12 +900,30 @@ public:
         = 0;
 };
 
+/// Existing sibling XMP sidecar handling for transfer preparation.
+enum class XmpExistingSidecarMode : uint8_t {
+    Ignore,
+    MergeIfPresent,
+};
+
+/// Conflict precedence between a merged destination-side `.xmp` and
+/// source-embedded existing XMP.
+enum class XmpExistingSidecarPrecedence : uint8_t {
+    SidecarWins,
+    SourceWins,
+};
+
 /// File-read + decode options for \ref prepare_metadata_for_target_file.
 struct PrepareTransferFileOptions final {
     bool include_pointer_tags       = true;
     bool decode_makernote           = false;
     bool decode_embedded_containers = true;
     bool decompress                 = true;
+    std::string xmp_existing_sidecar_base_path;
+    XmpExistingSidecarMode xmp_existing_sidecar_mode
+        = XmpExistingSidecarMode::Ignore;
+    XmpExistingSidecarPrecedence xmp_existing_sidecar_precedence
+        = XmpExistingSidecarPrecedence::SidecarWins;
 
     OpenMetaResourcePolicy policy;
     PrepareTransferRequest prepare;
@@ -913,6 +935,10 @@ struct PrepareTransferFileResult final {
     PrepareTransferFileCode code   = PrepareTransferFileCode::None;
     uint64_t file_size             = 0;
     uint32_t entry_count           = 0;
+    bool xmp_existing_sidecar_loaded = false;
+    TransferStatus xmp_existing_sidecar_status = TransferStatus::Unsupported;
+    std::string xmp_existing_sidecar_message;
+    std::string xmp_existing_sidecar_path;
 
     SimpleMetaResult read;
     PrepareTransferResult prepare;
@@ -1135,11 +1161,19 @@ struct ExecutePreparedTransferResult final {
     std::vector<std::byte> edited_output;
 };
 
+/// XMP carrier preference for file-helper transfer execution.
+enum class XmpWritebackMode : uint8_t {
+    EmbeddedOnly,
+    SidecarOnly,
+};
+
 /// Options for \ref execute_prepared_transfer_file.
 struct ExecutePreparedTransferFileOptions final {
     PrepareTransferFileOptions prepare;
     ExecutePreparedTransferOptions execute;
     std::string edit_target_path;
+    std::string xmp_sidecar_base_path;
+    XmpWritebackMode xmp_writeback_mode = XmpWritebackMode::EmbeddedOnly;
     bool c2pa_stage_requested = false;
     PreparedTransferC2paSignerInput c2pa_signer_input;
     bool c2pa_signed_package_provided = false;
@@ -1150,6 +1184,11 @@ struct ExecutePreparedTransferFileOptions final {
 struct ExecutePreparedTransferFileResult final {
     PrepareTransferFileResult prepared;
     ExecutePreparedTransferResult execute;
+    bool xmp_sidecar_requested      = false;
+    TransferStatus xmp_sidecar_status = TransferStatus::Unsupported;
+    std::string xmp_sidecar_message;
+    std::string xmp_sidecar_path;
+    std::vector<std::byte> xmp_sidecar_output;
 };
 
 /**

@@ -14,6 +14,20 @@
 
 namespace openmeta {
 
+/// Conflict policy for existing XMP versus generated portable XMP properties.
+///
+/// This currently applies to portable XMP generation only.
+enum class XmpConflictPolicy : uint8_t {
+    /// Preserve the historical OpenMeta order:
+    /// EXIF-derived properties first, then existing XMP, then IPTC-derived
+    /// properties.
+    CurrentBehavior,
+    /// Existing decoded XMP properties win over generated EXIF/IPTC mappings.
+    ExistingWins,
+    /// Generated EXIF/IPTC mappings win over existing decoded XMP properties.
+    GeneratedWins,
+};
+
 /// XMP dump result status.
 enum class XmpDumpStatus : uint8_t {
     Ok,
@@ -52,6 +66,9 @@ struct XmpPortableOptions final {
     ///
     /// \note Currently only simple `property_path` values are emitted (no `/` nesting).
     bool include_existing_xmp = false;
+    /// Conflict policy between existing decoded XMP and generated portable
+    /// EXIF/IPTC mappings.
+    XmpConflictPolicy conflict_policy = XmpConflictPolicy::CurrentBehavior;
     /// Emit `exif:GPSDateTime` instead of `exif:GPSTimeStamp` for GPS time.
     ///
     /// Default keeps standard portable naming. This compatibility mode is
@@ -86,6 +103,8 @@ struct XmpSidecarRequest final {
     bool include_exif                        = true;
     bool include_iptc                        = true;
     bool include_existing_xmp                = false;
+    XmpConflictPolicy portable_conflict_policy
+        = XmpConflictPolicy::CurrentBehavior;
     bool portable_exiftool_gpsdatetime_alias = false;
 
     /// Lossless mode options (applied when format == Lossless).

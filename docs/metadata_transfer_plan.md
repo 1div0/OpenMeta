@@ -212,6 +212,8 @@ For the XMP projection subjects, the current public knobs are intentionally
 simple:
 - EXIF-derived properties can be mirrored into generated XMP or suppressed
 - IPTC-derived properties can be mirrored into generated XMP or suppressed
+- generated portable XMP can choose how existing decoded XMP conflicts with
+  generated EXIF/IPTC mappings
 
 This gives callers stable write-side control over the most important projection
 behavior without forcing them to reverse-engineer the transfer output.
@@ -223,16 +225,43 @@ OpenMeta now has a bounded public sync-policy layer for generated XMP.
 Current controls:
 - `xmp_project_exif`
 - `xmp_project_iptc`
+- `xmp_conflict_policy`
+- `xmp_existing_sidecar_mode` on the file-read/prepare path:
+  - `Ignore`
+  - `MergeIfPresent`
+- `xmp_existing_sidecar_precedence` on the file-read/prepare path:
+  - `SidecarWins`
+  - `SourceWins`
+- `xmp_writeback_mode` on the file-helper execution path:
+  - `EmbeddedOnly`
+  - `SidecarOnly`
 - CLI:
+  - `--xmp-include-existing-sidecar`
+  - `--xmp-existing-sidecar-precedence <sidecar_wins|source_wins>`
   - `--xmp-no-exif-projection`
   - `--xmp-no-iptc-projection`
+  - `--xmp-conflict-policy <current|existing_wins|generated_wins>`
+  - `--xmp-writeback <embedded|sidecar>`
 
 Current behavior:
 - existing XMP can still be included independently
 - EXIF payload emission stays independent from EXIF-to-XMP projection
 - IPTC native carrier emission stays independent from IPTC-to-XMP projection
+- portable generated XMP can keep the historical mixed order, prefer existing
+  decoded XMP, or prefer generated EXIF/IPTC mappings when the same portable
+  property would collide
+- existing sibling `.xmp` sidecars from the destination path can be merged
+  into generated portable XMP before transfer packaging when explicitly
+  requested
+- that sidecar merge path now has explicit precedence against source-embedded
+  existing XMP instead of relying on implicit decode order
 - some targets without a native IPTC carrier can still use XMP as the bounded
   fallback carrier when IPTC projection is enabled
+- file-helper export can now strip prepared embedded XMP blocks and return
+  canonical sidecar output guidance instead
+- the public `metatransfer` CLI and Python transfer wrapper can now persist
+  that generated XMP as a sibling `.xmp` sidecar when sidecar writeback is
+  selected
 
 This is deliberately narrower than a full sync engine. It does not yet define:
 - full EXIF vs XMP precedence rules
@@ -274,7 +303,7 @@ the first public projection controls now exist.
 
 Missing pieces include:
 - conflict resolution rules
-- sidecar vs embedded policy
+- broader sidecar vs embedded policy beyond the current bounded writeback mode
 - canonical writeback policy
 - broader namespace reconciliation behavior
 
