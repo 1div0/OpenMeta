@@ -77,15 +77,17 @@ namespace {
 
     static XmpSidecarRequest make_xmp_sidecar_request(
         XmpSidecarFormat format, uint64_t max_output_bytes,
-        uint32_t max_entries, bool include_exif, bool include_existing_xmp,
-        bool portable_exiftool_gpsdatetime_alias, bool include_origin,
-        bool include_wire, bool include_flags, bool include_names)
+        uint32_t max_entries, bool include_exif, bool include_iptc,
+        bool include_existing_xmp, bool portable_exiftool_gpsdatetime_alias,
+        bool include_origin, bool include_wire, bool include_flags,
+        bool include_names)
     {
         XmpSidecarRequest request;
         request.format                  = format;
         request.limits.max_output_bytes = max_output_bytes;
         request.limits.max_entries      = max_entries;
         request.include_exif            = include_exif;
+        request.include_iptc            = include_iptc;
         request.include_existing_xmp    = include_existing_xmp;
         request.portable_exiftool_gpsdatetime_alias
             = portable_exiftool_gpsdatetime_alias;
@@ -659,6 +661,10 @@ namespace {
         case TransferPolicySubject::MakerNote: return "makernote";
         case TransferPolicySubject::Jumbf: return "jumbf";
         case TransferPolicySubject::C2pa: return "c2pa";
+        case TransferPolicySubject::XmpExifProjection:
+            return "xmp_exif_projection";
+        case TransferPolicySubject::XmpIptcProjection:
+            return "xmp_iptc_projection";
         }
         return "unknown";
     }
@@ -829,6 +835,7 @@ namespace {
         case TransferAdapterOpKind::WebpChunk: return "webp_chunk";
         case TransferAdapterOpKind::PngChunk: return "png_chunk";
         case TransferAdapterOpKind::Jp2Box: return "jp2_box";
+        case TransferAdapterOpKind::ExrAttribute: return "exr_attribute";
         case TransferAdapterOpKind::BmffItem: return "bmff_item";
         case TransferAdapterOpKind::BmffProperty: return "bmff_property";
         }
@@ -1379,7 +1386,8 @@ namespace {
         bool decode_makernote, bool decode_embedded_containers, bool decompress,
         bool include_exif_app1, bool include_xmp_app1, bool include_icc_app2,
         bool include_iptc_app13, bool xmp_include_existing,
-        bool xmp_exiftool_gpsdatetime_alias,
+        bool xmp_exiftool_gpsdatetime_alias, bool xmp_project_exif,
+        bool xmp_project_iptc,
         TransferPolicyAction makernote_policy,
         TransferPolicyAction jumbf_policy, TransferPolicyAction c2pa_policy,
         uint64_t max_file_bytes, nb::object policy_obj,
@@ -1413,6 +1421,8 @@ namespace {
         prepare_options.prepare.include_xmp_app1   = include_xmp_app1;
         prepare_options.prepare.include_icc_app2   = include_icc_app2;
         prepare_options.prepare.include_iptc_app13 = include_iptc_app13;
+        prepare_options.prepare.xmp_project_exif   = xmp_project_exif;
+        prepare_options.prepare.xmp_project_iptc   = xmp_project_iptc;
         prepare_options.prepare.xmp_include_existing = xmp_include_existing;
         prepare_options.prepare.xmp_exiftool_gpsdatetime_alias
             = xmp_exiftool_gpsdatetime_alias;
@@ -2313,6 +2323,20 @@ namespace {
             jp2_box_summary.append(std::move(one));
         }
         out["jp2_box_summary"] = std::move(jp2_box_summary);
+
+        nb::list exr_attribute_summary;
+        for (size_t i = 0; i < exec.exr_attribute_summary.size(); ++i) {
+            nb::dict one;
+            one["name"] = nb::str(exec.exr_attribute_summary[i].name.c_str(),
+                                  exec.exr_attribute_summary[i].name.size());
+            one["type_name"] = nb::str(
+                exec.exr_attribute_summary[i].type_name.c_str(),
+                exec.exr_attribute_summary[i].type_name.size());
+            one["count"] = nb::int_(exec.exr_attribute_summary[i].count);
+            one["bytes"] = nb::int_(exec.exr_attribute_summary[i].bytes);
+            exr_attribute_summary.append(std::move(one));
+        }
+        out["exr_attribute_summary"] = std::move(exr_attribute_summary);
 
         nb::list bmff_item_summary;
         for (size_t i = 0; i < exec.bmff_item_summary.size(); ++i) {
@@ -3275,7 +3299,11 @@ NB_MODULE(_openmeta, m)
     nb::enum_<TransferPolicySubject>(m, "TransferPolicySubject")
         .value("MakerNote", TransferPolicySubject::MakerNote)
         .value("Jumbf", TransferPolicySubject::Jumbf)
-        .value("C2pa", TransferPolicySubject::C2pa);
+        .value("C2pa", TransferPolicySubject::C2pa)
+        .value("XmpExifProjection",
+               TransferPolicySubject::XmpExifProjection)
+        .value("XmpIptcProjection",
+               TransferPolicySubject::XmpIptcProjection);
 
     nb::enum_<TransferPolicyAction>(m, "TransferPolicyAction")
         .value("Keep", TransferPolicyAction::Keep)
@@ -3761,7 +3789,7 @@ NB_MODULE(_openmeta, m)
                bool include_flags, bool include_names) {
                 const XmpSidecarRequest request = make_xmp_sidecar_request(
                     XmpSidecarFormat::Lossless, max_output_bytes, max_entries,
-                    true, false, false, include_origin, include_wire,
+                    true, true, false, false, include_origin, include_wire,
                     include_flags, include_names);
                 return dump_xmp_sidecar_to_python(d->store, request);
             },
@@ -3772,26 +3800,29 @@ NB_MODULE(_openmeta, m)
             "dump_xmp_portable",
             [](std::shared_ptr<PyDocument> d, uint64_t max_output_bytes,
                uint32_t max_entries, bool include_exif,
-               bool include_existing_xmp, bool exiftool_gpsdatetime_alias) {
+               bool include_existing_xmp, bool exiftool_gpsdatetime_alias,
+               bool include_iptc) {
                 const XmpSidecarRequest request = make_xmp_sidecar_request(
                     XmpSidecarFormat::Portable, max_output_bytes, max_entries,
-                    include_exif, include_existing_xmp,
+                    include_exif, include_iptc, include_existing_xmp,
                     exiftool_gpsdatetime_alias, true, true, true, true);
                 return dump_xmp_sidecar_to_python(d->store, request);
             },
             "max_output_bytes"_a = 0ULL, "max_entries"_a = 0U,
             "include_exif"_a = true, "include_existing_xmp"_a = false,
-            "exiftool_gpsdatetime_alias"_a = false)
+            "exiftool_gpsdatetime_alias"_a = false, "include_iptc"_a = true)
         .def(
             "dump_xmp_sidecar",
             [](std::shared_ptr<PyDocument> d, XmpSidecarFormat format,
                uint64_t max_output_bytes, uint32_t max_entries,
                bool include_exif, bool include_existing_xmp,
                bool portable_exiftool_gpsdatetime_alias, bool include_origin,
-               bool include_wire, bool include_flags, bool include_names) {
+               bool include_wire, bool include_flags, bool include_names,
+               bool include_iptc) {
                 const XmpSidecarRequest request = make_xmp_sidecar_request(
                     format, max_output_bytes, max_entries, include_exif,
-                    include_existing_xmp, portable_exiftool_gpsdatetime_alias,
+                    include_iptc, include_existing_xmp,
+                    portable_exiftool_gpsdatetime_alias,
                     include_origin, include_wire, include_flags, include_names);
                 return dump_xmp_sidecar_to_python(d->store, request);
             },
@@ -3800,7 +3831,8 @@ NB_MODULE(_openmeta, m)
             "include_exif"_a = true, "include_existing_xmp"_a = false,
             "portable_exiftool_gpsdatetime_alias"_a = false,
             "include_origin"_a = true, "include_wire"_a = true,
-            "include_flags"_a = true, "include_names"_a = true)
+            "include_flags"_a = true, "include_names"_a = true,
+            "include_iptc"_a = true)
         .def(
             "extract_payload",
             [](PyDocument& d, uint32_t block_index, bool decompress,
@@ -4317,6 +4349,7 @@ NB_MODULE(_openmeta, m)
            bool decompress, bool include_exif_app1, bool include_xmp_app1,
            bool include_icc_app2, bool include_iptc_app13,
            bool xmp_include_existing, bool xmp_exiftool_gpsdatetime_alias,
+           bool xmp_project_exif, bool xmp_project_iptc,
            TransferPolicyAction makernote_policy,
            TransferPolicyAction jumbf_policy, TransferPolicyAction c2pa_policy,
            uint64_t max_file_bytes, nb::object policy_obj,
@@ -4339,7 +4372,8 @@ NB_MODULE(_openmeta, m)
                 decode_makernote, decode_embedded_containers, decompress,
                 include_exif_app1, include_xmp_app1, include_icc_app2,
                 include_iptc_app13, xmp_include_existing,
-                xmp_exiftool_gpsdatetime_alias, makernote_policy, jumbf_policy,
+                xmp_exiftool_gpsdatetime_alias, xmp_project_exif,
+                xmp_project_iptc, makernote_policy, jumbf_policy,
                 c2pa_policy, max_file_bytes, policy_obj, c2pa_signed_package,
                 c2pa_signed_logical_payload, c2pa_certificate_chain,
                 c2pa_private_key_reference, c2pa_signing_time,
@@ -4360,6 +4394,8 @@ NB_MODULE(_openmeta, m)
         "include_icc_app2"_a = true, "include_iptc_app13"_a = true,
         "xmp_include_existing"_a           = false,
         "xmp_exiftool_gpsdatetime_alias"_a = false,
+        "xmp_project_exif"_a             = true,
+        "xmp_project_iptc"_a             = true,
         "makernote_policy"_a               = TransferPolicyAction::Keep,
         "jumbf_policy"_a                   = TransferPolicyAction::Keep,
         "c2pa_policy"_a = TransferPolicyAction::Keep, "max_file_bytes"_a = 0ULL,
@@ -4388,6 +4424,7 @@ NB_MODULE(_openmeta, m)
            bool decompress, bool include_exif_app1, bool include_xmp_app1,
            bool include_icc_app2, bool include_iptc_app13,
            bool xmp_include_existing, bool xmp_exiftool_gpsdatetime_alias,
+           bool xmp_project_exif, bool xmp_project_iptc,
            TransferPolicyAction makernote_policy,
            TransferPolicyAction jumbf_policy, TransferPolicyAction c2pa_policy,
            uint64_t max_file_bytes, nb::object policy_obj,
@@ -4410,7 +4447,8 @@ NB_MODULE(_openmeta, m)
                 decode_makernote, decode_embedded_containers, decompress,
                 include_exif_app1, include_xmp_app1, include_icc_app2,
                 include_iptc_app13, xmp_include_existing,
-                xmp_exiftool_gpsdatetime_alias, makernote_policy, jumbf_policy,
+                xmp_exiftool_gpsdatetime_alias, xmp_project_exif,
+                xmp_project_iptc, makernote_policy, jumbf_policy,
                 c2pa_policy, max_file_bytes, policy_obj, c2pa_signed_package,
                 c2pa_signed_logical_payload, c2pa_certificate_chain,
                 c2pa_private_key_reference, c2pa_signing_time,
@@ -4431,6 +4469,8 @@ NB_MODULE(_openmeta, m)
         "include_icc_app2"_a = true, "include_iptc_app13"_a = true,
         "xmp_include_existing"_a           = false,
         "xmp_exiftool_gpsdatetime_alias"_a = false,
+        "xmp_project_exif"_a             = true,
+        "xmp_project_iptc"_a             = true,
         "makernote_policy"_a               = TransferPolicyAction::Keep,
         "jumbf_policy"_a                   = TransferPolicyAction::Keep,
         "c2pa_policy"_a = TransferPolicyAction::Keep, "max_file_bytes"_a = 0ULL,

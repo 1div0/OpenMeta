@@ -34,6 +34,12 @@ Source-side readiness is already strong:
 
 The main remaining work is now on the target side.
 
+The first public write-side sync controls are also in place:
+- generated XMP can explicitly suppress EXIF-derived projection
+- generated XMP can explicitly suppress IPTC-derived projection
+- prepared bundles record those resolved projection decisions alongside the
+  existing preservation policies
+
 ## Target Status Matrix
 
 | Target | Status | Current shape | Main limits |
@@ -45,7 +51,7 @@ The main remaining work is now on the target side.
 | JP2 | Bounded but real | Prepared bundle, compiled emit, bounded box rewrite/edit, file-helper roundtrip | `jp2h` synthesis is still out of scope |
 | JXL | Bounded but real | Prepared bundle, compiled emit, bounded box rewrite/edit, file-helper roundtrip | Still narrower than JPEG/TIFF |
 | HEIF / AVIF / CR3 | Bounded but real | Prepared bundle, compiled emit, bounded BMFF item/property edit, file-helper roundtrip | Not broad BMFF writer parity |
-| EXR | Bridge-only today | EXR-native attribute export and replay for host integrations | No first-class transfer target path yet |
+| EXR | Bounded but real | Prepared bundle, compiled emit, direct backend attribute emit, CLI/Python transfer surface | No file rewrite/edit path yet; current transfer payload is safe string attributes only |
 
 ## What Is Already Implemented
 
@@ -71,7 +77,8 @@ These support the public transfer flow:
 - prepared payload and package batch persistence
 - adapter views for host integrations
 - explicit time-patch support for fixed-width EXIF date/time fields
-- transfer-policy decisions for MakerNote, JUMBF, and C2PA
+- transfer-policy decisions for MakerNote, JUMBF, C2PA, EXIF-to-XMP
+  projection, and IPTC-to-XMP projection
 
 ### Current File-Helper Regression Coverage
 
@@ -163,21 +170,34 @@ Implemented as a bounded BMFF target family:
 
 ### EXR
 
-Implemented today as an integration bridge, not a first-class transfer target:
+Implemented today as a bounded first-class target:
+- `prepare_metadata_for_target(...)`
+- `prepare_metadata_for_target_file(...)`
+- `compile_prepared_transfer_execution(...)`
+- `emit_prepared_bundle_exr(...)`
+- `emit_prepared_transfer_compiled(...)`
+- public CLI/Python `--target-exr` transfer surface
+
+It still keeps the older integration bridge:
 - `build_exr_attribute_batch(...)`
 - `build_exr_attribute_part_spans(...)`
 - `build_exr_attribute_part_views(...)`
 - `replay_exr_attribute_batch(...)`
 
-This is useful for OpenEXR / OIIO-style hosts, but it is not yet a true
-`prepare -> compile -> emit/edit` path in the same sense as JPEG or TIFF.
+Current EXR transfer scope is intentionally conservative:
+- safe flattened `string` header attributes
+- backend emission through `ExrTransferEmitter`
+- no general file-based EXR metadata rewrite/edit path yet
+- no typed EXR attribute synthesis beyond the current safe string projection
 
 ## Transfer Policies
 
-The public transfer contract already models three policy subjects:
+The public transfer contract now models five policy subjects:
 - MakerNote
 - JUMBF
 - C2PA
+- XMP EXIF projection
+- XMP IPTC projection
 
 Each uses explicit `TransferPolicyAction` values:
 - `Keep`
@@ -187,6 +207,39 @@ Each uses explicit `TransferPolicyAction` values:
 
 Prepared bundles also record the resolved policy decisions and reasons so
 callers do not have to infer behavior from warning text alone.
+
+For the XMP projection subjects, the current public knobs are intentionally
+simple:
+- EXIF-derived properties can be mirrored into generated XMP or suppressed
+- IPTC-derived properties can be mirrored into generated XMP or suppressed
+
+This gives callers stable write-side control over the most important projection
+behavior without forcing them to reverse-engineer the transfer output.
+
+## Write-Side Sync Controls
+
+OpenMeta now has a bounded public sync-policy layer for generated XMP.
+
+Current controls:
+- `xmp_project_exif`
+- `xmp_project_iptc`
+- CLI:
+  - `--xmp-no-exif-projection`
+  - `--xmp-no-iptc-projection`
+
+Current behavior:
+- existing XMP can still be included independently
+- EXIF payload emission stays independent from EXIF-to-XMP projection
+- IPTC native carrier emission stays independent from IPTC-to-XMP projection
+- some targets without a native IPTC carrier can still use XMP as the bounded
+  fallback carrier when IPTC projection is enabled
+
+This is deliberately narrower than a full sync engine. It does not yet define:
+- full EXIF vs XMP precedence rules
+- MWG-style reconciliation
+- canonical sidecar vs embedded writeback policy
+- namespace-wide deduplication and normalization rules beyond the current
+  generated-XMP path
 
 ## Time Patch Plan
 
@@ -214,9 +267,10 @@ OpenMeta still does not present one fully mature, general-purpose metadata
 editor across all formats. The current transfer core is real, but still more
 bounded than ExifTool or Exiv2.
 
-### 2. EXIF / IPTC / XMP sync policy
+### 2. Broader EXIF / IPTC / XMP sync policy
 
-This remains one of the biggest product gaps for writer adoption.
+This remains one of the biggest product gaps for writer adoption, even though
+the first public projection controls now exist.
 
 Missing pieces include:
 - conflict resolution rules
@@ -229,11 +283,12 @@ Missing pieces include:
 Read parity is strong, but broad rewrite guarantees for vendor metadata are not
 yet at the level of mature editing tools.
 
-### 4. EXR direction
+### 4. EXR depth
 
-The architectural question is now explicit:
-- keep EXR as an attribute bridge only, or
-- promote it to a first-class transfer target
+The architectural question is now how far to deepen the current bounded EXR
+target:
+- keep EXR as a backend-emitter target plus bridge helpers, or
+- add a broader EXR file rewrite/edit path
 
 ## Recommended Next Priorities
 
@@ -246,7 +301,7 @@ The architectural question is now explicit:
    - JP2
    - JXL
    - bounded BMFF
-3. Decide the EXR direction explicitly.
+3. Decide how deep EXR should go beyond the current bounded target.
 4. Add more transfer-focused roundtrip and compare gates where they improve
    confidence for adopters.
 5. Add an explicit EXIF / IPTC / XMP sync policy.

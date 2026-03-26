@@ -46,6 +46,8 @@ struct XmpPortableOptions final {
     XmpDumpLimits limits;
     /// Include TIFF/EXIF/GPS derived properties.
     bool include_exif = true;
+    /// Include IPTC-IIM derived portable XMP properties.
+    bool include_iptc = true;
     /// Include \ref MetaKeyKind::XmpProperty entries already present in the store.
     ///
     /// \note Currently only simple `property_path` values are emitted (no `/` nesting).
@@ -82,6 +84,7 @@ struct XmpSidecarRequest final {
 
     /// Portable mode options (applied when format == Portable).
     bool include_exif                        = true;
+    bool include_iptc                        = true;
     bool include_existing_xmp                = false;
     bool portable_exiftool_gpsdatetime_alias = false;
 

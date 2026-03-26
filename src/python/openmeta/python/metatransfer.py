@@ -187,6 +187,8 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--portable", action="store_true", help="alias for --format portable")
     ap.add_argument("--lossless", action="store_true", help="alias for --format lossless")
     ap.add_argument("--xmp-include-existing", action="store_true", help="include existing decoded XMP in generated transfer XMP")
+    ap.add_argument("--xmp-no-exif-projection", action="store_true", help="do not mirror EXIF-derived properties into generated XMP")
+    ap.add_argument("--xmp-no-iptc-projection", action="store_true", help="do not mirror IPTC-derived properties into generated XMP")
     ap.add_argument("--xmp-exiftool-gpsdatetime-alias", action="store_true", help="emit exif:GPSDateTime alias for GPS time in portable mode")
     ap.add_argument("--no-exif", action="store_true", help="skip EXIF APP1 preparation")
     ap.add_argument("--no-xmp", action="store_true", help="skip XMP APP1 preparation")
@@ -215,6 +217,7 @@ def main(argv: list[str]) -> int:
     )
     ap.add_argument("--target-jxl", action="store_true", help="target JPEG XL metadata emit summary")
     ap.add_argument("--target-webp", action="store_true", help="target WebP metadata transfer")
+    ap.add_argument("--target-exr", action="store_true", help="target EXR metadata transfer")
     ap.add_argument("--target-png", action="store_true", help="target PNG metadata transfer")
     ap.add_argument("--target-jp2", action="store_true", help="target JP2 metadata transfer")
     ap.add_argument("--target-heif", action="store_true", help="target HEIF metadata transfer")
@@ -278,6 +281,7 @@ def main(argv: list[str]) -> int:
         + int(bool(args.target_tiff))
         + int(bool(args.target_jxl))
         + int(bool(args.target_webp))
+        + int(bool(args.target_exr))
         + int(bool(args.target_png))
         + int(bool(args.target_jp2))
         + int(bool(args.target_heif))
@@ -388,7 +392,7 @@ def main(argv: list[str]) -> int:
         ap.print_help(sys.stderr)
         return 2
     if target_count > 1:
-        ap.error("--target-jpeg, --target-tiff, --target-png, --target-jp2, --target-jxl, --target-webp, --target-heif, --target-avif, and --target-cr3 are mutually exclusive")
+        ap.error("--target-jpeg, --target-tiff, --target-exr, --target-png, --target-jp2, --target-jxl, --target-webp, --target-heif, --target-avif, and --target-cr3 are mutually exclusive")
     if (
         args.jpeg_c2pa_signed
         or args.c2pa_manifest_output
@@ -510,6 +514,8 @@ def main(argv: list[str]) -> int:
     rc = 0
     if args.target_tiff:
         target_format = openmeta.TransferTargetFormat.Tiff
+    elif args.target_exr:
+        target_format = openmeta.TransferTargetFormat.Exr
     elif args.target_png:
         target_format = openmeta.TransferTargetFormat.Png
     elif args.target_jp2:
@@ -727,6 +733,8 @@ def main(argv: list[str]) -> int:
             include_xmp_app1=not args.no_xmp,
             include_icc_app2=not args.no_icc,
             include_iptc_app13=not args.no_iptc,
+            xmp_project_exif=not args.xmp_no_exif_projection,
+            xmp_project_iptc=not args.xmp_no_iptc_projection,
             xmp_include_existing=bool(args.xmp_include_existing),
             xmp_exiftool_gpsdatetime_alias=bool(args.xmp_exiftool_gpsdatetime_alias),
             makernote_policy=makernote_policy,
@@ -1257,6 +1265,11 @@ def main(argv: list[str]) -> int:
         for c in probe["png_chunk_summary"]:
             print(
                 f"  png_chunk {str(c['type'])} count={int(c['count'])} bytes={int(c['bytes'])}"
+            )
+        for a in probe["exr_attribute_summary"]:
+            print(
+                f"  exr_attribute {str(a['name'])} type={str(a['type_name'])} "
+                f"count={int(a['count'])} bytes={int(a['bytes'])}"
             )
         for b in probe["jp2_box_summary"]:
             print(

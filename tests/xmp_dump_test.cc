@@ -2213,4 +2213,40 @@ TEST(XmpDump, PortableMapsIptcToPhotoshopAndIptcCoreProperties)
     EXPECT_NE(s.find("<rdf:li>Museum</rdf:li>"), std::string_view::npos);
 }
 
+TEST(XmpDump, PortableCanSuppressIptcProjection)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, kInvalidBlockId);
+
+    const std::string category = "ART";
+    Entry e0;
+    e0.key          = make_iptc_dataset_key(2U, 15U);
+    e0.value        = make_bytes(store.arena(), std::span<const std::byte>(
+                                             reinterpret_cast<const std::byte*>(
+                                                 category.data()),
+                                             category.size()));
+    e0.origin.block = block;
+    e0.origin.order_in_block = 0U;
+    (void)store.add_entry(e0);
+    store.finalize();
+
+    XmpPortableOptions opts;
+    opts.include_exif         = false;
+    opts.include_iptc         = false;
+    opts.include_existing_xmp = false;
+
+    std::vector<std::byte> out(4096);
+    const XmpDumpResult r
+        = dump_xmp_portable(store, std::span<std::byte>(out.data(), out.size()),
+                            opts);
+    ASSERT_EQ(r.status, XmpDumpStatus::Ok);
+
+    const std::string_view s(reinterpret_cast<const char*>(out.data()),
+                             static_cast<size_t>(r.written));
+    EXPECT_EQ(s.find("<photoshop:Category>ART</photoshop:Category>"),
+              std::string_view::npos);
+    EXPECT_EQ(s.find("<Iptc4xmpCore:"), std::string_view::npos);
+}
+
 }  // namespace openmeta

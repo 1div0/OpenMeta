@@ -80,13 +80,22 @@ Current target status:
 | JP2 | Bounded but real |
 | JXL | Bounded but real |
 | HEIF / AVIF / CR3 | Bounded but real |
-| EXR | Bridge-only today |
+| EXR | Bounded but real |
 
 In practice:
 - JPEG and TIFF are the strongest transfer targets today.
-- PNG, WebP, JP2, JXL, and bounded BMFF targets have real emit/edit paths.
-- EXR currently has an attribute bridge for host integrations, not a full
-  first-class transfer path.
+- PNG, WebP, JP2, JXL, bounded BMFF, and EXR all have real first-class
+  transfer entry points.
+- EXR is still narrower than the container-edit targets: it emits safe string
+  header attributes through the transfer core, but it does not rewrite full
+  EXR files yet.
+- Writer-side sync behavior is now partially explicit instead of implicit:
+  generated XMP can independently keep or suppress EXIF-derived and
+  IPTC-derived projection during transfer preparation.
+- Prepared bundles record resolved policy decisions for MakerNote, JUMBF,
+  C2PA, EXIF-to-XMP projection, and IPTC-to-XMP projection.
+- This is still not a full MWG-style sync engine. OpenMeta does not yet try to
+  solve all EXIF/IPTC/XMP conflict resolution or canonical writeback policy.
 
 For transfer details, see
 [docs/metadata_transfer_plan.md](docs/metadata_transfer_plan.md).

@@ -3643,26 +3643,28 @@ dump_xmp_portable(const MetaStore& store, std::span<std::byte> out,
 
     // Pass 3: IPTC-IIM mappings (dc/photoshop/Iptc4xmpCore), preserving source
     // order.
-    for (size_t i = 0; i < es.size(); ++i) {
-        if (options.limits.max_entries != 0U
-            && emitted >= options.limits.max_entries) {
-            w.limit_hit = true;
-            break;
-        }
+    if (options.include_iptc) {
+        for (size_t i = 0; i < es.size(); ++i) {
+            if (options.limits.max_entries != 0U
+                && emitted >= options.limits.max_entries) {
+                w.limit_hit = true;
+                break;
+            }
 
-        const Entry& e = es[i];
-        if (any(e.flags, EntryFlags::Deleted)) {
-            continue;
-        }
+            const Entry& e = es[i];
+            if (any(e.flags, EntryFlags::Deleted)) {
+                continue;
+            }
 
-        if (e.key.kind != MetaKeyKind::IptcDataset) {
-            continue;
+            if (e.key.kind != MetaKeyKind::IptcDataset) {
+                continue;
+            }
+            if (process_portable_iptc_entry(
+                    arena, e, iptc_order, &w, &emitted_keys, &indexed)) {
+                emitted += 1U;
+            }
+            iptc_order += 1U;
         }
-        if (process_portable_iptc_entry(arena, e, iptc_order, &w, &emitted_keys,
-                                        &indexed)) {
-            emitted += 1U;
-        }
-        iptc_order += 1U;
     }
 
     emit_portable_indexed_groups(&w, arena, &indexed, &emitted_keys,
@@ -3754,6 +3756,7 @@ make_xmp_sidecar_options(const XmpSidecarRequest& request) noexcept
 
     options.portable.limits               = request.limits;
     options.portable.include_exif         = request.include_exif;
+    options.portable.include_iptc         = request.include_iptc;
     options.portable.include_existing_xmp = request.include_existing_xmp;
     options.portable.exiftool_gpsdatetime_alias
         = request.portable_exiftool_gpsdatetime_alias;

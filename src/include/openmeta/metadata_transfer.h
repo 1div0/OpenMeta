@@ -113,6 +113,8 @@ enum class TransferPolicySubject : uint8_t {
     MakerNote,
     Jumbf,
     C2pa,
+    XmpExifProjection,
+    XmpIptcProjection,
 };
 
 /// Requested/effective action for a metadata family during transfer.
@@ -408,6 +410,8 @@ struct PrepareTransferRequest final {
     bool include_icc_app2               = true;
     bool include_iptc_app13             = true;
     bool xmp_portable                   = true;
+    bool xmp_project_exif               = true;
+    bool xmp_project_iptc               = true;
     bool xmp_include_existing           = true;
     bool xmp_exiftool_gpsdatetime_alias = false;
 };
@@ -731,6 +735,17 @@ struct PreparedJp2EmitPlan final {
     std::vector<PreparedJp2EmitOp> ops;
 };
 
+/// One precompiled EXR emit operation (prepared block -> EXR attribute).
+struct PreparedExrEmitOp final {
+    uint32_t block_index = 0;
+};
+
+/// Reusable precompiled EXR emit plan for a prepared transfer bundle.
+struct PreparedExrEmitPlan final {
+    uint32_t contract_version = kMetadataTransferContractVersion;
+    std::vector<PreparedExrEmitOp> ops;
+};
+
 /// Kind of precompiled ISO-BMFF metadata emit operation.
 enum class PreparedBmffEmitKind : uint8_t {
     Item,
@@ -770,6 +785,7 @@ struct PreparedTransferExecutionPlan final {
     PreparedWebpEmitPlan webp_emit;
     PreparedPngEmitPlan png_emit;
     PreparedJp2EmitPlan jp2_emit;
+    PreparedExrEmitPlan exr_emit;
     PreparedBmffEmitPlan bmff_emit;
 };
 
@@ -781,9 +797,10 @@ enum class TransferAdapterOpKind : uint8_t {
     JxlIccProfile,
     WebpChunk,
     PngChunk,
+    Jp2Box,
+    ExrAttribute,
     BmffItem,
     BmffProperty,
-    Jp2Box,
 };
 
 /// One compiled adapter-facing operation derived from a prepared bundle.
@@ -980,6 +997,14 @@ struct EmittedJp2BoxSummary final {
     uint64_t bytes           = 0;
 };
 
+/// One emitted EXR attribute summary entry.
+struct EmittedExrAttributeSummary final {
+    std::string name;
+    std::string type_name;
+    uint32_t count = 0;
+    uint64_t bytes = 0;
+};
+
 /// One emitted ISO-BMFF metadata item summary entry.
 struct EmittedBmffItemSummary final {
     uint32_t item_type = 0U;
@@ -1093,6 +1118,7 @@ struct ExecutePreparedTransferResult final {
     std::vector<EmittedWebpChunkSummary> webp_chunk_summary;
     std::vector<EmittedPngChunkSummary> png_chunk_summary;
     std::vector<EmittedJp2BoxSummary> jp2_box_summary;
+    std::vector<EmittedExrAttributeSummary> exr_attribute_summary;
     std::vector<EmittedBmffItemSummary> bmff_item_summary;
     std::vector<EmittedBmffPropertySummary> bmff_property_summary;
     bool tiff_commit          = false;
@@ -1250,6 +1276,14 @@ struct ExrPreparedAttribute final {
     bool is_opaque = false;
 };
 
+/// Zero-copy EXR attribute view for prepared transfer emission.
+struct ExrPreparedAttributeView final {
+    std::string_view name;
+    std::string_view type_name;
+    std::span<const std::byte> value;
+    bool is_opaque = false;
+};
+
 /**
  * \brief Backend contract for OpenEXR header attribute emission.
  */
@@ -1259,6 +1293,16 @@ public:
     virtual TransferStatus
     set_attribute(const ExrPreparedAttribute& attr) noexcept
         = 0;
+    virtual TransferStatus
+    set_attribute_view(const ExrPreparedAttributeView& attr) noexcept
+    {
+        ExrPreparedAttribute owned;
+        owned.name.assign(attr.name.data(), attr.name.size());
+        owned.type_name.assign(attr.type_name.data(), attr.type_name.size());
+        owned.value.assign(attr.value.begin(), attr.value.end());
+        owned.is_opaque = attr.is_opaque;
+        return set_attribute(owned);
+    }
 };
 
 /// \brief Draft bundle preparation entry point.
@@ -1370,6 +1414,21 @@ emit_prepared_bundle_png(const PreparedTransferBundle& bundle,
 EmitTransferResult
 emit_prepared_bundle_jp2(const PreparedTransferBundle& bundle,
                          Jp2TransferEmitter& emitter,
+                         const EmitTransferOptions& options
+                         = EmitTransferOptions {}) noexcept;
+
+/**
+ * \brief Emit prepared metadata blocks into an EXR backend.
+ *
+ * Route mapping:
+ * - `exr:attribute-string` -> EXR `string` header attribute
+ *
+ * This first-class EXR target is intentionally bounded to safe flattened
+ * string attributes. It does not rewrite complete EXR files.
+ */
+EmitTransferResult
+emit_prepared_bundle_exr(const PreparedTransferBundle& bundle,
+                         ExrTransferEmitter& emitter,
                          const EmitTransferOptions& options
                          = EmitTransferOptions {}) noexcept;
 
@@ -1489,6 +1548,15 @@ compile_prepared_bundle_jp2(const PreparedTransferBundle& bundle,
                             = EmitTransferOptions {}) noexcept;
 
 /**
+ * \brief Compile a reusable EXR emit plan from a prepared bundle.
+ */
+EmitTransferResult
+compile_prepared_bundle_exr(const PreparedTransferBundle& bundle,
+                            PreparedExrEmitPlan* out_plan,
+                            const EmitTransferOptions& options
+                            = EmitTransferOptions {}) noexcept;
+
+/**
  * \brief Compile a reusable ISO-BMFF metadata emit plan from a prepared
  * bundle.
  */
@@ -1525,6 +1593,16 @@ EmitTransferResult
 emit_prepared_bundle_jp2_compiled(const PreparedTransferBundle& bundle,
                                   const PreparedJp2EmitPlan& plan,
                                   Jp2TransferEmitter& emitter,
+                                  const EmitTransferOptions& options
+                                  = EmitTransferOptions {}) noexcept;
+
+/**
+ * \brief Emit a prepared bundle using a precompiled EXR emit plan.
+ */
+EmitTransferResult
+emit_prepared_bundle_exr_compiled(const PreparedTransferBundle& bundle,
+                                  const PreparedExrEmitPlan& plan,
+                                  ExrTransferEmitter& emitter,
                                   const EmitTransferOptions& options
                                   = EmitTransferOptions {}) noexcept;
 
@@ -1896,6 +1974,18 @@ ExecutePreparedTransferResult
 emit_prepared_transfer_compiled(
     PreparedTransferBundle* bundle, const PreparedTransferExecutionPlan& plan,
     Jp2TransferEmitter& emitter,
+    std::span<const TimePatchView> time_patches = {},
+    const ApplyTimePatchOptions& time_patch     = ApplyTimePatchOptions {},
+    uint32_t emit_repeat                        = 1U) noexcept;
+
+/**
+ * \brief Hot-path helper: apply non-owning time patches and emit through an
+ * EXR backend.
+ */
+ExecutePreparedTransferResult
+emit_prepared_transfer_compiled(
+    PreparedTransferBundle* bundle, const PreparedTransferExecutionPlan& plan,
+    ExrTransferEmitter& emitter,
     std::span<const TimePatchView> time_patches = {},
     const ApplyTimePatchOptions& time_patch     = ApplyTimePatchOptions {},
     uint32_t emit_repeat                        = 1U) noexcept;

@@ -3,6 +3,7 @@
 #include "openmeta/container_payload.h"
 #include "openmeta/jumbf_decode.h"
 #include "openmeta/mapped_file.h"
+#include "openmeta/oiio_adapter.h"
 #include "openmeta/xmp_dump.h"
 
 #include <algorithm>
@@ -633,6 +634,102 @@ namespace {
             return true;
         }
         return false;
+    }
+
+    static bool read_u64le(std::span<const std::byte> bytes, size_t* io_off,
+                           uint64_t* out) noexcept;
+
+    static void append_blob_le(std::vector<std::byte>* out,
+                               std::span<const std::byte> bytes) noexcept;
+
+    static void append_string_le(std::vector<std::byte>* out,
+                                 std::string_view value) noexcept;
+
+    static bool exr_string_attribute_from_route(
+        std::string_view route) noexcept
+    {
+        return route == "exr:attribute-string";
+    }
+
+    static void serialize_exr_string_attribute_payload(
+        std::string_view name, std::string_view value,
+        std::vector<std::byte>* out) noexcept
+    {
+        if (!out) {
+            return;
+        }
+        out->clear();
+        out->reserve(16U + name.size() + value.size());
+        append_string_le(out, name);
+        append_blob_le(
+            out,
+            std::span<const std::byte>(
+                reinterpret_cast<const std::byte*>(value.data()),
+                value.size()));
+    }
+
+    static bool parse_exr_string_attribute_payload_view(
+        std::span<const std::byte> bytes, std::string_view* out_name,
+        std::span<const std::byte>* out_value) noexcept
+    {
+        size_t off        = 0U;
+        uint64_t name_len = 0U;
+        if (!read_u64le(bytes, &off, &name_len)) {
+            return false;
+        }
+        if (name_len > bytes.size() - off) {
+            return false;
+        }
+        const size_t name_size = static_cast<size_t>(name_len);
+        if (out_name) {
+            *out_name = std::string_view(
+                reinterpret_cast<const char*>(bytes.data() + off), name_size);
+        }
+        off += name_size;
+
+        uint64_t value_len = 0U;
+        if (!read_u64le(bytes, &off, &value_len)) {
+            return false;
+        }
+        if (value_len > bytes.size() - off) {
+            return false;
+        }
+        const size_t value_size = static_cast<size_t>(value_len);
+        if (out_value) {
+            *out_value = bytes.subspan(off, value_size);
+        }
+        off += value_size;
+        return off == bytes.size();
+    }
+
+    static bool exr_attribute_name_exists(
+        const std::vector<std::string>& used_names,
+        std::string_view candidate) noexcept
+    {
+        for (size_t i = 0; i < used_names.size(); ++i) {
+            if (used_names[i] == candidate) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static std::string make_unique_exr_attribute_name(
+        const std::vector<std::string>& used_names,
+        std::string_view base_name) noexcept
+    {
+        if (!exr_attribute_name_exists(used_names, base_name)) {
+            return std::string(base_name);
+        }
+        for (uint32_t suffix = 2U; suffix != 0U; ++suffix) {
+            std::string candidate(base_name);
+            candidate.push_back('#');
+            candidate += std::to_string(suffix);
+            if (!exr_attribute_name_exists(used_names, candidate)) {
+                return candidate;
+            }
+        }
+        return std::string(base_name);
     }
 
     static bool transfer_target_is_bmff(TransferTargetFormat target) noexcept
@@ -1957,6 +2054,35 @@ namespace {
             }
         }
         return false;
+    }
+
+    static uint32_t count_kind_entries(const MetaStore& store,
+                                       MetaKeyKind kind) noexcept
+    {
+        uint32_t count = 0U;
+        for (const Entry& e : store.entries()) {
+            if (any(e.flags, EntryFlags::Deleted) || e.key.kind != kind) {
+                continue;
+            }
+            count += 1U;
+        }
+        return count;
+    }
+
+    static bool transfer_target_supports_xmp_blocks(
+        TransferTargetFormat target_format) noexcept
+    {
+        if (target_format == TransferTargetFormat::Exr) {
+            return false;
+        }
+        return true;
+    }
+
+    static bool transfer_target_has_native_iptc_carrier(
+        TransferTargetFormat target_format) noexcept
+    {
+        return target_format == TransferTargetFormat::Jpeg
+               || target_format == TransferTargetFormat::Tiff;
     }
 
     static uint32_t count_makernote_entries(const MetaStore& store) noexcept
@@ -7253,6 +7379,7 @@ prepare_metadata_for_target_impl(const MetaStore& store,
 
     if (request.target_format != TransferTargetFormat::Jpeg
         && request.target_format != TransferTargetFormat::Tiff
+        && request.target_format != TransferTargetFormat::Exr
         && request.target_format != TransferTargetFormat::Png
         && request.target_format != TransferTargetFormat::Jp2
         && request.target_format != TransferTargetFormat::Jxl
@@ -7262,13 +7389,17 @@ prepare_metadata_for_target_impl(const MetaStore& store,
         r.code   = PrepareTransferCode::UnsupportedTargetFormat;
         r.errors = 1U;
         r.message
-            = "prepare currently supports jpeg, tiff, png, jxl, webp, and bmff targets";
+            = "prepare currently supports jpeg, tiff, exr, png, jxl, webp, and bmff targets";
         *out_bundle = std::move(bundle);
         return r;
     }
 
-    const bool has_exif = has_kind(store, MetaKeyKind::ExifTag);
-    const bool has_iptc = has_kind(store, MetaKeyKind::IptcDataset)
+    const uint32_t exif_entry_count = count_kind_entries(store,
+                                                         MetaKeyKind::ExifTag);
+    const uint32_t iptc_dataset_count = count_kind_entries(
+        store, MetaKeyKind::IptcDataset);
+    const bool has_exif = exif_entry_count > 0U;
+    const bool has_iptc = iptc_dataset_count > 0U
                           || has_kind(store, MetaKeyKind::PhotoshopIrb);
     const bool has_icc = has_kind(store, MetaKeyKind::IccHeaderField)
                          || has_kind(store, MetaKeyKind::IccTag);
@@ -7550,6 +7681,128 @@ prepare_metadata_for_target_impl(const MetaStore& store,
                                                           c2pa_count,
                                                           c2pa_source_kind);
 
+    if (transfer_target_supports_xmp_blocks(request.target_format)) {
+        if (exif_entry_count > 0U) {
+            const TransferPolicyAction requested_xmp_exif
+                = request.xmp_project_exif ? TransferPolicyAction::Keep
+                                           : TransferPolicyAction::Drop;
+            TransferPolicyAction effective_xmp_exif = requested_xmp_exif;
+            TransferPolicyReason xmp_exif_reason
+                = TransferPolicyReason::ProjectedPayload;
+            std::string_view xmp_exif_message
+                = "exif tags will be projected into generated xmp";
+            if (!request.xmp_project_exif) {
+                xmp_exif_reason  = TransferPolicyReason::ExplicitDrop;
+                xmp_exif_message = "exif-to-xmp projection disabled by request";
+            } else if (!request.include_xmp_app1) {
+                effective_xmp_exif = TransferPolicyAction::Drop;
+                xmp_exif_reason    = TransferPolicyReason::CarrierDisabled;
+                xmp_exif_message = "exif-to-xmp projection requires generated "
+                                   "xmp; xmp output is disabled";
+            }
+            append_policy_decision(&bundle,
+                                   TransferPolicySubject::XmpExifProjection,
+                                   requested_xmp_exif, effective_xmp_exif,
+                                   xmp_exif_reason, exif_entry_count,
+                                   xmp_exif_message);
+        }
+
+        if (iptc_dataset_count > 0U) {
+            const bool native_iptc
+                = transfer_target_has_native_iptc_carrier(request.target_format);
+            const bool fallback_xmp
+                = !native_iptc && request.include_iptc_app13
+                  && request.xmp_project_iptc;
+            const TransferPolicyAction requested_xmp_iptc
+                = request.xmp_project_iptc ? TransferPolicyAction::Keep
+                                           : TransferPolicyAction::Drop;
+            TransferPolicyAction effective_xmp_iptc = requested_xmp_iptc;
+            TransferPolicyReason xmp_iptc_reason
+                = TransferPolicyReason::ProjectedPayload;
+            std::string_view xmp_iptc_message
+                = "iptc datasets will be projected into generated xmp";
+            if (!request.xmp_project_iptc) {
+                xmp_iptc_reason  = TransferPolicyReason::ExplicitDrop;
+                xmp_iptc_message = "iptc-to-xmp projection disabled by request";
+            } else if (request.include_xmp_app1) {
+                if (native_iptc) {
+                    xmp_iptc_message
+                        = "iptc datasets will also be mirrored into generated "
+                          "xmp";
+                } else {
+                    xmp_iptc_message
+                        = "iptc datasets will be transferred via generated "
+                          "xmp because target has no native iptc carrier";
+                }
+            } else if (fallback_xmp) {
+                xmp_iptc_message
+                    = "iptc datasets will be transferred via fallback xmp "
+                      "because target has no native iptc carrier";
+            } else {
+                effective_xmp_iptc = TransferPolicyAction::Drop;
+                xmp_iptc_reason    = TransferPolicyReason::CarrierDisabled;
+                xmp_iptc_message
+                    = "iptc-to-xmp projection requires generated xmp for "
+                      "this target; xmp output is disabled";
+            }
+            append_policy_decision(&bundle,
+                                   TransferPolicySubject::XmpIptcProjection,
+                                   requested_xmp_iptc, effective_xmp_iptc,
+                                   xmp_iptc_reason, iptc_dataset_count,
+                                   xmp_iptc_message);
+        }
+    }
+
+    if (request.target_format == TransferTargetFormat::Exr) {
+        OiioAdapterRequest oiio_request;
+        oiio_request.name_policy            = ExportNamePolicy::ExifToolAlias;
+        oiio_request.include_makernotes     = true;
+        oiio_request.include_origin         = false;
+        oiio_request.include_flags          = false;
+        oiio_request.max_value_bytes        = 4096U;
+        oiio_request.include_empty          = false;
+        oiio_request.include_normalized_ccm = false;
+
+        std::vector<OiioAttribute> attrs;
+        InteropSafetyError safety_error;
+        const InteropSafetyStatus safety = collect_oiio_attributes_safe(
+            store, &attrs, oiio_request, &safety_error);
+        if (safety != InteropSafetyStatus::Ok) {
+            r.status = TransferStatus::Unsupported;
+            r.code   = PrepareTransferCode::RequestedMetadataNotSerializable;
+            r.errors = 1U;
+            r.message
+                = safety_error.message.empty()
+                      ? "exr attribute projection failed"
+                      : safety_error.message;
+            *out_bundle = std::move(bundle);
+            return r;
+        }
+
+        std::vector<std::string> used_names;
+        used_names.reserve(attrs.size());
+        uint32_t order = next_prepared_block_order(bundle, 100U);
+        for (size_t i = 0; i < attrs.size(); ++i) {
+            const std::string unique_name = make_unique_exr_attribute_name(
+                used_names, attrs[i].name);
+            used_names.push_back(unique_name);
+
+            PreparedTransferBlock block;
+            block.kind  = TransferBlockKind::ExrAttribute;
+            block.order = order;
+            block.route = "exr:attribute-string";
+            serialize_exr_string_attribute_payload(unique_name, attrs[i].value,
+                                                   &block.payload);
+            bundle.blocks.push_back(std::move(block));
+            order += 1U;
+        }
+
+        *out_bundle = std::move(bundle);
+        r.status    = TransferStatus::Ok;
+        r.code      = PrepareTransferCode::None;
+        return r;
+    }
+
     if (request.include_exif_app1 && has_exif) {
         ExifPackBuild exif_build
             = build_jpeg_exif_app1_payload(store, effective_makernote);
@@ -7651,7 +7904,8 @@ prepare_metadata_for_target_impl(const MetaStore& store,
         XmpSidecarRequest xmp_req;
         xmp_req.format       = request.xmp_portable ? XmpSidecarFormat::Portable
                                                     : XmpSidecarFormat::Lossless;
-        xmp_req.include_exif = true;
+        xmp_req.include_exif = request.xmp_project_exif;
+        xmp_req.include_iptc = request.xmp_project_iptc;
         xmp_req.include_existing_xmp = request.xmp_include_existing;
         xmp_req.portable_exiftool_gpsdatetime_alias
             = request.xmp_exiftool_gpsdatetime_alias;
@@ -7694,6 +7948,30 @@ prepare_metadata_for_target_impl(const MetaStore& store,
             }
             bundle.blocks.push_back(std::move(b));
         } else if (xr.status != XmpDumpStatus::Ok) {
+            PreparedTransferPolicyDecision* exif_xmp_decision
+                = find_policy_decision(&bundle,
+                                       TransferPolicySubject::XmpExifProjection);
+            PreparedTransferPolicyDecision* iptc_xmp_decision
+                = find_policy_decision(&bundle,
+                                       TransferPolicySubject::XmpIptcProjection);
+            if (exif_xmp_decision
+                && exif_xmp_decision->effective == TransferPolicyAction::Keep) {
+                exif_xmp_decision->effective = TransferPolicyAction::Drop;
+                exif_xmp_decision->reason
+                    = TransferPolicyReason::TargetSerializationUnavailable;
+                exif_xmp_decision->message
+                    = "generated xmp packet could not serialize requested "
+                      "exif projection";
+            }
+            if (iptc_xmp_decision
+                && iptc_xmp_decision->effective == TransferPolicyAction::Keep) {
+                iptc_xmp_decision->effective = TransferPolicyAction::Drop;
+                iptc_xmp_decision->reason
+                    = TransferPolicyReason::TargetSerializationUnavailable;
+                iptc_xmp_decision->message
+                    = "generated xmp packet could not serialize requested "
+                      "iptc projection";
+            }
             if (r.code == PrepareTransferCode::None) {
                 r.code = PrepareTransferCode::XmpPackFailed;
             }
@@ -7989,10 +8267,11 @@ prepare_metadata_for_target_impl(const MetaStore& store,
                     "tiff iptc packer could not serialize current iptc set");
             }
         } else {
-            if (!request.include_xmp_app1) {
+            if (!request.include_xmp_app1 && request.xmp_project_iptc) {
                 XmpSidecarRequest xmp_req;
                 xmp_req.format               = XmpSidecarFormat::Portable;
                 xmp_req.include_exif         = false;
+                xmp_req.include_iptc         = true;
                 xmp_req.include_existing_xmp = false;
 
                 std::vector<std::byte> xmp_packet;
@@ -8027,6 +8306,22 @@ prepare_metadata_for_target_impl(const MetaStore& store,
                     }
                     bundle.blocks.push_back(std::move(b));
                 } else {
+                    PreparedTransferPolicyDecision* iptc_xmp_decision
+                        = find_policy_decision(
+                            &bundle,
+                            TransferPolicySubject::XmpIptcProjection);
+                    if (iptc_xmp_decision
+                        && iptc_xmp_decision->effective
+                               == TransferPolicyAction::Keep) {
+                        iptc_xmp_decision->effective
+                            = TransferPolicyAction::Drop;
+                        iptc_xmp_decision->reason
+                            = TransferPolicyReason::
+                                TargetSerializationUnavailable;
+                        iptc_xmp_decision->message
+                            = "fallback xmp packet could not serialize "
+                              "requested iptc projection";
+                    }
                     std::string_view message
                         = "jxl iptc projection to xml could not serialize "
                           "current iptc set";
@@ -9989,6 +10284,252 @@ emit_prepared_bundle_jp2_compiled(const PreparedTransferBundle& bundle,
             r.message = "jp2 emitter close_boxes failed";
             return r;
         }
+        r.status = TransferStatus::Ok;
+        r.code   = EmitTransferCode::None;
+    }
+    return r;
+}
+
+EmitTransferResult
+emit_prepared_bundle_exr(const PreparedTransferBundle& bundle,
+                         ExrTransferEmitter& emitter,
+                         const EmitTransferOptions& options) noexcept
+{
+    EmitTransferResult r;
+    if (bundle.target_format != TransferTargetFormat::Exr) {
+        r.status  = TransferStatus::Unsupported;
+        r.code    = EmitTransferCode::InvalidArgument;
+        r.errors  = 1U;
+        r.message = "bundle target format is not exr";
+        return r;
+    }
+
+    for (uint32_t i = 0; i < bundle.blocks.size(); ++i) {
+        const PreparedTransferBlock& block = bundle.blocks[i];
+        if (options.skip_empty_payloads && block.payload.empty()) {
+            r.skipped += 1U;
+            continue;
+        }
+        if (!exr_string_attribute_from_route(block.route)) {
+            r.status = TransferStatus::Unsupported;
+            if (r.code == EmitTransferCode::None) {
+                r.code = EmitTransferCode::UnsupportedRoute;
+            }
+            r.errors += 1U;
+            r.failed_block_index = i;
+            r.message            = "unsupported exr route: " + block.route;
+            if (options.stop_on_error) {
+                return r;
+            }
+            continue;
+        }
+
+        std::string_view name;
+        std::span<const std::byte> value;
+        if (!parse_exr_string_attribute_payload_view(
+                std::span<const std::byte>(block.payload.data(),
+                                           block.payload.size()),
+                &name, &value)) {
+            r.status = TransferStatus::Malformed;
+            if (r.code == EmitTransferCode::None) {
+                r.code = EmitTransferCode::InvalidPayload;
+            }
+            r.errors += 1U;
+            r.failed_block_index = i;
+            r.message            = "malformed exr attribute payload";
+            if (options.stop_on_error) {
+                return r;
+            }
+            continue;
+        }
+
+        ExrPreparedAttributeView attr;
+        attr.name      = name;
+        attr.type_name = "string";
+        attr.value     = value;
+        attr.is_opaque = false;
+        const TransferStatus st = emitter.set_attribute_view(attr);
+        if (st != TransferStatus::Ok) {
+            r.status = st;
+            if (r.code == EmitTransferCode::None) {
+                r.code = EmitTransferCode::BackendWriteFailed;
+            }
+            r.errors += 1U;
+            r.failed_block_index = i;
+            r.message            = "exr emitter set_attribute_view failed";
+            if (options.stop_on_error) {
+                return r;
+            }
+            continue;
+        }
+        r.emitted += 1U;
+    }
+
+    if (r.errors == 0U) {
+        r.status = TransferStatus::Ok;
+        r.code   = EmitTransferCode::None;
+    }
+    return r;
+}
+
+EmitTransferResult
+compile_prepared_bundle_exr(const PreparedTransferBundle& bundle,
+                            PreparedExrEmitPlan* out_plan,
+                            const EmitTransferOptions& options) noexcept
+{
+    EmitTransferResult r;
+    if (!out_plan) {
+        r.status  = TransferStatus::InvalidArgument;
+        r.code    = EmitTransferCode::InvalidArgument;
+        r.errors  = 1U;
+        r.message = "out_plan is null";
+        return r;
+    }
+    out_plan->contract_version = bundle.contract_version;
+    out_plan->ops.clear();
+
+    if (bundle.target_format != TransferTargetFormat::Exr) {
+        r.status  = TransferStatus::Unsupported;
+        r.code    = EmitTransferCode::InvalidArgument;
+        r.errors  = 1U;
+        r.message = "bundle target format is not exr";
+        return r;
+    }
+
+    for (uint32_t i = 0; i < bundle.blocks.size(); ++i) {
+        const PreparedTransferBlock& block = bundle.blocks[i];
+        if (options.skip_empty_payloads && block.payload.empty()) {
+            r.skipped += 1U;
+            continue;
+        }
+        if (!exr_string_attribute_from_route(block.route)) {
+            r.status = TransferStatus::Unsupported;
+            if (r.code == EmitTransferCode::None) {
+                r.code = EmitTransferCode::UnsupportedRoute;
+            }
+            r.errors += 1U;
+            r.failed_block_index = i;
+            r.message            = "unsupported exr route: " + block.route;
+            if (options.stop_on_error) {
+                return r;
+            }
+            continue;
+        }
+        if (!parse_exr_string_attribute_payload_view(
+                std::span<const std::byte>(block.payload.data(),
+                                           block.payload.size()),
+                nullptr, nullptr)) {
+            r.status = TransferStatus::Malformed;
+            if (r.code == EmitTransferCode::None) {
+                r.code = EmitTransferCode::InvalidPayload;
+            }
+            r.errors += 1U;
+            r.failed_block_index = i;
+            r.message            = "malformed exr attribute payload";
+            if (options.stop_on_error) {
+                return r;
+            }
+            continue;
+        }
+
+        PreparedExrEmitOp op;
+        op.block_index = i;
+        out_plan->ops.push_back(op);
+    }
+
+    if (r.errors == 0U) {
+        r.status = TransferStatus::Ok;
+        r.code   = EmitTransferCode::None;
+    }
+    return r;
+}
+
+EmitTransferResult
+emit_prepared_bundle_exr_compiled(const PreparedTransferBundle& bundle,
+                                  const PreparedExrEmitPlan& plan,
+                                  ExrTransferEmitter& emitter,
+                                  const EmitTransferOptions& options) noexcept
+{
+    EmitTransferResult r;
+    if (bundle.target_format != TransferTargetFormat::Exr) {
+        r.status  = TransferStatus::Unsupported;
+        r.code    = EmitTransferCode::InvalidArgument;
+        r.errors  = 1U;
+        r.message = "bundle target format is not exr";
+        return r;
+    }
+    if (plan.contract_version != bundle.contract_version) {
+        r.status  = TransferStatus::InvalidArgument;
+        r.code    = EmitTransferCode::PlanMismatch;
+        r.errors  = 1U;
+        r.message = "compiled plan contract_version mismatch";
+        return r;
+    }
+
+    for (uint32_t i = 0; i < plan.ops.size(); ++i) {
+        const PreparedExrEmitOp& op = plan.ops[i];
+        if (op.block_index >= bundle.blocks.size()) {
+            r.status = TransferStatus::InvalidArgument;
+            if (r.code == EmitTransferCode::None) {
+                r.code = EmitTransferCode::PlanMismatch;
+            }
+            r.errors += 1U;
+            r.failed_block_index = op.block_index;
+            r.message            = "compiled plan block_index out of range";
+            if (options.stop_on_error) {
+                return r;
+            }
+            continue;
+        }
+
+        const PreparedTransferBlock& block = bundle.blocks[op.block_index];
+        if (options.skip_empty_payloads && block.payload.empty()) {
+            r.skipped += 1U;
+            continue;
+        }
+
+        std::string_view name;
+        std::span<const std::byte> value;
+        if (!parse_exr_string_attribute_payload_view(
+                std::span<const std::byte>(block.payload.data(),
+                                           block.payload.size()),
+                &name, &value)) {
+            r.status = TransferStatus::Malformed;
+            if (r.code == EmitTransferCode::None) {
+                r.code = EmitTransferCode::InvalidPayload;
+            }
+            r.errors += 1U;
+            r.failed_block_index = op.block_index;
+            r.message            = "malformed exr attribute payload";
+            if (options.stop_on_error) {
+                return r;
+            }
+            continue;
+        }
+
+        ExrPreparedAttributeView attr;
+        attr.name      = name;
+        attr.type_name = "string";
+        attr.value     = value;
+        attr.is_opaque = false;
+        const TransferStatus st = emitter.set_attribute_view(attr);
+        if (st != TransferStatus::Ok) {
+            r.status = st;
+            if (r.code == EmitTransferCode::None) {
+                r.code = EmitTransferCode::BackendWriteFailed;
+            }
+            r.errors += 1U;
+            r.failed_block_index = op.block_index;
+            r.message            = "exr emitter set_attribute_view failed";
+            if (options.stop_on_error) {
+                return r;
+            }
+            continue;
+        }
+        r.emitted += 1U;
+    }
+
+    if (r.errors == 0U) {
         r.status = TransferStatus::Ok;
         r.code   = EmitTransferCode::None;
     }
@@ -14994,6 +15535,17 @@ namespace {
         }
     };
 
+    struct EmittedExrAttributeSummaryLess final {
+        bool operator()(const EmittedExrAttributeSummary& a,
+                        const EmittedExrAttributeSummary& b) const noexcept
+        {
+            if (a.name != b.name) {
+                return a.name < b.name;
+            }
+            return a.type_name < b.type_name;
+        }
+    };
+
     struct EmittedBmffItemSummaryLess final {
         bool operator()(const EmittedBmffItemSummary& a,
                         const EmittedBmffItemSummary& b) const noexcept
@@ -15321,6 +15873,61 @@ namespace {
         }
 
         std::vector<EmittedJp2BoxSummary> boxes_;
+    };
+
+    class ExecuteRecordingExrEmitter final : public ExrTransferEmitter {
+    public:
+        void reset() noexcept { attrs_.clear(); }
+
+        TransferStatus
+        set_attribute(const ExrPreparedAttribute& attr) noexcept override
+        {
+            add_attribute(attr.name, attr.type_name,
+                          static_cast<uint64_t>(attr.value.size()));
+            return TransferStatus::Ok;
+        }
+
+        TransferStatus
+        set_attribute_view(const ExrPreparedAttributeView& attr) noexcept
+            override
+        {
+            add_attribute(attr.name, attr.type_name,
+                          static_cast<uint64_t>(attr.value.size()));
+            return TransferStatus::Ok;
+        }
+
+        void build_summary(
+            std::vector<EmittedExrAttributeSummary>* out) const noexcept
+        {
+            if (!out) {
+                return;
+            }
+            *out = attrs_;
+            std::sort(out->begin(), out->end(),
+                      EmittedExrAttributeSummaryLess {});
+        }
+
+    private:
+        void add_attribute(std::string_view name, std::string_view type_name,
+                           uint64_t bytes) noexcept
+        {
+            for (size_t i = 0; i < attrs_.size(); ++i) {
+                if (attrs_[i].name != name || attrs_[i].type_name != type_name) {
+                    continue;
+                }
+                attrs_[i].count += 1U;
+                attrs_[i].bytes += bytes;
+                return;
+            }
+            EmittedExrAttributeSummary one;
+            one.name.assign(name.data(), name.size());
+            one.type_name.assign(type_name.data(), type_name.size());
+            one.count = 1U;
+            one.bytes = bytes;
+            attrs_.push_back(std::move(one));
+        }
+
+        std::vector<EmittedExrAttributeSummary> attrs_;
     };
 
     class ExecuteRecordingBmffEmitter final : public BmffTransferEmitter {
@@ -15756,6 +16363,59 @@ namespace {
             }
         }
         std::sort(out->begin(), out->end(), EmittedJp2BoxSummaryLess {});
+    }
+
+    static void build_exr_emit_summary_from_plan(
+        const PreparedTransferBundle& bundle, const PreparedExrEmitPlan& plan,
+        const EmitTransferOptions& options, uint32_t repeat,
+        std::vector<EmittedExrAttributeSummary>* out) noexcept
+    {
+        if (!out) {
+            return;
+        }
+        out->clear();
+        for (uint32_t rep = 0U; rep < repeat; ++rep) {
+            for (size_t i = 0; i < plan.ops.size(); ++i) {
+                const PreparedExrEmitOp& op = plan.ops[i];
+                if (op.block_index >= bundle.blocks.size()) {
+                    continue;
+                }
+                const PreparedTransferBlock& block
+                    = bundle.blocks[op.block_index];
+                if (options.skip_empty_payloads && block.payload.empty()) {
+                    continue;
+                }
+                std::string_view name;
+                std::span<const std::byte> value;
+                if (!parse_exr_string_attribute_payload_view(
+                        std::span<const std::byte>(block.payload.data(),
+                                                   block.payload.size()),
+                        &name, &value)) {
+                    continue;
+                }
+                bool merged = false;
+                for (size_t j = 0; j < out->size(); ++j) {
+                    if ((*out)[j].name != name
+                        || (*out)[j].type_name != "string") {
+                        continue;
+                    }
+                    (*out)[j].count += 1U;
+                    (*out)[j].bytes += static_cast<uint64_t>(value.size());
+                    merged = true;
+                    break;
+                }
+                if (merged) {
+                    continue;
+                }
+                EmittedExrAttributeSummary one;
+                one.name.assign(name.data(), name.size());
+                one.type_name = "string";
+                one.count     = 1U;
+                one.bytes     = static_cast<uint64_t>(value.size());
+                out->push_back(std::move(one));
+            }
+        }
+        std::sort(out->begin(), out->end(), EmittedExrAttributeSummaryLess {});
     }
 
     static void build_bmff_emit_summary_from_plan(
@@ -17415,6 +18075,20 @@ namespace {
                 }
                 break;
             }
+            case TransferAdapterOpKind::ExrAttribute:
+                if (!exr_string_attribute_from_route(payload.route)
+                    || !parse_exr_string_attribute_payload_view(
+                        std::span<const std::byte>(payload.payload.data(),
+                                                   payload.payload.size()),
+                        nullptr, nullptr)) {
+                    out.status = TransferStatus::InvalidArgument;
+                    out.code   = EmitTransferCode::PlanMismatch;
+                    out.errors = 1U;
+                    out.message
+                        = "prepared transfer payload batch exr attribute op mismatch";
+                    return out;
+                }
+                break;
             case TransferAdapterOpKind::BmffItem: {
                 uint32_t item_type = 0U;
                 bool mime_xmp      = false;
@@ -17752,6 +18426,8 @@ namespace {
             return static_cast<uint32_t>(plan.png_emit.ops.size());
         case TransferTargetFormat::Jp2:
             return static_cast<uint32_t>(plan.jp2_emit.ops.size());
+        case TransferTargetFormat::Exr:
+            return static_cast<uint32_t>(plan.exr_emit.ops.size());
         case TransferTargetFormat::Heif:
         case TransferTargetFormat::Avif:
         case TransferTargetFormat::Cr3:
@@ -17838,6 +18514,16 @@ namespace {
                 out.errors = 1U;
                 out.message
                     = "compiled jp2 emit plan contract_version mismatch";
+                return out;
+            }
+            break;
+        case TransferTargetFormat::Exr:
+            if (plan.exr_emit.contract_version != bundle.contract_version) {
+                out.status = TransferStatus::InvalidArgument;
+                out.code   = EmitTransferCode::PlanMismatch;
+                out.errors = 1U;
+                out.message
+                    = "compiled exr emit plan contract_version mismatch";
                 return out;
             }
             break;
@@ -18296,6 +18982,27 @@ namespace {
                     }
                     if (out.emit.status == TransferStatus::Ok) {
                         emitter.build_summary(&out.jp2_box_summary);
+                    }
+                }
+                break;
+            }
+            case TransferTargetFormat::Exr: {
+                if (options.emit_output_writer) {
+                    out.emit = skipped_emit_result(
+                        "emit_output_writer is not supported for exr");
+                } else {
+                    ExecuteRecordingExrEmitter emitter;
+                    emitter.reset();
+                    for (uint32_t rep = 0; rep < emit_repeat; ++rep) {
+                        out.emit = emit_prepared_bundle_exr_compiled(
+                            *bundle, effective_plan->exr_emit, emitter,
+                            effective_plan->emit);
+                        if (out.emit.status != TransferStatus::Ok) {
+                            break;
+                        }
+                    }
+                    if (out.emit.status == TransferStatus::Ok) {
+                        emitter.build_summary(&out.exr_attribute_summary);
                     }
                 }
                 break;
@@ -19657,6 +20364,8 @@ compile_prepared_transfer_execution(
     out_plan->png_emit.ops.clear();
     out_plan->jp2_emit.contract_version = bundle.contract_version;
     out_plan->jp2_emit.ops.clear();
+    out_plan->exr_emit.contract_version = bundle.contract_version;
+    out_plan->exr_emit.ops.clear();
     out_plan->bmff_emit.contract_version = bundle.contract_version;
     out_plan->bmff_emit.ops.clear();
 
@@ -19678,6 +20387,9 @@ compile_prepared_transfer_execution(
                                            options);
     case TransferTargetFormat::Jp2:
         return compile_prepared_bundle_jp2(bundle, &out_plan->jp2_emit,
+                                           options);
+    case TransferTargetFormat::Exr:
+        return compile_prepared_bundle_exr(bundle, &out_plan->exr_emit,
                                            options);
     case TransferTargetFormat::Heif:
     case TransferTargetFormat::Avif:
@@ -19801,6 +20513,18 @@ build_prepared_transfer_adapter_view(const PreparedTransferBundle& bundle,
             op.payload_size    = static_cast<uint64_t>(block.payload.size());
             op.serialized_size = 8U + op.payload_size;
             op.box_type        = src.box_type;
+            view.ops.push_back(op);
+        }
+    } else if (bundle.target_format == TransferTargetFormat::Exr) {
+        view.ops.reserve(plan.exr_emit.ops.size());
+        for (size_t i = 0; i < plan.exr_emit.ops.size(); ++i) {
+            const PreparedExrEmitOp& src       = plan.exr_emit.ops[i];
+            const PreparedTransferBlock& block = bundle.blocks[src.block_index];
+            PreparedTransferAdapterOp op;
+            op.kind            = TransferAdapterOpKind::ExrAttribute;
+            op.block_index     = src.block_index;
+            op.payload_size    = static_cast<uint64_t>(block.payload.size());
+            op.serialized_size = op.payload_size;
             view.ops.push_back(op);
         }
     } else if (transfer_target_is_bmff(bundle.target_format)) {
@@ -19955,6 +20679,21 @@ emit_prepared_transfer_adapter_view(const PreparedTransferBundle& bundle,
                 out.errors += 1U;
                 out.failed_block_index = op.block_index;
                 out.message            = "adapter view jp2 op is inconsistent";
+                return out;
+            }
+        } else if (bundle.target_format == TransferTargetFormat::Exr) {
+            if (op.kind != TransferAdapterOpKind::ExrAttribute
+                || op.serialized_size != payload_size
+                || !exr_string_attribute_from_route(block.route)
+                || !parse_exr_string_attribute_payload_view(
+                    std::span<const std::byte>(block.payload.data(),
+                                               block.payload.size()),
+                    nullptr, nullptr)) {
+                out.status = TransferStatus::InvalidArgument;
+                out.code   = EmitTransferCode::PlanMismatch;
+                out.errors += 1U;
+                out.failed_block_index = op.block_index;
+                out.message            = "adapter view exr op is inconsistent";
                 return out;
             }
         } else if (transfer_target_is_bmff(bundle.target_format)) {
@@ -20341,6 +21080,52 @@ emit_prepared_transfer_compiled(PreparedTransferBundle* bundle,
     if (out.emit.status == TransferStatus::Ok) {
         build_jp2_emit_summary_from_plan(*bundle, plan.jp2_emit, plan.emit,
                                          repeat, &out.jp2_box_summary);
+    }
+    return out;
+}
+
+ExecutePreparedTransferResult
+emit_prepared_transfer_compiled(PreparedTransferBundle* bundle,
+                                const PreparedTransferExecutionPlan& plan,
+                                ExrTransferEmitter& emitter,
+                                std::span<const TimePatchView> time_patches,
+                                const ApplyTimePatchOptions& time_patch,
+                                uint32_t emit_repeat) noexcept
+{
+    ExecutePreparedTransferResult out;
+    if (!bundle) {
+        return execute_prepared_transfer_compiled(bundle, plan);
+    }
+
+    if (!time_patches.empty()) {
+        out.time_patch = apply_time_patches_view(bundle, time_patches,
+                                                 time_patch);
+        if (out.time_patch.status != TransferStatus::Ok) {
+            out.compile = skipped_emit_result(
+                "skipped emit due to time patch failure");
+            out.emit = out.compile;
+            return out;
+        }
+    }
+
+    out.compile      = validate_prepared_transfer_execution_plan(*bundle, plan);
+    out.compiled_ops = prepared_transfer_execution_plan_ops(plan);
+    if (out.compile.status != TransferStatus::Ok) {
+        out.emit = skipped_emit_result("skipped emit due to compile failure");
+        return out;
+    }
+
+    const uint32_t repeat = emit_repeat == 0U ? 1U : emit_repeat;
+    for (uint32_t rep = 0; rep < repeat; ++rep) {
+        out.emit = emit_prepared_bundle_exr_compiled(*bundle, plan.exr_emit,
+                                                     emitter, plan.emit);
+        if (out.emit.status != TransferStatus::Ok) {
+            break;
+        }
+    }
+    if (out.emit.status == TransferStatus::Ok) {
+        build_exr_emit_summary_from_plan(*bundle, plan.exr_emit, plan.emit,
+                                         repeat, &out.exr_attribute_summary);
     }
     return out;
 }

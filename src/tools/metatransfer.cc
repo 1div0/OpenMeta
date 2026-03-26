@@ -40,6 +40,10 @@ namespace {
             "  --portable             Alias for --format portable\n"
             "  --lossless             Alias for --format lossless\n"
             "  --xmp-include-existing Include existing decoded XMP in generated XMP\n"
+            "  --xmp-no-exif-projection\n"
+            "                         Do not mirror EXIF-derived properties into generated XMP\n"
+            "  --xmp-no-iptc-projection\n"
+            "                         Do not mirror IPTC-derived properties into generated XMP\n"
             "  --xmp-exiftool-gpsdatetime-alias\n"
             "                         Emit exif:GPSDateTime alias in portable mode\n"
             "  --no-exif              Skip EXIF APP1 preparation\n"
@@ -99,6 +103,7 @@ namespace {
             "  --source-meta <path>   Metadata source for prepare phase\n"
             "  --target-jpeg <path>   Target JPEG stream for edit/apply phase\n"
             "  --target-tiff <path>   Target TIFF stream for edit/apply phase\n"
+            "  --target-exr           Target EXR metadata transfer\n"
             "  --target-png           Target PNG metadata transfer\n"
             "  --target-jp2           Target JP2 metadata transfer\n"
             "  --target-jxl           Target JPEG XL metadata emit summary\n"
@@ -333,6 +338,10 @@ namespace {
         case TransferPolicySubject::MakerNote: return "makernote";
         case TransferPolicySubject::Jumbf: return "jumbf";
         case TransferPolicySubject::C2pa: return "c2pa";
+        case TransferPolicySubject::XmpExifProjection:
+            return "xmp_exif_projection";
+        case TransferPolicySubject::XmpIptcProjection:
+            return "xmp_iptc_projection";
         }
         return "unknown";
     }
@@ -505,6 +514,7 @@ namespace {
         case TransferAdapterOpKind::WebpChunk: return "webp_chunk";
         case TransferAdapterOpKind::PngChunk: return "png_chunk";
         case TransferAdapterOpKind::Jp2Box: return "jp2_box";
+        case TransferAdapterOpKind::ExrAttribute: return "exr_attribute";
         case TransferAdapterOpKind::BmffItem: return "bmff_item";
         case TransferAdapterOpKind::BmffProperty: return "bmff_property";
         }
@@ -982,6 +992,7 @@ namespace {
         case TransferAdapterOpKind::Jp2Box:
             std::printf(" type=%s", jxl_box_name(view.op.box_type).c_str());
             break;
+        case TransferAdapterOpKind::ExrAttribute: break;
         case TransferAdapterOpKind::BmffItem:
             std::printf(" type=%s", bmff_item_name(view.op.bmff_item_type,
                                                    view.op.bmff_mime_xmp)
@@ -1052,6 +1063,7 @@ main(int argc, char** argv)
     std::string source_meta_path;
     std::string target_jpeg_path;
     std::string target_tiff_path;
+    bool target_exr  = false;
     bool target_png  = false;
     bool target_jp2  = false;
     bool target_jxl  = false;
@@ -1138,6 +1150,14 @@ main(int argc, char** argv)
         }
         if (std::strcmp(arg, "--xmp-include-existing") == 0) {
             options.prepare.xmp_include_existing = true;
+            continue;
+        }
+        if (std::strcmp(arg, "--xmp-no-exif-projection") == 0) {
+            options.prepare.xmp_project_exif = false;
+            continue;
+        }
+        if (std::strcmp(arg, "--xmp-no-iptc-projection") == 0) {
+            options.prepare.xmp_project_iptc = false;
             continue;
         }
         if (std::strcmp(arg, "--xmp-exiftool-gpsdatetime-alias") == 0) {
@@ -1330,6 +1350,10 @@ main(int argc, char** argv)
         if (std::strcmp(arg, "--target-tiff") == 0 && i + 1 < argc) {
             target_tiff_path = argv[i + 1];
             i += 1;
+            continue;
+        }
+        if (std::strcmp(arg, "--target-exr") == 0) {
+            target_exr = true;
             continue;
         }
         if (std::strcmp(arg, "--target-png") == 0) {
@@ -1557,6 +1581,7 @@ main(int argc, char** argv)
     const uint32_t target_count
         = static_cast<uint32_t>(!target_jpeg_path.empty())
           + static_cast<uint32_t>(!target_tiff_path.empty())
+          + static_cast<uint32_t>(target_exr)
           + static_cast<uint32_t>(target_png)
           + static_cast<uint32_t>(target_jp2)
           + static_cast<uint32_t>(target_jxl)
@@ -1883,10 +1908,12 @@ main(int argc, char** argv)
     if (target_count > 1U) {
         std::fprintf(
             stderr,
-            "--target-jpeg, --target-tiff, --target-png, --target-jp2, --target-jxl, --target-webp, --target-heif, --target-avif, and --target-cr3 are mutually exclusive\n");
+            "--target-jpeg, --target-tiff, --target-exr, --target-png, --target-jp2, --target-jxl, --target-webp, --target-heif, --target-avif, and --target-cr3 are mutually exclusive\n");
         return 2;
     }
-    if (target_png) {
+    if (target_exr) {
+        options.prepare.target_format = TransferTargetFormat::Exr;
+    } else if (target_png) {
         options.prepare.target_format = TransferTargetFormat::Png;
     } else if (target_jp2) {
         options.prepare.target_format = TransferTargetFormat::Jp2;
@@ -1909,6 +1936,10 @@ main(int argc, char** argv)
         && options.prepare.target_format != TransferTargetFormat::Jpeg) {
         std::fprintf(stderr,
                      "--jpeg-jumbf is only supported for JPEG targets\n");
+        return 2;
+    }
+    if (target_exr && !output_path.empty()) {
+        std::fprintf(stderr, "--output is not supported for --target-exr\n");
         return 2;
     }
     const bool c2pa_wrapper_target_ok
@@ -3611,6 +3642,49 @@ main(int argc, char** argv)
                 const EmittedJp2BoxSummary& one = exec.jp2_box_summary[bi];
                 std::printf("  jp2_box %s count=%u bytes=%llu\n",
                             jxl_box_name(one.type).c_str(), one.count,
+                            static_cast<unsigned long long>(one.bytes));
+            }
+            continue;
+        }
+
+        if (prepared.bundle.target_format == TransferTargetFormat::Exr) {
+            std::printf(
+                "  compile: status=%s code=%s ops=%u skipped=%u errors=%u\n",
+                transfer_status_name(exec.compile.status),
+                emit_transfer_code_name(exec.compile.code),
+                static_cast<unsigned>(exec.compiled_ops), exec.compile.skipped,
+                exec.compile.errors);
+            if (!exec.compile.message.empty()) {
+                std::printf("  compile_message=%s\n",
+                            exec.compile.message.c_str());
+            }
+            if (exec.compile.status != TransferStatus::Ok) {
+                any_failed = true;
+                continue;
+            }
+
+            std::printf(
+                "  emit: status=%s code=%s emitted=%u skipped=%u errors=%u\n",
+                transfer_status_name(exec.emit.status),
+                emit_transfer_code_name(exec.emit.code), exec.emit.emitted,
+                exec.emit.skipped, exec.emit.errors);
+            if (emit_repeat > 1U) {
+                std::printf("  emit_repeat=%u\n", emit_repeat);
+            }
+            if (!exec.emit.message.empty()) {
+                std::printf("  emit_message=%s\n", exec.emit.message.c_str());
+            }
+            if (exec.emit.status != TransferStatus::Ok) {
+                any_failed = true;
+                continue;
+            }
+
+            for (size_t ai = 0; ai < exec.exr_attribute_summary.size(); ++ai) {
+                const EmittedExrAttributeSummary& one
+                    = exec.exr_attribute_summary[ai];
+                std::printf("  exr_attribute %s type=%s count=%u bytes=%llu\n",
+                            one.name.c_str(), one.type_name.c_str(),
+                            one.count,
                             static_cast<unsigned long long>(one.bytes));
             }
             continue;

@@ -12,6 +12,7 @@
 #include <cstring>
 #include <limits>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -245,6 +246,49 @@ public:
     size_t close_calls      = 0U;
     size_t fail_after_calls = 0U;
     bool fail_close         = false;
+    openmeta::TransferStatus fail_status
+        = openmeta::TransferStatus::InternalError;
+};
+
+class FakeExrEmitter final : public openmeta::ExrTransferEmitter {
+public:
+    openmeta::TransferStatus
+    set_attribute(const openmeta::ExrPreparedAttribute& attr) noexcept override
+    {
+        Call one;
+        one.name      = attr.name;
+        one.type_name = attr.type_name;
+        one.bytes     = attr.value.size();
+        calls.push_back(std::move(one));
+        if (fail_after_calls != 0U && calls.size() >= fail_after_calls) {
+            return fail_status;
+        }
+        return openmeta::TransferStatus::Ok;
+    }
+
+    openmeta::TransferStatus
+    set_attribute_view(const openmeta::ExrPreparedAttributeView& attr) noexcept
+        override
+    {
+        Call one;
+        one.name.assign(attr.name.data(), attr.name.size());
+        one.type_name.assign(attr.type_name.data(), attr.type_name.size());
+        one.bytes = attr.value.size();
+        calls.push_back(std::move(one));
+        if (fail_after_calls != 0U && calls.size() >= fail_after_calls) {
+            return fail_status;
+        }
+        return openmeta::TransferStatus::Ok;
+    }
+
+    struct Call final {
+        std::string name;
+        std::string type_name;
+        size_t bytes = 0U;
+    };
+
+    std::vector<Call> calls;
+    size_t fail_after_calls = 0U;
     openmeta::TransferStatus fail_status
         = openmeta::TransferStatus::InternalError;
 };
@@ -837,6 +881,105 @@ read_test_u32be(std::span<const std::byte> bytes, size_t off,
            | (static_cast<uint32_t>(std::to_integer<uint8_t>(bytes[off + 3U]))
               << 0U);
     return true;
+}
+
+static bool
+read_test_u64le(std::span<const std::byte> bytes, size_t* io_off,
+                uint64_t* out) noexcept
+{
+    if (!io_off || !out || *io_off + 8U > bytes.size()) {
+        return false;
+    }
+    const size_t off = *io_off;
+    *out = (static_cast<uint64_t>(std::to_integer<uint8_t>(bytes[off + 0U]))
+            << 0U)
+           | (static_cast<uint64_t>(
+                  std::to_integer<uint8_t>(bytes[off + 1U]))
+              << 8U)
+           | (static_cast<uint64_t>(
+                  std::to_integer<uint8_t>(bytes[off + 2U]))
+              << 16U)
+           | (static_cast<uint64_t>(
+                  std::to_integer<uint8_t>(bytes[off + 3U]))
+              << 24U)
+           | (static_cast<uint64_t>(
+                  std::to_integer<uint8_t>(bytes[off + 4U]))
+              << 32U)
+           | (static_cast<uint64_t>(
+                  std::to_integer<uint8_t>(bytes[off + 5U]))
+              << 40U)
+           | (static_cast<uint64_t>(
+                  std::to_integer<uint8_t>(bytes[off + 6U]))
+              << 48U)
+           | (static_cast<uint64_t>(
+                  std::to_integer<uint8_t>(bytes[off + 7U]))
+              << 56U);
+    *io_off += 8U;
+    return true;
+}
+
+static void
+append_test_u64le(std::vector<std::byte>* out, uint64_t value) noexcept
+{
+    if (!out) {
+        return;
+    }
+    out->push_back(static_cast<std::byte>(value & 0xFFU));
+    out->push_back(static_cast<std::byte>((value >> 8U) & 0xFFU));
+    out->push_back(static_cast<std::byte>((value >> 16U) & 0xFFU));
+    out->push_back(static_cast<std::byte>((value >> 24U) & 0xFFU));
+    out->push_back(static_cast<std::byte>((value >> 32U) & 0xFFU));
+    out->push_back(static_cast<std::byte>((value >> 40U) & 0xFFU));
+    out->push_back(static_cast<std::byte>((value >> 48U) & 0xFFU));
+    out->push_back(static_cast<std::byte>((value >> 56U) & 0xFFU));
+}
+
+static std::vector<std::byte>
+make_test_exr_string_attribute_payload(std::string_view name,
+                                       std::string_view value)
+{
+    std::vector<std::byte> out;
+    out.reserve(16U + name.size() + value.size());
+    append_test_u64le(&out, static_cast<uint64_t>(name.size()));
+    for (size_t i = 0; i < name.size(); ++i) {
+        out.push_back(static_cast<std::byte>(
+            static_cast<unsigned char>(name[i])));
+    }
+    append_test_u64le(&out, static_cast<uint64_t>(value.size()));
+    for (size_t i = 0; i < value.size(); ++i) {
+        out.push_back(static_cast<std::byte>(
+            static_cast<unsigned char>(value[i])));
+    }
+    return out;
+}
+
+static bool
+parse_test_exr_string_attribute_payload(std::span<const std::byte> bytes,
+                                        std::string* out_name,
+                                        std::string* out_value) noexcept
+{
+    if (!out_name || !out_value) {
+        return false;
+    }
+    size_t off        = 0U;
+    uint64_t name_len = 0U;
+    if (!read_test_u64le(bytes, &off, &name_len)
+        || name_len > bytes.size() - off) {
+        return false;
+    }
+    out_name->assign(reinterpret_cast<const char*>(bytes.data() + off),
+                     static_cast<size_t>(name_len));
+    off += static_cast<size_t>(name_len);
+
+    uint64_t value_len = 0U;
+    if (!read_test_u64le(bytes, &off, &value_len)
+        || value_len > bytes.size() - off) {
+        return false;
+    }
+    out_value->assign(reinterpret_cast<const char*>(bytes.data() + off),
+                      static_cast<size_t>(value_len));
+    off += static_cast<size_t>(value_len);
+    return off == bytes.size();
 }
 
 static bool
@@ -4400,6 +4543,64 @@ TEST(MetadataTransferApi, PrepareBuildsJpegXmpApp1Block)
     EXPECT_EQ(bundle.blocks[0].payload[0], std::byte { 'h' });
 }
 
+TEST(MetadataTransferApi, PrepareCanDisableExifProjectionIntoGeneratedXmp)
+{
+    openmeta::MetaStore store;
+    const openmeta::BlockId block = store.add_block(openmeta::BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    openmeta::Entry exif;
+    exif.key   = openmeta::make_exif_tag_key(store.arena(), "ifd0", 0x010FU);
+    exif.value = openmeta::make_text(store.arena(), "Canon",
+                                     openmeta::TextEncoding::Ascii);
+    exif.origin.block          = block;
+    exif.origin.order_in_block = 0U;
+    ASSERT_NE(store.add_entry(exif), openmeta::kInvalidEntryId);
+
+    openmeta::Entry xmp;
+    xmp.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/", "CreatorTool");
+    xmp.value = openmeta::make_text(store.arena(), "OpenMeta Transfer Source",
+                                    openmeta::TextEncoding::Utf8);
+    xmp.origin.block          = block;
+    xmp.origin.order_in_block = 1U;
+    ASSERT_NE(store.add_entry(xmp), openmeta::kInvalidEntryId);
+    store.finalize();
+
+    openmeta::PrepareTransferRequest request;
+    request.include_exif_app1    = false;
+    request.include_icc_app2     = false;
+    request.include_iptc_app13   = false;
+    request.xmp_portable         = true;
+    request.xmp_include_existing = true;
+    request.xmp_project_exif     = false;
+
+    openmeta::PreparedTransferBundle bundle;
+    const openmeta::PrepareTransferResult result
+        = openmeta::prepare_metadata_for_target(store, request, &bundle);
+
+    EXPECT_EQ(result.status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(bundle.blocks.size(), 1U);
+    EXPECT_EQ(bundle.blocks[0].route, "jpeg:app1-xmp");
+    EXPECT_TRUE(payload_contains_ascii(
+        std::span<const std::byte>(bundle.blocks[0].payload.data(),
+                                   bundle.blocks[0].payload.size()),
+        "xmp:CreatorTool"));
+    EXPECT_FALSE(payload_contains_ascii(
+        std::span<const std::byte>(bundle.blocks[0].payload.data(),
+                                   bundle.blocks[0].payload.size()),
+        "tiff:Make"));
+
+    const openmeta::PreparedTransferPolicyDecision* decision
+        = find_policy_decision(
+            bundle, openmeta::TransferPolicySubject::XmpExifProjection);
+    ASSERT_NE(decision, nullptr);
+    EXPECT_EQ(decision->requested, openmeta::TransferPolicyAction::Drop);
+    EXPECT_EQ(decision->effective, openmeta::TransferPolicyAction::Drop);
+    EXPECT_EQ(decision->reason, openmeta::TransferPolicyReason::ExplicitDrop);
+    EXPECT_EQ(decision->matched_entries, 1U);
+}
+
 TEST(MetadataTransferApi, PrepareBuildsJpegExifApp1Block)
 {
     openmeta::MetaStore store;
@@ -7828,6 +8029,16 @@ TEST(MetadataTransferApi, PrepareBuildsJxlXmlFromIptcWhenXmpDisabled)
         std::span<const std::byte>(bundle.blocks[0].payload.data(),
                                    bundle.blocks[0].payload.size()),
         "ART"));
+
+    const openmeta::PreparedTransferPolicyDecision* decision
+        = find_policy_decision(
+            bundle, openmeta::TransferPolicySubject::XmpIptcProjection);
+    ASSERT_NE(decision, nullptr);
+    EXPECT_EQ(decision->requested, openmeta::TransferPolicyAction::Keep);
+    EXPECT_EQ(decision->effective, openmeta::TransferPolicyAction::Keep);
+    EXPECT_EQ(decision->reason,
+              openmeta::TransferPolicyReason::ProjectedPayload);
+    EXPECT_EQ(decision->matched_entries, 1U);
 }
 
 TEST(MetadataTransferApi, PrepareBuildsWebpXmpFromIptcWhenXmpDisabled)
@@ -7872,6 +8083,50 @@ TEST(MetadataTransferApi, PrepareBuildsWebpXmpFromIptcWhenXmpDisabled)
         std::span<const std::byte>(bundle.blocks[0].payload.data(),
                                    bundle.blocks[0].payload.size()),
         "ART"));
+}
+
+TEST(MetadataTransferApi, PrepareCanDisableIptcProjectionFallbackXmp)
+{
+    openmeta::MetaStore store;
+    const openmeta::BlockId block = store.add_block(openmeta::BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    openmeta::Entry category;
+    category.key   = openmeta::make_iptc_dataset_key(2U, 15U);
+    category.value = openmeta::make_bytes(
+        store.arena(),
+        std::span<const std::byte>(reinterpret_cast<const std::byte*>("ART"),
+                                   3U));
+    category.origin.block          = block;
+    category.origin.order_in_block = 0U;
+    ASSERT_NE(store.add_entry(category), openmeta::kInvalidEntryId);
+    store.finalize();
+
+    openmeta::PrepareTransferRequest request;
+    request.target_format      = openmeta::TransferTargetFormat::Jxl;
+    request.include_exif_app1  = false;
+    request.include_xmp_app1   = false;
+    request.include_icc_app2   = false;
+    request.include_iptc_app13 = true;
+    request.xmp_project_iptc   = false;
+
+    openmeta::PreparedTransferBundle bundle;
+    const openmeta::PrepareTransferResult result
+        = openmeta::prepare_metadata_for_target(store, request, &bundle);
+
+    EXPECT_EQ(result.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.errors, 0U);
+    EXPECT_EQ(result.warnings, 0U);
+    EXPECT_TRUE(bundle.blocks.empty());
+
+    const openmeta::PreparedTransferPolicyDecision* decision
+        = find_policy_decision(
+            bundle, openmeta::TransferPolicySubject::XmpIptcProjection);
+    ASSERT_NE(decision, nullptr);
+    EXPECT_EQ(decision->requested, openmeta::TransferPolicyAction::Drop);
+    EXPECT_EQ(decision->effective, openmeta::TransferPolicyAction::Drop);
+    EXPECT_EQ(decision->reason, openmeta::TransferPolicyReason::ExplicitDrop);
+    EXPECT_EQ(decision->matched_entries, 1U);
 }
 
 TEST(MetadataTransferApi, PrepareJxlWithXmpAndIptcAvoidsDuplicateXml)
@@ -8374,6 +8629,87 @@ TEST(MetadataTransferApi, BuildPreparedTransferAdapterViewJp2)
     EXPECT_EQ(view.ops[2].serialized_size, 19U);
     EXPECT_EQ(view.ops[2].box_type,
               (std::array<char, 4> { 'j', 'p', '2', 'h' }));
+}
+
+TEST(MetadataTransferApi, PrepareBuildsExrStringAttributeBlocks)
+{
+    openmeta::MetaStore store;
+    const openmeta::BlockId block = store.add_block(openmeta::BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    openmeta::Entry make;
+    make.key                   = openmeta::make_exif_tag_key(store.arena(),
+                                                             "ifd0", 0x010FU);
+    make.value                 = openmeta::make_text(store.arena(), "Vendor",
+                                                     openmeta::TextEncoding::Ascii);
+    make.origin.block          = block;
+    make.origin.order_in_block = 0U;
+    ASSERT_NE(store.add_entry(make), openmeta::kInvalidEntryId);
+    store.finalize();
+
+    openmeta::PrepareTransferRequest request;
+    request.target_format      = openmeta::TransferTargetFormat::Exr;
+    request.include_xmp_app1   = false;
+    request.include_icc_app2   = false;
+    request.include_iptc_app13 = false;
+
+    openmeta::PreparedTransferBundle bundle;
+    const openmeta::PrepareTransferResult result
+        = openmeta::prepare_metadata_for_target(store, request, &bundle);
+
+    EXPECT_EQ(result.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.errors, 0U);
+    EXPECT_EQ(bundle.target_format, openmeta::TransferTargetFormat::Exr);
+    EXPECT_TRUE(bundle.time_patch_map.empty());
+    ASSERT_EQ(bundle.blocks.size(), 1U);
+    EXPECT_EQ(bundle.blocks[0].kind, openmeta::TransferBlockKind::ExrAttribute);
+    EXPECT_EQ(bundle.blocks[0].route, "exr:attribute-string");
+
+    std::string name;
+    std::string value;
+    ASSERT_TRUE(parse_test_exr_string_attribute_payload(
+        std::span<const std::byte>(bundle.blocks[0].payload.data(),
+                                   bundle.blocks[0].payload.size()),
+        &name, &value));
+    EXPECT_EQ(name, "Make");
+    EXPECT_EQ(value, "Vendor");
+}
+
+TEST(MetadataTransferApi, BuildPreparedTransferAdapterViewExr)
+{
+    openmeta::PreparedTransferBundle bundle;
+    bundle.target_format = openmeta::TransferTargetFormat::Exr;
+
+    openmeta::PreparedTransferBlock make;
+    make.kind    = openmeta::TransferBlockKind::ExrAttribute;
+    make.route   = "exr:attribute-string";
+    make.payload = make_test_exr_string_attribute_payload("Make", "Vendor");
+    bundle.blocks.push_back(make);
+
+    openmeta::PreparedTransferBlock model;
+    model.kind    = openmeta::TransferBlockKind::ExrAttribute;
+    model.route   = "exr:attribute-string";
+    model.payload = make_test_exr_string_attribute_payload("Model", "Camera");
+    bundle.blocks.push_back(model);
+
+    openmeta::PreparedTransferAdapterView view;
+    const openmeta::EmitTransferResult result
+        = openmeta::build_prepared_transfer_adapter_view(bundle, &view);
+
+    EXPECT_EQ(result.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.emitted, 2U);
+    EXPECT_EQ(view.target_format, openmeta::TransferTargetFormat::Exr);
+    ASSERT_EQ(view.ops.size(), 2U);
+    EXPECT_EQ(view.ops[0].kind,
+              openmeta::TransferAdapterOpKind::ExrAttribute);
+    EXPECT_EQ(view.ops[0].block_index, 0U);
+    EXPECT_EQ(view.ops[0].payload_size, make.payload.size());
+    EXPECT_EQ(view.ops[0].serialized_size, make.payload.size());
+    EXPECT_EQ(view.ops[1].kind,
+              openmeta::TransferAdapterOpKind::ExrAttribute);
+    EXPECT_EQ(view.ops[1].block_index, 1U);
+    EXPECT_EQ(view.ops[1].payload_size, model.payload.size());
+    EXPECT_EQ(view.ops[1].serialized_size, model.payload.size());
 }
 
 TEST(MetadataTransferApi, EmitPreparedTransferAdapterViewJpeg)
@@ -10001,6 +10337,32 @@ TEST(MetadataTransferApi, ExecutePreparedTransferJp2EmitToWriter)
               (std::array<char, 4> { 'x', 'm', 'l', ' ' }));
     EXPECT_EQ(result.jp2_box_summary[1].count, 1U);
     EXPECT_EQ(result.jp2_box_summary[1].bytes, 3U);
+}
+
+TEST(MetadataTransferApi, ExecutePreparedTransferExrEmitToWriterUnsupported)
+{
+    openmeta::PreparedTransferBundle bundle;
+    bundle.target_format = openmeta::TransferTargetFormat::Exr;
+
+    openmeta::PreparedTransferBlock make;
+    make.kind    = openmeta::TransferBlockKind::ExrAttribute;
+    make.route   = "exr:attribute-string";
+    make.payload = make_test_exr_string_attribute_payload("Make", "Vendor");
+    bundle.blocks.push_back(make);
+
+    BufferByteWriter writer;
+    openmeta::ExecutePreparedTransferOptions options;
+    options.emit_output_writer = &writer;
+
+    const openmeta::ExecutePreparedTransferResult result
+        = openmeta::execute_prepared_transfer(&bundle, {}, options);
+    EXPECT_EQ(result.compile.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.emit.status, openmeta::TransferStatus::Unsupported);
+    EXPECT_EQ(result.emit.code, openmeta::EmitTransferCode::InvalidArgument);
+    EXPECT_EQ(result.emit.errors, 1U);
+    EXPECT_TRUE(result.emit.message.find("not supported for exr")
+                != std::string::npos);
+    EXPECT_TRUE(writer.out.empty());
 }
 
 TEST(MetadataTransferApi, ExecutePreparedTransferJp2RoundTripsSimpleMetaRead)
@@ -12461,6 +12823,62 @@ TEST(MetadataTransferApi, EmitPreparedTransferCompiledJp2EmitterUsesBackend)
               (std::array<char, 4> { 'x', 'm', 'l', ' ' }));
     EXPECT_EQ(result.jp2_box_summary[1].count, 1U);
     EXPECT_EQ(result.jp2_box_summary[1].bytes, 3U);
+}
+
+TEST(MetadataTransferApi, EmitPreparedTransferCompiledExrEmitterUsesBackend)
+{
+    openmeta::PreparedTransferBundle bundle;
+    bundle.target_format = openmeta::TransferTargetFormat::Exr;
+
+    openmeta::PreparedTransferBlock make;
+    make.kind    = openmeta::TransferBlockKind::ExrAttribute;
+    make.route   = "exr:attribute-string";
+    make.payload = make_test_exr_string_attribute_payload("Make", "Vendor");
+    bundle.blocks.push_back(make);
+
+    openmeta::PreparedTransferBlock model;
+    model.kind    = openmeta::TransferBlockKind::ExrAttribute;
+    model.route   = "exr:attribute-string";
+    model.payload = make_test_exr_string_attribute_payload("Model", "Camera");
+    bundle.blocks.push_back(model);
+
+    openmeta::PreparedTransferExecutionPlan plan;
+    const openmeta::EmitTransferResult compile_result
+        = openmeta::compile_prepared_transfer_execution(bundle, {}, &plan);
+    ASSERT_EQ(compile_result.status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(plan.target_format, openmeta::TransferTargetFormat::Exr);
+    ASSERT_EQ(plan.exr_emit.ops.size(), 2U);
+    EXPECT_TRUE(plan.jpeg_emit.ops.empty());
+    EXPECT_TRUE(plan.tiff_emit.ops.empty());
+    EXPECT_TRUE(plan.jxl_emit.ops.empty());
+    EXPECT_TRUE(plan.webp_emit.ops.empty());
+    EXPECT_TRUE(plan.png_emit.ops.empty());
+    EXPECT_TRUE(plan.jp2_emit.ops.empty());
+
+    FakeExrEmitter emitter;
+    const openmeta::ExecutePreparedTransferResult result
+        = openmeta::emit_prepared_transfer_compiled(&bundle, plan, emitter);
+    EXPECT_EQ(result.compile.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.emit.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.emit.emitted, 2U);
+    EXPECT_EQ(result.compiled_ops, 2U);
+    ASSERT_EQ(emitter.calls.size(), 2U);
+    EXPECT_EQ(emitter.calls[0].name, "Make");
+    EXPECT_EQ(emitter.calls[0].type_name, "string");
+    EXPECT_EQ(emitter.calls[0].bytes, 6U);
+    EXPECT_EQ(emitter.calls[1].name, "Model");
+    EXPECT_EQ(emitter.calls[1].type_name, "string");
+    EXPECT_EQ(emitter.calls[1].bytes, 6U);
+
+    ASSERT_EQ(result.exr_attribute_summary.size(), 2U);
+    EXPECT_EQ(result.exr_attribute_summary[0].name, "Make");
+    EXPECT_EQ(result.exr_attribute_summary[0].type_name, "string");
+    EXPECT_EQ(result.exr_attribute_summary[0].count, 1U);
+    EXPECT_EQ(result.exr_attribute_summary[0].bytes, 6U);
+    EXPECT_EQ(result.exr_attribute_summary[1].name, "Model");
+    EXPECT_EQ(result.exr_attribute_summary[1].type_name, "string");
+    EXPECT_EQ(result.exr_attribute_summary[1].count, 1U);
+    EXPECT_EQ(result.exr_attribute_summary[1].bytes, 6U);
 }
 
 TEST(MetadataTransferApi, PrepareBuildsBmffExifItem)
