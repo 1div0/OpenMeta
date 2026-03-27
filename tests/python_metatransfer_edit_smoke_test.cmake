@@ -20,7 +20,14 @@ file(MAKE_DIRECTORY "${WORK_DIR}")
 set(_src_jpg "${WORK_DIR}/source.jpg")
 set(_src_icc_jpg "${WORK_DIR}/source_icc.jpg")
 set(_target_jpg "${WORK_DIR}/target.jpg")
+set(_target_jpg_xmp "${WORK_DIR}/target_xmp.jpg")
 set(_edited_jpg "${WORK_DIR}/edited.jpg")
+set(_dual_jpg "${WORK_DIR}/dual_write.jpg")
+set(_dual_jpg_sidecar "${WORK_DIR}/dual_write.xmp")
+set(_embed_only_strip_jpg "${WORK_DIR}/embed_only_strip.jpg")
+set(_embed_only_strip_sidecar "${WORK_DIR}/embed_only_strip.xmp")
+set(_sidecar_only_strip_jpg "${WORK_DIR}/sidecar_only_strip.jpg")
+set(_sidecar_only_strip_sidecar "${WORK_DIR}/sidecar_only_strip.xmp")
 set(_target_tif "${WORK_DIR}/target.tif")
 set(_edited_tif "${WORK_DIR}/edited.tif")
 set(_target_jxl "${WORK_DIR}/target.jxl")
@@ -83,6 +90,18 @@ execute_process(
 if(NOT _rv_target_jpg EQUAL 0)
   message(FATAL_ERROR
     "failed to write python metatransfer target jpeg fixture (${_rv_target_jpg})\nstdout:\n${_out_target_jpg}\nstderr:\n${_err_target_jpg}")
+endif()
+
+execute_process(
+  COMMAND "${OPENMETA_PYTHON_EXECUTABLE}" -c
+    "from pathlib import Path; xml=b\"<x:xmpmeta xmlns:x='adobe:ns:meta/'><rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'><rdf:Description xmlns:xmp='http://ns.adobe.com/xap/1.0/'><xmp:CreatorTool>Target Embedded Existing</xmp:CreatorTool></rdf:Description></rdf:RDF></x:xmpmeta>\"; app1=b'http://ns.adobe.com/xap/1.0/\\x00'+xml; ln=(len(app1)+2).to_bytes(2,'big'); Path(r'''${_target_jpg_xmp}''').write_bytes(b'\\xFF\\xD8\\xFF\\xE1'+ln+app1+b'\\xFF\\xD9')"
+  RESULT_VARIABLE _rv_target_jpg_xmp
+  OUTPUT_VARIABLE _out_target_jpg_xmp
+  ERROR_VARIABLE _err_target_jpg_xmp
+)
+if(NOT _rv_target_jpg_xmp EQUAL 0)
+  message(FATAL_ERROR
+    "failed to write python metatransfer target jpeg xmp fixture (${_rv_target_jpg_xmp})\nstdout:\n${_out_target_jpg_xmp}\nstderr:\n${_err_target_jpg_xmp}")
 endif()
 
 execute_process(
@@ -197,6 +216,116 @@ execute_process(
 if(NOT _rv_jpg_check EQUAL 0)
   message(FATAL_ERROR
     "python metatransfer jpeg output check failed (${_rv_jpg_check})\nstdout:\n${_out_jpg_check}\nstderr:\n${_err_jpg_check}")
+endif()
+
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env
+          "PYTHONPATH=${OPENMETA_PYTHONPATH}"
+          "${OPENMETA_PYTHON_EXECUTABLE}" -m openmeta.python.metatransfer
+          --no-build-info
+          --target-jpeg "${_target_jpg}"
+          --xmp-writeback embedded_and_sidecar
+          -o "${_dual_jpg}"
+          "${_src_jpg}"
+  RESULT_VARIABLE _rv_dual
+  OUTPUT_VARIABLE _out_dual
+  ERROR_VARIABLE _err_dual
+)
+if(NOT _rv_dual EQUAL 0)
+  message(FATAL_ERROR
+    "python metatransfer dual-write jpeg edit failed (${_rv_dual})\nstdout:\n${_out_dual}\nstderr:\n${_err_dual}")
+endif()
+if(NOT EXISTS "${_dual_jpg}")
+  message(FATAL_ERROR
+    "python metatransfer dual-write did not write jpeg output\nstdout:\n${_out_dual}\nstderr:\n${_err_dual}")
+endif()
+if(NOT EXISTS "${_dual_jpg_sidecar}")
+  message(FATAL_ERROR
+    "python metatransfer dual-write did not write xmp sidecar\nstdout:\n${_out_dual}\nstderr:\n${_err_dual}")
+endif()
+if(NOT _out_dual MATCHES "xmp_sidecar_output=.*dual_write\\.xmp")
+  message(FATAL_ERROR
+    "python metatransfer dual-write missing xmp sidecar summary\nstdout:\n${_out_dual}\nstderr:\n${_err_dual}")
+endif()
+execute_process(
+  COMMAND "${OPENMETA_PYTHON_EXECUTABLE}" -c
+    "from pathlib import Path; b=Path(r'''${_dual_jpg_sidecar}''').read_bytes(); import sys; sys.exit(0 if (b.find(b'<x:xmpmeta')!=-1 or b.find(b'<rdf:RDF')!=-1) else 1)"
+  RESULT_VARIABLE _rv_dual_check
+  OUTPUT_VARIABLE _out_dual_check
+  ERROR_VARIABLE _err_dual_check
+)
+if(NOT _rv_dual_check EQUAL 0)
+  message(FATAL_ERROR
+    "python metatransfer dual-write sidecar content check failed (${_rv_dual_check})\nstdout:\n${_out_dual_check}\nstderr:\n${_err_dual_check}")
+endif()
+
+file(WRITE "${_embed_only_strip_sidecar}" "stale sidecar\n")
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env
+          "PYTHONPATH=${OPENMETA_PYTHONPATH}"
+          "${OPENMETA_PYTHON_EXECUTABLE}" -m openmeta.python.metatransfer
+          --no-build-info
+          --target-jpeg "${_target_jpg}"
+          --xmp-destination-sidecar strip_existing
+          -o "${_embed_only_strip_jpg}"
+          "${_src_jpg}"
+  RESULT_VARIABLE _rv_embed_strip
+  OUTPUT_VARIABLE _out_embed_strip
+  ERROR_VARIABLE _err_embed_strip
+)
+if(NOT _rv_embed_strip EQUAL 0)
+  message(FATAL_ERROR
+    "python metatransfer embedded-only sidecar cleanup failed (${_rv_embed_strip})\nstdout:\n${_out_embed_strip}\nstderr:\n${_err_embed_strip}")
+endif()
+if(NOT EXISTS "${_embed_only_strip_jpg}")
+  message(FATAL_ERROR
+    "python metatransfer embedded-only cleanup did not write jpeg output\nstdout:\n${_out_embed_strip}\nstderr:\n${_err_embed_strip}")
+endif()
+if(EXISTS "${_embed_only_strip_sidecar}")
+  message(FATAL_ERROR
+    "python metatransfer embedded-only cleanup did not remove stale sidecar\nstdout:\n${_out_embed_strip}\nstderr:\n${_err_embed_strip}")
+endif()
+if(NOT _out_embed_strip MATCHES "xmp_sidecar_removed=.*embed_only_strip\\.xmp")
+  message(FATAL_ERROR
+    "python metatransfer embedded-only cleanup missing sidecar removal summary\nstdout:\n${_out_embed_strip}\nstderr:\n${_err_embed_strip}")
+endif()
+
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env
+          "PYTHONPATH=${OPENMETA_PYTHONPATH}"
+          "${OPENMETA_PYTHON_EXECUTABLE}" -m openmeta.python.metatransfer
+          --no-build-info
+          --target-jpeg "${_target_jpg_xmp}"
+          --xmp-writeback sidecar
+          --xmp-destination-embedded strip_existing
+          -o "${_sidecar_only_strip_jpg}"
+          "${_src_jpg}"
+  RESULT_VARIABLE _rv_sidecar_strip
+  OUTPUT_VARIABLE _out_sidecar_strip
+  ERROR_VARIABLE _err_sidecar_strip
+)
+if(NOT _rv_sidecar_strip EQUAL 0)
+  message(FATAL_ERROR
+    "python metatransfer sidecar-only embedded-strip failed (${_rv_sidecar_strip})\nstdout:\n${_out_sidecar_strip}\nstderr:\n${_err_sidecar_strip}")
+endif()
+if(NOT EXISTS "${_sidecar_only_strip_jpg}")
+  message(FATAL_ERROR
+    "python metatransfer sidecar-only embedded-strip did not write jpeg output\nstdout:\n${_out_sidecar_strip}\nstderr:\n${_err_sidecar_strip}")
+endif()
+if(NOT EXISTS "${_sidecar_only_strip_sidecar}")
+  message(FATAL_ERROR
+    "python metatransfer sidecar-only embedded-strip did not write xmp sidecar\nstdout:\n${_out_sidecar_strip}\nstderr:\n${_err_sidecar_strip}")
+endif()
+execute_process(
+  COMMAND "${OPENMETA_PYTHON_EXECUTABLE}" -c
+    "from pathlib import Path; b=Path(r'''${_sidecar_only_strip_jpg}''').read_bytes(); import sys; sys.exit(0 if (b.find(b'Target Embedded Existing')==-1 and b.find(b'http://ns.adobe.com/xap/1.0/')==-1) else 1)"
+  RESULT_VARIABLE _rv_sidecar_strip_check
+  OUTPUT_VARIABLE _out_sidecar_strip_check
+  ERROR_VARIABLE _err_sidecar_strip_check
+)
+if(NOT _rv_sidecar_strip_check EQUAL 0)
+  message(FATAL_ERROR
+    "python metatransfer sidecar-only embedded-strip output still contains embedded xmp (${_rv_sidecar_strip_check})\nstdout:\n${_out_sidecar_strip}\nstderr:\n${_err_sidecar_strip}\ncheck_stderr:\n${_err_sidecar_strip_check}")
 endif()
 
 file(WRITE "${_check_tiff_py}" [=[
