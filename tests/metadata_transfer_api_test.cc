@@ -7240,6 +7240,69 @@ TEST(MetadataTransferApi,
 }
 
 TEST(MetadataTransferApi,
+     ExecutePreparedTransferFileJpegEmbeddedAndSidecarKeepsEmbeddedXmp)
+{
+    std::vector<std::byte> source_jpeg;
+    ASSERT_TRUE(build_test_transfer_source_jpeg_bytes(&source_jpeg));
+    const std::string source_path = unique_temp_path(".jpg");
+    ASSERT_TRUE(write_bytes_file(
+        source_path,
+        std::span<const std::byte>(source_jpeg.data(), source_jpeg.size())));
+
+    const std::vector<std::byte> target_jpeg = make_jpeg_with_segments({});
+    const std::string target_path            = unique_temp_path(".jpg");
+    ASSERT_TRUE(write_bytes_file(
+        target_path,
+        std::span<const std::byte>(target_jpeg.data(), target_jpeg.size())));
+
+    openmeta::ExecutePreparedTransferFileOptions options;
+    options.prepare.prepare.target_format = openmeta::TransferTargetFormat::Jpeg;
+    options.prepare.prepare.include_icc_app2   = false;
+    options.prepare.prepare.include_iptc_app13 = false;
+    options.edit_target_path                   = target_path;
+    options.execute.edit_apply                 = true;
+    options.xmp_writeback_mode
+        = openmeta::XmpWritebackMode::EmbeddedAndSidecar;
+
+    const openmeta::ExecutePreparedTransferFileResult result
+        = openmeta::execute_prepared_transfer_file(source_path.c_str(), options);
+    std::remove(source_path.c_str());
+    std::remove(target_path.c_str());
+
+    ASSERT_EQ(result.prepared.file_status, openmeta::TransferFileStatus::Ok);
+    ASSERT_EQ(result.prepared.prepare.status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(result.execute.edit_apply.status, openmeta::TransferStatus::Ok);
+    EXPECT_TRUE(result.xmp_sidecar_requested);
+    EXPECT_EQ(result.xmp_sidecar_status, openmeta::TransferStatus::Ok);
+    EXPECT_FALSE(result.xmp_sidecar_output.empty());
+    EXPECT_EQ(count_blocks_with_route(result.prepared.bundle, "jpeg:app1-xmp"),
+              1U);
+
+    openmeta::MetaStore edited_store;
+    ASSERT_TRUE(decode_transfer_roundtrip_store(
+        std::span<const std::byte>(result.execute.edited_output.data(),
+                                   result.execute.edited_output.size()),
+        &edited_store));
+    EXPECT_TRUE(store_has_text_entry(edited_store,
+                                     exif_key_view("exififd", 0x9003U),
+                                     "2024:01:02 03:04:05"));
+    EXPECT_TRUE(store_has_text_entry(
+        edited_store,
+        xmp_key_view("http://ns.adobe.com/xap/1.0/", "CreatorTool"),
+        "OpenMeta Transfer Source"));
+
+    openmeta::MetaStore sidecar_store;
+    ASSERT_TRUE(decode_transfer_roundtrip_store(
+        std::span<const std::byte>(result.xmp_sidecar_output.data(),
+                                   result.xmp_sidecar_output.size()),
+        &sidecar_store));
+    EXPECT_TRUE(store_has_text_entry(
+        sidecar_store,
+        xmp_key_view("http://ns.adobe.com/xap/1.0/", "CreatorTool"),
+        "OpenMeta Transfer Source"));
+}
+
+TEST(MetadataTransferApi,
      ExecutePreparedTransferFileSidecarOnlyRequiresEditTargetPath)
 {
     std::vector<std::byte> source_jpeg;

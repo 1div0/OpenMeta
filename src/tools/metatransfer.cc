@@ -53,9 +53,10 @@ namespace {
             "  --xmp-conflict-policy <current|existing_wins|generated_wins>\n"
             "                         Conflict policy between existing decoded XMP and\n"
             "                         generated portable EXIF/IPTC XMP properties\n"
-            "  --xmp-writeback <embedded|sidecar>\n"
+            "  --xmp-writeback <embedded|sidecar|embedded_and_sidecar>\n"
             "                         Keep generated XMP embedded, or strip embedded XMP\n"
-            "                         carriers and persist a sibling .xmp sidecar when --output is used\n"
+            "                         carriers and persist a sibling .xmp sidecar when --output is used,\n"
+            "                         or keep both embedded and sidecar XMP carriers\n"
             "  --xmp-exiftool-gpsdatetime-alias\n"
             "                         Emit exif:GPSDateTime alias in portable mode\n"
             "  --no-exif              Skip EXIF APP1 preparation\n"
@@ -376,6 +377,10 @@ namespace {
         }
         if (std::strcmp(s, "sidecar") == 0) {
             *out = XmpWritebackMode::SidecarOnly;
+            return true;
+        }
+        if (std::strcmp(s, "embedded_and_sidecar") == 0) {
+            *out = XmpWritebackMode::EmbeddedAndSidecar;
             return true;
         }
         return false;
@@ -1366,7 +1371,7 @@ main(int argc, char** argv)
                                           &xmp_writeback_mode)) {
                 std::fprintf(stderr,
                              "invalid --xmp-writeback value "
-                             "(expected embedded|sidecar)\n");
+                             "(expected embedded|sidecar|embedded_and_sidecar)\n");
                 return 2;
             }
             i += 1;
@@ -2154,10 +2159,11 @@ main(int argc, char** argv)
         std::fprintf(stderr, "--output is not supported for --target-exr\n");
         return 2;
     }
-    if (xmp_writeback_mode == XmpWritebackMode::SidecarOnly
+    if (xmp_writeback_mode != XmpWritebackMode::EmbeddedOnly
         && output_path.empty()) {
         std::fprintf(stderr,
-                     "--xmp-writeback sidecar requires --output\n");
+                     "--xmp-writeback sidecar or embedded_and_sidecar "
+                     "requires --output\n");
         return 2;
     }
     const bool c2pa_wrapper_target_ok

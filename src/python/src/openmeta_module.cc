@@ -3342,7 +3342,9 @@ NB_MODULE(_openmeta, m)
 
     nb::enum_<XmpWritebackMode>(m, "XmpWritebackMode")
         .value("EmbeddedOnly", XmpWritebackMode::EmbeddedOnly)
-        .value("SidecarOnly", XmpWritebackMode::SidecarOnly);
+        .value("SidecarOnly", XmpWritebackMode::SidecarOnly)
+        .value("EmbeddedAndSidecar",
+               XmpWritebackMode::EmbeddedAndSidecar);
 
     nb::enum_<XmpExistingSidecarMode>(m, "XmpExistingSidecarMode")
         .value("Ignore", XmpExistingSidecarMode::Ignore)

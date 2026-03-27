@@ -235,13 +235,14 @@ Current controls:
 - `xmp_writeback_mode` on the file-helper execution path:
   - `EmbeddedOnly`
   - `SidecarOnly`
+  - `EmbeddedAndSidecar`
 - CLI:
   - `--xmp-include-existing-sidecar`
   - `--xmp-existing-sidecar-precedence <sidecar_wins|source_wins>`
   - `--xmp-no-exif-projection`
   - `--xmp-no-iptc-projection`
   - `--xmp-conflict-policy <current|existing_wins|generated_wins>`
-  - `--xmp-writeback <embedded|sidecar>`
+  - `--xmp-writeback <embedded|sidecar|embedded_and_sidecar>`
 
 Current behavior:
 - existing XMP can still be included independently
@@ -259,14 +260,16 @@ Current behavior:
   fallback carrier when IPTC projection is enabled
 - file-helper export can now strip prepared embedded XMP blocks and return
   canonical sidecar output guidance instead
+- file-helper export can also keep generated embedded XMP while emitting the
+  same generated packet as a sibling `.xmp` sidecar
 - the public `metatransfer` CLI and Python transfer wrapper can now persist
-  that generated XMP as a sibling `.xmp` sidecar when sidecar writeback is
-  selected
+  that generated XMP as a sibling `.xmp` sidecar when sidecar or dual-write
+  XMP writeback is selected
 
 This is deliberately narrower than a full sync engine. It does not yet define:
 - full EXIF vs XMP precedence rules
 - MWG-style reconciliation
-- canonical sidecar vs embedded writeback policy
+- canonical destination embedded-vs-sidecar reconciliation policy
 - namespace-wide deduplication and normalization rules beyond the current
   generated-XMP path
 

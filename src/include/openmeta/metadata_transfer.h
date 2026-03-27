@@ -1165,6 +1165,7 @@ struct ExecutePreparedTransferResult final {
 enum class XmpWritebackMode : uint8_t {
     EmbeddedOnly,
     SidecarOnly,
+    EmbeddedAndSidecar,
 };
 
 /// Options for \ref execute_prepared_transfer_file.

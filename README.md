@@ -101,8 +101,9 @@ In practice:
   source-embedded existing XMP.
 - File-helper execution, `metatransfer`, and the Python transfer wrapper now
   share a bounded XMP carrier choice:
-  embedded XMP only, or sidecar-only writeback to a sibling `.xmp` when a
-  generated XMP packet exists for the prepared transfer.
+  embedded XMP only, sidecar-only writeback to a sibling `.xmp`, or dual
+  embedded-plus-sidecar writeback when a generated XMP packet exists for the
+  prepared transfer.
 - Prepared bundles record resolved policy decisions for MakerNote, JUMBF,
   C2PA, EXIF-to-XMP projection, and IPTC-to-XMP projection.
 - This is still not a full MWG-style sync engine. OpenMeta does not yet try to

@@ -199,7 +199,7 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--xmp-no-exif-projection", action="store_true", help="do not mirror EXIF-derived properties into generated XMP")
     ap.add_argument("--xmp-no-iptc-projection", action="store_true", help="do not mirror IPTC-derived properties into generated XMP")
     ap.add_argument("--xmp-conflict-policy", choices=["current", "existing_wins", "generated_wins"], default="current", help="conflict policy between existing decoded XMP and generated portable EXIF/IPTC XMP")
-    ap.add_argument("--xmp-writeback", choices=["embedded", "sidecar"], default="embedded", help="keep generated XMP embedded, or persist it as a sibling .xmp sidecar when --output is used")
+    ap.add_argument("--xmp-writeback", choices=["embedded", "sidecar", "embedded_and_sidecar"], default="embedded", help="keep generated XMP embedded, persist it only as a sibling .xmp sidecar, or do both when --output is used")
     ap.add_argument("--xmp-exiftool-gpsdatetime-alias", action="store_true", help="emit exif:GPSDateTime alias for GPS time in portable mode")
     ap.add_argument("--no-exif", action="store_true", help="skip EXIF APP1 preparation")
     ap.add_argument("--no-xmp", action="store_true", help="skip XMP APP1 preparation")
@@ -432,8 +432,8 @@ def main(argv: list[str]) -> int:
             "--target-png, --target-jp2, --target-jxl, --target-heif, "
             "--target-avif, or --target-cr3"
         )
-    if args.xmp_writeback == "sidecar" and not args.output:
-        ap.error("--xmp-writeback sidecar requires --output")
+    if args.xmp_writeback != "embedded" and not args.output:
+        ap.error("--xmp-writeback sidecar or embedded_and_sidecar requires --output")
     if args.dump_c2pa_binding and (
         args.target_tiff
         or args.target_webp
@@ -727,6 +727,8 @@ def main(argv: list[str]) -> int:
     xmp_writeback_mode = openmeta.XmpWritebackMode.EmbeddedOnly
     if args.xmp_writeback == "sidecar":
         xmp_writeback_mode = openmeta.XmpWritebackMode.SidecarOnly
+    elif args.xmp_writeback == "embedded_and_sidecar":
+        xmp_writeback_mode = openmeta.XmpWritebackMode.EmbeddedAndSidecar
     xmp_existing_sidecar_mode = openmeta.XmpExistingSidecarMode.Ignore
     if args.xmp_include_existing_sidecar:
         xmp_existing_sidecar_mode = (

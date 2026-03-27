@@ -21413,7 +21413,7 @@ execute_prepared_transfer_file(
 {
     ExecutePreparedTransferFileResult out;
     out.xmp_sidecar_requested
-        = options.xmp_writeback_mode == XmpWritebackMode::SidecarOnly;
+        = options.xmp_writeback_mode != XmpWritebackMode::EmbeddedOnly;
     const bool c2pa_stage_requested = options.c2pa_stage_requested
                                       || options.c2pa_signed_package_provided;
     out.execute.c2pa_stage_requested = c2pa_stage_requested;
@@ -21437,12 +21437,20 @@ execute_prepared_transfer_file(
             if (!out.prepared.bundle.generated_xmp_sidecar.empty()) {
                 out.xmp_sidecar_output = out.prepared.bundle.generated_xmp_sidecar;
                 out.xmp_sidecar_status = TransferStatus::Ok;
-                const uint32_t removed_xmp = remove_prepared_blocks_by_kind(
-                    &out.prepared.bundle, TransferBlockKind::Xmp);
-                if (removed_xmp == 0U) {
+                if (options.xmp_writeback_mode
+                    == XmpWritebackMode::SidecarOnly) {
+                    const uint32_t removed_xmp
+                        = remove_prepared_blocks_by_kind(
+                            &out.prepared.bundle, TransferBlockKind::Xmp);
+                    if (removed_xmp == 0U) {
+                        out.xmp_sidecar_message
+                            = "prepared xmp sidecar bytes available without "
+                              "embedded xmp carrier blocks";
+                    }
+                } else {
                     out.xmp_sidecar_message
-                        = "prepared xmp sidecar bytes available without "
-                          "embedded xmp carrier blocks";
+                        = "prepared xmp sidecar bytes will be written "
+                          "alongside embedded xmp carriers";
                 }
             } else {
                 out.xmp_sidecar_status  = TransferStatus::Ok;
