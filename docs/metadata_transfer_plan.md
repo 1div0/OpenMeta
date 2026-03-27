@@ -236,6 +236,9 @@ Current controls:
   - `EmbeddedOnly`
   - `SidecarOnly`
   - `EmbeddedAndSidecar`
+- `xmp_destination_embedded_mode` on the file-helper execution path:
+  - `PreserveExisting`
+  - `StripExisting`
 - CLI:
   - `--xmp-include-existing-sidecar`
   - `--xmp-existing-sidecar-precedence <sidecar_wins|source_wins>`
@@ -243,6 +246,8 @@ Current controls:
   - `--xmp-no-iptc-projection`
   - `--xmp-conflict-policy <current|existing_wins|generated_wins>`
   - `--xmp-writeback <embedded|sidecar|embedded_and_sidecar>`
+  - `--xmp-destination-embedded <preserve_existing|strip_existing>`
+  - `--xmp-destination-sidecar <preserve_existing|strip_existing>`
 
 Current behavior:
 - existing XMP can still be included independently
@@ -265,11 +270,27 @@ Current behavior:
 - the public `metatransfer` CLI and Python transfer wrapper can now persist
   that generated XMP as a sibling `.xmp` sidecar when sidecar or dual-write
   XMP writeback is selected
+- sidecar-only writeback now has an explicit destination embedded-XMP policy:
+  - preserve existing embedded XMP by default
+  - strip existing embedded XMP for `jpeg`, `tiff`, `png`, `webp`, `jp2`,
+    and `jxl`
+- embedded-only writeback now has an explicit destination sidecar policy:
+  - preserve an existing sibling `.xmp` by default
+  - strip an existing sibling `.xmp` when explicitly requested
+- the C++ API now also has a bounded persistence helper for
+  `execute_prepared_transfer_file(...)` results, so applications can write the
+  edited file, write the generated `.xmp` sidecar, and remove a stale sibling
+  `.xmp` without reimplementing wrapper-side file logic
+- the Python binding now exposes the same persistence path through
+  `transfer_file(...)` and `unsafe_transfer_file(...)`, and the public Python
+  wrapper uses that core helper instead of maintaining its own sidecar write
+  and cleanup implementation
 
 This is deliberately narrower than a full sync engine. It does not yet define:
 - full EXIF vs XMP precedence rules
 - MWG-style reconciliation
-- canonical destination embedded-vs-sidecar reconciliation policy
+- full destination embedded-vs-sidecar reconciliation policy beyond the
+  current bounded carrier modes and strip rules
 - namespace-wide deduplication and normalization rules beyond the current
   generated-XMP path
 

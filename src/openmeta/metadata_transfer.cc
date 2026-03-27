@@ -1,5 +1,6 @@
 #include "openmeta/metadata_transfer.h"
 
+#include "openmeta/container_scan.h"
 #include "openmeta/container_payload.h"
 #include "openmeta/jumbf_decode.h"
 #include "openmeta/mapped_file.h"
@@ -10,6 +11,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <limits>
 #include <string>
@@ -80,6 +82,7 @@ struct WebpRewritePolicy final {
 static EmitTransferResult
 build_prepared_bundle_jxl_package(std::span<const std::byte> input_jxl,
                                   const PreparedTransferBundle& bundle,
+                                  bool strip_existing_xmp,
                                   PreparedTransferPackagePlan* out_plan,
                                   uint32_t* out_removed_boxes) noexcept;
 
@@ -93,18 +96,21 @@ build_prepared_bundle_jxl_package_impl(std::span<const std::byte> input_jxl,
 static EmitTransferResult
 build_prepared_bundle_png_package(std::span<const std::byte> input_png,
                                   const PreparedTransferBundle& bundle,
+                                  bool strip_existing_xmp,
                                   PreparedTransferPackagePlan* out_plan,
                                   uint32_t* out_removed_chunks) noexcept;
 
 static EmitTransferResult
 build_prepared_bundle_jp2_package(std::span<const std::byte> input_jp2,
                                   const PreparedTransferBundle& bundle,
+                                  bool strip_existing_xmp,
                                   PreparedTransferPackagePlan* out_plan,
                                   uint32_t* out_removed_boxes) noexcept;
 
 static EmitTransferResult
 build_prepared_bundle_webp_package(std::span<const std::byte> input_webp,
                                    const PreparedTransferBundle& bundle,
+                                   bool strip_existing_xmp,
                                    PreparedTransferPackagePlan* out_plan,
                                    uint32_t* out_removed_chunks) noexcept;
 
@@ -451,7 +457,8 @@ namespace {
     is_c2pa_jumbf_payload(std::span<const std::byte> logical_payload) noexcept;
 
     static JxlRewritePolicy
-    collect_jxl_rewrite_policy(const PreparedTransferBundle& bundle) noexcept;
+    collect_jxl_rewrite_policy(const PreparedTransferBundle& bundle,
+                               bool strip_existing_xmp) noexcept;
 
     static bool jxl_source_box_matches_rewrite_policy(
         std::span<const std::byte> bytes, const TransferBmffBox& box,
@@ -1052,12 +1059,16 @@ namespace {
     static bool should_strip_existing_jpeg_segment(
         const PreparedTransferBundle& bundle,
         const ExistingJpegSegment& existing,
-        const std::vector<PlannedJpegSegment>& desired) noexcept
+        const std::vector<PlannedJpegSegment>& desired,
+        bool strip_existing_xmp) noexcept
     {
         if (!existing.route_known) {
             return false;
         }
         if (route_in_desired(existing.route, desired)) {
+            return true;
+        }
+        if (strip_existing_xmp && existing.route == "jpeg:app1-xmp") {
             return true;
         }
         if (existing.route == "jpeg:app11-jumbf") {
@@ -1245,8 +1256,8 @@ namespace {
         bool inserted = false;
         for (size_t i = 0; i < scan.leading_segments.size(); ++i) {
             const ExistingJpegSegment& e = scan.leading_segments[i];
-            const bool replaced = should_strip_existing_jpeg_segment(bundle, e,
-                                                                     desired);
+            const bool replaced = should_strip_existing_jpeg_segment(
+                bundle, e, desired, false);
             if (replaced) {
                 if (!inserted) {
                     for (size_t oi = 0; oi < desired_ops.size(); ++oi) {
@@ -1405,7 +1416,8 @@ namespace {
         PreparedTransferBundle binding_bundle = bundle;
         const uint32_t removed_c2pa           = remove_prepared_jxl_c2pa_blocks(
             &binding_bundle);
-        JxlRewritePolicy policy = collect_jxl_rewrite_policy(binding_bundle);
+        JxlRewritePolicy policy = collect_jxl_rewrite_policy(binding_bundle,
+                                                             false);
         if (removed_c2pa > 0U || rewrite->existing_carrier_segments > 0U) {
             policy.c2pa = true;
         }
@@ -2009,6 +2021,62 @@ namespace {
         if (*out_a == *out_b) {
             out_b->clear();
         }
+    }
+
+    static bool path_exists(const char* path) noexcept
+    {
+        if (!path || !*path) {
+            return false;
+        }
+        std::FILE* f = std::fopen(path, "rb");
+        if (!f) {
+            return false;
+        }
+        std::fclose(f);
+        return true;
+    }
+
+    static bool write_file_bytes(const std::string& path,
+                                 std::span<const std::byte> bytes) noexcept
+    {
+        if (path.empty()) {
+            return false;
+        }
+        std::FILE* f = std::fopen(path.c_str(), "wb");
+        if (!f) {
+            return false;
+        }
+        size_t written = 0U;
+        if (!bytes.empty()) {
+            written = std::fwrite(bytes.data(), 1, bytes.size(), f);
+        }
+        std::fclose(f);
+        return written == bytes.size();
+    }
+
+    static bool find_existing_xmp_sidecar_path(const char* base_path,
+                                               std::string* out_path) noexcept
+    {
+        if (out_path) {
+            out_path->clear();
+        }
+        if (!base_path || !*base_path || !out_path) {
+            return false;
+        }
+
+        std::string sidecar_a;
+        std::string sidecar_b;
+        xmp_sidecar_candidates(base_path, &sidecar_a, &sidecar_b);
+        if (!sidecar_a.empty() && path_exists(sidecar_a.c_str())) {
+            *out_path = sidecar_a;
+            return true;
+        }
+        if (!sidecar_b.empty() && path_exists(sidecar_b.c_str())) {
+            *out_path = sidecar_b;
+            return true;
+        }
+        *out_path = sidecar_a;
+        return false;
     }
 
     static bool load_existing_xmp_sidecar_bytes(
@@ -6328,7 +6396,13 @@ namespace {
         uint16_t tag   = 0U;
         uint16_t type  = 7U;  // UNDEFINED
         uint32_t count = 0U;
+        bool remove    = false;
         std::vector<std::byte> payload;
+    };
+
+    struct TiffPayloadRange final {
+        size_t offset = 0U;
+        size_t size   = 0U;
     };
 
     struct TiffIfdEntry final {
@@ -6959,7 +7033,8 @@ namespace {
     }
 
     static std::vector<TiffTagUpdate>
-    collect_tiff_tag_updates(const PreparedTransferBundle& bundle) noexcept
+    collect_tiff_tag_updates(const PreparedTransferBundle& bundle,
+                             bool strip_existing_xmp) noexcept
     {
         std::vector<TiffTagUpdate> out;
         for (size_t i = 0; i < bundle.blocks.size(); ++i) {
@@ -6988,6 +7063,21 @@ namespace {
             u.payload.assign(b.payload.begin(), b.payload.end());
             out.push_back(std::move(u));
         }
+        bool has_xmp_update = false;
+        for (size_t i = 0; i < out.size(); ++i) {
+            if (out[i].tag == 700U) {
+                has_xmp_update = true;
+                break;
+            }
+        }
+        if (strip_existing_xmp && !has_xmp_update) {
+            TiffTagUpdate u;
+            u.tag    = 700U;
+            u.type   = 7U;
+            u.count  = 0U;
+            u.remove = true;
+            out.push_back(std::move(u));
+        }
         return out;
     }
 
@@ -7012,6 +7102,76 @@ namespace {
             }
         }
         return false;
+    }
+
+    static bool has_remove_for_tag(const std::vector<TiffTagUpdate>& updates,
+                                   uint16_t tag) noexcept
+    {
+        for (size_t i = 0; i < updates.size(); ++i) {
+            if (updates[i].tag == tag && updates[i].remove) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static bool collect_reachable_tiff_xmp_payload_ranges(
+        std::span<const std::byte> input,
+        std::vector<TiffPayloadRange>* out_ranges) noexcept
+    {
+        if (!out_ranges) {
+            return false;
+        }
+        out_ranges->clear();
+
+        std::array<ContainerBlockRef, 64> blocks {};
+        const ScanResult scan = scan_tiff(
+            input, std::span<ContainerBlockRef>(blocks.data(), blocks.size()));
+        if (scan.status != ScanStatus::Ok) {
+            return false;
+        }
+
+        const uint32_t written = (scan.written < blocks.size())
+                                     ? scan.written
+                                     : static_cast<uint32_t>(blocks.size());
+        for (uint32_t i = 0; i < written; ++i) {
+            const ContainerBlockRef& block = blocks[i];
+            if (block.kind != ContainerBlockKind::Xmp) {
+                continue;
+            }
+            if (block.data_offset > static_cast<uint64_t>(input.size())
+                || block.data_size
+                       > (static_cast<uint64_t>(input.size())
+                          - block.data_offset)) {
+                continue;
+            }
+            TiffPayloadRange range;
+            range.offset = static_cast<size_t>(block.data_offset);
+            range.size   = static_cast<size_t>(block.data_size);
+            out_ranges->push_back(range);
+        }
+        return true;
+    }
+
+    static void scrub_tiff_payload_ranges(std::vector<std::byte>* bytes,
+                                          const std::vector<TiffPayloadRange>&
+                                              ranges) noexcept
+    {
+        if (!bytes) {
+            return;
+        }
+        for (size_t i = 0; i < ranges.size(); ++i) {
+            const TiffPayloadRange& range = ranges[i];
+            if (range.offset > bytes->size()
+                || range.size > (bytes->size() - range.offset)) {
+                continue;
+            }
+            std::fill(bytes->begin() + static_cast<std::ptrdiff_t>(range.offset),
+                      bytes->begin()
+                          + static_cast<std::ptrdiff_t>(range.offset
+                                                        + range.size),
+                      std::byte { 0x00 });
+        }
     }
 
     static void upsert_ifd_pointer(ParsedTiffIfd* ifd, uint16_t tag,
@@ -7297,6 +7457,9 @@ namespace {
 
         for (size_t u = 0; u < merged_updates.size(); ++u) {
             const TiffTagUpdate& src = merged_updates[u];
+            if (src.remove) {
+                continue;
+            }
             TiffIfdEntry e;
             e.tag                 = src.tag;
             e.type                = src.type;
@@ -7504,6 +7667,12 @@ namespace {
         }
 
         out->assign(input.begin(), input.end());
+        if (has_remove_for_tag(updates, 700U)) {
+            std::vector<TiffPayloadRange> ranges;
+            if (collect_reachable_tiff_xmp_payload_ranges(input, &ranges)) {
+                scrub_tiff_payload_ranges(out, ranges);
+            }
+        }
         write_u32_tiff(out, 4U, rewrite.new_ifd0_off, rewrite.endian);
         out->insert(out->end(), rewrite.tail_bytes.begin(),
                     rewrite.tail_bytes.end());
@@ -11228,6 +11397,7 @@ plan_prepared_bundle_jpeg_edit(std::span<const std::byte> input_jpeg,
 
     const JpegScanResult scan = scan_leading_jpeg_segments(input_jpeg);
     plan.leading_scan_end     = static_cast<uint64_t>(scan.scan_end);
+    plan.strip_existing_xmp   = options.strip_existing_xmp;
     if (scan.status != TransferStatus::Ok) {
         plan.status  = scan.status;
         plan.message = scan.message;
@@ -11257,7 +11427,8 @@ plan_prepared_bundle_jpeg_edit(std::span<const std::byte> input_jpeg,
         for (size_t i = 0; i < scan.leading_segments.size(); ++i) {
             if (!should_strip_existing_jpeg_segment(bundle,
                                                     scan.leading_segments[i],
-                                                    desired)) {
+                                                    desired,
+                                                    options.strip_existing_xmp)) {
                 continue;
             }
             if (!route_in_desired(scan.leading_segments[i].route, desired)) {
@@ -11303,7 +11474,8 @@ plan_prepared_bundle_jpeg_edit(std::span<const std::byte> input_jpeg,
     uint32_t removed_c2pa_segments  = 0;
     for (size_t i = 0; i < scan.leading_segments.size(); ++i) {
         const ExistingJpegSegment& e = scan.leading_segments[i];
-        if (!should_strip_existing_jpeg_segment(bundle, e, desired)) {
+        if (!should_strip_existing_jpeg_segment(bundle, e, desired,
+                                                options.strip_existing_xmp)) {
             continue;
         }
         replaced_segments += 1U;
@@ -11444,8 +11616,8 @@ apply_prepared_bundle_jpeg_edit(std::span<const std::byte> input_jpeg,
     bool inserted = false;
     for (size_t i = 0; i < scan.leading_segments.size(); ++i) {
         const ExistingJpegSegment& e = scan.leading_segments[i];
-        const bool replaced = should_strip_existing_jpeg_segment(bundle, e,
-                                                                 desired);
+        const bool replaced = should_strip_existing_jpeg_segment(
+            bundle, e, desired, plan.strip_existing_xmp);
         if (replaced) {
             if (!inserted) {
                 for (size_t si = 0; si < desired.size(); ++si) {
@@ -11529,11 +11701,13 @@ plan_prepared_bundle_tiff_edit(std::span<const std::byte> input_tiff,
         return plan;
     }
 
-    const std::vector<TiffTagUpdate> updates = collect_tiff_tag_updates(bundle);
+    const std::vector<TiffTagUpdate> updates = collect_tiff_tag_updates(
+        bundle, options.strip_existing_xmp);
     const std::vector<std::byte> exif_app1_payload
         = first_tiff_exif_app1_payload(bundle);
-    plan.tag_updates  = static_cast<uint32_t>(updates.size());
-    plan.has_exif_ifd = !exif_app1_payload.empty();
+    plan.tag_updates        = static_cast<uint32_t>(updates.size());
+    plan.has_exif_ifd       = !exif_app1_payload.empty();
+    plan.strip_existing_xmp = options.strip_existing_xmp;
 
     if (options.require_updates && updates.empty()
         && exif_app1_payload.empty()) {
@@ -11588,7 +11762,8 @@ apply_prepared_bundle_tiff_edit(std::span<const std::byte> input_tiff,
         return out;
     }
 
-    const std::vector<TiffTagUpdate> updates = collect_tiff_tag_updates(bundle);
+    const std::vector<TiffTagUpdate> updates = collect_tiff_tag_updates(
+        bundle, plan.strip_existing_xmp);
     const std::vector<std::byte> exif_app1_payload
         = first_tiff_exif_app1_payload(bundle);
     if (plan.tag_updates != static_cast<uint32_t>(updates.size())
@@ -11649,6 +11824,7 @@ build_prepared_bundle_bmff_package(std::span<const std::byte> input_bmff,
 static EmitTransferResult
 build_prepared_bundle_jxl_package(std::span<const std::byte> input_jxl,
                                   const PreparedTransferBundle& bundle,
+                                  bool strip_existing_xmp,
                                   PreparedTransferPackagePlan* out_plan,
                                   uint32_t* out_removed_boxes) noexcept;
 
@@ -12033,8 +12209,8 @@ build_prepared_bundle_jpeg_package(
     bool inserted = false;
     for (size_t i = 0; i < scan.leading_segments.size(); ++i) {
         const ExistingJpegSegment& e = scan.leading_segments[i];
-        const bool replaced = should_strip_existing_jpeg_segment(bundle, e,
-                                                                 desired);
+        const bool replaced = should_strip_existing_jpeg_segment(
+            bundle, e, desired, plan.strip_existing_xmp);
         if (replaced) {
             if (!inserted) {
                 for (size_t si = 0; si < desired.size(); ++si) {
@@ -12119,7 +12295,8 @@ build_prepared_bundle_tiff_package(
         return out;
     }
 
-    const std::vector<TiffTagUpdate> updates = collect_tiff_tag_updates(bundle);
+    const std::vector<TiffTagUpdate> updates = collect_tiff_tag_updates(
+        bundle, plan.strip_existing_xmp);
     const std::vector<std::byte> exif_app1_payload
         = first_tiff_exif_app1_payload(bundle);
     if (plan.tag_updates != static_cast<uint32_t>(updates.size())
@@ -12131,8 +12308,30 @@ build_prepared_bundle_tiff_package(
         return out;
     }
 
-    TiffRewriteTail rewrite;
     std::string err;
+    if (plan.strip_existing_xmp && has_remove_for_tag(updates, 700U)) {
+        std::vector<std::byte> rewritten;
+        if (!rewrite_tiff_ifd0_tags(
+                input_tiff, updates,
+                std::span<const std::byte>(exif_app1_payload.data(),
+                                           exif_app1_payload.size()),
+                &rewritten, &err)) {
+            out.status  = tiff_edit_status_from_error(err);
+            out.code    = EmitTransferCode::PlanMismatch;
+            out.errors  = 1U;
+            out.message = err;
+            return out;
+        }
+        append_package_inline_chunk(
+            out_plan, std::span<const std::byte>(rewritten.data(),
+                                                 rewritten.size()));
+        out_plan->output_size = static_cast<uint64_t>(rewritten.size());
+        out.status            = TransferStatus::Ok;
+        out.code              = EmitTransferCode::None;
+        return out;
+    }
+
+    TiffRewriteTail rewrite;
     if (!build_tiff_rewrite_tail(
             input_tiff, updates,
             std::span<const std::byte>(exif_app1_payload.data(),
@@ -12468,8 +12667,9 @@ build_executed_transfer_package_batch(
                               : execute.edit_plan_message;
             return out;
         }
-        out = build_prepared_bundle_jxl_package(edit_input, bundle, &plan,
-                                                nullptr);
+        out = build_prepared_bundle_jxl_package(edit_input, bundle,
+                                                execute.strip_existing_xmp,
+                                                &plan, nullptr);
     } else if (bundle.target_format == TransferTargetFormat::Webp
                && execute.edit_requested) {
         if (execute.edit_plan_status != TransferStatus::Ok) {
@@ -12481,8 +12681,9 @@ build_executed_transfer_package_batch(
                               : execute.edit_plan_message;
             return out;
         }
-        out = build_prepared_bundle_webp_package(edit_input, bundle, &plan,
-                                                 nullptr);
+        out = build_prepared_bundle_webp_package(edit_input, bundle,
+                                                 execute.strip_existing_xmp,
+                                                 &plan, nullptr);
     } else if (bundle.target_format == TransferTargetFormat::Png
                && execute.edit_requested) {
         if (execute.edit_plan_status != TransferStatus::Ok) {
@@ -12494,8 +12695,9 @@ build_executed_transfer_package_batch(
                               : execute.edit_plan_message;
             return out;
         }
-        out = build_prepared_bundle_png_package(edit_input, bundle, &plan,
-                                                nullptr);
+        out = build_prepared_bundle_png_package(edit_input, bundle,
+                                                execute.strip_existing_xmp,
+                                                &plan, nullptr);
     } else if (bundle.target_format == TransferTargetFormat::Jp2
                && execute.edit_requested) {
         if (execute.edit_plan_status != TransferStatus::Ok) {
@@ -12507,8 +12709,9 @@ build_executed_transfer_package_batch(
                               : execute.edit_plan_message;
             return out;
         }
-        out = build_prepared_bundle_jp2_package(edit_input, bundle, &plan,
-                                                nullptr);
+        out = build_prepared_bundle_jp2_package(edit_input, bundle,
+                                                execute.strip_existing_xmp,
+                                                &plan, nullptr);
     } else if (transfer_target_is_bmff(bundle.target_format)
                && execute.edit_requested) {
         if (execute.edit_plan_status != TransferStatus::Ok) {
@@ -16813,7 +17016,8 @@ namespace {
     }
 
     static PngRewritePolicy
-    collect_png_rewrite_policy(const PreparedTransferBundle& bundle) noexcept
+    collect_png_rewrite_policy(const PreparedTransferBundle& bundle,
+                               bool strip_existing_xmp) noexcept
     {
         PngRewritePolicy policy;
         for (size_t i = 0; i < bundle.blocks.size(); ++i) {
@@ -16833,11 +17037,15 @@ namespace {
                 policy.icc = true;
             }
         }
+        if (strip_existing_xmp) {
+            policy.xmp = true;
+        }
         return policy;
     }
 
     static WebpRewritePolicy
-    collect_webp_rewrite_policy(const PreparedTransferBundle& bundle) noexcept
+    collect_webp_rewrite_policy(const PreparedTransferBundle& bundle,
+                                bool strip_existing_xmp) noexcept
     {
         WebpRewritePolicy policy;
         for (size_t i = 0; i < bundle.blocks.size(); ++i) {
@@ -16861,11 +17069,15 @@ namespace {
                 policy.c2pa = true;
             }
         }
+        if (strip_existing_xmp) {
+            policy.xmp = true;
+        }
         return policy;
     }
 
     static Jp2RewritePolicy
-    collect_jp2_rewrite_policy(const PreparedTransferBundle& bundle) noexcept
+    collect_jp2_rewrite_policy(const PreparedTransferBundle& bundle,
+                               bool strip_existing_xmp) noexcept
     {
         Jp2RewritePolicy policy;
         for (size_t i = 0; i < bundle.blocks.size(); ++i) {
@@ -16884,6 +17096,9 @@ namespace {
             if (block.route == "jp2:box-jp2h-colr") {
                 policy.icc = true;
             }
+        }
+        if (strip_existing_xmp) {
+            policy.xmp = true;
         }
         return policy;
     }
@@ -17294,7 +17509,8 @@ namespace {
     }
 
     static JxlRewritePolicy
-    collect_jxl_rewrite_policy(const PreparedTransferBundle& bundle) noexcept
+    collect_jxl_rewrite_policy(const PreparedTransferBundle& bundle,
+                               bool strip_existing_xmp) noexcept
     {
         JxlRewritePolicy policy;
         for (size_t i = 0; i < bundle.blocks.size(); ++i) {
@@ -17321,6 +17537,9 @@ namespace {
                     policy.jumbf = true;
                 }
             }
+        }
+        if (strip_existing_xmp) {
+            policy.xmp = true;
         }
         return policy;
     }
@@ -18789,6 +19008,7 @@ namespace {
     {
         ExecutePreparedTransferResult out;
         out.edit_requested     = options.edit_requested;
+        out.strip_existing_xmp = options.strip_existing_xmp;
         out.edit_apply.status  = TransferStatus::Unsupported;
         out.edit_apply.code    = EmitTransferCode::InvalidArgument;
         out.edit_apply.message = options.edit_requested
@@ -19280,9 +19500,13 @@ namespace {
 
         out.edit_input_size = static_cast<uint64_t>(edit_input.size());
         if (bundle->target_format == TransferTargetFormat::Jpeg) {
+            PlanJpegEditOptions jpeg_edit = options.jpeg_edit;
+            if (options.strip_existing_xmp) {
+                jpeg_edit.strip_existing_xmp = true;
+            }
             out.jpeg_edit_plan
                 = plan_prepared_bundle_jpeg_edit(edit_input, *bundle,
-                                                 options.jpeg_edit);
+                                                 jpeg_edit);
             out.edit_plan_status  = out.jpeg_edit_plan.status;
             out.edit_plan_message = out.jpeg_edit_plan.message;
             out.edit_output_size  = out.jpeg_edit_plan.output_size;
@@ -19304,9 +19528,13 @@ namespace {
                 }
             }
         } else if (bundle->target_format == TransferTargetFormat::Tiff) {
+            PlanTiffEditOptions tiff_edit = options.tiff_edit;
+            if (options.strip_existing_xmp) {
+                tiff_edit.strip_existing_xmp = true;
+            }
             out.tiff_edit_plan
                 = plan_prepared_bundle_tiff_edit(edit_input, *bundle,
-                                                 options.tiff_edit);
+                                                 tiff_edit);
             out.edit_plan_status  = out.tiff_edit_plan.status;
             out.edit_plan_message = out.tiff_edit_plan.message;
             out.edit_output_size  = out.tiff_edit_plan.output_size;
@@ -19335,8 +19563,9 @@ namespace {
             out.edit_apply.message = "jxl edit apply not requested";
 
             const EmitTransferResult plan_result
-                = build_prepared_bundle_jxl_package(edit_input, *bundle,
-                                                    &package, &removed_boxes);
+                = build_prepared_bundle_jxl_package(
+                    edit_input, *bundle, options.strip_existing_xmp, &package,
+                    &removed_boxes);
             out.edit_plan_status  = plan_result.status;
             out.edit_plan_message = plan_result.message;
             out.edit_output_size  = plan_result.status == TransferStatus::Ok
@@ -19396,9 +19625,9 @@ namespace {
             out.edit_apply.message  = "webp edit apply not requested";
 
             const EmitTransferResult plan_result
-                = build_prepared_bundle_webp_package(edit_input, *bundle,
-                                                     &package,
-                                                     &removed_chunks);
+                = build_prepared_bundle_webp_package(
+                    edit_input, *bundle, options.strip_existing_xmp, &package,
+                    &removed_chunks);
             out.edit_plan_status  = plan_result.status;
             out.edit_plan_message = plan_result.message;
             out.edit_output_size  = plan_result.status == TransferStatus::Ok
@@ -19458,9 +19687,9 @@ namespace {
             out.edit_apply.message  = "png edit apply not requested";
 
             const EmitTransferResult plan_result
-                = build_prepared_bundle_png_package(edit_input, *bundle,
-                                                    &package,
-                                                    &removed_chunks);
+                = build_prepared_bundle_png_package(
+                    edit_input, *bundle, options.strip_existing_xmp, &package,
+                    &removed_chunks);
             out.edit_plan_status  = plan_result.status;
             out.edit_plan_message = plan_result.message;
             out.edit_output_size  = plan_result.status == TransferStatus::Ok
@@ -19520,9 +19749,9 @@ namespace {
             out.edit_apply.message = "jp2 edit apply not requested";
 
             const EmitTransferResult plan_result
-                = build_prepared_bundle_jp2_package(edit_input, *bundle,
-                                                    &package,
-                                                    &removed_boxes);
+                = build_prepared_bundle_jp2_package(
+                    edit_input, *bundle, options.strip_existing_xmp, &package,
+                    &removed_boxes);
             out.edit_plan_status  = plan_result.status;
             out.edit_plan_message = plan_result.message;
             out.edit_output_size  = plan_result.status == TransferStatus::Ok
@@ -19653,6 +19882,7 @@ namespace {
 static EmitTransferResult
 build_prepared_bundle_webp_package(std::span<const std::byte> input_webp,
                                    const PreparedTransferBundle& bundle,
+                                   bool strip_existing_xmp,
                                    PreparedTransferPackagePlan* out_plan,
                                    uint32_t* out_removed_chunks) noexcept
 {
@@ -19712,7 +19942,8 @@ build_prepared_bundle_webp_package(std::span<const std::byte> input_webp,
         return out;
     }
 
-    const WebpRewritePolicy policy = collect_webp_rewrite_policy(bundle);
+    const WebpRewritePolicy policy = collect_webp_rewrite_policy(
+        bundle, strip_existing_xmp);
 
     std::vector<TransferWebpChunk> chunks;
     chunks.reserve(32U);
@@ -19944,6 +20175,7 @@ build_prepared_bundle_webp_package(std::span<const std::byte> input_webp,
 static EmitTransferResult
 build_prepared_bundle_png_package(std::span<const std::byte> input_png,
                                   const PreparedTransferBundle& bundle,
+                                  bool strip_existing_xmp,
                                   PreparedTransferPackagePlan* out_plan,
                                   uint32_t* out_removed_chunks) noexcept
 {
@@ -19988,7 +20220,8 @@ build_prepared_bundle_png_package(std::span<const std::byte> input_png,
     plan.target_format    = bundle.target_format;
     plan.input_size       = static_cast<uint64_t>(input_png.size());
 
-    const PngRewritePolicy policy = collect_png_rewrite_policy(bundle);
+    const PngRewritePolicy policy = collect_png_rewrite_policy(
+        bundle, strip_existing_xmp);
 
     TransferPngChunk ihdr;
     if (!parse_transfer_png_chunk(
@@ -20102,6 +20335,7 @@ static bool build_rewritten_jp2_header_box(
 static EmitTransferResult
 build_prepared_bundle_jp2_package(std::span<const std::byte> input_jp2,
                                   const PreparedTransferBundle& bundle,
+                                  bool strip_existing_xmp,
                                   PreparedTransferPackagePlan* out_plan,
                                   uint32_t* out_removed_boxes) noexcept
 {
@@ -20128,7 +20362,8 @@ build_prepared_bundle_jp2_package(std::span<const std::byte> input_jp2,
         return out;
     }
 
-    const Jp2RewritePolicy policy = collect_jp2_rewrite_policy(bundle);
+    const Jp2RewritePolicy policy = collect_jp2_rewrite_policy(
+        bundle, strip_existing_xmp);
     uint32_t icc_block_index      = 0xFFFFFFFFU;
     if (policy.icc
         && !find_jp2_rewrite_icc_block_index(bundle, &icc_block_index, &out)) {
@@ -20546,10 +20781,12 @@ build_prepared_bundle_jxl_package_impl(std::span<const std::byte> input_jxl,
 static EmitTransferResult
 build_prepared_bundle_jxl_package(std::span<const std::byte> input_jxl,
                                   const PreparedTransferBundle& bundle,
+                                  bool strip_existing_xmp,
                                   PreparedTransferPackagePlan* out_plan,
                                   uint32_t* out_removed_boxes) noexcept
 {
-    const JxlRewritePolicy policy = collect_jxl_rewrite_policy(bundle);
+    const JxlRewritePolicy policy = collect_jxl_rewrite_policy(
+        bundle, strip_existing_xmp);
     return build_prepared_bundle_jxl_package_impl(input_jxl, bundle, policy,
                                                   out_plan, out_removed_boxes);
 }
@@ -21412,10 +21649,17 @@ execute_prepared_transfer_file(
     const ExecutePreparedTransferFileOptions& options) noexcept
 {
     ExecutePreparedTransferFileResult out;
+    const bool strip_destination_embedded_xmp
+        = options.xmp_destination_embedded_mode
+          == XmpDestinationEmbeddedMode::StripExisting;
+    const bool strip_destination_sidecar
+        = options.xmp_destination_sidecar_mode
+          == XmpDestinationSidecarMode::StripExisting;
     out.xmp_sidecar_requested
         = options.xmp_writeback_mode != XmpWritebackMode::EmbeddedOnly;
     const bool c2pa_stage_requested = options.c2pa_stage_requested
                                       || options.c2pa_signed_package_provided;
+    const bool allow_sidecar_block_mutation = !strip_destination_embedded_xmp;
     out.execute.c2pa_stage_requested = c2pa_stage_requested;
     out.prepared = prepare_metadata_for_target_file(path, options.prepare);
 
@@ -21438,7 +21682,8 @@ execute_prepared_transfer_file(
                 out.xmp_sidecar_output = out.prepared.bundle.generated_xmp_sidecar;
                 out.xmp_sidecar_status = TransferStatus::Ok;
                 if (options.xmp_writeback_mode
-                    == XmpWritebackMode::SidecarOnly) {
+                        == XmpWritebackMode::SidecarOnly
+                    && allow_sidecar_block_mutation) {
                     const uint32_t removed_xmp
                         = remove_prepared_blocks_by_kind(
                             &out.prepared.bundle, TransferBlockKind::Xmp);
@@ -21493,6 +21738,86 @@ execute_prepared_transfer_file(
                 = "skipped xmp sidecar writeback due to read/prepare failure";
         }
         return out;
+    }
+
+    if (strip_destination_sidecar) {
+        const char* sidecar_base_path = nullptr;
+        if (!options.xmp_sidecar_base_path.empty()) {
+            sidecar_base_path = options.xmp_sidecar_base_path.c_str();
+        } else if (!options.edit_target_path.empty()) {
+            sidecar_base_path = options.edit_target_path.c_str();
+        }
+        if (!sidecar_base_path || !*sidecar_base_path) {
+            out.xmp_sidecar_cleanup_status = TransferStatus::Unsupported;
+            out.xmp_sidecar_cleanup_message
+                = "destination xmp sidecar strip mode requires "
+                  "edit_target_path or xmp_sidecar_base_path";
+        } else if (options.xmp_writeback_mode
+                   != XmpWritebackMode::EmbeddedOnly) {
+            find_existing_xmp_sidecar_path(sidecar_base_path,
+                                           &out.xmp_sidecar_cleanup_path);
+            out.xmp_sidecar_cleanup_status = TransferStatus::Unsupported;
+            out.xmp_sidecar_cleanup_message
+                = "destination xmp sidecar strip mode is currently "
+                  "supported only for embedded writeback";
+        } else {
+            const bool found_existing_sidecar = find_existing_xmp_sidecar_path(
+                sidecar_base_path, &out.xmp_sidecar_cleanup_path);
+            out.xmp_sidecar_cleanup_status = TransferStatus::Ok;
+            if (found_existing_sidecar) {
+                out.xmp_sidecar_cleanup_requested = true;
+                out.xmp_sidecar_cleanup_message
+                    = "existing destination xmp sidecar should be removed";
+            } else {
+                out.xmp_sidecar_cleanup_message
+                    = "no existing destination xmp sidecar detected";
+            }
+        }
+    }
+
+    if (strip_destination_embedded_xmp && !options.edit_target_path.empty()) {
+        const TransferTargetFormat target_format = out.prepared.bundle.target_format;
+        const bool supported_strip_mode
+            = options.xmp_writeback_mode == XmpWritebackMode::SidecarOnly
+              && (target_format == TransferTargetFormat::Jpeg
+                  || target_format == TransferTargetFormat::Tiff
+                  || target_format == TransferTargetFormat::Png
+                  || target_format == TransferTargetFormat::Webp
+                  || target_format == TransferTargetFormat::Jp2
+                  || target_format == TransferTargetFormat::Jxl);
+        if (!supported_strip_mode) {
+            const char* const message
+                = "destination embedded xmp strip mode is currently "
+                  "supported only for jpeg, tiff, png, webp, jp2, and jxl "
+                  "sidecar-only writeback";
+            out.execute.compile = skipped_emit_result(
+                "skipped emit due to unsupported destination embedded xmp "
+                "policy");
+            out.execute.emit = out.execute.compile;
+            out.execute.edit_requested   = true;
+            out.execute.edit_plan_status = TransferStatus::Unsupported;
+            out.execute.edit_plan_message = message;
+            out.execute.edit_apply.status = TransferStatus::Unsupported;
+            out.execute.edit_apply.code   = EmitTransferCode::InvalidArgument;
+            out.execute.edit_apply.errors = 1U;
+            out.execute.edit_apply.message = message;
+            if (out.xmp_sidecar_requested) {
+                out.xmp_sidecar_status  = TransferStatus::Unsupported;
+                out.xmp_sidecar_message = message;
+                out.xmp_sidecar_output.clear();
+            }
+            return out;
+        }
+        if (options.xmp_writeback_mode == XmpWritebackMode::SidecarOnly
+            && !out.xmp_sidecar_output.empty()) {
+            const uint32_t removed_xmp = remove_prepared_blocks_by_kind(
+                &out.prepared.bundle, TransferBlockKind::Xmp);
+            if (removed_xmp == 0U && out.xmp_sidecar_message.empty()) {
+                out.xmp_sidecar_message
+                    = "prepared xmp sidecar bytes available without "
+                      "embedded xmp carrier blocks";
+            }
+        }
     }
 
     if (c2pa_stage_requested) {
@@ -21590,6 +21915,16 @@ execute_prepared_transfer_file(
 
         ExecutePreparedTransferOptions execute_options = options.execute;
         execute_options.edit_requested                 = true;
+        if (strip_destination_embedded_xmp
+            && options.xmp_writeback_mode == XmpWritebackMode::SidecarOnly) {
+            execute_options.strip_existing_xmp = true;
+            if (out.prepared.bundle.target_format == TransferTargetFormat::Jpeg) {
+                execute_options.jpeg_edit.strip_existing_xmp = true;
+            }
+            if (out.prepared.bundle.target_format == TransferTargetFormat::Tiff) {
+                execute_options.tiff_edit.strip_existing_xmp = true;
+            }
+        }
         ExecutePreparedTransferResult execute
             = execute_prepared_transfer(&out.prepared.bundle, edit_file.bytes(),
                                         execute_options);
@@ -21606,6 +21941,143 @@ execute_prepared_transfer_file(
     execute.c2pa_stage            = out.execute.c2pa_stage;
     execute.c2pa_stage_validation = out.execute.c2pa_stage_validation;
     out.execute                   = std::move(execute);
+    return out;
+}
+
+PersistPreparedTransferFileResult
+persist_prepared_transfer_file_result(
+    const ExecutePreparedTransferFileResult& prepared,
+    const PersistPreparedTransferFileOptions& options) noexcept
+{
+    PersistPreparedTransferFileResult out;
+    out.output_path = options.output_path;
+    if (options.output_path.empty()) {
+        out.status         = TransferStatus::InvalidArgument;
+        out.output_status  = TransferStatus::InvalidArgument;
+        out.output_message = "persist output path is required";
+        out.message        = out.output_message;
+        return out;
+    }
+
+    if (!options.write_output) {
+        out.output_status  = TransferStatus::Ok;
+        out.output_message = "output bytes were already written by caller";
+        out.output_bytes   = options.prewritten_output_bytes;
+    } else {
+        if (prepared.execute.edited_output.empty()) {
+            out.status         = TransferStatus::Unsupported;
+            out.output_status  = TransferStatus::Unsupported;
+            out.output_message = "no edited output bytes available to persist";
+            out.message        = out.output_message;
+            return out;
+        }
+
+        if (!options.overwrite_output
+            && path_exists(options.output_path.c_str())) {
+            out.status         = TransferStatus::Unsupported;
+            out.output_status  = TransferStatus::Unsupported;
+            out.output_message = "output path exists";
+            out.message        = out.output_message;
+            return out;
+        }
+
+        const std::span<const std::byte> output_bytes(
+            prepared.execute.edited_output.data(),
+            prepared.execute.edited_output.size());
+        if (!write_file_bytes(options.output_path, output_bytes)) {
+            out.status         = TransferStatus::Unsupported;
+            out.output_status  = TransferStatus::Unsupported;
+            out.output_message = "failed to write output bytes";
+            out.message        = out.output_message;
+            return out;
+        }
+
+        out.output_status = TransferStatus::Ok;
+        out.output_bytes  = static_cast<uint64_t>(output_bytes.size());
+    }
+
+    std::string persisted_sidecar_path;
+    if (prepared.xmp_sidecar_requested) {
+        out.xmp_sidecar_path = prepared.xmp_sidecar_path;
+        if (out.xmp_sidecar_path.empty()) {
+            std::string sidecar_a;
+            std::string sidecar_b;
+            xmp_sidecar_candidates(options.output_path.c_str(), &sidecar_a,
+                                   &sidecar_b);
+            out.xmp_sidecar_path = sidecar_a;
+        }
+        if (prepared.xmp_sidecar_status != TransferStatus::Ok) {
+            out.xmp_sidecar_status  = prepared.xmp_sidecar_status;
+            out.xmp_sidecar_message = prepared.xmp_sidecar_message;
+        } else if (prepared.xmp_sidecar_output.empty()) {
+            out.xmp_sidecar_status  = TransferStatus::Ok;
+            out.xmp_sidecar_message = prepared.xmp_sidecar_message.empty()
+                                          ? "no xmp sidecar output bytes"
+                                          : prepared.xmp_sidecar_message;
+        } else if (!options.overwrite_xmp_sidecar
+                   && path_exists(out.xmp_sidecar_path.c_str())) {
+            out.xmp_sidecar_status  = TransferStatus::Unsupported;
+            out.xmp_sidecar_message = "xmp sidecar path exists";
+        } else {
+            const std::span<const std::byte> sidecar_bytes(
+                prepared.xmp_sidecar_output.data(),
+                prepared.xmp_sidecar_output.size());
+            if (!write_file_bytes(out.xmp_sidecar_path, sidecar_bytes)) {
+                out.xmp_sidecar_status  = TransferStatus::Unsupported;
+                out.xmp_sidecar_message = "failed to write xmp sidecar bytes";
+            } else {
+                out.xmp_sidecar_status = TransferStatus::Ok;
+                out.xmp_sidecar_bytes
+                    = static_cast<uint64_t>(sidecar_bytes.size());
+                persisted_sidecar_path = out.xmp_sidecar_path;
+            }
+        }
+    }
+
+    if (prepared.xmp_sidecar_cleanup_requested) {
+        out.xmp_sidecar_cleanup_path = prepared.xmp_sidecar_cleanup_path;
+        if (out.xmp_sidecar_cleanup_path.empty()) {
+            out.xmp_sidecar_cleanup_status = TransferStatus::Unsupported;
+            out.xmp_sidecar_cleanup_message
+                = "xmp sidecar cleanup path is missing";
+        } else if (out.xmp_sidecar_cleanup_path == persisted_sidecar_path) {
+            out.xmp_sidecar_cleanup_status = TransferStatus::Ok;
+            out.xmp_sidecar_cleanup_message
+                = "destination xmp sidecar replaced by new sidecar output";
+        } else if (!options.remove_destination_xmp_sidecar) {
+            out.xmp_sidecar_cleanup_status = TransferStatus::Ok;
+            out.xmp_sidecar_cleanup_message
+                = "destination xmp sidecar cleanup skipped by options";
+        } else if (!path_exists(out.xmp_sidecar_cleanup_path.c_str())) {
+            out.xmp_sidecar_cleanup_status = TransferStatus::Ok;
+            out.xmp_sidecar_cleanup_message
+                = "no existing destination xmp sidecar detected";
+        } else if (std::remove(out.xmp_sidecar_cleanup_path.c_str()) != 0) {
+            out.xmp_sidecar_cleanup_status = TransferStatus::Unsupported;
+            out.xmp_sidecar_cleanup_message
+                = "failed to remove destination xmp sidecar";
+        } else {
+            out.xmp_sidecar_cleanup_status = TransferStatus::Ok;
+            out.xmp_sidecar_cleanup_message
+                = "removed existing destination xmp sidecar";
+            out.xmp_sidecar_cleanup_removed = true;
+        }
+    }
+
+    out.status = TransferStatus::Ok;
+    if (prepared.xmp_sidecar_requested
+        && out.xmp_sidecar_status != TransferStatus::Ok) {
+        out.status  = out.xmp_sidecar_status;
+        out.message = out.xmp_sidecar_message;
+        return out;
+    }
+    if (prepared.xmp_sidecar_cleanup_requested
+        && out.xmp_sidecar_cleanup_status != TransferStatus::Ok) {
+        out.status  = out.xmp_sidecar_cleanup_status;
+        out.message = out.xmp_sidecar_cleanup_message;
+        return out;
+    }
+    out.message = "persisted transfer outputs";
     return out;
 }
 

@@ -1381,6 +1381,56 @@ namespace {
         return out;
     }
 
+    static void append_persist_result_to_python(
+        const PersistPreparedTransferFileResult& persisted,
+        bool persist_requested, nb::dict* out)
+    {
+        if (!out) {
+            return;
+        }
+        (*out)["persist_requested"] = nb::bool_(persist_requested);
+        (*out)["persist_status"]    = persisted.status;
+        (*out)["persist_status_name"]
+            = nb::str(transfer_status_name(persisted.status));
+        (*out)["persist_message"] = nb::str(persisted.message.c_str(),
+                                            persisted.message.size());
+
+        (*out)["persist_output_status"] = persisted.output_status;
+        (*out)["persist_output_status_name"]
+            = nb::str(transfer_status_name(persisted.output_status));
+        (*out)["persist_output_message"] = nb::str(
+            persisted.output_message.c_str(), persisted.output_message.size());
+        (*out)["persist_output_path"]
+            = nb::str(persisted.output_path.c_str(),
+                      persisted.output_path.size());
+        (*out)["persist_output_bytes"] = nb::int_(persisted.output_bytes);
+
+        (*out)["persist_xmp_sidecar_status"] = persisted.xmp_sidecar_status;
+        (*out)["persist_xmp_sidecar_status_name"] = nb::str(
+            transfer_status_name(persisted.xmp_sidecar_status));
+        (*out)["persist_xmp_sidecar_message"] = nb::str(
+            persisted.xmp_sidecar_message.c_str(),
+            persisted.xmp_sidecar_message.size());
+        (*out)["persist_xmp_sidecar_path"]
+            = nb::str(persisted.xmp_sidecar_path.c_str(),
+                      persisted.xmp_sidecar_path.size());
+        (*out)["persist_xmp_sidecar_bytes"]
+            = nb::int_(persisted.xmp_sidecar_bytes);
+
+        (*out)["persist_xmp_sidecar_cleanup_status"]
+            = persisted.xmp_sidecar_cleanup_status;
+        (*out)["persist_xmp_sidecar_cleanup_status_name"] = nb::str(
+            transfer_status_name(persisted.xmp_sidecar_cleanup_status));
+        (*out)["persist_xmp_sidecar_cleanup_message"] = nb::str(
+            persisted.xmp_sidecar_cleanup_message.c_str(),
+            persisted.xmp_sidecar_cleanup_message.size());
+        (*out)["persist_xmp_sidecar_cleanup_path"]
+            = nb::str(persisted.xmp_sidecar_cleanup_path.c_str(),
+                      persisted.xmp_sidecar_cleanup_path.size());
+        (*out)["persist_xmp_sidecar_cleanup_removed"]
+            = nb::bool_(persisted.xmp_sidecar_cleanup_removed);
+    }
+
     static nb::dict transfer_probe_to_python(
         const std::string& path, TransferTargetFormat target_format,
         XmpSidecarFormat format, bool include_pointer_tags,
@@ -1414,7 +1464,12 @@ namespace {
         bool include_transfer_package_batch_bytes,
         bool unsafe_c2pa_package_access,
         XmpConflictPolicy xmp_conflict_policy,
-        XmpWritebackMode xmp_writeback_mode)
+        XmpWritebackMode xmp_writeback_mode,
+        XmpDestinationEmbeddedMode xmp_destination_embedded_mode,
+        XmpDestinationSidecarMode xmp_destination_sidecar_mode,
+        nb::object persist_output_path_obj, bool persist_overwrite_output,
+        bool persist_overwrite_xmp_sidecar,
+        bool persist_remove_destination_xmp_sidecar)
     {
         PrepareTransferFileOptions prepare_options;
         prepare_options.include_pointer_tags       = include_pointer_tags;
@@ -1462,7 +1517,11 @@ namespace {
         file_options.execute.time_patch_auto_nul     = time_patch_auto_nul;
         file_options.execute.edit_apply              = edit_do_apply;
         file_options.execute.edit_requested          = false;
-        file_options.xmp_writeback_mode             = xmp_writeback_mode;
+        file_options.xmp_writeback_mode              = xmp_writeback_mode;
+        file_options.xmp_destination_embedded_mode
+            = xmp_destination_embedded_mode;
+        file_options.xmp_destination_sidecar_mode
+            = xmp_destination_sidecar_mode;
 
         if (!edit_target_path_obj.is_none()) {
             file_options.edit_target_path = nb::cast<std::string>(
@@ -1531,11 +1590,29 @@ namespace {
                 = bytes_object_to_vector(c2pa_manifest_builder_output_obj);
         }
 
+        const bool persist_requested = !persist_output_path_obj.is_none();
+        std::string persist_output_path;
+        if (persist_requested) {
+            persist_output_path = nb::cast<std::string>(persist_output_path_obj);
+        }
+
         ExecutePreparedTransferFileResult executed;
+        PersistPreparedTransferFileResult persisted;
         {
             nb::gil_scoped_release gil_release;
             executed = execute_prepared_transfer_file(path.c_str(),
                                                       file_options);
+            if (persist_requested) {
+                PersistPreparedTransferFileOptions persist_options;
+                persist_options.output_path = persist_output_path;
+                persist_options.overwrite_output = persist_overwrite_output;
+                persist_options.overwrite_xmp_sidecar
+                    = persist_overwrite_xmp_sidecar;
+                persist_options.remove_destination_xmp_sidecar
+                    = persist_remove_destination_xmp_sidecar;
+                persisted = persist_prepared_transfer_file_result(
+                    executed, persist_options);
+            }
         }
         const PrepareTransferFileResult& prepared = executed.prepared;
         const ExecutePreparedTransferResult& exec = executed.execute;
@@ -1589,6 +1666,18 @@ namespace {
                                           executed.xmp_sidecar_path.size());
         out["xmp_sidecar_bytes"] = nb::int_(
             static_cast<uint64_t>(executed.xmp_sidecar_output.size()));
+        out["xmp_sidecar_cleanup_requested"]
+            = nb::bool_(executed.xmp_sidecar_cleanup_requested);
+        out["xmp_sidecar_cleanup_status"]
+            = executed.xmp_sidecar_cleanup_status;
+        out["xmp_sidecar_cleanup_status_name"] = nb::str(
+            transfer_status_name(executed.xmp_sidecar_cleanup_status));
+        out["xmp_sidecar_cleanup_message"] = nb::str(
+            executed.xmp_sidecar_cleanup_message.c_str(),
+            executed.xmp_sidecar_cleanup_message.size());
+        out["xmp_sidecar_cleanup_path"] = nb::str(
+            executed.xmp_sidecar_cleanup_path.c_str(),
+            executed.xmp_sidecar_cleanup_path.size());
         if (!executed.xmp_sidecar_output.empty()) {
             out["xmp_sidecar_output"] = nb::bytes(
                 reinterpret_cast<const char*>(
@@ -1597,6 +1686,7 @@ namespace {
         } else {
             out["xmp_sidecar_output"] = nb::none();
         }
+        append_persist_result_to_python(persisted, persist_requested, &out);
 
         out["time_patch_status"]      = exec.time_patch.status;
         out["time_patch_status_name"] = nb::str(
@@ -2578,6 +2668,26 @@ namespace {
             error_stage    = "emit";
             error_code     = emit_transfer_code_name(exec.emit.code);
             error_message  = exec.emit.message;
+        } else if (persist_requested && persisted.output_status
+                                        != TransferStatus::Ok) {
+            overall_status = persisted.output_status;
+            error_stage    = "persist_output";
+            error_code     = "persist_output_failed";
+            error_message  = persisted.output_message;
+        } else if (persist_requested && executed.xmp_sidecar_requested
+                   && persisted.xmp_sidecar_status != TransferStatus::Ok) {
+            overall_status = persisted.xmp_sidecar_status;
+            error_stage    = "persist_xmp_sidecar";
+            error_code     = "persist_xmp_sidecar_failed";
+            error_message  = persisted.xmp_sidecar_message;
+        } else if (persist_requested
+                   && executed.xmp_sidecar_cleanup_requested
+                   && persisted.xmp_sidecar_cleanup_status
+                          != TransferStatus::Ok) {
+            overall_status = persisted.xmp_sidecar_cleanup_status;
+            error_stage    = "persist_xmp_sidecar_cleanup";
+            error_code     = "persist_xmp_sidecar_cleanup_failed";
+            error_message  = persisted.xmp_sidecar_cleanup_message;
         }
 
         out["overall_status"]      = overall_status;
@@ -3345,6 +3455,18 @@ NB_MODULE(_openmeta, m)
         .value("SidecarOnly", XmpWritebackMode::SidecarOnly)
         .value("EmbeddedAndSidecar",
                XmpWritebackMode::EmbeddedAndSidecar);
+
+    nb::enum_<XmpDestinationEmbeddedMode>(m,
+                                          "XmpDestinationEmbeddedMode")
+        .value("PreserveExisting",
+               XmpDestinationEmbeddedMode::PreserveExisting)
+        .value("StripExisting", XmpDestinationEmbeddedMode::StripExisting);
+
+    nb::enum_<XmpDestinationSidecarMode>(m,
+                                         "XmpDestinationSidecarMode")
+        .value("PreserveExisting",
+               XmpDestinationSidecarMode::PreserveExisting)
+        .value("StripExisting", XmpDestinationSidecarMode::StripExisting);
 
     nb::enum_<XmpExistingSidecarMode>(m, "XmpExistingSidecarMode")
         .value("Ignore", XmpExistingSidecarMode::Ignore)
@@ -4446,7 +4568,9 @@ NB_MODULE(_openmeta, m)
            bool include_transfer_payload_batch_bytes,
            bool include_transfer_package_batch_bytes,
            XmpConflictPolicy xmp_conflict_policy,
-           XmpWritebackMode xmp_writeback_mode) {
+           XmpWritebackMode xmp_writeback_mode,
+           XmpDestinationEmbeddedMode xmp_destination_embedded_mode,
+           XmpDestinationSidecarMode xmp_destination_sidecar_mode) {
             return transfer_probe_to_python(
                 path, target_format, format, include_pointer_tags,
                 decode_makernote, decode_embedded_containers, decompress,
@@ -4467,7 +4591,10 @@ NB_MODULE(_openmeta, m)
                 include_jxl_encoder_handoff_bytes,
                 include_transfer_payload_batch_bytes,
                 include_transfer_package_batch_bytes, false,
-                xmp_conflict_policy, xmp_writeback_mode);
+                xmp_conflict_policy, xmp_writeback_mode,
+                xmp_destination_embedded_mode,
+                xmp_destination_sidecar_mode, nb::none(), false, false,
+                true);
         },
         "path"_a, "target_format"_a = TransferTargetFormat::Jpeg,
         "format"_a               = XmpSidecarFormat::Portable,
@@ -4503,7 +4630,11 @@ NB_MODULE(_openmeta, m)
         "include_transfer_payload_batch_bytes"_a = false,
         "include_transfer_package_batch_bytes"_a = false,
         "xmp_conflict_policy"_a = XmpConflictPolicy::CurrentBehavior,
-        "xmp_writeback_mode"_a = XmpWritebackMode::EmbeddedOnly);
+        "xmp_writeback_mode"_a = XmpWritebackMode::EmbeddedOnly,
+        "xmp_destination_embedded_mode"_a
+        = XmpDestinationEmbeddedMode::PreserveExisting,
+        "xmp_destination_sidecar_mode"_a
+        = XmpDestinationSidecarMode::PreserveExisting);
 
     m.def(
         "unsafe_transfer_probe",
@@ -4535,7 +4666,9 @@ NB_MODULE(_openmeta, m)
            bool include_transfer_payload_batch_bytes,
            bool include_transfer_package_batch_bytes,
            XmpConflictPolicy xmp_conflict_policy,
-           XmpWritebackMode xmp_writeback_mode) {
+           XmpWritebackMode xmp_writeback_mode,
+           XmpDestinationEmbeddedMode xmp_destination_embedded_mode,
+           XmpDestinationSidecarMode xmp_destination_sidecar_mode) {
             return transfer_probe_to_python(
                 path, target_format, format, include_pointer_tags,
                 decode_makernote, decode_embedded_containers, decompress,
@@ -4556,7 +4689,10 @@ NB_MODULE(_openmeta, m)
                 include_jxl_encoder_handoff_bytes,
                 include_transfer_payload_batch_bytes,
                 include_transfer_package_batch_bytes, true,
-                xmp_conflict_policy, xmp_writeback_mode);
+                xmp_conflict_policy, xmp_writeback_mode,
+                xmp_destination_embedded_mode,
+                xmp_destination_sidecar_mode, nb::none(), false, false,
+                true);
         },
         "path"_a, "target_format"_a = TransferTargetFormat::Jpeg,
         "format"_a               = XmpSidecarFormat::Portable,
@@ -4592,7 +4728,223 @@ NB_MODULE(_openmeta, m)
         "include_transfer_payload_batch_bytes"_a = false,
         "include_transfer_package_batch_bytes"_a = false,
         "xmp_conflict_policy"_a = XmpConflictPolicy::CurrentBehavior,
-        "xmp_writeback_mode"_a = XmpWritebackMode::EmbeddedOnly);
+        "xmp_writeback_mode"_a = XmpWritebackMode::EmbeddedOnly,
+        "xmp_destination_embedded_mode"_a
+        = XmpDestinationEmbeddedMode::PreserveExisting,
+        "xmp_destination_sidecar_mode"_a
+        = XmpDestinationSidecarMode::PreserveExisting);
+
+    m.def(
+        "transfer_file",
+        [](const std::string& path, TransferTargetFormat target_format,
+           XmpSidecarFormat format, bool include_pointer_tags,
+           bool decode_makernote, bool decode_embedded_containers,
+           bool decompress, bool include_exif_app1, bool include_xmp_app1,
+           bool include_icc_app2, bool include_iptc_app13,
+           bool xmp_include_existing, bool xmp_exiftool_gpsdatetime_alias,
+           bool xmp_project_exif, bool xmp_project_iptc,
+           TransferPolicyAction makernote_policy,
+           TransferPolicyAction jumbf_policy, TransferPolicyAction c2pa_policy,
+           uint64_t max_file_bytes, nb::object policy_obj,
+           nb::object c2pa_signed_package,
+           nb::object c2pa_signed_logical_payload,
+           nb::object c2pa_certificate_chain,
+           nb::object c2pa_private_key_reference, nb::object c2pa_signing_time,
+           nb::object c2pa_manifest_builder_output, bool include_payloads,
+           nb::object time_patches, bool time_patch_strict_width,
+           bool time_patch_require_slot, bool time_patch_auto_nul,
+           nb::object edit_target_path, nb::object xmp_sidecar_base_path,
+           XmpExistingSidecarMode xmp_existing_sidecar_mode,
+           XmpExistingSidecarPrecedence xmp_existing_sidecar_precedence,
+           bool edit_apply,
+           bool include_edited_bytes, bool include_c2pa_binding_bytes,
+           bool include_c2pa_handoff_bytes,
+           bool include_c2pa_signed_package_bytes,
+           bool include_jxl_encoder_handoff_bytes,
+           bool include_transfer_payload_batch_bytes,
+           bool include_transfer_package_batch_bytes,
+           XmpConflictPolicy xmp_conflict_policy,
+           XmpWritebackMode xmp_writeback_mode,
+           XmpDestinationEmbeddedMode xmp_destination_embedded_mode,
+           XmpDestinationSidecarMode xmp_destination_sidecar_mode,
+           const std::string& output_path, bool overwrite_output,
+           bool overwrite_xmp_sidecar,
+           bool remove_destination_xmp_sidecar) {
+            return transfer_probe_to_python(
+                path, target_format, format, include_pointer_tags,
+                decode_makernote, decode_embedded_containers, decompress,
+                include_exif_app1, include_xmp_app1, include_icc_app2,
+                include_iptc_app13, xmp_include_existing,
+                xmp_exiftool_gpsdatetime_alias, xmp_project_exif,
+                xmp_project_iptc, makernote_policy, jumbf_policy,
+                c2pa_policy, max_file_bytes, policy_obj, c2pa_signed_package,
+                c2pa_signed_logical_payload, c2pa_certificate_chain,
+                c2pa_private_key_reference, c2pa_signing_time,
+                c2pa_manifest_builder_output, include_payloads, false,
+                time_patches, time_patch_strict_width, time_patch_require_slot,
+                time_patch_auto_nul, edit_target_path, xmp_sidecar_base_path,
+                xmp_existing_sidecar_mode, xmp_existing_sidecar_precedence,
+                edit_apply,
+                include_edited_bytes, false, include_c2pa_binding_bytes, false,
+                include_c2pa_handoff_bytes, include_c2pa_signed_package_bytes,
+                include_jxl_encoder_handoff_bytes,
+                include_transfer_payload_batch_bytes,
+                include_transfer_package_batch_bytes, false,
+                xmp_conflict_policy, xmp_writeback_mode,
+                xmp_destination_embedded_mode,
+                xmp_destination_sidecar_mode,
+                nb::str(output_path.c_str(), output_path.size()),
+                overwrite_output, overwrite_xmp_sidecar,
+                remove_destination_xmp_sidecar);
+        },
+        "path"_a, "target_format"_a = TransferTargetFormat::Jpeg,
+        "format"_a               = XmpSidecarFormat::Portable,
+        "include_pointer_tags"_a = true, "decode_makernote"_a = false,
+        "decode_embedded_containers"_a = true, "decompress"_a = true,
+        "include_exif_app1"_a = true, "include_xmp_app1"_a = true,
+        "include_icc_app2"_a = true, "include_iptc_app13"_a = true,
+        "xmp_include_existing"_a           = false,
+        "xmp_exiftool_gpsdatetime_alias"_a = false,
+        "xmp_project_exif"_a             = true,
+        "xmp_project_iptc"_a             = true,
+        "makernote_policy"_a               = TransferPolicyAction::Keep,
+        "jumbf_policy"_a                   = TransferPolicyAction::Keep,
+        "c2pa_policy"_a = TransferPolicyAction::Keep, "max_file_bytes"_a = 0ULL,
+        "policy"_a = nb::none(), "c2pa_signed_package"_a = nb::none(),
+        "c2pa_signed_logical_payload"_a  = nb::none(),
+        "c2pa_certificate_chain"_a       = nb::none(),
+        "c2pa_private_key_reference"_a   = nb::none(),
+        "c2pa_signing_time"_a            = nb::none(),
+        "c2pa_manifest_builder_output"_a = nb::none(),
+        "include_payloads"_a = false, "time_patches"_a = nb::none(),
+        "time_patch_strict_width"_a = true, "time_patch_require_slot"_a = false,
+        "time_patch_auto_nul"_a = true, "edit_target_path"_a = nb::none(),
+        "xmp_sidecar_base_path"_a = nb::none(),
+        "xmp_existing_sidecar_mode"_a = XmpExistingSidecarMode::Ignore,
+        "xmp_existing_sidecar_precedence"_a
+        = XmpExistingSidecarPrecedence::SidecarWins,
+        "edit_apply"_a = true, "include_edited_bytes"_a = false,
+        "include_c2pa_binding_bytes"_a           = false,
+        "include_c2pa_handoff_bytes"_a           = false,
+        "include_c2pa_signed_package_bytes"_a    = false,
+        "include_jxl_encoder_handoff_bytes"_a    = false,
+        "include_transfer_payload_batch_bytes"_a = false,
+        "include_transfer_package_batch_bytes"_a = false,
+        "xmp_conflict_policy"_a = XmpConflictPolicy::CurrentBehavior,
+        "xmp_writeback_mode"_a = XmpWritebackMode::EmbeddedOnly,
+        "xmp_destination_embedded_mode"_a
+        = XmpDestinationEmbeddedMode::PreserveExisting,
+        "xmp_destination_sidecar_mode"_a
+        = XmpDestinationSidecarMode::PreserveExisting,
+        "output_path"_a, "overwrite_output"_a = false,
+        "overwrite_xmp_sidecar"_a = false,
+        "remove_destination_xmp_sidecar"_a = true);
+
+    m.def(
+        "unsafe_transfer_file",
+        [](const std::string& path, TransferTargetFormat target_format,
+           XmpSidecarFormat format, bool include_pointer_tags,
+           bool decode_makernote, bool decode_embedded_containers,
+           bool decompress, bool include_exif_app1, bool include_xmp_app1,
+           bool include_icc_app2, bool include_iptc_app13,
+           bool xmp_include_existing, bool xmp_exiftool_gpsdatetime_alias,
+           bool xmp_project_exif, bool xmp_project_iptc,
+           TransferPolicyAction makernote_policy,
+           TransferPolicyAction jumbf_policy, TransferPolicyAction c2pa_policy,
+           uint64_t max_file_bytes, nb::object policy_obj,
+           nb::object c2pa_signed_package,
+           nb::object c2pa_signed_logical_payload,
+           nb::object c2pa_certificate_chain,
+           nb::object c2pa_private_key_reference, nb::object c2pa_signing_time,
+           nb::object c2pa_manifest_builder_output, bool include_payloads,
+           nb::object time_patches, bool time_patch_strict_width,
+           bool time_patch_require_slot, bool time_patch_auto_nul,
+           nb::object edit_target_path, nb::object xmp_sidecar_base_path,
+           XmpExistingSidecarMode xmp_existing_sidecar_mode,
+           XmpExistingSidecarPrecedence xmp_existing_sidecar_precedence,
+           bool edit_apply,
+           bool include_edited_bytes, bool include_c2pa_binding_bytes,
+           bool include_c2pa_handoff_bytes,
+           bool include_c2pa_signed_package_bytes,
+           bool include_jxl_encoder_handoff_bytes,
+           bool include_transfer_payload_batch_bytes,
+           bool include_transfer_package_batch_bytes,
+           XmpConflictPolicy xmp_conflict_policy,
+           XmpWritebackMode xmp_writeback_mode,
+           XmpDestinationEmbeddedMode xmp_destination_embedded_mode,
+           XmpDestinationSidecarMode xmp_destination_sidecar_mode,
+           const std::string& output_path, bool overwrite_output,
+           bool overwrite_xmp_sidecar,
+           bool remove_destination_xmp_sidecar) {
+            return transfer_probe_to_python(
+                path, target_format, format, include_pointer_tags,
+                decode_makernote, decode_embedded_containers, decompress,
+                include_exif_app1, include_xmp_app1, include_icc_app2,
+                include_iptc_app13, xmp_include_existing,
+                xmp_exiftool_gpsdatetime_alias, xmp_project_exif,
+                xmp_project_iptc, makernote_policy, jumbf_policy,
+                c2pa_policy, max_file_bytes, policy_obj, c2pa_signed_package,
+                c2pa_signed_logical_payload, c2pa_certificate_chain,
+                c2pa_private_key_reference, c2pa_signing_time,
+                c2pa_manifest_builder_output, include_payloads, true,
+                time_patches, time_patch_strict_width, time_patch_require_slot,
+                time_patch_auto_nul, edit_target_path, xmp_sidecar_base_path,
+                xmp_existing_sidecar_mode, xmp_existing_sidecar_precedence,
+                edit_apply,
+                include_edited_bytes, true, include_c2pa_binding_bytes, true,
+                include_c2pa_handoff_bytes, include_c2pa_signed_package_bytes,
+                include_jxl_encoder_handoff_bytes,
+                include_transfer_payload_batch_bytes,
+                include_transfer_package_batch_bytes, true,
+                xmp_conflict_policy, xmp_writeback_mode,
+                xmp_destination_embedded_mode,
+                xmp_destination_sidecar_mode,
+                nb::str(output_path.c_str(), output_path.size()),
+                overwrite_output, overwrite_xmp_sidecar,
+                remove_destination_xmp_sidecar);
+        },
+        "path"_a, "target_format"_a = TransferTargetFormat::Jpeg,
+        "format"_a               = XmpSidecarFormat::Portable,
+        "include_pointer_tags"_a = true, "decode_makernote"_a = false,
+        "decode_embedded_containers"_a = true, "decompress"_a = true,
+        "include_exif_app1"_a = true, "include_xmp_app1"_a = true,
+        "include_icc_app2"_a = true, "include_iptc_app13"_a = true,
+        "xmp_include_existing"_a           = false,
+        "xmp_exiftool_gpsdatetime_alias"_a = false,
+        "xmp_project_exif"_a             = true,
+        "xmp_project_iptc"_a             = true,
+        "makernote_policy"_a               = TransferPolicyAction::Keep,
+        "jumbf_policy"_a                   = TransferPolicyAction::Keep,
+        "c2pa_policy"_a = TransferPolicyAction::Keep, "max_file_bytes"_a = 0ULL,
+        "policy"_a = nb::none(), "c2pa_signed_package"_a = nb::none(),
+        "c2pa_signed_logical_payload"_a  = nb::none(),
+        "c2pa_certificate_chain"_a       = nb::none(),
+        "c2pa_private_key_reference"_a   = nb::none(),
+        "c2pa_signing_time"_a            = nb::none(),
+        "c2pa_manifest_builder_output"_a = nb::none(),
+        "include_payloads"_a = false, "time_patches"_a = nb::none(),
+        "time_patch_strict_width"_a = true, "time_patch_require_slot"_a = false,
+        "time_patch_auto_nul"_a = true, "edit_target_path"_a = nb::none(),
+        "xmp_sidecar_base_path"_a = nb::none(),
+        "xmp_existing_sidecar_mode"_a = XmpExistingSidecarMode::Ignore,
+        "xmp_existing_sidecar_precedence"_a
+        = XmpExistingSidecarPrecedence::SidecarWins,
+        "edit_apply"_a = true, "include_edited_bytes"_a = false,
+        "include_c2pa_binding_bytes"_a           = false,
+        "include_c2pa_handoff_bytes"_a           = false,
+        "include_c2pa_signed_package_bytes"_a    = false,
+        "include_jxl_encoder_handoff_bytes"_a    = false,
+        "include_transfer_payload_batch_bytes"_a = false,
+        "include_transfer_package_batch_bytes"_a = false,
+        "xmp_conflict_policy"_a = XmpConflictPolicy::CurrentBehavior,
+        "xmp_writeback_mode"_a = XmpWritebackMode::EmbeddedOnly,
+        "xmp_destination_embedded_mode"_a
+        = XmpDestinationEmbeddedMode::PreserveExisting,
+        "xmp_destination_sidecar_mode"_a
+        = XmpDestinationSidecarMode::PreserveExisting,
+        "output_path"_a, "overwrite_output"_a = false,
+        "overwrite_xmp_sidecar"_a = false,
+        "remove_destination_xmp_sidecar"_a = true);
 
     m.def(
         "inspect_transfer_payload_batch",

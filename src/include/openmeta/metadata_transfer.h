@@ -452,6 +452,7 @@ struct PlanJpegEditOptions final {
     JpegEditMode mode        = JpegEditMode::Auto;
     bool require_in_place    = false;
     bool skip_empty_payloads = true;
+    bool strip_existing_xmp  = false;
 };
 
 /// Planned JPEG edit summary (draft API).
@@ -460,6 +461,7 @@ struct JpegEditPlan final {
     JpegEditMode requested_mode              = JpegEditMode::Auto;
     JpegEditMode selected_mode               = JpegEditMode::MetadataRewrite;
     bool in_place_possible                   = false;
+    bool strip_existing_xmp                  = false;
     uint32_t emitted_segments                = 0;
     uint32_t replaced_segments               = 0;
     uint32_t appended_segments               = 0;
@@ -476,6 +478,7 @@ struct JpegEditPlan final {
 struct PlanTiffEditOptions final {
     /// If true, fail planning when the bundle has no TIFF-applicable updates.
     bool require_updates = true;
+    bool strip_existing_xmp = false;
 };
 
 /// Planned TIFF edit summary (draft API).
@@ -483,6 +486,7 @@ struct TiffEditPlan final {
     TransferStatus status = TransferStatus::Ok;
     uint32_t tag_updates  = 0;
     bool has_exif_ifd     = false;
+    bool strip_existing_xmp = false;
     uint64_t input_size   = 0;
     uint64_t output_size  = 0;
     std::string message;
@@ -1122,6 +1126,7 @@ struct ExecutePreparedTransferOptions final {
     bool edit_requested                    = false;
     bool edit_apply                        = false;
     TransferByteWriter* edit_output_writer = nullptr;
+    bool strip_existing_xmp                = false;
     PlanJpegEditOptions jpeg_edit;
     PlanTiffEditOptions tiff_edit;
 };
@@ -1149,6 +1154,7 @@ struct ExecutePreparedTransferResult final {
     std::vector<EmittedBmffPropertySummary> bmff_property_summary;
     bool tiff_commit          = false;
     uint64_t emit_output_size = 0;
+    bool strip_existing_xmp   = false;
 
     bool edit_requested             = false;
     TransferStatus edit_plan_status = TransferStatus::Unsupported;
@@ -1168,6 +1174,19 @@ enum class XmpWritebackMode : uint8_t {
     EmbeddedAndSidecar,
 };
 
+/// Destination embedded-XMP handling for file-helper transfer execution.
+enum class XmpDestinationEmbeddedMode : uint8_t {
+    PreserveExisting,
+    StripExisting,
+};
+
+/// Destination sibling XMP sidecar handling for file-helper transfer
+/// execution.
+enum class XmpDestinationSidecarMode : uint8_t {
+    PreserveExisting,
+    StripExisting,
+};
+
 /// Options for \ref execute_prepared_transfer_file.
 struct ExecutePreparedTransferFileOptions final {
     PrepareTransferFileOptions prepare;
@@ -1175,6 +1194,10 @@ struct ExecutePreparedTransferFileOptions final {
     std::string edit_target_path;
     std::string xmp_sidecar_base_path;
     XmpWritebackMode xmp_writeback_mode = XmpWritebackMode::EmbeddedOnly;
+    XmpDestinationEmbeddedMode xmp_destination_embedded_mode
+        = XmpDestinationEmbeddedMode::PreserveExisting;
+    XmpDestinationSidecarMode xmp_destination_sidecar_mode
+        = XmpDestinationSidecarMode::PreserveExisting;
     bool c2pa_stage_requested = false;
     PreparedTransferC2paSignerInput c2pa_signer_input;
     bool c2pa_signed_package_provided = false;
@@ -1190,7 +1213,56 @@ struct ExecutePreparedTransferFileResult final {
     std::string xmp_sidecar_message;
     std::string xmp_sidecar_path;
     std::vector<std::byte> xmp_sidecar_output;
+    bool xmp_sidecar_cleanup_requested = false;
+    TransferStatus xmp_sidecar_cleanup_status = TransferStatus::Unsupported;
+    std::string xmp_sidecar_cleanup_message;
+    std::string xmp_sidecar_cleanup_path;
 };
+
+/// Options for \ref persist_prepared_transfer_file_result.
+struct PersistPreparedTransferFileOptions final {
+    std::string output_path;
+    bool write_output = true;
+    bool overwrite_output = false;
+    uint64_t prewritten_output_bytes = 0;
+    bool overwrite_xmp_sidecar = false;
+    bool remove_destination_xmp_sidecar = true;
+};
+
+/// Result for \ref persist_prepared_transfer_file_result.
+struct PersistPreparedTransferFileResult final {
+    TransferStatus status = TransferStatus::Unsupported;
+    std::string message;
+
+    TransferStatus output_status = TransferStatus::Unsupported;
+    std::string output_message;
+    std::string output_path;
+    uint64_t output_bytes = 0;
+
+    TransferStatus xmp_sidecar_status = TransferStatus::Unsupported;
+    std::string xmp_sidecar_message;
+    std::string xmp_sidecar_path;
+    uint64_t xmp_sidecar_bytes = 0;
+
+    TransferStatus xmp_sidecar_cleanup_status = TransferStatus::Unsupported;
+    std::string xmp_sidecar_cleanup_message;
+    std::string xmp_sidecar_cleanup_path;
+    bool xmp_sidecar_cleanup_removed = false;
+};
+
+/**
+ * \brief Persists edited output, generated XMP sidecar output, and any
+ * requested destination-sidecar cleanup from
+ * \ref execute_prepared_transfer_file.
+ *
+ * This is a bounded file helper for host applications that want the same
+ * output/sidecar behavior as the CLI or Python wrapper without reimplementing
+ * write and cleanup logic.
+ */
+PersistPreparedTransferFileResult
+persist_prepared_transfer_file_result(
+    const ExecutePreparedTransferFileResult& prepared,
+    const PersistPreparedTransferFileOptions& options) noexcept;
 
 /**
  * \brief Materializes the final persisted package batch for one executed

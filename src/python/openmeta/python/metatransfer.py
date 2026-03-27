@@ -200,6 +200,8 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--xmp-no-iptc-projection", action="store_true", help="do not mirror IPTC-derived properties into generated XMP")
     ap.add_argument("--xmp-conflict-policy", choices=["current", "existing_wins", "generated_wins"], default="current", help="conflict policy between existing decoded XMP and generated portable EXIF/IPTC XMP")
     ap.add_argument("--xmp-writeback", choices=["embedded", "sidecar", "embedded_and_sidecar"], default="embedded", help="keep generated XMP embedded, persist it only as a sibling .xmp sidecar, or do both when --output is used")
+    ap.add_argument("--xmp-destination-embedded", choices=["preserve_existing", "strip_existing"], default="preserve_existing", help="keep or remove destination embedded XMP during sidecar writeback; strip_existing is currently supported for JPEG, TIFF, PNG, WebP, JP2, and JXL sidecar-only writeback")
+    ap.add_argument("--xmp-destination-sidecar", choices=["preserve_existing", "strip_existing"], default="preserve_existing", help="keep or remove an existing sibling .xmp sidecar when writeback stays embedded-only")
     ap.add_argument("--xmp-exiftool-gpsdatetime-alias", action="store_true", help="emit exif:GPSDateTime alias for GPS time in portable mode")
     ap.add_argument("--no-exif", action="store_true", help="skip EXIF APP1 preparation")
     ap.add_argument("--no-xmp", action="store_true", help="skip XMP APP1 preparation")
@@ -434,6 +436,26 @@ def main(argv: list[str]) -> int:
         )
     if args.xmp_writeback != "embedded" and not args.output:
         ap.error("--xmp-writeback sidecar or embedded_and_sidecar requires --output")
+    if (
+        args.xmp_destination_embedded == "strip_existing"
+        and (
+            args.xmp_writeback != "sidecar"
+            or not (
+                args.target_jpeg
+                or args.target_tiff
+                or args.target_png
+                or args.target_webp
+                or args.target_jp2
+                or args.target_jxl
+            )
+        )
+    ):
+        ap.error("--xmp-destination-embedded strip_existing is currently supported only for --target-jpeg, --target-tiff, --target-png, --target-webp, --target-jp2, and --target-jxl with --xmp-writeback sidecar")
+    if (
+        args.xmp_destination_sidecar == "strip_existing"
+        and args.xmp_writeback != "embedded"
+    ):
+        ap.error("--xmp-destination-sidecar strip_existing is currently supported only with --xmp-writeback embedded")
     if args.dump_c2pa_binding and (
         args.target_tiff
         or args.target_webp
@@ -563,7 +585,8 @@ def main(argv: list[str]) -> int:
         target_path = input_paths[0]
     edit_requested = bool(target_path)
     edit_apply = bool(edit_requested and not args.dry_run)
-    need_edited_bytes = bool(edit_apply and args.output)
+    persist_output = bool(edit_apply and args.output)
+    need_edited_bytes = False
     need_c2pa_binding_bytes = bool(args.dump_c2pa_binding)
     need_c2pa_handoff_bytes = bool(args.dump_c2pa_handoff)
     need_c2pa_signed_package_bytes = bool(args.dump_c2pa_signed_package)
@@ -729,6 +752,20 @@ def main(argv: list[str]) -> int:
         xmp_writeback_mode = openmeta.XmpWritebackMode.SidecarOnly
     elif args.xmp_writeback == "embedded_and_sidecar":
         xmp_writeback_mode = openmeta.XmpWritebackMode.EmbeddedAndSidecar
+    xmp_destination_embedded_mode = (
+        openmeta.XmpDestinationEmbeddedMode.PreserveExisting
+    )
+    if args.xmp_destination_embedded == "strip_existing":
+        xmp_destination_embedded_mode = (
+            openmeta.XmpDestinationEmbeddedMode.StripExisting
+        )
+    xmp_destination_sidecar_mode = (
+        openmeta.XmpDestinationSidecarMode.PreserveExisting
+    )
+    if args.xmp_destination_sidecar == "strip_existing":
+        xmp_destination_sidecar_mode = (
+            openmeta.XmpDestinationSidecarMode.StripExisting
+        )
     xmp_existing_sidecar_mode = openmeta.XmpExistingSidecarMode.Ignore
     if args.xmp_include_existing_sidecar:
         xmp_existing_sidecar_mode = (
@@ -751,22 +788,17 @@ def main(argv: list[str]) -> int:
             xmp_sidecar_base_path = target_path
         elif args.xmp_include_existing_sidecar:
             xmp_sidecar_base_path = source_path
-        probe_fn = (
-            openmeta.unsafe_transfer_probe
-            if (
-                write_payloads
-                or need_edited_bytes
-                or need_c2pa_binding_bytes
-                or need_c2pa_handoff_bytes
-                or need_c2pa_signed_package_bytes
-                or need_transfer_payload_batch_bytes
-                or need_transfer_package_batch_bytes
-                or need_jxl_encoder_handoff_bytes
-            )
-            else openmeta.transfer_probe
+        use_unsafe_transfer = bool(
+            write_payloads
+            or need_edited_bytes
+            or need_c2pa_binding_bytes
+            or need_c2pa_handoff_bytes
+            or need_c2pa_signed_package_bytes
+            or need_transfer_payload_batch_bytes
+            or need_transfer_package_batch_bytes
+            or need_jxl_encoder_handoff_bytes
         )
-        probe = probe_fn(
-            source_path,
+        common_kwargs = dict(
             target_format=target_format,
             format=sidecar_format,
             include_pointer_tags=True,
@@ -811,7 +843,31 @@ def main(argv: list[str]) -> int:
             include_transfer_payload_batch_bytes=need_transfer_payload_batch_bytes,
             include_transfer_package_batch_bytes=need_transfer_package_batch_bytes,
             xmp_writeback_mode=xmp_writeback_mode,
+            xmp_destination_embedded_mode=xmp_destination_embedded_mode,
+            xmp_destination_sidecar_mode=xmp_destination_sidecar_mode,
         )
+        if persist_output:
+            os.makedirs(os.path.dirname(args.output) or ".", exist_ok=True)
+            transfer_fn = (
+                openmeta.unsafe_transfer_file
+                if use_unsafe_transfer
+                else openmeta.transfer_file
+            )
+            probe = transfer_fn(
+                source_path,
+                **common_kwargs,
+                output_path=args.output,
+                overwrite_output=bool(args.force),
+                overwrite_xmp_sidecar=bool(args.force),
+                remove_destination_xmp_sidecar=True,
+            )
+        else:
+            probe_fn = (
+                openmeta.unsafe_transfer_probe
+                if use_unsafe_transfer
+                else openmeta.transfer_probe
+            )
+            probe = probe_fn(source_path, **common_kwargs)
 
         print(f"== {source_path}")
         if source_path != path:
@@ -843,7 +899,7 @@ def main(argv: list[str]) -> int:
                 )
         if probe["xmp_sidecar_requested"]:
             xmp_sidecar_path = str(probe["xmp_sidecar_path"] or "-")
-            if args.xmp_writeback == "sidecar" and args.output:
+            if args.xmp_writeback in ("sidecar", "embedded_and_sidecar") and args.output:
                 xmp_sidecar_path = _xmp_sidecar_path(args.output)
             print(
                 f"  xmp_sidecar: status={probe['xmp_sidecar_status_name']} "
@@ -852,6 +908,16 @@ def main(argv: list[str]) -> int:
             )
             if probe["xmp_sidecar_message"]:
                 print(f"  xmp_sidecar_message={probe['xmp_sidecar_message']}")
+        if args.xmp_destination_sidecar == "strip_existing":
+            print(
+                f"  xmp_sidecar_cleanup: status={probe['xmp_sidecar_cleanup_status_name']} "
+                f"requested={'yes' if probe['xmp_sidecar_cleanup_requested'] else 'no'} "
+                f"path={probe['xmp_sidecar_cleanup_path'] or '-'}"
+            )
+            if probe["xmp_sidecar_cleanup_message"]:
+                print(
+                    f"  xmp_sidecar_cleanup_message={probe['xmp_sidecar_cleanup_message']}"
+                )
         print(
             f"  time_patch: status={probe['time_patch_status_name']} patched={probe['time_patch_patched_slots']} "
             f"skipped={probe['time_patch_skipped_slots']} errors={probe['time_patch_errors']}"
@@ -1285,42 +1351,38 @@ def main(argv: list[str]) -> int:
             if probe["edit_apply_message"]:
                 print(f"  edit_apply_message={probe['edit_apply_message']}")
 
-            if need_edited_bytes:
-                if os.path.exists(args.output) and not args.force:
-                    sys.stderr.write(f"  output exists: {args.output} (use --force)\n")
-                    rc = 1
-                    continue
-                edited = probe["edited_bytes"]
-                if edited is None:
-                    sys.stderr.write("  edited_bytes missing from probe result\n")
-                    rc = 1
-                    continue
-                os.makedirs(os.path.dirname(args.output) or ".", exist_ok=True)
-                with open(args.output, "wb") as f:
-                    f.write(edited)
-                print(f"  output={args.output} bytes={len(edited)}")
-                if args.xmp_writeback == "sidecar":
-                    if probe["xmp_sidecar_status"] != openmeta.TransferStatus.Ok:
-                        sys.stderr.write(
-                            f"  xmp_sidecar unsupported: {probe['xmp_sidecar_message']}\n"
-                        )
-                        rc = 1
-                        continue
-                    sidecar = probe["xmp_sidecar_output"]
-                    if sidecar is not None:
-                        sidecar_path = _xmp_sidecar_path(args.output)
-                        if os.path.exists(sidecar_path) and not args.force:
-                            sys.stderr.write(
-                                f"  xmp sidecar output exists: {sidecar_path} (use --force)\n"
-                            )
-                            rc = 1
-                            continue
-                        os.makedirs(os.path.dirname(sidecar_path) or ".", exist_ok=True)
-                        with open(sidecar_path, "wb") as f:
-                            f.write(sidecar)
-                        print(
-                            f"  xmp_sidecar_output={sidecar_path} bytes={len(sidecar)}"
-                        )
+            if persist_output:
+                if probe["persist_output_status"] == openmeta.TransferStatus.Ok:
+                    print(
+                        f"  output={probe['persist_output_path']} bytes={int(probe['persist_output_bytes'])}"
+                    )
+                elif probe["persist_output_message"]:
+                    print(f"  persist_output_message={probe['persist_output_message']}")
+
+                if int(probe["persist_xmp_sidecar_bytes"]) > 0:
+                    print(
+                        f"  xmp_sidecar_output={probe['persist_xmp_sidecar_path']} "
+                        f"bytes={int(probe['persist_xmp_sidecar_bytes'])}"
+                    )
+                elif (
+                    args.xmp_writeback in ("sidecar", "embedded_and_sidecar")
+                    and probe["persist_xmp_sidecar_status"] != openmeta.TransferStatus.Ok
+                    and probe["persist_xmp_sidecar_message"]
+                ):
+                    print(
+                        f"  persist_xmp_sidecar_message={probe['persist_xmp_sidecar_message']}"
+                    )
+
+                cleanup_path = str(probe["persist_xmp_sidecar_cleanup_path"] or "")
+                if cleanup_path:
+                    if bool(probe["persist_xmp_sidecar_cleanup_removed"]):
+                        print(f"  xmp_sidecar_removed={cleanup_path}")
+                    elif (
+                        args.xmp_destination_sidecar == "strip_existing"
+                        and probe["persist_xmp_sidecar_cleanup_status"]
+                        == openmeta.TransferStatus.Ok
+                    ):
+                        print(f"  xmp_sidecar_remove={cleanup_path}")
 
         if (
             probe["overall_status"] != openmeta.TransferStatus.Ok

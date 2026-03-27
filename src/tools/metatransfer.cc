@@ -57,6 +57,13 @@ namespace {
             "                         Keep generated XMP embedded, or strip embedded XMP\n"
             "                         carriers and persist a sibling .xmp sidecar when --output is used,\n"
             "                         or keep both embedded and sidecar XMP carriers\n"
+            "  --xmp-destination-embedded <preserve_existing|strip_existing>\n"
+            "                         Keep or remove destination embedded XMP during sidecar writeback;\n"
+            "                         strip_existing is currently supported only for JPEG,\n"
+            "                         TIFF, PNG, WebP, JP2, and JXL sidecar-only writeback\n"
+            "  --xmp-destination-sidecar <preserve_existing|strip_existing>\n"
+            "                         Keep or remove an existing sibling .xmp sidecar when\n"
+            "                         writeback stays embedded-only\n"
             "  --xmp-exiftool-gpsdatetime-alias\n"
             "                         Emit exif:GPSDateTime alias in portable mode\n"
             "  --no-exif              Skip EXIF APP1 preparation\n"
@@ -381,6 +388,40 @@ namespace {
         }
         if (std::strcmp(s, "embedded_and_sidecar") == 0) {
             *out = XmpWritebackMode::EmbeddedAndSidecar;
+            return true;
+        }
+        return false;
+    }
+
+    static bool parse_xmp_destination_embedded_mode(
+        const char* s, XmpDestinationEmbeddedMode* out) noexcept
+    {
+        if (!s || !out) {
+            return false;
+        }
+        if (std::strcmp(s, "preserve_existing") == 0) {
+            *out = XmpDestinationEmbeddedMode::PreserveExisting;
+            return true;
+        }
+        if (std::strcmp(s, "strip_existing") == 0) {
+            *out = XmpDestinationEmbeddedMode::StripExisting;
+            return true;
+        }
+        return false;
+    }
+
+    static bool parse_xmp_destination_sidecar_mode(
+        const char* s, XmpDestinationSidecarMode* out) noexcept
+    {
+        if (!s || !out) {
+            return false;
+        }
+        if (std::strcmp(s, "preserve_existing") == 0) {
+            *out = XmpDestinationSidecarMode::PreserveExisting;
+            return true;
+        }
+        if (std::strcmp(s, "strip_existing") == 0) {
+            *out = XmpDestinationSidecarMode::StripExisting;
             return true;
         }
         return false;
@@ -894,31 +935,112 @@ namespace {
         return written == bytes.size();
     }
 
-    static bool maybe_write_xmp_sidecar_output(const std::string& path,
-                                               std::span<const std::byte> bytes,
-                                               bool dry_run, bool force)
+    struct CliPreparedTransferFileState final {
+        bool xmp_sidecar_requested = false;
+        TransferStatus xmp_sidecar_status = TransferStatus::Unsupported;
+        std::string xmp_sidecar_message;
+        std::string xmp_sidecar_path;
+        std::vector<std::byte> xmp_sidecar_output;
+        bool xmp_sidecar_cleanup_requested = false;
+        TransferStatus xmp_sidecar_cleanup_status
+            = TransferStatus::Unsupported;
+        std::string xmp_sidecar_cleanup_message;
+        std::string xmp_sidecar_cleanup_path;
+    };
+
+    static CliPreparedTransferFileState make_cli_prepared_transfer_file_state(
+        bool xmp_sidecar_requested, TransferStatus xmp_sidecar_status,
+        const std::string& xmp_sidecar_message,
+        const std::string& xmp_sidecar_path,
+        const std::vector<std::byte>& xmp_sidecar_output,
+        bool xmp_sidecar_cleanup_requested,
+        TransferStatus xmp_sidecar_cleanup_status,
+        const std::string& xmp_sidecar_cleanup_message,
+        const std::string& xmp_sidecar_cleanup_path)
     {
-        if (path.empty() || bytes.empty()) {
-            return true;
-        }
-        if (dry_run) {
-            std::printf("  xmp_sidecar_output=%s bytes=%llu\n", path.c_str(),
-                        static_cast<unsigned long long>(bytes.size()));
-            return true;
-        }
-        if (!force && file_exists(path)) {
-            std::fprintf(stderr,
-                         "  xmp_sidecar_write: exists: %s (use --force)\n",
-                         path.c_str());
+        CliPreparedTransferFileState out;
+        out.xmp_sidecar_requested = xmp_sidecar_requested;
+        out.xmp_sidecar_status    = xmp_sidecar_status;
+        out.xmp_sidecar_message   = xmp_sidecar_message;
+        out.xmp_sidecar_path      = xmp_sidecar_path;
+        out.xmp_sidecar_output    = xmp_sidecar_output;
+        out.xmp_sidecar_cleanup_requested = xmp_sidecar_cleanup_requested;
+        out.xmp_sidecar_cleanup_status    = xmp_sidecar_cleanup_status;
+        out.xmp_sidecar_cleanup_message   = xmp_sidecar_cleanup_message;
+        out.xmp_sidecar_cleanup_path      = xmp_sidecar_cleanup_path;
+        return out;
+    }
+
+    static bool persist_cli_edit_output_via_core(
+        const char* edit_label, const std::string& output_path, bool force,
+        bool output_already_written, uint64_t prewritten_output_bytes,
+        const PrepareTransferFileResult& prepared,
+        const ExecutePreparedTransferResult& exec,
+        const CliPreparedTransferFileState& file_state)
+    {
+        ExecutePreparedTransferFileResult executed;
+        executed.prepared                    = prepared;
+        executed.execute                     = exec;
+        executed.xmp_sidecar_requested       = file_state.xmp_sidecar_requested;
+        executed.xmp_sidecar_status          = file_state.xmp_sidecar_status;
+        executed.xmp_sidecar_message         = file_state.xmp_sidecar_message;
+        executed.xmp_sidecar_path            = file_state.xmp_sidecar_path;
+        executed.xmp_sidecar_output          = file_state.xmp_sidecar_output;
+        executed.xmp_sidecar_cleanup_requested
+            = file_state.xmp_sidecar_cleanup_requested;
+        executed.xmp_sidecar_cleanup_status
+            = file_state.xmp_sidecar_cleanup_status;
+        executed.xmp_sidecar_cleanup_message
+            = file_state.xmp_sidecar_cleanup_message;
+        executed.xmp_sidecar_cleanup_path
+            = file_state.xmp_sidecar_cleanup_path;
+
+        PersistPreparedTransferFileOptions persist_options;
+        persist_options.output_path                    = output_path;
+        persist_options.write_output                   = !output_already_written;
+        persist_options.overwrite_output               = force;
+        persist_options.prewritten_output_bytes        = prewritten_output_bytes;
+        persist_options.overwrite_xmp_sidecar          = force;
+        persist_options.remove_destination_xmp_sidecar = true;
+
+        const PersistPreparedTransferFileResult persisted
+            = persist_prepared_transfer_file_result(executed, persist_options);
+        if (persisted.output_status != TransferStatus::Ok) {
+            std::fprintf(stderr, "  %s: persist_failed: %s\n", edit_label,
+                         persisted.output_message.c_str());
             return false;
         }
-        if (!write_file_bytes(path, bytes)) {
-            std::fprintf(stderr, "  xmp_sidecar_write: write_failed: %s\n",
-                         path.c_str());
-            return false;
+
+        std::printf("  output=%s bytes=%llu\n", persisted.output_path.c_str(),
+                    static_cast<unsigned long long>(persisted.output_bytes));
+
+        if (file_state.xmp_sidecar_requested) {
+            if (persisted.xmp_sidecar_status != TransferStatus::Ok) {
+                std::fprintf(stderr, "  xmp_sidecar_write: %s\n",
+                             persisted.xmp_sidecar_message.c_str());
+                return false;
+            }
+            if (persisted.xmp_sidecar_bytes != 0U) {
+                std::printf(
+                    "  xmp_sidecar_output=%s bytes=%llu\n",
+                    persisted.xmp_sidecar_path.c_str(),
+                    static_cast<unsigned long long>(
+                        persisted.xmp_sidecar_bytes));
+            }
         }
-        std::printf("  xmp_sidecar_output=%s bytes=%llu\n", path.c_str(),
-                    static_cast<unsigned long long>(bytes.size()));
+
+        if (file_state.xmp_sidecar_cleanup_requested) {
+            if (persisted.xmp_sidecar_cleanup_status != TransferStatus::Ok) {
+                std::fprintf(stderr, "  xmp_sidecar_remove: %s\n",
+                             persisted.xmp_sidecar_cleanup_message.c_str());
+                return false;
+            }
+            if (persisted.xmp_sidecar_cleanup_removed) {
+                std::printf("  xmp_sidecar_removed=%s\n",
+                            persisted.xmp_sidecar_cleanup_path.c_str());
+            }
+        }
+
         return true;
     }
 
@@ -1257,6 +1379,10 @@ main(int argc, char** argv)
     XmpExistingSidecarPrecedence xmp_existing_sidecar_precedence
         = XmpExistingSidecarPrecedence::SidecarWins;
     XmpWritebackMode xmp_writeback_mode = XmpWritebackMode::EmbeddedOnly;
+    XmpDestinationEmbeddedMode xmp_destination_embedded_mode
+        = XmpDestinationEmbeddedMode::PreserveExisting;
+    XmpDestinationSidecarMode xmp_destination_sidecar_mode
+        = XmpDestinationSidecarMode::PreserveExisting;
 
     for (int i = 1; i < argc; ++i) {
         const char* arg = argv[i];
@@ -1372,6 +1498,42 @@ main(int argc, char** argv)
                 std::fprintf(stderr,
                              "invalid --xmp-writeback value "
                              "(expected embedded|sidecar|embedded_and_sidecar)\n");
+                return 2;
+            }
+            i += 1;
+            continue;
+        }
+        if (std::strcmp(arg, "--xmp-destination-embedded") == 0) {
+            if (i + 1 >= argc) {
+                std::fprintf(
+                    stderr,
+                    "missing value for --xmp-destination-embedded\n");
+                return 2;
+            }
+            if (!parse_xmp_destination_embedded_mode(
+                    argv[i + 1], &xmp_destination_embedded_mode)) {
+                std::fprintf(
+                    stderr,
+                    "invalid --xmp-destination-embedded value "
+                    "(expected preserve_existing|strip_existing)\n");
+                return 2;
+            }
+            i += 1;
+            continue;
+        }
+        if (std::strcmp(arg, "--xmp-destination-sidecar") == 0) {
+            if (i + 1 >= argc) {
+                std::fprintf(
+                    stderr,
+                    "missing value for --xmp-destination-sidecar\n");
+                return 2;
+            }
+            if (!parse_xmp_destination_sidecar_mode(
+                    argv[i + 1], &xmp_destination_sidecar_mode)) {
+                std::fprintf(
+                    stderr,
+                    "invalid --xmp-destination-sidecar value "
+                    "(expected preserve_existing|strip_existing)\n");
                 return 2;
             }
             i += 1;
@@ -2166,6 +2328,30 @@ main(int argc, char** argv)
                      "requires --output\n");
         return 2;
     }
+    if (xmp_destination_embedded_mode == XmpDestinationEmbeddedMode::StripExisting
+        && (xmp_writeback_mode != XmpWritebackMode::SidecarOnly
+            || (options.prepare.target_format != TransferTargetFormat::Jpeg
+                && options.prepare.target_format != TransferTargetFormat::Tiff
+                && options.prepare.target_format != TransferTargetFormat::Png
+                && options.prepare.target_format != TransferTargetFormat::Webp
+                && options.prepare.target_format != TransferTargetFormat::Jp2
+                && options.prepare.target_format != TransferTargetFormat::Jxl))) {
+        std::fprintf(
+            stderr,
+            "--xmp-destination-embedded strip_existing is currently "
+            "supported only for --target-jpeg, --target-tiff, --target-png, "
+            "--target-webp, --target-jp2, and --target-jxl with "
+            "--xmp-writeback sidecar\n");
+        return 2;
+    }
+    if (xmp_destination_sidecar_mode == XmpDestinationSidecarMode::StripExisting
+        && xmp_writeback_mode != XmpWritebackMode::EmbeddedOnly) {
+        std::fprintf(
+            stderr,
+            "--xmp-destination-sidecar strip_existing is currently "
+            "supported only with --xmp-writeback embedded\n");
+        return 2;
+    }
     const bool c2pa_wrapper_target_ok
         = options.prepare.target_format == TransferTargetFormat::Jpeg
           || options.prepare.target_format == TransferTargetFormat::Jxl
@@ -2417,11 +2603,15 @@ main(int argc, char** argv)
         }
 
         const bool xmp_sidecar_requested
-            = xmp_writeback_mode == XmpWritebackMode::SidecarOnly;
+            = xmp_writeback_mode != XmpWritebackMode::EmbeddedOnly;
         TransferStatus xmp_sidecar_status = TransferStatus::Unsupported;
         std::string xmp_sidecar_message;
         std::string xmp_sidecar_path;
         std::vector<std::byte> xmp_sidecar_output;
+        bool xmp_sidecar_cleanup_requested = false;
+        TransferStatus xmp_sidecar_cleanup_status = TransferStatus::Unsupported;
+        std::string xmp_sidecar_cleanup_message;
+        std::string xmp_sidecar_cleanup_path;
         if (prepared.file_status == TransferFileStatus::Ok
             && xmp_sidecar_requested) {
             if (output_path.empty()) {
@@ -2436,13 +2626,42 @@ main(int argc, char** argv)
                 if (!prepared.bundle.generated_xmp_sidecar.empty()) {
                     xmp_sidecar_output = prepared.bundle.generated_xmp_sidecar;
                     xmp_sidecar_status = TransferStatus::Ok;
-                    (void)remove_prepared_blocks_by_kind(
-                        &prepared.bundle, TransferBlockKind::Xmp);
+                    if (xmp_writeback_mode
+                        == XmpWritebackMode::SidecarOnly) {
+                        (void)remove_prepared_blocks_by_kind(
+                            &prepared.bundle, TransferBlockKind::Xmp);
+                    } else {
+                        xmp_sidecar_message
+                            = "prepared xmp sidecar bytes will be written "
+                              "alongside embedded xmp carriers";
+                    }
                 } else {
                     xmp_sidecar_status  = TransferStatus::Ok;
                     xmp_sidecar_message = "prepared bundle did not produce xmp "
                                           "sidecar bytes";
                 }
+            }
+        }
+        if (prepared.file_status == TransferFileStatus::Ok
+            && xmp_destination_sidecar_mode
+                   == XmpDestinationSidecarMode::StripExisting) {
+            std::string sidecar_a;
+            std::string sidecar_b;
+            xmp_sidecar_candidates(output_path.c_str(), &sidecar_a, &sidecar_b);
+            xmp_sidecar_cleanup_path = sidecar_a;
+            xmp_sidecar_cleanup_status = TransferStatus::Ok;
+            if (file_exists(sidecar_a)) {
+                xmp_sidecar_cleanup_requested = true;
+                xmp_sidecar_cleanup_message
+                    = "existing destination xmp sidecar should be removed";
+            } else if (!sidecar_b.empty() && file_exists(sidecar_b)) {
+                xmp_sidecar_cleanup_requested = true;
+                xmp_sidecar_cleanup_path      = sidecar_b;
+                xmp_sidecar_cleanup_message
+                    = "existing destination xmp sidecar should be removed";
+            } else {
+                xmp_sidecar_cleanup_message
+                    = "no existing destination xmp sidecar detected";
             }
         }
 
@@ -2662,6 +2881,17 @@ main(int argc, char** argv)
         exec_options.time_patch_auto_nul = time_patch_auto_nul;
         exec_options.emit_repeat         = emit_repeat;
         exec_options.jpeg_edit           = edit_plan_opts;
+        exec_options.tiff_edit.strip_existing_xmp
+            = xmp_destination_embedded_mode
+              == XmpDestinationEmbeddedMode::StripExisting;
+        exec_options.strip_existing_xmp
+            = xmp_destination_embedded_mode
+              == XmpDestinationEmbeddedMode::StripExisting;
+        if (xmp_destination_embedded_mode
+                == XmpDestinationEmbeddedMode::StripExisting
+            && xmp_writeback_mode == XmpWritebackMode::SidecarOnly) {
+            exec_options.jpeg_edit.strip_existing_xmp = true;
+        }
         exec_options.edit_requested      = need_jpeg_edit || need_tiff_edit
                                       || need_webp_edit || need_png_edit
                                       || need_jp2_edit || need_jxl_edit
@@ -2811,6 +3041,23 @@ main(int argc, char** argv)
                             xmp_sidecar_message.c_str());
             }
             if (xmp_sidecar_status != TransferStatus::Ok) {
+                any_failed = true;
+            }
+        }
+        if (xmp_destination_sidecar_mode
+            == XmpDestinationSidecarMode::StripExisting) {
+            std::printf("  xmp_sidecar_cleanup: status=%s requested=%s",
+                        transfer_status_name(xmp_sidecar_cleanup_status),
+                        xmp_sidecar_cleanup_requested ? "yes" : "no");
+            if (!xmp_sidecar_cleanup_path.empty()) {
+                std::printf(" path=%s", xmp_sidecar_cleanup_path.c_str());
+            }
+            std::printf("\n");
+            if (!xmp_sidecar_cleanup_message.empty()) {
+                std::printf("  xmp_sidecar_cleanup_message=%s\n",
+                            xmp_sidecar_cleanup_message.c_str());
+            }
+            if (xmp_sidecar_cleanup_status != TransferStatus::Ok) {
                 any_failed = true;
             }
         }
@@ -3303,38 +3550,29 @@ main(int argc, char** argv)
                         any_failed = true;
                         continue;
                     }
-                    if (use_output_writer) {
-                        if (output_writer.finish() != TransferStatus::Ok) {
-                            std::fprintf(stderr,
-                                         "  edit_apply: write_failed: %s\n",
-                                         output_path.c_str());
-                            any_failed = true;
-                            continue;
-                        }
-                    } else if (!write_file_bytes(
-                                   output_path,
-                                   std::span<const std::byte>(
-                                       exec.edited_output.data(),
-                                       exec.edited_output.size()))) {
-                        std::fprintf(stderr, "  edit_apply: write_failed: %s\n",
+                    if (use_output_writer
+                        && output_writer.finish() != TransferStatus::Ok) {
+                        std::fprintf(stderr,
+                                     "  edit_apply: write_failed: %s\n",
                                      output_path.c_str());
                         any_failed = true;
                         continue;
                     }
-                    std::printf("  output=%s bytes=%llu\n", output_path.c_str(),
-                                static_cast<unsigned long long>(
-                                    use_output_writer
-                                        ? output_writer.bytes_written()
-                                        : exec.edited_output.size()));
-                    if (xmp_sidecar_requested
-                        && xmp_sidecar_status == TransferStatus::Ok
-                        && !xmp_sidecar_output.empty()
-                        && !maybe_write_xmp_sidecar_output(
-                            xmp_sidecar_path,
-                            std::span<const std::byte>(
-                                xmp_sidecar_output.data(),
-                                xmp_sidecar_output.size()),
-                            dry_run, force)) {
+                    const CliPreparedTransferFileState file_state
+                        = make_cli_prepared_transfer_file_state(
+                            xmp_sidecar_requested, xmp_sidecar_status,
+                            xmp_sidecar_message, xmp_sidecar_path,
+                            xmp_sidecar_output, xmp_sidecar_cleanup_requested,
+                            xmp_sidecar_cleanup_status,
+                            xmp_sidecar_cleanup_message,
+                            xmp_sidecar_cleanup_path);
+                    if (!persist_cli_edit_output_via_core(
+                            "edit_apply", output_path, force,
+                            use_output_writer,
+                            use_output_writer
+                                ? output_writer.bytes_written()
+                                : uint64_t{0},
+                            prepared, exec, file_state)) {
                         any_failed = true;
                         continue;
                     }
@@ -3427,39 +3665,29 @@ main(int argc, char** argv)
                         any_failed = true;
                         continue;
                     }
-                    if (use_output_writer) {
-                        if (output_writer.finish() != TransferStatus::Ok) {
-                            std::fprintf(stderr,
-                                         "  tiff_edit_apply: write_failed: %s\n",
-                                         output_path.c_str());
-                            any_failed = true;
-                            continue;
-                        }
-                    } else if (!write_file_bytes(
-                                   output_path,
-                                   std::span<const std::byte>(
-                                       exec.edited_output.data(),
-                                       exec.edited_output.size()))) {
+                    if (use_output_writer
+                        && output_writer.finish() != TransferStatus::Ok) {
                         std::fprintf(stderr,
                                      "  tiff_edit_apply: write_failed: %s\n",
                                      output_path.c_str());
                         any_failed = true;
                         continue;
                     }
-                    std::printf("  output=%s bytes=%llu\n", output_path.c_str(),
-                                static_cast<unsigned long long>(
-                                    use_output_writer
-                                        ? output_writer.bytes_written()
-                                        : exec.edited_output.size()));
-                    if (xmp_sidecar_requested
-                        && xmp_sidecar_status == TransferStatus::Ok
-                        && !xmp_sidecar_output.empty()
-                        && !maybe_write_xmp_sidecar_output(
-                            xmp_sidecar_path,
-                            std::span<const std::byte>(
-                                xmp_sidecar_output.data(),
-                                xmp_sidecar_output.size()),
-                            dry_run, force)) {
+                    const CliPreparedTransferFileState file_state
+                        = make_cli_prepared_transfer_file_state(
+                            xmp_sidecar_requested, xmp_sidecar_status,
+                            xmp_sidecar_message, xmp_sidecar_path,
+                            xmp_sidecar_output, xmp_sidecar_cleanup_requested,
+                            xmp_sidecar_cleanup_status,
+                            xmp_sidecar_cleanup_message,
+                            xmp_sidecar_cleanup_path);
+                    if (!persist_cli_edit_output_via_core(
+                            "tiff_edit_apply", output_path, force,
+                            use_output_writer,
+                            use_output_writer
+                                ? output_writer.bytes_written()
+                                : uint64_t{0},
+                            prepared, exec, file_state)) {
                         any_failed = true;
                         continue;
                     }
@@ -3552,38 +3780,29 @@ main(int argc, char** argv)
                         any_failed = true;
                         continue;
                     }
-                    if (use_output_writer) {
-                        if (output_writer.finish() != TransferStatus::Ok) {
-                            std::fprintf(stderr,
-                                         "  edit_apply: write_failed: %s\n",
-                                         output_path.c_str());
-                            any_failed = true;
-                            continue;
-                        }
-                    } else if (!write_file_bytes(
-                                   output_path,
-                                   std::span<const std::byte>(
-                                       exec.edited_output.data(),
-                                       exec.edited_output.size()))) {
-                        std::fprintf(stderr, "  edit_apply: write_failed: %s\n",
+                    if (use_output_writer
+                        && output_writer.finish() != TransferStatus::Ok) {
+                        std::fprintf(stderr,
+                                     "  edit_apply: write_failed: %s\n",
                                      output_path.c_str());
                         any_failed = true;
                         continue;
                     }
-                    std::printf("  output=%s bytes=%llu\n", output_path.c_str(),
-                                static_cast<unsigned long long>(
-                                    use_output_writer
-                                        ? output_writer.bytes_written()
-                                        : exec.edited_output.size()));
-                    if (xmp_sidecar_requested
-                        && xmp_sidecar_status == TransferStatus::Ok
-                        && !xmp_sidecar_output.empty()
-                        && !maybe_write_xmp_sidecar_output(
-                            xmp_sidecar_path,
-                            std::span<const std::byte>(
-                                xmp_sidecar_output.data(),
-                                xmp_sidecar_output.size()),
-                            dry_run, force)) {
+                    const CliPreparedTransferFileState file_state
+                        = make_cli_prepared_transfer_file_state(
+                            xmp_sidecar_requested, xmp_sidecar_status,
+                            xmp_sidecar_message, xmp_sidecar_path,
+                            xmp_sidecar_output, xmp_sidecar_cleanup_requested,
+                            xmp_sidecar_cleanup_status,
+                            xmp_sidecar_cleanup_message,
+                            xmp_sidecar_cleanup_path);
+                    if (!persist_cli_edit_output_via_core(
+                            "edit_apply", output_path, force,
+                            use_output_writer,
+                            use_output_writer
+                                ? output_writer.bytes_written()
+                                : uint64_t{0},
+                            prepared, exec, file_state)) {
                         any_failed = true;
                         continue;
                     }
@@ -3697,40 +3916,29 @@ main(int argc, char** argv)
                         any_failed = true;
                         continue;
                     }
-                    if (use_output_writer) {
-                        if (output_writer.finish() != TransferStatus::Ok) {
-                            std::fprintf(
-                                stderr,
-                                "  webp_edit_apply: write_failed: %s\n",
-                                output_path.c_str());
-                            any_failed = true;
-                            continue;
-                        }
-                    } else if (!write_file_bytes(
-                                   output_path,
-                                   std::span<const std::byte>(
-                                       exec.edited_output.data(),
-                                       exec.edited_output.size()))) {
+                    if (use_output_writer
+                        && output_writer.finish() != TransferStatus::Ok) {
                         std::fprintf(stderr,
                                      "  webp_edit_apply: write_failed: %s\n",
                                      output_path.c_str());
                         any_failed = true;
                         continue;
                     }
-                    std::printf("  output=%s bytes=%llu\n", output_path.c_str(),
-                                static_cast<unsigned long long>(
-                                    use_output_writer
-                                        ? output_writer.bytes_written()
-                                        : exec.edited_output.size()));
-                    if (xmp_sidecar_requested
-                        && xmp_sidecar_status == TransferStatus::Ok
-                        && !xmp_sidecar_output.empty()
-                        && !maybe_write_xmp_sidecar_output(
-                            xmp_sidecar_path,
-                            std::span<const std::byte>(
-                                xmp_sidecar_output.data(),
-                                xmp_sidecar_output.size()),
-                            dry_run, force)) {
+                    const CliPreparedTransferFileState file_state
+                        = make_cli_prepared_transfer_file_state(
+                            xmp_sidecar_requested, xmp_sidecar_status,
+                            xmp_sidecar_message, xmp_sidecar_path,
+                            xmp_sidecar_output, xmp_sidecar_cleanup_requested,
+                            xmp_sidecar_cleanup_status,
+                            xmp_sidecar_cleanup_message,
+                            xmp_sidecar_cleanup_path);
+                    if (!persist_cli_edit_output_via_core(
+                            "webp_edit_apply", output_path, force,
+                            use_output_writer,
+                            use_output_writer
+                                ? output_writer.bytes_written()
+                                : uint64_t{0},
+                            prepared, exec, file_state)) {
                         any_failed = true;
                         continue;
                     }
@@ -3821,39 +4029,29 @@ main(int argc, char** argv)
                         any_failed = true;
                         continue;
                     }
-                    if (use_output_writer) {
-                        if (output_writer.finish() != TransferStatus::Ok) {
-                            std::fprintf(stderr,
-                                         "  png_edit_apply: write_failed: %s\n",
-                                         output_path.c_str());
-                            any_failed = true;
-                            continue;
-                        }
-                    } else if (!write_file_bytes(
-                                   output_path,
-                                   std::span<const std::byte>(
-                                       exec.edited_output.data(),
-                                       exec.edited_output.size()))) {
+                    if (use_output_writer
+                        && output_writer.finish() != TransferStatus::Ok) {
                         std::fprintf(stderr,
                                      "  png_edit_apply: write_failed: %s\n",
                                      output_path.c_str());
                         any_failed = true;
                         continue;
                     }
-                    std::printf("  output=%s bytes=%llu\n", output_path.c_str(),
-                                static_cast<unsigned long long>(
-                                    use_output_writer
-                                        ? output_writer.bytes_written()
-                                        : exec.edited_output.size()));
-                    if (xmp_sidecar_requested
-                        && xmp_sidecar_status == TransferStatus::Ok
-                        && !xmp_sidecar_output.empty()
-                        && !maybe_write_xmp_sidecar_output(
-                            xmp_sidecar_path,
-                            std::span<const std::byte>(
-                                xmp_sidecar_output.data(),
-                                xmp_sidecar_output.size()),
-                            dry_run, force)) {
+                    const CliPreparedTransferFileState file_state
+                        = make_cli_prepared_transfer_file_state(
+                            xmp_sidecar_requested, xmp_sidecar_status,
+                            xmp_sidecar_message, xmp_sidecar_path,
+                            xmp_sidecar_output, xmp_sidecar_cleanup_requested,
+                            xmp_sidecar_cleanup_status,
+                            xmp_sidecar_cleanup_message,
+                            xmp_sidecar_cleanup_path);
+                    if (!persist_cli_edit_output_via_core(
+                            "png_edit_apply", output_path, force,
+                            use_output_writer,
+                            use_output_writer
+                                ? output_writer.bytes_written()
+                                : uint64_t{0},
+                            prepared, exec, file_state)) {
                         any_failed = true;
                         continue;
                     }
@@ -3944,39 +4142,29 @@ main(int argc, char** argv)
                         any_failed = true;
                         continue;
                     }
-                    if (use_output_writer) {
-                        if (output_writer.finish() != TransferStatus::Ok) {
-                            std::fprintf(stderr,
-                                         "  jp2_edit_apply: write_failed: %s\n",
-                                         output_path.c_str());
-                            any_failed = true;
-                            continue;
-                        }
-                    } else if (!write_file_bytes(
-                                   output_path,
-                                   std::span<const std::byte>(
-                                       exec.edited_output.data(),
-                                       exec.edited_output.size()))) {
+                    if (use_output_writer
+                        && output_writer.finish() != TransferStatus::Ok) {
                         std::fprintf(stderr,
                                      "  jp2_edit_apply: write_failed: %s\n",
                                      output_path.c_str());
                         any_failed = true;
                         continue;
                     }
-                    std::printf("  output=%s bytes=%llu\n", output_path.c_str(),
-                                static_cast<unsigned long long>(
-                                    use_output_writer
-                                        ? output_writer.bytes_written()
-                                        : exec.edited_output.size()));
-                    if (xmp_sidecar_requested
-                        && xmp_sidecar_status == TransferStatus::Ok
-                        && !xmp_sidecar_output.empty()
-                        && !maybe_write_xmp_sidecar_output(
-                            xmp_sidecar_path,
-                            std::span<const std::byte>(
-                                xmp_sidecar_output.data(),
-                                xmp_sidecar_output.size()),
-                            dry_run, force)) {
+                    const CliPreparedTransferFileState file_state
+                        = make_cli_prepared_transfer_file_state(
+                            xmp_sidecar_requested, xmp_sidecar_status,
+                            xmp_sidecar_message, xmp_sidecar_path,
+                            xmp_sidecar_output, xmp_sidecar_cleanup_requested,
+                            xmp_sidecar_cleanup_status,
+                            xmp_sidecar_cleanup_message,
+                            xmp_sidecar_cleanup_path);
+                    if (!persist_cli_edit_output_via_core(
+                            "jp2_edit_apply", output_path, force,
+                            use_output_writer,
+                            use_output_writer
+                                ? output_writer.bytes_written()
+                                : uint64_t{0},
+                            prepared, exec, file_state)) {
                         any_failed = true;
                         continue;
                     }
@@ -4110,39 +4298,29 @@ main(int argc, char** argv)
                         any_failed = true;
                         continue;
                     }
-                    if (use_output_writer) {
-                        if (output_writer.finish() != TransferStatus::Ok) {
-                            std::fprintf(stderr,
-                                         "  bmff_edit_apply: write_failed: %s\n",
-                                         output_path.c_str());
-                            any_failed = true;
-                            continue;
-                        }
-                    } else if (!write_file_bytes(
-                                   output_path,
-                                   std::span<const std::byte>(
-                                       exec.edited_output.data(),
-                                       exec.edited_output.size()))) {
+                    if (use_output_writer
+                        && output_writer.finish() != TransferStatus::Ok) {
                         std::fprintf(stderr,
                                      "  bmff_edit_apply: write_failed: %s\n",
                                      output_path.c_str());
                         any_failed = true;
                         continue;
                     }
-                    std::printf("  output=%s bytes=%llu\n", output_path.c_str(),
-                                static_cast<unsigned long long>(
-                                    use_output_writer
-                                        ? output_writer.bytes_written()
-                                        : exec.edited_output.size()));
-                    if (xmp_sidecar_requested
-                        && xmp_sidecar_status == TransferStatus::Ok
-                        && !xmp_sidecar_output.empty()
-                        && !maybe_write_xmp_sidecar_output(
-                            xmp_sidecar_path,
-                            std::span<const std::byte>(
-                                xmp_sidecar_output.data(),
-                                xmp_sidecar_output.size()),
-                            dry_run, force)) {
+                    const CliPreparedTransferFileState file_state
+                        = make_cli_prepared_transfer_file_state(
+                            xmp_sidecar_requested, xmp_sidecar_status,
+                            xmp_sidecar_message, xmp_sidecar_path,
+                            xmp_sidecar_output, xmp_sidecar_cleanup_requested,
+                            xmp_sidecar_cleanup_status,
+                            xmp_sidecar_cleanup_message,
+                            xmp_sidecar_cleanup_path);
+                    if (!persist_cli_edit_output_via_core(
+                            "bmff_edit_apply", output_path, force,
+                            use_output_writer,
+                            use_output_writer
+                                ? output_writer.bytes_written()
+                                : uint64_t{0},
+                            prepared, exec, file_state)) {
                         any_failed = true;
                         continue;
                     }

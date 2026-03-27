@@ -104,6 +104,18 @@ In practice:
   embedded XMP only, sidecar-only writeback to a sibling `.xmp`, or dual
   embedded-plus-sidecar writeback when a generated XMP packet exists for the
   prepared transfer.
+- Sidecar-only writeback also has an explicit destination embedded-XMP policy:
+  preserve existing embedded XMP by default, or strip it for
+  `jpeg`, `tiff`, `png`, `webp`, `jp2`, and `jxl`.
+- Embedded-only writeback can also strip an existing sibling `.xmp`
+  destination sidecar explicitly, so exports can move back to embedded-only
+  XMP without leaving stale sidecar state behind.
+- C++ hosts now also have a bounded persistence helper for file-helper
+  results, so edited output bytes, generated sidecars, and stale-sidecar
+  cleanup can be applied without copying wrapper logic.
+- Python hosts also have matching `transfer_file(...)` and
+  `unsafe_transfer_file(...)` bindings, and the public Python transfer wrapper
+  now uses that same core-backed persistence path for real writes.
 - Prepared bundles record resolved policy decisions for MakerNote, JUMBF,
   C2PA, EXIF-to-XMP projection, and IPTC-to-XMP projection.
 - This is still not a full MWG-style sync engine. OpenMeta does not yet try to
