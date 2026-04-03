@@ -14,6 +14,7 @@ file(REMOVE_RECURSE "${WORK_DIR}")
 file(MAKE_DIRECTORY "${WORK_DIR}")
 
 set(_jpg "${WORK_DIR}/sample.jpg")
+set(_jpg_exr "${WORK_DIR}/sample_exr.jpg")
 set(_icc_jpg "${WORK_DIR}/sample_icc.jpg")
 set(_target_jpg "${WORK_DIR}/target.jpg")
 set(_target_jpg_xmp "${WORK_DIR}/target_xmp.jpg")
@@ -32,6 +33,7 @@ set(_edited_jp2 "${WORK_DIR}/edited.jp2")
 set(_jxl_handoff "${WORK_DIR}/jxl_encoder_handoff.omjxic")
 set(_split_jpg "${WORK_DIR}/split_injected.jpg")
 set(_target_tif "${WORK_DIR}/target.tif")
+set(_target_tif_xmp "${WORK_DIR}/target_xmp.tif")
 set(_split_tif "${WORK_DIR}/split_injected.tif")
 set(_target_tif_be "${WORK_DIR}/target_be.tif")
 set(_split_tif_be "${WORK_DIR}/split_injected_be.tif")
@@ -53,6 +55,7 @@ set(_signed_c2pa_jxl_package_out "${WORK_DIR}/sample_c2pa_jxl.signed.bin")
 set(_signed_c2pa_heif_package_out "${WORK_DIR}/sample_c2pa_heif.signed.bin")
 set(_transfer_payload_batch_out "${WORK_DIR}/sample.payload_batch.omtpld")
 set(_transfer_package_batch_out "${WORK_DIR}/sample.package_batch.omtpkg")
+set(_exr_attribute_batch_dump "${WORK_DIR}/sample.exr.txt")
 set(_signed_c2pa_edited "${WORK_DIR}/signed_c2pa_edited.jpg")
 set(_signed_c2pa_jxl_edited "${WORK_DIR}/signed_c2pa_edited.jxl")
 set(_signed_c2pa_from_package "${WORK_DIR}/signed_c2pa_from_package.jpg")
@@ -62,6 +65,8 @@ set(_split_tif_rich "${WORK_DIR}/split_rich.tif")
 set(_split_tif_be_rich "${WORK_DIR}/split_rich_be.tif")
 set(_rich_builder_py "${WORK_DIR}/build_rich_exif_fixture.py")
 set(_rich_checker_py "${WORK_DIR}/check_rich_tiff_transfer.py")
+set(_sidecar_only_strip_tif "${WORK_DIR}/sidecar_only_strip_tiff.tif")
+set(_sidecar_only_strip_tif_sidecar "${WORK_DIR}/sidecar_only_strip_tiff.xmp")
 file(MAKE_DIRECTORY "${_dump_dir}")
 
 #Minimal JPEG with APP1 Exif payload:
@@ -76,6 +81,18 @@ execute_process(
 if(NOT _rv_write EQUAL 0)
   message(FATAL_ERROR
     "failed to write metatransfer fixture (${_rv_write})\nstdout:\n${_out_write}\nstderr:\n${_err_write}")
+endif()
+
+execute_process(
+  COMMAND python3 -c
+    "from pathlib import Path; t=bytearray(); t+=b'II*\\x00'; t+=(8).to_bytes(4,'little'); t+=(1).to_bytes(2,'little'); t+=(0x010F).to_bytes(2,'little'); t+=(2).to_bytes(2,'little'); t+=(7).to_bytes(4,'little'); t+=(26).to_bytes(4,'little'); t+=(0).to_bytes(4,'little'); t+=b'Vendor\\x00'; app1=b'Exif\\x00\\x00'+bytes(t); ln=(len(app1)+2).to_bytes(2,'big'); jpg=b'\\xFF\\xD8\\xFF\\xE1'+ln+app1+b'\\xFF\\xD9'; Path(r'''${_jpg_exr}''').write_bytes(jpg)"
+  RESULT_VARIABLE _rv_write_exr
+  OUTPUT_VARIABLE _out_write_exr
+  ERROR_VARIABLE _err_write_exr
+)
+if(NOT _rv_write_exr EQUAL 0)
+  message(FATAL_ERROR
+    "failed to write exr-source jpeg fixture (${_rv_write_exr})\nstdout:\n${_out_write_exr}\nstderr:\n${_err_write_exr}")
 endif()
 
 execute_process(
@@ -139,6 +156,18 @@ execute_process(
 if(NOT _rv_write_jp2 EQUAL 0)
   message(FATAL_ERROR
     "failed to write target jp2 fixture (${_rv_write_jp2})\nstdout:\n${_out_write_jp2}\nstderr:\n${_err_write_jp2}")
+endif()
+
+execute_process(
+  COMMAND python3 -c
+    "from pathlib import Path; xml=b\"<x:xmpmeta xmlns:x='adobe:ns:meta/'><rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'><rdf:Description xmlns:xmp='http://ns.adobe.com/xap/1.0/'><xmp:CreatorTool>Target Embedded Existing</xmp:CreatorTool></rdf:Description></rdf:RDF></x:xmpmeta>\"; xoff=38; ifd=bytearray(); ifd+=(1).to_bytes(2,'little'); ifd+=(700).to_bytes(2,'little'); ifd+=(1).to_bytes(2,'little'); ifd+=len(xml).to_bytes(4,'little'); ifd+=xoff.to_bytes(4,'little'); ifd+=(0).to_bytes(4,'little'); b=bytearray(); b+=b'II'; b+=(42).to_bytes(2,'little'); b+=(8).to_bytes(4,'little'); b+=ifd; b+=xml; Path(r'''${_target_tif_xmp}''').write_bytes(bytes(b))"
+  RESULT_VARIABLE _rv_write_target_tif_xmp
+  OUTPUT_VARIABLE _out_write_target_tif_xmp
+  ERROR_VARIABLE _err_write_target_tif_xmp
+)
+if(NOT _rv_write_target_tif_xmp EQUAL 0)
+  message(FATAL_ERROR
+    "failed to write target tiff xmp fixture (${_rv_write_target_tif_xmp})\nstdout:\n${_out_write_target_tif_xmp}\nstderr:\n${_err_write_target_tif_xmp}")
 endif()
 
 #Minimal classic TIFF target(II + 42 + IFD0 at offset 8 with 0 entries)
@@ -518,6 +547,48 @@ execute_process(
 if(NOT _rv_probe EQUAL 0)
   message(FATAL_ERROR
     "metatransfer probe failed (${_rv_probe})\nstdout:\n${_out_probe}\nstderr:\n${_err_probe}")
+endif()
+
+execute_process(
+  COMMAND "${METATRANSFER_BIN}" --no-build-info
+          --dump-exr-attribute-batch "${_exr_attribute_batch_dump}"
+          --force
+          "${_jpg_exr}"
+  RESULT_VARIABLE _rv_exr_dump
+  OUTPUT_VARIABLE _out_exr_dump
+  ERROR_VARIABLE _err_exr_dump
+)
+if(NOT _rv_exr_dump EQUAL 0)
+  message(FATAL_ERROR
+    "metatransfer exr attribute batch dump failed (${_rv_exr_dump})\nstdout:\n${_out_exr_dump}\nstderr:\n${_err_exr_dump}")
+endif()
+if(NOT _out_exr_dump MATCHES "exr_attribute_batch_dump: status=ok path=")
+  message(FATAL_ERROR
+    "metatransfer exr attribute batch dump missing summary\nstdout:\n${_out_exr_dump}\nstderr:\n${_err_exr_dump}")
+endif()
+if(NOT EXISTS "${_exr_attribute_batch_dump}")
+  message(FATAL_ERROR "expected exr attribute batch dump was not written")
+endif()
+file(READ "${_exr_attribute_batch_dump}" _exr_dump_text)
+if(NOT _exr_dump_text MATCHES "exr_attribute_batch: status=ok")
+  message(FATAL_ERROR
+    "exr attribute batch dump missing batch status\n${_exr_dump_text}")
+endif()
+if(NOT _exr_dump_text MATCHES "name=Make")
+  message(FATAL_ERROR
+    "exr attribute batch dump missing Make attribute\n${_exr_dump_text}")
+endif()
+if(NOT _exr_dump_text MATCHES "type=string")
+  message(FATAL_ERROR
+    "exr attribute batch dump missing string type\n${_exr_dump_text}")
+endif()
+if(NOT _exr_dump_text MATCHES "value_ascii=Vendor")
+  message(FATAL_ERROR
+    "exr attribute batch dump missing ascii value\n${_exr_dump_text}")
+endif()
+if(NOT _exr_dump_text MATCHES "value_hex=56656E646F72")
+  message(FATAL_ERROR
+    "exr attribute batch dump missing hex value\n${_exr_dump_text}")
 endif()
 if(NOT _out_probe MATCHES "prepare: status=ok")
   message(FATAL_ERROR
@@ -1249,6 +1320,41 @@ execute_process(
 if(NOT _rv_sidecar_strip_check EQUAL 0)
   message(FATAL_ERROR
     "metatransfer sidecar-only embedded-strip output still contains embedded xmp (${_rv_sidecar_strip_check})\nstdout:\n${_out_sidecar_strip}\nstderr:\n${_err_sidecar_strip}\ncheck_stderr:\n${_err_sidecar_strip_check}")
+endif()
+
+execute_process(
+  COMMAND "${METATRANSFER_BIN}" --no-build-info
+          --source-meta "${_jpg}"
+          --target-tiff "${_target_tif_xmp}"
+          --xmp-writeback sidecar
+          --xmp-destination-embedded strip_existing
+          --output "${_sidecar_only_strip_tif}" --force
+  RESULT_VARIABLE _rv_sidecar_strip_tif
+  OUTPUT_VARIABLE _out_sidecar_strip_tif
+  ERROR_VARIABLE _err_sidecar_strip_tif
+)
+if(NOT _rv_sidecar_strip_tif EQUAL 0)
+  message(FATAL_ERROR
+    "metatransfer tiff sidecar-only embedded-strip failed (${_rv_sidecar_strip_tif})\nstdout:\n${_out_sidecar_strip_tif}\nstderr:\n${_err_sidecar_strip_tif}")
+endif()
+if(NOT EXISTS "${_sidecar_only_strip_tif}")
+  message(FATAL_ERROR
+    "metatransfer tiff sidecar-only embedded-strip did not write output\nstdout:\n${_out_sidecar_strip_tif}\nstderr:\n${_err_sidecar_strip_tif}")
+endif()
+if(NOT EXISTS "${_sidecar_only_strip_tif_sidecar}")
+  message(FATAL_ERROR
+    "metatransfer tiff sidecar-only embedded-strip did not write xmp sidecar\nstdout:\n${_out_sidecar_strip_tif}\nstderr:\n${_err_sidecar_strip_tif}")
+endif()
+execute_process(
+  COMMAND python3 -c
+    "from pathlib import Path; import sys; b=Path(r'''${_sidecar_only_strip_tif}''').read_bytes(); ok=(len(b)>=8 and b[0:2]==b'II' and int.from_bytes(b[2:4],'little')==42); off=int.from_bytes(b[4:8],'little') if ok else 0; ok=ok and (off+2<=len(b)); n=int.from_bytes(b[off:off+2],'little') if ok else 0; p=off+2; ok=ok and (p+n*12+4<=len(b)); tags=[int.from_bytes(b[p+i*12:p+i*12+2],'little') for i in range(n)] if ok else []; sys.exit(0 if (ok and 700 not in tags and 0x0132 in tags) else 1)"
+  RESULT_VARIABLE _rv_sidecar_strip_tif_check
+  OUTPUT_VARIABLE _out_sidecar_strip_tif_check
+  ERROR_VARIABLE _err_sidecar_strip_tif_check
+)
+if(NOT _rv_sidecar_strip_tif_check EQUAL 0)
+  message(FATAL_ERROR
+    "metatransfer tiff sidecar-only embedded-strip output still contains xmp tag 700 or lost DateTime (${_rv_sidecar_strip_tif_check})\nstdout:\n${_out_sidecar_strip_tif}\nstderr:\n${_err_sidecar_strip_tif}\ncheck_stderr:\n${_err_sidecar_strip_tif_check}")
 endif()
 
 execute_process(

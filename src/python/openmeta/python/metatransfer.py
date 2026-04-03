@@ -185,6 +185,84 @@ def _parse_time_patch_specs(specs: list[str]) -> dict[str, str]:
     return out
 
 
+def probe_exr_attribute_batch(
+    path: str | os.PathLike[str],
+    *,
+    format: object = openmeta.XmpSidecarFormat.Portable,
+    include_pointer_tags: bool = True,
+    decode_makernote: bool = False,
+    decode_embedded_containers: bool = True,
+    decompress: bool = True,
+    include_exif_app1: bool = True,
+    include_xmp_app1: bool = True,
+    include_icc_app2: bool = True,
+    include_iptc_app13: bool = True,
+    xmp_include_existing: bool = False,
+    xmp_exiftool_gpsdatetime_alias: bool = False,
+    xmp_project_exif: bool = True,
+    xmp_project_iptc: bool = True,
+    makernote_policy: object = openmeta.TransferPolicyAction.Keep,
+    jumbf_policy: object = openmeta.TransferPolicyAction.Keep,
+    c2pa_policy: object = openmeta.TransferPolicyAction.Keep,
+    max_file_bytes: int = 0,
+    policy: object | None = None,
+    include_values: bool = False,
+) -> dict[object, object]:
+    return openmeta.build_exr_attribute_batch_from_file(
+        os.fspath(path),
+        format=format,
+        include_pointer_tags=include_pointer_tags,
+        decode_makernote=decode_makernote,
+        decode_embedded_containers=decode_embedded_containers,
+        decompress=decompress,
+        include_exif_app1=include_exif_app1,
+        include_xmp_app1=include_xmp_app1,
+        include_icc_app2=include_icc_app2,
+        include_iptc_app13=include_iptc_app13,
+        xmp_include_existing=xmp_include_existing,
+        xmp_exiftool_gpsdatetime_alias=xmp_exiftool_gpsdatetime_alias,
+        xmp_project_exif=xmp_project_exif,
+        xmp_project_iptc=xmp_project_iptc,
+        makernote_policy=makernote_policy,
+        jumbf_policy=jumbf_policy,
+        c2pa_policy=c2pa_policy,
+        max_file_bytes=max_file_bytes,
+        policy=policy,
+        include_values=include_values,
+    )
+
+
+def get_exr_attribute_batch(
+    path: str | os.PathLike[str],
+    *,
+    include_values: bool = False,
+    **kwargs: object,
+) -> list[dict[object, object]]:
+    probe = probe_exr_attribute_batch(
+        path,
+        include_values=include_values,
+        **kwargs,
+    )
+    batch_status = str(probe["exr_attribute_batch_status_name"])
+    if batch_status != "ok":
+        message = str(probe["exr_attribute_batch_message"] or "")
+        raise RuntimeError(
+            "failed to prepare exr attribute batch"
+            + (f": {message}" if message else "")
+        )
+    overall_status = str(probe["overall_status_name"])
+    if overall_status != "ok":
+        message = str(probe["error_message"] or "")
+        raise RuntimeError(
+            "exr transfer probe failed"
+            + (f": {message}" if message else "")
+        )
+    batch = probe["exr_attribute_batch"]
+    if batch is None:
+        raise RuntimeError("exr transfer probe returned no attribute batch")
+    return list(batch)
+
+
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(prog="metatransfer.py")
     ap.add_argument("files", nargs="*")

@@ -37,6 +37,23 @@ cmake --build build --target openmeta_docs_sphinx
 Output goes to `build/docs/html/index.html`. Doxygen XML goes to
 `build/docs/doxygen/xml/index.xml`.
 
+## Publish on GitHub Pages
+
+The repository includes a GitHub Actions workflow at
+`.github/workflows/docs-pages.yml` that builds the Sphinx site and publishes it
+to GitHub Pages.
+
+Recommended setup:
+
+- In the repository settings, set **Pages** to **GitHub Actions** as the
+  source.
+- Pull requests build the docs but do not deploy.
+- Pushes to `main` and tag pushes build and deploy the site.
+
+The workflow only runs when docs inputs change: `docs/**`, `src/include/**`,
+`README.md`, `SECURITY.md`, `NOTICE.md`, `CMakeLists.txt`, or the workflow
+itself.
+
 ## Generate API docs (manual)
 
 From the `OpenMeta/` repo root:

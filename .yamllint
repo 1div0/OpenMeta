@@ -1,0 +1,7 @@
+---
+extends: default
+
+rules:
+  truthy:
+    # GitHub Actions uses the unquoted top-level key `on`.
+    check-keys: false

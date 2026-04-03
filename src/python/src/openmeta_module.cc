@@ -2,6 +2,7 @@
 #include "openmeta/ccm_query.h"
 #include "openmeta/console_format.h"
 #include "openmeta/container_payload.h"
+#include "openmeta/exr_adapter.h"
 #include "openmeta/exif_tag_names.h"
 #include "openmeta/geotiff_key_names.h"
 #include "openmeta/icc_interpret.h"
@@ -137,6 +138,18 @@ namespace {
         const std::span<const std::byte> bytes = arena.span(span);
         return std::string(reinterpret_cast<const char*>(bytes.data()),
                            bytes.size());
+    }
+
+
+    static const char* exr_adapter_status_name(ExrAdapterStatus status) noexcept
+    {
+        switch (status) {
+            case ExrAdapterStatus::Ok: return "ok";
+            case ExrAdapterStatus::InvalidArgument:
+                return "invalid_argument";
+            case ExrAdapterStatus::Unsupported: return "unsupported";
+        }
+        return "unknown";
     }
 
 
@@ -1431,6 +1444,165 @@ namespace {
             = nb::bool_(persisted.xmp_sidecar_cleanup_removed);
     }
 
+    static nb::dict build_exr_attribute_batch_from_file_to_python(
+        const std::string& path, XmpSidecarFormat format,
+        bool include_pointer_tags, bool decode_makernote,
+        bool decode_embedded_containers, bool decompress,
+        bool include_exif_app1, bool include_xmp_app1, bool include_icc_app2,
+        bool include_iptc_app13, bool xmp_include_existing,
+        bool xmp_exiftool_gpsdatetime_alias, bool xmp_project_exif,
+        bool xmp_project_iptc, TransferPolicyAction makernote_policy,
+        TransferPolicyAction jumbf_policy, TransferPolicyAction c2pa_policy,
+        uint64_t max_file_bytes, nb::object policy_obj,
+        bool include_values)
+    {
+        BuildExrAttributeBatchFileOptions options;
+        options.prepare.include_pointer_tags       = include_pointer_tags;
+        options.prepare.decode_makernote           = decode_makernote;
+        options.prepare.decode_embedded_containers = decode_embedded_containers;
+        options.prepare.decompress                 = decompress;
+        options.prepare.prepare.xmp_portable
+            = (format == XmpSidecarFormat::Portable);
+        options.prepare.prepare.include_exif_app1 = include_exif_app1;
+        options.prepare.prepare.include_xmp_app1  = include_xmp_app1;
+        options.prepare.prepare.include_icc_app2  = include_icc_app2;
+        options.prepare.prepare.include_iptc_app13 = include_iptc_app13;
+        options.prepare.prepare.xmp_include_existing = xmp_include_existing;
+        options.prepare.prepare.xmp_exiftool_gpsdatetime_alias
+            = xmp_exiftool_gpsdatetime_alias;
+        options.prepare.prepare.xmp_project_exif = xmp_project_exif;
+        options.prepare.prepare.xmp_project_iptc = xmp_project_iptc;
+        options.prepare.prepare.profile.makernote = makernote_policy;
+        options.prepare.prepare.profile.jumbf     = jumbf_policy;
+        options.prepare.prepare.profile.c2pa      = c2pa_policy;
+        options.prepare.policy.max_file_bytes     = max_file_bytes;
+        if (!policy_obj.is_none()) {
+            options.prepare.policy
+                = nb::cast<OpenMetaResourcePolicy>(policy_obj);
+            if (max_file_bytes != 0U) {
+                options.prepare.policy.max_file_bytes = max_file_bytes;
+            }
+        }
+
+        ExrAdapterBatch batch;
+        BuildExrAttributeBatchFileResult result;
+        {
+            nb::gil_scoped_release gil_release;
+            result = build_exr_attribute_batch_from_file(path.c_str(), &batch,
+                                                         options);
+        }
+
+        nb::dict out;
+        out["path"] = nb::str(path.c_str(), path.size());
+        out["file_status"] = result.prepared.file_status;
+        out["file_status_name"]
+            = nb::str(transfer_file_status_name(result.prepared.file_status));
+        out["file_code"] = result.prepared.code;
+        out["file_code_name"]
+            = nb::str(prepare_transfer_file_code_name(result.prepared.code));
+        out["file_size"]   = nb::int_(result.prepared.file_size);
+        out["entry_count"] = nb::int_(result.prepared.entry_count);
+        out["prepare_status"] = result.prepared.prepare.status;
+        out["prepare_status_name"]
+            = nb::str(transfer_status_name(result.prepared.prepare.status));
+        out["prepare_code"] = result.prepared.prepare.code;
+        out["prepare_code_name"]
+            = nb::str(prepare_transfer_code_name(result.prepared.prepare.code));
+        out["prepare_warnings"] = nb::int_(result.prepared.prepare.warnings);
+        out["prepare_errors"]   = nb::int_(result.prepared.prepare.errors);
+        out["prepare_message"]  = nb::str(
+            result.prepared.prepare.message.c_str(),
+            result.prepared.prepare.message.size());
+        out["exr_attribute_batch_status"] = result.adapter.status;
+        out["exr_attribute_batch_status_name"]
+            = nb::str(exr_adapter_status_name(result.adapter.status));
+        out["exr_attribute_batch_exported"] = nb::int_(result.adapter.exported);
+        out["exr_attribute_batch_skipped"]  = nb::int_(result.adapter.skipped);
+        out["exr_attribute_batch_errors"]   = nb::int_(result.adapter.errors);
+        out["exr_attribute_batch_message"]  = nb::str(
+            result.adapter.message.c_str(), result.adapter.message.size());
+        out["exr_attribute_values_requested"] = nb::bool_(include_values);
+
+        TransferStatus values_status = TransferStatus::Ok;
+        std::string values_message;
+        if (include_values && result.adapter.status == ExrAdapterStatus::Ok) {
+            values_status = TransferStatus::Ok;
+        } else if (result.adapter.status == ExrAdapterStatus::InvalidArgument) {
+            values_status = TransferStatus::InvalidArgument;
+            values_message = result.adapter.message;
+        } else if (result.adapter.status == ExrAdapterStatus::Unsupported) {
+            values_status = TransferStatus::Unsupported;
+            values_message = result.adapter.message;
+        }
+        out["exr_attribute_values_status"] = values_status;
+        out["exr_attribute_values_status_name"]
+            = nb::str(transfer_status_name(values_status));
+        out["exr_attribute_values_message"]
+            = nb::str(values_message.c_str(), values_message.size());
+
+        nb::list exr_attribute_batch;
+        if (result.adapter.status == ExrAdapterStatus::Ok) {
+            for (size_t i = 0; i < batch.attributes.size(); ++i) {
+                const ExrAdapterAttribute& attr = batch.attributes[i];
+                nb::dict one;
+                one["part_index"] = nb::int_(attr.part_index);
+                one["name"] = nb::str(attr.name.c_str(), attr.name.size());
+                one["type_name"]
+                    = nb::str(attr.type_name.c_str(), attr.type_name.size());
+                one["is_opaque"] = nb::bool_(attr.is_opaque);
+                one["bytes"]
+                    = nb::int_(static_cast<uint64_t>(attr.value.size()));
+                if (include_values) {
+                    one["value"] = nb::bytes(
+                        reinterpret_cast<const char*>(attr.value.data()),
+                        attr.value.size());
+                } else {
+                    one["value"] = nb::none();
+                }
+                exr_attribute_batch.append(std::move(one));
+            }
+            out["exr_attribute_batch"] = std::move(exr_attribute_batch);
+        } else {
+            out["exr_attribute_batch"] = nb::none();
+        }
+
+        TransferStatus overall_status = TransferStatus::Ok;
+        std::string error_stage       = "none";
+        std::string error_code        = "none";
+        std::string error_message;
+        if (result.prepared.file_status != TransferFileStatus::Ok) {
+            overall_status = transfer_status_from_file_status(
+                result.prepared.file_status);
+            error_stage   = "file";
+            error_code    = prepare_transfer_file_code_name(
+                result.prepared.code);
+            error_message = result.prepared.prepare.message;
+        } else if (result.prepared.prepare.status != TransferStatus::Ok) {
+            overall_status = result.prepared.prepare.status;
+            error_stage    = "prepare";
+            error_code     = prepare_transfer_code_name(
+                result.prepared.prepare.code);
+            error_message = result.prepared.prepare.message;
+        } else if (result.adapter.status != ExrAdapterStatus::Ok) {
+            if (result.adapter.status == ExrAdapterStatus::InvalidArgument) {
+                overall_status = TransferStatus::InvalidArgument;
+            } else {
+                overall_status = TransferStatus::Unsupported;
+            }
+            error_stage   = "exr_attribute_batch";
+            error_code    = exr_adapter_status_name(result.adapter.status);
+            error_message = result.adapter.message;
+        }
+        out["overall_status"] = overall_status;
+        out["overall_status_name"]
+            = nb::str(transfer_status_name(overall_status));
+        out["error_stage"] = nb::str(error_stage.c_str(), error_stage.size());
+        out["error_code"]  = nb::str(error_code.c_str(), error_code.size());
+        out["error_message"]
+            = nb::str(error_message.c_str(), error_message.size());
+        return out;
+    }
+
     static nb::dict transfer_probe_to_python(
         const std::string& path, TransferTargetFormat target_format,
         XmpSidecarFormat format, bool include_pointer_tags,
@@ -1460,6 +1632,7 @@ namespace {
         bool unsafe_c2pa_binding_access, bool include_c2pa_handoff_bytes,
         bool include_c2pa_signed_package_bytes,
         bool include_jxl_encoder_handoff_bytes,
+        bool include_exr_attribute_values,
         bool include_transfer_payload_batch_bytes,
         bool include_transfer_package_batch_bytes,
         bool unsafe_c2pa_package_access,
@@ -2479,6 +2652,96 @@ namespace {
         }
         out["exr_attribute_summary"] = std::move(exr_attribute_summary);
 
+        ExrAdapterBatch exr_attribute_batch_owned;
+        ExrAdapterResult exr_attribute_batch_result;
+        const bool exr_target = (prepared.bundle.target_format
+                                 == TransferTargetFormat::Exr);
+        if (exr_target) {
+            exr_attribute_batch_result = build_prepared_exr_attribute_batch(
+                prepared.bundle, &exr_attribute_batch_owned);
+        } else if (include_exr_attribute_values) {
+            exr_attribute_batch_result.status  = ExrAdapterStatus::InvalidArgument;
+            exr_attribute_batch_result.errors  = 1U;
+            exr_attribute_batch_result.message
+                = "exr attribute values require target_format=Exr";
+        }
+
+        TransferStatus exr_attribute_values_status = TransferStatus::Ok;
+        std::string exr_attribute_values_message;
+        if (include_exr_attribute_values && !unsafe_payload_access) {
+            exr_attribute_values_status = TransferStatus::UnsafeData;
+            exr_attribute_values_message
+                = "safe transfer_probe forbids exr attribute values; use "
+                  "unsafe_transfer_probe(include_exr_attribute_values=True)";
+        } else if (include_exr_attribute_values
+                   && exr_attribute_batch_result.status
+                          == ExrAdapterStatus::InvalidArgument) {
+            exr_attribute_values_status = TransferStatus::InvalidArgument;
+            exr_attribute_values_message
+                = exr_attribute_batch_result.message;
+        } else if (include_exr_attribute_values
+                   && exr_attribute_batch_result.status
+                          == ExrAdapterStatus::Unsupported) {
+            exr_attribute_values_status = TransferStatus::Unsupported;
+            exr_attribute_values_message
+                = exr_attribute_batch_result.message;
+        }
+
+        nb::list exr_attribute_batch;
+        if (exr_target && exr_attribute_batch_result.status
+                              == ExrAdapterStatus::Ok) {
+            const bool include_values = include_exr_attribute_values
+                                        && unsafe_payload_access;
+            for (size_t i = 0; i < exr_attribute_batch_owned.attributes.size();
+                 ++i) {
+                const ExrAdapterAttribute& attr
+                    = exr_attribute_batch_owned.attributes[i];
+                nb::dict one;
+                one["part_index"] = nb::int_(attr.part_index);
+                one["name"] = nb::str(attr.name.c_str(), attr.name.size());
+                one["type_name"]
+                    = nb::str(attr.type_name.c_str(), attr.type_name.size());
+                one["is_opaque"] = nb::bool_(attr.is_opaque);
+                one["bytes"] = nb::int_(static_cast<uint64_t>(attr.value.size()));
+                if (include_values) {
+                    one["value"] = nb::bytes(
+                        reinterpret_cast<const char*>(attr.value.data()),
+                        attr.value.size());
+                } else {
+                    one["value"] = nb::none();
+                }
+                exr_attribute_batch.append(std::move(one));
+            }
+            out["exr_attribute_batch"] = std::move(exr_attribute_batch);
+        } else {
+            out["exr_attribute_batch"] = nb::none();
+        }
+        if (exr_target || include_exr_attribute_values) {
+            out["exr_attribute_batch_status"] = exr_attribute_batch_result.status;
+            out["exr_attribute_batch_status_name"] = nb::str(
+                exr_adapter_status_name(exr_attribute_batch_result.status));
+        } else {
+            out["exr_attribute_batch_status"] = nb::none();
+            out["exr_attribute_batch_status_name"] = nb::none();
+        }
+        out["exr_attribute_batch_exported"]
+            = nb::int_(exr_attribute_batch_result.exported);
+        out["exr_attribute_batch_skipped"]
+            = nb::int_(exr_attribute_batch_result.skipped);
+        out["exr_attribute_batch_errors"]
+            = nb::int_(exr_attribute_batch_result.errors);
+        out["exr_attribute_batch_message"] = nb::str(
+            exr_attribute_batch_result.message.c_str(),
+            exr_attribute_batch_result.message.size());
+        out["exr_attribute_values_requested"]
+            = nb::bool_(include_exr_attribute_values);
+        out["exr_attribute_values_status"] = exr_attribute_values_status;
+        out["exr_attribute_values_status_name"] = nb::str(
+            transfer_status_name(exr_attribute_values_status));
+        out["exr_attribute_values_message"] = nb::str(
+            exr_attribute_values_message.c_str(),
+            exr_attribute_values_message.size());
+
         nb::list bmff_item_summary;
         for (size_t i = 0; i < exec.bmff_item_summary.size(); ++i) {
             nb::dict one;
@@ -2567,6 +2830,13 @@ namespace {
             error_message  = "safe transfer_probe forbids transfer package "
                              "batch bytes; use unsafe_transfer_probe("
                              "include_transfer_package_batch_bytes=True)";
+        } else if (include_exr_attribute_values && !unsafe_payload_access) {
+            overall_status = TransferStatus::UnsafeData;
+            error_stage    = "api";
+            error_code     = "unsafe_exr_attribute_values_forbidden";
+            error_message  = "safe transfer_probe forbids exr attribute "
+                             "values; use unsafe_transfer_probe("
+                             "include_exr_attribute_values=True)";
         } else if (include_edited_bytes && !unsafe_edited_bytes_access) {
             overall_status = TransferStatus::UnsafeData;
             error_stage    = "api";
@@ -2628,6 +2898,29 @@ namespace {
             error_code     = emit_transfer_code_name(
                 transfer_package_batch_io.code);
             error_message = transfer_package_batch_io.message;
+        } else if (exr_target
+                   && exr_attribute_batch_result.status
+                          != ExrAdapterStatus::Ok) {
+            if (exr_attribute_batch_result.status
+                == ExrAdapterStatus::InvalidArgument) {
+                overall_status = TransferStatus::InvalidArgument;
+            } else if (exr_attribute_batch_result.status
+                       == ExrAdapterStatus::Unsupported) {
+                overall_status = TransferStatus::Unsupported;
+            } else {
+                overall_status = TransferStatus::InternalError;
+            }
+            error_stage   = "exr_attribute_batch";
+            error_code    = exr_adapter_status_name(
+                exr_attribute_batch_result.status);
+            error_message = exr_attribute_batch_result.message;
+        } else if (include_exr_attribute_values
+                   && exr_attribute_values_status
+                          != TransferStatus::Ok) {
+            overall_status = exr_attribute_values_status;
+            error_stage    = "exr_attribute_values";
+            error_code     = transfer_status_name(exr_attribute_values_status);
+            error_message  = exr_attribute_values_message;
         } else if (exec.time_patch.status != TransferStatus::Ok) {
             overall_status = exec.time_patch.status;
             error_stage    = "time_patch";
@@ -3298,6 +3591,11 @@ NB_MODULE(_openmeta, m)
         .value("Unsupported", ExrDecodeStatus::Unsupported)
         .value("Malformed", ExrDecodeStatus::Malformed)
         .value("LimitExceeded", ExrDecodeStatus::LimitExceeded);
+
+    nb::enum_<ExrAdapterStatus>(m, "ExrAdapterStatus")
+        .value("Ok", ExrAdapterStatus::Ok)
+        .value("InvalidArgument", ExrAdapterStatus::InvalidArgument)
+        .value("Unsupported", ExrAdapterStatus::Unsupported);
 
     nb::enum_<XmpDecodeStatus>(m, "XmpDecodeStatus")
         .value("Ok", XmpDecodeStatus::Ok)
@@ -4565,6 +4863,7 @@ NB_MODULE(_openmeta, m)
            bool include_c2pa_handoff_bytes,
            bool include_c2pa_signed_package_bytes,
            bool include_jxl_encoder_handoff_bytes,
+           bool include_exr_attribute_values,
            bool include_transfer_payload_batch_bytes,
            bool include_transfer_package_batch_bytes,
            XmpConflictPolicy xmp_conflict_policy,
@@ -4589,6 +4888,7 @@ NB_MODULE(_openmeta, m)
                 include_edited_bytes, false, include_c2pa_binding_bytes, false,
                 include_c2pa_handoff_bytes, include_c2pa_signed_package_bytes,
                 include_jxl_encoder_handoff_bytes,
+                include_exr_attribute_values,
                 include_transfer_payload_batch_bytes,
                 include_transfer_package_batch_bytes, false,
                 xmp_conflict_policy, xmp_writeback_mode,
@@ -4627,6 +4927,7 @@ NB_MODULE(_openmeta, m)
         "include_c2pa_handoff_bytes"_a           = false,
         "include_c2pa_signed_package_bytes"_a    = false,
         "include_jxl_encoder_handoff_bytes"_a    = false,
+        "include_exr_attribute_values"_a         = false,
         "include_transfer_payload_batch_bytes"_a = false,
         "include_transfer_package_batch_bytes"_a = false,
         "xmp_conflict_policy"_a = XmpConflictPolicy::CurrentBehavior,
@@ -4663,6 +4964,7 @@ NB_MODULE(_openmeta, m)
            bool include_c2pa_handoff_bytes,
            bool include_c2pa_signed_package_bytes,
            bool include_jxl_encoder_handoff_bytes,
+           bool include_exr_attribute_values,
            bool include_transfer_payload_batch_bytes,
            bool include_transfer_package_batch_bytes,
            XmpConflictPolicy xmp_conflict_policy,
@@ -4687,6 +4989,7 @@ NB_MODULE(_openmeta, m)
                 include_edited_bytes, true, include_c2pa_binding_bytes, true,
                 include_c2pa_handoff_bytes, include_c2pa_signed_package_bytes,
                 include_jxl_encoder_handoff_bytes,
+                include_exr_attribute_values,
                 include_transfer_payload_batch_bytes,
                 include_transfer_package_batch_bytes, true,
                 xmp_conflict_policy, xmp_writeback_mode,
@@ -4725,6 +5028,7 @@ NB_MODULE(_openmeta, m)
         "include_c2pa_handoff_bytes"_a           = false,
         "include_c2pa_signed_package_bytes"_a    = false,
         "include_jxl_encoder_handoff_bytes"_a    = false,
+        "include_exr_attribute_values"_a         = false,
         "include_transfer_payload_batch_bytes"_a = false,
         "include_transfer_package_batch_bytes"_a = false,
         "xmp_conflict_policy"_a = XmpConflictPolicy::CurrentBehavior,
@@ -4761,6 +5065,7 @@ NB_MODULE(_openmeta, m)
            bool include_c2pa_handoff_bytes,
            bool include_c2pa_signed_package_bytes,
            bool include_jxl_encoder_handoff_bytes,
+           bool include_exr_attribute_values,
            bool include_transfer_payload_batch_bytes,
            bool include_transfer_package_batch_bytes,
            XmpConflictPolicy xmp_conflict_policy,
@@ -4788,6 +5093,7 @@ NB_MODULE(_openmeta, m)
                 include_edited_bytes, false, include_c2pa_binding_bytes, false,
                 include_c2pa_handoff_bytes, include_c2pa_signed_package_bytes,
                 include_jxl_encoder_handoff_bytes,
+                include_exr_attribute_values,
                 include_transfer_payload_batch_bytes,
                 include_transfer_package_batch_bytes, false,
                 xmp_conflict_policy, xmp_writeback_mode,
@@ -4828,6 +5134,7 @@ NB_MODULE(_openmeta, m)
         "include_c2pa_handoff_bytes"_a           = false,
         "include_c2pa_signed_package_bytes"_a    = false,
         "include_jxl_encoder_handoff_bytes"_a    = false,
+        "include_exr_attribute_values"_a         = false,
         "include_transfer_payload_batch_bytes"_a = false,
         "include_transfer_package_batch_bytes"_a = false,
         "xmp_conflict_policy"_a = XmpConflictPolicy::CurrentBehavior,
@@ -4867,6 +5174,7 @@ NB_MODULE(_openmeta, m)
            bool include_c2pa_handoff_bytes,
            bool include_c2pa_signed_package_bytes,
            bool include_jxl_encoder_handoff_bytes,
+           bool include_exr_attribute_values,
            bool include_transfer_payload_batch_bytes,
            bool include_transfer_package_batch_bytes,
            XmpConflictPolicy xmp_conflict_policy,
@@ -4894,6 +5202,7 @@ NB_MODULE(_openmeta, m)
                 include_edited_bytes, true, include_c2pa_binding_bytes, true,
                 include_c2pa_handoff_bytes, include_c2pa_signed_package_bytes,
                 include_jxl_encoder_handoff_bytes,
+                include_exr_attribute_values,
                 include_transfer_payload_batch_bytes,
                 include_transfer_package_batch_bytes, true,
                 xmp_conflict_policy, xmp_writeback_mode,
@@ -4934,6 +5243,7 @@ NB_MODULE(_openmeta, m)
         "include_c2pa_handoff_bytes"_a           = false,
         "include_c2pa_signed_package_bytes"_a    = false,
         "include_jxl_encoder_handoff_bytes"_a    = false,
+        "include_exr_attribute_values"_a         = false,
         "include_transfer_payload_batch_bytes"_a = false,
         "include_transfer_package_batch_bytes"_a = false,
         "xmp_conflict_policy"_a = XmpConflictPolicy::CurrentBehavior,
@@ -4945,6 +5255,44 @@ NB_MODULE(_openmeta, m)
         "output_path"_a, "overwrite_output"_a = false,
         "overwrite_xmp_sidecar"_a = false,
         "remove_destination_xmp_sidecar"_a = true);
+
+    m.def(
+        "build_exr_attribute_batch_from_file",
+        [](const std::string& path, XmpSidecarFormat format,
+           bool include_pointer_tags, bool decode_makernote,
+           bool decode_embedded_containers, bool decompress,
+           bool include_exif_app1, bool include_xmp_app1,
+           bool include_icc_app2, bool include_iptc_app13,
+           bool xmp_include_existing, bool xmp_exiftool_gpsdatetime_alias,
+           bool xmp_project_exif, bool xmp_project_iptc,
+           TransferPolicyAction makernote_policy,
+           TransferPolicyAction jumbf_policy,
+           TransferPolicyAction c2pa_policy, uint64_t max_file_bytes,
+           nb::object policy_obj, bool include_values) {
+            return build_exr_attribute_batch_from_file_to_python(
+                path, format, include_pointer_tags, decode_makernote,
+                decode_embedded_containers, decompress, include_exif_app1,
+                include_xmp_app1, include_icc_app2, include_iptc_app13,
+                xmp_include_existing, xmp_exiftool_gpsdatetime_alias,
+                xmp_project_exif, xmp_project_iptc, makernote_policy,
+                jumbf_policy, c2pa_policy, max_file_bytes, policy_obj,
+                include_values);
+        },
+        "path"_a, "format"_a = XmpSidecarFormat::Portable,
+        "include_pointer_tags"_a = true, "decode_makernote"_a = false,
+        "decode_embedded_containers"_a = true, "decompress"_a = true,
+        "include_exif_app1"_a = true, "include_xmp_app1"_a = true,
+        "include_icc_app2"_a = true, "include_iptc_app13"_a = true,
+        "xmp_include_existing"_a           = false,
+        "xmp_exiftool_gpsdatetime_alias"_a = false,
+        "xmp_project_exif"_a               = true,
+        "xmp_project_iptc"_a               = true,
+        "makernote_policy"_a = TransferPolicyAction::Keep,
+        "jumbf_policy"_a     = TransferPolicyAction::Keep,
+        "c2pa_policy"_a      = TransferPolicyAction::Keep,
+        "max_file_bytes"_a   = 0ULL,
+        "policy"_a           = nb::none(),
+        "include_values"_a   = false);
 
     m.def(
         "inspect_transfer_payload_batch",

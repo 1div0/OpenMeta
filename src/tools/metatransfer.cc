@@ -1,5 +1,7 @@
 #include "cli_parse.h"
 #include "openmeta/build_info.h"
+#include "openmeta/console_format.h"
+#include "openmeta/exr_adapter.h"
 #include "openmeta/mapped_file.h"
 #include "openmeta/metadata_transfer.h"
 
@@ -107,6 +109,9 @@ namespace {
             "                         Load and inspect one persisted semantic transfer payload batch\n"
             "  --dump-transfer-package-batch <path>\n"
             "                         Write one persisted final transfer package batch\n"
+            "  --dump-exr-attribute-batch <path>\n"
+            "                         Write one human-readable EXR attribute batch dump\n"
+            "                         via the direct EXR file helper\n"
             "  --load-transfer-package-batch <path>\n"
             "                         Load and inspect one persisted final transfer package batch\n"
             "  --dump-jxl-encoder-handoff <path>\n"
@@ -780,6 +785,17 @@ namespace {
     }
 
 
+    static const char* exr_adapter_status_name(ExrAdapterStatus status) noexcept
+    {
+        switch (status) {
+        case ExrAdapterStatus::Ok: return "ok";
+        case ExrAdapterStatus::InvalidArgument: return "invalid_argument";
+        case ExrAdapterStatus::Unsupported: return "unsupported";
+        }
+        return "unknown";
+    }
+
+
     static const char* transfer_kind_name(TransferBlockKind kind) noexcept
     {
         switch (kind) {
@@ -1078,6 +1094,143 @@ namespace {
         return read == out->size();
     }
 
+    static std::string_view
+    byte_vector_as_string_view(const std::vector<std::byte>& bytes) noexcept
+    {
+        if (bytes.empty()) {
+            return std::string_view();
+        }
+        return std::string_view(reinterpret_cast<const char*>(bytes.data()),
+                                bytes.size());
+    }
+
+    static uint32_t count_exr_batch_parts(const ExrAdapterBatch& batch) noexcept
+    {
+        if (batch.attributes.empty()) {
+            return 0U;
+        }
+        uint32_t count     = 1U;
+        uint32_t prev_part = batch.attributes[0].part_index;
+        for (size_t i = 1; i < batch.attributes.size(); ++i) {
+            if (batch.attributes[i].part_index != prev_part) {
+                count += 1U;
+                prev_part = batch.attributes[i].part_index;
+            }
+        }
+        return count;
+    }
+
+    static void append_exr_attribute_batch_dump(
+        const char* source_path, const BuildExrAttributeBatchFileResult& result,
+        const ExrAdapterBatch& batch, std::string* out)
+    {
+        if (!out) {
+            return;
+        }
+
+        out->clear();
+        out->append("source=");
+        if (source_path) {
+            out->append(source_path);
+        } else {
+            out->append("-");
+        }
+        out->push_back('\n');
+
+        out->append("file: status=");
+        out->append(transfer_file_status_name(result.prepared.file_status));
+        out->append(" code=");
+        out->append(prepare_transfer_file_code_name(result.prepared.code));
+        out->append(" size=");
+        out->append(std::to_string(result.prepared.file_size));
+        out->append(" entries=");
+        out->append(std::to_string(result.prepared.entry_count));
+        out->push_back('\n');
+        if (!result.prepared.xmp_existing_sidecar_path.empty()) {
+            out->append("file_xmp_existing_sidecar: loaded=");
+            out->append(result.prepared.xmp_existing_sidecar_loaded ? "yes"
+                                                                    : "no");
+            out->append(" status=");
+            out->append(
+                transfer_status_name(result.prepared.xmp_existing_sidecar_status));
+            out->append(" path=");
+            out->append(result.prepared.xmp_existing_sidecar_path);
+            out->push_back('\n');
+        }
+        if (!result.prepared.xmp_existing_sidecar_message.empty()) {
+            out->append("file_xmp_existing_sidecar_message=");
+            out->append(result.prepared.xmp_existing_sidecar_message);
+            out->push_back('\n');
+        }
+
+        out->append("prepare: status=");
+        out->append(transfer_status_name(result.prepared.prepare.status));
+        out->append(" code=");
+        out->append(prepare_transfer_code_name(result.prepared.prepare.code));
+        out->append(" warnings=");
+        out->append(std::to_string(result.prepared.prepare.warnings));
+        out->append(" errors=");
+        out->append(std::to_string(result.prepared.prepare.errors));
+        out->append(" blocks=");
+        out->append(std::to_string(result.prepared.bundle.blocks.size()));
+        out->push_back('\n');
+        if (!result.prepared.prepare.message.empty()) {
+            out->append("prepare_message=");
+            out->append(result.prepared.prepare.message);
+            out->push_back('\n');
+        }
+
+        out->append("exr_attribute_batch: status=");
+        out->append(exr_adapter_status_name(result.adapter.status));
+        out->append(" exported=");
+        out->append(std::to_string(result.adapter.exported));
+        out->append(" skipped=");
+        out->append(std::to_string(result.adapter.skipped));
+        out->append(" errors=");
+        out->append(std::to_string(result.adapter.errors));
+        out->append(" parts=");
+        out->append(std::to_string(count_exr_batch_parts(batch)));
+        out->append(" entries=");
+        out->append(std::to_string(batch.attributes.size()));
+        out->push_back('\n');
+        if (!result.adapter.message.empty()) {
+            out->append("exr_attribute_batch_message=");
+            out->append(result.adapter.message);
+            out->push_back('\n');
+        }
+
+        for (size_t i = 0; i < batch.attributes.size(); ++i) {
+            const ExrAdapterAttribute& attr = batch.attributes[i];
+            out->push_back('[');
+            out->append(std::to_string(i));
+            out->append("] part=");
+            out->append(std::to_string(attr.part_index));
+            out->append(" name=");
+            out->append(attr.name);
+            out->append(" type=");
+            out->append(attr.type_name);
+            out->append(" opaque=");
+            out->append(attr.is_opaque ? "yes" : "no");
+            out->append(" bytes=");
+            out->append(std::to_string(attr.value.size()));
+            out->push_back('\n');
+
+            if (!attr.is_opaque && attr.type_name == "string") {
+                out->append("    value_ascii=");
+                const std::string_view text = byte_vector_as_string_view(
+                    attr.value);
+                (void)append_console_escaped_ascii(text, 256U, out);
+                out->push_back('\n');
+            }
+
+            out->append("    value_hex=");
+            append_hex_bytes(std::span<const std::byte>(attr.value.data(),
+                                                        attr.value.size()),
+                             256U, out);
+            out->push_back('\n');
+        }
+    }
+
 
     class FileByteWriter final : public TransferByteWriter {
     public:
@@ -1363,6 +1516,7 @@ main(int argc, char** argv)
     std::string transfer_payload_batch_input_path;
     std::string transfer_package_batch_output_path;
     std::string transfer_package_batch_input_path;
+    std::string exr_attribute_batch_output_path;
     std::string jxl_encoder_handoff_output_path;
     std::string jxl_encoder_handoff_input_path;
     std::string transfer_artifact_input_path;
@@ -1679,6 +1833,12 @@ main(int argc, char** argv)
             i += 1;
             continue;
         }
+        if (std::strcmp(arg, "--dump-exr-attribute-batch") == 0
+            && i + 1 < argc) {
+            exr_attribute_batch_output_path = argv[i + 1];
+            i += 1;
+            continue;
+        }
         if (std::strcmp(arg, "--load-transfer-package-batch") == 0
             && i + 1 < argc) {
             transfer_package_batch_input_path = argv[i + 1];
@@ -1951,6 +2111,12 @@ main(int argc, char** argv)
             "--dump-transfer-package-batch supports exactly one input path per run\n");
         return 2;
     }
+    if (!exr_attribute_batch_output_path.empty() && input_paths.size() != 1U) {
+        std::fprintf(
+            stderr,
+            "--dump-exr-attribute-batch supports exactly one input path per run\n");
+        return 2;
+    }
     if (!jxl_encoder_handoff_output_path.empty() && input_paths.size() != 1U) {
         std::fprintf(
             stderr,
@@ -1972,11 +2138,12 @@ main(int argc, char** argv)
         = static_cast<uint32_t>(!transfer_payload_batch_input_path.empty())
           + static_cast<uint32_t>(!transfer_package_batch_input_path.empty())
           + static_cast<uint32_t>(!jxl_encoder_handoff_input_path.empty())
-          + static_cast<uint32_t>(!transfer_artifact_input_path.empty());
+          + static_cast<uint32_t>(!transfer_artifact_input_path.empty())
+          + static_cast<uint32_t>(!exr_attribute_batch_output_path.empty());
     if (inspect_input_count > 1U) {
         std::fprintf(
             stderr,
-            "--load-transfer-payload-batch, --load-transfer-package-batch, --load-jxl-encoder-handoff, and --load-transfer-artifact are mutually exclusive\n");
+            "--dump-exr-attribute-batch, --load-transfer-payload-batch, --load-transfer-package-batch, --load-jxl-encoder-handoff, and --load-transfer-artifact are mutually exclusive\n");
         return 2;
     }
     if (!transfer_payload_batch_input_path.empty()) {
@@ -1989,6 +2156,7 @@ main(int argc, char** argv)
             || !c2pa_signed_package_input_path.empty()
             || !transfer_payload_batch_output_path.empty()
             || !transfer_package_batch_output_path.empty()
+            || !exr_attribute_batch_output_path.empty()
             || !output_path.empty() || dry_run || write_payloads) {
             std::fprintf(
                 stderr,
@@ -2064,6 +2232,7 @@ main(int argc, char** argv)
             || !c2pa_signed_package_input_path.empty()
             || !transfer_payload_batch_output_path.empty()
             || !transfer_package_batch_output_path.empty()
+            || !exr_attribute_batch_output_path.empty()
             || !jxl_encoder_handoff_output_path.empty() || !output_path.empty()
             || dry_run || write_payloads) {
             std::fprintf(
@@ -2122,6 +2291,7 @@ main(int argc, char** argv)
             || !c2pa_signed_package_input_path.empty()
             || !transfer_payload_batch_output_path.empty()
             || !transfer_package_batch_output_path.empty()
+            || !exr_attribute_batch_output_path.empty()
             || !jxl_encoder_handoff_output_path.empty() || !output_path.empty()
             || dry_run || write_payloads) {
             std::fprintf(
@@ -2219,6 +2389,7 @@ main(int argc, char** argv)
             || !c2pa_signed_package_input_path.empty()
             || !transfer_payload_batch_output_path.empty()
             || !transfer_package_batch_output_path.empty()
+            || !exr_attribute_batch_output_path.empty()
             || !output_path.empty() || dry_run || write_payloads) {
             std::fprintf(
                 stderr,
@@ -2283,6 +2454,96 @@ main(int argc, char** argv)
                                                 static_cast<uint32_t>(i));
         }
         return 0;
+    }
+    if (!exr_attribute_batch_output_path.empty()) {
+        if (!source_meta_path.empty() || target_count != 0U
+            || !jpeg_jumbf_path.empty() || c2pa_stage_requested
+            || !c2pa_binding_output_path.empty()
+            || !c2pa_handoff_output_path.empty()
+            || !c2pa_signed_package_output_path.empty()
+            || !c2pa_signed_package_input_path.empty()
+            || !transfer_payload_batch_output_path.empty()
+            || !transfer_payload_batch_input_path.empty()
+            || !transfer_package_batch_output_path.empty()
+            || !transfer_package_batch_input_path.empty()
+            || !jxl_encoder_handoff_output_path.empty()
+            || !jxl_encoder_handoff_input_path.empty()
+            || !transfer_artifact_input_path.empty() || !output_path.empty()
+            || !out_dir.empty() || dry_run || write_payloads
+            || !pending_time_patches.empty() || emit_repeat != 1U
+            || edit_plan_opts.mode != JpegEditMode::Auto
+            || edit_plan_opts.require_in_place
+            || xmp_writeback_mode != XmpWritebackMode::EmbeddedOnly
+            || xmp_destination_embedded_mode
+                   != XmpDestinationEmbeddedMode::PreserveExisting
+            || xmp_destination_sidecar_mode
+                   != XmpDestinationSidecarMode::PreserveExisting) {
+            std::fprintf(
+                stderr,
+                "--dump-exr-attribute-batch is an inspect-only mode and is mutually exclusive with transfer/edit options\n");
+            return 2;
+        }
+
+        if (show_build_info) {
+            print_build_info_header();
+        }
+
+        if (xmp_include_existing_sidecar) {
+            options.xmp_existing_sidecar_mode
+                = XmpExistingSidecarMode::MergeIfPresent;
+            options.xmp_existing_sidecar_precedence
+                = xmp_existing_sidecar_precedence;
+            options.xmp_existing_sidecar_base_path = input_paths[0];
+        } else {
+            options.xmp_existing_sidecar_mode = XmpExistingSidecarMode::Ignore;
+            options.xmp_existing_sidecar_precedence
+                = XmpExistingSidecarPrecedence::SidecarWins;
+            options.xmp_existing_sidecar_base_path.clear();
+        }
+
+        BuildExrAttributeBatchFileOptions exr_options;
+        exr_options.prepare = options;
+
+        ExrAdapterBatch batch;
+        const BuildExrAttributeBatchFileResult result
+            = build_exr_attribute_batch_from_file(input_paths[0].c_str(),
+                                                  &batch, exr_options);
+
+        std::string dump_text;
+        append_exr_attribute_batch_dump(input_paths[0].c_str(), result, batch,
+                                        &dump_text);
+
+        if (!force && file_exists(exr_attribute_batch_output_path)) {
+            std::fprintf(stderr,
+                         "dump path already exists (use --force): %s\n",
+                         exr_attribute_batch_output_path.c_str());
+            return 1;
+        }
+        if (!write_file_bytes(
+                exr_attribute_batch_output_path,
+                std::span<const std::byte>(
+                    reinterpret_cast<const std::byte*>(dump_text.data()),
+                    dump_text.size()))) {
+            std::fprintf(stderr, "failed to write exr attribute batch dump: %s\n",
+                         exr_attribute_batch_output_path.c_str());
+            return 1;
+        }
+
+        std::printf(
+            "exr_attribute_batch_dump: status=%s path=%s entries=%u exported=%u errors=%u\n",
+            exr_adapter_status_name(result.adapter.status),
+            exr_attribute_batch_output_path.c_str(),
+            static_cast<unsigned>(batch.attributes.size()),
+            static_cast<unsigned>(result.adapter.exported),
+            static_cast<unsigned>(result.adapter.errors));
+
+        if (result.prepared.file_status != TransferFileStatus::Ok) {
+            return 1;
+        }
+        if (result.prepared.prepare.status != TransferStatus::Ok) {
+            return 1;
+        }
+        return result.adapter.status == ExrAdapterStatus::Ok ? 0 : 1;
     }
     if (target_count > 1U) {
         std::fprintf(

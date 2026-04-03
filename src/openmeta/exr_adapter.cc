@@ -93,6 +93,55 @@ namespace {
         append_u32le(out, static_cast<uint32_t>((v >> 32) & 0xFFFFFFFFULL));
     }
 
+    static bool read_u64le(std::span<const std::byte> bytes, size_t* off,
+                           uint64_t* out) noexcept
+    {
+        if (!off || !out || *off > bytes.size() || bytes.size() - *off < 8U) {
+            return false;
+        }
+        const size_t i = *off;
+        uint64_t v     = 0U;
+        for (size_t b = 0; b < 8U; ++b) {
+            v |= (static_cast<uint64_t>(
+                      static_cast<uint8_t>(bytes[i + b]))
+                  << (b * 8U));
+        }
+        *off += 8U;
+        *out = v;
+        return true;
+    }
+
+    static bool parse_prepared_exr_string_attribute_payload(
+        std::span<const std::byte> bytes, std::string* out_name,
+        std::vector<std::byte>* out_value) noexcept
+    {
+        if (!out_name || !out_value) {
+            return false;
+        }
+        size_t off        = 0U;
+        uint64_t name_len = 0U;
+        if (!read_u64le(bytes, &off, &name_len)
+            || name_len > bytes.size() - off) {
+            return false;
+        }
+        const size_t name_size = static_cast<size_t>(name_len);
+        out_name->assign(reinterpret_cast<const char*>(bytes.data() + off),
+                         name_size);
+        off += name_size;
+
+        uint64_t value_len = 0U;
+        if (!read_u64le(bytes, &off, &value_len)
+            || value_len > bytes.size() - off) {
+            return false;
+        }
+        const size_t value_size = static_cast<size_t>(value_len);
+        out_value->assign(bytes.begin() + static_cast<std::ptrdiff_t>(off),
+                          bytes.begin()
+                              + static_cast<std::ptrdiff_t>(off + value_size));
+        off += value_size;
+        return off == bytes.size();
+    }
+
     template<typename T>
     static bool value_array_bytes(const ByteArena& arena,
                                   const MetaValue& value,
@@ -452,6 +501,96 @@ build_exr_attribute_batch(const MetaStore& store, ExrAdapterBatch* out,
 
     *out          = std::move(batch);
     result.status = ExrAdapterStatus::Ok;
+    return result;
+}
+
+ExrAdapterResult
+build_prepared_exr_attribute_batch(const PreparedTransferBundle& bundle,
+                                   ExrAdapterBatch* out,
+                                   const ExrAdapterOptions& options) noexcept
+{
+    ExrAdapterResult result;
+    if (!out) {
+        result.status  = ExrAdapterStatus::InvalidArgument;
+        result.errors  = 1U;
+        result.message = "out batch is null";
+        return result;
+    }
+
+    out->encoding_version = kExrCanonicalEncodingVersion;
+    out->options          = options;
+    out->attributes.clear();
+
+    if (bundle.target_format != TransferTargetFormat::Exr) {
+        result.status  = ExrAdapterStatus::Unsupported;
+        result.errors  = 1U;
+        result.message = "prepared bundle target format is not exr";
+        return result;
+    }
+
+    out->attributes.reserve(bundle.blocks.size());
+    for (size_t i = 0; i < bundle.blocks.size(); ++i) {
+        const PreparedTransferBlock& block = bundle.blocks[i];
+        if (block.kind != TransferBlockKind::ExrAttribute
+            || block.route != "exr:attribute-string") {
+            result.status  = ExrAdapterStatus::Unsupported;
+            result.errors  = 1U;
+            result.message = "prepared bundle contains unsupported exr block";
+            return result;
+        }
+
+        std::string name;
+        std::vector<std::byte> value;
+        if (!parse_prepared_exr_string_attribute_payload(
+                std::span<const std::byte>(block.payload.data(),
+                                           block.payload.size()),
+                &name, &value)) {
+            result.status  = ExrAdapterStatus::Unsupported;
+            result.errors  = 1U;
+            result.message = "prepared exr attribute payload is malformed";
+            return result;
+        }
+
+        ExrAdapterAttribute attr;
+        attr.part_index = 0U;
+        attr.name       = std::move(name);
+        attr.type_name  = "string";
+        attr.value      = std::move(value);
+        attr.is_opaque  = false;
+        out->attributes.push_back(std::move(attr));
+    }
+
+    result.status   = ExrAdapterStatus::Ok;
+    result.exported = static_cast<uint32_t>(out->attributes.size());
+    return result;
+}
+
+
+BuildExrAttributeBatchFileResult
+build_exr_attribute_batch_from_file(
+    const char* path, ExrAdapterBatch* out,
+    const BuildExrAttributeBatchFileOptions& options) noexcept
+{
+    BuildExrAttributeBatchFileResult result;
+
+    PrepareTransferFileOptions prepare_options = options.prepare;
+    prepare_options.prepare.target_format      = TransferTargetFormat::Exr;
+    result.prepared = prepare_metadata_for_target_file(path, prepare_options);
+    if (result.prepared.file_status != TransferFileStatus::Ok
+        || result.prepared.prepare.status != TransferStatus::Ok) {
+        if (result.prepared.prepare.status == TransferStatus::InvalidArgument) {
+            result.adapter.status = ExrAdapterStatus::InvalidArgument;
+        } else {
+            result.adapter.status = ExrAdapterStatus::Unsupported;
+        }
+        result.adapter.errors = 1U;
+        result.adapter.message = result.prepared.prepare.message;
+        return result;
+    }
+
+    result.adapter = build_prepared_exr_attribute_batch(result.prepared.bundle,
+                                                        out,
+                                                        options.adapter);
     return result;
 }
 

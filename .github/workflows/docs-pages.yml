@@ -1,0 +1,90 @@
+---
+name: docs-pages
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/docs-pages.yml"
+      - "CMakeLists.txt"
+      - "README.md"
+      - "SECURITY.md"
+      - "NOTICE.md"
+      - "cmake/Doxyfile.in"
+      - "docs/**"
+      - "src/include/**"
+  push:
+    branches:
+      - main
+    tags:
+      - "*"
+    paths:
+      - ".github/workflows/docs-pages.yml"
+      - "CMakeLists.txt"
+      - "README.md"
+      - "SECURITY.md"
+      - "NOTICE.md"
+      - "cmake/Doxyfile.in"
+      - "docs/**"
+      - "src/include/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-pages-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: docs/requirements.txt
+
+      - name: Install docs dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y doxygen graphviz ninja-build
+          python -m pip install --upgrade pip
+          python -m pip install -r docs/requirements.txt
+
+      - name: Configure docs build
+        run: >
+          cmake -S . -B build -G Ninja
+          -DOPENMETA_BUILD_SPHINX_DOCS=ON
+          -DOPENMETA_BUILD_SHARED=OFF
+          -DOPENMETA_BUILD_TOOLS=OFF
+
+      - name: Build docs
+        run: cmake --build build --target openmeta_docs_sphinx --parallel
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: build/docs/html
+
+  deploy:
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

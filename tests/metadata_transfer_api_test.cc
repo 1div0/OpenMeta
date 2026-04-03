@@ -506,6 +506,27 @@ read_u32le(std::span<const std::byte> bytes, size_t off) noexcept
            << 24));
 }
 
+static uint64_t
+read_u64le(std::span<const std::byte> bytes, size_t off) noexcept
+{
+    return static_cast<uint64_t>(
+        (static_cast<uint64_t>(std::to_integer<uint8_t>(bytes[off + 0])) << 0)
+        | (static_cast<uint64_t>(std::to_integer<uint8_t>(bytes[off + 1]))
+           << 8)
+        | (static_cast<uint64_t>(std::to_integer<uint8_t>(bytes[off + 2]))
+           << 16)
+        | (static_cast<uint64_t>(std::to_integer<uint8_t>(bytes[off + 3]))
+           << 24)
+        | (static_cast<uint64_t>(std::to_integer<uint8_t>(bytes[off + 4]))
+           << 32)
+        | (static_cast<uint64_t>(std::to_integer<uint8_t>(bytes[off + 5]))
+           << 40)
+        | (static_cast<uint64_t>(std::to_integer<uint8_t>(bytes[off + 6]))
+           << 48)
+        | (static_cast<uint64_t>(std::to_integer<uint8_t>(bytes[off + 7]))
+           << 56));
+}
+
 static bool
 find_tiff_tag_entry_le(std::span<const std::byte> bytes, uint32_t ifd_off,
                        uint16_t tag, uint16_t* out_type, uint32_t* out_count,
@@ -534,6 +555,39 @@ find_tiff_tag_entry_le(std::span<const std::byte> bytes, uint32_t ifd_off,
             return true;
         }
         entry_pos += 12U;
+    }
+    return false;
+}
+
+static bool
+find_bigtiff_tag_entry_le(std::span<const std::byte> bytes, uint64_t ifd_off,
+                          uint16_t tag, uint16_t* out_type,
+                          uint64_t* out_count,
+                          uint64_t* out_value_or_offset) noexcept
+{
+    const size_t base = static_cast<size_t>(ifd_off);
+    if (base + 8U > bytes.size()) {
+        return false;
+    }
+    const uint64_t count = read_u64le(bytes, base);
+    size_t entry_pos     = base + 8U;
+    for (uint64_t i = 0U; i < count; ++i) {
+        if (entry_pos + 20U > bytes.size()) {
+            return false;
+        }
+        if (read_u16le(bytes, entry_pos + 0U) == tag) {
+            if (out_type) {
+                *out_type = read_u16le(bytes, entry_pos + 2U);
+            }
+            if (out_count) {
+                *out_count = read_u64le(bytes, entry_pos + 4U);
+            }
+            if (out_value_or_offset) {
+                *out_value_or_offset = read_u64le(bytes, entry_pos + 12U);
+            }
+            return true;
+        }
+        entry_pos += 20U;
     }
     return false;
 }
@@ -605,12 +659,32 @@ append_u32be(std::vector<std::byte>* out, uint32_t v)
 }
 
 static void
+append_u16le(std::vector<std::byte>* out, uint16_t v)
+{
+    out->push_back(static_cast<std::byte>((v >> 0U) & 0xFFU));
+    out->push_back(static_cast<std::byte>((v >> 8U) & 0xFFU));
+}
+
+static void
 append_u32le(std::vector<std::byte>* out, uint32_t v)
 {
     out->push_back(static_cast<std::byte>((v >> 0U) & 0xFFU));
     out->push_back(static_cast<std::byte>((v >> 8U) & 0xFFU));
     out->push_back(static_cast<std::byte>((v >> 16U) & 0xFFU));
     out->push_back(static_cast<std::byte>((v >> 24U) & 0xFFU));
+}
+
+static void
+append_u64le(std::vector<std::byte>* out, uint64_t v)
+{
+    out->push_back(static_cast<std::byte>((v >> 0U) & 0xFFU));
+    out->push_back(static_cast<std::byte>((v >> 8U) & 0xFFU));
+    out->push_back(static_cast<std::byte>((v >> 16U) & 0xFFU));
+    out->push_back(static_cast<std::byte>((v >> 24U) & 0xFFU));
+    out->push_back(static_cast<std::byte>((v >> 32U) & 0xFFU));
+    out->push_back(static_cast<std::byte>((v >> 40U) & 0xFFU));
+    out->push_back(static_cast<std::byte>((v >> 48U) & 0xFFU));
+    out->push_back(static_cast<std::byte>((v >> 56U) & 0xFFU));
 }
 
 static void
@@ -2422,6 +2496,49 @@ store_has_text_entry(const openmeta::MetaStore& store,
 }
 
 static bool
+store_has_u32_scalar_entry(const openmeta::MetaStore& store,
+                           const openmeta::MetaKeyView& key,
+                           uint64_t expected) noexcept
+{
+    const std::span<const openmeta::EntryId> ids = store.find_all(key);
+    if (ids.size() != 1U) {
+        return false;
+    }
+    const openmeta::Entry& entry = store.entry(ids[0]);
+    return entry.value.kind == openmeta::MetaValueKind::Scalar
+           && entry.value.elem_type == openmeta::MetaElementType::U32
+           && entry.value.data.u64 == expected;
+}
+
+static bool
+store_has_u8_array_entry(const openmeta::MetaStore& store,
+                         const openmeta::MetaKeyView& key,
+                         std::span<const uint8_t> expected) noexcept
+{
+    const std::span<const openmeta::EntryId> ids = store.find_all(key);
+    if (ids.size() != 1U) {
+        return false;
+    }
+    const openmeta::Entry& entry = store.entry(ids[0]);
+    if (entry.value.kind != openmeta::MetaValueKind::Array
+        || entry.value.elem_type != openmeta::MetaElementType::U8
+        || entry.value.count != expected.size()) {
+        return false;
+    }
+    const std::span<const std::byte> raw = store.arena().span(
+        entry.value.data.span);
+    if (raw.size() != expected.size()) {
+        return false;
+    }
+    for (size_t i = 0; i < expected.size(); ++i) {
+        if (std::to_integer<uint8_t>(raw[i]) != expected[i]) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool
 decode_transfer_roundtrip_store(std::span<const std::byte> bytes,
                                 openmeta::MetaStore* out) noexcept
 {
@@ -2480,6 +2597,383 @@ make_minimal_tiff_little_endian()
         std::byte { 0x00 }, std::byte { 0x00 }, std::byte { 0x00 },
         std::byte { 0x00 }, std::byte { 0x00 },
     };
+}
+
+static std::vector<std::byte>
+make_minimal_bigtiff_little_endian()
+{
+    return {
+        std::byte { 'I' },  std::byte { 'I' },  std::byte { 0x2B },
+        std::byte { 0x00 }, std::byte { 0x08 }, std::byte { 0x00 },
+        std::byte { 0x00 }, std::byte { 0x00 }, std::byte { 0x10 },
+        std::byte { 0x00 }, std::byte { 0x00 }, std::byte { 0x00 },
+        std::byte { 0x00 }, std::byte { 0x00 }, std::byte { 0x00 },
+        std::byte { 0x00 }, std::byte { 0x00 }, std::byte { 0x00 },
+        std::byte { 0x00 }, std::byte { 0x00 }, std::byte { 0x00 },
+        std::byte { 0x00 }, std::byte { 0x00 }, std::byte { 0x00 },
+        std::byte { 0x00 }, std::byte { 0x00 }, std::byte { 0x00 },
+        std::byte { 0x00 }, std::byte { 0x00 }, std::byte { 0x00 },
+        std::byte { 0x00 }, std::byte { 0x00 },
+    };
+}
+
+static std::vector<std::byte>
+make_minimal_multipage_tiff_little_endian()
+{
+    std::vector<std::byte> tiff;
+    append_bytes(&tiff, "II");
+    append_u16le(&tiff, 42U);
+    append_u32le(&tiff, 8U);
+
+    append_u16le(&tiff, 0U);
+    append_u32le(&tiff, 14U);
+
+    append_u16le(&tiff, 1U);
+    append_u16le(&tiff, 0x0100U);
+    append_u16le(&tiff, 4U);
+    append_u32le(&tiff, 1U);
+    append_u32le(&tiff, 111U);
+    append_u32le(&tiff, 32U);
+
+    append_u16le(&tiff, 1U);
+    append_u16le(&tiff, 0x0100U);
+    append_u16le(&tiff, 4U);
+    append_u32le(&tiff, 1U);
+    append_u32le(&tiff, 222U);
+    append_u32le(&tiff, 0U);
+
+    return tiff;
+}
+
+static std::vector<std::byte>
+make_minimal_multipage_bigtiff_little_endian()
+{
+    std::vector<std::byte> tiff;
+    append_bytes(&tiff, "II");
+    append_u16le(&tiff, 43U);
+    append_u16le(&tiff, 8U);
+    append_u16le(&tiff, 0U);
+    append_u64le(&tiff, 16U);
+
+    append_u64le(&tiff, 0U);
+    append_u64le(&tiff, 32U);
+
+    append_u64le(&tiff, 1U);
+    append_u16le(&tiff, 0x0100U);
+    append_u16le(&tiff, 4U);
+    append_u64le(&tiff, 1U);
+    append_u64le(&tiff, 111U);
+    append_u64le(&tiff, 68U);
+
+    append_u64le(&tiff, 1U);
+    append_u16le(&tiff, 0x0100U);
+    append_u16le(&tiff, 4U);
+    append_u64le(&tiff, 1U);
+    append_u64le(&tiff, 222U);
+    append_u64le(&tiff, 0U);
+
+    return tiff;
+}
+
+static std::vector<std::byte>
+make_minimal_subifd_chain_tiff_little_endian()
+{
+    std::vector<std::byte> tiff;
+    append_bytes(&tiff, "II");
+    append_u16le(&tiff, 42U);
+    append_u32le(&tiff, 8U);
+
+    append_u16le(&tiff, 1U);
+    append_u16le(&tiff, 0x014AU);
+    append_u16le(&tiff, 4U);
+    append_u32le(&tiff, 1U);
+    append_u32le(&tiff, 26U);
+    append_u32le(&tiff, 0U);
+
+    append_u16le(&tiff, 1U);
+    append_u16le(&tiff, 0x0100U);
+    append_u16le(&tiff, 4U);
+    append_u32le(&tiff, 1U);
+    append_u32le(&tiff, 111U);
+    append_u32le(&tiff, 44U);
+
+    append_u16le(&tiff, 1U);
+    append_u16le(&tiff, 0x0100U);
+    append_u16le(&tiff, 4U);
+    append_u32le(&tiff, 1U);
+    append_u32le(&tiff, 222U);
+    append_u32le(&tiff, 0U);
+
+    return tiff;
+}
+
+static std::vector<std::byte>
+make_minimal_subifd_chain_bigtiff_little_endian()
+{
+    std::vector<std::byte> tiff;
+    append_bytes(&tiff, "II");
+    append_u16le(&tiff, 43U);
+    append_u16le(&tiff, 8U);
+    append_u16le(&tiff, 0U);
+    append_u64le(&tiff, 16U);
+
+    append_u64le(&tiff, 1U);
+    append_u16le(&tiff, 0x014AU);
+    append_u16le(&tiff, 18U);
+    append_u64le(&tiff, 1U);
+    append_u64le(&tiff, 52U);
+    append_u64le(&tiff, 0U);
+
+    append_u64le(&tiff, 1U);
+    append_u16le(&tiff, 0x0100U);
+    append_u16le(&tiff, 4U);
+    append_u64le(&tiff, 1U);
+    append_u64le(&tiff, 111U);
+    append_u64le(&tiff, 88U);
+
+    append_u64le(&tiff, 1U);
+    append_u16le(&tiff, 0x0100U);
+    append_u16le(&tiff, 4U);
+    append_u64le(&tiff, 1U);
+    append_u64le(&tiff, 222U);
+    append_u64le(&tiff, 0U);
+
+    return tiff;
+}
+
+static std::vector<std::byte>
+make_minimal_subifd_pair_tiff_little_endian()
+{
+    std::vector<std::byte> tiff;
+    append_bytes(&tiff, "II");
+    append_u16le(&tiff, 42U);
+    append_u32le(&tiff, 8U);
+
+    append_u16le(&tiff, 1U);
+    append_u16le(&tiff, 0x014AU);
+    append_u16le(&tiff, 4U);
+    append_u32le(&tiff, 2U);
+    append_u32le(&tiff, 26U);
+    append_u32le(&tiff, 0U);
+
+    append_u32le(&tiff, 34U);
+    append_u32le(&tiff, 52U);
+
+    append_u16le(&tiff, 1U);
+    append_u16le(&tiff, 0x0100U);
+    append_u16le(&tiff, 4U);
+    append_u32le(&tiff, 1U);
+    append_u32le(&tiff, 111U);
+    append_u32le(&tiff, 0U);
+
+    append_u16le(&tiff, 1U);
+    append_u16le(&tiff, 0x0100U);
+    append_u16le(&tiff, 4U);
+    append_u32le(&tiff, 1U);
+    append_u32le(&tiff, 777U);
+    append_u32le(&tiff, 0U);
+
+    return tiff;
+}
+
+static std::vector<std::byte>
+make_minimal_subifd_pair_bigtiff_little_endian()
+{
+    std::vector<std::byte> tiff;
+    append_bytes(&tiff, "II");
+    append_u16le(&tiff, 43U);
+    append_u16le(&tiff, 8U);
+    append_u16le(&tiff, 0U);
+    append_u64le(&tiff, 16U);
+
+    append_u64le(&tiff, 1U);
+    append_u16le(&tiff, 0x014AU);
+    append_u16le(&tiff, 18U);
+    append_u64le(&tiff, 2U);
+    append_u64le(&tiff, 52U);
+    append_u64le(&tiff, 0U);
+
+    append_u64le(&tiff, 68U);
+    append_u64le(&tiff, 104U);
+
+    append_u64le(&tiff, 1U);
+    append_u16le(&tiff, 0x0100U);
+    append_u16le(&tiff, 4U);
+    append_u64le(&tiff, 1U);
+    append_u64le(&tiff, 111U);
+    append_u64le(&tiff, 0U);
+
+    append_u64le(&tiff, 1U);
+    append_u16le(&tiff, 0x0100U);
+    append_u16le(&tiff, 4U);
+    append_u64le(&tiff, 1U);
+    append_u64le(&tiff, 777U);
+    append_u64le(&tiff, 0U);
+
+    return tiff;
+}
+
+static std::vector<std::byte>
+make_minimal_dng_merge_target_tiff_little_endian()
+{
+    std::vector<std::byte> tiff;
+    append_bytes(&tiff, "II");
+    append_u16le(&tiff, 42U);
+    append_u32le(&tiff, 8U);
+
+    append_u16le(&tiff, 1U);
+    append_u16le(&tiff, 0x014AU);
+    append_u16le(&tiff, 4U);
+    append_u32le(&tiff, 2U);
+    append_u32le(&tiff, 26U);
+    append_u32le(&tiff, 34U);
+
+    append_u32le(&tiff, 70U);
+    append_u32le(&tiff, 88U);
+
+    append_u16le(&tiff, 1U);
+    append_u16le(&tiff, 0x0100U);
+    append_u16le(&tiff, 4U);
+    append_u32le(&tiff, 1U);
+    append_u32le(&tiff, 111U);
+    append_u32le(&tiff, 52U);
+
+    append_u16le(&tiff, 1U);
+    append_u16le(&tiff, 0x0100U);
+    append_u16le(&tiff, 4U);
+    append_u32le(&tiff, 1U);
+    append_u32le(&tiff, 222U);
+    append_u32le(&tiff, 0U);
+
+    append_u16le(&tiff, 1U);
+    append_u16le(&tiff, 0x0100U);
+    append_u16le(&tiff, 4U);
+    append_u32le(&tiff, 1U);
+    append_u32le(&tiff, 111U);
+    append_u32le(&tiff, 0U);
+
+    append_u16le(&tiff, 1U);
+    append_u16le(&tiff, 0x0100U);
+    append_u16le(&tiff, 4U);
+    append_u32le(&tiff, 1U);
+    append_u32le(&tiff, 777U);
+    append_u32le(&tiff, 0U);
+
+    return tiff;
+}
+
+static std::vector<std::byte>
+make_minimal_dng_merge_target_bigtiff_little_endian()
+{
+    std::vector<std::byte> tiff;
+    append_bytes(&tiff, "II");
+    append_u16le(&tiff, 43U);
+    append_u16le(&tiff, 8U);
+    append_u16le(&tiff, 0U);
+    append_u64le(&tiff, 16U);
+
+    append_u64le(&tiff, 1U);
+    append_u16le(&tiff, 0x014AU);
+    append_u16le(&tiff, 18U);
+    append_u64le(&tiff, 2U);
+    append_u64le(&tiff, 52U);
+    append_u64le(&tiff, 68U);
+
+    append_u64le(&tiff, 140U);
+    append_u64le(&tiff, 176U);
+
+    append_u64le(&tiff, 1U);
+    append_u16le(&tiff, 0x0100U);
+    append_u16le(&tiff, 4U);
+    append_u64le(&tiff, 1U);
+    append_u64le(&tiff, 111U);
+    append_u64le(&tiff, 104U);
+
+    append_u64le(&tiff, 1U);
+    append_u16le(&tiff, 0x0100U);
+    append_u16le(&tiff, 4U);
+    append_u64le(&tiff, 1U);
+    append_u64le(&tiff, 222U);
+    append_u64le(&tiff, 0U);
+
+    append_u64le(&tiff, 1U);
+    append_u16le(&tiff, 0x0100U);
+    append_u16le(&tiff, 4U);
+    append_u64le(&tiff, 1U);
+    append_u64le(&tiff, 111U);
+    append_u64le(&tiff, 0U);
+
+    append_u64le(&tiff, 1U);
+    append_u16le(&tiff, 0x0100U);
+    append_u16le(&tiff, 4U);
+    append_u64le(&tiff, 1U);
+    append_u64le(&tiff, 777U);
+    append_u64le(&tiff, 0U);
+
+    return tiff;
+}
+
+static std::vector<std::byte>
+make_minimal_dng_like_tiff_little_endian()
+{
+    std::vector<std::byte> tiff;
+    append_bytes(&tiff, "II");
+    append_u16le(&tiff, 42U);
+    append_u32le(&tiff, 8U);
+
+    append_u16le(&tiff, 3U);
+
+    append_u16le(&tiff, 0x010FU);
+    append_u16le(&tiff, 2U);
+    append_u32le(&tiff, 8U);
+    append_u32le(&tiff, 50U);
+
+    append_u16le(&tiff, 0x014AU);
+    append_u16le(&tiff, 4U);
+    append_u32le(&tiff, 1U);
+    append_u32le(&tiff, 58U);
+
+    append_u16le(&tiff, 0xC612U);
+    append_u16le(&tiff, 1U);
+    append_u32le(&tiff, 4U);
+    append_u32le(&tiff, 0x00000601U);
+
+    append_u32le(&tiff, 88U);
+
+    EXPECT_EQ(tiff.size(), 50U);
+    append_bytes(&tiff, "DNGTEST");
+    tiff.push_back(std::byte { 0x00 });
+
+    EXPECT_EQ(tiff.size(), 58U);
+    append_u16le(&tiff, 2U);
+
+    append_u16le(&tiff, 0x0100U);
+    append_u16le(&tiff, 4U);
+    append_u32le(&tiff, 1U);
+    append_u32le(&tiff, 4000U);
+
+    append_u16le(&tiff, 0x0101U);
+    append_u16le(&tiff, 4U);
+    append_u32le(&tiff, 1U);
+    append_u32le(&tiff, 3000U);
+
+    append_u32le(&tiff, 0U);
+
+    EXPECT_EQ(tiff.size(), 88U);
+    append_u16le(&tiff, 2U);
+
+    append_u16le(&tiff, 0x0100U);
+    append_u16le(&tiff, 4U);
+    append_u32le(&tiff, 1U);
+    append_u32le(&tiff, 320U);
+
+    append_u16le(&tiff, 0x0101U);
+    append_u16le(&tiff, 4U);
+    append_u32le(&tiff, 1U);
+    append_u32le(&tiff, 240U);
+
+    append_u32le(&tiff, 0U);
+    return tiff;
 }
 
 TEST(MetadataTransferApi, ContractDefaultsAreStable)
@@ -5840,6 +6334,124 @@ TEST(MetadataTransferApi, PrepareBuildsTiffExifTransferBlockAndTimePatchSlots)
     }
 }
 
+TEST(MetadataTransferApi, PrepareBuildsTiffExifTransferBlockWithSubIfds)
+{
+    openmeta::MetaStore store;
+    const openmeta::BlockId block = store.add_block(openmeta::BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    openmeta::Entry ifd0;
+    ifd0.key   = openmeta::make_exif_tag_key(store.arena(), "ifd0", 0x0132U);
+    ifd0.value = openmeta::make_text(store.arena(), "2024:01:02 03:04:05",
+                                     openmeta::TextEncoding::Ascii);
+    ifd0.origin.block          = block;
+    ifd0.origin.order_in_block = 0U;
+    ASSERT_NE(store.add_entry(ifd0), openmeta::kInvalidEntryId);
+
+    openmeta::Entry sub0;
+    sub0.key = openmeta::make_exif_tag_key(store.arena(), "subifd0", 0x0100U);
+    sub0.value = openmeta::make_u32(4000U);
+    sub0.origin.block          = block;
+    sub0.origin.order_in_block = 1U;
+    ASSERT_NE(store.add_entry(sub0), openmeta::kInvalidEntryId);
+
+    openmeta::Entry sub1;
+    sub1.key = openmeta::make_exif_tag_key(store.arena(), "subifd1", 0x0101U);
+    sub1.value = openmeta::make_u32(3000U);
+    sub1.origin.block          = block;
+    sub1.origin.order_in_block = 2U;
+    ASSERT_NE(store.add_entry(sub1), openmeta::kInvalidEntryId);
+    store.finalize();
+
+    openmeta::PrepareTransferRequest request;
+    request.target_format      = openmeta::TransferTargetFormat::Tiff;
+    request.include_xmp_app1   = false;
+    request.include_icc_app2   = false;
+    request.include_iptc_app13 = false;
+
+    openmeta::PreparedTransferBundle bundle;
+    ASSERT_EQ(openmeta::prepare_metadata_for_target(store, request, &bundle).status,
+              openmeta::TransferStatus::Ok);
+    ASSERT_EQ(bundle.blocks.size(), 1U);
+    EXPECT_EQ(bundle.blocks[0].route, "tiff:ifd-exif-app1");
+
+    uint32_t subifd_count = 0U;
+    uint32_t subifd_value_or_offset = 0U;
+    ASSERT_TRUE(find_tiff_tag_entry_le(
+        std::span<const std::byte>(bundle.blocks[0].payload.data(),
+                                   bundle.blocks[0].payload.size()),
+        6U + read_u32le(std::span<const std::byte>(bundle.blocks[0].payload.data(),
+                                                   bundle.blocks[0].payload.size()),
+                        10U),
+        0x014AU, nullptr, &subifd_count, &subifd_value_or_offset));
+    EXPECT_EQ(subifd_count, 2U);
+    EXPECT_NE(subifd_value_or_offset, 0U);
+}
+
+TEST(MetadataTransferApi, PrepareBuildsTiffExifTransferBlockWithIfd1Chain)
+{
+    openmeta::MetaStore store;
+    const openmeta::BlockId block = store.add_block(openmeta::BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    openmeta::Entry ifd0;
+    ifd0.key   = openmeta::make_exif_tag_key(store.arena(), "ifd0", 0x0132U);
+    ifd0.value = openmeta::make_text(store.arena(), "2024:01:02 03:04:05",
+                                     openmeta::TextEncoding::Ascii);
+    ifd0.origin.block          = block;
+    ifd0.origin.order_in_block = 0U;
+    ASSERT_NE(store.add_entry(ifd0), openmeta::kInvalidEntryId);
+
+    openmeta::Entry ifd1_width;
+    ifd1_width.key
+        = openmeta::make_exif_tag_key(store.arena(), "ifd1", 0x0100U);
+    ifd1_width.value             = openmeta::make_u32(320U);
+    ifd1_width.origin.block      = block;
+    ifd1_width.origin.order_in_block = 1U;
+    ASSERT_NE(store.add_entry(ifd1_width), openmeta::kInvalidEntryId);
+
+    openmeta::Entry ifd1_height;
+    ifd1_height.key
+        = openmeta::make_exif_tag_key(store.arena(), "ifd1", 0x0101U);
+    ifd1_height.value             = openmeta::make_u32(240U);
+    ifd1_height.origin.block      = block;
+    ifd1_height.origin.order_in_block = 2U;
+    ASSERT_NE(store.add_entry(ifd1_height), openmeta::kInvalidEntryId);
+    store.finalize();
+
+    openmeta::PrepareTransferRequest request;
+    request.target_format      = openmeta::TransferTargetFormat::Tiff;
+    request.include_xmp_app1   = false;
+    request.include_icc_app2   = false;
+    request.include_iptc_app13 = false;
+
+    openmeta::PreparedTransferBundle bundle;
+    ASSERT_EQ(openmeta::prepare_metadata_for_target(store, request, &bundle).status,
+              openmeta::TransferStatus::Ok);
+    ASSERT_EQ(bundle.blocks.size(), 1U);
+    ASSERT_EQ(bundle.blocks[0].route, "tiff:ifd-exif-app1");
+
+    const std::span<const std::byte> payload(bundle.blocks[0].payload.data(),
+                                             bundle.blocks[0].payload.size());
+    const uint32_t ifd0_off = 6U + read_u32le(payload, 10U);
+    const uint16_t ifd0_count = read_u16le(payload, static_cast<size_t>(ifd0_off));
+    const uint32_t ifd1_off = read_u32le(payload,
+                                         static_cast<size_t>(ifd0_off)
+                                             + 2U
+                                             + static_cast<size_t>(ifd0_count)
+                                                   * 12U);
+    EXPECT_NE(ifd1_off, 0U);
+
+    uint32_t ifd1_width_value = 0U;
+    uint32_t ifd1_height_value = 0U;
+    ASSERT_TRUE(find_tiff_tag_entry_le(payload, 6U + ifd1_off, 0x0100U,
+                                       nullptr, nullptr, &ifd1_width_value));
+    ASSERT_TRUE(find_tiff_tag_entry_le(payload, 6U + ifd1_off, 0x0101U,
+                                       nullptr, nullptr, &ifd1_height_value));
+    EXPECT_EQ(ifd1_width_value, 320U);
+    EXPECT_EQ(ifd1_height_value, 240U);
+}
+
 TEST(MetadataTransferApi, PrepareBuildsTimePatchSlotsForExifDateFields)
 {
     openmeta::MetaStore store;
@@ -6400,6 +7012,657 @@ TEST(MetadataTransferApi, PlanAndApplyTiffEditMetadataRewrite)
               42U);
     EXPECT_GT(read_u32le(std::span<const std::byte>(out.data(), out.size()), 4U),
               8U);
+}
+
+TEST(MetadataTransferApi, ExecutePreparedTransferTiffEditRoundTripsSubIfds)
+{
+    openmeta::MetaStore store;
+    const openmeta::BlockId block = store.add_block(openmeta::BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    openmeta::Entry ifd0;
+    ifd0.key   = openmeta::make_exif_tag_key(store.arena(), "ifd0", 0x0132U);
+    ifd0.value = openmeta::make_text(store.arena(), "2024:01:02 03:04:05",
+                                     openmeta::TextEncoding::Ascii);
+    ifd0.origin.block          = block;
+    ifd0.origin.order_in_block = 0U;
+    ASSERT_NE(store.add_entry(ifd0), openmeta::kInvalidEntryId);
+
+    openmeta::Entry sub0;
+    sub0.key = openmeta::make_exif_tag_key(store.arena(), "subifd0", 0x0100U);
+    sub0.value = openmeta::make_u32(4000U);
+    sub0.origin.block          = block;
+    sub0.origin.order_in_block = 1U;
+    ASSERT_NE(store.add_entry(sub0), openmeta::kInvalidEntryId);
+
+    openmeta::Entry sub1;
+    sub1.key = openmeta::make_exif_tag_key(store.arena(), "subifd1", 0x0101U);
+    sub1.value = openmeta::make_u32(3000U);
+    sub1.origin.block          = block;
+    sub1.origin.order_in_block = 2U;
+    ASSERT_NE(store.add_entry(sub1), openmeta::kInvalidEntryId);
+    store.finalize();
+
+    openmeta::PrepareTransferRequest request;
+    request.target_format      = openmeta::TransferTargetFormat::Tiff;
+    request.include_xmp_app1   = false;
+    request.include_icc_app2   = false;
+    request.include_iptc_app13 = false;
+
+    openmeta::PreparedTransferBundle bundle;
+    const openmeta::PrepareTransferResult prepared
+        = openmeta::prepare_metadata_for_target(store, request, &bundle);
+    ASSERT_EQ(prepared.status, openmeta::TransferStatus::Ok);
+
+    const std::vector<std::byte> input = make_minimal_tiff_little_endian();
+    const openmeta::TiffEditPlan plan = openmeta::plan_prepared_bundle_tiff_edit(
+        std::span<const std::byte>(input.data(), input.size()), bundle);
+    ASSERT_EQ(plan.status, openmeta::TransferStatus::Ok);
+
+    std::vector<std::byte> out;
+    const openmeta::EmitTransferResult applied
+        = openmeta::apply_prepared_bundle_tiff_edit(
+            std::span<const std::byte>(input.data(), input.size()), bundle,
+            plan, &out);
+    ASSERT_EQ(applied.status, openmeta::TransferStatus::Ok);
+
+    openmeta::MetaStore decoded;
+    ASSERT_TRUE(decode_transfer_roundtrip_store(
+        std::span<const std::byte>(out.data(), out.size()), &decoded));
+    EXPECT_TRUE(store_has_text_entry(decoded, exif_key_view("ifd0", 0x0132U),
+                                     "2024:01:02 03:04:05"));
+    EXPECT_TRUE(store_has_u32_scalar_entry(decoded,
+                                           exif_key_view("subifd0", 0x0100U),
+                                           4000U));
+    EXPECT_TRUE(store_has_u32_scalar_entry(decoded,
+                                           exif_key_view("subifd1", 0x0101U),
+                                           3000U));
+}
+
+TEST(MetadataTransferApi, ExecutePreparedTransferTiffEditRoundTripsIfd1)
+{
+    openmeta::MetaStore store;
+    const openmeta::BlockId block = store.add_block(openmeta::BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    openmeta::Entry ifd0;
+    ifd0.key   = openmeta::make_exif_tag_key(store.arena(), "ifd0", 0x0132U);
+    ifd0.value = openmeta::make_text(store.arena(), "2024:01:02 03:04:05",
+                                     openmeta::TextEncoding::Ascii);
+    ifd0.origin.block          = block;
+    ifd0.origin.order_in_block = 0U;
+    ASSERT_NE(store.add_entry(ifd0), openmeta::kInvalidEntryId);
+
+    openmeta::Entry ifd1_width;
+    ifd1_width.key
+        = openmeta::make_exif_tag_key(store.arena(), "ifd1", 0x0100U);
+    ifd1_width.value             = openmeta::make_u32(320U);
+    ifd1_width.origin.block      = block;
+    ifd1_width.origin.order_in_block = 1U;
+    ASSERT_NE(store.add_entry(ifd1_width), openmeta::kInvalidEntryId);
+
+    openmeta::Entry ifd1_height;
+    ifd1_height.key
+        = openmeta::make_exif_tag_key(store.arena(), "ifd1", 0x0101U);
+    ifd1_height.value             = openmeta::make_u32(240U);
+    ifd1_height.origin.block      = block;
+    ifd1_height.origin.order_in_block = 2U;
+    ASSERT_NE(store.add_entry(ifd1_height), openmeta::kInvalidEntryId);
+    store.finalize();
+
+    openmeta::PrepareTransferRequest request;
+    request.target_format      = openmeta::TransferTargetFormat::Tiff;
+    request.include_xmp_app1   = false;
+    request.include_icc_app2   = false;
+    request.include_iptc_app13 = false;
+
+    openmeta::PreparedTransferBundle bundle;
+    const openmeta::PrepareTransferResult prepared
+        = openmeta::prepare_metadata_for_target(store, request, &bundle);
+    ASSERT_EQ(prepared.status, openmeta::TransferStatus::Ok);
+
+    const std::vector<std::byte> input = make_minimal_tiff_little_endian();
+    const openmeta::TiffEditPlan plan = openmeta::plan_prepared_bundle_tiff_edit(
+        std::span<const std::byte>(input.data(), input.size()), bundle);
+    ASSERT_EQ(plan.status, openmeta::TransferStatus::Ok);
+
+    std::vector<std::byte> out;
+    const openmeta::EmitTransferResult applied
+        = openmeta::apply_prepared_bundle_tiff_edit(
+            std::span<const std::byte>(input.data(), input.size()), bundle,
+            plan, &out);
+    ASSERT_EQ(applied.status, openmeta::TransferStatus::Ok);
+
+    openmeta::MetaStore decoded;
+    ASSERT_TRUE(decode_transfer_roundtrip_store(
+        std::span<const std::byte>(out.data(), out.size()), &decoded));
+    EXPECT_TRUE(store_has_text_entry(decoded, exif_key_view("ifd0", 0x0132U),
+                                     "2024:01:02 03:04:05"));
+    EXPECT_TRUE(store_has_u32_scalar_entry(decoded,
+                                           exif_key_view("ifd1", 0x0100U),
+                                           320U));
+    EXPECT_TRUE(store_has_u32_scalar_entry(decoded,
+                                           exif_key_view("ifd1", 0x0101U),
+                                           240U));
+}
+
+TEST(MetadataTransferApi, ExecutePreparedTransferTiffEditPreservesIfd1TailChain)
+{
+    openmeta::MetaStore store;
+    const openmeta::BlockId block = store.add_block(openmeta::BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    openmeta::Entry ifd1_width;
+    ifd1_width.key
+        = openmeta::make_exif_tag_key(store.arena(), "ifd1", 0x0100U);
+    ifd1_width.value             = openmeta::make_u32(320U);
+    ifd1_width.origin.block      = block;
+    ifd1_width.origin.order_in_block = 0U;
+    ASSERT_NE(store.add_entry(ifd1_width), openmeta::kInvalidEntryId);
+
+    openmeta::Entry ifd1_height;
+    ifd1_height.key
+        = openmeta::make_exif_tag_key(store.arena(), "ifd1", 0x0101U);
+    ifd1_height.value             = openmeta::make_u32(240U);
+    ifd1_height.origin.block      = block;
+    ifd1_height.origin.order_in_block = 1U;
+    ASSERT_NE(store.add_entry(ifd1_height), openmeta::kInvalidEntryId);
+    store.finalize();
+
+    openmeta::PrepareTransferRequest request;
+    request.target_format      = openmeta::TransferTargetFormat::Tiff;
+    request.include_xmp_app1   = false;
+    request.include_icc_app2   = false;
+    request.include_iptc_app13 = false;
+
+    openmeta::PreparedTransferBundle bundle;
+    ASSERT_EQ(openmeta::prepare_metadata_for_target(store, request, &bundle).status,
+              openmeta::TransferStatus::Ok);
+
+    const std::vector<std::byte> input = make_minimal_multipage_tiff_little_endian();
+    const openmeta::TiffEditPlan plan = openmeta::plan_prepared_bundle_tiff_edit(
+        std::span<const std::byte>(input.data(), input.size()), bundle);
+    ASSERT_EQ(plan.status, openmeta::TransferStatus::Ok);
+
+    std::vector<std::byte> out;
+    const openmeta::EmitTransferResult applied
+        = openmeta::apply_prepared_bundle_tiff_edit(
+            std::span<const std::byte>(input.data(), input.size()), bundle,
+            plan, &out);
+    ASSERT_EQ(applied.status, openmeta::TransferStatus::Ok);
+
+    const std::span<const std::byte> bytes(out.data(), out.size());
+    const uint32_t ifd0_off = read_u32le(bytes, 4U);
+    const uint16_t ifd0_count = read_u16le(bytes, static_cast<size_t>(ifd0_off));
+    const uint32_t ifd1_off = read_u32le(
+        bytes, static_cast<size_t>(ifd0_off) + 2U + static_cast<size_t>(ifd0_count) * 12U);
+    ASSERT_NE(ifd1_off, 0U);
+    EXPECT_GE(ifd1_off, static_cast<uint32_t>(input.size()));
+
+    uint32_t width_value = 0U;
+    uint32_t height_value = 0U;
+    ASSERT_TRUE(find_tiff_tag_entry_le(bytes, ifd1_off, 0x0100U, nullptr,
+                                       nullptr, &width_value));
+    ASSERT_TRUE(find_tiff_tag_entry_le(bytes, ifd1_off, 0x0101U, nullptr,
+                                       nullptr, &height_value));
+    EXPECT_EQ(width_value, 320U);
+    EXPECT_EQ(height_value, 240U);
+
+    const uint16_t ifd1_count = read_u16le(bytes, static_cast<size_t>(ifd1_off));
+    const uint32_t ifd1_next_off = read_u32le(
+        bytes, static_cast<size_t>(ifd1_off) + 2U + static_cast<size_t>(ifd1_count) * 12U);
+    EXPECT_EQ(ifd1_next_off, 32U);
+
+    uint32_t tail_value = 0U;
+    ASSERT_TRUE(find_tiff_tag_entry_le(bytes, 32U, 0x0100U, nullptr, nullptr,
+                                       &tail_value));
+    EXPECT_EQ(tail_value, 222U);
+}
+
+TEST(MetadataTransferApi,
+     ExecutePreparedTransferTiffEditPreservesSubifdTailChain)
+{
+    openmeta::MetaStore store;
+    const openmeta::BlockId block = store.add_block(openmeta::BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    openmeta::Entry subifd0_width;
+    subifd0_width.key
+        = openmeta::make_exif_tag_key(store.arena(), "subifd0", 0x0100U);
+    subifd0_width.value             = openmeta::make_u32(320U);
+    subifd0_width.origin.block      = block;
+    subifd0_width.origin.order_in_block = 0U;
+    ASSERT_NE(store.add_entry(subifd0_width), openmeta::kInvalidEntryId);
+
+    openmeta::Entry subifd0_height;
+    subifd0_height.key
+        = openmeta::make_exif_tag_key(store.arena(), "subifd0", 0x0101U);
+    subifd0_height.value             = openmeta::make_u32(240U);
+    subifd0_height.origin.block      = block;
+    subifd0_height.origin.order_in_block = 1U;
+    ASSERT_NE(store.add_entry(subifd0_height), openmeta::kInvalidEntryId);
+    store.finalize();
+
+    openmeta::PrepareTransferRequest request;
+    request.target_format      = openmeta::TransferTargetFormat::Tiff;
+    request.include_xmp_app1   = false;
+    request.include_icc_app2   = false;
+    request.include_iptc_app13 = false;
+
+    openmeta::PreparedTransferBundle bundle;
+    ASSERT_EQ(openmeta::prepare_metadata_for_target(store, request, &bundle).status,
+              openmeta::TransferStatus::Ok);
+
+    const std::vector<std::byte> input = make_minimal_subifd_chain_tiff_little_endian();
+    const openmeta::TiffEditPlan plan = openmeta::plan_prepared_bundle_tiff_edit(
+        std::span<const std::byte>(input.data(), input.size()), bundle);
+    ASSERT_EQ(plan.status, openmeta::TransferStatus::Ok);
+
+    std::vector<std::byte> out;
+    const openmeta::EmitTransferResult applied
+        = openmeta::apply_prepared_bundle_tiff_edit(
+            std::span<const std::byte>(input.data(), input.size()), bundle,
+            plan, &out);
+    ASSERT_EQ(applied.status, openmeta::TransferStatus::Ok);
+
+    const std::span<const std::byte> bytes(out.data(), out.size());
+    const uint32_t ifd0_off = read_u32le(bytes, 4U);
+    uint32_t subifd_count = 0U;
+    uint32_t subifd0_off = 0U;
+    ASSERT_TRUE(find_tiff_tag_entry_le(bytes, ifd0_off, 0x014AU, nullptr,
+                                       &subifd_count, &subifd0_off));
+    EXPECT_EQ(subifd_count, 1U);
+    EXPECT_GE(subifd0_off, static_cast<uint32_t>(input.size()));
+
+    uint32_t width_value = 0U;
+    uint32_t height_value = 0U;
+    ASSERT_TRUE(find_tiff_tag_entry_le(bytes, subifd0_off, 0x0100U, nullptr,
+                                       nullptr, &width_value));
+    ASSERT_TRUE(find_tiff_tag_entry_le(bytes, subifd0_off, 0x0101U, nullptr,
+                                       nullptr, &height_value));
+    EXPECT_EQ(width_value, 320U);
+    EXPECT_EQ(height_value, 240U);
+
+    const uint16_t subifd0_count = read_u16le(bytes, static_cast<size_t>(subifd0_off));
+    const uint32_t subifd0_next_off = read_u32le(
+        bytes, static_cast<size_t>(subifd0_off) + 2U
+                   + static_cast<size_t>(subifd0_count) * 12U);
+    EXPECT_EQ(subifd0_next_off, 44U);
+
+    uint32_t tail_value = 0U;
+    ASSERT_TRUE(find_tiff_tag_entry_le(bytes, 44U, 0x0100U, nullptr, nullptr,
+                                       &tail_value));
+    EXPECT_EQ(tail_value, 222U);
+}
+
+TEST(MetadataTransferApi,
+     ExecutePreparedTransferTiffEditPreservesExtraExistingSubifdChildren)
+{
+    openmeta::MetaStore store;
+    const openmeta::BlockId block = store.add_block(openmeta::BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    openmeta::Entry subifd0_width;
+    subifd0_width.key
+        = openmeta::make_exif_tag_key(store.arena(), "subifd0", 0x0100U);
+    subifd0_width.value             = openmeta::make_u32(320U);
+    subifd0_width.origin.block      = block;
+    subifd0_width.origin.order_in_block = 0U;
+    ASSERT_NE(store.add_entry(subifd0_width), openmeta::kInvalidEntryId);
+
+    openmeta::Entry subifd0_height;
+    subifd0_height.key
+        = openmeta::make_exif_tag_key(store.arena(), "subifd0", 0x0101U);
+    subifd0_height.value             = openmeta::make_u32(240U);
+    subifd0_height.origin.block      = block;
+    subifd0_height.origin.order_in_block = 1U;
+    ASSERT_NE(store.add_entry(subifd0_height), openmeta::kInvalidEntryId);
+    store.finalize();
+
+    openmeta::PrepareTransferRequest request;
+    request.target_format      = openmeta::TransferTargetFormat::Tiff;
+    request.include_xmp_app1   = false;
+    request.include_icc_app2   = false;
+    request.include_iptc_app13 = false;
+
+    openmeta::PreparedTransferBundle bundle;
+    ASSERT_EQ(openmeta::prepare_metadata_for_target(store, request, &bundle).status,
+              openmeta::TransferStatus::Ok);
+
+    const std::vector<std::byte> input = make_minimal_subifd_pair_tiff_little_endian();
+    const openmeta::TiffEditPlan plan = openmeta::plan_prepared_bundle_tiff_edit(
+        std::span<const std::byte>(input.data(), input.size()), bundle);
+    ASSERT_EQ(plan.status, openmeta::TransferStatus::Ok);
+
+    std::vector<std::byte> out;
+    const openmeta::EmitTransferResult applied
+        = openmeta::apply_prepared_bundle_tiff_edit(
+            std::span<const std::byte>(input.data(), input.size()), bundle,
+            plan, &out);
+    ASSERT_EQ(applied.status, openmeta::TransferStatus::Ok);
+
+    const std::span<const std::byte> bytes(out.data(), out.size());
+    const uint32_t ifd0_off = read_u32le(bytes, 4U);
+    uint32_t subifd_count = 0U;
+    uint32_t subifd_array_off = 0U;
+    ASSERT_TRUE(find_tiff_tag_entry_le(bytes, ifd0_off, 0x014AU, nullptr,
+                                       &subifd_count, &subifd_array_off));
+    EXPECT_EQ(subifd_count, 2U);
+    EXPECT_GE(subifd_array_off, static_cast<uint32_t>(input.size()));
+
+    const uint32_t subifd0_off = read_u32le(bytes, subifd_array_off + 0U);
+    const uint32_t subifd1_off = read_u32le(bytes, subifd_array_off + 4U);
+    EXPECT_GE(subifd0_off, static_cast<uint32_t>(input.size()));
+    EXPECT_GE(subifd1_off, static_cast<uint32_t>(input.size()));
+
+    uint32_t subifd1_width = 0U;
+    ASSERT_TRUE(find_tiff_tag_entry_le(bytes, subifd1_off, 0x0100U, nullptr,
+                                       nullptr, &subifd1_width));
+    EXPECT_EQ(subifd1_width, 777U);
+
+    openmeta::MetaStore decoded;
+    ASSERT_TRUE(decode_transfer_roundtrip_store(bytes, &decoded));
+    EXPECT_TRUE(store_has_u32_scalar_entry(decoded,
+                                           exif_key_view("subifd0", 0x0100U),
+                                           320U));
+    EXPECT_TRUE(store_has_u32_scalar_entry(decoded,
+                                           exif_key_view("subifd0", 0x0101U),
+                                           240U));
+    EXPECT_TRUE(store_has_u32_scalar_entry(decoded,
+                                           exif_key_view("subifd1", 0x0100U),
+                                           777U));
+}
+
+TEST(MetadataTransferApi, PlanAndApplyBigTiffEditMetadataRewrite)
+{
+    openmeta::MetaStore store;
+    const openmeta::BlockId block = store.add_block(openmeta::BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    openmeta::Entry exif;
+    exif.key   = openmeta::make_exif_tag_key(store.arena(), "ifd0", 0x0132U);
+    exif.value = openmeta::make_text(store.arena(), "2024:01:02 03:04:05",
+                                     openmeta::TextEncoding::Ascii);
+    exif.origin.block          = block;
+    exif.origin.order_in_block = 0;
+    ASSERT_NE(store.add_entry(exif), openmeta::kInvalidEntryId);
+
+    openmeta::Entry xmp;
+    xmp.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://purl.org/dc/elements/1.1/", "title");
+    xmp.value                 = openmeta::make_text(store.arena(), "OpenMeta",
+                                                    openmeta::TextEncoding::Utf8);
+    xmp.origin.block          = block;
+    xmp.origin.order_in_block = 1;
+    ASSERT_NE(store.add_entry(xmp), openmeta::kInvalidEntryId);
+    store.finalize();
+
+    openmeta::PrepareTransferRequest request;
+    request.target_format        = openmeta::TransferTargetFormat::Tiff;
+    request.include_icc_app2     = false;
+    request.include_iptc_app13   = false;
+    request.include_xmp_app1     = true;
+    request.xmp_include_existing = true;
+
+    openmeta::PreparedTransferBundle bundle;
+    ASSERT_EQ(openmeta::prepare_metadata_for_target(store, request, &bundle).status,
+              openmeta::TransferStatus::Ok);
+
+    const std::vector<std::byte> input = make_minimal_bigtiff_little_endian();
+    const openmeta::TiffEditPlan plan = openmeta::plan_prepared_bundle_tiff_edit(
+        std::span<const std::byte>(input.data(), input.size()), bundle);
+    EXPECT_EQ(plan.status, openmeta::TransferStatus::Ok);
+    EXPECT_GE(plan.tag_updates, 1U);
+    EXPECT_GT(plan.output_size, plan.input_size);
+
+    std::vector<std::byte> out;
+    const openmeta::EmitTransferResult applied
+        = openmeta::apply_prepared_bundle_tiff_edit(
+            std::span<const std::byte>(input.data(), input.size()), bundle,
+            plan, &out);
+    EXPECT_EQ(applied.status, openmeta::TransferStatus::Ok);
+    ASSERT_GT(out.size(), input.size());
+    EXPECT_EQ(out[0], std::byte { 'I' });
+    EXPECT_EQ(out[1], std::byte { 'I' });
+    EXPECT_EQ(read_u16le(std::span<const std::byte>(out.data(), out.size()), 2U),
+              43U);
+    EXPECT_EQ(read_u16le(std::span<const std::byte>(out.data(), out.size()), 4U),
+              8U);
+    EXPECT_EQ(read_u16le(std::span<const std::byte>(out.data(), out.size()), 6U),
+              0U);
+    EXPECT_GT(read_u64le(std::span<const std::byte>(out.data(), out.size()), 8U),
+              16U);
+}
+
+TEST(MetadataTransferApi,
+     ExecutePreparedTransferBigTiffEditPreservesIfd1TailChain)
+{
+    openmeta::MetaStore store;
+    const openmeta::BlockId block = store.add_block(openmeta::BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    openmeta::Entry ifd1_width;
+    ifd1_width.key
+        = openmeta::make_exif_tag_key(store.arena(), "ifd1", 0x0100U);
+    ifd1_width.value             = openmeta::make_u32(320U);
+    ifd1_width.origin.block      = block;
+    ifd1_width.origin.order_in_block = 0U;
+    ASSERT_NE(store.add_entry(ifd1_width), openmeta::kInvalidEntryId);
+
+    openmeta::Entry ifd1_height;
+    ifd1_height.key
+        = openmeta::make_exif_tag_key(store.arena(), "ifd1", 0x0101U);
+    ifd1_height.value             = openmeta::make_u32(240U);
+    ifd1_height.origin.block      = block;
+    ifd1_height.origin.order_in_block = 1U;
+    ASSERT_NE(store.add_entry(ifd1_height), openmeta::kInvalidEntryId);
+    store.finalize();
+
+    openmeta::PrepareTransferRequest request;
+    request.target_format      = openmeta::TransferTargetFormat::Tiff;
+    request.include_xmp_app1   = false;
+    request.include_icc_app2   = false;
+    request.include_iptc_app13 = false;
+
+    openmeta::PreparedTransferBundle bundle;
+    ASSERT_EQ(openmeta::prepare_metadata_for_target(store, request, &bundle).status,
+              openmeta::TransferStatus::Ok);
+
+    const std::vector<std::byte> input
+        = make_minimal_multipage_bigtiff_little_endian();
+    const openmeta::TiffEditPlan plan = openmeta::plan_prepared_bundle_tiff_edit(
+        std::span<const std::byte>(input.data(), input.size()), bundle);
+    ASSERT_EQ(plan.status, openmeta::TransferStatus::Ok);
+
+    std::vector<std::byte> out;
+    const openmeta::EmitTransferResult applied
+        = openmeta::apply_prepared_bundle_tiff_edit(
+            std::span<const std::byte>(input.data(), input.size()), bundle,
+            plan, &out);
+    ASSERT_EQ(applied.status, openmeta::TransferStatus::Ok);
+
+    const std::span<const std::byte> bytes(out.data(), out.size());
+    const uint64_t ifd0_off = read_u64le(bytes, 8U);
+    const uint64_t ifd0_count = read_u64le(bytes, static_cast<size_t>(ifd0_off));
+    const uint64_t ifd1_off = read_u64le(
+        bytes, static_cast<size_t>(ifd0_off) + 8U + static_cast<size_t>(ifd0_count) * 20U);
+    ASSERT_NE(ifd1_off, 0U);
+    EXPECT_GE(ifd1_off, static_cast<uint64_t>(input.size()));
+
+    uint64_t width_value = 0U;
+    uint64_t height_value = 0U;
+    ASSERT_TRUE(find_bigtiff_tag_entry_le(bytes, ifd1_off, 0x0100U, nullptr,
+                                          nullptr, &width_value));
+    ASSERT_TRUE(find_bigtiff_tag_entry_le(bytes, ifd1_off, 0x0101U, nullptr,
+                                          nullptr, &height_value));
+    EXPECT_EQ(width_value, 320U);
+    EXPECT_EQ(height_value, 240U);
+
+    const uint64_t ifd1_count = read_u64le(bytes, static_cast<size_t>(ifd1_off));
+    const uint64_t ifd1_next_off = read_u64le(
+        bytes, static_cast<size_t>(ifd1_off) + 8U + static_cast<size_t>(ifd1_count) * 20U);
+    EXPECT_EQ(ifd1_next_off, 68U);
+
+    uint64_t tail_value = 0U;
+    ASSERT_TRUE(find_bigtiff_tag_entry_le(bytes, 68U, 0x0100U, nullptr,
+                                          nullptr, &tail_value));
+    EXPECT_EQ(tail_value, 222U);
+}
+
+TEST(MetadataTransferApi,
+     ExecutePreparedTransferBigTiffEditPreservesSubifdTailChain)
+{
+    openmeta::MetaStore store;
+    const openmeta::BlockId block = store.add_block(openmeta::BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    openmeta::Entry subifd0_width;
+    subifd0_width.key
+        = openmeta::make_exif_tag_key(store.arena(), "subifd0", 0x0100U);
+    subifd0_width.value             = openmeta::make_u32(320U);
+    subifd0_width.origin.block      = block;
+    subifd0_width.origin.order_in_block = 0U;
+    ASSERT_NE(store.add_entry(subifd0_width), openmeta::kInvalidEntryId);
+
+    openmeta::Entry subifd0_height;
+    subifd0_height.key
+        = openmeta::make_exif_tag_key(store.arena(), "subifd0", 0x0101U);
+    subifd0_height.value             = openmeta::make_u32(240U);
+    subifd0_height.origin.block      = block;
+    subifd0_height.origin.order_in_block = 1U;
+    ASSERT_NE(store.add_entry(subifd0_height), openmeta::kInvalidEntryId);
+    store.finalize();
+
+    openmeta::PrepareTransferRequest request;
+    request.target_format      = openmeta::TransferTargetFormat::Tiff;
+    request.include_xmp_app1   = false;
+    request.include_icc_app2   = false;
+    request.include_iptc_app13 = false;
+
+    openmeta::PreparedTransferBundle bundle;
+    ASSERT_EQ(openmeta::prepare_metadata_for_target(store, request, &bundle).status,
+              openmeta::TransferStatus::Ok);
+
+    const std::vector<std::byte> input
+        = make_minimal_subifd_chain_bigtiff_little_endian();
+    const openmeta::TiffEditPlan plan = openmeta::plan_prepared_bundle_tiff_edit(
+        std::span<const std::byte>(input.data(), input.size()), bundle);
+    ASSERT_EQ(plan.status, openmeta::TransferStatus::Ok);
+
+    std::vector<std::byte> out;
+    const openmeta::EmitTransferResult applied
+        = openmeta::apply_prepared_bundle_tiff_edit(
+            std::span<const std::byte>(input.data(), input.size()), bundle,
+            plan, &out);
+    ASSERT_EQ(applied.status, openmeta::TransferStatus::Ok);
+
+    const std::span<const std::byte> bytes(out.data(), out.size());
+    const uint64_t ifd0_off = read_u64le(bytes, 8U);
+    uint64_t subifd_count = 0U;
+    uint64_t subifd0_off = 0U;
+    ASSERT_TRUE(find_bigtiff_tag_entry_le(bytes, ifd0_off, 0x014AU, nullptr,
+                                          &subifd_count, &subifd0_off));
+    EXPECT_EQ(subifd_count, 1U);
+    EXPECT_GE(subifd0_off, static_cast<uint64_t>(input.size()));
+
+    uint64_t width_value = 0U;
+    uint64_t height_value = 0U;
+    ASSERT_TRUE(find_bigtiff_tag_entry_le(bytes, subifd0_off, 0x0100U, nullptr,
+                                          nullptr, &width_value));
+    ASSERT_TRUE(find_bigtiff_tag_entry_le(bytes, subifd0_off, 0x0101U, nullptr,
+                                          nullptr, &height_value));
+    EXPECT_EQ(width_value, 320U);
+    EXPECT_EQ(height_value, 240U);
+
+    const uint64_t subifd0_count = read_u64le(bytes, static_cast<size_t>(subifd0_off));
+    const uint64_t subifd0_next_off = read_u64le(
+        bytes, static_cast<size_t>(subifd0_off) + 8U
+                   + static_cast<size_t>(subifd0_count) * 20U);
+    EXPECT_EQ(subifd0_next_off, 88U);
+
+    uint64_t tail_value = 0U;
+    ASSERT_TRUE(find_bigtiff_tag_entry_le(bytes, 88U, 0x0100U, nullptr,
+                                          nullptr, &tail_value));
+    EXPECT_EQ(tail_value, 222U);
+}
+
+TEST(MetadataTransferApi,
+     ExecutePreparedTransferBigTiffEditPreservesExtraExistingSubifdChildren)
+{
+    openmeta::MetaStore store;
+    const openmeta::BlockId block = store.add_block(openmeta::BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    openmeta::Entry subifd0_width;
+    subifd0_width.key
+        = openmeta::make_exif_tag_key(store.arena(), "subifd0", 0x0100U);
+    subifd0_width.value             = openmeta::make_u32(320U);
+    subifd0_width.origin.block      = block;
+    subifd0_width.origin.order_in_block = 0U;
+    ASSERT_NE(store.add_entry(subifd0_width), openmeta::kInvalidEntryId);
+
+    openmeta::Entry subifd0_height;
+    subifd0_height.key
+        = openmeta::make_exif_tag_key(store.arena(), "subifd0", 0x0101U);
+    subifd0_height.value             = openmeta::make_u32(240U);
+    subifd0_height.origin.block      = block;
+    subifd0_height.origin.order_in_block = 1U;
+    ASSERT_NE(store.add_entry(subifd0_height), openmeta::kInvalidEntryId);
+    store.finalize();
+
+    openmeta::PrepareTransferRequest request;
+    request.target_format      = openmeta::TransferTargetFormat::Tiff;
+    request.include_xmp_app1   = false;
+    request.include_icc_app2   = false;
+    request.include_iptc_app13 = false;
+
+    openmeta::PreparedTransferBundle bundle;
+    ASSERT_EQ(openmeta::prepare_metadata_for_target(store, request, &bundle).status,
+              openmeta::TransferStatus::Ok);
+
+    const std::vector<std::byte> input
+        = make_minimal_subifd_pair_bigtiff_little_endian();
+    const openmeta::TiffEditPlan plan = openmeta::plan_prepared_bundle_tiff_edit(
+        std::span<const std::byte>(input.data(), input.size()), bundle);
+    ASSERT_EQ(plan.status, openmeta::TransferStatus::Ok);
+
+    std::vector<std::byte> out;
+    const openmeta::EmitTransferResult applied
+        = openmeta::apply_prepared_bundle_tiff_edit(
+            std::span<const std::byte>(input.data(), input.size()), bundle,
+            plan, &out);
+    ASSERT_EQ(applied.status, openmeta::TransferStatus::Ok);
+
+    const std::span<const std::byte> bytes(out.data(), out.size());
+    const uint64_t ifd0_off = read_u64le(bytes, 8U);
+    uint64_t subifd_count = 0U;
+    uint64_t subifd_array_off = 0U;
+    ASSERT_TRUE(find_bigtiff_tag_entry_le(bytes, ifd0_off, 0x014AU, nullptr,
+                                          &subifd_count, &subifd_array_off));
+    EXPECT_EQ(subifd_count, 2U);
+    EXPECT_GE(subifd_array_off, static_cast<uint64_t>(input.size()));
+
+    const uint64_t subifd0_off = read_u64le(bytes, static_cast<size_t>(subifd_array_off) + 0U);
+    const uint64_t subifd1_off = read_u64le(bytes, static_cast<size_t>(subifd_array_off) + 8U);
+    EXPECT_GE(subifd0_off, static_cast<uint64_t>(input.size()));
+    EXPECT_GE(subifd1_off, static_cast<uint64_t>(input.size()));
+
+    uint64_t subifd1_width = 0U;
+    ASSERT_TRUE(find_bigtiff_tag_entry_le(bytes, subifd1_off, 0x0100U,
+                                          nullptr, nullptr, &subifd1_width));
+    EXPECT_EQ(subifd1_width, 777U);
+
+    openmeta::MetaStore decoded;
+    ASSERT_TRUE(decode_transfer_roundtrip_store(bytes, &decoded));
+    EXPECT_TRUE(store_has_u32_scalar_entry(decoded,
+                                           exif_key_view("subifd0", 0x0100U),
+                                           320U));
+    EXPECT_TRUE(store_has_u32_scalar_entry(decoded,
+                                           exif_key_view("subifd0", 0x0101U),
+                                           240U));
+    EXPECT_TRUE(store_has_u32_scalar_entry(decoded,
+                                           exif_key_view("subifd1", 0x0100U),
+                                           777U));
 }
 
 TEST(MetadataTransferApi, ExecutePreparedTransferJpegEditAndEmit)
@@ -7061,6 +8324,59 @@ TEST(MetadataTransferApi, BuildPreparedBundleTiffPackageMatchesRewriteOutput)
             std::span<const std::byte>(input.data(), input.size()), bundle,
             package, writer);
     EXPECT_EQ(streamed.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(writer.out, expected);
+}
+
+TEST(MetadataTransferApi, BuildPreparedBundleBigTiffPackageMatchesRewriteOutput)
+{
+    openmeta::MetaStore store;
+    const openmeta::BlockId block = store.add_block(openmeta::BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    openmeta::Entry exif;
+    exif.key   = openmeta::make_exif_tag_key(store.arena(), "ifd0", 0x0132U);
+    exif.value = openmeta::make_text(store.arena(), "2024:01:02 03:04:05",
+                                     openmeta::TextEncoding::Ascii);
+    exif.origin.block          = block;
+    exif.origin.order_in_block = 0;
+    ASSERT_NE(store.add_entry(exif), openmeta::kInvalidEntryId);
+    store.finalize();
+
+    openmeta::PrepareTransferRequest request;
+    request.target_format      = openmeta::TransferTargetFormat::Tiff;
+    request.include_icc_app2   = false;
+    request.include_iptc_app13 = false;
+    request.include_xmp_app1   = false;
+
+    openmeta::PreparedTransferBundle bundle;
+    ASSERT_EQ(openmeta::prepare_metadata_for_target(store, request, &bundle).status,
+              openmeta::TransferStatus::Ok);
+
+    const std::vector<std::byte> input = make_minimal_bigtiff_little_endian();
+    const openmeta::TiffEditPlan plan = openmeta::plan_prepared_bundle_tiff_edit(
+        std::span<const std::byte>(input.data(), input.size()), bundle);
+    ASSERT_EQ(plan.status, openmeta::TransferStatus::Ok);
+
+    openmeta::PreparedTransferPackagePlan package;
+    ASSERT_EQ(openmeta::build_prepared_bundle_tiff_package(
+                  std::span<const std::byte>(input.data(), input.size()), bundle,
+                  plan, &package)
+                  .status,
+              openmeta::TransferStatus::Ok);
+
+    std::vector<std::byte> expected;
+    ASSERT_EQ(openmeta::apply_prepared_bundle_tiff_edit(
+                  std::span<const std::byte>(input.data(), input.size()), bundle,
+                  plan, &expected)
+                  .status,
+              openmeta::TransferStatus::Ok);
+
+    BufferByteWriter writer;
+    ASSERT_EQ(openmeta::write_prepared_transfer_package(
+                  std::span<const std::byte>(input.data(), input.size()), bundle,
+                  package, writer)
+                  .status,
+              openmeta::TransferStatus::Ok);
     EXPECT_EQ(writer.out, expected);
 }
 
@@ -8433,6 +9749,394 @@ TEST(MetadataTransferApi, ExecutePreparedTransferFileTiffRoundTripsSourceMetadat
     EXPECT_TRUE(decoded_transfer_roundtrip_has_expected_fields(
         std::span<const std::byte>(result.execute.edited_output.data(),
                                    result.execute.edited_output.size())));
+}
+
+TEST(MetadataTransferApi,
+     ExecutePreparedTransferFileTiffRoundTripsDngSourceMetadata)
+{
+    const std::vector<std::byte> source_dng
+        = make_minimal_dng_like_tiff_little_endian();
+    const std::string source_path = unique_temp_path(".dng");
+    ASSERT_TRUE(write_bytes_file(
+        source_path,
+        std::span<const std::byte>(source_dng.data(), source_dng.size())));
+
+    const std::vector<std::byte> target_tiff = make_minimal_tiff_little_endian();
+    const std::string target_path            = unique_temp_path(".tif");
+    ASSERT_TRUE(write_bytes_file(
+        target_path,
+        std::span<const std::byte>(target_tiff.data(), target_tiff.size())));
+
+    openmeta::ExecutePreparedTransferFileOptions options;
+    options.prepare.prepare.target_format      = openmeta::TransferTargetFormat::Tiff;
+    options.prepare.prepare.include_xmp_app1   = false;
+    options.prepare.prepare.include_icc_app2   = false;
+    options.prepare.prepare.include_iptc_app13 = false;
+    options.edit_target_path                   = target_path;
+    options.execute.edit_apply                 = true;
+
+    const openmeta::ExecutePreparedTransferFileResult result
+        = openmeta::execute_prepared_transfer_file(source_path.c_str(), options);
+    std::remove(source_path.c_str());
+    std::remove(target_path.c_str());
+
+    EXPECT_EQ(result.prepared.file_status, openmeta::TransferFileStatus::Ok);
+    EXPECT_EQ(result.prepared.prepare.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.execute.compile.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.execute.edit_plan_status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(result.execute.edit_apply.status, openmeta::TransferStatus::Ok);
+    ASSERT_FALSE(result.execute.edited_output.empty());
+
+    openmeta::MetaStore decoded;
+    ASSERT_TRUE(decode_transfer_roundtrip_store(
+        std::span<const std::byte>(result.execute.edited_output.data(),
+                                   result.execute.edited_output.size()),
+        &decoded));
+    const std::array<uint8_t, 4> dng_version = { 1U, 6U, 0U, 0U };
+    EXPECT_TRUE(store_has_u8_array_entry(
+        decoded, exif_key_view("ifd0", 0xC612U),
+        std::span<const uint8_t>(dng_version.data(), dng_version.size())));
+    EXPECT_TRUE(store_has_u32_scalar_entry(decoded,
+                                           exif_key_view("subifd0", 0x0100U),
+                                           4000U));
+    EXPECT_TRUE(store_has_u32_scalar_entry(decoded,
+                                           exif_key_view("subifd0", 0x0101U),
+                                           3000U));
+    EXPECT_TRUE(store_has_u32_scalar_entry(decoded,
+                                           exif_key_view("ifd1", 0x0100U),
+                                           320U));
+    EXPECT_TRUE(store_has_u32_scalar_entry(decoded,
+                                           exif_key_view("ifd1", 0x0101U),
+                                           240U));
+}
+
+TEST(MetadataTransferApi,
+     ExecutePreparedTransferFileTiffMergesDngSourceIntoExistingPreviewAuxTarget)
+{
+    const std::vector<std::byte> source_dng
+        = make_minimal_dng_like_tiff_little_endian();
+    const std::string source_path = unique_temp_path(".dng");
+    ASSERT_TRUE(write_bytes_file(
+        source_path,
+        std::span<const std::byte>(source_dng.data(), source_dng.size())));
+
+    const std::vector<std::byte> target_tiff
+        = make_minimal_dng_merge_target_tiff_little_endian();
+    const std::string target_path = unique_temp_path(".tif");
+    ASSERT_TRUE(write_bytes_file(
+        target_path,
+        std::span<const std::byte>(target_tiff.data(), target_tiff.size())));
+
+    openmeta::ExecutePreparedTransferFileOptions options;
+    options.prepare.prepare.target_format      = openmeta::TransferTargetFormat::Tiff;
+    options.prepare.prepare.include_xmp_app1   = false;
+    options.prepare.prepare.include_icc_app2   = false;
+    options.prepare.prepare.include_iptc_app13 = false;
+    options.edit_target_path                   = target_path;
+    options.execute.edit_apply                 = true;
+
+    const openmeta::ExecutePreparedTransferFileResult result
+        = openmeta::execute_prepared_transfer_file(source_path.c_str(), options);
+    std::remove(source_path.c_str());
+    std::remove(target_path.c_str());
+
+    EXPECT_EQ(result.prepared.file_status, openmeta::TransferFileStatus::Ok);
+    EXPECT_EQ(result.prepared.prepare.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.execute.compile.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.execute.edit_plan_status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(result.execute.edit_apply.status, openmeta::TransferStatus::Ok);
+    ASSERT_FALSE(result.execute.edited_output.empty());
+
+    const std::span<const std::byte> bytes(result.execute.edited_output.data(),
+                                           result.execute.edited_output.size());
+    const uint32_t ifd0_off = read_u32le(bytes, 4U);
+    const uint16_t ifd0_count = read_u16le(bytes, static_cast<size_t>(ifd0_off));
+    const uint32_t ifd1_off = read_u32le(
+        bytes, static_cast<size_t>(ifd0_off) + 2U
+                   + static_cast<size_t>(ifd0_count) * 12U);
+    ASSERT_NE(ifd1_off, 0U);
+
+    uint32_t ifd1_width = 0U;
+    uint32_t ifd1_height = 0U;
+    ASSERT_TRUE(find_tiff_tag_entry_le(bytes, ifd1_off, 0x0100U, nullptr,
+                                       nullptr, &ifd1_width));
+    ASSERT_TRUE(find_tiff_tag_entry_le(bytes, ifd1_off, 0x0101U, nullptr,
+                                       nullptr, &ifd1_height));
+    EXPECT_EQ(ifd1_width, 320U);
+    EXPECT_EQ(ifd1_height, 240U);
+
+    const uint16_t ifd1_count = read_u16le(bytes, static_cast<size_t>(ifd1_off));
+    const uint32_t ifd1_next_off = read_u32le(
+        bytes, static_cast<size_t>(ifd1_off) + 2U
+                   + static_cast<size_t>(ifd1_count) * 12U);
+    EXPECT_EQ(ifd1_next_off, 52U);
+
+    uint32_t tail_ifd_width = 0U;
+    ASSERT_TRUE(find_tiff_tag_entry_le(bytes, 52U, 0x0100U, nullptr, nullptr,
+                                       &tail_ifd_width));
+    EXPECT_EQ(tail_ifd_width, 222U);
+
+    uint32_t subifd_count = 0U;
+    uint32_t subifd_array_off = 0U;
+    ASSERT_TRUE(find_tiff_tag_entry_le(bytes, ifd0_off, 0x014AU, nullptr,
+                                       &subifd_count, &subifd_array_off));
+    EXPECT_EQ(subifd_count, 2U);
+
+    const uint32_t subifd0_off = read_u32le(bytes, subifd_array_off + 0U);
+    const uint32_t subifd1_off = read_u32le(bytes, subifd_array_off + 4U);
+    uint32_t subifd0_width = 0U;
+    uint32_t subifd0_height = 0U;
+    uint32_t subifd1_width = 0U;
+    ASSERT_TRUE(find_tiff_tag_entry_le(bytes, subifd0_off, 0x0100U, nullptr,
+                                       nullptr, &subifd0_width));
+    ASSERT_TRUE(find_tiff_tag_entry_le(bytes, subifd0_off, 0x0101U, nullptr,
+                                       nullptr, &subifd0_height));
+    ASSERT_TRUE(find_tiff_tag_entry_le(bytes, subifd1_off, 0x0100U, nullptr,
+                                       nullptr, &subifd1_width));
+    EXPECT_EQ(subifd0_width, 4000U);
+    EXPECT_EQ(subifd0_height, 3000U);
+    EXPECT_EQ(subifd1_width, 777U);
+
+    openmeta::MetaStore decoded;
+    ASSERT_TRUE(decode_transfer_roundtrip_store(bytes, &decoded));
+    const std::array<uint8_t, 4> dng_version = { 1U, 6U, 0U, 0U };
+    EXPECT_TRUE(store_has_u8_array_entry(
+        decoded, exif_key_view("ifd0", 0xC612U),
+        std::span<const uint8_t>(dng_version.data(), dng_version.size())));
+    EXPECT_TRUE(store_has_u32_scalar_entry(decoded,
+                                           exif_key_view("subifd0", 0x0100U),
+                                           4000U));
+    EXPECT_TRUE(store_has_u32_scalar_entry(decoded,
+                                           exif_key_view("subifd0", 0x0101U),
+                                           3000U));
+    EXPECT_TRUE(store_has_u32_scalar_entry(decoded,
+                                           exif_key_view("subifd1", 0x0100U),
+                                           777U));
+    EXPECT_TRUE(store_has_u32_scalar_entry(decoded,
+                                           exif_key_view("ifd1", 0x0100U),
+                                           320U));
+    EXPECT_TRUE(store_has_u32_scalar_entry(decoded,
+                                           exif_key_view("ifd1", 0x0101U),
+                                           240U));
+}
+
+TEST(MetadataTransferApi,
+     ExecutePreparedTransferFileBigTiffRoundTripsSourceMetadata)
+{
+    std::vector<std::byte> source_jpeg;
+    ASSERT_TRUE(build_test_transfer_source_jpeg_bytes(&source_jpeg));
+    const std::string source_path = unique_temp_path(".jpg");
+    ASSERT_TRUE(write_bytes_file(
+        source_path,
+        std::span<const std::byte>(source_jpeg.data(), source_jpeg.size())));
+
+    const std::vector<std::byte> target_tiff = make_minimal_bigtiff_little_endian();
+    const std::string target_path            = unique_temp_path(".tif");
+    ASSERT_TRUE(write_bytes_file(
+        target_path,
+        std::span<const std::byte>(target_tiff.data(), target_tiff.size())));
+
+    openmeta::ExecutePreparedTransferFileOptions options;
+    options.prepare.prepare.target_format = openmeta::TransferTargetFormat::Tiff;
+    options.prepare.prepare.include_icc_app2   = false;
+    options.prepare.prepare.include_iptc_app13 = false;
+    options.edit_target_path                   = target_path;
+    options.execute.edit_apply                 = true;
+
+    const openmeta::ExecutePreparedTransferFileResult result
+        = openmeta::execute_prepared_transfer_file(source_path.c_str(), options);
+    std::remove(source_path.c_str());
+    std::remove(target_path.c_str());
+
+    EXPECT_EQ(result.prepared.file_status, openmeta::TransferFileStatus::Ok);
+    EXPECT_EQ(result.prepared.prepare.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.execute.compile.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.execute.edit_plan_status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(result.execute.edit_apply.status, openmeta::TransferStatus::Ok);
+    ASSERT_FALSE(result.execute.edited_output.empty());
+    EXPECT_EQ(read_u16le(std::span<const std::byte>(result.execute.edited_output.data(),
+                                                    result.execute.edited_output.size()),
+                         2U),
+              43U);
+    EXPECT_TRUE(decoded_transfer_roundtrip_has_expected_fields(
+        std::span<const std::byte>(result.execute.edited_output.data(),
+                                   result.execute.edited_output.size())));
+}
+
+TEST(MetadataTransferApi,
+     ExecutePreparedTransferFileBigTiffRoundTripsDngSourceMetadata)
+{
+    const std::vector<std::byte> source_dng
+        = make_minimal_dng_like_tiff_little_endian();
+    const std::string source_path = unique_temp_path(".dng");
+    ASSERT_TRUE(write_bytes_file(
+        source_path,
+        std::span<const std::byte>(source_dng.data(), source_dng.size())));
+
+    const std::vector<std::byte> target_tiff
+        = make_minimal_bigtiff_little_endian();
+    const std::string target_path = unique_temp_path(".tif");
+    ASSERT_TRUE(write_bytes_file(
+        target_path,
+        std::span<const std::byte>(target_tiff.data(), target_tiff.size())));
+
+    openmeta::ExecutePreparedTransferFileOptions options;
+    options.prepare.prepare.target_format      = openmeta::TransferTargetFormat::Tiff;
+    options.prepare.prepare.include_xmp_app1   = false;
+    options.prepare.prepare.include_icc_app2   = false;
+    options.prepare.prepare.include_iptc_app13 = false;
+    options.edit_target_path                   = target_path;
+    options.execute.edit_apply                 = true;
+
+    const openmeta::ExecutePreparedTransferFileResult result
+        = openmeta::execute_prepared_transfer_file(source_path.c_str(), options);
+    std::remove(source_path.c_str());
+    std::remove(target_path.c_str());
+
+    EXPECT_EQ(result.prepared.file_status, openmeta::TransferFileStatus::Ok);
+    EXPECT_EQ(result.prepared.prepare.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.execute.compile.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.execute.edit_plan_status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(result.execute.edit_apply.status, openmeta::TransferStatus::Ok);
+    ASSERT_FALSE(result.execute.edited_output.empty());
+    EXPECT_EQ(read_u16le(std::span<const std::byte>(result.execute.edited_output.data(),
+                                                    result.execute.edited_output.size()),
+                         2U),
+              43U);
+
+    openmeta::MetaStore decoded;
+    ASSERT_TRUE(decode_transfer_roundtrip_store(
+        std::span<const std::byte>(result.execute.edited_output.data(),
+                                   result.execute.edited_output.size()),
+        &decoded));
+    const std::array<uint8_t, 4> dng_version = { 1U, 6U, 0U, 0U };
+    EXPECT_TRUE(store_has_u8_array_entry(
+        decoded, exif_key_view("ifd0", 0xC612U),
+        std::span<const uint8_t>(dng_version.data(), dng_version.size())));
+    EXPECT_TRUE(store_has_u32_scalar_entry(decoded,
+                                           exif_key_view("subifd0", 0x0100U),
+                                           4000U));
+    EXPECT_TRUE(store_has_u32_scalar_entry(decoded,
+                                           exif_key_view("subifd0", 0x0101U),
+                                           3000U));
+    EXPECT_TRUE(store_has_u32_scalar_entry(decoded,
+                                           exif_key_view("ifd1", 0x0100U),
+                                           320U));
+    EXPECT_TRUE(store_has_u32_scalar_entry(decoded,
+                                           exif_key_view("ifd1", 0x0101U),
+                                           240U));
+}
+
+TEST(MetadataTransferApi,
+     ExecutePreparedTransferFileBigTiffMergesDngSourceIntoExistingPreviewAuxTarget)
+{
+    const std::vector<std::byte> source_dng
+        = make_minimal_dng_like_tiff_little_endian();
+    const std::string source_path = unique_temp_path(".dng");
+    ASSERT_TRUE(write_bytes_file(
+        source_path,
+        std::span<const std::byte>(source_dng.data(), source_dng.size())));
+
+    const std::vector<std::byte> target_tiff
+        = make_minimal_dng_merge_target_bigtiff_little_endian();
+    const std::string target_path = unique_temp_path(".tif");
+    ASSERT_TRUE(write_bytes_file(
+        target_path,
+        std::span<const std::byte>(target_tiff.data(), target_tiff.size())));
+
+    openmeta::ExecutePreparedTransferFileOptions options;
+    options.prepare.prepare.target_format      = openmeta::TransferTargetFormat::Tiff;
+    options.prepare.prepare.include_xmp_app1   = false;
+    options.prepare.prepare.include_icc_app2   = false;
+    options.prepare.prepare.include_iptc_app13 = false;
+    options.edit_target_path                   = target_path;
+    options.execute.edit_apply                 = true;
+
+    const openmeta::ExecutePreparedTransferFileResult result
+        = openmeta::execute_prepared_transfer_file(source_path.c_str(), options);
+    std::remove(source_path.c_str());
+    std::remove(target_path.c_str());
+
+    EXPECT_EQ(result.prepared.file_status, openmeta::TransferFileStatus::Ok);
+    EXPECT_EQ(result.prepared.prepare.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.execute.compile.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.execute.edit_plan_status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(result.execute.edit_apply.status, openmeta::TransferStatus::Ok);
+    ASSERT_FALSE(result.execute.edited_output.empty());
+
+    const std::span<const std::byte> bytes(result.execute.edited_output.data(),
+                                           result.execute.edited_output.size());
+    const uint64_t ifd0_off = read_u64le(bytes, 8U);
+    const uint64_t ifd0_count = read_u64le(bytes, static_cast<size_t>(ifd0_off));
+    const uint64_t ifd1_off = read_u64le(
+        bytes, static_cast<size_t>(ifd0_off) + 8U
+                   + static_cast<size_t>(ifd0_count) * 20U);
+    ASSERT_NE(ifd1_off, 0U);
+
+    uint64_t ifd1_width = 0U;
+    uint64_t ifd1_height = 0U;
+    ASSERT_TRUE(find_bigtiff_tag_entry_le(bytes, ifd1_off, 0x0100U, nullptr,
+                                          nullptr, &ifd1_width));
+    ASSERT_TRUE(find_bigtiff_tag_entry_le(bytes, ifd1_off, 0x0101U, nullptr,
+                                          nullptr, &ifd1_height));
+    EXPECT_EQ(ifd1_width, 320U);
+    EXPECT_EQ(ifd1_height, 240U);
+
+    const uint64_t ifd1_count = read_u64le(bytes, static_cast<size_t>(ifd1_off));
+    const uint64_t ifd1_next_off = read_u64le(
+        bytes, static_cast<size_t>(ifd1_off) + 8U
+                   + static_cast<size_t>(ifd1_count) * 20U);
+    EXPECT_EQ(ifd1_next_off, 104U);
+
+    uint64_t tail_ifd_width = 0U;
+    ASSERT_TRUE(find_bigtiff_tag_entry_le(bytes, 104U, 0x0100U, nullptr,
+                                          nullptr, &tail_ifd_width));
+    EXPECT_EQ(tail_ifd_width, 222U);
+
+    uint64_t subifd_count = 0U;
+    uint64_t subifd_array_off = 0U;
+    ASSERT_TRUE(find_bigtiff_tag_entry_le(bytes, ifd0_off, 0x014AU, nullptr,
+                                          &subifd_count, &subifd_array_off));
+    EXPECT_EQ(subifd_count, 2U);
+
+    const uint64_t subifd0_off = read_u64le(
+        bytes, static_cast<size_t>(subifd_array_off) + 0U);
+    const uint64_t subifd1_off = read_u64le(
+        bytes, static_cast<size_t>(subifd_array_off) + 8U);
+    uint64_t subifd0_width = 0U;
+    uint64_t subifd0_height = 0U;
+    uint64_t subifd1_width = 0U;
+    ASSERT_TRUE(find_bigtiff_tag_entry_le(bytes, subifd0_off, 0x0100U,
+                                          nullptr, nullptr, &subifd0_width));
+    ASSERT_TRUE(find_bigtiff_tag_entry_le(bytes, subifd0_off, 0x0101U,
+                                          nullptr, nullptr, &subifd0_height));
+    ASSERT_TRUE(find_bigtiff_tag_entry_le(bytes, subifd1_off, 0x0100U,
+                                          nullptr, nullptr, &subifd1_width));
+    EXPECT_EQ(subifd0_width, 4000U);
+    EXPECT_EQ(subifd0_height, 3000U);
+    EXPECT_EQ(subifd1_width, 777U);
+
+    openmeta::MetaStore decoded;
+    ASSERT_TRUE(decode_transfer_roundtrip_store(bytes, &decoded));
+    const std::array<uint8_t, 4> dng_version = { 1U, 6U, 0U, 0U };
+    EXPECT_TRUE(store_has_u8_array_entry(
+        decoded, exif_key_view("ifd0", 0xC612U),
+        std::span<const uint8_t>(dng_version.data(), dng_version.size())));
+    EXPECT_TRUE(store_has_u32_scalar_entry(decoded,
+                                           exif_key_view("subifd0", 0x0100U),
+                                           4000U));
+    EXPECT_TRUE(store_has_u32_scalar_entry(decoded,
+                                           exif_key_view("subifd0", 0x0101U),
+                                           3000U));
+    EXPECT_TRUE(store_has_u32_scalar_entry(decoded,
+                                           exif_key_view("subifd1", 0x0100U),
+                                           777U));
+    EXPECT_TRUE(store_has_u32_scalar_entry(decoded,
+                                           exif_key_view("ifd1", 0x0100U),
+                                           320U));
+    EXPECT_TRUE(store_has_u32_scalar_entry(decoded,
+                                           exif_key_view("ifd1", 0x0101U),
+                                           240U));
 }
 
 TEST(MetadataTransferApi, ExecutePreparedTransferFilePngRoundTripsSourceMetadata)

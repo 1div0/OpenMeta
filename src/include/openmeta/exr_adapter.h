@@ -2,6 +2,7 @@
 
 #include "openmeta/exr_decode.h"
 #include "openmeta/meta_store.h"
+#include "openmeta/metadata_transfer.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -94,6 +95,18 @@ struct ExrAdapterReplayResult final {
     std::string message;
 };
 
+/// File-helper options for \ref build_exr_attribute_batch_from_file.
+struct BuildExrAttributeBatchFileOptions final {
+    PrepareTransferFileOptions prepare;
+    ExrAdapterOptions adapter;
+};
+
+/// File-helper result for \ref build_exr_attribute_batch_from_file.
+struct BuildExrAttributeBatchFileResult final {
+    PrepareTransferFileResult prepared;
+    ExrAdapterResult adapter;
+};
+
 /**
  * \brief Builds one owned EXR-native attribute batch from a \ref MetaStore.
  *
@@ -106,6 +119,39 @@ ExrAdapterResult
 build_exr_attribute_batch(const MetaStore& store, ExrAdapterBatch* out,
                           const ExrAdapterOptions& options
                           = ExrAdapterOptions {}) noexcept;
+
+/**
+ * \brief Builds one EXR-native attribute batch from a prepared EXR transfer
+ * bundle.
+ *
+ * This bridges the transfer pipeline with EXR host integrations: callers can
+ * prepare metadata once with \ref prepare_metadata_for_target using
+ * \ref TransferTargetFormat::Exr, then materialize a host-facing
+ * \ref ExrAdapterBatch without re-projecting from the source \ref MetaStore.
+ *
+ * Current EXR prepared transfer blocks serialize one logical `string`
+ * attribute per block and target part `0`.
+ */
+ExrAdapterResult
+build_prepared_exr_attribute_batch(const PreparedTransferBundle& bundle,
+                                   ExrAdapterBatch* out,
+                                   const ExrAdapterOptions& options
+                                   = ExrAdapterOptions {}) noexcept;
+
+/**
+ * \brief Reads one file, prepares EXR transfer metadata, then materializes a
+ * host-facing \ref ExrAdapterBatch.
+ *
+ * This is the direct public file-helper for thin bindings and host tools.
+ * Internally it wraps \ref prepare_metadata_for_target_file, forces the
+ * prepared target format to \ref TransferTargetFormat::Exr, then calls
+ * \ref build_prepared_exr_attribute_batch.
+ */
+BuildExrAttributeBatchFileResult
+build_exr_attribute_batch_from_file(
+    const char* path, ExrAdapterBatch* out,
+    const BuildExrAttributeBatchFileOptions& options
+    = BuildExrAttributeBatchFileOptions {}) noexcept;
 
 /**
  * \brief Builds contiguous per-part spans over one \ref ExrAdapterBatch.

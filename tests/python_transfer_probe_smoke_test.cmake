@@ -18,12 +18,15 @@ file(REMOVE_RECURSE "${WORK_DIR}")
 file(MAKE_DIRECTORY "${WORK_DIR}")
 
 set(_jpg "${WORK_DIR}/sample.jpg")
+set(_jpg_exr "${WORK_DIR}/sample_exr.jpg")
 
 set(_py_code
 "from pathlib import Path
 import openmeta
+from openmeta.python import get_exr_attribute_batch, probe_exr_attribute_batch
 
 p = Path(r'''${_jpg}''')
+p_exr = Path(r'''${_jpg_exr}''')
 t = bytearray()
 t += b'II*\\x00'
 t += (8).to_bytes(4, 'little')
@@ -37,6 +40,20 @@ t += b'2000:01:02 03:04:05\\x00'
 app1 = b'Exif\\x00\\x00' + bytes(t)
 ln = (len(app1) + 2).to_bytes(2, 'big')
 p.write_bytes(b'\\xFF\\xD8\\xFF\\xE1' + ln + app1 + b'\\xFF\\xD9')
+
+t_exr = bytearray()
+t_exr += b'II*\\x00'
+t_exr += (8).to_bytes(4, 'little')
+t_exr += (1).to_bytes(2, 'little')
+t_exr += (0x010F).to_bytes(2, 'little')
+t_exr += (2).to_bytes(2, 'little')
+t_exr += (7).to_bytes(4, 'little')
+t_exr += (26).to_bytes(4, 'little')
+t_exr += (0).to_bytes(4, 'little')
+t_exr += b'Vendor\\x00'
+app1_exr = b'Exif\\x00\\x00' + bytes(t_exr)
+ln_exr = (len(app1_exr) + 2).to_bytes(2, 'big')
+p_exr.write_bytes(b'\\xFF\\xD8\\xFF\\xE1' + ln_exr + app1_exr + b'\\xFF\\xD9')
 
 p_icc = Path(r'''${WORK_DIR}/sample_icc.jpg''')
 icc = bytearray(156)
@@ -113,6 +130,71 @@ assert artifact_jxl['status_name'] == 'ok', artifact_jxl
 assert artifact_jxl['kind_name'] == 'jxl_encoder_handoff', artifact_jxl
 assert artifact_jxl['target_format_name'] == 'jxl', artifact_jxl
 assert artifact_jxl['icc_profile_bytes'] > 0, artifact_jxl
+
+r_exr = openmeta.transfer_probe(
+    str(p_exr),
+    target_format=openmeta.TransferTargetFormat.Exr,
+)
+assert r_exr['overall_status'] == openmeta.TransferStatus.Ok, r_exr
+assert len(r_exr['exr_attribute_summary']) == 1, r_exr
+assert r_exr['exr_attribute_summary'][0]['name'] == 'Make', r_exr
+assert r_exr['exr_attribute_batch_status'] == openmeta.ExrAdapterStatus.Ok, r_exr
+assert r_exr['exr_attribute_batch_status_name'] == 'ok', r_exr
+assert r_exr['exr_attribute_batch_exported'] == 1, r_exr
+assert len(r_exr['exr_attribute_batch']) == 1, r_exr
+assert r_exr['exr_attribute_batch'][0]['name'] == 'Make', r_exr
+assert r_exr['exr_attribute_batch'][0]['type_name'] == 'string', r_exr
+assert r_exr['exr_attribute_batch'][0]['bytes'] == 6, r_exr
+assert r_exr['exr_attribute_batch'][0]['value'] is None, r_exr
+
+r_exr_safe_values = openmeta.transfer_probe(
+    str(p_exr),
+    target_format=openmeta.TransferTargetFormat.Exr,
+    include_exr_attribute_values=True,
+)
+assert r_exr_safe_values['overall_status'] == openmeta.TransferStatus.UnsafeData, r_exr_safe_values
+assert r_exr_safe_values['error_stage'] == 'api', r_exr_safe_values
+assert r_exr_safe_values['error_code'] == 'unsafe_exr_attribute_values_forbidden', r_exr_safe_values
+assert r_exr_safe_values['exr_attribute_values_requested'] is True, r_exr_safe_values
+assert r_exr_safe_values['exr_attribute_values_status_name'] == 'unsafe_data', r_exr_safe_values
+assert r_exr_safe_values['exr_attribute_batch'][0]['value'] is None, r_exr_safe_values
+
+r_exr_u = openmeta.unsafe_transfer_probe(
+    str(p_exr),
+    target_format=openmeta.TransferTargetFormat.Exr,
+    include_exr_attribute_values=True,
+)
+assert r_exr_u['overall_status'] == openmeta.TransferStatus.Ok, r_exr_u
+assert r_exr_u['exr_attribute_values_requested'] is True, r_exr_u
+assert r_exr_u['exr_attribute_values_status_name'] == 'ok', r_exr_u
+assert r_exr_u['exr_attribute_batch_status_name'] == 'ok', r_exr_u
+assert len(r_exr_u['exr_attribute_batch']) == 1, r_exr_u
+assert isinstance(r_exr_u['exr_attribute_batch'][0]['value'], (bytes, bytearray)), r_exr_u
+assert bytes(r_exr_u['exr_attribute_batch'][0]['value']) == b'Vendor', r_exr_u
+
+r_exr_helper = probe_exr_attribute_batch(str(p_exr))
+assert r_exr_helper['overall_status_name'] == 'ok', r_exr_helper
+assert r_exr_helper['exr_attribute_batch_status_name'] == 'ok', r_exr_helper
+assert len(r_exr_helper['exr_attribute_batch']) == 1, r_exr_helper
+assert r_exr_helper['exr_attribute_batch'][0]['name'] == 'Make', r_exr_helper
+assert r_exr_helper['exr_attribute_batch'][0]['value'] is None, r_exr_helper
+
+r_exr_direct = openmeta.build_exr_attribute_batch_from_file(
+    str(p_exr),
+    include_values=True,
+)
+assert r_exr_direct['overall_status_name'] == 'ok', r_exr_direct
+assert r_exr_direct['exr_attribute_batch_status_name'] == 'ok', r_exr_direct
+assert len(r_exr_direct['exr_attribute_batch']) == 1, r_exr_direct
+assert isinstance(r_exr_direct['exr_attribute_batch'][0]['value'], (bytes, bytearray)), r_exr_direct
+assert bytes(r_exr_direct['exr_attribute_batch'][0]['value']) == b'Vendor', r_exr_direct
+
+batch_exr = get_exr_attribute_batch(str(p_exr), include_values=True)
+assert len(batch_exr) == 1, batch_exr
+assert batch_exr[0]['name'] == 'Make', batch_exr
+assert batch_exr[0]['type_name'] == 'string', batch_exr
+assert isinstance(batch_exr[0]['value'], (bytes, bytearray)), batch_exr
+assert bytes(batch_exr[0]['value']) == b'Vendor', batch_exr
 
 r2 = openmeta.transfer_probe(
     str(p),

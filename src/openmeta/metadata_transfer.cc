@@ -163,6 +163,7 @@ namespace {
 
     enum class ExifIfdSlot : uint8_t {
         Ifd0,
+        Ifd1,
         ExifIfd,
         GpsIfd,
         InteropIfd,
@@ -174,6 +175,12 @@ namespace {
         uint32_t skipped_count = 0;
         std::vector<std::byte> app1_payload;
         std::vector<TimePatchSlot> time_patch_map;
+    };
+
+    struct TransferExifIfdRef final {
+        ExifIfdSlot slot      = ExifIfdSlot::Unsupported;
+        uint32_t subifd_index = 0U;
+        bool is_subifd        = false;
     };
 
     struct IccPackBuild final {
@@ -5295,10 +5302,14 @@ namespace {
         case 4U:   // LONG
         case 9U:   // SLONG
         case 11U:  // FLOAT
+        case 13U:  // IFD
             return 4U;
         case 5U:   // RATIONAL
         case 10U:  // SRATIONAL
         case 12U:  // DOUBLE
+        case 16U:  // LONG8
+        case 17U:  // SLONG8
+        case 18U:  // IFD8
             return 8U;
         default: return 0U;
         }
@@ -5308,6 +5319,9 @@ namespace {
     {
         if (ifd == "ifd0") {
             return ExifIfdSlot::Ifd0;
+        }
+        if (ifd == "ifd1") {
+            return ExifIfdSlot::Ifd1;
         }
         if (ifd == "exififd") {
             return ExifIfdSlot::ExifIfd;
@@ -5321,7 +5335,45 @@ namespace {
         return ExifIfdSlot::Unsupported;
     }
 
+    static bool parse_subifd_index_name(std::string_view ifd,
+                                        uint32_t* out_index) noexcept
+    {
+        if (!out_index || !ifd.starts_with("subifd")
+            || ifd.size() <= 6U) {
+            return false;
+        }
+        uint64_t value = 0U;
+        for (size_t i = 6U; i < ifd.size(); ++i) {
+            const char c = ifd[i];
+            if (c < '0' || c > '9') {
+                return false;
+            }
+            value = value * 10U
+                    + static_cast<uint64_t>(static_cast<uint8_t>(c - '0'));
+            if (value > static_cast<uint64_t>(0xFFFFFFFFU)) {
+                return false;
+            }
+        }
+        *out_index = static_cast<uint32_t>(value);
+        return true;
+    }
+
+    static TransferExifIfdRef
+    classify_exif_ifd_ref(std::string_view ifd) noexcept
+    {
+        TransferExifIfdRef out;
+        out.slot = classify_exif_ifd_name(ifd);
+        if (out.slot != ExifIfdSlot::Unsupported) {
+            return out;
+        }
+        if (parse_subifd_index_name(ifd, &out.subifd_index)) {
+            out.is_subifd = true;
+        }
+        return out;
+    }
+
     static SerializedIfd* select_ifd(SerializedIfd* ifd0,
+                                     SerializedIfd* ifd1,
                                      SerializedIfd* exififd,
                                      SerializedIfd* gpsifd,
                                      SerializedIfd* interopifd,
@@ -5329,6 +5381,7 @@ namespace {
     {
         switch (slot) {
         case ExifIfdSlot::Ifd0: return ifd0;
+        case ExifIfdSlot::Ifd1: return ifd1;
         case ExifIfdSlot::ExifIfd: return exififd;
         case ExifIfdSlot::GpsIfd: return gpsifd;
         case ExifIfdSlot::InteropIfd: return interopifd;
@@ -5341,7 +5394,7 @@ namespace {
                                            uint16_t tag) noexcept
     {
         if (slot == ExifIfdSlot::Ifd0) {
-            return tag == 0x8769U || tag == 0x8825U;
+            return tag == 0x8769U || tag == 0x8825U || tag == 0x014AU;
         }
         if (slot == ExifIfdSlot::ExifIfd) {
             return tag == 0xA005U;
@@ -5355,7 +5408,8 @@ namespace {
         if (!out) {
             return false;
         }
-        if (slot == ExifIfdSlot::Ifd0 && tag == 0x0132U) {
+        if ((slot == ExifIfdSlot::Ifd0 || slot == ExifIfdSlot::Ifd1)
+            && tag == 0x0132U) {
             *out = TimePatchField::DateTime;
             return true;
         }
@@ -5585,14 +5639,17 @@ namespace {
 
     static ExifPackBuild
     build_jpeg_exif_app1_payload(const MetaStore& store,
-                                 TransferPolicyAction makernote_policy) noexcept
+                                 TransferPolicyAction makernote_policy,
+                                 bool include_subifds) noexcept
     {
         ExifPackBuild out;
 
         SerializedIfd ifd0 {};
+        SerializedIfd ifd1 {};
         SerializedIfd exififd {};
         SerializedIfd gpsifd {};
         SerializedIfd interopifd {};
+        std::vector<SerializedIfd> subifds;
 
         for (const Entry& e : store.entries()) {
             if (any(e.flags, EntryFlags::Deleted)
@@ -5606,17 +5663,20 @@ namespace {
                 continue;
             }
 
-            const ExifIfdSlot slot = classify_exif_ifd_name(ifd_name);
-            if (slot == ExifIfdSlot::Unsupported) {
+            const TransferExifIfdRef ifd_ref
+                = classify_exif_ifd_ref(ifd_name);
+            if (ifd_ref.slot == ExifIfdSlot::Unsupported
+                && !ifd_ref.is_subifd) {
                 out.skipped_count += 1U;
                 continue;
             }
 
             const uint16_t tag = e.key.data.exif_tag.tag;
-            if (is_regenerated_pointer_tag(slot, tag)) {
+            if (!ifd_ref.is_subifd
+                && is_regenerated_pointer_tag(ifd_ref.slot, tag)) {
                 continue;
             }
-            if (tag == 0x927CU
+            if (!ifd_ref.is_subifd && tag == 0x927CU
                 && makernote_policy == TransferPolicyAction::Drop) {
                 continue;
             }
@@ -5629,11 +5689,25 @@ namespace {
                 continue;
             }
 
-            SerializedIfd* dst = select_ifd(&ifd0, &exififd, &gpsifd,
-                                            &interopifd, slot);
-            if (!dst) {
-                out.skipped_count += 1U;
-                continue;
+            SerializedIfd* dst = nullptr;
+            if (ifd_ref.is_subifd) {
+                if (!include_subifds) {
+                    out.skipped_count += 1U;
+                    continue;
+                }
+                const size_t need_size
+                    = static_cast<size_t>(ifd_ref.subifd_index) + 1U;
+                if (subifds.size() < need_size) {
+                    subifds.resize(need_size);
+                }
+                dst = &subifds[ifd_ref.subifd_index];
+            } else {
+                dst = select_ifd(&ifd0, &ifd1, &exififd, &gpsifd, &interopifd,
+                                 ifd_ref.slot);
+                if (!dst) {
+                    out.skipped_count += 1U;
+                    continue;
+                }
             }
             dst->present = true;
             dst->entries.push_back(std::move(encoded));
@@ -5642,7 +5716,14 @@ namespace {
         if (interopifd.present) {
             exififd.present = true;
         }
-        if (exififd.present || gpsifd.present) {
+        bool have_subifd = false;
+        for (size_t i = 0; i < subifds.size(); ++i) {
+            if (subifds[i].present) {
+                have_subifd = true;
+                break;
+            }
+        }
+        if (ifd1.present || exififd.present || gpsifd.present || have_subifd) {
             ifd0.present = true;
         }
 
@@ -5659,14 +5740,26 @@ namespace {
         if (interopifd.present) {
             add_u32_pointer_entry(&exififd, 0xA005U);
         }
+        if (have_subifd) {
+            SerializedIfdEntry e;
+            e.tag          = 0x014AU;
+            e.type         = 4U;
+            e.count        = 0U;
+            e.source_order = UINT32_MAX;
+            ifd0.entries.push_back(std::move(e));
+        }
 
         sort_ifd_entries(&ifd0);
         sort_ifd_entries(&exififd);
         sort_ifd_entries(&gpsifd);
         sort_ifd_entries(&interopifd);
+        for (size_t i = 0; i < subifds.size(); ++i) {
+            sort_ifd_entries(&subifds[i]);
+        }
 
-        std::array<SerializedIfd*, 4> order = {
+        std::array<SerializedIfd*, 5> order = {
             &ifd0,
+            &ifd1,
             &exififd,
             &gpsifd,
             &interopifd,
@@ -5680,6 +5773,14 @@ namespace {
             ifd->dir_offset = cursor;
             cursor += ifd_directory_size_bytes(*ifd);
         }
+        for (size_t i = 0; i < subifds.size(); ++i) {
+            SerializedIfd& ifd = subifds[i];
+            if (!ifd.present) {
+                continue;
+            }
+            ifd.dir_offset = cursor;
+            cursor += ifd_directory_size_bytes(ifd);
+        }
 
         if (exififd.present) {
             (void)set_u32_pointer_value(&ifd0, 0x8769U, exififd.dir_offset);
@@ -5690,6 +5791,25 @@ namespace {
         if (interopifd.present) {
             (void)set_u32_pointer_value(&exififd, 0xA005U,
                                         interopifd.dir_offset);
+        }
+        if (have_subifd) {
+            for (SerializedIfdEntry& e : ifd0.entries) {
+                if (e.tag != 0x014AU) {
+                    continue;
+                }
+                e.type  = 4U;
+                e.count = 0U;
+                e.value.clear();
+                for (size_t i = 0; i < subifds.size(); ++i) {
+                    const SerializedIfd& ifd = subifds[i];
+                    if (!ifd.present) {
+                        continue;
+                    }
+                    append_u32le(&e.value, ifd.dir_offset);
+                    e.count += 1U;
+                }
+                break;
+            }
         }
 
         uint32_t data_cursor = cursor;
@@ -5713,6 +5833,27 @@ namespace {
                 data_cursor += static_cast<uint32_t>(e.value.size());
             }
         }
+        for (size_t i = 0; i < subifds.size(); ++i) {
+            SerializedIfd& ifd = subifds[i];
+            if (!ifd.present) {
+                continue;
+            }
+            for (SerializedIfdEntry& e : ifd.entries) {
+                e.inline_value = false;
+                e.inline_bytes = { std::byte { 0x00 }, std::byte { 0x00 },
+                                   std::byte { 0x00 }, std::byte { 0x00 } };
+                if (e.value.size() <= 4U) {
+                    e.inline_value = true;
+                    for (uint32_t j = 0; j < e.value.size(); ++j) {
+                        e.inline_bytes[j] = e.value[j];
+                    }
+                    continue;
+                }
+                data_cursor    = align_to_2(data_cursor);
+                e.value_offset = data_cursor;
+                data_cursor += static_cast<uint32_t>(e.value.size());
+            }
+        }
 
         std::vector<std::byte> tiff_bytes(data_cursor, std::byte { 0x00 });
         tiff_bytes[0] = std::byte { 'I' };
@@ -5728,6 +5869,8 @@ namespace {
             ExifIfdSlot slot = ExifIfdSlot::Unsupported;
             if (ifd == &ifd0) {
                 slot = ExifIfdSlot::Ifd0;
+            } else if (ifd == &ifd1) {
+                slot = ExifIfdSlot::Ifd1;
             } else if (ifd == &exififd) {
                 slot = ExifIfdSlot::ExifIfd;
             } else if (ifd == &gpsifd) {
@@ -5777,7 +5920,36 @@ namespace {
                 }
                 p += 12U;
             }
-            put_u32le(&tiff_bytes, p, 0U);  // next IFD offset
+            uint32_t next_ifd_offset = 0U;
+            if (ifd == &ifd0 && ifd1.present) {
+                next_ifd_offset = ifd1.dir_offset;
+            }
+            put_u32le(&tiff_bytes, p, next_ifd_offset);
+        }
+        for (size_t i = 0; i < subifds.size(); ++i) {
+            SerializedIfd& ifd = subifds[i];
+            if (!ifd.present) {
+                continue;
+            }
+
+            uint32_t p = ifd.dir_offset;
+            put_u16le(&tiff_bytes, p,
+                      static_cast<uint16_t>(ifd.entries.size()));
+            p += 2U;
+            for (const SerializedIfdEntry& e : ifd.entries) {
+                put_u16le(&tiff_bytes, p + 0U, e.tag);
+                put_u16le(&tiff_bytes, p + 2U, e.type);
+                put_u32le(&tiff_bytes, p + 4U, e.count);
+                if (e.inline_value) {
+                    for (uint32_t j = 0; j < 4U; ++j) {
+                        tiff_bytes[p + 8U + j] = e.inline_bytes[j];
+                    }
+                } else {
+                    put_u32le(&tiff_bytes, p + 8U, e.value_offset);
+                }
+                p += 12U;
+            }
+            put_u32le(&tiff_bytes, p, 0U);
         }
 
         for (SerializedIfd* ifd : order) {
@@ -5785,6 +5957,23 @@ namespace {
                 continue;
             }
             for (const SerializedIfdEntry& e : ifd->entries) {
+                if (e.inline_value || e.value.empty()) {
+                    continue;
+                }
+                if (e.value_offset + e.value.size() > tiff_bytes.size()) {
+                    out.skipped_count += 1U;
+                    continue;
+                }
+                std::memcpy(tiff_bytes.data() + e.value_offset, e.value.data(),
+                            e.value.size());
+            }
+        }
+        for (size_t i = 0; i < subifds.size(); ++i) {
+            const SerializedIfd& ifd = subifds[i];
+            if (!ifd.present) {
+                continue;
+            }
+            for (const SerializedIfdEntry& e : ifd.entries) {
                 if (e.inline_value || e.value.empty()) {
                     continue;
                 }
@@ -6400,6 +6589,17 @@ namespace {
         std::vector<std::byte> payload;
     };
 
+    struct TiffLayout final {
+        bool bigtiff                  = false;
+        uint64_t header_size          = 8U;
+        uint64_t ifd0_pointer_offset  = 4U;
+        uint64_t ifd_count_size       = 2U;
+        uint64_t ifd_entry_size       = 12U;
+        uint64_t ifd_next_offset_size = 4U;
+        uint64_t inline_value_bytes   = 4U;
+        uint64_t alignment            = 2U;
+    };
+
     struct TiffPayloadRange final {
         size_t offset = 0U;
         size_t size   = 0U;
@@ -6408,10 +6608,10 @@ namespace {
     struct TiffIfdEntry final {
         uint16_t tag            = 0U;
         uint16_t type           = 0U;
-        uint32_t count          = 0U;
-        uint32_t value_or_off   = 0U;
+        uint64_t count          = 0U;
+        uint64_t value_or_off   = 0U;
         bool has_inline_payload = false;
-        std::array<std::byte, 4> inline_payload {};
+        std::array<std::byte, 8> inline_payload {};
         bool has_rewrite_payload = false;
         std::vector<std::byte> rewrite_payload;
     };
@@ -6427,26 +6627,30 @@ namespace {
     struct ParsedTiffIfdEntry final {
         uint16_t tag   = 0U;
         uint16_t type  = 0U;
-        uint32_t count = 0U;
+        uint64_t count = 0U;
         std::vector<std::byte> payload;
     };
 
     struct ParsedTiffIfd final {
-        bool present = false;
+        bool present           = false;
+        uint64_t next_ifd_off  = 0U;
         std::vector<ParsedTiffIfdEntry> entries;
     };
 
     struct ParsedTransferExif final {
         std::vector<TiffTagUpdate> ifd0_updates;
+        ParsedTiffIfd ifd1;
         ParsedTiffIfd exif_ifd;
         ParsedTiffIfd gps_ifd;
         ParsedTiffIfd interop_ifd;
+        std::vector<ParsedTiffIfd> subifds;
         TiffEndian source_endian = TiffEndian::Little;
     };
 
     struct TiffRewriteTail final {
-        TiffEndian endian     = TiffEndian::Little;
-        uint32_t new_ifd0_off = 0U;
+        TiffEndian endian  = TiffEndian::Little;
+        TiffLayout layout  = TiffLayout {};
+        uint64_t new_ifd0_off = 0U;
         std::vector<std::byte> tail_bytes;
     };
 
@@ -6486,6 +6690,37 @@ namespace {
         return (b0 << 24U) | (b1 << 16U) | (b2 << 8U) | b3;
     }
 
+    static uint64_t read_u64_tiff(std::span<const std::byte> b, size_t off,
+                                  TiffEndian endian) noexcept
+    {
+        if (off + 8U > b.size()) {
+            return 0U;
+        }
+        const uint64_t b0 = static_cast<uint64_t>(
+            std::to_integer<uint8_t>(b[off + 0U]));
+        const uint64_t b1 = static_cast<uint64_t>(
+            std::to_integer<uint8_t>(b[off + 1U]));
+        const uint64_t b2 = static_cast<uint64_t>(
+            std::to_integer<uint8_t>(b[off + 2U]));
+        const uint64_t b3 = static_cast<uint64_t>(
+            std::to_integer<uint8_t>(b[off + 3U]));
+        const uint64_t b4 = static_cast<uint64_t>(
+            std::to_integer<uint8_t>(b[off + 4U]));
+        const uint64_t b5 = static_cast<uint64_t>(
+            std::to_integer<uint8_t>(b[off + 5U]));
+        const uint64_t b6 = static_cast<uint64_t>(
+            std::to_integer<uint8_t>(b[off + 6U]));
+        const uint64_t b7 = static_cast<uint64_t>(
+            std::to_integer<uint8_t>(b[off + 7U]));
+        if (endian == TiffEndian::Little) {
+            return b0 | (b1 << 8U) | (b2 << 16U) | (b3 << 24U)
+                   | (b4 << 32U) | (b5 << 40U) | (b6 << 48U)
+                   | (b7 << 56U);
+        }
+        return (b0 << 56U) | (b1 << 48U) | (b2 << 40U) | (b3 << 32U)
+               | (b4 << 24U) | (b5 << 16U) | (b6 << 8U) | b7;
+    }
+
     static void write_u16_tiff(std::vector<std::byte>* out, size_t off,
                                uint16_t v, TiffEndian endian) noexcept
     {
@@ -6520,6 +6755,33 @@ namespace {
         }
     }
 
+    static void write_u64_tiff(std::vector<std::byte>* out, size_t off,
+                               uint64_t v, TiffEndian endian) noexcept
+    {
+        if (!out || off + 8U > out->size()) {
+            return;
+        }
+        if (endian == TiffEndian::Little) {
+            (*out)[off + 0U] = static_cast<std::byte>((v >> 0U) & 0xFFU);
+            (*out)[off + 1U] = static_cast<std::byte>((v >> 8U) & 0xFFU);
+            (*out)[off + 2U] = static_cast<std::byte>((v >> 16U) & 0xFFU);
+            (*out)[off + 3U] = static_cast<std::byte>((v >> 24U) & 0xFFU);
+            (*out)[off + 4U] = static_cast<std::byte>((v >> 32U) & 0xFFU);
+            (*out)[off + 5U] = static_cast<std::byte>((v >> 40U) & 0xFFU);
+            (*out)[off + 6U] = static_cast<std::byte>((v >> 48U) & 0xFFU);
+            (*out)[off + 7U] = static_cast<std::byte>((v >> 56U) & 0xFFU);
+        } else {
+            (*out)[off + 0U] = static_cast<std::byte>((v >> 56U) & 0xFFU);
+            (*out)[off + 1U] = static_cast<std::byte>((v >> 48U) & 0xFFU);
+            (*out)[off + 2U] = static_cast<std::byte>((v >> 40U) & 0xFFU);
+            (*out)[off + 3U] = static_cast<std::byte>((v >> 32U) & 0xFFU);
+            (*out)[off + 4U] = static_cast<std::byte>((v >> 24U) & 0xFFU);
+            (*out)[off + 5U] = static_cast<std::byte>((v >> 16U) & 0xFFU);
+            (*out)[off + 6U] = static_cast<std::byte>((v >> 8U) & 0xFFU);
+            (*out)[off + 7U] = static_cast<std::byte>((v >> 0U) & 0xFFU);
+        }
+    }
+
     static void write_u32_tiff_bytes(std::array<std::byte, 4>* out, uint32_t v,
                                      TiffEndian endian) noexcept
     {
@@ -6539,6 +6801,33 @@ namespace {
         }
     }
 
+    static void write_u64_tiff_bytes(std::array<std::byte, 8>* out, uint64_t v,
+                                     TiffEndian endian) noexcept
+    {
+        if (!out) {
+            return;
+        }
+        if (endian == TiffEndian::Little) {
+            (*out)[0] = static_cast<std::byte>((v >> 0U) & 0xFFU);
+            (*out)[1] = static_cast<std::byte>((v >> 8U) & 0xFFU);
+            (*out)[2] = static_cast<std::byte>((v >> 16U) & 0xFFU);
+            (*out)[3] = static_cast<std::byte>((v >> 24U) & 0xFFU);
+            (*out)[4] = static_cast<std::byte>((v >> 32U) & 0xFFU);
+            (*out)[5] = static_cast<std::byte>((v >> 40U) & 0xFFU);
+            (*out)[6] = static_cast<std::byte>((v >> 48U) & 0xFFU);
+            (*out)[7] = static_cast<std::byte>((v >> 56U) & 0xFFU);
+        } else {
+            (*out)[0] = static_cast<std::byte>((v >> 56U) & 0xFFU);
+            (*out)[1] = static_cast<std::byte>((v >> 48U) & 0xFFU);
+            (*out)[2] = static_cast<std::byte>((v >> 40U) & 0xFFU);
+            (*out)[3] = static_cast<std::byte>((v >> 32U) & 0xFFU);
+            (*out)[4] = static_cast<std::byte>((v >> 24U) & 0xFFU);
+            (*out)[5] = static_cast<std::byte>((v >> 16U) & 0xFFU);
+            (*out)[6] = static_cast<std::byte>((v >> 8U) & 0xFFU);
+            (*out)[7] = static_cast<std::byte>((v >> 0U) & 0xFFU);
+        }
+    }
+
     static void append_u32_tiff(std::vector<std::byte>* out, uint32_t v,
                                 TiffEndian endian) noexcept
     {
@@ -6550,7 +6839,18 @@ namespace {
         write_u32_tiff(out, off, v, endian);
     }
 
-    static bool tiff_type_byte_len(uint16_t type, uint32_t count,
+    static void append_u64_tiff(std::vector<std::byte>* out, uint64_t v,
+                                TiffEndian endian) noexcept
+    {
+        if (!out) {
+            return;
+        }
+        const size_t off = out->size();
+        out->resize(off + 8U, std::byte { 0x00 });
+        write_u64_tiff(out, off, v, endian);
+    }
+
+    static bool tiff_type_byte_len(uint16_t type, uint64_t count,
                                    size_t* out_len) noexcept
     {
         if (!out_len) {
@@ -6558,8 +6858,7 @@ namespace {
         }
         *out_len           = 0U;
         const uint32_t sz  = tiff_type_size(type);
-        const uint64_t mul = static_cast<uint64_t>(sz)
-                             * static_cast<uint64_t>(count);
+        const uint64_t mul = static_cast<uint64_t>(sz) * count;
         if (sz == 0U || mul > static_cast<uint64_t>(SIZE_MAX)) {
             return false;
         }
@@ -6568,7 +6867,7 @@ namespace {
     }
 
     static bool convert_tiff_payload_endian_inplace(
-        std::vector<std::byte>* bytes, uint16_t type, uint32_t count,
+        std::vector<std::byte>* bytes, uint16_t type, uint64_t count,
         TiffEndian from_endian, TiffEndian to_endian) noexcept
     {
         if (!bytes) {
@@ -6599,6 +6898,7 @@ namespace {
         case 4U:   // LONG
         case 9U:   // SLONG
         case 11U:  // FLOAT
+        case 13U:  // IFD
             for (size_t i = 0; i < v.size(); i += 4U) {
                 std::swap(v[i + 0U], v[i + 3U]);
                 std::swap(v[i + 1U], v[i + 2U]);
@@ -6613,6 +6913,9 @@ namespace {
                 std::swap(v[i + 5U], v[i + 6U]);
             }
             return true;
+        case 16U:  // LONG8
+        case 17U:  // SLONG8
+        case 18U:  // IFD8
         case 12U:  // DOUBLE
             for (size_t i = 0; i < v.size(); i += 8U) {
                 std::swap(v[i + 0U], v[i + 7U]);
@@ -6661,12 +6964,186 @@ namespace {
                 return false;
             }
         }
-        return convert_parsed_ifd_endian(&exif->exif_ifd, from_endian,
-                                         to_endian)
-               && convert_parsed_ifd_endian(&exif->gps_ifd, from_endian,
-                                            to_endian)
-               && convert_parsed_ifd_endian(&exif->interop_ifd, from_endian,
-                                            to_endian);
+        if (!convert_parsed_ifd_endian(&exif->exif_ifd, from_endian,
+                                       to_endian)
+            || !convert_parsed_ifd_endian(&exif->ifd1, from_endian,
+                                       to_endian)
+            || !convert_parsed_ifd_endian(&exif->gps_ifd, from_endian,
+                                          to_endian)
+            || !convert_parsed_ifd_endian(&exif->interop_ifd, from_endian,
+                                          to_endian)) {
+            return false;
+        }
+        for (size_t i = 0; i < exif->subifds.size(); ++i) {
+            if (!convert_parsed_ifd_endian(&exif->subifds[i], from_endian,
+                                           to_endian)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    static bool parse_tiff_layout(std::span<const std::byte> input,
+                                  TiffEndian* out_endian,
+                                  TiffLayout* out_layout,
+                                  uint64_t* out_ifd0_off,
+                                  std::string* err) noexcept
+    {
+        if (!out_endian || !out_layout || !out_ifd0_off) {
+            if (err) {
+                *err = "tiff layout outputs are null";
+            }
+            return false;
+        }
+        if (input.size() < 8U) {
+            if (err) {
+                *err = "tiff input too small";
+            }
+            return false;
+        }
+
+        TiffEndian endian = TiffEndian::Little;
+        if (input[0] == std::byte { 'I' } && input[1] == std::byte { 'I' }) {
+            endian = TiffEndian::Little;
+        } else if (input[0] == std::byte { 'M' }
+                   && input[1] == std::byte { 'M' }) {
+            endian = TiffEndian::Big;
+        } else {
+            if (err) {
+                *err = "unsupported tiff byte order";
+            }
+            return false;
+        }
+
+        TiffLayout layout;
+        const uint16_t magic = read_u16_tiff(input, 2U, endian);
+        uint64_t ifd0_off    = 0U;
+        if (magic == 42U) {
+            layout.bigtiff                  = false;
+            layout.header_size              = 8U;
+            layout.ifd0_pointer_offset      = 4U;
+            layout.ifd_count_size           = 2U;
+            layout.ifd_entry_size           = 12U;
+            layout.ifd_next_offset_size     = 4U;
+            layout.inline_value_bytes       = 4U;
+            layout.alignment                = 2U;
+            ifd0_off                        = read_u32_tiff(input, 4U, endian);
+        } else if (magic == 43U) {
+            if (input.size() < 16U) {
+                if (err) {
+                    *err = "bigtiff input too small";
+                }
+                return false;
+            }
+            const uint16_t off_size = read_u16_tiff(input, 4U, endian);
+            const uint16_t reserved = read_u16_tiff(input, 6U, endian);
+            if (off_size != 8U || reserved != 0U) {
+                if (err) {
+                    *err = "malformed bigtiff header";
+                }
+                return false;
+            }
+            layout.bigtiff                  = true;
+            layout.header_size              = 16U;
+            layout.ifd0_pointer_offset      = 8U;
+            layout.ifd_count_size           = 8U;
+            layout.ifd_entry_size           = 20U;
+            layout.ifd_next_offset_size     = 8U;
+            layout.inline_value_bytes       = 8U;
+            layout.alignment                = 8U;
+            ifd0_off                        = read_u64_tiff(input, 8U, endian);
+        } else {
+            if (err) {
+                *err = "unsupported tiff variant";
+            }
+            return false;
+        }
+
+        *out_endian  = endian;
+        *out_layout  = layout;
+        *out_ifd0_off = ifd0_off;
+        return true;
+    }
+
+    static bool write_tiff_count_field(std::vector<std::byte>* out, size_t off,
+                                       uint64_t value,
+                                       const TiffLayout& layout,
+                                       TiffEndian endian,
+                                       std::string* err) noexcept
+    {
+        if (!out) {
+            return false;
+        }
+        if (!layout.bigtiff) {
+            if (value > static_cast<uint64_t>(0xFFFFFFFFU)) {
+                if (err) {
+                    *err = "tiff count exceeds classic 32-bit range";
+                }
+                return false;
+            }
+            write_u32_tiff(out, off, static_cast<uint32_t>(value), endian);
+            return true;
+        }
+        write_u64_tiff(out, off, value, endian);
+        return true;
+    }
+
+    static bool write_tiff_offset_field(std::vector<std::byte>* out, size_t off,
+                                        uint64_t value,
+                                        const TiffLayout& layout,
+                                        TiffEndian endian,
+                                        std::string* err) noexcept
+    {
+        if (!out) {
+            return false;
+        }
+        if (!layout.bigtiff) {
+            if (value > static_cast<uint64_t>(0xFFFFFFFFU)) {
+                if (err) {
+                    *err = "tiff output exceeds classic 32-bit offset range";
+                }
+                return false;
+            }
+            write_u32_tiff(out, off, static_cast<uint32_t>(value), endian);
+            return true;
+        }
+        write_u64_tiff(out, off, value, endian);
+        return true;
+    }
+
+    static bool write_tiff_inline_bytes(std::array<std::byte, 8>* out,
+                                        uint64_t value,
+                                        const TiffLayout& layout,
+                                        TiffEndian endian,
+                                        std::string* err) noexcept
+    {
+        if (!out) {
+            return false;
+        }
+        *out = { std::byte { 0x00 }, std::byte { 0x00 }, std::byte { 0x00 },
+                 std::byte { 0x00 }, std::byte { 0x00 }, std::byte { 0x00 },
+                 std::byte { 0x00 }, std::byte { 0x00 } };
+        if (!layout.bigtiff) {
+            if (value > static_cast<uint64_t>(0xFFFFFFFFU)) {
+                if (err) {
+                    *err = "tiff output exceeds classic 32-bit offset range";
+                }
+                return false;
+            }
+            std::array<std::byte, 4> tmp = {
+                std::byte { 0x00 },
+                std::byte { 0x00 },
+                std::byte { 0x00 },
+                std::byte { 0x00 },
+            };
+            write_u32_tiff_bytes(&tmp, static_cast<uint32_t>(value), endian);
+            for (size_t i = 0; i < 4U; ++i) {
+                (*out)[i] = tmp[i];
+            }
+            return true;
+        }
+        write_u64_tiff_bytes(out, value, endian);
+        return true;
     }
 
     static bool parse_classic_ifd(std::span<const std::byte> tiff,
@@ -6677,6 +7154,7 @@ namespace {
             return false;
         }
         out->present = false;
+        out->next_ifd_off = 0U;
         out->entries.clear();
 
         if (ifd_off == 0U) {
@@ -6744,6 +7222,249 @@ namespace {
         return true;
     }
 
+    static bool
+    parse_tiff_ifd_next_offset(std::span<const std::byte> input,
+                               uint64_t ifd_off_u64, TiffEndian endian,
+                               const TiffLayout& layout, uint64_t* out,
+                               std::string* err) noexcept
+    {
+        if (!out) {
+            return false;
+        }
+        *out = 0U;
+        if (ifd_off_u64 > static_cast<uint64_t>(input.size())
+            || (layout.ifd_count_size
+                > static_cast<uint64_t>(input.size()) - ifd_off_u64)) {
+            if (err) {
+                *err = "ifd offset out of range";
+            }
+            return false;
+        }
+
+        uint64_t count_u64 = 0U;
+        if (!layout.bigtiff) {
+            count_u64 = static_cast<uint64_t>(read_u16_tiff(
+                input, static_cast<size_t>(ifd_off_u64), endian));
+        } else {
+            count_u64 = read_u64_tiff(input, static_cast<size_t>(ifd_off_u64),
+                                      endian);
+        }
+        const uint64_t entries_off_u64 = ifd_off_u64 + layout.ifd_count_size;
+        const uint64_t entries_end_u64
+            = entries_off_u64 + count_u64 * layout.ifd_entry_size;
+        const uint64_t next_field_end_u64
+            = entries_end_u64 + layout.ifd_next_offset_size;
+        if (entries_end_u64 < entries_off_u64
+            || next_field_end_u64 < entries_end_u64
+            || next_field_end_u64 > static_cast<uint64_t>(input.size())) {
+            if (err) {
+                *err = "ifd next offset field out of range";
+            }
+            return false;
+        }
+        if (!layout.bigtiff) {
+            *out = static_cast<uint64_t>(read_u32_tiff(
+                input, static_cast<size_t>(entries_end_u64), endian));
+        } else {
+            *out = read_u64_tiff(input, static_cast<size_t>(entries_end_u64),
+                                 endian);
+        }
+        return true;
+    }
+
+    static bool
+    parse_tiff_offset_array_entry(std::span<const std::byte> input,
+                                  uint16_t type, uint64_t count,
+                                  uint64_t value_or_off, TiffEndian endian,
+                                  const TiffLayout& layout,
+                                  std::vector<uint64_t>* out,
+                                  std::string* err) noexcept
+    {
+        if (!out) {
+            return false;
+        }
+        out->clear();
+        if (count == 0U) {
+            return true;
+        }
+
+        size_t elem_bytes = 0U;
+        if (type == 4U || type == 13U) {
+            elem_bytes = 4U;
+        } else if (type == 18U) {
+            elem_bytes = 8U;
+        } else {
+            if (err) {
+                *err = "unsupported tiff offset array type";
+            }
+            return false;
+        }
+
+        if (!layout.bigtiff && type == 18U) {
+            if (err) {
+                *err = "classic TIFF does not support 64-bit IFD offsets";
+            }
+            return false;
+        }
+        if (count > static_cast<uint64_t>(SIZE_MAX / elem_bytes)) {
+            if (err) {
+                *err = "tiff offset array too large";
+            }
+            return false;
+        }
+
+        out->reserve(static_cast<size_t>(count));
+        if (count == 1U) {
+            out->push_back(value_or_off);
+            return true;
+        }
+
+        const uint64_t payload_bytes
+            = count * static_cast<uint64_t>(elem_bytes);
+        if (value_or_off > static_cast<uint64_t>(input.size())
+            || payload_bytes > static_cast<uint64_t>(input.size()) - value_or_off) {
+            if (err) {
+                *err = "tiff offset array payload out of range";
+            }
+            return false;
+        }
+
+        const size_t payload_off = static_cast<size_t>(value_or_off);
+        for (size_t i = 0; i < static_cast<size_t>(count); ++i) {
+            const size_t off = payload_off + i * elem_bytes;
+            if (elem_bytes == 4U) {
+                out->push_back(static_cast<uint64_t>(
+                    read_u32_tiff(input, off, endian)));
+            } else {
+                out->push_back(read_u64_tiff(input, off, endian));
+            }
+        }
+        return true;
+    }
+
+    static bool
+    parse_target_tiff_ifd(std::span<const std::byte> input,
+                          uint64_t ifd_off_u64, TiffEndian endian,
+                          const TiffLayout& layout, ParsedTiffIfd* out,
+                          std::string* err) noexcept
+    {
+        if (!out) {
+            return false;
+        }
+        out->present      = false;
+        out->next_ifd_off = 0U;
+        out->entries.clear();
+
+        if (ifd_off_u64 == 0U) {
+            return false;
+        }
+        if (ifd_off_u64 > static_cast<uint64_t>(input.size())
+            || (layout.ifd_count_size
+                > static_cast<uint64_t>(input.size()) - ifd_off_u64)) {
+            if (err) {
+                *err = "target TIFF IFD offset out of range";
+            }
+            return false;
+        }
+
+        uint64_t count_u64 = 0U;
+        if (!layout.bigtiff) {
+            count_u64 = static_cast<uint64_t>(read_u16_tiff(
+                input, static_cast<size_t>(ifd_off_u64), endian));
+        } else {
+            count_u64 = read_u64_tiff(input, static_cast<size_t>(ifd_off_u64),
+                                      endian);
+        }
+        if (count_u64 > static_cast<uint64_t>(SIZE_MAX)) {
+            if (err) {
+                *err = "too many target TIFF IFD entries";
+            }
+            return false;
+        }
+
+        const uint64_t entries_off_u64 = ifd_off_u64 + layout.ifd_count_size;
+        const uint64_t entries_end_u64
+            = entries_off_u64 + count_u64 * layout.ifd_entry_size;
+        const uint64_t next_field_end_u64
+            = entries_end_u64 + layout.ifd_next_offset_size;
+        if (entries_end_u64 < entries_off_u64
+            || next_field_end_u64 < entries_end_u64
+            || next_field_end_u64 > static_cast<uint64_t>(input.size())) {
+            if (err) {
+                *err = "target TIFF IFD entries truncated";
+            }
+            return false;
+        }
+
+        out->entries.reserve(static_cast<size_t>(count_u64));
+        const size_t entries_off = static_cast<size_t>(entries_off_u64);
+        const size_t inline_off_delta = layout.bigtiff ? 12U : 8U;
+        for (size_t i = 0; i < static_cast<size_t>(count_u64); ++i) {
+            const size_t p = entries_off
+                             + i * static_cast<size_t>(layout.ifd_entry_size);
+            const uint16_t tag = read_u16_tiff(input, p + 0U, endian);
+            const uint16_t type = read_u16_tiff(input, p + 2U, endian);
+            uint64_t elem_count = 0U;
+            if (!layout.bigtiff) {
+                elem_count = static_cast<uint64_t>(
+                    read_u32_tiff(input, p + 4U, endian));
+            } else {
+                elem_count = read_u64_tiff(input, p + 4U, endian);
+            }
+
+            size_t payload_n = 0U;
+            if (!tiff_type_byte_len(type, elem_count, &payload_n)) {
+                if (err) {
+                    *err = "unsupported target TIFF IFD entry type/size";
+                }
+                return false;
+            }
+
+            ParsedTiffIfdEntry e;
+            e.tag   = tag;
+            e.type  = type;
+            e.count = elem_count;
+            if (payload_n <= layout.inline_value_bytes) {
+                e.payload.resize(payload_n, std::byte { 0x00 });
+                for (size_t bi = 0; bi < payload_n; ++bi) {
+                    e.payload[bi] = input[p + inline_off_delta + bi];
+                }
+            } else {
+                uint64_t value_off_u64 = 0U;
+                if (!layout.bigtiff) {
+                    value_off_u64 = static_cast<uint64_t>(
+                        read_u32_tiff(input, p + 8U, endian));
+                } else {
+                    value_off_u64 = read_u64_tiff(input, p + 12U, endian);
+                }
+                if (value_off_u64 > static_cast<uint64_t>(input.size())
+                    || payload_n
+                           > static_cast<size_t>(input.size())
+                                 - static_cast<size_t>(value_off_u64)) {
+                    if (err) {
+                        *err = "target TIFF IFD value offset out of range";
+                    }
+                    return false;
+                }
+                e.payload.resize(payload_n, std::byte { 0x00 });
+                if (payload_n > 0U) {
+                    std::memcpy(e.payload.data(),
+                                input.data()
+                                    + static_cast<size_t>(value_off_u64),
+                                payload_n);
+                }
+            }
+            out->entries.push_back(std::move(e));
+        }
+
+        if (!parse_tiff_ifd_next_offset(input, ifd_off_u64, endian, layout,
+                                        &out->next_ifd_off, err)) {
+            return false;
+        }
+        out->present = true;
+        return true;
+    }
+
     static bool find_ifd_entry(const ParsedTiffIfd& ifd, uint16_t tag,
                                ParsedTiffIfdEntry* out) noexcept
     {
@@ -6762,7 +7483,8 @@ namespace {
     static bool payload_to_u32(const ParsedTiffIfdEntry& e, TiffEndian endian,
                                uint32_t* out) noexcept
     {
-        if (!out || e.type != 4U || e.count != 1U || e.payload.size() != 4U) {
+        if (!out || (e.type != 4U && e.type != 13U) || e.count != 1U
+            || e.payload.size() != 4U) {
             return false;
         }
         const uint32_t b0 = static_cast<uint32_t>(
@@ -6781,6 +7503,65 @@ namespace {
         return true;
     }
 
+    static bool payload_to_u32_offsets(const ParsedTiffIfdEntry& e,
+                                       TiffEndian endian,
+                                       std::vector<uint32_t>* out) noexcept
+    {
+        if (!out || (e.type != 4U && e.type != 13U) || e.count == 0U
+            || e.count > static_cast<uint64_t>(SIZE_MAX / 4U)
+            || e.payload.size()
+                   != static_cast<size_t>(e.count * static_cast<uint64_t>(4U))) {
+            return false;
+        }
+        out->clear();
+        out->reserve(static_cast<size_t>(e.count));
+        for (size_t i = 0; i < static_cast<size_t>(e.count); ++i) {
+            const size_t off = i * 4U;
+            const uint32_t b0 = static_cast<uint32_t>(
+                std::to_integer<uint8_t>(e.payload[off + 0U]));
+            const uint32_t b1 = static_cast<uint32_t>(
+                std::to_integer<uint8_t>(e.payload[off + 1U]));
+            const uint32_t b2 = static_cast<uint32_t>(
+                std::to_integer<uint8_t>(e.payload[off + 2U]));
+            const uint32_t b3 = static_cast<uint32_t>(
+                std::to_integer<uint8_t>(e.payload[off + 3U]));
+            uint32_t value = 0U;
+            if (endian == TiffEndian::Little) {
+                value = b0 | (b1 << 8U) | (b2 << 16U) | (b3 << 24U);
+            } else {
+                value = (b0 << 24U) | (b1 << 16U) | (b2 << 8U) | b3;
+            }
+            out->push_back(value);
+        }
+        return true;
+    }
+
+    static bool
+    parse_classic_ifd_next_offset(std::span<const std::byte> tiff,
+                                  size_t ifd_off, TiffEndian endian,
+                                  uint32_t* out, std::string* err) noexcept
+    {
+        if (!out || ifd_off + 2U > tiff.size()) {
+            if (err) {
+                *err = "ifd offset out of range";
+            }
+            return false;
+        }
+        const uint16_t count = read_u16_tiff(tiff, ifd_off, endian);
+        const uint64_t entries_off_u64 = static_cast<uint64_t>(ifd_off) + 2U;
+        const uint64_t bytes_u64
+            = static_cast<uint64_t>(count) * static_cast<uint64_t>(12U);
+        const uint64_t next_off_u64 = entries_off_u64 + bytes_u64;
+        if (next_off_u64 < entries_off_u64 || next_off_u64 + 4U > tiff.size()) {
+            if (err) {
+                *err = "ifd next offset field out of range";
+            }
+            return false;
+        }
+        *out = read_u32_tiff(tiff, static_cast<size_t>(next_off_u64), endian);
+        return true;
+    }
+
     static bool
     parse_exif_app1_for_tiff_transfer(std::span<const std::byte> exif_app1,
                                       ParsedTransferExif* out,
@@ -6790,9 +7571,11 @@ namespace {
             return false;
         }
         out->ifd0_updates.clear();
+        out->ifd1          = ParsedTiffIfd {};
         out->exif_ifd      = ParsedTiffIfd {};
         out->gps_ifd       = ParsedTiffIfd {};
         out->interop_ifd   = ParsedTiffIfd {};
+        out->subifds.clear();
         out->source_endian = TiffEndian::Little;
 
         if (exif_app1.size() < 14U) {
@@ -6845,8 +7628,14 @@ namespace {
             return false;
         }
 
+        uint32_t ifd1_off      = 0U;
         uint32_t exif_ifd_off = 0U;
         uint32_t gps_ifd_off  = 0U;
+        std::vector<uint32_t> subifd_offsets;
+        if (!parse_classic_ifd_next_offset(tiff, ifd0_off, endian, &ifd1_off,
+                                           err)) {
+            return false;
+        }
         for (size_t i = 0; i < ifd0.entries.size(); ++i) {
             const ParsedTiffIfdEntry& e = ifd0.entries[i];
             if (e.tag == 0x8769U && payload_to_u32(e, endian, &exif_ifd_off)) {
@@ -6855,12 +7644,28 @@ namespace {
             if (e.tag == 0x8825U && payload_to_u32(e, endian, &gps_ifd_off)) {
                 continue;
             }
+            if (e.tag == 0x014AU
+                && payload_to_u32_offsets(e, endian, &subifd_offsets)) {
+                continue;
+            }
             TiffTagUpdate u;
             u.tag     = e.tag;
             u.type    = e.type;
-            u.count   = e.count;
+            if (e.count > static_cast<uint64_t>(0xFFFFFFFFU)) {
+                if (err) {
+                    *err = "exif app1 count exceeds classic 32-bit range";
+                }
+                return false;
+            }
+            u.count   = static_cast<uint32_t>(e.count);
             u.payload = e.payload;
             out->ifd0_updates.push_back(std::move(u));
+        }
+
+        if (ifd1_off != 0U
+            && !parse_classic_ifd(tiff, static_cast<size_t>(ifd1_off), endian,
+                                  &out->ifd1, err)) {
+            return false;
         }
 
         if (exif_ifd_off != 0U) {
@@ -6886,6 +7691,14 @@ namespace {
             && !parse_classic_ifd(tiff, static_cast<size_t>(gps_ifd_off),
                                   endian, &out->gps_ifd, err)) {
             return false;
+        }
+        for (size_t i = 0; i < subifd_offsets.size(); ++i) {
+            ParsedTiffIfd subifd;
+            if (!parse_classic_ifd(tiff, static_cast<size_t>(subifd_offsets[i]),
+                                   endian, &subifd, err)) {
+                return false;
+            }
+            out->subifds.push_back(std::move(subifd));
         }
 
         out->source_endian = endian;
@@ -7174,106 +7987,145 @@ namespace {
         }
     }
 
-    static void upsert_ifd_pointer(ParsedTiffIfd* ifd, uint16_t tag,
-                                   uint32_t value, TiffEndian endian) noexcept
+    static bool upsert_ifd_pointer(ParsedTiffIfd* ifd, uint16_t tag,
+                                   uint64_t value,
+                                   const TiffLayout& layout,
+                                   TiffEndian endian,
+                                   std::string* err) noexcept
     {
         if (!ifd) {
-            return;
+            return false;
         }
         std::vector<std::byte> payload;
-        append_u32_tiff(&payload, value, endian);
+        if (!layout.bigtiff) {
+            if (value > static_cast<uint64_t>(0xFFFFFFFFU)) {
+                if (err) {
+                    *err = "tiff output exceeds classic 32-bit offset range";
+                }
+                return false;
+            }
+            append_u32_tiff(&payload, static_cast<uint32_t>(value), endian);
+        } else {
+            append_u64_tiff(&payload, value, endian);
+        }
         for (size_t i = 0; i < ifd->entries.size(); ++i) {
             ParsedTiffIfdEntry& e = ifd->entries[i];
             if (e.tag == tag) {
-                e.type    = 4U;
+                e.type    = layout.bigtiff ? 18U : 4U;
                 e.count   = 1U;
                 e.payload = payload;
-                return;
+                return true;
             }
         }
         ParsedTiffIfdEntry p;
         p.tag     = tag;
-        p.type    = 4U;
+        p.type    = layout.bigtiff ? 18U : 4U;
         p.count   = 1U;
         p.payload = std::move(payload);
         ifd->entries.push_back(std::move(p));
+        return true;
     }
 
     static bool align_tiff_tail(std::vector<std::byte>* tail,
-                                uint32_t base_offset, std::string* err) noexcept
+                                uint64_t base_offset,
+                                const TiffLayout& layout,
+                                std::string* err) noexcept
     {
         if (!tail) {
             return false;
         }
         const uint64_t abs_size = static_cast<uint64_t>(base_offset)
                                   + static_cast<uint64_t>(tail->size());
-        if (abs_size > static_cast<uint64_t>(0xFFFFFFFFU)) {
+        if (abs_size < base_offset) {
+            if (err) {
+                *err = "tiff output offset overflow";
+            }
+            return false;
+        }
+        if (!layout.bigtiff
+            && abs_size > static_cast<uint64_t>(0xFFFFFFFFU)) {
             if (err) {
                 *err = "tiff output exceeds classic 32-bit offset range";
             }
             return false;
         }
-        if ((abs_size & 1U) != 0U) {
-            tail->push_back(std::byte { 0x00 });
+        const uint64_t mask = layout.alignment - 1U;
+        if ((abs_size & mask) != 0U) {
+            const uint64_t pad = layout.alignment - (abs_size & mask);
+            if (pad > static_cast<uint64_t>(SIZE_MAX - tail->size())) {
+                if (err) {
+                    *err = "tiff tail alignment overflow";
+                }
+                return false;
+            }
+            tail->resize(tail->size() + static_cast<size_t>(pad),
+                         std::byte { 0x00 });
         }
         return true;
     }
 
     static bool
-    append_serialized_ifd(std::vector<std::byte>* out, uint32_t base_offset,
+    append_serialized_ifd(std::vector<std::byte>* out, uint64_t base_offset,
                           const ParsedTiffIfd& ifd, TiffEndian endian,
-                          uint32_t* out_ifd_offset, std::string* err) noexcept
+                          const TiffLayout& layout, uint64_t* out_ifd_offset,
+                          std::string* err) noexcept
     {
         if (!out || !out_ifd_offset || !ifd.present) {
             return false;
         }
-        if (ifd.entries.size() > static_cast<size_t>(0xFFFFU)) {
+        if (!layout.bigtiff
+            && ifd.entries.size() > static_cast<size_t>(0xFFFFU)) {
             if (err) {
                 *err = "too many EXIF sub-IFD entries";
             }
             return false;
         }
 
-        if (!align_tiff_tail(out, base_offset, err)) {
+        if (!align_tiff_tail(out, base_offset, layout, err)) {
             return false;
         }
         const uint64_t dir_off_u64 = static_cast<uint64_t>(base_offset)
                                      + static_cast<uint64_t>(out->size());
-        if (dir_off_u64 > static_cast<uint64_t>(0xFFFFFFFFU)) {
+        if (!layout.bigtiff
+            && dir_off_u64 > static_cast<uint64_t>(0xFFFFFFFFU)) {
             if (err) {
                 *err = "tiff output exceeds classic 32-bit offset range";
             }
             return false;
         }
-        const uint32_t dir_off = static_cast<uint32_t>(dir_off_u64);
-        *out_ifd_offset        = dir_off;
+        *out_ifd_offset = dir_off_u64;
 
         struct Placement final {
             bool inline_value     = false;
-            uint32_t value_offset = 0U;
-            std::array<std::byte, 4> inline_bytes {};
+            uint64_t value_offset = 0U;
+            std::array<std::byte, 8> inline_bytes {};
         };
 
         std::vector<Placement> placements(ifd.entries.size());
-        uint32_t cursor = dir_off + 2U
-                          + static_cast<uint32_t>(ifd.entries.size()) * 12U
-                          + 4U;
+        const uint64_t table_bytes = static_cast<uint64_t>(ifd.entries.size())
+                                     * layout.ifd_entry_size;
+        uint64_t cursor = dir_off_u64 + layout.ifd_count_size + table_bytes
+                          + layout.ifd_next_offset_size;
 
         for (size_t i = 0; i < ifd.entries.size(); ++i) {
             const ParsedTiffIfdEntry& e = ifd.entries[i];
-            if (e.payload.size() <= 4U) {
+            if (e.payload.size() <= layout.inline_value_bytes) {
                 placements[i].inline_value = true;
                 for (size_t bi = 0; bi < e.payload.size(); ++bi) {
                     placements[i].inline_bytes[bi] = e.payload[bi];
                 }
                 continue;
             }
-            cursor                     = (cursor + 1U) & ~1U;
+            const uint64_t mask = layout.alignment - 1U;
+            if ((cursor & mask) != 0U) {
+                cursor += layout.alignment - (cursor & mask);
+            }
             placements[i].value_offset = cursor;
-            cursor += static_cast<uint32_t>(e.payload.size());
+            cursor += static_cast<uint64_t>(e.payload.size());
         }
 
-        if (cursor > static_cast<uint32_t>(0xFFFFFFFFU)) {
+        if (!layout.bigtiff
+            && cursor > static_cast<uint64_t>(0xFFFFFFFFU)) {
             if (err) {
                 *err = "tiff output exceeds classic 32-bit offset range";
             }
@@ -7285,28 +8137,53 @@ namespace {
             }
             return false;
         }
+        if ((cursor - base_offset) > static_cast<uint64_t>(SIZE_MAX)) {
+            if (err) {
+                *err = "serialized EXIF sub-IFD exceeds addressable size";
+            }
+            return false;
+        }
         out->resize(static_cast<size_t>(cursor - base_offset),
                     std::byte { 0x00 });
 
-        size_t p = static_cast<size_t>(dir_off - base_offset);
-        write_u16_tiff(out, p, static_cast<uint16_t>(ifd.entries.size()),
-                       endian);
-        p += 2U;
+        size_t p = static_cast<size_t>(dir_off_u64 - base_offset);
+        if (!layout.bigtiff) {
+            write_u16_tiff(out, p, static_cast<uint16_t>(ifd.entries.size()),
+                           endian);
+        } else {
+            write_u64_tiff(out, p, static_cast<uint64_t>(ifd.entries.size()),
+                           endian);
+        }
+        p += static_cast<size_t>(layout.ifd_count_size);
         for (size_t i = 0; i < ifd.entries.size(); ++i) {
             const ParsedTiffIfdEntry& e = ifd.entries[i];
             write_u16_tiff(out, p + 0U, e.tag, endian);
             write_u16_tiff(out, p + 2U, e.type, endian);
-            write_u32_tiff(out, p + 4U, e.count, endian);
+            if (!write_tiff_count_field(out, p + 4U, e.count, layout, endian,
+                                        err)) {
+                return false;
+            }
             if (placements[i].inline_value) {
-                for (size_t bi = 0; bi < 4U; ++bi) {
-                    (*out)[p + 8U + bi] = placements[i].inline_bytes[bi];
+                const size_t inline_off = layout.bigtiff ? (p + 12U)
+                                                         : (p + 8U);
+                for (size_t bi = 0; bi < layout.inline_value_bytes; ++bi) {
+                    (*out)[inline_off + bi] = placements[i].inline_bytes[bi];
                 }
             } else {
-                write_u32_tiff(out, p + 8U, placements[i].value_offset, endian);
+                const size_t value_off_field = layout.bigtiff ? (p + 12U)
+                                                              : (p + 8U);
+                if (!write_tiff_offset_field(out, value_off_field,
+                                             placements[i].value_offset,
+                                             layout, endian, err)) {
+                    return false;
+                }
             }
-            p += 12U;
+            p += static_cast<size_t>(layout.ifd_entry_size);
         }
-        write_u32_tiff(out, p, 0U, endian);
+        if (!write_tiff_offset_field(out, p, ifd.next_ifd_off, layout, endian,
+                                     err)) {
+            return false;
+        }
 
         for (size_t i = 0; i < ifd.entries.size(); ++i) {
             const ParsedTiffIfdEntry& e = ifd.entries[i];
@@ -7338,6 +8215,7 @@ namespace {
         }
         out->tail_bytes.clear();
         out->new_ifd0_off = 0U;
+        out->layout       = TiffLayout {};
 
         if (updates.empty() && exif_app1_payload.empty()) {
             if (err) {
@@ -7345,58 +8223,68 @@ namespace {
             }
             return false;
         }
-        if (input.size() < 8U) {
-            if (err) {
-                *err = "tiff input too small";
-            }
+        TiffEndian endian = TiffEndian::Little;
+        TiffLayout layout;
+        uint64_t ifd0_off_u64 = 0U;
+        if (!parse_tiff_layout(input, &endian, &layout, &ifd0_off_u64, err)) {
             return false;
         }
-        if (input.size() > static_cast<size_t>(0xFFFFFFFFU)) {
+        out->layout = layout;
+        if (!layout.bigtiff
+            && input.size() > static_cast<size_t>(0xFFFFFFFFU)) {
             if (err) {
                 *err = "tiff output exceeds classic 32-bit offset range";
             }
             return false;
         }
-
-        TiffEndian endian = TiffEndian::Little;
-        if (input[0] == std::byte { 'I' } && input[1] == std::byte { 'I' }) {
-            endian = TiffEndian::Little;
-        } else if (input[0] == std::byte { 'M' }
-                   && input[1] == std::byte { 'M' }) {
-            endian = TiffEndian::Big;
-        } else {
-            if (err) {
-                *err = "unsupported tiff byte order";
-            }
-            return false;
-        }
-        const uint16_t magic = read_u16_tiff(input, 2U, endian);
-        if (magic != 42U) {
-            if (err) {
-                *err = "unsupported tiff variant (expected classic tiff)";
-            }
-            return false;
-        }
-
-        const uint32_t ifd0_off_u32 = read_u32_tiff(input, 4U, endian);
-        const size_t ifd0_off       = static_cast<size_t>(ifd0_off_u32);
-        if (ifd0_off + 2U > input.size()) {
+        if (ifd0_off_u64 > static_cast<uint64_t>(input.size())
+            || (layout.ifd_count_size
+                > static_cast<uint64_t>(input.size()) - ifd0_off_u64)) {
             if (err) {
                 *err = "ifd0 offset out of range";
             }
             return false;
         }
-        const uint16_t count_u16 = read_u16_tiff(input, ifd0_off, endian);
-        const size_t count       = static_cast<size_t>(count_u16);
-        const size_t entries_off = ifd0_off + 2U;
-        const size_t entries_end = entries_off + count * 12U;
-        if (entries_end + 4U > input.size()) {
+        uint64_t count_u64 = 0U;
+        if (!layout.bigtiff) {
+            count_u64 = read_u16_tiff(input, static_cast<size_t>(ifd0_off_u64),
+                                      endian);
+        } else {
+            count_u64 = read_u64_tiff(input, static_cast<size_t>(ifd0_off_u64),
+                                      endian);
+        }
+        if (count_u64 > static_cast<uint64_t>(SIZE_MAX)) {
+            if (err) {
+                *err = "too many tiff ifd0 entries";
+            }
+            return false;
+        }
+        const size_t count = static_cast<size_t>(count_u64);
+        const uint64_t entries_off_u64 = ifd0_off_u64 + layout.ifd_count_size;
+        const uint64_t table_bytes = count_u64 * layout.ifd_entry_size;
+        const uint64_t entries_end_u64 = entries_off_u64 + table_bytes;
+        const uint64_t next_field_end_u64
+            = entries_end_u64 + layout.ifd_next_offset_size;
+        if (entries_end_u64 < entries_off_u64
+            || next_field_end_u64 < entries_end_u64
+            || next_field_end_u64 > static_cast<uint64_t>(input.size())) {
             if (err) {
                 *err = "ifd0 entries truncated";
             }
             return false;
         }
-        const uint32_t next_ifd_off = read_u32_tiff(input, entries_end, endian);
+        const size_t entries_off = static_cast<size_t>(entries_off_u64);
+        const uint64_t next_ifd_off = layout.bigtiff
+                                          ? read_u64_tiff(
+                                                input,
+                                                static_cast<size_t>(
+                                                    entries_end_u64),
+                                                endian)
+                                          : static_cast<uint64_t>(read_u32_tiff(
+                                                input,
+                                                static_cast<size_t>(
+                                                    entries_end_u64),
+                                                endian));
 
         ParsedTransferExif parsed_exif;
         if (!exif_app1_payload.empty()
@@ -7435,23 +8323,47 @@ namespace {
 
         const bool need_exif_ptr = parsed_exif.exif_ifd.present;
         const bool need_gps_ptr  = parsed_exif.gps_ifd.present;
+        const bool need_subifd_ptr = !parsed_exif.subifds.empty();
+        std::vector<uint64_t> existing_subifd_offsets;
 
         std::vector<TiffIfdEntry> final_entries;
-        final_entries.reserve(count + merged_updates.size() + 2U);
+        final_entries.reserve(count + merged_updates.size() + 3U);
 
         for (size_t i = 0; i < count; ++i) {
-            const size_t p     = entries_off + i * 12U;
+            const size_t p = entries_off
+                             + i * static_cast<size_t>(layout.ifd_entry_size);
             const uint16_t tag = read_u16_tiff(input, p + 0U, endian);
+            const uint16_t type = read_u16_tiff(input, p + 2U, endian);
+            uint64_t count_value = 0U;
+            uint64_t value_or_off = 0U;
+            if (!layout.bigtiff) {
+                count_value  = static_cast<uint64_t>(
+                    read_u32_tiff(input, p + 4U, endian));
+                value_or_off = static_cast<uint64_t>(
+                    read_u32_tiff(input, p + 8U, endian));
+            } else {
+                count_value  = read_u64_tiff(input, p + 4U, endian);
+                value_or_off = read_u64_tiff(input, p + 12U, endian);
+            }
+            if (need_subifd_ptr && tag == 0x014AU
+                && !parse_tiff_offset_array_entry(input, type, count_value,
+                                                  value_or_off, endian,
+                                                  layout,
+                                                  &existing_subifd_offsets,
+                                                  err)) {
+                return false;
+            }
             if (has_update_for_tag(merged_updates, tag)
                 || (need_exif_ptr && tag == 0x8769U)
-                || (need_gps_ptr && tag == 0x8825U)) {
+                || (need_gps_ptr && tag == 0x8825U)
+                || (need_subifd_ptr && tag == 0x014AU)) {
                 continue;
             }
             TiffIfdEntry e;
             e.tag          = tag;
-            e.type         = read_u16_tiff(input, p + 2U, endian);
-            e.count        = read_u32_tiff(input, p + 4U, endian);
-            e.value_or_off = read_u32_tiff(input, p + 8U, endian);
+            e.type         = type;
+            e.count        = count_value;
+            e.value_or_off = value_or_off;
             final_entries.push_back(e);
         }
 
@@ -7488,28 +8400,39 @@ namespace {
         if (need_exif_ptr) {
             TiffIfdEntry e;
             e.tag                 = 0x8769U;
-            e.type                = 4U;
+            e.type                = layout.bigtiff ? 18U : 4U;
             e.count               = 1U;
             e.has_rewrite_payload = true;
-            e.rewrite_payload.resize(4U, std::byte { 0x00 });
+            e.rewrite_payload.resize(
+                static_cast<size_t>(layout.bigtiff ? 8U : 4U),
+                std::byte { 0x00 });
             final_entries.push_back(std::move(e));
         }
         if (need_gps_ptr) {
             TiffIfdEntry e;
             e.tag                 = 0x8825U;
-            e.type                = 4U;
+            e.type                = layout.bigtiff ? 18U : 4U;
             e.count               = 1U;
             e.has_rewrite_payload = true;
-            e.rewrite_payload.resize(4U, std::byte { 0x00 });
+            e.rewrite_payload.resize(
+                static_cast<size_t>(layout.bigtiff ? 8U : 4U),
+                std::byte { 0x00 });
+            final_entries.push_back(std::move(e));
+        }
+        if (need_subifd_ptr) {
+            TiffIfdEntry e;
+            e.tag   = 0x014AU;
+            e.type  = layout.bigtiff ? 18U : 4U;
+            e.count = static_cast<uint64_t>(parsed_exif.subifds.size());
             final_entries.push_back(std::move(e));
         }
 
         std::sort(final_entries.begin(), final_entries.end(),
                   TiffIfdEntryLess {});
 
-        const uint32_t base_offset   = static_cast<uint32_t>(input.size());
+        const uint64_t base_offset   = static_cast<uint64_t>(input.size());
         std::vector<std::byte>& tail = out->tail_bytes;
-        if (!align_tiff_tail(&tail, base_offset, err)) {
+        if (!align_tiff_tail(&tail, base_offset, layout, err)) {
             return false;
         }
 
@@ -7518,55 +8441,153 @@ namespace {
             if (!e.has_rewrite_payload) {
                 continue;
             }
-            if (e.rewrite_payload.size() <= 4U) {
+            if (e.rewrite_payload.size() <= layout.inline_value_bytes) {
                 e.has_inline_payload = true;
-                e.inline_payload     = { std::byte { 0x00 }, std::byte { 0x00 },
-                                         std::byte { 0x00 }, std::byte { 0x00 } };
+                e.inline_payload     = {
+                    std::byte { 0x00 }, std::byte { 0x00 },
+                    std::byte { 0x00 }, std::byte { 0x00 },
+                    std::byte { 0x00 }, std::byte { 0x00 },
+                    std::byte { 0x00 }, std::byte { 0x00 },
+                };
                 for (size_t bi = 0; bi < e.rewrite_payload.size(); ++bi) {
                     e.inline_payload[bi] = e.rewrite_payload[bi];
                 }
                 continue;
             }
-            if (!align_tiff_tail(&tail, base_offset, err)) {
+            if (!align_tiff_tail(&tail, base_offset, layout, err)) {
                 return false;
             }
             const uint64_t value_off_u64 = static_cast<uint64_t>(base_offset)
                                            + static_cast<uint64_t>(tail.size());
-            if (value_off_u64 > static_cast<uint64_t>(0xFFFFFFFFU)) {
+            if (!layout.bigtiff
+                && value_off_u64 > static_cast<uint64_t>(0xFFFFFFFFU)) {
                 if (err) {
                     *err = "tiff output exceeds classic 32-bit offset range";
                 }
                 return false;
             }
-            e.value_or_off = static_cast<uint32_t>(value_off_u64);
+            e.value_or_off = value_off_u64;
             tail.insert(tail.end(), e.rewrite_payload.begin(),
                         e.rewrite_payload.end());
         }
 
-        uint32_t interop_ifd_off = 0U;
+        uint64_t ifd1_tail_next_off = 0U;
+        if (parsed_exif.ifd1.present && next_ifd_off != 0U
+            && !parse_tiff_ifd_next_offset(input, next_ifd_off, endian, layout,
+                                           &ifd1_tail_next_off, err)) {
+            return false;
+        }
+        std::vector<uint64_t> existing_subifd_tail_next_offsets;
+        if (need_subifd_ptr && !existing_subifd_offsets.empty()) {
+            existing_subifd_tail_next_offsets.resize(existing_subifd_offsets.size(),
+                                                     0U);
+            for (size_t i = 0; i < existing_subifd_offsets.size(); ++i) {
+                if (existing_subifd_offsets[i] == 0U) {
+                    continue;
+                }
+                if (!parse_tiff_ifd_next_offset(input, existing_subifd_offsets[i],
+                                                endian, layout,
+                                                &existing_subifd_tail_next_offsets[i],
+                                                err)) {
+                    return false;
+                }
+            }
+        }
+        std::vector<ParsedTiffIfd> preserved_existing_subifds;
+        if (need_subifd_ptr
+            && existing_subifd_offsets.size() > parsed_exif.subifds.size()) {
+            preserved_existing_subifds.reserve(
+                existing_subifd_offsets.size() - parsed_exif.subifds.size());
+            for (size_t i = parsed_exif.subifds.size();
+                 i < existing_subifd_offsets.size(); ++i) {
+                if (existing_subifd_offsets[i] == 0U) {
+                    continue;
+                }
+                ParsedTiffIfd subifd;
+                if (!parse_target_tiff_ifd(input, existing_subifd_offsets[i],
+                                           endian, layout, &subifd, err)) {
+                    return false;
+                }
+                preserved_existing_subifds.push_back(std::move(subifd));
+            }
+        }
+        if (!preserved_existing_subifds.empty()) {
+            for (size_t i = 0; i < final_entries.size(); ++i) {
+                if (final_entries[i].tag == 0x014AU) {
+                    final_entries[i].count = static_cast<uint64_t>(
+                        parsed_exif.subifds.size()
+                        + preserved_existing_subifds.size());
+                    break;
+                }
+            }
+        }
+
+        uint64_t interop_ifd_off = 0U;
         if (parsed_exif.interop_ifd.present
             && !append_serialized_ifd(&tail, base_offset,
-                                      parsed_exif.interop_ifd, endian,
+                                      parsed_exif.interop_ifd, endian, layout,
                                       &interop_ifd_off, err)) {
             return false;
         }
 
-        uint32_t exif_ifd_off = 0U;
+        uint64_t exif_ifd_off = 0U;
         if (parsed_exif.exif_ifd.present) {
             ParsedTiffIfd exif_ifd = parsed_exif.exif_ifd;
             if (parsed_exif.interop_ifd.present) {
-                upsert_ifd_pointer(&exif_ifd, 0xA005U, interop_ifd_off, endian);
+                if (!upsert_ifd_pointer(&exif_ifd, 0xA005U, interop_ifd_off,
+                                        layout, endian, err)) {
+                    return false;
+                }
             }
             if (!append_serialized_ifd(&tail, base_offset, exif_ifd, endian,
-                                       &exif_ifd_off, err)) {
+                                       layout, &exif_ifd_off, err)) {
                 return false;
             }
         }
 
-        uint32_t gps_ifd_off = 0U;
+        uint64_t gps_ifd_off = 0U;
         if (parsed_exif.gps_ifd.present
             && !append_serialized_ifd(&tail, base_offset, parsed_exif.gps_ifd,
-                                      endian, &gps_ifd_off, err)) {
+                                      endian, layout, &gps_ifd_off, err)) {
+            return false;
+        }
+
+        std::vector<uint64_t> subifd_offsets;
+        if (!parsed_exif.subifds.empty() || !preserved_existing_subifds.empty()) {
+            subifd_offsets.reserve(parsed_exif.subifds.size()
+                                   + preserved_existing_subifds.size());
+            for (size_t i = 0; i < parsed_exif.subifds.size(); ++i) {
+                uint64_t subifd_off = 0U;
+                ParsedTiffIfd subifd = parsed_exif.subifds[i];
+                if (subifd.next_ifd_off == 0U
+                    && i < existing_subifd_tail_next_offsets.size()) {
+                    subifd.next_ifd_off = existing_subifd_tail_next_offsets[i];
+                }
+                if (!append_serialized_ifd(&tail, base_offset, subifd, endian,
+                                           layout, &subifd_off, err)) {
+                    return false;
+                }
+                subifd_offsets.push_back(subifd_off);
+            }
+            for (size_t i = 0; i < preserved_existing_subifds.size(); ++i) {
+                uint64_t subifd_off = 0U;
+                if (!append_serialized_ifd(&tail, base_offset,
+                                           preserved_existing_subifds[i],
+                                           endian, layout, &subifd_off, err)) {
+                    return false;
+                }
+                subifd_offsets.push_back(subifd_off);
+            }
+        }
+
+        uint64_t ifd1_off = 0U;
+        ParsedTiffIfd ifd1 = parsed_exif.ifd1;
+        if (ifd1.present && ifd1.next_ifd_off == 0U) {
+            ifd1.next_ifd_off = ifd1_tail_next_off;
+        }
+        if (ifd1.present
+            && !append_serialized_ifd(&tail, base_offset, ifd1, endian,
+                                      layout, &ifd1_off, err)) {
             return false;
         }
 
@@ -7574,76 +8595,136 @@ namespace {
             for (size_t i = 0; i < final_entries.size(); ++i) {
                 TiffIfdEntry& e = final_entries[i];
                 if (e.tag == 0x8769U && exif_ifd_off != 0U) {
-                    e.type               = 4U;
+                    e.type               = layout.bigtiff ? 18U : 4U;
                     e.count              = 1U;
                     e.has_inline_payload = true;
-                    e.inline_payload = { std::byte { 0x00 }, std::byte { 0x00 },
-                                         std::byte { 0x00 },
-                                         std::byte { 0x00 } };
-                    std::vector<std::byte> tmp;
-                    append_u32_tiff(&tmp, exif_ifd_off, endian);
-                    for (size_t bi = 0; bi < 4U; ++bi) {
-                        e.inline_payload[bi] = tmp[bi];
+                    if (!write_tiff_inline_bytes(&e.inline_payload,
+                                                 exif_ifd_off, layout, endian,
+                                                 err)) {
+                        return false;
                     }
                     continue;
                 }
                 if (e.tag == 0x8825U && gps_ifd_off != 0U) {
-                    e.type               = 4U;
+                    e.type               = layout.bigtiff ? 18U : 4U;
                     e.count              = 1U;
                     e.has_inline_payload = true;
-                    e.inline_payload = { std::byte { 0x00 }, std::byte { 0x00 },
-                                         std::byte { 0x00 },
-                                         std::byte { 0x00 } };
-                    std::vector<std::byte> tmp;
-                    append_u32_tiff(&tmp, gps_ifd_off, endian);
-                    for (size_t bi = 0; bi < 4U; ++bi) {
-                        e.inline_payload[bi] = tmp[bi];
+                    if (!write_tiff_inline_bytes(&e.inline_payload,
+                                                 gps_ifd_off, layout, endian,
+                                                 err)) {
+                        return false;
                     }
                 }
             }
         }
 
-        if (!align_tiff_tail(&tail, base_offset, err)) {
+        if (!subifd_offsets.empty()) {
+            for (size_t i = 0; i < final_entries.size(); ++i) {
+                TiffIfdEntry& e = final_entries[i];
+                if (e.tag != 0x014AU) {
+                    continue;
+                }
+                if (subifd_offsets.size() == 1U) {
+                    e.has_inline_payload = true;
+                    if (!write_tiff_inline_bytes(&e.inline_payload,
+                                                 subifd_offsets[0], layout,
+                                                 endian, err)) {
+                        return false;
+                    }
+                    break;
+                }
+
+                if (!align_tiff_tail(&tail, base_offset, layout, err)) {
+                    return false;
+                }
+                const uint64_t array_off = base_offset
+                                           + static_cast<uint64_t>(tail.size());
+                const size_t elem_bytes
+                    = static_cast<size_t>(layout.bigtiff ? 8U : 4U);
+                const size_t payload_bytes = subifd_offsets.size() * elem_bytes;
+                const size_t write_off     = tail.size();
+                tail.resize(tail.size() + payload_bytes,
+                            std::byte { 0x00 });
+                for (size_t j = 0; j < subifd_offsets.size(); ++j) {
+                    if (!write_tiff_offset_field(&tail,
+                                                 write_off + j * elem_bytes,
+                                                 subifd_offsets[j], layout,
+                                                 endian, err)) {
+                        return false;
+                    }
+                }
+                e.value_or_off = array_off;
+                break;
+            }
+        }
+
+        if (!align_tiff_tail(&tail, base_offset, layout, err)) {
             return false;
         }
         const uint64_t new_ifd0_off_u64 = static_cast<uint64_t>(base_offset)
                                           + static_cast<uint64_t>(tail.size());
-        if (new_ifd0_off_u64 > static_cast<uint64_t>(0xFFFFFFFFU)) {
+        if (!layout.bigtiff
+            && new_ifd0_off_u64 > static_cast<uint64_t>(0xFFFFFFFFU)) {
             if (err) {
                 *err = "tiff output exceeds classic 32-bit offset range";
             }
             return false;
         }
-        out->new_ifd0_off = static_cast<uint32_t>(new_ifd0_off_u64);
+        out->new_ifd0_off = new_ifd0_off_u64;
 
-        if (final_entries.size() > static_cast<size_t>(0xFFFFU)) {
+        if (!layout.bigtiff
+            && final_entries.size() > static_cast<size_t>(0xFFFFU)) {
             if (err) {
                 *err = "too many tiff ifd0 entries";
             }
             return false;
         }
-        const size_t ifd_bytes     = 2U + final_entries.size() * 12U + 4U;
+        const size_t ifd_bytes = static_cast<size_t>(
+            layout.ifd_count_size
+            + static_cast<uint64_t>(final_entries.size()) * layout.ifd_entry_size
+            + layout.ifd_next_offset_size);
         const size_t local_ifd_off = tail.size();
         tail.resize(tail.size() + ifd_bytes, std::byte { 0x00 });
         size_t w = local_ifd_off;
-        write_u16_tiff(&tail, w, static_cast<uint16_t>(final_entries.size()),
-                       endian);
-        w += 2U;
+        if (!layout.bigtiff) {
+            write_u16_tiff(&tail, w, static_cast<uint16_t>(final_entries.size()),
+                           endian);
+        } else {
+            write_u64_tiff(&tail, w, static_cast<uint64_t>(final_entries.size()),
+                           endian);
+        }
+        w += static_cast<size_t>(layout.ifd_count_size);
         for (size_t i = 0; i < final_entries.size(); ++i) {
             const TiffIfdEntry& e = final_entries[i];
             write_u16_tiff(&tail, w + 0U, e.tag, endian);
             write_u16_tiff(&tail, w + 2U, e.type, endian);
-            write_u32_tiff(&tail, w + 4U, e.count, endian);
+            if (!write_tiff_count_field(&tail, w + 4U, e.count, layout, endian,
+                                        err)) {
+                return false;
+            }
             if (e.has_inline_payload) {
-                for (size_t k = 0; k < 4U; ++k) {
-                    tail[w + 8U + k] = e.inline_payload[k];
+                const size_t inline_off = layout.bigtiff ? (w + 12U)
+                                                         : (w + 8U);
+                for (size_t k = 0; k < layout.inline_value_bytes; ++k) {
+                    tail[inline_off + k] = e.inline_payload[k];
                 }
             } else {
-                write_u32_tiff(&tail, w + 8U, e.value_or_off, endian);
+                const size_t value_off_field = layout.bigtiff ? (w + 12U)
+                                                              : (w + 8U);
+                if (!write_tiff_offset_field(&tail, value_off_field,
+                                             e.value_or_off, layout, endian,
+                                             err)) {
+                    return false;
+                }
             }
-            w += 12U;
+            w += static_cast<size_t>(layout.ifd_entry_size);
         }
-        write_u32_tiff(&tail, w, next_ifd_off, endian);
+        const uint64_t rewritten_next_ifd_off
+            = ifd1_off != 0U ? ifd1_off : next_ifd_off;
+        if (!write_tiff_offset_field(&tail, w, rewritten_next_ifd_off, layout,
+                                     endian, err)) {
+            return false;
+        }
         out->endian = endian;
         return true;
     }
@@ -7673,7 +8754,12 @@ namespace {
                 scrub_tiff_payload_ranges(out, ranges);
             }
         }
-        write_u32_tiff(out, 4U, rewrite.new_ifd0_off, rewrite.endian);
+        if (!rewrite.layout.bigtiff) {
+            write_u32_tiff(out, 4U, static_cast<uint32_t>(rewrite.new_ifd0_off),
+                           rewrite.endian);
+        } else {
+            write_u64_tiff(out, 8U, rewrite.new_ifd0_off, rewrite.endian);
+        }
         out->insert(out->end(), rewrite.tail_bytes.begin(),
                     rewrite.tail_bytes.end());
         return true;
@@ -8144,8 +9230,9 @@ prepare_metadata_for_target_impl(const MetaStore& store,
     }
 
     if (request.include_exif_app1 && has_exif) {
-        ExifPackBuild exif_build
-            = build_jpeg_exif_app1_payload(store, effective_makernote);
+        ExifPackBuild exif_build = build_jpeg_exif_app1_payload(
+            store, effective_makernote,
+            request.target_format == TransferTargetFormat::Tiff);
         if (exif_build.produced && !exif_build.app1_payload.empty()) {
             const uint32_t block_index = static_cast<uint32_t>(
                 bundle.blocks.size());
@@ -12344,7 +13431,7 @@ build_prepared_bundle_tiff_package(
         return out;
     }
 
-    if (input_tiff.size() < 8U) {
+    if (input_tiff.size() < rewrite.layout.header_size) {
         out.status  = TransferStatus::Malformed;
         out.code    = EmitTransferCode::InvalidArgument;
         out.errors  = 1U;
@@ -12352,19 +13439,32 @@ build_prepared_bundle_tiff_package(
         return out;
     }
 
-    append_package_source_chunk(out_plan, 0U, 4U);
-    std::array<std::byte, 4> patched_ifd0 = {
-        std::byte { 0x00 },
-        std::byte { 0x00 },
-        std::byte { 0x00 },
-        std::byte { 0x00 },
+    append_package_source_chunk(out_plan, 0U,
+                                rewrite.layout.ifd0_pointer_offset);
+    std::array<std::byte, 8> patched_ifd0 = {
+        std::byte { 0x00 }, std::byte { 0x00 }, std::byte { 0x00 },
+        std::byte { 0x00 }, std::byte { 0x00 }, std::byte { 0x00 },
+        std::byte { 0x00 }, std::byte { 0x00 },
     };
-    write_u32_tiff_bytes(&patched_ifd0, rewrite.new_ifd0_off, rewrite.endian);
-    append_package_inline_chunk(out_plan,
-                                std::span<const std::byte>(patched_ifd0.data(),
-                                                           patched_ifd0.size()));
-    append_package_source_chunk(out_plan, 8U,
-                                static_cast<uint64_t>(input_tiff.size() - 8U));
+    if (!write_tiff_inline_bytes(&patched_ifd0, rewrite.new_ifd0_off,
+                                 rewrite.layout, rewrite.endian, &err)) {
+        out.status  = tiff_edit_status_from_error(err);
+        out.code    = EmitTransferCode::PlanMismatch;
+        out.errors  = 1U;
+        out.message = err;
+        return out;
+    }
+    append_package_inline_chunk(
+        out_plan,
+        std::span<const std::byte>(patched_ifd0.data(),
+                                   static_cast<size_t>(
+                                       rewrite.layout.inline_value_bytes)));
+    append_package_source_chunk(
+        out_plan,
+        rewrite.layout.ifd0_pointer_offset + rewrite.layout.inline_value_bytes,
+        static_cast<uint64_t>(input_tiff.size())
+            - (rewrite.layout.ifd0_pointer_offset
+               + rewrite.layout.inline_value_bytes));
     append_package_inline_chunk(
         out_plan, std::span<const std::byte>(rewrite.tail_bytes.data(),
                                              rewrite.tail_bytes.size()));

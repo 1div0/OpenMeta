@@ -1,17 +1,22 @@
 #include "openmeta/exr_adapter.h"
 
 #include "openmeta/meta_key.h"
+#include "openmeta/metadata_transfer.h"
 #include "openmeta/meta_value.h"
 
 #include <gtest/gtest.h>
 
 #include <array>
 #include <bit>
+#include <cstdio>
 #include <cstdint>
+#include <cstring>
 #include <span>
 #include <string>
 #include <string_view>
 #include <vector>
+
+#include <unistd.h>
 
 namespace openmeta {
 namespace {
@@ -40,6 +45,89 @@ namespace {
         v |= (static_cast<uint32_t>(bytes[2]) & 0xFFU) << 16;
         v |= (static_cast<uint32_t>(bytes[3]) & 0xFFU) << 24;
         return v;
+    }
+
+    static std::vector<std::byte>
+    make_test_jpeg_with_exif_make(std::string_view make)
+    {
+        std::vector<std::byte> out;
+        out.reserve(64U + make.size());
+        out.push_back(std::byte { 0xFF });
+        out.push_back(std::byte { 0xD8 });
+
+        std::vector<std::byte> tiff;
+        tiff.reserve(32U + make.size());
+        tiff.push_back(std::byte { 'I' });
+        tiff.push_back(std::byte { 'I' });
+        tiff.push_back(std::byte { 0x2A });
+        tiff.push_back(std::byte { 0x00 });
+        tiff.push_back(std::byte { 0x08 });
+        tiff.push_back(std::byte { 0x00 });
+        tiff.push_back(std::byte { 0x00 });
+        tiff.push_back(std::byte { 0x00 });
+        tiff.push_back(std::byte { 0x01 });
+        tiff.push_back(std::byte { 0x00 });
+        tiff.push_back(std::byte { 0x0F });
+        tiff.push_back(std::byte { 0x01 });
+        tiff.push_back(std::byte { 0x02 });
+        tiff.push_back(std::byte { 0x00 });
+        const uint32_t count = static_cast<uint32_t>(make.size() + 1U);
+        tiff.push_back(std::byte { static_cast<uint8_t>(count & 0xFFU) });
+        tiff.push_back(
+            std::byte { static_cast<uint8_t>((count >> 8) & 0xFFU) });
+        tiff.push_back(std::byte { 0x00 });
+        tiff.push_back(std::byte { 0x00 });
+        tiff.push_back(std::byte { 0x1A });
+        tiff.push_back(std::byte { 0x00 });
+        tiff.push_back(std::byte { 0x00 });
+        tiff.push_back(std::byte { 0x00 });
+        tiff.push_back(std::byte { 0x00 });
+        tiff.push_back(std::byte { 0x00 });
+        tiff.push_back(std::byte { 0x00 });
+        tiff.push_back(std::byte { 0x00 });
+        for (size_t i = 0; i < make.size(); ++i) {
+            tiff.push_back(std::byte { static_cast<uint8_t>(make[i]) });
+        }
+        tiff.push_back(std::byte { 0x00 });
+
+        const size_t app1_size   = 6U + tiff.size();
+        const uint16_t app1_len = static_cast<uint16_t>(app1_size + 2U);
+        out.push_back(std::byte { 0xFF });
+        out.push_back(std::byte { 0xE1 });
+        out.push_back(
+            std::byte { static_cast<uint8_t>((app1_len >> 8) & 0xFFU) });
+        out.push_back(std::byte { static_cast<uint8_t>(app1_len & 0xFFU) });
+        out.push_back(std::byte { 'E' });
+        out.push_back(std::byte { 'x' });
+        out.push_back(std::byte { 'i' });
+        out.push_back(std::byte { 'f' });
+        out.push_back(std::byte { 0x00 });
+        out.push_back(std::byte { 0x00 });
+        out.insert(out.end(), tiff.begin(), tiff.end());
+        out.push_back(std::byte { 0xFF });
+        out.push_back(std::byte { 0xD9 });
+        return out;
+    }
+
+    static std::string write_temp_bytes(
+        std::span<const std::byte> bytes)
+    {
+        char path_template[] = "/tmp/openmeta_exr_adapter_XXXXXX";
+        const int fd         = ::mkstemp(path_template);
+        EXPECT_NE(fd, -1);
+        if (fd == -1) {
+            return std::string();
+        }
+        FILE* f = ::fdopen(fd, "wb");
+        EXPECT_NE(f, nullptr);
+        if (!f) {
+            ::close(fd);
+            return std::string();
+        }
+        const size_t written = std::fwrite(bytes.data(), 1U, bytes.size(), f);
+        EXPECT_EQ(written, bytes.size());
+        std::fclose(f);
+        return std::string(path_template);
     }
 
     struct ReplayState final {
@@ -478,6 +566,107 @@ TEST(ExrAdapter, BuildsGroupedPartViews)
     ASSERT_EQ(views[1].attributes.size(), 2U);
     EXPECT_EQ(views[1].attributes[0].name, "owner");
     EXPECT_EQ(views[1].attributes[1].name, "owner2");
+}
+
+TEST(ExrAdapter, BuildsBatchFromPreparedTransferBundle)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, kInvalidBlockId);
+
+    Entry make;
+    make.key = make_exif_tag_key(store.arena(), "ifd0", 0x010FU);
+    make.value
+        = make_text(store.arena(), "Vendor", TextEncoding::Ascii);
+    make.origin.block          = block;
+    make.origin.order_in_block = 0U;
+    ASSERT_NE(store.add_entry(make), kInvalidEntryId);
+    store.finalize();
+
+    PrepareTransferRequest request;
+    request.target_format      = TransferTargetFormat::Exr;
+    request.include_xmp_app1   = false;
+    request.include_icc_app2   = false;
+    request.include_iptc_app13 = false;
+
+    PreparedTransferBundle bundle;
+    const PrepareTransferResult prepared
+        = prepare_metadata_for_target(store, request, &bundle);
+    ASSERT_EQ(prepared.status, TransferStatus::Ok);
+
+    ExrAdapterBatch batch;
+    const ExrAdapterResult result
+        = build_prepared_exr_attribute_batch(bundle, &batch);
+    ASSERT_EQ(result.status, ExrAdapterStatus::Ok);
+    EXPECT_EQ(result.exported, 1U);
+    ASSERT_EQ(batch.attributes.size(), 1U);
+    EXPECT_EQ(batch.attributes[0].part_index, 0U);
+    EXPECT_EQ(batch.attributes[0].name, "Make");
+    EXPECT_EQ(batch.attributes[0].type_name, "string");
+    EXPECT_FALSE(batch.attributes[0].is_opaque);
+    ASSERT_EQ(batch.attributes[0].value.size(), 6U);
+    EXPECT_EQ(static_cast<char>(batch.attributes[0].value[0]), 'V');
+}
+
+TEST(ExrAdapter, RejectsMalformedPreparedTransferPayload)
+{
+    PreparedTransferBundle bundle;
+    bundle.target_format = TransferTargetFormat::Exr;
+
+    PreparedTransferBlock block;
+    block.kind    = TransferBlockKind::ExrAttribute;
+    block.route   = "exr:attribute-string";
+    block.payload = { std::byte { 0x01 }, std::byte { 0x02 } };
+    bundle.blocks.push_back(std::move(block));
+
+    ExrAdapterBatch batch;
+    const ExrAdapterResult result
+        = build_prepared_exr_attribute_batch(bundle, &batch);
+    EXPECT_EQ(result.status, ExrAdapterStatus::Unsupported);
+    EXPECT_EQ(result.errors, 1U);
+    EXPECT_EQ(result.message, "prepared exr attribute payload is malformed");
+}
+
+TEST(ExrAdapter, BuildsBatchFromFileHelper)
+{
+    const std::vector<std::byte> jpeg
+        = make_test_jpeg_with_exif_make("Vendor");
+    const std::string path = write_temp_bytes(
+        std::span<const std::byte>(jpeg.data(), jpeg.size()));
+    ASSERT_FALSE(path.empty());
+
+    ExrAdapterBatch batch;
+    BuildExrAttributeBatchFileOptions options;
+    options.prepare.prepare.include_xmp_app1   = false;
+    options.prepare.prepare.include_icc_app2   = false;
+    options.prepare.prepare.include_iptc_app13 = false;
+    const BuildExrAttributeBatchFileResult result
+        = build_exr_attribute_batch_from_file(path.c_str(), &batch, options);
+
+    EXPECT_EQ(result.prepared.file_status, TransferFileStatus::Ok);
+    EXPECT_EQ(result.prepared.prepare.status, TransferStatus::Ok);
+    EXPECT_EQ(result.adapter.status, ExrAdapterStatus::Ok);
+    EXPECT_EQ(result.adapter.exported, 1U);
+    ASSERT_EQ(batch.attributes.size(), 1U);
+    EXPECT_EQ(batch.attributes[0].part_index, 0U);
+    EXPECT_EQ(batch.attributes[0].name, "Make");
+    EXPECT_EQ(batch.attributes[0].type_name, "string");
+    EXPECT_FALSE(batch.attributes[0].is_opaque);
+    ASSERT_EQ(batch.attributes[0].value.size(), 6U);
+    EXPECT_EQ(std::memcmp(batch.attributes[0].value.data(), "Vendor", 6U), 0);
+
+    (void)::unlink(path.c_str());
+}
+
+TEST(ExrAdapter, FileHelperRejectsEmptyPath)
+{
+    ExrAdapterBatch batch;
+    const BuildExrAttributeBatchFileResult result
+        = build_exr_attribute_batch_from_file("", &batch);
+    EXPECT_EQ(result.prepared.file_status, TransferFileStatus::InvalidArgument);
+    EXPECT_EQ(result.prepared.prepare.status, TransferStatus::InvalidArgument);
+    EXPECT_EQ(result.adapter.status, ExrAdapterStatus::InvalidArgument);
+    EXPECT_EQ(result.adapter.errors, 1U);
 }
 
 }  // namespace openmeta

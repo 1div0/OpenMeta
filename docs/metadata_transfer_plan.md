@@ -26,6 +26,8 @@ The core rule is:
 
 ## Current Status
 
+Current planning estimate for this lane: about `80-85%`.
+
 Source-side readiness is already strong:
 - tracked EXIF read gates are green on `HEIC/HEIF`, `CR3`, and mixed RAW corpora
 - tracked MakerNote gates are green
@@ -45,13 +47,13 @@ The first public write-side sync controls are also in place:
 | Target | Status | Current shape | Main limits |
 | --- | --- | --- | --- |
 | JPEG | First-class | Prepared bundle, compiled emit, byte-writer emit, edit planning/apply, file helper, bounded JUMBF/C2PA staging | Not a full arbitrary metadata editor yet |
-| TIFF | First-class | Prepared bundle, compiled emit, edit planning/apply, file helper, streaming edit path | Broader TIFF/DNG rewrite coverage is still narrower than JPEG |
+| TIFF | First-class | Prepared bundle, compiled emit, classic-TIFF and BigTIFF edit planning/apply, bounded `ifd1` chain rewrite with preserved downstream page tails, bounded TIFF/DNG-style SubIFD rewrite with preserved downstream auxiliary tails and preserved trailing existing children when only the front subset is replaced, file helper, streaming edit path | Broader TIFF/DNG rewrite coverage is still narrower than JPEG |
 | PNG | Bounded but real | Prepared bundle, compiled emit, bounded chunk rewrite/edit, file-helper roundtrip | Not a general PNG chunk editor |
 | WebP | Bounded but real | Prepared bundle, compiled emit, bounded chunk rewrite/edit, file-helper roundtrip | Not a general WebP chunk editor |
 | JP2 | Bounded but real | Prepared bundle, compiled emit, bounded box rewrite/edit, file-helper roundtrip | `jp2h` synthesis is still out of scope |
 | JXL | Bounded but real | Prepared bundle, compiled emit, bounded box rewrite/edit, file-helper roundtrip | Still narrower than JPEG/TIFF |
 | HEIF / AVIF / CR3 | Bounded but real | Prepared bundle, compiled emit, bounded BMFF item/property edit, file-helper roundtrip | Not broad BMFF writer parity |
-| EXR | Bounded but real | Prepared bundle, compiled emit, direct backend attribute emit, CLI/Python transfer surface | No file rewrite/edit path yet; current transfer payload is safe string attributes only |
+| EXR | Bounded but real | Prepared bundle, compiled emit, direct backend attribute emit, prepared-bundle to `ExrAdapterBatch` bridge, CLI/Python transfer surface | No file rewrite/edit path yet; current transfer payload is safe string attributes only |
 
 ## What Is Already Implemented
 
@@ -85,6 +87,13 @@ These support the public transfer flow:
 OpenMeta now has explicit end-to-end read-backed transfer tests for:
 - source JPEG -> JPEG edit/apply -> read-back
 - source JPEG -> TIFF edit/apply -> read-back
+- source JPEG -> TIFF edit/apply with `ifd1` -> read-back
+- source TIFF/BigTIFF with existing multi-page `ifd1 -> next` chain ->
+  replace `ifd1` -> preserve downstream tail
+- source DNG-like TIFF with `subifd0` + `ifd1` -> TIFF edit/apply -> read-back
+- source DNG-like TIFF with `subifd0` + `ifd1` -> BigTIFF edit/apply -> read-back
+- source TIFF/BigTIFF with existing `subifd0 -> next` auxiliary chain ->
+  replace `subifd0` -> preserve downstream auxiliary tail
 - source JPEG -> PNG edit/apply -> read-back
 - source JPEG -> WebP edit/apply -> read-back
 - source JPEG -> JP2 edit/apply -> read-back
@@ -119,6 +128,17 @@ Also a first-class target.
 Implemented:
 - EXIF, XMP, ICC, and IPTC transfer
 - edit planning and apply
+- classic-TIFF and BigTIFF rewrite support
+- bounded `ifd1` chain rewrite support, including preserving an existing
+  downstream page tail when `ifd1` is replaced
+- bounded TIFF/DNG-style SubIFD rewrite support, including preserving an
+  existing downstream auxiliary tail when `subifdN` is replaced
+- bounded front-subset `SubIFD` replacement that preserves trailing existing
+  children from the target file
+- bounded DNG-style merge policy in the file-helper path:
+  source-supplied preview/aux front structures replace the target front
+  structures, while existing target page tails and trailing auxiliary
+  children are preserved
 - file-based helper flow
 - streaming edit output
 
@@ -183,6 +203,19 @@ It still keeps the older integration bridge:
 - `build_exr_attribute_part_spans(...)`
 - `build_exr_attribute_part_views(...)`
 - `replay_exr_attribute_batch(...)`
+
+The transfer lane now also exposes:
+- `build_prepared_exr_attribute_batch(...)`
+- `build_exr_attribute_batch_from_file(...)`
+- Python `build_exr_attribute_batch_from_file(...)` for direct file-to-batch
+  host-side inspection without going through the generic transfer probe
+- Python helper wrappers:
+  `openmeta.python.probe_exr_attribute_batch(...)` and
+  `openmeta.python.get_exr_attribute_batch(...)`
+
+That keeps EXR host integrations on the transfer path: callers can prepare one
+`TransferTargetFormat::Exr` bundle, then materialize a native
+`ExrAdapterBatch` without re-projecting from the source `MetaStore`.
 
 Current EXR transfer scope is intentionally conservative:
 - safe flattened `string` header attributes

@@ -12,6 +12,14 @@ Read-path coverage is broad and regression-gated. Write/edit support is real
 for the main transfer targets, but parts of that API surface are still draft
 and may change as the transfer contract stabilizes.
 
+Current planning estimate:
+
+| Milestone | Status |
+| --- | --- |
+| Read parity on tracked still-image corpora | About `99-100%` |
+| Transfer / export milestone | About `80-85%` |
+| Overall product milestone | About `97-98%` |
+
 Current baseline-gated snapshot on tracked corpora:
 - HEIC/HEIF, CR3, and mixed RAW EXIF tag-id compare gates are passing.
 - EXR header metadata compare is passing for name/type/value-class checks.
@@ -84,11 +92,22 @@ Current target status:
 
 In practice:
 - JPEG and TIFF are the strongest transfer targets today.
+- TIFF edit support now covers classic TIFF, BigTIFF, bounded `ifd1`
+  chain rewrite with preserved downstream page tails, and bounded
+  TIFF/DNG-style SubIFD rewrite with preserved downstream auxiliary tails
+  and preserved trailing existing children when only the front subset is
+  replaced.
+- For DNG-like TIFF sources, the current bounded merge policy is:
+  replace the source-supplied front preview/aux structures, preserve
+  existing target page tails and trailing auxiliary children.
 - PNG, WebP, JP2, JXL, bounded BMFF, and EXR all have real first-class
   transfer entry points.
 - EXR is still narrower than the container-edit targets: it emits safe string
-  header attributes through the transfer core, but it does not rewrite full
-  EXR files yet.
+  header attributes through the transfer core, can materialize a prepared
+  `ExrAdapterBatch` for host exporters, and Python can inspect that prepared
+  EXR attribute batch through the direct `build_exr_attribute_batch_from_file`
+  binding or the helper-layer `openmeta.python.get_exr_attribute_batch(...)`,
+  but OpenMeta does not rewrite full EXR files yet.
 - Writer-side sync behavior is now partially explicit instead of implicit:
   generated XMP can independently keep or suppress EXIF-derived and
   IPTC-derived projection during transfer preparation.

@@ -29,7 +29,10 @@ set(_embed_only_strip_sidecar "${WORK_DIR}/embed_only_strip.xmp")
 set(_sidecar_only_strip_jpg "${WORK_DIR}/sidecar_only_strip.jpg")
 set(_sidecar_only_strip_sidecar "${WORK_DIR}/sidecar_only_strip.xmp")
 set(_target_tif "${WORK_DIR}/target.tif")
+set(_target_tif_xmp "${WORK_DIR}/target_xmp.tif")
 set(_edited_tif "${WORK_DIR}/edited.tif")
+set(_sidecar_only_strip_tif "${WORK_DIR}/sidecar_only_strip_tiff.tif")
+set(_sidecar_only_strip_tif_sidecar "${WORK_DIR}/sidecar_only_strip_tiff.xmp")
 set(_target_jxl "${WORK_DIR}/target.jxl")
 set(_edited_jxl "${WORK_DIR}/edited.jxl")
 set(_target_jp2 "${WORK_DIR}/target.jp2")
@@ -114,6 +117,18 @@ execute_process(
 if(NOT _rv_target_tif EQUAL 0)
   message(FATAL_ERROR
     "failed to write python metatransfer target tiff fixture (${_rv_target_tif})\nstdout:\n${_out_target_tif}\nstderr:\n${_err_target_tif}")
+endif()
+
+execute_process(
+  COMMAND "${OPENMETA_PYTHON_EXECUTABLE}" -c
+    "from pathlib import Path; xml=b\"<x:xmpmeta xmlns:x='adobe:ns:meta/'><rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'><rdf:Description xmlns:xmp='http://ns.adobe.com/xap/1.0/'><xmp:CreatorTool>Target Embedded Existing</xmp:CreatorTool></rdf:Description></rdf:RDF></x:xmpmeta>\"; xoff=38; ifd=bytearray(); ifd+=(1).to_bytes(2,'little'); ifd+=(700).to_bytes(2,'little'); ifd+=(1).to_bytes(2,'little'); ifd+=len(xml).to_bytes(4,'little'); ifd+=xoff.to_bytes(4,'little'); ifd+=(0).to_bytes(4,'little'); b=bytearray(); b+=b'II'; b+=(42).to_bytes(2,'little'); b+=(8).to_bytes(4,'little'); b+=ifd; b+=xml; Path(r'''${_target_tif_xmp}''').write_bytes(bytes(b))"
+  RESULT_VARIABLE _rv_target_tif_xmp
+  OUTPUT_VARIABLE _out_target_tif_xmp
+  ERROR_VARIABLE _err_target_tif_xmp
+)
+if(NOT _rv_target_tif_xmp EQUAL 0)
+  message(FATAL_ERROR
+    "failed to write python metatransfer target tiff xmp fixture (${_rv_target_tif_xmp})\nstdout:\n${_out_target_tif_xmp}\nstderr:\n${_err_target_tif_xmp}")
 endif()
 
 execute_process(
@@ -326,6 +341,44 @@ execute_process(
 if(NOT _rv_sidecar_strip_check EQUAL 0)
   message(FATAL_ERROR
     "python metatransfer sidecar-only embedded-strip output still contains embedded xmp (${_rv_sidecar_strip_check})\nstdout:\n${_out_sidecar_strip}\nstderr:\n${_err_sidecar_strip}\ncheck_stderr:\n${_err_sidecar_strip_check}")
+endif()
+
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env
+          "PYTHONPATH=${OPENMETA_PYTHONPATH}"
+          "${OPENMETA_PYTHON_EXECUTABLE}" -m openmeta.python.metatransfer
+          --no-build-info
+          --target-tiff "${_target_tif_xmp}"
+          --xmp-writeback sidecar
+          --xmp-destination-embedded strip_existing
+          -o "${_sidecar_only_strip_tif}"
+          "${_src_jpg}"
+  RESULT_VARIABLE _rv_sidecar_strip_tif
+  OUTPUT_VARIABLE _out_sidecar_strip_tif
+  ERROR_VARIABLE _err_sidecar_strip_tif
+)
+if(NOT _rv_sidecar_strip_tif EQUAL 0)
+  message(FATAL_ERROR
+    "python metatransfer tiff sidecar-only embedded-strip failed (${_rv_sidecar_strip_tif})\nstdout:\n${_out_sidecar_strip_tif}\nstderr:\n${_err_sidecar_strip_tif}")
+endif()
+if(NOT EXISTS "${_sidecar_only_strip_tif}")
+  message(FATAL_ERROR
+    "python metatransfer tiff sidecar-only embedded-strip did not write output\nstdout:\n${_out_sidecar_strip_tif}\nstderr:\n${_err_sidecar_strip_tif}")
+endif()
+if(NOT EXISTS "${_sidecar_only_strip_tif_sidecar}")
+  message(FATAL_ERROR
+    "python metatransfer tiff sidecar-only embedded-strip did not write xmp sidecar\nstdout:\n${_out_sidecar_strip_tif}\nstderr:\n${_err_sidecar_strip_tif}")
+endif()
+execute_process(
+  COMMAND "${OPENMETA_PYTHON_EXECUTABLE}" -c
+    "from pathlib import Path; import sys; b=Path(r'''${_sidecar_only_strip_tif}''').read_bytes(); ok=(len(b)>=8 and b[0:2]==b'II' and int.from_bytes(b[2:4],'little')==42); off=int.from_bytes(b[4:8],'little') if ok else 0; ok=ok and (off+2<=len(b)); n=int.from_bytes(b[off:off+2],'little') if ok else 0; p=off+2; ok=ok and (p+n*12+4<=len(b)); tags=[int.from_bytes(b[p+i*12:p+i*12+2],'little') for i in range(n)] if ok else []; sys.exit(0 if (ok and 700 not in tags and 0x0132 in tags) else 1)"
+  RESULT_VARIABLE _rv_sidecar_strip_tif_check
+  OUTPUT_VARIABLE _out_sidecar_strip_tif_check
+  ERROR_VARIABLE _err_sidecar_strip_tif_check
+)
+if(NOT _rv_sidecar_strip_tif_check EQUAL 0)
+  message(FATAL_ERROR
+    "python metatransfer tiff sidecar-only embedded-strip output still contains xmp tag 700 or lost DateTime (${_rv_sidecar_strip_tif_check})\nstdout:\n${_out_sidecar_strip_tif}\nstderr:\n${_err_sidecar_strip_tif}\ncheck_stderr:\n${_err_sidecar_strip_tif_check}")
 endif()
 
 file(WRITE "${_check_tiff_py}" [=[
