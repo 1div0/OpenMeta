@@ -4,6 +4,8 @@ Build and Install
 OpenMeta uses CMake and has no required third-party dependencies for the core
 read path.
 
+Repository: https://github.com/ssh4net/OpenMeta
+
 Build
 -----
 

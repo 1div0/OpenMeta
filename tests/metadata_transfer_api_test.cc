@@ -2344,9 +2344,13 @@ build_test_creator_tool_png_xmp_itxt_payload(std::string_view creator_tool,
 static std::vector<std::byte>
 make_minimal_tiff_little_endian();
 
+static std::vector<std::byte>
+make_minimal_bigtiff_little_endian();
+
 static bool
-build_test_tiff_with_creator_tool_xmp(std::string_view creator_tool,
-                                      std::vector<std::byte>* out)
+build_test_tiff_like_with_creator_tool_xmp(
+    std::string_view creator_tool, std::span<const std::byte> input_tiff,
+    std::vector<std::byte>* out)
 {
     if (!out) {
         return false;
@@ -2384,15 +2388,13 @@ build_test_tiff_with_creator_tool_xmp(std::string_view creator_tool,
         return false;
     }
 
-    const std::vector<std::byte> input = make_minimal_tiff_little_endian();
     openmeta::ExecutePreparedTransferOptions options;
     options.edit_requested = true;
     options.edit_apply     = true;
 
     const openmeta::ExecutePreparedTransferResult result
         = openmeta::execute_prepared_transfer(
-            &bundle,
-            std::span<const std::byte>(input.data(), input.size()), options);
+            &bundle, input_tiff, options);
     if (result.edit_apply.status != openmeta::TransferStatus::Ok
         || result.edited_output.empty()) {
         return false;
@@ -2400,6 +2402,26 @@ build_test_tiff_with_creator_tool_xmp(std::string_view creator_tool,
 
     *out = result.edited_output;
     return true;
+}
+
+static bool
+build_test_tiff_with_creator_tool_xmp(std::string_view creator_tool,
+                                      std::vector<std::byte>* out)
+{
+    const std::vector<std::byte> input = make_minimal_tiff_little_endian();
+    return build_test_tiff_like_with_creator_tool_xmp(
+        creator_tool,
+        std::span<const std::byte>(input.data(), input.size()), out);
+}
+
+static bool
+build_test_bigtiff_with_creator_tool_xmp(std::string_view creator_tool,
+                                         std::vector<std::byte>* out)
+{
+    const std::vector<std::byte> input = make_minimal_bigtiff_little_endian();
+    return build_test_tiff_like_with_creator_tool_xmp(
+        creator_tool,
+        std::span<const std::byte>(input.data(), input.size()), out);
 }
 
 static bool
@@ -9961,6 +9983,80 @@ TEST(MetadataTransferApi,
     EXPECT_TRUE(decoded_transfer_roundtrip_has_expected_fields(
         std::span<const std::byte>(result.execute.edited_output.data(),
                                    result.execute.edited_output.size())));
+}
+
+TEST(MetadataTransferApi,
+     ExecutePreparedTransferFileBigTiffSidecarOnlyCanStripExistingDestinationEmbeddedXmp)
+{
+    std::vector<std::byte> source_jpeg;
+    ASSERT_TRUE(build_test_transfer_source_jpeg_bytes(&source_jpeg));
+    const std::string source_path = unique_temp_path(".jpg");
+    ASSERT_TRUE(write_bytes_file(
+        source_path,
+        std::span<const std::byte>(source_jpeg.data(), source_jpeg.size())));
+
+    std::vector<std::byte> target_tiff;
+    ASSERT_TRUE(build_test_bigtiff_with_creator_tool_xmp(
+        "Target Embedded Existing", &target_tiff));
+    const std::string target_path = unique_temp_path(".tif");
+    ASSERT_TRUE(write_bytes_file(
+        target_path,
+        std::span<const std::byte>(target_tiff.data(), target_tiff.size())));
+
+    openmeta::ExecutePreparedTransferFileOptions options;
+    options.prepare.prepare.target_format = openmeta::TransferTargetFormat::Tiff;
+    options.prepare.prepare.include_icc_app2   = false;
+    options.prepare.prepare.include_iptc_app13 = false;
+    options.edit_target_path                   = target_path;
+    options.execute.edit_apply                 = true;
+    options.xmp_writeback_mode
+        = openmeta::XmpWritebackMode::SidecarOnly;
+    options.xmp_destination_embedded_mode
+        = openmeta::XmpDestinationEmbeddedMode::StripExisting;
+
+    const openmeta::ExecutePreparedTransferFileResult result
+        = openmeta::execute_prepared_transfer_file(source_path.c_str(), options);
+    std::remove(source_path.c_str());
+    std::remove(target_path.c_str());
+
+    ASSERT_EQ(result.prepared.file_status, openmeta::TransferFileStatus::Ok);
+    ASSERT_EQ(result.prepared.prepare.status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(result.execute.edit_apply.status, openmeta::TransferStatus::Ok);
+    ASSERT_FALSE(result.execute.edited_output.empty());
+    ASSERT_FALSE(result.xmp_sidecar_output.empty());
+
+    const std::span<const std::byte> edited_bytes(
+        result.execute.edited_output.data(), result.execute.edited_output.size());
+    ASSERT_GE(edited_bytes.size(), 16U);
+    EXPECT_EQ(read_u16le(edited_bytes, 2U), 43U);
+
+    const uint64_t ifd0_off = read_u64le(edited_bytes, 8U);
+    ASSERT_NE(ifd0_off, 0U);
+    uint64_t ignored_value = 0U;
+    EXPECT_FALSE(find_bigtiff_tag_entry_le(edited_bytes, ifd0_off, 700U,
+                                           nullptr, nullptr,
+                                           &ignored_value));
+
+    openmeta::MetaStore edited_store;
+    ASSERT_TRUE(decode_transfer_roundtrip_store(edited_bytes, &edited_store));
+    EXPECT_FALSE(store_has_text_entry(
+        edited_store,
+        xmp_key_view("http://ns.adobe.com/xap/1.0/", "CreatorTool"),
+        "Target Embedded Existing"));
+    EXPECT_FALSE(store_has_text_entry(
+        edited_store,
+        xmp_key_view("http://ns.adobe.com/xap/1.0/", "CreatorTool"),
+        "OpenMeta Transfer Source"));
+
+    openmeta::MetaStore sidecar_store;
+    ASSERT_TRUE(decode_transfer_roundtrip_store(
+        std::span<const std::byte>(result.xmp_sidecar_output.data(),
+                                   result.xmp_sidecar_output.size()),
+        &sidecar_store));
+    EXPECT_TRUE(store_has_text_entry(
+        sidecar_store,
+        xmp_key_view("http://ns.adobe.com/xap/1.0/", "CreatorTool"),
+        "OpenMeta Transfer Source"));
 }
 
 TEST(MetadataTransferApi,

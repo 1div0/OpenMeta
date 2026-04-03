@@ -197,6 +197,7 @@ decode in one call.
 
 ## Documentation
 
+- https://ssh4net.github.io/OpenMeta/: published documentation site
 - [docs/metadata_support.md](docs/metadata_support.md): metadata support matrix
 - [docs/metadata_transfer_plan.md](docs/metadata_transfer_plan.md): transfer
   status and roadmap
