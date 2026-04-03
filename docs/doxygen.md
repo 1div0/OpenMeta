@@ -46,7 +46,7 @@ to GitHub Pages.
 Recommended setup:
 
 - In the repository settings, set **Pages** to **GitHub Actions** as the
-  source.
+  source. This is a one-time repository setting.
 - Pull requests build the docs but do not deploy.
 - Pushes to `main` and tag pushes build and deploy the site.
 
