@@ -92,13 +92,13 @@ Current target status:
 
 In practice:
 - JPEG and TIFF are the strongest transfer targets today.
-- TIFF edit support now covers classic TIFF, BigTIFF, bounded `ifd1`
-  chain rewrite with preserved downstream page tails, and bounded
+- TIFF edit support now covers classic TIFF, BigTIFF, bounded preview-page
+  chain rewrite (`ifd1`, `ifd2`, and preserved downstream tails), and bounded
   TIFF/DNG-style SubIFD rewrite with preserved downstream auxiliary tails
   and preserved trailing existing children when only the front subset is
   replaced.
 - For DNG-like TIFF sources, the current bounded merge policy is:
-  replace the source-supplied front preview/aux structures, preserve
+  replace the source-supplied front preview-page/aux front structures, preserve
   existing target page tails and trailing auxiliary children.
 - PNG, WebP, JP2, JXL, bounded BMFF, and EXR all have real first-class
   transfer entry points.

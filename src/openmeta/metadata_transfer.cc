@@ -163,7 +163,7 @@ namespace {
 
     enum class ExifIfdSlot : uint8_t {
         Ifd0,
-        Ifd1,
+        IfdPage,
         ExifIfd,
         GpsIfd,
         InteropIfd,
@@ -179,7 +179,9 @@ namespace {
 
     struct TransferExifIfdRef final {
         ExifIfdSlot slot      = ExifIfdSlot::Unsupported;
+        uint32_t page_index   = 0U;
         uint32_t subifd_index = 0U;
+        bool is_page          = false;
         bool is_subifd        = false;
     };
 
@@ -5320,9 +5322,6 @@ namespace {
         if (ifd == "ifd0") {
             return ExifIfdSlot::Ifd0;
         }
-        if (ifd == "ifd1") {
-            return ExifIfdSlot::Ifd1;
-        }
         if (ifd == "exififd") {
             return ExifIfdSlot::ExifIfd;
         }
@@ -5333,6 +5332,31 @@ namespace {
             return ExifIfdSlot::InteropIfd;
         }
         return ExifIfdSlot::Unsupported;
+    }
+
+    static bool parse_ifd_page_index_name(std::string_view ifd,
+                                          uint32_t* out_index) noexcept
+    {
+        if (!out_index || !ifd.starts_with("ifd") || ifd.size() <= 3U) {
+            return false;
+        }
+        uint64_t value = 0U;
+        for (size_t i = 3U; i < ifd.size(); ++i) {
+            const char c = ifd[i];
+            if (c < '0' || c > '9') {
+                return false;
+            }
+            value = value * 10U
+                    + static_cast<uint64_t>(static_cast<uint8_t>(c - '0'));
+            if (value > static_cast<uint64_t>(0xFFFFFFFFU)) {
+                return false;
+            }
+        }
+        if (value == 0U) {
+            return false;
+        }
+        *out_index = static_cast<uint32_t>(value);
+        return true;
     }
 
     static bool parse_subifd_index_name(std::string_view ifd,
@@ -5366,6 +5390,11 @@ namespace {
         if (out.slot != ExifIfdSlot::Unsupported) {
             return out;
         }
+        if (parse_ifd_page_index_name(ifd, &out.page_index)) {
+            out.slot    = ExifIfdSlot::IfdPage;
+            out.is_page = true;
+            return out;
+        }
         if (parse_subifd_index_name(ifd, &out.subifd_index)) {
             out.is_subifd = true;
         }
@@ -5373,7 +5402,6 @@ namespace {
     }
 
     static SerializedIfd* select_ifd(SerializedIfd* ifd0,
-                                     SerializedIfd* ifd1,
                                      SerializedIfd* exififd,
                                      SerializedIfd* gpsifd,
                                      SerializedIfd* interopifd,
@@ -5381,7 +5409,7 @@ namespace {
     {
         switch (slot) {
         case ExifIfdSlot::Ifd0: return ifd0;
-        case ExifIfdSlot::Ifd1: return ifd1;
+        case ExifIfdSlot::IfdPage: return nullptr;
         case ExifIfdSlot::ExifIfd: return exififd;
         case ExifIfdSlot::GpsIfd: return gpsifd;
         case ExifIfdSlot::InteropIfd: return interopifd;
@@ -5408,7 +5436,7 @@ namespace {
         if (!out) {
             return false;
         }
-        if ((slot == ExifIfdSlot::Ifd0 || slot == ExifIfdSlot::Ifd1)
+        if ((slot == ExifIfdSlot::Ifd0 || slot == ExifIfdSlot::IfdPage)
             && tag == 0x0132U) {
             *out = TimePatchField::DateTime;
             return true;
@@ -5645,10 +5673,10 @@ namespace {
         ExifPackBuild out;
 
         SerializedIfd ifd0 {};
-        SerializedIfd ifd1 {};
         SerializedIfd exififd {};
         SerializedIfd gpsifd {};
         SerializedIfd interopifd {};
+        std::vector<SerializedIfd> page_ifds;
         std::vector<SerializedIfd> subifds;
 
         for (const Entry& e : store.entries()) {
@@ -5666,17 +5694,17 @@ namespace {
             const TransferExifIfdRef ifd_ref
                 = classify_exif_ifd_ref(ifd_name);
             if (ifd_ref.slot == ExifIfdSlot::Unsupported
-                && !ifd_ref.is_subifd) {
+                && !ifd_ref.is_page && !ifd_ref.is_subifd) {
                 out.skipped_count += 1U;
                 continue;
             }
 
             const uint16_t tag = e.key.data.exif_tag.tag;
-            if (!ifd_ref.is_subifd
+            if (!ifd_ref.is_page && !ifd_ref.is_subifd
                 && is_regenerated_pointer_tag(ifd_ref.slot, tag)) {
                 continue;
             }
-            if (!ifd_ref.is_subifd && tag == 0x927CU
+            if (!ifd_ref.is_page && !ifd_ref.is_subifd && tag == 0x927CU
                 && makernote_policy == TransferPolicyAction::Drop) {
                 continue;
             }
@@ -5690,7 +5718,14 @@ namespace {
             }
 
             SerializedIfd* dst = nullptr;
-            if (ifd_ref.is_subifd) {
+            if (ifd_ref.is_page) {
+                const size_t need_size
+                    = static_cast<size_t>(ifd_ref.page_index);
+                if (page_ifds.size() < need_size) {
+                    page_ifds.resize(need_size);
+                }
+                dst = &page_ifds[ifd_ref.page_index - 1U];
+            } else if (ifd_ref.is_subifd) {
                 if (!include_subifds) {
                     out.skipped_count += 1U;
                     continue;
@@ -5702,7 +5737,7 @@ namespace {
                 }
                 dst = &subifds[ifd_ref.subifd_index];
             } else {
-                dst = select_ifd(&ifd0, &ifd1, &exififd, &gpsifd, &interopifd,
+                dst = select_ifd(&ifd0, &exififd, &gpsifd, &interopifd,
                                  ifd_ref.slot);
                 if (!dst) {
                     out.skipped_count += 1U;
@@ -5716,6 +5751,13 @@ namespace {
         if (interopifd.present) {
             exififd.present = true;
         }
+        bool have_page = false;
+        for (size_t i = 0; i < page_ifds.size(); ++i) {
+            if (page_ifds[i].present) {
+                have_page = true;
+                break;
+            }
+        }
         bool have_subifd = false;
         for (size_t i = 0; i < subifds.size(); ++i) {
             if (subifds[i].present) {
@@ -5723,7 +5765,7 @@ namespace {
                 break;
             }
         }
-        if (ifd1.present || exififd.present || gpsifd.present || have_subifd) {
+        if (have_page || exififd.present || gpsifd.present || have_subifd) {
             ifd0.present = true;
         }
 
@@ -5753,13 +5795,15 @@ namespace {
         sort_ifd_entries(&exififd);
         sort_ifd_entries(&gpsifd);
         sort_ifd_entries(&interopifd);
+        for (size_t i = 0; i < page_ifds.size(); ++i) {
+            sort_ifd_entries(&page_ifds[i]);
+        }
         for (size_t i = 0; i < subifds.size(); ++i) {
             sort_ifd_entries(&subifds[i]);
         }
 
-        std::array<SerializedIfd*, 5> order = {
+        std::array<SerializedIfd*, 4> order = {
             &ifd0,
-            &ifd1,
             &exififd,
             &gpsifd,
             &interopifd,
@@ -5772,6 +5816,14 @@ namespace {
             }
             ifd->dir_offset = cursor;
             cursor += ifd_directory_size_bytes(*ifd);
+        }
+        for (size_t i = 0; i < page_ifds.size(); ++i) {
+            SerializedIfd& ifd = page_ifds[i];
+            if (!ifd.present) {
+                continue;
+            }
+            ifd.dir_offset = cursor;
+            cursor += ifd_directory_size_bytes(ifd);
         }
         for (size_t i = 0; i < subifds.size(); ++i) {
             SerializedIfd& ifd = subifds[i];
@@ -5833,6 +5885,27 @@ namespace {
                 data_cursor += static_cast<uint32_t>(e.value.size());
             }
         }
+        for (size_t i = 0; i < page_ifds.size(); ++i) {
+            SerializedIfd& ifd = page_ifds[i];
+            if (!ifd.present) {
+                continue;
+            }
+            for (SerializedIfdEntry& e : ifd.entries) {
+                e.inline_value = false;
+                e.inline_bytes = { std::byte { 0x00 }, std::byte { 0x00 },
+                                   std::byte { 0x00 }, std::byte { 0x00 } };
+                if (e.value.size() <= 4U) {
+                    e.inline_value = true;
+                    for (uint32_t j = 0; j < e.value.size(); ++j) {
+                        e.inline_bytes[j] = e.value[j];
+                    }
+                    continue;
+                }
+                data_cursor    = align_to_2(data_cursor);
+                e.value_offset = data_cursor;
+                data_cursor += static_cast<uint32_t>(e.value.size());
+            }
+        }
         for (size_t i = 0; i < subifds.size(); ++i) {
             SerializedIfd& ifd = subifds[i];
             if (!ifd.present) {
@@ -5869,8 +5942,6 @@ namespace {
             ExifIfdSlot slot = ExifIfdSlot::Unsupported;
             if (ifd == &ifd0) {
                 slot = ExifIfdSlot::Ifd0;
-            } else if (ifd == &ifd1) {
-                slot = ExifIfdSlot::Ifd1;
             } else if (ifd == &exififd) {
                 slot = ExifIfdSlot::ExifIfd;
             } else if (ifd == &gpsifd) {
@@ -5921,8 +5992,71 @@ namespace {
                 p += 12U;
             }
             uint32_t next_ifd_offset = 0U;
-            if (ifd == &ifd0 && ifd1.present) {
-                next_ifd_offset = ifd1.dir_offset;
+            if (ifd == &ifd0) {
+                for (size_t i = 0; i < page_ifds.size(); ++i) {
+                    if (page_ifds[i].present) {
+                        next_ifd_offset = page_ifds[i].dir_offset;
+                        break;
+                    }
+                }
+            }
+            put_u32le(&tiff_bytes, p, next_ifd_offset);
+        }
+        for (size_t i = 0; i < page_ifds.size(); ++i) {
+            SerializedIfd& ifd = page_ifds[i];
+            if (!ifd.present) {
+                continue;
+            }
+
+            uint32_t p = ifd.dir_offset;
+            put_u16le(&tiff_bytes, p,
+                      static_cast<uint16_t>(ifd.entries.size()));
+            p += 2U;
+            for (const SerializedIfdEntry& e : ifd.entries) {
+                put_u16le(&tiff_bytes, p + 0U, e.tag);
+                put_u16le(&tiff_bytes, p + 2U, e.type);
+                put_u32le(&tiff_bytes, p + 4U, e.count);
+                if (e.inline_value) {
+                    for (uint32_t j = 0; j < 4U; ++j) {
+                        tiff_bytes[p + 8U + j] = e.inline_bytes[j];
+                    }
+                } else {
+                    put_u32le(&tiff_bytes, p + 8U, e.value_offset);
+                }
+
+                TimePatchField patch_field = TimePatchField::DateTime;
+                if (time_patch_field_for_exif_tag(ExifIfdSlot::IfdPage, e.tag,
+                                                  &patch_field)) {
+                    uint32_t patch_offset = 0U;
+                    if (e.inline_value) {
+                        patch_offset = p + 8U;
+                    } else {
+                        patch_offset = e.value_offset;
+                    }
+                    const uint32_t patch_width
+                        = static_cast<uint32_t>(e.value.size());
+                    if (patch_width > 0U
+                        && patch_offset + patch_width <= tiff_bytes.size()
+                        && patch_width <= static_cast<uint32_t>(UINT16_MAX)) {
+                        TimePatchSlot slot_desc;
+                        slot_desc.field       = patch_field;
+                        slot_desc.block_index = 0U;
+                        slot_desc.byte_offset = 6U + patch_offset;
+                        slot_desc.width
+                            = static_cast<uint16_t>(patch_width);
+                        out.time_patch_map.push_back(slot_desc);
+                    } else {
+                        out.skipped_count += 1U;
+                    }
+                }
+                p += 12U;
+            }
+            uint32_t next_ifd_offset = 0U;
+            for (size_t j = i + 1U; j < page_ifds.size(); ++j) {
+                if (page_ifds[j].present) {
+                    next_ifd_offset = page_ifds[j].dir_offset;
+                    break;
+                }
             }
             put_u32le(&tiff_bytes, p, next_ifd_offset);
         }
@@ -5957,6 +6091,23 @@ namespace {
                 continue;
             }
             for (const SerializedIfdEntry& e : ifd->entries) {
+                if (e.inline_value || e.value.empty()) {
+                    continue;
+                }
+                if (e.value_offset + e.value.size() > tiff_bytes.size()) {
+                    out.skipped_count += 1U;
+                    continue;
+                }
+                std::memcpy(tiff_bytes.data() + e.value_offset, e.value.data(),
+                            e.value.size());
+            }
+        }
+        for (size_t i = 0; i < page_ifds.size(); ++i) {
+            const SerializedIfd& ifd = page_ifds[i];
+            if (!ifd.present) {
+                continue;
+            }
+            for (const SerializedIfdEntry& e : ifd.entries) {
                 if (e.inline_value || e.value.empty()) {
                     continue;
                 }
@@ -6639,7 +6790,7 @@ namespace {
 
     struct ParsedTransferExif final {
         std::vector<TiffTagUpdate> ifd0_updates;
-        ParsedTiffIfd ifd1;
+        std::vector<ParsedTiffIfd> page_ifds;
         ParsedTiffIfd exif_ifd;
         ParsedTiffIfd gps_ifd;
         ParsedTiffIfd interop_ifd;
@@ -6966,13 +7117,17 @@ namespace {
         }
         if (!convert_parsed_ifd_endian(&exif->exif_ifd, from_endian,
                                        to_endian)
-            || !convert_parsed_ifd_endian(&exif->ifd1, from_endian,
-                                       to_endian)
             || !convert_parsed_ifd_endian(&exif->gps_ifd, from_endian,
                                           to_endian)
             || !convert_parsed_ifd_endian(&exif->interop_ifd, from_endian,
                                           to_endian)) {
             return false;
+        }
+        for (size_t i = 0; i < exif->page_ifds.size(); ++i) {
+            if (!convert_parsed_ifd_endian(&exif->page_ifds[i], from_endian,
+                                           to_endian)) {
+                return false;
+            }
         }
         for (size_t i = 0; i < exif->subifds.size(); ++i) {
             if (!convert_parsed_ifd_endian(&exif->subifds[i], from_endian,
@@ -7571,7 +7726,7 @@ namespace {
             return false;
         }
         out->ifd0_updates.clear();
-        out->ifd1          = ParsedTiffIfd {};
+        out->page_ifds.clear();
         out->exif_ifd      = ParsedTiffIfd {};
         out->gps_ifd       = ParsedTiffIfd {};
         out->interop_ifd   = ParsedTiffIfd {};
@@ -7628,11 +7783,12 @@ namespace {
             return false;
         }
 
-        uint32_t ifd1_off      = 0U;
+        uint32_t first_page_ifd_off = 0U;
         uint32_t exif_ifd_off = 0U;
         uint32_t gps_ifd_off  = 0U;
         std::vector<uint32_t> subifd_offsets;
-        if (!parse_classic_ifd_next_offset(tiff, ifd0_off, endian, &ifd1_off,
+        if (!parse_classic_ifd_next_offset(tiff, ifd0_off, endian,
+                                           &first_page_ifd_off,
                                            err)) {
             return false;
         }
@@ -7662,10 +7818,43 @@ namespace {
             out->ifd0_updates.push_back(std::move(u));
         }
 
-        if (ifd1_off != 0U
-            && !parse_classic_ifd(tiff, static_cast<size_t>(ifd1_off), endian,
-                                  &out->ifd1, err)) {
-            return false;
+        if (first_page_ifd_off != 0U) {
+            std::vector<uint32_t> seen_page_offsets;
+            uint32_t page_ifd_off = first_page_ifd_off;
+            while (page_ifd_off != 0U) {
+                bool seen_before = false;
+                for (size_t i = 0; i < seen_page_offsets.size(); ++i) {
+                    if (seen_page_offsets[i] == page_ifd_off) {
+                        seen_before = true;
+                        break;
+                    }
+                }
+                if (seen_before) {
+                    if (err) {
+                        *err = "exif app1 preview IFD chain loops";
+                    }
+                    return false;
+                }
+                seen_page_offsets.push_back(page_ifd_off);
+                if (seen_page_offsets.size() > 64U) {
+                    if (err) {
+                        *err = "exif app1 preview IFD chain exceeds limit";
+                    }
+                    return false;
+                }
+
+                ParsedTiffIfd page_ifd;
+                if (!parse_classic_ifd(tiff, static_cast<size_t>(page_ifd_off),
+                                       endian, &page_ifd, err)) {
+                    return false;
+                }
+                out->page_ifds.push_back(std::move(page_ifd));
+                if (!parse_classic_ifd_next_offset(
+                        tiff, static_cast<size_t>(page_ifd_off), endian,
+                        &page_ifd_off, err)) {
+                    return false;
+                }
+            }
         }
 
         if (exif_ifd_off != 0U) {
@@ -8471,11 +8660,35 @@ namespace {
                         e.rewrite_payload.end());
         }
 
-        uint64_t ifd1_tail_next_off = 0U;
-        if (parsed_exif.ifd1.present && next_ifd_off != 0U
-            && !parse_tiff_ifd_next_offset(input, next_ifd_off, endian, layout,
-                                           &ifd1_tail_next_off, err)) {
-            return false;
+        std::vector<uint64_t> existing_page_offsets;
+        if (!parsed_exif.page_ifds.empty() && next_ifd_off != 0U) {
+            uint64_t page_ifd_off = next_ifd_off;
+            while (page_ifd_off != 0U) {
+                bool seen_before = false;
+                for (size_t i = 0; i < existing_page_offsets.size(); ++i) {
+                    if (existing_page_offsets[i] == page_ifd_off) {
+                        seen_before = true;
+                        break;
+                    }
+                }
+                if (seen_before) {
+                    if (err) {
+                        *err = "target TIFF preview IFD chain loops";
+                    }
+                    return false;
+                }
+                existing_page_offsets.push_back(page_ifd_off);
+                if (existing_page_offsets.size() > 64U) {
+                    if (err) {
+                        *err = "target TIFF preview IFD chain exceeds limit";
+                    }
+                    return false;
+                }
+                if (!parse_tiff_ifd_next_offset(input, page_ifd_off, endian,
+                                                layout, &page_ifd_off, err)) {
+                    return false;
+                }
+            }
         }
         std::vector<uint64_t> existing_subifd_tail_next_offsets;
         if (need_subifd_ptr && !existing_subifd_offsets.empty()) {
@@ -8491,6 +8704,21 @@ namespace {
                                                 err)) {
                     return false;
                 }
+            }
+        }
+        std::vector<ParsedTiffIfd> preserved_existing_page_ifds;
+        if (!parsed_exif.page_ifds.empty()
+            && existing_page_offsets.size() > parsed_exif.page_ifds.size()) {
+            preserved_existing_page_ifds.reserve(
+                existing_page_offsets.size() - parsed_exif.page_ifds.size());
+            for (size_t i = parsed_exif.page_ifds.size();
+                 i < existing_page_offsets.size(); ++i) {
+                ParsedTiffIfd page_ifd;
+                if (!parse_target_tiff_ifd(input, existing_page_offsets[i],
+                                           endian, layout, &page_ifd, err)) {
+                    return false;
+                }
+                preserved_existing_page_ifds.push_back(std::move(page_ifd));
             }
         }
         std::vector<ParsedTiffIfd> preserved_existing_subifds;
@@ -8580,15 +8808,32 @@ namespace {
             }
         }
 
-        uint64_t ifd1_off = 0U;
-        ParsedTiffIfd ifd1 = parsed_exif.ifd1;
-        if (ifd1.present && ifd1.next_ifd_off == 0U) {
-            ifd1.next_ifd_off = ifd1_tail_next_off;
-        }
-        if (ifd1.present
-            && !append_serialized_ifd(&tail, base_offset, ifd1, endian,
-                                      layout, &ifd1_off, err)) {
-            return false;
+        uint64_t first_page_ifd_off = 0U;
+        if (!parsed_exif.page_ifds.empty()
+            || !preserved_existing_page_ifds.empty()) {
+            std::vector<ParsedTiffIfd> page_chain;
+            page_chain.reserve(parsed_exif.page_ifds.size()
+                               + preserved_existing_page_ifds.size());
+            for (size_t i = 0; i < parsed_exif.page_ifds.size(); ++i) {
+                page_chain.push_back(parsed_exif.page_ifds[i]);
+            }
+            for (size_t i = 0; i < preserved_existing_page_ifds.size(); ++i) {
+                page_chain.push_back(preserved_existing_page_ifds[i]);
+            }
+
+            uint64_t next_page_off = 0U;
+            for (size_t i = page_chain.size(); i > 0U; --i) {
+                ParsedTiffIfd page_ifd = page_chain[i - 1U];
+                page_ifd.next_ifd_off  = next_page_off;
+                uint64_t page_ifd_off  = 0U;
+                if (!append_serialized_ifd(&tail, base_offset, page_ifd,
+                                           endian, layout, &page_ifd_off,
+                                           err)) {
+                    return false;
+                }
+                next_page_off = page_ifd_off;
+            }
+            first_page_ifd_off = next_page_off;
         }
 
         if (exif_ifd_off != 0U || gps_ifd_off != 0U) {
@@ -8720,7 +8965,7 @@ namespace {
             w += static_cast<size_t>(layout.ifd_entry_size);
         }
         const uint64_t rewritten_next_ifd_off
-            = ifd1_off != 0U ? ifd1_off : next_ifd_off;
+            = first_page_ifd_off != 0U ? first_page_ifd_off : next_ifd_off;
         if (!write_tiff_offset_field(&tail, w, rewritten_next_ifd_off, layout,
                                      endian, err)) {
             return false;
