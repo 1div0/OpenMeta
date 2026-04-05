@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 #include "openmeta/build_info.h"
 
 #include "openmeta/build_info_generated.h"

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 #include "openmeta/xmp_dump.h"
 
 #include "interop_safety_internal.h"

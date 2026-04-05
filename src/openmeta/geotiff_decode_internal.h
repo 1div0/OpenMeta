@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 #pragma once
 
 #include "exif_tiff_decode_internal.h"

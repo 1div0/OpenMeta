@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 #include "openmeta/console_format.h"
 #include "openmeta/interop_export.h"
 

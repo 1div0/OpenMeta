@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 #include "openmeta/validate.h"
 
 #include <gtest/gtest.h>

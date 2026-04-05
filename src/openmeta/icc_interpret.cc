@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 #include "openmeta/icc_interpret.h"
 
 #include <algorithm>

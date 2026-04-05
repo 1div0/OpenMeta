@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 #include "crw_ciff_decode_internal.h"
 
 #include "openmeta/meta_key.h"

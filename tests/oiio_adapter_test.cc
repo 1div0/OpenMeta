@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 #include "openmeta/oiio_adapter.h"
 
 #include "openmeta/meta_key.h"

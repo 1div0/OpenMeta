@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 #include "openmeta/ocio_adapter.h"
 
 #include "openmeta/ccm_query.h"

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 #include "openmeta/meta_edit.h"
 
 #include "fuzztest/fuzztest.h"

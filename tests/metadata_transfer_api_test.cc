@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 #include "openmeta/container_scan.h"
 #include "openmeta/metadata_transfer.h"
 #include "openmeta/simple_meta.h"

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 #include "openmeta/exr_adapter.h"
 
 #include "openmeta/meta_key.h"

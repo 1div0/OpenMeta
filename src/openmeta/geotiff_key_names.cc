@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 #include "openmeta/geotiff_key_names.h"
 
 namespace openmeta {

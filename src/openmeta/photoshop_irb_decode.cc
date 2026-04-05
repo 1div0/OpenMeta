@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 #include "openmeta/photoshop_irb_decode.h"
 
 #include <cstring>

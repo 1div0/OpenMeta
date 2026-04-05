@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 #include "openmeta/exif_tiff_decode.h"
 
 #include "openmeta/geotiff_key_names.h"

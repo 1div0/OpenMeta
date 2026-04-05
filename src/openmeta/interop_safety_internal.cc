@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 #include "interop_safety_internal.h"
 
 #include <cstdio>

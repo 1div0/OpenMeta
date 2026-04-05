@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 #include "openmeta/interop_export.h"
 
 #include "openmeta/exif_tag_names.h"

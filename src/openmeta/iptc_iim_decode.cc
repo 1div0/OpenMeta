@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 #include "openmeta/iptc_iim_decode.h"
 
 namespace openmeta {

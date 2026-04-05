@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 #ifndef OPENMETA_TOOLS_CLI_PARSE_H
 #define OPENMETA_TOOLS_CLI_PARSE_H
 

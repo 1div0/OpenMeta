@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 #include "bmff_fields_decode_internal.h"
 
 #include "openmeta/container_scan.h"
