@@ -62,4 +62,15 @@ What the tests do
 - Unit tests cover normal and malformed inputs.
 - libFuzzer and FuzzTest targets exercise parsers under sanitizers.
 
+Reporting vulnerabilities
+-------------------------
+
+If you find a security issue, please use GitHub private vulnerability
+reporting:
+
+- https://github.com/ssh4net/OpenMeta/security/advisories/new
+
+Please include a minimal reproducer file (or hex snippet), build flags, and
+stack trace. Avoid publishing exploit details until a fix is available.
+
 For the full policy and threat model, see ``SECURITY.md`` in the repository.

@@ -104,8 +104,12 @@ cmake --build build-fuzz
 ./build-fuzz/openmeta_fuzz_exif_tiff_decode -max_total_time=60
 ```
 
-## Reporting
+## Reporting Vulnerabilities
 
-If you find a security issue, please provide a minimal reproducer file (or
-hex snippet), build flags, and stack trace. Avoid publishing exploit details
-until a fix is available.
+If you find a security issue, please use GitHub private vulnerability
+reporting:
+
+- https://github.com/ssh4net/OpenMeta/security/advisories/new
+
+Please provide a minimal reproducer file (or hex snippet), build flags, and
+stack trace. Avoid publishing exploit details until a fix is available.
