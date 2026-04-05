@@ -47,7 +47,7 @@ The first public write-side sync controls are also in place:
 | Target | Status | Current shape | Main limits |
 | --- | --- | --- | --- |
 | JPEG | First-class | Prepared bundle, compiled emit, byte-writer emit, edit planning/apply, file helper, bounded JUMBF/C2PA staging | Not a full arbitrary metadata editor yet |
-| TIFF | First-class | Prepared bundle, compiled emit, classic-TIFF and BigTIFF edit planning/apply, bounded `ifd1` chain rewrite with preserved downstream page tails, bounded TIFF/DNG-style SubIFD rewrite with preserved downstream auxiliary tails and preserved trailing existing children when only the front subset is replaced, file helper, streaming edit path | Broader TIFF/DNG rewrite coverage is still narrower than JPEG |
+| TIFF | First-class | Prepared bundle, compiled emit, classic-TIFF and BigTIFF edit planning/apply, bounded preview-page chain rewrite (`ifd1`, `ifd2`, and preserved downstream tails), bounded TIFF/DNG-style SubIFD rewrite with preserved downstream auxiliary tails and preserved trailing existing children when only the front subset is replaced, bounded `ExifIFD -> InteropIFD` preservation when a replaced ExifIFD omits its own interop child, file helper, streaming edit path | Broader TIFF/DNG rewrite coverage is still narrower than JPEG |
 | PNG | Bounded but real | Prepared bundle, compiled emit, bounded chunk rewrite/edit, file-helper roundtrip | Not a general PNG chunk editor |
 | WebP | Bounded but real | Prepared bundle, compiled emit, bounded chunk rewrite/edit, file-helper roundtrip | Not a general WebP chunk editor |
 | JP2 | Bounded but real | Prepared bundle, compiled emit, bounded box rewrite/edit, file-helper roundtrip | `jp2h` synthesis is still out of scope |
@@ -87,9 +87,10 @@ These support the public transfer flow:
 OpenMeta now has explicit end-to-end read-backed transfer tests for:
 - source JPEG -> JPEG edit/apply -> read-back
 - source JPEG -> TIFF edit/apply -> read-back
-- source JPEG -> TIFF edit/apply with `ifd1` -> read-back
-- source TIFF/BigTIFF with existing multi-page `ifd1 -> next` chain ->
-  replace `ifd1` -> preserve downstream tail
+- source JPEG -> TIFF edit/apply with bounded preview-page chain ->
+  read-back
+- source TIFF/BigTIFF with existing multi-page preview chain ->
+  replace the front preview pages and preserve downstream tails
 - source DNG-like TIFF with `subifd0` + `ifd1` -> TIFF edit/apply -> read-back
 - source DNG-like TIFF with `subifd0` + `ifd1` -> BigTIFF edit/apply -> read-back
 - source TIFF/BigTIFF with existing `subifd0 -> next` auxiliary chain ->
@@ -135,6 +136,8 @@ Implemented:
   existing downstream auxiliary tail when `subifdN` is replaced
 - bounded front-subset `SubIFD` replacement that preserves trailing existing
   children from the target file
+- bounded `ExifIFD` replacement that preserves an existing target
+  `InteropIFD` when the source replacement omits its own interop child
 - bounded DNG-style merge policy in the file-helper path:
   source-supplied preview/aux front structures replace the target front
   structures, while existing target page tails and trailing auxiliary
@@ -265,6 +268,14 @@ Current controls:
 - `xmp_existing_sidecar_precedence` on the file-read/prepare path:
   - `SidecarWins`
   - `SourceWins`
+- `xmp_existing_destination_embedded_mode` on the file-read/prepare and
+  file-helper execution paths:
+  - `Ignore`
+  - `MergeIfPresent`
+- `xmp_existing_destination_embedded_precedence` on the file-read/prepare and
+  file-helper execution paths:
+  - `DestinationWins`
+  - `SourceWins`
 - `xmp_writeback_mode` on the file-helper execution path:
   - `EmbeddedOnly`
   - `SidecarOnly`
@@ -275,6 +286,8 @@ Current controls:
 - CLI:
   - `--xmp-include-existing-sidecar`
   - `--xmp-existing-sidecar-precedence <sidecar_wins|source_wins>`
+  - `--xmp-include-existing-destination-embedded`
+  - `--xmp-existing-destination-embedded-precedence <destination_wins|source_wins>`
   - `--xmp-no-exif-projection`
   - `--xmp-no-iptc-projection`
   - `--xmp-conflict-policy <current|existing_wins|generated_wins>`
@@ -294,6 +307,12 @@ Current behavior:
   requested
 - that sidecar merge path now has explicit precedence against source-embedded
   existing XMP instead of relying on implicit decode order
+- existing embedded XMP from the destination file can also be merged into
+  generated portable XMP on the file-read/prepare path and on the file-helper
+  path when explicitly requested
+- that destination-embedded merge path has its own explicit precedence
+  against source-embedded existing XMP instead of relying on implicit decode
+  order
 - some targets without a native IPTC carrier can still use XMP as the bounded
   fallback carrier when IPTC projection is enabled
 - file-helper export can now strip prepared embedded XMP blocks and return
@@ -303,6 +322,8 @@ Current behavior:
 - the public `metatransfer` CLI and Python transfer wrapper can now persist
   that generated XMP as a sibling `.xmp` sidecar when sidecar or dual-write
   XMP writeback is selected
+- the public `metatransfer` CLI and Python transfer wrapper now also expose
+  the bounded destination-embedded merge and precedence controls directly
 - sidecar-only writeback now has an explicit destination embedded-XMP policy:
   - preserve existing embedded XMP by default
   - strip existing embedded XMP for `jpeg`, `tiff`, `png`, `webp`, `jp2`,
@@ -323,7 +344,7 @@ This is deliberately narrower than a full sync engine. It does not yet define:
 - full EXIF vs XMP precedence rules
 - MWG-style reconciliation
 - full destination embedded-vs-sidecar reconciliation policy beyond the
-  current bounded carrier modes and strip rules
+  current bounded merge, precedence, carrier-mode, and strip rules
 - namespace-wide deduplication and normalization rules beyond the current
   generated-XMP path
 

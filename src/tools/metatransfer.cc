@@ -48,6 +48,12 @@ namespace {
             "  --xmp-existing-sidecar-precedence <sidecar_wins|source_wins>\n"
             "                         Conflict precedence between an existing output\n"
             "                         sidecar and source-embedded existing XMP\n"
+            "  --xmp-include-existing-destination-embedded\n"
+            "                         Include existing embedded XMP from the edit target\n"
+            "                         in generated transfer XMP\n"
+            "  --xmp-existing-destination-embedded-precedence <destination_wins|source_wins>\n"
+            "                         Conflict precedence between existing destination\n"
+            "                         embedded XMP and source-embedded existing XMP\n"
             "  --xmp-no-exif-projection\n"
             "                         Do not mirror EXIF-derived properties into generated XMP\n"
             "  --xmp-no-iptc-projection\n"
@@ -444,6 +450,24 @@ namespace {
         }
         if (std::strcmp(s, "source_wins") == 0) {
             *out = XmpExistingSidecarPrecedence::SourceWins;
+            return true;
+        }
+        return false;
+    }
+
+    static bool parse_xmp_existing_destination_embedded_precedence(
+        const char* s,
+        XmpExistingDestinationEmbeddedPrecedence* out) noexcept
+    {
+        if (!s || !out) {
+            return false;
+        }
+        if (std::strcmp(s, "destination_wins") == 0) {
+            *out = XmpExistingDestinationEmbeddedPrecedence::DestinationWins;
+            return true;
+        }
+        if (std::strcmp(s, "source_wins") == 0) {
+            *out = XmpExistingDestinationEmbeddedPrecedence::SourceWins;
             return true;
         }
         return false;
@@ -1162,6 +1186,26 @@ namespace {
             out->append(result.prepared.xmp_existing_sidecar_message);
             out->push_back('\n');
         }
+        if (!result.prepared.xmp_existing_destination_embedded_path.empty()) {
+            out->append("file_xmp_existing_destination_embedded: loaded=");
+            out->append(
+                result.prepared.xmp_existing_destination_embedded_loaded
+                    ? "yes"
+                    : "no");
+            out->append(" status=");
+            out->append(transfer_status_name(
+                result.prepared.xmp_existing_destination_embedded_status));
+            out->append(" path=");
+            out->append(
+                result.prepared.xmp_existing_destination_embedded_path);
+            out->push_back('\n');
+        }
+        if (!result.prepared.xmp_existing_destination_embedded_message.empty()) {
+            out->append("file_xmp_existing_destination_embedded_message=");
+            out->append(
+                result.prepared.xmp_existing_destination_embedded_message);
+            out->push_back('\n');
+        }
 
         out->append("prepare: status=");
         out->append(transfer_status_name(result.prepared.prepare.status));
@@ -1530,8 +1574,12 @@ main(int argc, char** argv)
     options.prepare.target_format = TransferTargetFormat::Jpeg;
     options.prepare.xmp_portable  = true;
     bool xmp_include_existing_sidecar = false;
+    bool xmp_include_existing_destination_embedded = false;
     XmpExistingSidecarPrecedence xmp_existing_sidecar_precedence
         = XmpExistingSidecarPrecedence::SidecarWins;
+    XmpExistingDestinationEmbeddedPrecedence
+        xmp_existing_destination_embedded_precedence
+        = XmpExistingDestinationEmbeddedPrecedence::DestinationWins;
     XmpWritebackMode xmp_writeback_mode = XmpWritebackMode::EmbeddedOnly;
     XmpDestinationEmbeddedMode xmp_destination_embedded_mode
         = XmpDestinationEmbeddedMode::PreserveExisting;
@@ -1596,6 +1644,12 @@ main(int argc, char** argv)
             xmp_include_existing_sidecar = true;
             continue;
         }
+        if (std::strcmp(arg,
+                        "--xmp-include-existing-destination-embedded")
+            == 0) {
+            xmp_include_existing_destination_embedded = true;
+            continue;
+        }
         if (std::strcmp(arg, "--xmp-existing-sidecar-precedence") == 0) {
             if (i + 1 >= argc) {
                 std::fprintf(
@@ -1614,6 +1668,32 @@ main(int argc, char** argv)
                 return 2;
             }
             xmp_existing_sidecar_precedence = precedence;
+            i += 1;
+            continue;
+        }
+        if (std::strcmp(
+                arg,
+                "--xmp-existing-destination-embedded-precedence")
+            == 0) {
+            if (i + 1 >= argc) {
+                std::fprintf(
+                    stderr,
+                    "missing value for "
+                    "--xmp-existing-destination-embedded-precedence\n");
+                return 2;
+            }
+            XmpExistingDestinationEmbeddedPrecedence precedence
+                = XmpExistingDestinationEmbeddedPrecedence::DestinationWins;
+            if (!parse_xmp_existing_destination_embedded_precedence(
+                    argv[i + 1], &precedence)) {
+                std::fprintf(
+                    stderr,
+                    "invalid "
+                    "--xmp-existing-destination-embedded-precedence value "
+                    "(expected destination_wins|source_wins)\n");
+                return 2;
+            }
+            xmp_existing_destination_embedded_precedence = precedence;
             i += 1;
             continue;
         }
@@ -2473,6 +2553,7 @@ main(int argc, char** argv)
             || !pending_time_patches.empty() || emit_repeat != 1U
             || edit_plan_opts.mode != JpegEditMode::Auto
             || edit_plan_opts.require_in_place
+            || xmp_include_existing_destination_embedded
             || xmp_writeback_mode != XmpWritebackMode::EmbeddedOnly
             || xmp_destination_embedded_mode
                    != XmpDestinationEmbeddedMode::PreserveExisting
@@ -2499,6 +2580,12 @@ main(int argc, char** argv)
             options.xmp_existing_sidecar_precedence
                 = XmpExistingSidecarPrecedence::SidecarWins;
             options.xmp_existing_sidecar_base_path.clear();
+        }
+        if (xmp_include_existing_destination_embedded) {
+            std::fprintf(
+                stderr,
+                "--dump-exr-attribute-batch is an inspect-only mode and is mutually exclusive with transfer/edit options\n");
+            return 2;
         }
 
         BuildExrAttributeBatchFileOptions exr_options;
@@ -2731,6 +2818,27 @@ main(int argc, char** argv)
             options.xmp_existing_sidecar_precedence
                 = XmpExistingSidecarPrecedence::SidecarWins;
             options.xmp_existing_sidecar_base_path.clear();
+        }
+        if (xmp_include_existing_destination_embedded) {
+            const bool destination_embedded_edit_context
+                = need_jpeg_edit || need_tiff_edit || need_webp_edit
+                  || need_png_edit || need_jp2_edit || need_jxl_edit
+                  || need_bmff_edit;
+            options.xmp_existing_destination_embedded_mode
+                = XmpExistingDestinationEmbeddedMode::MergeIfPresent;
+            options.xmp_existing_destination_embedded_precedence
+                = xmp_existing_destination_embedded_precedence;
+            if (destination_embedded_edit_context) {
+                options.xmp_existing_destination_embedded_path = target_path;
+            } else {
+                options.xmp_existing_destination_embedded_path.clear();
+            }
+        } else {
+            options.xmp_existing_destination_embedded_mode
+                = XmpExistingDestinationEmbeddedMode::Ignore;
+            options.xmp_existing_destination_embedded_precedence
+                = XmpExistingDestinationEmbeddedPrecedence::DestinationWins;
+            options.xmp_existing_destination_embedded_path.clear();
         }
         PrepareTransferFileResult prepared
             = prepare_metadata_for_target_file(source_path.c_str(), options);
@@ -3286,6 +3394,26 @@ main(int argc, char** argv)
             if (!prepared.xmp_existing_sidecar_message.empty()) {
                 std::printf("  xmp_existing_sidecar_message=%s\n",
                             prepared.xmp_existing_sidecar_message.c_str());
+            }
+        }
+        if (xmp_include_existing_destination_embedded) {
+            std::printf(
+                "  xmp_existing_destination_embedded: status=%s loaded=%s",
+                transfer_status_name(
+                    prepared.xmp_existing_destination_embedded_status),
+                prepared.xmp_existing_destination_embedded_loaded ? "yes"
+                                                                  : "no");
+            if (!prepared.xmp_existing_destination_embedded_path.empty()) {
+                std::printf(
+                    " path=%s",
+                    prepared.xmp_existing_destination_embedded_path.c_str());
+            }
+            std::printf("\n");
+            if (!prepared.xmp_existing_destination_embedded_message.empty()) {
+                std::printf(
+                    "  xmp_existing_destination_embedded_message=%s\n",
+                    prepared.xmp_existing_destination_embedded_message
+                        .c_str());
             }
         }
         if (xmp_sidecar_requested) {

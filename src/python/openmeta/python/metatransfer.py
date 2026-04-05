@@ -274,6 +274,8 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--xmp-include-existing", action="store_true", help="include existing decoded XMP in generated transfer XMP")
     ap.add_argument("--xmp-include-existing-sidecar", action="store_true", help="include an existing sibling .xmp sidecar from the output/edit target path in generated transfer XMP")
     ap.add_argument("--xmp-existing-sidecar-precedence", choices=["sidecar_wins", "source_wins"], default="sidecar_wins", help="conflict precedence between an existing output-side .xmp and source-embedded existing XMP")
+    ap.add_argument("--xmp-include-existing-destination-embedded", action="store_true", help="include existing embedded XMP from the edit target in generated transfer XMP")
+    ap.add_argument("--xmp-existing-destination-embedded-precedence", choices=["destination_wins", "source_wins"], default="destination_wins", help="conflict precedence between existing destination embedded XMP and source-embedded existing XMP")
     ap.add_argument("--xmp-no-exif-projection", action="store_true", help="do not mirror EXIF-derived properties into generated XMP")
     ap.add_argument("--xmp-no-iptc-projection", action="store_true", help="do not mirror IPTC-derived properties into generated XMP")
     ap.add_argument("--xmp-conflict-policy", choices=["current", "existing_wins", "generated_wins"], default="current", help="conflict policy between existing decoded XMP and generated portable EXIF/IPTC XMP")
@@ -534,6 +536,21 @@ def main(argv: list[str]) -> int:
         and args.xmp_writeback != "embedded"
     ):
         ap.error("--xmp-destination-sidecar strip_existing is currently supported only with --xmp-writeback embedded")
+    if (
+        args.xmp_include_existing_destination_embedded
+        and not (
+            args.target_jpeg
+            or args.target_tiff
+            or args.target_webp
+            or args.target_png
+            or args.target_jp2
+            or args.target_jxl
+            or args.target_heif
+            or args.target_avif
+            or args.target_cr3
+        )
+    ):
+        ap.error("--xmp-include-existing-destination-embedded requires an edit target")
     if args.dump_c2pa_binding and (
         args.target_tiff
         or args.target_webp
@@ -856,6 +873,20 @@ def main(argv: list[str]) -> int:
         xmp_existing_sidecar_precedence = (
             openmeta.XmpExistingSidecarPrecedence.SourceWins
         )
+    xmp_existing_destination_embedded_mode = (
+        openmeta.XmpExistingDestinationEmbeddedMode.Ignore
+    )
+    if args.xmp_include_existing_destination_embedded:
+        xmp_existing_destination_embedded_mode = (
+            openmeta.XmpExistingDestinationEmbeddedMode.MergeIfPresent
+        )
+    xmp_existing_destination_embedded_precedence = (
+        openmeta.XmpExistingDestinationEmbeddedPrecedence.DestinationWins
+    )
+    if args.xmp_existing_destination_embedded_precedence == "source_wins":
+        xmp_existing_destination_embedded_precedence = (
+            openmeta.XmpExistingDestinationEmbeddedPrecedence.SourceWins
+        )
 
     for path in input_paths:
         source_path = args.source_meta if args.source_meta else path
@@ -912,6 +943,8 @@ def main(argv: list[str]) -> int:
             xmp_sidecar_base_path=xmp_sidecar_base_path,
             xmp_existing_sidecar_mode=xmp_existing_sidecar_mode,
             xmp_existing_sidecar_precedence=xmp_existing_sidecar_precedence,
+            xmp_existing_destination_embedded_mode=xmp_existing_destination_embedded_mode,
+            xmp_existing_destination_embedded_precedence=xmp_existing_destination_embedded_precedence,
             edit_apply=edit_apply,
             include_edited_bytes=need_edited_bytes,
             include_c2pa_binding_bytes=need_c2pa_binding_bytes,
@@ -974,6 +1007,18 @@ def main(argv: list[str]) -> int:
             if probe["xmp_existing_sidecar_message"]:
                 print(
                     f"  xmp_existing_sidecar_message={probe['xmp_existing_sidecar_message']}"
+                )
+        if args.xmp_include_existing_destination_embedded:
+            print(
+                "  xmp_existing_destination_embedded: "
+                f"status={probe['xmp_existing_destination_embedded_status_name']} "
+                f"loaded={'yes' if probe['xmp_existing_destination_embedded_loaded'] else 'no'} "
+                f"path={probe['xmp_existing_destination_embedded_path'] or '-'}"
+            )
+            if probe["xmp_existing_destination_embedded_message"]:
+                print(
+                    "  xmp_existing_destination_embedded_message="
+                    f"{probe['xmp_existing_destination_embedded_message']}"
                 )
         if probe["xmp_sidecar_requested"]:
             xmp_sidecar_path = str(probe["xmp_sidecar_path"] or "-")

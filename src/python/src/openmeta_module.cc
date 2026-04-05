@@ -1626,6 +1626,10 @@ namespace {
         nb::object xmp_sidecar_base_path_obj,
         XmpExistingSidecarMode xmp_existing_sidecar_mode,
         XmpExistingSidecarPrecedence xmp_existing_sidecar_precedence,
+        XmpExistingDestinationEmbeddedMode
+            xmp_existing_destination_embedded_mode,
+        XmpExistingDestinationEmbeddedPrecedence
+            xmp_existing_destination_embedded_precedence,
         bool edit_do_apply,
         bool include_edited_bytes,
         bool unsafe_edited_bytes_access, bool include_c2pa_binding_bytes,
@@ -1690,6 +1694,10 @@ namespace {
         file_options.execute.time_patch_auto_nul     = time_patch_auto_nul;
         file_options.execute.edit_apply              = edit_do_apply;
         file_options.execute.edit_requested          = false;
+        file_options.xmp_existing_destination_embedded_mode
+            = xmp_existing_destination_embedded_mode;
+        file_options.xmp_existing_destination_embedded_precedence
+            = xmp_existing_destination_embedded_precedence;
         file_options.xmp_writeback_mode              = xmp_writeback_mode;
         file_options.xmp_destination_embedded_mode
             = xmp_destination_embedded_mode;
@@ -1828,6 +1836,19 @@ namespace {
         out["xmp_existing_sidecar_path"] = nb::str(
             prepared.xmp_existing_sidecar_path.c_str(),
             prepared.xmp_existing_sidecar_path.size());
+        out["xmp_existing_destination_embedded_loaded"]
+            = nb::bool_(executed.xmp_existing_destination_embedded_loaded);
+        out["xmp_existing_destination_embedded_status"]
+            = executed.xmp_existing_destination_embedded_status;
+        out["xmp_existing_destination_embedded_status_name"] = nb::str(
+            transfer_status_name(
+                executed.xmp_existing_destination_embedded_status));
+        out["xmp_existing_destination_embedded_message"] = nb::str(
+            executed.xmp_existing_destination_embedded_message.c_str(),
+            executed.xmp_existing_destination_embedded_message.size());
+        out["xmp_existing_destination_embedded_path"] = nb::str(
+            executed.xmp_existing_destination_embedded_path.c_str(),
+            executed.xmp_existing_destination_embedded_path.size());
         out["xmp_sidecar_requested"] = nb::bool_(executed.xmp_sidecar_requested);
         out["xmp_sidecar_status"]    = executed.xmp_sidecar_status;
         out["xmp_sidecar_status_name"]
@@ -3775,6 +3796,19 @@ NB_MODULE(_openmeta, m)
         .value("SidecarWins", XmpExistingSidecarPrecedence::SidecarWins)
         .value("SourceWins", XmpExistingSidecarPrecedence::SourceWins);
 
+    nb::enum_<XmpExistingDestinationEmbeddedMode>(
+        m, "XmpExistingDestinationEmbeddedMode")
+        .value("Ignore", XmpExistingDestinationEmbeddedMode::Ignore)
+        .value("MergeIfPresent",
+               XmpExistingDestinationEmbeddedMode::MergeIfPresent);
+
+    nb::enum_<XmpExistingDestinationEmbeddedPrecedence>(
+        m, "XmpExistingDestinationEmbeddedPrecedence")
+        .value("DestinationWins",
+               XmpExistingDestinationEmbeddedPrecedence::DestinationWins)
+        .value("SourceWins",
+               XmpExistingDestinationEmbeddedPrecedence::SourceWins);
+
     nb::enum_<TransferTargetFormat>(m, "TransferTargetFormat")
         .value("Jpeg", TransferTargetFormat::Jpeg)
         .value("Tiff", TransferTargetFormat::Tiff)
@@ -4858,6 +4892,10 @@ NB_MODULE(_openmeta, m)
            nb::object edit_target_path, nb::object xmp_sidecar_base_path,
            XmpExistingSidecarMode xmp_existing_sidecar_mode,
            XmpExistingSidecarPrecedence xmp_existing_sidecar_precedence,
+           XmpExistingDestinationEmbeddedMode
+               xmp_existing_destination_embedded_mode,
+           XmpExistingDestinationEmbeddedPrecedence
+               xmp_existing_destination_embedded_precedence,
            bool edit_apply,
            bool include_edited_bytes, bool include_c2pa_binding_bytes,
            bool include_c2pa_handoff_bytes,
@@ -4884,6 +4922,8 @@ NB_MODULE(_openmeta, m)
                 time_patches, time_patch_strict_width, time_patch_require_slot,
                 time_patch_auto_nul, edit_target_path, xmp_sidecar_base_path,
                 xmp_existing_sidecar_mode, xmp_existing_sidecar_precedence,
+                xmp_existing_destination_embedded_mode,
+                xmp_existing_destination_embedded_precedence,
                 edit_apply,
                 include_edited_bytes, false, include_c2pa_binding_bytes, false,
                 include_c2pa_handoff_bytes, include_c2pa_signed_package_bytes,
@@ -4922,6 +4962,10 @@ NB_MODULE(_openmeta, m)
         "xmp_existing_sidecar_mode"_a = XmpExistingSidecarMode::Ignore,
         "xmp_existing_sidecar_precedence"_a
         = XmpExistingSidecarPrecedence::SidecarWins,
+        "xmp_existing_destination_embedded_mode"_a
+        = XmpExistingDestinationEmbeddedMode::Ignore,
+        "xmp_existing_destination_embedded_precedence"_a
+        = XmpExistingDestinationEmbeddedPrecedence::DestinationWins,
         "edit_apply"_a = true, "include_edited_bytes"_a = false,
         "include_c2pa_binding_bytes"_a           = false,
         "include_c2pa_handoff_bytes"_a           = false,
@@ -4959,6 +5003,10 @@ NB_MODULE(_openmeta, m)
            nb::object edit_target_path, nb::object xmp_sidecar_base_path,
            XmpExistingSidecarMode xmp_existing_sidecar_mode,
            XmpExistingSidecarPrecedence xmp_existing_sidecar_precedence,
+           XmpExistingDestinationEmbeddedMode
+               xmp_existing_destination_embedded_mode,
+           XmpExistingDestinationEmbeddedPrecedence
+               xmp_existing_destination_embedded_precedence,
            bool edit_apply,
            bool include_edited_bytes, bool include_c2pa_binding_bytes,
            bool include_c2pa_handoff_bytes,
@@ -4985,6 +5033,8 @@ NB_MODULE(_openmeta, m)
                 time_patches, time_patch_strict_width, time_patch_require_slot,
                 time_patch_auto_nul, edit_target_path, xmp_sidecar_base_path,
                 xmp_existing_sidecar_mode, xmp_existing_sidecar_precedence,
+                xmp_existing_destination_embedded_mode,
+                xmp_existing_destination_embedded_precedence,
                 edit_apply,
                 include_edited_bytes, true, include_c2pa_binding_bytes, true,
                 include_c2pa_handoff_bytes, include_c2pa_signed_package_bytes,
@@ -5023,6 +5073,10 @@ NB_MODULE(_openmeta, m)
         "xmp_existing_sidecar_mode"_a = XmpExistingSidecarMode::Ignore,
         "xmp_existing_sidecar_precedence"_a
         = XmpExistingSidecarPrecedence::SidecarWins,
+        "xmp_existing_destination_embedded_mode"_a
+        = XmpExistingDestinationEmbeddedMode::Ignore,
+        "xmp_existing_destination_embedded_precedence"_a
+        = XmpExistingDestinationEmbeddedPrecedence::DestinationWins,
         "edit_apply"_a = true, "include_edited_bytes"_a = false,
         "include_c2pa_binding_bytes"_a           = false,
         "include_c2pa_handoff_bytes"_a           = false,
@@ -5060,6 +5114,10 @@ NB_MODULE(_openmeta, m)
            nb::object edit_target_path, nb::object xmp_sidecar_base_path,
            XmpExistingSidecarMode xmp_existing_sidecar_mode,
            XmpExistingSidecarPrecedence xmp_existing_sidecar_precedence,
+           XmpExistingDestinationEmbeddedMode
+               xmp_existing_destination_embedded_mode,
+           XmpExistingDestinationEmbeddedPrecedence
+               xmp_existing_destination_embedded_precedence,
            bool edit_apply,
            bool include_edited_bytes, bool include_c2pa_binding_bytes,
            bool include_c2pa_handoff_bytes,
@@ -5089,6 +5147,8 @@ NB_MODULE(_openmeta, m)
                 time_patches, time_patch_strict_width, time_patch_require_slot,
                 time_patch_auto_nul, edit_target_path, xmp_sidecar_base_path,
                 xmp_existing_sidecar_mode, xmp_existing_sidecar_precedence,
+                xmp_existing_destination_embedded_mode,
+                xmp_existing_destination_embedded_precedence,
                 edit_apply,
                 include_edited_bytes, false, include_c2pa_binding_bytes, false,
                 include_c2pa_handoff_bytes, include_c2pa_signed_package_bytes,
@@ -5129,6 +5189,10 @@ NB_MODULE(_openmeta, m)
         "xmp_existing_sidecar_mode"_a = XmpExistingSidecarMode::Ignore,
         "xmp_existing_sidecar_precedence"_a
         = XmpExistingSidecarPrecedence::SidecarWins,
+        "xmp_existing_destination_embedded_mode"_a
+        = XmpExistingDestinationEmbeddedMode::Ignore,
+        "xmp_existing_destination_embedded_precedence"_a
+        = XmpExistingDestinationEmbeddedPrecedence::DestinationWins,
         "edit_apply"_a = true, "include_edited_bytes"_a = false,
         "include_c2pa_binding_bytes"_a           = false,
         "include_c2pa_handoff_bytes"_a           = false,
@@ -5169,6 +5233,10 @@ NB_MODULE(_openmeta, m)
            nb::object edit_target_path, nb::object xmp_sidecar_base_path,
            XmpExistingSidecarMode xmp_existing_sidecar_mode,
            XmpExistingSidecarPrecedence xmp_existing_sidecar_precedence,
+           XmpExistingDestinationEmbeddedMode
+               xmp_existing_destination_embedded_mode,
+           XmpExistingDestinationEmbeddedPrecedence
+               xmp_existing_destination_embedded_precedence,
            bool edit_apply,
            bool include_edited_bytes, bool include_c2pa_binding_bytes,
            bool include_c2pa_handoff_bytes,
@@ -5198,6 +5266,8 @@ NB_MODULE(_openmeta, m)
                 time_patches, time_patch_strict_width, time_patch_require_slot,
                 time_patch_auto_nul, edit_target_path, xmp_sidecar_base_path,
                 xmp_existing_sidecar_mode, xmp_existing_sidecar_precedence,
+                xmp_existing_destination_embedded_mode,
+                xmp_existing_destination_embedded_precedence,
                 edit_apply,
                 include_edited_bytes, true, include_c2pa_binding_bytes, true,
                 include_c2pa_handoff_bytes, include_c2pa_signed_package_bytes,
@@ -5238,6 +5308,10 @@ NB_MODULE(_openmeta, m)
         "xmp_existing_sidecar_mode"_a = XmpExistingSidecarMode::Ignore,
         "xmp_existing_sidecar_precedence"_a
         = XmpExistingSidecarPrecedence::SidecarWins,
+        "xmp_existing_destination_embedded_mode"_a
+        = XmpExistingDestinationEmbeddedMode::Ignore,
+        "xmp_existing_destination_embedded_precedence"_a
+        = XmpExistingDestinationEmbeddedPrecedence::DestinationWins,
         "edit_apply"_a = true, "include_edited_bytes"_a = false,
         "include_c2pa_binding_bytes"_a           = false,
         "include_c2pa_handoff_bytes"_a           = false,

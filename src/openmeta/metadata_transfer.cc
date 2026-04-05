@@ -2204,6 +2204,267 @@ namespace {
         out_message->assign("existing xmp sidecar decode failed");
     }
 
+    static uint32_t meta_value_element_size(
+        MetaElementType type) noexcept
+    {
+        switch (type) {
+        case MetaElementType::U8:
+        case MetaElementType::I8: return 1U;
+        case MetaElementType::U16:
+        case MetaElementType::I16: return 2U;
+        case MetaElementType::U32:
+        case MetaElementType::I32:
+        case MetaElementType::F32: return 4U;
+        case MetaElementType::U64:
+        case MetaElementType::I64:
+        case MetaElementType::F64:
+        case MetaElementType::URational:
+        case MetaElementType::SRational: return 8U;
+        }
+        return 0U;
+    }
+
+    static MetaValue
+    copy_meta_value_for_store(const MetaValue& value, const ByteArena& src,
+                              ByteArena& dst) noexcept
+    {
+        switch (value.kind) {
+        case MetaValueKind::Empty: return value;
+        case MetaValueKind::Scalar: return value;
+        case MetaValueKind::Bytes:
+            return make_bytes(dst, src.span(value.data.span));
+        case MetaValueKind::Text:
+            return make_text(dst, arena_string(src, value.data.span),
+                             value.text_encoding);
+        case MetaValueKind::Array:
+            return make_array(dst, value.elem_type,
+                              src.span(value.data.span),
+                              meta_value_element_size(value.elem_type));
+        }
+        return MetaValue {};
+    }
+
+    static bool append_xmp_entries_from_store(
+        const MetaStore& src, MetaStore* dst, uint32_t* out_appended) noexcept
+    {
+        if (!dst) {
+            return false;
+        }
+        if (out_appended) {
+            *out_appended = 0U;
+        }
+
+        BlockInfo info {};
+        const BlockId block = dst->add_block(info);
+        if (block == kInvalidBlockId) {
+            return false;
+        }
+
+        uint32_t order    = 0U;
+        uint32_t appended = 0U;
+        for (const Entry& entry : src.entries()) {
+            if (any(entry.flags, EntryFlags::Deleted)
+                || entry.key.kind != MetaKeyKind::XmpProperty) {
+                continue;
+            }
+
+            Entry copied;
+            copied.key = make_xmp_property_key(
+                dst->arena(),
+                arena_string(src.arena(),
+                             entry.key.data.xmp_property.schema_ns),
+                arena_string(src.arena(),
+                             entry.key.data.xmp_property.property_path));
+            copied.value = copy_meta_value_for_store(entry.value, src.arena(),
+                                                     dst->arena());
+            copied.origin                = entry.origin;
+            copied.origin.block          = block;
+            copied.origin.order_in_block = order;
+            if (entry.origin.wire_type_name.size > 0U) {
+                copied.origin.wire_type_name = dst->arena().append(
+                    src.arena().span(entry.origin.wire_type_name));
+            }
+            copied.flags = entry.flags;
+            if (dst->add_entry(copied) == kInvalidEntryId) {
+                return false;
+            }
+            order += 1U;
+            appended += 1U;
+        }
+
+        if (out_appended) {
+            *out_appended = appended;
+        }
+        return true;
+    }
+
+    static void decode_existing_destination_embedded_xmp_into_store(
+        const char* path, const OpenMetaResourcePolicy& policy,
+        const XmpDecodeOptions& decode_options, bool preserve_store_on_failure,
+        MetaStore* store, bool* out_loaded, TransferStatus* out_status,
+        std::string* out_message) noexcept
+    {
+        if (!store || !out_loaded || !out_status || !out_message) {
+            return;
+        }
+        if (!path || !*path) {
+            *out_loaded  = false;
+            *out_status  = TransferStatus::Unsupported;
+            *out_message = "existing destination embedded xmp merge requires "
+                           "edit_target_path";
+            return;
+        }
+
+        MappedFile mapped;
+        const MappedFileStatus status = mapped.open(path, policy.max_file_bytes);
+        if (status != MappedFileStatus::Ok) {
+            *out_loaded = false;
+            *out_status = status == MappedFileStatus::TooLarge
+                              ? TransferStatus::LimitExceeded
+                              : TransferStatus::Unsupported;
+            if (status == MappedFileStatus::TooLarge) {
+                *out_message
+                    = "existing destination embedded xmp exceeds size limit";
+            } else if (status == MappedFileStatus::StatFailed) {
+                *out_message
+                    = "failed to stat destination file for existing embedded xmp";
+            } else if (status == MappedFileStatus::OpenFailed) {
+                *out_message
+                    = "failed to open destination file for existing embedded xmp";
+            } else {
+                *out_message
+                    = "failed to map destination file for existing embedded xmp";
+            }
+            return;
+        }
+
+        SimpleMetaDecodeOptions read_options;
+        read_options.payload.decompress = true;
+        apply_resource_policy(policy, nullptr, &read_options.payload);
+        read_options.xmp = decode_options;
+        apply_resource_policy(policy, &read_options.xmp, nullptr, nullptr,
+                              nullptr, nullptr);
+
+        std::vector<ContainerBlockRef> blocks(64U);
+        std::vector<ExifIfdRef> ifds(1U);
+        std::vector<std::byte> payload(256U * 1024U);
+        std::vector<uint32_t> payload_parts(4096U);
+        MetaStore xmp_store;
+        SimpleMetaResult read;
+        for (;;) {
+            xmp_store = MetaStore();
+            read = simple_meta_read(
+                mapped.bytes(), xmp_store,
+                std::span<ContainerBlockRef>(blocks.data(), blocks.size()),
+                std::span<ExifIfdRef>(ifds.data(), ifds.size()),
+                std::span<std::byte>(payload.data(), payload.size()),
+                std::span<uint32_t>(payload_parts.data(), payload_parts.size()),
+                read_options);
+
+            bool retried = false;
+            if (read.scan.status == ScanStatus::OutputTruncated
+                && read.scan.needed > blocks.size()) {
+                blocks.resize(read.scan.needed);
+                retried = true;
+            }
+            if (read.payload.status == PayloadStatus::OutputTruncated
+                && read.payload.needed > payload.size()) {
+                if (read.payload.needed > static_cast<uint64_t>(SIZE_MAX)) {
+                    *out_loaded  = false;
+                    *out_status  = TransferStatus::LimitExceeded;
+                    *out_message = "existing destination embedded xmp payload "
+                                   "growth exceeds platform limits";
+                    return;
+                }
+                payload.resize(static_cast<size_t>(read.payload.needed));
+                retried = true;
+            }
+            if (!retried) {
+                break;
+            }
+        }
+
+        if (read.scan.status != ScanStatus::Ok) {
+            *out_loaded  = false;
+            *out_status  = TransferStatus::Malformed;
+            *out_message = "destination file scan failed for existing "
+                           "embedded xmp merge";
+            if (!preserve_store_on_failure) {
+                *store = MetaStore();
+            }
+            return;
+        }
+        if (read.xmp.status != XmpDecodeStatus::Ok) {
+            *out_loaded = false;
+            *out_status = read.xmp.status == XmpDecodeStatus::LimitExceeded
+                              ? TransferStatus::LimitExceeded
+                              : TransferStatus::Malformed;
+            *out_message
+                = "existing destination embedded xmp decode failed";
+            if (!preserve_store_on_failure) {
+                *store = MetaStore();
+            }
+            return;
+        }
+
+        xmp_store.finalize();
+        uint32_t xmp_entries = 0U;
+        for (const Entry& entry : xmp_store.entries()) {
+            if (any(entry.flags, EntryFlags::Deleted)
+                || entry.key.kind != MetaKeyKind::XmpProperty) {
+                continue;
+            }
+            xmp_entries += 1U;
+        }
+        if (xmp_entries == 0U) {
+            *out_loaded  = false;
+            *out_status  = TransferStatus::Ok;
+            *out_message = "no existing destination embedded xmp found";
+            return;
+        }
+
+        if (preserve_store_on_failure) {
+            MetaStore merged_store = *store;
+            uint32_t appended      = 0U;
+            if (!append_xmp_entries_from_store(xmp_store, &merged_store,
+                                               &appended)) {
+                *out_loaded  = false;
+                *out_status  = TransferStatus::InternalError;
+                *out_message = "failed to merge existing destination embedded "
+                               "xmp into transfer store";
+                return;
+            }
+            *store = std::move(merged_store);
+            *out_loaded  = appended > 0U;
+            *out_status  = TransferStatus::Ok;
+            out_message->clear();
+            return;
+        }
+
+        uint32_t appended = 0U;
+        if (!append_xmp_entries_from_store(xmp_store, store, &appended)) {
+            *out_loaded  = false;
+            *out_status  = TransferStatus::InternalError;
+            *out_message = "failed to merge existing destination embedded xmp "
+                           "into transfer store";
+            *store       = MetaStore();
+            return;
+        }
+        *out_loaded  = appended > 0U;
+        *out_status  = TransferStatus::Ok;
+        out_message->clear();
+    }
+
+    struct ExistingDestinationEmbeddedXmpMerge final {
+        const char* path = nullptr;
+        XmpExistingDestinationEmbeddedPrecedence precedence
+            = XmpExistingDestinationEmbeddedPrecedence::DestinationWins;
+        bool* out_loaded              = nullptr;
+        TransferStatus* out_status    = nullptr;
+        std::string* out_message      = nullptr;
+        std::string* out_path         = nullptr;
+    };
+
     static uint32_t
     next_prepared_block_order(const PreparedTransferBundle& bundle,
                               uint32_t base) noexcept
@@ -7635,6 +7896,49 @@ namespace {
         return false;
     }
 
+    static bool has_ifd_entry_tag(const ParsedTiffIfd& ifd,
+                                  uint16_t tag) noexcept
+    {
+        ParsedTiffIfdEntry ignored;
+        return find_ifd_entry(ifd, tag, &ignored);
+    }
+
+    static bool is_standard_tiff_ifd_pointer_tag(uint16_t tag) noexcept
+    {
+        return tag == 0x014AU || tag == 0x8769U || tag == 0x8825U
+               || tag == 0xA005U;
+    }
+
+    struct ParsedTiffIfdEntryLess final {
+        bool operator()(const ParsedTiffIfdEntry& a,
+                        const ParsedTiffIfdEntry& b) const noexcept
+        {
+            return a.tag < b.tag;
+        }
+    };
+
+    static void merge_preserved_standard_pointer_entries(
+        ParsedTiffIfd* dst, const ParsedTiffIfd& src) noexcept
+    {
+        if (!dst || !dst->present || !src.present) {
+            return;
+        }
+        bool appended = false;
+        for (size_t i = 0; i < src.entries.size(); ++i) {
+            const ParsedTiffIfdEntry& e = src.entries[i];
+            if (!is_standard_tiff_ifd_pointer_tag(e.tag)
+                || has_ifd_entry_tag(*dst, e.tag)) {
+                continue;
+            }
+            dst->entries.push_back(e);
+            appended = true;
+        }
+        if (appended) {
+            std::stable_sort(dst->entries.begin(), dst->entries.end(),
+                             ParsedTiffIfdEntryLess {});
+        }
+    }
+
     static bool payload_to_u32(const ParsedTiffIfdEntry& e, TiffEndian endian,
                                uint32_t* out) noexcept
     {
@@ -8513,6 +8817,7 @@ namespace {
         const bool need_exif_ptr = parsed_exif.exif_ifd.present;
         const bool need_gps_ptr  = parsed_exif.gps_ifd.present;
         const bool need_subifd_ptr = !parsed_exif.subifds.empty();
+        uint64_t existing_exif_ifd_off = 0U;
         std::vector<uint64_t> existing_subifd_offsets;
 
         std::vector<TiffIfdEntry> final_entries;
@@ -8533,6 +8838,10 @@ namespace {
             } else {
                 count_value  = read_u64_tiff(input, p + 4U, endian);
                 value_or_off = read_u64_tiff(input, p + 12U, endian);
+            }
+            if (need_exif_ptr && tag == 0x8769U && count_value == 1U
+                && (type == 4U || type == 13U || type == 18U)) {
+                existing_exif_ifd_off = value_or_off;
             }
             if (need_subifd_ptr && tag == 0x014AU
                 && !parse_tiff_offset_array_entry(input, type, count_value,
@@ -8721,6 +9030,25 @@ namespace {
                 preserved_existing_page_ifds.push_back(std::move(page_ifd));
             }
         }
+        if (!parsed_exif.page_ifds.empty()) {
+            const size_t overlap_count = (existing_page_offsets.size()
+                                          < parsed_exif.page_ifds.size())
+                                             ? existing_page_offsets.size()
+                                             : parsed_exif.page_ifds.size();
+            for (size_t i = 0; i < overlap_count; ++i) {
+                if (existing_page_offsets[i] == 0U) {
+                    continue;
+                }
+                ParsedTiffIfd existing_page_ifd;
+                if (!parse_target_tiff_ifd(input, existing_page_offsets[i],
+                                           endian, layout,
+                                           &existing_page_ifd, err)) {
+                    return false;
+                }
+                merge_preserved_standard_pointer_entries(
+                    &parsed_exif.page_ifds[i], existing_page_ifd);
+            }
+        }
         std::vector<ParsedTiffIfd> preserved_existing_subifds;
         if (need_subifd_ptr
             && existing_subifd_offsets.size() > parsed_exif.subifds.size()) {
@@ -8739,6 +9067,25 @@ namespace {
                 preserved_existing_subifds.push_back(std::move(subifd));
             }
         }
+        if (need_subifd_ptr) {
+            const size_t overlap_count = (existing_subifd_offsets.size()
+                                          < parsed_exif.subifds.size())
+                                             ? existing_subifd_offsets.size()
+                                             : parsed_exif.subifds.size();
+            for (size_t i = 0; i < overlap_count; ++i) {
+                if (existing_subifd_offsets[i] == 0U) {
+                    continue;
+                }
+                ParsedTiffIfd existing_subifd;
+                if (!parse_target_tiff_ifd(input, existing_subifd_offsets[i],
+                                           endian, layout,
+                                           &existing_subifd, err)) {
+                    return false;
+                }
+                merge_preserved_standard_pointer_entries(
+                    &parsed_exif.subifds[i], existing_subifd);
+            }
+        }
         if (!preserved_existing_subifds.empty()) {
             for (size_t i = 0; i < final_entries.size(); ++i) {
                 if (final_entries[i].tag == 0x014AU) {
@@ -8748,6 +9095,16 @@ namespace {
                     break;
                 }
             }
+        }
+
+        if (parsed_exif.exif_ifd.present && existing_exif_ifd_off != 0U) {
+            ParsedTiffIfd existing_exif_ifd;
+            if (!parse_target_tiff_ifd(input, existing_exif_ifd_off, endian,
+                                       layout, &existing_exif_ifd, err)) {
+                return false;
+            }
+            merge_preserved_standard_pointer_entries(&parsed_exif.exif_ifd,
+                                                     existing_exif_ifd);
         }
 
         uint64_t interop_ifd_off = 0U;
@@ -14778,9 +15135,11 @@ replay_prepared_transfer_package_batch(
     return result;
 }
 
-PrepareTransferFileResult
-prepare_metadata_for_target_file(
-    const char* path, const PrepareTransferFileOptions& options) noexcept
+static PrepareTransferFileResult
+prepare_metadata_for_target_file_impl(
+    const char* path, const PrepareTransferFileOptions& options,
+    const ExistingDestinationEmbeddedXmpMerge* existing_destination_embedded)
+    noexcept
 {
     PrepareTransferFileResult out;
 
@@ -14836,6 +15195,19 @@ prepare_metadata_for_target_file(
     const bool sidecar_source_precedence
         = options.xmp_existing_sidecar_precedence
           == XmpExistingSidecarPrecedence::SourceWins;
+    const bool destination_embedded_merge_requested
+        = existing_destination_embedded != nullptr
+          && existing_destination_embedded->path != nullptr;
+    const bool destination_embedded_source_precedence
+        = destination_embedded_merge_requested
+          && existing_destination_embedded->precedence
+                 == XmpExistingDestinationEmbeddedPrecedence::SourceWins;
+
+    if (destination_embedded_merge_requested
+        && existing_destination_embedded->out_path) {
+        existing_destination_embedded->out_path->assign(
+            existing_destination_embedded->path);
+    }
 
     if (options.xmp_existing_sidecar_mode
         == XmpExistingSidecarMode::MergeIfPresent) {
@@ -14863,6 +15235,15 @@ prepare_metadata_for_target_file(
             if (!out.xmp_existing_sidecar_loaded) {
                 existing_xmp_sidecar_bytes.clear();
             }
+        }
+        if (!destination_embedded_source_precedence
+            && destination_embedded_merge_requested) {
+            decode_existing_destination_embedded_xmp_into_store(
+                existing_destination_embedded->path, policy, decode_options.xmp,
+                false, &store,
+                existing_destination_embedded->out_loaded,
+                existing_destination_embedded->out_status,
+                existing_destination_embedded->out_message);
         }
         out.read = simple_meta_read(
             mapped.bytes(), store,
@@ -14913,6 +15294,14 @@ prepare_metadata_for_target_file(
             existing_xmp_sidecar_bytes.clear();
         }
     }
+    if (destination_embedded_source_precedence
+        && destination_embedded_merge_requested) {
+        decode_existing_destination_embedded_xmp_into_store(
+            existing_destination_embedded->path, policy, decode_options.xmp,
+            true, &store, existing_destination_embedded->out_loaded,
+            existing_destination_embedded->out_status,
+            existing_destination_embedded->out_message);
+    }
 
     if (has_read_failure(out.read)) {
         out.file_status    = TransferFileStatus::ReadFailed;
@@ -14958,7 +15347,8 @@ prepare_metadata_for_target_file(
 
     PrepareTransferRequest prepare_request = options.prepare;
     if (options.xmp_existing_sidecar_mode
-        == XmpExistingSidecarMode::MergeIfPresent) {
+            == XmpExistingSidecarMode::MergeIfPresent
+        || destination_embedded_merge_requested) {
         prepare_request.xmp_include_existing = true;
     }
     out.prepare = prepare_metadata_for_target_impl(store, prepare_request, caps,
@@ -14969,6 +15359,15 @@ prepare_metadata_for_target_file(
         && out.xmp_existing_sidecar_status != TransferStatus::Ok) {
         out.prepare.warnings += 1U;
         append_message(&out.prepare.message, out.xmp_existing_sidecar_message);
+    }
+    if (destination_embedded_merge_requested
+        && existing_destination_embedded->out_message != nullptr
+        && !existing_destination_embedded->out_message->empty()
+        && existing_destination_embedded->out_status != nullptr
+        && *existing_destination_embedded->out_status != TransferStatus::Ok) {
+        out.prepare.warnings += 1U;
+        append_message(&out.prepare.message,
+                       *existing_destination_embedded->out_message);
     }
 
     if (options.prepare.target_format == TransferTargetFormat::Jpeg) {
@@ -15210,6 +15609,37 @@ prepare_metadata_for_target_file(
             }
         }
     }
+    return out;
+}
+
+PrepareTransferFileResult
+prepare_metadata_for_target_file(
+    const char* path, const PrepareTransferFileOptions& options) noexcept
+{
+    if (options.xmp_existing_destination_embedded_mode
+        != XmpExistingDestinationEmbeddedMode::MergeIfPresent) {
+        return prepare_metadata_for_target_file_impl(path, options, nullptr);
+    }
+
+    bool loaded                    = false;
+    TransferStatus status          = TransferStatus::Unsupported;
+    std::string message;
+    std::string destination_path;
+    ExistingDestinationEmbeddedXmpMerge merge;
+    merge.path = options.xmp_existing_destination_embedded_path.c_str();
+    merge.precedence
+        = options.xmp_existing_destination_embedded_precedence;
+    merge.out_loaded  = &loaded;
+    merge.out_status  = &status;
+    merge.out_message = &message;
+    merge.out_path    = &destination_path;
+
+    PrepareTransferFileResult out
+        = prepare_metadata_for_target_file_impl(path, options, &merge);
+    out.xmp_existing_destination_embedded_loaded = loaded;
+    out.xmp_existing_destination_embedded_status = status;
+    out.xmp_existing_destination_embedded_message = std::move(message);
+    out.xmp_existing_destination_embedded_path = std::move(destination_path);
     return out;
 }
 
@@ -23006,7 +23436,27 @@ execute_prepared_transfer_file(
                                       || options.c2pa_signed_package_provided;
     const bool allow_sidecar_block_mutation = !strip_destination_embedded_xmp;
     out.execute.c2pa_stage_requested = c2pa_stage_requested;
-    out.prepared = prepare_metadata_for_target_file(path, options.prepare);
+    PrepareTransferFileOptions prepare_options = options.prepare;
+    if (options.xmp_existing_destination_embedded_mode
+        == XmpExistingDestinationEmbeddedMode::MergeIfPresent) {
+        prepare_options.xmp_existing_destination_embedded_mode
+            = XmpExistingDestinationEmbeddedMode::MergeIfPresent;
+        prepare_options.xmp_existing_destination_embedded_precedence
+            = options.xmp_existing_destination_embedded_precedence;
+        if (prepare_options.xmp_existing_destination_embedded_path.empty()) {
+            prepare_options.xmp_existing_destination_embedded_path
+                = options.edit_target_path;
+        }
+    }
+    out.prepared = prepare_metadata_for_target_file(path, prepare_options);
+    out.xmp_existing_destination_embedded_loaded
+        = out.prepared.xmp_existing_destination_embedded_loaded;
+    out.xmp_existing_destination_embedded_status
+        = out.prepared.xmp_existing_destination_embedded_status;
+    out.xmp_existing_destination_embedded_message
+        = out.prepared.xmp_existing_destination_embedded_message;
+    out.xmp_existing_destination_embedded_path
+        = out.prepared.xmp_existing_destination_embedded_path;
 
     if (out.xmp_sidecar_requested) {
         if (options.edit_target_path.empty()) {

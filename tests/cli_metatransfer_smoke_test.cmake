@@ -14,6 +14,7 @@ file(REMOVE_RECURSE "${WORK_DIR}")
 file(MAKE_DIRECTORY "${WORK_DIR}")
 
 set(_jpg "${WORK_DIR}/sample.jpg")
+set(_jpg_xmp "${WORK_DIR}/sample_xmp.jpg")
 set(_jpg_exr "${WORK_DIR}/sample_exr.jpg")
 set(_icc_jpg "${WORK_DIR}/sample_icc.jpg")
 set(_target_jpg "${WORK_DIR}/target.jpg")
@@ -26,6 +27,7 @@ set(_embed_only_strip_jpg "${WORK_DIR}/embed_only_strip.jpg")
 set(_embed_only_strip_sidecar "${WORK_DIR}/embed_only_strip.xmp")
 set(_sidecar_only_strip_jpg "${WORK_DIR}/sidecar_only_strip.jpg")
 set(_sidecar_only_strip_sidecar "${WORK_DIR}/sidecar_only_strip.xmp")
+set(_destination_merge_jpg "${WORK_DIR}/destination_merge.jpg")
 set(_target_jxl "${WORK_DIR}/target.jxl")
 set(_edited_jxl "${WORK_DIR}/edited.jxl")
 set(_target_jp2 "${WORK_DIR}/target.jp2")
@@ -81,6 +83,18 @@ execute_process(
 if(NOT _rv_write EQUAL 0)
   message(FATAL_ERROR
     "failed to write metatransfer fixture (${_rv_write})\nstdout:\n${_out_write}\nstderr:\n${_err_write}")
+endif()
+
+execute_process(
+  COMMAND python3 -c
+    "from pathlib import Path; t=bytearray(); t+=b'II*\\x00'; t+=(8).to_bytes(4,'little'); t+=(1).to_bytes(2,'little'); t+=(0x0132).to_bytes(2,'little'); t+=(2).to_bytes(2,'little'); t+=(20).to_bytes(4,'little'); t+=(26).to_bytes(4,'little'); t+=(0).to_bytes(4,'little'); t+=b'2000:01:02 03:04:05\\x00'; app1=b'Exif\\x00\\x00'+bytes(t); xml=b\"<x:xmpmeta xmlns:x='adobe:ns:meta/'><rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'><rdf:Description xmlns:xmp='http://ns.adobe.com/xap/1.0/'><xmp:CreatorTool>OpenMeta Transfer Source</xmp:CreatorTool></rdf:Description></rdf:RDF></x:xmpmeta>\"; xmp=b'http://ns.adobe.com/xap/1.0/\\x00'+xml; ln1=(len(app1)+2).to_bytes(2,'big'); ln2=(len(xmp)+2).to_bytes(2,'big'); jpg=b'\\xFF\\xD8\\xFF\\xE1'+ln1+app1+b'\\xFF\\xE1'+ln2+xmp+b'\\xFF\\xD9'; Path(r'''${_jpg_xmp}''').write_bytes(jpg)"
+  RESULT_VARIABLE _rv_write_xmp
+  OUTPUT_VARIABLE _out_write_xmp
+  ERROR_VARIABLE _err_write_xmp
+)
+if(NOT _rv_write_xmp EQUAL 0)
+  message(FATAL_ERROR
+    "failed to write xmp source jpeg fixture (${_rv_write_xmp})\nstdout:\n${_out_write_xmp}\nstderr:\n${_err_write_xmp}")
 endif()
 
 execute_process(
@@ -1355,6 +1369,43 @@ execute_process(
 if(NOT _rv_sidecar_strip_tif_check EQUAL 0)
   message(FATAL_ERROR
     "metatransfer tiff sidecar-only embedded-strip output still contains xmp tag 700 or lost DateTime (${_rv_sidecar_strip_tif_check})\nstdout:\n${_out_sidecar_strip_tif}\nstderr:\n${_err_sidecar_strip_tif}\ncheck_stderr:\n${_err_sidecar_strip_tif_check}")
+endif()
+
+execute_process(
+  COMMAND "${METATRANSFER_BIN}" --no-build-info
+          --target-jpeg "${_target_jpg_xmp}"
+          --xmp-include-existing
+          --xmp-conflict-policy existing_wins
+          --xmp-include-existing-destination-embedded
+          --xmp-existing-destination-embedded-precedence destination_wins
+          --output "${_destination_merge_jpg}" --force
+          "${_jpg_xmp}"
+  RESULT_VARIABLE _rv_destination_merge
+  OUTPUT_VARIABLE _out_destination_merge
+  ERROR_VARIABLE _err_destination_merge
+)
+if(NOT _rv_destination_merge EQUAL 0)
+  message(FATAL_ERROR
+    "metatransfer destination embedded merge failed (${_rv_destination_merge})\nstdout:\n${_out_destination_merge}\nstderr:\n${_err_destination_merge}")
+endif()
+if(NOT EXISTS "${_destination_merge_jpg}")
+  message(FATAL_ERROR
+    "metatransfer destination embedded merge did not write jpeg output\nstdout:\n${_out_destination_merge}\nstderr:\n${_err_destination_merge}")
+endif()
+if(NOT _out_destination_merge MATCHES "xmp_existing_destination_embedded: status=ok loaded=yes path=.*target_xmp\\.jpg")
+  message(FATAL_ERROR
+    "metatransfer destination embedded merge missing status summary\nstdout:\n${_out_destination_merge}\nstderr:\n${_err_destination_merge}")
+endif()
+execute_process(
+  COMMAND python3 -c
+    "from pathlib import Path; b=Path(r'''${_destination_merge_jpg}''').read_bytes(); import sys; sys.exit(0 if (b.find(b'Target Embedded Existing')!=-1 and b.find(b'OpenMeta Transfer Source')==-1) else 1)"
+  RESULT_VARIABLE _rv_destination_merge_check
+  OUTPUT_VARIABLE _out_destination_merge_check
+  ERROR_VARIABLE _err_destination_merge_check
+)
+if(NOT _rv_destination_merge_check EQUAL 0)
+  message(FATAL_ERROR
+    "metatransfer destination embedded precedence check failed (${_rv_destination_merge_check})\nstdout:\n${_out_destination_merge}\nstderr:\n${_err_destination_merge}\ncheck_stderr:\n${_err_destination_merge_check}")
 endif()
 
 execute_process(

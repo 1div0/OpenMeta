@@ -917,6 +917,20 @@ enum class XmpExistingSidecarPrecedence : uint8_t {
     SourceWins,
 };
 
+/// Existing destination embedded-XMP handling for file-helper transfer
+/// execution.
+enum class XmpExistingDestinationEmbeddedMode : uint8_t {
+    Ignore,
+    MergeIfPresent,
+};
+
+/// Conflict precedence between merged destination embedded XMP and
+/// source-embedded existing XMP.
+enum class XmpExistingDestinationEmbeddedPrecedence : uint8_t {
+    DestinationWins,
+    SourceWins,
+};
+
 /// File-read + decode options for \ref prepare_metadata_for_target_file.
 struct PrepareTransferFileOptions final {
     bool include_pointer_tags       = true;
@@ -924,10 +938,17 @@ struct PrepareTransferFileOptions final {
     bool decode_embedded_containers = true;
     bool decompress                 = true;
     std::string xmp_existing_sidecar_base_path;
+    std::string xmp_existing_destination_embedded_path;
     XmpExistingSidecarMode xmp_existing_sidecar_mode
         = XmpExistingSidecarMode::Ignore;
     XmpExistingSidecarPrecedence xmp_existing_sidecar_precedence
         = XmpExistingSidecarPrecedence::SidecarWins;
+    XmpExistingDestinationEmbeddedMode
+        xmp_existing_destination_embedded_mode
+        = XmpExistingDestinationEmbeddedMode::Ignore;
+    XmpExistingDestinationEmbeddedPrecedence
+        xmp_existing_destination_embedded_precedence
+        = XmpExistingDestinationEmbeddedPrecedence::DestinationWins;
 
     OpenMetaResourcePolicy policy;
     PrepareTransferRequest prepare;
@@ -943,6 +964,11 @@ struct PrepareTransferFileResult final {
     TransferStatus xmp_existing_sidecar_status = TransferStatus::Unsupported;
     std::string xmp_existing_sidecar_message;
     std::string xmp_existing_sidecar_path;
+    bool xmp_existing_destination_embedded_loaded = false;
+    TransferStatus xmp_existing_destination_embedded_status
+        = TransferStatus::Unsupported;
+    std::string xmp_existing_destination_embedded_message;
+    std::string xmp_existing_destination_embedded_path;
 
     SimpleMetaResult read;
     PrepareTransferResult prepare;
@@ -1193,6 +1219,12 @@ struct ExecutePreparedTransferFileOptions final {
     ExecutePreparedTransferOptions execute;
     std::string edit_target_path;
     std::string xmp_sidecar_base_path;
+    XmpExistingDestinationEmbeddedMode
+        xmp_existing_destination_embedded_mode
+        = XmpExistingDestinationEmbeddedMode::Ignore;
+    XmpExistingDestinationEmbeddedPrecedence
+        xmp_existing_destination_embedded_precedence
+        = XmpExistingDestinationEmbeddedPrecedence::DestinationWins;
     XmpWritebackMode xmp_writeback_mode = XmpWritebackMode::EmbeddedOnly;
     XmpDestinationEmbeddedMode xmp_destination_embedded_mode
         = XmpDestinationEmbeddedMode::PreserveExisting;
@@ -1208,6 +1240,11 @@ struct ExecutePreparedTransferFileOptions final {
 struct ExecutePreparedTransferFileResult final {
     PrepareTransferFileResult prepared;
     ExecutePreparedTransferResult execute;
+    bool xmp_existing_destination_embedded_loaded = false;
+    TransferStatus xmp_existing_destination_embedded_status
+        = TransferStatus::Unsupported;
+    std::string xmp_existing_destination_embedded_message;
+    std::string xmp_existing_destination_embedded_path;
     bool xmp_sidecar_requested      = false;
     TransferStatus xmp_sidecar_status = TransferStatus::Unsupported;
     std::string xmp_sidecar_message;

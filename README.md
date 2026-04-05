@@ -96,7 +96,8 @@ In practice:
   chain rewrite (`ifd1`, `ifd2`, and preserved downstream tails), and bounded
   TIFF/DNG-style SubIFD rewrite with preserved downstream auxiliary tails
   and preserved trailing existing children when only the front subset is
-  replaced.
+  replaced. Replaced `ExifIFD` blocks can also preserve an existing target
+  `InteropIFD` when the source does not supply its own interop child.
 - For DNG-like TIFF sources, the current bounded merge policy is:
   replace the source-supplied front preview-page/aux front structures, preserve
   existing target page tails and trailing auxiliary children.
@@ -118,11 +119,18 @@ In practice:
   the destination path into generated portable XMP when that bounded mode is
   requested, with explicit `sidecar_wins` or `source_wins` precedence against
   source-embedded existing XMP.
+- Transfer preparation and file-helper execution can also fold existing
+  embedded XMP from the destination file into generated portable XMP when
+  that bounded mode is requested, with explicit `destination_wins` or
+  `source_wins` precedence against source-embedded existing XMP.
 - File-helper execution, `metatransfer`, and the Python transfer wrapper now
   share a bounded XMP carrier choice:
   embedded XMP only, sidecar-only writeback to a sibling `.xmp`, or dual
   embedded-plus-sidecar writeback when a generated XMP packet exists for the
   prepared transfer.
+- `metatransfer` and the Python transfer wrapper also expose the bounded
+  destination-embedded merge controls directly instead of hiding them behind
+  lower-level bindings.
 - Sidecar-only writeback also has an explicit destination embedded-XMP policy:
   preserve existing embedded XMP by default, or strip it for
   `jpeg`, `tiff`, `png`, `webp`, `jp2`, and `jxl`.
