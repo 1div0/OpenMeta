@@ -57,6 +57,9 @@ namespace {
             "  --xmp-existing-destination-embedded-precedence <destination_wins|source_wins>\n"
             "                         Conflict precedence between existing destination\n"
             "                         embedded XMP and source-embedded existing XMP\n"
+            "  --xmp-existing-destination-carrier-precedence <sidecar_wins|embedded_wins>\n"
+            "                         Conflict precedence between existing destination\n"
+            "                         sidecar XMP and existing destination embedded XMP\n"
             "  --xmp-no-exif-projection\n"
             "                         Do not mirror EXIF-derived properties into generated XMP\n"
             "  --xmp-no-iptc-projection\n"
@@ -475,6 +478,24 @@ namespace {
         }
         if (std::strcmp(s, "source_wins") == 0) {
             *out = XmpExistingDestinationEmbeddedPrecedence::SourceWins;
+            return true;
+        }
+        return false;
+    }
+
+    static bool parse_xmp_existing_destination_carrier_precedence(
+        const char* s,
+        XmpExistingDestinationCarrierPrecedence* out) noexcept
+    {
+        if (!s || !out) {
+            return false;
+        }
+        if (std::strcmp(s, "sidecar_wins") == 0) {
+            *out = XmpExistingDestinationCarrierPrecedence::SidecarWins;
+            return true;
+        }
+        if (std::strcmp(s, "embedded_wins") == 0) {
+            *out = XmpExistingDestinationCarrierPrecedence::EmbeddedWins;
             return true;
         }
         return false;
@@ -1612,6 +1633,9 @@ main(int argc, char** argv)
     XmpExistingDestinationEmbeddedPrecedence
         xmp_existing_destination_embedded_precedence
         = XmpExistingDestinationEmbeddedPrecedence::DestinationWins;
+    XmpExistingDestinationCarrierPrecedence
+        xmp_existing_destination_carrier_precedence
+        = XmpExistingDestinationCarrierPrecedence::SidecarWins;
     XmpWritebackMode xmp_writeback_mode = XmpWritebackMode::EmbeddedOnly;
     XmpDestinationEmbeddedMode xmp_destination_embedded_mode
         = XmpDestinationEmbeddedMode::PreserveExisting;
@@ -1726,6 +1750,31 @@ main(int argc, char** argv)
                 return 2;
             }
             xmp_existing_destination_embedded_precedence = precedence;
+            i += 1;
+            continue;
+        }
+        if (std::strcmp(arg,
+                        "--xmp-existing-destination-carrier-precedence")
+            == 0) {
+            if (i + 1 >= argc) {
+                std::fprintf(
+                    stderr,
+                    "missing value for "
+                    "--xmp-existing-destination-carrier-precedence\n");
+                return 2;
+            }
+            XmpExistingDestinationCarrierPrecedence precedence
+                = XmpExistingDestinationCarrierPrecedence::SidecarWins;
+            if (!parse_xmp_existing_destination_carrier_precedence(
+                    argv[i + 1], &precedence)) {
+                std::fprintf(
+                    stderr,
+                    "invalid "
+                    "--xmp-existing-destination-carrier-precedence value "
+                    "(expected sidecar_wins|embedded_wins)\n");
+                return 2;
+            }
+            xmp_existing_destination_carrier_precedence = precedence;
             i += 1;
             continue;
         }
@@ -2960,6 +3009,8 @@ main(int argc, char** argv)
                 = XmpExistingSidecarMode::MergeIfPresent;
             options.xmp_existing_sidecar_precedence
                 = xmp_existing_sidecar_precedence;
+            options.xmp_existing_destination_carrier_precedence
+                = xmp_existing_destination_carrier_precedence;
             if (!output_path.empty()) {
                 options.xmp_existing_sidecar_base_path = output_path;
             } else if (!target_path.empty()) {
@@ -2971,6 +3022,8 @@ main(int argc, char** argv)
             options.xmp_existing_sidecar_mode = XmpExistingSidecarMode::Ignore;
             options.xmp_existing_sidecar_precedence
                 = XmpExistingSidecarPrecedence::SidecarWins;
+            options.xmp_existing_destination_carrier_precedence
+                = XmpExistingDestinationCarrierPrecedence::SidecarWins;
             options.xmp_existing_sidecar_base_path.clear();
         }
         if (xmp_include_existing_destination_embedded) {
@@ -2982,6 +3035,8 @@ main(int argc, char** argv)
                 = XmpExistingDestinationEmbeddedMode::MergeIfPresent;
             options.xmp_existing_destination_embedded_precedence
                 = xmp_existing_destination_embedded_precedence;
+            options.xmp_existing_destination_carrier_precedence
+                = xmp_existing_destination_carrier_precedence;
             if (destination_embedded_edit_context) {
                 options.xmp_existing_destination_embedded_path = target_path;
             } else {
@@ -2992,6 +3047,8 @@ main(int argc, char** argv)
                 = XmpExistingDestinationEmbeddedMode::Ignore;
             options.xmp_existing_destination_embedded_precedence
                 = XmpExistingDestinationEmbeddedPrecedence::DestinationWins;
+            options.xmp_existing_destination_carrier_precedence
+                = XmpExistingDestinationCarrierPrecedence::SidecarWins;
             options.xmp_existing_destination_embedded_path.clear();
         }
         PrepareTransferFileResult prepared

@@ -934,6 +934,13 @@ enum class XmpExistingDestinationEmbeddedPrecedence : uint8_t {
     SourceWins,
 };
 
+/// Conflict precedence between existing destination sidecar XMP and existing
+/// destination embedded XMP when both are merged during transfer preparation.
+enum class XmpExistingDestinationCarrierPrecedence : uint8_t {
+    SidecarWins,
+    EmbeddedWins,
+};
+
 /// File-read + decode options for \ref prepare_metadata_for_target_file.
 struct PrepareTransferFileOptions final {
     bool include_pointer_tags       = true;
@@ -952,6 +959,9 @@ struct PrepareTransferFileOptions final {
     XmpExistingDestinationEmbeddedPrecedence
         xmp_existing_destination_embedded_precedence
         = XmpExistingDestinationEmbeddedPrecedence::DestinationWins;
+    XmpExistingDestinationCarrierPrecedence
+        xmp_existing_destination_carrier_precedence
+        = XmpExistingDestinationCarrierPrecedence::SidecarWins;
 
     OpenMetaResourcePolicy policy;
     PrepareTransferRequest prepare;

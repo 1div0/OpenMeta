@@ -10545,6 +10545,182 @@ TEST(MetadataTransferApi,
 }
 
 TEST(MetadataTransferApi,
+     PrepareTransferFileDefaultDestinationCarrierPrecedencePrefersExistingSidecar)
+{
+    std::vector<std::byte> source_jpeg;
+    ASSERT_TRUE(build_test_transfer_source_jpeg_bytes(&source_jpeg));
+    const std::string source_path = unique_temp_path(".jpg");
+    ASSERT_TRUE(write_bytes_file(
+        source_path,
+        std::span<const std::byte>(source_jpeg.data(), source_jpeg.size())));
+
+    std::vector<std::byte> target_bytes;
+    ASSERT_TRUE(build_test_target_with_existing_creator_tool_xmp(
+        openmeta::TransferTargetFormat::Jpeg, "Target Embedded Existing",
+        &target_bytes));
+    const std::string target_path = unique_temp_path(".jpg");
+    ASSERT_TRUE(write_bytes_file(
+        target_path,
+        std::span<const std::byte>(target_bytes.data(), target_bytes.size())));
+
+    const std::string output_path = unique_temp_path(".jpg");
+    const size_t output_dot       = output_path.find_last_of('.');
+    ASSERT_NE(output_dot, std::string::npos);
+    const std::string output_sidecar_path
+        = output_path.substr(0, output_dot) + ".xmp";
+
+    std::vector<std::byte> existing_sidecar;
+    ASSERT_TRUE(build_test_creator_tool_xmp_sidecar("Target Sidecar Existing",
+                                                    &existing_sidecar));
+    ASSERT_TRUE(write_bytes_file(
+        output_sidecar_path,
+        std::span<const std::byte>(existing_sidecar.data(),
+                                   existing_sidecar.size())));
+
+    openmeta::PrepareTransferFileOptions options;
+    options.prepare.target_format        = openmeta::TransferTargetFormat::Jpeg;
+    options.prepare.include_icc_app2     = false;
+    options.prepare.include_iptc_app13   = false;
+    options.prepare.xmp_include_existing = true;
+    options.prepare.xmp_conflict_policy
+        = openmeta::XmpConflictPolicy::ExistingWins;
+    options.xmp_existing_sidecar_mode
+        = openmeta::XmpExistingSidecarMode::MergeIfPresent;
+    options.xmp_existing_sidecar_base_path = output_path;
+    options.xmp_existing_destination_embedded_mode
+        = openmeta::XmpExistingDestinationEmbeddedMode::MergeIfPresent;
+    options.xmp_existing_destination_embedded_path = target_path;
+
+    const openmeta::PrepareTransferFileResult result
+        = openmeta::prepare_metadata_for_target_file(source_path.c_str(),
+                                                     options);
+    std::remove(source_path.c_str());
+    std::remove(target_path.c_str());
+    std::remove(output_sidecar_path.c_str());
+
+    ASSERT_EQ(result.file_status, openmeta::TransferFileStatus::Ok);
+    ASSERT_EQ(result.prepare.status, openmeta::TransferStatus::Ok);
+    ASSERT_TRUE(result.xmp_existing_sidecar_loaded);
+    EXPECT_EQ(result.xmp_existing_sidecar_status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.xmp_existing_sidecar_path, output_sidecar_path);
+    ASSERT_TRUE(result.xmp_existing_destination_embedded_loaded);
+    EXPECT_EQ(result.xmp_existing_destination_embedded_status,
+              openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.xmp_existing_destination_embedded_path, target_path);
+    EXPECT_EQ(count_blocks_with_route(result.bundle, "jpeg:app1-xmp"), 1U);
+
+    bool found_sidecar_existing = false;
+    bool found_target_existing  = false;
+    bool found_source_existing  = false;
+    for (size_t i = 0; i < result.bundle.blocks.size(); ++i) {
+        if (result.bundle.blocks[i].route != "jpeg:app1-xmp") {
+            continue;
+        }
+        const std::span<const std::byte> payload(
+            result.bundle.blocks[i].payload.data(),
+            result.bundle.blocks[i].payload.size());
+        found_sidecar_existing
+            = payload_contains_ascii(payload, "Target Sidecar Existing");
+        found_target_existing
+            = payload_contains_ascii(payload, "Target Embedded Existing");
+        found_source_existing
+            = payload_contains_ascii(payload, "OpenMeta Transfer Source");
+    }
+    EXPECT_TRUE(found_sidecar_existing);
+    EXPECT_FALSE(found_target_existing);
+    EXPECT_FALSE(found_source_existing);
+}
+
+TEST(MetadataTransferApi,
+     PrepareTransferFileCanPreferExistingDestinationEmbeddedOverExistingSidecar)
+{
+    std::vector<std::byte> source_jpeg;
+    ASSERT_TRUE(build_test_transfer_source_jpeg_bytes(&source_jpeg));
+    const std::string source_path = unique_temp_path(".jpg");
+    ASSERT_TRUE(write_bytes_file(
+        source_path,
+        std::span<const std::byte>(source_jpeg.data(), source_jpeg.size())));
+
+    std::vector<std::byte> target_bytes;
+    ASSERT_TRUE(build_test_target_with_existing_creator_tool_xmp(
+        openmeta::TransferTargetFormat::Jpeg, "Target Embedded Existing",
+        &target_bytes));
+    const std::string target_path = unique_temp_path(".jpg");
+    ASSERT_TRUE(write_bytes_file(
+        target_path,
+        std::span<const std::byte>(target_bytes.data(), target_bytes.size())));
+
+    const std::string output_path = unique_temp_path(".jpg");
+    const size_t output_dot       = output_path.find_last_of('.');
+    ASSERT_NE(output_dot, std::string::npos);
+    const std::string output_sidecar_path
+        = output_path.substr(0, output_dot) + ".xmp";
+
+    std::vector<std::byte> existing_sidecar;
+    ASSERT_TRUE(build_test_creator_tool_xmp_sidecar("Target Sidecar Existing",
+                                                    &existing_sidecar));
+    ASSERT_TRUE(write_bytes_file(
+        output_sidecar_path,
+        std::span<const std::byte>(existing_sidecar.data(),
+                                   existing_sidecar.size())));
+
+    openmeta::PrepareTransferFileOptions options;
+    options.prepare.target_format        = openmeta::TransferTargetFormat::Jpeg;
+    options.prepare.include_icc_app2     = false;
+    options.prepare.include_iptc_app13   = false;
+    options.prepare.xmp_include_existing = true;
+    options.prepare.xmp_conflict_policy
+        = openmeta::XmpConflictPolicy::ExistingWins;
+    options.xmp_existing_sidecar_mode
+        = openmeta::XmpExistingSidecarMode::MergeIfPresent;
+    options.xmp_existing_sidecar_base_path = output_path;
+    options.xmp_existing_destination_embedded_mode
+        = openmeta::XmpExistingDestinationEmbeddedMode::MergeIfPresent;
+    options.xmp_existing_destination_embedded_path = target_path;
+    options.xmp_existing_destination_carrier_precedence
+        = openmeta::XmpExistingDestinationCarrierPrecedence::EmbeddedWins;
+
+    const openmeta::PrepareTransferFileResult result
+        = openmeta::prepare_metadata_for_target_file(source_path.c_str(),
+                                                     options);
+    std::remove(source_path.c_str());
+    std::remove(target_path.c_str());
+    std::remove(output_sidecar_path.c_str());
+
+    ASSERT_EQ(result.file_status, openmeta::TransferFileStatus::Ok);
+    ASSERT_EQ(result.prepare.status, openmeta::TransferStatus::Ok);
+    ASSERT_TRUE(result.xmp_existing_sidecar_loaded);
+    EXPECT_EQ(result.xmp_existing_sidecar_status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.xmp_existing_sidecar_path, output_sidecar_path);
+    ASSERT_TRUE(result.xmp_existing_destination_embedded_loaded);
+    EXPECT_EQ(result.xmp_existing_destination_embedded_status,
+              openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.xmp_existing_destination_embedded_path, target_path);
+    EXPECT_EQ(count_blocks_with_route(result.bundle, "jpeg:app1-xmp"), 1U);
+
+    bool found_sidecar_existing = false;
+    bool found_target_existing  = false;
+    bool found_source_existing  = false;
+    for (size_t i = 0; i < result.bundle.blocks.size(); ++i) {
+        if (result.bundle.blocks[i].route != "jpeg:app1-xmp") {
+            continue;
+        }
+        const std::span<const std::byte> payload(
+            result.bundle.blocks[i].payload.data(),
+            result.bundle.blocks[i].payload.size());
+        found_sidecar_existing
+            = payload_contains_ascii(payload, "Target Sidecar Existing");
+        found_target_existing
+            = payload_contains_ascii(payload, "Target Embedded Existing");
+        found_source_existing
+            = payload_contains_ascii(payload, "OpenMeta Transfer Source");
+    }
+    EXPECT_FALSE(found_sidecar_existing);
+    EXPECT_TRUE(found_target_existing);
+    EXPECT_FALSE(found_source_existing);
+}
+
+TEST(MetadataTransferApi,
      ExecutePreparedTransferFileSidecarOnlyCanStripDestinationEmbeddedXmpAcrossTargets)
 {
     struct Case final {

@@ -1815,6 +1815,8 @@ namespace {
             xmp_existing_destination_embedded_mode,
         XmpExistingDestinationEmbeddedPrecedence
             xmp_existing_destination_embedded_precedence,
+        XmpExistingDestinationCarrierPrecedence
+            xmp_existing_destination_carrier_precedence,
         bool edit_do_apply,
         bool include_edited_bytes,
         bool unsafe_edited_bytes_access, bool include_c2pa_binding_bytes,
@@ -1859,6 +1861,8 @@ namespace {
             = xmp_existing_sidecar_mode;
         prepare_options.xmp_existing_sidecar_precedence
             = xmp_existing_sidecar_precedence;
+        prepare_options.xmp_existing_destination_carrier_precedence
+            = xmp_existing_destination_carrier_precedence;
 
         if (!policy_obj.is_none()) {
             prepare_options.policy = nb::cast<OpenMetaResourcePolicy>(
@@ -4001,6 +4005,13 @@ NB_MODULE(_openmeta, m)
         .value("SourceWins",
                XmpExistingDestinationEmbeddedPrecedence::SourceWins);
 
+    nb::enum_<XmpExistingDestinationCarrierPrecedence>(
+        m, "XmpExistingDestinationCarrierPrecedence")
+        .value("SidecarWins",
+               XmpExistingDestinationCarrierPrecedence::SidecarWins)
+        .value("EmbeddedWins",
+               XmpExistingDestinationCarrierPrecedence::EmbeddedWins);
+
     nb::enum_<TransferTargetFormat>(m, "TransferTargetFormat")
         .value("Jpeg", TransferTargetFormat::Jpeg)
         .value("Tiff", TransferTargetFormat::Tiff)
@@ -5089,6 +5100,8 @@ NB_MODULE(_openmeta, m)
                xmp_existing_destination_embedded_mode,
            XmpExistingDestinationEmbeddedPrecedence
                xmp_existing_destination_embedded_precedence,
+           XmpExistingDestinationCarrierPrecedence
+               xmp_existing_destination_carrier_precedence,
            bool edit_apply,
            bool include_edited_bytes, bool include_c2pa_binding_bytes,
            bool include_c2pa_handoff_bytes,
@@ -5117,6 +5130,7 @@ NB_MODULE(_openmeta, m)
                 xmp_existing_sidecar_mode, xmp_existing_sidecar_precedence,
                 xmp_existing_destination_embedded_mode,
                 xmp_existing_destination_embedded_precedence,
+                xmp_existing_destination_carrier_precedence,
                 edit_apply,
                 include_edited_bytes, false, include_c2pa_binding_bytes, false,
                 include_c2pa_handoff_bytes, include_c2pa_signed_package_bytes,
@@ -5159,6 +5173,8 @@ NB_MODULE(_openmeta, m)
         = XmpExistingDestinationEmbeddedMode::Ignore,
         "xmp_existing_destination_embedded_precedence"_a
         = XmpExistingDestinationEmbeddedPrecedence::DestinationWins,
+        "xmp_existing_destination_carrier_precedence"_a
+        = XmpExistingDestinationCarrierPrecedence::SidecarWins,
         "edit_apply"_a = true, "include_edited_bytes"_a = false,
         "include_c2pa_binding_bytes"_a           = false,
         "include_c2pa_handoff_bytes"_a           = false,
@@ -5200,6 +5216,8 @@ NB_MODULE(_openmeta, m)
                xmp_existing_destination_embedded_mode,
            XmpExistingDestinationEmbeddedPrecedence
                xmp_existing_destination_embedded_precedence,
+           XmpExistingDestinationCarrierPrecedence
+               xmp_existing_destination_carrier_precedence,
            bool edit_apply,
            bool include_edited_bytes, bool include_c2pa_binding_bytes,
            bool include_c2pa_handoff_bytes,
@@ -5228,6 +5246,7 @@ NB_MODULE(_openmeta, m)
                 xmp_existing_sidecar_mode, xmp_existing_sidecar_precedence,
                 xmp_existing_destination_embedded_mode,
                 xmp_existing_destination_embedded_precedence,
+                xmp_existing_destination_carrier_precedence,
                 edit_apply,
                 include_edited_bytes, true, include_c2pa_binding_bytes, true,
                 include_c2pa_handoff_bytes, include_c2pa_signed_package_bytes,
@@ -5270,6 +5289,8 @@ NB_MODULE(_openmeta, m)
         = XmpExistingDestinationEmbeddedMode::Ignore,
         "xmp_existing_destination_embedded_precedence"_a
         = XmpExistingDestinationEmbeddedPrecedence::DestinationWins,
+        "xmp_existing_destination_carrier_precedence"_a
+        = XmpExistingDestinationCarrierPrecedence::SidecarWins,
         "edit_apply"_a = true, "include_edited_bytes"_a = false,
         "include_c2pa_binding_bytes"_a           = false,
         "include_c2pa_handoff_bytes"_a           = false,
@@ -5311,6 +5332,8 @@ NB_MODULE(_openmeta, m)
                xmp_existing_destination_embedded_mode,
            XmpExistingDestinationEmbeddedPrecedence
                xmp_existing_destination_embedded_precedence,
+           XmpExistingDestinationCarrierPrecedence
+               xmp_existing_destination_carrier_precedence,
            bool edit_apply,
            bool include_edited_bytes, bool include_c2pa_binding_bytes,
            bool include_c2pa_handoff_bytes,
@@ -5342,6 +5365,7 @@ NB_MODULE(_openmeta, m)
                 xmp_existing_sidecar_mode, xmp_existing_sidecar_precedence,
                 xmp_existing_destination_embedded_mode,
                 xmp_existing_destination_embedded_precedence,
+                xmp_existing_destination_carrier_precedence,
                 edit_apply,
                 include_edited_bytes, false, include_c2pa_binding_bytes, false,
                 include_c2pa_handoff_bytes, include_c2pa_signed_package_bytes,
@@ -5386,6 +5410,8 @@ NB_MODULE(_openmeta, m)
         = XmpExistingDestinationEmbeddedMode::Ignore,
         "xmp_existing_destination_embedded_precedence"_a
         = XmpExistingDestinationEmbeddedPrecedence::DestinationWins,
+        "xmp_existing_destination_carrier_precedence"_a
+        = XmpExistingDestinationCarrierPrecedence::SidecarWins,
         "edit_apply"_a = true, "include_edited_bytes"_a = false,
         "include_c2pa_binding_bytes"_a           = false,
         "include_c2pa_handoff_bytes"_a           = false,
@@ -5430,6 +5456,8 @@ NB_MODULE(_openmeta, m)
                xmp_existing_destination_embedded_mode,
            XmpExistingDestinationEmbeddedPrecedence
                xmp_existing_destination_embedded_precedence,
+           XmpExistingDestinationCarrierPrecedence
+               xmp_existing_destination_carrier_precedence,
            bool edit_apply,
            bool include_edited_bytes, bool include_c2pa_binding_bytes,
            bool include_c2pa_handoff_bytes,
@@ -5461,6 +5489,7 @@ NB_MODULE(_openmeta, m)
                 xmp_existing_sidecar_mode, xmp_existing_sidecar_precedence,
                 xmp_existing_destination_embedded_mode,
                 xmp_existing_destination_embedded_precedence,
+                xmp_existing_destination_carrier_precedence,
                 edit_apply,
                 include_edited_bytes, true, include_c2pa_binding_bytes, true,
                 include_c2pa_handoff_bytes, include_c2pa_signed_package_bytes,
@@ -5505,6 +5534,8 @@ NB_MODULE(_openmeta, m)
         = XmpExistingDestinationEmbeddedMode::Ignore,
         "xmp_existing_destination_embedded_precedence"_a
         = XmpExistingDestinationEmbeddedPrecedence::DestinationWins,
+        "xmp_existing_destination_carrier_precedence"_a
+        = XmpExistingDestinationCarrierPrecedence::SidecarWins,
         "edit_apply"_a = true, "include_edited_bytes"_a = false,
         "include_c2pa_binding_bytes"_a           = false,
         "include_c2pa_handoff_bytes"_a           = false,

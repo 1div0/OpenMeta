@@ -333,6 +333,7 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--xmp-existing-sidecar-precedence", choices=["sidecar_wins", "source_wins"], default="sidecar_wins", help="conflict precedence between an existing output-side .xmp and source-embedded existing XMP")
     ap.add_argument("--xmp-include-existing-destination-embedded", action="store_true", help="include existing embedded XMP from the edit target in generated transfer XMP")
     ap.add_argument("--xmp-existing-destination-embedded-precedence", choices=["destination_wins", "source_wins"], default="destination_wins", help="conflict precedence between existing destination embedded XMP and source-embedded existing XMP")
+    ap.add_argument("--xmp-existing-destination-carrier-precedence", choices=["sidecar_wins", "embedded_wins"], default="sidecar_wins", help="conflict precedence between an existing destination sidecar and existing destination embedded XMP")
     ap.add_argument("--xmp-no-exif-projection", action="store_true", help="do not mirror EXIF-derived properties into generated XMP")
     ap.add_argument("--xmp-no-iptc-projection", action="store_true", help="do not mirror IPTC-derived properties into generated XMP")
     ap.add_argument("--xmp-conflict-policy", choices=["current", "existing_wins", "generated_wins"], default="current", help="conflict policy between existing decoded XMP and generated portable EXIF/IPTC XMP")
@@ -959,6 +960,13 @@ def main(argv: list[str]) -> int:
         xmp_existing_destination_embedded_precedence = (
             openmeta.XmpExistingDestinationEmbeddedPrecedence.SourceWins
         )
+    xmp_existing_destination_carrier_precedence = (
+        openmeta.XmpExistingDestinationCarrierPrecedence.SidecarWins
+    )
+    if args.xmp_existing_destination_carrier_precedence == "embedded_wins":
+        xmp_existing_destination_carrier_precedence = (
+            openmeta.XmpExistingDestinationCarrierPrecedence.EmbeddedWins
+        )
 
     for path in input_paths:
         source_path = args.source_meta if args.source_meta else path
@@ -1017,6 +1025,7 @@ def main(argv: list[str]) -> int:
             xmp_existing_sidecar_precedence=xmp_existing_sidecar_precedence,
             xmp_existing_destination_embedded_mode=xmp_existing_destination_embedded_mode,
             xmp_existing_destination_embedded_precedence=xmp_existing_destination_embedded_precedence,
+            xmp_existing_destination_carrier_precedence=xmp_existing_destination_carrier_precedence,
             edit_apply=edit_apply,
             include_edited_bytes=need_edited_bytes,
             include_c2pa_binding_bytes=need_c2pa_binding_bytes,
