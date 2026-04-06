@@ -280,7 +280,7 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--xmp-no-iptc-projection", action="store_true", help="do not mirror IPTC-derived properties into generated XMP")
     ap.add_argument("--xmp-conflict-policy", choices=["current", "existing_wins", "generated_wins"], default="current", help="conflict policy between existing decoded XMP and generated portable EXIF/IPTC XMP")
     ap.add_argument("--xmp-writeback", choices=["embedded", "sidecar", "embedded_and_sidecar"], default="embedded", help="keep generated XMP embedded, persist it only as a sibling .xmp sidecar, or do both when --output is used")
-    ap.add_argument("--xmp-destination-embedded", choices=["preserve_existing", "strip_existing"], default="preserve_existing", help="keep or remove destination embedded XMP during sidecar writeback; strip_existing is currently supported for JPEG, TIFF, PNG, WebP, JP2, and JXL sidecar-only writeback")
+    ap.add_argument("--xmp-destination-embedded", choices=["preserve_existing", "strip_existing"], default="preserve_existing", help="keep or remove destination embedded XMP during sidecar writeback; strip_existing is currently supported for JPEG, TIFF, DNG, PNG, WebP, JP2, and JXL sidecar-only writeback")
     ap.add_argument("--xmp-destination-sidecar", choices=["preserve_existing", "strip_existing"], default="preserve_existing", help="keep or remove an existing sibling .xmp sidecar when writeback stays embedded-only")
     ap.add_argument("--xmp-exiftool-gpsdatetime-alias", action="store_true", help="emit exif:GPSDateTime alias for GPS time in portable mode")
     ap.add_argument("--no-exif", action="store_true", help="skip EXIF APP1 preparation")
@@ -318,6 +318,7 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--target-cr3", action="store_true", help="target CR3 metadata transfer")
     ap.add_argument("--target-jpeg", type=str, default="", help="target JPEG stream for edit/apply")
     ap.add_argument("--target-tiff", type=str, default="", help="target TIFF stream for edit/apply")
+    ap.add_argument("--target-dng", type=str, default="", help="target DNG stream for edit/apply")
     ap.add_argument("--source-meta", type=str, default="", help="source metadata file for edit/apply against a separate target file")
     ap.add_argument("--jpeg-c2pa-signed", type=str, default="", help="externally signed logical C2PA payload for JPEG, JXL, or bounded BMFF staging")
     ap.add_argument("--c2pa-manifest-output", type=str, default="", help="external manifest-builder output bytes for signed C2PA staging")
@@ -372,6 +373,7 @@ def main(argv: list[str]) -> int:
     target_count = (
         int(bool(args.target_jpeg))
         + int(bool(args.target_tiff))
+        + int(bool(args.target_dng))
         + int(bool(args.target_jxl))
         + int(bool(args.target_webp))
         + int(bool(args.target_exr))
@@ -485,7 +487,7 @@ def main(argv: list[str]) -> int:
         ap.print_help(sys.stderr)
         return 2
     if target_count > 1:
-        ap.error("--target-jpeg, --target-tiff, --target-exr, --target-png, --target-jp2, --target-jxl, --target-webp, --target-heif, --target-avif, and --target-cr3 are mutually exclusive")
+        ap.error("--target-jpeg, --target-tiff, --target-dng, --target-exr, --target-png, --target-jp2, --target-jxl, --target-webp, --target-heif, --target-avif, and --target-cr3 are mutually exclusive")
     if (
         args.jpeg_c2pa_signed
         or args.c2pa_manifest_output
@@ -494,6 +496,7 @@ def main(argv: list[str]) -> int:
         or args.c2pa_signing_time
     ) and (
         args.target_tiff
+        or args.target_dng
         or args.target_webp
         or args.target_png
     ):
@@ -501,6 +504,7 @@ def main(argv: list[str]) -> int:
     if args.output and not (
         args.target_jpeg
         or args.target_tiff
+        or args.target_dng
         or args.target_webp
         or args.target_png
         or args.target_jp2
@@ -510,7 +514,7 @@ def main(argv: list[str]) -> int:
         or args.target_cr3
     ):
         ap.error(
-            "--output requires --target-jpeg, --target-tiff, --target-webp, "
+            "--output requires --target-jpeg, --target-tiff, --target-dng, --target-webp, "
             "--target-png, --target-jp2, --target-jxl, --target-heif, "
             "--target-avif, or --target-cr3"
         )
@@ -523,6 +527,7 @@ def main(argv: list[str]) -> int:
             or not (
                 args.target_jpeg
                 or args.target_tiff
+                or args.target_dng
                 or args.target_png
                 or args.target_webp
                 or args.target_jp2
@@ -530,7 +535,7 @@ def main(argv: list[str]) -> int:
             )
         )
     ):
-        ap.error("--xmp-destination-embedded strip_existing is currently supported only for --target-jpeg, --target-tiff, --target-png, --target-webp, --target-jp2, and --target-jxl with --xmp-writeback sidecar")
+        ap.error("--xmp-destination-embedded strip_existing is currently supported only for --target-jpeg, --target-tiff, --target-dng, --target-png, --target-webp, --target-jp2, and --target-jxl with --xmp-writeback sidecar")
     if (
         args.xmp_destination_sidecar == "strip_existing"
         and args.xmp_writeback != "embedded"
@@ -541,6 +546,7 @@ def main(argv: list[str]) -> int:
         and not (
             args.target_jpeg
             or args.target_tiff
+            or args.target_dng
             or args.target_webp
             or args.target_png
             or args.target_jp2
@@ -553,6 +559,7 @@ def main(argv: list[str]) -> int:
         ap.error("--xmp-include-existing-destination-embedded requires an edit target")
     if args.dump_c2pa_binding and (
         args.target_tiff
+        or args.target_dng
         or args.target_webp
         or args.target_png
     ):
@@ -563,6 +570,7 @@ def main(argv: list[str]) -> int:
         or args.load_c2pa_signed_package
     ) and (
         args.target_tiff
+        or args.target_dng
         or args.target_webp
         or args.target_png
     ):
@@ -570,6 +578,7 @@ def main(argv: list[str]) -> int:
     if (
         args.target_jpeg
         or args.target_tiff
+        or args.target_dng
         or args.target_webp
         or args.target_png
         or args.target_heif
@@ -644,6 +653,8 @@ def main(argv: list[str]) -> int:
     rc = 0
     if args.target_tiff:
         target_format = openmeta.TransferTargetFormat.Tiff
+    elif args.target_dng:
+        target_format = openmeta.TransferTargetFormat.Dng
     elif args.target_exr:
         target_format = openmeta.TransferTargetFormat.Exr
     elif args.target_png:
@@ -662,7 +673,11 @@ def main(argv: list[str]) -> int:
         target_format = openmeta.TransferTargetFormat.Cr3
     else:
         target_format = openmeta.TransferTargetFormat.Jpeg
-    target_path = args.target_tiff if args.target_tiff else args.target_jpeg
+    target_path = (
+        args.target_tiff
+        if args.target_tiff
+        else (args.target_dng if args.target_dng else args.target_jpeg)
+    )
     if (
         not target_path
         and (

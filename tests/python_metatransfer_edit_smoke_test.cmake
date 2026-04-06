@@ -31,8 +31,10 @@ set(_sidecar_only_strip_jpg "${WORK_DIR}/sidecar_only_strip.jpg")
 set(_sidecar_only_strip_sidecar "${WORK_DIR}/sidecar_only_strip.xmp")
 set(_destination_merge_jpg "${WORK_DIR}/destination_merge.jpg")
 set(_target_tif "${WORK_DIR}/target.tif")
+set(_target_dng "${WORK_DIR}/target.dng")
 set(_target_tif_xmp "${WORK_DIR}/target_xmp.tif")
 set(_edited_tif "${WORK_DIR}/edited.tif")
+set(_edited_dng "${WORK_DIR}/edited.dng")
 set(_sidecar_only_strip_tif "${WORK_DIR}/sidecar_only_strip_tiff.tif")
 set(_sidecar_only_strip_tif_sidecar "${WORK_DIR}/sidecar_only_strip_tiff.xmp")
 set(_target_jxl "${WORK_DIR}/target.jxl")
@@ -131,6 +133,18 @@ execute_process(
 if(NOT _rv_target_tif EQUAL 0)
   message(FATAL_ERROR
     "failed to write python metatransfer target tiff fixture (${_rv_target_tif})\nstdout:\n${_out_target_tif}\nstderr:\n${_err_target_tif}")
+endif()
+
+execute_process(
+  COMMAND "${OPENMETA_PYTHON_EXECUTABLE}" -c
+    "from pathlib import Path; b=bytearray(); b+=b'II'; b+=(42).to_bytes(2,'little'); b+=(8).to_bytes(4,'little'); b+=(0).to_bytes(2,'little'); b+=(0).to_bytes(4,'little'); Path(r'''${_target_dng}''').write_bytes(bytes(b))"
+  RESULT_VARIABLE _rv_target_dng
+  OUTPUT_VARIABLE _out_target_dng
+  ERROR_VARIABLE _err_target_dng
+)
+if(NOT _rv_target_dng EQUAL 0)
+  message(FATAL_ERROR
+    "failed to write python metatransfer target dng fixture (${_rv_target_dng})\nstdout:\n${_out_target_dng}\nstderr:\n${_err_target_dng}")
 endif()
 
 execute_process(
@@ -513,6 +527,47 @@ execute_process(
 if(NOT _rv_tif_check EQUAL 0)
   message(FATAL_ERROR
     "python metatransfer tiff output check failed (${_rv_tif_check})\nstdout:\n${_out_tif_check}\nstderr:\n${_err_tif_check}")
+endif()
+
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env
+          "PYTHONPATH=${OPENMETA_PYTHONPATH}"
+          "${OPENMETA_PYTHON_EXECUTABLE}" -m openmeta.python.metatransfer
+          --no-build-info
+          --time-patch "DateTime=2024:12:31 23:59:59"
+          --target-dng "${_target_dng}"
+          -o "${_edited_dng}"
+          "${_src_jpg}"
+  RESULT_VARIABLE _rv_dng
+  OUTPUT_VARIABLE _out_dng
+  ERROR_VARIABLE _err_dng
+)
+if(NOT _rv_dng EQUAL 0)
+  message(FATAL_ERROR
+    "python metatransfer dng edit failed (${_rv_dng})\nstdout:\n${_out_dng}\nstderr:\n${_err_dng}")
+endif()
+if(NOT _out_dng MATCHES "edit_plan: status=ok")
+  message(FATAL_ERROR
+    "python metatransfer dng edit missing plan ok\nstdout:\n${_out_dng}\nstderr:\n${_err_dng}")
+endif()
+if(NOT _out_dng MATCHES "edit_apply: status=ok")
+  message(FATAL_ERROR
+    "python metatransfer dng edit missing apply ok\nstdout:\n${_out_dng}\nstderr:\n${_err_dng}")
+endif()
+if(NOT EXISTS "${_edited_dng}")
+  message(FATAL_ERROR
+    "python metatransfer dng edit did not write output\nstdout:\n${_out_dng}\nstderr:\n${_err_dng}")
+endif()
+
+execute_process(
+  COMMAND "${OPENMETA_PYTHON_EXECUTABLE}" "${_check_tiff_py}" "${_edited_dng}" "2024:12:31 23:59:59"
+  RESULT_VARIABLE _rv_dng_check
+  OUTPUT_VARIABLE _out_dng_check
+  ERROR_VARIABLE _err_dng_check
+)
+if(NOT _rv_dng_check EQUAL 0)
+  message(FATAL_ERROR
+    "python metatransfer dng output check failed (${_rv_dng_check})\nstdout:\n${_out_dng_check}\nstderr:\n${_err_dng_check}")
 endif()
 
 execute_process(

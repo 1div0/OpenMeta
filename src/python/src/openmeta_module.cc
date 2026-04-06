@@ -825,9 +825,10 @@ namespace {
     static const char*
     transfer_target_format_name(TransferTargetFormat format) noexcept
     {
-        switch (format) {
+    switch (format) {
         case TransferTargetFormat::Jpeg: return "jpeg";
         case TransferTargetFormat::Tiff: return "tiff";
+        case TransferTargetFormat::Dng: return "dng";
         case TransferTargetFormat::Jxl: return "jxl";
         case TransferTargetFormat::Webp: return "webp";
         case TransferTargetFormat::Heif: return "heif";
@@ -3814,6 +3815,7 @@ NB_MODULE(_openmeta, m)
     nb::enum_<TransferTargetFormat>(m, "TransferTargetFormat")
         .value("Jpeg", TransferTargetFormat::Jpeg)
         .value("Tiff", TransferTargetFormat::Tiff)
+        .value("Dng", TransferTargetFormat::Dng)
         .value("Jxl", TransferTargetFormat::Jxl)
         .value("Webp", TransferTargetFormat::Webp)
         .value("Heif", TransferTargetFormat::Heif)

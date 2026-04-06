@@ -136,6 +136,7 @@ namespace {
             "  --source-meta <path>   Metadata source for prepare phase\n"
             "  --target-jpeg <path>   Target JPEG stream for edit/apply phase\n"
             "  --target-tiff <path>   Target TIFF stream for edit/apply phase\n"
+            "  --target-dng <path>    Target DNG stream for edit/apply phase\n"
             "  --target-exr           Target EXR metadata transfer\n"
             "  --target-png           Target PNG metadata transfer\n"
             "  --target-jp2           Target JP2 metadata transfer\n"
@@ -691,6 +692,7 @@ namespace {
         switch (format) {
         case TransferTargetFormat::Jpeg: return "jpeg";
         case TransferTargetFormat::Tiff: return "tiff";
+        case TransferTargetFormat::Dng: return "dng";
         case TransferTargetFormat::Jxl: return "jxl";
         case TransferTargetFormat::Webp: return "webp";
         case TransferTargetFormat::Heif: return "heif";
@@ -1438,6 +1440,13 @@ namespace {
                || format == TransferTargetFormat::Cr3;
     }
 
+    static bool
+    target_format_is_tiff_family(TransferTargetFormat format) noexcept
+    {
+        return format == TransferTargetFormat::Tiff
+               || format == TransferTargetFormat::Dng;
+    }
+
     static void
     print_transfer_payload_view_summary(const PreparedTransferPayloadView& view,
                                         uint32_t index)
@@ -1540,6 +1549,7 @@ main(int argc, char** argv)
     std::string source_meta_path;
     std::string target_jpeg_path;
     std::string target_tiff_path;
+    std::string target_dng_path;
     bool target_exr  = false;
     bool target_png  = false;
     bool target_jp2  = false;
@@ -1973,6 +1983,11 @@ main(int argc, char** argv)
             i += 1;
             continue;
         }
+        if (std::strcmp(arg, "--target-dng") == 0 && i + 1 < argc) {
+            target_dng_path = argv[i + 1];
+            i += 1;
+            continue;
+        }
         if (std::strcmp(arg, "--target-exr") == 0) {
             target_exr = true;
             continue;
@@ -2142,6 +2157,8 @@ main(int argc, char** argv)
             input_paths.push_back(target_jpeg_path);
         } else if (!target_tiff_path.empty()) {
             input_paths.push_back(target_tiff_path);
+        } else if (!target_dng_path.empty()) {
+            input_paths.push_back(target_dng_path);
         }
     }
     if (input_paths.empty() && transfer_payload_batch_input_path.empty()
@@ -2152,11 +2169,11 @@ main(int argc, char** argv)
         return 2;
     }
     if ((!source_meta_path.empty() || !target_jpeg_path.empty()
-         || !target_tiff_path.empty())
+         || !target_tiff_path.empty() || !target_dng_path.empty())
         && input_paths.size() != 1U) {
         std::fprintf(
             stderr,
-            "--source-meta/--target-jpeg/--target-tiff support exactly one job per run\n");
+            "--source-meta/--target-jpeg/--target-tiff/--target-dng support exactly one job per run\n");
         return 2;
     }
     if (!output_path.empty() && input_paths.size() != 1U) {
@@ -2208,6 +2225,7 @@ main(int argc, char** argv)
     const uint32_t target_count
         = static_cast<uint32_t>(!target_jpeg_path.empty())
           + static_cast<uint32_t>(!target_tiff_path.empty())
+          + static_cast<uint32_t>(!target_dng_path.empty())
           + static_cast<uint32_t>(target_exr)
           + static_cast<uint32_t>(target_png)
           + static_cast<uint32_t>(target_jp2)
@@ -2231,6 +2249,7 @@ main(int argc, char** argv)
     if (!transfer_payload_batch_input_path.empty()) {
         if (!input_paths.empty() || !source_meta_path.empty()
             || !target_jpeg_path.empty() || !target_tiff_path.empty()
+            || !target_dng_path.empty()
             || target_count != 0U || !jpeg_jumbf_path.empty()
             || c2pa_stage_requested || !c2pa_binding_output_path.empty()
             || !c2pa_handoff_output_path.empty()
@@ -2307,6 +2326,7 @@ main(int argc, char** argv)
     if (!jxl_encoder_handoff_input_path.empty()) {
         if (!input_paths.empty() || !source_meta_path.empty()
             || !target_jpeg_path.empty() || !target_tiff_path.empty()
+            || !target_dng_path.empty()
             || target_count != 0U || !jpeg_jumbf_path.empty()
             || c2pa_stage_requested || !c2pa_binding_output_path.empty()
             || !c2pa_handoff_output_path.empty()
@@ -2366,6 +2386,7 @@ main(int argc, char** argv)
     if (!transfer_artifact_input_path.empty()) {
         if (!input_paths.empty() || !source_meta_path.empty()
             || !target_jpeg_path.empty() || !target_tiff_path.empty()
+            || !target_dng_path.empty()
             || target_count != 0U || !jpeg_jumbf_path.empty()
             || c2pa_stage_requested || !c2pa_binding_output_path.empty()
             || !c2pa_handoff_output_path.empty()
@@ -2464,6 +2485,7 @@ main(int argc, char** argv)
     if (!transfer_package_batch_input_path.empty()) {
         if (!input_paths.empty() || !source_meta_path.empty()
             || !target_jpeg_path.empty() || !target_tiff_path.empty()
+            || !target_dng_path.empty()
             || target_count != 0U || !jpeg_jumbf_path.empty()
             || c2pa_stage_requested || !c2pa_binding_output_path.empty()
             || !c2pa_handoff_output_path.empty()
@@ -2637,7 +2659,7 @@ main(int argc, char** argv)
     if (target_count > 1U) {
         std::fprintf(
             stderr,
-            "--target-jpeg, --target-tiff, --target-exr, --target-png, --target-jp2, --target-jxl, --target-webp, --target-heif, --target-avif, and --target-cr3 are mutually exclusive\n");
+            "--target-jpeg, --target-tiff, --target-dng, --target-exr, --target-png, --target-jp2, --target-jxl, --target-webp, --target-heif, --target-avif, and --target-cr3 are mutually exclusive\n");
         return 2;
     }
     if (target_exr) {
@@ -2658,6 +2680,8 @@ main(int argc, char** argv)
         options.prepare.target_format = TransferTargetFormat::Cr3;
     } else if (!target_tiff_path.empty()) {
         options.prepare.target_format = TransferTargetFormat::Tiff;
+    } else if (!target_dng_path.empty()) {
+        options.prepare.target_format = TransferTargetFormat::Dng;
     } else {
         options.prepare.target_format = TransferTargetFormat::Jpeg;
     }
@@ -2681,7 +2705,8 @@ main(int argc, char** argv)
     if (xmp_destination_embedded_mode == XmpDestinationEmbeddedMode::StripExisting
         && (xmp_writeback_mode != XmpWritebackMode::SidecarOnly
             || (options.prepare.target_format != TransferTargetFormat::Jpeg
-                && options.prepare.target_format != TransferTargetFormat::Tiff
+                && !target_format_is_tiff_family(
+                    options.prepare.target_format)
                 && options.prepare.target_format != TransferTargetFormat::Png
                 && options.prepare.target_format != TransferTargetFormat::Webp
                 && options.prepare.target_format != TransferTargetFormat::Jp2
@@ -2689,7 +2714,7 @@ main(int argc, char** argv)
         std::fprintf(
             stderr,
             "--xmp-destination-embedded strip_existing is currently "
-            "supported only for --target-jpeg, --target-tiff, --target-png, "
+            "supported only for --target-jpeg, --target-tiff, --target-dng, --target-png, "
             "--target-webp, --target-jp2, and --target-jxl with "
             "--xmp-writeback sidecar\n");
         return 2;
@@ -2741,7 +2766,7 @@ main(int argc, char** argv)
     if (c2pa_stage_requested) {
         options.prepare.profile.c2pa = TransferPolicyAction::Rewrite;
     }
-    if (options.prepare.target_format == TransferTargetFormat::Tiff
+    if (target_format_is_tiff_family(options.prepare.target_format)
         && (edit_plan_opts.mode != JpegEditMode::Auto
             || edit_plan_opts.require_in_place)) {
         std::fprintf(
@@ -2764,6 +2789,8 @@ main(int argc, char** argv)
             target_path = target_jpeg_path;
         } else if (!target_tiff_path.empty()) {
             target_path = target_tiff_path;
+        } else if (!target_dng_path.empty()) {
+            target_path = target_dng_path;
         } else {
             target_path = job_path;
         }
@@ -2780,8 +2807,9 @@ main(int argc, char** argv)
                   || edit_plan_opts.require_in_place
                   || !target_jpeg_path.empty());
         const bool need_tiff_edit
-            = options.prepare.target_format == TransferTargetFormat::Tiff
-              && (dry_run || !output_path.empty() || !target_tiff_path.empty());
+            = target_format_is_tiff_family(options.prepare.target_format)
+              && (dry_run || !output_path.empty() || !target_tiff_path.empty()
+                  || !target_dng_path.empty());
         const bool need_webp_edit = options.prepare.target_format
                                         == TransferTargetFormat::Webp
                                     && (dry_run || !output_path.empty());
@@ -4010,22 +4038,27 @@ main(int argc, char** argv)
             continue;
         }
 
-        if (prepared.bundle.target_format == TransferTargetFormat::Tiff) {
+        if (target_format_is_tiff_family(prepared.bundle.target_format)) {
+            const bool is_dng_target
+                = prepared.bundle.target_format == TransferTargetFormat::Dng;
+            const char* const edit_prefix
+                = is_dng_target ? "dng_edit" : "tiff_edit";
             if (exec.edit_requested) {
                 if (exec.edit_plan_status == TransferStatus::Ok) {
                     std::printf(
-                        "  tiff_edit: status=%s updates=%u exif=%s input=%llu output=%llu\n",
+                        "  %s: status=%s updates=%u exif=%s input=%llu output=%llu\n",
+                        edit_prefix,
                         transfer_status_name(exec.edit_plan_status),
                         static_cast<unsigned>(exec.tiff_edit_plan.tag_updates),
                         exec.tiff_edit_plan.has_exif_ifd ? "on" : "off",
                         static_cast<unsigned long long>(exec.edit_input_size),
                         static_cast<unsigned long long>(exec.edit_output_size));
                 } else {
-                    std::printf("  tiff_edit: status=%s\n",
+                    std::printf("  %s: status=%s\n", edit_prefix,
                                 transfer_status_name(exec.edit_plan_status));
                 }
                 if (!exec.edit_plan_message.empty()) {
-                    std::printf("  tiff_edit_message=%s\n",
+                    std::printf("  %s_message=%s\n", edit_prefix,
                                 exec.edit_plan_message.c_str());
                 }
                 if (exec.edit_plan_status != TransferStatus::Ok) {
@@ -4036,20 +4069,22 @@ main(int argc, char** argv)
             if (!output_path.empty()) {
                 if (!force && output_exists) {
                     std::fprintf(stderr,
-                                 "  tiff_edit_apply: exists: %s (use --force)\n",
+                                 "  %s_apply: exists: %s (use --force)\n",
+                                 edit_prefix,
                                  output_path.c_str());
                     any_failed = true;
                     continue;
                 }
                 if (!dry_run) {
                     std::printf(
-                        "  tiff_edit_apply: status=%s code=%s emitted=%u skipped=%u errors=%u\n",
+                        "  %s_apply: status=%s code=%s emitted=%u skipped=%u errors=%u\n",
+                        edit_prefix,
                         transfer_status_name(exec.edit_apply.status),
                         emit_transfer_code_name(exec.edit_apply.code),
                         exec.edit_apply.emitted, exec.edit_apply.skipped,
                         exec.edit_apply.errors);
                     if (!exec.edit_apply.message.empty()) {
-                        std::printf("  tiff_edit_apply_message=%s\n",
+                        std::printf("  %s_apply_message=%s\n", edit_prefix,
                                     exec.edit_apply.message.c_str());
                     }
                     if (exec.edit_apply.status != TransferStatus::Ok) {
@@ -4059,7 +4094,8 @@ main(int argc, char** argv)
                     if (use_output_writer
                         && output_writer.finish() != TransferStatus::Ok) {
                         std::fprintf(stderr,
-                                     "  tiff_edit_apply: write_failed: %s\n",
+                                     "  %s_apply: write_failed: %s\n",
+                                     edit_prefix,
                                      output_path.c_str());
                         any_failed = true;
                         continue;
@@ -4073,7 +4109,9 @@ main(int argc, char** argv)
                             xmp_sidecar_cleanup_message,
                             xmp_sidecar_cleanup_path);
                     if (!persist_cli_edit_output_via_core(
-                            "tiff_edit_apply", output_path, force,
+                            is_dng_target ? "dng_edit_apply"
+                                          : "tiff_edit_apply",
+                            output_path, force,
                             use_output_writer,
                             use_output_writer
                                 ? output_writer.bytes_written()

@@ -757,6 +757,13 @@ namespace {
                || target == TransferTargetFormat::Cr3;
     }
 
+    static bool
+    transfer_target_is_tiff_family(TransferTargetFormat target) noexcept
+    {
+        return target == TransferTargetFormat::Tiff
+               || target == TransferTargetFormat::Dng;
+    }
+
     static bool bmff_item_from_route(std::string_view route,
                                      uint32_t* out_item_type,
                                      bool* out_mime_xmp) noexcept
@@ -2593,7 +2600,7 @@ namespace {
         TransferTargetFormat target_format) noexcept
     {
         return target_format == TransferTargetFormat::Jpeg
-               || target_format == TransferTargetFormat::Tiff;
+               || transfer_target_is_tiff_family(target_format);
     }
 
     static uint32_t count_makernote_entries(const MetaStore& store) noexcept
@@ -5928,10 +5935,30 @@ namespace {
 
     static uint32_t align_to_2(uint32_t v) noexcept { return (v + 1U) & ~1U; }
 
+    static void
+    maybe_add_synthetic_dng_version(SerializedIfd* ifd0,
+                                    bool inject_minimal_dng_version,
+                                    bool saw_dng_version) noexcept
+    {
+        if (!ifd0 || !inject_minimal_dng_version || saw_dng_version) {
+            return;
+        }
+        SerializedIfdEntry e;
+        e.tag          = 0xC612U;
+        e.type         = 1U;
+        e.count        = 4U;
+        e.source_order = UINT32_MAX;
+        e.value = { std::byte { 0x01 }, std::byte { 0x06 }, std::byte { 0x00 },
+                    std::byte { 0x00 } };
+        ifd0->present = true;
+        ifd0->entries.push_back(std::move(e));
+    }
+
     static ExifPackBuild
     build_jpeg_exif_app1_payload(const MetaStore& store,
                                  TransferPolicyAction makernote_policy,
-                                 bool include_subifds) noexcept
+                                 bool include_subifds,
+                                 bool inject_minimal_dng_version) noexcept
     {
         ExifPackBuild out;
 
@@ -5941,6 +5968,7 @@ namespace {
         SerializedIfd interopifd {};
         std::vector<SerializedIfd> page_ifds;
         std::vector<SerializedIfd> subifds;
+        bool saw_dng_version = false;
 
         for (const Entry& e : store.entries()) {
             if (any(e.flags, EntryFlags::Deleted)
@@ -5963,6 +5991,10 @@ namespace {
             }
 
             const uint16_t tag = e.key.data.exif_tag.tag;
+            if (!ifd_ref.is_page && !ifd_ref.is_subifd
+                && ifd_ref.slot == ExifIfdSlot::Ifd0 && tag == 0xC612U) {
+                saw_dng_version = true;
+            }
             if (!ifd_ref.is_page && !ifd_ref.is_subifd
                 && is_regenerated_pointer_tag(ifd_ref.slot, tag)) {
                 continue;
@@ -6010,6 +6042,9 @@ namespace {
             dst->present = true;
             dst->entries.push_back(std::move(encoded));
         }
+
+        maybe_add_synthetic_dng_version(&ifd0, inject_minimal_dng_version,
+                                        saw_dng_version);
 
         if (interopifd.present) {
             exififd.present = true;
@@ -9408,7 +9443,7 @@ prepare_metadata_for_target_impl(const MetaStore& store,
     bundle.profile       = request.profile;
 
     if (request.target_format != TransferTargetFormat::Jpeg
-        && request.target_format != TransferTargetFormat::Tiff
+        && !transfer_target_is_tiff_family(request.target_format)
         && request.target_format != TransferTargetFormat::Exr
         && request.target_format != TransferTargetFormat::Png
         && request.target_format != TransferTargetFormat::Jp2
@@ -9419,7 +9454,7 @@ prepare_metadata_for_target_impl(const MetaStore& store,
         r.code   = PrepareTransferCode::UnsupportedTargetFormat;
         r.errors = 1U;
         r.message
-            = "prepare currently supports jpeg, tiff, exr, png, jxl, webp, and bmff targets";
+            = "prepare currently supports jpeg, tiff, dng, exr, png, jxl, webp, and bmff targets";
         *out_bundle = std::move(bundle);
         return r;
     }
@@ -9428,7 +9463,9 @@ prepare_metadata_for_target_impl(const MetaStore& store,
                                                          MetaKeyKind::ExifTag);
     const uint32_t iptc_dataset_count = count_kind_entries(
         store, MetaKeyKind::IptcDataset);
-    const bool has_exif = exif_entry_count > 0U;
+    const bool has_exif = exif_entry_count > 0U
+                          || request.target_format
+                                 == TransferTargetFormat::Dng;
     const bool has_iptc = iptc_dataset_count > 0U
                           || has_kind(store, MetaKeyKind::PhotoshopIrb);
     const bool has_icc = has_kind(store, MetaKeyKind::IccHeaderField)
@@ -9836,7 +9873,8 @@ prepare_metadata_for_target_impl(const MetaStore& store,
     if (request.include_exif_app1 && has_exif) {
         ExifPackBuild exif_build = build_jpeg_exif_app1_payload(
             store, effective_makernote,
-            request.target_format == TransferTargetFormat::Tiff);
+            transfer_target_is_tiff_family(request.target_format),
+            request.target_format == TransferTargetFormat::Dng);
         if (exif_build.produced && !exif_build.app1_payload.empty()) {
             const uint32_t block_index = static_cast<uint32_t>(
                 bundle.blocks.size());
@@ -9847,7 +9885,8 @@ prepare_metadata_for_target_impl(const MetaStore& store,
             if (request.target_format == TransferTargetFormat::Jpeg) {
                 b.route   = "jpeg:app1-exif";
                 b.payload = std::move(exif_build.app1_payload);
-            } else if (request.target_format == TransferTargetFormat::Tiff) {
+            } else if (transfer_target_is_tiff_family(
+                           request.target_format)) {
                 // TIFF backends can consume this as a serialized Exif APP1 blob
                 // and materialize ExifIFD pointers/entries natively.
                 b.route   = "tiff:ifd-exif-app1";
@@ -9955,7 +9994,8 @@ prepare_metadata_for_target_impl(const MetaStore& store,
                 b.payload.push_back(std::byte { 0x00 });
                 b.payload.insert(b.payload.end(), xmp_packet.begin(),
                                  xmp_packet.end());
-            } else if (request.target_format == TransferTargetFormat::Tiff) {
+            } else if (transfer_target_is_tiff_family(
+                           request.target_format)) {
                 b.route   = "tiff:tag-700-xmp";
                 b.payload = std::move(xmp_packet);
             } else if (request.target_format == TransferTargetFormat::Png) {
@@ -10037,7 +10077,8 @@ prepare_metadata_for_target_impl(const MetaStore& store,
                                "icc app2 packer could not serialize current "
                                "icc set");
             }
-        } else if (request.target_format == TransferTargetFormat::Tiff) {
+        } else if (transfer_target_is_tiff_family(
+                       request.target_format)) {
             std::vector<std::byte> icc_profile;
             uint32_t skipped_icc = 0U;
             if (build_icc_profile_bytes(store, &icc_profile, &skipped_icc)
@@ -10268,7 +10309,8 @@ prepare_metadata_for_target_impl(const MetaStore& store,
                     &r.message,
                     "iptc app13 packer could not serialize current iptc set");
             }
-        } else if (request.target_format == TransferTargetFormat::Tiff) {
+        } else if (transfer_target_is_tiff_family(
+                       request.target_format)) {
             std::vector<std::byte> iptc_iim;
             uint32_t skipped_iptc = 0U;
             if (!first_photoshop_iptc_payload(store, &iptc_iim)) {
@@ -11062,11 +11104,11 @@ emit_prepared_bundle_tiff(const PreparedTransferBundle& bundle,
                           const EmitTransferOptions& options) noexcept
 {
     EmitTransferResult r;
-    if (bundle.target_format != TransferTargetFormat::Tiff) {
+    if (!transfer_target_is_tiff_family(bundle.target_format)) {
         r.status  = TransferStatus::Unsupported;
         r.code    = EmitTransferCode::InvalidArgument;
         r.errors  = 1U;
-        r.message = "bundle target format is not tiff";
+        r.message = "bundle target format is not tiff/dng";
         return r;
     }
 
@@ -11141,11 +11183,11 @@ compile_prepared_bundle_tiff(const PreparedTransferBundle& bundle,
     out_plan->contract_version = bundle.contract_version;
     out_plan->ops.clear();
 
-    if (bundle.target_format != TransferTargetFormat::Tiff) {
+    if (!transfer_target_is_tiff_family(bundle.target_format)) {
         r.status  = TransferStatus::Unsupported;
         r.code    = EmitTransferCode::InvalidArgument;
         r.errors  = 1U;
-        r.message = "bundle target format is not tiff";
+        r.message = "bundle target format is not tiff/dng";
         return r;
     }
 
@@ -11191,11 +11233,11 @@ emit_prepared_bundle_tiff_compiled(const PreparedTransferBundle& bundle,
                                    const EmitTransferOptions& options) noexcept
 {
     EmitTransferResult r;
-    if (bundle.target_format != TransferTargetFormat::Tiff) {
+    if (!transfer_target_is_tiff_family(bundle.target_format)) {
         r.status  = TransferStatus::Unsupported;
         r.code    = EmitTransferCode::InvalidArgument;
         r.errors  = 1U;
-        r.message = "bundle target format is not tiff";
+        r.message = "bundle target format is not tiff/dng";
         return r;
     }
     if (plan.contract_version != bundle.contract_version) {
@@ -13386,9 +13428,9 @@ plan_prepared_bundle_tiff_edit(std::span<const std::byte> input_tiff,
     TiffEditPlan plan;
     plan.input_size = static_cast<uint64_t>(input_tiff.size());
 
-    if (bundle.target_format != TransferTargetFormat::Tiff) {
+    if (!transfer_target_is_tiff_family(bundle.target_format)) {
         plan.status  = TransferStatus::Unsupported;
-        plan.message = "bundle target format is not tiff";
+        plan.message = "bundle target format is not tiff/dng";
         return plan;
     }
 
@@ -13445,11 +13487,11 @@ apply_prepared_bundle_tiff_edit(std::span<const std::byte> input_tiff,
         out.message = "edit plan status is not ok";
         return out;
     }
-    if (bundle.target_format != TransferTargetFormat::Tiff) {
+    if (!transfer_target_is_tiff_family(bundle.target_format)) {
         out.status  = TransferStatus::Unsupported;
         out.code    = EmitTransferCode::InvalidArgument;
         out.errors  = 1U;
-        out.message = "bundle target format is not tiff";
+        out.message = "bundle target format is not tiff/dng";
         return out;
     }
 
@@ -13978,11 +14020,11 @@ build_prepared_bundle_tiff_package(
         out.message = "edit plan status is not ok";
         return out;
     }
-    if (bundle.target_format != TransferTargetFormat::Tiff) {
+    if (!transfer_target_is_tiff_family(bundle.target_format)) {
         out.status  = TransferStatus::Unsupported;
         out.code    = EmitTransferCode::InvalidArgument;
         out.errors  = 1U;
-        out.message = "bundle target format is not tiff";
+        out.message = "bundle target format is not tiff/dng";
         return out;
     }
 
@@ -14347,14 +14389,14 @@ build_executed_transfer_package_batch(
         }
         out = build_prepared_bundle_jpeg_package(edit_input, bundle,
                                                  execute.jpeg_edit_plan, &plan);
-    } else if (bundle.target_format == TransferTargetFormat::Tiff
+    } else if (transfer_target_is_tiff_family(bundle.target_format)
                && execute.edit_requested) {
         if (execute.edit_plan_status != TransferStatus::Ok) {
             out.status  = execute.edit_plan_status;
             out.code    = EmitTransferCode::InvalidArgument;
             out.errors  = 1U;
             out.message = execute.edit_plan_message.empty()
-                              ? "tiff edit plan is not available"
+                              ? "tiff/dng edit plan is not available"
                               : execute.edit_plan_message;
             return out;
         }
@@ -20642,6 +20684,7 @@ namespace {
         case TransferTargetFormat::Jpeg:
             return static_cast<uint32_t>(plan.jpeg_emit.ops.size());
         case TransferTargetFormat::Tiff:
+        case TransferTargetFormat::Dng:
             return static_cast<uint32_t>(plan.tiff_emit.ops.size());
         case TransferTargetFormat::Jxl:
             return static_cast<uint32_t>(plan.jxl_emit.ops.size());
@@ -20694,12 +20737,13 @@ namespace {
             }
             break;
         case TransferTargetFormat::Tiff:
+        case TransferTargetFormat::Dng:
             if (plan.tiff_emit.contract_version != bundle.contract_version) {
                 out.status = TransferStatus::InvalidArgument;
                 out.code   = EmitTransferCode::PlanMismatch;
                 out.errors = 1U;
                 out.message
-                    = "compiled tiff emit plan contract_version mismatch";
+                    = "compiled tiff/dng emit plan contract_version mismatch";
                 return out;
             }
             break;
@@ -20915,10 +20959,11 @@ namespace {
                 }
                 break;
             }
-            case TransferTargetFormat::Tiff: {
+            case TransferTargetFormat::Tiff:
+            case TransferTargetFormat::Dng: {
                 if (options.emit_output_writer) {
                     out.emit = skipped_emit_result(
-                        "emit_output_writer is not supported for tiff");
+                        "emit_output_writer is not supported for tiff/dng");
                 } else {
                     ExecuteRecordingTiffEmitter emitter;
                     emitter.reset();
@@ -21304,7 +21349,7 @@ namespace {
                     }
                 }
             }
-        } else if (bundle->target_format == TransferTargetFormat::Tiff) {
+        } else if (transfer_target_is_tiff_family(bundle->target_format)) {
             PlanTiffEditOptions tiff_edit = options.tiff_edit;
             if (options.strip_existing_xmp) {
                 tiff_edit.strip_existing_xmp = true;
@@ -22617,6 +22662,7 @@ compile_prepared_transfer_execution(
         return compile_prepared_bundle_jpeg(bundle, &out_plan->jpeg_emit,
                                             options);
     case TransferTargetFormat::Tiff:
+    case TransferTargetFormat::Dng:
         return compile_prepared_bundle_tiff(bundle, &out_plan->tiff_emit,
                                             options);
     case TransferTargetFormat::Jxl:
@@ -22686,7 +22732,7 @@ build_prepared_transfer_adapter_view(const PreparedTransferBundle& bundle,
             op.jpeg_marker_code = src.marker_code;
             view.ops.push_back(op);
         }
-    } else if (bundle.target_format == TransferTargetFormat::Tiff) {
+    } else if (transfer_target_is_tiff_family(bundle.target_format)) {
         view.ops.reserve(plan.tiff_emit.ops.size());
         for (size_t i = 0; i < plan.tiff_emit.ops.size(); ++i) {
             const PreparedTiffEmitOp& src      = plan.tiff_emit.ops[i];
@@ -22860,7 +22906,7 @@ emit_prepared_transfer_adapter_view(const PreparedTransferBundle& bundle,
                 out.message            = "adapter view jpeg op is inconsistent";
                 return out;
             }
-        } else if (bundle.target_format == TransferTargetFormat::Tiff) {
+        } else if (transfer_target_is_tiff_family(bundle.target_format)) {
             if (op.kind != TransferAdapterOpKind::TiffTagBytes
                 || op.serialized_size != payload_size) {
                 out.status = TransferStatus::InvalidArgument;
@@ -23577,7 +23623,7 @@ execute_prepared_transfer_file(
         const bool supported_strip_mode
             = options.xmp_writeback_mode == XmpWritebackMode::SidecarOnly
               && (target_format == TransferTargetFormat::Jpeg
-                  || target_format == TransferTargetFormat::Tiff
+                  || transfer_target_is_tiff_family(target_format)
                   || target_format == TransferTargetFormat::Png
                   || target_format == TransferTargetFormat::Webp
                   || target_format == TransferTargetFormat::Jp2
@@ -23585,7 +23631,7 @@ execute_prepared_transfer_file(
         if (!supported_strip_mode) {
             const char* const message
                 = "destination embedded xmp strip mode is currently "
-                  "supported only for jpeg, tiff, png, webp, jp2, and jxl "
+                  "supported only for jpeg, tiff, dng, png, webp, jp2, and jxl "
                   "sidecar-only writeback";
             out.execute.compile = skipped_emit_result(
                 "skipped emit due to unsupported destination embedded xmp "
@@ -23718,7 +23764,8 @@ execute_prepared_transfer_file(
             if (out.prepared.bundle.target_format == TransferTargetFormat::Jpeg) {
                 execute_options.jpeg_edit.strip_existing_xmp = true;
             }
-            if (out.prepared.bundle.target_format == TransferTargetFormat::Tiff) {
+            if (transfer_target_is_tiff_family(
+                    out.prepared.bundle.target_format)) {
                 execute_options.tiff_edit.strip_existing_xmp = true;
             }
         }

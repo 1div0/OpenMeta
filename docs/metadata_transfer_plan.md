@@ -47,7 +47,8 @@ The first public write-side sync controls are also in place:
 | Target | Status | Current shape | Main limits |
 | --- | --- | --- | --- |
 | JPEG | First-class | Prepared bundle, compiled emit, byte-writer emit, edit planning/apply, file helper, bounded JUMBF/C2PA staging | Not a full arbitrary metadata editor yet |
-| TIFF | First-class | Prepared bundle, compiled emit, classic-TIFF and BigTIFF edit planning/apply, bounded preview-page chain rewrite (`ifd1`, `ifd2`, and preserved downstream tails), bounded TIFF/DNG-style SubIFD rewrite with preserved downstream auxiliary tails and preserved trailing existing children when only the front subset is replaced, bounded `ExifIFD -> InteropIFD` preservation when a replaced ExifIFD omits its own interop child, file helper, streaming edit path | Broader TIFF/DNG rewrite coverage is still narrower than JPEG |
+| TIFF | First-class | Prepared bundle, compiled emit, classic-TIFF and BigTIFF edit planning/apply, bounded preview-page chain rewrite (`ifd1`, `ifd2`, and preserved downstream tails), bounded SubIFD rewrite with preserved downstream auxiliary tails and preserved trailing existing children when only the front subset is replaced, bounded `ExifIFD -> InteropIFD` preservation when a replaced ExifIFD omits its own interop child, file helper, streaming edit path | Broader TIFF rewrite coverage is still narrower than JPEG |
+| DNG | First-class | Dedicated public target layered on the TIFF backend; prepared bundle, compiled emit, minimal `DNGVersion` synthesis when missing, bounded DNG preview/aux merge policy, read-backed file-helper roundtrip, and the same bounded `SubIFD`/preview-tail/interop preservation contract as TIFF | Not a full DNG-specific rewrite engine or broad DNG policy surface |
 | PNG | Bounded but real | Prepared bundle, compiled emit, bounded chunk rewrite/edit, file-helper roundtrip | Not a general PNG chunk editor |
 | WebP | Bounded but real | Prepared bundle, compiled emit, bounded chunk rewrite/edit, file-helper roundtrip | Not a general WebP chunk editor |
 | JP2 | Bounded but real | Prepared bundle, compiled emit, bounded box rewrite/edit, file-helper roundtrip | `jp2h` synthesis is still out of scope |
@@ -87,12 +88,14 @@ These support the public transfer flow:
 OpenMeta now has explicit end-to-end read-backed transfer tests for:
 - source JPEG -> JPEG edit/apply -> read-back
 - source JPEG -> TIFF edit/apply -> read-back
+- source JPEG -> DNG edit/apply -> read-back
 - source JPEG -> TIFF edit/apply with bounded preview-page chain ->
   read-back
 - source TIFF/BigTIFF with existing multi-page preview chain ->
   replace the front preview pages and preserve downstream tails
 - source DNG-like TIFF with `subifd0` + `ifd1` -> TIFF edit/apply -> read-back
 - source DNG-like TIFF with `subifd0` + `ifd1` -> BigTIFF edit/apply -> read-back
+- source DNG-like TIFF with `subifd0` + `ifd1` -> DNG edit/apply -> read-back
 - source TIFF/BigTIFF with existing `subifd0 -> next` auxiliary chain ->
   replace `subifd0` -> preserve downstream auxiliary tail
 - source JPEG -> PNG edit/apply -> read-back
@@ -144,6 +147,39 @@ Implemented:
   children are preserved
 - file-based helper flow
 - streaming edit output
+
+### DNG
+
+Implemented as a dedicated public target on top of the TIFF backend.
+
+Implemented:
+- EXIF, XMP, ICC, and IPTC transfer through the TIFF-family backend
+- read-backed file-helper roundtrip for JPEG-source and DNG-like-source input
+- minimal `DNGVersion` synthesis when the source metadata lacks it
+- bounded preview-page chain rewrite/merge
+- bounded raw-image `SubIFD` rewrite/merge
+- preservation of existing target DNG core tags when a non-DNG source is
+  merged into an existing DNG target
+- preserved downstream page tails and downstream auxiliary tails
+- preserved trailing existing auxiliary children when only the front subset
+  is replaced
+- bounded `ExifIFD` replacement that preserves an existing target
+  `InteropIFD` when the source replacement omits its own interop child
+
+Current limits:
+- still a bounded DNG policy layer, not a full DNG-specific rewrite engine
+- broader arbitrary nested-IFD graph rewrite is still out of scope
+
+Optional host bridge:
+- When OpenMeta is built with `OPENMETA_WITH_DNG_SDK_ADAPTER=ON` and a
+  `dng_sdk` package is discoverable, `openmeta/dng_sdk_adapter.h` exposes a
+  bounded Adobe DNG SDK bridge for:
+  - applying prepared OpenMeta DNG bundles onto `dng_negative`
+  - updating an existing `dng_stream` via the SDK's metadata-update path
+- This adapter is optional. Core `Dng` transfer support remains available
+  without the Adobe SDK.
+- The OpenMeta build must use a C++ runtime/standard library compatible with
+  the discovered `dng_sdk` package.
 
 ### PNG
 

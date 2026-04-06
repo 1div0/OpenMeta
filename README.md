@@ -83,6 +83,7 @@ Current target status:
 | --- | --- |
 | JPEG | First-class |
 | TIFF | First-class |
+| DNG | First-class |
 | PNG | Bounded but real |
 | WebP | Bounded but real |
 | JP2 | Bounded but real |
@@ -91,16 +92,29 @@ Current target status:
 | EXR | Bounded but real |
 
 In practice:
-- JPEG and TIFF are the strongest transfer targets today.
+- JPEG, TIFF, and DNG are the strongest transfer targets today.
 - TIFF edit support now covers classic TIFF, BigTIFF, bounded preview-page
   chain rewrite (`ifd1`, `ifd2`, and preserved downstream tails), and bounded
-  TIFF/DNG-style SubIFD rewrite with preserved downstream auxiliary tails
-  and preserved trailing existing children when only the front subset is
-  replaced. Replaced `ExifIFD` blocks can also preserve an existing target
-  `InteropIFD` when the source does not supply its own interop child.
-- For DNG-like TIFF sources, the current bounded merge policy is:
-  replace the source-supplied front preview-page/aux front structures, preserve
-  existing target page tails and trailing auxiliary children.
+  SubIFD rewrite with preserved downstream auxiliary tails and preserved
+  trailing existing children when only the front subset is replaced. Replaced
+  `ExifIFD` blocks can also preserve an existing target `InteropIFD` when the
+  source does not supply its own interop child.
+- DNG is now a dedicated public transfer target layered on the TIFF backend.
+  The current bounded DNG contract covers read-backed file-helper roundtrips,
+  `DNGVersion` preservation, minimal `DNGVersion` synthesis when the source
+  metadata lacks it, bounded preview-page chain rewrite/merge,
+  bounded raw-image `SubIFD` rewrite/merge, preserved downstream page/aux
+  tails, preserved trailing existing auxiliary children, and bounded
+  `ExifIFD -> InteropIFD` preservation. When a non-DNG source is merged into
+  an existing DNG target, the target's core DNG tags and preview/raw
+  structure are preserved under that same bounded contract.
+- When built with `OPENMETA_WITH_DNG_SDK_ADAPTER=ON` and a `dng_sdk`
+  package is available, OpenMeta also exposes
+  [dng_sdk_adapter.h](src/include/openmeta/dng_sdk_adapter.h) as an optional
+  host bridge for applying prepared DNG-target metadata onto Adobe DNG SDK
+  `dng_negative` / `dng_stream` objects. Core `Dng` transfer support does not
+  depend on that SDK. The OpenMeta build must use a C++ runtime/standard
+  library compatible with the discovered `dng_sdk` package.
 - PNG, WebP, JP2, JXL, bounded BMFF, and EXR all have real first-class
   transfer entry points.
 - EXR is still narrower than the container-edit targets: it emits safe string
@@ -188,6 +202,8 @@ Useful options:
 - `-DOPENMETA_BUILD_FUZZERS=ON` for Clang + libFuzzer targets
 - `-DOPENMETA_USE_LIBCXX=ON` when linking against dependencies built with
   `libc++`
+- `-DOPENMETA_WITH_DNG_SDK_ADAPTER=ON` to enable the optional Adobe DNG SDK
+  bridge (requires a discoverable `dng_sdk` package)
 - `-DOPENMETA_BUILD_DOCS=ON` for Doxygen HTML docs
 - `-DOPENMETA_BUILD_SPHINX_DOCS=ON` for Sphinx + Breathe HTML docs
 

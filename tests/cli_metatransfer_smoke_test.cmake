@@ -35,8 +35,10 @@ set(_edited_jp2 "${WORK_DIR}/edited.jp2")
 set(_jxl_handoff "${WORK_DIR}/jxl_encoder_handoff.omjxic")
 set(_split_jpg "${WORK_DIR}/split_injected.jpg")
 set(_target_tif "${WORK_DIR}/target.tif")
+set(_target_dng "${WORK_DIR}/target.dng")
 set(_target_tif_xmp "${WORK_DIR}/target_xmp.tif")
 set(_split_tif "${WORK_DIR}/split_injected.tif")
+set(_split_dng "${WORK_DIR}/split_injected.dng")
 set(_target_tif_be "${WORK_DIR}/target_be.tif")
 set(_split_tif_be "${WORK_DIR}/split_injected_be.tif")
 set(_jpg_rich "${WORK_DIR}/sample_rich.jpg")
@@ -195,6 +197,18 @@ execute_process(
 if(NOT _rv_write_tiff EQUAL 0)
   message(FATAL_ERROR
     "failed to write target tiff fixture (${_rv_write_tiff})\nstdout:\n${_out_write_tiff}\nstderr:\n${_err_write_tiff}")
+endif()
+
+execute_process(
+  COMMAND python3 -c
+    "from pathlib import Path; b=bytearray(); b+=b'II'; b+=(42).to_bytes(2,'little'); b+=(8).to_bytes(4,'little'); b+=(0).to_bytes(2,'little'); b+=(0).to_bytes(4,'little'); Path(r'''${_target_dng}''').write_bytes(bytes(b))"
+  RESULT_VARIABLE _rv_write_dng
+  OUTPUT_VARIABLE _out_write_dng
+  ERROR_VARIABLE _err_write_dng
+)
+if(NOT _rv_write_dng EQUAL 0)
+  message(FATAL_ERROR
+    "failed to write target dng fixture (${_rv_write_dng})\nstdout:\n${_out_write_dng}\nstderr:\n${_err_write_dng}")
 endif()
 
 # Minimal classic big-endian TIFF target (MM + 42 + IFD0 at offset 8 with 0 entries)
@@ -1477,6 +1491,36 @@ execute_process(
 if(NOT _rv_split_tif_dt_check EQUAL 0)
   message(FATAL_ERROR
     "metatransfer split tiff output missing patched DateTime value\nstdout:\n${_out_split_tif}\nstderr:\n${_err_split_tif}\ncheck_stderr:\n${_err_split_tif_dt_check}")
+endif()
+
+execute_process(
+  COMMAND "${METATRANSFER_BIN}" --no-build-info
+          --source-meta "${_jpg}"
+          --target-dng "${_target_dng}"
+          --time-patch "DateTime=2024:12:31 23:59:59"
+          --output "${_split_dng}" --force
+  RESULT_VARIABLE _rv_split_dng
+  OUTPUT_VARIABLE _out_split_dng
+  ERROR_VARIABLE _err_split_dng
+)
+if(NOT _rv_split_dng EQUAL 0)
+  message(FATAL_ERROR
+    "metatransfer source/target dng split edit failed (${_rv_split_dng})\nstdout:\n${_out_split_dng}\nstderr:\n${_err_split_dng}")
+endif()
+if(NOT EXISTS "${_split_dng}")
+  message(FATAL_ERROR
+    "metatransfer split dng mode did not write output\nstdout:\n${_out_split_dng}\nstderr:\n${_err_split_dng}")
+endif()
+execute_process(
+  COMMAND python3 -c
+    "from pathlib import Path; import sys; b=Path(r'''${_split_dng}''').read_bytes(); ok=(len(b)>=8 and b[0:2]==b'II' and int.from_bytes(b[2:4],'little')==42); off=int.from_bytes(b[4:8],'little') if ok else 0; ok=ok and (off+2<=len(b)); n=int.from_bytes(b[off:off+2],'little') if ok else 0; p=off+2; ok=ok and (p+n*12+4<=len(b)); tags=[int.from_bytes(b[p+i*12:p+i*12+2],'little') for i in range(n)] if ok else []; dt=None; \nfor i in range(n):\n e=p+i*12; tag=int.from_bytes(b[e:e+2],'little'); typ=int.from_bytes(b[e+2:e+4],'little'); cnt=int.from_bytes(b[e+4:e+8],'little'); vo=int.from_bytes(b[e+8:e+12],'little');\n if tag==0x0132 and typ==2 and cnt>0:\n  if cnt<=4: raw=b[e+8:e+8+cnt]\n  else: raw=b[vo:vo+cnt] if vo+cnt<=len(b) else b''\n  dt=raw.split(b'\\x00',1)[0].decode('ascii','ignore')\n  break\nsys.exit(0 if (ok and 700 in tags and 0x0132 in tags and dt=='2024:12:31 23:59:59') else 1)"
+  RESULT_VARIABLE _rv_split_dng_check
+  OUTPUT_VARIABLE _out_split_dng_check
+  ERROR_VARIABLE _err_split_dng_check
+)
+if(NOT _rv_split_dng_check EQUAL 0)
+  message(FATAL_ERROR
+    "metatransfer split dng output missing expected TIFF/DNG tags and patched DateTime value\nstdout:\n${_out_split_dng}\nstderr:\n${_err_split_dng}\ncheck_stderr:\n${_err_split_dng_check}")
 endif()
 
 execute_process(

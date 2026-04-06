@@ -40,6 +40,8 @@ option(OPENMETA_WHEEL_NO_BUILD_ISOLATION "Build wheel without isolation (require
 option(OPENMETA_WITH_ZLIB "Enable zlib/deflate payload decompression" ON)
 option(OPENMETA_WITH_BROTLI "Enable brotli payload decompression" ON)
 option(OPENMETA_WITH_EXPAT "Enable XMP packet decode via Expat" ON)
+option(OPENMETA_WITH_DNG_SDK_ADAPTER
+  "Enable the optional Adobe DNG SDK adapter bridge" OFF)
 option(OPENMETA_ENABLE_C2PA_VERIFY "Enable draft C2PA verification scaffold fields" OFF)
 set(OPENMETA_C2PA_VERIFY_BACKEND "auto" CACHE STRING
   "Draft C2PA verify backend preference: auto/native/openssl/none")
@@ -121,6 +123,25 @@ if(OPENMETA_WITH_EXPAT)
   endif()
 endif()
 
+set(OPENMETA_DNG_SDK_FOUND OFF)
+if(OPENMETA_WITH_DNG_SDK_ADAPTER)
+  find_package(dng_sdk QUIET CONFIG)
+  if(TARGET dng_sdk::dng_sdk)
+    set(OPENMETA_DNG_SDK_FOUND ON)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND NOT OPENMETA_USE_LIBCXX)
+      message(WARNING
+        "The detected dng_sdk package does not advertise its C++ standard "
+        "library choice through CMake. If that package was built against "
+        "libc++, configure OpenMeta with OPENMETA_USE_LIBCXX=ON to avoid "
+        "link-time ABI failures.")
+    endif()
+  else()
+    message(WARNING
+      "OPENMETA_WITH_DNG_SDK_ADAPTER=ON but no dng_sdk package was found. "
+      "The DNG SDK adapter will be compiled in unsupported-stub mode.")
+  endif()
+endif()
+
 string(TOLOWER "${OPENMETA_C2PA_VERIFY_BACKEND}" OPENMETA_C2PA_VERIFY_BACKEND_LOWER)
 if(NOT OPENMETA_C2PA_VERIFY_BACKEND_LOWER STREQUAL "auto"
    AND NOT OPENMETA_C2PA_VERIFY_BACKEND_LOWER STREQUAL "native"
@@ -162,6 +183,11 @@ if(OPENMETA_EXPAT_FOUND)
   set(OPENMETA_CONFIG_HAS_EXPAT 1)
 endif()
 
+set(OPENMETA_CONFIG_HAS_DNG_SDK 0)
+if(OPENMETA_DNG_SDK_FOUND)
+  set(OPENMETA_CONFIG_HAS_DNG_SDK 1)
+endif()
+
 if(OPENMETA_BUILD_TIMESTAMP STREQUAL "")
   string(TIMESTAMP _openmeta_ts "%Y-%m-%dT%H:%M:%SZ" UTC)
   set(OPENMETA_BUILD_TIMESTAMP "${_openmeta_ts}" CACHE STRING "Build timestamp in UTC (ISO-8601). Leave empty to set on first configure" FORCE)
@@ -196,6 +222,7 @@ set(OPENMETA_SOURCES
   src/openmeta/container_payload.cc
   src/openmeta/container_scan.cc
   src/openmeta/crw_ciff_decode.cc
+  src/openmeta/dng_sdk_adapter.cc
   src/openmeta/mapped_file.cc
   src/openmeta/exif_makernote_canon.cc
   src/openmeta/exif_makernote_casio.cc
@@ -243,6 +270,20 @@ set(OPENMETA_SOURCES
   src/openmeta/xmp_dump.cc
 )
 
+if(OPENMETA_DNG_SDK_FOUND)
+  # The Adobe DNG SDK throws dng_exception; keep that containment at the
+  # optional adapter boundary instead of enabling exceptions project-wide.
+  if(MSVC)
+    set_source_files_properties(
+      src/openmeta/dng_sdk_adapter.cc
+      PROPERTIES COMPILE_OPTIONS "/EHsc")
+  else()
+    set_source_files_properties(
+      src/openmeta/dng_sdk_adapter.cc
+      PROPERTIES COMPILE_OPTIONS "-fexceptions")
+  endif()
+endif()
+
 if(OPENMETA_BUILD_STATIC)
   add_library(openmeta_static STATIC ${OPENMETA_SOURCES})
   openmeta_apply_target_settings(openmeta_static)
@@ -278,6 +319,12 @@ foreach(_tgt IN ITEMS openmeta_static openmeta_shared)
         target_link_libraries(${_tgt} PUBLIC "${EXPAT_LIBRARIES}")
       endif()
       target_compile_definitions(${_tgt} PUBLIC OPENMETA_HAS_EXPAT=1)
+    endif()
+    if(OPENMETA_DNG_SDK_FOUND)
+      target_link_libraries(${_tgt} PUBLIC dng_sdk::dng_sdk)
+      target_compile_definitions(${_tgt} PUBLIC OPENMETA_HAS_DNG_SDK=1)
+    else()
+      target_compile_definitions(${_tgt} PUBLIC OPENMETA_HAS_DNG_SDK=0)
     endif()
     if(OPENMETA_ENABLE_C2PA_VERIFY)
       target_compile_definitions(${_tgt} PUBLIC OPENMETA_ENABLE_C2PA_VERIFY=1)
@@ -554,6 +601,7 @@ if(OPENMETA_BUILD_TESTS)
     tests/c2pa_container_test.cc
     tests/jumbf_decode_test.cc
     tests/crw_ciff_decode_test.cc
+    tests/dng_sdk_adapter_test.cc
     tests/icc_decode_test.cc
     tests/icc_interpret_test.cc
     tests/exif_tag_names_test.cc

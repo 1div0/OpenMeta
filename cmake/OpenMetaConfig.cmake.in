@@ -12,6 +12,10 @@ if(@OPENMETA_CONFIG_HAS_BROTLI@)
   find_dependency(Brotli)
 endif()
 
+if(@OPENMETA_CONFIG_HAS_DNG_SDK@)
+  find_dependency(dng_sdk CONFIG)
+endif()
+
 include("${CMAKE_CURRENT_LIST_DIR}/OpenMetaTargets.cmake")
 
 # Convenience alias: prefer shared when available, otherwise fall back to static.

@@ -41,6 +41,7 @@ enum class TransferTargetFormat : uint8_t {
     Exr,
     Png,
     Jp2,
+    Dng,
 };
 
 /// Prepared payload block category.
