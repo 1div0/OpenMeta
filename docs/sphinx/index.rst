@@ -28,6 +28,8 @@ sanitization to reduce memory and output attack surface.
 .. toctree::
    :maxdepth: 2
 
+   quick_start
+   host_integration
    build
    development
    interop_api
