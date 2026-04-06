@@ -23,10 +23,12 @@ set(_jpg_exr "${WORK_DIR}/sample_exr.jpg")
 set(_py_code
 "from pathlib import Path
 import openmeta
-from openmeta.python import get_exr_attribute_batch, probe_exr_attribute_batch
+from openmeta.python import get_exr_attribute_batch, probe_exr_attribute_batch, update_dng_sdk_file
 
 p = Path(r'''${_jpg}''')
 p_exr = Path(r'''${_jpg_exr}''')
+p_dng_target = Path(r'''${WORK_DIR}/target_sdk.dng''')
+p_dng_target_helper = Path(r'''${WORK_DIR}/target_sdk_helper.dng''')
 t = bytearray()
 t += b'II*\\x00'
 t += (8).to_bytes(4, 'little')
@@ -54,6 +56,19 @@ t_exr += b'Vendor\\x00'
 app1_exr = b'Exif\\x00\\x00' + bytes(t_exr)
 ln_exr = (len(app1_exr) + 2).to_bytes(2, 'big')
 p_exr.write_bytes(b'\\xFF\\xD8\\xFF\\xE1' + ln_exr + app1_exr + b'\\xFF\\xD9')
+
+dng = bytearray()
+dng += b'II'
+dng += (42).to_bytes(2, 'little')
+dng += (8).to_bytes(4, 'little')
+dng += (1).to_bytes(2, 'little')
+dng += (0xC612).to_bytes(2, 'little')
+dng += (1).to_bytes(2, 'little')
+dng += (4).to_bytes(4, 'little')
+dng += bytes([1, 6, 0, 0])
+dng += (0).to_bytes(4, 'little')
+p_dng_target.write_bytes(bytes(dng))
+p_dng_target_helper.write_bytes(bytes(dng))
 
 p_icc = Path(r'''${WORK_DIR}/sample_icc.jpg''')
 icc = bytearray(156)
@@ -195,6 +210,22 @@ assert batch_exr[0]['name'] == 'Make', batch_exr
 assert batch_exr[0]['type_name'] == 'string', batch_exr
 assert isinstance(batch_exr[0]['value'], (bytes, bytearray)), batch_exr
 assert bytes(batch_exr[0]['value']) == b'Vendor', batch_exr
+
+r_dng = openmeta.update_dng_sdk_file_from_file(str(p_exr), str(p_dng_target))
+if openmeta.dng_sdk_adapter_available():
+    dng_before = bytes(dng)
+    assert r_dng['overall_status_name'] == 'ok', r_dng
+    assert r_dng['adapter_status_name'] == 'ok', r_dng
+    assert r_dng['updated_stream'] is True, r_dng
+    assert p_dng_target.read_bytes() != dng_before, r_dng
+
+    r_dng_helper = update_dng_sdk_file(str(p_exr), str(p_dng_target_helper))
+    assert r_dng_helper['overall_status_name'] == 'ok', r_dng_helper
+    assert r_dng_helper['adapter_status_name'] == 'ok', r_dng_helper
+    assert r_dng_helper['updated_stream'] is True, r_dng_helper
+    assert p_dng_target_helper.read_bytes() != dng_before, r_dng_helper
+else:
+    assert r_dng['adapter_status_name'] == 'unsupported', r_dng
 
 r2 = openmeta.transfer_probe(
     str(p),

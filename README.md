@@ -6,6 +6,19 @@ The current focus is safe, format-agnostic reads: find metadata blocks in
 common containers, decode them into a normalized in-memory model, and expose
 stable transfer/edit building blocks for export workflows.
 
+## Start Here
+
+If you are new to the project, start with
+[docs/quick_start.md](docs/quick_start.md).
+
+That guide covers the shortest useful paths for:
+
+- reading and querying metadata in C++
+- building and editing `MetaStore`
+- copying metadata into an existing JPEG, TIFF, or DNG target
+- building EXR and OIIO-style host-API metadata outputs
+- using the optional Adobe DNG SDK bridge
+
 ## Status
 
 Read-path coverage is broad and regression-gated. Write/edit support is real
@@ -112,9 +125,15 @@ In practice:
   package is available, OpenMeta also exposes
   [dng_sdk_adapter.h](src/include/openmeta/dng_sdk_adapter.h) as an optional
   host bridge for applying prepared DNG-target metadata onto Adobe DNG SDK
-  `dng_negative` / `dng_stream` objects. Core `Dng` transfer support does not
-  depend on that SDK. The OpenMeta build must use a C++ runtime/standard
-  library compatible with the discovered `dng_sdk` package.
+  `dng_negative` / `dng_stream` objects. That bridge now includes:
+  - direct prepared-bundle apply/update entry points for SDK object owners
+  - a public file-helper for `source file -> existing DNG file` in-place
+    metadata update
+  - a matching thin Python binding over that file-helper
+  - a thin CLI helper via `metatransfer --update-dng-sdk-file <target.dng>`
+  Core `Dng` transfer support does not depend on that SDK. The OpenMeta
+  build must use a C++ runtime/standard library compatible with the
+  discovered `dng_sdk` package.
 - PNG, WebP, JP2, JXL, bounded BMFF, and EXR all have real first-class
   transfer entry points.
 - EXR is still narrower than the container-edit targets: it emits safe string
@@ -211,17 +230,20 @@ Developer notes live in [docs/development.md](docs/development.md).
 
 ## Quick Usage
 
-`simple_meta_read(...)` performs `scan_auto(...)`, payload extraction, and
-decode in one call.
+The shortest CLI path is:
 
-- Input: whole-file bytes
-- Output: `MetaStore` plus discovered `ContainerBlockRef[]`
-- Scratch: caller-provided block list, IFD list, payload buffer, and
-  part-index buffer
+```bash
+./build/metaread file.jpg
+./build/metatransfer --source-meta source.jpg --target-jpeg rendered.jpg --output rendered_with_meta.jpg --force
+```
+
+For C++, host-API, and Python examples, use
+[docs/quick_start.md](docs/quick_start.md).
 
 ## Documentation
 
 - https://ssh4net.github.io/OpenMeta/: published documentation site
+- [docs/quick_start.md](docs/quick_start.md): shortest adoption path
 - [docs/metadata_support.md](docs/metadata_support.md): metadata support matrix
 - [docs/metadata_transfer_plan.md](docs/metadata_transfer_plan.md): transfer
   status and roadmap

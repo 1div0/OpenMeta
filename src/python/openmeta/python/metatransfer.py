@@ -263,6 +263,63 @@ def get_exr_attribute_batch(
     return list(batch)
 
 
+def update_dng_sdk_file(
+    path: str | os.PathLike[str],
+    target_path: str | os.PathLike[str],
+    *,
+    format: object = openmeta.XmpSidecarFormat.Portable,
+    include_pointer_tags: bool = True,
+    decode_makernote: bool = False,
+    decode_embedded_containers: bool = True,
+    decompress: bool = True,
+    include_exif_app1: bool = True,
+    include_xmp_app1: bool = True,
+    include_icc_app2: bool = True,
+    include_iptc_app13: bool = True,
+    xmp_include_existing: bool = False,
+    xmp_exiftool_gpsdatetime_alias: bool = False,
+    xmp_project_exif: bool = True,
+    xmp_project_iptc: bool = True,
+    makernote_policy: object = openmeta.TransferPolicyAction.Keep,
+    jumbf_policy: object = openmeta.TransferPolicyAction.Keep,
+    c2pa_policy: object = openmeta.TransferPolicyAction.Keep,
+    max_file_bytes: int = 0,
+    policy: object | None = None,
+    apply_exif: bool = True,
+    apply_xmp: bool = True,
+    apply_iptc: bool = True,
+    synchronize_metadata: bool = True,
+    cleanup_for_update: bool = True,
+) -> dict[object, object]:
+    return openmeta.update_dng_sdk_file_from_file(
+        os.fspath(path),
+        os.fspath(target_path),
+        format=format,
+        include_pointer_tags=include_pointer_tags,
+        decode_makernote=decode_makernote,
+        decode_embedded_containers=decode_embedded_containers,
+        decompress=decompress,
+        include_exif_app1=include_exif_app1,
+        include_xmp_app1=include_xmp_app1,
+        include_icc_app2=include_icc_app2,
+        include_iptc_app13=include_iptc_app13,
+        xmp_include_existing=xmp_include_existing,
+        xmp_exiftool_gpsdatetime_alias=xmp_exiftool_gpsdatetime_alias,
+        xmp_project_exif=xmp_project_exif,
+        xmp_project_iptc=xmp_project_iptc,
+        makernote_policy=makernote_policy,
+        jumbf_policy=jumbf_policy,
+        c2pa_policy=c2pa_policy,
+        max_file_bytes=max_file_bytes,
+        policy=policy,
+        apply_exif=apply_exif,
+        apply_xmp=apply_xmp,
+        apply_iptc=apply_iptc,
+        synchronize_metadata=synchronize_metadata,
+        cleanup_for_update=cleanup_for_update,
+    )
+
+
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(prog="metatransfer.py")
     ap.add_argument("files", nargs="*")

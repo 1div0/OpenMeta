@@ -12,12 +12,15 @@
 #if defined(OPENMETA_HAS_DNG_SDK) && OPENMETA_HAS_DNG_SDK
 #    include "dng_auto_ptr.h"
 #    include "dng_exceptions.h"
+#    include "dng_file_stream.h"
 #    include "dng_host.h"
 #    include "dng_info.h"
 #    include "dng_negative.h"
 #    include "dng_stream.h"
 #    include "dng_update_meta.h"
 #endif
+
+#include <cstdio>
 
 namespace openmeta {
 namespace {
@@ -401,6 +404,72 @@ update_dng_sdk_stream_metadata_from_file(
     out.adapter = update_prepared_dng_sdk_stream_metadata(
         out.prepared.bundle, host, negative, stream, options.adapter);
     return out;
+}
+
+ApplyDngSdkMetadataFileResult
+update_dng_sdk_file_from_file(
+    const char* source_path, const char* target_path,
+    const ApplyDngSdkMetadataFileOptions& options) noexcept
+{
+    ApplyDngSdkMetadataFileResult out;
+#if !defined(OPENMETA_HAS_DNG_SDK) || !OPENMETA_HAS_DNG_SDK
+    (void)source_path;
+    (void)target_path;
+    (void)options;
+    out.adapter = unsupported_result();
+    return out;
+#else
+    if (!target_path || !*target_path) {
+        out.adapter.status = DngSdkAdapterStatus::InvalidArgument;
+        out.adapter.message = "empty target path";
+        return out;
+    }
+
+    std::FILE* file = std::fopen(target_path, "r+b");
+    if (!file) {
+        out.adapter.status = DngSdkAdapterStatus::InvalidArgument;
+        out.adapter.message = "failed to open target DNG for update";
+        return out;
+    }
+
+    try {
+        ::dng_host host;
+        AutoPtr<dng_negative> negative(host.Make_dng_negative());
+        if (!negative.Get()) {
+            std::fclose(file);
+            out.adapter.status = DngSdkAdapterStatus::InternalError;
+            out.adapter.message = "DNG SDK failed to create dng_negative";
+            return out;
+        }
+
+        ::dng_file_stream stream(file);
+        file = nullptr;
+
+        out = update_dng_sdk_stream_metadata_from_file(
+            source_path, &host, negative.Get(), &stream, options);
+        if (out.adapter.status == DngSdkAdapterStatus::Ok
+            && out.adapter.updated_stream) {
+            stream.Flush();
+        }
+        return out;
+    } catch (const ::dng_exception&) {
+        if (file) {
+            std::fclose(file);
+        }
+        out.adapter.status = DngSdkAdapterStatus::InternalError;
+        out.adapter.message
+            = "DNG SDK failed to open or update the target DNG file";
+        return out;
+    } catch (...) {
+        if (file) {
+            std::fclose(file);
+        }
+        out.adapter.status = DngSdkAdapterStatus::InternalError;
+        out.adapter.message
+            = "unexpected failure while opening or updating target DNG file";
+        return out;
+    }
+#endif
 }
 
 }  // namespace openmeta

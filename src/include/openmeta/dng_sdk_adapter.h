@@ -115,4 +115,19 @@ update_dng_sdk_stream_metadata_from_file(
     const ApplyDngSdkMetadataFileOptions& options
     = ApplyDngSdkMetadataFileOptions {}) noexcept;
 
+/**
+ * \brief Reads one source file, prepares a DNG-target bundle, parses one
+ * existing target DNG file through the Adobe DNG SDK, then updates that
+ * target file's metadata in place.
+ *
+ * This is the thin public file-helper used by bindings and host tools that
+ * want an end-to-end "source file -> existing DNG file" metadata update path
+ * without directly managing SDK object lifetimes.
+ */
+ApplyDngSdkMetadataFileResult
+update_dng_sdk_file_from_file(
+    const char* source_path, const char* target_path,
+    const ApplyDngSdkMetadataFileOptions& options
+    = ApplyDngSdkMetadataFileOptions {}) noexcept;
+
 }  // namespace openmeta

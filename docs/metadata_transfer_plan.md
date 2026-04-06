@@ -3,6 +3,7 @@
 Date: March 5, 2026
 
 Related:
+- [quick_start.md](quick_start.md)
 - [metadata_backend_matrix.md](metadata_backend_matrix.md)
 
 ## Goal
@@ -176,6 +177,10 @@ Optional host bridge:
   bounded Adobe DNG SDK bridge for:
   - applying prepared OpenMeta DNG bundles onto `dng_negative`
   - updating an existing `dng_stream` via the SDK's metadata-update path
+  - a direct file-helper for `source file -> existing DNG file` in-place
+    update
+  - a matching direct Python binding over that file-helper
+  - a thin CLI wrapper via `metatransfer --update-dng-sdk-file`
 - This adapter is optional. Core `Dng` transfer support remains available
   without the Adobe SDK.
 - The OpenMeta build must use a C++ runtime/standard library compatible with

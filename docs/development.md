@@ -1,6 +1,8 @@
-#Development
+# Development
 
 See also: `docs/metadata_support.md` for current container/block/decode support.
+If you are looking for the shortest practical entry path, start with
+`docs/quick_start.md` before this file.
 
 ## Build Prerequisites
 

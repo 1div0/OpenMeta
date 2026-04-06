@@ -3,6 +3,7 @@
 #include "cli_parse.h"
 #include "openmeta/build_info.h"
 #include "openmeta/console_format.h"
+#include "openmeta/dng_sdk_adapter.h"
 #include "openmeta/exr_adapter.h"
 #include "openmeta/mapped_file.h"
 #include "openmeta/metadata_transfer.h"
@@ -120,6 +121,9 @@ namespace {
             "  --dump-exr-attribute-batch <path>\n"
             "                         Write one human-readable EXR attribute batch dump\n"
             "                         via the direct EXR file helper\n"
+            "  --update-dng-sdk-file <path>\n"
+            "                         Update one existing DNG file in place via the\n"
+            "                         optional Adobe DNG SDK file helper\n"
             "  --load-transfer-package-batch <path>\n"
             "                         Load and inspect one persisted final transfer package batch\n"
             "  --dump-jxl-encoder-handoff <path>\n"
@@ -819,6 +823,21 @@ namespace {
         case ExrAdapterStatus::Ok: return "ok";
         case ExrAdapterStatus::InvalidArgument: return "invalid_argument";
         case ExrAdapterStatus::Unsupported: return "unsupported";
+        }
+        return "unknown";
+    }
+
+
+    static const char*
+    dng_sdk_adapter_status_name(DngSdkAdapterStatus status) noexcept
+    {
+        switch (status) {
+        case DngSdkAdapterStatus::Ok: return "ok";
+        case DngSdkAdapterStatus::InvalidArgument:
+            return "invalid_argument";
+        case DngSdkAdapterStatus::Unsupported: return "unsupported";
+        case DngSdkAdapterStatus::Malformed: return "malformed";
+        case DngSdkAdapterStatus::InternalError: return "internal_error";
         }
         return "unknown";
     }
@@ -1573,6 +1592,7 @@ main(int argc, char** argv)
     std::string transfer_package_batch_output_path;
     std::string transfer_package_batch_input_path;
     std::string exr_attribute_batch_output_path;
+    std::string dng_sdk_update_target_path;
     std::string jxl_encoder_handoff_output_path;
     std::string jxl_encoder_handoff_input_path;
     std::string transfer_artifact_input_path;
@@ -1931,6 +1951,12 @@ main(int argc, char** argv)
             i += 1;
             continue;
         }
+        if (std::strcmp(arg, "--update-dng-sdk-file") == 0
+            && i + 1 < argc) {
+            dng_sdk_update_target_path = argv[i + 1];
+            i += 1;
+            continue;
+        }
         if (std::strcmp(arg, "--load-transfer-package-batch") == 0
             && i + 1 < argc) {
             transfer_package_batch_input_path = argv[i + 1];
@@ -2216,6 +2242,12 @@ main(int argc, char** argv)
             "--dump-exr-attribute-batch supports exactly one input path per run\n");
         return 2;
     }
+    if (!dng_sdk_update_target_path.empty() && input_paths.size() != 1U) {
+        std::fprintf(
+            stderr,
+            "--update-dng-sdk-file supports exactly one input path per run\n");
+        return 2;
+    }
     if (!jxl_encoder_handoff_output_path.empty() && input_paths.size() != 1U) {
         std::fprintf(
             stderr,
@@ -2239,11 +2271,12 @@ main(int argc, char** argv)
           + static_cast<uint32_t>(!transfer_package_batch_input_path.empty())
           + static_cast<uint32_t>(!jxl_encoder_handoff_input_path.empty())
           + static_cast<uint32_t>(!transfer_artifact_input_path.empty())
-          + static_cast<uint32_t>(!exr_attribute_batch_output_path.empty());
+          + static_cast<uint32_t>(!exr_attribute_batch_output_path.empty())
+          + static_cast<uint32_t>(!dng_sdk_update_target_path.empty());
     if (inspect_input_count > 1U) {
         std::fprintf(
             stderr,
-            "--dump-exr-attribute-batch, --load-transfer-payload-batch, --load-transfer-package-batch, --load-jxl-encoder-handoff, and --load-transfer-artifact are mutually exclusive\n");
+            "--dump-exr-attribute-batch, --update-dng-sdk-file, --load-transfer-payload-batch, --load-transfer-package-batch, --load-jxl-encoder-handoff, and --load-transfer-artifact are mutually exclusive\n");
         return 2;
     }
     if (!transfer_payload_batch_input_path.empty()) {
@@ -2258,6 +2291,7 @@ main(int argc, char** argv)
             || !transfer_payload_batch_output_path.empty()
             || !transfer_package_batch_output_path.empty()
             || !exr_attribute_batch_output_path.empty()
+            || !dng_sdk_update_target_path.empty()
             || !output_path.empty() || dry_run || write_payloads) {
             std::fprintf(
                 stderr,
@@ -2335,6 +2369,7 @@ main(int argc, char** argv)
             || !transfer_payload_batch_output_path.empty()
             || !transfer_package_batch_output_path.empty()
             || !exr_attribute_batch_output_path.empty()
+            || !dng_sdk_update_target_path.empty()
             || !jxl_encoder_handoff_output_path.empty() || !output_path.empty()
             || dry_run || write_payloads) {
             std::fprintf(
@@ -2395,6 +2430,7 @@ main(int argc, char** argv)
             || !transfer_payload_batch_output_path.empty()
             || !transfer_package_batch_output_path.empty()
             || !exr_attribute_batch_output_path.empty()
+            || !dng_sdk_update_target_path.empty()
             || !jxl_encoder_handoff_output_path.empty() || !output_path.empty()
             || dry_run || write_payloads) {
             std::fprintf(
@@ -2494,6 +2530,7 @@ main(int argc, char** argv)
             || !transfer_payload_batch_output_path.empty()
             || !transfer_package_batch_output_path.empty()
             || !exr_attribute_batch_output_path.empty()
+            || !dng_sdk_update_target_path.empty()
             || !output_path.empty() || dry_run || write_payloads) {
             std::fprintf(
                 stderr,
@@ -2570,6 +2607,7 @@ main(int argc, char** argv)
             || !transfer_payload_batch_input_path.empty()
             || !transfer_package_batch_output_path.empty()
             || !transfer_package_batch_input_path.empty()
+            || !dng_sdk_update_target_path.empty()
             || !jxl_encoder_handoff_output_path.empty()
             || !jxl_encoder_handoff_input_path.empty()
             || !transfer_artifact_input_path.empty() || !output_path.empty()
@@ -2655,6 +2693,92 @@ main(int argc, char** argv)
             return 1;
         }
         return result.adapter.status == ExrAdapterStatus::Ok ? 0 : 1;
+    }
+    if (!dng_sdk_update_target_path.empty()) {
+        if (target_count != 0U || !jpeg_jumbf_path.empty()
+            || c2pa_stage_requested || !c2pa_binding_output_path.empty()
+            || !c2pa_handoff_output_path.empty()
+            || !c2pa_signed_package_output_path.empty()
+            || !c2pa_signed_package_input_path.empty()
+            || !transfer_payload_batch_output_path.empty()
+            || !transfer_payload_batch_input_path.empty()
+            || !transfer_package_batch_output_path.empty()
+            || !transfer_package_batch_input_path.empty()
+            || !exr_attribute_batch_output_path.empty()
+            || !jxl_encoder_handoff_output_path.empty()
+            || !jxl_encoder_handoff_input_path.empty()
+            || !transfer_artifact_input_path.empty() || !output_path.empty()
+            || !out_dir.empty() || dry_run || write_payloads
+            || !pending_time_patches.empty() || emit_repeat != 1U
+            || edit_plan_opts.mode != JpegEditMode::Auto
+            || edit_plan_opts.require_in_place
+            || xmp_include_existing_destination_embedded
+            || xmp_writeback_mode != XmpWritebackMode::EmbeddedOnly
+            || xmp_destination_embedded_mode
+                   != XmpDestinationEmbeddedMode::PreserveExisting
+            || xmp_destination_sidecar_mode
+                   != XmpDestinationSidecarMode::PreserveExisting) {
+            std::fprintf(
+                stderr,
+                "--update-dng-sdk-file is a thin file-helper mode and is mutually exclusive with transfer/edit options\n");
+            return 2;
+        }
+
+        if (show_build_info) {
+            print_build_info_header();
+        }
+
+        if (xmp_include_existing_sidecar) {
+            options.xmp_existing_sidecar_mode
+                = XmpExistingSidecarMode::MergeIfPresent;
+            options.xmp_existing_sidecar_precedence
+                = xmp_existing_sidecar_precedence;
+            options.xmp_existing_sidecar_base_path = input_paths[0];
+        } else {
+            options.xmp_existing_sidecar_mode = XmpExistingSidecarMode::Ignore;
+            options.xmp_existing_sidecar_precedence
+                = XmpExistingSidecarPrecedence::SidecarWins;
+            options.xmp_existing_sidecar_base_path.clear();
+        }
+
+        ApplyDngSdkMetadataFileOptions dng_options;
+        dng_options.prepare = options;
+
+        const ApplyDngSdkMetadataFileResult result
+            = update_dng_sdk_file_from_file(input_paths[0].c_str(),
+                                            dng_sdk_update_target_path.c_str(),
+                                            dng_options);
+
+        std::printf(
+            "dng_sdk_file_update: status=%s source=%s target=%s available=%s file_status=%s prepare=%s applied_blocks=%u skipped_blocks=%u updated_stream=%s\n",
+            dng_sdk_adapter_status_name(result.adapter.status),
+            input_paths[0].c_str(), dng_sdk_update_target_path.c_str(),
+            dng_sdk_adapter_available() ? "true" : "false",
+            transfer_file_status_name(result.prepared.file_status),
+            transfer_status_name(result.prepared.prepare.status),
+            static_cast<unsigned>(result.adapter.applied_blocks),
+            static_cast<unsigned>(result.adapter.skipped_blocks),
+            result.adapter.updated_stream ? "true" : "false");
+        std::printf(
+            "  dng_sdk_apply: exif=%s xmp=%s iptc=%s synchronized=%s cleaned_for_update=%s failed_kind=%s\n",
+            result.adapter.exif_applied ? "true" : "false",
+            result.adapter.xmp_applied ? "true" : "false",
+            result.adapter.iptc_applied ? "true" : "false",
+            result.adapter.synchronized_metadata ? "true" : "false",
+            result.adapter.cleaned_for_update ? "true" : "false",
+            transfer_kind_name(result.adapter.failed_kind));
+        if (!result.adapter.message.empty()) {
+            std::printf("  dng_sdk_message=%s\n",
+                        result.adapter.message.c_str());
+        }
+
+        if (result.prepared.file_status != TransferFileStatus::Ok) {
+            return 1;
+        }
+        if (result.prepared.prepare.status != TransferStatus::Ok) {
+            return 1;
+        }
+        return result.adapter.status == DngSdkAdapterStatus::Ok ? 0 : 1;
     }
     if (target_count > 1U) {
         std::fprintf(

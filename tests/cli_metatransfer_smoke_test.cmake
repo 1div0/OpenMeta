@@ -36,6 +36,8 @@ set(_jxl_handoff "${WORK_DIR}/jxl_encoder_handoff.omjxic")
 set(_split_jpg "${WORK_DIR}/split_injected.jpg")
 set(_target_tif "${WORK_DIR}/target.tif")
 set(_target_dng "${WORK_DIR}/target.dng")
+set(_sdk_target_dng "${WORK_DIR}/sdk_target.dng")
+set(_sdk_target_dng_before "${WORK_DIR}/sdk_target_before.dng")
 set(_target_tif_xmp "${WORK_DIR}/target_xmp.tif")
 set(_split_tif "${WORK_DIR}/split_injected.tif")
 set(_split_dng "${WORK_DIR}/split_injected.dng")
@@ -210,6 +212,8 @@ if(NOT _rv_write_dng EQUAL 0)
   message(FATAL_ERROR
     "failed to write target dng fixture (${_rv_write_dng})\nstdout:\n${_out_write_dng}\nstderr:\n${_err_write_dng}")
 endif()
+file(COPY_FILE "${_target_dng}" "${_sdk_target_dng}")
+file(COPY_FILE "${_target_dng}" "${_sdk_target_dng_before}")
 
 # Minimal classic big-endian TIFF target (MM + 42 + IFD0 at offset 8 with 0 entries)
 execute_process(
@@ -617,6 +621,48 @@ endif()
 if(NOT _exr_dump_text MATCHES "value_hex=56656E646F72")
   message(FATAL_ERROR
     "exr attribute batch dump missing hex value\n${_exr_dump_text}")
+endif()
+
+execute_process(
+  COMMAND "${METATRANSFER_BIN}" --no-build-info
+          --update-dng-sdk-file "${_sdk_target_dng}"
+          "${_jpg_exr}"
+  RESULT_VARIABLE _rv_dng_sdk_update
+  OUTPUT_VARIABLE _out_dng_sdk_update
+  ERROR_VARIABLE _err_dng_sdk_update
+)
+if(NOT _rv_dng_sdk_update EQUAL 0 AND NOT _out_dng_sdk_update MATCHES "dng_sdk_file_update: status=unsupported")
+  message(FATAL_ERROR
+    "metatransfer dng sdk update failed (${_rv_dng_sdk_update})\nstdout:\n${_out_dng_sdk_update}\nstderr:\n${_err_dng_sdk_update}")
+endif()
+if(_out_dng_sdk_update MATCHES "dng_sdk_file_update: status=ok")
+  if(NOT _out_dng_sdk_update MATCHES "available=true")
+    message(FATAL_ERROR
+      "metatransfer dng sdk update missing available=true summary\nstdout:\n${_out_dng_sdk_update}\nstderr:\n${_err_dng_sdk_update}")
+  endif()
+  if(NOT _out_dng_sdk_update MATCHES "updated_stream=true")
+    message(FATAL_ERROR
+      "metatransfer dng sdk update missing updated_stream=true summary\nstdout:\n${_out_dng_sdk_update}\nstderr:\n${_err_dng_sdk_update}")
+  endif()
+  execute_process(
+    COMMAND python3 -c
+      "from pathlib import Path; import sys; a=Path(r'''${_sdk_target_dng_before}''').read_bytes(); b=Path(r'''${_sdk_target_dng}''').read_bytes(); sys.exit(0 if a!=b else 1)"
+    RESULT_VARIABLE _rv_dng_sdk_update_check
+    OUTPUT_VARIABLE _out_dng_sdk_update_check
+    ERROR_VARIABLE _err_dng_sdk_update_check
+  )
+  if(NOT _rv_dng_sdk_update_check EQUAL 0)
+    message(FATAL_ERROR
+      "metatransfer dng sdk update did not mutate the target file\nstdout:\n${_out_dng_sdk_update}\nstderr:\n${_err_dng_sdk_update}\ncheck_stderr:\n${_err_dng_sdk_update_check}")
+  endif()
+elseif(_out_dng_sdk_update MATCHES "dng_sdk_file_update: status=unsupported")
+  if(NOT _out_dng_sdk_update MATCHES "available=false")
+    message(FATAL_ERROR
+      "metatransfer dng sdk unsupported summary missing available=false\nstdout:\n${_out_dng_sdk_update}\nstderr:\n${_err_dng_sdk_update}")
+  endif()
+else()
+  message(FATAL_ERROR
+    "metatransfer dng sdk update missing expected summary\nstdout:\n${_out_dng_sdk_update}\nstderr:\n${_err_dng_sdk_update}")
 endif()
 if(NOT _out_probe MATCHES "prepare: status=ok")
   message(FATAL_ERROR

@@ -4,6 +4,7 @@
 #include "openmeta/ccm_query.h"
 #include "openmeta/console_format.h"
 #include "openmeta/container_payload.h"
+#include "openmeta/dng_sdk_adapter.h"
 #include "openmeta/exr_adapter.h"
 #include "openmeta/exif_tag_names.h"
 #include "openmeta/geotiff_key_names.h"
@@ -150,6 +151,40 @@ namespace {
             case ExrAdapterStatus::InvalidArgument:
                 return "invalid_argument";
             case ExrAdapterStatus::Unsupported: return "unsupported";
+        }
+        return "unknown";
+    }
+
+
+    static const char*
+    dng_sdk_adapter_status_name(DngSdkAdapterStatus status) noexcept
+    {
+        switch (status) {
+            case DngSdkAdapterStatus::Ok: return "ok";
+            case DngSdkAdapterStatus::InvalidArgument:
+                return "invalid_argument";
+            case DngSdkAdapterStatus::Unsupported: return "unsupported";
+            case DngSdkAdapterStatus::Malformed: return "malformed";
+            case DngSdkAdapterStatus::InternalError:
+                return "internal_error";
+        }
+        return "unknown";
+    }
+
+
+    static const char*
+    transfer_block_kind_name(TransferBlockKind kind) noexcept
+    {
+        switch (kind) {
+            case TransferBlockKind::Exif: return "exif";
+            case TransferBlockKind::Xmp: return "xmp";
+            case TransferBlockKind::IptcIim: return "iptc_iim";
+            case TransferBlockKind::PhotoshopIrb: return "photoshop_irb";
+            case TransferBlockKind::Icc: return "icc";
+            case TransferBlockKind::Jumbf: return "jumbf";
+            case TransferBlockKind::C2pa: return "c2pa";
+            case TransferBlockKind::ExrAttribute: return "exr_attribute";
+            case TransferBlockKind::Other: return "other";
         }
         return "unknown";
     }
@@ -1594,6 +1629,153 @@ namespace {
             }
             error_stage   = "exr_attribute_batch";
             error_code    = exr_adapter_status_name(result.adapter.status);
+            error_message = result.adapter.message;
+        }
+        out["overall_status"] = overall_status;
+        out["overall_status_name"]
+            = nb::str(transfer_status_name(overall_status));
+        out["error_stage"] = nb::str(error_stage.c_str(), error_stage.size());
+        out["error_code"]  = nb::str(error_code.c_str(), error_code.size());
+        out["error_message"]
+            = nb::str(error_message.c_str(), error_message.size());
+        return out;
+    }
+
+    static nb::dict update_dng_sdk_file_from_file_to_python(
+        const std::string& source_path, const std::string& target_path,
+        XmpSidecarFormat format, bool include_pointer_tags,
+        bool decode_makernote, bool decode_embedded_containers,
+        bool decompress, bool include_exif_app1, bool include_xmp_app1,
+        bool include_icc_app2, bool include_iptc_app13,
+        bool xmp_include_existing, bool xmp_exiftool_gpsdatetime_alias,
+        bool xmp_project_exif, bool xmp_project_iptc,
+        TransferPolicyAction makernote_policy,
+        TransferPolicyAction jumbf_policy, TransferPolicyAction c2pa_policy,
+        uint64_t max_file_bytes, nb::object policy_obj, bool apply_exif,
+        bool apply_xmp, bool apply_iptc, bool synchronize_metadata,
+        bool cleanup_for_update)
+    {
+        ApplyDngSdkMetadataFileOptions options;
+        options.prepare.include_pointer_tags       = include_pointer_tags;
+        options.prepare.decode_makernote           = decode_makernote;
+        options.prepare.decode_embedded_containers
+            = decode_embedded_containers;
+        options.prepare.decompress = decompress;
+        options.prepare.prepare.target_format = TransferTargetFormat::Dng;
+        options.prepare.prepare.xmp_portable
+            = (format == XmpSidecarFormat::Portable);
+        options.prepare.prepare.include_exif_app1 = include_exif_app1;
+        options.prepare.prepare.include_xmp_app1  = include_xmp_app1;
+        options.prepare.prepare.include_icc_app2  = include_icc_app2;
+        options.prepare.prepare.include_iptc_app13 = include_iptc_app13;
+        options.prepare.prepare.xmp_include_existing
+            = xmp_include_existing;
+        options.prepare.prepare.xmp_exiftool_gpsdatetime_alias
+            = xmp_exiftool_gpsdatetime_alias;
+        options.prepare.prepare.xmp_project_exif = xmp_project_exif;
+        options.prepare.prepare.xmp_project_iptc = xmp_project_iptc;
+        options.prepare.prepare.profile.makernote = makernote_policy;
+        options.prepare.prepare.profile.jumbf     = jumbf_policy;
+        options.prepare.prepare.profile.c2pa      = c2pa_policy;
+        options.prepare.policy.max_file_bytes     = max_file_bytes;
+        if (!policy_obj.is_none()) {
+            options.prepare.policy
+                = nb::cast<OpenMetaResourcePolicy>(policy_obj);
+            if (max_file_bytes != 0U) {
+                options.prepare.policy.max_file_bytes = max_file_bytes;
+            }
+        }
+        options.adapter.apply_exif         = apply_exif;
+        options.adapter.apply_xmp          = apply_xmp;
+        options.adapter.apply_iptc         = apply_iptc;
+        options.adapter.synchronize_metadata = synchronize_metadata;
+        options.adapter.cleanup_for_update = cleanup_for_update;
+
+        ApplyDngSdkMetadataFileResult result;
+        {
+            nb::gil_scoped_release gil_release;
+            result = update_dng_sdk_file_from_file(source_path.c_str(),
+                                                   target_path.c_str(),
+                                                   options);
+        }
+
+        nb::dict out;
+        out["source_path"] = nb::str(source_path.c_str(), source_path.size());
+        out["target_path"] = nb::str(target_path.c_str(), target_path.size());
+        out["dng_sdk_adapter_available"] = nb::bool_(
+            dng_sdk_adapter_available());
+        out["file_status"] = result.prepared.file_status;
+        out["file_status_name"]
+            = nb::str(transfer_file_status_name(result.prepared.file_status));
+        out["file_code"] = result.prepared.code;
+        out["file_code_name"]
+            = nb::str(prepare_transfer_file_code_name(result.prepared.code));
+        out["file_size"]   = nb::int_(result.prepared.file_size);
+        out["entry_count"] = nb::int_(result.prepared.entry_count);
+        out["prepare_status"] = result.prepared.prepare.status;
+        out["prepare_status_name"]
+            = nb::str(transfer_status_name(result.prepared.prepare.status));
+        out["prepare_code"] = result.prepared.prepare.code;
+        out["prepare_code_name"]
+            = nb::str(prepare_transfer_code_name(result.prepared.prepare.code));
+        out["prepare_warnings"] = nb::int_(result.prepared.prepare.warnings);
+        out["prepare_errors"]   = nb::int_(result.prepared.prepare.errors);
+        out["prepare_message"]  = nb::str(
+            result.prepared.prepare.message.c_str(),
+            result.prepared.prepare.message.size());
+        out["adapter_status"] = result.adapter.status;
+        out["adapter_status_name"]
+            = nb::str(dng_sdk_adapter_status_name(result.adapter.status));
+        out["applied_blocks"] = nb::int_(result.adapter.applied_blocks);
+        out["skipped_blocks"] = nb::int_(result.adapter.skipped_blocks);
+        out["exif_applied"] = nb::bool_(result.adapter.exif_applied);
+        out["xmp_applied"]  = nb::bool_(result.adapter.xmp_applied);
+        out["iptc_applied"] = nb::bool_(result.adapter.iptc_applied);
+        out["synchronized_metadata"]
+            = nb::bool_(result.adapter.synchronized_metadata);
+        out["cleaned_for_update"]
+            = nb::bool_(result.adapter.cleaned_for_update);
+        out["updated_stream"] = nb::bool_(result.adapter.updated_stream);
+        out["failed_kind"]    = result.adapter.failed_kind;
+        out["failed_kind_name"]
+            = nb::str(transfer_block_kind_name(result.adapter.failed_kind));
+        out["adapter_message"] = nb::str(result.adapter.message.c_str(),
+                                         result.adapter.message.size());
+
+        TransferStatus overall_status = TransferStatus::Ok;
+        std::string error_stage       = "none";
+        std::string error_code        = "none";
+        std::string error_message;
+        if (result.prepared.file_status != TransferFileStatus::Ok) {
+            overall_status = transfer_status_from_file_status(
+                result.prepared.file_status);
+            error_stage = "file";
+            error_code
+                = prepare_transfer_file_code_name(result.prepared.code);
+            error_message = result.prepared.prepare.message;
+        } else if (result.prepared.prepare.status != TransferStatus::Ok) {
+            overall_status = result.prepared.prepare.status;
+            error_stage    = "prepare";
+            error_code = prepare_transfer_code_name(result.prepared.prepare.code);
+            error_message = result.prepared.prepare.message;
+        } else if (result.adapter.status != DngSdkAdapterStatus::Ok) {
+            switch (result.adapter.status) {
+                case DngSdkAdapterStatus::InvalidArgument:
+                    overall_status = TransferStatus::InvalidArgument;
+                    break;
+                case DngSdkAdapterStatus::Unsupported:
+                    overall_status = TransferStatus::Unsupported;
+                    break;
+                case DngSdkAdapterStatus::Malformed:
+                    overall_status = TransferStatus::Malformed;
+                    break;
+                case DngSdkAdapterStatus::InternalError:
+                    overall_status = TransferStatus::InternalError;
+                    break;
+                case DngSdkAdapterStatus::Ok: break;
+            }
+            error_stage   = "dng_sdk_adapter";
+            error_code    = dng_sdk_adapter_status_name(result.adapter.status);
             error_message = result.adapter.message;
         }
         out["overall_status"] = overall_status;
@@ -3621,6 +3803,13 @@ NB_MODULE(_openmeta, m)
         .value("InvalidArgument", ExrAdapterStatus::InvalidArgument)
         .value("Unsupported", ExrAdapterStatus::Unsupported);
 
+    nb::enum_<DngSdkAdapterStatus>(m, "DngSdkAdapterStatus")
+        .value("Ok", DngSdkAdapterStatus::Ok)
+        .value("InvalidArgument", DngSdkAdapterStatus::InvalidArgument)
+        .value("Unsupported", DngSdkAdapterStatus::Unsupported)
+        .value("Malformed", DngSdkAdapterStatus::Malformed)
+        .value("InternalError", DngSdkAdapterStatus::InternalError);
+
     nb::enum_<XmpDecodeStatus>(m, "XmpDecodeStatus")
         .value("Ok", XmpDecodeStatus::Ok)
         .value("OutputTruncated", XmpDecodeStatus::OutputTruncated)
@@ -5335,6 +5524,10 @@ NB_MODULE(_openmeta, m)
         "remove_destination_xmp_sidecar"_a = true);
 
     m.def(
+        "dng_sdk_adapter_available",
+        []() { return dng_sdk_adapter_available(); });
+
+    m.def(
         "build_exr_attribute_batch_from_file",
         [](const std::string& path, XmpSidecarFormat format,
            bool include_pointer_tags, bool decode_makernote,
@@ -5371,6 +5564,51 @@ NB_MODULE(_openmeta, m)
         "max_file_bytes"_a   = 0ULL,
         "policy"_a           = nb::none(),
         "include_values"_a   = false);
+
+    m.def(
+        "update_dng_sdk_file_from_file",
+        [](const std::string& source_path, const std::string& target_path,
+           XmpSidecarFormat format, bool include_pointer_tags,
+           bool decode_makernote, bool decode_embedded_containers,
+           bool decompress, bool include_exif_app1, bool include_xmp_app1,
+           bool include_icc_app2, bool include_iptc_app13,
+           bool xmp_include_existing, bool xmp_exiftool_gpsdatetime_alias,
+           bool xmp_project_exif, bool xmp_project_iptc,
+           TransferPolicyAction makernote_policy,
+           TransferPolicyAction jumbf_policy,
+           TransferPolicyAction c2pa_policy, uint64_t max_file_bytes,
+           nb::object policy_obj, bool apply_exif, bool apply_xmp,
+           bool apply_iptc, bool synchronize_metadata,
+           bool cleanup_for_update) {
+            return update_dng_sdk_file_from_file_to_python(
+                source_path, target_path, format, include_pointer_tags,
+                decode_makernote, decode_embedded_containers, decompress,
+                include_exif_app1, include_xmp_app1, include_icc_app2,
+                include_iptc_app13, xmp_include_existing,
+                xmp_exiftool_gpsdatetime_alias, xmp_project_exif,
+                xmp_project_iptc, makernote_policy, jumbf_policy,
+                c2pa_policy, max_file_bytes, policy_obj, apply_exif,
+                apply_xmp, apply_iptc, synchronize_metadata,
+                cleanup_for_update);
+        },
+        "source_path"_a, "target_path"_a,
+        "format"_a = XmpSidecarFormat::Portable,
+        "include_pointer_tags"_a = true, "decode_makernote"_a = false,
+        "decode_embedded_containers"_a = true, "decompress"_a = true,
+        "include_exif_app1"_a = true, "include_xmp_app1"_a = true,
+        "include_icc_app2"_a = true, "include_iptc_app13"_a = true,
+        "xmp_include_existing"_a           = false,
+        "xmp_exiftool_gpsdatetime_alias"_a = false,
+        "xmp_project_exif"_a               = true,
+        "xmp_project_iptc"_a               = true,
+        "makernote_policy"_a = TransferPolicyAction::Keep,
+        "jumbf_policy"_a     = TransferPolicyAction::Keep,
+        "c2pa_policy"_a      = TransferPolicyAction::Keep,
+        "max_file_bytes"_a   = 0ULL,
+        "policy"_a           = nb::none(),
+        "apply_exif"_a = true, "apply_xmp"_a = true,
+        "apply_iptc"_a = true, "synchronize_metadata"_a = true,
+        "cleanup_for_update"_a = true);
 
     m.def(
         "inspect_transfer_payload_batch",
