@@ -4,6 +4,9 @@ See also: `docs/metadata_support.md` for current container/block/decode support.
 If you are looking for the shortest practical entry path, start with
 `docs/quick_start.md` before this file.
 
+If you already have a host encoder, SDK, or container API, use
+`docs/host_integration.md` after the quick start.
+
 ## Build Prerequisites
 
 - CMake `>= 3.20`

@@ -6,41 +6,6 @@ The current focus is safe, format-agnostic reads: find metadata blocks in
 common containers, decode them into a normalized in-memory model, and expose
 stable transfer/edit building blocks for export workflows.
 
-## Start Here
-
-If you are new to the project, start with
-[docs/quick_start.md](docs/quick_start.md).
-
-That guide covers the shortest useful paths for:
-
-- reading and querying metadata in C++
-- building and editing `MetaStore`
-- copying metadata into an existing JPEG, TIFF, or DNG target
-- building EXR and OIIO-style host-API metadata outputs
-- using the optional Adobe DNG SDK bridge
-
-## Status
-
-Read-path coverage is broad and regression-gated. Write/edit support is real
-for the main transfer targets, but parts of that API surface are still draft
-and may change as the transfer contract stabilizes.
-
-Current planning estimate:
-
-| Milestone | Status |
-| --- | --- |
-| Read parity on tracked still-image corpora | About `99-100%` |
-| Transfer / export milestone | About `80-85%` |
-| Overall product milestone | About `97-98%` |
-
-Current baseline-gated snapshot on tracked corpora:
-- HEIC/HEIF, CR3, and mixed RAW EXIF tag-id compare gates are passing.
-- EXR header metadata compare is passing for name/type/value-class checks.
-- Portable and lossless sidecar export paths are covered by baseline and smoke
-  gates.
-- MakerNote decode is baseline-gated with broad vendor support; unknown tags
-  are preserved losslessly when no structured mapping exists.
-
 ## What OpenMeta Does
 
 - Scan containers to locate metadata blocks in `jpeg`, `png`, `webp`, `gif`,
@@ -69,6 +34,35 @@ OpenMeta currently covers these major families:
 
 For the detailed support matrix, see
 [docs/metadata_support.md](docs/metadata_support.md).
+
+## Start Here
+
+If you are new to the project, start with
+[docs/quick_start.md](docs/quick_start.md).
+
+That guide covers the shortest useful paths for:
+
+- reading and querying metadata in C++
+- building and editing `MetaStore`
+- copying metadata into an existing JPEG, TIFF, or DNG target
+- building EXR and OIIO-style host-API metadata outputs
+- using the optional Adobe DNG SDK bridge
+
+If you already own the encoder, SDK objects, or output container, follow
+[docs/host_integration.md](docs/host_integration.md) next.
+
+## Documentation
+
+- https://ssh4net.github.io/OpenMeta/: published documentation site
+- [docs/quick_start.md](docs/quick_start.md): shortest adoption path
+- [docs/host_integration.md](docs/host_integration.md): C++ host and encoder
+  integration patterns
+- [docs/metadata_support.md](docs/metadata_support.md): metadata support matrix
+- [docs/metadata_transfer_plan.md](docs/metadata_transfer_plan.md): transfer
+  status and roadmap
+- [docs/doxygen.md](docs/doxygen.md): API reference
+- [SECURITY.md](SECURITY.md): security model and reporting
+- [NOTICE.md](NOTICE.md): notices and third-party dependency information
 
 ## Naming Model
 
@@ -208,6 +202,28 @@ helpers in `src/python/`.
 - `tests/`: unit tests and fuzz targets
 - `docs/`: design notes and developer documentation
 
+## Status
+
+Read-path coverage is broad and regression-gated. Write/edit support is real
+for the main transfer targets, but parts of that API surface are still draft
+and may change as the transfer contract stabilizes.
+
+Current planning estimate:
+
+| Milestone | Status |
+| --- | --- |
+| Read parity on tracked still-image corpora | About `99-100%` |
+| Transfer / export milestone | About `80-85%` |
+| Overall product milestone | About `97-98%` |
+
+Current baseline-gated snapshot on tracked corpora:
+- HEIC/HEIF, CR3, and mixed RAW EXIF tag-id compare gates are passing.
+- EXR header metadata compare is passing for name/type/value-class checks.
+- Portable and lossless sidecar export paths are covered by baseline and smoke
+  gates.
+- MakerNote decode is baseline-gated with broad vendor support; unknown tags
+  are preserved losslessly when no structured mapping exists.
+
 ## Build
 
 ```bash
@@ -239,14 +255,3 @@ The shortest CLI path is:
 
 For C++, host-API, and Python examples, use
 [docs/quick_start.md](docs/quick_start.md).
-
-## Documentation
-
-- https://ssh4net.github.io/OpenMeta/: published documentation site
-- [docs/quick_start.md](docs/quick_start.md): shortest adoption path
-- [docs/metadata_support.md](docs/metadata_support.md): metadata support matrix
-- [docs/metadata_transfer_plan.md](docs/metadata_transfer_plan.md): transfer
-  status and roadmap
-- [docs/doxygen.md](docs/doxygen.md): API reference
-- [SECURITY.md](SECURITY.md): security model and reporting
-- [NOTICE.md](NOTICE.md): notices and third-party dependency information

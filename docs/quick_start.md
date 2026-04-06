@@ -15,6 +15,9 @@ If you need the full support matrix, see
 [metadata_support.md](metadata_support.md). If you need the detailed target
 contract, see [metadata_transfer_plan.md](metadata_transfer_plan.md).
 
+If you already own the encoder or host API, see
+[host_integration.md](host_integration.md).
+
 ## 1. Add OpenMeta To Your CMake Project
 
 If OpenMeta is installed as a package:
@@ -294,6 +297,9 @@ OpenMeta does not currently ship a TurboJPEG-specific wrapper, but the JPEG
 transfer path is designed for that kind of integration through
 `JpegTransferEmitter` and the adapter-view APIs.
 
+For fuller C++ host-side examples, see
+[host_integration.md](host_integration.md).
+
 ## 9. Optional Adobe DNG SDK Bridge
 
 If OpenMeta was built with `OPENMETA_WITH_DNG_SDK_ADAPTER=ON`, you can update
@@ -338,5 +344,7 @@ PY
   [metadata_support.md](metadata_support.md)
 - Target-by-target transfer status:
   [metadata_transfer_plan.md](metadata_transfer_plan.md)
+- Host-side encoder and SDK integration:
+  [host_integration.md](host_integration.md)
 - Build, test, and deeper API notes:
   [development.md](development.md)

@@ -4,6 +4,7 @@ Date: March 5, 2026
 
 Related:
 - [quick_start.md](quick_start.md)
+- [host_integration.md](host_integration.md)
 - [metadata_backend_matrix.md](metadata_backend_matrix.md)
 
 ## Goal
