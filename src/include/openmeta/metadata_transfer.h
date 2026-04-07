@@ -427,6 +427,8 @@ struct PrepareTransferRequest final {
     bool xmp_project_exif               = true;
     bool xmp_project_iptc               = true;
     bool xmp_include_existing           = true;
+    XmpExistingNamespacePolicy xmp_existing_namespace_policy
+        = XmpExistingNamespacePolicy::KnownPortableOnly;
     XmpConflictPolicy xmp_conflict_policy
         = XmpConflictPolicy::CurrentBehavior;
     bool xmp_exiftool_gpsdatetime_alias = false;

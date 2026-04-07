@@ -198,6 +198,7 @@ def probe_exr_attribute_batch(
     include_icc_app2: bool = True,
     include_iptc_app13: bool = True,
     xmp_include_existing: bool = False,
+    xmp_existing_namespace_policy: object = openmeta.XmpExistingNamespacePolicy.KnownPortableOnly,
     xmp_exiftool_gpsdatetime_alias: bool = False,
     xmp_project_exif: bool = True,
     xmp_project_iptc: bool = True,
@@ -220,6 +221,7 @@ def probe_exr_attribute_batch(
         include_icc_app2=include_icc_app2,
         include_iptc_app13=include_iptc_app13,
         xmp_include_existing=xmp_include_existing,
+        xmp_existing_namespace_policy=xmp_existing_namespace_policy,
         xmp_exiftool_gpsdatetime_alias=xmp_exiftool_gpsdatetime_alias,
         xmp_project_exif=xmp_project_exif,
         xmp_project_iptc=xmp_project_iptc,
@@ -278,6 +280,7 @@ def update_dng_sdk_file(
     include_icc_app2: bool = True,
     include_iptc_app13: bool = True,
     xmp_include_existing: bool = False,
+    xmp_existing_namespace_policy: object = openmeta.XmpExistingNamespacePolicy.KnownPortableOnly,
     xmp_exiftool_gpsdatetime_alias: bool = False,
     xmp_project_exif: bool = True,
     xmp_project_iptc: bool = True,
@@ -306,6 +309,7 @@ def update_dng_sdk_file(
         include_icc_app2=include_icc_app2,
         include_iptc_app13=include_iptc_app13,
         xmp_include_existing=xmp_include_existing,
+        xmp_existing_namespace_policy=xmp_existing_namespace_policy,
         xmp_exiftool_gpsdatetime_alias=xmp_exiftool_gpsdatetime_alias,
         xmp_project_exif=xmp_project_exif,
         xmp_project_iptc=xmp_project_iptc,
@@ -331,6 +335,7 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--portable", action="store_true", help="alias for --format portable")
     ap.add_argument("--lossless", action="store_true", help="alias for --format lossless")
     ap.add_argument("--xmp-include-existing", action="store_true", help="include existing decoded XMP in generated transfer XMP")
+    ap.add_argument("--xmp-existing-namespace-policy", choices=["known_portable_only", "preserve_custom"], default="known_portable_only", help="existing XMP namespace writeback policy for generated portable XMP")
     ap.add_argument("--xmp-include-existing-sidecar", action="store_true", help="include an existing sibling .xmp sidecar from the output/edit target path in generated transfer XMP")
     ap.add_argument("--xmp-existing-sidecar-precedence", choices=["sidecar_wins", "source_wins"], default="sidecar_wins", help="conflict precedence between an existing output-side .xmp and source-embedded existing XMP")
     ap.add_argument("--xmp-include-existing-destination-embedded", action="store_true", help="include existing embedded XMP from the edit target in generated transfer XMP")
@@ -917,6 +922,13 @@ def main(argv: list[str]) -> int:
         xmp_conflict_policy = openmeta.XmpConflictPolicy.ExistingWins
     elif args.xmp_conflict_policy == "generated_wins":
         xmp_conflict_policy = openmeta.XmpConflictPolicy.GeneratedWins
+    xmp_existing_namespace_policy = (
+        openmeta.XmpExistingNamespacePolicy.KnownPortableOnly
+    )
+    if args.xmp_existing_namespace_policy == "preserve_custom":
+        xmp_existing_namespace_policy = (
+            openmeta.XmpExistingNamespacePolicy.PreserveCustom
+        )
 
     xmp_writeback_mode = openmeta.XmpWritebackMode.EmbeddedOnly
     if args.xmp_writeback == "sidecar":
@@ -1010,6 +1022,7 @@ def main(argv: list[str]) -> int:
             xmp_project_exif=not args.xmp_no_exif_projection,
             xmp_project_iptc=not args.xmp_no_iptc_projection,
             xmp_include_existing=bool(args.xmp_include_existing),
+            xmp_existing_namespace_policy=xmp_existing_namespace_policy,
             xmp_conflict_policy=xmp_conflict_policy,
             xmp_exiftool_gpsdatetime_alias=bool(args.xmp_exiftool_gpsdatetime_alias),
             makernote_policy=makernote_policy,

@@ -149,6 +149,9 @@ In practice:
 - Generated portable XMP also has an explicit conflict policy for existing
   decoded XMP versus generated EXIF/IPTC mappings:
   current behavior, `existing_wins`, or `generated_wins`.
+- Generated portable XMP now also has an explicit existing-namespace policy:
+  keep only OpenMeta's known portable namespaces, or preserve safe custom
+  existing namespaces with deterministic generated prefixes.
 - Transfer preparation can also fold an existing sibling `.xmp` sidecar from
   the destination path into generated portable XMP when that bounded mode is
   requested, with explicit `sidecar_wins` or `source_wins` precedence against
@@ -180,7 +183,8 @@ In practice:
 - Prepared bundles record resolved policy decisions for MakerNote, JUMBF,
   C2PA, EXIF-to-XMP projection, and IPTC-to-XMP projection.
 - This is still not a full MWG-style sync engine. OpenMeta does not yet try to
-  solve all EXIF/IPTC/XMP conflict resolution or canonical writeback policy.
+  solve all EXIF/IPTC/XMP conflict resolution or full canonical writeback
+  policy.
 
 For transfer details, see
 [docs/metadata_transfer_plan.md](docs/metadata_transfer_plan.md).

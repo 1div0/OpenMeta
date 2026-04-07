@@ -127,6 +127,11 @@ namespace {
         std::string_view uri;
     };
 
+    struct PortableCustomNsDecl final {
+        std::string prefix;
+        std::string uri;
+    };
+
     static void emit_xmp_packet_begin(SpanWriter* w,
                                       std::span<const XmpNsDecl> decls) noexcept
     {
@@ -1314,6 +1319,48 @@ namespace {
             return true;
         }
         return false;
+    }
+
+    static bool xmp_namespace_uri_is_xml_attr_safe(std::string_view uri) noexcept
+    {
+        if (uri.empty()) {
+            return false;
+        }
+        for (size_t i = 0; i < uri.size(); ++i) {
+            const unsigned char c = static_cast<unsigned char>(uri[i]);
+            if (c < 0x20U || c > 0x7EU || c == '"' || c == '&' || c == '<'
+                || c == '>') {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    static bool portable_custom_ns_prefix_for_uri(
+        std::string_view ns, std::span<const PortableCustomNsDecl> decls,
+        std::string_view* out_prefix) noexcept
+    {
+        if (!out_prefix) {
+            return false;
+        }
+        *out_prefix = {};
+        for (size_t i = 0; i < decls.size(); ++i) {
+            if (decls[i].uri == ns) {
+                *out_prefix = decls[i].prefix;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static bool portable_ns_to_prefix(
+        std::string_view ns, std::span<const PortableCustomNsDecl> decls,
+        std::string_view* out_prefix) noexcept
+    {
+        if (xmp_ns_to_portable_prefix(ns, out_prefix)) {
+            return true;
+        }
+        return portable_custom_ns_prefix_for_uri(ns, decls, out_prefix);
     }
 
     static std::string_view
@@ -3174,7 +3221,8 @@ namespace {
     }
 
     static bool process_portable_existing_xmp_entry(
-        const ByteArena& arena, const Entry& e, uint32_t order, SpanWriter* w,
+        const ByteArena& arena, std::span<const PortableCustomNsDecl> decls,
+        const Entry& e, uint32_t order, SpanWriter* w,
         PortablePropertyOwnerMap* claims,
         std::vector<PortableIndexedProperty>* indexed) noexcept
     {
@@ -3188,7 +3236,7 @@ namespace {
         const std::string_view name
             = arena_string(arena, e.key.data.xmp_property.property_path);
         std::string_view prefix;
-        if (!xmp_ns_to_portable_prefix(ns, &prefix)) {
+        if (!portable_ns_to_prefix(ns, decls, &prefix)) {
             return false;
         }
 
@@ -3238,6 +3286,70 @@ namespace {
         item.value  = &e.value;
         indexed->push_back(item);
         return false;
+    }
+
+    static void collect_portable_custom_ns_decls(
+        const ByteArena& arena, std::span<const Entry> entries,
+        const XmpPortableOptions& options,
+        std::vector<PortableCustomNsDecl>* out) noexcept
+    {
+        if (!out) {
+            return;
+        }
+        out->clear();
+        if (!options.include_existing_xmp
+            || options.existing_namespace_policy
+                   != XmpExistingNamespacePolicy::PreserveCustom) {
+            return;
+        }
+
+        uint32_t next_index = 1U;
+        for (size_t i = 0; i < entries.size(); ++i) {
+            const Entry& e = entries[i];
+            if (e.key.kind != MetaKeyKind::XmpProperty) {
+                continue;
+            }
+
+            const std::string_view ns
+                = arena_string(arena, e.key.data.xmp_property.schema_ns);
+            std::string_view prefix;
+            if (xmp_ns_to_portable_prefix(ns, &prefix)
+                || !xmp_namespace_uri_is_xml_attr_safe(ns)
+                || portable_custom_ns_prefix_for_uri(
+                    ns, std::span<const PortableCustomNsDecl>(out->data(),
+                                                              out->size()),
+                    &prefix)) {
+                continue;
+            }
+
+            const std::string_view name
+                = arena_string(arena, e.key.data.xmp_property.property_path);
+            std::string_view portable_name;
+            if (is_simple_xmp_property_name(name)) {
+                portable_name = portable_property_name_for_existing_xmp(
+                    "omns", name);
+            } else {
+                std::string_view base_name;
+                uint32_t index = 0U;
+                if (!parse_indexed_xmp_property_name(name, &base_name,
+                                                     &index)) {
+                    continue;
+                }
+                portable_name = portable_property_name_for_existing_xmp(
+                    "omns", base_name);
+            }
+            if (portable_name.empty()
+                || xmp_property_is_nonportable_blob("omns", portable_name)
+                || !portable_scalar_like_value_supported(arena, e.value)) {
+                continue;
+            }
+
+            PortableCustomNsDecl decl;
+            decl.prefix = "omns" + std::to_string(next_index);
+            decl.uri.assign(ns.data(), ns.size());
+            out->push_back(std::move(decl));
+            next_index += 1U;
+        }
     }
 
     static bool
@@ -3600,6 +3712,7 @@ namespace {
 
     static void emit_portable_pass(
         PortablePassKind pass, const ByteArena& arena,
+        std::span<const PortableCustomNsDecl> custom_decls,
         std::span<const Entry> entries, const XmpPortableOptions& options,
         SpanWriter* w, PortablePropertyOwnerMap* claims,
         std::vector<PortableIndexedProperty>* indexed, uint32_t* emitted,
@@ -3640,7 +3753,8 @@ namespace {
                     continue;
                 }
                 if (process_portable_existing_xmp_entry(
-                        arena, e, static_cast<uint32_t>(i), w, claims,
+                        arena, custom_decls, e, static_cast<uint32_t>(i), w,
+                        claims,
                         indexed)) {
                     *emitted += 1U;
                 }
@@ -3677,11 +3791,23 @@ dump_xmp_portable(const MetaStore& store, std::span<std::byte> out,
         XmpNsDecl { "photoshop", kXmpNsPhotoshop },
         XmpNsDecl { "Iptc4xmpCore", kXmpNsIptc4xmpCore },
     };
-    emit_xmp_packet_begin(&w, std::span<const XmpNsDecl>(kDecls.data(),
-                                                         kDecls.size()));
-
     const ByteArena& arena          = store.arena();
     const std::span<const Entry> es = store.entries();
+
+    std::vector<PortableCustomNsDecl> custom_decls;
+    collect_portable_custom_ns_decls(arena, es, options, &custom_decls);
+
+    std::vector<XmpNsDecl> decls;
+    decls.reserve(kDecls.size() + custom_decls.size());
+    for (size_t i = 0; i < kDecls.size(); ++i) {
+        decls.push_back(kDecls[i]);
+    }
+    for (size_t i = 0; i < custom_decls.size(); ++i) {
+        decls.push_back(XmpNsDecl { custom_decls[i].prefix,
+                                    custom_decls[i].uri });
+    }
+    emit_xmp_packet_begin(&w, std::span<const XmpNsDecl>(decls.data(),
+                                                         decls.size()));
 
     std::vector<PortableIndexedProperty> indexed;
     indexed.reserve(128);
@@ -3692,26 +3818,53 @@ dump_xmp_portable(const MetaStore& store, std::span<std::byte> out,
     uint32_t iptc_order = 0U;
 
     if (options.conflict_policy == XmpConflictPolicy::ExistingWins) {
-        emit_portable_pass(PortablePassKind::ExistingXmp, arena, es, options,
-                           &w, &claims, &indexed, &emitted, &iptc_order);
-        emit_portable_pass(PortablePassKind::Exif, arena, es, options, &w,
-                           &claims, &indexed, &emitted, &iptc_order);
-        emit_portable_pass(PortablePassKind::Iptc, arena, es, options, &w,
-                           &claims, &indexed, &emitted, &iptc_order);
+        emit_portable_pass(PortablePassKind::ExistingXmp, arena,
+                           std::span<const PortableCustomNsDecl>(
+                               custom_decls.data(), custom_decls.size()),
+                           es, options, &w, &claims, &indexed, &emitted,
+                           &iptc_order);
+        emit_portable_pass(PortablePassKind::Exif, arena,
+                           std::span<const PortableCustomNsDecl>(
+                               custom_decls.data(), custom_decls.size()),
+                           es, options, &w, &claims, &indexed, &emitted,
+                           &iptc_order);
+        emit_portable_pass(PortablePassKind::Iptc, arena,
+                           std::span<const PortableCustomNsDecl>(
+                               custom_decls.data(), custom_decls.size()),
+                           es, options, &w, &claims, &indexed, &emitted,
+                           &iptc_order);
     } else if (options.conflict_policy == XmpConflictPolicy::GeneratedWins) {
-        emit_portable_pass(PortablePassKind::Exif, arena, es, options, &w,
-                           &claims, &indexed, &emitted, &iptc_order);
-        emit_portable_pass(PortablePassKind::Iptc, arena, es, options, &w,
-                           &claims, &indexed, &emitted, &iptc_order);
-        emit_portable_pass(PortablePassKind::ExistingXmp, arena, es, options,
-                           &w, &claims, &indexed, &emitted, &iptc_order);
+        emit_portable_pass(PortablePassKind::Exif, arena,
+                           std::span<const PortableCustomNsDecl>(
+                               custom_decls.data(), custom_decls.size()),
+                           es, options, &w, &claims, &indexed, &emitted,
+                           &iptc_order);
+        emit_portable_pass(PortablePassKind::Iptc, arena,
+                           std::span<const PortableCustomNsDecl>(
+                               custom_decls.data(), custom_decls.size()),
+                           es, options, &w, &claims, &indexed, &emitted,
+                           &iptc_order);
+        emit_portable_pass(PortablePassKind::ExistingXmp, arena,
+                           std::span<const PortableCustomNsDecl>(
+                               custom_decls.data(), custom_decls.size()),
+                           es, options, &w, &claims, &indexed, &emitted,
+                           &iptc_order);
     } else {
-        emit_portable_pass(PortablePassKind::Exif, arena, es, options, &w,
-                           &claims, &indexed, &emitted, &iptc_order);
-        emit_portable_pass(PortablePassKind::ExistingXmp, arena, es, options,
-                           &w, &claims, &indexed, &emitted, &iptc_order);
-        emit_portable_pass(PortablePassKind::Iptc, arena, es, options, &w,
-                           &claims, &indexed, &emitted, &iptc_order);
+        emit_portable_pass(PortablePassKind::Exif, arena,
+                           std::span<const PortableCustomNsDecl>(
+                               custom_decls.data(), custom_decls.size()),
+                           es, options, &w, &claims, &indexed, &emitted,
+                           &iptc_order);
+        emit_portable_pass(PortablePassKind::ExistingXmp, arena,
+                           std::span<const PortableCustomNsDecl>(
+                               custom_decls.data(), custom_decls.size()),
+                           es, options, &w, &claims, &indexed, &emitted,
+                           &iptc_order);
+        emit_portable_pass(PortablePassKind::Iptc, arena,
+                           std::span<const PortableCustomNsDecl>(
+                               custom_decls.data(), custom_decls.size()),
+                           es, options, &w, &claims, &indexed, &emitted,
+                           &iptc_order);
     }
 
     emit_portable_indexed_groups(&w, arena, &indexed,
@@ -3805,6 +3958,8 @@ make_xmp_sidecar_options(const XmpSidecarRequest& request) noexcept
     options.portable.include_exif         = request.include_exif;
     options.portable.include_iptc         = request.include_iptc;
     options.portable.include_existing_xmp = request.include_existing_xmp;
+    options.portable.existing_namespace_policy
+        = request.portable_existing_namespace_policy;
     options.portable.conflict_policy      = request.portable_conflict_policy;
     options.portable.exiftool_gpsdatetime_alias
         = request.portable_exiftool_gpsdatetime_alias;

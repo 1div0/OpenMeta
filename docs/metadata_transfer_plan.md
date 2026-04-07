@@ -310,6 +310,9 @@ OpenMeta now has a bounded public sync-policy layer for generated XMP.
 Current controls:
 - `xmp_project_exif`
 - `xmp_project_iptc`
+- `xmp_existing_namespace_policy`
+  - `KnownPortableOnly`
+  - `PreserveCustom`
 - `xmp_conflict_policy`
 - `xmp_existing_sidecar_mode` on the file-read/prepare path:
   - `Ignore`
@@ -432,7 +435,8 @@ Missing pieces include:
 - conflict resolution rules
 - broader sidecar vs embedded policy beyond the current bounded writeback mode
 - canonical writeback policy
-- broader namespace reconciliation behavior
+- broader namespace reconciliation behavior beyond the current bounded
+  custom-namespace preservation control
 
 ### 3. MakerNote-safe rewrite expectations
 

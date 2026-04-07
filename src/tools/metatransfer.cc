@@ -45,6 +45,9 @@ namespace {
             "  --portable             Alias for --format portable\n"
             "  --lossless             Alias for --format lossless\n"
             "  --xmp-include-existing Include existing decoded XMP in generated XMP\n"
+            "  --xmp-existing-namespace-policy <known_portable_only|preserve_custom>\n"
+            "                         Existing XMP namespace writeback policy\n"
+            "                         for generated portable XMP\n"
             "  --xmp-include-existing-sidecar\n"
             "                         Include an existing sibling .xmp sidecar from\n"
             "                         the output/edit target path in generated XMP\n"
@@ -390,6 +393,23 @@ namespace {
         }
         if (std::strcmp(s, "generated_wins") == 0) {
             *out = XmpConflictPolicy::GeneratedWins;
+            return true;
+        }
+        return false;
+    }
+
+    static bool parse_xmp_existing_namespace_policy(
+        const char* s, XmpExistingNamespacePolicy* out) noexcept
+    {
+        if (!s || !out) {
+            return false;
+        }
+        if (std::strcmp(s, "known_portable_only") == 0) {
+            *out = XmpExistingNamespacePolicy::KnownPortableOnly;
+            return true;
+        }
+        if (std::strcmp(s, "preserve_custom") == 0) {
+            *out = XmpExistingNamespacePolicy::PreserveCustom;
             return true;
         }
         return false;
@@ -1718,6 +1738,26 @@ main(int argc, char** argv)
         }
         if (std::strcmp(arg, "--xmp-include-existing") == 0) {
             options.prepare.xmp_include_existing = true;
+            continue;
+        }
+        if (std::strcmp(arg, "--xmp-existing-namespace-policy") == 0) {
+            if (i + 1 >= argc) {
+                std::fprintf(
+                    stderr,
+                    "missing value for --xmp-existing-namespace-policy\n");
+                return 2;
+            }
+            XmpExistingNamespacePolicy policy
+                = XmpExistingNamespacePolicy::KnownPortableOnly;
+            if (!parse_xmp_existing_namespace_policy(argv[i + 1], &policy)) {
+                std::fprintf(
+                    stderr,
+                    "invalid --xmp-existing-namespace-policy value "
+                    "(expected known_portable_only|preserve_custom)\n");
+                return 2;
+            }
+            options.prepare.xmp_existing_namespace_policy = policy;
+            i += 1;
             continue;
         }
         if (std::strcmp(arg, "--xmp-include-existing-sidecar") == 0) {

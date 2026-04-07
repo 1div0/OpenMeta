@@ -2167,6 +2167,75 @@ TEST(XmpDump, PortableGeneratedIptcCanOverrideExistingIndexedXmp)
     EXPECT_EQ(s.find("<rdf:li>xmp-keyword</rdf:li>"), std::string_view::npos);
 }
 
+TEST(XmpDump, PortableDropsCustomExistingNamespacesByDefault)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, kInvalidBlockId);
+
+    Entry xmp_flag;
+    xmp_flag.key = make_xmp_property_key(store.arena(),
+                                         "urn:vendor:test:1.0/", "Flag");
+    xmp_flag.value = make_text(store.arena(), "Alpha", TextEncoding::Utf8);
+    xmp_flag.origin.block          = block;
+    xmp_flag.origin.order_in_block = 0;
+    (void)store.add_entry(xmp_flag);
+    store.finalize();
+
+    XmpPortableOptions opts;
+    opts.include_exif         = false;
+    opts.include_iptc         = false;
+    opts.include_existing_xmp = true;
+
+    std::vector<std::byte> out(4096);
+    const XmpDumpResult r
+        = dump_xmp_portable(store, std::span<std::byte>(out.data(), out.size()),
+                            opts);
+    ASSERT_EQ(r.status, XmpDumpStatus::Ok);
+
+    const std::string_view s(reinterpret_cast<const char*>(out.data()),
+                             static_cast<size_t>(r.written));
+    EXPECT_EQ(s.find("urn:vendor:test:1.0/"), std::string_view::npos);
+    EXPECT_EQ(s.find("<omns1:Flag>Alpha</omns1:Flag>"),
+              std::string_view::npos);
+}
+
+TEST(XmpDump, PortableCanPreserveCustomExistingNamespaces)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, kInvalidBlockId);
+
+    Entry xmp_flag;
+    xmp_flag.key = make_xmp_property_key(store.arena(),
+                                         "urn:vendor:test:1.0/", "Flag");
+    xmp_flag.value = make_text(store.arena(), "Alpha", TextEncoding::Utf8);
+    xmp_flag.origin.block          = block;
+    xmp_flag.origin.order_in_block = 0;
+    (void)store.add_entry(xmp_flag);
+    store.finalize();
+
+    XmpPortableOptions opts;
+    opts.include_exif         = false;
+    opts.include_iptc         = false;
+    opts.include_existing_xmp = true;
+    opts.existing_namespace_policy
+        = XmpExistingNamespacePolicy::PreserveCustom;
+
+    std::vector<std::byte> out(4096);
+    const XmpDumpResult r
+        = dump_xmp_portable(store, std::span<std::byte>(out.data(), out.size()),
+                            opts);
+    ASSERT_EQ(r.status, XmpDumpStatus::Ok);
+
+    const std::string_view s(reinterpret_cast<const char*>(out.data()),
+                             static_cast<size_t>(r.written));
+    EXPECT_NE(s.find("xmlns:omns1=\"urn:vendor:test:1.0/\""),
+              std::string_view::npos);
+    EXPECT_NE(s.find("<omns1:Flag>Alpha</omns1:Flag>"),
+              std::string_view::npos);
+}
+
 TEST(XmpDump, PortableMapsIptcToPhotoshopAndIptcCoreProperties)
 {
     MetaStore store;

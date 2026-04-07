@@ -5730,6 +5730,48 @@ TEST(MetadataTransferApi, PreparePortableXmpCanPreferGeneratedOverExistingIptc)
         "<dc:description>From XMP</dc:description>"));
 }
 
+TEST(MetadataTransferApi, PreparePortableXmpCanPreserveCustomExistingNamespaces)
+{
+    openmeta::MetaStore store;
+    const openmeta::BlockId block = store.add_block(openmeta::BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    openmeta::Entry xmp_flag;
+    xmp_flag.key = openmeta::make_xmp_property_key(
+        store.arena(), "urn:vendor:test:1.0/", "Flag");
+    xmp_flag.value = openmeta::make_text(store.arena(), "Alpha",
+                                         openmeta::TextEncoding::Utf8);
+    xmp_flag.origin.block          = block;
+    xmp_flag.origin.order_in_block = 0U;
+    ASSERT_NE(store.add_entry(xmp_flag), openmeta::kInvalidEntryId);
+    store.finalize();
+
+    openmeta::PrepareTransferRequest request;
+    request.include_exif_app1              = false;
+    request.include_icc_app2               = false;
+    request.include_iptc_app13             = false;
+    request.xmp_portable                   = true;
+    request.xmp_include_existing           = true;
+    request.xmp_existing_namespace_policy
+        = openmeta::XmpExistingNamespacePolicy::PreserveCustom;
+
+    openmeta::PreparedTransferBundle bundle;
+    const openmeta::PrepareTransferResult result
+        = openmeta::prepare_metadata_for_target(store, request, &bundle);
+
+    EXPECT_EQ(result.status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(bundle.blocks.size(), 1U);
+    EXPECT_EQ(bundle.blocks[0].route, "jpeg:app1-xmp");
+    EXPECT_TRUE(payload_contains_ascii(
+        std::span<const std::byte>(bundle.blocks[0].payload.data(),
+                                   bundle.blocks[0].payload.size()),
+        "xmlns:omns1=\"urn:vendor:test:1.0/\""));
+    EXPECT_TRUE(payload_contains_ascii(
+        std::span<const std::byte>(bundle.blocks[0].payload.data(),
+                                   bundle.blocks[0].payload.size()),
+        "<omns1:Flag>Alpha</omns1:Flag>"));
+}
+
 TEST(MetadataTransferApi, PrepareBuildsJpegExifApp1Block)
 {
     openmeta::MetaStore store;

@@ -9998,6 +9998,8 @@ prepare_metadata_for_target_impl(const MetaStore& store,
         xmp_req.include_exif = request.xmp_project_exif;
         xmp_req.include_iptc = request.xmp_project_iptc;
         xmp_req.include_existing_xmp = request.xmp_include_existing;
+        xmp_req.portable_existing_namespace_policy
+            = request.xmp_existing_namespace_policy;
         xmp_req.portable_conflict_policy = request.xmp_conflict_policy;
         xmp_req.portable_exiftool_gpsdatetime_alias
             = request.xmp_exiftool_gpsdatetime_alias;
@@ -10369,6 +10371,8 @@ prepare_metadata_for_target_impl(const MetaStore& store,
                 xmp_req.include_exif         = false;
                 xmp_req.include_iptc         = true;
                 xmp_req.include_existing_xmp = false;
+                xmp_req.portable_existing_namespace_policy
+                    = request.xmp_existing_namespace_policy;
                 xmp_req.portable_conflict_policy
                     = request.xmp_conflict_policy;
 
