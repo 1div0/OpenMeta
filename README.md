@@ -1,4 +1,4 @@
-# OpenMeta
+<img width="500" height="79" alt="OpenMeta" src="https://github.com/user-attachments/assets/8fb6fda2-76fe-4091-8f76-c896582c981e" />
 
 OpenMeta is a metadata processing library for image files.
 
