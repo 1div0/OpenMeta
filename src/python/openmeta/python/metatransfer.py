@@ -267,6 +267,7 @@ def update_dng_sdk_file(
     path: str | os.PathLike[str],
     target_path: str | os.PathLike[str],
     *,
+    dng_target_mode: object = openmeta.DngTargetMode.MinimalFreshScaffold,
     format: object = openmeta.XmpSidecarFormat.Portable,
     include_pointer_tags: bool = True,
     decode_makernote: bool = False,
@@ -294,6 +295,7 @@ def update_dng_sdk_file(
     return openmeta.update_dng_sdk_file_from_file(
         os.fspath(path),
         os.fspath(target_path),
+        dng_target_mode=dng_target_mode,
         format=format,
         include_pointer_tags=include_pointer_tags,
         decode_makernote=decode_makernote,
@@ -377,6 +379,7 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--target-jpeg", type=str, default="", help="target JPEG stream for edit/apply")
     ap.add_argument("--target-tiff", type=str, default="", help="target TIFF stream for edit/apply")
     ap.add_argument("--target-dng", type=str, default="", help="target DNG stream for edit/apply")
+    ap.add_argument("--dng-target-mode", choices=["existing_target", "template_target", "minimal_fresh_scaffold"], default="minimal_fresh_scaffold", help="public DNG transfer contract for --target-dng")
     ap.add_argument("--source-meta", type=str, default="", help="source metadata file for edit/apply against a separate target file")
     ap.add_argument("--jpeg-c2pa-signed", type=str, default="", help="externally signed logical C2PA payload for JPEG, JXL, or bounded BMFF staging")
     ap.add_argument("--c2pa-manifest-output", type=str, default="", help="external manifest-builder output bytes for signed C2PA staging")
@@ -967,6 +970,11 @@ def main(argv: list[str]) -> int:
         xmp_existing_destination_carrier_precedence = (
             openmeta.XmpExistingDestinationCarrierPrecedence.EmbeddedWins
         )
+    dng_target_mode = openmeta.DngTargetMode.MinimalFreshScaffold
+    if args.dng_target_mode == "existing_target":
+        dng_target_mode = openmeta.DngTargetMode.ExistingTarget
+    elif args.dng_target_mode == "template_target":
+        dng_target_mode = openmeta.DngTargetMode.TemplateTarget
 
     for path in input_paths:
         source_path = args.source_meta if args.source_meta else path
@@ -989,6 +997,7 @@ def main(argv: list[str]) -> int:
         )
         common_kwargs = dict(
             target_format=target_format,
+            dng_target_mode=dng_target_mode,
             format=sidecar_format,
             include_pointer_tags=True,
             decode_makernote=bool(args.makernotes),

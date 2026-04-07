@@ -1643,7 +1643,8 @@ namespace {
 
     static nb::dict update_dng_sdk_file_from_file_to_python(
         const std::string& source_path, const std::string& target_path,
-        XmpSidecarFormat format, bool include_pointer_tags,
+        DngTargetMode dng_target_mode, XmpSidecarFormat format,
+        bool include_pointer_tags,
         bool decode_makernote, bool decode_embedded_containers,
         bool decompress, bool include_exif_app1, bool include_xmp_app1,
         bool include_icc_app2, bool include_iptc_app13,
@@ -1662,6 +1663,7 @@ namespace {
             = decode_embedded_containers;
         options.prepare.decompress = decompress;
         options.prepare.prepare.target_format = TransferTargetFormat::Dng;
+        options.prepare.prepare.dng_target_mode = dng_target_mode;
         options.prepare.prepare.xmp_portable
             = (format == XmpSidecarFormat::Portable);
         options.prepare.prepare.include_exif_app1 = include_exif_app1;
@@ -1790,6 +1792,7 @@ namespace {
 
     static nb::dict transfer_probe_to_python(
         const std::string& path, TransferTargetFormat target_format,
+        DngTargetMode dng_target_mode,
         XmpSidecarFormat format, bool include_pointer_tags,
         bool decode_makernote, bool decode_embedded_containers, bool decompress,
         bool include_exif_app1, bool include_xmp_app1, bool include_icc_app2,
@@ -1841,6 +1844,7 @@ namespace {
         prepare_options.decode_embedded_containers = decode_embedded_containers;
         prepare_options.decompress                 = decompress;
         prepare_options.prepare.target_format      = target_format;
+        prepare_options.prepare.dng_target_mode    = dng_target_mode;
         prepare_options.prepare.xmp_portable       = (format
                                                 == XmpSidecarFormat::Portable);
         prepare_options.prepare.include_exif_app1  = include_exif_app1;
@@ -4012,6 +4016,12 @@ NB_MODULE(_openmeta, m)
         .value("EmbeddedWins",
                XmpExistingDestinationCarrierPrecedence::EmbeddedWins);
 
+    nb::enum_<DngTargetMode>(m, "DngTargetMode")
+        .value("ExistingTarget", DngTargetMode::ExistingTarget)
+        .value("TemplateTarget", DngTargetMode::TemplateTarget)
+        .value("MinimalFreshScaffold",
+               DngTargetMode::MinimalFreshScaffold);
+
     nb::enum_<TransferTargetFormat>(m, "TransferTargetFormat")
         .value("Jpeg", TransferTargetFormat::Jpeg)
         .value("Tiff", TransferTargetFormat::Tiff)
@@ -5077,6 +5087,7 @@ NB_MODULE(_openmeta, m)
     m.def(
         "transfer_probe",
         [](const std::string& path, TransferTargetFormat target_format,
+           DngTargetMode dng_target_mode,
            XmpSidecarFormat format, bool include_pointer_tags,
            bool decode_makernote, bool decode_embedded_containers,
            bool decompress, bool include_exif_app1, bool include_xmp_app1,
@@ -5115,7 +5126,8 @@ NB_MODULE(_openmeta, m)
            XmpDestinationEmbeddedMode xmp_destination_embedded_mode,
            XmpDestinationSidecarMode xmp_destination_sidecar_mode) {
             return transfer_probe_to_python(
-                path, target_format, format, include_pointer_tags,
+                path, target_format, dng_target_mode, format,
+                include_pointer_tags,
                 decode_makernote, decode_embedded_containers, decompress,
                 include_exif_app1, include_xmp_app1, include_icc_app2,
                 include_iptc_app13, xmp_include_existing,
@@ -5144,6 +5156,7 @@ NB_MODULE(_openmeta, m)
                 true);
         },
         "path"_a, "target_format"_a = TransferTargetFormat::Jpeg,
+        "dng_target_mode"_a = DngTargetMode::MinimalFreshScaffold,
         "format"_a               = XmpSidecarFormat::Portable,
         "include_pointer_tags"_a = true, "decode_makernote"_a = false,
         "decode_embedded_containers"_a = true, "decompress"_a = true,
@@ -5193,6 +5206,7 @@ NB_MODULE(_openmeta, m)
     m.def(
         "unsafe_transfer_probe",
         [](const std::string& path, TransferTargetFormat target_format,
+           DngTargetMode dng_target_mode,
            XmpSidecarFormat format, bool include_pointer_tags,
            bool decode_makernote, bool decode_embedded_containers,
            bool decompress, bool include_exif_app1, bool include_xmp_app1,
@@ -5231,7 +5245,8 @@ NB_MODULE(_openmeta, m)
            XmpDestinationEmbeddedMode xmp_destination_embedded_mode,
            XmpDestinationSidecarMode xmp_destination_sidecar_mode) {
             return transfer_probe_to_python(
-                path, target_format, format, include_pointer_tags,
+                path, target_format, dng_target_mode, format,
+                include_pointer_tags,
                 decode_makernote, decode_embedded_containers, decompress,
                 include_exif_app1, include_xmp_app1, include_icc_app2,
                 include_iptc_app13, xmp_include_existing,
@@ -5260,6 +5275,7 @@ NB_MODULE(_openmeta, m)
                 true);
         },
         "path"_a, "target_format"_a = TransferTargetFormat::Jpeg,
+        "dng_target_mode"_a = DngTargetMode::MinimalFreshScaffold,
         "format"_a               = XmpSidecarFormat::Portable,
         "include_pointer_tags"_a = true, "decode_makernote"_a = false,
         "decode_embedded_containers"_a = true, "decompress"_a = true,
@@ -5309,6 +5325,7 @@ NB_MODULE(_openmeta, m)
     m.def(
         "transfer_file",
         [](const std::string& path, TransferTargetFormat target_format,
+           DngTargetMode dng_target_mode,
            XmpSidecarFormat format, bool include_pointer_tags,
            bool decode_makernote, bool decode_embedded_containers,
            bool decompress, bool include_exif_app1, bool include_xmp_app1,
@@ -5350,7 +5367,8 @@ NB_MODULE(_openmeta, m)
            bool overwrite_xmp_sidecar,
            bool remove_destination_xmp_sidecar) {
             return transfer_probe_to_python(
-                path, target_format, format, include_pointer_tags,
+                path, target_format, dng_target_mode, format,
+                include_pointer_tags,
                 decode_makernote, decode_embedded_containers, decompress,
                 include_exif_app1, include_xmp_app1, include_icc_app2,
                 include_iptc_app13, xmp_include_existing,
@@ -5381,6 +5399,7 @@ NB_MODULE(_openmeta, m)
                 remove_destination_xmp_sidecar);
         },
         "path"_a, "target_format"_a = TransferTargetFormat::Jpeg,
+        "dng_target_mode"_a = DngTargetMode::MinimalFreshScaffold,
         "format"_a               = XmpSidecarFormat::Portable,
         "include_pointer_tags"_a = true, "decode_makernote"_a = false,
         "decode_embedded_containers"_a = true, "decompress"_a = true,
@@ -5433,6 +5452,7 @@ NB_MODULE(_openmeta, m)
     m.def(
         "unsafe_transfer_file",
         [](const std::string& path, TransferTargetFormat target_format,
+           DngTargetMode dng_target_mode,
            XmpSidecarFormat format, bool include_pointer_tags,
            bool decode_makernote, bool decode_embedded_containers,
            bool decompress, bool include_exif_app1, bool include_xmp_app1,
@@ -5474,7 +5494,8 @@ NB_MODULE(_openmeta, m)
            bool overwrite_xmp_sidecar,
            bool remove_destination_xmp_sidecar) {
             return transfer_probe_to_python(
-                path, target_format, format, include_pointer_tags,
+                path, target_format, dng_target_mode, format,
+                include_pointer_tags,
                 decode_makernote, decode_embedded_containers, decompress,
                 include_exif_app1, include_xmp_app1, include_icc_app2,
                 include_iptc_app13, xmp_include_existing,
@@ -5505,6 +5526,7 @@ NB_MODULE(_openmeta, m)
                 remove_destination_xmp_sidecar);
         },
         "path"_a, "target_format"_a = TransferTargetFormat::Jpeg,
+        "dng_target_mode"_a = DngTargetMode::MinimalFreshScaffold,
         "format"_a               = XmpSidecarFormat::Portable,
         "include_pointer_tags"_a = true, "decode_makernote"_a = false,
         "decode_embedded_containers"_a = true, "decompress"_a = true,
@@ -5599,7 +5621,8 @@ NB_MODULE(_openmeta, m)
     m.def(
         "update_dng_sdk_file_from_file",
         [](const std::string& source_path, const std::string& target_path,
-           XmpSidecarFormat format, bool include_pointer_tags,
+           DngTargetMode dng_target_mode, XmpSidecarFormat format,
+           bool include_pointer_tags,
            bool decode_makernote, bool decode_embedded_containers,
            bool decompress, bool include_exif_app1, bool include_xmp_app1,
            bool include_icc_app2, bool include_iptc_app13,
@@ -5612,7 +5635,8 @@ NB_MODULE(_openmeta, m)
            bool apply_iptc, bool synchronize_metadata,
            bool cleanup_for_update) {
             return update_dng_sdk_file_from_file_to_python(
-                source_path, target_path, format, include_pointer_tags,
+                source_path, target_path, dng_target_mode, format,
+                include_pointer_tags,
                 decode_makernote, decode_embedded_containers, decompress,
                 include_exif_app1, include_xmp_app1, include_icc_app2,
                 include_iptc_app13, xmp_include_existing,
@@ -5623,6 +5647,7 @@ NB_MODULE(_openmeta, m)
                 cleanup_for_update);
         },
         "source_path"_a, "target_path"_a,
+        "dng_target_mode"_a = DngTargetMode::MinimalFreshScaffold,
         "format"_a = XmpSidecarFormat::Portable,
         "include_pointer_tags"_a = true, "decode_makernote"_a = false,
         "decode_embedded_containers"_a = true, "decompress"_a = true,

@@ -44,6 +44,13 @@ enum class TransferTargetFormat : uint8_t {
     Dng,
 };
 
+/// Public DNG target contract for metadata-only transfer workflows.
+enum class DngTargetMode : uint8_t {
+    ExistingTarget,
+    TemplateTarget,
+    MinimalFreshScaffold,
+};
+
 /// Prepared payload block category.
 enum class TransferBlockKind : uint8_t {
     Exif,
@@ -392,6 +399,7 @@ struct PreparedTransferBlock final {
 struct PreparedTransferBundle final {
     uint32_t contract_version          = kMetadataTransferContractVersion;
     TransferTargetFormat target_format = TransferTargetFormat::Jpeg;
+    DngTargetMode dng_target_mode      = DngTargetMode::MinimalFreshScaffold;
     TransferProfile profile;
     PreparedTransferC2paRewriteRequirements c2pa_rewrite;
     std::vector<PreparedTransferPolicyDecision> policy_decisions;
@@ -409,6 +417,7 @@ struct AppendPreparedJpegJumbfOptions final {
 /// Request options for preparation.
 struct PrepareTransferRequest final {
     TransferTargetFormat target_format = TransferTargetFormat::Jpeg;
+    DngTargetMode dng_target_mode      = DngTargetMode::MinimalFreshScaffold;
     TransferProfile profile;
     bool include_exif_app1              = true;
     bool include_xmp_app1               = true;

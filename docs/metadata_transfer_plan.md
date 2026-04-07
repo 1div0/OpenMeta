@@ -158,6 +158,10 @@ Implemented:
 - EXIF, XMP, ICC, and IPTC transfer through the TIFF-family backend
 - read-backed file-helper roundtrip for JPEG-source and DNG-like-source input
 - minimal `DNGVersion` synthesis when the source metadata lacks it
+- explicit public target modes:
+  - `ExistingTarget`
+  - `TemplateTarget`
+  - `MinimalFreshScaffold`
 - bounded preview-page chain rewrite/merge
 - bounded raw-image `SubIFD` rewrite/merge
 - preservation of existing target DNG core tags when a non-DNG source is
@@ -171,6 +175,9 @@ Implemented:
 Current limits:
 - still a bounded DNG policy layer, not a full DNG-specific rewrite engine
 - broader arbitrary nested-IFD graph rewrite is still out of scope
+- in the file-helper path, `ExistingTarget` and `TemplateTarget` now require
+  an explicit target path; only `MinimalFreshScaffold` keeps the metadata-only
+  prepare/emit path available without a backing DNG container
 
 Optional host bridge:
 - When OpenMeta is built with `OPENMETA_WITH_DNG_SDK_ADAPTER=ON` and a

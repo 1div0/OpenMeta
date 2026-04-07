@@ -114,7 +114,14 @@ In practice:
   tails, preserved trailing existing auxiliary children, and bounded
   `ExifIFD -> InteropIFD` preservation. When a non-DNG source is merged into
   an existing DNG target, the target's core DNG tags and preview/raw
-  structure are preserved under that same bounded contract.
+  structure are preserved under that same bounded contract. The public DNG
+  transfer contract is now explicit:
+  - `ExistingTarget`
+  - `TemplateTarget`
+  - `MinimalFreshScaffold`
+  Existing/template modes require a target path in the file-helper flow;
+  minimal fresh scaffold keeps the metadata-only DNG prepare path available
+  without claiming a full standalone DNG writer.
 - When built with `OPENMETA_WITH_DNG_SDK_ADAPTER=ON` and a `dng_sdk`
   package is available, OpenMeta also exposes
   [dng_sdk_adapter.h](src/include/openmeta/dng_sdk_adapter.h) as an optional

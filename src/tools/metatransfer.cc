@@ -144,6 +144,8 @@ namespace {
             "  --target-jpeg <path>   Target JPEG stream for edit/apply phase\n"
             "  --target-tiff <path>   Target TIFF stream for edit/apply phase\n"
             "  --target-dng <path>    Target DNG stream for edit/apply phase\n"
+            "  --dng-target-mode <existing_target|template_target|minimal_fresh_scaffold>\n"
+            "                         Public DNG transfer contract for --target-dng\n"
             "  --target-exr           Target EXR metadata transfer\n"
             "  --target-png           Target PNG metadata transfer\n"
             "  --target-jp2           Target JP2 metadata transfer\n"
@@ -496,6 +498,27 @@ namespace {
         }
         if (std::strcmp(s, "embedded_wins") == 0) {
             *out = XmpExistingDestinationCarrierPrecedence::EmbeddedWins;
+            return true;
+        }
+        return false;
+    }
+
+    static bool parse_dng_target_mode(const char* s,
+                                      DngTargetMode* out) noexcept
+    {
+        if (!s || !out) {
+            return false;
+        }
+        if (std::strcmp(s, "existing_target") == 0) {
+            *out = DngTargetMode::ExistingTarget;
+            return true;
+        }
+        if (std::strcmp(s, "template_target") == 0) {
+            *out = DngTargetMode::TemplateTarget;
+            return true;
+        }
+        if (std::strcmp(s, "minimal_fresh_scaffold") == 0) {
+            *out = DngTargetMode::MinimalFreshScaffold;
             return true;
         }
         return false;
@@ -1636,6 +1659,7 @@ main(int argc, char** argv)
     XmpExistingDestinationCarrierPrecedence
         xmp_existing_destination_carrier_precedence
         = XmpExistingDestinationCarrierPrecedence::SidecarWins;
+    DngTargetMode dng_target_mode = DngTargetMode::MinimalFreshScaffold;
     XmpWritebackMode xmp_writeback_mode = XmpWritebackMode::EmbeddedOnly;
     XmpDestinationEmbeddedMode xmp_destination_embedded_mode
         = XmpDestinationEmbeddedMode::PreserveExisting;
@@ -1775,6 +1799,21 @@ main(int argc, char** argv)
                 return 2;
             }
             xmp_existing_destination_carrier_precedence = precedence;
+            i += 1;
+            continue;
+        }
+        if (std::strcmp(arg, "--dng-target-mode") == 0) {
+            if (i + 1 >= argc) {
+                std::fprintf(stderr, "missing value for --dng-target-mode\n");
+                return 2;
+            }
+            if (!parse_dng_target_mode(argv[i + 1], &dng_target_mode)) {
+                std::fprintf(
+                    stderr,
+                    "invalid --dng-target-mode value "
+                    "(expected existing_target|template_target|minimal_fresh_scaffold)\n");
+                return 2;
+            }
             i += 1;
             continue;
         }
@@ -2855,9 +2894,11 @@ main(int argc, char** argv)
         options.prepare.target_format = TransferTargetFormat::Tiff;
     } else if (!target_dng_path.empty()) {
         options.prepare.target_format = TransferTargetFormat::Dng;
+        options.prepare.dng_target_mode = dng_target_mode;
     } else {
         options.prepare.target_format = TransferTargetFormat::Jpeg;
     }
+    options.prepare.dng_target_mode = dng_target_mode;
     if (!jpeg_jumbf_path.empty()
         && options.prepare.target_format != TransferTargetFormat::Jpeg) {
         std::fprintf(stderr,

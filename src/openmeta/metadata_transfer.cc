@@ -9421,6 +9421,26 @@ namespace {
         return TransferStatus::Malformed;
     }
 
+    static bool
+    dng_target_mode_requires_existing_target(DngTargetMode mode) noexcept
+    {
+        return mode == DngTargetMode::ExistingTarget
+               || mode == DngTargetMode::TemplateTarget;
+    }
+
+    static const char*
+    dng_target_mode_requires_path_message(DngTargetMode mode) noexcept
+    {
+        switch (mode) {
+        case DngTargetMode::ExistingTarget:
+            return "dng existing_target mode requires edit_target_path";
+        case DngTargetMode::TemplateTarget:
+            return "dng template_target mode requires edit_target_path";
+        case DngTargetMode::MinimalFreshScaffold: break;
+        }
+        return "dng target mode requires edit_target_path";
+    }
+
 }  // namespace
 
 static PrepareTransferResult
@@ -9440,6 +9460,7 @@ prepare_metadata_for_target_impl(const MetaStore& store,
 
     PreparedTransferBundle bundle;
     bundle.target_format = request.target_format;
+    bundle.dng_target_mode = request.dng_target_mode;
     bundle.profile       = request.profile;
 
     if (request.target_format != TransferTargetFormat::Jpeg
@@ -23605,6 +23626,30 @@ execute_prepared_transfer_file(
             out.xmp_sidecar_status = TransferStatus::Unsupported;
             out.xmp_sidecar_message
                 = "skipped xmp sidecar writeback due to read/prepare failure";
+        }
+        return out;
+    }
+
+    if (out.prepared.bundle.target_format == TransferTargetFormat::Dng
+        && dng_target_mode_requires_existing_target(
+            out.prepared.bundle.dng_target_mode)
+        && options.edit_target_path.empty()) {
+        const char* const message = dng_target_mode_requires_path_message(
+            out.prepared.bundle.dng_target_mode);
+        out.execute.compile = skipped_emit_result(
+            "skipped emit due to missing required DNG target path");
+        out.execute.emit                = out.execute.compile;
+        out.execute.edit_requested      = true;
+        out.execute.edit_plan_status    = TransferStatus::InvalidArgument;
+        out.execute.edit_plan_message   = message;
+        out.execute.edit_apply.status   = TransferStatus::InvalidArgument;
+        out.execute.edit_apply.code     = EmitTransferCode::InvalidArgument;
+        out.execute.edit_apply.errors   = 1U;
+        out.execute.edit_apply.message  = message;
+        if (out.xmp_sidecar_requested) {
+            out.xmp_sidecar_status  = TransferStatus::Unsupported;
+            out.xmp_sidecar_message = message;
+            out.xmp_sidecar_output.clear();
         }
         return out;
     }

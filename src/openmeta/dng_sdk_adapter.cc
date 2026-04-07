@@ -388,6 +388,10 @@ update_dng_sdk_stream_metadata_from_file(
     ApplyDngSdkMetadataFileResult out;
     PrepareTransferFileOptions prepare = options.prepare;
     prepare.prepare.target_format      = TransferTargetFormat::Dng;
+    if (prepare.prepare.dng_target_mode
+        == DngTargetMode::MinimalFreshScaffold) {
+        prepare.prepare.dng_target_mode = DngTargetMode::ExistingTarget;
+    }
     out.prepared = prepare_metadata_for_target_file(path, prepare);
     if (out.prepared.file_status != TransferFileStatus::Ok) {
         out.adapter.status = DngSdkAdapterStatus::InvalidArgument;

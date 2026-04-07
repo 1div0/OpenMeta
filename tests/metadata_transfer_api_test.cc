@@ -6607,6 +6607,8 @@ TEST(MetadataTransferApi,
 
     ASSERT_EQ(prepared.status, openmeta::TransferStatus::Ok);
     ASSERT_EQ(bundle.target_format, openmeta::TransferTargetFormat::Dng);
+    ASSERT_EQ(bundle.dng_target_mode,
+              openmeta::DngTargetMode::MinimalFreshScaffold);
     ASSERT_GE(bundle.blocks.size(), 2U);
 
     bool saw_dng_exif = false;
@@ -6629,6 +6631,39 @@ TEST(MetadataTransferApi,
         }
     }
     EXPECT_TRUE(saw_dng_exif);
+}
+
+TEST(MetadataTransferApi, PrepareBuildsDngBundleWithTemplateTargetMode)
+{
+    openmeta::MetaStore store;
+    const openmeta::BlockId block = store.add_block(openmeta::BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    openmeta::Entry xmp;
+    xmp.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/", "CreatorTool");
+    xmp.value = openmeta::make_text(store.arena(),
+                                    "OpenMeta DNG Template",
+                                    openmeta::TextEncoding::Utf8);
+    xmp.origin.block          = block;
+    xmp.origin.order_in_block = 0U;
+    ASSERT_NE(store.add_entry(xmp), openmeta::kInvalidEntryId);
+    store.finalize();
+
+    openmeta::PrepareTransferRequest request;
+    request.target_format      = openmeta::TransferTargetFormat::Dng;
+    request.dng_target_mode    = openmeta::DngTargetMode::TemplateTarget;
+    request.include_icc_app2   = false;
+    request.include_iptc_app13 = false;
+
+    openmeta::PreparedTransferBundle bundle;
+    const openmeta::PrepareTransferResult prepared
+        = openmeta::prepare_metadata_for_target(store, request, &bundle);
+
+    ASSERT_EQ(prepared.status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(bundle.target_format, openmeta::TransferTargetFormat::Dng);
+    EXPECT_EQ(bundle.dng_target_mode,
+              openmeta::DngTargetMode::TemplateTarget);
 }
 
 TEST(MetadataTransferApi, PrepareBuildsTiffExifTransferBlockWithSubIfds)
@@ -11206,6 +11241,102 @@ TEST(MetadataTransferApi, ExecutePreparedTransferFileDngRoundTripsSourceMetadata
     EXPECT_TRUE(store_has_u8_array_entry(
         decoded, exif_key_view("ifd0", 0xC612U),
         std::span<const uint8_t>(dng_version.data(), dng_version.size())));
+}
+
+TEST(MetadataTransferApi,
+     ExecutePreparedTransferFileDngExistingTargetModeRequiresEditTargetPath)
+{
+    std::vector<std::byte> source_jpeg;
+    ASSERT_TRUE(build_test_transfer_source_jpeg_bytes(&source_jpeg));
+    const std::string source_path = unique_temp_path(".jpg");
+    ASSERT_TRUE(write_bytes_file(
+        source_path,
+        std::span<const std::byte>(source_jpeg.data(), source_jpeg.size())));
+
+    openmeta::ExecutePreparedTransferFileOptions options;
+    options.prepare.prepare.target_format      = openmeta::TransferTargetFormat::Dng;
+    options.prepare.prepare.dng_target_mode
+        = openmeta::DngTargetMode::ExistingTarget;
+    options.prepare.prepare.include_icc_app2   = false;
+    options.prepare.prepare.include_iptc_app13 = false;
+
+    const openmeta::ExecutePreparedTransferFileResult result
+        = openmeta::execute_prepared_transfer_file(source_path.c_str(), options);
+    std::remove(source_path.c_str());
+
+    EXPECT_EQ(result.prepared.file_status, openmeta::TransferFileStatus::Ok);
+    EXPECT_EQ(result.prepared.prepare.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.prepared.bundle.dng_target_mode,
+              openmeta::DngTargetMode::ExistingTarget);
+    EXPECT_EQ(result.execute.compile.status, openmeta::TransferStatus::Unsupported);
+    EXPECT_EQ(result.execute.edit_plan_status,
+              openmeta::TransferStatus::InvalidArgument);
+    EXPECT_EQ(result.execute.edit_apply.status,
+              openmeta::TransferStatus::InvalidArgument);
+    EXPECT_NE(result.execute.edit_plan_message.find("edit_target_path"),
+              std::string::npos);
+}
+
+TEST(MetadataTransferApi,
+     ExecutePreparedTransferFileDngTemplateTargetModeRequiresEditTargetPath)
+{
+    std::vector<std::byte> source_jpeg;
+    ASSERT_TRUE(build_test_transfer_source_jpeg_bytes(&source_jpeg));
+    const std::string source_path = unique_temp_path(".jpg");
+    ASSERT_TRUE(write_bytes_file(
+        source_path,
+        std::span<const std::byte>(source_jpeg.data(), source_jpeg.size())));
+
+    openmeta::ExecutePreparedTransferFileOptions options;
+    options.prepare.prepare.target_format      = openmeta::TransferTargetFormat::Dng;
+    options.prepare.prepare.dng_target_mode
+        = openmeta::DngTargetMode::TemplateTarget;
+    options.prepare.prepare.include_icc_app2   = false;
+    options.prepare.prepare.include_iptc_app13 = false;
+
+    const openmeta::ExecutePreparedTransferFileResult result
+        = openmeta::execute_prepared_transfer_file(source_path.c_str(), options);
+    std::remove(source_path.c_str());
+
+    EXPECT_EQ(result.prepared.file_status, openmeta::TransferFileStatus::Ok);
+    EXPECT_EQ(result.prepared.prepare.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.prepared.bundle.dng_target_mode,
+              openmeta::DngTargetMode::TemplateTarget);
+    EXPECT_EQ(result.execute.compile.status, openmeta::TransferStatus::Unsupported);
+    EXPECT_EQ(result.execute.edit_plan_status,
+              openmeta::TransferStatus::InvalidArgument);
+    EXPECT_EQ(result.execute.edit_apply.status,
+              openmeta::TransferStatus::InvalidArgument);
+    EXPECT_NE(result.execute.edit_plan_message.find("edit_target_path"),
+              std::string::npos);
+}
+
+TEST(MetadataTransferApi,
+     ExecutePreparedTransferFileDngMinimalFreshScaffoldCompilesWithoutEditTarget)
+{
+    std::vector<std::byte> source_jpeg;
+    ASSERT_TRUE(build_test_transfer_source_jpeg_bytes(&source_jpeg));
+    const std::string source_path = unique_temp_path(".jpg");
+    ASSERT_TRUE(write_bytes_file(
+        source_path,
+        std::span<const std::byte>(source_jpeg.data(), source_jpeg.size())));
+
+    openmeta::ExecutePreparedTransferFileOptions options;
+    options.prepare.prepare.target_format      = openmeta::TransferTargetFormat::Dng;
+    options.prepare.prepare.include_icc_app2   = false;
+    options.prepare.prepare.include_iptc_app13 = false;
+
+    const openmeta::ExecutePreparedTransferFileResult result
+        = openmeta::execute_prepared_transfer_file(source_path.c_str(), options);
+    std::remove(source_path.c_str());
+
+    EXPECT_EQ(result.prepared.file_status, openmeta::TransferFileStatus::Ok);
+    EXPECT_EQ(result.prepared.prepare.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.prepared.bundle.dng_target_mode,
+              openmeta::DngTargetMode::MinimalFreshScaffold);
+    EXPECT_EQ(result.execute.compile.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.execute.emit.status, openmeta::TransferStatus::Ok);
+    EXPECT_FALSE(result.execute.tiff_tag_summary.empty());
 }
 
 TEST(MetadataTransferApi,
