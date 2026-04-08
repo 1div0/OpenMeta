@@ -1370,6 +1370,37 @@ namespace {
         return canonical_portable_property_name(prefix, name);
     }
 
+    static bool existing_standard_portable_property_is_managed(
+        std::string_view prefix, std::string_view name) noexcept
+    {
+        if (prefix == "tiff" || prefix == "exif") {
+            return !name.empty();
+        }
+
+        if (prefix == "dc") {
+            return name == "title" || name == "subject"
+                   || name == "creator" || name == "rights"
+                   || name == "description";
+        }
+
+        if (prefix == "photoshop") {
+            return name == "Category"
+                   || name == "SupplementalCategories"
+                   || name == "Instructions"
+                   || name == "AuthorsPosition" || name == "City"
+                   || name == "State" || name == "Country"
+                   || name == "TransmissionReference"
+                   || name == "Headline" || name == "Credit"
+                   || name == "Source" || name == "CaptionWriter";
+        }
+
+        if (prefix == "Iptc4xmpCore") {
+            return name == "Location" || name == "CountryCode";
+        }
+
+        return false;
+    }
+
 
     static bool parse_indexed_xmp_property_name(std::string_view path,
                                                 std::string_view* out_base,
@@ -3222,7 +3253,8 @@ namespace {
 
     static bool process_portable_existing_xmp_entry(
         const ByteArena& arena, std::span<const PortableCustomNsDecl> decls,
-        const Entry& e, uint32_t order, SpanWriter* w,
+        const XmpPortableOptions& options, const Entry& e, uint32_t order,
+        SpanWriter* w,
         PortablePropertyOwnerMap* claims,
         std::vector<PortableIndexedProperty>* indexed) noexcept
     {
@@ -3247,6 +3279,12 @@ namespace {
                 || xmp_property_is_nonportable_blob(prefix, portable_name)) {
                 return false;
             }
+            if (options.existing_standard_namespace_policy
+                    == XmpExistingStandardNamespacePolicy::CanonicalizeManaged
+                && existing_standard_portable_property_is_managed(
+                    prefix, portable_name)) {
+                return false;
+            }
             bool new_claim = false;
             if (!claim_portable_property_key(claims, prefix, portable_name,
                                              PortablePropertyOwner::ExistingXmp,
@@ -3268,6 +3306,12 @@ namespace {
             = portable_property_name_for_existing_xmp(prefix, base_name);
         if (portable_base.empty()
             || xmp_property_is_nonportable_blob(prefix, portable_base)) {
+            return false;
+        }
+        if (options.existing_standard_namespace_policy
+                == XmpExistingStandardNamespacePolicy::CanonicalizeManaged
+            && existing_standard_portable_property_is_managed(prefix,
+                                                              portable_base)) {
             return false;
         }
 
@@ -3753,8 +3797,8 @@ namespace {
                     continue;
                 }
                 if (process_portable_existing_xmp_entry(
-                        arena, custom_decls, e, static_cast<uint32_t>(i), w,
-                        claims,
+                        arena, custom_decls, options, e,
+                        static_cast<uint32_t>(i), w, claims,
                         indexed)) {
                     *emitted += 1U;
                 }
@@ -3960,6 +4004,8 @@ make_xmp_sidecar_options(const XmpSidecarRequest& request) noexcept
     options.portable.include_existing_xmp = request.include_existing_xmp;
     options.portable.existing_namespace_policy
         = request.portable_existing_namespace_policy;
+    options.portable.existing_standard_namespace_policy
+        = request.portable_existing_standard_namespace_policy;
     options.portable.conflict_policy      = request.portable_conflict_policy;
     options.portable.exiftool_gpsdatetime_alias
         = request.portable_exiftool_gpsdatetime_alias;

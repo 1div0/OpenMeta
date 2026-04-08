@@ -429,6 +429,9 @@ struct PrepareTransferRequest final {
     bool xmp_include_existing           = true;
     XmpExistingNamespacePolicy xmp_existing_namespace_policy
         = XmpExistingNamespacePolicy::KnownPortableOnly;
+    XmpExistingStandardNamespacePolicy
+        xmp_existing_standard_namespace_policy
+        = XmpExistingStandardNamespacePolicy::PreserveAll;
     XmpConflictPolicy xmp_conflict_policy
         = XmpConflictPolicy::CurrentBehavior;
     bool xmp_exiftool_gpsdatetime_alias = false;

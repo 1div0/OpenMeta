@@ -38,6 +38,15 @@ enum class XmpExistingNamespacePolicy : uint8_t {
     PreserveCustom,
 };
 
+/// Existing standard portable-namespace reconciliation policy.
+enum class XmpExistingStandardNamespacePolicy : uint8_t {
+    /// Preserve existing standard portable namespaces subject to conflict order.
+    PreserveAll,
+    /// Drop OpenMeta-managed standard portable properties and regenerate them
+    /// canonically from EXIF/IPTC mappings when available.
+    CanonicalizeManaged,
+};
+
 /// XMP dump result status.
 enum class XmpDumpStatus : uint8_t {
     Ok,
@@ -79,6 +88,9 @@ struct XmpPortableOptions final {
     /// Existing XMP namespace writeback policy for portable output.
     XmpExistingNamespacePolicy existing_namespace_policy
         = XmpExistingNamespacePolicy::KnownPortableOnly;
+    /// Existing standard portable-namespace reconciliation policy.
+    XmpExistingStandardNamespacePolicy existing_standard_namespace_policy
+        = XmpExistingStandardNamespacePolicy::PreserveAll;
     /// Conflict policy between existing decoded XMP and generated portable
     /// EXIF/IPTC mappings.
     XmpConflictPolicy conflict_policy = XmpConflictPolicy::CurrentBehavior;
@@ -118,6 +130,8 @@ struct XmpSidecarRequest final {
     bool include_existing_xmp                = false;
     XmpExistingNamespacePolicy portable_existing_namespace_policy
         = XmpExistingNamespacePolicy::KnownPortableOnly;
+    XmpExistingStandardNamespacePolicy portable_existing_standard_namespace_policy
+        = XmpExistingStandardNamespacePolicy::PreserveAll;
     XmpConflictPolicy portable_conflict_policy
         = XmpConflictPolicy::CurrentBehavior;
     bool portable_exiftool_gpsdatetime_alias = false;

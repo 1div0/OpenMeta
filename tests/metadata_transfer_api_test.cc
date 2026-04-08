@@ -5676,6 +5676,71 @@ TEST(MetadataTransferApi, PreparePortableXmpCanPreferExistingOverExifProjection)
         "<tiff:Make>Canon</tiff:Make>"));
 }
 
+TEST(MetadataTransferApi,
+     PreparePortableXmpCanCanonicalizeManagedStandardNamespaces)
+{
+    openmeta::MetaStore store;
+    const openmeta::BlockId block = store.add_block(openmeta::BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    openmeta::Entry exif_make;
+    exif_make.key = openmeta::make_exif_tag_key(store.arena(), "ifd0", 0x010FU);
+    exif_make.value = openmeta::make_text(store.arena(), "Canon",
+                                          openmeta::TextEncoding::Ascii);
+    exif_make.origin.block          = block;
+    exif_make.origin.order_in_block = 0U;
+    ASSERT_NE(store.add_entry(exif_make), openmeta::kInvalidEntryId);
+
+    openmeta::Entry xmp_make;
+    xmp_make.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/tiff/1.0/", "Make");
+    xmp_make.value = openmeta::make_text(store.arena(), "Nikon",
+                                         openmeta::TextEncoding::Utf8);
+    xmp_make.origin.block          = block;
+    xmp_make.origin.order_in_block = 1U;
+    ASSERT_NE(store.add_entry(xmp_make), openmeta::kInvalidEntryId);
+
+    openmeta::Entry xmp_creator_tool;
+    xmp_creator_tool.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/", "CreatorTool");
+    xmp_creator_tool.value = openmeta::make_text(
+        store.arena(), "Tool", openmeta::TextEncoding::Utf8);
+    xmp_creator_tool.origin.block          = block;
+    xmp_creator_tool.origin.order_in_block = 2U;
+    ASSERT_NE(store.add_entry(xmp_creator_tool), openmeta::kInvalidEntryId);
+    store.finalize();
+
+    openmeta::PrepareTransferRequest request;
+    request.include_exif_app1    = false;
+    request.include_icc_app2     = false;
+    request.include_iptc_app13   = false;
+    request.xmp_portable         = true;
+    request.xmp_include_existing = true;
+    request.xmp_conflict_policy  = openmeta::XmpConflictPolicy::ExistingWins;
+    request.xmp_existing_standard_namespace_policy
+        = openmeta::XmpExistingStandardNamespacePolicy::CanonicalizeManaged;
+
+    openmeta::PreparedTransferBundle bundle;
+    const openmeta::PrepareTransferResult result
+        = openmeta::prepare_metadata_for_target(store, request, &bundle);
+
+    EXPECT_EQ(result.status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(bundle.blocks.size(), 1U);
+    EXPECT_EQ(bundle.blocks[0].route, "jpeg:app1-xmp");
+    EXPECT_TRUE(payload_contains_ascii(
+        std::span<const std::byte>(bundle.blocks[0].payload.data(),
+                                   bundle.blocks[0].payload.size()),
+        "<tiff:Make>Canon</tiff:Make>"));
+    EXPECT_FALSE(payload_contains_ascii(
+        std::span<const std::byte>(bundle.blocks[0].payload.data(),
+                                   bundle.blocks[0].payload.size()),
+        "<tiff:Make>Nikon</tiff:Make>"));
+    EXPECT_TRUE(payload_contains_ascii(
+        std::span<const std::byte>(bundle.blocks[0].payload.data(),
+                                   bundle.blocks[0].payload.size()),
+        "<xmp:CreatorTool>Tool</xmp:CreatorTool>"));
+}
+
 TEST(MetadataTransferApi, PreparePortableXmpCanPreferGeneratedOverExistingIptc)
 {
     openmeta::MetaStore store;

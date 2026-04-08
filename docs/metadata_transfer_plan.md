@@ -112,6 +112,21 @@ That does not make all targets equally mature, but it does mean the transfer
 core has real roundtrip regression gates across the primary supported export
 families.
 
+There is now also a named in-tree transfer release gate:
+- `openmeta_gate_transfer_release`
+- `openmeta_transfer_release_gate`
+
+In a non-Python test tree it runs:
+- `MetadataTransferApi.*`
+- `XmpDump.*`
+- `ExrAdapter.*`
+- `DngSdkAdapter.*`
+- `openmeta_cli_metatransfer_smoke`
+
+In a Python-enabled test tree it also runs:
+- `openmeta_python_transfer_probe_smoke`
+- `openmeta_python_metatransfer_edit_smoke`
+
 ## Per-Target Notes
 
 ### JPEG

@@ -2069,6 +2069,61 @@ TEST(XmpDump, PortableExistingXmpCanOverrideExifProjection)
     EXPECT_EQ(s.find("<tiff:Make>Canon</tiff:Make>"), std::string_view::npos);
 }
 
+TEST(XmpDump, PortableCanonicalizesManagedStandardNamespaces)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, kInvalidBlockId);
+
+    Entry exif_make;
+    exif_make.key = make_exif_tag_key(store.arena(), "ifd0", 0x010FU);
+    exif_make.value
+        = make_text(store.arena(), "Canon", TextEncoding::Ascii);
+    exif_make.origin.block          = block;
+    exif_make.origin.order_in_block = 0;
+    (void)store.add_entry(exif_make);
+
+    Entry xmp_make;
+    xmp_make.key = make_xmp_property_key(store.arena(),
+                                         "http://ns.adobe.com/tiff/1.0/",
+                                         "Make");
+    xmp_make.value = make_text(store.arena(), "Nikon", TextEncoding::Utf8);
+    xmp_make.origin.block          = block;
+    xmp_make.origin.order_in_block = 1;
+    (void)store.add_entry(xmp_make);
+
+    Entry xmp_creator_tool;
+    xmp_creator_tool.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/", "CreatorTool");
+    xmp_creator_tool.value = make_text(store.arena(), "Tool",
+                                       TextEncoding::Utf8);
+    xmp_creator_tool.origin.block          = block;
+    xmp_creator_tool.origin.order_in_block = 2;
+    (void)store.add_entry(xmp_creator_tool);
+
+    store.finalize();
+
+    XmpPortableOptions opts;
+    opts.include_exif         = true;
+    opts.include_existing_xmp = true;
+    opts.conflict_policy      = XmpConflictPolicy::ExistingWins;
+    opts.existing_standard_namespace_policy
+        = XmpExistingStandardNamespacePolicy::CanonicalizeManaged;
+
+    std::vector<std::byte> out(4096);
+    const XmpDumpResult r
+        = dump_xmp_portable(store, std::span<std::byte>(out.data(), out.size()),
+                            opts);
+    ASSERT_EQ(r.status, XmpDumpStatus::Ok);
+
+    const std::string_view s(reinterpret_cast<const char*>(out.data()),
+                             static_cast<size_t>(r.written));
+    EXPECT_NE(s.find("<tiff:Make>Canon</tiff:Make>"), std::string_view::npos);
+    EXPECT_EQ(s.find("<tiff:Make>Nikon</tiff:Make>"), std::string_view::npos);
+    EXPECT_NE(s.find("<xmp:CreatorTool>Tool</xmp:CreatorTool>"),
+              std::string_view::npos);
+}
+
 TEST(XmpDump, PortableGeneratedIptcCanOverrideExistingXmp)
 {
     MetaStore store;

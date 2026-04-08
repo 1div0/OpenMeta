@@ -84,6 +84,8 @@ namespace {
         uint32_t max_entries, bool include_exif, bool include_iptc,
         bool include_existing_xmp, bool portable_exiftool_gpsdatetime_alias,
         XmpExistingNamespacePolicy portable_existing_namespace_policy,
+        XmpExistingStandardNamespacePolicy
+            portable_existing_standard_namespace_policy,
         XmpConflictPolicy portable_conflict_policy, bool include_origin,
         bool include_wire, bool include_flags, bool include_names)
     {
@@ -96,6 +98,8 @@ namespace {
         request.include_existing_xmp    = include_existing_xmp;
         request.portable_existing_namespace_policy
             = portable_existing_namespace_policy;
+        request.portable_existing_standard_namespace_policy
+            = portable_existing_standard_namespace_policy;
         request.portable_conflict_policy = portable_conflict_policy;
         request.portable_exiftool_gpsdatetime_alias
             = portable_exiftool_gpsdatetime_alias;
@@ -1492,6 +1496,8 @@ namespace {
         bool include_exif_app1, bool include_xmp_app1, bool include_icc_app2,
         bool include_iptc_app13, bool xmp_include_existing,
         XmpExistingNamespacePolicy xmp_existing_namespace_policy,
+        XmpExistingStandardNamespacePolicy
+            xmp_existing_standard_namespace_policy,
         bool xmp_exiftool_gpsdatetime_alias, bool xmp_project_exif,
         bool xmp_project_iptc, TransferPolicyAction makernote_policy,
         TransferPolicyAction jumbf_policy, TransferPolicyAction c2pa_policy,
@@ -1512,6 +1518,8 @@ namespace {
         options.prepare.prepare.xmp_include_existing = xmp_include_existing;
         options.prepare.prepare.xmp_existing_namespace_policy
             = xmp_existing_namespace_policy;
+        options.prepare.prepare.xmp_existing_standard_namespace_policy
+            = xmp_existing_standard_namespace_policy;
         options.prepare.prepare.xmp_exiftool_gpsdatetime_alias
             = xmp_exiftool_gpsdatetime_alias;
         options.prepare.prepare.xmp_project_exif = xmp_project_exif;
@@ -1656,6 +1664,8 @@ namespace {
         bool include_icc_app2, bool include_iptc_app13,
         bool xmp_include_existing,
         XmpExistingNamespacePolicy xmp_existing_namespace_policy,
+        XmpExistingStandardNamespacePolicy
+            xmp_existing_standard_namespace_policy,
         bool xmp_exiftool_gpsdatetime_alias,
         bool xmp_project_exif, bool xmp_project_iptc,
         TransferPolicyAction makernote_policy,
@@ -1682,6 +1692,8 @@ namespace {
             = xmp_include_existing;
         options.prepare.prepare.xmp_existing_namespace_policy
             = xmp_existing_namespace_policy;
+        options.prepare.prepare.xmp_existing_standard_namespace_policy
+            = xmp_existing_standard_namespace_policy;
         options.prepare.prepare.xmp_exiftool_gpsdatetime_alias
             = xmp_exiftool_gpsdatetime_alias;
         options.prepare.prepare.xmp_project_exif = xmp_project_exif;
@@ -1808,6 +1820,8 @@ namespace {
         bool include_exif_app1, bool include_xmp_app1, bool include_icc_app2,
         bool include_iptc_app13, bool xmp_include_existing,
         XmpExistingNamespacePolicy xmp_existing_namespace_policy,
+        XmpExistingStandardNamespacePolicy
+            xmp_existing_standard_namespace_policy,
         bool xmp_exiftool_gpsdatetime_alias, bool xmp_project_exif,
         bool xmp_project_iptc,
         TransferPolicyAction makernote_policy,
@@ -1867,6 +1881,8 @@ namespace {
         prepare_options.prepare.xmp_include_existing = xmp_include_existing;
         prepare_options.prepare.xmp_existing_namespace_policy
             = xmp_existing_namespace_policy;
+        prepare_options.prepare.xmp_existing_standard_namespace_policy
+            = xmp_existing_standard_namespace_policy;
         prepare_options.prepare.xmp_conflict_policy = xmp_conflict_policy;
         prepare_options.prepare.xmp_exiftool_gpsdatetime_alias
             = xmp_exiftool_gpsdatetime_alias;
@@ -3988,6 +4004,13 @@ NB_MODULE(_openmeta, m)
         .value("PreserveCustom",
                XmpExistingNamespacePolicy::PreserveCustom);
 
+    nb::enum_<XmpExistingStandardNamespacePolicy>(
+        m, "XmpExistingStandardNamespacePolicy")
+        .value("PreserveAll",
+               XmpExistingStandardNamespacePolicy::PreserveAll)
+        .value("CanonicalizeManaged",
+               XmpExistingStandardNamespacePolicy::CanonicalizeManaged);
+
     nb::enum_<XmpWritebackMode>(m, "XmpWritebackMode")
         .value("EmbeddedOnly", XmpWritebackMode::EmbeddedOnly)
         .value("SidecarOnly", XmpWritebackMode::SidecarOnly)
@@ -4549,6 +4572,7 @@ NB_MODULE(_openmeta, m)
                     XmpSidecarFormat::Lossless, max_output_bytes, max_entries,
                     true, true, false, false,
                     XmpExistingNamespacePolicy::KnownPortableOnly,
+                    XmpExistingStandardNamespacePolicy::PreserveAll,
                     XmpConflictPolicy::CurrentBehavior, include_origin,
                     include_wire, include_flags, include_names);
                 return dump_xmp_sidecar_to_python(d->store, request);
@@ -4563,12 +4587,15 @@ NB_MODULE(_openmeta, m)
                bool include_existing_xmp, bool exiftool_gpsdatetime_alias,
                bool include_iptc,
                XmpExistingNamespacePolicy existing_namespace_policy,
+               XmpExistingStandardNamespacePolicy
+                   existing_standard_namespace_policy,
                XmpConflictPolicy conflict_policy) {
                 const XmpSidecarRequest request = make_xmp_sidecar_request(
                     XmpSidecarFormat::Portable, max_output_bytes, max_entries,
                     include_exif, include_iptc, include_existing_xmp,
                     exiftool_gpsdatetime_alias, existing_namespace_policy,
-                    conflict_policy, true, true, true, true);
+                    existing_standard_namespace_policy, conflict_policy, true,
+                    true, true, true);
                 return dump_xmp_sidecar_to_python(d->store, request);
             },
             "max_output_bytes"_a = 0ULL, "max_entries"_a = 0U,
@@ -4576,6 +4603,8 @@ NB_MODULE(_openmeta, m)
             "exiftool_gpsdatetime_alias"_a = false, "include_iptc"_a = true,
             "existing_namespace_policy"_a
             = XmpExistingNamespacePolicy::KnownPortableOnly,
+            "existing_standard_namespace_policy"_a
+            = XmpExistingStandardNamespacePolicy::PreserveAll,
             "conflict_policy"_a = XmpConflictPolicy::CurrentBehavior)
         .def(
             "dump_xmp_sidecar",
@@ -4586,12 +4615,15 @@ NB_MODULE(_openmeta, m)
                bool include_wire, bool include_flags, bool include_names,
                bool include_iptc,
                XmpExistingNamespacePolicy existing_namespace_policy,
+               XmpExistingStandardNamespacePolicy
+                   existing_standard_namespace_policy,
                XmpConflictPolicy conflict_policy) {
                 const XmpSidecarRequest request = make_xmp_sidecar_request(
                     format, max_output_bytes, max_entries, include_exif,
                     include_iptc, include_existing_xmp,
                     portable_exiftool_gpsdatetime_alias,
-                    existing_namespace_policy, conflict_policy,
+                    existing_namespace_policy,
+                    existing_standard_namespace_policy, conflict_policy,
                     include_origin, include_wire, include_flags, include_names);
                 return dump_xmp_sidecar_to_python(d->store, request);
             },
@@ -4604,6 +4636,8 @@ NB_MODULE(_openmeta, m)
             "include_iptc"_a = true,
             "existing_namespace_policy"_a
             = XmpExistingNamespacePolicy::KnownPortableOnly,
+            "existing_standard_namespace_policy"_a
+            = XmpExistingStandardNamespacePolicy::PreserveAll,
             "conflict_policy"_a = XmpConflictPolicy::CurrentBehavior)
         .def(
             "extract_payload",
@@ -5123,6 +5157,8 @@ NB_MODULE(_openmeta, m)
            bool include_icc_app2, bool include_iptc_app13,
            bool xmp_include_existing,
            XmpExistingNamespacePolicy xmp_existing_namespace_policy,
+           XmpExistingStandardNamespacePolicy
+               xmp_existing_standard_namespace_policy,
            bool xmp_exiftool_gpsdatetime_alias,
            bool xmp_project_exif, bool xmp_project_iptc,
            TransferPolicyAction makernote_policy,
@@ -5163,6 +5199,7 @@ NB_MODULE(_openmeta, m)
                 include_exif_app1, include_xmp_app1, include_icc_app2,
                 include_iptc_app13, xmp_include_existing,
                 xmp_existing_namespace_policy,
+                xmp_existing_standard_namespace_policy,
                 xmp_exiftool_gpsdatetime_alias, xmp_project_exif,
                 xmp_project_iptc, makernote_policy, jumbf_policy,
                 c2pa_policy, max_file_bytes, policy_obj, c2pa_signed_package,
@@ -5197,6 +5234,8 @@ NB_MODULE(_openmeta, m)
         "xmp_include_existing"_a           = false,
         "xmp_existing_namespace_policy"_a
         = XmpExistingNamespacePolicy::KnownPortableOnly,
+        "xmp_existing_standard_namespace_policy"_a
+        = XmpExistingStandardNamespacePolicy::PreserveAll,
         "xmp_exiftool_gpsdatetime_alias"_a = false,
         "xmp_project_exif"_a             = true,
         "xmp_project_iptc"_a             = true,
@@ -5247,6 +5286,8 @@ NB_MODULE(_openmeta, m)
            bool include_icc_app2, bool include_iptc_app13,
            bool xmp_include_existing,
            XmpExistingNamespacePolicy xmp_existing_namespace_policy,
+           XmpExistingStandardNamespacePolicy
+               xmp_existing_standard_namespace_policy,
            bool xmp_exiftool_gpsdatetime_alias,
            bool xmp_project_exif, bool xmp_project_iptc,
            TransferPolicyAction makernote_policy,
@@ -5287,6 +5328,7 @@ NB_MODULE(_openmeta, m)
                 include_exif_app1, include_xmp_app1, include_icc_app2,
                 include_iptc_app13, xmp_include_existing,
                 xmp_existing_namespace_policy,
+                xmp_existing_standard_namespace_policy,
                 xmp_exiftool_gpsdatetime_alias, xmp_project_exif,
                 xmp_project_iptc, makernote_policy, jumbf_policy,
                 c2pa_policy, max_file_bytes, policy_obj, c2pa_signed_package,
@@ -5321,6 +5363,8 @@ NB_MODULE(_openmeta, m)
         "xmp_include_existing"_a           = false,
         "xmp_existing_namespace_policy"_a
         = XmpExistingNamespacePolicy::KnownPortableOnly,
+        "xmp_existing_standard_namespace_policy"_a
+        = XmpExistingStandardNamespacePolicy::PreserveAll,
         "xmp_exiftool_gpsdatetime_alias"_a = false,
         "xmp_project_exif"_a             = true,
         "xmp_project_iptc"_a             = true,
@@ -5371,6 +5415,8 @@ NB_MODULE(_openmeta, m)
            bool include_icc_app2, bool include_iptc_app13,
            bool xmp_include_existing,
            XmpExistingNamespacePolicy xmp_existing_namespace_policy,
+           XmpExistingStandardNamespacePolicy
+               xmp_existing_standard_namespace_policy,
            bool xmp_exiftool_gpsdatetime_alias,
            bool xmp_project_exif, bool xmp_project_iptc,
            TransferPolicyAction makernote_policy,
@@ -5414,6 +5460,7 @@ NB_MODULE(_openmeta, m)
                 include_exif_app1, include_xmp_app1, include_icc_app2,
                 include_iptc_app13, xmp_include_existing,
                 xmp_existing_namespace_policy,
+                xmp_existing_standard_namespace_policy,
                 xmp_exiftool_gpsdatetime_alias, xmp_project_exif,
                 xmp_project_iptc, makernote_policy, jumbf_policy,
                 c2pa_policy, max_file_bytes, policy_obj, c2pa_signed_package,
@@ -5450,6 +5497,8 @@ NB_MODULE(_openmeta, m)
         "xmp_include_existing"_a           = false,
         "xmp_existing_namespace_policy"_a
         = XmpExistingNamespacePolicy::KnownPortableOnly,
+        "xmp_existing_standard_namespace_policy"_a
+        = XmpExistingStandardNamespacePolicy::PreserveAll,
         "xmp_exiftool_gpsdatetime_alias"_a = false,
         "xmp_project_exif"_a             = true,
         "xmp_project_iptc"_a             = true,
@@ -5503,6 +5552,8 @@ NB_MODULE(_openmeta, m)
            bool include_icc_app2, bool include_iptc_app13,
            bool xmp_include_existing,
            XmpExistingNamespacePolicy xmp_existing_namespace_policy,
+           XmpExistingStandardNamespacePolicy
+               xmp_existing_standard_namespace_policy,
            bool xmp_exiftool_gpsdatetime_alias,
            bool xmp_project_exif, bool xmp_project_iptc,
            TransferPolicyAction makernote_policy,
@@ -5546,6 +5597,7 @@ NB_MODULE(_openmeta, m)
                 include_exif_app1, include_xmp_app1, include_icc_app2,
                 include_iptc_app13, xmp_include_existing,
                 xmp_existing_namespace_policy,
+                xmp_existing_standard_namespace_policy,
                 xmp_exiftool_gpsdatetime_alias, xmp_project_exif,
                 xmp_project_iptc, makernote_policy, jumbf_policy,
                 c2pa_policy, max_file_bytes, policy_obj, c2pa_signed_package,
@@ -5582,6 +5634,8 @@ NB_MODULE(_openmeta, m)
         "xmp_include_existing"_a           = false,
         "xmp_existing_namespace_policy"_a
         = XmpExistingNamespacePolicy::KnownPortableOnly,
+        "xmp_existing_standard_namespace_policy"_a
+        = XmpExistingStandardNamespacePolicy::PreserveAll,
         "xmp_exiftool_gpsdatetime_alias"_a = false,
         "xmp_project_exif"_a             = true,
         "xmp_project_iptc"_a             = true,
@@ -5638,6 +5692,8 @@ NB_MODULE(_openmeta, m)
            bool include_icc_app2, bool include_iptc_app13,
            bool xmp_include_existing,
            XmpExistingNamespacePolicy xmp_existing_namespace_policy,
+           XmpExistingStandardNamespacePolicy
+               xmp_existing_standard_namespace_policy,
            bool xmp_exiftool_gpsdatetime_alias,
            bool xmp_project_exif, bool xmp_project_iptc,
            TransferPolicyAction makernote_policy,
@@ -5649,6 +5705,7 @@ NB_MODULE(_openmeta, m)
                 decode_embedded_containers, decompress, include_exif_app1,
                 include_xmp_app1, include_icc_app2, include_iptc_app13,
                 xmp_include_existing, xmp_existing_namespace_policy,
+                xmp_existing_standard_namespace_policy,
                 xmp_exiftool_gpsdatetime_alias,
                 xmp_project_exif, xmp_project_iptc, makernote_policy,
                 jumbf_policy, c2pa_policy, max_file_bytes, policy_obj,
@@ -5662,6 +5719,8 @@ NB_MODULE(_openmeta, m)
         "xmp_include_existing"_a           = false,
         "xmp_existing_namespace_policy"_a
         = XmpExistingNamespacePolicy::KnownPortableOnly,
+        "xmp_existing_standard_namespace_policy"_a
+        = XmpExistingStandardNamespacePolicy::PreserveAll,
         "xmp_exiftool_gpsdatetime_alias"_a = false,
         "xmp_project_exif"_a               = true,
         "xmp_project_iptc"_a               = true,
@@ -5682,6 +5741,8 @@ NB_MODULE(_openmeta, m)
            bool include_icc_app2, bool include_iptc_app13,
            bool xmp_include_existing,
            XmpExistingNamespacePolicy xmp_existing_namespace_policy,
+           XmpExistingStandardNamespacePolicy
+               xmp_existing_standard_namespace_policy,
            bool xmp_exiftool_gpsdatetime_alias,
            bool xmp_project_exif, bool xmp_project_iptc,
            TransferPolicyAction makernote_policy,
@@ -5697,6 +5758,7 @@ NB_MODULE(_openmeta, m)
                 include_exif_app1, include_xmp_app1, include_icc_app2,
                 include_iptc_app13, xmp_include_existing,
                 xmp_existing_namespace_policy,
+                xmp_existing_standard_namespace_policy,
                 xmp_exiftool_gpsdatetime_alias, xmp_project_exif,
                 xmp_project_iptc, makernote_policy, jumbf_policy,
                 c2pa_policy, max_file_bytes, policy_obj, apply_exif,
@@ -5713,6 +5775,8 @@ NB_MODULE(_openmeta, m)
         "xmp_include_existing"_a           = false,
         "xmp_existing_namespace_policy"_a
         = XmpExistingNamespacePolicy::KnownPortableOnly,
+        "xmp_existing_standard_namespace_policy"_a
+        = XmpExistingStandardNamespacePolicy::PreserveAll,
         "xmp_exiftool_gpsdatetime_alias"_a = false,
         "xmp_project_exif"_a               = true,
         "xmp_project_iptc"_a               = true,

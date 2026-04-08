@@ -84,6 +84,30 @@ These gates provide fast regression checks for safe-output and validation
 behavior. Corpus-scale compare/baseline gates are expected to run in project CI
 or release validation workflows.
 
+Transfer release gate
+---------------------
+
+The stronger transfer release gate rolls up the main transfer-focused unit
+suite and the public transfer smoke coverage into one named check.
+
+- In a non-Python test tree it runs:
+
+  - ``MetadataTransferApi.*``
+  - ``XmpDump.*``
+  - ``ExrAdapter.*``
+  - ``DngSdkAdapter.*``
+  - ``openmeta_cli_metatransfer_smoke``
+
+- In a Python-enabled test tree it also runs:
+
+  - ``openmeta_python_transfer_probe_smoke``
+  - ``openmeta_python_metatransfer_edit_smoke``
+
+.. code-block:: bash
+
+   cmake --build build-tests --target openmeta_gate_transfer_release
+   ctest --test-dir build-tests -R openmeta_transfer_release_gate --output-on-failure
+
 Interop adapter tests
 ---------------------
 

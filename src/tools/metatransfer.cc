@@ -48,6 +48,9 @@ namespace {
             "  --xmp-existing-namespace-policy <known_portable_only|preserve_custom>\n"
             "                         Existing XMP namespace writeback policy\n"
             "                         for generated portable XMP\n"
+            "  --xmp-existing-standard-namespace-policy <preserve_all|canonicalize_managed>\n"
+            "                         Reconcile existing managed standard portable\n"
+            "                         XMP properties against canonical EXIF/IPTC mappings\n"
             "  --xmp-include-existing-sidecar\n"
             "                         Include an existing sibling .xmp sidecar from\n"
             "                         the output/edit target path in generated XMP\n"
@@ -410,6 +413,24 @@ namespace {
         }
         if (std::strcmp(s, "preserve_custom") == 0) {
             *out = XmpExistingNamespacePolicy::PreserveCustom;
+            return true;
+        }
+        return false;
+    }
+
+    static bool parse_xmp_existing_standard_namespace_policy(
+        const char* s,
+        XmpExistingStandardNamespacePolicy* out) noexcept
+    {
+        if (!s || !out) {
+            return false;
+        }
+        if (std::strcmp(s, "preserve_all") == 0) {
+            *out = XmpExistingStandardNamespacePolicy::PreserveAll;
+            return true;
+        }
+        if (std::strcmp(s, "canonicalize_managed") == 0) {
+            *out = XmpExistingStandardNamespacePolicy::CanonicalizeManaged;
             return true;
         }
         return false;
@@ -1757,6 +1778,29 @@ main(int argc, char** argv)
                 return 2;
             }
             options.prepare.xmp_existing_namespace_policy = policy;
+            i += 1;
+            continue;
+        }
+        if (std::strcmp(arg, "--xmp-existing-standard-namespace-policy")
+            == 0) {
+            if (i + 1 >= argc) {
+                std::fprintf(
+                    stderr,
+                    "missing value for "
+                    "--xmp-existing-standard-namespace-policy\n");
+                return 2;
+            }
+            XmpExistingStandardNamespacePolicy policy
+                = XmpExistingStandardNamespacePolicy::PreserveAll;
+            if (!parse_xmp_existing_standard_namespace_policy(argv[i + 1],
+                                                              &policy)) {
+                std::fprintf(
+                    stderr,
+                    "invalid --xmp-existing-standard-namespace-policy value "
+                    "(expected preserve_all|canonicalize_managed)\n");
+                return 2;
+            }
+            options.prepare.xmp_existing_standard_namespace_policy = policy;
             i += 1;
             continue;
         }

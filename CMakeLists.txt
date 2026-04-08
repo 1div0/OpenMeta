@@ -638,6 +638,50 @@ if(OPENMETA_BUILD_TESTS)
 
   add_test(NAME openmeta_tests COMMAND openmeta_tests)
 
+  if(TARGET metatransfer AND TARGET openmeta_python)
+    add_custom_target(openmeta_gate_transfer_release
+      DEPENDS openmeta_tests metatransfer openmeta_python
+      COMMAND ${CMAKE_COMMAND}
+        "-DOPENMETA_TESTS_BIN=$<TARGET_FILE:openmeta_tests>"
+        "-DMETATRANSFER_BIN=$<TARGET_FILE:metatransfer>"
+        "-DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/_transfer_release_gate"
+        "-DOPENMETA_PYTHON_EXECUTABLE=${Python_EXECUTABLE}"
+        "-DOPENMETA_PYTHONPATH=${CMAKE_CURRENT_BINARY_DIR}/python"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/transfer_release_gate.cmake"
+      COMMENT "Running transfer release gate"
+      VERBATIM
+    )
+    add_test(
+      NAME openmeta_transfer_release_gate
+      COMMAND ${CMAKE_COMMAND}
+        "-DOPENMETA_TESTS_BIN=$<TARGET_FILE:openmeta_tests>"
+        "-DMETATRANSFER_BIN=$<TARGET_FILE:metatransfer>"
+        "-DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/_transfer_release_gate"
+        "-DOPENMETA_PYTHON_EXECUTABLE=${Python_EXECUTABLE}"
+        "-DOPENMETA_PYTHONPATH=${CMAKE_CURRENT_BINARY_DIR}/python"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/transfer_release_gate.cmake"
+    )
+  elseif(TARGET metatransfer)
+    add_custom_target(openmeta_gate_transfer_release
+      DEPENDS openmeta_tests metatransfer
+      COMMAND ${CMAKE_COMMAND}
+        "-DOPENMETA_TESTS_BIN=$<TARGET_FILE:openmeta_tests>"
+        "-DMETATRANSFER_BIN=$<TARGET_FILE:metatransfer>"
+        "-DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/_transfer_release_gate"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/transfer_release_gate.cmake"
+      COMMENT "Running transfer release gate"
+      VERBATIM
+    )
+    add_test(
+      NAME openmeta_transfer_release_gate
+      COMMAND ${CMAKE_COMMAND}
+        "-DOPENMETA_TESTS_BIN=$<TARGET_FILE:openmeta_tests>"
+        "-DMETATRANSFER_BIN=$<TARGET_FILE:metatransfer>"
+        "-DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/_transfer_release_gate"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/transfer_release_gate.cmake"
+    )
+  endif()
+
   if(TARGET metadump AND TARGET thumdump)
     add_test(
       NAME openmeta_cli_preview_index

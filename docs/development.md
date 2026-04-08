@@ -782,6 +782,23 @@ cmake --build build-tests --target openmeta_gate_python_metatransfer_edit_smoke
 ctest --test-dir build-tests -R openmeta_python_metatransfer_edit_smoke --output-on-failure
 ```
 
+Stronger transfer release gate:
+- in a non-Python test tree it runs:
+  - `MetadataTransferApi.*`
+  - `XmpDump.*`
+  - `ExrAdapter.*`
+  - `DngSdkAdapter.*`
+  - `openmeta_cli_metatransfer_smoke`
+- in a Python-enabled test tree it also runs:
+  - `openmeta_python_transfer_probe_smoke`
+  - `openmeta_python_metatransfer_edit_smoke`
+
+Build + run:
+```bash
+cmake --build build-tests --target openmeta_gate_transfer_release
+ctest --test-dir build-tests -R openmeta_transfer_release_gate --output-on-failure
+```
+
 Coverage note:
 - Public tree tests focus on deterministic unit/fuzz/smoke behavior.
 - Corpus-scale compare/baseline workflows are external to the public tree and
