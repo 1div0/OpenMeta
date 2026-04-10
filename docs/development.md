@@ -799,9 +799,8 @@ cmake --build build-tests --target openmeta_gate_transfer_release
 ctest --test-dir build-tests -R openmeta_transfer_release_gate --output-on-failure
 ```
 
-The public GitHub Actions workflow
-`.github/workflows/transfer-release-gate.yml` runs two Linux variants of this
-gate:
+The public GitHub Actions workflow `.github/workflows/ci.yml` runs two Linux
+variants of these public release gates:
 - self-contained non-Python, non-DNG-SDK
 - Python-enabled, non-DNG-SDK, with `nanobind` installed into the CI
   interpreter via `pip`
