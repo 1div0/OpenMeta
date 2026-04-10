@@ -134,7 +134,10 @@ In practice:
   - a thin CLI helper via `metatransfer --update-dng-sdk-file <target.dng>`
   Core `Dng` transfer support does not depend on that SDK. The OpenMeta
   build must use a C++ runtime/standard library compatible with the
-  discovered `dng_sdk` package.
+  discovered `dng_sdk` package. Public automated CI intentionally excludes
+  this SDK-backed lane because Adobe DNG SDK licensing and redistribution
+  terms are not part of the public CI dependency story; SDK-backed coverage is
+  treated as maintainer or release validation.
 - PNG, WebP, JP2, JXL, bounded BMFF, and EXR all have real first-class
   transfer entry points.
 - EXR is still narrower than the container-edit targets: it emits safe string
@@ -249,7 +252,8 @@ Useful options:
 - `-DOPENMETA_USE_LIBCXX=ON` when linking against dependencies built with
   `libc++`
 - `-DOPENMETA_WITH_DNG_SDK_ADAPTER=ON` to enable the optional Adobe DNG SDK
-  bridge (requires a discoverable `dng_sdk` package)
+  bridge (requires a discoverable `dng_sdk` package; intentionally excluded
+  from public GitHub Actions CI)
 - `-DOPENMETA_BUILD_DOCS=ON` for Doxygen HTML docs
 - `-DOPENMETA_BUILD_SPHINX_DOCS=ON` for Sphinx + Breathe HTML docs
 

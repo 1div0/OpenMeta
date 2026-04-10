@@ -799,6 +799,43 @@ cmake --build build-tests --target openmeta_gate_transfer_release
 ctest --test-dir build-tests -R openmeta_transfer_release_gate --output-on-failure
 ```
 
+The public GitHub Actions workflow
+`.github/workflows/transfer-release-gate.yml` runs two Linux variants of this
+gate:
+- self-contained non-Python, non-DNG-SDK
+- Python-enabled, non-DNG-SDK, with `nanobind` installed into the CI
+  interpreter via `pip`
+
+Read release gate:
+- core self-contained decode and adapter suites such as:
+  - `ContainerScan.*`
+  - `ContainerPayload.*`
+  - `ExifTiffDecode.*`
+  - `SimpleMetaRead.*`
+  - `XmpDecodeTest.*`
+  - `JumbfDecode.*`
+  - `OiioAdapter.*`
+  - `OcioAdapter.*`
+  - `ValidateFile.*`
+
+Build + run:
+```bash
+cmake --build build-tests --target openmeta_gate_read_release
+ctest --test-dir build-tests -R openmeta_read_release_gate --output-on-failure
+```
+
+CLI release gate:
+- self-contained non-transfer CLI smokes:
+  - `openmeta_cli_metaread_safe_text_smoke`
+  - `openmeta_cli_metavalidate_smoke`
+  - `openmeta_cli_numeric_parse_smoke`
+
+Build + run:
+```bash
+cmake --build build-tests --target openmeta_gate_cli_release
+ctest --test-dir build-tests -R openmeta_cli_release_gate --output-on-failure
+```
+
 Coverage note:
 - Public tree tests focus on deterministic unit/fuzz/smoke behavior.
 - Corpus-scale compare/baseline workflows are external to the public tree and

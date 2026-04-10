@@ -208,6 +208,10 @@ Optional host bridge:
   without the Adobe SDK.
 - The OpenMeta build must use a C++ runtime/standard library compatible with
   the discovered `dng_sdk` package.
+- Public automated CI intentionally excludes this SDK-backed lane because the
+  Adobe DNG SDK is not part of the public dependency/distribution story.
+  Treat it as a maintainer or release-validation path rather than a default
+  GitHub Actions requirement.
 
 ### PNG
 

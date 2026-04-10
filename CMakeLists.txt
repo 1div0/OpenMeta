@@ -638,6 +638,23 @@ if(OPENMETA_BUILD_TESTS)
 
   add_test(NAME openmeta_tests COMMAND openmeta_tests)
 
+  add_custom_target(openmeta_gate_read_release
+    DEPENDS openmeta_tests
+    COMMAND ${CMAKE_COMMAND}
+      "-DOPENMETA_TESTS_BIN=$<TARGET_FILE:openmeta_tests>"
+      "-DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/_read_release_gate"
+      -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/read_release_gate.cmake"
+    COMMENT "Running read release gate"
+    VERBATIM
+  )
+  add_test(
+    NAME openmeta_read_release_gate
+    COMMAND ${CMAKE_COMMAND}
+      "-DOPENMETA_TESTS_BIN=$<TARGET_FILE:openmeta_tests>"
+      "-DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/_read_release_gate"
+      -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/read_release_gate.cmake"
+  )
+
   if(TARGET metatransfer AND TARGET openmeta_python)
     add_custom_target(openmeta_gate_transfer_release
       DEPENDS openmeta_tests metatransfer openmeta_python
@@ -718,6 +735,31 @@ if(OPENMETA_BUILD_TESTS)
 
   if(TARGET metaread AND TARGET metadump AND TARGET thumdump
      AND TARGET metavalidate AND TARGET metatransfer)
+    add_custom_target(openmeta_gate_cli_release
+      DEPENDS metaread metadump thumdump metavalidate metatransfer
+      COMMAND ${CMAKE_COMMAND}
+        "-DMETAREAD_BIN=$<TARGET_FILE:metaread>"
+        "-DMETADUMP_BIN=$<TARGET_FILE:metadump>"
+        "-DTHUMDUMP_BIN=$<TARGET_FILE:thumdump>"
+        "-DMETAVALIDATE_BIN=$<TARGET_FILE:metavalidate>"
+        "-DMETATRANSFER_BIN=$<TARGET_FILE:metatransfer>"
+        "-DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/_cli_release_gate"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/cli_release_gate.cmake"
+      COMMENT "Running CLI release gate"
+      VERBATIM
+    )
+    add_test(
+      NAME openmeta_cli_release_gate
+      COMMAND ${CMAKE_COMMAND}
+        "-DMETAREAD_BIN=$<TARGET_FILE:metaread>"
+        "-DMETADUMP_BIN=$<TARGET_FILE:metadump>"
+        "-DTHUMDUMP_BIN=$<TARGET_FILE:thumdump>"
+        "-DMETAVALIDATE_BIN=$<TARGET_FILE:metavalidate>"
+        "-DMETATRANSFER_BIN=$<TARGET_FILE:metatransfer>"
+        "-DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/_cli_release_gate"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/cli_release_gate.cmake"
+    )
+
     add_test(
       NAME openmeta_cli_numeric_parse_smoke
       COMMAND ${CMAKE_COMMAND}
