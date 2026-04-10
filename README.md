@@ -1,5 +1,8 @@
 <img width="500" height="79" alt="OpenMeta" src="docs/images/OpenMeta_Logo.png" />
 
+[![transfer-release-gate](https://github.com/ssh4net/OpenMeta/actions/workflows/transfer-release-gate.yml/badge.svg)](https://github.com/ssh4net/OpenMeta/actions?query=workflow%3Atransfer-release-gate)
+[![docs-pages](https://github.com/ssh4net/OpenMeta/actions/workflows/docs-pages.yml/badge.svg)](https://github.com/ssh4net/OpenMeta/actions?query=workflow%3Adocs-pages)
+
 OpenMeta is a metadata processing library for image files.
 
 The current focus is safe, format-agnostic reads: find metadata blocks in
