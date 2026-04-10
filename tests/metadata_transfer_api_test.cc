@@ -5677,7 +5677,7 @@ TEST(MetadataTransferApi, PreparePortableXmpCanPreferExistingOverExifProjection)
 }
 
 TEST(MetadataTransferApi,
-     PreparePortableXmpCanCanonicalizeManagedStandardNamespaces)
+     PreparePortableXmpCanonicalizesManagedNamespacesOnlyWhenReplacementExists)
 {
     openmeta::MetaStore store;
     const openmeta::BlockId block = store.add_block(openmeta::BlockInfo {});
@@ -5700,13 +5700,40 @@ TEST(MetadataTransferApi,
     xmp_make.origin.order_in_block = 1U;
     ASSERT_NE(store.add_entry(xmp_make), openmeta::kInvalidEntryId);
 
+    openmeta::Entry xmp_model;
+    xmp_model.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/tiff/1.0/", "Model");
+    xmp_model.value = openmeta::make_text(store.arena(), "EOS R6",
+                                          openmeta::TextEncoding::Utf8);
+    xmp_model.origin.block          = block;
+    xmp_model.origin.order_in_block = 2U;
+    ASSERT_NE(store.add_entry(xmp_model), openmeta::kInvalidEntryId);
+
+    openmeta::Entry xmp_description;
+    xmp_description.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://purl.org/dc/elements/1.1/", "description");
+    xmp_description.value = openmeta::make_text(
+        store.arena(), "From XMP", openmeta::TextEncoding::Utf8);
+    xmp_description.origin.block          = block;
+    xmp_description.origin.order_in_block = 3U;
+    ASSERT_NE(store.add_entry(xmp_description), openmeta::kInvalidEntryId);
+
+    openmeta::Entry xmp_subject;
+    xmp_subject.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://purl.org/dc/elements/1.1/", "subject[1]");
+    xmp_subject.value = openmeta::make_text(store.arena(), "xmp-keyword",
+                                            openmeta::TextEncoding::Utf8);
+    xmp_subject.origin.block          = block;
+    xmp_subject.origin.order_in_block = 4U;
+    ASSERT_NE(store.add_entry(xmp_subject), openmeta::kInvalidEntryId);
+
     openmeta::Entry xmp_creator_tool;
     xmp_creator_tool.key = openmeta::make_xmp_property_key(
         store.arena(), "http://ns.adobe.com/xap/1.0/", "CreatorTool");
     xmp_creator_tool.value = openmeta::make_text(
         store.arena(), "Tool", openmeta::TextEncoding::Utf8);
     xmp_creator_tool.origin.block          = block;
-    xmp_creator_tool.origin.order_in_block = 2U;
+    xmp_creator_tool.origin.order_in_block = 5U;
     ASSERT_NE(store.add_entry(xmp_creator_tool), openmeta::kInvalidEntryId);
     store.finalize();
 
@@ -5738,7 +5765,139 @@ TEST(MetadataTransferApi,
     EXPECT_TRUE(payload_contains_ascii(
         std::span<const std::byte>(bundle.blocks[0].payload.data(),
                                    bundle.blocks[0].payload.size()),
+        "<tiff:Model>EOS R6</tiff:Model>"));
+    EXPECT_TRUE(payload_contains_ascii(
+        std::span<const std::byte>(bundle.blocks[0].payload.data(),
+                                   bundle.blocks[0].payload.size()),
+        "<dc:description>From XMP</dc:description>"));
+    EXPECT_TRUE(payload_contains_ascii(
+        std::span<const std::byte>(bundle.blocks[0].payload.data(),
+                                   bundle.blocks[0].payload.size()),
+        "<rdf:li>xmp-keyword</rdf:li>"));
+    EXPECT_TRUE(payload_contains_ascii(
+        std::span<const std::byte>(bundle.blocks[0].payload.data(),
+                                   bundle.blocks[0].payload.size()),
         "<xmp:CreatorTool>Tool</xmp:CreatorTool>"));
+}
+
+TEST(MetadataTransferApi, PreparePortableXmpGeneratesXmpDateAliasesFromExif)
+{
+    openmeta::MetaStore store;
+    const openmeta::BlockId block = store.add_block(openmeta::BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    openmeta::Entry dt;
+    dt.key = openmeta::make_exif_tag_key(store.arena(), "ifd0", 0x0132U);
+    dt.value = openmeta::make_text(store.arena(), "2010:11:14 16:25:16",
+                                   openmeta::TextEncoding::Ascii);
+    dt.origin.block          = block;
+    dt.origin.order_in_block = 0U;
+    ASSERT_NE(store.add_entry(dt), openmeta::kInvalidEntryId);
+
+    openmeta::Entry dtd;
+    dtd.key = openmeta::make_exif_tag_key(store.arena(), "exififd", 0x9004U);
+    dtd.value = openmeta::make_text(store.arena(), "2010:11:14 16:25:16",
+                                    openmeta::TextEncoding::Ascii);
+    dtd.origin.block          = block;
+    dtd.origin.order_in_block = 1U;
+    ASSERT_NE(store.add_entry(dtd), openmeta::kInvalidEntryId);
+    store.finalize();
+
+    openmeta::PrepareTransferRequest request;
+    request.include_exif_app1    = false;
+    request.include_icc_app2     = false;
+    request.include_iptc_app13   = false;
+    request.xmp_portable         = true;
+    request.xmp_include_existing = false;
+
+    openmeta::PreparedTransferBundle bundle;
+    const openmeta::PrepareTransferResult result
+        = openmeta::prepare_metadata_for_target(store, request, &bundle);
+
+    EXPECT_EQ(result.status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(bundle.blocks.size(), 1U);
+    EXPECT_EQ(bundle.blocks[0].route, "jpeg:app1-xmp");
+    EXPECT_TRUE(payload_contains_ascii(
+        std::span<const std::byte>(bundle.blocks[0].payload.data(),
+                                   bundle.blocks[0].payload.size()),
+        "<tiff:DateTime>2010-11-14T16:25:16</tiff:DateTime>"));
+    EXPECT_TRUE(payload_contains_ascii(
+        std::span<const std::byte>(bundle.blocks[0].payload.data(),
+                                   bundle.blocks[0].payload.size()),
+        "<xmp:ModifyDate>2010-11-14T16:25:16</xmp:ModifyDate>"));
+    EXPECT_TRUE(payload_contains_ascii(
+        std::span<const std::byte>(bundle.blocks[0].payload.data(),
+                                   bundle.blocks[0].payload.size()),
+        "<exif:DateTimeDigitized>2010-11-14T16:25:16</exif:DateTimeDigitized>"));
+    EXPECT_TRUE(payload_contains_ascii(
+        std::span<const std::byte>(bundle.blocks[0].payload.data(),
+                                   bundle.blocks[0].payload.size()),
+        "<xmp:CreateDate>2010-11-14T16:25:16</xmp:CreateDate>"));
+}
+
+TEST(MetadataTransferApi,
+     PreparePortableXmpCanonicalizesManagedXmpDateAliasesOnlyWhenAvailable)
+{
+    openmeta::MetaStore store;
+    const openmeta::BlockId block = store.add_block(openmeta::BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    openmeta::Entry dt;
+    dt.key = openmeta::make_exif_tag_key(store.arena(), "ifd0", 0x0132U);
+    dt.value = openmeta::make_text(store.arena(), "2010:11:14 16:25:16",
+                                   openmeta::TextEncoding::Ascii);
+    dt.origin.block          = block;
+    dt.origin.order_in_block = 0U;
+    ASSERT_NE(store.add_entry(dt), openmeta::kInvalidEntryId);
+
+    openmeta::Entry xmp_modify_date;
+    xmp_modify_date.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/", "ModifyDate");
+    xmp_modify_date.value = openmeta::make_text(
+        store.arena(), "1999-01-02T03:04:05", openmeta::TextEncoding::Utf8);
+    xmp_modify_date.origin.block          = block;
+    xmp_modify_date.origin.order_in_block = 1U;
+    ASSERT_NE(store.add_entry(xmp_modify_date), openmeta::kInvalidEntryId);
+
+    openmeta::Entry xmp_create_date;
+    xmp_create_date.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/", "CreateDate");
+    xmp_create_date.value = openmeta::make_text(
+        store.arena(), "1980-01-02T03:04:05", openmeta::TextEncoding::Utf8);
+    xmp_create_date.origin.block          = block;
+    xmp_create_date.origin.order_in_block = 2U;
+    ASSERT_NE(store.add_entry(xmp_create_date), openmeta::kInvalidEntryId);
+    store.finalize();
+
+    openmeta::PrepareTransferRequest request;
+    request.include_exif_app1    = false;
+    request.include_icc_app2     = false;
+    request.include_iptc_app13   = false;
+    request.xmp_portable         = true;
+    request.xmp_include_existing = true;
+    request.xmp_conflict_policy  = openmeta::XmpConflictPolicy::ExistingWins;
+    request.xmp_existing_standard_namespace_policy
+        = openmeta::XmpExistingStandardNamespacePolicy::CanonicalizeManaged;
+
+    openmeta::PreparedTransferBundle bundle;
+    const openmeta::PrepareTransferResult result
+        = openmeta::prepare_metadata_for_target(store, request, &bundle);
+
+    EXPECT_EQ(result.status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(bundle.blocks.size(), 1U);
+    EXPECT_EQ(bundle.blocks[0].route, "jpeg:app1-xmp");
+    EXPECT_TRUE(payload_contains_ascii(
+        std::span<const std::byte>(bundle.blocks[0].payload.data(),
+                                   bundle.blocks[0].payload.size()),
+        "<xmp:ModifyDate>2010-11-14T16:25:16</xmp:ModifyDate>"));
+    EXPECT_FALSE(payload_contains_ascii(
+        std::span<const std::byte>(bundle.blocks[0].payload.data(),
+                                   bundle.blocks[0].payload.size()),
+        "<xmp:ModifyDate>1999-01-02T03:04:05</xmp:ModifyDate>"));
+    EXPECT_TRUE(payload_contains_ascii(
+        std::span<const std::byte>(bundle.blocks[0].payload.data(),
+                                   bundle.blocks[0].payload.size()),
+        "<xmp:CreateDate>1980-01-02T03:04:05</xmp:CreateDate>"));
 }
 
 TEST(MetadataTransferApi, PreparePortableXmpCanPreferGeneratedOverExistingIptc)
@@ -5835,6 +5994,65 @@ TEST(MetadataTransferApi, PreparePortableXmpCanPreserveCustomExistingNamespaces)
         std::span<const std::byte>(bundle.blocks[0].payload.data(),
                                    bundle.blocks[0].payload.size()),
         "<omns1:Flag>Alpha</omns1:Flag>"));
+}
+
+TEST(MetadataTransferApi,
+     PreparePortableXmpPrefersFirstSeenIndexedOverScalarExistingShape)
+{
+    openmeta::MetaStore store;
+    const openmeta::BlockId block = store.add_block(openmeta::BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    openmeta::Entry xmp_subject_indexed;
+    xmp_subject_indexed.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://purl.org/dc/elements/1.1/", "subject[1]");
+    xmp_subject_indexed.value = openmeta::make_text(
+        store.arena(), "indexed-keyword", openmeta::TextEncoding::Utf8);
+    xmp_subject_indexed.origin.block          = block;
+    xmp_subject_indexed.origin.order_in_block = 0U;
+    ASSERT_NE(store.add_entry(xmp_subject_indexed), openmeta::kInvalidEntryId);
+
+    openmeta::Entry xmp_subject_scalar;
+    xmp_subject_scalar.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://purl.org/dc/elements/1.1/", "subject");
+    xmp_subject_scalar.value = openmeta::make_text(
+        store.arena(), "scalar-keyword", openmeta::TextEncoding::Utf8);
+    xmp_subject_scalar.origin.block          = block;
+    xmp_subject_scalar.origin.order_in_block = 1U;
+    ASSERT_NE(store.add_entry(xmp_subject_scalar), openmeta::kInvalidEntryId);
+
+    store.finalize();
+
+    openmeta::PrepareTransferRequest request;
+    request.include_exif_app1    = false;
+    request.include_icc_app2     = false;
+    request.include_iptc_app13   = false;
+    request.xmp_portable         = true;
+    request.xmp_include_existing = true;
+
+    openmeta::PreparedTransferBundle bundle;
+    const openmeta::PrepareTransferResult result
+        = openmeta::prepare_metadata_for_target(store, request, &bundle);
+
+    EXPECT_EQ(result.status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(bundle.blocks.size(), 1U);
+    EXPECT_EQ(bundle.blocks[0].route, "jpeg:app1-xmp");
+    EXPECT_TRUE(payload_contains_ascii(
+        std::span<const std::byte>(bundle.blocks[0].payload.data(),
+                                   bundle.blocks[0].payload.size()),
+        "<dc:subject>"));
+    EXPECT_TRUE(payload_contains_ascii(
+        std::span<const std::byte>(bundle.blocks[0].payload.data(),
+                                   bundle.blocks[0].payload.size()),
+        "<rdf:Bag>"));
+    EXPECT_TRUE(payload_contains_ascii(
+        std::span<const std::byte>(bundle.blocks[0].payload.data(),
+                                   bundle.blocks[0].payload.size()),
+        "<rdf:li>indexed-keyword</rdf:li>"));
+    EXPECT_FALSE(payload_contains_ascii(
+        std::span<const std::byte>(bundle.blocks[0].payload.data(),
+                                   bundle.blocks[0].payload.size()),
+        "<dc:subject>scalar-keyword</dc:subject>"));
 }
 
 TEST(MetadataTransferApi, PrepareBuildsJpegExifApp1Block)

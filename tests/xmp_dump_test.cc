@@ -477,6 +477,51 @@ TEST(XmpDump, PortableExistingXmpIndexedPathEmitsSeq)
     EXPECT_NE(s.find("<rdf:li>24</rdf:li>"), std::string_view::npos);
 }
 
+TEST(XmpDump, PortableExistingXmpSubjectIndexedPathEmitsBag)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, kInvalidBlockId);
+
+    Entry li1;
+    li1.key = make_xmp_property_key(store.arena(),
+                                    "http://purl.org/dc/elements/1.1/",
+                                    "subject[1]");
+    li1.value = make_text(store.arena(), "travel", TextEncoding::Utf8);
+    li1.origin.block          = block;
+    li1.origin.order_in_block = 0;
+    (void)store.add_entry(li1);
+
+    Entry li2;
+    li2.key = make_xmp_property_key(store.arena(),
+                                    "http://purl.org/dc/elements/1.1/",
+                                    "subject[2]");
+    li2.value = make_text(store.arena(), "museum", TextEncoding::Utf8);
+    li2.origin.block          = block;
+    li2.origin.order_in_block = 1;
+    (void)store.add_entry(li2);
+
+    store.finalize();
+
+    XmpPortableOptions opts;
+    opts.include_exif         = false;
+    opts.include_existing_xmp = true;
+
+    std::vector<std::byte> out(1024);
+    const XmpDumpResult r
+        = dump_xmp_portable(store, std::span<std::byte>(out.data(), out.size()),
+                            opts);
+    ASSERT_EQ(r.status, XmpDumpStatus::Ok);
+    ASSERT_EQ(r.entries, 1U);
+
+    const std::string_view s(reinterpret_cast<const char*>(out.data()),
+                             static_cast<size_t>(r.written));
+    EXPECT_NE(s.find("<dc:subject>"), std::string_view::npos);
+    EXPECT_NE(s.find("<rdf:Bag>"), std::string_view::npos);
+    EXPECT_NE(s.find("<rdf:li>travel</rdf:li>"), std::string_view::npos);
+    EXPECT_NE(s.find("<rdf:li>museum</rdf:li>"), std::string_view::npos);
+}
+
 TEST(XmpDump, PortableDeduplicatesSamePropertyName)
 {
     MetaStore store;
@@ -739,6 +784,100 @@ TEST(XmpDump, PortableNormalizesExifDateTagsToXmpDateTime)
         s.find(
             "<tiff:PreviewDateTime>2010-11-14T16:25:16+09:00</tiff:PreviewDateTime>"),
         std::string_view::npos);
+    EXPECT_NE(s.find("<xmp:ModifyDate>2010-11-14T16:25:16Z</xmp:ModifyDate>"),
+              std::string_view::npos);
+}
+
+TEST(XmpDump, PortableGeneratesXmpCreateDateAliasFromExifDigitizedTime)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, kInvalidBlockId);
+
+    Entry dtd;
+    dtd.key          = make_exif_tag_key(store.arena(), "exififd", 0x9004);
+    dtd.value        = make_text(store.arena(), "2010:11:14 16:25:16",
+                                 TextEncoding::Ascii);
+    dtd.origin.block = block;
+    dtd.origin.order_in_block = 0;
+    (void)store.add_entry(dtd);
+    store.finalize();
+
+    XmpPortableOptions opts;
+    opts.include_exif         = true;
+    opts.include_existing_xmp = false;
+
+    std::vector<std::byte> out(4096);
+    const XmpDumpResult r
+        = dump_xmp_portable(store, std::span<std::byte>(out.data(), out.size()),
+                            opts);
+    ASSERT_EQ(r.status, XmpDumpStatus::Ok);
+
+    const std::string_view s(reinterpret_cast<const char*>(out.data()),
+                             static_cast<size_t>(r.written));
+    EXPECT_NE(
+        s.find(
+            "<exif:DateTimeDigitized>2010-11-14T16:25:16</exif:DateTimeDigitized>"),
+        std::string_view::npos);
+    EXPECT_NE(s.find("<xmp:CreateDate>2010-11-14T16:25:16</xmp:CreateDate>"),
+              std::string_view::npos);
+}
+
+TEST(XmpDump, PortableCanonicalizesManagedXmpDateAliasesOnlyWhenAvailable)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, kInvalidBlockId);
+
+    Entry dt;
+    dt.key          = make_exif_tag_key(store.arena(), "ifd0", 0x0132U);
+    dt.value        = make_text(store.arena(), "2010:11:14 16:25:16",
+                                TextEncoding::Ascii);
+    dt.origin.block = block;
+    dt.origin.order_in_block = 0;
+    (void)store.add_entry(dt);
+
+    Entry xmp_modify_date;
+    xmp_modify_date.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/", "ModifyDate");
+    xmp_modify_date.value = make_text(store.arena(), "1999-01-02T03:04:05",
+                                      TextEncoding::Utf8);
+    xmp_modify_date.origin.block          = block;
+    xmp_modify_date.origin.order_in_block = 1;
+    (void)store.add_entry(xmp_modify_date);
+
+    Entry xmp_create_date;
+    xmp_create_date.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/", "CreateDate");
+    xmp_create_date.value = make_text(store.arena(), "1980-01-02T03:04:05",
+                                      TextEncoding::Utf8);
+    xmp_create_date.origin.block          = block;
+    xmp_create_date.origin.order_in_block = 2;
+    (void)store.add_entry(xmp_create_date);
+
+    store.finalize();
+
+    XmpPortableOptions opts;
+    opts.include_exif         = true;
+    opts.include_existing_xmp = true;
+    opts.conflict_policy      = XmpConflictPolicy::ExistingWins;
+    opts.existing_standard_namespace_policy
+        = XmpExistingStandardNamespacePolicy::CanonicalizeManaged;
+
+    std::vector<std::byte> out(4096);
+    const XmpDumpResult r
+        = dump_xmp_portable(store, std::span<std::byte>(out.data(), out.size()),
+                            opts);
+    ASSERT_EQ(r.status, XmpDumpStatus::Ok);
+
+    const std::string_view s(reinterpret_cast<const char*>(out.data()),
+                             static_cast<size_t>(r.written));
+    EXPECT_NE(s.find("<xmp:ModifyDate>2010-11-14T16:25:16</xmp:ModifyDate>"),
+              std::string_view::npos);
+    EXPECT_EQ(s.find("<xmp:ModifyDate>1999-01-02T03:04:05</xmp:ModifyDate>"),
+              std::string_view::npos);
+    EXPECT_NE(s.find("<xmp:CreateDate>1980-01-02T03:04:05</xmp:CreateDate>"),
+              std::string_view::npos);
 }
 
 TEST(XmpDump, PortableDecodesWindowsXpTextTagsAsUtf8Text)
@@ -2069,7 +2208,8 @@ TEST(XmpDump, PortableExistingXmpCanOverrideExifProjection)
     EXPECT_EQ(s.find("<tiff:Make>Canon</tiff:Make>"), std::string_view::npos);
 }
 
-TEST(XmpDump, PortableCanonicalizesManagedStandardNamespaces)
+TEST(XmpDump,
+     PortableCanonicalizesManagedStandardNamespacesOnlyWhenReplacementExists)
 {
     MetaStore store;
     const BlockId block = store.add_block(BlockInfo {});
@@ -2092,13 +2232,41 @@ TEST(XmpDump, PortableCanonicalizesManagedStandardNamespaces)
     xmp_make.origin.order_in_block = 1;
     (void)store.add_entry(xmp_make);
 
+    Entry xmp_model;
+    xmp_model.key = make_xmp_property_key(store.arena(),
+                                          "http://ns.adobe.com/tiff/1.0/",
+                                          "Model");
+    xmp_model.value = make_text(store.arena(), "EOS R6",
+                                TextEncoding::Utf8);
+    xmp_model.origin.block          = block;
+    xmp_model.origin.order_in_block = 2;
+    (void)store.add_entry(xmp_model);
+
+    Entry xmp_description;
+    xmp_description.key = make_xmp_property_key(
+        store.arena(), "http://purl.org/dc/elements/1.1/", "description");
+    xmp_description.value = make_text(store.arena(), "From XMP",
+                                      TextEncoding::Utf8);
+    xmp_description.origin.block          = block;
+    xmp_description.origin.order_in_block = 3;
+    (void)store.add_entry(xmp_description);
+
+    Entry xmp_subject;
+    xmp_subject.key = make_xmp_property_key(
+        store.arena(), "http://purl.org/dc/elements/1.1/", "subject[1]");
+    xmp_subject.value = make_text(store.arena(), "xmp-keyword",
+                                  TextEncoding::Utf8);
+    xmp_subject.origin.block          = block;
+    xmp_subject.origin.order_in_block = 4;
+    (void)store.add_entry(xmp_subject);
+
     Entry xmp_creator_tool;
     xmp_creator_tool.key = make_xmp_property_key(
         store.arena(), "http://ns.adobe.com/xap/1.0/", "CreatorTool");
     xmp_creator_tool.value = make_text(store.arena(), "Tool",
                                        TextEncoding::Utf8);
     xmp_creator_tool.origin.block          = block;
-    xmp_creator_tool.origin.order_in_block = 2;
+    xmp_creator_tool.origin.order_in_block = 5;
     (void)store.add_entry(xmp_creator_tool);
 
     store.finalize();
@@ -2120,6 +2288,13 @@ TEST(XmpDump, PortableCanonicalizesManagedStandardNamespaces)
                              static_cast<size_t>(r.written));
     EXPECT_NE(s.find("<tiff:Make>Canon</tiff:Make>"), std::string_view::npos);
     EXPECT_EQ(s.find("<tiff:Make>Nikon</tiff:Make>"), std::string_view::npos);
+    EXPECT_NE(s.find("<tiff:Model>EOS R6</tiff:Model>"),
+              std::string_view::npos);
+    EXPECT_NE(s.find("<dc:description>From XMP</dc:description>"),
+              std::string_view::npos);
+    EXPECT_NE(s.find("<dc:subject>"), std::string_view::npos);
+    EXPECT_NE(s.find("<rdf:li>xmp-keyword</rdf:li>"),
+              std::string_view::npos);
     EXPECT_NE(s.find("<xmp:CreatorTool>Tool</xmp:CreatorTool>"),
               std::string_view::npos);
 }
@@ -2220,6 +2395,52 @@ TEST(XmpDump, PortableGeneratedIptcCanOverrideExistingIndexedXmp)
     EXPECT_NE(s.find("<rdf:li>iptc-keyword</rdf:li>"),
               std::string_view::npos);
     EXPECT_EQ(s.find("<rdf:li>xmp-keyword</rdf:li>"), std::string_view::npos);
+}
+
+TEST(XmpDump, PortableExistingXmpPrefersFirstSeenScalarOverIndexedShape)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, kInvalidBlockId);
+
+    Entry xmp_subject_scalar;
+    xmp_subject_scalar.key = make_xmp_property_key(
+        store.arena(), "http://purl.org/dc/elements/1.1/", "subject");
+    xmp_subject_scalar.value = make_text(store.arena(), "scalar-keyword",
+                                         TextEncoding::Utf8);
+    xmp_subject_scalar.origin.block          = block;
+    xmp_subject_scalar.origin.order_in_block = 0;
+    (void)store.add_entry(xmp_subject_scalar);
+
+    Entry xmp_subject_indexed;
+    xmp_subject_indexed.key = make_xmp_property_key(
+        store.arena(), "http://purl.org/dc/elements/1.1/", "subject[1]");
+    xmp_subject_indexed.value = make_text(store.arena(), "indexed-keyword",
+                                          TextEncoding::Utf8);
+    xmp_subject_indexed.origin.block          = block;
+    xmp_subject_indexed.origin.order_in_block = 1;
+    (void)store.add_entry(xmp_subject_indexed);
+
+    store.finalize();
+
+    XmpPortableOptions opts;
+    opts.include_exif         = false;
+    opts.include_iptc         = false;
+    opts.include_existing_xmp = true;
+
+    std::vector<std::byte> out(4096);
+    const XmpDumpResult r
+        = dump_xmp_portable(store, std::span<std::byte>(out.data(), out.size()),
+                            opts);
+    ASSERT_EQ(r.status, XmpDumpStatus::Ok);
+
+    const std::string_view s(reinterpret_cast<const char*>(out.data()),
+                             static_cast<size_t>(r.written));
+    EXPECT_NE(s.find("<dc:subject>scalar-keyword</dc:subject>"),
+              std::string_view::npos);
+    EXPECT_EQ(s.find("<rdf:Bag>"), std::string_view::npos);
+    EXPECT_EQ(s.find("<rdf:li>indexed-keyword</rdf:li>"),
+              std::string_view::npos);
 }
 
 TEST(XmpDump, PortableDropsCustomExistingNamespacesByDefault)

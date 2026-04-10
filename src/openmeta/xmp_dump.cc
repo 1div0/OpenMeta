@@ -1286,6 +1286,25 @@ namespace {
         return canonical_portable_property_name(prefix, fallback_name);
     }
 
+    static std::string_view
+    portable_xmp_alias_name_for_exif_tag(std::string_view ifd,
+                                         uint16_t tag) noexcept
+    {
+        const bool is_tiff_ifd = ifd.starts_with("ifd")
+                                 || ifd.starts_with("subifd")
+                                 || ifd.starts_with("mkifd")
+                                 || ifd.starts_with("mk_subifd");
+        const bool is_exif_ifd = ifd == "exififd" || ifd.ends_with("_exififd");
+
+        if (is_tiff_ifd && tag == 0x0132U) {
+            return "ModifyDate";
+        }
+        if (is_exif_ifd && tag == 0x9004U) {
+            return "CreateDate";
+        }
+        return {};
+    }
+
 
     static bool xmp_ns_to_portable_prefix(std::string_view ns,
                                           std::string_view* out_prefix) noexcept
@@ -1377,6 +1396,10 @@ namespace {
             return !name.empty();
         }
 
+        if (prefix == "xmp") {
+            return name == "ModifyDate" || name == "CreateDate";
+        }
+
         if (prefix == "dc") {
             return name == "title" || name == "subject"
                    || name == "creator" || name == "rights"
@@ -1444,7 +1467,6 @@ namespace {
         *out_index = static_cast<uint32_t>(parsed_idx);
         return true;
     }
-
 
     static bool bytes_are_ascii_text(std::span<const std::byte> raw) noexcept
     {
@@ -2925,6 +2947,28 @@ namespace {
             }
         }
 
+        if (prefix == "xmp" && exif_tag_is_portable_date_text(tag)
+            && (v.kind == MetaValueKind::Text
+                || v.kind == MetaValueKind::Bytes)) {
+            std::string_view raw_text {};
+            if (v.kind == MetaValueKind::Text) {
+                raw_text = arena_string(arena, v.data.span);
+            } else {
+                const std::span<const std::byte> raw = arena.span(v.data.span);
+                if (!bytes_are_ascii_text(raw)) {
+                    return true;
+                }
+                raw_text = std::string_view(reinterpret_cast<const char*>(
+                                                raw.data()),
+                                            raw.size());
+            }
+            std::string normalized;
+            if (exif_date_text_to_xmp(raw_text, &normalized)) {
+                return emit_portable_property_text(w, prefix, name, normalized);
+            }
+            return false;
+        }
+
         if (prefix != "exif") {
             if (prefix == "tiff" && exif_tag_is_windows_xp_text(tag)) {
                 std::span<const std::byte> raw {};
@@ -3198,6 +3242,26 @@ namespace {
         Container container    = Container::Seq;
     };
 
+    static PortableIndexedProperty::Container
+    portable_existing_xmp_indexed_container(std::string_view prefix,
+                                            std::string_view name) noexcept
+    {
+        if (prefix == "dc") {
+            if (name == "subject") {
+                return PortableIndexedProperty::Container::Bag;
+            }
+            if (name == "creator") {
+                return PortableIndexedProperty::Container::Seq;
+            }
+        }
+
+        if (prefix == "photoshop" && name == "SupplementalCategories") {
+            return PortableIndexedProperty::Container::Bag;
+        }
+
+        return PortableIndexedProperty::Container::Seq;
+    }
+
     struct PortablePropertyKey final {
         std::string_view prefix;
         std::string_view name;
@@ -3226,14 +3290,37 @@ namespace {
         Iptc,
     };
 
-    using PortablePropertyOwnerMap
-        = std::unordered_map<PortablePropertyKey, PortablePropertyOwner,
+    enum class PortablePropertyShape : uint8_t {
+        Scalar,
+        Indexed,
+    };
+
+    struct PortablePropertyClaim final {
+        PortablePropertyOwner owner  = PortablePropertyOwner::Exif;
+        PortablePropertyShape shape  = PortablePropertyShape::Scalar;
+    };
+
+    using PortablePropertyClaimMap
+        = std::unordered_map<PortablePropertyKey, PortablePropertyClaim,
                              PortablePropertyKeyHash, PortablePropertyKeyEq>;
+    using PortablePropertyKeySet
+        = std::unordered_set<PortablePropertyKey, PortablePropertyKeyHash,
+                             PortablePropertyKeyEq>;
+
+    static bool portable_property_key_is_present(
+        const PortablePropertyKeySet* keys, std::string_view prefix,
+        std::string_view name) noexcept
+    {
+        if (!keys || prefix.empty() || name.empty()) {
+            return false;
+        }
+        return keys->find(PortablePropertyKey { prefix, name }) != keys->end();
+    }
 
     static bool claim_portable_property_key(
-        PortablePropertyOwnerMap* claims, std::string_view prefix,
+        PortablePropertyClaimMap* claims, std::string_view prefix,
         std::string_view name, PortablePropertyOwner owner,
-        bool* out_new_claim) noexcept
+        PortablePropertyShape shape, bool* out_new_claim) noexcept
     {
         if (!claims || prefix.empty() || name.empty() || !out_new_claim) {
             return false;
@@ -3241,21 +3328,21 @@ namespace {
 
         *out_new_claim = false;
         const PortablePropertyKey key { prefix, name };
-        const PortablePropertyOwnerMap::const_iterator it = claims->find(key);
+        const PortablePropertyClaimMap::const_iterator it = claims->find(key);
         if (it == claims->end()) {
-            (*claims)[key] = owner;
+            (*claims)[key] = PortablePropertyClaim { owner, shape };
             *out_new_claim = true;
             return true;
         }
 
-        return it->second == owner;
+        return it->second.owner == owner && it->second.shape == shape;
     }
 
     static bool process_portable_existing_xmp_entry(
         const ByteArena& arena, std::span<const PortableCustomNsDecl> decls,
         const XmpPortableOptions& options, const Entry& e, uint32_t order,
-        SpanWriter* w,
-        PortablePropertyOwnerMap* claims,
+        const PortablePropertyKeySet* generated_keys, SpanWriter* w,
+        PortablePropertyClaimMap* claims,
         std::vector<PortableIndexedProperty>* indexed) noexcept
     {
         if (!w || !claims || !indexed
@@ -3282,12 +3369,15 @@ namespace {
             if (options.existing_standard_namespace_policy
                     == XmpExistingStandardNamespacePolicy::CanonicalizeManaged
                 && existing_standard_portable_property_is_managed(
-                    prefix, portable_name)) {
+                    prefix, portable_name)
+                && portable_property_key_is_present(generated_keys, prefix,
+                                                    portable_name)) {
                 return false;
             }
             bool new_claim = false;
             if (!claim_portable_property_key(claims, prefix, portable_name,
                                              PortablePropertyOwner::ExistingXmp,
+                                             PortablePropertyShape::Scalar,
                                              &new_claim)
                 || !new_claim) {
                 return false;
@@ -3311,23 +3401,28 @@ namespace {
         if (options.existing_standard_namespace_policy
                 == XmpExistingStandardNamespacePolicy::CanonicalizeManaged
             && existing_standard_portable_property_is_managed(prefix,
-                                                              portable_base)) {
+                                                              portable_base)
+            && portable_property_key_is_present(generated_keys, prefix,
+                                                portable_base)) {
             return false;
         }
 
         bool new_claim = false;
         if (!claim_portable_property_key(claims, prefix, portable_base,
                                          PortablePropertyOwner::ExistingXmp,
+                                         PortablePropertyShape::Indexed,
                                          &new_claim)) {
             return false;
         }
 
         PortableIndexedProperty item;
-        item.prefix = prefix;
-        item.base   = portable_base;
-        item.index  = index;
-        item.order  = order;
-        item.value  = &e.value;
+        item.prefix    = prefix;
+        item.base      = portable_base;
+        item.index     = index;
+        item.order     = order;
+        item.value     = &e.value;
+        item.container = portable_existing_xmp_indexed_container(prefix,
+                                                                 portable_base);
         indexed->push_back(item);
         return false;
     }
@@ -3397,10 +3492,69 @@ namespace {
     }
 
     static bool
+    process_portable_exif_property(const ByteArena& arena,
+                                   std::span<const Entry> entries,
+                                   std::string_view prefix,
+                                   std::string_view ifd, uint16_t tag,
+                                   std::string_view portable_tag_name,
+                                   bool exiftool_gpsdatetime_alias,
+                                   const MetaValue& v, SpanWriter* w,
+                                   PortablePropertyClaimMap* claims) noexcept
+    {
+        if (!w || !claims || prefix.empty() || portable_tag_name.empty()) {
+            return false;
+        }
+
+        if ((ifd == "gpsifd" || ifd.ends_with("_gpsifd"))
+            && (has_invalid_urational_value(arena, v)
+                || has_invalid_srational_value(arena, v))) {
+            return false;
+        }
+
+        if (portable_skip_invalid_rational_tag(tag)
+            && (has_invalid_urational_value(arena, v)
+                || has_invalid_srational_value(arena, v))) {
+            return false;
+        }
+        if (tag == 0x9203U && has_invalid_srational_value(arena, v)) {
+            return false;
+        }
+
+        const std::string_view tag_name = exif_tag_name(ifd, tag);
+        if (tag_name.empty() || exif_tag_is_nonportable_blob(tag)
+            || tag_name.ends_with("IFDPointer") || tag_name == "SubIFDs") {
+            return false;
+        }
+
+        std::string_view emitted_name = portable_tag_name;
+        if (exiftool_gpsdatetime_alias && prefix == "exif" && tag == 0x0007U
+            && emitted_name == "GPSTimeStamp") {
+            emitted_name = "GPSDateTime";
+        }
+
+        bool new_claim = false;
+        if (!claim_portable_property_key(claims, prefix, emitted_name,
+                                         PortablePropertyOwner::Exif,
+                                         PortablePropertyShape::Scalar,
+                                         &new_claim)
+            || !new_claim) {
+            return false;
+        }
+
+        if (emit_portable_exif_tag_property_override(w, prefix, ifd, tag,
+                                                     emitted_name, arena,
+                                                     entries, v)) {
+            return true;
+        }
+
+        return emit_portable_property(w, prefix, emitted_name, arena, v);
+    }
+
+    static bool
     process_portable_exif_entry(const ByteArena& arena,
                                 std::span<const Entry> entries, const Entry& e,
                                 bool exiftool_gpsdatetime_alias, SpanWriter* w,
-                                PortablePropertyOwnerMap* claims) noexcept
+                                PortablePropertyClaimMap* claims) noexcept
     {
         if (!w || !claims || e.key.kind != MetaKeyKind::ExifTag) {
             return false;
@@ -3414,23 +3568,6 @@ namespace {
         }
 
         const uint16_t tag = e.key.data.exif_tag.tag;
-
-        if ((ifd == "gpsifd" || ifd.ends_with("_gpsifd"))
-            && (has_invalid_urational_value(arena, e.value)
-                || has_invalid_srational_value(arena, e.value))) {
-            return false;
-        }
-
-        // Portable output should skip malformed rationals for scalar tags that
-        // ExifTool normalizes to undefined or omits on XMP re-read.
-        if (portable_skip_invalid_rational_tag(tag)
-            && (has_invalid_urational_value(arena, e.value)
-                || has_invalid_srational_value(arena, e.value))) {
-            return false;
-        }
-        if (tag == 0x9203U && has_invalid_srational_value(arena, e.value)) {
-            return false;
-        }
 
         const std::string_view tag_name = exif_tag_name(ifd, tag);
         if (tag_name.empty()) {
@@ -3447,30 +3584,33 @@ namespace {
             return false;
         }
 
-        if (exif_tag_is_nonportable_blob(tag)) {
+        return process_portable_exif_property(
+            arena, entries, prefix, ifd, tag, portable_tag_name,
+            exiftool_gpsdatetime_alias, e.value, w, claims);
+    }
+
+    static bool
+    process_portable_exif_xmp_alias_entry(const ByteArena& arena,
+                                          std::span<const Entry> entries,
+                                          const Entry& e, SpanWriter* w,
+                                          PortablePropertyClaimMap* claims) noexcept
+    {
+        if (!w || !claims || e.key.kind != MetaKeyKind::ExifTag) {
             return false;
         }
 
-        if (tag_name.ends_with("IFDPointer") || tag_name == "SubIFDs") {
+        const std::string_view ifd = arena_string(arena,
+                                                  e.key.data.exif_tag.ifd);
+        const uint16_t tag = e.key.data.exif_tag.tag;
+        const std::string_view alias_name
+            = portable_xmp_alias_name_for_exif_tag(ifd, tag);
+        if (alias_name.empty()) {
             return false;
         }
 
-        bool new_claim = false;
-        if (!claim_portable_property_key(claims, prefix, portable_tag_name,
-                                         PortablePropertyOwner::Exif,
-                                         &new_claim)
-            || !new_claim) {
-            return false;
-        }
-
-        if (emit_portable_exif_tag_property_override(w, prefix, ifd, tag,
-                                                     portable_tag_name, arena,
-                                                     entries, e.value)) {
-            return true;
-        }
-
-        return emit_portable_property(w, prefix, portable_tag_name, arena,
-                                      e.value);
+        return process_portable_exif_property(arena, entries, "xmp", ifd, tag,
+                                              alias_name, false, e.value, w,
+                                              claims);
     }
 
     static bool map_iptc_dataset_to_portable(
@@ -3580,7 +3720,7 @@ namespace {
 
     static bool process_portable_iptc_entry(
         const ByteArena& arena, const Entry& e, uint32_t order, SpanWriter* w,
-        PortablePropertyOwnerMap* claims,
+        PortablePropertyClaimMap* claims,
         std::vector<PortableIndexedProperty>* indexed) noexcept
     {
         if (!w || !claims || !indexed
@@ -3604,6 +3744,7 @@ namespace {
             bool new_claim = false;
             if (!claim_portable_property_key(claims, prefix, name,
                                              PortablePropertyOwner::Iptc,
+                                             PortablePropertyShape::Indexed,
                                              &new_claim)) {
                 return false;
             }
@@ -3621,12 +3762,147 @@ namespace {
         bool new_claim = false;
         if (!claim_portable_property_key(claims, prefix, name,
                                          PortablePropertyOwner::Iptc,
+                                         PortablePropertyShape::Scalar,
                                          &new_claim)
             || !new_claim) {
             return false;
         }
 
         return emit_portable_property(w, prefix, name, arena, e.value);
+    }
+
+    static bool portable_property_would_emit(std::string_view prefix,
+                                             std::string_view name,
+                                             const ByteArena& arena,
+                                             const MetaValue& v) noexcept
+    {
+        SpanWriter w(std::span<std::byte> {}, 0U);
+        const uint64_t before = w.needed;
+        return emit_portable_property(&w, prefix, name, arena, v)
+               && w.needed > before;
+    }
+
+    static bool portable_exif_property_would_emit(
+        std::string_view prefix, std::string_view ifd, uint16_t tag,
+        std::string_view name, const ByteArena& arena,
+        std::span<const Entry> entries, const MetaValue& v) noexcept
+    {
+        SpanWriter w(std::span<std::byte> {}, 0U);
+        const uint64_t before = w.needed;
+        if (emit_portable_exif_tag_property_override(
+                &w, prefix, ifd, tag, name, arena, entries, v)) {
+            return w.needed > before;
+        }
+        return emit_portable_property(&w, prefix, name, arena, v)
+               && w.needed > before;
+    }
+
+    static void collect_generated_portable_property_keys(
+        const ByteArena& arena, std::span<const Entry> entries,
+        const XmpPortableOptions& options,
+        PortablePropertyKeySet* out) noexcept
+    {
+        if (!out) {
+            return;
+        }
+        out->clear();
+
+        for (size_t i = 0; i < entries.size(); ++i) {
+            const Entry& e = entries[i];
+            if (any(e.flags, EntryFlags::Deleted)) {
+                continue;
+            }
+
+            if (options.include_exif && e.key.kind == MetaKeyKind::ExifTag) {
+                const std::string_view ifd = arena_string(
+                    arena, e.key.data.exif_tag.ifd);
+                std::string_view prefix;
+                if (!ifd_to_portable_prefix(ifd, &prefix)) {
+                    continue;
+                }
+
+                const uint16_t tag = e.key.data.exif_tag.tag;
+                if ((ifd == "gpsifd" || ifd.ends_with("_gpsifd"))
+                    && (has_invalid_urational_value(arena, e.value)
+                        || has_invalid_srational_value(arena, e.value))) {
+                    continue;
+                }
+                if (portable_skip_invalid_rational_tag(tag)
+                    && (has_invalid_urational_value(arena, e.value)
+                        || has_invalid_srational_value(arena, e.value))) {
+                    continue;
+                }
+                if (tag == 0x9203U
+                    && has_invalid_srational_value(arena, e.value)) {
+                    continue;
+                }
+
+                const std::string_view tag_name = exif_tag_name(ifd, tag);
+                if (tag_name.empty()) {
+                    continue;
+                }
+
+                std::string_view portable_tag_name
+                    = portable_property_name_for_exif_tag(prefix, ifd, tag,
+                                                          tag_name);
+                if (options.exiftool_gpsdatetime_alias && prefix == "exif"
+                    && tag == 0x0007U
+                    && portable_tag_name == "GPSTimeStamp") {
+                    portable_tag_name = "GPSDateTime";
+                }
+                if (portable_tag_name.empty() || exif_tag_is_nonportable_blob(tag)
+                    || tag_name.ends_with("IFDPointer")
+                    || tag_name == "SubIFDs") {
+                    continue;
+                }
+
+                if (portable_exif_property_would_emit(
+                        prefix, ifd, tag, portable_tag_name, arena, entries,
+                        e.value)) {
+                    (void)out->insert(
+                        PortablePropertyKey { prefix, portable_tag_name });
+                }
+
+                const std::string_view xmp_alias_name
+                    = portable_xmp_alias_name_for_exif_tag(ifd, tag);
+                if (!xmp_alias_name.empty()
+                    && portable_exif_property_would_emit(
+                        "xmp", ifd, tag, xmp_alias_name, arena, entries,
+                        e.value)) {
+                    (void)out->insert(
+                        PortablePropertyKey { "xmp", xmp_alias_name });
+                }
+                continue;
+            }
+
+            if (!options.include_iptc
+                || e.key.kind != MetaKeyKind::IptcDataset) {
+                continue;
+            }
+
+            std::string_view prefix;
+            std::string_view name;
+            bool indexed_property = false;
+            PortableIndexedProperty::Container container
+                = PortableIndexedProperty::Container::Seq;
+            if (!map_iptc_dataset_to_portable(e.key.data.iptc_dataset.record,
+                                              e.key.data.iptc_dataset.dataset,
+                                              &prefix, &name, &indexed_property,
+                                              &container)) {
+                continue;
+            }
+
+            if (indexed_property) {
+                if (portable_scalar_like_value_supported(arena, e.value)) {
+                    (void)out->insert(PortablePropertyKey { prefix, name });
+                }
+                continue;
+            }
+
+            if (portable_property_would_emit(prefix, name, arena, e.value)) {
+                (void)out->insert(PortablePropertyKey { prefix, name });
+            }
+        }
     }
 
     static bool
@@ -3751,6 +4027,7 @@ namespace {
     enum class PortablePassKind : uint8_t {
         ExistingXmp,
         Exif,
+        ExifXmpAlias,
         Iptc,
     };
 
@@ -3758,7 +4035,8 @@ namespace {
         PortablePassKind pass, const ByteArena& arena,
         std::span<const PortableCustomNsDecl> custom_decls,
         std::span<const Entry> entries, const XmpPortableOptions& options,
-        SpanWriter* w, PortablePropertyOwnerMap* claims,
+        const PortablePropertyKeySet* generated_keys, SpanWriter* w,
+        PortablePropertyClaimMap* claims,
         std::vector<PortableIndexedProperty>* indexed, uint32_t* emitted,
         uint32_t* iptc_order) noexcept
     {
@@ -3791,6 +4069,17 @@ namespace {
                 continue;
             }
 
+            if (pass == PortablePassKind::ExifXmpAlias) {
+                if (!options.include_exif || e.key.kind != MetaKeyKind::ExifTag) {
+                    continue;
+                }
+                if (process_portable_exif_xmp_alias_entry(arena, entries, e, w,
+                                                          claims)) {
+                    *emitted += 1U;
+                }
+                continue;
+            }
+
             if (pass == PortablePassKind::ExistingXmp) {
                 if (!options.include_existing_xmp
                     || e.key.kind != MetaKeyKind::XmpProperty) {
@@ -3798,7 +4087,7 @@ namespace {
                 }
                 if (process_portable_existing_xmp_entry(
                         arena, custom_decls, options, e,
-                        static_cast<uint32_t>(i), w, claims,
+                        static_cast<uint32_t>(i), generated_keys, w, claims,
                         indexed)) {
                     *emitted += 1U;
                 }
@@ -3855,8 +4144,16 @@ dump_xmp_portable(const MetaStore& store, std::span<std::byte> out,
 
     std::vector<PortableIndexedProperty> indexed;
     indexed.reserve(128);
-    PortablePropertyOwnerMap claims;
+    PortablePropertyClaimMap claims;
     claims.reserve(256);
+    PortablePropertyKeySet generated_keys;
+    if (options.include_existing_xmp
+        && options.existing_standard_namespace_policy
+               == XmpExistingStandardNamespacePolicy::CanonicalizeManaged) {
+        generated_keys.reserve(256);
+        collect_generated_portable_property_keys(arena, es, options,
+                                                 &generated_keys);
+    }
 
     uint32_t emitted    = 0;
     uint32_t iptc_order = 0U;
@@ -3865,49 +4162,76 @@ dump_xmp_portable(const MetaStore& store, std::span<std::byte> out,
         emit_portable_pass(PortablePassKind::ExistingXmp, arena,
                            std::span<const PortableCustomNsDecl>(
                                custom_decls.data(), custom_decls.size()),
-                           es, options, &w, &claims, &indexed, &emitted,
+                           es, options, &generated_keys, &w, &claims, &indexed,
+                           &emitted,
                            &iptc_order);
         emit_portable_pass(PortablePassKind::Exif, arena,
                            std::span<const PortableCustomNsDecl>(
                                custom_decls.data(), custom_decls.size()),
-                           es, options, &w, &claims, &indexed, &emitted,
+                           es, options, &generated_keys, &w, &claims, &indexed,
+                           &emitted,
+                           &iptc_order);
+        emit_portable_pass(PortablePassKind::ExifXmpAlias, arena,
+                           std::span<const PortableCustomNsDecl>(
+                               custom_decls.data(), custom_decls.size()),
+                           es, options, &generated_keys, &w, &claims, &indexed,
+                           &emitted,
                            &iptc_order);
         emit_portable_pass(PortablePassKind::Iptc, arena,
                            std::span<const PortableCustomNsDecl>(
                                custom_decls.data(), custom_decls.size()),
-                           es, options, &w, &claims, &indexed, &emitted,
+                           es, options, &generated_keys, &w, &claims, &indexed,
+                           &emitted,
                            &iptc_order);
     } else if (options.conflict_policy == XmpConflictPolicy::GeneratedWins) {
         emit_portable_pass(PortablePassKind::Exif, arena,
                            std::span<const PortableCustomNsDecl>(
                                custom_decls.data(), custom_decls.size()),
-                           es, options, &w, &claims, &indexed, &emitted,
+                           es, options, &generated_keys, &w, &claims, &indexed,
+                           &emitted,
+                           &iptc_order);
+        emit_portable_pass(PortablePassKind::ExifXmpAlias, arena,
+                           std::span<const PortableCustomNsDecl>(
+                               custom_decls.data(), custom_decls.size()),
+                           es, options, &generated_keys, &w, &claims, &indexed,
+                           &emitted,
                            &iptc_order);
         emit_portable_pass(PortablePassKind::Iptc, arena,
                            std::span<const PortableCustomNsDecl>(
                                custom_decls.data(), custom_decls.size()),
-                           es, options, &w, &claims, &indexed, &emitted,
+                           es, options, &generated_keys, &w, &claims, &indexed,
+                           &emitted,
                            &iptc_order);
         emit_portable_pass(PortablePassKind::ExistingXmp, arena,
                            std::span<const PortableCustomNsDecl>(
                                custom_decls.data(), custom_decls.size()),
-                           es, options, &w, &claims, &indexed, &emitted,
+                           es, options, &generated_keys, &w, &claims, &indexed,
+                           &emitted,
                            &iptc_order);
     } else {
         emit_portable_pass(PortablePassKind::Exif, arena,
                            std::span<const PortableCustomNsDecl>(
                                custom_decls.data(), custom_decls.size()),
-                           es, options, &w, &claims, &indexed, &emitted,
+                           es, options, &generated_keys, &w, &claims, &indexed,
+                           &emitted,
+                           &iptc_order);
+        emit_portable_pass(PortablePassKind::ExifXmpAlias, arena,
+                           std::span<const PortableCustomNsDecl>(
+                               custom_decls.data(), custom_decls.size()),
+                           es, options, &generated_keys, &w, &claims, &indexed,
+                           &emitted,
                            &iptc_order);
         emit_portable_pass(PortablePassKind::ExistingXmp, arena,
                            std::span<const PortableCustomNsDecl>(
                                custom_decls.data(), custom_decls.size()),
-                           es, options, &w, &claims, &indexed, &emitted,
+                           es, options, &generated_keys, &w, &claims, &indexed,
+                           &emitted,
                            &iptc_order);
         emit_portable_pass(PortablePassKind::Iptc, arena,
                            std::span<const PortableCustomNsDecl>(
                                custom_decls.data(), custom_decls.size()),
-                           es, options, &w, &claims, &indexed, &emitted,
+                           es, options, &generated_keys, &w, &claims, &indexed,
+                           &emitted,
                            &iptc_order);
     }
 
