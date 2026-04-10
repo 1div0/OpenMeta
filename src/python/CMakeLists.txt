@@ -46,13 +46,15 @@ if(NOT nanobind_FOUND)
   endif()
 
   if(_openmeta_nanobind_cmake_dir AND
-     EXISTS "${_openmeta_nanobind_cmake_dir}/nanobindConfig.cmake")
+     (EXISTS "${_openmeta_nanobind_cmake_dir}/nanobindConfig.cmake"
+      OR EXISTS "${_openmeta_nanobind_cmake_dir}/nanobind-config.cmake"))
     set(nanobind_DIR "${_openmeta_nanobind_cmake_dir}")
     find_package(nanobind CONFIG REQUIRED)
   else()
     message(FATAL_ERROR
       "Could not find nanobind. Set CMAKE_PREFIX_PATH or nanobind_DIR to a prefix containing "
-      "nanobindConfig.cmake, or install nanobind into ${Python_EXECUTABLE} (pip install nanobind)."
+      "nanobindConfig.cmake (or nanobind-config.cmake), or install nanobind into "
+      "${Python_EXECUTABLE} (pip install nanobind)."
     )
   endif()
 endif()
