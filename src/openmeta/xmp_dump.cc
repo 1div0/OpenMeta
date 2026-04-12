@@ -38,6 +38,8 @@ namespace {
         = "http://ns.adobe.com/exif/1.0/";
     static constexpr std::string_view kXmpNsDc
         = "http://purl.org/dc/elements/1.1/";
+    static constexpr std::string_view kXmpNsXmpRights
+        = "http://ns.adobe.com/xap/1.0/rights/";
     static constexpr std::string_view kXmpNsPhotoshop
         = "http://ns.adobe.com/photoshop/1.0/";
     static constexpr std::string_view kXmpNsIptc4xmpCore
@@ -1329,6 +1331,10 @@ namespace {
             *out_prefix = "dc";
             return true;
         }
+        if (ns == kXmpNsXmpRights) {
+            *out_prefix = "xmpRights";
+            return true;
+        }
         if (ns == kXmpNsPhotoshop) {
             *out_prefix = "photoshop";
             return true;
@@ -1465,6 +1471,60 @@ namespace {
 
         *out_base  = base;
         *out_index = static_cast<uint32_t>(parsed_idx);
+        return true;
+    }
+
+    static bool xmp_lang_value_is_safe(std::string_view s) noexcept
+    {
+        if (s.empty()) {
+            return false;
+        }
+        for (size_t i = 0; i < s.size(); ++i) {
+            const char c = s[i];
+            const bool ok = (c >= 'A' && c <= 'Z')
+                            || (c >= 'a' && c <= 'z')
+                            || (c >= '0' && c <= '9') || c == '-';
+            if (!ok) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    static bool parse_lang_alt_xmp_property_name(std::string_view path,
+                                                 std::string_view* out_base,
+                                                 std::string_view* out_lang) noexcept
+    {
+        if (!out_base || !out_lang) {
+            return false;
+        }
+        *out_base = {};
+        *out_lang = {};
+
+        static constexpr std::string_view kMarker = "[@xml:lang=";
+        const size_t lb = path.rfind(kMarker);
+        if (lb == std::string_view::npos || !path.ends_with(']')) {
+            return false;
+        }
+
+        const std::string_view base = path.substr(0, lb);
+        if (!is_simple_xmp_property_name(base)) {
+            return false;
+        }
+
+        const size_t lang_begin = lb + kMarker.size();
+        if (lang_begin >= path.size() - 1U) {
+            return false;
+        }
+
+        const std::string_view lang
+            = path.substr(lang_begin, path.size() - lang_begin - 1U);
+        if (!xmp_lang_value_is_safe(lang)) {
+            return false;
+        }
+
+        *out_base = base;
+        *out_lang = lang;
         return true;
     }
 
@@ -3242,6 +3302,14 @@ namespace {
         Container container    = Container::Seq;
     };
 
+    struct PortableLangAltProperty final {
+        std::string_view prefix;
+        std::string_view base;
+        std::string_view lang;
+        uint32_t order         = 0U;
+        const MetaValue* value = nullptr;
+    };
+
     static PortableIndexedProperty::Container
     portable_existing_xmp_indexed_container(std::string_view prefix,
                                             std::string_view name) noexcept
@@ -3260,6 +3328,14 @@ namespace {
         }
 
         return PortableIndexedProperty::Container::Seq;
+    }
+
+    static bool portable_property_prefers_lang_alt(std::string_view prefix,
+                                                   std::string_view name) noexcept
+    {
+        return prefix == "dc"
+               && (name == "title" || name == "description"
+                   || name == "rights");
     }
 
     struct PortablePropertyKey final {
@@ -3293,6 +3369,7 @@ namespace {
     enum class PortablePropertyShape : uint8_t {
         Scalar,
         Indexed,
+        LangAlt,
     };
 
     struct PortablePropertyClaim final {
@@ -3300,21 +3377,119 @@ namespace {
         PortablePropertyShape shape  = PortablePropertyShape::Scalar;
     };
 
+    struct PortableLangAltClaimKey final {
+        std::string_view prefix;
+        std::string_view name;
+        std::string_view lang;
+    };
+
+    struct PortableLangAltClaimKeyHash final {
+        size_t operator()(const PortableLangAltClaimKey& key) const noexcept
+        {
+            const size_t h1 = std::hash<std::string_view> {}(key.prefix);
+            const size_t h2 = std::hash<std::string_view> {}(key.name);
+            const size_t h3 = std::hash<std::string_view> {}(key.lang);
+            size_t h        = h1 ^ (h2 + 0x9e3779b9U + (h1 << 6U) + (h1 >> 2U));
+            h ^= h3 + 0x9e3779b9U + (h << 6U) + (h >> 2U);
+            return h;
+        }
+    };
+
+    struct PortableLangAltClaimKeyEq final {
+        bool operator()(const PortableLangAltClaimKey& a,
+                        const PortableLangAltClaimKey& b) const noexcept
+        {
+            return a.prefix == b.prefix && a.name == b.name
+                   && a.lang == b.lang;
+        }
+    };
+
     using PortablePropertyClaimMap
         = std::unordered_map<PortablePropertyKey, PortablePropertyClaim,
                              PortablePropertyKeyHash, PortablePropertyKeyEq>;
-    using PortablePropertyKeySet
-        = std::unordered_set<PortablePropertyKey, PortablePropertyKeyHash,
-                             PortablePropertyKeyEq>;
+    using PortableLangAltClaimOwnerMap
+        = std::unordered_map<PortableLangAltClaimKey, PortablePropertyOwner,
+                             PortableLangAltClaimKeyHash,
+                             PortableLangAltClaimKeyEq>;
+    struct PortablePropertyGeneratedShape final {
+        PortablePropertyKey key;
+        PortablePropertyShape shape = PortablePropertyShape::Scalar;
+    };
 
-    static bool portable_property_key_is_present(
-        const PortablePropertyKeySet* keys, std::string_view prefix,
-        std::string_view name) noexcept
+    struct PortablePropertyGeneratedShapeHash final {
+        size_t
+        operator()(const PortablePropertyGeneratedShape& v) const noexcept
+        {
+            const size_t h1 = PortablePropertyKeyHash {}(v.key);
+            const size_t h2 = static_cast<size_t>(v.shape);
+            return h1 ^ (h2 + 0x9e3779b9U + (h1 << 6U) + (h1 >> 2U));
+        }
+    };
+
+    struct PortablePropertyGeneratedShapeEq final {
+        bool operator()(const PortablePropertyGeneratedShape& a,
+                        const PortablePropertyGeneratedShape& b) const noexcept
+        {
+            return PortablePropertyKeyEq {}(a.key, b.key)
+                   && a.shape == b.shape;
+        }
+    };
+
+    using PortablePropertyGeneratedShapeSet
+        = std::unordered_set<PortablePropertyGeneratedShape,
+                             PortablePropertyGeneratedShapeHash,
+                             PortablePropertyGeneratedShapeEq>;
+
+    struct PortableGeneratedLangAltKey final {
+        PortablePropertyKey key;
+        std::string_view lang;
+    };
+
+    struct PortableGeneratedLangAltKeyHash final {
+        size_t operator()(const PortableGeneratedLangAltKey& v) const noexcept
+        {
+            const size_t h1 = PortablePropertyKeyHash {}(v.key);
+            const size_t h2 = std::hash<std::string_view> {}(v.lang);
+            return h1 ^ (h2 + 0x9e3779b9U + (h1 << 6U) + (h1 >> 2U));
+        }
+    };
+
+    struct PortableGeneratedLangAltKeyEq final {
+        bool operator()(const PortableGeneratedLangAltKey& a,
+                        const PortableGeneratedLangAltKey& b) const noexcept
+        {
+            return PortablePropertyKeyEq {}(a.key, b.key) && a.lang == b.lang;
+        }
+    };
+
+    using PortableGeneratedLangAltKeySet
+        = std::unordered_set<PortableGeneratedLangAltKey,
+                             PortableGeneratedLangAltKeyHash,
+                             PortableGeneratedLangAltKeyEq>;
+
+    static bool portable_property_shape_is_present(
+        const PortablePropertyGeneratedShapeSet* keys,
+        std::string_view prefix, std::string_view name,
+        PortablePropertyShape shape) noexcept
     {
         if (!keys || prefix.empty() || name.empty()) {
             return false;
         }
-        return keys->find(PortablePropertyKey { prefix, name }) != keys->end();
+        return keys->find(PortablePropertyGeneratedShape {
+                              PortablePropertyKey { prefix, name }, shape })
+               != keys->end();
+    }
+
+    static bool portable_generated_lang_alt_is_present(
+        const PortableGeneratedLangAltKeySet* keys, std::string_view prefix,
+        std::string_view name, std::string_view lang) noexcept
+    {
+        if (!keys || prefix.empty() || name.empty() || lang.empty()) {
+            return false;
+        }
+        return keys->find(PortableGeneratedLangAltKey {
+                              PortablePropertyKey { prefix, name }, lang })
+               != keys->end();
     }
 
     static bool claim_portable_property_key(
@@ -3338,14 +3513,69 @@ namespace {
         return it->second.owner == owner && it->second.shape == shape;
     }
 
+    static bool claim_portable_lang_alt_property_key(
+        PortablePropertyClaimMap* claims,
+        PortableLangAltClaimOwnerMap* lang_alt_claims,
+        std::string_view prefix, std::string_view name, std::string_view lang,
+        PortablePropertyOwner owner, bool* out_new_claim) noexcept
+    {
+        if (!claims || !lang_alt_claims || prefix.empty() || name.empty()
+            || lang.empty() || !out_new_claim) {
+            return false;
+        }
+
+        *out_new_claim = false;
+        const PortablePropertyKey key { prefix, name };
+        const PortablePropertyClaimMap::const_iterator base_it
+            = claims->find(key);
+        if (base_it == claims->end()) {
+            (*claims)[key]
+                = PortablePropertyClaim { owner, PortablePropertyShape::LangAlt };
+        } else if (base_it->second.shape != PortablePropertyShape::LangAlt) {
+            return false;
+        }
+
+        const PortableLangAltClaimKey lang_key { prefix, name, lang };
+        const PortableLangAltClaimOwnerMap::const_iterator it
+            = lang_alt_claims->find(lang_key);
+        if (it == lang_alt_claims->end()) {
+            (*lang_alt_claims)[lang_key] = owner;
+            *out_new_claim               = true;
+            return true;
+        }
+
+        return it->second == owner;
+    }
+
+    static bool generated_replacement_exists_for_existing_scalar_property(
+        const PortablePropertyGeneratedShapeSet* generated_shapes,
+        const PortableGeneratedLangAltKeySet* generated_lang_alt,
+        std::string_view prefix, std::string_view name) noexcept
+    {
+        if (portable_property_shape_is_present(generated_shapes, prefix, name,
+                                               PortablePropertyShape::Scalar)) {
+            return true;
+        }
+        if (portable_property_prefers_lang_alt(prefix, name)
+            && portable_generated_lang_alt_is_present(generated_lang_alt,
+                                                      prefix, name,
+                                                      "x-default")) {
+            return true;
+        }
+        return false;
+    }
+
     static bool process_portable_existing_xmp_entry(
         const ByteArena& arena, std::span<const PortableCustomNsDecl> decls,
         const XmpPortableOptions& options, const Entry& e, uint32_t order,
-        const PortablePropertyKeySet* generated_keys, SpanWriter* w,
+        const PortablePropertyGeneratedShapeSet* generated_shapes,
+        const PortableGeneratedLangAltKeySet* generated_lang_alt, SpanWriter* w,
         PortablePropertyClaimMap* claims,
-        std::vector<PortableIndexedProperty>* indexed) noexcept
+        PortableLangAltClaimOwnerMap* lang_alt_claims,
+        std::vector<PortableIndexedProperty>* indexed,
+        std::vector<PortableLangAltProperty>* lang_alt) noexcept
     {
-        if (!w || !claims || !indexed
+        if (!w || !claims || !lang_alt_claims || !indexed || !lang_alt
             || e.key.kind != MetaKeyKind::XmpProperty) {
             return false;
         }
@@ -3370,8 +3600,9 @@ namespace {
                     == XmpExistingStandardNamespacePolicy::CanonicalizeManaged
                 && existing_standard_portable_property_is_managed(
                     prefix, portable_name)
-                && portable_property_key_is_present(generated_keys, prefix,
-                                                    portable_name)) {
+                && generated_replacement_exists_for_existing_scalar_property(
+                    generated_shapes, generated_lang_alt, prefix,
+                    portable_name)) {
                 return false;
             }
             bool new_claim = false;
@@ -3387,6 +3618,40 @@ namespace {
         }
 
         std::string_view base_name;
+        std::string_view lang;
+        if (parse_lang_alt_xmp_property_name(name, &base_name, &lang)) {
+            const std::string_view portable_base
+                = portable_property_name_for_existing_xmp(prefix, base_name);
+            if (portable_base.empty()
+                || xmp_property_is_nonportable_blob(prefix, portable_base)) {
+                return false;
+            }
+            if (options.existing_standard_namespace_policy
+                    == XmpExistingStandardNamespacePolicy::CanonicalizeManaged
+                && existing_standard_portable_property_is_managed(
+                    prefix, portable_base)
+                && portable_generated_lang_alt_is_present(
+                    generated_lang_alt, prefix, portable_base, lang)) {
+                return false;
+            }
+
+            bool new_claim = false;
+            if (!claim_portable_lang_alt_property_key(
+                    claims, lang_alt_claims, prefix, portable_base, lang,
+                    PortablePropertyOwner::ExistingXmp, &new_claim)) {
+                return false;
+            }
+
+            PortableLangAltProperty item;
+            item.prefix = prefix;
+            item.base   = portable_base;
+            item.lang   = lang;
+            item.order  = order;
+            item.value  = &e.value;
+            lang_alt->push_back(item);
+            return false;
+        }
+
         uint32_t index = 0U;
         if (!parse_indexed_xmp_property_name(name, &base_name, &index)) {
             return false;
@@ -3402,8 +3667,9 @@ namespace {
                 == XmpExistingStandardNamespacePolicy::CanonicalizeManaged
             && existing_standard_portable_property_is_managed(prefix,
                                                               portable_base)
-            && portable_property_key_is_present(generated_keys, prefix,
-                                                portable_base)) {
+            && portable_property_shape_is_present(
+                generated_shapes, prefix, portable_base,
+                PortablePropertyShape::Indexed)) {
             return false;
         }
 
@@ -3469,13 +3735,19 @@ namespace {
                     "omns", name);
             } else {
                 std::string_view base_name;
-                uint32_t index = 0U;
-                if (!parse_indexed_xmp_property_name(name, &base_name,
-                                                     &index)) {
-                    continue;
+                std::string_view lang;
+                if (parse_lang_alt_xmp_property_name(name, &base_name, &lang)) {
+                    portable_name = portable_property_name_for_existing_xmp(
+                        "omns", base_name);
+                } else {
+                    uint32_t index = 0U;
+                    if (!parse_indexed_xmp_property_name(name, &base_name,
+                                                         &index)) {
+                        continue;
+                    }
+                    portable_name = portable_property_name_for_existing_xmp(
+                        "omns", base_name);
                 }
-                portable_name = portable_property_name_for_existing_xmp(
-                    "omns", base_name);
             }
             if (portable_name.empty()
                 || xmp_property_is_nonportable_blob("omns", portable_name)
@@ -3721,9 +3993,11 @@ namespace {
     static bool process_portable_iptc_entry(
         const ByteArena& arena, const Entry& e, uint32_t order, SpanWriter* w,
         PortablePropertyClaimMap* claims,
-        std::vector<PortableIndexedProperty>* indexed) noexcept
+        PortableLangAltClaimOwnerMap* lang_alt_claims,
+        std::vector<PortableIndexedProperty>* indexed,
+        std::vector<PortableLangAltProperty>* lang_alt) noexcept
     {
-        if (!w || !claims || !indexed
+        if (!w || !claims || !lang_alt_claims || !indexed || !lang_alt
             || e.key.kind != MetaKeyKind::IptcDataset) {
             return false;
         }
@@ -3756,6 +4030,23 @@ namespace {
             item.value     = &e.value;
             item.container = container;
             indexed->push_back(item);
+            return false;
+        }
+
+        if (portable_property_prefers_lang_alt(prefix, name)) {
+            bool new_claim = false;
+            if (!claim_portable_lang_alt_property_key(
+                    claims, lang_alt_claims, prefix, name, "x-default",
+                    PortablePropertyOwner::Iptc, &new_claim)) {
+                return false;
+            }
+            PortableLangAltProperty item;
+            item.prefix = prefix;
+            item.base   = name;
+            item.lang   = "x-default";
+            item.order  = order;
+            item.value  = &e.value;
+            lang_alt->push_back(item);
             return false;
         }
 
@@ -3800,12 +4091,14 @@ namespace {
     static void collect_generated_portable_property_keys(
         const ByteArena& arena, std::span<const Entry> entries,
         const XmpPortableOptions& options,
-        PortablePropertyKeySet* out) noexcept
+        PortablePropertyGeneratedShapeSet* out,
+        PortableGeneratedLangAltKeySet* out_lang_alt) noexcept
     {
-        if (!out) {
+        if (!out || !out_lang_alt) {
             return;
         }
         out->clear();
+        out_lang_alt->clear();
 
         for (size_t i = 0; i < entries.size(); ++i) {
             const Entry& e = entries[i];
@@ -3859,8 +4152,9 @@ namespace {
                 if (portable_exif_property_would_emit(
                         prefix, ifd, tag, portable_tag_name, arena, entries,
                         e.value)) {
-                    (void)out->insert(
-                        PortablePropertyKey { prefix, portable_tag_name });
+                    (void)out->insert(PortablePropertyGeneratedShape {
+                        PortablePropertyKey { prefix, portable_tag_name },
+                        PortablePropertyShape::Scalar });
                 }
 
                 const std::string_view xmp_alias_name
@@ -3869,8 +4163,9 @@ namespace {
                     && portable_exif_property_would_emit(
                         "xmp", ifd, tag, xmp_alias_name, arena, entries,
                         e.value)) {
-                    (void)out->insert(
-                        PortablePropertyKey { "xmp", xmp_alias_name });
+                    (void)out->insert(PortablePropertyGeneratedShape {
+                        PortablePropertyKey { "xmp", xmp_alias_name },
+                        PortablePropertyShape::Scalar });
                 }
                 continue;
             }
@@ -3894,14 +4189,136 @@ namespace {
 
             if (indexed_property) {
                 if (portable_scalar_like_value_supported(arena, e.value)) {
-                    (void)out->insert(PortablePropertyKey { prefix, name });
+                    (void)out->insert(PortablePropertyGeneratedShape {
+                        PortablePropertyKey { prefix, name },
+                        PortablePropertyShape::Indexed });
+                }
+                continue;
+            }
+
+            if (portable_property_prefers_lang_alt(prefix, name)) {
+                if (portable_scalar_like_value_supported(arena, e.value)) {
+                    (void)out_lang_alt->insert(PortableGeneratedLangAltKey {
+                        PortablePropertyKey { prefix, name }, "x-default" });
                 }
                 continue;
             }
 
             if (portable_property_would_emit(prefix, name, arena, e.value)) {
-                (void)out->insert(PortablePropertyKey { prefix, name });
+                (void)out->insert(PortablePropertyGeneratedShape {
+                    PortablePropertyKey { prefix, name },
+                    PortablePropertyShape::Scalar });
             }
+        }
+    }
+
+    static bool portable_lang_alt_property_less(
+        const PortableLangAltProperty& a,
+        const PortableLangAltProperty& b) noexcept
+    {
+        if (a.prefix != b.prefix) {
+            return a.prefix < b.prefix;
+        }
+        if (a.base != b.base) {
+            return a.base < b.base;
+        }
+        if (a.lang != b.lang) {
+            return a.lang < b.lang;
+        }
+        return a.order < b.order;
+    }
+
+    static bool emit_portable_lang_alt_property_group(
+        SpanWriter* w, std::string_view prefix, std::string_view name,
+        const ByteArena& arena,
+        std::span<const PortableLangAltProperty> items) noexcept
+    {
+        if (!w || prefix.empty() || name.empty() || items.empty()) {
+            return false;
+        }
+
+        uint32_t valid = 0U;
+        for (size_t i = 0; i < items.size(); ++i) {
+            if (!items[i].value || !xmp_lang_value_is_safe(items[i].lang)) {
+                continue;
+            }
+            if (portable_scalar_like_value_supported(arena, *items[i].value)) {
+                valid += 1U;
+            }
+        }
+        if (valid == 0U) {
+            return false;
+        }
+
+        w->append(kIndent3);
+        w->append("<");
+        w->append(prefix);
+        w->append(":");
+        w->append(name);
+        w->append(">\n");
+        w->append(kIndent4);
+        w->append("<rdf:Alt>\n");
+
+        for (size_t i = 0; i < items.size(); ++i) {
+            if (!items[i].value || !xmp_lang_value_is_safe(items[i].lang)
+                || !portable_scalar_like_value_supported(arena,
+                                                         *items[i].value)) {
+                continue;
+            }
+            w->append(kIndent4);
+            w->append(kIndent1);
+            w->append("<rdf:li xml:lang=\"");
+            w->append(items[i].lang);
+            w->append("\">");
+            (void)emit_portable_value_inline(arena, *items[i].value, w);
+            w->append("</rdf:li>\n");
+        }
+
+        w->append(kIndent4);
+        w->append("</rdf:Alt>\n");
+        w->append(kIndent3);
+        w->append("</");
+        w->append(prefix);
+        w->append(":");
+        w->append(name);
+        w->append(">\n");
+        return true;
+    }
+
+    static void emit_portable_lang_alt_groups(
+        SpanWriter* w, const ByteArena& arena,
+        std::vector<PortableLangAltProperty>* lang_alt, uint32_t max_entries,
+        uint32_t* emitted) noexcept
+    {
+        if (!w || !lang_alt || !emitted || w->limit_hit || lang_alt->empty()) {
+            return;
+        }
+
+        std::stable_sort(lang_alt->begin(), lang_alt->end(),
+                         portable_lang_alt_property_less);
+
+        size_t i = 0U;
+        while (i < lang_alt->size()) {
+            if (max_entries != 0U && *emitted >= max_entries) {
+                w->limit_hit = true;
+                break;
+            }
+
+            size_t j = i + 1U;
+            while (j < lang_alt->size()
+                   && (*lang_alt)[j].prefix == (*lang_alt)[i].prefix
+                   && (*lang_alt)[j].base == (*lang_alt)[i].base) {
+                j += 1U;
+            }
+
+            if (emit_portable_lang_alt_property_group(
+                    w, (*lang_alt)[i].prefix, (*lang_alt)[i].base, arena,
+                    std::span<const PortableLangAltProperty>(
+                        lang_alt->data() + i, j - i))) {
+                *emitted += 1U;
+            }
+
+            i = j;
         }
     }
 
@@ -4035,13 +4452,17 @@ namespace {
         PortablePassKind pass, const ByteArena& arena,
         std::span<const PortableCustomNsDecl> custom_decls,
         std::span<const Entry> entries, const XmpPortableOptions& options,
-        const PortablePropertyKeySet* generated_keys, SpanWriter* w,
+        const PortablePropertyGeneratedShapeSet* generated_keys,
+        const PortableGeneratedLangAltKeySet* generated_lang_alt,
+        SpanWriter* w,
         PortablePropertyClaimMap* claims,
-        std::vector<PortableIndexedProperty>* indexed, uint32_t* emitted,
+        PortableLangAltClaimOwnerMap* lang_alt_claims,
+        std::vector<PortableIndexedProperty>* indexed,
+        std::vector<PortableLangAltProperty>* lang_alt, uint32_t* emitted,
         uint32_t* iptc_order) noexcept
     {
-        if (!w || !claims || !indexed || !emitted || !iptc_order
-            || w->limit_hit) {
+        if (!w || !claims || !lang_alt_claims || !indexed || !lang_alt
+            || !emitted || !iptc_order || w->limit_hit) {
             return;
         }
 
@@ -4087,8 +4508,9 @@ namespace {
                 }
                 if (process_portable_existing_xmp_entry(
                         arena, custom_decls, options, e,
-                        static_cast<uint32_t>(i), generated_keys, w, claims,
-                        indexed)) {
+                        static_cast<uint32_t>(i), generated_keys,
+                        generated_lang_alt, w, claims, lang_alt_claims,
+                        indexed, lang_alt)) {
                     *emitted += 1U;
                 }
                 continue;
@@ -4099,7 +4521,8 @@ namespace {
                 continue;
             }
             if (process_portable_iptc_entry(arena, e, *iptc_order, w, claims,
-                                            indexed)) {
+                                            lang_alt_claims, indexed,
+                                            lang_alt)) {
                 *emitted += 1U;
             }
             *iptc_order += 1U;
@@ -4116,11 +4539,12 @@ dump_xmp_portable(const MetaStore& store, std::span<std::byte> out,
     XmpDumpResult r;
     SpanWriter w(out, options.limits.max_output_bytes);
 
-    static constexpr std::array<XmpNsDecl, 6> kDecls = {
+    static constexpr std::array<XmpNsDecl, 7> kDecls = {
         XmpNsDecl { "xmp", kXmpNsXmp },
         XmpNsDecl { "tiff", kXmpNsTiff },
         XmpNsDecl { "exif", kXmpNsExif },
         XmpNsDecl { "dc", kXmpNsDc },
+        XmpNsDecl { "xmpRights", kXmpNsXmpRights },
         XmpNsDecl { "photoshop", kXmpNsPhotoshop },
         XmpNsDecl { "Iptc4xmpCore", kXmpNsIptc4xmpCore },
     };
@@ -4144,15 +4568,22 @@ dump_xmp_portable(const MetaStore& store, std::span<std::byte> out,
 
     std::vector<PortableIndexedProperty> indexed;
     indexed.reserve(128);
+    std::vector<PortableLangAltProperty> lang_alt;
+    lang_alt.reserve(64);
     PortablePropertyClaimMap claims;
     claims.reserve(256);
-    PortablePropertyKeySet generated_keys;
+    PortableLangAltClaimOwnerMap lang_alt_claims;
+    lang_alt_claims.reserve(128);
+    PortablePropertyGeneratedShapeSet generated_keys;
+    PortableGeneratedLangAltKeySet generated_lang_alt;
     if (options.include_existing_xmp
         && options.existing_standard_namespace_policy
                == XmpExistingStandardNamespacePolicy::CanonicalizeManaged) {
         generated_keys.reserve(256);
+        generated_lang_alt.reserve(64);
         collect_generated_portable_property_keys(arena, es, options,
-                                                 &generated_keys);
+                                                 &generated_keys,
+                                                 &generated_lang_alt);
     }
 
     uint32_t emitted    = 0;
@@ -4162,79 +4593,93 @@ dump_xmp_portable(const MetaStore& store, std::span<std::byte> out,
         emit_portable_pass(PortablePassKind::ExistingXmp, arena,
                            std::span<const PortableCustomNsDecl>(
                                custom_decls.data(), custom_decls.size()),
-                           es, options, &generated_keys, &w, &claims, &indexed,
+                           es, options, &generated_keys, &generated_lang_alt,
+                           &w, &claims, &lang_alt_claims, &indexed, &lang_alt,
                            &emitted,
                            &iptc_order);
         emit_portable_pass(PortablePassKind::Exif, arena,
                            std::span<const PortableCustomNsDecl>(
                                custom_decls.data(), custom_decls.size()),
-                           es, options, &generated_keys, &w, &claims, &indexed,
+                           es, options, &generated_keys, &generated_lang_alt,
+                           &w, &claims, &lang_alt_claims, &indexed, &lang_alt,
                            &emitted,
                            &iptc_order);
         emit_portable_pass(PortablePassKind::ExifXmpAlias, arena,
                            std::span<const PortableCustomNsDecl>(
                                custom_decls.data(), custom_decls.size()),
-                           es, options, &generated_keys, &w, &claims, &indexed,
+                           es, options, &generated_keys, &generated_lang_alt,
+                           &w, &claims, &lang_alt_claims, &indexed, &lang_alt,
                            &emitted,
                            &iptc_order);
         emit_portable_pass(PortablePassKind::Iptc, arena,
                            std::span<const PortableCustomNsDecl>(
                                custom_decls.data(), custom_decls.size()),
-                           es, options, &generated_keys, &w, &claims, &indexed,
+                           es, options, &generated_keys, &generated_lang_alt,
+                           &w, &claims, &lang_alt_claims, &indexed, &lang_alt,
                            &emitted,
                            &iptc_order);
     } else if (options.conflict_policy == XmpConflictPolicy::GeneratedWins) {
         emit_portable_pass(PortablePassKind::Exif, arena,
                            std::span<const PortableCustomNsDecl>(
                                custom_decls.data(), custom_decls.size()),
-                           es, options, &generated_keys, &w, &claims, &indexed,
+                           es, options, &generated_keys, &generated_lang_alt,
+                           &w, &claims, &lang_alt_claims, &indexed, &lang_alt,
                            &emitted,
                            &iptc_order);
         emit_portable_pass(PortablePassKind::ExifXmpAlias, arena,
                            std::span<const PortableCustomNsDecl>(
                                custom_decls.data(), custom_decls.size()),
-                           es, options, &generated_keys, &w, &claims, &indexed,
+                           es, options, &generated_keys, &generated_lang_alt,
+                           &w, &claims, &lang_alt_claims, &indexed, &lang_alt,
                            &emitted,
                            &iptc_order);
         emit_portable_pass(PortablePassKind::Iptc, arena,
                            std::span<const PortableCustomNsDecl>(
                                custom_decls.data(), custom_decls.size()),
-                           es, options, &generated_keys, &w, &claims, &indexed,
+                           es, options, &generated_keys, &generated_lang_alt,
+                           &w, &claims, &lang_alt_claims, &indexed, &lang_alt,
                            &emitted,
                            &iptc_order);
         emit_portable_pass(PortablePassKind::ExistingXmp, arena,
                            std::span<const PortableCustomNsDecl>(
                                custom_decls.data(), custom_decls.size()),
-                           es, options, &generated_keys, &w, &claims, &indexed,
+                           es, options, &generated_keys, &generated_lang_alt,
+                           &w, &claims, &lang_alt_claims, &indexed, &lang_alt,
                            &emitted,
                            &iptc_order);
     } else {
         emit_portable_pass(PortablePassKind::Exif, arena,
                            std::span<const PortableCustomNsDecl>(
                                custom_decls.data(), custom_decls.size()),
-                           es, options, &generated_keys, &w, &claims, &indexed,
+                           es, options, &generated_keys, &generated_lang_alt,
+                           &w, &claims, &lang_alt_claims, &indexed, &lang_alt,
                            &emitted,
                            &iptc_order);
         emit_portable_pass(PortablePassKind::ExifXmpAlias, arena,
                            std::span<const PortableCustomNsDecl>(
                                custom_decls.data(), custom_decls.size()),
-                           es, options, &generated_keys, &w, &claims, &indexed,
+                           es, options, &generated_keys, &generated_lang_alt,
+                           &w, &claims, &lang_alt_claims, &indexed, &lang_alt,
                            &emitted,
                            &iptc_order);
         emit_portable_pass(PortablePassKind::ExistingXmp, arena,
                            std::span<const PortableCustomNsDecl>(
                                custom_decls.data(), custom_decls.size()),
-                           es, options, &generated_keys, &w, &claims, &indexed,
+                           es, options, &generated_keys, &generated_lang_alt,
+                           &w, &claims, &lang_alt_claims, &indexed, &lang_alt,
                            &emitted,
                            &iptc_order);
         emit_portable_pass(PortablePassKind::Iptc, arena,
                            std::span<const PortableCustomNsDecl>(
                                custom_decls.data(), custom_decls.size()),
-                           es, options, &generated_keys, &w, &claims, &indexed,
+                           es, options, &generated_keys, &generated_lang_alt,
+                           &w, &claims, &lang_alt_claims, &indexed, &lang_alt,
                            &emitted,
                            &iptc_order);
     }
 
+    emit_portable_lang_alt_groups(&w, arena, &lang_alt,
+                                  options.limits.max_entries, &emitted);
     emit_portable_indexed_groups(&w, arena, &indexed,
                                  options.limits.max_entries, &emitted);
 

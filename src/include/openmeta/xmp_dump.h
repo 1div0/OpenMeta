@@ -83,7 +83,9 @@ struct XmpPortableOptions final {
     bool include_iptc = true;
     /// Include \ref MetaKeyKind::XmpProperty entries already present in the store.
     ///
-    /// \note Currently only simple `property_path` values are emitted (no `/` nesting).
+    /// \note Currently simple `property_path` values, indexed `[n]` paths,
+    /// and bounded lang-alt paths like `title[@xml:lang=x-default]` are
+    /// emitted (no `/` nesting).
     bool include_existing_xmp = false;
     /// Existing XMP namespace writeback policy for portable output.
     XmpExistingNamespacePolicy existing_namespace_policy

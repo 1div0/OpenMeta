@@ -171,6 +171,7 @@ namespace {
         bool is_rdf               = false;
         bool is_description       = false;
         bool is_array_container   = false;
+        bool is_alt_container     = false;
         bool is_li                = false;
         bool is_nonrdf            = false;
         bool contributed_to_path  = false;
@@ -306,6 +307,58 @@ namespace {
         return true;
     }
 
+    static bool path_append_lang_alt(Ctx* ctx, std::string_view lang) noexcept
+    {
+        if (!ctx || lang.empty()) {
+            return false;
+        }
+
+        for (size_t i = 0; i < lang.size(); ++i) {
+            const char c = lang[i];
+            const bool ok = (c >= 'A' && c <= 'Z')
+                            || (c >= 'a' && c <= 'z')
+                            || (c >= '0' && c <= '9') || c == '-';
+            if (!ok) {
+                return false;
+            }
+        }
+
+        static constexpr std::string_view kPrefix = "[@xml:lang=";
+        const uint32_t max_path = ctx->options.limits.max_path_bytes;
+        uint64_t needed         = static_cast<uint64_t>(ctx->path.size())
+                          + static_cast<uint64_t>(kPrefix.size())
+                          + static_cast<uint64_t>(lang.size()) + 1U;
+        if (max_path != 0U && needed > max_path) {
+            stop_parser(ctx, XmpDecodeStatus::LimitExceeded);
+            return false;
+        }
+
+        ctx->path.append(kPrefix.data(), kPrefix.size());
+        ctx->path.append(lang.data(), lang.size());
+        ctx->path.push_back(']');
+        return true;
+    }
+
+    static bool find_xml_lang_attr(const XML_Char** atts,
+                                   std::string_view* out_lang) noexcept
+    {
+        if (!atts || !out_lang) {
+            return false;
+        }
+        *out_lang = {};
+        for (int i = 0; atts[i] && atts[i + 1]; i += 2) {
+            const std::string_view an(atts[i], std::strlen(atts[i]));
+            const NameParts ap = split_name(an);
+            if (ap.uri != kXmlNs || ap.local != "lang") {
+                continue;
+            }
+            *out_lang = trim_ascii_ws(
+                std::string_view(atts[i + 1], std::strlen(atts[i + 1])));
+            return !out_lang->empty();
+        }
+        return false;
+    }
+
 
     static Frame* find_nearest_array_container(Ctx* ctx) noexcept
     {
@@ -396,6 +449,7 @@ namespace {
         frame.is_rdf             = is_rdf;
         frame.is_description     = is_desc;
         frame.is_array_container = is_seq;
+        frame.is_alt_container   = is_rdf && (parts.local == "Alt");
         frame.is_li              = is_li;
         frame.is_nonrdf          = (!is_rdf && !is_xml);
         frame.path_len_before    = static_cast<uint32_t>(ctx->path.size());
@@ -463,7 +517,15 @@ namespace {
                 container->li_counter += 1;
                 frame.path_len_before = static_cast<uint32_t>(ctx->path.size());
                 frame.contributed_to_path = true;
-                if (!path_append_index(ctx, container->li_counter)) {
+                if (container->is_alt_container) {
+                    std::string_view lang;
+                    if (find_xml_lang_attr(atts, &lang)
+                        && path_append_lang_alt(ctx, lang)) {
+                        // done
+                    } else if (!path_append_index(ctx, container->li_counter)) {
+                        return;
+                    }
+                } else if (!path_append_index(ctx, container->li_counter)) {
                     return;
                 }
             }

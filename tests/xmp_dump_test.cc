@@ -522,6 +522,57 @@ TEST(XmpDump, PortableExistingXmpSubjectIndexedPathEmitsBag)
     EXPECT_NE(s.find("<rdf:li>museum</rdf:li>"), std::string_view::npos);
 }
 
+TEST(XmpDump, PortableExistingXmpTitleAltTextEmitsRdfAlt)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, kInvalidBlockId);
+
+    Entry xmp_title_default;
+    xmp_title_default.key = make_xmp_property_key(
+        store.arena(), "http://purl.org/dc/elements/1.1/",
+        "title[@xml:lang=x-default]");
+    xmp_title_default.value = make_text(store.arena(), "Default title",
+                                        TextEncoding::Utf8);
+    xmp_title_default.origin.block          = block;
+    xmp_title_default.origin.order_in_block = 0;
+    (void)store.add_entry(xmp_title_default);
+
+    Entry xmp_title_fr;
+    xmp_title_fr.key = make_xmp_property_key(
+        store.arena(), "http://purl.org/dc/elements/1.1/",
+        "title[@xml:lang=fr-FR]");
+    xmp_title_fr.value = make_text(store.arena(), "Titre",
+                                   TextEncoding::Utf8);
+    xmp_title_fr.origin.block          = block;
+    xmp_title_fr.origin.order_in_block = 1;
+    (void)store.add_entry(xmp_title_fr);
+
+    store.finalize();
+
+    XmpPortableOptions opts;
+    opts.include_exif         = false;
+    opts.include_iptc         = false;
+    opts.include_existing_xmp = true;
+
+    std::vector<std::byte> out(2048);
+    const XmpDumpResult r
+        = dump_xmp_portable(store, std::span<std::byte>(out.data(), out.size()),
+                            opts);
+    ASSERT_EQ(r.status, XmpDumpStatus::Ok);
+    ASSERT_EQ(r.entries, 1U);
+
+    const std::string_view s(reinterpret_cast<const char*>(out.data()),
+                             static_cast<size_t>(r.written));
+    EXPECT_NE(s.find("<dc:title>"), std::string_view::npos);
+    EXPECT_NE(s.find("<rdf:Alt>"), std::string_view::npos);
+    EXPECT_NE(
+        s.find("<rdf:li xml:lang=\"x-default\">Default title</rdf:li>"),
+        std::string_view::npos);
+    EXPECT_NE(s.find("<rdf:li xml:lang=\"fr-FR\">Titre</rdf:li>"),
+              std::string_view::npos);
+}
+
 TEST(XmpDump, PortableDeduplicatesSamePropertyName)
 {
     MetaStore store;
@@ -2041,6 +2092,18 @@ TEST(XmpDump, PortableMapsIptcToDcProperties)
     caption_abstract.origin.order_in_block = 1;
     (void)store.add_entry(caption_abstract);
 
+    const std::string rights = "Copyright 2026 OpenMeta";
+    Entry copyright_notice;
+    copyright_notice.key = make_iptc_dataset_key(2U, 116U);  // CopyrightNotice
+    copyright_notice.value
+        = make_bytes(store.arena(),
+                     std::span<const std::byte>(
+                         reinterpret_cast<const std::byte*>(rights.data()),
+                         rights.size()));
+    copyright_notice.origin.block          = block;
+    copyright_notice.origin.order_in_block = 2;
+    (void)store.add_entry(copyright_notice);
+
     const std::string creator_a = "Alice";
     Entry byline_a;
     byline_a.key = make_iptc_dataset_key(2U, 80U);  // By-line
@@ -2050,7 +2113,7 @@ TEST(XmpDump, PortableMapsIptcToDcProperties)
                          reinterpret_cast<const std::byte*>(creator_a.data()),
                          creator_a.size()));
     byline_a.origin.block          = block;
-    byline_a.origin.order_in_block = 2;
+    byline_a.origin.order_in_block = 3;
     (void)store.add_entry(byline_a);
 
     const std::string creator_b = "Bob";
@@ -2062,7 +2125,7 @@ TEST(XmpDump, PortableMapsIptcToDcProperties)
                          reinterpret_cast<const std::byte*>(creator_b.data()),
                          creator_b.size()));
     byline_b.origin.block          = block;
-    byline_b.origin.order_in_block = 3;
+    byline_b.origin.order_in_block = 4;
     (void)store.add_entry(byline_b);
 
     const std::string keyword_a = "nature";
@@ -2074,7 +2137,7 @@ TEST(XmpDump, PortableMapsIptcToDcProperties)
                          reinterpret_cast<const std::byte*>(keyword_a.data()),
                          keyword_a.size()));
     keyword_1.origin.block          = block;
-    keyword_1.origin.order_in_block = 4;
+    keyword_1.origin.order_in_block = 5;
     (void)store.add_entry(keyword_1);
 
     const std::string keyword_b = "sunset";
@@ -2086,7 +2149,7 @@ TEST(XmpDump, PortableMapsIptcToDcProperties)
                          reinterpret_cast<const std::byte*>(keyword_b.data()),
                          keyword_b.size()));
     keyword_2.origin.block          = block;
-    keyword_2.origin.order_in_block = 5;
+    keyword_2.origin.order_in_block = 6;
     (void)store.add_entry(keyword_2);
 
     store.finalize();
@@ -2103,10 +2166,20 @@ TEST(XmpDump, PortableMapsIptcToDcProperties)
 
     const std::string_view s(reinterpret_cast<const char*>(out.data()),
                              static_cast<size_t>(r.written));
-    EXPECT_NE(s.find("<dc:title>Sunset</dc:title>"), std::string_view::npos);
-    EXPECT_NE(s.find(
-                  "<dc:description>Golden hour over the lake</dc:description>"),
-              std::string_view::npos);
+    EXPECT_NE(s.find("<dc:title>"), std::string_view::npos);
+    EXPECT_NE(s.find("<dc:description>"), std::string_view::npos);
+    EXPECT_NE(s.find("<dc:rights>"), std::string_view::npos);
+    EXPECT_NE(s.find("<rdf:Alt>"), std::string_view::npos);
+    EXPECT_NE(
+        s.find("<rdf:li xml:lang=\"x-default\">Sunset</rdf:li>"),
+        std::string_view::npos);
+    EXPECT_NE(
+        s.find(
+            "<rdf:li xml:lang=\"x-default\">Golden hour over the lake</rdf:li>"),
+        std::string_view::npos);
+    EXPECT_NE(
+        s.find("<rdf:li xml:lang=\"x-default\">Copyright 2026 OpenMeta</rdf:li>"),
+        std::string_view::npos);
 
     EXPECT_NE(s.find("<dc:creator>"), std::string_view::npos);
     EXPECT_NE(s.find("<rdf:Seq>"), std::string_view::npos);
@@ -2342,8 +2415,10 @@ TEST(XmpDump, PortableGeneratedIptcCanOverrideExistingXmp)
 
     const std::string_view s(reinterpret_cast<const char*>(out.data()),
                              static_cast<size_t>(r.written));
-    EXPECT_NE(s.find("<dc:description>From IPTC</dc:description>"),
-              std::string_view::npos);
+    EXPECT_NE(s.find("<dc:description>"), std::string_view::npos);
+    EXPECT_NE(
+        s.find("<rdf:li xml:lang=\"x-default\">From IPTC</rdf:li>"),
+        std::string_view::npos);
     EXPECT_EQ(s.find("<dc:description>From XMP</dc:description>"),
               std::string_view::npos);
 }
@@ -2443,6 +2518,72 @@ TEST(XmpDump, PortableExistingXmpPrefersFirstSeenScalarOverIndexedShape)
               std::string_view::npos);
 }
 
+TEST(XmpDump,
+     PortableCanonicalizeManagedReplacesXDefaultAltTextAndPreservesOtherLocales)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, kInvalidBlockId);
+
+    const std::string title = "Generated Title";
+    Entry iptc_title;
+    iptc_title.key = make_iptc_dataset_key(2U, 5U);
+    iptc_title.value = make_bytes(
+        store.arena(),
+        std::span<const std::byte>(
+            reinterpret_cast<const std::byte*>(title.data()), title.size()));
+    iptc_title.origin.block          = block;
+    iptc_title.origin.order_in_block = 0;
+    (void)store.add_entry(iptc_title);
+
+    Entry xmp_title_default;
+    xmp_title_default.key = make_xmp_property_key(
+        store.arena(), "http://purl.org/dc/elements/1.1/",
+        "title[@xml:lang=x-default]");
+    xmp_title_default.value = make_text(store.arena(), "Default title",
+                                        TextEncoding::Utf8);
+    xmp_title_default.origin.block          = block;
+    xmp_title_default.origin.order_in_block = 1;
+    (void)store.add_entry(xmp_title_default);
+
+    Entry xmp_title_fr;
+    xmp_title_fr.key = make_xmp_property_key(
+        store.arena(), "http://purl.org/dc/elements/1.1/",
+        "title[@xml:lang=fr-FR]");
+    xmp_title_fr.value = make_text(store.arena(), "Titre localise",
+                                   TextEncoding::Utf8);
+    xmp_title_fr.origin.block          = block;
+    xmp_title_fr.origin.order_in_block = 2;
+    (void)store.add_entry(xmp_title_fr);
+
+    store.finalize();
+
+    XmpPortableOptions opts;
+    opts.include_exif         = false;
+    opts.include_iptc         = true;
+    opts.include_existing_xmp = true;
+    opts.conflict_policy      = XmpConflictPolicy::ExistingWins;
+    opts.existing_standard_namespace_policy
+        = XmpExistingStandardNamespacePolicy::CanonicalizeManaged;
+
+    std::vector<std::byte> out(4096);
+    const XmpDumpResult r
+        = dump_xmp_portable(store, std::span<std::byte>(out.data(), out.size()),
+                            opts);
+    ASSERT_EQ(r.status, XmpDumpStatus::Ok);
+
+    const std::string_view s(reinterpret_cast<const char*>(out.data()),
+                             static_cast<size_t>(r.written));
+    EXPECT_NE(s.find("<rdf:Alt>"), std::string_view::npos);
+    EXPECT_NE(
+        s.find("<rdf:li xml:lang=\"x-default\">Generated Title</rdf:li>"),
+        std::string_view::npos);
+    EXPECT_NE(s.find("<rdf:li xml:lang=\"fr-FR\">Titre localise</rdf:li>"),
+              std::string_view::npos);
+    EXPECT_EQ(s.find("<rdf:li xml:lang=\"x-default\">Default title</rdf:li>"),
+              std::string_view::npos);
+}
+
 TEST(XmpDump, PortableDropsCustomExistingNamespacesByDefault)
 {
     MetaStore store;
@@ -2510,6 +2651,70 @@ TEST(XmpDump, PortableCanPreserveCustomExistingNamespaces)
               std::string_view::npos);
     EXPECT_NE(s.find("<omns1:Flag>Alpha</omns1:Flag>"),
               std::string_view::npos);
+}
+
+TEST(XmpDump, PortablePreservesXmpRightsStandardNamespace)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, kInvalidBlockId);
+
+    Entry marked;
+    marked.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/rights/", "Marked");
+    marked.value = make_text(store.arena(), "True", TextEncoding::Utf8);
+    marked.origin.block          = block;
+    marked.origin.order_in_block = 0;
+    (void)store.add_entry(marked);
+
+    Entry usage_terms;
+    usage_terms.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/rights/",
+        "UsageTerms[@xml:lang=x-default]");
+    usage_terms.value = make_text(store.arena(), "Licensed use only",
+                                  TextEncoding::Utf8);
+    usage_terms.origin.block          = block;
+    usage_terms.origin.order_in_block = 1;
+    (void)store.add_entry(usage_terms);
+
+    Entry web_statement;
+    web_statement.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/rights/",
+        "WebStatement");
+    web_statement.value = make_text(store.arena(),
+                                    "https://example.test/license",
+                                    TextEncoding::Utf8);
+    web_statement.origin.block          = block;
+    web_statement.origin.order_in_block = 2;
+    (void)store.add_entry(web_statement);
+
+    store.finalize();
+
+    XmpPortableOptions opts;
+    opts.include_exif         = false;
+    opts.include_iptc         = false;
+    opts.include_existing_xmp = true;
+
+    std::vector<std::byte> out(4096);
+    const XmpDumpResult r
+        = dump_xmp_portable(store, std::span<std::byte>(out.data(), out.size()),
+                            opts);
+    ASSERT_EQ(r.status, XmpDumpStatus::Ok);
+
+    const std::string_view s(reinterpret_cast<const char*>(out.data()),
+                             static_cast<size_t>(r.written));
+    EXPECT_NE(
+        s.find("xmlns:xmpRights=\"http://ns.adobe.com/xap/1.0/rights/\""),
+        std::string_view::npos);
+    EXPECT_NE(s.find("<xmpRights:Marked>True</xmpRights:Marked>"),
+              std::string_view::npos);
+    EXPECT_NE(s.find("<xmpRights:UsageTerms>"), std::string_view::npos);
+    EXPECT_NE(
+        s.find("<rdf:li xml:lang=\"x-default\">Licensed use only</rdf:li>"),
+        std::string_view::npos);
+    EXPECT_NE(
+        s.find("<xmpRights:WebStatement>https://example.test/license</xmpRights:WebStatement>"),
+        std::string_view::npos);
 }
 
 TEST(XmpDump, PortableMapsIptcToPhotoshopAndIptcCoreProperties)

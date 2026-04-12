@@ -5947,7 +5947,11 @@ TEST(MetadataTransferApi, PreparePortableXmpCanPreferGeneratedOverExistingIptc)
     EXPECT_TRUE(payload_contains_ascii(
         std::span<const std::byte>(bundle.blocks[0].payload.data(),
                                    bundle.blocks[0].payload.size()),
-        "<dc:description>From IPTC</dc:description>"));
+        "<dc:description>"));
+    EXPECT_TRUE(payload_contains_ascii(
+        std::span<const std::byte>(bundle.blocks[0].payload.data(),
+                                   bundle.blocks[0].payload.size()),
+        "<rdf:li xml:lang=\"x-default\">From IPTC</rdf:li>"));
     EXPECT_FALSE(payload_contains_ascii(
         std::span<const std::byte>(bundle.blocks[0].payload.data(),
                                    bundle.blocks[0].payload.size()),
@@ -5994,6 +5998,81 @@ TEST(MetadataTransferApi, PreparePortableXmpCanPreserveCustomExistingNamespaces)
         std::span<const std::byte>(bundle.blocks[0].payload.data(),
                                    bundle.blocks[0].payload.size()),
         "<omns1:Flag>Alpha</omns1:Flag>"));
+}
+
+TEST(MetadataTransferApi,
+     PreparePortableXmpPreservesXmpRightsStandardNamespace)
+{
+    openmeta::MetaStore store;
+    const openmeta::BlockId block = store.add_block(openmeta::BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    const std::string rights = "Generated copyright";
+    openmeta::Entry iptc_rights;
+    iptc_rights.key = openmeta::make_iptc_dataset_key(2U, 116U);
+    iptc_rights.value = openmeta::make_bytes(
+        store.arena(),
+        std::span<const std::byte>(
+            reinterpret_cast<const std::byte*>(rights.data()), rights.size()));
+    iptc_rights.origin.block          = block;
+    iptc_rights.origin.order_in_block = 0U;
+    ASSERT_NE(store.add_entry(iptc_rights), openmeta::kInvalidEntryId);
+
+    openmeta::Entry usage_terms;
+    usage_terms.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/rights/",
+        "UsageTerms[@xml:lang=x-default]");
+    usage_terms.value = openmeta::make_text(
+        store.arena(), "Licensed use only", openmeta::TextEncoding::Utf8);
+    usage_terms.origin.block          = block;
+    usage_terms.origin.order_in_block = 1U;
+    ASSERT_NE(store.add_entry(usage_terms), openmeta::kInvalidEntryId);
+
+    openmeta::Entry web_statement;
+    web_statement.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/rights/",
+        "WebStatement");
+    web_statement.value = openmeta::make_text(
+        store.arena(), "https://example.test/license",
+        openmeta::TextEncoding::Utf8);
+    web_statement.origin.block          = block;
+    web_statement.origin.order_in_block = 2U;
+    ASSERT_NE(store.add_entry(web_statement), openmeta::kInvalidEntryId);
+    store.finalize();
+
+    openmeta::PrepareTransferRequest request;
+    request.include_exif_app1    = false;
+    request.include_icc_app2     = false;
+    request.include_iptc_app13   = false;
+    request.xmp_portable         = true;
+    request.xmp_include_existing = true;
+    request.xmp_conflict_policy  = openmeta::XmpConflictPolicy::GeneratedWins;
+    request.xmp_existing_standard_namespace_policy
+        = openmeta::XmpExistingStandardNamespacePolicy::CanonicalizeManaged;
+
+    openmeta::PreparedTransferBundle bundle;
+    const openmeta::PrepareTransferResult result
+        = openmeta::prepare_metadata_for_target(store, request, &bundle);
+
+    EXPECT_EQ(result.status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(bundle.blocks.size(), 1U);
+    EXPECT_EQ(bundle.blocks[0].route, "jpeg:app1-xmp");
+    EXPECT_TRUE(payload_contains_ascii(
+        std::span<const std::byte>(bundle.blocks[0].payload.data(),
+                                   bundle.blocks[0].payload.size()),
+        "xmlns:xmpRights=\"http://ns.adobe.com/xap/1.0/rights/\""));
+    EXPECT_TRUE(payload_contains_ascii(
+        std::span<const std::byte>(bundle.blocks[0].payload.data(),
+                                   bundle.blocks[0].payload.size()),
+        "<rdf:li xml:lang=\"x-default\">Generated copyright</rdf:li>"));
+    EXPECT_TRUE(payload_contains_ascii(
+        std::span<const std::byte>(bundle.blocks[0].payload.data(),
+                                   bundle.blocks[0].payload.size()),
+        "<rdf:li xml:lang=\"x-default\">Licensed use only</rdf:li>"));
+    EXPECT_TRUE(payload_contains_ascii(
+        std::span<const std::byte>(bundle.blocks[0].payload.data(),
+                                   bundle.blocks[0].payload.size()),
+        "<xmpRights:WebStatement>https://example.test/license</xmpRights:WebStatement>"));
 }
 
 TEST(MetadataTransferApi,
@@ -6053,6 +6132,81 @@ TEST(MetadataTransferApi,
         std::span<const std::byte>(bundle.blocks[0].payload.data(),
                                    bundle.blocks[0].payload.size()),
         "<dc:subject>scalar-keyword</dc:subject>"));
+}
+
+TEST(MetadataTransferApi,
+     PreparePortableXmpCanonicalizeManagedReplacesXDefaultAltTextAndPreservesOtherLocales)
+{
+    openmeta::MetaStore store;
+    const openmeta::BlockId block = store.add_block(openmeta::BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    const std::string title = "Generated Title";
+    openmeta::Entry iptc_title;
+    iptc_title.key = openmeta::make_iptc_dataset_key(2U, 5U);
+    iptc_title.value = openmeta::make_bytes(
+        store.arena(),
+        std::span<const std::byte>(
+            reinterpret_cast<const std::byte*>(title.data()), title.size()));
+    iptc_title.origin.block          = block;
+    iptc_title.origin.order_in_block = 0U;
+    ASSERT_NE(store.add_entry(iptc_title), openmeta::kInvalidEntryId);
+
+    openmeta::Entry xmp_title_default;
+    xmp_title_default.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://purl.org/dc/elements/1.1/",
+        "title[@xml:lang=x-default]");
+    xmp_title_default.value = openmeta::make_text(
+        store.arena(), "Default title", openmeta::TextEncoding::Utf8);
+    xmp_title_default.origin.block          = block;
+    xmp_title_default.origin.order_in_block = 1U;
+    ASSERT_NE(store.add_entry(xmp_title_default), openmeta::kInvalidEntryId);
+
+    openmeta::Entry xmp_title_fr;
+    xmp_title_fr.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://purl.org/dc/elements/1.1/",
+        "title[@xml:lang=fr-FR]");
+    xmp_title_fr.value = openmeta::make_text(
+        store.arena(), "Titre localise", openmeta::TextEncoding::Utf8);
+    xmp_title_fr.origin.block          = block;
+    xmp_title_fr.origin.order_in_block = 2U;
+    ASSERT_NE(store.add_entry(xmp_title_fr), openmeta::kInvalidEntryId);
+
+    store.finalize();
+
+    openmeta::PrepareTransferRequest request;
+    request.include_exif_app1    = false;
+    request.include_icc_app2     = false;
+    request.include_iptc_app13   = false;
+    request.xmp_portable         = true;
+    request.xmp_include_existing = true;
+    request.xmp_conflict_policy  = openmeta::XmpConflictPolicy::ExistingWins;
+    request.xmp_existing_standard_namespace_policy
+        = openmeta::XmpExistingStandardNamespacePolicy::CanonicalizeManaged;
+
+    openmeta::PreparedTransferBundle bundle;
+    const openmeta::PrepareTransferResult result
+        = openmeta::prepare_metadata_for_target(store, request, &bundle);
+
+    EXPECT_EQ(result.status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(bundle.blocks.size(), 1U);
+    EXPECT_EQ(bundle.blocks[0].route, "jpeg:app1-xmp");
+    EXPECT_TRUE(payload_contains_ascii(
+        std::span<const std::byte>(bundle.blocks[0].payload.data(),
+                                   bundle.blocks[0].payload.size()),
+        "<rdf:Alt>"));
+    EXPECT_TRUE(payload_contains_ascii(
+        std::span<const std::byte>(bundle.blocks[0].payload.data(),
+                                   bundle.blocks[0].payload.size()),
+        "<rdf:li xml:lang=\"x-default\">Generated Title</rdf:li>"));
+    EXPECT_TRUE(payload_contains_ascii(
+        std::span<const std::byte>(bundle.blocks[0].payload.data(),
+                                   bundle.blocks[0].payload.size()),
+        "<rdf:li xml:lang=\"fr-FR\">Titre localise</rdf:li>"));
+    EXPECT_FALSE(payload_contains_ascii(
+        std::span<const std::byte>(bundle.blocks[0].payload.data(),
+                                   bundle.blocks[0].payload.size()),
+        "<rdf:li xml:lang=\"x-default\">Default title</rdf:li>"));
 }
 
 TEST(MetadataTransferApi, PrepareBuildsJpegExifApp1Block)

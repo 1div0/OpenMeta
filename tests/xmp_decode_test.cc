@@ -70,6 +70,51 @@ TEST(XmpDecodeTest, DecodesAttributesArraysAndRdfResource)
     expect_text("http://ns.adobe.com/xap/1.0/mm/", "InstanceID", "uuid:123");
 }
 
+TEST(XmpDecodeTest, DecodesAltTextEntriesWithXmlLangPaths)
+{
+    const std::string xmp
+        = "<x:xmpmeta xmlns:x='adobe:ns:meta/'>"
+          "<rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'>"
+          "<rdf:Description xmlns:dc='http://purl.org/dc/elements/1.1/'>"
+          "<dc:title><rdf:Alt>"
+          "<rdf:li xml:lang='x-default'>Default title</rdf:li>"
+          "<rdf:li xml:lang='fr-FR'>Titre</rdf:li>"
+          "</rdf:Alt></dc:title>"
+          "</rdf:Description>"
+          "</rdf:RDF>"
+          "</x:xmpmeta>";
+
+    const std::span<const std::byte> bytes(
+        reinterpret_cast<const std::byte*>(xmp.data()), xmp.size());
+
+    MetaStore store;
+    const XmpDecodeResult r = decode_xmp_packet(bytes, store);
+    EXPECT_EQ(r.status, XmpDecodeStatus::Ok);
+    EXPECT_EQ(r.entries_decoded, 2U);
+
+    store.finalize();
+
+    auto expect_text = [&](std::string_view path, std::string_view expected) {
+        MetaKeyView key;
+        key.kind                            = MetaKeyKind::XmpProperty;
+        key.data.xmp_property.schema_ns     = "http://purl.org/dc/elements/1.1/";
+        key.data.xmp_property.property_path = path;
+
+        const std::span<const EntryId> ids = store.find_all(key);
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        ASSERT_EQ(e.value.kind, MetaValueKind::Text);
+        const std::span<const std::byte> vb = store.arena().span(
+            e.value.data.span);
+        const std::string_view val(reinterpret_cast<const char*>(vb.data()),
+                                   vb.size());
+        EXPECT_EQ(val, expected);
+    };
+
+    expect_text("title[@xml:lang=x-default]", "Default title");
+    expect_text("title[@xml:lang=fr-FR]", "Titre");
+}
+
 TEST(XmpDecodeTest, TrimsTrailingNulPadding)
 {
     const std::string xmp
