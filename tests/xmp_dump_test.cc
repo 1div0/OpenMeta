@@ -2717,6 +2717,235 @@ TEST(XmpDump, PortablePreservesXmpRightsStandardNamespace)
         std::string_view::npos);
 }
 
+TEST(XmpDump, PortablePreservesXmpMmStandardNamespace)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, kInvalidBlockId);
+
+    Entry document_id;
+    document_id.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/mm/", "DocumentID");
+    document_id.value = make_text(store.arena(), "xmp.did:1234",
+                                  TextEncoding::Utf8);
+    document_id.origin.block          = block;
+    document_id.origin.order_in_block = 0;
+    (void)store.add_entry(document_id);
+
+    Entry instance_id;
+    instance_id.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/mm/", "InstanceID");
+    instance_id.value = make_text(store.arena(), "xmp.iid:5678",
+                                  TextEncoding::Utf8);
+    instance_id.origin.block          = block;
+    instance_id.origin.order_in_block = 1;
+    (void)store.add_entry(instance_id);
+
+    Entry original_document_id;
+    original_document_id.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/mm/",
+        "OriginalDocumentID");
+    original_document_id.value = make_text(store.arena(), "xmp.did:0001",
+                                           TextEncoding::Utf8);
+    original_document_id.origin.block          = block;
+    original_document_id.origin.order_in_block = 2;
+    (void)store.add_entry(original_document_id);
+
+    store.finalize();
+
+    XmpPortableOptions opts;
+    opts.include_exif         = false;
+    opts.include_iptc         = false;
+    opts.include_existing_xmp = true;
+
+    std::vector<std::byte> out(4096);
+    const XmpDumpResult r
+        = dump_xmp_portable(store, std::span<std::byte>(out.data(), out.size()),
+                            opts);
+    ASSERT_EQ(r.status, XmpDumpStatus::Ok);
+
+    const std::string_view s(reinterpret_cast<const char*>(out.data()),
+                             static_cast<size_t>(r.written));
+    EXPECT_NE(s.find("xmlns:xmpMM=\"http://ns.adobe.com/xap/1.0/mm/\""),
+              std::string_view::npos);
+    EXPECT_NE(s.find("<xmpMM:DocumentID>xmp.did:1234</xmpMM:DocumentID>"),
+              std::string_view::npos);
+    EXPECT_NE(s.find("<xmpMM:InstanceID>xmp.iid:5678</xmpMM:InstanceID>"),
+              std::string_view::npos);
+    EXPECT_NE(
+        s.find("<xmpMM:OriginalDocumentID>xmp.did:0001</xmpMM:OriginalDocumentID>"),
+        std::string_view::npos);
+}
+
+TEST(XmpDump, PortablePreservesAuxStandardNamespace)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, kInvalidBlockId);
+
+    Entry lens;
+    lens.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/exif/1.0/aux/", "Lens");
+    lens.value = make_text(store.arena(), "RF24-70mm F2.8 L IS USM",
+                           TextEncoding::Utf8);
+    lens.origin.block          = block;
+    lens.origin.order_in_block = 0;
+    (void)store.add_entry(lens);
+
+    Entry serial_number;
+    serial_number.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/exif/1.0/aux/", "SerialNumber");
+    serial_number.value = make_text(store.arena(), "1234567890",
+                                    TextEncoding::Utf8);
+    serial_number.origin.block          = block;
+    serial_number.origin.order_in_block = 1;
+    (void)store.add_entry(serial_number);
+
+    Entry lens_id;
+    lens_id.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/exif/1.0/aux/", "LensID");
+    lens_id.value = make_text(store.arena(), "RF24-70",
+                              TextEncoding::Utf8);
+    lens_id.origin.block          = block;
+    lens_id.origin.order_in_block = 2;
+    (void)store.add_entry(lens_id);
+
+    store.finalize();
+
+    XmpPortableOptions opts;
+    opts.include_exif         = false;
+    opts.include_iptc         = false;
+    opts.include_existing_xmp = true;
+
+    std::vector<std::byte> out(4096);
+    const XmpDumpResult r
+        = dump_xmp_portable(store, std::span<std::byte>(out.data(), out.size()),
+                            opts);
+    ASSERT_EQ(r.status, XmpDumpStatus::Ok);
+
+    const std::string_view s(reinterpret_cast<const char*>(out.data()),
+                             static_cast<size_t>(r.written));
+    EXPECT_NE(s.find("xmlns:aux=\"http://ns.adobe.com/exif/1.0/aux/\""),
+              std::string_view::npos);
+    EXPECT_NE(s.find("<aux:Lens>RF24-70mm F2.8 L IS USM</aux:Lens>"),
+              std::string_view::npos);
+    EXPECT_NE(s.find("<aux:SerialNumber>1234567890</aux:SerialNumber>"),
+              std::string_view::npos);
+    EXPECT_NE(s.find("<aux:LensID>RF24-70</aux:LensID>"),
+              std::string_view::npos);
+}
+
+TEST(XmpDump, PortablePreservesCrsNamespace)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, kInvalidBlockId);
+
+    Entry process_version;
+    process_version.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/camera-raw-settings/1.0/",
+        "ProcessVersion");
+    process_version.value = make_text(store.arena(), "16.0",
+                                      TextEncoding::Utf8);
+    process_version.origin.block          = block;
+    process_version.origin.order_in_block = 0;
+    (void)store.add_entry(process_version);
+
+    Entry exposure;
+    exposure.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/camera-raw-settings/1.0/",
+        "Exposure2012");
+    exposure.value = make_text(store.arena(), "+0.35",
+                               TextEncoding::Utf8);
+    exposure.origin.block          = block;
+    exposure.origin.order_in_block = 1;
+    (void)store.add_entry(exposure);
+
+    Entry white_balance;
+    white_balance.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/camera-raw-settings/1.0/",
+        "WhiteBalance");
+    white_balance.value = make_text(store.arena(), "As Shot",
+                                    TextEncoding::Utf8);
+    white_balance.origin.block          = block;
+    white_balance.origin.order_in_block = 2;
+    (void)store.add_entry(white_balance);
+
+    store.finalize();
+
+    XmpPortableOptions opts;
+    opts.include_exif         = false;
+    opts.include_iptc         = false;
+    opts.include_existing_xmp = true;
+
+    std::vector<std::byte> out(4096);
+    const XmpDumpResult r
+        = dump_xmp_portable(store, std::span<std::byte>(out.data(), out.size()),
+                            opts);
+    ASSERT_EQ(r.status, XmpDumpStatus::Ok);
+
+    const std::string_view s(reinterpret_cast<const char*>(out.data()),
+                             static_cast<size_t>(r.written));
+    EXPECT_NE(
+        s.find("xmlns:crs=\"http://ns.adobe.com/camera-raw-settings/1.0/\""),
+        std::string_view::npos);
+    EXPECT_NE(s.find("<crs:ProcessVersion>16.0</crs:ProcessVersion>"),
+              std::string_view::npos);
+    EXPECT_NE(s.find("<crs:Exposure2012>+0.35</crs:Exposure2012>"),
+              std::string_view::npos);
+    EXPECT_NE(s.find("<crs:WhiteBalance>As Shot</crs:WhiteBalance>"),
+              std::string_view::npos);
+}
+
+TEST(XmpDump, PortablePreservesLrNamespace)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, kInvalidBlockId);
+
+    Entry private_rtk_info;
+    private_rtk_info.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/lightroom/1.0/",
+        "PrivateRTKInfo");
+    private_rtk_info.value = make_text(store.arena(), "face-region-cache",
+                                       TextEncoding::Utf8);
+    private_rtk_info.origin.block          = block;
+    private_rtk_info.origin.order_in_block = 0;
+    (void)store.add_entry(private_rtk_info);
+
+    Entry private_rtk_flag;
+    private_rtk_flag.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/lightroom/1.0/",
+        "PrivateRTKFlag");
+    private_rtk_flag.value = make_text(store.arena(), "true",
+                                       TextEncoding::Utf8);
+    private_rtk_flag.origin.block          = block;
+    private_rtk_flag.origin.order_in_block = 1;
+    (void)store.add_entry(private_rtk_flag);
+
+    store.finalize();
+
+    XmpPortableOptions opts;
+    opts.include_exif         = false;
+    opts.include_iptc         = false;
+    opts.include_existing_xmp = true;
+
+    std::vector<std::byte> out(1024);
+    const XmpDumpResult r
+        = dump_xmp_portable(store, std::span<std::byte>(out.data(), out.size()),
+                            opts);
+    ASSERT_EQ(r.status, XmpDumpStatus::Ok);
+
+    const std::string_view s(reinterpret_cast<const char*>(out.data()),
+                             static_cast<size_t>(r.written));
+    EXPECT_NE(s.find("xmlns:lr=\"http://ns.adobe.com/lightroom/1.0/\""),
+              std::string_view::npos);
+    EXPECT_NE(s.find("<lr:PrivateRTKInfo>face-region-cache</lr:PrivateRTKInfo>"),
+              std::string_view::npos);
+    EXPECT_NE(s.find("<lr:PrivateRTKFlag>true</lr:PrivateRTKFlag>"),
+              std::string_view::npos);
+}
+
 TEST(XmpDump, PortableMapsIptcToPhotoshopAndIptcCoreProperties)
 {
     MetaStore store;

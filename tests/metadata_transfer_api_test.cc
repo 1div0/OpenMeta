@@ -6075,6 +6075,225 @@ TEST(MetadataTransferApi,
         "<xmpRights:WebStatement>https://example.test/license</xmpRights:WebStatement>"));
 }
 
+TEST(MetadataTransferApi, PreparePortableXmpPreservesXmpMmStandardNamespace)
+{
+    openmeta::MetaStore store;
+    const openmeta::BlockId block = store.add_block(openmeta::BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    openmeta::Entry document_id;
+    document_id.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/mm/", "DocumentID");
+    document_id.value = openmeta::make_text(store.arena(), "xmp.did:1234",
+                                            openmeta::TextEncoding::Utf8);
+    document_id.origin.block          = block;
+    document_id.origin.order_in_block = 0U;
+    ASSERT_NE(store.add_entry(document_id), openmeta::kInvalidEntryId);
+
+    openmeta::Entry instance_id;
+    instance_id.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/mm/", "InstanceID");
+    instance_id.value = openmeta::make_text(store.arena(), "xmp.iid:5678",
+                                            openmeta::TextEncoding::Utf8);
+    instance_id.origin.block          = block;
+    instance_id.origin.order_in_block = 1U;
+    ASSERT_NE(store.add_entry(instance_id), openmeta::kInvalidEntryId);
+
+    store.finalize();
+
+    openmeta::PrepareTransferRequest request;
+    request.include_exif_app1    = false;
+    request.include_icc_app2     = false;
+    request.include_iptc_app13   = false;
+    request.xmp_portable         = true;
+    request.xmp_include_existing = true;
+
+    openmeta::PreparedTransferBundle bundle;
+    const openmeta::PrepareTransferResult result
+        = openmeta::prepare_metadata_for_target(store, request, &bundle);
+
+    EXPECT_EQ(result.status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(bundle.blocks.size(), 1U);
+    EXPECT_EQ(bundle.blocks[0].route, "jpeg:app1-xmp");
+    EXPECT_TRUE(payload_contains_ascii(
+        std::span<const std::byte>(bundle.blocks[0].payload.data(),
+                                   bundle.blocks[0].payload.size()),
+        "xmlns:xmpMM=\"http://ns.adobe.com/xap/1.0/mm/\""));
+    EXPECT_TRUE(payload_contains_ascii(
+        std::span<const std::byte>(bundle.blocks[0].payload.data(),
+                                   bundle.blocks[0].payload.size()),
+        "<xmpMM:DocumentID>xmp.did:1234</xmpMM:DocumentID>"));
+    EXPECT_TRUE(payload_contains_ascii(
+        std::span<const std::byte>(bundle.blocks[0].payload.data(),
+                                   bundle.blocks[0].payload.size()),
+        "<xmpMM:InstanceID>xmp.iid:5678</xmpMM:InstanceID>"));
+}
+
+TEST(MetadataTransferApi, PreparePortableXmpPreservesAuxStandardNamespace)
+{
+    openmeta::MetaStore store;
+    const openmeta::BlockId block = store.add_block(openmeta::BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    openmeta::Entry lens;
+    lens.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/exif/1.0/aux/", "Lens");
+    lens.value = openmeta::make_text(store.arena(),
+                                     "RF24-70mm F2.8 L IS USM",
+                                     openmeta::TextEncoding::Utf8);
+    lens.origin.block          = block;
+    lens.origin.order_in_block = 0U;
+    ASSERT_NE(store.add_entry(lens), openmeta::kInvalidEntryId);
+
+    openmeta::Entry serial_number;
+    serial_number.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/exif/1.0/aux/", "SerialNumber");
+    serial_number.value = openmeta::make_text(store.arena(), "1234567890",
+                                              openmeta::TextEncoding::Utf8);
+    serial_number.origin.block          = block;
+    serial_number.origin.order_in_block = 1U;
+    ASSERT_NE(store.add_entry(serial_number), openmeta::kInvalidEntryId);
+
+    store.finalize();
+
+    openmeta::PrepareTransferRequest request;
+    request.include_exif_app1    = false;
+    request.include_icc_app2     = false;
+    request.include_iptc_app13   = false;
+    request.xmp_portable         = true;
+    request.xmp_include_existing = true;
+
+    openmeta::PreparedTransferBundle bundle;
+    const openmeta::PrepareTransferResult result
+        = openmeta::prepare_metadata_for_target(store, request, &bundle);
+
+    EXPECT_EQ(result.status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(bundle.blocks.size(), 1U);
+    EXPECT_EQ(bundle.blocks[0].route, "jpeg:app1-xmp");
+    EXPECT_TRUE(payload_contains_ascii(
+        std::span<const std::byte>(bundle.blocks[0].payload.data(),
+                                   bundle.blocks[0].payload.size()),
+        "xmlns:aux=\"http://ns.adobe.com/exif/1.0/aux/\""));
+    EXPECT_TRUE(payload_contains_ascii(
+        std::span<const std::byte>(bundle.blocks[0].payload.data(),
+                                   bundle.blocks[0].payload.size()),
+        "<aux:Lens>RF24-70mm F2.8 L IS USM</aux:Lens>"));
+    EXPECT_TRUE(payload_contains_ascii(
+        std::span<const std::byte>(bundle.blocks[0].payload.data(),
+                                   bundle.blocks[0].payload.size()),
+        "<aux:SerialNumber>1234567890</aux:SerialNumber>"));
+}
+
+TEST(MetadataTransferApi, PreparePortableXmpPreservesCrsNamespace)
+{
+    openmeta::MetaStore store;
+    const openmeta::BlockId block = store.add_block(openmeta::BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    openmeta::Entry process_version;
+    process_version.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/camera-raw-settings/1.0/",
+        "ProcessVersion");
+    process_version.value = openmeta::make_text(store.arena(), "16.0",
+                                                openmeta::TextEncoding::Utf8);
+    process_version.origin.block          = block;
+    process_version.origin.order_in_block = 0U;
+    ASSERT_NE(store.add_entry(process_version), openmeta::kInvalidEntryId);
+
+    openmeta::Entry exposure;
+    exposure.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/camera-raw-settings/1.0/",
+        "Exposure2012");
+    exposure.value = openmeta::make_text(store.arena(), "+0.35",
+                                         openmeta::TextEncoding::Utf8);
+    exposure.origin.block          = block;
+    exposure.origin.order_in_block = 1U;
+    ASSERT_NE(store.add_entry(exposure), openmeta::kInvalidEntryId);
+    store.finalize();
+
+    openmeta::PrepareTransferRequest request;
+    request.include_exif_app1    = false;
+    request.include_icc_app2     = false;
+    request.include_iptc_app13   = false;
+    request.xmp_portable         = true;
+    request.xmp_include_existing = true;
+
+    openmeta::PreparedTransferBundle bundle;
+    const openmeta::PrepareTransferResult result
+        = openmeta::prepare_metadata_for_target(store, request, &bundle);
+
+    EXPECT_EQ(result.status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(bundle.blocks.size(), 1U);
+    EXPECT_EQ(bundle.blocks[0].route, "jpeg:app1-xmp");
+    EXPECT_TRUE(payload_contains_ascii(
+        std::span<const std::byte>(bundle.blocks[0].payload.data(),
+                                   bundle.blocks[0].payload.size()),
+        "xmlns:crs=\"http://ns.adobe.com/camera-raw-settings/1.0/\""));
+    EXPECT_TRUE(payload_contains_ascii(
+        std::span<const std::byte>(bundle.blocks[0].payload.data(),
+                                   bundle.blocks[0].payload.size()),
+        "<crs:ProcessVersion>16.0</crs:ProcessVersion>"));
+    EXPECT_TRUE(payload_contains_ascii(
+        std::span<const std::byte>(bundle.blocks[0].payload.data(),
+                                   bundle.blocks[0].payload.size()),
+        "<crs:Exposure2012>+0.35</crs:Exposure2012>"));
+}
+
+TEST(MetadataTransferApi, PreparePortableXmpPreservesLrNamespace)
+{
+    openmeta::MetaStore store;
+    const openmeta::BlockId block = store.add_block(openmeta::BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    openmeta::Entry private_rtk_info;
+    private_rtk_info.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/lightroom/1.0/",
+        "PrivateRTKInfo");
+    private_rtk_info.value = openmeta::make_text(
+        store.arena(), "face-region-cache", openmeta::TextEncoding::Utf8);
+    private_rtk_info.origin.block          = block;
+    private_rtk_info.origin.order_in_block = 0U;
+    ASSERT_NE(store.add_entry(private_rtk_info), openmeta::kInvalidEntryId);
+
+    openmeta::Entry private_rtk_flag;
+    private_rtk_flag.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/lightroom/1.0/",
+        "PrivateRTKFlag");
+    private_rtk_flag.value = openmeta::make_text(store.arena(), "true",
+                                                 openmeta::TextEncoding::Utf8);
+    private_rtk_flag.origin.block          = block;
+    private_rtk_flag.origin.order_in_block = 1U;
+    ASSERT_NE(store.add_entry(private_rtk_flag), openmeta::kInvalidEntryId);
+    store.finalize();
+
+    openmeta::PrepareTransferRequest request;
+    request.include_exif_app1    = false;
+    request.include_icc_app2     = false;
+    request.include_iptc_app13   = false;
+    request.xmp_portable         = true;
+    request.xmp_include_existing = true;
+
+    openmeta::PreparedTransferBundle bundle;
+    const openmeta::PrepareTransferResult result
+        = openmeta::prepare_metadata_for_target(store, request, &bundle);
+
+    EXPECT_EQ(result.status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(bundle.blocks.size(), 1U);
+    EXPECT_EQ(bundle.blocks[0].route, "jpeg:app1-xmp");
+    EXPECT_TRUE(payload_contains_ascii(
+        std::span<const std::byte>(bundle.blocks[0].payload.data(),
+                                   bundle.blocks[0].payload.size()),
+        "xmlns:lr=\"http://ns.adobe.com/lightroom/1.0/\""));
+    EXPECT_TRUE(payload_contains_ascii(
+        std::span<const std::byte>(bundle.blocks[0].payload.data(),
+                                   bundle.blocks[0].payload.size()),
+        "<lr:PrivateRTKInfo>face-region-cache</lr:PrivateRTKInfo>"));
+    EXPECT_TRUE(payload_contains_ascii(
+        std::span<const std::byte>(bundle.blocks[0].payload.data(),
+                                   bundle.blocks[0].payload.size()),
+        "<lr:PrivateRTKFlag>true</lr:PrivateRTKFlag>"));
+}
+
 TEST(MetadataTransferApi,
      PreparePortableXmpPrefersFirstSeenIndexedOverScalarExistingShape)
 {

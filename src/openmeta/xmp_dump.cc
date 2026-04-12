@@ -36,8 +36,16 @@ namespace {
         = "http://ns.adobe.com/tiff/1.0/";
     static constexpr std::string_view kXmpNsExif
         = "http://ns.adobe.com/exif/1.0/";
+    static constexpr std::string_view kXmpNsExifAux
+        = "http://ns.adobe.com/exif/1.0/aux/";
     static constexpr std::string_view kXmpNsDc
         = "http://purl.org/dc/elements/1.1/";
+    static constexpr std::string_view kXmpNsCrs
+        = "http://ns.adobe.com/camera-raw-settings/1.0/";
+    static constexpr std::string_view kXmpNsLr
+        = "http://ns.adobe.com/lightroom/1.0/";
+    static constexpr std::string_view kXmpNsXmpMM
+        = "http://ns.adobe.com/xap/1.0/mm/";
     static constexpr std::string_view kXmpNsXmpRights
         = "http://ns.adobe.com/xap/1.0/rights/";
     static constexpr std::string_view kXmpNsPhotoshop
@@ -1327,8 +1335,24 @@ namespace {
             *out_prefix = "exif";
             return true;
         }
+        if (ns == kXmpNsExifAux) {
+            *out_prefix = "aux";
+            return true;
+        }
         if (ns == kXmpNsDc) {
             *out_prefix = "dc";
+            return true;
+        }
+        if (ns == kXmpNsCrs) {
+            *out_prefix = "crs";
+            return true;
+        }
+        if (ns == kXmpNsLr) {
+            *out_prefix = "lr";
+            return true;
+        }
+        if (ns == kXmpNsXmpMM) {
+            *out_prefix = "xmpMM";
             return true;
         }
         if (ns == kXmpNsXmpRights) {
@@ -4539,11 +4563,15 @@ dump_xmp_portable(const MetaStore& store, std::span<std::byte> out,
     XmpDumpResult r;
     SpanWriter w(out, options.limits.max_output_bytes);
 
-    static constexpr std::array<XmpNsDecl, 7> kDecls = {
+    static constexpr std::array<XmpNsDecl, 11> kDecls = {
         XmpNsDecl { "xmp", kXmpNsXmp },
         XmpNsDecl { "tiff", kXmpNsTiff },
         XmpNsDecl { "exif", kXmpNsExif },
+        XmpNsDecl { "aux", kXmpNsExifAux },
         XmpNsDecl { "dc", kXmpNsDc },
+        XmpNsDecl { "crs", kXmpNsCrs },
+        XmpNsDecl { "lr", kXmpNsLr },
+        XmpNsDecl { "xmpMM", kXmpNsXmpMM },
         XmpNsDecl { "xmpRights", kXmpNsXmpRights },
         XmpNsDecl { "photoshop", kXmpNsPhotoshop },
         XmpNsDecl { "Iptc4xmpCore", kXmpNsIptc4xmpCore },
