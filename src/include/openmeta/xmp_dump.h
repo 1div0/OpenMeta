@@ -84,8 +84,9 @@ struct XmpPortableOptions final {
     /// Include \ref MetaKeyKind::XmpProperty entries already present in the store.
     ///
     /// \note Currently simple `property_path` values, indexed `[n]` paths,
-    /// and bounded lang-alt paths like `title[@xml:lang=x-default]` are
-    /// emitted (no `/` nesting).
+    /// bounded lang-alt paths like `title[@xml:lang=x-default]`, and
+    /// bounded one-level structured paths like
+    /// `CreatorContactInfo/CiEmailWork` are emitted.
     bool include_existing_xmp = false;
     /// Existing XMP namespace writeback policy for portable output.
     XmpExistingNamespacePolicy existing_namespace_policy

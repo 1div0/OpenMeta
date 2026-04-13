@@ -115,6 +115,60 @@ TEST(XmpDecodeTest, DecodesAltTextEntriesWithXmlLangPaths)
     expect_text("title[@xml:lang=fr-FR]", "Titre");
 }
 
+TEST(XmpDecodeTest, DecodesStructuredResourcePaths)
+{
+    const std::string xmp
+        = "<x:xmpmeta xmlns:x='adobe:ns:meta/'>"
+          "<rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'>"
+          "<rdf:Description "
+          "xmlns:Iptc4xmpCore='http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/'>"
+          "<Iptc4xmpCore:CreatorContactInfo rdf:parseType='Resource'>"
+          "<Iptc4xmpCore:CiEmailWork>editor@example.test</Iptc4xmpCore:CiEmailWork>"
+          "<Iptc4xmpCore:CiUrlWork>https://example.test/contact</Iptc4xmpCore:CiUrlWork>"
+          "</Iptc4xmpCore:CreatorContactInfo>"
+          "<Iptc4xmpCore:LocationCreated rdf:parseType='Resource'>"
+          "<Iptc4xmpCore:City>Paris</Iptc4xmpCore:City>"
+          "<Iptc4xmpCore:CountryName>France</Iptc4xmpCore:CountryName>"
+          "</Iptc4xmpCore:LocationCreated>"
+          "</rdf:Description>"
+          "</rdf:RDF>"
+          "</x:xmpmeta>";
+
+    const std::span<const std::byte> bytes(
+        reinterpret_cast<const std::byte*>(xmp.data()), xmp.size());
+
+    MetaStore store;
+    const XmpDecodeResult r = decode_xmp_packet(bytes, store);
+    EXPECT_EQ(r.status, XmpDecodeStatus::Ok);
+    EXPECT_EQ(r.entries_decoded, 4U);
+
+    store.finalize();
+
+    auto expect_text = [&](std::string_view path, std::string_view expected) {
+        MetaKeyView key;
+        key.kind                            = MetaKeyKind::XmpProperty;
+        key.data.xmp_property.schema_ns
+            = "http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/";
+        key.data.xmp_property.property_path = path;
+
+        const std::span<const EntryId> ids = store.find_all(key);
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        ASSERT_EQ(e.value.kind, MetaValueKind::Text);
+        const std::span<const std::byte> vb = store.arena().span(
+            e.value.data.span);
+        const std::string_view val(reinterpret_cast<const char*>(vb.data()),
+                                   vb.size());
+        EXPECT_EQ(val, expected);
+    };
+
+    expect_text("CreatorContactInfo/CiEmailWork", "editor@example.test");
+    expect_text("CreatorContactInfo/CiUrlWork",
+                "https://example.test/contact");
+    expect_text("LocationCreated/City", "Paris");
+    expect_text("LocationCreated/CountryName", "France");
+}
+
 TEST(XmpDecodeTest, TrimsTrailingNulPadding)
 {
     const std::string xmp

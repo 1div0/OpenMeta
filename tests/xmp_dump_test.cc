@@ -522,6 +522,245 @@ TEST(XmpDump, PortableExistingXmpSubjectIndexedPathEmitsBag)
     EXPECT_NE(s.find("<rdf:li>museum</rdf:li>"), std::string_view::npos);
 }
 
+TEST(XmpDump, PortableExistingXmpLanguageIndexedPathEmitsBag)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, kInvalidBlockId);
+
+    Entry li1;
+    li1.key = make_xmp_property_key(store.arena(),
+                                    "http://purl.org/dc/elements/1.1/",
+                                    "language[1]");
+    li1.value = make_text(store.arena(), "en", TextEncoding::Utf8);
+    li1.origin.block          = block;
+    li1.origin.order_in_block = 0;
+    (void)store.add_entry(li1);
+
+    Entry li2;
+    li2.key = make_xmp_property_key(store.arena(),
+                                    "http://purl.org/dc/elements/1.1/",
+                                    "language[2]");
+    li2.value = make_text(store.arena(), "ja", TextEncoding::Utf8);
+    li2.origin.block          = block;
+    li2.origin.order_in_block = 1;
+    (void)store.add_entry(li2);
+
+    store.finalize();
+
+    XmpPortableOptions opts;
+    opts.include_exif         = false;
+    opts.include_existing_xmp = true;
+
+    std::vector<std::byte> out(1024);
+    const XmpDumpResult r
+        = dump_xmp_portable(store, std::span<std::byte>(out.data(), out.size()),
+                            opts);
+    ASSERT_EQ(r.status, XmpDumpStatus::Ok);
+    ASSERT_EQ(r.entries, 1U);
+
+    const std::string_view s(reinterpret_cast<const char*>(out.data()),
+                             static_cast<size_t>(r.written));
+    EXPECT_NE(s.find("<dc:language>"), std::string_view::npos);
+    EXPECT_NE(s.find("<rdf:Bag>"), std::string_view::npos);
+    EXPECT_NE(s.find("<rdf:li>en</rdf:li>"), std::string_view::npos);
+    EXPECT_NE(s.find("<rdf:li>ja</rdf:li>"), std::string_view::npos);
+}
+
+TEST(XmpDump, PortableExistingXmpDateIndexedPathEmitsSeq)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, kInvalidBlockId);
+
+    Entry li1;
+    li1.key = make_xmp_property_key(store.arena(),
+                                    "http://purl.org/dc/elements/1.1/",
+                                    "date[1]");
+    li1.value = make_text(store.arena(), "2026-04-01T10:00:00",
+                          TextEncoding::Utf8);
+    li1.origin.block          = block;
+    li1.origin.order_in_block = 0;
+    (void)store.add_entry(li1);
+
+    Entry li2;
+    li2.key = make_xmp_property_key(store.arena(),
+                                    "http://purl.org/dc/elements/1.1/",
+                                    "date[2]");
+    li2.value = make_text(store.arena(), "2026-04-02T11:30:00",
+                          TextEncoding::Utf8);
+    li2.origin.block          = block;
+    li2.origin.order_in_block = 1;
+    (void)store.add_entry(li2);
+
+    store.finalize();
+
+    XmpPortableOptions opts;
+    opts.include_exif         = false;
+    opts.include_existing_xmp = true;
+
+    std::vector<std::byte> out(1024);
+    const XmpDumpResult r
+        = dump_xmp_portable(store, std::span<std::byte>(out.data(), out.size()),
+                            opts);
+    ASSERT_EQ(r.status, XmpDumpStatus::Ok);
+    ASSERT_EQ(r.entries, 1U);
+
+    const std::string_view s(reinterpret_cast<const char*>(out.data()),
+                             static_cast<size_t>(r.written));
+    EXPECT_NE(s.find("<dc:date>"), std::string_view::npos);
+    EXPECT_NE(s.find("<rdf:Seq>"), std::string_view::npos);
+    EXPECT_NE(s.find("<rdf:li>2026-04-01T10:00:00</rdf:li>"),
+              std::string_view::npos);
+    EXPECT_NE(s.find("<rdf:li>2026-04-02T11:30:00</rdf:li>"),
+              std::string_view::npos);
+}
+
+TEST(XmpDump, PortableExistingXmpIdentifierIndexedPathEmitsBag)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, kInvalidBlockId);
+
+    Entry li1;
+    li1.key = make_xmp_property_key(store.arena(),
+                                    "http://ns.adobe.com/xap/1.0/",
+                                    "Identifier[1]");
+    li1.value = make_text(store.arena(), "urn:om:test:1",
+                          TextEncoding::Utf8);
+    li1.origin.block          = block;
+    li1.origin.order_in_block = 0;
+    (void)store.add_entry(li1);
+
+    Entry li2;
+    li2.key = make_xmp_property_key(store.arena(),
+                                    "http://ns.adobe.com/xap/1.0/",
+                                    "Identifier[2]");
+    li2.value = make_text(store.arena(), "urn:om:test:2",
+                          TextEncoding::Utf8);
+    li2.origin.block          = block;
+    li2.origin.order_in_block = 1;
+    (void)store.add_entry(li2);
+
+    store.finalize();
+
+    XmpPortableOptions opts;
+    opts.include_exif         = false;
+    opts.include_existing_xmp = true;
+
+    std::vector<std::byte> out(1024);
+    const XmpDumpResult r
+        = dump_xmp_portable(store, std::span<std::byte>(out.data(), out.size()),
+                            opts);
+    ASSERT_EQ(r.status, XmpDumpStatus::Ok);
+    ASSERT_EQ(r.entries, 1U);
+
+    const std::string_view s(reinterpret_cast<const char*>(out.data()),
+                             static_cast<size_t>(r.written));
+    EXPECT_NE(s.find("<xmp:Identifier>"), std::string_view::npos);
+    EXPECT_NE(s.find("<rdf:Bag>"), std::string_view::npos);
+    EXPECT_NE(s.find("<rdf:li>urn:om:test:1</rdf:li>"),
+              std::string_view::npos);
+    EXPECT_NE(s.find("<rdf:li>urn:om:test:2</rdf:li>"),
+              std::string_view::npos);
+}
+
+TEST(XmpDump, PortableExistingXmpAdvisoryIndexedPathEmitsBag)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, kInvalidBlockId);
+
+    Entry li1;
+    li1.key = make_xmp_property_key(store.arena(),
+                                    "http://ns.adobe.com/xap/1.0/",
+                                    "Advisory[1]");
+    li1.value = make_text(store.arena(), "xmp:MetadataDate",
+                          TextEncoding::Utf8);
+    li1.origin.block          = block;
+    li1.origin.order_in_block = 0;
+    (void)store.add_entry(li1);
+
+    Entry li2;
+    li2.key = make_xmp_property_key(store.arena(),
+                                    "http://ns.adobe.com/xap/1.0/",
+                                    "Advisory[2]");
+    li2.value = make_text(store.arena(), "photoshop:City",
+                          TextEncoding::Utf8);
+    li2.origin.block          = block;
+    li2.origin.order_in_block = 1;
+    (void)store.add_entry(li2);
+
+    store.finalize();
+
+    XmpPortableOptions opts;
+    opts.include_exif         = false;
+    opts.include_existing_xmp = true;
+
+    std::vector<std::byte> out(1024);
+    const XmpDumpResult r
+        = dump_xmp_portable(store, std::span<std::byte>(out.data(), out.size()),
+                            opts);
+    ASSERT_EQ(r.status, XmpDumpStatus::Ok);
+    ASSERT_EQ(r.entries, 1U);
+
+    const std::string_view s(reinterpret_cast<const char*>(out.data()),
+                             static_cast<size_t>(r.written));
+    EXPECT_NE(s.find("<xmp:Advisory>"), std::string_view::npos);
+    EXPECT_NE(s.find("<rdf:Bag>"), std::string_view::npos);
+    EXPECT_NE(s.find("<rdf:li>xmp:MetadataDate</rdf:li>"),
+              std::string_view::npos);
+    EXPECT_NE(s.find("<rdf:li>photoshop:City</rdf:li>"),
+              std::string_view::npos);
+}
+
+TEST(XmpDump, PortableExistingXmpRightsOwnerIndexedPathEmitsBag)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, kInvalidBlockId);
+
+    Entry li1;
+    li1.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/rights/", "Owner[1]");
+    li1.value = make_text(store.arena(), "OpenMeta Labs",
+                          TextEncoding::Utf8);
+    li1.origin.block          = block;
+    li1.origin.order_in_block = 0;
+    (void)store.add_entry(li1);
+
+    Entry li2;
+    li2.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/rights/", "Owner[2]");
+    li2.value = make_text(store.arena(), "Example Archive",
+                          TextEncoding::Utf8);
+    li2.origin.block          = block;
+    li2.origin.order_in_block = 1;
+    (void)store.add_entry(li2);
+
+    store.finalize();
+
+    XmpPortableOptions opts;
+    opts.include_exif         = false;
+    opts.include_existing_xmp = true;
+
+    std::vector<std::byte> out(1024);
+    const XmpDumpResult r
+        = dump_xmp_portable(store, std::span<std::byte>(out.data(), out.size()),
+                            opts);
+    ASSERT_EQ(r.status, XmpDumpStatus::Ok);
+    ASSERT_EQ(r.entries, 1U);
+
+    const std::string_view s(reinterpret_cast<const char*>(out.data()),
+                             static_cast<size_t>(r.written));
+    EXPECT_NE(s.find("<xmpRights:Owner>"), std::string_view::npos);
+    EXPECT_NE(s.find("<rdf:Bag>"), std::string_view::npos);
+    EXPECT_NE(s.find("<rdf:li>OpenMeta Labs</rdf:li>"),
+              std::string_view::npos);
+    EXPECT_NE(s.find("<rdf:li>Example Archive</rdf:li>"),
+              std::string_view::npos);
+}
+
 TEST(XmpDump, PortableExistingXmpTitleAltTextEmitsRdfAlt)
 {
     MetaStore store;
@@ -2835,6 +3074,84 @@ TEST(XmpDump, PortablePreservesAuxStandardNamespace)
               std::string_view::npos);
 }
 
+TEST(XmpDump, PortableExistingStructuredIptc4xmpCoreEmitsResource)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, kInvalidBlockId);
+
+    Entry email;
+    email.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/",
+        "CreatorContactInfo/CiEmailWork");
+    email.value = make_text(store.arena(), "editor@example.test",
+                            TextEncoding::Utf8);
+    email.origin.block          = block;
+    email.origin.order_in_block = 0;
+    (void)store.add_entry(email);
+
+    Entry url;
+    url.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/",
+        "CreatorContactInfo/CiUrlWork");
+    url.value = make_text(store.arena(), "https://example.test/contact",
+                          TextEncoding::Utf8);
+    url.origin.block          = block;
+    url.origin.order_in_block = 1;
+    (void)store.add_entry(url);
+
+    Entry city;
+    city.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/",
+        "LocationCreated/City");
+    city.value = make_text(store.arena(), "Paris", TextEncoding::Utf8);
+    city.origin.block          = block;
+    city.origin.order_in_block = 2;
+    (void)store.add_entry(city);
+
+    Entry country;
+    country.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/",
+        "LocationCreated/CountryName");
+    country.value = make_text(store.arena(), "France", TextEncoding::Utf8);
+    country.origin.block          = block;
+    country.origin.order_in_block = 3;
+    (void)store.add_entry(country);
+
+    store.finalize();
+
+    XmpPortableOptions opts;
+    opts.include_exif         = false;
+    opts.include_iptc         = false;
+    opts.include_existing_xmp = true;
+
+    std::vector<std::byte> out(4096);
+    const XmpDumpResult r
+        = dump_xmp_portable(store, std::span<std::byte>(out.data(), out.size()),
+                            opts);
+    ASSERT_EQ(r.status, XmpDumpStatus::Ok);
+
+    const std::string_view s(reinterpret_cast<const char*>(out.data()),
+                             static_cast<size_t>(r.written));
+    EXPECT_NE(
+        s.find("<Iptc4xmpCore:CreatorContactInfo rdf:parseType=\"Resource\">"),
+        std::string_view::npos);
+    EXPECT_NE(
+        s.find("<Iptc4xmpCore:CiEmailWork>editor@example.test</Iptc4xmpCore:CiEmailWork>"),
+        std::string_view::npos);
+    EXPECT_NE(
+        s.find("<Iptc4xmpCore:CiUrlWork>https://example.test/contact</Iptc4xmpCore:CiUrlWork>"),
+        std::string_view::npos);
+    EXPECT_NE(
+        s.find("<Iptc4xmpCore:LocationCreated rdf:parseType=\"Resource\">"),
+        std::string_view::npos);
+    EXPECT_NE(s.find("<Iptc4xmpCore:City>Paris</Iptc4xmpCore:City>"),
+              std::string_view::npos);
+    EXPECT_NE(
+        s.find("<Iptc4xmpCore:CountryName>France</Iptc4xmpCore:CountryName>"),
+        std::string_view::npos);
+}
+
 TEST(XmpDump, PortablePreservesCrsNamespace)
 {
     MetaStore store;
@@ -2943,6 +3260,102 @@ TEST(XmpDump, PortablePreservesLrNamespace)
     EXPECT_NE(s.find("<lr:PrivateRTKInfo>face-region-cache</lr:PrivateRTKInfo>"),
               std::string_view::npos);
     EXPECT_NE(s.find("<lr:PrivateRTKFlag>true</lr:PrivateRTKFlag>"),
+              std::string_view::npos);
+}
+
+TEST(XmpDump, PortableExistingLrHierarchicalSubjectEmitsBag)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, kInvalidBlockId);
+
+    Entry item1;
+    item1.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/lightroom/1.0/",
+        "hierarchicalSubject[1]");
+    item1.value = make_text(store.arena(), "Places|Japan|Tokyo",
+                            TextEncoding::Utf8);
+    item1.origin.block          = block;
+    item1.origin.order_in_block = 0;
+    (void)store.add_entry(item1);
+
+    Entry item2;
+    item2.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/lightroom/1.0/",
+        "hierarchicalSubject[2]");
+    item2.value = make_text(store.arena(), "Travel|Spring",
+                            TextEncoding::Utf8);
+    item2.origin.block          = block;
+    item2.origin.order_in_block = 1;
+    (void)store.add_entry(item2);
+
+    store.finalize();
+
+    XmpPortableOptions opts;
+    opts.include_exif         = false;
+    opts.include_iptc         = false;
+    opts.include_existing_xmp = true;
+
+    std::vector<std::byte> out(1024);
+    const XmpDumpResult r
+        = dump_xmp_portable(store, std::span<std::byte>(out.data(), out.size()),
+                            opts);
+    ASSERT_EQ(r.status, XmpDumpStatus::Ok);
+
+    const std::string_view s(reinterpret_cast<const char*>(out.data()),
+                             static_cast<size_t>(r.written));
+    EXPECT_NE(s.find("<lr:hierarchicalSubject>"), std::string_view::npos);
+    EXPECT_NE(s.find("<rdf:Bag>"), std::string_view::npos);
+    EXPECT_NE(s.find("<rdf:li>Places|Japan|Tokyo</rdf:li>"),
+              std::string_view::npos);
+    EXPECT_NE(s.find("<rdf:li>Travel|Spring</rdf:li>"),
+              std::string_view::npos);
+}
+
+TEST(XmpDump, PortablePreservesPdfNamespace)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, kInvalidBlockId);
+
+    Entry keywords;
+    keywords.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/pdf/1.3/", "Keywords");
+    keywords.value = make_text(store.arena(), "tokyo,night,street",
+                               TextEncoding::Utf8);
+    keywords.origin.block          = block;
+    keywords.origin.order_in_block = 0;
+    (void)store.add_entry(keywords);
+
+    Entry producer;
+    producer.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/pdf/1.3/", "Producer");
+    producer.value = make_text(store.arena(), "OpenMetaTest",
+                               TextEncoding::Utf8);
+    producer.origin.block          = block;
+    producer.origin.order_in_block = 1;
+    (void)store.add_entry(producer);
+
+    store.finalize();
+
+    XmpPortableOptions opts;
+    opts.include_exif         = false;
+    opts.include_iptc         = false;
+    opts.include_existing_xmp = true;
+
+    std::vector<std::byte> out(1024);
+    const XmpDumpResult r
+        = dump_xmp_portable(store, std::span<std::byte>(out.data(), out.size()),
+                            opts);
+    ASSERT_EQ(r.status, XmpDumpStatus::Ok);
+
+    const std::string_view s(reinterpret_cast<const char*>(out.data()),
+                             static_cast<size_t>(r.written));
+    EXPECT_NE(s.find("xmlns:pdf=\"http://ns.adobe.com/pdf/1.3/\""),
+              std::string_view::npos);
+    EXPECT_NE(s.find("<pdf:Keywords>tokyo,night,street</pdf:Keywords>"),
+              std::string_view::npos);
+    EXPECT_NE(s.find("<pdf:Producer>OpenMetaTest</pdf:Producer>"),
               std::string_view::npos);
 }
 

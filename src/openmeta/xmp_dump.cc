@@ -40,6 +40,8 @@ namespace {
         = "http://ns.adobe.com/exif/1.0/aux/";
     static constexpr std::string_view kXmpNsDc
         = "http://purl.org/dc/elements/1.1/";
+    static constexpr std::string_view kXmpNsPdf
+        = "http://ns.adobe.com/pdf/1.3/";
     static constexpr std::string_view kXmpNsCrs
         = "http://ns.adobe.com/camera-raw-settings/1.0/";
     static constexpr std::string_view kXmpNsLr
@@ -1343,6 +1345,10 @@ namespace {
             *out_prefix = "dc";
             return true;
         }
+        if (ns == kXmpNsPdf) {
+            *out_prefix = "pdf";
+            return true;
+        }
         if (ns == kXmpNsCrs) {
             *out_prefix = "crs";
             return true;
@@ -1549,6 +1555,37 @@ namespace {
 
         *out_base = base;
         *out_lang = lang;
+        return true;
+    }
+
+    static bool parse_structured_xmp_property_name(
+        std::string_view path, std::string_view* out_base,
+        std::string_view* out_child) noexcept
+    {
+        if (!out_base || !out_child) {
+            return false;
+        }
+        *out_base  = {};
+        *out_child = {};
+
+        const size_t slash = path.find('/');
+        if (slash == std::string_view::npos || slash == 0U
+            || slash + 1U >= path.size()) {
+            return false;
+        }
+        if (path.find('/', slash + 1U) != std::string_view::npos) {
+            return false;
+        }
+
+        const std::string_view base  = path.substr(0, slash);
+        const std::string_view child = path.substr(slash + 1U);
+        if (!is_simple_xmp_property_name(base)
+            || !is_simple_xmp_property_name(child)) {
+            return false;
+        }
+
+        *out_base  = base;
+        *out_child = child;
         return true;
     }
 
@@ -3334,6 +3371,14 @@ namespace {
         const MetaValue* value = nullptr;
     };
 
+    struct PortableStructuredProperty final {
+        std::string_view prefix;
+        std::string_view base;
+        std::string_view child;
+        uint32_t order         = 0U;
+        const MetaValue* value = nullptr;
+    };
+
     static PortableIndexedProperty::Container
     portable_existing_xmp_indexed_container(std::string_view prefix,
                                             std::string_view name) noexcept
@@ -3342,12 +3387,30 @@ namespace {
             if (name == "subject") {
                 return PortableIndexedProperty::Container::Bag;
             }
+            if (name == "contributor" || name == "language"
+                || name == "publisher" || name == "relation"
+                || name == "type") {
+                return PortableIndexedProperty::Container::Bag;
+            }
             if (name == "creator") {
                 return PortableIndexedProperty::Container::Seq;
             }
+            if (name == "date") {
+                return PortableIndexedProperty::Container::Seq;
+            }
+        }
+        if (prefix == "xmp"
+            && (name == "Identifier" || name == "Advisory")) {
+            return PortableIndexedProperty::Container::Bag;
+        }
+        if (prefix == "xmpRights" && name == "Owner") {
+            return PortableIndexedProperty::Container::Bag;
         }
 
         if (prefix == "photoshop" && name == "SupplementalCategories") {
+            return PortableIndexedProperty::Container::Bag;
+        }
+        if (prefix == "lr" && name == "hierarchicalSubject") {
             return PortableIndexedProperty::Container::Bag;
         }
 
@@ -3394,6 +3457,7 @@ namespace {
         Scalar,
         Indexed,
         LangAlt,
+        Structured,
     };
 
     struct PortablePropertyClaim final {
@@ -3597,10 +3661,11 @@ namespace {
         PortablePropertyClaimMap* claims,
         PortableLangAltClaimOwnerMap* lang_alt_claims,
         std::vector<PortableIndexedProperty>* indexed,
-        std::vector<PortableLangAltProperty>* lang_alt) noexcept
+        std::vector<PortableLangAltProperty>* lang_alt,
+        std::vector<PortableStructuredProperty>* structured) noexcept
     {
         if (!w || !claims || !lang_alt_claims || !indexed || !lang_alt
-            || e.key.kind != MetaKeyKind::XmpProperty) {
+            || !structured || e.key.kind != MetaKeyKind::XmpProperty) {
             return false;
         }
 
@@ -3677,43 +3742,75 @@ namespace {
         }
 
         uint32_t index = 0U;
-        if (!parse_indexed_xmp_property_name(name, &base_name, &index)) {
+        if (parse_indexed_xmp_property_name(name, &base_name, &index)) {
+            const std::string_view portable_base
+                = portable_property_name_for_existing_xmp(prefix, base_name);
+            if (portable_base.empty()
+                || xmp_property_is_nonportable_blob(prefix, portable_base)) {
+                return false;
+            }
+            if (options.existing_standard_namespace_policy
+                    == XmpExistingStandardNamespacePolicy::CanonicalizeManaged
+                && existing_standard_portable_property_is_managed(
+                    prefix, portable_base)
+                && portable_property_shape_is_present(
+                    generated_shapes, prefix, portable_base,
+                    PortablePropertyShape::Indexed)) {
+                return false;
+            }
+
+            bool new_claim = false;
+            if (!claim_portable_property_key(
+                    claims, prefix, portable_base,
+                    PortablePropertyOwner::ExistingXmp,
+                    PortablePropertyShape::Indexed, &new_claim)) {
+                return false;
+            }
+
+            PortableIndexedProperty item;
+            item.prefix    = prefix;
+            item.base      = portable_base;
+            item.index     = index;
+            item.order     = order;
+            item.value     = &e.value;
+            item.container = portable_existing_xmp_indexed_container(
+                prefix, portable_base);
+            indexed->push_back(item);
+            return false;
+        }
+
+        std::string_view child_name;
+        if (!parse_structured_xmp_property_name(name, &base_name,
+                                                &child_name)) {
             return false;
         }
 
         const std::string_view portable_base
             = portable_property_name_for_existing_xmp(prefix, base_name);
-        if (portable_base.empty()
-            || xmp_property_is_nonportable_blob(prefix, portable_base)) {
-            return false;
-        }
-        if (options.existing_standard_namespace_policy
-                == XmpExistingStandardNamespacePolicy::CanonicalizeManaged
-            && existing_standard_portable_property_is_managed(prefix,
-                                                              portable_base)
-            && portable_property_shape_is_present(
-                generated_shapes, prefix, portable_base,
-                PortablePropertyShape::Indexed)) {
+        const std::string_view portable_child
+            = portable_property_name_for_existing_xmp(prefix, child_name);
+        if (portable_base.empty() || portable_child.empty()
+            || xmp_property_is_nonportable_blob(prefix, portable_base)
+            || xmp_property_is_nonportable_blob(prefix, portable_child)
+            || !portable_scalar_like_value_supported(arena, e.value)) {
             return false;
         }
 
         bool new_claim = false;
         if (!claim_portable_property_key(claims, prefix, portable_base,
                                          PortablePropertyOwner::ExistingXmp,
-                                         PortablePropertyShape::Indexed,
+                                         PortablePropertyShape::Structured,
                                          &new_claim)) {
             return false;
         }
 
-        PortableIndexedProperty item;
-        item.prefix    = prefix;
-        item.base      = portable_base;
-        item.index     = index;
-        item.order     = order;
-        item.value     = &e.value;
-        item.container = portable_existing_xmp_indexed_container(prefix,
-                                                                 portable_base);
-        indexed->push_back(item);
+        PortableStructuredProperty item;
+        item.prefix = prefix;
+        item.base   = portable_base;
+        item.child  = portable_child;
+        item.order  = order;
+        item.value  = &e.value;
+        structured->push_back(item);
         return false;
     }
 
@@ -3765,12 +3862,19 @@ namespace {
                         "omns", base_name);
                 } else {
                     uint32_t index = 0U;
-                    if (!parse_indexed_xmp_property_name(name, &base_name,
-                                                         &index)) {
-                        continue;
+                    if (parse_indexed_xmp_property_name(name, &base_name,
+                                                        &index)) {
+                        portable_name = portable_property_name_for_existing_xmp(
+                            "omns", base_name);
+                    } else {
+                        std::string_view child_name;
+                        if (!parse_structured_xmp_property_name(
+                                name, &base_name, &child_name)) {
+                            continue;
+                        }
+                        portable_name = portable_property_name_for_existing_xmp(
+                            "omns", base_name);
                     }
-                    portable_name = portable_property_name_for_existing_xmp(
-                        "omns", base_name);
                 }
             }
             if (portable_name.empty()
@@ -4366,6 +4470,22 @@ namespace {
         return a.order < b.order;
     }
 
+    static bool portable_structured_property_less(
+        const PortableStructuredProperty& a,
+        const PortableStructuredProperty& b) noexcept
+    {
+        if (a.prefix != b.prefix) {
+            return a.prefix < b.prefix;
+        }
+        if (a.base != b.base) {
+            return a.base < b.base;
+        }
+        if (a.order != b.order) {
+            return a.order < b.order;
+        }
+        return a.child < b.child;
+    }
+
 
     static bool emit_portable_indexed_property_group(
         SpanWriter* w, std::string_view prefix, std::string_view name,
@@ -4465,6 +4585,102 @@ namespace {
         }
     }
 
+    static bool emit_portable_structured_property_group(
+        SpanWriter* w, std::string_view prefix, std::string_view name,
+        const ByteArena& arena,
+        std::span<const PortableStructuredProperty> items) noexcept
+    {
+        if (!w || prefix.empty() || name.empty() || items.empty()) {
+            return false;
+        }
+
+        uint32_t valid = 0U;
+        for (size_t i = 0; i < items.size(); ++i) {
+            if (!items[i].value || items[i].child.empty()) {
+                continue;
+            }
+            if (portable_scalar_like_value_supported(arena, *items[i].value)) {
+                valid += 1U;
+            }
+        }
+        if (valid == 0U) {
+            return false;
+        }
+
+        w->append(kIndent3);
+        w->append("<");
+        w->append(prefix);
+        w->append(":");
+        w->append(name);
+        w->append(" rdf:parseType=\"Resource\">\n");
+
+        for (size_t i = 0; i < items.size(); ++i) {
+            if (!items[i].value || items[i].child.empty()
+                || !portable_scalar_like_value_supported(arena,
+                                                         *items[i].value)) {
+                continue;
+            }
+            w->append(kIndent4);
+            w->append("<");
+            w->append(prefix);
+            w->append(":");
+            w->append(items[i].child);
+            w->append(">");
+            (void)emit_portable_value_inline(arena, *items[i].value, w);
+            w->append("</");
+            w->append(prefix);
+            w->append(":");
+            w->append(items[i].child);
+            w->append(">\n");
+        }
+
+        w->append(kIndent3);
+        w->append("</");
+        w->append(prefix);
+        w->append(":");
+        w->append(name);
+        w->append(">\n");
+        return true;
+    }
+
+    static void emit_portable_structured_groups(
+        SpanWriter* w, const ByteArena& arena,
+        std::vector<PortableStructuredProperty>* structured,
+        uint32_t max_entries, uint32_t* emitted) noexcept
+    {
+        if (!w || !structured || !emitted || w->limit_hit
+            || structured->empty()) {
+            return;
+        }
+
+        std::stable_sort(structured->begin(), structured->end(),
+                         portable_structured_property_less);
+
+        size_t i = 0U;
+        while (i < structured->size()) {
+            if (max_entries != 0U && *emitted >= max_entries) {
+                w->limit_hit = true;
+                break;
+            }
+
+            size_t j = i + 1U;
+            while (j < structured->size()
+                   && (*structured)[j].prefix == (*structured)[i].prefix
+                   && (*structured)[j].base == (*structured)[i].base) {
+                j += 1U;
+            }
+
+            if (emit_portable_structured_property_group(
+                    w, (*structured)[i].prefix, (*structured)[i].base, arena,
+                    std::span<const PortableStructuredProperty>(
+                        structured->data() + i, j - i))) {
+                *emitted += 1U;
+            }
+
+            i = j;
+        }
+    }
+
     enum class PortablePassKind : uint8_t {
         ExistingXmp,
         Exif,
@@ -4482,11 +4698,12 @@ namespace {
         PortablePropertyClaimMap* claims,
         PortableLangAltClaimOwnerMap* lang_alt_claims,
         std::vector<PortableIndexedProperty>* indexed,
-        std::vector<PortableLangAltProperty>* lang_alt, uint32_t* emitted,
-        uint32_t* iptc_order) noexcept
+        std::vector<PortableLangAltProperty>* lang_alt,
+        std::vector<PortableStructuredProperty>* structured,
+        uint32_t* emitted, uint32_t* iptc_order) noexcept
     {
         if (!w || !claims || !lang_alt_claims || !indexed || !lang_alt
-            || !emitted || !iptc_order || w->limit_hit) {
+            || !structured || !emitted || !iptc_order || w->limit_hit) {
             return;
         }
 
@@ -4534,7 +4751,7 @@ namespace {
                         arena, custom_decls, options, e,
                         static_cast<uint32_t>(i), generated_keys,
                         generated_lang_alt, w, claims, lang_alt_claims,
-                        indexed, lang_alt)) {
+                        indexed, lang_alt, structured)) {
                     *emitted += 1U;
                 }
                 continue;
@@ -4563,12 +4780,13 @@ dump_xmp_portable(const MetaStore& store, std::span<std::byte> out,
     XmpDumpResult r;
     SpanWriter w(out, options.limits.max_output_bytes);
 
-    static constexpr std::array<XmpNsDecl, 11> kDecls = {
+    static constexpr std::array<XmpNsDecl, 12> kDecls = {
         XmpNsDecl { "xmp", kXmpNsXmp },
         XmpNsDecl { "tiff", kXmpNsTiff },
         XmpNsDecl { "exif", kXmpNsExif },
         XmpNsDecl { "aux", kXmpNsExifAux },
         XmpNsDecl { "dc", kXmpNsDc },
+        XmpNsDecl { "pdf", kXmpNsPdf },
         XmpNsDecl { "crs", kXmpNsCrs },
         XmpNsDecl { "lr", kXmpNsLr },
         XmpNsDecl { "xmpMM", kXmpNsXmpMM },
@@ -4598,6 +4816,8 @@ dump_xmp_portable(const MetaStore& store, std::span<std::byte> out,
     indexed.reserve(128);
     std::vector<PortableLangAltProperty> lang_alt;
     lang_alt.reserve(64);
+    std::vector<PortableStructuredProperty> structured;
+    structured.reserve(64);
     PortablePropertyClaimMap claims;
     claims.reserve(256);
     PortableLangAltClaimOwnerMap lang_alt_claims;
@@ -4623,6 +4843,7 @@ dump_xmp_portable(const MetaStore& store, std::span<std::byte> out,
                                custom_decls.data(), custom_decls.size()),
                            es, options, &generated_keys, &generated_lang_alt,
                            &w, &claims, &lang_alt_claims, &indexed, &lang_alt,
+                           &structured,
                            &emitted,
                            &iptc_order);
         emit_portable_pass(PortablePassKind::Exif, arena,
@@ -4630,6 +4851,7 @@ dump_xmp_portable(const MetaStore& store, std::span<std::byte> out,
                                custom_decls.data(), custom_decls.size()),
                            es, options, &generated_keys, &generated_lang_alt,
                            &w, &claims, &lang_alt_claims, &indexed, &lang_alt,
+                           &structured,
                            &emitted,
                            &iptc_order);
         emit_portable_pass(PortablePassKind::ExifXmpAlias, arena,
@@ -4637,6 +4859,7 @@ dump_xmp_portable(const MetaStore& store, std::span<std::byte> out,
                                custom_decls.data(), custom_decls.size()),
                            es, options, &generated_keys, &generated_lang_alt,
                            &w, &claims, &lang_alt_claims, &indexed, &lang_alt,
+                           &structured,
                            &emitted,
                            &iptc_order);
         emit_portable_pass(PortablePassKind::Iptc, arena,
@@ -4644,6 +4867,7 @@ dump_xmp_portable(const MetaStore& store, std::span<std::byte> out,
                                custom_decls.data(), custom_decls.size()),
                            es, options, &generated_keys, &generated_lang_alt,
                            &w, &claims, &lang_alt_claims, &indexed, &lang_alt,
+                           &structured,
                            &emitted,
                            &iptc_order);
     } else if (options.conflict_policy == XmpConflictPolicy::GeneratedWins) {
@@ -4652,6 +4876,7 @@ dump_xmp_portable(const MetaStore& store, std::span<std::byte> out,
                                custom_decls.data(), custom_decls.size()),
                            es, options, &generated_keys, &generated_lang_alt,
                            &w, &claims, &lang_alt_claims, &indexed, &lang_alt,
+                           &structured,
                            &emitted,
                            &iptc_order);
         emit_portable_pass(PortablePassKind::ExifXmpAlias, arena,
@@ -4659,6 +4884,7 @@ dump_xmp_portable(const MetaStore& store, std::span<std::byte> out,
                                custom_decls.data(), custom_decls.size()),
                            es, options, &generated_keys, &generated_lang_alt,
                            &w, &claims, &lang_alt_claims, &indexed, &lang_alt,
+                           &structured,
                            &emitted,
                            &iptc_order);
         emit_portable_pass(PortablePassKind::Iptc, arena,
@@ -4666,6 +4892,7 @@ dump_xmp_portable(const MetaStore& store, std::span<std::byte> out,
                                custom_decls.data(), custom_decls.size()),
                            es, options, &generated_keys, &generated_lang_alt,
                            &w, &claims, &lang_alt_claims, &indexed, &lang_alt,
+                           &structured,
                            &emitted,
                            &iptc_order);
         emit_portable_pass(PortablePassKind::ExistingXmp, arena,
@@ -4673,6 +4900,7 @@ dump_xmp_portable(const MetaStore& store, std::span<std::byte> out,
                                custom_decls.data(), custom_decls.size()),
                            es, options, &generated_keys, &generated_lang_alt,
                            &w, &claims, &lang_alt_claims, &indexed, &lang_alt,
+                           &structured,
                            &emitted,
                            &iptc_order);
     } else {
@@ -4681,6 +4909,7 @@ dump_xmp_portable(const MetaStore& store, std::span<std::byte> out,
                                custom_decls.data(), custom_decls.size()),
                            es, options, &generated_keys, &generated_lang_alt,
                            &w, &claims, &lang_alt_claims, &indexed, &lang_alt,
+                           &structured,
                            &emitted,
                            &iptc_order);
         emit_portable_pass(PortablePassKind::ExifXmpAlias, arena,
@@ -4688,6 +4917,7 @@ dump_xmp_portable(const MetaStore& store, std::span<std::byte> out,
                                custom_decls.data(), custom_decls.size()),
                            es, options, &generated_keys, &generated_lang_alt,
                            &w, &claims, &lang_alt_claims, &indexed, &lang_alt,
+                           &structured,
                            &emitted,
                            &iptc_order);
         emit_portable_pass(PortablePassKind::ExistingXmp, arena,
@@ -4695,6 +4925,7 @@ dump_xmp_portable(const MetaStore& store, std::span<std::byte> out,
                                custom_decls.data(), custom_decls.size()),
                            es, options, &generated_keys, &generated_lang_alt,
                            &w, &claims, &lang_alt_claims, &indexed, &lang_alt,
+                           &structured,
                            &emitted,
                            &iptc_order);
         emit_portable_pass(PortablePassKind::Iptc, arena,
@@ -4702,6 +4933,7 @@ dump_xmp_portable(const MetaStore& store, std::span<std::byte> out,
                                custom_decls.data(), custom_decls.size()),
                            es, options, &generated_keys, &generated_lang_alt,
                            &w, &claims, &lang_alt_claims, &indexed, &lang_alt,
+                           &structured,
                            &emitted,
                            &iptc_order);
     }
@@ -4710,6 +4942,8 @@ dump_xmp_portable(const MetaStore& store, std::span<std::byte> out,
                                   options.limits.max_entries, &emitted);
     emit_portable_indexed_groups(&w, arena, &indexed,
                                  options.limits.max_entries, &emitted);
+    emit_portable_structured_groups(&w, arena, &structured,
+                                    options.limits.max_entries, &emitted);
 
     emit_xmp_packet_end(&w);
 
