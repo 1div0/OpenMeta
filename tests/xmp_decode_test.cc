@@ -383,6 +383,416 @@ TEST(XmpDecodeTest, DecodesIndexedStructuredChildLangAltPaths)
     expect_text("LocationShown[1]/Sublocation[@xml:lang=ja-JP]", "祇園");
 }
 
+TEST(XmpDecodeTest, DecodesStructuredChildIndexedPaths)
+{
+    const std::string xmp
+        = "<x:xmpmeta xmlns:x='adobe:ns:meta/'>"
+          "<rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'>"
+          "<rdf:Description "
+          "xmlns:Iptc4xmpCore='http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/'>"
+          "<Iptc4xmpCore:CreatorContactInfo rdf:parseType='Resource'>"
+          "<Iptc4xmpCore:CiAdrExtadr><rdf:Seq>"
+          "<rdf:li>Line 1</rdf:li>"
+          "<rdf:li>Line 2</rdf:li>"
+          "</rdf:Seq></Iptc4xmpCore:CiAdrExtadr>"
+          "</Iptc4xmpCore:CreatorContactInfo>"
+          "</rdf:Description>"
+          "</rdf:RDF>"
+          "</x:xmpmeta>";
+
+    const std::span<const std::byte> bytes(
+        reinterpret_cast<const std::byte*>(xmp.data()), xmp.size());
+
+    MetaStore store;
+    const XmpDecodeResult r = decode_xmp_packet(bytes, store);
+    EXPECT_EQ(r.status, XmpDecodeStatus::Ok);
+    EXPECT_EQ(r.entries_decoded, 2U);
+
+    store.finalize();
+
+    auto expect_text = [&](std::string_view path, std::string_view expected) {
+        MetaKeyView key;
+        key.kind                            = MetaKeyKind::XmpProperty;
+        key.data.xmp_property.schema_ns
+            = "http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/";
+        key.data.xmp_property.property_path = path;
+
+        const std::span<const EntryId> ids = store.find_all(key);
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        ASSERT_EQ(e.value.kind, MetaValueKind::Text);
+        const std::span<const std::byte> vb = store.arena().span(
+            e.value.data.span);
+        const std::string_view val(reinterpret_cast<const char*>(vb.data()),
+                                   vb.size());
+        EXPECT_EQ(val, expected);
+    };
+
+    expect_text("CreatorContactInfo/CiAdrExtadr[1]", "Line 1");
+    expect_text("CreatorContactInfo/CiAdrExtadr[2]", "Line 2");
+}
+
+TEST(XmpDecodeTest, DecodesIndexedStructuredChildIndexedPaths)
+{
+    const std::string xmp
+        = "<x:xmpmeta xmlns:x='adobe:ns:meta/'>"
+          "<rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'>"
+          "<rdf:Description "
+          "xmlns:Iptc4xmpExt='http://iptc.org/std/Iptc4xmpExt/2008-02-29/'>"
+          "<Iptc4xmpExt:LocationShown><rdf:Seq>"
+          "<rdf:li rdf:parseType='Resource'>"
+          "<Iptc4xmpExt:Sublocation><rdf:Seq>"
+          "<rdf:li>Gion</rdf:li>"
+          "<rdf:li>Hanamikoji</rdf:li>"
+          "</rdf:Seq></Iptc4xmpExt:Sublocation>"
+          "</rdf:li>"
+          "</rdf:Seq></Iptc4xmpExt:LocationShown>"
+          "</rdf:Description>"
+          "</rdf:RDF>"
+          "</x:xmpmeta>";
+
+    const std::span<const std::byte> bytes(
+        reinterpret_cast<const std::byte*>(xmp.data()), xmp.size());
+
+    MetaStore store;
+    const XmpDecodeResult r = decode_xmp_packet(bytes, store);
+    EXPECT_EQ(r.status, XmpDecodeStatus::Ok);
+    EXPECT_EQ(r.entries_decoded, 2U);
+
+    store.finalize();
+
+    auto expect_text = [&](std::string_view path, std::string_view expected) {
+        MetaKeyView key;
+        key.kind                            = MetaKeyKind::XmpProperty;
+        key.data.xmp_property.schema_ns
+            = "http://iptc.org/std/Iptc4xmpExt/2008-02-29/";
+        key.data.xmp_property.property_path = path;
+
+        const std::span<const EntryId> ids = store.find_all(key);
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        ASSERT_EQ(e.value.kind, MetaValueKind::Text);
+        const std::span<const std::byte> vb = store.arena().span(
+            e.value.data.span);
+        const std::string_view val(reinterpret_cast<const char*>(vb.data()),
+                                   vb.size());
+        EXPECT_EQ(val, expected);
+    };
+
+    expect_text("LocationShown[1]/Sublocation[1]", "Gion");
+    expect_text("LocationShown[1]/Sublocation[2]", "Hanamikoji");
+}
+
+TEST(XmpDecodeTest, DecodesNestedStructuredResourcePaths)
+{
+    const std::string xmp
+        = "<x:xmpmeta xmlns:x='adobe:ns:meta/'>"
+          "<rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'>"
+          "<rdf:Description "
+          "xmlns:Iptc4xmpCore='http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/'>"
+          "<Iptc4xmpCore:CreatorContactInfo rdf:parseType='Resource'>"
+          "<Iptc4xmpCore:CiAdrRegion rdf:parseType='Resource'>"
+          "<Iptc4xmpCore:ProvinceName>Tokyo</Iptc4xmpCore:ProvinceName>"
+          "<Iptc4xmpCore:ProvinceCode>13</Iptc4xmpCore:ProvinceCode>"
+          "</Iptc4xmpCore:CiAdrRegion>"
+          "</Iptc4xmpCore:CreatorContactInfo>"
+          "</rdf:Description>"
+          "</rdf:RDF>"
+          "</x:xmpmeta>";
+
+    const std::span<const std::byte> bytes(
+        reinterpret_cast<const std::byte*>(xmp.data()), xmp.size());
+
+    MetaStore store;
+    const XmpDecodeResult r = decode_xmp_packet(bytes, store);
+    EXPECT_EQ(r.status, XmpDecodeStatus::Ok);
+    EXPECT_EQ(r.entries_decoded, 2U);
+
+    store.finalize();
+
+    auto expect_text = [&](std::string_view path, std::string_view expected) {
+        MetaKeyView key;
+        key.kind                            = MetaKeyKind::XmpProperty;
+        key.data.xmp_property.schema_ns
+            = "http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/";
+        key.data.xmp_property.property_path = path;
+
+        const std::span<const EntryId> ids = store.find_all(key);
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        ASSERT_EQ(e.value.kind, MetaValueKind::Text);
+        const std::span<const std::byte> vb = store.arena().span(
+            e.value.data.span);
+        const std::string_view val(reinterpret_cast<const char*>(vb.data()),
+                                   vb.size());
+        EXPECT_EQ(val, expected);
+    };
+
+    expect_text("CreatorContactInfo/CiAdrRegion/ProvinceName", "Tokyo");
+    expect_text("CreatorContactInfo/CiAdrRegion/ProvinceCode", "13");
+}
+
+TEST(XmpDecodeTest, DecodesIndexedNestedStructuredResourcePaths)
+{
+    const std::string xmp
+        = "<x:xmpmeta xmlns:x='adobe:ns:meta/'>"
+          "<rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'>"
+          "<rdf:Description "
+          "xmlns:Iptc4xmpExt='http://iptc.org/std/Iptc4xmpExt/2008-02-29/'>"
+          "<Iptc4xmpExt:LocationShown><rdf:Seq>"
+          "<rdf:li rdf:parseType='Resource'>"
+          "<Iptc4xmpExt:Address rdf:parseType='Resource'>"
+          "<Iptc4xmpExt:City>Kyoto</Iptc4xmpExt:City>"
+          "<Iptc4xmpExt:CountryName>Japan</Iptc4xmpExt:CountryName>"
+          "</Iptc4xmpExt:Address>"
+          "</rdf:li>"
+          "</rdf:Seq></Iptc4xmpExt:LocationShown>"
+          "</rdf:Description>"
+          "</rdf:RDF>"
+          "</x:xmpmeta>";
+
+    const std::span<const std::byte> bytes(
+        reinterpret_cast<const std::byte*>(xmp.data()), xmp.size());
+
+    MetaStore store;
+    const XmpDecodeResult r = decode_xmp_packet(bytes, store);
+    EXPECT_EQ(r.status, XmpDecodeStatus::Ok);
+    EXPECT_EQ(r.entries_decoded, 2U);
+
+    store.finalize();
+
+    auto expect_text = [&](std::string_view path, std::string_view expected) {
+        MetaKeyView key;
+        key.kind                            = MetaKeyKind::XmpProperty;
+        key.data.xmp_property.schema_ns
+            = "http://iptc.org/std/Iptc4xmpExt/2008-02-29/";
+        key.data.xmp_property.property_path = path;
+
+        const std::span<const EntryId> ids = store.find_all(key);
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        ASSERT_EQ(e.value.kind, MetaValueKind::Text);
+        const std::span<const std::byte> vb = store.arena().span(
+            e.value.data.span);
+        const std::string_view val(reinterpret_cast<const char*>(vb.data()),
+                                   vb.size());
+        EXPECT_EQ(val, expected);
+    };
+
+    expect_text("LocationShown[1]/Address/City", "Kyoto");
+    expect_text("LocationShown[1]/Address/CountryName", "Japan");
+}
+
+TEST(XmpDecodeTest, DecodesNestedStructuredChildLangAltPaths)
+{
+    const std::string xmp
+        = "<x:xmpmeta xmlns:x='adobe:ns:meta/'>"
+          "<rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'>"
+          "<rdf:Description "
+          "xmlns:Iptc4xmpCore='http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/'>"
+          "<Iptc4xmpCore:CreatorContactInfo rdf:parseType='Resource'>"
+          "<Iptc4xmpCore:CiAdrRegion rdf:parseType='Resource'>"
+          "<Iptc4xmpCore:ProvinceName><rdf:Alt>"
+          "<rdf:li xml:lang='x-default'>Tokyo</rdf:li>"
+          "<rdf:li xml:lang='ja-JP'>東京</rdf:li>"
+          "</rdf:Alt></Iptc4xmpCore:ProvinceName>"
+          "</Iptc4xmpCore:CiAdrRegion>"
+          "</Iptc4xmpCore:CreatorContactInfo>"
+          "</rdf:Description>"
+          "</rdf:RDF>"
+          "</x:xmpmeta>";
+
+    const std::span<const std::byte> bytes(
+        reinterpret_cast<const std::byte*>(xmp.data()), xmp.size());
+
+    MetaStore store;
+    const XmpDecodeResult r = decode_xmp_packet(bytes, store);
+    EXPECT_EQ(r.status, XmpDecodeStatus::Ok);
+    EXPECT_EQ(r.entries_decoded, 2U);
+
+    store.finalize();
+
+    auto expect_text = [&](std::string_view path, std::string_view expected) {
+        MetaKeyView key;
+        key.kind                            = MetaKeyKind::XmpProperty;
+        key.data.xmp_property.schema_ns
+            = "http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/";
+        key.data.xmp_property.property_path = path;
+
+        const std::span<const EntryId> ids = store.find_all(key);
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        ASSERT_EQ(e.value.kind, MetaValueKind::Text);
+        const std::span<const std::byte> vb = store.arena().span(
+            e.value.data.span);
+        const std::string_view val(reinterpret_cast<const char*>(vb.data()),
+                                   vb.size());
+        EXPECT_EQ(val, expected);
+    };
+
+    expect_text("CreatorContactInfo/CiAdrRegion/ProvinceName[@xml:lang=x-default]",
+                "Tokyo");
+    expect_text("CreatorContactInfo/CiAdrRegion/ProvinceName[@xml:lang=ja-JP]",
+                "東京");
+}
+
+TEST(XmpDecodeTest, DecodesNestedStructuredChildIndexedPaths)
+{
+    const std::string xmp
+        = "<x:xmpmeta xmlns:x='adobe:ns:meta/'>"
+          "<rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'>"
+          "<rdf:Description "
+          "xmlns:Iptc4xmpCore='http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/'>"
+          "<Iptc4xmpCore:CreatorContactInfo rdf:parseType='Resource'>"
+          "<Iptc4xmpCore:CiAdrRegion rdf:parseType='Resource'>"
+          "<Iptc4xmpCore:ProvinceCode><rdf:Seq>"
+          "<rdf:li>13</rdf:li>"
+          "<rdf:li>JP-13</rdf:li>"
+          "</rdf:Seq></Iptc4xmpCore:ProvinceCode>"
+          "</Iptc4xmpCore:CiAdrRegion>"
+          "</Iptc4xmpCore:CreatorContactInfo>"
+          "</rdf:Description>"
+          "</rdf:RDF>"
+          "</x:xmpmeta>";
+
+    const std::span<const std::byte> bytes(
+        reinterpret_cast<const std::byte*>(xmp.data()), xmp.size());
+
+    MetaStore store;
+    const XmpDecodeResult r = decode_xmp_packet(bytes, store);
+    EXPECT_EQ(r.status, XmpDecodeStatus::Ok);
+    EXPECT_EQ(r.entries_decoded, 2U);
+
+    store.finalize();
+
+    auto expect_text = [&](std::string_view path, std::string_view expected) {
+        MetaKeyView key;
+        key.kind                            = MetaKeyKind::XmpProperty;
+        key.data.xmp_property.schema_ns
+            = "http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/";
+        key.data.xmp_property.property_path = path;
+
+        const std::span<const EntryId> ids = store.find_all(key);
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        ASSERT_EQ(e.value.kind, MetaValueKind::Text);
+        const std::span<const std::byte> vb = store.arena().span(
+            e.value.data.span);
+        const std::string_view val(reinterpret_cast<const char*>(vb.data()),
+                                   vb.size());
+        EXPECT_EQ(val, expected);
+    };
+
+    expect_text("CreatorContactInfo/CiAdrRegion/ProvinceCode[1]", "13");
+    expect_text("CreatorContactInfo/CiAdrRegion/ProvinceCode[2]", "JP-13");
+}
+
+TEST(XmpDecodeTest, DecodesIndexedNestedStructuredChildLangAltPaths)
+{
+    const std::string xmp
+        = "<x:xmpmeta xmlns:x='adobe:ns:meta/'>"
+          "<rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'>"
+          "<rdf:Description "
+          "xmlns:Iptc4xmpExt='http://iptc.org/std/Iptc4xmpExt/2008-02-29/'>"
+          "<Iptc4xmpExt:LocationShown><rdf:Seq>"
+          "<rdf:li rdf:parseType='Resource'>"
+          "<Iptc4xmpExt:Address rdf:parseType='Resource'>"
+          "<Iptc4xmpExt:City><rdf:Alt>"
+          "<rdf:li xml:lang='x-default'>Kyoto</rdf:li>"
+          "<rdf:li xml:lang='ja-JP'>京都</rdf:li>"
+          "</rdf:Alt></Iptc4xmpExt:City>"
+          "</Iptc4xmpExt:Address>"
+          "</rdf:li>"
+          "</rdf:Seq></Iptc4xmpExt:LocationShown>"
+          "</rdf:Description>"
+          "</rdf:RDF>"
+          "</x:xmpmeta>";
+
+    const std::span<const std::byte> bytes(
+        reinterpret_cast<const std::byte*>(xmp.data()), xmp.size());
+
+    MetaStore store;
+    const XmpDecodeResult r = decode_xmp_packet(bytes, store);
+    EXPECT_EQ(r.status, XmpDecodeStatus::Ok);
+    EXPECT_EQ(r.entries_decoded, 2U);
+
+    store.finalize();
+
+    auto expect_text = [&](std::string_view path, std::string_view expected) {
+        MetaKeyView key;
+        key.kind                            = MetaKeyKind::XmpProperty;
+        key.data.xmp_property.schema_ns
+            = "http://iptc.org/std/Iptc4xmpExt/2008-02-29/";
+        key.data.xmp_property.property_path = path;
+
+        const std::span<const EntryId> ids = store.find_all(key);
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        ASSERT_EQ(e.value.kind, MetaValueKind::Text);
+        const std::span<const std::byte> vb = store.arena().span(
+            e.value.data.span);
+        const std::string_view val(reinterpret_cast<const char*>(vb.data()),
+                                   vb.size());
+        EXPECT_EQ(val, expected);
+    };
+
+    expect_text("LocationShown[1]/Address/City[@xml:lang=x-default]", "Kyoto");
+    expect_text("LocationShown[1]/Address/City[@xml:lang=ja-JP]", "京都");
+}
+
+TEST(XmpDecodeTest, DecodesIndexedNestedStructuredChildIndexedPaths)
+{
+    const std::string xmp
+        = "<x:xmpmeta xmlns:x='adobe:ns:meta/'>"
+          "<rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'>"
+          "<rdf:Description "
+          "xmlns:Iptc4xmpExt='http://iptc.org/std/Iptc4xmpExt/2008-02-29/'>"
+          "<Iptc4xmpExt:LocationShown><rdf:Seq>"
+          "<rdf:li rdf:parseType='Resource'>"
+          "<Iptc4xmpExt:Address rdf:parseType='Resource'>"
+          "<Iptc4xmpExt:CountryCode><rdf:Seq>"
+          "<rdf:li>JP</rdf:li>"
+          "<rdf:li>JP-26</rdf:li>"
+          "</rdf:Seq></Iptc4xmpExt:CountryCode>"
+          "</Iptc4xmpExt:Address>"
+          "</rdf:li>"
+          "</rdf:Seq></Iptc4xmpExt:LocationShown>"
+          "</rdf:Description>"
+          "</rdf:RDF>"
+          "</x:xmpmeta>";
+
+    const std::span<const std::byte> bytes(
+        reinterpret_cast<const std::byte*>(xmp.data()), xmp.size());
+
+    MetaStore store;
+    const XmpDecodeResult r = decode_xmp_packet(bytes, store);
+    EXPECT_EQ(r.status, XmpDecodeStatus::Ok);
+    EXPECT_EQ(r.entries_decoded, 2U);
+
+    store.finalize();
+
+    auto expect_text = [&](std::string_view path, std::string_view expected) {
+        MetaKeyView key;
+        key.kind                            = MetaKeyKind::XmpProperty;
+        key.data.xmp_property.schema_ns
+            = "http://iptc.org/std/Iptc4xmpExt/2008-02-29/";
+        key.data.xmp_property.property_path = path;
+
+        const std::span<const EntryId> ids = store.find_all(key);
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        ASSERT_EQ(e.value.kind, MetaValueKind::Text);
+        const std::span<const std::byte> vb = store.arena().span(
+            e.value.data.span);
+        const std::string_view val(reinterpret_cast<const char*>(vb.data()),
+                                   vb.size());
+        EXPECT_EQ(val, expected);
+    };
+
+    expect_text("LocationShown[1]/Address/CountryCode[1]", "JP");
+    expect_text("LocationShown[1]/Address/CountryCode[2]", "JP-26");
+}
+
 TEST(XmpDecodeTest, TrimsTrailingNulPadding)
 {
     const std::string xmp

@@ -86,9 +86,16 @@ struct XmpPortableOptions final {
     /// \note Currently simple `property_path` values, indexed `[n]` paths,
     /// bounded lang-alt paths like `title[@xml:lang=x-default]`, bounded
     /// one-level structured paths like `CreatorContactInfo/CiEmailWork`,
-    /// bounded indexed-structured paths like `Licensee[1]/LicenseeName`, and
+    /// bounded indexed-structured paths like `Licensee[1]/LicenseeName`,
+    /// bounded second-level structured scalar paths like
+    /// `CreatorContactInfo/CiAdrRegion/ProvinceName`, bounded structured
+    /// child indexed paths like `CreatorContactInfo/CiAdrExtadr[1]`, and
     /// bounded structured child lang-alt paths like
     /// `CreatorContactInfo/CiAdrCity[@xml:lang=x-default]` are emitted.
+    /// Bounded second-level structured child lang-alt paths like
+    /// `CreatorContactInfo/CiAdrRegion/ProvinceName[@xml:lang=x-default]`
+    /// and bounded second-level structured child indexed paths like
+    /// `CreatorContactInfo/CiAdrRegion/ProvinceCode[1]` are also emitted.
     bool include_existing_xmp = false;
     /// Existing XMP namespace writeback policy for portable output.
     XmpExistingNamespacePolicy existing_namespace_policy
