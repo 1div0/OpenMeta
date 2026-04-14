@@ -33,6 +33,34 @@ namespace {
     static constexpr std::string_view kXmlNs
         = "http://www.w3.org/XML/1998/namespace";
     static constexpr std::string_view kXmpMetaNs = "adobe:ns:meta/";
+    static constexpr std::string_view kXmpNsXmp
+        = "http://ns.adobe.com/xap/1.0/";
+    static constexpr std::string_view kXmpNsTiff
+        = "http://ns.adobe.com/tiff/1.0/";
+    static constexpr std::string_view kXmpNsExif
+        = "http://ns.adobe.com/exif/1.0/";
+    static constexpr std::string_view kXmpNsExifAux
+        = "http://ns.adobe.com/exif/1.0/aux/";
+    static constexpr std::string_view kXmpNsDc
+        = "http://purl.org/dc/elements/1.1/";
+    static constexpr std::string_view kXmpNsPdf
+        = "http://ns.adobe.com/pdf/1.3/";
+    static constexpr std::string_view kXmpNsPlus
+        = "http://ns.useplus.org/ldf/xmp/1.0/";
+    static constexpr std::string_view kXmpNsCrs
+        = "http://ns.adobe.com/camera-raw-settings/1.0/";
+    static constexpr std::string_view kXmpNsLr
+        = "http://ns.adobe.com/lightroom/1.0/";
+    static constexpr std::string_view kXmpNsXmpMM
+        = "http://ns.adobe.com/xap/1.0/mm/";
+    static constexpr std::string_view kXmpNsXmpRights
+        = "http://ns.adobe.com/xap/1.0/rights/";
+    static constexpr std::string_view kXmpNsPhotoshop
+        = "http://ns.adobe.com/photoshop/1.0/";
+    static constexpr std::string_view kXmpNsIptc4xmpCore
+        = "http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/";
+    static constexpr std::string_view kXmpNsIptc4xmpExt
+        = "http://iptc.org/std/Iptc4xmpExt/2008-02-29/";
 
     struct NameParts final {
         std::string_view uri;
@@ -46,6 +74,54 @@ namespace {
             return NameParts { std::string_view {}, name };
         }
         return NameParts { name.substr(0, sep), name.substr(sep + 1) };
+    }
+
+    static std::string_view
+    portable_nested_prefix_for_xmp_ns(std::string_view ns) noexcept
+    {
+        if (ns == kXmpNsXmp) {
+            return "xmp";
+        }
+        if (ns == kXmpNsTiff) {
+            return "tiff";
+        }
+        if (ns == kXmpNsExif) {
+            return "exif";
+        }
+        if (ns == kXmpNsExifAux) {
+            return "aux";
+        }
+        if (ns == kXmpNsDc) {
+            return "dc";
+        }
+        if (ns == kXmpNsPdf) {
+            return "pdf";
+        }
+        if (ns == kXmpNsPlus) {
+            return "plus";
+        }
+        if (ns == kXmpNsCrs) {
+            return "crs";
+        }
+        if (ns == kXmpNsLr) {
+            return "lr";
+        }
+        if (ns == kXmpNsXmpMM) {
+            return "xmpMM";
+        }
+        if (ns == kXmpNsXmpRights) {
+            return "xmpRights";
+        }
+        if (ns == kXmpNsPhotoshop) {
+            return "photoshop";
+        }
+        if (ns == kXmpNsIptc4xmpCore) {
+            return "Iptc4xmpCore";
+        }
+        if (ns == kXmpNsIptc4xmpExt) {
+            return "Iptc4xmpExt";
+        }
+        return {};
     }
 
 
@@ -480,10 +556,25 @@ namespace {
         // property path component.
         if (ctx->description_depth > 0 && frame.is_nonrdf) {
             const bool is_root = ctx->path.empty();
+            std::string qualified_seg;
+            std::string_view seg = parts.local;
             if (is_root) {
                 ctx->root_schema_ns.assign(parts.uri.data(), parts.uri.size());
+            } else if (parts.uri != ctx->root_schema_ns) {
+                const std::string_view nested_prefix
+                    = portable_nested_prefix_for_xmp_ns(parts.uri);
+                if (!nested_prefix.empty()) {
+                    qualified_seg.reserve(nested_prefix.size() + 1U
+                                          + parts.local.size());
+                    qualified_seg.assign(nested_prefix.data(),
+                                         nested_prefix.size());
+                    qualified_seg.push_back(':');
+                    qualified_seg.append(parts.local.data(),
+                                         parts.local.size());
+                    seg = qualified_seg;
+                }
             }
-            if (!path_append_segment(ctx, parts.local, true)) {
+            if (!path_append_segment(ctx, seg, true)) {
                 return;
             }
             frame.contributed_to_path = true;

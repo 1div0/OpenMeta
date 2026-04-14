@@ -3679,11 +3679,11 @@ TEST(XmpDump, PortableCanonicalizesKnownStructuredChildShapes)
     EXPECT_NE(
         s.find("<Iptc4xmpCore:ProvinceName>Tokyo</Iptc4xmpCore:ProvinceName>"),
         std::string_view::npos);
-    EXPECT_NE(
-        s.find("<Iptc4xmpExt:Address rdf:parseType=\"Resource\">"),
-        std::string_view::npos);
     EXPECT_NE(s.find("<Iptc4xmpExt:City>Kyoto</Iptc4xmpExt:City>"),
               std::string_view::npos);
+    EXPECT_EQ(
+        s.find("<Iptc4xmpExt:Address rdf:parseType=\"Resource\">"),
+        std::string_view::npos);
     EXPECT_EQ(s.find("legacy-region"), std::string_view::npos);
     EXPECT_EQ(s.find("legacy-address"), std::string_view::npos);
 }
@@ -4027,7 +4027,7 @@ TEST(XmpDump, PortablePreservesNestedStructuredResources)
         std::string_view::npos);
 }
 
-TEST(XmpDump, PortablePreservesIndexedNestedStructuredResources)
+TEST(XmpDump, PortableCanonicalizesIndexedNestedStructuredAddressAliases)
 {
     MetaStore store;
     const BlockId block = store.add_block(BlockInfo {});
@@ -4051,6 +4051,36 @@ TEST(XmpDump, PortablePreservesIndexedNestedStructuredResources)
     country.origin.order_in_block = 1;
     (void)store.add_entry(country);
 
+    Entry country_code;
+    country_code.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationShown[1]/Address/CountryCode");
+    country_code.value = make_text(store.arena(), "JP",
+                                   TextEncoding::Utf8);
+    country_code.origin.block          = block;
+    country_code.origin.order_in_block = 2;
+    (void)store.add_entry(country_code);
+
+    Entry province;
+    province.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationShown[1]/Address/ProvinceState");
+    province.value = make_text(store.arena(), "Kyoto",
+                               TextEncoding::Utf8);
+    province.origin.block          = block;
+    province.origin.order_in_block = 3;
+    (void)store.add_entry(province);
+
+    Entry world_region;
+    world_region.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationShown[1]/Address/WorldRegion");
+    world_region.value = make_text(store.arena(), "APAC",
+                                   TextEncoding::Utf8);
+    world_region.origin.block          = block;
+    world_region.origin.order_in_block = 4;
+    (void)store.add_entry(world_region);
+
     store.finalize();
 
     XmpPortableOptions opts;
@@ -4070,14 +4100,780 @@ TEST(XmpDump, PortablePreservesIndexedNestedStructuredResources)
     EXPECT_NE(s.find("<rdf:li rdf:parseType=\"Resource\">"),
               std::string_view::npos);
     EXPECT_NE(
-        s.find("<Iptc4xmpExt:Address rdf:parseType=\"Resource\">"),
-        std::string_view::npos);
-    EXPECT_NE(
         s.find("<Iptc4xmpExt:City>Kyoto</Iptc4xmpExt:City>"),
         std::string_view::npos);
     EXPECT_NE(
         s.find("<Iptc4xmpExt:CountryName>Japan</Iptc4xmpExt:CountryName>"),
         std::string_view::npos);
+    EXPECT_NE(
+        s.find("<Iptc4xmpExt:CountryCode>JP</Iptc4xmpExt:CountryCode>"),
+        std::string_view::npos);
+    EXPECT_NE(
+        s.find("<Iptc4xmpExt:ProvinceState>Kyoto</Iptc4xmpExt:ProvinceState>"),
+        std::string_view::npos);
+    EXPECT_NE(
+        s.find("<Iptc4xmpExt:WorldRegion>APAC</Iptc4xmpExt:WorldRegion>"),
+        std::string_view::npos);
+    EXPECT_EQ(
+        s.find("<Iptc4xmpExt:Address rdf:parseType=\"Resource\">"),
+        std::string_view::npos);
+}
+
+TEST(XmpDump, PortableCanonicalizesStructuredLocationCreatedAddressAliases)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, kInvalidBlockId);
+
+    Entry city;
+    city.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationCreated/Address/City");
+    city.value = make_text(store.arena(), "Paris", TextEncoding::Utf8);
+    city.origin.block          = block;
+    city.origin.order_in_block = 0;
+    (void)store.add_entry(city);
+
+    Entry country_name;
+    country_name.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationCreated/Address/CountryName");
+    country_name.value = make_text(store.arena(), "France",
+                                   TextEncoding::Utf8);
+    country_name.origin.block          = block;
+    country_name.origin.order_in_block = 1;
+    (void)store.add_entry(country_name);
+
+    Entry country_code;
+    country_code.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationCreated/Address/CountryCode");
+    country_code.value = make_text(store.arena(), "FR",
+                                   TextEncoding::Utf8);
+    country_code.origin.block          = block;
+    country_code.origin.order_in_block = 2;
+    (void)store.add_entry(country_code);
+
+    Entry province;
+    province.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationCreated/Address/ProvinceState");
+    province.value = make_text(store.arena(), "Ile-de-France",
+                               TextEncoding::Utf8);
+    province.origin.block          = block;
+    province.origin.order_in_block = 3;
+    (void)store.add_entry(province);
+
+    Entry world_region;
+    world_region.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationCreated/Address/WorldRegion");
+    world_region.value = make_text(store.arena(), "EMEA",
+                                   TextEncoding::Utf8);
+    world_region.origin.block          = block;
+    world_region.origin.order_in_block = 4;
+    (void)store.add_entry(world_region);
+
+    store.finalize();
+
+    XmpPortableOptions opts;
+    opts.include_exif         = false;
+    opts.include_iptc         = false;
+    opts.include_existing_xmp = true;
+
+    std::vector<std::byte> out(4096);
+    const XmpDumpResult r
+        = dump_xmp_portable(store, std::span<std::byte>(out.data(), out.size()),
+                            opts);
+    ASSERT_EQ(r.status, XmpDumpStatus::Ok);
+
+    const std::string_view s(reinterpret_cast<const char*>(out.data()),
+                             static_cast<size_t>(r.written));
+    EXPECT_NE(
+        s.find("<Iptc4xmpExt:LocationCreated rdf:parseType=\"Resource\">"),
+        std::string_view::npos);
+    EXPECT_NE(
+        s.find("<Iptc4xmpExt:City>Paris</Iptc4xmpExt:City>"),
+        std::string_view::npos);
+    EXPECT_NE(
+        s.find("<Iptc4xmpExt:CountryName>France</Iptc4xmpExt:CountryName>"),
+        std::string_view::npos);
+    EXPECT_NE(
+        s.find("<Iptc4xmpExt:CountryCode>FR</Iptc4xmpExt:CountryCode>"),
+        std::string_view::npos);
+    EXPECT_NE(
+        s.find("<Iptc4xmpExt:ProvinceState>Ile-de-France</Iptc4xmpExt:ProvinceState>"),
+        std::string_view::npos);
+    EXPECT_NE(
+        s.find("<Iptc4xmpExt:WorldRegion>EMEA</Iptc4xmpExt:WorldRegion>"),
+        std::string_view::npos);
+    EXPECT_EQ(
+        s.find("<Iptc4xmpExt:Address rdf:parseType=\"Resource\">"),
+        std::string_view::npos);
+}
+
+TEST(XmpDump, PortableCanonicalizesIndexedLocationDetailsChildShapes)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, kInvalidBlockId);
+
+    Entry bad_name_scalar;
+    bad_name_scalar.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationShown[1]/LocationName");
+    bad_name_scalar.value = make_text(store.arena(), "legacy-name",
+                                      TextEncoding::Utf8);
+    bad_name_scalar.origin.block          = block;
+    bad_name_scalar.origin.order_in_block = 0;
+    (void)store.add_entry(bad_name_scalar);
+
+    Entry good_name_default;
+    good_name_default.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationShown[1]/LocationName[@xml:lang=x-default]");
+    good_name_default.value = make_text(store.arena(), "Kyoto",
+                                        TextEncoding::Utf8);
+    good_name_default.origin.block          = block;
+    good_name_default.origin.order_in_block = 1;
+    (void)store.add_entry(good_name_default);
+
+    Entry good_name_fr;
+    good_name_fr.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationShown[1]/LocationName[@xml:lang=fr-FR]");
+    good_name_fr.value = make_text(store.arena(), "Kyoto FR",
+                                   TextEncoding::Utf8);
+    good_name_fr.origin.block          = block;
+    good_name_fr.origin.order_in_block = 2;
+    (void)store.add_entry(good_name_fr);
+
+    Entry bad_id_scalar;
+    bad_id_scalar.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationShown[1]/LocationId");
+    bad_id_scalar.value = make_text(store.arena(), "legacy-id",
+                                    TextEncoding::Utf8);
+    bad_id_scalar.origin.block          = block;
+    bad_id_scalar.origin.order_in_block = 3;
+    (void)store.add_entry(bad_id_scalar);
+
+    Entry good_id1;
+    good_id1.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationShown[1]/LocationId[1]");
+    good_id1.value = make_text(store.arena(), "loc-001",
+                               TextEncoding::Utf8);
+    good_id1.origin.block          = block;
+    good_id1.origin.order_in_block = 4;
+    (void)store.add_entry(good_id1);
+
+    Entry good_id2;
+    good_id2.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationShown[1]/LocationId[2]");
+    good_id2.value = make_text(store.arena(), "loc-002",
+                               TextEncoding::Utf8);
+    good_id2.origin.block          = block;
+    good_id2.origin.order_in_block = 5;
+    (void)store.add_entry(good_id2);
+
+    store.finalize();
+
+    XmpPortableOptions opts;
+    opts.include_exif         = false;
+    opts.include_iptc         = false;
+    opts.include_existing_xmp = true;
+
+    std::vector<std::byte> out(4096);
+    const XmpDumpResult r
+        = dump_xmp_portable(store, std::span<std::byte>(out.data(), out.size()),
+                            opts);
+    ASSERT_EQ(r.status, XmpDumpStatus::Ok);
+
+    const std::string_view s(reinterpret_cast<const char*>(out.data()),
+                             static_cast<size_t>(r.written));
+    EXPECT_NE(s.find("<Iptc4xmpExt:LocationShown>"), std::string_view::npos);
+    EXPECT_NE(s.find("<Iptc4xmpExt:LocationName>"), std::string_view::npos);
+    EXPECT_NE(s.find("<rdf:Alt>"), std::string_view::npos);
+    EXPECT_NE(s.find("<rdf:li xml:lang=\"x-default\">Kyoto</rdf:li>"),
+              std::string_view::npos);
+    EXPECT_NE(s.find("<rdf:li xml:lang=\"fr-FR\">Kyoto FR</rdf:li>"),
+              std::string_view::npos);
+    EXPECT_NE(s.find("<Iptc4xmpExt:LocationId>"), std::string_view::npos);
+    EXPECT_NE(s.find("<rdf:Bag>"), std::string_view::npos);
+    EXPECT_NE(s.find("<rdf:li>loc-001</rdf:li>"), std::string_view::npos);
+    EXPECT_NE(s.find("<rdf:li>loc-002</rdf:li>"), std::string_view::npos);
+    EXPECT_EQ(s.find("legacy-name"), std::string_view::npos);
+    EXPECT_EQ(s.find("legacy-id"), std::string_view::npos);
+}
+
+TEST(XmpDump, PortableCanonicalizesStructuredLocationCreatedChildShapes)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, kInvalidBlockId);
+
+    Entry bad_name_scalar;
+    bad_name_scalar.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationCreated/LocationName");
+    bad_name_scalar.value = make_text(store.arena(), "legacy-name",
+                                      TextEncoding::Utf8);
+    bad_name_scalar.origin.block          = block;
+    bad_name_scalar.origin.order_in_block = 0;
+    (void)store.add_entry(bad_name_scalar);
+
+    Entry good_name_default;
+    good_name_default.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationCreated/LocationName[@xml:lang=x-default]");
+    good_name_default.value = make_text(store.arena(), "Paris",
+                                        TextEncoding::Utf8);
+    good_name_default.origin.block          = block;
+    good_name_default.origin.order_in_block = 1;
+    (void)store.add_entry(good_name_default);
+
+    Entry good_name_fr;
+    good_name_fr.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationCreated/LocationName[@xml:lang=fr-FR]");
+    good_name_fr.value = make_text(store.arena(), "Paris FR",
+                                   TextEncoding::Utf8);
+    good_name_fr.origin.block          = block;
+    good_name_fr.origin.order_in_block = 2;
+    (void)store.add_entry(good_name_fr);
+
+    Entry bad_id_scalar;
+    bad_id_scalar.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationCreated/LocationId");
+    bad_id_scalar.value = make_text(store.arena(), "legacy-id",
+                                    TextEncoding::Utf8);
+    bad_id_scalar.origin.block          = block;
+    bad_id_scalar.origin.order_in_block = 3;
+    (void)store.add_entry(bad_id_scalar);
+
+    Entry good_id1;
+    good_id1.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationCreated/LocationId[1]");
+    good_id1.value = make_text(store.arena(), "paris-001",
+                               TextEncoding::Utf8);
+    good_id1.origin.block          = block;
+    good_id1.origin.order_in_block = 4;
+    (void)store.add_entry(good_id1);
+
+    Entry good_id2;
+    good_id2.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationCreated/LocationId[2]");
+    good_id2.value = make_text(store.arena(), "paris-002",
+                               TextEncoding::Utf8);
+    good_id2.origin.block          = block;
+    good_id2.origin.order_in_block = 5;
+    (void)store.add_entry(good_id2);
+
+    store.finalize();
+
+    XmpPortableOptions opts;
+    opts.include_exif         = false;
+    opts.include_iptc         = false;
+    opts.include_existing_xmp = true;
+
+    std::vector<std::byte> out(4096);
+    const XmpDumpResult r
+        = dump_xmp_portable(store, std::span<std::byte>(out.data(), out.size()),
+                            opts);
+    ASSERT_EQ(r.status, XmpDumpStatus::Ok);
+
+    const std::string_view s(reinterpret_cast<const char*>(out.data()),
+                             static_cast<size_t>(r.written));
+    EXPECT_NE(
+        s.find("<Iptc4xmpExt:LocationCreated rdf:parseType=\"Resource\">"),
+        std::string_view::npos);
+    EXPECT_NE(s.find("<Iptc4xmpExt:LocationName>"), std::string_view::npos);
+    EXPECT_NE(s.find("<rdf:Alt>"), std::string_view::npos);
+    EXPECT_NE(s.find("<rdf:li xml:lang=\"x-default\">Paris</rdf:li>"),
+              std::string_view::npos);
+    EXPECT_NE(s.find("<rdf:li xml:lang=\"fr-FR\">Paris FR</rdf:li>"),
+              std::string_view::npos);
+    EXPECT_NE(s.find("<Iptc4xmpExt:LocationId>"), std::string_view::npos);
+    EXPECT_NE(s.find("<rdf:Bag>"), std::string_view::npos);
+    EXPECT_NE(s.find("<rdf:li>paris-001</rdf:li>"), std::string_view::npos);
+    EXPECT_NE(s.find("<rdf:li>paris-002</rdf:li>"), std::string_view::npos);
+    EXPECT_EQ(s.find("legacy-name"), std::string_view::npos);
+    EXPECT_EQ(s.find("legacy-id"), std::string_view::npos);
+}
+
+TEST(XmpDump, PortablePreservesMixedNamespaceStructuredLocationDetailsChildren)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, kInvalidBlockId);
+
+    Entry id1;
+    id1.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationShown[1]/xmp:Identifier[1]");
+    id1.value = make_text(store.arena(), "loc-001", TextEncoding::Utf8);
+    id1.origin.block          = block;
+    id1.origin.order_in_block = 0;
+    (void)store.add_entry(id1);
+
+    Entry id2;
+    id2.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationShown[1]/xmp:Identifier[2]");
+    id2.value = make_text(store.arena(), "loc-002", TextEncoding::Utf8);
+    id2.origin.block          = block;
+    id2.origin.order_in_block = 1;
+    (void)store.add_entry(id2);
+
+    Entry gps_lat;
+    gps_lat.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationShown[1]/exif:GPSLatitude");
+    gps_lat.value = make_text(store.arena(), "41,24.5N",
+                              TextEncoding::Utf8);
+    gps_lat.origin.block          = block;
+    gps_lat.origin.order_in_block = 2;
+    (void)store.add_entry(gps_lat);
+
+    Entry gps_lon;
+    gps_lon.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationShown[1]/exif:GPSLongitude");
+    gps_lon.value = make_text(store.arena(), "2,9E", TextEncoding::Utf8);
+    gps_lon.origin.block          = block;
+    gps_lon.origin.order_in_block = 3;
+    (void)store.add_entry(gps_lon);
+
+    store.finalize();
+
+    XmpPortableOptions opts;
+    opts.include_exif         = false;
+    opts.include_iptc         = false;
+    opts.include_existing_xmp = true;
+
+    std::vector<std::byte> out(4096);
+    const XmpDumpResult r
+        = dump_xmp_portable(store, std::span<std::byte>(out.data(), out.size()),
+                            opts);
+    ASSERT_EQ(r.status, XmpDumpStatus::Ok);
+
+    const std::string_view s(reinterpret_cast<const char*>(out.data()),
+                             static_cast<size_t>(r.written));
+    EXPECT_NE(s.find("<Iptc4xmpExt:LocationShown>"), std::string_view::npos);
+    EXPECT_NE(s.find("<xmp:Identifier>"), std::string_view::npos);
+    EXPECT_NE(s.find("<rdf:Bag>"), std::string_view::npos);
+    EXPECT_NE(s.find("<rdf:li>loc-001</rdf:li>"), std::string_view::npos);
+    EXPECT_NE(s.find("<rdf:li>loc-002</rdf:li>"), std::string_view::npos);
+    EXPECT_NE(s.find("<exif:GPSLatitude>41,24.5N</exif:GPSLatitude>"),
+              std::string_view::npos);
+    EXPECT_NE(s.find("<exif:GPSLongitude>2,9E</exif:GPSLongitude>"),
+              std::string_view::npos);
+}
+
+TEST(XmpDump, PortableCanonicalizesIptcExtEntityWithRoleShapes)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, kInvalidBlockId);
+
+    Entry bad_creator_scalar;
+    bad_creator_scalar.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "Creator");
+    bad_creator_scalar.value = make_text(store.arena(), "legacy-creator",
+                                         TextEncoding::Utf8);
+    bad_creator_scalar.origin.block          = block;
+    bad_creator_scalar.origin.order_in_block = 0;
+    (void)store.add_entry(bad_creator_scalar);
+
+    Entry bad_name_scalar;
+    bad_name_scalar.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "Creator[1]/Name");
+    bad_name_scalar.value = make_text(store.arena(), "legacy-name",
+                                      TextEncoding::Utf8);
+    bad_name_scalar.origin.block          = block;
+    bad_name_scalar.origin.order_in_block = 1;
+    (void)store.add_entry(bad_name_scalar);
+
+    Entry good_name_default;
+    good_name_default.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "Creator[1]/Name[@xml:lang=x-default]");
+    good_name_default.value = make_text(store.arena(), "Alice Example",
+                                        TextEncoding::Utf8);
+    good_name_default.origin.block          = block;
+    good_name_default.origin.order_in_block = 2;
+    (void)store.add_entry(good_name_default);
+
+    Entry good_name_ja;
+    good_name_ja.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "Creator[1]/Name[@xml:lang=ja-JP]");
+    good_name_ja.value = make_text(store.arena(), "アリス", TextEncoding::Utf8);
+    good_name_ja.origin.block          = block;
+    good_name_ja.origin.order_in_block = 3;
+    (void)store.add_entry(good_name_ja);
+
+    Entry bad_role_scalar;
+    bad_role_scalar.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "Creator[1]/Role");
+    bad_role_scalar.value = make_text(store.arena(), "legacy-role",
+                                      TextEncoding::Utf8);
+    bad_role_scalar.origin.block          = block;
+    bad_role_scalar.origin.order_in_block = 4;
+    (void)store.add_entry(bad_role_scalar);
+
+    Entry good_role1;
+    good_role1.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "Creator[1]/Role[1]");
+    good_role1.value = make_text(store.arena(), "photographer",
+                                 TextEncoding::Utf8);
+    good_role1.origin.block          = block;
+    good_role1.origin.order_in_block = 5;
+    (void)store.add_entry(good_role1);
+
+    Entry good_role2;
+    good_role2.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "Creator[1]/Role[2]");
+    good_role2.value = make_text(store.arena(), "editor",
+                                 TextEncoding::Utf8);
+    good_role2.origin.block          = block;
+    good_role2.origin.order_in_block = 6;
+    (void)store.add_entry(good_role2);
+
+    store.finalize();
+
+    XmpPortableOptions opts;
+    opts.include_exif         = false;
+    opts.include_iptc         = false;
+    opts.include_existing_xmp = true;
+
+    std::vector<std::byte> out(4096);
+    const XmpDumpResult r
+        = dump_xmp_portable(store, std::span<std::byte>(out.data(), out.size()),
+                            opts);
+    ASSERT_EQ(r.status, XmpDumpStatus::Ok);
+
+    const std::string_view s(reinterpret_cast<const char*>(out.data()),
+                             static_cast<size_t>(r.written));
+    EXPECT_NE(s.find("<Iptc4xmpExt:Creator>"), std::string_view::npos);
+    EXPECT_NE(
+        s.find("<Iptc4xmpExt:Name>"),
+        std::string_view::npos);
+    EXPECT_NE(
+        s.find("<rdf:li xml:lang=\"x-default\">Alice Example</rdf:li>"),
+        std::string_view::npos);
+    EXPECT_NE(s.find("<rdf:li xml:lang=\"ja-JP\">アリス</rdf:li>"),
+              std::string_view::npos);
+    EXPECT_NE(s.find("<Iptc4xmpExt:Role>"), std::string_view::npos);
+    EXPECT_NE(s.find("<rdf:Bag>"), std::string_view::npos);
+    EXPECT_NE(s.find("<rdf:li>photographer</rdf:li>"),
+              std::string_view::npos);
+    EXPECT_NE(s.find("<rdf:li>editor</rdf:li>"), std::string_view::npos);
+    EXPECT_EQ(s.find("legacy-creator"), std::string_view::npos);
+    EXPECT_EQ(s.find("legacy-name"), std::string_view::npos);
+    EXPECT_EQ(s.find("legacy-role"), std::string_view::npos);
+}
+
+TEST(XmpDump, PortableCanonicalizesArtworkOrObjectShapes)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, kInvalidBlockId);
+
+    Entry bad_artwork_scalar;
+    bad_artwork_scalar.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "ArtworkOrObject");
+    bad_artwork_scalar.value = make_text(store.arena(), "legacy-artwork",
+                                         TextEncoding::Utf8);
+    bad_artwork_scalar.origin.block          = block;
+    bad_artwork_scalar.origin.order_in_block = 0;
+    (void)store.add_entry(bad_artwork_scalar);
+
+    Entry bad_title_scalar;
+    bad_title_scalar.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "ArtworkOrObject[1]/AOTitle");
+    bad_title_scalar.value = make_text(store.arena(), "legacy-title",
+                                       TextEncoding::Utf8);
+    bad_title_scalar.origin.block          = block;
+    bad_title_scalar.origin.order_in_block = 1;
+    (void)store.add_entry(bad_title_scalar);
+
+    Entry good_title_default;
+    good_title_default.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "ArtworkOrObject[1]/AOTitle[@xml:lang=x-default]");
+    good_title_default.value = make_text(store.arena(), "Sunset Study",
+                                         TextEncoding::Utf8);
+    good_title_default.origin.block          = block;
+    good_title_default.origin.order_in_block = 2;
+    (void)store.add_entry(good_title_default);
+
+    Entry bad_creator_scalar;
+    bad_creator_scalar.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "ArtworkOrObject[1]/AOCreator");
+    bad_creator_scalar.value = make_text(store.arena(), "legacy-creator",
+                                         TextEncoding::Utf8);
+    bad_creator_scalar.origin.block          = block;
+    bad_creator_scalar.origin.order_in_block = 3;
+    (void)store.add_entry(bad_creator_scalar);
+
+    Entry good_creator1;
+    good_creator1.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "ArtworkOrObject[1]/AOCreator[1]");
+    good_creator1.value = make_text(store.arena(), "Alice Example",
+                                    TextEncoding::Utf8);
+    good_creator1.origin.block          = block;
+    good_creator1.origin.order_in_block = 4;
+    (void)store.add_entry(good_creator1);
+
+    Entry good_creator2;
+    good_creator2.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "ArtworkOrObject[1]/AOCreator[2]");
+    good_creator2.value = make_text(store.arena(), "Bob Example",
+                                    TextEncoding::Utf8);
+    good_creator2.origin.block          = block;
+    good_creator2.origin.order_in_block = 5;
+    (void)store.add_entry(good_creator2);
+
+    Entry bad_style_scalar;
+    bad_style_scalar.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "ArtworkOrObject[1]/AOStylePeriod");
+    bad_style_scalar.value = make_text(store.arena(), "legacy-style",
+                                       TextEncoding::Utf8);
+    bad_style_scalar.origin.block          = block;
+    bad_style_scalar.origin.order_in_block = 6;
+    (void)store.add_entry(bad_style_scalar);
+
+    Entry good_style1;
+    good_style1.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "ArtworkOrObject[1]/AOStylePeriod[1]");
+    good_style1.value = make_text(store.arena(), "Impressionism",
+                                  TextEncoding::Utf8);
+    good_style1.origin.block          = block;
+    good_style1.origin.order_in_block = 7;
+    (void)store.add_entry(good_style1);
+
+    Entry good_style2;
+    good_style2.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "ArtworkOrObject[1]/AOStylePeriod[2]");
+    good_style2.value = make_text(store.arena(), "Modernism",
+                                  TextEncoding::Utf8);
+    good_style2.origin.block          = block;
+    good_style2.origin.order_in_block = 8;
+    (void)store.add_entry(good_style2);
+
+    store.finalize();
+
+    XmpPortableOptions opts;
+    opts.include_exif         = false;
+    opts.include_iptc         = false;
+    opts.include_existing_xmp = true;
+
+    std::vector<std::byte> out(4096);
+    const XmpDumpResult r
+        = dump_xmp_portable(store, std::span<std::byte>(out.data(), out.size()),
+                            opts);
+    ASSERT_EQ(r.status, XmpDumpStatus::Ok);
+
+    const std::string_view s(reinterpret_cast<const char*>(out.data()),
+                             static_cast<size_t>(r.written));
+    EXPECT_NE(s.find("<Iptc4xmpExt:ArtworkOrObject>"),
+              std::string_view::npos);
+    EXPECT_NE(s.find("<Iptc4xmpExt:AOTitle>"), std::string_view::npos);
+    EXPECT_NE(
+        s.find("<rdf:li xml:lang=\"x-default\">Sunset Study</rdf:li>"),
+        std::string_view::npos);
+    EXPECT_NE(s.find("<Iptc4xmpExt:AOCreator>"), std::string_view::npos);
+    EXPECT_NE(s.find("<rdf:Seq>"), std::string_view::npos);
+    EXPECT_NE(s.find("<rdf:li>Alice Example</rdf:li>"),
+              std::string_view::npos);
+    EXPECT_NE(s.find("<rdf:li>Bob Example</rdf:li>"),
+              std::string_view::npos);
+    EXPECT_NE(s.find("<Iptc4xmpExt:AOStylePeriod>"),
+              std::string_view::npos);
+    EXPECT_NE(s.find("<rdf:li>Impressionism</rdf:li>"),
+              std::string_view::npos);
+    EXPECT_NE(s.find("<rdf:li>Modernism</rdf:li>"),
+              std::string_view::npos);
+    EXPECT_EQ(s.find("legacy-artwork"), std::string_view::npos);
+    EXPECT_EQ(s.find("legacy-title"), std::string_view::npos);
+    EXPECT_EQ(s.find("legacy-creator"), std::string_view::npos);
+    EXPECT_EQ(s.find("legacy-style"), std::string_view::npos);
+}
+
+TEST(XmpDump, PortableCanonicalizesPersonAndProductDetailShapes)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, kInvalidBlockId);
+
+    Entry bad_person_scalar;
+    bad_person_scalar.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "PersonInImageWDetails");
+    bad_person_scalar.value = make_text(store.arena(), "legacy-person",
+                                        TextEncoding::Utf8);
+    bad_person_scalar.origin.block          = block;
+    bad_person_scalar.origin.order_in_block = 0;
+    (void)store.add_entry(bad_person_scalar);
+
+    Entry bad_person_name;
+    bad_person_name.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "PersonInImageWDetails[1]/PersonName");
+    bad_person_name.value = make_text(store.arena(), "legacy-person-name",
+                                      TextEncoding::Utf8);
+    bad_person_name.origin.block          = block;
+    bad_person_name.origin.order_in_block = 1;
+    (void)store.add_entry(bad_person_name);
+
+    Entry good_person_name_default;
+    good_person_name_default.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "PersonInImageWDetails[1]/PersonName[@xml:lang=x-default]");
+    good_person_name_default.value = make_text(store.arena(), "Jane Doe",
+                                               TextEncoding::Utf8);
+    good_person_name_default.origin.block          = block;
+    good_person_name_default.origin.order_in_block = 2;
+    (void)store.add_entry(good_person_name_default);
+
+    Entry bad_person_id;
+    bad_person_id.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "PersonInImageWDetails[1]/PersonId");
+    bad_person_id.value = make_text(store.arena(), "legacy-person-id",
+                                    TextEncoding::Utf8);
+    bad_person_id.origin.block          = block;
+    bad_person_id.origin.order_in_block = 3;
+    (void)store.add_entry(bad_person_id);
+
+    Entry good_person_id1;
+    good_person_id1.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "PersonInImageWDetails[1]/PersonId[1]");
+    good_person_id1.value = make_text(store.arena(), "person-001",
+                                      TextEncoding::Utf8);
+    good_person_id1.origin.block          = block;
+    good_person_id1.origin.order_in_block = 4;
+    (void)store.add_entry(good_person_id1);
+
+    Entry good_person_id2;
+    good_person_id2.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "PersonInImageWDetails[1]/PersonId[2]");
+    good_person_id2.value = make_text(store.arena(), "person-002",
+                                      TextEncoding::Utf8);
+    good_person_id2.origin.block          = block;
+    good_person_id2.origin.order_in_block = 5;
+    (void)store.add_entry(good_person_id2);
+
+    Entry bad_product_scalar;
+    bad_product_scalar.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "ProductInImage");
+    bad_product_scalar.value = make_text(store.arena(), "legacy-product",
+                                         TextEncoding::Utf8);
+    bad_product_scalar.origin.block          = block;
+    bad_product_scalar.origin.order_in_block = 6;
+    (void)store.add_entry(bad_product_scalar);
+
+    Entry bad_product_name;
+    bad_product_name.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "ProductInImage[1]/ProductName");
+    bad_product_name.value = make_text(store.arena(), "legacy-product-name",
+                                       TextEncoding::Utf8);
+    bad_product_name.origin.block          = block;
+    bad_product_name.origin.order_in_block = 7;
+    (void)store.add_entry(bad_product_name);
+
+    Entry good_product_name_default;
+    good_product_name_default.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "ProductInImage[1]/ProductName[@xml:lang=x-default]");
+    good_product_name_default.value = make_text(store.arena(), "Camera Body",
+                                                TextEncoding::Utf8);
+    good_product_name_default.origin.block          = block;
+    good_product_name_default.origin.order_in_block = 8;
+    (void)store.add_entry(good_product_name_default);
+
+    Entry bad_product_desc;
+    bad_product_desc.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "ProductInImage[1]/ProductDescription");
+    bad_product_desc.value = make_text(store.arena(), "legacy-product-desc",
+                                       TextEncoding::Utf8);
+    bad_product_desc.origin.block          = block;
+    bad_product_desc.origin.order_in_block = 9;
+    (void)store.add_entry(bad_product_desc);
+
+    Entry good_product_desc_default;
+    good_product_desc_default.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "ProductInImage[1]/ProductDescription[@xml:lang=x-default]");
+    good_product_desc_default.value = make_text(store.arena(), "Mirrorless",
+                                                TextEncoding::Utf8);
+    good_product_desc_default.origin.block          = block;
+    good_product_desc_default.origin.order_in_block = 10;
+    (void)store.add_entry(good_product_desc_default);
+
+    store.finalize();
+
+    XmpPortableOptions opts;
+    opts.include_exif         = false;
+    opts.include_iptc         = false;
+    opts.include_existing_xmp = true;
+
+    std::vector<std::byte> out(4096);
+    const XmpDumpResult r
+        = dump_xmp_portable(store, std::span<std::byte>(out.data(), out.size()),
+                            opts);
+    ASSERT_EQ(r.status, XmpDumpStatus::Ok);
+
+    const std::string_view s(reinterpret_cast<const char*>(out.data()),
+                             static_cast<size_t>(r.written));
+    EXPECT_NE(s.find("<Iptc4xmpExt:PersonInImageWDetails>"),
+              std::string_view::npos);
+    EXPECT_NE(s.find("<Iptc4xmpExt:PersonName>"), std::string_view::npos);
+    EXPECT_NE(s.find("<rdf:li xml:lang=\"x-default\">Jane Doe</rdf:li>"),
+              std::string_view::npos);
+    EXPECT_NE(s.find("<Iptc4xmpExt:PersonId>"), std::string_view::npos);
+    EXPECT_NE(s.find("<rdf:li>person-001</rdf:li>"),
+              std::string_view::npos);
+    EXPECT_NE(s.find("<rdf:li>person-002</rdf:li>"),
+              std::string_view::npos);
+    EXPECT_NE(s.find("<Iptc4xmpExt:ProductInImage>"),
+              std::string_view::npos);
+    EXPECT_NE(s.find("<Iptc4xmpExt:ProductName>"), std::string_view::npos);
+    EXPECT_NE(s.find("<rdf:li xml:lang=\"x-default\">Camera Body</rdf:li>"),
+              std::string_view::npos);
+    EXPECT_NE(
+        s.find("<rdf:li xml:lang=\"x-default\">Mirrorless</rdf:li>"),
+        std::string_view::npos);
+    EXPECT_EQ(s.find("legacy-person"), std::string_view::npos);
+    EXPECT_EQ(s.find("legacy-person-name"), std::string_view::npos);
+    EXPECT_EQ(s.find("legacy-person-id"), std::string_view::npos);
+    EXPECT_EQ(s.find("legacy-product"), std::string_view::npos);
+    EXPECT_EQ(s.find("legacy-product-name"), std::string_view::npos);
+    EXPECT_EQ(s.find("legacy-product-desc"), std::string_view::npos);
 }
 
 TEST(XmpDump, PortablePreservesNestedStructuredChildLangAltResources)

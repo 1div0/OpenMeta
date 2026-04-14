@@ -267,6 +267,41 @@ def get_exr_attribute_batch(
     return list(batch)
 
 
+def probe_libraw_orientation(
+    path: str | os.PathLike[str],
+    *,
+    target: object = openmeta.LibRawOrientationTarget.RawImage,
+    preserve_embedded_preview_orientation: bool = True,
+    mirror_policy: object = openmeta.LibRawMirrorPolicy.Reject,
+    max_file_bytes: int = 0,
+) -> dict[object, object]:
+    return openmeta.map_meta_orientation_to_libraw_flip_from_file(
+        os.fspath(path),
+        target=target,
+        preserve_embedded_preview_orientation=preserve_embedded_preview_orientation,
+        mirror_policy=mirror_policy,
+        max_file_bytes=max_file_bytes,
+    )
+
+
+def get_libraw_orientation(
+    path: str | os.PathLike[str],
+    **kwargs: object,
+) -> dict[object, object]:
+    result = probe_libraw_orientation(path, **kwargs)
+    if str(result["file_status_name"]) != "ok":
+        raise RuntimeError(
+            "failed to read file for libraw orientation: "
+            + str(result["file_status_name"])
+        )
+    if str(result["orientation_status_name"]) != "ok":
+        raise RuntimeError(
+            "failed to map libraw orientation: "
+            + str(result["orientation_code_name"])
+        )
+    return result
+
+
 def update_dng_sdk_file(
     path: str | os.PathLike[str],
     target_path: str | os.PathLike[str],

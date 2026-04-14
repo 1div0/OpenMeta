@@ -254,6 +254,7 @@ set(OPENMETA_SOURCES
   src/openmeta/interop_value_format_internal.cc
   src/openmeta/iptc_iim_decode.cc
   src/openmeta/jumbf_decode.cc
+  src/openmeta/libraw_adapter.cc
   src/openmeta/meta_key.cc
   src/openmeta/metadata_transfer.cc
   src/openmeta/meta_store.cc
@@ -600,6 +601,7 @@ if(OPENMETA_BUILD_TESTS)
     tests/bmff_fields_decode_test.cc
     tests/c2pa_container_test.cc
     tests/jumbf_decode_test.cc
+    tests/libraw_adapter_test.cc
     tests/crw_ciff_decode_test.cc
     tests/dng_sdk_adapter_test.cc
     tests/icc_decode_test.cc

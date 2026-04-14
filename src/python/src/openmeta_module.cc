@@ -10,6 +10,7 @@
 #include "openmeta/geotiff_key_names.h"
 #include "openmeta/icc_interpret.h"
 #include "openmeta/interop_export.h"
+#include "openmeta/libraw_adapter.h"
 #include "openmeta/mapped_file.h"
 #include "openmeta/metadata_transfer.h"
 #include "openmeta/ocio_adapter.h"
@@ -174,6 +175,155 @@ namespace {
             case DngSdkAdapterStatus::Malformed: return "malformed";
             case DngSdkAdapterStatus::InternalError:
                 return "internal_error";
+        }
+        return "unknown";
+    }
+
+
+    static const char*
+    libraw_orientation_status_name(LibRawOrientationStatus status) noexcept
+    {
+        switch (status) {
+            case LibRawOrientationStatus::Ok: return "ok";
+            case LibRawOrientationStatus::InvalidArgument:
+                return "invalid_argument";
+            case LibRawOrientationStatus::Unsupported: return "unsupported";
+        }
+        return "unknown";
+    }
+
+
+    static const char*
+    libraw_orientation_code_name(LibRawOrientationCode code) noexcept
+    {
+        switch (code) {
+            case LibRawOrientationCode::None: return "none";
+            case LibRawOrientationCode::PreviewPassThrough:
+                return "preview_pass_through";
+            case LibRawOrientationCode::MissingExifOrientationAssumedDefault:
+                return "missing_exif_orientation_assumed_default";
+            case LibRawOrientationCode::InvalidExifOrientation:
+                return "invalid_exif_orientation";
+            case LibRawOrientationCode::UnsupportedMirroredOrientation:
+                return "unsupported_mirrored_orientation";
+            case LibRawOrientationCode::MirroredOrientationDropped:
+                return "mirrored_orientation_dropped";
+        }
+        return "unknown";
+    }
+
+
+    static const char*
+    libraw_orientation_source_name(LibRawOrientationSource source) noexcept
+    {
+        switch (source) {
+            case LibRawOrientationSource::ExplicitInput:
+                return "explicit_input";
+            case LibRawOrientationSource::AssumedDefault:
+                return "assumed_default";
+            case LibRawOrientationSource::ExifIfd0: return "exif_ifd0";
+            case LibRawOrientationSource::XmpTiffOrientation:
+                return "xmp_tiff_orientation";
+        }
+        return "unknown";
+    }
+
+
+    static const char*
+    libraw_flip_to_exif_code_name(LibRawFlipToExifCode code) noexcept
+    {
+        switch (code) {
+            case LibRawFlipToExifCode::None: return "none";
+            case LibRawFlipToExifCode::PreviewPassThrough:
+                return "preview_pass_through";
+            case LibRawFlipToExifCode::InvalidLibRawFlip:
+                return "invalid_libraw_flip";
+        }
+        return "unknown";
+    }
+
+
+    static const char*
+    libraw_orientation_file_status_name(
+        LibRawOrientationFileStatus status) noexcept
+    {
+        switch (status) {
+            case LibRawOrientationFileStatus::Ok: return "ok";
+            case LibRawOrientationFileStatus::InvalidArgument:
+                return "invalid_argument";
+            case LibRawOrientationFileStatus::OpenFailed:
+                return "open_failed";
+            case LibRawOrientationFileStatus::StatFailed:
+                return "stat_failed";
+            case LibRawOrientationFileStatus::TooLarge: return "too_large";
+            case LibRawOrientationFileStatus::MapFailed: return "map_failed";
+            case LibRawOrientationFileStatus::DecodeFailed:
+                return "decode_failed";
+        }
+        return "unknown";
+    }
+
+
+    static const char* mapped_file_status_name(MappedFileStatus status) noexcept
+    {
+        switch (status) {
+            case MappedFileStatus::Ok: return "ok";
+            case MappedFileStatus::OpenFailed: return "open_failed";
+            case MappedFileStatus::StatFailed: return "stat_failed";
+            case MappedFileStatus::TooLarge: return "too_large";
+            case MappedFileStatus::MapFailed: return "map_failed";
+        }
+        return "unknown";
+    }
+
+
+    static const char* scan_status_name(ScanStatus status) noexcept
+    {
+        switch (status) {
+            case ScanStatus::Ok: return "ok";
+            case ScanStatus::OutputTruncated: return "output_truncated";
+            case ScanStatus::Unsupported: return "unsupported";
+            case ScanStatus::Malformed: return "malformed";
+        }
+        return "unknown";
+    }
+
+
+    static const char* payload_status_name(PayloadStatus status) noexcept
+    {
+        switch (status) {
+            case PayloadStatus::Ok: return "ok";
+            case PayloadStatus::OutputTruncated: return "output_truncated";
+            case PayloadStatus::Unsupported: return "unsupported";
+            case PayloadStatus::Malformed: return "malformed";
+            case PayloadStatus::LimitExceeded: return "limit_exceeded";
+        }
+        return "unknown";
+    }
+
+
+    static const char*
+    exif_decode_status_name(ExifDecodeStatus status) noexcept
+    {
+        switch (status) {
+            case ExifDecodeStatus::Ok: return "ok";
+            case ExifDecodeStatus::OutputTruncated: return "output_truncated";
+            case ExifDecodeStatus::Unsupported: return "unsupported";
+            case ExifDecodeStatus::Malformed: return "malformed";
+            case ExifDecodeStatus::LimitExceeded: return "limit_exceeded";
+        }
+        return "unknown";
+    }
+
+
+    static const char* xmp_decode_status_name(XmpDecodeStatus status) noexcept
+    {
+        switch (status) {
+            case XmpDecodeStatus::Ok: return "ok";
+            case XmpDecodeStatus::OutputTruncated: return "output_truncated";
+            case XmpDecodeStatus::Unsupported: return "unsupported";
+            case XmpDecodeStatus::Malformed: return "malformed";
+            case XmpDecodeStatus::LimitExceeded: return "limit_exceeded";
         }
         return "unknown";
     }
@@ -1652,6 +1802,98 @@ namespace {
         out["error_code"]  = nb::str(error_code.c_str(), error_code.size());
         out["error_message"]
             = nb::str(error_message.c_str(), error_message.size());
+        return out;
+    }
+
+    static nb::dict map_libraw_orientation_from_file_to_python(
+        const std::string& path, LibRawOrientationTarget target,
+        bool preserve_embedded_preview_orientation,
+        LibRawMirrorPolicy mirror_policy, uint64_t max_file_bytes)
+    {
+        LibRawOrientationFileOptions options;
+        options.max_file_bytes = max_file_bytes;
+        options.orientation.target = target;
+        options.orientation.preserve_embedded_preview_orientation
+            = preserve_embedded_preview_orientation;
+        options.orientation.mirror_policy = mirror_policy;
+
+        LibRawOrientationFileResult result;
+        {
+            nb::gil_scoped_release gil_release;
+            result = map_meta_orientation_to_libraw_flip_from_file(
+                path.c_str(), options);
+        }
+
+        nb::dict out;
+        out["path"] = nb::str(path.c_str(), path.size());
+        out["file_status"] = result.file_status;
+        out["file_status_name"]
+            = nb::str(libraw_orientation_file_status_name(result.file_status));
+        out["mapped_file_status"]
+            = nb::int_(static_cast<uint32_t>(result.mapped_file_status));
+        out["mapped_file_status_name"]
+            = nb::str(mapped_file_status_name(result.mapped_file_status));
+        out["file_size"] = nb::int_(result.file_size);
+        out["scan_status"]        = result.read.scan.status;
+        out["scan_status_name"] = nb::str(scan_status_name(result.read.scan.status));
+        out["payload_status"] = result.read.payload.status;
+        out["payload_status_name"]
+            = nb::str(payload_status_name(result.read.payload.status));
+        out["exif_status"] = result.read.exif.status;
+        out["exif_status_name"]
+            = nb::str(exif_decode_status_name(result.read.exif.status));
+        out["xmp_status"] = result.read.xmp.status;
+        out["xmp_status_name"]
+            = nb::str(xmp_decode_status_name(result.read.xmp.status));
+        out["orientation_status"] = result.orientation.status;
+        out["orientation_status_name"] = nb::str(
+            libraw_orientation_status_name(result.orientation.status));
+        out["orientation_code"] = result.orientation.code;
+        out["orientation_code_name"] = nb::str(
+            libraw_orientation_code_name(result.orientation.code));
+        out["orientation_source"] = result.orientation.source;
+        out["orientation_source_name"] = nb::str(
+            libraw_orientation_source_name(result.orientation.source));
+        out["exif_orientation"] = nb::int_(result.orientation.exif_orientation);
+        out["libraw_flip"]      = nb::int_(result.orientation.libraw_flip);
+        out["apply_flip"]       = nb::bool_(result.orientation.apply_flip);
+        out["mirrored"]         = nb::bool_(result.orientation.mirrored);
+        out["preview_passthrough"]
+            = nb::bool_(result.orientation.preview_passthrough);
+
+        std::string overall = "ok";
+        if (result.file_status != LibRawOrientationFileStatus::Ok) {
+            overall = "file_error";
+        } else if (result.orientation.status != LibRawOrientationStatus::Ok) {
+            overall = "orientation_error";
+        }
+        out["overall_status_name"] = nb::str(overall.c_str(), overall.size());
+        return out;
+    }
+
+    static nb::dict map_libraw_flip_to_exif_to_python(
+        uint32_t libraw_flip, LibRawOrientationTarget target,
+        bool preserve_embedded_preview_orientation)
+    {
+        LibRawFlipToExifOptions options;
+        options.target = target;
+        options.preserve_embedded_preview_orientation
+            = preserve_embedded_preview_orientation;
+
+        const LibRawFlipToExifResult result
+            = map_libraw_flip_to_exif_orientation(libraw_flip, options);
+
+        nb::dict out;
+        out["libraw_flip"] = nb::int_(result.libraw_flip);
+        out["orientation_status"] = result.status;
+        out["orientation_status_name"]
+            = nb::str(libraw_orientation_status_name(result.status));
+        out["orientation_code"] = result.code;
+        out["orientation_code_name"]
+            = nb::str(libraw_flip_to_exif_code_name(result.code));
+        out["exif_orientation"] = nb::int_(result.exif_orientation);
+        out["preview_passthrough"]
+            = nb::bool_(result.preview_passthrough);
         return out;
     }
 
@@ -3840,6 +4082,55 @@ NB_MODULE(_openmeta, m)
         .value("InvalidArgument", ExrAdapterStatus::InvalidArgument)
         .value("Unsupported", ExrAdapterStatus::Unsupported);
 
+    nb::enum_<LibRawOrientationStatus>(m, "LibRawOrientationStatus")
+        .value("Ok", LibRawOrientationStatus::Ok)
+        .value("InvalidArgument", LibRawOrientationStatus::InvalidArgument)
+        .value("Unsupported", LibRawOrientationStatus::Unsupported);
+
+    nb::enum_<LibRawOrientationCode>(m, "LibRawOrientationCode")
+        .value("None", LibRawOrientationCode::None)
+        .value("PreviewPassThrough",
+               LibRawOrientationCode::PreviewPassThrough)
+        .value("MissingExifOrientationAssumedDefault",
+               LibRawOrientationCode::MissingExifOrientationAssumedDefault)
+        .value("InvalidExifOrientation",
+               LibRawOrientationCode::InvalidExifOrientation)
+        .value("UnsupportedMirroredOrientation",
+               LibRawOrientationCode::UnsupportedMirroredOrientation)
+        .value("MirroredOrientationDropped",
+               LibRawOrientationCode::MirroredOrientationDropped);
+
+    nb::enum_<LibRawFlipToExifCode>(m, "LibRawFlipToExifCode")
+        .value("None", LibRawFlipToExifCode::None)
+        .value("PreviewPassThrough",
+               LibRawFlipToExifCode::PreviewPassThrough)
+        .value("InvalidLibRawFlip",
+               LibRawFlipToExifCode::InvalidLibRawFlip);
+
+    nb::enum_<LibRawOrientationSource>(m, "LibRawOrientationSource")
+        .value("ExplicitInput", LibRawOrientationSource::ExplicitInput)
+        .value("AssumedDefault", LibRawOrientationSource::AssumedDefault)
+        .value("ExifIfd0", LibRawOrientationSource::ExifIfd0)
+        .value("XmpTiffOrientation",
+               LibRawOrientationSource::XmpTiffOrientation);
+
+    nb::enum_<LibRawOrientationTarget>(m, "LibRawOrientationTarget")
+        .value("RawImage", LibRawOrientationTarget::RawImage)
+        .value("EmbeddedPreview", LibRawOrientationTarget::EmbeddedPreview);
+
+    nb::enum_<LibRawMirrorPolicy>(m, "LibRawMirrorPolicy")
+        .value("Reject", LibRawMirrorPolicy::Reject)
+        .value("DropMirror", LibRawMirrorPolicy::DropMirror);
+
+    nb::enum_<LibRawOrientationFileStatus>(m, "LibRawOrientationFileStatus")
+        .value("Ok", LibRawOrientationFileStatus::Ok)
+        .value("InvalidArgument", LibRawOrientationFileStatus::InvalidArgument)
+        .value("OpenFailed", LibRawOrientationFileStatus::OpenFailed)
+        .value("StatFailed", LibRawOrientationFileStatus::StatFailed)
+        .value("TooLarge", LibRawOrientationFileStatus::TooLarge)
+        .value("MapFailed", LibRawOrientationFileStatus::MapFailed)
+        .value("DecodeFailed", LibRawOrientationFileStatus::DecodeFailed);
+
     nb::enum_<DngSdkAdapterStatus>(m, "DngSdkAdapterStatus")
         .value("Ok", DngSdkAdapterStatus::Ok)
         .value("InvalidArgument", DngSdkAdapterStatus::InvalidArgument)
@@ -5730,6 +6021,32 @@ NB_MODULE(_openmeta, m)
         "max_file_bytes"_a   = 0ULL,
         "policy"_a           = nb::none(),
         "include_values"_a   = false);
+
+    m.def(
+        "map_meta_orientation_to_libraw_flip_from_file",
+        [](const std::string& path, LibRawOrientationTarget target,
+           bool preserve_embedded_preview_orientation,
+           LibRawMirrorPolicy mirror_policy, uint64_t max_file_bytes) {
+            return map_libraw_orientation_from_file_to_python(
+                path, target, preserve_embedded_preview_orientation,
+                mirror_policy, max_file_bytes);
+        },
+        "path"_a,
+        "target"_a = LibRawOrientationTarget::RawImage,
+        "preserve_embedded_preview_orientation"_a = true,
+        "mirror_policy"_a = LibRawMirrorPolicy::Reject,
+        "max_file_bytes"_a = 0ULL);
+
+    m.def(
+        "map_libraw_flip_to_exif_orientation",
+        [](uint32_t libraw_flip, LibRawOrientationTarget target,
+           bool preserve_embedded_preview_orientation) {
+            return map_libraw_flip_to_exif_to_python(
+                libraw_flip, target, preserve_embedded_preview_orientation);
+        },
+        "libraw_flip"_a,
+        "target"_a = LibRawOrientationTarget::RawImage,
+        "preserve_embedded_preview_orientation"_a = true);
 
     m.def(
         "update_dng_sdk_file_from_file",

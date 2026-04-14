@@ -23,10 +23,13 @@ set(_jpg_exr "${WORK_DIR}/sample_exr.jpg")
 set(_py_code
 "from pathlib import Path
 import openmeta
-from openmeta.python import get_exr_attribute_batch, probe_exr_attribute_batch, update_dng_sdk_file
+from openmeta.python import get_exr_attribute_batch, get_libraw_orientation, probe_exr_attribute_batch, probe_libraw_orientation, update_dng_sdk_file
 
 p = Path(r'''${_jpg}''')
 p_exr = Path(r'''${_jpg_exr}''')
+p_orient_exif = Path(r'''${WORK_DIR}/orient_exif.tif''')
+p_orient_default = Path(r'''${WORK_DIR}/orient_default.tif''')
+p_orient_xmp = Path(r'''${WORK_DIR}/orient_xmp.jpg''')
 p_dng_target = Path(r'''${WORK_DIR}/target_sdk.dng''')
 p_dng_target_helper = Path(r'''${WORK_DIR}/target_sdk_helper.dng''')
 t = bytearray()
@@ -56,6 +59,37 @@ t_exr += b'Vendor\\x00'
 app1_exr = b'Exif\\x00\\x00' + bytes(t_exr)
 ln_exr = (len(app1_exr) + 2).to_bytes(2, 'big')
 p_exr.write_bytes(b'\\xFF\\xD8\\xFF\\xE1' + ln_exr + app1_exr + b'\\xFF\\xD9')
+
+t_orient = bytearray()
+t_orient += b'II*\\x00'
+t_orient += (8).to_bytes(4, 'little')
+t_orient += (1).to_bytes(2, 'little')
+t_orient += (0x0112).to_bytes(2, 'little')
+t_orient += (3).to_bytes(2, 'little')
+t_orient += (1).to_bytes(4, 'little')
+t_orient += (6).to_bytes(2, 'little')
+t_orient += (0).to_bytes(2, 'little')
+t_orient += (0).to_bytes(4, 'little')
+p_orient_exif.write_bytes(bytes(t_orient))
+
+t_orient_default = bytearray()
+t_orient_default += b'II*\\x00'
+t_orient_default += (8).to_bytes(4, 'little')
+t_orient_default += (0).to_bytes(2, 'little')
+t_orient_default += (0).to_bytes(4, 'little')
+p_orient_default.write_bytes(bytes(t_orient_default))
+
+xmp = (
+    b\"<?xpacket begin='\\xef\\xbb\\xbf' id='W5M0MpCehiHzreSzNTczkc9d'?>\"
+    b\"<x:xmpmeta xmlns:x='adobe:ns:meta/'>\"
+    b\"<rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'>\"
+    b\"<rdf:Description xmlns:tiff='http://ns.adobe.com/tiff/1.0/' \"
+    b\"tiff:Orientation='8'/>\"
+    b\"</rdf:RDF></x:xmpmeta><?xpacket end='w'?>\"
+)
+app1_xmp = b'http://ns.adobe.com/xap/1.0/\\x00' + xmp
+ln_xmp = (len(app1_xmp) + 2).to_bytes(2, 'big')
+p_orient_xmp.write_bytes(b'\\xFF\\xD8\\xFF\\xE1' + ln_xmp + app1_xmp + b'\\xFF\\xD9')
 
 dng = bytearray()
 dng += b'II'
@@ -210,6 +244,50 @@ assert batch_exr[0]['name'] == 'Make', batch_exr
 assert batch_exr[0]['type_name'] == 'string', batch_exr
 assert isinstance(batch_exr[0]['value'], (bytes, bytearray)), batch_exr
 assert bytes(batch_exr[0]['value']) == b'Vendor', batch_exr
+
+r_libraw_exif = openmeta.map_meta_orientation_to_libraw_flip_from_file(
+    str(p_orient_exif),
+)
+assert r_libraw_exif['overall_status_name'] == 'ok', r_libraw_exif
+assert r_libraw_exif['file_status_name'] == 'ok', r_libraw_exif
+assert r_libraw_exif['orientation_status_name'] == 'ok', r_libraw_exif
+assert r_libraw_exif['orientation_source_name'] == 'exif_ifd0', r_libraw_exif
+assert r_libraw_exif['exif_orientation'] == 6, r_libraw_exif
+assert r_libraw_exif['libraw_flip'] == 6, r_libraw_exif
+assert r_libraw_exif['apply_flip'] is True, r_libraw_exif
+
+r_libraw_xmp = probe_libraw_orientation(str(p_orient_xmp))
+assert r_libraw_xmp['overall_status_name'] == 'ok', r_libraw_xmp
+assert r_libraw_xmp['orientation_source_name'] == 'xmp_tiff_orientation', r_libraw_xmp
+assert r_libraw_xmp['exif_orientation'] == 8, r_libraw_xmp
+assert r_libraw_xmp['libraw_flip'] == 5, r_libraw_xmp
+
+r_libraw_default = get_libraw_orientation(str(p_orient_default))
+assert r_libraw_default['overall_status_name'] == 'ok', r_libraw_default
+assert r_libraw_default['orientation_code_name'] == 'missing_exif_orientation_assumed_default', r_libraw_default
+assert r_libraw_default['orientation_source_name'] == 'assumed_default', r_libraw_default
+assert r_libraw_default['exif_orientation'] == 1, r_libraw_default
+assert r_libraw_default['libraw_flip'] == 0, r_libraw_default
+
+r_libraw_preview = probe_libraw_orientation(
+    str(p_orient_exif),
+    target=openmeta.LibRawOrientationTarget.EmbeddedPreview,
+)
+assert r_libraw_preview['orientation_code_name'] == 'preview_pass_through', r_libraw_preview
+assert r_libraw_preview['preview_passthrough'] is True, r_libraw_preview
+
+r_libraw_back = openmeta.map_libraw_flip_to_exif_orientation(5)
+assert r_libraw_back['orientation_status_name'] == 'ok', r_libraw_back
+assert r_libraw_back['orientation_code_name'] == 'none', r_libraw_back
+assert r_libraw_back['exif_orientation'] == 8, r_libraw_back
+
+r_libraw_back_preview = openmeta.map_libraw_flip_to_exif_orientation(
+    6,
+    target=openmeta.LibRawOrientationTarget.EmbeddedPreview,
+)
+assert r_libraw_back_preview['orientation_code_name'] == 'preview_pass_through', r_libraw_back_preview
+assert r_libraw_back_preview['exif_orientation'] == 1, r_libraw_back_preview
+assert r_libraw_back_preview['preview_passthrough'] is True, r_libraw_back_preview
 
 r_dng = openmeta.update_dng_sdk_file_from_file(str(p_exr), str(p_dng_target))
 if openmeta.dng_sdk_adapter_available():

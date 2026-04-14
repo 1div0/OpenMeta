@@ -31,6 +31,7 @@ set(_gtest_filter
   "InteropExport.*:"
   "IptcIimDecodeTest.*:"
   "JumbfDecode.*:"
+  "LibRawAdapter.*:"
   "MetaStoreTest.*:"
   "MpfDecode.*:"
   "OcioAdapter.*:"

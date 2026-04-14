@@ -86,6 +86,9 @@ struct XmpPortableOptions final {
     /// \note Currently simple `property_path` values, indexed `[n]` paths,
     /// bounded lang-alt paths like `title[@xml:lang=x-default]`, bounded
     /// one-level structured paths like `CreatorContactInfo/CiEmailWork`,
+    /// bounded qualified one-level structured child paths like
+    /// `LocationShown[1]/xmp:Identifier[1]` and
+    /// `LocationShown[1]/exif:GPSLatitude`,
     /// bounded indexed-structured paths like `Licensee[1]/LicenseeName`,
     /// bounded second-level structured scalar paths like
     /// `CreatorContactInfo/CiAdrRegion/ProvinceName`, bounded structured

@@ -817,6 +817,61 @@ TEST(XmpDecodeTest, TrimsTrailingNulPadding)
     EXPECT_EQ(r.entries_decoded, 1U);
 }
 
+TEST(XmpDecodeTest, DecodesMixedNamespaceStructuredLocationDetailsChildren)
+{
+    const std::string xmp
+        = "<x:xmpmeta xmlns:x='adobe:ns:meta/'>"
+          "<rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'>"
+          "<rdf:Description "
+          "xmlns:Iptc4xmpExt='http://iptc.org/std/Iptc4xmpExt/2008-02-29/' "
+          "xmlns:xmp='http://ns.adobe.com/xap/1.0/' "
+          "xmlns:exif='http://ns.adobe.com/exif/1.0/'>"
+          "<Iptc4xmpExt:LocationShown><rdf:Seq>"
+          "<rdf:li rdf:parseType='Resource'>"
+          "<xmp:Identifier><rdf:Bag>"
+          "<rdf:li>loc-001</rdf:li>"
+          "<rdf:li>loc-002</rdf:li>"
+          "</rdf:Bag></xmp:Identifier>"
+          "<exif:GPSLatitude>41,24.5N</exif:GPSLatitude>"
+          "<exif:GPSLongitude>2,9E</exif:GPSLongitude>"
+          "</rdf:li>"
+          "</rdf:Seq></Iptc4xmpExt:LocationShown>"
+          "</rdf:Description>"
+          "</rdf:RDF>"
+          "</x:xmpmeta>";
+
+    const std::span<const std::byte> bytes(
+        reinterpret_cast<const std::byte*>(xmp.data()), xmp.size());
+
+    MetaStore store;
+    const XmpDecodeResult r = decode_xmp_packet(bytes, store);
+    ASSERT_EQ(r.status, XmpDecodeStatus::Ok);
+    store.finalize();
+
+    const auto expect_text = [&](std::string_view path,
+                                 std::string_view expected) {
+        MetaKeyView key;
+        key.kind = MetaKeyKind::XmpProperty;
+        key.data.xmp_property.schema_ns
+            = "http://iptc.org/std/Iptc4xmpExt/2008-02-29/";
+        key.data.xmp_property.property_path = path;
+        const std::span<const EntryId> ids = store.find_all(key);
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        ASSERT_EQ(e.value.kind, MetaValueKind::Text);
+        const std::span<const std::byte> vb
+            = store.arena().span(e.value.data.span);
+        const std::string_view val(reinterpret_cast<const char*>(vb.data()),
+                                   vb.size());
+        EXPECT_EQ(val, expected);
+    };
+
+    expect_text("LocationShown[1]/xmp:Identifier[1]", "loc-001");
+    expect_text("LocationShown[1]/xmp:Identifier[2]", "loc-002");
+    expect_text("LocationShown[1]/exif:GPSLatitude", "41,24.5N");
+    expect_text("LocationShown[1]/exif:GPSLongitude", "2,9E");
+}
+
 TEST(XmpDecodeTest, EstimateMatchesDecodeCounters)
 {
     const std::string xmp
