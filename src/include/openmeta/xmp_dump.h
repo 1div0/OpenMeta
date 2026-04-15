@@ -95,6 +95,13 @@ struct XmpPortableOptions final {
     /// child indexed paths like `CreatorContactInfo/CiAdrExtadr[1]`, and
     /// bounded structured child lang-alt paths like
     /// `CreatorContactInfo/CiAdrCity[@xml:lang=x-default]` are emitted.
+    /// Known standard malformed flat structured child values like
+    /// `Creator[1]/Name` and `Creator[1]/Role` are also promoted into the
+    /// canonical `lang-alt` or indexed shapes when no explicit canonical
+    /// child entries already exist.
+    /// The same bounded promotion applies to known second-level standard
+    /// shapes like `CreatorContactInfo/CiAdrRegion/ProvinceName` and
+    /// `CreatorContactInfo/CiAdrRegion/ProvinceCode`.
     /// Bounded second-level structured child lang-alt paths like
     /// `CreatorContactInfo/CiAdrRegion/ProvinceName[@xml:lang=x-default]`
     /// and bounded second-level structured child indexed paths like

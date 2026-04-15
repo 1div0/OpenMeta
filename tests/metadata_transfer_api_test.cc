@@ -7192,7 +7192,7 @@ TEST(MetadataTransferApi, PreparePortableXmpCanonicalizesKnownStructuredChildSha
     EXPECT_TRUE(payload_contains_ascii(
         std::span<const std::byte>(bundle.blocks[0].payload.data(),
                                    bundle.blocks[0].payload.size()),
-        "<Iptc4xmpCore:ProvinceName>Tokyo</Iptc4xmpCore:ProvinceName>"));
+        "<rdf:li xml:lang=\"x-default\">Tokyo</rdf:li>"));
     EXPECT_TRUE(payload_contains_ascii(
         std::span<const std::byte>(bundle.blocks[0].payload.data(),
                                    bundle.blocks[0].payload.size()),
@@ -7602,11 +7602,11 @@ TEST(MetadataTransferApi, PreparePortableXmpPreservesNestedStructured)
     EXPECT_TRUE(payload_contains_ascii(
         std::span<const std::byte>(bundle.blocks[0].payload.data(),
                                    bundle.blocks[0].payload.size()),
-        "<Iptc4xmpCore:ProvinceName>Tokyo</Iptc4xmpCore:ProvinceName>"));
+        "<rdf:li xml:lang=\"x-default\">Tokyo</rdf:li>"));
     EXPECT_TRUE(payload_contains_ascii(
         std::span<const std::byte>(bundle.blocks[0].payload.data(),
                                    bundle.blocks[0].payload.size()),
-        "<Iptc4xmpCore:ProvinceCode>13</Iptc4xmpCore:ProvinceCode>"));
+        "<rdf:li>13</rdf:li>"));
 }
 
 TEST(MetadataTransferApi,
@@ -8653,6 +8653,355 @@ TEST(MetadataTransferApi,
         "legacy-product-desc"));
 }
 
+TEST(MetadataTransferApi,
+     PreparePortableXmpPromotesFlatStructuredChildScalarsToCanonicalShapes)
+{
+    openmeta::MetaStore store;
+    const openmeta::BlockId block = store.add_block(openmeta::BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    openmeta::Entry creator_name;
+    creator_name.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "Creator[1]/Name");
+    creator_name.value = openmeta::make_text(
+        store.arena(), "Alice Flat", openmeta::TextEncoding::Utf8);
+    creator_name.origin.block          = block;
+    creator_name.origin.order_in_block = 0U;
+    ASSERT_NE(store.add_entry(creator_name), openmeta::kInvalidEntryId);
+
+    openmeta::Entry creator_role;
+    creator_role.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "Creator[1]/Role");
+    creator_role.value = openmeta::make_text(
+        store.arena(), "photographer", openmeta::TextEncoding::Utf8);
+    creator_role.origin.block          = block;
+    creator_role.origin.order_in_block = 1U;
+    ASSERT_NE(store.add_entry(creator_role), openmeta::kInvalidEntryId);
+
+    openmeta::Entry artwork_creator;
+    artwork_creator.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "ArtworkOrObject[1]/AOCreator");
+    artwork_creator.value = openmeta::make_text(
+        store.arena(), "Alice Example", openmeta::TextEncoding::Utf8);
+    artwork_creator.origin.block          = block;
+    artwork_creator.origin.order_in_block = 2U;
+    ASSERT_NE(store.add_entry(artwork_creator), openmeta::kInvalidEntryId);
+
+    openmeta::Entry location_name;
+    location_name.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationShown[1]/LocationName");
+    location_name.value = openmeta::make_text(
+        store.arena(), "City Hall", openmeta::TextEncoding::Utf8);
+    location_name.origin.block          = block;
+    location_name.origin.order_in_block = 3U;
+    ASSERT_NE(store.add_entry(location_name), openmeta::kInvalidEntryId);
+
+    openmeta::Entry location_id;
+    location_id.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationShown[1]/LocationId");
+    location_id.value = openmeta::make_text(
+        store.arena(), "loc-001", openmeta::TextEncoding::Utf8);
+    location_id.origin.block          = block;
+    location_id.origin.order_in_block = 4U;
+    ASSERT_NE(store.add_entry(location_id), openmeta::kInvalidEntryId);
+
+    openmeta::Entry person_id;
+    person_id.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "PersonInImageWDetails[1]/PersonId");
+    person_id.value = openmeta::make_text(
+        store.arena(), "person-001", openmeta::TextEncoding::Utf8);
+    person_id.origin.block          = block;
+    person_id.origin.order_in_block = 5U;
+    ASSERT_NE(store.add_entry(person_id), openmeta::kInvalidEntryId);
+
+    store.finalize();
+
+    openmeta::PrepareTransferRequest request;
+    request.include_exif_app1    = false;
+    request.include_icc_app2     = false;
+    request.include_iptc_app13   = false;
+    request.xmp_portable         = true;
+    request.xmp_include_existing = true;
+
+    openmeta::PreparedTransferBundle bundle;
+    const openmeta::PrepareTransferResult result
+        = openmeta::prepare_metadata_for_target(store, request, &bundle);
+
+    EXPECT_EQ(result.status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(bundle.blocks.size(), 1U);
+    const std::span<const std::byte> payload(bundle.blocks[0].payload.data(),
+                                             bundle.blocks[0].payload.size());
+    EXPECT_TRUE(payload_contains_ascii(
+        payload, "<rdf:li xml:lang=\"x-default\">Alice Flat</rdf:li>"));
+    EXPECT_TRUE(payload_contains_ascii(payload, "<Iptc4xmpExt:Role>"));
+    EXPECT_TRUE(payload_contains_ascii(payload,
+                                       "<rdf:li>photographer</rdf:li>"));
+    EXPECT_TRUE(payload_contains_ascii(payload, "<Iptc4xmpExt:AOCreator>"));
+    EXPECT_TRUE(payload_contains_ascii(payload,
+                                       "<rdf:li>Alice Example</rdf:li>"));
+    EXPECT_TRUE(payload_contains_ascii(
+        payload, "<rdf:li xml:lang=\"x-default\">City Hall</rdf:li>"));
+    EXPECT_TRUE(payload_contains_ascii(payload, "<Iptc4xmpExt:LocationId>"));
+    EXPECT_TRUE(payload_contains_ascii(payload, "<rdf:li>loc-001</rdf:li>"));
+    EXPECT_TRUE(payload_contains_ascii(payload, "<Iptc4xmpExt:PersonId>"));
+    EXPECT_TRUE(payload_contains_ascii(payload,
+                                       "<rdf:li>person-001</rdf:li>"));
+    EXPECT_FALSE(payload_contains_ascii(
+        payload,
+        "<Iptc4xmpExt:LocationName>City Hall</Iptc4xmpExt:LocationName>"));
+    EXPECT_FALSE(payload_contains_ascii(
+        payload, "<Iptc4xmpExt:Role>photographer</Iptc4xmpExt:Role>"));
+}
+
+TEST(MetadataTransferApi,
+     PreparePortableXmpPromotesAdditionalStandardStructuredChildScalars)
+{
+    openmeta::MetaStore store;
+    const openmeta::BlockId block = store.add_block(openmeta::BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    openmeta::Entry city;
+    city.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/",
+        "CreatorContactInfo/CiAdrCity");
+    city.value = openmeta::make_text(
+        store.arena(), "Paris", openmeta::TextEncoding::Utf8);
+    city.origin.block          = block;
+    city.origin.order_in_block = 0U;
+    ASSERT_NE(store.add_entry(city), openmeta::kInvalidEntryId);
+
+    openmeta::Entry cv_term_name;
+    cv_term_name.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "AboutCvTerm[1]/CvTermName");
+    cv_term_name.value = openmeta::make_text(
+        store.arena(), "Culture", openmeta::TextEncoding::Utf8);
+    cv_term_name.origin.block          = block;
+    cv_term_name.origin.order_in_block = 1U;
+    ASSERT_NE(store.add_entry(cv_term_name), openmeta::kInvalidEntryId);
+
+    openmeta::Entry person_heard_name;
+    person_heard_name.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "PersonHeard[1]/Name");
+    person_heard_name.value = openmeta::make_text(
+        store.arena(), "Witness", openmeta::TextEncoding::Utf8);
+    person_heard_name.origin.block          = block;
+    person_heard_name.origin.order_in_block = 2U;
+    ASSERT_NE(store.add_entry(person_heard_name), openmeta::kInvalidEntryId);
+
+    openmeta::Entry link_qualifier;
+    link_qualifier.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "DopesheetLink[1]/LinkQualifier");
+    link_qualifier.value = openmeta::make_text(
+        store.arena(), "keyframe", openmeta::TextEncoding::Utf8);
+    link_qualifier.origin.block          = block;
+    link_qualifier.origin.order_in_block = 3U;
+    ASSERT_NE(store.add_entry(link_qualifier), openmeta::kInvalidEntryId);
+
+    store.finalize();
+
+    openmeta::PrepareTransferRequest request;
+    request.include_exif_app1    = false;
+    request.include_icc_app2     = false;
+    request.include_iptc_app13   = false;
+    request.xmp_portable         = true;
+    request.xmp_include_existing = true;
+
+    openmeta::PreparedTransferBundle bundle;
+    const openmeta::PrepareTransferResult result
+        = openmeta::prepare_metadata_for_target(store, request, &bundle);
+
+    EXPECT_EQ(result.status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(bundle.blocks.size(), 1U);
+    const std::span<const std::byte> payload(bundle.blocks[0].payload.data(),
+                                             bundle.blocks[0].payload.size());
+    EXPECT_TRUE(payload_contains_ascii(payload, "<Iptc4xmpCore:CiAdrCity>"));
+    EXPECT_TRUE(payload_contains_ascii(
+        payload, "<rdf:li xml:lang=\"x-default\">Paris</rdf:li>"));
+    EXPECT_TRUE(payload_contains_ascii(payload, "<Iptc4xmpExt:CvTermName>"));
+    EXPECT_TRUE(payload_contains_ascii(
+        payload, "<rdf:li xml:lang=\"x-default\">Culture</rdf:li>"));
+    EXPECT_TRUE(payload_contains_ascii(payload, "<Iptc4xmpExt:Name>"));
+    EXPECT_TRUE(payload_contains_ascii(
+        payload, "<rdf:li xml:lang=\"x-default\">Witness</rdf:li>"));
+    EXPECT_TRUE(payload_contains_ascii(payload,
+                                       "<Iptc4xmpExt:LinkQualifier>"));
+    EXPECT_TRUE(payload_contains_ascii(payload, "<rdf:li>keyframe</rdf:li>"));
+    EXPECT_FALSE(payload_contains_ascii(
+        payload, "<Iptc4xmpCore:CiAdrCity>Paris</Iptc4xmpCore:CiAdrCity>"));
+    EXPECT_FALSE(payload_contains_ascii(
+        payload, "<Iptc4xmpExt:CvTermName>Culture</Iptc4xmpExt:CvTermName>"));
+    EXPECT_FALSE(payload_contains_ascii(
+        payload, "<Iptc4xmpExt:Name>Witness</Iptc4xmpExt:Name>"));
+    EXPECT_FALSE(payload_contains_ascii(
+        payload,
+        "<Iptc4xmpExt:LinkQualifier>keyframe</Iptc4xmpExt:LinkQualifier>"));
+}
+
+TEST(MetadataTransferApi,
+     PreparePortableXmpPromotesRemainingIptcExtStructuredChildScalars)
+{
+    openmeta::MetaStore store;
+    const openmeta::BlockId block = store.add_block(openmeta::BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    openmeta::Entry contributor_name;
+    contributor_name.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "Contributor[1]/Name");
+    contributor_name.value = openmeta::make_text(
+        store.arena(), "Desk Editor", openmeta::TextEncoding::Utf8);
+    contributor_name.origin.block          = block;
+    contributor_name.origin.order_in_block = 0U;
+    ASSERT_NE(store.add_entry(contributor_name), openmeta::kInvalidEntryId);
+
+    openmeta::Entry contributor_role;
+    contributor_role.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "Contributor[1]/Role");
+    contributor_role.value = openmeta::make_text(
+        store.arena(), "editor", openmeta::TextEncoding::Utf8);
+    contributor_role.origin.block          = block;
+    contributor_role.origin.order_in_block = 1U;
+    ASSERT_NE(store.add_entry(contributor_role), openmeta::kInvalidEntryId);
+
+    openmeta::Entry planning_name;
+    planning_name.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "PlanningRef[1]/Name");
+    planning_name.value = openmeta::make_text(
+        store.arena(), "Editorial Plan", openmeta::TextEncoding::Utf8);
+    planning_name.origin.block          = block;
+    planning_name.origin.order_in_block = 2U;
+    ASSERT_NE(store.add_entry(planning_name), openmeta::kInvalidEntryId);
+
+    openmeta::Entry planning_role;
+    planning_role.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "PlanningRef[1]/Role");
+    planning_role.value = openmeta::make_text(
+        store.arena(), "assignment", openmeta::TextEncoding::Utf8);
+    planning_role.origin.block          = block;
+    planning_role.origin.order_in_block = 3U;
+    ASSERT_NE(store.add_entry(planning_role), openmeta::kInvalidEntryId);
+
+    openmeta::Entry shown_event_name;
+    shown_event_name.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "ShownEvent[1]/Name");
+    shown_event_name.value = openmeta::make_text(
+        store.arena(), "Press Conference", openmeta::TextEncoding::Utf8);
+    shown_event_name.origin.block          = block;
+    shown_event_name.origin.order_in_block = 4U;
+    ASSERT_NE(store.add_entry(shown_event_name), openmeta::kInvalidEntryId);
+
+    openmeta::Entry supply_chain_source_name;
+    supply_chain_source_name.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "SupplyChainSource[1]/Name");
+    supply_chain_source_name.value = openmeta::make_text(
+        store.arena(), "Agency Feed", openmeta::TextEncoding::Utf8);
+    supply_chain_source_name.origin.block          = block;
+    supply_chain_source_name.origin.order_in_block = 5U;
+    ASSERT_NE(store.add_entry(supply_chain_source_name),
+              openmeta::kInvalidEntryId);
+
+    openmeta::Entry video_shot_type_name;
+    video_shot_type_name.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "VideoShotType[1]/Name");
+    video_shot_type_name.value = openmeta::make_text(
+        store.arena(), "Interview", openmeta::TextEncoding::Utf8);
+    video_shot_type_name.origin.block          = block;
+    video_shot_type_name.origin.order_in_block = 6U;
+    ASSERT_NE(store.add_entry(video_shot_type_name),
+              openmeta::kInvalidEntryId);
+
+    openmeta::Entry snapshot_qualifier;
+    snapshot_qualifier.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "Snapshot[1]/LinkQualifier");
+    snapshot_qualifier.value = openmeta::make_text(
+        store.arena(), "frame-001", openmeta::TextEncoding::Utf8);
+    snapshot_qualifier.origin.block          = block;
+    snapshot_qualifier.origin.order_in_block = 7U;
+    ASSERT_NE(store.add_entry(snapshot_qualifier), openmeta::kInvalidEntryId);
+
+    openmeta::Entry transcript_qualifier;
+    transcript_qualifier.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "TranscriptLink[1]/LinkQualifier");
+    transcript_qualifier.value = openmeta::make_text(
+        store.arena(), "quote", openmeta::TextEncoding::Utf8);
+    transcript_qualifier.origin.block          = block;
+    transcript_qualifier.origin.order_in_block = 8U;
+    ASSERT_NE(store.add_entry(transcript_qualifier),
+              openmeta::kInvalidEntryId);
+
+    store.finalize();
+
+    openmeta::PrepareTransferRequest request;
+    request.include_exif_app1    = false;
+    request.include_icc_app2     = false;
+    request.include_iptc_app13   = false;
+    request.xmp_portable         = true;
+    request.xmp_include_existing = true;
+
+    openmeta::PreparedTransferBundle bundle;
+    const openmeta::PrepareTransferResult result
+        = openmeta::prepare_metadata_for_target(store, request, &bundle);
+
+    EXPECT_EQ(result.status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(bundle.blocks.size(), 1U);
+    const std::span<const std::byte> payload(bundle.blocks[0].payload.data(),
+                                             bundle.blocks[0].payload.size());
+    EXPECT_TRUE(payload_contains_ascii(payload, "<Iptc4xmpExt:Contributor>"));
+    EXPECT_TRUE(payload_contains_ascii(
+        payload, "<rdf:li xml:lang=\"x-default\">Desk Editor</rdf:li>"));
+    EXPECT_TRUE(payload_contains_ascii(payload, "<rdf:li>editor</rdf:li>"));
+    EXPECT_TRUE(payload_contains_ascii(payload, "<Iptc4xmpExt:PlanningRef>"));
+    EXPECT_TRUE(payload_contains_ascii(
+        payload, "<rdf:li xml:lang=\"x-default\">Editorial Plan</rdf:li>"));
+    EXPECT_TRUE(payload_contains_ascii(payload,
+                                       "<rdf:li>assignment</rdf:li>"));
+    EXPECT_TRUE(payload_contains_ascii(
+        payload, "<rdf:li xml:lang=\"x-default\">Press Conference</rdf:li>"));
+    EXPECT_TRUE(payload_contains_ascii(
+        payload, "<rdf:li xml:lang=\"x-default\">Agency Feed</rdf:li>"));
+    EXPECT_TRUE(payload_contains_ascii(
+        payload, "<rdf:li xml:lang=\"x-default\">Interview</rdf:li>"));
+    EXPECT_TRUE(payload_contains_ascii(payload, "<rdf:li>frame-001</rdf:li>"));
+    EXPECT_TRUE(payload_contains_ascii(payload, "<rdf:li>quote</rdf:li>"));
+    EXPECT_FALSE(payload_contains_ascii(
+        payload, "<Iptc4xmpExt:Name>Desk Editor</Iptc4xmpExt:Name>"));
+    EXPECT_FALSE(payload_contains_ascii(
+        payload, "<Iptc4xmpExt:Role>editor</Iptc4xmpExt:Role>"));
+    EXPECT_FALSE(payload_contains_ascii(
+        payload, "<Iptc4xmpExt:Name>Editorial Plan</Iptc4xmpExt:Name>"));
+    EXPECT_FALSE(payload_contains_ascii(
+        payload, "<Iptc4xmpExt:Role>assignment</Iptc4xmpExt:Role>"));
+    EXPECT_FALSE(payload_contains_ascii(
+        payload, "<Iptc4xmpExt:Name>Press Conference</Iptc4xmpExt:Name>"));
+    EXPECT_FALSE(payload_contains_ascii(
+        payload, "<Iptc4xmpExt:Name>Agency Feed</Iptc4xmpExt:Name>"));
+    EXPECT_FALSE(payload_contains_ascii(
+        payload, "<Iptc4xmpExt:Name>Interview</Iptc4xmpExt:Name>"));
+    EXPECT_FALSE(payload_contains_ascii(
+        payload,
+        "<Iptc4xmpExt:LinkQualifier>frame-001</Iptc4xmpExt:LinkQualifier>"));
+    EXPECT_FALSE(payload_contains_ascii(
+        payload,
+        "<Iptc4xmpExt:LinkQualifier>quote</Iptc4xmpExt:LinkQualifier>"));
+}
+
 TEST(MetadataTransferApi, PreparePortableXmpPreservesNestedStructuredChildLangAlt)
 {
     openmeta::MetaStore store;
@@ -8889,6 +9238,60 @@ TEST(MetadataTransferApi,
         std::span<const std::byte>(bundle.blocks[0].payload.data(),
                                    bundle.blocks[0].payload.size()),
         "<rdf:li>JP-26</rdf:li>"));
+}
+
+TEST(MetadataTransferApi,
+     PreparePortableXmpPromotesFlatNestedStructuredChildScalarsToCanonicalShapes)
+{
+    openmeta::MetaStore store;
+    const openmeta::BlockId block = store.add_block(openmeta::BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    openmeta::Entry province_name;
+    province_name.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/",
+        "CreatorContactInfo/CiAdrRegion/ProvinceName");
+    province_name.value = openmeta::make_text(
+        store.arena(), "Tokyo", openmeta::TextEncoding::Utf8);
+    province_name.origin.block          = block;
+    province_name.origin.order_in_block = 0U;
+    ASSERT_NE(store.add_entry(province_name), openmeta::kInvalidEntryId);
+
+    openmeta::Entry province_code;
+    province_code.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/",
+        "CreatorContactInfo/CiAdrRegion/ProvinceCode");
+    province_code.value = openmeta::make_text(
+        store.arena(), "JP-13", openmeta::TextEncoding::Utf8);
+    province_code.origin.block          = block;
+    province_code.origin.order_in_block = 1U;
+    ASSERT_NE(store.add_entry(province_code), openmeta::kInvalidEntryId);
+
+    store.finalize();
+
+    openmeta::PrepareTransferRequest request;
+    request.include_exif_app1    = false;
+    request.include_icc_app2     = false;
+    request.include_iptc_app13   = false;
+    request.xmp_portable         = true;
+    request.xmp_include_existing = true;
+
+    openmeta::PreparedTransferBundle bundle;
+    const openmeta::PrepareTransferResult result
+        = openmeta::prepare_metadata_for_target(store, request, &bundle);
+
+    EXPECT_EQ(result.status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(bundle.blocks.size(), 1U);
+    const std::span<const std::byte> payload(bundle.blocks[0].payload.data(),
+                                             bundle.blocks[0].payload.size());
+    EXPECT_TRUE(payload_contains_ascii(payload, "<Iptc4xmpCore:ProvinceName>"));
+    EXPECT_TRUE(payload_contains_ascii(
+        payload, "<rdf:li xml:lang=\"x-default\">Tokyo</rdf:li>"));
+    EXPECT_TRUE(payload_contains_ascii(payload, "<Iptc4xmpCore:ProvinceCode>"));
+    EXPECT_TRUE(payload_contains_ascii(payload, "<rdf:li>JP-13</rdf:li>"));
+    EXPECT_FALSE(payload_contains_ascii(
+        payload,
+        "<Iptc4xmpCore:ProvinceName>Tokyo</Iptc4xmpCore:ProvinceName>"));
 }
 
 TEST(MetadataTransferApi,
