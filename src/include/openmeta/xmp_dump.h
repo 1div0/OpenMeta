@@ -102,6 +102,8 @@ struct XmpPortableOptions final {
     /// `beatSpliceParams/riseInTimeDuration/scale`,
     /// `markers/cuePointParams/key`,
     /// `contributedMedia[1]/duration/scale`,
+    /// `Tracks[1]/trackName`,
+    /// `Tracks[1]/markers/name`,
     /// `resampleParams/quality`,
     /// `startTimecode/timeValue`,
     /// `timeScaleParams/quality`,
@@ -121,6 +123,10 @@ struct XmpPortableOptions final {
     /// `Creator[1]/Name` and `Creator[1]/Role` are also promoted into the
     /// canonical `lang-alt` or indexed shapes when no explicit canonical
     /// child entries already exist.
+    /// Known malformed Adobe structured child paths like
+    /// `DerivedFrom/documentID`, `JobRef[1]/id`,
+    /// `Manifest[1]/reference/filePath`, and `Versions[1]/event/action`
+    /// are likewise promoted into their canonical qualified child prefixes.
     /// The same bounded promotion applies to known second-level standard
     /// shapes like `CreatorContactInfo/CiAdrRegion/ProvinceName` and
     /// `CreatorContactInfo/CiAdrRegion/ProvinceCode`.

@@ -1595,6 +1595,298 @@ namespace {
         return true;
     }
 
+    static bool standard_existing_xmp_st_ref_child_name(
+        std::string_view child) noexcept
+    {
+        return child == "documentID" || child == "instanceID"
+               || child == "filePath" || child == "renditionClass";
+    }
+
+    static bool standard_existing_xmp_st_dim_child_name(
+        std::string_view child) noexcept
+    {
+        return child == "w" || child == "h" || child == "unit";
+    }
+
+    static bool standard_existing_xmp_st_job_child_name(
+        std::string_view child) noexcept
+    {
+        return child == "id" || child == "name" || child == "url";
+    }
+
+    static bool standard_existing_xmp_st_fnt_child_name(
+        std::string_view child) noexcept
+    {
+        return child == "fontName" || child == "childFontFiles";
+    }
+
+    static bool standard_existing_xmp_st_mfs_child_name(
+        std::string_view child) noexcept
+    {
+        return child == "linkForm" || child == "reference";
+    }
+
+    static bool standard_existing_xmp_st_ver_child_name(
+        std::string_view child) noexcept
+    {
+        return child == "version" || child == "comments"
+               || child == "modifier" || child == "modifyDate"
+               || child == "event";
+    }
+
+    static bool standard_existing_xmp_st_evt_child_name(
+        std::string_view child) noexcept
+    {
+        return child == "action" || child == "changed"
+               || child == "when";
+    }
+
+    static bool standard_existing_xmp_xmp_g_child_name(
+        std::string_view child) noexcept
+    {
+        return child == "groupName" || child == "groupType"
+               || child == "swatchName" || child == "mode"
+               || child == "red" || child == "green"
+               || child == "blue";
+    }
+
+    static std::string_view
+    standard_existing_xmp_qualified_component_literal(
+        std::string_view prefix, std::string_view child) noexcept
+    {
+        if (prefix == "stRef") {
+            if (child == "documentID") {
+                return "stRef:documentID";
+            }
+            if (child == "instanceID") {
+                return "stRef:instanceID";
+            }
+            if (child == "filePath") {
+                return "stRef:filePath";
+            }
+            if (child == "renditionClass") {
+                return "stRef:renditionClass";
+            }
+        }
+        if (prefix == "stDim") {
+            if (child == "w") {
+                return "stDim:w";
+            }
+            if (child == "h") {
+                return "stDim:h";
+            }
+            if (child == "unit") {
+                return "stDim:unit";
+            }
+        }
+        if (prefix == "stJob") {
+            if (child == "id") {
+                return "stJob:id";
+            }
+            if (child == "name") {
+                return "stJob:name";
+            }
+            if (child == "url") {
+                return "stJob:url";
+            }
+        }
+        if (prefix == "stFnt") {
+            if (child == "fontName") {
+                return "stFnt:fontName";
+            }
+            if (child == "childFontFiles") {
+                return "stFnt:childFontFiles";
+            }
+        }
+        if (prefix == "stMfs") {
+            if (child == "linkForm") {
+                return "stMfs:linkForm";
+            }
+            if (child == "reference") {
+                return "stMfs:reference";
+            }
+        }
+        if (prefix == "stVer") {
+            if (child == "version") {
+                return "stVer:version";
+            }
+            if (child == "comments") {
+                return "stVer:comments";
+            }
+            if (child == "modifier") {
+                return "stVer:modifier";
+            }
+            if (child == "modifyDate") {
+                return "stVer:modifyDate";
+            }
+            if (child == "event") {
+                return "stVer:event";
+            }
+        }
+        if (prefix == "stEvt") {
+            if (child == "action") {
+                return "stEvt:action";
+            }
+            if (child == "changed") {
+                return "stEvt:changed";
+            }
+            if (child == "when") {
+                return "stEvt:when";
+            }
+        }
+        if (prefix == "xmpG") {
+            if (child == "groupName") {
+                return "xmpG:groupName";
+            }
+            if (child == "groupType") {
+                return "xmpG:groupType";
+            }
+            if (child == "swatchName") {
+                return "xmpG:swatchName";
+            }
+            if (child == "mode") {
+                return "xmpG:mode";
+            }
+            if (child == "red") {
+                return "xmpG:red";
+            }
+            if (child == "green") {
+                return "xmpG:green";
+            }
+            if (child == "blue") {
+                return "xmpG:blue";
+            }
+        }
+        return {};
+    }
+
+    static bool standard_existing_xmp_normalize_structured_child_prefix(
+        std::string_view prefix, std::string_view base,
+        std::string_view* child_prefix,
+        std::string_view* child) noexcept
+    {
+        if (!child_prefix || !child || child->empty()
+            || *child_prefix != prefix) {
+            return false;
+        }
+
+        std::string_view canonical_prefix;
+        if (prefix == "xmpBJ" && base == "JobRef"
+            && standard_existing_xmp_st_job_child_name(*child)) {
+            canonical_prefix = "stJob";
+        } else if (
+            ((prefix == "xmpTPg" && base == "MaxPageSize")
+             || (prefix == "xmpDM" && base == "videoFrameSize"))
+            && standard_existing_xmp_st_dim_child_name(*child)) {
+            canonical_prefix = "stDim";
+        } else if (prefix == "xmpTPg" && base == "Fonts"
+                   && standard_existing_xmp_st_fnt_child_name(*child)) {
+            canonical_prefix = "stFnt";
+        } else if (prefix == "xmpTPg"
+                   && (base == "Colorants" || base == "SwatchGroups")
+                   && standard_existing_xmp_xmp_g_child_name(*child)) {
+            canonical_prefix = "xmpG";
+        } else if (prefix == "xmpDM"
+                   && base == "videoAlphaPremultipleColor"
+                   && standard_existing_xmp_xmp_g_child_name(*child)) {
+            canonical_prefix = "xmpG";
+        } else if (
+            prefix == "xmpMM"
+            && (base == "DerivedFrom" || base == "ManagedFrom"
+                || base == "RenditionOf" || base == "Ingredients")
+            && standard_existing_xmp_st_ref_child_name(*child)) {
+            canonical_prefix = "stRef";
+        } else if (prefix == "xmpMM" && base == "Manifest"
+                   && standard_existing_xmp_st_mfs_child_name(*child)) {
+            canonical_prefix = "stMfs";
+        } else if (prefix == "xmpMM" && base == "Versions"
+                   && standard_existing_xmp_st_ver_child_name(*child)) {
+            canonical_prefix = "stVer";
+        } else if (prefix == "xmpMM" && base == "History"
+                   && standard_existing_xmp_st_evt_child_name(*child)) {
+            canonical_prefix = "stEvt";
+        } else {
+            return false;
+        }
+
+        *child_prefix = canonical_prefix;
+        return true;
+    }
+
+    static bool standard_existing_xmp_normalize_nested_grandchild_prefix(
+        std::string_view prefix, std::string_view base,
+        std::string_view child_prefix, std::string_view child,
+        std::string_view* grandchild_prefix,
+        std::string_view* grandchild) noexcept
+    {
+        if (!grandchild_prefix || !grandchild || grandchild->empty()
+            || *grandchild_prefix != prefix) {
+            return false;
+        }
+
+        std::string_view canonical_prefix;
+        if (prefix == "xmpMM" && base == "Manifest"
+            && child_prefix == "stMfs" && child == "reference"
+            && standard_existing_xmp_st_ref_child_name(*grandchild)) {
+            canonical_prefix = "stRef";
+        } else if (prefix == "xmpMM" && base == "Versions"
+                   && child_prefix == "stVer" && child == "event"
+                   && standard_existing_xmp_st_evt_child_name(*grandchild)) {
+            canonical_prefix = "stEvt";
+        } else if (prefix == "xmpTPg" && base == "SwatchGroups"
+                   && child == "Colorants"
+                   && standard_existing_xmp_xmp_g_child_name(*grandchild)) {
+            canonical_prefix = "xmpG";
+        } else {
+            return false;
+        }
+
+        *grandchild_prefix = canonical_prefix;
+        return true;
+    }
+
+    static bool resolve_existing_xmp_structured_child_to_portable(
+        std::string_view prefix, std::string_view base,
+        std::string_view component, std::string_view* out_component_prefix,
+        std::string_view* out_portable_name,
+        bool* out_normalized) noexcept
+    {
+        if (!resolve_existing_xmp_component_to_portable(
+                prefix, component, out_component_prefix,
+                out_portable_name)) {
+            return false;
+        }
+
+        bool normalized = standard_existing_xmp_normalize_structured_child_prefix(
+            prefix, base, out_component_prefix, out_portable_name);
+        if (out_normalized) {
+            *out_normalized = normalized;
+        }
+        return true;
+    }
+
+    static bool resolve_existing_xmp_nested_grandchild_to_portable(
+        std::string_view prefix, std::string_view base,
+        std::string_view child_prefix, std::string_view child,
+        std::string_view component, std::string_view* out_component_prefix,
+        std::string_view* out_portable_name,
+        bool* out_normalized) noexcept
+    {
+        if (!resolve_existing_xmp_component_to_portable(
+                prefix, component, out_component_prefix,
+                out_portable_name)) {
+            return false;
+        }
+
+        bool normalized = standard_existing_xmp_normalize_nested_grandchild_prefix(
+            prefix, base, child_prefix, child, out_component_prefix,
+            out_portable_name);
+        if (out_normalized) {
+            *out_normalized = normalized;
+        }
+        return true;
+    }
+
     static bool existing_standard_portable_property_is_managed(
         std::string_view prefix, std::string_view name) noexcept
     {
@@ -4319,6 +4611,9 @@ namespace {
             && (name == "Ingredients" || name == "Pantry")) {
             return PortableIndexedProperty::Container::Bag;
         }
+        if (prefix == "xmpDM" && name == "Tracks") {
+            return PortableIndexedProperty::Container::Bag;
+        }
         if (prefix == "xmpMM" && name == "Manifest") {
             return PortableIndexedProperty::Container::Seq;
         }
@@ -4488,7 +4783,8 @@ namespace {
                 && (name == "History" || name == "Ingredients"
                     || name == "Manifest" || name == "Pantry"
                     || name == "Versions"))
-            || (prefix == "xmpDM" && name == "contributedMedia")
+            || (prefix == "xmpDM"
+                && (name == "contributedMedia" || name == "Tracks"))
             || (prefix == "xmpTPg"
                 && (name == "Colorants" || name == "Fonts"
                     || name == "SwatchGroups"))
@@ -4720,6 +5016,13 @@ namespace {
             return true;
         }
 
+        if ((child_prefix.empty() || child_prefix == prefix)
+            && prefix == "xmpDM" && base == "Tracks"
+            && child == "markers") {
+            *out_shape = PortableStructuredChildShape::Resource;
+            return true;
+        }
+
         return false;
     }
 
@@ -4846,6 +5149,76 @@ namespace {
                                 candidate.key.data.xmp_property.property_path),
                             &candidate_base_name, &candidate_item_index,
                             &candidate_child_name, &candidate_lang);
+            if (!parsed
+                || (item_index != 0U
+                    && candidate_item_index != item_index)) {
+                continue;
+            }
+
+            std::string_view raw_child_prefix;
+            std::string_view raw_child_name;
+            if (!split_qualified_xmp_property_name(candidate_child_name,
+                                                   &raw_child_prefix,
+                                                   &raw_child_name)) {
+                continue;
+            }
+
+            const std::string_view portable_base
+                = portable_property_name_for_existing_xmp(
+                    prefix, candidate_base_name);
+            const std::string_view portable_child_prefix
+                = raw_child_prefix.empty() ? prefix : raw_child_prefix;
+            const std::string_view portable_child
+                = portable_property_name_for_existing_xmp(
+                    portable_child_prefix, raw_child_name);
+            if (portable_base == base
+                && portable_child_prefix == child_prefix
+                && portable_child == child) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    static bool existing_xmp_has_explicit_structured_scalar_child(
+        const ByteArena& arena, std::span<const PortableCustomNsDecl> decls,
+        std::span<const Entry> entries, std::string_view prefix,
+        std::string_view base, uint32_t item_index,
+        std::string_view child_prefix, std::string_view child) noexcept
+    {
+        for (size_t i = 0; i < entries.size(); ++i) {
+            const Entry& candidate = entries[i];
+            if (any(candidate.flags, EntryFlags::Deleted)
+                || candidate.key.kind != MetaKeyKind::XmpProperty) {
+                continue;
+            }
+
+            const std::string_view candidate_ns = arena_string(
+                arena, candidate.key.data.xmp_property.schema_ns);
+            std::string_view candidate_prefix;
+            if (!portable_ns_to_prefix(candidate_ns, decls,
+                                       &candidate_prefix)
+                || candidate_prefix != prefix) {
+                continue;
+            }
+
+            std::string_view candidate_base_name;
+            std::string_view candidate_child_name;
+            uint32_t candidate_item_index = 0U;
+            const bool parsed
+                = item_index == 0U
+                      ? parse_structured_xmp_property_name(
+                            arena_string(
+                                arena,
+                                candidate.key.data.xmp_property.property_path),
+                            &candidate_base_name, &candidate_child_name)
+                      : parse_indexed_structured_xmp_property_name(
+                            arena_string(
+                                arena,
+                                candidate.key.data.xmp_property.property_path),
+                            &candidate_base_name, &candidate_item_index,
+                            &candidate_child_name);
             if (!parsed
                 || (item_index != 0U
                     && candidate_item_index != item_index)) {
@@ -5234,6 +5607,89 @@ namespace {
             if (portable_base == base
                 && portable_child_prefix == child_prefix
                 && portable_child == child) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    static bool existing_xmp_has_explicit_structured_nested_scalar_child(
+        const ByteArena& arena, std::span<const PortableCustomNsDecl> decls,
+        std::span<const Entry> entries, std::string_view prefix,
+        std::string_view base, uint32_t item_index,
+        std::string_view child_prefix, std::string_view child,
+        std::string_view grandchild_prefix,
+        std::string_view grandchild) noexcept
+    {
+        if (prefix.empty() || base.empty() || child.empty()
+            || grandchild.empty()) {
+            return false;
+        }
+
+        for (size_t i = 0; i < entries.size(); ++i) {
+            const Entry& candidate = entries[i];
+            if (any(candidate.flags, EntryFlags::Deleted)
+                || candidate.key.kind != MetaKeyKind::XmpProperty) {
+                continue;
+            }
+
+            const std::string_view candidate_ns = arena_string(
+                arena, candidate.key.data.xmp_property.schema_ns);
+            std::string_view candidate_prefix;
+            if (!portable_ns_to_prefix(candidate_ns, decls,
+                                       &candidate_prefix)
+                || candidate_prefix != prefix) {
+                continue;
+            }
+
+            std::string_view candidate_base_name;
+            std::string_view candidate_child_name;
+            std::string_view candidate_grandchild_name;
+            uint32_t candidate_item_index = 0U;
+            const bool parsed
+                = item_index == 0U
+                      ? parse_nested_structured_xmp_property_name(
+                            arena_string(
+                                arena,
+                                candidate.key.data.xmp_property.property_path),
+                            &candidate_base_name, &candidate_child_name,
+                            &candidate_grandchild_name)
+                      : parse_indexed_nested_structured_xmp_property_name(
+                            arena_string(
+                                arena,
+                                candidate.key.data.xmp_property.property_path),
+                            &candidate_base_name, &candidate_item_index,
+                            &candidate_child_name,
+                            &candidate_grandchild_name);
+            if (!parsed
+                || (item_index != 0U
+                    && candidate_item_index != item_index)) {
+                continue;
+            }
+
+            std::string_view candidate_child_prefix;
+            std::string_view candidate_child;
+            std::string_view candidate_grandchild_prefix;
+            std::string_view candidate_grandchild;
+            if (!resolve_existing_xmp_component_to_portable(
+                    prefix, candidate_child_name, &candidate_child_prefix,
+                    &candidate_child)
+                || !resolve_existing_xmp_component_to_portable(
+                    prefix, candidate_grandchild_name,
+                    &candidate_grandchild_prefix,
+                    &candidate_grandchild)) {
+                continue;
+            }
+
+            const std::string_view portable_base
+                = portable_property_name_for_existing_xmp(
+                    prefix, candidate_base_name);
+            if (portable_base == base
+                && candidate_child_prefix == child_prefix
+                && candidate_child == child
+                && candidate_grandchild_prefix == grandchild_prefix
+                && candidate_grandchild == grandchild) {
                 return true;
             }
         }
@@ -6663,13 +7119,18 @@ namespace {
             std::string_view portable_child;
             std::string_view portable_grandchild_prefix;
             std::string_view portable_grandchild;
+            bool normalized_child      = false;
+            bool normalized_grandchild = false;
             if (portable_base.empty()
-                || !resolve_existing_xmp_component_to_portable(
-                    prefix, child_name, &portable_child_prefix,
-                    &portable_child)
-                || !resolve_existing_xmp_component_to_portable(
-                    prefix, grandchild_name, &portable_grandchild_prefix,
-                    &portable_grandchild)
+                || !resolve_existing_xmp_structured_child_to_portable(
+                    prefix, portable_base, child_name,
+                    &portable_child_prefix, &portable_child,
+                    &normalized_child)
+                || !resolve_existing_xmp_nested_grandchild_to_portable(
+                    prefix, portable_base, portable_child_prefix,
+                    portable_child, grandchild_name,
+                    &portable_grandchild_prefix, &portable_grandchild,
+                    &normalized_grandchild)
                 || xmp_property_is_nonportable_blob(prefix, portable_base)
                 || xmp_property_is_nonportable_blob(portable_child_prefix,
                                                     portable_child)
@@ -6843,6 +7304,14 @@ namespace {
                 }
                 return false;
             }
+            if ((normalized_child || normalized_grandchild)
+                && existing_xmp_has_explicit_structured_nested_scalar_child(
+                    arena, decls, entries, prefix, portable_base,
+                    nested_item_index, portable_child_prefix,
+                    portable_child, portable_grandchild_prefix,
+                    portable_grandchild)) {
+                return false;
+            }
 
             bool new_base_claim = false;
             if (!claim_portable_property_key(
@@ -6869,8 +7338,15 @@ namespace {
             item.prefix     = prefix;
             item.base       = portable_base;
             item.item_index = nested_item_index;
-            item.child      = child_name;
-            item.grandchild = grandchild_name;
+            item.child = normalized_child
+                             ? standard_existing_xmp_qualified_component_literal(
+                                   portable_child_prefix, portable_child)
+                             : child_name;
+            item.grandchild = normalized_grandchild
+                                  ? standard_existing_xmp_qualified_component_literal(
+                                        portable_grandchild_prefix,
+                                        portable_grandchild)
+                                  : grandchild_name;
             item.order      = order;
             item.value      = &e.value;
             indexed_structured_nested->push_back(item);
@@ -6887,13 +7363,18 @@ namespace {
             std::string_view portable_child;
             std::string_view portable_grandchild_prefix;
             std::string_view portable_grandchild;
+            bool normalized_child      = false;
+            bool normalized_grandchild = false;
             if (portable_base.empty()
-                || !resolve_existing_xmp_component_to_portable(
-                    prefix, child_name, &portable_child_prefix,
-                    &portable_child)
-                || !resolve_existing_xmp_component_to_portable(
-                    prefix, grandchild_name, &portable_grandchild_prefix,
-                    &portable_grandchild)
+                || !resolve_existing_xmp_structured_child_to_portable(
+                    prefix, portable_base, child_name,
+                    &portable_child_prefix, &portable_child,
+                    &normalized_child)
+                || !resolve_existing_xmp_nested_grandchild_to_portable(
+                    prefix, portable_base, portable_child_prefix,
+                    portable_child, grandchild_name,
+                    &portable_grandchild_prefix, &portable_grandchild,
+                    &normalized_grandchild)
                 || xmp_property_is_nonportable_blob(prefix, portable_base)
                 || xmp_property_is_nonportable_blob(portable_child_prefix,
                                                     portable_child)
@@ -6920,6 +7401,14 @@ namespace {
                     prefix, portable_base, portable_child_prefix,
                     portable_child,
                     PortableStructuredChildShape::Indexed)) {
+                return false;
+            }
+            if ((normalized_child || normalized_grandchild)
+                && existing_xmp_has_explicit_structured_nested_scalar_child(
+                    arena, decls, entries, prefix, portable_base,
+                    nested_item_index, portable_child_prefix,
+                    portable_child, portable_grandchild_prefix,
+                    portable_grandchild)) {
                 return false;
             }
 
@@ -6952,7 +7441,11 @@ namespace {
             item.child_prefix   = portable_child_prefix;
             item.child          = portable_child;
             item.child_index    = nested_child_item_index;
-            item.grandchild     = grandchild_name;
+            item.grandchild = normalized_grandchild
+                                  ? standard_existing_xmp_qualified_component_literal(
+                                        portable_grandchild_prefix,
+                                        portable_grandchild)
+                                  : grandchild_name;
             item.order          = order;
             item.value          = &e.value;
             item.child_container = portable_existing_xmp_indexed_container(
@@ -7442,20 +7935,17 @@ namespace {
         if (parse_structured_indexed_xmp_property_name(name, &base_name,
                                                        &child_name,
                                                        &child_index)) {
-            std::string_view raw_child_prefix;
-            std::string_view raw_child_name;
-            if (!split_qualified_xmp_property_name(child_name,
-                                                   &raw_child_prefix,
-                                                   &raw_child_name)) {
-                return false;
-            }
             const std::string_view portable_base
                 = portable_property_name_for_existing_xmp(prefix, base_name);
-            const std::string_view portable_child_prefix
-                = raw_child_prefix.empty() ? prefix : raw_child_prefix;
-            const std::string_view portable_child
-                = portable_property_name_for_existing_xmp(
-                    portable_child_prefix, raw_child_name);
+            std::string_view portable_child_prefix;
+            std::string_view portable_child;
+            bool normalized_child = false;
+            if (!resolve_existing_xmp_structured_child_to_portable(
+                    prefix, portable_base, child_name,
+                    &portable_child_prefix, &portable_child,
+                    &normalized_child)) {
+                return false;
+            }
             if (portable_base.empty() || portable_child.empty()
                 || xmp_property_is_nonportable_blob(prefix, portable_base)
                 || xmp_property_is_nonportable_blob(portable_child_prefix,
@@ -7472,6 +7962,12 @@ namespace {
                     prefix, portable_base, portable_child_prefix,
                     portable_child,
                     PortableStructuredChildShape::Indexed)) {
+                return false;
+            }
+            if (normalized_child
+                && existing_xmp_has_explicit_structured_indexed_child(
+                    arena, decls, entries, prefix, portable_base, 0U,
+                    portable_child_prefix, portable_child)) {
                 return false;
             }
             if (options.existing_standard_namespace_policy
@@ -7517,20 +8013,17 @@ namespace {
         if (parse_indexed_structured_indexed_xmp_property_name(
                 name, &base_name, &item_index, &child_name,
                 &child_item_index)) {
-            std::string_view raw_child_prefix;
-            std::string_view raw_child_name;
-            if (!split_qualified_xmp_property_name(child_name,
-                                                   &raw_child_prefix,
-                                                   &raw_child_name)) {
-                return false;
-            }
             const std::string_view portable_base
                 = portable_property_name_for_existing_xmp(prefix, base_name);
-            const std::string_view portable_child_prefix
-                = raw_child_prefix.empty() ? prefix : raw_child_prefix;
-            const std::string_view portable_child
-                = portable_property_name_for_existing_xmp(
-                    portable_child_prefix, raw_child_name);
+            std::string_view portable_child_prefix;
+            std::string_view portable_child;
+            bool normalized_child = false;
+            if (!resolve_existing_xmp_structured_child_to_portable(
+                    prefix, portable_base, child_name,
+                    &portable_child_prefix, &portable_child,
+                    &normalized_child)) {
+                return false;
+            }
             if (portable_base.empty() || portable_child.empty()
                 || xmp_property_is_nonportable_blob(prefix, portable_base)
                 || xmp_property_is_nonportable_blob(portable_child_prefix,
@@ -7547,6 +8040,13 @@ namespace {
                     prefix, portable_base, portable_child_prefix,
                     portable_child,
                     PortableStructuredChildShape::Indexed)) {
+                return false;
+            }
+            if (normalized_child
+                && existing_xmp_has_explicit_structured_indexed_child(
+                    arena, decls, entries, prefix, portable_base,
+                    item_index, portable_child_prefix,
+                    portable_child)) {
                 return false;
             }
             if (options.existing_standard_namespace_policy
@@ -7599,18 +8099,15 @@ namespace {
 
             const std::string_view portable_base
                 = portable_property_name_for_existing_xmp(prefix, base_name);
-            std::string_view raw_child_prefix;
-            std::string_view raw_child_name;
-            if (!split_qualified_xmp_property_name(child_name,
-                                                   &raw_child_prefix,
-                                                   &raw_child_name)) {
+            std::string_view portable_child_prefix;
+            std::string_view portable_child;
+            bool normalized_child = false;
+            if (!resolve_existing_xmp_structured_child_to_portable(
+                    prefix, portable_base, child_name,
+                    &portable_child_prefix, &portable_child,
+                    &normalized_child)) {
                 return false;
             }
-            const std::string_view portable_child_prefix
-                = raw_child_prefix.empty() ? prefix : raw_child_prefix;
-            const std::string_view portable_child
-                = portable_property_name_for_existing_xmp(
-                    portable_child_prefix, raw_child_name);
             if (portable_base.empty() || portable_child.empty()
                 || xmp_property_is_nonportable_blob(prefix, portable_base)
                 || xmp_property_is_nonportable_blob(portable_child_prefix,
@@ -7725,6 +8222,13 @@ namespace {
                 }
                 return false;
             }
+            if (normalized_child
+                && existing_xmp_has_explicit_structured_scalar_child(
+                    arena, decls, entries, prefix, portable_base,
+                    parsed_item_index, portable_child_prefix,
+                    portable_child)) {
+                return false;
+            }
 
             bool new_claim = false;
             if (!claim_portable_property_key(
@@ -7756,17 +8260,14 @@ namespace {
 
         const std::string_view portable_base
             = portable_property_name_for_existing_xmp(prefix, base_name);
-        std::string_view raw_child_prefix;
-        std::string_view raw_child_name;
-        if (!split_qualified_xmp_property_name(child_name, &raw_child_prefix,
-                                               &raw_child_name)) {
+        std::string_view portable_child_prefix;
+        std::string_view portable_child;
+        bool normalized_child = false;
+        if (!resolve_existing_xmp_structured_child_to_portable(
+                prefix, portable_base, child_name, &portable_child_prefix,
+                &portable_child, &normalized_child)) {
             return false;
         }
-        const std::string_view portable_child_prefix
-            = raw_child_prefix.empty() ? prefix : raw_child_prefix;
-        const std::string_view portable_child
-            = portable_property_name_for_existing_xmp(portable_child_prefix,
-                                                      raw_child_name);
         if (portable_base.empty() || portable_child.empty()
             || xmp_property_is_nonportable_blob(prefix, portable_base)
             || xmp_property_is_nonportable_blob(portable_child_prefix,
@@ -7862,6 +8363,12 @@ namespace {
                     portable_child_prefix, portable_child);
                 structured_indexed->push_back(item);
             }
+            return false;
+        }
+        if (normalized_child
+            && existing_xmp_has_explicit_structured_scalar_child(
+                arena, decls, entries, prefix, portable_base, 0U,
+                portable_child_prefix, portable_child)) {
             return false;
         }
 
@@ -8057,6 +8564,8 @@ namespace {
 
             const std::string_view path = arena_string(
                 arena, e.key.data.xmp_property.property_path);
+            const std::string_view schema_ns = arena_string(
+                arena, e.key.data.xmp_property.schema_ns);
             std::string_view base_name;
             std::string_view child_name;
             std::string_view grandchild_name;
@@ -8102,10 +8611,19 @@ namespace {
                 continue;
             }
 
+            std::string_view prefix;
+            if (!xmp_ns_to_portable_prefix(schema_ns, &prefix)
+                || prefix.empty()) {
+                continue;
+            }
+
+            const std::string_view portable_base
+                = portable_property_name_for_existing_xmp(prefix, base_name);
             std::string_view child_prefix;
             std::string_view child_leaf;
-            if (!split_qualified_xmp_property_name(child_name, &child_prefix,
-                                                   &child_leaf)) {
+            if (!resolve_existing_xmp_structured_child_to_portable(
+                    prefix, portable_base, child_name, &child_prefix,
+                    &child_leaf, nullptr)) {
                 continue;
             }
             if (child_prefix == wanted_prefix) {
@@ -8114,9 +8632,10 @@ namespace {
             if (!grandchild_name.empty()) {
                 std::string_view grandchild_prefix;
                 std::string_view grandchild_leaf;
-                if (split_qualified_xmp_property_name(
+                if (resolve_existing_xmp_nested_grandchild_to_portable(
+                        prefix, portable_base, child_prefix, child_leaf,
                         grandchild_name, &grandchild_prefix,
-                        &grandchild_leaf)
+                        &grandchild_leaf, nullptr)
                     && grandchild_prefix == wanted_prefix) {
                     return true;
                 }

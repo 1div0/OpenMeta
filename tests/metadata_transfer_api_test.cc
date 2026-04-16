@@ -7605,6 +7605,303 @@ TEST(MetadataTransferApi,
         "<stFnt:childFontFiles>SourceSerif-Regular.otf</stFnt:childFontFiles>"));
 }
 
+TEST(MetadataTransferApi,
+     PreparePortableXmpPromotesLegacyAdobeStructuredChildPrefixes)
+{
+    openmeta::MetaStore store;
+    const openmeta::BlockId block = store.add_block(openmeta::BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    openmeta::Entry derived_document_id;
+    derived_document_id.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/mm/",
+        "DerivedFrom/documentID");
+    derived_document_id.value = openmeta::make_text(
+        store.arena(), "xmp.did:base", openmeta::TextEncoding::Utf8);
+    derived_document_id.origin.block          = block;
+    derived_document_id.origin.order_in_block = 0U;
+    ASSERT_NE(store.add_entry(derived_document_id), openmeta::kInvalidEntryId);
+
+    openmeta::Entry job_ref_id;
+    job_ref_id.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/bj/",
+        "JobRef[1]/id");
+    job_ref_id.value = openmeta::make_text(
+        store.arena(), "job-1", openmeta::TextEncoding::Utf8);
+    job_ref_id.origin.block          = block;
+    job_ref_id.origin.order_in_block = 1U;
+    ASSERT_NE(store.add_entry(job_ref_id), openmeta::kInvalidEntryId);
+
+    openmeta::Entry max_page_size_w;
+    max_page_size_w.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/t/pg/",
+        "MaxPageSize/w");
+    max_page_size_w.value = openmeta::make_text(
+        store.arena(), "8.5", openmeta::TextEncoding::Utf8);
+    max_page_size_w.origin.block          = block;
+    max_page_size_w.origin.order_in_block = 2U;
+    ASSERT_NE(store.add_entry(max_page_size_w), openmeta::kInvalidEntryId);
+
+    openmeta::Entry font_name;
+    font_name.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/t/pg/",
+        "Fonts[1]/fontName");
+    font_name.value = openmeta::make_text(
+        store.arena(), "Source Serif", openmeta::TextEncoding::Utf8);
+    font_name.origin.block          = block;
+    font_name.origin.order_in_block = 3U;
+    ASSERT_NE(store.add_entry(font_name), openmeta::kInvalidEntryId);
+
+    openmeta::Entry swatch_group_name;
+    swatch_group_name.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/t/pg/",
+        "SwatchGroups[1]/groupName");
+    swatch_group_name.value = openmeta::make_text(
+        store.arena(), "Brand Colors", openmeta::TextEncoding::Utf8);
+    swatch_group_name.origin.block          = block;
+    swatch_group_name.origin.order_in_block = 4U;
+    ASSERT_NE(store.add_entry(swatch_group_name), openmeta::kInvalidEntryId);
+
+    openmeta::Entry swatch_group_colorant_name;
+    swatch_group_colorant_name.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/t/pg/",
+        "SwatchGroups[1]/Colorants[1]/swatchName");
+    swatch_group_colorant_name.value = openmeta::make_text(
+        store.arena(), "Accent Orange", openmeta::TextEncoding::Utf8);
+    swatch_group_colorant_name.origin.block          = block;
+    swatch_group_colorant_name.origin.order_in_block = 5U;
+    ASSERT_NE(store.add_entry(swatch_group_colorant_name),
+              openmeta::kInvalidEntryId);
+
+    openmeta::Entry manifest_file_path;
+    manifest_file_path.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/mm/",
+        "Manifest[1]/reference/filePath");
+    manifest_file_path.value = openmeta::make_text(
+        store.arena(), "/tmp/manifest.dat", openmeta::TextEncoding::Utf8);
+    manifest_file_path.origin.block          = block;
+    manifest_file_path.origin.order_in_block = 6U;
+    ASSERT_NE(store.add_entry(manifest_file_path), openmeta::kInvalidEntryId);
+
+    openmeta::Entry versions_event_action;
+    versions_event_action.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/mm/",
+        "Versions[1]/event/action");
+    versions_event_action.value = openmeta::make_text(
+        store.arena(), "saved", openmeta::TextEncoding::Utf8);
+    versions_event_action.origin.block          = block;
+    versions_event_action.origin.order_in_block = 7U;
+    ASSERT_NE(store.add_entry(versions_event_action),
+              openmeta::kInvalidEntryId);
+
+    openmeta::Entry video_frame_size_w;
+    video_frame_size_w.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+        "videoFrameSize/w");
+    video_frame_size_w.value = openmeta::make_text(
+        store.arena(), "1920", openmeta::TextEncoding::Utf8);
+    video_frame_size_w.origin.block          = block;
+    video_frame_size_w.origin.order_in_block = 8U;
+    ASSERT_NE(store.add_entry(video_frame_size_w), openmeta::kInvalidEntryId);
+
+    openmeta::Entry alpha_color_mode;
+    alpha_color_mode.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+        "videoAlphaPremultipleColor/mode");
+    alpha_color_mode.value = openmeta::make_text(
+        store.arena(), "RGB", openmeta::TextEncoding::Utf8);
+    alpha_color_mode.origin.block          = block;
+    alpha_color_mode.origin.order_in_block = 9U;
+    ASSERT_NE(store.add_entry(alpha_color_mode), openmeta::kInvalidEntryId);
+
+    store.finalize();
+
+    openmeta::PrepareTransferRequest request;
+    request.include_exif_app1    = false;
+    request.include_icc_app2     = false;
+    request.include_iptc_app13   = false;
+    request.xmp_portable         = true;
+    request.xmp_include_existing = true;
+
+    openmeta::PreparedTransferBundle bundle;
+    const openmeta::PrepareTransferResult result
+        = openmeta::prepare_metadata_for_target(store, request, &bundle);
+
+    EXPECT_EQ(result.status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(bundle.blocks.size(), 1U);
+    const std::span<const std::byte> payload(bundle.blocks[0].payload.data(),
+                                             bundle.blocks[0].payload.size());
+    EXPECT_TRUE(payload_contains_ascii(
+        payload, "xmlns:stRef=\"http://ns.adobe.com/xap/1.0/sType/ResourceRef#\""));
+    EXPECT_TRUE(payload_contains_ascii(
+        payload, "xmlns:stJob=\"http://ns.adobe.com/xap/1.0/sType/Job#\""));
+    EXPECT_TRUE(payload_contains_ascii(
+        payload,
+        "xmlns:stDim=\"http://ns.adobe.com/xap/1.0/sType/Dimensions#\""));
+    EXPECT_TRUE(payload_contains_ascii(
+        payload, "xmlns:stFnt=\"http://ns.adobe.com/xap/1.0/sType/Font#\""));
+    EXPECT_TRUE(payload_contains_ascii(
+        payload, "xmlns:stMfs=\"http://ns.adobe.com/xap/1.0/sType/ManifestItem#\""));
+    EXPECT_TRUE(payload_contains_ascii(
+        payload, "xmlns:stVer=\"http://ns.adobe.com/xap/1.0/sType/Version#\""));
+    EXPECT_TRUE(payload_contains_ascii(
+        payload, "xmlns:stEvt=\"http://ns.adobe.com/xap/1.0/sType/ResourceEvent#\""));
+    EXPECT_TRUE(payload_contains_ascii(
+        payload, "xmlns:xmpG=\"http://ns.adobe.com/xap/1.0/g/\""));
+    EXPECT_TRUE(payload_contains_ascii(
+        payload, "<stRef:documentID>xmp.did:base</stRef:documentID>"));
+    EXPECT_TRUE(payload_contains_ascii(payload, "<stJob:id>job-1</stJob:id>"));
+    EXPECT_TRUE(payload_contains_ascii(payload, "<stDim:w>8.5</stDim:w>"));
+    EXPECT_TRUE(payload_contains_ascii(
+        payload, "<stFnt:fontName>Source Serif</stFnt:fontName>"));
+    EXPECT_TRUE(payload_contains_ascii(
+        payload, "<xmpG:groupName>Brand Colors</xmpG:groupName>"));
+    EXPECT_TRUE(payload_contains_ascii(
+        payload, "<xmpG:swatchName>Accent Orange</xmpG:swatchName>"));
+    EXPECT_TRUE(payload_contains_ascii(
+        payload, "<stMfs:reference rdf:parseType=\"Resource\">"));
+    EXPECT_TRUE(payload_contains_ascii(
+        payload, "<stRef:filePath>/tmp/manifest.dat</stRef:filePath>"));
+    EXPECT_TRUE(payload_contains_ascii(
+        payload, "<stVer:event rdf:parseType=\"Resource\">"));
+    EXPECT_TRUE(payload_contains_ascii(
+        payload, "<stEvt:action>saved</stEvt:action>"));
+    EXPECT_TRUE(payload_contains_ascii(payload, "<stDim:w>1920</stDim:w>"));
+    EXPECT_TRUE(payload_contains_ascii(payload, "<xmpG:mode>RGB</xmpG:mode>"));
+
+    EXPECT_FALSE(payload_contains_ascii(payload, "<xmpMM:documentID>"));
+    EXPECT_FALSE(payload_contains_ascii(payload, "<xmpBJ:id>"));
+    EXPECT_FALSE(payload_contains_ascii(payload, "<xmpTPg:w>"));
+    EXPECT_FALSE(payload_contains_ascii(payload, "<xmpTPg:fontName>"));
+    EXPECT_FALSE(payload_contains_ascii(payload, "<xmpTPg:groupName>"));
+    EXPECT_FALSE(payload_contains_ascii(payload, "<xmpTPg:swatchName>"));
+    EXPECT_FALSE(payload_contains_ascii(
+        payload, "<xmpMM:reference rdf:parseType=\"Resource\">"));
+    EXPECT_FALSE(payload_contains_ascii(payload, "<xmpMM:filePath>"));
+    EXPECT_FALSE(payload_contains_ascii(
+        payload, "<xmpMM:event rdf:parseType=\"Resource\">"));
+    EXPECT_FALSE(payload_contains_ascii(payload, "<xmpMM:action>"));
+    EXPECT_FALSE(payload_contains_ascii(payload, "<xmpDM:w>"));
+    EXPECT_FALSE(payload_contains_ascii(payload, "<xmpDM:mode>"));
+}
+
+TEST(MetadataTransferApi, PreparePortableXmpCanonicalizesXmpDmTracks)
+{
+    openmeta::MetaStore store;
+    const openmeta::BlockId block = store.add_block(openmeta::BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    openmeta::Entry flat_tracks;
+    flat_tracks.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+        "Tracks");
+    flat_tracks.value = openmeta::make_text(
+        store.arena(), "legacy-tracks", openmeta::TextEncoding::Utf8);
+    flat_tracks.origin.block          = block;
+    flat_tracks.origin.order_in_block = 0U;
+    ASSERT_NE(store.add_entry(flat_tracks), openmeta::kInvalidEntryId);
+
+    openmeta::Entry flat_track_markers;
+    flat_track_markers.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+        "Tracks[1]/markers");
+    flat_track_markers.value = openmeta::make_text(
+        store.arena(), "legacy-track-markers", openmeta::TextEncoding::Utf8);
+    flat_track_markers.origin.block          = block;
+    flat_track_markers.origin.order_in_block = 1U;
+    ASSERT_NE(store.add_entry(flat_track_markers),
+              openmeta::kInvalidEntryId);
+
+    openmeta::Entry track_name;
+    track_name.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+        "Tracks[1]/trackName");
+    track_name.value = openmeta::make_text(
+        store.arena(), "Dialogue", openmeta::TextEncoding::Utf8);
+    track_name.origin.block          = block;
+    track_name.origin.order_in_block = 2U;
+    ASSERT_NE(store.add_entry(track_name), openmeta::kInvalidEntryId);
+
+    openmeta::Entry track_type;
+    track_type.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+        "Tracks[1]/trackType");
+    track_type.value = openmeta::make_text(
+        store.arena(), "Audio", openmeta::TextEncoding::Utf8);
+    track_type.origin.block          = block;
+    track_type.origin.order_in_block = 3U;
+    ASSERT_NE(store.add_entry(track_type), openmeta::kInvalidEntryId);
+
+    openmeta::Entry track_frame_rate;
+    track_frame_rate.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+        "Tracks[1]/frameRate");
+    track_frame_rate.value = openmeta::make_text(
+        store.arena(), "f24000", openmeta::TextEncoding::Utf8);
+    track_frame_rate.origin.block          = block;
+    track_frame_rate.origin.order_in_block = 4U;
+    ASSERT_NE(store.add_entry(track_frame_rate), openmeta::kInvalidEntryId);
+
+    openmeta::Entry track_marker_name;
+    track_marker_name.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+        "Tracks[1]/markers/name");
+    track_marker_name.value = openmeta::make_text(
+        store.arena(), "Scene 1", openmeta::TextEncoding::Utf8);
+    track_marker_name.origin.block          = block;
+    track_marker_name.origin.order_in_block = 5U;
+    ASSERT_NE(store.add_entry(track_marker_name), openmeta::kInvalidEntryId);
+
+    openmeta::Entry track_marker_start_time;
+    track_marker_start_time.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+        "Tracks[1]/markers/startTime");
+    track_marker_start_time.value = openmeta::make_text(
+        store.arena(), "00:00:01.000", openmeta::TextEncoding::Utf8);
+    track_marker_start_time.origin.block          = block;
+    track_marker_start_time.origin.order_in_block = 6U;
+    ASSERT_NE(store.add_entry(track_marker_start_time),
+              openmeta::kInvalidEntryId);
+
+    store.finalize();
+
+    openmeta::PrepareTransferRequest request;
+    request.include_exif_app1    = false;
+    request.include_icc_app2     = false;
+    request.include_iptc_app13   = false;
+    request.xmp_portable         = true;
+    request.xmp_include_existing = true;
+
+    openmeta::PreparedTransferBundle bundle;
+    const openmeta::PrepareTransferResult result
+        = openmeta::prepare_metadata_for_target(store, request, &bundle);
+
+    EXPECT_EQ(result.status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(bundle.blocks.size(), 1U);
+    const std::span<const std::byte> payload(bundle.blocks[0].payload.data(),
+                                             bundle.blocks[0].payload.size());
+    EXPECT_TRUE(payload_contains_ascii(
+        payload,
+        "xmlns:xmpDM=\"http://ns.adobe.com/xmp/1.0/DynamicMedia/\""));
+    EXPECT_TRUE(payload_contains_ascii(payload, "<xmpDM:Tracks>"));
+    EXPECT_TRUE(payload_contains_ascii(payload, "<rdf:Bag>"));
+    EXPECT_TRUE(payload_contains_ascii(
+        payload, "<xmpDM:trackName>Dialogue</xmpDM:trackName>"));
+    EXPECT_TRUE(payload_contains_ascii(
+        payload, "<xmpDM:trackType>Audio</xmpDM:trackType>"));
+    EXPECT_TRUE(payload_contains_ascii(
+        payload, "<xmpDM:frameRate>f24000</xmpDM:frameRate>"));
+    EXPECT_TRUE(payload_contains_ascii(
+        payload, "<xmpDM:markers rdf:parseType=\"Resource\">"));
+    EXPECT_TRUE(payload_contains_ascii(
+        payload, "<xmpDM:name>Scene 1</xmpDM:name>"));
+    EXPECT_TRUE(payload_contains_ascii(
+        payload, "<xmpDM:startTime>00:00:01.000</xmpDM:startTime>"));
+
+    EXPECT_FALSE(payload_contains_ascii(payload, "legacy-tracks"));
+    EXPECT_FALSE(payload_contains_ascii(payload, "legacy-track-markers"));
+}
+
 TEST(MetadataTransferApi, PreparePortableXmpPreservesAuxStandardNamespace)
 {
     openmeta::MetaStore store;

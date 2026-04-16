@@ -4701,6 +4701,317 @@ TEST(XmpDump, PortableCanonicalizesAdobeStructuredWorkflowNamespaces)
         std::string_view::npos);
 }
 
+TEST(XmpDump, PortablePromotesLegacyAdobeStructuredChildPrefixes)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, kInvalidBlockId);
+
+    Entry derived_document_id;
+    derived_document_id.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/mm/",
+        "DerivedFrom/documentID");
+    derived_document_id.value = make_text(store.arena(), "xmp.did:base",
+                                          TextEncoding::Utf8);
+    derived_document_id.origin.block          = block;
+    derived_document_id.origin.order_in_block = 0;
+    (void)store.add_entry(derived_document_id);
+
+    Entry job_ref_id;
+    job_ref_id.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/bj/",
+        "JobRef[1]/id");
+    job_ref_id.value = make_text(store.arena(), "job-1",
+                                 TextEncoding::Utf8);
+    job_ref_id.origin.block          = block;
+    job_ref_id.origin.order_in_block = 1;
+    (void)store.add_entry(job_ref_id);
+
+    Entry max_page_size_w;
+    max_page_size_w.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/t/pg/",
+        "MaxPageSize/w");
+    max_page_size_w.value = make_text(store.arena(), "8.5",
+                                      TextEncoding::Utf8);
+    max_page_size_w.origin.block          = block;
+    max_page_size_w.origin.order_in_block = 2;
+    (void)store.add_entry(max_page_size_w);
+
+    Entry font_name;
+    font_name.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/t/pg/",
+        "Fonts[1]/fontName");
+    font_name.value = make_text(store.arena(), "Source Serif",
+                                TextEncoding::Utf8);
+    font_name.origin.block          = block;
+    font_name.origin.order_in_block = 3;
+    (void)store.add_entry(font_name);
+
+    Entry swatch_group_name;
+    swatch_group_name.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/t/pg/",
+        "SwatchGroups[1]/groupName");
+    swatch_group_name.value = make_text(store.arena(), "Brand Colors",
+                                        TextEncoding::Utf8);
+    swatch_group_name.origin.block          = block;
+    swatch_group_name.origin.order_in_block = 4;
+    (void)store.add_entry(swatch_group_name);
+
+    Entry swatch_group_colorant_name;
+    swatch_group_colorant_name.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/t/pg/",
+        "SwatchGroups[1]/Colorants[1]/swatchName");
+    swatch_group_colorant_name.value = make_text(
+        store.arena(), "Accent Orange", TextEncoding::Utf8);
+    swatch_group_colorant_name.origin.block          = block;
+    swatch_group_colorant_name.origin.order_in_block = 5;
+    (void)store.add_entry(swatch_group_colorant_name);
+
+    Entry manifest_file_path;
+    manifest_file_path.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/mm/",
+        "Manifest[1]/reference/filePath");
+    manifest_file_path.value = make_text(store.arena(),
+                                         "/tmp/manifest.dat",
+                                         TextEncoding::Utf8);
+    manifest_file_path.origin.block          = block;
+    manifest_file_path.origin.order_in_block = 6;
+    (void)store.add_entry(manifest_file_path);
+
+    Entry versions_event_action;
+    versions_event_action.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/mm/",
+        "Versions[1]/event/action");
+    versions_event_action.value = make_text(store.arena(), "saved",
+                                            TextEncoding::Utf8);
+    versions_event_action.origin.block          = block;
+    versions_event_action.origin.order_in_block = 7;
+    (void)store.add_entry(versions_event_action);
+
+    Entry video_frame_size_w;
+    video_frame_size_w.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+        "videoFrameSize/w");
+    video_frame_size_w.value = make_text(store.arena(), "1920",
+                                         TextEncoding::Utf8);
+    video_frame_size_w.origin.block          = block;
+    video_frame_size_w.origin.order_in_block = 8;
+    (void)store.add_entry(video_frame_size_w);
+
+    Entry alpha_color_mode;
+    alpha_color_mode.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+        "videoAlphaPremultipleColor/mode");
+    alpha_color_mode.value = make_text(store.arena(), "RGB",
+                                       TextEncoding::Utf8);
+    alpha_color_mode.origin.block          = block;
+    alpha_color_mode.origin.order_in_block = 9;
+    (void)store.add_entry(alpha_color_mode);
+
+    store.finalize();
+
+    XmpPortableOptions opts;
+    opts.include_exif         = false;
+    opts.include_iptc         = false;
+    opts.include_existing_xmp = true;
+
+    std::vector<std::byte> out(8192);
+    const XmpDumpResult r
+        = dump_xmp_portable(store, std::span<std::byte>(out.data(), out.size()),
+                            opts);
+    ASSERT_EQ(r.status, XmpDumpStatus::Ok);
+
+    const std::string_view s(reinterpret_cast<const char*>(out.data()),
+                             static_cast<size_t>(r.written));
+    EXPECT_NE(
+        s.find("xmlns:stRef=\"http://ns.adobe.com/xap/1.0/sType/ResourceRef#\""),
+        std::string_view::npos);
+    EXPECT_NE(
+        s.find("xmlns:stJob=\"http://ns.adobe.com/xap/1.0/sType/Job#\""),
+        std::string_view::npos);
+    EXPECT_NE(
+        s.find("xmlns:stDim=\"http://ns.adobe.com/xap/1.0/sType/Dimensions#\""),
+        std::string_view::npos);
+    EXPECT_NE(
+        s.find("xmlns:stFnt=\"http://ns.adobe.com/xap/1.0/sType/Font#\""),
+        std::string_view::npos);
+    EXPECT_NE(
+        s.find("xmlns:stMfs=\"http://ns.adobe.com/xap/1.0/sType/ManifestItem#\""),
+        std::string_view::npos);
+    EXPECT_NE(
+        s.find("xmlns:stVer=\"http://ns.adobe.com/xap/1.0/sType/Version#\""),
+        std::string_view::npos);
+    EXPECT_NE(
+        s.find("xmlns:stEvt=\"http://ns.adobe.com/xap/1.0/sType/ResourceEvent#\""),
+        std::string_view::npos);
+    EXPECT_NE(
+        s.find("xmlns:xmpG=\"http://ns.adobe.com/xap/1.0/g/\""),
+        std::string_view::npos);
+    EXPECT_NE(
+        s.find("<stRef:documentID>xmp.did:base</stRef:documentID>"),
+        std::string_view::npos);
+    EXPECT_NE(s.find("<stJob:id>job-1</stJob:id>"),
+              std::string_view::npos);
+    EXPECT_NE(s.find("<stDim:w>8.5</stDim:w>"),
+              std::string_view::npos);
+    EXPECT_NE(
+        s.find("<stFnt:fontName>Source Serif</stFnt:fontName>"),
+        std::string_view::npos);
+    EXPECT_NE(
+        s.find("<xmpG:groupName>Brand Colors</xmpG:groupName>"),
+        std::string_view::npos);
+    EXPECT_NE(
+        s.find("<xmpG:swatchName>Accent Orange</xmpG:swatchName>"),
+        std::string_view::npos);
+    EXPECT_NE(
+        s.find("<stMfs:reference rdf:parseType=\"Resource\">"),
+        std::string_view::npos);
+    EXPECT_NE(
+        s.find("<stRef:filePath>/tmp/manifest.dat</stRef:filePath>"),
+        std::string_view::npos);
+    EXPECT_NE(
+        s.find("<stVer:event rdf:parseType=\"Resource\">"),
+        std::string_view::npos);
+    EXPECT_NE(
+        s.find("<stEvt:action>saved</stEvt:action>"),
+        std::string_view::npos);
+    EXPECT_NE(s.find("<stDim:w>1920</stDim:w>"),
+              std::string_view::npos);
+    EXPECT_NE(s.find("<xmpG:mode>RGB</xmpG:mode>"),
+              std::string_view::npos);
+
+    EXPECT_EQ(s.find("<xmpMM:documentID>"), std::string_view::npos);
+    EXPECT_EQ(s.find("<xmpBJ:id>"), std::string_view::npos);
+    EXPECT_EQ(s.find("<xmpTPg:w>"), std::string_view::npos);
+    EXPECT_EQ(s.find("<xmpTPg:fontName>"), std::string_view::npos);
+    EXPECT_EQ(s.find("<xmpTPg:groupName>"), std::string_view::npos);
+    EXPECT_EQ(s.find("<xmpTPg:swatchName>"), std::string_view::npos);
+    EXPECT_EQ(s.find("<xmpMM:reference rdf:parseType=\"Resource\">"),
+              std::string_view::npos);
+    EXPECT_EQ(s.find("<xmpMM:filePath>"), std::string_view::npos);
+    EXPECT_EQ(s.find("<xmpMM:event rdf:parseType=\"Resource\">"),
+              std::string_view::npos);
+    EXPECT_EQ(s.find("<xmpMM:action>"), std::string_view::npos);
+    EXPECT_EQ(s.find("<xmpDM:w>"), std::string_view::npos);
+    EXPECT_EQ(s.find("<xmpDM:mode>"), std::string_view::npos);
+}
+
+TEST(XmpDump, PortableCanonicalizesXmpDmTracksStructuredFamily)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, kInvalidBlockId);
+
+    Entry flat_tracks;
+    flat_tracks.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+        "Tracks");
+    flat_tracks.value = make_text(store.arena(), "legacy-tracks",
+                                  TextEncoding::Utf8);
+    flat_tracks.origin.block          = block;
+    flat_tracks.origin.order_in_block = 0;
+    (void)store.add_entry(flat_tracks);
+
+    Entry flat_track_markers;
+    flat_track_markers.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+        "Tracks[1]/markers");
+    flat_track_markers.value = make_text(store.arena(),
+                                         "legacy-track-markers",
+                                         TextEncoding::Utf8);
+    flat_track_markers.origin.block          = block;
+    flat_track_markers.origin.order_in_block = 1;
+    (void)store.add_entry(flat_track_markers);
+
+    Entry track_name;
+    track_name.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+        "Tracks[1]/trackName");
+    track_name.value = make_text(store.arena(), "Dialogue",
+                                 TextEncoding::Utf8);
+    track_name.origin.block          = block;
+    track_name.origin.order_in_block = 2;
+    (void)store.add_entry(track_name);
+
+    Entry track_type;
+    track_type.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+        "Tracks[1]/trackType");
+    track_type.value = make_text(store.arena(), "Audio",
+                                 TextEncoding::Utf8);
+    track_type.origin.block          = block;
+    track_type.origin.order_in_block = 3;
+    (void)store.add_entry(track_type);
+
+    Entry track_frame_rate;
+    track_frame_rate.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+        "Tracks[1]/frameRate");
+    track_frame_rate.value = make_text(store.arena(), "f24000",
+                                       TextEncoding::Utf8);
+    track_frame_rate.origin.block          = block;
+    track_frame_rate.origin.order_in_block = 4;
+    (void)store.add_entry(track_frame_rate);
+
+    Entry track_marker_name;
+    track_marker_name.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+        "Tracks[1]/markers/name");
+    track_marker_name.value = make_text(store.arena(), "Scene 1",
+                                        TextEncoding::Utf8);
+    track_marker_name.origin.block          = block;
+    track_marker_name.origin.order_in_block = 5;
+    (void)store.add_entry(track_marker_name);
+
+    Entry track_marker_start_time;
+    track_marker_start_time.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+        "Tracks[1]/markers/startTime");
+    track_marker_start_time.value = make_text(
+        store.arena(), "00:00:01.000", TextEncoding::Utf8);
+    track_marker_start_time.origin.block          = block;
+    track_marker_start_time.origin.order_in_block = 6;
+    (void)store.add_entry(track_marker_start_time);
+
+    store.finalize();
+
+    XmpPortableOptions opts;
+    opts.include_exif         = false;
+    opts.include_iptc         = false;
+    opts.include_existing_xmp = true;
+
+    std::vector<std::byte> out(4096);
+    const XmpDumpResult r
+        = dump_xmp_portable(store, std::span<std::byte>(out.data(), out.size()),
+                            opts);
+    ASSERT_EQ(r.status, XmpDumpStatus::Ok);
+
+    const std::string_view s(reinterpret_cast<const char*>(out.data()),
+                             static_cast<size_t>(r.written));
+    EXPECT_NE(
+        s.find("xmlns:xmpDM=\"http://ns.adobe.com/xmp/1.0/DynamicMedia/\""),
+        std::string_view::npos);
+    EXPECT_NE(s.find("<xmpDM:Tracks>"), std::string_view::npos);
+    EXPECT_NE(s.find("<rdf:Bag>"), std::string_view::npos);
+    EXPECT_NE(s.find("<xmpDM:trackName>Dialogue</xmpDM:trackName>"),
+              std::string_view::npos);
+    EXPECT_NE(s.find("<xmpDM:trackType>Audio</xmpDM:trackType>"),
+              std::string_view::npos);
+    EXPECT_NE(s.find("<xmpDM:frameRate>f24000</xmpDM:frameRate>"),
+              std::string_view::npos);
+    EXPECT_NE(
+        s.find("<xmpDM:markers rdf:parseType=\"Resource\">"),
+        std::string_view::npos);
+    EXPECT_NE(s.find("<xmpDM:name>Scene 1</xmpDM:name>"),
+              std::string_view::npos);
+    EXPECT_NE(
+        s.find("<xmpDM:startTime>00:00:01.000</xmpDM:startTime>"),
+        std::string_view::npos);
+
+    EXPECT_EQ(s.find("legacy-tracks"), std::string_view::npos);
+    EXPECT_EQ(s.find("legacy-track-markers"), std::string_view::npos);
+}
+
 TEST(XmpDump, PortablePreservesAuxStandardNamespace)
 {
     MetaStore store;

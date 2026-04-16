@@ -484,6 +484,63 @@ TEST(XmpDecodeTest, DecodesAdobeStructuredWorkflowNamespaces)
                 "contributedMedia[1]/startTime/value", "1200");
 }
 
+TEST(XmpDecodeTest, DecodesXmpDmTracksStructuredChildren)
+{
+    const std::string xmp
+        = "<x:xmpmeta xmlns:x='adobe:ns:meta/'>"
+          "<rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'>"
+          "<rdf:Description "
+          "xmlns:xmpDM='http://ns.adobe.com/xmp/1.0/DynamicMedia/'>"
+          "<xmpDM:Tracks><rdf:Bag>"
+          "<rdf:li rdf:parseType='Resource'>"
+          "<xmpDM:trackName>Dialogue</xmpDM:trackName>"
+          "<xmpDM:trackType>Audio</xmpDM:trackType>"
+          "<xmpDM:frameRate>f24000</xmpDM:frameRate>"
+          "<xmpDM:markers rdf:parseType='Resource'>"
+          "<xmpDM:name>Scene 1</xmpDM:name>"
+          "<xmpDM:startTime>00:00:01.000</xmpDM:startTime>"
+          "</xmpDM:markers>"
+          "</rdf:li>"
+          "</rdf:Bag></xmpDM:Tracks>"
+          "</rdf:Description>"
+          "</rdf:RDF>"
+          "</x:xmpmeta>";
+
+    const std::span<const std::byte> bytes(
+        reinterpret_cast<const std::byte*>(xmp.data()), xmp.size());
+
+    MetaStore store;
+    const XmpDecodeResult r = decode_xmp_packet(bytes, store);
+    EXPECT_EQ(r.status, XmpDecodeStatus::Ok);
+    EXPECT_EQ(r.entries_decoded, 5U);
+
+    store.finalize();
+
+    auto expect_text = [&](std::string_view path, std::string_view expected) {
+        MetaKeyView key;
+        key.kind                            = MetaKeyKind::XmpProperty;
+        key.data.xmp_property.schema_ns
+            = "http://ns.adobe.com/xmp/1.0/DynamicMedia/";
+        key.data.xmp_property.property_path = path;
+
+        const std::span<const EntryId> ids = store.find_all(key);
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        ASSERT_EQ(e.value.kind, MetaValueKind::Text);
+        const std::span<const std::byte> vb = store.arena().span(
+            e.value.data.span);
+        const std::string_view val(reinterpret_cast<const char*>(vb.data()),
+                                   vb.size());
+        EXPECT_EQ(val, expected);
+    };
+
+    expect_text("Tracks[1]/trackName", "Dialogue");
+    expect_text("Tracks[1]/trackType", "Audio");
+    expect_text("Tracks[1]/frameRate", "f24000");
+    expect_text("Tracks[1]/markers/name", "Scene 1");
+    expect_text("Tracks[1]/markers/startTime", "00:00:01.000");
+}
+
 TEST(XmpDecodeTest, DecodesXmpMmManifestStructuredChildren)
 {
     const std::string xmp
