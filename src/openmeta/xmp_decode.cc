@@ -45,16 +45,38 @@ namespace {
         = "http://purl.org/dc/elements/1.1/";
     static constexpr std::string_view kXmpNsPdf
         = "http://ns.adobe.com/pdf/1.3/";
+    static constexpr std::string_view kXmpNsXmpBJ
+        = "http://ns.adobe.com/xap/1.0/bj/";
     static constexpr std::string_view kXmpNsPlus
         = "http://ns.useplus.org/ldf/xmp/1.0/";
     static constexpr std::string_view kXmpNsCrs
         = "http://ns.adobe.com/camera-raw-settings/1.0/";
     static constexpr std::string_view kXmpNsLr
         = "http://ns.adobe.com/lightroom/1.0/";
+    static constexpr std::string_view kXmpNsXmpDM
+        = "http://ns.adobe.com/xmp/1.0/DynamicMedia/";
     static constexpr std::string_view kXmpNsXmpMM
         = "http://ns.adobe.com/xap/1.0/mm/";
+    static constexpr std::string_view kXmpNsXmpTPg
+        = "http://ns.adobe.com/xap/1.0/t/pg/";
     static constexpr std::string_view kXmpNsXmpRights
         = "http://ns.adobe.com/xap/1.0/rights/";
+    static constexpr std::string_view kXmpNsStDim
+        = "http://ns.adobe.com/xap/1.0/sType/Dimensions#";
+    static constexpr std::string_view kXmpNsStEvt
+        = "http://ns.adobe.com/xap/1.0/sType/ResourceEvent#";
+    static constexpr std::string_view kXmpNsStFnt
+        = "http://ns.adobe.com/xap/1.0/sType/Font#";
+    static constexpr std::string_view kXmpNsStJob
+        = "http://ns.adobe.com/xap/1.0/sType/Job#";
+    static constexpr std::string_view kXmpNsStMfs
+        = "http://ns.adobe.com/xap/1.0/sType/ManifestItem#";
+    static constexpr std::string_view kXmpNsStRef
+        = "http://ns.adobe.com/xap/1.0/sType/ResourceRef#";
+    static constexpr std::string_view kXmpNsStVer
+        = "http://ns.adobe.com/xap/1.0/sType/Version#";
+    static constexpr std::string_view kXmpNsXmpG
+        = "http://ns.adobe.com/xap/1.0/g/";
     static constexpr std::string_view kXmpNsPhotoshop
         = "http://ns.adobe.com/photoshop/1.0/";
     static constexpr std::string_view kXmpNsIptc4xmpCore
@@ -97,6 +119,9 @@ namespace {
         if (ns == kXmpNsPdf) {
             return "pdf";
         }
+        if (ns == kXmpNsXmpBJ) {
+            return "xmpBJ";
+        }
         if (ns == kXmpNsPlus) {
             return "plus";
         }
@@ -106,11 +131,41 @@ namespace {
         if (ns == kXmpNsLr) {
             return "lr";
         }
+        if (ns == kXmpNsXmpDM) {
+            return "xmpDM";
+        }
         if (ns == kXmpNsXmpMM) {
             return "xmpMM";
         }
+        if (ns == kXmpNsXmpTPg) {
+            return "xmpTPg";
+        }
         if (ns == kXmpNsXmpRights) {
             return "xmpRights";
+        }
+        if (ns == kXmpNsStDim) {
+            return "stDim";
+        }
+        if (ns == kXmpNsStEvt) {
+            return "stEvt";
+        }
+        if (ns == kXmpNsStFnt) {
+            return "stFnt";
+        }
+        if (ns == kXmpNsStJob) {
+            return "stJob";
+        }
+        if (ns == kXmpNsStMfs) {
+            return "stMfs";
+        }
+        if (ns == kXmpNsStRef) {
+            return "stRef";
+        }
+        if (ns == kXmpNsStVer) {
+            return "stVer";
+        }
+        if (ns == kXmpNsXmpG) {
+            return "xmpG";
         }
         if (ns == kXmpNsPhotoshop) {
             return "photoshop";

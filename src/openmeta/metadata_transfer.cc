@@ -1477,13 +1477,43 @@ namespace {
         return true;
     }
 
-    static void append_jpeg_segment(std::vector<std::byte>* out, uint8_t marker,
-                                    std::span<const std::byte> payload) noexcept
+    static constexpr uint32_t kMaxJpegSegmentPayload = 65533U;
+    static constexpr uint32_t kMaxJpegExifTiffBytes
+        = kMaxJpegSegmentPayload - 6U;
+
+    static bool jpeg_segment_length_u16(std::span<const std::byte> payload,
+                                        uint16_t* out_len) noexcept
+    {
+        if (!out_len || payload.size() > kMaxJpegSegmentPayload) {
+            return false;
+        }
+        *out_len = static_cast<uint16_t>(payload.size() + 2U);
+        return true;
+    }
+
+    static void set_jpeg_segment_limit_error(EmitTransferResult* out,
+                                             const char* message) noexcept
     {
         if (!out) {
             return;
         }
-        const uint16_t seg_len = static_cast<uint16_t>(payload.size() + 2U);
+        out->status = TransferStatus::LimitExceeded;
+        out->code   = EmitTransferCode::InvalidPayload;
+        out->errors += 1U;
+        out->message = message ? message
+                               : "jpeg segment payload exceeds 64 KB limit";
+    }
+
+    static bool append_jpeg_segment(std::vector<std::byte>* out, uint8_t marker,
+                                    std::span<const std::byte> payload) noexcept
+    {
+        if (!out) {
+            return false;
+        }
+        uint16_t seg_len = 0U;
+        if (!jpeg_segment_length_u16(payload, &seg_len)) {
+            return false;
+        }
         out->push_back(std::byte { 0xFF });
         out->push_back(static_cast<std::byte>(marker));
         out->push_back(static_cast<std::byte>((seg_len >> 8U) & 0xFFU));
@@ -1491,6 +1521,7 @@ namespace {
         if (!payload.empty()) {
             out->insert(out->end(), payload.begin(), payload.end());
         }
+        return true;
     }
 
     struct PlannedJpegReplacement final {
@@ -1644,13 +1675,18 @@ namespace {
                                           std::span<const std::byte> payload,
                                           EmitTransferResult* out) noexcept
     {
+        uint16_t seg_len = 0U;
+        if (!jpeg_segment_length_u16(payload, &seg_len)) {
+            set_jpeg_segment_limit_error(
+                out, "jpeg segment payload exceeds 64 KB limit");
+            return false;
+        }
         std::array<std::byte, 4> header = {
             std::byte { 0xFF },
             static_cast<std::byte>(marker),
             std::byte { 0x00 },
             std::byte { 0x00 },
         };
-        const uint16_t seg_len = static_cast<uint16_t>(payload.size() + 2U);
         header[2] = static_cast<std::byte>((seg_len >> 8U) & 0xFFU);
         header[3] = static_cast<std::byte>((seg_len >> 0U) & 0xFFU);
         if (!write_transfer_bytes(writer,
@@ -1676,9 +1712,15 @@ namespace {
             }
             return false;
         }
+        uint16_t seg_len = 0U;
+        if (!jpeg_segment_length_u16(payload, &seg_len)) {
+            set_jpeg_segment_limit_error(
+                out, "jpeg segment payload exceeds 64 KB limit");
+            out_bytes->clear();
+            return false;
+        }
         out_bytes->clear();
         out_bytes->reserve(4U + payload.size());
-        const uint16_t seg_len = static_cast<uint16_t>(payload.size() + 2U);
         out_bytes->push_back(std::byte { 0xFF });
         out_bytes->push_back(static_cast<std::byte>(marker));
         out_bytes->push_back(static_cast<std::byte>((seg_len >> 8U) & 0xFFU));
@@ -4837,7 +4879,6 @@ namespace {
             return false;
         }
 
-        static constexpr uint32_t kMaxJpegSegmentPayload = 65533U;
         const uint32_t fixed_overhead                    = 8U + header_len;
         if (fixed_overhead > kMaxJpegSegmentPayload) {
             if (out_error) {
@@ -5928,12 +5969,57 @@ namespace {
         return false;
     }
 
-    static uint32_t ifd_directory_size_bytes(const SerializedIfd& ifd) noexcept
+    static bool ifd_directory_size_bytes_checked(const SerializedIfd& ifd,
+                                                 uint32_t* out_size) noexcept
     {
-        return 2U + static_cast<uint32_t>(ifd.entries.size()) * 12U + 4U;
+        if (!out_size || ifd.entries.size() > static_cast<size_t>(UINT16_MAX)) {
+            return false;
+        }
+        const size_t size
+            = 2U + static_cast<size_t>(ifd.entries.size()) * 12U + 4U;
+        if (size > static_cast<size_t>(UINT32_MAX)) {
+            return false;
+        }
+        *out_size = static_cast<uint32_t>(size);
+        return true;
     }
 
-    static uint32_t align_to_2(uint32_t v) noexcept { return (v + 1U) & ~1U; }
+    static bool checked_align_to_2(uint32_t v, uint32_t* out) noexcept
+    {
+        if (!out) {
+            return false;
+        }
+        if ((v & 1U) == 0U) {
+            *out = v;
+            return true;
+        }
+        if (v == UINT32_MAX) {
+            return false;
+        }
+        *out = v + 1U;
+        return true;
+    }
+
+    static bool checked_u32_add(uint32_t a, uint32_t b,
+                                uint32_t* out) noexcept
+    {
+        if (!out || b > UINT32_MAX - a) {
+            return false;
+        }
+        *out = a + b;
+        return true;
+    }
+
+    static bool checked_u32_add_size(uint32_t a, size_t b,
+                                     uint32_t* out) noexcept
+    {
+        if (!out || b > static_cast<size_t>(UINT32_MAX)
+            || static_cast<uint32_t>(b) > UINT32_MAX - a) {
+            return false;
+        }
+        *out = a + static_cast<uint32_t>(b);
+        return true;
+    }
 
     static void
     maybe_add_synthetic_dng_version(SerializedIfd* ifd0,
@@ -6112,24 +6198,42 @@ namespace {
             if (!ifd->present) {
                 continue;
             }
+            uint32_t dir_size = 0U;
+            if (!ifd_directory_size_bytes_checked(*ifd, &dir_size)) {
+                return out;
+            }
             ifd->dir_offset = cursor;
-            cursor += ifd_directory_size_bytes(*ifd);
+            if (!checked_u32_add(cursor, dir_size, &cursor)) {
+                return out;
+            }
         }
         for (size_t i = 0; i < page_ifds.size(); ++i) {
             SerializedIfd& ifd = page_ifds[i];
             if (!ifd.present) {
                 continue;
             }
+            uint32_t dir_size = 0U;
+            if (!ifd_directory_size_bytes_checked(ifd, &dir_size)) {
+                return out;
+            }
             ifd.dir_offset = cursor;
-            cursor += ifd_directory_size_bytes(ifd);
+            if (!checked_u32_add(cursor, dir_size, &cursor)) {
+                return out;
+            }
         }
         for (size_t i = 0; i < subifds.size(); ++i) {
             SerializedIfd& ifd = subifds[i];
             if (!ifd.present) {
                 continue;
             }
+            uint32_t dir_size = 0U;
+            if (!ifd_directory_size_bytes_checked(ifd, &dir_size)) {
+                return out;
+            }
             ifd.dir_offset = cursor;
-            cursor += ifd_directory_size_bytes(ifd);
+            if (!checked_u32_add(cursor, dir_size, &cursor)) {
+                return out;
+            }
         }
 
         if (exififd.present) {
@@ -6156,7 +6260,9 @@ namespace {
                         continue;
                     }
                     append_u32le(&e.value, ifd.dir_offset);
-                    e.count += 1U;
+                    if (!checked_u32_add(e.count, 1U, &e.count)) {
+                        return out;
+                    }
                 }
                 break;
             }
@@ -6178,9 +6284,14 @@ namespace {
                     }
                     continue;
                 }
-                data_cursor    = align_to_2(data_cursor);
+                if (!checked_align_to_2(data_cursor, &data_cursor)) {
+                    return out;
+                }
                 e.value_offset = data_cursor;
-                data_cursor += static_cast<uint32_t>(e.value.size());
+                if (!checked_u32_add_size(data_cursor, e.value.size(),
+                                          &data_cursor)) {
+                    return out;
+                }
             }
         }
         for (size_t i = 0; i < page_ifds.size(); ++i) {
@@ -6199,9 +6310,14 @@ namespace {
                     }
                     continue;
                 }
-                data_cursor    = align_to_2(data_cursor);
+                if (!checked_align_to_2(data_cursor, &data_cursor)) {
+                    return out;
+                }
                 e.value_offset = data_cursor;
-                data_cursor += static_cast<uint32_t>(e.value.size());
+                if (!checked_u32_add_size(data_cursor, e.value.size(),
+                                          &data_cursor)) {
+                    return out;
+                }
             }
         }
         for (size_t i = 0; i < subifds.size(); ++i) {
@@ -6220,10 +6336,19 @@ namespace {
                     }
                     continue;
                 }
-                data_cursor    = align_to_2(data_cursor);
+                if (!checked_align_to_2(data_cursor, &data_cursor)) {
+                    return out;
+                }
                 e.value_offset = data_cursor;
-                data_cursor += static_cast<uint32_t>(e.value.size());
+                if (!checked_u32_add_size(data_cursor, e.value.size(),
+                                          &data_cursor)) {
+                    return out;
+                }
             }
+        }
+
+        if (data_cursor > kMaxJpegExifTiffBytes) {
+            return out;
         }
 
         std::vector<std::byte> tiff_bytes(data_cursor, std::byte { 0x00 });
@@ -6275,7 +6400,10 @@ namespace {
                     uint32_t patch_width = static_cast<uint32_t>(
                         e.value.size());
                     if (patch_width > 0U
-                        && patch_offset + patch_width <= tiff_bytes.size()
+                        && patch_offset <= tiff_bytes.size()
+                        && patch_width
+                               <= tiff_bytes.size()
+                                      - static_cast<size_t>(patch_offset)
                         && patch_width <= static_cast<uint32_t>(UINT16_MAX)) {
                         TimePatchSlot slot_desc;
                         slot_desc.field       = patch_field;
@@ -6334,7 +6462,10 @@ namespace {
                     const uint32_t patch_width
                         = static_cast<uint32_t>(e.value.size());
                     if (patch_width > 0U
-                        && patch_offset + patch_width <= tiff_bytes.size()
+                        && patch_offset <= tiff_bytes.size()
+                        && patch_width
+                               <= tiff_bytes.size()
+                                      - static_cast<size_t>(patch_offset)
                         && patch_width <= static_cast<uint32_t>(UINT16_MAX)) {
                         TimePatchSlot slot_desc;
                         slot_desc.field       = patch_field;
@@ -6392,7 +6523,10 @@ namespace {
                 if (e.inline_value || e.value.empty()) {
                     continue;
                 }
-                if (e.value_offset + e.value.size() > tiff_bytes.size()) {
+                if (e.value_offset > tiff_bytes.size()
+                    || e.value.size()
+                           > tiff_bytes.size()
+                                 - static_cast<size_t>(e.value_offset)) {
                     out.skipped_count += 1U;
                     continue;
                 }
@@ -6409,7 +6543,10 @@ namespace {
                 if (e.inline_value || e.value.empty()) {
                     continue;
                 }
-                if (e.value_offset + e.value.size() > tiff_bytes.size()) {
+                if (e.value_offset > tiff_bytes.size()
+                    || e.value.size()
+                           > tiff_bytes.size()
+                                 - static_cast<size_t>(e.value_offset)) {
                     out.skipped_count += 1U;
                     continue;
                 }
@@ -6426,7 +6563,10 @@ namespace {
                 if (e.inline_value || e.value.empty()) {
                     continue;
                 }
-                if (e.value_offset + e.value.size() > tiff_bytes.size()) {
+                if (e.value_offset > tiff_bytes.size()
+                    || e.value.size()
+                           > tiff_bytes.size()
+                                 - static_cast<size_t>(e.value_offset)) {
                     out.skipped_count += 1U;
                     continue;
                 }
@@ -10709,7 +10849,6 @@ append_prepared_bundle_jpeg_jumbf(
         out.message = "jumbf payload does not start with a valid bmff box";
         return out;
     }
-    static constexpr uint32_t kMaxJpegSegmentPayload = 65533U;
     if (8U + header_len > kMaxJpegSegmentPayload) {
         out.status  = TransferStatus::LimitExceeded;
         out.code    = EmitTransferCode::InvalidPayload;
@@ -11094,6 +11233,16 @@ emit_prepared_bundle_jpeg(const PreparedTransferBundle& bundle,
             r.errors += 1U;
             r.failed_block_index = i;
             r.message            = "unsupported jpeg route: " + block.route;
+            if (options.stop_on_error) {
+                return r;
+            }
+            continue;
+        }
+
+        if (block.payload.size() > kMaxJpegSegmentPayload) {
+            set_jpeg_segment_limit_error(&r,
+                                         "jpeg segment payload exceeds 64 KB limit");
+            r.failed_block_index = i;
             if (options.stop_on_error) {
                 return r;
             }
@@ -12949,6 +13098,16 @@ compile_prepared_bundle_jpeg(const PreparedTransferBundle& bundle,
             continue;
         }
 
+        if (block.payload.size() > kMaxJpegSegmentPayload) {
+            set_jpeg_segment_limit_error(&r,
+                                         "jpeg segment payload exceeds 64 KB limit");
+            r.failed_block_index = i;
+            if (options.stop_on_error) {
+                return r;
+            }
+            continue;
+        }
+
         PreparedJpegEmitOp op;
         op.block_index = i;
         op.marker_code = marker;
@@ -13009,6 +13168,16 @@ emit_prepared_bundle_jpeg_compiled(const PreparedTransferBundle& bundle,
         const PreparedTransferBlock& block = bundle.blocks[op.block_index];
         if (options.skip_empty_payloads && block.payload.empty()) {
             r.skipped += 1U;
+            continue;
+        }
+
+        if (block.payload.size() > kMaxJpegSegmentPayload) {
+            set_jpeg_segment_limit_error(&r,
+                                         "jpeg segment payload exceeds 64 KB limit");
+            r.failed_block_index = op.block_index;
+            if (options.stop_on_error) {
+                return r;
+            }
             continue;
         }
 
@@ -16475,10 +16644,17 @@ build_prepared_c2pa_sign_request_binding(
             }
 
             const size_t before = out_bytes->size();
-            append_jpeg_segment(
+            if (!append_jpeg_segment(
                 out_bytes, chunk.jpeg_marker_code,
                 std::span<const std::byte>(block.payload.data(),
-                                           block.payload.size()));
+                                           block.payload.size()))) {
+                out.status = TransferStatus::LimitExceeded;
+                out.code   = EmitTransferCode::InvalidPayload;
+                out.errors = 1U;
+                out.message = "prepared jpeg segment payload exceeds 64 KB limit";
+                out_bytes->clear();
+                return out;
+            }
             const uint64_t actual_size = static_cast<uint64_t>(out_bytes->size()
                                                                - before);
             if (actual_size != expected_size) {
@@ -17372,7 +17548,6 @@ namespace {
             return out;
         }
         if (is_jpeg) {
-            static constexpr uint32_t kMaxJpegSegmentPayload = 65533U;
             if (8U + header_len > kMaxJpegSegmentPayload) {
                 out.status = TransferStatus::LimitExceeded;
                 out.code   = EmitTransferCode::InvalidPayload;

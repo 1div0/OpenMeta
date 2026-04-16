@@ -11753,6 +11753,26 @@ TEST(MakerNoteDecode, DecodesOlympusMakerNoteWithOlympusSignatureSubIfdOffsets)
     EXPECT_EQ(e.value.data.u64, 2U);
 }
 
+TEST(MakerNoteDecode, IgnoresOlympusSignatureSubIfdOffsetWithoutEntryCountBytes)
+{
+    std::vector<std::byte> mn = make_olympus_makernote_olympus_signature();
+    ASSERT_GE(mn.size(), 26U);
+    write_u32le_at(&mn, 22U, static_cast<uint32_t>(mn.size() - 1U));
+
+    const std::vector<std::byte> tiff = make_test_tiff_with_makernote("OLYMPUS",
+                                                                      mn);
+
+    MetaStore store;
+    std::array<ExifIfdRef, 16> ifds {};
+    ExifDecodeOptions options;
+    options.decode_makernote   = true;
+    const ExifDecodeResult res = decode_exif_tiff(tiff, store, ifds, options);
+    EXPECT_EQ(res.status, ExifDecodeStatus::Ok);
+
+    store.finalize();
+    EXPECT_TRUE(store.find_all(exif_key("mk_olympus_main_0", 0x0201)).empty());
+}
+
 TEST(MakerNoteDecode, DecodesOlympusOmSystemMakerNoteNestedSubIfds)
 {
     const std::vector<std::byte> mn

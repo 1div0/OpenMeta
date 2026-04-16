@@ -87,8 +87,30 @@ struct XmpPortableOptions final {
     /// bounded lang-alt paths like `title[@xml:lang=x-default]`, bounded
     /// one-level structured paths like `CreatorContactInfo/CiEmailWork`,
     /// bounded qualified one-level structured child paths like
-    /// `LocationShown[1]/xmp:Identifier[1]` and
+    /// `LocationShown[1]/xmp:Identifier[1]`,
     /// `LocationShown[1]/exif:GPSLatitude`,
+    /// `DerivedFrom/stRef:documentID`,
+    /// `JobRef[1]/stJob:id`,
+    /// `RenditionOf/stRef:filePath`,
+    /// `Ingredients[1]/stRef:documentID`,
+    /// `MaxPageSize/stDim:w`,
+    /// `Fonts[1]/stFnt:fontName`,
+    /// `Fonts[1]/stFnt:childFontFiles[1]`,
+    /// `Colorants[1]/xmpG:swatchName`,
+    /// `SwatchGroups[1]/xmpG:groupName`,
+    /// `ProjectRef/path`,
+    /// `beatSpliceParams/riseInTimeDuration/scale`,
+    /// `markers/cuePointParams/key`,
+    /// `contributedMedia[1]/duration/scale`,
+    /// `resampleParams/quality`,
+    /// `startTimecode/timeValue`,
+    /// `timeScaleParams/quality`,
+    /// `Pantry[1]/InstanceID`,
+    /// `Pantry[1]/dc:format`,
+    /// `videoFrameSize/stDim:w`,
+    /// `videoAlphaPremultipleColor/xmpG:mode`,
+    /// `Manifest[1]/stMfs:reference/stRef:filePath`, and
+    /// `Versions[1]/stVer:event/stEvt:action`,
     /// bounded indexed-structured paths like `Licensee[1]/LicenseeName`,
     /// bounded second-level structured scalar paths like
     /// `CreatorContactInfo/CiAdrRegion/ProvinceName`, bounded structured

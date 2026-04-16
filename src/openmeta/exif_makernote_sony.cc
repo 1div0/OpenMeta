@@ -1563,10 +1563,12 @@ decode_sony_meterinfo_from_tag2010(std::span<const std::byte> bytes,
         if (uint32_t(r.len) > options.limits.max_value_bytes) {
             continue;
         }
-        const uint16_t abs_off = uint16_t(meter_off + r.off);
-        if (uint64_t(abs_off) + uint64_t(r.len) > bytes.size()) {
+        const uint64_t abs_off64 = uint64_t(meter_off) + uint64_t(r.off);
+        if (abs_off64 > static_cast<uint64_t>(UINT16_MAX)
+            || abs_off64 + uint64_t(r.len) > bytes.size()) {
             continue;
         }
+        const uint16_t abs_off = static_cast<uint16_t>(abs_off64);
         const MetaValue v = make_sony_deciphered_bytes(store.arena(), bytes,
                                                        abs_off, r.len, rounds);
         if (v.kind != MetaValueKind::Bytes) {
@@ -2036,7 +2038,12 @@ decode_sony_faceinfo_from_shotinfo(bool le, std::span<const std::byte> bytes,
     uint32_t out_count = 0;
 
     for (uint16_t i = 0; i < face_count; ++i) {
-        const uint16_t tag = uint16_t(face_len * i);
+        const uint32_t tag32
+            = static_cast<uint32_t>(face_len) * static_cast<uint32_t>(i);
+        if (tag32 > static_cast<uint32_t>(UINT16_MAX)) {
+            continue;
+        }
+        const uint16_t tag = static_cast<uint16_t>(tag32);
         const uint64_t off = uint64_t(face_off) + uint64_t(face_len) * i;
         uint16_t rect[4];
         bool ok = true;

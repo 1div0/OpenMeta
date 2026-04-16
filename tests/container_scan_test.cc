@@ -43,6 +43,19 @@ namespace {
     }
 
 
+    static void append_u64le(std::vector<std::byte>* out, uint64_t v)
+    {
+        out->push_back(std::byte { static_cast<uint8_t>((v >> 0) & 0xFF) });
+        out->push_back(std::byte { static_cast<uint8_t>((v >> 8) & 0xFF) });
+        out->push_back(std::byte { static_cast<uint8_t>((v >> 16) & 0xFF) });
+        out->push_back(std::byte { static_cast<uint8_t>((v >> 24) & 0xFF) });
+        out->push_back(std::byte { static_cast<uint8_t>((v >> 32) & 0xFF) });
+        out->push_back(std::byte { static_cast<uint8_t>((v >> 40) & 0xFF) });
+        out->push_back(std::byte { static_cast<uint8_t>((v >> 48) & 0xFF) });
+        out->push_back(std::byte { static_cast<uint8_t>((v >> 56) & 0xFF) });
+    }
+
+
     static void append_fourcc(std::vector<std::byte>* out, uint32_t f)
     {
         out->push_back(std::byte { static_cast<uint8_t>((f >> 24) & 0xFF) });
@@ -158,6 +171,58 @@ namespace {
         }
 
         EXPECT_TRUE(found);
+    }
+
+    TEST(ContainerScan, BigTiffRejectsOverflowedNextIfdReadBeforeEntryCap)
+    {
+        std::vector<std::byte> tiff;
+        append_bytes(&tiff, "II");
+        append_u16le(&tiff, 43);
+        append_u16le(&tiff, 8);
+        append_u16le(&tiff, 0);
+        append_u64le(&tiff, 16U);
+
+        append_u64le(&tiff, 1ULL << 62);
+        append_u64le(&tiff, 48U);
+
+        while (tiff.size() < 48U) {
+            tiff.push_back(std::byte { 0x00 });
+        }
+
+        append_u64le(&tiff, 1U);
+        append_u16le(&tiff, 0x02BC);
+        append_u16le(&tiff, 1);
+        append_u64le(&tiff, 4U);
+        tiff.push_back(std::byte { 'X' });
+        tiff.push_back(std::byte { 'M' });
+        tiff.push_back(std::byte { 'P' });
+        tiff.push_back(std::byte { '!' });
+        tiff.push_back(std::byte { 0x00 });
+        tiff.push_back(std::byte { 0x00 });
+        tiff.push_back(std::byte { 0x00 });
+        tiff.push_back(std::byte { 0x00 });
+        append_u64le(&tiff, 0U);
+
+        std::array<ContainerBlockRef, 8> blocks {};
+        const ScanResult res
+            = scan_auto(std::span<const std::byte>(tiff.data(), tiff.size()),
+                        std::span<ContainerBlockRef>(blocks.data(),
+                                                     blocks.size()));
+
+        EXPECT_EQ(res.status, ScanStatus::Ok);
+        bool found_xmp = false;
+        const uint32_t n = (res.written < blocks.size())
+                               ? res.written
+                               : static_cast<uint32_t>(blocks.size());
+        for (uint32_t i = 0; i < n; ++i) {
+            if (blocks[i].format == ContainerFormat::Tiff
+                && blocks[i].kind == ContainerBlockKind::Xmp
+                && blocks[i].id == 0x02BCU) {
+                found_xmp = true;
+                break;
+            }
+        }
+        EXPECT_FALSE(found_xmp);
     }
 
     TEST(ContainerScan, RafStandaloneXmp)

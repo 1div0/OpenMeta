@@ -70,6 +70,536 @@ TEST(XmpDecodeTest, DecodesAttributesArraysAndRdfResource)
     expect_text("http://ns.adobe.com/xap/1.0/mm/", "InstanceID", "uuid:123");
 }
 
+TEST(XmpDecodeTest, DecodesXmpMmStructuredMixedNamespaceChildren)
+{
+    const std::string xmp
+        = "<x:xmpmeta xmlns:x='adobe:ns:meta/'>"
+          "<rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'>"
+          "<rdf:Description "
+          "xmlns:xmpMM='http://ns.adobe.com/xap/1.0/mm/' "
+          "xmlns:stRef='http://ns.adobe.com/xap/1.0/sType/ResourceRef#' "
+          "xmlns:stEvt='http://ns.adobe.com/xap/1.0/sType/ResourceEvent#'>"
+          "<xmpMM:DerivedFrom rdf:parseType='Resource'>"
+          "<stRef:documentID>xmp.did:base</stRef:documentID>"
+          "<stRef:instanceID>xmp.iid:base</stRef:instanceID>"
+          "</xmpMM:DerivedFrom>"
+          "<xmpMM:ManagedFrom rdf:parseType='Resource'>"
+          "<stRef:documentID>xmp.did:managed</stRef:documentID>"
+          "<stRef:instanceID>xmp.iid:managed</stRef:instanceID>"
+          "</xmpMM:ManagedFrom>"
+          "<xmpMM:Ingredients><rdf:Bag>"
+          "<rdf:li rdf:parseType='Resource'>"
+          "<stRef:documentID>xmp.did:ingredient</stRef:documentID>"
+          "<stRef:instanceID>xmp.iid:ingredient</stRef:instanceID>"
+          "</rdf:li>"
+          "</rdf:Bag></xmpMM:Ingredients>"
+          "<xmpMM:RenditionOf rdf:parseType='Resource'>"
+          "<stRef:documentID>xmp.did:rendition</stRef:documentID>"
+          "<stRef:filePath>/tmp/rendition.jpg</stRef:filePath>"
+          "<stRef:renditionClass>proof:pdf</stRef:renditionClass>"
+          "</xmpMM:RenditionOf>"
+          "<xmpMM:History><rdf:Seq>"
+          "<rdf:li rdf:parseType='Resource'>"
+          "<stEvt:action>saved</stEvt:action>"
+          "<stEvt:when>2026-04-15T09:00:00Z</stEvt:when>"
+          "</rdf:li>"
+          "</rdf:Seq></xmpMM:History>"
+          "</rdf:Description>"
+          "</rdf:RDF>"
+          "</x:xmpmeta>";
+
+    const std::span<const std::byte> bytes(
+        reinterpret_cast<const std::byte*>(xmp.data()), xmp.size());
+
+    MetaStore store;
+    const XmpDecodeResult r = decode_xmp_packet(bytes, store);
+    EXPECT_EQ(r.status, XmpDecodeStatus::Ok);
+    EXPECT_EQ(r.entries_decoded, 11U);
+
+    store.finalize();
+
+    auto expect_text = [&](std::string_view path, std::string_view expected) {
+        MetaKeyView key;
+        key.kind                            = MetaKeyKind::XmpProperty;
+        key.data.xmp_property.schema_ns     = "http://ns.adobe.com/xap/1.0/mm/";
+        key.data.xmp_property.property_path = path;
+
+        const std::span<const EntryId> ids = store.find_all(key);
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        ASSERT_EQ(e.value.kind, MetaValueKind::Text);
+        const std::span<const std::byte> vb
+            = store.arena().span(e.value.data.span);
+        const std::string_view val(reinterpret_cast<const char*>(vb.data()),
+                                   vb.size());
+        EXPECT_EQ(val, expected);
+    };
+
+    expect_text("DerivedFrom/stRef:documentID", "xmp.did:base");
+    expect_text("DerivedFrom/stRef:instanceID", "xmp.iid:base");
+    expect_text("ManagedFrom/stRef:documentID", "xmp.did:managed");
+    expect_text("ManagedFrom/stRef:instanceID", "xmp.iid:managed");
+    expect_text("Ingredients[1]/stRef:documentID", "xmp.did:ingredient");
+    expect_text("Ingredients[1]/stRef:instanceID", "xmp.iid:ingredient");
+    expect_text("RenditionOf/stRef:documentID", "xmp.did:rendition");
+    expect_text("RenditionOf/stRef:filePath", "/tmp/rendition.jpg");
+    expect_text("RenditionOf/stRef:renditionClass", "proof:pdf");
+    expect_text("History[1]/stEvt:action", "saved");
+    expect_text("History[1]/stEvt:when", "2026-04-15T09:00:00Z");
+}
+
+TEST(XmpDecodeTest, DecodesXmpMmPantryStructuredChildren)
+{
+    const std::string xmp
+        = "<x:xmpmeta xmlns:x='adobe:ns:meta/'>"
+          "<rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'>"
+          "<rdf:Description "
+          "xmlns:xmpMM='http://ns.adobe.com/xap/1.0/mm/' "
+          "xmlns:dc='http://purl.org/dc/elements/1.1/'>"
+          "<xmpMM:Pantry><rdf:Bag>"
+          "<rdf:li rdf:parseType='Resource'>"
+          "<xmpMM:InstanceID>uuid:pantry-1</xmpMM:InstanceID>"
+          "<dc:format>image/jpeg</dc:format>"
+          "</rdf:li>"
+          "</rdf:Bag></xmpMM:Pantry>"
+          "</rdf:Description>"
+          "</rdf:RDF>"
+          "</x:xmpmeta>";
+
+    const std::span<const std::byte> bytes(
+        reinterpret_cast<const std::byte*>(xmp.data()), xmp.size());
+
+    MetaStore store;
+    const XmpDecodeResult r = decode_xmp_packet(bytes, store);
+    EXPECT_EQ(r.status, XmpDecodeStatus::Ok);
+    EXPECT_EQ(r.entries_decoded, 2U);
+
+    store.finalize();
+
+    auto expect_text = [&](std::string_view path, std::string_view expected) {
+        MetaKeyView key;
+        key.kind                            = MetaKeyKind::XmpProperty;
+        key.data.xmp_property.schema_ns     = "http://ns.adobe.com/xap/1.0/mm/";
+        key.data.xmp_property.property_path = path;
+
+        const std::span<const EntryId> ids = store.find_all(key);
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        ASSERT_EQ(e.value.kind, MetaValueKind::Text);
+        const std::span<const std::byte> vb
+            = store.arena().span(e.value.data.span);
+        const std::string_view val(reinterpret_cast<const char*>(vb.data()),
+                                   vb.size());
+        EXPECT_EQ(val, expected);
+    };
+
+    expect_text("Pantry[1]/InstanceID", "uuid:pantry-1");
+    expect_text("Pantry[1]/dc:format", "image/jpeg");
+}
+
+TEST(XmpDecodeTest, DecodesAdobeStructuredWorkflowNamespaces)
+{
+    const std::string xmp
+        = "<x:xmpmeta xmlns:x='adobe:ns:meta/'>"
+          "<rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'>"
+          "<rdf:Description "
+          "xmlns:xmpBJ='http://ns.adobe.com/xap/1.0/bj/' "
+          "xmlns:stJob='http://ns.adobe.com/xap/1.0/sType/Job#' "
+          "xmlns:xmpTPg='http://ns.adobe.com/xap/1.0/t/pg/' "
+          "xmlns:stDim='http://ns.adobe.com/xap/1.0/sType/Dimensions#' "
+          "xmlns:stFnt='http://ns.adobe.com/xap/1.0/sType/Font#' "
+          "xmlns:xmpG='http://ns.adobe.com/xap/1.0/g/' "
+          "xmlns:xmpDM='http://ns.adobe.com/xmp/1.0/DynamicMedia/'>"
+          "<xmpBJ:JobRef><rdf:Bag>"
+          "<rdf:li rdf:parseType='Resource'>"
+          "<stJob:id>job-1</stJob:id>"
+          "<stJob:name>Layout Pass</stJob:name>"
+          "<stJob:url>https://example.test/job/1</stJob:url>"
+          "</rdf:li>"
+          "</rdf:Bag></xmpBJ:JobRef>"
+          "<xmpTPg:MaxPageSize rdf:parseType='Resource'>"
+          "<stDim:w>8.5</stDim:w>"
+          "<stDim:h>11</stDim:h>"
+          "<stDim:unit>inch</stDim:unit>"
+          "</xmpTPg:MaxPageSize>"
+          "<xmpTPg:Fonts><rdf:Bag>"
+          "<rdf:li rdf:parseType='Resource'>"
+          "<stFnt:fontName>Source Serif</stFnt:fontName>"
+          "<stFnt:childFontFiles><rdf:Seq>"
+          "<rdf:li>SourceSerif-Regular.otf</rdf:li>"
+          "<rdf:li>SourceSerif-It.otf</rdf:li>"
+          "</rdf:Seq></stFnt:childFontFiles>"
+          "</rdf:li>"
+          "</rdf:Bag></xmpTPg:Fonts>"
+          "<xmpTPg:Colorants><rdf:Seq>"
+          "<rdf:li rdf:parseType='Resource'>"
+          "<xmpG:swatchName>Process Cyan</xmpG:swatchName>"
+          "<xmpG:mode>CMYK</xmpG:mode>"
+          "</rdf:li>"
+          "</rdf:Seq></xmpTPg:Colorants>"
+          "<xmpTPg:SwatchGroups><rdf:Seq>"
+          "<rdf:li rdf:parseType='Resource'>"
+          "<xmpG:groupName>Brand Colors</xmpG:groupName>"
+          "<xmpG:groupType>1</xmpG:groupType>"
+          "<xmpTPg:Colorants><rdf:Seq>"
+          "<rdf:li rdf:parseType='Resource'>"
+          "<xmpG:swatchName>Accent Orange</xmpG:swatchName>"
+          "<xmpG:mode>RGB</xmpG:mode>"
+          "</rdf:li>"
+          "</rdf:Seq></xmpTPg:Colorants>"
+          "</rdf:li>"
+          "</rdf:Seq></xmpTPg:SwatchGroups>"
+          "<xmpDM:ProjectRef rdf:parseType='Resource'>"
+          "<xmpDM:path>/proj/edit.prproj</xmpDM:path>"
+          "<xmpDM:type>movie</xmpDM:type>"
+          "</xmpDM:ProjectRef>"
+          "<xmpDM:altTimecode rdf:parseType='Resource'>"
+          "<xmpDM:timeFormat>2997DropTimecode</xmpDM:timeFormat>"
+          "<xmpDM:timeValue>00:00:10:12</xmpDM:timeValue>"
+          "<xmpDM:value>312</xmpDM:value>"
+          "</xmpDM:altTimecode>"
+          "<xmpDM:startTimecode rdf:parseType='Resource'>"
+          "<xmpDM:timeFormat>2997NonDropTimecode</xmpDM:timeFormat>"
+          "<xmpDM:timeValue>01:00:00:00</xmpDM:timeValue>"
+          "<xmpDM:value>107892</xmpDM:value>"
+          "</xmpDM:startTimecode>"
+          "<xmpDM:duration rdf:parseType='Resource'>"
+          "<xmpDM:scale>1/48000</xmpDM:scale>"
+          "<xmpDM:value>96000</xmpDM:value>"
+          "</xmpDM:duration>"
+          "<xmpDM:introTime rdf:parseType='Resource'>"
+          "<xmpDM:scale>1/1000</xmpDM:scale>"
+          "<xmpDM:value>2500</xmpDM:value>"
+          "</xmpDM:introTime>"
+          "<xmpDM:outCue rdf:parseType='Resource'>"
+          "<xmpDM:scale>1/1000</xmpDM:scale>"
+          "<xmpDM:value>18000</xmpDM:value>"
+          "</xmpDM:outCue>"
+          "<xmpDM:relativeTimestamp rdf:parseType='Resource'>"
+          "<xmpDM:scale>1/1000</xmpDM:scale>"
+          "<xmpDM:value>450</xmpDM:value>"
+          "</xmpDM:relativeTimestamp>"
+          "<xmpDM:videoFrameSize rdf:parseType='Resource'>"
+          "<stDim:w>1920</stDim:w>"
+          "<stDim:h>1080</stDim:h>"
+          "<stDim:unit>pixel</stDim:unit>"
+          "</xmpDM:videoFrameSize>"
+          "<xmpDM:videoAlphaPremultipleColor rdf:parseType='Resource'>"
+          "<xmpG:mode>RGB</xmpG:mode>"
+          "<xmpG:red>255</xmpG:red>"
+          "<xmpG:green>0</xmpG:green>"
+          "<xmpG:blue>255</xmpG:blue>"
+          "</xmpDM:videoAlphaPremultipleColor>"
+          "<xmpDM:beatSpliceParams rdf:parseType='Resource'>"
+          "<xmpDM:riseInDecibel>3.5</xmpDM:riseInDecibel>"
+          "<xmpDM:riseInTimeDuration rdf:parseType='Resource'>"
+          "<xmpDM:scale>1/1000</xmpDM:scale>"
+          "<xmpDM:value>1200</xmpDM:value>"
+          "</xmpDM:riseInTimeDuration>"
+          "<xmpDM:useFileBeatsMarker>True</xmpDM:useFileBeatsMarker>"
+          "</xmpDM:beatSpliceParams>"
+          "<xmpDM:markers rdf:parseType='Resource'>"
+          "<xmpDM:name>Verse 1</xmpDM:name>"
+          "<xmpDM:startTime>00:00:05.000</xmpDM:startTime>"
+          "<xmpDM:cuePointParams rdf:parseType='Resource'>"
+          "<xmpDM:key>chapter</xmpDM:key>"
+          "<xmpDM:value>intro</xmpDM:value>"
+          "</xmpDM:cuePointParams>"
+          "</xmpDM:markers>"
+          "<xmpDM:resampleParams rdf:parseType='Resource'>"
+          "<xmpDM:quality>high</xmpDM:quality>"
+          "</xmpDM:resampleParams>"
+          "<xmpDM:timeScaleParams rdf:parseType='Resource'>"
+          "<xmpDM:frameOverlappingPercentage>12.5</xmpDM:frameOverlappingPercentage>"
+          "<xmpDM:frameSize>48</xmpDM:frameSize>"
+          "<xmpDM:quality>medium</xmpDM:quality>"
+          "</xmpDM:timeScaleParams>"
+          "<xmpDM:contributedMedia><rdf:Bag>"
+          "<rdf:li rdf:parseType='Resource'>"
+          "<xmpDM:path>/media/broll.mov</xmpDM:path>"
+          "<xmpDM:managed>True</xmpDM:managed>"
+          "<xmpDM:track>V1</xmpDM:track>"
+          "<xmpDM:webStatement>https://example.test/media/broll</xmpDM:webStatement>"
+          "<xmpDM:duration rdf:parseType='Resource'>"
+          "<xmpDM:scale>1/24000</xmpDM:scale>"
+          "<xmpDM:value>48000</xmpDM:value>"
+          "</xmpDM:duration>"
+          "<xmpDM:startTime rdf:parseType='Resource'>"
+          "<xmpDM:scale>1/24000</xmpDM:scale>"
+          "<xmpDM:value>1200</xmpDM:value>"
+          "</xmpDM:startTime>"
+          "</rdf:li>"
+          "</rdf:Bag></xmpDM:contributedMedia>"
+          "</rdf:Description>"
+          "</rdf:RDF>"
+          "</x:xmpmeta>";
+
+    const std::span<const std::byte> bytes(
+        reinterpret_cast<const std::byte*>(xmp.data()), xmp.size());
+
+    MetaStore store;
+    const XmpDecodeResult r = decode_xmp_packet(bytes, store);
+    EXPECT_EQ(r.status, XmpDecodeStatus::Ok);
+    EXPECT_EQ(r.entries_decoded, 58U);
+
+    store.finalize();
+
+    auto expect_text = [&](std::string_view schema_ns, std::string_view path,
+                           std::string_view expected) {
+        MetaKeyView key;
+        key.kind                            = MetaKeyKind::XmpProperty;
+        key.data.xmp_property.schema_ns     = schema_ns;
+        key.data.xmp_property.property_path = path;
+
+        const std::span<const EntryId> ids = store.find_all(key);
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        ASSERT_EQ(e.value.kind, MetaValueKind::Text);
+        const std::span<const std::byte> vb
+            = store.arena().span(e.value.data.span);
+        const std::string_view val(reinterpret_cast<const char*>(vb.data()),
+                                   vb.size());
+        EXPECT_EQ(val, expected);
+    };
+
+    expect_text("http://ns.adobe.com/xap/1.0/bj/", "JobRef[1]/stJob:id",
+                "job-1");
+    expect_text("http://ns.adobe.com/xap/1.0/bj/", "JobRef[1]/stJob:name",
+                "Layout Pass");
+    expect_text("http://ns.adobe.com/xap/1.0/bj/", "JobRef[1]/stJob:url",
+                "https://example.test/job/1");
+    expect_text("http://ns.adobe.com/xap/1.0/t/pg/", "MaxPageSize/stDim:w",
+                "8.5");
+    expect_text("http://ns.adobe.com/xap/1.0/t/pg/", "MaxPageSize/stDim:h",
+                "11");
+    expect_text("http://ns.adobe.com/xap/1.0/t/pg/", "MaxPageSize/stDim:unit",
+                "inch");
+    expect_text("http://ns.adobe.com/xap/1.0/t/pg/",
+                "Fonts[1]/stFnt:fontName", "Source Serif");
+    expect_text("http://ns.adobe.com/xap/1.0/t/pg/",
+                "Fonts[1]/stFnt:childFontFiles[1]",
+                "SourceSerif-Regular.otf");
+    expect_text("http://ns.adobe.com/xap/1.0/t/pg/",
+                "Fonts[1]/stFnt:childFontFiles[2]",
+                "SourceSerif-It.otf");
+    expect_text("http://ns.adobe.com/xap/1.0/t/pg/",
+                "Colorants[1]/xmpG:swatchName", "Process Cyan");
+    expect_text("http://ns.adobe.com/xap/1.0/t/pg/",
+                "Colorants[1]/xmpG:mode", "CMYK");
+    expect_text("http://ns.adobe.com/xap/1.0/t/pg/",
+                "SwatchGroups[1]/xmpG:groupName", "Brand Colors");
+    expect_text("http://ns.adobe.com/xap/1.0/t/pg/",
+                "SwatchGroups[1]/xmpG:groupType", "1");
+    expect_text("http://ns.adobe.com/xap/1.0/t/pg/",
+                "SwatchGroups[1]/Colorants[1]/xmpG:swatchName",
+                "Accent Orange");
+    expect_text("http://ns.adobe.com/xap/1.0/t/pg/",
+                "SwatchGroups[1]/Colorants[1]/xmpG:mode", "RGB");
+    expect_text("http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+                "ProjectRef/path", "/proj/edit.prproj");
+    expect_text("http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+                "ProjectRef/type", "movie");
+    expect_text("http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+                "altTimecode/timeFormat", "2997DropTimecode");
+    expect_text("http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+                "altTimecode/timeValue", "00:00:10:12");
+    expect_text("http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+                "altTimecode/value", "312");
+    expect_text("http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+                "startTimecode/timeFormat", "2997NonDropTimecode");
+    expect_text("http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+                "startTimecode/timeValue", "01:00:00:00");
+    expect_text("http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+                "startTimecode/value", "107892");
+    expect_text("http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+                "duration/scale", "1/48000");
+    expect_text("http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+                "duration/value", "96000");
+    expect_text("http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+                "introTime/scale", "1/1000");
+    expect_text("http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+                "introTime/value", "2500");
+    expect_text("http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+                "outCue/scale", "1/1000");
+    expect_text("http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+                "outCue/value", "18000");
+    expect_text("http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+                "relativeTimestamp/scale", "1/1000");
+    expect_text("http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+                "relativeTimestamp/value", "450");
+    expect_text("http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+                "videoFrameSize/stDim:w", "1920");
+    expect_text("http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+                "videoFrameSize/stDim:h", "1080");
+    expect_text("http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+                "videoFrameSize/stDim:unit", "pixel");
+    expect_text("http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+                "videoAlphaPremultipleColor/xmpG:mode", "RGB");
+    expect_text("http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+                "videoAlphaPremultipleColor/xmpG:red", "255");
+    expect_text("http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+                "videoAlphaPremultipleColor/xmpG:green", "0");
+    expect_text("http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+                "videoAlphaPremultipleColor/xmpG:blue", "255");
+    expect_text("http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+                "beatSpliceParams/riseInDecibel", "3.5");
+    expect_text("http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+                "beatSpliceParams/riseInTimeDuration/scale", "1/1000");
+    expect_text("http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+                "beatSpliceParams/riseInTimeDuration/value", "1200");
+    expect_text("http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+                "beatSpliceParams/useFileBeatsMarker", "True");
+    expect_text("http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+                "markers/name", "Verse 1");
+    expect_text("http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+                "markers/startTime", "00:00:05.000");
+    expect_text("http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+                "markers/cuePointParams/key", "chapter");
+    expect_text("http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+                "markers/cuePointParams/value", "intro");
+    expect_text("http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+                "resampleParams/quality", "high");
+    expect_text("http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+                "timeScaleParams/frameOverlappingPercentage", "12.5");
+    expect_text("http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+                "timeScaleParams/frameSize", "48");
+    expect_text("http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+                "timeScaleParams/quality", "medium");
+    expect_text("http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+                "contributedMedia[1]/path", "/media/broll.mov");
+    expect_text("http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+                "contributedMedia[1]/managed", "True");
+    expect_text("http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+                "contributedMedia[1]/track", "V1");
+    expect_text("http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+                "contributedMedia[1]/webStatement",
+                "https://example.test/media/broll");
+    expect_text("http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+                "contributedMedia[1]/duration/scale", "1/24000");
+    expect_text("http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+                "contributedMedia[1]/duration/value", "48000");
+    expect_text("http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+                "contributedMedia[1]/startTime/scale", "1/24000");
+    expect_text("http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+                "contributedMedia[1]/startTime/value", "1200");
+}
+
+TEST(XmpDecodeTest, DecodesXmpMmManifestStructuredChildren)
+{
+    const std::string xmp
+        = "<x:xmpmeta xmlns:x='adobe:ns:meta/'>"
+          "<rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'>"
+          "<rdf:Description "
+          "xmlns:xmpMM='http://ns.adobe.com/xap/1.0/mm/' "
+          "xmlns:stMfs='http://ns.adobe.com/xap/1.0/sType/ManifestItem#' "
+          "xmlns:stRef='http://ns.adobe.com/xap/1.0/sType/ResourceRef#'>"
+          "<xmpMM:Manifest><rdf:Seq>"
+          "<rdf:li rdf:parseType='Resource'>"
+          "<stMfs:linkForm>EmbedByReference</stMfs:linkForm>"
+          "<stMfs:reference rdf:parseType='Resource'>"
+          "<stRef:filePath>C:\\some path\\file.ext</stRef:filePath>"
+          "</stMfs:reference>"
+          "</rdf:li>"
+          "</rdf:Seq></xmpMM:Manifest>"
+          "</rdf:Description>"
+          "</rdf:RDF>"
+          "</x:xmpmeta>";
+
+    const std::span<const std::byte> bytes(
+        reinterpret_cast<const std::byte*>(xmp.data()), xmp.size());
+
+    MetaStore store;
+    const XmpDecodeResult r = decode_xmp_packet(bytes, store);
+    EXPECT_EQ(r.status, XmpDecodeStatus::Ok);
+    EXPECT_EQ(r.entries_decoded, 2U);
+
+    store.finalize();
+
+    auto expect_text = [&](std::string_view path, std::string_view expected) {
+        MetaKeyView key;
+        key.kind                            = MetaKeyKind::XmpProperty;
+        key.data.xmp_property.schema_ns     = "http://ns.adobe.com/xap/1.0/mm/";
+        key.data.xmp_property.property_path = path;
+
+        const std::span<const EntryId> ids = store.find_all(key);
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        ASSERT_EQ(e.value.kind, MetaValueKind::Text);
+        const std::span<const std::byte> vb
+            = store.arena().span(e.value.data.span);
+        const std::string_view val(reinterpret_cast<const char*>(vb.data()),
+                                   vb.size());
+        EXPECT_EQ(val, expected);
+    };
+
+    expect_text("Manifest[1]/stMfs:linkForm", "EmbedByReference");
+    expect_text("Manifest[1]/stMfs:reference/stRef:filePath",
+                "C:\\some path\\file.ext");
+}
+
+TEST(XmpDecodeTest, DecodesXmpMmVersionsStructuredChildren)
+{
+    const std::string xmp
+        = "<x:xmpmeta xmlns:x='adobe:ns:meta/'>"
+          "<rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'>"
+          "<rdf:Description "
+          "xmlns:xmpMM='http://ns.adobe.com/xap/1.0/mm/' "
+          "xmlns:stVer='http://ns.adobe.com/xap/1.0/sType/Version#' "
+          "xmlns:stEvt='http://ns.adobe.com/xap/1.0/sType/ResourceEvent#'>"
+          "<xmpMM:Versions><rdf:Seq>"
+          "<rdf:li rdf:parseType='Resource'>"
+          "<stVer:version>1.0</stVer:version>"
+          "<stVer:comments>Initial import</stVer:comments>"
+          "<stVer:modifier>OpenMeta</stVer:modifier>"
+          "<stVer:modifyDate>2026-04-16T10:15:00Z</stVer:modifyDate>"
+          "<stVer:event rdf:parseType='Resource'>"
+          "<stEvt:action>saved</stEvt:action>"
+          "<stEvt:changed>/metadata</stEvt:changed>"
+          "<stEvt:when>2026-04-16T10:15:00Z</stEvt:when>"
+          "</stVer:event>"
+          "</rdf:li>"
+          "</rdf:Seq></xmpMM:Versions>"
+          "</rdf:Description>"
+          "</rdf:RDF>"
+          "</x:xmpmeta>";
+
+    const std::span<const std::byte> bytes(
+        reinterpret_cast<const std::byte*>(xmp.data()), xmp.size());
+
+    MetaStore store;
+    const XmpDecodeResult r = decode_xmp_packet(bytes, store);
+    EXPECT_EQ(r.status, XmpDecodeStatus::Ok);
+    EXPECT_EQ(r.entries_decoded, 7U);
+
+    store.finalize();
+
+    auto expect_text = [&](std::string_view path, std::string_view expected) {
+        MetaKeyView key;
+        key.kind                            = MetaKeyKind::XmpProperty;
+        key.data.xmp_property.schema_ns     = "http://ns.adobe.com/xap/1.0/mm/";
+        key.data.xmp_property.property_path = path;
+
+        const std::span<const EntryId> ids = store.find_all(key);
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        ASSERT_EQ(e.value.kind, MetaValueKind::Text);
+        const std::span<const std::byte> vb
+            = store.arena().span(e.value.data.span);
+        const std::string_view val(reinterpret_cast<const char*>(vb.data()),
+                                   vb.size());
+        EXPECT_EQ(val, expected);
+    };
+
+    expect_text("Versions[1]/stVer:version", "1.0");
+    expect_text("Versions[1]/stVer:comments", "Initial import");
+    expect_text("Versions[1]/stVer:modifier", "OpenMeta");
+    expect_text("Versions[1]/stVer:modifyDate", "2026-04-16T10:15:00Z");
+    expect_text("Versions[1]/stVer:event/stEvt:action", "saved");
+    expect_text("Versions[1]/stVer:event/stEvt:changed", "/metadata");
+    expect_text("Versions[1]/stVer:event/stEvt:when",
+                "2026-04-16T10:15:00Z");
+}
+
 TEST(XmpDecodeTest, DecodesAltTextEntriesWithXmlLangPaths)
 {
     const std::string xmp

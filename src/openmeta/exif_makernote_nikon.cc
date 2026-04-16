@@ -2833,6 +2833,9 @@ decode_nikon_binary_subdirs(std::string_view mk_ifd0, MetaStore& store, bool le,
                     0x06ec, 0x06ee, 0x06f0, 0x06f2, 0x06f4, 0x06f6, 0x06f8,
                     0x06fa, 0x06fc, 0x06fe, 0x0700, 0x0702,
                 };
+                if (raw_src.size() < 4U) {
+                    continue;
+                }
 
                 std::vector<std::byte> dec;
                 dec.resize(raw_src.size());
@@ -3107,6 +3110,9 @@ decode_nikon_binary_subdirs(std::string_view mk_ifd0, MetaStore& store, bool le,
                     0x0204, 0x0238, 0x023c, 0x023e, 0x0240, 0x0241, 0x0242,
                     0x0248, 0x024e, 0x024f, 0x035a,
                 };
+                if (raw_src.size() < 4U) {
+                    continue;
+                }
 
                 std::vector<std::byte> dec;
                 dec.resize(raw_src.size());

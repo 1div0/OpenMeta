@@ -95,7 +95,8 @@ namespace {
                 continue;
             }
             const uint64_t sub_ifd_off = sub_ifd_off32;
-            if (sub_ifd_off >= mn.size()) {
+            if (sub_ifd_off >= mn.size()
+                || mn.size() - static_cast<size_t>(sub_ifd_off) < 2U) {
                 continue;
             }
 

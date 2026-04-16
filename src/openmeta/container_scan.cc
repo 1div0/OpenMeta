@@ -4323,6 +4323,9 @@ scan_tiff(std::span<const std::byte> bytes,
                 continue;
             }
             entry_count      = n64;
+            if (entry_count > 0x10000ULL) {
+                continue;
+            }
             entries_off      = ifd_off + 8;
             entry_size       = 20;
             next_ifd_off_pos = entries_off + entry_count * entry_size;
