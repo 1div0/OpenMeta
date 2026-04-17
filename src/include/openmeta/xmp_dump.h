@@ -104,6 +104,7 @@ struct XmpPortableOptions final {
     /// `contributedMedia[1]/duration/scale`,
     /// `Tracks[1]/trackName`,
     /// `Tracks[1]/markers/name`,
+    /// `Tracks[1]/markers/cuePointParams/key`,
     /// `resampleParams/quality`,
     /// `startTimecode/timeValue`,
     /// `timeScaleParams/quality`,

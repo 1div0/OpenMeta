@@ -7714,6 +7714,52 @@ TEST(MetadataTransferApi,
     alpha_color_mode.origin.order_in_block = 9U;
     ASSERT_NE(store.add_entry(alpha_color_mode), openmeta::kInvalidEntryId);
 
+    openmeta::Entry rendition_manage_to;
+    rendition_manage_to.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/mm/",
+        "RenditionOf/manageTo");
+    rendition_manage_to.value = openmeta::make_text(
+        store.arena(), "https://example.invalid/rendition",
+        openmeta::TextEncoding::Utf8);
+    rendition_manage_to.origin.block          = block;
+    rendition_manage_to.origin.order_in_block = 10U;
+    ASSERT_NE(store.add_entry(rendition_manage_to),
+              openmeta::kInvalidEntryId);
+
+    openmeta::Entry manifest_manage_ui;
+    manifest_manage_ui.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/mm/",
+        "Manifest[1]/reference/manageUI");
+    manifest_manage_ui.value = openmeta::make_text(
+        store.arena(), "https://example.invalid/manage",
+        openmeta::TextEncoding::Utf8);
+    manifest_manage_ui.origin.block          = block;
+    manifest_manage_ui.origin.order_in_block = 11U;
+    ASSERT_NE(store.add_entry(manifest_manage_ui),
+              openmeta::kInvalidEntryId);
+
+    openmeta::Entry history_software_agent;
+    history_software_agent.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/mm/",
+        "History[1]/softwareAgent");
+    history_software_agent.value = openmeta::make_text(
+        store.arena(), "OpenMeta", openmeta::TextEncoding::Utf8);
+    history_software_agent.origin.block          = block;
+    history_software_agent.origin.order_in_block = 12U;
+    ASSERT_NE(store.add_entry(history_software_agent),
+              openmeta::kInvalidEntryId);
+
+    openmeta::Entry versions_event_parameters;
+    versions_event_parameters.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/mm/",
+        "Versions[1]/event/parameters");
+    versions_event_parameters.value = openmeta::make_text(
+        store.arena(), "chapter=1", openmeta::TextEncoding::Utf8);
+    versions_event_parameters.origin.block          = block;
+    versions_event_parameters.origin.order_in_block = 13U;
+    ASSERT_NE(store.add_entry(versions_event_parameters),
+              openmeta::kInvalidEntryId);
+
     store.finalize();
 
     openmeta::PrepareTransferRequest request;
@@ -7763,11 +7809,21 @@ TEST(MetadataTransferApi,
     EXPECT_TRUE(payload_contains_ascii(
         payload, "<stRef:filePath>/tmp/manifest.dat</stRef:filePath>"));
     EXPECT_TRUE(payload_contains_ascii(
+        payload,
+        "<stRef:manageUI>https://example.invalid/manage</stRef:manageUI>"));
+    EXPECT_TRUE(payload_contains_ascii(
         payload, "<stVer:event rdf:parseType=\"Resource\">"));
     EXPECT_TRUE(payload_contains_ascii(
         payload, "<stEvt:action>saved</stEvt:action>"));
+    EXPECT_TRUE(payload_contains_ascii(
+        payload, "<stEvt:parameters>chapter=1</stEvt:parameters>"));
     EXPECT_TRUE(payload_contains_ascii(payload, "<stDim:w>1920</stDim:w>"));
     EXPECT_TRUE(payload_contains_ascii(payload, "<xmpG:mode>RGB</xmpG:mode>"));
+    EXPECT_TRUE(payload_contains_ascii(
+        payload,
+        "<stRef:manageTo>https://example.invalid/rendition</stRef:manageTo>"));
+    EXPECT_TRUE(payload_contains_ascii(
+        payload, "<stEvt:softwareAgent>OpenMeta</stEvt:softwareAgent>"));
 
     EXPECT_FALSE(payload_contains_ascii(payload, "<xmpMM:documentID>"));
     EXPECT_FALSE(payload_contains_ascii(payload, "<xmpBJ:id>"));
@@ -7781,6 +7837,10 @@ TEST(MetadataTransferApi,
     EXPECT_FALSE(payload_contains_ascii(
         payload, "<xmpMM:event rdf:parseType=\"Resource\">"));
     EXPECT_FALSE(payload_contains_ascii(payload, "<xmpMM:action>"));
+    EXPECT_FALSE(payload_contains_ascii(payload, "<xmpMM:manageTo>"));
+    EXPECT_FALSE(payload_contains_ascii(payload, "<xmpMM:manageUI>"));
+    EXPECT_FALSE(payload_contains_ascii(payload, "<xmpMM:softwareAgent>"));
+    EXPECT_FALSE(payload_contains_ascii(payload, "<xmpMM:parameters>"));
     EXPECT_FALSE(payload_contains_ascii(payload, "<xmpDM:w>"));
     EXPECT_FALSE(payload_contains_ascii(payload, "<xmpDM:mode>"));
 }
@@ -7812,6 +7872,18 @@ TEST(MetadataTransferApi, PreparePortableXmpCanonicalizesXmpDmTracks)
     ASSERT_NE(store.add_entry(flat_track_markers),
               openmeta::kInvalidEntryId);
 
+    openmeta::Entry flat_track_marker_cue_point_params;
+    flat_track_marker_cue_point_params.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+        "Tracks[1]/markers/cuePointParams");
+    flat_track_marker_cue_point_params.value = openmeta::make_text(
+        store.arena(), "legacy-track-cue-point-params",
+        openmeta::TextEncoding::Utf8);
+    flat_track_marker_cue_point_params.origin.block          = block;
+    flat_track_marker_cue_point_params.origin.order_in_block = 2U;
+    ASSERT_NE(store.add_entry(flat_track_marker_cue_point_params),
+              openmeta::kInvalidEntryId);
+
     openmeta::Entry track_name;
     track_name.key = openmeta::make_xmp_property_key(
         store.arena(), "http://ns.adobe.com/xmp/1.0/DynamicMedia/",
@@ -7819,7 +7891,7 @@ TEST(MetadataTransferApi, PreparePortableXmpCanonicalizesXmpDmTracks)
     track_name.value = openmeta::make_text(
         store.arena(), "Dialogue", openmeta::TextEncoding::Utf8);
     track_name.origin.block          = block;
-    track_name.origin.order_in_block = 2U;
+    track_name.origin.order_in_block = 3U;
     ASSERT_NE(store.add_entry(track_name), openmeta::kInvalidEntryId);
 
     openmeta::Entry track_type;
@@ -7829,7 +7901,7 @@ TEST(MetadataTransferApi, PreparePortableXmpCanonicalizesXmpDmTracks)
     track_type.value = openmeta::make_text(
         store.arena(), "Audio", openmeta::TextEncoding::Utf8);
     track_type.origin.block          = block;
-    track_type.origin.order_in_block = 3U;
+    track_type.origin.order_in_block = 4U;
     ASSERT_NE(store.add_entry(track_type), openmeta::kInvalidEntryId);
 
     openmeta::Entry track_frame_rate;
@@ -7839,7 +7911,7 @@ TEST(MetadataTransferApi, PreparePortableXmpCanonicalizesXmpDmTracks)
     track_frame_rate.value = openmeta::make_text(
         store.arena(), "f24000", openmeta::TextEncoding::Utf8);
     track_frame_rate.origin.block          = block;
-    track_frame_rate.origin.order_in_block = 4U;
+    track_frame_rate.origin.order_in_block = 5U;
     ASSERT_NE(store.add_entry(track_frame_rate), openmeta::kInvalidEntryId);
 
     openmeta::Entry track_marker_name;
@@ -7849,7 +7921,7 @@ TEST(MetadataTransferApi, PreparePortableXmpCanonicalizesXmpDmTracks)
     track_marker_name.value = openmeta::make_text(
         store.arena(), "Scene 1", openmeta::TextEncoding::Utf8);
     track_marker_name.origin.block          = block;
-    track_marker_name.origin.order_in_block = 5U;
+    track_marker_name.origin.order_in_block = 6U;
     ASSERT_NE(store.add_entry(track_marker_name), openmeta::kInvalidEntryId);
 
     openmeta::Entry track_marker_start_time;
@@ -7859,8 +7931,30 @@ TEST(MetadataTransferApi, PreparePortableXmpCanonicalizesXmpDmTracks)
     track_marker_start_time.value = openmeta::make_text(
         store.arena(), "00:00:01.000", openmeta::TextEncoding::Utf8);
     track_marker_start_time.origin.block          = block;
-    track_marker_start_time.origin.order_in_block = 6U;
+    track_marker_start_time.origin.order_in_block = 7U;
     ASSERT_NE(store.add_entry(track_marker_start_time),
+              openmeta::kInvalidEntryId);
+
+    openmeta::Entry track_marker_cue_point_key;
+    track_marker_cue_point_key.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+        "Tracks[1]/markers/cuePointParams/key");
+    track_marker_cue_point_key.value = openmeta::make_text(
+        store.arena(), "chapter", openmeta::TextEncoding::Utf8);
+    track_marker_cue_point_key.origin.block          = block;
+    track_marker_cue_point_key.origin.order_in_block = 8U;
+    ASSERT_NE(store.add_entry(track_marker_cue_point_key),
+              openmeta::kInvalidEntryId);
+
+    openmeta::Entry track_marker_cue_point_value;
+    track_marker_cue_point_value.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+        "Tracks[1]/markers/cuePointParams/value");
+    track_marker_cue_point_value.value = openmeta::make_text(
+        store.arena(), "scene-1", openmeta::TextEncoding::Utf8);
+    track_marker_cue_point_value.origin.block          = block;
+    track_marker_cue_point_value.origin.order_in_block = 9U;
+    ASSERT_NE(store.add_entry(track_marker_cue_point_value),
               openmeta::kInvalidEntryId);
 
     store.finalize();
@@ -7897,9 +7991,17 @@ TEST(MetadataTransferApi, PreparePortableXmpCanonicalizesXmpDmTracks)
         payload, "<xmpDM:name>Scene 1</xmpDM:name>"));
     EXPECT_TRUE(payload_contains_ascii(
         payload, "<xmpDM:startTime>00:00:01.000</xmpDM:startTime>"));
+    EXPECT_TRUE(payload_contains_ascii(
+        payload, "<xmpDM:cuePointParams rdf:parseType=\"Resource\">"));
+    EXPECT_TRUE(payload_contains_ascii(
+        payload, "<xmpDM:key>chapter</xmpDM:key>"));
+    EXPECT_TRUE(payload_contains_ascii(
+        payload, "<xmpDM:value>scene-1</xmpDM:value>"));
 
     EXPECT_FALSE(payload_contains_ascii(payload, "legacy-tracks"));
     EXPECT_FALSE(payload_contains_ascii(payload, "legacy-track-markers"));
+    EXPECT_FALSE(payload_contains_ascii(
+        payload, "legacy-track-cue-point-params"));
 }
 
 TEST(MetadataTransferApi, PreparePortableXmpPreservesAuxStandardNamespace)

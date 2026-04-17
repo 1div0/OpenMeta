@@ -82,6 +82,7 @@ TEST(XmpDecodeTest, DecodesXmpMmStructuredMixedNamespaceChildren)
           "<xmpMM:DerivedFrom rdf:parseType='Resource'>"
           "<stRef:documentID>xmp.did:base</stRef:documentID>"
           "<stRef:instanceID>xmp.iid:base</stRef:instanceID>"
+          "<stRef:manageTo>https://example.invalid/base</stRef:manageTo>"
           "</xmpMM:DerivedFrom>"
           "<xmpMM:ManagedFrom rdf:parseType='Resource'>"
           "<stRef:documentID>xmp.did:managed</stRef:documentID>"
@@ -101,6 +102,7 @@ TEST(XmpDecodeTest, DecodesXmpMmStructuredMixedNamespaceChildren)
           "<xmpMM:History><rdf:Seq>"
           "<rdf:li rdf:parseType='Resource'>"
           "<stEvt:action>saved</stEvt:action>"
+          "<stEvt:softwareAgent>OpenMeta</stEvt:softwareAgent>"
           "<stEvt:when>2026-04-15T09:00:00Z</stEvt:when>"
           "</rdf:li>"
           "</rdf:Seq></xmpMM:History>"
@@ -114,7 +116,7 @@ TEST(XmpDecodeTest, DecodesXmpMmStructuredMixedNamespaceChildren)
     MetaStore store;
     const XmpDecodeResult r = decode_xmp_packet(bytes, store);
     EXPECT_EQ(r.status, XmpDecodeStatus::Ok);
-    EXPECT_EQ(r.entries_decoded, 11U);
+    EXPECT_EQ(r.entries_decoded, 13U);
 
     store.finalize();
 
@@ -137,6 +139,8 @@ TEST(XmpDecodeTest, DecodesXmpMmStructuredMixedNamespaceChildren)
 
     expect_text("DerivedFrom/stRef:documentID", "xmp.did:base");
     expect_text("DerivedFrom/stRef:instanceID", "xmp.iid:base");
+    expect_text("DerivedFrom/stRef:manageTo",
+                "https://example.invalid/base");
     expect_text("ManagedFrom/stRef:documentID", "xmp.did:managed");
     expect_text("ManagedFrom/stRef:instanceID", "xmp.iid:managed");
     expect_text("Ingredients[1]/stRef:documentID", "xmp.did:ingredient");
@@ -145,6 +149,7 @@ TEST(XmpDecodeTest, DecodesXmpMmStructuredMixedNamespaceChildren)
     expect_text("RenditionOf/stRef:filePath", "/tmp/rendition.jpg");
     expect_text("RenditionOf/stRef:renditionClass", "proof:pdf");
     expect_text("History[1]/stEvt:action", "saved");
+    expect_text("History[1]/stEvt:softwareAgent", "OpenMeta");
     expect_text("History[1]/stEvt:when", "2026-04-15T09:00:00Z");
 }
 
@@ -499,6 +504,10 @@ TEST(XmpDecodeTest, DecodesXmpDmTracksStructuredChildren)
           "<xmpDM:markers rdf:parseType='Resource'>"
           "<xmpDM:name>Scene 1</xmpDM:name>"
           "<xmpDM:startTime>00:00:01.000</xmpDM:startTime>"
+          "<xmpDM:cuePointParams rdf:parseType='Resource'>"
+          "<xmpDM:key>chapter</xmpDM:key>"
+          "<xmpDM:value>scene-1</xmpDM:value>"
+          "</xmpDM:cuePointParams>"
           "</xmpDM:markers>"
           "</rdf:li>"
           "</rdf:Bag></xmpDM:Tracks>"
@@ -512,7 +521,7 @@ TEST(XmpDecodeTest, DecodesXmpDmTracksStructuredChildren)
     MetaStore store;
     const XmpDecodeResult r = decode_xmp_packet(bytes, store);
     EXPECT_EQ(r.status, XmpDecodeStatus::Ok);
-    EXPECT_EQ(r.entries_decoded, 5U);
+    EXPECT_EQ(r.entries_decoded, 7U);
 
     store.finalize();
 
@@ -539,6 +548,8 @@ TEST(XmpDecodeTest, DecodesXmpDmTracksStructuredChildren)
     expect_text("Tracks[1]/frameRate", "f24000");
     expect_text("Tracks[1]/markers/name", "Scene 1");
     expect_text("Tracks[1]/markers/startTime", "00:00:01.000");
+    expect_text("Tracks[1]/markers/cuePointParams/key", "chapter");
+    expect_text("Tracks[1]/markers/cuePointParams/value", "scene-1");
 }
 
 TEST(XmpDecodeTest, DecodesXmpMmManifestStructuredChildren)

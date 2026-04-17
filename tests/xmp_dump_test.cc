@@ -4808,6 +4808,48 @@ TEST(XmpDump, PortablePromotesLegacyAdobeStructuredChildPrefixes)
     alpha_color_mode.origin.order_in_block = 9;
     (void)store.add_entry(alpha_color_mode);
 
+    Entry rendition_manage_to;
+    rendition_manage_to.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/mm/",
+        "RenditionOf/manageTo");
+    rendition_manage_to.value = make_text(
+        store.arena(), "https://example.invalid/rendition",
+        TextEncoding::Utf8);
+    rendition_manage_to.origin.block          = block;
+    rendition_manage_to.origin.order_in_block = 10;
+    (void)store.add_entry(rendition_manage_to);
+
+    Entry manifest_manage_ui;
+    manifest_manage_ui.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/mm/",
+        "Manifest[1]/reference/manageUI");
+    manifest_manage_ui.value = make_text(
+        store.arena(), "https://example.invalid/manage",
+        TextEncoding::Utf8);
+    manifest_manage_ui.origin.block          = block;
+    manifest_manage_ui.origin.order_in_block = 11;
+    (void)store.add_entry(manifest_manage_ui);
+
+    Entry history_software_agent;
+    history_software_agent.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/mm/",
+        "History[1]/softwareAgent");
+    history_software_agent.value = make_text(
+        store.arena(), "OpenMeta", TextEncoding::Utf8);
+    history_software_agent.origin.block          = block;
+    history_software_agent.origin.order_in_block = 12;
+    (void)store.add_entry(history_software_agent);
+
+    Entry versions_event_parameters;
+    versions_event_parameters.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/mm/",
+        "Versions[1]/event/parameters");
+    versions_event_parameters.value = make_text(
+        store.arena(), "chapter=1", TextEncoding::Utf8);
+    versions_event_parameters.origin.block          = block;
+    versions_event_parameters.origin.order_in_block = 13;
+    (void)store.add_entry(versions_event_parameters);
+
     store.finalize();
 
     XmpPortableOptions opts;
@@ -4870,15 +4912,29 @@ TEST(XmpDump, PortablePromotesLegacyAdobeStructuredChildPrefixes)
         s.find("<stRef:filePath>/tmp/manifest.dat</stRef:filePath>"),
         std::string_view::npos);
     EXPECT_NE(
+        s.find(
+            "<stRef:manageUI>https://example.invalid/manage</stRef:manageUI>"),
+        std::string_view::npos);
+    EXPECT_NE(
         s.find("<stVer:event rdf:parseType=\"Resource\">"),
         std::string_view::npos);
     EXPECT_NE(
         s.find("<stEvt:action>saved</stEvt:action>"),
         std::string_view::npos);
+    EXPECT_NE(
+        s.find("<stEvt:parameters>chapter=1</stEvt:parameters>"),
+        std::string_view::npos);
     EXPECT_NE(s.find("<stDim:w>1920</stDim:w>"),
               std::string_view::npos);
     EXPECT_NE(s.find("<xmpG:mode>RGB</xmpG:mode>"),
               std::string_view::npos);
+    EXPECT_NE(
+        s.find(
+            "<stRef:manageTo>https://example.invalid/rendition</stRef:manageTo>"),
+        std::string_view::npos);
+    EXPECT_NE(
+        s.find("<stEvt:softwareAgent>OpenMeta</stEvt:softwareAgent>"),
+        std::string_view::npos);
 
     EXPECT_EQ(s.find("<xmpMM:documentID>"), std::string_view::npos);
     EXPECT_EQ(s.find("<xmpBJ:id>"), std::string_view::npos);
@@ -4892,6 +4948,10 @@ TEST(XmpDump, PortablePromotesLegacyAdobeStructuredChildPrefixes)
     EXPECT_EQ(s.find("<xmpMM:event rdf:parseType=\"Resource\">"),
               std::string_view::npos);
     EXPECT_EQ(s.find("<xmpMM:action>"), std::string_view::npos);
+    EXPECT_EQ(s.find("<xmpMM:manageTo>"), std::string_view::npos);
+    EXPECT_EQ(s.find("<xmpMM:manageUI>"), std::string_view::npos);
+    EXPECT_EQ(s.find("<xmpMM:softwareAgent>"), std::string_view::npos);
+    EXPECT_EQ(s.find("<xmpMM:parameters>"), std::string_view::npos);
     EXPECT_EQ(s.find("<xmpDM:w>"), std::string_view::npos);
     EXPECT_EQ(s.find("<xmpDM:mode>"), std::string_view::npos);
 }
@@ -4923,6 +4983,17 @@ TEST(XmpDump, PortableCanonicalizesXmpDmTracksStructuredFamily)
     flat_track_markers.origin.order_in_block = 1;
     (void)store.add_entry(flat_track_markers);
 
+    Entry flat_track_marker_cue_point_params;
+    flat_track_marker_cue_point_params.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+        "Tracks[1]/markers/cuePointParams");
+    flat_track_marker_cue_point_params.value = make_text(
+        store.arena(), "legacy-track-cue-point-params",
+        TextEncoding::Utf8);
+    flat_track_marker_cue_point_params.origin.block          = block;
+    flat_track_marker_cue_point_params.origin.order_in_block = 2;
+    (void)store.add_entry(flat_track_marker_cue_point_params);
+
     Entry track_name;
     track_name.key = make_xmp_property_key(
         store.arena(), "http://ns.adobe.com/xmp/1.0/DynamicMedia/",
@@ -4930,7 +5001,7 @@ TEST(XmpDump, PortableCanonicalizesXmpDmTracksStructuredFamily)
     track_name.value = make_text(store.arena(), "Dialogue",
                                  TextEncoding::Utf8);
     track_name.origin.block          = block;
-    track_name.origin.order_in_block = 2;
+    track_name.origin.order_in_block = 3;
     (void)store.add_entry(track_name);
 
     Entry track_type;
@@ -4940,7 +5011,7 @@ TEST(XmpDump, PortableCanonicalizesXmpDmTracksStructuredFamily)
     track_type.value = make_text(store.arena(), "Audio",
                                  TextEncoding::Utf8);
     track_type.origin.block          = block;
-    track_type.origin.order_in_block = 3;
+    track_type.origin.order_in_block = 4;
     (void)store.add_entry(track_type);
 
     Entry track_frame_rate;
@@ -4950,7 +5021,7 @@ TEST(XmpDump, PortableCanonicalizesXmpDmTracksStructuredFamily)
     track_frame_rate.value = make_text(store.arena(), "f24000",
                                        TextEncoding::Utf8);
     track_frame_rate.origin.block          = block;
-    track_frame_rate.origin.order_in_block = 4;
+    track_frame_rate.origin.order_in_block = 5;
     (void)store.add_entry(track_frame_rate);
 
     Entry track_marker_name;
@@ -4960,7 +5031,7 @@ TEST(XmpDump, PortableCanonicalizesXmpDmTracksStructuredFamily)
     track_marker_name.value = make_text(store.arena(), "Scene 1",
                                         TextEncoding::Utf8);
     track_marker_name.origin.block          = block;
-    track_marker_name.origin.order_in_block = 5;
+    track_marker_name.origin.order_in_block = 6;
     (void)store.add_entry(track_marker_name);
 
     Entry track_marker_start_time;
@@ -4970,8 +5041,28 @@ TEST(XmpDump, PortableCanonicalizesXmpDmTracksStructuredFamily)
     track_marker_start_time.value = make_text(
         store.arena(), "00:00:01.000", TextEncoding::Utf8);
     track_marker_start_time.origin.block          = block;
-    track_marker_start_time.origin.order_in_block = 6;
+    track_marker_start_time.origin.order_in_block = 7;
     (void)store.add_entry(track_marker_start_time);
+
+    Entry track_marker_cue_point_key;
+    track_marker_cue_point_key.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+        "Tracks[1]/markers/cuePointParams/key");
+    track_marker_cue_point_key.value = make_text(
+        store.arena(), "chapter", TextEncoding::Utf8);
+    track_marker_cue_point_key.origin.block          = block;
+    track_marker_cue_point_key.origin.order_in_block = 8;
+    (void)store.add_entry(track_marker_cue_point_key);
+
+    Entry track_marker_cue_point_value;
+    track_marker_cue_point_value.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+        "Tracks[1]/markers/cuePointParams/value");
+    track_marker_cue_point_value.value = make_text(
+        store.arena(), "scene-1", TextEncoding::Utf8);
+    track_marker_cue_point_value.origin.block          = block;
+    track_marker_cue_point_value.origin.order_in_block = 9;
+    (void)store.add_entry(track_marker_cue_point_value);
 
     store.finalize();
 
@@ -5007,9 +5098,17 @@ TEST(XmpDump, PortableCanonicalizesXmpDmTracksStructuredFamily)
     EXPECT_NE(
         s.find("<xmpDM:startTime>00:00:01.000</xmpDM:startTime>"),
         std::string_view::npos);
+    EXPECT_NE(
+        s.find("<xmpDM:cuePointParams rdf:parseType=\"Resource\">"),
+        std::string_view::npos);
+    EXPECT_NE(s.find("<xmpDM:key>chapter</xmpDM:key>"),
+              std::string_view::npos);
+    EXPECT_NE(s.find("<xmpDM:value>scene-1</xmpDM:value>"),
+              std::string_view::npos);
 
     EXPECT_EQ(s.find("legacy-tracks"), std::string_view::npos);
     EXPECT_EQ(s.find("legacy-track-markers"), std::string_view::npos);
+    EXPECT_EQ(s.find("legacy-track-cue-point-params"), std::string_view::npos);
 }
 
 TEST(XmpDump, PortablePreservesAuxStandardNamespace)
