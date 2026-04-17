@@ -12265,6 +12265,189 @@ TEST(MetadataTransferApi,
         "Legacy indexed location"));
 }
 
+TEST(MetadataTransferApi,
+     PreparePortableXmpCanonicalizeManagedReconcilesAdditionalIptcGeneratedScalarNamespaces)
+{
+    openmeta::MetaStore store;
+    const openmeta::BlockId block = store.add_block(openmeta::BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    const std::string city = "Paris";
+    openmeta::Entry iptc_city;
+    iptc_city.key = openmeta::make_iptc_dataset_key(2U, 90U);
+    iptc_city.value = openmeta::make_bytes(
+        store.arena(),
+        std::span<const std::byte>(
+            reinterpret_cast<const std::byte*>(city.data()), city.size()));
+    iptc_city.origin.block          = block;
+    iptc_city.origin.order_in_block = 0U;
+    ASSERT_NE(store.add_entry(iptc_city), openmeta::kInvalidEntryId);
+
+    const std::string state = "Ile-de-France";
+    openmeta::Entry iptc_state;
+    iptc_state.key = openmeta::make_iptc_dataset_key(2U, 95U);
+    iptc_state.value = openmeta::make_bytes(
+        store.arena(),
+        std::span<const std::byte>(
+            reinterpret_cast<const std::byte*>(state.data()), state.size()));
+    iptc_state.origin.block          = block;
+    iptc_state.origin.order_in_block = 1U;
+    ASSERT_NE(store.add_entry(iptc_state), openmeta::kInvalidEntryId);
+
+    const std::string country_code = "FR";
+    openmeta::Entry iptc_country_code;
+    iptc_country_code.key = openmeta::make_iptc_dataset_key(2U, 100U);
+    iptc_country_code.value = openmeta::make_bytes(
+        store.arena(),
+        std::span<const std::byte>(reinterpret_cast<const std::byte*>(
+                                       country_code.data()),
+                                   country_code.size()));
+    iptc_country_code.origin.block          = block;
+    iptc_country_code.origin.order_in_block = 2U;
+    ASSERT_NE(store.add_entry(iptc_country_code), openmeta::kInvalidEntryId);
+
+    const std::string country = "France";
+    openmeta::Entry iptc_country;
+    iptc_country.key = openmeta::make_iptc_dataset_key(2U, 101U);
+    iptc_country.value = openmeta::make_bytes(
+        store.arena(),
+        std::span<const std::byte>(reinterpret_cast<const std::byte*>(
+                                       country.data()),
+                                   country.size()));
+    iptc_country.origin.block          = block;
+    iptc_country.origin.order_in_block = 3U;
+    ASSERT_NE(store.add_entry(iptc_country), openmeta::kInvalidEntryId);
+
+    const std::string headline = "Generated Headline";
+    openmeta::Entry iptc_headline;
+    iptc_headline.key = openmeta::make_iptc_dataset_key(2U, 105U);
+    iptc_headline.value = openmeta::make_bytes(
+        store.arena(),
+        std::span<const std::byte>(reinterpret_cast<const std::byte*>(
+                                       headline.data()),
+                                   headline.size()));
+    iptc_headline.origin.block          = block;
+    iptc_headline.origin.order_in_block = 4U;
+    ASSERT_NE(store.add_entry(iptc_headline), openmeta::kInvalidEntryId);
+
+    const std::string credit = "Generated Credit";
+    openmeta::Entry iptc_credit;
+    iptc_credit.key = openmeta::make_iptc_dataset_key(2U, 110U);
+    iptc_credit.value = openmeta::make_bytes(
+        store.arena(),
+        std::span<const std::byte>(reinterpret_cast<const std::byte*>(
+                                       credit.data()),
+                                   credit.size()));
+    iptc_credit.origin.block          = block;
+    iptc_credit.origin.order_in_block = 5U;
+    ASSERT_NE(store.add_entry(iptc_credit), openmeta::kInvalidEntryId);
+
+    openmeta::Entry legacy_city;
+    legacy_city.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/photoshop/1.0/",
+        "City[@xml:lang=x-default]");
+    legacy_city.value = openmeta::make_text(
+        store.arena(), "Legacy City", openmeta::TextEncoding::Utf8);
+    legacy_city.origin.block          = block;
+    legacy_city.origin.order_in_block = 6U;
+    ASSERT_NE(store.add_entry(legacy_city), openmeta::kInvalidEntryId);
+
+    openmeta::Entry legacy_state;
+    legacy_state.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/photoshop/1.0/",
+        "State[1]");
+    legacy_state.value = openmeta::make_text(
+        store.arena(), "Legacy State", openmeta::TextEncoding::Utf8);
+    legacy_state.origin.block          = block;
+    legacy_state.origin.order_in_block = 7U;
+    ASSERT_NE(store.add_entry(legacy_state), openmeta::kInvalidEntryId);
+
+    openmeta::Entry legacy_country_code;
+    legacy_country_code.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/",
+        "CountryCode/LegacyStructured");
+    legacy_country_code.value = openmeta::make_text(
+        store.arena(), "Legacy Code", openmeta::TextEncoding::Utf8);
+    legacy_country_code.origin.block          = block;
+    legacy_country_code.origin.order_in_block = 8U;
+    ASSERT_NE(store.add_entry(legacy_country_code),
+              openmeta::kInvalidEntryId);
+
+    openmeta::Entry legacy_country;
+    legacy_country.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/photoshop/1.0/",
+        "Country/LegacyStructured");
+    legacy_country.value = openmeta::make_text(
+        store.arena(), "Legacy Country", openmeta::TextEncoding::Utf8);
+    legacy_country.origin.block          = block;
+    legacy_country.origin.order_in_block = 9U;
+    ASSERT_NE(store.add_entry(legacy_country), openmeta::kInvalidEntryId);
+
+    openmeta::Entry legacy_headline;
+    legacy_headline.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/photoshop/1.0/",
+        "Headline[@xml:lang=x-default]");
+    legacy_headline.value = openmeta::make_text(
+        store.arena(), "Legacy Headline", openmeta::TextEncoding::Utf8);
+    legacy_headline.origin.block          = block;
+    legacy_headline.origin.order_in_block = 10U;
+    ASSERT_NE(store.add_entry(legacy_headline), openmeta::kInvalidEntryId);
+
+    openmeta::Entry legacy_credit;
+    legacy_credit.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/photoshop/1.0/",
+        "Credit[1]");
+    legacy_credit.value = openmeta::make_text(
+        store.arena(), "Legacy Credit", openmeta::TextEncoding::Utf8);
+    legacy_credit.origin.block          = block;
+    legacy_credit.origin.order_in_block = 11U;
+    ASSERT_NE(store.add_entry(legacy_credit), openmeta::kInvalidEntryId);
+
+    store.finalize();
+
+    openmeta::PrepareTransferRequest request;
+    request.include_exif_app1    = false;
+    request.include_icc_app2     = false;
+    request.include_iptc_app13   = false;
+    request.xmp_portable         = true;
+    request.xmp_include_existing = true;
+    request.xmp_conflict_policy  = openmeta::XmpConflictPolicy::ExistingWins;
+    request.xmp_existing_standard_namespace_policy
+        = openmeta::XmpExistingStandardNamespacePolicy::CanonicalizeManaged;
+
+    openmeta::PreparedTransferBundle bundle;
+    const openmeta::PrepareTransferResult result
+        = openmeta::prepare_metadata_for_target(store, request, &bundle);
+
+    EXPECT_EQ(result.status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(bundle.blocks.size(), 1U);
+    const std::span<const std::byte> payload(bundle.blocks[0].payload.data(),
+                                             bundle.blocks[0].payload.size());
+    EXPECT_TRUE(payload_contains_ascii(payload,
+                                       "<photoshop:City>Paris</photoshop:City>"));
+    EXPECT_TRUE(payload_contains_ascii(
+        payload, "<photoshop:State>Ile-de-France</photoshop:State>"));
+    EXPECT_TRUE(payload_contains_ascii(
+        payload, "<Iptc4xmpCore:CountryCode>FR</Iptc4xmpCore:CountryCode>"));
+    EXPECT_TRUE(payload_contains_ascii(
+        payload, "<photoshop:Country>France</photoshop:Country>"));
+    EXPECT_TRUE(payload_contains_ascii(
+        payload,
+        "<photoshop:Headline>Generated Headline</photoshop:Headline>"));
+    EXPECT_TRUE(payload_contains_ascii(
+        payload, "<photoshop:Credit>Generated Credit</photoshop:Credit>"));
+
+    EXPECT_FALSE(payload_contains_ascii(payload, "Legacy City"));
+    EXPECT_FALSE(payload_contains_ascii(payload, "Legacy State"));
+    EXPECT_FALSE(payload_contains_ascii(payload, "Legacy Code"));
+    EXPECT_FALSE(payload_contains_ascii(payload, "Legacy Country"));
+    EXPECT_FALSE(payload_contains_ascii(payload, "Legacy Headline"));
+    EXPECT_FALSE(payload_contains_ascii(payload, "Legacy Credit"));
+    EXPECT_FALSE(payload_contains_ascii(payload, "<photoshop:LegacyStructured>"));
+    EXPECT_FALSE(payload_contains_ascii(payload,
+                                        "<Iptc4xmpCore:LegacyStructured>"));
+}
+
 TEST(MetadataTransferApi, PrepareBuildsJpegExifApp1Block)
 {
     openmeta::MetaStore store;

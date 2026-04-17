@@ -7870,6 +7870,189 @@ TEST(XmpDump,
               std::string_view::npos);
 }
 
+TEST(XmpDump,
+     PortableCanonicalizeManagedReconcilesAdditionalIptcGeneratedScalarNamespaces)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, kInvalidBlockId);
+
+    const std::string city = "Paris";
+    Entry iptc_city;
+    iptc_city.key = make_iptc_dataset_key(2U, 90U);
+    iptc_city.value = make_bytes(
+        store.arena(),
+        std::span<const std::byte>(
+            reinterpret_cast<const std::byte*>(city.data()), city.size()));
+    iptc_city.origin.block          = block;
+    iptc_city.origin.order_in_block = 0;
+    (void)store.add_entry(iptc_city);
+
+    const std::string state = "Ile-de-France";
+    Entry iptc_state;
+    iptc_state.key = make_iptc_dataset_key(2U, 95U);
+    iptc_state.value = make_bytes(
+        store.arena(),
+        std::span<const std::byte>(
+            reinterpret_cast<const std::byte*>(state.data()), state.size()));
+    iptc_state.origin.block          = block;
+    iptc_state.origin.order_in_block = 1;
+    (void)store.add_entry(iptc_state);
+
+    const std::string country_code = "FR";
+    Entry iptc_country_code;
+    iptc_country_code.key = make_iptc_dataset_key(2U, 100U);
+    iptc_country_code.value = make_bytes(
+        store.arena(),
+        std::span<const std::byte>(reinterpret_cast<const std::byte*>(
+                                       country_code.data()),
+                                   country_code.size()));
+    iptc_country_code.origin.block          = block;
+    iptc_country_code.origin.order_in_block = 2;
+    (void)store.add_entry(iptc_country_code);
+
+    const std::string country = "France";
+    Entry iptc_country;
+    iptc_country.key = make_iptc_dataset_key(2U, 101U);
+    iptc_country.value = make_bytes(
+        store.arena(),
+        std::span<const std::byte>(reinterpret_cast<const std::byte*>(
+                                       country.data()),
+                                   country.size()));
+    iptc_country.origin.block          = block;
+    iptc_country.origin.order_in_block = 3;
+    (void)store.add_entry(iptc_country);
+
+    const std::string headline = "Generated Headline";
+    Entry iptc_headline;
+    iptc_headline.key = make_iptc_dataset_key(2U, 105U);
+    iptc_headline.value = make_bytes(
+        store.arena(),
+        std::span<const std::byte>(reinterpret_cast<const std::byte*>(
+                                       headline.data()),
+                                   headline.size()));
+    iptc_headline.origin.block          = block;
+    iptc_headline.origin.order_in_block = 4;
+    (void)store.add_entry(iptc_headline);
+
+    const std::string credit = "Generated Credit";
+    Entry iptc_credit;
+    iptc_credit.key = make_iptc_dataset_key(2U, 110U);
+    iptc_credit.value = make_bytes(
+        store.arena(),
+        std::span<const std::byte>(reinterpret_cast<const std::byte*>(
+                                       credit.data()),
+                                   credit.size()));
+    iptc_credit.origin.block          = block;
+    iptc_credit.origin.order_in_block = 5;
+    (void)store.add_entry(iptc_credit);
+
+    Entry legacy_city;
+    legacy_city.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/photoshop/1.0/",
+        "City[@xml:lang=x-default]");
+    legacy_city.value = make_text(store.arena(), "Legacy City",
+                                  TextEncoding::Utf8);
+    legacy_city.origin.block          = block;
+    legacy_city.origin.order_in_block = 6;
+    (void)store.add_entry(legacy_city);
+
+    Entry legacy_state;
+    legacy_state.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/photoshop/1.0/",
+        "State[1]");
+    legacy_state.value = make_text(store.arena(), "Legacy State",
+                                   TextEncoding::Utf8);
+    legacy_state.origin.block          = block;
+    legacy_state.origin.order_in_block = 7;
+    (void)store.add_entry(legacy_state);
+
+    Entry legacy_country_code;
+    legacy_country_code.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/",
+        "CountryCode/LegacyStructured");
+    legacy_country_code.value = make_text(store.arena(), "Legacy Code",
+                                          TextEncoding::Utf8);
+    legacy_country_code.origin.block          = block;
+    legacy_country_code.origin.order_in_block = 8;
+    (void)store.add_entry(legacy_country_code);
+
+    Entry legacy_country;
+    legacy_country.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/photoshop/1.0/",
+        "Country/LegacyStructured");
+    legacy_country.value = make_text(store.arena(), "Legacy Country",
+                                     TextEncoding::Utf8);
+    legacy_country.origin.block          = block;
+    legacy_country.origin.order_in_block = 9;
+    (void)store.add_entry(legacy_country);
+
+    Entry legacy_headline;
+    legacy_headline.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/photoshop/1.0/",
+        "Headline[@xml:lang=x-default]");
+    legacy_headline.value = make_text(store.arena(), "Legacy Headline",
+                                      TextEncoding::Utf8);
+    legacy_headline.origin.block          = block;
+    legacy_headline.origin.order_in_block = 10;
+    (void)store.add_entry(legacy_headline);
+
+    Entry legacy_credit;
+    legacy_credit.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/photoshop/1.0/",
+        "Credit[1]");
+    legacy_credit.value = make_text(store.arena(), "Legacy Credit",
+                                    TextEncoding::Utf8);
+    legacy_credit.origin.block          = block;
+    legacy_credit.origin.order_in_block = 11;
+    (void)store.add_entry(legacy_credit);
+
+    store.finalize();
+
+    XmpPortableOptions opts;
+    opts.include_exif         = false;
+    opts.include_iptc         = true;
+    opts.include_existing_xmp = true;
+    opts.conflict_policy      = XmpConflictPolicy::ExistingWins;
+    opts.existing_standard_namespace_policy
+        = XmpExistingStandardNamespacePolicy::CanonicalizeManaged;
+
+    std::vector<std::byte> out(16384);
+    const XmpDumpResult r
+        = dump_xmp_portable(store, std::span<std::byte>(out.data(), out.size()),
+                            opts);
+    ASSERT_EQ(r.status, XmpDumpStatus::Ok);
+
+    const std::string_view s(reinterpret_cast<const char*>(out.data()),
+                             static_cast<size_t>(r.written));
+    EXPECT_NE(s.find("<photoshop:City>Paris</photoshop:City>"),
+              std::string_view::npos);
+    EXPECT_NE(
+        s.find("<photoshop:State>Ile-de-France</photoshop:State>"),
+        std::string_view::npos);
+    EXPECT_NE(
+        s.find("<Iptc4xmpCore:CountryCode>FR</Iptc4xmpCore:CountryCode>"),
+        std::string_view::npos);
+    EXPECT_NE(s.find("<photoshop:Country>France</photoshop:Country>"),
+              std::string_view::npos);
+    EXPECT_NE(
+        s.find("<photoshop:Headline>Generated Headline</photoshop:Headline>"),
+        std::string_view::npos);
+    EXPECT_NE(s.find("<photoshop:Credit>Generated Credit</photoshop:Credit>"),
+              std::string_view::npos);
+
+    EXPECT_EQ(s.find("Legacy City"), std::string_view::npos);
+    EXPECT_EQ(s.find("Legacy State"), std::string_view::npos);
+    EXPECT_EQ(s.find("Legacy Code"), std::string_view::npos);
+    EXPECT_EQ(s.find("Legacy Country"), std::string_view::npos);
+    EXPECT_EQ(s.find("Legacy Headline"), std::string_view::npos);
+    EXPECT_EQ(s.find("Legacy Credit"), std::string_view::npos);
+    EXPECT_EQ(s.find("<photoshop:LegacyStructured>"),
+              std::string_view::npos);
+    EXPECT_EQ(s.find("<Iptc4xmpCore:LegacyStructured>"),
+              std::string_view::npos);
+}
+
 TEST(XmpDump, PortablePreservesNestedStructuredChildLangAltResources)
 {
     MetaStore store;
