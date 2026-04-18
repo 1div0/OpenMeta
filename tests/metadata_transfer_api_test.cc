@@ -7606,6 +7606,59 @@ TEST(MetadataTransferApi,
 }
 
 TEST(MetadataTransferApi,
+     PreparePortableXmpPromotesLegacyXmpMmPantryFormatToDcNamespace)
+{
+    openmeta::MetaStore store;
+    const openmeta::BlockId block = store.add_block(openmeta::BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    openmeta::Entry pantry_instance_id;
+    pantry_instance_id.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/mm/",
+        "Pantry[1]/InstanceID");
+    pantry_instance_id.value = openmeta::make_text(
+        store.arena(), "uuid:pantry-1", openmeta::TextEncoding::Utf8);
+    pantry_instance_id.origin.block          = block;
+    pantry_instance_id.origin.order_in_block = 0U;
+    ASSERT_NE(store.add_entry(pantry_instance_id), openmeta::kInvalidEntryId);
+
+    openmeta::Entry pantry_format;
+    pantry_format.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/mm/",
+        "Pantry[1]/format");
+    pantry_format.value = openmeta::make_text(
+        store.arena(), "image/jpeg", openmeta::TextEncoding::Utf8);
+    pantry_format.origin.block          = block;
+    pantry_format.origin.order_in_block = 1U;
+    ASSERT_NE(store.add_entry(pantry_format), openmeta::kInvalidEntryId);
+
+    store.finalize();
+
+    openmeta::PrepareTransferRequest request;
+    request.include_exif_app1    = false;
+    request.include_icc_app2     = false;
+    request.include_iptc_app13   = false;
+    request.xmp_portable         = true;
+    request.xmp_include_existing = true;
+
+    openmeta::PreparedTransferBundle bundle;
+    const openmeta::PrepareTransferResult result
+        = openmeta::prepare_metadata_for_target(store, request, &bundle);
+
+    EXPECT_EQ(result.status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(bundle.blocks.size(), 1U);
+    const std::span<const std::byte> payload(bundle.blocks[0].payload.data(),
+                                             bundle.blocks[0].payload.size());
+    EXPECT_TRUE(payload_contains_ascii(payload, "<xmpMM:Pantry>"));
+    EXPECT_TRUE(payload_contains_ascii(
+        payload, "<xmpMM:InstanceID>uuid:pantry-1</xmpMM:InstanceID>"));
+    EXPECT_TRUE(payload_contains_ascii(payload,
+                                       "<dc:format>image/jpeg</dc:format>"));
+    EXPECT_FALSE(payload_contains_ascii(
+        payload, "<xmpMM:format>image/jpeg</xmpMM:format>"));
+}
+
+TEST(MetadataTransferApi,
      PreparePortableXmpPromotesLegacyAdobeStructuredChildPrefixes)
 {
     openmeta::MetaStore store;
@@ -10316,6 +10369,848 @@ TEST(MetadataTransferApi,
 }
 
 TEST(MetadataTransferApi,
+     PreparePortableXmpPromotesLegacyMixedNamespaceLocationDetailsChildren)
+{
+    openmeta::MetaStore store;
+    const openmeta::BlockId block = store.add_block(openmeta::BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    openmeta::Entry shown_id1;
+    shown_id1.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationShown[1]/Identifier[1]");
+    shown_id1.value = openmeta::make_text(store.arena(), "loc-001",
+                                          openmeta::TextEncoding::Utf8);
+    shown_id1.origin.block          = block;
+    shown_id1.origin.order_in_block = 0U;
+    ASSERT_NE(store.add_entry(shown_id1), openmeta::kInvalidEntryId);
+
+    openmeta::Entry shown_id2;
+    shown_id2.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationShown[1]/Identifier[2]");
+    shown_id2.value = openmeta::make_text(store.arena(), "loc-002",
+                                          openmeta::TextEncoding::Utf8);
+    shown_id2.origin.block          = block;
+    shown_id2.origin.order_in_block = 1U;
+    ASSERT_NE(store.add_entry(shown_id2), openmeta::kInvalidEntryId);
+
+    openmeta::Entry shown_gps_lat;
+    shown_gps_lat.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationShown[1]/GPSLatitude");
+    shown_gps_lat.value = openmeta::make_text(store.arena(), "35,40.123N",
+                                              openmeta::TextEncoding::Utf8);
+    shown_gps_lat.origin.block          = block;
+    shown_gps_lat.origin.order_in_block = 2U;
+    ASSERT_NE(store.add_entry(shown_gps_lat), openmeta::kInvalidEntryId);
+
+    openmeta::Entry shown_gps_lon;
+    shown_gps_lon.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationShown[1]/GPSLongitude");
+    shown_gps_lon.value = openmeta::make_text(store.arena(), "139,42.456E",
+                                              openmeta::TextEncoding::Utf8);
+    shown_gps_lon.origin.block          = block;
+    shown_gps_lon.origin.order_in_block = 3U;
+    ASSERT_NE(store.add_entry(shown_gps_lon), openmeta::kInvalidEntryId);
+
+    openmeta::Entry shown_gps_alt;
+    shown_gps_alt.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationShown[1]/GPSAltitude");
+    shown_gps_alt.value = openmeta::make_text(store.arena(), "35.5",
+                                              openmeta::TextEncoding::Utf8);
+    shown_gps_alt.origin.block          = block;
+    shown_gps_alt.origin.order_in_block = 4U;
+    ASSERT_NE(store.add_entry(shown_gps_alt), openmeta::kInvalidEntryId);
+
+    openmeta::Entry shown_gps_alt_ref;
+    shown_gps_alt_ref.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationShown[1]/GPSAltitudeRef");
+    shown_gps_alt_ref.value = openmeta::make_text(
+        store.arena(), "Above Sea Level", openmeta::TextEncoding::Utf8);
+    shown_gps_alt_ref.origin.block          = block;
+    shown_gps_alt_ref.origin.order_in_block = 5U;
+    ASSERT_NE(store.add_entry(shown_gps_alt_ref), openmeta::kInvalidEntryId);
+
+    openmeta::Entry created_id1;
+    created_id1.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationCreated/Identifier[1]");
+    created_id1.value = openmeta::make_text(store.arena(), "par-001",
+                                            openmeta::TextEncoding::Utf8);
+    created_id1.origin.block          = block;
+    created_id1.origin.order_in_block = 6U;
+    ASSERT_NE(store.add_entry(created_id1), openmeta::kInvalidEntryId);
+
+    openmeta::Entry created_gps_lat;
+    created_gps_lat.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationCreated/GPSLatitude");
+    created_gps_lat.value = openmeta::make_text(store.arena(), "48,51.507N",
+                                                openmeta::TextEncoding::Utf8);
+    created_gps_lat.origin.block          = block;
+    created_gps_lat.origin.order_in_block = 7U;
+    ASSERT_NE(store.add_entry(created_gps_lat), openmeta::kInvalidEntryId);
+
+    store.finalize();
+
+    openmeta::PrepareTransferRequest request;
+    request.include_exif_app1    = false;
+    request.include_icc_app2     = false;
+    request.include_iptc_app13   = false;
+    request.xmp_portable         = true;
+    request.xmp_include_existing = true;
+
+    openmeta::PreparedTransferBundle bundle;
+    const openmeta::PrepareTransferResult result
+        = openmeta::prepare_metadata_for_target(store, request, &bundle);
+
+    EXPECT_EQ(result.status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(bundle.blocks.size(), 1U);
+    EXPECT_TRUE(payload_contains_ascii(
+        std::span<const std::byte>(bundle.blocks[0].payload.data(),
+                                   bundle.blocks[0].payload.size()),
+        "<Iptc4xmpExt:LocationShown>"));
+    EXPECT_TRUE(payload_contains_ascii(
+        std::span<const std::byte>(bundle.blocks[0].payload.data(),
+                                   bundle.blocks[0].payload.size()),
+        "<xmp:Identifier>"));
+    EXPECT_TRUE(payload_contains_ascii(
+        std::span<const std::byte>(bundle.blocks[0].payload.data(),
+                                   bundle.blocks[0].payload.size()),
+        "<rdf:li>loc-001</rdf:li>"));
+    EXPECT_TRUE(payload_contains_ascii(
+        std::span<const std::byte>(bundle.blocks[0].payload.data(),
+                                   bundle.blocks[0].payload.size()),
+        "<rdf:li>loc-002</rdf:li>"));
+    EXPECT_TRUE(payload_contains_ascii(
+        std::span<const std::byte>(bundle.blocks[0].payload.data(),
+                                   bundle.blocks[0].payload.size()),
+        "<exif:GPSLatitude>35,40.123N</exif:GPSLatitude>"));
+    EXPECT_TRUE(payload_contains_ascii(
+        std::span<const std::byte>(bundle.blocks[0].payload.data(),
+                                   bundle.blocks[0].payload.size()),
+        "<exif:GPSLongitude>139,42.456E</exif:GPSLongitude>"));
+    EXPECT_TRUE(payload_contains_ascii(
+        std::span<const std::byte>(bundle.blocks[0].payload.data(),
+                                   bundle.blocks[0].payload.size()),
+        "<exif:GPSAltitude>35.5</exif:GPSAltitude>"));
+    EXPECT_TRUE(payload_contains_ascii(
+        std::span<const std::byte>(bundle.blocks[0].payload.data(),
+                                   bundle.blocks[0].payload.size()),
+        "<exif:GPSAltitudeRef>Above Sea Level</exif:GPSAltitudeRef>"));
+    EXPECT_TRUE(payload_contains_ascii(
+        std::span<const std::byte>(bundle.blocks[0].payload.data(),
+                                   bundle.blocks[0].payload.size()),
+        "<Iptc4xmpExt:LocationCreated rdf:parseType=\"Resource\">"));
+    EXPECT_TRUE(payload_contains_ascii(
+        std::span<const std::byte>(bundle.blocks[0].payload.data(),
+                                   bundle.blocks[0].payload.size()),
+        "<rdf:li>par-001</rdf:li>"));
+    EXPECT_TRUE(payload_contains_ascii(
+        std::span<const std::byte>(bundle.blocks[0].payload.data(),
+                                   bundle.blocks[0].payload.size()),
+        "<exif:GPSLatitude>48,51.507N</exif:GPSLatitude>"));
+
+    EXPECT_FALSE(payload_contains_ascii(
+        std::span<const std::byte>(bundle.blocks[0].payload.data(),
+                                   bundle.blocks[0].payload.size()),
+        "<Iptc4xmpExt:Identifier>"));
+    EXPECT_FALSE(payload_contains_ascii(
+        std::span<const std::byte>(bundle.blocks[0].payload.data(),
+                                   bundle.blocks[0].payload.size()),
+        "<Iptc4xmpExt:GPSLatitude>"));
+    EXPECT_FALSE(payload_contains_ascii(
+        std::span<const std::byte>(bundle.blocks[0].payload.data(),
+                                   bundle.blocks[0].payload.size()),
+        "<Iptc4xmpExt:GPSLongitude>"));
+    EXPECT_FALSE(payload_contains_ascii(
+        std::span<const std::byte>(bundle.blocks[0].payload.data(),
+                                   bundle.blocks[0].payload.size()),
+        "<Iptc4xmpExt:GPSAltitude>"));
+    EXPECT_FALSE(payload_contains_ascii(
+        std::span<const std::byte>(bundle.blocks[0].payload.data(),
+                                   bundle.blocks[0].payload.size()),
+        "<Iptc4xmpExt:GPSAltitudeRef>"));
+}
+
+TEST(MetadataTransferApi,
+     PreparePortableXmpDoesNotDuplicateLegacyMixedNamespaceIndexedPromotion)
+{
+    openmeta::MetaStore store;
+    const openmeta::BlockId block = store.add_block(openmeta::BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    openmeta::Entry shown_identifier_scalar;
+    shown_identifier_scalar.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationShown[1]/Identifier");
+    shown_identifier_scalar.value = openmeta::make_text(
+        store.arena(), "legacy-id-scalar", openmeta::TextEncoding::Utf8);
+    shown_identifier_scalar.origin.block          = block;
+    shown_identifier_scalar.origin.order_in_block = 0U;
+    ASSERT_NE(store.add_entry(shown_identifier_scalar),
+              openmeta::kInvalidEntryId);
+
+    openmeta::Entry shown_identifier_indexed;
+    shown_identifier_indexed.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationShown[1]/Identifier[1]");
+    shown_identifier_indexed.value = openmeta::make_text(
+        store.arena(), "loc-001", openmeta::TextEncoding::Utf8);
+    shown_identifier_indexed.origin.block          = block;
+    shown_identifier_indexed.origin.order_in_block = 1U;
+    ASSERT_NE(store.add_entry(shown_identifier_indexed),
+              openmeta::kInvalidEntryId);
+
+    store.finalize();
+
+    openmeta::PrepareTransferRequest request;
+    request.include_exif_app1    = false;
+    request.include_icc_app2     = false;
+    request.include_iptc_app13   = false;
+    request.xmp_portable         = true;
+    request.xmp_include_existing = true;
+
+    openmeta::PreparedTransferBundle bundle;
+    const openmeta::PrepareTransferResult result
+        = openmeta::prepare_metadata_for_target(store, request, &bundle);
+
+    EXPECT_EQ(result.status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(bundle.blocks.size(), 1U);
+    const std::span<const std::byte> payload(bundle.blocks[0].payload.data(),
+                                             bundle.blocks[0].payload.size());
+    EXPECT_TRUE(payload_contains_ascii(payload, "<xmp:Identifier>"));
+    EXPECT_TRUE(payload_contains_ascii(payload,
+                                       "<rdf:li>loc-001</rdf:li>"));
+    EXPECT_FALSE(payload_contains_ascii(
+        payload, "<rdf:li>legacy-id-scalar</rdf:li>"));
+}
+
+TEST(MetadataTransferApi,
+     PreparePortableXmpDoesNotDuplicateLegacyAdobeNestedQualifiedScalarPromotion)
+{
+    openmeta::MetaStore store;
+    const openmeta::BlockId block = store.add_block(openmeta::BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    openmeta::Entry legacy_file_path;
+    legacy_file_path.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/mm/",
+        "Manifest[1]/reference/filePath");
+    legacy_file_path.value = openmeta::make_text(
+        store.arena(), "/tmp/legacy-manifest.dat",
+        openmeta::TextEncoding::Utf8);
+    legacy_file_path.origin.block          = block;
+    legacy_file_path.origin.order_in_block = 0U;
+    ASSERT_NE(store.add_entry(legacy_file_path),
+              openmeta::kInvalidEntryId);
+
+    openmeta::Entry canonical_file_path;
+    canonical_file_path.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/mm/",
+        "Manifest[1]/stMfs:reference/stRef:filePath");
+    canonical_file_path.value = openmeta::make_text(
+        store.arena(), "/tmp/canonical-manifest.dat",
+        openmeta::TextEncoding::Utf8);
+    canonical_file_path.origin.block          = block;
+    canonical_file_path.origin.order_in_block = 1U;
+    ASSERT_NE(store.add_entry(canonical_file_path),
+              openmeta::kInvalidEntryId);
+
+    store.finalize();
+
+    openmeta::PrepareTransferRequest request;
+    request.include_exif_app1    = false;
+    request.include_icc_app2     = false;
+    request.include_iptc_app13   = false;
+    request.xmp_portable         = true;
+    request.xmp_include_existing = true;
+
+    openmeta::PreparedTransferBundle bundle;
+    const openmeta::PrepareTransferResult result
+        = openmeta::prepare_metadata_for_target(store, request, &bundle);
+
+    EXPECT_EQ(result.status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(bundle.blocks.size(), 1U);
+    const std::span<const std::byte> payload(bundle.blocks[0].payload.data(),
+                                             bundle.blocks[0].payload.size());
+    EXPECT_TRUE(payload_contains_ascii(payload, "<xmpMM:Manifest>"));
+    EXPECT_TRUE(payload_contains_ascii(payload, "<stMfs:reference"));
+    EXPECT_TRUE(payload_contains_ascii(
+        payload,
+        "<stRef:filePath>/tmp/canonical-manifest.dat</stRef:filePath>"));
+    EXPECT_FALSE(payload_contains_ascii(
+        payload,
+        "<stRef:filePath>/tmp/legacy-manifest.dat</stRef:filePath>"));
+}
+
+TEST(MetadataTransferApi,
+     PreparePortableXmpDoesNotDuplicateLegacyAdobeQualifiedStructuredFamilies)
+{
+    openmeta::MetaStore store;
+    const openmeta::BlockId block = store.add_block(openmeta::BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    openmeta::Entry legacy_rendition_manage_to;
+    legacy_rendition_manage_to.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/mm/",
+        "RenditionOf/manageTo");
+    legacy_rendition_manage_to.value = openmeta::make_text(
+        store.arena(), "https://example.invalid/legacy-rendition",
+        openmeta::TextEncoding::Utf8);
+    legacy_rendition_manage_to.origin.block          = block;
+    legacy_rendition_manage_to.origin.order_in_block = 0U;
+    ASSERT_NE(store.add_entry(legacy_rendition_manage_to),
+              openmeta::kInvalidEntryId);
+
+    openmeta::Entry canonical_rendition_manage_to;
+    canonical_rendition_manage_to.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/mm/",
+        "RenditionOf/stRef:manageTo");
+    canonical_rendition_manage_to.value = openmeta::make_text(
+        store.arena(), "https://example.invalid/canonical-rendition",
+        openmeta::TextEncoding::Utf8);
+    canonical_rendition_manage_to.origin.block          = block;
+    canonical_rendition_manage_to.origin.order_in_block = 1U;
+    ASSERT_NE(store.add_entry(canonical_rendition_manage_to),
+              openmeta::kInvalidEntryId);
+
+    openmeta::Entry legacy_history_agent;
+    legacy_history_agent.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/mm/",
+        "History[1]/softwareAgent");
+    legacy_history_agent.value = openmeta::make_text(
+        store.arena(), "LegacyAgent", openmeta::TextEncoding::Utf8);
+    legacy_history_agent.origin.block          = block;
+    legacy_history_agent.origin.order_in_block = 2U;
+    ASSERT_NE(store.add_entry(legacy_history_agent),
+              openmeta::kInvalidEntryId);
+
+    openmeta::Entry canonical_history_agent;
+    canonical_history_agent.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/mm/",
+        "History[1]/stEvt:softwareAgent");
+    canonical_history_agent.value = openmeta::make_text(
+        store.arena(), "CanonicalAgent", openmeta::TextEncoding::Utf8);
+    canonical_history_agent.origin.block          = block;
+    canonical_history_agent.origin.order_in_block = 3U;
+    ASSERT_NE(store.add_entry(canonical_history_agent),
+              openmeta::kInvalidEntryId);
+
+    openmeta::Entry legacy_versions_action;
+    legacy_versions_action.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/mm/",
+        "Versions[1]/event/action");
+    legacy_versions_action.value = openmeta::make_text(
+        store.arena(), "legacy-saved", openmeta::TextEncoding::Utf8);
+    legacy_versions_action.origin.block          = block;
+    legacy_versions_action.origin.order_in_block = 4U;
+    ASSERT_NE(store.add_entry(legacy_versions_action),
+              openmeta::kInvalidEntryId);
+
+    openmeta::Entry canonical_versions_action;
+    canonical_versions_action.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/mm/",
+        "Versions[1]/stVer:event/stEvt:action");
+    canonical_versions_action.value = openmeta::make_text(
+        store.arena(), "saved", openmeta::TextEncoding::Utf8);
+    canonical_versions_action.origin.block          = block;
+    canonical_versions_action.origin.order_in_block = 5U;
+    ASSERT_NE(store.add_entry(canonical_versions_action),
+              openmeta::kInvalidEntryId);
+
+    openmeta::Entry legacy_video_width;
+    legacy_video_width.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+        "videoFrameSize/w");
+    legacy_video_width.value = openmeta::make_text(
+        store.arena(), "1280", openmeta::TextEncoding::Utf8);
+    legacy_video_width.origin.block          = block;
+    legacy_video_width.origin.order_in_block = 6U;
+    ASSERT_NE(store.add_entry(legacy_video_width),
+              openmeta::kInvalidEntryId);
+
+    openmeta::Entry canonical_video_width;
+    canonical_video_width.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+        "videoFrameSize/stDim:w");
+    canonical_video_width.value = openmeta::make_text(
+        store.arena(), "1920", openmeta::TextEncoding::Utf8);
+    canonical_video_width.origin.block          = block;
+    canonical_video_width.origin.order_in_block = 7U;
+    ASSERT_NE(store.add_entry(canonical_video_width),
+              openmeta::kInvalidEntryId);
+
+    openmeta::Entry legacy_colorant_name;
+    legacy_colorant_name.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/t/pg/",
+        "SwatchGroups[1]/Colorants[1]/swatchName");
+    legacy_colorant_name.value = openmeta::make_text(
+        store.arena(), "Legacy Orange", openmeta::TextEncoding::Utf8);
+    legacy_colorant_name.origin.block          = block;
+    legacy_colorant_name.origin.order_in_block = 8U;
+    ASSERT_NE(store.add_entry(legacy_colorant_name),
+              openmeta::kInvalidEntryId);
+
+    openmeta::Entry canonical_colorant_name;
+    canonical_colorant_name.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/t/pg/",
+        "SwatchGroups[1]/Colorants[1]/xmpG:swatchName");
+    canonical_colorant_name.value = openmeta::make_text(
+        store.arena(), "Accent Orange", openmeta::TextEncoding::Utf8);
+    canonical_colorant_name.origin.block          = block;
+    canonical_colorant_name.origin.order_in_block = 9U;
+    ASSERT_NE(store.add_entry(canonical_colorant_name),
+              openmeta::kInvalidEntryId);
+
+    store.finalize();
+
+    openmeta::PrepareTransferRequest request;
+    request.include_exif_app1    = false;
+    request.include_icc_app2     = false;
+    request.include_iptc_app13   = false;
+    request.xmp_portable         = true;
+    request.xmp_include_existing = true;
+
+    openmeta::PreparedTransferBundle bundle;
+    const openmeta::PrepareTransferResult result
+        = openmeta::prepare_metadata_for_target(store, request, &bundle);
+
+    EXPECT_EQ(result.status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(bundle.blocks.size(), 1U);
+    const std::span<const std::byte> payload(bundle.blocks[0].payload.data(),
+                                             bundle.blocks[0].payload.size());
+    EXPECT_TRUE(payload_contains_ascii(
+        payload,
+        "<stRef:manageTo>https://example.invalid/canonical-rendition</stRef:manageTo>"));
+    EXPECT_FALSE(payload_contains_ascii(
+        payload,
+        "<stRef:manageTo>https://example.invalid/legacy-rendition</stRef:manageTo>"));
+    EXPECT_TRUE(payload_contains_ascii(
+        payload, "<stEvt:softwareAgent>CanonicalAgent</stEvt:softwareAgent>"));
+    EXPECT_FALSE(payload_contains_ascii(
+        payload, "<stEvt:softwareAgent>LegacyAgent</stEvt:softwareAgent>"));
+    EXPECT_TRUE(payload_contains_ascii(payload, "<stEvt:action>saved</stEvt:action>"));
+    EXPECT_FALSE(payload_contains_ascii(
+        payload, "<stEvt:action>legacy-saved</stEvt:action>"));
+    EXPECT_TRUE(payload_contains_ascii(payload, "<stDim:w>1920</stDim:w>"));
+    EXPECT_FALSE(payload_contains_ascii(payload, "<stDim:w>1280</stDim:w>"));
+    EXPECT_TRUE(payload_contains_ascii(
+        payload, "<xmpG:swatchName>Accent Orange</xmpG:swatchName>"));
+    EXPECT_FALSE(payload_contains_ascii(
+        payload, "<xmpG:swatchName>Legacy Orange</xmpG:swatchName>"));
+}
+
+TEST(MetadataTransferApi,
+     PreparePortableXmpDoesNotDuplicateAdditionalLegacyAdobeQualifiedStructuredFamilies)
+{
+    openmeta::MetaStore store;
+    const openmeta::BlockId block = store.add_block(openmeta::BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    openmeta::Entry legacy_document_id;
+    legacy_document_id.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/mm/",
+        "DerivedFrom/documentID");
+    legacy_document_id.value = openmeta::make_text(
+        store.arena(), "xmp.did:legacy-base",
+        openmeta::TextEncoding::Utf8);
+    legacy_document_id.origin.block          = block;
+    legacy_document_id.origin.order_in_block = 0U;
+    ASSERT_NE(store.add_entry(legacy_document_id),
+              openmeta::kInvalidEntryId);
+
+    openmeta::Entry canonical_document_id;
+    canonical_document_id.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/mm/",
+        "DerivedFrom/stRef:documentID");
+    canonical_document_id.value = openmeta::make_text(
+        store.arena(), "xmp.did:canonical-base",
+        openmeta::TextEncoding::Utf8);
+    canonical_document_id.origin.block          = block;
+    canonical_document_id.origin.order_in_block = 1U;
+    ASSERT_NE(store.add_entry(canonical_document_id),
+              openmeta::kInvalidEntryId);
+
+    openmeta::Entry legacy_manage_ui;
+    legacy_manage_ui.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/mm/",
+        "Manifest[1]/reference/manageUI");
+    legacy_manage_ui.value = openmeta::make_text(
+        store.arena(), "https://example.invalid/legacy-manage",
+        openmeta::TextEncoding::Utf8);
+    legacy_manage_ui.origin.block          = block;
+    legacy_manage_ui.origin.order_in_block = 2U;
+    ASSERT_NE(store.add_entry(legacy_manage_ui),
+              openmeta::kInvalidEntryId);
+
+    openmeta::Entry canonical_manage_ui;
+    canonical_manage_ui.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/mm/",
+        "Manifest[1]/stMfs:reference/stRef:manageUI");
+    canonical_manage_ui.value = openmeta::make_text(
+        store.arena(), "https://example.invalid/canonical-manage",
+        openmeta::TextEncoding::Utf8);
+    canonical_manage_ui.origin.block          = block;
+    canonical_manage_ui.origin.order_in_block = 3U;
+    ASSERT_NE(store.add_entry(canonical_manage_ui),
+              openmeta::kInvalidEntryId);
+
+    openmeta::Entry legacy_child_font_file;
+    legacy_child_font_file.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/t/pg/",
+        "Fonts[1]/childFontFiles[1]");
+    legacy_child_font_file.value = openmeta::make_text(
+        store.arena(), "LegacyFont.otf", openmeta::TextEncoding::Utf8);
+    legacy_child_font_file.origin.block          = block;
+    legacy_child_font_file.origin.order_in_block = 4U;
+    ASSERT_NE(store.add_entry(legacy_child_font_file),
+              openmeta::kInvalidEntryId);
+
+    openmeta::Entry canonical_child_font_file;
+    canonical_child_font_file.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/t/pg/",
+        "Fonts[1]/stFnt:childFontFiles[1]");
+    canonical_child_font_file.value = openmeta::make_text(
+        store.arena(), "SourceSerif-Regular.otf",
+        openmeta::TextEncoding::Utf8);
+    canonical_child_font_file.origin.block          = block;
+    canonical_child_font_file.origin.order_in_block = 5U;
+    ASSERT_NE(store.add_entry(canonical_child_font_file),
+              openmeta::kInvalidEntryId);
+
+    openmeta::Entry legacy_max_page_w;
+    legacy_max_page_w.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/t/pg/",
+        "MaxPageSize/w");
+    legacy_max_page_w.value = openmeta::make_text(
+        store.arena(), "8.5", openmeta::TextEncoding::Utf8);
+    legacy_max_page_w.origin.block          = block;
+    legacy_max_page_w.origin.order_in_block = 6U;
+    ASSERT_NE(store.add_entry(legacy_max_page_w),
+              openmeta::kInvalidEntryId);
+
+    openmeta::Entry canonical_max_page_w;
+    canonical_max_page_w.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/t/pg/",
+        "MaxPageSize/stDim:w");
+    canonical_max_page_w.value = openmeta::make_text(
+        store.arena(), "8.75", openmeta::TextEncoding::Utf8);
+    canonical_max_page_w.origin.block          = block;
+    canonical_max_page_w.origin.order_in_block = 7U;
+    ASSERT_NE(store.add_entry(canonical_max_page_w),
+              openmeta::kInvalidEntryId);
+
+    openmeta::Entry legacy_managed_from_instance_id;
+    legacy_managed_from_instance_id.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/mm/",
+        "ManagedFrom/instanceID");
+    legacy_managed_from_instance_id.value = openmeta::make_text(
+        store.arena(), "xmp.iid:legacy-managed",
+        openmeta::TextEncoding::Utf8);
+    legacy_managed_from_instance_id.origin.block          = block;
+    legacy_managed_from_instance_id.origin.order_in_block = 8U;
+    ASSERT_NE(store.add_entry(legacy_managed_from_instance_id),
+              openmeta::kInvalidEntryId);
+
+    openmeta::Entry canonical_managed_from_instance_id;
+    canonical_managed_from_instance_id.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/mm/",
+        "ManagedFrom/stRef:instanceID");
+    canonical_managed_from_instance_id.value = openmeta::make_text(
+        store.arena(), "xmp.iid:canonical-managed",
+        openmeta::TextEncoding::Utf8);
+    canonical_managed_from_instance_id.origin.block          = block;
+    canonical_managed_from_instance_id.origin.order_in_block = 9U;
+    ASSERT_NE(store.add_entry(canonical_managed_from_instance_id),
+              openmeta::kInvalidEntryId);
+
+    openmeta::Entry legacy_history_parameters;
+    legacy_history_parameters.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/mm/",
+        "History[1]/parameters");
+    legacy_history_parameters.value = openmeta::make_text(
+        store.arena(), "legacy-history-params",
+        openmeta::TextEncoding::Utf8);
+    legacy_history_parameters.origin.block          = block;
+    legacy_history_parameters.origin.order_in_block = 10U;
+    ASSERT_NE(store.add_entry(legacy_history_parameters),
+              openmeta::kInvalidEntryId);
+
+    openmeta::Entry canonical_history_parameters;
+    canonical_history_parameters.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/mm/",
+        "History[1]/stEvt:parameters");
+    canonical_history_parameters.value = openmeta::make_text(
+        store.arena(), "canonical-history-params",
+        openmeta::TextEncoding::Utf8);
+    canonical_history_parameters.origin.block          = block;
+    canonical_history_parameters.origin.order_in_block = 11U;
+    ASSERT_NE(store.add_entry(canonical_history_parameters),
+              openmeta::kInvalidEntryId);
+
+    openmeta::Entry legacy_font_name;
+    legacy_font_name.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/t/pg/",
+        "Fonts[1]/fontName");
+    legacy_font_name.value = openmeta::make_text(
+        store.arena(), "Legacy Display", openmeta::TextEncoding::Utf8);
+    legacy_font_name.origin.block          = block;
+    legacy_font_name.origin.order_in_block = 12U;
+    ASSERT_NE(store.add_entry(legacy_font_name), openmeta::kInvalidEntryId);
+
+    openmeta::Entry canonical_font_name;
+    canonical_font_name.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/t/pg/",
+        "Fonts[1]/stFnt:fontName");
+    canonical_font_name.value = openmeta::make_text(
+        store.arena(), "Source Serif Display",
+        openmeta::TextEncoding::Utf8);
+    canonical_font_name.origin.block          = block;
+    canonical_font_name.origin.order_in_block = 13U;
+    ASSERT_NE(store.add_entry(canonical_font_name),
+              openmeta::kInvalidEntryId);
+
+    openmeta::Entry legacy_colorant_mode;
+    legacy_colorant_mode.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/t/pg/",
+        "SwatchGroups[1]/Colorants[1]/mode");
+    legacy_colorant_mode.value = openmeta::make_text(
+        store.arena(), "CMYK", openmeta::TextEncoding::Utf8);
+    legacy_colorant_mode.origin.block          = block;
+    legacy_colorant_mode.origin.order_in_block = 14U;
+    ASSERT_NE(store.add_entry(legacy_colorant_mode),
+              openmeta::kInvalidEntryId);
+
+    openmeta::Entry canonical_colorant_mode;
+    canonical_colorant_mode.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/t/pg/",
+        "SwatchGroups[1]/Colorants[1]/xmpG:mode");
+    canonical_colorant_mode.value = openmeta::make_text(
+        store.arena(), "RGB", openmeta::TextEncoding::Utf8);
+    canonical_colorant_mode.origin.block          = block;
+    canonical_colorant_mode.origin.order_in_block = 15U;
+    ASSERT_NE(store.add_entry(canonical_colorant_mode),
+              openmeta::kInvalidEntryId);
+
+    openmeta::Entry legacy_job_id;
+    legacy_job_id.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/bj/",
+        "JobRef[1]/id");
+    legacy_job_id.value = openmeta::make_text(
+        store.arena(), "legacy-job-id", openmeta::TextEncoding::Utf8);
+    legacy_job_id.origin.block          = block;
+    legacy_job_id.origin.order_in_block = 16U;
+    ASSERT_NE(store.add_entry(legacy_job_id), openmeta::kInvalidEntryId);
+
+    openmeta::Entry canonical_job_id;
+    canonical_job_id.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/bj/",
+        "JobRef[1]/stJob:id");
+    canonical_job_id.value = openmeta::make_text(
+        store.arena(), "canonical-job-id", openmeta::TextEncoding::Utf8);
+    canonical_job_id.origin.block          = block;
+    canonical_job_id.origin.order_in_block = 17U;
+    ASSERT_NE(store.add_entry(canonical_job_id), openmeta::kInvalidEntryId);
+
+    openmeta::Entry legacy_job_url;
+    legacy_job_url.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/bj/",
+        "JobRef[1]/url");
+    legacy_job_url.value = openmeta::make_text(
+        store.arena(), "https://example.invalid/legacy-job",
+        openmeta::TextEncoding::Utf8);
+    legacy_job_url.origin.block          = block;
+    legacy_job_url.origin.order_in_block = 18U;
+    ASSERT_NE(store.add_entry(legacy_job_url), openmeta::kInvalidEntryId);
+
+    openmeta::Entry canonical_job_url;
+    canonical_job_url.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/bj/",
+        "JobRef[1]/stJob:url");
+    canonical_job_url.value = openmeta::make_text(
+        store.arena(), "https://example.invalid/canonical-job",
+        openmeta::TextEncoding::Utf8);
+    canonical_job_url.origin.block          = block;
+    canonical_job_url.origin.order_in_block = 19U;
+    ASSERT_NE(store.add_entry(canonical_job_url), openmeta::kInvalidEntryId);
+
+    openmeta::Entry legacy_rendition_part_mapping;
+    legacy_rendition_part_mapping.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/mm/",
+        "RenditionOf/partMapping");
+    legacy_rendition_part_mapping.value = openmeta::make_text(
+        store.arena(), "legacy-part-map", openmeta::TextEncoding::Utf8);
+    legacy_rendition_part_mapping.origin.block          = block;
+    legacy_rendition_part_mapping.origin.order_in_block = 20U;
+    ASSERT_NE(store.add_entry(legacy_rendition_part_mapping),
+              openmeta::kInvalidEntryId);
+
+    openmeta::Entry canonical_rendition_part_mapping;
+    canonical_rendition_part_mapping.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/mm/",
+        "RenditionOf/stRef:partMapping");
+    canonical_rendition_part_mapping.value = openmeta::make_text(
+        store.arena(), "canonical-part-map",
+        openmeta::TextEncoding::Utf8);
+    canonical_rendition_part_mapping.origin.block          = block;
+    canonical_rendition_part_mapping.origin.order_in_block = 21U;
+    ASSERT_NE(store.add_entry(canonical_rendition_part_mapping),
+              openmeta::kInvalidEntryId);
+
+    openmeta::Entry legacy_versions_when;
+    legacy_versions_when.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/mm/",
+        "Versions[1]/event/when");
+    legacy_versions_when.value = openmeta::make_text(
+        store.arena(), "2026-04-18T11:22:33Z",
+        openmeta::TextEncoding::Utf8);
+    legacy_versions_when.origin.block          = block;
+    legacy_versions_when.origin.order_in_block = 22U;
+    ASSERT_NE(store.add_entry(legacy_versions_when),
+              openmeta::kInvalidEntryId);
+
+    openmeta::Entry canonical_versions_when;
+    canonical_versions_when.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/mm/",
+        "Versions[1]/stVer:event/stEvt:when");
+    canonical_versions_when.value = openmeta::make_text(
+        store.arena(), "2026-04-19T01:02:03Z",
+        openmeta::TextEncoding::Utf8);
+    canonical_versions_when.origin.block          = block;
+    canonical_versions_when.origin.order_in_block = 23U;
+    ASSERT_NE(store.add_entry(canonical_versions_when),
+              openmeta::kInvalidEntryId);
+
+    openmeta::Entry legacy_frame_unit;
+    legacy_frame_unit.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+        "videoFrameSize/unit");
+    legacy_frame_unit.value = openmeta::make_text(
+        store.arena(), "inch", openmeta::TextEncoding::Utf8);
+    legacy_frame_unit.origin.block          = block;
+    legacy_frame_unit.origin.order_in_block = 24U;
+    ASSERT_NE(store.add_entry(legacy_frame_unit), openmeta::kInvalidEntryId);
+
+    openmeta::Entry canonical_frame_unit;
+    canonical_frame_unit.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+        "videoFrameSize/stDim:unit");
+    canonical_frame_unit.value = openmeta::make_text(
+        store.arena(), "pixel", openmeta::TextEncoding::Utf8);
+    canonical_frame_unit.origin.block          = block;
+    canonical_frame_unit.origin.order_in_block = 25U;
+    ASSERT_NE(store.add_entry(canonical_frame_unit),
+              openmeta::kInvalidEntryId);
+
+    openmeta::Entry legacy_alpha_red;
+    legacy_alpha_red.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+        "videoAlphaPremultipleColor/red");
+    legacy_alpha_red.value = openmeta::make_text(
+        store.arena(), "32", openmeta::TextEncoding::Utf8);
+    legacy_alpha_red.origin.block          = block;
+    legacy_alpha_red.origin.order_in_block = 26U;
+    ASSERT_NE(store.add_entry(legacy_alpha_red), openmeta::kInvalidEntryId);
+
+    openmeta::Entry canonical_alpha_red;
+    canonical_alpha_red.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+        "videoAlphaPremultipleColor/xmpG:red");
+    canonical_alpha_red.value = openmeta::make_text(
+        store.arena(), "255", openmeta::TextEncoding::Utf8);
+    canonical_alpha_red.origin.block          = block;
+    canonical_alpha_red.origin.order_in_block = 27U;
+    ASSERT_NE(store.add_entry(canonical_alpha_red),
+              openmeta::kInvalidEntryId);
+
+    store.finalize();
+
+    openmeta::PrepareTransferRequest request;
+    request.include_exif_app1    = false;
+    request.include_icc_app2     = false;
+    request.include_iptc_app13   = false;
+    request.xmp_portable         = true;
+    request.xmp_include_existing = true;
+
+    openmeta::PreparedTransferBundle bundle;
+    const openmeta::PrepareTransferResult result
+        = openmeta::prepare_metadata_for_target(store, request, &bundle);
+
+    EXPECT_EQ(result.status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(bundle.blocks.size(), 1U);
+    const std::span<const std::byte> payload(bundle.blocks[0].payload.data(),
+                                             bundle.blocks[0].payload.size());
+    EXPECT_TRUE(payload_contains_ascii(
+        payload,
+        "<stRef:documentID>xmp.did:canonical-base</stRef:documentID>"));
+    EXPECT_FALSE(payload_contains_ascii(
+        payload,
+        "<stRef:documentID>xmp.did:legacy-base</stRef:documentID>"));
+    EXPECT_TRUE(payload_contains_ascii(
+        payload,
+        "<stRef:manageUI>https://example.invalid/canonical-manage</stRef:manageUI>"));
+    EXPECT_FALSE(payload_contains_ascii(
+        payload,
+        "<stRef:manageUI>https://example.invalid/legacy-manage</stRef:manageUI>"));
+    EXPECT_TRUE(payload_contains_ascii(payload, "<stFnt:childFontFiles>"));
+    EXPECT_TRUE(payload_contains_ascii(payload,
+                                       "<rdf:li>SourceSerif-Regular.otf</rdf:li>"));
+    EXPECT_FALSE(payload_contains_ascii(payload,
+                                        "<rdf:li>LegacyFont.otf</rdf:li>"));
+    EXPECT_TRUE(payload_contains_ascii(payload, "<stDim:w>8.75</stDim:w>"));
+    EXPECT_FALSE(payload_contains_ascii(payload, "<stDim:w>8.5</stDim:w>"));
+    EXPECT_TRUE(payload_contains_ascii(
+        payload,
+        "<stRef:instanceID>xmp.iid:canonical-managed</stRef:instanceID>"));
+    EXPECT_FALSE(payload_contains_ascii(
+        payload,
+        "<stRef:instanceID>xmp.iid:legacy-managed</stRef:instanceID>"));
+    EXPECT_TRUE(payload_contains_ascii(
+        payload,
+        "<stEvt:parameters>canonical-history-params</stEvt:parameters>"));
+    EXPECT_FALSE(payload_contains_ascii(
+        payload,
+        "<stEvt:parameters>legacy-history-params</stEvt:parameters>"));
+    EXPECT_TRUE(payload_contains_ascii(
+        payload,
+        "<stFnt:fontName>Source Serif Display</stFnt:fontName>"));
+    EXPECT_FALSE(payload_contains_ascii(
+        payload,
+        "<stFnt:fontName>Legacy Display</stFnt:fontName>"));
+    EXPECT_TRUE(payload_contains_ascii(payload, "<xmpG:mode>RGB</xmpG:mode>"));
+    EXPECT_FALSE(payload_contains_ascii(payload, "<xmpG:mode>CMYK</xmpG:mode>"));
+    EXPECT_TRUE(payload_contains_ascii(payload,
+                                       "<stJob:id>canonical-job-id</stJob:id>"));
+    EXPECT_FALSE(payload_contains_ascii(payload,
+                                        "<stJob:id>legacy-job-id</stJob:id>"));
+    EXPECT_TRUE(payload_contains_ascii(
+        payload,
+        "<stJob:url>https://example.invalid/canonical-job</stJob:url>"));
+    EXPECT_FALSE(payload_contains_ascii(
+        payload,
+        "<stJob:url>https://example.invalid/legacy-job</stJob:url>"));
+    EXPECT_TRUE(payload_contains_ascii(
+        payload,
+        "<stRef:partMapping>canonical-part-map</stRef:partMapping>"));
+    EXPECT_FALSE(payload_contains_ascii(
+        payload,
+        "<stRef:partMapping>legacy-part-map</stRef:partMapping>"));
+    EXPECT_TRUE(payload_contains_ascii(payload,
+                                       "<stEvt:when>2026-04-19T01:02:03Z</stEvt:when>"));
+    EXPECT_FALSE(payload_contains_ascii(payload,
+                                        "<stEvt:when>2026-04-18T11:22:33Z</stEvt:when>"));
+    EXPECT_TRUE(payload_contains_ascii(payload, "<stDim:unit>pixel</stDim:unit>"));
+    EXPECT_FALSE(payload_contains_ascii(payload, "<stDim:unit>inch</stDim:unit>"));
+    EXPECT_TRUE(payload_contains_ascii(payload, "<xmpG:red>255</xmpG:red>"));
+    EXPECT_FALSE(payload_contains_ascii(payload, "<xmpG:red>32</xmpG:red>"));
+}
+
+TEST(MetadataTransferApi,
      PreparePortableXmpCanonicalizesIptcExtEntityWithRoleShapes)
 {
     openmeta::MetaStore store;
@@ -11337,6 +12232,144 @@ TEST(MetadataTransferApi,
     EXPECT_FALSE(payload_contains_ascii(
         payload,
         "<plus:ImageAlterationConstraints>No compositing</plus:ImageAlterationConstraints>"));
+}
+
+TEST(MetadataTransferApi,
+     PreparePortableXmpRepairsTopLevelStandardCrossShapeProperties)
+{
+    openmeta::MetaStore store;
+    const openmeta::BlockId block = store.add_block(openmeta::BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    openmeta::Entry title;
+    title.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://purl.org/dc/elements/1.1/", "title[1]");
+    title.value = openmeta::make_text(store.arena(), "Legacy Title",
+                                      openmeta::TextEncoding::Utf8);
+    title.origin.block          = block;
+    title.origin.order_in_block = 0U;
+    ASSERT_NE(store.add_entry(title), openmeta::kInvalidEntryId);
+
+    openmeta::Entry identifier;
+    identifier.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/",
+        "Identifier[@xml:lang=x-default]");
+    identifier.value = openmeta::make_text(
+        store.arena(), "urn:om:test:id", openmeta::TextEncoding::Utf8);
+    identifier.origin.block          = block;
+    identifier.origin.order_in_block = 1U;
+    ASSERT_NE(store.add_entry(identifier), openmeta::kInvalidEntryId);
+
+    openmeta::Entry usage_terms;
+    usage_terms.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/rights/",
+        "UsageTerms[1]");
+    usage_terms.value = openmeta::make_text(
+        store.arena(), "Licensed use only", openmeta::TextEncoding::Utf8);
+    usage_terms.origin.block          = block;
+    usage_terms.origin.order_in_block = 2U;
+    ASSERT_NE(store.add_entry(usage_terms), openmeta::kInvalidEntryId);
+
+    openmeta::Entry owner;
+    owner.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/rights/",
+        "Owner[@xml:lang=x-default]");
+    owner.value = openmeta::make_text(store.arena(), "OpenMeta Labs",
+                                      openmeta::TextEncoding::Utf8);
+    owner.origin.block          = block;
+    owner.origin.order_in_block = 3U;
+    ASSERT_NE(store.add_entry(owner), openmeta::kInvalidEntryId);
+
+    openmeta::Entry supplemental_categories;
+    supplemental_categories.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/photoshop/1.0/",
+        "SupplementalCategories[@xml:lang=x-default]");
+    supplemental_categories.value = openmeta::make_text(
+        store.arena(), "legacy-supp", openmeta::TextEncoding::Utf8);
+    supplemental_categories.origin.block          = block;
+    supplemental_categories.origin.order_in_block = 4U;
+    ASSERT_NE(store.add_entry(supplemental_categories),
+              openmeta::kInvalidEntryId);
+
+    openmeta::Entry hierarchical_subject;
+    hierarchical_subject.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/lightroom/1.0/",
+        "hierarchicalSubject[@xml:lang=x-default]");
+    hierarchical_subject.value = openmeta::make_text(
+        store.arena(), "Places|Museum", openmeta::TextEncoding::Utf8);
+    hierarchical_subject.origin.block          = block;
+    hierarchical_subject.origin.order_in_block = 5U;
+    ASSERT_NE(store.add_entry(hierarchical_subject),
+              openmeta::kInvalidEntryId);
+
+    openmeta::Entry alteration_constraints;
+    alteration_constraints.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.useplus.org/ldf/xmp/1.0/",
+        "ImageAlterationConstraints[@xml:lang=x-default]");
+    alteration_constraints.value = openmeta::make_text(
+        store.arena(), "No compositing", openmeta::TextEncoding::Utf8);
+    alteration_constraints.origin.block          = block;
+    alteration_constraints.origin.order_in_block = 6U;
+    ASSERT_NE(store.add_entry(alteration_constraints),
+              openmeta::kInvalidEntryId);
+
+    store.finalize();
+
+    openmeta::PrepareTransferRequest request;
+    request.include_exif_app1    = false;
+    request.include_icc_app2     = false;
+    request.include_iptc_app13   = false;
+    request.xmp_portable         = true;
+    request.xmp_include_existing = true;
+
+    openmeta::PreparedTransferBundle bundle;
+    const openmeta::PrepareTransferResult result
+        = openmeta::prepare_metadata_for_target(store, request, &bundle);
+
+    EXPECT_EQ(result.status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(bundle.blocks.size(), 1U);
+    const std::span<const std::byte> payload(bundle.blocks[0].payload.data(),
+                                             bundle.blocks[0].payload.size());
+    EXPECT_TRUE(payload_contains_ascii(payload, "<dc:title>"));
+    EXPECT_TRUE(payload_contains_ascii(
+        payload, "<rdf:li xml:lang=\"x-default\">Legacy Title</rdf:li>"));
+    EXPECT_FALSE(payload_contains_ascii(payload, "<dc:title><rdf:Seq>"));
+
+    EXPECT_TRUE(payload_contains_ascii(payload, "<xmp:Identifier>"));
+    EXPECT_TRUE(payload_contains_ascii(payload,
+                                       "<rdf:li>urn:om:test:id</rdf:li>"));
+    EXPECT_FALSE(payload_contains_ascii(payload, "<xmp:Identifier><rdf:Alt>"));
+
+    EXPECT_TRUE(payload_contains_ascii(payload, "<xmpRights:UsageTerms>"));
+    EXPECT_TRUE(payload_contains_ascii(
+        payload, "<rdf:li xml:lang=\"x-default\">Licensed use only</rdf:li>"));
+    EXPECT_FALSE(payload_contains_ascii(payload,
+                                        "<xmpRights:UsageTerms><rdf:Seq>"));
+
+    EXPECT_TRUE(payload_contains_ascii(payload, "<xmpRights:Owner>"));
+    EXPECT_TRUE(payload_contains_ascii(payload,
+                                       "<rdf:li>OpenMeta Labs</rdf:li>"));
+    EXPECT_FALSE(payload_contains_ascii(payload,
+                                        "<xmpRights:Owner><rdf:Alt>"));
+
+    EXPECT_TRUE(payload_contains_ascii(
+        payload, "<photoshop:SupplementalCategories>"));
+    EXPECT_TRUE(payload_contains_ascii(payload, "<rdf:li>legacy-supp</rdf:li>"));
+    EXPECT_FALSE(payload_contains_ascii(
+        payload, "<photoshop:SupplementalCategories><rdf:Alt>"));
+
+    EXPECT_TRUE(payload_contains_ascii(payload, "<lr:hierarchicalSubject>"));
+    EXPECT_TRUE(payload_contains_ascii(payload,
+                                       "<rdf:li>Places|Museum</rdf:li>"));
+    EXPECT_FALSE(payload_contains_ascii(
+        payload, "<lr:hierarchicalSubject><rdf:Alt>"));
+
+    EXPECT_TRUE(payload_contains_ascii(
+        payload, "<plus:ImageAlterationConstraints>"));
+    EXPECT_TRUE(payload_contains_ascii(payload,
+                                       "<rdf:li>No compositing</rdf:li>"));
+    EXPECT_FALSE(payload_contains_ascii(
+        payload, "<plus:ImageAlterationConstraints><rdf:Alt>"));
 }
 
 TEST(MetadataTransferApi,
@@ -12548,6 +13581,144 @@ TEST(MetadataTransferApi,
     EXPECT_FALSE(payload_contains_ascii(payload, "<photoshop:LegacyStructured>"));
     EXPECT_FALSE(payload_contains_ascii(payload,
                                         "<Iptc4xmpCore:LegacyStructured>"));
+}
+
+TEST(MetadataTransferApi,
+     PreparePortableXmpCanonicalizeManagedReplacesGeneratedStructuredLocationCreated)
+{
+    openmeta::MetaStore store;
+    const openmeta::BlockId block = store.add_block(openmeta::BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    const std::string city = "Paris";
+    openmeta::Entry iptc_city;
+    iptc_city.key = openmeta::make_iptc_dataset_key(2U, 90U);
+    iptc_city.value = openmeta::make_bytes(
+        store.arena(),
+        std::span<const std::byte>(
+            reinterpret_cast<const std::byte*>(city.data()), city.size()));
+    iptc_city.origin.block          = block;
+    iptc_city.origin.order_in_block = 0U;
+    ASSERT_NE(store.add_entry(iptc_city), openmeta::kInvalidEntryId);
+
+    const std::string sub_location = "Louvre Wing";
+    openmeta::Entry iptc_sub_location;
+    iptc_sub_location.key = openmeta::make_iptc_dataset_key(2U, 92U);
+    iptc_sub_location.value = openmeta::make_bytes(
+        store.arena(),
+        std::span<const std::byte>(
+            reinterpret_cast<const std::byte*>(sub_location.data()),
+            sub_location.size()));
+    iptc_sub_location.origin.block          = block;
+    iptc_sub_location.origin.order_in_block = 1U;
+    ASSERT_NE(store.add_entry(iptc_sub_location), openmeta::kInvalidEntryId);
+
+    const std::string country_code = "FR";
+    openmeta::Entry iptc_country_code;
+    iptc_country_code.key = openmeta::make_iptc_dataset_key(2U, 100U);
+    iptc_country_code.value = openmeta::make_bytes(
+        store.arena(),
+        std::span<const std::byte>(
+            reinterpret_cast<const std::byte*>(country_code.data()),
+            country_code.size()));
+    iptc_country_code.origin.block          = block;
+    iptc_country_code.origin.order_in_block = 2U;
+    ASSERT_NE(store.add_entry(iptc_country_code), openmeta::kInvalidEntryId);
+
+    const std::string country_name = "France";
+    openmeta::Entry iptc_country_name;
+    iptc_country_name.key = openmeta::make_iptc_dataset_key(2U, 101U);
+    iptc_country_name.value = openmeta::make_bytes(
+        store.arena(),
+        std::span<const std::byte>(
+            reinterpret_cast<const std::byte*>(country_name.data()),
+            country_name.size()));
+    iptc_country_name.origin.block          = block;
+    iptc_country_name.origin.order_in_block = 3U;
+    ASSERT_NE(store.add_entry(iptc_country_name), openmeta::kInvalidEntryId);
+
+    openmeta::Entry legacy_city;
+    legacy_city.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/",
+        "LocationCreated/City");
+    legacy_city.value = openmeta::make_text(
+        store.arena(), "Legacy City", openmeta::TextEncoding::Utf8);
+    legacy_city.origin.block          = block;
+    legacy_city.origin.order_in_block = 4U;
+    ASSERT_NE(store.add_entry(legacy_city), openmeta::kInvalidEntryId);
+
+    openmeta::Entry legacy_location;
+    legacy_location.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/",
+        "LocationCreated/Location");
+    legacy_location.value = openmeta::make_text(
+        store.arena(), "Legacy Wing", openmeta::TextEncoding::Utf8);
+    legacy_location.origin.block          = block;
+    legacy_location.origin.order_in_block = 5U;
+    ASSERT_NE(store.add_entry(legacy_location), openmeta::kInvalidEntryId);
+
+    openmeta::Entry legacy_country_code;
+    legacy_country_code.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/",
+        "LocationCreated/CountryCode");
+    legacy_country_code.value = openmeta::make_text(
+        store.arena(), "XX", openmeta::TextEncoding::Utf8);
+    legacy_country_code.origin.block          = block;
+    legacy_country_code.origin.order_in_block = 6U;
+    ASSERT_NE(store.add_entry(legacy_country_code),
+              openmeta::kInvalidEntryId);
+
+    openmeta::Entry legacy_country_name;
+    legacy_country_name.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/",
+        "LocationCreated/CountryName");
+    legacy_country_name.value = openmeta::make_text(
+        store.arena(), "Legacy Country", openmeta::TextEncoding::Utf8);
+    legacy_country_name.origin.block          = block;
+    legacy_country_name.origin.order_in_block = 7U;
+    ASSERT_NE(store.add_entry(legacy_country_name),
+              openmeta::kInvalidEntryId);
+
+    store.finalize();
+
+    openmeta::PrepareTransferRequest request;
+    request.include_exif_app1    = false;
+    request.include_icc_app2     = false;
+    request.include_iptc_app13   = false;
+    request.xmp_portable         = true;
+    request.xmp_include_existing = true;
+    request.xmp_conflict_policy  = openmeta::XmpConflictPolicy::ExistingWins;
+    request.xmp_existing_standard_namespace_policy
+        = openmeta::XmpExistingStandardNamespacePolicy::CanonicalizeManaged;
+
+    openmeta::PreparedTransferBundle bundle;
+    const openmeta::PrepareTransferResult result
+        = openmeta::prepare_metadata_for_target(store, request, &bundle);
+
+    EXPECT_EQ(result.status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(bundle.blocks.size(), 1U);
+    const std::span<const std::byte> payload(bundle.blocks[0].payload.data(),
+                                             bundle.blocks[0].payload.size());
+    EXPECT_TRUE(payload_contains_ascii(
+        payload,
+        "<Iptc4xmpCore:LocationCreated rdf:parseType=\"Resource\">"));
+    EXPECT_TRUE(payload_contains_ascii(payload,
+                                       "<Iptc4xmpCore:City>Paris</Iptc4xmpCore:City>"));
+    EXPECT_TRUE(payload_contains_ascii(
+        payload,
+        "<Iptc4xmpCore:Location>Louvre Wing</Iptc4xmpCore:Location>"));
+    EXPECT_TRUE(payload_contains_ascii(
+        payload,
+        "<Iptc4xmpCore:CountryCode>FR</Iptc4xmpCore:CountryCode>"));
+    EXPECT_TRUE(payload_contains_ascii(
+        payload,
+        "<Iptc4xmpCore:CountryName>France</Iptc4xmpCore:CountryName>"));
+
+    EXPECT_FALSE(payload_contains_ascii(payload, "Legacy City"));
+    EXPECT_FALSE(payload_contains_ascii(payload, "Legacy Wing"));
+    EXPECT_FALSE(payload_contains_ascii(
+        payload, ">XX</Iptc4xmpCore:CountryCode>"));
+    EXPECT_FALSE(payload_contains_ascii(payload, "Legacy Country"));
 }
 
 TEST(MetadataTransferApi, PrepareBuildsJpegExifApp1Block)

@@ -202,6 +202,90 @@ TEST(XmpDecodeTest, DecodesXmpMmPantryStructuredChildren)
     expect_text("Pantry[1]/dc:format", "image/jpeg");
 }
 
+TEST(XmpDecodeTest, DecodesLegacyUnqualifiedXmpMmStructuredChildren)
+{
+    const std::string xmp
+        = "<x:xmpmeta xmlns:x='adobe:ns:meta/'>"
+          "<rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'>"
+          "<rdf:Description "
+          "xmlns:xmpMM='http://ns.adobe.com/xap/1.0/mm/'>"
+          "<xmpMM:DerivedFrom rdf:parseType='Resource'>"
+          "<documentID>xmp.did:base</documentID>"
+          "<instanceID>xmp.iid:base</instanceID>"
+          "<manageTo>https://example.invalid/base</manageTo>"
+          "</xmpMM:DerivedFrom>"
+          "<xmpMM:RenditionOf rdf:parseType='Resource'>"
+          "<filePath>/tmp/rendition.jpg</filePath>"
+          "</xmpMM:RenditionOf>"
+          "<xmpMM:Manifest><rdf:Seq>"
+          "<rdf:li rdf:parseType='Resource'>"
+          "<linkForm>EmbedByReference</linkForm>"
+          "<reference rdf:parseType='Resource'>"
+          "<filePath>/tmp/manifest.dat</filePath>"
+          "<manageUI>https://example.invalid/manage</manageUI>"
+          "</reference>"
+          "</rdf:li>"
+          "</rdf:Seq></xmpMM:Manifest>"
+          "<xmpMM:Versions><rdf:Seq>"
+          "<rdf:li rdf:parseType='Resource'>"
+          "<version>1.0</version>"
+          "<event rdf:parseType='Resource'>"
+          "<action>saved</action>"
+          "<parameters>chapter=1</parameters>"
+          "</event>"
+          "</rdf:li>"
+          "</rdf:Seq></xmpMM:Versions>"
+          "<xmpMM:Pantry><rdf:Bag>"
+          "<rdf:li rdf:parseType='Resource'>"
+          "<InstanceID>uuid:pantry-1</InstanceID>"
+          "<format>image/jpeg</format>"
+          "</rdf:li>"
+          "</rdf:Bag></xmpMM:Pantry>"
+          "</rdf:Description>"
+          "</rdf:RDF>"
+          "</x:xmpmeta>";
+
+    const std::span<const std::byte> bytes(
+        reinterpret_cast<const std::byte*>(xmp.data()), xmp.size());
+
+    MetaStore store;
+    const XmpDecodeResult r = decode_xmp_packet(bytes, store);
+    ASSERT_EQ(r.status, XmpDecodeStatus::Ok);
+    store.finalize();
+
+    const auto expect_text = [&](std::string_view path,
+                                 std::string_view expected) {
+        MetaKeyView key;
+        key.kind = MetaKeyKind::XmpProperty;
+        key.data.xmp_property.schema_ns
+            = "http://ns.adobe.com/xap/1.0/mm/";
+        key.data.xmp_property.property_path = path;
+        const std::span<const EntryId> ids = store.find_all(key);
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        ASSERT_EQ(e.value.kind, MetaValueKind::Text);
+        const std::span<const std::byte> vb
+            = store.arena().span(e.value.data.span);
+        const std::string_view val(reinterpret_cast<const char*>(vb.data()),
+                                   vb.size());
+        EXPECT_EQ(val, expected);
+    };
+
+    expect_text("DerivedFrom/documentID", "xmp.did:base");
+    expect_text("DerivedFrom/instanceID", "xmp.iid:base");
+    expect_text("DerivedFrom/manageTo", "https://example.invalid/base");
+    expect_text("RenditionOf/filePath", "/tmp/rendition.jpg");
+    expect_text("Manifest[1]/linkForm", "EmbedByReference");
+    expect_text("Manifest[1]/reference/filePath", "/tmp/manifest.dat");
+    expect_text("Manifest[1]/reference/manageUI",
+                "https://example.invalid/manage");
+    expect_text("Versions[1]/version", "1.0");
+    expect_text("Versions[1]/event/action", "saved");
+    expect_text("Versions[1]/event/parameters", "chapter=1");
+    expect_text("Pantry[1]/InstanceID", "uuid:pantry-1");
+    expect_text("Pantry[1]/format", "image/jpeg");
+}
+
 TEST(XmpDecodeTest, DecodesAdobeStructuredWorkflowNamespaces)
 {
     const std::string xmp
@@ -1468,6 +1552,70 @@ TEST(XmpDecodeTest, DecodesMixedNamespaceStructuredLocationDetailsChildren)
     expect_text("LocationShown[1]/xmp:Identifier[2]", "loc-002");
     expect_text("LocationShown[1]/exif:GPSLatitude", "41,24.5N");
     expect_text("LocationShown[1]/exif:GPSLongitude", "2,9E");
+}
+
+TEST(XmpDecodeTest,
+     DecodesLegacyUnqualifiedMixedNamespaceLocationDetailsChildren)
+{
+    const std::string xmp
+        = "<x:xmpmeta xmlns:x='adobe:ns:meta/'>"
+          "<rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'>"
+          "<rdf:Description "
+          "xmlns:Iptc4xmpExt='http://iptc.org/std/Iptc4xmpExt/2008-02-29/'>"
+          "<Iptc4xmpExt:LocationShown><rdf:Seq>"
+          "<rdf:li rdf:parseType='Resource'>"
+          "<Identifier><rdf:Bag>"
+          "<rdf:li>loc-001</rdf:li>"
+          "<rdf:li>loc-002</rdf:li>"
+          "</rdf:Bag></Identifier>"
+          "<GPSLatitude>41,24.5N</GPSLatitude>"
+          "<GPSLongitude>2,9E</GPSLongitude>"
+          "<GPSAltitude>35.5</GPSAltitude>"
+          "<GPSAltitudeRef>Above Sea Level</GPSAltitudeRef>"
+          "</rdf:li>"
+          "</rdf:Seq></Iptc4xmpExt:LocationShown>"
+          "<Iptc4xmpExt:LocationCreated rdf:parseType='Resource'>"
+          "<Identifier><rdf:Bag><rdf:li>par-001</rdf:li></rdf:Bag></Identifier>"
+          "<GPSLatitude>48,51.507N</GPSLatitude>"
+          "</Iptc4xmpExt:LocationCreated>"
+          "</rdf:Description>"
+          "</rdf:RDF>"
+          "</x:xmpmeta>";
+
+    const std::span<const std::byte> bytes(
+        reinterpret_cast<const std::byte*>(xmp.data()), xmp.size());
+
+    MetaStore store;
+    const XmpDecodeResult r = decode_xmp_packet(bytes, store);
+    ASSERT_EQ(r.status, XmpDecodeStatus::Ok);
+    store.finalize();
+
+    const auto expect_text = [&](std::string_view path,
+                                 std::string_view expected) {
+        MetaKeyView key;
+        key.kind = MetaKeyKind::XmpProperty;
+        key.data.xmp_property.schema_ns
+            = "http://iptc.org/std/Iptc4xmpExt/2008-02-29/";
+        key.data.xmp_property.property_path = path;
+        const std::span<const EntryId> ids = store.find_all(key);
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        ASSERT_EQ(e.value.kind, MetaValueKind::Text);
+        const std::span<const std::byte> vb
+            = store.arena().span(e.value.data.span);
+        const std::string_view val(reinterpret_cast<const char*>(vb.data()),
+                                   vb.size());
+        EXPECT_EQ(val, expected);
+    };
+
+    expect_text("LocationShown[1]/Identifier[1]", "loc-001");
+    expect_text("LocationShown[1]/Identifier[2]", "loc-002");
+    expect_text("LocationShown[1]/GPSLatitude", "41,24.5N");
+    expect_text("LocationShown[1]/GPSLongitude", "2,9E");
+    expect_text("LocationShown[1]/GPSAltitude", "35.5");
+    expect_text("LocationShown[1]/GPSAltitudeRef", "Above Sea Level");
+    expect_text("LocationCreated/Identifier[1]", "par-001");
+    expect_text("LocationCreated/GPSLatitude", "48,51.507N");
 }
 
 TEST(XmpDecodeTest, EstimateMatchesDecodeCounters)

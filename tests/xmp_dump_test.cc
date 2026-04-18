@@ -2713,7 +2713,8 @@ TEST(XmpDump, PortableGeneratedIptcCanOverrideExistingIndexedXmp)
     EXPECT_EQ(s.find("<rdf:li>xmp-keyword</rdf:li>"), std::string_view::npos);
 }
 
-TEST(XmpDump, PortableExistingXmpPrefersFirstSeenScalarOverIndexedShape)
+TEST(XmpDump,
+     PortableExistingXmpCanonicalizesSubjectScalarToExplicitIndexedShape)
 {
     MetaStore store;
     const BlockId block = store.add_block(BlockInfo {});
@@ -2752,10 +2753,13 @@ TEST(XmpDump, PortableExistingXmpPrefersFirstSeenScalarOverIndexedShape)
 
     const std::string_view s(reinterpret_cast<const char*>(out.data()),
                              static_cast<size_t>(r.written));
-    EXPECT_NE(s.find("<dc:subject>scalar-keyword</dc:subject>"),
+    EXPECT_NE(s.find("<dc:subject>"), std::string_view::npos);
+    EXPECT_NE(s.find("<rdf:Bag>"), std::string_view::npos);
+    EXPECT_NE(s.find("<rdf:li>indexed-keyword</rdf:li>"),
               std::string_view::npos);
-    EXPECT_EQ(s.find("<rdf:Bag>"), std::string_view::npos);
-    EXPECT_EQ(s.find("<rdf:li>indexed-keyword</rdf:li>"),
+    EXPECT_EQ(s.find("<dc:subject>scalar-keyword</dc:subject>"),
+              std::string_view::npos);
+    EXPECT_EQ(s.find("<rdf:li>scalar-keyword</rdf:li>"),
               std::string_view::npos);
 }
 
@@ -5111,6 +5115,57 @@ TEST(XmpDump, PortableCanonicalizesXmpDmTracksStructuredFamily)
     EXPECT_EQ(s.find("legacy-track-cue-point-params"), std::string_view::npos);
 }
 
+TEST(XmpDump, PortablePromotesLegacyXmpMmPantryFormatToDcNamespace)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, kInvalidBlockId);
+
+    Entry pantry_instance_id;
+    pantry_instance_id.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/mm/",
+        "Pantry[1]/InstanceID");
+    pantry_instance_id.value = make_text(store.arena(), "uuid:pantry-1",
+                                         TextEncoding::Utf8);
+    pantry_instance_id.origin.block          = block;
+    pantry_instance_id.origin.order_in_block = 0;
+    (void)store.add_entry(pantry_instance_id);
+
+    Entry pantry_format;
+    pantry_format.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/mm/",
+        "Pantry[1]/format");
+    pantry_format.value = make_text(store.arena(), "image/jpeg",
+                                    TextEncoding::Utf8);
+    pantry_format.origin.block          = block;
+    pantry_format.origin.order_in_block = 1;
+    (void)store.add_entry(pantry_format);
+
+    store.finalize();
+
+    XmpPortableOptions opts;
+    opts.include_exif         = false;
+    opts.include_iptc         = false;
+    opts.include_existing_xmp = true;
+
+    std::vector<std::byte> out(4096);
+    const XmpDumpResult r
+        = dump_xmp_portable(store, std::span<std::byte>(out.data(), out.size()),
+                            opts);
+    ASSERT_EQ(r.status, XmpDumpStatus::Ok);
+
+    const std::string_view s(reinterpret_cast<const char*>(out.data()),
+                             static_cast<size_t>(r.written));
+    EXPECT_NE(s.find("<xmpMM:Pantry>"), std::string_view::npos);
+    EXPECT_NE(
+        s.find("<xmpMM:InstanceID>uuid:pantry-1</xmpMM:InstanceID>"),
+        std::string_view::npos);
+    EXPECT_NE(s.find("<dc:format>image/jpeg</dc:format>"),
+              std::string_view::npos);
+    EXPECT_EQ(s.find("<xmpMM:format>image/jpeg</xmpMM:format>"),
+              std::string_view::npos);
+}
+
 TEST(XmpDump, PortablePreservesAuxStandardNamespace)
 {
     MetaStore store;
@@ -6665,6 +6720,781 @@ TEST(XmpDump, PortablePreservesMixedNamespaceStructuredLocationDetailsChildren)
               std::string_view::npos);
 }
 
+TEST(XmpDump, PortablePromotesLegacyMixedNamespaceLocationDetailsChildren)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, kInvalidBlockId);
+
+    Entry shown_id1;
+    shown_id1.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationShown[1]/Identifier[1]");
+    shown_id1.value = make_text(store.arena(), "loc-001",
+                                TextEncoding::Utf8);
+    shown_id1.origin.block          = block;
+    shown_id1.origin.order_in_block = 0;
+    (void)store.add_entry(shown_id1);
+
+    Entry shown_id2;
+    shown_id2.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationShown[1]/Identifier[2]");
+    shown_id2.value = make_text(store.arena(), "loc-002",
+                                TextEncoding::Utf8);
+    shown_id2.origin.block          = block;
+    shown_id2.origin.order_in_block = 1;
+    (void)store.add_entry(shown_id2);
+
+    Entry shown_gps_lat;
+    shown_gps_lat.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationShown[1]/GPSLatitude");
+    shown_gps_lat.value = make_text(store.arena(), "35,40.123N",
+                                    TextEncoding::Utf8);
+    shown_gps_lat.origin.block          = block;
+    shown_gps_lat.origin.order_in_block = 2;
+    (void)store.add_entry(shown_gps_lat);
+
+    Entry shown_gps_lon;
+    shown_gps_lon.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationShown[1]/GPSLongitude");
+    shown_gps_lon.value = make_text(store.arena(), "139,42.456E",
+                                    TextEncoding::Utf8);
+    shown_gps_lon.origin.block          = block;
+    shown_gps_lon.origin.order_in_block = 3;
+    (void)store.add_entry(shown_gps_lon);
+
+    Entry shown_gps_alt;
+    shown_gps_alt.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationShown[1]/GPSAltitude");
+    shown_gps_alt.value = make_text(store.arena(), "35.5",
+                                    TextEncoding::Utf8);
+    shown_gps_alt.origin.block          = block;
+    shown_gps_alt.origin.order_in_block = 4;
+    (void)store.add_entry(shown_gps_alt);
+
+    Entry shown_gps_alt_ref;
+    shown_gps_alt_ref.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationShown[1]/GPSAltitudeRef");
+    shown_gps_alt_ref.value = make_text(store.arena(), "Above Sea Level",
+                                        TextEncoding::Utf8);
+    shown_gps_alt_ref.origin.block          = block;
+    shown_gps_alt_ref.origin.order_in_block = 5;
+    (void)store.add_entry(shown_gps_alt_ref);
+
+    Entry created_id1;
+    created_id1.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationCreated/Identifier[1]");
+    created_id1.value = make_text(store.arena(), "par-001",
+                                  TextEncoding::Utf8);
+    created_id1.origin.block          = block;
+    created_id1.origin.order_in_block = 6;
+    (void)store.add_entry(created_id1);
+
+    Entry created_gps_lat;
+    created_gps_lat.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationCreated/GPSLatitude");
+    created_gps_lat.value = make_text(store.arena(), "48,51.507N",
+                                      TextEncoding::Utf8);
+    created_gps_lat.origin.block          = block;
+    created_gps_lat.origin.order_in_block = 7;
+    (void)store.add_entry(created_gps_lat);
+
+    store.finalize();
+
+    XmpPortableOptions opts;
+    opts.include_exif         = false;
+    opts.include_iptc         = false;
+    opts.include_existing_xmp = true;
+
+    std::vector<std::byte> out(8192);
+    const XmpDumpResult r
+        = dump_xmp_portable(store, std::span<std::byte>(out.data(), out.size()),
+                            opts);
+    ASSERT_EQ(r.status, XmpDumpStatus::Ok);
+
+    const std::string_view s(reinterpret_cast<const char*>(out.data()),
+                             static_cast<size_t>(r.written));
+    EXPECT_NE(s.find("<Iptc4xmpExt:LocationShown>"), std::string_view::npos);
+    EXPECT_NE(s.find("<xmp:Identifier>"), std::string_view::npos);
+    EXPECT_NE(s.find("<rdf:li>loc-001</rdf:li>"), std::string_view::npos);
+    EXPECT_NE(s.find("<rdf:li>loc-002</rdf:li>"), std::string_view::npos);
+    EXPECT_NE(s.find("<exif:GPSLatitude>35,40.123N</exif:GPSLatitude>"),
+              std::string_view::npos);
+    EXPECT_NE(
+        s.find("<exif:GPSLongitude>139,42.456E</exif:GPSLongitude>"),
+        std::string_view::npos);
+    EXPECT_NE(s.find("<exif:GPSAltitude>35.5</exif:GPSAltitude>"),
+              std::string_view::npos);
+    EXPECT_NE(
+        s.find(
+            "<exif:GPSAltitudeRef>Above Sea Level</exif:GPSAltitudeRef>"),
+        std::string_view::npos);
+    EXPECT_NE(
+        s.find("<Iptc4xmpExt:LocationCreated rdf:parseType=\"Resource\">"),
+        std::string_view::npos);
+    EXPECT_NE(s.find("<rdf:li>par-001</rdf:li>"), std::string_view::npos);
+    EXPECT_NE(s.find("<exif:GPSLatitude>48,51.507N</exif:GPSLatitude>"),
+              std::string_view::npos);
+
+    EXPECT_EQ(s.find("<Iptc4xmpExt:Identifier>"), std::string_view::npos);
+    EXPECT_EQ(s.find("<Iptc4xmpExt:GPSLatitude>"), std::string_view::npos);
+    EXPECT_EQ(s.find("<Iptc4xmpExt:GPSLongitude>"), std::string_view::npos);
+    EXPECT_EQ(s.find("<Iptc4xmpExt:GPSAltitude>"), std::string_view::npos);
+    EXPECT_EQ(s.find("<Iptc4xmpExt:GPSAltitudeRef>"),
+              std::string_view::npos);
+}
+
+TEST(XmpDump,
+     PortableDoesNotDuplicateLegacyMixedNamespaceIndexedPromotion)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, kInvalidBlockId);
+
+    Entry shown_identifier_scalar;
+    shown_identifier_scalar.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationShown[1]/Identifier");
+    shown_identifier_scalar.value = make_text(store.arena(), "legacy-id-scalar",
+                                              TextEncoding::Utf8);
+    shown_identifier_scalar.origin.block          = block;
+    shown_identifier_scalar.origin.order_in_block = 0;
+    (void)store.add_entry(shown_identifier_scalar);
+
+    Entry shown_identifier_indexed;
+    shown_identifier_indexed.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationShown[1]/Identifier[1]");
+    shown_identifier_indexed.value = make_text(store.arena(), "loc-001",
+                                               TextEncoding::Utf8);
+    shown_identifier_indexed.origin.block          = block;
+    shown_identifier_indexed.origin.order_in_block = 1;
+    (void)store.add_entry(shown_identifier_indexed);
+
+    store.finalize();
+
+    XmpPortableOptions opts;
+    opts.include_exif         = false;
+    opts.include_iptc         = false;
+    opts.include_existing_xmp = true;
+
+    std::vector<std::byte> out(4096);
+    const XmpDumpResult r
+        = dump_xmp_portable(store, std::span<std::byte>(out.data(), out.size()),
+                            opts);
+    ASSERT_EQ(r.status, XmpDumpStatus::Ok);
+
+    const std::string_view s(reinterpret_cast<const char*>(out.data()),
+                             static_cast<size_t>(r.written));
+    EXPECT_NE(s.find("<xmp:Identifier>"), std::string_view::npos);
+    EXPECT_NE(s.find("<rdf:li>loc-001</rdf:li>"), std::string_view::npos);
+    EXPECT_EQ(s.find("<rdf:li>legacy-id-scalar</rdf:li>"),
+              std::string_view::npos);
+}
+
+TEST(XmpDump,
+     PortableDoesNotDuplicateLegacyAdobeNestedQualifiedScalarPromotion)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, kInvalidBlockId);
+
+    Entry legacy_file_path;
+    legacy_file_path.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/mm/",
+        "Manifest[1]/reference/filePath");
+    legacy_file_path.value = make_text(store.arena(),
+                                       "/tmp/legacy-manifest.dat",
+                                       TextEncoding::Utf8);
+    legacy_file_path.origin.block          = block;
+    legacy_file_path.origin.order_in_block = 0;
+    (void)store.add_entry(legacy_file_path);
+
+    Entry canonical_file_path;
+    canonical_file_path.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/mm/",
+        "Manifest[1]/stMfs:reference/stRef:filePath");
+    canonical_file_path.value = make_text(store.arena(),
+                                          "/tmp/canonical-manifest.dat",
+                                          TextEncoding::Utf8);
+    canonical_file_path.origin.block          = block;
+    canonical_file_path.origin.order_in_block = 1;
+    (void)store.add_entry(canonical_file_path);
+
+    store.finalize();
+
+    XmpPortableOptions opts;
+    opts.include_exif         = false;
+    opts.include_iptc         = false;
+    opts.include_existing_xmp = true;
+
+    std::vector<std::byte> out(4096);
+    const XmpDumpResult r
+        = dump_xmp_portable(store, std::span<std::byte>(out.data(), out.size()),
+                            opts);
+    ASSERT_EQ(r.status, XmpDumpStatus::Ok);
+
+    const std::string_view s(reinterpret_cast<const char*>(out.data()),
+                             static_cast<size_t>(r.written));
+    EXPECT_NE(s.find("<xmpMM:Manifest>"), std::string_view::npos);
+    EXPECT_NE(s.find("<stMfs:reference"), std::string_view::npos);
+    EXPECT_NE(
+        s.find("<stRef:filePath>/tmp/canonical-manifest.dat</stRef:filePath>"),
+        std::string_view::npos);
+    EXPECT_EQ(
+        s.find("<stRef:filePath>/tmp/legacy-manifest.dat</stRef:filePath>"),
+        std::string_view::npos);
+}
+
+TEST(XmpDump,
+     PortableDoesNotDuplicateLegacyAdobeQualifiedStructuredFamilies)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, kInvalidBlockId);
+
+    Entry legacy_rendition_manage_to;
+    legacy_rendition_manage_to.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/mm/",
+        "RenditionOf/manageTo");
+    legacy_rendition_manage_to.value = make_text(
+        store.arena(), "https://example.invalid/legacy-rendition",
+        TextEncoding::Utf8);
+    legacy_rendition_manage_to.origin.block          = block;
+    legacy_rendition_manage_to.origin.order_in_block = 0;
+    (void)store.add_entry(legacy_rendition_manage_to);
+
+    Entry canonical_rendition_manage_to;
+    canonical_rendition_manage_to.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/mm/",
+        "RenditionOf/stRef:manageTo");
+    canonical_rendition_manage_to.value = make_text(
+        store.arena(), "https://example.invalid/canonical-rendition",
+        TextEncoding::Utf8);
+    canonical_rendition_manage_to.origin.block          = block;
+    canonical_rendition_manage_to.origin.order_in_block = 1;
+    (void)store.add_entry(canonical_rendition_manage_to);
+
+    Entry legacy_history_agent;
+    legacy_history_agent.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/mm/",
+        "History[1]/softwareAgent");
+    legacy_history_agent.value = make_text(store.arena(),
+                                           "LegacyAgent",
+                                           TextEncoding::Utf8);
+    legacy_history_agent.origin.block          = block;
+    legacy_history_agent.origin.order_in_block = 2;
+    (void)store.add_entry(legacy_history_agent);
+
+    Entry canonical_history_agent;
+    canonical_history_agent.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/mm/",
+        "History[1]/stEvt:softwareAgent");
+    canonical_history_agent.value = make_text(store.arena(),
+                                              "CanonicalAgent",
+                                              TextEncoding::Utf8);
+    canonical_history_agent.origin.block          = block;
+    canonical_history_agent.origin.order_in_block = 3;
+    (void)store.add_entry(canonical_history_agent);
+
+    Entry legacy_versions_action;
+    legacy_versions_action.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/mm/",
+        "Versions[1]/event/action");
+    legacy_versions_action.value = make_text(store.arena(),
+                                             "legacy-saved",
+                                             TextEncoding::Utf8);
+    legacy_versions_action.origin.block          = block;
+    legacy_versions_action.origin.order_in_block = 4;
+    (void)store.add_entry(legacy_versions_action);
+
+    Entry canonical_versions_action;
+    canonical_versions_action.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/mm/",
+        "Versions[1]/stVer:event/stEvt:action");
+    canonical_versions_action.value = make_text(store.arena(),
+                                                "saved",
+                                                TextEncoding::Utf8);
+    canonical_versions_action.origin.block          = block;
+    canonical_versions_action.origin.order_in_block = 5;
+    (void)store.add_entry(canonical_versions_action);
+
+    Entry legacy_video_width;
+    legacy_video_width.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+        "videoFrameSize/w");
+    legacy_video_width.value = make_text(store.arena(), "1280",
+                                         TextEncoding::Utf8);
+    legacy_video_width.origin.block          = block;
+    legacy_video_width.origin.order_in_block = 6;
+    (void)store.add_entry(legacy_video_width);
+
+    Entry canonical_video_width;
+    canonical_video_width.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+        "videoFrameSize/stDim:w");
+    canonical_video_width.value = make_text(store.arena(), "1920",
+                                            TextEncoding::Utf8);
+    canonical_video_width.origin.block          = block;
+    canonical_video_width.origin.order_in_block = 7;
+    (void)store.add_entry(canonical_video_width);
+
+    Entry legacy_colorant_name;
+    legacy_colorant_name.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/t/pg/",
+        "SwatchGroups[1]/Colorants[1]/swatchName");
+    legacy_colorant_name.value = make_text(store.arena(), "Legacy Orange",
+                                           TextEncoding::Utf8);
+    legacy_colorant_name.origin.block          = block;
+    legacy_colorant_name.origin.order_in_block = 8;
+    (void)store.add_entry(legacy_colorant_name);
+
+    Entry canonical_colorant_name;
+    canonical_colorant_name.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/t/pg/",
+        "SwatchGroups[1]/Colorants[1]/xmpG:swatchName");
+    canonical_colorant_name.value = make_text(store.arena(),
+                                              "Accent Orange",
+                                              TextEncoding::Utf8);
+    canonical_colorant_name.origin.block          = block;
+    canonical_colorant_name.origin.order_in_block = 9;
+    (void)store.add_entry(canonical_colorant_name);
+
+    store.finalize();
+
+    XmpPortableOptions opts;
+    opts.include_exif         = false;
+    opts.include_iptc         = false;
+    opts.include_existing_xmp = true;
+
+    std::vector<std::byte> out(8192);
+    const XmpDumpResult r
+        = dump_xmp_portable(store, std::span<std::byte>(out.data(), out.size()),
+                            opts);
+    ASSERT_EQ(r.status, XmpDumpStatus::Ok);
+
+    const std::string_view s(reinterpret_cast<const char*>(out.data()),
+                             static_cast<size_t>(r.written));
+    EXPECT_NE(
+        s.find(
+            "<stRef:manageTo>https://example.invalid/canonical-rendition</stRef:manageTo>"),
+        std::string_view::npos);
+    EXPECT_EQ(
+        s.find(
+            "<stRef:manageTo>https://example.invalid/legacy-rendition</stRef:manageTo>"),
+        std::string_view::npos);
+    EXPECT_NE(s.find("<stEvt:softwareAgent>CanonicalAgent</stEvt:softwareAgent>"),
+              std::string_view::npos);
+    EXPECT_EQ(s.find("<stEvt:softwareAgent>LegacyAgent</stEvt:softwareAgent>"),
+              std::string_view::npos);
+    EXPECT_NE(s.find("<stEvt:action>saved</stEvt:action>"),
+              std::string_view::npos);
+    EXPECT_EQ(s.find("<stEvt:action>legacy-saved</stEvt:action>"),
+              std::string_view::npos);
+    EXPECT_NE(s.find("<stDim:w>1920</stDim:w>"),
+              std::string_view::npos);
+    EXPECT_EQ(s.find("<stDim:w>1280</stDim:w>"),
+              std::string_view::npos);
+    EXPECT_NE(s.find("<xmpG:swatchName>Accent Orange</xmpG:swatchName>"),
+              std::string_view::npos);
+    EXPECT_EQ(s.find("<xmpG:swatchName>Legacy Orange</xmpG:swatchName>"),
+              std::string_view::npos);
+}
+
+TEST(XmpDump,
+     PortableDoesNotDuplicateAdditionalLegacyAdobeQualifiedStructuredFamilies)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, kInvalidBlockId);
+
+    Entry legacy_document_id;
+    legacy_document_id.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/mm/",
+        "DerivedFrom/documentID");
+    legacy_document_id.value = make_text(store.arena(),
+                                         "xmp.did:legacy-base",
+                                         TextEncoding::Utf8);
+    legacy_document_id.origin.block          = block;
+    legacy_document_id.origin.order_in_block = 0;
+    (void)store.add_entry(legacy_document_id);
+
+    Entry canonical_document_id;
+    canonical_document_id.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/mm/",
+        "DerivedFrom/stRef:documentID");
+    canonical_document_id.value = make_text(store.arena(),
+                                            "xmp.did:canonical-base",
+                                            TextEncoding::Utf8);
+    canonical_document_id.origin.block          = block;
+    canonical_document_id.origin.order_in_block = 1;
+    (void)store.add_entry(canonical_document_id);
+
+    Entry legacy_manage_ui;
+    legacy_manage_ui.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/mm/",
+        "Manifest[1]/reference/manageUI");
+    legacy_manage_ui.value = make_text(
+        store.arena(), "https://example.invalid/legacy-manage",
+        TextEncoding::Utf8);
+    legacy_manage_ui.origin.block          = block;
+    legacy_manage_ui.origin.order_in_block = 2;
+    (void)store.add_entry(legacy_manage_ui);
+
+    Entry canonical_manage_ui;
+    canonical_manage_ui.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/mm/",
+        "Manifest[1]/stMfs:reference/stRef:manageUI");
+    canonical_manage_ui.value = make_text(
+        store.arena(), "https://example.invalid/canonical-manage",
+        TextEncoding::Utf8);
+    canonical_manage_ui.origin.block          = block;
+    canonical_manage_ui.origin.order_in_block = 3;
+    (void)store.add_entry(canonical_manage_ui);
+
+    Entry legacy_child_font_file;
+    legacy_child_font_file.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/t/pg/",
+        "Fonts[1]/childFontFiles[1]");
+    legacy_child_font_file.value = make_text(store.arena(),
+                                             "LegacyFont.otf",
+                                             TextEncoding::Utf8);
+    legacy_child_font_file.origin.block          = block;
+    legacy_child_font_file.origin.order_in_block = 4;
+    (void)store.add_entry(legacy_child_font_file);
+
+    Entry canonical_child_font_file;
+    canonical_child_font_file.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/t/pg/",
+        "Fonts[1]/stFnt:childFontFiles[1]");
+    canonical_child_font_file.value = make_text(
+        store.arena(), "SourceSerif-Regular.otf",
+        TextEncoding::Utf8);
+    canonical_child_font_file.origin.block          = block;
+    canonical_child_font_file.origin.order_in_block = 5;
+    (void)store.add_entry(canonical_child_font_file);
+
+    Entry legacy_max_page_w;
+    legacy_max_page_w.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/t/pg/",
+        "MaxPageSize/w");
+    legacy_max_page_w.value = make_text(store.arena(), "8.5",
+                                        TextEncoding::Utf8);
+    legacy_max_page_w.origin.block          = block;
+    legacy_max_page_w.origin.order_in_block = 6;
+    (void)store.add_entry(legacy_max_page_w);
+
+    Entry canonical_max_page_w;
+    canonical_max_page_w.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/t/pg/",
+        "MaxPageSize/stDim:w");
+    canonical_max_page_w.value = make_text(store.arena(), "8.75",
+                                           TextEncoding::Utf8);
+    canonical_max_page_w.origin.block          = block;
+    canonical_max_page_w.origin.order_in_block = 7;
+    (void)store.add_entry(canonical_max_page_w);
+
+    Entry legacy_managed_from_instance_id;
+    legacy_managed_from_instance_id.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/mm/",
+        "ManagedFrom/instanceID");
+    legacy_managed_from_instance_id.value = make_text(
+        store.arena(), "xmp.iid:legacy-managed",
+        TextEncoding::Utf8);
+    legacy_managed_from_instance_id.origin.block          = block;
+    legacy_managed_from_instance_id.origin.order_in_block = 8;
+    (void)store.add_entry(legacy_managed_from_instance_id);
+
+    Entry canonical_managed_from_instance_id;
+    canonical_managed_from_instance_id.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/mm/",
+        "ManagedFrom/stRef:instanceID");
+    canonical_managed_from_instance_id.value = make_text(
+        store.arena(), "xmp.iid:canonical-managed",
+        TextEncoding::Utf8);
+    canonical_managed_from_instance_id.origin.block          = block;
+    canonical_managed_from_instance_id.origin.order_in_block = 9;
+    (void)store.add_entry(canonical_managed_from_instance_id);
+
+    Entry legacy_history_parameters;
+    legacy_history_parameters.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/mm/",
+        "History[1]/parameters");
+    legacy_history_parameters.value = make_text(
+        store.arena(), "legacy-history-params",
+        TextEncoding::Utf8);
+    legacy_history_parameters.origin.block          = block;
+    legacy_history_parameters.origin.order_in_block = 10;
+    (void)store.add_entry(legacy_history_parameters);
+
+    Entry canonical_history_parameters;
+    canonical_history_parameters.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/mm/",
+        "History[1]/stEvt:parameters");
+    canonical_history_parameters.value = make_text(
+        store.arena(), "canonical-history-params",
+        TextEncoding::Utf8);
+    canonical_history_parameters.origin.block          = block;
+    canonical_history_parameters.origin.order_in_block = 11;
+    (void)store.add_entry(canonical_history_parameters);
+
+    Entry legacy_font_name;
+    legacy_font_name.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/t/pg/",
+        "Fonts[1]/fontName");
+    legacy_font_name.value = make_text(store.arena(), "Legacy Display",
+                                       TextEncoding::Utf8);
+    legacy_font_name.origin.block          = block;
+    legacy_font_name.origin.order_in_block = 12;
+    (void)store.add_entry(legacy_font_name);
+
+    Entry canonical_font_name;
+    canonical_font_name.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/t/pg/",
+        "Fonts[1]/stFnt:fontName");
+    canonical_font_name.value = make_text(
+        store.arena(), "Source Serif Display",
+        TextEncoding::Utf8);
+    canonical_font_name.origin.block          = block;
+    canonical_font_name.origin.order_in_block = 13;
+    (void)store.add_entry(canonical_font_name);
+
+    Entry legacy_colorant_mode;
+    legacy_colorant_mode.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/t/pg/",
+        "SwatchGroups[1]/Colorants[1]/mode");
+    legacy_colorant_mode.value = make_text(store.arena(), "CMYK",
+                                           TextEncoding::Utf8);
+    legacy_colorant_mode.origin.block          = block;
+    legacy_colorant_mode.origin.order_in_block = 14;
+    (void)store.add_entry(legacy_colorant_mode);
+
+    Entry canonical_colorant_mode;
+    canonical_colorant_mode.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/t/pg/",
+        "SwatchGroups[1]/Colorants[1]/xmpG:mode");
+    canonical_colorant_mode.value = make_text(store.arena(), "RGB",
+                                              TextEncoding::Utf8);
+    canonical_colorant_mode.origin.block          = block;
+    canonical_colorant_mode.origin.order_in_block = 15;
+    (void)store.add_entry(canonical_colorant_mode);
+
+    Entry legacy_job_id;
+    legacy_job_id.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/bj/",
+        "JobRef[1]/id");
+    legacy_job_id.value = make_text(store.arena(), "legacy-job-id",
+                                    TextEncoding::Utf8);
+    legacy_job_id.origin.block          = block;
+    legacy_job_id.origin.order_in_block = 16;
+    (void)store.add_entry(legacy_job_id);
+
+    Entry canonical_job_id;
+    canonical_job_id.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/bj/",
+        "JobRef[1]/stJob:id");
+    canonical_job_id.value = make_text(store.arena(), "canonical-job-id",
+                                       TextEncoding::Utf8);
+    canonical_job_id.origin.block          = block;
+    canonical_job_id.origin.order_in_block = 17;
+    (void)store.add_entry(canonical_job_id);
+
+    Entry legacy_job_url;
+    legacy_job_url.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/bj/",
+        "JobRef[1]/url");
+    legacy_job_url.value = make_text(
+        store.arena(), "https://example.invalid/legacy-job",
+        TextEncoding::Utf8);
+    legacy_job_url.origin.block          = block;
+    legacy_job_url.origin.order_in_block = 18;
+    (void)store.add_entry(legacy_job_url);
+
+    Entry canonical_job_url;
+    canonical_job_url.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/bj/",
+        "JobRef[1]/stJob:url");
+    canonical_job_url.value = make_text(
+        store.arena(), "https://example.invalid/canonical-job",
+        TextEncoding::Utf8);
+    canonical_job_url.origin.block          = block;
+    canonical_job_url.origin.order_in_block = 19;
+    (void)store.add_entry(canonical_job_url);
+
+    Entry legacy_rendition_part_mapping;
+    legacy_rendition_part_mapping.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/mm/",
+        "RenditionOf/partMapping");
+    legacy_rendition_part_mapping.value = make_text(
+        store.arena(), "legacy-part-map", TextEncoding::Utf8);
+    legacy_rendition_part_mapping.origin.block          = block;
+    legacy_rendition_part_mapping.origin.order_in_block = 20;
+    (void)store.add_entry(legacy_rendition_part_mapping);
+
+    Entry canonical_rendition_part_mapping;
+    canonical_rendition_part_mapping.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/mm/",
+        "RenditionOf/stRef:partMapping");
+    canonical_rendition_part_mapping.value = make_text(
+        store.arena(), "canonical-part-map", TextEncoding::Utf8);
+    canonical_rendition_part_mapping.origin.block          = block;
+    canonical_rendition_part_mapping.origin.order_in_block = 21;
+    (void)store.add_entry(canonical_rendition_part_mapping);
+
+    Entry legacy_versions_when;
+    legacy_versions_when.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/mm/",
+        "Versions[1]/event/when");
+    legacy_versions_when.value = make_text(
+        store.arena(), "2026-04-18T11:22:33Z", TextEncoding::Utf8);
+    legacy_versions_when.origin.block          = block;
+    legacy_versions_when.origin.order_in_block = 22;
+    (void)store.add_entry(legacy_versions_when);
+
+    Entry canonical_versions_when;
+    canonical_versions_when.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/mm/",
+        "Versions[1]/stVer:event/stEvt:when");
+    canonical_versions_when.value = make_text(
+        store.arena(), "2026-04-19T01:02:03Z", TextEncoding::Utf8);
+    canonical_versions_when.origin.block          = block;
+    canonical_versions_when.origin.order_in_block = 23;
+    (void)store.add_entry(canonical_versions_when);
+
+    Entry legacy_frame_unit;
+    legacy_frame_unit.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+        "videoFrameSize/unit");
+    legacy_frame_unit.value = make_text(store.arena(), "inch",
+                                        TextEncoding::Utf8);
+    legacy_frame_unit.origin.block          = block;
+    legacy_frame_unit.origin.order_in_block = 24;
+    (void)store.add_entry(legacy_frame_unit);
+
+    Entry canonical_frame_unit;
+    canonical_frame_unit.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+        "videoFrameSize/stDim:unit");
+    canonical_frame_unit.value = make_text(store.arena(), "pixel",
+                                           TextEncoding::Utf8);
+    canonical_frame_unit.origin.block          = block;
+    canonical_frame_unit.origin.order_in_block = 25;
+    (void)store.add_entry(canonical_frame_unit);
+
+    Entry legacy_alpha_red;
+    legacy_alpha_red.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+        "videoAlphaPremultipleColor/red");
+    legacy_alpha_red.value = make_text(store.arena(), "32",
+                                       TextEncoding::Utf8);
+    legacy_alpha_red.origin.block          = block;
+    legacy_alpha_red.origin.order_in_block = 26;
+    (void)store.add_entry(legacy_alpha_red);
+
+    Entry canonical_alpha_red;
+    canonical_alpha_red.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xmp/1.0/DynamicMedia/",
+        "videoAlphaPremultipleColor/xmpG:red");
+    canonical_alpha_red.value = make_text(store.arena(), "255",
+                                          TextEncoding::Utf8);
+    canonical_alpha_red.origin.block          = block;
+    canonical_alpha_red.origin.order_in_block = 27;
+    (void)store.add_entry(canonical_alpha_red);
+
+    store.finalize();
+
+    XmpPortableOptions opts;
+    opts.include_exif         = false;
+    opts.include_iptc         = false;
+    opts.include_existing_xmp = true;
+
+    std::vector<std::byte> out(8192);
+    const XmpDumpResult r
+        = dump_xmp_portable(store, std::span<std::byte>(out.data(), out.size()),
+                            opts);
+    ASSERT_EQ(r.status, XmpDumpStatus::Ok);
+
+    const std::string_view s(reinterpret_cast<const char*>(out.data()),
+                             static_cast<size_t>(r.written));
+    EXPECT_NE(
+        s.find("<stRef:documentID>xmp.did:canonical-base</stRef:documentID>"),
+        std::string_view::npos);
+    EXPECT_EQ(
+        s.find("<stRef:documentID>xmp.did:legacy-base</stRef:documentID>"),
+        std::string_view::npos);
+    EXPECT_NE(
+        s.find(
+            "<stRef:manageUI>https://example.invalid/canonical-manage</stRef:manageUI>"),
+        std::string_view::npos);
+    EXPECT_EQ(
+        s.find(
+            "<stRef:manageUI>https://example.invalid/legacy-manage</stRef:manageUI>"),
+        std::string_view::npos);
+    EXPECT_NE(s.find("<stFnt:childFontFiles>"), std::string_view::npos);
+    EXPECT_NE(s.find("<rdf:li>SourceSerif-Regular.otf</rdf:li>"),
+              std::string_view::npos);
+    EXPECT_EQ(s.find("<rdf:li>LegacyFont.otf</rdf:li>"),
+              std::string_view::npos);
+    EXPECT_NE(s.find("<stDim:w>8.75</stDim:w>"),
+              std::string_view::npos);
+    EXPECT_EQ(s.find("<stDim:w>8.5</stDim:w>"),
+              std::string_view::npos);
+    EXPECT_NE(
+        s.find("<stRef:instanceID>xmp.iid:canonical-managed</stRef:instanceID>"),
+        std::string_view::npos);
+    EXPECT_EQ(
+        s.find("<stRef:instanceID>xmp.iid:legacy-managed</stRef:instanceID>"),
+        std::string_view::npos);
+    EXPECT_NE(
+        s.find("<stEvt:parameters>canonical-history-params</stEvt:parameters>"),
+        std::string_view::npos);
+    EXPECT_EQ(
+        s.find("<stEvt:parameters>legacy-history-params</stEvt:parameters>"),
+        std::string_view::npos);
+    EXPECT_NE(
+        s.find("<stFnt:fontName>Source Serif Display</stFnt:fontName>"),
+        std::string_view::npos);
+    EXPECT_EQ(s.find("<stFnt:fontName>Legacy Display</stFnt:fontName>"),
+              std::string_view::npos);
+    EXPECT_NE(s.find("<xmpG:mode>RGB</xmpG:mode>"),
+              std::string_view::npos);
+    EXPECT_EQ(s.find("<xmpG:mode>CMYK</xmpG:mode>"),
+              std::string_view::npos);
+    EXPECT_NE(s.find("<stJob:id>canonical-job-id</stJob:id>"),
+              std::string_view::npos);
+    EXPECT_EQ(s.find("<stJob:id>legacy-job-id</stJob:id>"),
+              std::string_view::npos);
+    EXPECT_NE(
+        s.find("<stJob:url>https://example.invalid/canonical-job</stJob:url>"),
+        std::string_view::npos);
+    EXPECT_EQ(
+        s.find("<stJob:url>https://example.invalid/legacy-job</stJob:url>"),
+        std::string_view::npos);
+    EXPECT_NE(s.find("<stRef:partMapping>canonical-part-map</stRef:partMapping>"),
+              std::string_view::npos);
+    EXPECT_EQ(s.find("<stRef:partMapping>legacy-part-map</stRef:partMapping>"),
+              std::string_view::npos);
+    EXPECT_NE(s.find("<stEvt:when>2026-04-19T01:02:03Z</stEvt:when>"),
+              std::string_view::npos);
+    EXPECT_EQ(s.find("<stEvt:when>2026-04-18T11:22:33Z</stEvt:when>"),
+              std::string_view::npos);
+    EXPECT_NE(s.find("<stDim:unit>pixel</stDim:unit>"),
+              std::string_view::npos);
+    EXPECT_EQ(s.find("<stDim:unit>inch</stDim:unit>"),
+              std::string_view::npos);
+    EXPECT_NE(s.find("<xmpG:red>255</xmpG:red>"),
+              std::string_view::npos);
+    EXPECT_EQ(s.find("<xmpG:red>32</xmpG:red>"),
+              std::string_view::npos);
+}
+
 TEST(XmpDump, PortableCanonicalizesIptcExtEntityWithRoleShapes)
 {
     MetaStore store;
@@ -7580,6 +8410,144 @@ TEST(XmpDump, PortablePromotesStandardFlatBaseScalarsToIndexedShapes)
         std::string_view::npos);
 }
 
+TEST(XmpDump, PortableRepairsTopLevelStandardCrossShapeProperties)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, kInvalidBlockId);
+
+    Entry title;
+    title.key = make_xmp_property_key(
+        store.arena(), "http://purl.org/dc/elements/1.1/", "title[1]");
+    title.value = make_text(store.arena(), "Legacy Title",
+                            TextEncoding::Utf8);
+    title.origin.block          = block;
+    title.origin.order_in_block = 0;
+    (void)store.add_entry(title);
+
+    Entry identifier;
+    identifier.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/",
+        "Identifier[@xml:lang=x-default]");
+    identifier.value = make_text(store.arena(), "urn:om:test:id",
+                                 TextEncoding::Utf8);
+    identifier.origin.block          = block;
+    identifier.origin.order_in_block = 1;
+    (void)store.add_entry(identifier);
+
+    Entry usage_terms;
+    usage_terms.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/rights/",
+        "UsageTerms[1]");
+    usage_terms.value = make_text(store.arena(), "Licensed use only",
+                                  TextEncoding::Utf8);
+    usage_terms.origin.block          = block;
+    usage_terms.origin.order_in_block = 2;
+    (void)store.add_entry(usage_terms);
+
+    Entry owner;
+    owner.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/rights/",
+        "Owner[@xml:lang=x-default]");
+    owner.value = make_text(store.arena(), "OpenMeta Labs",
+                            TextEncoding::Utf8);
+    owner.origin.block          = block;
+    owner.origin.order_in_block = 3;
+    (void)store.add_entry(owner);
+
+    Entry supplemental_categories;
+    supplemental_categories.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/photoshop/1.0/",
+        "SupplementalCategories[@xml:lang=x-default]");
+    supplemental_categories.value = make_text(
+        store.arena(), "legacy-supp", TextEncoding::Utf8);
+    supplemental_categories.origin.block          = block;
+    supplemental_categories.origin.order_in_block = 4;
+    (void)store.add_entry(supplemental_categories);
+
+    Entry hierarchical_subject;
+    hierarchical_subject.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/lightroom/1.0/",
+        "hierarchicalSubject[@xml:lang=x-default]");
+    hierarchical_subject.value = make_text(store.arena(), "Places|Museum",
+                                           TextEncoding::Utf8);
+    hierarchical_subject.origin.block          = block;
+    hierarchical_subject.origin.order_in_block = 5;
+    (void)store.add_entry(hierarchical_subject);
+
+    Entry alteration_constraints;
+    alteration_constraints.key = make_xmp_property_key(
+        store.arena(), "http://ns.useplus.org/ldf/xmp/1.0/",
+        "ImageAlterationConstraints[@xml:lang=x-default]");
+    alteration_constraints.value = make_text(store.arena(), "No compositing",
+                                             TextEncoding::Utf8);
+    alteration_constraints.origin.block          = block;
+    alteration_constraints.origin.order_in_block = 6;
+    (void)store.add_entry(alteration_constraints);
+
+    store.finalize();
+
+    XmpPortableOptions opts;
+    opts.include_exif         = false;
+    opts.include_iptc         = false;
+    opts.include_existing_xmp = true;
+
+    std::vector<std::byte> out(12288);
+    const XmpDumpResult r
+        = dump_xmp_portable(store, std::span<std::byte>(out.data(), out.size()),
+                            opts);
+    ASSERT_EQ(r.status, XmpDumpStatus::Ok);
+
+    const std::string_view s(reinterpret_cast<const char*>(out.data()),
+                             static_cast<size_t>(r.written));
+    EXPECT_NE(s.find("<dc:title>"), std::string_view::npos);
+    EXPECT_NE(s.find("<rdf:Alt>"), std::string_view::npos);
+    EXPECT_NE(
+        s.find("<rdf:li xml:lang=\"x-default\">Legacy Title</rdf:li>"),
+        std::string_view::npos);
+    EXPECT_EQ(s.find("<dc:title><rdf:Seq>"), std::string_view::npos);
+
+    EXPECT_NE(s.find("<xmp:Identifier>"), std::string_view::npos);
+    EXPECT_NE(s.find("<rdf:Bag>"), std::string_view::npos);
+    EXPECT_NE(s.find("<rdf:li>urn:om:test:id</rdf:li>"),
+              std::string_view::npos);
+    EXPECT_EQ(s.find("<xmp:Identifier><rdf:Alt>"), std::string_view::npos);
+
+    EXPECT_NE(s.find("<xmpRights:UsageTerms>"), std::string_view::npos);
+    EXPECT_NE(
+        s.find("<rdf:li xml:lang=\"x-default\">Licensed use only</rdf:li>"),
+        std::string_view::npos);
+    EXPECT_EQ(s.find("<xmpRights:UsageTerms><rdf:Seq>"),
+              std::string_view::npos);
+
+    EXPECT_NE(s.find("<xmpRights:Owner>"), std::string_view::npos);
+    EXPECT_NE(s.find("<rdf:li>OpenMeta Labs</rdf:li>"),
+              std::string_view::npos);
+    EXPECT_EQ(s.find("<xmpRights:Owner><rdf:Alt>"), std::string_view::npos);
+
+    EXPECT_NE(s.find("<photoshop:SupplementalCategories>"),
+              std::string_view::npos);
+    EXPECT_NE(s.find("<rdf:li>legacy-supp</rdf:li>"),
+              std::string_view::npos);
+    EXPECT_EQ(
+        s.find("<photoshop:SupplementalCategories><rdf:Alt>"),
+        std::string_view::npos);
+
+    EXPECT_NE(s.find("<lr:hierarchicalSubject>"), std::string_view::npos);
+    EXPECT_NE(s.find("<rdf:li>Places|Museum</rdf:li>"),
+              std::string_view::npos);
+    EXPECT_EQ(s.find("<lr:hierarchicalSubject><rdf:Alt>"),
+              std::string_view::npos);
+
+    EXPECT_NE(s.find("<plus:ImageAlterationConstraints>"),
+              std::string_view::npos);
+    EXPECT_NE(s.find("<rdf:li>No compositing</rdf:li>"),
+              std::string_view::npos);
+    EXPECT_EQ(
+        s.find("<plus:ImageAlterationConstraints><rdf:Alt>"),
+        std::string_view::npos);
+}
+
 TEST(XmpDump, PortablePromotesRemainingIptcExtStructuredChildScalars)
 {
     MetaStore store;
@@ -8150,6 +9118,140 @@ TEST(XmpDump,
               std::string_view::npos);
     EXPECT_EQ(s.find("<Iptc4xmpCore:LegacyStructured>"),
               std::string_view::npos);
+}
+
+TEST(XmpDump,
+     PortableCanonicalizeManagedReplacesGeneratedStructuredLocationCreated)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, kInvalidBlockId);
+
+    const std::string city = "Paris";
+    Entry iptc_city;
+    iptc_city.key = make_iptc_dataset_key(2U, 90U);
+    iptc_city.value = make_bytes(
+        store.arena(),
+        std::span<const std::byte>(
+            reinterpret_cast<const std::byte*>(city.data()), city.size()));
+    iptc_city.origin.block          = block;
+    iptc_city.origin.order_in_block = 0;
+    (void)store.add_entry(iptc_city);
+
+    const std::string sub_location = "Louvre Wing";
+    Entry iptc_sub_location;
+    iptc_sub_location.key = make_iptc_dataset_key(2U, 92U);
+    iptc_sub_location.value = make_bytes(
+        store.arena(),
+        std::span<const std::byte>(
+            reinterpret_cast<const std::byte*>(sub_location.data()),
+            sub_location.size()));
+    iptc_sub_location.origin.block          = block;
+    iptc_sub_location.origin.order_in_block = 1;
+    (void)store.add_entry(iptc_sub_location);
+
+    const std::string country_code = "FR";
+    Entry iptc_country_code;
+    iptc_country_code.key = make_iptc_dataset_key(2U, 100U);
+    iptc_country_code.value = make_bytes(
+        store.arena(),
+        std::span<const std::byte>(
+            reinterpret_cast<const std::byte*>(country_code.data()),
+            country_code.size()));
+    iptc_country_code.origin.block          = block;
+    iptc_country_code.origin.order_in_block = 2;
+    (void)store.add_entry(iptc_country_code);
+
+    const std::string country_name = "France";
+    Entry iptc_country_name;
+    iptc_country_name.key = make_iptc_dataset_key(2U, 101U);
+    iptc_country_name.value = make_bytes(
+        store.arena(),
+        std::span<const std::byte>(
+            reinterpret_cast<const std::byte*>(country_name.data()),
+            country_name.size()));
+    iptc_country_name.origin.block          = block;
+    iptc_country_name.origin.order_in_block = 3;
+    (void)store.add_entry(iptc_country_name);
+
+    Entry legacy_city;
+    legacy_city.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/",
+        "LocationCreated/City");
+    legacy_city.value = make_text(store.arena(), "Legacy City",
+                                  TextEncoding::Utf8);
+    legacy_city.origin.block          = block;
+    legacy_city.origin.order_in_block = 4;
+    (void)store.add_entry(legacy_city);
+
+    Entry legacy_location;
+    legacy_location.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/",
+        "LocationCreated/Location");
+    legacy_location.value = make_text(store.arena(), "Legacy Wing",
+                                      TextEncoding::Utf8);
+    legacy_location.origin.block          = block;
+    legacy_location.origin.order_in_block = 5;
+    (void)store.add_entry(legacy_location);
+
+    Entry legacy_country_code;
+    legacy_country_code.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/",
+        "LocationCreated/CountryCode");
+    legacy_country_code.value = make_text(store.arena(), "XX",
+                                          TextEncoding::Utf8);
+    legacy_country_code.origin.block          = block;
+    legacy_country_code.origin.order_in_block = 6;
+    (void)store.add_entry(legacy_country_code);
+
+    Entry legacy_country_name;
+    legacy_country_name.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/",
+        "LocationCreated/CountryName");
+    legacy_country_name.value = make_text(store.arena(), "Legacy Country",
+                                          TextEncoding::Utf8);
+    legacy_country_name.origin.block          = block;
+    legacy_country_name.origin.order_in_block = 7;
+    (void)store.add_entry(legacy_country_name);
+
+    store.finalize();
+
+    XmpPortableOptions opts;
+    opts.include_exif         = false;
+    opts.include_iptc         = true;
+    opts.include_existing_xmp = true;
+    opts.conflict_policy      = XmpConflictPolicy::ExistingWins;
+    opts.existing_standard_namespace_policy
+        = XmpExistingStandardNamespacePolicy::CanonicalizeManaged;
+
+    std::vector<std::byte> out(16384);
+    const XmpDumpResult r
+        = dump_xmp_portable(store, std::span<std::byte>(out.data(), out.size()),
+                            opts);
+    ASSERT_EQ(r.status, XmpDumpStatus::Ok);
+
+    const std::string_view s(reinterpret_cast<const char*>(out.data()),
+                             static_cast<size_t>(r.written));
+    EXPECT_NE(
+        s.find("<Iptc4xmpCore:LocationCreated rdf:parseType=\"Resource\">"),
+        std::string_view::npos);
+    EXPECT_NE(s.find("<Iptc4xmpCore:City>Paris</Iptc4xmpCore:City>"),
+              std::string_view::npos);
+    EXPECT_NE(
+        s.find("<Iptc4xmpCore:Location>Louvre Wing</Iptc4xmpCore:Location>"),
+        std::string_view::npos);
+    EXPECT_NE(
+        s.find("<Iptc4xmpCore:CountryCode>FR</Iptc4xmpCore:CountryCode>"),
+        std::string_view::npos);
+    EXPECT_NE(
+        s.find("<Iptc4xmpCore:CountryName>France</Iptc4xmpCore:CountryName>"),
+        std::string_view::npos);
+
+    EXPECT_EQ(s.find("Legacy City"), std::string_view::npos);
+    EXPECT_EQ(s.find("Legacy Wing"), std::string_view::npos);
+    EXPECT_EQ(s.find(">XX</Iptc4xmpCore:CountryCode>"),
+              std::string_view::npos);
+    EXPECT_EQ(s.find("Legacy Country"), std::string_view::npos);
 }
 
 TEST(XmpDump, PortablePreservesNestedStructuredChildLangAltResources)
