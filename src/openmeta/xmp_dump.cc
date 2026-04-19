@@ -7143,6 +7143,47 @@ namespace {
         return false;
     }
 
+    static bool
+    generated_replacement_exists_for_existing_flattened_nested_alias(
+        const PortablePropertyGeneratedShapeSet* generated_shapes,
+        const PortableGeneratedLangAltKeySet* generated_lang_alt,
+        std::string_view prefix, std::string_view base,
+        std::string_view child, std::string_view grandchild) noexcept
+    {
+        if (prefix == "Iptc4xmpExt" && base == "LocationCreated"
+            && child == "Address"
+            && (grandchild == "City" || grandchild == "CountryCode"
+                || grandchild == "CountryName"
+                || grandchild == "ProvinceState")) {
+            return generated_replacement_exists_for_existing_base_property(
+                generated_shapes, generated_lang_alt, "Iptc4xmpCore",
+                "LocationCreated");
+        }
+
+        return false;
+    }
+
+    static bool
+    generated_replacement_exists_for_existing_structured_child_alias(
+        const PortablePropertyGeneratedShapeSet* generated_shapes,
+        const PortableGeneratedLangAltKeySet* generated_lang_alt,
+        std::string_view prefix, std::string_view base,
+        std::string_view child_prefix,
+        std::string_view child) noexcept
+    {
+        if (prefix == "Iptc4xmpExt" && base == "LocationCreated"
+            && (child_prefix.empty() || child_prefix == prefix)
+            && (child == "City" || child == "CountryCode"
+                || child == "CountryName"
+                || child == "ProvinceState")) {
+            return generated_replacement_exists_for_existing_base_property(
+                generated_shapes, generated_lang_alt, "Iptc4xmpCore",
+                "LocationCreated");
+        }
+
+        return false;
+    }
+
     static bool process_portable_existing_xmp_entry(
         const ByteArena& arena, std::span<const PortableCustomNsDecl> decls,
         std::span<const Entry> entries, const XmpPortableOptions& options,
@@ -7516,11 +7557,15 @@ namespace {
                 }
                 if (options.existing_standard_namespace_policy
                         == XmpExistingStandardNamespacePolicy::CanonicalizeManaged
-                    && existing_standard_portable_property_is_managed(
-                        prefix, portable_base)
-                    && generated_replacement_exists_for_existing_base_property(
-                        generated_shapes, generated_lang_alt, prefix,
-                        portable_base)) {
+                    && ((existing_standard_portable_property_is_managed(
+                             prefix, portable_base)
+                         && generated_replacement_exists_for_existing_base_property(
+                             generated_shapes, generated_lang_alt, prefix,
+                             portable_base))
+                        || generated_replacement_exists_for_existing_flattened_nested_alias(
+                            generated_shapes, generated_lang_alt, prefix,
+                            portable_base, portable_child,
+                            portable_grandchild))) {
                     return false;
                 }
 
@@ -8981,6 +9026,14 @@ namespace {
             && generated_replacement_exists_for_existing_base_property(
                 generated_shapes, generated_lang_alt, prefix,
                 portable_base)) {
+            return false;
+        }
+        if (options.existing_standard_namespace_policy
+                == XmpExistingStandardNamespacePolicy::CanonicalizeManaged
+            && generated_replacement_exists_for_existing_structured_child_alias(
+                generated_shapes, generated_lang_alt, prefix,
+                portable_base, portable_child_prefix,
+                portable_child)) {
             return false;
         }
 

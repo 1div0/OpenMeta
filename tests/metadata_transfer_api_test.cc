@@ -13721,6 +13721,314 @@ TEST(MetadataTransferApi,
     EXPECT_FALSE(payload_contains_ascii(payload, "Legacy Country"));
 }
 
+TEST(MetadataTransferApi,
+     PreparePortableXmpCanonicalizeManagedReplacesGeneratedStructuredLocationCreatedAddressAliases)
+{
+    openmeta::MetaStore store;
+    const openmeta::BlockId block = store.add_block(openmeta::BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    const std::string city = "Paris";
+    openmeta::Entry iptc_city;
+    iptc_city.key = openmeta::make_iptc_dataset_key(2U, 90U);
+    iptc_city.value = openmeta::make_bytes(
+        store.arena(),
+        std::span<const std::byte>(
+            reinterpret_cast<const std::byte*>(city.data()), city.size()));
+    iptc_city.origin.block          = block;
+    iptc_city.origin.order_in_block = 0U;
+    ASSERT_NE(store.add_entry(iptc_city), openmeta::kInvalidEntryId);
+
+    const std::string state = "Ile-de-France";
+    openmeta::Entry iptc_state;
+    iptc_state.key = openmeta::make_iptc_dataset_key(2U, 95U);
+    iptc_state.value = openmeta::make_bytes(
+        store.arena(),
+        std::span<const std::byte>(
+            reinterpret_cast<const std::byte*>(state.data()), state.size()));
+    iptc_state.origin.block          = block;
+    iptc_state.origin.order_in_block = 1U;
+    ASSERT_NE(store.add_entry(iptc_state), openmeta::kInvalidEntryId);
+
+    const std::string country_code = "FR";
+    openmeta::Entry iptc_country_code;
+    iptc_country_code.key = openmeta::make_iptc_dataset_key(2U, 100U);
+    iptc_country_code.value = openmeta::make_bytes(
+        store.arena(),
+        std::span<const std::byte>(
+            reinterpret_cast<const std::byte*>(country_code.data()),
+            country_code.size()));
+    iptc_country_code.origin.block          = block;
+    iptc_country_code.origin.order_in_block = 2U;
+    ASSERT_NE(store.add_entry(iptc_country_code), openmeta::kInvalidEntryId);
+
+    const std::string country_name = "France";
+    openmeta::Entry iptc_country_name;
+    iptc_country_name.key = openmeta::make_iptc_dataset_key(2U, 101U);
+    iptc_country_name.value = openmeta::make_bytes(
+        store.arena(),
+        std::span<const std::byte>(
+            reinterpret_cast<const std::byte*>(country_name.data()),
+            country_name.size()));
+    iptc_country_name.origin.block          = block;
+    iptc_country_name.origin.order_in_block = 3U;
+    ASSERT_NE(store.add_entry(iptc_country_name), openmeta::kInvalidEntryId);
+
+    openmeta::Entry legacy_city;
+    legacy_city.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationCreated/Address/City");
+    legacy_city.value = openmeta::make_text(
+        store.arena(), "Legacy City", openmeta::TextEncoding::Utf8);
+    legacy_city.origin.block          = block;
+    legacy_city.origin.order_in_block = 4U;
+    ASSERT_NE(store.add_entry(legacy_city), openmeta::kInvalidEntryId);
+
+    openmeta::Entry legacy_country_name;
+    legacy_country_name.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationCreated/Address/CountryName");
+    legacy_country_name.value = openmeta::make_text(
+        store.arena(), "Legacy Country", openmeta::TextEncoding::Utf8);
+    legacy_country_name.origin.block          = block;
+    legacy_country_name.origin.order_in_block = 5U;
+    ASSERT_NE(store.add_entry(legacy_country_name),
+              openmeta::kInvalidEntryId);
+
+    openmeta::Entry legacy_country_code;
+    legacy_country_code.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationCreated/Address/CountryCode");
+    legacy_country_code.value = openmeta::make_text(
+        store.arena(), "XX", openmeta::TextEncoding::Utf8);
+    legacy_country_code.origin.block          = block;
+    legacy_country_code.origin.order_in_block = 6U;
+    ASSERT_NE(store.add_entry(legacy_country_code),
+              openmeta::kInvalidEntryId);
+
+    openmeta::Entry legacy_state;
+    legacy_state.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationCreated/Address/ProvinceState");
+    legacy_state.value = openmeta::make_text(
+        store.arena(), "Legacy State", openmeta::TextEncoding::Utf8);
+    legacy_state.origin.block          = block;
+    legacy_state.origin.order_in_block = 7U;
+    ASSERT_NE(store.add_entry(legacy_state), openmeta::kInvalidEntryId);
+
+    openmeta::Entry legacy_world_region;
+    legacy_world_region.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationCreated/Address/WorldRegion");
+    legacy_world_region.value = openmeta::make_text(
+        store.arena(), "EMEA", openmeta::TextEncoding::Utf8);
+    legacy_world_region.origin.block          = block;
+    legacy_world_region.origin.order_in_block = 8U;
+    ASSERT_NE(store.add_entry(legacy_world_region),
+              openmeta::kInvalidEntryId);
+
+    store.finalize();
+
+    openmeta::PrepareTransferRequest request;
+    request.include_exif_app1    = false;
+    request.include_icc_app2     = false;
+    request.include_iptc_app13   = false;
+    request.xmp_portable         = true;
+    request.xmp_include_existing = true;
+    request.xmp_conflict_policy  = openmeta::XmpConflictPolicy::ExistingWins;
+    request.xmp_existing_standard_namespace_policy
+        = openmeta::XmpExistingStandardNamespacePolicy::CanonicalizeManaged;
+
+    openmeta::PreparedTransferBundle bundle;
+    const openmeta::PrepareTransferResult result
+        = openmeta::prepare_metadata_for_target(store, request, &bundle);
+
+    EXPECT_EQ(result.status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(bundle.blocks.size(), 1U);
+    const std::span<const std::byte> payload(bundle.blocks[0].payload.data(),
+                                             bundle.blocks[0].payload.size());
+    EXPECT_TRUE(payload_contains_ascii(
+        payload,
+        "<Iptc4xmpCore:LocationCreated rdf:parseType=\"Resource\">"));
+    EXPECT_TRUE(payload_contains_ascii(payload,
+                                       "<Iptc4xmpCore:City>Paris</Iptc4xmpCore:City>"));
+    EXPECT_TRUE(payload_contains_ascii(
+        payload,
+        "<Iptc4xmpCore:ProvinceState>Ile-de-France</Iptc4xmpCore:ProvinceState>"));
+    EXPECT_TRUE(payload_contains_ascii(
+        payload,
+        "<Iptc4xmpCore:CountryCode>FR</Iptc4xmpCore:CountryCode>"));
+    EXPECT_TRUE(payload_contains_ascii(
+        payload,
+        "<Iptc4xmpCore:CountryName>France</Iptc4xmpCore:CountryName>"));
+
+    EXPECT_FALSE(payload_contains_ascii(payload, "Legacy City"));
+    EXPECT_FALSE(payload_contains_ascii(payload, "Legacy Country"));
+    EXPECT_FALSE(payload_contains_ascii(
+        payload, ">XX</Iptc4xmpExt:CountryCode>"));
+    EXPECT_FALSE(payload_contains_ascii(payload, "Legacy State"));
+
+    EXPECT_TRUE(payload_contains_ascii(
+        payload,
+        "<Iptc4xmpExt:LocationCreated rdf:parseType=\"Resource\">"));
+    EXPECT_TRUE(payload_contains_ascii(
+        payload, "<Iptc4xmpExt:WorldRegion>EMEA</Iptc4xmpExt:WorldRegion>"));
+}
+
+TEST(MetadataTransferApi,
+     PreparePortableXmpCanonicalizeManagedReplacesGeneratedStructuredLocationCreatedDirectExtAliases)
+{
+    openmeta::MetaStore store;
+    const openmeta::BlockId block = store.add_block(openmeta::BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    const std::string city = "Paris";
+    openmeta::Entry iptc_city;
+    iptc_city.key = openmeta::make_iptc_dataset_key(2U, 90U);
+    iptc_city.value = openmeta::make_bytes(
+        store.arena(),
+        std::span<const std::byte>(
+            reinterpret_cast<const std::byte*>(city.data()), city.size()));
+    iptc_city.origin.block          = block;
+    iptc_city.origin.order_in_block = 0U;
+    ASSERT_NE(store.add_entry(iptc_city), openmeta::kInvalidEntryId);
+
+    const std::string state = "Ile-de-France";
+    openmeta::Entry iptc_state;
+    iptc_state.key = openmeta::make_iptc_dataset_key(2U, 95U);
+    iptc_state.value = openmeta::make_bytes(
+        store.arena(),
+        std::span<const std::byte>(
+            reinterpret_cast<const std::byte*>(state.data()), state.size()));
+    iptc_state.origin.block          = block;
+    iptc_state.origin.order_in_block = 1U;
+    ASSERT_NE(store.add_entry(iptc_state), openmeta::kInvalidEntryId);
+
+    const std::string country_code = "FR";
+    openmeta::Entry iptc_country_code;
+    iptc_country_code.key = openmeta::make_iptc_dataset_key(2U, 100U);
+    iptc_country_code.value = openmeta::make_bytes(
+        store.arena(),
+        std::span<const std::byte>(
+            reinterpret_cast<const std::byte*>(country_code.data()),
+            country_code.size()));
+    iptc_country_code.origin.block          = block;
+    iptc_country_code.origin.order_in_block = 2U;
+    ASSERT_NE(store.add_entry(iptc_country_code), openmeta::kInvalidEntryId);
+
+    const std::string country_name = "France";
+    openmeta::Entry iptc_country_name;
+    iptc_country_name.key = openmeta::make_iptc_dataset_key(2U, 101U);
+    iptc_country_name.value = openmeta::make_bytes(
+        store.arena(),
+        std::span<const std::byte>(
+            reinterpret_cast<const std::byte*>(country_name.data()),
+            country_name.size()));
+    iptc_country_name.origin.block          = block;
+    iptc_country_name.origin.order_in_block = 3U;
+    ASSERT_NE(store.add_entry(iptc_country_name), openmeta::kInvalidEntryId);
+
+    openmeta::Entry legacy_city;
+    legacy_city.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationCreated/City");
+    legacy_city.value = openmeta::make_text(
+        store.arena(), "Legacy City", openmeta::TextEncoding::Utf8);
+    legacy_city.origin.block          = block;
+    legacy_city.origin.order_in_block = 4U;
+    ASSERT_NE(store.add_entry(legacy_city), openmeta::kInvalidEntryId);
+
+    openmeta::Entry legacy_country_name;
+    legacy_country_name.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationCreated/CountryName");
+    legacy_country_name.value = openmeta::make_text(
+        store.arena(), "Legacy Country", openmeta::TextEncoding::Utf8);
+    legacy_country_name.origin.block          = block;
+    legacy_country_name.origin.order_in_block = 5U;
+    ASSERT_NE(store.add_entry(legacy_country_name),
+              openmeta::kInvalidEntryId);
+
+    openmeta::Entry legacy_country_code;
+    legacy_country_code.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationCreated/CountryCode");
+    legacy_country_code.value = openmeta::make_text(
+        store.arena(), "XX", openmeta::TextEncoding::Utf8);
+    legacy_country_code.origin.block          = block;
+    legacy_country_code.origin.order_in_block = 6U;
+    ASSERT_NE(store.add_entry(legacy_country_code),
+              openmeta::kInvalidEntryId);
+
+    openmeta::Entry legacy_state;
+    legacy_state.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationCreated/ProvinceState");
+    legacy_state.value = openmeta::make_text(
+        store.arena(), "Legacy State", openmeta::TextEncoding::Utf8);
+    legacy_state.origin.block          = block;
+    legacy_state.origin.order_in_block = 7U;
+    ASSERT_NE(store.add_entry(legacy_state), openmeta::kInvalidEntryId);
+
+    openmeta::Entry legacy_world_region;
+    legacy_world_region.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationCreated/WorldRegion");
+    legacy_world_region.value = openmeta::make_text(
+        store.arena(), "EMEA", openmeta::TextEncoding::Utf8);
+    legacy_world_region.origin.block          = block;
+    legacy_world_region.origin.order_in_block = 8U;
+    ASSERT_NE(store.add_entry(legacy_world_region),
+              openmeta::kInvalidEntryId);
+
+    store.finalize();
+
+    openmeta::PrepareTransferRequest request;
+    request.include_exif_app1    = false;
+    request.include_icc_app2     = false;
+    request.include_iptc_app13   = false;
+    request.xmp_portable         = true;
+    request.xmp_include_existing = true;
+    request.xmp_conflict_policy  = openmeta::XmpConflictPolicy::ExistingWins;
+    request.xmp_existing_standard_namespace_policy
+        = openmeta::XmpExistingStandardNamespacePolicy::CanonicalizeManaged;
+
+    openmeta::PreparedTransferBundle bundle;
+    const openmeta::PrepareTransferResult result
+        = openmeta::prepare_metadata_for_target(store, request, &bundle);
+
+    EXPECT_EQ(result.status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(bundle.blocks.size(), 1U);
+    const std::span<const std::byte> payload(bundle.blocks[0].payload.data(),
+                                             bundle.blocks[0].payload.size());
+    EXPECT_TRUE(payload_contains_ascii(
+        payload,
+        "<Iptc4xmpCore:LocationCreated rdf:parseType=\"Resource\">"));
+    EXPECT_TRUE(payload_contains_ascii(payload,
+                                       "<Iptc4xmpCore:City>Paris</Iptc4xmpCore:City>"));
+    EXPECT_TRUE(payload_contains_ascii(
+        payload,
+        "<Iptc4xmpCore:ProvinceState>Ile-de-France</Iptc4xmpCore:ProvinceState>"));
+    EXPECT_TRUE(payload_contains_ascii(
+        payload,
+        "<Iptc4xmpCore:CountryCode>FR</Iptc4xmpCore:CountryCode>"));
+    EXPECT_TRUE(payload_contains_ascii(
+        payload,
+        "<Iptc4xmpCore:CountryName>France</Iptc4xmpCore:CountryName>"));
+
+    EXPECT_FALSE(payload_contains_ascii(payload, "Legacy City"));
+    EXPECT_FALSE(payload_contains_ascii(payload, "Legacy Country"));
+    EXPECT_FALSE(payload_contains_ascii(
+        payload, ">XX</Iptc4xmpExt:CountryCode>"));
+    EXPECT_FALSE(payload_contains_ascii(payload, "Legacy State"));
+
+    EXPECT_TRUE(payload_contains_ascii(
+        payload,
+        "<Iptc4xmpExt:LocationCreated rdf:parseType=\"Resource\">"));
+    EXPECT_TRUE(payload_contains_ascii(
+        payload, "<Iptc4xmpExt:WorldRegion>EMEA</Iptc4xmpExt:WorldRegion>"));
+}
+
 TEST(MetadataTransferApi, PrepareBuildsJpegExifApp1Block)
 {
     openmeta::MetaStore store;

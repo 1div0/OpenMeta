@@ -9254,6 +9254,306 @@ TEST(XmpDump,
     EXPECT_EQ(s.find("Legacy Country"), std::string_view::npos);
 }
 
+TEST(XmpDump,
+     PortableCanonicalizeManagedReplacesGeneratedStructuredLocationCreatedAddressAliases)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, kInvalidBlockId);
+
+    const std::string city = "Paris";
+    Entry iptc_city;
+    iptc_city.key = make_iptc_dataset_key(2U, 90U);
+    iptc_city.value = make_bytes(
+        store.arena(),
+        std::span<const std::byte>(
+            reinterpret_cast<const std::byte*>(city.data()), city.size()));
+    iptc_city.origin.block          = block;
+    iptc_city.origin.order_in_block = 0U;
+    (void)store.add_entry(iptc_city);
+
+    const std::string state = "Ile-de-France";
+    Entry iptc_state;
+    iptc_state.key = make_iptc_dataset_key(2U, 95U);
+    iptc_state.value = make_bytes(
+        store.arena(),
+        std::span<const std::byte>(
+            reinterpret_cast<const std::byte*>(state.data()), state.size()));
+    iptc_state.origin.block          = block;
+    iptc_state.origin.order_in_block = 1U;
+    (void)store.add_entry(iptc_state);
+
+    const std::string country_code = "FR";
+    Entry iptc_country_code;
+    iptc_country_code.key = make_iptc_dataset_key(2U, 100U);
+    iptc_country_code.value = make_bytes(
+        store.arena(),
+        std::span<const std::byte>(
+            reinterpret_cast<const std::byte*>(country_code.data()),
+            country_code.size()));
+    iptc_country_code.origin.block          = block;
+    iptc_country_code.origin.order_in_block = 2U;
+    (void)store.add_entry(iptc_country_code);
+
+    const std::string country_name = "France";
+    Entry iptc_country_name;
+    iptc_country_name.key = make_iptc_dataset_key(2U, 101U);
+    iptc_country_name.value = make_bytes(
+        store.arena(),
+        std::span<const std::byte>(
+            reinterpret_cast<const std::byte*>(country_name.data()),
+            country_name.size()));
+    iptc_country_name.origin.block          = block;
+    iptc_country_name.origin.order_in_block = 3U;
+    (void)store.add_entry(iptc_country_name);
+
+    Entry legacy_city;
+    legacy_city.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationCreated/Address/City");
+    legacy_city.value = make_text(store.arena(), "Legacy City",
+                                  TextEncoding::Utf8);
+    legacy_city.origin.block          = block;
+    legacy_city.origin.order_in_block = 4U;
+    (void)store.add_entry(legacy_city);
+
+    Entry legacy_country_name;
+    legacy_country_name.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationCreated/Address/CountryName");
+    legacy_country_name.value = make_text(store.arena(), "Legacy Country",
+                                          TextEncoding::Utf8);
+    legacy_country_name.origin.block          = block;
+    legacy_country_name.origin.order_in_block = 5U;
+    (void)store.add_entry(legacy_country_name);
+
+    Entry legacy_country_code;
+    legacy_country_code.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationCreated/Address/CountryCode");
+    legacy_country_code.value = make_text(store.arena(), "XX",
+                                          TextEncoding::Utf8);
+    legacy_country_code.origin.block          = block;
+    legacy_country_code.origin.order_in_block = 6U;
+    (void)store.add_entry(legacy_country_code);
+
+    Entry legacy_state;
+    legacy_state.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationCreated/Address/ProvinceState");
+    legacy_state.value = make_text(store.arena(), "Legacy State",
+                                   TextEncoding::Utf8);
+    legacy_state.origin.block          = block;
+    legacy_state.origin.order_in_block = 7U;
+    (void)store.add_entry(legacy_state);
+
+    Entry legacy_world_region;
+    legacy_world_region.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationCreated/Address/WorldRegion");
+    legacy_world_region.value = make_text(store.arena(), "EMEA",
+                                          TextEncoding::Utf8);
+    legacy_world_region.origin.block          = block;
+    legacy_world_region.origin.order_in_block = 8U;
+    (void)store.add_entry(legacy_world_region);
+
+    store.finalize();
+
+    XmpPortableOptions opts;
+    opts.include_exif         = false;
+    opts.include_iptc         = true;
+    opts.include_existing_xmp = true;
+    opts.conflict_policy      = XmpConflictPolicy::ExistingWins;
+    opts.existing_standard_namespace_policy
+        = XmpExistingStandardNamespacePolicy::CanonicalizeManaged;
+
+    std::vector<std::byte> out(16384);
+    const XmpDumpResult r
+        = dump_xmp_portable(store, std::span<std::byte>(out.data(), out.size()),
+                            opts);
+    ASSERT_EQ(r.status, XmpDumpStatus::Ok);
+
+    const std::string_view s(reinterpret_cast<const char*>(out.data()),
+                             static_cast<size_t>(r.written));
+    EXPECT_NE(
+        s.find("<Iptc4xmpCore:LocationCreated rdf:parseType=\"Resource\">"),
+        std::string_view::npos);
+    EXPECT_NE(s.find("<Iptc4xmpCore:City>Paris</Iptc4xmpCore:City>"),
+              std::string_view::npos);
+    EXPECT_NE(
+        s.find("<Iptc4xmpCore:ProvinceState>Ile-de-France</Iptc4xmpCore:ProvinceState>"),
+        std::string_view::npos);
+    EXPECT_NE(
+        s.find("<Iptc4xmpCore:CountryCode>FR</Iptc4xmpCore:CountryCode>"),
+        std::string_view::npos);
+    EXPECT_NE(
+        s.find("<Iptc4xmpCore:CountryName>France</Iptc4xmpCore:CountryName>"),
+        std::string_view::npos);
+
+    EXPECT_EQ(s.find("Legacy City"), std::string_view::npos);
+    EXPECT_EQ(s.find("Legacy Country"), std::string_view::npos);
+    EXPECT_EQ(s.find(">XX</Iptc4xmpExt:CountryCode>"),
+              std::string_view::npos);
+    EXPECT_EQ(s.find("Legacy State"), std::string_view::npos);
+
+    EXPECT_NE(
+        s.find("<Iptc4xmpExt:LocationCreated rdf:parseType=\"Resource\">"),
+        std::string_view::npos);
+    EXPECT_NE(
+        s.find("<Iptc4xmpExt:WorldRegion>EMEA</Iptc4xmpExt:WorldRegion>"),
+        std::string_view::npos);
+}
+
+TEST(XmpDump,
+     PortableCanonicalizeManagedReplacesGeneratedStructuredLocationCreatedDirectExtAliases)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, kInvalidBlockId);
+
+    const std::string city = "Paris";
+    Entry iptc_city;
+    iptc_city.key = make_iptc_dataset_key(2U, 90U);
+    iptc_city.value = make_bytes(
+        store.arena(),
+        std::span<const std::byte>(
+            reinterpret_cast<const std::byte*>(city.data()), city.size()));
+    iptc_city.origin.block          = block;
+    iptc_city.origin.order_in_block = 0U;
+    (void)store.add_entry(iptc_city);
+
+    const std::string state = "Ile-de-France";
+    Entry iptc_state;
+    iptc_state.key = make_iptc_dataset_key(2U, 95U);
+    iptc_state.value = make_bytes(
+        store.arena(),
+        std::span<const std::byte>(
+            reinterpret_cast<const std::byte*>(state.data()), state.size()));
+    iptc_state.origin.block          = block;
+    iptc_state.origin.order_in_block = 1U;
+    (void)store.add_entry(iptc_state);
+
+    const std::string country_code = "FR";
+    Entry iptc_country_code;
+    iptc_country_code.key = make_iptc_dataset_key(2U, 100U);
+    iptc_country_code.value = make_bytes(
+        store.arena(),
+        std::span<const std::byte>(
+            reinterpret_cast<const std::byte*>(country_code.data()),
+            country_code.size()));
+    iptc_country_code.origin.block          = block;
+    iptc_country_code.origin.order_in_block = 2U;
+    (void)store.add_entry(iptc_country_code);
+
+    const std::string country_name = "France";
+    Entry iptc_country_name;
+    iptc_country_name.key = make_iptc_dataset_key(2U, 101U);
+    iptc_country_name.value = make_bytes(
+        store.arena(),
+        std::span<const std::byte>(
+            reinterpret_cast<const std::byte*>(country_name.data()),
+            country_name.size()));
+    iptc_country_name.origin.block          = block;
+    iptc_country_name.origin.order_in_block = 3U;
+    (void)store.add_entry(iptc_country_name);
+
+    Entry legacy_city;
+    legacy_city.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationCreated/City");
+    legacy_city.value = make_text(store.arena(), "Legacy City",
+                                  TextEncoding::Utf8);
+    legacy_city.origin.block          = block;
+    legacy_city.origin.order_in_block = 4U;
+    (void)store.add_entry(legacy_city);
+
+    Entry legacy_country_name;
+    legacy_country_name.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationCreated/CountryName");
+    legacy_country_name.value = make_text(store.arena(), "Legacy Country",
+                                          TextEncoding::Utf8);
+    legacy_country_name.origin.block          = block;
+    legacy_country_name.origin.order_in_block = 5U;
+    (void)store.add_entry(legacy_country_name);
+
+    Entry legacy_country_code;
+    legacy_country_code.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationCreated/CountryCode");
+    legacy_country_code.value = make_text(store.arena(), "XX",
+                                          TextEncoding::Utf8);
+    legacy_country_code.origin.block          = block;
+    legacy_country_code.origin.order_in_block = 6U;
+    (void)store.add_entry(legacy_country_code);
+
+    Entry legacy_state;
+    legacy_state.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationCreated/ProvinceState");
+    legacy_state.value = make_text(store.arena(), "Legacy State",
+                                   TextEncoding::Utf8);
+    legacy_state.origin.block          = block;
+    legacy_state.origin.order_in_block = 7U;
+    (void)store.add_entry(legacy_state);
+
+    Entry legacy_world_region;
+    legacy_world_region.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationCreated/WorldRegion");
+    legacy_world_region.value = make_text(store.arena(), "EMEA",
+                                          TextEncoding::Utf8);
+    legacy_world_region.origin.block          = block;
+    legacy_world_region.origin.order_in_block = 8U;
+    (void)store.add_entry(legacy_world_region);
+
+    store.finalize();
+
+    XmpPortableOptions opts;
+    opts.include_exif         = false;
+    opts.include_iptc         = true;
+    opts.include_existing_xmp = true;
+    opts.conflict_policy      = XmpConflictPolicy::ExistingWins;
+    opts.existing_standard_namespace_policy
+        = XmpExistingStandardNamespacePolicy::CanonicalizeManaged;
+
+    std::vector<std::byte> out(16384);
+    const XmpDumpResult r
+        = dump_xmp_portable(store, std::span<std::byte>(out.data(), out.size()),
+                            opts);
+    ASSERT_EQ(r.status, XmpDumpStatus::Ok);
+
+    const std::string_view s(reinterpret_cast<const char*>(out.data()),
+                             static_cast<size_t>(r.written));
+    EXPECT_NE(
+        s.find("<Iptc4xmpCore:LocationCreated rdf:parseType=\"Resource\">"),
+        std::string_view::npos);
+    EXPECT_NE(s.find("<Iptc4xmpCore:City>Paris</Iptc4xmpCore:City>"),
+              std::string_view::npos);
+    EXPECT_NE(
+        s.find("<Iptc4xmpCore:ProvinceState>Ile-de-France</Iptc4xmpCore:ProvinceState>"),
+        std::string_view::npos);
+    EXPECT_NE(
+        s.find("<Iptc4xmpCore:CountryCode>FR</Iptc4xmpCore:CountryCode>"),
+        std::string_view::npos);
+    EXPECT_NE(
+        s.find("<Iptc4xmpCore:CountryName>France</Iptc4xmpCore:CountryName>"),
+        std::string_view::npos);
+
+    EXPECT_EQ(s.find("Legacy City"), std::string_view::npos);
+    EXPECT_EQ(s.find("Legacy Country"), std::string_view::npos);
+    EXPECT_EQ(s.find(">XX</Iptc4xmpExt:CountryCode>"),
+              std::string_view::npos);
+    EXPECT_EQ(s.find("Legacy State"), std::string_view::npos);
+
+    EXPECT_NE(
+        s.find("<Iptc4xmpExt:LocationCreated rdf:parseType=\"Resource\">"),
+        std::string_view::npos);
+    EXPECT_NE(
+        s.find("<Iptc4xmpExt:WorldRegion>EMEA</Iptc4xmpExt:WorldRegion>"),
+        std::string_view::npos);
+}
+
 TEST(XmpDump, PortablePreservesNestedStructuredChildLangAltResources)
 {
     MetaStore store;
