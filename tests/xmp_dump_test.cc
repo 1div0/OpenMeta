@@ -8084,6 +8084,87 @@ TEST(XmpDump, PortablePromotesAdditionalStandardStructuredChildScalars)
         std::string_view::npos);
 }
 
+TEST(XmpDump, PortableRepairsAdditionalStructuredChildCrossShapes)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, kInvalidBlockId);
+
+    Entry city_indexed;
+    city_indexed.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/",
+        "CreatorContactInfo/CiAdrCity[1]");
+    city_indexed.value = make_text(store.arena(), "Paris",
+                                   TextEncoding::Utf8);
+    city_indexed.origin.block          = block;
+    city_indexed.origin.order_in_block = 0;
+    (void)store.add_entry(city_indexed);
+
+    Entry extadr_lang;
+    extadr_lang.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/",
+        "CreatorContactInfo/CiAdrExtadr[@xml:lang=x-default]");
+    extadr_lang.value = make_text(store.arena(), "Line 1",
+                                  TextEncoding::Utf8);
+    extadr_lang.origin.block          = block;
+    extadr_lang.origin.order_in_block = 1;
+    (void)store.add_entry(extadr_lang);
+
+    Entry cv_term_name_indexed;
+    cv_term_name_indexed.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "AboutCvTerm[1]/CvTermName[1]");
+    cv_term_name_indexed.value = make_text(store.arena(), "Culture",
+                                           TextEncoding::Utf8);
+    cv_term_name_indexed.origin.block          = block;
+    cv_term_name_indexed.origin.order_in_block = 2;
+    (void)store.add_entry(cv_term_name_indexed);
+
+    Entry link_qualifier_lang;
+    link_qualifier_lang.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "DopesheetLink[1]/LinkQualifier[@xml:lang=x-default]");
+    link_qualifier_lang.value = make_text(store.arena(), "keyframe",
+                                          TextEncoding::Utf8);
+    link_qualifier_lang.origin.block          = block;
+    link_qualifier_lang.origin.order_in_block = 3;
+    (void)store.add_entry(link_qualifier_lang);
+
+    store.finalize();
+
+    XmpPortableOptions opts;
+    opts.include_exif         = false;
+    opts.include_iptc         = false;
+    opts.include_existing_xmp = true;
+
+    std::vector<std::byte> out(8192);
+    const XmpDumpResult r
+        = dump_xmp_portable(store, std::span<std::byte>(out.data(), out.size()),
+                            opts);
+    ASSERT_EQ(r.status, XmpDumpStatus::Ok);
+
+    const std::string_view s(reinterpret_cast<const char*>(out.data()),
+                             static_cast<size_t>(r.written));
+    EXPECT_NE(s.find("<Iptc4xmpCore:CiAdrCity>"), std::string_view::npos);
+    EXPECT_NE(s.find("<rdf:li xml:lang=\"x-default\">Paris</rdf:li>"),
+              std::string_view::npos);
+    EXPECT_NE(s.find("<Iptc4xmpCore:CiAdrExtadr>"), std::string_view::npos);
+    EXPECT_NE(s.find("<rdf:li>Line 1</rdf:li>"), std::string_view::npos);
+    EXPECT_NE(s.find("<Iptc4xmpExt:CvTermName>"), std::string_view::npos);
+    EXPECT_NE(s.find("<rdf:li xml:lang=\"x-default\">Culture</rdf:li>"),
+              std::string_view::npos);
+    EXPECT_NE(s.find("<Iptc4xmpExt:LinkQualifier>"),
+              std::string_view::npos);
+    EXPECT_NE(s.find("<rdf:li>keyframe</rdf:li>"),
+              std::string_view::npos);
+    EXPECT_EQ(s.find("<rdf:li>Paris</rdf:li>"), std::string_view::npos);
+    EXPECT_EQ(s.find("<rdf:li xml:lang=\"x-default\">Line 1</rdf:li>"),
+              std::string_view::npos);
+    EXPECT_EQ(s.find("<rdf:li>Culture</rdf:li>"), std::string_view::npos);
+    EXPECT_EQ(s.find("<rdf:li xml:lang=\"x-default\">keyframe</rdf:li>"),
+              std::string_view::npos);
+}
+
 TEST(XmpDump, PortablePromotesManagedFlatBaseScalarsToCanonicalShapes)
 {
     MetaStore store;
@@ -9554,6 +9635,427 @@ TEST(XmpDump,
         std::string_view::npos);
 }
 
+TEST(XmpDump,
+     PortableCanonicalizeManagedReplacesGeneratedStructuredLocationCreatedMalformedAliasShapes)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, kInvalidBlockId);
+
+    const std::string city = "Paris";
+    Entry iptc_city;
+    iptc_city.key = make_iptc_dataset_key(2U, 90U);
+    iptc_city.value = make_bytes(
+        store.arena(),
+        std::span<const std::byte>(
+            reinterpret_cast<const std::byte*>(city.data()), city.size()));
+    iptc_city.origin.block          = block;
+    iptc_city.origin.order_in_block = 0U;
+    (void)store.add_entry(iptc_city);
+
+    const std::string state = "Ile-de-France";
+    Entry iptc_state;
+    iptc_state.key = make_iptc_dataset_key(2U, 95U);
+    iptc_state.value = make_bytes(
+        store.arena(),
+        std::span<const std::byte>(
+            reinterpret_cast<const std::byte*>(state.data()), state.size()));
+    iptc_state.origin.block          = block;
+    iptc_state.origin.order_in_block = 1U;
+    (void)store.add_entry(iptc_state);
+
+    const std::string country_code = "FR";
+    Entry iptc_country_code;
+    iptc_country_code.key = make_iptc_dataset_key(2U, 100U);
+    iptc_country_code.value = make_bytes(
+        store.arena(),
+        std::span<const std::byte>(
+            reinterpret_cast<const std::byte*>(country_code.data()),
+            country_code.size()));
+    iptc_country_code.origin.block          = block;
+    iptc_country_code.origin.order_in_block = 2U;
+    (void)store.add_entry(iptc_country_code);
+
+    const std::string country_name = "France";
+    Entry iptc_country_name;
+    iptc_country_name.key = make_iptc_dataset_key(2U, 101U);
+    iptc_country_name.value = make_bytes(
+        store.arena(),
+        std::span<const std::byte>(
+            reinterpret_cast<const std::byte*>(country_name.data()),
+            country_name.size()));
+    iptc_country_name.origin.block          = block;
+    iptc_country_name.origin.order_in_block = 3U;
+    (void)store.add_entry(iptc_country_name);
+
+    Entry legacy_city_lang;
+    legacy_city_lang.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationCreated/City[@xml:lang=x-default]");
+    legacy_city_lang.value = make_text(store.arena(), "Legacy City",
+                                       TextEncoding::Utf8);
+    legacy_city_lang.origin.block          = block;
+    legacy_city_lang.origin.order_in_block = 4U;
+    (void)store.add_entry(legacy_city_lang);
+
+    Entry legacy_country_code_indexed;
+    legacy_country_code_indexed.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationCreated/CountryCode[1]");
+    legacy_country_code_indexed.value = make_text(
+        store.arena(), "XX", TextEncoding::Utf8);
+    legacy_country_code_indexed.origin.block          = block;
+    legacy_country_code_indexed.origin.order_in_block = 5U;
+    (void)store.add_entry(legacy_country_code_indexed);
+
+    Entry legacy_country_lang;
+    legacy_country_lang.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationCreated/Address/CountryName[@xml:lang=x-default]");
+    legacy_country_lang.value = make_text(store.arena(), "Legacy Country",
+                                          TextEncoding::Utf8);
+    legacy_country_lang.origin.block          = block;
+    legacy_country_lang.origin.order_in_block = 6U;
+    (void)store.add_entry(legacy_country_lang);
+
+    Entry legacy_state_indexed;
+    legacy_state_indexed.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationCreated/Address/ProvinceState[1]");
+    legacy_state_indexed.value = make_text(store.arena(), "Legacy State",
+                                           TextEncoding::Utf8);
+    legacy_state_indexed.origin.block          = block;
+    legacy_state_indexed.origin.order_in_block = 7U;
+    (void)store.add_entry(legacy_state_indexed);
+
+    Entry legacy_world_region;
+    legacy_world_region.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationCreated/WorldRegion");
+    legacy_world_region.value = make_text(store.arena(), "EMEA",
+                                          TextEncoding::Utf8);
+    legacy_world_region.origin.block          = block;
+    legacy_world_region.origin.order_in_block = 8U;
+    (void)store.add_entry(legacy_world_region);
+
+    store.finalize();
+
+    XmpPortableOptions opts;
+    opts.include_exif         = false;
+    opts.include_iptc         = true;
+    opts.include_existing_xmp = true;
+    opts.conflict_policy      = XmpConflictPolicy::ExistingWins;
+    opts.existing_standard_namespace_policy
+        = XmpExistingStandardNamespacePolicy::CanonicalizeManaged;
+
+    std::vector<std::byte> out(16384);
+    const XmpDumpResult r
+        = dump_xmp_portable(store, std::span<std::byte>(out.data(), out.size()),
+                            opts);
+    ASSERT_EQ(r.status, XmpDumpStatus::Ok);
+
+    const std::string_view s(reinterpret_cast<const char*>(out.data()),
+                             static_cast<size_t>(r.written));
+    EXPECT_NE(
+        s.find("<Iptc4xmpCore:LocationCreated rdf:parseType=\"Resource\">"),
+        std::string_view::npos);
+    EXPECT_NE(s.find("<Iptc4xmpCore:City>Paris</Iptc4xmpCore:City>"),
+              std::string_view::npos);
+    EXPECT_NE(
+        s.find("<Iptc4xmpCore:ProvinceState>Ile-de-France</Iptc4xmpCore:ProvinceState>"),
+        std::string_view::npos);
+    EXPECT_NE(
+        s.find("<Iptc4xmpCore:CountryCode>FR</Iptc4xmpCore:CountryCode>"),
+        std::string_view::npos);
+    EXPECT_NE(
+        s.find("<Iptc4xmpCore:CountryName>France</Iptc4xmpCore:CountryName>"),
+        std::string_view::npos);
+
+    EXPECT_EQ(s.find("Legacy City"), std::string_view::npos);
+    EXPECT_EQ(s.find(">XX</rdf:li>"), std::string_view::npos);
+    EXPECT_EQ(s.find("Legacy Country"), std::string_view::npos);
+    EXPECT_EQ(s.find("Legacy State"), std::string_view::npos);
+
+    EXPECT_NE(
+        s.find("<Iptc4xmpExt:LocationCreated rdf:parseType=\"Resource\">"),
+        std::string_view::npos);
+    EXPECT_NE(
+        s.find("<Iptc4xmpExt:WorldRegion>EMEA</Iptc4xmpExt:WorldRegion>"),
+        std::string_view::npos);
+}
+
+TEST(XmpDump, PortableRepairsMalformedDirectLocationCreatedAliasShapes)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, kInvalidBlockId);
+
+    Entry city_lang;
+    city_lang.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationCreated/City[@xml:lang=x-default]");
+    city_lang.value = make_text(store.arena(), "Paris",
+                                TextEncoding::Utf8);
+    city_lang.origin.block          = block;
+    city_lang.origin.order_in_block = 0U;
+    (void)store.add_entry(city_lang);
+
+    Entry country_code_indexed;
+    country_code_indexed.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationCreated/CountryCode[1]");
+    country_code_indexed.value = make_text(store.arena(), "FR",
+                                           TextEncoding::Utf8);
+    country_code_indexed.origin.block          = block;
+    country_code_indexed.origin.order_in_block = 1U;
+    (void)store.add_entry(country_code_indexed);
+
+    Entry world_region;
+    world_region.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationCreated/WorldRegion");
+    world_region.value = make_text(store.arena(), "EMEA",
+                                   TextEncoding::Utf8);
+    world_region.origin.block          = block;
+    world_region.origin.order_in_block = 2U;
+    (void)store.add_entry(world_region);
+
+    store.finalize();
+
+    XmpPortableOptions opts;
+    opts.include_exif         = false;
+    opts.include_iptc         = false;
+    opts.include_existing_xmp = true;
+
+    std::vector<std::byte> out(8192);
+    const XmpDumpResult r
+        = dump_xmp_portable(store, std::span<std::byte>(out.data(), out.size()),
+                            opts);
+    ASSERT_EQ(r.status, XmpDumpStatus::Ok);
+
+    const std::string_view s(reinterpret_cast<const char*>(out.data()),
+                             static_cast<size_t>(r.written));
+    EXPECT_NE(
+        s.find("<Iptc4xmpExt:LocationCreated rdf:parseType=\"Resource\">"),
+        std::string_view::npos);
+    EXPECT_NE(s.find("<Iptc4xmpExt:City>Paris</Iptc4xmpExt:City>"),
+              std::string_view::npos);
+    EXPECT_NE(
+        s.find("<Iptc4xmpExt:CountryCode>FR</Iptc4xmpExt:CountryCode>"),
+        std::string_view::npos);
+    EXPECT_NE(
+        s.find("<Iptc4xmpExt:WorldRegion>EMEA</Iptc4xmpExt:WorldRegion>"),
+        std::string_view::npos);
+    EXPECT_EQ(s.find("<rdf:li xml:lang=\"x-default\">Paris</rdf:li>"),
+              std::string_view::npos);
+    EXPECT_EQ(s.find("<rdf:li>FR</rdf:li>"), std::string_view::npos);
+}
+
+TEST(XmpDump, PortableRepairsMalformedIndexedLocationShownAliasShapes)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, kInvalidBlockId);
+
+    Entry city_lang;
+    city_lang.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationShown[1]/City[@xml:lang=x-default]");
+    city_lang.value = make_text(store.arena(), "Kyoto",
+                                TextEncoding::Utf8);
+    city_lang.origin.block          = block;
+    city_lang.origin.order_in_block = 0U;
+    (void)store.add_entry(city_lang);
+
+    Entry country_code_indexed;
+    country_code_indexed.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationShown[1]/CountryCode[1]");
+    country_code_indexed.value = make_text(store.arena(), "JP",
+                                           TextEncoding::Utf8);
+    country_code_indexed.origin.block          = block;
+    country_code_indexed.origin.order_in_block = 1U;
+    (void)store.add_entry(country_code_indexed);
+
+    Entry world_region;
+    world_region.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationShown[1]/WorldRegion");
+    world_region.value = make_text(store.arena(), "APAC",
+                                   TextEncoding::Utf8);
+    world_region.origin.block          = block;
+    world_region.origin.order_in_block = 2U;
+    (void)store.add_entry(world_region);
+
+    store.finalize();
+
+    XmpPortableOptions opts;
+    opts.include_exif         = false;
+    opts.include_iptc         = false;
+    opts.include_existing_xmp = true;
+
+    std::vector<std::byte> out(8192);
+    const XmpDumpResult r
+        = dump_xmp_portable(store, std::span<std::byte>(out.data(), out.size()),
+                            opts);
+    ASSERT_EQ(r.status, XmpDumpStatus::Ok);
+
+    const std::string_view s(reinterpret_cast<const char*>(out.data()),
+                             static_cast<size_t>(r.written));
+    EXPECT_NE(s.find("<Iptc4xmpExt:LocationShown>"), std::string_view::npos);
+    EXPECT_NE(
+        s.find("<rdf:li rdf:parseType=\"Resource\">"),
+        std::string_view::npos);
+    EXPECT_NE(s.find("<Iptc4xmpExt:City>Kyoto</Iptc4xmpExt:City>"),
+              std::string_view::npos);
+    EXPECT_NE(
+        s.find("<Iptc4xmpExt:CountryCode>JP</Iptc4xmpExt:CountryCode>"),
+        std::string_view::npos);
+    EXPECT_NE(
+        s.find("<Iptc4xmpExt:WorldRegion>APAC</Iptc4xmpExt:WorldRegion>"),
+        std::string_view::npos);
+    EXPECT_EQ(s.find("<rdf:li xml:lang=\"x-default\">Kyoto</rdf:li>"),
+              std::string_view::npos);
+    EXPECT_EQ(s.find("<rdf:li>JP</rdf:li>"), std::string_view::npos);
+}
+
+TEST(XmpDump, PortableRepairsMalformedStructuredLocationCreatedCrossShapes)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, kInvalidBlockId);
+
+    Entry name_indexed;
+    name_indexed.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationCreated/LocationName[1]");
+    name_indexed.value = make_text(store.arena(), "Paris",
+                                   TextEncoding::Utf8);
+    name_indexed.origin.block          = block;
+    name_indexed.origin.order_in_block = 0U;
+    (void)store.add_entry(name_indexed);
+
+    Entry id_lang;
+    id_lang.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationCreated/LocationId[@xml:lang=x-default]");
+    id_lang.value = make_text(store.arena(), "created-001",
+                              TextEncoding::Utf8);
+    id_lang.origin.block          = block;
+    id_lang.origin.order_in_block = 1U;
+    (void)store.add_entry(id_lang);
+
+    Entry world_region;
+    world_region.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationCreated/WorldRegion");
+    world_region.value = make_text(store.arena(), "EMEA",
+                                   TextEncoding::Utf8);
+    world_region.origin.block          = block;
+    world_region.origin.order_in_block = 2U;
+    (void)store.add_entry(world_region);
+
+    store.finalize();
+
+    XmpPortableOptions opts;
+    opts.include_exif         = false;
+    opts.include_iptc         = false;
+    opts.include_existing_xmp = true;
+
+    std::vector<std::byte> out(8192);
+    const XmpDumpResult r
+        = dump_xmp_portable(store, std::span<std::byte>(out.data(), out.size()),
+                            opts);
+    ASSERT_EQ(r.status, XmpDumpStatus::Ok);
+
+    const std::string_view s(reinterpret_cast<const char*>(out.data()),
+                             static_cast<size_t>(r.written));
+    EXPECT_NE(
+        s.find("<Iptc4xmpExt:LocationCreated rdf:parseType=\"Resource\">"),
+        std::string_view::npos);
+    EXPECT_NE(s.find("<Iptc4xmpExt:LocationName>"), std::string_view::npos);
+    EXPECT_NE(s.find("<rdf:li xml:lang=\"x-default\">Paris</rdf:li>"),
+              std::string_view::npos);
+    EXPECT_NE(s.find("<Iptc4xmpExt:LocationId>"), std::string_view::npos);
+    EXPECT_NE(s.find("<rdf:li>created-001</rdf:li>"), std::string_view::npos);
+    EXPECT_NE(
+        s.find("<Iptc4xmpExt:WorldRegion>EMEA</Iptc4xmpExt:WorldRegion>"),
+        std::string_view::npos);
+    EXPECT_EQ(s.find("<rdf:li>Paris</rdf:li>"), std::string_view::npos);
+    EXPECT_EQ(
+        s.find("<rdf:li xml:lang=\"x-default\">created-001</rdf:li>"),
+        std::string_view::npos);
+}
+
+TEST(XmpDump, PortableRepairsMalformedIndexedLocationShownCrossShapes)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, kInvalidBlockId);
+
+    Entry name_indexed;
+    name_indexed.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationShown[1]/LocationName[1]");
+    name_indexed.value = make_text(store.arena(), "Kyoto",
+                                   TextEncoding::Utf8);
+    name_indexed.origin.block          = block;
+    name_indexed.origin.order_in_block = 0U;
+    (void)store.add_entry(name_indexed);
+
+    Entry id_lang;
+    id_lang.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationShown[1]/LocationId[@xml:lang=x-default]");
+    id_lang.value = make_text(store.arena(), "shown-001",
+                              TextEncoding::Utf8);
+    id_lang.origin.block          = block;
+    id_lang.origin.order_in_block = 1U;
+    (void)store.add_entry(id_lang);
+
+    Entry world_region;
+    world_region.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationShown[1]/WorldRegion");
+    world_region.value = make_text(store.arena(), "APAC",
+                                   TextEncoding::Utf8);
+    world_region.origin.block          = block;
+    world_region.origin.order_in_block = 2U;
+    (void)store.add_entry(world_region);
+
+    store.finalize();
+
+    XmpPortableOptions opts;
+    opts.include_exif         = false;
+    opts.include_iptc         = false;
+    opts.include_existing_xmp = true;
+
+    std::vector<std::byte> out(8192);
+    const XmpDumpResult r
+        = dump_xmp_portable(store, std::span<std::byte>(out.data(), out.size()),
+                            opts);
+    ASSERT_EQ(r.status, XmpDumpStatus::Ok);
+
+    const std::string_view s(reinterpret_cast<const char*>(out.data()),
+                             static_cast<size_t>(r.written));
+    EXPECT_NE(s.find("<Iptc4xmpExt:LocationShown>"), std::string_view::npos);
+    EXPECT_NE(
+        s.find("<rdf:li rdf:parseType=\"Resource\">"),
+        std::string_view::npos);
+    EXPECT_NE(s.find("<Iptc4xmpExt:LocationName>"), std::string_view::npos);
+    EXPECT_NE(s.find("<rdf:li xml:lang=\"x-default\">Kyoto</rdf:li>"),
+              std::string_view::npos);
+    EXPECT_NE(s.find("<Iptc4xmpExt:LocationId>"), std::string_view::npos);
+    EXPECT_NE(s.find("<rdf:li>shown-001</rdf:li>"), std::string_view::npos);
+    EXPECT_NE(
+        s.find("<Iptc4xmpExt:WorldRegion>APAC</Iptc4xmpExt:WorldRegion>"),
+        std::string_view::npos);
+    EXPECT_EQ(s.find("<rdf:li>Kyoto</rdf:li>"), std::string_view::npos);
+    EXPECT_EQ(
+        s.find("<rdf:li xml:lang=\"x-default\">shown-001</rdf:li>"),
+        std::string_view::npos);
+}
+
 TEST(XmpDump, PortablePreservesNestedStructuredChildLangAltResources)
 {
     MetaStore store;
@@ -9808,6 +10310,60 @@ TEST(XmpDump,
     EXPECT_EQ(
         s.find("<Iptc4xmpCore:ProvinceName>Tokyo</Iptc4xmpCore:ProvinceName>"),
         std::string_view::npos);
+}
+
+TEST(XmpDump, PortableRepairsNestedStructuredChildCrossShapes)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, kInvalidBlockId);
+
+    Entry province_name_indexed;
+    province_name_indexed.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/",
+        "CreatorContactInfo/CiAdrRegion/ProvinceName[1]");
+    province_name_indexed.value = make_text(store.arena(), "Tokyo",
+                                            TextEncoding::Utf8);
+    province_name_indexed.origin.block          = block;
+    province_name_indexed.origin.order_in_block = 0;
+    (void)store.add_entry(province_name_indexed);
+
+    Entry province_code_lang;
+    province_code_lang.key = make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/",
+        "CreatorContactInfo/CiAdrRegion/ProvinceCode[@xml:lang=x-default]");
+    province_code_lang.value = make_text(store.arena(), "JP-13",
+                                         TextEncoding::Utf8);
+    province_code_lang.origin.block          = block;
+    province_code_lang.origin.order_in_block = 1;
+    (void)store.add_entry(province_code_lang);
+
+    store.finalize();
+
+    XmpPortableOptions opts;
+    opts.include_exif         = false;
+    opts.include_iptc         = false;
+    opts.include_existing_xmp = true;
+
+    std::vector<std::byte> out(8192);
+    const XmpDumpResult r
+        = dump_xmp_portable(store, std::span<std::byte>(out.data(), out.size()),
+                            opts);
+    ASSERT_EQ(r.status, XmpDumpStatus::Ok);
+
+    const std::string_view s(reinterpret_cast<const char*>(out.data()),
+                             static_cast<size_t>(r.written));
+    EXPECT_NE(
+        s.find("<Iptc4xmpCore:CiAdrRegion rdf:parseType=\"Resource\">"),
+        std::string_view::npos);
+    EXPECT_NE(s.find("<Iptc4xmpCore:ProvinceName>"), std::string_view::npos);
+    EXPECT_NE(s.find("<rdf:li xml:lang=\"x-default\">Tokyo</rdf:li>"),
+              std::string_view::npos);
+    EXPECT_NE(s.find("<Iptc4xmpCore:ProvinceCode>"), std::string_view::npos);
+    EXPECT_NE(s.find("<rdf:li>JP-13</rdf:li>"), std::string_view::npos);
+    EXPECT_EQ(s.find("<rdf:li>Tokyo</rdf:li>"), std::string_view::npos);
+    EXPECT_EQ(s.find("<rdf:li xml:lang=\"x-default\">JP-13</rdf:li>"),
+              std::string_view::npos);
 }
 
 TEST(XmpDump, PortablePreservesCrsNamespace)
