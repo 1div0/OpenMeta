@@ -1,5 +1,95 @@
 include_guard(GLOBAL)
 
+function(openmeta_expat_library_is_static out_var library_path)
+  set(_openmeta_is_static OFF)
+
+  if(NOT library_path
+     OR library_path STREQUAL "optimized"
+     OR library_path STREQUAL "debug"
+     OR library_path STREQUAL "general")
+    set(${out_var} "${_openmeta_is_static}" PARENT_SCOPE)
+    return()
+  endif()
+
+  get_filename_component(_openmeta_library_name "${library_path}" NAME)
+  string(TOLOWER "${_openmeta_library_name}" _openmeta_library_name_lower)
+
+  if(_openmeta_library_name_lower MATCHES "\\.a$")
+    set(_openmeta_is_static ON)
+  elseif(WIN32
+         AND _openmeta_library_name_lower MATCHES "^(lib)?expat(w)?d?mt\\.lib$")
+    set(_openmeta_is_static ON)
+  endif()
+
+  set(${out_var} "${_openmeta_is_static}" PARENT_SCOPE)
+endfunction()
+
+function(openmeta_expat_needs_xml_static out_var)
+  set(_openmeta_needs_xml_static OFF)
+
+  if(NOT OPENMETA_EXPAT_FOUND)
+    set(${out_var} "${_openmeta_needs_xml_static}" PARENT_SCOPE)
+    return()
+  endif()
+
+  if(TARGET EXPAT::EXPAT)
+    get_target_property(_openmeta_expat_defs EXPAT::EXPAT
+      INTERFACE_COMPILE_DEFINITIONS)
+    if(_openmeta_expat_defs)
+      list(FIND _openmeta_expat_defs "XML_STATIC"
+        _openmeta_xml_static_index)
+      if(NOT _openmeta_xml_static_index EQUAL -1)
+        set(_openmeta_needs_xml_static ON)
+      endif()
+    endif()
+  endif()
+
+  if(NOT _openmeta_needs_xml_static)
+    set(_openmeta_expat_candidates "")
+    foreach(_openmeta_expat_var
+        IN ITEMS EXPAT_LIBRARY_DEBUG EXPAT_LIBRARY_RELEASE EXPAT_LIBRARY)
+      if(DEFINED ${_openmeta_expat_var} AND NOT "${${_openmeta_expat_var}}" STREQUAL "")
+        list(APPEND _openmeta_expat_candidates "${${_openmeta_expat_var}}")
+      endif()
+    endforeach()
+    if(DEFINED EXPAT_LIBRARIES)
+      list(APPEND _openmeta_expat_candidates ${EXPAT_LIBRARIES})
+    endif()
+
+    foreach(_openmeta_expat_candidate IN LISTS _openmeta_expat_candidates)
+      openmeta_expat_library_is_static(_openmeta_expat_candidate_is_static
+        "${_openmeta_expat_candidate}")
+      if(_openmeta_expat_candidate_is_static)
+        set(_openmeta_needs_xml_static ON)
+        break()
+      endif()
+    endforeach()
+  endif()
+
+  set(${out_var} "${_openmeta_needs_xml_static}" PARENT_SCOPE)
+endfunction()
+
+function(openmeta_apply_expat_dep target_name visibility)
+  if(NOT OPENMETA_EXPAT_FOUND)
+    return()
+  endif()
+
+  if(TARGET EXPAT::EXPAT)
+    target_link_libraries(${target_name} ${visibility} EXPAT::EXPAT)
+  else()
+    target_include_directories(${target_name} ${visibility}
+      "${EXPAT_INCLUDE_DIRS}")
+    target_link_libraries(${target_name} ${visibility} "${EXPAT_LIBRARIES}")
+  endif()
+
+  target_compile_definitions(${target_name} ${visibility} OPENMETA_HAS_EXPAT=1)
+
+  openmeta_expat_needs_xml_static(_openmeta_needs_xml_static)
+  if(_openmeta_needs_xml_static)
+    target_compile_definitions(${target_name} ${visibility} XML_STATIC)
+  endif()
+endfunction()
+
 function(openmeta_add_googletest)
   if(TARGET gtest_main)
     set(OPENMETA_GTEST_PROVIDER "already-present" PARENT_SCOPE)
@@ -105,13 +195,7 @@ function(openmeta_apply_core_deps target_name)
   endif()
 
   if(OPENMETA_EXPAT_FOUND)
-    if(TARGET EXPAT::EXPAT)
-      target_link_libraries(${target_name} PRIVATE EXPAT::EXPAT)
-    else()
-      target_include_directories(${target_name} PRIVATE "${EXPAT_INCLUDE_DIRS}")
-      target_link_libraries(${target_name} PRIVATE "${EXPAT_LIBRARIES}")
-    endif()
-    target_compile_definitions(${target_name} PRIVATE OPENMETA_HAS_EXPAT=1)
+    openmeta_apply_expat_dep(${target_name} PRIVATE)
   endif()
 
   if(OPENMETA_ENABLE_C2PA_VERIFY)
