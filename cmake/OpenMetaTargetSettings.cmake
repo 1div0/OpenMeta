@@ -13,6 +13,10 @@ function(openmeta_apply_target_settings target_name)
   )
   set_target_properties(${target_name} PROPERTIES CXX_EXTENSIONS OFF)
 
+  if(WIN32)
+    target_compile_definitions(${target_name} PRIVATE NOMINMAX)
+  endif()
+
   if(MSVC)
     target_compile_options(${target_name} PRIVATE /W4 /EHs-c- /GR-)
     target_compile_definitions(${target_name} PRIVATE _HAS_EXCEPTIONS=0)
