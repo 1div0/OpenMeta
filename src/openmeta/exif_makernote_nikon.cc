@@ -2053,7 +2053,7 @@ decode_nikon_binary_subdirs(std::string_view mk_ifd0, MetaStore& store, bool le,
                 0x000a, 0x0013, 0x0014, 0x0015, 0x001b, 0x001d, 0x0027,
             };
             static constexpr uint16_t kFlashInfo0106U8Tags[] = {
-                0x000c, 0x000d, 0x000e, 0x000f, 0x0010,
+                0x0009, 0x000c, 0x000d, 0x000e, 0x000f, 0x0010,
             };
             static constexpr uint16_t kFlashInfo0106I8Tags[] = {
                 0x0027, 0x0028, 0x0029, 0x002a,

@@ -8109,7 +8109,7 @@ TEST(MakerNoteDecode, SelectsCanonCameraInfo600dSubIfdForKissX70Alias)
 TEST(MakerNoteDecode, SelectsCanonCameraInfo600dSubIfdForRebelT3iAlias)
 {
     const std::vector<std::byte> cam
-        = make_canon_camera_info_blob_with_ascii(0x00ee, "1.1.4", 6U);
+        = make_canon_camera_info_blob_with_ascii(0x019b, "1.1.4", 6U);
     const std::vector<std::byte> mn = make_canon_camera_info_blob_makernote(
         cam);
     const std::vector<std::byte> tiff
@@ -8125,10 +8125,10 @@ TEST(MakerNoteDecode, SelectsCanonCameraInfo600dSubIfdForRebelT3iAlias)
 
     store.finalize();
     EXPECT_TRUE(
-        store.find_all(exif_key("mk_canon_camerainfo1100d_0", 0x00ee)).empty());
+        store.find_all(exif_key("mk_canon_camerainfo1100d_0", 0x019b)).empty());
     {
         const std::span<const EntryId> ids = store.find_all(
-            exif_key("mk_canon_camerainfo600d_0", 0x00ee));
+            exif_key("mk_canon_camerainfo600d_0", 0x019b));
         ASSERT_EQ(ids.size(), 1U);
         const Entry& e = store.entry(ids[0]);
         EXPECT_EQ(e.value.kind, MetaValueKind::Text);

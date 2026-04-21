@@ -366,6 +366,14 @@ Current controls:
   - `--xmp-destination-embedded <preserve_existing|strip_existing>`
   - `--xmp-destination-sidecar <preserve_existing|strip_existing>`
 
+Current bounded writeback contract:
+
+| `xmp_writeback_mode` | Edited file | Sibling `.xmp` | Default cleanup behavior |
+| --- | --- | --- | --- |
+| `EmbeddedOnly` | Keep generated XMP in the managed embedded carrier | No generated sidecar output | Preserve any existing sibling `.xmp` unless `xmp_destination_sidecar_mode=StripExisting` |
+| `SidecarOnly` | Suppress generated embedded XMP carriers | Return generated sidecar output | Preserve existing embedded XMP unless `xmp_destination_embedded_mode=StripExisting` |
+| `EmbeddedAndSidecar` | Keep generated XMP in the managed embedded carrier | Return the same generated XMP as sibling `.xmp` output | No sidecar cleanup path is requested |
+
 Current behavior:
 - existing XMP can still be included independently
 - EXIF payload emission stays independent from EXIF-to-XMP projection
@@ -410,6 +418,9 @@ Current behavior:
   `transfer_file(...)` and `unsafe_transfer_file(...)`, and the public Python
   wrapper uses that core helper instead of maintaining its own sidecar write
   and cleanup implementation
+- public API regression coverage now asserts dual-write roundtrip and
+  persistence behavior across `jpeg`, `tiff`, `dng`, `png`, `webp`, `jp2`,
+  `jxl`, `heif`, `avif`, and `cr3`
 
 This is deliberately narrower than a full sync engine. It does not yet define:
 - full EXIF vs XMP precedence rules
@@ -484,6 +495,117 @@ target:
 4. Add more transfer-focused roundtrip and compare gates where they improve
    confidence for adopters.
 5. Add an explicit EXIF / IPTC / XMP sync policy.
+
+## Three-Phase Writer Confidence Roadmap
+
+This is the public roadmap for closing the main read/transfer/write gaps
+against mature metadata tools without expanding the project scope into full
+pixel editing or unbounded arbitrary metadata editing.
+
+### Working Rule
+
+For the current milestone:
+- do not add broad new read families before the current writer target family is
+  stable
+- every new writer behavior should ship with explicit roundtrip and compare
+  gates
+- prefer one documented bounded contract per target over format-specific hidden
+  behavior
+
+### Phase 1: Writer Confidence Baseline
+
+Goal:
+- restore a fully green public tree
+- make current bounded writer behavior explicit and regression-gated
+- remove adoption risk caused by ambiguous sync and preservation behavior
+
+Cross-cutting deliverables:
+- fix all public unit and regression failures before adding further writer
+  breadth
+- publish one explicit EXIF / IPTC / XMP writeback policy for:
+  - source-embedded vs destination-embedded precedence
+  - source-embedded vs destination-sidecar precedence
+  - canonical generated-XMP writeback rules
+  - namespace preservation and canonicalization rules
+- add compare-backed release validation for the current primary target family
+- document unmanaged-metadata preservation rules for each writer target
+
+Exit criteria:
+- public test tree is green
+- public release gates cover read-back plus compare-style validation for the
+  primary target family
+- writer-side XMP behavior is explicit instead of implementation-defined
+
+### Phase 2: Stable First-Class Writer Set
+
+Goal:
+- make the current target family feel consistent across C++, CLI, and Python
+- raise bounded edit paths into stable first-class writer contracts
+- improve rewrite safety for vendor metadata without claiming full arbitrary
+  edit parity
+
+Cross-cutting deliverables:
+- one stable user-facing edit/transfer surface across C++, CLI, and Python
+- one policy surface for MakerNote, JUMBF, C2PA, EXIF projection, IPTC
+  projection, and XMP carrier behavior
+- stronger rewrite guarantees for preserve-vs-replace behavior on existing
+  target metadata
+- compare and roundtrip gates promoted from smoke coverage into release-facing
+  validation for the first-class target family
+
+Exit criteria:
+- the first-class target family has documented write guarantees and matching
+  regression gates
+- major host surfaces expose the same bounded policy controls
+- target maturity differences are reduced to known documented limits instead of
+  accidental behavior
+
+### Phase 3: Deeper Parity and Read-Depth Follow-Through
+
+Goal:
+- close the most visible remaining competitor gaps after the primary writer
+  contract is stable
+- deepen read semantics only where they materially improve writer confidence or
+  interop parity
+
+Cross-cutting deliverables:
+- deeper modern-container semantics where current bounded projections are too
+  small for parity workflows
+- long-tail read-depth work for formats that still rely mainly on embedded-TIFF
+  follow paths
+- broader compare gates for newer target families and long-tail metadata
+  structures
+
+Exit criteria:
+- remaining gaps are mostly strategic out-of-scope items rather than missing
+  baseline format behavior
+- OpenMeta can defend a clear public answer for which targets are first-class,
+  bounded, or read-only
+
+### Per-Target Deliverables
+
+| Target family | Phase 1 deliverable | Phase 2 deliverable | Phase 3 follow-up |
+| --- | --- | --- | --- |
+| JPEG | Lock explicit sync/writeback defaults for APP1/APP2/APP13, add compare-backed read-back gates for edit/apply, and document unmanaged-marker preservation | Promote JPEG from strongest target to reference writer contract for other backends, including clearer preserve/replace guarantees for existing metadata carriers | Expand parity coverage for more mixed metadata bundles and signed/unsigned JUMBF handoff workflows where still bounded |
+| TIFF | Lock rewrite guarantees for root IFD, `ExifIFD`, preview-page chains, and bounded `SubIFD` replacement; add compare-backed roundtrip gates for classic TIFF and BigTIFF | Raise current bounded rewrite behavior into a stable first-class contract, including clearer preserve/replace rules for existing auxiliary chains and downstream tails | Broaden nested-IFD graph handling only where it improves practical export parity without claiming arbitrary graph rewrite |
+| DNG | Lock explicit behavior for `ExistingTarget`, `TemplateTarget`, and `MinimalFreshScaffold`; add compare-backed roundtrip gates for `DNGVersion`, preview chains, and raw `SubIFD` merge behavior | Stabilize the DNG policy layer so hosts can rely on predictable preserve/merge behavior without the Adobe SDK path | Decide whether any additional DNG-specific rewrite depth is worth public contract expansion beyond the TIFF-derived bounded model |
+| PNG | Lock chunk replacement rules for `eXIf`, XMP `iTXt`, and `iCCP`; add compare-backed roundtrip gates for embedded-only, sidecar-only, and dual-carrier XMP flows where applicable | Promote the current bounded chunk path into a stable managed-metadata editor with explicit preservation rules for unrelated chunks | Add deeper parity only if compare workflows show recurring gaps against major tools |
+| WebP | Lock replacement rules for `EXIF`, `XMP `, `ICCP`, and bounded `C2PA`; add compare-backed roundtrip gates | Promote the current bounded RIFF metadata path into a stable managed-metadata editor with explicit preservation guarantees for unrelated chunks | Extend only where public parity data shows material gaps for common WebP metadata workflows |
+| JP2 | Lock top-level managed-box rewrite rules and `colr` replacement behavior; add compare-backed roundtrip gates | Promote bounded box rewrite into a stable JP2 metadata contract with explicit preserve/replace guarantees for unmanaged boxes | Revisit `jp2h` synthesis only if it becomes necessary for common export parity |
+| JXL | Lock current box rewrite rules for `Exif`, `xml `, `jumb`, bounded `c2pa`, and encoder-side ICC handoff; add compare-backed roundtrip gates for edit/apply paths | Promote JXL from bounded but real to a stable first-class metadata target with explicit unmanaged-box preservation rules and clearer encoder/file-edit split | Add more `brob` realtype coverage only after the current direct and bounded compressed routes are stable |
+| HEIF / AVIF / CR3 | Lock the bounded metadata-only `meta` edit contract, item/property preservation rules, and compare-backed roundtrip gates | Stabilize the bounded BMFF writer contract for metadata items, ICC property handling, and existing OpenMeta-authored `meta` replacement | Deepen BMFF scene semantics and relation modeling where current bounded fields are too small for parity workflows |
+| EXR | Decide whether the public target remains an attribute-emitter contract or grows into a file rewrite/edit path; add compare-backed gates for the chosen contract | If EXR stays bounded, make that contract final and explicit across C++, CLI, and Python; if it grows, define one narrow first-class rewrite scope and gate it | Add depth only after the architectural choice is settled; avoid half-bounded expansion |
+| RAF / X3F | Keep current follow-path reads stable and add focused compare coverage for the existing best-effort semantics | Only add read depth that directly improves downstream transfer/export confidence | Deepen native semantics beyond embedded-TIFF follow paths if parity evidence shows real user-facing gaps |
+| CRW / CIFF | Keep the current bounded native CIFF projection stable and well-gated | Improve only the parts that materially affect interop or transfer workflows | Revisit deeper native legacy coverage if it becomes a recurring parity blocker |
+| Photoshop IRB | Keep raw preservation stable and add compare coverage for the current interpreted subset | Expand interpreted subset only where it improves practical writer parity | Revisit broader Photoshop-resource parity after the first-class writer set is stable |
+| JUMBF / C2PA | Keep bounded preserve/invalidate behavior deterministic and regression-gated | Improve public signer-handoff and bounded rewrite workflows without claiming full trust-policy parity | Revisit deeper semantics and signed rewrite coverage after the main writer contract is stable |
+
+### Phase Ordering Summary
+
+1. Fix public regressions and lock the sync/writeback contract.
+2. Turn the current target family into a stable first-class writer set.
+3. Spend follow-up effort on deeper parity lanes only after the writer
+   baseline is trustworthy.
 
 ## Postponed Work
 

@@ -1222,21 +1222,36 @@ struct ExecutePreparedTransferResult final {
 
 /// XMP carrier preference for file-helper transfer execution.
 enum class XmpWritebackMode : uint8_t {
+    /// Keep generated XMP only in the managed embedded carrier.
     EmbeddedOnly,
+    /// Return generated XMP only as sibling `.xmp` output.
+    ///
+    /// Existing embedded XMP stays in the edited file unless
+    /// \ref XmpDestinationEmbeddedMode::StripExisting is requested.
     SidecarOnly,
+    /// Keep generated XMP in the managed embedded carrier and also return the
+    /// same generated XMP packet for sibling `.xmp` writeback.
     EmbeddedAndSidecar,
 };
 
 /// Destination embedded-XMP handling for file-helper transfer execution.
 enum class XmpDestinationEmbeddedMode : uint8_t {
+    /// Leave existing embedded XMP in the edited file when sidecar-only
+    /// writeback suppresses generated embedded XMP.
     PreserveExisting,
+    /// Remove managed embedded XMP from the edited file when sidecar-only
+    /// writeback is selected.
     StripExisting,
 };
 
 /// Destination sibling XMP sidecar handling for file-helper transfer
 /// execution.
 enum class XmpDestinationSidecarMode : uint8_t {
+    /// Leave an existing sibling `.xmp` untouched when embedded-only
+    /// writeback is selected.
     PreserveExisting,
+    /// Request removal of an existing sibling `.xmp` when embedded-only
+    /// writeback is selected.
     StripExisting,
 };
 
@@ -1245,6 +1260,10 @@ struct ExecutePreparedTransferFileOptions final {
     PrepareTransferFileOptions prepare;
     ExecutePreparedTransferOptions execute;
     std::string edit_target_path;
+    /// Base path used to derive sibling `.xmp` output or cleanup paths.
+    ///
+    /// When empty, the file-helper derives the sidecar path from
+    /// \ref edit_target_path.
     std::string xmp_sidecar_base_path;
     XmpExistingDestinationEmbeddedMode
         xmp_existing_destination_embedded_mode
