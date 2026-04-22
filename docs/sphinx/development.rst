@@ -39,41 +39,35 @@ Internal helper conventions (used by vendor decoders):
 Interop adapters
 ----------------
 
-- Core traversal API: ``src/include/openmeta/interop_export.h``
-- OIIO adapter (flat name/value): ``src/include/openmeta/oiio_adapter.h``
-- OCIO adapter (namespace tree): ``src/include/openmeta/ocio_adapter.h``
-- EXR adapter (per-part attribute batch): ``src/include/openmeta/exr_adapter.h``
+- export-only naming/traversal surface:
+  ``src/include/openmeta/interop_export.h``
+- export-only adapter:
+  ``src/include/openmeta/ocio_adapter.h``
+- host-apply adapter:
+  ``src/include/openmeta/exr_adapter.h``
+- direct bridge:
+  ``src/include/openmeta/dng_sdk_adapter.h``
+- narrow translator:
+  ``src/include/openmeta/libraw_adapter.h``
 
 Notes:
 
 - ``ExportNamePolicy::ExifToolAlias`` and ``ExportNamePolicy::Spec`` are both
   covered by interop tests and used for split-parity workflows.
-- OIIO export keeps numeric unknown names (``Exif_0x....``) and
-  ``Exif:MakerNote`` when values are empty so parity checks remain stable.
+- Flat host-style interop naming keeps numeric unknown names
+  (``Exif_0x....``) for parity workflows.
 
 Python binding entry points:
 
 - ``Document.export_names(...)``
-- ``Document.oiio_attributes(...)``
-- ``Document.unsafe_oiio_attributes(...)``
-- ``Document.oiio_attributes_typed(...)``
-- ``Document.unsafe_oiio_attributes_typed(...)``
 - ``Document.ocio_metadata_tree(...)``
 - ``Document.unsafe_ocio_metadata_tree(...)``
 - ``Document.dump_xmp_sidecar(...)`` (lossless or portable via format switch)
 
 C++ adapter entry points:
 
-- safe API: ``collect_oiio_attributes_safe(..., InteropSafetyError*)``
-- unsafe API: ``collect_oiio_attributes(...)``
-- ``collect_oiio_attributes(..., const OiioAdapterRequest&)`` in
-  ``openmeta/oiio_adapter.h`` (stable flat request API)
-- ``collect_oiio_attributes(..., const OiioAdapterOptions&)`` (advanced/legacy shape)
-- safe typed API: ``collect_oiio_attributes_typed_safe(..., InteropSafetyError*)``
-- unsafe typed API: ``collect_oiio_attributes_typed(...)``
-- ``collect_oiio_attributes_typed(..., const OiioAdapterRequest&)`` (typed values)
-- ``collect_oiio_attributes_typed(..., const OiioAdapterOptions&)`` (typed values)
-  typed payload model: ``OiioTypedValue`` / ``OiioTypedAttribute``
+- ``visit_metadata(...)`` in ``openmeta/interop_export.h``
+  is the intended base for host-owned metadata mappings
 - ``build_exr_attribute_batch(...)`` in ``openmeta/exr_adapter.h``
   exports one owned EXR-native attribute batch
   (``part_index``, ``name``, ``type_name``, ``value``, ``is_opaque``)
@@ -87,13 +81,8 @@ C++ adapter entry points:
 
 Python typed behavior:
 
-- ``Document.oiio_attributes(...)`` is safe-by-default and raises on unsafe
-  raw byte payloads; use ``Document.unsafe_oiio_attributes(...)`` for
-  legacy/raw fallback output.
-- ``Document.oiio_attributes_typed(...)`` decodes text values to Python ``str``
-  in safe mode and raises on unsafe/invalid text bytes.
-- ``Document.unsafe_oiio_attributes_typed(...)`` returns raw text bytes for
-  explicit unsafe workflows.
+- ``Document.export_names(style=ExportNameStyle.FlatHost, ...)`` exposes the
+  shared flat-host naming contract used by host-side metadata mappings.
 - ``Document.ocio_metadata_tree(...)`` is safe-by-default and raises on unsafe
   raw byte payloads; use ``Document.unsafe_ocio_metadata_tree(...)`` for
   legacy/raw fallback output.

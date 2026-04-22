@@ -35,7 +35,6 @@ set(_gtest_filter
   "MetaStoreTest.*:"
   "MpfDecode.*:"
   "OcioAdapter.*:"
-  "OiioAdapter.*:"
   "PhotoshopIrbDecodeTest.*:"
   "PreviewExtract.*:"
   "PrintImDecode.*:"

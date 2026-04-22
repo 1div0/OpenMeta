@@ -24,7 +24,7 @@ Host owns                       Use
 Existing target file/template   ``execute_prepared_transfer_file(...)`` +
                                 ``persist_prepared_transfer_file_result(...)``
 EXR writer                      ``build_exr_attribute_batch_from_file(...)``
-OIIO-style typed attributes     ``collect_oiio_attributes_typed(...)``
+Host-owned metadata object      ``visit_metadata(...)``
 JPEG/JXL/WebP/PNG/JP2/BMFF      ``prepare_metadata_for_target_file(...)`` +
 encoder path                    adapter view or backend emitter
 Adobe DNG SDK objects/files     ``dng_sdk_adapter.h``
@@ -33,6 +33,23 @@ Adobe DNG SDK objects/files     ``dng_sdk_adapter.h``
 There is no public fuzzy-search API yet. Query through exact keys and build
 your own display or search layer on top.
 
+Adapter classes
+---------------
+
+OpenMeta splits host integration surfaces deliberately:
+
+- export-only naming/traversal surface:
+  ``visit_metadata(...)`` for host-owned metadata mapping layers
+- export-only adapter:
+  ``build_ocio_metadata_tree(...)`` for OCIO-style metadata trees
+- host-apply adapter:
+  ``build_exr_attribute_batch(...)`` for EXR/OpenEXR header workflows
+- direct bridge:
+  ``dng_sdk_adapter.h`` for applications that already use Adobe DNG SDK
+  objects
+- narrow translator:
+  ``libraw_adapter.h`` for orientation mapping into LibRaw flip space
+
 Read and query
 --------------
 
@@ -40,24 +57,33 @@ The basic read path is covered in :doc:`quick_start`. Once you have a
 ``MetaStore``, the main lookup API is exact-key lookup through
 ``MetaStore::find_all(...)``.
 
-OIIO-style typed attributes
----------------------------
+Generic host metadata traversal
+-------------------------------
 
-Use this when the host wants flattened typed attributes instead of raw
-container payloads.
+Use the traversal API when your application owns the metadata object model and
+needs deterministic exported names plus the original ``Entry``.
 
 .. code-block:: cpp
 
-   #include "openmeta/oiio_adapter.h"
+   #include "openmeta/interop_export.h"
 
-   std::vector<openmeta::OiioTypedAttribute> attrs;
-   openmeta::OiioAdapterRequest request;
-   request.include_makernotes = true;
+   class MyMetadataSink final : public openmeta::MetadataSink {
+   public:
+       void on_item(const openmeta::ExportItem& item) noexcept override
+       {
+           // Map item.name + item.entry into your host metadata object.
+       }
+   };
 
-   openmeta::collect_oiio_attributes_typed(store, &attrs, request);
+   openmeta::ExportOptions options;
+   options.style              = openmeta::ExportNameStyle::FlatHost;
+   options.name_policy        = openmeta::ExportNamePolicy::ExifToolAlias;
+   options.include_makernotes = true;
 
-This gives you ``name + typed value`` pairs that are easy to map onto an
-OpenImageIO ``ImageSpec`` or a similar metadata API.
+   MyMetadataSink sink;
+   openmeta::visit_metadata(store, options, sink);
+
+This keeps host-specific object ownership and write behavior outside OpenMeta.
 
 EXR attribute batches
 ---------------------
@@ -80,8 +106,8 @@ This is the cleanest host-adapter path in OpenMeta today.
    }
 
 OpenMeta does not need OpenEXR headers for this path. It exports a neutral
-batch of EXR-style attributes that your host can apply through OpenEXR, OIIO,
-or its own EXR writer.
+batch of EXR-style attributes that your host can apply through OpenEXR or its
+own EXR writer.
 
 Host-owned JPEG or JXL output
 -----------------------------

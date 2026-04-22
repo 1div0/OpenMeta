@@ -6,7 +6,7 @@ Goal
 
 Define a small export interface from ``MetaStore`` that is easy to adapt to:
 
-- OpenImageIO ``ImageSpec`` metadata conventions.
+- flat host metadata conventions.
 - OpenEXR header attributes.
 - OpenColorIO ``FormatMetadata`` trees.
 
@@ -20,7 +20,7 @@ Contract constant: ``kInteropExportContractVersion == 1``.
    enum class ExportNameStyle : uint8_t {
        Canonical,   // exif:ifd0:0x010F
        XmpPortable, // tiff:Make, exif:ExposureTime
-       Oiio         // Make, Exif:ExposureTime, GPS:Latitude
+       FlatHost    // Make, Exif:ExposureTime, GPS:Latitude
    };
 
    struct ExportOptions final {
@@ -51,29 +51,25 @@ Naming Contract
 
 - ``Canonical``: stable key-space-aware names for lossless workflows.
 - ``XmpPortable``: normalized names intended for cross-tool interchange.
-- ``Oiio``: OIIO-friendly names for drop-in metadata attribute use.
-  EXR attributes map common OpenEXR names to OIIO-style names where practical
+- the flat host-attribute style keeps EXR attribute aliases where practical
   (for example ``owner -> Copyright``, ``capDate -> DateTime``), while
   non-standard EXR attributes remain under ``openexr:*``.
 
-Adapters
---------
+Integration Surfaces
+--------------------
 
-- OIIO adapter: ``collect_oiio_attributes(...)`` in ``openmeta/oiio_adapter.h``.
-  Stable request model: ``OiioAdapterRequest``.
-  Typed variant: ``collect_oiio_attributes_typed(...)``.
-  ``OiioTypedValue`` keeps original MetaValue typing (scalar/array/bytes/text)
-  for host integrations that need non-string metadata values.
-  Strict safe variants: ``collect_oiio_attributes_safe(...)`` and
-  ``collect_oiio_attributes_typed_safe(...)`` with ``InteropSafetyError``.
-- OCIO adapter: ``build_ocio_metadata_tree(...)`` in ``openmeta/ocio_adapter.h``.
+- host-owned metadata surface: ``visit_metadata(...)`` in
+  ``openmeta/interop_export.h``.
+  This is the intended base for custom host metadata mappings.
+- OCIO export-only adapter: ``build_ocio_metadata_tree(...)`` in
+  ``openmeta/ocio_adapter.h``.
   Stable request model: ``OcioAdapterRequest``.
   Strict safe variant: ``build_ocio_metadata_tree_safe(...)`` with
   ``InteropSafetyError``.
-- EXR adapter: ``build_exr_attribute_batch(...)`` in
+- EXR host-apply adapter: ``build_exr_attribute_batch(...)`` in
   ``openmeta/exr_adapter.h``.
   It exports one owned EXR-native attribute batch from ``MetaStore`` for
-  OpenEXR/OIIO header workflows.
+  OpenEXR header workflows.
   ``build_exr_attribute_part_spans(...)`` groups that batch by part, and
   ``build_exr_attribute_part_views(...)`` exposes zero-copy grouped per-part
   views,
@@ -86,7 +82,6 @@ Reference Tests
 ---------------
 
 - ``tests/interop_export_test.cc``
-- ``tests/oiio_adapter_test.cc``
 - ``tests/ocio_adapter_test.cc``
 - ``tests/exr_adapter_test.cc``
 
@@ -94,10 +89,6 @@ Python Entry Points
 -------------------
 
 - ``Document.export_names(style=..., include_makernotes=...)``
-- ``Document.oiio_attributes(...)``
-- ``Document.unsafe_oiio_attributes(...)``
-- ``Document.oiio_attributes_typed(...)``
-- ``Document.unsafe_oiio_attributes_typed(...)``
 - ``Document.ocio_metadata_tree(...)``
 - ``Document.unsafe_ocio_metadata_tree(...)``
 - ``Document.dump_xmp_sidecar(format=...)``

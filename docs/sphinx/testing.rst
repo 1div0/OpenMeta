@@ -127,7 +127,6 @@ interop-adapter suites into one named check. It includes coverage such as:
 - ``SimpleMetaRead.*``
 - ``XmpDecodeTest.*``
 - ``JumbfDecode.*``
-- ``OiioAdapter.*``
 - ``OcioAdapter.*``
 - ``ValidateFile.*``
 
@@ -159,11 +158,11 @@ Adapter-focused tests in the public tree:
 .. code-block:: bash
 
    cmake --build build-tests --target openmeta_tests
-   ./build-tests/openmeta_tests --gtest_filter='InteropExport.*:OiioAdapter.*:OcioAdapter.*'
+   ./build-tests/openmeta_tests --gtest_filter='InteropExport.*:OcioAdapter.*:ExrAdapter.*'
    ./build-tests/openmeta_tests --gtest_filter='CrwCiffDecode.*'
 
 These tests cover:
 
 - alias/spec name-policy behavior in ``InteropExport``,
-- OIIO/OCIO adapter export stability,
+- flat host-style naming plus OCIO/EXR adapter export stability,
 - CRW/CIFF derived EXIF mapping for legacy Canon RAW.

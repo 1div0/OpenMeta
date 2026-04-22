@@ -294,7 +294,7 @@ TEST(InteropExport, PortableStyleSkipsPointersAndMakerNotes)
 }
 
 
-TEST(InteropExport, OiioStyleRespectsMakerNoteSwitch)
+TEST(InteropExport, FlatHostStyleRespectsMakerNoteSwitch)
 {
     const MetaStore store = make_export_store();
     std::vector<std::string> names_without_mk;
@@ -303,7 +303,7 @@ TEST(InteropExport, OiioStyleRespectsMakerNoteSwitch)
     {
         NameCollectSink sink(&names_without_mk);
         ExportOptions options;
-        options.style              = ExportNameStyle::Oiio;
+        options.style              = ExportNameStyle::FlatHost;
         options.include_makernotes = false;
         visit_metadata(store, options, sink);
     }
@@ -311,7 +311,7 @@ TEST(InteropExport, OiioStyleRespectsMakerNoteSwitch)
     {
         NameCollectSink sink(&names_with_mk);
         ExportOptions options;
-        options.style              = ExportNameStyle::Oiio;
+        options.style              = ExportNameStyle::FlatHost;
         options.include_makernotes = true;
         visit_metadata(store, options, sink);
     }
@@ -338,14 +338,14 @@ TEST(InteropExport, OiioStyleRespectsMakerNoteSwitch)
 }
 
 
-TEST(InteropExport, OiioStyleRetainsKnownHintsWithUnknownIfdNoise)
+TEST(InteropExport, FlatHostStyleRetainsKnownHintsWithUnknownIfdNoise)
 {
     const MetaStore store = make_export_store(512U);
     std::vector<std::string> names;
     NameCollectSink sink(&names);
 
     ExportOptions options;
-    options.style              = ExportNameStyle::Oiio;
+    options.style              = ExportNameStyle::FlatHost;
     options.include_makernotes = false;
     visit_metadata(store, options, sink);
 
@@ -398,7 +398,7 @@ TEST(InteropExport, SpecPolicyPreservesNativeTagNames)
 {
     const MetaStore store = make_export_store();
     std::vector<std::string> portable_names;
-    std::vector<std::string> oiio_names;
+    std::vector<std::string> flat_host_names;
 
     {
         NameCollectSink sink(&portable_names);
@@ -408,9 +408,9 @@ TEST(InteropExport, SpecPolicyPreservesNativeTagNames)
         visit_metadata(store, options, sink);
     }
     {
-        NameCollectSink sink(&oiio_names);
+        NameCollectSink sink(&flat_host_names);
         ExportOptions options;
-        options.style              = ExportNameStyle::Oiio;
+        options.style              = ExportNameStyle::FlatHost;
         options.name_policy        = ExportNamePolicy::Spec;
         options.include_makernotes = false;
         visit_metadata(store, options, sink);
@@ -425,15 +425,15 @@ TEST(InteropExport, SpecPolicyPreservesNativeTagNames)
     EXPECT_FALSE(contains_name(portable_names, "exif:ISO"));
     EXPECT_FALSE(contains_name(portable_names, "tiff:Exif_0xc5d8"));
 
-    EXPECT_TRUE(contains_name(oiio_names, "DateTime"));
-    EXPECT_TRUE(contains_name(oiio_names, "DNG:ColorMatrix1"));
-    EXPECT_TRUE(contains_name(oiio_names, "Exif:ISOSpeedRatings"));
-    EXPECT_TRUE(contains_name(oiio_names, "Exif:ExposureBiasValue"));
-    EXPECT_TRUE(contains_name(oiio_names, "Exif:DateTimeDigitized"));
-    EXPECT_TRUE(contains_name(oiio_names, "Tag_0xC5D8"));
-    EXPECT_FALSE(contains_name(oiio_names, "ModifyDate"));
-    EXPECT_FALSE(contains_name(oiio_names, "Exif:ISO"));
-    EXPECT_FALSE(contains_name(oiio_names, "Exif_0xc5d8"));
+    EXPECT_TRUE(contains_name(flat_host_names, "DateTime"));
+    EXPECT_TRUE(contains_name(flat_host_names, "DNG:ColorMatrix1"));
+    EXPECT_TRUE(contains_name(flat_host_names, "Exif:ISOSpeedRatings"));
+    EXPECT_TRUE(contains_name(flat_host_names, "Exif:ExposureBiasValue"));
+    EXPECT_TRUE(contains_name(flat_host_names, "Exif:DateTimeDigitized"));
+    EXPECT_TRUE(contains_name(flat_host_names, "Tag_0xC5D8"));
+    EXPECT_FALSE(contains_name(flat_host_names, "ModifyDate"));
+    EXPECT_FALSE(contains_name(flat_host_names, "Exif:ISO"));
+    EXPECT_FALSE(contains_name(flat_host_names, "Exif_0xc5d8"));
 }
 
 }  // namespace openmeta

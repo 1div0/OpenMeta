@@ -10,7 +10,8 @@ OpenMeta is a metadata engine, not an image encoder. The normal pattern is:
 - query it through ``MetaStore``
 - build or patch entries when needed
 - inject metadata into an existing target file or template
-- prepare metadata artifacts for a host API such as EXR or OIIO
+- prepare metadata artifacts for a host API such as EXR or another
+  host-owned metadata layer
 
 If you already own the encoder or output container, continue with
 :doc:`host_integration`.

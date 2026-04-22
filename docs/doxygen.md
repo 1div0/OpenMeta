@@ -1,7 +1,7 @@
 # Documentation
 
-OpenMeta uses Doxygen for API extraction. For the "site" style docs (like OIIO),
-we render Doxygen XML via Sphinx + Breathe.
+OpenMeta uses Doxygen for API extraction. For the published site docs, we
+render Doxygen XML via Sphinx + Breathe.
 
 ## Requirements
 

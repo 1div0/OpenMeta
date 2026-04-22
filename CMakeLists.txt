@@ -261,7 +261,6 @@ set(OPENMETA_SOURCES
   src/openmeta/meta_edit.cc
   src/openmeta/meta_value.cc
   src/openmeta/ocio_adapter.cc
-  src/openmeta/oiio_adapter.cc
   src/openmeta/photoshop_irb_decode.cc
   src/openmeta/preview_extract.cc
   src/openmeta/printim_decode.cc
@@ -614,7 +613,6 @@ if(OPENMETA_BUILD_TESTS)
     tests/meta_store_test.cc
     tests/mpf_decode_test.cc
     tests/ocio_adapter_test.cc
-    tests/oiio_adapter_test.cc
     tests/photoshop_irb_decode_test.cc
     tests/preview_extract_test.cc
     tests/printim_decode_test.cc

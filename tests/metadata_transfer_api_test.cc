@@ -2762,6 +2762,48 @@ build_test_tiff_like_target_with_exif_aux_xmp_carrier(
 }
 
 static bool
+build_test_tiff_like_target_with_exif_aux_xmp_and_makernote(
+    std::span<const std::byte> input_tiff, std::vector<std::byte>* out)
+{
+    if (!out) {
+        return false;
+    }
+    out->assign(input_tiff.begin(), input_tiff.end());
+
+    std::vector<std::byte> packet;
+    if (!build_test_creator_tool_xmp_sidecar("Target Embedded Existing",
+                                             &packet)) {
+        return false;
+    }
+
+    const std::span<const std::byte> bytes(out->data(), out->size());
+    const uint32_t ifd0_off = read_u32le(bytes, 4U);
+    uint32_t exif_ifd_off = 0U;
+    if (!find_tiff_tag_entry_le(bytes, ifd0_off, 0x8769U, nullptr, nullptr,
+                                &exif_ifd_off)
+        || exif_ifd_off == 0U) {
+        return false;
+    }
+
+    const size_t pad = out->size() & 1U;
+    if (pad != 0U) {
+        out->push_back(std::byte { 0x00 });
+    }
+    const uint32_t xmp_value_or_offset = static_cast<uint32_t>(out->size());
+    const uint32_t xmp_count = static_cast<uint32_t>(packet.size());
+    const size_t entry_off = static_cast<size_t>(exif_ifd_off) + 2U;
+    if (entry_off + 12U > out->size()) {
+        return false;
+    }
+    write_u16le(out, entry_off + 0U, 700U);
+    write_u16le(out, entry_off + 2U, 7U);
+    write_u32le(out, entry_off + 4U, xmp_count);
+    write_u32le(out, entry_off + 8U, xmp_value_or_offset);
+    out->insert(out->end(), packet.begin(), packet.end());
+    return true;
+}
+
+static bool
 build_test_bigtiff_like_target_with_exif_aux_xmp_carrier(
     std::span<const std::byte> input_tiff, bool use_interop,
     std::vector<std::byte>* out)
@@ -2809,6 +2851,48 @@ build_test_bigtiff_like_target_with_exif_aux_xmp_carrier(
     write_u16le(out, entry_off + 2U, xmp_type);
     write_u64le(out, entry_off + 4U, xmp_count);
     write_u64le(out, entry_off + 12U, xmp_value_or_offset);
+    return true;
+}
+
+static bool
+build_test_bigtiff_like_target_with_exif_aux_xmp_and_makernote(
+    std::span<const std::byte> input_tiff, std::vector<std::byte>* out)
+{
+    if (!out) {
+        return false;
+    }
+    out->assign(input_tiff.begin(), input_tiff.end());
+
+    std::vector<std::byte> packet;
+    if (!build_test_creator_tool_xmp_sidecar("Target Embedded Existing",
+                                             &packet)) {
+        return false;
+    }
+
+    const std::span<const std::byte> bytes(out->data(), out->size());
+    const uint64_t ifd0_off = read_u64le(bytes, 8U);
+    uint64_t exif_ifd_off = 0U;
+    if (!find_bigtiff_tag_entry_le(bytes, ifd0_off, 0x8769U, nullptr, nullptr,
+                                   &exif_ifd_off)
+        || exif_ifd_off == 0U) {
+        return false;
+    }
+
+    const size_t pad = (8U - (out->size() & 7U)) & 7U;
+    for (size_t i = 0; i < pad; ++i) {
+        out->push_back(std::byte { 0x00 });
+    }
+    const uint64_t xmp_value_or_offset = static_cast<uint64_t>(out->size());
+    const uint64_t xmp_count = static_cast<uint64_t>(packet.size());
+    const size_t entry_off = static_cast<size_t>(exif_ifd_off) + 8U;
+    if (entry_off + 20U > out->size()) {
+        return false;
+    }
+    write_u16le(out, entry_off + 0U, 700U);
+    write_u16le(out, entry_off + 2U, 7U);
+    write_u64le(out, entry_off + 4U, xmp_count);
+    write_u64le(out, entry_off + 12U, xmp_value_or_offset);
+    out->insert(out->end(), packet.begin(), packet.end());
     return true;
 }
 
@@ -3778,6 +3862,43 @@ make_minimal_exififd_nested_interop_tiff_little_endian()
     return tiff;
 }
 
+static constexpr std::array<uint8_t, 10> kTestMakerNoteBytes = {
+    0x01U, 0x02U, 0x03U, 0x04U, 0x05U,
+    0x06U, 0x07U, 0x08U, 0x09U, 0x0AU,
+};
+
+static std::vector<std::byte>
+make_minimal_exififd_with_makernote_tiff_little_endian()
+{
+    std::vector<std::byte> tiff;
+    append_bytes(&tiff, "II");
+    append_u16le(&tiff, 42U);
+    append_u32le(&tiff, 8U);
+
+    append_u16le(&tiff, 1U);
+    append_u16le(&tiff, 0x8769U);
+    append_u16le(&tiff, 4U);
+    append_u32le(&tiff, 1U);
+    append_u32le(&tiff, 26U);
+    append_u32le(&tiff, 0U);
+
+    append_u16le(&tiff, 2U);
+    append_u16le(&tiff, 0x9209U);
+    append_u16le(&tiff, 3U);
+    append_u32le(&tiff, 1U);
+    append_u32le(&tiff, 7U);
+    append_u16le(&tiff, 0x927CU);
+    append_u16le(&tiff, 1U);
+    append_u32le(&tiff, static_cast<uint32_t>(kTestMakerNoteBytes.size()));
+    append_u32le(&tiff, 56U);
+    append_u32le(&tiff, 0U);
+    for (size_t i = 0; i < kTestMakerNoteBytes.size(); ++i) {
+        tiff.push_back(static_cast<std::byte>(kTestMakerNoteBytes[i]));
+    }
+
+    return tiff;
+}
+
 static std::vector<std::byte>
 make_minimal_exififd_nested_twoentry_interop_tiff_little_endian()
 {
@@ -3955,6 +4076,40 @@ make_minimal_exififd_nested_interop_bigtiff_little_endian()
     tiff.push_back(std::byte { 0x00 });
     tiff.resize(tiff.size() + 4U, std::byte { 0x00 });
     append_u64le(&tiff, 0U);
+
+    return tiff;
+}
+
+static std::vector<std::byte>
+make_minimal_exififd_with_makernote_bigtiff_little_endian()
+{
+    std::vector<std::byte> tiff;
+    append_bytes(&tiff, "II");
+    append_u16le(&tiff, 43U);
+    append_u16le(&tiff, 8U);
+    append_u16le(&tiff, 0U);
+    append_u64le(&tiff, 16U);
+
+    append_u64le(&tiff, 1U);
+    append_u16le(&tiff, 0x8769U);
+    append_u16le(&tiff, 18U);
+    append_u64le(&tiff, 1U);
+    append_u64le(&tiff, 52U);
+    append_u64le(&tiff, 0U);
+
+    append_u64le(&tiff, 2U);
+    append_u16le(&tiff, 0x9209U);
+    append_u16le(&tiff, 3U);
+    append_u64le(&tiff, 1U);
+    append_u64le(&tiff, 7U);
+    append_u16le(&tiff, 0x927CU);
+    append_u16le(&tiff, 1U);
+    append_u64le(&tiff, static_cast<uint64_t>(kTestMakerNoteBytes.size()));
+    append_u64le(&tiff, 108U);
+    append_u64le(&tiff, 0U);
+    for (size_t i = 0; i < kTestMakerNoteBytes.size(); ++i) {
+        tiff.push_back(static_cast<std::byte>(kTestMakerNoteBytes[i]));
+    }
 
     return tiff;
 }
@@ -22635,6 +22790,452 @@ TEST(MetadataTransferApi,
     const std::span<const std::byte> bytes(result.execute.edited_output.data(),
                                            result.execute.edited_output.size());
     expect_bigtiff_gps_xmp_absent(bytes);
+}
+
+TEST(MetadataTransferApi,
+     ExecutePreparedTransferFileTiffFamilySidecarOnlyStripExistingDestinationExifIfdXmpPreservesMakerNote)
+{
+    struct Case final {
+        openmeta::TransferTargetFormat format;
+        const char* extension;
+    };
+    static const Case kCases[] = {
+        { openmeta::TransferTargetFormat::Tiff, ".tif" },
+        { openmeta::TransferTargetFormat::Dng, ".dng" },
+    };
+
+    for (size_t i = 0; i < std::size(kCases); ++i) {
+        SCOPED_TRACE(static_cast<int>(kCases[i].format));
+
+        std::vector<std::byte> source_jpeg;
+        ASSERT_TRUE(build_test_transfer_source_jpeg_bytes(&source_jpeg));
+        const std::string source_path = unique_temp_path(".jpg");
+        ASSERT_TRUE(write_bytes_file(
+            source_path, std::span<const std::byte>(source_jpeg.data(),
+                                                    source_jpeg.size())));
+
+        const std::vector<std::byte> input
+            = make_minimal_exififd_with_makernote_tiff_little_endian();
+        std::vector<std::byte> target_bytes;
+        ASSERT_TRUE(build_test_tiff_like_target_with_exif_aux_xmp_and_makernote(
+            std::span<const std::byte>(input.data(), input.size()),
+            &target_bytes));
+        const std::string target_path = unique_temp_path(kCases[i].extension);
+        ASSERT_TRUE(write_bytes_file(
+            target_path, std::span<const std::byte>(target_bytes.data(),
+                                                    target_bytes.size())));
+
+        openmeta::ExecutePreparedTransferFileOptions options;
+        options.prepare.prepare.target_format = kCases[i].format;
+        options.prepare.prepare.include_icc_app2   = false;
+        options.prepare.prepare.include_iptc_app13 = false;
+        options.edit_target_path                   = target_path;
+        options.execute.edit_apply                 = true;
+        options.xmp_writeback_mode
+            = openmeta::XmpWritebackMode::SidecarOnly;
+        options.xmp_destination_embedded_mode
+            = openmeta::XmpDestinationEmbeddedMode::StripExisting;
+
+        const openmeta::ExecutePreparedTransferFileResult result
+            = openmeta::execute_prepared_transfer_file(source_path.c_str(),
+                                                       options);
+        std::remove(source_path.c_str());
+        std::remove(target_path.c_str());
+
+        ASSERT_EQ(result.prepared.file_status, openmeta::TransferFileStatus::Ok);
+        ASSERT_EQ(result.prepared.prepare.status, openmeta::TransferStatus::Ok);
+        ASSERT_EQ(result.execute.compile.status, openmeta::TransferStatus::Ok);
+        ASSERT_EQ(result.execute.edit_plan_status, openmeta::TransferStatus::Ok);
+        ASSERT_EQ(result.execute.edit_apply.status, openmeta::TransferStatus::Ok);
+        ASSERT_FALSE(result.execute.edited_output.empty());
+        EXPECT_TRUE(result.xmp_sidecar_requested);
+        EXPECT_EQ(result.xmp_sidecar_status, openmeta::TransferStatus::Ok);
+        ASSERT_FALSE(result.xmp_sidecar_output.empty());
+
+        const std::span<const std::byte> bytes(result.execute.edited_output.data(),
+                                               result.execute.edited_output.size());
+        expect_tiff_exif_aux_xmp_absent(bytes, false, false);
+
+        openmeta::MetaStore edited_store;
+        ASSERT_TRUE(decode_transfer_roundtrip_store(bytes, &edited_store));
+        EXPECT_TRUE(store_has_u8_array_entry(
+            edited_store, exif_key_view("exififd", 0x927CU),
+            std::span<const uint8_t>(kTestMakerNoteBytes.data(),
+                                     kTestMakerNoteBytes.size())));
+        EXPECT_FALSE(store_has_text_entry(
+            edited_store,
+            xmp_key_view("http://ns.adobe.com/xap/1.0/", "CreatorTool"),
+            "Target Embedded Existing"));
+        EXPECT_FALSE(store_has_text_entry(
+            edited_store,
+            xmp_key_view("http://ns.adobe.com/xap/1.0/", "CreatorTool"),
+            "OpenMeta Transfer Source"));
+    }
+}
+
+TEST(MetadataTransferApi,
+     ExecutePreparedTransferFileBigTiffSidecarOnlyStripExistingDestinationExifIfdXmpPreservesMakerNote)
+{
+    std::vector<std::byte> source_jpeg;
+    ASSERT_TRUE(build_test_transfer_source_jpeg_bytes(&source_jpeg));
+    const std::string source_path = unique_temp_path(".jpg");
+    ASSERT_TRUE(write_bytes_file(
+        source_path,
+        std::span<const std::byte>(source_jpeg.data(), source_jpeg.size())));
+
+    const std::vector<std::byte> input
+        = make_minimal_exififd_with_makernote_bigtiff_little_endian();
+    std::vector<std::byte> target_bytes;
+    ASSERT_TRUE(build_test_bigtiff_like_target_with_exif_aux_xmp_and_makernote(
+        std::span<const std::byte>(input.data(), input.size()),
+        &target_bytes));
+    const std::string target_path = unique_temp_path(".tif");
+    ASSERT_TRUE(write_bytes_file(
+        target_path,
+        std::span<const std::byte>(target_bytes.data(), target_bytes.size())));
+
+    openmeta::ExecutePreparedTransferFileOptions options;
+    options.prepare.prepare.target_format = openmeta::TransferTargetFormat::Tiff;
+    options.prepare.prepare.include_icc_app2   = false;
+    options.prepare.prepare.include_iptc_app13 = false;
+    options.edit_target_path                   = target_path;
+    options.execute.edit_apply                 = true;
+    options.xmp_writeback_mode
+        = openmeta::XmpWritebackMode::SidecarOnly;
+    options.xmp_destination_embedded_mode
+        = openmeta::XmpDestinationEmbeddedMode::StripExisting;
+
+    const openmeta::ExecutePreparedTransferFileResult result
+        = openmeta::execute_prepared_transfer_file(source_path.c_str(), options);
+    std::remove(source_path.c_str());
+    std::remove(target_path.c_str());
+
+    ASSERT_EQ(result.prepared.file_status, openmeta::TransferFileStatus::Ok);
+    ASSERT_EQ(result.prepared.prepare.status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(result.execute.compile.status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(result.execute.edit_plan_status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(result.execute.edit_apply.status, openmeta::TransferStatus::Ok);
+    ASSERT_FALSE(result.execute.edited_output.empty());
+    EXPECT_TRUE(result.xmp_sidecar_requested);
+    EXPECT_EQ(result.xmp_sidecar_status, openmeta::TransferStatus::Ok);
+    ASSERT_FALSE(result.xmp_sidecar_output.empty());
+
+    const std::span<const std::byte> bytes(result.execute.edited_output.data(),
+                                           result.execute.edited_output.size());
+    expect_bigtiff_exif_aux_xmp_absent(bytes, false, false);
+
+    openmeta::MetaStore edited_store;
+    ASSERT_TRUE(decode_transfer_roundtrip_store(bytes, &edited_store));
+    EXPECT_TRUE(store_has_u8_array_entry(
+        edited_store, exif_key_view("exififd", 0x927CU),
+        std::span<const uint8_t>(kTestMakerNoteBytes.data(),
+                                 kTestMakerNoteBytes.size())));
+    EXPECT_FALSE(store_has_text_entry(
+        edited_store,
+        xmp_key_view("http://ns.adobe.com/xap/1.0/", "CreatorTool"),
+        "Target Embedded Existing"));
+    EXPECT_FALSE(store_has_text_entry(
+        edited_store,
+        xmp_key_view("http://ns.adobe.com/xap/1.0/", "CreatorTool"),
+        "OpenMeta Transfer Source"));
+}
+
+TEST(MetadataTransferApi,
+     ExecutePreparedTransferFileTiffFamilyEmbeddedOnlyReplacesDestinationExifIfdXmpAndPreservesMakerNote)
+{
+    struct Case final {
+        openmeta::TransferTargetFormat format;
+        const char* extension;
+    };
+    static const Case kCases[] = {
+        { openmeta::TransferTargetFormat::Tiff, ".tif" },
+        { openmeta::TransferTargetFormat::Dng, ".dng" },
+    };
+
+    for (size_t i = 0; i < std::size(kCases); ++i) {
+        SCOPED_TRACE(static_cast<int>(kCases[i].format));
+
+        std::vector<std::byte> source_jpeg;
+        ASSERT_TRUE(build_test_transfer_source_jpeg_bytes(&source_jpeg));
+        const std::string source_path = unique_temp_path(".jpg");
+        ASSERT_TRUE(write_bytes_file(
+            source_path, std::span<const std::byte>(source_jpeg.data(),
+                                                    source_jpeg.size())));
+
+        const std::vector<std::byte> input
+            = make_minimal_exififd_with_makernote_tiff_little_endian();
+        std::vector<std::byte> target_bytes;
+        ASSERT_TRUE(build_test_tiff_like_target_with_exif_aux_xmp_and_makernote(
+            std::span<const std::byte>(input.data(), input.size()),
+            &target_bytes));
+        const std::string target_path = unique_temp_path(kCases[i].extension);
+        ASSERT_TRUE(write_bytes_file(
+            target_path, std::span<const std::byte>(target_bytes.data(),
+                                                    target_bytes.size())));
+
+        openmeta::ExecutePreparedTransferFileOptions options;
+        options.prepare.prepare.target_format = kCases[i].format;
+        options.prepare.prepare.include_icc_app2   = false;
+        options.prepare.prepare.include_iptc_app13 = false;
+        options.edit_target_path                   = target_path;
+        options.execute.edit_apply                 = true;
+        options.xmp_writeback_mode
+            = openmeta::XmpWritebackMode::EmbeddedOnly;
+
+        const openmeta::ExecutePreparedTransferFileResult result
+            = openmeta::execute_prepared_transfer_file(source_path.c_str(),
+                                                       options);
+        std::remove(source_path.c_str());
+        std::remove(target_path.c_str());
+
+        ASSERT_EQ(result.prepared.file_status, openmeta::TransferFileStatus::Ok);
+        ASSERT_EQ(result.prepared.prepare.status, openmeta::TransferStatus::Ok);
+        ASSERT_EQ(result.execute.compile.status, openmeta::TransferStatus::Ok);
+        ASSERT_EQ(result.execute.edit_plan_status, openmeta::TransferStatus::Ok);
+        ASSERT_EQ(result.execute.edit_apply.status, openmeta::TransferStatus::Ok);
+        ASSERT_FALSE(result.execute.edited_output.empty());
+        EXPECT_FALSE(result.xmp_sidecar_requested);
+        EXPECT_TRUE(result.xmp_sidecar_output.empty());
+
+        openmeta::MetaStore edited_store;
+        ASSERT_TRUE(decode_transfer_roundtrip_store(
+            std::span<const std::byte>(result.execute.edited_output.data(),
+                                       result.execute.edited_output.size()),
+            &edited_store));
+        EXPECT_TRUE(store_has_u8_array_entry(
+            edited_store, exif_key_view("exififd", 0x927CU),
+            std::span<const uint8_t>(kTestMakerNoteBytes.data(),
+                                     kTestMakerNoteBytes.size())));
+        EXPECT_TRUE(store_has_text_entry(
+            edited_store,
+            xmp_key_view("http://ns.adobe.com/xap/1.0/", "CreatorTool"),
+            "OpenMeta Transfer Source"));
+        EXPECT_FALSE(store_has_text_entry(
+            edited_store,
+            xmp_key_view("http://ns.adobe.com/xap/1.0/", "CreatorTool"),
+            "Target Embedded Existing"));
+    }
+}
+
+TEST(MetadataTransferApi,
+     ExecutePreparedTransferFileTiffFamilyEmbeddedOnlyCanMergeExistingDestinationExifIfdXmpAndPreserveMakerNote)
+{
+    struct Case final {
+        openmeta::TransferTargetFormat format;
+        const char* extension;
+    };
+    static const Case kCases[] = {
+        { openmeta::TransferTargetFormat::Tiff, ".tif" },
+        { openmeta::TransferTargetFormat::Dng, ".dng" },
+    };
+
+    for (size_t i = 0; i < std::size(kCases); ++i) {
+        SCOPED_TRACE(static_cast<int>(kCases[i].format));
+
+        std::vector<std::byte> source_jpeg;
+        ASSERT_TRUE(build_test_transfer_source_jpeg_bytes(&source_jpeg));
+        const std::string source_path = unique_temp_path(".jpg");
+        ASSERT_TRUE(write_bytes_file(
+            source_path, std::span<const std::byte>(source_jpeg.data(),
+                                                    source_jpeg.size())));
+
+        const std::vector<std::byte> input
+            = make_minimal_exififd_with_makernote_tiff_little_endian();
+        std::vector<std::byte> target_bytes;
+        ASSERT_TRUE(build_test_tiff_like_target_with_exif_aux_xmp_and_makernote(
+            std::span<const std::byte>(input.data(), input.size()),
+            &target_bytes));
+        const std::string target_path = unique_temp_path(kCases[i].extension);
+        ASSERT_TRUE(write_bytes_file(
+            target_path, std::span<const std::byte>(target_bytes.data(),
+                                                    target_bytes.size())));
+
+        openmeta::ExecutePreparedTransferFileOptions options;
+        options.prepare.prepare.target_format = kCases[i].format;
+        options.prepare.prepare.include_icc_app2   = false;
+        options.prepare.prepare.include_iptc_app13 = false;
+        options.prepare.prepare.xmp_include_existing = true;
+        options.prepare.prepare.xmp_conflict_policy
+            = openmeta::XmpConflictPolicy::ExistingWins;
+        options.edit_target_path = target_path;
+        options.execute.edit_apply = true;
+        options.xmp_existing_destination_embedded_mode
+            = openmeta::XmpExistingDestinationEmbeddedMode::MergeIfPresent;
+        options.xmp_writeback_mode
+            = openmeta::XmpWritebackMode::EmbeddedOnly;
+
+        const openmeta::ExecutePreparedTransferFileResult result
+            = openmeta::execute_prepared_transfer_file(source_path.c_str(),
+                                                       options);
+        std::remove(source_path.c_str());
+        std::remove(target_path.c_str());
+
+        ASSERT_EQ(result.prepared.file_status, openmeta::TransferFileStatus::Ok);
+        ASSERT_EQ(result.prepared.prepare.status, openmeta::TransferStatus::Ok);
+        ASSERT_TRUE(result.xmp_existing_destination_embedded_loaded);
+        EXPECT_EQ(result.xmp_existing_destination_embedded_status,
+                  openmeta::TransferStatus::Ok);
+        EXPECT_EQ(result.xmp_existing_destination_embedded_path, target_path);
+        ASSERT_EQ(result.execute.compile.status, openmeta::TransferStatus::Ok);
+        ASSERT_EQ(result.execute.edit_plan_status, openmeta::TransferStatus::Ok);
+        ASSERT_EQ(result.execute.edit_apply.status, openmeta::TransferStatus::Ok);
+        ASSERT_FALSE(result.execute.edited_output.empty());
+        EXPECT_FALSE(result.xmp_sidecar_requested);
+        EXPECT_TRUE(result.xmp_sidecar_output.empty());
+
+        openmeta::MetaStore edited_store;
+        ASSERT_TRUE(decode_transfer_roundtrip_store(
+            std::span<const std::byte>(result.execute.edited_output.data(),
+                                       result.execute.edited_output.size()),
+            &edited_store));
+        EXPECT_TRUE(store_has_u8_array_entry(
+            edited_store, exif_key_view("exififd", 0x927CU),
+            std::span<const uint8_t>(kTestMakerNoteBytes.data(),
+                                     kTestMakerNoteBytes.size())));
+        EXPECT_TRUE(store_has_text_entry(
+            edited_store,
+            xmp_key_view("http://ns.adobe.com/xap/1.0/", "CreatorTool"),
+            "Target Embedded Existing"));
+        EXPECT_FALSE(store_has_text_entry(
+            edited_store,
+            xmp_key_view("http://ns.adobe.com/xap/1.0/", "CreatorTool"),
+            "OpenMeta Transfer Source"));
+    }
+}
+
+TEST(MetadataTransferApi,
+     ExecutePreparedTransferFileBigTiffEmbeddedOnlyReplacesDestinationExifIfdXmpAndPreservesMakerNote)
+{
+    std::vector<std::byte> source_jpeg;
+    ASSERT_TRUE(build_test_transfer_source_jpeg_bytes(&source_jpeg));
+    const std::string source_path = unique_temp_path(".jpg");
+    ASSERT_TRUE(write_bytes_file(
+        source_path,
+        std::span<const std::byte>(source_jpeg.data(), source_jpeg.size())));
+
+    const std::vector<std::byte> input
+        = make_minimal_exififd_with_makernote_bigtiff_little_endian();
+    std::vector<std::byte> target_bytes;
+    ASSERT_TRUE(build_test_bigtiff_like_target_with_exif_aux_xmp_and_makernote(
+        std::span<const std::byte>(input.data(), input.size()),
+        &target_bytes));
+    const std::string target_path = unique_temp_path(".tif");
+    ASSERT_TRUE(write_bytes_file(
+        target_path,
+        std::span<const std::byte>(target_bytes.data(), target_bytes.size())));
+
+    openmeta::ExecutePreparedTransferFileOptions options;
+    options.prepare.prepare.target_format = openmeta::TransferTargetFormat::Tiff;
+    options.prepare.prepare.include_icc_app2   = false;
+    options.prepare.prepare.include_iptc_app13 = false;
+    options.edit_target_path                   = target_path;
+    options.execute.edit_apply                 = true;
+    options.xmp_writeback_mode
+        = openmeta::XmpWritebackMode::EmbeddedOnly;
+
+    const openmeta::ExecutePreparedTransferFileResult result
+        = openmeta::execute_prepared_transfer_file(source_path.c_str(), options);
+    std::remove(source_path.c_str());
+    std::remove(target_path.c_str());
+
+    ASSERT_EQ(result.prepared.file_status, openmeta::TransferFileStatus::Ok);
+    ASSERT_EQ(result.prepared.prepare.status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(result.execute.compile.status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(result.execute.edit_plan_status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(result.execute.edit_apply.status, openmeta::TransferStatus::Ok);
+    ASSERT_FALSE(result.execute.edited_output.empty());
+    EXPECT_FALSE(result.xmp_sidecar_requested);
+    EXPECT_TRUE(result.xmp_sidecar_output.empty());
+
+    openmeta::MetaStore edited_store;
+    ASSERT_TRUE(decode_transfer_roundtrip_store(
+        std::span<const std::byte>(result.execute.edited_output.data(),
+                                   result.execute.edited_output.size()),
+        &edited_store));
+    EXPECT_TRUE(store_has_u8_array_entry(
+        edited_store, exif_key_view("exififd", 0x927CU),
+        std::span<const uint8_t>(kTestMakerNoteBytes.data(),
+                                 kTestMakerNoteBytes.size())));
+    EXPECT_TRUE(store_has_text_entry(
+        edited_store,
+        xmp_key_view("http://ns.adobe.com/xap/1.0/", "CreatorTool"),
+        "OpenMeta Transfer Source"));
+    EXPECT_FALSE(store_has_text_entry(
+        edited_store,
+        xmp_key_view("http://ns.adobe.com/xap/1.0/", "CreatorTool"),
+        "Target Embedded Existing"));
+}
+
+TEST(MetadataTransferApi,
+     ExecutePreparedTransferFileBigTiffEmbeddedOnlyCanMergeExistingDestinationExifIfdXmpAndPreserveMakerNote)
+{
+    std::vector<std::byte> source_jpeg;
+    ASSERT_TRUE(build_test_transfer_source_jpeg_bytes(&source_jpeg));
+    const std::string source_path = unique_temp_path(".jpg");
+    ASSERT_TRUE(write_bytes_file(
+        source_path,
+        std::span<const std::byte>(source_jpeg.data(), source_jpeg.size())));
+
+    const std::vector<std::byte> input
+        = make_minimal_exififd_with_makernote_bigtiff_little_endian();
+    std::vector<std::byte> target_bytes;
+    ASSERT_TRUE(build_test_bigtiff_like_target_with_exif_aux_xmp_and_makernote(
+        std::span<const std::byte>(input.data(), input.size()),
+        &target_bytes));
+    const std::string target_path = unique_temp_path(".tif");
+    ASSERT_TRUE(write_bytes_file(
+        target_path,
+        std::span<const std::byte>(target_bytes.data(), target_bytes.size())));
+
+    openmeta::ExecutePreparedTransferFileOptions options;
+    options.prepare.prepare.target_format = openmeta::TransferTargetFormat::Tiff;
+    options.prepare.prepare.include_icc_app2   = false;
+    options.prepare.prepare.include_iptc_app13 = false;
+    options.prepare.prepare.xmp_include_existing = true;
+    options.prepare.prepare.xmp_conflict_policy
+        = openmeta::XmpConflictPolicy::ExistingWins;
+    options.edit_target_path = target_path;
+    options.execute.edit_apply = true;
+    options.xmp_existing_destination_embedded_mode
+        = openmeta::XmpExistingDestinationEmbeddedMode::MergeIfPresent;
+    options.xmp_writeback_mode
+        = openmeta::XmpWritebackMode::EmbeddedOnly;
+
+    const openmeta::ExecutePreparedTransferFileResult result
+        = openmeta::execute_prepared_transfer_file(source_path.c_str(), options);
+    std::remove(source_path.c_str());
+    std::remove(target_path.c_str());
+
+    ASSERT_EQ(result.prepared.file_status, openmeta::TransferFileStatus::Ok);
+    ASSERT_EQ(result.prepared.prepare.status, openmeta::TransferStatus::Ok);
+    ASSERT_TRUE(result.xmp_existing_destination_embedded_loaded);
+    EXPECT_EQ(result.xmp_existing_destination_embedded_status,
+              openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.xmp_existing_destination_embedded_path, target_path);
+    ASSERT_EQ(result.execute.compile.status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(result.execute.edit_plan_status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(result.execute.edit_apply.status, openmeta::TransferStatus::Ok);
+    ASSERT_FALSE(result.execute.edited_output.empty());
+    EXPECT_FALSE(result.xmp_sidecar_requested);
+    EXPECT_TRUE(result.xmp_sidecar_output.empty());
+
+    openmeta::MetaStore edited_store;
+    ASSERT_TRUE(decode_transfer_roundtrip_store(
+        std::span<const std::byte>(result.execute.edited_output.data(),
+                                   result.execute.edited_output.size()),
+        &edited_store));
+    EXPECT_TRUE(store_has_u8_array_entry(
+        edited_store, exif_key_view("exififd", 0x927CU),
+        std::span<const uint8_t>(kTestMakerNoteBytes.data(),
+                                 kTestMakerNoteBytes.size())));
+    EXPECT_TRUE(store_has_text_entry(
+        edited_store,
+        xmp_key_view("http://ns.adobe.com/xap/1.0/", "CreatorTool"),
+        "Target Embedded Existing"));
+    EXPECT_FALSE(store_has_text_entry(
+        edited_store,
+        xmp_key_view("http://ns.adobe.com/xap/1.0/", "CreatorTool"),
+        "OpenMeta Transfer Source"));
 }
 
 TEST(MetadataTransferApi,

@@ -51,8 +51,8 @@ enum class ExportNameStyle : uint8_t {
     Canonical,
     /// Portable XMP-like names (for example: `tiff:Make`, `exif:ExposureTime`).
     XmpPortable,
-    /// OIIO-style names (for example: `Make`, `Exif:ExposureTime`).
-    Oiio,
+    /// Flat host-attribute names (for example: `Make`, `Exif:ExposureTime`).
+    FlatHost,
 };
 
 /**

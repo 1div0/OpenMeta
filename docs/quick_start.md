@@ -9,7 +9,8 @@ OpenMeta is a metadata engine, not an image encoder. In practice that means:
 - query it through `MetaStore`
 - build new metadata entries when needed
 - inject metadata into an existing target file or template
-- prepare metadata artifacts for a host API such as EXR or OpenImageIO
+- prepare metadata artifacts for a host API such as EXR or another
+  host-owned metadata layer
 
 If you need the full support matrix, see
 [metadata_support.md](metadata_support.md). If you need the detailed target
@@ -244,24 +245,33 @@ for (const openmeta::ExrAdapterAttribute& attr : batch.attributes) {
 }
 ```
 
-Use this when the host already writes EXR files through OpenEXR, OIIO, or its
-own EXR code.
+Use this when the host already writes EXR files through OpenEXR or its own EXR
+code.
 
-### OIIO-Style Attribute Export
+### Generic Host Metadata Export
 
-For flattened metadata export:
+If your application owns the metadata object model, use the generic traversal
+API and build the mapping in the host layer.
 
 ```cpp
-#include "openmeta/oiio_adapter.h"
+#include "openmeta/interop_export.h"
 
-std::vector<openmeta::OiioTypedAttribute> attrs;
-openmeta::OiioAdapterRequest request;
+class MyMetadataSink final : public openmeta::MetadataSink {
+public:
+    void on_item(const openmeta::ExportItem& item) noexcept override
+    {
+        // Map item.name + item.entry into your host metadata object.
+    }
+};
 
-openmeta::collect_oiio_attributes_typed(store, &attrs, request);
+openmeta::ExportOptions options;
+options.style              = openmeta::ExportNameStyle::FlatHost;
+options.name_policy        = openmeta::ExportNamePolicy::ExifToolAlias;
+options.include_makernotes = true;
+
+MyMetadataSink sink;
+openmeta::visit_metadata(store, options, sink);
 ```
-
-This is useful when the host wants typed name/value attributes instead of raw
-container payloads.
 
 ### JPEG / JXL / Other Encoder-Owned Outputs
 

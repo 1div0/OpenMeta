@@ -813,8 +813,8 @@ Read release gate:
   - `SimpleMetaRead.*`
   - `XmpDecodeTest.*`
   - `JumbfDecode.*`
-  - `OiioAdapter.*`
   - `OcioAdapter.*`
+  - `ExrAdapter.*`
   - `ValidateFile.*`
 
 Build + run:
@@ -1059,84 +1059,56 @@ If you are building offline (or want strict control of the build environment),
 install `scikit-build-core` into your Python environment and enable:
 `-DOPENMETA_WHEEL_NO_BUILD_ISOLATION=ON`.
 
-## Interop Adapters
+## Interop Surfaces
 
-Interop adapter APIs for ASF integration targets:
+Interop surfaces are split deliberately:
 
-- `openmeta/interop_export.h`: shared traversal and naming styles
-  (`Canonical`, `XmpPortable`, `Oiio`).
-- `openmeta/oiio_adapter.h`: flat OIIO-style name/value export.
-- `openmeta/ocio_adapter.h`: deterministic OCIO-style metadata tree export.
-- `openmeta/exr_adapter.h`: EXR-native per-part attribute export.
+- export-only naming/traversal surface:
+  `openmeta/interop_export.h` with the shared export naming styles. This is
+  the intended base for host-owned metadata mapping layers.
+- export-only adapter:
+  `openmeta/ocio_adapter.h` for deterministic OCIO-style metadata trees.
+- host-apply adapter:
+  `openmeta/exr_adapter.h` for EXR-native per-part attribute export.
+- direct bridge:
+  `openmeta/dng_sdk_adapter.h` for applications that already use Adobe DNG
+  SDK objects/files.
+- narrow translator:
+  `openmeta/libraw_adapter.h` for explicit orientation mapping into LibRaw's
+  flip convention.
 
 Current Python binding entry points:
 
 - `Document.export_names(style=..., include_makernotes=...)`
-- `Document.oiio_attributes(...)`
-- `Document.unsafe_oiio_attributes(...)`
-- `Document.oiio_attributes_typed(...)`
-- `Document.unsafe_oiio_attributes_typed(...)`
 - `Document.ocio_metadata_tree(...)`
 - `Document.unsafe_ocio_metadata_tree(...)`
 - `Document.dump_xmp_sidecar(format=...)`
 
-Current C++ adapter entry points:
+Current C++ interop entry points:
 
-- `openmeta/oiio_adapter.h`:
-  - safe API: `collect_oiio_attributes_safe(..., InteropSafetyError*)`
-  - unsafe API: `collect_oiio_attributes(...)`
-  - `collect_oiio_attributes(..., const OiioAdapterRequest&)` (stable flat request API)
-  - `collect_oiio_attributes(..., const OiioAdapterOptions&)` (advanced/legacy shape)
-  - safe typed API: `collect_oiio_attributes_typed_safe(..., InteropSafetyError*)`
-  - unsafe typed API: `collect_oiio_attributes_typed(...)`
-  - `collect_oiio_attributes_typed(..., const OiioAdapterRequest&)` (typed values)
-  - `collect_oiio_attributes_typed(..., const OiioAdapterOptions&)` (typed values)
-  - typed payload model: `OiioTypedValue` / `OiioTypedAttribute`
-  - prepared transfer bridge:
-    `collect_oiio_transfer_payload_views(...)`
-    returns one zero-copy payload list over a `PreparedTransferBundle`
-    for host/plugin write integrations
-  - owned transfer bridge:
-    `build_oiio_transfer_payload_batch(...)`
-    copies that same payload contract into one stable owned batch for caching
-    or cross-layer handoff
-  - persisted payload bridge:
-    `collect_oiio_transfer_payload_views(const PreparedTransferPayloadBatch&, ...)`
-    and `replay_oiio_transfer_payload_batch(...)`
-    consume the same semantic payload contract after
-    `serialize_prepared_transfer_payload_batch(...)` /
-    `deserialize_prepared_transfer_payload_batch(...)`
+- `openmeta/interop_export.h`:
+  - `visit_metadata(...)`
+  - use the shared naming styles when a host-owned metadata mapping layer
+    needs deterministic exported names
 - `openmeta/exr_adapter.h`:
   - `build_exr_attribute_batch(...)`
-    exports one owned EXR-native attribute batch from `MetaStore`
+  - `build_exr_attribute_part_spans(...)`
+  - `build_exr_attribute_part_views(...)`
+  - `replay_exr_attribute_batch(...)`
   - the batch carries:
     `part_index`, `name`, `type_name`, `value` bytes, and `is_opaque`
-  - `build_exr_attribute_part_spans(...)`
-    groups the batch into deterministic contiguous per-part spans
-  - `build_exr_attribute_part_views(...)`
-    exposes zero-copy grouped per-part views over the same batch
-  - `replay_exr_attribute_batch(...)`
-    replays the grouped batch through explicit host callbacks
-  - unlike the prepared JPEG/TIFF/JXL transfer path, this bridge is
-    store-based because typed `MetaValue` entries must be re-encoded into EXR
-    attribute bytes
-
-Python typed behavior:
-- `Document.oiio_attributes(...)` is safe-by-default and raises on unsafe raw
-  byte payloads; use `Document.unsafe_oiio_attributes(...)` for legacy/raw
-  fallback output.
-- `Document.oiio_attributes_typed(...)` decodes text values to Python `str` in
-  safe mode and raises on unsafe/invalid text bytes.
-- `Document.unsafe_oiio_attributes_typed(...)` returns raw text bytes for
-  explicit unsafe workflows.
-- `Document.ocio_metadata_tree(...)` is safe-by-default and raises on unsafe
-  raw byte payloads; use `Document.unsafe_ocio_metadata_tree(...)` for
-  legacy/raw fallback output.
 - `openmeta/ocio_adapter.h`:
   - safe API: `build_ocio_metadata_tree_safe(..., InteropSafetyError*)`
   - unsafe API: `build_ocio_metadata_tree(...)`
-  - `build_ocio_metadata_tree(..., const OcioAdapterRequest&)` (stable flat request API)
-  - `build_ocio_metadata_tree(..., const OcioAdapterOptions&)` (advanced/legacy shape)
+  - `build_ocio_metadata_tree(..., const OcioAdapterRequest&)`
+  - `build_ocio_metadata_tree(..., const OcioAdapterOptions&)`
+
+Python interop behavior:
+- `Document.export_names(style=ExportNameStyle.FlatHost, ...)` exposes the
+  shared flat-host naming contract used by host-side metadata mapping layers.
+- `Document.ocio_metadata_tree(...)` is safe-by-default and raises on unsafe
+  raw byte payloads; use `Document.unsafe_ocio_metadata_tree(...)` for
+  legacy/raw fallback output.
 
 Current C++ sidecar entry points:
 
@@ -1255,36 +1227,20 @@ Draft C++ transfer entry points (prepare/emit scaffold):
     without pushing route parsing into host adapters.
   - `replay_prepared_transfer_package_batch(...)` is the matching target-neutral
     callback replay path over the same persisted batch.
-  - `collect_oiio_transfer_package_views(...)` is the first host bridge above
-    that persisted batch: it now maps the target-neutral semantic package view
-    into OIIO-oriented names, so the host no longer depends on the original
-    prepared bundle lifetime or route parsing.
-  - `collect_oiio_transfer_payload_views(...)` and
-    `build_oiio_transfer_payload_batch(...)` now sit on top of the generic
-    semantic payload layer rather than re-classifying prepared blocks inside
-    the OIIO adapter.
-  - `replay_oiio_transfer_package_batch(...)` is the higher-level consume path
-    above that same persisted batch, replaying semantic package chunks through
-    explicit host callbacks in deterministic output order.
-    - `PreparedTransferAdapterView` is the parallel adapter-facing surface for
-      host integrations that want explicit per-block operations without route
-      parsing.
-    - `collect_oiio_transfer_payload_views(...)` is the first thin
-      host-facing bridge on top of that adapter view, exposing one zero-copy
-      OIIO-oriented semantic payload list without adding new transfer core
-      logic.
-    - `build_oiio_transfer_payload_batch(...)` is the owned form of that
-      bridge when the host needs payload lifetime independent from the
-      prepared bundle.
-    - `build_exr_attribute_batch(...)`,
-      `build_exr_attribute_part_spans(...)`,
-      `build_exr_attribute_part_views(...)`, and
-      `replay_exr_attribute_batch(...)` are the EXR-native bridge for
-      OpenEXR/OIIO header-attribute workflows. They stay outside the
-      `PreparedTransferBundle` path because EXR metadata is attribute-native,
-      not block-native.
-    - `build_prepared_transfer_emit_package(...)`,
-      `build_prepared_transfer_adapter_view(...)`,
+  - OpenMeta no longer ships an in-library host-specific payload/package
+    bridge above the target-neutral package and adapter surfaces.
+  - `PreparedTransferAdapterView` is the parallel adapter-facing surface for
+    host integrations that want explicit per-block operations without route
+    parsing.
+  - `build_exr_attribute_batch(...)`,
+    `build_exr_attribute_part_spans(...)`,
+    `build_exr_attribute_part_views(...)`, and
+    `replay_exr_attribute_batch(...)` are the EXR-native bridge for
+    OpenEXR header-attribute workflows. They stay outside the
+    `PreparedTransferBundle` path because EXR metadata is attribute-native,
+    not block-native.
+  - `build_prepared_transfer_emit_package(...)`,
+    `build_prepared_transfer_adapter_view(...)`,
       `emit_prepared_transfer_adapter_view(...)`,
       `build_prepared_bundle_jpeg_package(...)`,
       `build_prepared_bundle_tiff_package(...)`, and
@@ -1328,27 +1284,29 @@ Current adapter/name-policy behavior:
 - `ExportNamePolicy::ExifToolAlias` applies compatibility aliases for
   interop-name parity workflows.
 - `ExportNamePolicy::Spec` preserves spec/native names.
-- OIIO adapter keeps numeric unknown names (for example `Exif_0x....`) even
-  when value formatting is empty, and keeps `Exif:MakerNote` in spec mode.
+- Shared flat-host interop naming keeps numeric unknown names (for example
+  `Exif_0x....`) for parity workflows.
 - When DNG context is detected (`DNGVersion` present in the same IFD), DNG
   color/CCM tags are exported with dedicated adapter namespaces:
-  `dng:*` (portable) and `DNG:*` (OIIO).
+  `dng:*` (portable) and a flat host-style variant.
 - ICC entries are exported with adapter-friendly names:
-  `icc:*` (portable) and `ICC:*` (OIIO), alongside canonical `icc:header:*`
-  / `icc:tag:*` naming.
+  `icc:*` (portable) and a flat host-style variant, alongside canonical
+  `icc:header:*` / `icc:tag:*` naming.
 
 Adapter-focused tests (public tree):
 
 ```bash
 cmake --build build-tests --target openmeta_tests
-./build-tests/openmeta_tests --gtest_filter='InteropExport.*:OiioAdapter.*:OcioAdapter.*'
+./build-tests/openmeta_tests --gtest_filter='InteropExport.*:OcioAdapter.*:ExrAdapter.*'
+./build-tests/openmeta_tests --gtest_filter='ExrAdapter.*'
 ./build-tests/openmeta_tests --gtest_filter='CrwCiffDecode.*'
 ```
 
 Notes:
+- `InteropExport` tests cover alias/spec behavior and the flat host-style
+  naming contract.
+- `ExrAdapter` tests cover EXR batch export and replay behavior.
 - `CrwCiffDecode` tests cover CRW/CIFF derived EXIF mapping for legacy Canon RAW.
-- `OiioAdapter` tests cover stable handling of empty-value attributes needed by
-  interop parity workflows.
 
 ## Doxygen (Optional)
 

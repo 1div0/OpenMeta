@@ -6,7 +6,7 @@ Status: baseline contract (v1)
 
 Assess whether the current OpenMeta metadata core can represent OpenEXR metadata
 well enough for read/edit workflows, and identify required API/model changes for
-good interoperability with OpenEXR and OpenImageIO.
+good interoperability with OpenEXR and related host metadata layers.
 
 ## What OpenEXR Metadata Looks Like
 
@@ -26,13 +26,13 @@ OpenEXR C APIs expose:
 - Header write lifecycle (`declare/set` then `write_header`)
 - In-place header update mode with size constraints
 
-## OpenImageIO / OpenColorIO Integration Signals
+## Host Metadata Integration Signals
 
-- OpenImageIO treats EXR metadata as arbitrary key/value attributes and maps many
-  EXR names to generic names (`DateTime`, `Copyright`, etc.) while preserving
-  EXR-specific names under `openexr:*`.
-- OpenImageIO reports EXIF/IPTC support for EXR via arbitrary metadata transport,
-  not because EXR natively stores EXIF/IPTC blocks.
+- Common EXR host libraries often treat EXR metadata as arbitrary key/value
+  attributes and map many EXR names to generic names (`DateTime`,
+  `Copyright`, etc.) while preserving EXR-specific names under `openexr:*`.
+- EXR host stacks may expose EXIF/IPTC-like interoperability through arbitrary
+  metadata transport, not because EXR natively stores EXIF/IPTC blocks.
 - OpenColorIO metadata model is mostly string-based transform/config metadata; it
   is useful for selected color-related fields, not as a full EXR container model.
 
@@ -86,7 +86,8 @@ Remaining gaps for production-level EXR workflows:
    - Keep image pixel I/O out of scope; metadata only.
 
 5. Add integration adapters:
-   - OpenImageIO adapter: map EXR attrs to OIIO-style names plus `openexr:*`.
+   - flat host-attribute export: map EXR attrs to generic host names plus
+     `openexr:*`.
    - OpenColorIO adapter: expose selected color metadata subset only.
 
 Canonical encoding details for compound EXR values are tracked in:

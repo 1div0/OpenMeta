@@ -14,7 +14,6 @@ backends without per-backend metadata logic duplication.
 | libjpeg-turbo | `jpeg_write_marker`, `jpeg_write_m_header`, `jpeg_write_m_byte`, `jpeg_write_icc_profile` | Primary JPEG metadata emitter (APP1/APP2/APP13 direct control) |
 | libtiff | `TIFFSetField`, `TIFFCreateEXIFDirectory`, `TIFFCreateGPSDirectory`, `TIFFWriteCustomDirectory`, `TIFFMergeFieldInfo` | Primary TIFF metadata emitter (native tag and IFD path) |
 | libjxl | `JxlEncoderUseBoxes`, `JxlEncoderAddBox`, `JxlEncoderCloseBoxes`, `JxlEncoderSetICCProfile` | Primary JXL metadata emitter (`Exif`, `xml `, `jumb`, optional `brob`) plus encoder ICC profile |
-| OpenImageIO | Plugin-level writes use backend APIs (JPEG/TIFF/JXL/OpenEXR) | Optional adapter layer when host app already writes through OIIO |
 | OpenEXR | `Header::insert`, typed attributes, `OpaqueAttribute` for unknown attr types | EXR header attribute path (not EXIF block packaging) |
 
 ## Container-Level Notes
@@ -293,7 +292,7 @@ container call mapping.
       input stream or prepared bundle storage.
     - `serialize_prepared_transfer_package_batch(...)` and
       `deserialize_prepared_transfer_package_batch(...)` persist that owned
-      batch so host layers can move it across process or plugin boundaries
+      batch so host layers can move it across process or integration boundaries
       without reopening the source file or rebuilding the bundle.
     - `collect_prepared_transfer_payload_views(...)` and
       `build_prepared_transfer_payload_batch(...)` now provide the matching
@@ -306,27 +305,16 @@ container call mapping.
       semantic package surface above that persisted batch.
     - `replay_prepared_transfer_package_batch(...)` is the target-neutral
       callback replay surface above that same persisted batch.
-    - `collect_oiio_transfer_package_views(...)` is the first host bridge on
-      top of that persisted batch: it provides zero-copy semantic package
-      views for OIIO-style integrations after deserialize by mapping the
-      target-neutral semantic surface into OIIO-facing names.
-    - `replay_oiio_transfer_package_batch(...)` is the higher-level replay
-      path on top of that same persisted batch, so OIIO/plugin hosts can
-      consume the stable package through callbacks without reparsing routes.
+    - OpenMeta no longer ships an in-library host-specific payload/package
+      bridge above these target-neutral package views and replay APIs.
     - `build_prepared_transfer_adapter_view(...)` now provides the parallel
       target-neutral adapter view for JPEG/TIFF/JXL host integrations that
       want explicit compiled operations without route parsing.
     - `emit_prepared_transfer_adapter_view(...)` replays that compiled view
       through one generic host sink.
-    - `collect_oiio_transfer_payload_views(...)` and
-      `build_oiio_transfer_payload_batch(...)` now sit on top of that core
-      semantic payload surface, mapping it into OIIO-facing names rather than
-      re-classifying prepared blocks inside the adapter.
-    - `replay_prepared_transfer_payload_batch(...)`,
-      `collect_oiio_transfer_payload_views(const PreparedTransferPayloadBatch&, ...)`,
-      and `replay_oiio_transfer_payload_batch(...)`
-      now reuse that same earlier persisted semantic payload stage directly,
-      before final package materialization.
+    - `replay_prepared_transfer_payload_batch(...)` now reuses that same
+      earlier persisted semantic payload stage directly, before final package
+      materialization.
     - File-based JPEG prepare can preserve an existing OpenMeta draft
       invalidation payload as raw APP11 C2PA (`TransferC2paMode::PreserveRaw`).
     - Content-bound `Keep` still resolves to `Drop`.
@@ -343,9 +331,9 @@ container call mapping.
 1. JPEG and TIFF direct backends (highest transfer value).
 2. JXL box emitter parity for EXIF/XMP plus bounded JUMBF/C2PA preserve or
    projection.
-3. Extend the new OIIO transfer bridge beyond the current zero-copy payload
-   view and owned batch if host-specific persistence or replay formats are
-   needed.
+3. If a future host-specific bridge needs persistence or replay formats,
+   build that on top of the target-neutral package and adapter surfaces
+   rather than adding a host-specific wrapper inside OpenMeta.
 4. Extend the current EXR attribute batch bridge if host-side replay or
    persistence formats are needed.
 

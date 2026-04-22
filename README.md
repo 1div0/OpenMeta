@@ -48,7 +48,7 @@ That guide covers the shortest useful paths for:
 - reading and querying metadata in C++
 - building and editing `MetaStore`
 - copying metadata into an existing JPEG, TIFF, or DNG target
-- building EXR and OIIO-style host-API metadata outputs
+- building EXR and host-API metadata outputs
 - using the optional Adobe DNG SDK bridge
 
 If you already own the encoder, SDK objects, or output container, follow

@@ -6,11 +6,16 @@
 #include "openmeta/container_payload.h"
 #include "openmeta/jumbf_decode.h"
 #include "openmeta/mapped_file.h"
-#include "openmeta/oiio_adapter.h"
+#include "openmeta/console_format.h"
+#include "openmeta/interop_export.h"
 #include "openmeta/xmp_dump.h"
+
+#include "interop_safety_internal.h"
+#include "interop_value_format_internal.h"
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -117,6 +122,400 @@ build_prepared_bundle_webp_package(std::span<const std::byte> input_webp,
                                    uint32_t* out_removed_chunks) noexcept;
 
 namespace {
+
+    using interop_internal::decode_text_to_utf8_safe;
+    using interop_internal::SafeTextStatus;
+
+    struct ExrProjectedTextAttribute final {
+        std::string name;
+        std::string value;
+    };
+
+    static bool
+    exr_projected_name_is_numeric_unknown(std::string_view name) noexcept
+    {
+        for (size_t i = 0; i + 2 < name.size(); ++i) {
+            if (name[i] == '_' && name[i + 1] == '0'
+                && (name[i + 2] == 'x' || name[i + 2] == 'X')) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static void truncate_utf8_for_limit(std::string* text,
+                                        uint32_t max_value_bytes) noexcept
+    {
+        if (!text || max_value_bytes == 0U || text->size() <= max_value_bytes) {
+            return;
+        }
+        size_t cut = static_cast<size_t>(max_value_bytes);
+        while (cut > 0U
+               && (static_cast<unsigned char>((*text)[cut]) & 0xC0U) == 0x80U) {
+            cut -= 1U;
+        }
+        text->resize(cut);
+        text->append("...");
+    }
+
+    static bool exif_ifd_is_gps(const ByteArena& arena,
+                                const Entry& entry) noexcept
+    {
+        if (entry.key.kind != MetaKeyKind::ExifTag) {
+            return false;
+        }
+        const std::span<const std::byte> raw = arena.span(
+            entry.key.data.exif_tag.ifd);
+        const std::string_view ifd(reinterpret_cast<const char*>(raw.data()),
+                                   raw.size());
+        return ifd == "gpsifd" || ifd == "gpsinfo" || ifd.ends_with("_gpsifd");
+    }
+
+    static bool exif_byte_tag_allows_safe_text_projection(
+        const ByteArena& arena, const Entry& entry) noexcept
+    {
+        if (entry.key.kind != MetaKeyKind::ExifTag) {
+            return false;
+        }
+        switch (entry.key.data.exif_tag.tag) {
+        case 0x9000U:
+        case 0x9101U:
+        case 0xA000U:
+        case 0xA300U:
+        case 0xA301U:
+        case 0xA302U:
+            return true;
+        case 0x0000U: return exif_ifd_is_gps(arena, entry);
+        default: return false;
+        }
+    }
+
+    static std::span<const std::byte>
+    trim_trailing_nul_bytes(std::span<const std::byte> raw) noexcept
+    {
+        size_t size = raw.size();
+        while (size > 0U && raw[size - 1U] == std::byte { 0 }) {
+            size -= 1U;
+        }
+        return raw.first(size);
+    }
+
+    static std::span<const std::byte>
+    trim_trailing_utf16_nuls(std::span<const std::byte> raw) noexcept
+    {
+        size_t size = raw.size();
+        while (size >= 2U && raw[size - 2U] == std::byte { 0 }
+               && raw[size - 1U] == std::byte { 0 }) {
+            size -= 2U;
+        }
+        return raw.first(size);
+    }
+
+    static bool bytes_equal(std::span<const std::byte> raw, const char* text,
+                            size_t text_size) noexcept
+    {
+        if (raw.size() != text_size) {
+            return false;
+        }
+        return std::memcmp(raw.data(), text, text_size) == 0;
+    }
+
+    static bool format_decoded_text_bytes_for_projection(
+        std::span<const std::byte> raw, TextEncoding encoding,
+        uint32_t max_value_bytes, std::string_view field_name,
+        std::string_view key_path, std::string* out) noexcept
+    {
+        if (!out) {
+            return false;
+        }
+        out->clear();
+        if (raw.empty()) {
+            return false;
+        }
+        InteropSafetyError error {};
+        const SafeTextStatus status
+            = decode_text_to_utf8_safe(raw, encoding, field_name, key_path, out,
+                                       &error);
+        if (status != SafeTextStatus::Ok) {
+            out->clear();
+            return false;
+        }
+        truncate_utf8_for_limit(out, max_value_bytes);
+        return true;
+    }
+
+    static bool
+    format_user_comment_bytes_for_projection(std::span<const std::byte> raw,
+                                             uint32_t max_value_bytes,
+                                             std::string* out) noexcept
+    {
+        if (!out || raw.size() < 8U) {
+            return false;
+        }
+
+        const std::span<const std::byte> prefix = raw.first(8U);
+        std::span<const std::byte> payload      = raw.subspan(8U);
+        if (bytes_equal(prefix, "ASCII\0\0\0", 8U)) {
+            payload = trim_trailing_nul_bytes(payload);
+            return format_decoded_text_bytes_for_projection(
+                payload, TextEncoding::Ascii, max_value_bytes, "UserComment",
+                "Exif:UserComment", out);
+        }
+        if (bytes_equal(prefix, "UTF8\0\0\0\0", 8U)) {
+            payload = trim_trailing_nul_bytes(payload);
+            return format_decoded_text_bytes_for_projection(
+                payload, TextEncoding::Utf8, max_value_bytes, "UserComment",
+                "Exif:UserComment", out);
+        }
+        if (bytes_equal(prefix, "UNICODE\0", 8U)) {
+            payload = trim_trailing_utf16_nuls(payload);
+            if (payload.size() >= 2U) {
+                const uint16_t bom_le = static_cast<uint16_t>(
+                    static_cast<uint16_t>(static_cast<uint8_t>(payload[0]))
+                    | static_cast<uint16_t>(
+                        static_cast<uint16_t>(static_cast<uint8_t>(payload[1]))
+                        << 8U));
+                if (bom_le == 0xFEFFU) {
+                    return format_decoded_text_bytes_for_projection(
+                        payload.subspan(2U), TextEncoding::Utf16LE,
+                        max_value_bytes, "UserComment", "Exif:UserComment",
+                        out);
+                }
+                if (bom_le == 0xFFFEU) {
+                    return format_decoded_text_bytes_for_projection(
+                        payload.subspan(2U), TextEncoding::Utf16BE,
+                        max_value_bytes, "UserComment", "Exif:UserComment",
+                        out);
+                }
+            }
+            return format_decoded_text_bytes_for_projection(
+                payload, TextEncoding::Utf16LE, max_value_bytes, "UserComment",
+                "Exif:UserComment", out);
+        }
+
+        return false;
+    }
+
+    static bool format_text_like_bytes_for_projection(
+        std::string_view field_name, std::string_view key_path,
+        const Entry& entry, std::span<const std::byte> raw,
+        uint32_t max_value_bytes, std::string* out) noexcept
+    {
+        if (!out || entry.key.kind != MetaKeyKind::ExifTag) {
+            return false;
+        }
+        if (entry.key.data.exif_tag.tag == 0x9286U
+            && format_user_comment_bytes_for_projection(raw, max_value_bytes,
+                                                        out)) {
+            return true;
+        }
+
+        const std::span<const std::byte> trimmed = trim_trailing_nul_bytes(raw);
+        if (trimmed.empty()) {
+            return false;
+        }
+
+        if (format_decoded_text_bytes_for_projection(
+                trimmed, TextEncoding::Ascii, max_value_bytes, field_name,
+                key_path, out)) {
+            return true;
+        }
+        return format_decoded_text_bytes_for_projection(
+            trimmed, TextEncoding::Utf8, max_value_bytes, field_name, key_path,
+            out);
+    }
+
+    static bool format_small_byte_sequence_text(std::span<const std::byte> raw,
+                                                std::string* out) noexcept
+    {
+        if (!out || raw.empty()) {
+            return false;
+        }
+        out->clear();
+        if (raw.size() == 1U) {
+            *out = std::to_string(
+                static_cast<unsigned>(static_cast<uint8_t>(raw[0])));
+            return true;
+        }
+        out->push_back('[');
+        for (size_t i = 0U; i < raw.size(); ++i) {
+            if (i != 0U) {
+                out->append(", ");
+            }
+            out->append(std::to_string(
+                static_cast<unsigned>(static_cast<uint8_t>(raw[i]))));
+        }
+        out->push_back(']');
+        return true;
+    }
+
+    static bool format_safe_exif_bytes_for_projection(
+        const ByteArena& arena, const Entry& entry, uint32_t max_value_bytes,
+        std::string* out) noexcept
+    {
+        if (!out || !exif_byte_tag_allows_safe_text_projection(arena, entry)) {
+            return false;
+        }
+
+        const MetaValue& value = entry.value;
+        if (value.kind != MetaValueKind::Bytes) {
+            return false;
+        }
+
+        const std::span<const std::byte> raw = arena.span(value.data.span);
+        if (raw.empty()) {
+            return false;
+        }
+
+        const uint16_t tag = entry.key.data.exif_tag.tag;
+        if (tag == 0x9000U || tag == 0xA000U) {
+            out->clear();
+            for (size_t i = 0U; i < raw.size(); ++i) {
+                const unsigned char c = static_cast<unsigned char>(
+                    static_cast<uint8_t>(raw[i]));
+                if (c == 0U) {
+                    break;
+                }
+                if (!std::isprint(c)) {
+                    out->clear();
+                    break;
+                }
+                out->push_back(static_cast<char>(c));
+            }
+            if (!out->empty()) {
+                truncate_utf8_for_limit(out, max_value_bytes);
+                return true;
+            }
+        }
+
+        if (!format_small_byte_sequence_text(raw, out)) {
+            return false;
+        }
+        truncate_utf8_for_limit(out, max_value_bytes);
+        return true;
+    }
+
+    static void format_safe_bytes_hex_for_projection(
+        std::span<const std::byte> raw, uint32_t max_value_bytes,
+        std::string* out) noexcept
+    {
+        if (!out) {
+            return;
+        }
+        out->clear();
+        out->append("0x");
+        append_hex_bytes(raw, max_value_bytes, out);
+    }
+
+    class ExrStringAttributeCollectSafeSink final : public MetadataSink {
+    public:
+        ExrStringAttributeCollectSafeSink(const ByteArena& arena,
+                                          std::vector<ExrProjectedTextAttribute>* out,
+                                          uint32_t max_value_bytes) noexcept
+            : arena_(arena)
+            , out_(out)
+            , max_value_bytes_(max_value_bytes)
+        {
+        }
+
+        void on_item(const ExportItem& item) noexcept override
+        {
+            if (status_ != InteropSafetyStatus::Ok || !out_ || !item.entry) {
+                return;
+            }
+
+            std::string value_text;
+            bool has_value         = false;
+            const MetaValue& value = item.entry->value;
+
+            if (value.kind == MetaValueKind::Text) {
+                const std::span<const std::byte> raw = arena_.span(
+                    value.data.span);
+                const SafeTextStatus s
+                    = decode_text_to_utf8_safe(raw, value.text_encoding,
+                                               item.name, item.name,
+                                               &value_text, error_);
+                if (s == SafeTextStatus::Error) {
+                    format_safe_bytes_hex_for_projection(raw, max_value_bytes_,
+                                                         &value_text);
+                    if (error_) {
+                        *error_ = InteropSafetyError {};
+                    }
+                    has_value = !value_text.empty();
+                } else {
+                    has_value = (s == SafeTextStatus::Ok);
+                    truncate_utf8_for_limit(&value_text, max_value_bytes_);
+                }
+            } else if (value.kind == MetaValueKind::Bytes) {
+                const std::span<const std::byte> raw = arena_.span(
+                    value.data.span);
+                if (format_safe_exif_bytes_for_projection(
+                        arena_, *item.entry, max_value_bytes_, &value_text)
+                    || format_text_like_bytes_for_projection(
+                        item.name, item.name, *item.entry, raw,
+                        max_value_bytes_, &value_text)) {
+                    has_value = !value_text.empty();
+                } else {
+                    format_safe_bytes_hex_for_projection(raw, max_value_bytes_,
+                                                         &value_text);
+                    has_value = !value_text.empty();
+                }
+            } else {
+                has_value = interop_internal::format_value_for_text(
+                    arena_, value, max_value_bytes_, &value_text);
+            }
+
+            if (!has_value
+                && !exr_projected_name_is_numeric_unknown(item.name)
+                && item.name != "Exif:MakerNote") {
+                return;
+            }
+
+            ExrProjectedTextAttribute attribute;
+            attribute.name.assign(item.name.data(), item.name.size());
+            attribute.value = std::move(value_text);
+            out_->push_back(std::move(attribute));
+        }
+
+        void set_error(InteropSafetyError* error) noexcept { error_ = error; }
+
+        InteropSafetyStatus status() const noexcept { return status_; }
+
+    private:
+        const ByteArena& arena_;
+        std::vector<ExrProjectedTextAttribute>* out_;
+        uint32_t max_value_bytes_;
+        InteropSafetyError* error_  = nullptr;
+        InteropSafetyStatus status_ = InteropSafetyStatus::Ok;
+    };
+
+    static InteropSafetyStatus collect_exr_projected_string_attributes_safe(
+        const MetaStore& store, std::vector<ExrProjectedTextAttribute>* out,
+        uint32_t max_value_bytes, InteropSafetyError* error) noexcept
+    {
+        if (!out) {
+            if (error) {
+                *error = InteropSafetyError {};
+            }
+            return InteropSafetyStatus::InvalidArgument;
+        }
+
+        out->clear();
+        if (error) {
+            *error = InteropSafetyError {};
+        }
+
+        ExportOptions options;
+        options.style              = ExportNameStyle::FlatHost;
+        options.name_policy        = ExportNamePolicy::ExifToolAlias;
+        options.include_makernotes = true;
+
+        ExrStringAttributeCollectSafeSink sink(store.arena(), out,
+                                               max_value_bytes);
+        sink.set_error(error);
+        visit_metadata(store, options, sink);
+        return sink.status();
+    }
 
     static constexpr std::array<std::byte, 8> kPngSignature = {
         std::byte { 0x89 }, std::byte { 0x50 }, std::byte { 0x4E },
@@ -8166,6 +8565,30 @@ namespace {
         }
     }
 
+    static void merge_preserved_exif_ifd_entries(
+        ParsedTiffIfd* dst, const ParsedTiffIfd& src) noexcept
+    {
+        if (!dst || !dst->present || !src.present) {
+            return;
+        }
+
+        merge_preserved_standard_pointer_entries(dst, src);
+
+        bool appended = false;
+        for (size_t i = 0; i < src.entries.size(); ++i) {
+            const ParsedTiffIfdEntry& e = src.entries[i];
+            if (e.tag != 0x927CU || has_ifd_entry_tag(*dst, e.tag)) {
+                continue;
+            }
+            dst->entries.push_back(e);
+            appended = true;
+        }
+        if (appended) {
+            std::stable_sort(dst->entries.begin(), dst->entries.end(),
+                             ParsedTiffIfdEntryLess {});
+        }
+    }
+
     static bool payload_to_u32(const ParsedTiffIfdEntry& e, TiffEndian endian,
                                uint32_t* out) noexcept
     {
@@ -9490,8 +9913,8 @@ namespace {
                                        layout, &existing_exif_ifd, err)) {
                 return false;
             }
-            merge_preserved_standard_pointer_entries(&parsed_exif.exif_ifd,
-                                                     existing_exif_ifd);
+            merge_preserved_exif_ifd_entries(&parsed_exif.exif_ifd,
+                                             existing_exif_ifd);
         }
 
         uint64_t interop_ifd_off = 0U;
@@ -10192,19 +10615,11 @@ prepare_metadata_for_target_impl(const MetaStore& store,
     }
 
     if (request.target_format == TransferTargetFormat::Exr) {
-        OiioAdapterRequest oiio_request;
-        oiio_request.name_policy            = ExportNamePolicy::ExifToolAlias;
-        oiio_request.include_makernotes     = true;
-        oiio_request.include_origin         = false;
-        oiio_request.include_flags          = false;
-        oiio_request.max_value_bytes        = 4096U;
-        oiio_request.include_empty          = false;
-        oiio_request.include_normalized_ccm = false;
-
-        std::vector<OiioAttribute> attrs;
+        std::vector<ExrProjectedTextAttribute> attrs;
         InteropSafetyError safety_error;
-        const InteropSafetyStatus safety = collect_oiio_attributes_safe(
-            store, &attrs, oiio_request, &safety_error);
+        const InteropSafetyStatus safety
+            = collect_exr_projected_string_attributes_safe(
+                store, &attrs, 4096U, &safety_error);
         if (safety != InteropSafetyStatus::Ok) {
             r.status = TransferStatus::Unsupported;
             r.code   = PrepareTransferCode::RequestedMetadataNotSerializable;

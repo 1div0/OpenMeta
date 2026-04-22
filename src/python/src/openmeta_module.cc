@@ -14,7 +14,6 @@
 #include "openmeta/mapped_file.h"
 #include "openmeta/metadata_transfer.h"
 #include "openmeta/ocio_adapter.h"
-#include "openmeta/oiio_adapter.h"
 #include "openmeta/resource_policy.h"
 #include "openmeta/simple_meta.h"
 #include "openmeta/validate.h"
@@ -3478,29 +3477,6 @@ namespace {
         return out;
     }
 
-    static nb::list unsafe_oiio_attributes_to_python(
-        const MetaStore& store, uint32_t max_value_bytes,
-        ExportNamePolicy name_policy, bool include_makernotes,
-        bool include_empty)
-    {
-        OiioAdapterRequest request;
-        request.max_value_bytes    = max_value_bytes;
-        request.include_empty      = include_empty;
-        request.name_policy        = name_policy;
-        request.include_makernotes = include_makernotes;
-
-        std::vector<OiioAttribute> attrs;
-        collect_oiio_attributes(store, &attrs, request);
-
-        nb::list out;
-        for (size_t i = 0; i < attrs.size(); ++i) {
-            out.append(nb::make_tuple(
-                nb::str(attrs[i].name.c_str(), attrs[i].name.size()),
-                nb::str(attrs[i].value.c_str(), attrs[i].value.size())));
-        }
-        return out;
-    }
-
     static std::string
     format_safety_error_message(const InteropSafetyError& error)
     {
@@ -3630,114 +3606,6 @@ namespace {
             rendered.size());
         return decode_text_safe_for_python(text_bytes, TextEncoding::Utf8);
     }
-
-    static nb::list oiio_attributes_to_python(const MetaStore& store,
-                                              uint32_t max_value_bytes,
-                                              ExportNamePolicy name_policy,
-                                              bool include_makernotes,
-                                              bool include_empty)
-    {
-        OiioAdapterRequest request;
-        request.max_value_bytes    = max_value_bytes;
-        request.include_empty      = include_empty;
-        request.name_policy        = name_policy;
-        request.include_makernotes = include_makernotes;
-
-        InteropSafetyError error;
-        std::vector<OiioAttribute> attrs;
-        const InteropSafetyStatus status
-            = collect_oiio_attributes_safe(store, &attrs, request, &error);
-        if (status != InteropSafetyStatus::Ok) {
-            throw_safety_error(error);
-        }
-
-        nb::list out;
-        for (size_t i = 0; i < attrs.size(); ++i) {
-            out.append(nb::make_tuple(
-                nb::str(attrs[i].name.c_str(), attrs[i].name.size()),
-                nb::str(attrs[i].value.c_str(), attrs[i].value.size())));
-        }
-        return out;
-    }
-
-    static nb::object oiio_typed_value_to_python(const OiioTypedValue& typed,
-                                                 bool unsafe_text)
-    {
-        if (typed.kind == MetaValueKind::Text) {
-            const std::span<const std::byte> raw(typed.storage.data(),
-                                                 typed.storage.size());
-            if (unsafe_text) {
-                return nb::bytes(reinterpret_cast<const char*>(raw.data()),
-                                 raw.size());
-            }
-            return decode_text_safe_for_python(raw, typed.text_encoding);
-        }
-        if (typed.kind == MetaValueKind::Bytes) {
-            if (unsafe_text) {
-                return nb::bytes(reinterpret_cast<const char*>(
-                                     typed.storage.data()),
-                                 typed.storage.size());
-            }
-            throw std::runtime_error(
-                "unsafe bytes value in typed export; use unsafe_oiio_attributes_typed()");
-        }
-
-        MetaValue value;
-        value.kind          = typed.kind;
-        value.elem_type     = typed.elem_type;
-        value.text_encoding = typed.text_encoding;
-        value.count         = typed.count;
-        value.data          = typed.data;
-
-        ByteArena arena;
-        if (typed.kind == MetaValueKind::Array
-            || typed.kind == MetaValueKind::Bytes
-            || typed.kind == MetaValueKind::Text) {
-            if (!typed.storage.empty()) {
-                value.data.span = arena.append(
-                    std::span<const std::byte>(typed.storage.data(),
-                                               typed.storage.size()));
-            } else {
-                value.data.span = ByteSpan {};
-            }
-        }
-        return value_to_python(arena, value, 0U, 0U);
-    }
-
-
-    static nb::list oiio_typed_attributes_to_python(
-        const MetaStore& store, uint32_t max_value_bytes,
-        ExportNamePolicy name_policy, bool include_makernotes,
-        bool include_empty, bool unsafe_text)
-    {
-        OiioAdapterRequest request;
-        request.max_value_bytes    = max_value_bytes;
-        request.include_empty      = include_empty;
-        request.name_policy        = name_policy;
-        request.include_makernotes = include_makernotes;
-
-        std::vector<OiioTypedAttribute> attrs;
-        if (unsafe_text) {
-            collect_oiio_attributes_typed(store, &attrs, request);
-        } else {
-            InteropSafetyError error;
-            const InteropSafetyStatus status
-                = collect_oiio_attributes_typed_safe(store, &attrs, request,
-                                                     &error);
-            if (status != InteropSafetyStatus::Ok) {
-                throw_safety_error(error);
-            }
-        }
-
-        nb::list out;
-        for (size_t i = 0; i < attrs.size(); ++i) {
-            out.append(nb::make_tuple(
-                nb::str(attrs[i].name.c_str(), attrs[i].name.size()),
-                oiio_typed_value_to_python(attrs[i].value, unsafe_text)));
-        }
-        return out;
-    }
-
 
     static nb::dict ocio_node_to_python(const OcioMetadataNode& node)
     {
@@ -4248,7 +4116,7 @@ NB_MODULE(_openmeta, m)
     nb::enum_<ExportNameStyle>(m, "ExportNameStyle")
         .value("Canonical", ExportNameStyle::Canonical)
         .value("XmpPortable", ExportNameStyle::XmpPortable)
-        .value("Oiio", ExportNameStyle::Oiio);
+        .value("FlatHost", ExportNameStyle::FlatHost);
     nb::enum_<ExportNamePolicy>(m, "ExportNamePolicy")
         .value("Spec", ExportNamePolicy::Spec)
         .value("ExifToolAlias", ExportNamePolicy::ExifToolAlias);
@@ -4771,61 +4639,6 @@ NB_MODULE(_openmeta, m)
             "include_reduction_matrices"_a = true, "max_fields"_a = 128U,
             "max_values_per_field"_a = 256U,
             "validation_mode"_a      = CcmValidationMode::DngSpecWarnings)
-        .def(
-            "oiio_attributes",
-            [](std::shared_ptr<PyDocument> d, uint32_t max_value_bytes,
-               ExportNamePolicy name_policy, bool include_makernotes,
-               bool include_empty) {
-                return oiio_attributes_to_python(d->store, max_value_bytes,
-                                                 name_policy,
-                                                 include_makernotes,
-                                                 include_empty);
-            },
-            "max_value_bytes"_a    = 1024U,
-            "name_policy"_a        = ExportNamePolicy::ExifToolAlias,
-            "include_makernotes"_a = true, "include_empty"_a = false)
-        .def(
-            "unsafe_oiio_attributes",
-            [](std::shared_ptr<PyDocument> d, uint32_t max_value_bytes,
-               ExportNamePolicy name_policy, bool include_makernotes,
-               bool include_empty) {
-                return unsafe_oiio_attributes_to_python(d->store,
-                                                        max_value_bytes,
-                                                        name_policy,
-                                                        include_makernotes,
-                                                        include_empty);
-            },
-            "max_value_bytes"_a    = 1024U,
-            "name_policy"_a        = ExportNamePolicy::ExifToolAlias,
-            "include_makernotes"_a = true, "include_empty"_a = false)
-        .def(
-            "oiio_attributes_typed",
-            [](std::shared_ptr<PyDocument> d, uint32_t max_value_bytes,
-               ExportNamePolicy name_policy, bool include_makernotes,
-               bool include_empty) {
-                return oiio_typed_attributes_to_python(d->store,
-                                                       max_value_bytes,
-                                                       name_policy,
-                                                       include_makernotes,
-                                                       include_empty, false);
-            },
-            "max_value_bytes"_a    = 1024U,
-            "name_policy"_a        = ExportNamePolicy::ExifToolAlias,
-            "include_makernotes"_a = true, "include_empty"_a = false)
-        .def(
-            "unsafe_oiio_attributes_typed",
-            [](std::shared_ptr<PyDocument> d, uint32_t max_value_bytes,
-               ExportNamePolicy name_policy, bool include_makernotes,
-               bool include_empty) {
-                return oiio_typed_attributes_to_python(d->store,
-                                                       max_value_bytes,
-                                                       name_policy,
-                                                       include_makernotes,
-                                                       include_empty, true);
-            },
-            "max_value_bytes"_a    = 1024U,
-            "name_policy"_a        = ExportNamePolicy::ExifToolAlias,
-            "include_makernotes"_a = true, "include_empty"_a = false)
         .def(
             "ocio_metadata_tree",
             [](std::shared_ptr<PyDocument> d, ExportNameStyle style,

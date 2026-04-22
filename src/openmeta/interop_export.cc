@@ -109,8 +109,8 @@ namespace {
     }
 
 
-    static bool ifd_to_oiio_prefix(std::string_view ifd,
-                                   std::string_view* out_prefix) noexcept
+    static bool ifd_to_flat_host_prefix(std::string_view ifd,
+                                        std::string_view* out_prefix) noexcept
     {
         if (!out_prefix) {
             return false;
@@ -664,12 +664,16 @@ namespace {
     }
 
 
-    enum class ExrOiioNameMapResult : uint8_t { Unmapped = 0, Mapped, Skip };
+    enum class ExrFlatHostNameMapResult : uint8_t {
+        Unmapped = 0,
+        Mapped,
+        Skip
+    };
 
 
-    static ExrOiioNameMapResult
-    map_exr_attribute_name_for_oiio(std::string_view attr_name,
-                                    std::string_view* mapped) noexcept
+    static ExrFlatHostNameMapResult
+    map_exr_attribute_name_for_flat_host(std::string_view attr_name,
+                                         std::string_view* mapped) noexcept
     {
         if (mapped) {
             *mapped = {};
@@ -677,7 +681,7 @@ namespace {
 
         struct ExrNameMap final {
             std::string_view exr_name;
-            std::string_view oiio_name;
+            std::string_view flat_host_name;
         };
 
         static constexpr std::array<ExrNameMap, 12> kMap = { {
@@ -698,9 +702,9 @@ namespace {
         for (size_t i = 0; i < kMap.size(); ++i) {
             if (attr_name == kMap[i].exr_name) {
                 if (mapped) {
-                    *mapped = kMap[i].oiio_name;
+                    *mapped = kMap[i].flat_host_name;
                 }
-                return ExrOiioNameMapResult::Mapped;
+                return ExrFlatHostNameMapResult::Mapped;
             }
         }
 
@@ -717,11 +721,11 @@ namespace {
 
         for (size_t i = 0; i < kSkip.size(); ++i) {
             if (attr_name == kSkip[i]) {
-                return ExrOiioNameMapResult::Skip;
+                return ExrFlatHostNameMapResult::Skip;
             }
         }
 
-        return ExrOiioNameMapResult::Unmapped;
+        return ExrFlatHostNameMapResult::Unmapped;
     }
 
 
@@ -1001,11 +1005,11 @@ namespace {
     }
 
 
-    static bool build_oiio_name(const ByteArena& arena, const Entry& e,
-                                const ExifExportContext* exif_ctx,
-                                bool include_makernotes,
-                                ExportNamePolicy policy,
-                                std::string* out_name) noexcept
+    static bool build_flat_host_name(const ByteArena& arena, const Entry& e,
+                                     const ExifExportContext* exif_ctx,
+                                     bool include_makernotes,
+                                     ExportNamePolicy policy,
+                                     std::string* out_name) noexcept
     {
         out_name->clear();
 
@@ -1024,7 +1028,7 @@ namespace {
             }
 
             std::string_view prefix;
-            if (!ifd_to_oiio_prefix(ifd, &prefix)) {
+            if (!ifd_to_flat_host_prefix(ifd, &prefix)) {
                 return false;
             }
 
@@ -1186,12 +1190,12 @@ namespace {
                 = arena_string(arena, e.key.data.exr_attribute.name);
             if (e.key.data.exr_attribute.part_index == 0U) {
                 std::string_view mapped;
-                const ExrOiioNameMapResult map_result
-                    = map_exr_attribute_name_for_oiio(attr_name, &mapped);
-                if (map_result == ExrOiioNameMapResult::Skip) {
+                const ExrFlatHostNameMapResult map_result
+                    = map_exr_attribute_name_for_flat_host(attr_name, &mapped);
+                if (map_result == ExrFlatHostNameMapResult::Skip) {
                     return false;
                 }
-                if (map_result == ExrOiioNameMapResult::Mapped) {
+                if (map_result == ExrFlatHostNameMapResult::Mapped) {
                     out_name->append(mapped);
                     return true;
                 }
@@ -1266,10 +1270,10 @@ visit_metadata(const MetaStore& store, const ExportOptions& options,
             mapped = build_xmp_portable_name(arena, e, &exif_ctx,
                                              options.name_policy, &name);
             break;
-        case ExportNameStyle::Oiio:
-            mapped = build_oiio_name(arena, e, &exif_ctx,
-                                     options.include_makernotes,
-                                     options.name_policy, &name);
+        case ExportNameStyle::FlatHost:
+            mapped = build_flat_host_name(arena, e, &exif_ctx,
+                                          options.include_makernotes,
+                                          options.name_policy, &name);
             break;
         }
 
