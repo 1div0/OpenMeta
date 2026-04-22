@@ -21,6 +21,11 @@ Install
 
    cmake --install build --prefix /opt/openmeta
 
+The exported CMake package is installed under
+``${CMAKE_INSTALL_LIBDIR}/cmake/OpenMeta``. On Unix this can be a multiarch
+path such as ``lib/x86_64-linux-gnu/cmake/OpenMeta`` when the install prefix is
+``/usr``.
+
 Options
 -------
 

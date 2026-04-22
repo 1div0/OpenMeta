@@ -1384,5 +1384,10 @@ cmake --install build --prefix /tmp/openmeta-install
 ls /tmp/openmeta-install/share/doc/OpenMeta/html/index.html
 ```
 
+The exported CMake package is installed under
+`${CMAKE_INSTALL_LIBDIR}/cmake/OpenMeta`. On Unix this may resolve to a
+multiarch path such as `lib/x86_64-linux-gnu/cmake/OpenMeta` when the install
+prefix is `/usr`.
+
 When both `OPENMETA_BUILD_SPHINX_DOCS=ON` and `OPENMETA_BUILD_DOCS=ON`, the
 Doxygen HTML output is installed under `share/doc/OpenMeta/doxygen/html`.

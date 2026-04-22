@@ -607,6 +607,163 @@ Exit criteria:
 3. Spend follow-up effort on deeper parity lanes only after the writer
    baseline is trustworthy.
 
+## Competitor Parity Checklist
+
+This section is a practical tracking view for the remaining gap against
+general-purpose metadata competitors.
+
+Estimated remaining work packages:
+- to reach normal still-image workflow parity close to `Exiv2`: about `8`
+  major work packages
+- to reach broader overall parity closer to `ExifTool`: about `12-15`
+  major work packages
+
+These are not release-percentage numbers. They are rough planning counts for
+distinct parity workstreams that still matter after the current public writer
+contract work.
+
+### Package Status
+
+Status legend:
+- `Done`: public contract and regression coverage are good enough that this is
+  no longer a primary parity blocker
+- `Partial`: real support exists, but competitor-visible limits still remain
+- `Missing`: still a clear parity gap
+
+| Work package | Why it matters for parity | Status | Remaining package count | Main target families |
+| --- | --- | --- | --- | --- |
+| Public writer contract for primary targets | Competitors feel predictable on preserve/replace behavior; OpenMeta still needs that same trust level across all first-class targets | `Partial` | `1` | `TIFF`, `DNG`, `PNG`, `WebP`, `JP2`, `JXL`, `HEIF/AVIF/CR3` |
+| General EXIF / IPTC / XMP sync engine | One of the biggest remaining gaps for general editing adoption | `Partial` | `1-2` | Cross-cutting |
+| Compare-backed release validation | Needed to defend parity claims with repeatable read-back and compare gates | `Partial` | `1` | Cross-cutting |
+| MakerNote rewrite trust | Read parity is strong, but rewrite guarantees still trail mature tools | `Partial` | `1` | `JPEG`, `TIFF`, `DNG`, RAW-derived lanes |
+| TIFF / DNG deeper rewrite guarantees | Important for serious export/edit trust on camera-originated files | `Partial` | `1` | `TIFF`, `DNG` |
+| BMFF writer depth beyond current bounded contract | Needed for stronger `HEIF/AVIF/CR3` parity beyond the current metadata-only `meta` model | `Partial` | `1` | `HEIF`, `AVIF`, `CR3` |
+| Modern container read-depth follow-through | Remaining visible read gaps are mostly here | `Partial` | `1` | `HEIF/AVIF`, `JXL` |
+| Long-tail native format semantics | Matters more against `ExifTool` than against `Exiv2` | `Partial` | `2-3` | `RAF`, `X3F`, `CRW/CIFF`, `Photoshop IRB` |
+| EXR target decision | Current EXR target is real but still architecturally bounded | `Partial` | `1` | `EXR` |
+| JUMBF / C2PA deeper semantics | Current support is bounded and useful, but not full trust-policy parity | `Partial` | `1-2` | `JPEG`, `PNG`, `WebP`, `JXL`, `BMFF` |
+| Full arbitrary metadata editing parity | Mature competitors expose a broader open-ended editor surface | `Missing` | Strategic / out of scope | Cross-cutting |
+
+### Format-Family Gap Map
+
+This map is intentionally coarse. It answers where the main remaining work
+still sits after the current public regression and writer-contract work.
+
+| Format family | Read parity | Transfer/write parity | Main remaining competitor gap |
+| --- | --- | --- | --- |
+| `JPEG` | `Strong` | `Strong` | needs continued compare-backed hardening and deeper mixed-bundle parity, not a new baseline writer |
+| `TIFF` | `Strong` | `Partial` | deeper rewrite guarantees for more existing-graph and tail-preservation cases |
+| `DNG` | `Strong` | `Partial` | more predictable preserve/merge behavior across target modes and raw `SubIFD` chains |
+| `PNG` | `Strong` | `Partial` | stable unmanaged-chunk preservation contract and broader compare-backed validation |
+| `WebP` | `Strong` | `Partial` | stable unrelated-chunk preservation contract and broader compare-backed validation |
+| `JP2` | `Strong` | `Partial` | stronger managed-box preservation guarantees and more roundtrip validation |
+| `JXL` | `Strong` on current lanes | `Partial` | more explicit box-preservation guarantees and deeper `brob` realtype follow-through |
+| `HEIF / AVIF / CR3` | `Strong` on tracked lanes | `Partial` | BMFF writer depth and deeper scene/relation semantics beyond the bounded current model |
+| `EXR` | `Bounded but real` | `Bounded but real` | still needs an explicit long-term decision between stable bounded target vs rewrite/edit path |
+| `RAF / X3F` | `Partial` | not a main writer lane | deeper native semantics beyond embedded-TIFF follow paths |
+| `CRW / CIFF` | `Partial` | bounded | legacy native depth still trails mature tools |
+| `Photoshop IRB` | `Partial` | bounded preservation | interpreted subset still smaller than mature tools |
+| `JUMBF / C2PA` | `Partial` | bounded | deeper semantics, trust-policy behavior, and signed rewrite parity remain out of scope |
+
+### Practical Readout
+
+If OpenMeta stops after the current writer-contract work, it can already argue
+that it is close to competitor parity on the main tracked still-image targets.
+
+To get materially closer to `Exiv2`, the remaining work is mostly:
+- finish stable writer guarantees for the first-class target family
+- finish the broader sync policy
+- harden compare-backed release validation
+- improve TIFF/DNG/BMFF rewrite trust
+
+To get materially closer to `ExifTool`, OpenMeta also needs:
+- more long-tail native format depth
+- broader general editing behavior
+- deeper `JUMBF/C2PA` semantics
+- a clearer answer for `EXR`
+
+### Execution Order
+
+Use this as the practical delivery order for the remaining parity work.
+
+Priority legend:
+- `Now`: should be in the next active delivery slice
+- `Next`: should start after the `Now` slice is stable
+- `Later`: important for broader parity, but not the next blocker
+
+| Work package | Priority | Why this order |
+| --- | --- | --- |
+| Public writer contract for primary targets | `Now` | This is the core trust gap that still keeps OpenMeta below mature writer parity |
+| General EXIF / IPTC / XMP sync engine | `Now` | This is still one of the biggest adoption blockers for general edit workflows |
+| Compare-backed release validation | `Now` | Parity claims remain weaker until compare-backed gates are release-facing instead of mostly API-facing |
+| TIFF / DNG deeper rewrite guarantees | `Now` | This is the highest-risk writer lane for serious still-image export confidence |
+| BMFF writer depth beyond current bounded contract | `Next` | `HEIF/AVIF/CR3` are already real targets, but the bounded writer model still needs more depth for stronger parity |
+| MakerNote rewrite trust | `Next` | Important for trust, but it benefits from the writer-contract and validation work landing first |
+| Modern container read-depth follow-through | `Next` | Visible gap, but less urgent than finishing the current writer baseline |
+| EXR target decision | `Next` | Needs an explicit product choice, but should follow the main writer-contract stabilization work |
+| Long-tail native format semantics | `Later` | Matters more for broad `ExifTool` parity than for the first still-image writer milestone |
+| JUMBF / C2PA deeper semantics | `Later` | Current bounded behavior is already useful; deeper trust semantics should wait until the core writer contract is stable |
+| Full arbitrary metadata editing parity | `Later` | Strategic follow-up, not part of the next parity-closing milestone |
+
+Suggested delivery sequence:
+1. Finish the stable writer contract for the first-class target family.
+2. Finish the broader sync-policy layer and compare-backed release validation.
+3. Harden the two highest-risk writer lanes: `TIFF/DNG` and bounded `BMFF`.
+4. Revisit MakerNote rewrite trust after the first-class writer contract is stable.
+5. Spend follow-up time on modern-container depth, `EXR`, and long-tail native semantics only after the main writer baseline is defendable.
+
+### Now Slice Implementation Board
+
+This board turns the current `Now` slice into concrete delivery checklists.
+
+The sync item here means the bounded next-slice policy completion needed for
+practical writer parity. It does not mean full arbitrary EXIF/IPTC/XMP sync
+parity across every workflow.
+
+#### 1. Public Writer Contract For Primary Targets
+
+- [ ] document final preserve-vs-replace behavior for existing embedded XMP on `TIFF`, `DNG`, `PNG`, `WebP`, `JP2`, `JXL`, and bounded `BMFF`
+- [ ] document final preserve-vs-replace behavior for destination sidecars across embedded-only, sidecar-only, and dual-write flows
+- [ ] lock explicit unmanaged-metadata preservation rules for unrelated chunks, boxes, items, and tails per target family
+- [ ] add compare-backed read-back gates for each first-class target instead of relying mainly on API-shape regression coverage
+- [ ] make CLI and Python surfaces describe the same writeback behavior and path-derivation rules as the C++ helper
+- [ ] reduce remaining target differences to documented limits instead of accidental implementation details
+
+#### 2. Bounded EXIF / IPTC / XMP Sync Layer
+
+- [ ] publish one final precedence table for source embedded XMP, destination embedded XMP, and destination sidecar XMP
+- [ ] lock conflict behavior for generated EXIF-to-XMP and IPTC-to-XMP projections when existing XMP is also present
+- [ ] lock canonical generated-XMP writeback behavior for embedded-only, sidecar-only, and dual-write flows
+- [ ] lock namespace preservation and canonicalization rules for managed vs unmanaged XMP content
+- [ ] add regression cases for mixed embedded-plus-sidecar destination states across the primary target family
+- [ ] document the explicit non-goals of this bounded sync layer so it is not confused with full arbitrary sync parity
+
+#### 3. Compare-Backed Release Validation
+
+- [ ] promote the current primary-target roundtrip checks into explicit release-facing compare gates
+- [ ] add compare-backed validation for `TIFF`, `DNG`, `PNG`, `WebP`, `JP2`, `JXL`, and bounded `BMFF` target outputs
+- [ ] cover embedded-only, sidecar-only, and dual-write XMP flows in release-facing compare validation
+- [ ] add compare-backed validation for explicit sidecar-base overrides and destination-sidecar cleanup behavior
+- [ ] gate the primary writer family on deterministic read-back of managed metadata after edit/apply
+- [ ] keep public parity claims tied to compare-backed evidence instead of only unit or smoke coverage
+
+#### 4. TIFF / DNG Deeper Rewrite Guarantees
+
+- [ ] lock rewrite guarantees for classic TIFF and BigTIFF root IFD, `ExifIFD`, preview chains, and bounded `SubIFD` replacement
+- [ ] lock explicit DNG behavior for `ExistingTarget`, `TemplateTarget`, and `MinimalFreshScaffold`
+- [ ] add compare-backed roundtrip gates for preview chains, raw `SubIFD` merge behavior, and `DNGVersion` persistence
+- [ ] document preserve-vs-replace guarantees for existing auxiliary IFD chains and downstream tails
+- [ ] harden read-back and rewrite tests around mixed existing metadata carriers on camera-originated TIFF/DNG files
+- [ ] define the bounded edge of TIFF/DNG rewrite depth clearly enough that hosts know what is guaranteed and what is not
+
+#### Done-When Readout
+
+- [ ] the first-class target family has one explicit public writer contract
+- [ ] the bounded sync-policy layer is documented and regression-gated
+- [ ] release-facing compare validation covers the main still-image writer set
+- [ ] `TIFF/DNG` rewrite guarantees are strong enough to stop being a primary parity blocker
+- [ ] the next work slice can move to bounded `BMFF` depth instead of still backfilling the writer baseline
+
 ## Postponed Work
 
 Still out of scope for the current milestone:

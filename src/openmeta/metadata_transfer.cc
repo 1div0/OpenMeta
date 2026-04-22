@@ -7215,6 +7215,28 @@ namespace {
         }
     };
 
+    static bool remove_tiff_ifd_entry_tag(std::vector<TiffIfdEntry>* entries,
+                                          uint16_t tag) noexcept
+    {
+        if (!entries) {
+            return false;
+        }
+        bool removed = false;
+        size_t write = 0U;
+        for (size_t read = 0U; read < entries->size(); ++read) {
+            if ((*entries)[read].tag == tag) {
+                removed = true;
+                continue;
+            }
+            if (write != read) {
+                (*entries)[write] = std::move((*entries)[read]);
+            }
+            write += 1U;
+        }
+        entries->resize(write);
+        return removed;
+    }
+
     struct ParsedTiffIfdEntry final {
         uint16_t tag   = 0U;
         uint16_t type  = 0U;
@@ -8082,6 +8104,32 @@ namespace {
         return find_ifd_entry(ifd, tag, &ignored);
     }
 
+    static bool remove_ifd_entry_tag(ParsedTiffIfd* ifd, uint16_t tag) noexcept
+    {
+        if (!ifd) {
+            return false;
+        }
+        bool removed = false;
+        size_t write = 0U;
+        for (size_t read = 0U; read < ifd->entries.size(); ++read) {
+            if (ifd->entries[read].tag == tag) {
+                removed = true;
+                continue;
+            }
+            if (write != read) {
+                ifd->entries[write] = std::move(ifd->entries[read]);
+            }
+            write += 1U;
+        }
+        ifd->entries.resize(write);
+        return removed;
+    }
+
+    static bool payload_to_tiff_offset(const ParsedTiffIfdEntry& e,
+                                       TiffEndian endian,
+                                       const TiffLayout& layout,
+                                       uint64_t* out) noexcept;
+
     static bool is_standard_tiff_ifd_pointer_tag(uint16_t tag) noexcept
     {
         return tag == 0x014AU || tag == 0x8769U || tag == 0x8825U
@@ -8171,6 +8219,31 @@ namespace {
             }
             out->push_back(value);
         }
+        return true;
+    }
+
+    static bool payload_to_tiff_offset(const ParsedTiffIfdEntry& e,
+                                       TiffEndian endian,
+                                       const TiffLayout& layout,
+                                       uint64_t* out) noexcept
+    {
+        if (!out || e.count != 1U) {
+            return false;
+        }
+        if (!layout.bigtiff) {
+            uint32_t value = 0U;
+            if (!payload_to_u32(e, endian, &value)) {
+                return false;
+            }
+            *out = static_cast<uint64_t>(value);
+            return true;
+        }
+        if (e.type != 18U || e.payload.size() != 8U) {
+            return false;
+        }
+        *out = read_u64_tiff(
+            std::span<const std::byte>(e.payload.data(), e.payload.size()), 0U,
+            endian);
         return true;
     }
 
@@ -8993,10 +9066,18 @@ namespace {
             }
         }
 
-        const bool need_exif_ptr = parsed_exif.exif_ifd.present;
-        const bool need_gps_ptr  = parsed_exif.gps_ifd.present;
+        const bool strip_existing_xmp = has_remove_for_tag(merged_updates, 700U);
+        bool need_exif_ptr = parsed_exif.exif_ifd.present;
+        bool need_gps_ptr  = parsed_exif.gps_ifd.present;
         const bool need_subifd_ptr = !parsed_exif.subifds.empty();
+        const bool inspect_existing_exif_ifd
+            = need_exif_ptr || strip_existing_xmp;
+        const bool inspect_existing_gps_ifd
+            = need_gps_ptr || strip_existing_xmp;
+        const bool inspect_existing_subifds
+            = need_subifd_ptr || strip_existing_xmp;
         uint64_t existing_exif_ifd_off = 0U;
+        uint64_t existing_gps_ifd_off  = 0U;
         std::vector<uint64_t> existing_subifd_offsets;
 
         std::vector<TiffIfdEntry> final_entries;
@@ -9018,11 +9099,16 @@ namespace {
                 count_value  = read_u64_tiff(input, p + 4U, endian);
                 value_or_off = read_u64_tiff(input, p + 12U, endian);
             }
-            if (need_exif_ptr && tag == 0x8769U && count_value == 1U
+            if (inspect_existing_exif_ifd && tag == 0x8769U && count_value == 1U
                 && (type == 4U || type == 13U || type == 18U)) {
                 existing_exif_ifd_off = value_or_off;
             }
-            if (need_subifd_ptr && tag == 0x014AU
+            if (inspect_existing_gps_ifd && tag == 0x8825U
+                && count_value == 1U
+                && (type == 4U || type == 13U || type == 18U)) {
+                existing_gps_ifd_off = value_or_off;
+            }
+            if (inspect_existing_subifds && tag == 0x014AU
                 && !parse_tiff_offset_array_entry(input, type, count_value,
                                                   value_or_off, endian,
                                                   layout,
@@ -9042,6 +9128,70 @@ namespace {
             e.count        = count_value;
             e.value_or_off = value_or_off;
             final_entries.push_back(e);
+        }
+
+        if (strip_existing_xmp) {
+            if (existing_exif_ifd_off != 0U) {
+                ParsedTiffIfd existing_exif_ifd;
+                if (!parse_target_tiff_ifd(input, existing_exif_ifd_off, endian,
+                                           layout, &existing_exif_ifd, err)) {
+                    return false;
+                }
+
+                ParsedTiffIfd existing_interop_ifd;
+                bool have_existing_interop_ifd = false;
+                ParsedTiffIfdEntry interop_ptr;
+                if (find_ifd_entry(existing_exif_ifd, 0xA005U, &interop_ptr)) {
+                    uint64_t existing_interop_ifd_off = 0U;
+                    if (payload_to_tiff_offset(interop_ptr, endian, layout,
+                                               &existing_interop_ifd_off)
+                        && existing_interop_ifd_off != 0U) {
+                        if (!parse_target_tiff_ifd(input, existing_interop_ifd_off,
+                                                   endian, layout,
+                                                   &existing_interop_ifd,
+                                                   err)) {
+                            return false;
+                        }
+                        have_existing_interop_ifd = true;
+                    }
+                }
+
+                const bool removed_existing_exif_xmp
+                    = remove_ifd_entry_tag(&existing_exif_ifd, 700U);
+                const bool removed_existing_interop_xmp
+                    = have_existing_interop_ifd
+                          ? remove_ifd_entry_tag(&existing_interop_ifd, 700U)
+                          : false;
+
+                if (!parsed_exif.exif_ifd.present) {
+                    if (removed_existing_exif_xmp
+                        || removed_existing_interop_xmp) {
+                        parsed_exif.exif_ifd = std::move(existing_exif_ifd);
+                        if (have_existing_interop_ifd) {
+                            parsed_exif.interop_ifd
+                                = std::move(existing_interop_ifd);
+                        }
+                        need_exif_ptr = true;
+                        (void)remove_tiff_ifd_entry_tag(&final_entries, 0x8769U);
+                    }
+                } else if (!parsed_exif.interop_ifd.present
+                           && removed_existing_interop_xmp) {
+                    parsed_exif.interop_ifd = std::move(existing_interop_ifd);
+                }
+            }
+
+            if (existing_gps_ifd_off != 0U && !parsed_exif.gps_ifd.present) {
+                ParsedTiffIfd existing_gps_ifd;
+                if (!parse_target_tiff_ifd(input, existing_gps_ifd_off, endian,
+                                           layout, &existing_gps_ifd, err)) {
+                    return false;
+                }
+                if (remove_ifd_entry_tag(&existing_gps_ifd, 700U)) {
+                    parsed_exif.gps_ifd = std::move(existing_gps_ifd);
+                    need_gps_ptr = true;
+                    (void)remove_tiff_ifd_entry_tag(&final_entries, 0x8825U);
+                }
+            }
         }
 
         for (size_t u = 0; u < merged_updates.size(); ++u) {
@@ -9149,7 +9299,8 @@ namespace {
         }
 
         std::vector<uint64_t> existing_page_offsets;
-        if (!parsed_exif.page_ifds.empty() && next_ifd_off != 0U) {
+        if ((!parsed_exif.page_ifds.empty() || strip_existing_xmp)
+            && next_ifd_off != 0U) {
             uint64_t page_ifd_off = next_ifd_off;
             while (page_ifd_off != 0U) {
                 bool seen_before = false;
@@ -9179,7 +9330,8 @@ namespace {
             }
         }
         std::vector<uint64_t> existing_subifd_tail_next_offsets;
-        if (need_subifd_ptr && !existing_subifd_offsets.empty()) {
+        if ((need_subifd_ptr || strip_existing_xmp)
+            && !existing_subifd_offsets.empty()) {
             existing_subifd_tail_next_offsets.resize(existing_subifd_offsets.size(),
                                                      0U);
             for (size_t i = 0; i < existing_subifd_offsets.size(); ++i) {
@@ -9195,20 +9347,6 @@ namespace {
             }
         }
         std::vector<ParsedTiffIfd> preserved_existing_page_ifds;
-        if (!parsed_exif.page_ifds.empty()
-            && existing_page_offsets.size() > parsed_exif.page_ifds.size()) {
-            preserved_existing_page_ifds.reserve(
-                existing_page_offsets.size() - parsed_exif.page_ifds.size());
-            for (size_t i = parsed_exif.page_ifds.size();
-                 i < existing_page_offsets.size(); ++i) {
-                ParsedTiffIfd page_ifd;
-                if (!parse_target_tiff_ifd(input, existing_page_offsets[i],
-                                           endian, layout, &page_ifd, err)) {
-                    return false;
-                }
-                preserved_existing_page_ifds.push_back(std::move(page_ifd));
-            }
-        }
         if (!parsed_exif.page_ifds.empty()) {
             const size_t overlap_count = (existing_page_offsets.size()
                                           < parsed_exif.page_ifds.size())
@@ -9227,25 +9365,49 @@ namespace {
                 merge_preserved_standard_pointer_entries(
                     &parsed_exif.page_ifds[i], existing_page_ifd);
             }
-        }
-        std::vector<ParsedTiffIfd> preserved_existing_subifds;
-        if (need_subifd_ptr
-            && existing_subifd_offsets.size() > parsed_exif.subifds.size()) {
-            preserved_existing_subifds.reserve(
-                existing_subifd_offsets.size() - parsed_exif.subifds.size());
-            for (size_t i = parsed_exif.subifds.size();
-                 i < existing_subifd_offsets.size(); ++i) {
-                if (existing_subifd_offsets[i] == 0U) {
-                    continue;
+            if (existing_page_offsets.size() > parsed_exif.page_ifds.size()) {
+                preserved_existing_page_ifds.reserve(
+                    existing_page_offsets.size() - parsed_exif.page_ifds.size());
+                for (size_t i = parsed_exif.page_ifds.size();
+                     i < existing_page_offsets.size(); ++i) {
+                    ParsedTiffIfd page_ifd;
+                    if (!parse_target_tiff_ifd(input, existing_page_offsets[i],
+                                               endian, layout, &page_ifd,
+                                               err)) {
+                        return false;
+                    }
+                    if (strip_existing_xmp) {
+                        (void)remove_ifd_entry_tag(&page_ifd, 700U);
+                    }
+                    preserved_existing_page_ifds.push_back(std::move(page_ifd));
                 }
-                ParsedTiffIfd subifd;
-                if (!parse_target_tiff_ifd(input, existing_subifd_offsets[i],
-                                           endian, layout, &subifd, err)) {
+            }
+        } else if (strip_existing_xmp && !existing_page_offsets.empty()) {
+            std::vector<ParsedTiffIfd> stripped_existing_page_ifds;
+            stripped_existing_page_ifds.reserve(existing_page_offsets.size());
+            bool removed_existing_page_xmp = false;
+            for (size_t i = 0; i < existing_page_offsets.size(); ++i) {
+                ParsedTiffIfd page_ifd;
+                if (!parse_target_tiff_ifd(input, existing_page_offsets[i],
+                                           endian, layout, &page_ifd, err)) {
                     return false;
                 }
-                preserved_existing_subifds.push_back(std::move(subifd));
+                if (remove_ifd_entry_tag(&page_ifd, 700U)) {
+                    removed_existing_page_xmp = true;
+                }
+                stripped_existing_page_ifds.push_back(std::move(page_ifd));
+            }
+            if (removed_existing_page_xmp) {
+                preserved_existing_page_ifds
+                    = std::move(stripped_existing_page_ifds);
             }
         }
+        if (strip_existing_xmp) {
+            for (size_t i = 0; i < parsed_exif.page_ifds.size(); ++i) {
+                (void)remove_ifd_entry_tag(&parsed_exif.page_ifds[i], 700U);
+            }
+        }
+        std::vector<ParsedTiffIfd> preserved_existing_subifds;
         if (need_subifd_ptr) {
             const size_t overlap_count = (existing_subifd_offsets.size()
                                           < parsed_exif.subifds.size())
@@ -9263,6 +9425,52 @@ namespace {
                 }
                 merge_preserved_standard_pointer_entries(
                     &parsed_exif.subifds[i], existing_subifd);
+            }
+            if (existing_subifd_offsets.size() > parsed_exif.subifds.size()) {
+                preserved_existing_subifds.reserve(
+                    existing_subifd_offsets.size() - parsed_exif.subifds.size());
+                for (size_t i = parsed_exif.subifds.size();
+                     i < existing_subifd_offsets.size(); ++i) {
+                    if (existing_subifd_offsets[i] == 0U) {
+                        continue;
+                    }
+                    ParsedTiffIfd subifd;
+                    if (!parse_target_tiff_ifd(input, existing_subifd_offsets[i],
+                                               endian, layout, &subifd, err)) {
+                        return false;
+                    }
+                    if (strip_existing_xmp) {
+                        (void)remove_ifd_entry_tag(&subifd, 700U);
+                    }
+                    preserved_existing_subifds.push_back(std::move(subifd));
+                }
+            }
+        } else if (strip_existing_xmp && !existing_subifd_offsets.empty()) {
+            std::vector<ParsedTiffIfd> stripped_existing_subifds;
+            stripped_existing_subifds.reserve(existing_subifd_offsets.size());
+            bool removed_existing_subifd_xmp = false;
+            for (size_t i = 0; i < existing_subifd_offsets.size(); ++i) {
+                if (existing_subifd_offsets[i] == 0U) {
+                    continue;
+                }
+                ParsedTiffIfd subifd;
+                if (!parse_target_tiff_ifd(input, existing_subifd_offsets[i],
+                                           endian, layout, &subifd, err)) {
+                    return false;
+                }
+                if (remove_ifd_entry_tag(&subifd, 700U)) {
+                    removed_existing_subifd_xmp = true;
+                }
+                stripped_existing_subifds.push_back(std::move(subifd));
+            }
+            if (removed_existing_subifd_xmp) {
+                preserved_existing_subifds
+                    = std::move(stripped_existing_subifds);
+            }
+        }
+        if (strip_existing_xmp) {
+            for (size_t i = 0; i < parsed_exif.subifds.size(); ++i) {
+                (void)remove_ifd_entry_tag(&parsed_exif.subifds[i], 700U);
             }
         }
         if (!preserved_existing_subifds.empty()) {
@@ -19594,12 +19802,102 @@ namespace {
         return false;
     }
 
-    static void collect_existing_openmeta_bmff_xmp_payloads_from_meta(
+    static bool bmff_meta_declares_xmp_item(
+        std::span<const std::byte> bytes, const TransferBmffBox& meta) noexcept
+    {
+        if (meta.type != fourcc('m', 'e', 't', 'a')
+            || meta.offset + meta.header_size + 4U > bytes.size()
+            || meta.size < meta.header_size + 4U) {
+            return false;
+        }
+
+        const uint64_t payload_begin = meta.offset + meta.header_size + 4U;
+        const uint64_t payload_end   = meta.offset + meta.size;
+        uint64_t off                 = payload_begin;
+        while (off + 8U <= payload_end) {
+            TransferBmffBox child;
+            if (!parse_transfer_bmff_box(bytes, off, payload_end, &child)) {
+                return false;
+            }
+            if (child.type == fourcc('i', 'i', 'n', 'f')
+                && child.offset + child.header_size + 6U <= bytes.size()) {
+                const uint8_t version = std::to_integer<uint8_t>(
+                    bytes[child.offset + child.header_size]);
+                if (version == 0U) {
+                    const uint64_t child_payload_begin
+                        = child.offset + child.header_size + 4U;
+                    const uint64_t child_payload_end = child.offset + child.size;
+                    uint64_t infe_off                = child_payload_begin + 2U;
+                    while (infe_off + 8U <= child_payload_end) {
+                        TransferBmffBox infe;
+                        if (!parse_transfer_bmff_box(bytes, infe_off,
+                                                     child_payload_end,
+                                                     &infe)) {
+                            return false;
+                        }
+                        if (infe.type == fourcc('i', 'n', 'f', 'e')
+                            && infe.offset + infe.header_size + 12U
+                                   <= bytes.size()) {
+                            const uint8_t infe_version
+                                = std::to_integer<uint8_t>(
+                                    bytes[infe.offset + infe.header_size]);
+                            if (infe_version == 2U) {
+                                const size_t infe_payload_begin = static_cast<size_t>(
+                                    infe.offset + infe.header_size + 4U);
+                                const size_t infe_payload_end = static_cast<size_t>(
+                                    infe.offset + infe.size);
+                                uint32_t item_type = 0U;
+                                if (infe_payload_begin + 8U <= infe_payload_end
+                                    && read_u32be(bytes, infe_payload_begin + 4U,
+                                                  &item_type)) {
+                                    size_t cursor = infe_payload_begin + 8U;
+                                    std::string_view ignored_name;
+                                    size_t next = cursor;
+                                    if (!read_bmff_cstring_view(
+                                            bytes, cursor, infe_payload_end,
+                                            &next, &ignored_name)) {
+                                        return false;
+                                    }
+                                    cursor = next;
+                                    if (item_type
+                                        == fourcc('m', 'i', 'm', 'e')) {
+                                        std::string_view content_type;
+                                        if (!read_bmff_cstring_view(
+                                                bytes, cursor, infe_payload_end,
+                                                &next, &content_type)) {
+                                            return false;
+                                        }
+                                        if (content_type
+                                            == "application/rdf+xml") {
+                                            return true;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if (infe.size == 0U) {
+                            break;
+                        }
+                        infe_off += infe.size;
+                    }
+                }
+            }
+            if (child.size == 0U) {
+                break;
+            }
+            off += child.size;
+        }
+        return false;
+    }
+
+    static void collect_existing_bmff_xmp_payloads_from_meta(
         std::span<const std::byte> bytes, const TransferBmffBox& meta,
+        bool require_openmeta_marker,
         std::vector<std::vector<std::byte>>* out_payloads) noexcept
     {
         if (!out_payloads || meta.type != fourcc('m', 'e', 't', 'a')
-            || !bmff_meta_has_openmeta_transfer_marker(bytes, meta)
+            || (require_openmeta_marker
+                && !bmff_meta_has_openmeta_transfer_marker(bytes, meta))
             || meta.offset + meta.header_size + 4U > bytes.size()
             || meta.size < meta.header_size + 4U) {
             return;
@@ -19837,8 +20135,8 @@ namespace {
             }
             if (box.type == fourcc('m', 'e', 't', 'a')
                 && bmff_meta_has_openmeta_transfer_marker(bytes, box)) {
-                collect_existing_openmeta_bmff_xmp_payloads_from_meta(
-                    bytes, box, out_payloads);
+                collect_existing_bmff_xmp_payloads_from_meta(
+                    bytes, box, true, out_payloads);
             }
             if (box.size == 0U) {
                 break;
@@ -20304,9 +20602,10 @@ namespace {
         plan.target_format    = bundle.target_format;
         plan.input_size       = static_cast<uint64_t>(input_bmff.size());
 
-        bool found_ftyp        = false;
-        uint32_t removed_metas = 0U;
-        uint64_t offset        = 0U;
+        bool found_ftyp              = false;
+        bool found_foreign_xmp_meta  = false;
+        uint32_t removed_metas       = 0U;
+        uint64_t offset              = 0U;
         while (offset < input_bmff.size()) {
             TransferBmffBox box;
             if (!parse_transfer_bmff_box(input_bmff, offset, input_bmff.size(),
@@ -20341,6 +20640,11 @@ namespace {
             if (box.type == fourcc('m', 'e', 't', 'a')
                 && bmff_meta_has_openmeta_transfer_marker(input_bmff, box)) {
                 removed_metas += 1U;
+            } else if (strip_existing_xmp
+                       && box.type == fourcc('m', 'e', 't', 'a')
+                       && bmff_meta_declares_xmp_item(input_bmff, box)) {
+                found_foreign_xmp_meta = true;
+                append_package_source_chunk(&plan, box.offset, box.size);
             } else {
                 append_package_source_chunk(&plan, box.offset, box.size);
             }
@@ -20355,6 +20659,14 @@ namespace {
             out.code    = EmitTransferCode::InvalidArgument;
             out.errors  = 1U;
             out.message = "input is not a supported bmff file";
+            return out;
+        }
+        if (strip_existing_xmp && found_foreign_xmp_meta) {
+            out.status  = TransferStatus::Unsupported;
+            out.code    = EmitTransferCode::InvalidArgument;
+            out.errors  = 1U;
+            out.message = "bmff embedded xmp strip mode requires an "
+                          "OpenMeta-managed metadata meta box";
             return out;
         }
 
