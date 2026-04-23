@@ -14,6 +14,11 @@ It is meant to answer four basic questions:
 - `Partial`: supported, but still bounded or best-effort
 - `No`: not supported yet
 
+Host integrations can query the same kind of runtime support information with
+`openmeta/metadata_capabilities.h`. That API reports read, structured decode,
+transfer preparation, target edit, and raw-preservation support by target
+format and metadata family.
+
 ## Coverage Snapshot
 
 Current tracked-gate status:

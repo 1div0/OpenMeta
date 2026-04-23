@@ -25,6 +25,25 @@ set(_py_code
 import openmeta
 from openmeta.python import get_exr_attribute_batch, get_libraw_orientation, probe_exr_attribute_batch, probe_libraw_orientation, update_dng_sdk_file
 
+cap = openmeta.metadata_capability(
+    openmeta.TransferTargetFormat.Avif,
+    openmeta.MetadataCapabilityFamily.Xmp,
+)
+assert cap['format'] == openmeta.TransferTargetFormat.Avif, cap
+assert cap['family'] == openmeta.MetadataCapabilityFamily.Xmp, cap
+assert cap['family_name'] == 'xmp', cap
+assert cap['target_edit'] == openmeta.MetadataCapabilitySupport.Bounded, cap
+assert cap['target_edit_available'] is True, cap
+assert openmeta.metadata_capability_support_name(cap['target_edit']) == cap['target_edit_name'], cap
+
+bmff_cap = openmeta.metadata_capability(
+    openmeta.TransferTargetFormat.Cr3,
+    openmeta.MetadataCapabilityFamily.BmffFields,
+)
+assert bmff_cap['read'] == openmeta.MetadataCapabilitySupport.Supported, bmff_cap
+assert bmff_cap['target_edit'] == openmeta.MetadataCapabilitySupport.Unsupported, bmff_cap
+assert openmeta.metadata_capability_available(bmff_cap['target_edit']) is False, bmff_cap
+
 p = Path(r'''${_jpg}''')
 p_exr = Path(r'''${_jpg_exr}''')
 p_orient_exif = Path(r'''${WORK_DIR}/orient_exif.tif''')

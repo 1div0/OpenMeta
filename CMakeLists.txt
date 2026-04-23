@@ -256,6 +256,7 @@ set(OPENMETA_SOURCES
   src/openmeta/jumbf_decode.cc
   src/openmeta/libraw_adapter.cc
   src/openmeta/meta_key.cc
+  src/openmeta/metadata_capabilities.cc
   src/openmeta/metadata_transfer.cc
   src/openmeta/meta_store.cc
   src/openmeta/meta_edit.cc
@@ -608,6 +609,7 @@ if(OPENMETA_BUILD_TESTS)
     tests/interop_export_test.cc
     tests/dji_app4_decode_test.cc
     tests/makernote_decode_test.cc
+    tests/metadata_capabilities_test.cc
     tests/metadata_transfer_api_test.cc
     tests/flir_fff_decode_test.cc
     tests/meta_store_test.cc

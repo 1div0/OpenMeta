@@ -286,7 +286,39 @@ The Python snapshot helpers intentionally cover the core transfer/edit/persist
 path. The older `transfer_probe(...)` / `unsafe_transfer_probe(...)` entry
 points remain the broader artifact-dump/debug surface.
 
-## 8. Prepare Metadata For Host-Owned Encoders
+## 8. Check Runtime Capabilities
+
+Use the capability API before enabling format/family operations in a host UI
+or integration layer.
+
+```cpp
+#include "openmeta/metadata_capabilities.h"
+
+const openmeta::MetadataCapability cap = openmeta::metadata_capability(
+    openmeta::TransferTargetFormat::Avif,
+    openmeta::MetadataCapabilityFamily::Xmp);
+
+if (openmeta::metadata_capability_available(cap.target_edit)) {
+    // The current build can edit AVIF XMP within the reported support level.
+}
+```
+
+Each operation reports `unsupported`, `supported`, `bounded`, or `disabled`.
+`bounded` means the capability exists within OpenMeta's documented contract.
+`disabled` is used for compile-time-disabled support such as XMP decode when
+XML support is not available.
+
+Python exposes the same query:
+
+```python
+cap = openmeta.metadata_capability(
+    openmeta.TransferTargetFormat.Avif,
+    openmeta.MetadataCapabilityFamily.Xmp,
+)
+print(cap["target_edit_name"])
+```
+
+## 9. Prepare Metadata For Host-Owned Encoders
 
 Some applications do not want a file helper. They already own the encoder or
 the output container and just want OpenMeta to prepare metadata bytes.
@@ -375,7 +407,7 @@ transfer path is designed for that kind of integration through
 For fuller C++ host-side examples, see
 [host_integration.md](host_integration.md).
 
-## 9. Optional Adobe DNG SDK Bridge
+## 10. Optional Adobe DNG SDK Bridge
 
 If OpenMeta was built with `OPENMETA_WITH_DNG_SDK_ADAPTER=ON`, you can update
 an existing DNG file through the Adobe SDK bridge:
@@ -390,7 +422,7 @@ openmeta::ApplyDngSdkMetadataFileResult result =
 This is for applications that already use the Adobe DNG SDK. It is not a raw
 image encoder.
 
-## 10. CLI And Python Are Convenience Layers
+## 11. CLI And Python Are Convenience Layers
 
 The CLI and Python bindings are useful, but they are thin layers over the same
 public C++ APIs.
@@ -413,7 +445,7 @@ print(doc.entry_count)
 PY
 ```
 
-## 11. Pick The Next Doc
+## 12. Pick The Next Doc
 
 - Detailed read support:
   [metadata_support.md](metadata_support.md)

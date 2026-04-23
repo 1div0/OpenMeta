@@ -321,7 +321,40 @@ Python now exposes those same split path/state controls directly:
 `xmp_existing_destination_embedded_path`, and
 `xmp_existing_destination_sidecar_state`.
 
-## 7. Use The Optional Adobe DNG SDK Bridge
+## 7. Query Runtime Capabilities
+
+Hosts can ask OpenMeta what the current build supports before wiring format
+menus, warnings, or integration feature flags.
+
+```cpp
+#include "openmeta/metadata_capabilities.h"
+
+openmeta::MetadataCapability cap = openmeta::metadata_capability(
+    openmeta::TransferTargetFormat::Avif,
+    openmeta::MetadataCapabilityFamily::Xmp);
+
+if (openmeta::metadata_capability_available(cap.target_edit)) {
+    // The current build can edit AVIF XMP within the reported support level.
+}
+```
+
+Each operation reports one of `unsupported`, `supported`, `bounded`, or
+`disabled`. `bounded` means the capability exists within OpenMeta's documented
+contract, not that it is arbitrary metadata-editor parity. `disabled` is used
+for compile-time-disabled support such as XMP decode when XML support is not
+available.
+
+Python exposes the same query:
+
+```python
+cap = openmeta.metadata_capability(
+    openmeta.TransferTargetFormat.Avif,
+    openmeta.MetadataCapabilityFamily.Xmp,
+)
+print(cap["target_edit_name"])
+```
+
+## 8. Use The Optional Adobe DNG SDK Bridge
 
 If OpenMeta was built with `OPENMETA_WITH_DNG_SDK_ADAPTER=ON`, you can use the
 optional SDK bridge in two ways.
@@ -355,7 +388,7 @@ openmeta::apply_prepared_dng_sdk_metadata(
 This bridge is for applications that already use the Adobe DNG SDK. OpenMeta
 still does not encode pixels or invent raw-image structure.
 
-## 8. Build `MetaStore` Yourself
+## 9. Build `MetaStore` Yourself
 
 If your application creates metadata directly, build the store first and then
 reuse the same export and transfer APIs.

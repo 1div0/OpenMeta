@@ -243,6 +243,39 @@ The Python snapshot helpers intentionally cover the core transfer/edit/persist
 path. The older ``transfer_probe(...)`` / ``unsafe_transfer_probe(...)``
 entry points remain the broader artifact-dump/debug surface.
 
+Check runtime capabilities
+--------------------------
+
+Use the capability API before enabling format/family operations in a host UI
+or integration layer.
+
+.. code-block:: cpp
+
+   #include "openmeta/metadata_capabilities.h"
+
+   const openmeta::MetadataCapability cap = openmeta::metadata_capability(
+       openmeta::TransferTargetFormat::Avif,
+       openmeta::MetadataCapabilityFamily::Xmp);
+
+   if (openmeta::metadata_capability_available(cap.target_edit)) {
+       // The current build can edit AVIF XMP within the reported support level.
+   }
+
+Each operation reports ``unsupported``, ``supported``, ``bounded``, or
+``disabled``. ``bounded`` means the capability exists within OpenMeta's
+documented contract. ``disabled`` is used for compile-time-disabled support
+such as XMP decode when XML support is not available.
+
+Python exposes the same query:
+
+.. code-block:: python
+
+   cap = openmeta.metadata_capability(
+       openmeta.TransferTargetFormat.Avif,
+       openmeta.MetadataCapabilityFamily.Xmp,
+   )
+   print(cap["target_edit_name"])
+
 Next steps
 ----------
 

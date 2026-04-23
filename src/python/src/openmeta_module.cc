@@ -12,6 +12,7 @@
 #include "openmeta/interop_export.h"
 #include "openmeta/libraw_adapter.h"
 #include "openmeta/mapped_file.h"
+#include "openmeta/metadata_capabilities.h"
 #include "openmeta/metadata_transfer.h"
 #include "openmeta/ocio_adapter.h"
 #include "openmeta/resource_policy.h"
@@ -1083,6 +1084,52 @@ namespace {
         case TransferTargetFormat::Jp2: return "jp2";
         }
         return "unknown";
+    }
+
+    static nb::dict
+    metadata_capability_to_python(const MetadataCapability& cap)
+    {
+        nb::dict out;
+        out["contract_version"] = nb::int_(
+            kMetadataCapabilitiesContractVersion);
+        out["format"]      = cap.format;
+        out["format_name"] = nb::str(transfer_target_format_name(cap.format));
+        out["family"]      = cap.family;
+        out["family_name"] = nb::str(
+            metadata_capability_family_name(cap.family));
+        out["read"] = cap.read;
+        out["read_name"] = nb::str(metadata_capability_support_name(cap.read));
+        out["read_available"] = nb::bool_(
+            metadata_capability_available(cap.read));
+        out["structured_decode"] = cap.structured_decode;
+        out["structured_decode_name"] = nb::str(
+            metadata_capability_support_name(cap.structured_decode));
+        out["structured_decode_available"] = nb::bool_(
+            metadata_capability_available(cap.structured_decode));
+        out["transfer_prepare"] = cap.transfer_prepare;
+        out["transfer_prepare_name"] = nb::str(
+            metadata_capability_support_name(cap.transfer_prepare));
+        out["transfer_prepare_available"] = nb::bool_(
+            metadata_capability_available(cap.transfer_prepare));
+        out["target_edit"] = cap.target_edit;
+        out["target_edit_name"] = nb::str(
+            metadata_capability_support_name(cap.target_edit));
+        out["target_edit_available"] = nb::bool_(
+            metadata_capability_available(cap.target_edit));
+        out["raw_preservation"] = cap.raw_preservation;
+        out["raw_preservation_name"] = nb::str(
+            metadata_capability_support_name(cap.raw_preservation));
+        out["raw_preservation_available"] = nb::bool_(
+            metadata_capability_available(cap.raw_preservation));
+        return out;
+    }
+
+    static nb::dict
+    metadata_capability_query_to_python(TransferTargetFormat format,
+                                        MetadataCapabilityFamily family)
+    {
+        const MetadataCapability cap = metadata_capability(format, family);
+        return metadata_capability_to_python(cap);
     }
 
     static const char*
@@ -5006,6 +5053,34 @@ NB_MODULE(_openmeta, m)
         .value("Exr", TransferTargetFormat::Exr)
         .value("Png", TransferTargetFormat::Png)
         .value("Jp2", TransferTargetFormat::Jp2);
+
+    nb::enum_<MetadataCapabilityFamily>(m, "MetadataCapabilityFamily")
+        .value("Exif", MetadataCapabilityFamily::Exif)
+        .value("Xmp", MetadataCapabilityFamily::Xmp)
+        .value("Icc", MetadataCapabilityFamily::Icc)
+        .value("Iptc", MetadataCapabilityFamily::Iptc)
+        .value("MakerNote", MetadataCapabilityFamily::MakerNote)
+        .value("PhotoshopIrb", MetadataCapabilityFamily::PhotoshopIrb)
+        .value("Jumbf", MetadataCapabilityFamily::Jumbf)
+        .value("C2pa", MetadataCapabilityFamily::C2pa)
+        .value("BmffFields", MetadataCapabilityFamily::BmffFields)
+        .value("GeoTiff", MetadataCapabilityFamily::GeoTiff)
+        .value("ExrAttribute", MetadataCapabilityFamily::ExrAttribute);
+
+    nb::enum_<MetadataCapabilitySupport>(m, "MetadataCapabilitySupport")
+        .value("Unsupported", MetadataCapabilitySupport::Unsupported)
+        .value("Supported", MetadataCapabilitySupport::Supported)
+        .value("Bounded", MetadataCapabilitySupport::Bounded)
+        .value("Disabled", MetadataCapabilitySupport::Disabled);
+
+    m.def("metadata_capability_family_name",
+          &metadata_capability_family_name, "family"_a);
+    m.def("metadata_capability_support_name",
+          &metadata_capability_support_name, "support"_a);
+    m.def("metadata_capability_available",
+          &metadata_capability_available, "support"_a);
+    m.def("metadata_capability", &metadata_capability_query_to_python,
+          "format"_a, "family"_a);
 
     nb::enum_<TransferPolicySubject>(m, "TransferPolicySubject")
         .value("MakerNote", TransferPolicySubject::MakerNote)

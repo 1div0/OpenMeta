@@ -777,7 +777,7 @@ writer-confidence slice above; it should be sequenced around it.
 
 #### Near-Term Host Contract Work
 
-- [ ] add a small runtime capability query API for read, structured decode,
+- [x] add a small runtime capability query API for read, structured decode,
   transfer preparation, and target edit support by format and metadata family
 - [ ] mark public host-facing APIs with stability levels such as stable,
   experimental, or internal; start with `visit_metadata(...)`, snapshot
