@@ -19,6 +19,7 @@ file(MAKE_DIRECTORY "${WORK_DIR}")
 
 set(_src_jpg "${WORK_DIR}/source.jpg")
 set(_src_jpg_xmp "${WORK_DIR}/source_xmp.jpg")
+set(_src_jpg_target_embedded_xmp "${WORK_DIR}/source_target_embedded_xmp.jpg")
 set(_src_icc_jpg "${WORK_DIR}/source_icc.jpg")
 set(_target_jpg "${WORK_DIR}/target.jpg")
 set(_target_jpg_xmp "${WORK_DIR}/target_xmp.jpg")
@@ -45,6 +46,30 @@ set(_target_jp2 "${WORK_DIR}/target.jp2")
 set(_edited_jp2 "${WORK_DIR}/edited.jp2")
 set(_target_webp "${WORK_DIR}/target.webp")
 set(_edited_webp "${WORK_DIR}/edited.webp")
+set(_target_heif_xmp "${WORK_DIR}/target_xmp.heif")
+set(_target_heif_existing_xmp "${WORK_DIR}/target_existing_xmp.heif")
+set(_edited_heif_xmp "${WORK_DIR}/heif_xmp_edit.heif")
+set(_edited_heif_xmp_sidecar "${WORK_DIR}/heif_xmp_edit.xmp")
+set(_edited_heif_xmp_embedded "${WORK_DIR}/heif_xmp_embedded.heif")
+set(_edited_heif_xmp_embedded_sidecar "${WORK_DIR}/heif_xmp_embedded.xmp")
+set(_mixed_heif_sidecar_wins "${WORK_DIR}/heif_mixed_sidecar_wins.heif")
+set(_mixed_heif_embedded_wins "${WORK_DIR}/heif_mixed_embedded_wins.heif")
+set(_target_avif_xmp "${WORK_DIR}/target_xmp.avif")
+set(_target_avif_existing_xmp "${WORK_DIR}/target_existing_xmp.avif")
+set(_edited_avif_xmp "${WORK_DIR}/avif_xmp_edit.avif")
+set(_edited_avif_xmp_sidecar "${WORK_DIR}/avif_xmp_edit.xmp")
+set(_edited_avif_xmp_embedded "${WORK_DIR}/avif_xmp_embedded.avif")
+set(_edited_avif_xmp_embedded_sidecar "${WORK_DIR}/avif_xmp_embedded.xmp")
+set(_mixed_avif_sidecar_wins "${WORK_DIR}/avif_mixed_sidecar_wins.avif")
+set(_mixed_avif_embedded_wins "${WORK_DIR}/avif_mixed_embedded_wins.avif")
+set(_target_cr3_xmp "${WORK_DIR}/target_xmp.cr3")
+set(_target_cr3_existing_xmp "${WORK_DIR}/target_existing_xmp.cr3")
+set(_edited_cr3_xmp "${WORK_DIR}/cr3_xmp_edit.cr3")
+set(_edited_cr3_xmp_sidecar "${WORK_DIR}/cr3_xmp_edit.xmp")
+set(_edited_cr3_xmp_embedded "${WORK_DIR}/cr3_xmp_embedded.cr3")
+set(_edited_cr3_xmp_embedded_sidecar "${WORK_DIR}/cr3_xmp_embedded.xmp")
+set(_mixed_cr3_sidecar_wins "${WORK_DIR}/cr3_mixed_sidecar_wins.cr3")
+set(_mixed_cr3_embedded_wins "${WORK_DIR}/cr3_mixed_embedded_wins.cr3")
 set(_jxl_handoff "${WORK_DIR}/jxl_encoder_handoff.omjxic")
 set(_c2pa_jpg "${WORK_DIR}/sample_c2pa.jpg")
 set(_c2pa_jxl "${WORK_DIR}/sample_c2pa.jxl")
@@ -90,6 +115,18 @@ execute_process(
 if(NOT _rv_src_xmp EQUAL 0)
   message(FATAL_ERROR
     "failed to write python metatransfer xmp source fixture (${_rv_src_xmp})\nstdout:\n${_out_src_xmp}\nstderr:\n${_err_src_xmp}")
+endif()
+
+execute_process(
+  COMMAND "${OPENMETA_PYTHON_EXECUTABLE}" -c
+    "from pathlib import Path; xml=b\"<x:xmpmeta xmlns:x='adobe:ns:meta/'><rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'><rdf:Description xmlns:xmp='http://ns.adobe.com/xap/1.0/'><xmp:CreatorTool>Target Embedded Existing</xmp:CreatorTool></rdf:Description></rdf:RDF></x:xmpmeta>\"; xmp=b'http://ns.adobe.com/xap/1.0/\\x00'+xml; ln=(len(xmp)+2).to_bytes(2,'big'); Path(r'''${_src_jpg_target_embedded_xmp}''').write_bytes(b'\\xFF\\xD8\\xFF\\xE1'+ln+xmp+b'\\xFF\\xD9')"
+  RESULT_VARIABLE _rv_src_target_embedded_xmp
+  OUTPUT_VARIABLE _out_src_target_embedded_xmp
+  ERROR_VARIABLE _err_src_target_embedded_xmp
+)
+if(NOT _rv_src_target_embedded_xmp EQUAL 0)
+  message(FATAL_ERROR
+    "failed to write python metatransfer target-embedded xmp source fixture (${_rv_src_target_embedded_xmp})\nstdout:\n${_out_src_target_embedded_xmp}\nstderr:\n${_err_src_target_embedded_xmp}")
 endif()
 
 execute_process(
@@ -210,6 +247,18 @@ execute_process(
 if(NOT _rv_target_webp EQUAL 0)
   message(FATAL_ERROR
     "failed to write python metatransfer target webp fixture (${_rv_target_webp})\nstdout:\n${_out_target_webp}\nstderr:\n${_err_target_webp}")
+endif()
+
+execute_process(
+  COMMAND "${OPENMETA_PYTHON_EXECUTABLE}" -c
+    "from pathlib import Path; Path(r'''${_target_heif_xmp}''').write_bytes(bytes.fromhex('000000186674797068656963000000006d696631686569630000000c6d64617411223344')); Path(r'''${_target_avif_xmp}''').write_bytes(bytes.fromhex('000000186674797061766966000000006d696631617669660000000c6d64617411223344')); Path(r'''${_target_cr3_xmp}''').write_bytes(bytes.fromhex('0000001866747970637278200000000063727820435233200000000c6d64617411223344'))"
+  RESULT_VARIABLE _rv_target_bmff_xmp
+  OUTPUT_VARIABLE _out_target_bmff_xmp
+  ERROR_VARIABLE _err_target_bmff_xmp
+)
+if(NOT _rv_target_bmff_xmp EQUAL 0)
+  message(FATAL_ERROR
+    "failed to write python metatransfer bmff xmp target fixtures (${_rv_target_bmff_xmp})\nstdout:\n${_out_target_bmff_xmp}\nstderr:\n${_err_target_bmff_xmp}")
 endif()
 
 execute_process(
@@ -541,15 +590,16 @@ expect_dt = sys.argv[3]
 doc = openmeta.read(str(path))
 if doc.scan_status != openmeta.ScanStatus.Ok:
     fail(f"scan_status={doc.scan_status.name}")
-if doc.exif_status != openmeta.ExifDecodeStatus.Ok:
-    fail(f"exif_status={doc.exif_status.name}")
+if mode != "bmff_xmp_creator_no_exif" and mode != "bmff_xmp_no_exif":
+    if doc.exif_status != openmeta.ExifDecodeStatus.Ok:
+        fail(f"exif_status={doc.exif_status.name}")
 
-dt_entries = doc.find_exif("ifd0", 0x0132)
-if len(dt_entries) == 0:
-    fail("missing DateTime")
-dt = as_text(dt_entries[0].value())
-if dt != expect_dt:
-    fail(f"DateTime mismatch: {dt!r}")
+    dt_entries = doc.find_exif("ifd0", 0x0132)
+    if len(dt_entries) == 0:
+        fail("missing DateTime")
+    dt = as_text(dt_entries[0].value())
+    if dt != expect_dt:
+        fail(f"DateTime mismatch: {dt!r}")
 
 if mode == "tiff":
     if int(doc.xmp_entries_decoded) == 0:
@@ -566,12 +616,361 @@ elif mode == "dng":
 elif mode == "bmff":
     if int(doc.xmp_entries_decoded) != 0:
         fail(f"unexpected XMP entries: {int(doc.xmp_entries_decoded)}")
+elif mode == "bmff_xmp":
+    if int(doc.xmp_entries_decoded) == 0:
+        fail("missing decoded XMP entries")
+elif mode == "bmff_xmp_no_exif":
+    if int(doc.xmp_entries_decoded) == 0:
+        fail("missing decoded XMP entries")
+elif mode == "bmff_xmp_creator":
+    if int(doc.xmp_entries_decoded) == 0:
+        fail("missing decoded XMP entries")
+    expected_creator = sys.argv[4]
+    creators = []
+    for i in range(len(doc)):
+        entry = doc[i]
+        schema = entry.xmp_schema_ns
+        path_value = entry.xmp_path
+        if schema is None or path_value is None:
+            continue
+        if str(schema) != "http://ns.adobe.com/xap/1.0/":
+            continue
+        if not str(path_value).endswith("CreatorTool"):
+            continue
+        creators.append(as_text(entry.value()))
+    if expected_creator not in creators:
+        fail(f"missing CreatorTool: {expected_creator!r} found={creators!r}")
+    for forbidden_creator in sys.argv[5:]:
+        if forbidden_creator != "-" and forbidden_creator in creators:
+            fail(
+                f"unexpected CreatorTool: {forbidden_creator!r} found={creators!r}"
+            )
+elif mode == "bmff_xmp_creator_no_exif":
+    if int(doc.xmp_entries_decoded) == 0:
+        fail("missing decoded XMP entries")
+    expected_creator = sys.argv[4]
+    creators = []
+    for i in range(len(doc)):
+        entry = doc[i]
+        schema = entry.xmp_schema_ns
+        path_value = entry.xmp_path
+        if schema is None or path_value is None:
+            continue
+        if str(schema) != "http://ns.adobe.com/xap/1.0/":
+            continue
+        if not str(path_value).endswith("CreatorTool"):
+            continue
+        creators.append(as_text(entry.value()))
+    if expected_creator not in creators:
+        fail(f"missing CreatorTool: {expected_creator!r} found={creators!r}")
+    for forbidden_creator in sys.argv[5:]:
+        if forbidden_creator != "-" and forbidden_creator in creators:
+            fail(
+                f"unexpected CreatorTool: {forbidden_creator!r} found={creators!r}"
+            )
 elif mode == "exif_only_no_xmp":
     if int(doc.xmp_entries_decoded) != 0:
         fail(f"unexpected XMP entries: {int(doc.xmp_entries_decoded)}")
 else:
     fail(f"unknown mode: {mode}")
 ]=])
+
+function(_run_bmff_dual_write_xmp_smoke label target_flag target_path output_path
+         sidecar_path)
+  get_filename_component(_sidecar_name "${sidecar_path}" NAME)
+
+  execute_process(
+    COMMAND "${CMAKE_COMMAND}" -E env
+            "PYTHONPATH=${OPENMETA_PYTHONPATH}"
+            "${OPENMETA_PYTHON_EXECUTABLE}" -m openmeta.python.metatransfer
+            --no-build-info
+            --source-meta "${_src_jpg_xmp}"
+            ${target_flag}
+            --no-icc
+            --no-iptc
+            --xmp-writeback embedded_and_sidecar
+            --output "${output_path}" --force
+            "${target_path}"
+    RESULT_VARIABLE _rv
+    OUTPUT_VARIABLE _out
+    ERROR_VARIABLE _err
+  )
+  if(NOT _rv EQUAL 0)
+    message(FATAL_ERROR
+      "python metatransfer ${label} dual-write edit failed (${_rv})\nstdout:\n${_out}\nstderr:\n${_err}")
+  endif()
+  if(NOT _out MATCHES "edit_plan: status=ok")
+    message(FATAL_ERROR
+      "python metatransfer ${label} dual-write missing edit_plan ok\nstdout:\n${_out}\nstderr:\n${_err}")
+  endif()
+  if(NOT _out MATCHES "edit_apply: status=ok")
+    message(FATAL_ERROR
+      "python metatransfer ${label} dual-write missing edit_apply ok\nstdout:\n${_out}\nstderr:\n${_err}")
+  endif()
+  if(NOT _out MATCHES "xmp_sidecar_output=.*${_sidecar_name}")
+    message(FATAL_ERROR
+      "python metatransfer ${label} dual-write missing xmp sidecar summary\nstdout:\n${_out}\nstderr:\n${_err}")
+  endif()
+  if(NOT EXISTS "${output_path}")
+    message(FATAL_ERROR
+      "python metatransfer ${label} dual-write did not write edited output\nstdout:\n${_out}\nstderr:\n${_err}")
+  endif()
+  if(NOT EXISTS "${sidecar_path}")
+    message(FATAL_ERROR
+      "python metatransfer ${label} dual-write did not write xmp sidecar\nstdout:\n${_out}\nstderr:\n${_err}")
+  endif()
+
+  execute_process(
+    COMMAND "${OPENMETA_PYTHON_EXECUTABLE}" -c
+      "from pathlib import Path; b=Path(r'''${sidecar_path}''').read_bytes(); import sys; sys.exit(0 if (b.find(b'<x:xmpmeta')!=-1 or b.find(b'<rdf:RDF')!=-1) else 1)"
+    RESULT_VARIABLE _rv_sidecar
+    OUTPUT_VARIABLE _out_sidecar
+    ERROR_VARIABLE _err_sidecar
+  )
+  if(NOT _rv_sidecar EQUAL 0)
+    message(FATAL_ERROR
+      "python metatransfer ${label} dual-write sidecar content check failed (${_rv_sidecar})\nstdout:\n${_out}\nstderr:\n${_err}\ncheck_stdout:\n${_out_sidecar}\ncheck_stderr:\n${_err_sidecar}")
+  endif()
+
+  execute_process(
+    COMMAND "${CMAKE_COMMAND}" -E env
+            "PYTHONPATH=${OPENMETA_PYTHONPATH}"
+            "${OPENMETA_PYTHON_EXECUTABLE}" "${_check_readback_py}"
+            "bmff_xmp" "${output_path}" "2000:01:02 03:04:05"
+    RESULT_VARIABLE _rv_check
+    OUTPUT_VARIABLE _out_check
+    ERROR_VARIABLE _err_check
+  )
+  if(NOT _rv_check EQUAL 0)
+    message(FATAL_ERROR
+      "python metatransfer ${label} dual-write read-back check failed (${_rv_check})\nstdout:\n${_out}\nstderr:\n${_err}\ncheck_stdout:\n${_out_check}\ncheck_stderr:\n${_err_check}")
+  endif()
+endfunction()
+
+function(_run_bmff_embedded_xmp_smoke label target_flag target_path output_path
+         sidecar_path)
+  execute_process(
+    COMMAND "${CMAKE_COMMAND}" -E env
+            "PYTHONPATH=${OPENMETA_PYTHONPATH}"
+            "${OPENMETA_PYTHON_EXECUTABLE}" -m openmeta.python.metatransfer
+            --no-build-info
+            --source-meta "${_src_jpg_xmp}"
+            ${target_flag}
+            --no-icc
+            --no-iptc
+            --output "${output_path}" --force
+            "${target_path}"
+    RESULT_VARIABLE _rv
+    OUTPUT_VARIABLE _out
+    ERROR_VARIABLE _err
+  )
+  if(NOT _rv EQUAL 0)
+    message(FATAL_ERROR
+      "python metatransfer ${label} embedded-xmp edit failed (${_rv})\nstdout:\n${_out}\nstderr:\n${_err}")
+  endif()
+  if(NOT _out MATCHES "edit_plan: status=ok")
+    message(FATAL_ERROR
+      "python metatransfer ${label} embedded-xmp missing edit_plan ok\nstdout:\n${_out}\nstderr:\n${_err}")
+  endif()
+  if(NOT _out MATCHES "edit_apply: status=ok")
+    message(FATAL_ERROR
+      "python metatransfer ${label} embedded-xmp missing edit_apply ok\nstdout:\n${_out}\nstderr:\n${_err}")
+  endif()
+  if(NOT EXISTS "${output_path}")
+    message(FATAL_ERROR
+      "python metatransfer ${label} embedded-xmp did not write edited output\nstdout:\n${_out}\nstderr:\n${_err}")
+  endif()
+  if(EXISTS "${sidecar_path}")
+    message(FATAL_ERROR
+      "python metatransfer ${label} embedded-xmp unexpectedly wrote xmp sidecar\nstdout:\n${_out}\nstderr:\n${_err}")
+  endif()
+
+  execute_process(
+    COMMAND "${CMAKE_COMMAND}" -E env
+            "PYTHONPATH=${OPENMETA_PYTHONPATH}"
+            "${OPENMETA_PYTHON_EXECUTABLE}" "${_check_readback_py}"
+            "bmff_xmp" "${output_path}" "2000:01:02 03:04:05"
+    RESULT_VARIABLE _rv_check
+    OUTPUT_VARIABLE _out_check
+    ERROR_VARIABLE _err_check
+  )
+  if(NOT _rv_check EQUAL 0)
+    message(FATAL_ERROR
+      "python metatransfer ${label} embedded-xmp read-back check failed (${_rv_check})\nstdout:\n${_out}\nstderr:\n${_err}\ncheck_stdout:\n${_out_check}\ncheck_stderr:\n${_err_check}")
+  endif()
+endfunction()
+
+function(_write_bmff_existing_embedded_xmp_target label target_flag seed_target_path
+         output_path)
+  execute_process(
+    COMMAND "${CMAKE_COMMAND}" -E env
+            "PYTHONPATH=${OPENMETA_PYTHONPATH}"
+            "${OPENMETA_PYTHON_EXECUTABLE}" -m openmeta.python.metatransfer
+            --no-build-info
+            --source-meta "${_src_jpg_target_embedded_xmp}"
+            ${target_flag}
+            --no-exif
+            --no-icc
+            --no-iptc
+            --xmp-include-existing
+            --output "${output_path}" --force
+            "${seed_target_path}"
+    RESULT_VARIABLE _rv
+    OUTPUT_VARIABLE _out
+    ERROR_VARIABLE _err
+  )
+  if(NOT _rv EQUAL 0)
+    message(FATAL_ERROR
+      "python metatransfer ${label} existing-embedded target build failed (${_rv})\nstdout:\n${_out}\nstderr:\n${_err}")
+  endif()
+  if(NOT _out MATCHES "edit_plan: status=ok")
+    message(FATAL_ERROR
+      "python metatransfer ${label} existing-embedded target build missing edit_plan ok\nstdout:\n${_out}\nstderr:\n${_err}")
+  endif()
+  if(NOT _out MATCHES "edit_apply: status=ok")
+    message(FATAL_ERROR
+      "python metatransfer ${label} existing-embedded target build missing edit_apply ok\nstdout:\n${_out}\nstderr:\n${_err}")
+  endif()
+  if(NOT EXISTS "${output_path}")
+    message(FATAL_ERROR
+      "python metatransfer ${label} existing-embedded target build did not write output\nstdout:\n${_out}\nstderr:\n${_err}")
+  endif()
+
+  execute_process(
+    COMMAND "${CMAKE_COMMAND}" -E env
+            "PYTHONPATH=${OPENMETA_PYTHONPATH}"
+            "${OPENMETA_PYTHON_EXECUTABLE}" "${_check_readback_py}"
+            "bmff_xmp_no_exif" "${output_path}" "2000:01:02 03:04:05"
+    RESULT_VARIABLE _rv_check
+    OUTPUT_VARIABLE _out_check
+    ERROR_VARIABLE _err_check
+  )
+  if(NOT _rv_check EQUAL 0)
+    message(FATAL_ERROR
+      "python metatransfer ${label} existing-embedded target read-back check failed (${_rv_check})\nstdout:\n${_out}\nstderr:\n${_err}\ncheck_stdout:\n${_out_check}\ncheck_stderr:\n${_err_check}")
+  endif()
+
+  execute_process(
+    COMMAND "${OPENMETA_PYTHON_EXECUTABLE}" -c
+      "from pathlib import Path; import sys; data=Path(sys.argv[1]).read_bytes(); expected=sys.argv[2].encode('utf-8'); bad1=sys.argv[3].encode('utf-8'); ok=(data.find(expected)!=-1 and data.find(bad1)==-1); sys.exit(0 if ok else 1)"
+      "${output_path}" "Target Embedded Existing" "OpenMeta Transfer Source"
+    RESULT_VARIABLE _rv_bytes
+    OUTPUT_VARIABLE _out_bytes
+    ERROR_VARIABLE _err_bytes
+  )
+  if(NOT _rv_bytes EQUAL 0)
+    message(FATAL_ERROR
+      "python metatransfer ${label} existing-embedded target raw packet check failed (${_rv_bytes})\nstdout:\n${_out}\nstderr:\n${_err}\ncheck_stdout:\n${_out_bytes}\ncheck_stderr:\n${_err_bytes}")
+  endif()
+endfunction()
+
+function(_run_bmff_mixed_destination_carrier_precedence_smoke label target_flag
+         target_path output_path carrier_precedence expected_creator
+         forbidden_creator_one forbidden_creator_two)
+  get_filename_component(_output_dir "${output_path}" DIRECTORY)
+  get_filename_component(_output_stem "${output_path}" NAME_WE)
+  set(_sidecar_path "${_output_dir}/${_output_stem}.xmp")
+  file(WRITE "${_sidecar_path}"
+    "<x:xmpmeta xmlns:x='adobe:ns:meta/'><rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'><rdf:Description xmlns:xmp='http://ns.adobe.com/xap/1.0/'><xmp:CreatorTool>Target Sidecar Existing</xmp:CreatorTool></rdf:Description></rdf:RDF></x:xmpmeta>")
+
+  set(_carrier_args)
+  if(carrier_precedence STREQUAL "embedded_wins")
+    set(_carrier_args
+      --xmp-existing-destination-carrier-precedence embedded_wins)
+  endif()
+
+  execute_process(
+    COMMAND "${CMAKE_COMMAND}" -E env
+            "PYTHONPATH=${OPENMETA_PYTHONPATH}"
+            "${OPENMETA_PYTHON_EXECUTABLE}" -m openmeta.python.metatransfer
+            --no-build-info
+            --source-meta "${_src_jpg_xmp}"
+            ${target_flag}
+            --no-icc
+            --no-iptc
+            --xmp-include-existing
+            --xmp-conflict-policy existing_wins
+            --xmp-include-existing-sidecar
+            --xmp-include-existing-destination-embedded
+            ${_carrier_args}
+            --xmp-writeback embedded_and_sidecar
+            --output "${output_path}" --force
+            "${target_path}"
+    RESULT_VARIABLE _rv
+    OUTPUT_VARIABLE _out
+    ERROR_VARIABLE _err
+  )
+  if(NOT _rv EQUAL 0)
+    message(FATAL_ERROR
+      "python metatransfer ${label} mixed-destination precedence edit failed (${_rv})\nstdout:\n${_out}\nstderr:\n${_err}")
+  endif()
+  if(NOT _out MATCHES "xmp_existing_sidecar: status=ok loaded=yes")
+    message(FATAL_ERROR
+      "python metatransfer ${label} mixed-destination precedence missing existing-sidecar load summary\nstdout:\n${_out}\nstderr:\n${_err}")
+  endif()
+  if(NOT _out MATCHES "xmp_existing_destination_embedded: status=ok loaded=yes")
+    message(FATAL_ERROR
+      "python metatransfer ${label} mixed-destination precedence missing existing-destination-embedded load summary\nstdout:\n${_out}\nstderr:\n${_err}")
+  endif()
+  if(NOT _out MATCHES "edit_plan: status=ok")
+    message(FATAL_ERROR
+      "python metatransfer ${label} mixed-destination precedence missing edit_plan ok\nstdout:\n${_out}\nstderr:\n${_err}")
+  endif()
+  if(NOT _out MATCHES "edit_apply: status=ok")
+    message(FATAL_ERROR
+      "python metatransfer ${label} mixed-destination precedence missing edit_apply ok\nstdout:\n${_out}\nstderr:\n${_err}")
+  endif()
+  if(NOT EXISTS "${output_path}")
+    message(FATAL_ERROR
+      "python metatransfer ${label} mixed-destination precedence did not write output\nstdout:\n${_out}\nstderr:\n${_err}")
+  endif()
+  if(NOT EXISTS "${_sidecar_path}")
+    message(FATAL_ERROR
+      "python metatransfer ${label} mixed-destination precedence did not write sidecar\nstdout:\n${_out}\nstderr:\n${_err}")
+  endif()
+
+  execute_process(
+    COMMAND "${CMAKE_COMMAND}" -E env
+            "PYTHONPATH=${OPENMETA_PYTHONPATH}"
+            "${OPENMETA_PYTHON_EXECUTABLE}" "${_check_readback_py}"
+            "bmff_xmp" "${output_path}" "2000:01:02 03:04:05"
+    RESULT_VARIABLE _rv_check
+    OUTPUT_VARIABLE _out_check
+    ERROR_VARIABLE _err_check
+  )
+  if(NOT _rv_check EQUAL 0)
+    message(FATAL_ERROR
+      "python metatransfer ${label} mixed-destination precedence read-back check failed (${_rv_check})\nstdout:\n${_out}\nstderr:\n${_err}\ncheck_stdout:\n${_out_check}\ncheck_stderr:\n${_err_check}")
+  endif()
+
+  execute_process(
+    COMMAND "${OPENMETA_PYTHON_EXECUTABLE}" -c
+      "from pathlib import Path; import sys; data=Path(sys.argv[1]).read_bytes(); expected=sys.argv[2].encode('utf-8'); bad1=sys.argv[3].encode('utf-8'); bad2=sys.argv[4].encode('utf-8'); ok=(data.find(expected)!=-1 and data.find(bad1)==-1 and data.find(bad2)==-1); sys.exit(0 if ok else 1)"
+      "${output_path}" "${expected_creator}" "${forbidden_creator_one}"
+      "${forbidden_creator_two}"
+    RESULT_VARIABLE _rv_output_bytes
+    OUTPUT_VARIABLE _out_output_bytes
+    ERROR_VARIABLE _err_output_bytes
+  )
+  if(NOT _rv_output_bytes EQUAL 0)
+    message(FATAL_ERROR
+      "python metatransfer ${label} mixed-destination precedence output packet check failed (${_rv_output_bytes})\nstdout:\n${_out}\nstderr:\n${_err}\ncheck_stdout:\n${_out_output_bytes}\ncheck_stderr:\n${_err_output_bytes}")
+  endif()
+
+  execute_process(
+    COMMAND "${OPENMETA_PYTHON_EXECUTABLE}" -c
+      "from pathlib import Path; import sys; data=Path(sys.argv[1]).read_bytes(); expected=sys.argv[2].encode('utf-8'); bad1=sys.argv[3].encode('utf-8'); bad2=sys.argv[4].encode('utf-8'); ok=(data.find(expected)!=-1 and data.find(bad1)==-1 and data.find(bad2)==-1); sys.exit(0 if ok else 1)"
+      "${_sidecar_path}" "${expected_creator}" "${forbidden_creator_one}"
+      "${forbidden_creator_two}"
+    RESULT_VARIABLE _rv_sidecar
+    OUTPUT_VARIABLE _out_sidecar
+    ERROR_VARIABLE _err_sidecar
+  )
+  if(NOT _rv_sidecar EQUAL 0)
+    message(FATAL_ERROR
+      "python metatransfer ${label} mixed-destination precedence sidecar content check failed (${_rv_sidecar})\nstdout:\n${_out}\nstderr:\n${_err}\ncheck_stdout:\n${_out_sidecar}\ncheck_stderr:\n${_err_sidecar}")
+  endif()
+endfunction()
 
 execute_process(
   COMMAND "${CMAKE_COMMAND}" -E env
@@ -1238,6 +1637,58 @@ if(NOT _rv_avif_check EQUAL 0)
   message(FATAL_ERROR
     "python metatransfer avif read-back check failed (${_rv_avif_check})\nstdout:\n${_out_avif_edit}\nstderr:\n${_err_avif_edit}\ncheck_stdout:\n${_out_avif_check}\ncheck_stderr:\n${_err_avif_check}")
 endif()
+
+_run_bmff_dual_write_xmp_smoke(
+  "heif" "--target-heif" "${_target_heif_xmp}" "${_edited_heif_xmp}"
+  "${_edited_heif_xmp_sidecar}")
+_run_bmff_dual_write_xmp_smoke(
+  "avif" "--target-avif" "${_target_avif_xmp}" "${_edited_avif_xmp}"
+  "${_edited_avif_xmp_sidecar}")
+_run_bmff_dual_write_xmp_smoke(
+  "cr3" "--target-cr3" "${_target_cr3_xmp}" "${_edited_cr3_xmp}"
+  "${_edited_cr3_xmp_sidecar}")
+_run_bmff_embedded_xmp_smoke(
+  "heif" "--target-heif" "${_target_heif_xmp}" "${_edited_heif_xmp_embedded}"
+  "${_edited_heif_xmp_embedded_sidecar}")
+_run_bmff_embedded_xmp_smoke(
+  "avif" "--target-avif" "${_target_avif_xmp}" "${_edited_avif_xmp_embedded}"
+  "${_edited_avif_xmp_embedded_sidecar}")
+_run_bmff_embedded_xmp_smoke(
+  "cr3" "--target-cr3" "${_target_cr3_xmp}" "${_edited_cr3_xmp_embedded}"
+  "${_edited_cr3_xmp_embedded_sidecar}")
+_write_bmff_existing_embedded_xmp_target(
+  "heif" "--target-heif" "${_target_heif_xmp}" "${_target_heif_existing_xmp}")
+_write_bmff_existing_embedded_xmp_target(
+  "avif" "--target-avif" "${_target_avif_xmp}" "${_target_avif_existing_xmp}")
+_write_bmff_existing_embedded_xmp_target(
+  "cr3" "--target-cr3" "${_target_cr3_xmp}" "${_target_cr3_existing_xmp}")
+_run_bmff_mixed_destination_carrier_precedence_smoke(
+  "heif default-carrier" "--target-heif" "${_target_heif_existing_xmp}"
+  "${_mixed_heif_sidecar_wins}" "sidecar_wins" "Target Sidecar Existing"
+  "Target Embedded Existing" "OpenMeta Transfer Source")
+_run_bmff_mixed_destination_carrier_precedence_smoke(
+  "avif default-carrier" "--target-avif" "${_target_avif_existing_xmp}"
+  "${_mixed_avif_sidecar_wins}" "sidecar_wins" "Target Sidecar Existing"
+  "Target Embedded Existing" "OpenMeta Transfer Source")
+_run_bmff_mixed_destination_carrier_precedence_smoke(
+  "cr3 default-carrier" "--target-cr3" "${_target_cr3_existing_xmp}"
+  "${_mixed_cr3_sidecar_wins}" "sidecar_wins" "Target Sidecar Existing"
+  "Target Embedded Existing" "OpenMeta Transfer Source")
+_run_bmff_mixed_destination_carrier_precedence_smoke(
+  "heif embedded-wins" "--target-heif" "${_target_heif_existing_xmp}"
+  "${_mixed_heif_embedded_wins}" "embedded_wins"
+  "Target Embedded Existing" "Target Sidecar Existing"
+  "OpenMeta Transfer Source")
+_run_bmff_mixed_destination_carrier_precedence_smoke(
+  "avif embedded-wins" "--target-avif" "${_target_avif_existing_xmp}"
+  "${_mixed_avif_embedded_wins}" "embedded_wins"
+  "Target Embedded Existing" "Target Sidecar Existing"
+  "OpenMeta Transfer Source")
+_run_bmff_mixed_destination_carrier_precedence_smoke(
+  "cr3 embedded-wins" "--target-cr3" "${_target_cr3_existing_xmp}"
+  "${_mixed_cr3_embedded_wins}" "embedded_wins"
+  "Target Embedded Existing" "Target Sidecar Existing"
+  "OpenMeta Transfer Source")
 
 execute_process(
   COMMAND "${CMAKE_COMMAND}" -E env

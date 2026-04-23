@@ -769,6 +769,57 @@ parity across every workflow.
 - [ ] `TIFF/DNG` rewrite guarantees are strong enough to stop being a primary parity blocker
 - [ ] the next work slice can move to bounded `BMFF` depth instead of still backfilling the writer baseline
 
+### Host Integration And Adoption Backlog
+
+This backlog captures adoption-oriented work that supports host projects with
+flat metadata models and deferred output writes. It should not replace the
+writer-confidence slice above; it should be sequenced around it.
+
+#### Near-Term Host Contract Work
+
+- [ ] add a small runtime capability query API for read, structured decode,
+  transfer preparation, and target edit support by format and metadata family
+- [ ] mark public host-facing APIs with stability levels such as stable,
+  experimental, or internal; start with `visit_metadata(...)`, snapshot
+  read/build, fileless execution, and bundle execution
+- [ ] publish the generic `FlatHost` mapping contract: name style, duplicate
+  handling, type projection, deterministic ordering, and namespace behavior
+- [ ] add a deterministic compatibility dump for names, values, scalar types,
+  origins, and transfer/writeback decisions so downstream tests can avoid
+  binary-packet baselines
+- [ ] document final conflict and precedence decisions for generated EXIF/XMP,
+  IPTC/XMP, source embedded XMP, destination embedded XMP, and destination
+  sidecar XMP
+
+#### Medium-Term Fidelity Work
+
+- [ ] design an opt-in raw-preserving `TransferSourceSnapshot` mode that keeps
+  original carrier bytes alongside decoded `MetaStore` state
+- [ ] preserve bounded per-carrier provenance in raw snapshots: container type,
+  block kind, byte range, original order, route identity, and decoded entries
+  derived from the block
+- [ ] define policy choices for raw passthrough vs decoded re-emission when the
+  destination container can safely accept either form
+- [ ] provide versioned snapshot serialization only after the raw/provenance
+  model is settled
+- [ ] provide full prepared-bundle serialization if hosts need to prepare once
+  and apply later to encoded target bytes
+
+#### Supporting Work
+
+- [ ] improve structured diagnostics with severity, stable code, carrier/family,
+  offset or byte range where available, and short host-facing messages
+- [ ] extend resource accounting beyond current hard limits with preflight
+  estimates for prepared transfers, sidecar output, and serialized snapshots
+- [ ] add clean-room public micro fixtures for host integration tests; do not use
+  private corpus files, vendor drops, or scraped/spec text
+- [ ] add examples for `read bytes -> snapshot -> target bytes -> edited bytes`
+  and `visit_metadata(...) -> flat host attribute list`
+- [ ] consider a bounded random-access IO callback only after bytes/file APIs
+  and raw snapshot serialization are stable
+- [ ] defer any C ABI or opaque-handle facade until the host-facing C++ API is
+  stable enough to freeze a narrow bridge
+
 ## Postponed Work
 
 Still out of scope for the current milestone:
@@ -776,6 +827,9 @@ Still out of scope for the current milestone:
 - full C2PA signed rewrite / trust-policy parity
 - full EXIF / IPTC / XMP sync engine
 - broad TIFF/DNG and BMFF rewrite parity beyond the bounded current targets
+- mandatory raw-passthrough snapshots or snapshot serialization in the default
+  read path
+- C ABI / opaque-handle stability commitments
 
 ## Practical Summary
 
