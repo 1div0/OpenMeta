@@ -418,6 +418,11 @@ Current behavior:
   `transfer_file(...)` and `unsafe_transfer_file(...)`, and the public Python
   wrapper uses that core helper instead of maintaining its own sidecar write
   and cleanup implementation
+- the Python binding now also exposes the reusable decoded-source path through
+  `read_transfer_source_snapshot_file(...)`,
+  `read_transfer_source_snapshot_bytes(...)`,
+  `Document.build_transfer_source_snapshot()`, and
+  `transfer_snapshot_probe(...)` / `transfer_snapshot_file(...)`
 - public API regression coverage now asserts dual-write roundtrip and
   persistence behavior across `jpeg`, `tiff`, `dng`, `png`, `webp`, `jp2`,
   `jxl`, `heif`, `avif`, and `cr3`

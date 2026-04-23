@@ -39,8 +39,12 @@ set(_sidecar_only_strip_tif "${WORK_DIR}/sidecar_only_strip_tiff.tif")
 set(_sidecar_only_strip_tif_sidecar "${WORK_DIR}/sidecar_only_strip_tiff.xmp")
 set(_target_jxl "${WORK_DIR}/target.jxl")
 set(_edited_jxl "${WORK_DIR}/edited.jxl")
+set(_target_png "${WORK_DIR}/target.png")
+set(_edited_png "${WORK_DIR}/edited.png")
 set(_target_jp2 "${WORK_DIR}/target.jp2")
 set(_edited_jp2 "${WORK_DIR}/edited.jp2")
+set(_target_webp "${WORK_DIR}/target.webp")
+set(_edited_webp "${WORK_DIR}/edited.webp")
 set(_jxl_handoff "${WORK_DIR}/jxl_encoder_handoff.omjxic")
 set(_c2pa_jpg "${WORK_DIR}/sample_c2pa.jpg")
 set(_c2pa_jxl "${WORK_DIR}/sample_c2pa.jxl")
@@ -62,6 +66,7 @@ set(_c2pa_jxl_out "${WORK_DIR}/edited_from_package.jxl")
 set(_c2pa_heif_out "${WORK_DIR}/edited_from_package.heif")
 set(_c2pa_heif_from_package "${WORK_DIR}/edited_from_signed_package.heif")
 set(_check_tiff_py "${WORK_DIR}/check_tiff.py")
+set(_check_readback_py "${WORK_DIR}/check_readback.py")
 
 execute_process(
   COMMAND "${OPENMETA_PYTHON_EXECUTABLE}" -c
@@ -173,6 +178,18 @@ endif()
 
 execute_process(
   COMMAND "${OPENMETA_PYTHON_EXECUTABLE}" -c
+    "from pathlib import Path; sig=bytes.fromhex('89504e470d0a1a0a'); ihdr=(13).to_bytes(4,'big')+b'IHDR'+(1).to_bytes(4,'big')+(1).to_bytes(4,'big')+bytes([8,2,0,0,0])+(0).to_bytes(4,'big'); iend=(0).to_bytes(4,'big')+b'IEND'+(0).to_bytes(4,'big'); Path(r'''${_target_png}''').write_bytes(sig+ihdr+iend)"
+  RESULT_VARIABLE _rv_target_png
+  OUTPUT_VARIABLE _out_target_png
+  ERROR_VARIABLE _err_target_png
+)
+if(NOT _rv_target_png EQUAL 0)
+  message(FATAL_ERROR
+    "failed to write python metatransfer target png fixture (${_rv_target_png})\nstdout:\n${_out_target_png}\nstderr:\n${_err_target_png}")
+endif()
+
+execute_process(
+  COMMAND "${OPENMETA_PYTHON_EXECUTABLE}" -c
     "from pathlib import Path; u32=lambda v:(v).to_bytes(4,'big'); box=lambda t,p:u32(8+len(p))+t+p; ftyp=b'jp2 '+u32(0)+b'jp2 '; sig=u32(12)+b'jP  '+u32(0x0D0A870A); Path(r'''${_target_jp2}''').write_bytes(sig+box(b'ftyp', ftyp)+box(b'free', bytes([0x11,0x22,0x33])))"
   RESULT_VARIABLE _rv_target_jp2
   OUTPUT_VARIABLE _out_target_jp2
@@ -181,6 +198,18 @@ execute_process(
 if(NOT _rv_target_jp2 EQUAL 0)
   message(FATAL_ERROR
     "failed to write python metatransfer target jp2 fixture (${_rv_target_jp2})\nstdout:\n${_out_target_jp2}\nstderr:\n${_err_target_jp2}")
+endif()
+
+execute_process(
+  COMMAND "${OPENMETA_PYTHON_EXECUTABLE}" -c
+    "from pathlib import Path; riff_size=(32).to_bytes(4,'little'); vp8x=b'VP8X'+(10).to_bytes(4,'little')+bytes([0,0,0,0,0,0,0,0,0,0]); vp8=b'VP8 '+(1).to_bytes(4,'little')+b'\\x00\\x00'; Path(r'''${_target_webp}''').write_bytes(b'RIFF'+riff_size+b'WEBP'+vp8x+vp8)"
+  RESULT_VARIABLE _rv_target_webp
+  OUTPUT_VARIABLE _out_target_webp
+  ERROR_VARIABLE _err_target_webp
+)
+if(NOT _rv_target_webp EQUAL 0)
+  message(FATAL_ERROR
+    "failed to write python metatransfer target webp fixture (${_rv_target_webp})\nstdout:\n${_out_target_webp}\nstderr:\n${_err_target_webp}")
 endif()
 
 execute_process(
@@ -488,6 +517,62 @@ if dt != expect_dt:
     raise SystemExit(f"DateTime mismatch: {dt!r}")
 ]=])
 
+file(WRITE "${_check_readback_py}" [=[
+import sys
+from pathlib import Path
+
+import openmeta
+
+
+def fail(message: str) -> None:
+    raise SystemExit(message)
+
+
+def as_text(value) -> str:
+    if isinstance(value, (bytes, bytearray)):
+        return bytes(value).split(b"\x00", 1)[0].decode("ascii", "ignore")
+    return str(value)
+
+
+mode = sys.argv[1]
+path = Path(sys.argv[2])
+expect_dt = sys.argv[3]
+
+doc = openmeta.read(str(path))
+if doc.scan_status != openmeta.ScanStatus.Ok:
+    fail(f"scan_status={doc.scan_status.name}")
+if doc.exif_status != openmeta.ExifDecodeStatus.Ok:
+    fail(f"exif_status={doc.exif_status.name}")
+
+dt_entries = doc.find_exif("ifd0", 0x0132)
+if len(dt_entries) == 0:
+    fail("missing DateTime")
+dt = as_text(dt_entries[0].value())
+if dt != expect_dt:
+    fail(f"DateTime mismatch: {dt!r}")
+
+if mode == "tiff":
+    if int(doc.xmp_entries_decoded) == 0:
+        fail("missing decoded XMP entries")
+elif mode == "dng":
+    if int(doc.xmp_entries_decoded) == 0:
+        fail("missing decoded XMP entries")
+    dng_entries = doc.find_exif("ifd0", 0xC612)
+    if len(dng_entries) == 0:
+        fail("missing DNGVersion")
+    dng_version = list(dng_entries[0].value())
+    if dng_version != [1, 6, 0, 0]:
+        fail(f"DNGVersion mismatch: {dng_version!r}")
+elif mode == "bmff":
+    if int(doc.xmp_entries_decoded) != 0:
+        fail(f"unexpected XMP entries: {int(doc.xmp_entries_decoded)}")
+elif mode == "exif_only_no_xmp":
+    if int(doc.xmp_entries_decoded) != 0:
+        fail(f"unexpected XMP entries: {int(doc.xmp_entries_decoded)}")
+else:
+    fail(f"unknown mode: {mode}")
+]=])
+
 execute_process(
   COMMAND "${CMAKE_COMMAND}" -E env
           "PYTHONPATH=${OPENMETA_PYTHONPATH}"
@@ -519,7 +604,10 @@ if(NOT EXISTS "${_edited_tif}")
 endif()
 
 execute_process(
-  COMMAND "${OPENMETA_PYTHON_EXECUTABLE}" "${_check_tiff_py}" "${_edited_tif}" "2024:12:31 23:59:59"
+  COMMAND "${CMAKE_COMMAND}" -E env
+          "PYTHONPATH=${OPENMETA_PYTHONPATH}"
+          "${OPENMETA_PYTHON_EXECUTABLE}" "${_check_readback_py}"
+          "tiff" "${_edited_tif}" "2024:12:31 23:59:59"
   RESULT_VARIABLE _rv_tif_check
   OUTPUT_VARIABLE _out_tif_check
   ERROR_VARIABLE _err_tif_check
@@ -560,7 +648,10 @@ if(NOT EXISTS "${_edited_dng}")
 endif()
 
 execute_process(
-  COMMAND "${OPENMETA_PYTHON_EXECUTABLE}" "${_check_tiff_py}" "${_edited_dng}" "2024:12:31 23:59:59"
+  COMMAND "${CMAKE_COMMAND}" -E env
+          "PYTHONPATH=${OPENMETA_PYTHONPATH}"
+          "${OPENMETA_PYTHON_EXECUTABLE}" "${_check_readback_py}"
+          "dng" "${_edited_dng}" "2024:12:31 23:59:59"
   RESULT_VARIABLE _rv_dng_check
   OUTPUT_VARIABLE _out_dng_check
   ERROR_VARIABLE _err_dng_check
@@ -696,6 +787,7 @@ execute_process(
           "${OPENMETA_PYTHON_EXECUTABLE}" -m openmeta.python.metatransfer
           --no-build-info
           --target-jxl
+          --no-xmp
           --no-icc
           --source-meta "${_src_jpg}"
           --output "${_edited_jxl}"
@@ -717,15 +809,17 @@ if(NOT EXISTS "${_edited_jxl}")
     "python metatransfer jxl edit did not write output\nstdout:\n${_out_jxl_edit}\nstderr:\n${_err_jxl_edit}")
 endif()
 execute_process(
-  COMMAND "${OPENMETA_PYTHON_EXECUTABLE}" -c
-    "from pathlib import Path; import sys; b=Path(r'''${_edited_jxl}''').read_bytes(); sys.exit(0 if (len(b)>=12 and b[4:8]==b'JXL ' and b.find(b'Exif')!=-1) else 1)"
-  RESULT_VARIABLE _rv_jxl_edit_check
-  OUTPUT_VARIABLE _out_jxl_edit_check
-  ERROR_VARIABLE _err_jxl_edit_check
+  COMMAND "${CMAKE_COMMAND}" -E env
+          "PYTHONPATH=${OPENMETA_PYTHONPATH}"
+          "${OPENMETA_PYTHON_EXECUTABLE}" "${_check_readback_py}"
+          "exif_only_no_xmp" "${_edited_jxl}" "2000:01:02 03:04:05"
+  RESULT_VARIABLE _rv_jxl_check
+  OUTPUT_VARIABLE _out_jxl_check
+  ERROR_VARIABLE _err_jxl_check
 )
-if(NOT _rv_jxl_edit_check EQUAL 0)
+if(NOT _rv_jxl_check EQUAL 0)
   message(FATAL_ERROR
-    "python metatransfer jxl edit output check failed\nstdout:\n${_out_jxl_edit}\nstderr:\n${_err_jxl_edit}\ncheck_stderr:\n${_err_jxl_edit_check}")
+    "python metatransfer jxl read-back check failed (${_rv_jxl_check})\nstdout:\n${_out_jxl_edit}\nstderr:\n${_err_jxl_edit}\ncheck_stdout:\n${_out_jxl_check}\ncheck_stderr:\n${_err_jxl_check}")
 endif()
 
 execute_process(
@@ -818,6 +912,121 @@ endif()
 execute_process(
   COMMAND "${CMAKE_COMMAND}" -E env
           "PYTHONPATH=${OPENMETA_PYTHONPATH}"
+          "${OPENMETA_PYTHON_EXECUTABLE}" "${_check_readback_py}"
+          "exif_only_no_xmp" "${_edited_jp2}" "2000:01:02 03:04:05"
+  RESULT_VARIABLE _rv_jp2_check
+  OUTPUT_VARIABLE _out_jp2_check
+  ERROR_VARIABLE _err_jp2_check
+)
+if(NOT _rv_jp2_check EQUAL 0)
+  message(FATAL_ERROR
+    "python metatransfer jp2 read-back check failed (${_rv_jp2_check})\nstdout:\n${_out_jp2_edit}\nstderr:\n${_err_jp2_edit}\ncheck_stdout:\n${_out_jp2_check}\ncheck_stderr:\n${_err_jp2_check}")
+endif()
+
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env
+          "PYTHONPATH=${OPENMETA_PYTHONPATH}"
+          "${OPENMETA_PYTHON_EXECUTABLE}" -m openmeta.python.metatransfer
+          --no-build-info
+          --target-png
+          --no-xmp
+          --no-icc
+          --no-iptc
+          "${_src_jpg}"
+  RESULT_VARIABLE _rv_png
+  OUTPUT_VARIABLE _out_png
+  ERROR_VARIABLE _err_png
+)
+if(NOT _rv_png EQUAL 0)
+  message(FATAL_ERROR
+    "python metatransfer png summary failed (${_rv_png})\nstdout:\n${_out_png}\nstderr:\n${_err_png}")
+endif()
+if(NOT _out_png MATCHES "compile: status=ok")
+  message(FATAL_ERROR
+    "python metatransfer png summary missing compile ok\nstdout:\n${_out_png}\nstderr:\n${_err_png}")
+endif()
+if(NOT _out_png MATCHES "emit: status=ok")
+  message(FATAL_ERROR
+    "python metatransfer png summary missing emit ok\nstdout:\n${_out_png}\nstderr:\n${_err_png}")
+endif()
+if(NOT _out_png MATCHES "png_chunk eXIf count=1")
+  message(FATAL_ERROR
+    "python metatransfer png summary missing eXIf chunk summary\nstdout:\n${_out_png}\nstderr:\n${_err_png}")
+endif()
+
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env
+          "PYTHONPATH=${OPENMETA_PYTHONPATH}"
+          "${OPENMETA_PYTHON_EXECUTABLE}" -m openmeta.python.metatransfer
+          --no-build-info
+          --source-meta "${_src_jpg}"
+          --target-png
+          --no-xmp
+          --no-icc
+          --no-iptc
+          --output "${_edited_png}" --force
+          "${_target_png}"
+  RESULT_VARIABLE _rv_png_edit
+  OUTPUT_VARIABLE _out_png_edit
+  ERROR_VARIABLE _err_png_edit
+)
+if(NOT _rv_png_edit EQUAL 0)
+  message(FATAL_ERROR
+    "python metatransfer png edit failed (${_rv_png_edit})\nstdout:\n${_out_png_edit}\nstderr:\n${_err_png_edit}")
+endif()
+if(NOT _out_png_edit MATCHES "edit_plan: status=ok")
+  message(FATAL_ERROR
+    "python metatransfer png edit missing edit_plan ok\nstdout:\n${_out_png_edit}\nstderr:\n${_err_png_edit}")
+endif()
+if(NOT _out_png_edit MATCHES "edit_apply: status=ok")
+  message(FATAL_ERROR
+    "python metatransfer png edit missing edit_apply ok\nstdout:\n${_out_png_edit}\nstderr:\n${_err_png_edit}")
+endif()
+if(NOT EXISTS "${_edited_png}")
+  message(FATAL_ERROR
+    "python metatransfer png edit did not write output\nstdout:\n${_out_png_edit}\nstderr:\n${_err_png_edit}")
+endif()
+
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env
+          "PYTHONPATH=${OPENMETA_PYTHONPATH}"
+          "${OPENMETA_PYTHON_EXECUTABLE}" -m openmeta.python.metatransfer
+          --no-build-info
+          --target-png
+          --no-xmp
+          --no-icc
+          --no-iptc
+          "${_edited_png}"
+  RESULT_VARIABLE _rv_png_roundtrip
+  OUTPUT_VARIABLE _out_png_roundtrip
+  ERROR_VARIABLE _err_png_roundtrip
+)
+if(NOT _rv_png_roundtrip EQUAL 0)
+  message(FATAL_ERROR
+    "python metatransfer png roundtrip summary failed (${_rv_png_roundtrip})\nstdout:\n${_out_png_roundtrip}\nstderr:\n${_err_png_roundtrip}")
+endif()
+if(NOT _out_png_roundtrip MATCHES "png_chunk eXIf count=1")
+  message(FATAL_ERROR
+    "python metatransfer png roundtrip summary missing eXIf chunk summary\nstdout:\n${_out_png_roundtrip}\nstderr:\n${_err_png_roundtrip}")
+endif()
+
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env
+          "PYTHONPATH=${OPENMETA_PYTHONPATH}"
+          "${OPENMETA_PYTHON_EXECUTABLE}" "${_check_readback_py}"
+          "exif_only_no_xmp" "${_edited_png}" "2000:01:02 03:04:05"
+  RESULT_VARIABLE _rv_png_check
+  OUTPUT_VARIABLE _out_png_check
+  ERROR_VARIABLE _err_png_check
+)
+if(NOT _rv_png_check EQUAL 0)
+  message(FATAL_ERROR
+    "python metatransfer png read-back check failed (${_rv_png_check})\nstdout:\n${_out_png_edit}\nstderr:\n${_err_png_edit}\ncheck_stdout:\n${_out_png_check}\ncheck_stderr:\n${_err_png_check}")
+endif()
+
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env
+          "PYTHONPATH=${OPENMETA_PYTHONPATH}"
           "${OPENMETA_PYTHON_EXECUTABLE}" -m openmeta.python.metatransfer
           --no-build-info
           --target-webp
@@ -844,6 +1053,76 @@ endif()
 if(NOT _out_webp MATCHES "webp_chunk EXIF count=1")
   message(FATAL_ERROR
     "python metatransfer webp summary missing EXIF chunk summary\nstdout:\n${_out_webp}\nstderr:\n${_err_webp}")
+endif()
+
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env
+          "PYTHONPATH=${OPENMETA_PYTHONPATH}"
+          "${OPENMETA_PYTHON_EXECUTABLE}" -m openmeta.python.metatransfer
+          --no-build-info
+          --source-meta "${_src_jpg}"
+          --target-webp
+          --no-xmp
+          --no-icc
+          --no-iptc
+          --output "${_edited_webp}" --force
+          "${_target_webp}"
+  RESULT_VARIABLE _rv_webp_edit
+  OUTPUT_VARIABLE _out_webp_edit
+  ERROR_VARIABLE _err_webp_edit
+)
+if(NOT _rv_webp_edit EQUAL 0)
+  message(FATAL_ERROR
+    "python metatransfer webp edit failed (${_rv_webp_edit})\nstdout:\n${_out_webp_edit}\nstderr:\n${_err_webp_edit}")
+endif()
+if(NOT _out_webp_edit MATCHES "edit_plan: status=ok")
+  message(FATAL_ERROR
+    "python metatransfer webp edit missing edit_plan ok\nstdout:\n${_out_webp_edit}\nstderr:\n${_err_webp_edit}")
+endif()
+if(NOT _out_webp_edit MATCHES "edit_apply: status=ok")
+  message(FATAL_ERROR
+    "python metatransfer webp edit missing edit_apply ok\nstdout:\n${_out_webp_edit}\nstderr:\n${_err_webp_edit}")
+endif()
+if(NOT EXISTS "${_edited_webp}")
+  message(FATAL_ERROR
+    "python metatransfer webp edit did not write output\nstdout:\n${_out_webp_edit}\nstderr:\n${_err_webp_edit}")
+endif()
+
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env
+          "PYTHONPATH=${OPENMETA_PYTHONPATH}"
+          "${OPENMETA_PYTHON_EXECUTABLE}" -m openmeta.python.metatransfer
+          --no-build-info
+          --target-webp
+          --no-xmp
+          --no-icc
+          --no-iptc
+          "${_edited_webp}"
+  RESULT_VARIABLE _rv_webp_roundtrip
+  OUTPUT_VARIABLE _out_webp_roundtrip
+  ERROR_VARIABLE _err_webp_roundtrip
+)
+if(NOT _rv_webp_roundtrip EQUAL 0)
+  message(FATAL_ERROR
+    "python metatransfer webp roundtrip summary failed (${_rv_webp_roundtrip})\nstdout:\n${_out_webp_roundtrip}\nstderr:\n${_err_webp_roundtrip}")
+endif()
+if(NOT _out_webp_roundtrip MATCHES "webp_chunk EXIF count=1")
+  message(FATAL_ERROR
+    "python metatransfer webp roundtrip summary missing EXIF chunk summary\nstdout:\n${_out_webp_roundtrip}\nstderr:\n${_err_webp_roundtrip}")
+endif()
+
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env
+          "PYTHONPATH=${OPENMETA_PYTHONPATH}"
+          "${OPENMETA_PYTHON_EXECUTABLE}" "${_check_readback_py}"
+          "exif_only_no_xmp" "${_edited_webp}" "2000:01:02 03:04:05"
+  RESULT_VARIABLE _rv_webp_check
+  OUTPUT_VARIABLE _out_webp_check
+  ERROR_VARIABLE _err_webp_check
+)
+if(NOT _rv_webp_check EQUAL 0)
+  message(FATAL_ERROR
+    "python metatransfer webp read-back check failed (${_rv_webp_check})\nstdout:\n${_out_webp_edit}\nstderr:\n${_err_webp_edit}\ncheck_stdout:\n${_out_webp_check}\ncheck_stderr:\n${_err_webp_check}")
 endif()
 
 execute_process(
@@ -944,6 +1223,20 @@ endif()
 if(NOT _out_avif_roundtrip MATCHES "bmff_item Exif count=1")
   message(FATAL_ERROR
     "python metatransfer avif roundtrip summary missing Exif item summary\nstdout:\n${_out_avif_roundtrip}\nstderr:\n${_err_avif_roundtrip}")
+endif()
+
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env
+          "PYTHONPATH=${OPENMETA_PYTHONPATH}"
+          "${OPENMETA_PYTHON_EXECUTABLE}" "${_check_readback_py}"
+          "bmff" "${_avif_out}" "2000:01:02 03:04:05"
+  RESULT_VARIABLE _rv_avif_check
+  OUTPUT_VARIABLE _out_avif_check
+  ERROR_VARIABLE _err_avif_check
+)
+if(NOT _rv_avif_check EQUAL 0)
+  message(FATAL_ERROR
+    "python metatransfer avif read-back check failed (${_rv_avif_check})\nstdout:\n${_out_avif_edit}\nstderr:\n${_err_avif_edit}\ncheck_stdout:\n${_out_avif_check}\ncheck_stderr:\n${_err_avif_check}")
 endif()
 
 execute_process(

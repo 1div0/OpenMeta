@@ -176,6 +176,73 @@ Copy metadata into an existing target
 Use the same pattern for ``Tiff``, ``Dng``, ``Png``, ``Webp``, ``Jp2``,
 ``Jxl``, and bounded BMFF targets such as ``Heif``, ``Avif``, and ``Cr3``.
 
+Read once and reuse later
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+If your application already decoded source metadata earlier, keep a decoded
+source snapshot and execute the later save without reopening the source file.
+
+.. code-block:: cpp
+
+   #include "openmeta/metadata_transfer.h"
+
+   openmeta::ReadTransferSourceSnapshotFileResult snapshot =
+       openmeta::read_transfer_source_snapshot_file("source.jpg");
+
+   openmeta::ExecutePreparedTransferSnapshotOptions options;
+   options.prepare.target_format = openmeta::TransferTargetFormat::Tiff;
+   options.edit_target_path      = "target.tif";
+   options.execute.edit_apply    = true;
+
+   openmeta::ExecutePreparedTransferFileResult result =
+       openmeta::execute_prepared_transfer_snapshot(
+           snapshot.snapshot, options);
+
+Python exposes the same reusable snapshot flow for host code:
+
+.. code-block:: python
+
+   from pathlib import Path
+
+   import openmeta
+
+   snapshot_info = openmeta.read_transfer_source_snapshot_file("source.jpg")
+   snapshot = snapshot_info["snapshot"]
+
+   result = openmeta.transfer_snapshot_probe(
+       snapshot,
+       target_format=openmeta.TransferTargetFormat.Tiff,
+       edit_target_path="target.tif",
+       target_bytes=Path("target.tif").read_bytes(),
+   )
+
+Current source snapshots are decoded-store-backed. They are intended for the
+common EXIF/XMP/ICC/IPTC transfer workflow, not raw source-packet passthrough.
+If the host still owns the bundle/execution split, the lower-level
+``prepare_metadata_for_target_snapshot(...)`` entry point remains available.
+If the host already has a decoded ``MetaStore``, build a reusable snapshot with
+``build_transfer_source_snapshot(store)``. If it already owns the source bytes
+in memory, use ``read_transfer_source_snapshot_bytes(bytes)`` instead of the
+file-path reader.
+In Python, if the host already has ``doc = openmeta.read(...)``, call
+``doc.build_transfer_source_snapshot()`` or
+``openmeta.build_transfer_source_snapshot(doc)`` instead of reopening the
+file.
+If it also owns the destination bytes in memory, call the overload
+``execute_prepared_transfer_snapshot(snapshot, target_bytes, options)``.
+If it already holds a prepared bundle, use
+``execute_prepared_transfer_bundle(bundle, target_bytes, options)`` instead.
+Snapshot execution supports the same existing-sidecar merge and destination
+carrier-precedence controls as the file helper; when loading an existing
+sidecar it defaults to ``edit_target_path`` unless
+``xmp_existing_sidecar_base_path`` is set explicitly.
+For embedded-only writeback with sidecar cleanup and no filesystem path, set
+``xmp_existing_destination_sidecar_state`` explicitly so OpenMeta can return a
+cleanup decision without guessing a sidecar location.
+The Python snapshot helpers intentionally cover the core transfer/edit/persist
+path. The older ``transfer_probe(...)`` / ``unsafe_transfer_probe(...)``
+entry points remain the broader artifact-dump/debug surface.
+
 Next steps
 ----------
 

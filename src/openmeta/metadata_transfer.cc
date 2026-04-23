@@ -2696,6 +2696,114 @@ namespace {
         return MetaValue {};
     }
 
+    static MetaKey
+    copy_meta_key_for_store(const MetaKey& key, const ByteArena& src,
+                            ByteArena& dst) noexcept
+    {
+        switch (key.kind) {
+        case MetaKeyKind::ExifTag:
+            return make_exif_tag_key(
+                dst, arena_string(src, key.data.exif_tag.ifd),
+                key.data.exif_tag.tag);
+        case MetaKeyKind::Comment: return make_comment_key();
+        case MetaKeyKind::ExrAttribute:
+            return make_exr_attribute_key(
+                dst, key.data.exr_attribute.part_index,
+                arena_string(src, key.data.exr_attribute.name));
+        case MetaKeyKind::IptcDataset:
+            return make_iptc_dataset_key(key.data.iptc_dataset.record,
+                                         key.data.iptc_dataset.dataset);
+        case MetaKeyKind::XmpProperty:
+            return make_xmp_property_key(
+                dst, arena_string(src, key.data.xmp_property.schema_ns),
+                arena_string(src, key.data.xmp_property.property_path));
+        case MetaKeyKind::IccHeaderField:
+            return make_icc_header_field_key(
+                key.data.icc_header_field.offset);
+        case MetaKeyKind::IccTag:
+            return make_icc_tag_key(key.data.icc_tag.signature);
+        case MetaKeyKind::PhotoshopIrb:
+            return make_photoshop_irb_key(
+                key.data.photoshop_irb.resource_id);
+        case MetaKeyKind::PhotoshopIrbField:
+            return make_photoshop_irb_field_key(
+                dst, key.data.photoshop_irb_field.resource_id,
+                arena_string(src, key.data.photoshop_irb_field.field));
+        case MetaKeyKind::GeotiffKey:
+            return make_geotiff_key(key.data.geotiff_key.key_id);
+        case MetaKeyKind::PrintImField:
+            return make_printim_field_key(
+                dst, arena_string(src, key.data.printim_field.field));
+        case MetaKeyKind::BmffField:
+            return make_bmff_field_key(
+                dst, arena_string(src, key.data.bmff_field.field));
+        case MetaKeyKind::JumbfField:
+            return make_jumbf_field_key(
+                dst, arena_string(src, key.data.jumbf_field.field));
+        case MetaKeyKind::JumbfCborKey:
+            return make_jumbf_cbor_key(
+                dst, arena_string(src, key.data.jumbf_cbor_key.key));
+        case MetaKeyKind::PngText:
+            return make_png_text_key(
+                dst, arena_string(src, key.data.png_text.keyword),
+                arena_string(src, key.data.png_text.field));
+        }
+        return MetaKey {};
+    }
+
+    static bool append_entries_from_store(const MetaStore& src, MetaStore* dst,
+                                          uint32_t* out_appended) noexcept
+    {
+        if (!dst) {
+            return false;
+        }
+        if (out_appended) {
+            *out_appended = 0U;
+        }
+
+        std::vector<BlockId> block_map(src.block_count(), kInvalidBlockId);
+        for (uint32_t i = 0U; i < src.block_count(); ++i) {
+            const BlockId id = dst->add_block(src.block_info(i));
+            if (id == kInvalidBlockId) {
+                return false;
+            }
+            block_map[i] = id;
+        }
+
+        uint32_t appended = 0U;
+        for (const Entry& entry : src.entries()) {
+            if (any(entry.flags, EntryFlags::Deleted)) {
+                continue;
+            }
+            Entry copied;
+            copied.key = copy_meta_key_for_store(entry.key, src.arena(),
+                                                 dst->arena());
+            copied.value = copy_meta_value_for_store(entry.value, src.arena(),
+                                                     dst->arena());
+            copied.origin                = entry.origin;
+            copied.origin.block          = entry.origin.block;
+            copied.origin.order_in_block = entry.origin.order_in_block;
+            if (entry.origin.block != kInvalidBlockId
+                && entry.origin.block < block_map.size()) {
+                copied.origin.block = block_map[entry.origin.block];
+            }
+            if (entry.origin.wire_type_name.size > 0U) {
+                copied.origin.wire_type_name = dst->arena().append(
+                    src.arena().span(entry.origin.wire_type_name));
+            }
+            copied.flags = entry.flags;
+            if (dst->add_entry(copied) == kInvalidEntryId) {
+                return false;
+            }
+            appended += 1U;
+        }
+
+        if (out_appended) {
+            *out_appended = appended;
+        }
+        return true;
+    }
+
     static bool append_xmp_entries_from_store(
         const MetaStore& src, MetaStore* dst, uint32_t* out_appended) noexcept
     {
@@ -2750,8 +2858,8 @@ namespace {
         return true;
     }
 
-    static void decode_existing_destination_embedded_xmp_into_store(
-        const char* path, const OpenMetaResourcePolicy& policy,
+    static void decode_existing_destination_embedded_xmp_bytes_into_store(
+        std::span<const std::byte> bytes, const OpenMetaResourcePolicy& policy,
         const XmpDecodeOptions& decode_options, bool preserve_store_on_failure,
         MetaStore* store, bool* out_loaded, TransferStatus* out_status,
         std::string* out_message) noexcept
@@ -2759,34 +2867,11 @@ namespace {
         if (!store || !out_loaded || !out_status || !out_message) {
             return;
         }
-        if (!path || !*path) {
+        if (bytes.empty()) {
             *out_loaded  = false;
             *out_status  = TransferStatus::Unsupported;
             *out_message = "existing destination embedded xmp merge requires "
-                           "edit_target_path";
-            return;
-        }
-
-        MappedFile mapped;
-        const MappedFileStatus status = mapped.open(path, policy.max_file_bytes);
-        if (status != MappedFileStatus::Ok) {
-            *out_loaded = false;
-            *out_status = status == MappedFileStatus::TooLarge
-                              ? TransferStatus::LimitExceeded
-                              : TransferStatus::Unsupported;
-            if (status == MappedFileStatus::TooLarge) {
-                *out_message
-                    = "existing destination embedded xmp exceeds size limit";
-            } else if (status == MappedFileStatus::StatFailed) {
-                *out_message
-                    = "failed to stat destination file for existing embedded xmp";
-            } else if (status == MappedFileStatus::OpenFailed) {
-                *out_message
-                    = "failed to open destination file for existing embedded xmp";
-            } else {
-                *out_message
-                    = "failed to map destination file for existing embedded xmp";
-            }
+                           "target bytes or edit_target_path";
             return;
         }
 
@@ -2806,7 +2891,7 @@ namespace {
         for (;;) {
             xmp_store = MetaStore();
             read = simple_meta_read(
-                mapped.bytes(), xmp_store,
+                bytes, xmp_store,
                 std::span<ContainerBlockRef>(blocks.data(), blocks.size()),
                 std::span<ExifIfdRef>(ifds.data(), ifds.size()),
                 std::span<std::byte>(payload.data(), payload.size()),
@@ -2905,6 +2990,51 @@ namespace {
         *out_loaded  = appended > 0U;
         *out_status  = TransferStatus::Ok;
         out_message->clear();
+    }
+
+    static void decode_existing_destination_embedded_xmp_into_store(
+        const char* path, const OpenMetaResourcePolicy& policy,
+        const XmpDecodeOptions& decode_options, bool preserve_store_on_failure,
+        MetaStore* store, bool* out_loaded, TransferStatus* out_status,
+        std::string* out_message) noexcept
+    {
+        if (!store || !out_loaded || !out_status || !out_message) {
+            return;
+        }
+        if (!path || !*path) {
+            *out_loaded  = false;
+            *out_status  = TransferStatus::Unsupported;
+            *out_message = "existing destination embedded xmp merge requires "
+                           "target bytes or edit_target_path";
+            return;
+        }
+
+        MappedFile mapped;
+        const MappedFileStatus status = mapped.open(path, policy.max_file_bytes);
+        if (status != MappedFileStatus::Ok) {
+            *out_loaded = false;
+            *out_status = status == MappedFileStatus::TooLarge
+                              ? TransferStatus::LimitExceeded
+                              : TransferStatus::Unsupported;
+            if (status == MappedFileStatus::TooLarge) {
+                *out_message
+                    = "existing destination embedded xmp exceeds size limit";
+            } else if (status == MappedFileStatus::StatFailed) {
+                *out_message
+                    = "failed to stat destination file for existing embedded xmp";
+            } else if (status == MappedFileStatus::OpenFailed) {
+                *out_message
+                    = "failed to open destination file for existing embedded xmp";
+            } else {
+                *out_message
+                    = "failed to map destination file for existing embedded xmp";
+            }
+            return;
+        }
+
+        decode_existing_destination_embedded_xmp_bytes_into_store(
+            mapped.bytes(), policy, decode_options, preserve_store_on_failure,
+            store, out_loaded, out_status, out_message);
     }
 
     struct ExistingDestinationEmbeddedXmpMerge final {
@@ -10202,16 +10332,25 @@ namespace {
     }
 
     static const char*
-    dng_target_mode_requires_path_message(DngTargetMode mode) noexcept
+    dng_target_mode_requires_existing_target_message(
+        DngTargetMode mode, bool allow_target_bytes) noexcept
     {
         switch (mode) {
         case DngTargetMode::ExistingTarget:
-            return "dng existing_target mode requires edit_target_path";
+            return allow_target_bytes
+                       ? "dng existing_target mode requires target bytes or "
+                         "edit_target_path"
+                       : "dng existing_target mode requires edit_target_path";
         case DngTargetMode::TemplateTarget:
-            return "dng template_target mode requires edit_target_path";
+            return allow_target_bytes
+                       ? "dng template_target mode requires target bytes or "
+                         "edit_target_path"
+                       : "dng template_target mode requires edit_target_path";
         case DngTargetMode::MinimalFreshScaffold: break;
         }
-        return "dng target mode requires edit_target_path";
+        return allow_target_bytes
+                   ? "dng target mode requires target bytes or edit_target_path"
+                   : "dng target mode requires edit_target_path";
     }
 
 }  // namespace
@@ -11435,6 +11574,229 @@ prepare_metadata_for_target(const MetaStore& store,
 {
     const TransferPrepareCapabilities caps {};
     return prepare_metadata_for_target_impl(store, request, caps, out_bundle);
+}
+
+PrepareTransferResult
+prepare_metadata_for_target_snapshot(
+    const TransferSourceSnapshot& snapshot,
+    const PrepareTransferRequest& request,
+    PreparedTransferBundle* out_bundle) noexcept
+{
+    MetaStore store = snapshot.store;
+    store.finalize();
+    return prepare_metadata_for_target(store, request, out_bundle);
+}
+
+TransferSourceSnapshot
+build_transfer_source_snapshot(const MetaStore& store) noexcept
+{
+    TransferSourceSnapshot snapshot;
+    snapshot.store = store;
+    snapshot.store.finalize();
+    return snapshot;
+}
+
+namespace {
+
+    struct ReadTransferSourceSnapshotDecodeCommonResult final {
+        SimpleMetaResult read;
+        TransferSourceSnapshot snapshot;
+        uint32_t entry_count                = 0;
+        bool payload_buffer_platform_limit  = false;
+        bool decode_failed                  = false;
+    };
+
+    static void
+    build_transfer_source_snapshot_decode_options(
+        const ReadTransferSourceSnapshotOptions& options,
+        SimpleMetaDecodeOptions* out_decode_options) noexcept
+    {
+        if (!out_decode_options) {
+            return;
+        }
+
+        OpenMetaResourcePolicy policy = options.policy;
+        normalize_resource_policy(&policy);
+
+        SimpleMetaDecodeOptions decode_options;
+        apply_resource_policy(policy, &decode_options.exif,
+                              &decode_options.payload);
+        apply_resource_policy(policy, &decode_options.xmp,
+                              &decode_options.exr, &decode_options.jumbf,
+                              &decode_options.icc, &decode_options.iptc,
+                              &decode_options.photoshop_irb);
+
+        decode_options.exif.include_pointer_tags = options.include_pointer_tags;
+        decode_options.exif.decode_makernote     = options.decode_makernote;
+        decode_options.exif.decode_embedded_containers
+            = options.decode_embedded_containers;
+        decode_options.payload.decompress = options.decompress;
+        decode_options.xmp.malformed_mode
+            = XmpDecodeMalformedMode::OutputTruncated;
+        *out_decode_options = decode_options;
+    }
+
+    static ReadTransferSourceSnapshotDecodeCommonResult
+    read_transfer_source_snapshot_bytes_common(
+        std::span<const std::byte> bytes,
+        const ReadTransferSourceSnapshotOptions& options) noexcept
+    {
+        ReadTransferSourceSnapshotDecodeCommonResult out;
+        SimpleMetaDecodeOptions decode_options;
+        build_transfer_source_snapshot_decode_options(options,
+                                                      &decode_options);
+
+        std::vector<ContainerBlockRef> blocks(256U);
+        std::vector<ExifIfdRef> ifds(512U);
+        std::vector<std::byte> payload(1024U * 1024U);
+        std::vector<uint32_t> payload_parts(16384U);
+
+        for (;;) {
+            out.snapshot.store = MetaStore();
+            out.read = simple_meta_read(
+                bytes, out.snapshot.store,
+                std::span<ContainerBlockRef>(blocks.data(), blocks.size()),
+                std::span<ExifIfdRef>(ifds.data(), ifds.size()),
+                std::span<std::byte>(payload.data(), payload.size()),
+                std::span<uint32_t>(payload_parts.data(),
+                                    payload_parts.size()),
+                decode_options);
+
+            bool retried = false;
+            if (out.read.scan.status == ScanStatus::OutputTruncated
+                && out.read.scan.needed > blocks.size()) {
+                blocks.resize(out.read.scan.needed);
+                retried = true;
+            }
+            if (out.read.exif.status == ExifDecodeStatus::OutputTruncated
+                && out.read.exif.ifds_needed > ifds.size()) {
+                ifds.resize(out.read.exif.ifds_needed);
+                retried = true;
+            }
+            if (out.read.payload.status == PayloadStatus::OutputTruncated
+                && out.read.payload.needed > payload.size()) {
+                if (out.read.payload.needed
+                    > static_cast<uint64_t>(SIZE_MAX)) {
+                    out.payload_buffer_platform_limit = true;
+                    return out;
+                }
+                payload.resize(static_cast<size_t>(out.read.payload.needed));
+                retried = true;
+            }
+            if (!retried) {
+                break;
+            }
+        }
+
+        if (has_read_failure(out.read)) {
+            out.decode_failed = true;
+            return out;
+        }
+
+        out.snapshot.store.finalize();
+        out.entry_count = static_cast<uint32_t>(
+            out.snapshot.store.entries().size());
+        return out;
+    }
+
+    static TransferStatus
+    map_snapshot_decode_failure_status(const SimpleMetaResult& r) noexcept
+    {
+        if (r.payload.status == PayloadStatus::LimitExceeded
+            || r.exif.status == ExifDecodeStatus::LimitExceeded
+            || r.xmp.status == XmpDecodeStatus::LimitExceeded
+            || r.jumbf.status == JumbfDecodeStatus::LimitExceeded) {
+            return TransferStatus::LimitExceeded;
+        }
+        if (r.scan.status == ScanStatus::Malformed
+            || r.payload.status == PayloadStatus::Malformed
+            || r.exif.status == ExifDecodeStatus::Malformed
+            || r.xmp.status == XmpDecodeStatus::Malformed
+            || r.jumbf.status == JumbfDecodeStatus::Malformed) {
+            return TransferStatus::Malformed;
+        }
+        return TransferStatus::InternalError;
+    }
+
+}  // namespace
+
+ReadTransferSourceSnapshotBytesResult
+read_transfer_source_snapshot_bytes(
+    std::span<const std::byte> bytes,
+    const ReadTransferSourceSnapshotOptions& options) noexcept
+{
+    ReadTransferSourceSnapshotBytesResult out;
+    out.input_size = static_cast<uint64_t>(bytes.size());
+
+    ReadTransferSourceSnapshotDecodeCommonResult common
+        = read_transfer_source_snapshot_bytes_common(bytes, options);
+    out.read       = std::move(common.read);
+    out.snapshot   = std::move(common.snapshot);
+    out.entry_count = common.entry_count;
+
+    if (common.payload_buffer_platform_limit) {
+        out.status = TransferStatus::LimitExceeded;
+        out.code   = ReadTransferSourceSnapshotBytesCode::
+            PayloadBufferPlatformLimit;
+        return out;
+    }
+    if (common.decode_failed) {
+        out.status = map_snapshot_decode_failure_status(out.read);
+        out.code   = ReadTransferSourceSnapshotBytesCode::DecodeFailed;
+        return out;
+    }
+    return out;
+}
+
+ReadTransferSourceSnapshotFileResult
+read_transfer_source_snapshot_file(
+    const char* path,
+    const ReadTransferSourceSnapshotFileOptions& options) noexcept
+{
+    ReadTransferSourceSnapshotFileResult out;
+
+    if (!path || !*path) {
+        out.file_status    = TransferFileStatus::InvalidArgument;
+        out.code           = ReadTransferSourceSnapshotFileCode::EmptyPath;
+        out.read.scan.status = ScanStatus::Unsupported;
+        return out;
+    }
+
+    OpenMetaResourcePolicy policy = options.policy;
+    normalize_resource_policy(&policy);
+
+    MappedFile mapped;
+    const MappedFileStatus file_status = mapped.open(path,
+                                                     policy.max_file_bytes);
+    if (file_status != MappedFileStatus::Ok) {
+        out.file_status = map_file_status(file_status);
+        out.code        = ReadTransferSourceSnapshotFileCode::MapFailed;
+        return out;
+    }
+
+    out.file_size = mapped.size();
+
+    ReadTransferSourceSnapshotBytesResult bytes_result
+        = read_transfer_source_snapshot_bytes(mapped.bytes(), options);
+    out.read       = std::move(bytes_result.read);
+    out.snapshot   = std::move(bytes_result.snapshot);
+    out.entry_count = bytes_result.entry_count;
+
+    if (bytes_result.code
+        == ReadTransferSourceSnapshotBytesCode::PayloadBufferPlatformLimit) {
+        out.file_status = TransferFileStatus::ReadFailed;
+        out.code = ReadTransferSourceSnapshotFileCode::
+            PayloadBufferPlatformLimit;
+        return out;
+    }
+    if (bytes_result.code == ReadTransferSourceSnapshotBytesCode::DecodeFailed) {
+        out.file_status = TransferFileStatus::ReadFailed;
+        out.code        = ReadTransferSourceSnapshotFileCode::DecodeFailed;
+        return out;
+    }
+    out.file_status = TransferFileStatus::Ok;
+    out.code        = ReadTransferSourceSnapshotFileCode::None;
+    return out;
 }
 
 EmitTransferResult
@@ -24760,24 +25122,432 @@ emit_prepared_transfer_compiled(PreparedTransferBundle* bundle,
     return out;
 }
 
+namespace {
+
+    struct ExecutePreparedTransferPreparedOptions final {
+        ExecutePreparedTransferOptions execute;
+        OpenMetaResourcePolicy policy;
+        std::string edit_target_path;
+        std::string xmp_sidecar_base_path;
+        std::span<const std::byte> edit_target_bytes;
+        XmpExistingDestinationSidecarState xmp_existing_destination_sidecar_state
+            = XmpExistingDestinationSidecarState::Unknown;
+        XmpWritebackMode xmp_writeback_mode = XmpWritebackMode::EmbeddedOnly;
+        XmpDestinationEmbeddedMode xmp_destination_embedded_mode
+            = XmpDestinationEmbeddedMode::PreserveExisting;
+        XmpDestinationSidecarMode xmp_destination_sidecar_mode
+            = XmpDestinationSidecarMode::PreserveExisting;
+        bool c2pa_stage_requested = false;
+        PreparedTransferC2paSignerInput c2pa_signer_input;
+        bool c2pa_signed_package_provided = false;
+        PreparedTransferC2paSignedPackage c2pa_signed_package;
+    };
+
+    static ExecutePreparedTransferFileResult
+    execute_prepared_transfer_prepared_result(
+        ExecutePreparedTransferFileResult out,
+        const ExecutePreparedTransferPreparedOptions& options) noexcept
+    {
+        OpenMetaResourcePolicy policy = options.policy;
+        normalize_resource_policy(&policy);
+        const bool has_edit_target_bytes = !options.edit_target_bytes.empty();
+        const bool has_edit_target_path  = !options.edit_target_path.empty();
+        const bool has_existing_target_input
+            = has_edit_target_bytes || has_edit_target_path;
+
+        const bool strip_destination_embedded_xmp
+            = options.xmp_destination_embedded_mode
+              == XmpDestinationEmbeddedMode::StripExisting;
+        const bool strip_destination_sidecar
+            = options.xmp_destination_sidecar_mode
+              == XmpDestinationSidecarMode::StripExisting;
+        out.xmp_sidecar_requested
+            = options.xmp_writeback_mode != XmpWritebackMode::EmbeddedOnly;
+        const bool c2pa_stage_requested = options.c2pa_stage_requested
+                                          || options.c2pa_signed_package_provided;
+        const bool allow_sidecar_block_mutation
+            = !strip_destination_embedded_xmp;
+        out.execute.c2pa_stage_requested = c2pa_stage_requested;
+
+        if (out.xmp_sidecar_requested) {
+            const char* sidecar_base_path = nullptr;
+            if (!options.xmp_sidecar_base_path.empty()) {
+                sidecar_base_path = options.xmp_sidecar_base_path.c_str();
+            } else if (has_edit_target_path) {
+                sidecar_base_path = options.edit_target_path.c_str();
+            }
+            if (sidecar_base_path && *sidecar_base_path) {
+                std::string sidecar_a;
+                std::string sidecar_b;
+                xmp_sidecar_candidates(sidecar_base_path, &sidecar_a,
+                                       &sidecar_b);
+                out.xmp_sidecar_path = sidecar_a;
+            }
+            if (!out.prepared.bundle.generated_xmp_sidecar.empty()) {
+                out.xmp_sidecar_output
+                    = out.prepared.bundle.generated_xmp_sidecar;
+                out.xmp_sidecar_status = TransferStatus::Ok;
+                if (options.xmp_writeback_mode
+                        == XmpWritebackMode::SidecarOnly
+                    && allow_sidecar_block_mutation) {
+                    const uint32_t removed_xmp = remove_prepared_blocks_by_kind(
+                        &out.prepared.bundle, TransferBlockKind::Xmp);
+                    if (removed_xmp == 0U) {
+                        out.xmp_sidecar_message
+                            = out.xmp_sidecar_path.empty()
+                                  ? "prepared xmp sidecar bytes available "
+                                    "without embedded xmp carrier blocks or "
+                                    "a derived sidecar path"
+                                  : "prepared xmp sidecar bytes available "
+                                    "without embedded xmp carrier blocks";
+                    }
+                } else {
+                    out.xmp_sidecar_message
+                        = out.xmp_sidecar_path.empty()
+                              ? "prepared xmp sidecar bytes will be returned "
+                                "without a derived sidecar path"
+                              : "prepared xmp sidecar bytes will be written "
+                                "alongside embedded xmp carriers";
+                }
+            } else {
+                out.xmp_sidecar_status  = TransferStatus::Ok;
+                out.xmp_sidecar_message = "prepared bundle did not produce "
+                                          "xmp sidecar bytes";
+            }
+        }
+
+        if (out.prepared.file_status != TransferFileStatus::Ok
+            || (out.prepared.prepare.status != TransferStatus::Ok
+                && !c2pa_stage_requested)) {
+            if (c2pa_stage_requested) {
+                out.execute.c2pa_stage.status = TransferStatus::Unsupported;
+                out.execute.c2pa_stage.code   = EmitTransferCode::InvalidArgument;
+                out.execute.c2pa_stage.errors = 1U;
+                out.execute.c2pa_stage.message
+                    = "skipped c2pa sign staging due to read/prepare failure";
+            }
+            out.execute.compile = skipped_emit_result(
+                "skipped emit due to read/prepare failure");
+            out.execute.emit = out.execute.compile;
+            if (has_existing_target_input || options.execute.edit_requested) {
+                out.execute.edit_requested   = true;
+                out.execute.edit_plan_status = TransferStatus::Unsupported;
+                out.execute.edit_plan_message
+                    = "skipped edit due to read/prepare failure";
+                out.execute.edit_apply.status = TransferStatus::Unsupported;
+                out.execute.edit_apply.code   = EmitTransferCode::InvalidArgument;
+                out.execute.edit_apply.errors = 1U;
+                out.execute.edit_apply.message
+                    = "skipped edit due to read/prepare failure";
+            }
+            if (out.xmp_sidecar_requested
+                && out.xmp_sidecar_status == TransferStatus::Ok
+                && out.xmp_sidecar_output.empty()) {
+                out.xmp_sidecar_status = TransferStatus::Unsupported;
+                out.xmp_sidecar_message
+                    = "skipped xmp sidecar writeback due to read/prepare failure";
+            }
+            return out;
+        }
+
+        if (out.prepared.bundle.target_format == TransferTargetFormat::Dng
+            && dng_target_mode_requires_existing_target(
+                out.prepared.bundle.dng_target_mode)
+            && !has_existing_target_input) {
+            const char* const message
+                = dng_target_mode_requires_existing_target_message(
+                    out.prepared.bundle.dng_target_mode, true);
+            out.execute.compile = skipped_emit_result(
+                "skipped emit due to missing required DNG target input");
+            out.execute.emit                = out.execute.compile;
+            out.execute.edit_requested      = true;
+            out.execute.edit_plan_status    = TransferStatus::InvalidArgument;
+            out.execute.edit_plan_message   = message;
+            out.execute.edit_apply.status   = TransferStatus::InvalidArgument;
+            out.execute.edit_apply.code     = EmitTransferCode::InvalidArgument;
+            out.execute.edit_apply.errors   = 1U;
+            out.execute.edit_apply.message  = message;
+            if (out.xmp_sidecar_requested) {
+                out.xmp_sidecar_status  = TransferStatus::Unsupported;
+                out.xmp_sidecar_message = message;
+                out.xmp_sidecar_output.clear();
+            }
+            return out;
+        }
+
+        if (strip_destination_sidecar) {
+            const char* sidecar_base_path = nullptr;
+            if (!options.xmp_sidecar_base_path.empty()) {
+                sidecar_base_path = options.xmp_sidecar_base_path.c_str();
+            } else if (has_edit_target_path) {
+                sidecar_base_path = options.edit_target_path.c_str();
+            }
+            if (options.xmp_writeback_mode
+                       != XmpWritebackMode::EmbeddedOnly) {
+                if (sidecar_base_path && *sidecar_base_path) {
+                    find_existing_xmp_sidecar_path(sidecar_base_path,
+                                                   &out.xmp_sidecar_cleanup_path);
+                }
+                out.xmp_sidecar_cleanup_status = TransferStatus::Unsupported;
+                out.xmp_sidecar_cleanup_message
+                    = "destination xmp sidecar strip mode is currently "
+                      "supported only for embedded writeback";
+            } else if (options.xmp_existing_destination_sidecar_state
+                       == XmpExistingDestinationSidecarState::Present) {
+                if (sidecar_base_path && *sidecar_base_path) {
+                    (void)find_existing_xmp_sidecar_path(
+                        sidecar_base_path, &out.xmp_sidecar_cleanup_path);
+                }
+                out.xmp_sidecar_cleanup_status    = TransferStatus::Ok;
+                out.xmp_sidecar_cleanup_requested = true;
+                out.xmp_sidecar_cleanup_message
+                    = out.xmp_sidecar_cleanup_path.empty()
+                          ? "host reported existing destination xmp sidecar "
+                            "should be removed"
+                          : "existing destination xmp sidecar should be removed";
+            } else if (options.xmp_existing_destination_sidecar_state
+                       == XmpExistingDestinationSidecarState::NotPresent) {
+                out.xmp_sidecar_cleanup_status = TransferStatus::Ok;
+                out.xmp_sidecar_cleanup_message
+                    = "host reported no existing destination xmp sidecar";
+            } else if (!sidecar_base_path || !*sidecar_base_path) {
+                out.xmp_sidecar_cleanup_status = TransferStatus::Unsupported;
+                out.xmp_sidecar_cleanup_message
+                    = "destination xmp sidecar strip mode requires "
+                      "xmp_existing_destination_sidecar_state, "
+                      "edit_target_path, or xmp_sidecar_base_path";
+            } else {
+                const bool found_existing_sidecar = find_existing_xmp_sidecar_path(
+                    sidecar_base_path, &out.xmp_sidecar_cleanup_path);
+                out.xmp_sidecar_cleanup_status = TransferStatus::Ok;
+                if (found_existing_sidecar) {
+                    out.xmp_sidecar_cleanup_requested = true;
+                    out.xmp_sidecar_cleanup_message
+                        = "existing destination xmp sidecar should be removed";
+                } else {
+                    out.xmp_sidecar_cleanup_message
+                        = "no existing destination xmp sidecar detected";
+                }
+            }
+        }
+
+        if (strip_destination_embedded_xmp
+            && has_existing_target_input) {
+            const TransferTargetFormat target_format
+                = out.prepared.bundle.target_format;
+            const bool supported_strip_mode
+                = options.xmp_writeback_mode == XmpWritebackMode::SidecarOnly
+                  && (target_format == TransferTargetFormat::Jpeg
+                      || transfer_target_is_tiff_family(target_format)
+                      || target_format == TransferTargetFormat::Png
+                      || target_format == TransferTargetFormat::Webp
+                      || target_format == TransferTargetFormat::Jp2
+                      || target_format == TransferTargetFormat::Jxl
+                      || transfer_target_is_bmff(target_format));
+            if (!supported_strip_mode) {
+                const char* const message
+                    = "destination embedded xmp strip mode is currently "
+                      "supported only for jpeg, tiff, dng, png, webp, jp2, jxl, "
+                      "and bmff sidecar-only writeback";
+                out.execute.compile = skipped_emit_result(
+                    "skipped emit due to unsupported destination embedded xmp "
+                    "policy");
+                out.execute.emit = out.execute.compile;
+                out.execute.edit_requested   = true;
+                out.execute.edit_plan_status = TransferStatus::Unsupported;
+                out.execute.edit_plan_message = message;
+                out.execute.edit_apply.status = TransferStatus::Unsupported;
+                out.execute.edit_apply.code   = EmitTransferCode::InvalidArgument;
+                out.execute.edit_apply.errors = 1U;
+                out.execute.edit_apply.message = message;
+                if (out.xmp_sidecar_requested) {
+                    out.xmp_sidecar_status  = TransferStatus::Unsupported;
+                    out.xmp_sidecar_message = message;
+                    out.xmp_sidecar_output.clear();
+                }
+                return out;
+            }
+            if (options.xmp_writeback_mode == XmpWritebackMode::SidecarOnly
+                && !out.xmp_sidecar_output.empty()) {
+                const uint32_t removed_xmp = remove_prepared_blocks_by_kind(
+                    &out.prepared.bundle, TransferBlockKind::Xmp);
+                if (removed_xmp == 0U && out.xmp_sidecar_message.empty()) {
+                    out.xmp_sidecar_message
+                        = "prepared xmp sidecar bytes available without "
+                          "embedded xmp carrier blocks";
+                }
+            }
+        }
+
+        if (c2pa_stage_requested) {
+            if (options.c2pa_signed_package_provided) {
+                out.execute.c2pa_stage_validation
+                    = validate_prepared_c2pa_signed_package(
+                        out.prepared.bundle, options.c2pa_signed_package);
+                out.execute.c2pa_stage = apply_prepared_c2pa_signed_package(
+                    &out.prepared.bundle, options.c2pa_signed_package);
+            } else {
+                PreparedTransferC2paSignRequest request;
+                const TransferStatus request_status
+                    = build_prepared_c2pa_sign_request(out.prepared.bundle,
+                                                       &request);
+                if (request_status != TransferStatus::Ok) {
+                    out.execute.c2pa_stage.status = request_status;
+                    out.execute.c2pa_stage.code
+                        = EmitTransferCode::InvalidArgument;
+                    out.execute.c2pa_stage.errors = 1U;
+                    out.execute.c2pa_stage.message
+                        = request.message.empty()
+                              ? "failed to build c2pa sign request"
+                              : request.message;
+                    out.execute.compile = skipped_emit_result(
+                        "skipped emit due to c2pa sign staging failure");
+                    out.execute.emit = out.execute.compile;
+                    if (has_existing_target_input
+                        || options.execute.edit_requested) {
+                        out.execute.edit_requested   = true;
+                        out.execute.edit_plan_status = TransferStatus::Unsupported;
+                        out.execute.edit_plan_message
+                            = "skipped edit due to c2pa sign staging failure";
+                        out.execute.edit_apply.status
+                            = TransferStatus::Unsupported;
+                        out.execute.edit_apply.code
+                            = EmitTransferCode::InvalidArgument;
+                        out.execute.edit_apply.errors = 1U;
+                        out.execute.edit_apply.message
+                            = "skipped edit due to c2pa sign staging failure";
+                    }
+                    return out;
+                }
+
+                out.execute.c2pa_stage_validation
+                    = validate_prepared_c2pa_sign_result(
+                        out.prepared.bundle, request,
+                        options.c2pa_signer_input);
+                out.execute.c2pa_stage
+                    = apply_prepared_c2pa_sign_result(
+                        &out.prepared.bundle, request,
+                        options.c2pa_signer_input);
+            }
+            if (out.execute.c2pa_stage.status != TransferStatus::Ok) {
+                out.execute.compile = skipped_emit_result(
+                    "skipped emit due to c2pa sign staging failure");
+                out.execute.emit = out.execute.compile;
+                if (has_existing_target_input
+                    || options.execute.edit_requested) {
+                    out.execute.edit_requested   = true;
+                    out.execute.edit_plan_status = TransferStatus::Unsupported;
+                    out.execute.edit_plan_message
+                        = "skipped edit due to c2pa sign staging failure";
+                    out.execute.edit_apply.status = TransferStatus::Unsupported;
+                    out.execute.edit_apply.code
+                        = EmitTransferCode::InvalidArgument;
+                    out.execute.edit_apply.errors = 1U;
+                    out.execute.edit_apply.message
+                        = "skipped edit due to c2pa sign staging failure";
+                }
+                return out;
+            }
+        }
+
+        if (has_edit_target_bytes) {
+            ExecutePreparedTransferOptions execute_options = options.execute;
+            execute_options.edit_requested                 = true;
+            if (strip_destination_embedded_xmp
+                && options.xmp_writeback_mode
+                       == XmpWritebackMode::SidecarOnly) {
+                execute_options.strip_existing_xmp = true;
+                if (out.prepared.bundle.target_format
+                    == TransferTargetFormat::Jpeg) {
+                    execute_options.jpeg_edit.strip_existing_xmp = true;
+                }
+                if (transfer_target_is_tiff_family(
+                        out.prepared.bundle.target_format)) {
+                    execute_options.tiff_edit.strip_existing_xmp = true;
+                }
+            }
+            ExecutePreparedTransferResult execute = execute_prepared_transfer(
+                &out.prepared.bundle, options.edit_target_bytes,
+                execute_options);
+            execute.c2pa_stage_requested  = out.execute.c2pa_stage_requested;
+            execute.c2pa_stage            = out.execute.c2pa_stage;
+            execute.c2pa_stage_validation = out.execute.c2pa_stage_validation;
+            out.execute                   = std::move(execute);
+            return out;
+        }
+
+        if (has_edit_target_path) {
+            MappedFile edit_file;
+            const MappedFileStatus edit_status
+                = edit_file.open(options.edit_target_path.c_str(),
+                                 policy.max_file_bytes);
+            if (edit_status != MappedFileStatus::Ok) {
+                ExecutePreparedTransferOptions execute_options = options.execute;
+                execute_options.edit_requested                 = false;
+                ExecutePreparedTransferResult execute
+                    = execute_prepared_transfer(&out.prepared.bundle, {},
+                                                execute_options);
+                execute.c2pa_stage_requested
+                    = out.execute.c2pa_stage_requested;
+                execute.c2pa_stage = out.execute.c2pa_stage;
+                execute.c2pa_stage_validation
+                    = out.execute.c2pa_stage_validation;
+                out.execute = std::move(execute);
+                out.execute.edit_requested = true;
+                out.execute.edit_plan_status
+                    = map_mapped_file_status_to_transfer(edit_status);
+                out.execute.edit_plan_message
+                    = edit_target_file_error(edit_status);
+                out.execute.edit_apply.status = out.execute.edit_plan_status;
+                out.execute.edit_apply.code   = EmitTransferCode::InvalidArgument;
+                out.execute.edit_apply.errors = 1U;
+                out.execute.edit_apply.message
+                    = out.execute.edit_plan_message;
+                return out;
+            }
+
+            ExecutePreparedTransferOptions execute_options = options.execute;
+            execute_options.edit_requested                 = true;
+            if (strip_destination_embedded_xmp
+                && options.xmp_writeback_mode
+                       == XmpWritebackMode::SidecarOnly) {
+                execute_options.strip_existing_xmp = true;
+                if (out.prepared.bundle.target_format
+                    == TransferTargetFormat::Jpeg) {
+                    execute_options.jpeg_edit.strip_existing_xmp = true;
+                }
+                if (transfer_target_is_tiff_family(
+                        out.prepared.bundle.target_format)) {
+                    execute_options.tiff_edit.strip_existing_xmp = true;
+                }
+            }
+            ExecutePreparedTransferResult execute = execute_prepared_transfer(
+                &out.prepared.bundle, edit_file.bytes(), execute_options);
+            execute.c2pa_stage_requested  = out.execute.c2pa_stage_requested;
+            execute.c2pa_stage            = out.execute.c2pa_stage;
+            execute.c2pa_stage_validation = out.execute.c2pa_stage_validation;
+            out.execute                   = std::move(execute);
+            return out;
+        }
+
+        ExecutePreparedTransferResult execute
+            = execute_prepared_transfer(&out.prepared.bundle, {},
+                                        options.execute);
+        execute.c2pa_stage_requested  = out.execute.c2pa_stage_requested;
+        execute.c2pa_stage            = out.execute.c2pa_stage;
+        execute.c2pa_stage_validation = out.execute.c2pa_stage_validation;
+        out.execute                   = std::move(execute);
+        return out;
+    }
+
+}  // namespace
+
 ExecutePreparedTransferFileResult
 execute_prepared_transfer_file(
     const char* path,
     const ExecutePreparedTransferFileOptions& options) noexcept
 {
     ExecutePreparedTransferFileResult out;
-    const bool strip_destination_embedded_xmp
-        = options.xmp_destination_embedded_mode
-          == XmpDestinationEmbeddedMode::StripExisting;
-    const bool strip_destination_sidecar
-        = options.xmp_destination_sidecar_mode
-          == XmpDestinationSidecarMode::StripExisting;
-    out.xmp_sidecar_requested
-        = options.xmp_writeback_mode != XmpWritebackMode::EmbeddedOnly;
-    const bool c2pa_stage_requested = options.c2pa_stage_requested
-                                      || options.c2pa_signed_package_provided;
-    const bool allow_sidecar_block_mutation = !strip_destination_embedded_xmp;
-    out.execute.c2pa_stage_requested = c2pa_stage_requested;
     PrepareTransferFileOptions prepare_options = options.prepare;
     if (options.xmp_existing_destination_embedded_mode
         == XmpExistingDestinationEmbeddedMode::MergeIfPresent) {
@@ -24800,311 +25570,345 @@ execute_prepared_transfer_file(
     out.xmp_existing_destination_embedded_path
         = out.prepared.xmp_existing_destination_embedded_path;
 
-    if (out.xmp_sidecar_requested) {
-        if (options.edit_target_path.empty()) {
-            out.xmp_sidecar_status = TransferStatus::Unsupported;
-            out.xmp_sidecar_message
-                = "xmp sidecar writeback requires edit_target_path";
-        } else {
-            const char* sidecar_base_path = options.edit_target_path.c_str();
-            if (!options.xmp_sidecar_base_path.empty()) {
-                sidecar_base_path = options.xmp_sidecar_base_path.c_str();
-            }
-            std::string sidecar_a;
-            std::string sidecar_b;
-            xmp_sidecar_candidates(sidecar_base_path, &sidecar_a,
-                                   &sidecar_b);
-            out.xmp_sidecar_path = sidecar_a;
-            if (!out.prepared.bundle.generated_xmp_sidecar.empty()) {
-                out.xmp_sidecar_output = out.prepared.bundle.generated_xmp_sidecar;
-                out.xmp_sidecar_status = TransferStatus::Ok;
-                if (options.xmp_writeback_mode
-                        == XmpWritebackMode::SidecarOnly
-                    && allow_sidecar_block_mutation) {
-                    const uint32_t removed_xmp
-                        = remove_prepared_blocks_by_kind(
-                            &out.prepared.bundle, TransferBlockKind::Xmp);
-                    if (removed_xmp == 0U) {
-                        out.xmp_sidecar_message
-                            = "prepared xmp sidecar bytes available without "
-                              "embedded xmp carrier blocks";
+    ExecutePreparedTransferPreparedOptions execute_options;
+    execute_options.execute                    = options.execute;
+    execute_options.policy                     = options.prepare.policy;
+    execute_options.edit_target_path           = options.edit_target_path;
+    execute_options.xmp_sidecar_base_path      = options.xmp_sidecar_base_path;
+    execute_options.xmp_writeback_mode         = options.xmp_writeback_mode;
+    execute_options.xmp_existing_destination_sidecar_state
+        = options.xmp_existing_destination_sidecar_state;
+    execute_options.xmp_destination_embedded_mode
+        = options.xmp_destination_embedded_mode;
+    execute_options.xmp_destination_sidecar_mode
+        = options.xmp_destination_sidecar_mode;
+    execute_options.c2pa_stage_requested
+        = options.c2pa_stage_requested;
+    execute_options.c2pa_signer_input
+        = options.c2pa_signer_input;
+    execute_options.c2pa_signed_package_provided
+        = options.c2pa_signed_package_provided;
+    execute_options.c2pa_signed_package
+        = options.c2pa_signed_package;
+    return execute_prepared_transfer_prepared_result(
+        std::move(out), execute_options);
+}
+
+namespace {
+
+    static ExecutePreparedTransferFileResult
+    prepare_execute_prepared_transfer_snapshot_result(
+        const TransferSourceSnapshot& snapshot,
+        const ExecutePreparedTransferSnapshotOptions& options,
+        std::span<const std::byte> target_bytes) noexcept
+    {
+        ExecutePreparedTransferFileResult out;
+        out.prepared.file_status = TransferFileStatus::Ok;
+        out.prepared.code        = PrepareTransferFileCode::None;
+        out.prepared.entry_count
+            = static_cast<uint32_t>(snapshot.store.entries().size());
+
+        OpenMetaResourcePolicy policy = options.policy;
+        normalize_resource_policy(&policy);
+
+        SimpleMetaDecodeOptions decode_options;
+        apply_resource_policy(policy, &decode_options.xmp, nullptr, nullptr,
+                              nullptr, nullptr, nullptr);
+        decode_options.xmp.malformed_mode
+            = XmpDecodeMalformedMode::OutputTruncated;
+
+        std::vector<std::byte> existing_xmp_sidecar_bytes;
+        MetaStore store;
+        const bool merge_existing_sidecar
+            = options.xmp_existing_sidecar_mode
+              == XmpExistingSidecarMode::MergeIfPresent;
+        const bool sidecar_source_precedence
+            = options.xmp_existing_sidecar_precedence
+              == XmpExistingSidecarPrecedence::SourceWins;
+        const bool merge_destination_embedded
+            = options.xmp_existing_destination_embedded_mode
+              == XmpExistingDestinationEmbeddedMode::MergeIfPresent;
+        const bool destination_embedded_source_precedence
+            = options.xmp_existing_destination_embedded_precedence
+              == XmpExistingDestinationEmbeddedPrecedence::SourceWins;
+        const XmpExistingDestinationCarrierPrecedence
+            destination_carrier_precedence
+            = options.xmp_existing_destination_carrier_precedence;
+        std::string existing_sidecar_base_path
+            = options.xmp_existing_sidecar_base_path;
+        if (existing_sidecar_base_path.empty()) {
+            existing_sidecar_base_path = options.edit_target_path;
+        }
+        const bool use_target_bytes_for_destination_embedded
+            = merge_destination_embedded
+              && options.xmp_existing_destination_embedded_path.empty()
+              && !target_bytes.empty();
+        std::string destination_embedded_path
+            = options.xmp_existing_destination_embedded_path;
+        if (merge_existing_sidecar && !existing_sidecar_base_path.empty()) {
+            (void)load_existing_xmp_sidecar_bytes(
+                existing_sidecar_base_path.c_str(), policy.max_file_bytes,
+                &out.prepared.xmp_existing_sidecar_path,
+                &existing_xmp_sidecar_bytes,
+                &out.prepared.xmp_existing_sidecar_status,
+                &out.prepared.xmp_existing_sidecar_message);
+        } else if (merge_existing_sidecar) {
+            out.prepared.xmp_existing_sidecar_loaded = false;
+            out.prepared.xmp_existing_sidecar_status
+                = TransferStatus::Unsupported;
+            out.prepared.xmp_existing_sidecar_message
+                = "existing xmp sidecar merge requires "
+                  "xmp_existing_sidecar_base_path or edit_target_path";
+        }
+        if (destination_embedded_path.empty() && !target_bytes.empty()) {
+            destination_embedded_path.clear();
+        } else if (destination_embedded_path.empty()) {
+            destination_embedded_path = options.edit_target_path;
+        }
+        if (merge_destination_embedded
+            && !use_target_bytes_for_destination_embedded
+            && destination_embedded_path.empty()) {
+            out.xmp_existing_destination_embedded_loaded = false;
+            out.xmp_existing_destination_embedded_status
+                = TransferStatus::Unsupported;
+            out.xmp_existing_destination_embedded_message
+                = "existing destination embedded xmp merge requires "
+                  "target bytes or edit_target_path";
+        }
+
+        auto merge_existing_sidecar_into_store =
+            [&](bool preserve_store_on_failure) noexcept {
+                if (existing_xmp_sidecar_bytes.empty()) {
+                    return;
+                }
+                decode_existing_xmp_sidecar_into_store(
+                    std::span<const std::byte>(
+                        existing_xmp_sidecar_bytes.data(),
+                        existing_xmp_sidecar_bytes.size()),
+                    decode_options.xmp, preserve_store_on_failure, &store,
+                    &out.prepared.xmp_existing_sidecar_loaded,
+                    &out.prepared.xmp_existing_sidecar_status,
+                    &out.prepared.xmp_existing_sidecar_message);
+                if (!out.prepared.xmp_existing_sidecar_loaded) {
+                    existing_xmp_sidecar_bytes.clear();
+                }
+            };
+
+        auto merge_existing_destination_embedded_into_store =
+            [&](bool preserve_store_on_failure) noexcept {
+                if (!merge_destination_embedded) {
+                    return;
+                }
+                if (use_target_bytes_for_destination_embedded) {
+                    decode_existing_destination_embedded_xmp_bytes_into_store(
+                        target_bytes, policy, decode_options.xmp,
+                        preserve_store_on_failure, &store,
+                        &out.xmp_existing_destination_embedded_loaded,
+                        &out.xmp_existing_destination_embedded_status,
+                        &out.xmp_existing_destination_embedded_message);
+                    return;
+                }
+                if (!destination_embedded_path.empty()) {
+                    decode_existing_destination_embedded_xmp_into_store(
+                        destination_embedded_path.c_str(), policy,
+                        decode_options.xmp, preserve_store_on_failure, &store,
+                        &out.xmp_existing_destination_embedded_loaded,
+                        &out.xmp_existing_destination_embedded_status,
+                        &out.xmp_existing_destination_embedded_message);
+                    out.xmp_existing_destination_embedded_path
+                        = destination_embedded_path;
+                }
+            };
+
+        auto apply_existing_xmp_merge_stage =
+            [&](bool after_source, bool preserve_store_on_failure) noexcept {
+                const bool merge_sidecar_now
+                    = !existing_xmp_sidecar_bytes.empty()
+                      && sidecar_source_precedence == after_source;
+                const bool merge_destination_embedded_now
+                    = merge_destination_embedded
+                      && destination_embedded_source_precedence == after_source;
+                if (merge_sidecar_now && merge_destination_embedded_now) {
+                    if (destination_carrier_precedence
+                        == XmpExistingDestinationCarrierPrecedence::
+                               SidecarWins) {
+                        merge_existing_sidecar_into_store(
+                            preserve_store_on_failure);
+                        merge_existing_destination_embedded_into_store(
+                            preserve_store_on_failure);
+                    } else {
+                        merge_existing_destination_embedded_into_store(
+                            preserve_store_on_failure);
+                        merge_existing_sidecar_into_store(
+                            preserve_store_on_failure);
                     }
-                } else {
-                    out.xmp_sidecar_message
-                        = "prepared xmp sidecar bytes will be written "
-                          "alongside embedded xmp carriers";
+                    return;
                 }
-            } else {
-                out.xmp_sidecar_status  = TransferStatus::Ok;
-                out.xmp_sidecar_message = "prepared bundle did not produce xmp "
-                                          "sidecar bytes";
-            }
-        }
-    }
-
-    if (out.prepared.file_status != TransferFileStatus::Ok
-        || (out.prepared.prepare.status != TransferStatus::Ok
-            && !c2pa_stage_requested)) {
-        if (c2pa_stage_requested) {
-            out.execute.c2pa_stage.status = TransferStatus::Unsupported;
-            out.execute.c2pa_stage.code   = EmitTransferCode::InvalidArgument;
-            out.execute.c2pa_stage.errors = 1U;
-            out.execute.c2pa_stage.message
-                = "skipped c2pa sign staging due to read/prepare failure";
-        }
-        out.execute.compile = skipped_emit_result(
-            "skipped emit due to read/prepare failure");
-        out.execute.emit = out.execute.compile;
-        if (!options.edit_target_path.empty()
-            || options.execute.edit_requested) {
-            out.execute.edit_requested   = true;
-            out.execute.edit_plan_status = TransferStatus::Unsupported;
-            out.execute.edit_plan_message
-                = "skipped edit due to read/prepare failure";
-            out.execute.edit_apply.status = TransferStatus::Unsupported;
-            out.execute.edit_apply.code   = EmitTransferCode::InvalidArgument;
-            out.execute.edit_apply.errors = 1U;
-            out.execute.edit_apply.message
-                = "skipped edit due to read/prepare failure";
-        }
-        if (out.xmp_sidecar_requested
-            && out.xmp_sidecar_status == TransferStatus::Ok
-            && out.xmp_sidecar_output.empty()) {
-            out.xmp_sidecar_status = TransferStatus::Unsupported;
-            out.xmp_sidecar_message
-                = "skipped xmp sidecar writeback due to read/prepare failure";
-        }
-        return out;
-    }
-
-    if (out.prepared.bundle.target_format == TransferTargetFormat::Dng
-        && dng_target_mode_requires_existing_target(
-            out.prepared.bundle.dng_target_mode)
-        && options.edit_target_path.empty()) {
-        const char* const message = dng_target_mode_requires_path_message(
-            out.prepared.bundle.dng_target_mode);
-        out.execute.compile = skipped_emit_result(
-            "skipped emit due to missing required DNG target path");
-        out.execute.emit                = out.execute.compile;
-        out.execute.edit_requested      = true;
-        out.execute.edit_plan_status    = TransferStatus::InvalidArgument;
-        out.execute.edit_plan_message   = message;
-        out.execute.edit_apply.status   = TransferStatus::InvalidArgument;
-        out.execute.edit_apply.code     = EmitTransferCode::InvalidArgument;
-        out.execute.edit_apply.errors   = 1U;
-        out.execute.edit_apply.message  = message;
-        if (out.xmp_sidecar_requested) {
-            out.xmp_sidecar_status  = TransferStatus::Unsupported;
-            out.xmp_sidecar_message = message;
-            out.xmp_sidecar_output.clear();
-        }
-        return out;
-    }
-
-    if (strip_destination_sidecar) {
-        const char* sidecar_base_path = nullptr;
-        if (!options.xmp_sidecar_base_path.empty()) {
-            sidecar_base_path = options.xmp_sidecar_base_path.c_str();
-        } else if (!options.edit_target_path.empty()) {
-            sidecar_base_path = options.edit_target_path.c_str();
-        }
-        if (!sidecar_base_path || !*sidecar_base_path) {
-            out.xmp_sidecar_cleanup_status = TransferStatus::Unsupported;
-            out.xmp_sidecar_cleanup_message
-                = "destination xmp sidecar strip mode requires "
-                  "edit_target_path or xmp_sidecar_base_path";
-        } else if (options.xmp_writeback_mode
-                   != XmpWritebackMode::EmbeddedOnly) {
-            find_existing_xmp_sidecar_path(sidecar_base_path,
-                                           &out.xmp_sidecar_cleanup_path);
-            out.xmp_sidecar_cleanup_status = TransferStatus::Unsupported;
-            out.xmp_sidecar_cleanup_message
-                = "destination xmp sidecar strip mode is currently "
-                  "supported only for embedded writeback";
-        } else {
-            const bool found_existing_sidecar = find_existing_xmp_sidecar_path(
-                sidecar_base_path, &out.xmp_sidecar_cleanup_path);
-            out.xmp_sidecar_cleanup_status = TransferStatus::Ok;
-            if (found_existing_sidecar) {
-                out.xmp_sidecar_cleanup_requested = true;
-                out.xmp_sidecar_cleanup_message
-                    = "existing destination xmp sidecar should be removed";
-            } else {
-                out.xmp_sidecar_cleanup_message
-                    = "no existing destination xmp sidecar detected";
-            }
-        }
-    }
-
-    if (strip_destination_embedded_xmp && !options.edit_target_path.empty()) {
-        const TransferTargetFormat target_format = out.prepared.bundle.target_format;
-        const bool supported_strip_mode
-            = options.xmp_writeback_mode == XmpWritebackMode::SidecarOnly
-              && (target_format == TransferTargetFormat::Jpeg
-                  || transfer_target_is_tiff_family(target_format)
-                  || target_format == TransferTargetFormat::Png
-                  || target_format == TransferTargetFormat::Webp
-                  || target_format == TransferTargetFormat::Jp2
-                  || target_format == TransferTargetFormat::Jxl
-                  || transfer_target_is_bmff(target_format));
-        if (!supported_strip_mode) {
-            const char* const message
-                = "destination embedded xmp strip mode is currently "
-                  "supported only for jpeg, tiff, dng, png, webp, jp2, jxl, "
-                  "and bmff sidecar-only writeback";
-            out.execute.compile = skipped_emit_result(
-                "skipped emit due to unsupported destination embedded xmp "
-                "policy");
-            out.execute.emit = out.execute.compile;
-            out.execute.edit_requested   = true;
-            out.execute.edit_plan_status = TransferStatus::Unsupported;
-            out.execute.edit_plan_message = message;
-            out.execute.edit_apply.status = TransferStatus::Unsupported;
-            out.execute.edit_apply.code   = EmitTransferCode::InvalidArgument;
-            out.execute.edit_apply.errors = 1U;
-            out.execute.edit_apply.message = message;
-            if (out.xmp_sidecar_requested) {
-                out.xmp_sidecar_status  = TransferStatus::Unsupported;
-                out.xmp_sidecar_message = message;
-                out.xmp_sidecar_output.clear();
-            }
-            return out;
-        }
-        if (options.xmp_writeback_mode == XmpWritebackMode::SidecarOnly
-            && !out.xmp_sidecar_output.empty()) {
-            const uint32_t removed_xmp = remove_prepared_blocks_by_kind(
-                &out.prepared.bundle, TransferBlockKind::Xmp);
-            if (removed_xmp == 0U && out.xmp_sidecar_message.empty()) {
-                out.xmp_sidecar_message
-                    = "prepared xmp sidecar bytes available without "
-                      "embedded xmp carrier blocks";
-            }
-        }
-    }
-
-    if (c2pa_stage_requested) {
-        if (options.c2pa_signed_package_provided) {
-            out.execute.c2pa_stage_validation
-                = validate_prepared_c2pa_signed_package(
-                    out.prepared.bundle, options.c2pa_signed_package);
-            out.execute.c2pa_stage = apply_prepared_c2pa_signed_package(
-                &out.prepared.bundle, options.c2pa_signed_package);
-        } else {
-            PreparedTransferC2paSignRequest request;
-            const TransferStatus request_status
-                = build_prepared_c2pa_sign_request(out.prepared.bundle,
-                                                   &request);
-            if (request_status != TransferStatus::Ok) {
-                out.execute.c2pa_stage.status = request_status;
-                out.execute.c2pa_stage.code = EmitTransferCode::InvalidArgument;
-                out.execute.c2pa_stage.errors = 1U;
-                out.execute.c2pa_stage.message
-                    = request.message.empty()
-                          ? "failed to build c2pa sign request"
-                          : request.message;
-                out.execute.compile = skipped_emit_result(
-                    "skipped emit due to c2pa sign staging failure");
-                out.execute.emit = out.execute.compile;
-                if (!options.edit_target_path.empty()
-                    || options.execute.edit_requested) {
-                    out.execute.edit_requested   = true;
-                    out.execute.edit_plan_status = TransferStatus::Unsupported;
-                    out.execute.edit_plan_message
-                        = "skipped edit due to c2pa sign staging failure";
-                    out.execute.edit_apply.status = TransferStatus::Unsupported;
-                    out.execute.edit_apply.code
-                        = EmitTransferCode::InvalidArgument;
-                    out.execute.edit_apply.errors = 1U;
-                    out.execute.edit_apply.message
-                        = "skipped edit due to c2pa sign staging failure";
+                if (merge_sidecar_now) {
+                    merge_existing_sidecar_into_store(
+                        preserve_store_on_failure);
                 }
-                return out;
+                if (merge_destination_embedded_now) {
+                    merge_existing_destination_embedded_into_store(
+                        preserve_store_on_failure);
+                }
+            };
+
+        apply_existing_xmp_merge_stage(false, false);
+
+        if (!append_entries_from_store(snapshot.store, &store, nullptr)) {
+            out.prepared.file_status    = TransferFileStatus::ReadFailed;
+            out.prepared.code           = PrepareTransferFileCode::DecodeFailed;
+            out.prepared.prepare.status = TransferStatus::InternalError;
+            out.prepared.prepare.errors = 1U;
+            out.prepared.prepare.message
+                = "failed to copy source snapshot into transfer store";
+        } else {
+            apply_existing_xmp_merge_stage(true, true);
+            if (merge_destination_embedded
+                && !use_target_bytes_for_destination_embedded
+                && out.xmp_existing_destination_embedded_path.empty()) {
+                out.xmp_existing_destination_embedded_path
+                    = destination_embedded_path;
             }
 
-            out.execute.c2pa_stage_validation
-                = validate_prepared_c2pa_sign_result(out.prepared.bundle,
-                                                     request,
-                                                     options.c2pa_signer_input);
-            out.execute.c2pa_stage
-                = apply_prepared_c2pa_sign_result(&out.prepared.bundle, request,
-                                                  options.c2pa_signer_input);
-        }
-        if (out.execute.c2pa_stage.status != TransferStatus::Ok) {
-            out.execute.compile = skipped_emit_result(
-                "skipped emit due to c2pa sign staging failure");
-            out.execute.emit = out.execute.compile;
-            if (!options.edit_target_path.empty()
-                || options.execute.edit_requested) {
-                out.execute.edit_requested   = true;
-                out.execute.edit_plan_status = TransferStatus::Unsupported;
-                out.execute.edit_plan_message
-                    = "skipped edit due to c2pa sign staging failure";
-                out.execute.edit_apply.status = TransferStatus::Unsupported;
-                out.execute.edit_apply.code = EmitTransferCode::InvalidArgument;
-                out.execute.edit_apply.errors = 1U;
-                out.execute.edit_apply.message
-                    = "skipped edit due to c2pa sign staging failure";
+            store.finalize();
+            out.prepared.entry_count
+                = static_cast<uint32_t>(store.entries().size());
+            PrepareTransferRequest request = options.prepare;
+            if (merge_existing_sidecar || merge_destination_embedded) {
+                request.xmp_include_existing = true;
             }
-            return out;
-        }
-    }
-
-    if (!options.edit_target_path.empty()) {
-        MappedFile edit_file;
-        const MappedFileStatus edit_status
-            = edit_file.open(options.edit_target_path.c_str(),
-                             options.prepare.policy.max_file_bytes);
-        if (edit_status != MappedFileStatus::Ok) {
-            ExecutePreparedTransferOptions execute_options = options.execute;
-            execute_options.edit_requested                 = false;
-            ExecutePreparedTransferResult execute
-                = execute_prepared_transfer(&out.prepared.bundle, {},
-                                            execute_options);
-            execute.c2pa_stage_requested  = out.execute.c2pa_stage_requested;
-            execute.c2pa_stage            = out.execute.c2pa_stage;
-            execute.c2pa_stage_validation = out.execute.c2pa_stage_validation;
-            out.execute                   = std::move(execute);
-            out.execute.edit_requested    = true;
-            out.execute.edit_plan_status  = map_mapped_file_status_to_transfer(
-                edit_status);
-            out.execute.edit_plan_message = edit_target_file_error(edit_status);
-            out.execute.edit_apply.status = out.execute.edit_plan_status;
-            out.execute.edit_apply.code   = EmitTransferCode::InvalidArgument;
-            out.execute.edit_apply.errors = 1U;
-            out.execute.edit_apply.message = out.execute.edit_plan_message;
-            return out;
+            out.prepared.prepare = prepare_metadata_for_target(
+                store, request, &out.prepared.bundle);
+            if (merge_existing_sidecar
+                && !out.prepared.xmp_existing_sidecar_message.empty()
+                && out.prepared.xmp_existing_sidecar_status
+                       != TransferStatus::Ok) {
+                out.prepared.prepare.warnings += 1U;
+                append_message(&out.prepared.prepare.message,
+                               out.prepared.xmp_existing_sidecar_message);
+            }
+            if (merge_destination_embedded
+                && !out.xmp_existing_destination_embedded_message.empty()
+                && out.xmp_existing_destination_embedded_status
+                       != TransferStatus::Ok) {
+                out.prepared.prepare.warnings += 1U;
+                append_message(&out.prepared.prepare.message,
+                               out.xmp_existing_destination_embedded_message);
+            }
         }
 
-        ExecutePreparedTransferOptions execute_options = options.execute;
-        execute_options.edit_requested                 = true;
-        if (strip_destination_embedded_xmp
-            && options.xmp_writeback_mode == XmpWritebackMode::SidecarOnly) {
-            execute_options.strip_existing_xmp = true;
-            if (out.prepared.bundle.target_format == TransferTargetFormat::Jpeg) {
-                execute_options.jpeg_edit.strip_existing_xmp = true;
-            }
-            if (transfer_target_is_tiff_family(
-                    out.prepared.bundle.target_format)) {
-                execute_options.tiff_edit.strip_existing_xmp = true;
-            }
-        }
-        ExecutePreparedTransferResult execute
-            = execute_prepared_transfer(&out.prepared.bundle, edit_file.bytes(),
-                                        execute_options);
-        execute.c2pa_stage_requested  = out.execute.c2pa_stage_requested;
-        execute.c2pa_stage            = out.execute.c2pa_stage;
-        execute.c2pa_stage_validation = out.execute.c2pa_stage_validation;
-        out.execute                   = std::move(execute);
         return out;
     }
 
-    ExecutePreparedTransferResult execute
-        = execute_prepared_transfer(&out.prepared.bundle, {}, options.execute);
-    execute.c2pa_stage_requested  = out.execute.c2pa_stage_requested;
-    execute.c2pa_stage            = out.execute.c2pa_stage;
-    execute.c2pa_stage_validation = out.execute.c2pa_stage_validation;
-    out.execute                   = std::move(execute);
-    return out;
+}  // namespace
+
+ExecutePreparedTransferFileResult
+execute_prepared_transfer_snapshot(
+    const TransferSourceSnapshot& snapshot,
+    const ExecutePreparedTransferSnapshotOptions& options) noexcept
+{
+    ExecutePreparedTransferFileResult out
+        = prepare_execute_prepared_transfer_snapshot_result(snapshot, options,
+                                                            {});
+
+    ExecutePreparedTransferPreparedOptions execute_options;
+    execute_options.execute                    = options.execute;
+    execute_options.policy                     = options.policy;
+    execute_options.edit_target_path           = options.edit_target_path;
+    execute_options.xmp_sidecar_base_path      = options.xmp_sidecar_base_path;
+    execute_options.edit_target_bytes          = {};
+    execute_options.xmp_writeback_mode         = options.xmp_writeback_mode;
+    execute_options.xmp_existing_destination_sidecar_state
+        = options.xmp_existing_destination_sidecar_state;
+    execute_options.xmp_destination_embedded_mode
+        = options.xmp_destination_embedded_mode;
+    execute_options.xmp_destination_sidecar_mode
+        = options.xmp_destination_sidecar_mode;
+    execute_options.c2pa_stage_requested
+        = options.c2pa_stage_requested;
+    execute_options.c2pa_signer_input
+        = options.c2pa_signer_input;
+    execute_options.c2pa_signed_package_provided
+        = options.c2pa_signed_package_provided;
+    execute_options.c2pa_signed_package
+        = options.c2pa_signed_package;
+    return execute_prepared_transfer_prepared_result(
+        std::move(out), execute_options);
+}
+
+ExecutePreparedTransferFileResult
+execute_prepared_transfer_snapshot(
+    const TransferSourceSnapshot& snapshot,
+    std::span<const std::byte> target_bytes,
+    const ExecutePreparedTransferSnapshotOptions& options) noexcept
+{
+    ExecutePreparedTransferFileResult out
+        = prepare_execute_prepared_transfer_snapshot_result(snapshot, options,
+                                                            target_bytes);
+
+    ExecutePreparedTransferPreparedOptions execute_options;
+    execute_options.execute                    = options.execute;
+    execute_options.policy                     = options.policy;
+    execute_options.edit_target_path           = options.edit_target_path;
+    execute_options.xmp_sidecar_base_path      = options.xmp_sidecar_base_path;
+    execute_options.edit_target_bytes          = target_bytes;
+    execute_options.xmp_writeback_mode         = options.xmp_writeback_mode;
+    execute_options.xmp_existing_destination_sidecar_state
+        = options.xmp_existing_destination_sidecar_state;
+    execute_options.xmp_destination_embedded_mode
+        = options.xmp_destination_embedded_mode;
+    execute_options.xmp_destination_sidecar_mode
+        = options.xmp_destination_sidecar_mode;
+    execute_options.c2pa_stage_requested
+        = options.c2pa_stage_requested;
+    execute_options.c2pa_signer_input
+        = options.c2pa_signer_input;
+    execute_options.c2pa_signed_package_provided
+        = options.c2pa_signed_package_provided;
+    execute_options.c2pa_signed_package
+        = options.c2pa_signed_package;
+    return execute_prepared_transfer_prepared_result(
+        std::move(out), execute_options);
+}
+
+ExecutePreparedTransferFileResult
+execute_prepared_transfer_bundle(
+    const PreparedTransferBundle& bundle,
+    std::span<const std::byte> target_bytes,
+    const ExecutePreparedTransferBundleOptions& options) noexcept
+{
+    ExecutePreparedTransferFileResult out;
+    out.prepared.file_status    = TransferFileStatus::Ok;
+    out.prepared.code           = PrepareTransferFileCode::None;
+    out.prepared.prepare.status = TransferStatus::Ok;
+    out.prepared.prepare.code   = PrepareTransferCode::None;
+    out.prepared.bundle         = bundle;
+
+    ExecutePreparedTransferPreparedOptions execute_options;
+    execute_options.execute                    = options.execute;
+    execute_options.policy                     = options.policy;
+    execute_options.edit_target_path           = options.edit_target_path;
+    execute_options.xmp_sidecar_base_path      = options.xmp_sidecar_base_path;
+    execute_options.edit_target_bytes          = target_bytes;
+    execute_options.xmp_writeback_mode         = options.xmp_writeback_mode;
+    execute_options.xmp_existing_destination_sidecar_state
+        = options.xmp_existing_destination_sidecar_state;
+    execute_options.xmp_destination_embedded_mode
+        = options.xmp_destination_embedded_mode;
+    execute_options.xmp_destination_sidecar_mode
+        = options.xmp_destination_sidecar_mode;
+    execute_options.c2pa_stage_requested
+        = options.c2pa_stage_requested;
+    execute_options.c2pa_signer_input
+        = options.c2pa_signer_input;
+    execute_options.c2pa_signed_package_provided
+        = options.c2pa_signed_package_provided;
+    execute_options.c2pa_signed_package
+        = options.c2pa_signed_package;
+    return execute_prepared_transfer_prepared_result(
+        std::move(out), execute_options);
 }
 
 PersistPreparedTransferFileResult

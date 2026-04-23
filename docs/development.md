@@ -1269,6 +1269,23 @@ Python transfer entry point:
   - same probe contract, but allows `include_payloads=True` and returns raw
     payload bytes (`bytes`) in `blocks[i].payload`.
   - intended for explicit raw/unsafe workflows only.
+- Snapshot/fileless Python helpers:
+  - `openmeta.read_transfer_source_snapshot_file(...)` and
+    `openmeta.read_transfer_source_snapshot_bytes(...)` expose the reusable
+    decoded-source contract directly.
+  - `Document.build_transfer_source_snapshot()` and
+    `openmeta.build_transfer_source_snapshot(document)` mirror the C++
+    `MetaStore -> TransferSourceSnapshot` builder.
+  - `openmeta.transfer_snapshot_probe(...)` /
+    `openmeta.transfer_snapshot_file(...)` expose the core snapshot-based
+    execute/persist path, including host-owned `target_bytes`.
+  - `openmeta.unsafe_transfer_snapshot_probe(...)` /
+    `openmeta.unsafe_transfer_snapshot_file(...)` add optional edited-output
+    bytes for explicit unsafe workflows.
+  - the Python transfer wrappers now distinguish
+    `xmp_existing_sidecar_base_path` from `xmp_sidecar_base_path`, and they
+    also expose `xmp_existing_destination_embedded_path` plus
+    `xmp_existing_destination_sidecar_state` for pathless host flows.
 
 Transfer probe contract hardening (stable machine fields):
 - `overall_status`, `overall_status_name`

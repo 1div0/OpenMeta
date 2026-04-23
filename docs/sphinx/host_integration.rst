@@ -215,6 +215,75 @@ helper instead of building your own writer path.
    openmeta::PersistPreparedTransferFileResult saved =
        openmeta::persist_prepared_transfer_file_result(exec, persist);
 
+Read once, save later
+~~~~~~~~~~~~~~~~~~~~~
+
+If your host already decoded source metadata during the initial load, keep a
+decoded source snapshot and execute the later save without reopening the
+source file.
+
+.. code-block:: cpp
+
+   #include "openmeta/metadata_transfer.h"
+
+   openmeta::ReadTransferSourceSnapshotFileResult snapshot =
+       openmeta::read_transfer_source_snapshot_file("source.jpg");
+
+   openmeta::ExecutePreparedTransferSnapshotOptions options;
+   options.prepare.target_format = openmeta::TransferTargetFormat::Tiff;
+   options.edit_target_path      = "target.tif";
+   options.execute.edit_apply    = true;
+
+   openmeta::ExecutePreparedTransferFileResult result =
+       openmeta::execute_prepared_transfer_snapshot(
+           snapshot.snapshot, options);
+
+Python mirrors that same host-facing snapshot flow:
+
+.. code-block:: python
+
+   from pathlib import Path
+
+   import openmeta
+
+   snapshot_info = openmeta.read_transfer_source_snapshot_file("source.jpg")
+   snapshot = snapshot_info["snapshot"]
+
+   result = openmeta.transfer_snapshot_file(
+       snapshot,
+       target_format=openmeta.TransferTargetFormat.Tiff,
+       edit_target_path="target.tif",
+       target_bytes=Path("target.tif").read_bytes(),
+       output_path="edited.tif",
+   )
+
+Current source snapshots are decoded-store-backed. They are intended for the
+normal EXIF/XMP/ICC/IPTC transfer flow, not raw source-packet passthrough.
+If the host still owns the bundle/execution split, the lower-level
+``prepare_metadata_for_target_snapshot(...)`` entry point remains available.
+If the host already has a decoded ``MetaStore``, build a reusable snapshot with
+``build_transfer_source_snapshot(store)``. If it already owns the source bytes
+in memory, use ``read_transfer_source_snapshot_bytes(bytes)`` instead of the
+file-path reader.
+In Python, a previously decoded ``Document`` can be turned into a reusable
+snapshot through ``doc.build_transfer_source_snapshot()`` or
+``openmeta.build_transfer_source_snapshot(doc)``.
+If it also owns the destination bytes in memory, call the overload
+``execute_prepared_transfer_snapshot(snapshot, target_bytes, options)``.
+If it already holds a prepared bundle, use
+``execute_prepared_transfer_bundle(bundle, target_bytes, options)`` instead.
+Snapshot execution supports the same existing-sidecar merge and destination
+carrier-precedence controls as the file helper; when loading an existing
+sidecar it defaults to ``edit_target_path`` unless
+``xmp_existing_sidecar_base_path`` is set explicitly.
+For embedded-only writeback with sidecar cleanup and no filesystem path, set
+``xmp_existing_destination_sidecar_state`` explicitly so OpenMeta can return a
+cleanup decision without guessing a sidecar location.
+Python now exposes those same split path/state controls directly:
+``xmp_existing_sidecar_base_path``, ``xmp_sidecar_base_path``,
+``xmp_existing_destination_embedded_path``, and
+``xmp_existing_destination_sidecar_state``.
+
 Optional Adobe DNG SDK bridge
 -----------------------------
 

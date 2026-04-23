@@ -108,6 +108,22 @@ enum class PrepareTransferFileCode : uint16_t {
     DecodeFailed,
 };
 
+/// Stable file/read error code for \ref ReadTransferSourceSnapshotFileResult.
+enum class ReadTransferSourceSnapshotFileCode : uint16_t {
+    None = 0,
+    EmptyPath,
+    MapFailed,
+    PayloadBufferPlatformLimit,
+    DecodeFailed,
+};
+
+/// Stable bytes/read error code for \ref ReadTransferSourceSnapshotBytesResult.
+enum class ReadTransferSourceSnapshotBytesCode : uint16_t {
+    None = 0,
+    PayloadBufferPlatformLimit,
+    DecodeFailed,
+};
+
 /// Status for high-level file-to-bundle transfer preparation.
 enum class TransferFileStatus : uint8_t {
     Ok,
@@ -406,6 +422,11 @@ struct PreparedTransferBundle final {
     std::vector<PreparedTransferBlock> blocks;
     std::vector<TimePatchSlot> time_patch_map;
     std::vector<std::byte> generated_xmp_sidecar;
+};
+
+/// Reusable decoded source snapshot for later transfer preparation.
+struct TransferSourceSnapshot final {
+    MetaStore store;
 };
 
 /// Options for explicit raw JUMBF append into a prepared JPEG bundle.
@@ -955,6 +976,40 @@ enum class XmpExistingDestinationCarrierPrecedence : uint8_t {
     EmbeddedWins,
 };
 
+/// File-read + decode options for \ref read_transfer_source_snapshot_file.
+struct ReadTransferSourceSnapshotFileOptions final {
+    bool include_pointer_tags       = true;
+    bool decode_makernote           = false;
+    bool decode_embedded_containers = true;
+    bool decompress                 = true;
+    OpenMetaResourcePolicy policy;
+};
+
+/// Generic decode options for transfer source snapshot reads.
+using ReadTransferSourceSnapshotOptions = ReadTransferSourceSnapshotFileOptions;
+
+/// High-level file read result for \ref read_transfer_source_snapshot_file.
+struct ReadTransferSourceSnapshotFileResult final {
+    TransferFileStatus file_status = TransferFileStatus::Ok;
+    ReadTransferSourceSnapshotFileCode code
+        = ReadTransferSourceSnapshotFileCode::None;
+    uint64_t file_size   = 0;
+    uint32_t entry_count = 0;
+    SimpleMetaResult read;
+    TransferSourceSnapshot snapshot;
+};
+
+/// High-level in-memory read result for \ref read_transfer_source_snapshot_bytes.
+struct ReadTransferSourceSnapshotBytesResult final {
+    TransferStatus status = TransferStatus::Ok;
+    ReadTransferSourceSnapshotBytesCode code
+        = ReadTransferSourceSnapshotBytesCode::None;
+    uint64_t input_size  = 0;
+    uint32_t entry_count = 0;
+    SimpleMetaResult read;
+    TransferSourceSnapshot snapshot;
+};
+
 /// File-read + decode options for \ref prepare_metadata_for_target_file.
 struct PrepareTransferFileOptions final {
     bool include_pointer_tags       = true;
@@ -1255,6 +1310,16 @@ enum class XmpDestinationSidecarMode : uint8_t {
     StripExisting,
 };
 
+/// Host-reported presence of an existing destination sibling `.xmp` sidecar.
+enum class XmpExistingDestinationSidecarState : uint8_t {
+    /// Use path-based detection when a sidecar base path is available.
+    Unknown,
+    /// Host knows there is no existing destination sidecar.
+    NotPresent,
+    /// Host knows there is an existing destination sidecar to remove.
+    Present,
+};
+
 /// Options for \ref execute_prepared_transfer_file.
 struct ExecutePreparedTransferFileOptions final {
     PrepareTransferFileOptions prepare;
@@ -1276,6 +1341,75 @@ struct ExecutePreparedTransferFileOptions final {
         = XmpDestinationEmbeddedMode::PreserveExisting;
     XmpDestinationSidecarMode xmp_destination_sidecar_mode
         = XmpDestinationSidecarMode::PreserveExisting;
+    XmpExistingDestinationSidecarState xmp_existing_destination_sidecar_state
+        = XmpExistingDestinationSidecarState::Unknown;
+    bool c2pa_stage_requested = false;
+    PreparedTransferC2paSignerInput c2pa_signer_input;
+    bool c2pa_signed_package_provided = false;
+    PreparedTransferC2paSignedPackage c2pa_signed_package;
+};
+
+/// Options for \ref execute_prepared_transfer_snapshot.
+struct ExecutePreparedTransferSnapshotOptions final {
+    PrepareTransferRequest prepare;
+    ExecutePreparedTransferOptions execute;
+    OpenMetaResourcePolicy policy;
+    std::string edit_target_path;
+    /// Base path used to load one existing sibling `.xmp` sidecar for XMP
+    /// merge during bundle preparation.
+    ///
+    /// When empty, the helper uses \ref edit_target_path.
+    std::string xmp_existing_sidecar_base_path;
+    /// Base path used to derive sibling `.xmp` output or cleanup paths.
+    ///
+    /// When empty, the helper derives the sidecar path from
+    /// \ref edit_target_path.
+    std::string xmp_sidecar_base_path;
+    XmpExistingSidecarMode xmp_existing_sidecar_mode
+        = XmpExistingSidecarMode::Ignore;
+    XmpExistingSidecarPrecedence xmp_existing_sidecar_precedence
+        = XmpExistingSidecarPrecedence::SidecarWins;
+    /// Optional path used to load existing destination embedded XMP before
+    /// bundle preparation.
+    ///
+    /// When empty and destination embedded merge is requested, the helper uses
+    /// \ref edit_target_path.
+    std::string xmp_existing_destination_embedded_path;
+    XmpExistingDestinationEmbeddedMode
+        xmp_existing_destination_embedded_mode
+        = XmpExistingDestinationEmbeddedMode::Ignore;
+    XmpExistingDestinationEmbeddedPrecedence
+        xmp_existing_destination_embedded_precedence
+        = XmpExistingDestinationEmbeddedPrecedence::DestinationWins;
+    XmpExistingDestinationCarrierPrecedence
+        xmp_existing_destination_carrier_precedence
+        = XmpExistingDestinationCarrierPrecedence::SidecarWins;
+    XmpWritebackMode xmp_writeback_mode = XmpWritebackMode::EmbeddedOnly;
+    XmpDestinationEmbeddedMode xmp_destination_embedded_mode
+        = XmpDestinationEmbeddedMode::PreserveExisting;
+    XmpDestinationSidecarMode xmp_destination_sidecar_mode
+        = XmpDestinationSidecarMode::PreserveExisting;
+    XmpExistingDestinationSidecarState xmp_existing_destination_sidecar_state
+        = XmpExistingDestinationSidecarState::Unknown;
+    bool c2pa_stage_requested = false;
+    PreparedTransferC2paSignerInput c2pa_signer_input;
+    bool c2pa_signed_package_provided = false;
+    PreparedTransferC2paSignedPackage c2pa_signed_package;
+};
+
+/// Options for \ref execute_prepared_transfer_bundle.
+struct ExecutePreparedTransferBundleOptions final {
+    ExecutePreparedTransferOptions execute;
+    OpenMetaResourcePolicy policy;
+    std::string edit_target_path;
+    std::string xmp_sidecar_base_path;
+    XmpWritebackMode xmp_writeback_mode = XmpWritebackMode::EmbeddedOnly;
+    XmpDestinationEmbeddedMode xmp_destination_embedded_mode
+        = XmpDestinationEmbeddedMode::PreserveExisting;
+    XmpDestinationSidecarMode xmp_destination_sidecar_mode
+        = XmpDestinationSidecarMode::PreserveExisting;
+    XmpExistingDestinationSidecarState xmp_existing_destination_sidecar_state
+        = XmpExistingDestinationSidecarState::Unknown;
     bool c2pa_stage_requested = false;
     PreparedTransferC2paSignerInput c2pa_signer_input;
     bool c2pa_signed_package_provided = false;
@@ -1504,6 +1638,31 @@ public:
 PrepareTransferResult
 prepare_metadata_for_target(const MetaStore&, const PrepareTransferRequest&,
                             PreparedTransferBundle* out_bundle) noexcept;
+
+/**
+ * \brief Prepare a target-specific transfer bundle from a decoded source snapshot.
+ *
+ * This is the fileless counterpart to \ref prepare_metadata_for_target_file
+ * for host applications that already hold a reusable decoded source snapshot
+ * from an earlier read.
+ *
+ * Current snapshot contract is decoded-store-backed. Raw source passthrough
+ * payloads are not preserved.
+ */
+PrepareTransferResult
+prepare_metadata_for_target_snapshot(const TransferSourceSnapshot& snapshot,
+                                     const PrepareTransferRequest& request,
+                                     PreparedTransferBundle* out_bundle) noexcept;
+
+/**
+ * \brief Build a reusable decoded source snapshot from an existing \ref MetaStore.
+ *
+ * The snapshot stores its own finalized copy of the input store so later
+ * transfer preparation or execution does not depend on the caller keeping the
+ * original store alive or immutable.
+ */
+TransferSourceSnapshot
+build_transfer_source_snapshot(const MetaStore& store) noexcept;
 
 /**
  * \brief Append one logical raw JUMBF payload as JPEG APP11 transfer blocks.
@@ -1857,6 +2016,38 @@ write_prepared_bundle_jpeg_compiled(const PreparedTransferBundle& bundle,
                                     = EmitTransferOptions {}) noexcept;
 
 /**
+ * \brief Read a file into a reusable decoded source snapshot.
+ *
+ * This helper hides the scratch-buffer management needed by
+ * \ref simple_meta_read and returns an owned \ref TransferSourceSnapshot that
+ * can be reused later with \ref prepare_metadata_for_target_snapshot without
+ * reopening the source file.
+ *
+ * Current snapshot contract is decoded-store-backed. Raw source passthrough
+ * payloads are not preserved.
+ */
+ReadTransferSourceSnapshotFileResult
+read_transfer_source_snapshot_file(
+    const char* path,
+    const ReadTransferSourceSnapshotFileOptions& options
+    = ReadTransferSourceSnapshotFileOptions {}) noexcept;
+
+/**
+ * \brief Read host-owned bytes into a reusable decoded source snapshot.
+ *
+ * This is the in-memory counterpart to \ref read_transfer_source_snapshot_file
+ * for hosts that already own the source bytes and do not want a file-path API.
+ *
+ * Current snapshot contract is decoded-store-backed. Raw source passthrough
+ * payloads are not preserved.
+ */
+ReadTransferSourceSnapshotBytesResult
+read_transfer_source_snapshot_bytes(
+    std::span<const std::byte> bytes,
+    const ReadTransferSourceSnapshotOptions& options
+    = ReadTransferSourceSnapshotOptions {}) noexcept;
+
+/**
  * \brief High-level helper: read file, decode metadata, and prepare transfer bundle.
  *
  * This helper is intended for thin wrappers (CLI/Python) that need
@@ -2208,6 +2399,61 @@ ExecutePreparedTransferFileResult
 execute_prepared_transfer_file(const char* path,
                                const ExecutePreparedTransferFileOptions& options
                                = ExecutePreparedTransferFileOptions {}) noexcept;
+
+/**
+ * \brief High-level helper: prepare from a decoded source snapshot, then
+ * execute transfer.
+ *
+ * This mirrors \ref execute_prepared_transfer_file for hosts that already keep
+ * a reusable decoded source snapshot from an earlier read.
+ *
+ * The input snapshot is not mutated. The helper copies the decoded store into
+ * a fresh local bundle-preparation state, so the same snapshot can be reused
+ * safely by concurrent callers that do not share the returned result object.
+ *
+ * Current snapshot contract is decoded-store-backed. Raw source passthrough
+ * payloads are not preserved.
+ */
+ExecutePreparedTransferFileResult
+execute_prepared_transfer_snapshot(
+    const TransferSourceSnapshot& snapshot,
+    const ExecutePreparedTransferSnapshotOptions& options
+    = ExecutePreparedTransferSnapshotOptions {}) noexcept;
+
+/**
+ * \brief High-level helper: prepare from a decoded source snapshot, then edit
+ * a host-owned target byte buffer.
+ *
+ * This is the fileless destination counterpart to
+ * \ref execute_prepared_transfer_snapshot for hosts that already own the
+ * target bytes in memory and do not want OpenMeta to reopen the destination
+ * file.
+ *
+ * The input snapshot and target byte span are not mutated. The helper copies
+ * decoded source state into a fresh local preparation store before executing
+ * the edit path.
+ */
+ExecutePreparedTransferFileResult
+execute_prepared_transfer_snapshot(
+    const TransferSourceSnapshot& snapshot,
+    std::span<const std::byte> target_bytes,
+    const ExecutePreparedTransferSnapshotOptions& options
+    = ExecutePreparedTransferSnapshotOptions {}) noexcept;
+
+/**
+ * \brief High-level helper: execute a previously prepared bundle against
+ * host-owned target bytes.
+ *
+ * This wraps \ref execute_prepared_transfer with the same bounded sidecar and
+ * cleanup contract used by the file/snapshot helpers, but it starts from an
+ * already prepared bundle instead of rebuilding source state first.
+ */
+ExecutePreparedTransferFileResult
+execute_prepared_transfer_bundle(
+    const PreparedTransferBundle& bundle,
+    std::span<const std::byte> target_bytes,
+    const ExecutePreparedTransferBundleOptions& options
+    = ExecutePreparedTransferBundleOptions {}) noexcept;
 
 /**
  * \brief Plan JPEG metadata injection/edit strategy for a prepared bundle.

@@ -131,6 +131,62 @@ assert r['emit_status'] == openmeta.TransferStatus.Ok, r
 assert len(r['blocks']) >= 1, r
 assert len(r['marker_summary']) >= 1, r
 
+snapshot_file = openmeta.read_transfer_source_snapshot_file(str(p))
+assert snapshot_file['overall_status'] == openmeta.TransferStatus.Ok, snapshot_file
+assert snapshot_file['file_status'] == openmeta.TransferFileStatus.Ok, snapshot_file
+assert snapshot_file['code_name'] == 'none', snapshot_file
+assert snapshot_file['entry_count'] == r['entry_count'], snapshot_file
+assert snapshot_file['snapshot'].entry_count == r['entry_count'], snapshot_file
+
+snapshot_bytes = openmeta.read_transfer_source_snapshot_bytes(p.read_bytes())
+assert snapshot_bytes['overall_status'] == openmeta.TransferStatus.Ok, snapshot_bytes
+assert snapshot_bytes['status'] == openmeta.TransferStatus.Ok, snapshot_bytes
+assert snapshot_bytes['code_name'] == 'none', snapshot_bytes
+assert snapshot_bytes['entry_count'] == r['entry_count'], snapshot_bytes
+
+doc_snapshot = openmeta.read(str(p)).build_transfer_source_snapshot()
+assert doc_snapshot.entry_count == r['entry_count'], doc_snapshot
+module_snapshot = openmeta.build_transfer_source_snapshot(openmeta.read(str(p)))
+assert module_snapshot.entry_count == r['entry_count'], module_snapshot
+
+r_snapshot = openmeta.transfer_snapshot_probe(
+    snapshot_file['snapshot'],
+    format=openmeta.XmpSidecarFormat.Portable,
+    time_patches={'DateTime': '2024:12:31 23:59:59'},
+)
+assert r_snapshot['overall_status'] == openmeta.TransferStatus.Ok, r_snapshot
+assert r_snapshot['prepare_status'] == openmeta.TransferStatus.Ok, r_snapshot
+assert r_snapshot['time_patch_status'] == openmeta.TransferStatus.Ok, r_snapshot
+assert r_snapshot['emit_status'] == openmeta.TransferStatus.Ok, r_snapshot
+assert len(r_snapshot['blocks']) >= 1, r_snapshot
+
+r_snapshot_edit = openmeta.unsafe_transfer_snapshot_probe(
+    snapshot_bytes['snapshot'],
+    edit_target_path='memory_target.jpg',
+    target_bytes=bytes([255, 216, 255, 217]),
+    time_patches={'DateTime': '2024:12:31 23:59:59'},
+    include_edited_bytes=True,
+)
+assert r_snapshot_edit['overall_status'] == openmeta.TransferStatus.Ok, r_snapshot_edit
+assert r_snapshot_edit['edit_requested'] is True, r_snapshot_edit
+assert r_snapshot_edit['edit_plan_status'] == openmeta.TransferStatus.Ok, r_snapshot_edit
+assert r_snapshot_edit['edit_apply_status'] == openmeta.TransferStatus.Ok, r_snapshot_edit
+assert isinstance(r_snapshot_edit['edited_bytes'], (bytes, bytearray)), r_snapshot_edit
+assert bytes(r_snapshot_edit['edited_bytes']).startswith(b'\\xFF\\xD8'), r_snapshot_edit
+
+snapshot_output = Path(r'''${WORK_DIR}/snapshot_edit.jpg''')
+r_snapshot_file = openmeta.transfer_snapshot_file(
+    doc_snapshot,
+    edit_target_path='memory_target.jpg',
+    target_bytes=bytes([255, 216, 255, 217]),
+    time_patches={'DateTime': '2024:12:31 23:59:59'},
+    output_path=str(snapshot_output),
+)
+assert r_snapshot_file['overall_status'] == openmeta.TransferStatus.Ok, r_snapshot_file
+assert r_snapshot_file['persist_status'] == openmeta.TransferStatus.Ok, r_snapshot_file
+assert r_snapshot_file['persist_output_status'] == openmeta.TransferStatus.Ok, r_snapshot_file
+assert snapshot_output.exists(), r_snapshot_file
+
 r_jxl = openmeta.transfer_probe(
     str(p_icc),
     target_format=openmeta.TransferTargetFormat.Jxl,
