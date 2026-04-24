@@ -18,6 +18,13 @@ contract, see [metadata_transfer_plan.md](metadata_transfer_plan.md).
 
 If you already own the encoder or host API, see
 [host_integration.md](host_integration.md).
+For public API adoption status, see [api_stability.md](api_stability.md).
+For the stable flat host naming contract, see
+[flat_host_mapping.md](flat_host_mapping.md).
+For deterministic host compatibility baselines, see
+[compatibility_dump.md](compatibility_dump.md).
+For generated XMP merge and writeback precedence, see
+[xmp_sync_policy.md](xmp_sync_policy.md).
 
 ## 1. Add OpenMeta To Your CMake Project
 

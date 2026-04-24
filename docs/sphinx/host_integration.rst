@@ -12,6 +12,11 @@ OpenMeta is not an image encoder. The normal pattern is:
 
 If you want the shortest end-to-end examples first, start with
 :doc:`quick_start`.
+For public API adoption status, see :doc:`api_stability`.
+For the stable flat host naming contract, see :doc:`flat_host_mapping`.
+For deterministic host compatibility baselines, see :doc:`compatibility_dump`.
+For generated XMP merge and writeback precedence, see
+:doc:`xmp_sync_policy`.
 
 Pick the integration path
 -------------------------

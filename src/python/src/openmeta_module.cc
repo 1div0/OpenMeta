@@ -2,6 +2,7 @@
 
 #include "openmeta/build_info.h"
 #include "openmeta/ccm_query.h"
+#include "openmeta/compatibility_dump.h"
 #include "openmeta/console_format.h"
 #include "openmeta/container_payload.h"
 #include "openmeta/dng_sdk_adapter.h"
@@ -630,6 +631,34 @@ namespace {
         NameCollectSink sink(&out);
         visit_metadata(store, options, sink);
         return out;
+    }
+
+    static std::string metadata_compatibility_dump_from_store(
+        const MetaStore& store, ExportNameStyle style,
+        ExportNamePolicy name_policy, bool include_values,
+        bool include_origins, bool include_flags, uint32_t max_value_bytes)
+    {
+        MetadataCompatibilityDumpOptions options;
+        options.style           = style;
+        options.name_policy     = name_policy;
+        options.include_values  = include_values;
+        options.include_origins = include_origins;
+        options.include_flags   = include_flags;
+        options.max_value_bytes = max_value_bytes;
+
+        std::string out;
+        (void)dump_metadata_compatibility(store, options, &out);
+        return out;
+    }
+
+    static std::string snapshot_compatibility_dump(
+        const TransferSourceSnapshot& snapshot, ExportNameStyle style,
+        ExportNamePolicy name_policy, bool include_values,
+        bool include_origins, bool include_flags, uint32_t max_value_bytes)
+    {
+        return metadata_compatibility_dump_from_store(
+            snapshot.store, style, name_policy, include_values,
+            include_origins, include_flags, max_value_bytes);
     }
 
     static nb::dict ccm_field_to_python(const CcmField& field)
@@ -4485,6 +4514,20 @@ struct PyDocument final {
     SimpleMetaResult result;
 };
 
+static std::string
+document_compatibility_dump(std::shared_ptr<PyDocument> d,
+                            ExportNameStyle style,
+                            ExportNamePolicy name_policy,
+                            bool include_values,
+                            bool include_origins,
+                            bool include_flags,
+                            uint32_t max_value_bytes)
+{
+    return metadata_compatibility_dump_from_store(
+        d->store, style, name_policy, include_values, include_origins,
+        include_flags, max_value_bytes);
+}
+
 struct PyEntry final {
     std::shared_ptr<PyDocument> doc;
     EntryId id = kInvalidEntryId;
@@ -4678,6 +4721,12 @@ NB_MODULE(_openmeta, m)
 
     m.doc()               = "OpenMeta metadata reading bindings (nanobind).";
     m.attr("__version__") = OPENMETA_VERSION_STRING;
+    m.attr("INTEROP_EXPORT_CONTRACT_VERSION")
+        = nb::int_(kInteropExportContractVersion);
+    m.attr("FLAT_HOST_EXPORT_CONTRACT_VERSION")
+        = nb::int_(kFlatHostExportContractVersion);
+    m.attr("COMPATIBILITY_DUMP_CONTRACT_VERSION")
+        = nb::int_(kCompatibilityDumpContractVersion);
 
     nb::enum_<ScanStatus>(m, "ScanStatus")
         .value("Ok", ScanStatus::Ok)
@@ -5395,6 +5444,13 @@ NB_MODULE(_openmeta, m)
             "style"_a              = ExportNameStyle::Canonical,
             "name_policy"_a        = ExportNamePolicy::ExifToolAlias,
             "include_makernotes"_a = true)
+        .def("compatibility_dump", &snapshot_compatibility_dump,
+             "style"_a           = ExportNameStyle::FlatHost,
+             "name_policy"_a     = ExportNamePolicy::ExifToolAlias,
+             "include_values"_a  = true,
+             "include_origins"_a = true,
+             "include_flags"_a   = true,
+             "max_value_bytes"_a = 256U)
         .def("__repr__", [](const TransferSourceSnapshot& snapshot) {
             std::string text = "TransferSourceSnapshot(entry_count=";
             text.append(std::to_string(static_cast<unsigned long long>(
@@ -5517,6 +5573,13 @@ NB_MODULE(_openmeta, m)
             "style"_a              = ExportNameStyle::Canonical,
             "name_policy"_a        = ExportNamePolicy::ExifToolAlias,
             "include_makernotes"_a = true)
+        .def("compatibility_dump", &document_compatibility_dump,
+             "style"_a           = ExportNameStyle::FlatHost,
+             "name_policy"_a     = ExportNamePolicy::ExifToolAlias,
+             "include_values"_a  = true,
+             "include_origins"_a = true,
+             "include_flags"_a   = true,
+             "max_value_bytes"_a = 256U)
         .def(
             "dng_ccm_fields",
             [](std::shared_ptr<PyDocument> d, bool require_dng_context,

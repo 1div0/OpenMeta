@@ -14,6 +14,11 @@ Stable API (v1)
 ---------------
 
 Contract constant: ``kInteropExportContractVersion == 1``.
+For broader adoption status across public APIs, see :doc:`api_stability`.
+For the stable flat host naming contract, see :doc:`flat_host_mapping`.
+For deterministic host compatibility baselines, see :doc:`compatibility_dump`.
+For generated XMP merge and writeback precedence, see
+:doc:`xmp_sync_policy`.
 
 .. code-block:: cpp
 

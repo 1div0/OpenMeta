@@ -25,6 +25,10 @@ set(_py_code
 import openmeta
 from openmeta.python import get_exr_attribute_batch, get_libraw_orientation, probe_exr_attribute_batch, probe_libraw_orientation, update_dng_sdk_file
 
+assert openmeta.INTEROP_EXPORT_CONTRACT_VERSION == 1
+assert openmeta.FLAT_HOST_EXPORT_CONTRACT_VERSION == 1
+assert openmeta.COMPATIBILITY_DUMP_CONTRACT_VERSION == 1
+
 cap = openmeta.metadata_capability(
     openmeta.TransferTargetFormat.Avif,
     openmeta.MetadataCapabilityFamily.Xmp,
@@ -165,8 +169,12 @@ assert snapshot_bytes['entry_count'] == r['entry_count'], snapshot_bytes
 
 doc_snapshot = openmeta.read(str(p)).build_transfer_source_snapshot()
 assert doc_snapshot.entry_count == r['entry_count'], doc_snapshot
+snapshot_dump = doc_snapshot.compatibility_dump()
+assert snapshot_dump.startswith('openmeta.compat.metadata version=1'), snapshot_dump
 module_snapshot = openmeta.build_transfer_source_snapshot(openmeta.read(str(p)))
 assert module_snapshot.entry_count == r['entry_count'], module_snapshot
+doc_dump = openmeta.read(str(p)).compatibility_dump(max_value_bytes=32)
+assert 'style=\"flat_host\"' in doc_dump, doc_dump
 
 r_snapshot = openmeta.transfer_snapshot_probe(
     snapshot_file['snapshot'],

@@ -244,6 +244,9 @@ namespace {
 
 TEST(InteropExport, CanonicalStyleIncludesExpectedKeys)
 {
+    EXPECT_EQ(openmeta::kInteropExportContractVersion, 1U);
+    EXPECT_EQ(openmeta::kFlatHostExportContractVersion, 1U);
+
     const MetaStore store = make_export_store();
     std::vector<std::string> names;
     NameCollectSink sink(&names);
@@ -352,6 +355,63 @@ TEST(InteropExport, FlatHostStyleRetainsKnownHintsWithUnknownIfdNoise)
     EXPECT_TRUE(contains_name(names, "ModifyDate"));
     EXPECT_TRUE(contains_name(names, "ColorMatrix1"));
     EXPECT_TRUE(contains_name(names, "Exif:CreateDate"));
+}
+
+
+TEST(InteropExport, FlatHostStylePreservesDuplicatesAndEntryOrder)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+
+    Entry first;
+    first.key = make_xmp_property_key(store.arena(),
+                                      "http://ns.adobe.com/xap/1.0/",
+                                      "Rating");
+    first.value                 = make_u16(1);
+    first.origin.block          = block;
+    first.origin.order_in_block = 0U;
+    (void)store.add_entry(first);
+
+    Entry deleted;
+    deleted.key = make_xmp_property_key(store.arena(),
+                                        "http://ns.adobe.com/xap/1.0/",
+                                        "Label");
+    deleted.value                 = make_text(store.arena(), "skip",
+                                              TextEncoding::Ascii);
+    deleted.flags                 = EntryFlags::Deleted;
+    deleted.origin.block          = block;
+    deleted.origin.order_in_block = 1U;
+    (void)store.add_entry(deleted);
+
+    Entry second;
+    second.key = make_xmp_property_key(store.arena(),
+                                       "http://ns.adobe.com/xap/1.0/",
+                                       "Rating");
+    second.value                 = make_u16(2);
+    second.origin.block          = block;
+    second.origin.order_in_block = 2U;
+    (void)store.add_entry(second);
+
+    Entry make;
+    make.key = make_exif_tag_key(store.arena(), "ifd0", 0x010F);
+    make.value                 = make_text(store.arena(), "Canon",
+                                           TextEncoding::Ascii);
+    make.origin.block          = block;
+    make.origin.order_in_block = 3U;
+    (void)store.add_entry(make);
+
+    store.finalize();
+
+    std::vector<std::string> names;
+    NameCollectSink sink(&names);
+    ExportOptions options;
+    options.style = ExportNameStyle::FlatHost;
+    visit_metadata(store, options, sink);
+
+    ASSERT_EQ(names.size(), 3U);
+    EXPECT_EQ(names[0], "XMP:Rating");
+    EXPECT_EQ(names[1], "XMP:Rating");
+    EXPECT_EQ(names[2], "Make");
 }
 
 

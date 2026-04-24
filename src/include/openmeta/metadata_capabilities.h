@@ -9,6 +9,9 @@
 /**
  * \file metadata_capabilities.h
  * \brief Runtime capability query API for host integrations.
+ *
+ * \par API Stability
+ * Stable host-facing v1 query contract.
  */
 
 namespace openmeta {
@@ -72,4 +75,3 @@ metadata_capability(TransferTargetFormat format,
                     MetadataCapabilityFamily family) noexcept;
 
 }  // namespace openmeta
-

@@ -15,6 +15,11 @@ OpenMeta is a metadata engine, not an image encoder. The normal pattern is:
 
 If you already own the encoder or output container, continue with
 :doc:`host_integration`.
+For public API adoption status, see :doc:`api_stability`.
+For the stable flat host naming contract, see :doc:`flat_host_mapping`.
+For deterministic host compatibility baselines, see :doc:`compatibility_dump`.
+For generated XMP merge and writeback precedence, see
+:doc:`xmp_sync_policy`.
 
 Add OpenMeta to CMake
 ---------------------

@@ -218,6 +218,7 @@ set(OPENMETA_SOURCES
   src/openmeta/byte_arena.cc
   src/openmeta/bmff_fields_decode.cc
   src/openmeta/ccm_query.cc
+  src/openmeta/compatibility_dump.cc
   src/openmeta/console_format.cc
   src/openmeta/container_payload.cc
   src/openmeta/container_scan.cc
@@ -590,6 +591,7 @@ if(OPENMETA_BUILD_TESTS)
 
   add_executable(openmeta_tests
     tests/ccm_query_test.cc
+    tests/compatibility_dump_test.cc
     tests/container_payload_test.cc
     tests/container_scan_test.cc
     tests/bmff_fields_decode_test.cc

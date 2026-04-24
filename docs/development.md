@@ -1105,7 +1105,8 @@ Current C++ interop entry points:
 
 Python interop behavior:
 - `Document.export_names(style=ExportNameStyle.FlatHost, ...)` exposes the
-  shared flat-host naming contract used by host-side metadata mapping layers.
+  stable v1 flat-host naming contract used by host-side metadata mapping
+  layers. See [flat_host_mapping.md](flat_host_mapping.md).
 - `Document.ocio_metadata_tree(...)` is safe-by-default and raises on unsafe
   raw byte payloads; use `Document.unsafe_ocio_metadata_tree(...)` for
   legacy/raw fallback output.

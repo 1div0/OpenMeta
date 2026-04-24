@@ -779,15 +779,15 @@ writer-confidence slice above; it should be sequenced around it.
 
 - [x] add a small runtime capability query API for read, structured decode,
   transfer preparation, and target edit support by format and metadata family
-- [ ] mark public host-facing APIs with stability levels such as stable,
+- [x] mark public host-facing APIs with stability levels such as stable,
   experimental, or internal; start with `visit_metadata(...)`, snapshot
   read/build, fileless execution, and bundle execution
-- [ ] publish the generic `FlatHost` mapping contract: name style, duplicate
+- [x] publish the generic `FlatHost` mapping contract: name style, duplicate
   handling, type projection, deterministic ordering, and namespace behavior
-- [ ] add a deterministic compatibility dump for names, values, scalar types,
+- [x] add a deterministic compatibility dump for names, values, scalar types,
   origins, and transfer/writeback decisions so downstream tests can avoid
   binary-packet baselines
-- [ ] document final conflict and precedence decisions for generated EXIF/XMP,
+- [x] document final conflict and precedence decisions for generated EXIF/XMP,
   IPTC/XMP, source embedded XMP, destination embedded XMP, and destination
   sidecar XMP
 

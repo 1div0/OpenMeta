@@ -424,7 +424,15 @@ struct PreparedTransferBundle final {
     std::vector<std::byte> generated_xmp_sidecar;
 };
 
-/// Reusable decoded source snapshot for later transfer preparation.
+/**
+ * \brief Reusable decoded source snapshot for later transfer preparation.
+ *
+ * \par API Stability
+ * Experimental host-facing API. Current snapshots are decoded-store-backed;
+ * they do not preserve raw source packets for passthrough. Const reuse is safe
+ * when callers do not mutate the snapshot and do not share returned result
+ * objects across writers.
+ */
 struct TransferSourceSnapshot final {
     MetaStore store;
 };
@@ -976,7 +984,12 @@ enum class XmpExistingDestinationCarrierPrecedence : uint8_t {
     EmbeddedWins,
 };
 
-/// File-read + decode options for \ref read_transfer_source_snapshot_file.
+/**
+ * \brief File-read + decode options for \ref read_transfer_source_snapshot_file.
+ *
+ * \par API Stability
+ * Experimental host-facing API.
+ */
 struct ReadTransferSourceSnapshotFileOptions final {
     bool include_pointer_tags       = true;
     bool decode_makernote           = false;
@@ -988,7 +1001,12 @@ struct ReadTransferSourceSnapshotFileOptions final {
 /// Generic decode options for transfer source snapshot reads.
 using ReadTransferSourceSnapshotOptions = ReadTransferSourceSnapshotFileOptions;
 
-/// High-level file read result for \ref read_transfer_source_snapshot_file.
+/**
+ * \brief High-level file read result for \ref read_transfer_source_snapshot_file.
+ *
+ * \par API Stability
+ * Experimental host-facing API.
+ */
 struct ReadTransferSourceSnapshotFileResult final {
     TransferFileStatus file_status = TransferFileStatus::Ok;
     ReadTransferSourceSnapshotFileCode code
@@ -999,7 +1017,12 @@ struct ReadTransferSourceSnapshotFileResult final {
     TransferSourceSnapshot snapshot;
 };
 
-/// High-level in-memory read result for \ref read_transfer_source_snapshot_bytes.
+/**
+ * \brief High-level in-memory read result for \ref read_transfer_source_snapshot_bytes.
+ *
+ * \par API Stability
+ * Experimental host-facing API.
+ */
 struct ReadTransferSourceSnapshotBytesResult final {
     TransferStatus status = TransferStatus::Ok;
     ReadTransferSourceSnapshotBytesCode code
@@ -1648,6 +1671,9 @@ prepare_metadata_for_target(const MetaStore&, const PrepareTransferRequest&,
  *
  * Current snapshot contract is decoded-store-backed. Raw source passthrough
  * payloads are not preserved.
+ *
+ * \par API Stability
+ * Experimental host-facing API.
  */
 PrepareTransferResult
 prepare_metadata_for_target_snapshot(const TransferSourceSnapshot& snapshot,
@@ -1660,6 +1686,9 @@ prepare_metadata_for_target_snapshot(const TransferSourceSnapshot& snapshot,
  * The snapshot stores its own finalized copy of the input store so later
  * transfer preparation or execution does not depend on the caller keeping the
  * original store alive or immutable.
+ *
+ * \par API Stability
+ * Experimental host-facing API.
  */
 TransferSourceSnapshot
 build_transfer_source_snapshot(const MetaStore& store) noexcept;
@@ -2025,6 +2054,9 @@ write_prepared_bundle_jpeg_compiled(const PreparedTransferBundle& bundle,
  *
  * Current snapshot contract is decoded-store-backed. Raw source passthrough
  * payloads are not preserved.
+ *
+ * \par API Stability
+ * Experimental host-facing API.
  */
 ReadTransferSourceSnapshotFileResult
 read_transfer_source_snapshot_file(
@@ -2040,6 +2072,9 @@ read_transfer_source_snapshot_file(
  *
  * Current snapshot contract is decoded-store-backed. Raw source passthrough
  * payloads are not preserved.
+ *
+ * \par API Stability
+ * Experimental host-facing API.
  */
 ReadTransferSourceSnapshotBytesResult
 read_transfer_source_snapshot_bytes(
@@ -2201,6 +2236,9 @@ compile_prepared_transfer_execution(
  * This compiles the same target-specific route mappings used by emit
  * execution, then flattens them into one explicit operation list for host
  * integrations that want to consume prepared blocks without parsing routes.
+ *
+ * \par API Stability
+ * Experimental host-facing API.
  */
 EmitTransferResult
 build_prepared_transfer_adapter_view(const PreparedTransferBundle& bundle,
@@ -2213,6 +2251,9 @@ build_prepared_transfer_adapter_view(const PreparedTransferBundle& bundle,
  *
  * This lets host integrations consume the flattened adapter operation list
  * without re-parsing routes or target-specific dispatch tokens.
+ *
+ * \par API Stability
+ * Experimental host-facing API.
  */
 EmitTransferResult
 emit_prepared_transfer_adapter_view(const PreparedTransferBundle& bundle,
@@ -2413,6 +2454,9 @@ execute_prepared_transfer_file(const char* path,
  *
  * Current snapshot contract is decoded-store-backed. Raw source passthrough
  * payloads are not preserved.
+ *
+ * \par API Stability
+ * Experimental host-facing API.
  */
 ExecutePreparedTransferFileResult
 execute_prepared_transfer_snapshot(
@@ -2432,6 +2476,9 @@ execute_prepared_transfer_snapshot(
  * The input snapshot and target byte span are not mutated. The helper copies
  * decoded source state into a fresh local preparation store before executing
  * the edit path.
+ *
+ * \par API Stability
+ * Experimental host-facing API.
  */
 ExecutePreparedTransferFileResult
 execute_prepared_transfer_snapshot(
@@ -2447,6 +2494,10 @@ execute_prepared_transfer_snapshot(
  * This wraps \ref execute_prepared_transfer with the same bounded sidecar and
  * cleanup contract used by the file/snapshot helpers, but it starts from an
  * already prepared bundle instead of rebuilding source state first.
+ *
+ * \par API Stability
+ * Experimental host-facing API. Treat the bundle as an immutable prepared
+ * input unless using documented patch helpers.
  */
 ExecutePreparedTransferFileResult
 execute_prepared_transfer_bundle(

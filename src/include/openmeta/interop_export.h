@@ -18,6 +18,9 @@ namespace openmeta {
 /// Stable interop export naming contract version.
 inline constexpr uint32_t kInteropExportContractVersion = 1U;
 
+/// Stable FlatHost naming contract version.
+inline constexpr uint32_t kFlatHostExportContractVersion = 1U;
+
 /// Status for strict safe interop export APIs.
 enum class InteropSafetyStatus : uint8_t {
     Ok,
@@ -45,13 +48,17 @@ struct InteropSafetyError final {
 
 /**
  * \brief Key naming policy used by \ref visit_metadata.
+ *
+ * \par API Stability
+ * Stable enum shape. `Canonical`, `XmpPortable`, and `FlatHost` naming
+ * contracts are stable.
  */
 enum class ExportNameStyle : uint8_t {
     /// Stable, key-space-aware names (for example: `exif:ifd0:0x010F`).
     Canonical,
     /// Portable XMP-like names (for example: `tiff:Make`, `exif:ExposureTime`).
     XmpPortable,
-    /// Flat host-attribute names (for example: `Make`, `Exif:ExposureTime`).
+    /// Stable v1 flat host-attribute names (`Make`, `Exif:ExposureTime`).
     FlatHost,
 };
 
@@ -89,6 +96,12 @@ struct ExportItem final {
     EntryFlags flags     = EntryFlags::None;
 };
 
+/**
+ * \brief Callback sink for \ref visit_metadata.
+ *
+ * \par API Stability
+ * Stable host-facing v1 callback contract.
+ */
 class MetadataSink {
 public:
     virtual ~MetadataSink()                               = default;
@@ -99,6 +112,10 @@ public:
  * \brief Visits exported metadata entries in store order.
  *
  * Deleted entries are skipped. Name mapping depends on \ref ExportOptions::style.
+ *
+ * \par API Stability
+ * Stable host-facing v1 traversal API. The callback receives borrowed views
+ * that are valid only during the call to \ref MetadataSink::on_item.
  */
 void
 visit_metadata(const MetaStore& store, const ExportOptions& options,

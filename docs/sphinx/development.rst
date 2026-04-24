@@ -82,7 +82,8 @@ C++ adapter entry points:
 Python typed behavior:
 
 - ``Document.export_names(style=ExportNameStyle.FlatHost, ...)`` exposes the
-  shared flat-host naming contract used by host-side metadata mappings.
+  stable v1 flat-host naming contract used by host-side metadata mappings.
+  See :doc:`flat_host_mapping`.
 - ``Document.ocio_metadata_tree(...)`` is safe-by-default and raises on unsafe
   raw byte payloads; use ``Document.unsafe_ocio_metadata_tree(...)`` for
   legacy/raw fallback output.

@@ -30,6 +30,10 @@ sanitization to reduce memory and output attack surface.
 
    quick_start
    host_integration
+   api_stability
+   flat_host_mapping
+   compatibility_dump
+   xmp_sync_policy
    build
    development
    interop_api
