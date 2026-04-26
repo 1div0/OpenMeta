@@ -25,6 +25,8 @@ For deterministic host compatibility baselines, see
 [compatibility_dump.md](compatibility_dump.md).
 For generated XMP merge and writeback precedence, see
 [xmp_sync_policy.md](xmp_sync_policy.md).
+For per-target writer preserve/replace guarantees, see
+[writer_target_contract.md](writer_target_contract.md).
 
 ## 1. Add OpenMeta To Your CMake Project
 
@@ -434,11 +436,23 @@ image encoder.
 The CLI and Python bindings are useful, but they are thin layers over the same
 public C++ APIs.
 
+Transfer writeback follows the C++ file-helper contract. With `--output`,
+generated sidecar paths are derived from the output path, not from the input or
+target path. `--xmp-writeback sidecar` suppresses generated embedded XMP and
+writes the generated packet as `output-stem.xmp`. `--xmp-writeback
+embedded_and_sidecar` writes both carriers. Embedded-only writeback preserves
+an existing sidecar unless `--xmp-destination-sidecar strip_existing` is set;
+sidecar-only writeback preserves existing embedded XMP unless
+`--xmp-destination-embedded strip_existing` is set. `--force` controls
+overwriting output files and generated sidecars.
+
 CLI:
 
 ```bash
 ./build/metaread file.jpg
 ./build/metatransfer --source-meta source.jpg --target-jpeg rendered.jpg --output rendered_with_meta.jpg --force
+./build/metatransfer --source-meta source.jpg --target-jpeg rendered.jpg --xmp-writeback embedded_and_sidecar --output rendered_with_meta.jpg --force
+./build/metatransfer --source-meta source.jpg --target-jpeg rendered.jpg --xmp-destination-sidecar strip_existing --output rendered_with_meta.jpg --force
 ```
 
 Python:
@@ -450,6 +464,13 @@ import openmeta
 doc = openmeta.read("file.jpg")
 print(doc.entry_count)
 PY
+
+PYTHONPATH=build-py/python python3 -m openmeta.python.metatransfer \
+  --source-meta source.jpg \
+  --target-jpeg rendered.jpg \
+  --xmp-writeback embedded_and_sidecar \
+  --output rendered_with_meta.jpg \
+  --force
 ```
 
 ## 12. Pick The Next Doc

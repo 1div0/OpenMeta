@@ -112,6 +112,14 @@ That does not make all targets equally mature, but it does mean the transfer
 core has real roundtrip regression gates across the primary supported export
 families.
 
+The primary writer family is also covered by a deterministic compatibility-dump
+gate for JPEG, TIFF, DNG, PNG, WebP, JP2, JXL, HEIF, AVIF, and CR3. That gate
+checks the prepared EXIF/XMP routes, edit/apply status, dual-write XMP
+writeback summary, and decoded metadata dump for the managed source fields.
+Additional compatibility-dump gates cover sidecar-only writeback with explicit
+sidecar-base overrides and embedded-only writeback with destination-sidecar
+cleanup through persisted output.
+
 There is now also a named in-tree transfer release gate:
 - `openmeta_gate_transfer_release`
 - `openmeta_transfer_release_gate`
@@ -158,6 +166,25 @@ Implemented:
   children from the target file
 - bounded `ExifIFD` replacement that preserves an existing target
   `InteropIFD` when the source replacement omits its own interop child
+- target-owned root image layout and target-local TIFF storage pointers:
+  source EXIF cannot replace the active target root image width/height,
+  sample layout, compression, orientation, strip/tile offsets, strip/tile byte
+  counts, or JPEG interchange offsets; replaced preview/SubIFD structures also
+  drop source-local storage offsets and preserve matching target-local storage
+  fields where available
+- target-owned image-dependent metadata filtering across prepared transfer:
+  EXIF/XMP image dimensions, channel/layout fields, source-local storage
+  offsets, color-space aliases, and similar source image-buffer facts are
+  omitted before packaging metadata for JPEG, TIFF/DNG, PNG, WebP, JP2, JXL,
+  BMFF-family targets, and EXR string attributes. Host writers that change
+  pixels must provide target image buffer specs and target-correct values
+  instead of relying on copied source image properties. C++ callers can set
+  `PrepareTransferRequest::target_image_spec` to inject target dimensions,
+  orientation, samples-per-pixel, bit depth, sample format, photometric
+  interpretation, planar configuration, compression, and EXIF color space after
+  source image-layout fields have been filtered. The Python binding and both
+  command-line transfer wrappers now expose the same target image spec surface
+  for file-helper integration tests.
 - bounded DNG-style merge policy in the file-helper path:
   source-supplied preview/aux front structures replace the target front
   structures, while existing target page tails and trailing auxiliary
@@ -258,6 +285,8 @@ Implemented as a bounded BMFF target family:
 - bounded `bmff:item-c2pa`
 - bounded `bmff:property-colr-icc`
 - bounded metadata-only `meta` rewrite path
+- explicit strip-mode rejection for recognized foreign XMP item graphs,
+  including `iinf` version 0/1/2 `mime` entries
 
 ### EXR
 
@@ -727,47 +756,61 @@ parity across every workflow.
 
 #### 1. Public Writer Contract For Primary Targets
 
-- [ ] document final preserve-vs-replace behavior for existing embedded XMP on `TIFF`, `DNG`, `PNG`, `WebP`, `JP2`, `JXL`, and bounded `BMFF`
-- [ ] document final preserve-vs-replace behavior for destination sidecars across embedded-only, sidecar-only, and dual-write flows
-- [ ] lock explicit unmanaged-metadata preservation rules for unrelated chunks, boxes, items, and tails per target family
-- [ ] add compare-backed read-back gates for each first-class target instead of relying mainly on API-shape regression coverage
-- [ ] make CLI and Python surfaces describe the same writeback behavior and path-derivation rules as the C++ helper
+- [x] document final preserve-vs-replace behavior for existing embedded XMP on `TIFF`, `DNG`, `PNG`, `WebP`, `JP2`, `JXL`, and bounded `BMFF`
+- [x] document final preserve-vs-replace behavior for destination sidecars across embedded-only, sidecar-only, and dual-write flows
+- [x] lock explicit unmanaged-metadata preservation rules for unrelated chunks, boxes, items, and tails per target family
+- [x] add compare-backed read-back gates for each first-class target instead of relying mainly on API-shape regression coverage
+- [x] make CLI and Python surfaces describe the same writeback behavior and path-derivation rules as the C++ helper
 - [ ] reduce remaining target differences to documented limits instead of accidental implementation details
 
 #### 2. Bounded EXIF / IPTC / XMP Sync Layer
 
-- [ ] publish one final precedence table for source embedded XMP, destination embedded XMP, and destination sidecar XMP
-- [ ] lock conflict behavior for generated EXIF-to-XMP and IPTC-to-XMP projections when existing XMP is also present
-- [ ] lock canonical generated-XMP writeback behavior for embedded-only, sidecar-only, and dual-write flows
-- [ ] lock namespace preservation and canonicalization rules for managed vs unmanaged XMP content
-- [ ] add regression cases for mixed embedded-plus-sidecar destination states across the primary target family
-- [ ] document the explicit non-goals of this bounded sync layer so it is not confused with full arbitrary sync parity
+- [x] publish one final precedence table for source embedded XMP, destination embedded XMP, and destination sidecar XMP
+- [x] lock conflict behavior for generated EXIF-to-XMP and IPTC-to-XMP projections when existing XMP is also present
+- [x] lock canonical generated-XMP writeback behavior for embedded-only, sidecar-only, and dual-write flows
+- [x] lock namespace preservation and canonicalization rules for managed vs unmanaged XMP content
+- [x] add regression cases for mixed embedded-plus-sidecar destination states across the primary target family
+- [x] document the explicit non-goals of this bounded sync layer so it is not confused with full arbitrary sync parity
+
+Evidence: `docs/xmp_sync_policy.md` now defines the bounded public policy,
+including carrier precedence, generated-vs-existing conflict behavior,
+writeback modes, namespace handling, and non-goals. The release-facing transfer
+tests cover source/destination carrier precedence, generated EXIF/IPTC versus
+existing XMP conflicts, canonical managed namespace replacement, and persisted
+embedded/sidecar writeback across the primary writer target family.
 
 #### 3. Compare-Backed Release Validation
 
-- [ ] promote the current primary-target roundtrip checks into explicit release-facing compare gates
-- [ ] add compare-backed validation for `TIFF`, `DNG`, `PNG`, `WebP`, `JP2`, `JXL`, and bounded `BMFF` target outputs
-- [ ] cover embedded-only, sidecar-only, and dual-write XMP flows in release-facing compare validation
-- [ ] add compare-backed validation for explicit sidecar-base overrides and destination-sidecar cleanup behavior
-- [ ] gate the primary writer family on deterministic read-back of managed metadata after edit/apply
+- [x] promote the current primary-target roundtrip checks into explicit release-facing compare gates
+- [x] add compare-backed validation for `TIFF`, `DNG`, `PNG`, `WebP`, `JP2`, `JXL`, and bounded `BMFF` target outputs
+- [x] cover embedded-only, sidecar-only, and dual-write XMP flows in release-facing compare validation
+- [x] add compare-backed validation for explicit sidecar-base overrides and destination-sidecar cleanup behavior
+- [x] gate the primary writer family on deterministic read-back of managed metadata after edit/apply
 - [ ] keep public parity claims tied to compare-backed evidence instead of only unit or smoke coverage
 
 #### 4. TIFF / DNG Deeper Rewrite Guarantees
 
-- [ ] lock rewrite guarantees for classic TIFF and BigTIFF root IFD, `ExifIFD`, preview chains, and bounded `SubIFD` replacement
-- [ ] lock explicit DNG behavior for `ExistingTarget`, `TemplateTarget`, and `MinimalFreshScaffold`
-- [ ] add compare-backed roundtrip gates for preview chains, raw `SubIFD` merge behavior, and `DNGVersion` persistence
-- [ ] document preserve-vs-replace guarantees for existing auxiliary IFD chains and downstream tails
-- [ ] harden read-back and rewrite tests around mixed existing metadata carriers on camera-originated TIFF/DNG files
-- [ ] define the bounded edge of TIFF/DNG rewrite depth clearly enough that hosts know what is guaranteed and what is not
+- [x] lock rewrite guarantees for classic TIFF and BigTIFF root IFD, `ExifIFD`, preview chains, and bounded `SubIFD` replacement
+- [x] lock explicit DNG behavior for `ExistingTarget`, `TemplateTarget`, and `MinimalFreshScaffold`
+- [x] add compare-backed roundtrip gates for preview chains, raw `SubIFD` merge behavior, and `DNGVersion` persistence
+- [x] document preserve-vs-replace guarantees for existing auxiliary IFD chains and downstream tails
+- [x] harden read-back and rewrite tests around mixed existing metadata carriers on camera-like TIFF/DNG files
+- [x] define the bounded edge of TIFF/DNG rewrite depth clearly enough that hosts know what is guaranteed and what is not
+
+Evidence: `docs/writer_target_contract.md` defines the bounded TIFF/DNG
+rewrite contract and DNG target-mode behavior. Release-facing
+compatibility-dump tests now cover classic TIFF, DNG, and BigTIFF DNG-style
+merge outputs with preview-tail preservation, `SubIFD` auxiliary-tail
+preservation, existing root/preview/`SubIFD` XMP carrier replacement,
+embedded-versus-sidecar precedence, and `DNGVersion` read-back.
 
 #### Done-When Readout
 
 - [ ] the first-class target family has one explicit public writer contract
 - [ ] the bounded sync-policy layer is documented and regression-gated
 - [ ] release-facing compare validation covers the main still-image writer set
-- [ ] `TIFF/DNG` rewrite guarantees are strong enough to stop being a primary parity blocker
-- [ ] the next work slice can move to bounded `BMFF` depth instead of still backfilling the writer baseline
+- [x] `TIFF/DNG` rewrite guarantees are strong enough to stop being a primary parity blocker
+- [x] the next work slice can move to bounded `BMFF` depth instead of still backfilling the writer baseline
 
 ### Host Integration And Adoption Backlog
 

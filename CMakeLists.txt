@@ -65,6 +65,27 @@ if(OPENMETA_PYTHON_EXECUTABLE)
   set(Python_EXECUTABLE "${OPENMETA_PYTHON_EXECUTABLE}" CACHE FILEPATH "Python interpreter" FORCE)
 endif()
 
+set(OPENMETA_OIIOTOOL_EXECUTABLE "" CACHE FILEPATH "Optional oiiotool executable for external image usability checks")
+if(NOT OPENMETA_OIIOTOOL_EXECUTABLE)
+  find_program(_openmeta_oiiotool_executable
+    NAMES oiiotool
+    HINTS ${CMAKE_PREFIX_PATH}
+    PATH_SUFFIXES bin)
+  if(_openmeta_oiiotool_executable)
+    set(OPENMETA_OIIOTOOL_EXECUTABLE "${_openmeta_oiiotool_executable}"
+      CACHE FILEPATH "Optional oiiotool executable for external image usability checks" FORCE)
+  endif()
+endif()
+
+set(OPENMETA_EXIFTOOL_EXECUTABLE "" CACHE FILEPATH "Optional exiftool executable for external metadata checks")
+if(NOT OPENMETA_EXIFTOOL_EXECUTABLE)
+  find_program(_openmeta_exiftool_executable NAMES exiftool)
+  if(_openmeta_exiftool_executable)
+    set(OPENMETA_EXIFTOOL_EXECUTABLE "${_openmeta_exiftool_executable}"
+      CACHE FILEPATH "Optional exiftool executable for external metadata checks" FORCE)
+  endif()
+endif()
+
 # Optional path to local dependency repos (used for the FuzzTest wrapper).
 # Expected layout:
 #   <root>/fuzztest
@@ -402,6 +423,20 @@ if(OPENMETA_BUILD_TOOLS)
       COMMENT "Running metatransfer smoke gate"
       VERBATIM
     )
+
+    if(OPENMETA_OIIOTOOL_EXECUTABLE)
+      add_custom_target(openmeta_gate_metatransfer_image_usability
+        DEPENDS metatransfer
+        COMMAND ${CMAKE_COMMAND}
+          "-DMETATRANSFER_BIN=$<TARGET_FILE:metatransfer>"
+          "-DOIIOTOOL_BIN=${OPENMETA_OIIOTOOL_EXECUTABLE}"
+          "-DEXIFTOOL_BIN=${OPENMETA_EXIFTOOL_EXECUTABLE}"
+          "-DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/_metatransfer_image_usability"
+          -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/metatransfer_image_usability_test.cmake"
+        COMMENT "Running metatransfer external image usability gate"
+        VERBATIM
+      )
+    endif()
   endif()
 
   if(TARGET metaread AND TARGET metadump AND TARGET thumdump
@@ -662,6 +697,8 @@ if(OPENMETA_BUILD_TESTS)
         "-DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/_transfer_release_gate"
         "-DOPENMETA_PYTHON_EXECUTABLE=${Python_EXECUTABLE}"
         "-DOPENMETA_PYTHONPATH=${CMAKE_CURRENT_BINARY_DIR}/python"
+        "-DOIIOTOOL_BIN=${OPENMETA_OIIOTOOL_EXECUTABLE}"
+        "-DEXIFTOOL_BIN=${OPENMETA_EXIFTOOL_EXECUTABLE}"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/transfer_release_gate.cmake"
       COMMENT "Running transfer release gate"
       VERBATIM
@@ -674,6 +711,8 @@ if(OPENMETA_BUILD_TESTS)
         "-DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/_transfer_release_gate"
         "-DOPENMETA_PYTHON_EXECUTABLE=${Python_EXECUTABLE}"
         "-DOPENMETA_PYTHONPATH=${CMAKE_CURRENT_BINARY_DIR}/python"
+        "-DOIIOTOOL_BIN=${OPENMETA_OIIOTOOL_EXECUTABLE}"
+        "-DEXIFTOOL_BIN=${OPENMETA_EXIFTOOL_EXECUTABLE}"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/transfer_release_gate.cmake"
     )
   elseif(TARGET metatransfer)
@@ -683,6 +722,8 @@ if(OPENMETA_BUILD_TESTS)
         "-DOPENMETA_TESTS_BIN=$<TARGET_FILE:openmeta_tests>"
         "-DMETATRANSFER_BIN=$<TARGET_FILE:metatransfer>"
         "-DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/_transfer_release_gate"
+        "-DOIIOTOOL_BIN=${OPENMETA_OIIOTOOL_EXECUTABLE}"
+        "-DEXIFTOOL_BIN=${OPENMETA_EXIFTOOL_EXECUTABLE}"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/transfer_release_gate.cmake"
       COMMENT "Running transfer release gate"
       VERBATIM
@@ -693,6 +734,8 @@ if(OPENMETA_BUILD_TESTS)
         "-DOPENMETA_TESTS_BIN=$<TARGET_FILE:openmeta_tests>"
         "-DMETATRANSFER_BIN=$<TARGET_FILE:metatransfer>"
         "-DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/_transfer_release_gate"
+        "-DOIIOTOOL_BIN=${OPENMETA_OIIOTOOL_EXECUTABLE}"
+        "-DEXIFTOOL_BIN=${OPENMETA_EXIFTOOL_EXECUTABLE}"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/transfer_release_gate.cmake"
     )
   endif()
@@ -729,6 +772,18 @@ if(OPENMETA_BUILD_TESTS)
         "-DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/_cli_metatransfer_smoke"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/cli_metatransfer_smoke_test.cmake"
     )
+
+    if(OPENMETA_OIIOTOOL_EXECUTABLE)
+      add_test(
+        NAME openmeta_cli_metatransfer_image_usability
+        COMMAND ${CMAKE_COMMAND}
+          "-DMETATRANSFER_BIN=$<TARGET_FILE:metatransfer>"
+          "-DOIIOTOOL_BIN=${OPENMETA_OIIOTOOL_EXECUTABLE}"
+          "-DEXIFTOOL_BIN=${OPENMETA_EXIFTOOL_EXECUTABLE}"
+          "-DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/_metatransfer_image_usability"
+          -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/metatransfer_image_usability_test.cmake"
+      )
+    endif()
   endif()
 
   if(TARGET metaread AND TARGET metadump AND TARGET thumdump

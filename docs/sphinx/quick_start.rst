@@ -20,6 +20,8 @@ For the stable flat host naming contract, see :doc:`flat_host_mapping`.
 For deterministic host compatibility baselines, see :doc:`compatibility_dump`.
 For generated XMP merge and writeback precedence, see
 :doc:`xmp_sync_policy`.
+For per-target writer preserve/replace guarantees, see
+:doc:`writer_target_contract`.
 
 Add OpenMeta to CMake
 ---------------------
@@ -280,6 +282,34 @@ Python exposes the same query:
        openmeta.MetadataCapabilityFamily.Xmp,
    )
    print(cap["target_edit_name"])
+
+CLI and Python convenience layers
+---------------------------------
+
+The CLI and Python bindings are thin layers over the same public C++ APIs.
+Transfer writeback follows the C++ file-helper contract:
+
+- ``--output`` is the sidecar base for ``sidecar`` and
+  ``embedded_and_sidecar`` writeback, so generated sidecars use
+  ``output-stem.xmp``.
+- ``--xmp-writeback sidecar`` suppresses generated embedded XMP.
+- ``--xmp-writeback embedded_and_sidecar`` writes generated XMP to both
+  carriers.
+- embedded-only writeback preserves an existing sidecar unless
+  ``--xmp-destination-sidecar strip_existing`` is selected.
+- sidecar-only writeback preserves destination embedded XMP unless
+  ``--xmp-destination-embedded strip_existing`` is selected.
+- ``--force`` maps to the C++ persistence overwrite flags for the primary
+  output and generated sidecar.
+
+.. code-block:: bash
+
+   python3 -m openmeta.python.metatransfer \
+     --source-meta source.jpg \
+     --target-jpeg rendered.jpg \
+     --xmp-writeback embedded_and_sidecar \
+     --output rendered_with_meta.jpg \
+     --force
 
 Next steps
 ----------

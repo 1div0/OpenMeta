@@ -24,6 +24,9 @@ set(_src_icc_jpg "${WORK_DIR}/source_icc.jpg")
 set(_target_jpg "${WORK_DIR}/target.jpg")
 set(_target_jpg_xmp "${WORK_DIR}/target_xmp.jpg")
 set(_edited_jpg "${WORK_DIR}/edited.jpg")
+set(_target_spec_jpg "${WORK_DIR}/target_spec.jpg")
+set(_target_spec_tif "${WORK_DIR}/target_spec.tif")
+set(_target_spec_dng "${WORK_DIR}/target_spec.dng")
 set(_dual_jpg "${WORK_DIR}/dual_write.jpg")
 set(_dual_jpg_sidecar "${WORK_DIR}/dual_write.xmp")
 set(_embed_only_strip_jpg "${WORK_DIR}/embed_only_strip.jpg")
@@ -345,6 +348,87 @@ execute_process(
           "${OPENMETA_PYTHON_EXECUTABLE}" -m openmeta.python.metatransfer
           --no-build-info
           --target-jpeg "${_target_jpg}"
+          --target-width 320
+          --target-height 240
+          --target-orientation 1
+          --target-samples-per-pixel 3
+          --target-bits-per-sample 8
+          --target-sample-format 1
+          --target-photometric 2
+          --target-planar-configuration 1
+          --target-exif-color-space 1
+          -o "${_target_spec_jpg}" --force
+          "${_src_jpg}"
+  RESULT_VARIABLE _rv_target_spec
+  OUTPUT_VARIABLE _out_target_spec
+  ERROR_VARIABLE _err_target_spec
+)
+if(NOT _rv_target_spec EQUAL 0)
+  message(FATAL_ERROR
+    "python metatransfer target-spec jpeg edit failed (${_rv_target_spec})\nstdout:\n${_out_target_spec}\nstderr:\n${_err_target_spec}")
+endif()
+if(NOT EXISTS "${_target_spec_jpg}")
+  message(FATAL_ERROR
+    "python metatransfer target-spec jpeg did not write output\nstdout:\n${_out_target_spec}\nstderr:\n${_err_target_spec}")
+endif()
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env
+          "PYTHONPATH=${OPENMETA_PYTHONPATH}"
+          "${OPENMETA_PYTHON_EXECUTABLE}" -m openmeta.python.metatransfer
+          --no-build-info
+          --source-meta "${_src_jpg}"
+          --target-tiff "${_target_tif}"
+          --target-width 320
+          --target-height 240
+          --target-orientation 1
+          --target-samples-per-pixel 3
+          --target-bits-per-sample 8
+          --target-sample-format 1
+          --target-photometric 2
+          --target-planar-configuration 1
+          --target-exif-color-space 1
+          -o "${_target_spec_tif}" --force
+          "${_target_tif}"
+  RESULT_VARIABLE _rv_target_spec_tif
+  OUTPUT_VARIABLE _out_target_spec_tif
+  ERROR_VARIABLE _err_target_spec_tif
+)
+if(NOT _rv_target_spec_tif EQUAL 0)
+  message(FATAL_ERROR
+    "python metatransfer target-spec tiff edit failed (${_rv_target_spec_tif})\nstdout:\n${_out_target_spec_tif}\nstderr:\n${_err_target_spec_tif}")
+endif()
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env
+          "PYTHONPATH=${OPENMETA_PYTHONPATH}"
+          "${OPENMETA_PYTHON_EXECUTABLE}" -m openmeta.python.metatransfer
+          --no-build-info
+          --source-meta "${_src_jpg}"
+          --target-dng "${_target_dng}"
+          --target-width 320
+          --target-height 240
+          --target-orientation 1
+          --target-samples-per-pixel 3
+          --target-bits-per-sample 8
+          --target-sample-format 1
+          --target-photometric 2
+          --target-planar-configuration 1
+          --target-exif-color-space 1
+          -o "${_target_spec_dng}" --force
+          "${_target_dng}"
+  RESULT_VARIABLE _rv_target_spec_dng
+  OUTPUT_VARIABLE _out_target_spec_dng
+  ERROR_VARIABLE _err_target_spec_dng
+)
+if(NOT _rv_target_spec_dng EQUAL 0)
+  message(FATAL_ERROR
+    "python metatransfer target-spec dng edit failed (${_rv_target_spec_dng})\nstdout:\n${_out_target_spec_dng}\nstderr:\n${_err_target_spec_dng}")
+endif()
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env
+          "PYTHONPATH=${OPENMETA_PYTHONPATH}"
+          "${OPENMETA_PYTHON_EXECUTABLE}" -m openmeta.python.metatransfer
+          --no-build-info
+          --target-jpeg "${_target_jpg}"
           --xmp-writeback embedded_and_sidecar
           -o "${_dual_jpg}"
           "${_src_jpg}"
@@ -367,6 +451,10 @@ endif()
 if(NOT _out_dual MATCHES "xmp_sidecar_output=.*dual_write\\.xmp")
   message(FATAL_ERROR
     "python metatransfer dual-write missing xmp sidecar summary\nstdout:\n${_out_dual}\nstderr:\n${_err_dual}")
+endif()
+if(NOT _out_dual MATCHES "xmp_sidecar: status=ok bytes=[0-9]+ path=.*dual_write\\.xmp")
+  message(FATAL_ERROR
+    "python metatransfer dual-write missing C++ sidecar path summary\nstdout:\n${_out_dual}\nstderr:\n${_err_dual}")
 endif()
 execute_process(
   COMMAND "${OPENMETA_PYTHON_EXECUTABLE}" -c
@@ -437,6 +525,10 @@ if(NOT EXISTS "${_sidecar_only_strip_sidecar}")
   message(FATAL_ERROR
     "python metatransfer sidecar-only embedded-strip did not write xmp sidecar\nstdout:\n${_out_sidecar_strip}\nstderr:\n${_err_sidecar_strip}")
 endif()
+if(NOT _out_sidecar_strip MATCHES "xmp_sidecar_output=.*sidecar_only_strip\\.xmp")
+  message(FATAL_ERROR
+    "python metatransfer sidecar-only embedded-strip missing generated sidecar summary\nstdout:\n${_out_sidecar_strip}\nstderr:\n${_err_sidecar_strip}")
+endif()
 execute_process(
   COMMAND "${OPENMETA_PYTHON_EXECUTABLE}" -c
     "from pathlib import Path; b=Path(r'''${_sidecar_only_strip_jpg}''').read_bytes(); import sys; sys.exit(0 if (b.find(b'Target Embedded Existing')==-1 and b.find(b'http://ns.adobe.com/xap/1.0/')==-1) else 1)"
@@ -474,6 +566,10 @@ endif()
 if(NOT EXISTS "${_sidecar_only_strip_tif_sidecar}")
   message(FATAL_ERROR
     "python metatransfer tiff sidecar-only embedded-strip did not write xmp sidecar\nstdout:\n${_out_sidecar_strip_tif}\nstderr:\n${_err_sidecar_strip_tif}")
+endif()
+if(NOT _out_sidecar_strip_tif MATCHES "xmp_sidecar_output=.*sidecar_only_strip_tiff\\.xmp")
+  message(FATAL_ERROR
+    "python metatransfer tiff sidecar-only embedded-strip missing generated sidecar summary\nstdout:\n${_out_sidecar_strip_tif}\nstderr:\n${_err_sidecar_strip_tif}")
 endif()
 execute_process(
   COMMAND "${OPENMETA_PYTHON_EXECUTABLE}" -c
@@ -583,6 +679,26 @@ def as_text(value) -> str:
     return str(value)
 
 
+def as_ints(value) -> list[int]:
+    if isinstance(value, int):
+        return [int(value)]
+    if isinstance(value, (bytes, bytearray)):
+        return [int(v) for v in value]
+    try:
+        return [int(v) for v in value]
+    except TypeError:
+        return [int(value)]
+
+
+def expect_exif(ifd: str, tag: int, expected: list[int]) -> None:
+    entries = doc.find_exif(ifd, tag)
+    if len(entries) == 0:
+        fail(f"missing {ifd}:0x{tag:04X}")
+    actual = as_ints(entries[0].value())
+    if actual != expected:
+        fail(f"{ifd}:0x{tag:04X} mismatch: {actual!r}")
+
+
 mode = sys.argv[1]
 path = Path(sys.argv[2])
 expect_dt = sys.argv[3]
@@ -668,12 +784,64 @@ elif mode == "bmff_xmp_creator_no_exif":
             fail(
                 f"unexpected CreatorTool: {forbidden_creator!r} found={creators!r}"
             )
+elif mode == "target_spec":
+    expect_exif("ifd0", 0x0100, [320])
+    expect_exif("ifd0", 0x0101, [240])
+    expect_exif("exififd", 0xA002, [320])
+    expect_exif("exififd", 0xA003, [240])
+    expect_exif("ifd0", 0x0112, [1])
+    expect_exif("ifd0", 0x0115, [3])
+    expect_exif("ifd0", 0x0102, [8, 8, 8])
+    expect_exif("ifd0", 0x0153, [1, 1, 1])
+    expect_exif("ifd0", 0x0106, [2])
+    expect_exif("ifd0", 0x011C, [1])
+    expect_exif("exififd", 0xA001, [1])
 elif mode == "exif_only_no_xmp":
     if int(doc.xmp_entries_decoded) != 0:
         fail(f"unexpected XMP entries: {int(doc.xmp_entries_decoded)}")
 else:
     fail(f"unknown mode: {mode}")
 ]=])
+
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env
+          "PYTHONPATH=${OPENMETA_PYTHONPATH}"
+          "${OPENMETA_PYTHON_EXECUTABLE}" "${_check_readback_py}"
+          "target_spec" "${_target_spec_jpg}" "2000:01:02 03:04:05"
+  RESULT_VARIABLE _rv_target_spec_check
+  OUTPUT_VARIABLE _out_target_spec_check
+  ERROR_VARIABLE _err_target_spec_check
+)
+if(NOT _rv_target_spec_check EQUAL 0)
+  message(FATAL_ERROR
+    "python metatransfer target-spec read-back check failed (${_rv_target_spec_check})\nstdout:\n${_out_target_spec}\nstderr:\n${_err_target_spec}\ncheck_stdout:\n${_out_target_spec_check}\ncheck_stderr:\n${_err_target_spec_check}")
+endif()
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env
+          "PYTHONPATH=${OPENMETA_PYTHONPATH}"
+          "${OPENMETA_PYTHON_EXECUTABLE}" "${_check_readback_py}"
+          "target_spec" "${_target_spec_tif}" "2000:01:02 03:04:05"
+  RESULT_VARIABLE _rv_target_spec_tif_check
+  OUTPUT_VARIABLE _out_target_spec_tif_check
+  ERROR_VARIABLE _err_target_spec_tif_check
+)
+if(NOT _rv_target_spec_tif_check EQUAL 0)
+  message(FATAL_ERROR
+    "python metatransfer target-spec tiff read-back check failed (${_rv_target_spec_tif_check})\nstdout:\n${_out_target_spec_tif}\nstderr:\n${_err_target_spec_tif}\ncheck_stdout:\n${_out_target_spec_tif_check}\ncheck_stderr:\n${_err_target_spec_tif_check}")
+endif()
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env
+          "PYTHONPATH=${OPENMETA_PYTHONPATH}"
+          "${OPENMETA_PYTHON_EXECUTABLE}" "${_check_readback_py}"
+          "target_spec" "${_target_spec_dng}" "2000:01:02 03:04:05"
+  RESULT_VARIABLE _rv_target_spec_dng_check
+  OUTPUT_VARIABLE _out_target_spec_dng_check
+  ERROR_VARIABLE _err_target_spec_dng_check
+)
+if(NOT _rv_target_spec_dng_check EQUAL 0)
+  message(FATAL_ERROR
+    "python metatransfer target-spec dng read-back check failed (${_rv_target_spec_dng_check})\nstdout:\n${_out_target_spec_dng}\nstderr:\n${_err_target_spec_dng}\ncheck_stdout:\n${_out_target_spec_dng_check}\ncheck_stderr:\n${_err_target_spec_dng_check}")
+endif()
 
 function(_run_bmff_dual_write_xmp_smoke label target_flag target_path output_path
          sidecar_path)

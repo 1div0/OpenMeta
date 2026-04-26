@@ -8665,6 +8665,538 @@ namespace {
                || tag == 0xA005U;
     }
 
+    static bool is_target_local_tiff_storage_tag(uint16_t tag) noexcept
+    {
+        switch (tag) {
+        case 0x0111U:  // StripOffsets
+        case 0x0117U:  // StripByteCounts
+        case 0x0120U:  // FreeOffsets
+        case 0x0121U:  // FreeByteCounts
+        case 0x0144U:  // TileOffsets
+        case 0x0145U:  // TileByteCounts
+        case 0x0201U:  // JPEGInterchangeFormat
+        case 0x0202U:  // JPEGInterchangeFormatLength
+            return true;
+        default: break;
+        }
+        return false;
+    }
+
+    static bool is_root_tiff_image_layout_tag(uint16_t tag) noexcept
+    {
+        if (is_target_local_tiff_storage_tag(tag)) {
+            return true;
+        }
+
+        switch (tag) {
+        case 0x0100U:  // ImageWidth
+        case 0x0101U:  // ImageLength
+        case 0x0102U:  // BitsPerSample
+        case 0x0103U:  // Compression
+        case 0x0106U:  // PhotometricInterpretation
+        case 0x0112U:  // Orientation
+        case 0x0115U:  // SamplesPerPixel
+        case 0x0116U:  // RowsPerStrip
+        case 0x011CU:  // PlanarConfiguration
+        case 0x013DU:  // Predictor
+        case 0x0142U:  // TileWidth
+        case 0x0143U:  // TileLength
+        case 0x0152U:  // ExtraSamples
+        case 0x0153U:  // SampleFormat
+        case 0x0211U:  // YCbCrCoefficients
+        case 0x0212U:  // YCbCrSubSampling
+        case 0x0213U:  // YCbCrPositioning
+        case 0x0214U:  // ReferenceBlackWhite
+            return true;
+        default: break;
+        }
+        return false;
+    }
+
+    static bool is_exif_ifd_image_layout_tag_for_transfer(
+        uint16_t tag) noexcept
+    {
+        switch (tag) {
+        case 0x9101U:  // ComponentsConfiguration
+        case 0x9102U:  // CompressedBitsPerPixel
+        case 0xA001U:  // ColorSpace
+        case 0xA002U:  // PixelXDimension
+        case 0xA003U:  // PixelYDimension
+        case 0xA500U:  // Gamma
+            return true;
+        default: break;
+        }
+        return false;
+    }
+
+    static bool is_exif_image_dependent_transfer_tag(
+        const TransferExifIfdRef& ifd_ref, uint16_t tag) noexcept
+    {
+        if (ifd_ref.slot == ExifIfdSlot::Ifd0) {
+            return is_root_tiff_image_layout_tag(tag);
+        }
+        if (ifd_ref.is_page || ifd_ref.is_subifd) {
+            return is_target_local_tiff_storage_tag(tag);
+        }
+        if (ifd_ref.slot == ExifIfdSlot::ExifIfd) {
+            return is_exif_ifd_image_layout_tag_for_transfer(tag);
+        }
+        return false;
+    }
+
+    static std::string_view xmp_transfer_property_base(
+        std::string_view path) noexcept
+    {
+        size_t end = path.size();
+        for (size_t i = 0U; i < path.size(); ++i) {
+            const char c = path[i];
+            if (c == '[' || c == '/' || c == '.') {
+                end = i;
+                break;
+            }
+        }
+
+        std::string_view base = path.substr(0U, end);
+        const size_t colon    = base.find(':');
+        if (colon != std::string_view::npos && colon + 1U < base.size()) {
+            base = base.substr(colon + 1U);
+        }
+        return base;
+    }
+
+    static bool is_tiff_xmp_image_dependent_transfer_property(
+        std::string_view name) noexcept
+    {
+        return name == "ImageWidth" || name == "ImageLength"
+               || name == "ImageHeight" || name == "BitsPerSample"
+               || name == "Compression"
+               || name == "PhotometricInterpretation"
+               || name == "Orientation" || name == "SamplesPerPixel"
+               || name == "RowsPerStrip"
+               || name == "PlanarConfiguration" || name == "Predictor"
+               || name == "TileWidth" || name == "TileLength"
+               || name == "TileOffsets" || name == "TileByteCounts"
+               || name == "StripOffsets" || name == "StripByteCounts"
+               || name == "FreeOffsets" || name == "FreeByteCounts"
+               || name == "ExtraSamples" || name == "SampleFormat"
+               || name == "YCbCrCoefficients"
+               || name == "YCbCrSubSampling"
+               || name == "YCbCrPositioning"
+               || name == "ReferenceBlackWhite"
+               || name == "JPEGInterchangeFormat"
+               || name == "JPEGInterchangeFormatLength";
+    }
+
+    static bool is_exif_xmp_image_dependent_transfer_property(
+        std::string_view name) noexcept
+    {
+        return name == "PixelXDimension" || name == "PixelYDimension"
+               || name == "ExifImageWidth" || name == "ExifImageHeight"
+               || name == "RelatedImageWidth"
+               || name == "RelatedImageLength"
+               || name == "ComponentsConfiguration"
+               || name == "CompressedBitsPerPixel" || name == "ColorSpace"
+               || name == "Gamma";
+    }
+
+    static bool is_photoshop_xmp_image_dependent_transfer_property(
+        std::string_view name) noexcept
+    {
+        return name == "ColorMode" || name == "ICCProfile";
+    }
+
+    static bool is_xmp_image_dependent_transfer_property(
+        std::string_view ns, std::string_view path) noexcept
+    {
+        const std::string_view name = xmp_transfer_property_base(path);
+        if (name.empty()) {
+            return false;
+        }
+        if (ns == "http://ns.adobe.com/tiff/1.0/") {
+            return is_tiff_xmp_image_dependent_transfer_property(name);
+        }
+        if (ns == "http://ns.adobe.com/exif/1.0/") {
+            return is_exif_xmp_image_dependent_transfer_property(name);
+        }
+        if (ns == "http://ns.adobe.com/photoshop/1.0/") {
+            return is_photoshop_xmp_image_dependent_transfer_property(name);
+        }
+        return false;
+    }
+
+    static bool entry_is_image_dependent_for_target_transfer(
+        const MetaStore& store, const Entry& entry) noexcept
+    {
+        if (any(entry.flags, EntryFlags::Deleted)) {
+            return false;
+        }
+
+        if (entry.key.kind == MetaKeyKind::ExifTag) {
+            std::string_view ifd_name;
+            if (!ifd_name_for_entry(store, entry, &ifd_name)) {
+                return false;
+            }
+            const TransferExifIfdRef ifd_ref = classify_exif_ifd_ref(ifd_name);
+            return is_exif_image_dependent_transfer_tag(
+                ifd_ref, entry.key.data.exif_tag.tag);
+        }
+
+        if (entry.key.kind == MetaKeyKind::XmpProperty) {
+            const std::string_view ns = arena_string(
+                store.arena(), entry.key.data.xmp_property.schema_ns);
+            const std::string_view path = arena_string(
+                store.arena(), entry.key.data.xmp_property.property_path);
+            return is_xmp_image_dependent_transfer_property(ns, path);
+        }
+
+        return false;
+    }
+
+    static uint32_t count_image_dependent_target_transfer_entries(
+        const MetaStore& store) noexcept
+    {
+        uint32_t count = 0U;
+        for (const Entry& entry : store.entries()) {
+            if (entry_is_image_dependent_for_target_transfer(store, entry)) {
+                count += 1U;
+            }
+        }
+        return count;
+    }
+
+    static bool build_target_safe_transfer_store(const MetaStore& src,
+                                                 MetaStore* dst,
+                                                 uint32_t* out_omitted) noexcept
+    {
+        if (!dst) {
+            return false;
+        }
+        if (out_omitted) {
+            *out_omitted = 0U;
+        }
+
+        *dst = MetaStore();
+        std::vector<BlockId> block_map(src.block_count(), kInvalidBlockId);
+        for (uint32_t i = 0U; i < src.block_count(); ++i) {
+            const BlockId id = dst->add_block(src.block_info(i));
+            if (id == kInvalidBlockId) {
+                return false;
+            }
+            block_map[i] = id;
+        }
+
+        uint32_t omitted = 0U;
+        for (const Entry& entry : src.entries()) {
+            if (any(entry.flags, EntryFlags::Deleted)) {
+                continue;
+            }
+            if (entry_is_image_dependent_for_target_transfer(src, entry)) {
+                omitted += 1U;
+                continue;
+            }
+
+            Entry copied;
+            copied.key = copy_meta_key_for_store(entry.key, src.arena(),
+                                                 dst->arena());
+            copied.value = copy_meta_value_for_store(entry.value, src.arena(),
+                                                     dst->arena());
+            copied.origin                = entry.origin;
+            copied.origin.block          = entry.origin.block;
+            copied.origin.order_in_block = entry.origin.order_in_block;
+            if (entry.origin.block != kInvalidBlockId
+                && entry.origin.block < block_map.size()) {
+                copied.origin.block = block_map[entry.origin.block];
+            }
+            if (entry.origin.wire_type_name.size > 0U) {
+                copied.origin.wire_type_name = dst->arena().append(
+                    src.arena().span(entry.origin.wire_type_name));
+            }
+            copied.flags = entry.flags;
+            if (dst->add_entry(copied) == kInvalidEntryId) {
+                return false;
+            }
+        }
+
+        if (out_omitted) {
+            *out_omitted = omitted;
+        }
+        return true;
+    }
+
+    static bool transfer_target_image_spec_has_any(
+        const TransferTargetImageSpec& spec) noexcept
+    {
+        return spec.has_dimensions || spec.has_orientation
+               || spec.has_samples_per_pixel
+               || spec.bits_per_sample_count > 0U
+               || spec.sample_format_count > 0U
+               || spec.has_photometric_interpretation
+               || spec.has_planar_configuration || spec.has_compression
+               || spec.has_exif_color_space;
+    }
+
+    static bool transfer_target_image_spec_values_are_nonzero(
+        const std::array<uint16_t, kTransferTargetImageSpecMaxSamples>& values,
+        uint16_t count) noexcept
+    {
+        if (count == 0U || count > kTransferTargetImageSpecMaxSamples) {
+            return false;
+        }
+        for (uint16_t i = 0U; i < count; ++i) {
+            if (values[i] == 0U) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    static bool validate_transfer_target_image_spec(
+        const TransferTargetImageSpec& spec, std::string* out_error) noexcept
+    {
+        if (out_error) {
+            out_error->clear();
+        }
+        if (!transfer_target_image_spec_has_any(spec)) {
+            return true;
+        }
+        if (spec.has_dimensions && (spec.width == 0U || spec.height == 0U)) {
+            if (out_error) {
+                *out_error = "target image dimensions must be non-zero";
+            }
+            return false;
+        }
+        if (spec.has_orientation
+            && (spec.orientation < 1U || spec.orientation > 8U)) {
+            if (out_error) {
+                *out_error = "target image orientation must be in 1..8";
+            }
+            return false;
+        }
+        if (spec.has_samples_per_pixel
+            && (spec.samples_per_pixel == 0U
+                || spec.samples_per_pixel
+                       > kTransferTargetImageSpecMaxSamples)) {
+            if (out_error) {
+                *out_error = "target samples-per-pixel is out of range";
+            }
+            return false;
+        }
+        if (spec.bits_per_sample_count > 0U
+            && !transfer_target_image_spec_values_are_nonzero(
+                spec.bits_per_sample, spec.bits_per_sample_count)) {
+            if (out_error) {
+                *out_error = "target bits-per-sample values must be non-zero";
+            }
+            return false;
+        }
+        if (spec.sample_format_count > 0U
+            && !transfer_target_image_spec_values_are_nonzero(
+                spec.sample_format, spec.sample_format_count)) {
+            if (out_error) {
+                *out_error = "target sample-format values must be non-zero";
+            }
+            return false;
+        }
+        if (spec.has_samples_per_pixel) {
+            if (spec.bits_per_sample_count > 1U
+                && spec.bits_per_sample_count != spec.samples_per_pixel) {
+                if (out_error) {
+                    *out_error = "target bits-per-sample count must be 1 "
+                                 "or samples-per-pixel";
+                }
+                return false;
+            }
+            if (spec.sample_format_count > 1U
+                && spec.sample_format_count != spec.samples_per_pixel) {
+                if (out_error) {
+                    *out_error = "target sample-format count must be 1 "
+                                 "or samples-per-pixel";
+                }
+                return false;
+            }
+        }
+        if (spec.has_planar_configuration
+            && spec.planar_configuration != 1U
+            && spec.planar_configuration != 2U) {
+            if (out_error) {
+                *out_error = "target planar configuration must be 1 or 2";
+            }
+            return false;
+        }
+        if (spec.has_compression && spec.compression == 0U) {
+            if (out_error) {
+                *out_error = "target compression must be non-zero";
+            }
+            return false;
+        }
+        if (spec.has_exif_color_space && spec.exif_color_space == 0U) {
+            if (out_error) {
+                *out_error = "target EXIF color space must be non-zero";
+            }
+            return false;
+        }
+        return true;
+    }
+
+    static bool append_target_spec_exif_entry(MetaStore* store, BlockId block,
+                                              uint32_t* order,
+                                              const char* ifd, uint16_t tag,
+                                              const MetaValue& value) noexcept
+    {
+        if (!store || !order || !ifd) {
+            return false;
+        }
+        Entry entry;
+        entry.key = make_exif_tag_key(store->arena(), ifd, tag);
+        entry.value                 = value;
+        entry.origin.block          = block;
+        entry.origin.order_in_block = *order;
+        *order += 1U;
+        return store->add_entry(entry) != kInvalidEntryId;
+    }
+
+    static bool append_target_spec_exif_u16(MetaStore* store, BlockId block,
+                                            uint32_t* order, const char* ifd,
+                                            uint16_t tag,
+                                            uint16_t value) noexcept
+    {
+        return append_target_spec_exif_entry(store, block, order, ifd, tag,
+                                             make_u16(value));
+    }
+
+    static bool append_target_spec_exif_u32(MetaStore* store, BlockId block,
+                                            uint32_t* order, const char* ifd,
+                                            uint16_t tag,
+                                            uint32_t value) noexcept
+    {
+        return append_target_spec_exif_entry(store, block, order, ifd, tag,
+                                             make_u32(value));
+    }
+
+    static bool append_target_spec_exif_u16_values(
+        MetaStore* store, BlockId block, uint32_t* order, const char* ifd,
+        uint16_t tag,
+        const std::array<uint16_t, kTransferTargetImageSpecMaxSamples>& values,
+        uint16_t count, uint16_t repeat_count) noexcept
+    {
+        if (!store || count == 0U
+            || count > kTransferTargetImageSpecMaxSamples) {
+            return false;
+        }
+
+        if (count == 1U && repeat_count <= 1U) {
+            return append_target_spec_exif_u16(store, block, order, ifd, tag,
+                                               values[0]);
+        }
+
+        std::array<uint16_t, kTransferTargetImageSpecMaxSamples> expanded {};
+        uint16_t expanded_count = count;
+        if (count == 1U && repeat_count > 1U) {
+            expanded_count = repeat_count;
+            if (expanded_count > kTransferTargetImageSpecMaxSamples) {
+                return false;
+            }
+            for (uint16_t i = 0U; i < expanded_count; ++i) {
+                expanded[i] = values[0];
+            }
+        } else {
+            for (uint16_t i = 0U; i < count; ++i) {
+                expanded[i] = values[i];
+            }
+        }
+
+        const MetaValue value = make_u16_array(
+            store->arena(),
+            std::span<const uint16_t>(expanded.data(), expanded_count));
+        return append_target_spec_exif_entry(store, block, order, ifd, tag,
+                                             value);
+    }
+
+    static bool append_transfer_target_image_spec(
+        MetaStore* store, const TransferTargetImageSpec& spec) noexcept
+    {
+        if (!store || !transfer_target_image_spec_has_any(spec)) {
+            return true;
+        }
+
+        BlockInfo info {};
+        const BlockId block = store->add_block(info);
+        if (block == kInvalidBlockId) {
+            return false;
+        }
+
+        uint32_t order = 0U;
+        if (spec.has_dimensions) {
+            if (!append_target_spec_exif_u32(store, block, &order, "ifd0",
+                                             0x0100U, spec.width)
+                || !append_target_spec_exif_u32(store, block, &order, "ifd0",
+                                                0x0101U, spec.height)
+                || !append_target_spec_exif_u32(store, block, &order,
+                                                "exififd", 0xA002U,
+                                                spec.width)
+                || !append_target_spec_exif_u32(store, block, &order,
+                                                "exififd", 0xA003U,
+                                                spec.height)) {
+                return false;
+            }
+        }
+
+        if (spec.has_orientation
+            && !append_target_spec_exif_u16(store, block, &order, "ifd0",
+                                            0x0112U, spec.orientation)) {
+            return false;
+        }
+        if (spec.has_samples_per_pixel
+            && !append_target_spec_exif_u16(store, block, &order, "ifd0",
+                                            0x0115U,
+                                            spec.samples_per_pixel)) {
+            return false;
+        }
+
+        uint16_t repeat_count = 0U;
+        if (spec.has_samples_per_pixel) {
+            repeat_count = spec.samples_per_pixel;
+        }
+        if (spec.bits_per_sample_count > 0U
+            && !append_target_spec_exif_u16_values(
+                store, block, &order, "ifd0", 0x0102U,
+                spec.bits_per_sample, spec.bits_per_sample_count,
+                repeat_count)) {
+            return false;
+        }
+        if (spec.sample_format_count > 0U
+            && !append_target_spec_exif_u16_values(
+                store, block, &order, "ifd0", 0x0153U,
+                spec.sample_format, spec.sample_format_count, repeat_count)) {
+            return false;
+        }
+
+        if (spec.has_photometric_interpretation
+            && !append_target_spec_exif_u16(store, block, &order, "ifd0",
+                                            0x0106U,
+                                            spec.photometric_interpretation)) {
+            return false;
+        }
+        if (spec.has_planar_configuration
+            && !append_target_spec_exif_u16(store, block, &order, "ifd0",
+                                            0x011CU,
+                                            spec.planar_configuration)) {
+            return false;
+        }
+        if (spec.has_compression
+            && !append_target_spec_exif_u16(store, block, &order, "ifd0",
+                                            0x0103U, spec.compression)) {
+            return false;
+        }
+        if (spec.has_exif_color_space
+            && !append_target_spec_exif_u16(store, block, &order, "exififd",
+                                            0xA001U,
+                                            spec.exif_color_space)) {
+            return false;
+        }
+        return true;
+    }
+
     struct ParsedTiffIfdEntryLess final {
         bool operator()(const ParsedTiffIfdEntry& a,
                         const ParsedTiffIfdEntry& b) const noexcept
@@ -8690,6 +9222,79 @@ namespace {
             appended = true;
         }
         if (appended) {
+            std::stable_sort(dst->entries.begin(), dst->entries.end(),
+                             ParsedTiffIfdEntryLess {});
+        }
+    }
+
+    static void
+    remove_target_local_tiff_storage_updates(
+        std::vector<TiffTagUpdate>* updates) noexcept
+    {
+        if (!updates) {
+            return;
+        }
+        size_t write = 0U;
+        for (size_t read = 0U; read < updates->size(); ++read) {
+            if (is_target_local_tiff_storage_tag((*updates)[read].tag)) {
+                continue;
+            }
+            if (write != read) {
+                (*updates)[write] = std::move((*updates)[read]);
+            }
+            write += 1U;
+        }
+        updates->resize(write);
+    }
+
+    static bool
+    remove_target_local_tiff_storage_entries(ParsedTiffIfd* ifd) noexcept
+    {
+        if (!ifd) {
+            return false;
+        }
+        bool removed = false;
+        size_t write = 0U;
+        for (size_t read = 0U; read < ifd->entries.size(); ++read) {
+            if (is_target_local_tiff_storage_tag(ifd->entries[read].tag)) {
+                removed = true;
+                continue;
+            }
+            if (write != read) {
+                ifd->entries[write] = std::move(ifd->entries[read]);
+            }
+            write += 1U;
+        }
+        ifd->entries.resize(write);
+        return removed;
+    }
+
+    static void preserve_target_local_tiff_storage_entries(
+        ParsedTiffIfd* dst, const ParsedTiffIfd& src) noexcept
+    {
+        if (!dst || !dst->present) {
+            return;
+        }
+
+        bool changed = remove_target_local_tiff_storage_entries(dst);
+        if (!src.present) {
+            if (changed) {
+                std::stable_sort(dst->entries.begin(), dst->entries.end(),
+                                 ParsedTiffIfdEntryLess {});
+            }
+            return;
+        }
+
+        for (size_t i = 0; i < src.entries.size(); ++i) {
+            const ParsedTiffIfdEntry& e = src.entries[i];
+            if (!is_target_local_tiff_storage_tag(e.tag)
+                || has_ifd_entry_tag(*dst, e.tag)) {
+                continue;
+            }
+            dst->entries.push_back(e);
+            changed = true;
+        }
+        if (changed) {
             std::stable_sort(dst->entries.begin(), dst->entries.end(),
                              ParsedTiffIfdEntryLess {});
         }
@@ -9602,6 +10207,7 @@ namespace {
             }
             return false;
         }
+        remove_target_local_tiff_storage_updates(&parsed_exif.ifd0_updates);
 
         std::vector<TiffTagUpdate> merged_updates = updates;
         for (size_t i = 0; i < parsed_exif.ifd0_updates.size(); ++i) {
@@ -9915,8 +10521,15 @@ namespace {
                                            &existing_page_ifd, err)) {
                     return false;
                 }
+                preserve_target_local_tiff_storage_entries(
+                    &parsed_exif.page_ifds[i], existing_page_ifd);
                 merge_preserved_standard_pointer_entries(
                     &parsed_exif.page_ifds[i], existing_page_ifd);
+            }
+            for (size_t i = overlap_count; i < parsed_exif.page_ifds.size();
+                 ++i) {
+                (void)remove_target_local_tiff_storage_entries(
+                    &parsed_exif.page_ifds[i]);
             }
             if (existing_page_offsets.size() > parsed_exif.page_ifds.size()) {
                 preserved_existing_page_ifds.reserve(
@@ -9976,8 +10589,15 @@ namespace {
                                            &existing_subifd, err)) {
                     return false;
                 }
+                preserve_target_local_tiff_storage_entries(
+                    &parsed_exif.subifds[i], existing_subifd);
                 merge_preserved_standard_pointer_entries(
                     &parsed_exif.subifds[i], existing_subifd);
+            }
+            for (size_t i = overlap_count; i < parsed_exif.subifds.size();
+                 ++i) {
+                (void)remove_target_local_tiff_storage_entries(
+                    &parsed_exif.subifds[i]);
             }
             if (existing_subifd_offsets.size() > parsed_exif.subifds.size()) {
                 preserved_existing_subifds.reserve(
@@ -10392,20 +11012,66 @@ prepare_metadata_for_target_impl(const MetaStore& store,
         return r;
     }
 
-    const uint32_t exif_entry_count = count_kind_entries(store,
-                                                         MetaKeyKind::ExifTag);
+    std::string target_spec_error;
+    if (!validate_transfer_target_image_spec(request.target_image_spec,
+                                             &target_spec_error)) {
+        r.status = TransferStatus::InvalidArgument;
+        r.code   = PrepareTransferCode::RequestedMetadataNotSerializable;
+        r.errors = 1U;
+        r.message = target_spec_error.empty()
+                        ? "target image spec is invalid"
+                        : target_spec_error;
+        *out_bundle = std::move(bundle);
+        return r;
+    }
+
+    MetaStore target_safe_store;
+    const MetaStore* prepared_store_ptr = &store;
+    const bool has_target_image_spec
+        = transfer_target_image_spec_has_any(request.target_image_spec);
+    const uint32_t omitted_image_dependent_entries
+        = count_image_dependent_target_transfer_entries(store);
+    if (omitted_image_dependent_entries > 0U || has_target_image_spec) {
+        uint32_t built_omitted = 0U;
+        if (!build_target_safe_transfer_store(store, &target_safe_store,
+                                              &built_omitted)) {
+            r.status  = TransferStatus::LimitExceeded;
+            r.code    = PrepareTransferCode::RequestedMetadataNotSerializable;
+            r.errors  = 1U;
+            r.message = "target-safe transfer metadata store build failed";
+            *out_bundle = std::move(bundle);
+            return r;
+        }
+        if (!append_transfer_target_image_spec(&target_safe_store,
+                                               request.target_image_spec)) {
+            r.status  = TransferStatus::LimitExceeded;
+            r.code    = PrepareTransferCode::RequestedMetadataNotSerializable;
+            r.errors  = 1U;
+            r.message = "target image spec metadata injection failed";
+            *out_bundle = std::move(bundle);
+            return r;
+        }
+        target_safe_store.finalize();
+        prepared_store_ptr = &target_safe_store;
+    }
+    const MetaStore& prepared_store = *prepared_store_ptr;
+
+    const uint32_t exif_entry_count = count_kind_entries(
+        prepared_store, MetaKeyKind::ExifTag);
     const uint32_t iptc_dataset_count = count_kind_entries(
-        store, MetaKeyKind::IptcDataset);
+        prepared_store, MetaKeyKind::IptcDataset);
     const bool has_exif = exif_entry_count > 0U
                           || request.target_format
                                  == TransferTargetFormat::Dng;
     const bool has_iptc = iptc_dataset_count > 0U
-                          || has_kind(store, MetaKeyKind::PhotoshopIrb);
-    const bool has_icc = has_kind(store, MetaKeyKind::IccHeaderField)
-                         || has_kind(store, MetaKeyKind::IccTag);
-    const uint32_t makernote_count = count_makernote_entries(store);
-    const uint32_t jumbf_count     = count_jumbf_entries(store);
-    const uint32_t c2pa_count      = count_c2pa_entries(store);
+                          || has_kind(prepared_store,
+                                      MetaKeyKind::PhotoshopIrb);
+    const bool has_icc = has_kind(prepared_store,
+                                  MetaKeyKind::IccHeaderField)
+                         || has_kind(prepared_store, MetaKeyKind::IccTag);
+    const uint32_t makernote_count = count_makernote_entries(prepared_store);
+    const uint32_t jumbf_count     = count_jumbf_entries(prepared_store);
+    const uint32_t c2pa_count      = count_c2pa_entries(prepared_store);
 
     bool requested_present_but_unpacked = false;
 
@@ -10472,7 +11138,7 @@ prepare_metadata_for_target_impl(const MetaStore& store,
           && (request.target_format == TransferTargetFormat::Jpeg
               || request.target_format == TransferTargetFormat::Jxl
               || transfer_target_is_bmff(request.target_format))
-          && count_non_c2pa_jumbf_cbor_entries(store) > 0U;
+          && count_non_c2pa_jumbf_cbor_entries(prepared_store) > 0U;
 
     TransferPolicyAction effective_jumbf = request.profile.jumbf;
     TransferPolicyReason jumbf_reason    = TransferPolicyReason::NotPresent;
@@ -10758,7 +11424,7 @@ prepare_metadata_for_target_impl(const MetaStore& store,
         InteropSafetyError safety_error;
         const InteropSafetyStatus safety
             = collect_exr_projected_string_attributes_safe(
-                store, &attrs, 4096U, &safety_error);
+                prepared_store, &attrs, 4096U, &safety_error);
         if (safety != InteropSafetyStatus::Ok) {
             r.status = TransferStatus::Unsupported;
             r.code   = PrepareTransferCode::RequestedMetadataNotSerializable;
@@ -10797,7 +11463,7 @@ prepare_metadata_for_target_impl(const MetaStore& store,
 
     if (request.include_exif_app1 && has_exif) {
         ExifPackBuild exif_build = build_jpeg_exif_app1_payload(
-            store, effective_makernote,
+            prepared_store, effective_makernote,
             transfer_target_is_tiff_family(request.target_format),
             request.target_format == TransferTargetFormat::Dng);
         if (exif_build.produced && !exif_build.app1_payload.empty()) {
@@ -10911,7 +11577,8 @@ prepare_metadata_for_target_impl(const MetaStore& store,
             = request.xmp_exiftool_gpsdatetime_alias;
 
         std::vector<std::byte> xmp_packet;
-        const XmpDumpResult xr = dump_xmp_sidecar(store, &xmp_packet, xmp_req);
+        const XmpDumpResult xr = dump_xmp_sidecar(prepared_store, &xmp_packet,
+                                                  xmp_req);
         if (xr.status == XmpDumpStatus::Ok && !xmp_packet.empty()) {
             bundle.generated_xmp_sidecar = xmp_packet;
             PreparedTransferBlock b;
@@ -10984,7 +11651,7 @@ prepare_metadata_for_target_impl(const MetaStore& store,
 
     if (request.include_icc_app2 && has_icc) {
         if (request.target_format == TransferTargetFormat::Jpeg) {
-            IccPackBuild icc_build = build_jpeg_icc_app2_blocks(store);
+            IccPackBuild icc_build = build_jpeg_icc_app2_blocks(prepared_store);
             if (icc_build.produced && !icc_build.blocks.empty()) {
                 for (PreparedTransferBlock& b : icc_build.blocks) {
                     bundle.blocks.push_back(std::move(b));
@@ -11010,7 +11677,8 @@ prepare_metadata_for_target_impl(const MetaStore& store,
                        request.target_format)) {
             std::vector<std::byte> icc_profile;
             uint32_t skipped_icc = 0U;
-            if (build_icc_profile_bytes(store, &icc_profile, &skipped_icc)
+            if (build_icc_profile_bytes(prepared_store, &icc_profile,
+                                        &skipped_icc)
                 && !icc_profile.empty()) {
                 PreparedTransferBlock b;
                 b.kind    = TransferBlockKind::Icc;
@@ -11038,7 +11706,8 @@ prepare_metadata_for_target_impl(const MetaStore& store,
         } else if (request.target_format == TransferTargetFormat::Png) {
             std::vector<std::byte> icc_profile;
             uint32_t skipped_icc = 0U;
-            if (build_icc_profile_bytes(store, &icc_profile, &skipped_icc)
+            if (build_icc_profile_bytes(prepared_store, &icc_profile,
+                                        &skipped_icc)
                 && !icc_profile.empty()) {
                 PreparedTransferBlock b;
                 std::string err;
@@ -11081,7 +11750,8 @@ prepare_metadata_for_target_impl(const MetaStore& store,
         } else if (request.target_format == TransferTargetFormat::Jp2) {
             std::vector<std::byte> icc_profile;
             uint32_t skipped_icc = 0U;
-            if (build_icc_profile_bytes(store, &icc_profile, &skipped_icc)
+            if (build_icc_profile_bytes(prepared_store, &icc_profile,
+                                        &skipped_icc)
                 && !icc_profile.empty()) {
                 PreparedTransferBlock b;
                 std::string err;
@@ -11125,7 +11795,8 @@ prepare_metadata_for_target_impl(const MetaStore& store,
         } else if (request.target_format == TransferTargetFormat::Webp) {
             std::vector<std::byte> icc_profile;
             uint32_t skipped_icc = 0U;
-            if (build_icc_profile_bytes(store, &icc_profile, &skipped_icc)
+            if (build_icc_profile_bytes(prepared_store, &icc_profile,
+                                        &skipped_icc)
                 && !icc_profile.empty()) {
                 PreparedTransferBlock b;
                 b.kind    = TransferBlockKind::Icc;
@@ -11153,7 +11824,8 @@ prepare_metadata_for_target_impl(const MetaStore& store,
         } else if (transfer_target_is_bmff(request.target_format)) {
             std::vector<std::byte> icc_profile;
             uint32_t skipped_icc = 0U;
-            if (build_icc_profile_bytes(store, &icc_profile, &skipped_icc)
+            if (build_icc_profile_bytes(prepared_store, &icc_profile,
+                                        &skipped_icc)
                 && !icc_profile.empty()) {
                 PreparedTransferBlock b;
                 b.kind  = TransferBlockKind::Icc;
@@ -11184,7 +11856,8 @@ prepare_metadata_for_target_impl(const MetaStore& store,
         } else {
             std::vector<std::byte> icc_profile;
             uint32_t skipped_icc = 0U;
-            if (build_icc_profile_bytes(store, &icc_profile, &skipped_icc)
+            if (build_icc_profile_bytes(prepared_store, &icc_profile,
+                                        &skipped_icc)
                 && !icc_profile.empty()) {
                 PreparedTransferBlock b;
                 b.kind    = TransferBlockKind::Icc;
@@ -11213,7 +11886,8 @@ prepare_metadata_for_target_impl(const MetaStore& store,
     }
     if (request.include_iptc_app13 && has_iptc) {
         if (request.target_format == TransferTargetFormat::Jpeg) {
-            IptcPackBuild iptc_build = build_jpeg_iptc_app13_payload(store);
+            IptcPackBuild iptc_build = build_jpeg_iptc_app13_payload(
+                prepared_store);
             if (iptc_build.produced && !iptc_build.app13_payload.empty()) {
                 PreparedTransferBlock b;
                 b.kind    = TransferBlockKind::IptcIim;
@@ -11242,8 +11916,8 @@ prepare_metadata_for_target_impl(const MetaStore& store,
                        request.target_format)) {
             std::vector<std::byte> iptc_iim;
             uint32_t skipped_iptc = 0U;
-            if (!first_photoshop_iptc_payload(store, &iptc_iim)) {
-                iptc_iim = build_iptc_iim_stream_from_datasets(store,
+            if (!first_photoshop_iptc_payload(prepared_store, &iptc_iim)) {
+                iptc_iim = build_iptc_iim_stream_from_datasets(prepared_store,
                                                                &skipped_iptc);
             }
             if (!iptc_iim.empty()) {
@@ -11285,8 +11959,8 @@ prepare_metadata_for_target_impl(const MetaStore& store,
                     = request.xmp_conflict_policy;
 
                 std::vector<std::byte> xmp_packet;
-                const XmpDumpResult xr = dump_xmp_sidecar(store, &xmp_packet,
-                                                          xmp_req);
+                const XmpDumpResult xr = dump_xmp_sidecar(prepared_store,
+                                                          &xmp_packet, xmp_req);
                 if (xr.status == XmpDumpStatus::Ok && !xmp_packet.empty()) {
                     bundle.generated_xmp_sidecar = xmp_packet;
                     PreparedTransferBlock b;
@@ -11375,7 +12049,7 @@ prepare_metadata_for_target_impl(const MetaStore& store,
         && jumbf_reason == TransferPolicyReason::ProjectedPayload) {
         std::vector<ProjectedJumbfPayload> projected_jumbf_payloads;
         std::string error;
-        if (!build_projected_jumbf_logical_payloads(store,
+        if (!build_projected_jumbf_logical_payloads(prepared_store,
                                                     &projected_jumbf_payloads,
                                                     &error)) {
             requested_present_but_unpacked = true;
@@ -20336,14 +21010,14 @@ namespace {
     };
 
     struct ExistingBmffManagedItemInfo final {
-        uint16_t item_id  = 0U;
-        bool mime_xmp     = false;
+        uint32_t item_id = 0U;
+        bool mime_xmp    = false;
     };
 
     struct ExistingBmffManagedItemExtent final {
-        uint16_t item_id  = 0U;
-        uint32_t offset   = 0U;
-        uint32_t length   = 0U;
+        uint32_t item_id = 0U;
+        uint32_t offset  = 0U;
+        uint32_t length  = 0U;
     };
 
     static constexpr std::array<std::byte, 16> kOpenMetaBmffTransferMetaUuid = {
@@ -20579,6 +21253,113 @@ namespace {
         return false;
     }
 
+    static bool bmff_iinf_entry_region(std::span<const std::byte> bytes,
+                                       const TransferBmffBox& iinf,
+                                       uint64_t* out_first_entry,
+                                       uint64_t* out_end,
+                                       uint64_t* out_count) noexcept
+    {
+        if (!out_first_entry || !out_end || !out_count
+            || iinf.type != fourcc('i', 'i', 'n', 'f')
+            || iinf.offset + iinf.header_size + 4U > bytes.size()
+            || iinf.size < iinf.header_size + 4U) {
+            return false;
+        }
+
+        const uint8_t version
+            = std::to_integer<uint8_t>(bytes[iinf.offset + iinf.header_size]);
+        const uint64_t payload_begin = iinf.offset + iinf.header_size + 4U;
+        const uint64_t payload_end   = iinf.offset + iinf.size;
+        uint32_t entry_count32       = 0U;
+
+        if (version == 0U) {
+            if (payload_begin + 2U > payload_end
+                || payload_begin + 2U > bytes.size()) {
+                return false;
+            }
+            *out_count = read_u16be(bytes, payload_begin);
+            *out_first_entry = payload_begin + 2U;
+            *out_end = payload_end;
+            return true;
+        }
+        if (version == 1U || version == 2U) {
+            if (payload_begin + 4U > payload_end
+                || payload_begin + 4U > bytes.size()
+                || !read_u32be(bytes, payload_begin, &entry_count32)) {
+                return false;
+            }
+            *out_count = entry_count32;
+            *out_first_entry = payload_begin + 4U;
+            *out_end = payload_end;
+            return true;
+        }
+        return false;
+    }
+
+    static bool bmff_infe_v2_or_v3_mime_xmp(
+        std::span<const std::byte> bytes, const TransferBmffBox& infe,
+        uint32_t* out_item_id, bool* out_mime_xmp) noexcept
+    {
+        if (!out_item_id || !out_mime_xmp
+            || infe.type != fourcc('i', 'n', 'f', 'e')
+            || infe.offset + infe.header_size + 4U > bytes.size()
+            || infe.size < infe.header_size + 4U) {
+            return false;
+        }
+
+        *out_item_id  = 0U;
+        *out_mime_xmp = false;
+
+        const uint8_t version
+            = std::to_integer<uint8_t>(bytes[infe.offset + infe.header_size]);
+        if (version != 2U && version != 3U) {
+            return true;
+        }
+
+        const size_t payload_begin = static_cast<size_t>(
+            infe.offset + infe.header_size + 4U);
+        const size_t payload_end = static_cast<size_t>(infe.offset + infe.size);
+        const size_t item_id_width = version == 3U ? 4U : 2U;
+        const size_t item_type_off = payload_begin + item_id_width + 2U;
+        if (item_type_off + 4U > payload_end) {
+            return false;
+        }
+
+        uint64_t item_id64 = 0U;
+        if (!read_bmff_u_nbe(bytes, payload_begin, item_id_width,
+                             &item_id64)
+            || item_id64 > std::numeric_limits<uint32_t>::max()) {
+            return false;
+        }
+
+        uint32_t item_type = 0U;
+        if (!read_u32be(bytes, item_type_off, &item_type)) {
+            return false;
+        }
+        size_t cursor = item_type_off + 4U;
+
+        std::string_view ignored_name;
+        size_t next = cursor;
+        if (!read_bmff_cstring_view(bytes, cursor, payload_end, &next,
+                                    &ignored_name)) {
+            return false;
+        }
+        cursor = next;
+
+        *out_item_id = static_cast<uint32_t>(item_id64);
+        if (item_type != fourcc('m', 'i', 'm', 'e')) {
+            return true;
+        }
+
+        std::string_view content_type;
+        if (!read_bmff_cstring_view(bytes, cursor, payload_end, &next,
+                                    &content_type)) {
+            return false;
+        }
+        *out_mime_xmp = content_type == "application/rdf+xml";
+        return true;
+    }
+
     static bool bmff_meta_declares_xmp_item(
         std::span<const std::byte> bytes, const TransferBmffBox& meta) noexcept
     {
@@ -20597,66 +21378,38 @@ namespace {
                 return false;
             }
             if (child.type == fourcc('i', 'i', 'n', 'f')
-                && child.offset + child.header_size + 6U <= bytes.size()) {
-                const uint8_t version = std::to_integer<uint8_t>(
-                    bytes[child.offset + child.header_size]);
-                if (version == 0U) {
-                    const uint64_t child_payload_begin
-                        = child.offset + child.header_size + 4U;
-                    const uint64_t child_payload_end = child.offset + child.size;
-                    uint64_t infe_off                = child_payload_begin + 2U;
-                    while (infe_off + 8U <= child_payload_end) {
-                        TransferBmffBox infe;
-                        if (!parse_transfer_bmff_box(bytes, infe_off,
-                                                     child_payload_end,
-                                                     &infe)) {
-                            return false;
-                        }
-                        if (infe.type == fourcc('i', 'n', 'f', 'e')
-                            && infe.offset + infe.header_size + 12U
-                                   <= bytes.size()) {
-                            const uint8_t infe_version
-                                = std::to_integer<uint8_t>(
-                                    bytes[infe.offset + infe.header_size]);
-                            if (infe_version == 2U) {
-                                const size_t infe_payload_begin = static_cast<size_t>(
-                                    infe.offset + infe.header_size + 4U);
-                                const size_t infe_payload_end = static_cast<size_t>(
-                                    infe.offset + infe.size);
-                                uint32_t item_type = 0U;
-                                if (infe_payload_begin + 8U <= infe_payload_end
-                                    && read_u32be(bytes, infe_payload_begin + 4U,
-                                                  &item_type)) {
-                                    size_t cursor = infe_payload_begin + 8U;
-                                    std::string_view ignored_name;
-                                    size_t next = cursor;
-                                    if (!read_bmff_cstring_view(
-                                            bytes, cursor, infe_payload_end,
-                                            &next, &ignored_name)) {
-                                        return false;
-                                    }
-                                    cursor = next;
-                                    if (item_type
-                                        == fourcc('m', 'i', 'm', 'e')) {
-                                        std::string_view content_type;
-                                        if (!read_bmff_cstring_view(
-                                                bytes, cursor, infe_payload_end,
-                                                &next, &content_type)) {
-                                            return false;
-                                        }
-                                        if (content_type
-                                            == "application/rdf+xml") {
-                                            return true;
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        if (infe.size == 0U) {
-                            break;
-                        }
-                        infe_off += infe.size;
+                && child.offset + child.header_size + 4U <= bytes.size()) {
+                uint64_t infe_off = 0U;
+                uint64_t child_payload_end = 0U;
+                uint64_t entry_count = 0U;
+                if (!bmff_iinf_entry_region(bytes, child, &infe_off,
+                                            &child_payload_end,
+                                            &entry_count)) {
+                    return false;
+                }
+                for (uint64_t entry_index = 0U;
+                     entry_index < entry_count
+                         && infe_off + 8U <= child_payload_end;
+                     ++entry_index) {
+                    TransferBmffBox infe;
+                    if (!parse_transfer_bmff_box(bytes, infe_off,
+                                                 child_payload_end, &infe)) {
+                        return false;
                     }
+                    uint32_t ignored_item_id = 0U;
+                    bool mime_xmp = false;
+                    if (!bmff_infe_v2_or_v3_mime_xmp(bytes, infe,
+                                                     &ignored_item_id,
+                                                     &mime_xmp)) {
+                        return false;
+                    }
+                    if (mime_xmp) {
+                        return true;
+                    }
+                    if (infe.size == 0U) {
+                        break;
+                    }
+                    infe_off += infe.size;
                 }
             }
             if (child.size == 0U) {
@@ -20694,73 +21447,37 @@ namespace {
             }
 
             if (child.type == fourcc('i', 'i', 'n', 'f')
-                && child.offset + child.header_size + 6U <= bytes.size()) {
-                const uint8_t version = std::to_integer<uint8_t>(
-                    bytes[child.offset + child.header_size]);
-                if (version == 0U) {
-                    const uint64_t child_payload_begin
-                        = child.offset + child.header_size + 4U;
-                    const uint64_t child_payload_end = child.offset + child.size;
-                    uint64_t infe_off                = child_payload_begin + 2U;
-                    while (infe_off + 8U <= child_payload_end) {
-                        TransferBmffBox infe;
-                        if (!parse_transfer_bmff_box(bytes, infe_off,
-                                                     child_payload_end,
-                                                     &infe)) {
-                            return;
-                        }
-                        if (infe.type == fourcc('i', 'n', 'f', 'e')
-                            && infe.offset + infe.header_size + 12U
-                                   <= bytes.size()) {
-                            const uint8_t infe_version
-                                = std::to_integer<uint8_t>(
-                                    bytes[infe.offset + infe.header_size]);
-                            if (infe_version == 2U) {
-                                const size_t infe_payload_begin = static_cast<size_t>(
-                                    infe.offset + infe.header_size + 4U);
-                                const size_t infe_payload_end = static_cast<size_t>(
-                                    infe.offset + infe.size);
-                                uint32_t item_type = 0U;
-                                if (infe_payload_begin + 8U <= infe_payload_end
-                                    && read_u32be(bytes, infe_payload_begin + 4U,
-                                                  &item_type)) {
-                                    size_t cursor = infe_payload_begin + 8U;
-                                    std::string_view ignored_name;
-                                    size_t next = cursor;
-                                    if (read_bmff_cstring_view(
-                                            bytes, cursor, infe_payload_end,
-                                            &next, &ignored_name)) {
-                                        cursor = next;
-                                        bool mime_xmp = false;
-                                        if (item_type
-                                            == fourcc('m', 'i', 'm', 'e')) {
-                                            std::string_view content_type;
-                                            if (!read_bmff_cstring_view(
-                                                    bytes, cursor,
-                                                    infe_payload_end, &next,
-                                                    &content_type)) {
-                                                return;
-                                            }
-                                            mime_xmp
-                                                = content_type
-                                                  == "application/rdf+xml";
-                                        }
-                                        if (mime_xmp) {
-                                            ExistingBmffManagedItemInfo one;
-                                            one.item_id = read_u16be(
-                                                bytes, infe_payload_begin + 0U);
-                                            one.mime_xmp = true;
-                                            items.push_back(one);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        if (infe.size == 0U) {
-                            break;
-                        }
-                        infe_off += infe.size;
+                && child.offset + child.header_size + 4U <= bytes.size()) {
+                uint64_t infe_off = 0U;
+                uint64_t child_payload_end = 0U;
+                uint64_t entry_count = 0U;
+                if (!bmff_iinf_entry_region(bytes, child, &infe_off,
+                                            &child_payload_end,
+                                            &entry_count)) {
+                    return;
+                }
+                for (uint64_t entry_index = 0U;
+                     entry_index < entry_count
+                         && infe_off + 8U <= child_payload_end;
+                     ++entry_index) {
+                    TransferBmffBox infe;
+                    if (!parse_transfer_bmff_box(bytes, infe_off,
+                                                 child_payload_end, &infe)) {
+                        return;
                     }
+                    ExistingBmffManagedItemInfo one;
+                    if (!bmff_infe_v2_or_v3_mime_xmp(bytes, infe,
+                                                     &one.item_id,
+                                                     &one.mime_xmp)) {
+                        return;
+                    }
+                    if (one.mime_xmp) {
+                        items.push_back(one);
+                    }
+                    if (infe.size == 0U) {
+                        break;
+                    }
+                    infe_off += infe.size;
                 }
             } else if (child.type == fourcc('i', 'd', 'a', 't')) {
                 const size_t data_off = static_cast<size_t>(child.offset
@@ -20776,7 +21493,7 @@ namespace {
                               <= bytes.size()) {
                 const uint8_t version = std::to_integer<uint8_t>(
                     bytes[child.offset + child.header_size]);
-                if (version == 1U) {
+                if (version == 1U || version == 2U) {
                     const size_t iloc_payload_begin = static_cast<size_t>(
                         child.offset + child.header_size + 4U);
                     const size_t iloc_payload_end = static_cast<size_t>(
@@ -20796,17 +21513,40 @@ namespace {
                         = static_cast<size_t>((sizes1 >> 4U) & 0x0FU);
                     const size_t index_size
                         = static_cast<size_t>(sizes1 & 0x0FU);
-                    const uint16_t item_count = read_u16be(
-                        bytes, iloc_payload_begin + 2U);
-                    size_t cursor = iloc_payload_begin + 4U;
-                    for (uint16_t i = 0; i < item_count; ++i) {
+                    uint64_t item_count = 0U;
+                    size_t cursor       = iloc_payload_begin + 2U;
+                    const size_t item_id_width = version == 2U ? 4U : 2U;
+                    if (version == 2U) {
+                        uint32_t count32 = 0U;
+                        if (iloc_payload_begin + 6U > iloc_payload_end
+                            || !read_u32be(bytes, cursor, &count32)) {
+                            return;
+                        }
+                        item_count = count32;
+                        cursor += 4U;
+                    } else {
+                        if (iloc_payload_begin + 4U > iloc_payload_end) {
+                            return;
+                        }
+                        item_count = read_u16be(bytes, cursor);
+                        cursor += 2U;
+                    }
+                    for (uint64_t i = 0; i < item_count; ++i) {
                         const size_t needed
-                            = 2U + 2U + 2U + base_offset_size + 2U;
+                            = item_id_width + 2U + 2U + base_offset_size + 2U;
                         if (cursor + needed > iloc_payload_end) {
                             return;
                         }
-                        const uint16_t item_id = read_u16be(bytes, cursor);
-                        cursor += 2U;
+                        uint64_t item_id64 = 0U;
+                        if (!read_bmff_u_nbe(bytes, cursor, item_id_width,
+                                             &item_id64)
+                            || item_id64
+                                   > std::numeric_limits<uint32_t>::max()) {
+                            return;
+                        }
+                        const uint32_t item_id
+                            = static_cast<uint32_t>(item_id64);
+                        cursor += item_id_width;
                         const uint16_t construction_method
                             = read_u16be(bytes, cursor);
                         cursor += 2U;

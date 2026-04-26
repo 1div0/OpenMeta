@@ -34,6 +34,7 @@ sanitization to reduce memory and output attack surface.
    flat_host_mapping
    compatibility_dump
    xmp_sync_policy
+   writer_target_contract
    build
    development
    interop_api

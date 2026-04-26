@@ -152,6 +152,21 @@ namespace {
             "  --target-dng <path>    Target DNG stream for edit/apply phase\n"
             "  --dng-target-mode <existing_target|template_target|minimal_fresh_scaffold>\n"
             "                         Public DNG transfer contract for --target-dng\n"
+            "  --target-width N       Host-supplied output image width\n"
+            "  --target-height N      Host-supplied output image height\n"
+            "  --target-orientation N Host-supplied EXIF orientation (1..8)\n"
+            "  --target-samples-per-pixel N\n"
+            "                         Host-supplied output samples per pixel\n"
+            "  --target-bits-per-sample N[,N...]\n"
+            "                         Host-supplied output bits per sample\n"
+            "  --target-sample-format N[,N...]\n"
+            "                         Host-supplied TIFF sample format values\n"
+            "  --target-photometric N Host-supplied TIFF photometric interpretation\n"
+            "  --target-planar-configuration N\n"
+            "                         Host-supplied TIFF planar configuration (1 or 2)\n"
+            "  --target-compression N Host-supplied TIFF compression value\n"
+            "  --target-exif-color-space N\n"
+            "                         Host-supplied EXIF ColorSpace value\n"
             "  --target-exr           Target EXR metadata transfer\n"
             "  --target-png           Target PNG metadata transfer\n"
             "  --target-jp2           Target JP2 metadata transfer\n"
@@ -321,6 +336,54 @@ namespace {
     static bool parse_u32_arg(const char* s, uint32_t* out)
     {
         return tool_parse::parse_decimal_u32(s, out);
+    }
+
+    static bool parse_u16_arg(const char* s, uint16_t* out)
+    {
+        if (!out) {
+            return false;
+        }
+        uint32_t v = 0U;
+        if (!parse_u32_arg(s, &v) || v > 0xFFFFU) {
+            return false;
+        }
+        *out = static_cast<uint16_t>(v);
+        return true;
+    }
+
+    static bool parse_u16_list_arg(
+        const char* s,
+        std::array<uint16_t, kTransferTargetImageSpecMaxSamples>* out,
+        uint16_t* out_count)
+    {
+        if (!s || !*s || !out || !out_count) {
+            return false;
+        }
+        out->fill(0U);
+        *out_count = 0U;
+        std::string_view text(s);
+        size_t start = 0U;
+        while (start <= text.size()) {
+            const size_t comma = text.find(',', start);
+            const size_t end = comma == std::string_view::npos ? text.size()
+                                                               : comma;
+            if (end == start
+                || *out_count >= kTransferTargetImageSpecMaxSamples) {
+                return false;
+            }
+            const std::string item(text.substr(start, end - start));
+            uint16_t v = 0U;
+            if (!parse_u16_arg(item.c_str(), &v) || v == 0U) {
+                return false;
+            }
+            (*out)[*out_count] = v;
+            *out_count = static_cast<uint16_t>(*out_count + 1U);
+            if (comma == std::string_view::npos) {
+                break;
+            }
+            start = comma + 1U;
+        }
+        return *out_count > 0U;
     }
 
     static const char* jpeg_edit_mode_name(JpegEditMode mode) noexcept
@@ -1662,6 +1725,9 @@ main(int argc, char** argv)
     bool target_heif = false;
     bool target_avif = false;
     bool target_cr3  = false;
+    bool target_width_set = false;
+    bool target_height_set = false;
+    bool target_image_spec_requested = false;
     std::string jpeg_jumbf_path;
     std::string jpeg_c2pa_signed_path;
     std::string c2pa_manifest_output_path;
@@ -2218,6 +2284,188 @@ main(int argc, char** argv)
             target_cr3 = true;
             continue;
         }
+        if (std::strcmp(arg, "--target-width") == 0) {
+            if (i + 1 >= argc) {
+                std::fprintf(stderr, "missing value for --target-width\n");
+                return 2;
+            }
+            uint32_t v = 0U;
+            if (!parse_u32_arg(argv[i + 1], &v) || v == 0U) {
+                std::fprintf(stderr, "invalid --target-width value\n");
+                return 2;
+            }
+            options.prepare.target_image_spec.has_dimensions = true;
+            options.prepare.target_image_spec.width          = v;
+            target_width_set                                = true;
+            target_image_spec_requested                     = true;
+            i += 1;
+            continue;
+        }
+        if (std::strcmp(arg, "--target-height") == 0) {
+            if (i + 1 >= argc) {
+                std::fprintf(stderr, "missing value for --target-height\n");
+                return 2;
+            }
+            uint32_t v = 0U;
+            if (!parse_u32_arg(argv[i + 1], &v) || v == 0U) {
+                std::fprintf(stderr, "invalid --target-height value\n");
+                return 2;
+            }
+            options.prepare.target_image_spec.has_dimensions = true;
+            options.prepare.target_image_spec.height         = v;
+            target_height_set                               = true;
+            target_image_spec_requested                     = true;
+            i += 1;
+            continue;
+        }
+        if (std::strcmp(arg, "--target-orientation") == 0) {
+            if (i + 1 >= argc) {
+                std::fprintf(stderr,
+                             "missing value for --target-orientation\n");
+                return 2;
+            }
+            uint16_t v = 0U;
+            if (!parse_u16_arg(argv[i + 1], &v) || v < 1U || v > 8U) {
+                std::fprintf(stderr, "invalid --target-orientation value\n");
+                return 2;
+            }
+            options.prepare.target_image_spec.has_orientation = true;
+            options.prepare.target_image_spec.orientation     = v;
+            target_image_spec_requested = true;
+            i += 1;
+            continue;
+        }
+        if (std::strcmp(arg, "--target-samples-per-pixel") == 0) {
+            if (i + 1 >= argc) {
+                std::fprintf(
+                    stderr,
+                    "missing value for --target-samples-per-pixel\n");
+                return 2;
+            }
+            uint16_t v = 0U;
+            if (!parse_u16_arg(argv[i + 1], &v) || v == 0U
+                || v > kTransferTargetImageSpecMaxSamples) {
+                std::fprintf(
+                    stderr,
+                    "invalid --target-samples-per-pixel value\n");
+                return 2;
+            }
+            options.prepare.target_image_spec.has_samples_per_pixel = true;
+            options.prepare.target_image_spec.samples_per_pixel     = v;
+            target_image_spec_requested = true;
+            i += 1;
+            continue;
+        }
+        if (std::strcmp(arg, "--target-bits-per-sample") == 0) {
+            if (i + 1 >= argc) {
+                std::fprintf(
+                    stderr,
+                    "missing value for --target-bits-per-sample\n");
+                return 2;
+            }
+            if (!parse_u16_list_arg(
+                    argv[i + 1],
+                    &options.prepare.target_image_spec.bits_per_sample,
+                    &options.prepare.target_image_spec.bits_per_sample_count)) {
+                std::fprintf(stderr,
+                             "invalid --target-bits-per-sample value\n");
+                return 2;
+            }
+            target_image_spec_requested = true;
+            i += 1;
+            continue;
+        }
+        if (std::strcmp(arg, "--target-sample-format") == 0) {
+            if (i + 1 >= argc) {
+                std::fprintf(stderr,
+                             "missing value for --target-sample-format\n");
+                return 2;
+            }
+            if (!parse_u16_list_arg(
+                    argv[i + 1],
+                    &options.prepare.target_image_spec.sample_format,
+                    &options.prepare.target_image_spec.sample_format_count)) {
+                std::fprintf(stderr, "invalid --target-sample-format value\n");
+                return 2;
+            }
+            target_image_spec_requested = true;
+            i += 1;
+            continue;
+        }
+        if (std::strcmp(arg, "--target-photometric") == 0) {
+            if (i + 1 >= argc) {
+                std::fprintf(stderr,
+                             "missing value for --target-photometric\n");
+                return 2;
+            }
+            uint16_t v = 0U;
+            if (!parse_u16_arg(argv[i + 1], &v)) {
+                std::fprintf(stderr, "invalid --target-photometric value\n");
+                return 2;
+            }
+            options.prepare.target_image_spec.has_photometric_interpretation
+                = true;
+            options.prepare.target_image_spec.photometric_interpretation = v;
+            target_image_spec_requested = true;
+            i += 1;
+            continue;
+        }
+        if (std::strcmp(arg, "--target-planar-configuration") == 0) {
+            if (i + 1 >= argc) {
+                std::fprintf(
+                    stderr,
+                    "missing value for --target-planar-configuration\n");
+                return 2;
+            }
+            uint16_t v = 0U;
+            if (!parse_u16_arg(argv[i + 1], &v) || (v != 1U && v != 2U)) {
+                std::fprintf(
+                    stderr,
+                    "invalid --target-planar-configuration value\n");
+                return 2;
+            }
+            options.prepare.target_image_spec.has_planar_configuration = true;
+            options.prepare.target_image_spec.planar_configuration     = v;
+            target_image_spec_requested = true;
+            i += 1;
+            continue;
+        }
+        if (std::strcmp(arg, "--target-compression") == 0) {
+            if (i + 1 >= argc) {
+                std::fprintf(stderr,
+                             "missing value for --target-compression\n");
+                return 2;
+            }
+            uint16_t v = 0U;
+            if (!parse_u16_arg(argv[i + 1], &v) || v == 0U) {
+                std::fprintf(stderr, "invalid --target-compression value\n");
+                return 2;
+            }
+            options.prepare.target_image_spec.has_compression = true;
+            options.prepare.target_image_spec.compression     = v;
+            target_image_spec_requested = true;
+            i += 1;
+            continue;
+        }
+        if (std::strcmp(arg, "--target-exif-color-space") == 0) {
+            if (i + 1 >= argc) {
+                std::fprintf(
+                    stderr,
+                    "missing value for --target-exif-color-space\n");
+                return 2;
+            }
+            uint16_t v = 0U;
+            if (!parse_u16_arg(argv[i + 1], &v) || v == 0U) {
+                std::fprintf(stderr,
+                             "invalid --target-exif-color-space value\n");
+                return 2;
+            }
+            options.prepare.target_image_spec.has_exif_color_space = true;
+            options.prepare.target_image_spec.exif_color_space     = v;
+            target_image_spec_requested = true;
+            i += 1;
+            continue;
+        }
         if ((std::strcmp(arg, "-o") == 0 || std::strcmp(arg, "--output") == 0)
             && i + 1 < argc) {
             output_path = argv[i + 1];
@@ -2346,6 +2594,23 @@ main(int argc, char** argv)
             return 2;
         }
         input_paths.emplace_back(arg);
+    }
+
+    if (target_width_set != target_height_set) {
+        std::fprintf(
+            stderr,
+            "--target-width and --target-height must be used together\n");
+        return 2;
+    }
+    if (target_image_spec_requested
+        && (!transfer_payload_batch_input_path.empty()
+            || !transfer_package_batch_input_path.empty()
+            || !jxl_encoder_handoff_input_path.empty()
+            || !transfer_artifact_input_path.empty())) {
+        std::fprintf(
+            stderr,
+            "target image spec options are transfer/edit options\n");
+        return 2;
     }
 
     if (input_paths.empty()) {

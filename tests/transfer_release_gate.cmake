@@ -52,6 +52,28 @@ if(NOT _rv_cli EQUAL 0)
     "stderr:\n${_err_cli}")
 endif()
 
+if(DEFINED OIIOTOOL_BIN AND NOT OIIOTOOL_BIN STREQUAL ""
+   AND EXISTS "${OIIOTOOL_BIN}")
+  execute_process(
+    COMMAND ${CMAKE_COMMAND}
+      "-DMETATRANSFER_BIN=${METATRANSFER_BIN}"
+      "-DOIIOTOOL_BIN=${OIIOTOOL_BIN}"
+      "-DEXIFTOOL_BIN=${EXIFTOOL_BIN}"
+      "-DWORK_DIR=${WORK_DIR}/metatransfer_image_usability"
+      -P "${CMAKE_CURRENT_LIST_DIR}/metatransfer_image_usability_test.cmake"
+    RESULT_VARIABLE _rv_image_usability
+    OUTPUT_VARIABLE _out_image_usability
+    ERROR_VARIABLE _err_image_usability
+  )
+  if(NOT _rv_image_usability EQUAL 0)
+    message(FATAL_ERROR
+      "transfer release gate image usability check failed "
+      "(${_rv_image_usability})\n"
+      "stdout:\n${_out_image_usability}\n"
+      "stderr:\n${_err_image_usability}")
+  endif()
+endif()
+
 set(_have_python ON)
 if(NOT DEFINED OPENMETA_PYTHON_EXECUTABLE
    OR OPENMETA_PYTHON_EXECUTABLE STREQUAL "")

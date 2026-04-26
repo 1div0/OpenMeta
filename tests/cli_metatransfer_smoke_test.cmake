@@ -21,6 +21,9 @@ set(_target_jpg "${WORK_DIR}/target.jpg")
 set(_target_jpg_xmp "${WORK_DIR}/target_xmp.jpg")
 set(_dump_dir "${WORK_DIR}/payloads")
 set(_edited_jpg "${WORK_DIR}/edited.jpg")
+set(_target_spec_jpg "${WORK_DIR}/target_spec.jpg")
+set(_target_spec_tif "${WORK_DIR}/target_spec.tif")
+set(_target_spec_dng "${WORK_DIR}/target_spec.dng")
 set(_dual_jpg "${WORK_DIR}/dual_write.jpg")
 set(_dual_jpg_sidecar "${WORK_DIR}/dual_write.xmp")
 set(_embed_only_strip_jpg "${WORK_DIR}/embed_only_strip.jpg")
@@ -71,6 +74,7 @@ set(_split_tif_rich "${WORK_DIR}/split_rich.tif")
 set(_split_tif_be_rich "${WORK_DIR}/split_rich_be.tif")
 set(_rich_builder_py "${WORK_DIR}/build_rich_exif_fixture.py")
 set(_rich_checker_py "${WORK_DIR}/check_rich_tiff_transfer.py")
+set(_target_spec_checker_py "${WORK_DIR}/check_target_spec.py")
 set(_sidecar_only_strip_tif "${WORK_DIR}/sidecar_only_strip_tiff.tif")
 set(_sidecar_only_strip_tif_sidecar "${WORK_DIR}/sidecar_only_strip_tiff.xmp")
 file(MAKE_DIRECTORY "${_dump_dir}")
@@ -566,6 +570,130 @@ if ascii_val(lat_ref_raw) != "N":
 _, _, lat_raw = payload_for(b, gpsifd, 0x0002, end)
 if rationals(lat_raw, end) != [(41, 1), (24, 1), (5000, 100)]:
     fail("GPSLatitude mismatch")
+]=])
+
+file(WRITE "${_target_spec_checker_py}" [=[
+import sys
+from pathlib import Path
+
+TYPE_SIZE = {1: 1, 2: 1, 3: 2, 4: 4, 5: 8, 7: 1, 9: 4, 10: 8}
+
+def fail(msg):
+    print(msg, file=sys.stderr)
+    raise SystemExit(1)
+
+def read_u16(b, off, end):
+    return int.from_bytes(b[off:off+2], end, signed=False)
+
+def read_u32(b, off, end):
+    return int.from_bytes(b[off:off+4], end, signed=False)
+
+def exif_tiff_from_file(path):
+    b = Path(path).read_bytes()
+    if len(b) >= 8 and (b[:2] == b"II" or b[:2] == b"MM"):
+        return b
+    if len(b) < 4 or b[:2] != b"\xff\xd8":
+        fail("not a JPEG or TIFF-family file")
+    pos = 2
+    while pos + 4 <= len(b):
+        if b[pos] != 0xFF:
+            fail("invalid JPEG marker stream")
+        marker = b[pos + 1]
+        pos += 2
+        if marker == 0xD9:
+            break
+        if marker == 0xDA:
+            fail("scan reached before Exif APP1")
+        if pos + 2 > len(b):
+            fail("truncated JPEG segment length")
+        ln = int.from_bytes(b[pos:pos+2], "big")
+        if ln < 2 or pos + ln > len(b):
+            fail("invalid JPEG segment length")
+        payload = b[pos+2:pos+ln]
+        if marker == 0xE1 and payload.startswith(b"Exif\x00\x00"):
+            return payload[6:]
+        pos += ln
+    fail("missing Exif APP1")
+
+def parse_ifd(b, off, end):
+    if off == 0 or off + 2 > len(b):
+        fail("IFD offset out of range")
+    n = read_u16(b, off, end)
+    p = off + 2
+    if p + n * 12 + 4 > len(b):
+        fail("IFD entries truncated")
+    out = {}
+    for i in range(n):
+        e = p + i * 12
+        tag = read_u16(b, e, end)
+        typ = read_u16(b, e + 2, end)
+        cnt = read_u32(b, e + 4, end)
+        raw = b[e + 8:e + 12]
+        out[tag] = (typ, cnt, raw)
+    return out
+
+def values(b, entries, tag, end):
+    if tag not in entries:
+        fail(f"missing tag 0x{tag:04X}")
+    typ, cnt, raw = entries[tag]
+    size = TYPE_SIZE.get(typ, 0)
+    if size == 0:
+        fail(f"unsupported type for tag 0x{tag:04X}: {typ}")
+    byte_count = size * cnt
+    data = raw[:byte_count]
+    if byte_count > 4:
+        off = read_u32(raw, 0, end)
+        if off + byte_count > len(b):
+            fail(f"value for tag 0x{tag:04X} out of range")
+        data = b[off:off+byte_count]
+    out = []
+    if typ == 3:
+        for i in range(cnt):
+            out.append(read_u16(data, i * 2, end))
+    elif typ == 4:
+        for i in range(cnt):
+            out.append(read_u32(data, i * 4, end))
+    else:
+        fail(f"unexpected type for numeric tag 0x{tag:04X}: {typ}")
+    return out
+
+def expect(entries, tag, expected, where):
+    actual = values(tiff, entries, tag, endian)
+    if actual != expected:
+        fail(f"{where}:0x{tag:04X} mismatch: {actual!r}")
+
+if len(sys.argv) != 2:
+    fail("usage: check_target_spec.py <jpeg-or-tiff>")
+
+tiff = exif_tiff_from_file(sys.argv[1])
+if len(tiff) < 8:
+    fail("Exif TIFF too small")
+if tiff[:2] == b"II":
+    endian = "little"
+elif tiff[:2] == b"MM":
+    endian = "big"
+else:
+    fail("invalid TIFF byte order")
+if read_u16(tiff, 2, endian) != 42:
+    fail("invalid TIFF magic")
+
+ifd0 = parse_ifd(tiff, read_u32(tiff, 4, endian), endian)
+exif_ptr = values(tiff, ifd0, 0x8769, endian)
+if not exif_ptr or exif_ptr[0] == 0:
+    fail("missing ExifIFD pointer")
+exififd = parse_ifd(tiff, exif_ptr[0], endian)
+
+expect(ifd0, 0x0100, [320], "ifd0")
+expect(ifd0, 0x0101, [240], "ifd0")
+expect(exififd, 0xA002, [320], "exififd")
+expect(exififd, 0xA003, [240], "exififd")
+expect(ifd0, 0x0112, [1], "ifd0")
+expect(ifd0, 0x0115, [3], "ifd0")
+expect(ifd0, 0x0102, [8, 8, 8], "ifd0")
+expect(ifd0, 0x0153, [1, 1, 1], "ifd0")
+expect(ifd0, 0x0106, [2], "ifd0")
+expect(ifd0, 0x011C, [1], "ifd0")
+expect(exififd, 0xA001, [1], "exififd")
 ]=])
 
 execute_process(
@@ -1299,6 +1427,117 @@ execute_process(
   COMMAND "${METATRANSFER_BIN}" --no-build-info
           --source-meta "${_jpg}"
           --target-jpeg "${_target_jpg}"
+          --target-width 320
+          --target-height 240
+          --target-orientation 1
+          --target-samples-per-pixel 3
+          --target-bits-per-sample 8
+          --target-sample-format 1
+          --target-photometric 2
+          --target-planar-configuration 1
+          --target-exif-color-space 1
+          --output "${_target_spec_jpg}" --force
+  RESULT_VARIABLE _rv_target_spec
+  OUTPUT_VARIABLE _out_target_spec
+  ERROR_VARIABLE _err_target_spec
+)
+if(NOT _rv_target_spec EQUAL 0)
+  message(FATAL_ERROR
+    "metatransfer target-spec jpeg edit failed (${_rv_target_spec})\nstdout:\n${_out_target_spec}\nstderr:\n${_err_target_spec}")
+endif()
+if(NOT EXISTS "${_target_spec_jpg}")
+  message(FATAL_ERROR
+    "metatransfer target-spec jpeg did not write output\nstdout:\n${_out_target_spec}\nstderr:\n${_err_target_spec}")
+endif()
+execute_process(
+  COMMAND python3 "${_target_spec_checker_py}" "${_target_spec_jpg}"
+  RESULT_VARIABLE _rv_target_spec_check
+  OUTPUT_VARIABLE _out_target_spec_check
+  ERROR_VARIABLE _err_target_spec_check
+)
+if(NOT _rv_target_spec_check EQUAL 0)
+  message(FATAL_ERROR
+    "metatransfer target-spec jpeg read-back check failed (${_rv_target_spec_check})\nstdout:\n${_out_target_spec}\nstderr:\n${_err_target_spec}\ncheck_stdout:\n${_out_target_spec_check}\ncheck_stderr:\n${_err_target_spec_check}")
+endif()
+
+execute_process(
+  COMMAND "${METATRANSFER_BIN}" --no-build-info
+          --source-meta "${_jpg}"
+          --target-tiff "${_target_tif}"
+          --target-width 320
+          --target-height 240
+          --target-orientation 1
+          --target-samples-per-pixel 3
+          --target-bits-per-sample 8
+          --target-sample-format 1
+          --target-photometric 2
+          --target-planar-configuration 1
+          --target-exif-color-space 1
+          --output "${_target_spec_tif}" --force
+  RESULT_VARIABLE _rv_target_spec_tif
+  OUTPUT_VARIABLE _out_target_spec_tif
+  ERROR_VARIABLE _err_target_spec_tif
+)
+if(NOT _rv_target_spec_tif EQUAL 0)
+  message(FATAL_ERROR
+    "metatransfer target-spec tiff edit failed (${_rv_target_spec_tif})\nstdout:\n${_out_target_spec_tif}\nstderr:\n${_err_target_spec_tif}")
+endif()
+if(NOT EXISTS "${_target_spec_tif}")
+  message(FATAL_ERROR
+    "metatransfer target-spec tiff did not write output\nstdout:\n${_out_target_spec_tif}\nstderr:\n${_err_target_spec_tif}")
+endif()
+execute_process(
+  COMMAND python3 "${_target_spec_checker_py}" "${_target_spec_tif}"
+  RESULT_VARIABLE _rv_target_spec_tif_check
+  OUTPUT_VARIABLE _out_target_spec_tif_check
+  ERROR_VARIABLE _err_target_spec_tif_check
+)
+if(NOT _rv_target_spec_tif_check EQUAL 0)
+  message(FATAL_ERROR
+    "metatransfer target-spec tiff read-back check failed (${_rv_target_spec_tif_check})\nstdout:\n${_out_target_spec_tif}\nstderr:\n${_err_target_spec_tif}\ncheck_stdout:\n${_out_target_spec_tif_check}\ncheck_stderr:\n${_err_target_spec_tif_check}")
+endif()
+
+execute_process(
+  COMMAND "${METATRANSFER_BIN}" --no-build-info
+          --source-meta "${_jpg}"
+          --target-dng "${_target_dng}"
+          --target-width 320
+          --target-height 240
+          --target-orientation 1
+          --target-samples-per-pixel 3
+          --target-bits-per-sample 8
+          --target-sample-format 1
+          --target-photometric 2
+          --target-planar-configuration 1
+          --target-exif-color-space 1
+          --output "${_target_spec_dng}" --force
+  RESULT_VARIABLE _rv_target_spec_dng
+  OUTPUT_VARIABLE _out_target_spec_dng
+  ERROR_VARIABLE _err_target_spec_dng
+)
+if(NOT _rv_target_spec_dng EQUAL 0)
+  message(FATAL_ERROR
+    "metatransfer target-spec dng edit failed (${_rv_target_spec_dng})\nstdout:\n${_out_target_spec_dng}\nstderr:\n${_err_target_spec_dng}")
+endif()
+if(NOT EXISTS "${_target_spec_dng}")
+  message(FATAL_ERROR
+    "metatransfer target-spec dng did not write output\nstdout:\n${_out_target_spec_dng}\nstderr:\n${_err_target_spec_dng}")
+endif()
+execute_process(
+  COMMAND python3 "${_target_spec_checker_py}" "${_target_spec_dng}"
+  RESULT_VARIABLE _rv_target_spec_dng_check
+  OUTPUT_VARIABLE _out_target_spec_dng_check
+  ERROR_VARIABLE _err_target_spec_dng_check
+)
+if(NOT _rv_target_spec_dng_check EQUAL 0)
+  message(FATAL_ERROR
+    "metatransfer target-spec dng read-back check failed (${_rv_target_spec_dng_check})\nstdout:\n${_out_target_spec_dng}\nstderr:\n${_err_target_spec_dng}\ncheck_stdout:\n${_out_target_spec_dng_check}\ncheck_stderr:\n${_err_target_spec_dng_check}")
+endif()
+
+execute_process(
+  COMMAND "${METATRANSFER_BIN}" --no-build-info
+          --source-meta "${_jpg}"
+          --target-jpeg "${_target_jpg}"
           --xmp-writeback embedded_and_sidecar
           --output "${_dual_jpg}" --force
   RESULT_VARIABLE _rv_dual
@@ -1384,6 +1623,10 @@ if(NOT EXISTS "${_sidecar_only_strip_sidecar}")
   message(FATAL_ERROR
     "metatransfer sidecar-only embedded-strip did not write xmp sidecar\nstdout:\n${_out_sidecar_strip}\nstderr:\n${_err_sidecar_strip}")
 endif()
+if(NOT _out_sidecar_strip MATCHES "xmp_sidecar_output=.*sidecar_only_strip\\.xmp")
+  message(FATAL_ERROR
+    "metatransfer sidecar-only embedded-strip missing generated sidecar summary\nstdout:\n${_out_sidecar_strip}\nstderr:\n${_err_sidecar_strip}")
+endif()
 execute_process(
   COMMAND python3 -c
     "from pathlib import Path; b=Path(r'''${_sidecar_only_strip_jpg}''').read_bytes(); import sys; sys.exit(0 if (b.find(b'Target Embedded Existing')==-1 and b.find(b'http://ns.adobe.com/xap/1.0/')==-1) else 1)"
@@ -1418,6 +1661,10 @@ endif()
 if(NOT EXISTS "${_sidecar_only_strip_tif_sidecar}")
   message(FATAL_ERROR
     "metatransfer tiff sidecar-only embedded-strip did not write xmp sidecar\nstdout:\n${_out_sidecar_strip_tif}\nstderr:\n${_err_sidecar_strip_tif}")
+endif()
+if(NOT _out_sidecar_strip_tif MATCHES "xmp_sidecar_output=.*sidecar_only_strip_tiff\\.xmp")
+  message(FATAL_ERROR
+    "metatransfer tiff sidecar-only embedded-strip missing generated sidecar summary\nstdout:\n${_out_sidecar_strip_tif}\nstderr:\n${_err_sidecar_strip_tif}")
 endif()
 execute_process(
   COMMAND python3 -c

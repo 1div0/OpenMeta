@@ -175,6 +175,14 @@ Portable sidecar note:
   --source-meta source.jpg \
   --target-tiff target.tif \
   -o injected.tif
+
+#Inject target-owned image facts when source and output pixels differ
+./build/metatransfer \
+  --target-jpeg target.jpg \
+  --target-width 320 --target-height 240 \
+  --target-samples-per-pixel 3 --target-bits-per-sample 8 \
+  --target-photometric 2 --target-exif-color-space 1 \
+  -o injected.jpg source.jpg
 ```
 
 `metatransfer` is a thin CLI wrapper over the public transfer APIs. It uses
@@ -189,6 +197,12 @@ exposes
 used, the CLI passes a `TransferByteWriter` sink into the shared execution
 path so edited output can stream directly to disk instead of always
 materializing a full output buffer.
+The `--target-width`, `--target-height`, `--target-orientation`,
+`--target-samples-per-pixel`, `--target-bits-per-sample`,
+`--target-sample-format`, `--target-photometric`,
+`--target-planar-configuration`, `--target-compression`, and
+`--target-exif-color-space` flags populate
+`PrepareTransferRequest::target_image_spec`.
 Current v1 behavior is:
 
 - JPEG edit output is streamed directly from the shared core path.
@@ -1287,6 +1301,12 @@ Python transfer entry point:
     `xmp_existing_sidecar_base_path` from `xmp_sidecar_base_path`, and they
     also expose `xmp_existing_destination_embedded_path` plus
     `xmp_existing_destination_sidecar_state` for pathless host flows.
+  - `openmeta.python.metatransfer` remains a thin command-line wrapper: its
+    `--xmp-writeback`, `--xmp-destination-embedded`,
+    `--xmp-destination-sidecar`, `--output`, and `--force` flags map directly
+    onto the C++ file-helper options and persistence flags. It reports the
+    sidecar and cleanup paths returned by the C++ result instead of deriving a
+    separate Python-side contract.
 
 Transfer probe contract hardening (stable machine fields):
 - `overall_status`, `overall_status_name`

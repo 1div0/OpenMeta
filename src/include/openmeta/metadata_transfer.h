@@ -443,11 +443,54 @@ struct AppendPreparedJpegJumbfOptions final {
     bool replace_existing = false;
 };
 
+/// Maximum channel/sample count represented by \ref TransferTargetImageSpec.
+inline constexpr uint16_t kTransferTargetImageSpecMaxSamples = 8U;
+
+/**
+ * \brief Host-supplied target image facts for content-changing transfer.
+ *
+ * These values describe the actual output image buffer/container, not the
+ * source metadata. When present, prepared transfer uses these target facts for
+ * generated EXIF/XMP image-layout fields after filtering stale source fields.
+ * Leave fields unset when the host cannot guarantee that the value matches the
+ * target pixels.
+ */
+struct TransferTargetImageSpec final {
+    bool has_dimensions = false;
+    uint32_t width      = 0U;
+    uint32_t height     = 0U;
+
+    bool has_orientation = false;
+    uint16_t orientation = 1U;
+
+    bool has_samples_per_pixel = false;
+    uint16_t samples_per_pixel = 0U;
+
+    uint16_t bits_per_sample_count = 0U;
+    std::array<uint16_t, kTransferTargetImageSpecMaxSamples> bits_per_sample {};
+
+    uint16_t sample_format_count = 0U;
+    std::array<uint16_t, kTransferTargetImageSpecMaxSamples> sample_format {};
+
+    bool has_photometric_interpretation = false;
+    uint16_t photometric_interpretation = 0U;
+
+    bool has_planar_configuration = false;
+    uint16_t planar_configuration = 1U;
+
+    bool has_compression = false;
+    uint16_t compression = 0U;
+
+    bool has_exif_color_space = false;
+    uint16_t exif_color_space = 0U;
+};
+
 /// Request options for preparation.
 struct PrepareTransferRequest final {
     TransferTargetFormat target_format = TransferTargetFormat::Jpeg;
     DngTargetMode dng_target_mode      = DngTargetMode::MinimalFreshScaffold;
     TransferProfile profile;
+    TransferTargetImageSpec target_image_spec;
     bool include_exif_app1              = true;
     bool include_xmp_app1               = true;
     bool include_icc_app2               = true;

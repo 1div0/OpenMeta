@@ -18,6 +18,8 @@ For deterministic host compatibility baselines, see
 [compatibility_dump.md](compatibility_dump.md).
 For generated XMP merge and writeback precedence, see
 [xmp_sync_policy.md](xmp_sync_policy.md).
+For per-target writer preserve/replace guarantees, see
+[writer_target_contract.md](writer_target_contract.md).
 
 ## Pick The Integration Path
 
@@ -328,6 +330,20 @@ Python now exposes those same split path/state controls directly:
 `xmp_existing_destination_embedded_path`, and
 `xmp_existing_destination_sidecar_state`.
 
+The CLI and Python command-line wrapper do not implement their own transfer
+semantics. They map flags onto the same file-helper contract:
+- `--output` is the sidecar base for `sidecar` and `embedded_and_sidecar`
+  writeback, so the generated sidecar is `output-stem.xmp`.
+- `--xmp-writeback sidecar` suppresses generated embedded XMP.
+- `--xmp-writeback embedded_and_sidecar` writes generated XMP to both the
+  edited output and the generated sidecar.
+- embedded-only writeback preserves an existing destination sidecar unless
+  `--xmp-destination-sidecar strip_existing` is selected.
+- sidecar-only writeback preserves existing destination embedded XMP unless
+  `--xmp-destination-embedded strip_existing` is selected.
+- `--force` maps to the C++ persistence overwrite flags for the primary
+  output and generated sidecar.
+
 ## 7. Query Runtime Capabilities
 
 Hosts can ask OpenMeta what the current build supports before wiring format
@@ -394,6 +410,66 @@ openmeta::apply_prepared_dng_sdk_metadata(
 
 This bridge is for applications that already use the Adobe DNG SDK. OpenMeta
 still does not encode pixels or invent raw-image structure.
+
+### Host-Owned Image Specs
+
+If a transfer target is produced from a different image buffer than the source,
+the host writer owns the target image facts: dimensions, channel count, sample
+type, compression, orientation, colorspace, ICC profile, and TIFF strip/tile
+storage. OpenMeta does not infer those values from copied metadata. During
+prepared transfer it filters source EXIF/XMP image-layout fields so stale source
+properties are not written into a different output image.
+
+Host code that encodes pixels should keep those fields from the target
+container or inject values derived from the actual output buffer. Enable source
+ICC transfer only when the host has verified that the profile matches the target
+pixel buffer; otherwise preserve or write the target profile.
+
+```cpp
+openmeta::PrepareTransferRequest request;
+request.target_format = openmeta::TransferTargetFormat::Jpeg;
+
+request.target_image_spec.has_dimensions = true;
+request.target_image_spec.width = encoded_width;
+request.target_image_spec.height = encoded_height;
+
+request.target_image_spec.has_samples_per_pixel = true;
+request.target_image_spec.samples_per_pixel = 3;
+request.target_image_spec.bits_per_sample_count = 1;
+request.target_image_spec.bits_per_sample[0] = 8;
+request.target_image_spec.has_photometric_interpretation = true;
+request.target_image_spec.photometric_interpretation = 2; // RGB
+request.target_image_spec.has_exif_color_space = true;
+request.target_image_spec.exif_color_space = 1; // sRGB
+```
+
+Python exposes the same structure as `openmeta.TransferTargetImageSpec` and the
+command-line wrappers pass it through without a separate policy layer:
+
+```python
+spec = openmeta.TransferTargetImageSpec()
+spec.has_dimensions = True
+spec.width = encoded_width
+spec.height = encoded_height
+spec.has_samples_per_pixel = True
+spec.samples_per_pixel = 3
+spec.bits_per_sample = [8]
+spec.has_photometric_interpretation = True
+spec.photometric_interpretation = 2
+spec.has_exif_color_space = True
+spec.exif_color_space = 1
+```
+
+For smoke testing the file-helper path, `metatransfer` and
+`python -m openmeta.python.metatransfer` expose equivalent flags:
+
+```bash
+metatransfer --target-jpeg target.jpg -o output.jpg \
+  --target-width 320 --target-height 240 \
+  --target-samples-per-pixel 3 --target-bits-per-sample 8 \
+  --target-photometric 2 --target-exif-color-space 1 \
+  source.jpg
+```
 
 ## 9. Build `MetaStore` Yourself
 

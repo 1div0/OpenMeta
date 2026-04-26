@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
+#include "openmeta/compatibility_dump.h"
 #include "openmeta/container_scan.h"
 #include "openmeta/metadata_transfer.h"
 #include "openmeta/simple_meta.h"
@@ -654,6 +655,134 @@ exif_app1_contains_exififd_tag(std::span<const std::byte> payload,
                                   nullptr, nullptr);
 }
 
+static bool
+prepared_exif_block_tiff_base(const openmeta::PreparedTransferBlock& block,
+                              size_t* out_base) noexcept
+{
+    if (!out_base) {
+        return false;
+    }
+    *out_base = 0U;
+    if (block.route == "png:chunk-exif") {
+        if (block.payload.size() < 8U || block.payload[0] != std::byte { 'I' }
+            || block.payload[1] != std::byte { 'I' }) {
+            return false;
+        }
+        return true;
+    }
+
+    size_t app1_off = 0U;
+    if (block.route == "jxl:box-exif" || block.route == "jp2:box-exif"
+        || block.route == "bmff:item-exif") {
+        app1_off = 4U;
+    }
+    if (block.payload.size() < app1_off + 14U) {
+        return false;
+    }
+    if (block.payload[app1_off + 0U] != std::byte { 'E' }
+        || block.payload[app1_off + 1U] != std::byte { 'x' }
+        || block.payload[app1_off + 2U] != std::byte { 'i' }
+        || block.payload[app1_off + 3U] != std::byte { 'f' }) {
+        return false;
+    }
+    if (block.payload[app1_off + 6U] != std::byte { 'I' }
+        || block.payload[app1_off + 7U] != std::byte { 'I' }) {
+        return false;
+    }
+    *out_base = app1_off + 6U;
+    return true;
+}
+
+static bool
+prepared_exif_block_contains_ifd0_tag(
+    const openmeta::PreparedTransferBlock& block, uint16_t tag) noexcept
+{
+    size_t tiff_base = 0U;
+    if (!prepared_exif_block_tiff_base(block, &tiff_base)
+        || block.payload.size() < tiff_base + 8U) {
+        return false;
+    }
+    const std::span<const std::byte> payload(block.payload.data(),
+                                             block.payload.size());
+    const uint32_t ifd0_off = read_u32le(payload, tiff_base + 4U);
+    return find_tiff_tag_entry_le(payload,
+                                  static_cast<uint32_t>(tiff_base)
+                                      + ifd0_off,
+                                  tag, nullptr, nullptr, nullptr);
+}
+
+static bool
+prepared_exif_block_find_ifd0_tag(
+    const openmeta::PreparedTransferBlock& block, uint16_t tag,
+    uint16_t* out_type, uint32_t* out_count,
+    uint32_t* out_value_or_offset) noexcept
+{
+    size_t tiff_base = 0U;
+    if (!prepared_exif_block_tiff_base(block, &tiff_base)
+        || block.payload.size() < tiff_base + 8U) {
+        return false;
+    }
+    const std::span<const std::byte> payload(block.payload.data(),
+                                             block.payload.size());
+    const uint32_t ifd0_off = read_u32le(payload, tiff_base + 4U);
+    return find_tiff_tag_entry_le(payload,
+                                  static_cast<uint32_t>(tiff_base)
+                                      + ifd0_off,
+                                  tag, out_type, out_count,
+                                  out_value_or_offset);
+}
+
+static bool
+prepared_exif_block_contains_exififd_tag(
+    const openmeta::PreparedTransferBlock& block, uint16_t tag) noexcept
+{
+    size_t tiff_base = 0U;
+    if (!prepared_exif_block_tiff_base(block, &tiff_base)
+        || block.payload.size() < tiff_base + 8U) {
+        return false;
+    }
+    const std::span<const std::byte> payload(block.payload.data(),
+                                             block.payload.size());
+    const uint32_t ifd0_off = read_u32le(payload, tiff_base + 4U);
+    uint32_t exififd_off    = 0U;
+    if (!find_tiff_tag_entry_le(payload,
+                                static_cast<uint32_t>(tiff_base) + ifd0_off,
+                                0x8769U, nullptr, nullptr, &exififd_off)) {
+        return false;
+    }
+    return find_tiff_tag_entry_le(payload,
+                                  static_cast<uint32_t>(tiff_base)
+                                      + exififd_off,
+                                  tag, nullptr, nullptr, nullptr);
+}
+
+static bool
+prepared_exif_block_find_exififd_tag(
+    const openmeta::PreparedTransferBlock& block, uint16_t tag,
+    uint16_t* out_type, uint32_t* out_count,
+    uint32_t* out_value_or_offset) noexcept
+{
+    size_t tiff_base = 0U;
+    if (!prepared_exif_block_tiff_base(block, &tiff_base)
+        || block.payload.size() < tiff_base + 8U) {
+        return false;
+    }
+    const std::span<const std::byte> payload(block.payload.data(),
+                                             block.payload.size());
+    const uint32_t ifd0_off = read_u32le(payload, tiff_base + 4U);
+    uint32_t exififd_off    = 0U;
+    if (!find_tiff_tag_entry_le(payload,
+                                static_cast<uint32_t>(tiff_base) + ifd0_off,
+                                0x8769U, nullptr, nullptr, &exififd_off)) {
+        return false;
+    }
+    return find_tiff_tag_entry_le(payload,
+                                  static_cast<uint32_t>(tiff_base)
+                                      + exififd_off,
+                                  tag, out_type, out_count,
+                                  out_value_or_offset);
+}
+
 static const openmeta::PreparedTransferPolicyDecision*
 find_policy_decision(const openmeta::PreparedTransferBundle& bundle,
                      openmeta::TransferPolicySubject subject) noexcept
@@ -1134,6 +1263,15 @@ append_bmff_box(std::vector<std::byte>* out, uint32_t type,
     append_u32be(out, static_cast<uint32_t>(8U + payload.size()));
     append_fourcc(out, type);
     out->insert(out->end(), payload.begin(), payload.end());
+}
+
+static void
+append_bmff_fullbox_header(std::vector<std::byte>* out, uint8_t version)
+{
+    out->push_back(std::byte { version });
+    out->push_back(std::byte { 0x00 });
+    out->push_back(std::byte { 0x00 });
+    out->push_back(std::byte { 0x00 });
 }
 
 static std::vector<std::byte>
@@ -2113,7 +2251,7 @@ payload_contains_ascii(std::span<const std::byte> bytes,
 
 static bool
 payload_contains_bytes(std::span<const std::byte> bytes,
-                       std::span<const std::byte> needle) noexcept
+                        std::span<const std::byte> needle) noexcept
 {
     if (needle.empty()) {
         return true;
@@ -2125,6 +2263,30 @@ payload_contains_bytes(std::span<const std::byte> bytes,
         bool match = true;
         for (size_t i = 0; i < needle.size(); ++i) {
             if (bytes[off + i] != needle[i]) {
+                match = false;
+                break;
+            }
+        }
+        if (match) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool
+text_contains(std::string_view text, std::string_view needle) noexcept
+{
+    if (needle.empty()) {
+        return true;
+    }
+    if (text.size() < needle.size()) {
+        return false;
+    }
+    for (size_t off = 0; off + needle.size() <= text.size(); ++off) {
+        bool match = true;
+        for (size_t i = 0; i < needle.size(); ++i) {
+            if (text[off + i] != needle[i]) {
                 match = false;
                 break;
             }
@@ -2712,6 +2874,131 @@ build_test_preview_aux_bigtiff_like_target_with_subifd_xmp_carrier(
 }
 
 static bool
+build_test_preview_aux_tiff_like_target_with_mixed_xmp_carriers(
+    std::vector<std::byte>* out)
+{
+    if (!out) {
+        return false;
+    }
+    if (!build_test_preview_aux_tiff_like_target_with_creator_tool_xmp(
+            "Target Embedded Existing", out)) {
+        return false;
+    }
+
+    const std::span<const std::byte> bytes(out->data(), out->size());
+    const uint32_t ifd0_off = read_u32le(bytes, 4U);
+    uint16_t xmp_type = 0U;
+    uint32_t xmp_count = 0U;
+    uint32_t xmp_value_or_offset = 0U;
+    if (!find_tiff_tag_entry_le(bytes, ifd0_off, 700U, &xmp_type, &xmp_count,
+                                &xmp_value_or_offset)) {
+        return false;
+    }
+
+    const uint16_t ifd0_count = read_u16le(bytes, static_cast<size_t>(ifd0_off));
+    const uint32_t ifd1_off = read_u32le(
+        bytes, static_cast<size_t>(ifd0_off) + 2U
+                   + static_cast<size_t>(ifd0_count) * 12U);
+    if (ifd1_off == 0U) {
+        return false;
+    }
+
+    const size_t ifd1_entry_off = static_cast<size_t>(ifd1_off) + 2U;
+    if (ifd1_entry_off + 12U > out->size()) {
+        return false;
+    }
+    write_u16le(out, ifd1_entry_off + 0U, 700U);
+    write_u16le(out, ifd1_entry_off + 2U, xmp_type);
+    write_u32le(out, ifd1_entry_off + 4U, xmp_count);
+    write_u32le(out, ifd1_entry_off + 8U, xmp_value_or_offset);
+
+    uint32_t subifd_count = 0U;
+    uint32_t subifd_array_off = 0U;
+    if (!find_tiff_tag_entry_le(bytes, ifd0_off, 0x014AU, nullptr,
+                                &subifd_count, &subifd_array_off)
+        || subifd_count == 0U) {
+        return false;
+    }
+
+    const uint32_t subifd0_off = read_u32le(bytes, subifd_array_off);
+    if (subifd0_off == 0U) {
+        return false;
+    }
+    const size_t subifd_entry_off = static_cast<size_t>(subifd0_off) + 2U;
+    if (subifd_entry_off + 12U > out->size()) {
+        return false;
+    }
+    write_u16le(out, subifd_entry_off + 0U, 700U);
+    write_u16le(out, subifd_entry_off + 2U, xmp_type);
+    write_u32le(out, subifd_entry_off + 4U, xmp_count);
+    write_u32le(out, subifd_entry_off + 8U, xmp_value_or_offset);
+    return true;
+}
+
+static bool
+build_test_preview_aux_bigtiff_like_target_with_mixed_xmp_carriers(
+    std::vector<std::byte>* out)
+{
+    if (!out) {
+        return false;
+    }
+    if (!build_test_preview_aux_bigtiff_like_target_with_creator_tool_xmp(
+            "Target Embedded Existing", out)) {
+        return false;
+    }
+
+    const std::span<const std::byte> bytes(out->data(), out->size());
+    const uint64_t ifd0_off = read_u64le(bytes, 8U);
+    uint16_t xmp_type = 0U;
+    uint64_t xmp_count = 0U;
+    uint64_t xmp_value_or_offset = 0U;
+    if (!find_bigtiff_tag_entry_le(bytes, ifd0_off, 700U, &xmp_type,
+                                   &xmp_count, &xmp_value_or_offset)) {
+        return false;
+    }
+
+    const uint64_t ifd0_count = read_u64le(bytes, static_cast<size_t>(ifd0_off));
+    const uint64_t ifd1_off = read_u64le(
+        bytes, static_cast<size_t>(ifd0_off) + 8U
+                   + static_cast<size_t>(ifd0_count) * 20U);
+    if (ifd1_off == 0U) {
+        return false;
+    }
+
+    const size_t ifd1_entry_off = static_cast<size_t>(ifd1_off) + 8U;
+    if (ifd1_entry_off + 20U > out->size()) {
+        return false;
+    }
+    write_u16le(out, ifd1_entry_off + 0U, 700U);
+    write_u16le(out, ifd1_entry_off + 2U, xmp_type);
+    write_u64le(out, ifd1_entry_off + 4U, xmp_count);
+    write_u64le(out, ifd1_entry_off + 12U, xmp_value_or_offset);
+
+    uint64_t subifd_count = 0U;
+    uint64_t subifd_array_off = 0U;
+    if (!find_bigtiff_tag_entry_le(bytes, ifd0_off, 0x014AU, nullptr,
+                                   &subifd_count, &subifd_array_off)
+        || subifd_count == 0U) {
+        return false;
+    }
+
+    const uint64_t subifd0_off = read_u64le(
+        bytes, static_cast<size_t>(subifd_array_off));
+    if (subifd0_off == 0U) {
+        return false;
+    }
+    const size_t subifd_entry_off = static_cast<size_t>(subifd0_off) + 8U;
+    if (subifd_entry_off + 20U > out->size()) {
+        return false;
+    }
+    write_u16le(out, subifd_entry_off + 0U, 700U);
+    write_u16le(out, subifd_entry_off + 2U, xmp_type);
+    write_u64le(out, subifd_entry_off + 4U, xmp_count);
+    write_u64le(out, subifd_entry_off + 12U, xmp_value_or_offset);
+    return true;
+}
+
+static bool
 build_test_tiff_like_target_with_exif_aux_xmp_carrier(
     std::span<const std::byte> input_tiff, bool use_interop,
     std::vector<std::byte>* out)
@@ -3166,6 +3453,91 @@ build_test_target_with_foreign_bmff_creator_tool_xmp(
 }
 
 static bool
+build_test_target_with_foreign_bmff_iinf_v2_creator_tool_xmp(
+    openmeta::TransferTargetFormat format, std::string_view creator_tool,
+    std::vector<std::byte>* out)
+{
+    if (!out) {
+        return false;
+    }
+    if (format == openmeta::TransferTargetFormat::Heif) {
+        *out = make_minimal_heif_file();
+    } else if (format == openmeta::TransferTargetFormat::Avif) {
+        *out = make_minimal_avif_file();
+    } else if (format == openmeta::TransferTargetFormat::Cr3) {
+        *out = make_minimal_cr3_file();
+    } else {
+        out->clear();
+        return false;
+    }
+
+    std::vector<std::byte> packet;
+    if (!build_test_creator_tool_xmp_sidecar(creator_tool, &packet)) {
+        return false;
+    }
+
+    std::vector<std::byte> infe_payload;
+    append_bmff_fullbox_header(&infe_payload, 2U);
+    append_u16be(&infe_payload, 1U);
+    append_u16be(&infe_payload, 0U);
+    append_fourcc(&infe_payload, openmeta::fourcc('m', 'i', 'm', 'e'));
+    append_bytes(&infe_payload, "XMP");
+    infe_payload.push_back(std::byte { 0x00 });
+    append_bytes(&infe_payload, "application/rdf+xml");
+    infe_payload.push_back(std::byte { 0x00 });
+    infe_payload.push_back(std::byte { 0x00 });
+
+    std::vector<std::byte> infe_box;
+    append_bmff_box(&infe_box, openmeta::fourcc('i', 'n', 'f', 'e'),
+                    std::span<const std::byte>(infe_payload.data(),
+                                               infe_payload.size()));
+
+    std::vector<std::byte> iinf_payload;
+    append_bmff_fullbox_header(&iinf_payload, 2U);
+    append_u32be(&iinf_payload, 1U);
+    iinf_payload.insert(iinf_payload.end(), infe_box.begin(), infe_box.end());
+
+    std::vector<std::byte> iinf_box;
+    append_bmff_box(&iinf_box, openmeta::fourcc('i', 'i', 'n', 'f'),
+                    std::span<const std::byte>(iinf_payload.data(),
+                                               iinf_payload.size()));
+
+    std::vector<std::byte> idat_box;
+    append_bmff_box(&idat_box, openmeta::fourcc('i', 'd', 'a', 't'),
+                    std::span<const std::byte>(packet.data(), packet.size()));
+
+    std::vector<std::byte> iloc_payload;
+    append_bmff_fullbox_header(&iloc_payload, 1U);
+    iloc_payload.push_back(std::byte { 0x44 });
+    iloc_payload.push_back(std::byte { 0x00 });
+    append_u16be(&iloc_payload, 1U);
+    append_u16be(&iloc_payload, 1U);
+    append_u16be(&iloc_payload, 1U);
+    append_u16be(&iloc_payload, 0U);
+    append_u16be(&iloc_payload, 1U);
+    append_u32be(&iloc_payload, 0U);
+    append_u32be(&iloc_payload, static_cast<uint32_t>(packet.size()));
+
+    std::vector<std::byte> iloc_box;
+    append_bmff_box(&iloc_box, openmeta::fourcc('i', 'l', 'o', 'c'),
+                    std::span<const std::byte>(iloc_payload.data(),
+                                               iloc_payload.size()));
+
+    std::vector<std::byte> meta_payload;
+    append_bmff_fullbox_header(&meta_payload, 0U);
+    meta_payload.insert(meta_payload.end(), iinf_box.begin(), iinf_box.end());
+    meta_payload.insert(meta_payload.end(), iloc_box.begin(), iloc_box.end());
+    meta_payload.insert(meta_payload.end(), idat_box.begin(), idat_box.end());
+
+    std::vector<std::byte> meta_box;
+    append_bmff_box(&meta_box, openmeta::fourcc('m', 'e', 't', 'a'),
+                    std::span<const std::byte>(meta_payload.data(),
+                                               meta_payload.size()));
+    out->insert(out->end(), meta_box.begin(), meta_box.end());
+    return true;
+}
+
+static bool
 store_has_text_entry(const openmeta::MetaStore& store,
                      const openmeta::MetaKeyView& key,
                      std::string_view expected) noexcept
@@ -3193,6 +3565,21 @@ store_has_u32_scalar_entry(const openmeta::MetaStore& store,
 }
 
 static bool
+store_has_u16_scalar_entry(const openmeta::MetaStore& store,
+                           const openmeta::MetaKeyView& key,
+                           uint16_t expected) noexcept
+{
+    const std::span<const openmeta::EntryId> ids = store.find_all(key);
+    if (ids.size() != 1U) {
+        return false;
+    }
+    const openmeta::Entry& entry = store.entry(ids[0]);
+    return entry.value.kind == openmeta::MetaValueKind::Scalar
+           && entry.value.elem_type == openmeta::MetaElementType::U16
+           && entry.value.data.u64 == expected;
+}
+
+static bool
 store_has_u8_array_entry(const openmeta::MetaStore& store,
                          const openmeta::MetaKeyView& key,
                          std::span<const uint8_t> expected) noexcept
@@ -3214,6 +3601,37 @@ store_has_u8_array_entry(const openmeta::MetaStore& store,
     }
     for (size_t i = 0; i < expected.size(); ++i) {
         if (std::to_integer<uint8_t>(raw[i]) != expected[i]) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool
+store_has_u16_array_entry(const openmeta::MetaStore& store,
+                          const openmeta::MetaKeyView& key,
+                          std::span<const uint16_t> expected) noexcept
+{
+    const std::span<const openmeta::EntryId> ids = store.find_all(key);
+    if (ids.size() != 1U) {
+        return false;
+    }
+    const openmeta::Entry& entry = store.entry(ids[0]);
+    if (entry.value.kind != openmeta::MetaValueKind::Array
+        || entry.value.elem_type != openmeta::MetaElementType::U16
+        || entry.value.count != expected.size()) {
+        return false;
+    }
+    const std::span<const std::byte> raw = store.arena().span(
+        entry.value.data.span);
+    if (raw.size() != expected.size() * sizeof(uint16_t)) {
+        return false;
+    }
+    for (size_t i = 0; i < expected.size(); ++i) {
+        uint16_t actual = 0U;
+        std::memcpy(&actual, raw.data() + i * sizeof(uint16_t),
+                    sizeof(uint16_t));
+        if (actual != expected[i]) {
             return false;
         }
     }
@@ -3260,6 +3678,48 @@ decoded_transfer_roundtrip_has_expected_fields(
                decoded,
                xmp_key_view("http://ns.adobe.com/xap/1.0/", "CreatorTool"),
                "OpenMeta Transfer Source");
+}
+
+static bool
+decoded_transfer_roundtrip_has_target_image_spec_fields(
+    std::span<const std::byte> bytes) noexcept
+{
+    openmeta::MetaStore decoded;
+    if (!decode_transfer_roundtrip_store(bytes, &decoded)) {
+        return false;
+    }
+
+    const std::array<uint16_t, 3> bits = { 8U, 8U, 8U };
+    const std::array<uint16_t, 3> sample_format = { 1U, 1U, 1U };
+    return store_has_u32_scalar_entry(decoded, exif_key_view("ifd0", 0x0100U),
+                                      320U)
+           && store_has_u32_scalar_entry(decoded,
+                                         exif_key_view("ifd0", 0x0101U),
+                                         240U)
+           && store_has_u32_scalar_entry(decoded,
+                                         exif_key_view("exififd", 0xA002U),
+                                         320U)
+           && store_has_u32_scalar_entry(decoded,
+                                         exif_key_view("exififd", 0xA003U),
+                                         240U)
+           && store_has_u16_scalar_entry(decoded,
+                                         exif_key_view("ifd0", 0x0112U), 1U)
+           && store_has_u16_scalar_entry(decoded,
+                                         exif_key_view("ifd0", 0x0115U), 3U)
+           && store_has_u16_array_entry(
+               decoded, exif_key_view("ifd0", 0x0102U),
+               std::span<const uint16_t>(bits.data(), bits.size()))
+           && store_has_u16_scalar_entry(decoded,
+                                         exif_key_view("ifd0", 0x0106U), 2U)
+           && store_has_u16_scalar_entry(decoded,
+                                         exif_key_view("ifd0", 0x011CU), 1U)
+           && store_has_u16_array_entry(
+               decoded, exif_key_view("ifd0", 0x0153U),
+               std::span<const uint16_t>(sample_format.data(),
+                                         sample_format.size()))
+           && store_has_u16_scalar_entry(decoded,
+                                         exif_key_view("exififd", 0xA001U),
+                                         1U);
 }
 
 struct SnapshotExecuteThreadState final {
@@ -3596,6 +4056,40 @@ make_minimal_tiff_little_endian()
         std::byte { 0x00 }, std::byte { 0x00 }, std::byte { 0x00 },
         std::byte { 0x00 }, std::byte { 0x00 },
     };
+}
+
+static std::vector<std::byte>
+make_minimal_tiff_with_strip_storage_little_endian()
+{
+    std::vector<std::byte> tiff;
+    append_bytes(&tiff, "II");
+    append_u16le(&tiff, 42U);
+    append_u32le(&tiff, 8U);
+
+    append_u16le(&tiff, 4U);
+    append_u16le(&tiff, 0x0100U);
+    append_u16le(&tiff, 4U);
+    append_u32le(&tiff, 1U);
+    append_u32le(&tiff, 111U);
+    append_u16le(&tiff, 0x0101U);
+    append_u16le(&tiff, 4U);
+    append_u32le(&tiff, 1U);
+    append_u32le(&tiff, 222U);
+    append_u16le(&tiff, 0x0111U);
+    append_u16le(&tiff, 4U);
+    append_u32le(&tiff, 1U);
+    append_u32le(&tiff, 62U);
+    append_u16le(&tiff, 0x0117U);
+    append_u16le(&tiff, 4U);
+    append_u32le(&tiff, 1U);
+    append_u32le(&tiff, 4U);
+    append_u32le(&tiff, 0U);
+
+    tiff.push_back(std::byte { 0x11 });
+    tiff.push_back(std::byte { 0x22 });
+    tiff.push_back(std::byte { 0x33 });
+    tiff.push_back(std::byte { 0x44 });
+    return tiff;
 }
 
 static bool
@@ -16331,6 +16825,363 @@ TEST(MetadataTransferApi, PrepareBuildsPngExifAndXmpChunks)
         "OpenMeta PNG"));
 }
 
+TEST(MetadataTransferApi, PrepareFiltersImageDependentMetadataForAllTargets)
+{
+    openmeta::MetaStore store;
+    const openmeta::BlockId block = store.add_block(openmeta::BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    openmeta::Entry make;
+    make.key   = openmeta::make_exif_tag_key(store.arena(), "ifd0", 0x010FU);
+    make.value = openmeta::make_text(store.arena(), "CameraVendor",
+                                     openmeta::TextEncoding::Ascii);
+    make.origin.block          = block;
+    make.origin.order_in_block = 0U;
+    ASSERT_NE(store.add_entry(make), openmeta::kInvalidEntryId);
+
+    openmeta::Entry image_width;
+    image_width.key
+        = openmeta::make_exif_tag_key(store.arena(), "ifd0", 0x0100U);
+    image_width.value                 = openmeta::make_u32(999U);
+    image_width.origin.block          = block;
+    image_width.origin.order_in_block = 1U;
+    ASSERT_NE(store.add_entry(image_width), openmeta::kInvalidEntryId);
+
+    openmeta::Entry strip_offsets;
+    strip_offsets.key
+        = openmeta::make_exif_tag_key(store.arena(), "ifd0", 0x0111U);
+    strip_offsets.value                 = openmeta::make_u32(123456U);
+    strip_offsets.origin.block          = block;
+    strip_offsets.origin.order_in_block = 2U;
+    ASSERT_NE(store.add_entry(strip_offsets), openmeta::kInvalidEntryId);
+
+    openmeta::Entry datetime_original;
+    datetime_original.key
+        = openmeta::make_exif_tag_key(store.arena(), "exififd", 0x9003U);
+    datetime_original.value = openmeta::make_text(
+        store.arena(), "2024:01:02 03:04:05", openmeta::TextEncoding::Ascii);
+    datetime_original.origin.block          = block;
+    datetime_original.origin.order_in_block = 3U;
+    ASSERT_NE(store.add_entry(datetime_original), openmeta::kInvalidEntryId);
+
+    openmeta::Entry pixel_x_dimension;
+    pixel_x_dimension.key
+        = openmeta::make_exif_tag_key(store.arena(), "exififd", 0xA002U);
+    pixel_x_dimension.value                 = openmeta::make_u32(999U);
+    pixel_x_dimension.origin.block          = block;
+    pixel_x_dimension.origin.order_in_block = 4U;
+    ASSERT_NE(store.add_entry(pixel_x_dimension), openmeta::kInvalidEntryId);
+
+    openmeta::Entry creator_tool;
+    creator_tool.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/", "CreatorTool");
+    creator_tool.value = openmeta::make_text(store.arena(), "OpenMeta Tool",
+                                             openmeta::TextEncoding::Utf8);
+    creator_tool.origin.block          = block;
+    creator_tool.origin.order_in_block = 5U;
+    ASSERT_NE(store.add_entry(creator_tool), openmeta::kInvalidEntryId);
+
+    openmeta::Entry xmp_tiff_width;
+    xmp_tiff_width.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/tiff/1.0/", "ImageWidth");
+    xmp_tiff_width.value = openmeta::make_text(store.arena(), "999",
+                                               openmeta::TextEncoding::Utf8);
+    xmp_tiff_width.origin.block          = block;
+    xmp_tiff_width.origin.order_in_block = 6U;
+    ASSERT_NE(store.add_entry(xmp_tiff_width), openmeta::kInvalidEntryId);
+
+    openmeta::Entry xmp_exif_width;
+    xmp_exif_width.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/exif/1.0/", "ExifImageWidth");
+    xmp_exif_width.value = openmeta::make_text(store.arena(), "999",
+                                               openmeta::TextEncoding::Utf8);
+    xmp_exif_width.origin.block          = block;
+    xmp_exif_width.origin.order_in_block = 7U;
+    ASSERT_NE(store.add_entry(xmp_exif_width), openmeta::kInvalidEntryId);
+
+    openmeta::Entry xmp_color_mode;
+    xmp_color_mode.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/photoshop/1.0/", "ColorMode");
+    xmp_color_mode.value = openmeta::make_text(store.arena(), "RGB",
+                                               openmeta::TextEncoding::Utf8);
+    xmp_color_mode.origin.block          = block;
+    xmp_color_mode.origin.order_in_block = 8U;
+    ASSERT_NE(store.add_entry(xmp_color_mode), openmeta::kInvalidEntryId);
+    store.finalize();
+
+    struct Case final {
+        openmeta::TransferTargetFormat format;
+        const char* exif_route;
+        const char* xmp_route;
+    };
+    static const Case kCases[] = {
+        { openmeta::TransferTargetFormat::Jpeg, "jpeg:app1-exif",
+          "jpeg:app1-xmp" },
+        { openmeta::TransferTargetFormat::Tiff, "tiff:ifd-exif-app1",
+          "tiff:tag-700-xmp" },
+        { openmeta::TransferTargetFormat::Dng, "tiff:ifd-exif-app1",
+          "tiff:tag-700-xmp" },
+        { openmeta::TransferTargetFormat::Png, "png:chunk-exif",
+          "png:chunk-xmp" },
+        { openmeta::TransferTargetFormat::Webp, "webp:chunk-exif",
+          "webp:chunk-xmp" },
+        { openmeta::TransferTargetFormat::Jp2, "jp2:box-exif",
+          "jp2:box-xml" },
+        { openmeta::TransferTargetFormat::Jxl, "jxl:box-exif",
+          "jxl:box-xml" },
+        { openmeta::TransferTargetFormat::Heif, "bmff:item-exif",
+          "bmff:item-xmp" },
+        { openmeta::TransferTargetFormat::Avif, "bmff:item-exif",
+          "bmff:item-xmp" },
+        { openmeta::TransferTargetFormat::Cr3, "bmff:item-exif",
+          "bmff:item-xmp" },
+    };
+
+    for (size_t i = 0; i < std::size(kCases); ++i) {
+        SCOPED_TRACE(static_cast<int>(kCases[i].format));
+
+        openmeta::PrepareTransferRequest request;
+        request.target_format      = kCases[i].format;
+        request.include_icc_app2   = false;
+        request.include_iptc_app13 = false;
+
+        openmeta::PreparedTransferBundle bundle;
+        const openmeta::PrepareTransferResult result
+            = openmeta::prepare_metadata_for_target(store, request, &bundle);
+        ASSERT_EQ(result.status, openmeta::TransferStatus::Ok);
+        ASSERT_EQ(result.errors, 0U);
+
+        const openmeta::PreparedTransferBlock* exif_block = nullptr;
+        const openmeta::PreparedTransferBlock* xmp_block  = nullptr;
+        for (size_t j = 0; j < bundle.blocks.size(); ++j) {
+            if (bundle.blocks[j].route == kCases[i].exif_route) {
+                exif_block = &bundle.blocks[j];
+            } else if (bundle.blocks[j].route == kCases[i].xmp_route) {
+                xmp_block = &bundle.blocks[j];
+            }
+        }
+
+        ASSERT_NE(exif_block, nullptr);
+        ASSERT_NE(xmp_block, nullptr);
+        EXPECT_TRUE(prepared_exif_block_contains_ifd0_tag(*exif_block,
+                                                          0x010FU));
+        EXPECT_FALSE(prepared_exif_block_contains_ifd0_tag(*exif_block,
+                                                           0x0100U));
+        EXPECT_FALSE(prepared_exif_block_contains_ifd0_tag(*exif_block,
+                                                           0x0111U));
+        EXPECT_TRUE(prepared_exif_block_contains_exififd_tag(*exif_block,
+                                                             0x9003U));
+        EXPECT_FALSE(prepared_exif_block_contains_exififd_tag(*exif_block,
+                                                              0xA002U));
+
+        const std::span<const std::byte> xmp_payload(xmp_block->payload.data(),
+                                                     xmp_block->payload.size());
+        EXPECT_TRUE(payload_contains_ascii(xmp_payload, "OpenMeta Tool"));
+        EXPECT_FALSE(payload_contains_ascii(xmp_payload, "ImageWidth"));
+        EXPECT_FALSE(payload_contains_ascii(xmp_payload, "ExifImageWidth"));
+        EXPECT_FALSE(payload_contains_ascii(xmp_payload, "ColorMode"));
+    }
+}
+
+TEST(MetadataTransferApi, PrepareTargetImageSpecWritesTargetFactsForAllTargets)
+{
+    openmeta::MetaStore store;
+    const openmeta::BlockId block = store.add_block(openmeta::BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    openmeta::Entry make;
+    make.key   = openmeta::make_exif_tag_key(store.arena(), "ifd0", 0x010FU);
+    make.value = openmeta::make_text(store.arena(), "CameraVendor",
+                                     openmeta::TextEncoding::Ascii);
+    make.origin.block          = block;
+    make.origin.order_in_block = 0U;
+    ASSERT_NE(store.add_entry(make), openmeta::kInvalidEntryId);
+
+    openmeta::Entry stale_width;
+    stale_width.key
+        = openmeta::make_exif_tag_key(store.arena(), "ifd0", 0x0100U);
+    stale_width.value                 = openmeta::make_u32(999U);
+    stale_width.origin.block          = block;
+    stale_width.origin.order_in_block = 1U;
+    ASSERT_NE(store.add_entry(stale_width), openmeta::kInvalidEntryId);
+
+    openmeta::Entry stale_pixel_width;
+    stale_pixel_width.key
+        = openmeta::make_exif_tag_key(store.arena(), "exififd", 0xA002U);
+    stale_pixel_width.value                 = openmeta::make_u32(999U);
+    stale_pixel_width.origin.block          = block;
+    stale_pixel_width.origin.order_in_block = 2U;
+    ASSERT_NE(store.add_entry(stale_pixel_width), openmeta::kInvalidEntryId);
+
+    openmeta::Entry stale_xmp_width;
+    stale_xmp_width.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/tiff/1.0/", "ImageWidth");
+    stale_xmp_width.value = openmeta::make_text(store.arena(), "999",
+                                                openmeta::TextEncoding::Utf8);
+    stale_xmp_width.origin.block          = block;
+    stale_xmp_width.origin.order_in_block = 3U;
+    ASSERT_NE(store.add_entry(stale_xmp_width), openmeta::kInvalidEntryId);
+
+    openmeta::Entry creator_tool;
+    creator_tool.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/", "CreatorTool");
+    creator_tool.value = openmeta::make_text(store.arena(), "OpenMeta Tool",
+                                             openmeta::TextEncoding::Utf8);
+    creator_tool.origin.block          = block;
+    creator_tool.origin.order_in_block = 4U;
+    ASSERT_NE(store.add_entry(creator_tool), openmeta::kInvalidEntryId);
+    store.finalize();
+
+    struct Case final {
+        openmeta::TransferTargetFormat format;
+        const char* exif_route;
+        const char* xmp_route;
+    };
+    static const Case kCases[] = {
+        { openmeta::TransferTargetFormat::Jpeg, "jpeg:app1-exif",
+          "jpeg:app1-xmp" },
+        { openmeta::TransferTargetFormat::Tiff, "tiff:ifd-exif-app1",
+          "tiff:tag-700-xmp" },
+        { openmeta::TransferTargetFormat::Dng, "tiff:ifd-exif-app1",
+          "tiff:tag-700-xmp" },
+        { openmeta::TransferTargetFormat::Png, "png:chunk-exif",
+          "png:chunk-xmp" },
+        { openmeta::TransferTargetFormat::Webp, "webp:chunk-exif",
+          "webp:chunk-xmp" },
+        { openmeta::TransferTargetFormat::Jp2, "jp2:box-exif",
+          "jp2:box-xml" },
+        { openmeta::TransferTargetFormat::Jxl, "jxl:box-exif",
+          "jxl:box-xml" },
+        { openmeta::TransferTargetFormat::Heif, "bmff:item-exif",
+          "bmff:item-xmp" },
+        { openmeta::TransferTargetFormat::Avif, "bmff:item-exif",
+          "bmff:item-xmp" },
+        { openmeta::TransferTargetFormat::Cr3, "bmff:item-exif",
+          "bmff:item-xmp" },
+    };
+
+    for (size_t i = 0; i < std::size(kCases); ++i) {
+        SCOPED_TRACE(static_cast<int>(kCases[i].format));
+
+        openmeta::PrepareTransferRequest request;
+        request.target_format      = kCases[i].format;
+        request.include_icc_app2   = false;
+        request.include_iptc_app13 = false;
+        request.target_image_spec.has_dimensions = true;
+        request.target_image_spec.width          = 640U;
+        request.target_image_spec.height         = 480U;
+        request.target_image_spec.has_orientation = true;
+        request.target_image_spec.orientation     = 1U;
+        request.target_image_spec.has_samples_per_pixel = true;
+        request.target_image_spec.samples_per_pixel     = 3U;
+        request.target_image_spec.bits_per_sample_count = 1U;
+        request.target_image_spec.bits_per_sample[0]    = 8U;
+        request.target_image_spec.sample_format_count   = 1U;
+        request.target_image_spec.sample_format[0]      = 1U;
+        request.target_image_spec.has_photometric_interpretation = true;
+        request.target_image_spec.photometric_interpretation     = 2U;
+        request.target_image_spec.has_planar_configuration       = true;
+        request.target_image_spec.planar_configuration           = 1U;
+        request.target_image_spec.has_exif_color_space           = true;
+        request.target_image_spec.exif_color_space               = 1U;
+
+        openmeta::PreparedTransferBundle bundle;
+        const openmeta::PrepareTransferResult result
+            = openmeta::prepare_metadata_for_target(store, request, &bundle);
+        ASSERT_EQ(result.status, openmeta::TransferStatus::Ok);
+        ASSERT_EQ(result.errors, 0U);
+
+        const openmeta::PreparedTransferBlock* exif_block = nullptr;
+        const openmeta::PreparedTransferBlock* xmp_block  = nullptr;
+        for (size_t j = 0; j < bundle.blocks.size(); ++j) {
+            if (bundle.blocks[j].route == kCases[i].exif_route) {
+                exif_block = &bundle.blocks[j];
+            } else if (bundle.blocks[j].route == kCases[i].xmp_route) {
+                xmp_block = &bundle.blocks[j];
+            }
+        }
+
+        ASSERT_NE(exif_block, nullptr);
+        ASSERT_NE(xmp_block, nullptr);
+
+        uint32_t value = 0U;
+        uint32_t count = 0U;
+        uint16_t type  = 0U;
+        ASSERT_TRUE(prepared_exif_block_find_ifd0_tag(
+            *exif_block, 0x0100U, &type, &count, &value));
+        EXPECT_EQ(type, 4U);
+        EXPECT_EQ(count, 1U);
+        EXPECT_EQ(value, 640U);
+        ASSERT_TRUE(prepared_exif_block_find_ifd0_tag(
+            *exif_block, 0x0101U, &type, &count, &value));
+        EXPECT_EQ(value, 480U);
+        ASSERT_TRUE(prepared_exif_block_find_ifd0_tag(
+            *exif_block, 0x0102U, &type, &count, &value));
+        EXPECT_EQ(type, 3U);
+        EXPECT_EQ(count, 3U);
+        ASSERT_TRUE(prepared_exif_block_find_ifd0_tag(
+            *exif_block, 0x0106U, &type, &count, &value));
+        EXPECT_EQ(value & 0xFFFFU, 2U);
+        ASSERT_TRUE(prepared_exif_block_find_ifd0_tag(
+            *exif_block, 0x0115U, &type, &count, &value));
+        EXPECT_EQ(value & 0xFFFFU, 3U);
+        ASSERT_TRUE(prepared_exif_block_find_ifd0_tag(
+            *exif_block, 0x0153U, &type, &count, &value));
+        EXPECT_EQ(type, 3U);
+        EXPECT_EQ(count, 3U);
+        ASSERT_TRUE(prepared_exif_block_find_exififd_tag(
+            *exif_block, 0xA002U, &type, &count, &value));
+        EXPECT_EQ(value, 640U);
+        ASSERT_TRUE(prepared_exif_block_find_exififd_tag(
+            *exif_block, 0xA003U, &type, &count, &value));
+        EXPECT_EQ(value, 480U);
+        ASSERT_TRUE(prepared_exif_block_find_exififd_tag(
+            *exif_block, 0xA001U, &type, &count, &value));
+        EXPECT_EQ(value & 0xFFFFU, 1U);
+
+        const std::span<const std::byte> xmp_payload(xmp_block->payload.data(),
+                                                     xmp_block->payload.size());
+        EXPECT_TRUE(payload_contains_ascii(xmp_payload, "OpenMeta Tool"));
+        EXPECT_TRUE(payload_contains_ascii(xmp_payload,
+                                           "tiff:ImageWidth>640"));
+        EXPECT_TRUE(payload_contains_ascii(xmp_payload,
+                                           "tiff:ImageHeight>480"));
+        EXPECT_TRUE(payload_contains_ascii(xmp_payload,
+                                           "exif:ExifImageWidth>640"));
+        EXPECT_TRUE(payload_contains_ascii(xmp_payload,
+                                           "exif:ExifImageHeight>480"));
+        EXPECT_TRUE(payload_contains_ascii(xmp_payload,
+                                           "exif:ColorSpace>sRGB"));
+        EXPECT_FALSE(payload_contains_ascii(xmp_payload,
+                                            "tiff:ImageWidth>999"));
+        EXPECT_FALSE(payload_contains_ascii(xmp_payload,
+                                            "exif:ExifImageWidth>999"));
+    }
+}
+
+TEST(MetadataTransferApi, PrepareRejectsInvalidTargetImageSpec)
+{
+    openmeta::MetaStore store;
+    store.finalize();
+
+    openmeta::PrepareTransferRequest request;
+    request.include_icc_app2   = false;
+    request.include_iptc_app13 = false;
+    request.target_image_spec.has_dimensions = true;
+    request.target_image_spec.width          = 0U;
+    request.target_image_spec.height         = 480U;
+
+    openmeta::PreparedTransferBundle bundle;
+    const openmeta::PrepareTransferResult result
+        = openmeta::prepare_metadata_for_target(store, request, &bundle);
+
+    EXPECT_EQ(result.status, openmeta::TransferStatus::InvalidArgument);
+    EXPECT_EQ(result.code,
+              openmeta::PrepareTransferCode::RequestedMetadataNotSerializable);
+    EXPECT_EQ(result.errors, 1U);
+    EXPECT_TRUE(text_contains(result.message, "dimensions"));
+}
+
 TEST(MetadataTransferApi, PrepareDropsMakerNoteWhenProfileRequestsDrop)
 {
     openmeta::MetaStore store;
@@ -17725,6 +18576,102 @@ TEST(MetadataTransferApi, PlanAndApplyTiffEditMetadataRewrite)
               42U);
     EXPECT_GT(read_u32le(std::span<const std::byte>(out.data(), out.size()), 4U),
               8U);
+}
+
+TEST(MetadataTransferApi, TiffEditPreservesTargetStripStorageTags)
+{
+    openmeta::MetaStore store;
+    const openmeta::BlockId block = store.add_block(openmeta::BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    openmeta::Entry width;
+    width.key = openmeta::make_exif_tag_key(store.arena(), "ifd0", 0x0100U);
+    width.value                 = openmeta::make_u32(999U);
+    width.origin.block          = block;
+    width.origin.order_in_block = 0U;
+    ASSERT_NE(store.add_entry(width), openmeta::kInvalidEntryId);
+
+    openmeta::Entry height;
+    height.key = openmeta::make_exif_tag_key(store.arena(), "ifd0", 0x0101U);
+    height.value                 = openmeta::make_u32(888U);
+    height.origin.block          = block;
+    height.origin.order_in_block = 1U;
+    ASSERT_NE(store.add_entry(height), openmeta::kInvalidEntryId);
+
+    openmeta::Entry strip_offsets;
+    strip_offsets.key
+        = openmeta::make_exif_tag_key(store.arena(), "ifd0", 0x0111U);
+    strip_offsets.value                 = openmeta::make_u32(0x00FFFFFFU);
+    strip_offsets.origin.block          = block;
+    strip_offsets.origin.order_in_block = 2U;
+    ASSERT_NE(store.add_entry(strip_offsets), openmeta::kInvalidEntryId);
+
+    openmeta::Entry strip_byte_counts;
+    strip_byte_counts.key
+        = openmeta::make_exif_tag_key(store.arena(), "ifd0", 0x0117U);
+    strip_byte_counts.value                 = openmeta::make_u32(123456U);
+    strip_byte_counts.origin.block          = block;
+    strip_byte_counts.origin.order_in_block = 3U;
+    ASSERT_NE(store.add_entry(strip_byte_counts), openmeta::kInvalidEntryId);
+
+    openmeta::Entry datetime;
+    datetime.key
+        = openmeta::make_exif_tag_key(store.arena(), "ifd0", 0x0132U);
+    datetime.value = openmeta::make_text(store.arena(), "2024:01:02 03:04:05",
+                                         openmeta::TextEncoding::Ascii);
+    datetime.origin.block          = block;
+    datetime.origin.order_in_block = 4U;
+    ASSERT_NE(store.add_entry(datetime), openmeta::kInvalidEntryId);
+    store.finalize();
+
+    openmeta::PrepareTransferRequest request;
+    request.target_format      = openmeta::TransferTargetFormat::Tiff;
+    request.include_xmp_app1   = false;
+    request.include_icc_app2   = false;
+    request.include_iptc_app13 = false;
+
+    openmeta::PreparedTransferBundle bundle;
+    ASSERT_EQ(openmeta::prepare_metadata_for_target(store, request, &bundle).status,
+              openmeta::TransferStatus::Ok);
+
+    const std::vector<std::byte> input
+        = make_minimal_tiff_with_strip_storage_little_endian();
+    const openmeta::TiffEditPlan plan = openmeta::plan_prepared_bundle_tiff_edit(
+        std::span<const std::byte>(input.data(), input.size()), bundle);
+    ASSERT_EQ(plan.status, openmeta::TransferStatus::Ok);
+
+    std::vector<std::byte> out;
+    const openmeta::EmitTransferResult applied
+        = openmeta::apply_prepared_bundle_tiff_edit(
+            std::span<const std::byte>(input.data(), input.size()), bundle,
+            plan, &out);
+    ASSERT_EQ(applied.status, openmeta::TransferStatus::Ok);
+
+    const std::span<const std::byte> bytes(out.data(), out.size());
+    const uint32_t ifd0_off = read_u32le(bytes, 4U);
+    ASSERT_GE(ifd0_off, static_cast<uint32_t>(input.size()));
+
+    uint32_t image_width = 0U;
+    uint32_t image_length = 0U;
+    uint32_t target_strip_offset = 0U;
+    uint32_t target_strip_byte_count = 0U;
+    ASSERT_TRUE(find_tiff_tag_entry_le(bytes, ifd0_off, 0x0100U, nullptr,
+                                       nullptr, &image_width));
+    ASSERT_TRUE(find_tiff_tag_entry_le(bytes, ifd0_off, 0x0101U, nullptr,
+                                       nullptr, &image_length));
+    ASSERT_TRUE(find_tiff_tag_entry_le(bytes, ifd0_off, 0x0111U, nullptr,
+                                       nullptr, &target_strip_offset));
+    ASSERT_TRUE(find_tiff_tag_entry_le(bytes, ifd0_off, 0x0117U, nullptr,
+                                       nullptr, &target_strip_byte_count));
+    EXPECT_EQ(image_width, 111U);
+    EXPECT_EQ(image_length, 222U);
+    EXPECT_EQ(target_strip_offset, 62U);
+    EXPECT_EQ(target_strip_byte_count, 4U);
+
+    openmeta::MetaStore decoded;
+    ASSERT_TRUE(decode_transfer_roundtrip_store(bytes, &decoded));
+    EXPECT_TRUE(store_has_text_entry(decoded, exif_key_view("ifd0", 0x0132U),
+                                     "2024:01:02 03:04:05"));
 }
 
 TEST(MetadataTransferApi, ExecutePreparedTransferTiffEditRoundTripsSubIfds)
@@ -23444,6 +24391,971 @@ TEST(MetadataTransferApi,
 }
 
 TEST(MetadataTransferApi,
+     PrimaryWriterTargetsProduceStableCompatibilityDumps)
+{
+    struct Case final {
+        openmeta::TransferTargetFormat format;
+        const char* extension;
+        const char* format_name;
+        const char* exif_route;
+        const char* xmp_route;
+    };
+    static const Case kCases[] = {
+        { openmeta::TransferTargetFormat::Jpeg, ".jpg", "jpeg",
+          "jpeg:app1-exif", "jpeg:app1-xmp" },
+        { openmeta::TransferTargetFormat::Tiff, ".tif", "tiff",
+          "tiff:ifd-exif-app1", "tiff:tag-700-xmp" },
+        { openmeta::TransferTargetFormat::Dng, ".dng", "dng",
+          "tiff:ifd-exif-app1", "tiff:tag-700-xmp" },
+        { openmeta::TransferTargetFormat::Png, ".png", "png",
+          "png:chunk-exif", "png:chunk-xmp" },
+        { openmeta::TransferTargetFormat::Webp, ".webp", "webp",
+          "webp:chunk-exif", "webp:chunk-xmp" },
+        { openmeta::TransferTargetFormat::Jp2, ".jp2", "jp2",
+          "jp2:box-exif", "jp2:box-xml" },
+        { openmeta::TransferTargetFormat::Jxl, ".jxl", "jxl",
+          "jxl:box-exif", "jxl:box-xml" },
+        { openmeta::TransferTargetFormat::Heif, ".heic", "heif",
+          "bmff:item-exif", "bmff:item-xmp" },
+        { openmeta::TransferTargetFormat::Avif, ".avif", "avif",
+          "bmff:item-exif", "bmff:item-xmp" },
+        { openmeta::TransferTargetFormat::Cr3, ".cr3", "cr3",
+          "bmff:item-exif", "bmff:item-xmp" },
+    };
+
+    for (size_t i = 0; i < std::size(kCases); ++i) {
+        SCOPED_TRACE(static_cast<int>(kCases[i].format));
+
+        std::vector<std::byte> source_jpeg;
+        ASSERT_TRUE(build_test_transfer_source_jpeg_bytes(&source_jpeg));
+        const std::string source_path = unique_temp_path(".jpg");
+        ASSERT_TRUE(write_bytes_file(
+            source_path, std::span<const std::byte>(source_jpeg.data(),
+                                                    source_jpeg.size())));
+
+        std::vector<std::byte> target_bytes;
+        ASSERT_TRUE(build_minimal_transfer_target_for_format(
+            kCases[i].format, &target_bytes));
+        const std::string target_path = unique_temp_path(kCases[i].extension);
+        ASSERT_TRUE(write_bytes_file(
+            target_path, std::span<const std::byte>(target_bytes.data(),
+                                                    target_bytes.size())));
+
+        const size_t target_dot = target_path.find_last_of('.');
+        ASSERT_NE(target_dot, std::string::npos);
+        const std::string expected_sidecar_path
+            = target_path.substr(0, target_dot) + ".xmp";
+
+        openmeta::ExecutePreparedTransferFileOptions options;
+        options.prepare.prepare.target_format = kCases[i].format;
+        options.prepare.prepare.include_icc_app2   = false;
+        options.prepare.prepare.include_iptc_app13 = false;
+        options.edit_target_path                   = target_path;
+        options.execute.edit_apply                 = true;
+        options.xmp_writeback_mode
+            = openmeta::XmpWritebackMode::EmbeddedAndSidecar;
+
+        const openmeta::ExecutePreparedTransferFileResult result
+            = openmeta::execute_prepared_transfer_file(source_path.c_str(),
+                                                       options);
+        std::remove(source_path.c_str());
+        std::remove(target_path.c_str());
+
+        ASSERT_EQ(result.prepared.file_status, openmeta::TransferFileStatus::Ok);
+        ASSERT_EQ(result.prepared.prepare.status, openmeta::TransferStatus::Ok);
+        ASSERT_EQ(result.execute.edit_apply.status, openmeta::TransferStatus::Ok);
+        ASSERT_FALSE(result.execute.edited_output.empty());
+        ASSERT_TRUE(result.xmp_sidecar_requested);
+        ASSERT_EQ(result.xmp_sidecar_status, openmeta::TransferStatus::Ok);
+        ASSERT_EQ(result.xmp_sidecar_path, expected_sidecar_path);
+        ASSERT_FALSE(result.xmp_sidecar_output.empty());
+
+        std::string transfer_dump;
+        openmeta::TransferCompatibilityDumpOptions transfer_options;
+        ASSERT_TRUE(openmeta::dump_transfer_compatibility(
+            result, nullptr, transfer_options, &transfer_dump));
+
+        std::string header = "openmeta.compat.transfer version=1 "
+                             "target_format=\"";
+        header.append(kCases[i].format_name);
+        header.append("\" file_status=\"ok\" prepare_status=\"ok\"");
+        EXPECT_TRUE(text_contains(transfer_dump, header)) << transfer_dump;
+
+        std::string exif_route = "route=\"";
+        exif_route.append(kCases[i].exif_route);
+        exif_route.push_back('"');
+        EXPECT_TRUE(text_contains(transfer_dump, exif_route)) << transfer_dump;
+
+        std::string xmp_route = "route=\"";
+        xmp_route.append(kCases[i].xmp_route);
+        xmp_route.push_back('"');
+        EXPECT_TRUE(text_contains(transfer_dump, xmp_route)) << transfer_dump;
+        EXPECT_TRUE(text_contains(transfer_dump,
+                                  "execute edit_requested=true "
+                                  "compile_status=\"ok\" "
+                                  "emit_status=\"ok\" "
+                                  "edit_plan_status=\"ok\" "
+                                  "edit_apply_status=\"ok\""))
+            << transfer_dump;
+        EXPECT_TRUE(text_contains(transfer_dump,
+                                  "writeback destination_embedded_loaded="
+                                  "false destination_embedded_status="
+                                  "\"unsupported\" xmp_sidecar_requested=true "
+                                  "xmp_sidecar_status=\"ok\""))
+            << transfer_dump;
+
+        openmeta::MetaStore embedded_store;
+        ASSERT_TRUE(decode_transfer_roundtrip_store(
+            std::span<const std::byte>(result.execute.edited_output.data(),
+                                       result.execute.edited_output.size()),
+            &embedded_store));
+
+        std::string embedded_dump;
+        openmeta::MetadataCompatibilityDumpOptions metadata_options;
+        ASSERT_TRUE(openmeta::dump_metadata_compatibility(
+            embedded_store, metadata_options, &embedded_dump));
+        EXPECT_TRUE(text_contains(embedded_dump,
+                                  "name=\"Exif:DateTimeOriginal\" "
+                                  "key_kind=\"exif_tag\""))
+            << embedded_dump;
+        EXPECT_TRUE(text_contains(embedded_dump,
+                                  "value=\"2024:01:02 03:04:05\""))
+            << embedded_dump;
+        EXPECT_TRUE(text_contains(embedded_dump, "name=\"XMP:CreatorTool\""))
+            << embedded_dump;
+        EXPECT_TRUE(text_contains(embedded_dump,
+                                  "value=\"OpenMeta Transfer Source\""))
+            << embedded_dump;
+
+        openmeta::MetaStore sidecar_store;
+        ASSERT_TRUE(decode_transfer_roundtrip_store(
+            std::span<const std::byte>(result.xmp_sidecar_output.data(),
+                                       result.xmp_sidecar_output.size()),
+            &sidecar_store));
+
+        std::string sidecar_dump;
+        ASSERT_TRUE(openmeta::dump_metadata_compatibility(
+            sidecar_store, metadata_options, &sidecar_dump));
+        EXPECT_TRUE(text_contains(sidecar_dump, "name=\"XMP:CreatorTool\""))
+            << sidecar_dump;
+        EXPECT_TRUE(text_contains(sidecar_dump,
+                                  "value=\"OpenMeta Transfer Source\""))
+            << sidecar_dump;
+    }
+}
+
+TEST(MetadataTransferApi,
+     TiffDngPreviewAuxRewriteProducesCompatibilityDumps)
+{
+    struct Case final {
+        openmeta::TransferTargetFormat format;
+        const char* extension;
+        const char* format_name;
+        bool bigtiff;
+    };
+    static const Case kCases[] = {
+        { openmeta::TransferTargetFormat::Tiff, ".tif", "tiff", false },
+        { openmeta::TransferTargetFormat::Dng, ".dng", "dng", false },
+        { openmeta::TransferTargetFormat::Tiff, ".tif", "tiff", true },
+    };
+
+    for (size_t i = 0; i < std::size(kCases); ++i) {
+        SCOPED_TRACE(static_cast<int>(kCases[i].format));
+        SCOPED_TRACE(kCases[i].bigtiff);
+
+        const std::vector<std::byte> source_dng
+            = make_minimal_dng_like_tiff_little_endian();
+        const std::string source_path = unique_temp_path(".dng");
+        ASSERT_TRUE(write_bytes_file(
+            source_path, std::span<const std::byte>(source_dng.data(),
+                                                    source_dng.size())));
+
+        const std::vector<std::byte> target_bytes
+            = kCases[i].bigtiff
+                  ? make_minimal_dng_merge_target_bigtiff_little_endian()
+                  : make_minimal_dng_merge_target_tiff_little_endian();
+        const std::string target_path = unique_temp_path(kCases[i].extension);
+        ASSERT_TRUE(write_bytes_file(
+            target_path, std::span<const std::byte>(target_bytes.data(),
+                                                    target_bytes.size())));
+
+        openmeta::ExecutePreparedTransferFileOptions options;
+        options.prepare.prepare.target_format      = kCases[i].format;
+        options.prepare.prepare.include_xmp_app1   = false;
+        options.prepare.prepare.include_icc_app2   = false;
+        options.prepare.prepare.include_iptc_app13 = false;
+        options.edit_target_path                   = target_path;
+        options.execute.edit_apply                 = true;
+
+        const openmeta::ExecutePreparedTransferFileResult result
+            = openmeta::execute_prepared_transfer_file(source_path.c_str(),
+                                                       options);
+        std::remove(source_path.c_str());
+        std::remove(target_path.c_str());
+
+        ASSERT_EQ(result.prepared.file_status,
+                  openmeta::TransferFileStatus::Ok);
+        ASSERT_EQ(result.prepared.prepare.status,
+                  openmeta::TransferStatus::Ok);
+        ASSERT_EQ(result.execute.edit_apply.status,
+                  openmeta::TransferStatus::Ok);
+        ASSERT_FALSE(result.execute.edited_output.empty());
+
+        std::string transfer_dump;
+        openmeta::TransferCompatibilityDumpOptions transfer_options;
+        ASSERT_TRUE(openmeta::dump_transfer_compatibility(
+            result, nullptr, transfer_options, &transfer_dump));
+
+        std::string header = "openmeta.compat.transfer version=1 "
+                             "target_format=\"";
+        header.append(kCases[i].format_name);
+        header.append("\" file_status=\"ok\" prepare_status=\"ok\"");
+        EXPECT_TRUE(text_contains(transfer_dump, header)) << transfer_dump;
+        EXPECT_TRUE(text_contains(transfer_dump,
+                                  "route=\"tiff:ifd-exif-app1\""))
+            << transfer_dump;
+        EXPECT_TRUE(text_contains(transfer_dump,
+                                  "execute edit_requested=true "
+                                  "compile_status=\"ok\" "
+                                  "emit_status=\"ok\" "
+                                  "edit_plan_status=\"ok\" "
+                                  "edit_apply_status=\"ok\""))
+            << transfer_dump;
+
+        const std::span<const std::byte> bytes(
+            result.execute.edited_output.data(),
+            result.execute.edited_output.size());
+        if (kCases[i].bigtiff) {
+            EXPECT_EQ(read_u16le(bytes, 2U), 43U);
+            const uint64_t ifd0_off = read_u64le(bytes, 8U);
+            const uint64_t ifd0_count
+                = read_u64le(bytes, static_cast<size_t>(ifd0_off));
+            const uint64_t ifd1_off = read_u64le(
+                bytes, static_cast<size_t>(ifd0_off) + 8U
+                           + static_cast<size_t>(ifd0_count) * 20U);
+            ASSERT_NE(ifd1_off, 0U);
+
+            uint64_t ifd1_width = 0U;
+            ASSERT_TRUE(find_bigtiff_tag_entry_le(bytes, ifd1_off, 0x0100U,
+                                                  nullptr, nullptr,
+                                                  &ifd1_width));
+            EXPECT_EQ(ifd1_width, 320U);
+
+            const uint64_t ifd1_count
+                = read_u64le(bytes, static_cast<size_t>(ifd1_off));
+            const uint64_t ifd1_next_off = read_u64le(
+                bytes, static_cast<size_t>(ifd1_off) + 8U
+                           + static_cast<size_t>(ifd1_count) * 20U);
+            uint64_t tail_ifd_width = 0U;
+            ASSERT_TRUE(find_bigtiff_tag_entry_le(
+                bytes, ifd1_next_off, 0x0100U, nullptr, nullptr,
+                &tail_ifd_width));
+            EXPECT_EQ(tail_ifd_width, 222U);
+
+            uint64_t subifd_count = 0U;
+            uint64_t subifd_array_off = 0U;
+            ASSERT_TRUE(find_bigtiff_tag_entry_le(
+                bytes, ifd0_off, 0x014AU, nullptr, &subifd_count,
+                &subifd_array_off));
+            EXPECT_EQ(subifd_count, 2U);
+            const uint64_t subifd0_off = read_u64le(
+                bytes, static_cast<size_t>(subifd_array_off));
+            const uint64_t subifd1_off = read_u64le(
+                bytes, static_cast<size_t>(subifd_array_off) + 8U);
+            uint64_t subifd0_width = 0U;
+            uint64_t subifd1_width = 0U;
+            ASSERT_TRUE(find_bigtiff_tag_entry_le(
+                bytes, subifd0_off, 0x0100U, nullptr, nullptr,
+                &subifd0_width));
+            ASSERT_TRUE(find_bigtiff_tag_entry_le(
+                bytes, subifd1_off, 0x0100U, nullptr, nullptr,
+                &subifd1_width));
+            EXPECT_EQ(subifd0_width, 4000U);
+            EXPECT_EQ(subifd1_width, 777U);
+        } else {
+            EXPECT_EQ(read_u16le(bytes, 2U), 42U);
+            const uint32_t ifd0_off = read_u32le(bytes, 4U);
+            const uint16_t ifd0_count
+                = read_u16le(bytes, static_cast<size_t>(ifd0_off));
+            const uint32_t ifd1_off = read_u32le(
+                bytes, static_cast<size_t>(ifd0_off) + 2U
+                           + static_cast<size_t>(ifd0_count) * 12U);
+            ASSERT_NE(ifd1_off, 0U);
+
+            uint32_t ifd1_width = 0U;
+            ASSERT_TRUE(find_tiff_tag_entry_le(bytes, ifd1_off, 0x0100U,
+                                               nullptr, nullptr,
+                                               &ifd1_width));
+            EXPECT_EQ(ifd1_width, 320U);
+
+            const uint16_t ifd1_count
+                = read_u16le(bytes, static_cast<size_t>(ifd1_off));
+            const uint32_t ifd1_next_off = read_u32le(
+                bytes, static_cast<size_t>(ifd1_off) + 2U
+                           + static_cast<size_t>(ifd1_count) * 12U);
+            uint32_t tail_ifd_width = 0U;
+            ASSERT_TRUE(find_tiff_tag_entry_le(
+                bytes, ifd1_next_off, 0x0100U, nullptr, nullptr,
+                &tail_ifd_width));
+            EXPECT_EQ(tail_ifd_width, 222U);
+
+            uint32_t subifd_count = 0U;
+            uint32_t subifd_array_off = 0U;
+            ASSERT_TRUE(find_tiff_tag_entry_le(bytes, ifd0_off, 0x014AU,
+                                               nullptr, &subifd_count,
+                                               &subifd_array_off));
+            EXPECT_EQ(subifd_count, 2U);
+            const uint32_t subifd0_off = read_u32le(bytes, subifd_array_off);
+            const uint32_t subifd1_off
+                = read_u32le(bytes, subifd_array_off + 4U);
+            uint32_t subifd0_width = 0U;
+            uint32_t subifd1_width = 0U;
+            ASSERT_TRUE(find_tiff_tag_entry_le(bytes, subifd0_off, 0x0100U,
+                                               nullptr, nullptr,
+                                               &subifd0_width));
+            ASSERT_TRUE(find_tiff_tag_entry_le(bytes, subifd1_off, 0x0100U,
+                                               nullptr, nullptr,
+                                               &subifd1_width));
+            EXPECT_EQ(subifd0_width, 4000U);
+            EXPECT_EQ(subifd1_width, 777U);
+        }
+
+        openmeta::MetaStore decoded;
+        ASSERT_TRUE(decode_transfer_roundtrip_store(bytes, &decoded));
+        const std::array<uint8_t, 4> dng_version = { 1U, 6U, 0U, 0U };
+        EXPECT_TRUE(store_has_u8_array_entry(
+            decoded, exif_key_view("ifd0", 0xC612U),
+            std::span<const uint8_t>(dng_version.data(),
+                                     dng_version.size())));
+        EXPECT_TRUE(store_has_u32_scalar_entry(
+            decoded, exif_key_view("subifd0", 0x0100U), 4000U));
+        EXPECT_TRUE(store_has_u32_scalar_entry(
+            decoded, exif_key_view("subifd1", 0x0100U), 777U));
+        EXPECT_TRUE(store_has_u32_scalar_entry(
+            decoded, exif_key_view("ifd1", 0x0100U), 320U));
+
+        std::string metadata_dump;
+        openmeta::MetadataCompatibilityDumpOptions metadata_options;
+        ASSERT_TRUE(openmeta::dump_metadata_compatibility(
+            decoded, metadata_options, &metadata_dump));
+        EXPECT_TRUE(text_contains(metadata_dump, "name=\"DNGVersion\""))
+            << metadata_dump;
+        EXPECT_TRUE(text_contains(metadata_dump, "name=\"ImageWidth\""))
+            << metadata_dump;
+        EXPECT_TRUE(text_contains(metadata_dump, "value=\"4000\""))
+            << metadata_dump;
+        EXPECT_TRUE(text_contains(metadata_dump, "value=\"320\""))
+            << metadata_dump;
+        EXPECT_TRUE(text_contains(metadata_dump, "value=\"777\""))
+            << metadata_dump;
+    }
+}
+
+TEST(MetadataTransferApi,
+     TiffDngMixedExistingCarriersRewriteReadBackAndCompatibilityDump)
+{
+    struct Case final {
+        openmeta::TransferTargetFormat format;
+        const char* extension;
+        const char* format_name;
+        bool bigtiff;
+    };
+    static const Case kCases[] = {
+        { openmeta::TransferTargetFormat::Tiff, ".tif", "tiff", false },
+        { openmeta::TransferTargetFormat::Dng, ".dng", "dng", false },
+        { openmeta::TransferTargetFormat::Tiff, ".tif", "tiff", true },
+    };
+    static const openmeta::XmpExistingDestinationCarrierPrecedence
+        kCarrierPrecedences[] = {
+            openmeta::XmpExistingDestinationCarrierPrecedence::SidecarWins,
+            openmeta::XmpExistingDestinationCarrierPrecedence::EmbeddedWins,
+        };
+
+    for (size_t pi = 0; pi < std::size(kCarrierPrecedences); ++pi) {
+        for (size_t i = 0; i < std::size(kCases); ++i) {
+            SCOPED_TRACE(static_cast<int>(kCarrierPrecedences[pi]));
+            SCOPED_TRACE(static_cast<int>(kCases[i].format));
+            SCOPED_TRACE(kCases[i].bigtiff);
+
+            const std::vector<std::byte> source_dng
+                = make_minimal_dng_like_tiff_little_endian();
+            const std::string source_path = unique_temp_path(".dng");
+            ASSERT_TRUE(write_bytes_file(
+                source_path, std::span<const std::byte>(source_dng.data(),
+                                                        source_dng.size())));
+
+            std::vector<std::byte> target_bytes;
+            if (kCases[i].bigtiff) {
+                ASSERT_TRUE(
+                    build_test_preview_aux_bigtiff_like_target_with_mixed_xmp_carriers(
+                        &target_bytes));
+            } else {
+                ASSERT_TRUE(
+                    build_test_preview_aux_tiff_like_target_with_mixed_xmp_carriers(
+                        &target_bytes));
+            }
+            const std::string target_path
+                = unique_temp_path(kCases[i].extension);
+            ASSERT_TRUE(write_bytes_file(
+                target_path, std::span<const std::byte>(target_bytes.data(),
+                                                        target_bytes.size())));
+
+            const std::string target_sidecar_path
+                = derive_test_xmp_sidecar_path(target_path);
+            std::vector<std::byte> existing_sidecar;
+            ASSERT_TRUE(build_test_creator_tool_xmp_sidecar(
+                "Target Sidecar Existing", &existing_sidecar));
+            ASSERT_TRUE(write_bytes_file(
+                target_sidecar_path,
+                std::span<const std::byte>(existing_sidecar.data(),
+                                           existing_sidecar.size())));
+
+            openmeta::ExecutePreparedTransferFileOptions options;
+            options.prepare.prepare.target_format = kCases[i].format;
+            options.prepare.prepare.include_icc_app2   = false;
+            options.prepare.prepare.include_iptc_app13 = false;
+            options.prepare.prepare.xmp_include_existing = true;
+            options.prepare.prepare.xmp_conflict_policy
+                = openmeta::XmpConflictPolicy::ExistingWins;
+            options.prepare.xmp_existing_sidecar_mode
+                = openmeta::XmpExistingSidecarMode::MergeIfPresent;
+            options.prepare.xmp_existing_sidecar_base_path = target_path;
+            options.prepare.xmp_existing_destination_carrier_precedence
+                = kCarrierPrecedences[pi];
+            options.edit_target_path      = target_path;
+            options.xmp_sidecar_base_path = target_path;
+            options.execute.edit_apply    = true;
+            options.xmp_existing_destination_embedded_mode
+                = openmeta::XmpExistingDestinationEmbeddedMode::MergeIfPresent;
+            options.xmp_writeback_mode
+                = openmeta::XmpWritebackMode::EmbeddedAndSidecar;
+
+            const openmeta::ExecutePreparedTransferFileResult result
+                = openmeta::execute_prepared_transfer_file(source_path.c_str(),
+                                                           options);
+            std::remove(source_path.c_str());
+            std::remove(target_path.c_str());
+            std::remove(target_sidecar_path.c_str());
+
+            ASSERT_EQ(result.prepared.file_status,
+                      openmeta::TransferFileStatus::Ok);
+            ASSERT_EQ(result.prepared.prepare.status,
+                      openmeta::TransferStatus::Ok);
+            ASSERT_EQ(result.execute.edit_apply.status,
+                      openmeta::TransferStatus::Ok);
+            ASSERT_FALSE(result.execute.edited_output.empty());
+            ASSERT_TRUE(result.prepared.xmp_existing_sidecar_loaded);
+            EXPECT_EQ(result.prepared.xmp_existing_sidecar_path,
+                      target_sidecar_path);
+            ASSERT_TRUE(result.xmp_existing_destination_embedded_loaded);
+            EXPECT_EQ(result.xmp_existing_destination_embedded_path,
+                      target_path);
+            ASSERT_TRUE(result.xmp_sidecar_requested);
+            EXPECT_EQ(result.xmp_sidecar_status, openmeta::TransferStatus::Ok);
+            EXPECT_EQ(result.xmp_sidecar_path, target_sidecar_path);
+            ASSERT_FALSE(result.xmp_sidecar_output.empty());
+
+            std::string transfer_dump;
+            openmeta::TransferCompatibilityDumpOptions transfer_options;
+            ASSERT_TRUE(openmeta::dump_transfer_compatibility(
+                result, nullptr, transfer_options, &transfer_dump));
+
+            std::string header = "openmeta.compat.transfer version=1 "
+                                 "target_format=\"";
+            header.append(kCases[i].format_name);
+            header.append("\" file_status=\"ok\" prepare_status=\"ok\"");
+            EXPECT_TRUE(text_contains(transfer_dump, header)) << transfer_dump;
+            EXPECT_TRUE(text_contains(transfer_dump,
+                                      "destination_embedded_loaded=true"))
+                << transfer_dump;
+            EXPECT_TRUE(text_contains(transfer_dump,
+                                      "xmp_sidecar_requested=true "
+                                      "xmp_sidecar_status=\"ok\""))
+                << transfer_dump;
+
+            const char* expected_creator
+                = kCarrierPrecedences[pi]
+                          == openmeta::XmpExistingDestinationCarrierPrecedence::
+                                 SidecarWins
+                      ? "Target Sidecar Existing"
+                      : "Target Embedded Existing";
+            const char* unexpected_creator
+                = kCarrierPrecedences[pi]
+                          == openmeta::XmpExistingDestinationCarrierPrecedence::
+                                 SidecarWins
+                      ? "Target Embedded Existing"
+                      : "Target Sidecar Existing";
+
+            const std::span<const std::byte> bytes(
+                result.execute.edited_output.data(),
+                result.execute.edited_output.size());
+            if (kCases[i].bigtiff) {
+                const uint64_t ifd0_off = read_u64le(bytes, 8U);
+                uint64_t ignored = 0U;
+                EXPECT_TRUE(find_bigtiff_tag_entry_le(
+                    bytes, ifd0_off, 700U, nullptr, nullptr, &ignored));
+
+                const uint64_t ifd0_count
+                    = read_u64le(bytes, static_cast<size_t>(ifd0_off));
+                const uint64_t ifd1_off = read_u64le(
+                    bytes, static_cast<size_t>(ifd0_off) + 8U
+                               + static_cast<size_t>(ifd0_count) * 20U);
+                ASSERT_NE(ifd1_off, 0U);
+                EXPECT_FALSE(find_bigtiff_tag_entry_le(
+                    bytes, ifd1_off, 700U, nullptr, nullptr, &ignored));
+
+                const uint64_t ifd1_count
+                    = read_u64le(bytes, static_cast<size_t>(ifd1_off));
+                const uint64_t ifd1_next_off = read_u64le(
+                    bytes, static_cast<size_t>(ifd1_off) + 8U
+                               + static_cast<size_t>(ifd1_count) * 20U);
+                uint64_t tail_ifd_width = 0U;
+                ASSERT_TRUE(find_bigtiff_tag_entry_le(
+                    bytes, ifd1_next_off, 0x0100U, nullptr, nullptr,
+                    &tail_ifd_width));
+                EXPECT_EQ(tail_ifd_width, 222U);
+
+                uint64_t subifd_count = 0U;
+                uint64_t subifd_array_off = 0U;
+                ASSERT_TRUE(find_bigtiff_tag_entry_le(
+                    bytes, ifd0_off, 0x014AU, nullptr, &subifd_count,
+                    &subifd_array_off));
+                EXPECT_EQ(subifd_count, 2U);
+                const uint64_t subifd0_off = read_u64le(
+                    bytes, static_cast<size_t>(subifd_array_off));
+                const uint64_t subifd1_off = read_u64le(
+                    bytes, static_cast<size_t>(subifd_array_off) + 8U);
+                EXPECT_FALSE(find_bigtiff_tag_entry_le(
+                    bytes, subifd0_off, 700U, nullptr, nullptr, &ignored));
+                uint64_t subifd0_width = 0U;
+                uint64_t subifd1_width = 0U;
+                ASSERT_TRUE(find_bigtiff_tag_entry_le(
+                    bytes, subifd0_off, 0x0100U, nullptr, nullptr,
+                    &subifd0_width));
+                ASSERT_TRUE(find_bigtiff_tag_entry_le(
+                    bytes, subifd1_off, 0x0100U, nullptr, nullptr,
+                    &subifd1_width));
+                EXPECT_EQ(subifd0_width, 4000U);
+                EXPECT_EQ(subifd1_width, 777U);
+            } else {
+                const uint32_t ifd0_off = read_u32le(bytes, 4U);
+                uint32_t ignored = 0U;
+                EXPECT_TRUE(find_tiff_tag_entry_le(bytes, ifd0_off, 700U,
+                                                   nullptr, nullptr,
+                                                   &ignored));
+
+                const uint16_t ifd0_count
+                    = read_u16le(bytes, static_cast<size_t>(ifd0_off));
+                const uint32_t ifd1_off = read_u32le(
+                    bytes, static_cast<size_t>(ifd0_off) + 2U
+                               + static_cast<size_t>(ifd0_count) * 12U);
+                ASSERT_NE(ifd1_off, 0U);
+                EXPECT_FALSE(find_tiff_tag_entry_le(bytes, ifd1_off, 700U,
+                                                    nullptr, nullptr,
+                                                    &ignored));
+
+                const uint16_t ifd1_count
+                    = read_u16le(bytes, static_cast<size_t>(ifd1_off));
+                const uint32_t ifd1_next_off = read_u32le(
+                    bytes, static_cast<size_t>(ifd1_off) + 2U
+                               + static_cast<size_t>(ifd1_count) * 12U);
+                uint32_t tail_ifd_width = 0U;
+                ASSERT_TRUE(find_tiff_tag_entry_le(
+                    bytes, ifd1_next_off, 0x0100U, nullptr, nullptr,
+                    &tail_ifd_width));
+                EXPECT_EQ(tail_ifd_width, 222U);
+
+                uint32_t subifd_count = 0U;
+                uint32_t subifd_array_off = 0U;
+                ASSERT_TRUE(find_tiff_tag_entry_le(bytes, ifd0_off, 0x014AU,
+                                                   nullptr, &subifd_count,
+                                                   &subifd_array_off));
+                EXPECT_EQ(subifd_count, 2U);
+                const uint32_t subifd0_off
+                    = read_u32le(bytes, subifd_array_off);
+                const uint32_t subifd1_off
+                    = read_u32le(bytes, subifd_array_off + 4U);
+                EXPECT_FALSE(find_tiff_tag_entry_le(bytes, subifd0_off, 700U,
+                                                    nullptr, nullptr,
+                                                    &ignored));
+                uint32_t subifd0_width = 0U;
+                uint32_t subifd1_width = 0U;
+                ASSERT_TRUE(find_tiff_tag_entry_le(
+                    bytes, subifd0_off, 0x0100U, nullptr, nullptr,
+                    &subifd0_width));
+                ASSERT_TRUE(find_tiff_tag_entry_le(
+                    bytes, subifd1_off, 0x0100U, nullptr, nullptr,
+                    &subifd1_width));
+                EXPECT_EQ(subifd0_width, 4000U);
+                EXPECT_EQ(subifd1_width, 777U);
+            }
+
+            openmeta::MetaStore output_store;
+            ASSERT_TRUE(decode_transfer_roundtrip_store(bytes, &output_store));
+            EXPECT_TRUE(store_has_text_entry(
+                output_store,
+                xmp_key_view("http://ns.adobe.com/xap/1.0/", "CreatorTool"),
+                expected_creator));
+            EXPECT_FALSE(store_has_text_entry(
+                output_store,
+                xmp_key_view("http://ns.adobe.com/xap/1.0/", "CreatorTool"),
+                unexpected_creator));
+
+            openmeta::MetaStore sidecar_store;
+            ASSERT_TRUE(decode_transfer_roundtrip_store(
+                std::span<const std::byte>(result.xmp_sidecar_output.data(),
+                                           result.xmp_sidecar_output.size()),
+                &sidecar_store));
+            EXPECT_TRUE(store_has_text_entry(
+                sidecar_store,
+                xmp_key_view("http://ns.adobe.com/xap/1.0/", "CreatorTool"),
+                expected_creator));
+            EXPECT_FALSE(store_has_text_entry(
+                sidecar_store,
+                xmp_key_view("http://ns.adobe.com/xap/1.0/", "CreatorTool"),
+                unexpected_creator));
+
+            std::string metadata_dump;
+            openmeta::MetadataCompatibilityDumpOptions metadata_options;
+            ASSERT_TRUE(openmeta::dump_metadata_compatibility(
+                output_store, metadata_options, &metadata_dump));
+            EXPECT_TRUE(text_contains(metadata_dump, expected_creator))
+                << metadata_dump;
+            EXPECT_TRUE(text_contains(metadata_dump, "value=\"4000\""))
+                << metadata_dump;
+            EXPECT_TRUE(text_contains(metadata_dump, "value=\"777\""))
+                << metadata_dump;
+        }
+    }
+}
+
+TEST(MetadataTransferApi,
+     PrimaryWriterTargetsCompareSidecarOnlyWritebackWithExplicitBase)
+{
+    struct Case final {
+        openmeta::TransferTargetFormat format;
+        const char* extension;
+    };
+    static const Case kCases[] = {
+        { openmeta::TransferTargetFormat::Jpeg, ".jpg" },
+        { openmeta::TransferTargetFormat::Tiff, ".tif" },
+        { openmeta::TransferTargetFormat::Dng, ".dng" },
+        { openmeta::TransferTargetFormat::Png, ".png" },
+        { openmeta::TransferTargetFormat::Webp, ".webp" },
+        { openmeta::TransferTargetFormat::Jp2, ".jp2" },
+        { openmeta::TransferTargetFormat::Jxl, ".jxl" },
+        { openmeta::TransferTargetFormat::Heif, ".heic" },
+        { openmeta::TransferTargetFormat::Avif, ".avif" },
+        { openmeta::TransferTargetFormat::Cr3, ".cr3" },
+    };
+
+    for (size_t i = 0; i < std::size(kCases); ++i) {
+        SCOPED_TRACE(static_cast<int>(kCases[i].format));
+
+        std::vector<std::byte> source_jpeg;
+        ASSERT_TRUE(build_test_transfer_source_jpeg_bytes(&source_jpeg));
+        const std::string source_path = unique_temp_path(".jpg");
+        ASSERT_TRUE(write_bytes_file(
+            source_path, std::span<const std::byte>(source_jpeg.data(),
+                                                    source_jpeg.size())));
+
+        std::vector<std::byte> target_bytes;
+        ASSERT_TRUE(build_minimal_transfer_target_for_format(
+            kCases[i].format, &target_bytes));
+        const std::string target_path = unique_temp_path(kCases[i].extension);
+        ASSERT_TRUE(write_bytes_file(
+            target_path, std::span<const std::byte>(target_bytes.data(),
+                                                    target_bytes.size())));
+
+        const std::string output_path = unique_temp_path(kCases[i].extension);
+        const std::string output_sidecar_path
+            = derive_test_xmp_sidecar_path(output_path);
+        const std::string sidecar_base_path
+            = unique_temp_path(kCases[i].extension);
+        const std::string expected_sidecar_path
+            = derive_test_xmp_sidecar_path(sidecar_base_path);
+
+        openmeta::ExecutePreparedTransferFileOptions options;
+        options.prepare.prepare.target_format = kCases[i].format;
+        options.prepare.prepare.include_icc_app2   = false;
+        options.prepare.prepare.include_iptc_app13 = false;
+        options.edit_target_path                   = target_path;
+        options.xmp_sidecar_base_path              = sidecar_base_path;
+        options.execute.edit_apply                 = true;
+        options.xmp_writeback_mode
+            = openmeta::XmpWritebackMode::SidecarOnly;
+
+        const openmeta::ExecutePreparedTransferFileResult prepared
+            = openmeta::execute_prepared_transfer_file(source_path.c_str(),
+                                                       options);
+
+        openmeta::PersistPreparedTransferFileOptions persist_options;
+        persist_options.output_path = output_path;
+        const openmeta::PersistPreparedTransferFileResult persisted
+            = openmeta::persist_prepared_transfer_file_result(prepared,
+                                                              persist_options);
+
+        std::vector<std::byte> persisted_output;
+        std::vector<std::byte> persisted_sidecar;
+        ASSERT_TRUE(read_bytes_file(output_path, &persisted_output));
+        ASSERT_TRUE(read_bytes_file(expected_sidecar_path, &persisted_sidecar));
+
+        std::FILE* default_sidecar_file
+            = std::fopen(output_sidecar_path.c_str(), "rb");
+        const bool default_sidecar_exists = default_sidecar_file != nullptr;
+        if (default_sidecar_file) {
+            std::fclose(default_sidecar_file);
+        }
+
+        std::remove(source_path.c_str());
+        std::remove(target_path.c_str());
+        std::remove(output_path.c_str());
+        std::remove(output_sidecar_path.c_str());
+        std::remove(expected_sidecar_path.c_str());
+
+        ASSERT_EQ(prepared.prepared.file_status,
+                  openmeta::TransferFileStatus::Ok);
+        ASSERT_EQ(prepared.prepared.prepare.status,
+                  openmeta::TransferStatus::Ok);
+        ASSERT_EQ(prepared.execute.edit_apply.status,
+                  openmeta::TransferStatus::Ok);
+        ASSERT_TRUE(prepared.xmp_sidecar_requested);
+        ASSERT_EQ(prepared.xmp_sidecar_status, openmeta::TransferStatus::Ok);
+        ASSERT_EQ(prepared.xmp_sidecar_path, expected_sidecar_path);
+        ASSERT_FALSE(prepared.xmp_sidecar_output.empty());
+        EXPECT_FALSE(prepared.xmp_sidecar_cleanup_requested);
+
+        ASSERT_EQ(persisted.status, openmeta::TransferStatus::Ok);
+        EXPECT_EQ(persisted.output_status, openmeta::TransferStatus::Ok);
+        EXPECT_EQ(persisted.output_path, output_path);
+        EXPECT_EQ(persisted.xmp_sidecar_status, openmeta::TransferStatus::Ok);
+        EXPECT_EQ(persisted.xmp_sidecar_path, expected_sidecar_path);
+        EXPECT_FALSE(default_sidecar_exists);
+
+        std::string transfer_dump;
+        openmeta::TransferCompatibilityDumpOptions transfer_options;
+        ASSERT_TRUE(openmeta::dump_transfer_compatibility(
+            prepared, &persisted, transfer_options, &transfer_dump));
+
+        std::string sidecar_summary
+            = "xmp_sidecar_requested=true xmp_sidecar_status=\"ok\" "
+              "xmp_sidecar_path=\"";
+        sidecar_summary.append(expected_sidecar_path);
+        sidecar_summary.push_back('"');
+        EXPECT_TRUE(text_contains(transfer_dump, sidecar_summary))
+            << transfer_dump;
+
+        std::string persist_summary
+            = "persist status=\"ok\" message=\"persisted transfer outputs\" "
+              "output_status=\"ok\" output_path=\"";
+        persist_summary.append(output_path);
+        persist_summary.push_back('"');
+        EXPECT_TRUE(text_contains(transfer_dump, persist_summary))
+            << transfer_dump;
+
+        std::string persist_sidecar = "xmp_sidecar_status=\"ok\" "
+                                      "xmp_sidecar_path=\"";
+        persist_sidecar.append(expected_sidecar_path);
+        persist_sidecar.push_back('"');
+        EXPECT_TRUE(text_contains(transfer_dump, persist_sidecar))
+            << transfer_dump;
+
+        openmeta::MetadataCompatibilityDumpOptions metadata_options;
+        openmeta::MetaStore output_store;
+        ASSERT_TRUE(decode_transfer_roundtrip_store(
+            std::span<const std::byte>(persisted_output.data(),
+                                       persisted_output.size()),
+            &output_store));
+        std::string output_dump;
+        ASSERT_TRUE(openmeta::dump_metadata_compatibility(
+            output_store, metadata_options, &output_dump));
+        EXPECT_TRUE(text_contains(output_dump,
+                                  "name=\"Exif:DateTimeOriginal\" "
+                                  "key_kind=\"exif_tag\""))
+            << output_dump;
+        EXPECT_TRUE(text_contains(output_dump,
+                                  "value=\"2024:01:02 03:04:05\""))
+            << output_dump;
+        EXPECT_FALSE(text_contains(output_dump,
+                                   "value=\"OpenMeta Transfer Source\""))
+            << output_dump;
+
+        openmeta::MetaStore sidecar_store;
+        ASSERT_TRUE(decode_transfer_roundtrip_store(
+            std::span<const std::byte>(persisted_sidecar.data(),
+                                       persisted_sidecar.size()),
+            &sidecar_store));
+        std::string sidecar_dump;
+        ASSERT_TRUE(openmeta::dump_metadata_compatibility(
+            sidecar_store, metadata_options, &sidecar_dump));
+        EXPECT_TRUE(text_contains(sidecar_dump, "name=\"XMP:CreatorTool\""))
+            << sidecar_dump;
+        EXPECT_TRUE(text_contains(sidecar_dump,
+                                  "value=\"OpenMeta Transfer Source\""))
+            << sidecar_dump;
+    }
+}
+
+TEST(MetadataTransferApi,
+     PrimaryWriterTargetsCompareEmbeddedOnlyDestinationSidecarCleanup)
+{
+    struct Case final {
+        openmeta::TransferTargetFormat format;
+        const char* extension;
+    };
+    static const Case kCases[] = {
+        { openmeta::TransferTargetFormat::Jpeg, ".jpg" },
+        { openmeta::TransferTargetFormat::Tiff, ".tif" },
+        { openmeta::TransferTargetFormat::Dng, ".dng" },
+        { openmeta::TransferTargetFormat::Png, ".png" },
+        { openmeta::TransferTargetFormat::Webp, ".webp" },
+        { openmeta::TransferTargetFormat::Jp2, ".jp2" },
+        { openmeta::TransferTargetFormat::Jxl, ".jxl" },
+        { openmeta::TransferTargetFormat::Heif, ".heic" },
+        { openmeta::TransferTargetFormat::Avif, ".avif" },
+        { openmeta::TransferTargetFormat::Cr3, ".cr3" },
+    };
+
+    for (size_t i = 0; i < std::size(kCases); ++i) {
+        SCOPED_TRACE(static_cast<int>(kCases[i].format));
+
+        std::vector<std::byte> source_jpeg;
+        ASSERT_TRUE(build_test_transfer_source_jpeg_bytes(&source_jpeg));
+        const std::string source_path = unique_temp_path(".jpg");
+        ASSERT_TRUE(write_bytes_file(
+            source_path, std::span<const std::byte>(source_jpeg.data(),
+                                                    source_jpeg.size())));
+
+        std::vector<std::byte> target_bytes;
+        ASSERT_TRUE(build_minimal_transfer_target_for_format(
+            kCases[i].format, &target_bytes));
+        const std::string target_path = unique_temp_path(kCases[i].extension);
+        ASSERT_TRUE(write_bytes_file(
+            target_path, std::span<const std::byte>(target_bytes.data(),
+                                                    target_bytes.size())));
+
+        const std::string output_path = unique_temp_path(kCases[i].extension);
+        const std::string output_sidecar_path
+            = derive_test_xmp_sidecar_path(output_path);
+
+        std::vector<std::byte> existing_sidecar;
+        ASSERT_TRUE(build_test_creator_tool_xmp_sidecar(
+            "Target Sidecar Existing", &existing_sidecar));
+        ASSERT_TRUE(write_bytes_file(
+            output_sidecar_path,
+            std::span<const std::byte>(existing_sidecar.data(),
+                                       existing_sidecar.size())));
+
+        openmeta::ExecutePreparedTransferFileOptions options;
+        options.prepare.prepare.target_format = kCases[i].format;
+        options.prepare.prepare.include_icc_app2   = false;
+        options.prepare.prepare.include_iptc_app13 = false;
+        options.edit_target_path                   = target_path;
+        options.xmp_sidecar_base_path              = output_path;
+        options.execute.edit_apply                 = true;
+        options.xmp_writeback_mode
+            = openmeta::XmpWritebackMode::EmbeddedOnly;
+        options.xmp_destination_sidecar_mode
+            = openmeta::XmpDestinationSidecarMode::StripExisting;
+
+        const openmeta::ExecutePreparedTransferFileResult prepared
+            = openmeta::execute_prepared_transfer_file(source_path.c_str(),
+                                                       options);
+
+        openmeta::PersistPreparedTransferFileOptions persist_options;
+        persist_options.output_path = output_path;
+        const openmeta::PersistPreparedTransferFileResult persisted
+            = openmeta::persist_prepared_transfer_file_result(prepared,
+                                                              persist_options);
+
+        std::vector<std::byte> persisted_output;
+        ASSERT_TRUE(read_bytes_file(output_path, &persisted_output));
+
+        std::FILE* sidecar_file
+            = std::fopen(output_sidecar_path.c_str(), "rb");
+        const bool sidecar_still_exists = sidecar_file != nullptr;
+        if (sidecar_file) {
+            std::fclose(sidecar_file);
+        }
+
+        std::remove(source_path.c_str());
+        std::remove(target_path.c_str());
+        std::remove(output_path.c_str());
+        std::remove(output_sidecar_path.c_str());
+
+        ASSERT_EQ(prepared.prepared.file_status,
+                  openmeta::TransferFileStatus::Ok);
+        ASSERT_EQ(prepared.prepared.prepare.status,
+                  openmeta::TransferStatus::Ok);
+        ASSERT_EQ(prepared.execute.edit_apply.status,
+                  openmeta::TransferStatus::Ok);
+        ASSERT_FALSE(prepared.xmp_sidecar_requested);
+        ASSERT_TRUE(prepared.xmp_sidecar_output.empty());
+        ASSERT_TRUE(prepared.xmp_sidecar_cleanup_requested);
+        ASSERT_EQ(prepared.xmp_sidecar_cleanup_status,
+                  openmeta::TransferStatus::Ok);
+        ASSERT_EQ(prepared.xmp_sidecar_cleanup_path, output_sidecar_path);
+
+        ASSERT_EQ(persisted.status, openmeta::TransferStatus::Ok);
+        EXPECT_EQ(persisted.output_status, openmeta::TransferStatus::Ok);
+        EXPECT_EQ(persisted.output_path, output_path);
+        EXPECT_EQ(persisted.xmp_sidecar_cleanup_status,
+                  openmeta::TransferStatus::Ok);
+        EXPECT_EQ(persisted.xmp_sidecar_cleanup_path, output_sidecar_path);
+        EXPECT_TRUE(persisted.xmp_sidecar_cleanup_removed);
+        EXPECT_FALSE(sidecar_still_exists);
+
+        std::string transfer_dump;
+        openmeta::TransferCompatibilityDumpOptions transfer_options;
+        ASSERT_TRUE(openmeta::dump_transfer_compatibility(
+            prepared, &persisted, transfer_options, &transfer_dump));
+
+        std::string cleanup_summary
+            = "xmp_sidecar_cleanup_requested=true "
+              "xmp_sidecar_cleanup_status=\"ok\" "
+              "xmp_sidecar_cleanup_path=\"";
+        cleanup_summary.append(output_sidecar_path);
+        cleanup_summary.push_back('"');
+        EXPECT_TRUE(text_contains(transfer_dump, cleanup_summary))
+            << transfer_dump;
+
+        std::string persist_summary
+            = "persist status=\"ok\" message=\"persisted transfer outputs\" "
+              "output_status=\"ok\" output_path=\"";
+        persist_summary.append(output_path);
+        persist_summary.push_back('"');
+        EXPECT_TRUE(text_contains(transfer_dump, persist_summary))
+            << transfer_dump;
+        EXPECT_TRUE(text_contains(transfer_dump,
+                                  "xmp_sidecar_cleanup_removed=true"))
+            << transfer_dump;
+
+        openmeta::MetaStore output_store;
+        ASSERT_TRUE(decode_transfer_roundtrip_store(
+            std::span<const std::byte>(persisted_output.data(),
+                                       persisted_output.size()),
+            &output_store));
+
+        std::string output_dump;
+        openmeta::MetadataCompatibilityDumpOptions metadata_options;
+        ASSERT_TRUE(openmeta::dump_metadata_compatibility(
+            output_store, metadata_options, &output_dump));
+        EXPECT_TRUE(text_contains(output_dump,
+                                  "name=\"Exif:DateTimeOriginal\" "
+                                  "key_kind=\"exif_tag\""))
+            << output_dump;
+        EXPECT_TRUE(text_contains(output_dump,
+                                  "value=\"2024:01:02 03:04:05\""))
+            << output_dump;
+        EXPECT_TRUE(text_contains(output_dump, "name=\"XMP:CreatorTool\""))
+            << output_dump;
+        EXPECT_TRUE(text_contains(output_dump,
+                                  "value=\"OpenMeta Transfer Source\""))
+            << output_dump;
+    }
+}
+
+TEST(MetadataTransferApi,
      PersistPreparedTransferFileResultWritesOutputAndSidecarAcrossPrimaryTargets)
 {
     struct Case final {
@@ -23588,6 +25500,71 @@ TEST(MetadataTransferApi,
 
         ASSERT_EQ(result.prepared.file_status, openmeta::TransferFileStatus::Ok);
         ASSERT_EQ(result.prepared.prepare.status, openmeta::TransferStatus::Ok);
+        EXPECT_EQ(result.execute.edit_plan_status,
+                  openmeta::TransferStatus::Unsupported);
+        EXPECT_EQ(result.execute.edit_apply.status,
+                  openmeta::TransferStatus::Unsupported);
+        EXPECT_EQ(result.execute.edit_apply.code,
+                  openmeta::EmitTransferCode::InvalidArgument);
+        EXPECT_TRUE(result.execute.edited_output.empty());
+        EXPECT_NE(result.execute.edit_plan_message.find("OpenMeta-managed"),
+                  std::string::npos);
+    }
+}
+
+TEST(MetadataTransferApi,
+     ExecutePreparedTransferFileBmffSidecarOnlyStripExistingDestinationEmbeddedXmpRejectsForeignIinfV2Meta)
+{
+    struct Case final {
+        openmeta::TransferTargetFormat format;
+        const char* extension;
+    };
+    static const Case kCases[] = {
+        { openmeta::TransferTargetFormat::Heif, ".heic" },
+        { openmeta::TransferTargetFormat::Avif, ".avif" },
+        { openmeta::TransferTargetFormat::Cr3, ".cr3" },
+    };
+
+    for (size_t i = 0; i < std::size(kCases); ++i) {
+        SCOPED_TRACE(static_cast<int>(kCases[i].format));
+
+        std::vector<std::byte> source_jpeg;
+        ASSERT_TRUE(build_test_transfer_source_jpeg_bytes(&source_jpeg));
+        const std::string source_path = unique_temp_path(".jpg");
+        ASSERT_TRUE(write_bytes_file(
+            source_path, std::span<const std::byte>(source_jpeg.data(),
+                                                    source_jpeg.size())));
+
+        std::vector<std::byte> target_bytes;
+        ASSERT_TRUE(
+            build_test_target_with_foreign_bmff_iinf_v2_creator_tool_xmp(
+                kCases[i].format, "Foreign IINF V2 Embedded Existing",
+                &target_bytes));
+        const std::string target_path = unique_temp_path(kCases[i].extension);
+        ASSERT_TRUE(write_bytes_file(
+            target_path, std::span<const std::byte>(target_bytes.data(),
+                                                    target_bytes.size())));
+
+        openmeta::ExecutePreparedTransferFileOptions options;
+        options.prepare.prepare.target_format = kCases[i].format;
+        options.prepare.prepare.include_icc_app2   = false;
+        options.prepare.prepare.include_iptc_app13 = false;
+        options.edit_target_path                   = target_path;
+        options.execute.edit_apply                 = true;
+        options.xmp_writeback_mode
+            = openmeta::XmpWritebackMode::SidecarOnly;
+        options.xmp_destination_embedded_mode
+            = openmeta::XmpDestinationEmbeddedMode::StripExisting;
+
+        const openmeta::ExecutePreparedTransferFileResult result
+            = openmeta::execute_prepared_transfer_file(source_path.c_str(),
+                                                       options);
+        std::remove(source_path.c_str());
+        std::remove(target_path.c_str());
+
+        ASSERT_EQ(result.prepared.file_status, openmeta::TransferFileStatus::Ok);
+        ASSERT_EQ(result.prepared.prepare.status,
+                  openmeta::TransferStatus::Ok);
         EXPECT_EQ(result.execute.edit_plan_status,
                   openmeta::TransferStatus::Unsupported);
         EXPECT_EQ(result.execute.edit_apply.status,
@@ -27980,6 +29957,98 @@ TEST(MetadataTransferApi, ExecutePreparedTransferFileCr3RoundTripsSourceMetadata
     EXPECT_TRUE(decoded_transfer_roundtrip_has_expected_fields(
         std::span<const std::byte>(result.execute.edited_output.data(),
                                    result.execute.edited_output.size())));
+}
+
+TEST(MetadataTransferApi,
+     ExecutePreparedTransferFileTargetImageSpecRoundTripsForAllEditTargets)
+{
+    struct Case final {
+        openmeta::TransferTargetFormat format;
+        const char* extension;
+    };
+    static const Case kCases[] = {
+        { openmeta::TransferTargetFormat::Jpeg, ".jpg" },
+        { openmeta::TransferTargetFormat::Tiff, ".tif" },
+        { openmeta::TransferTargetFormat::Dng, ".dng" },
+        { openmeta::TransferTargetFormat::Png, ".png" },
+        { openmeta::TransferTargetFormat::Webp, ".webp" },
+        { openmeta::TransferTargetFormat::Jp2, ".jp2" },
+        { openmeta::TransferTargetFormat::Jxl, ".jxl" },
+        { openmeta::TransferTargetFormat::Heif, ".heic" },
+        { openmeta::TransferTargetFormat::Avif, ".avif" },
+        { openmeta::TransferTargetFormat::Cr3, ".cr3" },
+    };
+
+    for (size_t i = 0; i < std::size(kCases); ++i) {
+        SCOPED_TRACE(static_cast<int>(kCases[i].format));
+
+        std::vector<std::byte> source_jpeg;
+        ASSERT_TRUE(build_test_transfer_source_jpeg_bytes(&source_jpeg));
+        const std::string source_path = unique_temp_path(".jpg");
+        ASSERT_TRUE(write_bytes_file(
+            source_path, std::span<const std::byte>(source_jpeg.data(),
+                                                    source_jpeg.size())));
+
+        std::vector<std::byte> target_bytes;
+        ASSERT_TRUE(build_minimal_transfer_target_for_format(kCases[i].format,
+                                                             &target_bytes));
+        const std::string target_path = unique_temp_path(kCases[i].extension);
+        ASSERT_TRUE(write_bytes_file(
+            target_path, std::span<const std::byte>(target_bytes.data(),
+                                                    target_bytes.size())));
+
+        openmeta::ExecutePreparedTransferFileOptions options;
+        options.prepare.prepare.target_format = kCases[i].format;
+        options.prepare.prepare.include_icc_app2   = false;
+        options.prepare.prepare.include_iptc_app13 = false;
+        options.prepare.prepare.target_image_spec.has_dimensions = true;
+        options.prepare.prepare.target_image_spec.width          = 320U;
+        options.prepare.prepare.target_image_spec.height         = 240U;
+        options.prepare.prepare.target_image_spec.has_orientation = true;
+        options.prepare.prepare.target_image_spec.orientation     = 1U;
+        options.prepare.prepare.target_image_spec.has_samples_per_pixel
+            = true;
+        options.prepare.prepare.target_image_spec.samples_per_pixel = 3U;
+        options.prepare.prepare.target_image_spec.bits_per_sample_count
+            = 1U;
+        options.prepare.prepare.target_image_spec.bits_per_sample[0] = 8U;
+        options.prepare.prepare.target_image_spec.sample_format_count
+            = 1U;
+        options.prepare.prepare.target_image_spec.sample_format[0] = 1U;
+        options.prepare.prepare.target_image_spec
+            .has_photometric_interpretation = true;
+        options.prepare.prepare.target_image_spec.photometric_interpretation
+            = 2U;
+        options.prepare.prepare.target_image_spec.has_planar_configuration
+            = true;
+        options.prepare.prepare.target_image_spec.planar_configuration = 1U;
+        options.prepare.prepare.target_image_spec.has_exif_color_space = true;
+        options.prepare.prepare.target_image_spec.exif_color_space     = 1U;
+        options.edit_target_path = target_path;
+        options.execute.edit_apply = true;
+
+        const openmeta::ExecutePreparedTransferFileResult result
+            = openmeta::execute_prepared_transfer_file(source_path.c_str(),
+                                                       options);
+        std::remove(source_path.c_str());
+        std::remove(target_path.c_str());
+
+        EXPECT_EQ(result.prepared.file_status,
+                  openmeta::TransferFileStatus::Ok);
+        EXPECT_EQ(result.prepared.prepare.status,
+                  openmeta::TransferStatus::Ok);
+        EXPECT_EQ(result.execute.compile.status,
+                  openmeta::TransferStatus::Ok);
+        EXPECT_EQ(result.execute.edit_plan_status,
+                  openmeta::TransferStatus::Ok);
+        ASSERT_EQ(result.execute.edit_apply.status,
+                  openmeta::TransferStatus::Ok);
+        ASSERT_FALSE(result.execute.edited_output.empty());
+
+        EXPECT_TRUE(decoded_transfer_roundtrip_has_target_image_spec_fields(
+            std::span<const std::byte>(result.execute.edited_output.data(),
+                                       result.execute.edited_output.size())));
+    }
 }
 
 TEST(MetadataTransferApi,

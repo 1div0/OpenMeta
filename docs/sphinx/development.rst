@@ -140,6 +140,18 @@ Python bindings use nanobind. The wheel also ships helper scripts as
    python3 -m openmeta.python.metadump --format portable --c2pa-verify --c2pa-verify-backend auto file.jpg
    python3 -m openmeta.python.metadump --format portable --portable-include-existing-xmp --xmp-sidecar file.jpg
 
+``openmeta.python.metatransfer`` remains a thin command-line wrapper. Its
+``--xmp-writeback``, ``--xmp-destination-embedded``,
+``--xmp-destination-sidecar``, ``--output``, and ``--force`` flags map directly
+onto the C++ file-helper options and persistence flags. It reports sidecar and
+cleanup paths returned by the C++ result instead of deriving a separate
+Python-side contract. Its ``--target-width``, ``--target-height``,
+``--target-orientation``, ``--target-samples-per-pixel``,
+``--target-bits-per-sample``, ``--target-sample-format``,
+``--target-photometric``, ``--target-planar-configuration``,
+``--target-compression``, and ``--target-exif-color-space`` flags populate the
+same target image spec used by the C++ transfer request.
+
 Resource policy defaults
 ------------------------
 

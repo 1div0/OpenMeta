@@ -7,6 +7,9 @@ Date: March 5, 2026
 Define one OpenMeta write/transfer contract that can target multiple container
 backends without per-backend metadata logic duplication.
 
+For the public per-target preserve/replace guarantees, see
+[writer_target_contract.md](writer_target_contract.md).
+
 ## Capability Matrix
 
 | Backend | Native metadata write primitives | Best use in OpenMeta |
@@ -143,6 +146,10 @@ backends without per-backend metadata logic duplication.
   now performs bounded metadata-only edit by appending one OpenMeta-authored
   metadata-only top-level `meta` box and replacing any prior OpenMeta-authored
   metadata-only `meta` box from the same bounded contract.
+- Embedded-XMP strip mode removes only OpenMeta-authored metadata `meta` boxes.
+  Foreign BMFF XMP item graphs are preserved; recognized foreign XMP `mime`
+  items, including `iinf` version 0/1/2 tables, make strip mode fail
+  explicitly instead of silently claiming removal.
 - The same bounded BMFF edit contract now also participates in the core /
   file-helper C2PA signer path:
   - sign-request derivation

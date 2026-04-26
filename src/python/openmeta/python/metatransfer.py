@@ -185,6 +185,92 @@ def _parse_time_patch_specs(specs: list[str]) -> dict[str, str]:
     return out
 
 
+def _parse_u16_list(spec: str, option_name: str) -> list[int]:
+    values: list[int] = []
+    for raw in spec.split(","):
+        text = raw.strip()
+        if not text:
+            raise ValueError(f"invalid {option_name} value (empty item)")
+        try:
+            value = int(text, 10)
+        except ValueError as ex:
+            raise ValueError(f"invalid {option_name} value: {text}") from ex
+        if value <= 0 or value > 0xFFFF:
+            raise ValueError(f"invalid {option_name} value: {text}")
+        values.append(value)
+    limit = int(openmeta.TRANSFER_TARGET_IMAGE_SPEC_MAX_SAMPLES)
+    if len(values) > limit:
+        raise ValueError(f"{option_name} accepts at most {limit} values")
+    return values
+
+
+def _build_target_image_spec(args: argparse.Namespace) -> object | None:
+    target_fields = (
+        args.target_width,
+        args.target_height,
+        args.target_orientation,
+        args.target_samples_per_pixel,
+        args.target_bits_per_sample,
+        args.target_sample_format,
+        args.target_photometric,
+        args.target_planar_configuration,
+        args.target_compression,
+        args.target_exif_color_space,
+    )
+    if not any(value is not None for value in target_fields):
+        return None
+    if (args.target_width is None) != (args.target_height is None):
+        raise ValueError("--target-width and --target-height must be used together")
+
+    spec = openmeta.TransferTargetImageSpec()
+    if args.target_width is not None and args.target_height is not None:
+        if args.target_width <= 0 or args.target_height <= 0:
+            raise ValueError("--target-width and --target-height must be non-zero")
+        spec.has_dimensions = True
+        spec.width = int(args.target_width)
+        spec.height = int(args.target_height)
+    if args.target_orientation is not None:
+        if args.target_orientation < 1 or args.target_orientation > 8:
+            raise ValueError("--target-orientation must be in 1..8")
+        spec.has_orientation = True
+        spec.orientation = int(args.target_orientation)
+    if args.target_samples_per_pixel is not None:
+        limit = int(openmeta.TRANSFER_TARGET_IMAGE_SPEC_MAX_SAMPLES)
+        if args.target_samples_per_pixel <= 0 or args.target_samples_per_pixel > limit:
+            raise ValueError(f"--target-samples-per-pixel must be in 1..{limit}")
+        spec.has_samples_per_pixel = True
+        spec.samples_per_pixel = int(args.target_samples_per_pixel)
+    if args.target_bits_per_sample is not None:
+        spec.bits_per_sample = _parse_u16_list(
+            args.target_bits_per_sample, "--target-bits-per-sample"
+        )
+    if args.target_sample_format is not None:
+        spec.sample_format = _parse_u16_list(
+            args.target_sample_format, "--target-sample-format"
+        )
+    if args.target_photometric is not None:
+        if args.target_photometric < 0 or args.target_photometric > 0xFFFF:
+            raise ValueError("--target-photometric must be in 0..65535")
+        spec.has_photometric_interpretation = True
+        spec.photometric_interpretation = int(args.target_photometric)
+    if args.target_planar_configuration is not None:
+        if args.target_planar_configuration not in (1, 2):
+            raise ValueError("--target-planar-configuration must be 1 or 2")
+        spec.has_planar_configuration = True
+        spec.planar_configuration = int(args.target_planar_configuration)
+    if args.target_compression is not None:
+        if args.target_compression <= 0 or args.target_compression > 0xFFFF:
+            raise ValueError("--target-compression must be in 1..65535")
+        spec.has_compression = True
+        spec.compression = int(args.target_compression)
+    if args.target_exif_color_space is not None:
+        if args.target_exif_color_space <= 0 or args.target_exif_color_space > 0xFFFF:
+            raise ValueError("--target-exif-color-space must be in 1..65535")
+        spec.has_exif_color_space = True
+        spec.exif_color_space = int(args.target_exif_color_space)
+    return spec
+
+
 def probe_exr_attribute_batch(
     path: str | os.PathLike[str],
     *,
@@ -425,6 +511,16 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--target-tiff", type=str, default="", help="target TIFF stream for edit/apply")
     ap.add_argument("--target-dng", type=str, default="", help="target DNG stream for edit/apply")
     ap.add_argument("--dng-target-mode", choices=["existing_target", "template_target", "minimal_fresh_scaffold"], default="minimal_fresh_scaffold", help="public DNG transfer contract for --target-dng")
+    ap.add_argument("--target-width", type=int, default=None, help="host-supplied target pixel width for regenerated image-layout metadata")
+    ap.add_argument("--target-height", type=int, default=None, help="host-supplied target pixel height for regenerated image-layout metadata")
+    ap.add_argument("--target-orientation", type=int, default=None, help="host-supplied target EXIF orientation (1..8)")
+    ap.add_argument("--target-samples-per-pixel", type=int, default=None, help="host-supplied target samples per pixel")
+    ap.add_argument("--target-bits-per-sample", type=str, default=None, help="host-supplied target bits per sample, as N or N,N,...")
+    ap.add_argument("--target-sample-format", type=str, default=None, help="host-supplied target TIFF sample format, as N or N,N,...")
+    ap.add_argument("--target-photometric", type=int, default=None, help="host-supplied target TIFF photometric interpretation")
+    ap.add_argument("--target-planar-configuration", type=int, default=None, help="host-supplied target TIFF planar configuration (1 or 2)")
+    ap.add_argument("--target-compression", type=int, default=None, help="host-supplied target TIFF compression value")
+    ap.add_argument("--target-exif-color-space", type=int, default=None, help="host-supplied target EXIF ColorSpace value")
     ap.add_argument("--source-meta", type=str, default="", help="source metadata file for edit/apply against a separate target file")
     ap.add_argument("--jpeg-c2pa-signed", type=str, default="", help="externally signed logical C2PA payload for JPEG, JXL, or bounded BMFF staging")
     ap.add_argument("--c2pa-manifest-output", type=str, default="", help="external manifest-builder output bytes for signed C2PA staging")
@@ -594,6 +690,12 @@ def main(argv: list[str]) -> int:
         return 2
     if target_count > 1:
         ap.error("--target-jpeg, --target-tiff, --target-dng, --target-exr, --target-png, --target-jp2, --target-jxl, --target-webp, --target-heif, --target-avif, and --target-cr3 are mutually exclusive")
+    try:
+        target_image_spec = _build_target_image_spec(args)
+    except ValueError as ex:
+        ap.error(str(ex))
+    if inspect_mode_count > 0 and target_image_spec is not None:
+        ap.error("target image spec options are transfer/edit options")
     if (
         args.jpeg_c2pa_signed
         or args.c2pa_manifest_output
@@ -1107,6 +1209,7 @@ def main(argv: list[str]) -> int:
             xmp_writeback_mode=xmp_writeback_mode,
             xmp_destination_embedded_mode=xmp_destination_embedded_mode,
             xmp_destination_sidecar_mode=xmp_destination_sidecar_mode,
+            target_image_spec=target_image_spec,
         )
         if persist_output:
             os.makedirs(os.path.dirname(args.output) or ".", exist_ok=True)
@@ -1173,8 +1276,6 @@ def main(argv: list[str]) -> int:
                 )
         if probe["xmp_sidecar_requested"]:
             xmp_sidecar_path = str(probe["xmp_sidecar_path"] or "-")
-            if args.xmp_writeback in ("sidecar", "embedded_and_sidecar") and args.output:
-                xmp_sidecar_path = _xmp_sidecar_path(args.output)
             print(
                 f"  xmp_sidecar: status={probe['xmp_sidecar_status_name']} "
                 f"bytes={int(probe['xmp_sidecar_bytes'])} "

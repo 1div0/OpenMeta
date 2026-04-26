@@ -19,6 +19,8 @@ For the stable flat host naming contract, see :doc:`flat_host_mapping`.
 For deterministic host compatibility baselines, see :doc:`compatibility_dump`.
 For generated XMP merge and writeback precedence, see
 :doc:`xmp_sync_policy`.
+For per-target writer preserve/replace guarantees, see
+:doc:`writer_target_contract`.
 
 .. code-block:: cpp
 

@@ -16,6 +16,9 @@ This is not a full arbitrary metadata synchronization engine. It is the
 writer-side contract used by the transfer helpers so hosts can predict
 preserve, merge, and writeback behavior.
 
+For target-specific embedded carrier replacement and unmanaged-data
+preservation rules, see :doc:`writer_target_contract`.
+
 Default Contract
 ----------------
 
