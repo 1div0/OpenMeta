@@ -9608,20 +9608,20 @@ namespace {
         return true;
     }
 
-    static bool build_png_exif_chunk_payload(
+    static bool build_tiff_exif_payload_from_app1(
         std::span<const std::byte> exif_app1,
         std::vector<std::byte>* out_payload, std::string* err) noexcept
     {
         if (!out_payload) {
             if (err) {
-                *err = "png exif output buffer is null";
+                *err = "exif tiff output buffer is null";
             }
             return false;
         }
         out_payload->clear();
         if (exif_app1.size() < 14U) {
             if (err) {
-                *err = "png exif source app1 payload too small";
+                *err = "exif source app1 payload too small";
             }
             return false;
         }
@@ -9630,13 +9630,39 @@ namespace {
             if (std::to_integer<uint8_t>(exif_app1[i])
                 != static_cast<uint8_t>(kExifPrefix[i])) {
                 if (err) {
-                    *err = "png exif source payload missing Exif\\0\\0 prefix";
+                    *err = "exif source payload missing Exif\\0\\0 prefix";
                 }
                 return false;
             }
         }
         out_payload->assign(exif_app1.begin() + 6, exif_app1.end());
         return !out_payload->empty();
+    }
+
+    static bool adjust_exif_time_patch_slot_for_target(
+        TransferTargetFormat target_format, TimePatchSlot* slot) noexcept
+    {
+        if (!slot) {
+            return false;
+        }
+        if (target_format == TransferTargetFormat::Png
+            || target_format == TransferTargetFormat::Webp) {
+            if (slot->byte_offset < 6U) {
+                return false;
+            }
+            slot->byte_offset -= 6U;
+            return true;
+        }
+        if (target_format == TransferTargetFormat::Jxl
+            || target_format == TransferTargetFormat::Jp2
+            || transfer_target_is_bmff(target_format)) {
+            if (slot->byte_offset > UINT32_MAX - 4U) {
+                return false;
+            }
+            slot->byte_offset += 4U;
+            return true;
+        }
+        return true;
     }
 
     static bool build_png_xmp_itxt_payload(
@@ -11484,7 +11510,7 @@ prepare_metadata_for_target_impl(const MetaStore& store,
                 b.payload = std::move(exif_build.app1_payload);
             } else if (request.target_format == TransferTargetFormat::Png) {
                 std::string err;
-                if (!build_png_exif_chunk_payload(
+                if (!build_tiff_exif_payload_from_app1(
                         std::span<const std::byte>(
                             exif_build.app1_payload.data(),
                             exif_build.app1_payload.size()),
@@ -11518,8 +11544,27 @@ prepare_metadata_for_target_impl(const MetaStore& store,
                                  exif_build.app1_payload.begin(),
                                  exif_build.app1_payload.end());
             } else if (request.target_format == TransferTargetFormat::Webp) {
-                b.route   = "webp:chunk-exif";
-                b.payload = std::move(exif_build.app1_payload);
+                std::string err;
+                if (!build_tiff_exif_payload_from_app1(
+                        std::span<const std::byte>(
+                            exif_build.app1_payload.data(),
+                            exif_build.app1_payload.size()),
+                        &b.payload, &err)) {
+                    requested_present_but_unpacked = true;
+                    if (r.code == PrepareTransferCode::None) {
+                        r.code = PrepareTransferCode::ExifPackFailed;
+                    }
+                    r.warnings += 1U;
+                    append_message(
+                        &r.message,
+                        err.empty()
+                            ? "webp exif payload conversion failed"
+                            : err);
+                    ready = false;
+                }
+                if (ready) {
+                    b.route = "webp:chunk-exif";
+                }
             } else {
                 b.route    = "jxl:box-exif";
                 b.box_type = { 'E', 'x', 'i', 'f' };
@@ -11533,11 +11578,14 @@ prepare_metadata_for_target_impl(const MetaStore& store,
                 for (size_t i = 0; i < exif_build.time_patch_map.size(); ++i) {
                     TimePatchSlot slot = exif_build.time_patch_map[i];
                     slot.block_index   = block_index;
-                    if (request.target_format == TransferTargetFormat::Jxl
-                        || request.target_format
-                               == TransferTargetFormat::Jp2) {
-                        slot.byte_offset = static_cast<uint32_t>(
-                            slot.byte_offset + 4U);
+                    if (!adjust_exif_time_patch_slot_for_target(
+                            request.target_format, &slot)) {
+                        r.warnings += 1U;
+                        append_message(
+                            &r.message,
+                            "exif time patch slot could not be mapped to "
+                            "target payload layout");
+                        continue;
                     }
                     bundle.time_patch_map.push_back(slot);
                 }
@@ -22119,10 +22167,11 @@ namespace {
         plan.target_format    = bundle.target_format;
         plan.input_size       = static_cast<uint64_t>(input_bmff.size());
 
-        bool found_ftyp              = false;
-        bool found_foreign_xmp_meta  = false;
-        uint32_t removed_metas       = 0U;
-        uint64_t offset              = 0U;
+        bool found_ftyp                 = false;
+        bool found_foreign_top_meta     = false;
+        bool found_foreign_xmp_meta     = false;
+        uint32_t removed_metas          = 0U;
+        uint64_t offset                 = 0U;
         while (offset < input_bmff.size()) {
             TransferBmffBox box;
             if (!parse_transfer_bmff_box(input_bmff, offset, input_bmff.size(),
@@ -22154,14 +22203,17 @@ namespace {
             if (box.type == fourcc('f', 't', 'y', 'p')) {
                 found_ftyp = true;
             }
-            if (box.type == fourcc('m', 'e', 't', 'a')
-                && bmff_meta_has_openmeta_transfer_marker(input_bmff, box)) {
-                removed_metas += 1U;
-            } else if (strip_existing_xmp
-                       && box.type == fourcc('m', 'e', 't', 'a')
-                       && bmff_meta_declares_xmp_item(input_bmff, box)) {
-                found_foreign_xmp_meta = true;
-                append_package_source_chunk(&plan, box.offset, box.size);
+            if (box.type == fourcc('m', 'e', 't', 'a')) {
+                if (bmff_meta_has_openmeta_transfer_marker(input_bmff, box)) {
+                    removed_metas += 1U;
+                } else {
+                    found_foreign_top_meta = true;
+                    if (strip_existing_xmp
+                        && bmff_meta_declares_xmp_item(input_bmff, box)) {
+                        found_foreign_xmp_meta = true;
+                    }
+                    append_package_source_chunk(&plan, box.offset, box.size);
+                }
             } else {
                 append_package_source_chunk(&plan, box.offset, box.size);
             }
@@ -22176,6 +22228,14 @@ namespace {
             out.code    = EmitTransferCode::InvalidArgument;
             out.errors  = 1U;
             out.message = "input is not a supported bmff file";
+            return out;
+        }
+        if (found_foreign_top_meta) {
+            out.status  = TransferStatus::Unsupported;
+            out.code    = EmitTransferCode::InvalidArgument;
+            out.errors  = 1U;
+            out.message = "bmff edit with a foreign top-level meta box "
+                          "requires OpenMeta-managed metadata merge support";
             return out;
         }
         if (strip_existing_xmp && found_foreign_xmp_meta) {

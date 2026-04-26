@@ -93,6 +93,8 @@ For the public per-target preserve/replace guarantees, see
   - `XMP `
   - `ICCP`
   - bounded `C2PA`
+- The prepared `EXIF` chunk payload is the TIFF byte stream only. It does not
+  include the JPEG APP1 `Exif\0\0` preamble.
 - OpenMeta now has a bounded WebP transfer path on the core transfer API:
   `prepare_metadata_for_target(..., TransferTargetFormat::Webp, ...)`,
   `compile_prepared_bundle_webp(...)`,
@@ -105,14 +107,16 @@ For the public per-target preserve/replace guarantees, see
   `write_prepared_transfer_package(...)` can serialize direct WebP chunk bytes
   from prepared bundles, and the owned package batch/replay path can persist
   or hand off those bytes without keeping the source bundle alive.
-- Full WebP file rewrite/edit and signed C2PA rewrite/re-sign are still
-  outside the current WebP transfer contract.
+- The file edit path rewrites managed metadata chunks and patches existing
+  `VP8X` feature bits. It does not synthesize a missing `VP8X` chunk.
+- Full WebP signed C2PA rewrite/re-sign is still outside the current WebP
+  transfer contract.
 
 ### ISO-BMFF metadata items (HEIF / AVIF / CR3)
 
-- This bounded transfer path is metadata-item/property oriented. OpenMeta now
-  also supports a bounded append-style BMFF metadata edit path over an
-  existing BMFF target file.
+- This bounded transfer path is metadata-item/property oriented. OpenMeta also
+  supports a bounded OpenMeta-managed BMFF metadata edit path over an existing
+  BMFF target file.
 - Current prepared item routes:
   - `bmff:item-exif`
   - `bmff:item-xmp`
@@ -143,21 +147,23 @@ For the public per-target preserve/replace guarantees, see
 - `metatransfer` / `openmeta.transfer_probe(...)` expose BMFF summaries,
   including `bmff_property colr/prof ...`.
 - `metatransfer --target-heif|--target-avif|--target-cr3 --source-meta ... -o ...`
-  now performs bounded metadata-only edit by appending one OpenMeta-authored
-  metadata-only top-level `meta` box and replacing any prior OpenMeta-authored
-  metadata-only `meta` box from the same bounded contract.
+  performs bounded metadata-only edit only for targets with no foreign
+  top-level `meta` box, or with a prior OpenMeta-authored metadata-only `meta`
+  box from the same bounded contract. Foreign top-level `meta` boxes are
+  rejected until OpenMeta can merge real BMFF item/property graphs safely.
 - Embedded-XMP strip mode removes only OpenMeta-authored metadata `meta` boxes.
-  Foreign BMFF XMP item graphs are preserved; recognized foreign XMP `mime`
-  items, including `iinf` version 0/1/2 tables, make strip mode fail
-  explicitly instead of silently claiming removal.
+  Foreign BMFF metadata graphs are not modified; recognized foreign XMP `mime`
+  items, including `iinf` version 0/1/2 tables, make strip mode fail explicitly
+  instead of silently claiming removal.
 - The same bounded BMFF edit contract now also participates in the core /
   file-helper C2PA signer path:
   - sign-request derivation
   - binding-byte materialization
   - signed-payload validation
-  - staged `bmff:item-c2pa` apply before bounded metadata-only edit
+  - staged bmff:item-c2pa apply before bounded metadata-only edit
 - Out of scope for the current BMFF contract:
   - thin CLI/Python signer-input exposure for BMFF
+  - merging or rewriting foreign top-level BMFF meta item/property graphs
   - full BMFF signed rewrite/re-sign beyond the bounded metadata-only edit path
 
 ### EXR (OpenEXR)

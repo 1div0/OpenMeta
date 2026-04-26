@@ -48,13 +48,36 @@ endfunction()
 
 function(_om_create_target format extension)
   set(_path "${WORK_DIR}/target.${extension}")
-  if(format STREQUAL "dng")
+  if("${format}" STREQUAL "dng")
     _om_run("oiiotool create ${format}"
       "${OIIOTOOL_BIN}" --pattern checker 64x32 3 -d uint8
       -o:fileformatname=tiff "${_path}")
   else()
     _om_run("oiiotool create ${format}"
       "${OIIOTOOL_BIN}" --pattern checker 64x32 3 -d uint8 -o "${_path}")
+  endif()
+  if("${format}" STREQUAL "webp")
+    _om_run("webp vp8x wrapper ${format}"
+      python3 -c
+        [=[
+from pathlib import Path
+import sys
+p = Path(sys.argv[1])
+b = bytearray(p.read_bytes())
+if b[:4] != b"RIFF" or b[8:12] != b"WEBP":
+    raise SystemExit("not webp")
+vp8x = (
+    b"VP8X"
+    + (10).to_bytes(4, "little")
+    + bytes([0, 0, 0, 0])
+    + (63).to_bytes(3, "little")
+    + (31).to_bytes(3, "little")
+)
+out = b if b[12:16] == b"VP8X" else b[:12] + vp8x + b[12:]
+out[4:8] = (len(out) - 8).to_bytes(4, "little")
+p.write_bytes(out)
+]=]
+        "${_path}")
   endif()
   set("TARGET_${format}" "${_path}" PARENT_SCOPE)
 endfunction()
@@ -103,6 +126,10 @@ function(_om_check_exiftool format extension)
   if(_out MATCHES "Error[ ]*:")
     message(FATAL_ERROR "exiftool reported an error for edited ${format}\n${_out}")
   endif()
+  if(_out MATCHES "Improper EXIF header")
+    message(FATAL_ERROR
+      "exiftool reported an improper EXIF header for edited ${format}\n${_out}")
+  endif()
   if(NOT _out MATCHES "Image Width[ ]*: 64")
     message(FATAL_ERROR "exiftool missing ImageWidth=64 for ${format}\n${_out}")
   endif()
@@ -138,13 +165,13 @@ function(_om_transfer_and_check format extension)
     --output "${_output}"
     --force)
 
-  if(format STREQUAL "jpg")
+  if("${format}" STREQUAL "jpg")
     _om_run("metatransfer image usability ${format}"
       "${METATRANSFER_BIN}" ${_common} --target-jpeg "${_target}")
-  elseif(format STREQUAL "tif")
+  elseif("${format}" STREQUAL "tif")
     _om_run("metatransfer image usability ${format}"
       "${METATRANSFER_BIN}" ${_common} --target-tiff "${_target}")
-  elseif(format STREQUAL "dng")
+  elseif("${format}" STREQUAL "dng")
     _om_run("metatransfer image usability ${format}"
       "${METATRANSFER_BIN}" ${_common} --target-dng "${_target}")
   else()
@@ -159,10 +186,60 @@ function(_om_transfer_and_check format extension)
   _om_check_exiftool("${format}" "${extension}")
 endfunction()
 
+function(_om_expect_foreign_bmff_reject format extension)
+  set(_target "${WORK_DIR}/target_foreign_meta.${extension}")
+  set(_output "${WORK_DIR}/edited_foreign_meta.${extension}")
+  execute_process(
+    COMMAND "${OIIOTOOL_BIN}" --pattern checker 64x32 3 -d uint8 -o "${_target}"
+    RESULT_VARIABLE _rv_create
+    OUTPUT_VARIABLE _out_create
+    ERROR_VARIABLE _err_create
+  )
+  if(NOT _rv_create EQUAL 0)
+    message(STATUS
+      "skipping ${format} foreign-meta rejection check; oiiotool could not create target")
+    return()
+  endif()
+
+  execute_process(
+    COMMAND "${METATRANSFER_BIN}" --no-build-info
+            --source-meta "${_source_jpg}"
+            "--target-${format}"
+            --target-width 64
+            --target-height 32
+            --target-orientation 1
+            --target-samples-per-pixel 3
+            --target-bits-per-sample 8
+            --target-sample-format 1
+            --target-photometric 2
+            --target-planar-configuration 1
+            --target-exif-color-space 1
+            --output "${_output}"
+            --force
+            "${_target}"
+    RESULT_VARIABLE _rv_edit
+    OUTPUT_VARIABLE _out_edit
+    ERROR_VARIABLE _err_edit
+  )
+  if(_rv_edit EQUAL 0)
+    message(FATAL_ERROR
+      "metatransfer unexpectedly edited foreign-meta ${format}\nstdout:\n${_out_edit}\nstderr:\n${_err_edit}")
+  endif()
+  if(NOT "${_out_edit}\n${_err_edit}" MATCHES "foreign top-level meta")
+    message(FATAL_ERROR
+      "foreign-meta ${format} rejection did not report the expected reason\nstdout:\n${_out_edit}\nstderr:\n${_err_edit}")
+  endif()
+  if(EXISTS "${_output}")
+    message(FATAL_ERROR
+      "metatransfer wrote output for rejected foreign-meta ${format}: ${_output}")
+  endif()
+endfunction()
+
 _om_create_target("jpg" "jpg")
 _om_create_target("tif" "tif")
 _om_create_target("dng" "dng")
 _om_create_target("png" "png")
+_om_create_target("webp" "webp")
 _om_create_target("jp2" "jp2")
 _om_create_target("jxl" "jxl")
 
@@ -170,7 +247,10 @@ _om_transfer_and_check("jpg" "jpg")
 _om_transfer_and_check("tif" "tif")
 _om_transfer_and_check("dng" "dng")
 _om_transfer_and_check("png" "png")
+_om_transfer_and_check("webp" "webp")
 _om_transfer_and_check("jp2" "jp2")
 _om_transfer_and_check("jxl" "jxl")
+
+_om_expect_foreign_bmff_reject("heif" "heic")
 
 message(STATUS "metatransfer external image usability gate passed")

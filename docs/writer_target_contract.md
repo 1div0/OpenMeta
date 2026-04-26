@@ -59,7 +59,7 @@ integration checks.
 | `WebP` | `EXIF`, XMP RIFF chunk, `ICCP`, bounded `C2PA` | Replace matching managed RIFF chunks; preserve unrelated chunks; patch `VP8X` feature bits | EXIF/XMP/ICC edits require an existing `VP8X` chunk |
 | `JP2` | top-level `Exif`, top-level XMP `xml` box, `jp2h/colr` ICC | Replace matching top-level metadata boxes; rewrite `jp2h` only to replace/insert `colr`; preserve unrelated boxes and unrelated `jp2h` children | Does not synthesize `jp2h`; requires one existing `jp2h` for ICC |
 | `JXL` | top-level `Exif`, XMP `xml` box, `jumb`, `c2pa` | Replace matching top-level boxes; preserve signature and non-managed boxes; classify `jumb` as generic JUMBF or C2PA | ICC is encoder handoff only; file edit emits uncompressed prepared metadata boxes |
-| `HEIF` / `AVIF` / `CR3` | one OpenMeta-authored metadata-only top-level `meta` box with Exif/XMP/JUMBF/C2PA items and `colr` ICC property | Preserve all non-OpenMeta top-level boxes; replace prior OpenMeta-authored metadata `meta`; append a new OpenMeta metadata `meta` when needed | Does not rewrite arbitrary existing BMFF scene/item graphs |
+| `HEIF` / `AVIF` / `CR3` | one OpenMeta-authored metadata-only top-level `meta` box with Exif/XMP/JUMBF/C2PA items and `colr` ICC property | Preserve non-`meta` top-level boxes; replace prior OpenMeta-authored metadata `meta`; reject foreign top-level `meta` boxes instead of appending a competing metadata graph | Does not rewrite or merge arbitrary existing BMFF scene/item graphs |
 | `EXR` | safe string header attributes through the EXR transfer emitter or adapter batch | No file rewrite contract today; host applies prepared attributes through its own EXR writer | Attribute-emitter target, not a file edit path |
 
 ## JPEG
@@ -141,6 +141,9 @@ chunks from the same managed family. Unrelated chunks are preserved. When
 EXIF, XMP, or ICC is present after rewrite, OpenMeta patches the existing
 `VP8X` feature flags to match the final metadata state.
 
+Prepared WebP `EXIF` chunks carry the TIFF byte stream directly. They do not
+include the JPEG APP1 `Exif\0\0` preamble.
+
 The current WebP edit contract requires an existing `VP8X` chunk for EXIF,
 XMP, or ICC metadata edits. It does not synthesize `VP8X`.
 
@@ -174,14 +177,20 @@ encoder-side handoff and is not serialized by the file edit path.
 
 ## HEIF / AVIF / CR3
 
-The bounded BMFF edit path preserves all non-OpenMeta top-level boxes as
-source ranges.
+The bounded BMFF edit path preserves non-`meta` top-level boxes as source
+ranges.
 
 OpenMeta writes one metadata-only top-level `meta` box using the public
 bounded contract. That box can contain prepared Exif, XMP, JUMBF, C2PA, and
 ICC `colr` property payloads. A prior OpenMeta-authored metadata `meta` box is
-removed and replaced by the newly prepared box. Foreign `meta` boxes and
-normal BMFF scene/item graphs are preserved.
+removed and replaced by the newly prepared box.
+
+OpenMeta does not append a second top-level `meta` box when the target already
+has a foreign top-level `meta` box. Real HEIF/AVIF scene graphs commonly use
+that box for image items and properties; appending a competing metadata graph
+can make the result unusable. Until OpenMeta has a real BMFF merge path for
+foreign item/property graphs, that case is reported as unsupported and no
+edited output is written.
 
 If sidecar-only writeback asks to strip embedded XMP, OpenMeta can remove XMP
 from its own OpenMeta-authored metadata `meta` box. It does not strip XMP from

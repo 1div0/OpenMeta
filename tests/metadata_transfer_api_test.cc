@@ -663,7 +663,8 @@ prepared_exif_block_tiff_base(const openmeta::PreparedTransferBlock& block,
         return false;
     }
     *out_base = 0U;
-    if (block.route == "png:chunk-exif") {
+    if (block.route == "png:chunk-exif"
+        || block.route == "webp:chunk-exif") {
         if (block.payload.size() < 8U || block.payload[0] != std::byte { 'I' }
             || block.payload[1] != std::byte { 'I' }) {
             return false;
@@ -2272,6 +2273,22 @@ payload_contains_bytes(std::span<const std::byte> bytes,
         }
     }
     return false;
+}
+
+static bool
+payload_has_ascii_at(std::span<const std::byte> bytes, size_t off,
+                     std::string_view text) noexcept
+{
+    if (off > bytes.size() || text.size() > bytes.size() - off) {
+        return false;
+    }
+    for (size_t i = 0; i < text.size(); ++i) {
+        if (bytes[off + i]
+            != static_cast<std::byte>(static_cast<unsigned char>(text[i]))) {
+            return false;
+        }
+    }
+    return true;
 }
 
 static bool
@@ -16712,6 +16729,10 @@ TEST(MetadataTransferApi, PrepareBuildsJxlExifAndXmpBoxes)
                                     + 4U));
     EXPECT_EQ(jxl_bundle.time_patch_map[0].width,
               jpeg_bundle.time_patch_map[0].width);
+    EXPECT_TRUE(payload_has_ascii_at(
+        std::span<const std::byte>(jxl_bundle.blocks[0].payload.data(),
+                                   jxl_bundle.blocks[0].payload.size()),
+        jxl_bundle.time_patch_map[0].byte_offset, "2024:01:02 03:04:05"));
 }
 
 TEST(MetadataTransferApi, PrepareBuildsWebpExifAndXmpChunks)
@@ -16753,6 +16774,18 @@ TEST(MetadataTransferApi, PrepareBuildsWebpExifAndXmpChunks)
     ASSERT_EQ(bundle.time_patch_map.size(), 1U);
     EXPECT_EQ(bundle.blocks[0].route, "webp:chunk-exif");
     EXPECT_EQ(bundle.blocks[0].kind, openmeta::TransferBlockKind::Exif);
+    ASSERT_GE(bundle.blocks[0].payload.size(), 14U);
+    EXPECT_EQ(bundle.blocks[0].payload[0], std::byte { 'I' });
+    EXPECT_EQ(bundle.blocks[0].payload[1], std::byte { 'I' });
+    EXPECT_EQ(read_u16le(std::span<const std::byte>(
+                  bundle.blocks[0].payload.data(),
+                  bundle.blocks[0].payload.size()),
+              2U),
+              42U);
+    EXPECT_TRUE(payload_has_ascii_at(
+        std::span<const std::byte>(bundle.blocks[0].payload.data(),
+                                   bundle.blocks[0].payload.size()),
+        bundle.time_patch_map[0].byte_offset, "2024:01:02 03:04:05"));
     EXPECT_EQ(bundle.blocks[1].route, "webp:chunk-xmp");
     EXPECT_EQ(bundle.blocks[1].kind, openmeta::TransferBlockKind::Xmp);
     EXPECT_TRUE(payload_contains_ascii(
@@ -16813,6 +16846,10 @@ TEST(MetadataTransferApi, PrepareBuildsPngExifAndXmpChunks)
                                           bundle.blocks[0].payload.size()),
                                       static_cast<uint8_t>('M'),
                                       static_cast<uint8_t>('M')));
+    EXPECT_TRUE(payload_has_ascii_at(
+        std::span<const std::byte>(bundle.blocks[0].payload.data(),
+                                   bundle.blocks[0].payload.size()),
+        bundle.time_patch_map[0].byte_offset, "2024:01:02 03:04:05"));
     EXPECT_EQ(bundle.blocks[1].route, "png:chunk-xmp");
     EXPECT_EQ(bundle.blocks[1].kind, openmeta::TransferBlockKind::Xmp);
     EXPECT_TRUE(payload_contains_ascii(
@@ -35976,6 +36013,7 @@ TEST(MetadataTransferApi, PrepareBuildsBmffExifItem)
     ASSERT_EQ(prepared.status, openmeta::TransferStatus::Ok);
     ASSERT_EQ(bundle.target_format, openmeta::TransferTargetFormat::Heif);
     ASSERT_EQ(bundle.blocks.size(), 1U);
+    ASSERT_EQ(bundle.time_patch_map.size(), 1U);
     EXPECT_EQ(bundle.blocks[0].route, "bmff:item-exif");
     ASSERT_GE(bundle.blocks[0].payload.size(), 10U);
     EXPECT_EQ(bundle.blocks[0].payload[0], std::byte { 0x00 });
@@ -35984,6 +36022,10 @@ TEST(MetadataTransferApi, PrepareBuildsBmffExifItem)
     EXPECT_EQ(bundle.blocks[0].payload[3], std::byte { 0x06 });
     EXPECT_EQ(std::memcmp(bundle.blocks[0].payload.data() + 4, "Exif\0\0", 6U),
               0);
+    EXPECT_TRUE(payload_has_ascii_at(
+        std::span<const std::byte>(bundle.blocks[0].payload.data(),
+                                   bundle.blocks[0].payload.size()),
+        bundle.time_patch_map[0].byte_offset, "2024:01:02 03:04:05"));
 }
 
 TEST(MetadataTransferApi, CompileBmffPlanKnownRoutes)
@@ -36265,6 +36307,41 @@ TEST(MetadataTransferApi, ExecutePreparedTransferBmffEditAppendsMetaBox)
     EXPECT_EQ(blocks[0].kind, openmeta::ContainerBlockKind::Exif);
     EXPECT_EQ(blocks[1].kind, openmeta::ContainerBlockKind::Xmp);
     EXPECT_EQ(blocks[2].kind, openmeta::ContainerBlockKind::Icc);
+}
+
+TEST(MetadataTransferApi, ExecutePreparedTransferBmffEditRejectsForeignMetaBox)
+{
+    openmeta::PreparedTransferBundle bundle;
+    bundle.target_format = openmeta::TransferTargetFormat::Heif;
+
+    openmeta::PreparedTransferBlock exif;
+    exif.route   = "bmff:item-exif";
+    exif.payload = make_test_bmff_exif_item_payload();
+    bundle.blocks.push_back(exif);
+
+    std::vector<std::byte> input = make_minimal_bmff_file();
+    std::vector<std::byte> meta_payload;
+    append_bmff_fullbox_header(&meta_payload, 0U);
+    append_bmff_box(&input, openmeta::fourcc('m', 'e', 't', 'a'),
+                    std::span<const std::byte>(meta_payload.data(),
+                                               meta_payload.size()));
+
+    openmeta::ExecutePreparedTransferOptions options;
+    options.edit_requested = true;
+    options.edit_apply     = true;
+
+    const openmeta::ExecutePreparedTransferResult result
+        = openmeta::execute_prepared_transfer(
+            &bundle, std::span<const std::byte>(input.data(), input.size()),
+            options);
+
+    EXPECT_EQ(result.edit_plan_status, openmeta::TransferStatus::Unsupported);
+    EXPECT_NE(result.edit_plan_message.find("foreign top-level meta"),
+              std::string::npos);
+    EXPECT_NE(result.edit_plan_message.find("OpenMeta-managed"),
+              std::string::npos);
+    EXPECT_EQ(result.edit_apply.status, openmeta::TransferStatus::Unsupported);
+    EXPECT_TRUE(result.edited_output.empty());
 }
 
 TEST(MetadataTransferApi, ExecutePreparedTransferBmffEditReplacesPriorMetaBox)

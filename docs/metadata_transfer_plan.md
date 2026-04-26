@@ -55,7 +55,7 @@ The first public write-side sync controls are also in place:
 | WebP | Bounded but real | Prepared bundle, compiled emit, bounded chunk rewrite/edit, file-helper roundtrip | Not a general WebP chunk editor |
 | JP2 | Bounded but real | Prepared bundle, compiled emit, bounded box rewrite/edit, file-helper roundtrip | `jp2h` synthesis is still out of scope |
 | JXL | Bounded but real | Prepared bundle, compiled emit, bounded box rewrite/edit, file-helper roundtrip | Still narrower than JPEG/TIFF |
-| HEIF / AVIF / CR3 | Bounded but real | Prepared bundle, compiled emit, bounded BMFF item/property edit, file-helper roundtrip | Not broad BMFF writer parity |
+| HEIF / AVIF / CR3 | Bounded but real | Prepared bundle, compiled emit, bounded OpenMeta-managed BMFF item/property edit, file-helper roundtrip | Not broad BMFF writer parity; foreign top-level `meta` graphs are rejected until merge support exists |
 | EXR | Bounded but real | Prepared bundle, compiled emit, direct backend attribute emit, prepared-bundle to `ExrAdapterBatch` bridge, CLI/Python transfer surface | No file rewrite/edit path yet; current transfer payload is safe string attributes only |
 
 ## What Is Already Implemented
@@ -104,16 +104,17 @@ OpenMeta now has explicit end-to-end read-backed transfer tests for:
 - source JPEG -> WebP edit/apply -> read-back
 - source JPEG -> JP2 edit/apply -> read-back
 - source JPEG -> JXL edit/apply -> read-back
-- source JPEG -> HEIF edit/apply -> read-back
-- source JPEG -> AVIF edit/apply -> read-back
-- source JPEG -> CR3 edit/apply -> read-back
+- source JPEG -> OpenMeta-managed HEIF edit/apply -> read-back
+- source JPEG -> OpenMeta-managed AVIF edit/apply -> read-back
+- source JPEG -> OpenMeta-managed CR3 edit/apply -> read-back
 
 That does not make all targets equally mature, but it does mean the transfer
 core has real roundtrip regression gates across the primary supported export
 families.
 
 The primary writer family is also covered by a deterministic compatibility-dump
-gate for JPEG, TIFF, DNG, PNG, WebP, JP2, JXL, HEIF, AVIF, and CR3. That gate
+gate for JPEG, TIFF, DNG, PNG, WebP, JP2, JXL, and OpenMeta-managed HEIF,
+AVIF, and CR3. That gate
 checks the prepared EXIF/XMP routes, edit/apply status, dual-write XMP
 writeback summary, and decoded metadata dump for the managed source fields.
 Additional compatibility-dump gates cover sidecar-only writeback with explicit
@@ -256,6 +257,8 @@ Implemented as a bounded RIFF metadata target:
 - `ICCP`
 - bounded `C2PA`
 - bounded rewrite/edit for managed metadata chunks
+- `EXIF` chunk payloads use direct TIFF bytes, without the JPEG APP1
+  `Exif\0\0` preamble
 
 ### JP2
 
@@ -284,9 +287,11 @@ Implemented as a bounded BMFF target family:
 - bounded `bmff:item-jumb`
 - bounded `bmff:item-c2pa`
 - bounded `bmff:property-colr-icc`
-- bounded metadata-only `meta` rewrite path
+- bounded OpenMeta-managed metadata-only `meta` rewrite path
 - explicit strip-mode rejection for recognized foreign XMP item graphs,
   including `iinf` version 0/1/2 `mime` entries
+- fail-safe rejection for foreign top-level `meta` boxes until real BMFF
+  item/property merge support exists
 
 ### EXR
 
@@ -782,7 +787,7 @@ embedded/sidecar writeback across the primary writer target family.
 #### 3. Compare-Backed Release Validation
 
 - [x] promote the current primary-target roundtrip checks into explicit release-facing compare gates
-- [x] add compare-backed validation for `TIFF`, `DNG`, `PNG`, `WebP`, `JP2`, `JXL`, and bounded `BMFF` target outputs
+- [x] add compare-backed validation for `TIFF`, `DNG`, `PNG`, `WebP`, `JP2`, `JXL`, and OpenMeta-managed bounded `BMFF` target outputs, plus fail-safe rejection for foreign top-level `meta` BMFF targets
 - [x] cover embedded-only, sidecar-only, and dual-write XMP flows in release-facing compare validation
 - [x] add compare-backed validation for explicit sidecar-base overrides and destination-sidecar cleanup behavior
 - [x] gate the primary writer family on deterministic read-back of managed metadata after edit/apply

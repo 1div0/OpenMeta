@@ -270,6 +270,8 @@ Current v1 behavior is:
     - `prepare_metadata_for_target(..., TransferTargetFormat::Webp, ...)`
       currently builds `EXIF`, `XMP `, `ICCP`, and bounded `C2PA` RIFF
       metadata chunks from `MetaStore`
+    - WebP `EXIF` chunk payloads contain direct TIFF bytes and intentionally
+      omit the JPEG APP1 `Exif\0\0` preamble
     - `compile_prepared_bundle_webp(...)` and
       `emit_prepared_bundle_webp_compiled(...)` provide the same
       `prepare once -> compile once -> emit many` shape as JPEG/TIFF/JXL
@@ -285,8 +287,7 @@ Current v1 behavior is:
       bytes from prepared bundles, and
       `build_prepared_transfer_package_batch(...)` can materialize those bytes
       into one owned replay batch
-    - full WebP file rewrite/edit and signed C2PA rewrite remain follow-up
-      work
+    - full WebP signed C2PA rewrite remains follow-up work
   - ISO-BMFF metadata-item transfer now uses the same bounded contract for
     `HEIF` / `AVIF` / `CR3` targets:
     - `prepare_metadata_for_target(..., TransferTargetFormat::{Heif,Avif,Cr3}, ...)`
@@ -311,14 +312,16 @@ Current v1 behavior is:
       the reusable item/property-emitter path
     - the shared package-batch persistence/replay layer can own and hand off
       those stable BMFF item and property payload bytes
-    - OpenMeta also supports a bounded append-style BMFF edit path:
-      it preserves existing top-level BMFF boxes, strips prior
-      OpenMeta-authored metadata-only `meta` boxes, and appends one new
-      OpenMeta-authored metadata-only `meta` box carrying the prepared BMFF
-      items/properties
+    - OpenMeta also supports a bounded BMFF edit path for targets without a
+      foreign top-level `meta` box, or with a prior OpenMeta-authored
+      metadata-only `meta` box from the same bounded contract. It preserves
+      non-`meta` top-level BMFF boxes and replaces the OpenMeta-authored
+      metadata-only `meta` box with the prepared BMFF items/properties.
+      Targets with foreign top-level `meta` boxes are rejected until OpenMeta
+      can merge real BMFF item/property graphs safely.
     - CLI/Python `metatransfer` wrappers expose both BMFF summaries and this
       bounded edit path; `--target-heif`, `--target-avif`, and `--target-cr3`
-      now accept `--source-meta <path>` plus `--output <path>` for metadata
+      now accept `--source-meta PATH` plus `--output PATH` for metadata
       transfer onto an existing BMFF target file
     - the same bounded BMFF edit contract now also participates in the core /
       file-helper C2PA signer path:
