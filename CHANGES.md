@@ -1,5 +1,32 @@
 # OpenMeta Changes
 
+## 0.4.8 - 2026-04-27
+
+Changes compared with `0.4.7`.
+
+### Added
+
+- Added bounded 32-bit BMFF item-id insertion for parseable foreign item graphs
+  that already use `iloc` version 2. `iloc` version 0/1 targets remain on the
+  existing 16-bit insertion path.
+
+### Changed
+
+- Public BMFF writer-contract docs now state the remaining item-id-width limit
+  explicitly: 32-bit inserted item IDs require an existing `iloc` v2 graph, and
+  unsupported or exhausted item-id spaces fail safely instead of truncating IDs.
+
+### Fixed
+
+- Fixed BMFF `iinf` version 1 scanning to read its 32-bit entry count, keeping
+  writer read-back validation aligned with version 1/2 item tables.
+
+### Tests And Validation
+
+- Added a BMFF API roundtrip test that writes Exif and XMP into an `iloc` v2
+  target with high item IDs and scans the result back as one Exif item and one
+  XMP item.
+
 ## 0.4.7 - 2026-04-27
 
 Changes compared with `0.4.6`.
