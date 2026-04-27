@@ -2111,20 +2111,22 @@ namespace {
         uint64_t p            = payload_off + 4;
 
         uint32_t entry_count = 0;
-        if (version < 2) {
+        if (version == 0) {
             uint16_t ec16 = 0;
             if (!read_u16be(bytes, p, &ec16)) {
                 return false;
             }
             entry_count = ec16;
             p += 2;
-        } else {
+        } else if (version == 1 || version == 2) {
             uint32_t ec32 = 0;
             if (!read_u32be(bytes, p, &ec32)) {
                 return false;
             }
             entry_count = ec32;
             p += 4;
+        } else {
+            return false;
         }
 
         const uint32_t kMaxEntries = 4096;

@@ -21046,7 +21046,7 @@ namespace {
 
     struct BmffRewriteItemSource final {
         uint32_t block_index = 0U;
-        uint16_t item_id     = 0U;
+        uint32_t item_id     = 0U;
         uint32_t item_type   = 0U;
         bool mime_xmp        = false;
     };
@@ -21906,7 +21906,7 @@ namespace {
                 }
                 BmffRewriteItemSource one;
                 one.block_index = i;
-                one.item_id     = static_cast<uint16_t>(next_item_id);
+                one.item_id     = next_item_id;
                 one.item_type   = item_type;
                 one.mime_xmp    = mime_xmp;
                 out_items->push_back(one);
@@ -22523,17 +22523,24 @@ namespace {
         if (items->empty()) {
             return true;
         }
-        if (ctx->max_item_id >= 0xFFFFULL
-            || items->size() > static_cast<size_t>(0xFFFFULL
+        const uint64_t max_output_item_id
+            = ctx->iloc_version == 2U
+                  ? static_cast<uint64_t>(
+                        std::numeric_limits<uint32_t>::max())
+                  : 0xFFFFULL;
+        if (ctx->max_item_id >= max_output_item_id
+            || items->size() > static_cast<size_t>(max_output_item_id
                                                    - ctx->max_item_id)) {
             return fail_bmff_foreign_meta_merge(
                 out, TransferStatus::LimitExceeded,
                 EmitTransferCode::InvalidPayload,
-                "no 16-bit item ids remain for metadata insertion");
+                ctx->iloc_version == 2U
+                    ? "no 32-bit item ids remain for metadata insertion"
+                    : "no 16-bit item ids remain for metadata insertion");
         }
         uint64_t next_id = ctx->max_item_id + 1U;
         for (size_t i = 0; i < items->size(); ++i) {
-            (*items)[i].item_id = static_cast<uint16_t>(next_id);
+            (*items)[i].item_id = static_cast<uint32_t>(next_id);
             next_id += 1U;
         }
         ctx->max_item_id = next_id - 1U;
@@ -22604,8 +22611,15 @@ namespace {
 
         for (size_t i = 0; i < items.size(); ++i) {
             std::vector<std::byte> infe_payload;
-            append_bmff_fullbox_fields(&infe_payload, 2U, 0U);
-            append_u16be(&infe_payload, items[i].item_id);
+            const bool needs_infe_v3 = items[i].item_id > 0xFFFFU;
+            append_bmff_fullbox_fields(&infe_payload,
+                                       needs_infe_v3 ? 3U : 2U, 0U);
+            if (needs_infe_v3) {
+                append_u32be(&infe_payload, items[i].item_id);
+            } else {
+                append_u16be(&infe_payload,
+                             static_cast<uint16_t>(items[i].item_id));
+            }
             append_u16be(&infe_payload, 0U);
             append_u32be(&infe_payload, items[i].item_type);
             append_cstring_ascii(&infe_payload,
@@ -22939,6 +22953,13 @@ namespace {
         }
 
         uint8_t version = 0U;
+        bool needs_iref_v1 = ctx.primary_item_id > 0xFFFFU;
+        for (size_t i = 0; i < items.size(); ++i) {
+            if (items[i].item_id > 0xFFFFU) {
+                needs_iref_v1 = true;
+                break;
+            }
+        }
         std::vector<std::byte> payload;
         if (ctx.has_iref) {
             const uint64_t payload_begin = ctx.iref.offset + ctx.iref.header_size;
@@ -22949,20 +22970,23 @@ namespace {
                     EmitTransferCode::InvalidPayload,
                     "iref fullbox header is truncated");
             }
-            version = std::to_integer<uint8_t>(bytes[payload_begin]);
-            if (version > 1U) {
+            const uint8_t input_version
+                = std::to_integer<uint8_t>(bytes[payload_begin]);
+            if (input_version > 1U) {
                 return fail_bmff_foreign_meta_merge(
                     out, TransferStatus::Unsupported,
                     EmitTransferCode::InvalidArgument,
                     "iref version is not supported");
             }
+            version = needs_iref_v1 ? 1U : input_version;
             payload.insert(
                 payload.end(),
                 bytes.begin() + static_cast<std::ptrdiff_t>(payload_begin),
                 bytes.begin()
                     + static_cast<std::ptrdiff_t>(payload_begin + 4U));
+            payload[0] = static_cast<std::byte>(version);
 
-            const size_t id_width = version == 0U ? 2U : 4U;
+            const size_t input_id_width = input_version == 0U ? 2U : 4U;
             uint64_t child_off    = payload_begin + 4U;
             while (child_off + 8U <= payload_end) {
                 TransferBmffBox child;
@@ -22981,7 +23005,8 @@ namespace {
                 std::vector<std::byte> child_payload;
                 while (cursor < child_payload_end) {
                     uint64_t from_id64 = 0U;
-                    if (!read_bmff_u_nbe(bytes, cursor, id_width, &from_id64)
+                    if (!read_bmff_u_nbe(bytes, cursor, input_id_width,
+                                         &from_id64)
                         || from_id64
                                > std::numeric_limits<uint32_t>::max()) {
                         return fail_bmff_foreign_meta_merge(
@@ -22989,7 +23014,7 @@ namespace {
                             EmitTransferCode::InvalidPayload,
                             "iref from_item_id is not supported");
                     }
-                    cursor += id_width;
+                    cursor += input_id_width;
                     if (cursor + 2U > child_payload_end) {
                         return fail_bmff_foreign_meta_merge(
                             out, TransferStatus::Malformed,
@@ -23005,7 +23030,7 @@ namespace {
                     kept_to_ids.reserve(ref_count);
                     for (uint16_t i = 0U; i < ref_count; ++i) {
                         uint64_t to_id64 = 0U;
-                        if (!read_bmff_u_nbe(bytes, cursor, id_width,
+                        if (!read_bmff_u_nbe(bytes, cursor, input_id_width,
                                              &to_id64)
                             || to_id64
                                    > std::numeric_limits<uint32_t>::max()) {
@@ -23014,7 +23039,7 @@ namespace {
                                 EmitTransferCode::InvalidPayload,
                                 "iref to_item_id is not supported");
                         }
-                        cursor += id_width;
+                        cursor += input_id_width;
                         const uint32_t to_id
                             = static_cast<uint32_t>(to_id64);
                         if (!bmff_removed_item_id(removed_item_ids, to_id)) {
@@ -23063,7 +23088,7 @@ namespace {
                 child_off += child.size;
             }
         } else {
-            if (ctx.primary_item_id > 0xFFFFU) {
+            if (needs_iref_v1) {
                 version = 1U;
             }
             append_bmff_fullbox_fields(&payload, version, 0U);
@@ -24121,7 +24146,8 @@ namespace {
 
                 std::vector<std::byte> infe_payload;
                 append_bmff_fullbox_fields(&infe_payload, 2U, 0U);
-                append_u16be(&infe_payload, items[i].item_id);
+                append_u16be(&infe_payload,
+                             static_cast<uint16_t>(items[i].item_id));
                 append_u16be(&infe_payload, 0U);
                 append_u32be(&infe_payload, items[i].item_type);
                 append_cstring_ascii(&infe_payload,
@@ -24166,7 +24192,8 @@ namespace {
             for (size_t i = 0; i < items.size(); ++i) {
                 const PreparedTransferBlock& block
                     = bundle.blocks[items[i].block_index];
-                append_u16be(&iloc_payload, items[i].item_id);
+                append_u16be(&iloc_payload,
+                             static_cast<uint16_t>(items[i].item_id));
                 append_u16be(&iloc_payload, 0x0001U);
                 append_u16be(&iloc_payload, 0U);
                 append_u32be(&iloc_payload, 0U);

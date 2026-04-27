@@ -111,7 +111,8 @@ Target Summary
        in parseable foreign top-level ``meta`` graphs by extending
        ``iinf``/``iloc``/``idat``/``iref``; replace prior ICC ``colr``
        properties and remap ``iprp``/``ipco``/``ipma`` for bounded ICC.
-     - Does not rewrite arbitrary BMFF scene/property graphs.
+     - Does not rewrite arbitrary BMFF scene/property graphs; 32-bit item-id
+       insertion requires existing ``iloc`` v2.
    * - ``EXR``
      - safe string header attributes through the EXR transfer emitter or
        adapter batch
@@ -258,12 +259,18 @@ item graphs it merges, replaces, or strips bounded Exif/XMP/JUMBF/C2PA
 metadata items in the existing ``meta`` by extending ``iinf``, ``iloc``,
 ``idat``, and ``iref`` with ``cdsc`` references to the primary item. This
 constrained merge requires a single parseable ``iinf``, ``iloc`` version
-0/1/2, ``pitm``, and at most one ``idat``. For bounded ICC transfer,
-OpenMeta removes prior ICC ``colr/prof`` and ``colr/rICC`` properties from
-``iprp/ipco``, compacts/remaps existing ``ipma`` associations, appends the
-transferred ``colr/prof`` property, and associates it with the primary item.
-Arbitrary non-ICC property replacement and broader BMFF scene/property graph
-rewriting remain out of scope.
+0/1/2, ``pitm``, and at most one ``idat``. For ``iloc`` version 0/1 targets,
+inserted item IDs remain in the 16-bit item-id space. For ``iloc`` version 2
+targets, OpenMeta can allocate 32-bit item IDs and uses ``infe`` version 3 plus
+``iref`` version 1 when a newly inserted item needs that wider ID space. If the
+existing graph has exhausted the usable item-id space or mixes item-table widths
+outside this shape, the edit fails instead of truncating IDs.
+
+For bounded ICC transfer, OpenMeta removes prior ICC ``colr/prof`` and
+``colr/rICC`` properties from ``iprp/ipco``, compacts/remaps existing ``ipma``
+associations, appends the transferred ``colr/prof`` property, and associates it
+with the primary item. Arbitrary non-ICC property replacement and broader BMFF
+scene/property graph rewriting remain out of scope.
 
 If sidecar-only writeback asks to strip embedded XMP, OpenMeta can remove XMP
 from its own OpenMeta-authored metadata ``meta`` box and from parseable

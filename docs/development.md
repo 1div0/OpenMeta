@@ -321,11 +321,14 @@ Current v1 behavior is:
       merge, replace, or strip bounded Exif/XMP/JUMBF/C2PA items by extending
       `iinf`, `iloc`, `idat`, and `iref` with `cdsc` references to the primary
       item. This path requires a single parseable `iinf`, `iloc` version
-      0/1/2, `pitm`, and at most one `idat`. Bounded ICC transfer removes
-      prior ICC `colr/prof` and `colr/rICC` properties from `iprp/ipco`,
-      compacts/remaps existing `ipma` associations, appends the transferred
-      `colr/prof` property, and associates it with the primary item.
-      Arbitrary BMFF scene/property graph rewrite remains unsupported.
+      0/1/2, `pitm`, and at most one `idat`. Inserted item IDs follow the
+      existing `iloc` item-id width: `iloc` version 0/1 stays 16-bit, while
+      `iloc` version 2 can use 32-bit item IDs and emits wider `infe`/`iref`
+      records when needed. Bounded ICC transfer removes prior ICC `colr/prof`
+      and `colr/rICC` properties from `iprp/ipco`, compacts/remaps existing
+      `ipma` associations, appends the transferred `colr/prof` property, and
+      associates it with the primary item. Arbitrary BMFF scene/property graph
+      rewrite remains unsupported.
     - CLI/Python `metatransfer` wrappers expose both BMFF summaries and this
       bounded edit path; `--target-heif`, `--target-avif`, and `--target-cr3`
       now accept `--source-meta PATH` plus `--output PATH` for metadata

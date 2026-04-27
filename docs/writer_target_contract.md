@@ -59,7 +59,7 @@ integration checks.
 | `WebP` | `EXIF`, XMP RIFF chunk, `ICCP`, bounded `C2PA` | Replace matching managed RIFF chunks; preserve unrelated chunks; patch `VP8X` feature bits | EXIF/XMP/ICC edits require an existing `VP8X` chunk |
 | `JP2` | top-level `Exif`, top-level XMP `xml` box, `jp2h/colr` ICC | Replace matching top-level metadata boxes; rewrite `jp2h` only to replace/insert `colr`; preserve unrelated boxes and unrelated `jp2h` children | Does not synthesize `jp2h`; requires one existing `jp2h` for ICC |
 | `JXL` | top-level `Exif`, XMP `xml` box, `jumb`, `c2pa` | Replace matching top-level boxes; preserve signature and non-managed boxes; classify `jumb` as generic JUMBF or C2PA | ICC is encoder handoff only; file edit emits uncompressed prepared metadata boxes |
-| `HEIF` / `AVIF` / `CR3` | BMFF metadata items (`Exif`, XMP `mime`, JUMBF/C2PA), bounded `colr/prof` ICC properties, plus OpenMeta-authored metadata-only `meta` boxes | Preserve non-`meta` top-level boxes; replace prior OpenMeta-authored metadata `meta`; merge/replace/strip item metadata in parseable foreign top-level `meta` graphs by extending `iinf`/`iloc`/`idat`/`iref`; replace prior ICC `colr` properties and remap `iprp`/`ipco`/`ipma` for bounded ICC | Does not rewrite arbitrary BMFF scene/property graphs |
+| `HEIF` / `AVIF` / `CR3` | BMFF metadata items (`Exif`, XMP `mime`, JUMBF/C2PA), bounded `colr/prof` ICC properties, plus OpenMeta-authored metadata-only `meta` boxes | Preserve non-`meta` top-level boxes; replace prior OpenMeta-authored metadata `meta`; merge/replace/strip item metadata in parseable foreign top-level `meta` graphs by extending `iinf`/`iloc`/`idat`/`iref`; replace prior ICC `colr` properties and remap `iprp`/`ipco`/`ipma` for bounded ICC | Does not rewrite arbitrary BMFF scene/property graphs; 32-bit item-id insertion requires existing `iloc` v2 |
 | `EXR` | safe string header attributes through the EXR transfer emitter or adapter batch | No file rewrite contract today; host applies prepared attributes through its own EXR writer | Attribute-emitter target, not a file edit path |
 
 ## JPEG
@@ -192,6 +192,12 @@ graphs it merges, replaces, or strips bounded Exif/XMP/JUMBF/C2PA metadata
 items in the existing `meta` by extending `iinf`, `iloc`, `idat`, and `iref`
 with `cdsc` references to the primary item. This constrained merge requires a
 single parseable `iinf`, `iloc` version 0/1/2, `pitm`, and at most one `idat`.
+For `iloc` version 0/1 targets, inserted item IDs remain in the 16-bit item-id
+space. For `iloc` version 2 targets, OpenMeta can allocate 32-bit item IDs and
+uses `infe` version 3 plus `iref` version 1 when a newly inserted item needs
+that wider ID space. If the existing graph has exhausted the usable item-id
+space or mixes item-table widths outside this shape, the edit fails instead of
+truncating IDs.
 For bounded ICC transfer, OpenMeta removes prior ICC `colr/prof` and
 `colr/rICC` properties from `iprp/ipco`, compacts/remaps existing `ipma`
 associations, appends the transferred `colr/prof` property, and associates it

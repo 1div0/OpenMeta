@@ -55,7 +55,7 @@ The first public write-side sync controls are also in place:
 | WebP | Bounded but real | Prepared bundle, compiled emit, bounded chunk rewrite/edit, file-helper roundtrip | Not a general WebP chunk editor |
 | JP2 | Bounded but real | Prepared bundle, compiled emit, bounded box rewrite/edit, file-helper roundtrip | `jp2h` synthesis is still out of scope |
 | JXL | Bounded but real | Prepared bundle, compiled emit, bounded box rewrite/edit, file-helper roundtrip | Still narrower than JPEG/TIFF |
-| HEIF / AVIF / CR3 | Bounded but real | Prepared bundle, compiled emit, OpenMeta-managed BMFF item/property edit, constrained foreign-`meta` item merge/replacement/strip plus bounded ICC property merge, file-helper roundtrip | Not broad BMFF writer parity; arbitrary foreign `meta` scene/property-graph rewrite is still unsupported |
+| HEIF / AVIF / CR3 | Bounded but real | Prepared bundle, compiled emit, OpenMeta-managed BMFF item/property edit, constrained foreign-`meta` item merge/replacement/strip plus bounded ICC property merge, file-helper roundtrip | Not broad BMFF writer parity; arbitrary foreign `meta` scene/property-graph rewrite is still unsupported; 32-bit inserted item IDs require existing `iloc` v2 |
 | EXR | Bounded but real | Prepared bundle, compiled emit, direct backend attribute emit, prepared-bundle to `ExrAdapterBatch` bridge, CLI/Python transfer surface | No file rewrite/edit path yet; current transfer payload is safe string attributes only |
 
 ## What Is Already Implemented
@@ -304,6 +304,9 @@ Implemented as a bounded BMFF target family:
 - constrained foreign top-level `meta` item merge for parseable `iinf`,
   `iloc` version 0/1/2, `pitm`, optional single `idat`, and primary-item `cdsc`
   references
+- bounded 32-bit item-id insertion for foreign item graphs that already use
+  `iloc` version 2; `iloc` version 0/1 targets remain constrained to 16-bit
+  inserted item IDs
 - bounded foreign top-level `meta` ICC property merge by replacing prior ICC
   `colr/prof` and `colr/rICC` properties, remapping `ipma`, and associating the
   transferred `colr/prof` property with the primary item
@@ -785,7 +788,13 @@ parity across every workflow.
 - [x] lock explicit unmanaged-metadata preservation rules for unrelated chunks, boxes, items, and tails per target family
 - [x] add compare-backed read-back gates for each first-class target instead of relying mainly on API-shape regression coverage
 - [x] make CLI and Python surfaces describe the same writeback behavior and path-derivation rules as the C++ helper
-- [ ] reduce remaining target differences to documented limits instead of accidental implementation details
+- [x] reduce remaining target differences to documented limits instead of accidental implementation details
+
+Evidence: `docs/writer_target_contract.md` defines per-target preserve/replace
+rules and the remaining bounded limits. The BMFF section now makes the item-id
+width rule explicit: `iloc` version 0/1 insertion remains 16-bit, while `iloc`
+version 2 can use 32-bit item IDs and fails safely when the graph shape or ID
+space is outside that contract.
 
 #### 2. Bounded EXIF / IPTC / XMP Sync Layer
 
@@ -810,7 +819,13 @@ embedded/sidecar writeback across the primary writer target family.
 - [x] cover embedded-only, sidecar-only, and dual-write XMP flows in release-facing compare validation
 - [x] add compare-backed validation for explicit sidecar-base overrides and destination-sidecar cleanup behavior
 - [x] gate the primary writer family on deterministic read-back of managed metadata after edit/apply
-- [ ] keep public parity claims tied to compare-backed evidence instead of only unit or smoke coverage
+- [x] keep public parity claims tied to compare-backed evidence instead of only unit or smoke coverage
+
+Evidence: this plan keeps parity language at the supported-lane level and ties
+release claims to `openmeta_gate_transfer_release`, compatibility-dump
+read-back, and image-usability gates. BMFF high-item-ID insertion is covered by
+a release-gated API roundtrip that writes into an `iloc` v2 graph and scans the
+result back as one Exif item and one XMP item.
 
 #### 4. TIFF / DNG Deeper Rewrite Guarantees
 
@@ -830,9 +845,9 @@ embedded-versus-sidecar precedence, and `DNGVersion` read-back.
 
 #### Done-When Readout
 
-- [ ] the first-class target family has one explicit public writer contract
-- [ ] the bounded sync-policy layer is documented and regression-gated
-- [ ] release-facing compare validation covers the main still-image writer set
+- [x] the first-class target family has one explicit public writer contract
+- [x] the bounded sync-policy layer is documented and regression-gated
+- [x] release-facing compare validation covers the main still-image writer set
 - [x] `TIFF/DNG` rewrite guarantees are strong enough to stop being a primary parity blocker
 - [x] the next work slice can move to bounded `BMFF` depth instead of still backfilling the writer baseline
 

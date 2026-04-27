@@ -153,6 +153,9 @@ For the public per-target preserve/replace guarantees, see
   Exif/XMP/JUMBF/C2PA metadata items by extending `iinf`, `iloc`, `idat`, and
   `iref` with `cdsc` references to the primary item. It requires a single
   parseable `iinf`, `iloc` version 0/1/2, `pitm`, and at most one `idat`.
+  Inserted item IDs follow the existing `iloc` item-id width: `iloc` version 0/1
+  remains a 16-bit insertion path, while `iloc` version 2 can use 32-bit item IDs
+  and emits wider `infe`/`iref` records when needed.
 - Foreign-`meta` ICC property merge is bounded to
   `bmff:property-colr-icc`. OpenMeta removes prior ICC `colr/prof` and
   `colr/rICC` properties from `iprp/ipco`, compacts/remaps existing `ipma`
