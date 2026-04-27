@@ -59,7 +59,7 @@ integration checks.
 | `WebP` | `EXIF`, XMP RIFF chunk, `ICCP`, bounded `C2PA` | Replace matching managed RIFF chunks; preserve unrelated chunks; patch `VP8X` feature bits | EXIF/XMP/ICC edits require an existing `VP8X` chunk |
 | `JP2` | top-level `Exif`, top-level XMP `xml` box, `jp2h/colr` ICC | Replace matching top-level metadata boxes; rewrite `jp2h` only to replace/insert `colr`; preserve unrelated boxes and unrelated `jp2h` children | Does not synthesize `jp2h`; requires one existing `jp2h` for ICC |
 | `JXL` | top-level `Exif`, XMP `xml` box, `jumb`, `c2pa` | Replace matching top-level boxes; preserve signature and non-managed boxes; classify `jumb` as generic JUMBF or C2PA | ICC is encoder handoff only; file edit emits uncompressed prepared metadata boxes |
-| `HEIF` / `AVIF` / `CR3` | one OpenMeta-authored metadata-only top-level `meta` box with Exif/XMP/JUMBF/C2PA items and `colr` ICC property | Preserve non-`meta` top-level boxes; replace prior OpenMeta-authored metadata `meta`; reject foreign top-level `meta` boxes instead of appending a competing metadata graph | Does not rewrite or merge arbitrary existing BMFF scene/item graphs |
+| `HEIF` / `AVIF` / `CR3` | BMFF metadata items (`Exif`, XMP `mime`, JUMBF/C2PA), bounded `colr/prof` ICC properties, plus OpenMeta-authored metadata-only `meta` boxes | Preserve non-`meta` top-level boxes; replace prior OpenMeta-authored metadata `meta`; merge/replace/strip item metadata in parseable foreign top-level `meta` graphs by extending `iinf`/`iloc`/`idat`/`iref`; replace prior ICC `colr` properties and remap `iprp`/`ipco`/`ipma` for bounded ICC | Does not rewrite arbitrary BMFF scene/property graphs |
 | `EXR` | safe string header attributes through the EXR transfer emitter or adapter batch | No file rewrite contract today; host applies prepared attributes through its own EXR writer | Attribute-emitter target, not a file edit path |
 
 ## JPEG
@@ -180,23 +180,30 @@ encoder-side handoff and is not serialized by the file edit path.
 The bounded BMFF edit path preserves non-`meta` top-level boxes as source
 ranges.
 
-OpenMeta writes one metadata-only top-level `meta` box using the public
-bounded contract. That box can contain prepared Exif, XMP, JUMBF, C2PA, and
-ICC `colr` property payloads. A prior OpenMeta-authored metadata `meta` box is
-removed and replaced by the newly prepared box.
+When the target has no foreign top-level `meta` box, OpenMeta writes one
+metadata-only top-level `meta` box using the public bounded contract. That box
+can contain prepared Exif, XMP, JUMBF, C2PA, and ICC `colr` property payloads.
+A prior OpenMeta-authored metadata `meta` box is removed and replaced by the
+newly prepared box.
 
-OpenMeta does not append a second top-level `meta` box when the target already
-has a foreign top-level `meta` box. Real HEIF/AVIF scene graphs commonly use
-that box for image items and properties; appending a competing metadata graph
-can make the result unusable. Until OpenMeta has a real BMFF merge path for
-foreign item/property graphs, that case is reported as unsupported and no
-edited output is written.
+When the target already has a foreign top-level `meta` box, OpenMeta does not
+append a second competing `meta` graph. For parseable HEIF/AVIF-style item
+graphs it merges, replaces, or strips bounded Exif/XMP/JUMBF/C2PA metadata
+items in the existing `meta` by extending `iinf`, `iloc`, `idat`, and `iref`
+with `cdsc` references to the primary item. This constrained merge requires a
+single parseable `iinf`, `iloc` version 0/1/2, `pitm`, and at most one `idat`.
+For bounded ICC transfer, OpenMeta removes prior ICC `colr/prof` and
+`colr/rICC` properties from `iprp/ipco`, compacts/remaps existing `ipma`
+associations, appends the transferred `colr/prof` property, and associates it
+with the primary item. Arbitrary non-ICC property replacement and broader BMFF
+scene/property graph rewriting remain out of scope.
 
 If sidecar-only writeback asks to strip embedded XMP, OpenMeta can remove XMP
-from its own OpenMeta-authored metadata `meta` box. It does not strip XMP from
-foreign BMFF metadata graphs; recognized foreign XMP item graphs, including
-common `iinf` version 0/1/2 `mime` entries, are reported as unsupported
-instead.
+from its own OpenMeta-authored metadata `meta` box and from parseable foreign
+top-level `meta` item graphs that satisfy the same bounded primary-item
+contract. Foreign graphs without `pitm`, with unsupported `iloc`, with multiple
+competing item tables, or otherwise outside that bounded shape are reported as
+unsupported instead of being guessed.
 
 ## EXR
 

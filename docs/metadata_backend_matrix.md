@@ -115,8 +115,7 @@ For the public per-target preserve/replace guarantees, see
 ### ISO-BMFF metadata items (HEIF / AVIF / CR3)
 
 - This bounded transfer path is metadata-item/property oriented. OpenMeta also
-  supports a bounded OpenMeta-managed BMFF metadata edit path over an existing
-  BMFF target file.
+  supports a bounded BMFF metadata edit path over an existing BMFF target file.
 - Current prepared item routes:
   - `bmff:item-exif`
   - `bmff:item-xmp`
@@ -145,16 +144,26 @@ For the public per-target preserve/replace guarantees, see
 - The shared package-batch persistence/replay layer can own and hand off
   stable BMFF item and property payload bytes.
 - `metatransfer` / `openmeta.transfer_probe(...)` expose BMFF summaries,
-  including `bmff_property colr/prof ...`.
+  including `bmff_item mime/xmp ...` and `bmff_property colr/prof ...`.
 - `metatransfer --target-heif|--target-avif|--target-cr3 --source-meta ... -o ...`
-  performs bounded metadata-only edit only for targets with no foreign
-  top-level `meta` box, or with a prior OpenMeta-authored metadata-only `meta`
-  box from the same bounded contract. Foreign top-level `meta` boxes are
-  rejected until OpenMeta can merge real BMFF item/property graphs safely.
-- Embedded-XMP strip mode removes only OpenMeta-authored metadata `meta` boxes.
-  Foreign BMFF metadata graphs are not modified; recognized foreign XMP `mime`
-  items, including `iinf` version 0/1/2 tables, make strip mode fail explicitly
-  instead of silently claiming removal.
+  performs bounded metadata edits for targets with no foreign top-level `meta`
+  box, with a prior OpenMeta-authored metadata-only `meta` box from the same
+  bounded contract, or with a parseable foreign top-level `meta` item graph.
+  The foreign-`meta` path merges, replaces, or strips bounded
+  Exif/XMP/JUMBF/C2PA metadata items by extending `iinf`, `iloc`, `idat`, and
+  `iref` with `cdsc` references to the primary item. It requires a single
+  parseable `iinf`, `iloc` version 0/1/2, `pitm`, and at most one `idat`.
+- Foreign-`meta` ICC property merge is bounded to
+  `bmff:property-colr-icc`. OpenMeta removes prior ICC `colr/prof` and
+  `colr/rICC` properties from `iprp/ipco`, compacts/remaps existing `ipma`
+  associations, appends the transferred `colr/prof` property, and associates
+  it with the primary item. Broader non-ICC property replacement and arbitrary
+  scene/property-graph rewrites remain out of scope for the current contract.
+- Embedded-XMP strip mode removes XMP from OpenMeta-authored metadata `meta`
+  boxes and from parseable foreign top-level `meta` item graphs that satisfy
+  the same bounded merge contract. Foreign graphs without a primary item
+  relationship (`pitm`) or outside the supported `iinf`/`iloc`/`idat`/`iref`
+  shape still fail explicitly instead of silently claiming removal.
 - The same bounded BMFF edit contract now also participates in the core /
   file-helper C2PA signer path:
   - sign-request derivation
@@ -163,7 +172,7 @@ For the public per-target preserve/replace guarantees, see
   - staged bmff:item-c2pa apply before bounded metadata-only edit
 - Out of scope for the current BMFF contract:
   - thin CLI/Python signer-input exposure for BMFF
-  - merging or rewriting foreign top-level BMFF meta item/property graphs
+  - arbitrary rewrite of foreign top-level BMFF scene/property graphs
   - full BMFF signed rewrite/re-sign beyond the bounded metadata-only edit path
 
 ### EXR (OpenEXR)

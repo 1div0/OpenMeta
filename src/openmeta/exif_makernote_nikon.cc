@@ -2025,6 +2025,23 @@ decode_nikon_binary_subdirs(std::string_view mk_ifd0, MetaStore& store, bool le,
                 vals_out[out_count] = make_u8(flash_group_c_mode);
                 name_variants[out_count] = 7U;
                 out_count += 1;
+            } else if ((layout == kNikonFlashInfo0107
+                        || layout == kNikonFlashInfo0300)
+                       && raw_src.size() > 0x12U) {
+                tags_out[out_count] = 0x0011U;
+                vals_out[out_count] = make_u8(flash_group_a_mode);
+                name_variants[out_count] = 5U;
+                out_count += 1;
+
+                tags_out[out_count] = 0x0012U;
+                vals_out[out_count] = make_u8(flash_group_b_mode);
+                name_variants[out_count] = 6U;
+                out_count += 1;
+
+                tags_out[out_count] = 0x0012U;
+                vals_out[out_count] = make_u8(flash_group_c_mode);
+                name_variants[out_count] = 7U;
+                out_count += 1;
             }
 
             const uint16_t* u8_tags      = nullptr;

@@ -21068,6 +21068,57 @@ namespace {
         uint32_t length  = 0U;
     };
 
+    struct BmffForeignIinfEntry final {
+        uint32_t item_id   = 0U;
+        uint32_t item_type = 0U;
+        bool mime_xmp      = false;
+        uint64_t offset    = 0U;
+        uint64_t size      = 0U;
+    };
+
+    struct BmffForeignIlocExtent final {
+        uint64_t index  = 0U;
+        uint64_t offset = 0U;
+        uint64_t length = 0U;
+    };
+
+    struct BmffForeignIlocRecord final {
+        uint32_t item_id             = 0U;
+        uint16_t construction_method = 0U;
+        uint16_t data_reference_index = 0U;
+        uint64_t base_offset         = 0U;
+        std::vector<BmffForeignIlocExtent> extents;
+    };
+
+    struct BmffForeignMetaContext final {
+        TransferBmffBox iinf {};
+        TransferBmffBox iloc {};
+        TransferBmffBox idat {};
+        TransferBmffBox iref {};
+        TransferBmffBox iprp {};
+        TransferBmffBox pitm {};
+        bool has_iinf          = false;
+        bool has_iloc          = false;
+        bool has_idat          = false;
+        bool has_iref          = false;
+        bool has_iprp          = false;
+        bool has_pitm          = false;
+        uint8_t iinf_version   = 0U;
+        uint8_t iloc_version   = 0U;
+        uint8_t iloc_sizes0    = 0U;
+        uint8_t iloc_sizes1    = 0U;
+        size_t iloc_record_off = 0U;
+        uint64_t max_item_id   = 0U;
+        uint32_t primary_item_id = 0U;
+    };
+
+    struct BmffMetadataRewritePolicy final {
+        bool exif  = false;
+        bool xmp   = false;
+        bool jumbf = false;
+        bool c2pa  = false;
+    };
+
     static constexpr std::array<std::byte, 16> kOpenMetaBmffTransferMetaUuid = {
         std::byte { 'O' }, std::byte { 'p' }, std::byte { 'e' },
         std::byte { 'n' }, std::byte { 'M' }, std::byte { 'e' },
@@ -21406,66 +21457,6 @@ namespace {
         }
         *out_mime_xmp = content_type == "application/rdf+xml";
         return true;
-    }
-
-    static bool bmff_meta_declares_xmp_item(
-        std::span<const std::byte> bytes, const TransferBmffBox& meta) noexcept
-    {
-        if (meta.type != fourcc('m', 'e', 't', 'a')
-            || meta.offset + meta.header_size + 4U > bytes.size()
-            || meta.size < meta.header_size + 4U) {
-            return false;
-        }
-
-        const uint64_t payload_begin = meta.offset + meta.header_size + 4U;
-        const uint64_t payload_end   = meta.offset + meta.size;
-        uint64_t off                 = payload_begin;
-        while (off + 8U <= payload_end) {
-            TransferBmffBox child;
-            if (!parse_transfer_bmff_box(bytes, off, payload_end, &child)) {
-                return false;
-            }
-            if (child.type == fourcc('i', 'i', 'n', 'f')
-                && child.offset + child.header_size + 4U <= bytes.size()) {
-                uint64_t infe_off = 0U;
-                uint64_t child_payload_end = 0U;
-                uint64_t entry_count = 0U;
-                if (!bmff_iinf_entry_region(bytes, child, &infe_off,
-                                            &child_payload_end,
-                                            &entry_count)) {
-                    return false;
-                }
-                for (uint64_t entry_index = 0U;
-                     entry_index < entry_count
-                         && infe_off + 8U <= child_payload_end;
-                     ++entry_index) {
-                    TransferBmffBox infe;
-                    if (!parse_transfer_bmff_box(bytes, infe_off,
-                                                 child_payload_end, &infe)) {
-                        return false;
-                    }
-                    uint32_t ignored_item_id = 0U;
-                    bool mime_xmp = false;
-                    if (!bmff_infe_v2_or_v3_mime_xmp(bytes, infe,
-                                                     &ignored_item_id,
-                                                     &mime_xmp)) {
-                        return false;
-                    }
-                    if (mime_xmp) {
-                        return true;
-                    }
-                    if (infe.size == 0U) {
-                        break;
-                    }
-                    infe_off += infe.size;
-                }
-            }
-            if (child.size == 0U) {
-                break;
-            }
-            off += child.size;
-        }
-        return false;
     }
 
     static void collect_existing_bmff_xmp_payloads_from_meta(
@@ -21882,7 +21873,7 @@ namespace {
         const PreparedTransferBundle& bundle,
         std::vector<BmffRewriteItemSource>* out_items,
         std::vector<BmffRewritePropertySource>* out_props,
-        EmitTransferResult* out) noexcept
+        EmitTransferResult* out, bool allow_empty_sources = false) noexcept
     {
         if (!out_items || !out_props || !out) {
             return false;
@@ -21940,12 +21931,2131 @@ namespace {
             return false;
         }
 
-        if (out_items->empty() && out_props->empty()) {
+        if (out_items->empty() && out_props->empty() && !allow_empty_sources) {
             out->status  = TransferStatus::Unsupported;
             out->code    = EmitTransferCode::InvalidArgument;
             out->errors  = 1U;
             out->message = "no bmff metadata blocks available for edit";
             return false;
+        }
+        return true;
+    }
+
+    static bool fail_bmff_foreign_meta_merge(EmitTransferResult* out,
+                                             TransferStatus status,
+                                             EmitTransferCode code,
+                                             const char* message) noexcept
+    {
+        if (out) {
+            out->status = status;
+            out->code   = code;
+            out->errors = 1U;
+            out->message
+                = std::string("foreign top-level bmff meta merge: ")
+                  + message;
+        }
+        return false;
+    }
+
+    static BmffMetadataRewritePolicy
+    collect_bmff_metadata_rewrite_policy(
+        const PreparedTransferBundle& bundle) noexcept
+    {
+        BmffMetadataRewritePolicy policy;
+        for (size_t i = 0; i < bundle.blocks.size(); ++i) {
+            const PreparedTransferBlock& block = bundle.blocks[i];
+            if (block.payload.empty()) {
+                continue;
+            }
+            if (block.route == "bmff:item-exif") {
+                policy.exif = true;
+            } else if (block.route == "bmff:item-xmp") {
+                policy.xmp = true;
+            } else if (block.route == "bmff:item-jumb") {
+                policy.jumbf = true;
+            } else if (block.route == "bmff:item-c2pa") {
+                policy.c2pa = true;
+            }
+        }
+        return policy;
+    }
+
+    static bool bmff_removed_item_id(
+        const std::vector<uint32_t>& removed_item_ids, uint32_t item_id) noexcept
+    {
+        for (size_t i = 0; i < removed_item_ids.size(); ++i) {
+            if (removed_item_ids[i] == item_id) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static bool bmff_append_removed_item_id(
+        std::vector<uint32_t>* removed_item_ids, uint32_t item_id) noexcept
+    {
+        if (!removed_item_ids || item_id == 0U
+            || bmff_removed_item_id(*removed_item_ids, item_id)) {
+            return true;
+        }
+        removed_item_ids->push_back(item_id);
+        return true;
+    }
+
+    static bool bmff_item_matches_rewrite_policy(
+        const BmffForeignIinfEntry& entry,
+        const BmffMetadataRewritePolicy& policy) noexcept
+    {
+        if (entry.item_type == fourcc('E', 'x', 'i', 'f')) {
+            return policy.exif;
+        }
+        if (entry.mime_xmp || entry.item_type == fourcc('x', 'm', 'l', ' ')) {
+            return policy.xmp;
+        }
+        if (entry.item_type == fourcc('j', 'u', 'm', 'b')) {
+            return policy.jumbf;
+        }
+        if (entry.item_type == fourcc('c', '2', 'p', 'a')) {
+            return policy.c2pa;
+        }
+        return false;
+    }
+
+    static bool append_bmff_u_nbe_checked(std::vector<std::byte>* out,
+                                          size_t width,
+                                          uint64_t value) noexcept
+    {
+        if (!out || width > 8U) {
+            return false;
+        }
+        if (width == 0U) {
+            return value == 0U;
+        }
+        if (width < 8U && (value >> (width * 8U)) != 0U) {
+            return false;
+        }
+        for (size_t i = 0; i < width; ++i) {
+            const size_t shift = (width - 1U - i) * 8U;
+            out->push_back(
+                static_cast<std::byte>((value >> shift) & 0xFFU));
+        }
+        return true;
+    }
+
+    static bool bmff_parse_infe_metadata_info(
+        std::span<const std::byte> bytes, const TransferBmffBox& infe,
+        BmffForeignIinfEntry* out_entry) noexcept
+    {
+        if (!out_entry || infe.type != fourcc('i', 'n', 'f', 'e')
+            || infe.offset + infe.header_size + 4U > bytes.size()
+            || infe.size < infe.header_size + 4U) {
+            return false;
+        }
+
+        BmffForeignIinfEntry entry;
+        entry.offset = infe.offset;
+        entry.size   = infe.size;
+
+        const uint8_t version
+            = std::to_integer<uint8_t>(bytes[infe.offset + infe.header_size]);
+        const size_t payload_begin = static_cast<size_t>(
+            infe.offset + infe.header_size + 4U);
+        const size_t payload_end = static_cast<size_t>(infe.offset + infe.size);
+
+        if (version < 2U) {
+            if (payload_begin + 4U > payload_end) {
+                return false;
+            }
+            entry.item_id = read_u16be(bytes, payload_begin);
+            size_t cursor = payload_begin + 4U;
+
+            std::string_view name;
+            size_t next = cursor;
+            if (!read_bmff_cstring_view(bytes, cursor, payload_end, &next,
+                                        &name)) {
+                return false;
+            }
+            cursor = next;
+            if (name == "Exif") {
+                entry.item_type = fourcc('E', 'x', 'i', 'f');
+            } else if (name == "JUMBF") {
+                entry.item_type = fourcc('j', 'u', 'm', 'b');
+            }
+
+            if (cursor < payload_end) {
+                std::string_view content_type;
+                if (!read_bmff_cstring_view(bytes, cursor, payload_end, &next,
+                                            &content_type)) {
+                    return false;
+                }
+                if (content_type == "application/rdf+xml") {
+                    entry.item_type = fourcc('m', 'i', 'm', 'e');
+                    entry.mime_xmp  = true;
+                }
+            }
+        } else if (version == 2U || version == 3U) {
+            const size_t item_id_width = version == 3U ? 4U : 2U;
+            const size_t item_type_off = payload_begin + item_id_width + 2U;
+            if (item_type_off + 4U > payload_end) {
+                return false;
+            }
+            uint64_t item_id64 = 0U;
+            if (!read_bmff_u_nbe(bytes, payload_begin, item_id_width,
+                                 &item_id64)
+                || item_id64 > std::numeric_limits<uint32_t>::max()) {
+                return false;
+            }
+            entry.item_id = static_cast<uint32_t>(item_id64);
+            if (!read_u32be(bytes, item_type_off, &entry.item_type)) {
+                return false;
+            }
+
+            size_t cursor = item_type_off + 4U;
+            std::string_view ignored_name;
+            size_t next = cursor;
+            if (!read_bmff_cstring_view(bytes, cursor, payload_end, &next,
+                                        &ignored_name)) {
+                return false;
+            }
+            cursor = next;
+            if (entry.item_type == fourcc('m', 'i', 'm', 'e')) {
+                std::string_view content_type;
+                if (!read_bmff_cstring_view(bytes, cursor, payload_end, &next,
+                                            &content_type)) {
+                    return false;
+                }
+                entry.mime_xmp = content_type == "application/rdf+xml";
+            }
+        } else {
+            return false;
+        }
+
+        *out_entry = entry;
+        return true;
+    }
+
+    static bool bmff_parse_pitm_primary_item_id(
+        std::span<const std::byte> bytes, const TransferBmffBox& pitm,
+        uint32_t* out_item_id) noexcept
+    {
+        if (!out_item_id || pitm.type != fourcc('p', 'i', 't', 'm')
+            || pitm.offset + pitm.header_size + 4U > bytes.size()
+            || pitm.size < pitm.header_size + 6U) {
+            return false;
+        }
+        const uint8_t version
+            = std::to_integer<uint8_t>(bytes[pitm.offset + pitm.header_size]);
+        const size_t payload_begin = static_cast<size_t>(
+            pitm.offset + pitm.header_size + 4U);
+        const size_t payload_end = static_cast<size_t>(pitm.offset + pitm.size);
+        if (version == 0U) {
+            if (payload_begin + 2U > payload_end) {
+                return false;
+            }
+            *out_item_id = read_u16be(bytes, payload_begin);
+            return true;
+        }
+        if (version == 1U) {
+            uint32_t id32 = 0U;
+            if (payload_begin + 4U > payload_end
+                || !read_u32be(bytes, payload_begin, &id32)) {
+                return false;
+            }
+            *out_item_id = id32;
+            return true;
+        }
+        return false;
+    }
+
+    static bool bmff_collect_foreign_meta_context(
+        std::span<const std::byte> bytes, const TransferBmffBox& meta,
+        BmffForeignMetaContext* ctx, EmitTransferResult* out) noexcept
+    {
+        if (!ctx || meta.type != fourcc('m', 'e', 't', 'a')
+            || meta.offset + meta.header_size + 4U > bytes.size()
+            || meta.size < meta.header_size + 4U) {
+            return fail_bmff_foreign_meta_merge(
+                out, TransferStatus::Malformed, EmitTransferCode::InvalidPayload,
+                "malformed meta box");
+        }
+
+        *ctx = BmffForeignMetaContext {};
+        const uint64_t payload_begin = meta.offset + meta.header_size + 4U;
+        const uint64_t payload_end   = meta.offset + meta.size;
+        uint64_t off                 = payload_begin;
+        while (off + 8U <= payload_end) {
+            TransferBmffBox child;
+            if (!parse_transfer_bmff_box(bytes, off, payload_end, &child)) {
+                return fail_bmff_foreign_meta_merge(
+                    out, TransferStatus::Malformed,
+                    EmitTransferCode::InvalidPayload,
+                    "failed to parse meta child box");
+            }
+            if (child.type == fourcc('i', 'i', 'n', 'f')) {
+                if (ctx->has_iinf) {
+                    return fail_bmff_foreign_meta_merge(
+                        out, TransferStatus::Unsupported,
+                        EmitTransferCode::InvalidArgument,
+                        "multiple iinf boxes are not supported");
+                }
+                ctx->iinf     = child;
+                ctx->has_iinf = true;
+            } else if (child.type == fourcc('i', 'l', 'o', 'c')) {
+                if (ctx->has_iloc) {
+                    return fail_bmff_foreign_meta_merge(
+                        out, TransferStatus::Unsupported,
+                        EmitTransferCode::InvalidArgument,
+                        "multiple iloc boxes are not supported");
+                }
+                ctx->iloc     = child;
+                ctx->has_iloc = true;
+            } else if (child.type == fourcc('i', 'd', 'a', 't')) {
+                if (ctx->has_idat) {
+                    return fail_bmff_foreign_meta_merge(
+                        out, TransferStatus::Unsupported,
+                        EmitTransferCode::InvalidArgument,
+                        "multiple idat boxes are not supported");
+                }
+                ctx->idat     = child;
+                ctx->has_idat = true;
+            } else if (child.type == fourcc('i', 'r', 'e', 'f')) {
+                if (ctx->has_iref) {
+                    return fail_bmff_foreign_meta_merge(
+                        out, TransferStatus::Unsupported,
+                        EmitTransferCode::InvalidArgument,
+                        "multiple iref boxes are not supported");
+                }
+                ctx->iref     = child;
+                ctx->has_iref = true;
+            } else if (child.type == fourcc('i', 'p', 'r', 'p')) {
+                if (ctx->has_iprp) {
+                    return fail_bmff_foreign_meta_merge(
+                        out, TransferStatus::Unsupported,
+                        EmitTransferCode::InvalidArgument,
+                        "multiple iprp boxes are not supported");
+                }
+                ctx->iprp     = child;
+                ctx->has_iprp = true;
+            } else if (child.type == fourcc('p', 'i', 't', 'm')) {
+                if (ctx->has_pitm) {
+                    return fail_bmff_foreign_meta_merge(
+                        out, TransferStatus::Unsupported,
+                        EmitTransferCode::InvalidArgument,
+                        "multiple pitm boxes are not supported");
+                }
+                ctx->pitm     = child;
+                ctx->has_pitm = true;
+            }
+
+            if (child.size == 0U) {
+                break;
+            }
+            off += child.size;
+        }
+
+        if (!ctx->has_iinf || !ctx->has_iloc || !ctx->has_pitm) {
+            return fail_bmff_foreign_meta_merge(
+                out, TransferStatus::Unsupported,
+                EmitTransferCode::InvalidArgument,
+                "requires existing iinf, iloc, and pitm boxes");
+        }
+        if (!bmff_parse_pitm_primary_item_id(bytes, ctx->pitm,
+                                             &ctx->primary_item_id)
+            || ctx->primary_item_id == 0U) {
+            return fail_bmff_foreign_meta_merge(
+                out, TransferStatus::Unsupported,
+                EmitTransferCode::InvalidArgument,
+                "pitm primary item id is not supported");
+        }
+        ctx->max_item_id = ctx->primary_item_id;
+        return true;
+    }
+
+    static bool bmff_collect_foreign_iinf_entries(
+        std::span<const std::byte> bytes, BmffForeignMetaContext* ctx,
+        std::vector<BmffForeignIinfEntry>* entries,
+        EmitTransferResult* out) noexcept
+    {
+        if (!ctx || !entries) {
+            return false;
+        }
+        entries->clear();
+
+        uint64_t entry_off = 0U;
+        uint64_t entry_end = 0U;
+        uint64_t entry_count = 0U;
+        if (!bmff_iinf_entry_region(bytes, ctx->iinf, &entry_off, &entry_end,
+                                    &entry_count)) {
+            return fail_bmff_foreign_meta_merge(
+                out, TransferStatus::Malformed, EmitTransferCode::InvalidPayload,
+                "failed to parse iinf");
+        }
+        ctx->iinf_version = std::to_integer<uint8_t>(
+            bytes[ctx->iinf.offset + ctx->iinf.header_size]);
+        if (entry_count > (1ULL << 20U)) {
+            return fail_bmff_foreign_meta_merge(
+                out, TransferStatus::LimitExceeded,
+                EmitTransferCode::InvalidPayload,
+                "iinf entry count is too large");
+        }
+
+        uint64_t off = entry_off;
+        for (uint64_t i = 0U; i < entry_count && off + 8U <= entry_end; ++i) {
+            TransferBmffBox infe;
+            if (!parse_transfer_bmff_box(bytes, off, entry_end, &infe)) {
+                return fail_bmff_foreign_meta_merge(
+                    out, TransferStatus::Malformed,
+                    EmitTransferCode::InvalidPayload,
+                    "failed to parse infe entry");
+            }
+            if (infe.type != fourcc('i', 'n', 'f', 'e')) {
+                return fail_bmff_foreign_meta_merge(
+                    out, TransferStatus::Unsupported,
+                    EmitTransferCode::InvalidArgument,
+                    "non-infe iinf entries are not supported");
+            }
+
+            BmffForeignIinfEntry entry;
+            if (!bmff_parse_infe_metadata_info(bytes, infe, &entry)) {
+                return fail_bmff_foreign_meta_merge(
+                    out, TransferStatus::Malformed,
+                    EmitTransferCode::InvalidPayload,
+                    "failed to parse infe payload");
+            }
+            if (entry.item_id > ctx->max_item_id) {
+                ctx->max_item_id = entry.item_id;
+            }
+            entries->push_back(entry);
+
+            if (infe.size == 0U) {
+                break;
+            }
+            off += infe.size;
+        }
+        if (entries->size() != entry_count) {
+            return fail_bmff_foreign_meta_merge(
+                out, TransferStatus::Malformed, EmitTransferCode::InvalidPayload,
+                "iinf entry table ended early");
+        }
+        return true;
+    }
+
+    static bool bmff_collect_foreign_iloc_records(
+        std::span<const std::byte> bytes, BmffForeignMetaContext* ctx,
+        std::vector<BmffForeignIlocRecord>* records,
+        EmitTransferResult* out) noexcept
+    {
+        if (!ctx || !records || ctx->iloc.type != fourcc('i', 'l', 'o', 'c')
+            || ctx->iloc.offset + ctx->iloc.header_size + 8U > bytes.size()
+            || ctx->iloc.size < ctx->iloc.header_size + 8U) {
+            return fail_bmff_foreign_meta_merge(
+                out, TransferStatus::Malformed, EmitTransferCode::InvalidPayload,
+                "malformed iloc box");
+        }
+        records->clear();
+
+        const size_t payload_begin = static_cast<size_t>(
+            ctx->iloc.offset + ctx->iloc.header_size);
+        const size_t payload_end
+            = static_cast<size_t>(ctx->iloc.offset + ctx->iloc.size);
+        ctx->iloc_version = std::to_integer<uint8_t>(bytes[payload_begin]);
+        if (ctx->iloc_version > 2U) {
+            return fail_bmff_foreign_meta_merge(
+                out, TransferStatus::Unsupported,
+                EmitTransferCode::InvalidArgument,
+                "iloc version is not supported");
+        }
+
+        if (payload_begin + 6U > payload_end) {
+            return fail_bmff_foreign_meta_merge(
+                out, TransferStatus::Malformed, EmitTransferCode::InvalidPayload,
+                "iloc header is truncated");
+        }
+        ctx->iloc_sizes0 = std::to_integer<uint8_t>(bytes[payload_begin + 4U]);
+        ctx->iloc_sizes1 = std::to_integer<uint8_t>(bytes[payload_begin + 5U]);
+        const size_t offset_size = static_cast<size_t>(
+            (ctx->iloc_sizes0 >> 4U) & 0x0FU);
+        const size_t length_size = static_cast<size_t>(
+            ctx->iloc_sizes0 & 0x0FU);
+        const size_t base_offset_size = static_cast<size_t>(
+            (ctx->iloc_sizes1 >> 4U) & 0x0FU);
+        const size_t index_size = static_cast<size_t>(
+            ctx->iloc_sizes1 & 0x0FU);
+        if (offset_size > 8U || length_size > 8U || base_offset_size > 8U
+            || index_size > 8U || offset_size == 0U || length_size == 0U) {
+            return fail_bmff_foreign_meta_merge(
+                out, TransferStatus::Unsupported,
+                EmitTransferCode::InvalidArgument,
+                "iloc offset/length field widths are not supported");
+        }
+        if (ctx->iloc_version == 0U && index_size != 0U) {
+            return fail_bmff_foreign_meta_merge(
+                out, TransferStatus::Unsupported,
+                EmitTransferCode::InvalidArgument,
+                "iloc v0 reserved index-size bits must be zero");
+        }
+
+        uint64_t item_count = 0U;
+        size_t cursor       = payload_begin + 6U;
+        const size_t item_id_width = ctx->iloc_version == 2U ? 4U : 2U;
+        if (ctx->iloc_version == 2U) {
+            uint32_t count32 = 0U;
+            if (cursor + 4U > payload_end
+                || !read_u32be(bytes, cursor, &count32)) {
+                return fail_bmff_foreign_meta_merge(
+                    out, TransferStatus::Malformed,
+                    EmitTransferCode::InvalidPayload,
+                    "iloc item count is truncated");
+            }
+            item_count = count32;
+            cursor += 4U;
+        } else {
+            if (cursor + 2U > payload_end) {
+                return fail_bmff_foreign_meta_merge(
+                    out, TransferStatus::Malformed,
+                    EmitTransferCode::InvalidPayload,
+                    "iloc item count is truncated");
+            }
+            item_count = read_u16be(bytes, cursor);
+            cursor += 2U;
+        }
+        ctx->iloc_record_off = cursor;
+
+        if (item_count > (1ULL << 20U)) {
+            return fail_bmff_foreign_meta_merge(
+                out, TransferStatus::LimitExceeded,
+                EmitTransferCode::InvalidPayload,
+                "iloc item count is too large");
+        }
+        for (uint64_t i = 0U; i < item_count; ++i) {
+            const size_t construction_size
+                = ctx->iloc_version == 0U ? 0U : 2U;
+            const size_t needed = item_id_width + construction_size + 2U
+                                  + base_offset_size + 2U;
+            if (cursor + needed > payload_end) {
+                return fail_bmff_foreign_meta_merge(
+                    out, TransferStatus::Malformed,
+                    EmitTransferCode::InvalidPayload,
+                    "iloc item record is truncated");
+            }
+            uint64_t item_id64 = 0U;
+            if (!read_bmff_u_nbe(bytes, cursor, item_id_width, &item_id64)
+                || item_id64 > std::numeric_limits<uint32_t>::max()) {
+                return fail_bmff_foreign_meta_merge(
+                    out, TransferStatus::Malformed,
+                    EmitTransferCode::InvalidPayload,
+                    "iloc item id is not supported");
+            }
+            cursor += item_id_width;
+            BmffForeignIlocRecord record;
+            record.item_id = static_cast<uint32_t>(item_id64);
+            if (ctx->iloc_version != 0U) {
+                record.construction_method = read_u16be(bytes, cursor);
+                cursor += 2U;
+            } else {
+                record.construction_method = 0U;
+            }
+            record.data_reference_index = read_u16be(bytes, cursor);
+            cursor += 2U;
+            if (!read_bmff_u_nbe(bytes, cursor, base_offset_size,
+                                 &record.base_offset)) {
+                return fail_bmff_foreign_meta_merge(
+                    out, TransferStatus::Malformed,
+                    EmitTransferCode::InvalidPayload,
+                    "iloc base offset is not supported");
+            }
+            cursor += base_offset_size;
+            const uint16_t extent_count = read_u16be(bytes, cursor);
+            cursor += 2U;
+            for (uint16_t extent = 0U; extent < extent_count; ++extent) {
+                if (cursor + index_size + offset_size + length_size
+                    > payload_end) {
+                    return fail_bmff_foreign_meta_merge(
+                        out, TransferStatus::Malformed,
+                        EmitTransferCode::InvalidPayload,
+                        "iloc extent is truncated");
+                }
+                BmffForeignIlocExtent one;
+                if (index_size != 0U
+                    && !read_bmff_u_nbe(bytes, cursor, index_size,
+                                        &one.index)) {
+                    return fail_bmff_foreign_meta_merge(
+                        out, TransferStatus::Malformed,
+                        EmitTransferCode::InvalidPayload,
+                        "iloc extent index is not supported");
+                }
+                cursor += index_size + offset_size + length_size;
+                const size_t extent_fields = index_size + offset_size
+                                             + length_size;
+                const size_t extent_begin = cursor - extent_fields;
+                if (!read_bmff_u_nbe(bytes, extent_begin + index_size,
+                                     offset_size, &one.offset)
+                    || !read_bmff_u_nbe(bytes,
+                                        extent_begin + index_size + offset_size,
+                                        length_size, &one.length)) {
+                    return fail_bmff_foreign_meta_merge(
+                        out, TransferStatus::Malformed,
+                        EmitTransferCode::InvalidPayload,
+                        "iloc extent offset/length is not supported");
+                }
+                record.extents.push_back(one);
+            }
+            records->push_back(record);
+            if (item_id64 > ctx->max_item_id) {
+                ctx->max_item_id = item_id64;
+            }
+        }
+        if (cursor != payload_end) {
+            return fail_bmff_foreign_meta_merge(
+                out, TransferStatus::Malformed, EmitTransferCode::InvalidPayload,
+                "iloc contains trailing bytes");
+        }
+        return true;
+    }
+
+    static bool bmff_assign_foreign_merge_item_ids(
+        BmffForeignMetaContext* ctx, std::vector<BmffRewriteItemSource>* items,
+        EmitTransferResult* out) noexcept
+    {
+        if (!ctx || !items) {
+            return false;
+        }
+        if (items->empty()) {
+            return true;
+        }
+        if (ctx->max_item_id >= 0xFFFFULL
+            || items->size() > static_cast<size_t>(0xFFFFULL
+                                                   - ctx->max_item_id)) {
+            return fail_bmff_foreign_meta_merge(
+                out, TransferStatus::LimitExceeded,
+                EmitTransferCode::InvalidPayload,
+                "no 16-bit item ids remain for metadata insertion");
+        }
+        uint64_t next_id = ctx->max_item_id + 1U;
+        for (size_t i = 0; i < items->size(); ++i) {
+            (*items)[i].item_id = static_cast<uint16_t>(next_id);
+            next_id += 1U;
+        }
+        ctx->max_item_id = next_id - 1U;
+        return true;
+    }
+
+    static bool build_bmff_foreign_merge_iinf_box(
+        std::span<const std::byte> bytes, const BmffForeignMetaContext& ctx,
+        const std::vector<BmffForeignIinfEntry>& entries,
+        const std::vector<uint32_t>& removed_item_ids,
+        const std::vector<BmffRewriteItemSource>& items,
+        std::vector<std::byte>* out_box, EmitTransferResult* out) noexcept
+    {
+        if (!out_box) {
+            return false;
+        }
+        const uint64_t payload_begin = ctx.iinf.offset + ctx.iinf.header_size;
+        if (payload_begin + 4U > bytes.size()) {
+            return fail_bmff_foreign_meta_merge(
+                out, TransferStatus::Malformed, EmitTransferCode::InvalidPayload,
+                "iinf fullbox header is truncated");
+        }
+
+        uint64_t kept_count = 0U;
+        for (size_t i = 0; i < entries.size(); ++i) {
+            if (!bmff_removed_item_id(removed_item_ids, entries[i].item_id)) {
+                kept_count += 1U;
+            }
+        }
+        const uint64_t final_count = kept_count + items.size();
+        if (ctx.iinf_version == 0U && final_count > 0xFFFFULL) {
+            return fail_bmff_foreign_meta_merge(
+                out, TransferStatus::LimitExceeded,
+                EmitTransferCode::InvalidPayload,
+                "iinf v0 entry count exceeds 16-bit range");
+        }
+        if (ctx.iinf_version != 0U && ctx.iinf_version != 1U
+            && ctx.iinf_version != 2U) {
+            return fail_bmff_foreign_meta_merge(
+                out, TransferStatus::Unsupported,
+                EmitTransferCode::InvalidArgument,
+                "iinf version is not supported");
+        }
+
+        std::vector<std::byte> payload;
+        payload.insert(payload.end(),
+                       bytes.begin()
+                           + static_cast<std::ptrdiff_t>(payload_begin),
+                       bytes.begin()
+                           + static_cast<std::ptrdiff_t>(payload_begin + 4U));
+        if (ctx.iinf_version == 0U) {
+            append_u16be(&payload, static_cast<uint16_t>(final_count));
+        } else {
+            append_u32be(&payload, static_cast<uint32_t>(final_count));
+        }
+
+        for (size_t i = 0; i < entries.size(); ++i) {
+            if (bmff_removed_item_id(removed_item_ids, entries[i].item_id)) {
+                continue;
+            }
+            payload.insert(
+                payload.end(),
+                bytes.begin() + static_cast<std::ptrdiff_t>(entries[i].offset),
+                bytes.begin()
+                    + static_cast<std::ptrdiff_t>(entries[i].offset
+                                                  + entries[i].size));
+        }
+
+        for (size_t i = 0; i < items.size(); ++i) {
+            std::vector<std::byte> infe_payload;
+            append_bmff_fullbox_fields(&infe_payload, 2U, 0U);
+            append_u16be(&infe_payload, items[i].item_id);
+            append_u16be(&infe_payload, 0U);
+            append_u32be(&infe_payload, items[i].item_type);
+            append_cstring_ascii(&infe_payload,
+                                 bmff_rewrite_item_name(items[i].item_type,
+                                                        items[i].mime_xmp));
+            if (items[i].mime_xmp) {
+                append_cstring_ascii(&infe_payload, "application/rdf+xml");
+                append_cstring_ascii(&infe_payload, "");
+            }
+            if (!append_bmff_box_bytes_checked(
+                    &payload, fourcc('i', 'n', 'f', 'e'),
+                    std::span<const std::byte>(infe_payload.data(),
+                                               infe_payload.size()))) {
+                return fail_bmff_foreign_meta_merge(
+                    out, TransferStatus::LimitExceeded,
+                    EmitTransferCode::InvalidPayload,
+                    "infe box exceeds 32-bit size");
+            }
+        }
+
+        out_box->clear();
+        if (!append_bmff_box_bytes_checked(
+                out_box, fourcc('i', 'i', 'n', 'f'),
+                std::span<const std::byte>(payload.data(), payload.size()))) {
+            return fail_bmff_foreign_meta_merge(
+                out, TransferStatus::LimitExceeded,
+                EmitTransferCode::InvalidPayload,
+                "iinf box exceeds 32-bit size");
+        }
+        return true;
+    }
+
+    static bool build_bmff_foreign_merge_idat_box(
+        std::span<const std::byte> bytes, const BmffForeignMetaContext& ctx,
+        const PreparedTransferBundle& bundle,
+        const std::vector<BmffRewriteItemSource>& items,
+        std::vector<uint64_t>* out_offsets, std::vector<std::byte>* out_box,
+        EmitTransferResult* out) noexcept
+    {
+        if (!out_offsets || !out_box) {
+            return false;
+        }
+        out_offsets->clear();
+
+        std::vector<std::byte> payload;
+        if (ctx.has_idat) {
+            const uint64_t old_begin = ctx.idat.offset + ctx.idat.header_size;
+            const uint64_t old_end   = ctx.idat.offset + ctx.idat.size;
+            if (old_begin > old_end || old_end > bytes.size()) {
+                return fail_bmff_foreign_meta_merge(
+                    out, TransferStatus::Malformed,
+                    EmitTransferCode::InvalidPayload,
+                    "idat box is malformed");
+            }
+            payload.insert(
+                payload.end(),
+                bytes.begin() + static_cast<std::ptrdiff_t>(old_begin),
+                bytes.begin() + static_cast<std::ptrdiff_t>(old_end));
+        }
+
+        for (size_t i = 0; i < items.size(); ++i) {
+            const PreparedTransferBlock& block
+                = bundle.blocks[items[i].block_index];
+            out_offsets->push_back(static_cast<uint64_t>(payload.size()));
+            if (block.payload.size()
+                > static_cast<size_t>(0xFFFFFFFFULL - payload.size())) {
+                return fail_bmff_foreign_meta_merge(
+                    out, TransferStatus::LimitExceeded,
+                    EmitTransferCode::InvalidPayload,
+                    "idat payload exceeds 32-bit range");
+            }
+            payload.insert(payload.end(), block.payload.begin(),
+                           block.payload.end());
+        }
+
+        out_box->clear();
+        if (!append_bmff_box_bytes_checked(
+                out_box, fourcc('i', 'd', 'a', 't'),
+                std::span<const std::byte>(payload.data(), payload.size()))) {
+            return fail_bmff_foreign_meta_merge(
+                out, TransferStatus::LimitExceeded,
+                EmitTransferCode::InvalidPayload,
+                "idat box exceeds 32-bit size");
+        }
+        return true;
+    }
+
+    static bool bmff_apply_signed_delta(uint64_t value, int64_t delta,
+                                        uint64_t* out_value) noexcept
+    {
+        if (!out_value) {
+            return false;
+        }
+        if (delta >= 0) {
+            const uint64_t add = static_cast<uint64_t>(delta);
+            if (value > std::numeric_limits<uint64_t>::max() - add) {
+                return false;
+            }
+            *out_value = value + add;
+            return true;
+        }
+        const uint64_t sub = static_cast<uint64_t>(-delta);
+        if (value < sub) {
+            return false;
+        }
+        *out_value = value - sub;
+        return true;
+    }
+
+    static bool bmff_adjust_foreign_file_offset(uint64_t value,
+                                                uint64_t shifted_begin,
+                                                int64_t delta,
+                                                uint64_t* out_value) noexcept
+    {
+        if (!out_value) {
+            return false;
+        }
+        if (delta == 0 || value < shifted_begin) {
+            *out_value = value;
+            return true;
+        }
+        return bmff_apply_signed_delta(value, delta, out_value);
+    }
+
+    static bool build_bmff_foreign_merge_iloc_box(
+        std::span<const std::byte> bytes, const BmffForeignMetaContext& ctx,
+        const std::vector<BmffForeignIlocRecord>& records,
+        const std::vector<uint32_t>& removed_item_ids,
+        const PreparedTransferBundle& bundle,
+        const std::vector<BmffRewriteItemSource>& items,
+        const std::vector<uint64_t>& item_offsets,
+        uint64_t shifted_range_begin, int64_t file_offset_delta,
+        uint64_t new_item_payload_file_offset,
+        std::vector<std::byte>* out_box, EmitTransferResult* out) noexcept
+    {
+        if (!out_box || items.size() != item_offsets.size()) {
+            return false;
+        }
+        const size_t offset_size = static_cast<size_t>(
+            (ctx.iloc_sizes0 >> 4U) & 0x0FU);
+        const size_t length_size
+            = static_cast<size_t>(ctx.iloc_sizes0 & 0x0FU);
+        const size_t base_offset_size = static_cast<size_t>(
+            (ctx.iloc_sizes1 >> 4U) & 0x0FU);
+        const size_t index_size = static_cast<size_t>(
+            ctx.iloc_sizes1 & 0x0FU);
+        const uint8_t output_version = ctx.iloc_version == 2U ? 2U : 1U;
+        const size_t item_id_width = output_version == 2U ? 4U : 2U;
+
+        uint64_t kept_count = 0U;
+        for (size_t i = 0; i < records.size(); ++i) {
+            if (!bmff_removed_item_id(removed_item_ids, records[i].item_id)) {
+                kept_count += 1U;
+            }
+        }
+        const uint64_t final_count = kept_count + items.size();
+        if (output_version == 1U && final_count > 0xFFFFULL) {
+            return fail_bmff_foreign_meta_merge(
+                out, TransferStatus::LimitExceeded,
+                EmitTransferCode::InvalidPayload,
+                "iloc item count exceeds 16-bit range");
+        }
+
+        const uint64_t payload_begin = ctx.iloc.offset + ctx.iloc.header_size;
+        if (payload_begin + 6U > bytes.size()
+            || ctx.iloc_record_off < payload_begin + 6U) {
+            return fail_bmff_foreign_meta_merge(
+                out, TransferStatus::Malformed, EmitTransferCode::InvalidPayload,
+                "iloc header is malformed");
+        }
+
+        std::vector<std::byte> payload;
+        payload.insert(
+            payload.end(),
+            bytes.begin() + static_cast<std::ptrdiff_t>(payload_begin),
+            bytes.begin()
+                + static_cast<std::ptrdiff_t>(payload_begin + 6U));
+        payload[0] = static_cast<std::byte>(output_version);
+        if (output_version == 2U) {
+            append_u32be(&payload, static_cast<uint32_t>(final_count));
+        } else {
+            append_u16be(&payload, static_cast<uint16_t>(final_count));
+        }
+
+        for (size_t i = 0; i < records.size(); ++i) {
+            if (bmff_removed_item_id(removed_item_ids, records[i].item_id)) {
+                continue;
+            }
+            uint64_t base_offset = records[i].base_offset;
+            const bool adjust_file_offsets
+                = records[i].construction_method == 0U
+                  && records[i].data_reference_index == 0U;
+            if (adjust_file_offsets && base_offset >= shifted_range_begin
+                && !bmff_apply_signed_delta(base_offset, file_offset_delta,
+                                            &base_offset)) {
+                return fail_bmff_foreign_meta_merge(
+                    out, TransferStatus::LimitExceeded,
+                    EmitTransferCode::InvalidPayload,
+                    "existing iloc base offset rebasing overflowed");
+            }
+            if (!append_bmff_u_nbe_checked(&payload, item_id_width,
+                                           records[i].item_id)
+                || !append_bmff_u_nbe_checked(
+                    &payload, 2U, records[i].construction_method)
+                || !append_bmff_u_nbe_checked(
+                    &payload, 2U, records[i].data_reference_index)
+                || !append_bmff_u_nbe_checked(&payload, base_offset_size,
+                                              base_offset)
+                || !append_bmff_u_nbe_checked(
+                    &payload, 2U,
+                    static_cast<uint64_t>(records[i].extents.size()))) {
+                return fail_bmff_foreign_meta_merge(
+                    out, TransferStatus::LimitExceeded,
+                    EmitTransferCode::InvalidPayload,
+                    "existing iloc item record does not fit output widths");
+            }
+            for (size_t j = 0; j < records[i].extents.size(); ++j) {
+                uint64_t extent_offset = records[i].extents[j].offset;
+                if (adjust_file_offsets
+                    && records[i].base_offset < shifted_range_begin) {
+                    uint64_t file_offset = 0U;
+                    if (records[i].base_offset
+                        > std::numeric_limits<uint64_t>::max()
+                              - extent_offset) {
+                        return fail_bmff_foreign_meta_merge(
+                            out, TransferStatus::LimitExceeded,
+                            EmitTransferCode::InvalidPayload,
+                            "existing iloc extent file offset overflowed");
+                    }
+                    file_offset = records[i].base_offset + extent_offset;
+                    uint64_t adjusted_file_offset = 0U;
+                    if (!bmff_adjust_foreign_file_offset(
+                            file_offset, shifted_range_begin,
+                            file_offset_delta, &adjusted_file_offset)) {
+                        return fail_bmff_foreign_meta_merge(
+                            out, TransferStatus::LimitExceeded,
+                            EmitTransferCode::InvalidPayload,
+                            "existing iloc extent offset rebasing overflowed");
+                    }
+                    if (adjusted_file_offset < records[i].base_offset) {
+                        return fail_bmff_foreign_meta_merge(
+                            out, TransferStatus::LimitExceeded,
+                            EmitTransferCode::InvalidPayload,
+                            "existing iloc extent rebasing underflowed");
+                    }
+                    extent_offset = adjusted_file_offset
+                                    - records[i].base_offset;
+                }
+                if (!append_bmff_u_nbe_checked(&payload, index_size,
+                                               records[i].extents[j].index)
+                    || !append_bmff_u_nbe_checked(&payload, offset_size,
+                                                  extent_offset)
+                    || !append_bmff_u_nbe_checked(
+                        &payload, length_size, records[i].extents[j].length)) {
+                    return fail_bmff_foreign_meta_merge(
+                        out, TransferStatus::LimitExceeded,
+                        EmitTransferCode::InvalidPayload,
+                        "existing iloc extent does not fit output widths");
+                }
+            }
+        }
+
+        for (size_t i = 0; i < items.size(); ++i) {
+            const PreparedTransferBlock& block
+                = bundle.blocks[items[i].block_index];
+            uint64_t new_extent_offset = 0U;
+            if (new_item_payload_file_offset
+                > std::numeric_limits<uint64_t>::max() - item_offsets[i]) {
+                return fail_bmff_foreign_meta_merge(
+                    out, TransferStatus::LimitExceeded,
+                    EmitTransferCode::InvalidPayload,
+                    "new iloc item file offset overflowed");
+            }
+            new_extent_offset = new_item_payload_file_offset + item_offsets[i];
+            if (!append_bmff_u_nbe_checked(&payload, item_id_width,
+                                           items[i].item_id)
+                || !append_bmff_u_nbe_checked(&payload, 2U, 0U)
+                || !append_bmff_u_nbe_checked(&payload, 2U, 0U)
+                || !append_bmff_u_nbe_checked(&payload, base_offset_size, 0U)
+                || !append_bmff_u_nbe_checked(&payload, 2U, 1U)
+                || !append_bmff_u_nbe_checked(&payload, index_size, 0U)
+                || !append_bmff_u_nbe_checked(&payload, offset_size,
+                                              new_extent_offset)
+                || !append_bmff_u_nbe_checked(
+                    &payload, length_size,
+                    static_cast<uint64_t>(block.payload.size()))) {
+                return fail_bmff_foreign_meta_merge(
+                    out, TransferStatus::LimitExceeded,
+                    EmitTransferCode::InvalidPayload,
+                    "new iloc item extent does not fit existing field widths");
+            }
+        }
+
+        out_box->clear();
+        if (!append_bmff_box_bytes_checked(
+                out_box, fourcc('i', 'l', 'o', 'c'),
+                std::span<const std::byte>(payload.data(), payload.size()))) {
+            return fail_bmff_foreign_meta_merge(
+                out, TransferStatus::LimitExceeded,
+                EmitTransferCode::InvalidPayload,
+                "iloc box exceeds 32-bit size");
+        }
+        return true;
+    }
+
+    static bool bmff_append_iref_id(std::vector<std::byte>* out,
+                                    uint8_t version, uint32_t id) noexcept
+    {
+        if (version == 0U) {
+            if (id > 0xFFFFU) {
+                return false;
+            }
+            append_u16be(out, static_cast<uint16_t>(id));
+            return true;
+        }
+        if (version == 1U) {
+            append_u32be(out, id);
+            return true;
+        }
+        return false;
+    }
+
+    static bool build_bmff_foreign_merge_iref_box(
+        std::span<const std::byte> bytes, const BmffForeignMetaContext& ctx,
+        const std::vector<uint32_t>& removed_item_ids,
+        const std::vector<BmffRewriteItemSource>& items,
+        std::vector<std::byte>* out_box, EmitTransferResult* out) noexcept
+    {
+        if (!out_box) {
+            return false;
+        }
+
+        uint8_t version = 0U;
+        std::vector<std::byte> payload;
+        if (ctx.has_iref) {
+            const uint64_t payload_begin = ctx.iref.offset + ctx.iref.header_size;
+            const uint64_t payload_end   = ctx.iref.offset + ctx.iref.size;
+            if (payload_begin + 4U > payload_end || payload_end > bytes.size()) {
+                return fail_bmff_foreign_meta_merge(
+                    out, TransferStatus::Malformed,
+                    EmitTransferCode::InvalidPayload,
+                    "iref fullbox header is truncated");
+            }
+            version = std::to_integer<uint8_t>(bytes[payload_begin]);
+            if (version > 1U) {
+                return fail_bmff_foreign_meta_merge(
+                    out, TransferStatus::Unsupported,
+                    EmitTransferCode::InvalidArgument,
+                    "iref version is not supported");
+            }
+            payload.insert(
+                payload.end(),
+                bytes.begin() + static_cast<std::ptrdiff_t>(payload_begin),
+                bytes.begin()
+                    + static_cast<std::ptrdiff_t>(payload_begin + 4U));
+
+            const size_t id_width = version == 0U ? 2U : 4U;
+            uint64_t child_off    = payload_begin + 4U;
+            while (child_off + 8U <= payload_end) {
+                TransferBmffBox child;
+                if (!parse_transfer_bmff_box(bytes, child_off, payload_end,
+                                             &child)) {
+                    return fail_bmff_foreign_meta_merge(
+                        out, TransferStatus::Malformed,
+                        EmitTransferCode::InvalidPayload,
+                        "failed to parse iref child");
+                }
+
+                const uint64_t child_payload_begin = child.offset
+                                                     + child.header_size;
+                const uint64_t child_payload_end = child.offset + child.size;
+                size_t cursor = static_cast<size_t>(child_payload_begin);
+                std::vector<std::byte> child_payload;
+                while (cursor < child_payload_end) {
+                    uint64_t from_id64 = 0U;
+                    if (!read_bmff_u_nbe(bytes, cursor, id_width, &from_id64)
+                        || from_id64
+                               > std::numeric_limits<uint32_t>::max()) {
+                        return fail_bmff_foreign_meta_merge(
+                            out, TransferStatus::Malformed,
+                            EmitTransferCode::InvalidPayload,
+                            "iref from_item_id is not supported");
+                    }
+                    cursor += id_width;
+                    if (cursor + 2U > child_payload_end) {
+                        return fail_bmff_foreign_meta_merge(
+                            out, TransferStatus::Malformed,
+                            EmitTransferCode::InvalidPayload,
+                            "iref reference count is truncated");
+                    }
+                    const uint32_t from_id
+                        = static_cast<uint32_t>(from_id64);
+                    const uint16_t ref_count = read_u16be(bytes, cursor);
+                    cursor += 2U;
+
+                    std::vector<uint32_t> kept_to_ids;
+                    kept_to_ids.reserve(ref_count);
+                    for (uint16_t i = 0U; i < ref_count; ++i) {
+                        uint64_t to_id64 = 0U;
+                        if (!read_bmff_u_nbe(bytes, cursor, id_width,
+                                             &to_id64)
+                            || to_id64
+                                   > std::numeric_limits<uint32_t>::max()) {
+                            return fail_bmff_foreign_meta_merge(
+                                out, TransferStatus::Malformed,
+                                EmitTransferCode::InvalidPayload,
+                                "iref to_item_id is not supported");
+                        }
+                        cursor += id_width;
+                        const uint32_t to_id
+                            = static_cast<uint32_t>(to_id64);
+                        if (!bmff_removed_item_id(removed_item_ids, to_id)) {
+                            kept_to_ids.push_back(to_id);
+                        }
+                    }
+
+                    if (bmff_removed_item_id(removed_item_ids, from_id)
+                        || kept_to_ids.empty()
+                        || kept_to_ids.size() > 0xFFFFU) {
+                        continue;
+                    }
+                    if (!bmff_append_iref_id(&child_payload, version, from_id)) {
+                        return fail_bmff_foreign_meta_merge(
+                            out, TransferStatus::LimitExceeded,
+                            EmitTransferCode::InvalidPayload,
+                            "iref from_item_id does not fit version");
+                    }
+                    append_u16be(&child_payload,
+                                 static_cast<uint16_t>(kept_to_ids.size()));
+                    for (size_t i = 0; i < kept_to_ids.size(); ++i) {
+                        if (!bmff_append_iref_id(&child_payload, version,
+                                                 kept_to_ids[i])) {
+                            return fail_bmff_foreign_meta_merge(
+                                out, TransferStatus::LimitExceeded,
+                                EmitTransferCode::InvalidPayload,
+                                "iref to_item_id does not fit version");
+                        }
+                    }
+                }
+                if (!child_payload.empty()) {
+                    if (!append_bmff_box_bytes_checked(
+                            &payload, child.type,
+                            std::span<const std::byte>(child_payload.data(),
+                                                       child_payload.size()))) {
+                        return fail_bmff_foreign_meta_merge(
+                            out, TransferStatus::LimitExceeded,
+                            EmitTransferCode::InvalidPayload,
+                            "iref child box exceeds 32-bit size");
+                    }
+                }
+
+                if (child.size == 0U) {
+                    break;
+                }
+                child_off += child.size;
+            }
+        } else {
+            if (ctx.primary_item_id > 0xFFFFU) {
+                version = 1U;
+            }
+            append_bmff_fullbox_fields(&payload, version, 0U);
+        }
+
+        for (size_t i = 0; i < items.size(); ++i) {
+            std::vector<std::byte> cdsc_payload;
+            if (!bmff_append_iref_id(&cdsc_payload, version, items[i].item_id)
+                || !append_bmff_u_nbe_checked(&cdsc_payload, 2U, 1U)
+                || !bmff_append_iref_id(&cdsc_payload, version,
+                                        ctx.primary_item_id)) {
+                return fail_bmff_foreign_meta_merge(
+                    out, TransferStatus::LimitExceeded,
+                    EmitTransferCode::InvalidPayload,
+                    "cdsc item reference ids do not fit iref version");
+            }
+            if (!append_bmff_box_bytes_checked(
+                    &payload, fourcc('c', 'd', 's', 'c'),
+                    std::span<const std::byte>(cdsc_payload.data(),
+                                               cdsc_payload.size()))) {
+                return fail_bmff_foreign_meta_merge(
+                    out, TransferStatus::LimitExceeded,
+                    EmitTransferCode::InvalidPayload,
+                    "cdsc box exceeds 32-bit size");
+            }
+        }
+
+        out_box->clear();
+        if (!append_bmff_box_bytes_checked(
+                out_box, fourcc('i', 'r', 'e', 'f'),
+                std::span<const std::byte>(payload.data(), payload.size()))) {
+            return fail_bmff_foreign_meta_merge(
+                out, TransferStatus::LimitExceeded,
+                EmitTransferCode::InvalidPayload,
+                "iref box exceeds 32-bit size");
+        }
+        return true;
+    }
+
+    static bool bmff_ipco_property_is_icc_colr(
+        std::span<const std::byte> bytes,
+        const TransferBmffBox& property) noexcept
+    {
+        if (property.type != fourcc('c', 'o', 'l', 'r')) {
+            return false;
+        }
+
+        const uint64_t payload_begin = property.offset + property.header_size;
+        const uint64_t payload_end   = property.offset + property.size;
+        if (payload_begin + 4U > payload_end || payload_end > bytes.size()) {
+            return false;
+        }
+
+        uint32_t colr_type = 0U;
+        if (!read_u32be(bytes, payload_begin, &colr_type)) {
+            return false;
+        }
+        return colr_type == fourcc('p', 'r', 'o', 'f')
+               || colr_type == fourcc('r', 'I', 'C', 'C');
+    }
+
+    static bool bmff_rebuild_ipco_payload_replacing_icc(
+        std::span<const std::byte> bytes, const TransferBmffBox& ipco,
+        std::vector<std::byte>* out_payload,
+        std::vector<uint32_t>* out_old_to_new_indices,
+        uint32_t* out_count, EmitTransferResult* out) noexcept
+    {
+        if (!out_payload || !out_old_to_new_indices || !out_count
+            || ipco.type != fourcc('i', 'p', 'c', 'o')) {
+            return false;
+        }
+
+        out_payload->clear();
+        out_old_to_new_indices->clear();
+        out_old_to_new_indices->push_back(0U);
+        *out_count = 0U;
+
+        const uint64_t payload_begin = ipco.offset + ipco.header_size;
+        const uint64_t payload_end   = ipco.offset + ipco.size;
+        if (payload_begin > payload_end || payload_end > bytes.size()) {
+            return fail_bmff_foreign_meta_merge(
+                out, TransferStatus::Malformed,
+                EmitTransferCode::InvalidPayload,
+                "ipco box is malformed");
+        }
+
+        uint64_t off = payload_begin;
+        while (off + 8U <= payload_end) {
+            TransferBmffBox child;
+            if (!parse_transfer_bmff_box(bytes, off, payload_end, &child)) {
+                return fail_bmff_foreign_meta_merge(
+                    out, TransferStatus::Malformed,
+                    EmitTransferCode::InvalidPayload,
+                    "failed to parse ipco property box");
+            }
+
+            if (bmff_ipco_property_is_icc_colr(bytes, child)) {
+                out_old_to_new_indices->push_back(0U);
+            } else {
+                if (*out_count == std::numeric_limits<uint32_t>::max()) {
+                    return fail_bmff_foreign_meta_merge(
+                        out, TransferStatus::LimitExceeded,
+                        EmitTransferCode::InvalidPayload,
+                        "ipco property count overflowed");
+                }
+                *out_count += 1U;
+                out_old_to_new_indices->push_back(*out_count);
+                out_payload->insert(
+                    out_payload->end(),
+                    bytes.begin()
+                        + static_cast<std::ptrdiff_t>(child.offset),
+                    bytes.begin()
+                        + static_cast<std::ptrdiff_t>(child.offset
+                                                      + child.size));
+            }
+
+            if (child.size == 0U) {
+                break;
+            }
+            off += child.size;
+        }
+        if (off != payload_end) {
+            return fail_bmff_foreign_meta_merge(
+                out, TransferStatus::Malformed,
+                EmitTransferCode::InvalidPayload,
+                "ipco property table has trailing bytes");
+        }
+        return true;
+    }
+
+    struct BmffForeignIpmaEntry final {
+        uint32_t item_id = 0U;
+        std::vector<uint16_t> associations;
+    };
+
+    static bool build_bmff_foreign_new_ipma_box(
+        uint32_t primary_item_id, const std::vector<uint32_t>& property_indices,
+        std::vector<std::byte>* out_box, EmitTransferResult* out) noexcept
+    {
+        if (!out_box) {
+            return false;
+        }
+        if (primary_item_id == 0U || property_indices.empty()
+            || property_indices.size() > 0xFFU) {
+            return fail_bmff_foreign_meta_merge(
+                out, TransferStatus::LimitExceeded,
+                EmitTransferCode::InvalidPayload,
+                "ipma association count is not supported");
+        }
+
+        bool needs_large_indices = false;
+        for (size_t i = 0; i < property_indices.size(); ++i) {
+            if (property_indices[i] == 0U || property_indices[i] > 0x7FFFU) {
+                return fail_bmff_foreign_meta_merge(
+                    out, TransferStatus::LimitExceeded,
+                    EmitTransferCode::InvalidPayload,
+                    "ipma property index is not supported");
+            }
+            if (property_indices[i] > 0x7FU) {
+                needs_large_indices = true;
+            }
+        }
+
+        const uint8_t version = primary_item_id > 0xFFFFU ? 1U : 0U;
+        const uint32_t flags  = needs_large_indices ? 1U : 0U;
+        std::vector<std::byte> payload;
+        append_bmff_fullbox_fields(&payload, version, flags);
+        append_u32be(&payload, 1U);
+        if (version == 0U) {
+            append_u16be(&payload, static_cast<uint16_t>(primary_item_id));
+        } else {
+            append_u32be(&payload, primary_item_id);
+        }
+        payload.push_back(
+            static_cast<std::byte>(static_cast<uint8_t>(
+                property_indices.size())));
+        for (size_t i = 0; i < property_indices.size(); ++i) {
+            if (needs_large_indices) {
+                append_u16be(&payload,
+                             static_cast<uint16_t>(property_indices[i]));
+            } else {
+                payload.push_back(
+                    static_cast<std::byte>(property_indices[i]));
+            }
+        }
+
+        out_box->clear();
+        if (!append_bmff_box_bytes_checked(
+                out_box, fourcc('i', 'p', 'm', 'a'),
+                std::span<const std::byte>(payload.data(), payload.size()))) {
+            return fail_bmff_foreign_meta_merge(
+                out, TransferStatus::LimitExceeded,
+                EmitTransferCode::InvalidPayload,
+                "ipma box exceeds 32-bit size");
+        }
+        return true;
+    }
+
+    static bool bmff_ipma_entry_has_property(
+        const BmffForeignIpmaEntry& entry, uint32_t property_index) noexcept
+    {
+        for (size_t i = 0; i < entry.associations.size(); ++i) {
+            if ((entry.associations[i] & 0x7FFFU) == property_index) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static bool bmff_parse_ipma_entries(
+        std::span<const std::byte> bytes, const TransferBmffBox& ipma,
+        uint8_t* out_version, uint32_t* out_flags,
+        std::vector<BmffForeignIpmaEntry>* out_entries,
+        EmitTransferResult* out) noexcept
+    {
+        if (!out_version || !out_flags || !out_entries
+            || ipma.type != fourcc('i', 'p', 'm', 'a')) {
+            return false;
+        }
+        out_entries->clear();
+
+        const uint64_t payload_begin = ipma.offset + ipma.header_size;
+        const uint64_t payload_end   = ipma.offset + ipma.size;
+        if (payload_begin + 8U > payload_end || payload_end > bytes.size()) {
+            return fail_bmff_foreign_meta_merge(
+                out, TransferStatus::Malformed,
+                EmitTransferCode::InvalidPayload,
+                "ipma fullbox header is truncated");
+        }
+
+        const uint8_t version = std::to_integer<uint8_t>(bytes[payload_begin]);
+        if (version > 1U) {
+            return fail_bmff_foreign_meta_merge(
+                out, TransferStatus::Unsupported,
+                EmitTransferCode::InvalidArgument,
+                "ipma version is not supported");
+        }
+        uint32_t flags = 0U;
+        flags |= static_cast<uint32_t>(
+            std::to_integer<uint8_t>(bytes[payload_begin + 1U])) << 16U;
+        flags |= static_cast<uint32_t>(
+            std::to_integer<uint8_t>(bytes[payload_begin + 2U])) << 8U;
+        flags |= static_cast<uint32_t>(
+            std::to_integer<uint8_t>(bytes[payload_begin + 3U]));
+
+        uint32_t entry_count = 0U;
+        if (!read_u32be(bytes, payload_begin + 4U, &entry_count)) {
+            return fail_bmff_foreign_meta_merge(
+                out, TransferStatus::Malformed,
+                EmitTransferCode::InvalidPayload,
+                "ipma entry count is truncated");
+        }
+        if (entry_count > (1U << 20U)) {
+            return fail_bmff_foreign_meta_merge(
+                out, TransferStatus::LimitExceeded,
+                EmitTransferCode::InvalidPayload,
+                "ipma entry count is too large");
+        }
+
+        const size_t item_id_width = version == 0U ? 2U : 4U;
+        const size_t assoc_width = (flags & 1U) != 0U ? 2U : 1U;
+        size_t cursor = static_cast<size_t>(payload_begin + 8U);
+        for (uint32_t i = 0U; i < entry_count; ++i) {
+            if (cursor + item_id_width + 1U > payload_end) {
+                return fail_bmff_foreign_meta_merge(
+                    out, TransferStatus::Malformed,
+                    EmitTransferCode::InvalidPayload,
+                    "ipma entry is truncated");
+            }
+
+            uint64_t item_id64 = 0U;
+            if (!read_bmff_u_nbe(bytes, cursor, item_id_width, &item_id64)
+                || item_id64 > std::numeric_limits<uint32_t>::max()) {
+                return fail_bmff_foreign_meta_merge(
+                    out, TransferStatus::Malformed,
+                    EmitTransferCode::InvalidPayload,
+                    "ipma item id is not supported");
+            }
+            cursor += item_id_width;
+
+            const uint8_t association_count
+                = std::to_integer<uint8_t>(bytes[cursor]);
+            cursor += 1U;
+            if (cursor + static_cast<size_t>(association_count) * assoc_width
+                > payload_end) {
+                return fail_bmff_foreign_meta_merge(
+                    out, TransferStatus::Malformed,
+                    EmitTransferCode::InvalidPayload,
+                    "ipma associations are truncated");
+            }
+
+            BmffForeignIpmaEntry entry;
+            entry.item_id = static_cast<uint32_t>(item_id64);
+            entry.associations.reserve(association_count);
+            for (uint8_t j = 0U; j < association_count; ++j) {
+                uint16_t normalized = 0U;
+                if (assoc_width == 2U) {
+                    normalized = read_u16be(bytes, cursor);
+                    cursor += 2U;
+                } else {
+                    const uint8_t raw = std::to_integer<uint8_t>(bytes[cursor]);
+                    cursor += 1U;
+                    normalized = static_cast<uint16_t>(raw & 0x7FU);
+                    if ((raw & 0x80U) != 0U) {
+                        normalized = static_cast<uint16_t>(normalized
+                                                           | 0x8000U);
+                    }
+                }
+                entry.associations.push_back(normalized);
+            }
+            out_entries->push_back(std::move(entry));
+        }
+
+        if (cursor != payload_end) {
+            return fail_bmff_foreign_meta_merge(
+                out, TransferStatus::Malformed,
+                EmitTransferCode::InvalidPayload,
+                "ipma contains trailing bytes");
+        }
+
+        *out_version = version;
+        *out_flags   = flags;
+        return true;
+    }
+
+    static bool build_bmff_foreign_merged_ipma_box(
+        std::span<const std::byte> bytes, const TransferBmffBox& ipma,
+        uint32_t primary_item_id,
+        const std::vector<uint32_t>& existing_property_index_map,
+        const std::vector<uint32_t>& property_indices,
+        std::vector<std::byte>* out_box, EmitTransferResult* out) noexcept
+    {
+        if (!out_box || primary_item_id == 0U || property_indices.empty()) {
+            return false;
+        }
+
+        uint8_t version = 0U;
+        uint32_t flags  = 0U;
+        std::vector<BmffForeignIpmaEntry> entries;
+        if (!bmff_parse_ipma_entries(bytes, ipma, &version, &flags, &entries,
+                                     out)) {
+            return false;
+        }
+        if (primary_item_id > 0xFFFFU) {
+            version = 1U;
+        }
+
+        size_t primary_index = entries.size();
+        for (size_t i = 0; i < entries.size(); ++i) {
+            if (entries[i].item_id == primary_item_id) {
+                primary_index = i;
+                break;
+            }
+        }
+        if (primary_index == entries.size()) {
+            BmffForeignIpmaEntry entry;
+            entry.item_id = primary_item_id;
+            entries.push_back(std::move(entry));
+        }
+
+        if (!existing_property_index_map.empty()) {
+            for (size_t i = 0; i < entries.size(); ++i) {
+                std::vector<uint16_t> remapped;
+                remapped.reserve(entries[i].associations.size());
+                for (size_t j = 0; j < entries[i].associations.size(); ++j) {
+                    const uint16_t raw = entries[i].associations[j];
+                    const uint16_t old_index
+                        = static_cast<uint16_t>(raw & 0x7FFFU);
+                    const bool essential = (raw & 0x8000U) != 0U;
+                    if (old_index >= existing_property_index_map.size()) {
+                        return fail_bmff_foreign_meta_merge(
+                            out, TransferStatus::Malformed,
+                            EmitTransferCode::InvalidPayload,
+                            "ipma property index exceeds ipco property count");
+                    }
+                    const uint32_t mapped
+                        = existing_property_index_map[old_index];
+                    if (mapped == 0U) {
+                        continue;
+                    }
+                    if (mapped > 0x7FFFU) {
+                        return fail_bmff_foreign_meta_merge(
+                            out, TransferStatus::LimitExceeded,
+                            EmitTransferCode::InvalidPayload,
+                            "ipma remapped property index is not supported");
+                    }
+                    uint16_t value = static_cast<uint16_t>(mapped);
+                    if (essential) {
+                        value = static_cast<uint16_t>(value | 0x8000U);
+                    }
+                    remapped.push_back(value);
+                }
+                entries[i].associations = std::move(remapped);
+            }
+        }
+
+        bool needs_large_indices = (flags & 1U) != 0U;
+        for (size_t i = 0; i < property_indices.size(); ++i) {
+            if (property_indices[i] == 0U || property_indices[i] > 0x7FFFU) {
+                return fail_bmff_foreign_meta_merge(
+                    out, TransferStatus::LimitExceeded,
+                    EmitTransferCode::InvalidPayload,
+                    "ipma property index is not supported");
+            }
+            if (property_indices[i] > 0x7FU) {
+                needs_large_indices = true;
+            }
+            if (!bmff_ipma_entry_has_property(entries[primary_index],
+                                              property_indices[i])) {
+                if (entries[primary_index].associations.size() >= 0xFFU) {
+                    return fail_bmff_foreign_meta_merge(
+                        out, TransferStatus::LimitExceeded,
+                        EmitTransferCode::InvalidPayload,
+                        "ipma association count exceeds 8-bit range");
+                }
+                entries[primary_index].associations.push_back(
+                    static_cast<uint16_t>(property_indices[i]));
+            }
+        }
+
+        for (size_t i = 0; i < entries.size(); ++i) {
+            if (entries[i].item_id > 0xFFFFU) {
+                version = 1U;
+            }
+            if (entries[i].associations.size() > 0xFFU) {
+                return fail_bmff_foreign_meta_merge(
+                    out, TransferStatus::LimitExceeded,
+                    EmitTransferCode::InvalidPayload,
+                    "ipma association count exceeds 8-bit range");
+            }
+            for (size_t j = 0; j < entries[i].associations.size(); ++j) {
+                const uint16_t index = static_cast<uint16_t>(
+                    entries[i].associations[j] & 0x7FFFU);
+                if (index > 0x7FU) {
+                    needs_large_indices = true;
+                }
+            }
+        }
+        if (needs_large_indices) {
+            flags |= 1U;
+        }
+
+        std::vector<std::byte> payload;
+        append_bmff_fullbox_fields(&payload, version, flags);
+        append_u32be(&payload, static_cast<uint32_t>(entries.size()));
+        for (size_t i = 0; i < entries.size(); ++i) {
+            if (version == 0U) {
+                append_u16be(&payload,
+                             static_cast<uint16_t>(entries[i].item_id));
+            } else {
+                append_u32be(&payload, entries[i].item_id);
+            }
+            payload.push_back(
+                static_cast<std::byte>(entries[i].associations.size()));
+            for (size_t j = 0; j < entries[i].associations.size(); ++j) {
+                const uint16_t value = entries[i].associations[j];
+                const uint16_t index = static_cast<uint16_t>(value & 0x7FFFU);
+                const bool essential = (value & 0x8000U) != 0U;
+                if ((flags & 1U) != 0U) {
+                    uint16_t raw = index;
+                    if (essential) {
+                        raw = static_cast<uint16_t>(raw | 0x8000U);
+                    }
+                    append_u16be(&payload, raw);
+                } else {
+                    if (index > 0x7FU) {
+                        return fail_bmff_foreign_meta_merge(
+                            out, TransferStatus::LimitExceeded,
+                            EmitTransferCode::InvalidPayload,
+                            "ipma property index exceeds 7-bit range");
+                    }
+                    uint8_t raw = static_cast<uint8_t>(index);
+                    if (essential) {
+                        raw = static_cast<uint8_t>(raw | 0x80U);
+                    }
+                    payload.push_back(static_cast<std::byte>(raw));
+                }
+            }
+        }
+
+        out_box->clear();
+        if (!append_bmff_box_bytes_checked(
+                out_box, fourcc('i', 'p', 'm', 'a'),
+                std::span<const std::byte>(payload.data(), payload.size()))) {
+            return fail_bmff_foreign_meta_merge(
+                out, TransferStatus::LimitExceeded,
+                EmitTransferCode::InvalidPayload,
+                "ipma box exceeds 32-bit size");
+        }
+        return true;
+    }
+
+    static bool build_bmff_foreign_merge_iprp_box(
+        std::span<const std::byte> bytes, const BmffForeignMetaContext& ctx,
+        const PreparedTransferBundle& bundle,
+        const std::vector<BmffRewritePropertySource>& props,
+        std::vector<std::byte>* out_box, EmitTransferResult* out) noexcept
+    {
+        if (!out_box) {
+            return false;
+        }
+        out_box->clear();
+        if (props.empty()) {
+            return true;
+        }
+        if (props.size() > 0xFFU) {
+            return fail_bmff_foreign_meta_merge(
+                out, TransferStatus::LimitExceeded,
+                EmitTransferCode::InvalidPayload,
+                "bmff property association count exceeds 8-bit range");
+        }
+
+        bool has_ipco = false;
+        bool has_ipma = false;
+        TransferBmffBox ipma {};
+        uint32_t existing_property_count = 0U;
+        std::vector<std::byte> ipco_payload;
+        std::vector<uint32_t> existing_property_index_map;
+        if (ctx.has_iprp) {
+            const uint64_t iprp_payload_begin
+                = ctx.iprp.offset + ctx.iprp.header_size;
+            const uint64_t iprp_payload_end = ctx.iprp.offset + ctx.iprp.size;
+            if (iprp_payload_begin > iprp_payload_end
+                || iprp_payload_end > bytes.size()) {
+                return fail_bmff_foreign_meta_merge(
+                    out, TransferStatus::Malformed,
+                    EmitTransferCode::InvalidPayload,
+                    "iprp box is malformed");
+            }
+
+            uint64_t off = iprp_payload_begin;
+            while (off + 8U <= iprp_payload_end) {
+                TransferBmffBox child;
+                if (!parse_transfer_bmff_box(bytes, off, iprp_payload_end,
+                                             &child)) {
+                    return fail_bmff_foreign_meta_merge(
+                        out, TransferStatus::Malformed,
+                        EmitTransferCode::InvalidPayload,
+                        "failed to parse iprp child box");
+                }
+                if (child.type == fourcc('i', 'p', 'c', 'o')) {
+                    if (has_ipco) {
+                        return fail_bmff_foreign_meta_merge(
+                            out, TransferStatus::Unsupported,
+                            EmitTransferCode::InvalidArgument,
+                            "multiple ipco boxes are not supported");
+                    }
+                    has_ipco = true;
+                    if (!bmff_rebuild_ipco_payload_replacing_icc(
+                            bytes, child, &ipco_payload,
+                            &existing_property_index_map,
+                            &existing_property_count, out)) {
+                        return false;
+                    }
+                } else if (child.type == fourcc('i', 'p', 'm', 'a')) {
+                    if (has_ipma) {
+                        return fail_bmff_foreign_meta_merge(
+                            out, TransferStatus::Unsupported,
+                            EmitTransferCode::InvalidArgument,
+                            "multiple ipma boxes are not supported");
+                    }
+                    has_ipma = true;
+                    ipma     = child;
+                }
+                if (child.size == 0U) {
+                    break;
+                }
+                off += child.size;
+            }
+            if (off != iprp_payload_end) {
+                return fail_bmff_foreign_meta_merge(
+                    out, TransferStatus::Malformed,
+                    EmitTransferCode::InvalidPayload,
+                    "iprp child table has trailing bytes");
+            }
+        }
+
+        std::vector<uint32_t> property_indices;
+        property_indices.reserve(props.size());
+        for (size_t i = 0; i < props.size(); ++i) {
+            if (props[i].property_type != fourcc('c', 'o', 'l', 'r')
+                || props[i].property_subtype != fourcc('p', 'r', 'o', 'f')) {
+                return fail_bmff_foreign_meta_merge(
+                    out, TransferStatus::Unsupported,
+                    EmitTransferCode::UnsupportedRoute,
+                    "bmff property route is not supported for foreign meta");
+            }
+            if (existing_property_count >= 0x7FFFU) {
+                return fail_bmff_foreign_meta_merge(
+                    out, TransferStatus::LimitExceeded,
+                    EmitTransferCode::InvalidPayload,
+                    "ipco property index exceeds ipma range");
+            }
+
+            const PreparedTransferBlock& block
+                = bundle.blocks[props[i].block_index];
+            if (!append_bmff_box_bytes_checked(
+                    &ipco_payload, props[i].property_type,
+                    std::span<const std::byte>(block.payload.data(),
+                                               block.payload.size()))) {
+                return fail_bmff_foreign_meta_merge(
+                    out, TransferStatus::LimitExceeded,
+                    EmitTransferCode::InvalidPayload,
+                    "bmff property box exceeds 32-bit size");
+            }
+            existing_property_count += 1U;
+            property_indices.push_back(existing_property_count);
+        }
+
+        std::vector<std::byte> ipco_box;
+        if (!append_bmff_box_bytes_checked(
+                &ipco_box, fourcc('i', 'p', 'c', 'o'),
+                std::span<const std::byte>(ipco_payload.data(),
+                                           ipco_payload.size()))) {
+            return fail_bmff_foreign_meta_merge(
+                out, TransferStatus::LimitExceeded,
+                EmitTransferCode::InvalidPayload,
+                "ipco box exceeds 32-bit size");
+        }
+
+        std::vector<std::byte> ipma_box;
+        if (has_ipma) {
+            if (!build_bmff_foreign_merged_ipma_box(
+                    bytes, ipma, ctx.primary_item_id,
+                    existing_property_index_map, property_indices, &ipma_box,
+                    out)) {
+                return false;
+            }
+        } else {
+            if (!build_bmff_foreign_new_ipma_box(ctx.primary_item_id,
+                                                 property_indices, &ipma_box,
+                                                 out)) {
+                return false;
+            }
+        }
+
+        std::vector<std::byte> iprp_payload;
+        if (ctx.has_iprp) {
+            const uint64_t iprp_payload_begin
+                = ctx.iprp.offset + ctx.iprp.header_size;
+            const uint64_t iprp_payload_end = ctx.iprp.offset + ctx.iprp.size;
+            uint64_t off = iprp_payload_begin;
+            bool wrote_ipco = false;
+            bool wrote_ipma = false;
+            while (off + 8U <= iprp_payload_end) {
+                TransferBmffBox child;
+                if (!parse_transfer_bmff_box(bytes, off, iprp_payload_end,
+                                             &child)) {
+                    return fail_bmff_foreign_meta_merge(
+                        out, TransferStatus::Malformed,
+                        EmitTransferCode::InvalidPayload,
+                        "failed to rebuild iprp child box");
+                }
+
+                if (child.type == fourcc('i', 'p', 'c', 'o')) {
+                    iprp_payload.insert(iprp_payload.end(), ipco_box.begin(),
+                                        ipco_box.end());
+                    wrote_ipco = true;
+                } else if (child.type == fourcc('i', 'p', 'm', 'a')
+                           && has_ipma) {
+                    iprp_payload.insert(iprp_payload.end(), ipma_box.begin(),
+                                        ipma_box.end());
+                    wrote_ipma = true;
+                } else {
+                    iprp_payload.insert(
+                        iprp_payload.end(),
+                        bytes.begin()
+                            + static_cast<std::ptrdiff_t>(child.offset),
+                        bytes.begin()
+                            + static_cast<std::ptrdiff_t>(child.offset
+                                                          + child.size));
+                }
+
+                if (child.size == 0U) {
+                    break;
+                }
+                off += child.size;
+            }
+            if (!wrote_ipco) {
+                iprp_payload.insert(iprp_payload.end(), ipco_box.begin(),
+                                    ipco_box.end());
+            }
+            if (!wrote_ipma) {
+                iprp_payload.insert(iprp_payload.end(), ipma_box.begin(),
+                                    ipma_box.end());
+            }
+        } else {
+            iprp_payload.insert(iprp_payload.end(), ipco_box.begin(),
+                                ipco_box.end());
+            iprp_payload.insert(iprp_payload.end(), ipma_box.begin(),
+                                ipma_box.end());
+        }
+
+        if (!append_bmff_box_bytes_checked(
+                out_box, fourcc('i', 'p', 'r', 'p'),
+                std::span<const std::byte>(iprp_payload.data(),
+                                           iprp_payload.size()))) {
+            return fail_bmff_foreign_meta_merge(
+                out, TransferStatus::LimitExceeded,
+                EmitTransferCode::InvalidPayload,
+                "iprp box exceeds 32-bit size");
+        }
+        return true;
+    }
+
+    static bool build_bmff_foreign_meta_merged_box(
+        std::span<const std::byte> bytes, const TransferBmffBox& meta,
+        const PreparedTransferBundle& bundle, bool strip_existing_xmp,
+        uint64_t output_meta_offset,
+        std::vector<std::byte>* out_meta, EmitTransferResult* out) noexcept
+    {
+        if (!out_meta) {
+            return false;
+        }
+
+        std::vector<BmffRewriteItemSource> items;
+        std::vector<BmffRewritePropertySource> props;
+        if (!collect_bmff_rewrite_sources(bundle, &items, &props, out,
+                                          strip_existing_xmp)) {
+            return false;
+        }
+
+        BmffForeignMetaContext ctx;
+        if (!bmff_collect_foreign_meta_context(bytes, meta, &ctx, out)) {
+            return false;
+        }
+
+        std::vector<BmffForeignIinfEntry> entries;
+        if (!bmff_collect_foreign_iinf_entries(bytes, &ctx, &entries, out)) {
+            return false;
+        }
+
+        std::vector<BmffForeignIlocRecord> records;
+        if (!bmff_collect_foreign_iloc_records(bytes, &ctx, &records, out)) {
+            return false;
+        }
+
+        if (!bmff_assign_foreign_merge_item_ids(&ctx, &items, out)) {
+            return false;
+        }
+
+        BmffMetadataRewritePolicy policy
+            = collect_bmff_metadata_rewrite_policy(bundle);
+        if (strip_existing_xmp) {
+            policy.xmp = true;
+        }
+
+        std::vector<uint32_t> removed_item_ids;
+        for (size_t i = 0; i < entries.size(); ++i) {
+            if (bmff_item_matches_rewrite_policy(entries[i], policy)) {
+                bmff_append_removed_item_id(&removed_item_ids,
+                                            entries[i].item_id);
+            }
+        }
+
+        std::vector<std::byte> iinf_box;
+        if (!build_bmff_foreign_merge_iinf_box(bytes, ctx, entries,
+                                               removed_item_ids, items,
+                                               &iinf_box, out)) {
+            return false;
+        }
+
+        const bool write_idat_box = ctx.has_idat || !items.empty();
+        const bool write_iref_box = ctx.has_iref || !items.empty();
+        const bool write_iprp_box = !props.empty();
+
+        std::vector<uint64_t> item_offsets;
+        std::vector<std::byte> idat_box;
+        if (write_idat_box) {
+            if (!build_bmff_foreign_merge_idat_box(bytes, ctx, bundle, items,
+                                                   &item_offsets, &idat_box,
+                                                   out)) {
+                return false;
+            }
+        }
+
+        std::vector<std::byte> iref_box;
+        if (write_iref_box) {
+            if (!build_bmff_foreign_merge_iref_box(bytes, ctx,
+                                                   removed_item_ids, items,
+                                                   &iref_box, out)) {
+                return false;
+            }
+        }
+
+        std::vector<std::byte> iprp_box;
+        if (write_iprp_box) {
+            if (!build_bmff_foreign_merge_iprp_box(bytes, ctx, bundle, props,
+                                                   &iprp_box, out)) {
+                return false;
+            }
+        }
+
+        const uint64_t payload_begin = meta.offset + meta.header_size;
+        const uint64_t child_begin   = payload_begin + 4U;
+        const uint64_t payload_end   = meta.offset + meta.size;
+        if (payload_begin + 4U > bytes.size() || payload_end > bytes.size()) {
+            return fail_bmff_foreign_meta_merge(
+                out, TransferStatus::Malformed, EmitTransferCode::InvalidPayload,
+                "meta fullbox header is truncated");
+        }
+
+        std::vector<std::byte> iloc_box;
+        if (!build_bmff_foreign_merge_iloc_box(
+                bytes, ctx, records, removed_item_ids, bundle, items,
+                item_offsets, meta.offset + meta.size, 0, 0U, &iloc_box,
+                out)) {
+            return false;
+        }
+
+        uint64_t merged_payload_size = 4U;
+        uint64_t running_payload_off = 4U;
+        uint64_t idat_payload_off_in_meta_payload = 0U;
+        bool counted_idat            = false;
+        bool counted_iref            = false;
+        bool counted_iprp            = false;
+        uint64_t count_off           = child_begin;
+        while (count_off + 8U <= payload_end) {
+            TransferBmffBox child;
+            if (!parse_transfer_bmff_box(bytes, count_off, payload_end,
+                                         &child)) {
+                return fail_bmff_foreign_meta_merge(
+                    out, TransferStatus::Malformed,
+                    EmitTransferCode::InvalidPayload,
+                    "failed to measure merged meta child sequence");
+            }
+            uint64_t child_size = child.size;
+            if (child.type == fourcc('i', 'i', 'n', 'f')) {
+                child_size = iinf_box.size();
+            } else if (child.type == fourcc('i', 'l', 'o', 'c')) {
+                child_size = iloc_box.size();
+                if (write_idat_box && !ctx.has_idat) {
+                    idat_payload_off_in_meta_payload = running_payload_off
+                                                       + iloc_box.size() + 8U;
+                    child_size += idat_box.size();
+                    counted_idat = true;
+                }
+            } else if (child.type == fourcc('i', 'd', 'a', 't')
+                       && write_idat_box) {
+                child_size   = idat_box.size();
+                counted_idat = true;
+                idat_payload_off_in_meta_payload = running_payload_off + 8U;
+            } else if (child.type == fourcc('i', 'r', 'e', 'f')
+                       && write_iref_box) {
+                child_size   = iref_box.size();
+                counted_iref = true;
+            } else if (child.type == fourcc('i', 'p', 'r', 'p')
+                       && write_iprp_box) {
+                child_size   = iprp_box.size();
+                counted_iprp = true;
+            }
+            if (child_size
+                > std::numeric_limits<uint64_t>::max()
+                      - merged_payload_size) {
+                return fail_bmff_foreign_meta_merge(
+                    out, TransferStatus::LimitExceeded,
+                    EmitTransferCode::InvalidPayload,
+                    "merged meta payload size overflowed");
+            }
+            merged_payload_size += child_size;
+            running_payload_off += child_size;
+            if (child.size == 0U) {
+                break;
+            }
+            count_off += child.size;
+        }
+        if (write_idat_box && !counted_idat) {
+            idat_payload_off_in_meta_payload = running_payload_off + 8U;
+            merged_payload_size += idat_box.size();
+            running_payload_off += idat_box.size();
+        }
+        if (write_iref_box && !counted_iref) {
+            merged_payload_size += iref_box.size();
+        }
+        if (write_iprp_box && !counted_iprp) {
+            merged_payload_size += iprp_box.size();
+        }
+        if (merged_payload_size > 0xFFFFFFFFULL - 8ULL) {
+            return fail_bmff_foreign_meta_merge(
+                out, TransferStatus::LimitExceeded,
+                EmitTransferCode::InvalidPayload,
+                "merged meta box exceeds 32-bit size");
+        }
+        const uint64_t merged_meta_size = 8U + merged_payload_size;
+        if (merged_meta_size > static_cast<uint64_t>(
+                                   std::numeric_limits<int64_t>::max())
+            || meta.size > static_cast<uint64_t>(
+                               std::numeric_limits<int64_t>::max())) {
+            return fail_bmff_foreign_meta_merge(
+                out, TransferStatus::LimitExceeded,
+                EmitTransferCode::InvalidPayload,
+                "merged meta size delta exceeds supported range");
+        }
+        const int64_t file_offset_delta
+            = static_cast<int64_t>(merged_meta_size)
+              - static_cast<int64_t>(meta.size);
+        uint64_t new_item_payload_file_offset = 0U;
+        if (!items.empty()) {
+            if (output_meta_offset
+                > std::numeric_limits<uint64_t>::max() - 8U
+                || output_meta_offset + 8U
+                       > std::numeric_limits<uint64_t>::max()
+                             - idat_payload_off_in_meta_payload) {
+                return fail_bmff_foreign_meta_merge(
+                    out, TransferStatus::LimitExceeded,
+                    EmitTransferCode::InvalidPayload,
+                    "idat payload output offset overflowed");
+            }
+            new_item_payload_file_offset = output_meta_offset + 8U
+                                           + idat_payload_off_in_meta_payload;
+        }
+        if (!build_bmff_foreign_merge_iloc_box(
+                bytes, ctx, records, removed_item_ids, bundle, items,
+                item_offsets, meta.offset + meta.size, file_offset_delta,
+                new_item_payload_file_offset, &iloc_box, out)) {
+            return false;
+        }
+
+        std::vector<std::byte> payload;
+        payload.insert(payload.end(),
+                       bytes.begin()
+                           + static_cast<std::ptrdiff_t>(payload_begin),
+                       bytes.begin()
+                           + static_cast<std::ptrdiff_t>(payload_begin + 4U));
+
+        bool wrote_idat = false;
+        bool wrote_iref = false;
+        bool wrote_iprp = false;
+        uint64_t off    = child_begin;
+        while (off + 8U <= payload_end) {
+            TransferBmffBox child;
+            if (!parse_transfer_bmff_box(bytes, off, payload_end, &child)) {
+                return fail_bmff_foreign_meta_merge(
+                    out, TransferStatus::Malformed,
+                    EmitTransferCode::InvalidPayload,
+                    "failed to rebuild meta child sequence");
+            }
+
+            if (child.type == fourcc('i', 'i', 'n', 'f')) {
+                payload.insert(payload.end(), iinf_box.begin(), iinf_box.end());
+            } else if (child.type == fourcc('i', 'l', 'o', 'c')) {
+                payload.insert(payload.end(), iloc_box.begin(), iloc_box.end());
+                if (write_idat_box && !ctx.has_idat && !wrote_idat) {
+                    payload.insert(payload.end(), idat_box.begin(),
+                                   idat_box.end());
+                    wrote_idat = true;
+                }
+            } else if (child.type == fourcc('i', 'd', 'a', 't')
+                       && write_idat_box) {
+                payload.insert(payload.end(), idat_box.begin(), idat_box.end());
+                wrote_idat = true;
+            } else if (child.type == fourcc('i', 'r', 'e', 'f')
+                       && write_iref_box) {
+                payload.insert(payload.end(), iref_box.begin(), iref_box.end());
+                wrote_iref = true;
+            } else if (child.type == fourcc('i', 'p', 'r', 'p')
+                       && write_iprp_box) {
+                payload.insert(payload.end(), iprp_box.begin(), iprp_box.end());
+                wrote_iprp = true;
+            } else {
+                payload.insert(
+                    payload.end(),
+                    bytes.begin() + static_cast<std::ptrdiff_t>(child.offset),
+                    bytes.begin()
+                        + static_cast<std::ptrdiff_t>(child.offset
+                                                      + child.size));
+            }
+
+            if (child.size == 0U) {
+                break;
+            }
+            off += child.size;
+        }
+
+        if (write_idat_box && !wrote_idat) {
+            payload.insert(payload.end(), idat_box.begin(), idat_box.end());
+        }
+        if (write_iref_box && !wrote_iref) {
+            payload.insert(payload.end(), iref_box.begin(), iref_box.end());
+        }
+        if (write_iprp_box && !wrote_iprp) {
+            payload.insert(payload.end(), iprp_box.begin(), iprp_box.end());
+        }
+
+        out_meta->clear();
+        if (!append_bmff_box_bytes_checked(
+                out_meta, fourcc('m', 'e', 't', 'a'),
+                std::span<const std::byte>(payload.data(), payload.size()))) {
+            return fail_bmff_foreign_meta_merge(
+                out, TransferStatus::LimitExceeded,
+                EmitTransferCode::InvalidPayload,
+                "merged meta box exceeds 32-bit size");
         }
         return true;
     }
@@ -22167,10 +24277,37 @@ namespace {
         plan.target_format    = bundle.target_format;
         plan.input_size       = static_cast<uint64_t>(input_bmff.size());
 
+        PreparedTransferBundle meta_bundle = bundle;
+        if (!strip_existing_xmp) {
+            bool has_prepared_xmp = false;
+            for (size_t i = 0; i < meta_bundle.blocks.size(); ++i) {
+                if (meta_bundle.blocks[i].route == "bmff:item-xmp"
+                    && !meta_bundle.blocks[i].payload.empty()) {
+                    has_prepared_xmp = true;
+                    break;
+                }
+            }
+            if (!has_prepared_xmp) {
+                std::vector<std::vector<std::byte>> preserved_xmp_payloads;
+                collect_existing_openmeta_bmff_xmp_payloads(
+                    input_bmff, &preserved_xmp_payloads);
+                for (size_t i = 0; i < preserved_xmp_payloads.size(); ++i) {
+                    PreparedTransferBlock block;
+                    block.kind    = TransferBlockKind::Xmp;
+                    block.order   = static_cast<uint32_t>(
+                        meta_bundle.blocks.size());
+                    block.route   = "bmff:item-xmp";
+                    block.payload = std::move(preserved_xmp_payloads[i]);
+                    meta_bundle.blocks.push_back(std::move(block));
+                }
+            }
+        }
+
         bool found_ftyp                 = false;
         bool found_foreign_top_meta     = false;
-        bool found_foreign_xmp_meta     = false;
+        bool merged_foreign_top_meta    = false;
         uint32_t removed_metas          = 0U;
+        std::vector<std::byte> meta_box;
         uint64_t offset                 = 0U;
         while (offset < input_bmff.size()) {
             TransferBmffBox box;
@@ -22207,12 +24344,28 @@ namespace {
                 if (bmff_meta_has_openmeta_transfer_marker(input_bmff, box)) {
                     removed_metas += 1U;
                 } else {
-                    found_foreign_top_meta = true;
-                    if (strip_existing_xmp
-                        && bmff_meta_declares_xmp_item(input_bmff, box)) {
-                        found_foreign_xmp_meta = true;
+                    if (found_foreign_top_meta) {
+                        out.status  = TransferStatus::Unsupported;
+                        out.code    = EmitTransferCode::InvalidArgument;
+                        out.errors  = 1U;
+                        out.message = "bmff edit supports only one foreign "
+                                      "top-level meta box";
+                        return out;
                     }
-                    append_package_source_chunk(&plan, box.offset, box.size);
+                    found_foreign_top_meta = true;
+                    if (build_bmff_foreign_meta_merged_box(
+                                   input_bmff, box, meta_bundle,
+                                   strip_existing_xmp,
+                                   package_plan_next_output_offset(plan),
+                                   &meta_box, &out)) {
+                        append_package_inline_chunk(
+                            &plan,
+                            std::span<const std::byte>(meta_box.data(),
+                                                       meta_box.size()));
+                        merged_foreign_top_meta = true;
+                    } else {
+                        return out;
+                    }
                 }
             } else {
                 append_package_source_chunk(&plan, box.offset, box.size);
@@ -22230,50 +24383,9 @@ namespace {
             out.message = "input is not a supported bmff file";
             return out;
         }
-        if (found_foreign_top_meta) {
-            out.status  = TransferStatus::Unsupported;
-            out.code    = EmitTransferCode::InvalidArgument;
-            out.errors  = 1U;
-            out.message = "bmff edit with a foreign top-level meta box "
-                          "requires OpenMeta-managed metadata merge support";
-            return out;
-        }
-        if (strip_existing_xmp && found_foreign_xmp_meta) {
-            out.status  = TransferStatus::Unsupported;
-            out.code    = EmitTransferCode::InvalidArgument;
-            out.errors  = 1U;
-            out.message = "bmff embedded xmp strip mode requires an "
-                          "OpenMeta-managed metadata meta box";
-            return out;
-        }
-
-        PreparedTransferBundle meta_bundle = bundle;
-        if (!strip_existing_xmp) {
-            bool has_prepared_xmp = false;
-            for (size_t i = 0; i < meta_bundle.blocks.size(); ++i) {
-                if (meta_bundle.blocks[i].route == "bmff:item-xmp"
-                    && !meta_bundle.blocks[i].payload.empty()) {
-                    has_prepared_xmp = true;
-                    break;
-                }
-            }
-            if (!has_prepared_xmp) {
-                std::vector<std::vector<std::byte>> preserved_xmp_payloads;
-                collect_existing_openmeta_bmff_xmp_payloads(
-                    input_bmff, &preserved_xmp_payloads);
-                for (size_t i = 0; i < preserved_xmp_payloads.size(); ++i) {
-                    PreparedTransferBlock block;
-                    block.kind    = TransferBlockKind::Xmp;
-                    block.order   = static_cast<uint32_t>(meta_bundle.blocks.size());
-                    block.route   = "bmff:item-xmp";
-                    block.payload = std::move(preserved_xmp_payloads[i]);
-                    meta_bundle.blocks.push_back(std::move(block));
-                }
-            }
-        }
-
-        std::vector<std::byte> meta_box;
-        if (build_bmff_metadata_only_meta_box(meta_bundle, &meta_box, &out)) {
+        if (merged_foreign_top_meta) {
+        } else if (build_bmff_metadata_only_meta_box(meta_bundle, &meta_box,
+                                                     &out)) {
             append_package_inline_chunk(
                 &plan,
                 std::span<const std::byte>(meta_box.data(), meta_box.size()));
@@ -22302,6 +24414,15 @@ namespace {
                 out.message = "removed prior OpenMeta bmff metadata meta box";
             } else {
                 out.message = "bmff rewrite preserved existing top-level boxes";
+            }
+        } else if (merged_foreign_top_meta) {
+            if (removed_metas != 0U) {
+                out.message = "merged OpenMeta bmff metadata into existing "
+                              "top-level meta box and removed prior "
+                              "OpenMeta bmff metadata meta box";
+            } else {
+                out.message = "merged OpenMeta bmff metadata into existing "
+                              "top-level meta box";
             }
         } else if (removed_metas != 0U) {
             out.message = "replaced prior OpenMeta bmff metadata meta box";

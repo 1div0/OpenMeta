@@ -317,8 +317,15 @@ Current v1 behavior is:
       metadata-only `meta` box from the same bounded contract. It preserves
       non-`meta` top-level BMFF boxes and replaces the OpenMeta-authored
       metadata-only `meta` box with the prepared BMFF items/properties.
-      Targets with foreign top-level `meta` boxes are rejected until OpenMeta
-      can merge real BMFF item/property graphs safely.
+    - For targets with a parseable foreign top-level `meta` box, OpenMeta can
+      merge, replace, or strip bounded Exif/XMP/JUMBF/C2PA items by extending
+      `iinf`, `iloc`, `idat`, and `iref` with `cdsc` references to the primary
+      item. This path requires a single parseable `iinf`, `iloc` version
+      0/1/2, `pitm`, and at most one `idat`. Bounded ICC transfer removes
+      prior ICC `colr/prof` and `colr/rICC` properties from `iprp/ipco`,
+      compacts/remaps existing `ipma` associations, appends the transferred
+      `colr/prof` property, and associates it with the primary item.
+      Arbitrary BMFF scene/property graph rewrite remains unsupported.
     - CLI/Python `metatransfer` wrappers expose both BMFF summaries and this
       bounded edit path; `--target-heif`, `--target-avif`, and `--target-cr3`
       now accept `--source-meta PATH` plus `--output PATH` for metadata
@@ -815,6 +822,19 @@ Build + run:
 cmake --build build-tests --target openmeta_gate_transfer_release
 ctest --test-dir build-tests -R openmeta_transfer_release_gate --output-on-failure
 ```
+
+The external image-usability gate can also use existing BMFF target files when
+local tools cannot create them:
+`OPENMETA_BMFF_HEIF_TEST_TARGET`, `OPENMETA_BMFF_AVIF_TEST_TARGET`, and
+`OPENMETA_BMFF_CR3_TEST_TARGET`. Arbitrary configured targets exercise the ICC
+property and XMP item transfer/read-back paths. The EXIF image-property
+transfer path only runs for configured targets that match the 64x32,
+3-channel fixture shape, so the gate does not intentionally write mismatched
+image geometry. The configured XMP assertion is based on OpenMeta's BMFF
+summary; ExifTool title validation is also applied for formats where ExifTool
+exposes the generic BMFF XMP item. If the local `oiiotool` build cannot decode
+a configured BMFF target after rewrite, `OPENMETA_FFMPEG_EXECUTABLE` can
+provide the decode fallback.
 
 The public GitHub Actions workflow `.github/workflows/ci.yml` runs two Linux
 variants of these public release gates:

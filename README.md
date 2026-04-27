@@ -142,9 +142,12 @@ In practice:
   terms are not part of the public CI dependency story; SDK-backed coverage is
   treated as maintainer or release validation.
 - PNG, WebP, JP2, JXL, bounded BMFF, and EXR all have real first-class
-  transfer entry points. BMFF file edits are currently limited to
-  OpenMeta-managed metadata-only `meta` boxes; targets with foreign top-level
-  `meta` boxes are rejected instead of risking an unusable HEIF/AVIF result.
+  transfer entry points. BMFF file edits can replace OpenMeta-authored
+  metadata-only `meta` boxes and can merge, replace, or strip bounded
+  Exif/XMP/JUMBF/C2PA metadata items plus bounded ICC `colr/prof` properties
+  in a parseable foreign top-level `meta` graph. Arbitrary BMFF
+  scene/property-graph rewrite remains out of scope for the bounded writer
+  path.
 - EXR is still narrower than the container-edit targets: it emits safe string
   header attributes through the transfer core, can materialize a prepared
   `ExrAdapterBatch` for host exporters, and Python can inspect that prepared

@@ -54,12 +54,22 @@ endif()
 
 if(DEFINED OIIOTOOL_BIN AND NOT OIIOTOOL_BIN STREQUAL ""
    AND EXISTS "${OIIOTOOL_BIN}")
+  set(_bmff_target_args)
+  foreach(_bmff_format HEIF AVIF CR3)
+    set(_bmff_target_var "BMFF_${_bmff_format}_TEST_TARGET")
+    if(DEFINED ${_bmff_target_var})
+      list(APPEND _bmff_target_args
+        "-D${_bmff_target_var}=${${_bmff_target_var}}")
+    endif()
+  endforeach()
   execute_process(
     COMMAND ${CMAKE_COMMAND}
       "-DMETATRANSFER_BIN=${METATRANSFER_BIN}"
       "-DOIIOTOOL_BIN=${OIIOTOOL_BIN}"
       "-DEXIFTOOL_BIN=${EXIFTOOL_BIN}"
+      "-DFFMPEG_BIN=${FFMPEG_BIN}"
       "-DWORK_DIR=${WORK_DIR}/metatransfer_image_usability"
+      ${_bmff_target_args}
       -P "${CMAKE_CURRENT_LIST_DIR}/metatransfer_image_usability_test.cmake"
     RESULT_VARIABLE _rv_image_usability
     OUTPUT_VARIABLE _out_image_usability

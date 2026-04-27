@@ -86,6 +86,26 @@ if(NOT OPENMETA_EXIFTOOL_EXECUTABLE)
   endif()
 endif()
 
+set(OPENMETA_FFMPEG_EXECUTABLE "" CACHE FILEPATH "Optional ffmpeg executable for external image decode checks")
+if(NOT OPENMETA_FFMPEG_EXECUTABLE)
+  find_program(_openmeta_ffmpeg_executable
+    NAMES ffmpeg
+    HINTS ${CMAKE_PREFIX_PATH}
+    PATH_SUFFIXES bin)
+  if(_openmeta_ffmpeg_executable)
+    set(OPENMETA_FFMPEG_EXECUTABLE "${_openmeta_ffmpeg_executable}"
+      CACHE FILEPATH "Optional ffmpeg executable for external image decode checks" FORCE)
+  endif()
+endif()
+
+set(OPENMETA_BMFF_HEIF_TEST_TARGET "" CACHE FILEPATH "Optional existing HEIF/HEIC target image for external transfer usability checks")
+set(OPENMETA_BMFF_AVIF_TEST_TARGET "" CACHE FILEPATH "Optional existing AVIF target image for external transfer usability checks")
+set(OPENMETA_BMFF_CR3_TEST_TARGET "" CACHE FILEPATH "Optional existing CR3 target image for external transfer usability checks")
+set(_openmeta_bmff_test_target_args
+  "-DBMFF_HEIF_TEST_TARGET=${OPENMETA_BMFF_HEIF_TEST_TARGET}"
+  "-DBMFF_AVIF_TEST_TARGET=${OPENMETA_BMFF_AVIF_TEST_TARGET}"
+  "-DBMFF_CR3_TEST_TARGET=${OPENMETA_BMFF_CR3_TEST_TARGET}")
+
 # Optional path to local dependency repos (used for the FuzzTest wrapper).
 # Expected layout:
 #   <root>/fuzztest
@@ -431,7 +451,9 @@ if(OPENMETA_BUILD_TOOLS)
           "-DMETATRANSFER_BIN=$<TARGET_FILE:metatransfer>"
           "-DOIIOTOOL_BIN=${OPENMETA_OIIOTOOL_EXECUTABLE}"
           "-DEXIFTOOL_BIN=${OPENMETA_EXIFTOOL_EXECUTABLE}"
+          "-DFFMPEG_BIN=${OPENMETA_FFMPEG_EXECUTABLE}"
           "-DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/_metatransfer_image_usability"
+          ${_openmeta_bmff_test_target_args}
           -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/metatransfer_image_usability_test.cmake"
         COMMENT "Running metatransfer external image usability gate"
         VERBATIM
@@ -699,6 +721,8 @@ if(OPENMETA_BUILD_TESTS)
         "-DOPENMETA_PYTHONPATH=${CMAKE_CURRENT_BINARY_DIR}/python"
         "-DOIIOTOOL_BIN=${OPENMETA_OIIOTOOL_EXECUTABLE}"
         "-DEXIFTOOL_BIN=${OPENMETA_EXIFTOOL_EXECUTABLE}"
+        "-DFFMPEG_BIN=${OPENMETA_FFMPEG_EXECUTABLE}"
+        ${_openmeta_bmff_test_target_args}
         -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/transfer_release_gate.cmake"
       COMMENT "Running transfer release gate"
       VERBATIM
@@ -713,6 +737,8 @@ if(OPENMETA_BUILD_TESTS)
         "-DOPENMETA_PYTHONPATH=${CMAKE_CURRENT_BINARY_DIR}/python"
         "-DOIIOTOOL_BIN=${OPENMETA_OIIOTOOL_EXECUTABLE}"
         "-DEXIFTOOL_BIN=${OPENMETA_EXIFTOOL_EXECUTABLE}"
+        "-DFFMPEG_BIN=${OPENMETA_FFMPEG_EXECUTABLE}"
+        ${_openmeta_bmff_test_target_args}
         -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/transfer_release_gate.cmake"
     )
   elseif(TARGET metatransfer)
@@ -724,6 +750,8 @@ if(OPENMETA_BUILD_TESTS)
         "-DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/_transfer_release_gate"
         "-DOIIOTOOL_BIN=${OPENMETA_OIIOTOOL_EXECUTABLE}"
         "-DEXIFTOOL_BIN=${OPENMETA_EXIFTOOL_EXECUTABLE}"
+        "-DFFMPEG_BIN=${OPENMETA_FFMPEG_EXECUTABLE}"
+        ${_openmeta_bmff_test_target_args}
         -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/transfer_release_gate.cmake"
       COMMENT "Running transfer release gate"
       VERBATIM
@@ -736,6 +764,8 @@ if(OPENMETA_BUILD_TESTS)
         "-DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/_transfer_release_gate"
         "-DOIIOTOOL_BIN=${OPENMETA_OIIOTOOL_EXECUTABLE}"
         "-DEXIFTOOL_BIN=${OPENMETA_EXIFTOOL_EXECUTABLE}"
+        "-DFFMPEG_BIN=${OPENMETA_FFMPEG_EXECUTABLE}"
+        ${_openmeta_bmff_test_target_args}
         -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/transfer_release_gate.cmake"
     )
   endif()
@@ -780,7 +810,9 @@ if(OPENMETA_BUILD_TESTS)
           "-DMETATRANSFER_BIN=$<TARGET_FILE:metatransfer>"
           "-DOIIOTOOL_BIN=${OPENMETA_OIIOTOOL_EXECUTABLE}"
           "-DEXIFTOOL_BIN=${OPENMETA_EXIFTOOL_EXECUTABLE}"
+          "-DFFMPEG_BIN=${OPENMETA_FFMPEG_EXECUTABLE}"
           "-DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/_metatransfer_image_usability"
+          ${_openmeta_bmff_test_target_args}
           -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/metatransfer_image_usability_test.cmake"
       )
     endif()

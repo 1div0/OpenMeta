@@ -2287,6 +2287,8 @@ namespace {
         raw[6]      = std::byte { 0x12 };
         raw[7]      = std::byte { 0x34 };
         raw[0x000a] = std::byte { 0x82 };
+        raw[0x0011] = std::byte { 0x02 };
+        raw[0x0012] = std::byte { 0x34 };
         raw[0x0028] = std::byte { 0x7f };
         raw[0x0029] = std::byte { 0x7e };
         raw[0x002a] = std::byte { 0x7d };
@@ -2442,6 +2444,8 @@ namespace {
         raw[4]      = std::byte { 1 };
         raw[8]      = std::byte { 0x90 };
         raw[0x000a] = std::byte { 0x81 };
+        raw[0x0011] = std::byte { 0x02 };
+        raw[0x0012] = std::byte { 0x34 };
         raw[0x0021] = std::byte { 0x40 };
         raw[0x0025] = std::byte { 2 };
         raw[0x0026] = std::byte { 35 };
@@ -10317,10 +10321,57 @@ TEST(MakerNoteDecode, DecodesNikonFlashInfo0108Using0107Layout)
               1U);
     EXPECT_EQ(store.find_all(exif_key("mk_nikon_flashinfo0107_0", 0x002a)).size(),
               1U);
+    EXPECT_EQ(store.find_all(exif_key("mk_nikon_flashinfo0107_0", 0x0011)).size(),
+              1U);
+    EXPECT_EQ(store.find_all(exif_key("mk_nikon_flashinfo0107_0", 0x0012)).size(),
+              2U);
     EXPECT_TRUE(store.find_all(exif_key("mk_nikon_flashinfo0107_0", 0x0014))
                     .empty());
     EXPECT_TRUE(store.find_all(exif_key("mk_nikon_flashinfo0107_0", 0x0015))
                     .empty());
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("mk_nikon_flashinfo0107_0", 0x0011));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
+        EXPECT_EQ(e.value.elem_type, MetaElementType::U8);
+        EXPECT_EQ(e.value.data.u64, 2U);
+        EXPECT_TRUE(any(e.flags, EntryFlags::ContextualName));
+        EXPECT_EQ(e.origin.name_context_kind,
+                  EntryNameContextKind::NikonFlashInfoGroups);
+        EXPECT_EQ(e.origin.name_context_variant, 5U);
+        EXPECT_EQ(exif_entry_name(store, e, ExifTagNamePolicy::ExifToolCompat),
+                  std::string_view("FlashGroupAControlMode"));
+    }
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("mk_nikon_flashinfo0107_0", 0x0012));
+        ASSERT_EQ(ids.size(), 2U);
+        const Entry& group_b = store.entry(ids[0]);
+        EXPECT_EQ(group_b.value.kind, MetaValueKind::Scalar);
+        EXPECT_EQ(group_b.value.elem_type, MetaElementType::U8);
+        EXPECT_EQ(group_b.value.data.u64, 3U);
+        EXPECT_TRUE(any(group_b.flags, EntryFlags::ContextualName));
+        EXPECT_EQ(group_b.origin.name_context_kind,
+                  EntryNameContextKind::NikonFlashInfoGroups);
+        EXPECT_EQ(group_b.origin.name_context_variant, 6U);
+        EXPECT_EQ(exif_entry_name(store, group_b,
+                                  ExifTagNamePolicy::ExifToolCompat),
+                  std::string_view("FlashGroupBControlMode"));
+
+        const Entry& group_c = store.entry(ids[1]);
+        EXPECT_EQ(group_c.value.kind, MetaValueKind::Scalar);
+        EXPECT_EQ(group_c.value.elem_type, MetaElementType::U8);
+        EXPECT_EQ(group_c.value.data.u64, 4U);
+        EXPECT_TRUE(any(group_c.flags, EntryFlags::ContextualName));
+        EXPECT_EQ(group_c.origin.name_context_kind,
+                  EntryNameContextKind::NikonFlashInfoGroups);
+        EXPECT_EQ(group_c.origin.name_context_variant, 7U);
+        EXPECT_EQ(exif_entry_name(store, group_c,
+                                  ExifTagNamePolicy::ExifToolCompat),
+                  std::string_view("FlashGroupCControlMode"));
+    }
     {
         const std::span<const EntryId> ids = store.find_all(
             exif_key("mk_nikon_flashinfo0107_0", 0x0028));
@@ -10618,8 +10669,55 @@ TEST(MakerNoteDecode, DecodesNikonFlashInfo0300Using0300Layout)
               1U);
     EXPECT_EQ(store.find_all(exif_key("mk_nikon_flashinfo0300_0", 0x0028)).size(),
               1U);
+    EXPECT_EQ(store.find_all(exif_key("mk_nikon_flashinfo0300_0", 0x0011)).size(),
+              1U);
+    EXPECT_EQ(store.find_all(exif_key("mk_nikon_flashinfo0300_0", 0x0012)).size(),
+              2U);
     EXPECT_TRUE(store.find_all(exif_key("mk_nikon_flashinfo0300_0", 0x0014))
                     .empty());
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("mk_nikon_flashinfo0300_0", 0x0011));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
+        EXPECT_EQ(e.value.elem_type, MetaElementType::U8);
+        EXPECT_EQ(e.value.data.u64, 2U);
+        EXPECT_TRUE(any(e.flags, EntryFlags::ContextualName));
+        EXPECT_EQ(e.origin.name_context_kind,
+                  EntryNameContextKind::NikonFlashInfoGroups);
+        EXPECT_EQ(e.origin.name_context_variant, 5U);
+        EXPECT_EQ(exif_entry_name(store, e, ExifTagNamePolicy::ExifToolCompat),
+                  std::string_view("FlashGroupAControlMode"));
+    }
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("mk_nikon_flashinfo0300_0", 0x0012));
+        ASSERT_EQ(ids.size(), 2U);
+        const Entry& group_b = store.entry(ids[0]);
+        EXPECT_EQ(group_b.value.kind, MetaValueKind::Scalar);
+        EXPECT_EQ(group_b.value.elem_type, MetaElementType::U8);
+        EXPECT_EQ(group_b.value.data.u64, 3U);
+        EXPECT_TRUE(any(group_b.flags, EntryFlags::ContextualName));
+        EXPECT_EQ(group_b.origin.name_context_kind,
+                  EntryNameContextKind::NikonFlashInfoGroups);
+        EXPECT_EQ(group_b.origin.name_context_variant, 6U);
+        EXPECT_EQ(exif_entry_name(store, group_b,
+                                  ExifTagNamePolicy::ExifToolCompat),
+                  std::string_view("FlashGroupBControlMode"));
+
+        const Entry& group_c = store.entry(ids[1]);
+        EXPECT_EQ(group_c.value.kind, MetaValueKind::Scalar);
+        EXPECT_EQ(group_c.value.elem_type, MetaElementType::U8);
+        EXPECT_EQ(group_c.value.data.u64, 4U);
+        EXPECT_TRUE(any(group_c.flags, EntryFlags::ContextualName));
+        EXPECT_EQ(group_c.origin.name_context_kind,
+                  EntryNameContextKind::NikonFlashInfoGroups);
+        EXPECT_EQ(group_c.origin.name_context_variant, 7U);
+        EXPECT_EQ(exif_entry_name(store, group_c,
+                                  ExifTagNamePolicy::ExifToolCompat),
+                  std::string_view("FlashGroupCControlMode"));
+    }
     {
         const std::span<const EntryId> ids = store.find_all(
             exif_key("mk_nikon_flashinfo0300_0", 0x0028));
