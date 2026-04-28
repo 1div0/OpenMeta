@@ -1144,6 +1144,25 @@ read_test_u16be(std::span<const std::byte> bytes, size_t off,
 }
 
 static bool
+read_test_u_nbe(std::span<const std::byte> bytes, size_t off, size_t width,
+                uint64_t* out) noexcept
+{
+    if (!out || width > 8U || off > bytes.size()
+        || width > bytes.size() - off) {
+        return false;
+    }
+
+    uint64_t value = 0U;
+    for (size_t i = 0; i < width; ++i) {
+        value = (value << 8U)
+                | static_cast<uint64_t>(
+                    std::to_integer<uint8_t>(bytes[off + i]));
+    }
+    *out = value;
+    return true;
+}
+
+static bool
 read_test_u64le(std::span<const std::byte> bytes, size_t* io_off,
                 uint64_t* out) noexcept
 {
@@ -1870,6 +1889,44 @@ find_top_level_bmff_box(std::span<const std::byte> bytes, uint32_t type,
 }
 
 static bool
+find_top_level_bmff_meta_child_box(std::span<const std::byte> bytes,
+                                   uint32_t type, size_t* out_offset,
+                                   size_t* out_size) noexcept
+{
+    if (!out_offset || !out_size) {
+        return false;
+    }
+    size_t meta_off  = 0U;
+    size_t meta_size = 0U;
+    if (!find_top_level_bmff_box(bytes, openmeta::fourcc('m', 'e', 't', 'a'),
+                                 &meta_off, &meta_size)) {
+        return false;
+    }
+    const size_t meta_end = meta_off + meta_size;
+    if (meta_off + 12U > meta_end) {
+        return false;
+    }
+
+    size_t off = meta_off + 12U;
+    while (off + 8U <= meta_end) {
+        uint32_t box_size = 0U;
+        uint32_t box_type = 0U;
+        if (!read_test_u32be(bytes, off, &box_size)
+            || !read_test_u32be(bytes, off + 4U, &box_type)
+            || box_size < 8U || box_size > meta_end - off) {
+            return false;
+        }
+        if (box_type == type) {
+            *out_offset = off;
+            *out_size   = box_size;
+            return true;
+        }
+        off += box_size;
+    }
+    return false;
+}
+
+static bool
 read_test_bmff_primary_iloc_extent_offset(std::span<const std::byte> bytes,
                                           uint32_t* out_offset) noexcept
 {
@@ -1936,6 +1993,171 @@ read_test_bmff_primary_iloc_extent_offset(std::span<const std::byte> bytes,
             return read_test_u32be(bytes, cursor, out_offset);
         }
         off += box_size;
+    }
+    return false;
+}
+
+struct TestBmffIlocRecordInfo final {
+    uint32_t item_id             = 0U;
+    uint16_t construction_method = 0U;
+    uint64_t base_offset         = 0U;
+    uint64_t extent_offset       = 0U;
+    uint64_t extent_length       = 0U;
+};
+
+static bool
+read_test_bmff_iloc_u_nbe(std::span<const std::byte> bytes, size_t* cursor,
+                          size_t end, size_t width, uint64_t* out) noexcept
+{
+    if (!cursor || *cursor > end || width > end - *cursor) {
+        return false;
+    }
+    if (!read_test_u_nbe(bytes, *cursor, width, out)) {
+        return false;
+    }
+    *cursor += width;
+    return true;
+}
+
+static bool
+skip_test_bmff_iloc_u_nbe(size_t* cursor, size_t end, size_t width) noexcept
+{
+    if (!cursor || *cursor > end || width > end - *cursor) {
+        return false;
+    }
+    *cursor += width;
+    return true;
+}
+
+static bool
+read_test_bmff_iloc_record(std::span<const std::byte> bytes,
+                           uint32_t wanted_item_id,
+                           TestBmffIlocRecordInfo* out) noexcept
+{
+    if (!out) {
+        return false;
+    }
+    size_t meta_off  = 0U;
+    size_t meta_size = 0U;
+    if (!find_top_level_bmff_box(bytes, openmeta::fourcc('m', 'e', 't', 'a'),
+                                 &meta_off, &meta_size)) {
+        return false;
+    }
+
+    const size_t meta_end = meta_off + meta_size;
+    if (meta_off + 12U > meta_end) {
+        return false;
+    }
+    size_t off = meta_off + 12U;
+    while (off + 8U <= meta_end) {
+        uint32_t box_size = 0U;
+        uint32_t box_type = 0U;
+        if (!read_test_u32be(bytes, off, &box_size)
+            || !read_test_u32be(bytes, off + 4U, &box_type)
+            || box_size < 8U || box_size > meta_end - off) {
+            return false;
+        }
+        if (box_type != openmeta::fourcc('i', 'l', 'o', 'c')) {
+            off += box_size;
+            continue;
+        }
+
+        const size_t payload = off + 8U;
+        const size_t end     = off + box_size;
+        if (payload + 8U > end) {
+            return false;
+        }
+        const uint8_t version
+            = std::to_integer<uint8_t>(bytes[payload + 0U]);
+        const uint8_t sizes0
+            = std::to_integer<uint8_t>(bytes[payload + 4U]);
+        const uint8_t sizes1
+            = std::to_integer<uint8_t>(bytes[payload + 5U]);
+        const size_t offset_size = static_cast<size_t>(
+            (sizes0 >> 4U) & 0x0FU);
+        const size_t length_size = static_cast<size_t>(sizes0 & 0x0FU);
+        const size_t base_size = static_cast<size_t>((sizes1 >> 4U) & 0x0FU);
+        const size_t index_size = static_cast<size_t>(sizes1 & 0x0FU);
+        if (version > 2U || offset_size > 8U || length_size > 8U
+            || base_size > 8U || index_size > 8U
+            || (version == 0U && index_size != 0U)) {
+            return false;
+        }
+
+        size_t cursor       = payload + 6U;
+        uint64_t item_count = 0U;
+        if (!read_test_bmff_iloc_u_nbe(
+                bytes, &cursor, end, version == 2U ? 4U : 2U,
+                &item_count)) {
+            return false;
+        }
+        if (item_count > static_cast<uint64_t>(end - cursor)) {
+            return false;
+        }
+
+        const size_t item_id_width = version == 2U ? 4U : 2U;
+        for (uint64_t i = 0U; i < item_count; ++i) {
+            uint64_t raw_item_id = 0U;
+            if (!read_test_bmff_iloc_u_nbe(bytes, &cursor, end,
+                                           item_id_width, &raw_item_id)
+                || raw_item_id > std::numeric_limits<uint32_t>::max()) {
+                return false;
+            }
+
+            uint64_t raw_construction_method = 0U;
+            if (version != 0U
+                && !read_test_bmff_iloc_u_nbe(
+                    bytes, &cursor, end, 2U, &raw_construction_method)) {
+                return false;
+            }
+
+            uint64_t base_offset  = 0U;
+            uint64_t extent_count = 0U;
+            if (!skip_test_bmff_iloc_u_nbe(&cursor, end, 2U)
+                || !read_test_bmff_iloc_u_nbe(bytes, &cursor, end, base_size,
+                                              &base_offset)
+                || !read_test_bmff_iloc_u_nbe(bytes, &cursor, end, 2U,
+                                              &extent_count)
+                || extent_count > static_cast<uint64_t>(end - cursor)) {
+                return false;
+            }
+
+            uint64_t first_extent_offset = 0U;
+            uint64_t first_extent_length = 0U;
+            bool has_first_extent        = false;
+            for (uint64_t j = 0U; j < extent_count; ++j) {
+                uint64_t extent_offset = 0U;
+                uint64_t extent_length = 0U;
+                if ((version == 0U
+                     || skip_test_bmff_iloc_u_nbe(&cursor, end, index_size))
+                    && read_test_bmff_iloc_u_nbe(
+                        bytes, &cursor, end, offset_size, &extent_offset)
+                    && read_test_bmff_iloc_u_nbe(
+                        bytes, &cursor, end, length_size, &extent_length)) {
+                    if (j == 0U) {
+                        first_extent_offset = extent_offset;
+                        first_extent_length = extent_length;
+                        has_first_extent    = true;
+                    }
+                } else {
+                    return false;
+                }
+            }
+
+            if (raw_item_id == wanted_item_id) {
+                if (!has_first_extent) {
+                    return false;
+                }
+                out->item_id = static_cast<uint32_t>(raw_item_id);
+                out->construction_method = static_cast<uint16_t>(
+                    raw_construction_method & 0x000FULL);
+                out->base_offset   = base_offset;
+                out->extent_offset = first_extent_offset;
+                out->extent_length = first_extent_length;
+                return true;
+            }
+        }
+        return false;
     }
     return false;
 }
@@ -5710,6 +5932,8 @@ TEST(MetadataTransferApi, ContractDefaultsAreStable)
     EXPECT_EQ(bundle.profile.jumbf, openmeta::TransferPolicyAction::Keep);
     EXPECT_EQ(bundle.profile.c2pa, openmeta::TransferPolicyAction::Keep);
     EXPECT_TRUE(bundle.profile.allow_time_patch);
+    EXPECT_EQ(bundle.profile.safety,
+              openmeta::TransferSafetyMode::CompatibleFile);
     EXPECT_TRUE(bundle.policy_decisions.empty());
     EXPECT_TRUE(bundle.blocks.empty());
     EXPECT_TRUE(bundle.time_patch_map.empty());
@@ -17837,6 +18061,268 @@ TEST(MetadataTransferApi, PrepareTargetImageSpecWritesTargetFactsForAllTargets)
         EXPECT_FALSE(payload_contains_ascii(xmp_payload,
                                             "exif:ExifImageWidth>999"));
     }
+}
+
+TEST(MetadataTransferApi, PrepareRenderedImageSafetyDropsSourceSpecificMetadata)
+{
+    openmeta::MetaStore store;
+    const openmeta::BlockId block = store.add_block(openmeta::BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    openmeta::Entry make;
+    make.key   = openmeta::make_exif_tag_key(store.arena(), "ifd0", 0x010FU);
+    make.value = openmeta::make_text(store.arena(), "CameraVendor",
+                                     openmeta::TextEncoding::Ascii);
+    make.origin.block          = block;
+    make.origin.order_in_block = 0U;
+    ASSERT_NE(store.add_entry(make), openmeta::kInvalidEntryId);
+
+    openmeta::Entry datetime_original;
+    datetime_original.key
+        = openmeta::make_exif_tag_key(store.arena(), "exififd", 0x9003U);
+    datetime_original.value = openmeta::make_text(
+        store.arena(), "2024:01:02 03:04:05", openmeta::TextEncoding::Ascii);
+    datetime_original.origin.block          = block;
+    datetime_original.origin.order_in_block = 1U;
+    ASSERT_NE(store.add_entry(datetime_original), openmeta::kInvalidEntryId);
+
+    openmeta::Entry stale_width;
+    stale_width.key
+        = openmeta::make_exif_tag_key(store.arena(), "ifd0", 0x0100U);
+    stale_width.value                 = openmeta::make_u32(999U);
+    stale_width.origin.block          = block;
+    stale_width.origin.order_in_block = 2U;
+    ASSERT_NE(store.add_entry(stale_width), openmeta::kInvalidEntryId);
+
+    const std::array<openmeta::SRational, 9> color_matrix = {
+        openmeta::SRational { 1, 1 }, openmeta::SRational { 0, 1 },
+        openmeta::SRational { 0, 1 }, openmeta::SRational { 0, 1 },
+        openmeta::SRational { 1, 1 }, openmeta::SRational { 0, 1 },
+        openmeta::SRational { 0, 1 }, openmeta::SRational { 0, 1 },
+        openmeta::SRational { 1, 1 },
+    };
+    openmeta::Entry raw_color;
+    raw_color.key
+        = openmeta::make_exif_tag_key(store.arena(), "ifd0", 0xC621U);
+    raw_color.value = openmeta::make_srational_array(
+        store.arena(),
+        std::span<const openmeta::SRational>(color_matrix.data(),
+                                             color_matrix.size()));
+    raw_color.origin.block          = block;
+    raw_color.origin.order_in_block = 3U;
+    ASSERT_NE(store.add_entry(raw_color), openmeta::kInvalidEntryId);
+
+    const std::array<uint16_t, 4> linearization = { 0U, 64U, 128U, 255U };
+    openmeta::Entry raw_linearization;
+    raw_linearization.key
+        = openmeta::make_exif_tag_key(store.arena(), "ifd0", 0xC618U);
+    raw_linearization.value = openmeta::make_u16_array(
+        store.arena(),
+        std::span<const uint16_t>(linearization.data(),
+                                  linearization.size()));
+    raw_linearization.origin.block          = block;
+    raw_linearization.origin.order_in_block = 4U;
+    ASSERT_NE(store.add_entry(raw_linearization),
+              openmeta::kInvalidEntryId);
+
+    const std::array<uint32_t, 4> active_area = { 0U, 0U, 4000U, 6000U };
+    openmeta::Entry raw_active_area;
+    raw_active_area.key
+        = openmeta::make_exif_tag_key(store.arena(), "ifd0", 0xC68DU);
+    raw_active_area.value = openmeta::make_u32_array(
+        store.arena(),
+        std::span<const uint32_t>(active_area.data(), active_area.size()));
+    raw_active_area.origin.block          = block;
+    raw_active_area.origin.order_in_block = 5U;
+    ASSERT_NE(store.add_entry(raw_active_area), openmeta::kInvalidEntryId);
+
+    const std::array<std::byte, 4> opcode_bytes = {
+        std::byte { 0x01 }, std::byte { 0x02 }, std::byte { 0x03 },
+        std::byte { 0x04 },
+    };
+    openmeta::Entry raw_opcode;
+    raw_opcode.key
+        = openmeta::make_exif_tag_key(store.arena(), "ifd0", 0xC6F6U);
+    raw_opcode.value
+        = openmeta::make_bytes(store.arena(),
+                               std::span<const std::byte>(opcode_bytes.data(),
+                                                          opcode_bytes.size()));
+    raw_opcode.origin.block          = block;
+    raw_opcode.origin.order_in_block = 6U;
+    ASSERT_NE(store.add_entry(raw_opcode), openmeta::kInvalidEntryId);
+
+    openmeta::Entry maker;
+    maker.key = openmeta::make_exif_tag_key(store.arena(), "exififd", 0x927CU);
+    const std::array<std::byte, 4> maker_bytes = {
+        std::byte { 'M' }, std::byte { 'K' }, std::byte { 'R' },
+        std::byte { 'N' },
+    };
+    maker.value
+        = openmeta::make_bytes(store.arena(),
+                               std::span<const std::byte>(maker_bytes.data(),
+                                                          maker_bytes.size()));
+    maker.origin.block          = block;
+    maker.origin.order_in_block = 7U;
+    ASSERT_NE(store.add_entry(maker), openmeta::kInvalidEntryId);
+
+    openmeta::Entry creator_tool;
+    creator_tool.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/", "CreatorTool");
+    creator_tool.value = openmeta::make_text(store.arena(), "OpenMeta Tool",
+                                             openmeta::TextEncoding::Utf8);
+    creator_tool.origin.block          = block;
+    creator_tool.origin.order_in_block = 8U;
+    ASSERT_NE(store.add_entry(creator_tool), openmeta::kInvalidEntryId);
+
+    openmeta::Entry crs_exposure;
+    crs_exposure.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/camera-raw-settings/1.0/",
+        "Exposure2012");
+    crs_exposure.value = openmeta::make_text(store.arena(), "+0.35",
+                                             openmeta::TextEncoding::Utf8);
+    crs_exposure.origin.block          = block;
+    crs_exposure.origin.order_in_block = 9U;
+    ASSERT_NE(store.add_entry(crs_exposure), openmeta::kInvalidEntryId);
+
+    openmeta::Entry dng_profile_name;
+    dng_profile_name.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/dng/1.0/", "ProfileName");
+    dng_profile_name.value = openmeta::make_text(
+        store.arena(), "Source Raw Profile", openmeta::TextEncoding::Utf8);
+    dng_profile_name.origin.block          = block;
+    dng_profile_name.origin.order_in_block = 10U;
+    ASSERT_NE(store.add_entry(dng_profile_name),
+              openmeta::kInvalidEntryId);
+
+    std::vector<std::byte> icc_tag_bytes(24U, std::byte { 0x42 });
+    openmeta::Entry icc;
+    icc.key   = openmeta::make_icc_tag_key(0x64657363U);
+    icc.value = openmeta::make_bytes(
+        store.arena(),
+        std::span<const std::byte>(icc_tag_bytes.data(), icc_tag_bytes.size()));
+    icc.origin.block          = block;
+    icc.origin.order_in_block = 11U;
+    ASSERT_NE(store.add_entry(icc), openmeta::kInvalidEntryId);
+
+    openmeta::Entry jumbf;
+    jumbf.key = openmeta::make_jumbf_cbor_key(
+        store.arena(), "box.0.1.cbor.manifest.label");
+    jumbf.value = openmeta::make_text(store.arena(), "source-manifest",
+                                      openmeta::TextEncoding::Utf8);
+    jumbf.origin.block          = block;
+    jumbf.origin.order_in_block = 12U;
+    ASSERT_NE(store.add_entry(jumbf), openmeta::kInvalidEntryId);
+    store.finalize();
+
+    openmeta::PrepareTransferRequest request;
+    request.include_iptc_app13 = false;
+    request.xmp_include_existing = true;
+    request.profile.safety = openmeta::TransferSafetyMode::RenderedImage;
+
+    openmeta::PreparedTransferBundle bundle;
+    const openmeta::PrepareTransferResult result
+        = openmeta::prepare_metadata_for_target(store, request, &bundle);
+
+    EXPECT_EQ(result.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.errors, 0U);
+    EXPECT_EQ(bundle.profile.safety, openmeta::TransferSafetyMode::RenderedImage);
+    EXPECT_EQ(bundle.profile.makernote, openmeta::TransferPolicyAction::Drop);
+    EXPECT_EQ(bundle.profile.jumbf, openmeta::TransferPolicyAction::Drop);
+    EXPECT_EQ(bundle.profile.c2pa,
+              openmeta::TransferPolicyAction::Invalidate);
+
+    const openmeta::PreparedTransferBlock* exif_block = nullptr;
+    const openmeta::PreparedTransferBlock* xmp_block  = nullptr;
+    for (size_t i = 0; i < bundle.blocks.size(); ++i) {
+        if (bundle.blocks[i].kind == openmeta::TransferBlockKind::Exif) {
+            exif_block = &bundle.blocks[i];
+        } else if (bundle.blocks[i].kind == openmeta::TransferBlockKind::Xmp) {
+            xmp_block = &bundle.blocks[i];
+        }
+        EXPECT_NE(bundle.blocks[i].kind, openmeta::TransferBlockKind::Icc);
+        EXPECT_NE(bundle.blocks[i].kind, openmeta::TransferBlockKind::Jumbf);
+    }
+
+    ASSERT_NE(exif_block, nullptr);
+    EXPECT_TRUE(prepared_exif_block_contains_ifd0_tag(*exif_block, 0x010FU));
+    EXPECT_FALSE(prepared_exif_block_contains_ifd0_tag(*exif_block, 0x0100U));
+    EXPECT_FALSE(prepared_exif_block_contains_ifd0_tag(*exif_block, 0xC618U));
+    EXPECT_FALSE(prepared_exif_block_contains_ifd0_tag(*exif_block, 0xC621U));
+    EXPECT_FALSE(prepared_exif_block_contains_ifd0_tag(*exif_block, 0xC68DU));
+    EXPECT_FALSE(prepared_exif_block_contains_ifd0_tag(*exif_block, 0xC6F6U));
+    EXPECT_TRUE(prepared_exif_block_contains_exififd_tag(*exif_block, 0x9003U));
+    EXPECT_FALSE(prepared_exif_block_contains_exififd_tag(*exif_block,
+                                                          0x927CU));
+
+    ASSERT_NE(xmp_block, nullptr);
+    const std::span<const std::byte> xmp_payload(xmp_block->payload.data(),
+                                                 xmp_block->payload.size());
+    EXPECT_TRUE(payload_contains_ascii(xmp_payload, "OpenMeta Tool"));
+    EXPECT_FALSE(payload_contains_ascii(xmp_payload, "Exposure2012"));
+    EXPECT_FALSE(payload_contains_ascii(xmp_payload, "Source Raw Profile"));
+
+    const openmeta::PreparedTransferPolicyDecision* image_decision
+        = find_policy_decision(
+            bundle, openmeta::TransferPolicySubject::ImageProperties);
+    ASSERT_NE(image_decision, nullptr);
+    EXPECT_EQ(image_decision->requested, openmeta::TransferPolicyAction::Keep);
+    EXPECT_EQ(image_decision->effective, openmeta::TransferPolicyAction::Drop);
+    EXPECT_EQ(image_decision->reason,
+              openmeta::TransferPolicyReason::TargetImageProperties);
+    EXPECT_EQ(image_decision->matched_entries, 1U);
+
+    const openmeta::PreparedTransferPolicyDecision* icc_decision
+        = find_policy_decision(bundle,
+                               openmeta::TransferPolicySubject::IccProfile);
+    ASSERT_NE(icc_decision, nullptr);
+    EXPECT_EQ(icc_decision->requested, openmeta::TransferPolicyAction::Keep);
+    EXPECT_EQ(icc_decision->effective, openmeta::TransferPolicyAction::Drop);
+    EXPECT_EQ(icc_decision->reason,
+              openmeta::TransferPolicyReason::SafetyModeFiltered);
+    EXPECT_EQ(icc_decision->matched_entries, 1U);
+
+    const openmeta::PreparedTransferPolicyDecision* raw_decision
+        = find_policy_decision(
+            bundle, openmeta::TransferPolicySubject::RawColorCalibration);
+    ASSERT_NE(raw_decision, nullptr);
+    EXPECT_EQ(raw_decision->requested, openmeta::TransferPolicyAction::Keep);
+    EXPECT_EQ(raw_decision->effective, openmeta::TransferPolicyAction::Drop);
+    EXPECT_EQ(raw_decision->reason,
+              openmeta::TransferPolicyReason::SafetyModeFiltered);
+    EXPECT_EQ(raw_decision->matched_entries, 5U);
+
+    const openmeta::PreparedTransferPolicyDecision* crs_decision
+        = find_policy_decision(
+            bundle, openmeta::TransferPolicySubject::CameraRawSettings);
+    ASSERT_NE(crs_decision, nullptr);
+    EXPECT_EQ(crs_decision->requested, openmeta::TransferPolicyAction::Keep);
+    EXPECT_EQ(crs_decision->effective, openmeta::TransferPolicyAction::Drop);
+    EXPECT_EQ(crs_decision->reason,
+              openmeta::TransferPolicyReason::SafetyModeFiltered);
+    EXPECT_EQ(crs_decision->matched_entries, 1U);
+
+    const openmeta::PreparedTransferPolicyDecision* maker_decision
+        = find_policy_decision(bundle,
+                               openmeta::TransferPolicySubject::MakerNote);
+    ASSERT_NE(maker_decision, nullptr);
+    EXPECT_EQ(maker_decision->requested,
+              openmeta::TransferPolicyAction::Keep);
+    EXPECT_EQ(maker_decision->effective,
+              openmeta::TransferPolicyAction::Drop);
+    EXPECT_EQ(maker_decision->reason,
+              openmeta::TransferPolicyReason::SafetyModeFiltered);
+    EXPECT_EQ(maker_decision->matched_entries, 1U);
+
+    const openmeta::PreparedTransferPolicyDecision* jumbf_decision
+        = find_policy_decision(bundle, openmeta::TransferPolicySubject::Jumbf);
+    ASSERT_NE(jumbf_decision, nullptr);
+    EXPECT_EQ(jumbf_decision->requested,
+              openmeta::TransferPolicyAction::Keep);
+    EXPECT_EQ(jumbf_decision->effective,
+              openmeta::TransferPolicyAction::Drop);
+    EXPECT_EQ(jumbf_decision->reason,
+              openmeta::TransferPolicyReason::SafetyModeFiltered);
+    EXPECT_EQ(jumbf_decision->matched_entries, 1U);
 }
 
 TEST(MetadataTransferApi, PrepareRejectsInvalidTargetImageSpec)
@@ -37041,6 +37527,75 @@ TEST(MetadataTransferApi, ExecutePreparedTransferBmffEditMergesForeignMetaBox)
     ASSERT_EQ(scan.written, 2U);
     EXPECT_EQ(blocks[0].kind, openmeta::ContainerBlockKind::Exif);
     EXPECT_EQ(blocks[1].kind, openmeta::ContainerBlockKind::Xmp);
+}
+
+TEST(MetadataTransferApi,
+     ExecutePreparedTransferBmffEditStoresInsertedItemsAsAbsoluteIlocExtents)
+{
+    openmeta::PreparedTransferBundle bundle;
+    bundle.target_format = openmeta::TransferTargetFormat::Heif;
+
+    openmeta::PreparedTransferBlock exif;
+    exif.route   = "bmff:item-exif";
+    exif.payload = make_test_bmff_exif_item_payload();
+    bundle.blocks.push_back(exif);
+
+    openmeta::PreparedTransferBlock xmp;
+    xmp.route   = "bmff:item-xmp";
+    xmp.payload = { std::byte { '<' }, std::byte { 'x' }, std::byte { 'm' },
+                    std::byte { 'p' }, std::byte { '/' }, std::byte { '>' } };
+    bundle.blocks.push_back(xmp);
+
+    const std::vector<std::byte> input = make_bmff_foreign_meta_merge_target();
+
+    openmeta::ExecutePreparedTransferOptions options;
+    options.edit_requested = true;
+    options.edit_apply     = true;
+
+    const openmeta::ExecutePreparedTransferResult result
+        = openmeta::execute_prepared_transfer(
+            &bundle, std::span<const std::byte>(input.data(), input.size()),
+            options);
+
+    EXPECT_EQ(result.edit_plan_status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.edit_apply.status, openmeta::TransferStatus::Ok);
+    ASSERT_FALSE(result.edited_output.empty());
+
+    const std::span<const std::byte> edited(result.edited_output.data(),
+                                            result.edited_output.size());
+    std::array<openmeta::ContainerBlockRef, 16> blocks {};
+    const openmeta::ScanResult scan = openmeta::scan_bmff(
+        edited, std::span<openmeta::ContainerBlockRef>(blocks.data(),
+                                                       blocks.size()));
+    ASSERT_EQ(scan.status, openmeta::ScanStatus::Ok);
+    ASSERT_GE(scan.written, 2U);
+    ASSERT_EQ(blocks[0].kind, openmeta::ContainerBlockKind::Exif);
+    ASSERT_EQ(blocks[1].kind, openmeta::ContainerBlockKind::Xmp);
+
+    size_t idat_off  = 0U;
+    size_t idat_size = 0U;
+    ASSERT_TRUE(find_top_level_bmff_meta_child_box(
+        edited, openmeta::fourcc('i', 'd', 'a', 't'), &idat_off, &idat_size));
+    ASSERT_GT(idat_size, 8U);
+    const uint64_t idat_payload_offset = static_cast<uint64_t>(idat_off + 8U);
+
+    TestBmffIlocRecordInfo exif_record;
+    ASSERT_TRUE(read_test_bmff_iloc_record(edited, 2U, &exif_record));
+    EXPECT_EQ(exif_record.construction_method, 0U);
+    EXPECT_EQ(exif_record.base_offset, 0U);
+    EXPECT_EQ(exif_record.extent_offset, idat_payload_offset + 1U);
+    EXPECT_EQ(exif_record.extent_length,
+              static_cast<uint64_t>(exif.payload.size()));
+
+    TestBmffIlocRecordInfo xmp_record;
+    ASSERT_TRUE(read_test_bmff_iloc_record(edited, 3U, &xmp_record));
+    EXPECT_EQ(xmp_record.construction_method, 0U);
+    EXPECT_EQ(xmp_record.base_offset, exif_record.base_offset);
+    EXPECT_EQ(xmp_record.extent_offset,
+              idat_payload_offset + 1U
+                  + static_cast<uint64_t>(exif.payload.size()));
+    EXPECT_EQ(xmp_record.extent_length,
+              static_cast<uint64_t>(xmp.payload.size()));
 }
 
 TEST(MetadataTransferApi,

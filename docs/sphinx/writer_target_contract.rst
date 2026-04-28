@@ -51,6 +51,123 @@ inject the target profile. The Python binding exposes the same structure as
 command wrappers expose matching ``--target-*`` flags for smoke tests and
 file-helper integration checks.
 
+For coarse transfer safety, use ``TransferProfile::safety``. The default
+``CompatibleFile`` mode is for metadata repackage or recompression into a
+compatible target and preserves source camera/color metadata after the
+target-owned image-layout filter above. ``RenderedImage`` is for exports whose
+pixels may have changed, including RAW-to-rendered outputs. It keeps general
+descriptive metadata, time fields, GPS, IPTC, and portable XMP, but filters
+source raw color calibration, linearization/crop/correction tags, camera raw
+settings XMP, source ICC profiles, MakerNotes, and non-C2PA JUMBF data. Host
+code should provide target-correct ICC/profile data and image specs separately.
+
+.. _transfer-safety-matrix:
+
+Transfer Safety Matrix
+----------------------
+
+The table below is the public coarse policy for automatic transfer. It is not
+a privacy policy and it is not a replacement for application-specific metadata
+controls. Hosts may still strip more metadata.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 18 28 18 18 18
+
+   * - Metadata group
+     - Examples
+     - ``CompatibleFile``
+     - ``RenderedImage``
+     - Notes
+   * - General descriptive metadata
+     - title, description, creator, artist, copyright, rating, label, keywords
+     - Keep
+     - Keep
+     - Safe because it describes the asset or authorship rather than the source
+       pixel encoding.
+   * - Capture time
+     - ``DateTimeOriginal``, ``CreateDate``, subsecond fields, timezone offset
+       fields, GPS time
+     - Keep
+     - Keep
+     - If the output represents a new capture or synthetic composition, host
+       policy should replace or strip these values.
+   * - Camera and lens acquisition facts
+     - ``Make``, ``Model``, ``LensModel``, exposure time, f-number, ISO, focal
+       length, flash, metering mode
+     - Keep
+     - Keep
+     - These are safe as capture facts. They are not treated as processing
+       instructions.
+   * - Location and IPTC editorial fields
+     - EXIF GPS, XMP GPS aliases, IPTC location, caption, byline, credit,
+       rights, job/reference fields
+     - Keep
+     - Keep
+     - Privacy-sensitive data is intentionally left to host policy.
+   * - Portable XMP
+     - Dublin Core, XMP Rights, IPTC Extension, generated EXIF/IPTC projections
+     - Keep after image-layout filtering
+     - Keep after image-layout and rendered-safety filtering
+     - XMP properties from raw-processing namespaces are handled separately
+       below.
+   * - Target image layout and storage
+     - width, height, orientation, samples per pixel, bits per sample, sample
+       format, photometric interpretation, compression, rows/strips/tiles,
+       offsets, byte counts, thumbnail/interchange offsets
+     - Target-owned; source values filtered
+     - Target-owned; source values filtered
+     - Host code must preserve target values or provide
+       ``target_image_spec``.
+   * - Output color/profile metadata
+     - ICC profile blocks, EXIF/XMP ``ColorSpace``, color-space aliases,
+       Photoshop ICC profile name
+     - Keep only when the source profile is valid for the target pixel buffer
+     - Drop source ICC/profile facts; host writes target profile
+     - Rendered exports often need a new output profile such as sRGB, Display
+       P3, or a host-managed working/output profile.
+   * - RAW/DNG sensor and color pipeline
+     - CFA pattern, black/white levels, linearization tables,
+       ``ColorMatrix*``, ``ForwardMatrix*``, ``CameraCalibration*``,
+       ``AsShotNeutral``, DNG private/profile tags
+     - Keep only for compatible RAW/DNG-style transfer
+     - Drop
+     - These values describe how to turn original sensor data into rendered
+       color. Reusing them on already-rendered pixels can make CMS or editors
+       apply the raw transform twice.
+   * - RAW crop, geometry, and correction data
+     - ``ActiveArea``, ``DefaultCrop*``, masked areas, opcode lists,
+       distortion/vignetting/camera-profile correction data
+     - Keep only for compatible RAW/DNG-style transfer
+     - Drop
+     - These values are tied to the original sensor geometry and raw-processing
+       pipeline.
+   * - Camera raw settings XMP
+     - ``crs:*`` development settings and raw-edit recipe metadata
+     - Keep
+     - Drop
+     - A rendered file should not normally carry a source raw-edit recipe
+       unless the host intentionally writes a sidecar/workflow record.
+   * - Opaque MakerNote payloads
+     - vendor MakerNote blobs and private nested IFDs
+     - Keep by default, or follow explicit MakerNote policy
+     - Drop
+     - Decoded safe facts can still be carried through standard EXIF/XMP
+       fields; the opaque vendor blob is not copied for rendered outputs.
+   * - C2PA and JUMBF
+     - APP11/JUMBF boxes, C2PA manifests, assertions, signatures
+     - Follow explicit JUMBF/C2PA policy
+     - Drop non-C2PA JUMBF; invalidate C2PA by default if it would otherwise
+       be kept
+     - Pixel-changing exports need a new content binding and signature from
+       the host or signer.
+   * - Embedded previews and thumbnails
+     - TIFF preview pages, SubIFD previews, JPEG interchange thumbnail data
+     - Preserve only within bounded target-owned rewrite rules
+     - Target-owned; host should regenerate or preserve target previews
+     - Source previews commonly describe the source pixels, not the rendered
+       target.
+
 Target Summary
 --------------
 
@@ -265,6 +382,13 @@ targets, OpenMeta can allocate 32-bit item IDs and uses ``infe`` version 3 plus
 ``iref`` version 1 when a newly inserted item needs that wider ID space. If the
 existing graph has exhausted the usable item-id space or mixes item-table widths
 outside this shape, the edit fails instead of truncating IDs.
+
+Newly inserted metadata item payloads are appended to the rebuilt ``idat``
+payload. To preserve broad reader compatibility, their ``iloc`` records keep
+construction method 0 and use absolute file-offset extents within the existing
+field widths. When all retained self-contained item locations can be
+represented as absolute extents, OpenMeta compacts the rebuilt ``iloc``
+base-offset field width to zero for simpler reader compatibility.
 
 For bounded ICC transfer, OpenMeta removes prior ICC ``colr/prof`` and
 ``colr/rICC`` properties from ``iprp/ipco``, compacts/remaps existing ``ipma``

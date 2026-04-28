@@ -247,6 +247,60 @@ function(_om_check_exiftool format extension)
   endif()
 endfunction()
 
+function(_om_check_bmff_exif_reader_layout format path)
+  execute_process(
+    COMMAND "${METATRANSFER_BIN}" --no-build-info
+            "--target-${format}"
+            --no-xmp
+            --no-icc
+            --no-iptc
+            "${path}"
+    RESULT_VARIABLE _rv
+    OUTPUT_VARIABLE _out
+    ERROR_VARIABLE _err
+  )
+  if(NOT _rv EQUAL 0)
+    message(FATAL_ERROR
+      "metatransfer could not summarize edited ${format} EXIF (${_rv})\nstdout:\n${_out}\nstderr:\n${_err}")
+  endif()
+  if(NOT _out MATCHES "bmff_item Exif count=1")
+    message(FATAL_ERROR
+      "metatransfer summary missing single BMFF Exif item for ${format}\nstdout:\n${_out}\nstderr:\n${_err}")
+  endif()
+
+  if(DEFINED EXIFTOOL_BIN AND NOT EXIFTOOL_BIN STREQUAL ""
+     AND EXISTS "${EXIFTOOL_BIN}")
+    execute_process(
+      COMMAND "${EXIFTOOL_BIN}" -validate -warning -error
+              -ExifImageWidth -ExifImageHeight -EXIF:all "${path}"
+      RESULT_VARIABLE _rv_exiftool
+      OUTPUT_VARIABLE _out_exiftool
+      ERROR_VARIABLE _err_exiftool
+    )
+    if(NOT _rv_exiftool EQUAL 0)
+      message(FATAL_ERROR
+        "exiftool could not read edited ${format} EXIF (${_rv_exiftool})\nstdout:\n${_out_exiftool}\nstderr:\n${_err_exiftool}")
+    endif()
+    if(_out_exiftool MATCHES "Error[ ]*:")
+      message(FATAL_ERROR
+        "exiftool reported an EXIF error for edited ${format}\n${_out_exiftool}")
+    endif()
+    if(_out_exiftool MATCHES "Can't currently extract Exif")
+      message(FATAL_ERROR
+        "exiftool could not extract BMFF Exif item layout for ${format}\n${_out_exiftool}")
+    endif()
+    if(NOT _out_exiftool MATCHES "Exif Image Width[ ]*: 64")
+      message(FATAL_ERROR
+        "exiftool missing BMFF ExifImageWidth=64 for ${format}\n${_out_exiftool}")
+    endif()
+    if(NOT _out_exiftool MATCHES "Exif Image Height[ ]*: 32")
+      message(FATAL_ERROR
+        "exiftool missing BMFF ExifImageHeight=32 for ${format}\n${_out_exiftool}")
+    endif()
+  endif()
+
+endfunction()
+
 function(_om_transfer_and_check format extension)
   set(_target "${TARGET_${format}}")
   set(_output "${WORK_DIR}/edited.${extension}")
@@ -305,6 +359,8 @@ function(_om_transfer_bmff_if_available format extension)
 
   set("TARGET_${format}" "${_target}")
   _om_transfer_and_check("${format}" "${extension}")
+  _om_check_bmff_exif_reader_layout(
+    "${format}" "${WORK_DIR}/edited.${extension}")
 endfunction()
 
 function(_om_prepare_bmff_target_if_available format extension suffix label

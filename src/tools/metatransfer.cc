@@ -97,6 +97,10 @@ namespace {
             "                         Transfer policy for JUMBF payloads\n"
             "  --c2pa-policy <keep|drop|invalidate|rewrite>\n"
             "                         Transfer policy for C2PA payloads\n"
+            "  --transfer-safety <compatible|rendered>\n"
+            "                         compatible keeps source color/camera data for\n"
+            "                         compatible repackage; rendered drops source raw\n"
+            "                         color/correction/ICC/MakerNote/JUMBF data\n"
             "  --jpeg-jumbf <path>   Append one logical raw JUMBF payload to a JPEG bundle\n"
             "  --replace-jpeg-jumbf  Remove prepared jpeg:app11-jumbf blocks before append\n"
             "  --jpeg-c2pa-signed <path>\n"
@@ -442,6 +446,25 @@ namespace {
         return false;
     }
 
+    static bool parse_transfer_safety_mode(const char* s,
+                                           TransferSafetyMode* out) noexcept
+    {
+        if (!s || !out) {
+            return false;
+        }
+        if (std::strcmp(s, "compatible") == 0
+            || std::strcmp(s, "compatible_file") == 0) {
+            *out = TransferSafetyMode::CompatibleFile;
+            return true;
+        }
+        if (std::strcmp(s, "rendered") == 0
+            || std::strcmp(s, "rendered_image") == 0) {
+            *out = TransferSafetyMode::RenderedImage;
+            return true;
+        }
+        return false;
+    }
+
 
     static bool parse_xmp_conflict_policy(const char* s,
                                           XmpConflictPolicy* out) noexcept
@@ -695,6 +718,13 @@ namespace {
             return "xmp_exif_projection";
         case TransferPolicySubject::XmpIptcProjection:
             return "xmp_iptc_projection";
+        case TransferPolicySubject::ImageProperties:
+            return "image_properties";
+        case TransferPolicySubject::IccProfile: return "icc_profile";
+        case TransferPolicySubject::RawColorCalibration:
+            return "raw_color_calibration";
+        case TransferPolicySubject::CameraRawSettings:
+            return "camera_raw_settings";
         }
         return "unknown";
     }
@@ -736,6 +766,10 @@ namespace {
             return "rewrite_unavailable_preserved_raw";
         case TransferPolicyReason::TargetSerializationUnavailable:
             return "target_serialization_unavailable";
+        case TransferPolicyReason::TargetImageProperties:
+            return "target_image_properties";
+        case TransferPolicyReason::SafetyModeFiltered:
+            return "safety_mode_filtered";
         }
         return "unknown";
     }
@@ -2100,6 +2134,19 @@ main(int argc, char** argv)
                 return 2;
             }
             options.prepare.profile.c2pa = action;
+            i += 1;
+            continue;
+        }
+        if (std::strcmp(arg, "--transfer-safety") == 0 && i + 1 < argc) {
+            TransferSafetyMode safety = TransferSafetyMode::CompatibleFile;
+            if (!parse_transfer_safety_mode(argv[i + 1], &safety)) {
+                std::fprintf(
+                    stderr,
+                    "invalid --transfer-safety value "
+                    "(expected compatible|rendered)\n");
+                return 2;
+            }
+            options.prepare.profile.safety = safety;
             i += 1;
             continue;
         }

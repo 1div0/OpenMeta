@@ -117,9 +117,10 @@ transfer path only runs for configured targets that match the 64x32,
 3-channel fixture shape, so the gate does not intentionally write mismatched
 image geometry. The configured XMP assertion is based on OpenMeta's BMFF
 summary; ExifTool title validation is also applied for formats where ExifTool
-exposes the generic BMFF XMP item. If the local ``oiiotool`` build cannot
-decode a configured BMFF target after rewrite, ``OPENMETA_FFMPEG_EXECUTABLE``
-can provide the decode fallback.
+exposes the generic BMFF XMP item. ExifTool is also used for BMFF EXIF/ICC
+reader checks when available. If the local ``oiiotool`` build cannot decode a
+configured BMFF target after rewrite, ``OPENMETA_FFMPEG_EXECUTABLE`` can
+provide the decode fallback.
 
 The public GitHub Actions workflow ``.github/workflows/ci.yml`` runs two Linux
 variants of these public release gates:

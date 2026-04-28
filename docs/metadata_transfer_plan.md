@@ -41,6 +41,9 @@ The main remaining work is now on the target side.
 The first public write-side sync controls are also in place:
 - generated XMP can explicitly suppress EXIF-derived projection
 - generated XMP can explicitly suppress IPTC-derived projection
+- `TransferProfile::safety` can distinguish compatible metadata
+  repackage/recompression from rendered-image export, so callers can select a
+  safe coarse policy without hand-picking individual tags
 - prepared bundles record those resolved projection decisions alongside the
   existing preservation policies
 
@@ -113,6 +116,8 @@ OpenMeta now has explicit end-to-end read-backed transfer tests for:
 - source XMP -> bounded BMFF XMP item edit/apply -> read-back and external
   validation on configured HEIF/AVIF/CR3 targets where local tools expose the
   transferred XMP payload
+- source EXIF -> bounded BMFF Exif item edit/apply -> explicit ExifTool
+  reader-layout regression check on configured HEIF/AVIF/CR3 targets
 
 That does not make all targets equally mature, but it does mean the transfer
 core has real roundtrip regression gates across the primary supported export
@@ -147,7 +152,8 @@ CR3 target files via CMake cache paths when local tools cannot create those
 formats. Arbitrary configured BMFF targets exercise the ICC property and XMP
 item transfer/read-back routes; the EXIF image-property route remains limited
 to the 64x32, 3-channel fixture shape to avoid intentionally mismatched
-geometry.
+geometry. ExifTool is used when available for BMFF EXIF/XMP/ICC reader
+compatibility checks.
 
 ## Per-Target Notes
 
@@ -199,6 +205,12 @@ Implemented:
   source image-layout fields have been filtered. The Python binding and both
   command-line transfer wrappers now expose the same target image spec surface
   for file-helper integration tests.
+- rendered-output safety mode: `TransferProfile::safety =
+  TransferSafetyMode::RenderedImage` additionally drops source raw color
+  calibration, linearization/crop/correction metadata, camera raw settings XMP,
+  source ICC profiles, MakerNotes, and non-C2PA JUMBF data. It is intended for
+  RAW-to-rendered or otherwise pixel-changing exports where host code must
+  provide target-correct color/profile data.
 - bounded DNG-style merge policy in the file-helper path:
   source-supplied preview/aux front structures replace the target front
   structures, while existing target page tails and trailing auxiliary
@@ -307,6 +319,10 @@ Implemented as a bounded BMFF target family:
 - bounded 32-bit item-id insertion for foreign item graphs that already use
   `iloc` version 2; `iloc` version 0/1 targets remain constrained to 16-bit
   inserted item IDs
+- inserted metadata item records keep `iloc` construction method 0 and use
+  absolute file-offset extents for broad reader compatibility
+- rebuilt foreign `iloc` graphs compact foldable self-contained base offsets to
+  a zero-width base-offset field when safe
 - bounded foreign top-level `meta` ICC property merge by replacing prior ICC
   `colr/prof` and `colr/rICC` properties, remapping `ipma`, and associating the
   transferred `colr/prof` property with the primary item
@@ -893,8 +909,8 @@ writer-confidence slice above; it should be sequenced around it.
   offset or byte range where available, and short host-facing messages
 - [ ] extend resource accounting beyond current hard limits with preflight
   estimates for prepared transfers, sidecar output, and serialized snapshots
-- [ ] add clean-room public micro fixtures for host integration tests; do not use
-  private corpus files, vendor drops, or scraped/spec text
+- [ ] add clean-room public micro fixtures for host integration tests; do not
+  vendor large binary assets, third-party source drops, or scraped/spec text
 - [ ] add examples for `read bytes -> snapshot -> target bytes -> edited bytes`
   and `visit_metadata(...) -> flat host attribute list`
 - [ ] consider a bounded random-access IO callback only after bytes/file APIs

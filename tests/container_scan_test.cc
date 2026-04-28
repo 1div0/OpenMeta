@@ -2748,7 +2748,7 @@ namespace {
 
         std::vector<std::byte> iinf_payload;
         append_fullbox_header(&iinf_payload, 1);
-        append_u16be(&iinf_payload, 1);  // entry_count (v1)
+        append_u32be(&iinf_payload, 1);  // entry_count (v1)
         iinf_payload.insert(iinf_payload.end(), infe_box.begin(),
                             infe_box.end());
         std::vector<std::byte> iinf_box;

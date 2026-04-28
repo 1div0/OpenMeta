@@ -21,6 +21,7 @@ set(_src_jpg "${WORK_DIR}/source.jpg")
 set(_src_jpg_xmp "${WORK_DIR}/source_xmp.jpg")
 set(_src_jpg_target_embedded_xmp "${WORK_DIR}/source_target_embedded_xmp.jpg")
 set(_src_icc_jpg "${WORK_DIR}/source_icc.jpg")
+set(_src_rendered_safety_jpg "${WORK_DIR}/source_rendered_safety.jpg")
 set(_target_jpg "${WORK_DIR}/target.jpg")
 set(_target_jpg_xmp "${WORK_DIR}/target_xmp.jpg")
 set(_edited_jpg "${WORK_DIR}/edited.jpg")
@@ -95,6 +96,7 @@ set(_c2pa_heif_out "${WORK_DIR}/edited_from_package.heif")
 set(_c2pa_heif_from_package "${WORK_DIR}/edited_from_signed_package.heif")
 set(_check_tiff_py "${WORK_DIR}/check_tiff.py")
 set(_check_readback_py "${WORK_DIR}/check_readback.py")
+set(_rendered_safety_builder_py "${WORK_DIR}/build_rendered_safety_fixture.py")
 
 execute_process(
   COMMAND "${OPENMETA_PYTHON_EXECUTABLE}" -c
@@ -300,6 +302,174 @@ if(NOT _rv_c2pa_heif EQUAL 0)
     "failed to write python metatransfer heif c2pa fixture (${_rv_c2pa_heif})\nstdout:\n${_out_c2pa_heif}\nstderr:\n${_err_c2pa_heif}")
 endif()
 
+file(WRITE "${_rendered_safety_builder_py}" [=[
+import struct
+import sys
+from pathlib import Path
+
+def u16le(v): return struct.pack("<H", v)
+def u32le(v): return struct.pack("<I", v)
+def i32le(v): return struct.pack("<i", v)
+
+def align2(v): return (v + 1) & ~1
+
+class Entry:
+    __slots__ = ("tag", "typ", "count", "value", "inline", "value_off")
+    def __init__(self, tag, typ, count, value):
+        self.tag = tag
+        self.typ = typ
+        self.count = count
+        self.value = value
+        self.inline = False
+        self.value_off = 0
+
+def add_ascii(dst, tag, text):
+    raw = text.encode("ascii") + b"\x00"
+    dst.append(Entry(tag, 2, len(raw), raw))
+
+def add_long(dst, tag, values):
+    raw = bytearray()
+    for v in values:
+        raw += u32le(v)
+    dst.append(Entry(tag, 4, len(values), bytes(raw)))
+
+def add_undefined(dst, tag, raw):
+    dst.append(Entry(tag, 7, len(raw), raw))
+
+def add_srational(dst, tag, pairs):
+    raw = bytearray()
+    for n, d in pairs:
+        raw += i32le(n)
+        raw += i32le(d)
+    dst.append(Entry(tag, 10, len(pairs), bytes(raw)))
+
+def add_pointer(dst, tag):
+    dst.append(Entry(tag, 4, 1, u32le(0)))
+
+def find_entry(dst, tag):
+    for entry in dst:
+        if entry.tag == tag:
+            return entry
+    raise RuntimeError(f"missing tag {tag}")
+
+def write_ifd(buf, off, entries):
+    buf[off:off + 2] = u16le(len(entries))
+    pos = off + 2
+    for entry in entries:
+        buf[pos:pos + 2] = u16le(entry.tag)
+        buf[pos + 2:pos + 4] = u16le(entry.typ)
+        buf[pos + 4:pos + 8] = u32le(entry.count)
+        if entry.inline:
+            raw = entry.value + b"\x00" * (4 - len(entry.value))
+            buf[pos + 8:pos + 12] = raw[:4]
+        else:
+            buf[pos + 8:pos + 12] = u32le(entry.value_off)
+        pos += 12
+    buf[pos:pos + 4] = u32le(0)
+
+if len(sys.argv) != 2:
+    raise SystemExit("usage: build_rendered_safety_fixture.py <out.jpg>")
+
+ifd0 = []
+exififd = []
+
+add_long(ifd0, 0x0100, [999])
+add_ascii(ifd0, 0x010F, "CameraVendor")
+add_pointer(ifd0, 0x8769)
+add_srational(
+    ifd0,
+    0xC621,
+    [(1, 1), (0, 1), (0, 1), (0, 1), (1, 1),
+     (0, 1), (0, 1), (0, 1), (1, 1)])
+add_long(ifd0, 0xC68D, [0, 0, 4000, 6000])
+add_undefined(ifd0, 0xC6F6, b"\x01\x02\x03\x04")
+
+add_ascii(exififd, 0x9003, "2024:01:02 03:04:05")
+add_undefined(exififd, 0x927C, b"MKRn")
+
+ifd0.sort(key=lambda e: e.tag)
+exififd.sort(key=lambda e: e.tag)
+
+cursor = 8
+ifd0_off = cursor
+cursor += 2 + len(ifd0) * 12 + 4
+exif_off = cursor
+cursor += 2 + len(exififd) * 12 + 4
+find_entry(ifd0, 0x8769).value = u32le(exif_off)
+
+for entries in (ifd0, exififd):
+    for entry in entries:
+        if len(entry.value) <= 4:
+            entry.inline = True
+        else:
+            cursor = align2(cursor)
+            entry.value_off = cursor
+            cursor += len(entry.value)
+
+tiff = bytearray(cursor)
+tiff[0:2] = b"II"
+tiff[2:4] = u16le(42)
+tiff[4:8] = u32le(ifd0_off)
+write_ifd(tiff, ifd0_off, ifd0)
+write_ifd(tiff, exif_off, exififd)
+for entries in (ifd0, exififd):
+    for entry in entries:
+        if not entry.inline:
+            tiff[entry.value_off:entry.value_off + len(entry.value)] = entry.value
+
+exif_payload = b"Exif\x00\x00" + bytes(tiff)
+xml = (
+    b"<x:xmpmeta xmlns:x='adobe:ns:meta/'>"
+    b"<rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'>"
+    b"<rdf:Description xmlns:xmp='http://ns.adobe.com/xap/1.0/' "
+    b"xmlns:crs='http://ns.adobe.com/camera-raw-settings/1.0/' "
+    b"xmlns:dng='http://ns.adobe.com/dng/1.0/'>"
+    b"<xmp:CreatorTool>OpenMeta Transfer Source</xmp:CreatorTool>"
+    b"<crs:Exposure2012>+0.35</crs:Exposure2012>"
+    b"<dng:ProfileName>Source Raw Profile</dng:ProfileName>"
+    b"</rdf:Description></rdf:RDF></x:xmpmeta>")
+xmp_payload = b"http://ns.adobe.com/xap/1.0/\x00" + xml
+
+profile = bytearray(156)
+profile[0:4] = (156).to_bytes(4, "big")
+profile[36:40] = b"acsp"
+profile[128:132] = (1).to_bytes(4, "big")
+profile[132:136] = b"desc"
+profile[136:140] = (144).to_bytes(4, "big")
+profile[140:144] = (12).to_bytes(4, "big")
+profile[144:156] = bytes([0x11]) * 12
+icc_payload = b"ICC_PROFILE\x00\x01\x01" + bytes(profile)
+
+def box(t, payload):
+    return (8 + len(payload)).to_bytes(4, "big") + t + payload
+
+jumb = box(b"jumb", box(b"jumd", b"acme\x00") + box(b"cbor", b"\xA1\x61a\x01"))
+jumbf_payload = b"JP\x00\x00" + (1).to_bytes(4, "big") + jumb
+
+def segment(marker, payload):
+    return b"\xFF" + bytes([marker]) + (len(payload) + 2).to_bytes(2, "big") + payload
+
+jpg = (
+    b"\xFF\xD8"
+    + segment(0xE1, exif_payload)
+    + segment(0xE1, xmp_payload)
+    + segment(0xE2, icc_payload)
+    + segment(0xEB, jumbf_payload)
+    + b"\xFF\xD9")
+Path(sys.argv[1]).write_bytes(jpg)
+]=])
+
+execute_process(
+  COMMAND "${OPENMETA_PYTHON_EXECUTABLE}" "${_rendered_safety_builder_py}" "${_src_rendered_safety_jpg}"
+  RESULT_VARIABLE _rv_rendered_safety_src
+  OUTPUT_VARIABLE _out_rendered_safety_src
+  ERROR_VARIABLE _err_rendered_safety_src
+)
+if(NOT _rv_rendered_safety_src EQUAL 0)
+  message(FATAL_ERROR
+    "failed to write python metatransfer rendered-safety fixture (${_rv_rendered_safety_src})\nstdout:\n${_out_rendered_safety_src}\nstderr:\n${_err_rendered_safety_src}")
+endif()
+
 execute_process(
   COMMAND "${CMAKE_COMMAND}" -E env
           "PYTHONPATH=${OPENMETA_PYTHONPATH}"
@@ -340,6 +510,51 @@ execute_process(
 if(NOT _rv_jpg_check EQUAL 0)
   message(FATAL_ERROR
     "python metatransfer jpeg output check failed (${_rv_jpg_check})\nstdout:\n${_out_jpg_check}\nstderr:\n${_err_jpg_check}")
+endif()
+
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env
+          "PYTHONPATH=${OPENMETA_PYTHONPATH}"
+          "${OPENMETA_PYTHON_EXECUTABLE}" -m openmeta.python.metatransfer
+          --no-build-info
+          --xmp-include-existing
+          --transfer-safety rendered
+          "${_src_rendered_safety_jpg}"
+  RESULT_VARIABLE _rv_rendered_safety
+  OUTPUT_VARIABLE _out_rendered_safety
+  ERROR_VARIABLE _err_rendered_safety
+)
+if(NOT _rv_rendered_safety EQUAL 0)
+  message(FATAL_ERROR
+    "python metatransfer rendered safety probe failed (${_rv_rendered_safety})\nstdout:\n${_out_rendered_safety}\nstderr:\n${_err_rendered_safety}")
+endif()
+if(NOT _out_rendered_safety MATCHES "prepare: status=ok")
+  message(FATAL_ERROR
+    "python metatransfer rendered safety missing prepare ok\nstdout:\n${_out_rendered_safety}\nstderr:\n${_err_rendered_safety}")
+endif()
+if(NOT _out_rendered_safety MATCHES "policy\\[image_properties\\]: requested=keep effective=drop reason=target_image_properties matched=[1-9][0-9]*")
+  message(FATAL_ERROR
+    "python metatransfer rendered safety missing image-properties policy\nstdout:\n${_out_rendered_safety}\nstderr:\n${_err_rendered_safety}")
+endif()
+if(NOT _out_rendered_safety MATCHES "policy\\[icc_profile\\]: requested=keep effective=drop reason=safety_mode_filtered matched=[1-9][0-9]*")
+  message(FATAL_ERROR
+    "python metatransfer rendered safety missing ICC policy\nstdout:\n${_out_rendered_safety}\nstderr:\n${_err_rendered_safety}")
+endif()
+if(NOT _out_rendered_safety MATCHES "policy\\[raw_color_calibration\\]: requested=keep effective=drop reason=safety_mode_filtered matched=[1-9][0-9]*")
+  message(FATAL_ERROR
+    "python metatransfer rendered safety missing raw color/correction policy\nstdout:\n${_out_rendered_safety}\nstderr:\n${_err_rendered_safety}")
+endif()
+if(NOT _out_rendered_safety MATCHES "policy\\[camera_raw_settings\\]: requested=keep effective=drop reason=safety_mode_filtered matched=[1-9][0-9]*")
+  message(FATAL_ERROR
+    "python metatransfer rendered safety missing camera raw settings policy\nstdout:\n${_out_rendered_safety}\nstderr:\n${_err_rendered_safety}")
+endif()
+if(NOT _out_rendered_safety MATCHES "policy\\[makernote\\]: requested=keep effective=drop reason=safety_mode_filtered matched=[1-9][0-9]*")
+  message(FATAL_ERROR
+    "python metatransfer rendered safety missing MakerNote policy\nstdout:\n${_out_rendered_safety}\nstderr:\n${_err_rendered_safety}")
+endif()
+if(NOT _out_rendered_safety MATCHES "policy\\[jumbf\\]: requested=keep effective=drop reason=safety_mode_filtered matched=[1-9][0-9]*")
+  message(FATAL_ERROR
+    "python metatransfer rendered safety missing JUMBF policy\nstdout:\n${_out_rendered_safety}\nstderr:\n${_err_rendered_safety}")
 endif()
 
 execute_process(

@@ -168,6 +168,8 @@ Copy metadata into an existing target
 
    openmeta::ExecutePreparedTransferFileOptions options;
    options.prepare.prepare.target_format = openmeta::TransferTargetFormat::Jpeg;
+   options.prepare.prepare.profile.safety =
+       openmeta::TransferSafetyMode::RenderedImage;
    options.edit_target_path = "rendered.jpg";
 
    openmeta::ExecutePreparedTransferFileResult exec =

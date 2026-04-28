@@ -8729,6 +8729,28 @@ namespace {
         return false;
     }
 
+    static bool transfer_safety_mode_is_rendered(
+        TransferSafetyMode mode) noexcept
+    {
+        return mode == TransferSafetyMode::RenderedImage;
+    }
+
+    static TransferProfile apply_transfer_safety_profile(
+        const TransferProfile& profile) noexcept
+    {
+        TransferProfile out = profile;
+        if (!transfer_safety_mode_is_rendered(profile.safety)) {
+            return out;
+        }
+
+        out.makernote = TransferPolicyAction::Drop;
+        out.jumbf     = TransferPolicyAction::Drop;
+        if (out.c2pa == TransferPolicyAction::Keep) {
+            out.c2pa = TransferPolicyAction::Invalidate;
+        }
+        return out;
+    }
+
     static bool is_exif_image_dependent_transfer_tag(
         const TransferExifIfdRef& ifd_ref, uint16_t tag) noexcept
     {
@@ -8740,6 +8762,91 @@ namespace {
         }
         if (ifd_ref.slot == ExifIfdSlot::ExifIfd) {
             return is_exif_ifd_image_layout_tag_for_transfer(tag);
+        }
+        return false;
+    }
+
+    static bool is_exif_raw_color_calibration_transfer_tag(
+        const TransferExifIfdRef& /*ifd_ref*/, uint16_t tag) noexcept
+    {
+        switch (tag) {
+        case 0x012CU:  // ColorResponseUnit
+        case 0x012DU:  // TransferFunction
+        case 0x013EU:  // WhitePoint
+        case 0x013FU:  // PrimaryChromaticities
+        case 0x0140U:  // ColorMap
+        case 0x0215U:  // TransferRange
+        case 0x828DU:  // CFARepeatPatternDim
+        case 0x828EU:  // CFAPattern
+        case 0x8773U:  // InterColorProfile
+        case 0xA302U:  // CFAPattern
+        case 0xC612U:  // DNGVersion
+        case 0xC613U:  // DNGBackwardVersion
+        case 0xC614U:  // UniqueCameraModel
+        case 0xC615U:  // LocalizedCameraModel
+        case 0xC616U:  // CFAPlaneColor
+        case 0xC617U:  // CFALayout
+        case 0xC618U:  // LinearizationTable
+        case 0xC619U:  // BlackLevelRepeatDim
+        case 0xC61AU:  // BlackLevel
+        case 0xC61BU:  // BlackLevelDeltaH
+        case 0xC61CU:  // BlackLevelDeltaV
+        case 0xC61DU:  // WhiteLevel
+        case 0xC61EU:  // DefaultScale
+        case 0xC61FU:  // DefaultCropOrigin
+        case 0xC620U:  // DefaultCropSize
+        case 0xC621U:  // ColorMatrix1
+        case 0xC622U:  // ColorMatrix2
+        case 0xC623U:  // CameraCalibration1
+        case 0xC624U:  // CameraCalibration2
+        case 0xC625U:  // ReductionMatrix1
+        case 0xC626U:  // ReductionMatrix2
+        case 0xC627U:  // AnalogBalance
+        case 0xC628U:  // AsShotNeutral
+        case 0xC629U:  // AsShotWhiteXY
+        case 0xC62AU:  // BaselineExposure
+        case 0xC62BU:  // BaselineNoise
+        case 0xC62CU:  // BaselineSharpness
+        case 0xC62DU:  // BayerGreenSplit
+        case 0xC62EU:  // LinearResponseLimit
+        case 0xC631U:  // ChromaBlurRadius
+        case 0xC632U:  // AntiAliasStrength
+        case 0xC633U:  // ShadowScale
+        case 0xC634U:  // DNGPrivateData
+        case 0xC635U:  // MakerNoteSafety
+        case 0xC65AU:  // CalibrationIlluminant1
+        case 0xC65BU:  // CalibrationIlluminant2
+        case 0xC65CU:  // BestQualityScale
+        case 0xC65DU:  // RawDataUniqueID
+        case 0xC68BU:  // OriginalRawFileName
+        case 0xC68CU:  // OriginalRawFileData
+        case 0xC68DU:  // ActiveArea
+        case 0xC68EU:  // MaskedAreas
+        case 0xC68FU:  // AsShotICCProfile
+        case 0xC690U:  // AsShotPreProfileMatrix
+        case 0xC691U:  // CurrentICCProfile
+        case 0xC692U:  // CurrentPreProfileMatrix
+        case 0xC6BFU:  // ColorimetricReference
+        case 0xC6C5U:  // SRawType
+        case 0xC6D2U:  // ProfileCalibrationSignature
+        case 0xC6D3U:  // ProfileName
+        case 0xC6D4U:  // ProfileHueSatMapDims
+        case 0xC6D5U:  // ProfileHueSatMapData1
+        case 0xC6D6U:  // ProfileHueSatMapData2
+        case 0xC6D7U:  // ProfileToneCurve
+        case 0xC6D8U:  // ProfileEmbedPolicy
+        case 0xC6D9U:  // ProfileCopyright
+        case 0xC6DAU:  // ForwardMatrix1
+        case 0xC6DBU:  // ForwardMatrix2
+        case 0xC6F3U:  // CameraCalibrationSignature
+        case 0xC6F4U:  // ProfileLookTableDims
+        case 0xC6F5U:  // ProfileLookTableData
+        case 0xC6F6U:  // OpcodeList1
+        case 0xC6F7U:  // OpcodeList2
+        case 0xC6F8U:  // OpcodeList3
+        case 0xC761U:  // NoiseProfile
+            return true;
+        default: break;
         }
         return false;
     }
@@ -8805,6 +8912,14 @@ namespace {
         return name == "ColorMode" || name == "ICCProfile";
     }
 
+    static bool is_tiff_xmp_raw_color_calibration_transfer_property(
+        std::string_view name) noexcept
+    {
+        return name == "ColorResponseUnit" || name == "TransferFunction"
+               || name == "WhitePoint" || name == "PrimaryChromaticities"
+               || name == "ColorMap" || name == "TransferRange";
+    }
+
     static bool is_xmp_image_dependent_transfer_property(
         std::string_view ns, std::string_view path) noexcept
     {
@@ -8820,6 +8935,25 @@ namespace {
         }
         if (ns == "http://ns.adobe.com/photoshop/1.0/") {
             return is_photoshop_xmp_image_dependent_transfer_property(name);
+        }
+        return false;
+    }
+
+    static bool is_xmp_camera_raw_settings_transfer_property(
+        std::string_view ns) noexcept
+    {
+        return ns == "http://ns.adobe.com/camera-raw-settings/1.0/";
+    }
+
+    static bool is_xmp_raw_color_calibration_transfer_property(
+        std::string_view ns, std::string_view path) noexcept
+    {
+        if (ns == "http://ns.adobe.com/dng/1.0/") {
+            return true;
+        }
+        if (ns == "http://ns.adobe.com/tiff/1.0/") {
+            return is_tiff_xmp_raw_color_calibration_transfer_property(
+                xmp_transfer_property_base(path));
         }
         return false;
     }
@@ -8852,27 +8986,91 @@ namespace {
         return false;
     }
 
-    static uint32_t count_image_dependent_target_transfer_entries(
-        const MetaStore& store) noexcept
+    static bool entry_is_raw_color_calibration_for_rendered_transfer(
+        const MetaStore& store, const Entry& entry) noexcept
     {
-        uint32_t count = 0U;
+        if (any(entry.flags, EntryFlags::Deleted)) {
+            return false;
+        }
+
+        if (entry.key.kind == MetaKeyKind::ExifTag) {
+            std::string_view ifd_name;
+            if (!ifd_name_for_entry(store, entry, &ifd_name)) {
+                return false;
+            }
+            const TransferExifIfdRef ifd_ref = classify_exif_ifd_ref(ifd_name);
+            return is_exif_raw_color_calibration_transfer_tag(
+                ifd_ref, entry.key.data.exif_tag.tag);
+        }
+
+        if (entry.key.kind == MetaKeyKind::XmpProperty) {
+            const std::string_view ns = arena_string(
+                store.arena(), entry.key.data.xmp_property.schema_ns);
+            const std::string_view path = arena_string(
+                store.arena(), entry.key.data.xmp_property.property_path);
+            return is_xmp_raw_color_calibration_transfer_property(ns, path);
+        }
+
+        return false;
+    }
+
+    static bool entry_is_camera_raw_settings_for_rendered_transfer(
+        const MetaStore& store, const Entry& entry) noexcept
+    {
+        if (any(entry.flags, EntryFlags::Deleted)
+            || entry.key.kind != MetaKeyKind::XmpProperty) {
+            return false;
+        }
+        const std::string_view ns = arena_string(
+            store.arena(), entry.key.data.xmp_property.schema_ns);
+        return is_xmp_camera_raw_settings_transfer_property(ns);
+    }
+
+    struct TransferSafetyFilterCounts final {
+        uint32_t image_properties      = 0U;
+        uint32_t raw_color_calibration = 0U;
+        uint32_t camera_raw_settings   = 0U;
+    };
+
+    static void count_transfer_safety_filter_entries(
+        const MetaStore& store, TransferSafetyMode safety,
+        TransferSafetyFilterCounts* out_counts) noexcept
+    {
+        if (!out_counts) {
+            return;
+        }
+        *out_counts = TransferSafetyFilterCounts();
         for (const Entry& entry : store.entries()) {
             if (entry_is_image_dependent_for_target_transfer(store, entry)) {
-                count += 1U;
+                out_counts->image_properties += 1U;
+                continue;
+            }
+            if (!transfer_safety_mode_is_rendered(safety)) {
+                continue;
+            }
+            if (entry_is_raw_color_calibration_for_rendered_transfer(store,
+                                                                     entry)) {
+                out_counts->raw_color_calibration += 1U;
+                continue;
+            }
+            if (entry_is_camera_raw_settings_for_rendered_transfer(store,
+                                                                  entry)) {
+                out_counts->camera_raw_settings += 1U;
             }
         }
-        return count;
     }
 
     static bool build_target_safe_transfer_store(const MetaStore& src,
+                                                 TransferSafetyMode safety,
                                                  MetaStore* dst,
-                                                 uint32_t* out_omitted) noexcept
+                                                 TransferSafetyFilterCounts*
+                                                     out_counts) noexcept
     {
         if (!dst) {
             return false;
         }
-        if (out_omitted) {
-            *out_omitted = 0U;
+        if (out_counts) {
+            *out_counts = TransferSafetyFilterCounts();
         }
 
         *dst = MetaStore();
@@ -8885,13 +9083,30 @@ namespace {
             block_map[i] = id;
         }
 
-        uint32_t omitted = 0U;
         for (const Entry& entry : src.entries()) {
             if (any(entry.flags, EntryFlags::Deleted)) {
                 continue;
             }
             if (entry_is_image_dependent_for_target_transfer(src, entry)) {
-                omitted += 1U;
+                if (out_counts) {
+                    out_counts->image_properties += 1U;
+                }
+                continue;
+            }
+            if (transfer_safety_mode_is_rendered(safety)
+                && entry_is_raw_color_calibration_for_rendered_transfer(
+                    src, entry)) {
+                if (out_counts) {
+                    out_counts->raw_color_calibration += 1U;
+                }
+                continue;
+            }
+            if (transfer_safety_mode_is_rendered(safety)
+                && entry_is_camera_raw_settings_for_rendered_transfer(
+                    src, entry)) {
+                if (out_counts) {
+                    out_counts->camera_raw_settings += 1U;
+                }
                 continue;
             }
 
@@ -8917,9 +9132,6 @@ namespace {
             }
         }
 
-        if (out_omitted) {
-            *out_omitted = omitted;
-        }
         return true;
     }
 
@@ -11019,7 +11231,10 @@ prepare_metadata_for_target_impl(const MetaStore& store,
     PreparedTransferBundle bundle;
     bundle.target_format = request.target_format;
     bundle.dng_target_mode = request.dng_target_mode;
-    bundle.profile       = request.profile;
+    const TransferProfile requested_profile = request.profile;
+    const TransferProfile effective_profile
+        = apply_transfer_safety_profile(request.profile);
+    bundle.profile = effective_profile;
 
     if (request.target_format != TransferTargetFormat::Jpeg
         && !transfer_target_is_tiff_family(request.target_format)
@@ -11055,12 +11270,16 @@ prepare_metadata_for_target_impl(const MetaStore& store,
     const MetaStore* prepared_store_ptr = &store;
     const bool has_target_image_spec
         = transfer_target_image_spec_has_any(request.target_image_spec);
-    const uint32_t omitted_image_dependent_entries
-        = count_image_dependent_target_transfer_entries(store);
-    if (omitted_image_dependent_entries > 0U || has_target_image_spec) {
-        uint32_t built_omitted = 0U;
-        if (!build_target_safe_transfer_store(store, &target_safe_store,
-                                              &built_omitted)) {
+    TransferSafetyFilterCounts filter_counts;
+    count_transfer_safety_filter_entries(store, effective_profile.safety,
+                                         &filter_counts);
+    if (filter_counts.image_properties > 0U
+        || filter_counts.raw_color_calibration > 0U
+        || filter_counts.camera_raw_settings > 0U || has_target_image_spec) {
+        TransferSafetyFilterCounts built_filter_counts;
+        if (!build_target_safe_transfer_store(store, effective_profile.safety,
+                                              &target_safe_store,
+                                              &built_filter_counts)) {
             r.status  = TransferStatus::LimitExceeded;
             r.code    = PrepareTransferCode::RequestedMetadataNotSerializable;
             r.errors  = 1U;
@@ -11079,8 +11298,36 @@ prepare_metadata_for_target_impl(const MetaStore& store,
         }
         target_safe_store.finalize();
         prepared_store_ptr = &target_safe_store;
+        filter_counts      = built_filter_counts;
     }
     const MetaStore& prepared_store = *prepared_store_ptr;
+
+    if (filter_counts.image_properties > 0U) {
+        append_policy_decision(
+            &bundle, TransferPolicySubject::ImageProperties,
+            TransferPolicyAction::Keep, TransferPolicyAction::Drop,
+            TransferPolicyReason::TargetImageProperties,
+            filter_counts.image_properties,
+            "source image dimensions, layout, orientation, and target-local "
+            "storage fields are filtered before transfer");
+    }
+    if (filter_counts.raw_color_calibration > 0U) {
+        append_policy_decision(
+            &bundle, TransferPolicySubject::RawColorCalibration,
+            TransferPolicyAction::Keep, TransferPolicyAction::Drop,
+            TransferPolicyReason::SafetyModeFiltered,
+            filter_counts.raw_color_calibration,
+            "rendered-image safety mode drops source raw color calibration, "
+            "linearization, crop, and correction metadata");
+    }
+    if (filter_counts.camera_raw_settings > 0U) {
+        append_policy_decision(
+            &bundle, TransferPolicySubject::CameraRawSettings,
+            TransferPolicyAction::Keep, TransferPolicyAction::Drop,
+            TransferPolicyReason::SafetyModeFiltered,
+            filter_counts.camera_raw_settings,
+            "rendered-image safety mode drops source camera raw settings XMP");
+    }
 
     const uint32_t exif_entry_count = count_kind_entries(
         prepared_store, MetaKeyKind::ExifTag);
@@ -11095,31 +11342,56 @@ prepare_metadata_for_target_impl(const MetaStore& store,
     const bool has_icc = has_kind(prepared_store,
                                   MetaKeyKind::IccHeaderField)
                          || has_kind(prepared_store, MetaKeyKind::IccTag);
+    const bool include_icc_app2
+        = request.include_icc_app2
+          && !transfer_safety_mode_is_rendered(effective_profile.safety);
     const uint32_t makernote_count = count_makernote_entries(prepared_store);
     const uint32_t jumbf_count     = count_jumbf_entries(prepared_store);
     const uint32_t c2pa_count      = count_c2pa_entries(prepared_store);
 
+    if (has_icc) {
+        if (!request.include_icc_app2) {
+            append_policy_decision(&bundle, TransferPolicySubject::IccProfile,
+                                   TransferPolicyAction::Drop,
+                                   TransferPolicyAction::Drop,
+                                   TransferPolicyReason::CarrierDisabled, 1U,
+                                   "icc output is disabled");
+        } else if (!include_icc_app2) {
+            append_policy_decision(
+                &bundle, TransferPolicySubject::IccProfile,
+                TransferPolicyAction::Keep, TransferPolicyAction::Drop,
+                TransferPolicyReason::SafetyModeFiltered, 1U,
+                "rendered-image safety mode drops source icc profiles; host "
+                "code should provide the target output profile");
+        }
+    }
+
     bool requested_present_but_unpacked = false;
 
-    TransferPolicyAction effective_makernote = request.profile.makernote;
+    TransferPolicyAction effective_makernote = effective_profile.makernote;
     TransferPolicyReason makernote_reason    = TransferPolicyReason::NotPresent;
     if (makernote_count == 0U) {
         append_policy_decision(&bundle, TransferPolicySubject::MakerNote,
-                               request.profile.makernote,
-                               request.profile.makernote,
+                               requested_profile.makernote,
+                               effective_profile.makernote,
                                TransferPolicyReason::NotPresent, 0U,
                                "no maker note entries in source metadata");
     } else if (!request.include_exif_app1) {
         effective_makernote = TransferPolicyAction::Drop;
         makernote_reason    = TransferPolicyReason::CarrierDisabled;
         append_policy_decision(&bundle, TransferPolicySubject::MakerNote,
-                               request.profile.makernote, effective_makernote,
+                               requested_profile.makernote, effective_makernote,
                                makernote_reason, makernote_count,
                                "maker notes require EXIF transfer; EXIF output "
                                "is disabled");
     } else {
-        effective_makernote = resolve_makernote_policy(request.profile.makernote,
-                                                       &makernote_reason);
+        effective_makernote = resolve_makernote_policy(
+            effective_profile.makernote, &makernote_reason);
+        if (transfer_safety_mode_is_rendered(effective_profile.safety)
+            && requested_profile.makernote != TransferPolicyAction::Drop
+            && effective_makernote == TransferPolicyAction::Drop) {
+            makernote_reason = TransferPolicyReason::SafetyModeFiltered;
+        }
         if (makernote_reason
             == TransferPolicyReason::PortableInvalidationUnavailable) {
             add_prepare_warning(
@@ -11135,11 +11407,13 @@ prepare_metadata_for_target_impl(const MetaStore& store,
         }
         append_policy_decision(
             &bundle, TransferPolicySubject::MakerNote,
-            request.profile.makernote, effective_makernote, makernote_reason,
+            requested_profile.makernote, effective_makernote, makernote_reason,
             makernote_count,
             makernote_reason == TransferPolicyReason::ExplicitDrop
                 ? "maker notes will be dropped from prepared EXIF"
-                : (makernote_reason
+                : (makernote_reason == TransferPolicyReason::SafetyModeFiltered
+                       ? "rendered-image safety mode drops maker note payloads"
+                       : (makernote_reason
                            == TransferPolicyReason::PortableInvalidationUnavailable
                        ? "maker notes have no portable invalidation path; "
                          "dropping from prepared EXIF"
@@ -11149,7 +11423,7 @@ prepare_metadata_for_target_impl(const MetaStore& store,
                               ? "maker note rewrite is unavailable; preserving "
                                 "raw maker note payload"
                               : "maker notes will be preserved in prepared "
-                                "EXIF")));
+                                "EXIF"))));
     }
 
     const bool can_pack_source_jumbf
@@ -11166,16 +11440,21 @@ prepare_metadata_for_target_impl(const MetaStore& store,
               || transfer_target_is_bmff(request.target_format))
           && count_non_c2pa_jumbf_cbor_entries(prepared_store) > 0U;
 
-    TransferPolicyAction effective_jumbf = request.profile.jumbf;
+    TransferPolicyAction effective_jumbf = effective_profile.jumbf;
     TransferPolicyReason jumbf_reason    = TransferPolicyReason::NotPresent;
     if (jumbf_count == 0U) {
         append_policy_decision(&bundle, TransferPolicySubject::Jumbf,
-                               request.profile.jumbf, request.profile.jumbf,
+                               requested_profile.jumbf, effective_profile.jumbf,
                                TransferPolicyReason::NotPresent, 0U,
                                "no jumbf entries in source metadata");
     } else if (can_pack_source_jumbf) {
-        effective_jumbf = resolve_raw_jumbf_policy(request.profile.jumbf,
+        effective_jumbf = resolve_raw_jumbf_policy(effective_profile.jumbf,
                                                    &jumbf_reason);
+        if (transfer_safety_mode_is_rendered(effective_profile.safety)
+            && requested_profile.jumbf != TransferPolicyAction::Drop
+            && effective_jumbf == TransferPolicyAction::Drop) {
+            jumbf_reason = TransferPolicyReason::SafetyModeFiltered;
+        }
         if (jumbf_reason
             == TransferPolicyReason::PortableInvalidationUnavailable) {
             add_prepare_warning(
@@ -11189,11 +11468,13 @@ prepare_metadata_for_target_impl(const MetaStore& store,
                 "payloads");
         }
         append_policy_decision(
-            &bundle, TransferPolicySubject::Jumbf, request.profile.jumbf,
+            &bundle, TransferPolicySubject::Jumbf, requested_profile.jumbf,
             effective_jumbf, jumbf_reason, jumbf_count,
             jumbf_reason == TransferPolicyReason::ExplicitDrop
                 ? "jumbf transfer disabled by profile"
-                : (jumbf_reason
+                : (jumbf_reason == TransferPolicyReason::SafetyModeFiltered
+                       ? "rendered-image safety mode drops non-c2pa jumbf data"
+                       : (jumbf_reason
                            == TransferPolicyReason::PortableInvalidationUnavailable
                        ? "jumbf invalidation is not available; dropping "
                          "jumbf data"
@@ -11212,10 +11493,15 @@ prepare_metadata_for_target_impl(const MetaStore& store,
                                               "emitted as bmff metadata items"
                                             : "source jumbf payloads will be "
                                               "repacked into jpeg app11 "
-                                              "segments")))));
+                                              "segments"))))));
     } else if (can_project_store_jumbf) {
-        effective_jumbf = resolve_projected_jumbf_policy(request.profile.jumbf,
+        effective_jumbf = resolve_projected_jumbf_policy(effective_profile.jumbf,
                                                          &jumbf_reason);
+        if (transfer_safety_mode_is_rendered(effective_profile.safety)
+            && requested_profile.jumbf != TransferPolicyAction::Drop
+            && effective_jumbf == TransferPolicyAction::Drop) {
+            jumbf_reason = TransferPolicyReason::SafetyModeFiltered;
+        }
         if (jumbf_reason
             == TransferPolicyReason::PortableInvalidationUnavailable) {
             add_prepare_warning(
@@ -11223,11 +11509,13 @@ prepare_metadata_for_target_impl(const MetaStore& store,
                 "jumbf invalidation is not available; dropping jumbf data");
         }
         append_policy_decision(
-            &bundle, TransferPolicySubject::Jumbf, request.profile.jumbf,
+            &bundle, TransferPolicySubject::Jumbf, requested_profile.jumbf,
             effective_jumbf, jumbf_reason, jumbf_count,
             jumbf_reason == TransferPolicyReason::ExplicitDrop
                 ? "jumbf transfer disabled by profile"
-                : (jumbf_reason
+                : (jumbf_reason == TransferPolicyReason::SafetyModeFiltered
+                       ? "rendered-image safety mode drops decoded jumbf data"
+                       : (jumbf_reason
                            == TransferPolicyReason::PortableInvalidationUnavailable
                        ? "jumbf invalidation is not available; dropping "
                          "jumbf data"
@@ -11239,11 +11527,11 @@ prepare_metadata_for_target_impl(const MetaStore& store,
                                        "be projected into bmff metadata items"
                                      : "decoded non-c2pa jumbf cbor keys will "
                                        "be projected into generic jpeg app11 "
-                                       "jumbf payloads"))));
+                                       "jumbf payloads")))));
     } else {
-        effective_jumbf = resolve_unserialized_policy(request.profile.jumbf,
+        effective_jumbf = resolve_unserialized_policy(effective_profile.jumbf,
                                                       &jumbf_reason);
-        if (request.profile.jumbf != TransferPolicyAction::Drop) {
+        if (effective_profile.jumbf != TransferPolicyAction::Drop) {
             requested_present_but_unpacked = true;
             add_prepare_warning(
                 &r, PrepareTransferCode::RequestedMetadataNotSerializable,
@@ -11251,14 +11539,14 @@ prepare_metadata_for_target_impl(const MetaStore& store,
                 "dropping jumbf data");
         }
         append_policy_decision(
-            &bundle, TransferPolicySubject::Jumbf, request.profile.jumbf,
+            &bundle, TransferPolicySubject::Jumbf, requested_profile.jumbf,
             effective_jumbf, jumbf_reason, jumbf_count,
-            request.profile.jumbf == TransferPolicyAction::Drop
+            effective_profile.jumbf == TransferPolicyAction::Drop
                 ? "jumbf transfer disabled by profile"
                 : "jumbf transfer is not yet serialized for current targets");
     }
 
-    TransferPolicyAction effective_c2pa = request.profile.c2pa;
+    TransferPolicyAction effective_c2pa = effective_profile.c2pa;
     TransferPolicyReason c2pa_reason    = TransferPolicyReason::NotPresent;
     TransferC2paMode c2pa_mode          = TransferC2paMode::NotPresent;
     TransferC2paSourceKind c2pa_source_kind = TransferC2paSourceKind::NotPresent;
@@ -11266,7 +11554,7 @@ prepare_metadata_for_target_impl(const MetaStore& store,
         = TransferC2paPreparedOutput::NotPresent;
     if (c2pa_count == 0U) {
         append_policy_decision(&bundle, TransferPolicySubject::C2pa,
-                               request.profile.c2pa, request.profile.c2pa,
+                               requested_profile.c2pa, effective_profile.c2pa,
                                TransferPolicyReason::NotPresent, 0U,
                                "no c2pa entries in source metadata",
                                TransferC2paMode::NotPresent,
@@ -11279,7 +11567,7 @@ prepare_metadata_for_target_impl(const MetaStore& store,
               || request.target_format == TransferTargetFormat::Webp
               || transfer_target_is_bmff(request.target_format);
         effective_c2pa = resolve_c2pa_transfer_policy(
-            request.profile.c2pa, can_pack_source_jumbf,
+            effective_profile.c2pa, can_pack_source_jumbf,
             can_generate_c2pa_invalidation, caps.source_c2pa_payload_class,
             &c2pa_reason, &c2pa_mode);
         c2pa_source_kind
@@ -11288,7 +11576,7 @@ prepare_metadata_for_target_impl(const MetaStore& store,
         c2pa_prepared_output = classify_c2pa_prepared_output(c2pa_count,
                                                              effective_c2pa,
                                                              c2pa_mode);
-        if (request.profile.c2pa != TransferPolicyAction::Drop
+        if (effective_profile.c2pa != TransferPolicyAction::Drop
             && effective_c2pa == TransferPolicyAction::Drop) {
             std::string_view warning_message
                 = "c2pa transfer is not yet serialized for current targets; "
@@ -11315,7 +11603,7 @@ prepare_metadata_for_target_impl(const MetaStore& store,
         }
         std::string_view policy_message = "c2pa transfer is not yet "
                                           "serialized for current targets";
-        if (request.profile.c2pa == TransferPolicyAction::Drop) {
+        if (effective_profile.c2pa == TransferPolicyAction::Drop) {
             policy_message = "c2pa transfer disabled by profile";
         } else if (c2pa_mode == TransferC2paMode::PreserveRaw) {
             if (request.target_format == TransferTargetFormat::Jxl) {
@@ -11363,13 +11651,13 @@ prepare_metadata_for_target_impl(const MetaStore& store,
                              "invalidation/rewrite is available";
         }
         append_policy_decision(&bundle, TransferPolicySubject::C2pa,
-                               request.profile.c2pa, effective_c2pa,
+                               requested_profile.c2pa, effective_c2pa,
                                c2pa_reason, c2pa_count, policy_message,
                                c2pa_mode, c2pa_source_kind,
                                c2pa_prepared_output);
     }
     bundle.c2pa_rewrite = build_c2pa_rewrite_requirements(request.target_format,
-                                                          request.profile.c2pa,
+                                                          effective_profile.c2pa,
                                                           c2pa_count,
                                                           c2pa_source_kind);
 
@@ -11697,7 +11985,7 @@ prepare_metadata_for_target_impl(const MetaStore& store,
         }
     }
 
-    if (request.include_icc_app2 && has_icc) {
+    if (include_icc_app2 && has_icc) {
         if (request.target_format == TransferTargetFormat::Jpeg) {
             IccPackBuild icc_build = build_jpeg_icc_app2_blocks(prepared_store);
             if (icc_build.produced && !icc_build.blocks.empty()) {
@@ -22021,17 +22309,25 @@ namespace {
         return false;
     }
 
-    static bool append_bmff_u_nbe_checked(std::vector<std::byte>* out,
-                                          size_t width,
-                                          uint64_t value) noexcept
+    static bool bmff_u_nbe_fits(size_t width, uint64_t value) noexcept
     {
-        if (!out || width > 8U) {
+        if (width > 8U) {
             return false;
         }
         if (width == 0U) {
             return value == 0U;
         }
         if (width < 8U && (value >> (width * 8U)) != 0U) {
+            return false;
+        }
+        return true;
+    }
+
+    static bool append_bmff_u_nbe_checked(std::vector<std::byte>* out,
+                                          size_t width,
+                                          uint64_t value) noexcept
+    {
+        if (!out || !bmff_u_nbe_fits(width, value)) {
             return false;
         }
         for (size_t i = 0; i < width; ++i) {
@@ -22762,7 +23058,7 @@ namespace {
             (ctx.iloc_sizes0 >> 4U) & 0x0FU);
         const size_t length_size
             = static_cast<size_t>(ctx.iloc_sizes0 & 0x0FU);
-        const size_t base_offset_size = static_cast<size_t>(
+        const size_t input_base_offset_size = static_cast<size_t>(
             (ctx.iloc_sizes1 >> 4U) & 0x0FU);
         const size_t index_size = static_cast<size_t>(
             ctx.iloc_sizes1 & 0x0FU);
@@ -22783,6 +23079,47 @@ namespace {
                 "iloc item count exceeds 16-bit range");
         }
 
+        bool can_compact_base_offsets = true;
+        for (size_t i = 0; i < records.size(); ++i) {
+            if (bmff_removed_item_id(removed_item_ids, records[i].item_id)) {
+                continue;
+            }
+            if (records[i].base_offset == 0U) {
+                continue;
+            }
+            const bool adjust_file_offsets
+                = records[i].construction_method == 0U
+                  && records[i].data_reference_index == 0U;
+            if (!adjust_file_offsets) {
+                can_compact_base_offsets = false;
+                break;
+            }
+            for (size_t j = 0; j < records[i].extents.size(); ++j) {
+                uint64_t file_offset = 0U;
+                if (records[i].base_offset
+                    > std::numeric_limits<uint64_t>::max()
+                          - records[i].extents[j].offset) {
+                    can_compact_base_offsets = false;
+                    break;
+                }
+                file_offset = records[i].base_offset
+                              + records[i].extents[j].offset;
+                uint64_t adjusted_file_offset = 0U;
+                if (!bmff_adjust_foreign_file_offset(
+                        file_offset, shifted_range_begin, file_offset_delta,
+                        &adjusted_file_offset)
+                    || !bmff_u_nbe_fits(offset_size, adjusted_file_offset)) {
+                    can_compact_base_offsets = false;
+                    break;
+                }
+            }
+            if (!can_compact_base_offsets) {
+                break;
+            }
+        }
+        const size_t output_base_offset_size
+            = can_compact_base_offsets ? 0U : input_base_offset_size;
+
         const uint64_t payload_begin = ctx.iloc.offset + ctx.iloc.header_size;
         if (payload_begin + 6U > bytes.size()
             || ctx.iloc_record_off < payload_begin + 6U) {
@@ -22798,6 +23135,9 @@ namespace {
             bytes.begin()
                 + static_cast<std::ptrdiff_t>(payload_begin + 6U));
         payload[0] = static_cast<std::byte>(output_version);
+        payload[5] = static_cast<std::byte>(
+            ((output_base_offset_size & 0x0FU) << 4U)
+            | (index_size & 0x0FU));
         if (output_version == 2U) {
             append_u32be(&payload, static_cast<uint32_t>(final_count));
         } else {
@@ -22812,7 +23152,10 @@ namespace {
             const bool adjust_file_offsets
                 = records[i].construction_method == 0U
                   && records[i].data_reference_index == 0U;
-            if (adjust_file_offsets && base_offset >= shifted_range_begin
+            const bool fold_file_offsets
+                = output_base_offset_size == 0U && adjust_file_offsets;
+            if (!fold_file_offsets && adjust_file_offsets
+                && base_offset >= shifted_range_begin
                 && !bmff_apply_signed_delta(base_offset, file_offset_delta,
                                             &base_offset)) {
                 return fail_bmff_foreign_meta_merge(
@@ -22820,14 +23163,16 @@ namespace {
                     EmitTransferCode::InvalidPayload,
                     "existing iloc base offset rebasing overflowed");
             }
+            const uint64_t output_base_offset
+                = fold_file_offsets ? 0U : base_offset;
             if (!append_bmff_u_nbe_checked(&payload, item_id_width,
                                            records[i].item_id)
                 || !append_bmff_u_nbe_checked(
                     &payload, 2U, records[i].construction_method)
                 || !append_bmff_u_nbe_checked(
                     &payload, 2U, records[i].data_reference_index)
-                || !append_bmff_u_nbe_checked(&payload, base_offset_size,
-                                              base_offset)
+                || !append_bmff_u_nbe_checked(&payload, output_base_offset_size,
+                                              output_base_offset)
                 || !append_bmff_u_nbe_checked(
                     &payload, 2U,
                     static_cast<uint64_t>(records[i].extents.size()))) {
@@ -22838,7 +23183,26 @@ namespace {
             }
             for (size_t j = 0; j < records[i].extents.size(); ++j) {
                 uint64_t extent_offset = records[i].extents[j].offset;
-                if (adjust_file_offsets
+                if (fold_file_offsets) {
+                    uint64_t file_offset = 0U;
+                    if (records[i].base_offset
+                        > std::numeric_limits<uint64_t>::max()
+                              - extent_offset) {
+                        return fail_bmff_foreign_meta_merge(
+                            out, TransferStatus::LimitExceeded,
+                            EmitTransferCode::InvalidPayload,
+                            "existing iloc extent file offset overflowed");
+                    }
+                    file_offset = records[i].base_offset + extent_offset;
+                    if (!bmff_adjust_foreign_file_offset(
+                            file_offset, shifted_range_begin,
+                            file_offset_delta, &extent_offset)) {
+                        return fail_bmff_foreign_meta_merge(
+                            out, TransferStatus::LimitExceeded,
+                            EmitTransferCode::InvalidPayload,
+                            "existing iloc extent offset rebasing overflowed");
+                    }
+                } else if (adjust_file_offsets
                     && records[i].base_offset < shifted_range_begin) {
                     uint64_t file_offset = 0U;
                     if (records[i].base_offset
@@ -22898,7 +23262,8 @@ namespace {
                                            items[i].item_id)
                 || !append_bmff_u_nbe_checked(&payload, 2U, 0U)
                 || !append_bmff_u_nbe_checked(&payload, 2U, 0U)
-                || !append_bmff_u_nbe_checked(&payload, base_offset_size, 0U)
+                || !append_bmff_u_nbe_checked(&payload, output_base_offset_size,
+                                              0U)
                 || !append_bmff_u_nbe_checked(&payload, 2U, 1U)
                 || !append_bmff_u_nbe_checked(&payload, index_size, 0U)
                 || !append_bmff_u_nbe_checked(&payload, offset_size,
@@ -24381,10 +24746,9 @@ namespace {
                     }
                     found_foreign_top_meta = true;
                     if (build_bmff_foreign_meta_merged_box(
-                                   input_bmff, box, meta_bundle,
-                                   strip_existing_xmp,
-                                   package_plan_next_output_offset(plan),
-                                   &meta_box, &out)) {
+                            input_bmff, box, meta_bundle, strip_existing_xmp,
+                            package_plan_next_output_offset(plan), &meta_box,
+                            &out)) {
                         append_package_inline_chunk(
                             &plan,
                             std::span<const std::byte>(meta_box.data(),

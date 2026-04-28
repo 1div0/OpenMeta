@@ -156,6 +156,10 @@ For the public per-target preserve/replace guarantees, see
   Inserted item IDs follow the existing `iloc` item-id width: `iloc` version 0/1
   remains a 16-bit insertion path, while `iloc` version 2 can use 32-bit item IDs
   and emits wider `infe`/`iref` records when needed.
+  Newly inserted metadata item records keep `iloc` construction method 0 and
+  use absolute file-offset extents for broad reader
+  compatibility. When retained self-contained records can be represented that
+  way, the rebuilt `iloc` also compacts the base-offset field width to zero.
 - Foreign-`meta` ICC property merge is bounded to
   `bmff:property-colr-icc`. OpenMeta removes prior ICC `colr/prof` and
   `colr/rICC` properties from `iprp/ipco`, compacts/remaps existing `ipma`

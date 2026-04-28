@@ -425,9 +425,20 @@ container or inject values derived from the actual output buffer. Enable source
 ICC transfer only when the host has verified that the profile matches the target
 pixel buffer; otherwise preserve or write the target profile.
 
+Use `TransferProfile::safety` for the broad source/destination relationship:
+
+| Mode | Use when | Transfer policy |
+| --- | --- | --- |
+| `CompatibleFile` | Metadata is repackaged or recompressed into a compatible file/pixel representation | Preserve source camera, color, ICC, and camera-specific data except target-owned image-layout fields |
+| `RenderedImage` | Pixels may have changed, especially RAW-to-JPEG/PNG/WebP/JXL/HEIF/AVIF export | Keep general/time/GPS/IPTC/portable XMP; drop source raw color calibration, linearization/crop/correction metadata, camera raw settings XMP, source ICC, opaque MakerNotes, and non-C2PA JUMBF |
+
+See [writer_target_contract.md](writer_target_contract.md#transfer-safety-matrix)
+for the detailed per-group transfer matrix.
+
 ```cpp
 openmeta::PrepareTransferRequest request;
 request.target_format = openmeta::TransferTargetFormat::Jpeg;
+request.profile.safety = openmeta::TransferSafetyMode::RenderedImage;
 
 request.target_image_spec.has_dimensions = true;
 request.target_image_spec.width = encoded_width;

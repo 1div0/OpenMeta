@@ -87,6 +87,14 @@ def _transfer_policy_action(name: str) -> object:
     return mapping[name]
 
 
+def _transfer_safety_mode(name: str) -> object:
+    mapping = {
+        "compatible": openmeta.TransferSafetyMode.CompatibleFile,
+        "rendered": openmeta.TransferSafetyMode.RenderedImage,
+    }
+    return mapping[name]
+
+
 def _marker_name(marker: int) -> str:
     if 0xE0 <= marker <= 0xEF:
         return f"APP{marker - 0xE0}(0x{marker:02X})"
@@ -482,6 +490,7 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--makernote-policy", choices=["keep", "drop", "invalidate", "rewrite"], default="keep", help="transfer policy for MakerNote payloads")
     ap.add_argument("--jumbf-policy", choices=["keep", "drop", "invalidate", "rewrite"], default="keep", help="transfer policy for JUMBF payloads")
     ap.add_argument("--c2pa-policy", choices=["keep", "drop", "invalidate", "rewrite"], default="keep", help="transfer policy for C2PA payloads")
+    ap.add_argument("--transfer-safety", choices=["compatible", "rendered"], default="compatible", help="coarse metadata safety mode for compatible repackage or rendered-image export")
     ap.add_argument("--no-decompress", action="store_true", help="disable payload decompression in read phase")
     ap.add_argument(
         "--unsafe-write-payloads",
@@ -857,6 +866,7 @@ def main(argv: list[str]) -> int:
     makernote_policy = _transfer_policy_action(args.makernote_policy)
     jumbf_policy = _transfer_policy_action(args.jumbf_policy)
     c2pa_policy = _transfer_policy_action(args.c2pa_policy)
+    transfer_safety = _transfer_safety_mode(args.transfer_safety)
 
     rc = 0
     if args.target_tiff:
@@ -1210,6 +1220,7 @@ def main(argv: list[str]) -> int:
             xmp_destination_embedded_mode=xmp_destination_embedded_mode,
             xmp_destination_sidecar_mode=xmp_destination_sidecar_mode,
             target_image_spec=target_image_spec,
+            transfer_safety=transfer_safety,
         )
         if persist_output:
             os.makedirs(os.path.dirname(args.output) or ".", exist_ok=True)

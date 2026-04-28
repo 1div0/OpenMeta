@@ -142,6 +142,10 @@ enum class TransferPolicySubject : uint8_t {
     C2pa,
     XmpExifProjection,
     XmpIptcProjection,
+    ImageProperties,
+    IccProfile,
+    RawColorCalibration,
+    CameraRawSettings,
 };
 
 /// Requested/effective action for a metadata family during transfer.
@@ -166,6 +170,8 @@ enum class TransferPolicyReason : uint8_t {
     PortableInvalidationUnavailable,
     RewriteUnavailablePreservedRaw,
     TargetSerializationUnavailable,
+    TargetImageProperties,
+    SafetyModeFiltered,
 };
 
 /// Explicit current C2PA transfer mode resolved during prepare.
@@ -211,6 +217,17 @@ enum class TransferC2paRewriteChunkKind : uint8_t {
     PreparedJpegSegment,
     PreparedJxlBox,
     PreparedBmffMetaBox,
+};
+
+/// Coarse transfer safety mode for source metadata reuse.
+enum class TransferSafetyMode : uint8_t {
+    /// Compatible metadata repackage/recompression; preserves source color and
+    /// camera-specific metadata except target-owned image-layout fields.
+    CompatibleFile,
+    /// Rendered/exported pixels; drops source color-calibration, raw pipeline,
+    /// lens-correction, raw settings, source ICC, MakerNote, and non-C2PA
+    /// JUMBF data unless host code supplies target-correct replacements.
+    RenderedImage,
 };
 
 /// One deterministic chunk in the rewrite-without-C2PA byte stream.
@@ -359,6 +376,7 @@ struct TransferProfile final {
     TransferPolicyAction jumbf     = TransferPolicyAction::Keep;
     TransferPolicyAction c2pa      = TransferPolicyAction::Keep;
     bool allow_time_patch          = true;
+    TransferSafetyMode safety      = TransferSafetyMode::CompatibleFile;
 };
 
 /// Effective policy decision captured during bundle preparation.

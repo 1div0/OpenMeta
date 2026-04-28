@@ -955,6 +955,13 @@ namespace {
             return "xmp_exif_projection";
         case TransferPolicySubject::XmpIptcProjection:
             return "xmp_iptc_projection";
+        case TransferPolicySubject::ImageProperties:
+            return "image_properties";
+        case TransferPolicySubject::IccProfile: return "icc_profile";
+        case TransferPolicySubject::RawColorCalibration:
+            return "raw_color_calibration";
+        case TransferPolicySubject::CameraRawSettings:
+            return "camera_raw_settings";
         }
         return "unknown";
     }
@@ -994,6 +1001,10 @@ namespace {
             return "rewrite_unavailable_preserved_raw";
         case TransferPolicyReason::TargetSerializationUnavailable:
             return "target_serialization_unavailable";
+        case TransferPolicyReason::TargetImageProperties:
+            return "target_image_properties";
+        case TransferPolicyReason::SafetyModeFiltered:
+            return "safety_mode_filtered";
         }
         return "unknown";
     }
@@ -2827,7 +2838,7 @@ namespace {
         nb::object persist_output_path_obj, bool persist_overwrite_output,
         bool persist_overwrite_xmp_sidecar,
         bool persist_remove_destination_xmp_sidecar,
-        nb::object target_image_spec_obj)
+        nb::object target_image_spec_obj, TransferSafetyMode transfer_safety)
     {
         PrepareTransferFileOptions prepare_options;
         prepare_options.include_pointer_tags       = include_pointer_tags;
@@ -2857,6 +2868,7 @@ namespace {
         prepare_options.prepare.profile.makernote = makernote_policy;
         prepare_options.prepare.profile.jumbf     = jumbf_policy;
         prepare_options.prepare.profile.c2pa      = c2pa_policy;
+        prepare_options.prepare.profile.safety    = transfer_safety;
         prepare_options.policy.max_file_bytes     = max_file_bytes;
         prepare_options.xmp_existing_sidecar_mode
             = xmp_existing_sidecar_mode;
@@ -4257,7 +4269,7 @@ namespace {
         nb::object persist_output_path_obj, bool persist_overwrite_output,
         bool persist_overwrite_xmp_sidecar,
         bool persist_remove_destination_xmp_sidecar,
-        nb::object target_image_spec_obj)
+        nb::object target_image_spec_obj, TransferSafetyMode transfer_safety)
     {
         ExecutePreparedTransferSnapshotOptions options;
         options.prepare.target_format   = target_format;
@@ -4283,6 +4295,7 @@ namespace {
         options.prepare.profile.makernote = makernote_policy;
         options.prepare.profile.jumbf     = jumbf_policy;
         options.prepare.profile.c2pa      = c2pa_policy;
+        options.prepare.profile.safety    = transfer_safety;
         options.policy.max_file_bytes     = max_file_bytes;
         options.xmp_existing_sidecar_mode = xmp_existing_sidecar_mode;
         options.xmp_existing_sidecar_precedence
@@ -5168,6 +5181,10 @@ NB_MODULE(_openmeta, m)
         .value("Png", TransferTargetFormat::Png)
         .value("Jp2", TransferTargetFormat::Jp2);
 
+    nb::enum_<TransferSafetyMode>(m, "TransferSafetyMode")
+        .value("CompatibleFile", TransferSafetyMode::CompatibleFile)
+        .value("RenderedImage", TransferSafetyMode::RenderedImage);
+
     m.attr("TRANSFER_TARGET_IMAGE_SPEC_MAX_SAMPLES")
         = nb::int_(kTransferTargetImageSpecMaxSamples);
 
@@ -5237,7 +5254,13 @@ NB_MODULE(_openmeta, m)
         .value("XmpExifProjection",
                TransferPolicySubject::XmpExifProjection)
         .value("XmpIptcProjection",
-               TransferPolicySubject::XmpIptcProjection);
+               TransferPolicySubject::XmpIptcProjection)
+        .value("ImageProperties", TransferPolicySubject::ImageProperties)
+        .value("IccProfile", TransferPolicySubject::IccProfile)
+        .value("RawColorCalibration",
+               TransferPolicySubject::RawColorCalibration)
+        .value("CameraRawSettings",
+               TransferPolicySubject::CameraRawSettings);
 
     nb::enum_<TransferPolicyAction>(m, "TransferPolicyAction")
         .value("Keep", TransferPolicyAction::Keep)
@@ -5264,7 +5287,11 @@ NB_MODULE(_openmeta, m)
         .value("RewriteUnavailablePreservedRaw",
                TransferPolicyReason::RewriteUnavailablePreservedRaw)
         .value("TargetSerializationUnavailable",
-               TransferPolicyReason::TargetSerializationUnavailable);
+               TransferPolicyReason::TargetSerializationUnavailable)
+        .value("TargetImageProperties",
+               TransferPolicyReason::TargetImageProperties)
+        .value("SafetyModeFiltered",
+               TransferPolicyReason::SafetyModeFiltered);
 
     nb::enum_<TransferC2paMode>(m, "TransferC2paMode")
         .value("NotApplicable", TransferC2paMode::NotApplicable)
@@ -6430,7 +6457,7 @@ NB_MODULE(_openmeta, m)
            XmpWritebackMode xmp_writeback_mode,
            XmpDestinationEmbeddedMode xmp_destination_embedded_mode,
            XmpDestinationSidecarMode xmp_destination_sidecar_mode,
-           nb::object target_image_spec) {
+           nb::object target_image_spec, TransferSafetyMode transfer_safety) {
             return transfer_probe_to_python(
                 path, target_format, dng_target_mode, format,
                 include_pointer_tags,
@@ -6464,7 +6491,7 @@ NB_MODULE(_openmeta, m)
                 xmp_conflict_policy, xmp_writeback_mode,
                 xmp_destination_embedded_mode,
                 xmp_destination_sidecar_mode, nb::none(), false, false,
-                true, target_image_spec);
+                true, target_image_spec, transfer_safety);
         },
         "path"_a, "target_format"_a = TransferTargetFormat::Jpeg,
         "dng_target_mode"_a = DngTargetMode::MinimalFreshScaffold,
@@ -6521,7 +6548,8 @@ NB_MODULE(_openmeta, m)
         = XmpDestinationEmbeddedMode::PreserveExisting,
         "xmp_destination_sidecar_mode"_a
         = XmpDestinationSidecarMode::PreserveExisting,
-        "target_image_spec"_a = nb::none());
+        "target_image_spec"_a = nb::none(),
+        "transfer_safety"_a = TransferSafetyMode::CompatibleFile);
 
     m.def(
         "unsafe_transfer_probe",
@@ -6573,7 +6601,7 @@ NB_MODULE(_openmeta, m)
            XmpWritebackMode xmp_writeback_mode,
            XmpDestinationEmbeddedMode xmp_destination_embedded_mode,
            XmpDestinationSidecarMode xmp_destination_sidecar_mode,
-           nb::object target_image_spec) {
+           nb::object target_image_spec, TransferSafetyMode transfer_safety) {
             return transfer_probe_to_python(
                 path, target_format, dng_target_mode, format,
                 include_pointer_tags,
@@ -6607,7 +6635,7 @@ NB_MODULE(_openmeta, m)
                 xmp_conflict_policy, xmp_writeback_mode,
                 xmp_destination_embedded_mode,
                 xmp_destination_sidecar_mode, nb::none(), false, false,
-                true, target_image_spec);
+                true, target_image_spec, transfer_safety);
         },
         "path"_a, "target_format"_a = TransferTargetFormat::Jpeg,
         "dng_target_mode"_a = DngTargetMode::MinimalFreshScaffold,
@@ -6664,7 +6692,8 @@ NB_MODULE(_openmeta, m)
         = XmpDestinationEmbeddedMode::PreserveExisting,
         "xmp_destination_sidecar_mode"_a
         = XmpDestinationSidecarMode::PreserveExisting,
-        "target_image_spec"_a = nb::none());
+        "target_image_spec"_a = nb::none(),
+        "transfer_safety"_a = TransferSafetyMode::CompatibleFile);
 
     m.def(
         "transfer_file",
@@ -6719,7 +6748,7 @@ NB_MODULE(_openmeta, m)
            const std::string& output_path, bool overwrite_output,
            bool overwrite_xmp_sidecar,
            bool remove_destination_xmp_sidecar,
-           nb::object target_image_spec) {
+           nb::object target_image_spec, TransferSafetyMode transfer_safety) {
             return transfer_probe_to_python(
                 path, target_format, dng_target_mode, format,
                 include_pointer_tags,
@@ -6755,7 +6784,8 @@ NB_MODULE(_openmeta, m)
                 xmp_destination_sidecar_mode,
                 nb::str(output_path.c_str(), output_path.size()),
                 overwrite_output, overwrite_xmp_sidecar,
-                remove_destination_xmp_sidecar, target_image_spec);
+                remove_destination_xmp_sidecar, target_image_spec,
+                transfer_safety);
         },
         "path"_a, "target_format"_a = TransferTargetFormat::Jpeg,
         "dng_target_mode"_a = DngTargetMode::MinimalFreshScaffold,
@@ -6815,7 +6845,8 @@ NB_MODULE(_openmeta, m)
         "output_path"_a, "overwrite_output"_a = false,
         "overwrite_xmp_sidecar"_a = false,
         "remove_destination_xmp_sidecar"_a = true,
-        "target_image_spec"_a = nb::none());
+        "target_image_spec"_a = nb::none(),
+        "transfer_safety"_a = TransferSafetyMode::CompatibleFile);
 
     m.def(
         "unsafe_transfer_file",
@@ -6870,7 +6901,7 @@ NB_MODULE(_openmeta, m)
            const std::string& output_path, bool overwrite_output,
            bool overwrite_xmp_sidecar,
            bool remove_destination_xmp_sidecar,
-           nb::object target_image_spec) {
+           nb::object target_image_spec, TransferSafetyMode transfer_safety) {
             return transfer_probe_to_python(
                 path, target_format, dng_target_mode, format,
                 include_pointer_tags,
@@ -6906,7 +6937,8 @@ NB_MODULE(_openmeta, m)
                 xmp_destination_sidecar_mode,
                 nb::str(output_path.c_str(), output_path.size()),
                 overwrite_output, overwrite_xmp_sidecar,
-                remove_destination_xmp_sidecar, target_image_spec);
+                remove_destination_xmp_sidecar, target_image_spec,
+                transfer_safety);
         },
         "path"_a, "target_format"_a = TransferTargetFormat::Jpeg,
         "dng_target_mode"_a = DngTargetMode::MinimalFreshScaffold,
@@ -6966,7 +6998,8 @@ NB_MODULE(_openmeta, m)
         "output_path"_a, "overwrite_output"_a = false,
         "overwrite_xmp_sidecar"_a = false,
         "remove_destination_xmp_sidecar"_a = true,
-        "target_image_spec"_a = nb::none());
+        "target_image_spec"_a = nb::none(),
+        "transfer_safety"_a = TransferSafetyMode::CompatibleFile);
 
     m.def(
         "transfer_snapshot_probe",
@@ -7004,7 +7037,7 @@ NB_MODULE(_openmeta, m)
            XmpWritebackMode xmp_writeback_mode,
            XmpDestinationEmbeddedMode xmp_destination_embedded_mode,
            XmpDestinationSidecarMode xmp_destination_sidecar_mode,
-           nb::object target_image_spec) {
+           nb::object target_image_spec, TransferSafetyMode transfer_safety) {
             return transfer_snapshot_to_python(
                 snapshot, target_format, dng_target_mode, format,
                 include_exif_app1, include_xmp_app1, include_icc_app2,
@@ -7026,7 +7059,7 @@ NB_MODULE(_openmeta, m)
                 include_edited_bytes, false, xmp_writeback_mode,
                 xmp_destination_embedded_mode,
                 xmp_destination_sidecar_mode, nb::none(), false, false, true,
-                target_image_spec);
+                target_image_spec, transfer_safety);
         },
         "snapshot"_a, "target_format"_a = TransferTargetFormat::Jpeg,
         "dng_target_mode"_a = DngTargetMode::MinimalFreshScaffold,
@@ -7068,7 +7101,8 @@ NB_MODULE(_openmeta, m)
         = XmpDestinationEmbeddedMode::PreserveExisting,
         "xmp_destination_sidecar_mode"_a
         = XmpDestinationSidecarMode::PreserveExisting,
-        "target_image_spec"_a = nb::none());
+        "target_image_spec"_a = nb::none(),
+        "transfer_safety"_a = TransferSafetyMode::CompatibleFile);
 
     m.def(
         "unsafe_transfer_snapshot_probe",
@@ -7106,7 +7140,7 @@ NB_MODULE(_openmeta, m)
            XmpWritebackMode xmp_writeback_mode,
            XmpDestinationEmbeddedMode xmp_destination_embedded_mode,
            XmpDestinationSidecarMode xmp_destination_sidecar_mode,
-           nb::object target_image_spec) {
+           nb::object target_image_spec, TransferSafetyMode transfer_safety) {
             return transfer_snapshot_to_python(
                 snapshot, target_format, dng_target_mode, format,
                 include_exif_app1, include_xmp_app1, include_icc_app2,
@@ -7128,7 +7162,7 @@ NB_MODULE(_openmeta, m)
                 include_edited_bytes, true, xmp_writeback_mode,
                 xmp_destination_embedded_mode,
                 xmp_destination_sidecar_mode, nb::none(), false, false, true,
-                target_image_spec);
+                target_image_spec, transfer_safety);
         },
         "snapshot"_a, "target_format"_a = TransferTargetFormat::Jpeg,
         "dng_target_mode"_a = DngTargetMode::MinimalFreshScaffold,
@@ -7170,7 +7204,8 @@ NB_MODULE(_openmeta, m)
         = XmpDestinationEmbeddedMode::PreserveExisting,
         "xmp_destination_sidecar_mode"_a
         = XmpDestinationSidecarMode::PreserveExisting,
-        "target_image_spec"_a = nb::none());
+        "target_image_spec"_a = nb::none(),
+        "transfer_safety"_a = TransferSafetyMode::CompatibleFile);
 
     m.def(
         "transfer_snapshot_file",
@@ -7211,7 +7246,7 @@ NB_MODULE(_openmeta, m)
            const std::string& output_path, bool overwrite_output,
            bool overwrite_xmp_sidecar,
            bool remove_destination_xmp_sidecar,
-           nb::object target_image_spec) {
+           nb::object target_image_spec, TransferSafetyMode transfer_safety) {
             return transfer_snapshot_to_python(
                 snapshot, target_format, dng_target_mode, format,
                 include_exif_app1, include_xmp_app1, include_icc_app2,
@@ -7235,7 +7270,8 @@ NB_MODULE(_openmeta, m)
                 xmp_destination_sidecar_mode,
                 nb::str(output_path.c_str(), output_path.size()),
                 overwrite_output, overwrite_xmp_sidecar,
-                remove_destination_xmp_sidecar, target_image_spec);
+                remove_destination_xmp_sidecar, target_image_spec,
+                transfer_safety);
         },
         "snapshot"_a, "target_format"_a = TransferTargetFormat::Jpeg,
         "dng_target_mode"_a = DngTargetMode::MinimalFreshScaffold,
@@ -7280,7 +7316,8 @@ NB_MODULE(_openmeta, m)
         "output_path"_a, "overwrite_output"_a = false,
         "overwrite_xmp_sidecar"_a = false,
         "remove_destination_xmp_sidecar"_a = true,
-        "target_image_spec"_a = nb::none());
+        "target_image_spec"_a = nb::none(),
+        "transfer_safety"_a = TransferSafetyMode::CompatibleFile);
 
     m.def(
         "unsafe_transfer_snapshot_file",
@@ -7321,7 +7358,7 @@ NB_MODULE(_openmeta, m)
            const std::string& output_path, bool overwrite_output,
            bool overwrite_xmp_sidecar,
            bool remove_destination_xmp_sidecar,
-           nb::object target_image_spec) {
+           nb::object target_image_spec, TransferSafetyMode transfer_safety) {
             return transfer_snapshot_to_python(
                 snapshot, target_format, dng_target_mode, format,
                 include_exif_app1, include_xmp_app1, include_icc_app2,
@@ -7345,7 +7382,8 @@ NB_MODULE(_openmeta, m)
                 xmp_destination_sidecar_mode,
                 nb::str(output_path.c_str(), output_path.size()),
                 overwrite_output, overwrite_xmp_sidecar,
-                remove_destination_xmp_sidecar, target_image_spec);
+                remove_destination_xmp_sidecar, target_image_spec,
+                transfer_safety);
         },
         "snapshot"_a, "target_format"_a = TransferTargetFormat::Jpeg,
         "dng_target_mode"_a = DngTargetMode::MinimalFreshScaffold,
@@ -7390,7 +7428,8 @@ NB_MODULE(_openmeta, m)
         "output_path"_a, "overwrite_output"_a = false,
         "overwrite_xmp_sidecar"_a = false,
         "remove_destination_xmp_sidecar"_a = true,
-        "target_image_spec"_a = nb::none());
+        "target_image_spec"_a = nb::none(),
+        "transfer_safety"_a = TransferSafetyMode::CompatibleFile);
 
     m.def(
         "dng_sdk_adapter_available",

@@ -263,6 +263,13 @@ namespace {
             return "xmp_exif_projection";
         case TransferPolicySubject::XmpIptcProjection:
             return "xmp_iptc_projection";
+        case TransferPolicySubject::ImageProperties:
+            return "image_properties";
+        case TransferPolicySubject::IccProfile: return "icc_profile";
+        case TransferPolicySubject::RawColorCalibration:
+            return "raw_color_calibration";
+        case TransferPolicySubject::CameraRawSettings:
+            return "camera_raw_settings";
         }
         return "unknown";
     }
@@ -302,6 +309,10 @@ namespace {
             return "rewrite_unavailable_preserved_raw";
         case TransferPolicyReason::TargetSerializationUnavailable:
             return "target_serialization_unavailable";
+        case TransferPolicyReason::TargetImageProperties:
+            return "target_image_properties";
+        case TransferPolicyReason::SafetyModeFiltered:
+            return "safety_mode_filtered";
         }
         return "unknown";
     }

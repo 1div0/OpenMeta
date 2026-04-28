@@ -9,12 +9,29 @@ Changes compared with `0.4.7`.
 - Added bounded 32-bit BMFF item-id insertion for parseable foreign item graphs
   that already use `iloc` version 2. `iloc` version 0/1 targets remain on the
   existing 16-bit insertion path.
+- Added `TransferSafetyMode` on `TransferProfile`. The default
+  `CompatibleFile` mode keeps current transfer behavior, while `RenderedImage`
+  drops source raw color calibration/correction metadata, camera raw settings
+  XMP, source ICC profiles, MakerNotes, and non-C2PA JUMBF data for rendered
+  image outputs.
+- Added transfer policy decisions for filtered image properties, ICC profiles,
+  raw color calibration, and camera raw settings.
 
 ### Changed
 
 - Public BMFF writer-contract docs now state the remaining item-id-width limit
   explicitly: 32-bit inserted item IDs require an existing `iloc` v2 graph, and
   unsupported or exhausted item-id spaces fail safely instead of truncating IDs.
+- BMFF foreign-`meta` insertion keeps newly inserted metadata item records on
+  `iloc` construction method 0 with absolute file-offset extents for broad
+  reader compatibility.
+- BMFF foreign-`meta` insertion now compacts zero/foldable `iloc` base offsets
+  to a zero-width base-offset field when rebuilding supported item graphs,
+  preserving absolute self-contained item extents for simpler readers.
+- C++ and Python `metatransfer` wrappers now accept
+  `--transfer-safety compatible|rendered`.
+- Writer-contract docs now include a per-group transfer safety matrix for
+  rendered-image exports, including opaque MakerNote handling.
 
 ### Fixed
 
@@ -26,6 +43,19 @@ Changes compared with `0.4.7`.
 - Added a BMFF API roundtrip test that writes Exif and XMP into an `iloc` v2
   target with high item IDs and scans the result back as one Exif item and one
   XMP item.
+- Added focused BMFF coverage that verifies inserted Exif/XMP item records use
+  construction method 0 and absolute file-offset extents.
+- Extended the BMFF image-usability gate with an explicit ExifTool
+  reader-layout regression check for transferred Exif items in HEIF/AVIF/CR3
+  targets.
+- Extended rendered-image safety coverage to require policy decisions for
+  image-layout fields, ICC, RAW/DNG color and correction tags, camera raw
+  settings XMP, opaque MakerNotes, and non-C2PA JUMBF data.
+- Extended the `metatransfer` smoke gate to verify that
+  `--transfer-safety rendered` prints user-visible policy decisions for the
+  same safety-filtered groups.
+- Extended the Python `metatransfer` smoke gate with the same
+  `--transfer-safety rendered` policy-output coverage.
 
 ## 0.4.7 - 2026-04-27
 

@@ -207,6 +207,8 @@ This is the common export workflow:
 
 openmeta::ExecutePreparedTransferFileOptions options;
 options.prepare.prepare.target_format = openmeta::TransferTargetFormat::Jpeg;
+options.prepare.prepare.profile.safety =
+    openmeta::TransferSafetyMode::RenderedImage;
 options.edit_target_path = "rendered.jpg";
 
 const openmeta::ExecutePreparedTransferFileResult exec =
