@@ -27,6 +27,10 @@ enum class VendorRawProcessingFamily : uint8_t {
     Sigma,
     Samsung,
     Ricoh,
+    Apple,
+    Dji,
+    Google,
+    Flir,
 };
 
 enum class VendorRawProcessingGroup : uint32_t {

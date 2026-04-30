@@ -74,12 +74,12 @@ Host-facing API map
        ``classify_vendor_raw_processing_field(...)``
      - ``openmeta/vendor_raw_processing.h``
      - Experimental
-     - Conservative grouped source-RAW field summaries for decoded Sony,
+     - Conservative grouped source-RAW/source-processing field summaries for decoded Sony,
        Canon, Nikon, Fujifilm, Pentax, Panasonic, Olympus, Kodak, Minolta,
-       Sigma, Samsung, and Ricoh MakerNotes, including a vendor-private RAW
-       table bucket for unknown/private entries. Intended for audit/UI and
-       rendered-transfer safety decisions, not for writing vendor
-       RAW-processing values into rendered targets.
+       Sigma, Samsung, Ricoh, Apple, DJI, Google, and FLIR MakerNotes,
+       including vendor-private, computational, and thermal table buckets.
+       Intended for audit/UI and rendered-transfer safety decisions, not for
+       writing vendor RAW/source-processing values into rendered targets.
    * - Transfer safety audit:
        ``transfer_safety_audit_from_store(...)``
      - ``openmeta/metadata_transfer.h``
@@ -87,8 +87,9 @@ Host-facing API map
      - Preflight summary of source entries and entries filtered or invalidated
        by ``TransferSafetyMode``, including
        Sony/Canon/Nikon/Fujifilm/Pentax/Panasonic/Olympus/Kodak/Minolta/
-       Sigma/Samsung/Ricoh RAW-processing buckets. Intended for diagnostics
-       and host UI before preparing rendered-image transfers.
+       Sigma/Samsung/Ricoh/Apple/DJI/Google/FLIR RAW/source-processing
+       buckets. Intended for diagnostics and host UI before preparing
+       rendered-image transfers.
    * - Source snapshot type and read helpers:
        ``TransferSourceSnapshot``,
        ``read_transfer_source_snapshot_file(...)``,

@@ -444,6 +444,101 @@ TEST(VendorRawProcessing, ClassifiesRicohRawProcessingFields)
     EXPECT_EQ(capture_groups, VendorRawProcessingGroup::None);
 }
 
+TEST(VendorRawProcessing, ClassifiesAppleSourceProcessingFields)
+{
+    const VendorRawProcessingGroup wb_groups
+        = classify_vendor_raw_processing_field("mk_apple0",
+                                               "ColorTemperature", 0x002DU);
+    EXPECT_TRUE(has_group(wb_groups, VendorRawProcessingGroup::WhiteBalance));
+    EXPECT_TRUE(has_group(wb_groups, VendorRawProcessingGroup::Color));
+
+    const VendorRawProcessingGroup hdr_groups
+        = classify_vendor_raw_processing_field("mk_apple0", "HDRGain",
+                                               0x0030U);
+    EXPECT_TRUE(has_group(hdr_groups, VendorRawProcessingGroup::Color));
+    EXPECT_TRUE(
+        has_group(hdr_groups, VendorRawProcessingGroup::PrivateTable));
+
+    const VendorRawProcessingGroup processing_groups
+        = classify_vendor_raw_processing_field("mk_apple0",
+                                               "ImageProcessingFlags",
+                                               0x0019U);
+    EXPECT_TRUE(has_group(processing_groups, VendorRawProcessingGroup::Sensor));
+    EXPECT_TRUE(has_group(processing_groups,
+                          VendorRawProcessingGroup::PrivateTable));
+
+    const VendorRawProcessingGroup capture_groups
+        = classify_vendor_raw_processing_field("mk_apple0", "CameraType",
+                                               0x002EU);
+    EXPECT_EQ(capture_groups, VendorRawProcessingGroup::None);
+}
+
+TEST(VendorRawProcessing, ClassifiesDjiThermalProcessingFields)
+{
+    const VendorRawProcessingGroup thermal_groups
+        = classify_vendor_raw_processing_field("mk_dji_thermalparams2_0",
+                                               "AmbientTemperature", 0x0000U);
+    EXPECT_TRUE(has_group(thermal_groups, VendorRawProcessingGroup::Sensor));
+    EXPECT_TRUE(
+        has_group(thermal_groups, VendorRawProcessingGroup::PrivateTable));
+
+    const VendorRawProcessingGroup emissivity_groups
+        = classify_vendor_raw_processing_field("mk_dji_thermalparams3_0",
+                                               "Emissivity", 0x0008U);
+    EXPECT_TRUE(has_group(emissivity_groups, VendorRawProcessingGroup::Sensor));
+    EXPECT_TRUE(
+        has_group(emissivity_groups, VendorRawProcessingGroup::PrivateTable));
+
+    const VendorRawProcessingGroup capture_groups
+        = classify_vendor_raw_processing_field("mk_dji0", "Make", 0x0001U);
+    EXPECT_EQ(capture_groups, VendorRawProcessingGroup::None);
+}
+
+TEST(VendorRawProcessing, ClassifiesGoogleComputationalProcessingFields)
+{
+    const VendorRawProcessingGroup log_groups
+        = classify_vendor_raw_processing_field("mk_google_hdrplusmakernote_0",
+                                               "TimeLogText", 0x0002U);
+    EXPECT_TRUE(has_group(log_groups, VendorRawProcessingGroup::PrivateTable));
+
+    const VendorRawProcessingGroup frame_groups
+        = classify_vendor_raw_processing_field("mk_google_shotlogdata_0",
+                                               "OriginalPayloadFrameCount",
+                                               0x0003U);
+    EXPECT_TRUE(has_group(frame_groups, VendorRawProcessingGroup::Sensor));
+    EXPECT_TRUE(
+        has_group(frame_groups, VendorRawProcessingGroup::PrivateTable));
+}
+
+TEST(VendorRawProcessing, ClassifiesFlirThermalProcessingFields)
+{
+    const VendorRawProcessingGroup raw_groups
+        = classify_vendor_raw_processing_field("mk_flir_fff_rawdata_0",
+                                               "RawThermalImageWidth",
+                                               0x0001U);
+    EXPECT_TRUE(has_group(raw_groups, VendorRawProcessingGroup::Geometry));
+    EXPECT_TRUE(has_group(raw_groups, VendorRawProcessingGroup::RawData));
+    EXPECT_TRUE(has_group(raw_groups, VendorRawProcessingGroup::Sensor));
+    EXPECT_TRUE(has_group(raw_groups, VendorRawProcessingGroup::PrivateTable));
+
+    const VendorRawProcessingGroup planck_groups
+        = classify_vendor_raw_processing_field("mk_flir_fff_camerainfo_0",
+                                               "PlanckR1", 0x0058U);
+    EXPECT_TRUE(has_group(planck_groups, VendorRawProcessingGroup::Sensor));
+
+    const VendorRawProcessingGroup palette_groups
+        = classify_vendor_raw_processing_field("mk_flir_fff_paletteinfo_0",
+                                               "PaletteName", 0x0050U);
+    EXPECT_TRUE(has_group(palette_groups, VendorRawProcessingGroup::Color));
+    EXPECT_TRUE(
+        has_group(palette_groups, VendorRawProcessingGroup::PrivateTable));
+
+    const VendorRawProcessingGroup capture_groups
+        = classify_vendor_raw_processing_field("mk_flir_fff_camerainfo_0",
+                                               "CameraModel", 0x00D4U);
+    EXPECT_EQ(capture_groups, VendorRawProcessingGroup::None);
+}
+
 TEST(VendorRawProcessing, SummarizesFamiliesFromStore)
 {
     MetaStore store;
@@ -519,6 +614,25 @@ TEST(VendorRawProcessing, SummarizesFamiliesFromStore)
     add_exif_u32(&store, "mk_ricoh0", 0x1011U, 1U);
     add_exif_u32(&store, "mk_ricoh0", 0x100FU, 1U);
     add_exif_u32(&store, "mk_ricoh0", 0x0005U, 1U);
+
+    add_exif_u32(&store, "mk_apple0", 0x002DU, 1U);
+    add_exif_u32(&store, "mk_apple0", 0x003EU, 1U);
+    add_exif_u32(&store, "mk_apple0", 0x0030U, 1U);
+    add_exif_u32(&store, "mk_apple0", 0x0019U, 1U);
+    add_exif_u32(&store, "mk_apple0", 0x002EU, 1U);
+
+    add_exif_u32(&store, "mk_dji_thermalparams2_0", 0x0000U, 1U);
+    add_exif_u32(&store, "mk_dji_thermalparams3_0", 0x0008U, 1U);
+    add_exif_u32(&store, "mk_dji0", 0x0001U, 1U);
+
+    add_exif_u32(&store, "mk_google_hdrplusmakernote_0", 0x0002U, 1U);
+    add_exif_u32(&store, "mk_google_shotlogdata_0", 0x0003U, 1U);
+
+    add_exif_u32(&store, "mk_flir_fff_rawdata_0", 0x0001U, 1U);
+    add_exif_u32(&store, "mk_flir_fff_camerainfo_0", 0x0058U, 1U);
+    add_exif_u32(&store, "mk_flir_fff_paletteinfo_0", 0x0050U, 1U);
+    add_exif_u32(&store, "mk_flir_fff_pip_0", 0x0004U, 1U);
+    add_exif_u32(&store, "mk_flir_fff_camerainfo_0", 0x00D4U, 1U);
     store.finalize();
 
     const VendorRawProcessingSummary sony
@@ -644,6 +758,39 @@ TEST(VendorRawProcessing, SummarizesFamiliesFromStore)
     EXPECT_EQ(ricoh.geometry_fields, 1U);
     EXPECT_EQ(ricoh.lens_correction_fields, 1U);
     EXPECT_EQ(ricoh.sensor_fields, 2U);
+
+    const VendorRawProcessingSummary apple
+        = vendor_raw_processing_from_store(store,
+                                           VendorRawProcessingFamily::Apple);
+    EXPECT_EQ(apple.fields_seen, 4U);
+    EXPECT_EQ(apple.color_fields, 3U);
+    EXPECT_EQ(apple.white_balance_fields, 1U);
+    EXPECT_EQ(apple.sensor_fields, 1U);
+    EXPECT_EQ(apple.private_table_fields, 4U);
+
+    const VendorRawProcessingSummary dji
+        = vendor_raw_processing_from_store(store,
+                                           VendorRawProcessingFamily::Dji);
+    EXPECT_EQ(dji.fields_seen, 2U);
+    EXPECT_EQ(dji.sensor_fields, 2U);
+    EXPECT_EQ(dji.private_table_fields, 2U);
+
+    const VendorRawProcessingSummary google
+        = vendor_raw_processing_from_store(store,
+                                           VendorRawProcessingFamily::Google);
+    EXPECT_EQ(google.fields_seen, 2U);
+    EXPECT_EQ(google.sensor_fields, 1U);
+    EXPECT_EQ(google.private_table_fields, 2U);
+
+    const VendorRawProcessingSummary flir
+        = vendor_raw_processing_from_store(store,
+                                           VendorRawProcessingFamily::Flir);
+    EXPECT_EQ(flir.fields_seen, 4U);
+    EXPECT_EQ(flir.color_fields, 1U);
+    EXPECT_EQ(flir.geometry_fields, 2U);
+    EXPECT_EQ(flir.raw_data_fields, 1U);
+    EXPECT_EQ(flir.sensor_fields, 2U);
+    EXPECT_EQ(flir.private_table_fields, 3U);
 }
 
 TEST(VendorRawProcessing, IgnoresStandardExifIfds)

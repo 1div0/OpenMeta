@@ -908,6 +908,14 @@ namespace {
             VendorRawProcessingFamily::Samsung, audit.samsung_raw_processing);
         out["ricoh_raw_processing"] = vendor_raw_processing_summary_to_python(
             VendorRawProcessingFamily::Ricoh, audit.ricoh_raw_processing);
+        out["apple_raw_processing"] = vendor_raw_processing_summary_to_python(
+            VendorRawProcessingFamily::Apple, audit.apple_raw_processing);
+        out["dji_raw_processing"] = vendor_raw_processing_summary_to_python(
+            VendorRawProcessingFamily::Dji, audit.dji_raw_processing);
+        out["google_raw_processing"] = vendor_raw_processing_summary_to_python(
+            VendorRawProcessingFamily::Google, audit.google_raw_processing);
+        out["flir_raw_processing"] = vendor_raw_processing_summary_to_python(
+            VendorRawProcessingFamily::Flir, audit.flir_raw_processing);
         return out;
     }
 
@@ -5053,7 +5061,11 @@ NB_MODULE(_openmeta, m)
         .value("Minolta", VendorRawProcessingFamily::Minolta)
         .value("Sigma", VendorRawProcessingFamily::Sigma)
         .value("Samsung", VendorRawProcessingFamily::Samsung)
-        .value("Ricoh", VendorRawProcessingFamily::Ricoh);
+        .value("Ricoh", VendorRawProcessingFamily::Ricoh)
+        .value("Apple", VendorRawProcessingFamily::Apple)
+        .value("Dji", VendorRawProcessingFamily::Dji)
+        .value("Google", VendorRawProcessingFamily::Google)
+        .value("Flir", VendorRawProcessingFamily::Flir);
 
     nb::enum_<VendorRawProcessingGroup>(m, "VendorRawProcessingGroup")
         .value("None_", VendorRawProcessingGroup::None)

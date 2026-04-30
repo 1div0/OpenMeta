@@ -237,6 +237,10 @@ namespace {
         print_vendor_raw_summary(store, VendorRawProcessingFamily::Sigma);
         print_vendor_raw_summary(store, VendorRawProcessingFamily::Samsung);
         print_vendor_raw_summary(store, VendorRawProcessingFamily::Ricoh);
+        print_vendor_raw_summary(store, VendorRawProcessingFamily::Apple);
+        print_vendor_raw_summary(store, VendorRawProcessingFamily::Dji);
+        print_vendor_raw_summary(store, VendorRawProcessingFamily::Google);
+        print_vendor_raw_summary(store, VendorRawProcessingFamily::Flir);
     }
 
 

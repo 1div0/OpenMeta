@@ -412,6 +412,10 @@ struct TransferSafetyAudit final {
     VendorRawProcessingSummary sigma_raw_processing;
     VendorRawProcessingSummary samsung_raw_processing;
     VendorRawProcessingSummary ricoh_raw_processing;
+    VendorRawProcessingSummary apple_raw_processing;
+    VendorRawProcessingSummary dji_raw_processing;
+    VendorRawProcessingSummary google_raw_processing;
+    VendorRawProcessingSummary flir_raw_processing;
 };
 
 /// Effective policy decision captured during bundle preparation.

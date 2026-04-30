@@ -19534,6 +19534,28 @@ TEST(MetadataTransferApi, PrepareRenderedImageSafetyDropsSourceSpecificMetadata)
         { "mk_ricoh0", 0x1011U, 1U },
         { "mk_ricoh0", 0x100FU, 1U },
     };
+    static const PhaseOneTransferTag kAppleRenderedDropTags[] = {
+        { "mk_apple0", 0x002DU, 1U },
+        { "mk_apple0", 0x003EU, 1U },
+        { "mk_apple0", 0x0030U, 1U },
+        { "mk_apple0", 0x0019U, 1U },
+        { "mk_apple0", 0x0040U, 1U },
+    };
+    static const PhaseOneTransferTag kDjiRenderedDropTags[] = {
+        { "mk_dji_thermalparams2_0", 0x0000U, 1U },
+        { "mk_dji_thermalparams2_0", 0x0008U, 1U },
+        { "mk_dji_thermalparams3_0", 0x0006U, 1U },
+    };
+    static const PhaseOneTransferTag kGoogleRenderedDropTags[] = {
+        { "mk_google_hdrplusmakernote_0", 0x0002U, 1U },
+        { "mk_google_shotlogdata_0", 0x0003U, 1U },
+    };
+    static const PhaseOneTransferTag kFlirRenderedDropTags[] = {
+        { "mk_flir_fff_rawdata_0", 0x0001U, 1U },
+        { "mk_flir_fff_camerainfo_0", 0x0058U, 1U },
+        { "mk_flir_fff_paletteinfo_0", 0x0050U, 1U },
+        { "mk_flir_fff_pip_0", 0x0004U, 1U },
+    };
     static const PhaseOneTransferTag kVendorRenderedPrivateDropTags[] = {
         { "mk_sony_sr2private_0", 0x7200U, 1U },
         { "mk_canon_colordata5_0", 0x0001U, 1U },
@@ -19554,6 +19576,9 @@ TEST(MetadataTransferApi, PrepareRenderedImageSafetyDropsSourceSpecificMetadata)
         { "mk_sigma0", 0x0027U, 1U },
         { "mk_samsung_type2_0", 0xA003U, 1U },
         { "mk_ricoh0", 0x0005U, 1U },
+        { "mk_apple0", 0x002EU, 1U },
+        { "mk_dji0", 0x0001U, 1U },
+        { "mk_flir_fff_camerainfo_0", 0x00D4U, 1U },
     };
     uint32_t next_order = 7U;
     for (size_t i = 0; i < std::size(kPhaseOneRenderedDropTags); ++i) {
@@ -19732,6 +19757,54 @@ TEST(MetadataTransferApi, PrepareRenderedImageSafetyDropsSourceSpecificMetadata)
         next_order += 1U;
         ASSERT_NE(store.add_entry(vendor_raw), openmeta::kInvalidEntryId);
     }
+    for (size_t i = 0; i < std::size(kAppleRenderedDropTags); ++i) {
+        openmeta::Entry vendor_raw;
+        vendor_raw.key
+            = openmeta::make_exif_tag_key(store.arena(),
+                                          kAppleRenderedDropTags[i].ifd,
+                                          kAppleRenderedDropTags[i].tag);
+        vendor_raw.value = openmeta::make_u32(kAppleRenderedDropTags[i].value);
+        vendor_raw.origin.block          = block;
+        vendor_raw.origin.order_in_block = next_order;
+        next_order += 1U;
+        ASSERT_NE(store.add_entry(vendor_raw), openmeta::kInvalidEntryId);
+    }
+    for (size_t i = 0; i < std::size(kDjiRenderedDropTags); ++i) {
+        openmeta::Entry vendor_raw;
+        vendor_raw.key
+            = openmeta::make_exif_tag_key(store.arena(),
+                                          kDjiRenderedDropTags[i].ifd,
+                                          kDjiRenderedDropTags[i].tag);
+        vendor_raw.value = openmeta::make_u32(kDjiRenderedDropTags[i].value);
+        vendor_raw.origin.block          = block;
+        vendor_raw.origin.order_in_block = next_order;
+        next_order += 1U;
+        ASSERT_NE(store.add_entry(vendor_raw), openmeta::kInvalidEntryId);
+    }
+    for (size_t i = 0; i < std::size(kGoogleRenderedDropTags); ++i) {
+        openmeta::Entry vendor_raw;
+        vendor_raw.key
+            = openmeta::make_exif_tag_key(store.arena(),
+                                          kGoogleRenderedDropTags[i].ifd,
+                                          kGoogleRenderedDropTags[i].tag);
+        vendor_raw.value = openmeta::make_u32(kGoogleRenderedDropTags[i].value);
+        vendor_raw.origin.block          = block;
+        vendor_raw.origin.order_in_block = next_order;
+        next_order += 1U;
+        ASSERT_NE(store.add_entry(vendor_raw), openmeta::kInvalidEntryId);
+    }
+    for (size_t i = 0; i < std::size(kFlirRenderedDropTags); ++i) {
+        openmeta::Entry vendor_raw;
+        vendor_raw.key
+            = openmeta::make_exif_tag_key(store.arena(),
+                                          kFlirRenderedDropTags[i].ifd,
+                                          kFlirRenderedDropTags[i].tag);
+        vendor_raw.value = openmeta::make_u32(kFlirRenderedDropTags[i].value);
+        vendor_raw.origin.block          = block;
+        vendor_raw.origin.order_in_block = next_order;
+        next_order += 1U;
+        ASSERT_NE(store.add_entry(vendor_raw), openmeta::kInvalidEntryId);
+    }
     for (size_t i = 0; i < std::size(kVendorRenderedPrivateDropTags); ++i) {
         openmeta::Entry vendor_raw;
         vendor_raw.key = openmeta::make_exif_tag_key(
@@ -19843,6 +19916,10 @@ TEST(MetadataTransferApi, PrepareRenderedImageSafetyDropsSourceSpecificMetadata)
           + static_cast<uint32_t>(std::size(kSigmaRenderedDropTags))
           + static_cast<uint32_t>(std::size(kSamsungRenderedDropTags))
           + static_cast<uint32_t>(std::size(kRicohRenderedDropTags))
+          + static_cast<uint32_t>(std::size(kAppleRenderedDropTags))
+          + static_cast<uint32_t>(std::size(kDjiRenderedDropTags))
+          + static_cast<uint32_t>(std::size(kGoogleRenderedDropTags))
+          + static_cast<uint32_t>(std::size(kFlirRenderedDropTags))
           + static_cast<uint32_t>(std::size(kVendorRenderedPrivateDropTags));
 
     const openmeta::TransferSafetyAudit compatible_audit
@@ -19890,6 +19967,10 @@ TEST(MetadataTransferApi, PrepareRenderedImageSafetyDropsSourceSpecificMetadata)
     EXPECT_GT(rendered_audit.sigma_raw_processing.fields_seen, 0U);
     EXPECT_GT(rendered_audit.samsung_raw_processing.fields_seen, 0U);
     EXPECT_GT(rendered_audit.ricoh_raw_processing.fields_seen, 0U);
+    EXPECT_GT(rendered_audit.apple_raw_processing.fields_seen, 0U);
+    EXPECT_GT(rendered_audit.dji_raw_processing.fields_seen, 0U);
+    EXPECT_GT(rendered_audit.google_raw_processing.fields_seen, 0U);
+    EXPECT_GT(rendered_audit.flir_raw_processing.fields_seen, 0U);
     EXPECT_GT(rendered_audit.sony_raw_processing.private_table_fields, 0U);
     EXPECT_GT(rendered_audit.canon_raw_processing.private_table_fields, 0U);
     EXPECT_GT(rendered_audit.nikon_raw_processing.private_table_fields, 0U);
@@ -19898,6 +19979,10 @@ TEST(MetadataTransferApi, PrepareRenderedImageSafetyDropsSourceSpecificMetadata)
     EXPECT_GT(rendered_audit.panasonic_raw_processing.private_table_fields, 0U);
     EXPECT_GT(rendered_audit.olympus_raw_processing.private_table_fields, 0U);
     EXPECT_GT(rendered_audit.minolta_raw_processing.private_table_fields, 0U);
+    EXPECT_GT(rendered_audit.apple_raw_processing.private_table_fields, 0U);
+    EXPECT_GT(rendered_audit.dji_raw_processing.private_table_fields, 0U);
+    EXPECT_GT(rendered_audit.google_raw_processing.private_table_fields, 0U);
+    EXPECT_GT(rendered_audit.flir_raw_processing.private_table_fields, 0U);
 
     openmeta::PrepareTransferRequest request;
     request.include_iptc_app13   = false;

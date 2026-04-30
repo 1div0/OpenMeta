@@ -12768,6 +12768,14 @@ transfer_safety_audit_from_store(const MetaStore& store,
         store, VendorRawProcessingFamily::Samsung);
     out.ricoh_raw_processing = vendor_raw_processing_from_store(
         store, VendorRawProcessingFamily::Ricoh);
+    out.apple_raw_processing = vendor_raw_processing_from_store(
+        store, VendorRawProcessingFamily::Apple);
+    out.dji_raw_processing = vendor_raw_processing_from_store(
+        store, VendorRawProcessingFamily::Dji);
+    out.google_raw_processing = vendor_raw_processing_from_store(
+        store, VendorRawProcessingFamily::Google);
+    out.flir_raw_processing = vendor_raw_processing_from_store(
+        store, VendorRawProcessingFamily::Flir);
     return out;
 }
 

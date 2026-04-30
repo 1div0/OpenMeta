@@ -60,7 +60,8 @@ descriptive metadata, time fields, GPS, IPTC, and portable XMP, but filters
 source raw color calibration, linearization/crop/correction tags, vendor RAW
 geometry/color/correction tags for Phase One/Leaf, Sony, Canon, Nikon,
 Fujifilm, Pentax, Panasonic, Olympus, Kodak, Minolta, Sigma, Samsung, and
-Ricoh, camera raw settings XMP, source ICC profiles, MakerNotes, and non-C2PA
+Ricoh, Apple/Google computational capture fields, DJI/FLIR thermal processing
+fields, camera raw settings XMP, source ICC profiles, MakerNotes, and non-C2PA
 JUMBF data. Host code should provide target-correct ICC/profile data and image
 specs separately.
 
@@ -136,8 +137,8 @@ controls. Hosts may still strip more metadata.
        ``ColorMatrix1``, ``ColorMatrix2``, ``WB_RGBLevels``,
        sensor-calibration flat fields and linearization coefficients,
        Sony/Canon/Nikon/Fujifilm/Pentax/Panasonic/Olympus/Kodak/Minolta/
-       Sigma/Samsung/Ricoh MakerNote color and white-balance coefficient
-       tables
+       Sigma/Samsung/Ricoh/Apple MakerNote color, HDR, and white-balance
+       coefficient tables
      - Keep only for compatible RAW/DNG-style transfer
      - Drop
      - These values describe how to turn original sensor data into rendered
@@ -157,14 +158,17 @@ controls. Hosts may still strip more metadata.
        lens-correction tables, Panasonic sensor subtables, Olympus
        image-processing/raw-development tables, Kodak sensor/black-level/
        raw-histogram fields, Samsung Type2 raw/color/correction fields, Ricoh
-       sensor/crop/vignetting fields, Canon crop/aspect/color-data tables, and
-       Nikon NEF/distortion/vignette tables or named correction fields
+       sensor/crop/vignetting fields, Apple computational capture/HDR fields,
+       Google HDR+ and shot-log fields, DJI thermal parameter tables, FLIR
+       thermal raw-data/radiometric calibration/palette/PiP fields, Canon
+       crop/aspect/color-data tables, and Nikon NEF/distortion/vignette tables
+       or named correction fields
      - Keep only for compatible RAW/DNG-style transfer
      - Drop
      - These values are tied to the original sensor geometry and raw-processing
-       pipeline. Vendor-private RAW tables are dropped in rendered mode even
-       when individual fields are unknown, while named entries also receive
-       narrower color/WB/geometry/correction buckets. Use
+       pipeline. Vendor-private RAW/source tables are dropped in rendered mode
+       even when individual fields are unknown, while named entries also
+       receive narrower color/WB/geometry/correction buckets. Use
        ``phaseone_raw_geometry_from_store()``,
        ``phaseone_raw_processing_from_store()``, and
        ``vendor_raw_processing_from_store()`` only to interpret source RAW

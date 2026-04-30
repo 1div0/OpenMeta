@@ -326,6 +326,10 @@ def _print_vendor_raw_summaries(doc: openmeta.Document) -> None:
         openmeta.VendorRawProcessingFamily.Sigma,
         openmeta.VendorRawProcessingFamily.Samsung,
         openmeta.VendorRawProcessingFamily.Ricoh,
+        openmeta.VendorRawProcessingFamily.Apple,
+        openmeta.VendorRawProcessingFamily.Dji,
+        openmeta.VendorRawProcessingFamily.Google,
+        openmeta.VendorRawProcessingFamily.Flir,
     )
     for family in families:
         summary = doc.vendor_raw_processing(family)
