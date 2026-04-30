@@ -898,6 +898,16 @@ namespace {
                 audit.panasonic_raw_processing);
         out["olympus_raw_processing"] = vendor_raw_processing_summary_to_python(
             VendorRawProcessingFamily::Olympus, audit.olympus_raw_processing);
+        out["kodak_raw_processing"] = vendor_raw_processing_summary_to_python(
+            VendorRawProcessingFamily::Kodak, audit.kodak_raw_processing);
+        out["minolta_raw_processing"] = vendor_raw_processing_summary_to_python(
+            VendorRawProcessingFamily::Minolta, audit.minolta_raw_processing);
+        out["sigma_raw_processing"] = vendor_raw_processing_summary_to_python(
+            VendorRawProcessingFamily::Sigma, audit.sigma_raw_processing);
+        out["samsung_raw_processing"] = vendor_raw_processing_summary_to_python(
+            VendorRawProcessingFamily::Samsung, audit.samsung_raw_processing);
+        out["ricoh_raw_processing"] = vendor_raw_processing_summary_to_python(
+            VendorRawProcessingFamily::Ricoh, audit.ricoh_raw_processing);
         return out;
     }
 
@@ -5038,7 +5048,12 @@ NB_MODULE(_openmeta, m)
         .value("Fujifilm", VendorRawProcessingFamily::Fujifilm)
         .value("Pentax", VendorRawProcessingFamily::Pentax)
         .value("Panasonic", VendorRawProcessingFamily::Panasonic)
-        .value("Olympus", VendorRawProcessingFamily::Olympus);
+        .value("Olympus", VendorRawProcessingFamily::Olympus)
+        .value("Kodak", VendorRawProcessingFamily::Kodak)
+        .value("Minolta", VendorRawProcessingFamily::Minolta)
+        .value("Sigma", VendorRawProcessingFamily::Sigma)
+        .value("Samsung", VendorRawProcessingFamily::Samsung)
+        .value("Ricoh", VendorRawProcessingFamily::Ricoh);
 
     nb::enum_<VendorRawProcessingGroup>(m, "VendorRawProcessingGroup")
         .value("None_", VendorRawProcessingGroup::None)

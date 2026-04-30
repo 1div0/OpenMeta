@@ -232,6 +232,11 @@ namespace {
         print_vendor_raw_summary(store, VendorRawProcessingFamily::Pentax);
         print_vendor_raw_summary(store, VendorRawProcessingFamily::Panasonic);
         print_vendor_raw_summary(store, VendorRawProcessingFamily::Olympus);
+        print_vendor_raw_summary(store, VendorRawProcessingFamily::Kodak);
+        print_vendor_raw_summary(store, VendorRawProcessingFamily::Minolta);
+        print_vendor_raw_summary(store, VendorRawProcessingFamily::Sigma);
+        print_vendor_raw_summary(store, VendorRawProcessingFamily::Samsung);
+        print_vendor_raw_summary(store, VendorRawProcessingFamily::Ricoh);
     }
 
 

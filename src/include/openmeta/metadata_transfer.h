@@ -407,6 +407,11 @@ struct TransferSafetyAudit final {
     VendorRawProcessingSummary pentax_raw_processing;
     VendorRawProcessingSummary panasonic_raw_processing;
     VendorRawProcessingSummary olympus_raw_processing;
+    VendorRawProcessingSummary kodak_raw_processing;
+    VendorRawProcessingSummary minolta_raw_processing;
+    VendorRawProcessingSummary sigma_raw_processing;
+    VendorRawProcessingSummary samsung_raw_processing;
+    VendorRawProcessingSummary ricoh_raw_processing;
 };
 
 /// Effective policy decision captured during bundle preparation.

@@ -270,6 +270,180 @@ TEST(VendorRawProcessing, ClassifiesOlympusRawProcessingFields)
     EXPECT_EQ(capture_groups, VendorRawProcessingGroup::None);
 }
 
+TEST(VendorRawProcessing, ClassifiesKodakRawProcessingFields)
+{
+    const VendorRawProcessingGroup geometry_groups
+        = classify_vendor_raw_processing_field("mk_kodak_ifd_0",
+                                               "SensorImageWidth", 0x03EDU);
+    EXPECT_TRUE(has_group(geometry_groups, VendorRawProcessingGroup::Geometry));
+    EXPECT_TRUE(has_group(geometry_groups, VendorRawProcessingGroup::Sensor));
+
+    const VendorRawProcessingGroup wb_groups
+        = classify_vendor_raw_processing_field("mk_kodak_ifd_0",
+                                               "WB_RGBLevelsAsShot", 0x0847U);
+    EXPECT_TRUE(has_group(wb_groups, VendorRawProcessingGroup::WhiteBalance));
+    EXPECT_TRUE(has_group(wb_groups, VendorRawProcessingGroup::Color));
+
+    const VendorRawProcessingGroup black_groups
+        = classify_vendor_raw_processing_field("mk_kodak_ifd_0",
+                                               "BlackLevelBottom", 0x03F0U);
+    EXPECT_TRUE(has_group(black_groups, VendorRawProcessingGroup::Sensor));
+
+    const VendorRawProcessingGroup raw_groups
+        = classify_vendor_raw_processing_field("mk_kodak_ifd_0",
+                                               "RawHistogram", 0x0C4EU);
+    EXPECT_TRUE(has_group(raw_groups, VendorRawProcessingGroup::RawData));
+
+    const VendorRawProcessingGroup capture_groups
+        = classify_vendor_raw_processing_field("mk_kodak0", "KodakModel",
+                                               0x0000U);
+    EXPECT_EQ(capture_groups, VendorRawProcessingGroup::None);
+}
+
+TEST(VendorRawProcessing, ClassifiesMinoltaRawProcessingFields)
+{
+    const VendorRawProcessingGroup wb_groups
+        = classify_vendor_raw_processing_field("mk_minolta_wbinfoa100_0",
+                                               "WB_RGBLevels", 0x0096U);
+    EXPECT_TRUE(has_group(wb_groups, VendorRawProcessingGroup::WhiteBalance));
+    EXPECT_TRUE(has_group(wb_groups, VendorRawProcessingGroup::Color));
+
+    const VendorRawProcessingGroup geometry_groups
+        = classify_vendor_raw_processing_field("mk_minoltaraw_prd_0",
+                                               "SensorWidth", 0x000AU);
+    EXPECT_TRUE(has_group(geometry_groups, VendorRawProcessingGroup::Geometry));
+    EXPECT_TRUE(has_group(geometry_groups, VendorRawProcessingGroup::Sensor));
+    EXPECT_TRUE(has_group(geometry_groups, VendorRawProcessingGroup::RawData));
+    EXPECT_TRUE(
+        has_group(geometry_groups, VendorRawProcessingGroup::PrivateTable));
+
+    const VendorRawProcessingGroup depth_groups
+        = classify_vendor_raw_processing_field("mk_minoltaraw_prd_0",
+                                               "RawDepth", 0x0010U);
+    EXPECT_TRUE(has_group(depth_groups, VendorRawProcessingGroup::RawData));
+    EXPECT_TRUE(has_group(depth_groups, VendorRawProcessingGroup::Sensor));
+    EXPECT_TRUE(
+        has_group(depth_groups, VendorRawProcessingGroup::PrivateTable));
+
+    const VendorRawProcessingGroup storage_groups
+        = classify_vendor_raw_processing_field("mk_minoltaraw_rif_0",
+                                               "RawDataLength", 0x0050U);
+    EXPECT_TRUE(has_group(storage_groups, VendorRawProcessingGroup::Storage));
+    EXPECT_TRUE(has_group(storage_groups, VendorRawProcessingGroup::RawData));
+    EXPECT_TRUE(
+        has_group(storage_groups, VendorRawProcessingGroup::PrivateTable));
+
+    const VendorRawProcessingGroup capture_groups
+        = classify_vendor_raw_processing_field("mk_minolta0", "LensType",
+                                               0x010CU);
+    EXPECT_EQ(capture_groups, VendorRawProcessingGroup::None);
+}
+
+TEST(VendorRawProcessing, ClassifiesSigmaRawProcessingFields)
+{
+    const VendorRawProcessingGroup wb_groups
+        = classify_vendor_raw_processing_field("mk_sigma_wbsettings_0",
+                                               "WB_RGBLevelsAuto", 0x0000U);
+    EXPECT_TRUE(has_group(wb_groups, VendorRawProcessingGroup::WhiteBalance));
+    EXPECT_TRUE(has_group(wb_groups, VendorRawProcessingGroup::Color));
+
+    const VendorRawProcessingGroup calibration_groups
+        = classify_vendor_raw_processing_field("mk_sigma0",
+                                               "CameraCalibration", 0x011FU);
+    EXPECT_TRUE(has_group(calibration_groups, VendorRawProcessingGroup::Color));
+
+    const VendorRawProcessingGroup vignette_groups
+        = classify_vendor_raw_processing_field("mk_sigma0", "Vignette",
+                                               0x0139U);
+    EXPECT_TRUE(
+        has_group(vignette_groups, VendorRawProcessingGroup::LensCorrection));
+
+    const VendorRawProcessingGroup sensor_groups
+        = classify_vendor_raw_processing_field("mk_sigma0",
+                                               "SensorTemperature", 0x0039U);
+    EXPECT_TRUE(has_group(sensor_groups, VendorRawProcessingGroup::Sensor));
+
+    const VendorRawProcessingGroup capture_groups
+        = classify_vendor_raw_processing_field("mk_sigma0", "LensType",
+                                               0x0027U);
+    EXPECT_EQ(capture_groups, VendorRawProcessingGroup::None);
+}
+
+TEST(VendorRawProcessing, ClassifiesSamsungRawProcessingFields)
+{
+    const VendorRawProcessingGroup storage_groups
+        = classify_vendor_raw_processing_field("mk_samsung_type2_0",
+                                               "RawDataByteOrder", 0x0040U);
+    EXPECT_TRUE(has_group(storage_groups, VendorRawProcessingGroup::Storage));
+    EXPECT_TRUE(has_group(storage_groups, VendorRawProcessingGroup::RawData));
+
+    const VendorRawProcessingGroup cfa_groups
+        = classify_vendor_raw_processing_field("mk_samsung_type2_0",
+                                               "RawDataCFAPattern", 0x0050U);
+    EXPECT_TRUE(has_group(cfa_groups, VendorRawProcessingGroup::RawData));
+    EXPECT_TRUE(has_group(cfa_groups, VendorRawProcessingGroup::Sensor));
+
+    const VendorRawProcessingGroup wb_groups
+        = classify_vendor_raw_processing_field("mk_samsung_type2_0",
+                                               "WB_RGGBLevelsUncorrected",
+                                               0xA021U);
+    EXPECT_TRUE(has_group(wb_groups, VendorRawProcessingGroup::WhiteBalance));
+    EXPECT_TRUE(has_group(wb_groups, VendorRawProcessingGroup::Color));
+
+    const VendorRawProcessingGroup matrix_groups
+        = classify_vendor_raw_processing_field("mk_samsung_type2_0",
+                                               "ColorMatrix", 0xA030U);
+    EXPECT_TRUE(has_group(matrix_groups, VendorRawProcessingGroup::Color));
+
+    const VendorRawProcessingGroup raw_groups
+        = classify_vendor_raw_processing_field("mk_samsung_type2_0", "RawData",
+                                               0xA048U);
+    EXPECT_TRUE(has_group(raw_groups, VendorRawProcessingGroup::RawData));
+
+    const VendorRawProcessingGroup correction_groups
+        = classify_vendor_raw_processing_field("mk_samsung_type2_0",
+                                               "Distortion", 0xA050U);
+    EXPECT_TRUE(
+        has_group(correction_groups, VendorRawProcessingGroup::LensCorrection));
+
+    const VendorRawProcessingGroup capture_groups
+        = classify_vendor_raw_processing_field("mk_samsung_type2_0",
+                                               "LensType", 0xA003U);
+    EXPECT_EQ(capture_groups, VendorRawProcessingGroup::None);
+}
+
+TEST(VendorRawProcessing, ClassifiesRicohRawProcessingFields)
+{
+    const VendorRawProcessingGroup wb_groups
+        = classify_vendor_raw_processing_field("mk_ricoh0",
+                                               "WhiteBalanceFineTune",
+                                               0x1004U);
+    EXPECT_TRUE(has_group(wb_groups, VendorRawProcessingGroup::WhiteBalance));
+    EXPECT_TRUE(has_group(wb_groups, VendorRawProcessingGroup::Color));
+
+    const VendorRawProcessingGroup geometry_groups
+        = classify_vendor_raw_processing_field("mk_ricoh0", "SensorWidth",
+                                               0x1601U);
+    EXPECT_TRUE(has_group(geometry_groups, VendorRawProcessingGroup::Geometry));
+    EXPECT_TRUE(has_group(geometry_groups, VendorRawProcessingGroup::Sensor));
+
+    const VendorRawProcessingGroup vignette_groups
+        = classify_vendor_raw_processing_field("mk_ricoh0", "Vignetting",
+                                               0x1011U);
+    EXPECT_TRUE(
+        has_group(vignette_groups, VendorRawProcessingGroup::LensCorrection));
+
+    const VendorRawProcessingGroup noise_groups
+        = classify_vendor_raw_processing_field("mk_ricoh0", "NoiseReduction",
+                                               0x100FU);
+    EXPECT_TRUE(has_group(noise_groups, VendorRawProcessingGroup::Sensor));
+
+    const VendorRawProcessingGroup capture_groups
+        = classify_vendor_raw_processing_field("mk_ricoh0", "SerialNumber",
+                                               0x0005U);
+    EXPECT_EQ(capture_groups, VendorRawProcessingGroup::None);
+}
+
 TEST(VendorRawProcessing, SummarizesFamiliesFromStore)
 {
     MetaStore store;
@@ -313,6 +487,38 @@ TEST(VendorRawProcessing, SummarizesFamiliesFromStore)
     add_exif_u32(&store, "mk_olympus_imageprocessing_0", 0x1011U, 1U);
     add_exif_u32(&store, "mk_olympus_rawdevelopment2_0", 0x010AU, 1U);
     add_exif_u32(&store, "mk_olympus_equipment_0", 0x0203U, 1U);
+
+    add_exif_u32(&store, "mk_kodak_ifd_0", 0x03EDU, 1U);
+    add_exif_u32(&store, "mk_kodak_ifd_0", 0x0847U, 1U);
+    add_exif_u32(&store, "mk_kodak_ifd_0", 0x03F0U, 1U);
+    add_exif_u32(&store, "mk_kodak_ifd_0", 0x0C4EU, 1U);
+    add_exif_u32(&store, "mk_kodak0", 0x0000U, 1U);
+
+    add_exif_u32(&store, "mk_minolta_wbinfoa100_0", 0x0096U, 1U);
+    add_exif_u32(&store, "mk_minoltaraw_prd_0", 0x000AU, 1U);
+    add_exif_u32(&store, "mk_minoltaraw_prd_0", 0x0010U, 1U);
+    add_exif_u32(&store, "mk_minoltaraw_rif_0", 0x0050U, 1U);
+    add_exif_u32(&store, "mk_minolta0", 0x010CU, 1U);
+
+    add_exif_u32(&store, "mk_sigma_wbsettings_0", 0x0000U, 1U);
+    add_exif_u32(&store, "mk_sigma0", 0x011FU, 1U);
+    add_exif_u32(&store, "mk_sigma0", 0x0139U, 1U);
+    add_exif_u32(&store, "mk_sigma0", 0x0039U, 1U);
+    add_exif_u32(&store, "mk_sigma0", 0x0027U, 1U);
+
+    add_exif_u32(&store, "mk_samsung_type2_0", 0x0040U, 1U);
+    add_exif_u32(&store, "mk_samsung_type2_0", 0x0050U, 1U);
+    add_exif_u32(&store, "mk_samsung_type2_0", 0xA021U, 1U);
+    add_exif_u32(&store, "mk_samsung_type2_0", 0xA030U, 1U);
+    add_exif_u32(&store, "mk_samsung_type2_0", 0xA048U, 1U);
+    add_exif_u32(&store, "mk_samsung_type2_0", 0xA050U, 1U);
+    add_exif_u32(&store, "mk_samsung_type2_0", 0xA003U, 1U);
+
+    add_exif_u32(&store, "mk_ricoh0", 0x1004U, 1U);
+    add_exif_u32(&store, "mk_ricoh0", 0x1601U, 1U);
+    add_exif_u32(&store, "mk_ricoh0", 0x1011U, 1U);
+    add_exif_u32(&store, "mk_ricoh0", 0x100FU, 1U);
+    add_exif_u32(&store, "mk_ricoh0", 0x0005U, 1U);
     store.finalize();
 
     const VendorRawProcessingSummary sony
@@ -386,6 +592,58 @@ TEST(VendorRawProcessing, SummarizesFamiliesFromStore)
     EXPECT_EQ(olympus.raw_data_fields, 1U);
     EXPECT_EQ(olympus.sensor_fields, 1U);
     EXPECT_EQ(olympus.private_table_fields, 5U);
+
+    const VendorRawProcessingSummary kodak
+        = vendor_raw_processing_from_store(store,
+                                           VendorRawProcessingFamily::Kodak);
+    EXPECT_EQ(kodak.fields_seen, 4U);
+    EXPECT_EQ(kodak.color_fields, 1U);
+    EXPECT_EQ(kodak.white_balance_fields, 1U);
+    EXPECT_EQ(kodak.geometry_fields, 1U);
+    EXPECT_EQ(kodak.raw_data_fields, 1U);
+    EXPECT_EQ(kodak.sensor_fields, 2U);
+
+    const VendorRawProcessingSummary minolta
+        = vendor_raw_processing_from_store(store,
+                                           VendorRawProcessingFamily::Minolta);
+    EXPECT_EQ(minolta.fields_seen, 4U);
+    EXPECT_EQ(minolta.color_fields, 1U);
+    EXPECT_EQ(minolta.white_balance_fields, 1U);
+    EXPECT_EQ(minolta.geometry_fields, 1U);
+    EXPECT_EQ(minolta.storage_fields, 1U);
+    EXPECT_EQ(minolta.raw_data_fields, 3U);
+    EXPECT_EQ(minolta.sensor_fields, 2U);
+    EXPECT_EQ(minolta.private_table_fields, 3U);
+
+    const VendorRawProcessingSummary sigma
+        = vendor_raw_processing_from_store(store,
+                                           VendorRawProcessingFamily::Sigma);
+    EXPECT_EQ(sigma.fields_seen, 4U);
+    EXPECT_EQ(sigma.color_fields, 2U);
+    EXPECT_EQ(sigma.white_balance_fields, 1U);
+    EXPECT_EQ(sigma.lens_correction_fields, 1U);
+    EXPECT_EQ(sigma.sensor_fields, 1U);
+
+    const VendorRawProcessingSummary samsung
+        = vendor_raw_processing_from_store(store,
+                                           VendorRawProcessingFamily::Samsung);
+    EXPECT_EQ(samsung.fields_seen, 6U);
+    EXPECT_EQ(samsung.color_fields, 2U);
+    EXPECT_EQ(samsung.white_balance_fields, 1U);
+    EXPECT_EQ(samsung.storage_fields, 1U);
+    EXPECT_EQ(samsung.lens_correction_fields, 1U);
+    EXPECT_EQ(samsung.raw_data_fields, 3U);
+    EXPECT_EQ(samsung.sensor_fields, 1U);
+
+    const VendorRawProcessingSummary ricoh
+        = vendor_raw_processing_from_store(store,
+                                           VendorRawProcessingFamily::Ricoh);
+    EXPECT_EQ(ricoh.fields_seen, 4U);
+    EXPECT_EQ(ricoh.color_fields, 1U);
+    EXPECT_EQ(ricoh.white_balance_fields, 1U);
+    EXPECT_EQ(ricoh.geometry_fields, 1U);
+    EXPECT_EQ(ricoh.lens_correction_fields, 1U);
+    EXPECT_EQ(ricoh.sensor_fields, 2U);
 }
 
 TEST(VendorRawProcessing, IgnoresStandardExifIfds)

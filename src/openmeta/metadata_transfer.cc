@@ -12758,6 +12758,16 @@ transfer_safety_audit_from_store(const MetaStore& store,
         store, VendorRawProcessingFamily::Panasonic);
     out.olympus_raw_processing = vendor_raw_processing_from_store(
         store, VendorRawProcessingFamily::Olympus);
+    out.kodak_raw_processing = vendor_raw_processing_from_store(
+        store, VendorRawProcessingFamily::Kodak);
+    out.minolta_raw_processing = vendor_raw_processing_from_store(
+        store, VendorRawProcessingFamily::Minolta);
+    out.sigma_raw_processing = vendor_raw_processing_from_store(
+        store, VendorRawProcessingFamily::Sigma);
+    out.samsung_raw_processing = vendor_raw_processing_from_store(
+        store, VendorRawProcessingFamily::Samsung);
+    out.ricoh_raw_processing = vendor_raw_processing_from_store(
+        store, VendorRawProcessingFamily::Ricoh);
     return out;
 }
 

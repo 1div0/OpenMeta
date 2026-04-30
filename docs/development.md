@@ -1138,8 +1138,8 @@ Current Python binding entry points:
   `Document.phaseone_raw_processing()` for normalized Phase One/Leaf RAW
   source metadata queries.
 - `Document.vendor_raw_processing(family)` for
-  Sony/Canon/Nikon/Fujifilm/Pentax/Panasonic/Olympus grouped RAW processing
-  field summaries.
+  Sony/Canon/Nikon/Fujifilm/Pentax/Panasonic/Olympus/Kodak/Minolta/Sigma/
+  Samsung/Ricoh grouped RAW processing field summaries.
 
 Current C++ interop entry points:
 

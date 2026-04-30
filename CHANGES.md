@@ -18,16 +18,18 @@ Changes compared with `0.4.8`.
   the same C++ helpers.
 - Added `vendor_raw_processing_from_store()` and
   `classify_vendor_raw_processing_field()` for conservative Sony, Canon,
-  Nikon, Fujifilm, Pentax, Panasonic, and Olympus RAW-processing field
-  summaries, including a vendor-private RAW table bucket for private or
-  unknown table entries.
+  Nikon, Fujifilm, Pentax, Panasonic, Olympus, Kodak, Minolta, Sigma, Samsung,
+  and Ricoh RAW-processing field summaries, including a vendor-private RAW
+  table bucket for private or unknown table entries.
 - Python `Document` and `TransferSourceSnapshot` now expose
   `vendor_raw_processing(family)` for the same grouped
-  Sony/Canon/Nikon/Fujifilm/Pentax/Panasonic/Olympus summaries.
+  Sony/Canon/Nikon/Fujifilm/Pentax/Panasonic/Olympus/Kodak/Minolta/Sigma/
+  Samsung/Ricoh summaries.
 - Added `transfer_safety_audit_from_store()` plus Python
   `transfer_safety_audit()` methods so hosts can preflight rendered-image
   drops by source group, filtered count, C2PA invalidation count, and
-  Sony/Canon/Nikon/Fujifilm/Pentax/Panasonic/Olympus RAW-processing bucket.
+  Sony/Canon/Nikon/Fujifilm/Pentax/Panasonic/Olympus/Kodak/Minolta/Sigma/
+  Samsung/Ricoh RAW-processing bucket.
 
 ### Changed
 
@@ -38,13 +40,14 @@ Changes compared with `0.4.8`.
   black-level fields, and sensor-calibration tables as raw-specific metadata
   and drops them for rendered outputs.
 - Rendered-image transfer safety now also filters decoded Sony, Canon, Nikon,
-  Fujifilm, Pentax, Panasonic, and Olympus MakerNote fields classified as
-  source RAW color/WB, geometry/storage, raw-data, sensor, lens-correction, or
-  vendor-private RAW table metadata.
+  Fujifilm, Pentax, Panasonic, Olympus, Kodak, Minolta, Sigma, Samsung, and
+  Ricoh MakerNote fields classified as source RAW color/WB, geometry/storage,
+  raw-data, sensor, lens-correction, or vendor-private RAW table metadata.
 - `metaread` and `python -m openmeta.python.metaread` now print compact Phase
   One RAW geometry/processing summaries when those decoded fields are present.
 - `metaread` and `python -m openmeta.python.metaread` now print compact
-  Sony/Canon/Nikon/Fujifilm/Pentax/Panasonic/Olympus
+  Sony/Canon/Nikon/Fujifilm/Pentax/Panasonic/Olympus/Kodak/Minolta/Sigma/
+  Samsung/Ricoh
   `vendor_raw_processing[...]` summaries when matching decoded fields are
   present.
 - BMFF foreign-`meta` insertion now upgrades supported `iloc` version 0/1
@@ -71,15 +74,17 @@ Changes compared with `0.4.8`.
 - Added public synthetic coverage for Leaf/Credo IIQ MakerNote detection and
   normalized Phase One RAW geometry and raw-processing helper behavior.
 - Added public synthetic coverage for
-  Sony/Canon/Nikon/Fujifilm/Pentax/Panasonic/Olympus RAW-processing
+  Sony/Canon/Nikon/Fujifilm/Pentax/Panasonic/Olympus/Kodak/Minolta/Sigma/
+  Samsung/Ricoh RAW-processing
   classification and grouped summary behavior.
 - Extended rendered-image safety coverage to verify Phase One/Leaf RAW
   geometry, color, raw-data/storage, black-level, and sensor-calibration fields
   are counted as raw-specific metadata and filtered from rendered transfers.
 - Extended rendered-image safety coverage to verify decoded Sony, Canon, Nikon,
-  Fujifilm, Pentax, Panasonic, and Olympus RAW-processing fields are counted as
-  raw-specific metadata and filtered from rendered transfers, including
-  anonymous/private RAW table entries.
+  Fujifilm, Pentax, Panasonic, Olympus, Kodak, Minolta, Sigma, Samsung, and
+  Ricoh RAW-processing fields are counted as raw-specific metadata and
+  filtered from rendered transfers, including anonymous/private RAW table
+  entries.
 - Added rendered-image writer-output coverage for JPEG, TIFF/DNG, PNG, WebP,
   JP2, JXL, HEIF, AVIF, and CR3 metadata rewrites to verify serialized outputs
   omit source RAW calibration, vendor private RAW tables, MakerNotes, camera

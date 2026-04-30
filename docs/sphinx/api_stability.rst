@@ -75,19 +75,20 @@ Host-facing API map
      - ``openmeta/vendor_raw_processing.h``
      - Experimental
      - Conservative grouped source-RAW field summaries for decoded Sony,
-       Canon, Nikon, Fujifilm, Pentax, Panasonic, and Olympus MakerNotes,
-       including a vendor-private RAW table bucket for unknown/private
-       entries. Intended for audit/UI and rendered-transfer safety decisions,
-       not for writing vendor RAW-processing values into rendered targets.
+       Canon, Nikon, Fujifilm, Pentax, Panasonic, Olympus, Kodak, Minolta,
+       Sigma, Samsung, and Ricoh MakerNotes, including a vendor-private RAW
+       table bucket for unknown/private entries. Intended for audit/UI and
+       rendered-transfer safety decisions, not for writing vendor
+       RAW-processing values into rendered targets.
    * - Transfer safety audit:
        ``transfer_safety_audit_from_store(...)``
      - ``openmeta/metadata_transfer.h``
      - Experimental
      - Preflight summary of source entries and entries filtered or invalidated
        by ``TransferSafetyMode``, including
-       Sony/Canon/Nikon/Fujifilm/Pentax/Panasonic/Olympus RAW-processing
-       buckets. Intended for diagnostics and host UI before preparing
-       rendered-image transfers.
+       Sony/Canon/Nikon/Fujifilm/Pentax/Panasonic/Olympus/Kodak/Minolta/
+       Sigma/Samsung/Ricoh RAW-processing buckets. Intended for diagnostics
+       and host UI before preparing rendered-image transfers.
    * - Source snapshot type and read helpers:
        ``TransferSourceSnapshot``,
        ``read_transfer_source_snapshot_file(...)``,

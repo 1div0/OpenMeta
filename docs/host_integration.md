@@ -524,12 +524,13 @@ The `metaread` command prints compact `phaseone_raw_geometry=...` and
 
 ## 10. Query Vendor RAW Processing Metadata
 
-For Sony, Canon, Nikon, Fujifilm, Pentax, Panasonic, and Olympus, OpenMeta
-exposes a conservative grouped summary instead of vendor-specific decoded
-values. The helper reports whether decoded MakerNote fields look like source
-RAW color/WB, geometry/storage, lens correction, raw-data, sensor-calibration,
-or vendor-private RAW table metadata. Use it to audit transfer safety
-decisions and host UI, not as a rendered-output write source.
+For Sony, Canon, Nikon, Fujifilm, Pentax, Panasonic, Olympus, Kodak, Minolta,
+Sigma, Samsung, and Ricoh, OpenMeta exposes a conservative grouped summary
+instead of vendor-specific decoded values. The helper reports whether decoded
+MakerNote fields look like source RAW color/WB, geometry/storage, lens
+correction, raw-data, sensor-calibration, or vendor-private RAW table
+metadata. Use it to audit transfer safety decisions and host UI, not as a
+rendered-output write source.
 
 ```cpp
 #include "openmeta/vendor_raw_processing.h"
@@ -567,7 +568,7 @@ print(audit["filtered_raw_color_calibration"])
 ```
 
 `metaread` prints
-`vendor_raw_processing[sony|canon|nikon|fujifilm|pentax|panasonic|olympus]=...`
+`vendor_raw_processing[sony|canon|nikon|fujifilm|pentax|panasonic|olympus|kodak|minolta|sigma|samsung|ricoh]=...`
 summaries when matching decoded fields are present.
 
 ## 11. Build `MetaStore` Yourself

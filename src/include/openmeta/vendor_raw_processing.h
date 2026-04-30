@@ -22,6 +22,11 @@ enum class VendorRawProcessingFamily : uint8_t {
     Pentax,
     Panasonic,
     Olympus,
+    Kodak,
+    Minolta,
+    Sigma,
+    Samsung,
+    Ricoh,
 };
 
 enum class VendorRawProcessingGroup : uint32_t {

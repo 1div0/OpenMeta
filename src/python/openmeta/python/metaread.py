@@ -321,6 +321,11 @@ def _print_vendor_raw_summaries(doc: openmeta.Document) -> None:
         openmeta.VendorRawProcessingFamily.Pentax,
         openmeta.VendorRawProcessingFamily.Panasonic,
         openmeta.VendorRawProcessingFamily.Olympus,
+        openmeta.VendorRawProcessingFamily.Kodak,
+        openmeta.VendorRawProcessingFamily.Minolta,
+        openmeta.VendorRawProcessingFamily.Sigma,
+        openmeta.VendorRawProcessingFamily.Samsung,
+        openmeta.VendorRawProcessingFamily.Ricoh,
     )
     for family in families:
         summary = doc.vendor_raw_processing(family)

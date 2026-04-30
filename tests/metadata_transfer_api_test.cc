@@ -19502,6 +19502,38 @@ TEST(MetadataTransferApi, PrepareRenderedImageSafetyDropsSourceSpecificMetadata)
         { "mk_olympus_imageprocessing_0", 0x1011U, 1U },
         { "mk_olympus_rawdevelopment2_0", 0x010AU, 1U },
     };
+    static const PhaseOneTransferTag kKodakRenderedDropTags[] = {
+        { "mk_kodak_ifd_0", 0x03EDU, 1U },
+        { "mk_kodak_ifd_0", 0x0847U, 1U },
+        { "mk_kodak_ifd_0", 0x03F0U, 1U },
+        { "mk_kodak_ifd_0", 0x0C4EU, 1U },
+    };
+    static const PhaseOneTransferTag kMinoltaRenderedDropTags[] = {
+        { "mk_minolta_wbinfoa100_0", 0x0096U, 1U },
+        { "mk_minoltaraw_prd_0", 0x000AU, 1U },
+        { "mk_minoltaraw_prd_0", 0x0010U, 1U },
+        { "mk_minoltaraw_rif_0", 0x0050U, 1U },
+    };
+    static const PhaseOneTransferTag kSigmaRenderedDropTags[] = {
+        { "mk_sigma_wbsettings_0", 0x0000U, 1U },
+        { "mk_sigma0", 0x011FU, 1U },
+        { "mk_sigma0", 0x0139U, 1U },
+        { "mk_sigma0", 0x0039U, 1U },
+    };
+    static const PhaseOneTransferTag kSamsungRenderedDropTags[] = {
+        { "mk_samsung_type2_0", 0x0040U, 1U },
+        { "mk_samsung_type2_0", 0x0050U, 1U },
+        { "mk_samsung_type2_0", 0xA021U, 1U },
+        { "mk_samsung_type2_0", 0xA030U, 1U },
+        { "mk_samsung_type2_0", 0xA048U, 1U },
+        { "mk_samsung_type2_0", 0xA050U, 1U },
+    };
+    static const PhaseOneTransferTag kRicohRenderedDropTags[] = {
+        { "mk_ricoh0", 0x1004U, 1U },
+        { "mk_ricoh0", 0x1601U, 1U },
+        { "mk_ricoh0", 0x1011U, 1U },
+        { "mk_ricoh0", 0x100FU, 1U },
+    };
     static const PhaseOneTransferTag kVendorRenderedPrivateDropTags[] = {
         { "mk_sony_sr2private_0", 0x7200U, 1U },
         { "mk_canon_colordata5_0", 0x0001U, 1U },
@@ -19517,6 +19549,11 @@ TEST(MetadataTransferApi, PrepareRenderedImageSafetyDropsSourceSpecificMetadata)
         { "mk_pentax0", 0x0005U, 1U },
         { "mk_panasonic0", 0x0051U, 1U },
         { "mk_olympus_equipment_0", 0x0203U, 1U },
+        { "mk_kodak0", 0x0000U, 1U },
+        { "mk_minolta0", 0x010CU, 1U },
+        { "mk_sigma0", 0x0027U, 1U },
+        { "mk_samsung_type2_0", 0xA003U, 1U },
+        { "mk_ricoh0", 0x0005U, 1U },
     };
     uint32_t next_order = 7U;
     for (size_t i = 0; i < std::size(kPhaseOneRenderedDropTags); ++i) {
@@ -19633,6 +19670,68 @@ TEST(MetadataTransferApi, PrepareRenderedImageSafetyDropsSourceSpecificMetadata)
         next_order += 1U;
         ASSERT_NE(store.add_entry(vendor_raw), openmeta::kInvalidEntryId);
     }
+    for (size_t i = 0; i < std::size(kKodakRenderedDropTags); ++i) {
+        openmeta::Entry vendor_raw;
+        vendor_raw.key
+            = openmeta::make_exif_tag_key(store.arena(),
+                                          kKodakRenderedDropTags[i].ifd,
+                                          kKodakRenderedDropTags[i].tag);
+        vendor_raw.value = openmeta::make_u32(kKodakRenderedDropTags[i].value);
+        vendor_raw.origin.block          = block;
+        vendor_raw.origin.order_in_block = next_order;
+        next_order += 1U;
+        ASSERT_NE(store.add_entry(vendor_raw), openmeta::kInvalidEntryId);
+    }
+    for (size_t i = 0; i < std::size(kMinoltaRenderedDropTags); ++i) {
+        openmeta::Entry vendor_raw;
+        vendor_raw.key
+            = openmeta::make_exif_tag_key(store.arena(),
+                                          kMinoltaRenderedDropTags[i].ifd,
+                                          kMinoltaRenderedDropTags[i].tag);
+        vendor_raw.value
+            = openmeta::make_u32(kMinoltaRenderedDropTags[i].value);
+        vendor_raw.origin.block          = block;
+        vendor_raw.origin.order_in_block = next_order;
+        next_order += 1U;
+        ASSERT_NE(store.add_entry(vendor_raw), openmeta::kInvalidEntryId);
+    }
+    for (size_t i = 0; i < std::size(kSigmaRenderedDropTags); ++i) {
+        openmeta::Entry vendor_raw;
+        vendor_raw.key
+            = openmeta::make_exif_tag_key(store.arena(),
+                                          kSigmaRenderedDropTags[i].ifd,
+                                          kSigmaRenderedDropTags[i].tag);
+        vendor_raw.value = openmeta::make_u32(kSigmaRenderedDropTags[i].value);
+        vendor_raw.origin.block          = block;
+        vendor_raw.origin.order_in_block = next_order;
+        next_order += 1U;
+        ASSERT_NE(store.add_entry(vendor_raw), openmeta::kInvalidEntryId);
+    }
+    for (size_t i = 0; i < std::size(kSamsungRenderedDropTags); ++i) {
+        openmeta::Entry vendor_raw;
+        vendor_raw.key
+            = openmeta::make_exif_tag_key(store.arena(),
+                                          kSamsungRenderedDropTags[i].ifd,
+                                          kSamsungRenderedDropTags[i].tag);
+        vendor_raw.value
+            = openmeta::make_u32(kSamsungRenderedDropTags[i].value);
+        vendor_raw.origin.block          = block;
+        vendor_raw.origin.order_in_block = next_order;
+        next_order += 1U;
+        ASSERT_NE(store.add_entry(vendor_raw), openmeta::kInvalidEntryId);
+    }
+    for (size_t i = 0; i < std::size(kRicohRenderedDropTags); ++i) {
+        openmeta::Entry vendor_raw;
+        vendor_raw.key
+            = openmeta::make_exif_tag_key(store.arena(),
+                                          kRicohRenderedDropTags[i].ifd,
+                                          kRicohRenderedDropTags[i].tag);
+        vendor_raw.value = openmeta::make_u32(kRicohRenderedDropTags[i].value);
+        vendor_raw.origin.block          = block;
+        vendor_raw.origin.order_in_block = next_order;
+        next_order += 1U;
+        ASSERT_NE(store.add_entry(vendor_raw), openmeta::kInvalidEntryId);
+    }
     for (size_t i = 0; i < std::size(kVendorRenderedPrivateDropTags); ++i) {
         openmeta::Entry vendor_raw;
         vendor_raw.key = openmeta::make_exif_tag_key(
@@ -19739,6 +19838,11 @@ TEST(MetadataTransferApi, PrepareRenderedImageSafetyDropsSourceSpecificMetadata)
           + static_cast<uint32_t>(std::size(kPentaxRenderedDropTags))
           + static_cast<uint32_t>(std::size(kPanasonicRenderedDropTags))
           + static_cast<uint32_t>(std::size(kOlympusRenderedDropTags))
+          + static_cast<uint32_t>(std::size(kKodakRenderedDropTags))
+          + static_cast<uint32_t>(std::size(kMinoltaRenderedDropTags))
+          + static_cast<uint32_t>(std::size(kSigmaRenderedDropTags))
+          + static_cast<uint32_t>(std::size(kSamsungRenderedDropTags))
+          + static_cast<uint32_t>(std::size(kRicohRenderedDropTags))
           + static_cast<uint32_t>(std::size(kVendorRenderedPrivateDropTags));
 
     const openmeta::TransferSafetyAudit compatible_audit
@@ -19781,6 +19885,11 @@ TEST(MetadataTransferApi, PrepareRenderedImageSafetyDropsSourceSpecificMetadata)
     EXPECT_GT(rendered_audit.pentax_raw_processing.fields_seen, 0U);
     EXPECT_GT(rendered_audit.panasonic_raw_processing.fields_seen, 0U);
     EXPECT_GT(rendered_audit.olympus_raw_processing.fields_seen, 0U);
+    EXPECT_GT(rendered_audit.kodak_raw_processing.fields_seen, 0U);
+    EXPECT_GT(rendered_audit.minolta_raw_processing.fields_seen, 0U);
+    EXPECT_GT(rendered_audit.sigma_raw_processing.fields_seen, 0U);
+    EXPECT_GT(rendered_audit.samsung_raw_processing.fields_seen, 0U);
+    EXPECT_GT(rendered_audit.ricoh_raw_processing.fields_seen, 0U);
     EXPECT_GT(rendered_audit.sony_raw_processing.private_table_fields, 0U);
     EXPECT_GT(rendered_audit.canon_raw_processing.private_table_fields, 0U);
     EXPECT_GT(rendered_audit.nikon_raw_processing.private_table_fields, 0U);
@@ -19788,6 +19897,7 @@ TEST(MetadataTransferApi, PrepareRenderedImageSafetyDropsSourceSpecificMetadata)
     EXPECT_GT(rendered_audit.pentax_raw_processing.private_table_fields, 0U);
     EXPECT_GT(rendered_audit.panasonic_raw_processing.private_table_fields, 0U);
     EXPECT_GT(rendered_audit.olympus_raw_processing.private_table_fields, 0U);
+    EXPECT_GT(rendered_audit.minolta_raw_processing.private_table_fields, 0U);
 
     openmeta::PrepareTransferRequest request;
     request.include_iptc_app13   = false;

@@ -59,9 +59,10 @@ pixels may have changed, including RAW-to-rendered outputs. It keeps general
 descriptive metadata, time fields, GPS, IPTC, and portable XMP, but filters
 source raw color calibration, linearization/crop/correction tags, vendor RAW
 geometry/color/correction tags for Phase One/Leaf, Sony, Canon, Nikon,
-Fujifilm, Pentax, Panasonic, and Olympus, camera raw settings XMP, source ICC
-profiles, MakerNotes, and non-C2PA JUMBF data. Host code should provide
-target-correct ICC/profile data and image specs separately.
+Fujifilm, Pentax, Panasonic, Olympus, Kodak, Minolta, Sigma, Samsung, and
+Ricoh, camera raw settings XMP, source ICC profiles, MakerNotes, and non-C2PA
+JUMBF data. Host code should provide target-correct ICC/profile data and image
+specs separately.
 
 .. _transfer-safety-matrix:
 
@@ -134,8 +135,9 @@ controls. Hosts may still strip more metadata.
        ``AsShotNeutral``, DNG private/profile tags, Phase One/Leaf
        ``ColorMatrix1``, ``ColorMatrix2``, ``WB_RGBLevels``,
        sensor-calibration flat fields and linearization coefficients,
-       Sony/Canon/Nikon/Fujifilm/Pentax/Panasonic/Olympus MakerNote color and
-       white-balance coefficient tables
+       Sony/Canon/Nikon/Fujifilm/Pentax/Panasonic/Olympus/Kodak/Minolta/
+       Sigma/Samsung/Ricoh MakerNote color and white-balance coefficient
+       tables
      - Keep only for compatible RAW/DNG-style transfer
      - Drop
      - These values describe how to turn original sensor data into rendered
@@ -149,12 +151,14 @@ controls. Hosts may still strip more metadata.
        ``CameraOrientation``, ``RawFormat``, ``RawData``, ``StripOffsets``,
        ``BlackLevel``, ``BlackLevelData``, ``SplitColumn``,
        sensor-temperature correction fields,
-       Sony/Canon/Nikon/Fujifilm/Pentax/Panasonic/Olympus decoded RAW
-       geometry/storage/lens-correction fields such as SR2/SRF, RAFData,
-       Pentax lens-correction tables, Panasonic sensor subtables, Olympus
-       image-processing/raw-development tables, Canon crop/aspect/color-data
-       tables, and Nikon NEF/distortion/vignette tables or named correction
-       fields
+       Sony/Canon/Nikon/Fujifilm/Pentax/Panasonic/Olympus/Kodak/Minolta/
+       Sigma/Samsung/Ricoh decoded RAW geometry/storage/lens-correction fields
+       such as SR2/SRF, RAFData, MinoltaRaw PRD/RIF/WBG tables, Pentax
+       lens-correction tables, Panasonic sensor subtables, Olympus
+       image-processing/raw-development tables, Kodak sensor/black-level/
+       raw-histogram fields, Samsung Type2 raw/color/correction fields, Ricoh
+       sensor/crop/vignetting fields, Canon crop/aspect/color-data tables, and
+       Nikon NEF/distortion/vignette tables or named correction fields
      - Keep only for compatible RAW/DNG-style transfer
      - Drop
      - These values are tied to the original sensor geometry and raw-processing
