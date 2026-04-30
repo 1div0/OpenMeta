@@ -57,9 +57,11 @@ compatible target and preserves source camera/color metadata after the
 target-owned image-layout filter above. ``RenderedImage`` is for exports whose
 pixels may have changed, including RAW-to-rendered outputs. It keeps general
 descriptive metadata, time fields, GPS, IPTC, and portable XMP, but filters
-source raw color calibration, linearization/crop/correction tags, camera raw
-settings XMP, source ICC profiles, MakerNotes, and non-C2PA JUMBF data. Host
-code should provide target-correct ICC/profile data and image specs separately.
+source raw color calibration, linearization/crop/correction tags, vendor RAW
+geometry/color/correction tags for Phase One/Leaf, Sony, Canon, Nikon,
+Fujifilm, Pentax, Panasonic, and Olympus, camera raw settings XMP, source ICC
+profiles, MakerNotes, and non-C2PA JUMBF data. Host code should provide
+target-correct ICC/profile data and image specs separately.
 
 .. _transfer-safety-matrix:
 
@@ -129,19 +131,41 @@ controls. Hosts may still strip more metadata.
    * - RAW/DNG sensor and color pipeline
      - CFA pattern, black/white levels, linearization tables,
        ``ColorMatrix*``, ``ForwardMatrix*``, ``CameraCalibration*``,
-       ``AsShotNeutral``, DNG private/profile tags
+       ``AsShotNeutral``, DNG private/profile tags, Phase One/Leaf
+       ``ColorMatrix1``, ``ColorMatrix2``, ``WB_RGBLevels``,
+       sensor-calibration flat fields and linearization coefficients,
+       Sony/Canon/Nikon/Fujifilm/Pentax/Panasonic/Olympus MakerNote color and
+       white-balance coefficient tables
      - Keep only for compatible RAW/DNG-style transfer
      - Drop
      - These values describe how to turn original sensor data into rendered
        color. Reusing them on already-rendered pixels can make CMS or editors
        apply the raw transform twice.
-   * - RAW crop, geometry, and correction data
+   * - RAW crop, geometry, storage, correction, and private data
      - ``ActiveArea``, ``DefaultCrop*``, masked areas, opcode lists,
-       distortion/vignetting/camera-profile correction data
+       distortion/vignetting/camera-profile correction data, Phase One/Leaf
+       ``SensorWidth``, ``SensorHeight``, ``SensorLeftMargin``,
+       ``SensorTopMargin``, ``ImageWidth``, ``ImageHeight``,
+       ``CameraOrientation``, ``RawFormat``, ``RawData``, ``StripOffsets``,
+       ``BlackLevel``, ``BlackLevelData``, ``SplitColumn``,
+       sensor-temperature correction fields,
+       Sony/Canon/Nikon/Fujifilm/Pentax/Panasonic/Olympus decoded RAW
+       geometry/storage/lens-correction fields such as SR2/SRF, RAFData,
+       Pentax lens-correction tables, Panasonic sensor subtables, Olympus
+       image-processing/raw-development tables, Canon crop/aspect/color-data
+       tables, and Nikon NEF/distortion/vignette tables or named correction
+       fields
      - Keep only for compatible RAW/DNG-style transfer
      - Drop
      - These values are tied to the original sensor geometry and raw-processing
-       pipeline.
+       pipeline. Vendor-private RAW tables are dropped in rendered mode even
+       when individual fields are unknown, while named entries also receive
+       narrower color/WB/geometry/correction buckets. Use
+       ``phaseone_raw_geometry_from_store()``,
+       ``phaseone_raw_processing_from_store()``, and
+       ``vendor_raw_processing_from_store()`` only to interpret source RAW
+       metadata; rendered exports need target-owned geometry and color/profile
+       data.
    * - Camera raw settings XMP
      - ``crs:*`` development settings and raw-edit recipe metadata
      - Keep
@@ -228,8 +252,7 @@ Target Summary
        in parseable foreign top-level ``meta`` graphs by extending
        ``iinf``/``iloc``/``idat``/``iref``; replace prior ICC ``colr``
        properties and remap ``iprp``/``ipco``/``ipma`` for bounded ICC.
-     - Does not rewrite arbitrary BMFF scene/property graphs; 32-bit item-id
-       insertion requires existing ``iloc`` v2.
+     - Does not rewrite arbitrary BMFF scene/property graphs.
    * - ``EXR``
      - safe string header attributes through the EXR transfer emitter or
        adapter batch
@@ -376,12 +399,12 @@ item graphs it merges, replaces, or strips bounded Exif/XMP/JUMBF/C2PA
 metadata items in the existing ``meta`` by extending ``iinf``, ``iloc``,
 ``idat``, and ``iref`` with ``cdsc`` references to the primary item. This
 constrained merge requires a single parseable ``iinf``, ``iloc`` version
-0/1/2, ``pitm``, and at most one ``idat``. For ``iloc`` version 0/1 targets,
-inserted item IDs remain in the 16-bit item-id space. For ``iloc`` version 2
-targets, OpenMeta can allocate 32-bit item IDs and uses ``infe`` version 3 plus
-``iref`` version 1 when a newly inserted item needs that wider ID space. If the
-existing graph has exhausted the usable item-id space or mixes item-table widths
-outside this shape, the edit fails instead of truncating IDs.
+0/1/2, ``pitm``, and at most one ``idat``. When inserted metadata needs an item
+ID wider than 16 bits, OpenMeta upgrades the rebuilt ``iloc`` to version 2,
+emits ``infe`` version 3 for those inserted items, and uses ``iref`` version 1
+for the corresponding ``cdsc`` references. If the existing graph has exhausted
+the usable 32-bit item-id space or mixes item-table shapes outside this bounded
+contract, the edit fails instead of truncating IDs.
 
 Newly inserted metadata item payloads are appended to the rebuilt ``idat``
 payload. To preserve broad reader compatibility, their ``iloc`` records keep
@@ -390,11 +413,24 @@ field widths. When all retained self-contained item locations can be
 represented as absolute extents, OpenMeta compacts the rebuilt ``iloc``
 base-offset field width to zero for simpler reader compatibility.
 
+Retained foreign item locations are supported when they use construction
+method 0 with file offsets, or construction method 1 with offsets into an
+existing ``idat``, with data reference index 0. Construction method 2 is
+supported only when the retained item has parseable ``iref`` ``iloc``
+references, using explicit extent indexes or reference order, and every
+referenced item is also retained with a supported local location. External
+data references, missing method-2 references, removed referenced items, and
+other construction methods fail as unsupported instead of being rewritten by
+guesswork.
+
 For bounded ICC transfer, OpenMeta removes prior ICC ``colr/prof`` and
 ``colr/rICC`` properties from ``iprp/ipco``, compacts/remaps existing ``ipma``
 associations, appends the transferred ``colr/prof`` property, and associates it
-with the primary item. Arbitrary non-ICC property replacement and broader BMFF
-scene/property graph rewriting remain out of scope.
+with the primary item and any retained item that previously referenced one of
+the replaced ICC properties. If the replaced association was marked essential,
+the transferred ICC association keeps that bit. Arbitrary non-ICC property
+replacement and broader BMFF scene/property graph rewriting remain out of
+scope.
 
 If sidecar-only writeback asks to strip embedded XMP, OpenMeta can remove XMP
 from its own OpenMeta-authored metadata ``meta`` box and from parseable

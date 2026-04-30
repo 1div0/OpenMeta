@@ -11709,6 +11709,34 @@ TEST(MakerNoteDecode, DecodesPhaseOneMakerNoteAsClassicIfd)
 }
 
 
+TEST(MakerNoteDecode, DecodesLeafCredoIiqMakerNoteAsPhaseOne)
+{
+    const std::vector<std::byte> mn = make_phaseone_makernote_main();
+    const std::vector<std::byte> tiff
+        = make_test_tiff_with_makernote_and_model("Leaf", "Credo 40", mn);
+
+    MetaStore store;
+    std::array<ExifIfdRef, 8> ifds {};
+    ExifDecodeOptions options;
+    options.decode_makernote = true;
+    const ExifDecodeResult res = decode_exif_tiff(tiff, store, ifds, options);
+    EXPECT_EQ(res.status, ExifDecodeStatus::Ok);
+
+    store.finalize();
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("mk_phaseone0", 0x0100));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
+        EXPECT_EQ(e.value.elem_type, MetaElementType::U32);
+        EXPECT_EQ(e.value.data.u64, 1U);
+    }
+    EXPECT_TRUE(
+        store.find_all(exif_key("mk_kodak_type9_0", 0x000c)).empty());
+}
+
+
 TEST(MakerNoteDecode, DecodesAppleMakerNoteWithBigEndianIfdAtOffset14)
 {
     const std::vector<std::byte> mn   = make_apple_makernote();

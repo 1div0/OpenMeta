@@ -321,14 +321,24 @@ Current v1 behavior is:
       merge, replace, or strip bounded Exif/XMP/JUMBF/C2PA items by extending
       `iinf`, `iloc`, `idat`, and `iref` with `cdsc` references to the primary
       item. This path requires a single parseable `iinf`, `iloc` version
-      0/1/2, `pitm`, and at most one `idat`. Inserted item IDs follow the
-      existing `iloc` item-id width: `iloc` version 0/1 stays 16-bit, while
-      `iloc` version 2 can use 32-bit item IDs and emits wider `infe`/`iref`
-      records when needed. Bounded ICC transfer removes prior ICC `colr/prof`
-      and `colr/rICC` properties from `iprp/ipco`, compacts/remaps existing
-      `ipma` associations, appends the transferred `colr/prof` property, and
-      associates it with the primary item. Arbitrary BMFF scene/property graph
-      rewrite remains unsupported.
+      0/1/2, `pitm`, and at most one `idat`. Inserted item IDs can use the
+      32-bit item-id space: supported `iloc` version 0/1 graphs are upgraded
+      to output `iloc` version 2 when needed, and OpenMeta emits wider
+      `infe`/`iref` records for inserted items that exceed 16 bits. Retained
+      foreign item locations support construction method 0 file offsets and
+      construction method 1 `idat` extents with data reference index 0.
+      Retained construction method 2 item-reference extents are supported when
+      `iref` `iloc` references are parseable by explicit extent index or
+      reference order and referenced items are also retained with supported
+      local locations; missing references, removed referenced items, external
+      data references, and other construction methods fail safely.
+      Bounded ICC transfer removes prior ICC `colr/prof` and `colr/rICC`
+      properties from `iprp/ipco`, compacts/remaps existing `ipma`
+      associations, appends the transferred `colr/prof` property, and
+      associates it with the primary item and any retained item that previously
+      referenced a replaced ICC property while preserving the prior essential
+      association bit. Arbitrary BMFF scene/property graph rewrite remains
+      unsupported.
     - CLI/Python `metatransfer` wrappers expose both BMFF summaries and this
       bounded edit path; `--target-heif`, `--target-avif`, and `--target-cr3`
       now accept `--source-meta PATH` plus `--output PATH` for metadata
@@ -1124,6 +1134,12 @@ Current Python binding entry points:
 - `Document.ocio_metadata_tree(...)`
 - `Document.unsafe_ocio_metadata_tree(...)`
 - `Document.dump_xmp_sidecar(format=...)`
+- `Document.phaseone_raw_geometry()` and
+  `Document.phaseone_raw_processing()` for normalized Phase One/Leaf RAW
+  source metadata queries.
+- `Document.vendor_raw_processing(family)` for
+  Sony/Canon/Nikon/Fujifilm/Pentax/Panasonic/Olympus grouped RAW processing
+  field summaries.
 
 Current C++ interop entry points:
 

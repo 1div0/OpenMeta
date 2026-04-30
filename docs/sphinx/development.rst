@@ -63,6 +63,12 @@ Python binding entry points:
 - ``Document.ocio_metadata_tree(...)``
 - ``Document.unsafe_ocio_metadata_tree(...)``
 - ``Document.dump_xmp_sidecar(...)`` (lossless or portable via format switch)
+- ``Document.phaseone_raw_geometry()`` and
+  ``Document.phaseone_raw_processing()`` for normalized Phase One/Leaf RAW
+  source metadata queries.
+- ``Document.vendor_raw_processing(family)`` for
+  Sony/Canon/Nikon/Fujifilm/Pentax/Panasonic/Olympus grouped RAW processing
+  field summaries.
 
 C++ adapter entry points:
 

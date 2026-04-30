@@ -318,6 +318,40 @@ namespace {
     }
 
 
+    static bool ascii_is_digit(char c) noexcept
+    {
+        return c >= '0' && c <= '9';
+    }
+
+
+    static bool phaseone_model_prefix(std::string_view model,
+                                      std::string_view prefix) noexcept
+    {
+        if (!ascii_starts_with_insensitive(model, prefix)) {
+            return false;
+        }
+        if (model.size() == prefix.size()) {
+            return true;
+        }
+        const char next = model[prefix.size()];
+        return next == ' ' || next == '-' || ascii_is_digit(next);
+    }
+
+
+    static bool looks_like_phaseone_family(std::string_view make,
+                                           std::string_view model) noexcept
+    {
+        if (ascii_starts_with_insensitive(make, "Phase One")
+            || ascii_starts_with_insensitive(make, "PhaseOne")
+            || ascii_starts_with_insensitive(make, "Leaf")
+            || ascii_starts_with_insensitive(make, "Mamiya")) {
+            return true;
+        }
+        return phaseone_model_prefix(model, "Credo")
+               || phaseone_model_prefix(model, "IQ");
+    }
+
+
     static bool
     minolta_main_0103_prefers_placeholder(std::string_view model) noexcept
     {
@@ -1466,7 +1500,10 @@ namespace {
             const std::string_view make
                 = find_first_exif_ascii_value(store, "ifd0",
                                               0x010F /* Make */);
-            if (ascii_starts_with_insensitive(make, "Phase One")
+            const std::string_view model
+                = find_first_exif_ascii_value(store, "ifd0",
+                                              0x0110 /* Model */);
+            if (looks_like_phaseone_family(make, model)
                 && ((match_bytes(maker_note_bytes, 0, "IIII", 4)
                      && match_bytes(maker_note_bytes, 5, "waR", 3))
                     || (match_bytes(maker_note_bytes, 0, "MMMM", 4)
@@ -1688,7 +1725,7 @@ namespace {
             if (ascii_starts_with_insensitive(make, "Nintendo")) {
                 return MakerNoteVendor::Nintendo;
             }
-            if (ascii_starts_with_insensitive(make, "Phase One")) {
+            if (looks_like_phaseone_family(make, model)) {
                 return MakerNoteVendor::PhaseOne;
             }
         }

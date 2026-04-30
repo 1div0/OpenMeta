@@ -430,7 +430,7 @@ Use `TransferProfile::safety` for the broad source/destination relationship:
 | Mode | Use when | Transfer policy |
 | --- | --- | --- |
 | `CompatibleFile` | Metadata is repackaged or recompressed into a compatible file/pixel representation | Preserve source camera, color, ICC, and camera-specific data except target-owned image-layout fields |
-| `RenderedImage` | Pixels may have changed, especially RAW-to-JPEG/PNG/WebP/JXL/HEIF/AVIF export | Keep general/time/GPS/IPTC/portable XMP; drop source raw color calibration, linearization/crop/correction metadata, camera raw settings XMP, source ICC, opaque MakerNotes, and non-C2PA JUMBF |
+| `RenderedImage` | Pixels may have changed, especially RAW-to-JPEG/PNG/WebP/JXL/HEIF/AVIF export | Keep general/time/GPS/IPTC/portable XMP; drop source raw color calibration, linearization/crop/correction metadata, vendor RAW geometry/color/correction fields, camera raw settings XMP, source ICC, opaque MakerNotes, and non-C2PA JUMBF |
 
 See [writer_target_contract.md](writer_target_contract.md#transfer-safety-matrix)
 for the detailed per-group transfer matrix.
@@ -482,7 +482,95 @@ metatransfer --target-jpeg target.jpg -o output.jpg \
   source.jpg
 ```
 
-## 9. Build `MetaStore` Yourself
+## 9. Query Phase One RAW Processing Metadata
+
+After decoding MakerNotes, hosts can query Phase One/Leaf RAW processing data
+without depending on private MakerNote tag layout. The helper reports presence
+and normalized values for color matrices, WB RGB levels, black level, sensor
+temperatures, raw-data/storage byte counts, and sensor-calibration summaries.
+These values are source-RAW processing metadata; do not write them into rendered
+outputs unless the destination is a compatible RAW-style target.
+
+```cpp
+#include "openmeta/phaseone_geometry.h"
+
+openmeta::PhaseOneRawGeometryResult geometry =
+    openmeta::phaseone_raw_geometry_from_store(store);
+openmeta::PhaseOneRawProcessingResult raw =
+    openmeta::phaseone_raw_processing_from_store(store);
+
+if (raw.status == openmeta::PhaseOneRawProcessingStatus::Ok &&
+    raw.info.has_color_matrix1) {
+    const double m00 = raw.info.color_matrix1[0];
+    (void)m00;
+}
+```
+
+Python exposes the same normalized queries on decoded documents and reusable
+transfer snapshots:
+
+```python
+doc = openmeta.read("source.iiq", decode_makernote=True)
+geometry = doc.phaseone_raw_geometry()
+raw = doc.phaseone_raw_processing()
+
+if (raw["status"] == openmeta.PhaseOneRawProcessingStatus.Ok and
+        raw["has_color_matrix1"]):
+    m00 = raw["color_matrix1"][0]
+```
+
+The `metaread` command prints compact `phaseone_raw_geometry=...` and
+`phaseone_raw_processing=...` summaries when those decoded fields are present.
+
+## 10. Query Vendor RAW Processing Metadata
+
+For Sony, Canon, Nikon, Fujifilm, Pentax, Panasonic, and Olympus, OpenMeta
+exposes a conservative grouped summary instead of vendor-specific decoded
+values. The helper reports whether decoded MakerNote fields look like source
+RAW color/WB, geometry/storage, lens correction, raw-data, sensor-calibration,
+or vendor-private RAW table metadata. Use it to audit transfer safety
+decisions and host UI, not as a rendered-output write source.
+
+```cpp
+#include "openmeta/vendor_raw_processing.h"
+
+openmeta::VendorRawProcessingSummary sony =
+    openmeta::vendor_raw_processing_from_store(
+        store, openmeta::VendorRawProcessingFamily::Sony);
+
+if (sony.fields_seen > 0) {
+    const uint32_t unsafe_for_rendered = sony.color_fields +
+        sony.white_balance_fields + sony.lens_correction_fields;
+    (void)unsafe_for_rendered;
+}
+
+openmeta::TransferSafetyAudit audit =
+    openmeta::transfer_safety_audit_from_store(
+        store, openmeta::TransferSafetyMode::RenderedImage);
+
+if (audit.filtered_raw_color_calibration > 0 ||
+    audit.filtered_icc_profiles > 0 ||
+    audit.filtered_makernotes > 0) {
+    // Show the host/user which source-bound metadata will not be transferred.
+}
+```
+
+Python uses the same family enum:
+
+```python
+summary = doc.vendor_raw_processing(openmeta.VendorRawProcessingFamily.Nikon)
+if summary["fields_seen"]:
+    print(summary["lens_correction_fields"])
+
+audit = doc.transfer_safety_audit(openmeta.TransferSafetyMode.RenderedImage)
+print(audit["filtered_raw_color_calibration"])
+```
+
+`metaread` prints
+`vendor_raw_processing[sony|canon|nikon|fujifilm|pentax|panasonic|olympus]=...`
+summaries when matching decoded fields are present.
+
+## 11. Build `MetaStore` Yourself
 
 If your application creates metadata directly, build the store first and then
 reuse the same export and transfer APIs.

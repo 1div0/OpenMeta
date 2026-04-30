@@ -12,8 +12,10 @@
 #include "openmeta/mapped_file.h"
 #include "openmeta/meta_key.h"
 #include "openmeta/meta_store.h"
+#include "openmeta/phaseone_geometry.h"
 #include "openmeta/resource_policy.h"
 #include "openmeta/simple_meta.h"
+#include "openmeta/vendor_raw_processing.h"
 #include "openmeta/xmp_decode.h"
 
 #include <algorithm>
@@ -127,6 +129,109 @@ namespace {
         case C2paVerifyBackend::OpenSsl: return "openssl";
         }
         return "unknown";
+    }
+
+    static const char* yes_no(bool value) noexcept
+    {
+        return value ? "yes" : "no";
+    }
+
+    static void print_phaseone_raw_summaries(const MetaStore& store) noexcept
+    {
+        const PhaseOneRawGeometryResult geometry
+            = phaseone_raw_geometry_from_store(store);
+        if (geometry.status != PhaseOneRawGeometryStatus::MissingField) {
+            const PhaseOneRawGeometry& g = geometry.geometry;
+            std::printf(
+                "phaseone_raw_geometry=%s sensor=%ux%u active=(%u,%u,%u,%u) margins=(%u,%u)\n",
+                phaseone_raw_geometry_status_name(geometry.status),
+                static_cast<unsigned>(g.sensor_width),
+                static_cast<unsigned>(g.sensor_height),
+                static_cast<unsigned>(g.active_x),
+                static_cast<unsigned>(g.active_y),
+                static_cast<unsigned>(g.active_width),
+                static_cast<unsigned>(g.active_height),
+                static_cast<unsigned>(g.right_margin),
+                static_cast<unsigned>(g.bottom_margin));
+        }
+
+        const PhaseOneRawProcessingResult raw
+            = phaseone_raw_processing_from_store(store);
+        if (raw.fields_seen == 0U) {
+            return;
+        }
+
+        const PhaseOneRawProcessingInfo& info = raw.info;
+        std::printf(
+            "phaseone_raw_processing=%s fields_seen=%u fields_decoded=%u invalid_fields=%u color_matrix1=%s color_matrix2=%s wb_rgb_levels=%s black_level=%s",
+            phaseone_raw_processing_status_name(raw.status),
+            static_cast<unsigned>(raw.fields_seen),
+            static_cast<unsigned>(raw.fields_decoded),
+            static_cast<unsigned>(raw.invalid_fields),
+            yes_no(info.has_color_matrix1), yes_no(info.has_color_matrix2),
+            yes_no(info.has_wb_rgb_levels), yes_no(info.has_black_level));
+        if (info.has_black_level) {
+            std::printf(":%u", static_cast<unsigned>(info.black_level));
+        }
+        std::printf(
+            " sensor_temperature_c=%s sensor_temperature2_c=%s raw_format=%s",
+            yes_no(info.has_sensor_temperature_c),
+            yes_no(info.has_sensor_temperature2_c),
+            yes_no(info.has_raw_format));
+        if (info.has_sensor_temperature_c) {
+            std::printf(":%g", info.sensor_temperature_c);
+        }
+        if (info.has_sensor_temperature2_c) {
+            std::printf(":%g", info.sensor_temperature2_c);
+        }
+        if (info.has_raw_format) {
+            std::printf(":%u", static_cast<unsigned>(info.raw_format));
+        }
+        std::printf(
+            " raw_data_bytes=%llu strip_offsets_bytes=%llu black_level_data_bytes=%llu sensor_calibration_entries=%u sensor_calibration_payload_bytes=%llu sensor_defects_bytes=%llu flat_field_bytes=%llu linearization_coefficients=%u\n",
+            static_cast<unsigned long long>(info.raw_data_bytes),
+            static_cast<unsigned long long>(info.strip_offsets_bytes),
+            static_cast<unsigned long long>(info.black_level_data_bytes),
+            static_cast<unsigned>(info.sensor_calibration_entry_count),
+            static_cast<unsigned long long>(
+                info.sensor_calibration_payload_bytes),
+            static_cast<unsigned long long>(info.sensor_defects_bytes),
+            static_cast<unsigned long long>(info.flat_field_bytes),
+            static_cast<unsigned>(info.linearization_coefficients_count));
+    }
+
+    static void
+    print_vendor_raw_summary(const MetaStore& store,
+                             VendorRawProcessingFamily family) noexcept
+    {
+        const VendorRawProcessingSummary summary
+            = vendor_raw_processing_from_store(store, family);
+        if (summary.fields_seen == 0U) {
+            return;
+        }
+        std::printf(
+            "vendor_raw_processing[%s]=fields_seen=%u color=%u white_balance=%u geometry=%u storage=%u lens_correction=%u raw_data=%u sensor=%u private_table=%u\n",
+            vendor_raw_processing_family_name(family),
+            static_cast<unsigned>(summary.fields_seen),
+            static_cast<unsigned>(summary.color_fields),
+            static_cast<unsigned>(summary.white_balance_fields),
+            static_cast<unsigned>(summary.geometry_fields),
+            static_cast<unsigned>(summary.storage_fields),
+            static_cast<unsigned>(summary.lens_correction_fields),
+            static_cast<unsigned>(summary.raw_data_fields),
+            static_cast<unsigned>(summary.sensor_fields),
+            static_cast<unsigned>(summary.private_table_fields));
+    }
+
+    static void print_vendor_raw_summaries(const MetaStore& store) noexcept
+    {
+        print_vendor_raw_summary(store, VendorRawProcessingFamily::Sony);
+        print_vendor_raw_summary(store, VendorRawProcessingFamily::Canon);
+        print_vendor_raw_summary(store, VendorRawProcessingFamily::Nikon);
+        print_vendor_raw_summary(store, VendorRawProcessingFamily::Fujifilm);
+        print_vendor_raw_summary(store, VendorRawProcessingFamily::Pentax);
+        print_vendor_raw_summary(store, VendorRawProcessingFamily::Panasonic);
+        print_vendor_raw_summary(store, VendorRawProcessingFamily::Olympus);
     }
 
 
@@ -2086,6 +2191,8 @@ main(int argc, char** argv)
                             read.exif.limit_ifd_offset),
                         static_cast<unsigned>(read.exif.limit_tag));
         }
+        print_phaseone_raw_summaries(store);
+        print_vendor_raw_summaries(store);
 
         for (BlockId block = 0; block < store.block_count(); ++block) {
             const std::span<const EntryId> ids = store.entries_in_block(block);

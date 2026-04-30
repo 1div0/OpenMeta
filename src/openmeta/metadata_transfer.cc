@@ -2,12 +2,14 @@
 
 #include "openmeta/metadata_transfer.h"
 
-#include "openmeta/container_scan.h"
+#include "openmeta/console_format.h"
 #include "openmeta/container_payload.h"
+#include "openmeta/container_scan.h"
+#include "openmeta/exif_tag_names.h"
+#include "openmeta/interop_export.h"
 #include "openmeta/jumbf_decode.h"
 #include "openmeta/mapped_file.h"
-#include "openmeta/console_format.h"
-#include "openmeta/interop_export.h"
+#include "openmeta/vendor_raw_processing.h"
 #include "openmeta/xmp_dump.h"
 
 #include "interop_safety_internal.h"
@@ -171,8 +173,9 @@ namespace {
         return ifd == "gpsifd" || ifd == "gpsinfo" || ifd.ends_with("_gpsifd");
     }
 
-    static bool exif_byte_tag_allows_safe_text_projection(
-        const ByteArena& arena, const Entry& entry) noexcept
+    static bool
+    exif_byte_tag_allows_safe_text_projection(const ByteArena& arena,
+                                              const Entry& entry) noexcept
     {
         if (entry.key.kind != MetaKeyKind::ExifTag) {
             return false;
@@ -183,8 +186,7 @@ namespace {
         case 0xA000U:
         case 0xA300U:
         case 0xA301U:
-        case 0xA302U:
-            return true;
+        case 0xA302U: return true;
         case 0x0000U: return exif_ifd_is_gps(arena, entry);
         default: return false;
         }
@@ -320,9 +322,11 @@ namespace {
                 key_path, out)) {
             return true;
         }
-        return format_decoded_text_bytes_for_projection(
-            trimmed, TextEncoding::Utf8, max_value_bytes, field_name, key_path,
-            out);
+        return format_decoded_text_bytes_for_projection(trimmed,
+                                                        TextEncoding::Utf8,
+                                                        max_value_bytes,
+                                                        field_name, key_path,
+                                                        out);
     }
 
     static bool format_small_byte_sequence_text(std::span<const std::byte> raw,
@@ -349,9 +353,10 @@ namespace {
         return true;
     }
 
-    static bool format_safe_exif_bytes_for_projection(
-        const ByteArena& arena, const Entry& entry, uint32_t max_value_bytes,
-        std::string* out) noexcept
+    static bool format_safe_exif_bytes_for_projection(const ByteArena& arena,
+                                                      const Entry& entry,
+                                                      uint32_t max_value_bytes,
+                                                      std::string* out) noexcept
     {
         if (!out || !exif_byte_tag_allows_safe_text_projection(arena, entry)) {
             return false;
@@ -395,9 +400,10 @@ namespace {
         return true;
     }
 
-    static void format_safe_bytes_hex_for_projection(
-        std::span<const std::byte> raw, uint32_t max_value_bytes,
-        std::string* out) noexcept
+    static void
+    format_safe_bytes_hex_for_projection(std::span<const std::byte> raw,
+                                         uint32_t max_value_bytes,
+                                         std::string* out) noexcept
     {
         if (!out) {
             return;
@@ -409,9 +415,9 @@ namespace {
 
     class ExrStringAttributeCollectSafeSink final : public MetadataSink {
     public:
-        ExrStringAttributeCollectSafeSink(const ByteArena& arena,
-                                          std::vector<ExrProjectedTextAttribute>* out,
-                                          uint32_t max_value_bytes) noexcept
+        ExrStringAttributeCollectSafeSink(
+            const ByteArena& arena, std::vector<ExrProjectedTextAttribute>* out,
+            uint32_t max_value_bytes) noexcept
             : arena_(arena)
             , out_(out)
             , max_value_bytes_(max_value_bytes)
@@ -449,8 +455,9 @@ namespace {
             } else if (value.kind == MetaValueKind::Bytes) {
                 const std::span<const std::byte> raw = arena_.span(
                     value.data.span);
-                if (format_safe_exif_bytes_for_projection(
-                        arena_, *item.entry, max_value_bytes_, &value_text)
+                if (format_safe_exif_bytes_for_projection(arena_, *item.entry,
+                                                          max_value_bytes_,
+                                                          &value_text)
                     || format_text_like_bytes_for_projection(
                         item.name, item.name, *item.entry, raw,
                         max_value_bytes_, &value_text)) {
@@ -465,8 +472,7 @@ namespace {
                     arena_, value, max_value_bytes_, &value_text);
             }
 
-            if (!has_value
-                && !exr_projected_name_is_numeric_unknown(item.name)
+            if (!has_value && !exr_projected_name_is_numeric_unknown(item.name)
                 && item.name != "Exif:MakerNote") {
                 return;
             }
@@ -1062,15 +1068,15 @@ namespace {
     static void append_string_le(std::vector<std::byte>* out,
                                  std::string_view value) noexcept;
 
-    static bool exr_string_attribute_from_route(
-        std::string_view route) noexcept
+    static bool exr_string_attribute_from_route(std::string_view route) noexcept
     {
         return route == "exr:attribute-string";
     }
 
-    static void serialize_exr_string_attribute_payload(
-        std::string_view name, std::string_view value,
-        std::vector<std::byte>* out) noexcept
+    static void
+    serialize_exr_string_attribute_payload(std::string_view name,
+                                           std::string_view value,
+                                           std::vector<std::byte>* out) noexcept
     {
         if (!out) {
             return;
@@ -1078,11 +1084,10 @@ namespace {
         out->clear();
         out->reserve(16U + name.size() + value.size());
         append_string_le(out, name);
-        append_blob_le(
-            out,
-            std::span<const std::byte>(
-                reinterpret_cast<const std::byte*>(value.data()),
-                value.size()));
+        append_blob_le(out,
+                       std::span<const std::byte>(
+                           reinterpret_cast<const std::byte*>(value.data()),
+                           value.size()));
     }
 
     static bool parse_exr_string_attribute_payload_view(
@@ -1099,8 +1104,9 @@ namespace {
         }
         const size_t name_size = static_cast<size_t>(name_len);
         if (out_name) {
-            *out_name = std::string_view(
-                reinterpret_cast<const char*>(bytes.data() + off), name_size);
+            *out_name = std::string_view(reinterpret_cast<const char*>(
+                                             bytes.data() + off),
+                                         name_size);
         }
         off += name_size;
 
@@ -1119,9 +1125,9 @@ namespace {
         return off == bytes.size();
     }
 
-    static bool exr_attribute_name_exists(
-        const std::vector<std::string>& used_names,
-        std::string_view candidate) noexcept
+    static bool
+    exr_attribute_name_exists(const std::vector<std::string>& used_names,
+                              std::string_view candidate) noexcept
     {
         for (size_t i = 0; i < used_names.size(); ++i) {
             if (used_names[i] == candidate) {
@@ -1131,9 +1137,9 @@ namespace {
         return false;
     }
 
-    static std::string make_unique_exr_attribute_name(
-        const std::vector<std::string>& used_names,
-        std::string_view base_name) noexcept
+    static std::string
+    make_unique_exr_attribute_name(const std::vector<std::string>& used_names,
+                                   std::string_view base_name) noexcept
     {
         if (!exr_attribute_name_exists(used_names, base_name)) {
             return std::string(base_name);
@@ -1582,8 +1588,7 @@ namespace {
     static EmitTransferResult build_prepared_bundle_bmff_package_impl_ex(
         std::span<const std::byte> input_bmff,
         const PreparedTransferBundle& bundle, bool strip_existing_xmp,
-        bool allow_empty_metadata,
-        PreparedTransferPackagePlan* out_plan,
+        bool allow_empty_metadata, PreparedTransferPackagePlan* out_plan,
         uint32_t* out_removed_meta_boxes) noexcept;
 
     static uint32_t
@@ -1674,8 +1679,8 @@ namespace {
         bool inserted = false;
         for (size_t i = 0; i < scan.leading_segments.size(); ++i) {
             const ExistingJpegSegment& e = scan.leading_segments[i];
-            const bool replaced = should_strip_existing_jpeg_segment(
-                bundle, e, desired, false);
+            const bool replaced
+                = should_strip_existing_jpeg_segment(bundle, e, desired, false);
             if (replaced) {
                 if (!inserted) {
                     for (size_t oi = 0; oi < desired_ops.size(); ++oi) {
@@ -1878,8 +1883,8 @@ namespace {
     }
 
     static constexpr uint32_t kMaxJpegSegmentPayload = 65533U;
-    static constexpr uint32_t kMaxJpegExifTiffBytes
-        = kMaxJpegSegmentPayload - 6U;
+    static constexpr uint32_t kMaxJpegExifTiffBytes  = kMaxJpegSegmentPayload
+                                                      - 6U;
 
     static bool jpeg_segment_length_u16(std::span<const std::byte> payload,
                                         uint16_t* out_len) noexcept
@@ -1953,8 +1958,7 @@ namespace {
     static EmitTransferResult build_prepared_bundle_bmff_package_impl_ex(
         std::span<const std::byte> input_bmff,
         const PreparedTransferBundle& bundle, bool strip_existing_xmp,
-        bool allow_empty_metadata,
-        PreparedTransferPackagePlan* out_plan,
+        bool allow_empty_metadata, PreparedTransferPackagePlan* out_plan,
         uint32_t* out_removed_meta_boxes) noexcept;
 
     static uint32_t
@@ -2309,11 +2313,10 @@ namespace {
     {
         uint32_t value = crc;
         for (size_t i = 0; i < bytes.size(); ++i) {
-            value ^= static_cast<uint32_t>(
-                std::to_integer<uint8_t>(bytes[i]));
+            value ^= static_cast<uint32_t>(std::to_integer<uint8_t>(bytes[i]));
             for (uint32_t bit = 0; bit < 8U; ++bit) {
                 const uint32_t mask = 0U - (value & 1U);
-                value = (value >> 1U) ^ (0xEDB88320U & mask);
+                value               = (value >> 1U) ^ (0xEDB88320U & mask);
             }
         }
         return value;
@@ -2329,10 +2332,10 @@ namespace {
             static_cast<std::byte>(chunk_type[3]),
         };
         uint32_t crc = 0xFFFFFFFFU;
-        crc          = png_crc32_update(
-            crc, std::span<const std::byte>(type_bytes.data(),
-                                            type_bytes.size()));
-        crc = png_crc32_update(crc, payload);
+        crc          = png_crc32_update(crc,
+                                        std::span<const std::byte>(type_bytes.data(),
+                                                                   type_bytes.size()));
+        crc          = png_crc32_update(crc, payload);
         return crc ^ 0xFFFFFFFFU;
     }
 
@@ -2557,8 +2560,8 @@ namespace {
         if (out_message) {
             out_message->clear();
         }
-        if (!base_path || !*base_path || !out_path || !out_bytes
-            || !out_status || !out_message) {
+        if (!base_path || !*base_path || !out_path || !out_bytes || !out_status
+            || !out_message) {
             return false;
         }
 
@@ -2577,8 +2580,9 @@ namespace {
             }
 
             MappedFile mapped;
-            const MappedFileStatus status = mapped.open(
-                std::string(candidates[i]).c_str(), max_file_bytes);
+            const MappedFileStatus status
+                = mapped.open(std::string(candidates[i]).c_str(),
+                              max_file_bytes);
             if (status == MappedFileStatus::Ok) {
                 *out_path = std::string(candidates[i]);
                 out_bytes->assign(mapped.bytes().begin(), mapped.bytes().end());
@@ -2592,9 +2596,9 @@ namespace {
 
             saw_candidate_file = true;
             *out_path          = std::string(candidates[i]);
-            *out_status = status == MappedFileStatus::TooLarge
-                              ? TransferStatus::LimitExceeded
-                              : TransferStatus::Unsupported;
+            *out_status        = status == MappedFileStatus::TooLarge
+                                     ? TransferStatus::LimitExceeded
+                                     : TransferStatus::Unsupported;
             if (status == MappedFileStatus::TooLarge) {
                 *out_message = "existing xmp sidecar exceeds size limit";
             } else if (status == MappedFileStatus::StatFailed) {
@@ -2626,23 +2630,25 @@ namespace {
         XmpDecodeStatus decoded_status = XmpDecodeStatus::Malformed;
         if (preserve_store_on_failure) {
             MetaStore merged_store = *store;
-            const XmpDecodeResult decoded = decode_xmp_packet(
-                sidecar_bytes, merged_store, EntryFlags::None, decode_options);
+            const XmpDecodeResult decoded
+                = decode_xmp_packet(sidecar_bytes, merged_store,
+                                    EntryFlags::None, decode_options);
             decoded_status = decoded.status;
             if (decoded.status == XmpDecodeStatus::Ok) {
-                *store       = std::move(merged_store);
-                *out_loaded  = true;
-                *out_status  = TransferStatus::Ok;
+                *store      = std::move(merged_store);
+                *out_loaded = true;
+                *out_status = TransferStatus::Ok;
                 out_message->clear();
                 return;
             }
         } else {
-            const XmpDecodeResult decoded = decode_xmp_packet(
-                sidecar_bytes, *store, EntryFlags::None, decode_options);
+            const XmpDecodeResult decoded
+                = decode_xmp_packet(sidecar_bytes, *store, EntryFlags::None,
+                                    decode_options);
             decoded_status = decoded.status;
             if (decoded.status == XmpDecodeStatus::Ok) {
-                *out_loaded  = true;
-                *out_status  = TransferStatus::Ok;
+                *out_loaded = true;
+                *out_status = TransferStatus::Ok;
                 out_message->clear();
                 return;
             }
@@ -2656,8 +2662,7 @@ namespace {
         out_message->assign("existing xmp sidecar decode failed");
     }
 
-    static uint32_t meta_value_element_size(
-        MetaElementType type) noexcept
+    static uint32_t meta_value_element_size(MetaElementType type) noexcept
     {
         switch (type) {
         case MetaElementType::U8:
@@ -2676,9 +2681,9 @@ namespace {
         return 0U;
     }
 
-    static MetaValue
-    copy_meta_value_for_store(const MetaValue& value, const ByteArena& src,
-                              ByteArena& dst) noexcept
+    static MetaValue copy_meta_value_for_store(const MetaValue& value,
+                                               const ByteArena& src,
+                                               ByteArena& dst) noexcept
     {
         switch (value.kind) {
         case MetaValueKind::Empty: return value;
@@ -2689,22 +2694,21 @@ namespace {
             return make_text(dst, arena_string(src, value.data.span),
                              value.text_encoding);
         case MetaValueKind::Array:
-            return make_array(dst, value.elem_type,
-                              src.span(value.data.span),
+            return make_array(dst, value.elem_type, src.span(value.data.span),
                               meta_value_element_size(value.elem_type));
         }
         return MetaValue {};
     }
 
-    static MetaKey
-    copy_meta_key_for_store(const MetaKey& key, const ByteArena& src,
-                            ByteArena& dst) noexcept
+    static MetaKey copy_meta_key_for_store(const MetaKey& key,
+                                           const ByteArena& src,
+                                           ByteArena& dst) noexcept
     {
         switch (key.kind) {
         case MetaKeyKind::ExifTag:
-            return make_exif_tag_key(
-                dst, arena_string(src, key.data.exif_tag.ifd),
-                key.data.exif_tag.tag);
+            return make_exif_tag_key(dst,
+                                     arena_string(src, key.data.exif_tag.ifd),
+                                     key.data.exif_tag.tag);
         case MetaKeyKind::Comment: return make_comment_key();
         case MetaKeyKind::ExrAttribute:
             return make_exr_attribute_key(
@@ -2718,13 +2722,11 @@ namespace {
                 dst, arena_string(src, key.data.xmp_property.schema_ns),
                 arena_string(src, key.data.xmp_property.property_path));
         case MetaKeyKind::IccHeaderField:
-            return make_icc_header_field_key(
-                key.data.icc_header_field.offset);
+            return make_icc_header_field_key(key.data.icc_header_field.offset);
         case MetaKeyKind::IccTag:
             return make_icc_tag_key(key.data.icc_tag.signature);
         case MetaKeyKind::PhotoshopIrb:
-            return make_photoshop_irb_key(
-                key.data.photoshop_irb.resource_id);
+            return make_photoshop_irb_key(key.data.photoshop_irb.resource_id);
         case MetaKeyKind::PhotoshopIrbField:
             return make_photoshop_irb_field_key(
                 dst, key.data.photoshop_irb_field.resource_id,
@@ -2735,8 +2737,9 @@ namespace {
             return make_printim_field_key(
                 dst, arena_string(src, key.data.printim_field.field));
         case MetaKeyKind::BmffField:
-            return make_bmff_field_key(
-                dst, arena_string(src, key.data.bmff_field.field));
+            return make_bmff_field_key(dst,
+                                       arena_string(src,
+                                                    key.data.bmff_field.field));
         case MetaKeyKind::JumbfField:
             return make_jumbf_field_key(
                 dst, arena_string(src, key.data.jumbf_field.field));
@@ -2776,11 +2779,11 @@ namespace {
                 continue;
             }
             Entry copied;
-            copied.key = copy_meta_key_for_store(entry.key, src.arena(),
-                                                 dst->arena());
-            copied.value = copy_meta_value_for_store(entry.value, src.arena(),
-                                                     dst->arena());
-            copied.origin                = entry.origin;
+            copied.key    = copy_meta_key_for_store(entry.key, src.arena(),
+                                                    dst->arena());
+            copied.value  = copy_meta_value_for_store(entry.value, src.arena(),
+                                                      dst->arena());
+            copied.origin = entry.origin;
             copied.origin.block          = entry.origin.block;
             copied.origin.order_in_block = entry.origin.order_in_block;
             if (entry.origin.block != kInvalidBlockId
@@ -2804,8 +2807,9 @@ namespace {
         return true;
     }
 
-    static bool append_xmp_entries_from_store(
-        const MetaStore& src, MetaStore* dst, uint32_t* out_appended) noexcept
+    static bool append_xmp_entries_from_store(const MetaStore& src,
+                                              MetaStore* dst,
+                                              uint32_t* out_appended) noexcept
     {
         if (!dst) {
             return false;
@@ -2831,13 +2835,12 @@ namespace {
             Entry copied;
             copied.key = make_xmp_property_key(
                 dst->arena(),
-                arena_string(src.arena(),
-                             entry.key.data.xmp_property.schema_ns),
+                arena_string(src.arena(), entry.key.data.xmp_property.schema_ns),
                 arena_string(src.arena(),
                              entry.key.data.xmp_property.property_path));
-            copied.value = copy_meta_value_for_store(entry.value, src.arena(),
-                                                     dst->arena());
-            copied.origin                = entry.origin;
+            copied.value  = copy_meta_value_for_store(entry.value, src.arena(),
+                                                      dst->arena());
+            copied.origin = entry.origin;
             copied.origin.block          = block;
             copied.origin.order_in_block = order;
             if (entry.origin.wire_type_name.size > 0U) {
@@ -2890,7 +2893,7 @@ namespace {
         SimpleMetaResult read;
         for (;;) {
             xmp_store = MetaStore();
-            read = simple_meta_read(
+            read      = simple_meta_read(
                 bytes, xmp_store,
                 std::span<ContainerBlockRef>(blocks.data(), blocks.size()),
                 std::span<ExifIfdRef>(ifds.data(), ifds.size()),
@@ -2932,12 +2935,11 @@ namespace {
             return;
         }
         if (read.xmp.status != XmpDecodeStatus::Ok) {
-            *out_loaded = false;
-            *out_status = read.xmp.status == XmpDecodeStatus::LimitExceeded
-                              ? TransferStatus::LimitExceeded
-                              : TransferStatus::Malformed;
-            *out_message
-                = "existing destination embedded xmp decode failed";
+            *out_loaded  = false;
+            *out_status  = read.xmp.status == XmpDecodeStatus::LimitExceeded
+                               ? TransferStatus::LimitExceeded
+                               : TransferStatus::Malformed;
+            *out_message = "existing destination embedded xmp decode failed";
             if (!preserve_store_on_failure) {
                 *store = MetaStore();
             }
@@ -2971,9 +2973,9 @@ namespace {
                                "xmp into transfer store";
                 return;
             }
-            *store = std::move(merged_store);
-            *out_loaded  = appended > 0U;
-            *out_status  = TransferStatus::Ok;
+            *store      = std::move(merged_store);
+            *out_loaded = appended > 0U;
+            *out_status = TransferStatus::Ok;
             out_message->clear();
             return;
         }
@@ -2987,8 +2989,8 @@ namespace {
             *store       = MetaStore();
             return;
         }
-        *out_loaded  = appended > 0U;
-        *out_status  = TransferStatus::Ok;
+        *out_loaded = appended > 0U;
+        *out_status = TransferStatus::Ok;
         out_message->clear();
     }
 
@@ -3010,7 +3012,8 @@ namespace {
         }
 
         MappedFile mapped;
-        const MappedFileStatus status = mapped.open(path, policy.max_file_bytes);
+        const MappedFileStatus status = mapped.open(path,
+                                                    policy.max_file_bytes);
         if (status != MappedFileStatus::Ok) {
             *out_loaded = false;
             *out_status = status == MappedFileStatus::TooLarge
@@ -3041,10 +3044,10 @@ namespace {
         const char* path = nullptr;
         XmpExistingDestinationEmbeddedPrecedence precedence
             = XmpExistingDestinationEmbeddedPrecedence::DestinationWins;
-        bool* out_loaded              = nullptr;
-        TransferStatus* out_status    = nullptr;
-        std::string* out_message      = nullptr;
-        std::string* out_path         = nullptr;
+        bool* out_loaded           = nullptr;
+        TransferStatus* out_status = nullptr;
+        std::string* out_message   = nullptr;
+        std::string* out_path      = nullptr;
     };
 
     static uint32_t
@@ -3084,8 +3087,9 @@ namespace {
         return removed;
     }
 
-    static uint32_t remove_prepared_blocks_by_kind(PreparedTransferBundle* bundle,
-                                                   TransferBlockKind kind) noexcept
+    static uint32_t
+    remove_prepared_blocks_by_kind(PreparedTransferBundle* bundle,
+                                   TransferBlockKind kind) noexcept
     {
         if (!bundle || bundle->blocks.empty()) {
             return 0U;
@@ -5410,7 +5414,7 @@ namespace {
             return false;
         }
 
-        const uint32_t fixed_overhead                    = 8U + header_len;
+        const uint32_t fixed_overhead = 8U + header_len;
         if (fixed_overhead > kMaxJpegSegmentPayload) {
             if (out_error) {
                 *out_error = "jumbf app11 overhead exceeds jpeg segment limits";
@@ -6204,8 +6208,7 @@ namespace {
     static bool parse_subifd_index_name(std::string_view ifd,
                                         uint32_t* out_index) noexcept
     {
-        if (!out_index || !ifd.starts_with("subifd")
-            || ifd.size() <= 6U) {
+        if (!out_index || !ifd.starts_with("subifd") || ifd.size() <= 6U) {
             return false;
         }
         uint64_t value = 0U;
@@ -6506,8 +6509,8 @@ namespace {
         if (!out_size || ifd.entries.size() > static_cast<size_t>(UINT16_MAX)) {
             return false;
         }
-        const size_t size
-            = 2U + static_cast<size_t>(ifd.entries.size()) * 12U + 4U;
+        const size_t size = 2U + static_cast<size_t>(ifd.entries.size()) * 12U
+                            + 4U;
         if (size > static_cast<size_t>(UINT32_MAX)) {
             return false;
         }
@@ -6531,8 +6534,7 @@ namespace {
         return true;
     }
 
-    static bool checked_u32_add(uint32_t a, uint32_t b,
-                                uint32_t* out) noexcept
+    static bool checked_u32_add(uint32_t a, uint32_t b, uint32_t* out) noexcept
     {
         if (!out || b > UINT32_MAX - a) {
             return false;
@@ -6552,10 +6554,9 @@ namespace {
         return true;
     }
 
-    static void
-    maybe_add_synthetic_dng_version(SerializedIfd* ifd0,
-                                    bool inject_minimal_dng_version,
-                                    bool saw_dng_version) noexcept
+    static void maybe_add_synthetic_dng_version(SerializedIfd* ifd0,
+                                                bool inject_minimal_dng_version,
+                                                bool saw_dng_version) noexcept
     {
         if (!ifd0 || !inject_minimal_dng_version || saw_dng_version) {
             return;
@@ -6571,11 +6572,9 @@ namespace {
         ifd0->entries.push_back(std::move(e));
     }
 
-    static ExifPackBuild
-    build_jpeg_exif_app1_payload(const MetaStore& store,
-                                 TransferPolicyAction makernote_policy,
-                                 bool include_subifds,
-                                 bool inject_minimal_dng_version) noexcept
+    static ExifPackBuild build_jpeg_exif_app1_payload(
+        const MetaStore& store, TransferPolicyAction makernote_policy,
+        bool include_subifds, bool inject_minimal_dng_version) noexcept
     {
         ExifPackBuild out;
 
@@ -6599,10 +6598,9 @@ namespace {
                 continue;
             }
 
-            const TransferExifIfdRef ifd_ref
-                = classify_exif_ifd_ref(ifd_name);
-            if (ifd_ref.slot == ExifIfdSlot::Unsupported
-                && !ifd_ref.is_page && !ifd_ref.is_subifd) {
+            const TransferExifIfdRef ifd_ref = classify_exif_ifd_ref(ifd_name);
+            if (ifd_ref.slot == ExifIfdSlot::Unsupported && !ifd_ref.is_page
+                && !ifd_ref.is_subifd) {
                 out.skipped_count += 1U;
                 continue;
             }
@@ -6631,8 +6629,8 @@ namespace {
 
             SerializedIfd* dst = nullptr;
             if (ifd_ref.is_page) {
-                const size_t need_size
-                    = static_cast<size_t>(ifd_ref.page_index);
+                const size_t need_size = static_cast<size_t>(
+                    ifd_ref.page_index);
                 if (page_ifds.size() < need_size) {
                     page_ifds.resize(need_size);
                 }
@@ -6930,8 +6928,7 @@ namespace {
                     }
                     uint32_t patch_width = static_cast<uint32_t>(
                         e.value.size());
-                    if (patch_width > 0U
-                        && patch_offset <= tiff_bytes.size()
+                    if (patch_width > 0U && patch_offset <= tiff_bytes.size()
                         && patch_width
                                <= tiff_bytes.size()
                                       - static_cast<size_t>(patch_offset)
@@ -6990,10 +6987,9 @@ namespace {
                     } else {
                         patch_offset = e.value_offset;
                     }
-                    const uint32_t patch_width
-                        = static_cast<uint32_t>(e.value.size());
-                    if (patch_width > 0U
-                        && patch_offset <= tiff_bytes.size()
+                    const uint32_t patch_width = static_cast<uint32_t>(
+                        e.value.size());
+                    if (patch_width > 0U && patch_offset <= tiff_bytes.size()
                         && patch_width
                                <= tiff_bytes.size()
                                       - static_cast<size_t>(patch_offset)
@@ -7002,8 +6998,7 @@ namespace {
                         slot_desc.field       = patch_field;
                         slot_desc.block_index = 0U;
                         slot_desc.byte_offset = 6U + patch_offset;
-                        slot_desc.width
-                            = static_cast<uint16_t>(patch_width);
+                        slot_desc.width = static_cast<uint16_t>(patch_width);
                         out.time_patch_map.push_back(slot_desc);
                     } else {
                         out.skipped_count += 1U;
@@ -7725,6 +7720,27 @@ namespace {
         size_t size   = 0U;
     };
 
+    struct TiffPayloadRangeLess final {
+        bool operator()(const TiffPayloadRange& a,
+                        const TiffPayloadRange& b) const noexcept
+        {
+            return a.offset < b.offset;
+        }
+    };
+
+    struct TiffPackageReplacement final {
+        uint64_t offset = 0U;
+        std::vector<std::byte> bytes;
+    };
+
+    struct TiffPackageReplacementLess final {
+        bool operator()(const TiffPackageReplacement& a,
+                        const TiffPackageReplacement& b) const noexcept
+        {
+            return a.offset < b.offset;
+        }
+    };
+
     struct TiffIfdEntry final {
         uint16_t tag            = 0U;
         uint16_t type           = 0U;
@@ -7774,8 +7790,8 @@ namespace {
     };
 
     struct ParsedTiffIfd final {
-        bool present           = false;
-        uint64_t next_ifd_off  = 0U;
+        bool present          = false;
+        uint64_t next_ifd_off = 0U;
         std::vector<ParsedTiffIfdEntry> entries;
     };
 
@@ -7790,8 +7806,8 @@ namespace {
     };
 
     struct TiffRewriteTail final {
-        TiffEndian endian  = TiffEndian::Little;
-        TiffLayout layout  = TiffLayout {};
+        TiffEndian endian     = TiffEndian::Little;
+        TiffLayout layout     = TiffLayout {};
         uint64_t new_ifd0_off = 0U;
         std::vector<std::byte> tail_bytes;
     };
@@ -7855,9 +7871,8 @@ namespace {
         const uint64_t b7 = static_cast<uint64_t>(
             std::to_integer<uint8_t>(b[off + 7U]));
         if (endian == TiffEndian::Little) {
-            return b0 | (b1 << 8U) | (b2 << 16U) | (b3 << 24U)
-                   | (b4 << 32U) | (b5 << 40U) | (b6 << 48U)
-                   | (b7 << 56U);
+            return b0 | (b1 << 8U) | (b2 << 16U) | (b3 << 24U) | (b4 << 32U)
+                   | (b5 << 40U) | (b6 << 48U) | (b7 << 56U);
         }
         return (b0 << 56U) | (b1 << 48U) | (b2 << 40U) | (b3 << 32U)
                | (b4 << 24U) | (b5 << 16U) | (b6 << 8U) | b7;
@@ -8106,10 +8121,8 @@ namespace {
                 return false;
             }
         }
-        if (!convert_parsed_ifd_endian(&exif->exif_ifd, from_endian,
-                                       to_endian)
-            || !convert_parsed_ifd_endian(&exif->gps_ifd, from_endian,
-                                          to_endian)
+        if (!convert_parsed_ifd_endian(&exif->exif_ifd, from_endian, to_endian)
+            || !convert_parsed_ifd_endian(&exif->gps_ifd, from_endian, to_endian)
             || !convert_parsed_ifd_endian(&exif->interop_ifd, from_endian,
                                           to_endian)) {
             return false;
@@ -8165,15 +8178,15 @@ namespace {
         const uint16_t magic = read_u16_tiff(input, 2U, endian);
         uint64_t ifd0_off    = 0U;
         if (magic == 42U) {
-            layout.bigtiff                  = false;
-            layout.header_size              = 8U;
-            layout.ifd0_pointer_offset      = 4U;
-            layout.ifd_count_size           = 2U;
-            layout.ifd_entry_size           = 12U;
-            layout.ifd_next_offset_size     = 4U;
-            layout.inline_value_bytes       = 4U;
-            layout.alignment                = 2U;
-            ifd0_off                        = read_u32_tiff(input, 4U, endian);
+            layout.bigtiff              = false;
+            layout.header_size          = 8U;
+            layout.ifd0_pointer_offset  = 4U;
+            layout.ifd_count_size       = 2U;
+            layout.ifd_entry_size       = 12U;
+            layout.ifd_next_offset_size = 4U;
+            layout.inline_value_bytes   = 4U;
+            layout.alignment            = 2U;
+            ifd0_off                    = read_u32_tiff(input, 4U, endian);
         } else if (magic == 43U) {
             if (input.size() < 16U) {
                 if (err) {
@@ -8189,15 +8202,15 @@ namespace {
                 }
                 return false;
             }
-            layout.bigtiff                  = true;
-            layout.header_size              = 16U;
-            layout.ifd0_pointer_offset      = 8U;
-            layout.ifd_count_size           = 8U;
-            layout.ifd_entry_size           = 20U;
-            layout.ifd_next_offset_size     = 8U;
-            layout.inline_value_bytes       = 8U;
-            layout.alignment                = 8U;
-            ifd0_off                        = read_u64_tiff(input, 8U, endian);
+            layout.bigtiff              = true;
+            layout.header_size          = 16U;
+            layout.ifd0_pointer_offset  = 8U;
+            layout.ifd_count_size       = 8U;
+            layout.ifd_entry_size       = 20U;
+            layout.ifd_next_offset_size = 8U;
+            layout.inline_value_bytes   = 8U;
+            layout.alignment            = 8U;
+            ifd0_off                    = read_u64_tiff(input, 8U, endian);
         } else {
             if (err) {
                 *err = "unsupported tiff variant";
@@ -8205,15 +8218,14 @@ namespace {
             return false;
         }
 
-        *out_endian  = endian;
-        *out_layout  = layout;
+        *out_endian   = endian;
+        *out_layout   = layout;
         *out_ifd0_off = ifd0_off;
         return true;
     }
 
     static bool write_tiff_count_field(std::vector<std::byte>* out, size_t off,
-                                       uint64_t value,
-                                       const TiffLayout& layout,
+                                       uint64_t value, const TiffLayout& layout,
                                        TiffEndian endian,
                                        std::string* err) noexcept
     {
@@ -8299,7 +8311,7 @@ namespace {
         if (!out) {
             return false;
         }
-        out->present = false;
+        out->present      = false;
         out->next_ifd_off = 0U;
         out->entries.clear();
 
@@ -8368,11 +8380,12 @@ namespace {
         return true;
     }
 
-    static bool
-    parse_tiff_ifd_next_offset(std::span<const std::byte> input,
-                               uint64_t ifd_off_u64, TiffEndian endian,
-                               const TiffLayout& layout, uint64_t* out,
-                               std::string* err) noexcept
+    static bool parse_tiff_ifd_next_offset(std::span<const std::byte> input,
+                                           uint64_t ifd_off_u64,
+                                           TiffEndian endian,
+                                           const TiffLayout& layout,
+                                           uint64_t* out,
+                                           std::string* err) noexcept
     {
         if (!out) {
             return false;
@@ -8389,17 +8402,17 @@ namespace {
 
         uint64_t count_u64 = 0U;
         if (!layout.bigtiff) {
-            count_u64 = static_cast<uint64_t>(read_u16_tiff(
-                input, static_cast<size_t>(ifd_off_u64), endian));
+            count_u64 = static_cast<uint64_t>(
+                read_u16_tiff(input, static_cast<size_t>(ifd_off_u64), endian));
         } else {
             count_u64 = read_u64_tiff(input, static_cast<size_t>(ifd_off_u64),
                                       endian);
         }
         const uint64_t entries_off_u64 = ifd_off_u64 + layout.ifd_count_size;
-        const uint64_t entries_end_u64
-            = entries_off_u64 + count_u64 * layout.ifd_entry_size;
-        const uint64_t next_field_end_u64
-            = entries_end_u64 + layout.ifd_next_offset_size;
+        const uint64_t entries_end_u64 = entries_off_u64
+                                         + count_u64 * layout.ifd_entry_size;
+        const uint64_t next_field_end_u64 = entries_end_u64
+                                            + layout.ifd_next_offset_size;
         if (entries_end_u64 < entries_off_u64
             || next_field_end_u64 < entries_end_u64
             || next_field_end_u64 > static_cast<uint64_t>(input.size())) {
@@ -8409,8 +8422,9 @@ namespace {
             return false;
         }
         if (!layout.bigtiff) {
-            *out = static_cast<uint64_t>(read_u32_tiff(
-                input, static_cast<size_t>(entries_end_u64), endian));
+            *out = static_cast<uint64_t>(
+                read_u32_tiff(input, static_cast<size_t>(entries_end_u64),
+                              endian));
         } else {
             *out = read_u64_tiff(input, static_cast<size_t>(entries_end_u64),
                                  endian);
@@ -8418,13 +8432,10 @@ namespace {
         return true;
     }
 
-    static bool
-    parse_tiff_offset_array_entry(std::span<const std::byte> input,
-                                  uint16_t type, uint64_t count,
-                                  uint64_t value_or_off, TiffEndian endian,
-                                  const TiffLayout& layout,
-                                  std::vector<uint64_t>* out,
-                                  std::string* err) noexcept
+    static bool parse_tiff_offset_array_entry(
+        std::span<const std::byte> input, uint16_t type, uint64_t count,
+        uint64_t value_or_off, TiffEndian endian, const TiffLayout& layout,
+        std::vector<uint64_t>* out, std::string* err) noexcept
     {
         if (!out) {
             return false;
@@ -8465,10 +8476,11 @@ namespace {
             return true;
         }
 
-        const uint64_t payload_bytes
-            = count * static_cast<uint64_t>(elem_bytes);
+        const uint64_t payload_bytes = count
+                                       * static_cast<uint64_t>(elem_bytes);
         if (value_or_off > static_cast<uint64_t>(input.size())
-            || payload_bytes > static_cast<uint64_t>(input.size()) - value_or_off) {
+            || payload_bytes
+                   > static_cast<uint64_t>(input.size()) - value_or_off) {
             if (err) {
                 *err = "tiff offset array payload out of range";
             }
@@ -8479,8 +8491,8 @@ namespace {
         for (size_t i = 0; i < static_cast<size_t>(count); ++i) {
             const size_t off = payload_off + i * elem_bytes;
             if (elem_bytes == 4U) {
-                out->push_back(static_cast<uint64_t>(
-                    read_u32_tiff(input, off, endian)));
+                out->push_back(
+                    static_cast<uint64_t>(read_u32_tiff(input, off, endian)));
             } else {
                 out->push_back(read_u64_tiff(input, off, endian));
             }
@@ -8488,11 +8500,11 @@ namespace {
         return true;
     }
 
-    static bool
-    parse_target_tiff_ifd(std::span<const std::byte> input,
-                          uint64_t ifd_off_u64, TiffEndian endian,
-                          const TiffLayout& layout, ParsedTiffIfd* out,
-                          std::string* err) noexcept
+    static bool parse_target_tiff_ifd(std::span<const std::byte> input,
+                                      uint64_t ifd_off_u64, TiffEndian endian,
+                                      const TiffLayout& layout,
+                                      ParsedTiffIfd* out,
+                                      std::string* err) noexcept
     {
         if (!out) {
             return false;
@@ -8515,8 +8527,8 @@ namespace {
 
         uint64_t count_u64 = 0U;
         if (!layout.bigtiff) {
-            count_u64 = static_cast<uint64_t>(read_u16_tiff(
-                input, static_cast<size_t>(ifd_off_u64), endian));
+            count_u64 = static_cast<uint64_t>(
+                read_u16_tiff(input, static_cast<size_t>(ifd_off_u64), endian));
         } else {
             count_u64 = read_u64_tiff(input, static_cast<size_t>(ifd_off_u64),
                                       endian);
@@ -8529,10 +8541,10 @@ namespace {
         }
 
         const uint64_t entries_off_u64 = ifd_off_u64 + layout.ifd_count_size;
-        const uint64_t entries_end_u64
-            = entries_off_u64 + count_u64 * layout.ifd_entry_size;
-        const uint64_t next_field_end_u64
-            = entries_end_u64 + layout.ifd_next_offset_size;
+        const uint64_t entries_end_u64 = entries_off_u64
+                                         + count_u64 * layout.ifd_entry_size;
+        const uint64_t next_field_end_u64 = entries_end_u64
+                                            + layout.ifd_next_offset_size;
         if (entries_end_u64 < entries_off_u64
             || next_field_end_u64 < entries_end_u64
             || next_field_end_u64 > static_cast<uint64_t>(input.size())) {
@@ -8543,12 +8555,12 @@ namespace {
         }
 
         out->entries.reserve(static_cast<size_t>(count_u64));
-        const size_t entries_off = static_cast<size_t>(entries_off_u64);
+        const size_t entries_off      = static_cast<size_t>(entries_off_u64);
         const size_t inline_off_delta = layout.bigtiff ? 12U : 8U;
         for (size_t i = 0; i < static_cast<size_t>(count_u64); ++i) {
             const size_t p = entries_off
                              + i * static_cast<size_t>(layout.ifd_entry_size);
-            const uint16_t tag = read_u16_tiff(input, p + 0U, endian);
+            const uint16_t tag  = read_u16_tiff(input, p + 0U, endian);
             const uint16_t type = read_u16_tiff(input, p + 2U, endian);
             uint64_t elem_count = 0U;
             if (!layout.bigtiff) {
@@ -8584,9 +8596,8 @@ namespace {
                     value_off_u64 = read_u64_tiff(input, p + 12U, endian);
                 }
                 if (value_off_u64 > static_cast<uint64_t>(input.size())
-                    || payload_n
-                           > static_cast<size_t>(input.size())
-                                 - static_cast<size_t>(value_off_u64)) {
+                    || payload_n > static_cast<size_t>(input.size())
+                                       - static_cast<size_t>(value_off_u64)) {
                     if (err) {
                         *err = "target TIFF IFD value offset out of range";
                     }
@@ -8713,8 +8724,7 @@ namespace {
         return false;
     }
 
-    static bool is_exif_ifd_image_layout_tag_for_transfer(
-        uint16_t tag) noexcept
+    static bool is_exif_ifd_image_layout_tag_for_transfer(uint16_t tag) noexcept
     {
         switch (tag) {
         case 0x9101U:  // ComponentsConfiguration
@@ -8729,14 +8739,14 @@ namespace {
         return false;
     }
 
-    static bool transfer_safety_mode_is_rendered(
-        TransferSafetyMode mode) noexcept
+    static bool
+    transfer_safety_mode_is_rendered(TransferSafetyMode mode) noexcept
     {
         return mode == TransferSafetyMode::RenderedImage;
     }
 
-    static TransferProfile apply_transfer_safety_profile(
-        const TransferProfile& profile) noexcept
+    static TransferProfile
+    apply_transfer_safety_profile(const TransferProfile& profile) noexcept
     {
         TransferProfile out = profile;
         if (!transfer_safety_mode_is_rendered(profile.safety)) {
@@ -8751,8 +8761,9 @@ namespace {
         return out;
     }
 
-    static bool is_exif_image_dependent_transfer_tag(
-        const TransferExifIfdRef& ifd_ref, uint16_t tag) noexcept
+    static bool
+    is_exif_image_dependent_transfer_tag(const TransferExifIfdRef& ifd_ref,
+                                         uint16_t tag) noexcept
     {
         if (ifd_ref.slot == ExifIfdSlot::Ifd0) {
             return is_root_tiff_image_layout_tag(tag);
@@ -8766,9 +8777,50 @@ namespace {
         return false;
     }
 
-    static bool is_exif_raw_color_calibration_transfer_tag(
-        const TransferExifIfdRef& /*ifd_ref*/, uint16_t tag) noexcept
+    static bool is_phaseone_raw_processing_transfer_tag(std::string_view ifd,
+                                                        uint16_t tag) noexcept
     {
+        if (ifd == "mk_phaseone_sensorcalibration_0") {
+            return true;
+        }
+        if (ifd != "mk_phaseone0") {
+            return false;
+        }
+        switch (tag) {
+        case 0x0100U:  // CameraOrientation
+        case 0x0106U:  // ColorMatrix1
+        case 0x0107U:  // WB_RGBLevels
+        case 0x0108U:  // SensorWidth
+        case 0x0109U:  // SensorHeight
+        case 0x010AU:  // SensorLeftMargin
+        case 0x010BU:  // SensorTopMargin
+        case 0x010CU:  // ImageWidth
+        case 0x010DU:  // ImageHeight
+        case 0x010EU:  // RawFormat
+        case 0x010FU:  // RawData
+        case 0x0110U:  // SensorCalibration
+        case 0x0210U:  // SensorTemperature
+        case 0x0211U:  // SensorTemperature2
+        case 0x021CU:  // StripOffsets
+        case 0x021DU:  // BlackLevel
+        case 0x0222U:  // SplitColumn
+        case 0x0223U:  // BlackLevelData
+        case 0x0225U:  // PhaseOne_0x0225
+        case 0x0226U:  // ColorMatrix2
+        case 0x022BU:  // PhaseOne_0x022b
+        case 0x0258U:  // PhaseOne_0x0258
+        case 0x025AU:  // PhaseOne_0x025a
+            return true;
+        default: return false;
+        }
+    }
+
+    static bool is_exif_raw_color_calibration_transfer_tag(std::string_view ifd,
+                                                           uint16_t tag) noexcept
+    {
+        if (is_phaseone_raw_processing_transfer_tag(ifd, tag)) {
+            return true;
+        }
         switch (tag) {
         case 0x012CU:  // ColorResponseUnit
         case 0x012DU:  // TransferFunction
@@ -8851,8 +8903,29 @@ namespace {
         return false;
     }
 
-    static std::string_view xmp_transfer_property_base(
-        std::string_view path) noexcept
+    static bool is_vendor_raw_processing_transfer_group(
+        VendorRawProcessingGroup groups) noexcept
+    {
+        return vendor_raw_processing_group_has(groups,
+                                               VendorRawProcessingGroup::Color)
+               || vendor_raw_processing_group_has(
+                   groups, VendorRawProcessingGroup::WhiteBalance)
+               || vendor_raw_processing_group_has(
+                   groups, VendorRawProcessingGroup::Geometry)
+               || vendor_raw_processing_group_has(
+                   groups, VendorRawProcessingGroup::Storage)
+               || vendor_raw_processing_group_has(
+                   groups, VendorRawProcessingGroup::LensCorrection)
+               || vendor_raw_processing_group_has(
+                   groups, VendorRawProcessingGroup::RawData)
+               || vendor_raw_processing_group_has(
+                   groups, VendorRawProcessingGroup::Sensor)
+               || vendor_raw_processing_group_has(
+                   groups, VendorRawProcessingGroup::PrivateTable);
+    }
+
+    static std::string_view
+    xmp_transfer_property_base(std::string_view path) noexcept
     {
         size_t end = path.size();
         for (size_t i = 0U; i < path.size(); ++i) {
@@ -8876,19 +8949,16 @@ namespace {
     {
         return name == "ImageWidth" || name == "ImageLength"
                || name == "ImageHeight" || name == "BitsPerSample"
-               || name == "Compression"
-               || name == "PhotometricInterpretation"
+               || name == "Compression" || name == "PhotometricInterpretation"
                || name == "Orientation" || name == "SamplesPerPixel"
-               || name == "RowsPerStrip"
-               || name == "PlanarConfiguration" || name == "Predictor"
-               || name == "TileWidth" || name == "TileLength"
-               || name == "TileOffsets" || name == "TileByteCounts"
-               || name == "StripOffsets" || name == "StripByteCounts"
-               || name == "FreeOffsets" || name == "FreeByteCounts"
-               || name == "ExtraSamples" || name == "SampleFormat"
-               || name == "YCbCrCoefficients"
-               || name == "YCbCrSubSampling"
-               || name == "YCbCrPositioning"
+               || name == "RowsPerStrip" || name == "PlanarConfiguration"
+               || name == "Predictor" || name == "TileWidth"
+               || name == "TileLength" || name == "TileOffsets"
+               || name == "TileByteCounts" || name == "StripOffsets"
+               || name == "StripByteCounts" || name == "FreeOffsets"
+               || name == "FreeByteCounts" || name == "ExtraSamples"
+               || name == "SampleFormat" || name == "YCbCrCoefficients"
+               || name == "YCbCrSubSampling" || name == "YCbCrPositioning"
                || name == "ReferenceBlackWhite"
                || name == "JPEGInterchangeFormat"
                || name == "JPEGInterchangeFormatLength";
@@ -8899,8 +8969,7 @@ namespace {
     {
         return name == "PixelXDimension" || name == "PixelYDimension"
                || name == "ExifImageWidth" || name == "ExifImageHeight"
-               || name == "RelatedImageWidth"
-               || name == "RelatedImageLength"
+               || name == "RelatedImageWidth" || name == "RelatedImageLength"
                || name == "ComponentsConfiguration"
                || name == "CompressedBitsPerPixel" || name == "ColorSpace"
                || name == "Gamma";
@@ -8920,8 +8989,9 @@ namespace {
                || name == "ColorMap" || name == "TransferRange";
     }
 
-    static bool is_xmp_image_dependent_transfer_property(
-        std::string_view ns, std::string_view path) noexcept
+    static bool
+    is_xmp_image_dependent_transfer_property(std::string_view ns,
+                                             std::string_view path) noexcept
     {
         const std::string_view name = xmp_transfer_property_base(path);
         if (name.empty()) {
@@ -8939,8 +9009,8 @@ namespace {
         return false;
     }
 
-    static bool is_xmp_camera_raw_settings_transfer_property(
-        std::string_view ns) noexcept
+    static bool
+    is_xmp_camera_raw_settings_transfer_property(std::string_view ns) noexcept
     {
         return ns == "http://ns.adobe.com/camera-raw-settings/1.0/";
     }
@@ -8958,8 +9028,9 @@ namespace {
         return false;
     }
 
-    static bool entry_is_image_dependent_for_target_transfer(
-        const MetaStore& store, const Entry& entry) noexcept
+    static bool
+    entry_is_image_dependent_for_target_transfer(const MetaStore& store,
+                                                 const Entry& entry) noexcept
     {
         if (any(entry.flags, EntryFlags::Deleted)) {
             return false;
@@ -8976,10 +9047,12 @@ namespace {
         }
 
         if (entry.key.kind == MetaKeyKind::XmpProperty) {
-            const std::string_view ns = arena_string(
-                store.arena(), entry.key.data.xmp_property.schema_ns);
-            const std::string_view path = arena_string(
-                store.arena(), entry.key.data.xmp_property.property_path);
+            const std::string_view ns
+                = arena_string(store.arena(),
+                               entry.key.data.xmp_property.schema_ns);
+            const std::string_view path
+                = arena_string(store.arena(),
+                               entry.key.data.xmp_property.property_path);
             return is_xmp_image_dependent_transfer_property(ns, path);
         }
 
@@ -8998,16 +9071,26 @@ namespace {
             if (!ifd_name_for_entry(store, entry, &ifd_name)) {
                 return false;
             }
-            const TransferExifIfdRef ifd_ref = classify_exif_ifd_ref(ifd_name);
-            return is_exif_raw_color_calibration_transfer_tag(
-                ifd_ref, entry.key.data.exif_tag.tag);
+            if (is_exif_raw_color_calibration_transfer_tag(
+                    ifd_name, entry.key.data.exif_tag.tag)) {
+                return true;
+            }
+            const std::string_view name
+                = exif_entry_name(store, entry,
+                                  ExifTagNamePolicy::ExifToolCompat);
+            const VendorRawProcessingGroup groups
+                = classify_vendor_raw_processing_field(
+                    ifd_name, name, entry.key.data.exif_tag.tag);
+            return is_vendor_raw_processing_transfer_group(groups);
         }
 
         if (entry.key.kind == MetaKeyKind::XmpProperty) {
-            const std::string_view ns = arena_string(
-                store.arena(), entry.key.data.xmp_property.schema_ns);
-            const std::string_view path = arena_string(
-                store.arena(), entry.key.data.xmp_property.property_path);
+            const std::string_view ns
+                = arena_string(store.arena(),
+                               entry.key.data.xmp_property.schema_ns);
+            const std::string_view path
+                = arena_string(store.arena(),
+                               entry.key.data.xmp_property.property_path);
             return is_xmp_raw_color_calibration_transfer_property(ns, path);
         }
 
@@ -9021,8 +9104,9 @@ namespace {
             || entry.key.kind != MetaKeyKind::XmpProperty) {
             return false;
         }
-        const std::string_view ns = arena_string(
-            store.arena(), entry.key.data.xmp_property.schema_ns);
+        const std::string_view ns
+            = arena_string(store.arena(),
+                           entry.key.data.xmp_property.schema_ns);
         return is_xmp_camera_raw_settings_transfer_property(ns);
     }
 
@@ -9054,17 +9138,15 @@ namespace {
                 continue;
             }
             if (entry_is_camera_raw_settings_for_rendered_transfer(store,
-                                                                  entry)) {
+                                                                   entry)) {
                 out_counts->camera_raw_settings += 1U;
             }
         }
     }
 
-    static bool build_target_safe_transfer_store(const MetaStore& src,
-                                                 TransferSafetyMode safety,
-                                                 MetaStore* dst,
-                                                 TransferSafetyFilterCounts*
-                                                     out_counts) noexcept
+    static bool build_target_safe_transfer_store(
+        const MetaStore& src, TransferSafetyMode safety, MetaStore* dst,
+        TransferSafetyFilterCounts* out_counts) noexcept
     {
         if (!dst) {
             return false;
@@ -9094,16 +9176,16 @@ namespace {
                 continue;
             }
             if (transfer_safety_mode_is_rendered(safety)
-                && entry_is_raw_color_calibration_for_rendered_transfer(
-                    src, entry)) {
+                && entry_is_raw_color_calibration_for_rendered_transfer(src,
+                                                                        entry)) {
                 if (out_counts) {
                     out_counts->raw_color_calibration += 1U;
                 }
                 continue;
             }
             if (transfer_safety_mode_is_rendered(safety)
-                && entry_is_camera_raw_settings_for_rendered_transfer(
-                    src, entry)) {
+                && entry_is_camera_raw_settings_for_rendered_transfer(src,
+                                                                      entry)) {
                 if (out_counts) {
                     out_counts->camera_raw_settings += 1U;
                 }
@@ -9111,11 +9193,11 @@ namespace {
             }
 
             Entry copied;
-            copied.key = copy_meta_key_for_store(entry.key, src.arena(),
-                                                 dst->arena());
-            copied.value = copy_meta_value_for_store(entry.value, src.arena(),
-                                                     dst->arena());
-            copied.origin                = entry.origin;
+            copied.key    = copy_meta_key_for_store(entry.key, src.arena(),
+                                                    dst->arena());
+            copied.value  = copy_meta_value_for_store(entry.value, src.arena(),
+                                                      dst->arena());
+            copied.origin = entry.origin;
             copied.origin.block          = entry.origin.block;
             copied.origin.order_in_block = entry.origin.order_in_block;
             if (entry.origin.block != kInvalidBlockId
@@ -9139,8 +9221,7 @@ namespace {
         const TransferTargetImageSpec& spec) noexcept
     {
         return spec.has_dimensions || spec.has_orientation
-               || spec.has_samples_per_pixel
-               || spec.bits_per_sample_count > 0U
+               || spec.has_samples_per_pixel || spec.bits_per_sample_count > 0U
                || spec.sample_format_count > 0U
                || spec.has_photometric_interpretation
                || spec.has_planar_configuration || spec.has_compression
@@ -9162,8 +9243,9 @@ namespace {
         return true;
     }
 
-    static bool validate_transfer_target_image_spec(
-        const TransferTargetImageSpec& spec, std::string* out_error) noexcept
+    static bool
+    validate_transfer_target_image_spec(const TransferTargetImageSpec& spec,
+                                        std::string* out_error) noexcept
     {
         if (out_error) {
             out_error->clear();
@@ -9227,8 +9309,7 @@ namespace {
                 return false;
             }
         }
-        if (spec.has_planar_configuration
-            && spec.planar_configuration != 1U
+        if (spec.has_planar_configuration && spec.planar_configuration != 1U
             && spec.planar_configuration != 2U) {
             if (out_error) {
                 *out_error = "target planar configuration must be 1 or 2";
@@ -9251,17 +9332,17 @@ namespace {
     }
 
     static bool append_target_spec_exif_entry(MetaStore* store, BlockId block,
-                                              uint32_t* order,
-                                              const char* ifd, uint16_t tag,
+                                              uint32_t* order, const char* ifd,
+                                              uint16_t tag,
                                               const MetaValue& value) noexcept
     {
         if (!store || !order || !ifd) {
             return false;
         }
         Entry entry;
-        entry.key = make_exif_tag_key(store->arena(), ifd, tag);
-        entry.value                 = value;
-        entry.origin.block          = block;
+        entry.key          = make_exif_tag_key(store->arena(), ifd, tag);
+        entry.value        = value;
+        entry.origin.block = block;
         entry.origin.order_in_block = *order;
         *order += 1U;
         return store->add_entry(entry) != kInvalidEntryId;
@@ -9317,9 +9398,10 @@ namespace {
             }
         }
 
-        const MetaValue value = make_u16_array(
-            store->arena(),
-            std::span<const uint16_t>(expanded.data(), expanded_count));
+        const MetaValue value
+            = make_u16_array(store->arena(),
+                             std::span<const uint16_t>(expanded.data(),
+                                                       expanded_count));
         return append_target_spec_exif_entry(store, block, order, ifd, tag,
                                              value);
     }
@@ -9343,12 +9425,10 @@ namespace {
                                              0x0100U, spec.width)
                 || !append_target_spec_exif_u32(store, block, &order, "ifd0",
                                                 0x0101U, spec.height)
-                || !append_target_spec_exif_u32(store, block, &order,
-                                                "exififd", 0xA002U,
-                                                spec.width)
-                || !append_target_spec_exif_u32(store, block, &order,
-                                                "exififd", 0xA003U,
-                                                spec.height)) {
+                || !append_target_spec_exif_u32(store, block, &order, "exififd",
+                                                0xA002U, spec.width)
+                || !append_target_spec_exif_u32(store, block, &order, "exififd",
+                                                0xA003U, spec.height)) {
                 return false;
             }
         }
@@ -9360,8 +9440,7 @@ namespace {
         }
         if (spec.has_samples_per_pixel
             && !append_target_spec_exif_u16(store, block, &order, "ifd0",
-                                            0x0115U,
-                                            spec.samples_per_pixel)) {
+                                            0x0115U, spec.samples_per_pixel)) {
             return false;
         }
 
@@ -9371,15 +9450,15 @@ namespace {
         }
         if (spec.bits_per_sample_count > 0U
             && !append_target_spec_exif_u16_values(
-                store, block, &order, "ifd0", 0x0102U,
-                spec.bits_per_sample, spec.bits_per_sample_count,
-                repeat_count)) {
+                store, block, &order, "ifd0", 0x0102U, spec.bits_per_sample,
+                spec.bits_per_sample_count, repeat_count)) {
             return false;
         }
         if (spec.sample_format_count > 0U
-            && !append_target_spec_exif_u16_values(
-                store, block, &order, "ifd0", 0x0153U,
-                spec.sample_format, spec.sample_format_count, repeat_count)) {
+            && !append_target_spec_exif_u16_values(store, block, &order, "ifd0",
+                                                   0x0153U, spec.sample_format,
+                                                   spec.sample_format_count,
+                                                   repeat_count)) {
             return false;
         }
 
@@ -9402,8 +9481,7 @@ namespace {
         }
         if (spec.has_exif_color_space
             && !append_target_spec_exif_u16(store, block, &order, "exififd",
-                                            0xA001U,
-                                            spec.exif_color_space)) {
+                                            0xA001U, spec.exif_color_space)) {
             return false;
         }
         return true;
@@ -9417,8 +9495,9 @@ namespace {
         }
     };
 
-    static void merge_preserved_standard_pointer_entries(
-        ParsedTiffIfd* dst, const ParsedTiffIfd& src) noexcept
+    static void
+    merge_preserved_standard_pointer_entries(ParsedTiffIfd* dst,
+                                             const ParsedTiffIfd& src) noexcept
     {
         if (!dst || !dst->present || !src.present) {
             return;
@@ -9439,8 +9518,7 @@ namespace {
         }
     }
 
-    static void
-    remove_target_local_tiff_storage_updates(
+    static void remove_target_local_tiff_storage_updates(
         std::vector<TiffTagUpdate>* updates) noexcept
     {
         if (!updates) {
@@ -9512,8 +9590,9 @@ namespace {
         }
     }
 
-    static void merge_preserved_exif_ifd_entries(
-        ParsedTiffIfd* dst, const ParsedTiffIfd& src) noexcept
+    static void
+    merge_preserved_exif_ifd_entries(ParsedTiffIfd* dst,
+                                     const ParsedTiffIfd& src) noexcept
     {
         if (!dst || !dst->present || !src.present) {
             return;
@@ -9572,7 +9651,7 @@ namespace {
         out->clear();
         out->reserve(static_cast<size_t>(e.count));
         for (size_t i = 0; i < static_cast<size_t>(e.count); ++i) {
-            const size_t off = i * 4U;
+            const size_t off  = i * 4U;
             const uint32_t b0 = static_cast<uint32_t>(
                 std::to_integer<uint8_t>(e.payload[off + 0U]));
             const uint32_t b1 = static_cast<uint32_t>(
@@ -9611,16 +9690,16 @@ namespace {
         if (e.type != 18U || e.payload.size() != 8U) {
             return false;
         }
-        *out = read_u64_tiff(
-            std::span<const std::byte>(e.payload.data(), e.payload.size()), 0U,
-            endian);
+        *out = read_u64_tiff(std::span<const std::byte>(e.payload.data(),
+                                                        e.payload.size()),
+                             0U, endian);
         return true;
     }
 
-    static bool
-    parse_classic_ifd_next_offset(std::span<const std::byte> tiff,
-                                  size_t ifd_off, TiffEndian endian,
-                                  uint32_t* out, std::string* err) noexcept
+    static bool parse_classic_ifd_next_offset(std::span<const std::byte> tiff,
+                                              size_t ifd_off, TiffEndian endian,
+                                              uint32_t* out,
+                                              std::string* err) noexcept
     {
         if (!out || ifd_off + 2U > tiff.size()) {
             if (err) {
@@ -9628,10 +9707,10 @@ namespace {
             }
             return false;
         }
-        const uint16_t count = read_u16_tiff(tiff, ifd_off, endian);
+        const uint16_t count           = read_u16_tiff(tiff, ifd_off, endian);
         const uint64_t entries_off_u64 = static_cast<uint64_t>(ifd_off) + 2U;
-        const uint64_t bytes_u64
-            = static_cast<uint64_t>(count) * static_cast<uint64_t>(12U);
+        const uint64_t bytes_u64       = static_cast<uint64_t>(count)
+                                   * static_cast<uint64_t>(12U);
         const uint64_t next_off_u64 = entries_off_u64 + bytes_u64;
         if (next_off_u64 < entries_off_u64 || next_off_u64 + 4U > tiff.size()) {
             if (err) {
@@ -9653,9 +9732,9 @@ namespace {
         }
         out->ifd0_updates.clear();
         out->page_ifds.clear();
-        out->exif_ifd      = ParsedTiffIfd {};
-        out->gps_ifd       = ParsedTiffIfd {};
-        out->interop_ifd   = ParsedTiffIfd {};
+        out->exif_ifd    = ParsedTiffIfd {};
+        out->gps_ifd     = ParsedTiffIfd {};
+        out->interop_ifd = ParsedTiffIfd {};
         out->subifds.clear();
         out->source_endian = TiffEndian::Little;
 
@@ -9710,12 +9789,11 @@ namespace {
         }
 
         uint32_t first_page_ifd_off = 0U;
-        uint32_t exif_ifd_off = 0U;
-        uint32_t gps_ifd_off  = 0U;
+        uint32_t exif_ifd_off       = 0U;
+        uint32_t gps_ifd_off        = 0U;
         std::vector<uint32_t> subifd_offsets;
         if (!parse_classic_ifd_next_offset(tiff, ifd0_off, endian,
-                                           &first_page_ifd_off,
-                                           err)) {
+                                           &first_page_ifd_off, err)) {
             return false;
         }
         for (size_t i = 0; i < ifd0.entries.size(); ++i) {
@@ -9731,8 +9809,8 @@ namespace {
                 continue;
             }
             TiffTagUpdate u;
-            u.tag     = e.tag;
-            u.type    = e.type;
+            u.tag  = e.tag;
+            u.type = e.type;
             if (e.count > static_cast<uint64_t>(0xFFFFFFFFU)) {
                 if (err) {
                     *err = "exif app1 count exceeds classic 32-bit range";
@@ -9820,9 +9898,10 @@ namespace {
         return true;
     }
 
-    static bool build_tiff_exif_payload_from_app1(
-        std::span<const std::byte> exif_app1,
-        std::vector<std::byte>* out_payload, std::string* err) noexcept
+    static bool
+    build_tiff_exif_payload_from_app1(std::span<const std::byte> exif_app1,
+                                      std::vector<std::byte>* out_payload,
+                                      std::string* err) noexcept
     {
         if (!out_payload) {
             if (err) {
@@ -9851,8 +9930,9 @@ namespace {
         return !out_payload->empty();
     }
 
-    static bool adjust_exif_time_patch_slot_for_target(
-        TransferTargetFormat target_format, TimePatchSlot* slot) noexcept
+    static bool
+    adjust_exif_time_patch_slot_for_target(TransferTargetFormat target_format,
+                                           TimePatchSlot* slot) noexcept
     {
         if (!slot) {
             return false;
@@ -9877,9 +9957,9 @@ namespace {
         return true;
     }
 
-    static bool build_png_xmp_itxt_payload(
-        std::span<const std::byte> xmp_packet,
-        std::vector<std::byte>* out_payload) noexcept
+    static bool
+    build_png_xmp_itxt_payload(std::span<const std::byte> xmp_packet,
+                               std::vector<std::byte>* out_payload) noexcept
     {
         if (!out_payload) {
             return false;
@@ -9889,8 +9969,7 @@ namespace {
         out_payload->reserve(sizeof(kPngXmpKeyword) - 1U + 5U
                              + xmp_packet.size());
         for (size_t i = 0; i + 1U < sizeof(kPngXmpKeyword); ++i) {
-            out_payload->push_back(
-                static_cast<std::byte>(kPngXmpKeyword[i]));
+            out_payload->push_back(static_cast<std::byte>(kPngXmpKeyword[i]));
         }
         out_payload->push_back(std::byte { 0x00 });
         out_payload->push_back(std::byte { 0x00 });
@@ -9902,9 +9981,9 @@ namespace {
         return true;
     }
 
-    static bool build_png_iccp_payload(
-        std::span<const std::byte> icc_profile,
-        std::vector<std::byte>* out_payload, std::string* err) noexcept
+    static bool build_png_iccp_payload(std::span<const std::byte> icc_profile,
+                                       std::vector<std::byte>* out_payload,
+                                       std::string* err) noexcept
     {
         if (!out_payload) {
             if (err) {
@@ -9918,10 +9997,10 @@ namespace {
         const uLongf cap     = compressBound(src_size);
         std::vector<std::byte> compressed(static_cast<size_t>(cap));
         uLongf actual = cap;
-        const int zr  = compress2(
-            reinterpret_cast<Bytef*>(compressed.data()), &actual,
-            reinterpret_cast<const Bytef*>(icc_profile.data()), src_size,
-            Z_BEST_COMPRESSION);
+        const int zr
+            = compress2(reinterpret_cast<Bytef*>(compressed.data()), &actual,
+                        reinterpret_cast<const Bytef*>(icc_profile.data()),
+                        src_size, Z_BEST_COMPRESSION);
         if (zr != Z_OK) {
             if (err) {
                 *err = "png iccp zlib compression failed";
@@ -9950,9 +10029,10 @@ namespace {
 #endif
     }
 
-    static bool build_jp2_colr_icc_payload(
-        std::span<const std::byte> icc_profile,
-        std::vector<std::byte>* out_payload, std::string* err) noexcept
+    static bool
+    build_jp2_colr_icc_payload(std::span<const std::byte> icc_profile,
+                               std::vector<std::byte>* out_payload,
+                               std::string* err) noexcept
     {
         if (!out_payload) {
             if (err) {
@@ -10079,8 +10159,9 @@ namespace {
         out_ranges->clear();
 
         std::array<ContainerBlockRef, 64> blocks {};
-        const ScanResult scan = scan_tiff(
-            input, std::span<ContainerBlockRef>(blocks.data(), blocks.size()));
+        const ScanResult scan
+            = scan_tiff(input, std::span<ContainerBlockRef>(blocks.data(),
+                                                            blocks.size()));
         if (scan.status != ScanStatus::Ok) {
             return false;
         }
@@ -10094,9 +10175,8 @@ namespace {
                 continue;
             }
             if (block.data_offset > static_cast<uint64_t>(input.size())
-                || block.data_size
-                       > (static_cast<uint64_t>(input.size())
-                          - block.data_offset)) {
+                || block.data_size > (static_cast<uint64_t>(input.size())
+                                      - block.data_offset)) {
                 continue;
             }
             TiffPayloadRange range;
@@ -10107,9 +10187,9 @@ namespace {
         return true;
     }
 
-    static void scrub_tiff_payload_ranges(std::vector<std::byte>* bytes,
-                                          const std::vector<TiffPayloadRange>&
-                                              ranges) noexcept
+    static void scrub_tiff_payload_ranges(
+        std::vector<std::byte>* bytes,
+        const std::vector<TiffPayloadRange>& ranges) noexcept
     {
         if (!bytes) {
             return;
@@ -10120,19 +10200,65 @@ namespace {
                 || range.size > (bytes->size() - range.offset)) {
                 continue;
             }
-            std::fill(bytes->begin() + static_cast<std::ptrdiff_t>(range.offset),
-                      bytes->begin()
-                          + static_cast<std::ptrdiff_t>(range.offset
-                                                        + range.size),
-                      std::byte { 0x00 });
+            std::fill(
+                bytes->begin() + static_cast<std::ptrdiff_t>(range.offset),
+                bytes->begin()
+                    + static_cast<std::ptrdiff_t>(range.offset + range.size),
+                std::byte { 0x00 });
         }
     }
 
+    static bool append_tiff_source_with_replacements(
+        PreparedTransferPackagePlan* plan, uint64_t input_size,
+        std::vector<TiffPackageReplacement>* replacements,
+        std::string* err) noexcept
+    {
+        if (!plan || !replacements) {
+            if (err) {
+                *err = "tiff package replacement output is null";
+            }
+            return false;
+        }
+
+        std::sort(replacements->begin(), replacements->end(),
+                  TiffPackageReplacementLess {});
+
+        uint64_t cursor = 0U;
+        for (size_t i = 0; i < replacements->size(); ++i) {
+            TiffPackageReplacement& repl = (*replacements)[i];
+            if (repl.bytes.empty()) {
+                continue;
+            }
+            const uint64_t repl_size = static_cast<uint64_t>(
+                repl.bytes.size());
+            if (repl.offset > input_size
+                || repl_size > input_size - repl.offset) {
+                if (err) {
+                    *err = "tiff package replacement range out of bounds";
+                }
+                return false;
+            }
+            if (repl.offset < cursor) {
+                if (err) {
+                    *err = "tiff package replacement ranges overlap";
+                }
+                return false;
+            }
+            append_package_source_chunk(plan, cursor, repl.offset - cursor);
+            append_package_inline_chunk(
+                plan,
+                std::span<const std::byte>(repl.bytes.data(),
+                                           repl.bytes.size()));
+            cursor = repl.offset + repl_size;
+        }
+
+        append_package_source_chunk(plan, cursor, input_size - cursor);
+        return true;
+    }
+
     static bool upsert_ifd_pointer(ParsedTiffIfd* ifd, uint16_t tag,
-                                   uint64_t value,
-                                   const TiffLayout& layout,
-                                   TiffEndian endian,
-                                   std::string* err) noexcept
+                                   uint64_t value, const TiffLayout& layout,
+                                   TiffEndian endian, std::string* err) noexcept
     {
         if (!ifd) {
             return false;
@@ -10168,8 +10294,7 @@ namespace {
     }
 
     static bool align_tiff_tail(std::vector<std::byte>* tail,
-                                uint64_t base_offset,
-                                const TiffLayout& layout,
+                                uint64_t base_offset, const TiffLayout& layout,
                                 std::string* err) noexcept
     {
         if (!tail) {
@@ -10183,8 +10308,7 @@ namespace {
             }
             return false;
         }
-        if (!layout.bigtiff
-            && abs_size > static_cast<uint64_t>(0xFFFFFFFFU)) {
+        if (!layout.bigtiff && abs_size > static_cast<uint64_t>(0xFFFFFFFFU)) {
             if (err) {
                 *err = "tiff output exceeds classic 32-bit offset range";
             }
@@ -10265,8 +10389,7 @@ namespace {
             cursor += static_cast<uint64_t>(e.payload.size());
         }
 
-        if (!layout.bigtiff
-            && cursor > static_cast<uint64_t>(0xFFFFFFFFU)) {
+        if (!layout.bigtiff && cursor > static_cast<uint64_t>(0xFFFFFFFFU)) {
             if (err) {
                 *err = "tiff output exceeds classic 32-bit offset range";
             }
@@ -10305,8 +10428,7 @@ namespace {
                 return false;
             }
             if (placements[i].inline_value) {
-                const size_t inline_off = layout.bigtiff ? (p + 12U)
-                                                         : (p + 8U);
+                const size_t inline_off = layout.bigtiff ? (p + 12U) : (p + 8U);
                 for (size_t bi = 0; bi < layout.inline_value_bytes; ++bi) {
                     (*out)[inline_off + bi] = placements[i].inline_bytes[bi];
                 }
@@ -10314,8 +10436,8 @@ namespace {
                 const size_t value_off_field = layout.bigtiff ? (p + 12U)
                                                               : (p + 8U);
                 if (!write_tiff_offset_field(out, value_off_field,
-                                             placements[i].value_offset,
-                                             layout, endian, err)) {
+                                             placements[i].value_offset, layout,
+                                             endian, err)) {
                     return false;
                 }
             }
@@ -10400,12 +10522,12 @@ namespace {
             }
             return false;
         }
-        const size_t count = static_cast<size_t>(count_u64);
+        const size_t count             = static_cast<size_t>(count_u64);
         const uint64_t entries_off_u64 = ifd0_off_u64 + layout.ifd_count_size;
-        const uint64_t table_bytes = count_u64 * layout.ifd_entry_size;
+        const uint64_t table_bytes     = count_u64 * layout.ifd_entry_size;
         const uint64_t entries_end_u64 = entries_off_u64 + table_bytes;
-        const uint64_t next_field_end_u64
-            = entries_end_u64 + layout.ifd_next_offset_size;
+        const uint64_t next_field_end_u64 = entries_end_u64
+                                            + layout.ifd_next_offset_size;
         if (entries_end_u64 < entries_off_u64
             || next_field_end_u64 < entries_end_u64
             || next_field_end_u64 > static_cast<uint64_t>(input.size())) {
@@ -10415,17 +10537,12 @@ namespace {
             return false;
         }
         const size_t entries_off = static_cast<size_t>(entries_off_u64);
-        const uint64_t next_ifd_off = layout.bigtiff
-                                          ? read_u64_tiff(
-                                                input,
-                                                static_cast<size_t>(
-                                                    entries_end_u64),
-                                                endian)
-                                          : static_cast<uint64_t>(read_u32_tiff(
-                                                input,
-                                                static_cast<size_t>(
-                                                    entries_end_u64),
-                                                endian));
+        const uint64_t next_ifd_off
+            = layout.bigtiff
+                  ? read_u64_tiff(input, static_cast<size_t>(entries_end_u64),
+                                  endian)
+                  : static_cast<uint64_t>(read_u32_tiff(
+                        input, static_cast<size_t>(entries_end_u64), endian));
 
         ParsedTransferExif parsed_exif;
         if (!exif_app1_payload.empty()
@@ -10463,16 +10580,17 @@ namespace {
             }
         }
 
-        const bool strip_existing_xmp = has_remove_for_tag(merged_updates, 700U);
-        bool need_exif_ptr = parsed_exif.exif_ifd.present;
-        bool need_gps_ptr  = parsed_exif.gps_ifd.present;
-        const bool need_subifd_ptr = !parsed_exif.subifds.empty();
-        const bool inspect_existing_exif_ifd
-            = need_exif_ptr || strip_existing_xmp;
-        const bool inspect_existing_gps_ifd
-            = need_gps_ptr || strip_existing_xmp;
-        const bool inspect_existing_subifds
-            = need_subifd_ptr || strip_existing_xmp;
+        const bool strip_existing_xmp = has_remove_for_tag(merged_updates,
+                                                           700U);
+        bool need_exif_ptr            = parsed_exif.exif_ifd.present;
+        bool need_gps_ptr             = parsed_exif.gps_ifd.present;
+        const bool need_subifd_ptr    = !parsed_exif.subifds.empty();
+        const bool inspect_existing_exif_ifd = need_exif_ptr
+                                               || strip_existing_xmp;
+        const bool inspect_existing_gps_ifd = need_gps_ptr
+                                              || strip_existing_xmp;
+        const bool inspect_existing_subifds = need_subifd_ptr
+                                              || strip_existing_xmp;
         uint64_t existing_exif_ifd_off = 0U;
         uint64_t existing_gps_ifd_off  = 0U;
         std::vector<uint64_t> existing_subifd_offsets;
@@ -10483,12 +10601,12 @@ namespace {
         for (size_t i = 0; i < count; ++i) {
             const size_t p = entries_off
                              + i * static_cast<size_t>(layout.ifd_entry_size);
-            const uint16_t tag = read_u16_tiff(input, p + 0U, endian);
-            const uint16_t type = read_u16_tiff(input, p + 2U, endian);
-            uint64_t count_value = 0U;
+            const uint16_t tag    = read_u16_tiff(input, p + 0U, endian);
+            const uint16_t type   = read_u16_tiff(input, p + 2U, endian);
+            uint64_t count_value  = 0U;
             uint64_t value_or_off = 0U;
             if (!layout.bigtiff) {
-                count_value  = static_cast<uint64_t>(
+                count_value = static_cast<uint64_t>(
                     read_u32_tiff(input, p + 4U, endian));
                 value_or_off = static_cast<uint64_t>(
                     read_u32_tiff(input, p + 8U, endian));
@@ -10500,15 +10618,13 @@ namespace {
                 && (type == 4U || type == 13U || type == 18U)) {
                 existing_exif_ifd_off = value_or_off;
             }
-            if (inspect_existing_gps_ifd && tag == 0x8825U
-                && count_value == 1U
+            if (inspect_existing_gps_ifd && tag == 0x8825U && count_value == 1U
                 && (type == 4U || type == 13U || type == 18U)) {
                 existing_gps_ifd_off = value_or_off;
             }
             if (inspect_existing_subifds && tag == 0x014AU
                 && !parse_tiff_offset_array_entry(input, type, count_value,
-                                                  value_or_off, endian,
-                                                  layout,
+                                                  value_or_off, endian, layout,
                                                   &existing_subifd_offsets,
                                                   err)) {
                 return false;
@@ -10543,10 +10659,9 @@ namespace {
                     if (payload_to_tiff_offset(interop_ptr, endian, layout,
                                                &existing_interop_ifd_off)
                         && existing_interop_ifd_off != 0U) {
-                        if (!parse_target_tiff_ifd(input, existing_interop_ifd_off,
-                                                   endian, layout,
-                                                   &existing_interop_ifd,
-                                                   err)) {
+                        if (!parse_target_tiff_ifd(
+                                input, existing_interop_ifd_off, endian, layout,
+                                &existing_interop_ifd, err)) {
                             return false;
                         }
                         have_existing_interop_ifd = true;
@@ -10565,11 +10680,12 @@ namespace {
                         || removed_existing_interop_xmp) {
                         parsed_exif.exif_ifd = std::move(existing_exif_ifd);
                         if (have_existing_interop_ifd) {
-                            parsed_exif.interop_ifd
-                                = std::move(existing_interop_ifd);
+                            parsed_exif.interop_ifd = std::move(
+                                existing_interop_ifd);
                         }
                         need_exif_ptr = true;
-                        (void)remove_tiff_ifd_entry_tag(&final_entries, 0x8769U);
+                        (void)remove_tiff_ifd_entry_tag(&final_entries,
+                                                        0x8769U);
                     }
                 } else if (!parsed_exif.interop_ifd.present
                            && removed_existing_interop_xmp) {
@@ -10585,7 +10701,7 @@ namespace {
                 }
                 if (remove_ifd_entry_tag(&existing_gps_ifd, 700U)) {
                     parsed_exif.gps_ifd = std::move(existing_gps_ifd);
-                    need_gps_ptr = true;
+                    need_gps_ptr        = true;
                     (void)remove_tiff_ifd_entry_tag(&final_entries, 0x8825U);
                 }
             }
@@ -10627,9 +10743,9 @@ namespace {
             e.type                = layout.bigtiff ? 18U : 4U;
             e.count               = 1U;
             e.has_rewrite_payload = true;
-            e.rewrite_payload.resize(
-                static_cast<size_t>(layout.bigtiff ? 8U : 4U),
-                std::byte { 0x00 });
+            e.rewrite_payload.resize(static_cast<size_t>(layout.bigtiff ? 8U
+                                                                        : 4U),
+                                     std::byte { 0x00 });
             final_entries.push_back(std::move(e));
         }
         if (need_gps_ptr) {
@@ -10638,9 +10754,9 @@ namespace {
             e.type                = layout.bigtiff ? 18U : 4U;
             e.count               = 1U;
             e.has_rewrite_payload = true;
-            e.rewrite_payload.resize(
-                static_cast<size_t>(layout.bigtiff ? 8U : 4U),
-                std::byte { 0x00 });
+            e.rewrite_payload.resize(static_cast<size_t>(layout.bigtiff ? 8U
+                                                                        : 4U),
+                                     std::byte { 0x00 });
             final_entries.push_back(std::move(e));
         }
         if (need_subifd_ptr) {
@@ -10668,9 +10784,8 @@ namespace {
             if (e.rewrite_payload.size() <= layout.inline_value_bytes) {
                 e.has_inline_payload = true;
                 e.inline_payload     = {
-                    std::byte { 0x00 }, std::byte { 0x00 },
-                    std::byte { 0x00 }, std::byte { 0x00 },
-                    std::byte { 0x00 }, std::byte { 0x00 },
+                    std::byte { 0x00 }, std::byte { 0x00 }, std::byte { 0x00 },
+                    std::byte { 0x00 }, std::byte { 0x00 }, std::byte { 0x00 },
                     std::byte { 0x00 }, std::byte { 0x00 },
                 };
                 for (size_t bi = 0; bi < e.rewrite_payload.size(); ++bi) {
@@ -10729,16 +10844,15 @@ namespace {
         std::vector<uint64_t> existing_subifd_tail_next_offsets;
         if ((need_subifd_ptr || strip_existing_xmp)
             && !existing_subifd_offsets.empty()) {
-            existing_subifd_tail_next_offsets.resize(existing_subifd_offsets.size(),
-                                                     0U);
+            existing_subifd_tail_next_offsets.resize(
+                existing_subifd_offsets.size(), 0U);
             for (size_t i = 0; i < existing_subifd_offsets.size(); ++i) {
                 if (existing_subifd_offsets[i] == 0U) {
                     continue;
                 }
-                if (!parse_tiff_ifd_next_offset(input, existing_subifd_offsets[i],
-                                                endian, layout,
-                                                &existing_subifd_tail_next_offsets[i],
-                                                err)) {
+                if (!parse_tiff_ifd_next_offset(
+                        input, existing_subifd_offsets[i], endian, layout,
+                        &existing_subifd_tail_next_offsets[i], err)) {
                     return false;
                 }
             }
@@ -10755,8 +10869,8 @@ namespace {
                 }
                 ParsedTiffIfd existing_page_ifd;
                 if (!parse_target_tiff_ifd(input, existing_page_offsets[i],
-                                           endian, layout,
-                                           &existing_page_ifd, err)) {
+                                           endian, layout, &existing_page_ifd,
+                                           err)) {
                     return false;
                 }
                 preserve_target_local_tiff_storage_entries(
@@ -10771,7 +10885,8 @@ namespace {
             }
             if (existing_page_offsets.size() > parsed_exif.page_ifds.size()) {
                 preserved_existing_page_ifds.reserve(
-                    existing_page_offsets.size() - parsed_exif.page_ifds.size());
+                    existing_page_offsets.size()
+                    - parsed_exif.page_ifds.size());
                 for (size_t i = parsed_exif.page_ifds.size();
                      i < existing_page_offsets.size(); ++i) {
                     ParsedTiffIfd page_ifd;
@@ -10802,8 +10917,8 @@ namespace {
                 stripped_existing_page_ifds.push_back(std::move(page_ifd));
             }
             if (removed_existing_page_xmp) {
-                preserved_existing_page_ifds
-                    = std::move(stripped_existing_page_ifds);
+                preserved_existing_page_ifds = std::move(
+                    stripped_existing_page_ifds);
             }
         }
         if (strip_existing_xmp) {
@@ -10823,14 +10938,14 @@ namespace {
                 }
                 ParsedTiffIfd existing_subifd;
                 if (!parse_target_tiff_ifd(input, existing_subifd_offsets[i],
-                                           endian, layout,
-                                           &existing_subifd, err)) {
+                                           endian, layout, &existing_subifd,
+                                           err)) {
                     return false;
                 }
                 preserve_target_local_tiff_storage_entries(
                     &parsed_exif.subifds[i], existing_subifd);
-                merge_preserved_standard_pointer_entries(
-                    &parsed_exif.subifds[i], existing_subifd);
+                merge_preserved_standard_pointer_entries(&parsed_exif.subifds[i],
+                                                         existing_subifd);
             }
             for (size_t i = overlap_count; i < parsed_exif.subifds.size();
                  ++i) {
@@ -10839,14 +10954,16 @@ namespace {
             }
             if (existing_subifd_offsets.size() > parsed_exif.subifds.size()) {
                 preserved_existing_subifds.reserve(
-                    existing_subifd_offsets.size() - parsed_exif.subifds.size());
+                    existing_subifd_offsets.size()
+                    - parsed_exif.subifds.size());
                 for (size_t i = parsed_exif.subifds.size();
                      i < existing_subifd_offsets.size(); ++i) {
                     if (existing_subifd_offsets[i] == 0U) {
                         continue;
                     }
                     ParsedTiffIfd subifd;
-                    if (!parse_target_tiff_ifd(input, existing_subifd_offsets[i],
+                    if (!parse_target_tiff_ifd(input,
+                                               existing_subifd_offsets[i],
                                                endian, layout, &subifd, err)) {
                         return false;
                     }
@@ -10875,8 +10992,8 @@ namespace {
                 stripped_existing_subifds.push_back(std::move(subifd));
             }
             if (removed_existing_subifd_xmp) {
-                preserved_existing_subifds
-                    = std::move(stripped_existing_subifds);
+                preserved_existing_subifds = std::move(
+                    stripped_existing_subifds);
             }
         }
         if (strip_existing_xmp) {
@@ -10936,11 +11053,12 @@ namespace {
         }
 
         std::vector<uint64_t> subifd_offsets;
-        if (!parsed_exif.subifds.empty() || !preserved_existing_subifds.empty()) {
+        if (!parsed_exif.subifds.empty()
+            || !preserved_existing_subifds.empty()) {
             subifd_offsets.reserve(parsed_exif.subifds.size()
                                    + preserved_existing_subifds.size());
             for (size_t i = 0; i < parsed_exif.subifds.size(); ++i) {
-                uint64_t subifd_off = 0U;
+                uint64_t subifd_off  = 0U;
                 ParsedTiffIfd subifd = parsed_exif.subifds[i];
                 if (subifd.next_ifd_off == 0U
                     && i < existing_subifd_tail_next_offsets.size()) {
@@ -10981,9 +11099,8 @@ namespace {
                 ParsedTiffIfd page_ifd = page_chain[i - 1U];
                 page_ifd.next_ifd_off  = next_page_off;
                 uint64_t page_ifd_off  = 0U;
-                if (!append_serialized_ifd(&tail, base_offset, page_ifd,
-                                           endian, layout, &page_ifd_off,
-                                           err)) {
+                if (!append_serialized_ifd(&tail, base_offset, page_ifd, endian,
+                                           layout, &page_ifd_off, err)) {
                     return false;
                 }
                 next_page_off = page_ifd_off;
@@ -11009,9 +11126,8 @@ namespace {
                     e.type               = layout.bigtiff ? 18U : 4U;
                     e.count              = 1U;
                     e.has_inline_payload = true;
-                    if (!write_tiff_inline_bytes(&e.inline_payload,
-                                                 gps_ifd_off, layout, endian,
-                                                 err)) {
+                    if (!write_tiff_inline_bytes(&e.inline_payload, gps_ifd_off,
+                                                 layout, endian, err)) {
                         return false;
                     }
                 }
@@ -11039,12 +11155,11 @@ namespace {
                 }
                 const uint64_t array_off = base_offset
                                            + static_cast<uint64_t>(tail.size());
-                const size_t elem_bytes
-                    = static_cast<size_t>(layout.bigtiff ? 8U : 4U);
+                const size_t elem_bytes = static_cast<size_t>(
+                    layout.bigtiff ? 8U : 4U);
                 const size_t payload_bytes = subifd_offsets.size() * elem_bytes;
                 const size_t write_off     = tail.size();
-                tail.resize(tail.size() + payload_bytes,
-                            std::byte { 0x00 });
+                tail.resize(tail.size() + payload_bytes, std::byte { 0x00 });
                 for (size_t j = 0; j < subifd_offsets.size(); ++j) {
                     if (!write_tiff_offset_field(&tail,
                                                  write_off + j * elem_bytes,
@@ -11081,17 +11196,18 @@ namespace {
         }
         const size_t ifd_bytes = static_cast<size_t>(
             layout.ifd_count_size
-            + static_cast<uint64_t>(final_entries.size()) * layout.ifd_entry_size
+            + static_cast<uint64_t>(final_entries.size())
+                  * layout.ifd_entry_size
             + layout.ifd_next_offset_size);
         const size_t local_ifd_off = tail.size();
         tail.resize(tail.size() + ifd_bytes, std::byte { 0x00 });
         size_t w = local_ifd_off;
         if (!layout.bigtiff) {
-            write_u16_tiff(&tail, w, static_cast<uint16_t>(final_entries.size()),
-                           endian);
+            write_u16_tiff(&tail, w,
+                           static_cast<uint16_t>(final_entries.size()), endian);
         } else {
-            write_u64_tiff(&tail, w, static_cast<uint64_t>(final_entries.size()),
-                           endian);
+            write_u64_tiff(&tail, w,
+                           static_cast<uint64_t>(final_entries.size()), endian);
         }
         w += static_cast<size_t>(layout.ifd_count_size);
         for (size_t i = 0; i < final_entries.size(); ++i) {
@@ -11103,8 +11219,7 @@ namespace {
                 return false;
             }
             if (e.has_inline_payload) {
-                const size_t inline_off = layout.bigtiff ? (w + 12U)
-                                                         : (w + 8U);
+                const size_t inline_off = layout.bigtiff ? (w + 12U) : (w + 8U);
                 for (size_t k = 0; k < layout.inline_value_bytes; ++k) {
                     tail[inline_off + k] = e.inline_payload[k];
                 }
@@ -11119,8 +11234,9 @@ namespace {
             }
             w += static_cast<size_t>(layout.ifd_entry_size);
         }
-        const uint64_t rewritten_next_ifd_off
-            = first_page_ifd_off != 0U ? first_page_ifd_off : next_ifd_off;
+        const uint64_t rewritten_next_ifd_off = first_page_ifd_off != 0U
+                                                    ? first_page_ifd_off
+                                                    : next_ifd_off;
         if (!write_tiff_offset_field(&tail, w, rewritten_next_ifd_off, layout,
                                      endian, err)) {
             return false;
@@ -11148,7 +11264,7 @@ namespace {
         }
 
         out->assign(input.begin(), input.end());
-        if (has_remove_for_tag(updates, 700U)) {
+        if (has_update_for_tag(updates, 700U)) {
             std::vector<TiffPayloadRange> ranges;
             if (collect_reachable_tiff_xmp_payload_ranges(input, &ranges)) {
                 scrub_tiff_payload_ranges(out, ranges);
@@ -11189,8 +11305,7 @@ namespace {
                || mode == DngTargetMode::TemplateTarget;
     }
 
-    static const char*
-    dng_target_mode_requires_existing_target_message(
+    static const char* dng_target_mode_requires_existing_target_message(
         DngTargetMode mode, bool allow_target_bytes) noexcept
     {
         switch (mode) {
@@ -11229,11 +11344,11 @@ prepare_metadata_for_target_impl(const MetaStore& store,
     }
 
     PreparedTransferBundle bundle;
-    bundle.target_format = request.target_format;
-    bundle.dng_target_mode = request.dng_target_mode;
+    bundle.target_format                    = request.target_format;
+    bundle.dng_target_mode                  = request.dng_target_mode;
     const TransferProfile requested_profile = request.profile;
-    const TransferProfile effective_profile
-        = apply_transfer_safety_profile(request.profile);
+    const TransferProfile effective_profile = apply_transfer_safety_profile(
+        request.profile);
     bundle.profile = effective_profile;
 
     if (request.target_format != TransferTargetFormat::Jpeg
@@ -11256,20 +11371,19 @@ prepare_metadata_for_target_impl(const MetaStore& store,
     std::string target_spec_error;
     if (!validate_transfer_target_image_spec(request.target_image_spec,
                                              &target_spec_error)) {
-        r.status = TransferStatus::InvalidArgument;
-        r.code   = PrepareTransferCode::RequestedMetadataNotSerializable;
-        r.errors = 1U;
-        r.message = target_spec_error.empty()
-                        ? "target image spec is invalid"
-                        : target_spec_error;
+        r.status    = TransferStatus::InvalidArgument;
+        r.code      = PrepareTransferCode::RequestedMetadataNotSerializable;
+        r.errors    = 1U;
+        r.message   = target_spec_error.empty() ? "target image spec is invalid"
+                                                : target_spec_error;
         *out_bundle = std::move(bundle);
         return r;
     }
 
     MetaStore target_safe_store;
     const MetaStore* prepared_store_ptr = &store;
-    const bool has_target_image_spec
-        = transfer_target_image_spec_has_any(request.target_image_spec);
+    const bool has_target_image_spec    = transfer_target_image_spec_has_any(
+        request.target_image_spec);
     TransferSafetyFilterCounts filter_counts;
     count_transfer_safety_filter_entries(store, effective_profile.safety,
                                          &filter_counts);
@@ -11280,19 +11394,19 @@ prepare_metadata_for_target_impl(const MetaStore& store,
         if (!build_target_safe_transfer_store(store, effective_profile.safety,
                                               &target_safe_store,
                                               &built_filter_counts)) {
-            r.status  = TransferStatus::LimitExceeded;
-            r.code    = PrepareTransferCode::RequestedMetadataNotSerializable;
-            r.errors  = 1U;
-            r.message = "target-safe transfer metadata store build failed";
+            r.status    = TransferStatus::LimitExceeded;
+            r.code      = PrepareTransferCode::RequestedMetadataNotSerializable;
+            r.errors    = 1U;
+            r.message   = "target-safe transfer metadata store build failed";
             *out_bundle = std::move(bundle);
             return r;
         }
         if (!append_transfer_target_image_spec(&target_safe_store,
                                                request.target_image_spec)) {
-            r.status  = TransferStatus::LimitExceeded;
-            r.code    = PrepareTransferCode::RequestedMetadataNotSerializable;
-            r.errors  = 1U;
-            r.message = "target image spec metadata injection failed";
+            r.status    = TransferStatus::LimitExceeded;
+            r.code      = PrepareTransferCode::RequestedMetadataNotSerializable;
+            r.errors    = 1U;
+            r.message   = "target image spec metadata injection failed";
             *out_bundle = std::move(bundle);
             return r;
         }
@@ -11329,22 +11443,20 @@ prepare_metadata_for_target_impl(const MetaStore& store,
             "rendered-image safety mode drops source camera raw settings XMP");
     }
 
-    const uint32_t exif_entry_count = count_kind_entries(
-        prepared_store, MetaKeyKind::ExifTag);
-    const uint32_t iptc_dataset_count = count_kind_entries(
-        prepared_store, MetaKeyKind::IptcDataset);
+    const uint32_t exif_entry_count = count_kind_entries(prepared_store,
+                                                         MetaKeyKind::ExifTag);
+    const uint32_t iptc_dataset_count
+        = count_kind_entries(prepared_store, MetaKeyKind::IptcDataset);
     const bool has_exif = exif_entry_count > 0U
-                          || request.target_format
-                                 == TransferTargetFormat::Dng;
+                          || request.target_format == TransferTargetFormat::Dng;
     const bool has_iptc = iptc_dataset_count > 0U
                           || has_kind(prepared_store,
                                       MetaKeyKind::PhotoshopIrb);
-    const bool has_icc = has_kind(prepared_store,
-                                  MetaKeyKind::IccHeaderField)
+    const bool has_icc = has_kind(prepared_store, MetaKeyKind::IccHeaderField)
                          || has_kind(prepared_store, MetaKeyKind::IccTag);
-    const bool include_icc_app2
-        = request.include_icc_app2
-          && !transfer_safety_mode_is_rendered(effective_profile.safety);
+    const bool include_icc_app2 = request.include_icc_app2
+                                  && !transfer_safety_mode_is_rendered(
+                                      effective_profile.safety);
     const uint32_t makernote_count = count_makernote_entries(prepared_store);
     const uint32_t jumbf_count     = count_jumbf_entries(prepared_store);
     const uint32_t c2pa_count      = count_c2pa_entries(prepared_store);
@@ -11385,8 +11497,9 @@ prepare_metadata_for_target_impl(const MetaStore& store,
                                "maker notes require EXIF transfer; EXIF output "
                                "is disabled");
     } else {
-        effective_makernote = resolve_makernote_policy(
-            effective_profile.makernote, &makernote_reason);
+        effective_makernote
+            = resolve_makernote_policy(effective_profile.makernote,
+                                       &makernote_reason);
         if (transfer_safety_mode_is_rendered(effective_profile.safety)
             && requested_profile.makernote != TransferPolicyAction::Drop
             && effective_makernote == TransferPolicyAction::Drop) {
@@ -11414,16 +11527,17 @@ prepare_metadata_for_target_impl(const MetaStore& store,
                 : (makernote_reason == TransferPolicyReason::SafetyModeFiltered
                        ? "rendered-image safety mode drops maker note payloads"
                        : (makernote_reason
-                           == TransferPolicyReason::PortableInvalidationUnavailable
-                       ? "maker notes have no portable invalidation path; "
-                         "dropping from prepared EXIF"
-                       : (makernote_reason
                                   == TransferPolicyReason::
-                                      RewriteUnavailablePreservedRaw
-                              ? "maker note rewrite is unavailable; preserving "
-                                "raw maker note payload"
-                              : "maker notes will be preserved in prepared "
-                                "EXIF"))));
+                                      PortableInvalidationUnavailable
+                              ? "maker notes have no portable invalidation path; "
+                                "dropping from prepared EXIF"
+                              : (makernote_reason
+                                         == TransferPolicyReason::
+                                             RewriteUnavailablePreservedRaw
+                                     ? "maker note rewrite is unavailable; preserving "
+                                       "raw maker note payload"
+                                     : "maker notes will be preserved in prepared "
+                                       "EXIF"))));
     }
 
     const bool can_pack_source_jumbf
@@ -11475,25 +11589,26 @@ prepare_metadata_for_target_impl(const MetaStore& store,
                 : (jumbf_reason == TransferPolicyReason::SafetyModeFiltered
                        ? "rendered-image safety mode drops non-c2pa jumbf data"
                        : (jumbf_reason
-                           == TransferPolicyReason::PortableInvalidationUnavailable
-                       ? "jumbf invalidation is not available; dropping "
-                         "jumbf data"
-                       : (jumbf_reason
                                   == TransferPolicyReason::
-                                      RewriteUnavailablePreservedRaw
-                              ? "jumbf rewrite is unavailable; preserving raw "
-                                "jumbf payloads"
-                              : (request.target_format
-                                         == TransferTargetFormat::Jxl
-                                     ? "source jumbf payloads will be emitted "
-                                       "as jxl boxes"
-                                     : (transfer_target_is_bmff(
-                                            request.target_format)
-                                            ? "source jumbf payloads will be "
-                                              "emitted as bmff metadata items"
-                                            : "source jumbf payloads will be "
-                                              "repacked into jpeg app11 "
-                                              "segments"))))));
+                                      PortableInvalidationUnavailable
+                              ? "jumbf invalidation is not available; dropping "
+                                "jumbf data"
+                              : (jumbf_reason
+                                         == TransferPolicyReason::
+                                             RewriteUnavailablePreservedRaw
+                                     ? "jumbf rewrite is unavailable; preserving raw "
+                                       "jumbf payloads"
+                                     : (request.target_format
+                                                == TransferTargetFormat::Jxl
+                                            ? "source jumbf payloads will be emitted "
+                                              "as jxl boxes"
+                                            : (transfer_target_is_bmff(
+                                                   request.target_format)
+                                                   ? "source jumbf payloads will be "
+                                                     "emitted as bmff metadata items"
+                                                   : "source jumbf payloads will be "
+                                                     "repacked into jpeg app11 "
+                                                     "segments"))))));
     } else if (can_project_store_jumbf) {
         effective_jumbf = resolve_projected_jumbf_policy(effective_profile.jumbf,
                                                          &jumbf_reason);
@@ -11516,18 +11631,21 @@ prepare_metadata_for_target_impl(const MetaStore& store,
                 : (jumbf_reason == TransferPolicyReason::SafetyModeFiltered
                        ? "rendered-image safety mode drops decoded jumbf data"
                        : (jumbf_reason
-                           == TransferPolicyReason::PortableInvalidationUnavailable
-                       ? "jumbf invalidation is not available; dropping "
-                         "jumbf data"
-                       : (request.target_format == TransferTargetFormat::Jxl
-                              ? "decoded non-c2pa jumbf cbor keys will be "
-                                "projected into generic jxl jumbf boxes"
-                              : (transfer_target_is_bmff(request.target_format)
-                                     ? "decoded non-c2pa jumbf cbor keys will "
-                                       "be projected into bmff metadata items"
-                                     : "decoded non-c2pa jumbf cbor keys will "
-                                       "be projected into generic jpeg app11 "
-                                       "jumbf payloads")))));
+                                  == TransferPolicyReason::
+                                      PortableInvalidationUnavailable
+                              ? "jumbf invalidation is not available; dropping "
+                                "jumbf data"
+                              : (request.target_format
+                                         == TransferTargetFormat::Jxl
+                                     ? "decoded non-c2pa jumbf cbor keys will be "
+                                       "projected into generic jxl jumbf boxes"
+                                     : (transfer_target_is_bmff(
+                                            request.target_format)
+                                            ? "decoded non-c2pa jumbf cbor keys will "
+                                              "be projected into bmff metadata items"
+                                            : "decoded non-c2pa jumbf cbor keys will "
+                                              "be projected into generic jpeg app11 "
+                                              "jumbf payloads")))));
     } else {
         effective_jumbf = resolve_unserialized_policy(effective_profile.jumbf,
                                                       &jumbf_reason);
@@ -11656,10 +11774,10 @@ prepare_metadata_for_target_impl(const MetaStore& store,
                                c2pa_mode, c2pa_source_kind,
                                c2pa_prepared_output);
     }
-    bundle.c2pa_rewrite = build_c2pa_rewrite_requirements(request.target_format,
-                                                          effective_profile.c2pa,
-                                                          c2pa_count,
-                                                          c2pa_source_kind);
+    bundle.c2pa_rewrite
+        = build_c2pa_rewrite_requirements(request.target_format,
+                                          effective_profile.c2pa, c2pa_count,
+                                          c2pa_source_kind);
 
     if (transfer_target_supports_xmp_blocks(request.target_format)) {
         if (exif_entry_count > 0U) {
@@ -11688,11 +11806,10 @@ prepare_metadata_for_target_impl(const MetaStore& store,
         }
 
         if (iptc_dataset_count > 0U) {
-            const bool native_iptc
-                = transfer_target_has_native_iptc_carrier(request.target_format);
-            const bool fallback_xmp
-                = !native_iptc && request.include_iptc_app13
-                  && request.xmp_project_iptc;
+            const bool native_iptc = transfer_target_has_native_iptc_carrier(
+                request.target_format);
+            const bool fallback_xmp = !native_iptc && request.include_iptc_app13
+                                      && request.xmp_project_iptc;
             const TransferPolicyAction requested_xmp_iptc
                 = request.xmp_project_iptc ? TransferPolicyAction::Keep
                                            : TransferPolicyAction::Drop;
@@ -11737,16 +11854,16 @@ prepare_metadata_for_target_impl(const MetaStore& store,
         std::vector<ExrProjectedTextAttribute> attrs;
         InteropSafetyError safety_error;
         const InteropSafetyStatus safety
-            = collect_exr_projected_string_attributes_safe(
-                prepared_store, &attrs, 4096U, &safety_error);
+            = collect_exr_projected_string_attributes_safe(prepared_store,
+                                                           &attrs, 4096U,
+                                                           &safety_error);
         if (safety != InteropSafetyStatus::Ok) {
-            r.status = TransferStatus::Unsupported;
-            r.code   = PrepareTransferCode::RequestedMetadataNotSerializable;
-            r.errors = 1U;
-            r.message
-                = safety_error.message.empty()
-                      ? "exr attribute projection failed"
-                      : safety_error.message;
+            r.status    = TransferStatus::Unsupported;
+            r.code      = PrepareTransferCode::RequestedMetadataNotSerializable;
+            r.errors    = 1U;
+            r.message   = safety_error.message.empty()
+                              ? "exr attribute projection failed"
+                              : safety_error.message;
             *out_bundle = std::move(bundle);
             return r;
         }
@@ -11755,8 +11872,8 @@ prepare_metadata_for_target_impl(const MetaStore& store,
         used_names.reserve(attrs.size());
         uint32_t order = next_prepared_block_order(bundle, 100U);
         for (size_t i = 0; i < attrs.size(); ++i) {
-            const std::string unique_name = make_unique_exr_attribute_name(
-                used_names, attrs[i].name);
+            const std::string unique_name
+                = make_unique_exr_attribute_name(used_names, attrs[i].name);
             used_names.push_back(unique_name);
 
             PreparedTransferBlock block;
@@ -11784,14 +11901,13 @@ prepare_metadata_for_target_impl(const MetaStore& store,
             const uint32_t block_index = static_cast<uint32_t>(
                 bundle.blocks.size());
             PreparedTransferBlock b;
-            b.kind  = TransferBlockKind::Exif;
-            b.order = 100U;
+            b.kind     = TransferBlockKind::Exif;
+            b.order    = 100U;
             bool ready = true;
             if (request.target_format == TransferTargetFormat::Jpeg) {
                 b.route   = "jpeg:app1-exif";
                 b.payload = std::move(exif_build.app1_payload);
-            } else if (transfer_target_is_tiff_family(
-                           request.target_format)) {
+            } else if (transfer_target_is_tiff_family(request.target_format)) {
                 // TIFF backends can consume this as a serialized Exif APP1 blob
                 // and materialize ExifIFD pointers/entries natively.
                 b.route   = "tiff:ifd-exif-app1";
@@ -11808,11 +11924,10 @@ prepare_metadata_for_target_impl(const MetaStore& store,
                         r.code = PrepareTransferCode::ExifPackFailed;
                     }
                     r.warnings += 1U;
-                    append_message(
-                        &r.message,
-                        err.empty()
-                            ? "png exif payload conversion failed"
-                            : err);
+                    append_message(&r.message,
+                                   err.empty()
+                                       ? "png exif payload conversion failed"
+                                       : err);
                     ready = false;
                 }
                 if (ready) {
@@ -11843,11 +11958,10 @@ prepare_metadata_for_target_impl(const MetaStore& store,
                         r.code = PrepareTransferCode::ExifPackFailed;
                     }
                     r.warnings += 1U;
-                    append_message(
-                        &r.message,
-                        err.empty()
-                            ? "webp exif payload conversion failed"
-                            : err);
+                    append_message(&r.message,
+                                   err.empty()
+                                       ? "webp exif payload conversion failed"
+                                       : err);
                     ready = false;
                 }
                 if (ready) {
@@ -11926,8 +12040,7 @@ prepare_metadata_for_target_impl(const MetaStore& store,
                 b.payload.push_back(std::byte { 0x00 });
                 b.payload.insert(b.payload.end(), xmp_packet.begin(),
                                  xmp_packet.end());
-            } else if (transfer_target_is_tiff_family(
-                           request.target_format)) {
+            } else if (transfer_target_is_tiff_family(request.target_format)) {
                 b.route   = "tiff:tag-700-xmp";
                 b.payload = std::move(xmp_packet);
             } else if (request.target_format == TransferTargetFormat::Png) {
@@ -12009,8 +12122,7 @@ prepare_metadata_for_target_impl(const MetaStore& store,
                                "icc app2 packer could not serialize current "
                                "icc set");
             }
-        } else if (transfer_target_is_tiff_family(
-                       request.target_format)) {
+        } else if (transfer_target_is_tiff_family(request.target_format)) {
             std::vector<std::byte> icc_profile;
             uint32_t skipped_icc = 0U;
             if (build_icc_profile_bytes(prepared_store, &icc_profile,
@@ -12056,10 +12168,10 @@ prepare_metadata_for_target_impl(const MetaStore& store,
                         r.code = PrepareTransferCode::IccPackFailed;
                     }
                     r.warnings += 1U;
-                    append_message(
-                        &r.message,
-                        err.empty() ? "png iccp payload conversion failed"
-                                    : err);
+                    append_message(&r.message,
+                                   err.empty()
+                                       ? "png iccp payload conversion failed"
+                                       : err);
                 } else {
                     b.kind  = TransferBlockKind::Icc;
                     b.order = 120U;
@@ -12100,10 +12212,10 @@ prepare_metadata_for_target_impl(const MetaStore& store,
                         r.code = PrepareTransferCode::IccPackFailed;
                     }
                     r.warnings += 1U;
-                    append_message(
-                        &r.message,
-                        err.empty() ? "jp2 colr payload conversion failed"
-                                    : err);
+                    append_message(&r.message,
+                                   err.empty()
+                                       ? "jp2 colr payload conversion failed"
+                                       : err);
                 } else {
                     b.kind     = TransferBlockKind::Icc;
                     b.order    = 120U;
@@ -12248,8 +12360,7 @@ prepare_metadata_for_target_impl(const MetaStore& store,
                     &r.message,
                     "iptc app13 packer could not serialize current iptc set");
             }
-        } else if (transfer_target_is_tiff_family(
-                       request.target_format)) {
+        } else if (transfer_target_is_tiff_family(request.target_format)) {
             std::vector<std::byte> iptc_iim;
             uint32_t skipped_iptc = 0U;
             if (!first_photoshop_iptc_payload(prepared_store, &iptc_iim)) {
@@ -12291,8 +12402,7 @@ prepare_metadata_for_target_impl(const MetaStore& store,
                     = request.xmp_existing_namespace_policy;
                 xmp_req.portable_existing_standard_namespace_policy
                     = request.xmp_existing_standard_namespace_policy;
-                xmp_req.portable_conflict_policy
-                    = request.xmp_conflict_policy;
+                xmp_req.portable_conflict_policy = request.xmp_conflict_policy;
 
                 std::vector<std::byte> xmp_packet;
                 const XmpDumpResult xr = dump_xmp_sidecar(prepared_store,
@@ -12303,7 +12413,7 @@ prepare_metadata_for_target_impl(const MetaStore& store,
                     b.kind  = TransferBlockKind::Xmp;
                     b.order = 130U;
                     if (request.target_format == TransferTargetFormat::Webp) {
-                        b.route = "webp:chunk-xmp";
+                        b.route   = "webp:chunk-xmp";
                         b.payload = std::move(xmp_packet);
                     } else if (request.target_format
                                == TransferTargetFormat::Png) {
@@ -12318,7 +12428,7 @@ prepare_metadata_for_target_impl(const MetaStore& store,
                         b.box_type = { 'x', 'm', 'l', ' ' };
                         b.payload  = std::move(xmp_packet);
                     } else if (transfer_target_is_bmff(request.target_format)) {
-                        b.route = "bmff:item-xmp";
+                        b.route   = "bmff:item-xmp";
                         b.payload = std::move(xmp_packet);
                     } else {
                         b.route    = "jxl:box-xml";
@@ -12329,16 +12439,14 @@ prepare_metadata_for_target_impl(const MetaStore& store,
                 } else {
                     PreparedTransferPolicyDecision* iptc_xmp_decision
                         = find_policy_decision(
-                            &bundle,
-                            TransferPolicySubject::XmpIptcProjection);
+                            &bundle, TransferPolicySubject::XmpIptcProjection);
                     if (iptc_xmp_decision
                         && iptc_xmp_decision->effective
                                == TransferPolicyAction::Keep) {
                         iptc_xmp_decision->effective
                             = TransferPolicyAction::Drop;
                         iptc_xmp_decision->reason
-                            = TransferPolicyReason::
-                                TargetSerializationUnavailable;
+                            = TransferPolicyReason::TargetSerializationUnavailable;
                         iptc_xmp_decision->message
                             = "fallback xmp packet could not serialize "
                               "requested iptc projection";
@@ -12347,24 +12455,19 @@ prepare_metadata_for_target_impl(const MetaStore& store,
                         = "jxl iptc projection to xml could not serialize "
                           "current iptc set";
                     if (request.target_format == TransferTargetFormat::Webp) {
-                        message
-                            = "webp iptc projection to xmp could not "
-                              "serialize current iptc set";
+                        message = "webp iptc projection to xmp could not "
+                                  "serialize current iptc set";
                     } else if (request.target_format
                                == TransferTargetFormat::Png) {
-                        message
-                            = "png iptc projection to xmp could not "
-                            "serialize current iptc set";
+                        message = "png iptc projection to xmp could not "
+                                  "serialize current iptc set";
                     } else if (request.target_format
                                == TransferTargetFormat::Jp2) {
-                        message
-                            = "jp2 iptc projection to xml could not "
-                              "serialize current iptc set";
-                    } else if (transfer_target_is_bmff(
-                                   request.target_format)) {
-                        message
-                            = "bmff iptc projection to xmp could not "
-                              "serialize current iptc set";
+                        message = "jp2 iptc projection to xml could not "
+                                  "serialize current iptc set";
+                    } else if (transfer_target_is_bmff(request.target_format)) {
+                        message = "bmff iptc projection to xmp could not "
+                                  "serialize current iptc set";
                     }
                     requested_present_but_unpacked = true;
                     if (r.code == PrepareTransferCode::None) {
@@ -12587,10 +12690,9 @@ prepare_metadata_for_target(const MetaStore& store,
 }
 
 PrepareTransferResult
-prepare_metadata_for_target_snapshot(
-    const TransferSourceSnapshot& snapshot,
-    const PrepareTransferRequest& request,
-    PreparedTransferBundle* out_bundle) noexcept
+prepare_metadata_for_target_snapshot(const TransferSourceSnapshot& snapshot,
+                                     const PrepareTransferRequest& request,
+                                     PreparedTransferBundle* out_bundle) noexcept
 {
     MetaStore store = snapshot.store;
     store.finalize();
@@ -12606,18 +12708,70 @@ build_transfer_source_snapshot(const MetaStore& store) noexcept
     return snapshot;
 }
 
+TransferSafetyAudit
+transfer_safety_audit_from_store(const MetaStore& store,
+                                 TransferSafetyMode safety) noexcept
+{
+    TransferSafetyAudit out;
+    out.safety = safety;
+
+    TransferSafetyFilterCounts source_counts;
+    count_transfer_safety_filter_entries(store,
+                                         TransferSafetyMode::RenderedImage,
+                                         &source_counts);
+    out.source_image_properties      = source_counts.image_properties;
+    out.source_raw_color_calibration = source_counts.raw_color_calibration;
+    out.source_camera_raw_settings   = source_counts.camera_raw_settings;
+    out.source_icc_profiles          = count_kind_entries(store,
+                                                          MetaKeyKind::IccHeaderField)
+                              + count_kind_entries(store, MetaKeyKind::IccTag);
+    out.source_makernotes     = count_makernote_entries(store);
+    out.source_non_c2pa_jumbf = count_jumbf_entries(store);
+    out.source_c2pa           = count_c2pa_entries(store);
+
+    TransferSafetyFilterCounts filtered_counts;
+    count_transfer_safety_filter_entries(store, safety, &filtered_counts);
+    out.filtered_image_properties      = filtered_counts.image_properties;
+    out.filtered_raw_color_calibration = filtered_counts.raw_color_calibration;
+    out.filtered_camera_raw_settings   = filtered_counts.camera_raw_settings;
+    if (transfer_safety_mode_is_rendered(safety)) {
+        out.filtered_icc_profiles   = out.source_icc_profiles;
+        out.filtered_makernotes     = out.source_makernotes;
+        out.filtered_non_c2pa_jumbf = out.source_non_c2pa_jumbf;
+        out.invalidated_c2pa        = out.source_c2pa;
+    }
+
+    out.sony_raw_processing
+        = vendor_raw_processing_from_store(store,
+                                           VendorRawProcessingFamily::Sony);
+    out.canon_raw_processing
+        = vendor_raw_processing_from_store(store,
+                                           VendorRawProcessingFamily::Canon);
+    out.nikon_raw_processing
+        = vendor_raw_processing_from_store(store,
+                                           VendorRawProcessingFamily::Nikon);
+    out.fujifilm_raw_processing = vendor_raw_processing_from_store(
+        store, VendorRawProcessingFamily::Fujifilm);
+    out.pentax_raw_processing = vendor_raw_processing_from_store(
+        store, VendorRawProcessingFamily::Pentax);
+    out.panasonic_raw_processing = vendor_raw_processing_from_store(
+        store, VendorRawProcessingFamily::Panasonic);
+    out.olympus_raw_processing = vendor_raw_processing_from_store(
+        store, VendorRawProcessingFamily::Olympus);
+    return out;
+}
+
 namespace {
 
     struct ReadTransferSourceSnapshotDecodeCommonResult final {
         SimpleMetaResult read;
         TransferSourceSnapshot snapshot;
-        uint32_t entry_count                = 0;
-        bool payload_buffer_platform_limit  = false;
-        bool decode_failed                  = false;
+        uint32_t entry_count               = 0;
+        bool payload_buffer_platform_limit = false;
+        bool decode_failed                 = false;
     };
 
-    static void
-    build_transfer_source_snapshot_decode_options(
+    static void build_transfer_source_snapshot_decode_options(
         const ReadTransferSourceSnapshotOptions& options,
         SimpleMetaDecodeOptions* out_decode_options) noexcept
     {
@@ -12631,9 +12785,9 @@ namespace {
         SimpleMetaDecodeOptions decode_options;
         apply_resource_policy(policy, &decode_options.exif,
                               &decode_options.payload);
-        apply_resource_policy(policy, &decode_options.xmp,
-                              &decode_options.exr, &decode_options.jumbf,
-                              &decode_options.icc, &decode_options.iptc,
+        apply_resource_policy(policy, &decode_options.xmp, &decode_options.exr,
+                              &decode_options.jumbf, &decode_options.icc,
+                              &decode_options.iptc,
                               &decode_options.photoshop_irb);
 
         decode_options.exif.include_pointer_tags = options.include_pointer_tags;
@@ -12653,8 +12807,7 @@ namespace {
     {
         ReadTransferSourceSnapshotDecodeCommonResult out;
         SimpleMetaDecodeOptions decode_options;
-        build_transfer_source_snapshot_decode_options(options,
-                                                      &decode_options);
+        build_transfer_source_snapshot_decode_options(options, &decode_options);
 
         std::vector<ContainerBlockRef> blocks(256U);
         std::vector<ExifIfdRef> ifds(512U);
@@ -12663,13 +12816,12 @@ namespace {
 
         for (;;) {
             out.snapshot.store = MetaStore();
-            out.read = simple_meta_read(
+            out.read           = simple_meta_read(
                 bytes, out.snapshot.store,
                 std::span<ContainerBlockRef>(blocks.data(), blocks.size()),
                 std::span<ExifIfdRef>(ifds.data(), ifds.size()),
                 std::span<std::byte>(payload.data(), payload.size()),
-                std::span<uint32_t>(payload_parts.data(),
-                                    payload_parts.size()),
+                std::span<uint32_t>(payload_parts.data(), payload_parts.size()),
                 decode_options);
 
             bool retried = false;
@@ -12685,8 +12837,7 @@ namespace {
             }
             if (out.read.payload.status == PayloadStatus::OutputTruncated
                 && out.read.payload.needed > payload.size()) {
-                if (out.read.payload.needed
-                    > static_cast<uint64_t>(SIZE_MAX)) {
+                if (out.read.payload.needed > static_cast<uint64_t>(SIZE_MAX)) {
                     out.payload_buffer_platform_limit = true;
                     return out;
                 }
@@ -12740,14 +12891,14 @@ read_transfer_source_snapshot_bytes(
 
     ReadTransferSourceSnapshotDecodeCommonResult common
         = read_transfer_source_snapshot_bytes_common(bytes, options);
-    out.read       = std::move(common.read);
-    out.snapshot   = std::move(common.snapshot);
+    out.read        = std::move(common.read);
+    out.snapshot    = std::move(common.snapshot);
     out.entry_count = common.entry_count;
 
     if (common.payload_buffer_platform_limit) {
         out.status = TransferStatus::LimitExceeded;
-        out.code   = ReadTransferSourceSnapshotBytesCode::
-            PayloadBufferPlatformLimit;
+        out.code
+            = ReadTransferSourceSnapshotBytesCode::PayloadBufferPlatformLimit;
         return out;
     }
     if (common.decode_failed) {
@@ -12766,8 +12917,8 @@ read_transfer_source_snapshot_file(
     ReadTransferSourceSnapshotFileResult out;
 
     if (!path || !*path) {
-        out.file_status    = TransferFileStatus::InvalidArgument;
-        out.code           = ReadTransferSourceSnapshotFileCode::EmptyPath;
+        out.file_status      = TransferFileStatus::InvalidArgument;
+        out.code             = ReadTransferSourceSnapshotFileCode::EmptyPath;
         out.read.scan.status = ScanStatus::Unsupported;
         return out;
     }
@@ -12788,18 +12939,19 @@ read_transfer_source_snapshot_file(
 
     ReadTransferSourceSnapshotBytesResult bytes_result
         = read_transfer_source_snapshot_bytes(mapped.bytes(), options);
-    out.read       = std::move(bytes_result.read);
-    out.snapshot   = std::move(bytes_result.snapshot);
+    out.read        = std::move(bytes_result.read);
+    out.snapshot    = std::move(bytes_result.snapshot);
     out.entry_count = bytes_result.entry_count;
 
     if (bytes_result.code
         == ReadTransferSourceSnapshotBytesCode::PayloadBufferPlatformLimit) {
         out.file_status = TransferFileStatus::ReadFailed;
-        out.code = ReadTransferSourceSnapshotFileCode::
-            PayloadBufferPlatformLimit;
+        out.code
+            = ReadTransferSourceSnapshotFileCode::PayloadBufferPlatformLimit;
         return out;
     }
-    if (bytes_result.code == ReadTransferSourceSnapshotBytesCode::DecodeFailed) {
+    if (bytes_result.code
+        == ReadTransferSourceSnapshotBytesCode::DecodeFailed) {
         out.file_status = TransferFileStatus::ReadFailed;
         out.code        = ReadTransferSourceSnapshotFileCode::DecodeFailed;
         return out;
@@ -13237,8 +13389,8 @@ emit_prepared_bundle_jpeg(const PreparedTransferBundle& bundle,
         }
 
         if (block.payload.size() > kMaxJpegSegmentPayload) {
-            set_jpeg_segment_limit_error(&r,
-                                         "jpeg segment payload exceeds 64 KB limit");
+            set_jpeg_segment_limit_error(
+                &r, "jpeg segment payload exceeds 64 KB limit");
             r.failed_block_index = i;
             if (options.stop_on_error) {
                 return r;
@@ -14375,9 +14527,10 @@ emit_prepared_bundle_jp2(const PreparedTransferBundle& bundle,
             continue;
         }
 
-        const TransferStatus st = emitter.add_box(
-            box_type, std::span<const std::byte>(block.payload.data(),
-                                                 block.payload.size()));
+        const TransferStatus st
+            = emitter.add_box(box_type,
+                              std::span<const std::byte>(block.payload.data(),
+                                                         block.payload.size()));
         if (st != TransferStatus::Ok) {
             r.status = st;
             if (r.code == EmitTransferCode::None) {
@@ -14509,9 +14662,10 @@ emit_prepared_bundle_jp2_compiled(const PreparedTransferBundle& bundle,
             continue;
         }
 
-        const TransferStatus st = emitter.add_box(
-            op.box_type, std::span<const std::byte>(block.payload.data(),
-                                                    block.payload.size()));
+        const TransferStatus st
+            = emitter.add_box(op.box_type,
+                              std::span<const std::byte>(block.payload.data(),
+                                                         block.payload.size()));
         if (st != TransferStatus::Ok) {
             r.status = st;
             if (r.code == EmitTransferCode::None) {
@@ -14597,10 +14751,10 @@ emit_prepared_bundle_exr(const PreparedTransferBundle& bundle,
         }
 
         ExrPreparedAttributeView attr;
-        attr.name      = name;
-        attr.type_name = "string";
-        attr.value     = value;
-        attr.is_opaque = false;
+        attr.name               = name;
+        attr.type_name          = "string";
+        attr.value              = value;
+        attr.is_opaque          = false;
         const TransferStatus st = emitter.set_attribute_view(attr);
         if (st != TransferStatus::Ok) {
             r.status = st;
@@ -14761,10 +14915,10 @@ emit_prepared_bundle_exr_compiled(const PreparedTransferBundle& bundle,
         }
 
         ExrPreparedAttributeView attr;
-        attr.name      = name;
-        attr.type_name = "string";
-        attr.value     = value;
-        attr.is_opaque = false;
+        attr.name               = name;
+        attr.type_name          = "string";
+        attr.value              = value;
+        attr.is_opaque          = false;
         const TransferStatus st = emitter.set_attribute_view(attr);
         if (st != TransferStatus::Ok) {
             r.status = st;
@@ -15096,8 +15250,8 @@ compile_prepared_bundle_jpeg(const PreparedTransferBundle& bundle,
         }
 
         if (block.payload.size() > kMaxJpegSegmentPayload) {
-            set_jpeg_segment_limit_error(&r,
-                                         "jpeg segment payload exceeds 64 KB limit");
+            set_jpeg_segment_limit_error(
+                &r, "jpeg segment payload exceeds 64 KB limit");
             r.failed_block_index = i;
             if (options.stop_on_error) {
                 return r;
@@ -15169,8 +15323,8 @@ emit_prepared_bundle_jpeg_compiled(const PreparedTransferBundle& bundle,
         }
 
         if (block.payload.size() > kMaxJpegSegmentPayload) {
-            set_jpeg_segment_limit_error(&r,
-                                         "jpeg segment payload exceeds 64 KB limit");
+            set_jpeg_segment_limit_error(
+                &r, "jpeg segment payload exceeds 64 KB limit");
             r.failed_block_index = op.block_index;
             if (options.stop_on_error) {
                 return r;
@@ -15353,10 +15507,9 @@ plan_prepared_bundle_jpeg_edit(std::span<const std::byte> input_jpeg,
     }
     if (in_place_possible) {
         for (size_t i = 0; i < scan.leading_segments.size(); ++i) {
-            if (!should_strip_existing_jpeg_segment(bundle,
-                                                    scan.leading_segments[i],
-                                                    desired,
-                                                    options.strip_existing_xmp)) {
+            if (!should_strip_existing_jpeg_segment(
+                    bundle, scan.leading_segments[i], desired,
+                    options.strip_existing_xmp)) {
                 continue;
             }
             if (!route_in_desired(scan.leading_segments[i].route, desired)) {
@@ -15544,8 +15697,9 @@ apply_prepared_bundle_jpeg_edit(std::span<const std::byte> input_jpeg,
     bool inserted = false;
     for (size_t i = 0; i < scan.leading_segments.size(); ++i) {
         const ExistingJpegSegment& e = scan.leading_segments[i];
-        const bool replaced = should_strip_existing_jpeg_segment(
-            bundle, e, desired, plan.strip_existing_xmp);
+        const bool replaced
+            = should_strip_existing_jpeg_segment(bundle, e, desired,
+                                                 plan.strip_existing_xmp);
         if (replaced) {
             if (!inserted) {
                 for (size_t si = 0; si < desired.size(); ++si) {
@@ -15629,8 +15783,8 @@ plan_prepared_bundle_tiff_edit(std::span<const std::byte> input_tiff,
         return plan;
     }
 
-    const std::vector<TiffTagUpdate> updates = collect_tiff_tag_updates(
-        bundle, options.strip_existing_xmp);
+    const std::vector<TiffTagUpdate> updates
+        = collect_tiff_tag_updates(bundle, options.strip_existing_xmp);
     const std::vector<std::byte> exif_app1_payload
         = first_tiff_exif_app1_payload(bundle);
     plan.tag_updates        = static_cast<uint32_t>(updates.size());
@@ -15690,8 +15844,8 @@ apply_prepared_bundle_tiff_edit(std::span<const std::byte> input_tiff,
         return out;
     }
 
-    const std::vector<TiffTagUpdate> updates = collect_tiff_tag_updates(
-        bundle, plan.strip_existing_xmp);
+    const std::vector<TiffTagUpdate> updates
+        = collect_tiff_tag_updates(bundle, plan.strip_existing_xmp);
     const std::vector<std::byte> exif_app1_payload
         = first_tiff_exif_app1_payload(bundle);
     if (plan.tag_updates != static_cast<uint32_t>(updates.size())
@@ -16138,8 +16292,9 @@ build_prepared_bundle_jpeg_package(
     bool inserted = false;
     for (size_t i = 0; i < scan.leading_segments.size(); ++i) {
         const ExistingJpegSegment& e = scan.leading_segments[i];
-        const bool replaced = should_strip_existing_jpeg_segment(
-            bundle, e, desired, plan.strip_existing_xmp);
+        const bool replaced
+            = should_strip_existing_jpeg_segment(bundle, e, desired,
+                                                 plan.strip_existing_xmp);
         if (replaced) {
             if (!inserted) {
                 for (size_t si = 0; si < desired.size(); ++si) {
@@ -16224,8 +16379,8 @@ build_prepared_bundle_tiff_package(
         return out;
     }
 
-    const std::vector<TiffTagUpdate> updates = collect_tiff_tag_updates(
-        bundle, plan.strip_existing_xmp);
+    const std::vector<TiffTagUpdate> updates
+        = collect_tiff_tag_updates(bundle, plan.strip_existing_xmp);
     const std::vector<std::byte> exif_app1_payload
         = first_tiff_exif_app1_payload(bundle);
     if (plan.tag_updates != static_cast<uint32_t>(updates.size())
@@ -16237,30 +16392,8 @@ build_prepared_bundle_tiff_package(
         return out;
     }
 
-    std::string err;
-    if (plan.strip_existing_xmp && has_remove_for_tag(updates, 700U)) {
-        std::vector<std::byte> rewritten;
-        if (!rewrite_tiff_ifd0_tags(
-                input_tiff, updates,
-                std::span<const std::byte>(exif_app1_payload.data(),
-                                           exif_app1_payload.size()),
-                &rewritten, &err)) {
-            out.status  = tiff_edit_status_from_error(err);
-            out.code    = EmitTransferCode::PlanMismatch;
-            out.errors  = 1U;
-            out.message = err;
-            return out;
-        }
-        append_package_inline_chunk(
-            out_plan, std::span<const std::byte>(rewritten.data(),
-                                                 rewritten.size()));
-        out_plan->output_size = static_cast<uint64_t>(rewritten.size());
-        out.status            = TransferStatus::Ok;
-        out.code              = EmitTransferCode::None;
-        return out;
-    }
-
     TiffRewriteTail rewrite;
+    std::string err;
     if (!build_tiff_rewrite_tail(
             input_tiff, updates,
             std::span<const std::byte>(exif_app1_payload.data(),
@@ -16281,8 +16414,6 @@ build_prepared_bundle_tiff_package(
         return out;
     }
 
-    append_package_source_chunk(out_plan, 0U,
-                                rewrite.layout.ifd0_pointer_offset);
     std::array<std::byte, 8> patched_ifd0 = {
         std::byte { 0x00 }, std::byte { 0x00 }, std::byte { 0x00 },
         std::byte { 0x00 }, std::byte { 0x00 }, std::byte { 0x00 },
@@ -16296,17 +16427,44 @@ build_prepared_bundle_tiff_package(
         out.message = err;
         return out;
     }
-    append_package_inline_chunk(
-        out_plan,
-        std::span<const std::byte>(patched_ifd0.data(),
-                                   static_cast<size_t>(
-                                       rewrite.layout.inline_value_bytes)));
-    append_package_source_chunk(
-        out_plan,
-        rewrite.layout.ifd0_pointer_offset + rewrite.layout.inline_value_bytes,
-        static_cast<uint64_t>(input_tiff.size())
-            - (rewrite.layout.ifd0_pointer_offset
-               + rewrite.layout.inline_value_bytes));
+
+    std::vector<TiffPackageReplacement> replacements;
+    replacements.reserve(1U);
+    TiffPackageReplacement ifd0_replacement;
+    ifd0_replacement.offset = rewrite.layout.ifd0_pointer_offset;
+    ifd0_replacement.bytes.assign(
+        patched_ifd0.begin(),
+        patched_ifd0.begin()
+            + static_cast<std::ptrdiff_t>(rewrite.layout.inline_value_bytes));
+    replacements.push_back(std::move(ifd0_replacement));
+
+    if (has_update_for_tag(updates, 700U)) {
+        std::vector<TiffPayloadRange> ranges;
+        if (collect_reachable_tiff_xmp_payload_ranges(input_tiff, &ranges)) {
+            std::sort(ranges.begin(), ranges.end(), TiffPayloadRangeLess {});
+            replacements.reserve(replacements.size() + ranges.size());
+            for (size_t i = 0; i < ranges.size(); ++i) {
+                const TiffPayloadRange& range = ranges[i];
+                if (range.size == 0U) {
+                    continue;
+                }
+                TiffPackageReplacement zero_replacement;
+                zero_replacement.offset = static_cast<uint64_t>(range.offset);
+                zero_replacement.bytes.assign(range.size, std::byte { 0x00 });
+                replacements.push_back(std::move(zero_replacement));
+            }
+        }
+    }
+
+    if (!append_tiff_source_with_replacements(
+            out_plan, static_cast<uint64_t>(input_tiff.size()), &replacements,
+            &err)) {
+        out.status  = tiff_edit_status_from_error(err);
+        out.code    = EmitTransferCode::PlanMismatch;
+        out.errors  = 1U;
+        out.message = err;
+        return out;
+    }
     append_package_inline_chunk(
         out_plan, std::span<const std::byte>(rewrite.tail_bytes.data(),
                                              rewrite.tail_bytes.size()));
@@ -16685,22 +16843,19 @@ classify_transfer_route_semantic_kind(std::string_view route) noexcept
 {
     if (route == "jpeg:app1-exif" || route == "tiff:ifd-exif-app1"
         || route == "png:chunk-exif" || route == "jxl:box-exif"
-        || route == "jp2:box-exif"
-        || route == "webp:chunk-exif"
+        || route == "jp2:box-exif" || route == "webp:chunk-exif"
         || route == "bmff:item-exif") {
         return TransferSemanticKind::Exif;
     }
     if (route == "jpeg:app1-xmp" || route == "tiff:tag-700-xmp"
         || route == "png:chunk-xmp" || route == "jxl:box-xml"
-        || route == "jp2:box-xml"
-        || route == "webp:chunk-xmp"
+        || route == "jp2:box-xml" || route == "webp:chunk-xmp"
         || route == "bmff:item-xmp") {
         return TransferSemanticKind::Xmp;
     }
     if (route == "jpeg:app2-icc" || route == "tiff:tag-34675-icc"
         || route == "png:chunk-iccp" || route == "jxl:icc-profile"
-        || route == "jp2:box-jp2h-colr"
-        || route == "webp:chunk-iccp"
+        || route == "jp2:box-jp2h-colr" || route == "webp:chunk-iccp"
         || route == "bmff:property-colr-icc") {
         return TransferSemanticKind::Icc;
     }
@@ -17377,10 +17532,10 @@ replay_prepared_transfer_package_batch(
 }
 
 static PrepareTransferFileResult
-prepare_metadata_for_target_file_impl(
-    const char* path, const PrepareTransferFileOptions& options,
-    const ExistingDestinationEmbeddedXmpMerge* existing_destination_embedded)
-    noexcept
+prepare_metadata_for_target_file_impl(const char* path,
+                                      const PrepareTransferFileOptions& options,
+                                      const ExistingDestinationEmbeddedXmpMerge*
+                                          existing_destination_embedded) noexcept
 {
     PrepareTransferFileResult out;
 
@@ -17443,8 +17598,7 @@ prepare_metadata_for_target_file_impl(
         = destination_embedded_merge_requested
           && existing_destination_embedded->precedence
                  == XmpExistingDestinationEmbeddedPrecedence::SourceWins;
-    const XmpExistingDestinationCarrierPrecedence
-        destination_carrier_precedence
+    const XmpExistingDestinationCarrierPrecedence destination_carrier_precedence
         = options.xmp_existing_destination_carrier_precedence;
 
     if (destination_embedded_merge_requested
@@ -17462,7 +17616,8 @@ prepare_metadata_for_target_file_impl(
         (void)load_existing_xmp_sidecar_bytes(
             sidecar_base_path, policy.max_file_bytes,
             &out.xmp_existing_sidecar_path, &existing_xmp_sidecar_bytes,
-            &out.xmp_existing_sidecar_status, &out.xmp_existing_sidecar_message);
+            &out.xmp_existing_sidecar_status,
+            &out.xmp_existing_sidecar_message);
     }
 
     auto merge_existing_sidecar_into_store =
@@ -17497,9 +17652,9 @@ prepare_metadata_for_target_file_impl(
 
     auto apply_existing_xmp_merge_stage =
         [&](bool after_source, bool preserve_store_on_failure) noexcept {
-            const bool merge_sidecar
-                = !existing_xmp_sidecar_bytes.empty()
-                  && sidecar_source_precedence == after_source;
+            const bool merge_sidecar = !existing_xmp_sidecar_bytes.empty()
+                                       && sidecar_source_precedence
+                                              == after_source;
             const bool merge_destination_embedded
                 = destination_embedded_merge_requested
                   && destination_embedded_source_precedence == after_source;
@@ -17528,7 +17683,7 @@ prepare_metadata_for_target_file_impl(
         };
 
     for (;;) {
-        store    = MetaStore();
+        store = MetaStore();
         apply_existing_xmp_merge_stage(false, false);
         out.read = simple_meta_read(
             mapped.bytes(), store,
@@ -17888,14 +18043,13 @@ prepare_metadata_for_target_file(
         return prepare_metadata_for_target_file_impl(path, options, nullptr);
     }
 
-    bool loaded                    = false;
-    TransferStatus status          = TransferStatus::Unsupported;
+    bool loaded           = false;
+    TransferStatus status = TransferStatus::Unsupported;
     std::string message;
     std::string destination_path;
     ExistingDestinationEmbeddedXmpMerge merge;
-    merge.path = options.xmp_existing_destination_embedded_path.c_str();
-    merge.precedence
-        = options.xmp_existing_destination_embedded_precedence;
+    merge.path        = options.xmp_existing_destination_embedded_path.c_str();
+    merge.precedence  = options.xmp_existing_destination_embedded_precedence;
     merge.out_loaded  = &loaded;
     merge.out_status  = &status;
     merge.out_message = &message;
@@ -17903,10 +18057,10 @@ prepare_metadata_for_target_file(
 
     PrepareTransferFileResult out
         = prepare_metadata_for_target_file_impl(path, options, &merge);
-    out.xmp_existing_destination_embedded_loaded = loaded;
-    out.xmp_existing_destination_embedded_status = status;
+    out.xmp_existing_destination_embedded_loaded  = loaded;
+    out.xmp_existing_destination_embedded_status  = status;
     out.xmp_existing_destination_embedded_message = std::move(message);
-    out.xmp_existing_destination_embedded_path = std::move(destination_path);
+    out.xmp_existing_destination_embedded_path    = std::move(destination_path);
     return out;
 }
 
@@ -18644,13 +18798,14 @@ build_prepared_c2pa_sign_request_binding(
 
             const size_t before = out_bytes->size();
             if (!append_jpeg_segment(
-                out_bytes, chunk.jpeg_marker_code,
-                std::span<const std::byte>(block.payload.data(),
-                                           block.payload.size()))) {
+                    out_bytes, chunk.jpeg_marker_code,
+                    std::span<const std::byte>(block.payload.data(),
+                                               block.payload.size()))) {
                 out.status = TransferStatus::LimitExceeded;
                 out.code   = EmitTransferCode::InvalidPayload;
                 out.errors = 1U;
-                out.message = "prepared jpeg segment payload exceeds 64 KB limit";
+                out.message
+                    = "prepared jpeg segment payload exceeds 64 KB limit";
                 out_bytes->clear();
                 return out;
             }
@@ -20312,9 +20467,9 @@ namespace {
     public:
         void reset() noexcept { boxes_.clear(); }
 
-        TransferStatus add_box(std::array<char, 4> type,
-                               std::span<const std::byte> payload) noexcept
-            override
+        TransferStatus
+        add_box(std::array<char, 4> type,
+                std::span<const std::byte> payload) noexcept override
         {
             add_box_bytes(type, static_cast<uint64_t>(payload.size()));
             return TransferStatus::Ok;
@@ -20367,9 +20522,8 @@ namespace {
             return TransferStatus::Ok;
         }
 
-        TransferStatus
-        set_attribute_view(const ExrPreparedAttributeView& attr) noexcept
-            override
+        TransferStatus set_attribute_view(
+            const ExrPreparedAttributeView& attr) noexcept override
         {
             add_attribute(attr.name, attr.type_name,
                           static_cast<uint64_t>(attr.value.size()));
@@ -20392,7 +20546,8 @@ namespace {
                            uint64_t bytes) noexcept
         {
             for (size_t i = 0; i < attrs_.size(); ++i) {
-                if (attrs_[i].name != name || attrs_[i].type_name != type_name) {
+                if (attrs_[i].name != name
+                    || attrs_[i].type_name != type_name) {
                     continue;
                 }
                 attrs_[i].count += 1U;
@@ -21167,7 +21322,7 @@ namespace {
         }
 
         const uint64_t data_offset = offset + 8U;
-        const uint64_t chunk_size   = 12U + static_cast<uint64_t>(size);
+        const uint64_t chunk_size  = 12U + static_cast<uint64_t>(size);
         if (data_offset + static_cast<uint64_t>(size) + 4U > bytes.size()) {
             return false;
         }
@@ -21201,8 +21356,7 @@ namespace {
         if ((data_size & 1U) != 0U) {
             chunk_size += 1U;
         }
-        if (data_offset + data_size > file_end
-            || offset + chunk_size > file_end
+        if (data_offset + data_size > file_end || offset + chunk_size > file_end
             || offset + chunk_size > bytes.size()) {
             return false;
         }
@@ -21253,9 +21407,9 @@ namespace {
             return false;
         }
 
-        static constexpr char kXmpKeyword[] = "XML:com.adobe.xmp";
-        static constexpr uint64_t kXmpKeywordLen
-            = static_cast<uint64_t>(sizeof(kXmpKeyword) - 1U);
+        static constexpr char kXmpKeyword[]      = "XML:com.adobe.xmp";
+        static constexpr uint64_t kXmpKeywordLen = static_cast<uint64_t>(
+            sizeof(kXmpKeyword) - 1U);
         if ((p - begin) != kXmpKeywordLen) {
             return false;
         }
@@ -21371,11 +21525,21 @@ namespace {
     };
 
     struct BmffForeignIlocRecord final {
-        uint32_t item_id             = 0U;
-        uint16_t construction_method = 0U;
+        uint32_t item_id              = 0U;
+        uint16_t construction_method  = 0U;
         uint16_t data_reference_index = 0U;
-        uint64_t base_offset         = 0U;
+        uint64_t base_offset          = 0U;
         std::vector<BmffForeignIlocExtent> extents;
+    };
+
+    struct BmffForeignIlocRefs final {
+        uint32_t from_item_id = 0U;
+        std::vector<uint32_t> to_item_ids;
+    };
+
+    struct BmffForeignIlocRefTable final {
+        std::vector<BmffForeignIlocRefs> entries;
+        bool parsed = false;
     };
 
     struct BmffForeignMetaContext final {
@@ -21385,18 +21549,18 @@ namespace {
         TransferBmffBox iref {};
         TransferBmffBox iprp {};
         TransferBmffBox pitm {};
-        bool has_iinf          = false;
-        bool has_iloc          = false;
-        bool has_idat          = false;
-        bool has_iref          = false;
-        bool has_iprp          = false;
-        bool has_pitm          = false;
-        uint8_t iinf_version   = 0U;
-        uint8_t iloc_version   = 0U;
-        uint8_t iloc_sizes0    = 0U;
-        uint8_t iloc_sizes1    = 0U;
-        size_t iloc_record_off = 0U;
-        uint64_t max_item_id   = 0U;
+        bool has_iinf            = false;
+        bool has_iloc            = false;
+        bool has_idat            = false;
+        bool has_iref            = false;
+        bool has_iprp            = false;
+        bool has_pitm            = false;
+        uint8_t iinf_version     = 0U;
+        uint8_t iloc_version     = 0U;
+        uint8_t iloc_sizes0      = 0U;
+        uint8_t iloc_sizes1      = 0U;
+        size_t iloc_record_off   = 0U;
+        uint64_t max_item_id     = 0U;
         uint32_t primary_item_id = 0U;
     };
 
@@ -21601,9 +21765,8 @@ namespace {
         return false;
     }
 
-    static bool read_bmff_u_nbe(std::span<const std::byte> bytes,
-                                size_t off, size_t width,
-                                uint64_t* out) noexcept
+    static bool read_bmff_u_nbe(std::span<const std::byte> bytes, size_t off,
+                                size_t width, uint64_t* out) noexcept
     {
         if (!out || width > 8U || off + width > bytes.size()) {
             return false;
@@ -21619,8 +21782,7 @@ namespace {
     }
 
     static bool read_bmff_cstring_view(std::span<const std::byte> bytes,
-                                       size_t off, size_t end,
-                                       size_t* out_next,
+                                       size_t off, size_t end, size_t* out_next,
                                        std::string_view* out) noexcept
     {
         if (!out_next || !out || off > end || end > bytes.size()) {
@@ -21629,9 +21791,9 @@ namespace {
         size_t pos = off;
         while (pos < end) {
             if (bytes[pos] == std::byte { 0x00 }) {
-                *out = std::string_view(
-                    reinterpret_cast<const char*>(bytes.data() + off),
-                    pos - off);
+                *out      = std::string_view(reinterpret_cast<const char*>(
+                                            bytes.data() + off),
+                                             pos - off);
                 *out_next = pos + 1U;
                 return true;
             }
@@ -21653,8 +21815,8 @@ namespace {
             return false;
         }
 
-        const uint8_t version
-            = std::to_integer<uint8_t>(bytes[iinf.offset + iinf.header_size]);
+        const uint8_t version = std::to_integer<uint8_t>(
+            bytes[iinf.offset + iinf.header_size]);
         const uint64_t payload_begin = iinf.offset + iinf.header_size + 4U;
         const uint64_t payload_end   = iinf.offset + iinf.size;
         uint32_t entry_count32       = 0U;
@@ -21664,9 +21826,9 @@ namespace {
                 || payload_begin + 2U > bytes.size()) {
                 return false;
             }
-            *out_count = read_u16be(bytes, payload_begin);
+            *out_count       = read_u16be(bytes, payload_begin);
             *out_first_entry = payload_begin + 2U;
-            *out_end = payload_end;
+            *out_end         = payload_end;
             return true;
         }
         if (version == 1U || version == 2U) {
@@ -21675,17 +21837,18 @@ namespace {
                 || !read_u32be(bytes, payload_begin, &entry_count32)) {
                 return false;
             }
-            *out_count = entry_count32;
+            *out_count       = entry_count32;
             *out_first_entry = payload_begin + 4U;
-            *out_end = payload_end;
+            *out_end         = payload_end;
             return true;
         }
         return false;
     }
 
-    static bool bmff_infe_v2_or_v3_mime_xmp(
-        std::span<const std::byte> bytes, const TransferBmffBox& infe,
-        uint32_t* out_item_id, bool* out_mime_xmp) noexcept
+    static bool bmff_infe_v2_or_v3_mime_xmp(std::span<const std::byte> bytes,
+                                            const TransferBmffBox& infe,
+                                            uint32_t* out_item_id,
+                                            bool* out_mime_xmp) noexcept
     {
         if (!out_item_id || !out_mime_xmp
             || infe.type != fourcc('i', 'n', 'f', 'e')
@@ -21697,8 +21860,8 @@ namespace {
         *out_item_id  = 0U;
         *out_mime_xmp = false;
 
-        const uint8_t version
-            = std::to_integer<uint8_t>(bytes[infe.offset + infe.header_size]);
+        const uint8_t version = std::to_integer<uint8_t>(
+            bytes[infe.offset + infe.header_size]);
         if (version != 2U && version != 3U) {
             return true;
         }
@@ -21713,8 +21876,7 @@ namespace {
         }
 
         uint64_t item_id64 = 0U;
-        if (!read_bmff_u_nbe(bytes, payload_begin, item_id_width,
-                             &item_id64)
+        if (!read_bmff_u_nbe(bytes, payload_begin, item_id_width, &item_id64)
             || item_id64 > std::numeric_limits<uint32_t>::max()) {
             return false;
         }
@@ -21775,17 +21937,16 @@ namespace {
 
             if (child.type == fourcc('i', 'i', 'n', 'f')
                 && child.offset + child.header_size + 4U <= bytes.size()) {
-                uint64_t infe_off = 0U;
+                uint64_t infe_off          = 0U;
                 uint64_t child_payload_end = 0U;
-                uint64_t entry_count = 0U;
+                uint64_t entry_count       = 0U;
                 if (!bmff_iinf_entry_region(bytes, child, &infe_off,
-                                            &child_payload_end,
-                                            &entry_count)) {
+                                            &child_payload_end, &entry_count)) {
                     return;
                 }
                 for (uint64_t entry_index = 0U;
                      entry_index < entry_count
-                         && infe_off + 8U <= child_payload_end;
+                     && infe_off + 8U <= child_payload_end;
                      ++entry_index) {
                     TransferBmffBox infe;
                     if (!parse_transfer_bmff_box(bytes, infe_off,
@@ -21793,8 +21954,7 @@ namespace {
                         return;
                     }
                     ExistingBmffManagedItemInfo one;
-                    if (!bmff_infe_v2_or_v3_mime_xmp(bytes, infe,
-                                                     &one.item_id,
+                    if (!bmff_infe_v2_or_v3_mime_xmp(bytes, infe, &one.item_id,
                                                      &one.mime_xmp)) {
                         return;
                     }
@@ -21807,10 +21967,10 @@ namespace {
                     infe_off += infe.size;
                 }
             } else if (child.type == fourcc('i', 'd', 'a', 't')) {
-                const size_t data_off = static_cast<size_t>(child.offset
-                                                            + child.header_size);
-                const size_t data_len = static_cast<size_t>(child.size
-                                                            - child.header_size);
+                const size_t data_off = static_cast<size_t>(
+                    child.offset + child.header_size);
+                const size_t data_len = static_cast<size_t>(
+                    child.size - child.header_size);
                 if (data_off + data_len > bytes.size()) {
                     return;
                 }
@@ -21832,16 +21992,16 @@ namespace {
                         bytes[iloc_payload_begin + 0U]);
                     const uint8_t sizes1 = std::to_integer<uint8_t>(
                         bytes[iloc_payload_begin + 1U]);
-                    const size_t offset_size
-                        = static_cast<size_t>((sizes0 >> 4U) & 0x0FU);
-                    const size_t length_size
-                        = static_cast<size_t>(sizes0 & 0x0FU);
-                    const size_t base_offset_size
-                        = static_cast<size_t>((sizes1 >> 4U) & 0x0FU);
-                    const size_t index_size
-                        = static_cast<size_t>(sizes1 & 0x0FU);
-                    uint64_t item_count = 0U;
-                    size_t cursor       = iloc_payload_begin + 2U;
+                    const size_t offset_size = static_cast<size_t>(
+                        (sizes0 >> 4U) & 0x0FU);
+                    const size_t length_size      = static_cast<size_t>(sizes0
+                                                                        & 0x0FU);
+                    const size_t base_offset_size = static_cast<size_t>(
+                        (sizes1 >> 4U) & 0x0FU);
+                    const size_t index_size    = static_cast<size_t>(sizes1
+                                                                     & 0x0FU);
+                    uint64_t item_count        = 0U;
+                    size_t cursor              = iloc_payload_begin + 2U;
                     const size_t item_id_width = version == 2U ? 4U : 2U;
                     if (version == 2U) {
                         uint32_t count32 = 0U;
@@ -21859,8 +22019,8 @@ namespace {
                         cursor += 2U;
                     }
                     for (uint64_t i = 0; i < item_count; ++i) {
-                        const size_t needed
-                            = item_id_width + 2U + 2U + base_offset_size + 2U;
+                        const size_t needed = item_id_width + 2U + 2U
+                                              + base_offset_size + 2U;
                         if (cursor + needed > iloc_payload_end) {
                             return;
                         }
@@ -21871,11 +22031,11 @@ namespace {
                                    > std::numeric_limits<uint32_t>::max()) {
                             return;
                         }
-                        const uint32_t item_id
-                            = static_cast<uint32_t>(item_id64);
+                        const uint32_t item_id = static_cast<uint32_t>(
+                            item_id64);
                         cursor += item_id_width;
-                        const uint16_t construction_method
-                            = read_u16be(bytes, cursor);
+                        const uint16_t construction_method = read_u16be(bytes,
+                                                                        cursor);
                         cursor += 2U;
                         const uint16_t data_reference_index
                             = read_u16be(bytes, cursor);
@@ -21889,8 +22049,8 @@ namespace {
                         const uint16_t extent_count = read_u16be(bytes, cursor);
                         cursor += 2U;
 
-                        for (uint16_t extent_index = 0; extent_index < extent_count;
-                             ++extent_index) {
+                        for (uint16_t extent_index = 0;
+                             extent_index < extent_count; ++extent_index) {
                             if (cursor + index_size + offset_size + length_size
                                 > iloc_payload_end) {
                                 return;
@@ -21906,22 +22066,23 @@ namespace {
                             uint64_t extent_length = 0U;
                             if (!read_bmff_u_nbe(bytes, cursor, offset_size,
                                                  &extent_offset)
-                                || !read_bmff_u_nbe(
-                                    bytes, cursor + offset_size, length_size,
-                                    &extent_length)) {
+                                || !read_bmff_u_nbe(bytes, cursor + offset_size,
+                                                    length_size,
+                                                    &extent_length)) {
                                 return;
                             }
                             cursor += offset_size + length_size;
                             if (construction_method == 1U
                                 && data_reference_index == 0U
-                                && base_offset == 0U
-                                && extent_index == 0U
+                                && base_offset == 0U && extent_index == 0U
                                 && extent_offset <= 0xFFFFFFFFULL
                                 && extent_length <= 0xFFFFFFFFULL) {
                                 ExistingBmffManagedItemExtent one;
                                 one.item_id = item_id;
-                                one.offset = static_cast<uint32_t>(extent_offset);
-                                one.length = static_cast<uint32_t>(extent_length);
+                                one.offset  = static_cast<uint32_t>(
+                                    extent_offset);
+                                one.length = static_cast<uint32_t>(
+                                    extent_length);
                                 extents.push_back(one);
                             }
                         }
@@ -21946,17 +22107,19 @@ namespace {
                 if (extents[j].item_id != items[i].item_id) {
                     continue;
                 }
-                const uint64_t item_payload_end = static_cast<uint64_t>(
-                    extents[j].offset) + static_cast<uint64_t>(extents[j].length);
+                const uint64_t item_payload_end
+                    = static_cast<uint64_t>(extents[j].offset)
+                      + static_cast<uint64_t>(extents[j].length);
                 if (item_payload_end > idat_payload.size()) {
                     continue;
                 }
                 const std::span<const std::byte> existing_payload
-                    = idat_payload.subspan(
-                        extents[j].offset,
-                        static_cast<size_t>(extents[j].length));
+                    = idat_payload.subspan(extents[j].offset,
+                                           static_cast<size_t>(
+                                               extents[j].length));
                 std::vector<std::byte> payload;
-                payload.assign(existing_payload.begin(), existing_payload.end());
+                payload.assign(existing_payload.begin(),
+                               existing_payload.end());
                 out_payloads->push_back(std::move(payload));
                 break;
             }
@@ -21979,8 +22142,8 @@ namespace {
             }
             if (box.type == fourcc('m', 'e', 't', 'a')
                 && bmff_meta_has_openmeta_transfer_marker(bytes, box)) {
-                collect_existing_bmff_xmp_payloads_from_meta(
-                    bytes, box, true, out_payloads);
+                collect_existing_bmff_xmp_payloads_from_meta(bytes, box, true,
+                                                             out_payloads);
             }
             if (box.size == 0U) {
                 break;
@@ -22235,18 +22398,16 @@ namespace {
                                              const char* message) noexcept
     {
         if (out) {
-            out->status = status;
-            out->code   = code;
-            out->errors = 1U;
-            out->message
-                = std::string("foreign top-level bmff meta merge: ")
-                  + message;
+            out->status  = status;
+            out->code    = code;
+            out->errors  = 1U;
+            out->message = std::string("foreign top-level bmff meta merge: ")
+                           + message;
         }
         return false;
     }
 
-    static BmffMetadataRewritePolicy
-    collect_bmff_metadata_rewrite_policy(
+    static BmffMetadataRewritePolicy collect_bmff_metadata_rewrite_policy(
         const PreparedTransferBundle& bundle) noexcept
     {
         BmffMetadataRewritePolicy policy;
@@ -22268,8 +22429,9 @@ namespace {
         return policy;
     }
 
-    static bool bmff_removed_item_id(
-        const std::vector<uint32_t>& removed_item_ids, uint32_t item_id) noexcept
+    static bool
+    bmff_removed_item_id(const std::vector<uint32_t>& removed_item_ids,
+                         uint32_t item_id) noexcept
     {
         for (size_t i = 0; i < removed_item_ids.size(); ++i) {
             if (removed_item_ids[i] == item_id) {
@@ -22279,8 +22441,9 @@ namespace {
         return false;
     }
 
-    static bool bmff_append_removed_item_id(
-        std::vector<uint32_t>* removed_item_ids, uint32_t item_id) noexcept
+    static bool
+    bmff_append_removed_item_id(std::vector<uint32_t>* removed_item_ids,
+                                uint32_t item_id) noexcept
     {
         if (!removed_item_ids || item_id == 0U
             || bmff_removed_item_id(*removed_item_ids, item_id)) {
@@ -22324,23 +22487,22 @@ namespace {
     }
 
     static bool append_bmff_u_nbe_checked(std::vector<std::byte>* out,
-                                          size_t width,
-                                          uint64_t value) noexcept
+                                          size_t width, uint64_t value) noexcept
     {
         if (!out || !bmff_u_nbe_fits(width, value)) {
             return false;
         }
         for (size_t i = 0; i < width; ++i) {
             const size_t shift = (width - 1U - i) * 8U;
-            out->push_back(
-                static_cast<std::byte>((value >> shift) & 0xFFU));
+            out->push_back(static_cast<std::byte>((value >> shift) & 0xFFU));
         }
         return true;
     }
 
-    static bool bmff_parse_infe_metadata_info(
-        std::span<const std::byte> bytes, const TransferBmffBox& infe,
-        BmffForeignIinfEntry* out_entry) noexcept
+    static bool
+    bmff_parse_infe_metadata_info(std::span<const std::byte> bytes,
+                                  const TransferBmffBox& infe,
+                                  BmffForeignIinfEntry* out_entry) noexcept
     {
         if (!out_entry || infe.type != fourcc('i', 'n', 'f', 'e')
             || infe.offset + infe.header_size + 4U > bytes.size()
@@ -22352,8 +22514,8 @@ namespace {
         entry.offset = infe.offset;
         entry.size   = infe.size;
 
-        const uint8_t version
-            = std::to_integer<uint8_t>(bytes[infe.offset + infe.header_size]);
+        const uint8_t version = std::to_integer<uint8_t>(
+            bytes[infe.offset + infe.header_size]);
         const size_t payload_begin = static_cast<size_t>(
             infe.offset + infe.header_size + 4U);
         const size_t payload_end = static_cast<size_t>(infe.offset + infe.size);
@@ -22396,8 +22558,7 @@ namespace {
                 return false;
             }
             uint64_t item_id64 = 0U;
-            if (!read_bmff_u_nbe(bytes, payload_begin, item_id_width,
-                                 &item_id64)
+            if (!read_bmff_u_nbe(bytes, payload_begin, item_id_width, &item_id64)
                 || item_id64 > std::numeric_limits<uint32_t>::max()) {
                 return false;
             }
@@ -22430,17 +22591,17 @@ namespace {
         return true;
     }
 
-    static bool bmff_parse_pitm_primary_item_id(
-        std::span<const std::byte> bytes, const TransferBmffBox& pitm,
-        uint32_t* out_item_id) noexcept
+    static bool bmff_parse_pitm_primary_item_id(std::span<const std::byte> bytes,
+                                                const TransferBmffBox& pitm,
+                                                uint32_t* out_item_id) noexcept
     {
         if (!out_item_id || pitm.type != fourcc('p', 'i', 't', 'm')
             || pitm.offset + pitm.header_size + 4U > bytes.size()
             || pitm.size < pitm.header_size + 6U) {
             return false;
         }
-        const uint8_t version
-            = std::to_integer<uint8_t>(bytes[pitm.offset + pitm.header_size]);
+        const uint8_t version = std::to_integer<uint8_t>(
+            bytes[pitm.offset + pitm.header_size]);
         const size_t payload_begin = static_cast<size_t>(
             pitm.offset + pitm.header_size + 4U);
         const size_t payload_end = static_cast<size_t>(pitm.offset + pitm.size);
@@ -22470,12 +22631,12 @@ namespace {
         if (!ctx || meta.type != fourcc('m', 'e', 't', 'a')
             || meta.offset + meta.header_size + 4U > bytes.size()
             || meta.size < meta.header_size + 4U) {
-            return fail_bmff_foreign_meta_merge(
-                out, TransferStatus::Malformed, EmitTransferCode::InvalidPayload,
-                "malformed meta box");
+            return fail_bmff_foreign_meta_merge(out, TransferStatus::Malformed,
+                                                EmitTransferCode::InvalidPayload,
+                                                "malformed meta box");
         }
 
-        *ctx = BmffForeignMetaContext {};
+        *ctx                         = BmffForeignMetaContext {};
         const uint64_t payload_begin = meta.offset + meta.header_size + 4U;
         const uint64_t payload_end   = meta.offset + meta.size;
         uint64_t off                 = payload_begin;
@@ -22577,14 +22738,14 @@ namespace {
         }
         entries->clear();
 
-        uint64_t entry_off = 0U;
-        uint64_t entry_end = 0U;
+        uint64_t entry_off   = 0U;
+        uint64_t entry_end   = 0U;
         uint64_t entry_count = 0U;
         if (!bmff_iinf_entry_region(bytes, ctx->iinf, &entry_off, &entry_end,
                                     &entry_count)) {
-            return fail_bmff_foreign_meta_merge(
-                out, TransferStatus::Malformed, EmitTransferCode::InvalidPayload,
-                "failed to parse iinf");
+            return fail_bmff_foreign_meta_merge(out, TransferStatus::Malformed,
+                                                EmitTransferCode::InvalidPayload,
+                                                "failed to parse iinf");
         }
         ctx->iinf_version = std::to_integer<uint8_t>(
             bytes[ctx->iinf.offset + ctx->iinf.header_size]);
@@ -22629,9 +22790,9 @@ namespace {
             off += infe.size;
         }
         if (entries->size() != entry_count) {
-            return fail_bmff_foreign_meta_merge(
-                out, TransferStatus::Malformed, EmitTransferCode::InvalidPayload,
-                "iinf entry table ended early");
+            return fail_bmff_foreign_meta_merge(out, TransferStatus::Malformed,
+                                                EmitTransferCode::InvalidPayload,
+                                                "iinf entry table ended early");
         }
         return true;
     }
@@ -22644,16 +22805,16 @@ namespace {
         if (!ctx || !records || ctx->iloc.type != fourcc('i', 'l', 'o', 'c')
             || ctx->iloc.offset + ctx->iloc.header_size + 8U > bytes.size()
             || ctx->iloc.size < ctx->iloc.header_size + 8U) {
-            return fail_bmff_foreign_meta_merge(
-                out, TransferStatus::Malformed, EmitTransferCode::InvalidPayload,
-                "malformed iloc box");
+            return fail_bmff_foreign_meta_merge(out, TransferStatus::Malformed,
+                                                EmitTransferCode::InvalidPayload,
+                                                "malformed iloc box");
         }
         records->clear();
 
         const size_t payload_begin = static_cast<size_t>(
             ctx->iloc.offset + ctx->iloc.header_size);
-        const size_t payload_end
-            = static_cast<size_t>(ctx->iloc.offset + ctx->iloc.size);
+        const size_t payload_end = static_cast<size_t>(ctx->iloc.offset
+                                                       + ctx->iloc.size);
         ctx->iloc_version = std::to_integer<uint8_t>(bytes[payload_begin]);
         if (ctx->iloc_version > 2U) {
             return fail_bmff_foreign_meta_merge(
@@ -22663,20 +22824,19 @@ namespace {
         }
 
         if (payload_begin + 6U > payload_end) {
-            return fail_bmff_foreign_meta_merge(
-                out, TransferStatus::Malformed, EmitTransferCode::InvalidPayload,
-                "iloc header is truncated");
+            return fail_bmff_foreign_meta_merge(out, TransferStatus::Malformed,
+                                                EmitTransferCode::InvalidPayload,
+                                                "iloc header is truncated");
         }
         ctx->iloc_sizes0 = std::to_integer<uint8_t>(bytes[payload_begin + 4U]);
         ctx->iloc_sizes1 = std::to_integer<uint8_t>(bytes[payload_begin + 5U]);
-        const size_t offset_size = static_cast<size_t>(
-            (ctx->iloc_sizes0 >> 4U) & 0x0FU);
-        const size_t length_size = static_cast<size_t>(
-            ctx->iloc_sizes0 & 0x0FU);
+        const size_t offset_size = static_cast<size_t>((ctx->iloc_sizes0 >> 4U)
+                                                       & 0x0FU);
+        const size_t length_size = static_cast<size_t>(ctx->iloc_sizes0
+                                                       & 0x0FU);
         const size_t base_offset_size = static_cast<size_t>(
             (ctx->iloc_sizes1 >> 4U) & 0x0FU);
-        const size_t index_size = static_cast<size_t>(
-            ctx->iloc_sizes1 & 0x0FU);
+        const size_t index_size = static_cast<size_t>(ctx->iloc_sizes1 & 0x0FU);
         if (offset_size > 8U || length_size > 8U || base_offset_size > 8U
             || index_size > 8U || offset_size == 0U || length_size == 0U) {
             return fail_bmff_foreign_meta_merge(
@@ -22691,8 +22851,8 @@ namespace {
                 "iloc v0 reserved index-size bits must be zero");
         }
 
-        uint64_t item_count = 0U;
-        size_t cursor       = payload_begin + 6U;
+        uint64_t item_count        = 0U;
+        size_t cursor              = payload_begin + 6U;
         const size_t item_id_width = ctx->iloc_version == 2U ? 4U : 2U;
         if (ctx->iloc_version == 2U) {
             uint32_t count32 = 0U;
@@ -22718,14 +22878,13 @@ namespace {
         ctx->iloc_record_off = cursor;
 
         if (item_count > (1ULL << 20U)) {
-            return fail_bmff_foreign_meta_merge(
-                out, TransferStatus::LimitExceeded,
-                EmitTransferCode::InvalidPayload,
-                "iloc item count is too large");
+            return fail_bmff_foreign_meta_merge(out,
+                                                TransferStatus::LimitExceeded,
+                                                EmitTransferCode::InvalidPayload,
+                                                "iloc item count is too large");
         }
         for (uint64_t i = 0U; i < item_count; ++i) {
-            const size_t construction_size
-                = ctx->iloc_version == 0U ? 0U : 2U;
+            const size_t construction_size = ctx->iloc_version == 0U ? 0U : 2U;
             const size_t needed = item_id_width + construction_size + 2U
                                   + base_offset_size + 2U;
             if (cursor + needed > payload_end) {
@@ -22773,8 +22932,7 @@ namespace {
                 }
                 BmffForeignIlocExtent one;
                 if (index_size != 0U
-                    && !read_bmff_u_nbe(bytes, cursor, index_size,
-                                        &one.index)) {
+                    && !read_bmff_u_nbe(bytes, cursor, index_size, &one.index)) {
                     return fail_bmff_foreign_meta_merge(
                         out, TransferStatus::Malformed,
                         EmitTransferCode::InvalidPayload,
@@ -22802,9 +22960,313 @@ namespace {
             }
         }
         if (cursor != payload_end) {
+            return fail_bmff_foreign_meta_merge(out, TransferStatus::Malformed,
+                                                EmitTransferCode::InvalidPayload,
+                                                "iloc contains trailing bytes");
+        }
+        return true;
+    }
+
+    static const BmffForeignIlocRecord* bmff_find_foreign_iloc_record(
+        const std::vector<BmffForeignIlocRecord>& records,
+        uint32_t item_id) noexcept
+    {
+        for (size_t i = 0; i < records.size(); ++i) {
+            if (records[i].item_id == item_id) {
+                return &records[i];
+            }
+        }
+        return nullptr;
+    }
+
+    static BmffForeignIlocRefs*
+    bmff_find_or_add_foreign_iloc_refs(BmffForeignIlocRefTable* table,
+                                       uint32_t from_item_id) noexcept
+    {
+        if (!table) {
+            return nullptr;
+        }
+        for (size_t i = 0; i < table->entries.size(); ++i) {
+            if (table->entries[i].from_item_id == from_item_id) {
+                return &table->entries[i];
+            }
+        }
+        BmffForeignIlocRefs entry;
+        entry.from_item_id = from_item_id;
+        table->entries.push_back(entry);
+        return &table->entries.back();
+    }
+
+    static const BmffForeignIlocRefs*
+    bmff_find_foreign_iloc_refs(const BmffForeignIlocRefTable& table,
+                                uint32_t from_item_id) noexcept
+    {
+        if (!table.parsed) {
+            return nullptr;
+        }
+        for (size_t i = 0; i < table.entries.size(); ++i) {
+            if (table.entries[i].from_item_id == from_item_id) {
+                return &table.entries[i];
+            }
+        }
+        return nullptr;
+    }
+
+    static bool bmff_parse_foreign_iref_iloc_table(
+        std::span<const std::byte> bytes, const BmffForeignMetaContext& ctx,
+        BmffForeignIlocRefTable* table, EmitTransferResult* out) noexcept
+    {
+        if (!table) {
+            return false;
+        }
+        *table = BmffForeignIlocRefTable {};
+        if (!ctx.has_iref) {
+            return true;
+        }
+
+        const uint64_t payload_begin = ctx.iref.offset + ctx.iref.header_size;
+        const uint64_t payload_end   = ctx.iref.offset + ctx.iref.size;
+        if (payload_begin + 4U > payload_end || payload_end > bytes.size()) {
             return fail_bmff_foreign_meta_merge(
-                out, TransferStatus::Malformed, EmitTransferCode::InvalidPayload,
-                "iloc contains trailing bytes");
+                out, TransferStatus::Malformed,
+                EmitTransferCode::InvalidPayload,
+                "iref fullbox header is truncated");
+        }
+
+        const uint8_t version = std::to_integer<uint8_t>(bytes[payload_begin]);
+        if (version > 1U) {
+            return fail_bmff_foreign_meta_merge(
+                out, TransferStatus::Unsupported,
+                EmitTransferCode::InvalidArgument,
+                "iref version is not supported");
+        }
+
+        const size_t input_id_width = version == 0U ? 2U : 4U;
+        uint64_t child_off          = payload_begin + 4U;
+        while (child_off + 8U <= payload_end) {
+            TransferBmffBox child;
+            if (!parse_transfer_bmff_box(bytes, child_off, payload_end,
+                                         &child)) {
+                return fail_bmff_foreign_meta_merge(
+                    out, TransferStatus::Malformed,
+                    EmitTransferCode::InvalidPayload,
+                    "failed to parse iref child");
+            }
+            if (child.type == fourcc('i', 'l', 'o', 'c')) {
+                const uint64_t child_payload_begin = child.offset
+                                                     + child.header_size;
+                const uint64_t child_payload_end = child.offset + child.size;
+                if (child_payload_begin > child_payload_end
+                    || child_payload_end > bytes.size()) {
+                    return fail_bmff_foreign_meta_merge(
+                        out, TransferStatus::Malformed,
+                        EmitTransferCode::InvalidPayload,
+                        "iref iloc references are malformed");
+                }
+                size_t cursor = static_cast<size_t>(child_payload_begin);
+                const size_t child_end = static_cast<size_t>(child_payload_end);
+                while (cursor < child_end) {
+                    uint64_t from_id64 = 0U;
+                    if (cursor + input_id_width + 2U > child_end
+                        || !read_bmff_u_nbe(bytes, cursor, input_id_width,
+                                            &from_id64)
+                        || from_id64 > std::numeric_limits<uint32_t>::max()) {
+                        return fail_bmff_foreign_meta_merge(
+                            out, TransferStatus::Malformed,
+                            EmitTransferCode::InvalidPayload,
+                            "iref iloc references are malformed");
+                    }
+                    cursor += input_id_width;
+                    const uint32_t from_id   = static_cast<uint32_t>(from_id64);
+                    const uint16_t ref_count = read_u16be(bytes, cursor);
+                    cursor += 2U;
+
+                    BmffForeignIlocRefs* refs
+                        = bmff_find_or_add_foreign_iloc_refs(table, from_id);
+                    if (!refs) {
+                        return fail_bmff_foreign_meta_merge(
+                            out, TransferStatus::LimitExceeded,
+                            EmitTransferCode::InvalidPayload,
+                            "iref iloc reference table is too large");
+                    }
+                    for (uint16_t i = 0U; i < ref_count; ++i) {
+                        uint64_t to_id64 = 0U;
+                        if (cursor + input_id_width > child_end
+                            || !read_bmff_u_nbe(bytes, cursor, input_id_width,
+                                                &to_id64)
+                            || to_id64 > std::numeric_limits<uint32_t>::max()) {
+                            return fail_bmff_foreign_meta_merge(
+                                out, TransferStatus::Malformed,
+                                EmitTransferCode::InvalidPayload,
+                                "iref iloc references are malformed");
+                        }
+                        cursor += input_id_width;
+                        refs->to_item_ids.push_back(
+                            static_cast<uint32_t>(to_id64));
+                    }
+                }
+            }
+
+            if (child.size == 0U) {
+                break;
+            }
+            child_off += child.size;
+        }
+        table->parsed = true;
+        return true;
+    }
+
+    static bool bmff_validate_foreign_iloc_method2_refs(
+        const BmffForeignMetaContext& ctx,
+        const std::vector<BmffForeignIlocRecord>& records,
+        const std::vector<uint32_t>& removed_item_ids,
+        const BmffForeignIlocRefTable& ref_table,
+        const BmffForeignIlocRecord& record, EmitTransferResult* out) noexcept
+    {
+        if (!ctx.has_iref || !ref_table.parsed) {
+            return fail_bmff_foreign_meta_merge(
+                out, TransferStatus::Unsupported,
+                EmitTransferCode::InvalidArgument,
+                "iloc construction method 2 requires iref");
+        }
+        const BmffForeignIlocRefs* refs
+            = bmff_find_foreign_iloc_refs(ref_table, record.item_id);
+        if (!refs) {
+            return fail_bmff_foreign_meta_merge(
+                out, TransferStatus::Unsupported,
+                EmitTransferCode::InvalidArgument,
+                "iloc construction method 2 references are missing");
+        }
+        for (size_t i = 0; i < refs->to_item_ids.size(); ++i) {
+            if (bmff_removed_item_id(removed_item_ids, refs->to_item_ids[i])) {
+                return fail_bmff_foreign_meta_merge(
+                    out, TransferStatus::Unsupported,
+                    EmitTransferCode::InvalidArgument,
+                    "iloc construction method 2 references removed item");
+            }
+        }
+
+        const size_t index_size = static_cast<size_t>(ctx.iloc_sizes1 & 0x0FU);
+        for (size_t i = 0; i < record.extents.size(); ++i) {
+            uint64_t ref_index = record.extents[i].index;
+            if (index_size == 0U) {
+                ref_index = static_cast<uint64_t>(i) + 1U;
+            }
+            if (ref_index == 0U
+                || ref_index
+                       > static_cast<uint64_t>(refs->to_item_ids.size())) {
+                return fail_bmff_foreign_meta_merge(
+                    out, TransferStatus::Unsupported,
+                    EmitTransferCode::InvalidArgument,
+                    "iloc construction method 2 references are missing");
+            }
+
+            const uint32_t target_item_id
+                = refs->to_item_ids[static_cast<size_t>(ref_index - 1U)];
+            if (target_item_id == 0U) {
+                return fail_bmff_foreign_meta_merge(
+                    out, TransferStatus::Unsupported,
+                    EmitTransferCode::InvalidArgument,
+                    "iloc construction method 2 references are missing");
+            }
+            const BmffForeignIlocRecord* target
+                = bmff_find_foreign_iloc_record(records, target_item_id);
+            if (!target || target->data_reference_index != 0U
+                || (target->construction_method & 0xFFF0U) != 0U) {
+                return fail_bmff_foreign_meta_merge(
+                    out, TransferStatus::Unsupported,
+                    EmitTransferCode::InvalidArgument,
+                    "iloc construction method 2 references unsupported item");
+            }
+
+            const uint16_t target_method = static_cast<uint16_t>(
+                target->construction_method & 0x000FU);
+            if (target_method == 0U) {
+                continue;
+            }
+            if (target_method == 1U && ctx.has_idat) {
+                continue;
+            }
+            return fail_bmff_foreign_meta_merge(
+                out, TransferStatus::Unsupported,
+                EmitTransferCode::InvalidArgument,
+                "iloc construction method 2 references unsupported item");
+        }
+        return true;
+    }
+
+    static bool bmff_validate_foreign_iloc_records_for_merge(
+        std::span<const std::byte> bytes, const BmffForeignMetaContext& ctx,
+        const std::vector<BmffForeignIlocRecord>& records,
+        const std::vector<uint32_t>& removed_item_ids,
+        EmitTransferResult* out) noexcept
+    {
+        bool needs_ref_table = false;
+        for (size_t i = 0; i < records.size(); ++i) {
+            const BmffForeignIlocRecord& record = records[i];
+            if (bmff_removed_item_id(removed_item_ids, record.item_id)) {
+                continue;
+            }
+            if (record.data_reference_index != 0U) {
+                return fail_bmff_foreign_meta_merge(
+                    out, TransferStatus::Unsupported,
+                    EmitTransferCode::InvalidArgument,
+                    "iloc external data references are not supported");
+            }
+            if ((record.construction_method & 0xFFF0U) != 0U) {
+                return fail_bmff_foreign_meta_merge(
+                    out, TransferStatus::Unsupported,
+                    EmitTransferCode::InvalidArgument,
+                    "iloc construction method reserved bits are not supported");
+            }
+
+            const uint16_t method = static_cast<uint16_t>(
+                record.construction_method & 0x000FU);
+            if (method == 0U) {
+                continue;
+            }
+            if (method == 1U) {
+                if (!ctx.has_idat) {
+                    return fail_bmff_foreign_meta_merge(
+                        out, TransferStatus::Unsupported,
+                        EmitTransferCode::InvalidArgument,
+                        "iloc construction method 1 requires idat");
+                }
+                continue;
+            }
+            if (method == 2U) {
+                needs_ref_table = true;
+                continue;
+            }
+
+            return fail_bmff_foreign_meta_merge(
+                out, TransferStatus::Unsupported,
+                EmitTransferCode::InvalidArgument,
+                "iloc construction method is not supported");
+        }
+        if (needs_ref_table) {
+            BmffForeignIlocRefTable ref_table;
+            if (!bmff_parse_foreign_iref_iloc_table(bytes, ctx, &ref_table,
+                                                    out)) {
+                return false;
+            }
+            for (size_t i = 0; i < records.size(); ++i) {
+                const BmffForeignIlocRecord& record = records[i];
+                if (bmff_removed_item_id(removed_item_ids, record.item_id)) {
+                    continue;
+                }
+                const uint16_t method = static_cast<uint16_t>(
+                    record.construction_method & 0x000FU);
+                if (method != 2U) {
+                    continue;
+                }
+                if (!bmff_validate_foreign_iloc_method2_refs(ctx, records,
+                                                             removed_item_ids,
+                                                             ref_table, record,
+                                                             out)) {
+                    return false;
+                }
+            }
         }
         return true;
     }
@@ -22819,20 +23281,15 @@ namespace {
         if (items->empty()) {
             return true;
         }
-        const uint64_t max_output_item_id
-            = ctx->iloc_version == 2U
-                  ? static_cast<uint64_t>(
-                        std::numeric_limits<uint32_t>::max())
-                  : 0xFFFFULL;
+        const uint64_t max_output_item_id = static_cast<uint64_t>(
+            std::numeric_limits<uint32_t>::max());
         if (ctx->max_item_id >= max_output_item_id
             || items->size() > static_cast<size_t>(max_output_item_id
                                                    - ctx->max_item_id)) {
             return fail_bmff_foreign_meta_merge(
                 out, TransferStatus::LimitExceeded,
                 EmitTransferCode::InvalidPayload,
-                ctx->iloc_version == 2U
-                    ? "no 32-bit item ids remain for metadata insertion"
-                    : "no 16-bit item ids remain for metadata insertion");
+                "no 32-bit item ids remain for metadata insertion");
         }
         uint64_t next_id = ctx->max_item_id + 1U;
         for (size_t i = 0; i < items->size(); ++i) {
@@ -22856,7 +23313,8 @@ namespace {
         const uint64_t payload_begin = ctx.iinf.offset + ctx.iinf.header_size;
         if (payload_begin + 4U > bytes.size()) {
             return fail_bmff_foreign_meta_merge(
-                out, TransferStatus::Malformed, EmitTransferCode::InvalidPayload,
+                out, TransferStatus::Malformed,
+                EmitTransferCode::InvalidPayload,
                 "iinf fullbox header is truncated");
         }
 
@@ -22897,19 +23355,19 @@ namespace {
             if (bmff_removed_item_id(removed_item_ids, entries[i].item_id)) {
                 continue;
             }
-            payload.insert(
-                payload.end(),
-                bytes.begin() + static_cast<std::ptrdiff_t>(entries[i].offset),
-                bytes.begin()
-                    + static_cast<std::ptrdiff_t>(entries[i].offset
-                                                  + entries[i].size));
+            payload.insert(payload.end(),
+                           bytes.begin()
+                               + static_cast<std::ptrdiff_t>(entries[i].offset),
+                           bytes.begin()
+                               + static_cast<std::ptrdiff_t>(
+                                   entries[i].offset + entries[i].size));
         }
 
         for (size_t i = 0; i < items.size(); ++i) {
             std::vector<std::byte> infe_payload;
             const bool needs_infe_v3 = items[i].item_id > 0xFFFFU;
-            append_bmff_fullbox_fields(&infe_payload,
-                                       needs_infe_v3 ? 3U : 2U, 0U);
+            append_bmff_fullbox_fields(&infe_payload, needs_infe_v3 ? 3U : 2U,
+                                       0U);
             if (needs_infe_v3) {
                 append_u32be(&infe_payload, items[i].item_id);
             } else {
@@ -22940,10 +23398,10 @@ namespace {
         if (!append_bmff_box_bytes_checked(
                 out_box, fourcc('i', 'i', 'n', 'f'),
                 std::span<const std::byte>(payload.data(), payload.size()))) {
-            return fail_bmff_foreign_meta_merge(
-                out, TransferStatus::LimitExceeded,
-                EmitTransferCode::InvalidPayload,
-                "iinf box exceeds 32-bit size");
+            return fail_bmff_foreign_meta_merge(out,
+                                                TransferStatus::LimitExceeded,
+                                                EmitTransferCode::InvalidPayload,
+                                                "iinf box exceeds 32-bit size");
         }
         return true;
     }
@@ -22967,13 +23425,13 @@ namespace {
             if (old_begin > old_end || old_end > bytes.size()) {
                 return fail_bmff_foreign_meta_merge(
                     out, TransferStatus::Malformed,
-                    EmitTransferCode::InvalidPayload,
-                    "idat box is malformed");
+                    EmitTransferCode::InvalidPayload, "idat box is malformed");
             }
-            payload.insert(
-                payload.end(),
-                bytes.begin() + static_cast<std::ptrdiff_t>(old_begin),
-                bytes.begin() + static_cast<std::ptrdiff_t>(old_end));
+            payload.insert(payload.end(),
+                           bytes.begin()
+                               + static_cast<std::ptrdiff_t>(old_begin),
+                           bytes.begin()
+                               + static_cast<std::ptrdiff_t>(old_end));
         }
 
         for (size_t i = 0; i < items.size(); ++i) {
@@ -22995,10 +23453,10 @@ namespace {
         if (!append_bmff_box_bytes_checked(
                 out_box, fourcc('i', 'd', 'a', 't'),
                 std::span<const std::byte>(payload.data(), payload.size()))) {
-            return fail_bmff_foreign_meta_merge(
-                out, TransferStatus::LimitExceeded,
-                EmitTransferCode::InvalidPayload,
-                "idat box exceeds 32-bit size");
+            return fail_bmff_foreign_meta_merge(out,
+                                                TransferStatus::LimitExceeded,
+                                                EmitTransferCode::InvalidPayload,
+                                                "idat box exceeds 32-bit size");
         }
         return true;
     }
@@ -23046,32 +23504,40 @@ namespace {
         const std::vector<uint32_t>& removed_item_ids,
         const PreparedTransferBundle& bundle,
         const std::vector<BmffRewriteItemSource>& items,
-        const std::vector<uint64_t>& item_offsets,
-        uint64_t shifted_range_begin, int64_t file_offset_delta,
-        uint64_t new_item_payload_file_offset,
+        const std::vector<uint64_t>& item_offsets, uint64_t shifted_range_begin,
+        int64_t file_offset_delta, uint64_t new_item_payload_file_offset,
         std::vector<std::byte>* out_box, EmitTransferResult* out) noexcept
     {
         if (!out_box || items.size() != item_offsets.size()) {
             return false;
         }
-        const size_t offset_size = static_cast<size_t>(
-            (ctx.iloc_sizes0 >> 4U) & 0x0FU);
-        const size_t length_size
-            = static_cast<size_t>(ctx.iloc_sizes0 & 0x0FU);
+        const size_t offset_size = static_cast<size_t>((ctx.iloc_sizes0 >> 4U)
+                                                       & 0x0FU);
+        const size_t length_size = static_cast<size_t>(ctx.iloc_sizes0 & 0x0FU);
         const size_t input_base_offset_size = static_cast<size_t>(
             (ctx.iloc_sizes1 >> 4U) & 0x0FU);
-        const size_t index_size = static_cast<size_t>(
-            ctx.iloc_sizes1 & 0x0FU);
-        const uint8_t output_version = ctx.iloc_version == 2U ? 2U : 1U;
-        const size_t item_id_width = output_version == 2U ? 4U : 2U;
-
-        uint64_t kept_count = 0U;
+        const size_t index_size = static_cast<size_t>(ctx.iloc_sizes1 & 0x0FU);
+        uint64_t kept_count     = 0U;
         for (size_t i = 0; i < records.size(); ++i) {
             if (!bmff_removed_item_id(removed_item_ids, records[i].item_id)) {
                 kept_count += 1U;
             }
         }
         const uint64_t final_count = kept_count + items.size();
+        bool needs_iloc_v2 = ctx.iloc_version == 2U || final_count > 0xFFFFULL;
+        for (size_t i = 0; i < records.size() && !needs_iloc_v2; ++i) {
+            if (!bmff_removed_item_id(removed_item_ids, records[i].item_id)
+                && records[i].item_id > 0xFFFFU) {
+                needs_iloc_v2 = true;
+            }
+        }
+        for (size_t i = 0; i < items.size() && !needs_iloc_v2; ++i) {
+            if (items[i].item_id > 0xFFFFU) {
+                needs_iloc_v2 = true;
+            }
+        }
+        const uint8_t output_version = needs_iloc_v2 ? 2U : 1U;
+        const size_t item_id_width   = output_version == 2U ? 4U : 2U;
         if (output_version == 1U && final_count > 0xFFFFULL) {
             return fail_bmff_foreign_meta_merge(
                 out, TransferStatus::LimitExceeded,
@@ -23105,9 +23571,10 @@ namespace {
                 file_offset = records[i].base_offset
                               + records[i].extents[j].offset;
                 uint64_t adjusted_file_offset = 0U;
-                if (!bmff_adjust_foreign_file_offset(
-                        file_offset, shifted_range_begin, file_offset_delta,
-                        &adjusted_file_offset)
+                if (!bmff_adjust_foreign_file_offset(file_offset,
+                                                     shifted_range_begin,
+                                                     file_offset_delta,
+                                                     &adjusted_file_offset)
                     || !bmff_u_nbe_fits(offset_size, adjusted_file_offset)) {
                     can_compact_base_offsets = false;
                     break;
@@ -23117,27 +23584,27 @@ namespace {
                 break;
             }
         }
-        const size_t output_base_offset_size
-            = can_compact_base_offsets ? 0U : input_base_offset_size;
+        const size_t output_base_offset_size = can_compact_base_offsets
+                                                   ? 0U
+                                                   : input_base_offset_size;
 
         const uint64_t payload_begin = ctx.iloc.offset + ctx.iloc.header_size;
         if (payload_begin + 6U > bytes.size()
             || ctx.iloc_record_off < payload_begin + 6U) {
-            return fail_bmff_foreign_meta_merge(
-                out, TransferStatus::Malformed, EmitTransferCode::InvalidPayload,
-                "iloc header is malformed");
+            return fail_bmff_foreign_meta_merge(out, TransferStatus::Malformed,
+                                                EmitTransferCode::InvalidPayload,
+                                                "iloc header is malformed");
         }
 
         std::vector<std::byte> payload;
-        payload.insert(
-            payload.end(),
-            bytes.begin() + static_cast<std::ptrdiff_t>(payload_begin),
-            bytes.begin()
-                + static_cast<std::ptrdiff_t>(payload_begin + 6U));
+        payload.insert(payload.end(),
+                       bytes.begin()
+                           + static_cast<std::ptrdiff_t>(payload_begin),
+                       bytes.begin()
+                           + static_cast<std::ptrdiff_t>(payload_begin + 6U));
         payload[0] = static_cast<std::byte>(output_version);
         payload[5] = static_cast<std::byte>(
-            ((output_base_offset_size & 0x0FU) << 4U)
-            | (index_size & 0x0FU));
+            ((output_base_offset_size & 0x0FU) << 4U) | (index_size & 0x0FU));
         if (output_version == 2U) {
             append_u32be(&payload, static_cast<uint32_t>(final_count));
         } else {
@@ -23152,8 +23619,8 @@ namespace {
             const bool adjust_file_offsets
                 = records[i].construction_method == 0U
                   && records[i].data_reference_index == 0U;
-            const bool fold_file_offsets
-                = output_base_offset_size == 0U && adjust_file_offsets;
+            const bool fold_file_offsets = output_base_offset_size == 0U
+                                           && adjust_file_offsets;
             if (!fold_file_offsets && adjust_file_offsets
                 && base_offset >= shifted_range_begin
                 && !bmff_apply_signed_delta(base_offset, file_offset_delta,
@@ -23163,19 +23630,19 @@ namespace {
                     EmitTransferCode::InvalidPayload,
                     "existing iloc base offset rebasing overflowed");
             }
-            const uint64_t output_base_offset
-                = fold_file_offsets ? 0U : base_offset;
+            const uint64_t output_base_offset = fold_file_offsets ? 0U
+                                                                  : base_offset;
             if (!append_bmff_u_nbe_checked(&payload, item_id_width,
                                            records[i].item_id)
-                || !append_bmff_u_nbe_checked(
-                    &payload, 2U, records[i].construction_method)
-                || !append_bmff_u_nbe_checked(
-                    &payload, 2U, records[i].data_reference_index)
+                || !append_bmff_u_nbe_checked(&payload, 2U,
+                                              records[i].construction_method)
+                || !append_bmff_u_nbe_checked(&payload, 2U,
+                                              records[i].data_reference_index)
                 || !append_bmff_u_nbe_checked(&payload, output_base_offset_size,
                                               output_base_offset)
-                || !append_bmff_u_nbe_checked(
-                    &payload, 2U,
-                    static_cast<uint64_t>(records[i].extents.size()))) {
+                || !append_bmff_u_nbe_checked(&payload, 2U,
+                                              static_cast<uint64_t>(
+                                                  records[i].extents.size()))) {
                 return fail_bmff_foreign_meta_merge(
                     out, TransferStatus::LimitExceeded,
                     EmitTransferCode::InvalidPayload,
@@ -23194,16 +23661,17 @@ namespace {
                             "existing iloc extent file offset overflowed");
                     }
                     file_offset = records[i].base_offset + extent_offset;
-                    if (!bmff_adjust_foreign_file_offset(
-                            file_offset, shifted_range_begin,
-                            file_offset_delta, &extent_offset)) {
+                    if (!bmff_adjust_foreign_file_offset(file_offset,
+                                                         shifted_range_begin,
+                                                         file_offset_delta,
+                                                         &extent_offset)) {
                         return fail_bmff_foreign_meta_merge(
                             out, TransferStatus::LimitExceeded,
                             EmitTransferCode::InvalidPayload,
                             "existing iloc extent offset rebasing overflowed");
                     }
                 } else if (adjust_file_offsets
-                    && records[i].base_offset < shifted_range_begin) {
+                           && records[i].base_offset < shifted_range_begin) {
                     uint64_t file_offset = 0U;
                     if (records[i].base_offset
                         > std::numeric_limits<uint64_t>::max()
@@ -23216,8 +23684,8 @@ namespace {
                     file_offset = records[i].base_offset + extent_offset;
                     uint64_t adjusted_file_offset = 0U;
                     if (!bmff_adjust_foreign_file_offset(
-                            file_offset, shifted_range_begin,
-                            file_offset_delta, &adjusted_file_offset)) {
+                            file_offset, shifted_range_begin, file_offset_delta,
+                            &adjusted_file_offset)) {
                         return fail_bmff_foreign_meta_merge(
                             out, TransferStatus::LimitExceeded,
                             EmitTransferCode::InvalidPayload,
@@ -23268,9 +23736,9 @@ namespace {
                 || !append_bmff_u_nbe_checked(&payload, index_size, 0U)
                 || !append_bmff_u_nbe_checked(&payload, offset_size,
                                               new_extent_offset)
-                || !append_bmff_u_nbe_checked(
-                    &payload, length_size,
-                    static_cast<uint64_t>(block.payload.size()))) {
+                || !append_bmff_u_nbe_checked(&payload, length_size,
+                                              static_cast<uint64_t>(
+                                                  block.payload.size()))) {
                 return fail_bmff_foreign_meta_merge(
                     out, TransferStatus::LimitExceeded,
                     EmitTransferCode::InvalidPayload,
@@ -23282,10 +23750,10 @@ namespace {
         if (!append_bmff_box_bytes_checked(
                 out_box, fourcc('i', 'l', 'o', 'c'),
                 std::span<const std::byte>(payload.data(), payload.size()))) {
-            return fail_bmff_foreign_meta_merge(
-                out, TransferStatus::LimitExceeded,
-                EmitTransferCode::InvalidPayload,
-                "iloc box exceeds 32-bit size");
+            return fail_bmff_foreign_meta_merge(out,
+                                                TransferStatus::LimitExceeded,
+                                                EmitTransferCode::InvalidPayload,
+                                                "iloc box exceeds 32-bit size");
         }
         return true;
     }
@@ -23317,7 +23785,7 @@ namespace {
             return false;
         }
 
-        uint8_t version = 0U;
+        uint8_t version    = 0U;
         bool needs_iref_v1 = ctx.primary_item_id > 0xFFFFU;
         for (size_t i = 0; i < items.size(); ++i) {
             if (items[i].item_id > 0xFFFFU) {
@@ -23327,16 +23795,18 @@ namespace {
         }
         std::vector<std::byte> payload;
         if (ctx.has_iref) {
-            const uint64_t payload_begin = ctx.iref.offset + ctx.iref.header_size;
-            const uint64_t payload_end   = ctx.iref.offset + ctx.iref.size;
-            if (payload_begin + 4U > payload_end || payload_end > bytes.size()) {
+            const uint64_t payload_begin = ctx.iref.offset
+                                           + ctx.iref.header_size;
+            const uint64_t payload_end = ctx.iref.offset + ctx.iref.size;
+            if (payload_begin + 4U > payload_end
+                || payload_end > bytes.size()) {
                 return fail_bmff_foreign_meta_merge(
                     out, TransferStatus::Malformed,
                     EmitTransferCode::InvalidPayload,
                     "iref fullbox header is truncated");
             }
-            const uint8_t input_version
-                = std::to_integer<uint8_t>(bytes[payload_begin]);
+            const uint8_t input_version = std::to_integer<uint8_t>(
+                bytes[payload_begin]);
             if (input_version > 1U) {
                 return fail_bmff_foreign_meta_merge(
                     out, TransferStatus::Unsupported,
@@ -23352,7 +23822,7 @@ namespace {
             payload[0] = static_cast<std::byte>(version);
 
             const size_t input_id_width = input_version == 0U ? 2U : 4U;
-            uint64_t child_off    = payload_begin + 4U;
+            uint64_t child_off          = payload_begin + 4U;
             while (child_off + 8U <= payload_end) {
                 TransferBmffBox child;
                 if (!parse_transfer_bmff_box(bytes, child_off, payload_end,
@@ -23372,8 +23842,7 @@ namespace {
                     uint64_t from_id64 = 0U;
                     if (!read_bmff_u_nbe(bytes, cursor, input_id_width,
                                          &from_id64)
-                        || from_id64
-                               > std::numeric_limits<uint32_t>::max()) {
+                        || from_id64 > std::numeric_limits<uint32_t>::max()) {
                         return fail_bmff_foreign_meta_merge(
                             out, TransferStatus::Malformed,
                             EmitTransferCode::InvalidPayload,
@@ -23386,8 +23855,7 @@ namespace {
                             EmitTransferCode::InvalidPayload,
                             "iref reference count is truncated");
                     }
-                    const uint32_t from_id
-                        = static_cast<uint32_t>(from_id64);
+                    const uint32_t from_id   = static_cast<uint32_t>(from_id64);
                     const uint16_t ref_count = read_u16be(bytes, cursor);
                     cursor += 2U;
 
@@ -23397,16 +23865,14 @@ namespace {
                         uint64_t to_id64 = 0U;
                         if (!read_bmff_u_nbe(bytes, cursor, input_id_width,
                                              &to_id64)
-                            || to_id64
-                                   > std::numeric_limits<uint32_t>::max()) {
+                            || to_id64 > std::numeric_limits<uint32_t>::max()) {
                             return fail_bmff_foreign_meta_merge(
                                 out, TransferStatus::Malformed,
                                 EmitTransferCode::InvalidPayload,
                                 "iref to_item_id is not supported");
                         }
                         cursor += input_id_width;
-                        const uint32_t to_id
-                            = static_cast<uint32_t>(to_id64);
+                        const uint32_t to_id = static_cast<uint32_t>(to_id64);
                         if (!bmff_removed_item_id(removed_item_ids, to_id)) {
                             kept_to_ids.push_back(to_id);
                         }
@@ -23485,17 +23951,17 @@ namespace {
         if (!append_bmff_box_bytes_checked(
                 out_box, fourcc('i', 'r', 'e', 'f'),
                 std::span<const std::byte>(payload.data(), payload.size()))) {
-            return fail_bmff_foreign_meta_merge(
-                out, TransferStatus::LimitExceeded,
-                EmitTransferCode::InvalidPayload,
-                "iref box exceeds 32-bit size");
+            return fail_bmff_foreign_meta_merge(out,
+                                                TransferStatus::LimitExceeded,
+                                                EmitTransferCode::InvalidPayload,
+                                                "iref box exceeds 32-bit size");
         }
         return true;
     }
 
-    static bool bmff_ipco_property_is_icc_colr(
-        std::span<const std::byte> bytes,
-        const TransferBmffBox& property) noexcept
+    static bool
+    bmff_ipco_property_is_icc_colr(std::span<const std::byte> bytes,
+                                   const TransferBmffBox& property) noexcept
     {
         if (property.type != fourcc('c', 'o', 'l', 'r')) {
             return false;
@@ -23518,8 +23984,8 @@ namespace {
     static bool bmff_rebuild_ipco_payload_replacing_icc(
         std::span<const std::byte> bytes, const TransferBmffBox& ipco,
         std::vector<std::byte>* out_payload,
-        std::vector<uint32_t>* out_old_to_new_indices,
-        uint32_t* out_count, EmitTransferResult* out) noexcept
+        std::vector<uint32_t>* out_old_to_new_indices, uint32_t* out_count,
+        EmitTransferResult* out) noexcept
     {
         if (!out_payload || !out_old_to_new_indices || !out_count
             || ipco.type != fourcc('i', 'p', 'c', 'o')) {
@@ -23534,10 +24000,9 @@ namespace {
         const uint64_t payload_begin = ipco.offset + ipco.header_size;
         const uint64_t payload_end   = ipco.offset + ipco.size;
         if (payload_begin > payload_end || payload_end > bytes.size()) {
-            return fail_bmff_foreign_meta_merge(
-                out, TransferStatus::Malformed,
-                EmitTransferCode::InvalidPayload,
-                "ipco box is malformed");
+            return fail_bmff_foreign_meta_merge(out, TransferStatus::Malformed,
+                                                EmitTransferCode::InvalidPayload,
+                                                "ipco box is malformed");
         }
 
         uint64_t off = payload_begin;
@@ -23563,8 +24028,7 @@ namespace {
                 out_old_to_new_indices->push_back(*out_count);
                 out_payload->insert(
                     out_payload->end(),
-                    bytes.begin()
-                        + static_cast<std::ptrdiff_t>(child.offset),
+                    bytes.begin() + static_cast<std::ptrdiff_t>(child.offset),
                     bytes.begin()
                         + static_cast<std::ptrdiff_t>(child.offset
                                                       + child.size));
@@ -23627,16 +24091,14 @@ namespace {
         } else {
             append_u32be(&payload, primary_item_id);
         }
-        payload.push_back(
-            static_cast<std::byte>(static_cast<uint8_t>(
-                property_indices.size())));
+        payload.push_back(static_cast<std::byte>(
+            static_cast<uint8_t>(property_indices.size())));
         for (size_t i = 0; i < property_indices.size(); ++i) {
             if (needs_large_indices) {
                 append_u16be(&payload,
                              static_cast<uint16_t>(property_indices[i]));
             } else {
-                payload.push_back(
-                    static_cast<std::byte>(property_indices[i]));
+                payload.push_back(static_cast<std::byte>(property_indices[i]));
             }
         }
 
@@ -23644,16 +24106,16 @@ namespace {
         if (!append_bmff_box_bytes_checked(
                 out_box, fourcc('i', 'p', 'm', 'a'),
                 std::span<const std::byte>(payload.data(), payload.size()))) {
-            return fail_bmff_foreign_meta_merge(
-                out, TransferStatus::LimitExceeded,
-                EmitTransferCode::InvalidPayload,
-                "ipma box exceeds 32-bit size");
+            return fail_bmff_foreign_meta_merge(out,
+                                                TransferStatus::LimitExceeded,
+                                                EmitTransferCode::InvalidPayload,
+                                                "ipma box exceeds 32-bit size");
         }
         return true;
     }
 
-    static bool bmff_ipma_entry_has_property(
-        const BmffForeignIpmaEntry& entry, uint32_t property_index) noexcept
+    static bool bmff_ipma_entry_has_property(const BmffForeignIpmaEntry& entry,
+                                             uint32_t property_index) noexcept
     {
         for (size_t i = 0; i < entry.associations.size(); ++i) {
             if ((entry.associations[i] & 0x7FFFU) == property_index) {
@@ -23663,11 +24125,12 @@ namespace {
         return false;
     }
 
-    static bool bmff_parse_ipma_entries(
-        std::span<const std::byte> bytes, const TransferBmffBox& ipma,
-        uint8_t* out_version, uint32_t* out_flags,
-        std::vector<BmffForeignIpmaEntry>* out_entries,
-        EmitTransferResult* out) noexcept
+    static bool
+    bmff_parse_ipma_entries(std::span<const std::byte> bytes,
+                            const TransferBmffBox& ipma, uint8_t* out_version,
+                            uint32_t* out_flags,
+                            std::vector<BmffForeignIpmaEntry>* out_entries,
+                            EmitTransferResult* out) noexcept
     {
         if (!out_version || !out_flags || !out_entries
             || ipma.type != fourcc('i', 'p', 'm', 'a')) {
@@ -23693,18 +24156,19 @@ namespace {
         }
         uint32_t flags = 0U;
         flags |= static_cast<uint32_t>(
-            std::to_integer<uint8_t>(bytes[payload_begin + 1U])) << 16U;
+                     std::to_integer<uint8_t>(bytes[payload_begin + 1U]))
+                 << 16U;
         flags |= static_cast<uint32_t>(
-            std::to_integer<uint8_t>(bytes[payload_begin + 2U])) << 8U;
+                     std::to_integer<uint8_t>(bytes[payload_begin + 2U]))
+                 << 8U;
         flags |= static_cast<uint32_t>(
             std::to_integer<uint8_t>(bytes[payload_begin + 3U]));
 
         uint32_t entry_count = 0U;
         if (!read_u32be(bytes, payload_begin + 4U, &entry_count)) {
-            return fail_bmff_foreign_meta_merge(
-                out, TransferStatus::Malformed,
-                EmitTransferCode::InvalidPayload,
-                "ipma entry count is truncated");
+            return fail_bmff_foreign_meta_merge(out, TransferStatus::Malformed,
+                                                EmitTransferCode::InvalidPayload,
+                                                "ipma entry count is truncated");
         }
         if (entry_count > (1U << 20U)) {
             return fail_bmff_foreign_meta_merge(
@@ -23714,8 +24178,8 @@ namespace {
         }
 
         const size_t item_id_width = version == 0U ? 2U : 4U;
-        const size_t assoc_width = (flags & 1U) != 0U ? 2U : 1U;
-        size_t cursor = static_cast<size_t>(payload_begin + 8U);
+        const size_t assoc_width   = (flags & 1U) != 0U ? 2U : 1U;
+        size_t cursor              = static_cast<size_t>(payload_begin + 8U);
         for (uint32_t i = 0U; i < entry_count; ++i) {
             if (cursor + item_id_width + 1U > payload_end) {
                 return fail_bmff_foreign_meta_merge(
@@ -23734,8 +24198,8 @@ namespace {
             }
             cursor += item_id_width;
 
-            const uint8_t association_count
-                = std::to_integer<uint8_t>(bytes[cursor]);
+            const uint8_t association_count = std::to_integer<uint8_t>(
+                bytes[cursor]);
             cursor += 1U;
             if (cursor + static_cast<size_t>(association_count) * assoc_width
                 > payload_end) {
@@ -23768,10 +24232,9 @@ namespace {
         }
 
         if (cursor != payload_end) {
-            return fail_bmff_foreign_meta_merge(
-                out, TransferStatus::Malformed,
-                EmitTransferCode::InvalidPayload,
-                "ipma contains trailing bytes");
+            return fail_bmff_foreign_meta_merge(out, TransferStatus::Malformed,
+                                                EmitTransferCode::InvalidPayload,
+                                                "ipma contains trailing bytes");
         }
 
         *out_version = version;
@@ -23814,15 +24277,19 @@ namespace {
             entries.push_back(std::move(entry));
         }
 
+        std::vector<uint8_t> needs_replacement_property;
+        needs_replacement_property.resize(entries.size(), 0U);
+        std::vector<uint8_t> replacement_property_essential;
+        replacement_property_essential.resize(entries.size(), 0U);
         if (!existing_property_index_map.empty()) {
             for (size_t i = 0; i < entries.size(); ++i) {
                 std::vector<uint16_t> remapped;
                 remapped.reserve(entries[i].associations.size());
                 for (size_t j = 0; j < entries[i].associations.size(); ++j) {
-                    const uint16_t raw = entries[i].associations[j];
-                    const uint16_t old_index
-                        = static_cast<uint16_t>(raw & 0x7FFFU);
-                    const bool essential = (raw & 0x8000U) != 0U;
+                    const uint16_t raw       = entries[i].associations[j];
+                    const uint16_t old_index = static_cast<uint16_t>(raw
+                                                                     & 0x7FFFU);
+                    const bool essential     = (raw & 0x8000U) != 0U;
                     if (old_index >= existing_property_index_map.size()) {
                         return fail_bmff_foreign_meta_merge(
                             out, TransferStatus::Malformed,
@@ -23832,6 +24299,12 @@ namespace {
                     const uint32_t mapped
                         = existing_property_index_map[old_index];
                     if (mapped == 0U) {
+                        if (old_index != 0U) {
+                            needs_replacement_property[i] = 1U;
+                            if (essential) {
+                                replacement_property_essential[i] = 1U;
+                            }
+                        }
                         continue;
                     }
                     if (mapped > 0x7FFFU) {
@@ -23851,6 +24324,42 @@ namespace {
         }
 
         bool needs_large_indices = (flags & 1U) != 0U;
+        for (size_t i = 0; i < entries.size(); ++i) {
+            const bool add_to_entry = i == primary_index
+                                      || (i < needs_replacement_property.size()
+                                          && needs_replacement_property[i]
+                                                 != 0U);
+            if (!add_to_entry) {
+                continue;
+            }
+            for (size_t j = 0; j < property_indices.size(); ++j) {
+                if (property_indices[j] == 0U
+                    || property_indices[j] > 0x7FFFU) {
+                    return fail_bmff_foreign_meta_merge(
+                        out, TransferStatus::LimitExceeded,
+                        EmitTransferCode::InvalidPayload,
+                        "ipma property index is not supported");
+                }
+                if (property_indices[j] > 0x7FU) {
+                    needs_large_indices = true;
+                }
+                if (!bmff_ipma_entry_has_property(entries[i],
+                                                  property_indices[j])) {
+                    if (entries[i].associations.size() >= 0xFFU) {
+                        return fail_bmff_foreign_meta_merge(
+                            out, TransferStatus::LimitExceeded,
+                            EmitTransferCode::InvalidPayload,
+                            "ipma association count exceeds 8-bit range");
+                    }
+                    uint16_t value = static_cast<uint16_t>(property_indices[j]);
+                    if (i < replacement_property_essential.size()
+                        && replacement_property_essential[i] != 0U) {
+                        value = static_cast<uint16_t>(value | 0x8000U);
+                    }
+                    entries[i].associations.push_back(value);
+                }
+            }
+        }
         for (size_t i = 0; i < property_indices.size(); ++i) {
             if (property_indices[i] == 0U || property_indices[i] > 0x7FFFU) {
                 return fail_bmff_foreign_meta_merge(
@@ -23860,17 +24369,6 @@ namespace {
             }
             if (property_indices[i] > 0x7FU) {
                 needs_large_indices = true;
-            }
-            if (!bmff_ipma_entry_has_property(entries[primary_index],
-                                              property_indices[i])) {
-                if (entries[primary_index].associations.size() >= 0xFFU) {
-                    return fail_bmff_foreign_meta_merge(
-                        out, TransferStatus::LimitExceeded,
-                        EmitTransferCode::InvalidPayload,
-                        "ipma association count exceeds 8-bit range");
-                }
-                entries[primary_index].associations.push_back(
-                    static_cast<uint16_t>(property_indices[i]));
             }
         }
 
@@ -23938,10 +24436,10 @@ namespace {
         if (!append_bmff_box_bytes_checked(
                 out_box, fourcc('i', 'p', 'm', 'a'),
                 std::span<const std::byte>(payload.data(), payload.size()))) {
-            return fail_bmff_foreign_meta_merge(
-                out, TransferStatus::LimitExceeded,
-                EmitTransferCode::InvalidPayload,
-                "ipma box exceeds 32-bit size");
+            return fail_bmff_foreign_meta_merge(out,
+                                                TransferStatus::LimitExceeded,
+                                                EmitTransferCode::InvalidPayload,
+                                                "ipma box exceeds 32-bit size");
         }
         return true;
     }
@@ -23973,15 +24471,14 @@ namespace {
         std::vector<std::byte> ipco_payload;
         std::vector<uint32_t> existing_property_index_map;
         if (ctx.has_iprp) {
-            const uint64_t iprp_payload_begin
-                = ctx.iprp.offset + ctx.iprp.header_size;
+            const uint64_t iprp_payload_begin = ctx.iprp.offset
+                                                + ctx.iprp.header_size;
             const uint64_t iprp_payload_end = ctx.iprp.offset + ctx.iprp.size;
             if (iprp_payload_begin > iprp_payload_end
                 || iprp_payload_end > bytes.size()) {
                 return fail_bmff_foreign_meta_merge(
                     out, TransferStatus::Malformed,
-                    EmitTransferCode::InvalidPayload,
-                    "iprp box is malformed");
+                    EmitTransferCode::InvalidPayload, "iprp box is malformed");
             }
 
             uint64_t off = iprp_payload_begin;
@@ -24068,18 +24565,19 @@ namespace {
                 &ipco_box, fourcc('i', 'p', 'c', 'o'),
                 std::span<const std::byte>(ipco_payload.data(),
                                            ipco_payload.size()))) {
-            return fail_bmff_foreign_meta_merge(
-                out, TransferStatus::LimitExceeded,
-                EmitTransferCode::InvalidPayload,
-                "ipco box exceeds 32-bit size");
+            return fail_bmff_foreign_meta_merge(out,
+                                                TransferStatus::LimitExceeded,
+                                                EmitTransferCode::InvalidPayload,
+                                                "ipco box exceeds 32-bit size");
         }
 
         std::vector<std::byte> ipma_box;
         if (has_ipma) {
-            if (!build_bmff_foreign_merged_ipma_box(
-                    bytes, ipma, ctx.primary_item_id,
-                    existing_property_index_map, property_indices, &ipma_box,
-                    out)) {
+            if (!build_bmff_foreign_merged_ipma_box(bytes, ipma,
+                                                    ctx.primary_item_id,
+                                                    existing_property_index_map,
+                                                    property_indices, &ipma_box,
+                                                    out)) {
                 return false;
             }
         } else {
@@ -24092,12 +24590,12 @@ namespace {
 
         std::vector<std::byte> iprp_payload;
         if (ctx.has_iprp) {
-            const uint64_t iprp_payload_begin
-                = ctx.iprp.offset + ctx.iprp.header_size;
+            const uint64_t iprp_payload_begin = ctx.iprp.offset
+                                                + ctx.iprp.header_size;
             const uint64_t iprp_payload_end = ctx.iprp.offset + ctx.iprp.size;
-            uint64_t off = iprp_payload_begin;
-            bool wrote_ipco = false;
-            bool wrote_ipma = false;
+            uint64_t off                    = iprp_payload_begin;
+            bool wrote_ipco                 = false;
+            bool wrote_ipma                 = false;
             while (off + 8U <= iprp_payload_end) {
                 TransferBmffBox child;
                 if (!parse_transfer_bmff_box(bytes, off, iprp_payload_end,
@@ -24118,13 +24616,13 @@ namespace {
                                         ipma_box.end());
                     wrote_ipma = true;
                 } else {
-                    iprp_payload.insert(
-                        iprp_payload.end(),
-                        bytes.begin()
-                            + static_cast<std::ptrdiff_t>(child.offset),
-                        bytes.begin()
-                            + static_cast<std::ptrdiff_t>(child.offset
-                                                          + child.size));
+                    iprp_payload.insert(iprp_payload.end(),
+                                        bytes.begin()
+                                            + static_cast<std::ptrdiff_t>(
+                                                child.offset),
+                                        bytes.begin()
+                                            + static_cast<std::ptrdiff_t>(
+                                                child.offset + child.size));
                 }
 
                 if (child.size == 0U) {
@@ -24151,10 +24649,10 @@ namespace {
                 out_box, fourcc('i', 'p', 'r', 'p'),
                 std::span<const std::byte>(iprp_payload.data(),
                                            iprp_payload.size()))) {
-            return fail_bmff_foreign_meta_merge(
-                out, TransferStatus::LimitExceeded,
-                EmitTransferCode::InvalidPayload,
-                "iprp box exceeds 32-bit size");
+            return fail_bmff_foreign_meta_merge(out,
+                                                TransferStatus::LimitExceeded,
+                                                EmitTransferCode::InvalidPayload,
+                                                "iprp box exceeds 32-bit size");
         }
         return true;
     }
@@ -24162,8 +24660,8 @@ namespace {
     static bool build_bmff_foreign_meta_merged_box(
         std::span<const std::byte> bytes, const TransferBmffBox& meta,
         const PreparedTransferBundle& bundle, bool strip_existing_xmp,
-        uint64_t output_meta_offset,
-        std::vector<std::byte>* out_meta, EmitTransferResult* out) noexcept
+        uint64_t output_meta_offset, std::vector<std::byte>* out_meta,
+        EmitTransferResult* out) noexcept
     {
         if (!out_meta) {
             return false;
@@ -24195,8 +24693,8 @@ namespace {
             return false;
         }
 
-        BmffMetadataRewritePolicy policy
-            = collect_bmff_metadata_rewrite_policy(bundle);
+        BmffMetadataRewritePolicy policy = collect_bmff_metadata_rewrite_policy(
+            bundle);
         if (strip_existing_xmp) {
             policy.xmp = true;
         }
@@ -24207,6 +24705,12 @@ namespace {
                 bmff_append_removed_item_id(&removed_item_ids,
                                             entries[i].item_id);
             }
+        }
+
+        if (!bmff_validate_foreign_iloc_records_for_merge(bytes, ctx, records,
+                                                          removed_item_ids,
+                                                          out)) {
+            return false;
         }
 
         std::vector<std::byte> iinf_box;
@@ -24232,9 +24736,8 @@ namespace {
 
         std::vector<std::byte> iref_box;
         if (write_iref_box) {
-            if (!build_bmff_foreign_merge_iref_box(bytes, ctx,
-                                                   removed_item_ids, items,
-                                                   &iref_box, out)) {
+            if (!build_bmff_foreign_merge_iref_box(bytes, ctx, removed_item_ids,
+                                                   items, &iref_box, out)) {
                 return false;
             }
         }
@@ -24252,25 +24755,25 @@ namespace {
         const uint64_t payload_end   = meta.offset + meta.size;
         if (payload_begin + 4U > bytes.size() || payload_end > bytes.size()) {
             return fail_bmff_foreign_meta_merge(
-                out, TransferStatus::Malformed, EmitTransferCode::InvalidPayload,
+                out, TransferStatus::Malformed,
+                EmitTransferCode::InvalidPayload,
                 "meta fullbox header is truncated");
         }
 
         std::vector<std::byte> iloc_box;
         if (!build_bmff_foreign_merge_iloc_box(
                 bytes, ctx, records, removed_item_ids, bundle, items,
-                item_offsets, meta.offset + meta.size, 0, 0U, &iloc_box,
-                out)) {
+                item_offsets, meta.offset + meta.size, 0, 0U, &iloc_box, out)) {
             return false;
         }
 
-        uint64_t merged_payload_size = 4U;
-        uint64_t running_payload_off = 4U;
+        uint64_t merged_payload_size              = 4U;
+        uint64_t running_payload_off              = 4U;
         uint64_t idat_payload_off_in_meta_payload = 0U;
-        bool counted_idat            = false;
-        bool counted_iref            = false;
-        bool counted_iprp            = false;
-        uint64_t count_off           = child_begin;
+        bool counted_idat                         = false;
+        bool counted_iref                         = false;
+        bool counted_iprp                         = false;
+        uint64_t count_off                        = child_begin;
         while (count_off + 8U <= payload_end) {
             TransferBmffBox child;
             if (!parse_transfer_bmff_box(bytes, count_off, payload_end,
@@ -24293,8 +24796,8 @@ namespace {
                 }
             } else if (child.type == fourcc('i', 'd', 'a', 't')
                        && write_idat_box) {
-                child_size   = idat_box.size();
-                counted_idat = true;
+                child_size                       = idat_box.size();
+                counted_idat                     = true;
                 idat_payload_off_in_meta_payload = running_payload_off + 8U;
             } else if (child.type == fourcc('i', 'r', 'e', 'f')
                        && write_iref_box) {
@@ -24306,8 +24809,7 @@ namespace {
                 counted_iprp = true;
             }
             if (child_size
-                > std::numeric_limits<uint64_t>::max()
-                      - merged_payload_size) {
+                > std::numeric_limits<uint64_t>::max() - merged_payload_size) {
                 return fail_bmff_foreign_meta_merge(
                     out, TransferStatus::LimitExceeded,
                     EmitTransferCode::InvalidPayload,
@@ -24338,22 +24840,20 @@ namespace {
                 "merged meta box exceeds 32-bit size");
         }
         const uint64_t merged_meta_size = 8U + merged_payload_size;
-        if (merged_meta_size > static_cast<uint64_t>(
-                                   std::numeric_limits<int64_t>::max())
+        if (merged_meta_size
+                > static_cast<uint64_t>(std::numeric_limits<int64_t>::max())
             || meta.size > static_cast<uint64_t>(
-                               std::numeric_limits<int64_t>::max())) {
+                   std::numeric_limits<int64_t>::max())) {
             return fail_bmff_foreign_meta_merge(
                 out, TransferStatus::LimitExceeded,
                 EmitTransferCode::InvalidPayload,
                 "merged meta size delta exceeds supported range");
         }
-        const int64_t file_offset_delta
-            = static_cast<int64_t>(merged_meta_size)
-              - static_cast<int64_t>(meta.size);
+        const int64_t file_offset_delta = static_cast<int64_t>(merged_meta_size)
+                                          - static_cast<int64_t>(meta.size);
         uint64_t new_item_payload_file_offset = 0U;
         if (!items.empty()) {
-            if (output_meta_offset
-                > std::numeric_limits<uint64_t>::max() - 8U
+            if (output_meta_offset > std::numeric_limits<uint64_t>::max() - 8U
                 || output_meta_offset + 8U
                        > std::numeric_limits<uint64_t>::max()
                              - idat_payload_off_in_meta_payload) {
@@ -24414,12 +24914,12 @@ namespace {
                 payload.insert(payload.end(), iprp_box.begin(), iprp_box.end());
                 wrote_iprp = true;
             } else {
-                payload.insert(
-                    payload.end(),
-                    bytes.begin() + static_cast<std::ptrdiff_t>(child.offset),
-                    bytes.begin()
-                        + static_cast<std::ptrdiff_t>(child.offset
-                                                      + child.size));
+                payload.insert(payload.end(),
+                               bytes.begin()
+                                   + static_cast<std::ptrdiff_t>(child.offset),
+                               bytes.begin()
+                                   + static_cast<std::ptrdiff_t>(child.offset
+                                                                 + child.size));
             }
 
             if (child.size == 0U) {
@@ -24637,8 +25137,7 @@ namespace {
     static EmitTransferResult build_prepared_bundle_bmff_package_impl_ex(
         std::span<const std::byte> input_bmff,
         const PreparedTransferBundle& bundle, bool strip_existing_xmp,
-        bool allow_empty_metadata,
-        PreparedTransferPackagePlan* out_plan,
+        bool allow_empty_metadata, PreparedTransferPackagePlan* out_plan,
         uint32_t* out_removed_meta_boxes) noexcept
     {
         EmitTransferResult out;
@@ -24685,8 +25184,8 @@ namespace {
                     input_bmff, &preserved_xmp_payloads);
                 for (size_t i = 0; i < preserved_xmp_payloads.size(); ++i) {
                     PreparedTransferBlock block;
-                    block.kind    = TransferBlockKind::Xmp;
-                    block.order   = static_cast<uint32_t>(
+                    block.kind  = TransferBlockKind::Xmp;
+                    block.order = static_cast<uint32_t>(
                         meta_bundle.blocks.size());
                     block.route   = "bmff:item-xmp";
                     block.payload = std::move(preserved_xmp_payloads[i]);
@@ -24695,12 +25194,12 @@ namespace {
             }
         }
 
-        bool found_ftyp                 = false;
-        bool found_foreign_top_meta     = false;
-        bool merged_foreign_top_meta    = false;
-        uint32_t removed_metas          = 0U;
+        bool found_ftyp              = false;
+        bool found_foreign_top_meta  = false;
+        bool merged_foreign_top_meta = false;
+        uint32_t removed_metas       = 0U;
         std::vector<std::byte> meta_box;
-        uint64_t offset                 = 0U;
+        uint64_t offset = 0U;
         while (offset < input_bmff.size()) {
             TransferBmffBox box;
             if (!parse_transfer_bmff_box(input_bmff, offset, input_bmff.size(),
@@ -24750,9 +25249,8 @@ namespace {
                             package_plan_next_output_offset(plan), &meta_box,
                             &out)) {
                         append_package_inline_chunk(
-                            &plan,
-                            std::span<const std::byte>(meta_box.data(),
-                                                       meta_box.size()));
+                            &plan, std::span<const std::byte>(meta_box.data(),
+                                                              meta_box.size()));
                         merged_foreign_top_meta = true;
                     } else {
                         return out;
@@ -25736,8 +26234,7 @@ namespace {
                 out.status = TransferStatus::InvalidArgument;
                 out.code   = EmitTransferCode::PlanMismatch;
                 out.errors = 1U;
-                out.message
-                    = "compiled png emit plan contract_version mismatch";
+                out.message = "compiled png emit plan contract_version mismatch";
                 return out;
             }
             break;
@@ -25746,8 +26243,7 @@ namespace {
                 out.status = TransferStatus::InvalidArgument;
                 out.code   = EmitTransferCode::PlanMismatch;
                 out.errors = 1U;
-                out.message
-                    = "compiled jp2 emit plan contract_version mismatch";
+                out.message = "compiled jp2 emit plan contract_version mismatch";
                 return out;
             }
             break;
@@ -25756,8 +26252,7 @@ namespace {
                 out.status = TransferStatus::InvalidArgument;
                 out.code   = EmitTransferCode::PlanMismatch;
                 out.errors = 1U;
-                out.message
-                    = "compiled exr emit plan contract_version mismatch";
+                out.message = "compiled exr emit plan contract_version mismatch";
                 return out;
             }
             break;
@@ -26291,9 +26786,9 @@ namespace {
             if (options.strip_existing_xmp) {
                 jpeg_edit.strip_existing_xmp = true;
             }
-            out.jpeg_edit_plan
-                = plan_prepared_bundle_jpeg_edit(edit_input, *bundle,
-                                                 jpeg_edit);
+            out.jpeg_edit_plan    = plan_prepared_bundle_jpeg_edit(edit_input,
+                                                                   *bundle,
+                                                                   jpeg_edit);
             out.edit_plan_status  = out.jpeg_edit_plan.status;
             out.edit_plan_message = out.jpeg_edit_plan.message;
             out.edit_output_size  = out.jpeg_edit_plan.output_size;
@@ -26319,9 +26814,9 @@ namespace {
             if (options.strip_existing_xmp) {
                 tiff_edit.strip_existing_xmp = true;
             }
-            out.tiff_edit_plan
-                = plan_prepared_bundle_tiff_edit(edit_input, *bundle,
-                                                 tiff_edit);
+            out.tiff_edit_plan    = plan_prepared_bundle_tiff_edit(edit_input,
+                                                                   *bundle,
+                                                                   tiff_edit);
             out.edit_plan_status  = out.tiff_edit_plan.status;
             out.edit_plan_message = out.tiff_edit_plan.message;
             out.edit_output_size  = out.tiff_edit_plan.output_size;
@@ -26350,9 +26845,9 @@ namespace {
             out.edit_apply.message = "jxl edit apply not requested";
 
             const EmitTransferResult plan_result
-                = build_prepared_bundle_jxl_package(
-                    edit_input, *bundle, options.strip_existing_xmp, &package,
-                    &removed_boxes);
+                = build_prepared_bundle_jxl_package(edit_input, *bundle,
+                                                    options.strip_existing_xmp,
+                                                    &package, &removed_boxes);
             out.edit_plan_status  = plan_result.status;
             out.edit_plan_message = plan_result.message;
             out.edit_output_size  = plan_result.status == TransferStatus::Ok
@@ -26412,9 +26907,9 @@ namespace {
             out.edit_apply.message  = "webp edit apply not requested";
 
             const EmitTransferResult plan_result
-                = build_prepared_bundle_webp_package(
-                    edit_input, *bundle, options.strip_existing_xmp, &package,
-                    &removed_chunks);
+                = build_prepared_bundle_webp_package(edit_input, *bundle,
+                                                     options.strip_existing_xmp,
+                                                     &package, &removed_chunks);
             out.edit_plan_status  = plan_result.status;
             out.edit_plan_message = plan_result.message;
             out.edit_output_size  = plan_result.status == TransferStatus::Ok
@@ -26474,9 +26969,9 @@ namespace {
             out.edit_apply.message  = "png edit apply not requested";
 
             const EmitTransferResult plan_result
-                = build_prepared_bundle_png_package(
-                    edit_input, *bundle, options.strip_existing_xmp, &package,
-                    &removed_chunks);
+                = build_prepared_bundle_png_package(edit_input, *bundle,
+                                                    options.strip_existing_xmp,
+                                                    &package, &removed_chunks);
             out.edit_plan_status  = plan_result.status;
             out.edit_plan_message = plan_result.message;
             out.edit_output_size  = plan_result.status == TransferStatus::Ok
@@ -26536,9 +27031,9 @@ namespace {
             out.edit_apply.message = "jp2 edit apply not requested";
 
             const EmitTransferResult plan_result
-                = build_prepared_bundle_jp2_package(
-                    edit_input, *bundle, options.strip_existing_xmp, &package,
-                    &removed_boxes);
+                = build_prepared_bundle_jp2_package(edit_input, *bundle,
+                                                    options.strip_existing_xmp,
+                                                    &package, &removed_boxes);
             out.edit_plan_status  = plan_result.status;
             out.edit_plan_message = plan_result.message;
             out.edit_output_size  = plan_result.status == TransferStatus::Ok
@@ -26722,25 +27217,25 @@ build_prepared_bundle_webp_package(std::span<const std::byte> input_webp,
         return out;
     }
     if (logical_end != input_webp.size()) {
-        out.status  = TransferStatus::Unsupported;
-        out.code    = EmitTransferCode::InvalidArgument;
-        out.errors  = 1U;
+        out.status = TransferStatus::Unsupported;
+        out.code   = EmitTransferCode::InvalidArgument;
+        out.errors = 1U;
         out.message
             = "webp edit does not support trailing bytes outside riff size";
         return out;
     }
 
-    const WebpRewritePolicy policy = collect_webp_rewrite_policy(
-        bundle, strip_existing_xmp);
+    const WebpRewritePolicy policy
+        = collect_webp_rewrite_policy(bundle, strip_existing_xmp);
 
     std::vector<TransferWebpChunk> chunks;
     chunks.reserve(32U);
-    bool saw_vp8x               = false;
-    size_t vp8x_index           = 0U;
-    bool retained_exif          = false;
-    bool retained_xmp           = false;
-    bool retained_icc           = false;
-    uint64_t offset             = 12U;
+    bool saw_vp8x      = false;
+    size_t vp8x_index  = 0U;
+    bool retained_exif = false;
+    bool retained_xmp  = false;
+    bool retained_icc  = false;
+    uint64_t offset    = 12U;
     while (offset < logical_end) {
         TransferWebpChunk chunk;
         if (!parse_transfer_webp_chunk(input_webp, offset, logical_end,
@@ -26807,7 +27302,7 @@ build_prepared_bundle_webp_package(std::span<const std::byte> input_webp,
             out.code               = EmitTransferCode::UnsupportedRoute;
             out.errors             = 1U;
             out.failed_block_index = i;
-            out.message = "unsupported webp route: " + block.route;
+            out.message            = "unsupported webp route: " + block.route;
             return out;
         }
         if (block.route == "webp:chunk-exif") {
@@ -26820,14 +27315,14 @@ build_prepared_bundle_webp_package(std::span<const std::byte> input_webp,
         appended_chunks += 1U;
     }
 
-    const bool final_exif  = retained_exif || inserted_exif;
-    const bool final_xmp   = retained_xmp || inserted_xmp;
-    const bool final_icc   = retained_icc || inserted_icc;
-    const bool needs_vp8x  = final_exif || final_xmp || final_icc;
+    const bool final_exif = retained_exif || inserted_exif;
+    const bool final_xmp  = retained_xmp || inserted_xmp;
+    const bool final_icc  = retained_icc || inserted_icc;
+    const bool needs_vp8x = final_exif || final_xmp || final_icc;
     if (needs_vp8x && !saw_vp8x) {
-        out.status  = TransferStatus::Unsupported;
-        out.code    = EmitTransferCode::InvalidArgument;
-        out.errors  = 1U;
+        out.status = TransferStatus::Unsupported;
+        out.code   = EmitTransferCode::InvalidArgument;
+        out.errors = 1U;
         out.message
             = "webp edit requires an existing vp8x chunk for exif/xmp/icc metadata";
         return out;
@@ -26842,7 +27337,8 @@ build_prepared_bundle_webp_package(std::span<const std::byte> input_webp,
     header_chunk.kind          = TransferPackageChunkKind::InlineBytes;
     header_chunk.output_offset = 0U;
     header_chunk.size          = 12U;
-    header_chunk.inline_bytes.assign(input_webp.begin(), input_webp.begin() + 12U);
+    header_chunk.inline_bytes.assign(input_webp.begin(),
+                                     input_webp.begin() + 12U);
     plan.chunks.push_back(std::move(header_chunk));
 
     uint32_t removed_chunks = 0U;
@@ -26898,8 +27394,8 @@ build_prepared_bundle_webp_package(std::span<const std::byte> input_webp,
                     append_package_prepared_block_chunk(
                         &plan, i,
                         8U + static_cast<uint64_t>(block.payload.size())
-                            + static_cast<uint64_t>(
-                                (block.payload.size() & 1U) != 0U));
+                            + static_cast<uint64_t>((block.payload.size() & 1U)
+                                                    != 0U));
                 }
                 inserted_chunks = appended_chunks != 0U;
             }
@@ -26951,9 +27447,10 @@ build_prepared_bundle_webp_package(std::span<const std::byte> input_webp,
     if (appended_chunks == 0U) {
         out.message = "removed prior matching webp metadata chunks";
     } else if (removed_chunks == 0U) {
-        out.message = saw_vp8x
-                          ? "inserted prepared webp metadata chunks after vp8x"
-                          : "inserted prepared webp metadata chunks after riff header";
+        out.message
+            = saw_vp8x
+                  ? "inserted prepared webp metadata chunks after vp8x"
+                  : "inserted prepared webp metadata chunks after riff header";
     } else {
         out.message = "replaced prior matching webp metadata chunks";
     }
@@ -27008,12 +27505,13 @@ build_prepared_bundle_png_package(std::span<const std::byte> input_png,
     plan.target_format    = bundle.target_format;
     plan.input_size       = static_cast<uint64_t>(input_png.size());
 
-    const PngRewritePolicy policy = collect_png_rewrite_policy(
-        bundle, strip_existing_xmp);
+    const PngRewritePolicy policy
+        = collect_png_rewrite_policy(bundle, strip_existing_xmp);
 
     TransferPngChunk ihdr;
-    if (!parse_transfer_png_chunk(
-            input_png, static_cast<uint64_t>(kPngSignature.size()), &ihdr)
+    if (!parse_transfer_png_chunk(input_png,
+                                  static_cast<uint64_t>(kPngSignature.size()),
+                                  &ihdr)
         || ihdr.type != fourcc('I', 'H', 'D', 'R')) {
         out.status  = TransferStatus::Malformed;
         out.code    = EmitTransferCode::InvalidPayload;
@@ -27035,7 +27533,7 @@ build_prepared_bundle_png_package(std::span<const std::byte> input_png,
             out.code               = EmitTransferCode::UnsupportedRoute;
             out.errors             = 1U;
             out.failed_block_index = i;
-            out.message = "unsupported png route: " + block.route;
+            out.message            = "unsupported png route: " + block.route;
             return out;
         }
         append_package_prepared_block_chunk(
@@ -27115,10 +27613,13 @@ find_jp2_rewrite_icc_block_index(const PreparedTransferBundle& bundle,
                                  uint32_t* out_block_index,
                                  EmitTransferResult* out) noexcept;
 
-static bool build_rewritten_jp2_header_box(
-    std::span<const std::byte> input_jp2, const TransferBmffBox& jp2h_box,
-    const PreparedTransferBundle& bundle, uint32_t icc_block_index,
-    std::vector<std::byte>* out_box_bytes, EmitTransferResult* out) noexcept;
+static bool
+build_rewritten_jp2_header_box(std::span<const std::byte> input_jp2,
+                               const TransferBmffBox& jp2h_box,
+                               const PreparedTransferBundle& bundle,
+                               uint32_t icc_block_index,
+                               std::vector<std::byte>* out_box_bytes,
+                               EmitTransferResult* out) noexcept;
 
 static EmitTransferResult
 build_prepared_bundle_jp2_package(std::span<const std::byte> input_jp2,
@@ -27150,9 +27651,9 @@ build_prepared_bundle_jp2_package(std::span<const std::byte> input_jp2,
         return out;
     }
 
-    const Jp2RewritePolicy policy = collect_jp2_rewrite_policy(
-        bundle, strip_existing_xmp);
-    uint32_t icc_block_index      = 0xFFFFFFFFU;
+    const Jp2RewritePolicy policy
+        = collect_jp2_rewrite_policy(bundle, strip_existing_xmp);
+    uint32_t icc_block_index = 0xFFFFFFFFU;
     if (policy.icc
         && !find_jp2_rewrite_icc_block_index(bundle, &icc_block_index, &out)) {
         return out;
@@ -27163,13 +27664,13 @@ build_prepared_bundle_jp2_package(std::span<const std::byte> input_jp2,
     plan.target_format    = bundle.target_format;
     plan.input_size       = static_cast<uint64_t>(input_jp2.size());
 
-    bool found_signature = false;
-    bool found_ftyp      = false;
-    bool found_jp2h      = false;
-    bool rewrote_jp2h    = false;
-    uint32_t removed_boxes = 0U;
+    bool found_signature     = false;
+    bool found_ftyp          = false;
+    bool found_jp2h          = false;
+    bool rewrote_jp2h        = false;
+    uint32_t removed_boxes   = 0U;
     uint32_t emitted_updates = 0U;
-    uint64_t offset = 0U;
+    uint64_t offset          = 0U;
     while (offset < input_jp2.size()) {
         TransferBmffBox box;
         if (!parse_transfer_bmff_box(input_jp2, offset, input_jp2.size(),
@@ -27188,23 +27689,23 @@ build_prepared_bundle_jp2_package(std::span<const std::byte> input_jp2,
         } else if (box.type == fourcc('j', 'p', '2', 'h')) {
             if (policy.icc) {
                 if (found_jp2h) {
-                    out.status  = TransferStatus::Unsupported;
-                    out.code    = EmitTransferCode::UnsupportedRoute;
-                    out.errors  = 1U;
-                    out.message = "jp2 edit does not support multiple jp2h boxes";
+                    out.status = TransferStatus::Unsupported;
+                    out.code   = EmitTransferCode::UnsupportedRoute;
+                    out.errors = 1U;
+                    out.message
+                        = "jp2 edit does not support multiple jp2h boxes";
                     return out;
                 }
                 found_jp2h = true;
                 std::vector<std::byte> rebuilt_box;
-                if (!build_rewritten_jp2_header_box(
-                        input_jp2, box, bundle, icc_block_index,
-                        &rebuilt_box, &out)) {
+                if (!build_rewritten_jp2_header_box(input_jp2, box, bundle,
+                                                    icc_block_index,
+                                                    &rebuilt_box, &out)) {
                     return out;
                 }
                 append_package_inline_chunk(
-                    &plan,
-                    std::span<const std::byte>(rebuilt_box.data(),
-                                               rebuilt_box.size()));
+                    &plan, std::span<const std::byte>(rebuilt_box.data(),
+                                                      rebuilt_box.size()));
                 rewrote_jp2h = true;
                 emitted_updates += 1U;
                 if (box.size == 0U) {
@@ -27235,10 +27736,11 @@ build_prepared_bundle_jp2_package(std::span<const std::byte> input_jp2,
         return out;
     }
     if (policy.icc && !found_jp2h) {
-        out.status  = TransferStatus::Unsupported;
-        out.code    = EmitTransferCode::UnsupportedRoute;
-        out.errors  = 1U;
-        out.message = "jp2 edit requires an existing jp2h box for jp2h colr route";
+        out.status = TransferStatus::Unsupported;
+        out.code   = EmitTransferCode::UnsupportedRoute;
+        out.errors = 1U;
+        out.message
+            = "jp2 edit requires an existing jp2h box for jp2h colr route";
         return out;
     }
 
@@ -27259,7 +27761,7 @@ build_prepared_bundle_jp2_package(std::span<const std::byte> input_jp2,
             out.code               = EmitTransferCode::UnsupportedRoute;
             out.errors             = 1U;
             out.failed_block_index = i;
-            out.message = "unsupported jp2 route: " + block.route;
+            out.message            = "unsupported jp2 route: " + block.route;
             return out;
         }
         if (block.payload.size() > static_cast<size_t>(0xFFFFFFFFU - 8U)) {
@@ -27267,7 +27769,7 @@ build_prepared_bundle_jp2_package(std::span<const std::byte> input_jp2,
             out.code               = EmitTransferCode::InvalidPayload;
             out.errors             = 1U;
             out.failed_block_index = i;
-            out.message = "jp2 box payload exceeds 32-bit box size";
+            out.message            = "jp2 box payload exceeds 32-bit box size";
             return out;
         }
 
@@ -27301,11 +27803,13 @@ build_prepared_bundle_jp2_package(std::span<const std::byte> input_jp2,
     } else if (removed_boxes == 0U && !rewrote_jp2h) {
         out.message = "appended prepared jp2 metadata boxes";
     } else if (removed_boxes == 0U) {
-        out.message = "updated jp2 header metadata boxes and appended prepared jp2 metadata boxes";
+        out.message
+            = "updated jp2 header metadata boxes and appended prepared jp2 metadata boxes";
     } else {
-        out.message = rewrote_jp2h
-                          ? "replaced prior matching jp2 metadata boxes and updated jp2 header"
-                          : "replaced prior matching jp2 metadata boxes";
+        out.message
+            = rewrote_jp2h
+                  ? "replaced prior matching jp2 metadata boxes and updated jp2 header"
+                  : "replaced prior matching jp2 metadata boxes";
     }
     return out;
 }
@@ -27330,8 +27834,7 @@ find_jp2_rewrite_icc_block_index(const PreparedTransferBundle& bundle,
             out->code               = EmitTransferCode::UnsupportedRoute;
             out->errors             = 1U;
             out->failed_block_index = i;
-            out->message
-                = "jp2 edit supports only one jp2h colr block";
+            out->message = "jp2 edit supports only one jp2h colr block";
             return false;
         }
         *out_block_index = i;
@@ -27339,10 +27842,13 @@ find_jp2_rewrite_icc_block_index(const PreparedTransferBundle& bundle,
     return true;
 }
 
-static bool build_rewritten_jp2_header_box(
-    std::span<const std::byte> input_jp2, const TransferBmffBox& jp2h_box,
-    const PreparedTransferBundle& bundle, uint32_t icc_block_index,
-    std::vector<std::byte>* out_box_bytes, EmitTransferResult* out) noexcept
+static bool
+build_rewritten_jp2_header_box(std::span<const std::byte> input_jp2,
+                               const TransferBmffBox& jp2h_box,
+                               const PreparedTransferBundle& bundle,
+                               uint32_t icc_block_index,
+                               std::vector<std::byte>* out_box_bytes,
+                               EmitTransferResult* out) noexcept
 {
     if (!out_box_bytes || !out) {
         return false;
@@ -27376,11 +27882,10 @@ static bool build_rewritten_jp2_header_box(
     const uint64_t payload_begin = jp2h_box.offset + jp2h_box.header_size;
     const uint64_t payload_end   = jp2h_box.offset + jp2h_box.size;
     std::vector<std::byte> rebuilt_payload;
-    rebuilt_payload.reserve(static_cast<size_t>(jp2h_box.size
-                                                - jp2h_box.header_size
-                                                + icc_block.payload.size()));
+    rebuilt_payload.reserve(static_cast<size_t>(
+        jp2h_box.size - jp2h_box.header_size + icc_block.payload.size()));
 
-    bool inserted_icc = false;
+    bool inserted_icc  = false;
     uint64_t child_off = payload_begin;
     while (child_off < payload_end) {
         TransferBmffBox child;
@@ -27403,8 +27908,7 @@ static bool build_rewritten_jp2_header_box(
         } else {
             rebuilt_payload.insert(
                 rebuilt_payload.end(),
-                input_jp2.begin()
-                    + static_cast<std::ptrdiff_t>(child.offset),
+                input_jp2.begin() + static_cast<std::ptrdiff_t>(child.offset),
                 input_jp2.begin()
                     + static_cast<std::ptrdiff_t>(child.offset + child.size));
         }
@@ -27420,11 +27924,10 @@ static bool build_rewritten_jp2_header_box(
                                icc_block.payload.end());
     }
 
-    return serialize_jxl_box(
-        { 'j', 'p', '2', 'h' },
-        std::span<const std::byte>(rebuilt_payload.data(),
-                                   rebuilt_payload.size()),
-        out_box_bytes, out);
+    return serialize_jxl_box({ 'j', 'p', '2', 'h' },
+                             std::span<const std::byte>(rebuilt_payload.data(),
+                                                        rebuilt_payload.size()),
+                             out_box_bytes, out);
 }
 
 static EmitTransferResult
@@ -27573,8 +28076,8 @@ build_prepared_bundle_jxl_package(std::span<const std::byte> input_jxl,
                                   PreparedTransferPackagePlan* out_plan,
                                   uint32_t* out_removed_boxes) noexcept
 {
-    const JxlRewritePolicy policy = collect_jxl_rewrite_policy(
-        bundle, strip_existing_xmp);
+    const JxlRewritePolicy policy
+        = collect_jxl_rewrite_policy(bundle, strip_existing_xmp);
     return build_prepared_bundle_jxl_package_impl(input_jxl, bundle, policy,
                                                   out_plan, out_removed_boxes);
 }
@@ -27586,9 +28089,9 @@ build_prepared_bundle_bmff_package(std::span<const std::byte> input_bmff,
                                    PreparedTransferPackagePlan* out_plan,
                                    uint32_t* out_removed_meta_boxes) noexcept
 {
-    return build_prepared_bundle_bmff_package_impl(
-        input_bmff, bundle, strip_existing_xmp, out_plan,
-        out_removed_meta_boxes);
+    return build_prepared_bundle_bmff_package_impl(input_bmff, bundle,
+                                                   strip_existing_xmp, out_plan,
+                                                   out_removed_meta_boxes);
 }
 
 EmitTransferResult
@@ -28464,8 +28967,8 @@ namespace {
         normalize_resource_policy(&policy);
         const bool has_edit_target_bytes = !options.edit_target_bytes.empty();
         const bool has_edit_target_path  = !options.edit_target_path.empty();
-        const bool has_existing_target_input
-            = has_edit_target_bytes || has_edit_target_path;
+        const bool has_existing_target_input = has_edit_target_bytes
+                                               || has_edit_target_path;
 
         const bool strip_destination_embedded_xmp
             = options.xmp_destination_embedded_mode
@@ -28473,10 +28976,11 @@ namespace {
         const bool strip_destination_sidecar
             = options.xmp_destination_sidecar_mode
               == XmpDestinationSidecarMode::StripExisting;
-        out.xmp_sidecar_requested
-            = options.xmp_writeback_mode != XmpWritebackMode::EmbeddedOnly;
-        const bool c2pa_stage_requested = options.c2pa_stage_requested
-                                          || options.c2pa_signed_package_provided;
+        out.xmp_sidecar_requested = options.xmp_writeback_mode
+                                    != XmpWritebackMode::EmbeddedOnly;
+        const bool c2pa_stage_requested
+            = options.c2pa_stage_requested
+              || options.c2pa_signed_package_provided;
         const bool allow_sidecar_block_mutation
             = !strip_destination_embedded_xmp;
         out.execute.c2pa_stage_requested = c2pa_stage_requested;
@@ -28499,8 +29003,7 @@ namespace {
                 out.xmp_sidecar_output
                     = out.prepared.bundle.generated_xmp_sidecar;
                 out.xmp_sidecar_status = TransferStatus::Ok;
-                if (options.xmp_writeback_mode
-                        == XmpWritebackMode::SidecarOnly
+                if (options.xmp_writeback_mode == XmpWritebackMode::SidecarOnly
                     && allow_sidecar_block_mutation) {
                     const uint32_t removed_xmp = remove_prepared_blocks_by_kind(
                         &out.prepared.bundle, TransferBlockKind::Xmp);
@@ -28533,7 +29036,7 @@ namespace {
                 && !c2pa_stage_requested)) {
             if (c2pa_stage_requested) {
                 out.execute.c2pa_stage.status = TransferStatus::Unsupported;
-                out.execute.c2pa_stage.code   = EmitTransferCode::InvalidArgument;
+                out.execute.c2pa_stage.code = EmitTransferCode::InvalidArgument;
                 out.execute.c2pa_stage.errors = 1U;
                 out.execute.c2pa_stage.message
                     = "skipped c2pa sign staging due to read/prepare failure";
@@ -28547,7 +29050,7 @@ namespace {
                 out.execute.edit_plan_message
                     = "skipped edit due to read/prepare failure";
                 out.execute.edit_apply.status = TransferStatus::Unsupported;
-                out.execute.edit_apply.code   = EmitTransferCode::InvalidArgument;
+                out.execute.edit_apply.code = EmitTransferCode::InvalidArgument;
                 out.execute.edit_apply.errors = 1U;
                 out.execute.edit_apply.message
                     = "skipped edit due to read/prepare failure";
@@ -28571,14 +29074,14 @@ namespace {
                     out.prepared.bundle.dng_target_mode, true);
             out.execute.compile = skipped_emit_result(
                 "skipped emit due to missing required DNG target input");
-            out.execute.emit                = out.execute.compile;
-            out.execute.edit_requested      = true;
-            out.execute.edit_plan_status    = TransferStatus::InvalidArgument;
-            out.execute.edit_plan_message   = message;
-            out.execute.edit_apply.status   = TransferStatus::InvalidArgument;
-            out.execute.edit_apply.code     = EmitTransferCode::InvalidArgument;
-            out.execute.edit_apply.errors   = 1U;
-            out.execute.edit_apply.message  = message;
+            out.execute.emit               = out.execute.compile;
+            out.execute.edit_requested     = true;
+            out.execute.edit_plan_status   = TransferStatus::InvalidArgument;
+            out.execute.edit_plan_message  = message;
+            out.execute.edit_apply.status  = TransferStatus::InvalidArgument;
+            out.execute.edit_apply.code    = EmitTransferCode::InvalidArgument;
+            out.execute.edit_apply.errors  = 1U;
+            out.execute.edit_apply.message = message;
             if (out.xmp_sidecar_requested) {
                 out.xmp_sidecar_status  = TransferStatus::Unsupported;
                 out.xmp_sidecar_message = message;
@@ -28594,11 +29097,10 @@ namespace {
             } else if (has_edit_target_path) {
                 sidecar_base_path = options.edit_target_path.c_str();
             }
-            if (options.xmp_writeback_mode
-                       != XmpWritebackMode::EmbeddedOnly) {
+            if (options.xmp_writeback_mode != XmpWritebackMode::EmbeddedOnly) {
                 if (sidecar_base_path && *sidecar_base_path) {
-                    find_existing_xmp_sidecar_path(sidecar_base_path,
-                                                   &out.xmp_sidecar_cleanup_path);
+                    find_existing_xmp_sidecar_path(
+                        sidecar_base_path, &out.xmp_sidecar_cleanup_path);
                 }
                 out.xmp_sidecar_cleanup_status = TransferStatus::Unsupported;
                 out.xmp_sidecar_cleanup_message
@@ -28629,8 +29131,9 @@ namespace {
                       "xmp_existing_destination_sidecar_state, "
                       "edit_target_path, or xmp_sidecar_base_path";
             } else {
-                const bool found_existing_sidecar = find_existing_xmp_sidecar_path(
-                    sidecar_base_path, &out.xmp_sidecar_cleanup_path);
+                const bool found_existing_sidecar
+                    = find_existing_xmp_sidecar_path(
+                        sidecar_base_path, &out.xmp_sidecar_cleanup_path);
                 out.xmp_sidecar_cleanup_status = TransferStatus::Ok;
                 if (found_existing_sidecar) {
                     out.xmp_sidecar_cleanup_requested = true;
@@ -28643,8 +29146,7 @@ namespace {
             }
         }
 
-        if (strip_destination_embedded_xmp
-            && has_existing_target_input) {
+        if (strip_destination_embedded_xmp && has_existing_target_input) {
             const TransferTargetFormat target_format
                 = out.prepared.bundle.target_format;
             const bool supported_strip_mode
@@ -28664,13 +29166,13 @@ namespace {
                 out.execute.compile = skipped_emit_result(
                     "skipped emit due to unsupported destination embedded xmp "
                     "policy");
-                out.execute.emit = out.execute.compile;
-                out.execute.edit_requested   = true;
-                out.execute.edit_plan_status = TransferStatus::Unsupported;
+                out.execute.emit              = out.execute.compile;
+                out.execute.edit_requested    = true;
+                out.execute.edit_plan_status  = TransferStatus::Unsupported;
                 out.execute.edit_plan_message = message;
                 out.execute.edit_apply.status = TransferStatus::Unsupported;
-                out.execute.edit_apply.code   = EmitTransferCode::InvalidArgument;
-                out.execute.edit_apply.errors = 1U;
+                out.execute.edit_apply.code = EmitTransferCode::InvalidArgument;
+                out.execute.edit_apply.errors  = 1U;
                 out.execute.edit_apply.message = message;
                 if (out.xmp_sidecar_requested) {
                     out.xmp_sidecar_status  = TransferStatus::Unsupported;
@@ -28681,8 +29183,9 @@ namespace {
             }
             if (options.xmp_writeback_mode == XmpWritebackMode::SidecarOnly
                 && !out.xmp_sidecar_output.empty()) {
-                const uint32_t removed_xmp = remove_prepared_blocks_by_kind(
-                    &out.prepared.bundle, TransferBlockKind::Xmp);
+                const uint32_t removed_xmp
+                    = remove_prepared_blocks_by_kind(&out.prepared.bundle,
+                                                     TransferBlockKind::Xmp);
                 if (removed_xmp == 0U && out.xmp_sidecar_message.empty()) {
                     out.xmp_sidecar_message
                         = "prepared xmp sidecar bytes available without "
@@ -28717,8 +29220,9 @@ namespace {
                     out.execute.emit = out.execute.compile;
                     if (has_existing_target_input
                         || options.execute.edit_requested) {
-                        out.execute.edit_requested   = true;
-                        out.execute.edit_plan_status = TransferStatus::Unsupported;
+                        out.execute.edit_requested = true;
+                        out.execute.edit_plan_status
+                            = TransferStatus::Unsupported;
                         out.execute.edit_plan_message
                             = "skipped edit due to c2pa sign staging failure";
                         out.execute.edit_apply.status
@@ -28736,10 +29240,8 @@ namespace {
                     = validate_prepared_c2pa_sign_result(
                         out.prepared.bundle, request,
                         options.c2pa_signer_input);
-                out.execute.c2pa_stage
-                    = apply_prepared_c2pa_sign_result(
-                        &out.prepared.bundle, request,
-                        options.c2pa_signer_input);
+                out.execute.c2pa_stage = apply_prepared_c2pa_sign_result(
+                    &out.prepared.bundle, request, options.c2pa_signer_input);
             }
             if (out.execute.c2pa_stage.status != TransferStatus::Ok) {
                 out.execute.compile = skipped_emit_result(
@@ -28778,9 +29280,10 @@ namespace {
                     execute_options.tiff_edit.strip_existing_xmp = true;
                 }
             }
-            ExecutePreparedTransferResult execute = execute_prepared_transfer(
-                &out.prepared.bundle, options.edit_target_bytes,
-                execute_options);
+            ExecutePreparedTransferResult execute
+                = execute_prepared_transfer(&out.prepared.bundle,
+                                            options.edit_target_bytes,
+                                            execute_options);
             execute.c2pa_stage_requested  = out.execute.c2pa_stage_requested;
             execute.c2pa_stage            = out.execute.c2pa_stage;
             execute.c2pa_stage_validation = out.execute.c2pa_stage_validation;
@@ -28795,26 +29298,24 @@ namespace {
                                  policy.max_file_bytes);
             if (edit_status != MappedFileStatus::Ok) {
                 ExecutePreparedTransferOptions execute_options = options.execute;
-                execute_options.edit_requested                 = false;
+                execute_options.edit_requested = false;
                 ExecutePreparedTransferResult execute
                     = execute_prepared_transfer(&out.prepared.bundle, {},
                                                 execute_options);
-                execute.c2pa_stage_requested
-                    = out.execute.c2pa_stage_requested;
-                execute.c2pa_stage = out.execute.c2pa_stage;
+                execute.c2pa_stage_requested = out.execute.c2pa_stage_requested;
+                execute.c2pa_stage           = out.execute.c2pa_stage;
                 execute.c2pa_stage_validation
                     = out.execute.c2pa_stage_validation;
-                out.execute = std::move(execute);
+                out.execute                = std::move(execute);
                 out.execute.edit_requested = true;
                 out.execute.edit_plan_status
                     = map_mapped_file_status_to_transfer(edit_status);
-                out.execute.edit_plan_message
-                    = edit_target_file_error(edit_status);
+                out.execute.edit_plan_message = edit_target_file_error(
+                    edit_status);
                 out.execute.edit_apply.status = out.execute.edit_plan_status;
-                out.execute.edit_apply.code   = EmitTransferCode::InvalidArgument;
-                out.execute.edit_apply.errors = 1U;
-                out.execute.edit_apply.message
-                    = out.execute.edit_plan_message;
+                out.execute.edit_apply.code = EmitTransferCode::InvalidArgument;
+                out.execute.edit_apply.errors  = 1U;
+                out.execute.edit_apply.message = out.execute.edit_plan_message;
                 return out;
             }
 
@@ -28833,8 +29334,9 @@ namespace {
                     execute_options.tiff_edit.strip_existing_xmp = true;
                 }
             }
-            ExecutePreparedTransferResult execute = execute_prepared_transfer(
-                &out.prepared.bundle, edit_file.bytes(), execute_options);
+            ExecutePreparedTransferResult execute
+                = execute_prepared_transfer(&out.prepared.bundle,
+                                            edit_file.bytes(), execute_options);
             execute.c2pa_stage_requested  = out.execute.c2pa_stage_requested;
             execute.c2pa_stage            = out.execute.c2pa_stage;
             execute.c2pa_stage_validation = out.execute.c2pa_stage_validation;
@@ -28883,27 +29385,24 @@ execute_prepared_transfer_file(
         = out.prepared.xmp_existing_destination_embedded_path;
 
     ExecutePreparedTransferPreparedOptions execute_options;
-    execute_options.execute                    = options.execute;
-    execute_options.policy                     = options.prepare.policy;
-    execute_options.edit_target_path           = options.edit_target_path;
-    execute_options.xmp_sidecar_base_path      = options.xmp_sidecar_base_path;
-    execute_options.xmp_writeback_mode         = options.xmp_writeback_mode;
+    execute_options.execute               = options.execute;
+    execute_options.policy                = options.prepare.policy;
+    execute_options.edit_target_path      = options.edit_target_path;
+    execute_options.xmp_sidecar_base_path = options.xmp_sidecar_base_path;
+    execute_options.xmp_writeback_mode    = options.xmp_writeback_mode;
     execute_options.xmp_existing_destination_sidecar_state
         = options.xmp_existing_destination_sidecar_state;
     execute_options.xmp_destination_embedded_mode
         = options.xmp_destination_embedded_mode;
     execute_options.xmp_destination_sidecar_mode
         = options.xmp_destination_sidecar_mode;
-    execute_options.c2pa_stage_requested
-        = options.c2pa_stage_requested;
-    execute_options.c2pa_signer_input
-        = options.c2pa_signer_input;
+    execute_options.c2pa_stage_requested = options.c2pa_stage_requested;
+    execute_options.c2pa_signer_input    = options.c2pa_signer_input;
     execute_options.c2pa_signed_package_provided
         = options.c2pa_signed_package_provided;
-    execute_options.c2pa_signed_package
-        = options.c2pa_signed_package;
-    return execute_prepared_transfer_prepared_result(
-        std::move(out), execute_options);
+    execute_options.c2pa_signed_package = options.c2pa_signed_package;
+    return execute_prepared_transfer_prepared_result(std::move(out),
+                                                     execute_options);
 }
 
 namespace {
@@ -28917,8 +29416,8 @@ namespace {
         ExecutePreparedTransferFileResult out;
         out.prepared.file_status = TransferFileStatus::Ok;
         out.prepared.code        = PrepareTransferFileCode::None;
-        out.prepared.entry_count
-            = static_cast<uint32_t>(snapshot.store.entries().size());
+        out.prepared.entry_count = static_cast<uint32_t>(
+            snapshot.store.entries().size());
 
         OpenMetaResourcePolicy policy = options.policy;
         normalize_resource_policy(&policy);
@@ -29042,8 +29541,7 @@ namespace {
                       && destination_embedded_source_precedence == after_source;
                 if (merge_sidecar_now && merge_destination_embedded_now) {
                     if (destination_carrier_precedence
-                        == XmpExistingDestinationCarrierPrecedence::
-                               SidecarWins) {
+                        == XmpExistingDestinationCarrierPrecedence::SidecarWins) {
                         merge_existing_sidecar_into_store(
                             preserve_store_on_failure);
                         merge_existing_destination_embedded_into_store(
@@ -29085,14 +29583,15 @@ namespace {
             }
 
             store.finalize();
-            out.prepared.entry_count
-                = static_cast<uint32_t>(store.entries().size());
+            out.prepared.entry_count = static_cast<uint32_t>(
+                store.entries().size());
             PrepareTransferRequest request = options.prepare;
             if (merge_existing_sidecar || merge_destination_embedded) {
                 request.xmp_include_existing = true;
             }
-            out.prepared.prepare = prepare_metadata_for_target(
-                store, request, &out.prepared.bundle);
+            out.prepared.prepare
+                = prepare_metadata_for_target(store, request,
+                                              &out.prepared.bundle);
             if (merge_existing_sidecar
                 && !out.prepared.xmp_existing_sidecar_message.empty()
                 && out.prepared.xmp_existing_sidecar_status
@@ -29126,28 +29625,25 @@ execute_prepared_transfer_snapshot(
                                                             {});
 
     ExecutePreparedTransferPreparedOptions execute_options;
-    execute_options.execute                    = options.execute;
-    execute_options.policy                     = options.policy;
-    execute_options.edit_target_path           = options.edit_target_path;
-    execute_options.xmp_sidecar_base_path      = options.xmp_sidecar_base_path;
-    execute_options.edit_target_bytes          = {};
-    execute_options.xmp_writeback_mode         = options.xmp_writeback_mode;
+    execute_options.execute               = options.execute;
+    execute_options.policy                = options.policy;
+    execute_options.edit_target_path      = options.edit_target_path;
+    execute_options.xmp_sidecar_base_path = options.xmp_sidecar_base_path;
+    execute_options.edit_target_bytes     = {};
+    execute_options.xmp_writeback_mode    = options.xmp_writeback_mode;
     execute_options.xmp_existing_destination_sidecar_state
         = options.xmp_existing_destination_sidecar_state;
     execute_options.xmp_destination_embedded_mode
         = options.xmp_destination_embedded_mode;
     execute_options.xmp_destination_sidecar_mode
         = options.xmp_destination_sidecar_mode;
-    execute_options.c2pa_stage_requested
-        = options.c2pa_stage_requested;
-    execute_options.c2pa_signer_input
-        = options.c2pa_signer_input;
+    execute_options.c2pa_stage_requested = options.c2pa_stage_requested;
+    execute_options.c2pa_signer_input    = options.c2pa_signer_input;
     execute_options.c2pa_signed_package_provided
         = options.c2pa_signed_package_provided;
-    execute_options.c2pa_signed_package
-        = options.c2pa_signed_package;
-    return execute_prepared_transfer_prepared_result(
-        std::move(out), execute_options);
+    execute_options.c2pa_signed_package = options.c2pa_signed_package;
+    return execute_prepared_transfer_prepared_result(std::move(out),
+                                                     execute_options);
 }
 
 ExecutePreparedTransferFileResult
@@ -29161,28 +29657,25 @@ execute_prepared_transfer_snapshot(
                                                             target_bytes);
 
     ExecutePreparedTransferPreparedOptions execute_options;
-    execute_options.execute                    = options.execute;
-    execute_options.policy                     = options.policy;
-    execute_options.edit_target_path           = options.edit_target_path;
-    execute_options.xmp_sidecar_base_path      = options.xmp_sidecar_base_path;
-    execute_options.edit_target_bytes          = target_bytes;
-    execute_options.xmp_writeback_mode         = options.xmp_writeback_mode;
+    execute_options.execute               = options.execute;
+    execute_options.policy                = options.policy;
+    execute_options.edit_target_path      = options.edit_target_path;
+    execute_options.xmp_sidecar_base_path = options.xmp_sidecar_base_path;
+    execute_options.edit_target_bytes     = target_bytes;
+    execute_options.xmp_writeback_mode    = options.xmp_writeback_mode;
     execute_options.xmp_existing_destination_sidecar_state
         = options.xmp_existing_destination_sidecar_state;
     execute_options.xmp_destination_embedded_mode
         = options.xmp_destination_embedded_mode;
     execute_options.xmp_destination_sidecar_mode
         = options.xmp_destination_sidecar_mode;
-    execute_options.c2pa_stage_requested
-        = options.c2pa_stage_requested;
-    execute_options.c2pa_signer_input
-        = options.c2pa_signer_input;
+    execute_options.c2pa_stage_requested = options.c2pa_stage_requested;
+    execute_options.c2pa_signer_input    = options.c2pa_signer_input;
     execute_options.c2pa_signed_package_provided
         = options.c2pa_signed_package_provided;
-    execute_options.c2pa_signed_package
-        = options.c2pa_signed_package;
-    return execute_prepared_transfer_prepared_result(
-        std::move(out), execute_options);
+    execute_options.c2pa_signed_package = options.c2pa_signed_package;
+    return execute_prepared_transfer_prepared_result(std::move(out),
+                                                     execute_options);
 }
 
 ExecutePreparedTransferFileResult
@@ -29199,28 +29692,25 @@ execute_prepared_transfer_bundle(
     out.prepared.bundle         = bundle;
 
     ExecutePreparedTransferPreparedOptions execute_options;
-    execute_options.execute                    = options.execute;
-    execute_options.policy                     = options.policy;
-    execute_options.edit_target_path           = options.edit_target_path;
-    execute_options.xmp_sidecar_base_path      = options.xmp_sidecar_base_path;
-    execute_options.edit_target_bytes          = target_bytes;
-    execute_options.xmp_writeback_mode         = options.xmp_writeback_mode;
+    execute_options.execute               = options.execute;
+    execute_options.policy                = options.policy;
+    execute_options.edit_target_path      = options.edit_target_path;
+    execute_options.xmp_sidecar_base_path = options.xmp_sidecar_base_path;
+    execute_options.edit_target_bytes     = target_bytes;
+    execute_options.xmp_writeback_mode    = options.xmp_writeback_mode;
     execute_options.xmp_existing_destination_sidecar_state
         = options.xmp_existing_destination_sidecar_state;
     execute_options.xmp_destination_embedded_mode
         = options.xmp_destination_embedded_mode;
     execute_options.xmp_destination_sidecar_mode
         = options.xmp_destination_sidecar_mode;
-    execute_options.c2pa_stage_requested
-        = options.c2pa_stage_requested;
-    execute_options.c2pa_signer_input
-        = options.c2pa_signer_input;
+    execute_options.c2pa_stage_requested = options.c2pa_stage_requested;
+    execute_options.c2pa_signer_input    = options.c2pa_signer_input;
     execute_options.c2pa_signed_package_provided
         = options.c2pa_signed_package_provided;
-    execute_options.c2pa_signed_package
-        = options.c2pa_signed_package;
-    return execute_prepared_transfer_prepared_result(
-        std::move(out), execute_options);
+    execute_options.c2pa_signed_package = options.c2pa_signed_package;
+    return execute_prepared_transfer_prepared_result(std::move(out),
+                                                     execute_options);
 }
 
 PersistPreparedTransferFileResult
@@ -29306,8 +29796,8 @@ persist_prepared_transfer_file_result(
                 out.xmp_sidecar_message = "failed to write xmp sidecar bytes";
             } else {
                 out.xmp_sidecar_status = TransferStatus::Ok;
-                out.xmp_sidecar_bytes
-                    = static_cast<uint64_t>(sidecar_bytes.size());
+                out.xmp_sidecar_bytes  = static_cast<uint64_t>(
+                    sidecar_bytes.size());
                 persisted_sidecar_path = out.xmp_sidecar_path;
             }
         }

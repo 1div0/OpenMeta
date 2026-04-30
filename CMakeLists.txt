@@ -304,11 +304,13 @@ set(OPENMETA_SOURCES
   src/openmeta/meta_edit.cc
   src/openmeta/meta_value.cc
   src/openmeta/ocio_adapter.cc
+  src/openmeta/phaseone_geometry.cc
   src/openmeta/photoshop_irb_decode.cc
   src/openmeta/preview_extract.cc
   src/openmeta/printim_decode.cc
   src/openmeta/simple_meta.cc
   src/openmeta/validate.cc
+  src/openmeta/vendor_raw_processing.cc
   src/openmeta/xmp_decode.cc
   src/openmeta/xmp_dump.cc
 )
@@ -675,11 +677,13 @@ if(OPENMETA_BUILD_TESTS)
     tests/mpf_decode_test.cc
     tests/ocio_adapter_test.cc
     tests/photoshop_irb_decode_test.cc
+    tests/phaseone_geometry_test.cc
     tests/preview_extract_test.cc
     tests/printim_decode_test.cc
     tests/resource_policy_test.cc
     tests/simple_meta_bmff_exif_test.cc
     tests/simple_meta_xmp_test.cc
+    tests/vendor_raw_processing_test.cc
     tests/validate_test.cc
     tests/xmp_decode_test.cc
     tests/xmp_dump_test.cc

@@ -1,5 +1,120 @@
 # OpenMeta Changes
 
+## 0.4.9 - 2026-04-28
+
+Changes compared with `0.4.8`.
+
+### Added
+
+- Added Phase One/Leaf RAW geometry helpers that normalize decoded
+  `SensorWidth`, `SensorHeight`, `SensorLeftMargin`, `SensorTopMargin`,
+  `ImageWidth`, and `ImageHeight` fields into an active raw rectangle plus
+  right/bottom margins.
+- Added `phaseone_raw_processing_from_store()` to expose normalized Phase
+  One/Leaf RAW color matrices, white-balance levels, black level, sensor
+  temperatures, raw-data/storage sizes, and sensor-calibration summaries.
+- Python `Document` and `TransferSourceSnapshot` now expose
+  `phaseone_raw_geometry()` and `phaseone_raw_processing()` thin wrappers over
+  the same C++ helpers.
+- Added `vendor_raw_processing_from_store()` and
+  `classify_vendor_raw_processing_field()` for conservative Sony, Canon,
+  Nikon, Fujifilm, Pentax, Panasonic, and Olympus RAW-processing field
+  summaries, including a vendor-private RAW table bucket for private or
+  unknown table entries.
+- Python `Document` and `TransferSourceSnapshot` now expose
+  `vendor_raw_processing(family)` for the same grouped
+  Sony/Canon/Nikon/Fujifilm/Pentax/Panasonic/Olympus summaries.
+- Added `transfer_safety_audit_from_store()` plus Python
+  `transfer_safety_audit()` methods so hosts can preflight rendered-image
+  drops by source group, filtered count, C2PA invalidation count, and
+  Sony/Canon/Nikon/Fujifilm/Pentax/Panasonic/Olympus RAW-processing bucket.
+
+### Changed
+
+- Phase One-family IIQ MakerNote detection now recognizes Leaf/Credo-style
+  files as Phase One MakerNotes before the generic Kodak `IIII` fallback.
+- Rendered-image transfer safety now treats Phase One/Leaf RAW sensor geometry,
+  color matrices, white-balance coefficients, raw-data/storage fields,
+  black-level fields, and sensor-calibration tables as raw-specific metadata
+  and drops them for rendered outputs.
+- Rendered-image transfer safety now also filters decoded Sony, Canon, Nikon,
+  Fujifilm, Pentax, Panasonic, and Olympus MakerNote fields classified as
+  source RAW color/WB, geometry/storage, raw-data, sensor, lens-correction, or
+  vendor-private RAW table metadata.
+- `metaread` and `python -m openmeta.python.metaread` now print compact Phase
+  One RAW geometry/processing summaries when those decoded fields are present.
+- `metaread` and `python -m openmeta.python.metaread` now print compact
+  Sony/Canon/Nikon/Fujifilm/Pentax/Panasonic/Olympus
+  `vendor_raw_processing[...]` summaries when matching decoded fields are
+  present.
+- BMFF foreign-`meta` insertion now upgrades supported `iloc` version 0/1
+  graphs to output `iloc` version 2 when inserted metadata needs 32-bit item
+  IDs, removing the previous requirement that the target already used
+  `iloc` version 2.
+- BMFF foreign-`meta` insertion now treats retained `iloc` construction method
+  1 records as supported when they point into an existing `idat` with data
+  reference index 0, and rejects external data references or unsupported
+  construction methods safely.
+- BMFF foreign-`meta` insertion now preserves retained `iloc` construction
+  method 2 item-reference extents when their `iref` `iloc` references are
+  parseable and every referenced item remains retained with a supported local
+  location.
+- BMFF ICC property replacement now preserves the prior ICC association scope
+  across retained items instead of collapsing replacement to only the primary
+  item, and keeps the prior essential association bit on replacement
+  associations.
+
+### Fixed
+
+### Tests And Validation
+
+- Added public synthetic coverage for Leaf/Credo IIQ MakerNote detection and
+  normalized Phase One RAW geometry and raw-processing helper behavior.
+- Added public synthetic coverage for
+  Sony/Canon/Nikon/Fujifilm/Pentax/Panasonic/Olympus RAW-processing
+  classification and grouped summary behavior.
+- Extended rendered-image safety coverage to verify Phase One/Leaf RAW
+  geometry, color, raw-data/storage, black-level, and sensor-calibration fields
+  are counted as raw-specific metadata and filtered from rendered transfers.
+- Extended rendered-image safety coverage to verify decoded Sony, Canon, Nikon,
+  Fujifilm, Pentax, Panasonic, and Olympus RAW-processing fields are counted as
+  raw-specific metadata and filtered from rendered transfers, including
+  anonymous/private RAW table entries.
+- Added rendered-image writer-output coverage for JPEG, TIFF/DNG, PNG, WebP,
+  JP2, JXL, HEIF, AVIF, and CR3 metadata rewrites to verify serialized outputs
+  omit source RAW calibration, vendor private RAW tables, MakerNotes, camera
+  raw settings XMP, and source JUMBF while preserving safe EXIF/XMP fields.
+- Added BMFF transfer coverage for merging metadata into a foreign top-level
+  `meta` item table that uses `iinf` version 2.
+- Added BMFF transfer coverage that verifies multiple foreign top-level `meta`
+  boxes and unsupported foreign `iloc`/`iref` versions fail safely instead of
+  producing a partial rewrite.
+- Added BMFF relation/property graph coverage that verifies stale `cdsc`
+  references are removed when replacing foreign Exif/XMP items, existing `ipma`
+  associations are preserved while adding/replacing ICC properties, and
+  unsupported foreign `ipma` versions fail safely.
+- Added BMFF foreign property-graph rejection coverage for duplicate `ipco`,
+  duplicate `ipma`, and `ipma` associations that point past the available
+  `ipco` property table.
+- Added BMFF high-item-ID `iref` coverage that verifies inserted metadata
+  references use version 1 item IDs and existing small-ID references are
+  preserved when the relation table is upgraded.
+- Added BMFF coverage for upgrading an `iloc` version 1 graph at item ID
+  `65535` so inserted metadata uses item ID `65536` and remains readable.
+- Added BMFF coverage for preserving retained `idat`-relative item extents
+  while inserting metadata with absolute file-offset extents, plus fail-safe
+  rejection for missing `idat`, external data references, and unsupported
+  construction methods.
+- Added BMFF coverage for preserving retained method-2 item-reference extents
+  with explicit extent indexes and reference-order fallback, plus fail-safe
+  rejection when method-2 references are missing or would point to an item
+  removed by metadata replacement.
+- Added BMFF coverage for multi-item ICC replacement, verifying secondary items
+  that referenced the replaced ICC property are retargeted to the transferred
+  ICC property.
+- Added BMFF coverage that verifies essential `ipma` association flags are
+  preserved when ICC properties are replaced.
+
 ## 0.4.8 - 2026-04-27
 
 Changes compared with `0.4.7`.

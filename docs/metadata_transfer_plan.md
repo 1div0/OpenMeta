@@ -58,7 +58,7 @@ The first public write-side sync controls are also in place:
 | WebP | Bounded but real | Prepared bundle, compiled emit, bounded chunk rewrite/edit, file-helper roundtrip | Not a general WebP chunk editor |
 | JP2 | Bounded but real | Prepared bundle, compiled emit, bounded box rewrite/edit, file-helper roundtrip | `jp2h` synthesis is still out of scope |
 | JXL | Bounded but real | Prepared bundle, compiled emit, bounded box rewrite/edit, file-helper roundtrip | Still narrower than JPEG/TIFF |
-| HEIF / AVIF / CR3 | Bounded but real | Prepared bundle, compiled emit, OpenMeta-managed BMFF item/property edit, constrained foreign-`meta` item merge/replacement/strip plus bounded ICC property merge, file-helper roundtrip | Not broad BMFF writer parity; arbitrary foreign `meta` scene/property-graph rewrite is still unsupported; 32-bit inserted item IDs require existing `iloc` v2 |
+| HEIF / AVIF / CR3 | Bounded but real | Prepared bundle, compiled emit, OpenMeta-managed BMFF item/property edit, constrained foreign-`meta` item merge/replacement/strip plus bounded ICC property merge, file-helper roundtrip | Not broad BMFF writer parity; arbitrary foreign `meta` scene/property-graph rewrite is still unsupported |
 | EXR | Bounded but real | Prepared bundle, compiled emit, direct backend attribute emit, prepared-bundle to `ExrAdapterBatch` bridge, CLI/Python transfer surface | No file rewrite/edit path yet; current transfer payload is safe string attributes only |
 
 ## What Is Already Implemented
@@ -207,8 +207,9 @@ Implemented:
   for file-helper integration tests.
 - rendered-output safety mode: `TransferProfile::safety =
   TransferSafetyMode::RenderedImage` additionally drops source raw color
-  calibration, linearization/crop/correction metadata, camera raw settings XMP,
-  source ICC profiles, MakerNotes, and non-C2PA JUMBF data. It is intended for
+  calibration, linearization/crop/correction metadata, vendor RAW
+  geometry/color/correction fields, camera raw settings XMP, source ICC
+  profiles, MakerNotes, and non-C2PA JUMBF data. It is intended for
   RAW-to-rendered or otherwise pixel-changing exports where host code must
   provide target-correct color/profile data.
 - bounded DNG-style merge policy in the file-helper path:
@@ -316,16 +317,25 @@ Implemented as a bounded BMFF target family:
 - constrained foreign top-level `meta` item merge for parseable `iinf`,
   `iloc` version 0/1/2, `pitm`, optional single `idat`, and primary-item `cdsc`
   references
-- bounded 32-bit item-id insertion for foreign item graphs that already use
-  `iloc` version 2; `iloc` version 0/1 targets remain constrained to 16-bit
-  inserted item IDs
+- bounded 32-bit item-id insertion for foreign item graphs, including
+  automatic `iloc` version 2 upgrade when an otherwise supported `iloc`
+  version 0/1 graph exhausts the 16-bit item-id space
 - inserted metadata item records keep `iloc` construction method 0 and use
   absolute file-offset extents for broad reader compatibility
+- retained foreign item locations support construction method 0 file offsets
+  and construction method 1 `idat` extents with data reference index 0
+- retained construction method 2 item-reference extents are supported when
+  `iref` `iloc` references are parseable by explicit extent index or reference
+  order and referenced items are also retained with supported local locations;
+  missing references, removed referenced items, external data references, and
+  other construction methods fail safely
 - rebuilt foreign `iloc` graphs compact foldable self-contained base offsets to
   a zero-width base-offset field when safe
 - bounded foreign top-level `meta` ICC property merge by replacing prior ICC
   `colr/prof` and `colr/rICC` properties, remapping `ipma`, and associating the
-  transferred `colr/prof` property with the primary item
+  transferred `colr/prof` property with the primary item and any retained item
+  that previously referenced a replaced ICC property while preserving the prior
+  essential association bit
 - bounded foreign top-level `meta` XMP replacement and strip support for
   parseable item graphs that satisfy the same primary-item contract
 - fail-safe rejection for unsupported foreign top-level `meta` shapes and
@@ -808,9 +818,10 @@ parity across every workflow.
 
 Evidence: `docs/writer_target_contract.md` defines per-target preserve/replace
 rules and the remaining bounded limits. The BMFF section now makes the item-id
-width rule explicit: `iloc` version 0/1 insertion remains 16-bit, while `iloc`
-version 2 can use 32-bit item IDs and fails safely when the graph shape or ID
-space is outside that contract.
+width rule explicit: supported foreign `iloc` version 0/1 graphs can be
+upgraded to output `iloc` version 2 when inserted metadata needs 32-bit item
+IDs, while unsupported graph shapes or exhausted 32-bit ID space still fail
+safely.
 
 #### 2. Bounded EXIF / IPTC / XMP Sync Layer
 

@@ -5,6 +5,7 @@
 #include "openmeta/meta_store.h"
 #include "openmeta/resource_policy.h"
 #include "openmeta/simple_meta.h"
+#include "openmeta/vendor_raw_processing.h"
 #include "openmeta/xmp_dump.h"
 
 #include <array>
@@ -379,6 +380,35 @@ struct TransferProfile final {
     TransferSafetyMode safety      = TransferSafetyMode::CompatibleFile;
 };
 
+/// Source metadata and filtered-entry counts for one transfer safety mode.
+struct TransferSafetyAudit final {
+    TransferSafetyMode safety = TransferSafetyMode::CompatibleFile;
+
+    uint32_t source_image_properties      = 0U;
+    uint32_t source_raw_color_calibration = 0U;
+    uint32_t source_camera_raw_settings   = 0U;
+    uint32_t source_icc_profiles          = 0U;
+    uint32_t source_makernotes            = 0U;
+    uint32_t source_non_c2pa_jumbf        = 0U;
+    uint32_t source_c2pa                  = 0U;
+
+    uint32_t filtered_image_properties      = 0U;
+    uint32_t filtered_raw_color_calibration = 0U;
+    uint32_t filtered_camera_raw_settings   = 0U;
+    uint32_t filtered_icc_profiles          = 0U;
+    uint32_t filtered_makernotes            = 0U;
+    uint32_t filtered_non_c2pa_jumbf        = 0U;
+    uint32_t invalidated_c2pa               = 0U;
+
+    VendorRawProcessingSummary sony_raw_processing;
+    VendorRawProcessingSummary canon_raw_processing;
+    VendorRawProcessingSummary nikon_raw_processing;
+    VendorRawProcessingSummary fujifilm_raw_processing;
+    VendorRawProcessingSummary pentax_raw_processing;
+    VendorRawProcessingSummary panasonic_raw_processing;
+    VendorRawProcessingSummary olympus_raw_processing;
+};
+
 /// Effective policy decision captured during bundle preparation.
 struct PreparedTransferPolicyDecision final {
     TransferPolicySubject subject  = TransferPolicySubject::MakerNote;
@@ -509,22 +539,20 @@ struct PrepareTransferRequest final {
     DngTargetMode dng_target_mode      = DngTargetMode::MinimalFreshScaffold;
     TransferProfile profile;
     TransferTargetImageSpec target_image_spec;
-    bool include_exif_app1              = true;
-    bool include_xmp_app1               = true;
-    bool include_icc_app2               = true;
-    bool include_iptc_app13             = true;
-    bool xmp_portable                   = true;
-    bool xmp_project_exif               = true;
-    bool xmp_project_iptc               = true;
-    bool xmp_include_existing           = true;
+    bool include_exif_app1    = true;
+    bool include_xmp_app1     = true;
+    bool include_icc_app2     = true;
+    bool include_iptc_app13   = true;
+    bool xmp_portable         = true;
+    bool xmp_project_exif     = true;
+    bool xmp_project_iptc     = true;
+    bool xmp_include_existing = true;
     XmpExistingNamespacePolicy xmp_existing_namespace_policy
         = XmpExistingNamespacePolicy::KnownPortableOnly;
-    XmpExistingStandardNamespacePolicy
-        xmp_existing_standard_namespace_policy
+    XmpExistingStandardNamespacePolicy xmp_existing_standard_namespace_policy
         = XmpExistingStandardNamespacePolicy::PreserveAll;
-    XmpConflictPolicy xmp_conflict_policy
-        = XmpConflictPolicy::CurrentBehavior;
-    bool xmp_exiftool_gpsdatetime_alias = false;
+    XmpConflictPolicy xmp_conflict_policy = XmpConflictPolicy::CurrentBehavior;
+    bool xmp_exiftool_gpsdatetime_alias   = false;
 };
 
 /// Result details for preparation.
@@ -584,18 +612,18 @@ struct JpegEditPlan final {
 /// Options for TIFF edit planning.
 struct PlanTiffEditOptions final {
     /// If true, fail planning when the bundle has no TIFF-applicable updates.
-    bool require_updates = true;
+    bool require_updates    = true;
     bool strip_existing_xmp = false;
 };
 
 /// Planned TIFF edit summary (draft API).
 struct TiffEditPlan final {
-    TransferStatus status = TransferStatus::Ok;
-    uint32_t tag_updates  = 0;
-    bool has_exif_ifd     = false;
+    TransferStatus status   = TransferStatus::Ok;
+    uint32_t tag_updates    = 0;
+    bool has_exif_ifd       = false;
     bool strip_existing_xmp = false;
-    uint64_t input_size   = 0;
-    uint64_t output_size  = 0;
+    uint64_t input_size     = 0;
+    uint64_t output_size    = 0;
     std::string message;
 };
 
@@ -1106,8 +1134,7 @@ struct PrepareTransferFileOptions final {
         = XmpExistingSidecarMode::Ignore;
     XmpExistingSidecarPrecedence xmp_existing_sidecar_precedence
         = XmpExistingSidecarPrecedence::SidecarWins;
-    XmpExistingDestinationEmbeddedMode
-        xmp_existing_destination_embedded_mode
+    XmpExistingDestinationEmbeddedMode xmp_existing_destination_embedded_mode
         = XmpExistingDestinationEmbeddedMode::Ignore;
     XmpExistingDestinationEmbeddedPrecedence
         xmp_existing_destination_embedded_precedence
@@ -1122,11 +1149,11 @@ struct PrepareTransferFileOptions final {
 
 /// High-level file read/prepare result.
 struct PrepareTransferFileResult final {
-    TransferFileStatus file_status = TransferFileStatus::Ok;
-    PrepareTransferFileCode code   = PrepareTransferFileCode::None;
-    uint64_t file_size             = 0;
-    uint32_t entry_count           = 0;
-    bool xmp_existing_sidecar_loaded = false;
+    TransferFileStatus file_status             = TransferFileStatus::Ok;
+    PrepareTransferFileCode code               = PrepareTransferFileCode::None;
+    uint64_t file_size                         = 0;
+    uint32_t entry_count                       = 0;
+    bool xmp_existing_sidecar_loaded           = false;
     TransferStatus xmp_existing_sidecar_status = TransferStatus::Unsupported;
     std::string xmp_existing_sidecar_message;
     std::string xmp_existing_sidecar_path;
@@ -1414,8 +1441,7 @@ struct ExecutePreparedTransferFileOptions final {
     /// When empty, the file-helper derives the sidecar path from
     /// \ref edit_target_path.
     std::string xmp_sidecar_base_path;
-    XmpExistingDestinationEmbeddedMode
-        xmp_existing_destination_embedded_mode
+    XmpExistingDestinationEmbeddedMode xmp_existing_destination_embedded_mode
         = XmpExistingDestinationEmbeddedMode::Ignore;
     XmpExistingDestinationEmbeddedPrecedence
         xmp_existing_destination_embedded_precedence
@@ -1459,8 +1485,7 @@ struct ExecutePreparedTransferSnapshotOptions final {
     /// When empty and destination embedded merge is requested, the helper uses
     /// \ref edit_target_path.
     std::string xmp_existing_destination_embedded_path;
-    XmpExistingDestinationEmbeddedMode
-        xmp_existing_destination_embedded_mode
+    XmpExistingDestinationEmbeddedMode xmp_existing_destination_embedded_mode
         = XmpExistingDestinationEmbeddedMode::Ignore;
     XmpExistingDestinationEmbeddedPrecedence
         xmp_existing_destination_embedded_precedence
@@ -1509,12 +1534,12 @@ struct ExecutePreparedTransferFileResult final {
         = TransferStatus::Unsupported;
     std::string xmp_existing_destination_embedded_message;
     std::string xmp_existing_destination_embedded_path;
-    bool xmp_sidecar_requested      = false;
+    bool xmp_sidecar_requested        = false;
     TransferStatus xmp_sidecar_status = TransferStatus::Unsupported;
     std::string xmp_sidecar_message;
     std::string xmp_sidecar_path;
     std::vector<std::byte> xmp_sidecar_output;
-    bool xmp_sidecar_cleanup_requested = false;
+    bool xmp_sidecar_cleanup_requested        = false;
     TransferStatus xmp_sidecar_cleanup_status = TransferStatus::Unsupported;
     std::string xmp_sidecar_cleanup_message;
     std::string xmp_sidecar_cleanup_path;
@@ -1523,10 +1548,10 @@ struct ExecutePreparedTransferFileResult final {
 /// Options for \ref persist_prepared_transfer_file_result.
 struct PersistPreparedTransferFileOptions final {
     std::string output_path;
-    bool write_output = true;
-    bool overwrite_output = false;
-    uint64_t prewritten_output_bytes = 0;
-    bool overwrite_xmp_sidecar = false;
+    bool write_output                   = true;
+    bool overwrite_output               = false;
+    uint64_t prewritten_output_bytes    = 0;
+    bool overwrite_xmp_sidecar          = false;
     bool remove_destination_xmp_sidecar = true;
 };
 
@@ -1655,9 +1680,8 @@ public:
 class Jp2TransferEmitter {
 public:
     virtual ~Jp2TransferEmitter() = default;
-    virtual TransferStatus
-    add_box(std::array<char, 4> type,
-            std::span<const std::byte> payload) noexcept
+    virtual TransferStatus add_box(std::array<char, 4> type,
+                                   std::span<const std::byte> payload) noexcept
         = 0;
     virtual TransferStatus close_boxes() noexcept = 0;
 };
@@ -1737,9 +1761,10 @@ prepare_metadata_for_target(const MetaStore&, const PrepareTransferRequest&,
  * Experimental host-facing API.
  */
 PrepareTransferResult
-prepare_metadata_for_target_snapshot(const TransferSourceSnapshot& snapshot,
-                                     const PrepareTransferRequest& request,
-                                     PreparedTransferBundle* out_bundle) noexcept;
+prepare_metadata_for_target_snapshot(
+    const TransferSourceSnapshot& snapshot,
+    const PrepareTransferRequest& request,
+    PreparedTransferBundle* out_bundle) noexcept;
 
 /**
  * \brief Build a reusable decoded source snapshot from an existing \ref MetaStore.
@@ -1753,6 +1778,17 @@ prepare_metadata_for_target_snapshot(const TransferSourceSnapshot& snapshot,
  */
 TransferSourceSnapshot
 build_transfer_source_snapshot(const MetaStore& store) noexcept;
+
+/**
+ * \brief Summarize metadata that a transfer safety mode will keep, filter, or
+ * invalidate before writing a target.
+ *
+ * \par API Stability
+ * Experimental host-facing API for diagnostics, UI, and preflight decisions.
+ */
+TransferSafetyAudit
+transfer_safety_audit_from_store(const MetaStore& store,
+                                 TransferSafetyMode safety) noexcept;
 
 /**
  * \brief Append one logical raw JUMBF payload as JPEG APP11 transfer blocks.
@@ -2121,9 +2157,8 @@ write_prepared_bundle_jpeg_compiled(const PreparedTransferBundle& bundle,
  */
 ReadTransferSourceSnapshotFileResult
 read_transfer_source_snapshot_file(
-    const char* path,
-    const ReadTransferSourceSnapshotFileOptions& options
-    = ReadTransferSourceSnapshotFileOptions {}) noexcept;
+    const char* path, const ReadTransferSourceSnapshotFileOptions& options
+                      = ReadTransferSourceSnapshotFileOptions {}) noexcept;
 
 /**
  * \brief Read host-owned bytes into a reusable decoded source snapshot.

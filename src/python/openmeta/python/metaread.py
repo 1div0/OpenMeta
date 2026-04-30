@@ -235,6 +235,116 @@ def _iter_exif_entries(doc: openmeta.Document) -> Iterable[openmeta.Entry]:
             yield e
 
 
+def _yes_no(value: object) -> str:
+    return "yes" if bool(value) else "no"
+
+
+def _print_phaseone_summary(doc: openmeta.Document) -> None:
+    geometry = doc.phaseone_raw_geometry()
+    if geometry["status"] != openmeta.PhaseOneRawGeometryStatus.MissingField:
+        print(
+            "phaseone_raw_geometry={status} sensor={sw}x{sh} "
+            "active=({ax},{ay},{aw},{ah}) margins=({rm},{bm})".format(
+                status=geometry["status_name"],
+                sw=int(geometry["sensor_width"]),
+                sh=int(geometry["sensor_height"]),
+                ax=int(geometry["active_x"]),
+                ay=int(geometry["active_y"]),
+                aw=int(geometry["active_width"]),
+                ah=int(geometry["active_height"]),
+                rm=int(geometry["right_margin"]),
+                bm=int(geometry["bottom_margin"]),
+            )
+        )
+
+    raw = doc.phaseone_raw_processing()
+    if int(raw["fields_seen"]) == 0:
+        return
+
+    black_level = _yes_no(raw["has_black_level"])
+    if raw["has_black_level"]:
+        black_level += f":{int(raw['black_level'])}"
+
+    sensor_temp = _yes_no(raw["has_sensor_temperature_c"])
+    if raw["has_sensor_temperature_c"]:
+        sensor_temp += f":{_fmt_float(float(raw['sensor_temperature_c']))}"
+
+    sensor_temp2 = _yes_no(raw["has_sensor_temperature2_c"])
+    if raw["has_sensor_temperature2_c"]:
+        sensor_temp2 += f":{_fmt_float(float(raw['sensor_temperature2_c']))}"
+
+    raw_format = _yes_no(raw["has_raw_format"])
+    if raw["has_raw_format"]:
+        raw_format += f":{int(raw['raw_format'])}"
+
+    print(
+        "phaseone_raw_processing={status} fields_seen={seen} "
+        "fields_decoded={decoded} invalid_fields={invalid} "
+        "color_matrix1={cm1} color_matrix2={cm2} wb_rgb_levels={wb} "
+        "black_level={black} sensor_temperature_c={temp} "
+        "sensor_temperature2_c={temp2} raw_format={raw_format} "
+        "raw_data_bytes={raw_data} strip_offsets_bytes={strip_offsets} "
+        "black_level_data_bytes={black_data} "
+        "sensor_calibration_entries={cal_entries} "
+        "sensor_calibration_payload_bytes={cal_bytes} "
+        "sensor_defects_bytes={defects} flat_field_bytes={flat} "
+        "linearization_coefficients={linear}".format(
+            status=raw["status_name"],
+            seen=int(raw["fields_seen"]),
+            decoded=int(raw["fields_decoded"]),
+            invalid=int(raw["invalid_fields"]),
+            cm1=_yes_no(raw["has_color_matrix1"]),
+            cm2=_yes_no(raw["has_color_matrix2"]),
+            wb=_yes_no(raw["has_wb_rgb_levels"]),
+            black=black_level,
+            temp=sensor_temp,
+            temp2=sensor_temp2,
+            raw_format=raw_format,
+            raw_data=int(raw["raw_data_bytes"]),
+            strip_offsets=int(raw["strip_offsets_bytes"]),
+            black_data=int(raw["black_level_data_bytes"]),
+            cal_entries=int(raw["sensor_calibration_entry_count"]),
+            cal_bytes=int(raw["sensor_calibration_payload_bytes"]),
+            defects=int(raw["sensor_defects_bytes"]),
+            flat=int(raw["flat_field_bytes"]),
+            linear=int(raw["linearization_coefficients_count"]),
+        )
+    )
+
+
+def _print_vendor_raw_summaries(doc: openmeta.Document) -> None:
+    families = (
+        openmeta.VendorRawProcessingFamily.Sony,
+        openmeta.VendorRawProcessingFamily.Canon,
+        openmeta.VendorRawProcessingFamily.Nikon,
+        openmeta.VendorRawProcessingFamily.Fujifilm,
+        openmeta.VendorRawProcessingFamily.Pentax,
+        openmeta.VendorRawProcessingFamily.Panasonic,
+        openmeta.VendorRawProcessingFamily.Olympus,
+    )
+    for family in families:
+        summary = doc.vendor_raw_processing(family)
+        if int(summary["fields_seen"]) == 0:
+            continue
+        print(
+            "vendor_raw_processing[{family}]=fields_seen={seen} "
+            "color={color} white_balance={wb} geometry={geometry} "
+            "storage={storage} lens_correction={lens} raw_data={raw} "
+            "sensor={sensor} private_table={private}".format(
+                family=summary["family_name"],
+                seen=int(summary["fields_seen"]),
+                color=int(summary["color_fields"]),
+                wb=int(summary["white_balance_fields"]),
+                geometry=int(summary["geometry_fields"]),
+                storage=int(summary["storage_fields"]),
+                lens=int(summary["lens_correction_fields"]),
+                raw=int(summary["raw_data_fields"]),
+                sensor=int(summary["sensor_fields"]),
+                private=int(summary["private_table_fields"]),
+            )
+        )
+
+
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(prog="metaread.py")
     ap.add_argument("files", nargs="+")
@@ -309,6 +419,8 @@ def main(argv: list[str]) -> int:
                 f"ifd_off={int(doc.exif_limit_ifd_offset)} "
                 f"tag=0x{int(doc.exif_limit_tag):04X}"
             )
+        _print_phaseone_summary(doc)
+        _print_vendor_raw_summaries(doc)
 
         by_block: dict[int, list[openmeta.Entry]] = defaultdict(list)
         for i in range(int(doc.entry_count)):

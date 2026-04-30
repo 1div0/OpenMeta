@@ -6,8 +6,8 @@
 #include "openmeta/console_format.h"
 #include "openmeta/container_payload.h"
 #include "openmeta/dng_sdk_adapter.h"
-#include "openmeta/exr_adapter.h"
 #include "openmeta/exif_tag_names.h"
+#include "openmeta/exr_adapter.h"
 #include "openmeta/geotiff_key_names.h"
 #include "openmeta/icc_interpret.h"
 #include "openmeta/interop_export.h"
@@ -16,9 +16,11 @@
 #include "openmeta/metadata_capabilities.h"
 #include "openmeta/metadata_transfer.h"
 #include "openmeta/ocio_adapter.h"
+#include "openmeta/phaseone_geometry.h"
 #include "openmeta/resource_policy.h"
 #include "openmeta/simple_meta.h"
 #include "openmeta/validate.h"
+#include "openmeta/vendor_raw_processing.h"
 #include "openmeta/xmp_dump.h"
 
 #include <nanobind/nanobind.h>
@@ -156,10 +158,9 @@ namespace {
     static const char* exr_adapter_status_name(ExrAdapterStatus status) noexcept
     {
         switch (status) {
-            case ExrAdapterStatus::Ok: return "ok";
-            case ExrAdapterStatus::InvalidArgument:
-                return "invalid_argument";
-            case ExrAdapterStatus::Unsupported: return "unsupported";
+        case ExrAdapterStatus::Ok: return "ok";
+        case ExrAdapterStatus::InvalidArgument: return "invalid_argument";
+        case ExrAdapterStatus::Unsupported: return "unsupported";
         }
         return "unknown";
     }
@@ -169,13 +170,11 @@ namespace {
     dng_sdk_adapter_status_name(DngSdkAdapterStatus status) noexcept
     {
         switch (status) {
-            case DngSdkAdapterStatus::Ok: return "ok";
-            case DngSdkAdapterStatus::InvalidArgument:
-                return "invalid_argument";
-            case DngSdkAdapterStatus::Unsupported: return "unsupported";
-            case DngSdkAdapterStatus::Malformed: return "malformed";
-            case DngSdkAdapterStatus::InternalError:
-                return "internal_error";
+        case DngSdkAdapterStatus::Ok: return "ok";
+        case DngSdkAdapterStatus::InvalidArgument: return "invalid_argument";
+        case DngSdkAdapterStatus::Unsupported: return "unsupported";
+        case DngSdkAdapterStatus::Malformed: return "malformed";
+        case DngSdkAdapterStatus::InternalError: return "internal_error";
         }
         return "unknown";
     }
@@ -185,10 +184,10 @@ namespace {
     libraw_orientation_status_name(LibRawOrientationStatus status) noexcept
     {
         switch (status) {
-            case LibRawOrientationStatus::Ok: return "ok";
-            case LibRawOrientationStatus::InvalidArgument:
-                return "invalid_argument";
-            case LibRawOrientationStatus::Unsupported: return "unsupported";
+        case LibRawOrientationStatus::Ok: return "ok";
+        case LibRawOrientationStatus::InvalidArgument:
+            return "invalid_argument";
+        case LibRawOrientationStatus::Unsupported: return "unsupported";
         }
         return "unknown";
     }
@@ -198,17 +197,17 @@ namespace {
     libraw_orientation_code_name(LibRawOrientationCode code) noexcept
     {
         switch (code) {
-            case LibRawOrientationCode::None: return "none";
-            case LibRawOrientationCode::PreviewPassThrough:
-                return "preview_pass_through";
-            case LibRawOrientationCode::MissingExifOrientationAssumedDefault:
-                return "missing_exif_orientation_assumed_default";
-            case LibRawOrientationCode::InvalidExifOrientation:
-                return "invalid_exif_orientation";
-            case LibRawOrientationCode::UnsupportedMirroredOrientation:
-                return "unsupported_mirrored_orientation";
-            case LibRawOrientationCode::MirroredOrientationDropped:
-                return "mirrored_orientation_dropped";
+        case LibRawOrientationCode::None: return "none";
+        case LibRawOrientationCode::PreviewPassThrough:
+            return "preview_pass_through";
+        case LibRawOrientationCode::MissingExifOrientationAssumedDefault:
+            return "missing_exif_orientation_assumed_default";
+        case LibRawOrientationCode::InvalidExifOrientation:
+            return "invalid_exif_orientation";
+        case LibRawOrientationCode::UnsupportedMirroredOrientation:
+            return "unsupported_mirrored_orientation";
+        case LibRawOrientationCode::MirroredOrientationDropped:
+            return "mirrored_orientation_dropped";
         }
         return "unknown";
     }
@@ -218,13 +217,11 @@ namespace {
     libraw_orientation_source_name(LibRawOrientationSource source) noexcept
     {
         switch (source) {
-            case LibRawOrientationSource::ExplicitInput:
-                return "explicit_input";
-            case LibRawOrientationSource::AssumedDefault:
-                return "assumed_default";
-            case LibRawOrientationSource::ExifIfd0: return "exif_ifd0";
-            case LibRawOrientationSource::XmpTiffOrientation:
-                return "xmp_tiff_orientation";
+        case LibRawOrientationSource::ExplicitInput: return "explicit_input";
+        case LibRawOrientationSource::AssumedDefault: return "assumed_default";
+        case LibRawOrientationSource::ExifIfd0: return "exif_ifd0";
+        case LibRawOrientationSource::XmpTiffOrientation:
+            return "xmp_tiff_orientation";
         }
         return "unknown";
     }
@@ -234,32 +231,28 @@ namespace {
     libraw_flip_to_exif_code_name(LibRawFlipToExifCode code) noexcept
     {
         switch (code) {
-            case LibRawFlipToExifCode::None: return "none";
-            case LibRawFlipToExifCode::PreviewPassThrough:
-                return "preview_pass_through";
-            case LibRawFlipToExifCode::InvalidLibRawFlip:
-                return "invalid_libraw_flip";
+        case LibRawFlipToExifCode::None: return "none";
+        case LibRawFlipToExifCode::PreviewPassThrough:
+            return "preview_pass_through";
+        case LibRawFlipToExifCode::InvalidLibRawFlip:
+            return "invalid_libraw_flip";
         }
         return "unknown";
     }
 
 
-    static const char*
-    libraw_orientation_file_status_name(
+    static const char* libraw_orientation_file_status_name(
         LibRawOrientationFileStatus status) noexcept
     {
         switch (status) {
-            case LibRawOrientationFileStatus::Ok: return "ok";
-            case LibRawOrientationFileStatus::InvalidArgument:
-                return "invalid_argument";
-            case LibRawOrientationFileStatus::OpenFailed:
-                return "open_failed";
-            case LibRawOrientationFileStatus::StatFailed:
-                return "stat_failed";
-            case LibRawOrientationFileStatus::TooLarge: return "too_large";
-            case LibRawOrientationFileStatus::MapFailed: return "map_failed";
-            case LibRawOrientationFileStatus::DecodeFailed:
-                return "decode_failed";
+        case LibRawOrientationFileStatus::Ok: return "ok";
+        case LibRawOrientationFileStatus::InvalidArgument:
+            return "invalid_argument";
+        case LibRawOrientationFileStatus::OpenFailed: return "open_failed";
+        case LibRawOrientationFileStatus::StatFailed: return "stat_failed";
+        case LibRawOrientationFileStatus::TooLarge: return "too_large";
+        case LibRawOrientationFileStatus::MapFailed: return "map_failed";
+        case LibRawOrientationFileStatus::DecodeFailed: return "decode_failed";
         }
         return "unknown";
     }
@@ -268,11 +261,11 @@ namespace {
     static const char* mapped_file_status_name(MappedFileStatus status) noexcept
     {
         switch (status) {
-            case MappedFileStatus::Ok: return "ok";
-            case MappedFileStatus::OpenFailed: return "open_failed";
-            case MappedFileStatus::StatFailed: return "stat_failed";
-            case MappedFileStatus::TooLarge: return "too_large";
-            case MappedFileStatus::MapFailed: return "map_failed";
+        case MappedFileStatus::Ok: return "ok";
+        case MappedFileStatus::OpenFailed: return "open_failed";
+        case MappedFileStatus::StatFailed: return "stat_failed";
+        case MappedFileStatus::TooLarge: return "too_large";
+        case MappedFileStatus::MapFailed: return "map_failed";
         }
         return "unknown";
     }
@@ -281,10 +274,10 @@ namespace {
     static const char* scan_status_name(ScanStatus status) noexcept
     {
         switch (status) {
-            case ScanStatus::Ok: return "ok";
-            case ScanStatus::OutputTruncated: return "output_truncated";
-            case ScanStatus::Unsupported: return "unsupported";
-            case ScanStatus::Malformed: return "malformed";
+        case ScanStatus::Ok: return "ok";
+        case ScanStatus::OutputTruncated: return "output_truncated";
+        case ScanStatus::Unsupported: return "unsupported";
+        case ScanStatus::Malformed: return "malformed";
         }
         return "unknown";
     }
@@ -293,25 +286,24 @@ namespace {
     static const char* payload_status_name(PayloadStatus status) noexcept
     {
         switch (status) {
-            case PayloadStatus::Ok: return "ok";
-            case PayloadStatus::OutputTruncated: return "output_truncated";
-            case PayloadStatus::Unsupported: return "unsupported";
-            case PayloadStatus::Malformed: return "malformed";
-            case PayloadStatus::LimitExceeded: return "limit_exceeded";
+        case PayloadStatus::Ok: return "ok";
+        case PayloadStatus::OutputTruncated: return "output_truncated";
+        case PayloadStatus::Unsupported: return "unsupported";
+        case PayloadStatus::Malformed: return "malformed";
+        case PayloadStatus::LimitExceeded: return "limit_exceeded";
         }
         return "unknown";
     }
 
 
-    static const char*
-    exif_decode_status_name(ExifDecodeStatus status) noexcept
+    static const char* exif_decode_status_name(ExifDecodeStatus status) noexcept
     {
         switch (status) {
-            case ExifDecodeStatus::Ok: return "ok";
-            case ExifDecodeStatus::OutputTruncated: return "output_truncated";
-            case ExifDecodeStatus::Unsupported: return "unsupported";
-            case ExifDecodeStatus::Malformed: return "malformed";
-            case ExifDecodeStatus::LimitExceeded: return "limit_exceeded";
+        case ExifDecodeStatus::Ok: return "ok";
+        case ExifDecodeStatus::OutputTruncated: return "output_truncated";
+        case ExifDecodeStatus::Unsupported: return "unsupported";
+        case ExifDecodeStatus::Malformed: return "malformed";
+        case ExifDecodeStatus::LimitExceeded: return "limit_exceeded";
         }
         return "unknown";
     }
@@ -320,29 +312,28 @@ namespace {
     static const char* xmp_decode_status_name(XmpDecodeStatus status) noexcept
     {
         switch (status) {
-            case XmpDecodeStatus::Ok: return "ok";
-            case XmpDecodeStatus::OutputTruncated: return "output_truncated";
-            case XmpDecodeStatus::Unsupported: return "unsupported";
-            case XmpDecodeStatus::Malformed: return "malformed";
-            case XmpDecodeStatus::LimitExceeded: return "limit_exceeded";
+        case XmpDecodeStatus::Ok: return "ok";
+        case XmpDecodeStatus::OutputTruncated: return "output_truncated";
+        case XmpDecodeStatus::Unsupported: return "unsupported";
+        case XmpDecodeStatus::Malformed: return "malformed";
+        case XmpDecodeStatus::LimitExceeded: return "limit_exceeded";
         }
         return "unknown";
     }
 
 
-    static const char*
-    transfer_block_kind_name(TransferBlockKind kind) noexcept
+    static const char* transfer_block_kind_name(TransferBlockKind kind) noexcept
     {
         switch (kind) {
-            case TransferBlockKind::Exif: return "exif";
-            case TransferBlockKind::Xmp: return "xmp";
-            case TransferBlockKind::IptcIim: return "iptc_iim";
-            case TransferBlockKind::PhotoshopIrb: return "photoshop_irb";
-            case TransferBlockKind::Icc: return "icc";
-            case TransferBlockKind::Jumbf: return "jumbf";
-            case TransferBlockKind::C2pa: return "c2pa";
-            case TransferBlockKind::ExrAttribute: return "exr_attribute";
-            case TransferBlockKind::Other: return "other";
+        case TransferBlockKind::Exif: return "exif";
+        case TransferBlockKind::Xmp: return "xmp";
+        case TransferBlockKind::IptcIim: return "iptc_iim";
+        case TransferBlockKind::PhotoshopIrb: return "photoshop_irb";
+        case TransferBlockKind::Icc: return "icc";
+        case TransferBlockKind::Jumbf: return "jumbf";
+        case TransferBlockKind::C2pa: return "c2pa";
+        case TransferBlockKind::ExrAttribute: return "exr_attribute";
+        case TransferBlockKind::Other: return "other";
         }
         return "unknown";
     }
@@ -635,8 +626,8 @@ namespace {
 
     static std::string metadata_compatibility_dump_from_store(
         const MetaStore& store, ExportNameStyle style,
-        ExportNamePolicy name_policy, bool include_values,
-        bool include_origins, bool include_flags, uint32_t max_value_bytes)
+        ExportNamePolicy name_policy, bool include_values, bool include_origins,
+        bool include_flags, uint32_t max_value_bytes)
     {
         MetadataCompatibilityDumpOptions options;
         options.style           = style;
@@ -653,12 +644,12 @@ namespace {
 
     static std::string snapshot_compatibility_dump(
         const TransferSourceSnapshot& snapshot, ExportNameStyle style,
-        ExportNamePolicy name_policy, bool include_values,
-        bool include_origins, bool include_flags, uint32_t max_value_bytes)
+        ExportNamePolicy name_policy, bool include_values, bool include_origins,
+        bool include_flags, uint32_t max_value_bytes)
     {
         return metadata_compatibility_dump_from_store(
-            snapshot.store, style, name_policy, include_values,
-            include_origins, include_flags, max_value_bytes);
+            snapshot.store, style, name_policy, include_values, include_origins,
+            include_flags, max_value_bytes);
     }
 
     static nb::dict ccm_field_to_python(const CcmField& field)
@@ -724,6 +715,189 @@ namespace {
         out["issues_reported"] = nb::int_(result.issues_reported);
         out["fields"]          = std::move(out_fields);
         out["issues"]          = std::move(out_issues);
+        return out;
+    }
+
+    static nb::list phaseone_double_array_to_python(const double* values,
+                                                    uint32_t count)
+    {
+        nb::list out;
+        if (!values) {
+            return out;
+        }
+        for (uint32_t i = 0U; i < count; ++i) {
+            out.append(nb::float_(values[i]));
+        }
+        return out;
+    }
+
+    static nb::object
+    phaseone_optional_double_array_to_python(bool present, const double* values,
+                                             uint32_t count)
+    {
+        if (!present) {
+            return nb::none();
+        }
+        return phaseone_double_array_to_python(values, count);
+    }
+
+    static nb::dict phaseone_raw_geometry_to_python(const MetaStore& store)
+    {
+        const PhaseOneRawGeometryResult result
+            = phaseone_raw_geometry_from_store(store);
+        const PhaseOneRawGeometry& geometry = result.geometry;
+
+        nb::dict out;
+        out["status"]      = result.status;
+        out["status_name"] = nb::str(
+            phaseone_raw_geometry_status_name(result.status));
+        out["sensor_width"]       = nb::int_(geometry.sensor_width);
+        out["sensor_height"]      = nb::int_(geometry.sensor_height);
+        out["sensor_left_margin"] = nb::int_(geometry.sensor_left_margin);
+        out["sensor_top_margin"]  = nb::int_(geometry.sensor_top_margin);
+        out["image_width"]        = nb::int_(geometry.image_width);
+        out["image_height"]       = nb::int_(geometry.image_height);
+        out["active_x"]           = nb::int_(geometry.active_x);
+        out["active_y"]           = nb::int_(geometry.active_y);
+        out["active_width"]       = nb::int_(geometry.active_width);
+        out["active_height"]      = nb::int_(geometry.active_height);
+        out["right_margin"]       = nb::int_(geometry.right_margin);
+        out["bottom_margin"]      = nb::int_(geometry.bottom_margin);
+        return out;
+    }
+
+    static nb::dict phaseone_raw_processing_to_python(const MetaStore& store)
+    {
+        const PhaseOneRawProcessingResult result
+            = phaseone_raw_processing_from_store(store);
+        const PhaseOneRawProcessingInfo& info = result.info;
+
+        nb::dict out;
+        out["status"]      = result.status;
+        out["status_name"] = nb::str(
+            phaseone_raw_processing_status_name(result.status));
+        out["fields_seen"]    = nb::int_(result.fields_seen);
+        out["fields_decoded"] = nb::int_(result.fields_decoded);
+        out["invalid_fields"] = nb::int_(result.invalid_fields);
+
+        out["has_color_matrix1"] = nb::bool_(info.has_color_matrix1);
+        out["color_matrix1"]
+            = phaseone_optional_double_array_to_python(info.has_color_matrix1,
+                                                       info.color_matrix1, 9U);
+        out["has_color_matrix2"] = nb::bool_(info.has_color_matrix2);
+        out["color_matrix2"]
+            = phaseone_optional_double_array_to_python(info.has_color_matrix2,
+                                                       info.color_matrix2, 9U);
+        out["has_wb_rgb_levels"] = nb::bool_(info.has_wb_rgb_levels);
+        out["wb_rgb_levels"]
+            = phaseone_optional_double_array_to_python(info.has_wb_rgb_levels,
+                                                       info.wb_rgb_levels, 3U);
+
+        out["has_black_level"]          = nb::bool_(info.has_black_level);
+        out["black_level"]              = nb::int_(info.black_level);
+        out["has_sensor_temperature_c"] = nb::bool_(
+            info.has_sensor_temperature_c);
+        out["sensor_temperature_c"] = nb::float_(info.sensor_temperature_c);
+        out["has_sensor_temperature2_c"] = nb::bool_(
+            info.has_sensor_temperature2_c);
+        out["sensor_temperature2_c"]  = nb::float_(info.sensor_temperature2_c);
+        out["has_raw_format"]         = nb::bool_(info.has_raw_format);
+        out["raw_format"]             = nb::int_(info.raw_format);
+        out["has_raw_data"]           = nb::bool_(info.has_raw_data);
+        out["raw_data_bytes"]         = nb::int_(info.raw_data_bytes);
+        out["has_strip_offsets"]      = nb::bool_(info.has_strip_offsets);
+        out["strip_offsets_bytes"]    = nb::int_(info.strip_offsets_bytes);
+        out["has_black_level_data"]   = nb::bool_(info.has_black_level_data);
+        out["black_level_data_bytes"] = nb::int_(info.black_level_data_bytes);
+        out["has_sensor_calibration"] = nb::bool_(info.has_sensor_calibration);
+        out["sensor_calibration_entry_count"] = nb::int_(
+            info.sensor_calibration_entry_count);
+        out["sensor_calibration_payload_bytes"] = nb::int_(
+            info.sensor_calibration_payload_bytes);
+        out["has_sensor_defects"]   = nb::bool_(info.has_sensor_defects);
+        out["sensor_defects_bytes"] = nb::int_(info.sensor_defects_bytes);
+        out["has_flat_field"]       = nb::bool_(info.has_flat_field);
+        out["flat_field_bytes"]     = nb::int_(info.flat_field_bytes);
+        out["has_linearization_coefficients"] = nb::bool_(
+            info.has_linearization_coefficients);
+        out["linearization_coefficients_count"] = nb::int_(
+            info.linearization_coefficients_count);
+        return out;
+    }
+
+    static nb::dict vendor_raw_processing_summary_to_python(
+        VendorRawProcessingFamily family,
+        const VendorRawProcessingSummary& summary)
+    {
+        nb::dict out;
+        out["family"]      = family;
+        out["family_name"] = nb::str(vendor_raw_processing_family_name(family));
+        out["fields_seen"] = nb::int_(summary.fields_seen);
+        out["color_fields"]           = nb::int_(summary.color_fields);
+        out["white_balance_fields"]   = nb::int_(summary.white_balance_fields);
+        out["geometry_fields"]        = nb::int_(summary.geometry_fields);
+        out["storage_fields"]         = nb::int_(summary.storage_fields);
+        out["lens_correction_fields"] = nb::int_(
+            summary.lens_correction_fields);
+        out["raw_data_fields"]      = nb::int_(summary.raw_data_fields);
+        out["sensor_fields"]        = nb::int_(summary.sensor_fields);
+        out["private_table_fields"] = nb::int_(summary.private_table_fields);
+        return out;
+    }
+
+    static nb::dict
+    vendor_raw_processing_to_python(const MetaStore& store,
+                                    VendorRawProcessingFamily family)
+    {
+        const VendorRawProcessingSummary summary
+            = vendor_raw_processing_from_store(store, family);
+        return vendor_raw_processing_summary_to_python(family, summary);
+    }
+
+    static nb::dict
+    transfer_safety_audit_to_python(const TransferSafetyAudit& audit)
+    {
+        nb::dict out;
+        out["safety"]                  = audit.safety;
+        out["source_image_properties"] = nb::int_(
+            audit.source_image_properties);
+        out["source_raw_color_calibration"] = nb::int_(
+            audit.source_raw_color_calibration);
+        out["source_camera_raw_settings"] = nb::int_(
+            audit.source_camera_raw_settings);
+        out["source_icc_profiles"]   = nb::int_(audit.source_icc_profiles);
+        out["source_makernotes"]     = nb::int_(audit.source_makernotes);
+        out["source_non_c2pa_jumbf"] = nb::int_(audit.source_non_c2pa_jumbf);
+        out["source_c2pa"]           = nb::int_(audit.source_c2pa);
+        out["filtered_image_properties"] = nb::int_(
+            audit.filtered_image_properties);
+        out["filtered_raw_color_calibration"] = nb::int_(
+            audit.filtered_raw_color_calibration);
+        out["filtered_camera_raw_settings"] = nb::int_(
+            audit.filtered_camera_raw_settings);
+        out["filtered_icc_profiles"]   = nb::int_(audit.filtered_icc_profiles);
+        out["filtered_makernotes"]     = nb::int_(audit.filtered_makernotes);
+        out["filtered_non_c2pa_jumbf"] = nb::int_(
+            audit.filtered_non_c2pa_jumbf);
+        out["invalidated_c2pa"]    = nb::int_(audit.invalidated_c2pa);
+        out["sony_raw_processing"] = vendor_raw_processing_summary_to_python(
+            VendorRawProcessingFamily::Sony, audit.sony_raw_processing);
+        out["canon_raw_processing"] = vendor_raw_processing_summary_to_python(
+            VendorRawProcessingFamily::Canon, audit.canon_raw_processing);
+        out["nikon_raw_processing"] = vendor_raw_processing_summary_to_python(
+            VendorRawProcessingFamily::Nikon, audit.nikon_raw_processing);
+        out["fujifilm_raw_processing"]
+            = vendor_raw_processing_summary_to_python(
+                VendorRawProcessingFamily::Fujifilm,
+                audit.fujifilm_raw_processing);
+        out["pentax_raw_processing"] = vendor_raw_processing_summary_to_python(
+            VendorRawProcessingFamily::Pentax, audit.pentax_raw_processing);
+        out["panasonic_raw_processing"]
+            = vendor_raw_processing_summary_to_python(
+                VendorRawProcessingFamily::Panasonic,
+                audit.panasonic_raw_processing);
+        out["olympus_raw_processing"] = vendor_raw_processing_summary_to_python(
+            VendorRawProcessingFamily::Olympus, audit.olympus_raw_processing);
         return out;
     }
 
@@ -912,16 +1086,13 @@ namespace {
         return "unknown transfer file error";
     }
 
-    static const char*
-    read_transfer_source_snapshot_file_code_name(
+    static const char* read_transfer_source_snapshot_file_code_name(
         ReadTransferSourceSnapshotFileCode code) noexcept
     {
         switch (code) {
         case ReadTransferSourceSnapshotFileCode::None: return "none";
-        case ReadTransferSourceSnapshotFileCode::EmptyPath:
-            return "empty_path";
-        case ReadTransferSourceSnapshotFileCode::MapFailed:
-            return "map_failed";
+        case ReadTransferSourceSnapshotFileCode::EmptyPath: return "empty_path";
+        case ReadTransferSourceSnapshotFileCode::MapFailed: return "map_failed";
         case ReadTransferSourceSnapshotFileCode::PayloadBufferPlatformLimit:
             return "payload_buffer_platform_limit";
         case ReadTransferSourceSnapshotFileCode::DecodeFailed:
@@ -930,8 +1101,7 @@ namespace {
         return "unknown";
     }
 
-    static const char*
-    read_transfer_source_snapshot_bytes_code_name(
+    static const char* read_transfer_source_snapshot_bytes_code_name(
         ReadTransferSourceSnapshotBytesCode code) noexcept
     {
         switch (code) {
@@ -955,8 +1125,7 @@ namespace {
             return "xmp_exif_projection";
         case TransferPolicySubject::XmpIptcProjection:
             return "xmp_iptc_projection";
-        case TransferPolicySubject::ImageProperties:
-            return "image_properties";
+        case TransferPolicySubject::ImageProperties: return "image_properties";
         case TransferPolicySubject::IccProfile: return "icc_profile";
         case TransferPolicySubject::RawColorCalibration:
             return "raw_color_calibration";
@@ -1110,7 +1279,7 @@ namespace {
     static const char*
     transfer_target_format_name(TransferTargetFormat format) noexcept
     {
-    switch (format) {
+        switch (format) {
         case TransferTargetFormat::Jpeg: return "jpeg";
         case TransferTargetFormat::Tiff: return "tiff";
         case TransferTargetFormat::Dng: return "dng";
@@ -1126,8 +1295,8 @@ namespace {
         return "unknown";
     }
 
-    static std::vector<uint16_t> transfer_target_image_spec_bits(
-        const TransferTargetImageSpec& spec)
+    static std::vector<uint16_t>
+    transfer_target_image_spec_bits(const TransferTargetImageSpec& spec)
     {
         std::vector<uint16_t> out;
         out.reserve(spec.bits_per_sample_count);
@@ -1137,12 +1306,12 @@ namespace {
         return out;
     }
 
-    static void transfer_target_image_spec_set_bits(
-        TransferTargetImageSpec& spec, const std::vector<uint16_t>& values)
+    static void
+    transfer_target_image_spec_set_bits(TransferTargetImageSpec& spec,
+                                        const std::vector<uint16_t>& values)
     {
         if (values.size() > kTransferTargetImageSpecMaxSamples) {
-            throw std::runtime_error(
-                "bits_per_sample has too many values");
+            throw std::runtime_error("bits_per_sample has too many values");
         }
         spec.bits_per_sample_count = static_cast<uint16_t>(values.size());
         spec.bits_per_sample.fill(0U);
@@ -1166,8 +1335,7 @@ namespace {
         TransferTargetImageSpec& spec, const std::vector<uint16_t>& values)
     {
         if (values.size() > kTransferTargetImageSpecMaxSamples) {
-            throw std::runtime_error(
-                "sample_format has too many values");
+            throw std::runtime_error("sample_format has too many values");
         }
         spec.sample_format_count = static_cast<uint16_t>(values.size());
         spec.sample_format.fill(0U);
@@ -1176,8 +1344,8 @@ namespace {
         }
     }
 
-    static TransferTargetImageSpec transfer_target_image_spec_from_python(
-        nb::object obj)
+    static TransferTargetImageSpec
+    transfer_target_image_spec_from_python(nb::object obj)
     {
         if (obj.is_none()) {
             return TransferTargetImageSpec();
@@ -1185,8 +1353,7 @@ namespace {
         return nb::cast<TransferTargetImageSpec>(obj);
     }
 
-    static nb::dict
-    metadata_capability_to_python(const MetadataCapability& cap)
+    static nb::dict metadata_capability_to_python(const MetadataCapability& cap)
     {
         nb::dict out;
         out["contract_version"] = nb::int_(
@@ -1196,26 +1363,26 @@ namespace {
         out["family"]      = cap.family;
         out["family_name"] = nb::str(
             metadata_capability_family_name(cap.family));
-        out["read"] = cap.read;
+        out["read"]      = cap.read;
         out["read_name"] = nb::str(metadata_capability_support_name(cap.read));
         out["read_available"] = nb::bool_(
             metadata_capability_available(cap.read));
-        out["structured_decode"] = cap.structured_decode;
+        out["structured_decode"]      = cap.structured_decode;
         out["structured_decode_name"] = nb::str(
             metadata_capability_support_name(cap.structured_decode));
         out["structured_decode_available"] = nb::bool_(
             metadata_capability_available(cap.structured_decode));
-        out["transfer_prepare"] = cap.transfer_prepare;
+        out["transfer_prepare"]      = cap.transfer_prepare;
         out["transfer_prepare_name"] = nb::str(
             metadata_capability_support_name(cap.transfer_prepare));
         out["transfer_prepare_available"] = nb::bool_(
             metadata_capability_available(cap.transfer_prepare));
-        out["target_edit"] = cap.target_edit;
+        out["target_edit"]      = cap.target_edit;
         out["target_edit_name"] = nb::str(
             metadata_capability_support_name(cap.target_edit));
         out["target_edit_available"] = nb::bool_(
             metadata_capability_available(cap.target_edit));
-        out["raw_preservation"] = cap.raw_preservation;
+        out["raw_preservation"]      = cap.raw_preservation;
         out["raw_preservation_name"] = nb::str(
             metadata_capability_support_name(cap.raw_preservation));
         out["raw_preservation_available"] = nb::bool_(
@@ -1794,51 +1961,50 @@ namespace {
         if (!out) {
             return;
         }
-        (*out)["persist_requested"] = nb::bool_(persist_requested);
-        (*out)["persist_status"]    = persisted.status;
-        (*out)["persist_status_name"]
-            = nb::str(transfer_status_name(persisted.status));
+        (*out)["persist_requested"]   = nb::bool_(persist_requested);
+        (*out)["persist_status"]      = persisted.status;
+        (*out)["persist_status_name"] = nb::str(
+            transfer_status_name(persisted.status));
         (*out)["persist_message"] = nb::str(persisted.message.c_str(),
                                             persisted.message.size());
 
-        (*out)["persist_output_status"] = persisted.output_status;
-        (*out)["persist_output_status_name"]
-            = nb::str(transfer_status_name(persisted.output_status));
-        (*out)["persist_output_message"] = nb::str(
-            persisted.output_message.c_str(), persisted.output_message.size());
-        (*out)["persist_output_path"]
-            = nb::str(persisted.output_path.c_str(),
-                      persisted.output_path.size());
+        (*out)["persist_output_status"]      = persisted.output_status;
+        (*out)["persist_output_status_name"] = nb::str(
+            transfer_status_name(persisted.output_status));
+        (*out)["persist_output_message"]
+            = nb::str(persisted.output_message.c_str(),
+                      persisted.output_message.size());
+        (*out)["persist_output_path"]  = nb::str(persisted.output_path.c_str(),
+                                                 persisted.output_path.size());
         (*out)["persist_output_bytes"] = nb::int_(persisted.output_bytes);
 
         (*out)["persist_xmp_sidecar_status"] = persisted.xmp_sidecar_status;
         (*out)["persist_xmp_sidecar_status_name"] = nb::str(
             transfer_status_name(persisted.xmp_sidecar_status));
-        (*out)["persist_xmp_sidecar_message"] = nb::str(
-            persisted.xmp_sidecar_message.c_str(),
-            persisted.xmp_sidecar_message.size());
+        (*out)["persist_xmp_sidecar_message"]
+            = nb::str(persisted.xmp_sidecar_message.c_str(),
+                      persisted.xmp_sidecar_message.size());
         (*out)["persist_xmp_sidecar_path"]
             = nb::str(persisted.xmp_sidecar_path.c_str(),
                       persisted.xmp_sidecar_path.size());
-        (*out)["persist_xmp_sidecar_bytes"]
-            = nb::int_(persisted.xmp_sidecar_bytes);
+        (*out)["persist_xmp_sidecar_bytes"] = nb::int_(
+            persisted.xmp_sidecar_bytes);
 
         (*out)["persist_xmp_sidecar_cleanup_status"]
             = persisted.xmp_sidecar_cleanup_status;
         (*out)["persist_xmp_sidecar_cleanup_status_name"] = nb::str(
             transfer_status_name(persisted.xmp_sidecar_cleanup_status));
-        (*out)["persist_xmp_sidecar_cleanup_message"] = nb::str(
-            persisted.xmp_sidecar_cleanup_message.c_str(),
-            persisted.xmp_sidecar_cleanup_message.size());
+        (*out)["persist_xmp_sidecar_cleanup_message"]
+            = nb::str(persisted.xmp_sidecar_cleanup_message.c_str(),
+                      persisted.xmp_sidecar_cleanup_message.size());
         (*out)["persist_xmp_sidecar_cleanup_path"]
             = nb::str(persisted.xmp_sidecar_cleanup_path.c_str(),
                       persisted.xmp_sidecar_cleanup_path.size());
-        (*out)["persist_xmp_sidecar_cleanup_removed"]
-            = nb::bool_(persisted.xmp_sidecar_cleanup_removed);
+        (*out)["persist_xmp_sidecar_cleanup_removed"] = nb::bool_(
+            persisted.xmp_sidecar_cleanup_removed);
     }
 
-    static nb::dict
-    read_transfer_source_snapshot_file_to_python(
+    static nb::dict read_transfer_source_snapshot_file_to_python(
         const std::string& path,
         const ReadTransferSourceSnapshotFileResult& result)
     {
@@ -1873,7 +2039,7 @@ namespace {
             out["overall_status_name"] = nb::str(
                 transfer_status_name(overall_status));
             out["error_stage"] = nb::str("read_snapshot");
-            out["error_code"] = nb::str(
+            out["error_code"]  = nb::str(
                 read_transfer_source_snapshot_file_code_name(result.code));
             out["error_message"] = nb::str(
                 transfer_file_status_message(result.file_status));
@@ -1881,8 +2047,7 @@ namespace {
         return out;
     }
 
-    static nb::dict
-    read_transfer_source_snapshot_bytes_to_python(
+    static nb::dict read_transfer_source_snapshot_bytes_to_python(
         const ReadTransferSourceSnapshotBytesResult& result)
     {
         nb::dict out;
@@ -1912,11 +2077,11 @@ namespace {
             out["overall_status_name"] = nb::str(
                 transfer_status_name(result.status));
             out["error_stage"] = nb::str("read_snapshot");
-            out["error_code"] = nb::str(
+            out["error_code"]  = nb::str(
                 read_transfer_source_snapshot_bytes_code_name(result.code));
             if (result.code
                 == ReadTransferSourceSnapshotBytesCode::
-                       PayloadBufferPlatformLimit) {
+                    PayloadBufferPlatformLimit) {
                 out["error_message"] = nb::str(
                     "snapshot decode payload buffer exceeded platform span "
                     "limits");
@@ -1927,12 +2092,10 @@ namespace {
         return out;
     }
 
-    static nb::dict
-    transfer_snapshot_result_to_python(
+    static nb::dict transfer_snapshot_result_to_python(
         const ExecutePreparedTransferFileResult& result,
         const PersistPreparedTransferFileResult& persisted,
-        bool persist_requested, bool edit_do_apply,
-        bool include_edited_bytes,
+        bool persist_requested, bool edit_do_apply, bool include_edited_bytes,
         bool unsafe_edited_bytes_access)
     {
         const PrepareTransferFileResult& prepared = result.prepared;
@@ -1946,15 +2109,15 @@ namespace {
         out["file_code"]      = prepared.code;
         out["file_code_name"] = nb::str(
             prepare_transfer_file_code_name(prepared.code));
-        out["file_size"]        = nb::int_(prepared.file_size);
-        out["entry_count"]      = nb::int_(prepared.entry_count);
-        out["scan_status"]      = prepared.read.scan.status;
-        out["payload_status"]   = prepared.read.payload.status;
-        out["exif_status"]      = prepared.read.exif.status;
-        out["xmp_status"]       = prepared.read.xmp.status;
-        out["exr_status"]       = prepared.read.exr.status;
-        out["jumbf_status"]     = prepared.read.jumbf.status;
-        out["prepare_status"]   = prepared.prepare.status;
+        out["file_size"]           = nb::int_(prepared.file_size);
+        out["entry_count"]         = nb::int_(prepared.entry_count);
+        out["scan_status"]         = prepared.read.scan.status;
+        out["payload_status"]      = prepared.read.payload.status;
+        out["exif_status"]         = prepared.read.exif.status;
+        out["xmp_status"]          = prepared.read.xmp.status;
+        out["exr_status"]          = prepared.read.exr.status;
+        out["jumbf_status"]        = prepared.read.jumbf.status;
+        out["prepare_status"]      = prepared.prepare.status;
         out["prepare_status_name"] = nb::str(
             transfer_status_name(prepared.prepare.status));
         out["prepare_code"]      = prepared.prepare.code;
@@ -1964,58 +2127,55 @@ namespace {
         out["prepare_errors"]   = nb::int_(prepared.prepare.errors);
         out["prepare_message"]  = nb::str(prepared.prepare.message.c_str(),
                                           prepared.prepare.message.size());
-        out["xmp_existing_sidecar_loaded"]
-            = nb::bool_(prepared.xmp_existing_sidecar_loaded);
+        out["xmp_existing_sidecar_loaded"] = nb::bool_(
+            prepared.xmp_existing_sidecar_loaded);
         out["xmp_existing_sidecar_status"]
             = prepared.xmp_existing_sidecar_status;
         out["xmp_existing_sidecar_status_name"] = nb::str(
             transfer_status_name(prepared.xmp_existing_sidecar_status));
-        out["xmp_existing_sidecar_message"] = nb::str(
-            prepared.xmp_existing_sidecar_message.c_str(),
-            prepared.xmp_existing_sidecar_message.size());
-        out["xmp_existing_sidecar_path"] = nb::str(
-            prepared.xmp_existing_sidecar_path.c_str(),
-            prepared.xmp_existing_sidecar_path.size());
-        out["xmp_existing_destination_embedded_loaded"]
-            = nb::bool_(result.xmp_existing_destination_embedded_loaded);
+        out["xmp_existing_sidecar_message"]
+            = nb::str(prepared.xmp_existing_sidecar_message.c_str(),
+                      prepared.xmp_existing_sidecar_message.size());
+        out["xmp_existing_sidecar_path"]
+            = nb::str(prepared.xmp_existing_sidecar_path.c_str(),
+                      prepared.xmp_existing_sidecar_path.size());
+        out["xmp_existing_destination_embedded_loaded"] = nb::bool_(
+            result.xmp_existing_destination_embedded_loaded);
         out["xmp_existing_destination_embedded_status"]
             = result.xmp_existing_destination_embedded_status;
         out["xmp_existing_destination_embedded_status_name"] = nb::str(
             transfer_status_name(
                 result.xmp_existing_destination_embedded_status));
-        out["xmp_existing_destination_embedded_message"] = nb::str(
-            result.xmp_existing_destination_embedded_message.c_str(),
-            result.xmp_existing_destination_embedded_message.size());
-        out["xmp_existing_destination_embedded_path"] = nb::str(
-            result.xmp_existing_destination_embedded_path.c_str(),
-            result.xmp_existing_destination_embedded_path.size());
+        out["xmp_existing_destination_embedded_message"]
+            = nb::str(result.xmp_existing_destination_embedded_message.c_str(),
+                      result.xmp_existing_destination_embedded_message.size());
+        out["xmp_existing_destination_embedded_path"]
+            = nb::str(result.xmp_existing_destination_embedded_path.c_str(),
+                      result.xmp_existing_destination_embedded_path.size());
         out["xmp_sidecar_requested"] = nb::bool_(result.xmp_sidecar_requested);
         out["xmp_sidecar_status"]    = result.xmp_sidecar_status;
-        out["xmp_sidecar_status_name"]
-            = nb::str(transfer_status_name(result.xmp_sidecar_status));
-        out["xmp_sidecar_message"] = nb::str(
-            result.xmp_sidecar_message.c_str(),
-            result.xmp_sidecar_message.size());
-        out["xmp_sidecar_path"] = nb::str(result.xmp_sidecar_path.c_str(),
-                                          result.xmp_sidecar_path.size());
-        out["xmp_sidecar_bytes"] = nb::int_(
+        out["xmp_sidecar_status_name"] = nb::str(
+            transfer_status_name(result.xmp_sidecar_status));
+        out["xmp_sidecar_message"] = nb::str(result.xmp_sidecar_message.c_str(),
+                                             result.xmp_sidecar_message.size());
+        out["xmp_sidecar_path"]    = nb::str(result.xmp_sidecar_path.c_str(),
+                                             result.xmp_sidecar_path.size());
+        out["xmp_sidecar_bytes"]   = nb::int_(
             static_cast<uint64_t>(result.xmp_sidecar_output.size()));
-        out["xmp_sidecar_cleanup_requested"]
-            = nb::bool_(result.xmp_sidecar_cleanup_requested);
-        out["xmp_sidecar_cleanup_status"]
-            = result.xmp_sidecar_cleanup_status;
+        out["xmp_sidecar_cleanup_requested"] = nb::bool_(
+            result.xmp_sidecar_cleanup_requested);
+        out["xmp_sidecar_cleanup_status"] = result.xmp_sidecar_cleanup_status;
         out["xmp_sidecar_cleanup_status_name"] = nb::str(
             transfer_status_name(result.xmp_sidecar_cleanup_status));
-        out["xmp_sidecar_cleanup_message"] = nb::str(
-            result.xmp_sidecar_cleanup_message.c_str(),
-            result.xmp_sidecar_cleanup_message.size());
-        out["xmp_sidecar_cleanup_path"] = nb::str(
-            result.xmp_sidecar_cleanup_path.c_str(),
-            result.xmp_sidecar_cleanup_path.size());
+        out["xmp_sidecar_cleanup_message"]
+            = nb::str(result.xmp_sidecar_cleanup_message.c_str(),
+                      result.xmp_sidecar_cleanup_message.size());
+        out["xmp_sidecar_cleanup_path"]
+            = nb::str(result.xmp_sidecar_cleanup_path.c_str(),
+                      result.xmp_sidecar_cleanup_path.size());
         if (!result.xmp_sidecar_output.empty()) {
             out["xmp_sidecar_output"] = nb::bytes(
-                reinterpret_cast<const char*>(
-                    result.xmp_sidecar_output.data()),
+                reinterpret_cast<const char*>(result.xmp_sidecar_output.data()),
                 result.xmp_sidecar_output.size());
         } else {
             out["xmp_sidecar_output"] = nb::none();
@@ -2029,9 +2189,9 @@ namespace {
             exec.time_patch.patched_slots);
         out["time_patch_skipped_slots"] = nb::int_(
             exec.time_patch.skipped_slots);
-        out["time_patch_errors"] = nb::int_(exec.time_patch.errors);
-        out["time_patch_message"] = nb::str(exec.time_patch.message.c_str(),
-                                            exec.time_patch.message.size());
+        out["time_patch_errors"]      = nb::int_(exec.time_patch.errors);
+        out["time_patch_message"]     = nb::str(exec.time_patch.message.c_str(),
+                                                exec.time_patch.message.size());
         out["c2pa_stage_requested"]   = nb::bool_(exec.c2pa_stage_requested);
         out["c2pa_stage_status"]      = exec.c2pa_stage.status;
         out["c2pa_stage_status_name"] = nb::str(
@@ -2050,22 +2210,20 @@ namespace {
         out["c2pa_stage_validation_code"] = exec.c2pa_stage_validation.code;
         out["c2pa_stage_validation_code_name"] = nb::str(
             emit_transfer_code_name(exec.c2pa_stage_validation.code));
-        out["c2pa_stage_validation_message"] = nb::str(
-            exec.c2pa_stage_validation.message.c_str(),
-            exec.c2pa_stage_validation.message.size());
+        out["c2pa_stage_validation_message"]
+            = nb::str(exec.c2pa_stage_validation.message.c_str(),
+                      exec.c2pa_stage_validation.message.size());
 
         nb::list blocks;
         for (size_t i = 0; i < prepared.bundle.blocks.size(); ++i) {
             const PreparedTransferBlock& block = prepared.bundle.blocks[i];
             nb::dict one;
-            one["index"] = nb::int_(static_cast<uint32_t>(i));
-            one["kind"]  = block.kind;
-            one["kind_name"] = nb::str(
-                transfer_block_kind_name(block.kind));
-            one["order"] = nb::int_(block.order);
-            one["route"] = nb::str(block.route.c_str(), block.route.size());
-            one["size"] = nb::int_(
-                static_cast<uint64_t>(block.payload.size()));
+            one["index"]     = nb::int_(static_cast<uint32_t>(i));
+            one["kind"]      = block.kind;
+            one["kind_name"] = nb::str(transfer_block_kind_name(block.kind));
+            one["order"]     = nb::int_(block.order);
+            one["route"]     = nb::str(block.route.c_str(), block.route.size());
+            one["size"] = nb::int_(static_cast<uint64_t>(block.payload.size()));
             one["payload"] = nb::none();
             blocks.append(std::move(one));
         }
@@ -2099,8 +2257,8 @@ namespace {
                 transfer_c2pa_prepared_output_name(
                     decision.c2pa_prepared_output));
             one["matched_entries"] = nb::int_(decision.matched_entries);
-            one["message"] = nb::str(decision.message.c_str(),
-                                     decision.message.size());
+            one["message"]         = nb::str(decision.message.c_str(),
+                                             decision.message.size());
             policy_decisions.append(std::move(one));
         }
         out["policy_decisions"] = std::move(policy_decisions);
@@ -2118,9 +2276,9 @@ namespace {
         rewrite_dict["source_kind_name"] = nb::str(
             transfer_c2pa_source_kind_name(rewrite.source_kind));
         rewrite_dict["matched_entries"] = nb::int_(rewrite.matched_entries);
-        rewrite_dict["message"] = nb::str(rewrite.message.c_str(),
-                                          rewrite.message.size());
-        out["c2pa_rewrite"] = std::move(rewrite_dict);
+        rewrite_dict["message"]         = nb::str(rewrite.message.c_str(),
+                                                  rewrite.message.size());
+        out["c2pa_rewrite"]             = std::move(rewrite_dict);
 
         out["compile_status"]      = exec.compile.status;
         out["compile_status_name"] = nb::str(
@@ -2141,11 +2299,11 @@ namespace {
         out["emit_code"]      = exec.emit.code;
         out["emit_code_name"] = nb::str(
             emit_transfer_code_name(exec.emit.code));
-        out["emit_emitted"] = nb::int_(exec.emit.emitted);
-        out["emit_skipped"] = nb::int_(exec.emit.skipped);
-        out["emit_errors"]  = nb::int_(exec.emit.errors);
-        out["emit_message"] = nb::str(exec.emit.message.c_str(),
-                                      exec.emit.message.size());
+        out["emit_emitted"]     = nb::int_(exec.emit.emitted);
+        out["emit_skipped"]     = nb::int_(exec.emit.skipped);
+        out["emit_errors"]      = nb::int_(exec.emit.errors);
+        out["emit_message"]     = nb::str(exec.emit.message.c_str(),
+                                          exec.emit.message.size());
         out["emit_output_size"] = nb::int_(exec.emit_output_size);
 
         nb::list marker_summary;
@@ -2171,7 +2329,7 @@ namespace {
         nb::list jxl_box_summary;
         for (size_t i = 0; i < exec.jxl_box_summary.size(); ++i) {
             nb::dict one;
-            one["type"] = nb::str(exec.jxl_box_summary[i].type.data(),
+            one["type"]  = nb::str(exec.jxl_box_summary[i].type.data(),
                                    exec.jxl_box_summary[i].type.size());
             one["count"] = nb::int_(exec.jxl_box_summary[i].count);
             one["bytes"] = nb::int_(exec.jxl_box_summary[i].bytes);
@@ -2182,7 +2340,7 @@ namespace {
         nb::list webp_chunk_summary;
         for (size_t i = 0; i < exec.webp_chunk_summary.size(); ++i) {
             nb::dict one;
-            one["type"] = nb::str(exec.webp_chunk_summary[i].type.data(),
+            one["type"]  = nb::str(exec.webp_chunk_summary[i].type.data(),
                                    exec.webp_chunk_summary[i].type.size());
             one["count"] = nb::int_(exec.webp_chunk_summary[i].count);
             one["bytes"] = nb::int_(exec.webp_chunk_summary[i].bytes);
@@ -2193,7 +2351,7 @@ namespace {
         nb::list png_chunk_summary;
         for (size_t i = 0; i < exec.png_chunk_summary.size(); ++i) {
             nb::dict one;
-            one["type"] = nb::str(exec.png_chunk_summary[i].type.data(),
+            one["type"]  = nb::str(exec.png_chunk_summary[i].type.data(),
                                    exec.png_chunk_summary[i].type.size());
             one["count"] = nb::int_(exec.png_chunk_summary[i].count);
             one["bytes"] = nb::int_(exec.png_chunk_summary[i].bytes);
@@ -2204,7 +2362,7 @@ namespace {
         nb::list jp2_box_summary;
         for (size_t i = 0; i < exec.jp2_box_summary.size(); ++i) {
             nb::dict one;
-            one["type"] = nb::str(exec.jp2_box_summary[i].type.data(),
+            one["type"]  = nb::str(exec.jp2_box_summary[i].type.data(),
                                    exec.jp2_box_summary[i].type.size());
             one["count"] = nb::int_(exec.jp2_box_summary[i].count);
             one["bytes"] = nb::int_(exec.jp2_box_summary[i].bytes);
@@ -2217,9 +2375,9 @@ namespace {
             nb::dict one;
             one["name"] = nb::str(exec.exr_attribute_summary[i].name.c_str(),
                                   exec.exr_attribute_summary[i].name.size());
-            one["type_name"] = nb::str(
-                exec.exr_attribute_summary[i].type_name.c_str(),
-                exec.exr_attribute_summary[i].type_name.size());
+            one["type_name"]
+                = nb::str(exec.exr_attribute_summary[i].type_name.c_str(),
+                          exec.exr_attribute_summary[i].type_name.size());
             one["count"] = nb::int_(exec.exr_attribute_summary[i].count);
             one["bytes"] = nb::int_(exec.exr_attribute_summary[i].bytes);
             exr_attribute_summary.append(std::move(one));
@@ -2230,9 +2388,9 @@ namespace {
         for (size_t i = 0; i < exec.bmff_item_summary.size(); ++i) {
             nb::dict one;
             one["item_type"] = nb::int_(exec.bmff_item_summary[i].item_type);
-            one["count"] = nb::int_(exec.bmff_item_summary[i].count);
-            one["bytes"] = nb::int_(exec.bmff_item_summary[i].bytes);
-            one["mime_xmp"] = nb::bool_(exec.bmff_item_summary[i].mime_xmp);
+            one["count"]     = nb::int_(exec.bmff_item_summary[i].count);
+            one["bytes"]     = nb::int_(exec.bmff_item_summary[i].bytes);
+            one["mime_xmp"]  = nb::bool_(exec.bmff_item_summary[i].mime_xmp);
             bmff_item_summary.append(std::move(one));
         }
         out["bmff_item_summary"] = std::move(bmff_item_summary);
@@ -2254,8 +2412,8 @@ namespace {
         out["edit_plan_status"]      = exec.edit_plan_status;
         out["edit_plan_status_name"] = nb::str(
             transfer_status_name(exec.edit_plan_status));
-        out["edit_plan_message"] = nb::str(exec.edit_plan_message.c_str(),
-                                           exec.edit_plan_message.size());
+        out["edit_plan_message"]      = nb::str(exec.edit_plan_message.c_str(),
+                                                exec.edit_plan_message.size());
         out["edit_apply_status"]      = exec.edit_apply.status;
         out["edit_apply_status_name"] = nb::str(
             transfer_status_name(exec.edit_apply.status));
@@ -2267,14 +2425,14 @@ namespace {
         out["edit_apply_errors"]  = nb::int_(exec.edit_apply.errors);
         out["edit_apply_message"] = nb::str(exec.edit_apply.message.c_str(),
                                             exec.edit_apply.message.size());
-        out["edit_input_size"]  = nb::int_(exec.edit_input_size);
-        out["edit_output_size"] = nb::int_(exec.edit_output_size);
+        out["edit_input_size"]    = nb::int_(exec.edit_input_size);
+        out["edit_output_size"]   = nb::int_(exec.edit_output_size);
 
         if (include_edited_bytes && unsafe_edited_bytes_access
             && exec.edit_apply.status == TransferStatus::Ok) {
-            out["edited_bytes"] = nb::bytes(
-                reinterpret_cast<const char*>(exec.edited_output.data()),
-                exec.edited_output.size());
+            out["edited_bytes"] = nb::bytes(reinterpret_cast<const char*>(
+                                                exec.edited_output.data()),
+                                            exec.edited_output.size());
         } else {
             out["edited_bytes"] = nb::none();
         }
@@ -2349,8 +2507,7 @@ namespace {
             error_stage    = "persist_xmp_sidecar";
             error_code     = "persist_xmp_sidecar_failed";
             error_message  = persisted.xmp_sidecar_message;
-        } else if (persist_requested
-                   && result.xmp_sidecar_cleanup_requested
+        } else if (persist_requested && result.xmp_sidecar_cleanup_requested
                    && persisted.xmp_sidecar_cleanup_status
                           != TransferStatus::Ok) {
             overall_status = persisted.xmp_sidecar_cleanup_status;
@@ -2362,8 +2519,8 @@ namespace {
         out["overall_status"]      = overall_status;
         out["overall_status_name"] = nb::str(
             transfer_status_name(overall_status));
-        out["error_stage"] = nb::str(error_stage.c_str(), error_stage.size());
-        out["error_code"]  = nb::str(error_code.c_str(), error_code.size());
+        out["error_stage"]   = nb::str(error_stage.c_str(), error_stage.size());
+        out["error_code"]    = nb::str(error_code.c_str(), error_code.size());
         out["error_message"] = nb::str(error_message.c_str(),
                                        error_message.size());
         return out;
@@ -2376,24 +2533,22 @@ namespace {
         bool include_exif_app1, bool include_xmp_app1, bool include_icc_app2,
         bool include_iptc_app13, bool xmp_include_existing,
         XmpExistingNamespacePolicy xmp_existing_namespace_policy,
-        XmpExistingStandardNamespacePolicy
-            xmp_existing_standard_namespace_policy,
+        XmpExistingStandardNamespacePolicy xmp_existing_standard_namespace_policy,
         bool xmp_exiftool_gpsdatetime_alias, bool xmp_project_exif,
         bool xmp_project_iptc, TransferPolicyAction makernote_policy,
         TransferPolicyAction jumbf_policy, TransferPolicyAction c2pa_policy,
-        uint64_t max_file_bytes, nb::object policy_obj,
-        bool include_values)
+        uint64_t max_file_bytes, nb::object policy_obj, bool include_values)
     {
         BuildExrAttributeBatchFileOptions options;
         options.prepare.include_pointer_tags       = include_pointer_tags;
         options.prepare.decode_makernote           = decode_makernote;
         options.prepare.decode_embedded_containers = decode_embedded_containers;
         options.prepare.decompress                 = decompress;
-        options.prepare.prepare.xmp_portable
-            = (format == XmpSidecarFormat::Portable);
-        options.prepare.prepare.include_exif_app1 = include_exif_app1;
-        options.prepare.prepare.include_xmp_app1  = include_xmp_app1;
-        options.prepare.prepare.include_icc_app2  = include_icc_app2;
+        options.prepare.prepare.xmp_portable       = (format
+                                                == XmpSidecarFormat::Portable);
+        options.prepare.prepare.include_exif_app1  = include_exif_app1;
+        options.prepare.prepare.include_xmp_app1   = include_xmp_app1;
+        options.prepare.prepare.include_icc_app2   = include_icc_app2;
         options.prepare.prepare.include_iptc_app13 = include_iptc_app13;
         options.prepare.prepare.xmp_include_existing = xmp_include_existing;
         options.prepare.prepare.xmp_existing_namespace_policy
@@ -2402,15 +2557,15 @@ namespace {
             = xmp_existing_standard_namespace_policy;
         options.prepare.prepare.xmp_exiftool_gpsdatetime_alias
             = xmp_exiftool_gpsdatetime_alias;
-        options.prepare.prepare.xmp_project_exif = xmp_project_exif;
-        options.prepare.prepare.xmp_project_iptc = xmp_project_iptc;
+        options.prepare.prepare.xmp_project_exif  = xmp_project_exif;
+        options.prepare.prepare.xmp_project_iptc  = xmp_project_iptc;
         options.prepare.prepare.profile.makernote = makernote_policy;
         options.prepare.prepare.profile.jumbf     = jumbf_policy;
         options.prepare.prepare.profile.c2pa      = c2pa_policy;
         options.prepare.policy.max_file_bytes     = max_file_bytes;
         if (!policy_obj.is_none()) {
-            options.prepare.policy
-                = nb::cast<OpenMetaResourcePolicy>(policy_obj);
+            options.prepare.policy = nb::cast<OpenMetaResourcePolicy>(
+                policy_obj);
             if (max_file_bytes != 0U) {
                 options.prepare.policy.max_file_bytes = max_file_bytes;
             }
@@ -2425,34 +2580,35 @@ namespace {
         }
 
         nb::dict out;
-        out["path"] = nb::str(path.c_str(), path.size());
-        out["file_status"] = result.prepared.file_status;
-        out["file_status_name"]
-            = nb::str(transfer_file_status_name(result.prepared.file_status));
-        out["file_code"] = result.prepared.code;
-        out["file_code_name"]
-            = nb::str(prepare_transfer_file_code_name(result.prepared.code));
-        out["file_size"]   = nb::int_(result.prepared.file_size);
-        out["entry_count"] = nb::int_(result.prepared.entry_count);
-        out["prepare_status"] = result.prepared.prepare.status;
-        out["prepare_status_name"]
-            = nb::str(transfer_status_name(result.prepared.prepare.status));
-        out["prepare_code"] = result.prepared.prepare.code;
-        out["prepare_code_name"]
-            = nb::str(prepare_transfer_code_name(result.prepared.prepare.code));
+        out["path"]             = nb::str(path.c_str(), path.size());
+        out["file_status"]      = result.prepared.file_status;
+        out["file_status_name"] = nb::str(
+            transfer_file_status_name(result.prepared.file_status));
+        out["file_code"]      = result.prepared.code;
+        out["file_code_name"] = nb::str(
+            prepare_transfer_file_code_name(result.prepared.code));
+        out["file_size"]           = nb::int_(result.prepared.file_size);
+        out["entry_count"]         = nb::int_(result.prepared.entry_count);
+        out["prepare_status"]      = result.prepared.prepare.status;
+        out["prepare_status_name"] = nb::str(
+            transfer_status_name(result.prepared.prepare.status));
+        out["prepare_code"]      = result.prepared.prepare.code;
+        out["prepare_code_name"] = nb::str(
+            prepare_transfer_code_name(result.prepared.prepare.code));
         out["prepare_warnings"] = nb::int_(result.prepared.prepare.warnings);
         out["prepare_errors"]   = nb::int_(result.prepared.prepare.errors);
-        out["prepare_message"]  = nb::str(
-            result.prepared.prepare.message.c_str(),
-            result.prepared.prepare.message.size());
-        out["exr_attribute_batch_status"] = result.adapter.status;
-        out["exr_attribute_batch_status_name"]
-            = nb::str(exr_adapter_status_name(result.adapter.status));
+        out["prepare_message"]
+            = nb::str(result.prepared.prepare.message.c_str(),
+                      result.prepared.prepare.message.size());
+        out["exr_attribute_batch_status"]      = result.adapter.status;
+        out["exr_attribute_batch_status_name"] = nb::str(
+            exr_adapter_status_name(result.adapter.status));
         out["exr_attribute_batch_exported"] = nb::int_(result.adapter.exported);
         out["exr_attribute_batch_skipped"]  = nb::int_(result.adapter.skipped);
         out["exr_attribute_batch_errors"]   = nb::int_(result.adapter.errors);
-        out["exr_attribute_batch_message"]  = nb::str(
-            result.adapter.message.c_str(), result.adapter.message.size());
+        out["exr_attribute_batch_message"]
+            = nb::str(result.adapter.message.c_str(),
+                      result.adapter.message.size());
         out["exr_attribute_values_requested"] = nb::bool_(include_values);
 
         TransferStatus values_status = TransferStatus::Ok;
@@ -2460,17 +2616,17 @@ namespace {
         if (include_values && result.adapter.status == ExrAdapterStatus::Ok) {
             values_status = TransferStatus::Ok;
         } else if (result.adapter.status == ExrAdapterStatus::InvalidArgument) {
-            values_status = TransferStatus::InvalidArgument;
+            values_status  = TransferStatus::InvalidArgument;
             values_message = result.adapter.message;
         } else if (result.adapter.status == ExrAdapterStatus::Unsupported) {
-            values_status = TransferStatus::Unsupported;
+            values_status  = TransferStatus::Unsupported;
             values_message = result.adapter.message;
         }
-        out["exr_attribute_values_status"] = values_status;
-        out["exr_attribute_values_status_name"]
-            = nb::str(transfer_status_name(values_status));
-        out["exr_attribute_values_message"]
-            = nb::str(values_message.c_str(), values_message.size());
+        out["exr_attribute_values_status"]      = values_status;
+        out["exr_attribute_values_status_name"] = nb::str(
+            transfer_status_name(values_status));
+        out["exr_attribute_values_message"] = nb::str(values_message.c_str(),
+                                                      values_message.size());
 
         nb::list exr_attribute_batch;
         if (result.adapter.status == ExrAdapterStatus::Ok) {
@@ -2478,16 +2634,16 @@ namespace {
                 const ExrAdapterAttribute& attr = batch.attributes[i];
                 nb::dict one;
                 one["part_index"] = nb::int_(attr.part_index);
-                one["name"] = nb::str(attr.name.c_str(), attr.name.size());
-                one["type_name"]
-                    = nb::str(attr.type_name.c_str(), attr.type_name.size());
+                one["name"]      = nb::str(attr.name.c_str(), attr.name.size());
+                one["type_name"] = nb::str(attr.type_name.c_str(),
+                                           attr.type_name.size());
                 one["is_opaque"] = nb::bool_(attr.is_opaque);
-                one["bytes"]
-                    = nb::int_(static_cast<uint64_t>(attr.value.size()));
+                one["bytes"]     = nb::int_(
+                    static_cast<uint64_t>(attr.value.size()));
                 if (include_values) {
-                    one["value"] = nb::bytes(
-                        reinterpret_cast<const char*>(attr.value.data()),
-                        attr.value.size());
+                    one["value"] = nb::bytes(reinterpret_cast<const char*>(
+                                                 attr.value.data()),
+                                             attr.value.size());
                 } else {
                     one["value"] = nb::none();
                 }
@@ -2505,9 +2661,8 @@ namespace {
         if (result.prepared.file_status != TransferFileStatus::Ok) {
             overall_status = transfer_status_from_file_status(
                 result.prepared.file_status);
-            error_stage   = "file";
-            error_code    = prepare_transfer_file_code_name(
-                result.prepared.code);
+            error_stage = "file";
+            error_code  = prepare_transfer_file_code_name(result.prepared.code);
             error_message = result.prepared.prepare.message;
         } else if (result.prepared.prepare.status != TransferStatus::Ok) {
             overall_status = result.prepared.prepare.status;
@@ -2525,13 +2680,13 @@ namespace {
             error_code    = exr_adapter_status_name(result.adapter.status);
             error_message = result.adapter.message;
         }
-        out["overall_status"] = overall_status;
-        out["overall_status_name"]
-            = nb::str(transfer_status_name(overall_status));
-        out["error_stage"] = nb::str(error_stage.c_str(), error_stage.size());
-        out["error_code"]  = nb::str(error_code.c_str(), error_code.size());
-        out["error_message"]
-            = nb::str(error_message.c_str(), error_message.size());
+        out["overall_status"]      = overall_status;
+        out["overall_status_name"] = nb::str(
+            transfer_status_name(overall_status));
+        out["error_stage"]   = nb::str(error_stage.c_str(), error_stage.size());
+        out["error_code"]    = nb::str(error_code.c_str(), error_code.size());
+        out["error_message"] = nb::str(error_message.c_str(),
+                                       error_message.size());
         return out;
     }
 
@@ -2541,7 +2696,7 @@ namespace {
         LibRawMirrorPolicy mirror_policy, uint64_t max_file_bytes)
     {
         LibRawOrientationFileOptions options;
-        options.max_file_bytes = max_file_bytes;
+        options.max_file_bytes     = max_file_bytes;
         options.orientation.target = target;
         options.orientation.preserve_embedded_preview_orientation
             = preserve_embedded_preview_orientation;
@@ -2550,46 +2705,47 @@ namespace {
         LibRawOrientationFileResult result;
         {
             nb::gil_scoped_release gil_release;
-            result = map_meta_orientation_to_libraw_flip_from_file(
-                path.c_str(), options);
+            result = map_meta_orientation_to_libraw_flip_from_file(path.c_str(),
+                                                                   options);
         }
 
         nb::dict out;
-        out["path"] = nb::str(path.c_str(), path.size());
-        out["file_status"] = result.file_status;
-        out["file_status_name"]
-            = nb::str(libraw_orientation_file_status_name(result.file_status));
-        out["mapped_file_status"]
-            = nb::int_(static_cast<uint32_t>(result.mapped_file_status));
-        out["mapped_file_status_name"]
-            = nb::str(mapped_file_status_name(result.mapped_file_status));
-        out["file_size"] = nb::int_(result.file_size);
-        out["scan_status"]        = result.read.scan.status;
-        out["scan_status_name"] = nb::str(scan_status_name(result.read.scan.status));
-        out["payload_status"] = result.read.payload.status;
-        out["payload_status_name"]
-            = nb::str(payload_status_name(result.read.payload.status));
-        out["exif_status"] = result.read.exif.status;
-        out["exif_status_name"]
-            = nb::str(exif_decode_status_name(result.read.exif.status));
-        out["xmp_status"] = result.read.xmp.status;
-        out["xmp_status_name"]
-            = nb::str(xmp_decode_status_name(result.read.xmp.status));
-        out["orientation_status"] = result.orientation.status;
+        out["path"]             = nb::str(path.c_str(), path.size());
+        out["file_status"]      = result.file_status;
+        out["file_status_name"] = nb::str(
+            libraw_orientation_file_status_name(result.file_status));
+        out["mapped_file_status"] = nb::int_(
+            static_cast<uint32_t>(result.mapped_file_status));
+        out["mapped_file_status_name"] = nb::str(
+            mapped_file_status_name(result.mapped_file_status));
+        out["file_size"]        = nb::int_(result.file_size);
+        out["scan_status"]      = result.read.scan.status;
+        out["scan_status_name"] = nb::str(
+            scan_status_name(result.read.scan.status));
+        out["payload_status"]      = result.read.payload.status;
+        out["payload_status_name"] = nb::str(
+            payload_status_name(result.read.payload.status));
+        out["exif_status"]      = result.read.exif.status;
+        out["exif_status_name"] = nb::str(
+            exif_decode_status_name(result.read.exif.status));
+        out["xmp_status"]      = result.read.xmp.status;
+        out["xmp_status_name"] = nb::str(
+            xmp_decode_status_name(result.read.xmp.status));
+        out["orientation_status"]      = result.orientation.status;
         out["orientation_status_name"] = nb::str(
             libraw_orientation_status_name(result.orientation.status));
-        out["orientation_code"] = result.orientation.code;
+        out["orientation_code"]      = result.orientation.code;
         out["orientation_code_name"] = nb::str(
             libraw_orientation_code_name(result.orientation.code));
-        out["orientation_source"] = result.orientation.source;
+        out["orientation_source"]      = result.orientation.source;
         out["orientation_source_name"] = nb::str(
             libraw_orientation_source_name(result.orientation.source));
         out["exif_orientation"] = nb::int_(result.orientation.exif_orientation);
         out["libraw_flip"]      = nb::int_(result.orientation.libraw_flip);
         out["apply_flip"]       = nb::bool_(result.orientation.apply_flip);
         out["mirrored"]         = nb::bool_(result.orientation.mirrored);
-        out["preview_passthrough"]
-            = nb::bool_(result.orientation.preview_passthrough);
+        out["preview_passthrough"] = nb::bool_(
+            result.orientation.preview_passthrough);
 
         std::string overall = "ok";
         if (result.file_status != LibRawOrientationFileStatus::Ok) {
@@ -2614,33 +2770,29 @@ namespace {
             = map_libraw_flip_to_exif_orientation(libraw_flip, options);
 
         nb::dict out;
-        out["libraw_flip"] = nb::int_(result.libraw_flip);
-        out["orientation_status"] = result.status;
-        out["orientation_status_name"]
-            = nb::str(libraw_orientation_status_name(result.status));
-        out["orientation_code"] = result.code;
-        out["orientation_code_name"]
-            = nb::str(libraw_flip_to_exif_code_name(result.code));
-        out["exif_orientation"] = nb::int_(result.exif_orientation);
-        out["preview_passthrough"]
-            = nb::bool_(result.preview_passthrough);
+        out["libraw_flip"]             = nb::int_(result.libraw_flip);
+        out["orientation_status"]      = result.status;
+        out["orientation_status_name"] = nb::str(
+            libraw_orientation_status_name(result.status));
+        out["orientation_code"]      = result.code;
+        out["orientation_code_name"] = nb::str(
+            libraw_flip_to_exif_code_name(result.code));
+        out["exif_orientation"]    = nb::int_(result.exif_orientation);
+        out["preview_passthrough"] = nb::bool_(result.preview_passthrough);
         return out;
     }
 
     static nb::dict update_dng_sdk_file_from_file_to_python(
         const std::string& source_path, const std::string& target_path,
         DngTargetMode dng_target_mode, XmpSidecarFormat format,
-        bool include_pointer_tags,
-        bool decode_makernote, bool decode_embedded_containers,
-        bool decompress, bool include_exif_app1, bool include_xmp_app1,
-        bool include_icc_app2, bool include_iptc_app13,
-        bool xmp_include_existing,
+        bool include_pointer_tags, bool decode_makernote,
+        bool decode_embedded_containers, bool decompress,
+        bool include_exif_app1, bool include_xmp_app1, bool include_icc_app2,
+        bool include_iptc_app13, bool xmp_include_existing,
         XmpExistingNamespacePolicy xmp_existing_namespace_policy,
-        XmpExistingStandardNamespacePolicy
-            xmp_existing_standard_namespace_policy,
-        bool xmp_exiftool_gpsdatetime_alias,
-        bool xmp_project_exif, bool xmp_project_iptc,
-        TransferPolicyAction makernote_policy,
+        XmpExistingStandardNamespacePolicy xmp_existing_standard_namespace_policy,
+        bool xmp_exiftool_gpsdatetime_alias, bool xmp_project_exif,
+        bool xmp_project_iptc, TransferPolicyAction makernote_policy,
         TransferPolicyAction jumbf_policy, TransferPolicyAction c2pa_policy,
         uint64_t max_file_bytes, nb::object policy_obj, bool apply_exif,
         bool apply_xmp, bool apply_iptc, bool synchronize_metadata,
@@ -2649,43 +2801,41 @@ namespace {
         ApplyDngSdkMetadataFileOptions options;
         options.prepare.include_pointer_tags       = include_pointer_tags;
         options.prepare.decode_makernote           = decode_makernote;
-        options.prepare.decode_embedded_containers
-            = decode_embedded_containers;
-        options.prepare.decompress = decompress;
-        options.prepare.prepare.target_format = TransferTargetFormat::Dng;
-        options.prepare.prepare.dng_target_mode = dng_target_mode;
-        options.prepare.prepare.xmp_portable
-            = (format == XmpSidecarFormat::Portable);
-        options.prepare.prepare.include_exif_app1 = include_exif_app1;
-        options.prepare.prepare.include_xmp_app1  = include_xmp_app1;
-        options.prepare.prepare.include_icc_app2  = include_icc_app2;
+        options.prepare.decode_embedded_containers = decode_embedded_containers;
+        options.prepare.decompress                 = decompress;
+        options.prepare.prepare.target_format      = TransferTargetFormat::Dng;
+        options.prepare.prepare.dng_target_mode    = dng_target_mode;
+        options.prepare.prepare.xmp_portable       = (format
+                                                == XmpSidecarFormat::Portable);
+        options.prepare.prepare.include_exif_app1  = include_exif_app1;
+        options.prepare.prepare.include_xmp_app1   = include_xmp_app1;
+        options.prepare.prepare.include_icc_app2   = include_icc_app2;
         options.prepare.prepare.include_iptc_app13 = include_iptc_app13;
-        options.prepare.prepare.xmp_include_existing
-            = xmp_include_existing;
+        options.prepare.prepare.xmp_include_existing = xmp_include_existing;
         options.prepare.prepare.xmp_existing_namespace_policy
             = xmp_existing_namespace_policy;
         options.prepare.prepare.xmp_existing_standard_namespace_policy
             = xmp_existing_standard_namespace_policy;
         options.prepare.prepare.xmp_exiftool_gpsdatetime_alias
             = xmp_exiftool_gpsdatetime_alias;
-        options.prepare.prepare.xmp_project_exif = xmp_project_exif;
-        options.prepare.prepare.xmp_project_iptc = xmp_project_iptc;
+        options.prepare.prepare.xmp_project_exif  = xmp_project_exif;
+        options.prepare.prepare.xmp_project_iptc  = xmp_project_iptc;
         options.prepare.prepare.profile.makernote = makernote_policy;
         options.prepare.prepare.profile.jumbf     = jumbf_policy;
         options.prepare.prepare.profile.c2pa      = c2pa_policy;
         options.prepare.policy.max_file_bytes     = max_file_bytes;
         if (!policy_obj.is_none()) {
-            options.prepare.policy
-                = nb::cast<OpenMetaResourcePolicy>(policy_obj);
+            options.prepare.policy = nb::cast<OpenMetaResourcePolicy>(
+                policy_obj);
             if (max_file_bytes != 0U) {
                 options.prepare.policy.max_file_bytes = max_file_bytes;
             }
         }
-        options.adapter.apply_exif         = apply_exif;
-        options.adapter.apply_xmp          = apply_xmp;
-        options.adapter.apply_iptc         = apply_iptc;
+        options.adapter.apply_exif           = apply_exif;
+        options.adapter.apply_xmp            = apply_xmp;
+        options.adapter.apply_iptc           = apply_iptc;
         options.adapter.synchronize_metadata = synchronize_metadata;
-        options.adapter.cleanup_for_update = cleanup_for_update;
+        options.adapter.cleanup_for_update   = cleanup_for_update;
 
         ApplyDngSdkMetadataFileResult result;
         {
@@ -2700,41 +2850,41 @@ namespace {
         out["target_path"] = nb::str(target_path.c_str(), target_path.size());
         out["dng_sdk_adapter_available"] = nb::bool_(
             dng_sdk_adapter_available());
-        out["file_status"] = result.prepared.file_status;
-        out["file_status_name"]
-            = nb::str(transfer_file_status_name(result.prepared.file_status));
-        out["file_code"] = result.prepared.code;
-        out["file_code_name"]
-            = nb::str(prepare_transfer_file_code_name(result.prepared.code));
-        out["file_size"]   = nb::int_(result.prepared.file_size);
-        out["entry_count"] = nb::int_(result.prepared.entry_count);
-        out["prepare_status"] = result.prepared.prepare.status;
-        out["prepare_status_name"]
-            = nb::str(transfer_status_name(result.prepared.prepare.status));
-        out["prepare_code"] = result.prepared.prepare.code;
-        out["prepare_code_name"]
-            = nb::str(prepare_transfer_code_name(result.prepared.prepare.code));
+        out["file_status"]      = result.prepared.file_status;
+        out["file_status_name"] = nb::str(
+            transfer_file_status_name(result.prepared.file_status));
+        out["file_code"]      = result.prepared.code;
+        out["file_code_name"] = nb::str(
+            prepare_transfer_file_code_name(result.prepared.code));
+        out["file_size"]           = nb::int_(result.prepared.file_size);
+        out["entry_count"]         = nb::int_(result.prepared.entry_count);
+        out["prepare_status"]      = result.prepared.prepare.status;
+        out["prepare_status_name"] = nb::str(
+            transfer_status_name(result.prepared.prepare.status));
+        out["prepare_code"]      = result.prepared.prepare.code;
+        out["prepare_code_name"] = nb::str(
+            prepare_transfer_code_name(result.prepared.prepare.code));
         out["prepare_warnings"] = nb::int_(result.prepared.prepare.warnings);
         out["prepare_errors"]   = nb::int_(result.prepared.prepare.errors);
-        out["prepare_message"]  = nb::str(
-            result.prepared.prepare.message.c_str(),
-            result.prepared.prepare.message.size());
-        out["adapter_status"] = result.adapter.status;
-        out["adapter_status_name"]
-            = nb::str(dng_sdk_adapter_status_name(result.adapter.status));
-        out["applied_blocks"] = nb::int_(result.adapter.applied_blocks);
-        out["skipped_blocks"] = nb::int_(result.adapter.skipped_blocks);
-        out["exif_applied"] = nb::bool_(result.adapter.exif_applied);
-        out["xmp_applied"]  = nb::bool_(result.adapter.xmp_applied);
-        out["iptc_applied"] = nb::bool_(result.adapter.iptc_applied);
-        out["synchronized_metadata"]
-            = nb::bool_(result.adapter.synchronized_metadata);
-        out["cleaned_for_update"]
-            = nb::bool_(result.adapter.cleaned_for_update);
-        out["updated_stream"] = nb::bool_(result.adapter.updated_stream);
-        out["failed_kind"]    = result.adapter.failed_kind;
-        out["failed_kind_name"]
-            = nb::str(transfer_block_kind_name(result.adapter.failed_kind));
+        out["prepare_message"]
+            = nb::str(result.prepared.prepare.message.c_str(),
+                      result.prepared.prepare.message.size());
+        out["adapter_status"]      = result.adapter.status;
+        out["adapter_status_name"] = nb::str(
+            dng_sdk_adapter_status_name(result.adapter.status));
+        out["applied_blocks"]        = nb::int_(result.adapter.applied_blocks);
+        out["skipped_blocks"]        = nb::int_(result.adapter.skipped_blocks);
+        out["exif_applied"]          = nb::bool_(result.adapter.exif_applied);
+        out["xmp_applied"]           = nb::bool_(result.adapter.xmp_applied);
+        out["iptc_applied"]          = nb::bool_(result.adapter.iptc_applied);
+        out["synchronized_metadata"] = nb::bool_(
+            result.adapter.synchronized_metadata);
+        out["cleaned_for_update"] = nb::bool_(
+            result.adapter.cleaned_for_update);
+        out["updated_stream"]   = nb::bool_(result.adapter.updated_stream);
+        out["failed_kind"]      = result.adapter.failed_kind;
+        out["failed_kind_name"] = nb::str(
+            transfer_block_kind_name(result.adapter.failed_kind));
         out["adapter_message"] = nb::str(result.adapter.message.c_str(),
                                          result.adapter.message.size());
 
@@ -2746,57 +2896,55 @@ namespace {
             overall_status = transfer_status_from_file_status(
                 result.prepared.file_status);
             error_stage = "file";
-            error_code
-                = prepare_transfer_file_code_name(result.prepared.code);
+            error_code  = prepare_transfer_file_code_name(result.prepared.code);
             error_message = result.prepared.prepare.message;
         } else if (result.prepared.prepare.status != TransferStatus::Ok) {
             overall_status = result.prepared.prepare.status;
             error_stage    = "prepare";
-            error_code = prepare_transfer_code_name(result.prepared.prepare.code);
+            error_code     = prepare_transfer_code_name(
+                result.prepared.prepare.code);
             error_message = result.prepared.prepare.message;
         } else if (result.adapter.status != DngSdkAdapterStatus::Ok) {
             switch (result.adapter.status) {
-                case DngSdkAdapterStatus::InvalidArgument:
-                    overall_status = TransferStatus::InvalidArgument;
-                    break;
-                case DngSdkAdapterStatus::Unsupported:
-                    overall_status = TransferStatus::Unsupported;
-                    break;
-                case DngSdkAdapterStatus::Malformed:
-                    overall_status = TransferStatus::Malformed;
-                    break;
-                case DngSdkAdapterStatus::InternalError:
-                    overall_status = TransferStatus::InternalError;
-                    break;
-                case DngSdkAdapterStatus::Ok: break;
+            case DngSdkAdapterStatus::InvalidArgument:
+                overall_status = TransferStatus::InvalidArgument;
+                break;
+            case DngSdkAdapterStatus::Unsupported:
+                overall_status = TransferStatus::Unsupported;
+                break;
+            case DngSdkAdapterStatus::Malformed:
+                overall_status = TransferStatus::Malformed;
+                break;
+            case DngSdkAdapterStatus::InternalError:
+                overall_status = TransferStatus::InternalError;
+                break;
+            case DngSdkAdapterStatus::Ok: break;
             }
             error_stage   = "dng_sdk_adapter";
             error_code    = dng_sdk_adapter_status_name(result.adapter.status);
             error_message = result.adapter.message;
         }
-        out["overall_status"] = overall_status;
-        out["overall_status_name"]
-            = nb::str(transfer_status_name(overall_status));
-        out["error_stage"] = nb::str(error_stage.c_str(), error_stage.size());
-        out["error_code"]  = nb::str(error_code.c_str(), error_code.size());
-        out["error_message"]
-            = nb::str(error_message.c_str(), error_message.size());
+        out["overall_status"]      = overall_status;
+        out["overall_status_name"] = nb::str(
+            transfer_status_name(overall_status));
+        out["error_stage"]   = nb::str(error_stage.c_str(), error_stage.size());
+        out["error_code"]    = nb::str(error_code.c_str(), error_code.size());
+        out["error_message"] = nb::str(error_message.c_str(),
+                                       error_message.size());
         return out;
     }
 
     static nb::dict transfer_probe_to_python(
         const std::string& path, TransferTargetFormat target_format,
-        DngTargetMode dng_target_mode,
-        XmpSidecarFormat format, bool include_pointer_tags,
-        bool decode_makernote, bool decode_embedded_containers, bool decompress,
+        DngTargetMode dng_target_mode, XmpSidecarFormat format,
+        bool include_pointer_tags, bool decode_makernote,
+        bool decode_embedded_containers, bool decompress,
         bool include_exif_app1, bool include_xmp_app1, bool include_icc_app2,
         bool include_iptc_app13, bool xmp_include_existing,
         XmpExistingNamespacePolicy xmp_existing_namespace_policy,
-        XmpExistingStandardNamespacePolicy
-            xmp_existing_standard_namespace_policy,
+        XmpExistingStandardNamespacePolicy xmp_existing_standard_namespace_policy,
         bool xmp_exiftool_gpsdatetime_alias, bool xmp_project_exif,
-        bool xmp_project_iptc,
-        TransferPolicyAction makernote_policy,
+        bool xmp_project_iptc, TransferPolicyAction makernote_policy,
         TransferPolicyAction jumbf_policy, TransferPolicyAction c2pa_policy,
         uint64_t max_file_bytes, nb::object policy_obj,
         nb::object c2pa_signed_package_obj,
@@ -2813,16 +2961,13 @@ namespace {
         XmpExistingSidecarMode xmp_existing_sidecar_mode,
         XmpExistingSidecarPrecedence xmp_existing_sidecar_precedence,
         nb::object xmp_existing_destination_embedded_path_obj,
-        XmpExistingDestinationEmbeddedMode
-            xmp_existing_destination_embedded_mode,
+        XmpExistingDestinationEmbeddedMode xmp_existing_destination_embedded_mode,
         XmpExistingDestinationEmbeddedPrecedence
             xmp_existing_destination_embedded_precedence,
         XmpExistingDestinationCarrierPrecedence
             xmp_existing_destination_carrier_precedence,
-        XmpExistingDestinationSidecarState
-            xmp_existing_destination_sidecar_state,
-        bool edit_do_apply,
-        bool include_edited_bytes,
+        XmpExistingDestinationSidecarState xmp_existing_destination_sidecar_state,
+        bool edit_do_apply, bool include_edited_bytes,
         bool unsafe_edited_bytes_access, bool include_c2pa_binding_bytes,
         bool unsafe_c2pa_binding_access, bool include_c2pa_handoff_bytes,
         bool include_c2pa_signed_package_bytes,
@@ -2830,8 +2975,7 @@ namespace {
         bool include_exr_attribute_values,
         bool include_transfer_payload_batch_bytes,
         bool include_transfer_package_batch_bytes,
-        bool unsafe_c2pa_package_access,
-        XmpConflictPolicy xmp_conflict_policy,
+        bool unsafe_c2pa_package_access, XmpConflictPolicy xmp_conflict_policy,
         XmpWritebackMode xmp_writeback_mode,
         XmpDestinationEmbeddedMode xmp_destination_embedded_mode,
         XmpDestinationSidecarMode xmp_destination_sidecar_mode,
@@ -2870,8 +3014,7 @@ namespace {
         prepare_options.prepare.profile.c2pa      = c2pa_policy;
         prepare_options.prepare.profile.safety    = transfer_safety;
         prepare_options.policy.max_file_bytes     = max_file_bytes;
-        prepare_options.xmp_existing_sidecar_mode
-            = xmp_existing_sidecar_mode;
+        prepare_options.xmp_existing_sidecar_mode = xmp_existing_sidecar_mode;
         prepare_options.xmp_existing_sidecar_precedence
             = xmp_existing_sidecar_precedence;
         prepare_options.xmp_existing_destination_carrier_precedence
@@ -2905,11 +3048,10 @@ namespace {
             = xmp_existing_destination_embedded_mode;
         file_options.xmp_existing_destination_embedded_precedence
             = xmp_existing_destination_embedded_precedence;
-        file_options.xmp_writeback_mode              = xmp_writeback_mode;
+        file_options.xmp_writeback_mode = xmp_writeback_mode;
         file_options.xmp_destination_embedded_mode
             = xmp_destination_embedded_mode;
-        file_options.xmp_destination_sidecar_mode
-            = xmp_destination_sidecar_mode;
+        file_options.xmp_destination_sidecar_mode = xmp_destination_sidecar_mode;
         file_options.xmp_existing_destination_sidecar_state
             = xmp_existing_destination_sidecar_state;
 
@@ -2928,8 +3070,7 @@ namespace {
         }
         if (!xmp_existing_sidecar_base_path_obj.is_none()) {
             prepare_options.xmp_existing_sidecar_base_path
-                = nb::cast<std::string>(
-                    xmp_existing_sidecar_base_path_obj);
+                = nb::cast<std::string>(xmp_existing_sidecar_base_path_obj);
         } else if (!sidecar_base_path.empty()) {
             prepare_options.xmp_existing_sidecar_base_path = sidecar_base_path;
         }
@@ -2990,7 +3131,8 @@ namespace {
         const bool persist_requested = !persist_output_path_obj.is_none();
         std::string persist_output_path;
         if (persist_requested) {
-            persist_output_path = nb::cast<std::string>(persist_output_path_obj);
+            persist_output_path = nb::cast<std::string>(
+                persist_output_path_obj);
         }
 
         ExecutePreparedTransferFileResult executed;
@@ -3001,14 +3143,15 @@ namespace {
                                                       file_options);
             if (persist_requested) {
                 PersistPreparedTransferFileOptions persist_options;
-                persist_options.output_path = persist_output_path;
+                persist_options.output_path      = persist_output_path;
                 persist_options.overwrite_output = persist_overwrite_output;
                 persist_options.overwrite_xmp_sidecar
                     = persist_overwrite_xmp_sidecar;
                 persist_options.remove_destination_xmp_sidecar
                     = persist_remove_destination_xmp_sidecar;
-                persisted = persist_prepared_transfer_file_result(
-                    executed, persist_options);
+                persisted
+                    = persist_prepared_transfer_file_result(executed,
+                                                            persist_options);
             }
         }
         const PrepareTransferFileResult& prepared = executed.prepared;
@@ -3040,20 +3183,20 @@ namespace {
         out["prepare_errors"]   = nb::int_(prepared.prepare.errors);
         out["prepare_message"]  = nb::str(prepared.prepare.message.c_str(),
                                           prepared.prepare.message.size());
-        out["xmp_existing_sidecar_loaded"]
-            = nb::bool_(prepared.xmp_existing_sidecar_loaded);
+        out["xmp_existing_sidecar_loaded"] = nb::bool_(
+            prepared.xmp_existing_sidecar_loaded);
         out["xmp_existing_sidecar_status"]
             = prepared.xmp_existing_sidecar_status;
         out["xmp_existing_sidecar_status_name"] = nb::str(
             transfer_status_name(prepared.xmp_existing_sidecar_status));
-        out["xmp_existing_sidecar_message"] = nb::str(
-            prepared.xmp_existing_sidecar_message.c_str(),
-            prepared.xmp_existing_sidecar_message.size());
-        out["xmp_existing_sidecar_path"] = nb::str(
-            prepared.xmp_existing_sidecar_path.c_str(),
-            prepared.xmp_existing_sidecar_path.size());
-        out["xmp_existing_destination_embedded_loaded"]
-            = nb::bool_(executed.xmp_existing_destination_embedded_loaded);
+        out["xmp_existing_sidecar_message"]
+            = nb::str(prepared.xmp_existing_sidecar_message.c_str(),
+                      prepared.xmp_existing_sidecar_message.size());
+        out["xmp_existing_sidecar_path"]
+            = nb::str(prepared.xmp_existing_sidecar_path.c_str(),
+                      prepared.xmp_existing_sidecar_path.size());
+        out["xmp_existing_destination_embedded_loaded"] = nb::bool_(
+            executed.xmp_existing_destination_embedded_loaded);
         out["xmp_existing_destination_embedded_status"]
             = executed.xmp_existing_destination_embedded_status;
         out["xmp_existing_destination_embedded_status_name"] = nb::str(
@@ -3062,37 +3205,37 @@ namespace {
         out["xmp_existing_destination_embedded_message"] = nb::str(
             executed.xmp_existing_destination_embedded_message.c_str(),
             executed.xmp_existing_destination_embedded_message.size());
-        out["xmp_existing_destination_embedded_path"] = nb::str(
-            executed.xmp_existing_destination_embedded_path.c_str(),
-            executed.xmp_existing_destination_embedded_path.size());
-        out["xmp_sidecar_requested"] = nb::bool_(executed.xmp_sidecar_requested);
-        out["xmp_sidecar_status"]    = executed.xmp_sidecar_status;
-        out["xmp_sidecar_status_name"]
-            = nb::str(transfer_status_name(executed.xmp_sidecar_status));
-        out["xmp_sidecar_message"] = nb::str(
-            executed.xmp_sidecar_message.c_str(),
-            executed.xmp_sidecar_message.size());
-        out["xmp_sidecar_path"] = nb::str(executed.xmp_sidecar_path.c_str(),
-                                          executed.xmp_sidecar_path.size());
+        out["xmp_existing_destination_embedded_path"]
+            = nb::str(executed.xmp_existing_destination_embedded_path.c_str(),
+                      executed.xmp_existing_destination_embedded_path.size());
+        out["xmp_sidecar_requested"] = nb::bool_(
+            executed.xmp_sidecar_requested);
+        out["xmp_sidecar_status"]      = executed.xmp_sidecar_status;
+        out["xmp_sidecar_status_name"] = nb::str(
+            transfer_status_name(executed.xmp_sidecar_status));
+        out["xmp_sidecar_message"]
+            = nb::str(executed.xmp_sidecar_message.c_str(),
+                      executed.xmp_sidecar_message.size());
+        out["xmp_sidecar_path"]  = nb::str(executed.xmp_sidecar_path.c_str(),
+                                           executed.xmp_sidecar_path.size());
         out["xmp_sidecar_bytes"] = nb::int_(
             static_cast<uint64_t>(executed.xmp_sidecar_output.size()));
-        out["xmp_sidecar_cleanup_requested"]
-            = nb::bool_(executed.xmp_sidecar_cleanup_requested);
-        out["xmp_sidecar_cleanup_status"]
-            = executed.xmp_sidecar_cleanup_status;
+        out["xmp_sidecar_cleanup_requested"] = nb::bool_(
+            executed.xmp_sidecar_cleanup_requested);
+        out["xmp_sidecar_cleanup_status"] = executed.xmp_sidecar_cleanup_status;
         out["xmp_sidecar_cleanup_status_name"] = nb::str(
             transfer_status_name(executed.xmp_sidecar_cleanup_status));
-        out["xmp_sidecar_cleanup_message"] = nb::str(
-            executed.xmp_sidecar_cleanup_message.c_str(),
-            executed.xmp_sidecar_cleanup_message.size());
-        out["xmp_sidecar_cleanup_path"] = nb::str(
-            executed.xmp_sidecar_cleanup_path.c_str(),
-            executed.xmp_sidecar_cleanup_path.size());
+        out["xmp_sidecar_cleanup_message"]
+            = nb::str(executed.xmp_sidecar_cleanup_message.c_str(),
+                      executed.xmp_sidecar_cleanup_message.size());
+        out["xmp_sidecar_cleanup_path"]
+            = nb::str(executed.xmp_sidecar_cleanup_path.c_str(),
+                      executed.xmp_sidecar_cleanup_path.size());
         if (!executed.xmp_sidecar_output.empty()) {
-            out["xmp_sidecar_output"] = nb::bytes(
-                reinterpret_cast<const char*>(
-                    executed.xmp_sidecar_output.data()),
-                executed.xmp_sidecar_output.size());
+            out["xmp_sidecar_output"]
+                = nb::bytes(reinterpret_cast<const char*>(
+                                executed.xmp_sidecar_output.data()),
+                            executed.xmp_sidecar_output.size());
         } else {
             out["xmp_sidecar_output"] = nb::none();
         }
@@ -3880,9 +4023,9 @@ namespace {
             nb::dict one;
             one["name"] = nb::str(exec.exr_attribute_summary[i].name.c_str(),
                                   exec.exr_attribute_summary[i].name.size());
-            one["type_name"] = nb::str(
-                exec.exr_attribute_summary[i].type_name.c_str(),
-                exec.exr_attribute_summary[i].type_name.size());
+            one["type_name"]
+                = nb::str(exec.exr_attribute_summary[i].type_name.c_str(),
+                          exec.exr_attribute_summary[i].type_name.size());
             one["count"] = nb::int_(exec.exr_attribute_summary[i].count);
             one["bytes"] = nb::int_(exec.exr_attribute_summary[i].bytes);
             exr_attribute_summary.append(std::move(one));
@@ -3897,8 +4040,9 @@ namespace {
             exr_attribute_batch_result = build_prepared_exr_attribute_batch(
                 prepared.bundle, &exr_attribute_batch_owned);
         } else if (include_exr_attribute_values) {
-            exr_attribute_batch_result.status  = ExrAdapterStatus::InvalidArgument;
-            exr_attribute_batch_result.errors  = 1U;
+            exr_attribute_batch_result.status
+                = ExrAdapterStatus::InvalidArgument;
+            exr_attribute_batch_result.errors = 1U;
             exr_attribute_batch_result.message
                 = "exr attribute values require target_format=Exr";
         }
@@ -3913,20 +4057,18 @@ namespace {
         } else if (include_exr_attribute_values
                    && exr_attribute_batch_result.status
                           == ExrAdapterStatus::InvalidArgument) {
-            exr_attribute_values_status = TransferStatus::InvalidArgument;
-            exr_attribute_values_message
-                = exr_attribute_batch_result.message;
+            exr_attribute_values_status  = TransferStatus::InvalidArgument;
+            exr_attribute_values_message = exr_attribute_batch_result.message;
         } else if (include_exr_attribute_values
                    && exr_attribute_batch_result.status
                           == ExrAdapterStatus::Unsupported) {
-            exr_attribute_values_status = TransferStatus::Unsupported;
-            exr_attribute_values_message
-                = exr_attribute_batch_result.message;
+            exr_attribute_values_status  = TransferStatus::Unsupported;
+            exr_attribute_values_message = exr_attribute_batch_result.message;
         }
 
         nb::list exr_attribute_batch;
-        if (exr_target && exr_attribute_batch_result.status
-                              == ExrAdapterStatus::Ok) {
+        if (exr_target
+            && exr_attribute_batch_result.status == ExrAdapterStatus::Ok) {
             const bool include_values = include_exr_attribute_values
                                         && unsafe_payload_access;
             for (size_t i = 0; i < exr_attribute_batch_owned.attributes.size();
@@ -3935,15 +4077,16 @@ namespace {
                     = exr_attribute_batch_owned.attributes[i];
                 nb::dict one;
                 one["part_index"] = nb::int_(attr.part_index);
-                one["name"] = nb::str(attr.name.c_str(), attr.name.size());
-                one["type_name"]
-                    = nb::str(attr.type_name.c_str(), attr.type_name.size());
+                one["name"]      = nb::str(attr.name.c_str(), attr.name.size());
+                one["type_name"] = nb::str(attr.type_name.c_str(),
+                                           attr.type_name.size());
                 one["is_opaque"] = nb::bool_(attr.is_opaque);
-                one["bytes"] = nb::int_(static_cast<uint64_t>(attr.value.size()));
+                one["bytes"]     = nb::int_(
+                    static_cast<uint64_t>(attr.value.size()));
                 if (include_values) {
-                    one["value"] = nb::bytes(
-                        reinterpret_cast<const char*>(attr.value.data()),
-                        attr.value.size());
+                    one["value"] = nb::bytes(reinterpret_cast<const char*>(
+                                                 attr.value.data()),
+                                             attr.value.size());
                 } else {
                     one["value"] = nb::none();
                 }
@@ -3954,30 +4097,31 @@ namespace {
             out["exr_attribute_batch"] = nb::none();
         }
         if (exr_target || include_exr_attribute_values) {
-            out["exr_attribute_batch_status"] = exr_attribute_batch_result.status;
+            out["exr_attribute_batch_status"]
+                = exr_attribute_batch_result.status;
             out["exr_attribute_batch_status_name"] = nb::str(
                 exr_adapter_status_name(exr_attribute_batch_result.status));
         } else {
-            out["exr_attribute_batch_status"] = nb::none();
+            out["exr_attribute_batch_status"]      = nb::none();
             out["exr_attribute_batch_status_name"] = nb::none();
         }
-        out["exr_attribute_batch_exported"]
-            = nb::int_(exr_attribute_batch_result.exported);
-        out["exr_attribute_batch_skipped"]
-            = nb::int_(exr_attribute_batch_result.skipped);
-        out["exr_attribute_batch_errors"]
-            = nb::int_(exr_attribute_batch_result.errors);
-        out["exr_attribute_batch_message"] = nb::str(
-            exr_attribute_batch_result.message.c_str(),
-            exr_attribute_batch_result.message.size());
-        out["exr_attribute_values_requested"]
-            = nb::bool_(include_exr_attribute_values);
-        out["exr_attribute_values_status"] = exr_attribute_values_status;
+        out["exr_attribute_batch_exported"] = nb::int_(
+            exr_attribute_batch_result.exported);
+        out["exr_attribute_batch_skipped"] = nb::int_(
+            exr_attribute_batch_result.skipped);
+        out["exr_attribute_batch_errors"] = nb::int_(
+            exr_attribute_batch_result.errors);
+        out["exr_attribute_batch_message"]
+            = nb::str(exr_attribute_batch_result.message.c_str(),
+                      exr_attribute_batch_result.message.size());
+        out["exr_attribute_values_requested"] = nb::bool_(
+            include_exr_attribute_values);
+        out["exr_attribute_values_status"]      = exr_attribute_values_status;
         out["exr_attribute_values_status_name"] = nb::str(
             transfer_status_name(exr_attribute_values_status));
-        out["exr_attribute_values_message"] = nb::str(
-            exr_attribute_values_message.c_str(),
-            exr_attribute_values_message.size());
+        out["exr_attribute_values_message"]
+            = nb::str(exr_attribute_values_message.c_str(),
+                      exr_attribute_values_message.size());
 
         nb::list bmff_item_summary;
         for (size_t i = 0; i < exec.bmff_item_summary.size(); ++i) {
@@ -4147,13 +4291,12 @@ namespace {
             } else {
                 overall_status = TransferStatus::InternalError;
             }
-            error_stage   = "exr_attribute_batch";
-            error_code    = exr_adapter_status_name(
+            error_stage = "exr_attribute_batch";
+            error_code  = exr_adapter_status_name(
                 exr_attribute_batch_result.status);
             error_message = exr_attribute_batch_result.message;
         } else if (include_exr_attribute_values
-                   && exr_attribute_values_status
-                          != TransferStatus::Ok) {
+                   && exr_attribute_values_status != TransferStatus::Ok) {
             overall_status = exr_attribute_values_status;
             error_stage    = "exr_attribute_values";
             error_code     = transfer_status_name(exr_attribute_values_status);
@@ -4198,8 +4341,8 @@ namespace {
             error_stage    = "emit";
             error_code     = emit_transfer_code_name(exec.emit.code);
             error_message  = exec.emit.message;
-        } else if (persist_requested && persisted.output_status
-                                        != TransferStatus::Ok) {
+        } else if (persist_requested
+                   && persisted.output_status != TransferStatus::Ok) {
             overall_status = persisted.output_status;
             error_stage    = "persist_output";
             error_code     = "persist_output_failed";
@@ -4210,8 +4353,7 @@ namespace {
             error_stage    = "persist_xmp_sidecar";
             error_code     = "persist_xmp_sidecar_failed";
             error_message  = persisted.xmp_sidecar_message;
-        } else if (persist_requested
-                   && executed.xmp_sidecar_cleanup_requested
+        } else if (persist_requested && executed.xmp_sidecar_cleanup_requested
                    && persisted.xmp_sidecar_cleanup_status
                           != TransferStatus::Ok) {
             overall_status = persisted.xmp_sidecar_cleanup_status;
@@ -4237,12 +4379,10 @@ namespace {
         bool include_icc_app2, bool include_iptc_app13,
         bool xmp_include_existing,
         XmpExistingNamespacePolicy xmp_existing_namespace_policy,
-        XmpExistingStandardNamespacePolicy
-            xmp_existing_standard_namespace_policy,
+        XmpExistingStandardNamespacePolicy xmp_existing_standard_namespace_policy,
         XmpConflictPolicy xmp_conflict_policy,
         bool xmp_exiftool_gpsdatetime_alias, bool xmp_project_exif,
-        bool xmp_project_iptc,
-        TransferPolicyAction makernote_policy,
+        bool xmp_project_iptc, TransferPolicyAction makernote_policy,
         TransferPolicyAction jumbf_policy, TransferPolicyAction c2pa_policy,
         uint64_t max_file_bytes, nb::object policy_obj,
         nb::object time_patches_obj, bool time_patch_strict_width,
@@ -4253,17 +4393,14 @@ namespace {
         XmpExistingSidecarMode xmp_existing_sidecar_mode,
         XmpExistingSidecarPrecedence xmp_existing_sidecar_precedence,
         nb::object xmp_existing_destination_embedded_path_obj,
-        XmpExistingDestinationEmbeddedMode
-            xmp_existing_destination_embedded_mode,
+        XmpExistingDestinationEmbeddedMode xmp_existing_destination_embedded_mode,
         XmpExistingDestinationEmbeddedPrecedence
             xmp_existing_destination_embedded_precedence,
         XmpExistingDestinationCarrierPrecedence
             xmp_existing_destination_carrier_precedence,
-        XmpExistingDestinationSidecarState
-            xmp_existing_destination_sidecar_state,
+        XmpExistingDestinationSidecarState xmp_existing_destination_sidecar_state,
         bool edit_do_apply, bool include_edited_bytes,
-        bool unsafe_edited_bytes_access,
-        XmpWritebackMode xmp_writeback_mode,
+        bool unsafe_edited_bytes_access, XmpWritebackMode xmp_writeback_mode,
         XmpDestinationEmbeddedMode xmp_destination_embedded_mode,
         XmpDestinationSidecarMode xmp_destination_sidecar_mode,
         nb::object persist_output_path_obj, bool persist_overwrite_output,
@@ -4274,12 +4411,11 @@ namespace {
         ExecutePreparedTransferSnapshotOptions options;
         options.prepare.target_format   = target_format;
         options.prepare.dng_target_mode = dng_target_mode;
-        options.prepare.xmp_portable
-            = (format == XmpSidecarFormat::Portable);
-        options.prepare.include_exif_app1  = include_exif_app1;
-        options.prepare.include_xmp_app1   = include_xmp_app1;
-        options.prepare.include_icc_app2   = include_icc_app2;
-        options.prepare.include_iptc_app13 = include_iptc_app13;
+        options.prepare.xmp_portable = (format == XmpSidecarFormat::Portable);
+        options.prepare.include_exif_app1    = include_exif_app1;
+        options.prepare.include_xmp_app1     = include_xmp_app1;
+        options.prepare.include_icc_app2     = include_icc_app2;
+        options.prepare.include_iptc_app13   = include_iptc_app13;
         options.prepare.xmp_include_existing = xmp_include_existing;
         options.prepare.xmp_existing_namespace_policy
             = xmp_existing_namespace_policy;
@@ -4308,11 +4444,9 @@ namespace {
             = xmp_existing_destination_carrier_precedence;
         options.xmp_existing_destination_sidecar_state
             = xmp_existing_destination_sidecar_state;
-        options.xmp_writeback_mode = xmp_writeback_mode;
-        options.xmp_destination_embedded_mode
-            = xmp_destination_embedded_mode;
-        options.xmp_destination_sidecar_mode
-            = xmp_destination_sidecar_mode;
+        options.xmp_writeback_mode            = xmp_writeback_mode;
+        options.xmp_destination_embedded_mode = xmp_destination_embedded_mode;
+        options.xmp_destination_sidecar_mode  = xmp_destination_sidecar_mode;
 
         if (!policy_obj.is_none()) {
             options.policy = nb::cast<OpenMetaResourcePolicy>(policy_obj);
@@ -4360,7 +4494,8 @@ namespace {
         const bool persist_requested = !persist_output_path_obj.is_none();
         std::string persist_output_path;
         if (persist_requested) {
-            persist_output_path = nb::cast<std::string>(persist_output_path_obj);
+            persist_output_path = nb::cast<std::string>(
+                persist_output_path_obj);
         }
 
         ExecutePreparedTransferFileResult executed;
@@ -4385,14 +4520,17 @@ namespace {
                     = persist_overwrite_xmp_sidecar;
                 persist_options.remove_destination_xmp_sidecar
                     = persist_remove_destination_xmp_sidecar;
-                persisted = persist_prepared_transfer_file_result(
-                    executed, persist_options);
+                persisted
+                    = persist_prepared_transfer_file_result(executed,
+                                                            persist_options);
             }
         }
 
-        return transfer_snapshot_result_to_python(
-            executed, persisted, persist_requested, edit_do_apply,
-            include_edited_bytes, unsafe_edited_bytes_access);
+        return transfer_snapshot_result_to_python(executed, persisted,
+                                                  persist_requested,
+                                                  edit_do_apply,
+                                                  include_edited_bytes,
+                                                  unsafe_edited_bytes_access);
     }
 
     static std::string
@@ -4594,16 +4732,71 @@ struct PyDocument final {
 
 static std::string
 document_compatibility_dump(std::shared_ptr<PyDocument> d,
-                            ExportNameStyle style,
-                            ExportNamePolicy name_policy,
-                            bool include_values,
-                            bool include_origins,
-                            bool include_flags,
-                            uint32_t max_value_bytes)
+                            ExportNameStyle style, ExportNamePolicy name_policy,
+                            bool include_values, bool include_origins,
+                            bool include_flags, uint32_t max_value_bytes)
 {
-    return metadata_compatibility_dump_from_store(
-        d->store, style, name_policy, include_values, include_origins,
-        include_flags, max_value_bytes);
+    return metadata_compatibility_dump_from_store(d->store, style, name_policy,
+                                                  include_values,
+                                                  include_origins,
+                                                  include_flags,
+                                                  max_value_bytes);
+}
+
+static nb::dict
+snapshot_phaseone_raw_geometry(const TransferSourceSnapshot& snapshot)
+{
+    return phaseone_raw_geometry_to_python(snapshot.store);
+}
+
+static nb::dict
+snapshot_phaseone_raw_processing(const TransferSourceSnapshot& snapshot)
+{
+    return phaseone_raw_processing_to_python(snapshot.store);
+}
+
+static nb::dict
+snapshot_vendor_raw_processing(const TransferSourceSnapshot& snapshot,
+                               VendorRawProcessingFamily family)
+{
+    return vendor_raw_processing_to_python(snapshot.store, family);
+}
+
+static nb::dict
+snapshot_transfer_safety_audit(const TransferSourceSnapshot& snapshot,
+                               TransferSafetyMode safety)
+{
+    const TransferSafetyAudit audit
+        = transfer_safety_audit_from_store(snapshot.store, safety);
+    return transfer_safety_audit_to_python(audit);
+}
+
+static nb::dict
+document_phaseone_raw_geometry(std::shared_ptr<PyDocument> d)
+{
+    return phaseone_raw_geometry_to_python(d->store);
+}
+
+static nb::dict
+document_phaseone_raw_processing(std::shared_ptr<PyDocument> d)
+{
+    return phaseone_raw_processing_to_python(d->store);
+}
+
+static nb::dict
+document_vendor_raw_processing(std::shared_ptr<PyDocument> d,
+                               VendorRawProcessingFamily family)
+{
+    return vendor_raw_processing_to_python(d->store, family);
+}
+
+static nb::dict
+document_transfer_safety_audit(std::shared_ptr<PyDocument> d,
+                               TransferSafetyMode safety)
+{
+    const TransferSafetyAudit audit = transfer_safety_audit_from_store(d->store,
+                                                                       safety);
+    return transfer_safety_audit_to_python(audit);
 }
 
 struct PyEntry final {
@@ -4799,12 +4992,12 @@ NB_MODULE(_openmeta, m)
 
     m.doc()               = "OpenMeta metadata reading bindings (nanobind).";
     m.attr("__version__") = OPENMETA_VERSION_STRING;
-    m.attr("INTEROP_EXPORT_CONTRACT_VERSION")
-        = nb::int_(kInteropExportContractVersion);
-    m.attr("FLAT_HOST_EXPORT_CONTRACT_VERSION")
-        = nb::int_(kFlatHostExportContractVersion);
-    m.attr("COMPATIBILITY_DUMP_CONTRACT_VERSION")
-        = nb::int_(kCompatibilityDumpContractVersion);
+    m.attr("INTEROP_EXPORT_CONTRACT_VERSION") = nb::int_(
+        kInteropExportContractVersion);
+    m.attr("FLAT_HOST_EXPORT_CONTRACT_VERSION") = nb::int_(
+        kFlatHostExportContractVersion);
+    m.attr("COMPATIBILITY_DUMP_CONTRACT_VERSION") = nb::int_(
+        kCompatibilityDumpContractVersion);
 
     nb::enum_<ScanStatus>(m, "ScanStatus")
         .value("Ok", ScanStatus::Ok)
@@ -4825,6 +5018,38 @@ NB_MODULE(_openmeta, m)
         .value("Unsupported", ExifDecodeStatus::Unsupported)
         .value("Malformed", ExifDecodeStatus::Malformed)
         .value("LimitExceeded", ExifDecodeStatus::LimitExceeded);
+
+    nb::enum_<PhaseOneRawGeometryStatus>(m, "PhaseOneRawGeometryStatus")
+        .value("Ok", PhaseOneRawGeometryStatus::Ok)
+        .value("MissingField", PhaseOneRawGeometryStatus::MissingField)
+        .value("InvalidValue", PhaseOneRawGeometryStatus::InvalidValue)
+        .value("OutOfBounds", PhaseOneRawGeometryStatus::OutOfBounds);
+
+    nb::enum_<PhaseOneRawProcessingStatus>(m, "PhaseOneRawProcessingStatus")
+        .value("Ok", PhaseOneRawProcessingStatus::Ok)
+        .value("MissingField", PhaseOneRawProcessingStatus::MissingField)
+        .value("InvalidValue", PhaseOneRawProcessingStatus::InvalidValue)
+        .value("Partial", PhaseOneRawProcessingStatus::Partial);
+
+    nb::enum_<VendorRawProcessingFamily>(m, "VendorRawProcessingFamily")
+        .value("Sony", VendorRawProcessingFamily::Sony)
+        .value("Canon", VendorRawProcessingFamily::Canon)
+        .value("Nikon", VendorRawProcessingFamily::Nikon)
+        .value("Fujifilm", VendorRawProcessingFamily::Fujifilm)
+        .value("Pentax", VendorRawProcessingFamily::Pentax)
+        .value("Panasonic", VendorRawProcessingFamily::Panasonic)
+        .value("Olympus", VendorRawProcessingFamily::Olympus);
+
+    nb::enum_<VendorRawProcessingGroup>(m, "VendorRawProcessingGroup")
+        .value("None_", VendorRawProcessingGroup::None)
+        .value("Color", VendorRawProcessingGroup::Color)
+        .value("WhiteBalance", VendorRawProcessingGroup::WhiteBalance)
+        .value("Geometry", VendorRawProcessingGroup::Geometry)
+        .value("Storage", VendorRawProcessingGroup::Storage)
+        .value("LensCorrection", VendorRawProcessingGroup::LensCorrection)
+        .value("RawData", VendorRawProcessingGroup::RawData)
+        .value("Sensor", VendorRawProcessingGroup::Sensor)
+        .value("PrivateTable", VendorRawProcessingGroup::PrivateTable);
 
     nb::enum_<CcmQueryStatus>(m, "CcmQueryStatus")
         .value("Ok", CcmQueryStatus::Ok)
@@ -4895,8 +5120,7 @@ NB_MODULE(_openmeta, m)
 
     nb::enum_<LibRawOrientationCode>(m, "LibRawOrientationCode")
         .value("None", LibRawOrientationCode::None)
-        .value("PreviewPassThrough",
-               LibRawOrientationCode::PreviewPassThrough)
+        .value("PreviewPassThrough", LibRawOrientationCode::PreviewPassThrough)
         .value("MissingExifOrientationAssumedDefault",
                LibRawOrientationCode::MissingExifOrientationAssumedDefault)
         .value("InvalidExifOrientation",
@@ -4908,10 +5132,8 @@ NB_MODULE(_openmeta, m)
 
     nb::enum_<LibRawFlipToExifCode>(m, "LibRawFlipToExifCode")
         .value("None", LibRawFlipToExifCode::None)
-        .value("PreviewPassThrough",
-               LibRawFlipToExifCode::PreviewPassThrough)
-        .value("InvalidLibRawFlip",
-               LibRawFlipToExifCode::InvalidLibRawFlip);
+        .value("PreviewPassThrough", LibRawFlipToExifCode::PreviewPassThrough)
+        .value("InvalidLibRawFlip", LibRawFlipToExifCode::InvalidLibRawFlip);
 
     nb::enum_<LibRawOrientationSource>(m, "LibRawOrientationSource")
         .value("ExplicitInput", LibRawOrientationSource::ExplicitInput)
@@ -5098,47 +5320,38 @@ NB_MODULE(_openmeta, m)
     nb::enum_<XmpExistingNamespacePolicy>(m, "XmpExistingNamespacePolicy")
         .value("KnownPortableOnly",
                XmpExistingNamespacePolicy::KnownPortableOnly)
-        .value("PreserveCustom",
-               XmpExistingNamespacePolicy::PreserveCustom);
+        .value("PreserveCustom", XmpExistingNamespacePolicy::PreserveCustom);
 
     nb::enum_<XmpExistingStandardNamespacePolicy>(
         m, "XmpExistingStandardNamespacePolicy")
-        .value("PreserveAll",
-               XmpExistingStandardNamespacePolicy::PreserveAll)
+        .value("PreserveAll", XmpExistingStandardNamespacePolicy::PreserveAll)
         .value("CanonicalizeManaged",
                XmpExistingStandardNamespacePolicy::CanonicalizeManaged);
 
     nb::enum_<XmpWritebackMode>(m, "XmpWritebackMode")
         .value("EmbeddedOnly", XmpWritebackMode::EmbeddedOnly)
         .value("SidecarOnly", XmpWritebackMode::SidecarOnly)
-        .value("EmbeddedAndSidecar",
-               XmpWritebackMode::EmbeddedAndSidecar);
+        .value("EmbeddedAndSidecar", XmpWritebackMode::EmbeddedAndSidecar);
 
-    nb::enum_<XmpDestinationEmbeddedMode>(m,
-                                          "XmpDestinationEmbeddedMode")
-        .value("PreserveExisting",
-               XmpDestinationEmbeddedMode::PreserveExisting)
+    nb::enum_<XmpDestinationEmbeddedMode>(m, "XmpDestinationEmbeddedMode")
+        .value("PreserveExisting", XmpDestinationEmbeddedMode::PreserveExisting)
         .value("StripExisting", XmpDestinationEmbeddedMode::StripExisting);
 
-    nb::enum_<XmpDestinationSidecarMode>(m,
-                                         "XmpDestinationSidecarMode")
-        .value("PreserveExisting",
-               XmpDestinationSidecarMode::PreserveExisting)
+    nb::enum_<XmpDestinationSidecarMode>(m, "XmpDestinationSidecarMode")
+        .value("PreserveExisting", XmpDestinationSidecarMode::PreserveExisting)
         .value("StripExisting", XmpDestinationSidecarMode::StripExisting);
 
     nb::enum_<XmpExistingDestinationSidecarState>(
         m, "XmpExistingDestinationSidecarState")
         .value("Unknown", XmpExistingDestinationSidecarState::Unknown)
-        .value("NotPresent",
-               XmpExistingDestinationSidecarState::NotPresent)
+        .value("NotPresent", XmpExistingDestinationSidecarState::NotPresent)
         .value("Present", XmpExistingDestinationSidecarState::Present);
 
     nb::enum_<XmpExistingSidecarMode>(m, "XmpExistingSidecarMode")
         .value("Ignore", XmpExistingSidecarMode::Ignore)
         .value("MergeIfPresent", XmpExistingSidecarMode::MergeIfPresent);
 
-    nb::enum_<XmpExistingSidecarPrecedence>(m,
-                                            "XmpExistingSidecarPrecedence")
+    nb::enum_<XmpExistingSidecarPrecedence>(m, "XmpExistingSidecarPrecedence")
         .value("SidecarWins", XmpExistingSidecarPrecedence::SidecarWins)
         .value("SourceWins", XmpExistingSidecarPrecedence::SourceWins);
 
@@ -5165,8 +5378,7 @@ NB_MODULE(_openmeta, m)
     nb::enum_<DngTargetMode>(m, "DngTargetMode")
         .value("ExistingTarget", DngTargetMode::ExistingTarget)
         .value("TemplateTarget", DngTargetMode::TemplateTarget)
-        .value("MinimalFreshScaffold",
-               DngTargetMode::MinimalFreshScaffold);
+        .value("MinimalFreshScaffold", DngTargetMode::MinimalFreshScaffold);
 
     nb::enum_<TransferTargetFormat>(m, "TransferTargetFormat")
         .value("Jpeg", TransferTargetFormat::Jpeg)
@@ -5185,8 +5397,8 @@ NB_MODULE(_openmeta, m)
         .value("CompatibleFile", TransferSafetyMode::CompatibleFile)
         .value("RenderedImage", TransferSafetyMode::RenderedImage);
 
-    m.attr("TRANSFER_TARGET_IMAGE_SPEC_MAX_SAMPLES")
-        = nb::int_(kTransferTargetImageSpecMaxSamples);
+    m.attr("TRANSFER_TARGET_IMAGE_SPEC_MAX_SAMPLES") = nb::int_(
+        kTransferTargetImageSpecMaxSamples);
 
     nb::class_<TransferTargetImageSpec>(m, "TransferTargetImageSpec")
         .def(nb::init<>())
@@ -5201,8 +5413,7 @@ NB_MODULE(_openmeta, m)
                 &TransferTargetImageSpec::samples_per_pixel)
         .def_prop_rw("bits_per_sample", &transfer_target_image_spec_bits,
                      &transfer_target_image_spec_set_bits)
-        .def_prop_rw("sample_format",
-                     &transfer_target_image_spec_sample_format,
+        .def_prop_rw("sample_format", &transfer_target_image_spec_sample_format,
                      &transfer_target_image_spec_set_sample_format)
         .def_rw("has_photometric_interpretation",
                 &TransferTargetImageSpec::has_photometric_interpretation)
@@ -5216,8 +5427,7 @@ NB_MODULE(_openmeta, m)
         .def_rw("compression", &TransferTargetImageSpec::compression)
         .def_rw("has_exif_color_space",
                 &TransferTargetImageSpec::has_exif_color_space)
-        .def_rw("exif_color_space",
-                &TransferTargetImageSpec::exif_color_space);
+        .def_rw("exif_color_space", &TransferTargetImageSpec::exif_color_space);
 
     nb::enum_<MetadataCapabilityFamily>(m, "MetadataCapabilityFamily")
         .value("Exif", MetadataCapabilityFamily::Exif)
@@ -5238,12 +5448,12 @@ NB_MODULE(_openmeta, m)
         .value("Bounded", MetadataCapabilitySupport::Bounded)
         .value("Disabled", MetadataCapabilitySupport::Disabled);
 
-    m.def("metadata_capability_family_name",
-          &metadata_capability_family_name, "family"_a);
-    m.def("metadata_capability_support_name",
-          &metadata_capability_support_name, "support"_a);
-    m.def("metadata_capability_available",
-          &metadata_capability_available, "support"_a);
+    m.def("metadata_capability_family_name", &metadata_capability_family_name,
+          "family"_a);
+    m.def("metadata_capability_support_name", &metadata_capability_support_name,
+          "support"_a);
+    m.def("metadata_capability_available", &metadata_capability_available,
+          "support"_a);
     m.def("metadata_capability", &metadata_capability_query_to_python,
           "format"_a, "family"_a);
 
@@ -5251,16 +5461,13 @@ NB_MODULE(_openmeta, m)
         .value("MakerNote", TransferPolicySubject::MakerNote)
         .value("Jumbf", TransferPolicySubject::Jumbf)
         .value("C2pa", TransferPolicySubject::C2pa)
-        .value("XmpExifProjection",
-               TransferPolicySubject::XmpExifProjection)
-        .value("XmpIptcProjection",
-               TransferPolicySubject::XmpIptcProjection)
+        .value("XmpExifProjection", TransferPolicySubject::XmpExifProjection)
+        .value("XmpIptcProjection", TransferPolicySubject::XmpIptcProjection)
         .value("ImageProperties", TransferPolicySubject::ImageProperties)
         .value("IccProfile", TransferPolicySubject::IccProfile)
         .value("RawColorCalibration",
                TransferPolicySubject::RawColorCalibration)
-        .value("CameraRawSettings",
-               TransferPolicySubject::CameraRawSettings);
+        .value("CameraRawSettings", TransferPolicySubject::CameraRawSettings);
 
     nb::enum_<TransferPolicyAction>(m, "TransferPolicyAction")
         .value("Keep", TransferPolicyAction::Keep)
@@ -5290,8 +5497,7 @@ NB_MODULE(_openmeta, m)
                TransferPolicyReason::TargetSerializationUnavailable)
         .value("TargetImageProperties",
                TransferPolicyReason::TargetImageProperties)
-        .value("SafetyModeFiltered",
-               TransferPolicyReason::SafetyModeFiltered);
+        .value("SafetyModeFiltered", TransferPolicyReason::SafetyModeFiltered);
 
     nb::enum_<TransferC2paMode>(m, "TransferC2paMode")
         .value("NotApplicable", TransferC2paMode::NotApplicable)
@@ -5392,8 +5598,7 @@ NB_MODULE(_openmeta, m)
         .value("EmptyPath", ReadTransferSourceSnapshotFileCode::EmptyPath)
         .value("MapFailed", ReadTransferSourceSnapshotFileCode::MapFailed)
         .value("PayloadBufferPlatformLimit",
-               ReadTransferSourceSnapshotFileCode::
-                   PayloadBufferPlatformLimit)
+               ReadTransferSourceSnapshotFileCode::PayloadBufferPlatformLimit)
         .value("DecodeFailed",
                ReadTransferSourceSnapshotFileCode::DecodeFailed);
 
@@ -5401,8 +5606,7 @@ NB_MODULE(_openmeta, m)
         m, "ReadTransferSourceSnapshotBytesCode")
         .value("None_", ReadTransferSourceSnapshotBytesCode::None)
         .value("PayloadBufferPlatformLimit",
-               ReadTransferSourceSnapshotBytesCode::
-                   PayloadBufferPlatformLimit)
+               ReadTransferSourceSnapshotBytesCode::PayloadBufferPlatformLimit)
         .value("DecodeFailed",
                ReadTransferSourceSnapshotBytesCode::DecodeFailed);
 
@@ -5558,9 +5762,8 @@ NB_MODULE(_openmeta, m)
                      })
         .def(
             "export_names",
-            [](const TransferSourceSnapshot& snapshot,
-               ExportNameStyle style, ExportNamePolicy name_policy,
-               bool include_makernotes) {
+            [](const TransferSourceSnapshot& snapshot, ExportNameStyle style,
+               ExportNamePolicy name_policy, bool include_makernotes) {
                 ExportOptions options;
                 options.style              = style;
                 options.name_policy        = name_policy;
@@ -5571,12 +5774,15 @@ NB_MODULE(_openmeta, m)
             "name_policy"_a        = ExportNamePolicy::ExifToolAlias,
             "include_makernotes"_a = true)
         .def("compatibility_dump", &snapshot_compatibility_dump,
-             "style"_a           = ExportNameStyle::FlatHost,
-             "name_policy"_a     = ExportNamePolicy::ExifToolAlias,
-             "include_values"_a  = true,
-             "include_origins"_a = true,
-             "include_flags"_a   = true,
-             "max_value_bytes"_a = 256U)
+             "style"_a          = ExportNameStyle::FlatHost,
+             "name_policy"_a    = ExportNamePolicy::ExifToolAlias,
+             "include_values"_a = true, "include_origins"_a = true,
+             "include_flags"_a = true, "max_value_bytes"_a = 256U)
+        .def("phaseone_raw_geometry", &snapshot_phaseone_raw_geometry)
+        .def("phaseone_raw_processing", &snapshot_phaseone_raw_processing)
+        .def("vendor_raw_processing", &snapshot_vendor_raw_processing)
+        .def("transfer_safety_audit", &snapshot_transfer_safety_audit,
+             "safety"_a = TransferSafetyMode::RenderedImage)
         .def("__repr__", [](const TransferSourceSnapshot& snapshot) {
             std::string text = "TransferSourceSnapshot(entry_count=";
             text.append(std::to_string(static_cast<unsigned long long>(
@@ -5700,12 +5906,15 @@ NB_MODULE(_openmeta, m)
             "name_policy"_a        = ExportNamePolicy::ExifToolAlias,
             "include_makernotes"_a = true)
         .def("compatibility_dump", &document_compatibility_dump,
-             "style"_a           = ExportNameStyle::FlatHost,
-             "name_policy"_a     = ExportNamePolicy::ExifToolAlias,
-             "include_values"_a  = true,
-             "include_origins"_a = true,
-             "include_flags"_a   = true,
-             "max_value_bytes"_a = 256U)
+             "style"_a          = ExportNameStyle::FlatHost,
+             "name_policy"_a    = ExportNamePolicy::ExifToolAlias,
+             "include_values"_a = true, "include_origins"_a = true,
+             "include_flags"_a = true, "max_value_bytes"_a = 256U)
+        .def("phaseone_raw_geometry", &document_phaseone_raw_geometry)
+        .def("phaseone_raw_processing", &document_phaseone_raw_processing)
+        .def("vendor_raw_processing", &document_vendor_raw_processing)
+        .def("transfer_safety_audit", &document_transfer_safety_audit,
+             "safety"_a = TransferSafetyMode::RenderedImage)
         .def(
             "dng_ccm_fields",
             [](std::shared_ptr<PyDocument> d, bool require_dng_context,
@@ -6363,8 +6572,7 @@ NB_MODULE(_openmeta, m)
             }
             return read_transfer_source_snapshot_file_to_python(path, result);
         },
-        "path"_a, "include_pointer_tags"_a = true,
-        "decode_makernote"_a = false,
+        "path"_a, "include_pointer_tags"_a = true, "decode_makernote"_a = false,
         "decode_embedded_containers"_a = true, "decompress"_a = true,
         "max_file_bytes"_a = 0ULL, "policy"_a = nb::none());
 
@@ -6397,31 +6605,30 @@ NB_MODULE(_openmeta, m)
             return read_transfer_source_snapshot_bytes_to_python(result);
         },
         "bytes"_a, "include_pointer_tags"_a = true,
-        "decode_makernote"_a = false,
-        "decode_embedded_containers"_a = true, "decompress"_a = true,
-        "max_file_bytes"_a = 0ULL, "policy"_a = nb::none());
+        "decode_makernote"_a = false, "decode_embedded_containers"_a = true,
+        "decompress"_a = true, "max_file_bytes"_a = 0ULL,
+        "policy"_a = nb::none());
 
-    m.def("build_transfer_source_snapshot",
-          [](std::shared_ptr<PyDocument> document) {
-              return build_transfer_source_snapshot(document->store);
-          },
-          "document"_a);
+    m.def(
+        "build_transfer_source_snapshot",
+        [](std::shared_ptr<PyDocument> document) {
+            return build_transfer_source_snapshot(document->store);
+        },
+        "document"_a);
 
     m.def(
         "transfer_probe",
         [](const std::string& path, TransferTargetFormat target_format,
-           DngTargetMode dng_target_mode,
-           XmpSidecarFormat format, bool include_pointer_tags,
-           bool decode_makernote, bool decode_embedded_containers,
-           bool decompress, bool include_exif_app1, bool include_xmp_app1,
-           bool include_icc_app2, bool include_iptc_app13,
-           bool xmp_include_existing,
+           DngTargetMode dng_target_mode, XmpSidecarFormat format,
+           bool include_pointer_tags, bool decode_makernote,
+           bool decode_embedded_containers, bool decompress,
+           bool include_exif_app1, bool include_xmp_app1, bool include_icc_app2,
+           bool include_iptc_app13, bool xmp_include_existing,
            XmpExistingNamespacePolicy xmp_existing_namespace_policy,
            XmpExistingStandardNamespacePolicy
                xmp_existing_standard_namespace_policy,
-           bool xmp_exiftool_gpsdatetime_alias,
-           bool xmp_project_exif, bool xmp_project_iptc,
-           TransferPolicyAction makernote_policy,
+           bool xmp_exiftool_gpsdatetime_alias, bool xmp_project_exif,
+           bool xmp_project_iptc, TransferPolicyAction makernote_policy,
            TransferPolicyAction jumbf_policy, TransferPolicyAction c2pa_policy,
            uint64_t max_file_bytes, nb::object policy_obj,
            nb::object c2pa_signed_package,
@@ -6445,9 +6652,8 @@ NB_MODULE(_openmeta, m)
                xmp_existing_destination_carrier_precedence,
            XmpExistingDestinationSidecarState
                xmp_existing_destination_sidecar_state,
-           bool edit_apply,
-           bool include_edited_bytes, bool include_c2pa_binding_bytes,
-           bool include_c2pa_handoff_bytes,
+           bool edit_apply, bool include_edited_bytes,
+           bool include_c2pa_binding_bytes, bool include_c2pa_handoff_bytes,
            bool include_c2pa_signed_package_bytes,
            bool include_jxl_encoder_handoff_bytes,
            bool include_exr_attribute_values,
@@ -6460,15 +6666,14 @@ NB_MODULE(_openmeta, m)
            nb::object target_image_spec, TransferSafetyMode transfer_safety) {
             return transfer_probe_to_python(
                 path, target_format, dng_target_mode, format,
-                include_pointer_tags,
-                decode_makernote, decode_embedded_containers, decompress,
-                include_exif_app1, include_xmp_app1, include_icc_app2,
-                include_iptc_app13, xmp_include_existing,
-                xmp_existing_namespace_policy,
+                include_pointer_tags, decode_makernote,
+                decode_embedded_containers, decompress, include_exif_app1,
+                include_xmp_app1, include_icc_app2, include_iptc_app13,
+                xmp_include_existing, xmp_existing_namespace_policy,
                 xmp_existing_standard_namespace_policy,
                 xmp_exiftool_gpsdatetime_alias, xmp_project_exif,
-                xmp_project_iptc, makernote_policy, jumbf_policy,
-                c2pa_policy, max_file_bytes, policy_obj, c2pa_signed_package,
+                xmp_project_iptc, makernote_policy, jumbf_policy, c2pa_policy,
+                max_file_bytes, policy_obj, c2pa_signed_package,
                 c2pa_signed_logical_payload, c2pa_certificate_chain,
                 c2pa_private_key_reference, c2pa_signing_time,
                 c2pa_manifest_builder_output, include_payloads, false,
@@ -6480,36 +6685,33 @@ NB_MODULE(_openmeta, m)
                 xmp_existing_destination_embedded_mode,
                 xmp_existing_destination_embedded_precedence,
                 xmp_existing_destination_carrier_precedence,
-                xmp_existing_destination_sidecar_state,
-                edit_apply,
+                xmp_existing_destination_sidecar_state, edit_apply,
                 include_edited_bytes, false, include_c2pa_binding_bytes, false,
                 include_c2pa_handoff_bytes, include_c2pa_signed_package_bytes,
-                include_jxl_encoder_handoff_bytes,
-                include_exr_attribute_values,
+                include_jxl_encoder_handoff_bytes, include_exr_attribute_values,
                 include_transfer_payload_batch_bytes,
                 include_transfer_package_batch_bytes, false,
                 xmp_conflict_policy, xmp_writeback_mode,
-                xmp_destination_embedded_mode,
-                xmp_destination_sidecar_mode, nb::none(), false, false,
-                true, target_image_spec, transfer_safety);
+                xmp_destination_embedded_mode, xmp_destination_sidecar_mode,
+                nb::none(), false, false, true, target_image_spec,
+                transfer_safety);
         },
         "path"_a, "target_format"_a = TransferTargetFormat::Jpeg,
-        "dng_target_mode"_a = DngTargetMode::MinimalFreshScaffold,
+        "dng_target_mode"_a      = DngTargetMode::MinimalFreshScaffold,
         "format"_a               = XmpSidecarFormat::Portable,
         "include_pointer_tags"_a = true, "decode_makernote"_a = false,
         "decode_embedded_containers"_a = true, "decompress"_a = true,
         "include_exif_app1"_a = true, "include_xmp_app1"_a = true,
         "include_icc_app2"_a = true, "include_iptc_app13"_a = true,
-        "xmp_include_existing"_a           = false,
+        "xmp_include_existing"_a = false,
         "xmp_existing_namespace_policy"_a
         = XmpExistingNamespacePolicy::KnownPortableOnly,
         "xmp_existing_standard_namespace_policy"_a
         = XmpExistingStandardNamespacePolicy::PreserveAll,
-        "xmp_exiftool_gpsdatetime_alias"_a = false,
-        "xmp_project_exif"_a             = true,
-        "xmp_project_iptc"_a             = true,
-        "makernote_policy"_a               = TransferPolicyAction::Keep,
-        "jumbf_policy"_a                   = TransferPolicyAction::Keep,
+        "xmp_exiftool_gpsdatetime_alias"_a = false, "xmp_project_exif"_a = true,
+        "xmp_project_iptc"_a = true,
+        "makernote_policy"_a = TransferPolicyAction::Keep,
+        "jumbf_policy"_a     = TransferPolicyAction::Keep,
         "c2pa_policy"_a = TransferPolicyAction::Keep, "max_file_bytes"_a = 0ULL,
         "policy"_a = nb::none(), "c2pa_signed_package"_a = nb::none(),
         "c2pa_signed_logical_payload"_a  = nb::none(),
@@ -6521,8 +6723,8 @@ NB_MODULE(_openmeta, m)
         "time_patch_strict_width"_a = true, "time_patch_require_slot"_a = false,
         "time_patch_auto_nul"_a = true, "edit_target_path"_a = nb::none(),
         "xmp_existing_sidecar_base_path"_a = nb::none(),
-        "xmp_sidecar_base_path"_a = nb::none(),
-        "xmp_existing_sidecar_mode"_a = XmpExistingSidecarMode::Ignore,
+        "xmp_sidecar_base_path"_a          = nb::none(),
+        "xmp_existing_sidecar_mode"_a      = XmpExistingSidecarMode::Ignore,
         "xmp_existing_sidecar_precedence"_a
         = XmpExistingSidecarPrecedence::SidecarWins,
         "xmp_existing_destination_embedded_path"_a = nb::none(),
@@ -6543,29 +6745,27 @@ NB_MODULE(_openmeta, m)
         "include_transfer_payload_batch_bytes"_a = false,
         "include_transfer_package_batch_bytes"_a = false,
         "xmp_conflict_policy"_a = XmpConflictPolicy::CurrentBehavior,
-        "xmp_writeback_mode"_a = XmpWritebackMode::EmbeddedOnly,
+        "xmp_writeback_mode"_a  = XmpWritebackMode::EmbeddedOnly,
         "xmp_destination_embedded_mode"_a
         = XmpDestinationEmbeddedMode::PreserveExisting,
         "xmp_destination_sidecar_mode"_a
         = XmpDestinationSidecarMode::PreserveExisting,
         "target_image_spec"_a = nb::none(),
-        "transfer_safety"_a = TransferSafetyMode::CompatibleFile);
+        "transfer_safety"_a   = TransferSafetyMode::CompatibleFile);
 
     m.def(
         "unsafe_transfer_probe",
         [](const std::string& path, TransferTargetFormat target_format,
-           DngTargetMode dng_target_mode,
-           XmpSidecarFormat format, bool include_pointer_tags,
-           bool decode_makernote, bool decode_embedded_containers,
-           bool decompress, bool include_exif_app1, bool include_xmp_app1,
-           bool include_icc_app2, bool include_iptc_app13,
-           bool xmp_include_existing,
+           DngTargetMode dng_target_mode, XmpSidecarFormat format,
+           bool include_pointer_tags, bool decode_makernote,
+           bool decode_embedded_containers, bool decompress,
+           bool include_exif_app1, bool include_xmp_app1, bool include_icc_app2,
+           bool include_iptc_app13, bool xmp_include_existing,
            XmpExistingNamespacePolicy xmp_existing_namespace_policy,
            XmpExistingStandardNamespacePolicy
                xmp_existing_standard_namespace_policy,
-           bool xmp_exiftool_gpsdatetime_alias,
-           bool xmp_project_exif, bool xmp_project_iptc,
-           TransferPolicyAction makernote_policy,
+           bool xmp_exiftool_gpsdatetime_alias, bool xmp_project_exif,
+           bool xmp_project_iptc, TransferPolicyAction makernote_policy,
            TransferPolicyAction jumbf_policy, TransferPolicyAction c2pa_policy,
            uint64_t max_file_bytes, nb::object policy_obj,
            nb::object c2pa_signed_package,
@@ -6589,9 +6789,8 @@ NB_MODULE(_openmeta, m)
                xmp_existing_destination_carrier_precedence,
            XmpExistingDestinationSidecarState
                xmp_existing_destination_sidecar_state,
-           bool edit_apply,
-           bool include_edited_bytes, bool include_c2pa_binding_bytes,
-           bool include_c2pa_handoff_bytes,
+           bool edit_apply, bool include_edited_bytes,
+           bool include_c2pa_binding_bytes, bool include_c2pa_handoff_bytes,
            bool include_c2pa_signed_package_bytes,
            bool include_jxl_encoder_handoff_bytes,
            bool include_exr_attribute_values,
@@ -6604,15 +6803,14 @@ NB_MODULE(_openmeta, m)
            nb::object target_image_spec, TransferSafetyMode transfer_safety) {
             return transfer_probe_to_python(
                 path, target_format, dng_target_mode, format,
-                include_pointer_tags,
-                decode_makernote, decode_embedded_containers, decompress,
-                include_exif_app1, include_xmp_app1, include_icc_app2,
-                include_iptc_app13, xmp_include_existing,
-                xmp_existing_namespace_policy,
+                include_pointer_tags, decode_makernote,
+                decode_embedded_containers, decompress, include_exif_app1,
+                include_xmp_app1, include_icc_app2, include_iptc_app13,
+                xmp_include_existing, xmp_existing_namespace_policy,
                 xmp_existing_standard_namespace_policy,
                 xmp_exiftool_gpsdatetime_alias, xmp_project_exif,
-                xmp_project_iptc, makernote_policy, jumbf_policy,
-                c2pa_policy, max_file_bytes, policy_obj, c2pa_signed_package,
+                xmp_project_iptc, makernote_policy, jumbf_policy, c2pa_policy,
+                max_file_bytes, policy_obj, c2pa_signed_package,
                 c2pa_signed_logical_payload, c2pa_certificate_chain,
                 c2pa_private_key_reference, c2pa_signing_time,
                 c2pa_manifest_builder_output, include_payloads, true,
@@ -6624,36 +6822,32 @@ NB_MODULE(_openmeta, m)
                 xmp_existing_destination_embedded_mode,
                 xmp_existing_destination_embedded_precedence,
                 xmp_existing_destination_carrier_precedence,
-                xmp_existing_destination_sidecar_state,
-                edit_apply,
+                xmp_existing_destination_sidecar_state, edit_apply,
                 include_edited_bytes, true, include_c2pa_binding_bytes, true,
                 include_c2pa_handoff_bytes, include_c2pa_signed_package_bytes,
-                include_jxl_encoder_handoff_bytes,
-                include_exr_attribute_values,
+                include_jxl_encoder_handoff_bytes, include_exr_attribute_values,
                 include_transfer_payload_batch_bytes,
-                include_transfer_package_batch_bytes, true,
-                xmp_conflict_policy, xmp_writeback_mode,
-                xmp_destination_embedded_mode,
-                xmp_destination_sidecar_mode, nb::none(), false, false,
-                true, target_image_spec, transfer_safety);
+                include_transfer_package_batch_bytes, true, xmp_conflict_policy,
+                xmp_writeback_mode, xmp_destination_embedded_mode,
+                xmp_destination_sidecar_mode, nb::none(), false, false, true,
+                target_image_spec, transfer_safety);
         },
         "path"_a, "target_format"_a = TransferTargetFormat::Jpeg,
-        "dng_target_mode"_a = DngTargetMode::MinimalFreshScaffold,
+        "dng_target_mode"_a      = DngTargetMode::MinimalFreshScaffold,
         "format"_a               = XmpSidecarFormat::Portable,
         "include_pointer_tags"_a = true, "decode_makernote"_a = false,
         "decode_embedded_containers"_a = true, "decompress"_a = true,
         "include_exif_app1"_a = true, "include_xmp_app1"_a = true,
         "include_icc_app2"_a = true, "include_iptc_app13"_a = true,
-        "xmp_include_existing"_a           = false,
+        "xmp_include_existing"_a = false,
         "xmp_existing_namespace_policy"_a
         = XmpExistingNamespacePolicy::KnownPortableOnly,
         "xmp_existing_standard_namespace_policy"_a
         = XmpExistingStandardNamespacePolicy::PreserveAll,
-        "xmp_exiftool_gpsdatetime_alias"_a = false,
-        "xmp_project_exif"_a             = true,
-        "xmp_project_iptc"_a             = true,
-        "makernote_policy"_a               = TransferPolicyAction::Keep,
-        "jumbf_policy"_a                   = TransferPolicyAction::Keep,
+        "xmp_exiftool_gpsdatetime_alias"_a = false, "xmp_project_exif"_a = true,
+        "xmp_project_iptc"_a = true,
+        "makernote_policy"_a = TransferPolicyAction::Keep,
+        "jumbf_policy"_a     = TransferPolicyAction::Keep,
         "c2pa_policy"_a = TransferPolicyAction::Keep, "max_file_bytes"_a = 0ULL,
         "policy"_a = nb::none(), "c2pa_signed_package"_a = nb::none(),
         "c2pa_signed_logical_payload"_a  = nb::none(),
@@ -6665,8 +6859,8 @@ NB_MODULE(_openmeta, m)
         "time_patch_strict_width"_a = true, "time_patch_require_slot"_a = false,
         "time_patch_auto_nul"_a = true, "edit_target_path"_a = nb::none(),
         "xmp_existing_sidecar_base_path"_a = nb::none(),
-        "xmp_sidecar_base_path"_a = nb::none(),
-        "xmp_existing_sidecar_mode"_a = XmpExistingSidecarMode::Ignore,
+        "xmp_sidecar_base_path"_a          = nb::none(),
+        "xmp_existing_sidecar_mode"_a      = XmpExistingSidecarMode::Ignore,
         "xmp_existing_sidecar_precedence"_a
         = XmpExistingSidecarPrecedence::SidecarWins,
         "xmp_existing_destination_embedded_path"_a = nb::none(),
@@ -6687,29 +6881,27 @@ NB_MODULE(_openmeta, m)
         "include_transfer_payload_batch_bytes"_a = false,
         "include_transfer_package_batch_bytes"_a = false,
         "xmp_conflict_policy"_a = XmpConflictPolicy::CurrentBehavior,
-        "xmp_writeback_mode"_a = XmpWritebackMode::EmbeddedOnly,
+        "xmp_writeback_mode"_a  = XmpWritebackMode::EmbeddedOnly,
         "xmp_destination_embedded_mode"_a
         = XmpDestinationEmbeddedMode::PreserveExisting,
         "xmp_destination_sidecar_mode"_a
         = XmpDestinationSidecarMode::PreserveExisting,
         "target_image_spec"_a = nb::none(),
-        "transfer_safety"_a = TransferSafetyMode::CompatibleFile);
+        "transfer_safety"_a   = TransferSafetyMode::CompatibleFile);
 
     m.def(
         "transfer_file",
         [](const std::string& path, TransferTargetFormat target_format,
-           DngTargetMode dng_target_mode,
-           XmpSidecarFormat format, bool include_pointer_tags,
-           bool decode_makernote, bool decode_embedded_containers,
-           bool decompress, bool include_exif_app1, bool include_xmp_app1,
-           bool include_icc_app2, bool include_iptc_app13,
-           bool xmp_include_existing,
+           DngTargetMode dng_target_mode, XmpSidecarFormat format,
+           bool include_pointer_tags, bool decode_makernote,
+           bool decode_embedded_containers, bool decompress,
+           bool include_exif_app1, bool include_xmp_app1, bool include_icc_app2,
+           bool include_iptc_app13, bool xmp_include_existing,
            XmpExistingNamespacePolicy xmp_existing_namespace_policy,
            XmpExistingStandardNamespacePolicy
                xmp_existing_standard_namespace_policy,
-           bool xmp_exiftool_gpsdatetime_alias,
-           bool xmp_project_exif, bool xmp_project_iptc,
-           TransferPolicyAction makernote_policy,
+           bool xmp_exiftool_gpsdatetime_alias, bool xmp_project_exif,
+           bool xmp_project_iptc, TransferPolicyAction makernote_policy,
            TransferPolicyAction jumbf_policy, TransferPolicyAction c2pa_policy,
            uint64_t max_file_bytes, nb::object policy_obj,
            nb::object c2pa_signed_package,
@@ -6733,9 +6925,8 @@ NB_MODULE(_openmeta, m)
                xmp_existing_destination_carrier_precedence,
            XmpExistingDestinationSidecarState
                xmp_existing_destination_sidecar_state,
-           bool edit_apply,
-           bool include_edited_bytes, bool include_c2pa_binding_bytes,
-           bool include_c2pa_handoff_bytes,
+           bool edit_apply, bool include_edited_bytes,
+           bool include_c2pa_binding_bytes, bool include_c2pa_handoff_bytes,
            bool include_c2pa_signed_package_bytes,
            bool include_jxl_encoder_handoff_bytes,
            bool include_exr_attribute_values,
@@ -6746,20 +6937,18 @@ NB_MODULE(_openmeta, m)
            XmpDestinationEmbeddedMode xmp_destination_embedded_mode,
            XmpDestinationSidecarMode xmp_destination_sidecar_mode,
            const std::string& output_path, bool overwrite_output,
-           bool overwrite_xmp_sidecar,
-           bool remove_destination_xmp_sidecar,
+           bool overwrite_xmp_sidecar, bool remove_destination_xmp_sidecar,
            nb::object target_image_spec, TransferSafetyMode transfer_safety) {
             return transfer_probe_to_python(
                 path, target_format, dng_target_mode, format,
-                include_pointer_tags,
-                decode_makernote, decode_embedded_containers, decompress,
-                include_exif_app1, include_xmp_app1, include_icc_app2,
-                include_iptc_app13, xmp_include_existing,
-                xmp_existing_namespace_policy,
+                include_pointer_tags, decode_makernote,
+                decode_embedded_containers, decompress, include_exif_app1,
+                include_xmp_app1, include_icc_app2, include_iptc_app13,
+                xmp_include_existing, xmp_existing_namespace_policy,
                 xmp_existing_standard_namespace_policy,
                 xmp_exiftool_gpsdatetime_alias, xmp_project_exif,
-                xmp_project_iptc, makernote_policy, jumbf_policy,
-                c2pa_policy, max_file_bytes, policy_obj, c2pa_signed_package,
+                xmp_project_iptc, makernote_policy, jumbf_policy, c2pa_policy,
+                max_file_bytes, policy_obj, c2pa_signed_package,
                 c2pa_signed_logical_payload, c2pa_certificate_chain,
                 c2pa_private_key_reference, c2pa_signing_time,
                 c2pa_manifest_builder_output, include_payloads, false,
@@ -6771,39 +6960,35 @@ NB_MODULE(_openmeta, m)
                 xmp_existing_destination_embedded_mode,
                 xmp_existing_destination_embedded_precedence,
                 xmp_existing_destination_carrier_precedence,
-                xmp_existing_destination_sidecar_state,
-                edit_apply,
+                xmp_existing_destination_sidecar_state, edit_apply,
                 include_edited_bytes, false, include_c2pa_binding_bytes, false,
                 include_c2pa_handoff_bytes, include_c2pa_signed_package_bytes,
-                include_jxl_encoder_handoff_bytes,
-                include_exr_attribute_values,
+                include_jxl_encoder_handoff_bytes, include_exr_attribute_values,
                 include_transfer_payload_batch_bytes,
                 include_transfer_package_batch_bytes, false,
                 xmp_conflict_policy, xmp_writeback_mode,
-                xmp_destination_embedded_mode,
-                xmp_destination_sidecar_mode,
+                xmp_destination_embedded_mode, xmp_destination_sidecar_mode,
                 nb::str(output_path.c_str(), output_path.size()),
                 overwrite_output, overwrite_xmp_sidecar,
                 remove_destination_xmp_sidecar, target_image_spec,
                 transfer_safety);
         },
         "path"_a, "target_format"_a = TransferTargetFormat::Jpeg,
-        "dng_target_mode"_a = DngTargetMode::MinimalFreshScaffold,
+        "dng_target_mode"_a      = DngTargetMode::MinimalFreshScaffold,
         "format"_a               = XmpSidecarFormat::Portable,
         "include_pointer_tags"_a = true, "decode_makernote"_a = false,
         "decode_embedded_containers"_a = true, "decompress"_a = true,
         "include_exif_app1"_a = true, "include_xmp_app1"_a = true,
         "include_icc_app2"_a = true, "include_iptc_app13"_a = true,
-        "xmp_include_existing"_a           = false,
+        "xmp_include_existing"_a = false,
         "xmp_existing_namespace_policy"_a
         = XmpExistingNamespacePolicy::KnownPortableOnly,
         "xmp_existing_standard_namespace_policy"_a
         = XmpExistingStandardNamespacePolicy::PreserveAll,
-        "xmp_exiftool_gpsdatetime_alias"_a = false,
-        "xmp_project_exif"_a             = true,
-        "xmp_project_iptc"_a             = true,
-        "makernote_policy"_a               = TransferPolicyAction::Keep,
-        "jumbf_policy"_a                   = TransferPolicyAction::Keep,
+        "xmp_exiftool_gpsdatetime_alias"_a = false, "xmp_project_exif"_a = true,
+        "xmp_project_iptc"_a = true,
+        "makernote_policy"_a = TransferPolicyAction::Keep,
+        "jumbf_policy"_a     = TransferPolicyAction::Keep,
         "c2pa_policy"_a = TransferPolicyAction::Keep, "max_file_bytes"_a = 0ULL,
         "policy"_a = nb::none(), "c2pa_signed_package"_a = nb::none(),
         "c2pa_signed_logical_payload"_a  = nb::none(),
@@ -6815,8 +7000,8 @@ NB_MODULE(_openmeta, m)
         "time_patch_strict_width"_a = true, "time_patch_require_slot"_a = false,
         "time_patch_auto_nul"_a = true, "edit_target_path"_a = nb::none(),
         "xmp_existing_sidecar_base_path"_a = nb::none(),
-        "xmp_sidecar_base_path"_a = nb::none(),
-        "xmp_existing_sidecar_mode"_a = XmpExistingSidecarMode::Ignore,
+        "xmp_sidecar_base_path"_a          = nb::none(),
+        "xmp_existing_sidecar_mode"_a      = XmpExistingSidecarMode::Ignore,
         "xmp_existing_sidecar_precedence"_a
         = XmpExistingSidecarPrecedence::SidecarWins,
         "xmp_existing_destination_embedded_path"_a = nb::none(),
@@ -6837,32 +7022,30 @@ NB_MODULE(_openmeta, m)
         "include_transfer_payload_batch_bytes"_a = false,
         "include_transfer_package_batch_bytes"_a = false,
         "xmp_conflict_policy"_a = XmpConflictPolicy::CurrentBehavior,
-        "xmp_writeback_mode"_a = XmpWritebackMode::EmbeddedOnly,
+        "xmp_writeback_mode"_a  = XmpWritebackMode::EmbeddedOnly,
         "xmp_destination_embedded_mode"_a
         = XmpDestinationEmbeddedMode::PreserveExisting,
         "xmp_destination_sidecar_mode"_a
         = XmpDestinationSidecarMode::PreserveExisting,
         "output_path"_a, "overwrite_output"_a = false,
-        "overwrite_xmp_sidecar"_a = false,
+        "overwrite_xmp_sidecar"_a          = false,
         "remove_destination_xmp_sidecar"_a = true,
-        "target_image_spec"_a = nb::none(),
+        "target_image_spec"_a              = nb::none(),
         "transfer_safety"_a = TransferSafetyMode::CompatibleFile);
 
     m.def(
         "unsafe_transfer_file",
         [](const std::string& path, TransferTargetFormat target_format,
-           DngTargetMode dng_target_mode,
-           XmpSidecarFormat format, bool include_pointer_tags,
-           bool decode_makernote, bool decode_embedded_containers,
-           bool decompress, bool include_exif_app1, bool include_xmp_app1,
-           bool include_icc_app2, bool include_iptc_app13,
-           bool xmp_include_existing,
+           DngTargetMode dng_target_mode, XmpSidecarFormat format,
+           bool include_pointer_tags, bool decode_makernote,
+           bool decode_embedded_containers, bool decompress,
+           bool include_exif_app1, bool include_xmp_app1, bool include_icc_app2,
+           bool include_iptc_app13, bool xmp_include_existing,
            XmpExistingNamespacePolicy xmp_existing_namespace_policy,
            XmpExistingStandardNamespacePolicy
                xmp_existing_standard_namespace_policy,
-           bool xmp_exiftool_gpsdatetime_alias,
-           bool xmp_project_exif, bool xmp_project_iptc,
-           TransferPolicyAction makernote_policy,
+           bool xmp_exiftool_gpsdatetime_alias, bool xmp_project_exif,
+           bool xmp_project_iptc, TransferPolicyAction makernote_policy,
            TransferPolicyAction jumbf_policy, TransferPolicyAction c2pa_policy,
            uint64_t max_file_bytes, nb::object policy_obj,
            nb::object c2pa_signed_package,
@@ -6886,9 +7069,8 @@ NB_MODULE(_openmeta, m)
                xmp_existing_destination_carrier_precedence,
            XmpExistingDestinationSidecarState
                xmp_existing_destination_sidecar_state,
-           bool edit_apply,
-           bool include_edited_bytes, bool include_c2pa_binding_bytes,
-           bool include_c2pa_handoff_bytes,
+           bool edit_apply, bool include_edited_bytes,
+           bool include_c2pa_binding_bytes, bool include_c2pa_handoff_bytes,
            bool include_c2pa_signed_package_bytes,
            bool include_jxl_encoder_handoff_bytes,
            bool include_exr_attribute_values,
@@ -6899,20 +7081,18 @@ NB_MODULE(_openmeta, m)
            XmpDestinationEmbeddedMode xmp_destination_embedded_mode,
            XmpDestinationSidecarMode xmp_destination_sidecar_mode,
            const std::string& output_path, bool overwrite_output,
-           bool overwrite_xmp_sidecar,
-           bool remove_destination_xmp_sidecar,
+           bool overwrite_xmp_sidecar, bool remove_destination_xmp_sidecar,
            nb::object target_image_spec, TransferSafetyMode transfer_safety) {
             return transfer_probe_to_python(
                 path, target_format, dng_target_mode, format,
-                include_pointer_tags,
-                decode_makernote, decode_embedded_containers, decompress,
-                include_exif_app1, include_xmp_app1, include_icc_app2,
-                include_iptc_app13, xmp_include_existing,
-                xmp_existing_namespace_policy,
+                include_pointer_tags, decode_makernote,
+                decode_embedded_containers, decompress, include_exif_app1,
+                include_xmp_app1, include_icc_app2, include_iptc_app13,
+                xmp_include_existing, xmp_existing_namespace_policy,
                 xmp_existing_standard_namespace_policy,
                 xmp_exiftool_gpsdatetime_alias, xmp_project_exif,
-                xmp_project_iptc, makernote_policy, jumbf_policy,
-                c2pa_policy, max_file_bytes, policy_obj, c2pa_signed_package,
+                xmp_project_iptc, makernote_policy, jumbf_policy, c2pa_policy,
+                max_file_bytes, policy_obj, c2pa_signed_package,
                 c2pa_signed_logical_payload, c2pa_certificate_chain,
                 c2pa_private_key_reference, c2pa_signing_time,
                 c2pa_manifest_builder_output, include_payloads, true,
@@ -6924,16 +7104,13 @@ NB_MODULE(_openmeta, m)
                 xmp_existing_destination_embedded_mode,
                 xmp_existing_destination_embedded_precedence,
                 xmp_existing_destination_carrier_precedence,
-                xmp_existing_destination_sidecar_state,
-                edit_apply,
+                xmp_existing_destination_sidecar_state, edit_apply,
                 include_edited_bytes, true, include_c2pa_binding_bytes, true,
                 include_c2pa_handoff_bytes, include_c2pa_signed_package_bytes,
-                include_jxl_encoder_handoff_bytes,
-                include_exr_attribute_values,
+                include_jxl_encoder_handoff_bytes, include_exr_attribute_values,
                 include_transfer_payload_batch_bytes,
-                include_transfer_package_batch_bytes, true,
-                xmp_conflict_policy, xmp_writeback_mode,
-                xmp_destination_embedded_mode,
+                include_transfer_package_batch_bytes, true, xmp_conflict_policy,
+                xmp_writeback_mode, xmp_destination_embedded_mode,
                 xmp_destination_sidecar_mode,
                 nb::str(output_path.c_str(), output_path.size()),
                 overwrite_output, overwrite_xmp_sidecar,
@@ -6941,22 +7118,21 @@ NB_MODULE(_openmeta, m)
                 transfer_safety);
         },
         "path"_a, "target_format"_a = TransferTargetFormat::Jpeg,
-        "dng_target_mode"_a = DngTargetMode::MinimalFreshScaffold,
+        "dng_target_mode"_a      = DngTargetMode::MinimalFreshScaffold,
         "format"_a               = XmpSidecarFormat::Portable,
         "include_pointer_tags"_a = true, "decode_makernote"_a = false,
         "decode_embedded_containers"_a = true, "decompress"_a = true,
         "include_exif_app1"_a = true, "include_xmp_app1"_a = true,
         "include_icc_app2"_a = true, "include_iptc_app13"_a = true,
-        "xmp_include_existing"_a           = false,
+        "xmp_include_existing"_a = false,
         "xmp_existing_namespace_policy"_a
         = XmpExistingNamespacePolicy::KnownPortableOnly,
         "xmp_existing_standard_namespace_policy"_a
         = XmpExistingStandardNamespacePolicy::PreserveAll,
-        "xmp_exiftool_gpsdatetime_alias"_a = false,
-        "xmp_project_exif"_a             = true,
-        "xmp_project_iptc"_a             = true,
-        "makernote_policy"_a               = TransferPolicyAction::Keep,
-        "jumbf_policy"_a                   = TransferPolicyAction::Keep,
+        "xmp_exiftool_gpsdatetime_alias"_a = false, "xmp_project_exif"_a = true,
+        "xmp_project_iptc"_a = true,
+        "makernote_policy"_a = TransferPolicyAction::Keep,
+        "jumbf_policy"_a     = TransferPolicyAction::Keep,
         "c2pa_policy"_a = TransferPolicyAction::Keep, "max_file_bytes"_a = 0ULL,
         "policy"_a = nb::none(), "c2pa_signed_package"_a = nb::none(),
         "c2pa_signed_logical_payload"_a  = nb::none(),
@@ -6968,8 +7144,8 @@ NB_MODULE(_openmeta, m)
         "time_patch_strict_width"_a = true, "time_patch_require_slot"_a = false,
         "time_patch_auto_nul"_a = true, "edit_target_path"_a = nb::none(),
         "xmp_existing_sidecar_base_path"_a = nb::none(),
-        "xmp_sidecar_base_path"_a = nb::none(),
-        "xmp_existing_sidecar_mode"_a = XmpExistingSidecarMode::Ignore,
+        "xmp_sidecar_base_path"_a          = nb::none(),
+        "xmp_existing_sidecar_mode"_a      = XmpExistingSidecarMode::Ignore,
         "xmp_existing_sidecar_precedence"_a
         = XmpExistingSidecarPrecedence::SidecarWins,
         "xmp_existing_destination_embedded_path"_a = nb::none(),
@@ -6990,15 +7166,15 @@ NB_MODULE(_openmeta, m)
         "include_transfer_payload_batch_bytes"_a = false,
         "include_transfer_package_batch_bytes"_a = false,
         "xmp_conflict_policy"_a = XmpConflictPolicy::CurrentBehavior,
-        "xmp_writeback_mode"_a = XmpWritebackMode::EmbeddedOnly,
+        "xmp_writeback_mode"_a  = XmpWritebackMode::EmbeddedOnly,
         "xmp_destination_embedded_mode"_a
         = XmpDestinationEmbeddedMode::PreserveExisting,
         "xmp_destination_sidecar_mode"_a
         = XmpDestinationSidecarMode::PreserveExisting,
         "output_path"_a, "overwrite_output"_a = false,
-        "overwrite_xmp_sidecar"_a = false,
+        "overwrite_xmp_sidecar"_a          = false,
         "remove_destination_xmp_sidecar"_a = true,
-        "target_image_spec"_a = nb::none(),
+        "target_image_spec"_a              = nb::none(),
         "transfer_safety"_a = TransferSafetyMode::CompatibleFile);
 
     m.def(
@@ -7013,8 +7189,7 @@ NB_MODULE(_openmeta, m)
                xmp_existing_standard_namespace_policy,
            XmpConflictPolicy xmp_conflict_policy,
            bool xmp_exiftool_gpsdatetime_alias, bool xmp_project_exif,
-           bool xmp_project_iptc,
-           TransferPolicyAction makernote_policy,
+           bool xmp_project_iptc, TransferPolicyAction makernote_policy,
            TransferPolicyAction jumbf_policy, TransferPolicyAction c2pa_policy,
            uint64_t max_file_bytes, nb::object policy_obj,
            nb::object time_patches, bool time_patch_strict_width,
@@ -7043,11 +7218,11 @@ NB_MODULE(_openmeta, m)
                 include_exif_app1, include_xmp_app1, include_icc_app2,
                 include_iptc_app13, xmp_include_existing,
                 xmp_existing_namespace_policy,
-                xmp_existing_standard_namespace_policy,
-                xmp_conflict_policy, xmp_exiftool_gpsdatetime_alias,
-                xmp_project_exif, xmp_project_iptc, makernote_policy,
-                jumbf_policy, c2pa_policy, max_file_bytes, policy_obj,
-                time_patches, time_patch_strict_width, time_patch_require_slot,
+                xmp_existing_standard_namespace_policy, xmp_conflict_policy,
+                xmp_exiftool_gpsdatetime_alias, xmp_project_exif,
+                xmp_project_iptc, makernote_policy, jumbf_policy, c2pa_policy,
+                max_file_bytes, policy_obj, time_patches,
+                time_patch_strict_width, time_patch_require_slot,
                 time_patch_auto_nul, edit_target_path, target_bytes,
                 xmp_existing_sidecar_base_path, xmp_sidecar_base_path,
                 xmp_existing_sidecar_mode, xmp_existing_sidecar_precedence,
@@ -7057,33 +7232,32 @@ NB_MODULE(_openmeta, m)
                 xmp_existing_destination_carrier_precedence,
                 xmp_existing_destination_sidecar_state, edit_apply,
                 include_edited_bytes, false, xmp_writeback_mode,
-                xmp_destination_embedded_mode,
-                xmp_destination_sidecar_mode, nb::none(), false, false, true,
-                target_image_spec, transfer_safety);
+                xmp_destination_embedded_mode, xmp_destination_sidecar_mode,
+                nb::none(), false, false, true, target_image_spec,
+                transfer_safety);
         },
         "snapshot"_a, "target_format"_a = TransferTargetFormat::Jpeg,
         "dng_target_mode"_a = DngTargetMode::MinimalFreshScaffold,
-        "format"_a = XmpSidecarFormat::Portable,
-        "include_exif_app1"_a = true, "include_xmp_app1"_a = true,
-        "include_icc_app2"_a = true, "include_iptc_app13"_a = true,
-        "xmp_include_existing"_a = false,
+        "format"_a = XmpSidecarFormat::Portable, "include_exif_app1"_a = true,
+        "include_xmp_app1"_a = true, "include_icc_app2"_a = true,
+        "include_iptc_app13"_a = true, "xmp_include_existing"_a = false,
         "xmp_existing_namespace_policy"_a
         = XmpExistingNamespacePolicy::KnownPortableOnly,
         "xmp_existing_standard_namespace_policy"_a
         = XmpExistingStandardNamespacePolicy::PreserveAll,
-        "xmp_conflict_policy"_a = XmpConflictPolicy::CurrentBehavior,
-        "xmp_exiftool_gpsdatetime_alias"_a = false,
-        "xmp_project_exif"_a = true, "xmp_project_iptc"_a = true,
+        "xmp_conflict_policy"_a            = XmpConflictPolicy::CurrentBehavior,
+        "xmp_exiftool_gpsdatetime_alias"_a = false, "xmp_project_exif"_a = true,
+        "xmp_project_iptc"_a = true,
         "makernote_policy"_a = TransferPolicyAction::Keep,
-        "jumbf_policy"_a = TransferPolicyAction::Keep,
-        "c2pa_policy"_a = TransferPolicyAction::Keep,
-        "max_file_bytes"_a = 0ULL, "policy"_a = nb::none(),
-        "time_patches"_a = nb::none(), "time_patch_strict_width"_a = true,
-        "time_patch_require_slot"_a = false, "time_patch_auto_nul"_a = true,
-        "edit_target_path"_a = nb::none(), "target_bytes"_a = nb::none(),
+        "jumbf_policy"_a     = TransferPolicyAction::Keep,
+        "c2pa_policy"_a = TransferPolicyAction::Keep, "max_file_bytes"_a = 0ULL,
+        "policy"_a = nb::none(), "time_patches"_a = nb::none(),
+        "time_patch_strict_width"_a = true, "time_patch_require_slot"_a = false,
+        "time_patch_auto_nul"_a = true, "edit_target_path"_a = nb::none(),
+        "target_bytes"_a                   = nb::none(),
         "xmp_existing_sidecar_base_path"_a = nb::none(),
-        "xmp_sidecar_base_path"_a = nb::none(),
-        "xmp_existing_sidecar_mode"_a = XmpExistingSidecarMode::Ignore,
+        "xmp_sidecar_base_path"_a          = nb::none(),
+        "xmp_existing_sidecar_mode"_a      = XmpExistingSidecarMode::Ignore,
         "xmp_existing_sidecar_precedence"_a
         = XmpExistingSidecarPrecedence::SidecarWins,
         "xmp_existing_destination_embedded_path"_a = nb::none(),
@@ -7102,7 +7276,7 @@ NB_MODULE(_openmeta, m)
         "xmp_destination_sidecar_mode"_a
         = XmpDestinationSidecarMode::PreserveExisting,
         "target_image_spec"_a = nb::none(),
-        "transfer_safety"_a = TransferSafetyMode::CompatibleFile);
+        "transfer_safety"_a   = TransferSafetyMode::CompatibleFile);
 
     m.def(
         "unsafe_transfer_snapshot_probe",
@@ -7116,8 +7290,7 @@ NB_MODULE(_openmeta, m)
                xmp_existing_standard_namespace_policy,
            XmpConflictPolicy xmp_conflict_policy,
            bool xmp_exiftool_gpsdatetime_alias, bool xmp_project_exif,
-           bool xmp_project_iptc,
-           TransferPolicyAction makernote_policy,
+           bool xmp_project_iptc, TransferPolicyAction makernote_policy,
            TransferPolicyAction jumbf_policy, TransferPolicyAction c2pa_policy,
            uint64_t max_file_bytes, nb::object policy_obj,
            nb::object time_patches, bool time_patch_strict_width,
@@ -7146,11 +7319,11 @@ NB_MODULE(_openmeta, m)
                 include_exif_app1, include_xmp_app1, include_icc_app2,
                 include_iptc_app13, xmp_include_existing,
                 xmp_existing_namespace_policy,
-                xmp_existing_standard_namespace_policy,
-                xmp_conflict_policy, xmp_exiftool_gpsdatetime_alias,
-                xmp_project_exif, xmp_project_iptc, makernote_policy,
-                jumbf_policy, c2pa_policy, max_file_bytes, policy_obj,
-                time_patches, time_patch_strict_width, time_patch_require_slot,
+                xmp_existing_standard_namespace_policy, xmp_conflict_policy,
+                xmp_exiftool_gpsdatetime_alias, xmp_project_exif,
+                xmp_project_iptc, makernote_policy, jumbf_policy, c2pa_policy,
+                max_file_bytes, policy_obj, time_patches,
+                time_patch_strict_width, time_patch_require_slot,
                 time_patch_auto_nul, edit_target_path, target_bytes,
                 xmp_existing_sidecar_base_path, xmp_sidecar_base_path,
                 xmp_existing_sidecar_mode, xmp_existing_sidecar_precedence,
@@ -7160,33 +7333,32 @@ NB_MODULE(_openmeta, m)
                 xmp_existing_destination_carrier_precedence,
                 xmp_existing_destination_sidecar_state, edit_apply,
                 include_edited_bytes, true, xmp_writeback_mode,
-                xmp_destination_embedded_mode,
-                xmp_destination_sidecar_mode, nb::none(), false, false, true,
-                target_image_spec, transfer_safety);
+                xmp_destination_embedded_mode, xmp_destination_sidecar_mode,
+                nb::none(), false, false, true, target_image_spec,
+                transfer_safety);
         },
         "snapshot"_a, "target_format"_a = TransferTargetFormat::Jpeg,
         "dng_target_mode"_a = DngTargetMode::MinimalFreshScaffold,
-        "format"_a = XmpSidecarFormat::Portable,
-        "include_exif_app1"_a = true, "include_xmp_app1"_a = true,
-        "include_icc_app2"_a = true, "include_iptc_app13"_a = true,
-        "xmp_include_existing"_a = false,
+        "format"_a = XmpSidecarFormat::Portable, "include_exif_app1"_a = true,
+        "include_xmp_app1"_a = true, "include_icc_app2"_a = true,
+        "include_iptc_app13"_a = true, "xmp_include_existing"_a = false,
         "xmp_existing_namespace_policy"_a
         = XmpExistingNamespacePolicy::KnownPortableOnly,
         "xmp_existing_standard_namespace_policy"_a
         = XmpExistingStandardNamespacePolicy::PreserveAll,
-        "xmp_conflict_policy"_a = XmpConflictPolicy::CurrentBehavior,
-        "xmp_exiftool_gpsdatetime_alias"_a = false,
-        "xmp_project_exif"_a = true, "xmp_project_iptc"_a = true,
+        "xmp_conflict_policy"_a            = XmpConflictPolicy::CurrentBehavior,
+        "xmp_exiftool_gpsdatetime_alias"_a = false, "xmp_project_exif"_a = true,
+        "xmp_project_iptc"_a = true,
         "makernote_policy"_a = TransferPolicyAction::Keep,
-        "jumbf_policy"_a = TransferPolicyAction::Keep,
-        "c2pa_policy"_a = TransferPolicyAction::Keep,
-        "max_file_bytes"_a = 0ULL, "policy"_a = nb::none(),
-        "time_patches"_a = nb::none(), "time_patch_strict_width"_a = true,
-        "time_patch_require_slot"_a = false, "time_patch_auto_nul"_a = true,
-        "edit_target_path"_a = nb::none(), "target_bytes"_a = nb::none(),
+        "jumbf_policy"_a     = TransferPolicyAction::Keep,
+        "c2pa_policy"_a = TransferPolicyAction::Keep, "max_file_bytes"_a = 0ULL,
+        "policy"_a = nb::none(), "time_patches"_a = nb::none(),
+        "time_patch_strict_width"_a = true, "time_patch_require_slot"_a = false,
+        "time_patch_auto_nul"_a = true, "edit_target_path"_a = nb::none(),
+        "target_bytes"_a                   = nb::none(),
         "xmp_existing_sidecar_base_path"_a = nb::none(),
-        "xmp_sidecar_base_path"_a = nb::none(),
-        "xmp_existing_sidecar_mode"_a = XmpExistingSidecarMode::Ignore,
+        "xmp_sidecar_base_path"_a          = nb::none(),
+        "xmp_existing_sidecar_mode"_a      = XmpExistingSidecarMode::Ignore,
         "xmp_existing_sidecar_precedence"_a
         = XmpExistingSidecarPrecedence::SidecarWins,
         "xmp_existing_destination_embedded_path"_a = nb::none(),
@@ -7205,7 +7377,7 @@ NB_MODULE(_openmeta, m)
         "xmp_destination_sidecar_mode"_a
         = XmpDestinationSidecarMode::PreserveExisting,
         "target_image_spec"_a = nb::none(),
-        "transfer_safety"_a = TransferSafetyMode::CompatibleFile);
+        "transfer_safety"_a   = TransferSafetyMode::CompatibleFile);
 
     m.def(
         "transfer_snapshot_file",
@@ -7219,8 +7391,7 @@ NB_MODULE(_openmeta, m)
                xmp_existing_standard_namespace_policy,
            XmpConflictPolicy xmp_conflict_policy,
            bool xmp_exiftool_gpsdatetime_alias, bool xmp_project_exif,
-           bool xmp_project_iptc,
-           TransferPolicyAction makernote_policy,
+           bool xmp_project_iptc, TransferPolicyAction makernote_policy,
            TransferPolicyAction jumbf_policy, TransferPolicyAction c2pa_policy,
            uint64_t max_file_bytes, nb::object policy_obj,
            nb::object time_patches, bool time_patch_strict_width,
@@ -7244,19 +7415,18 @@ NB_MODULE(_openmeta, m)
            XmpDestinationEmbeddedMode xmp_destination_embedded_mode,
            XmpDestinationSidecarMode xmp_destination_sidecar_mode,
            const std::string& output_path, bool overwrite_output,
-           bool overwrite_xmp_sidecar,
-           bool remove_destination_xmp_sidecar,
+           bool overwrite_xmp_sidecar, bool remove_destination_xmp_sidecar,
            nb::object target_image_spec, TransferSafetyMode transfer_safety) {
             return transfer_snapshot_to_python(
                 snapshot, target_format, dng_target_mode, format,
                 include_exif_app1, include_xmp_app1, include_icc_app2,
                 include_iptc_app13, xmp_include_existing,
                 xmp_existing_namespace_policy,
-                xmp_existing_standard_namespace_policy,
-                xmp_conflict_policy, xmp_exiftool_gpsdatetime_alias,
-                xmp_project_exif, xmp_project_iptc, makernote_policy,
-                jumbf_policy, c2pa_policy, max_file_bytes, policy_obj,
-                time_patches, time_patch_strict_width, time_patch_require_slot,
+                xmp_existing_standard_namespace_policy, xmp_conflict_policy,
+                xmp_exiftool_gpsdatetime_alias, xmp_project_exif,
+                xmp_project_iptc, makernote_policy, jumbf_policy, c2pa_policy,
+                max_file_bytes, policy_obj, time_patches,
+                time_patch_strict_width, time_patch_require_slot,
                 time_patch_auto_nul, edit_target_path, target_bytes,
                 xmp_existing_sidecar_base_path, xmp_sidecar_base_path,
                 xmp_existing_sidecar_mode, xmp_existing_sidecar_precedence,
@@ -7266,8 +7436,7 @@ NB_MODULE(_openmeta, m)
                 xmp_existing_destination_carrier_precedence,
                 xmp_existing_destination_sidecar_state, edit_apply,
                 include_edited_bytes, false, xmp_writeback_mode,
-                xmp_destination_embedded_mode,
-                xmp_destination_sidecar_mode,
+                xmp_destination_embedded_mode, xmp_destination_sidecar_mode,
                 nb::str(output_path.c_str(), output_path.size()),
                 overwrite_output, overwrite_xmp_sidecar,
                 remove_destination_xmp_sidecar, target_image_spec,
@@ -7275,27 +7444,26 @@ NB_MODULE(_openmeta, m)
         },
         "snapshot"_a, "target_format"_a = TransferTargetFormat::Jpeg,
         "dng_target_mode"_a = DngTargetMode::MinimalFreshScaffold,
-        "format"_a = XmpSidecarFormat::Portable,
-        "include_exif_app1"_a = true, "include_xmp_app1"_a = true,
-        "include_icc_app2"_a = true, "include_iptc_app13"_a = true,
-        "xmp_include_existing"_a = false,
+        "format"_a = XmpSidecarFormat::Portable, "include_exif_app1"_a = true,
+        "include_xmp_app1"_a = true, "include_icc_app2"_a = true,
+        "include_iptc_app13"_a = true, "xmp_include_existing"_a = false,
         "xmp_existing_namespace_policy"_a
         = XmpExistingNamespacePolicy::KnownPortableOnly,
         "xmp_existing_standard_namespace_policy"_a
         = XmpExistingStandardNamespacePolicy::PreserveAll,
-        "xmp_conflict_policy"_a = XmpConflictPolicy::CurrentBehavior,
-        "xmp_exiftool_gpsdatetime_alias"_a = false,
-        "xmp_project_exif"_a = true, "xmp_project_iptc"_a = true,
+        "xmp_conflict_policy"_a            = XmpConflictPolicy::CurrentBehavior,
+        "xmp_exiftool_gpsdatetime_alias"_a = false, "xmp_project_exif"_a = true,
+        "xmp_project_iptc"_a = true,
         "makernote_policy"_a = TransferPolicyAction::Keep,
-        "jumbf_policy"_a = TransferPolicyAction::Keep,
-        "c2pa_policy"_a = TransferPolicyAction::Keep,
-        "max_file_bytes"_a = 0ULL, "policy"_a = nb::none(),
-        "time_patches"_a = nb::none(), "time_patch_strict_width"_a = true,
-        "time_patch_require_slot"_a = false, "time_patch_auto_nul"_a = true,
-        "edit_target_path"_a = nb::none(), "target_bytes"_a = nb::none(),
+        "jumbf_policy"_a     = TransferPolicyAction::Keep,
+        "c2pa_policy"_a = TransferPolicyAction::Keep, "max_file_bytes"_a = 0ULL,
+        "policy"_a = nb::none(), "time_patches"_a = nb::none(),
+        "time_patch_strict_width"_a = true, "time_patch_require_slot"_a = false,
+        "time_patch_auto_nul"_a = true, "edit_target_path"_a = nb::none(),
+        "target_bytes"_a                   = nb::none(),
         "xmp_existing_sidecar_base_path"_a = nb::none(),
-        "xmp_sidecar_base_path"_a = nb::none(),
-        "xmp_existing_sidecar_mode"_a = XmpExistingSidecarMode::Ignore,
+        "xmp_sidecar_base_path"_a          = nb::none(),
+        "xmp_existing_sidecar_mode"_a      = XmpExistingSidecarMode::Ignore,
         "xmp_existing_sidecar_precedence"_a
         = XmpExistingSidecarPrecedence::SidecarWins,
         "xmp_existing_destination_embedded_path"_a = nb::none(),
@@ -7314,9 +7482,9 @@ NB_MODULE(_openmeta, m)
         "xmp_destination_sidecar_mode"_a
         = XmpDestinationSidecarMode::PreserveExisting,
         "output_path"_a, "overwrite_output"_a = false,
-        "overwrite_xmp_sidecar"_a = false,
+        "overwrite_xmp_sidecar"_a          = false,
         "remove_destination_xmp_sidecar"_a = true,
-        "target_image_spec"_a = nb::none(),
+        "target_image_spec"_a              = nb::none(),
         "transfer_safety"_a = TransferSafetyMode::CompatibleFile);
 
     m.def(
@@ -7331,8 +7499,7 @@ NB_MODULE(_openmeta, m)
                xmp_existing_standard_namespace_policy,
            XmpConflictPolicy xmp_conflict_policy,
            bool xmp_exiftool_gpsdatetime_alias, bool xmp_project_exif,
-           bool xmp_project_iptc,
-           TransferPolicyAction makernote_policy,
+           bool xmp_project_iptc, TransferPolicyAction makernote_policy,
            TransferPolicyAction jumbf_policy, TransferPolicyAction c2pa_policy,
            uint64_t max_file_bytes, nb::object policy_obj,
            nb::object time_patches, bool time_patch_strict_width,
@@ -7356,19 +7523,18 @@ NB_MODULE(_openmeta, m)
            XmpDestinationEmbeddedMode xmp_destination_embedded_mode,
            XmpDestinationSidecarMode xmp_destination_sidecar_mode,
            const std::string& output_path, bool overwrite_output,
-           bool overwrite_xmp_sidecar,
-           bool remove_destination_xmp_sidecar,
+           bool overwrite_xmp_sidecar, bool remove_destination_xmp_sidecar,
            nb::object target_image_spec, TransferSafetyMode transfer_safety) {
             return transfer_snapshot_to_python(
                 snapshot, target_format, dng_target_mode, format,
                 include_exif_app1, include_xmp_app1, include_icc_app2,
                 include_iptc_app13, xmp_include_existing,
                 xmp_existing_namespace_policy,
-                xmp_existing_standard_namespace_policy,
-                xmp_conflict_policy, xmp_exiftool_gpsdatetime_alias,
-                xmp_project_exif, xmp_project_iptc, makernote_policy,
-                jumbf_policy, c2pa_policy, max_file_bytes, policy_obj,
-                time_patches, time_patch_strict_width, time_patch_require_slot,
+                xmp_existing_standard_namespace_policy, xmp_conflict_policy,
+                xmp_exiftool_gpsdatetime_alias, xmp_project_exif,
+                xmp_project_iptc, makernote_policy, jumbf_policy, c2pa_policy,
+                max_file_bytes, policy_obj, time_patches,
+                time_patch_strict_width, time_patch_require_slot,
                 time_patch_auto_nul, edit_target_path, target_bytes,
                 xmp_existing_sidecar_base_path, xmp_sidecar_base_path,
                 xmp_existing_sidecar_mode, xmp_existing_sidecar_precedence,
@@ -7378,8 +7544,7 @@ NB_MODULE(_openmeta, m)
                 xmp_existing_destination_carrier_precedence,
                 xmp_existing_destination_sidecar_state, edit_apply,
                 include_edited_bytes, true, xmp_writeback_mode,
-                xmp_destination_embedded_mode,
-                xmp_destination_sidecar_mode,
+                xmp_destination_embedded_mode, xmp_destination_sidecar_mode,
                 nb::str(output_path.c_str(), output_path.size()),
                 overwrite_output, overwrite_xmp_sidecar,
                 remove_destination_xmp_sidecar, target_image_spec,
@@ -7387,27 +7552,26 @@ NB_MODULE(_openmeta, m)
         },
         "snapshot"_a, "target_format"_a = TransferTargetFormat::Jpeg,
         "dng_target_mode"_a = DngTargetMode::MinimalFreshScaffold,
-        "format"_a = XmpSidecarFormat::Portable,
-        "include_exif_app1"_a = true, "include_xmp_app1"_a = true,
-        "include_icc_app2"_a = true, "include_iptc_app13"_a = true,
-        "xmp_include_existing"_a = false,
+        "format"_a = XmpSidecarFormat::Portable, "include_exif_app1"_a = true,
+        "include_xmp_app1"_a = true, "include_icc_app2"_a = true,
+        "include_iptc_app13"_a = true, "xmp_include_existing"_a = false,
         "xmp_existing_namespace_policy"_a
         = XmpExistingNamespacePolicy::KnownPortableOnly,
         "xmp_existing_standard_namespace_policy"_a
         = XmpExistingStandardNamespacePolicy::PreserveAll,
-        "xmp_conflict_policy"_a = XmpConflictPolicy::CurrentBehavior,
-        "xmp_exiftool_gpsdatetime_alias"_a = false,
-        "xmp_project_exif"_a = true, "xmp_project_iptc"_a = true,
+        "xmp_conflict_policy"_a            = XmpConflictPolicy::CurrentBehavior,
+        "xmp_exiftool_gpsdatetime_alias"_a = false, "xmp_project_exif"_a = true,
+        "xmp_project_iptc"_a = true,
         "makernote_policy"_a = TransferPolicyAction::Keep,
-        "jumbf_policy"_a = TransferPolicyAction::Keep,
-        "c2pa_policy"_a = TransferPolicyAction::Keep,
-        "max_file_bytes"_a = 0ULL, "policy"_a = nb::none(),
-        "time_patches"_a = nb::none(), "time_patch_strict_width"_a = true,
-        "time_patch_require_slot"_a = false, "time_patch_auto_nul"_a = true,
-        "edit_target_path"_a = nb::none(), "target_bytes"_a = nb::none(),
+        "jumbf_policy"_a     = TransferPolicyAction::Keep,
+        "c2pa_policy"_a = TransferPolicyAction::Keep, "max_file_bytes"_a = 0ULL,
+        "policy"_a = nb::none(), "time_patches"_a = nb::none(),
+        "time_patch_strict_width"_a = true, "time_patch_require_slot"_a = false,
+        "time_patch_auto_nul"_a = true, "edit_target_path"_a = nb::none(),
+        "target_bytes"_a                   = nb::none(),
         "xmp_existing_sidecar_base_path"_a = nb::none(),
-        "xmp_sidecar_base_path"_a = nb::none(),
-        "xmp_existing_sidecar_mode"_a = XmpExistingSidecarMode::Ignore,
+        "xmp_sidecar_base_path"_a          = nb::none(),
+        "xmp_existing_sidecar_mode"_a      = XmpExistingSidecarMode::Ignore,
         "xmp_existing_sidecar_precedence"_a
         = XmpExistingSidecarPrecedence::SidecarWins,
         "xmp_existing_destination_embedded_path"_a = nb::none(),
@@ -7426,62 +7590,55 @@ NB_MODULE(_openmeta, m)
         "xmp_destination_sidecar_mode"_a
         = XmpDestinationSidecarMode::PreserveExisting,
         "output_path"_a, "overwrite_output"_a = false,
-        "overwrite_xmp_sidecar"_a = false,
+        "overwrite_xmp_sidecar"_a          = false,
         "remove_destination_xmp_sidecar"_a = true,
-        "target_image_spec"_a = nb::none(),
+        "target_image_spec"_a              = nb::none(),
         "transfer_safety"_a = TransferSafetyMode::CompatibleFile);
 
-    m.def(
-        "dng_sdk_adapter_available",
-        []() { return dng_sdk_adapter_available(); });
+    m.def("dng_sdk_adapter_available",
+          []() { return dng_sdk_adapter_available(); });
 
     m.def(
         "build_exr_attribute_batch_from_file",
         [](const std::string& path, XmpSidecarFormat format,
            bool include_pointer_tags, bool decode_makernote,
            bool decode_embedded_containers, bool decompress,
-           bool include_exif_app1, bool include_xmp_app1,
-           bool include_icc_app2, bool include_iptc_app13,
-           bool xmp_include_existing,
+           bool include_exif_app1, bool include_xmp_app1, bool include_icc_app2,
+           bool include_iptc_app13, bool xmp_include_existing,
            XmpExistingNamespacePolicy xmp_existing_namespace_policy,
            XmpExistingStandardNamespacePolicy
                xmp_existing_standard_namespace_policy,
-           bool xmp_exiftool_gpsdatetime_alias,
-           bool xmp_project_exif, bool xmp_project_iptc,
-           TransferPolicyAction makernote_policy,
-           TransferPolicyAction jumbf_policy,
-           TransferPolicyAction c2pa_policy, uint64_t max_file_bytes,
-           nb::object policy_obj, bool include_values) {
+           bool xmp_exiftool_gpsdatetime_alias, bool xmp_project_exif,
+           bool xmp_project_iptc, TransferPolicyAction makernote_policy,
+           TransferPolicyAction jumbf_policy, TransferPolicyAction c2pa_policy,
+           uint64_t max_file_bytes, nb::object policy_obj,
+           bool include_values) {
             return build_exr_attribute_batch_from_file_to_python(
                 path, format, include_pointer_tags, decode_makernote,
                 decode_embedded_containers, decompress, include_exif_app1,
                 include_xmp_app1, include_icc_app2, include_iptc_app13,
                 xmp_include_existing, xmp_existing_namespace_policy,
                 xmp_existing_standard_namespace_policy,
-                xmp_exiftool_gpsdatetime_alias,
-                xmp_project_exif, xmp_project_iptc, makernote_policy,
-                jumbf_policy, c2pa_policy, max_file_bytes, policy_obj,
-                include_values);
+                xmp_exiftool_gpsdatetime_alias, xmp_project_exif,
+                xmp_project_iptc, makernote_policy, jumbf_policy, c2pa_policy,
+                max_file_bytes, policy_obj, include_values);
         },
         "path"_a, "format"_a = XmpSidecarFormat::Portable,
         "include_pointer_tags"_a = true, "decode_makernote"_a = false,
         "decode_embedded_containers"_a = true, "decompress"_a = true,
         "include_exif_app1"_a = true, "include_xmp_app1"_a = true,
         "include_icc_app2"_a = true, "include_iptc_app13"_a = true,
-        "xmp_include_existing"_a           = false,
+        "xmp_include_existing"_a = false,
         "xmp_existing_namespace_policy"_a
         = XmpExistingNamespacePolicy::KnownPortableOnly,
         "xmp_existing_standard_namespace_policy"_a
         = XmpExistingStandardNamespacePolicy::PreserveAll,
-        "xmp_exiftool_gpsdatetime_alias"_a = false,
-        "xmp_project_exif"_a               = true,
-        "xmp_project_iptc"_a               = true,
+        "xmp_exiftool_gpsdatetime_alias"_a = false, "xmp_project_exif"_a = true,
+        "xmp_project_iptc"_a = true,
         "makernote_policy"_a = TransferPolicyAction::Keep,
         "jumbf_policy"_a     = TransferPolicyAction::Keep,
-        "c2pa_policy"_a      = TransferPolicyAction::Keep,
-        "max_file_bytes"_a   = 0ULL,
-        "policy"_a           = nb::none(),
-        "include_values"_a   = false);
+        "c2pa_policy"_a = TransferPolicyAction::Keep, "max_file_bytes"_a = 0ULL,
+        "policy"_a = nb::none(), "include_values"_a = false);
 
     m.def(
         "map_meta_orientation_to_libraw_flip_from_file",
@@ -7492,11 +7649,10 @@ NB_MODULE(_openmeta, m)
                 path, target, preserve_embedded_preview_orientation,
                 mirror_policy, max_file_bytes);
         },
-        "path"_a,
-        "target"_a = LibRawOrientationTarget::RawImage,
+        "path"_a, "target"_a = LibRawOrientationTarget::RawImage,
         "preserve_embedded_preview_orientation"_a = true,
-        "mirror_policy"_a = LibRawMirrorPolicy::Reject,
-        "max_file_bytes"_a = 0ULL);
+        "mirror_policy"_a                         = LibRawMirrorPolicy::Reject,
+        "max_file_bytes"_a                        = 0ULL);
 
     m.def(
         "map_libraw_flip_to_exif_orientation",
@@ -7505,65 +7661,56 @@ NB_MODULE(_openmeta, m)
             return map_libraw_flip_to_exif_to_python(
                 libraw_flip, target, preserve_embedded_preview_orientation);
         },
-        "libraw_flip"_a,
-        "target"_a = LibRawOrientationTarget::RawImage,
+        "libraw_flip"_a, "target"_a = LibRawOrientationTarget::RawImage,
         "preserve_embedded_preview_orientation"_a = true);
 
     m.def(
         "update_dng_sdk_file_from_file",
         [](const std::string& source_path, const std::string& target_path,
            DngTargetMode dng_target_mode, XmpSidecarFormat format,
-           bool include_pointer_tags,
-           bool decode_makernote, bool decode_embedded_containers,
-           bool decompress, bool include_exif_app1, bool include_xmp_app1,
-           bool include_icc_app2, bool include_iptc_app13,
-           bool xmp_include_existing,
+           bool include_pointer_tags, bool decode_makernote,
+           bool decode_embedded_containers, bool decompress,
+           bool include_exif_app1, bool include_xmp_app1, bool include_icc_app2,
+           bool include_iptc_app13, bool xmp_include_existing,
            XmpExistingNamespacePolicy xmp_existing_namespace_policy,
            XmpExistingStandardNamespacePolicy
                xmp_existing_standard_namespace_policy,
-           bool xmp_exiftool_gpsdatetime_alias,
-           bool xmp_project_exif, bool xmp_project_iptc,
-           TransferPolicyAction makernote_policy,
-           TransferPolicyAction jumbf_policy,
-           TransferPolicyAction c2pa_policy, uint64_t max_file_bytes,
-           nb::object policy_obj, bool apply_exif, bool apply_xmp,
-           bool apply_iptc, bool synchronize_metadata,
+           bool xmp_exiftool_gpsdatetime_alias, bool xmp_project_exif,
+           bool xmp_project_iptc, TransferPolicyAction makernote_policy,
+           TransferPolicyAction jumbf_policy, TransferPolicyAction c2pa_policy,
+           uint64_t max_file_bytes, nb::object policy_obj, bool apply_exif,
+           bool apply_xmp, bool apply_iptc, bool synchronize_metadata,
            bool cleanup_for_update) {
             return update_dng_sdk_file_from_file_to_python(
                 source_path, target_path, dng_target_mode, format,
-                include_pointer_tags,
-                decode_makernote, decode_embedded_containers, decompress,
-                include_exif_app1, include_xmp_app1, include_icc_app2,
-                include_iptc_app13, xmp_include_existing,
-                xmp_existing_namespace_policy,
+                include_pointer_tags, decode_makernote,
+                decode_embedded_containers, decompress, include_exif_app1,
+                include_xmp_app1, include_icc_app2, include_iptc_app13,
+                xmp_include_existing, xmp_existing_namespace_policy,
                 xmp_existing_standard_namespace_policy,
                 xmp_exiftool_gpsdatetime_alias, xmp_project_exif,
-                xmp_project_iptc, makernote_policy, jumbf_policy,
-                c2pa_policy, max_file_bytes, policy_obj, apply_exif,
-                apply_xmp, apply_iptc, synchronize_metadata,
-                cleanup_for_update);
+                xmp_project_iptc, makernote_policy, jumbf_policy, c2pa_policy,
+                max_file_bytes, policy_obj, apply_exif, apply_xmp, apply_iptc,
+                synchronize_metadata, cleanup_for_update);
         },
         "source_path"_a, "target_path"_a,
-        "dng_target_mode"_a = DngTargetMode::MinimalFreshScaffold,
-        "format"_a = XmpSidecarFormat::Portable,
+        "dng_target_mode"_a      = DngTargetMode::MinimalFreshScaffold,
+        "format"_a               = XmpSidecarFormat::Portable,
         "include_pointer_tags"_a = true, "decode_makernote"_a = false,
         "decode_embedded_containers"_a = true, "decompress"_a = true,
         "include_exif_app1"_a = true, "include_xmp_app1"_a = true,
         "include_icc_app2"_a = true, "include_iptc_app13"_a = true,
-        "xmp_include_existing"_a           = false,
+        "xmp_include_existing"_a = false,
         "xmp_existing_namespace_policy"_a
         = XmpExistingNamespacePolicy::KnownPortableOnly,
         "xmp_existing_standard_namespace_policy"_a
         = XmpExistingStandardNamespacePolicy::PreserveAll,
-        "xmp_exiftool_gpsdatetime_alias"_a = false,
-        "xmp_project_exif"_a               = true,
-        "xmp_project_iptc"_a               = true,
+        "xmp_exiftool_gpsdatetime_alias"_a = false, "xmp_project_exif"_a = true,
+        "xmp_project_iptc"_a = true,
         "makernote_policy"_a = TransferPolicyAction::Keep,
         "jumbf_policy"_a     = TransferPolicyAction::Keep,
-        "c2pa_policy"_a      = TransferPolicyAction::Keep,
-        "max_file_bytes"_a   = 0ULL,
-        "policy"_a           = nb::none(),
-        "apply_exif"_a = true, "apply_xmp"_a = true,
+        "c2pa_policy"_a = TransferPolicyAction::Keep, "max_file_bytes"_a = 0ULL,
+        "policy"_a = nb::none(), "apply_exif"_a = true, "apply_xmp"_a = true,
         "apply_iptc"_a = true, "synchronize_metadata"_a = true,
         "cleanup_for_update"_a = true);
 

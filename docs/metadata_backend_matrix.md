@@ -153,19 +153,29 @@ For the public per-target preserve/replace guarantees, see
   Exif/XMP/JUMBF/C2PA metadata items by extending `iinf`, `iloc`, `idat`, and
   `iref` with `cdsc` references to the primary item. It requires a single
   parseable `iinf`, `iloc` version 0/1/2, `pitm`, and at most one `idat`.
-  Inserted item IDs follow the existing `iloc` item-id width: `iloc` version 0/1
-  remains a 16-bit insertion path, while `iloc` version 2 can use 32-bit item IDs
-  and emits wider `infe`/`iref` records when needed.
+  Inserted item IDs can use the 32-bit item-id space: supported `iloc` version
+  0/1 graphs are upgraded to output `iloc` version 2 when needed, and OpenMeta
+  emits wider `infe`/`iref` records for inserted items that exceed 16 bits.
   Newly inserted metadata item records keep `iloc` construction method 0 and
   use absolute file-offset extents for broad reader
   compatibility. When retained self-contained records can be represented that
   way, the rebuilt `iloc` also compacts the base-offset field width to zero.
+  Retained foreign item locations are supported for construction method 0
+  file-offset extents and construction method 1 extents into an existing
+  `idat`, with data reference index 0. Construction method 2 is supported only
+  when the retained item has parseable `iref` `iloc` references, using explicit
+  extent indexes or reference order, and every referenced item is also retained
+  with a supported local location. External data references, missing method-2
+  references, removed referenced items, and other construction methods fail
+  safely.
 - Foreign-`meta` ICC property merge is bounded to
   `bmff:property-colr-icc`. OpenMeta removes prior ICC `colr/prof` and
   `colr/rICC` properties from `iprp/ipco`, compacts/remaps existing `ipma`
   associations, appends the transferred `colr/prof` property, and associates
-  it with the primary item. Broader non-ICC property replacement and arbitrary
-  scene/property-graph rewrites remain out of scope for the current contract.
+  it with the primary item and any retained item that previously referenced a
+  replaced ICC property while preserving the prior essential association bit.
+  Broader non-ICC property replacement and arbitrary scene/property-graph
+  rewrites remain out of scope for the current contract.
 - Embedded-XMP strip mode removes XMP from OpenMeta-authored metadata `meta`
   boxes and from parseable foreign top-level `meta` item graphs that satisfy
   the same bounded merge contract. Foreign graphs without a primary item
