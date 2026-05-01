@@ -9,6 +9,57 @@ Repository layout (public):
 - ``src/python/``: Python bindings and helper scripts
 - ``tests/``: unit tests and fuzz targets
 
+OpenMeta structure
+------------------
+
+OpenMeta's public architecture is organized around a small set of user-facing
+capabilities. Internally some of these split into more stages, but the public
+model should stay compact:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 18 82
+
+   * - Area
+     - Purpose
+   * - Decoding
+     - Find metadata carriers and decode EXIF, XMP, IPTC, ICC, Photoshop IRB,
+       JUMBF/C2PA, EXR, and related blocks into ``MetaStore`` entries.
+   * - Interpretation
+     - Normalize names and values, group entries by meaning, and classify
+       source-bound data such as RAW crop, color, lens-correction, sensor, and
+       vendor-private fields.
+   * - Query / Search
+     - Find entries by name, fuzzy term, or semantic group, for example
+       crop/border/active-area fields or exposure/gain fields across standard
+       and vendor metadata.
+   * - Creation
+     - Build fresh metadata entries from host-provided values.
+   * - Editing
+     - Modify existing logical metadata entries while preserving valid
+       surrounding structure.
+   * - Transfer
+     - Move metadata between files using explicit compatible-file or
+       rendered-image safety policies.
+   * - Translation
+     - Project metadata between families, mainly bounded EXIF/IPTC/XMP portable
+       mappings.
+   * - Writing
+     - Serialize metadata and write or rewrite it into target containers.
+   * - Adapters
+     - Thin integration layers for host APIs or format-specific ecosystems such
+       as EXR, DNG SDK, LibRaw orientation mapping, and flat host exports.
+   * - Utilities
+     - Small standalone helpers such as capability queries, compatibility
+       dumps, safety audits, tag-name lookup, and orientation conversion.
+
+Search/query results should expose both inspection-level matches and
+interpreted candidates. A crop query, for example, may match separate
+``DefaultCropOrigin`` and ``DefaultCropSize`` tags, an ``ActiveArea``
+rectangle, vendor margin fields, or a raw integer array. OpenMeta should return
+the source entries, confidence, value shape, and any normalized interpretation
+rather than hiding ambiguity behind a single value.
+
 Read-path coverage snapshot
 ---------------------------
 
