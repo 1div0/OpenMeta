@@ -387,6 +387,334 @@ namespace {
         return groups;
     }
 
+    static uint32_t classify_casio_ifd(std::string_view ifd) noexcept
+    {
+        uint32_t groups = 0U;
+        if (contains(ifd, "faceinfo")) {
+            groups |= kVendorRawGeometry | kVendorRawPrivateTable;
+        }
+        return groups;
+    }
+
+    static uint32_t classify_casio_name(std::string_view name) noexcept
+    {
+        uint32_t groups = 0U;
+        if (contains(name, "WhiteBalance")) {
+            groups |= kVendorRawColor | kVendorRawWhiteBalance;
+        }
+        if (contains(name, "ImageSize") || contains(name, "PreviewImage")
+            || contains(name, "FaceDetectFrameSize")
+            || contains(name, "FacePosition") || contains(name, "AFPoint")
+            || contains(name, "ObjectDistance")
+            || contains(name, "FlashDistance")
+            || contains(name, "FocalRange")) {
+            groups |= kVendorRawGeometry;
+        }
+        if (contains(name, "PreviewImageLength")
+            || contains(name, "PreviewImageStart")) {
+            groups |= kVendorRawStorage;
+        }
+        if (contains(name, "PreviewImage") || contains(name, "FaceInfo")
+            || contains(name, "FacesDetected") || contains(name, "ArtMode")
+            || contains(name, "SpecialEffect")
+            || contains(name, "PortraitRefiner")
+            || contains(name, "LightingMode") || contains(name, "Enhancement")
+            || contains(name, "ColorFilter") || contains(name, "ColorMode")) {
+            groups |= kVendorRawPrivateTable;
+        }
+        if (contains(name, "ColorFilter") || contains(name, "ColorMode")
+            || contains(name, "Saturation") || contains(name, "Contrast")
+            || contains(name, "Sharpness") || contains(name, "Enhancement")
+            || contains(name, "LightingMode")
+            || contains(name, "SpecialEffect")) {
+            groups |= kVendorRawColor;
+        }
+        return groups;
+    }
+
+    static uint32_t classify_casio_tag(std::string_view ifd,
+                                       uint16_t tag) noexcept
+    {
+        if (contains(ifd, "faceinfo")) {
+            return kVendorRawGeometry | kVendorRawPrivateTable;
+        }
+        if (contains(ifd, "qvci")) {
+            switch (tag) {
+            case 0x0037U: return kVendorRawGeometry | kVendorRawPrivateTable;
+            default: break;
+            }
+            return 0U;
+        }
+        if (!contains(ifd, "type2")) {
+            switch (tag) {
+            case 0x0007U:
+                return kVendorRawColor | kVendorRawWhiteBalance;
+            case 0x000BU:
+            case 0x000CU:
+            case 0x000DU:
+            case 0x0016U:
+            case 0x0017U:
+                return kVendorRawColor | kVendorRawPrivateTable;
+            default: break;
+            }
+            return 0U;
+        }
+        switch (tag) {
+        case 0x0019U:
+        case 0x2011U:
+        case 0x2012U:
+            return kVendorRawColor | kVendorRawWhiteBalance;
+        case 0x0002U:
+        case 0x0003U:
+        case 0x0004U:
+        case 0x0009U:
+        case 0x2000U:
+        case 0x2021U:
+        case 0x2022U:
+        case 0x2034U:
+        case 0x2089U:
+        case 0x211CU:
+            return kVendorRawGeometry | kVendorRawPrivateTable;
+        case 0x0016U:
+        case 0x0017U:
+        case 0x001FU:
+        case 0x0020U:
+        case 0x0021U:
+        case 0x2076U:
+        case 0x3011U:
+        case 0x3012U:
+        case 0x3013U:
+        case 0x3015U:
+        case 0x3016U:
+        case 0x3017U:
+        case 0x301BU:
+        case 0x302AU:
+        case 0x302BU:
+        case 0x3030U:
+        case 0x3031U:
+            return kVendorRawColor | kVendorRawPrivateTable;
+        default: break;
+        }
+        return 0U;
+    }
+
+    static uint32_t classify_sanyo_ifd(std::string_view ifd) noexcept
+    {
+        uint32_t groups = 0U;
+        if (contains(ifd, "faceinfo")) {
+            groups |= kVendorRawGeometry | kVendorRawPrivateTable;
+        }
+        if (contains(ifd, "thumbnail")) {
+            groups |= kVendorRawGeometry | kVendorRawStorage
+                      | kVendorRawPrivateTable;
+        }
+        return groups;
+    }
+
+    static uint32_t classify_sanyo_name(std::string_view name) noexcept
+    {
+        uint32_t groups = 0U;
+        if (contains(name, "WhiteBalance")) {
+            groups |= kVendorRawColor | kVendorRawWhiteBalance;
+        }
+        if (contains(name, "FacePosition") || contains(name, "ThumbnailWidth")
+            || contains(name, "ThumbnailHeight")) {
+            groups |= kVendorRawGeometry;
+        }
+        if (contains(name, "ThumbnailLength")
+            || contains(name, "ThumbnailOffset")
+            || contains(name, "MakerNoteOffset")) {
+            groups |= kVendorRawStorage;
+        }
+        if (contains(name, "DataDump") || contains(name, "PictInfo")
+            || contains(name, "WideRange") || contains(name, "ColorAdjustment")
+            || contains(name, "LightSourceSpecial")
+            || contains(name, "FlickerReduce") || contains(name, "Resaved")
+            || contains(name, "SceneSelect") || contains(name, "Face")) {
+            groups |= kVendorRawPrivateTable;
+        }
+        if (contains(name, "ColorAdjustment")
+            || contains(name, "LightSourceSpecial")
+            || contains(name, "WideRange")) {
+            groups |= kVendorRawColor;
+        }
+        return groups;
+    }
+
+    static uint32_t classify_sanyo_tag(std::string_view ifd,
+                                       uint16_t tag) noexcept
+    {
+        if (contains(ifd, "faceinfo")) {
+            return kVendorRawGeometry | kVendorRawPrivateTable;
+        }
+        if (contains(ifd, "thumbnail")) {
+            return kVendorRawGeometry | kVendorRawStorage
+                   | kVendorRawPrivateTable;
+        }
+        if (contains(ifd, "mov") || contains(ifd, "mp4")) {
+            switch (tag) {
+            case 0x0044U:
+                return kVendorRawColor | kVendorRawWhiteBalance;
+            default: break;
+            }
+            return 0U;
+        }
+        switch (tag) {
+        case 0x00FFU:
+        case 0x0100U:
+        case 0x0F00U:
+            return kVendorRawStorage | kVendorRawPrivateTable;
+        case 0x0208U:
+        case 0x020FU:
+        case 0x0210U:
+        case 0x0218U:
+        case 0x021DU:
+        case 0x021EU:
+        case 0x021FU:
+            return kVendorRawColor | kVendorRawPrivateTable;
+        default: break;
+        }
+        return 0U;
+    }
+
+    static uint32_t classify_kyocera_raw_tag(uint16_t tag) noexcept
+    {
+        switch (tag) {
+        case 0x003CU:
+            return kVendorRawColor | kVendorRawWhiteBalance
+                   | kVendorRawPrivateTable;
+        default: break;
+        }
+        return 0U;
+    }
+
+    static uint32_t classify_reconyx_name(std::string_view name) noexcept
+    {
+        uint32_t groups = 0U;
+        if (name == "Contrast" || name == "Brightness"
+            || name == "Sharpness" || name == "Saturation") {
+            groups |= kVendorRawColor;
+        }
+        if (contains(name, "AmbientTemperature")
+            || name == "AmbientInfrared" || name == "AmbientLight"
+            || name == "InfraredIlluminator" || name == "MotionSensitivity"
+            || name == "BatteryVoltage" || name == "BatteryVoltageAvg"
+            || name == "Illumination" || name == "Flash") {
+            groups |= kVendorRawSensor | kVendorRawPrivateTable;
+        }
+        if (name == "TriggerMode" || name == "Sequence"
+            || name == "EventNumber" || name == "UserLabel") {
+            groups |= kVendorRawPrivateTable;
+        }
+        return groups;
+    }
+
+    static uint32_t classify_hp_name(std::string_view name) noexcept
+    {
+        uint32_t groups = 0U;
+        if (starts_with(name, "HP_0x")) {
+            groups |= kVendorRawPrivateTable;
+        }
+        return groups;
+    }
+
+    static uint32_t classify_jvc_name(std::string_view name) noexcept
+    {
+        uint32_t groups = 0U;
+        if (name == "CPUVersions" || starts_with(name, "JVC_0x")) {
+            groups |= kVendorRawPrivateTable;
+        }
+        return groups;
+    }
+
+    static uint32_t classify_ge_name(std::string_view name) noexcept
+    {
+        uint32_t groups = 0U;
+        if (starts_with(name, "GE_0x")) {
+            groups |= kVendorRawPrivateTable;
+        }
+        return groups;
+    }
+
+    static uint32_t classify_motorola_name(std::string_view name) noexcept
+    {
+        uint32_t groups = 0U;
+        if (name == "CustomRendered") {
+            groups |= kVendorRawColor | kVendorRawPrivateTable;
+        }
+        if (name == "Sensor") {
+            groups |= kVendorRawSensor | kVendorRawPrivateTable;
+        }
+        if (starts_with(name, "Motorola_0x")) {
+            groups |= kVendorRawPrivateTable;
+        }
+        return groups;
+    }
+
+    static uint32_t classify_motorola_tag(uint16_t tag) noexcept
+    {
+        switch (tag) {
+        case 0x6420U: return kVendorRawColor | kVendorRawPrivateTable;
+        case 0x665EU: return kVendorRawSensor | kVendorRawPrivateTable;
+        default: break;
+        }
+        return 0U;
+    }
+
+    static uint32_t classify_nintendo_ifd(std::string_view ifd) noexcept
+    {
+        (void)ifd;
+        uint32_t groups = 0U;
+        return groups;
+    }
+
+    static uint32_t classify_nintendo_name(std::string_view name) noexcept
+    {
+        uint32_t groups = 0U;
+        if (name == "Parallax") {
+            groups |= kVendorRawGeometry | kVendorRawPrivateTable;
+        }
+        if (name == "CameraInfo" || starts_with(name, "Nintendo_0x")) {
+            groups |= kVendorRawPrivateTable;
+        }
+        return groups;
+    }
+
+    static uint32_t classify_nintendo_tag(std::string_view ifd,
+                                          uint16_t tag) noexcept
+    {
+        if (contains(ifd, "camerainfo") && tag == 0x0028U) {
+            return kVendorRawGeometry | kVendorRawPrivateTable;
+        }
+        if (!contains(ifd, "camerainfo")) {
+            switch (tag) {
+            case 0x1000U:
+            case 0x1001U:
+            case 0x1101U: return kVendorRawPrivateTable;
+            default: break;
+            }
+        }
+        return 0U;
+    }
+
+    static uint32_t classify_microsoft_ifd(std::string_view ifd) noexcept
+    {
+        uint32_t groups = 0U;
+        if (contains(ifd, "stitch")) {
+            groups |= kVendorRawGeometry | kVendorRawPrivateTable;
+        }
+        return groups;
+    }
+
+    static uint32_t classify_microsoft_name(std::string_view name) noexcept
+    {
+        uint32_t groups = 0U;
+        if (contains(name, "PanoramicStitch")) {
+            groups |= kVendorRawGeometry | kVendorRawPrivateTable;
+        }
+        return groups;
+    }
+
     static uint32_t classify_name(std::string_view name) noexcept
     {
         uint32_t groups = 0U;
@@ -491,6 +819,24 @@ namespace {
             return starts_with(ifd, "mk_google");
         case VendorRawProcessingFamily::Flir:
             return starts_with(ifd, "mk_flir");
+        case VendorRawProcessingFamily::Casio:
+            return starts_with(ifd, "mk_casio");
+        case VendorRawProcessingFamily::Sanyo:
+            return starts_with(ifd, "mk_sanyo");
+        case VendorRawProcessingFamily::KyoceraRaw:
+            return starts_with(ifd, "mk_kyoceraraw")
+                   || starts_with(ifd, "mk_kyocera");
+        case VendorRawProcessingFamily::Reconyx:
+            return starts_with(ifd, "mk_reconyx");
+        case VendorRawProcessingFamily::Hp: return starts_with(ifd, "mk_hp");
+        case VendorRawProcessingFamily::Jvc: return starts_with(ifd, "mk_jvc");
+        case VendorRawProcessingFamily::Ge: return starts_with(ifd, "mk_ge");
+        case VendorRawProcessingFamily::Motorola:
+            return starts_with(ifd, "mk_motorola");
+        case VendorRawProcessingFamily::Nintendo:
+            return starts_with(ifd, "mk_nintendo");
+        case VendorRawProcessingFamily::Microsoft:
+            return starts_with(ifd, "mk_microsoft");
         }
         return false;
     }
@@ -574,6 +920,35 @@ classify_vendor_raw_processing_field(std::string_view ifd,
     } else if (starts_with(ifd, "mk_flir")) {
         groups |= classify_flir_ifd(ifd);
         groups |= classify_flir_name(name);
+    } else if (starts_with(ifd, "mk_casio")) {
+        groups |= classify_casio_ifd(ifd);
+        groups |= classify_casio_name(name);
+        groups |= classify_casio_tag(ifd, tag);
+    } else if (starts_with(ifd, "mk_sanyo")) {
+        groups |= classify_sanyo_ifd(ifd);
+        groups |= classify_sanyo_name(name);
+        groups |= classify_sanyo_tag(ifd, tag);
+    } else if (starts_with(ifd, "mk_kyoceraraw")
+               || starts_with(ifd, "mk_kyocera")) {
+        groups |= classify_kyocera_raw_tag(tag);
+    } else if (starts_with(ifd, "mk_reconyx")) {
+        groups |= classify_reconyx_name(name);
+    } else if (starts_with(ifd, "mk_hp")) {
+        groups |= classify_hp_name(name);
+    } else if (starts_with(ifd, "mk_jvc")) {
+        groups |= classify_jvc_name(name);
+    } else if (starts_with(ifd, "mk_ge")) {
+        groups |= classify_ge_name(name);
+    } else if (starts_with(ifd, "mk_motorola")) {
+        groups |= classify_motorola_name(name);
+        groups |= classify_motorola_tag(tag);
+    } else if (starts_with(ifd, "mk_nintendo")) {
+        groups |= classify_nintendo_ifd(ifd);
+        groups |= classify_nintendo_name(name);
+        groups |= classify_nintendo_tag(ifd, tag);
+    } else if (starts_with(ifd, "mk_microsoft")) {
+        groups |= classify_microsoft_ifd(ifd);
+        groups |= classify_microsoft_name(name);
     } else {
         return VendorRawProcessingGroup::None;
     }
@@ -636,6 +1011,16 @@ vendor_raw_processing_family_name(VendorRawProcessingFamily family) noexcept
     case VendorRawProcessingFamily::Dji: return "dji";
     case VendorRawProcessingFamily::Google: return "google";
     case VendorRawProcessingFamily::Flir: return "flir";
+    case VendorRawProcessingFamily::Casio: return "casio";
+    case VendorRawProcessingFamily::Sanyo: return "sanyo";
+    case VendorRawProcessingFamily::KyoceraRaw: return "kyoceraraw";
+    case VendorRawProcessingFamily::Reconyx: return "reconyx";
+    case VendorRawProcessingFamily::Hp: return "hp";
+    case VendorRawProcessingFamily::Jvc: return "jvc";
+    case VendorRawProcessingFamily::Ge: return "ge";
+    case VendorRawProcessingFamily::Motorola: return "motorola";
+    case VendorRawProcessingFamily::Nintendo: return "nintendo";
+    case VendorRawProcessingFamily::Microsoft: return "microsoft";
     }
     return "unknown";
 }

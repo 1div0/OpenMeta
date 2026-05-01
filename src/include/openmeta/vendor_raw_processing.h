@@ -31,6 +31,16 @@ enum class VendorRawProcessingFamily : uint8_t {
     Dji,
     Google,
     Flir,
+    Casio,
+    Sanyo,
+    KyoceraRaw,
+    Reconyx,
+    Hp,
+    Jvc,
+    Ge,
+    Motorola,
+    Nintendo,
+    Microsoft,
 };
 
 enum class VendorRawProcessingGroup : uint32_t {

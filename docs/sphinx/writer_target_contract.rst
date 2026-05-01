@@ -58,12 +58,15 @@ target-owned image-layout filter above. ``RenderedImage`` is for exports whose
 pixels may have changed, including RAW-to-rendered outputs. It keeps general
 descriptive metadata, time fields, GPS, IPTC, and portable XMP, but filters
 source raw color calibration, linearization/crop/correction tags, vendor RAW
-geometry/color/correction tags for Phase One/Leaf, Sony, Canon, Nikon,
-Fujifilm, Pentax, Panasonic, Olympus, Kodak, Minolta, Sigma, Samsung, and
-Ricoh, Apple/Google computational capture fields, DJI/FLIR thermal processing
-fields, camera raw settings XMP, source ICC profiles, MakerNotes, and non-C2PA
-JUMBF data. Host code should provide target-correct ICC/profile data and image
-specs separately.
+geometry/color/correction/private tags for Phase One/Leaf, Sony, Canon, Nikon,
+Fujifilm, Pentax, Panasonic, Olympus, Kodak, Minolta, Sigma, Samsung, Ricoh,
+Apple/Google computational capture fields, DJI/FLIR thermal processing fields,
+Casio/Sanyo preview or face-geometry fields, KyoceraRaw WB fields, Reconyx
+trail-camera processing/environment fields, HP/JVC/GE private placeholders,
+Motorola source-rendering/sensor fields, Nintendo parallax/camera-info fields,
+Microsoft stitch/panorama geometry fields, camera raw settings XMP, source ICC
+profiles, MakerNotes, and non-C2PA JUMBF data. Host code should provide
+target-correct ICC/profile data and image specs separately.
 
 .. _transfer-safety-matrix:
 
@@ -137,8 +140,9 @@ controls. Hosts may still strip more metadata.
        ``ColorMatrix1``, ``ColorMatrix2``, ``WB_RGBLevels``,
        sensor-calibration flat fields and linearization coefficients,
        Sony/Canon/Nikon/Fujifilm/Pentax/Panasonic/Olympus/Kodak/Minolta/
-       Sigma/Samsung/Ricoh/Apple MakerNote color, HDR, and white-balance
-       coefficient tables
+       Sigma/Samsung/Ricoh/Apple/Casio/Sanyo/KyoceraRaw/Reconyx/Motorola
+       MakerNote color, HDR, source-rendering, and white-balance coefficient
+       tables
      - Keep only for compatible RAW/DNG-style transfer
      - Drop
      - These values describe how to turn original sensor data into rendered
@@ -160,7 +164,11 @@ controls. Hosts may still strip more metadata.
        raw-histogram fields, Samsung Type2 raw/color/correction fields, Ricoh
        sensor/crop/vignetting fields, Apple computational capture/HDR fields,
        Google HDR+ and shot-log fields, DJI thermal parameter tables, FLIR
-       thermal raw-data/radiometric calibration/palette/PiP fields, Canon
+       thermal raw-data/radiometric calibration/palette/PiP fields,
+       Casio/Sanyo preview image, face geometry, and private data-dump fields,
+       Reconyx trail-camera environment/trigger fields, HP/JVC/GE private
+       placeholders, Motorola sensor fields, Nintendo parallax/camera-info
+       fields, Microsoft stitch/panorama geometry fields, Canon
        crop/aspect/color-data tables, and Nikon NEF/distortion/vignette tables
        or named correction fields
      - Keep only for compatible RAW/DNG-style transfer

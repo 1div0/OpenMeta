@@ -539,6 +539,201 @@ TEST(VendorRawProcessing, ClassifiesFlirThermalProcessingFields)
     EXPECT_EQ(capture_groups, VendorRawProcessingGroup::None);
 }
 
+TEST(VendorRawProcessing, ClassifiesCasioSourceProcessingFields)
+{
+    const VendorRawProcessingGroup wb_groups
+        = classify_vendor_raw_processing_field("mk_casio_type2_0",
+                                               "WhiteBalanceBias", 0x2011U);
+    EXPECT_TRUE(has_group(wb_groups, VendorRawProcessingGroup::WhiteBalance));
+    EXPECT_TRUE(has_group(wb_groups, VendorRawProcessingGroup::Color));
+
+    const VendorRawProcessingGroup preview_groups
+        = classify_vendor_raw_processing_field("mk_casio_type2_0",
+                                               "PreviewImageStart", 0x0004U);
+    EXPECT_TRUE(has_group(preview_groups, VendorRawProcessingGroup::Geometry));
+    EXPECT_TRUE(has_group(preview_groups, VendorRawProcessingGroup::Storage));
+    EXPECT_TRUE(
+        has_group(preview_groups, VendorRawProcessingGroup::PrivateTable));
+
+    const VendorRawProcessingGroup face_groups
+        = classify_vendor_raw_processing_field("mk_casio_faceinfo2_0",
+                                               "Face1Position", 0x0018U);
+    EXPECT_TRUE(has_group(face_groups, VendorRawProcessingGroup::Geometry));
+    EXPECT_TRUE(has_group(face_groups, VendorRawProcessingGroup::PrivateTable));
+
+    const VendorRawProcessingGroup color_groups
+        = classify_vendor_raw_processing_field("mk_casio_type2_0", "ArtMode",
+                                               0x301BU);
+    EXPECT_TRUE(has_group(color_groups, VendorRawProcessingGroup::Color));
+    EXPECT_TRUE(
+        has_group(color_groups, VendorRawProcessingGroup::PrivateTable));
+
+    const VendorRawProcessingGroup capture_groups
+        = classify_vendor_raw_processing_field("mk_casio_type2_0", "Quality",
+                                               0x3002U);
+    EXPECT_EQ(capture_groups, VendorRawProcessingGroup::None);
+}
+
+TEST(VendorRawProcessing, ClassifiesSanyoSourceProcessingFields)
+{
+    const VendorRawProcessingGroup wb_groups
+        = classify_vendor_raw_processing_field("mk_sanyo_mov_0",
+                                               "WhiteBalance", 0x0044U);
+    EXPECT_TRUE(has_group(wb_groups, VendorRawProcessingGroup::WhiteBalance));
+    EXPECT_TRUE(has_group(wb_groups, VendorRawProcessingGroup::Color));
+
+    const VendorRawProcessingGroup dump_groups
+        = classify_vendor_raw_processing_field("mk_sanyo0", "DataDump",
+                                               0x0F00U);
+    EXPECT_TRUE(has_group(dump_groups, VendorRawProcessingGroup::Storage));
+    EXPECT_TRUE(has_group(dump_groups, VendorRawProcessingGroup::PrivateTable));
+
+    const VendorRawProcessingGroup face_groups
+        = classify_vendor_raw_processing_field("mk_sanyo_faceinfo_0",
+                                               "FacePosition", 0x0004U);
+    EXPECT_TRUE(has_group(face_groups, VendorRawProcessingGroup::Geometry));
+    EXPECT_TRUE(has_group(face_groups, VendorRawProcessingGroup::PrivateTable));
+
+    const VendorRawProcessingGroup capture_groups
+        = classify_vendor_raw_processing_field("mk_sanyo_mov_0", "Make",
+                                               0x0000U);
+    EXPECT_EQ(capture_groups, VendorRawProcessingGroup::None);
+}
+
+TEST(VendorRawProcessing, ClassifiesKyoceraRawProcessingFields)
+{
+    const VendorRawProcessingGroup wb_groups
+        = classify_vendor_raw_processing_field("mk_kyoceraraw0",
+                                               "WB_RGGBLevels", 0x003CU);
+    EXPECT_TRUE(has_group(wb_groups, VendorRawProcessingGroup::WhiteBalance));
+    EXPECT_TRUE(has_group(wb_groups, VendorRawProcessingGroup::Color));
+    EXPECT_TRUE(has_group(wb_groups, VendorRawProcessingGroup::PrivateTable));
+
+    const VendorRawProcessingGroup capture_groups
+        = classify_vendor_raw_processing_field("mk_kyoceraraw0", "Model",
+                                               0x000CU);
+    EXPECT_EQ(capture_groups, VendorRawProcessingGroup::None);
+}
+
+TEST(VendorRawProcessing, ClassifiesReconyxSourceProcessingFields)
+{
+    const VendorRawProcessingGroup color_groups
+        = classify_vendor_raw_processing_field("mk_reconyx_hyperfire2_0",
+                                               "Contrast", 0x0052U);
+    EXPECT_TRUE(has_group(color_groups, VendorRawProcessingGroup::Color));
+
+    const VendorRawProcessingGroup sensor_groups
+        = classify_vendor_raw_processing_field("mk_reconyx_hyperfire2_0",
+                                               "AmbientTemperature", 0x0050U);
+    EXPECT_TRUE(has_group(sensor_groups, VendorRawProcessingGroup::Sensor));
+    EXPECT_TRUE(has_group(sensor_groups,
+                          VendorRawProcessingGroup::PrivateTable));
+
+    const VendorRawProcessingGroup private_groups
+        = classify_vendor_raw_processing_field("mk_reconyx_hyperfire2_0",
+                                               "TriggerMode", 0x0034U);
+    EXPECT_TRUE(
+        has_group(private_groups, VendorRawProcessingGroup::PrivateTable));
+
+    const VendorRawProcessingGroup capture_groups
+        = classify_vendor_raw_processing_field("mk_reconyx_hyperfire2_0",
+                                               "SerialNumber", 0x007EU);
+    EXPECT_EQ(capture_groups, VendorRawProcessingGroup::None);
+}
+
+TEST(VendorRawProcessing, ClassifiesHpSourceProcessingFields)
+{
+    const VendorRawProcessingGroup private_groups
+        = classify_vendor_raw_processing_field("mk_hp0", "HP_0x0200",
+                                               0x0200U);
+    EXPECT_TRUE(
+        has_group(private_groups, VendorRawProcessingGroup::PrivateTable));
+
+    const VendorRawProcessingGroup capture_groups
+        = classify_vendor_raw_processing_field("mk_hp_type6_0",
+                                               "SerialNumber", 0x0058U);
+    EXPECT_EQ(capture_groups, VendorRawProcessingGroup::None);
+}
+
+TEST(VendorRawProcessing, ClassifiesJvcSourceProcessingFields)
+{
+    const VendorRawProcessingGroup cpu_groups
+        = classify_vendor_raw_processing_field("mk_jvc0", "CPUVersions",
+                                               0x0002U);
+    EXPECT_TRUE(has_group(cpu_groups, VendorRawProcessingGroup::PrivateTable));
+
+    const VendorRawProcessingGroup capture_groups
+        = classify_vendor_raw_processing_field("mk_jvc0", "Quality", 0x0003U);
+    EXPECT_EQ(capture_groups, VendorRawProcessingGroup::None);
+}
+
+TEST(VendorRawProcessing, ClassifiesGeSourceProcessingFields)
+{
+    const VendorRawProcessingGroup private_groups
+        = classify_vendor_raw_processing_field("mk_ge0", "GE_0x0104",
+                                               0x0104U);
+    EXPECT_TRUE(
+        has_group(private_groups, VendorRawProcessingGroup::PrivateTable));
+
+    const VendorRawProcessingGroup capture_groups
+        = classify_vendor_raw_processing_field("mk_ge0", "GEModel", 0x0207U);
+    EXPECT_EQ(capture_groups, VendorRawProcessingGroup::None);
+}
+
+TEST(VendorRawProcessing, ClassifiesMotorolaSourceProcessingFields)
+{
+    const VendorRawProcessingGroup rendered_groups
+        = classify_vendor_raw_processing_field("mk_motorola0",
+                                               "CustomRendered", 0x6420U);
+    EXPECT_TRUE(has_group(rendered_groups, VendorRawProcessingGroup::Color));
+    EXPECT_TRUE(has_group(rendered_groups,
+                          VendorRawProcessingGroup::PrivateTable));
+
+    const VendorRawProcessingGroup sensor_groups
+        = classify_vendor_raw_processing_field("mk_motorola0", "Sensor",
+                                               0x665EU);
+    EXPECT_TRUE(has_group(sensor_groups, VendorRawProcessingGroup::Sensor));
+    EXPECT_TRUE(has_group(sensor_groups,
+                          VendorRawProcessingGroup::PrivateTable));
+
+    const VendorRawProcessingGroup capture_groups
+        = classify_vendor_raw_processing_field("mk_motorola0", "SerialNumber",
+                                               0x5501U);
+    EXPECT_EQ(capture_groups, VendorRawProcessingGroup::None);
+}
+
+TEST(VendorRawProcessing, ClassifiesNintendoSourceProcessingFields)
+{
+    const VendorRawProcessingGroup geometry_groups
+        = classify_vendor_raw_processing_field("mk_nintendo_camerainfo_0",
+                                               "Parallax", 0x0028U);
+    EXPECT_TRUE(has_group(geometry_groups, VendorRawProcessingGroup::Geometry));
+    EXPECT_TRUE(has_group(geometry_groups,
+                          VendorRawProcessingGroup::PrivateTable));
+
+    const VendorRawProcessingGroup private_groups
+        = classify_vendor_raw_processing_field("mk_nintendo0", "CameraInfo",
+                                               0x1101U);
+    EXPECT_TRUE(
+        has_group(private_groups, VendorRawProcessingGroup::PrivateTable));
+
+    const VendorRawProcessingGroup capture_groups
+        = classify_vendor_raw_processing_field("mk_nintendo_camerainfo_0",
+                                               "ModelID", 0x0000U);
+    EXPECT_EQ(capture_groups, VendorRawProcessingGroup::None);
+}
+
+TEST(VendorRawProcessing, ClassifiesMicrosoftSourceProcessingFields)
+{
+    const VendorRawProcessingGroup stitch_groups
+        = classify_vendor_raw_processing_field("mk_microsoft_stitch_0",
+                                               "PanoramicStitchTheta0",
+                                               0x0003U);
+    EXPECT_TRUE(has_group(stitch_groups, VendorRawProcessingGroup::Geometry));
+    EXPECT_TRUE(has_group(stitch_groups,
+                          VendorRawProcessingGroup::PrivateTable));
+}
+
 TEST(VendorRawProcessing, SummarizesFamiliesFromStore)
 {
     MetaStore store;
@@ -633,6 +828,44 @@ TEST(VendorRawProcessing, SummarizesFamiliesFromStore)
     add_exif_u32(&store, "mk_flir_fff_paletteinfo_0", 0x0050U, 1U);
     add_exif_u32(&store, "mk_flir_fff_pip_0", 0x0004U, 1U);
     add_exif_u32(&store, "mk_flir_fff_camerainfo_0", 0x00D4U, 1U);
+
+    add_exif_u32(&store, "mk_casio_type2_0", 0x2011U, 1U);
+    add_exif_u32(&store, "mk_casio_type2_0", 0x0004U, 1U);
+    add_exif_u32(&store, "mk_casio_faceinfo2_0", 0x0018U, 1U);
+    add_exif_u32(&store, "mk_casio_type2_0", 0x301BU, 1U);
+    add_exif_u32(&store, "mk_casio_type2_0", 0x3002U, 1U);
+
+    add_exif_u32(&store, "mk_sanyo_mov_0", 0x0044U, 1U);
+    add_exif_u32(&store, "mk_sanyo0", 0x0F00U, 1U);
+    add_exif_u32(&store, "mk_sanyo_faceinfo_0", 0x0004U, 1U);
+    add_exif_u32(&store, "mk_sanyo_mov_0", 0x0000U, 1U);
+
+    add_exif_u32(&store, "mk_kyoceraraw0", 0x003CU, 1U);
+    add_exif_u32(&store, "mk_kyoceraraw0", 0x000CU, 1U);
+
+    add_exif_u32(&store, "mk_reconyx_hyperfire2_0", 0x0052U, 1U);
+    add_exif_u32(&store, "mk_reconyx_hyperfire2_0", 0x0050U, 1U);
+    add_exif_u32(&store, "mk_reconyx_hyperfire2_0", 0x0034U, 1U);
+    add_exif_u32(&store, "mk_reconyx_hyperfire2_0", 0x007EU, 1U);
+
+    add_exif_u32(&store, "mk_hp0", 0x0200U, 1U);
+    add_exif_u32(&store, "mk_hp_type6_0", 0x0058U, 1U);
+
+    add_exif_u32(&store, "mk_jvc0", 0x0002U, 1U);
+    add_exif_u32(&store, "mk_jvc0", 0x0003U, 1U);
+
+    add_exif_u32(&store, "mk_ge0", 0x0104U, 1U);
+    add_exif_u32(&store, "mk_ge0", 0x0207U, 1U);
+
+    add_exif_u32(&store, "mk_motorola0", 0x6420U, 1U);
+    add_exif_u32(&store, "mk_motorola0", 0x665EU, 1U);
+    add_exif_u32(&store, "mk_motorola0", 0x5501U, 1U);
+
+    add_exif_u32(&store, "mk_nintendo_camerainfo_0", 0x0028U, 1U);
+    add_exif_u32(&store, "mk_nintendo0", 0x1101U, 1U);
+    add_exif_u32(&store, "mk_nintendo_camerainfo_0", 0x0000U, 1U);
+
+    add_exif_u32(&store, "mk_microsoft_stitch_0", 0x0003U, 1U);
     store.finalize();
 
     const VendorRawProcessingSummary sony
@@ -791,6 +1024,82 @@ TEST(VendorRawProcessing, SummarizesFamiliesFromStore)
     EXPECT_EQ(flir.raw_data_fields, 1U);
     EXPECT_EQ(flir.sensor_fields, 2U);
     EXPECT_EQ(flir.private_table_fields, 3U);
+
+    const VendorRawProcessingSummary casio
+        = vendor_raw_processing_from_store(store,
+                                           VendorRawProcessingFamily::Casio);
+    EXPECT_EQ(casio.fields_seen, 4U);
+    EXPECT_EQ(casio.color_fields, 2U);
+    EXPECT_EQ(casio.white_balance_fields, 1U);
+    EXPECT_EQ(casio.geometry_fields, 2U);
+    EXPECT_EQ(casio.storage_fields, 1U);
+    EXPECT_EQ(casio.private_table_fields, 3U);
+
+    const VendorRawProcessingSummary sanyo
+        = vendor_raw_processing_from_store(store,
+                                           VendorRawProcessingFamily::Sanyo);
+    EXPECT_EQ(sanyo.fields_seen, 3U);
+    EXPECT_EQ(sanyo.color_fields, 1U);
+    EXPECT_EQ(sanyo.white_balance_fields, 1U);
+    EXPECT_EQ(sanyo.geometry_fields, 1U);
+    EXPECT_EQ(sanyo.storage_fields, 1U);
+    EXPECT_EQ(sanyo.private_table_fields, 2U);
+
+    const VendorRawProcessingSummary kyocera
+        = vendor_raw_processing_from_store(
+            store, VendorRawProcessingFamily::KyoceraRaw);
+    EXPECT_EQ(kyocera.fields_seen, 1U);
+    EXPECT_EQ(kyocera.color_fields, 1U);
+    EXPECT_EQ(kyocera.white_balance_fields, 1U);
+    EXPECT_EQ(kyocera.private_table_fields, 1U);
+
+    const VendorRawProcessingSummary reconyx
+        = vendor_raw_processing_from_store(store,
+                                           VendorRawProcessingFamily::Reconyx);
+    EXPECT_EQ(reconyx.fields_seen, 3U);
+    EXPECT_EQ(reconyx.color_fields, 1U);
+    EXPECT_EQ(reconyx.sensor_fields, 1U);
+    EXPECT_EQ(reconyx.private_table_fields, 2U);
+
+    const VendorRawProcessingSummary hp
+        = vendor_raw_processing_from_store(store,
+                                           VendorRawProcessingFamily::Hp);
+    EXPECT_EQ(hp.fields_seen, 1U);
+    EXPECT_EQ(hp.private_table_fields, 1U);
+
+    const VendorRawProcessingSummary jvc
+        = vendor_raw_processing_from_store(store,
+                                           VendorRawProcessingFamily::Jvc);
+    EXPECT_EQ(jvc.fields_seen, 1U);
+    EXPECT_EQ(jvc.private_table_fields, 1U);
+
+    const VendorRawProcessingSummary ge
+        = vendor_raw_processing_from_store(store,
+                                           VendorRawProcessingFamily::Ge);
+    EXPECT_EQ(ge.fields_seen, 1U);
+    EXPECT_EQ(ge.private_table_fields, 1U);
+
+    const VendorRawProcessingSummary motorola
+        = vendor_raw_processing_from_store(
+            store, VendorRawProcessingFamily::Motorola);
+    EXPECT_EQ(motorola.fields_seen, 2U);
+    EXPECT_EQ(motorola.color_fields, 1U);
+    EXPECT_EQ(motorola.sensor_fields, 1U);
+    EXPECT_EQ(motorola.private_table_fields, 2U);
+
+    const VendorRawProcessingSummary nintendo
+        = vendor_raw_processing_from_store(
+            store, VendorRawProcessingFamily::Nintendo);
+    EXPECT_EQ(nintendo.fields_seen, 2U);
+    EXPECT_EQ(nintendo.geometry_fields, 1U);
+    EXPECT_EQ(nintendo.private_table_fields, 2U);
+
+    const VendorRawProcessingSummary microsoft
+        = vendor_raw_processing_from_store(
+            store, VendorRawProcessingFamily::Microsoft);
+    EXPECT_EQ(microsoft.fields_seen, 1U);
+    EXPECT_EQ(microsoft.geometry_fields, 1U);
+    EXPECT_EQ(microsoft.private_table_fields, 1U);
 }
 
 TEST(VendorRawProcessing, IgnoresStandardExifIfds)

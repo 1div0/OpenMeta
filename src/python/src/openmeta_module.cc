@@ -916,6 +916,33 @@ namespace {
             VendorRawProcessingFamily::Google, audit.google_raw_processing);
         out["flir_raw_processing"] = vendor_raw_processing_summary_to_python(
             VendorRawProcessingFamily::Flir, audit.flir_raw_processing);
+        out["casio_raw_processing"] = vendor_raw_processing_summary_to_python(
+            VendorRawProcessingFamily::Casio, audit.casio_raw_processing);
+        out["sanyo_raw_processing"] = vendor_raw_processing_summary_to_python(
+            VendorRawProcessingFamily::Sanyo, audit.sanyo_raw_processing);
+        out["kyocera_raw_processing"] = vendor_raw_processing_summary_to_python(
+            VendorRawProcessingFamily::KyoceraRaw,
+            audit.kyocera_raw_processing);
+        out["reconyx_raw_processing"] = vendor_raw_processing_summary_to_python(
+            VendorRawProcessingFamily::Reconyx, audit.reconyx_raw_processing);
+        out["hp_raw_processing"] = vendor_raw_processing_summary_to_python(
+            VendorRawProcessingFamily::Hp, audit.hp_raw_processing);
+        out["jvc_raw_processing"] = vendor_raw_processing_summary_to_python(
+            VendorRawProcessingFamily::Jvc, audit.jvc_raw_processing);
+        out["ge_raw_processing"] = vendor_raw_processing_summary_to_python(
+            VendorRawProcessingFamily::Ge, audit.ge_raw_processing);
+        out["motorola_raw_processing"]
+            = vendor_raw_processing_summary_to_python(
+                VendorRawProcessingFamily::Motorola,
+                audit.motorola_raw_processing);
+        out["nintendo_raw_processing"]
+            = vendor_raw_processing_summary_to_python(
+                VendorRawProcessingFamily::Nintendo,
+                audit.nintendo_raw_processing);
+        out["microsoft_raw_processing"]
+            = vendor_raw_processing_summary_to_python(
+                VendorRawProcessingFamily::Microsoft,
+                audit.microsoft_raw_processing);
         return out;
     }
 
@@ -5065,7 +5092,17 @@ NB_MODULE(_openmeta, m)
         .value("Apple", VendorRawProcessingFamily::Apple)
         .value("Dji", VendorRawProcessingFamily::Dji)
         .value("Google", VendorRawProcessingFamily::Google)
-        .value("Flir", VendorRawProcessingFamily::Flir);
+        .value("Flir", VendorRawProcessingFamily::Flir)
+        .value("Casio", VendorRawProcessingFamily::Casio)
+        .value("Sanyo", VendorRawProcessingFamily::Sanyo)
+        .value("KyoceraRaw", VendorRawProcessingFamily::KyoceraRaw)
+        .value("Reconyx", VendorRawProcessingFamily::Reconyx)
+        .value("Hp", VendorRawProcessingFamily::Hp)
+        .value("Jvc", VendorRawProcessingFamily::Jvc)
+        .value("Ge", VendorRawProcessingFamily::Ge)
+        .value("Motorola", VendorRawProcessingFamily::Motorola)
+        .value("Nintendo", VendorRawProcessingFamily::Nintendo)
+        .value("Microsoft", VendorRawProcessingFamily::Microsoft);
 
     nb::enum_<VendorRawProcessingGroup>(m, "VendorRawProcessingGroup")
         .value("None_", VendorRawProcessingGroup::None)

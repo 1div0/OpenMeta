@@ -208,10 +208,10 @@ Implemented:
 - rendered-output safety mode: `TransferProfile::safety =
   TransferSafetyMode::RenderedImage` additionally drops source raw color
   calibration, linearization/crop/correction metadata, vendor RAW
-  geometry/color/correction fields, camera raw settings XMP, source ICC
-  profiles, MakerNotes, and non-C2PA JUMBF data. It is intended for
-  RAW-to-rendered or otherwise pixel-changing exports where host code must
-  provide target-correct color/profile data.
+  geometry/color/correction/thermal/computational/private/stitch fields,
+  camera raw settings XMP, source ICC profiles, MakerNotes, and non-C2PA JUMBF
+  data. It is intended for RAW-to-rendered or otherwise pixel-changing exports
+  where host code must provide target-correct color/profile data.
 - bounded DNG-style merge policy in the file-helper path:
   source-supplied preview/aux front structures replace the target front
   structures, while existing target page tails and trailing auxiliary

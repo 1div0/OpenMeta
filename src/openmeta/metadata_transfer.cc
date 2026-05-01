@@ -12776,6 +12776,26 @@ transfer_safety_audit_from_store(const MetaStore& store,
         store, VendorRawProcessingFamily::Google);
     out.flir_raw_processing = vendor_raw_processing_from_store(
         store, VendorRawProcessingFamily::Flir);
+    out.casio_raw_processing = vendor_raw_processing_from_store(
+        store, VendorRawProcessingFamily::Casio);
+    out.sanyo_raw_processing = vendor_raw_processing_from_store(
+        store, VendorRawProcessingFamily::Sanyo);
+    out.kyocera_raw_processing = vendor_raw_processing_from_store(
+        store, VendorRawProcessingFamily::KyoceraRaw);
+    out.reconyx_raw_processing = vendor_raw_processing_from_store(
+        store, VendorRawProcessingFamily::Reconyx);
+    out.hp_raw_processing = vendor_raw_processing_from_store(
+        store, VendorRawProcessingFamily::Hp);
+    out.jvc_raw_processing = vendor_raw_processing_from_store(
+        store, VendorRawProcessingFamily::Jvc);
+    out.ge_raw_processing = vendor_raw_processing_from_store(
+        store, VendorRawProcessingFamily::Ge);
+    out.motorola_raw_processing = vendor_raw_processing_from_store(
+        store, VendorRawProcessingFamily::Motorola);
+    out.nintendo_raw_processing = vendor_raw_processing_from_store(
+        store, VendorRawProcessingFamily::Nintendo);
+    out.microsoft_raw_processing = vendor_raw_processing_from_store(
+        store, VendorRawProcessingFamily::Microsoft);
     return out;
 }
 

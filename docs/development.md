@@ -1139,7 +1139,8 @@ Current Python binding entry points:
   source metadata queries.
 - `Document.vendor_raw_processing(family)` for
   Sony/Canon/Nikon/Fujifilm/Pentax/Panasonic/Olympus/Kodak/Minolta/Sigma/
-  Samsung/Ricoh/Apple/DJI/Google/FLIR grouped RAW/source-processing field
+  Samsung/Ricoh/Apple/DJI/Google/FLIR/Casio/Sanyo/KyoceraRaw/Reconyx/HP/JVC/
+  GE/Motorola/Nintendo/Microsoft grouped RAW/source-processing field
   summaries.
 
 Current C++ interop entry points:

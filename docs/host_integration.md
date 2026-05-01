@@ -430,7 +430,7 @@ Use `TransferProfile::safety` for the broad source/destination relationship:
 | Mode | Use when | Transfer policy |
 | --- | --- | --- |
 | `CompatibleFile` | Metadata is repackaged or recompressed into a compatible file/pixel representation | Preserve source camera, color, ICC, and camera-specific data except target-owned image-layout fields |
-| `RenderedImage` | Pixels may have changed, especially RAW-to-JPEG/PNG/WebP/JXL/HEIF/AVIF export | Keep general/time/GPS/IPTC/portable XMP; drop source raw color calibration, linearization/crop/correction metadata, vendor RAW/source-processing geometry/color/correction/thermal/computational fields, camera raw settings XMP, source ICC, opaque MakerNotes, and non-C2PA JUMBF |
+| `RenderedImage` | Pixels may have changed, especially RAW-to-JPEG/PNG/WebP/JXL/HEIF/AVIF export | Keep general/time/GPS/IPTC/portable XMP; drop source raw color calibration, linearization/crop/correction metadata, vendor RAW/source-processing geometry/color/correction/thermal/computational/private/stitch fields, camera raw settings XMP, source ICC, opaque MakerNotes, and non-C2PA JUMBF |
 
 See [writer_target_contract.md](writer_target_contract.md#transfer-safety-matrix)
 for the detailed per-group transfer matrix.
@@ -525,12 +525,14 @@ The `metaread` command prints compact `phaseone_raw_geometry=...` and
 ## 10. Query Vendor RAW Processing Metadata
 
 For Sony, Canon, Nikon, Fujifilm, Pentax, Panasonic, Olympus, Kodak, Minolta,
-Sigma, Samsung, Ricoh, Apple, DJI, Google, and FLIR, OpenMeta exposes a
+Sigma, Samsung, Ricoh, Apple, DJI, Google, FLIR, Casio, Sanyo, KyoceraRaw,
+Reconyx, HP, JVC, GE, Motorola, Nintendo, and Microsoft, OpenMeta exposes a
 conservative grouped summary instead of vendor-specific decoded values. The
 helper reports whether decoded MakerNote fields look like source RAW color/WB,
 geometry/storage, lens correction, raw-data, sensor-calibration,
-computational, thermal, or vendor-private table metadata. Use it to audit
-transfer safety decisions and host UI, not as a rendered-output write source.
+computational, thermal, preview/face geometry, stitch/panorama geometry, or
+vendor-private table metadata. Use it to audit transfer safety decisions and
+host UI, not as a rendered-output write source.
 
 ```cpp
 #include "openmeta/vendor_raw_processing.h"
@@ -568,7 +570,7 @@ print(audit["filtered_raw_color_calibration"])
 ```
 
 `metaread` prints
-`vendor_raw_processing[sony|canon|nikon|fujifilm|pentax|panasonic|olympus|kodak|minolta|sigma|samsung|ricoh]=...`
+`vendor_raw_processing[sony|canon|nikon|fujifilm|pentax|panasonic|olympus|kodak|minolta|sigma|samsung|ricoh|apple|dji|google|flir|casio|sanyo|kyoceraraw|reconyx|hp|jvc|ge|motorola|nintendo|microsoft]=...`
 summaries when matching decoded fields are present.
 
 ## 11. Build `MetaStore` Yourself

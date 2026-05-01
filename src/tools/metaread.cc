@@ -241,6 +241,16 @@ namespace {
         print_vendor_raw_summary(store, VendorRawProcessingFamily::Dji);
         print_vendor_raw_summary(store, VendorRawProcessingFamily::Google);
         print_vendor_raw_summary(store, VendorRawProcessingFamily::Flir);
+        print_vendor_raw_summary(store, VendorRawProcessingFamily::Casio);
+        print_vendor_raw_summary(store, VendorRawProcessingFamily::Sanyo);
+        print_vendor_raw_summary(store, VendorRawProcessingFamily::KyoceraRaw);
+        print_vendor_raw_summary(store, VendorRawProcessingFamily::Reconyx);
+        print_vendor_raw_summary(store, VendorRawProcessingFamily::Hp);
+        print_vendor_raw_summary(store, VendorRawProcessingFamily::Jvc);
+        print_vendor_raw_summary(store, VendorRawProcessingFamily::Ge);
+        print_vendor_raw_summary(store, VendorRawProcessingFamily::Motorola);
+        print_vendor_raw_summary(store, VendorRawProcessingFamily::Nintendo);
+        print_vendor_raw_summary(store, VendorRawProcessingFamily::Microsoft);
     }
 
 

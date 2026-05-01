@@ -416,6 +416,16 @@ struct TransferSafetyAudit final {
     VendorRawProcessingSummary dji_raw_processing;
     VendorRawProcessingSummary google_raw_processing;
     VendorRawProcessingSummary flir_raw_processing;
+    VendorRawProcessingSummary casio_raw_processing;
+    VendorRawProcessingSummary sanyo_raw_processing;
+    VendorRawProcessingSummary kyocera_raw_processing;
+    VendorRawProcessingSummary reconyx_raw_processing;
+    VendorRawProcessingSummary hp_raw_processing;
+    VendorRawProcessingSummary jvc_raw_processing;
+    VendorRawProcessingSummary ge_raw_processing;
+    VendorRawProcessingSummary motorola_raw_processing;
+    VendorRawProcessingSummary nintendo_raw_processing;
+    VendorRawProcessingSummary microsoft_raw_processing;
 };
 
 /// Effective policy decision captured during bundle preparation.
