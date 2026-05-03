@@ -69,6 +69,17 @@ Host-facing API map
      - ``openmeta/interop_export.h``
      - Stable
      - Stable v1 flat host naming contract. See :doc:`flat_host_mapping`.
+   * - Semantic metadata query: ``query_metadata(...)``,
+       ``query_crop_metadata(...)``, and focused query helpers
+     - ``openmeta/metadata_query.h``
+     - Experimental
+     - Query contract for inspection matches plus normalized candidates.
+       Current coverage includes crop/active-area, exposure/gain, white
+       balance, color, lens correction, and orientation metadata across
+       standard tags, selected DNG tags, fuzzy XMP paths, and vendor
+       RAW-processing classification. Python ``Document`` and
+       ``TransferSourceSnapshot`` mirror this as thin dictionary-returning
+       wrappers.
    * - Vendor RAW-processing summaries:
        ``vendor_raw_processing_from_store(...)``,
        ``classify_vendor_raw_processing_field(...)``

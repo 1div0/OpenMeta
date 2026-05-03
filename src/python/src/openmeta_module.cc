@@ -14,6 +14,7 @@
 #include "openmeta/libraw_adapter.h"
 #include "openmeta/mapped_file.h"
 #include "openmeta/metadata_capabilities.h"
+#include "openmeta/metadata_query.h"
 #include "openmeta/metadata_transfer.h"
 #include "openmeta/ocio_adapter.h"
 #include "openmeta/phaseone_geometry.h"
@@ -854,6 +855,131 @@ namespace {
         return vendor_raw_processing_summary_to_python(family, summary);
     }
 
+    static nb::list
+    metadata_query_entry_ids_to_python(const std::vector<EntryId>& entries)
+    {
+        nb::list out;
+        for (size_t i = 0U; i < entries.size(); ++i) {
+            out.append(nb::int_(entries[i]));
+        }
+        return out;
+    }
+
+    static nb::list
+    metadata_query_values_to_python(const std::vector<double>& values)
+    {
+        nb::list out;
+        for (size_t i = 0U; i < values.size(); ++i) {
+            out.append(nb::float_(values[i]));
+        }
+        return out;
+    }
+
+    static nb::object
+    metadata_query_optional_pair_to_python(bool present, const double* values)
+    {
+        if (!present || !values) {
+            return nb::none();
+        }
+        nb::list out;
+        out.append(nb::float_(values[0]));
+        out.append(nb::float_(values[1]));
+        return out;
+    }
+
+    static nb::object
+    metadata_query_optional_rect_to_python(bool present, const double* values)
+    {
+        if (!present || !values) {
+            return nb::none();
+        }
+        nb::list out;
+        for (uint32_t i = 0U; i < 4U; ++i) {
+            out.append(nb::float_(values[i]));
+        }
+        return out;
+    }
+
+    static nb::dict
+    metadata_query_match_to_python(const MetadataQueryMatch& match)
+    {
+        nb::dict out;
+        out["entry_id"]      = nb::int_(match.entry_id);
+        out["key_kind"]      = match.key_kind;
+        out["semantic"]      = match.semantic;
+        out["semantic_name"] = nb::str(
+            metadata_query_semantic_kind_name(match.semantic));
+        out["shape"]      = match.shape;
+        out["shape_name"] = nb::str(
+            metadata_query_value_shape_name(match.shape));
+        out["confidence"]    = nb::int_(match.confidence);
+        out["matched_terms"] = nb::int_(match.matched_terms);
+        out["exif_tag"]      = nb::int_(match.exif_tag);
+        out["group"]         = sv_to_py(match.group);
+        out["name"]          = sv_to_py(match.name);
+        return out;
+    }
+
+    static nb::dict
+    metadata_query_candidate_to_python(const MetadataQueryCandidate& candidate)
+    {
+        nb::dict out;
+        out["semantic"]      = candidate.semantic;
+        out["semantic_name"] = nb::str(
+            metadata_query_semantic_kind_name(candidate.semantic));
+        out["normalized_shape"]      = candidate.normalized_shape;
+        out["normalized_shape_name"] = nb::str(
+            metadata_query_value_shape_name(candidate.normalized_shape));
+        out["confidence"]     = nb::int_(candidate.confidence);
+        out["source_entries"] = metadata_query_entry_ids_to_python(
+            candidate.source_entries);
+        out["has_origin"] = nb::bool_(candidate.has_origin);
+        out["origin"]
+            = metadata_query_optional_pair_to_python(candidate.has_origin,
+                                                     candidate.origin);
+        out["has_size"] = nb::bool_(candidate.has_size);
+        out["size"] = metadata_query_optional_pair_to_python(candidate.has_size,
+                                                             candidate.size);
+        out["has_rect"] = nb::bool_(candidate.has_rect);
+        out["rect"] = metadata_query_optional_rect_to_python(candidate.has_rect,
+                                                             candidate.rect);
+        out["has_values"] = nb::bool_(candidate.has_values);
+        if (candidate.has_values) {
+            out["values"] = metadata_query_values_to_python(candidate.values);
+        } else {
+            out["values"] = nb::none();
+        }
+        return out;
+    }
+
+    static nb::dict
+    metadata_query_result_to_python(const MetadataQueryResult& result)
+    {
+        nb::list matches;
+        for (size_t i = 0U; i < result.matches.size(); ++i) {
+            matches.append(metadata_query_match_to_python(result.matches[i]));
+        }
+        nb::list candidates;
+        for (size_t i = 0U; i < result.candidates.size(); ++i) {
+            candidates.append(
+                metadata_query_candidate_to_python(result.candidates[i]));
+        }
+
+        nb::dict out;
+        out["kind"]       = result.kind;
+        out["kind_name"]  = nb::str(metadata_query_kind_name(result.kind));
+        out["matches"]    = std::move(matches);
+        out["candidates"] = std::move(candidates);
+        return out;
+    }
+
+    static nb::dict metadata_query_to_python(const MetaStore& store,
+                                             MetadataQueryKind kind)
+    {
+        const MetadataQueryResult result = query_metadata(store, kind);
+        return metadata_query_result_to_python(result);
+    }
+
     static nb::dict
     transfer_safety_audit_to_python(const TransferSafetyAudit& audit)
     {
@@ -886,10 +1012,8 @@ namespace {
             VendorRawProcessingFamily::Canon, audit.canon_raw_processing);
         out["nikon_raw_processing"] = vendor_raw_processing_summary_to_python(
             VendorRawProcessingFamily::Nikon, audit.nikon_raw_processing);
-        out["fujifilm_raw_processing"]
-            = vendor_raw_processing_summary_to_python(
-                VendorRawProcessingFamily::Fujifilm,
-                audit.fujifilm_raw_processing);
+        out["fujifilm_raw_processing"] = vendor_raw_processing_summary_to_python(
+            VendorRawProcessingFamily::Fujifilm, audit.fujifilm_raw_processing);
         out["pentax_raw_processing"] = vendor_raw_processing_summary_to_python(
             VendorRawProcessingFamily::Pentax, audit.pentax_raw_processing);
         out["panasonic_raw_processing"]
@@ -931,14 +1055,10 @@ namespace {
             VendorRawProcessingFamily::Jvc, audit.jvc_raw_processing);
         out["ge_raw_processing"] = vendor_raw_processing_summary_to_python(
             VendorRawProcessingFamily::Ge, audit.ge_raw_processing);
-        out["motorola_raw_processing"]
-            = vendor_raw_processing_summary_to_python(
-                VendorRawProcessingFamily::Motorola,
-                audit.motorola_raw_processing);
-        out["nintendo_raw_processing"]
-            = vendor_raw_processing_summary_to_python(
-                VendorRawProcessingFamily::Nintendo,
-                audit.nintendo_raw_processing);
+        out["motorola_raw_processing"] = vendor_raw_processing_summary_to_python(
+            VendorRawProcessingFamily::Motorola, audit.motorola_raw_processing);
+        out["nintendo_raw_processing"] = vendor_raw_processing_summary_to_python(
+            VendorRawProcessingFamily::Nintendo, audit.nintendo_raw_processing);
         out["microsoft_raw_processing"]
             = vendor_raw_processing_summary_to_python(
                 VendorRawProcessingFamily::Microsoft,
@@ -4808,6 +4928,53 @@ snapshot_vendor_raw_processing(const TransferSourceSnapshot& snapshot,
 }
 
 static nb::dict
+snapshot_metadata_query(const TransferSourceSnapshot& snapshot,
+                        MetadataQueryKind kind)
+{
+    return metadata_query_to_python(snapshot.store, kind);
+}
+
+static nb::dict
+snapshot_query_crop_metadata(const TransferSourceSnapshot& snapshot)
+{
+    return metadata_query_to_python(snapshot.store, MetadataQueryKind::Crop);
+}
+
+static nb::dict
+snapshot_query_exposure_gain_metadata(const TransferSourceSnapshot& snapshot)
+{
+    return metadata_query_to_python(snapshot.store,
+                                    MetadataQueryKind::ExposureGain);
+}
+
+static nb::dict
+snapshot_query_white_balance_metadata(const TransferSourceSnapshot& snapshot)
+{
+    return metadata_query_to_python(snapshot.store,
+                                    MetadataQueryKind::WhiteBalance);
+}
+
+static nb::dict
+snapshot_query_color_metadata(const TransferSourceSnapshot& snapshot)
+{
+    return metadata_query_to_python(snapshot.store, MetadataQueryKind::Color);
+}
+
+static nb::dict
+snapshot_query_lens_correction_metadata(const TransferSourceSnapshot& snapshot)
+{
+    return metadata_query_to_python(snapshot.store,
+                                    MetadataQueryKind::LensCorrection);
+}
+
+static nb::dict
+snapshot_query_orientation_metadata(const TransferSourceSnapshot& snapshot)
+{
+    return metadata_query_to_python(snapshot.store,
+                                    MetadataQueryKind::Orientation);
+}
+
+static nb::dict
 snapshot_transfer_safety_audit(const TransferSourceSnapshot& snapshot,
                                TransferSafetyMode safety)
 {
@@ -4833,6 +5000,49 @@ document_vendor_raw_processing(std::shared_ptr<PyDocument> d,
                                VendorRawProcessingFamily family)
 {
     return vendor_raw_processing_to_python(d->store, family);
+}
+
+static nb::dict
+document_metadata_query(std::shared_ptr<PyDocument> d, MetadataQueryKind kind)
+{
+    return metadata_query_to_python(d->store, kind);
+}
+
+static nb::dict
+document_query_crop_metadata(std::shared_ptr<PyDocument> d)
+{
+    return metadata_query_to_python(d->store, MetadataQueryKind::Crop);
+}
+
+static nb::dict
+document_query_exposure_gain_metadata(std::shared_ptr<PyDocument> d)
+{
+    return metadata_query_to_python(d->store, MetadataQueryKind::ExposureGain);
+}
+
+static nb::dict
+document_query_white_balance_metadata(std::shared_ptr<PyDocument> d)
+{
+    return metadata_query_to_python(d->store, MetadataQueryKind::WhiteBalance);
+}
+
+static nb::dict
+document_query_color_metadata(std::shared_ptr<PyDocument> d)
+{
+    return metadata_query_to_python(d->store, MetadataQueryKind::Color);
+}
+
+static nb::dict
+document_query_lens_correction_metadata(std::shared_ptr<PyDocument> d)
+{
+    return metadata_query_to_python(d->store,
+                                    MetadataQueryKind::LensCorrection);
+}
+
+static nb::dict
+document_query_orientation_metadata(std::shared_ptr<PyDocument> d)
+{
+    return metadata_query_to_python(d->store, MetadataQueryKind::Orientation);
 }
 
 static nb::dict
@@ -5114,6 +5324,63 @@ NB_MODULE(_openmeta, m)
         .value("RawData", VendorRawProcessingGroup::RawData)
         .value("Sensor", VendorRawProcessingGroup::Sensor)
         .value("PrivateTable", VendorRawProcessingGroup::PrivateTable);
+
+    nb::enum_<MetadataQueryKind>(m, "MetadataQueryKind")
+        .value("Crop", MetadataQueryKind::Crop)
+        .value("ExposureGain", MetadataQueryKind::ExposureGain)
+        .value("WhiteBalance", MetadataQueryKind::WhiteBalance)
+        .value("Color", MetadataQueryKind::Color)
+        .value("LensCorrection", MetadataQueryKind::LensCorrection)
+        .value("Orientation", MetadataQueryKind::Orientation);
+
+    nb::enum_<MetadataQuerySemanticKind>(m, "MetadataQuerySemanticKind")
+        .value("Unknown", MetadataQuerySemanticKind::Unknown)
+        .value("Crop", MetadataQuerySemanticKind::Crop)
+        .value("Border", MetadataQuerySemanticKind::Border)
+        .value("ActiveArea", MetadataQuerySemanticKind::ActiveArea)
+        .value("Exposure", MetadataQuerySemanticKind::Exposure)
+        .value("Gain", MetadataQuerySemanticKind::Gain)
+        .value("Color", MetadataQuerySemanticKind::Color)
+        .value("WhiteBalance", MetadataQuerySemanticKind::WhiteBalance)
+        .value("ColorMatrix", MetadataQuerySemanticKind::ColorMatrix)
+        .value("LensCorrection", MetadataQuerySemanticKind::LensCorrection)
+        .value("Orientation", MetadataQuerySemanticKind::Orientation);
+
+    nb::enum_<MetadataQueryValueShape>(m, "MetadataQueryValueShape")
+        .value("Unknown", MetadataQueryValueShape::Unknown)
+        .value("Scalar", MetadataQueryValueShape::Scalar)
+        .value("Vec2", MetadataQueryValueShape::Vec2)
+        .value("Vec3", MetadataQueryValueShape::Vec3)
+        .value("Vec4", MetadataQueryValueShape::Vec4)
+        .value("Rect", MetadataQueryValueShape::Rect)
+        .value("Matrix3x3", MetadataQueryValueShape::Matrix3x3)
+        .value("Array", MetadataQueryValueShape::Array)
+        .value("Blob", MetadataQueryValueShape::Blob)
+        .value("Text", MetadataQueryValueShape::Text);
+
+    nb::enum_<MetadataQueryMatchTerm>(m, "MetadataQueryMatchTerm")
+        .value("None_", MetadataQueryMatchTerm::None)
+        .value("Crop", MetadataQueryMatchTerm::Crop)
+        .value("Border", MetadataQueryMatchTerm::Border)
+        .value("Margin", MetadataQueryMatchTerm::Margin)
+        .value("Padding", MetadataQueryMatchTerm::Padding)
+        .value("ActiveArea", MetadataQueryMatchTerm::ActiveArea)
+        .value("Origin", MetadataQueryMatchTerm::Origin)
+        .value("Offset", MetadataQueryMatchTerm::Offset)
+        .value("Size", MetadataQueryMatchTerm::Size)
+        .value("Sensor", MetadataQueryMatchTerm::Sensor)
+        .value("Image", MetadataQueryMatchTerm::Image)
+        .value("Exposure", MetadataQueryMatchTerm::Exposure)
+        .value("Bias", MetadataQueryMatchTerm::Bias)
+        .value("Gain", MetadataQueryMatchTerm::Gain)
+        .value("WhiteBalance", MetadataQueryMatchTerm::WhiteBalance)
+        .value("Color", MetadataQueryMatchTerm::Color)
+        .value("Matrix", MetadataQueryMatchTerm::Matrix)
+        .value("Calibration", MetadataQueryMatchTerm::Calibration)
+        .value("Profile", MetadataQueryMatchTerm::Profile)
+        .value("Lens", MetadataQueryMatchTerm::Lens)
+        .value("Correction", MetadataQueryMatchTerm::Correction)
+        .value("Orientation", MetadataQueryMatchTerm::Orientation);
 
     nb::enum_<CcmQueryStatus>(m, "CcmQueryStatus")
         .value("Ok", CcmQueryStatus::Ok)
@@ -5845,6 +6112,17 @@ NB_MODULE(_openmeta, m)
         .def("phaseone_raw_geometry", &snapshot_phaseone_raw_geometry)
         .def("phaseone_raw_processing", &snapshot_phaseone_raw_processing)
         .def("vendor_raw_processing", &snapshot_vendor_raw_processing)
+        .def("metadata_query", &snapshot_metadata_query,
+             "kind"_a = MetadataQueryKind::Crop)
+        .def("query_crop_metadata", &snapshot_query_crop_metadata)
+        .def("query_exposure_gain_metadata",
+             &snapshot_query_exposure_gain_metadata)
+        .def("query_white_balance_metadata",
+             &snapshot_query_white_balance_metadata)
+        .def("query_color_metadata", &snapshot_query_color_metadata)
+        .def("query_lens_correction_metadata",
+             &snapshot_query_lens_correction_metadata)
+        .def("query_orientation_metadata", &snapshot_query_orientation_metadata)
         .def("transfer_safety_audit", &snapshot_transfer_safety_audit,
              "safety"_a = TransferSafetyMode::RenderedImage)
         .def("__repr__", [](const TransferSourceSnapshot& snapshot) {
@@ -5977,6 +6255,17 @@ NB_MODULE(_openmeta, m)
         .def("phaseone_raw_geometry", &document_phaseone_raw_geometry)
         .def("phaseone_raw_processing", &document_phaseone_raw_processing)
         .def("vendor_raw_processing", &document_vendor_raw_processing)
+        .def("metadata_query", &document_metadata_query,
+             "kind"_a = MetadataQueryKind::Crop)
+        .def("query_crop_metadata", &document_query_crop_metadata)
+        .def("query_exposure_gain_metadata",
+             &document_query_exposure_gain_metadata)
+        .def("query_white_balance_metadata",
+             &document_query_white_balance_metadata)
+        .def("query_color_metadata", &document_query_color_metadata)
+        .def("query_lens_correction_metadata",
+             &document_query_lens_correction_metadata)
+        .def("query_orientation_metadata", &document_query_orientation_metadata)
         .def("transfer_safety_audit", &document_transfer_safety_audit,
              "safety"_a = TransferSafetyMode::RenderedImage)
         .def(

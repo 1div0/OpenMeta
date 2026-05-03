@@ -34,6 +34,18 @@ Changes compared with `0.4.8`.
   Sony/Canon/Nikon/Fujifilm/Pentax/Panasonic/Olympus/Kodak/Minolta/Sigma/
   Samsung/Ricoh/Apple/DJI/Google/FLIR/Casio/Sanyo/KyoceraRaw/Reconyx/HP/JVC/
   GE/Motorola/Nintendo/Microsoft RAW/source-processing bucket.
+- Added the first experimental semantic metadata query API in
+  `openmeta/metadata_query.h`, with `query_crop_metadata(...)` returning both
+  raw matches and normalized crop/active-area candidates for DNG crop tags,
+  `ActiveArea`, Phase One/Leaf RAW geometry, and fuzzy crop/border-style XMP
+  property paths.
+- Extended the experimental semantic metadata query API with focused helpers
+  for exposure/gain, white balance, color, lens correction, and orientation
+  metadata. Non-crop queries return deterministic per-entry candidates with
+  numeric value extraction when values are scalar or bounded numeric arrays.
+- Python `Document` and `TransferSourceSnapshot` now expose thin wrappers for
+  the experimental semantic metadata query API, including generic
+  `metadata_query(kind)` and focused query helpers.
 
 ### Changed
 
@@ -80,6 +92,12 @@ Changes compared with `0.4.8`.
 
 - Added public synthetic coverage for Leaf/Credo IIQ MakerNote detection and
   normalized Phase One RAW geometry and raw-processing helper behavior.
+- Added public synthetic coverage for semantic crop queries, including DNG
+  default crop pairs, DNG `ActiveArea`, Phase One/Leaf RAW geometry, fuzzy XMP
+  path matching, deleted-entry filtering, and same-IFD crop pairing.
+- Added public synthetic coverage for standard EXIF exposure/gain and
+  orientation queries, XMP white-balance matching, DNG color-matrix matching,
+  and vendor RAW-processing lens-correction classification reuse.
 - Added public synthetic coverage for
   Sony/Canon/Nikon/Fujifilm/Pentax/Panasonic/Olympus/Kodak/Minolta/Sigma/
   Samsung/Ricoh/Apple/DJI/Google/FLIR/Casio/Sanyo/KyoceraRaw/Reconyx/HP/JVC/
