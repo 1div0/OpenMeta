@@ -77,9 +77,10 @@ Host-facing API map
        Current coverage includes crop/active-area, exposure/gain, white
        balance, color, lens correction, and orientation metadata across
        standard tags, selected DNG tags, fuzzy XMP paths, and vendor
-       RAW-processing classification. Python ``Document`` and
-       ``TransferSourceSnapshot`` mirror this as thin dictionary-returning
-       wrappers.
+       RAW-processing classification, including grouped ``matrix_set``,
+       ``vector_set``, and ``table`` candidates for related non-crop metadata.
+       Python ``Document`` and ``TransferSourceSnapshot`` mirror this as thin
+       dictionary-returning wrappers.
    * - Vendor RAW-processing summaries:
        ``vendor_raw_processing_from_store(...)``,
        ``classify_vendor_raw_processing_field(...)``

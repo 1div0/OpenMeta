@@ -79,6 +79,10 @@ geometry, and fuzzy crop/border-style XMP property paths. The non-crop queries
 expose per-entry value candidates and reuse standard tag names, selected DNG
 tags, fuzzy XMP paths, and vendor RAW-processing classification where
 applicable.
+They also append grouped candidates for related DNG color matrix/calibration/
+reduction/forward matrix tags, DNG white-balance vector tags, and
+lens-correction table groups, using ``matrix_set``, ``vector_set``, and
+``table`` value shapes.
 Python ``Document`` and ``TransferSourceSnapshot`` mirror this as thin wrappers
 returning the same match/candidate dictionary shape.
 

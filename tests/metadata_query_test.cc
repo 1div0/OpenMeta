@@ -92,6 +92,21 @@ namespace {
         return nullptr;
     }
 
+    static const MetadataQueryCandidate* find_candidate_with_shape(
+        const MetadataQueryResult& result, MetadataQuerySemanticKind semantic,
+        MetadataQueryValueShape shape, size_t min_source_entries)
+    {
+        for (size_t i = 0U; i < result.candidates.size(); ++i) {
+            const MetadataQueryCandidate& candidate = result.candidates[i];
+            if (candidate.semantic == semantic
+                && candidate.normalized_shape == shape
+                && candidate.source_entries.size() >= min_source_entries) {
+                return &candidate;
+            }
+        }
+        return nullptr;
+    }
+
     static const MetadataQueryMatch*
     find_match_for_entry(const MetadataQueryResult& result, EntryId entry_id)
     {
@@ -420,6 +435,86 @@ TEST(MetadataQuery, MatchesDngColorMatrix)
     EXPECT_DOUBLE_EQ(candidate->values[8], 1.0);
 }
 
+TEST(MetadataQuery, GroupsDngColorMatrixSet)
+{
+    MetaStore store;
+    const std::array<uint32_t, 9> matrix1 = {
+        1U, 0U, 0U, 0U, 1U, 0U, 0U, 0U, 1U,
+    };
+    const std::array<uint32_t, 9> matrix2 = {
+        2U, 0U, 0U, 0U, 2U, 0U, 0U, 0U, 2U,
+    };
+    const EntryId matrix1_id
+        = add_exif_u32_array(&store, "ifd0", 0xC621U,
+                             std::span<const uint32_t>(matrix1.data(),
+                                                       matrix1.size()));
+    const EntryId matrix2_id
+        = add_exif_u32_array(&store, "ifd0", 0xC622U,
+                             std::span<const uint32_t>(matrix2.data(),
+                                                       matrix2.size()));
+    store.finalize();
+
+    const MetadataQueryResult result = query_color_metadata(store);
+
+    const MetadataQueryCandidate* candidate
+        = find_candidate_with_shape(result,
+                                    MetadataQuerySemanticKind::ColorMatrix,
+                                    MetadataQueryValueShape::MatrixSet, 2U);
+    ASSERT_NE(candidate, nullptr);
+    EXPECT_GE(candidate->confidence, 90U);
+    EXPECT_TRUE(contains_entry(candidate->source_entries, matrix1_id));
+    EXPECT_TRUE(contains_entry(candidate->source_entries, matrix2_id));
+    ASSERT_TRUE(candidate->has_values);
+    ASSERT_EQ(candidate->values.size(), 18U);
+    EXPECT_DOUBLE_EQ(candidate->values[0], 1.0);
+    EXPECT_DOUBLE_EQ(candidate->values[4], 1.0);
+    EXPECT_DOUBLE_EQ(candidate->values[8], 1.0);
+    EXPECT_DOUBLE_EQ(candidate->values[9], 2.0);
+    EXPECT_DOUBLE_EQ(candidate->values[13], 2.0);
+    EXPECT_DOUBLE_EQ(candidate->values[17], 2.0);
+    EXPECT_STREQ(metadata_query_value_shape_name(
+                     MetadataQueryValueShape::MatrixSet),
+                 "matrix_set");
+}
+
+TEST(MetadataQuery, GroupsDngWhiteBalanceVectorSet)
+{
+    MetaStore store;
+    const std::array<uint32_t, 3> neutral = { 1U, 2U, 3U };
+    const std::array<uint32_t, 3> analog  = { 10U, 20U, 30U };
+    const EntryId neutral_id
+        = add_exif_u32_array(&store, "ifd0", 0xC628U,
+                             std::span<const uint32_t>(neutral.data(),
+                                                       neutral.size()));
+    const EntryId analog_id
+        = add_exif_u32_array(&store, "ifd0", 0xC627U,
+                             std::span<const uint32_t>(analog.data(),
+                                                       analog.size()));
+    store.finalize();
+
+    const MetadataQueryResult result = query_white_balance_metadata(store);
+
+    const MetadataQueryCandidate* candidate
+        = find_candidate_with_shape(result,
+                                    MetadataQuerySemanticKind::WhiteBalance,
+                                    MetadataQueryValueShape::VectorSet, 2U);
+    ASSERT_NE(candidate, nullptr);
+    EXPECT_GE(candidate->confidence, 90U);
+    EXPECT_TRUE(contains_entry(candidate->source_entries, neutral_id));
+    EXPECT_TRUE(contains_entry(candidate->source_entries, analog_id));
+    ASSERT_TRUE(candidate->has_values);
+    ASSERT_EQ(candidate->values.size(), 6U);
+    EXPECT_DOUBLE_EQ(candidate->values[0], 1.0);
+    EXPECT_DOUBLE_EQ(candidate->values[1], 2.0);
+    EXPECT_DOUBLE_EQ(candidate->values[2], 3.0);
+    EXPECT_DOUBLE_EQ(candidate->values[3], 10.0);
+    EXPECT_DOUBLE_EQ(candidate->values[4], 20.0);
+    EXPECT_DOUBLE_EQ(candidate->values[5], 30.0);
+    EXPECT_STREQ(metadata_query_value_shape_name(
+                     MetadataQueryValueShape::VectorSet),
+                 "vector_set");
+}
+
 TEST(MetadataQuery, ReusesVendorLensCorrectionClassification)
 {
     MetaStore store;
@@ -440,6 +535,33 @@ TEST(MetadataQuery, ReusesVendorLensCorrectionClassification)
     EXPECT_NE((match->matched_terms
                & static_cast<uint32_t>(MetadataQueryMatchTerm::Correction)),
               0U);
+}
+
+TEST(MetadataQuery, GroupsVendorLensCorrectionTable)
+{
+    MetaStore store;
+    const EntryId distort_id  = add_exif_u32(&store, "mk_nikon_distortinfo",
+                                             0x0001U, 7U);
+    const EntryId vignette_id = add_exif_u32(&store, "mk_nikon_vignette",
+                                             0x0001U, 3U);
+    store.finalize();
+
+    const MetadataQueryResult result = query_lens_correction_metadata(store);
+
+    const MetadataQueryCandidate* candidate
+        = find_candidate_with_shape(result,
+                                    MetadataQuerySemanticKind::LensCorrection,
+                                    MetadataQueryValueShape::Table, 2U);
+    ASSERT_NE(candidate, nullptr);
+    EXPECT_GE(candidate->confidence, 90U);
+    EXPECT_TRUE(contains_entry(candidate->source_entries, distort_id));
+    EXPECT_TRUE(contains_entry(candidate->source_entries, vignette_id));
+    ASSERT_TRUE(candidate->has_values);
+    ASSERT_EQ(candidate->values.size(), 2U);
+    EXPECT_DOUBLE_EQ(candidate->values[0], 7.0);
+    EXPECT_DOUBLE_EQ(candidate->values[1], 3.0);
+    EXPECT_STREQ(metadata_query_value_shape_name(MetadataQueryValueShape::Table),
+                 "table");
 }
 
 TEST(MetadataQuery, MatchesOrientationTags)

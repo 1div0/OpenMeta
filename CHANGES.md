@@ -43,6 +43,10 @@ Changes compared with `0.4.8`.
   for exposure/gain, white balance, color, lens correction, and orientation
   metadata. Non-crop queries return deterministic per-entry candidates with
   numeric value extraction when values are scalar or bounded numeric arrays.
+- Added grouped semantic-query candidates for DNG color matrix/calibration/
+  reduction/forward matrix sets, DNG white-balance vector sets, and
+  lens-correction table groups. Candidate value-shape labels now include
+  `vector_set`, `matrix_set`, and `table`.
 - Python `Document` and `TransferSourceSnapshot` now expose thin wrappers for
   the experimental semantic metadata query API, including generic
   `metadata_query(kind)` and focused query helpers.
@@ -98,6 +102,9 @@ Changes compared with `0.4.8`.
 - Added public synthetic coverage for standard EXIF exposure/gain and
   orientation queries, XMP white-balance matching, DNG color-matrix matching,
   and vendor RAW-processing lens-correction classification reuse.
+- Added public synthetic coverage for grouped semantic-query candidates:
+  DNG color matrix sets, DNG white-balance vector sets, and vendor
+  lens-correction table groups.
 - Added public synthetic coverage for
   Sony/Canon/Nikon/Fujifilm/Pentax/Panasonic/Olympus/Kodak/Minolta/Sigma/
   Samsung/Ricoh/Apple/DJI/Google/FLIR/Casio/Sanyo/KyoceraRaw/Reconyx/HP/JVC/

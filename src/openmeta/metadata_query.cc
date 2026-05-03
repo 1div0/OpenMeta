@@ -74,6 +74,32 @@ namespace {
     static constexpr uint16_t kPhaseOneImageHeightTag      = 0x010DU;
     static constexpr std::string_view kPhaseOneMainIfd     = "mk_phaseone0";
 
+    static constexpr uint16_t kDngColorMatrixTags[] = {
+        kDngColorMatrix1Tag,
+        kDngColorMatrix2Tag,
+        kDngColorMatrix3Tag,
+    };
+    static constexpr uint16_t kDngCameraCalibrationTags[] = {
+        kDngCameraCalibration1Tag,
+        kDngCameraCalibration2Tag,
+        kDngCameraCalibration3Tag,
+    };
+    static constexpr uint16_t kDngReductionMatrixTags[] = {
+        kDngReductionMatrix1Tag,
+        kDngReductionMatrix2Tag,
+        kDngReductionMatrix3Tag,
+    };
+    static constexpr uint16_t kDngForwardMatrixTags[] = {
+        kDngForwardMatrix1Tag,
+        kDngForwardMatrix2Tag,
+        kDngForwardMatrix3Tag,
+    };
+    static constexpr uint16_t kDngWhiteBalanceVectorTags[] = {
+        kDngAsShotNeutralTag,
+        kDngAsShotWhiteXyTag,
+        kDngAnalogBalanceTag,
+    };
+
     static std::string_view arena_string(const ByteArena& arena,
                                          ByteSpan span) noexcept
     {
@@ -412,6 +438,30 @@ namespace {
         entries->push_back(id);
     }
 
+    static bool tag_in_series(uint16_t tag, const uint16_t* tags,
+                              size_t tag_count) noexcept
+    {
+        if (!tags) {
+            return false;
+        }
+        for (size_t i = 0U; i < tag_count; ++i) {
+            if (tags[i] == tag) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static bool exif_entry_in_tag_series(const Entry& entry,
+                                         const uint16_t* tags,
+                                         size_t tag_count) noexcept
+    {
+        if (entry.key.kind != MetaKeyKind::ExifTag) {
+            return false;
+        }
+        return tag_in_series(entry.key.data.exif_tag.tag, tags, tag_count);
+    }
+
     static uint32_t crop_match_terms(std::string_view name,
                                      std::string_view group) noexcept
     {
@@ -668,8 +718,7 @@ namespace {
                 terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::Sensor);
             }
             break;
-        case MetadataQueryKind::ExposureGain:
-            break;
+        case MetadataQueryKind::ExposureGain: break;
         case MetadataQueryKind::WhiteBalance:
             if (vendor_raw_processing_group_has(
                     groups, VendorRawProcessingGroup::WhiteBalance)) {
@@ -989,6 +1038,262 @@ namespace {
         return kInvalidEntryId;
     }
 
+    static bool has_previous_exif_tag_series_ifd(const MetaStore& store,
+                                                 size_t entry_index,
+                                                 std::string_view ifd,
+                                                 const uint16_t* tags,
+                                                 size_t tag_count) noexcept
+    {
+        const std::span<const Entry> entries = store.entries();
+        if (entry_index > entries.size()) {
+            return false;
+        }
+        for (size_t i = 0U; i < entry_index; ++i) {
+            if (entry_is_deleted(entries[i])
+                || !exif_entry_in_tag_series(entries[i], tags, tag_count)) {
+                continue;
+            }
+            const std::string_view current_ifd
+                = arena_string(store.arena(), entries[i].key.data.exif_tag.ifd);
+            if (current_ifd == ifd) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static void append_candidate_numeric_values(const MetaStore& store,
+                                                EntryId entry_id,
+                                                MetadataQueryCandidate* out)
+    {
+        if (!out || entry_id == kInvalidEntryId) {
+            return;
+        }
+        double values[64] {};
+        uint32_t count = 0U;
+        if (!value_to_double_array(store, store.entry(entry_id).value, values,
+                                   64U, &count)) {
+            return;
+        }
+        out->has_values = true;
+        out->values.reserve(out->values.size() + count);
+        for (uint32_t i = 0U; i < count; ++i) {
+            out->values.push_back(values[i]);
+        }
+    }
+
+    static void append_exif_tag_series_candidates(
+        const MetaStore& store, MetadataQueryResult* result,
+        const uint16_t* tags, size_t tag_count,
+        MetadataQuerySemanticKind semantic, MetadataQueryValueShape shape,
+        uint8_t confidence)
+    {
+        if (!result || !tags || tag_count == 0U) {
+            return;
+        }
+
+        const std::span<const Entry> entries = store.entries();
+        for (size_t i = 0U; i < entries.size(); ++i) {
+            const Entry& entry = entries[i];
+            if (entry_is_deleted(entry)
+                || !exif_entry_in_tag_series(entry, tags, tag_count)) {
+                continue;
+            }
+
+            const std::string_view ifd
+                = arena_string(store.arena(), entry.key.data.exif_tag.ifd);
+            if (has_previous_exif_tag_series_ifd(store, i, ifd, tags,
+                                                 tag_count)) {
+                continue;
+            }
+
+            MetadataQueryCandidate candidate;
+            candidate.semantic         = semantic;
+            candidate.normalized_shape = shape;
+            candidate.confidence       = confidence;
+            candidate.source_entries.reserve(tag_count);
+
+            for (size_t tag_index = 0U; tag_index < tag_count; ++tag_index) {
+                const EntryId entry_id = find_first_exif_entry(store, ifd,
+                                                               tags[tag_index]);
+                if (entry_id == kInvalidEntryId) {
+                    continue;
+                }
+                append_unique_entry(&candidate.source_entries, entry_id);
+                append_candidate_numeric_values(store, entry_id, &candidate);
+            }
+
+            if (candidate.source_entries.size() >= 2U) {
+                result->candidates.push_back(candidate);
+            }
+        }
+    }
+
+    static std::string_view
+    lens_correction_group_key(std::string_view group) noexcept
+    {
+        if (starts_with_ascii_case_insensitive(group, "mk_sony")) {
+            return "mk_sony";
+        }
+        if (starts_with_ascii_case_insensitive(group, "mk_canon")) {
+            return "mk_canon";
+        }
+        if (starts_with_ascii_case_insensitive(group, "mk_nikon")) {
+            return "mk_nikon";
+        }
+        if (starts_with_ascii_case_insensitive(group, "mk_fuji")) {
+            return "mk_fuji";
+        }
+        if (starts_with_ascii_case_insensitive(group, "mk_pentax")) {
+            return "mk_pentax";
+        }
+        if (starts_with_ascii_case_insensitive(group, "mk_panasonic")) {
+            return "mk_panasonic";
+        }
+        if (starts_with_ascii_case_insensitive(group, "mk_olympus")) {
+            return "mk_olympus";
+        }
+        if (starts_with_ascii_case_insensitive(group, "mk_kodak")) {
+            return "mk_kodak";
+        }
+        if (starts_with_ascii_case_insensitive(group, "mk_minolta")) {
+            return "mk_minolta";
+        }
+        if (starts_with_ascii_case_insensitive(group, "mk_sigma")) {
+            return "mk_sigma";
+        }
+        if (starts_with_ascii_case_insensitive(group, "mk_samsung")) {
+            return "mk_samsung";
+        }
+        if (starts_with_ascii_case_insensitive(group, "mk_ricoh")) {
+            return "mk_ricoh";
+        }
+        if (starts_with_ascii_case_insensitive(group, "mk_apple")) {
+            return "mk_apple";
+        }
+        if (starts_with_ascii_case_insensitive(group, "mk_dji")) {
+            return "mk_dji";
+        }
+        if (starts_with_ascii_case_insensitive(group, "mk_google")) {
+            return "mk_google";
+        }
+        if (starts_with_ascii_case_insensitive(group, "mk_flir")) {
+            return "mk_flir";
+        }
+        if (starts_with_ascii_case_insensitive(group, "mk_casio")) {
+            return "mk_casio";
+        }
+        if (starts_with_ascii_case_insensitive(group, "mk_sanyo")) {
+            return "mk_sanyo";
+        }
+        if (starts_with_ascii_case_insensitive(group, "mk_kyoceraraw")) {
+            return "mk_kyoceraraw";
+        }
+        if (starts_with_ascii_case_insensitive(group, "mk_kyocera")) {
+            return "mk_kyocera";
+        }
+        if (starts_with_ascii_case_insensitive(group, "mk_reconyx")) {
+            return "mk_reconyx";
+        }
+        if (starts_with_ascii_case_insensitive(group, "mk_hp")) {
+            return "mk_hp";
+        }
+        if (starts_with_ascii_case_insensitive(group, "mk_jvc")) {
+            return "mk_jvc";
+        }
+        if (starts_with_ascii_case_insensitive(group, "mk_ge")) {
+            return "mk_ge";
+        }
+        if (starts_with_ascii_case_insensitive(group, "mk_motorola")) {
+            return "mk_motorola";
+        }
+        if (starts_with_ascii_case_insensitive(group, "mk_nintendo")) {
+            return "mk_nintendo";
+        }
+        if (starts_with_ascii_case_insensitive(group, "mk_microsoft")) {
+            return "mk_microsoft";
+        }
+        return group;
+    }
+
+    static bool
+    lens_correction_match_can_group(const MetadataQueryMatch& match) noexcept
+    {
+        return match.entry_id != kInvalidEntryId
+               && match.key_kind == MetaKeyKind::ExifTag
+               && match.semantic == MetadataQuerySemanticKind::LensCorrection;
+    }
+
+    static bool
+    has_previous_lens_correction_group(const MetadataQueryResult& result,
+                                       size_t match_index,
+                                       std::string_view group_key) noexcept
+    {
+        if (match_index > result.matches.size()) {
+            return false;
+        }
+        for (size_t i = 0U; i < match_index; ++i) {
+            if (!lens_correction_match_can_group(result.matches[i])) {
+                continue;
+            }
+            const std::string_view current_key = lens_correction_group_key(
+                result.matches[i].group);
+            if (current_key == group_key) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static void
+    append_lens_correction_table_candidates(const MetaStore& store,
+                                            MetadataQueryResult* result)
+    {
+        if (!result) {
+            return;
+        }
+
+        for (size_t i = 0U; i < result->matches.size(); ++i) {
+            const MetadataQueryMatch& match = result->matches[i];
+            if (!lens_correction_match_can_group(match)) {
+                continue;
+            }
+
+            const std::string_view group_key = lens_correction_group_key(
+                match.group);
+            if (has_previous_lens_correction_group(*result, i, group_key)) {
+                continue;
+            }
+
+            MetadataQueryCandidate candidate;
+            candidate.semantic = MetadataQuerySemanticKind::LensCorrection;
+            candidate.normalized_shape = MetadataQueryValueShape::Table;
+
+            for (size_t j = i; j < result->matches.size(); ++j) {
+                const MetadataQueryMatch& current = result->matches[j];
+                if (!lens_correction_match_can_group(current)) {
+                    continue;
+                }
+                const std::string_view current_key = lens_correction_group_key(
+                    current.group);
+                if (current_key != group_key) {
+                    continue;
+                }
+                append_unique_entry(&candidate.source_entries,
+                                    current.entry_id);
+                append_candidate_numeric_values(store, current.entry_id,
+                                                &candidate);
+                if (candidate.confidence < current.confidence) {
+                    candidate.confidence = current.confidence;
+                }
+            }
+
+            if (candidate.source_entries.size() >= 2U) {
+                result->candidates.push_back(candidate);
+            }
+        }
+    }
+
     static void append_default_crop_candidate(const MetaStore& store,
                                               MetadataQueryResult* result)
     {
@@ -1186,6 +1491,57 @@ namespace {
         }
     }
 
+    static void append_grouped_query_candidates(const MetaStore& store,
+                                                MetadataQueryResult* result,
+                                                MetadataQueryKind kind)
+    {
+        if (!result) {
+            return;
+        }
+
+        switch (kind) {
+        case MetadataQueryKind::Color:
+            append_exif_tag_series_candidates(
+                store, result, kDngColorMatrixTags,
+                sizeof(kDngColorMatrixTags) / sizeof(kDngColorMatrixTags[0]),
+                MetadataQuerySemanticKind::ColorMatrix,
+                MetadataQueryValueShape::MatrixSet, 96U);
+            append_exif_tag_series_candidates(
+                store, result, kDngCameraCalibrationTags,
+                sizeof(kDngCameraCalibrationTags)
+                    / sizeof(kDngCameraCalibrationTags[0]),
+                MetadataQuerySemanticKind::ColorMatrix,
+                MetadataQueryValueShape::MatrixSet, 92U);
+            append_exif_tag_series_candidates(
+                store, result, kDngReductionMatrixTags,
+                sizeof(kDngReductionMatrixTags)
+                    / sizeof(kDngReductionMatrixTags[0]),
+                MetadataQuerySemanticKind::ColorMatrix,
+                MetadataQueryValueShape::MatrixSet, 92U);
+            append_exif_tag_series_candidates(
+                store, result, kDngForwardMatrixTags,
+                sizeof(kDngForwardMatrixTags)
+                    / sizeof(kDngForwardMatrixTags[0]),
+                MetadataQuerySemanticKind::ColorMatrix,
+                MetadataQueryValueShape::MatrixSet, 92U);
+            break;
+        case MetadataQueryKind::WhiteBalance:
+            append_exif_tag_series_candidates(
+                store, result, kDngWhiteBalanceVectorTags,
+                sizeof(kDngWhiteBalanceVectorTags)
+                    / sizeof(kDngWhiteBalanceVectorTags[0]),
+                MetadataQuerySemanticKind::WhiteBalance,
+                MetadataQueryValueShape::VectorSet, 92U);
+            break;
+        case MetadataQueryKind::LensCorrection:
+            append_lens_correction_table_candidates(store, result);
+            break;
+        case MetadataQueryKind::Crop:
+        case MetadataQueryKind::ExposureGain:
+        case MetadataQueryKind::Orientation: break;
+        }
+    }
+
     static MetadataQueryResult query_semantic_metadata(const MetaStore& store,
                                                        MetadataQueryKind kind)
     {
@@ -1210,6 +1566,7 @@ namespace {
             }
         }
         append_query_value_candidates(store, &result);
+        append_grouped_query_candidates(store, &result, kind);
         return result;
     }
 
@@ -1339,6 +1696,9 @@ metadata_query_value_shape_name(MetadataQueryValueShape shape) noexcept
     case MetadataQueryValueShape::Vec4: return "vec4";
     case MetadataQueryValueShape::Rect: return "rect";
     case MetadataQueryValueShape::Matrix3x3: return "matrix3x3";
+    case MetadataQueryValueShape::VectorSet: return "vector_set";
+    case MetadataQueryValueShape::MatrixSet: return "matrix_set";
+    case MetadataQueryValueShape::Table: return "table";
     case MetadataQueryValueShape::Array: return "array";
     case MetadataQueryValueShape::Blob: return "blob";
     case MetadataQueryValueShape::Text: return "text";
