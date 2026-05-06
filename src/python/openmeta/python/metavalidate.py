@@ -58,6 +58,11 @@ def main(argv: list[str]) -> int:
         help="verification backend preference",
     )
     ap.add_argument(
+        "--c2pa-verify-require-trusted-chain",
+        action="store_true",
+        help="fail C2PA verify when the certificate chain is untrusted or missing",
+    )
+    ap.add_argument(
         "--c2pa-verify-require-resolved-references",
         action="store_true",
         help="fail C2PA verify when explicit references are unresolved or ambiguous",
@@ -123,6 +128,9 @@ def main(argv: list[str]) -> int:
             include_xmp_sidecar=bool(args.xmp_sidecar),
             verify_c2pa=bool(args.c2pa_verify),
             verify_backend=backend_map[args.c2pa_verify_backend],
+            verify_require_trusted_chain=bool(
+                args.c2pa_verify_require_trusted_chain
+            ),
             verify_require_resolved_references=bool(
                 args.c2pa_verify_require_resolved_references
             ),
@@ -158,6 +166,9 @@ def main(argv: list[str]) -> int:
                         "jumbf_status": _status_name(result["jumbf_status"]),
                         "c2pa_verify_status": _status_name(result["jumbf_verify_status"]),
                         "c2pa_verify_backend": _status_name(result["jumbf_verify_backend"]),
+                        "c2pa_verify_require_trusted_chain": bool(
+                            result["jumbf_verify_require_trusted_chain"]
+                        ),
                         "c2pa_verify_require_resolved_references": bool(
                             result["jumbf_verify_require_resolved_references"]
                         ),
@@ -190,7 +201,8 @@ def main(argv: list[str]) -> int:
             print(f"size={int(result['file_size'])}")
             print(
                 "scan={scan} payload={payload} exif={exif} xmp={xmp} exr={exr} jumbf={jumbf} "
-                "c2pa_verify={verify} c2pa_backend={backend} c2pa_require_resolved_refs={require_refs} entries={entries}".format(
+                "c2pa_verify={verify} c2pa_backend={backend} c2pa_require_trusted_chain={require_chain} "
+                "c2pa_require_resolved_refs={require_refs} entries={entries}".format(
                     scan=_status_name(result["scan_status"]),
                     payload=_status_name(result["payload_status"]),
                     exif=_status_name(result["exif_status"]),
@@ -199,6 +211,11 @@ def main(argv: list[str]) -> int:
                     jumbf=_status_name(result["jumbf_status"]),
                     verify=_status_name(result["jumbf_verify_status"]),
                     backend=_status_name(result["jumbf_verify_backend"]),
+                    require_chain=(
+                        "on"
+                        if bool(result["jumbf_verify_require_trusted_chain"])
+                        else "off"
+                    ),
                     require_refs=(
                         "on"
                         if bool(result["jumbf_verify_require_resolved_references"])

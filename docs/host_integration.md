@@ -30,11 +30,13 @@ Use the narrowest public API that matches your host:
 | Existing target file or template | `execute_prepared_transfer_file(...)` + `persist_prepared_transfer_file_result(...)` |
 | EXR writer | `build_exr_attribute_batch_from_file(...)` |
 | Host-owned metadata object model | `visit_metadata(...)` |
+| Host metadata inspection/search UI | `openmeta/metadata_query.h` focused query helpers |
 | JPEG/JXL/WebP/PNG/JP2/BMFF encoder path | `prepare_metadata_for_target_file(...)` + adapter view or backend emitter |
 | Adobe DNG SDK objects/files | `dng_sdk_adapter.h` |
 
-There is no public fuzzy-search API yet. Query through exact keys and build
-your own display or search layer on top.
+For inspection/search UI, prefer the experimental semantic query helpers before
+building a separate fuzzy layer. They report source entries, confidence, value
+shape, and normalized candidates while preserving ambiguity.
 
 ## Adapter Classes
 
@@ -430,7 +432,7 @@ Use `TransferProfile::safety` for the broad source/destination relationship:
 | Mode | Use when | Transfer policy |
 | --- | --- | --- |
 | `CompatibleFile` | Metadata is repackaged or recompressed into a compatible file/pixel representation | Preserve source camera, color, ICC, and camera-specific data except target-owned image-layout fields |
-| `RenderedImage` | Pixels may have changed, especially RAW-to-JPEG/PNG/WebP/JXL/HEIF/AVIF export | Keep general/time/GPS/IPTC/portable XMP; drop source raw color calibration, linearization/crop/correction metadata, vendor RAW/source-processing geometry/color/correction/thermal/computational/private/stitch fields, camera raw settings XMP, source ICC, opaque MakerNotes, and non-C2PA JUMBF |
+| `RenderedImage` | Pixels may have changed, especially RAW-to-JPEG/PNG/WebP/JXL/HEIF/AVIF export | Keep general/time/GPS/IPTC/portable XMP; drop source raw color calibration, profile/gain tables, raw digests/storage identifiers, linearization/crop/correction metadata, vendor RAW/source-processing geometry/color/correction/thermal/computational/private/stitch fields, camera raw settings XMP, source ICC, opaque MakerNotes, and non-C2PA JUMBF |
 
 See [writer_target_contract.md](writer_target_contract.md#transfer-safety-matrix)
 for the detailed per-group transfer matrix.

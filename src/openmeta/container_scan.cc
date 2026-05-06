@@ -144,7 +144,6 @@ namespace {
         }
     }
 
-
     static bool read_u16be(std::span<const std::byte> bytes, uint64_t offset,
                            uint16_t* out) noexcept
     {
@@ -284,6 +283,42 @@ namespace {
             }
         }
         return offset + ifd0 < bytes.size();
+    }
+
+    static ScanResult scan_exif_preamble_tiff(std::span<const std::byte> bytes,
+                                              std::span<ContainerBlockRef> out,
+                                              uint64_t max_search) noexcept
+    {
+        if (max_search > bytes.size()) {
+            max_search = bytes.size();
+        }
+        for (uint64_t off = 0; off + 14U <= max_search; ++off) {
+            if (!match(bytes, off, "Exif", 4) || u8(bytes[off + 4U]) != 0U
+                || u8(bytes[off + 5U]) != 0U) {
+                continue;
+            }
+
+            const uint64_t tiff_off = off + 6U;
+            if (!looks_like_tiff_at(bytes, tiff_off)) {
+                continue;
+            }
+
+            const std::span<const std::byte> tiff = bytes.subspan(
+                static_cast<size_t>(tiff_off));
+            ScanResult res         = scan_tiff(tiff, out);
+            const uint32_t written = (res.written < out.size())
+                                         ? res.written
+                                         : static_cast<uint32_t>(out.size());
+            for (uint32_t i = 0; i < written; ++i) {
+                out[i].outer_offset += tiff_off;
+                out[i].data_offset += tiff_off;
+            }
+            return res;
+        }
+
+        ScanResult res;
+        res.status = ScanStatus::Unsupported;
+        return res;
     }
 
 
@@ -4324,7 +4359,7 @@ scan_tiff(std::span<const std::byte> bytes,
             if (!read_tiff_u64(cfg, bytes, ifd_off, &n64)) {
                 continue;
             }
-            entry_count      = n64;
+            entry_count = n64;
             if (entry_count > 0x10000ULL) {
                 continue;
             }
@@ -4563,7 +4598,15 @@ scan_auto(std::span<const std::byte> bytes,
           std::span<ContainerBlockRef> out) noexcept
 {
     if (bytes.size() >= 2 && u8(bytes[0]) == 0xFF && u8(bytes[1]) == 0xD8) {
-        return scan_jpeg(bytes, out);
+        const ScanResult jpeg = scan_jpeg(bytes, out);
+        if (jpeg.status != ScanStatus::Ok && jpeg.written == 0U) {
+            const ScanResult recovered
+                = scan_exif_preamble_tiff(bytes, out, 64ULL * 1024ULL);
+            if (recovered.status != ScanStatus::Unsupported) {
+                return recovered;
+            }
+        }
+        return jpeg;
     }
     if (bytes.size() >= kPngSignatureSize
         && match_bytes(bytes, 0, kPngSignature.data(), kPngSignatureSize)) {
@@ -4795,6 +4838,12 @@ scan_auto(std::span<const std::byte> bytes,
                 || type == fourcc('u', 'u', 'i', 'd'))) {
             return scan_bmff(bytes, out);
         }
+    }
+
+    const ScanResult exif_preamble = scan_exif_preamble_tiff(bytes, out,
+                                                             64ULL * 1024ULL);
+    if (exif_preamble.status != ScanStatus::Unsupported) {
+        return exif_preamble;
     }
 
     ScanResult res;

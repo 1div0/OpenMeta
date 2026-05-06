@@ -122,6 +122,73 @@ namespace {
 
 }  // namespace
 
+TEST(SimpleMetaRead, RecoversStandaloneExifAfterUnknownPrefix)
+{
+    const std::vector<std::byte> tiff = make_tiff_ifd0_imagewidth_u32(640U);
+    std::vector<std::byte> file;
+    append_u32be(&file, 0x06400000U);
+    append_u32be(&file, 0U);
+    append_bytes(&file, "Exif");
+    file.push_back(std::byte { 0 });
+    file.push_back(std::byte { 0 });
+    file.insert(file.end(), tiff.begin(), tiff.end());
+
+    MetaStore store;
+    std::array<ContainerBlockRef, 8> blocks {};
+    std::array<ExifIfdRef, 8> ifds {};
+    std::array<std::byte, 1024> payload {};
+    std::array<uint32_t, 16> scratch {};
+    const SimpleMetaResult res
+        = simple_meta_read(file, store, blocks, ifds, payload, scratch,
+                           ExifDecodeOptions {}, PayloadOptions {});
+    store.finalize();
+
+    ASSERT_EQ(res.scan.status, ScanStatus::Ok);
+    ASSERT_EQ(res.exif.status, ExifDecodeStatus::Ok);
+    const std::span<const EntryId> ids = store.find_all(
+        exif_key("ifd0", 0x0100));
+    ASSERT_EQ(ids.size(), 1U);
+    const Entry& entry = store.entry(ids[0]);
+    ASSERT_EQ(entry.value.kind, MetaValueKind::Scalar);
+    EXPECT_EQ(static_cast<uint32_t>(entry.value.data.u64), 640U);
+}
+
+TEST(SimpleMetaRead, RecoversStandaloneExifAfterMalformedJpegPrefix)
+{
+    const std::vector<std::byte> tiff = make_tiff_ifd0_imagewidth_u32(320U);
+    std::vector<std::byte> file;
+    file.push_back(std::byte { 0xFF });
+    file.push_back(std::byte { 0xD8 });
+    file.push_back(std::byte { 0x00 });
+    file.push_back(std::byte { 0xD8 });
+    file.push_back(std::byte { 0xFF });
+    file.push_back(std::byte { 0xE1 });
+    append_u16be(&file, 0x3FFEU);
+    append_bytes(&file, "Exif");
+    file.push_back(std::byte { 0 });
+    file.push_back(std::byte { 0 });
+    file.insert(file.end(), tiff.begin(), tiff.end());
+
+    MetaStore store;
+    std::array<ContainerBlockRef, 8> blocks {};
+    std::array<ExifIfdRef, 8> ifds {};
+    std::array<std::byte, 1024> payload {};
+    std::array<uint32_t, 16> scratch {};
+    const SimpleMetaResult res
+        = simple_meta_read(file, store, blocks, ifds, payload, scratch,
+                           ExifDecodeOptions {}, PayloadOptions {});
+    store.finalize();
+
+    ASSERT_EQ(res.scan.status, ScanStatus::Ok);
+    ASSERT_EQ(res.exif.status, ExifDecodeStatus::Ok);
+    const std::span<const EntryId> ids = store.find_all(
+        exif_key("ifd0", 0x0100));
+    ASSERT_EQ(ids.size(), 1U);
+    const Entry& entry = store.entry(ids[0]);
+    ASSERT_EQ(entry.value.kind, MetaValueKind::Scalar);
+    EXPECT_EQ(static_cast<uint32_t>(entry.value.data.u64), 320U);
+}
+
 TEST(SimpleMetaRead, BmffMetaExifItemFromIdatDecodes)
 {
     struct Case final {

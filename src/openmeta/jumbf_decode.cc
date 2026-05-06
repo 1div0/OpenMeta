@@ -704,6 +704,7 @@ namespace {
         std::vector<std::byte> cose_protected_bytes;
         bool has_cose_payload_bytes = false;
         bool cose_payload_is_null   = false;
+        bool has_invalid_cose_signature_shape = false;
         std::vector<std::byte> cose_payload_bytes;
         bool has_cose_signature_bytes = false;
         std::vector<std::byte> cose_signature_bytes;
@@ -1510,6 +1511,53 @@ namespace {
         }
     }
 
+    static bool claim_label_has_numeric_suffix(std::string_view label,
+                                               uint32_t claim_index) noexcept
+    {
+        const std::string index_text
+            = std::to_string(static_cast<unsigned long long>(claim_index));
+        if (!string_ends_with(label, index_text)) {
+            return false;
+        }
+        const size_t prefix_size = label.size() - index_text.size();
+        if (prefix_size != 0U) {
+            const char prev = label[prefix_size - 1U];
+            if (prev >= '0' && prev <= '9') {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    static void collect_detached_payload_candidates_from_claim_box_index_suffix(
+        const DecodeContext& ctx, uint32_t claim_index, uint64_t max_bytes,
+        std::vector<std::vector<std::byte>>* out_candidates) noexcept
+    {
+        if (!out_candidates) {
+            return;
+        }
+        const uint32_t jumb_type = fourcc('j', 'u', 'm', 'b');
+        const uint32_t cbor_type = fourcc('c', 'b', 'o', 'r');
+        for (size_t i = 0U; i < ctx.boxes.size(); ++i) {
+            const DecodeContext::ParsedBox& box = ctx.boxes[i];
+            if (box.type != jumb_type || !box.has_jumb_label
+                || !ascii_icase_contains_text(box.jumb_label, "claim")
+                || !claim_label_has_numeric_suffix(box.jumb_label,
+                                                   claim_index)) {
+                continue;
+            }
+            const int32_t claim_cbor_index = find_first_descendant_box_of_type(
+                ctx, static_cast<int32_t>(i), cbor_type);
+            if (claim_cbor_index < 0) {
+                continue;
+            }
+            const std::span<const std::byte> payload
+                = ctx.boxes[static_cast<size_t>(claim_cbor_index)].payload;
+            append_unique_detached_payload_candidate(payload, max_bytes,
+                                                     out_candidates);
+        }
+    }
+
     static bool collect_detached_payload_candidates_from_claim_references(
         const DecodeContext& ctx, const C2paVerifySignatureCandidate& candidate,
         uint64_t max_bytes, std::vector<std::vector<std::byte>>* out_candidates,
@@ -1546,6 +1594,7 @@ namespace {
         referenced_claim_indices.reserve(8U);
         std::vector<std::string> referenced_claim_labels;
         referenced_claim_labels.reserve(8U);
+        bool saw_nested_index_reference = false;
         const std::span<const Entry> entries = ctx.store->entries();
         for (const Entry& e : entries) {
             if (e.origin.block != ctx.block
@@ -1568,12 +1617,18 @@ namespace {
             if (out_saw_reference) {
                 *out_saw_reference = true;
             }
+            const bool is_nested_reference
+                = (key.find(".references[", signature_prefix.size())
+                   != std::string_view::npos);
 
             uint32_t claim_index = 0U;
             if (claim_reference_index_from_scalar_entry(e, &claim_index)) {
                 if (!vector_contains_u32(referenced_claim_indices,
                                          claim_index)) {
                     referenced_claim_indices.push_back(claim_index);
+                }
+                if (is_nested_reference) {
+                    saw_nested_index_reference = true;
                 }
             }
 
@@ -1587,6 +1642,9 @@ namespace {
                 if (!vector_contains_u32(referenced_claim_indices,
                                          claim_index)) {
                     referenced_claim_indices.push_back(claim_index);
+                }
+                if (is_nested_reference) {
+                    saw_nested_index_reference = true;
                 }
             }
 
@@ -1614,6 +1672,10 @@ namespace {
             (void)append_detached_payload_candidate_from_claim_index(
                 ctx, claim_scope_prefix, claim_index, max_bytes,
                 &index_candidates);
+            if (saw_nested_index_reference) {
+                collect_detached_payload_candidates_from_claim_box_index_suffix(
+                    ctx, claim_index, max_bytes, &index_candidates);
+            }
         }
 
         std::vector<std::vector<std::byte>> label_candidates;
@@ -1721,6 +1783,15 @@ namespace {
             = cbor_limit_or_default(ctx.options.limits.max_cbor_bytes_bytes,
                                     8U * 1024U * 1024U);
 
+        bool saw_reference = false;
+        const bool have_reference_candidates
+            = collect_detached_payload_candidates_from_claim_references(
+                ctx, candidate, max_bytes, out_candidates, &saw_reference,
+                nullptr, nullptr);
+        if (saw_reference || have_reference_candidates) {
+            return;
+        }
+
         std::vector<std::byte> detached;
         if (find_detached_payload_from_claim_bytes(ctx, candidate, &detached)) {
             append_unique_detached_payload_candidate(
@@ -1735,15 +1806,6 @@ namespace {
                     std::span<const std::byte>(detached.data(), detached.size()),
                     max_bytes, out_candidates);
             }
-        }
-
-        bool saw_reference = false;
-        const bool have_reference_candidates
-            = collect_detached_payload_candidates_from_claim_references(
-                ctx, candidate, max_bytes, out_candidates, &saw_reference,
-                nullptr, nullptr);
-        if (saw_reference || have_reference_candidates) {
-            return;
         }
         collect_detached_payload_candidates_from_claim_keys(ctx, max_bytes,
                                                             out_candidates);
@@ -1895,11 +1957,6 @@ namespace {
                 = "explicit_reference_consistency_invalid";
             return;
         }
-        if (summary.signature_linked == 0U) {
-            evaluation->profile_status = C2paVerifyDetailStatus::Fail;
-            evaluation->profile_reason = "signature_unlinked";
-            return;
-        }
         if (require_resolved_explicit_references
             && summary.explicit_reference_signature_count != 0U) {
             if (summary.explicit_reference_unresolved_signature_count != 0U) {
@@ -1912,6 +1969,17 @@ namespace {
                 evaluation->profile_reason = "explicit_reference_ambiguous";
                 return;
             }
+        }
+        if (summary.signature_linked == 0U) {
+            if (summary.explicit_reference_signature_count != 0U) {
+                evaluation->profile_status
+                    = C2paVerifyDetailStatus::NotChecked;
+                evaluation->profile_reason = "signature_unlinked";
+                return;
+            }
+            evaluation->profile_status = C2paVerifyDetailStatus::Fail;
+            evaluation->profile_reason = "signature_unlinked";
+            return;
         }
 
         evaluation->profile_status = C2paVerifyDetailStatus::Pass;
@@ -3091,6 +3159,83 @@ namespace {
             return false;
         }
         return true;
+    }
+
+    static bool cose_bytes_look_like_sign1(std::span<const std::byte> bytes,
+                                           const JumbfDecodeLimits& limits)
+        noexcept
+    {
+        if (bytes.empty()
+            || bytes.size() > static_cast<size_t>(
+                   cbor_limit_or_default(limits.max_cbor_bytes_bytes,
+                                         8U * 1024U * 1024U))) {
+            return false;
+        }
+
+        size_t pos = 0U;
+        CborHeadLite head;
+        if (!cbor_lite_read_head(bytes, &pos, &head) || head.is_break_item) {
+            return false;
+        }
+
+        bool saw_sign1_tag = false;
+        while (head.major == 6U && !head.indefinite) {
+            if (head.arg == 18U) {
+                saw_sign1_tag = true;
+            }
+            if (!cbor_lite_read_head(bytes, &pos, &head)
+                || head.is_break_item) {
+                return saw_sign1_tag;
+            }
+        }
+
+        return saw_sign1_tag || head.major == 4U;
+    }
+
+    static bool
+    cbor_payload_looks_like_cose_sign1(std::span<const std::byte> payload,
+                                       const JumbfDecodeLimits& limits) noexcept
+    {
+        if (payload.empty()
+            || payload.size() > static_cast<size_t>(
+                   cbor_limit_or_default(limits.max_cbor_bytes_bytes,
+                                         8U * 1024U * 1024U))) {
+            return false;
+        }
+        if (cose_bytes_look_like_sign1(payload, limits)) {
+            return true;
+        }
+
+        size_t pos = 0U;
+        CborHeadLite head;
+        if (!cbor_lite_read_head(payload, &pos, &head) || head.is_break_item) {
+            return false;
+        }
+
+        while (head.major == 6U && !head.indefinite) {
+            if (!cbor_lite_read_head(payload, &pos, &head)
+                || head.is_break_item) {
+                return false;
+            }
+        }
+
+        if (head.major != 2U || head.indefinite) {
+            return false;
+        }
+
+        const uint64_t max_bytes
+            = cbor_limit_or_default(limits.max_cbor_bytes_bytes,
+                                    8U * 1024U * 1024U);
+        if (max_bytes != 0U && head.arg > max_bytes) {
+            return false;
+        }
+        if (pos > payload.size() || head.arg > (payload.size() - pos)) {
+            return false;
+        }
+
+        const std::span<const std::byte> inner
+            = payload.subspan(pos, static_cast<size_t>(head.arg));
+        return cose_bytes_look_like_sign1(inner, limits);
     }
 
     static bool
@@ -9114,8 +9259,12 @@ namespace {
                     // Some C2PA payloads embed COSE_Sign1 as a CBOR byte string.
                     // Best-effort decode: ignore failures and fall back to other
                     // explicit fields when present.
-                    (void)cose_decode_sign1_bytes(bytes, ctx->options.limits,
-                                                  &candidate);
+                    if (!cose_decode_sign1_bytes(bytes, ctx->options.limits,
+                                                 &candidate)
+                        && cose_bytes_look_like_sign1(bytes,
+                                                      ctx->options.limits)) {
+                        candidate.has_invalid_cose_signature_shape = true;
+                    }
                 }
 
                 if (key_is_indexed_item(key, signature_prefix, 0U)) {
@@ -9338,6 +9487,12 @@ namespace {
                 if (!cose_decode_sign1_from_cbor_payload(box.payload,
                                                          ctx->options.limits,
                                                          &candidate)) {
+                    if (cbor_payload_looks_like_cose_sign1(
+                            box.payload, ctx->options.limits)) {
+                        candidate.has_invalid_cose_signature_shape = true;
+                        out_candidates->push_back(candidate);
+                        *out_has_signatures = true;
+                    }
                     continue;
                 }
                 out_candidates->push_back(candidate);
@@ -9664,6 +9819,10 @@ namespace {
         const char* best_attempt_chain_reason = "not_checked";
 
         for (const C2paVerifySignatureCandidate& candidate : candidates) {
+            if (candidate.has_invalid_cose_signature_shape) {
+                saw_invalid_signature = true;
+                continue;
+            }
             if (!candidate.has_algorithm || !candidate.has_signature_bytes) {
                 continue;
             }
@@ -9853,6 +10012,10 @@ namespace {
             evaluation.status = C2paVerifyStatus::NotImplemented;
             return evaluation;
         }
+        if (saw_invalid_signature) {
+            evaluation.status = C2paVerifyStatus::InvalidSignature;
+            return evaluation;
+        }
         if (has_known_algorithm) {
             evaluation.status = C2paVerifyStatus::NotImplemented;
             return evaluation;
@@ -9914,6 +10077,11 @@ namespace {
         if (!emit_field_u8(ctx, "c2pa.verify.require_resolved_references",
                            ctx->options.verify_require_resolved_references ? 1U
                                                                            : 0U,
+                           EntryFlags::Derived)) {
+            return false;
+        }
+        if (!emit_field_u8(ctx, "c2pa.verify.require_trusted_chain",
+                           ctx->options.verify_require_trusted_chain ? 1U : 0U,
                            EntryFlags::Derived)) {
             return false;
         }

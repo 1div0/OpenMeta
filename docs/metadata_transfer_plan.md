@@ -207,7 +207,8 @@ Implemented:
   for file-helper integration tests.
 - rendered-output safety mode: `TransferProfile::safety =
   TransferSafetyMode::RenderedImage` additionally drops source raw color
-  calibration, linearization/crop/correction metadata, vendor RAW
+  calibration, profile/gain tables, raw digests/storage identifiers,
+  linearization/crop/correction metadata, vendor RAW
   geometry/color/correction/thermal/computational/private/stitch fields,
   camera raw settings XMP, source ICC profiles, MakerNotes, and non-C2PA JUMBF
   data. It is intended for RAW-to-rendered or otherwise pixel-changing exports
@@ -756,6 +757,11 @@ still sits after the current public regression and writer-contract work.
 
 If OpenMeta stops after the current writer-contract work, it can already argue
 that it is close to competitor parity on the main tracked still-image targets.
+
+The latest read-gap closure added a bounded standalone EXIF/TIFF recovery path
+for short non-TIFF or malformed JPEG prefixes before an `Exif` preamble. This
+keeps OpenMeta aligned with common competitor recovery behavior without making
+the scanner accept arbitrary byte streams as image files.
 
 To get materially closer to `Exiv2`, the remaining work is mostly:
 - finish stable writer guarantees for the first-class target family

@@ -80,6 +80,20 @@ namespace {
         return id;
     }
 
+    static EntryId add_exif_text(MetaStore* store, std::string_view ifd,
+                                 uint16_t tag, std::string_view value)
+    {
+        if (!store) {
+            return kInvalidEntryId;
+        }
+        Entry entry;
+        entry.key        = make_exif_tag_key(store->arena(), ifd, tag);
+        entry.value      = make_text(store->arena(), value, TextEncoding::Utf8);
+        const EntryId id = store->add_entry(entry);
+        EXPECT_NE(id, kInvalidEntryId);
+        return id;
+    }
+
     static const MetadataQueryCandidate*
     find_candidate(const MetadataQueryResult& result,
                    MetadataQuerySemanticKind semantic)
@@ -377,6 +391,29 @@ TEST(MetadataQuery, MatchesStandardExposureAndGain)
     EXPECT_DOUBLE_EQ(gain_candidate->values[0], 2.0);
 }
 
+TEST(MetadataQuery, GroupsDngExposureGainTable)
+{
+    MetaStore store;
+    const EntryId baseline_id     = add_exif_u32(&store, "ifd0", 0xC62AU, 1U);
+    const EntryId preview_gain_id = add_exif_u32(&store, "ifd0", 0xC7A8U, 2U);
+    store.finalize();
+
+    const MetadataQueryResult result = query_exposure_gain_metadata(store);
+
+    const MetadataQueryCandidate* candidate
+        = find_candidate_with_shape(result,
+                                    MetadataQuerySemanticKind::ExposureGain,
+                                    MetadataQueryValueShape::Table, 2U);
+    ASSERT_NE(candidate, nullptr);
+    EXPECT_GE(candidate->confidence, 90U);
+    EXPECT_TRUE(contains_entry(candidate->source_entries, baseline_id));
+    EXPECT_TRUE(contains_entry(candidate->source_entries, preview_gain_id));
+    ASSERT_TRUE(candidate->has_values);
+    ASSERT_EQ(candidate->values.size(), 2U);
+    EXPECT_DOUBLE_EQ(candidate->values[0], 1.0);
+    EXPECT_DOUBLE_EQ(candidate->values[1], 2.0);
+}
+
 TEST(MetadataQuery, MatchesXmpWhiteBalance)
 {
     MetaStore store;
@@ -590,6 +627,127 @@ TEST(MetadataQuery, MatchesOrientationTags)
     EXPECT_STREQ(metadata_query_value_shape_name(
                      MetadataQueryValueShape::Matrix3x3),
                  "matrix3x3");
+}
+
+TEST(MetadataQuery, MatchesDngRawProcessingLevels)
+{
+    MetaStore store;
+    const std::array<uint32_t, 2> linearization = { 0U, 65535U };
+    const EntryId black_id = add_exif_u32(&store, "ifd0", 0xC61AU, 512U);
+    const EntryId white_id = add_exif_u32(&store, "ifd0", 0xC61DU, 16383U);
+    const EntryId linearization_id
+        = add_exif_u32_array(&store, "ifd0", 0xC618U,
+                             std::span<const uint32_t>(linearization.data(),
+                                                       linearization.size()));
+    store.finalize();
+
+    const MetadataQueryResult result = query_raw_processing_metadata(store);
+
+    EXPECT_EQ(result.kind, MetadataQueryKind::RawProcessing);
+    const MetadataQueryMatch* black_match = find_match_for_entry(result,
+                                                                 black_id);
+    ASSERT_NE(black_match, nullptr);
+    EXPECT_EQ(black_match->semantic, MetadataQuerySemanticKind::BlackLevel);
+    const MetadataQueryMatch* white_match = find_match_for_entry(result,
+                                                                 white_id);
+    ASSERT_NE(white_match, nullptr);
+    EXPECT_EQ(white_match->semantic, MetadataQuerySemanticKind::WhiteLevel);
+    const MetadataQueryMatch* linearization_match
+        = find_match_for_entry(result, linearization_id);
+    ASSERT_NE(linearization_match, nullptr);
+    EXPECT_EQ(linearization_match->semantic,
+              MetadataQuerySemanticKind::Linearization);
+
+    const MetadataQueryCandidate* black_candidate
+        = find_candidate_for_entry(result, black_id);
+    ASSERT_NE(black_candidate, nullptr);
+    ASSERT_TRUE(black_candidate->has_values);
+    ASSERT_EQ(black_candidate->values.size(), 1U);
+    EXPECT_DOUBLE_EQ(black_candidate->values[0], 512.0);
+}
+
+TEST(MetadataQuery, GroupsDngBlackLevelAndCfaTables)
+{
+    MetaStore store;
+    const std::array<uint32_t, 2> repeat_dim = { 2U, 2U };
+    const std::array<uint32_t, 4> black      = { 512U, 513U, 514U, 515U };
+    const std::array<uint32_t, 2> cfa_dim    = { 2U, 2U };
+    const std::array<uint32_t, 4> cfa        = { 0U, 1U, 1U, 2U };
+    const EntryId repeat_id
+        = add_exif_u32_array(&store, "ifd0", 0xC619U,
+                             std::span<const uint32_t>(repeat_dim.data(),
+                                                       repeat_dim.size()));
+    const EntryId black_id
+        = add_exif_u32_array(&store, "ifd0", 0xC61AU,
+                             std::span<const uint32_t>(black.data(),
+                                                       black.size()));
+    const EntryId cfa_dim_id
+        = add_exif_u32_array(&store, "ifd0", 0x828DU,
+                             std::span<const uint32_t>(cfa_dim.data(),
+                                                       cfa_dim.size()));
+    const EntryId cfa_id
+        = add_exif_u32_array(&store, "ifd0", 0x828EU,
+                             std::span<const uint32_t>(cfa.data(), cfa.size()));
+    store.finalize();
+
+    const MetadataQueryResult result = query_raw_processing_metadata(store);
+
+    const MetadataQueryCandidate* black_candidate
+        = find_candidate_with_shape(result,
+                                    MetadataQuerySemanticKind::BlackLevel,
+                                    MetadataQueryValueShape::Table, 2U);
+    ASSERT_NE(black_candidate, nullptr);
+    EXPECT_TRUE(contains_entry(black_candidate->source_entries, repeat_id));
+    EXPECT_TRUE(contains_entry(black_candidate->source_entries, black_id));
+    ASSERT_TRUE(black_candidate->has_values);
+    ASSERT_EQ(black_candidate->values.size(), 6U);
+    EXPECT_DOUBLE_EQ(black_candidate->values[0], 2.0);
+    EXPECT_DOUBLE_EQ(black_candidate->values[2], 512.0);
+    EXPECT_DOUBLE_EQ(black_candidate->values[5], 515.0);
+
+    const MetadataQueryCandidate* cfa_candidate
+        = find_candidate_with_shape(result,
+                                    MetadataQuerySemanticKind::CfaLayout,
+                                    MetadataQueryValueShape::Table, 2U);
+    ASSERT_NE(cfa_candidate, nullptr);
+    EXPECT_TRUE(contains_entry(cfa_candidate->source_entries, cfa_dim_id));
+    EXPECT_TRUE(contains_entry(cfa_candidate->source_entries, cfa_id));
+    ASSERT_TRUE(cfa_candidate->has_values);
+    ASSERT_EQ(cfa_candidate->values.size(), 6U);
+    EXPECT_DOUBLE_EQ(cfa_candidate->values[0], 2.0);
+    EXPECT_DOUBLE_EQ(cfa_candidate->values[2], 0.0);
+    EXPECT_DOUBLE_EQ(cfa_candidate->values[5], 2.0);
+}
+
+TEST(MetadataQuery, GroupsDngRawStorageTable)
+{
+    MetaStore store;
+    const std::array<uint32_t, 4> raw_id = { 1U, 2U, 3U, 4U };
+    const EntryId raw_id_entry
+        = add_exif_u32_array(&store, "ifd0", 0xC65DU,
+                             std::span<const uint32_t>(raw_id.data(),
+                                                       raw_id.size()));
+    const EntryId raw_name_entry = add_exif_text(&store, "ifd0", 0xC68BU,
+                                                 "source.raw");
+    store.finalize();
+
+    const MetadataQueryResult result = query_raw_processing_metadata(store);
+
+    const MetadataQueryCandidate* candidate
+        = find_candidate_with_shape(result,
+                                    MetadataQuerySemanticKind::RawStorage,
+                                    MetadataQueryValueShape::Table, 2U);
+    ASSERT_NE(candidate, nullptr);
+    EXPECT_TRUE(contains_entry(candidate->source_entries, raw_id_entry));
+    EXPECT_TRUE(contains_entry(candidate->source_entries, raw_name_entry));
+    ASSERT_TRUE(candidate->has_values);
+    ASSERT_EQ(candidate->values.size(), 4U);
+    EXPECT_DOUBLE_EQ(candidate->values[0], 1.0);
+    EXPECT_DOUBLE_EQ(candidate->values[3], 4.0);
+    EXPECT_STREQ(metadata_query_kind_name(result.kind), "raw_processing");
+    EXPECT_STREQ(metadata_query_semantic_kind_name(
+                     MetadataQuerySemanticKind::CfaLayout),
+                 "cfa_layout");
 }
 
 }  // namespace openmeta

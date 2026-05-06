@@ -4,12 +4,16 @@
 
 #include "openmeta/meta_key.h"
 #include "openmeta/simple_meta.h"
+#include "openmeta/validate.h"
 
 #include <gtest/gtest.h>
 
 #include <array>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 #include <span>
 #include <string>
 #include <string_view>
@@ -202,6 +206,17 @@ namespace {
         out->insert(out->end(), payload.begin(), payload.end());
     }
 
+    static void append_jpeg_segment(std::vector<std::byte>* out,
+                                    uint8_t marker,
+                                    std::span<const std::byte> payload)
+    {
+        out->push_back(std::byte { 0xFF });
+        out->push_back(std::byte { marker });
+        const uint16_t seg_len = static_cast<uint16_t>(payload.size() + 2U);
+        append_u16be(out, seg_len);
+        out->insert(out->end(), payload.begin(), payload.end());
+    }
+
     static std::vector<std::byte>
     make_jumbf_payload_with_cbor(std::span<const std::byte> cbor_payload);
 
@@ -365,6 +380,103 @@ namespace {
         file.insert(file.end(), meta_box.begin(), meta_box.end());
         return file;
     }
+
+    static std::vector<std::byte>
+    make_jpeg_app11_jumbf_file(std::span<const std::byte> jumbf_box)
+    {
+        std::vector<std::byte> seg;
+        append_bytes(&seg, "JP");
+        seg.push_back(std::byte { 0x00 });
+        seg.push_back(std::byte { 0x00 });
+        append_u32be(&seg, 1U);
+        seg.insert(seg.end(), jumbf_box.begin(), jumbf_box.end());
+        if (seg.size() + 2U > 0xFFFFU) {
+            return {};
+        }
+
+        std::vector<std::byte> jpeg;
+        jpeg.push_back(std::byte { 0xFF });
+        jpeg.push_back(std::byte { 0xD8 });
+        append_jpeg_segment(&jpeg, 0xEB, seg);
+        jpeg.push_back(std::byte { 0xFF });
+        jpeg.push_back(std::byte { 0xD9 });
+        return jpeg;
+    }
+
+    static std::string temp_root()
+    {
+        const char* tmp = std::getenv("TMPDIR");
+        if (!tmp || !*tmp) {
+            tmp = std::getenv("TEMP");
+        }
+        if (!tmp || !*tmp) {
+            tmp = std::getenv("TMP");
+        }
+        if (!tmp || !*tmp) {
+            tmp = "/tmp";
+        }
+        return std::string(tmp);
+    }
+
+    static std::string make_temp_path(const char* suffix)
+    {
+        static uint64_t seq = 0;
+        seq += 1U;
+
+        const uint64_t now = static_cast<uint64_t>(
+            std::chrono::steady_clock::now().time_since_epoch().count());
+
+        std::string path = temp_root();
+        if (!path.empty() && path.back() != '/' && path.back() != '\\') {
+            path.push_back('/');
+        }
+
+        char name[160];
+        std::snprintf(name, sizeof(name), "openmeta_jumbf_%llu_%llu%s",
+                      static_cast<unsigned long long>(now),
+                      static_cast<unsigned long long>(seq),
+                      suffix ? suffix : "");
+        path.append(name);
+        return path;
+    }
+
+    static bool write_bytes_file(const std::string& path,
+                                 std::span<const std::byte> bytes)
+    {
+        std::FILE* f = std::fopen(path.c_str(), "wb");
+        if (!f) {
+            return false;
+        }
+        if (!bytes.empty()) {
+            const size_t n = std::fwrite(bytes.data(), 1, bytes.size(), f);
+            if (n != bytes.size()) {
+                std::fclose(f);
+                return false;
+            }
+        }
+        return std::fclose(f) == 0;
+    }
+
+    class ScopedFile final {
+    public:
+        explicit ScopedFile(const std::string& path)
+            : path_(path)
+        {
+        }
+
+        ScopedFile(const ScopedFile&)            = delete;
+        ScopedFile& operator=(const ScopedFile&) = delete;
+
+        ~ScopedFile()
+        {
+            if (!path_.empty()) {
+                (void)std::remove(path_.c_str());
+            }
+        }
+
+    private:
+        std::string path_;
+    };
 
     static std::vector<std::byte> make_cose_protected_es256()
     {
@@ -5980,6 +6092,8 @@ TEST(JumbfDecode, C2paVerifyStrictChainRequiresTrustedCertificate)
     const std::string chain_reason
         = read_jumbf_field_text(store, "c2pa.verify.chain_reason");
     EXPECT_NE(chain_reason, "ok");
+    EXPECT_EQ(read_jumbf_field_u64(store, "c2pa.verify.require_trusted_chain"),
+              0U);
 
     MetaStore strict_store;
     options.verify_require_trusted_chain = true;
@@ -5991,6 +6105,9 @@ TEST(JumbfDecode, C2paVerifyStrictChainRequiresTrustedCertificate)
         strict_result.verify_status == C2paVerifyStatus::VerificationFailed
         || strict_result.verify_status == C2paVerifyStatus::BackendUnavailable);
     strict_store.finalize();
+    EXPECT_EQ(read_jumbf_field_u64(strict_store,
+                                   "c2pa.verify.require_trusted_chain"),
+              1U);
     const std::string strict_chain_reason
         = read_jumbf_field_text(strict_store, "c2pa.verify.chain_reason");
     EXPECT_TRUE(strict_chain_reason == "self_signed_leaf"
@@ -6002,6 +6119,59 @@ TEST(JumbfDecode, C2paVerifyStrictChainRequiresTrustedCertificate)
     EXPECT_EQ(result.verify_status, C2paVerifyStatus::BackendUnavailable);
 #else
     EXPECT_EQ(result.verify_status, C2paVerifyStatus::DisabledByBuild);
+#endif
+}
+
+TEST(JumbfDecode, ValidateFileC2paStrictChainRequiresTrustedCertificate)
+{
+#if OPENMETA_ENABLE_C2PA_VERIFY && OPENMETA_C2PA_VERIFY_OPENSSL_AVAILABLE
+    const std::array<std::byte, 3U> message
+        = { std::byte { 'a' }, std::byte { 'b' }, std::byte { 'c' } };
+
+    EVP_PKEY* key = nullptr;
+    ASSERT_TRUE(make_ec_p256_keypair(&key));
+    const std::vector<std::byte> cert_der = self_signed_cert_der_from_key(key);
+    ASSERT_FALSE(cert_der.empty());
+    const std::vector<std::byte> signature = ecdsa_sign_sha256(key, message);
+    EVP_PKEY_free(key);
+    ASSERT_FALSE(signature.empty());
+
+    const std::vector<std::byte> payload
+        = make_c2pa_manifest_with_certificate("es256", message, signature,
+                                              cert_der);
+    const std::vector<std::byte> jpeg = make_jpeg_app11_jumbf_file(payload);
+    ASSERT_FALSE(jpeg.empty());
+
+    const std::string path = make_temp_path(".jpg");
+    ASSERT_TRUE(write_bytes_file(path, jpeg));
+    const ScopedFile cleanup(path);
+
+    ValidateOptions options;
+    options.verify_c2pa    = true;
+    options.verify_backend = C2paVerifyBackend::OpenSsl;
+
+    const ValidateResult loose_result = validate_file(path.c_str(), options);
+    ASSERT_EQ(loose_result.status, ValidateStatus::Ok);
+    EXPECT_EQ(loose_result.read.jumbf.status, JumbfDecodeStatus::Ok);
+    EXPECT_EQ(loose_result.read.jumbf.verify_status,
+              C2paVerifyStatus::Verified);
+    EXPECT_FALSE(loose_result.failed);
+
+    ValidateOptions strict_options              = options;
+    strict_options.verify_require_trusted_chain = true;
+    const ValidateResult strict_result = validate_file(path.c_str(),
+                                                       strict_options);
+    ASSERT_EQ(strict_result.status, ValidateStatus::Ok);
+    EXPECT_EQ(strict_result.read.jumbf.status, JumbfDecodeStatus::Ok);
+    EXPECT_TRUE(strict_result.read.jumbf.verify_status
+                    == C2paVerifyStatus::VerificationFailed
+                || strict_result.read.jumbf.verify_status
+                       == C2paVerifyStatus::BackendUnavailable);
+    EXPECT_NE(strict_result.read.jumbf.verify_status,
+              C2paVerifyStatus::Verified);
+    EXPECT_GT(strict_result.error_count + strict_result.warning_count, 0U);
+#else
+    GTEST_SKIP() << "OpenSSL C2PA verification is unavailable";
 #endif
 }
 

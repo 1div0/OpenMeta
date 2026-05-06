@@ -36,6 +36,18 @@ namespace {
     static constexpr uint16_t kExifExposureIndexTag           = 0x9215U;
     static constexpr uint16_t kExifWhiteBalanceTag            = 0xA403U;
     static constexpr uint16_t kExifGainControlTag             = 0xA407U;
+    static constexpr uint16_t kExifCfaRepeatPatternDimTag     = 0x828DU;
+    static constexpr uint16_t kExifCfaPatternTag              = 0x828EU;
+    static constexpr uint16_t kExifCfaPattern2Tag             = 0xA302U;
+    static constexpr uint16_t kDngCfaPlaneColorTag            = 0xC616U;
+    static constexpr uint16_t kDngCfaLayoutTag                = 0xC617U;
+    static constexpr uint16_t kDngLinearizationTableTag       = 0xC618U;
+    static constexpr uint16_t kDngBlackLevelRepeatDimTag      = 0xC619U;
+    static constexpr uint16_t kDngBlackLevelTag               = 0xC61AU;
+    static constexpr uint16_t kDngBlackLevelDeltaHTag         = 0xC61BU;
+    static constexpr uint16_t kDngBlackLevelDeltaVTag         = 0xC61CU;
+    static constexpr uint16_t kDngWhiteLevelTag               = 0xC61DU;
+    static constexpr uint16_t kDngDefaultScaleTag             = 0xC61EU;
     static constexpr uint16_t kDngColorMatrix1Tag             = 0xC621U;
     static constexpr uint16_t kDngColorMatrix2Tag             = 0xC622U;
     static constexpr uint16_t kDngCameraCalibration1Tag       = 0xC623U;
@@ -62,6 +74,12 @@ namespace {
     static constexpr uint16_t kDngForwardMatrix3Tag           = 0xCD34U;
     static constexpr uint16_t kDngReductionMatrix3Tag         = 0xCD3AU;
     static constexpr uint16_t kDngProfileGainTableMap2Tag     = 0xCD40U;
+    static constexpr uint16_t kDngRawDataUniqueIdTag          = 0xC65DU;
+    static constexpr uint16_t kDngOriginalRawFileNameTag      = 0xC68BU;
+    static constexpr uint16_t kDngOriginalRawFileDataTag      = 0xC68CU;
+    static constexpr uint16_t kDngRawImageDigestTag           = 0xC71CU;
+    static constexpr uint16_t kDngOriginalRawFileDigestTag    = 0xC71DU;
+    static constexpr uint16_t kDngNewRawImageDigestTag        = 0xC7A7U;
     static constexpr uint16_t kSamsungVignettingCorrParamsTag = 0x7032U;
     static constexpr uint16_t kSamsungChromaticAberrationCorrParamsTag = 0x7035U;
     static constexpr uint16_t kSamsungDistortionCorrParamsTag = 0x7037U;
@@ -98,6 +116,30 @@ namespace {
         kDngAsShotNeutralTag,
         kDngAsShotWhiteXyTag,
         kDngAnalogBalanceTag,
+    };
+    static constexpr uint16_t kDngExposureGainTags[] = {
+        kDngBaselineExposureTag,     kDngBaselineExposureOffsetTag,
+        kDngRawToPreviewGainTag,     kDngProfileGainTableMapTag,
+        kDngProfileGainTableMap2Tag,
+    };
+    static constexpr uint16_t kDngBlackLevelTags[] = {
+        kDngBlackLevelRepeatDimTag,
+        kDngBlackLevelTag,
+        kDngBlackLevelDeltaHTag,
+        kDngBlackLevelDeltaVTag,
+    };
+    static constexpr uint16_t kDngCfaLayoutTags[] = {
+        kExifCfaRepeatPatternDimTag, kExifCfaPatternTag, kExifCfaPattern2Tag,
+        kDngCfaPlaneColorTag,        kDngCfaLayoutTag,
+    };
+    static constexpr uint16_t kDngSensorGeometryTags[] = {
+        kDngDefaultCropOriginTag, kDngDefaultCropSizeTag, kDngActiveAreaTag,
+        kDngMaskedAreasTag,       kDngDefaultScaleTag,
+    };
+    static constexpr uint16_t kDngRawStorageTags[] = {
+        kDngRawDataUniqueIdTag,       kDngOriginalRawFileNameTag,
+        kDngOriginalRawFileDataTag,   kDngRawImageDigestTag,
+        kDngOriginalRawFileDigestTag, kDngNewRawImageDigestTag,
     };
 
     static std::string_view arena_string(const ByteArena& arena,
@@ -589,6 +631,71 @@ namespace {
         return terms;
     }
 
+    static uint32_t raw_processing_match_terms(std::string_view name,
+                                               std::string_view group) noexcept
+    {
+        uint32_t terms = 0U;
+        if (contains_ascii_case_insensitive(name, "blacklevel")
+            || contains_ascii_case_insensitive(name, "black level")) {
+            terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::BlackLevel);
+        }
+        if (contains_ascii_case_insensitive(name, "whitelevel")
+            || contains_ascii_case_insensitive(name, "white level")) {
+            terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::WhiteLevel);
+        }
+        if (contains_ascii_case_insensitive(name, "linearization")
+            || contains_ascii_case_insensitive(name, "linearity")) {
+            terms |= static_cast<uint32_t>(
+                MetadataQueryMatchTerm::Linearization);
+        }
+        if (contains_ascii_case_insensitive(name, "cfa")
+            || contains_ascii_case_insensitive(name, "bayer")) {
+            terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::Cfa);
+        }
+        if (contains_ascii_case_insensitive(name, "rawdata")
+            || contains_ascii_case_insensitive(name, "raw data")
+            || contains_ascii_case_insensitive(name, "rawfile")
+            || contains_ascii_case_insensitive(name, "raw file")
+            || contains_ascii_case_insensitive(name, "rawformat")
+            || contains_ascii_case_insensitive(name, "raw format")
+            || contains_ascii_case_insensitive(name, "rawimage")
+            || contains_ascii_case_insensitive(name, "raw image")
+            || contains_ascii_case_insensitive(name, "originalraw")) {
+            terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::Raw);
+        }
+        if (contains_ascii_case_insensitive(name, "storage")
+            || contains_ascii_case_insensitive(name, "strip")
+            || contains_ascii_case_insensitive(name, "bytecount")
+            || contains_ascii_case_insensitive(name, "byte count")
+            || contains_ascii_case_insensitive(name, "fileoffset")
+            || contains_ascii_case_insensitive(name, "file offset")
+            || contains_ascii_case_insensitive(name, "dataoffset")
+            || contains_ascii_case_insensitive(name, "data offset")
+            || contains_ascii_case_insensitive(name, "datalength")
+            || contains_ascii_case_insensitive(name, "data length")
+            || contains_ascii_case_insensitive(name, "compresseddata")
+            || contains_ascii_case_insensitive(name, "compressed data")
+            || contains_ascii_case_insensitive(name, "byteorder")
+            || contains_ascii_case_insensitive(name, "byte order")) {
+            terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::Storage);
+        }
+        if (contains_ascii_case_insensitive(name, "sensor")
+            || contains_ascii_case_insensitive(name, "validbits")
+            || contains_ascii_case_insensitive(name, "valid bits")
+            || contains_ascii_case_insensitive(name, "bitdepth")
+            || contains_ascii_case_insensitive(name, "bit depth")
+            || contains_ascii_case_insensitive(name, "rawdepth")
+            || contains_ascii_case_insensitive(name, "raw depth")
+            || contains_ascii_case_insensitive(name, "rawvaluerange")
+            || contains_ascii_case_insensitive(name, "raw value range")
+            || contains_ascii_case_insensitive(name, "rawvaluemedian")
+            || contains_ascii_case_insensitive(name, "raw value median")
+            || contains_ascii_case_insensitive(group, "phaseone")) {
+            terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::Sensor);
+        }
+        return terms;
+    }
+
     static uint32_t orientation_match_terms(std::string_view name) noexcept
     {
         if (contains_ascii_case_insensitive(name, "orientation")) {
@@ -703,6 +810,48 @@ namespace {
             default: break;
             }
             return 0U;
+        case MetadataQueryKind::RawProcessing:
+            switch (tag) {
+            case kDngBlackLevelRepeatDimTag:
+            case kDngBlackLevelTag:
+            case kDngBlackLevelDeltaHTag:
+            case kDngBlackLevelDeltaVTag:
+                return static_cast<uint32_t>(MetadataQueryMatchTerm::Sensor)
+                       | static_cast<uint32_t>(
+                           MetadataQueryMatchTerm::BlackLevel);
+            case kDngWhiteLevelTag:
+                return static_cast<uint32_t>(MetadataQueryMatchTerm::Sensor)
+                       | static_cast<uint32_t>(
+                           MetadataQueryMatchTerm::WhiteLevel);
+            case kDngLinearizationTableTag:
+                return static_cast<uint32_t>(MetadataQueryMatchTerm::Sensor)
+                       | static_cast<uint32_t>(
+                           MetadataQueryMatchTerm::Linearization);
+            case kExifCfaRepeatPatternDimTag:
+            case kExifCfaPatternTag:
+            case kExifCfaPattern2Tag:
+            case kDngCfaPlaneColorTag:
+            case kDngCfaLayoutTag:
+                return static_cast<uint32_t>(MetadataQueryMatchTerm::Sensor)
+                       | static_cast<uint32_t>(MetadataQueryMatchTerm::Cfa);
+            case kDngDefaultCropOriginTag:
+            case kDngDefaultCropSizeTag:
+            case kDngActiveAreaTag:
+            case kDngMaskedAreasTag:
+            case kDngDefaultScaleTag:
+                return static_cast<uint32_t>(MetadataQueryMatchTerm::Sensor)
+                       | static_cast<uint32_t>(MetadataQueryMatchTerm::Size);
+            case kDngRawDataUniqueIdTag:
+            case kDngOriginalRawFileNameTag:
+            case kDngOriginalRawFileDataTag:
+            case kDngRawImageDigestTag:
+            case kDngOriginalRawFileDigestTag:
+            case kDngNewRawImageDigestTag:
+                return static_cast<uint32_t>(MetadataQueryMatchTerm::Raw)
+                       | static_cast<uint32_t>(MetadataQueryMatchTerm::Storage);
+            default: break;
+            }
+            return 0U;
         }
         return 0U;
     }
@@ -741,6 +890,22 @@ namespace {
             }
             break;
         case MetadataQueryKind::Orientation: break;
+        case MetadataQueryKind::RawProcessing:
+            if (vendor_raw_processing_group_has(groups,
+                                                VendorRawProcessingGroup::Sensor)
+                || vendor_raw_processing_group_has(
+                    groups, VendorRawProcessingGroup::Geometry)) {
+                terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::Sensor);
+            }
+            if (vendor_raw_processing_group_has(
+                    groups, VendorRawProcessingGroup::RawData)) {
+                terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::Raw);
+            }
+            if (vendor_raw_processing_group_has(
+                    groups, VendorRawProcessingGroup::Storage)) {
+                terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::Storage);
+            }
+            break;
         }
         return terms;
     }
@@ -760,6 +925,8 @@ namespace {
             return lens_correction_match_terms(name);
         case MetadataQueryKind::Orientation:
             return orientation_match_terms(name);
+        case MetadataQueryKind::RawProcessing:
+            return raw_processing_match_terms(name, group);
         }
         return 0U;
     }
@@ -840,6 +1007,37 @@ namespace {
                  & static_cast<uint32_t>(MetadataQueryMatchTerm::Orientation))
                 != 0U) {
                 return MetadataQuerySemanticKind::Orientation;
+            }
+            break;
+        case MetadataQueryKind::RawProcessing:
+            if ((terms
+                 & static_cast<uint32_t>(MetadataQueryMatchTerm::BlackLevel))
+                != 0U) {
+                return MetadataQuerySemanticKind::BlackLevel;
+            }
+            if ((terms
+                 & static_cast<uint32_t>(MetadataQueryMatchTerm::WhiteLevel))
+                != 0U) {
+                return MetadataQuerySemanticKind::WhiteLevel;
+            }
+            if ((terms
+                 & static_cast<uint32_t>(MetadataQueryMatchTerm::Linearization))
+                != 0U) {
+                return MetadataQuerySemanticKind::Linearization;
+            }
+            if ((terms & static_cast<uint32_t>(MetadataQueryMatchTerm::Cfa))
+                != 0U) {
+                return MetadataQuerySemanticKind::CfaLayout;
+            }
+            if ((terms
+                 & (static_cast<uint32_t>(MetadataQueryMatchTerm::Raw)
+                    | static_cast<uint32_t>(MetadataQueryMatchTerm::Storage)))
+                != 0U) {
+                return MetadataQuerySemanticKind::RawStorage;
+            }
+            if ((terms & static_cast<uint32_t>(MetadataQueryMatchTerm::Sensor))
+                != 0U) {
+                return MetadataQuerySemanticKind::SensorGeometry;
             }
             break;
         }
@@ -932,6 +1130,27 @@ namespace {
                  & static_cast<uint32_t>(MetadataQueryMatchTerm::Orientation))
                 != 0U) {
                 return 95U;
+            }
+            break;
+        case MetadataQueryKind::RawProcessing:
+            if ((terms
+                 & (static_cast<uint32_t>(MetadataQueryMatchTerm::BlackLevel)
+                    | static_cast<uint32_t>(MetadataQueryMatchTerm::WhiteLevel)
+                    | static_cast<uint32_t>(
+                        MetadataQueryMatchTerm::Linearization)
+                    | static_cast<uint32_t>(MetadataQueryMatchTerm::Cfa)))
+                != 0U) {
+                return 92U;
+            }
+            if ((terms
+                 & (static_cast<uint32_t>(MetadataQueryMatchTerm::Raw)
+                    | static_cast<uint32_t>(MetadataQueryMatchTerm::Storage)))
+                != 0U) {
+                return 86U;
+            }
+            if ((terms & static_cast<uint32_t>(MetadataQueryMatchTerm::Sensor))
+                != 0U) {
+                return 78U;
             }
             break;
         }
@@ -1500,6 +1719,13 @@ namespace {
         }
 
         switch (kind) {
+        case MetadataQueryKind::ExposureGain:
+            append_exif_tag_series_candidates(
+                store, result, kDngExposureGainTags,
+                sizeof(kDngExposureGainTags) / sizeof(kDngExposureGainTags[0]),
+                MetadataQuerySemanticKind::ExposureGain,
+                MetadataQueryValueShape::Table, 90U);
+            break;
         case MetadataQueryKind::Color:
             append_exif_tag_series_candidates(
                 store, result, kDngColorMatrixTags,
@@ -1536,8 +1762,30 @@ namespace {
         case MetadataQueryKind::LensCorrection:
             append_lens_correction_table_candidates(store, result);
             break;
+        case MetadataQueryKind::RawProcessing:
+            append_exif_tag_series_candidates(
+                store, result, kDngBlackLevelTags,
+                sizeof(kDngBlackLevelTags) / sizeof(kDngBlackLevelTags[0]),
+                MetadataQuerySemanticKind::BlackLevel,
+                MetadataQueryValueShape::Table, 94U);
+            append_exif_tag_series_candidates(
+                store, result, kDngCfaLayoutTags,
+                sizeof(kDngCfaLayoutTags) / sizeof(kDngCfaLayoutTags[0]),
+                MetadataQuerySemanticKind::CfaLayout,
+                MetadataQueryValueShape::Table, 94U);
+            append_exif_tag_series_candidates(
+                store, result, kDngSensorGeometryTags,
+                sizeof(kDngSensorGeometryTags)
+                    / sizeof(kDngSensorGeometryTags[0]),
+                MetadataQuerySemanticKind::SensorGeometry,
+                MetadataQueryValueShape::Table, 90U);
+            append_exif_tag_series_candidates(
+                store, result, kDngRawStorageTags,
+                sizeof(kDngRawStorageTags) / sizeof(kDngRawStorageTags[0]),
+                MetadataQuerySemanticKind::RawStorage,
+                MetadataQueryValueShape::Table, 88U);
+            break;
         case MetadataQueryKind::Crop:
-        case MetadataQueryKind::ExposureGain:
         case MetadataQueryKind::Orientation: break;
         }
     }
@@ -1586,6 +1834,8 @@ query_metadata(const MetaStore& store, MetadataQueryKind kind)
         return query_lens_correction_metadata(store);
     case MetadataQueryKind::Orientation:
         return query_orientation_metadata(store);
+    case MetadataQueryKind::RawProcessing:
+        return query_raw_processing_metadata(store);
     }
     MetadataQueryResult result;
     result.kind = kind;
@@ -1652,6 +1902,12 @@ query_orientation_metadata(const MetaStore& store)
     return query_semantic_metadata(store, MetadataQueryKind::Orientation);
 }
 
+MetadataQueryResult
+query_raw_processing_metadata(const MetaStore& store)
+{
+    return query_semantic_metadata(store, MetadataQueryKind::RawProcessing);
+}
+
 const char*
 metadata_query_kind_name(MetadataQueryKind kind) noexcept
 {
@@ -1662,6 +1918,7 @@ metadata_query_kind_name(MetadataQueryKind kind) noexcept
     case MetadataQueryKind::Color: return "color";
     case MetadataQueryKind::LensCorrection: return "lens_correction";
     case MetadataQueryKind::Orientation: return "orientation";
+    case MetadataQueryKind::RawProcessing: return "raw_processing";
     }
     return "unknown";
 }
@@ -1681,6 +1938,13 @@ metadata_query_semantic_kind_name(MetadataQuerySemanticKind kind) noexcept
     case MetadataQuerySemanticKind::ColorMatrix: return "color_matrix";
     case MetadataQuerySemanticKind::LensCorrection: return "lens_correction";
     case MetadataQuerySemanticKind::Orientation: return "orientation";
+    case MetadataQuerySemanticKind::ExposureGain: return "exposure_gain";
+    case MetadataQuerySemanticKind::BlackLevel: return "black_level";
+    case MetadataQuerySemanticKind::WhiteLevel: return "white_level";
+    case MetadataQuerySemanticKind::Linearization: return "linearization";
+    case MetadataQuerySemanticKind::CfaLayout: return "cfa_layout";
+    case MetadataQuerySemanticKind::SensorGeometry: return "sensor_geometry";
+    case MetadataQuerySemanticKind::RawStorage: return "raw_storage";
     }
     return "unknown";
 }

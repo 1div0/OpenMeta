@@ -17,6 +17,11 @@ Unit tests (GoogleTest)
 If your test dependencies were built against ``libc++`` (common with Clang),
 configure OpenMeta with ``-DOPENMETA_USE_LIBCXX=ON``.
 
+If CTest-launched external tools need a custom runtime lookup path for that
+standard library, configure
+``-DOPENMETA_TEST_RUNTIME_LIBRARY_PATH=/path/to/runtime-libs``. OpenMeta
+applies it as ``LD_LIBRARY_PATH`` on Linux and ``DYLD_LIBRARY_PATH`` on macOS.
+
 Fuzzing
 -------
 

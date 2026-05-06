@@ -23,6 +23,7 @@ enum class MetadataQueryKind : uint8_t {
     Color,
     LensCorrection,
     Orientation,
+    RawProcessing,
 };
 
 enum class MetadataQuerySemanticKind : uint8_t {
@@ -37,6 +38,13 @@ enum class MetadataQuerySemanticKind : uint8_t {
     ColorMatrix,
     LensCorrection,
     Orientation,
+    ExposureGain,
+    BlackLevel,
+    WhiteLevel,
+    Linearization,
+    CfaLayout,
+    SensorGeometry,
+    RawStorage,
 };
 
 enum class MetadataQueryValueShape : uint8_t {
@@ -56,28 +64,34 @@ enum class MetadataQueryValueShape : uint8_t {
 };
 
 enum class MetadataQueryMatchTerm : uint32_t {
-    None         = 0U,
-    Crop         = 1U << 0U,
-    Border       = 1U << 1U,
-    Margin       = 1U << 2U,
-    Padding      = 1U << 3U,
-    ActiveArea   = 1U << 4U,
-    Origin       = 1U << 5U,
-    Offset       = 1U << 6U,
-    Size         = 1U << 7U,
-    Sensor       = 1U << 8U,
-    Image        = 1U << 9U,
-    Exposure     = 1U << 10U,
-    Bias         = 1U << 11U,
-    Gain         = 1U << 12U,
-    WhiteBalance = 1U << 13U,
-    Color        = 1U << 14U,
-    Matrix       = 1U << 15U,
-    Calibration  = 1U << 16U,
-    Profile      = 1U << 17U,
-    Lens         = 1U << 18U,
-    Correction   = 1U << 19U,
-    Orientation  = 1U << 20U,
+    None          = 0U,
+    Crop          = 1U << 0U,
+    Border        = 1U << 1U,
+    Margin        = 1U << 2U,
+    Padding       = 1U << 3U,
+    ActiveArea    = 1U << 4U,
+    Origin        = 1U << 5U,
+    Offset        = 1U << 6U,
+    Size          = 1U << 7U,
+    Sensor        = 1U << 8U,
+    Image         = 1U << 9U,
+    Exposure      = 1U << 10U,
+    Bias          = 1U << 11U,
+    Gain          = 1U << 12U,
+    WhiteBalance  = 1U << 13U,
+    Color         = 1U << 14U,
+    Matrix        = 1U << 15U,
+    Calibration   = 1U << 16U,
+    Profile       = 1U << 17U,
+    Lens          = 1U << 18U,
+    Correction    = 1U << 19U,
+    Orientation   = 1U << 20U,
+    BlackLevel    = 1U << 21U,
+    WhiteLevel    = 1U << 22U,
+    Linearization = 1U << 23U,
+    Cfa           = 1U << 24U,
+    Raw           = 1U << 25U,
+    Storage       = 1U << 26U,
 };
 
 struct MetadataQueryMatch final {
@@ -138,6 +152,9 @@ query_lens_correction_metadata(const MetaStore& store);
 
 MetadataQueryResult
 query_orientation_metadata(const MetaStore& store);
+
+MetadataQueryResult
+query_raw_processing_metadata(const MetaStore& store);
 
 const char*
 metadata_query_kind_name(MetadataQueryKind kind) noexcept;

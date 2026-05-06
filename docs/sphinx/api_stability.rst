@@ -75,10 +75,12 @@ Host-facing API map
      - Experimental
      - Query contract for inspection matches plus normalized candidates.
        Current coverage includes crop/active-area, exposure/gain, white
-       balance, color, lens correction, and orientation metadata across
-       standard tags, selected DNG tags, fuzzy XMP paths, and vendor
-       RAW-processing classification, including grouped ``matrix_set``,
-       ``vector_set``, and ``table`` candidates for related non-crop metadata.
+       balance, color, lens correction, orientation, and RAW-processing
+       metadata across standard tags, selected DNG tags, fuzzy XMP paths, and
+       vendor RAW-processing classification. Grouped candidates include
+       ``matrix_set``, ``vector_set``, and ``table`` shapes for related
+       non-crop metadata, including RAW black/white levels, linearization,
+       CFA/sensor layout, source geometry, and raw-storage identifiers.
        Python ``Document`` and ``TransferSourceSnapshot`` mirror this as thin
        dictionary-returning wrappers.
    * - Vendor RAW-processing summaries:

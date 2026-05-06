@@ -17,7 +17,7 @@ model should stay compact:
 | --- | --- | --- |
 | Decoding | Find metadata carriers and decode EXIF, XMP, IPTC, ICC, Photoshop IRB, JUMBF/C2PA, EXR, and related blocks into `MetaStore` entries. | High, about 90-95% for the current target scope. |
 | Interpretation | Normalize names and values, group entries by meaning, and classify source-bound data such as RAW crop, color, lens-correction, sensor, and vendor-private fields. | Medium-high, about 75-85%. |
-| Query | Find entries by name, fuzzy term, or semantic group, for example crop/border/active-area fields or exposure/gain fields across standard and vendor metadata. | Low, about 15-20%. |
+| Query | Find entries by name, fuzzy term, or semantic group, for example crop/border/active-area, exposure/gain, color/WB, orientation, lens-correction, and RAW-processing fields across standard and vendor metadata. | Low, about 20-25%. |
 | Creation | Build fresh metadata entries from host-provided values. | Medium, about 55-65%. |
 | Editing | Modify existing logical metadata entries while preserving valid surrounding structure. | Medium, about 60-70%. |
 | Transfer | Move metadata between files using explicit compatible-file or rendered-image safety policies. | Medium-high, about 80-85%. |
@@ -35,15 +35,18 @@ rather than hiding ambiguity behind a single value.
 
 The first experimental C++ query surface is `openmeta/metadata_query.h`.
 It returns both raw matches and normalized candidates for crop/active-area,
-exposure/gain, white balance, color, lens correction, and orientation queries.
+exposure/gain, white balance, color, lens correction, orientation, and
+RAW-processing queries.
 Crop queries include DNG crop tags, `ActiveArea`, Phase One/Leaf raw geometry,
 and fuzzy crop/border-style XMP property paths. The non-crop queries expose
 per-entry value candidates and reuse standard tag names, selected DNG tags,
 fuzzy XMP paths, and vendor RAW-processing classification where applicable.
 They also append grouped candidates for related DNG color matrix/calibration/
 reduction/forward matrix tags, DNG white-balance vector tags, and
-lens-correction table groups, using `matrix_set`, `vector_set`, and `table`
-value shapes.
+lens-correction table groups. RAW-processing queries add conservative groups
+for black/white levels, linearization tables, CFA/sensor layout, source
+geometry, and raw-storage identifiers. Grouped candidates use `matrix_set`,
+`vector_set`, and `table` value shapes.
 Python `Document` and `TransferSourceSnapshot` mirror this as thin wrappers
 returning the same match/candidate dictionary shape.
 
@@ -75,13 +78,25 @@ dependencies let OpenMeta decode more content:
   `OPENMETA_C2PA_VERIFY_BACKEND`): enables backend selection/reporting fields
   (`none|auto|native|openssl`) and draft verification flow. Native backend
   availability is platform-based (Windows/macOS), while OpenSSL availability
-  is discovered via `find_package(OpenSSL)` when needed.
+  is discovered via `find_package(OpenSSL)` when needed. By default this
+  reports cryptographic signature status and trust-chain detail separately;
+  use `--c2pa-verify-require-trusted-chain` when validation must fail for an
+  untrusted or missing certificate chain.
 
 If you link against dependencies that were built with `libc++` (common when
 using Clang), configure OpenMeta with:
 
 ```bash
 -DOPENMETA_USE_LIBCXX=ON
+```
+
+When CTest launches external validation tools from the same dependency prefix,
+those tools must also be able to find their matching C++ runtime libraries. If
+the runtime is not discoverable through the system loader, pass an explicit
+runtime directory:
+
+```bash
+-DOPENMETA_TEST_RUNTIME_LIBRARY_PATH=/path/to/runtime-libs
 ```
 
 ## Versioning
@@ -106,6 +121,9 @@ using Clang), configure OpenMeta with:
 
 #Validate with sidecar + MakerNotes + C2PA verify status
 ./build/metavalidate --xmp-sidecar --makernotes --c2pa-verify input.jpg
+
+#Require C2PA signature verification and a trusted certificate chain
+./build/metavalidate --c2pa-verify --c2pa-verify-require-trusted-chain input.jpg
 ```
 `metavalidate` CLI is a thin wrapper over `openmeta::validate_file(...)`.
 Machine-readable JSON output includes issue codes suitable for gating, for
@@ -125,6 +143,9 @@ example `xmp/output_truncated` and `xmp/invalid_or_malformed_xml_text`.
 
 #Portable sidecar + draft C2PA verify scaffold status reporting
 ./build/metadump --format portable --c2pa-verify --c2pa-verify-backend auto input.jpg output.xmp
+
+#Portable sidecar with trusted-chain C2PA verification required
+./build/metadump --format portable --c2pa-verify --c2pa-verify-require-trusted-chain input.jpg output.xmp
 
 #Explicit input / output form
 ./build/metadump -i input.jpg -o output.xmp
@@ -723,6 +744,11 @@ This policy surface is intentionally marked draft and may be refined.
       `verification_failed`) when a signature entry provides algorithm +
       signing input + public key material (`public_key_der`/`public_key_pem` or
       `certificate_der`).
+    - opt-in trusted-chain enforcement via
+      `verify_require_trusted_chain` /
+      `--c2pa-verify-require-trusted-chain`; without this option, signature
+      verification and certificate-chain trust are reported as separate
+      signals.
     - COSE_Sign1 support (array or embedded CBOR byte-string forms): extracts
       `alg` from protected headers, reconstructs Sig_structure signing bytes
       when payload is present, extracts `x5chain` from unprotected headers, and
@@ -805,6 +831,11 @@ Requirements:
 Note: if your GoogleTest was built against `libc++` (common with Clang),
 build OpenMeta against the same C++ standard library. Otherwise you may see
 link errors involving `std::__1` vs `std::__cxx11`.
+
+If external test tools were built with `libc++` and need a custom runtime
+lookup path, set `OPENMETA_TEST_RUNTIME_LIBRARY_PATH` at configure time. This
+is applied to CTest-launched tests through `LD_LIBRARY_PATH` on Linux and
+`DYLD_LIBRARY_PATH` on macOS.
 
 Build + run:
 ```bash

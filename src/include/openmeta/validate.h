@@ -58,6 +58,7 @@ struct ValidateOptions final {
     bool include_xmp_sidecar                = false;
     bool verify_c2pa                        = false;
     C2paVerifyBackend verify_backend        = C2paVerifyBackend::Auto;
+    bool verify_require_trusted_chain       = false;
     bool verify_require_resolved_references = false;
 
     /// Treat warnings as failures in \ref ValidateResult::failed.

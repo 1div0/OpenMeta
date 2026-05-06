@@ -769,6 +769,48 @@ namespace {
     }
 
 
+    static uint8_t c2pa_verify_status_priority(C2paVerifyStatus status) noexcept
+    {
+        switch (status) {
+        case C2paVerifyStatus::InvalidSignature: return 80U;
+        case C2paVerifyStatus::VerificationFailed: return 70U;
+        case C2paVerifyStatus::BackendUnavailable: return 60U;
+        case C2paVerifyStatus::DisabledByBuild: return 50U;
+        case C2paVerifyStatus::NoSignatures: return 40U;
+        case C2paVerifyStatus::NotImplemented: return 30U;
+        case C2paVerifyStatus::Verified: return 20U;
+        case C2paVerifyStatus::NotRequested: return 0U;
+        }
+        return 0U;
+    }
+
+
+    static void merge_jumbf_result(JumbfDecodeResult* out,
+                                   const JumbfDecodeResult& in) noexcept
+    {
+        if (!out) {
+            return;
+        }
+
+        merge_jumbf_status(&out->status, in.status);
+        out->boxes_decoded += in.boxes_decoded;
+        out->cbor_items += in.cbor_items;
+        out->entries_decoded += in.entries_decoded;
+
+        const uint8_t old_priority = c2pa_verify_status_priority(
+            out->verify_status);
+        const uint8_t new_priority = c2pa_verify_status_priority(
+            in.verify_status);
+        if (new_priority > old_priority
+            || (new_priority == old_priority
+                && out->verify_status == C2paVerifyStatus::NotRequested
+                && in.verify_status != C2paVerifyStatus::NotRequested)) {
+            out->verify_status           = in.verify_status;
+            out->verify_backend_selected = in.verify_backend_selected;
+        }
+    }
+
+
     static PayloadResult
     get_block_bytes(std::span<const std::byte> file_bytes,
                     std::span<const ContainerBlockRef> blocks,
@@ -1238,10 +1280,7 @@ simple_meta_read(std::span<const std::byte> file_bytes, MetaStore& store,
             const JumbfDecodeResult one
                 = decode_jumbf_payload(block_bytes, store, EntryFlags::None,
                                        options.jumbf);
-            merge_jumbf_status(&jumbf.status, one.status);
-            jumbf.boxes_decoded += one.boxes_decoded;
-            jumbf.cbor_items += one.cbor_items;
-            jumbf.entries_decoded += one.entries_decoded;
+            merge_jumbf_result(&jumbf, one);
         } else if (block.kind == ContainerBlockKind::Icc) {
             (void)decode_icc_profile(block_bytes, store, options.icc);
         } else if (block.kind == ContainerBlockKind::PhotoshopIrB) {
@@ -1377,10 +1416,7 @@ simple_meta_read(std::span<const std::byte> file_bytes, MetaStore& store,
                 const JumbfDecodeResult one
                     = decode_jumbf_payload(block_bytes, store, EntryFlags::None,
                                            options.jumbf);
-                merge_jumbf_status(&jumbf.status, one.status);
-                jumbf.boxes_decoded += one.boxes_decoded;
-                jumbf.cbor_items += one.cbor_items;
-                jumbf.entries_decoded += one.entries_decoded;
+                merge_jumbf_result(&jumbf, one);
             }
         }
     }

@@ -25,6 +25,8 @@ Current tracked-gate status:
 
 - EXIF tag-id compare gates are passing on tracked `HEIC/HEIF`, `CR3`, and
   mixed RAW corpora.
+- Standalone EXIF/TIFF payload recovery is covered for files with a short
+  non-TIFF prefix or a malformed JPEG prefix before the `Exif` preamble.
 - EXR header metadata compare is passing for the documented
   name/type/value-class contract.
 - Sidecar export paths (`lossless` and `portable`) are covered by baseline and
@@ -123,13 +125,16 @@ Current support is intentionally draft:
 - structural BMFF box decode
 - bounded CBOR traversal
 - draft `c2pa.semantic.*` projection
-- draft verify scaffolding
+- draft verify scaffolding with opt-in trusted certificate-chain enforcement
 
 What this means in practice:
 - OpenMeta can expose useful manifest / claim / signature / ingredient shape
   information
-- OpenMeta does not yet claim full C2PA manifest semantics, trust semantics,
-  or full policy validation
+- OpenMeta can report signature verification and certificate-chain trust as
+  separate signals, or fail verification when
+  `verify_require_trusted_chain` / `--c2pa-verify-require-trusted-chain` is set
+- OpenMeta does not yet claim full C2PA manifest semantics or full policy
+  validation
 
 ## Tool-Level Behavior
 

@@ -259,6 +259,8 @@ Useful options:
 - `-DOPENMETA_BUILD_FUZZERS=ON` for Clang + libFuzzer targets
 - `-DOPENMETA_USE_LIBCXX=ON` when linking against dependencies built with
   `libc++`
+- `-DOPENMETA_TEST_RUNTIME_LIBRARY_PATH=/path/to/runtime-libs` when CTest
+  launches external tools that need a non-default C++ runtime lookup path
 - `-DOPENMETA_WITH_DNG_SDK_ADAPTER=ON` to enable the optional Adobe DNG SDK
   bridge (requires a discoverable `dng_sdk` package; intentionally excluded
   from public GitHub Actions CI)

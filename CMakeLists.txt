@@ -98,6 +98,9 @@ if(NOT OPENMETA_FFMPEG_EXECUTABLE)
   endif()
 endif()
 
+set(OPENMETA_TEST_RUNTIME_LIBRARY_PATH "" CACHE STRING
+  "Optional runtime library path prepended to CTest tests that launch external tools")
+
 set(OPENMETA_BMFF_HEIF_TEST_TARGET "" CACHE FILEPATH "Optional existing HEIF/HEIC target image for external transfer usability checks")
 set(OPENMETA_BMFF_AVIF_TEST_TARGET "" CACHE FILEPATH "Optional existing AVIF target image for external transfer usability checks")
 set(OPENMETA_BMFF_CR3_TEST_TARGET "" CACHE FILEPATH "Optional existing CR3 target image for external transfer usability checks")
@@ -105,6 +108,34 @@ set(_openmeta_bmff_test_target_args
   "-DBMFF_HEIF_TEST_TARGET=${OPENMETA_BMFF_HEIF_TEST_TARGET}"
   "-DBMFF_AVIF_TEST_TARGET=${OPENMETA_BMFF_AVIF_TEST_TARGET}"
   "-DBMFF_CR3_TEST_TARGET=${OPENMETA_BMFF_CR3_TEST_TARGET}")
+
+function(openmeta_apply_test_runtime_environment test_name)
+  if(NOT OPENMETA_TEST_RUNTIME_LIBRARY_PATH)
+    return()
+  endif()
+
+  if(WIN32)
+    set(_openmeta_runtime_var "PATH")
+    set(_openmeta_runtime_sep ";")
+    set(_openmeta_runtime_existing "$ENV{PATH}")
+  elseif(APPLE)
+    set(_openmeta_runtime_var "DYLD_LIBRARY_PATH")
+    set(_openmeta_runtime_sep ":")
+    set(_openmeta_runtime_existing "$ENV{DYLD_LIBRARY_PATH}")
+  else()
+    set(_openmeta_runtime_var "LD_LIBRARY_PATH")
+    set(_openmeta_runtime_sep ":")
+    set(_openmeta_runtime_existing "$ENV{LD_LIBRARY_PATH}")
+  endif()
+
+  set(_openmeta_runtime_value "${OPENMETA_TEST_RUNTIME_LIBRARY_PATH}")
+  if(_openmeta_runtime_existing)
+    set(_openmeta_runtime_value
+      "${_openmeta_runtime_value}${_openmeta_runtime_sep}${_openmeta_runtime_existing}")
+  endif()
+  set_tests_properties(${test_name} PROPERTIES
+    ENVIRONMENT "${_openmeta_runtime_var}=${_openmeta_runtime_value}")
+endfunction()
 
 # Optional path to local dependency repos (used for the FuzzTest wrapper).
 # Expected layout:
@@ -886,6 +917,13 @@ if(OPENMETA_BUILD_TESTS)
         "-DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/_python_metatransfer_edit_smoke"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/python_metatransfer_edit_smoke_test.cmake"
     )
+  endif()
+
+  if(OPENMETA_TEST_RUNTIME_LIBRARY_PATH)
+    get_property(_openmeta_test_names DIRECTORY PROPERTY TESTS)
+    foreach(_openmeta_test_name IN LISTS _openmeta_test_names)
+      openmeta_apply_test_runtime_environment("${_openmeta_test_name}")
+    endforeach()
   endif()
 endif()
 

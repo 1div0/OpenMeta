@@ -41,6 +41,8 @@ Core toggles:
   when the system libraries are available.
 - ``OPENMETA_WITH_EXPAT``: enable XMP packet parsing when Expat is available.
 - ``OPENMETA_USE_LIBCXX``: build against ``libc++`` (useful when deps were built with ``libc++``).
+- ``OPENMETA_TEST_RUNTIME_LIBRARY_PATH``: prepend a runtime library directory to
+  CTest tests that launch external tools.
 
 Optional dependency notes:
 

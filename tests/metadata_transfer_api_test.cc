@@ -5466,7 +5466,7 @@ build_rendered_image_safety_source_store(openmeta::MetaStore* store)
     if (!store) {
         return false;
     }
-    *store = openmeta::MetaStore {};
+    *store                        = openmeta::MetaStore {};
     const openmeta::BlockId block = store->add_block(openmeta::BlockInfo {});
     if (block == openmeta::kInvalidBlockId) {
         return false;
@@ -5512,8 +5512,8 @@ build_rendered_image_safety_source_store(openmeta::MetaStore* store)
         openmeta::SRational { 1, 1 },
     };
     openmeta::Entry raw_color;
-    raw_color.key = openmeta::make_exif_tag_key(store->arena(), "ifd0",
-                                                0xC621U);
+    raw_color.key   = openmeta::make_exif_tag_key(store->arena(), "ifd0",
+                                                  0xC621U);
     raw_color.value = openmeta::make_srational_array(
         store->arena(),
         std::span<const openmeta::SRational>(color_matrix.data(),
@@ -5524,32 +5524,60 @@ build_rendered_image_safety_source_store(openmeta::MetaStore* store)
         return false;
     }
 
-    const std::vector<std::byte> vendor_private_bytes
-        = ascii_z("SOURCE_VENDOR_PRIVATE_DROP");
+    const std::array<std::byte, 4> raw_digest_bytes = {
+        std::byte { 0x10 },
+        std::byte { 0x20 },
+        std::byte { 0x30 },
+        std::byte { 0x40 },
+    };
+    openmeta::Entry raw_digest;
+    raw_digest.key   = openmeta::make_exif_tag_key(store->arena(), "ifd0",
+                                                   0xC71CU);
+    raw_digest.value = openmeta::make_bytes(
+        store->arena(), std::span<const std::byte>(raw_digest_bytes.data(),
+                                                   raw_digest_bytes.size()));
+    raw_digest.origin.block          = block;
+    raw_digest.origin.order_in_block = 4U;
+    if (store->add_entry(raw_digest) == openmeta::kInvalidEntryId) {
+        return false;
+    }
+
+    openmeta::Entry raw_preview_gain;
+    raw_preview_gain.key   = openmeta::make_exif_tag_key(store->arena(), "ifd0",
+                                                         0xC7A8U);
+    raw_preview_gain.value = openmeta::make_u32(2U);
+    raw_preview_gain.origin.block          = block;
+    raw_preview_gain.origin.order_in_block = 5U;
+    if (store->add_entry(raw_preview_gain) == openmeta::kInvalidEntryId) {
+        return false;
+    }
+
+    const std::vector<std::byte> vendor_private_bytes = ascii_z(
+        "SOURCE_VENDOR_PRIVATE_DROP");
     openmeta::Entry vendor_private;
-    vendor_private.key
-        = openmeta::make_exif_tag_key(store->arena(), "mk_sony_sr2private_0",
-                                      0x7200U);
+    vendor_private.key   = openmeta::make_exif_tag_key(store->arena(),
+                                                       "mk_sony_sr2private_0",
+                                                       0x7200U);
     vendor_private.value = openmeta::make_bytes(
         store->arena(),
         std::span<const std::byte>(vendor_private_bytes.data(),
                                    vendor_private_bytes.size()));
     vendor_private.origin.block          = block;
-    vendor_private.origin.order_in_block = 4U;
+    vendor_private.origin.order_in_block = 6U;
     if (store->add_entry(vendor_private) == openmeta::kInvalidEntryId) {
         return false;
     }
 
-    const std::vector<std::byte> makernote_bytes
-        = ascii_z("SOURCE_MAKERNOTE_DROP");
+    const std::vector<std::byte> makernote_bytes = ascii_z(
+        "SOURCE_MAKERNOTE_DROP");
     openmeta::Entry makernote;
-    makernote.key = openmeta::make_exif_tag_key(store->arena(), "exififd",
-                                                0x927CU);
+    makernote.key   = openmeta::make_exif_tag_key(store->arena(), "exififd",
+                                                  0x927CU);
     makernote.value = openmeta::make_bytes(
         store->arena(), std::span<const std::byte>(makernote_bytes.data(),
                                                    makernote_bytes.size()));
     makernote.origin.block          = block;
-    makernote.origin.order_in_block = 5U;
+    makernote.origin.order_in_block = 7U;
     if (store->add_entry(makernote) == openmeta::kInvalidEntryId) {
         return false;
     }
@@ -5560,7 +5588,7 @@ build_rendered_image_safety_source_store(openmeta::MetaStore* store)
     creator_tool.value = openmeta::make_text(store->arena(), "OpenMeta Tool",
                                              openmeta::TextEncoding::Utf8);
     creator_tool.origin.block          = block;
-    creator_tool.origin.order_in_block = 6U;
+    creator_tool.origin.order_in_block = 8U;
     if (store->add_entry(creator_tool) == openmeta::kInvalidEntryId) {
         return false;
     }
@@ -5569,10 +5597,10 @@ build_rendered_image_safety_source_store(openmeta::MetaStore* store)
     crs_exposure.key = openmeta::make_xmp_property_key(
         store->arena(), "http://ns.adobe.com/camera-raw-settings/1.0/",
         "Exposure2012");
-    crs_exposure.value = openmeta::make_text(store->arena(), "+0.35",
-                                             openmeta::TextEncoding::Utf8);
-    crs_exposure.origin.block          = block;
-    crs_exposure.origin.order_in_block = 7U;
+    crs_exposure.value        = openmeta::make_text(store->arena(), "+0.35",
+                                                    openmeta::TextEncoding::Utf8);
+    crs_exposure.origin.block = block;
+    crs_exposure.origin.order_in_block = 9U;
     if (store->add_entry(crs_exposure) == openmeta::kInvalidEntryId) {
         return false;
     }
@@ -5580,21 +5608,22 @@ build_rendered_image_safety_source_store(openmeta::MetaStore* store)
     openmeta::Entry dng_profile_name;
     dng_profile_name.key = openmeta::make_xmp_property_key(
         store->arena(), "http://ns.adobe.com/dng/1.0/", "ProfileName");
-    dng_profile_name.value = openmeta::make_text(
-        store->arena(), "Source Raw Profile", openmeta::TextEncoding::Utf8);
+    dng_profile_name.value                 = openmeta::make_text(store->arena(),
+                                                                 "Source Raw Profile",
+                                                                 openmeta::TextEncoding::Utf8);
     dng_profile_name.origin.block          = block;
-    dng_profile_name.origin.order_in_block = 8U;
+    dng_profile_name.origin.order_in_block = 10U;
     if (store->add_entry(dng_profile_name) == openmeta::kInvalidEntryId) {
         return false;
     }
 
     openmeta::Entry jumbf;
-    jumbf.key = openmeta::make_jumbf_cbor_key(store->arena(),
-                                              "box.0.1.cbor.manifest.label");
-    jumbf.value = openmeta::make_text(store->arena(), "source-manifest",
-                                      openmeta::TextEncoding::Utf8);
-    jumbf.origin.block          = block;
-    jumbf.origin.order_in_block = 9U;
+    jumbf.key          = openmeta::make_jumbf_cbor_key(store->arena(),
+                                                       "box.0.1.cbor.manifest.label");
+    jumbf.value        = openmeta::make_text(store->arena(), "source-manifest",
+                                             openmeta::TextEncoding::Utf8);
+    jumbf.origin.block = block;
+    jumbf.origin.order_in_block = 11U;
     if (store->add_entry(jumbf) == openmeta::kInvalidEntryId) {
         return false;
     }
@@ -5618,14 +5647,15 @@ expect_rendered_image_safety_output(std::span<const std::byte> bytes)
     ASSERT_TRUE(decode_transfer_roundtrip_store(bytes, &decoded));
     EXPECT_TRUE(store_has_text_entry(decoded, exif_key_view("ifd0", 0x010FU),
                                      "CameraVendor"));
-    EXPECT_TRUE(store_has_text_entry(decoded,
-                                     exif_key_view("exififd", 0x9003U),
+    EXPECT_TRUE(store_has_text_entry(decoded, exif_key_view("exififd", 0x9003U),
                                      "2024:01:02 03:04:05"));
     EXPECT_TRUE(store_has_text_entry(
         decoded, xmp_key_view("http://ns.adobe.com/xap/1.0/", "CreatorTool"),
         "OpenMeta Tool"));
     EXPECT_EQ(decoded.find_all(exif_key_view("ifd0", 0x0100U)).size(), 0U);
     EXPECT_EQ(decoded.find_all(exif_key_view("ifd0", 0xC621U)).size(), 0U);
+    EXPECT_EQ(decoded.find_all(exif_key_view("ifd0", 0xC71CU)).size(), 0U);
+    EXPECT_EQ(decoded.find_all(exif_key_view("ifd0", 0xC7A8U)).size(), 0U);
     EXPECT_EQ(decoded.find_all(exif_key_view("exififd", 0x927CU)).size(), 0U);
     EXPECT_EQ(decoded
                   .find_all(xmp_key_view(
@@ -19413,7 +19443,7 @@ TEST(MetadataTransferApi, PrepareRenderedImageSafetyDropsSourceSpecificMetadata)
     };
     openmeta::Entry raw_opcode;
     raw_opcode.key = openmeta::make_exif_tag_key(store.arena(), "ifd0",
-                                                 0xC6F6U);
+                                                 0xC740U);
     raw_opcode.value
         = openmeta::make_bytes(store.arena(),
                                std::span<const std::byte>(opcode_bytes.data(),
@@ -19421,6 +19451,30 @@ TEST(MetadataTransferApi, PrepareRenderedImageSafetyDropsSourceSpecificMetadata)
     raw_opcode.origin.block          = block;
     raw_opcode.origin.order_in_block = 6U;
     ASSERT_NE(store.add_entry(raw_opcode), openmeta::kInvalidEntryId);
+
+    const std::array<std::byte, 4> raw_digest_bytes = {
+        std::byte { 0x10 },
+        std::byte { 0x20 },
+        std::byte { 0x30 },
+        std::byte { 0x40 },
+    };
+    openmeta::Entry raw_digest;
+    raw_digest.key   = openmeta::make_exif_tag_key(store.arena(), "ifd0",
+                                                   0xC71CU);
+    raw_digest.value = openmeta::make_bytes(
+        store.arena(), std::span<const std::byte>(raw_digest_bytes.data(),
+                                                  raw_digest_bytes.size()));
+    raw_digest.origin.block          = block;
+    raw_digest.origin.order_in_block = 7U;
+    ASSERT_NE(store.add_entry(raw_digest), openmeta::kInvalidEntryId);
+
+    openmeta::Entry raw_preview_gain;
+    raw_preview_gain.key   = openmeta::make_exif_tag_key(store.arena(), "ifd0",
+                                                         0xC7A8U);
+    raw_preview_gain.value = openmeta::make_u32(2U);
+    raw_preview_gain.origin.block          = block;
+    raw_preview_gain.origin.order_in_block = 8U;
+    ASSERT_NE(store.add_entry(raw_preview_gain), openmeta::kInvalidEntryId);
 
     struct PhaseOneTransferTag final {
         const char* ifd;
@@ -19535,10 +19589,8 @@ TEST(MetadataTransferApi, PrepareRenderedImageSafetyDropsSourceSpecificMetadata)
         { "mk_ricoh0", 0x100FU, 1U },
     };
     static const PhaseOneTransferTag kAppleRenderedDropTags[] = {
-        { "mk_apple0", 0x002DU, 1U },
-        { "mk_apple0", 0x003EU, 1U },
-        { "mk_apple0", 0x0030U, 1U },
-        { "mk_apple0", 0x0019U, 1U },
+        { "mk_apple0", 0x002DU, 1U }, { "mk_apple0", 0x003EU, 1U },
+        { "mk_apple0", 0x0030U, 1U }, { "mk_apple0", 0x0019U, 1U },
         { "mk_apple0", 0x0040U, 1U },
     };
     static const PhaseOneTransferTag kDjiRenderedDropTags[] = {
@@ -19628,7 +19680,7 @@ TEST(MetadataTransferApi, PrepareRenderedImageSafetyDropsSourceSpecificMetadata)
         { "mk_motorola0", 0x5501U, 1U },
         { "mk_nintendo_camerainfo_0", 0x0000U, 1U },
     };
-    uint32_t next_order = 7U;
+    uint32_t next_order = 9U;
     for (size_t i = 0; i < std::size(kPhaseOneRenderedDropTags); ++i) {
         openmeta::Entry phaseone_raw;
         phaseone_raw.key
@@ -19697,8 +19749,8 @@ TEST(MetadataTransferApi, PrepareRenderedImageSafetyDropsSourceSpecificMetadata)
             = openmeta::make_exif_tag_key(store.arena(),
                                           kFujifilmRenderedDropTags[i].ifd,
                                           kFujifilmRenderedDropTags[i].tag);
-        vendor_raw.value
-            = openmeta::make_u32(kFujifilmRenderedDropTags[i].value);
+        vendor_raw.value = openmeta::make_u32(
+            kFujifilmRenderedDropTags[i].value);
         vendor_raw.origin.block          = block;
         vendor_raw.origin.order_in_block = next_order;
         next_order += 1U;
@@ -19710,8 +19762,7 @@ TEST(MetadataTransferApi, PrepareRenderedImageSafetyDropsSourceSpecificMetadata)
             = openmeta::make_exif_tag_key(store.arena(),
                                           kPentaxRenderedDropTags[i].ifd,
                                           kPentaxRenderedDropTags[i].tag);
-        vendor_raw.value
-            = openmeta::make_u32(kPentaxRenderedDropTags[i].value);
+        vendor_raw.value = openmeta::make_u32(kPentaxRenderedDropTags[i].value);
         vendor_raw.origin.block          = block;
         vendor_raw.origin.order_in_block = next_order;
         next_order += 1U;
@@ -19723,8 +19774,8 @@ TEST(MetadataTransferApi, PrepareRenderedImageSafetyDropsSourceSpecificMetadata)
             = openmeta::make_exif_tag_key(store.arena(),
                                           kPanasonicRenderedDropTags[i].ifd,
                                           kPanasonicRenderedDropTags[i].tag);
-        vendor_raw.value
-            = openmeta::make_u32(kPanasonicRenderedDropTags[i].value);
+        vendor_raw.value = openmeta::make_u32(
+            kPanasonicRenderedDropTags[i].value);
         vendor_raw.origin.block          = block;
         vendor_raw.origin.order_in_block = next_order;
         next_order += 1U;
@@ -19736,8 +19787,8 @@ TEST(MetadataTransferApi, PrepareRenderedImageSafetyDropsSourceSpecificMetadata)
             = openmeta::make_exif_tag_key(store.arena(),
                                           kOlympusRenderedDropTags[i].ifd,
                                           kOlympusRenderedDropTags[i].tag);
-        vendor_raw.value
-            = openmeta::make_u32(kOlympusRenderedDropTags[i].value);
+        vendor_raw.value = openmeta::make_u32(
+            kOlympusRenderedDropTags[i].value);
         vendor_raw.origin.block          = block;
         vendor_raw.origin.order_in_block = next_order;
         next_order += 1U;
@@ -19761,8 +19812,8 @@ TEST(MetadataTransferApi, PrepareRenderedImageSafetyDropsSourceSpecificMetadata)
             = openmeta::make_exif_tag_key(store.arena(),
                                           kMinoltaRenderedDropTags[i].ifd,
                                           kMinoltaRenderedDropTags[i].tag);
-        vendor_raw.value
-            = openmeta::make_u32(kMinoltaRenderedDropTags[i].value);
+        vendor_raw.value = openmeta::make_u32(
+            kMinoltaRenderedDropTags[i].value);
         vendor_raw.origin.block          = block;
         vendor_raw.origin.order_in_block = next_order;
         next_order += 1U;
@@ -19786,8 +19837,8 @@ TEST(MetadataTransferApi, PrepareRenderedImageSafetyDropsSourceSpecificMetadata)
             = openmeta::make_exif_tag_key(store.arena(),
                                           kSamsungRenderedDropTags[i].ifd,
                                           kSamsungRenderedDropTags[i].tag);
-        vendor_raw.value
-            = openmeta::make_u32(kSamsungRenderedDropTags[i].value);
+        vendor_raw.value = openmeta::make_u32(
+            kSamsungRenderedDropTags[i].value);
         vendor_raw.origin.block          = block;
         vendor_raw.origin.order_in_block = next_order;
         next_order += 1U;
@@ -19879,9 +19930,10 @@ TEST(MetadataTransferApi, PrepareRenderedImageSafetyDropsSourceSpecificMetadata)
     }
     for (size_t i = 0; i < std::size(kKyoceraRawRenderedDropTags); ++i) {
         openmeta::Entry vendor_raw;
-        vendor_raw.key = openmeta::make_exif_tag_key(
-            store.arena(), kKyoceraRawRenderedDropTags[i].ifd,
-            kKyoceraRawRenderedDropTags[i].tag);
+        vendor_raw.key
+            = openmeta::make_exif_tag_key(store.arena(),
+                                          kKyoceraRawRenderedDropTags[i].ifd,
+                                          kKyoceraRawRenderedDropTags[i].tag);
         vendor_raw.value = openmeta::make_u32(
             kKyoceraRawRenderedDropTags[i].value);
         vendor_raw.origin.block          = block;
@@ -19891,9 +19943,10 @@ TEST(MetadataTransferApi, PrepareRenderedImageSafetyDropsSourceSpecificMetadata)
     }
     for (size_t i = 0; i < std::size(kReconyxRenderedDropTags); ++i) {
         openmeta::Entry vendor_raw;
-        vendor_raw.key = openmeta::make_exif_tag_key(
-            store.arena(), kReconyxRenderedDropTags[i].ifd,
-            kReconyxRenderedDropTags[i].tag);
+        vendor_raw.key
+            = openmeta::make_exif_tag_key(store.arena(),
+                                          kReconyxRenderedDropTags[i].ifd,
+                                          kReconyxRenderedDropTags[i].tag);
         vendor_raw.value = openmeta::make_u32(
             kReconyxRenderedDropTags[i].value);
         vendor_raw.origin.block          = block;
@@ -19903,9 +19956,9 @@ TEST(MetadataTransferApi, PrepareRenderedImageSafetyDropsSourceSpecificMetadata)
     }
     for (size_t i = 0; i < std::size(kHpRenderedDropTags); ++i) {
         openmeta::Entry vendor_raw;
-        vendor_raw.key = openmeta::make_exif_tag_key(
-            store.arena(), kHpRenderedDropTags[i].ifd,
-            kHpRenderedDropTags[i].tag);
+        vendor_raw.key   = openmeta::make_exif_tag_key(store.arena(),
+                                                       kHpRenderedDropTags[i].ifd,
+                                                       kHpRenderedDropTags[i].tag);
         vendor_raw.value = openmeta::make_u32(kHpRenderedDropTags[i].value);
         vendor_raw.origin.block          = block;
         vendor_raw.origin.order_in_block = next_order;
@@ -19914,9 +19967,10 @@ TEST(MetadataTransferApi, PrepareRenderedImageSafetyDropsSourceSpecificMetadata)
     }
     for (size_t i = 0; i < std::size(kJvcRenderedDropTags); ++i) {
         openmeta::Entry vendor_raw;
-        vendor_raw.key = openmeta::make_exif_tag_key(
-            store.arena(), kJvcRenderedDropTags[i].ifd,
-            kJvcRenderedDropTags[i].tag);
+        vendor_raw.key
+            = openmeta::make_exif_tag_key(store.arena(),
+                                          kJvcRenderedDropTags[i].ifd,
+                                          kJvcRenderedDropTags[i].tag);
         vendor_raw.value = openmeta::make_u32(kJvcRenderedDropTags[i].value);
         vendor_raw.origin.block          = block;
         vendor_raw.origin.order_in_block = next_order;
@@ -19925,9 +19979,9 @@ TEST(MetadataTransferApi, PrepareRenderedImageSafetyDropsSourceSpecificMetadata)
     }
     for (size_t i = 0; i < std::size(kGeRenderedDropTags); ++i) {
         openmeta::Entry vendor_raw;
-        vendor_raw.key = openmeta::make_exif_tag_key(
-            store.arena(), kGeRenderedDropTags[i].ifd,
-            kGeRenderedDropTags[i].tag);
+        vendor_raw.key   = openmeta::make_exif_tag_key(store.arena(),
+                                                       kGeRenderedDropTags[i].ifd,
+                                                       kGeRenderedDropTags[i].tag);
         vendor_raw.value = openmeta::make_u32(kGeRenderedDropTags[i].value);
         vendor_raw.origin.block          = block;
         vendor_raw.origin.order_in_block = next_order;
@@ -19936,9 +19990,10 @@ TEST(MetadataTransferApi, PrepareRenderedImageSafetyDropsSourceSpecificMetadata)
     }
     for (size_t i = 0; i < std::size(kMotorolaRenderedDropTags); ++i) {
         openmeta::Entry vendor_raw;
-        vendor_raw.key = openmeta::make_exif_tag_key(
-            store.arena(), kMotorolaRenderedDropTags[i].ifd,
-            kMotorolaRenderedDropTags[i].tag);
+        vendor_raw.key
+            = openmeta::make_exif_tag_key(store.arena(),
+                                          kMotorolaRenderedDropTags[i].ifd,
+                                          kMotorolaRenderedDropTags[i].tag);
         vendor_raw.value = openmeta::make_u32(
             kMotorolaRenderedDropTags[i].value);
         vendor_raw.origin.block          = block;
@@ -19948,9 +20003,10 @@ TEST(MetadataTransferApi, PrepareRenderedImageSafetyDropsSourceSpecificMetadata)
     }
     for (size_t i = 0; i < std::size(kNintendoRenderedDropTags); ++i) {
         openmeta::Entry vendor_raw;
-        vendor_raw.key = openmeta::make_exif_tag_key(
-            store.arena(), kNintendoRenderedDropTags[i].ifd,
-            kNintendoRenderedDropTags[i].tag);
+        vendor_raw.key
+            = openmeta::make_exif_tag_key(store.arena(),
+                                          kNintendoRenderedDropTags[i].ifd,
+                                          kNintendoRenderedDropTags[i].tag);
         vendor_raw.value = openmeta::make_u32(
             kNintendoRenderedDropTags[i].value);
         vendor_raw.origin.block          = block;
@@ -19960,9 +20016,10 @@ TEST(MetadataTransferApi, PrepareRenderedImageSafetyDropsSourceSpecificMetadata)
     }
     for (size_t i = 0; i < std::size(kMicrosoftRenderedDropTags); ++i) {
         openmeta::Entry vendor_raw;
-        vendor_raw.key = openmeta::make_exif_tag_key(
-            store.arena(), kMicrosoftRenderedDropTags[i].ifd,
-            kMicrosoftRenderedDropTags[i].tag);
+        vendor_raw.key
+            = openmeta::make_exif_tag_key(store.arena(),
+                                          kMicrosoftRenderedDropTags[i].ifd,
+                                          kMicrosoftRenderedDropTags[i].tag);
         vendor_raw.value = openmeta::make_u32(
             kMicrosoftRenderedDropTags[i].value);
         vendor_raw.origin.block          = block;
@@ -20068,7 +20125,7 @@ TEST(MetadataTransferApi, PrepareRenderedImageSafetyDropsSourceSpecificMetadata)
     store.finalize();
 
     const uint32_t expected_rendered_raw_drops
-        = 5U + static_cast<uint32_t>(std::size(kPhaseOneRenderedDropTags))
+        = 7U + static_cast<uint32_t>(std::size(kPhaseOneRenderedDropTags))
           + static_cast<uint32_t>(std::size(kSonyRenderedDropTags))
           + static_cast<uint32_t>(std::size(kCanonRenderedDropTags))
           + static_cast<uint32_t>(std::size(kNikonRenderedDropTags))
@@ -20214,7 +20271,9 @@ TEST(MetadataTransferApi, PrepareRenderedImageSafetyDropsSourceSpecificMetadata)
     EXPECT_FALSE(prepared_exif_block_contains_ifd0_tag(*exif_block, 0xC618U));
     EXPECT_FALSE(prepared_exif_block_contains_ifd0_tag(*exif_block, 0xC621U));
     EXPECT_FALSE(prepared_exif_block_contains_ifd0_tag(*exif_block, 0xC68DU));
-    EXPECT_FALSE(prepared_exif_block_contains_ifd0_tag(*exif_block, 0xC6F6U));
+    EXPECT_FALSE(prepared_exif_block_contains_ifd0_tag(*exif_block, 0xC71CU));
+    EXPECT_FALSE(prepared_exif_block_contains_ifd0_tag(*exif_block, 0xC740U));
+    EXPECT_FALSE(prepared_exif_block_contains_ifd0_tag(*exif_block, 0xC7A8U));
     EXPECT_TRUE(prepared_exif_block_contains_exififd_tag(*exif_block, 0x9003U));
     EXPECT_FALSE(
         prepared_exif_block_contains_exififd_tag(*exif_block, 0x927CU));
@@ -20326,8 +20385,7 @@ TEST(MetadataTransferApi, RenderedImageWritersOmitUnsafeSourceMetadata)
         openmeta::SRational { 1, 1 },
     };
     openmeta::Entry raw_color;
-    raw_color.key = openmeta::make_exif_tag_key(store.arena(), "ifd0",
-                                                0xC621U);
+    raw_color.key = openmeta::make_exif_tag_key(store.arena(), "ifd0", 0xC621U);
     raw_color.value = openmeta::make_srational_array(
         store.arena(),
         std::span<const openmeta::SRational>(color_matrix.data(),
@@ -20336,25 +20394,24 @@ TEST(MetadataTransferApi, RenderedImageWritersOmitUnsafeSourceMetadata)
     raw_color.origin.order_in_block = 3U;
     ASSERT_NE(store.add_entry(raw_color), openmeta::kInvalidEntryId);
 
-    const std::vector<std::byte> vendor_private_bytes
-        = ascii_z("SOURCE_VENDOR_PRIVATE_DROP");
+    const std::vector<std::byte> vendor_private_bytes = ascii_z(
+        "SOURCE_VENDOR_PRIVATE_DROP");
     openmeta::Entry vendor_private;
-    vendor_private.key
-        = openmeta::make_exif_tag_key(store.arena(), "mk_sony_sr2private_0",
-                                      0x7200U);
+    vendor_private.key   = openmeta::make_exif_tag_key(store.arena(),
+                                                       "mk_sony_sr2private_0",
+                                                       0x7200U);
     vendor_private.value = openmeta::make_bytes(
-        store.arena(),
-        std::span<const std::byte>(vendor_private_bytes.data(),
-                                   vendor_private_bytes.size()));
+        store.arena(), std::span<const std::byte>(vendor_private_bytes.data(),
+                                                  vendor_private_bytes.size()));
     vendor_private.origin.block          = block;
     vendor_private.origin.order_in_block = 4U;
     ASSERT_NE(store.add_entry(vendor_private), openmeta::kInvalidEntryId);
 
-    const std::vector<std::byte> makernote_bytes
-        = ascii_z("SOURCE_MAKERNOTE_DROP");
+    const std::vector<std::byte> makernote_bytes = ascii_z(
+        "SOURCE_MAKERNOTE_DROP");
     openmeta::Entry makernote;
-    makernote.key = openmeta::make_exif_tag_key(store.arena(), "exififd",
-                                                0x927CU);
+    makernote.key   = openmeta::make_exif_tag_key(store.arena(), "exififd",
+                                                  0x927CU);
     makernote.value = openmeta::make_bytes(
         store.arena(), std::span<const std::byte>(makernote_bytes.data(),
                                                   makernote_bytes.size()));
@@ -20375,27 +20432,28 @@ TEST(MetadataTransferApi, RenderedImageWritersOmitUnsafeSourceMetadata)
     crs_exposure.key = openmeta::make_xmp_property_key(
         store.arena(), "http://ns.adobe.com/camera-raw-settings/1.0/",
         "Exposure2012");
-    crs_exposure.value = openmeta::make_text(store.arena(), "+0.35",
-                                             openmeta::TextEncoding::Utf8);
-    crs_exposure.origin.block          = block;
+    crs_exposure.value        = openmeta::make_text(store.arena(), "+0.35",
+                                                    openmeta::TextEncoding::Utf8);
+    crs_exposure.origin.block = block;
     crs_exposure.origin.order_in_block = 7U;
     ASSERT_NE(store.add_entry(crs_exposure), openmeta::kInvalidEntryId);
 
     openmeta::Entry dng_profile_name;
     dng_profile_name.key = openmeta::make_xmp_property_key(
         store.arena(), "http://ns.adobe.com/dng/1.0/", "ProfileName");
-    dng_profile_name.value = openmeta::make_text(
-        store.arena(), "Source Raw Profile", openmeta::TextEncoding::Utf8);
+    dng_profile_name.value                 = openmeta::make_text(store.arena(),
+                                                                 "Source Raw Profile",
+                                                                 openmeta::TextEncoding::Utf8);
     dng_profile_name.origin.block          = block;
     dng_profile_name.origin.order_in_block = 8U;
     ASSERT_NE(store.add_entry(dng_profile_name), openmeta::kInvalidEntryId);
 
     openmeta::Entry jumbf;
-    jumbf.key = openmeta::make_jumbf_cbor_key(store.arena(),
-                                              "box.0.1.cbor.manifest.label");
-    jumbf.value = openmeta::make_text(store.arena(), "source-manifest",
-                                      openmeta::TextEncoding::Utf8);
-    jumbf.origin.block          = block;
+    jumbf.key          = openmeta::make_jumbf_cbor_key(store.arena(),
+                                                       "box.0.1.cbor.manifest.label");
+    jumbf.value        = openmeta::make_text(store.arena(), "source-manifest",
+                                             openmeta::TextEncoding::Utf8);
+    jumbf.origin.block = block;
     jumbf.origin.order_in_block = 9U;
     ASSERT_NE(store.add_entry(jumbf), openmeta::kInvalidEntryId);
     store.finalize();
@@ -20403,7 +20461,7 @@ TEST(MetadataTransferApi, RenderedImageWritersOmitUnsafeSourceMetadata)
     openmeta::PrepareTransferRequest jpeg_request;
     jpeg_request.include_iptc_app13   = false;
     jpeg_request.xmp_include_existing = true;
-    jpeg_request.profile.safety       = openmeta::TransferSafetyMode::RenderedImage;
+    jpeg_request.profile.safety = openmeta::TransferSafetyMode::RenderedImage;
 
     openmeta::PreparedTransferBundle jpeg_bundle;
     const openmeta::PrepareTransferResult jpeg_prepared
@@ -20419,14 +20477,14 @@ TEST(MetadataTransferApi, RenderedImageWritersOmitUnsafeSourceMetadata)
                  "crs:Exposure2012=\"+1.0\">"
                  "<dng:ProfileName>Old Source Raw Profile</dng:ProfileName>"
                  "</rdf:Description></rdf:RDF></x:xmpmeta>");
-    const std::vector<std::byte> old_exif = make_app1_exif_payload();
-    const std::vector<std::byte> old_jumbf
-        = make_app11_jumbf_payload("old-source-jumbf");
+    const std::vector<std::byte> old_exif  = make_app1_exif_payload();
+    const std::vector<std::byte> old_jumbf = make_app11_jumbf_payload(
+        "old-source-jumbf");
     const TestJpegSegment segments[] = {
         TestJpegSegment { 0xE1U, std::span<const std::byte>(old_exif.data(),
                                                             old_exif.size()) },
-        TestJpegSegment { 0xE1U, std::span<const std::byte>(old_xmp.data(),
-                                                            old_xmp.size()) },
+        TestJpegSegment {
+            0xE1U, std::span<const std::byte>(old_xmp.data(), old_xmp.size()) },
         TestJpegSegment { 0xEBU, std::span<const std::byte>(old_jumbf.data(),
                                                             old_jumbf.size()) },
     };
@@ -20449,40 +20507,38 @@ TEST(MetadataTransferApi, RenderedImageWritersOmitUnsafeSourceMetadata)
     const std::span<const std::byte> output_jpeg_span(output_jpeg.data(),
                                                       output_jpeg.size());
     EXPECT_TRUE(payload_contains_ascii(output_jpeg_span, "CameraVendor"));
-    EXPECT_TRUE(payload_contains_ascii(output_jpeg_span,
-                                       "2024:01:02 03:04:05"));
+    EXPECT_TRUE(
+        payload_contains_ascii(output_jpeg_span, "2024:01:02 03:04:05"));
     EXPECT_TRUE(payload_contains_ascii(output_jpeg_span, "OpenMeta Tool"));
-    EXPECT_FALSE(payload_contains_ascii(output_jpeg_span,
-                                        "2000:01:02 03:04:05"));
+    EXPECT_FALSE(
+        payload_contains_ascii(output_jpeg_span, "2000:01:02 03:04:05"));
     EXPECT_FALSE(payload_contains_ascii(output_jpeg_span, "Exposure2012"));
-    EXPECT_FALSE(payload_contains_ascii(output_jpeg_span,
-                                        "Source Raw Profile"));
-    EXPECT_FALSE(payload_contains_ascii(output_jpeg_span,
-                                        "Old Source Raw Profile"));
-    EXPECT_FALSE(payload_contains_ascii(output_jpeg_span,
-                                        "old-source-jumbf"));
-    EXPECT_FALSE(payload_contains_ascii(output_jpeg_span,
-                                        "SOURCE_MAKERNOTE_DROP"));
-    EXPECT_FALSE(payload_contains_ascii(output_jpeg_span,
-                                        "SOURCE_VENDOR_PRIVATE_DROP"));
+    EXPECT_FALSE(
+        payload_contains_ascii(output_jpeg_span, "Source Raw Profile"));
+    EXPECT_FALSE(
+        payload_contains_ascii(output_jpeg_span, "Old Source Raw Profile"));
+    EXPECT_FALSE(payload_contains_ascii(output_jpeg_span, "old-source-jumbf"));
+    EXPECT_FALSE(
+        payload_contains_ascii(output_jpeg_span, "SOURCE_MAKERNOTE_DROP"));
+    EXPECT_FALSE(
+        payload_contains_ascii(output_jpeg_span, "SOURCE_VENDOR_PRIVATE_DROP"));
 
     openmeta::MetaStore decoded_jpeg;
-    ASSERT_TRUE(decode_transfer_roundtrip_store(output_jpeg_span,
-                                                &decoded_jpeg));
+    ASSERT_TRUE(
+        decode_transfer_roundtrip_store(output_jpeg_span, &decoded_jpeg));
     EXPECT_TRUE(store_has_text_entry(decoded_jpeg,
                                      exif_key_view("ifd0", 0x010FU),
                                      "CameraVendor"));
     EXPECT_TRUE(store_has_text_entry(decoded_jpeg,
                                      exif_key_view("exififd", 0x9003U),
                                      "2024:01:02 03:04:05"));
-    EXPECT_TRUE(store_has_text_entry(
-        decoded_jpeg,
-        xmp_key_view("http://ns.adobe.com/xap/1.0/", "CreatorTool"),
-        "OpenMeta Tool"));
-    EXPECT_EQ(decoded_jpeg.find_all(exif_key_view("ifd0", 0x0100U)).size(),
-              0U);
-    EXPECT_EQ(decoded_jpeg.find_all(exif_key_view("ifd0", 0xC621U)).size(),
-              0U);
+    EXPECT_TRUE(
+        store_has_text_entry(decoded_jpeg,
+                             xmp_key_view("http://ns.adobe.com/xap/1.0/",
+                                          "CreatorTool"),
+                             "OpenMeta Tool"));
+    EXPECT_EQ(decoded_jpeg.find_all(exif_key_view("ifd0", 0x0100U)).size(), 0U);
+    EXPECT_EQ(decoded_jpeg.find_all(exif_key_view("ifd0", 0xC621U)).size(), 0U);
     EXPECT_EQ(decoded_jpeg.find_all(exif_key_view("exififd", 0x927CU)).size(),
               0U);
     EXPECT_EQ(decoded_jpeg
@@ -20517,34 +20573,33 @@ TEST(MetadataTransferApi, RenderedImageWritersOmitUnsafeSourceMetadata)
     const std::span<const std::byte> output_tiff_span(output_tiff.data(),
                                                       output_tiff.size());
     EXPECT_TRUE(payload_contains_ascii(output_tiff_span, "CameraVendor"));
-    EXPECT_TRUE(payload_contains_ascii(output_tiff_span,
-                                       "2024:01:02 03:04:05"));
+    EXPECT_TRUE(
+        payload_contains_ascii(output_tiff_span, "2024:01:02 03:04:05"));
     EXPECT_TRUE(payload_contains_ascii(output_tiff_span, "OpenMeta Tool"));
     EXPECT_FALSE(payload_contains_ascii(output_tiff_span, "Exposure2012"));
-    EXPECT_FALSE(payload_contains_ascii(output_tiff_span,
-                                        "Source Raw Profile"));
-    EXPECT_FALSE(payload_contains_ascii(output_tiff_span,
-                                        "SOURCE_MAKERNOTE_DROP"));
-    EXPECT_FALSE(payload_contains_ascii(output_tiff_span,
-                                        "SOURCE_VENDOR_PRIVATE_DROP"));
+    EXPECT_FALSE(
+        payload_contains_ascii(output_tiff_span, "Source Raw Profile"));
+    EXPECT_FALSE(
+        payload_contains_ascii(output_tiff_span, "SOURCE_MAKERNOTE_DROP"));
+    EXPECT_FALSE(
+        payload_contains_ascii(output_tiff_span, "SOURCE_VENDOR_PRIVATE_DROP"));
 
     openmeta::MetaStore decoded_tiff;
-    ASSERT_TRUE(decode_transfer_roundtrip_store(output_tiff_span,
-                                                &decoded_tiff));
+    ASSERT_TRUE(
+        decode_transfer_roundtrip_store(output_tiff_span, &decoded_tiff));
     EXPECT_TRUE(store_has_text_entry(decoded_tiff,
                                      exif_key_view("ifd0", 0x010FU),
                                      "CameraVendor"));
     EXPECT_TRUE(store_has_text_entry(decoded_tiff,
                                      exif_key_view("exififd", 0x9003U),
                                      "2024:01:02 03:04:05"));
-    EXPECT_TRUE(store_has_text_entry(
-        decoded_tiff,
-        xmp_key_view("http://ns.adobe.com/xap/1.0/", "CreatorTool"),
-        "OpenMeta Tool"));
-    EXPECT_EQ(decoded_tiff.find_all(exif_key_view("ifd0", 0x0100U)).size(),
-              0U);
-    EXPECT_EQ(decoded_tiff.find_all(exif_key_view("ifd0", 0xC621U)).size(),
-              0U);
+    EXPECT_TRUE(
+        store_has_text_entry(decoded_tiff,
+                             xmp_key_view("http://ns.adobe.com/xap/1.0/",
+                                          "CreatorTool"),
+                             "OpenMeta Tool"));
+    EXPECT_EQ(decoded_tiff.find_all(exif_key_view("ifd0", 0x0100U)).size(), 0U);
+    EXPECT_EQ(decoded_tiff.find_all(exif_key_view("ifd0", 0xC621U)).size(), 0U);
     EXPECT_EQ(decoded_tiff.find_all(exif_key_view("exififd", 0x927CU)).size(),
               0U);
     EXPECT_EQ(decoded_tiff
@@ -20584,8 +20639,7 @@ TEST(MetadataTransferApi, RenderedImageContainerWritersOmitUnsafeSourceMetadata)
         request.target_format        = kCases[i].format;
         request.include_iptc_app13   = false;
         request.xmp_include_existing = true;
-        request.profile.safety
-            = openmeta::TransferSafetyMode::RenderedImage;
+        request.profile.safety = openmeta::TransferSafetyMode::RenderedImage;
 
         openmeta::PreparedTransferBundle bundle;
         const openmeta::PrepareTransferResult prepared
@@ -20599,31 +20653,29 @@ TEST(MetadataTransferApi, RenderedImageContainerWritersOmitUnsafeSourceMetadata)
         ASSERT_TRUE(build_test_target_with_existing_creator_tool_xmp(
             kCases[i].format, "Old Source Raw Profile", &input));
         ASSERT_FALSE(input.empty());
-        const std::span<const std::byte> input_span(input.data(),
-                                                    input.size());
-        ASSERT_TRUE(payload_contains_ascii(input_span,
-                                           "Old Source Raw Profile"));
+        const std::span<const std::byte> input_span(input.data(), input.size());
+        ASSERT_TRUE(
+            payload_contains_ascii(input_span, "Old Source Raw Profile"));
 
         openmeta::ExecutePreparedTransferOptions options;
         options.edit_requested = true;
         options.edit_apply     = true;
         const openmeta::ExecutePreparedTransferResult applied
-            = openmeta::execute_prepared_transfer(&bundle, input_span,
-                                                  options);
+            = openmeta::execute_prepared_transfer(&bundle, input_span, options);
         ASSERT_EQ(applied.edit_plan_status, openmeta::TransferStatus::Ok);
         ASSERT_EQ(applied.edit_apply.status, openmeta::TransferStatus::Ok);
         ASSERT_FALSE(applied.edited_output.empty());
 
-        const std::span<const std::byte> edited(
-            applied.edited_output.data(), applied.edited_output.size());
-        EXPECT_FALSE(payload_contains_ascii(edited,
-                                            "Old Source Raw Profile"));
+        const std::span<const std::byte> edited(applied.edited_output.data(),
+                                                applied.edited_output.size());
+        EXPECT_FALSE(payload_contains_ascii(edited, "Old Source Raw Profile"));
         expect_rendered_image_safety_output(edited);
 
         openmeta::PreparedTransferPackageBatch batch;
         const openmeta::EmitTransferResult batch_result
-            = openmeta::build_executed_transfer_package_batch(
-                input_span, bundle, applied, &batch);
+            = openmeta::build_executed_transfer_package_batch(input_span,
+                                                              bundle, applied,
+                                                              &batch);
         ASSERT_EQ(batch_result.status, openmeta::TransferStatus::Ok);
         ASSERT_EQ(batch.output_size,
                   static_cast<uint64_t>(applied.edited_output.size()));

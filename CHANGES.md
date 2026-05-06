@@ -47,12 +47,19 @@ Changes compared with `0.4.8`.
   reduction/forward matrix sets, DNG white-balance vector sets, and
   lens-correction table groups. Candidate value-shape labels now include
   `vector_set`, `matrix_set`, and `table`.
+- Added `query_raw_processing_metadata(...)` plus Python wrappers for
+  conservative RAW-processing queries covering black/white levels,
+  linearization tables, CFA/sensor layout, source geometry, and raw-storage
+  identifiers.
 - Python `Document` and `TransferSourceSnapshot` now expose thin wrappers for
   the experimental semantic metadata query API, including generic
   `metadata_query(kind)` and focused query helpers.
 
 ### Changed
 
+- Added `OPENMETA_TEST_RUNTIME_LIBRARY_PATH` so CTest-launched external
+  validation tools can run with a matching non-default C++ runtime lookup path,
+  and documented the `libc++` test-prefix workflow.
 - Phase One-family IIQ MakerNote detection now recognizes Leaf/Credo-style
   files as Phase One MakerNotes before the generic Kodak `IIII` fallback.
 - Rendered-image transfer safety now treats Phase One/Leaf RAW sensor geometry,
@@ -66,8 +73,16 @@ Changes compared with `0.4.8`.
   computational, thermal, color/WB, geometry/storage, raw-data, sensor,
   lens-correction, preview/face geometry, stitch/panorama geometry, or
   vendor-private table metadata.
+- Rendered-image transfer safety now uses the current DNG tag numbers for
+  source-bound profile/gain tables, raw digests/storage identifiers,
+  forward matrices, and opcode/correction lists.
 - `metaread` and `python -m openmeta.python.metaread` now print compact Phase
   One RAW geometry/processing summaries when those decoded fields are present.
+- Draft C2PA verification now exposes opt-in trusted certificate-chain
+  enforcement through `ValidateOptions`, `metavalidate`, `metadump`, and Python
+  `read()`/`validate()` wrappers. Without this option, signature status and
+  chain-trust detail remain separate signals; with it, untrusted or missing
+  chains fail verification instead of reporting a loose `verified` result.
 - `metaread` and `python -m openmeta.python.metaread` now print compact
   Sony/Canon/Nikon/Fujifilm/Pentax/Panasonic/Olympus/Kodak/Minolta/Sigma/
   Samsung/Ricoh/Apple/DJI/Google/FLIR/Casio/Sanyo/KyoceraRaw/Reconyx/HP/JVC/
@@ -92,6 +107,12 @@ Changes compared with `0.4.8`.
 
 ### Fixed
 
+- Fixed standalone EXIF/TIFF recovery when a file has a short non-TIFF prefix
+  or malformed JPEG prefix before the `Exif` preamble.
+- Fixed draft C2PA verification status handling for malformed COSE_Sign1 byte
+  arrays, unresolved explicit detached-payload references, and nested numeric
+  claim references with conflicting label/URI fields.
+
 ### Tests And Validation
 
 - Added public synthetic coverage for Leaf/Credo IIQ MakerNote detection and
@@ -105,6 +126,8 @@ Changes compared with `0.4.8`.
 - Added public synthetic coverage for grouped semantic-query candidates:
   DNG color matrix sets, DNG white-balance vector sets, and vendor
   lens-correction table groups.
+- Added public synthetic coverage for standalone EXIF/TIFF recovery after
+  unknown-prefix and malformed-JPEG-prefix inputs.
 - Added public synthetic coverage for
   Sony/Canon/Nikon/Fujifilm/Pentax/Panasonic/Olympus/Kodak/Minolta/Sigma/
   Samsung/Ricoh/Apple/DJI/Google/FLIR/Casio/Sanyo/KyoceraRaw/Reconyx/HP/JVC/
@@ -122,8 +145,9 @@ Changes compared with `0.4.8`.
   stitch/panorama table entries.
 - Added rendered-image writer-output coverage for JPEG, TIFF/DNG, PNG, WebP,
   JP2, JXL, HEIF, AVIF, and CR3 metadata rewrites to verify serialized outputs
-  omit source RAW calibration, vendor private RAW tables, MakerNotes, camera
-  raw settings XMP, and source JUMBF while preserving safe EXIF/XMP fields.
+  omit source RAW calibration, raw digests/gain metadata, vendor private RAW
+  tables, MakerNotes, camera raw settings XMP, and source JUMBF while
+  preserving safe EXIF/XMP fields.
 - Added BMFF transfer coverage for merging metadata into a foreign top-level
   `meta` item table that uses `iinf` version 2.
 - Added BMFF transfer coverage that verifies multiple foreign top-level `meta`

@@ -34,9 +34,10 @@ model should stay compact:
      - Medium-high, about 75-85%.
    * - Query
      - Find entries by name, fuzzy term, or semantic group, for example
-       crop/border/active-area fields or exposure/gain fields across standard
-       and vendor metadata.
-     - Low, about 15-20%.
+       crop/border/active-area, exposure/gain, color/WB, orientation,
+       lens-correction, and RAW-processing fields across standard and vendor
+       metadata.
+     - Low, about 20-25%.
    * - Creation
      - Build fresh metadata entries from host-provided values.
      - Medium, about 55-65%.
@@ -73,7 +74,8 @@ hiding ambiguity behind a single value.
 
 The first experimental C++ query surface is ``openmeta/metadata_query.h``.
 It returns both raw matches and normalized candidates for crop/active-area,
-exposure/gain, white balance, color, lens correction, and orientation queries.
+exposure/gain, white balance, color, lens correction, orientation, and
+RAW-processing queries.
 Crop queries include DNG crop tags, ``ActiveArea``, Phase One/Leaf raw
 geometry, and fuzzy crop/border-style XMP property paths. The non-crop queries
 expose per-entry value candidates and reuse standard tag names, selected DNG
@@ -81,8 +83,10 @@ tags, fuzzy XMP paths, and vendor RAW-processing classification where
 applicable.
 They also append grouped candidates for related DNG color matrix/calibration/
 reduction/forward matrix tags, DNG white-balance vector tags, and
-lens-correction table groups, using ``matrix_set``, ``vector_set``, and
-``table`` value shapes.
+lens-correction table groups. RAW-processing queries add conservative groups
+for black/white levels, linearization tables, CFA/sensor layout, source
+geometry, and raw-storage identifiers. Grouped candidates use ``matrix_set``,
+``vector_set``, and ``table`` value shapes.
 Python ``Document`` and ``TransferSourceSnapshot`` mirror this as thin wrappers
 returning the same match/candidate dictionary shape.
 
@@ -209,7 +213,10 @@ default to reduce terminal injection risk.
 
 ``metavalidate`` reports decode/validation issues in text or JSON and emits
 machine-readable issue codes (for example ``xmp/output_truncated`` and
-``xmp/invalid_or_malformed_xml_text``) suitable for CI gating.
+``xmp/invalid_or_malformed_xml_text``) suitable for CI gating. For draft C2PA
+verification, use ``--c2pa-verify-require-trusted-chain`` when an untrusted or
+missing certificate chain must fail validation instead of being reported as a
+separate chain-detail signal.
 
 Python
 ------
@@ -223,6 +230,7 @@ Python bindings use nanobind. The wheel also ships helper scripts as
    python3 -m openmeta.python.metadump --format portable file.jpg
    python3 -m openmeta.python.metadump file.jpg output.xmp
    python3 -m openmeta.python.metadump --format portable --c2pa-verify --c2pa-verify-backend auto file.jpg
+   python3 -m openmeta.python.metadump --format portable --c2pa-verify --c2pa-verify-require-trusted-chain file.jpg
    python3 -m openmeta.python.metadump --format portable --portable-include-existing-xmp --xmp-sidecar file.jpg
 
 ``openmeta.python.metatransfer`` remains a thin command-line wrapper. Its

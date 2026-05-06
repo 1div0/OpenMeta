@@ -55,6 +55,8 @@ namespace {
             "  --c2pa-verify           Request draft C2PA verify scaffold evaluation\n"
             "  --c2pa-verify-backend <none|auto|native|openssl>\n"
             "                         Verification backend preference\n"
+            "  --c2pa-verify-require-trusted-chain\n"
+            "                         Fail C2PA verify when the certificate chain is untrusted or missing\n"
             "  --c2pa-verify-require-resolved-references\n"
             "                         Fail C2PA verify when explicit references are unresolved or ambiguous\n"
             "  --no-pointer-tags       Do not store pointer tags\n"
@@ -526,6 +528,11 @@ main(int argc, char** argv)
             decode_options.jumbf.verify_backend = backend;
             i += 1;
             first_path += 2;
+            continue;
+        }
+        if (std::strcmp(arg, "--c2pa-verify-require-trusted-chain") == 0) {
+            decode_options.jumbf.verify_require_trusted_chain = true;
+            first_path += 1;
             continue;
         }
         if (std::strcmp(arg, "--c2pa-verify-require-resolved-references")
@@ -1005,13 +1012,15 @@ main(int argc, char** argv)
 
         std::printf(
             "wrote=%s format=%s bytes=%llu entries=%u c2pa_verify=%s "
-            "c2pa_backend=%s c2pa_require_resolved_refs=%s\n",
+            "c2pa_backend=%s c2pa_require_trusted_chain=%s "
+            "c2pa_require_resolved_refs=%s\n",
             out.c_str(),
             (format == XmpSidecarFormat::Portable) ? "portable" : "lossless",
             static_cast<unsigned long long>(dump_res.written),
             static_cast<unsigned>(dump_res.entries),
             c2pa_verify_status_name(read.jumbf.verify_status),
             c2pa_verify_backend_name(read.jumbf.verify_backend_selected),
+            decode_options.jumbf.verify_require_trusted_chain ? "on" : "off",
             decode_options.jumbf.verify_require_resolved_references ? "on"
                                                                     : "off");
     }

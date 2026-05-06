@@ -8880,23 +8880,40 @@ namespace {
         case 0xC692U:  // CurrentPreProfileMatrix
         case 0xC6BFU:  // ColorimetricReference
         case 0xC6C5U:  // SRawType
-        case 0xC6D2U:  // ProfileCalibrationSignature
-        case 0xC6D3U:  // ProfileName
-        case 0xC6D4U:  // ProfileHueSatMapDims
-        case 0xC6D5U:  // ProfileHueSatMapData1
-        case 0xC6D6U:  // ProfileHueSatMapData2
-        case 0xC6D7U:  // ProfileToneCurve
-        case 0xC6D8U:  // ProfileEmbedPolicy
-        case 0xC6D9U:  // ProfileCopyright
-        case 0xC6DAU:  // ForwardMatrix1
-        case 0xC6DBU:  // ForwardMatrix2
         case 0xC6F3U:  // CameraCalibrationSignature
-        case 0xC6F4U:  // ProfileLookTableDims
-        case 0xC6F5U:  // ProfileLookTableData
-        case 0xC6F6U:  // OpcodeList1
-        case 0xC6F7U:  // OpcodeList2
-        case 0xC6F8U:  // OpcodeList3
+        case 0xC6F4U:  // ProfileCalibrationSignature
+        case 0xC6F5U:  // ExtraCameraProfiles
+        case 0xC6F6U:  // AsShotProfileName
+        case 0xC6F7U:  // NoiseReductionApplied
+        case 0xC6F8U:  // ProfileName
+        case 0xC6F9U:  // ProfileHueSatMapDims
+        case 0xC6FAU:  // ProfileHueSatMapData1
+        case 0xC6FBU:  // ProfileHueSatMapData2
+        case 0xC6FCU:  // ProfileToneCurve
+        case 0xC6FDU:  // ProfileEmbedPolicy
+        case 0xC6FEU:  // ProfileCopyright
+        case 0xC714U:  // ForwardMatrix1
+        case 0xC715U:  // ForwardMatrix2
+        case 0xC71CU:  // RawImageDigest
+        case 0xC71DU:  // OriginalRawFileDigest
+        case 0xC725U:  // ProfileLookTableDims
+        case 0xC726U:  // ProfileLookTableData
+        case 0xC740U:  // OpcodeList1
+        case 0xC741U:  // OpcodeList2
+        case 0xC74EU:  // OpcodeList3
         case 0xC761U:  // NoiseProfile
+        case 0xC7A5U:  // BaselineExposureOffset
+        case 0xC7A6U:  // DefaultBlackRender
+        case 0xC7A7U:  // NewRawImageDigest
+        case 0xC7A8U:  // RawToPreviewGain
+        case 0xCD2DU:  // ProfileGainTableMap
+        case 0xCD31U:  // CalibrationIlluminant3
+        case 0xCD32U:  // CameraCalibration3
+        case 0xCD33U:  // ColorMatrix3
+        case 0xCD34U:  // ForwardMatrix3
+        case 0xCD39U:  // ProfileHueSatMapData3
+        case 0xCD3AU:  // ReductionMatrix3
+        case 0xCD40U:  // ProfileGainTableMap2
             return true;
         default: break;
         }
@@ -10229,8 +10246,7 @@ namespace {
             if (repl.bytes.empty()) {
                 continue;
             }
-            const uint64_t repl_size = static_cast<uint64_t>(
-                repl.bytes.size());
+            const uint64_t repl_size = static_cast<uint64_t>(repl.bytes.size());
             if (repl.offset > input_size
                 || repl_size > input_size - repl.offset) {
                 if (err) {
@@ -10246,9 +10262,8 @@ namespace {
             }
             append_package_source_chunk(plan, cursor, repl.offset - cursor);
             append_package_inline_chunk(
-                plan,
-                std::span<const std::byte>(repl.bytes.data(),
-                                           repl.bytes.size()));
+                plan, std::span<const std::byte>(repl.bytes.data(),
+                                                 repl.bytes.size()));
             cursor = repl.offset + repl_size;
         }
 
@@ -12750,50 +12765,70 @@ transfer_safety_audit_from_store(const MetaStore& store,
     out.nikon_raw_processing
         = vendor_raw_processing_from_store(store,
                                            VendorRawProcessingFamily::Nikon);
-    out.fujifilm_raw_processing = vendor_raw_processing_from_store(
-        store, VendorRawProcessingFamily::Fujifilm);
-    out.pentax_raw_processing = vendor_raw_processing_from_store(
-        store, VendorRawProcessingFamily::Pentax);
+    out.fujifilm_raw_processing
+        = vendor_raw_processing_from_store(store,
+                                           VendorRawProcessingFamily::Fujifilm);
+    out.pentax_raw_processing
+        = vendor_raw_processing_from_store(store,
+                                           VendorRawProcessingFamily::Pentax);
     out.panasonic_raw_processing = vendor_raw_processing_from_store(
         store, VendorRawProcessingFamily::Panasonic);
-    out.olympus_raw_processing = vendor_raw_processing_from_store(
-        store, VendorRawProcessingFamily::Olympus);
-    out.kodak_raw_processing = vendor_raw_processing_from_store(
-        store, VendorRawProcessingFamily::Kodak);
-    out.minolta_raw_processing = vendor_raw_processing_from_store(
-        store, VendorRawProcessingFamily::Minolta);
-    out.sigma_raw_processing = vendor_raw_processing_from_store(
-        store, VendorRawProcessingFamily::Sigma);
-    out.samsung_raw_processing = vendor_raw_processing_from_store(
-        store, VendorRawProcessingFamily::Samsung);
-    out.ricoh_raw_processing = vendor_raw_processing_from_store(
-        store, VendorRawProcessingFamily::Ricoh);
-    out.apple_raw_processing = vendor_raw_processing_from_store(
-        store, VendorRawProcessingFamily::Apple);
-    out.dji_raw_processing = vendor_raw_processing_from_store(
-        store, VendorRawProcessingFamily::Dji);
-    out.google_raw_processing = vendor_raw_processing_from_store(
-        store, VendorRawProcessingFamily::Google);
-    out.flir_raw_processing = vendor_raw_processing_from_store(
-        store, VendorRawProcessingFamily::Flir);
-    out.casio_raw_processing = vendor_raw_processing_from_store(
-        store, VendorRawProcessingFamily::Casio);
-    out.sanyo_raw_processing = vendor_raw_processing_from_store(
-        store, VendorRawProcessingFamily::Sanyo);
+    out.olympus_raw_processing
+        = vendor_raw_processing_from_store(store,
+                                           VendorRawProcessingFamily::Olympus);
+    out.kodak_raw_processing
+        = vendor_raw_processing_from_store(store,
+                                           VendorRawProcessingFamily::Kodak);
+    out.minolta_raw_processing
+        = vendor_raw_processing_from_store(store,
+                                           VendorRawProcessingFamily::Minolta);
+    out.sigma_raw_processing
+        = vendor_raw_processing_from_store(store,
+                                           VendorRawProcessingFamily::Sigma);
+    out.samsung_raw_processing
+        = vendor_raw_processing_from_store(store,
+                                           VendorRawProcessingFamily::Samsung);
+    out.ricoh_raw_processing
+        = vendor_raw_processing_from_store(store,
+                                           VendorRawProcessingFamily::Ricoh);
+    out.apple_raw_processing
+        = vendor_raw_processing_from_store(store,
+                                           VendorRawProcessingFamily::Apple);
+    out.dji_raw_processing
+        = vendor_raw_processing_from_store(store,
+                                           VendorRawProcessingFamily::Dji);
+    out.google_raw_processing
+        = vendor_raw_processing_from_store(store,
+                                           VendorRawProcessingFamily::Google);
+    out.flir_raw_processing
+        = vendor_raw_processing_from_store(store,
+                                           VendorRawProcessingFamily::Flir);
+    out.casio_raw_processing
+        = vendor_raw_processing_from_store(store,
+                                           VendorRawProcessingFamily::Casio);
+    out.sanyo_raw_processing
+        = vendor_raw_processing_from_store(store,
+                                           VendorRawProcessingFamily::Sanyo);
     out.kyocera_raw_processing = vendor_raw_processing_from_store(
         store, VendorRawProcessingFamily::KyoceraRaw);
-    out.reconyx_raw_processing = vendor_raw_processing_from_store(
-        store, VendorRawProcessingFamily::Reconyx);
-    out.hp_raw_processing = vendor_raw_processing_from_store(
-        store, VendorRawProcessingFamily::Hp);
-    out.jvc_raw_processing = vendor_raw_processing_from_store(
-        store, VendorRawProcessingFamily::Jvc);
-    out.ge_raw_processing = vendor_raw_processing_from_store(
-        store, VendorRawProcessingFamily::Ge);
-    out.motorola_raw_processing = vendor_raw_processing_from_store(
-        store, VendorRawProcessingFamily::Motorola);
-    out.nintendo_raw_processing = vendor_raw_processing_from_store(
-        store, VendorRawProcessingFamily::Nintendo);
+    out.reconyx_raw_processing
+        = vendor_raw_processing_from_store(store,
+                                           VendorRawProcessingFamily::Reconyx);
+    out.hp_raw_processing
+        = vendor_raw_processing_from_store(store,
+                                           VendorRawProcessingFamily::Hp);
+    out.jvc_raw_processing
+        = vendor_raw_processing_from_store(store,
+                                           VendorRawProcessingFamily::Jvc);
+    out.ge_raw_processing
+        = vendor_raw_processing_from_store(store,
+                                           VendorRawProcessingFamily::Ge);
+    out.motorola_raw_processing
+        = vendor_raw_processing_from_store(store,
+                                           VendorRawProcessingFamily::Motorola);
+    out.nintendo_raw_processing
+        = vendor_raw_processing_from_store(store,
+                                           VendorRawProcessingFamily::Nintendo);
     out.microsoft_raw_processing = vendor_raw_processing_from_store(
         store, VendorRawProcessingFamily::Microsoft);
     return out;
@@ -16470,10 +16505,10 @@ build_prepared_bundle_tiff_package(
     replacements.reserve(1U);
     TiffPackageReplacement ifd0_replacement;
     ifd0_replacement.offset = rewrite.layout.ifd0_pointer_offset;
-    ifd0_replacement.bytes.assign(
-        patched_ifd0.begin(),
-        patched_ifd0.begin()
-            + static_cast<std::ptrdiff_t>(rewrite.layout.inline_value_bytes));
+    ifd0_replacement.bytes.assign(patched_ifd0.begin(),
+                                  patched_ifd0.begin()
+                                      + static_cast<std::ptrdiff_t>(
+                                          rewrite.layout.inline_value_bytes));
     replacements.push_back(std::move(ifd0_replacement));
 
     if (has_update_for_tag(updates, 700U)) {

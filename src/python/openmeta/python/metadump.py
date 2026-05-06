@@ -65,6 +65,11 @@ def main(argv: list[str]) -> int:
         help="verification backend preference",
     )
     ap.add_argument(
+        "--c2pa-verify-require-trusted-chain",
+        action="store_true",
+        help="fail C2PA verify when the certificate chain is untrusted or missing",
+    )
+    ap.add_argument(
         "--c2pa-verify-require-resolved-references",
         action="store_true",
         help="fail C2PA verify when explicit references are unresolved or ambiguous",
@@ -140,6 +145,9 @@ def main(argv: list[str]) -> int:
             include_xmp_sidecar=bool(args.xmp_sidecar),
             verify_c2pa=bool(args.c2pa_verify),
             verify_backend=backend_map[args.c2pa_verify_backend],
+            verify_require_trusted_chain=bool(
+                args.c2pa_verify_require_trusted_chain
+            ),
             verify_require_resolved_references=bool(
                 args.c2pa_verify_require_resolved_references
             ),
@@ -176,6 +184,7 @@ def main(argv: list[str]) -> int:
         print(
             f"wrote={out_path} format={args.format} bytes={len(data)} "
             f"entries={res.entries} c2pa_verify={verify_status} c2pa_backend={verify_backend} "
+            f"c2pa_require_trusted_chain={'on' if args.c2pa_verify_require_trusted_chain else 'off'} "
             f"c2pa_require_resolved_refs={'on' if args.c2pa_verify_require_resolved_references else 'off'}"
         )
 
