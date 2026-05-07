@@ -56,6 +56,9 @@ struct BuildInfo final {
     bool option_with_brotli = false;
     /// Whether Expat-based XMP parsing was enabled at configure time.
     bool option_with_expat = false;
+    /// Whether RapidFuzz-backed metadata query matching was enabled at configure
+    /// time.
+    bool option_enable_rapidfuzz = false;
 
     /// Whether zlib support is compiled in (linked).
     bool has_zlib = false;
@@ -63,6 +66,8 @@ struct BuildInfo final {
     bool has_brotli = false;
     /// Whether Expat support is compiled in (linked).
     bool has_expat = false;
+    /// Whether RapidFuzz-backed metadata query matching is compiled in.
+    bool has_rapidfuzz = false;
 };
 
 /// Returns build information for the linked OpenMeta library.

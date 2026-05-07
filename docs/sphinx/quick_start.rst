@@ -100,11 +100,11 @@ Notes:
 - Call ``store.finalize()`` before exact-key lookups.
 - The caller owns the scratch buffers.
 
-Query metadata by exact key
----------------------------
+Query metadata
+--------------
 
-OpenMeta does not currently ship a fuzzy-search layer. The main lookup API is
-exact-key lookup through ``MetaStore::find_all(...)``.
+Use exact-key lookup through ``MetaStore::find_all(...)`` when you already know
+the metadata family and key:
 
 .. code-block:: cpp
 
@@ -119,6 +119,17 @@ exact-key lookup through ``MetaStore::find_all(...)``.
        const openmeta::Entry& entry = store.entry(id);
        // Inspect entry.value and entry.origin here.
    }
+
+For semantic inspection UI, use ``openmeta/metadata_query.h``. It reports raw
+matches plus normalized candidates for areas such as crop/active-area,
+exposure/gain, white balance, color, lens correction, orientation, and
+RAW-processing metadata. These helpers use deterministic built-in name/tag
+matching by default. If OpenMeta is configured with
+``-DOPENMETA_ENABLE_RAPIDFUZZ=ON``, the same query helpers also use RapidFuzz to
+match near-miss property names such as misspelled crop/border/padding paths.
+
+Call ``metadata_query_fuzzy_search_available()`` when a UI wants to expose that
+the stronger fuzzy matcher is compiled in.
 
 Build a ``MetaStore`` manually
 ------------------------------

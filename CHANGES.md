@@ -54,6 +54,10 @@ Changes compared with `0.4.8`.
 - Python `Document` and `TransferSourceSnapshot` now expose thin wrappers for
   the experimental semantic metadata query API, including generic
   `metadata_query(kind)` and focused query helpers.
+- Added optional `OPENMETA_ENABLE_RAPIDFUZZ` support for RapidFuzz-backed
+  semantic-query XMP/property-path matching, plus
+  `metadata_query_fuzzy_search_available()` so tools can detect whether the
+  stronger fuzzy matcher is compiled in.
 
 ### Changed
 
@@ -112,6 +116,11 @@ Changes compared with `0.4.8`.
 - Fixed draft C2PA verification status handling for malformed COSE_Sign1 byte
   arrays, unresolved explicit detached-payload references, and nested numeric
   claim references with conflicting label/URI fields.
+- High-level C2PA validation now emits a warning when a signature verifies but
+  the certificate chain is not trusted unless strict trusted-chain enforcement
+  is enabled.
+- Prepared-transfer payload/package artifact deserializers now reject truncated
+  oversized entry counts before reserving output vectors.
 
 ### Tests And Validation
 
@@ -128,6 +137,8 @@ Changes compared with `0.4.8`.
   lens-correction table groups.
 - Added public synthetic coverage for standalone EXIF/TIFF recovery after
   unknown-prefix and malformed-JPEG-prefix inputs.
+- Added public regression coverage and a libFuzzer target for prepared-transfer
+  payload/package artifact deserialization and replay.
 - Added public synthetic coverage for
   Sony/Canon/Nikon/Fujifilm/Pentax/Panasonic/Olympus/Kodak/Minolta/Sigma/
   Samsung/Ricoh/Apple/DJI/Google/FLIR/Casio/Sanyo/KyoceraRaw/Reconyx/HP/JVC/

@@ -358,6 +358,73 @@ namespace {
     }
 
 
+    static bool read_jumbf_field_text(const MetaStore& store,
+                                      std::string_view field, std::string* out)
+    {
+        if (out) {
+            out->clear();
+        }
+        if (!out) {
+            return false;
+        }
+
+        MetaKeyView key_view;
+        key_view.kind                   = MetaKeyKind::JumbfField;
+        key_view.data.jumbf_field.field = field;
+
+        const std::span<const EntryId> ids = store.find_all(key_view);
+        if (ids.empty()) {
+            return false;
+        }
+
+        const Entry& entry = store.entry(ids.back());
+        if (entry.value.kind != MetaValueKind::Text) {
+            return false;
+        }
+
+        const std::span<const std::byte> text = store.arena().span(
+            entry.value.data.span);
+        out->assign(reinterpret_cast<const char*>(text.data()), text.size());
+        return true;
+    }
+
+
+    static void add_c2pa_chain_trust_issues(ValidateResult* out,
+                                            const ValidateOptions& options,
+                                            const MetaStore& store)
+    {
+        if (!out || !options.verify_c2pa
+            || options.verify_require_trusted_chain) {
+            return;
+        }
+        if (out->read.jumbf.verify_status != C2paVerifyStatus::Verified) {
+            return;
+        }
+
+        std::string chain_status;
+        if (!read_jumbf_field_text(store, "c2pa.verify.chain_status",
+                                   &chain_status)) {
+            return;
+        }
+        if (chain_status == "pass") {
+            return;
+        }
+
+        std::string chain_reason;
+        (void)read_jumbf_field_text(store, "c2pa.verify.chain_reason",
+                                    &chain_reason);
+
+        std::string message(
+            "signature verified but certificate chain is not trusted");
+        if (!chain_reason.empty()) {
+            message.append(": ");
+            message.append(chain_reason);
+        }
+        add_issue(out, ValidateIssueSeverity::Warning, "c2pa",
+                  "untrusted_chain", message);
+    }
+
+
     static void add_decode_status_issues(ValidateResult* out,
                                          const ValidateOptions& options)
     {
@@ -643,6 +710,7 @@ validate_file(const char* path, const ValidateOptions& options) noexcept
     out.entries = static_cast<uint32_t>(store.entries().size());
 
     add_decode_status_issues(&out, options);
+    add_c2pa_chain_trust_issues(&out, options, store);
 
     std::vector<CcmField> ccm_fields;
     std::vector<CcmIssue> ccm_issues;

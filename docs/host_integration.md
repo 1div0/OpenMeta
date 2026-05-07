@@ -103,8 +103,13 @@ for (openmeta::EntryId id : store.find_all(key)) {
 }
 ```
 
-This is the public lookup model today. If you need fuzzy search, substring
-search, or ExifTool-style display lookup, add that in your application layer.
+Use exact lookup for deterministic key access. For inspection/search UI, prefer
+`openmeta/metadata_query.h` before building a separate layer. It returns source
+entries, confidence, value shape, and normalized candidates. The default matcher
+uses built-in tags and conservative substring/name rules; builds configured
+with `-DOPENMETA_ENABLE_RAPIDFUZZ=ON` add RapidFuzz-backed near-miss XMP/path
+matching. `metadata_query_fuzzy_search_available()` reports whether that
+stronger matcher is compiled in.
 
 ## 3. Generic Host Metadata Traversal
 

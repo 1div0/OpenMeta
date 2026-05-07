@@ -70,15 +70,17 @@ Host-facing API map
      - Stable
      - Stable v1 flat host naming contract. See :doc:`flat_host_mapping`.
    * - Semantic metadata query: ``query_metadata(...)``,
-       ``query_crop_metadata(...)``, and focused query helpers
+       ``query_crop_metadata(...)``, focused query helpers, and
+       ``metadata_query_fuzzy_search_available()``
      - ``openmeta/metadata_query.h``
      - Experimental
      - Query contract for inspection matches plus normalized candidates.
        Current coverage includes crop/active-area, exposure/gain, white
        balance, color, lens correction, orientation, and RAW-processing
        metadata across standard tags, selected DNG tags, fuzzy XMP paths, and
-       vendor RAW-processing classification. Grouped candidates include
-       ``matrix_set``, ``vector_set``, and ``table`` shapes for related
+       vendor RAW-processing classification. ``OPENMETA_ENABLE_RAPIDFUZZ=ON``
+       adds optional near-miss XMP/property-path scoring. Grouped candidates
+       include ``matrix_set``, ``vector_set``, and ``table`` shapes for related
        non-crop metadata, including RAW black/white levels, linearization,
        CFA/sensor layout, source geometry, and raw-storage identifiers.
        Python ``Document`` and ``TransferSourceSnapshot`` mirror this as thin

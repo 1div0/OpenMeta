@@ -711,6 +711,19 @@ namespace {
         return entry.value.data.u64;
     }
 
+    static bool validate_result_has_issue(const ValidateResult& result,
+                                          std::string_view category,
+                                          std::string_view code) noexcept
+    {
+        for (size_t i = 0; i < result.issues.size(); ++i) {
+            const ValidateIssue& issue = result.issues[i];
+            if (issue.category == category && issue.code == code) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     static int32_t
     find_signature_projection_slot_by_suffix(const MetaStore& store,
                                              std::string_view suffix)
@@ -6156,6 +6169,23 @@ TEST(JumbfDecode, ValidateFileC2paStrictChainRequiresTrustedCertificate)
     EXPECT_EQ(loose_result.read.jumbf.verify_status,
               C2paVerifyStatus::Verified);
     EXPECT_FALSE(loose_result.failed);
+    EXPECT_GE(loose_result.warning_count, 1U);
+    EXPECT_TRUE(validate_result_has_issue(loose_result, "c2pa",
+                                          "untrusted_chain"));
+
+    ValidateOptions warnings_as_errors_options = options;
+    warnings_as_errors_options.warnings_as_errors = true;
+    const ValidateResult warnings_as_errors_result
+        = validate_file(path.c_str(), warnings_as_errors_options);
+    ASSERT_EQ(warnings_as_errors_result.status, ValidateStatus::Ok);
+    EXPECT_EQ(warnings_as_errors_result.read.jumbf.status,
+              JumbfDecodeStatus::Ok);
+    EXPECT_EQ(warnings_as_errors_result.read.jumbf.verify_status,
+              C2paVerifyStatus::Verified);
+    EXPECT_TRUE(warnings_as_errors_result.failed);
+    EXPECT_EQ(warnings_as_errors_result.error_count, 0U);
+    EXPECT_TRUE(validate_result_has_issue(warnings_as_errors_result, "c2pa",
+                                          "untrusted_chain"));
 
     ValidateOptions strict_options              = options;
     strict_options.verify_require_trusted_chain = true;

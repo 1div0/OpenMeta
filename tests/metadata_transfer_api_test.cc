@@ -39100,6 +39100,39 @@ TEST(MetadataTransferApi,
     ASSERT_EQ(parsed.code, openmeta::EmitTransferCode::InvalidPayload);
 }
 
+TEST(MetadataTransferApi,
+     DeserializePreparedTransferPayloadBatchRejectsHugeTruncatedCount)
+{
+    openmeta::PreparedTransferBundle bundle;
+    bundle.target_format = openmeta::TransferTargetFormat::Jpeg;
+
+    openmeta::PreparedTransferBlock exif;
+    exif.route   = "jpeg:app1-exif";
+    exif.payload = { std::byte { 0x01 }, std::byte { 0x02 } };
+    bundle.blocks.push_back(exif);
+
+    openmeta::PreparedTransferPayloadBatch batch;
+    ASSERT_EQ(
+        openmeta::build_prepared_transfer_payload_batch(bundle, &batch).status,
+        openmeta::TransferStatus::Ok);
+
+    std::vector<std::byte> encoded;
+    ASSERT_EQ(openmeta::serialize_prepared_transfer_payload_batch(batch,
+                                                                  &encoded)
+                  .status,
+              openmeta::TransferStatus::Ok);
+    ASSERT_GE(encoded.size(), 23U);
+    write_u32le(&encoded, 19U, 0xFFFFFFFFU);
+
+    openmeta::PreparedTransferPayloadBatch decoded;
+    const openmeta::PreparedTransferPayloadIoResult parsed
+        = openmeta::deserialize_prepared_transfer_payload_batch(
+            std::span<const std::byte>(encoded.data(), encoded.size()),
+            &decoded);
+    EXPECT_EQ(parsed.status, openmeta::TransferStatus::Malformed);
+    EXPECT_EQ(parsed.code, openmeta::EmitTransferCode::InvalidPayload);
+}
+
 TEST(MetadataTransferApi, CollectPreparedTransferPayloadViewsFromBatch)
 {
     openmeta::PreparedTransferBundle bundle;
@@ -39364,6 +39397,34 @@ TEST(MetadataTransferApi,
     ASSERT_EQ(serialized.status, openmeta::TransferStatus::Ok);
     ASSERT_GE(encoded.size(), 8U);
     encoded[0] = std::byte { 0x00 };
+
+    openmeta::PreparedTransferPackageBatch decoded;
+    const openmeta::PreparedTransferPackageIoResult parsed
+        = openmeta::deserialize_prepared_transfer_package_batch(
+            std::span<const std::byte>(encoded.data(), encoded.size()),
+            &decoded);
+    EXPECT_EQ(parsed.status, openmeta::TransferStatus::Malformed);
+    EXPECT_EQ(parsed.code, openmeta::EmitTransferCode::InvalidPayload);
+}
+
+TEST(MetadataTransferApi,
+     DeserializePreparedTransferPackageBatchRejectsHugeTruncatedCount)
+{
+    openmeta::PreparedTransferPackageBatch batch;
+    batch.target_format = openmeta::TransferTargetFormat::Jpeg;
+    batch.output_size   = 1U;
+
+    openmeta::PreparedTransferPackageBlob chunk;
+    chunk.kind = openmeta::TransferPackageChunkKind::InlineBytes;
+    chunk.bytes.push_back(std::byte { 0xAA });
+    batch.chunks.push_back(std::move(chunk));
+
+    std::vector<std::byte> encoded;
+    const openmeta::PreparedTransferPackageIoResult serialized
+        = openmeta::serialize_prepared_transfer_package_batch(batch, &encoded);
+    ASSERT_EQ(serialized.status, openmeta::TransferStatus::Ok);
+    ASSERT_GE(encoded.size(), 37U);
+    write_u32le(&encoded, 33U, 0xFFFFFFFFU);
 
     openmeta::PreparedTransferPackageBatch decoded;
     const openmeta::PreparedTransferPackageIoResult parsed

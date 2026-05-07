@@ -15,6 +15,9 @@ targets in `tests/fuzz/`.
     and extent/reference count mismatch.
 - `bmff_meta/`
   - minimal payload seeds for the `openmeta_fuzz_bmff_meta` harness.
+- `metadata_transfer/`
+  - minimal prepared-transfer artifact magic seeds for the
+    `openmeta_fuzz_metadata_transfer` harness.
 
 ## Usage
 

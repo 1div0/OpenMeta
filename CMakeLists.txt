@@ -40,6 +40,8 @@ option(OPENMETA_WHEEL_NO_BUILD_ISOLATION "Build wheel without isolation (require
 option(OPENMETA_WITH_ZLIB "Enable zlib/deflate payload decompression" ON)
 option(OPENMETA_WITH_BROTLI "Enable brotli payload decompression" ON)
 option(OPENMETA_WITH_EXPAT "Enable XMP packet decode via Expat" ON)
+option(OPENMETA_ENABLE_RAPIDFUZZ
+  "Enable RapidFuzz-backed semantic metadata query matching" OFF)
 option(OPENMETA_WITH_DNG_SDK_ADAPTER
   "Enable the optional Adobe DNG SDK adapter bridge" OFF)
 option(OPENMETA_ENABLE_C2PA_VERIFY "Enable draft C2PA verification scaffold fields" OFF)
@@ -195,6 +197,28 @@ if(OPENMETA_WITH_EXPAT)
   endif()
 endif()
 
+set(OPENMETA_RAPIDFUZZ_FOUND OFF)
+set(OPENMETA_RAPIDFUZZ_PROVIDER "")
+if(OPENMETA_ENABLE_RAPIDFUZZ)
+  find_package(rapidfuzz CONFIG QUIET)
+  if(TARGET rapidfuzz::rapidfuzz)
+    set(OPENMETA_RAPIDFUZZ_FOUND ON)
+    set(OPENMETA_RAPIDFUZZ_PROVIDER "rapidfuzz package")
+  else()
+    find_path(OPENMETA_RAPIDFUZZ_INCLUDE_DIR NAMES rapidfuzz/fuzz.hpp)
+    if(OPENMETA_RAPIDFUZZ_INCLUDE_DIR)
+      set(OPENMETA_RAPIDFUZZ_FOUND ON)
+      set(OPENMETA_RAPIDFUZZ_PROVIDER "include path")
+    else()
+      message(FATAL_ERROR
+        "OPENMETA_ENABLE_RAPIDFUZZ=ON but RapidFuzz C++ was not found. "
+        "Install rapidfuzz-cpp so CMake can find `rapidfuzz::rapidfuzz`, "
+        "or set OPENMETA_RAPIDFUZZ_INCLUDE_DIR to the include directory "
+        "containing rapidfuzz/fuzz.hpp.")
+    endif()
+  endif()
+endif()
+
 set(OPENMETA_DNG_SDK_FOUND OFF)
 if(OPENMETA_WITH_DNG_SDK_ADAPTER)
   find_package(dng_sdk QUIET CONFIG)
@@ -276,6 +300,7 @@ set(OPENMETA_BUILDINFO_TIMESTAMP_UTC "${OPENMETA_BUILD_TIMESTAMP}")
 set(OPENMETA_BUILDINFO_WITH_ZLIB "${OPENMETA_WITH_ZLIB}")
 set(OPENMETA_BUILDINFO_WITH_BROTLI "${OPENMETA_WITH_BROTLI}")
 set(OPENMETA_BUILDINFO_WITH_EXPAT "${OPENMETA_WITH_EXPAT}")
+set(OPENMETA_BUILDINFO_ENABLE_RAPIDFUZZ "${OPENMETA_ENABLE_RAPIDFUZZ}")
 
 set(_openmeta_generated_include_dir "${CMAKE_CURRENT_BINARY_DIR}/generated/include")
 file(MAKE_DIRECTORY "${_openmeta_generated_include_dir}/openmeta")
@@ -391,6 +416,7 @@ foreach(_tgt IN ITEMS openmeta_static openmeta_shared)
     if(OPENMETA_EXPAT_FOUND)
       openmeta_apply_expat_dep(${_tgt} PUBLIC)
     endif()
+    openmeta_apply_rapidfuzz_dep(${_tgt} PUBLIC)
     if(OPENMETA_DNG_SDK_FOUND)
       target_link_libraries(${_tgt} PUBLIC dng_sdk::dng_sdk)
       target_compile_definitions(${_tgt} PUBLIC OPENMETA_HAS_DNG_SDK=1)
@@ -1042,6 +1068,27 @@ if(OPENMETA_BUILD_FUZZERS)
   )
   target_link_options(
     openmeta_fuzz_exif_tiff_decode
+    PRIVATE
+      -fsanitize=fuzzer,address,undefined
+      -fno-omit-frame-pointer
+  )
+
+  add_executable(openmeta_fuzz_metadata_transfer
+    ${OPENMETA_SOURCES}
+    tests/fuzz/metadata_transfer_libfuzzer.cc
+  )
+  openmeta_apply_target_settings(openmeta_fuzz_metadata_transfer)
+  openmeta_apply_core_deps(openmeta_fuzz_metadata_transfer)
+  openmeta_apply_libfuzzer_stdlib(openmeta_fuzz_metadata_transfer)
+
+  target_compile_options(
+    openmeta_fuzz_metadata_transfer
+    PRIVATE
+      -fsanitize=fuzzer,address,undefined
+      -fno-omit-frame-pointer
+  )
+  target_link_options(
+    openmeta_fuzz_metadata_transfer
     PRIVATE
       -fsanitize=fuzzer,address,undefined
       -fno-omit-frame-pointer

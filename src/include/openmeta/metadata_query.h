@@ -156,6 +156,9 @@ query_orientation_metadata(const MetaStore& store);
 MetadataQueryResult
 query_raw_processing_metadata(const MetaStore& store);
 
+bool
+metadata_query_fuzzy_search_available() noexcept;
+
 const char*
 metadata_query_kind_name(MetadataQueryKind kind) noexcept;
 

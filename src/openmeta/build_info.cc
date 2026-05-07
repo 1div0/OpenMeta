@@ -59,6 +59,16 @@ namespace {
     }
 
 
+    static constexpr bool has_rapidfuzz() noexcept
+    {
+#if defined(OPENMETA_HAS_RAPIDFUZZ) && OPENMETA_HAS_RAPIDFUZZ
+        return true;
+#else
+        return false;
+#endif
+    }
+
+
     static constexpr BuildInfo kBuildInfo = {
         /*version=*/OPENMETA_BUILDINFO_VERSION,
         /*build_timestamp_utc=*/OPENMETA_BUILDINFO_BUILD_TIMESTAMP_UTC,
@@ -74,9 +84,12 @@ namespace {
         /*option_with_zlib=*/static_cast<bool>(OPENMETA_BUILDINFO_WITH_ZLIB),
         /*option_with_brotli=*/static_cast<bool>(OPENMETA_BUILDINFO_WITH_BROTLI),
         /*option_with_expat=*/static_cast<bool>(OPENMETA_BUILDINFO_WITH_EXPAT),
+        /*option_enable_rapidfuzz=*/
+        static_cast<bool>(OPENMETA_BUILDINFO_ENABLE_RAPIDFUZZ),
         /*has_zlib=*/has_zlib(),
         /*has_brotli=*/has_brotli(),
         /*has_expat=*/has_expat(),
+        /*has_rapidfuzz=*/has_rapidfuzz(),
     };
 
 }  // namespace
@@ -141,6 +154,13 @@ format_build_info_lines(const BuildInfo& bi, std::string* line1,
                 line1->append(",");
             }
             line1->append("expat");
+            first = false;
+        }
+        if (bi.has_rapidfuzz) {
+            if (!first) {
+                line1->append(",");
+            }
+            line1->append("rapidfuzz");
             first = false;
         }
         line1->append("] ");

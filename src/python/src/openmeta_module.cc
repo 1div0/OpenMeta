@@ -1083,8 +1083,7 @@ namespace {
         const std::string& path, bool include_pointer_tags,
         bool decode_makernote, bool decode_printim, bool decompress,
         bool include_xmp_sidecar, bool verify_c2pa,
-        C2paVerifyBackend verify_backend,
-        bool verify_require_trusted_chain,
+        C2paVerifyBackend verify_backend, bool verify_require_trusted_chain,
         bool verify_require_resolved_references, bool warnings_as_errors,
         bool ccm_require_dng_context, bool ccm_include_reduction_matrices,
         uint32_t ccm_max_fields, uint32_t ccm_max_values_per_field,
@@ -1092,13 +1091,13 @@ namespace {
         nb::object policy_obj)
     {
         ValidateOptions options;
-        options.include_pointer_tags = include_pointer_tags;
-        options.decode_makernote     = decode_makernote;
-        options.decode_printim       = decode_printim;
-        options.decompress           = decompress;
-        options.include_xmp_sidecar  = include_xmp_sidecar;
-        options.verify_c2pa          = verify_c2pa;
-        options.verify_backend       = verify_backend;
+        options.include_pointer_tags         = include_pointer_tags;
+        options.decode_makernote             = decode_makernote;
+        options.decode_printim               = decode_printim;
+        options.decompress                   = decompress;
+        options.include_xmp_sidecar          = include_xmp_sidecar;
+        options.verify_c2pa                  = verify_c2pa;
+        options.verify_backend               = verify_backend;
         options.verify_require_trusted_chain = verify_require_trusted_chain;
         options.verify_require_resolved_references
             = verify_require_resolved_references;
@@ -5824,6 +5823,8 @@ NB_MODULE(_openmeta, m)
           "support"_a);
     m.def("metadata_capability", &metadata_capability_query_to_python,
           "format"_a, "family"_a);
+    m.def("metadata_query_fuzzy_search_available",
+          &metadata_query_fuzzy_search_available);
 
     nb::enum_<TransferPolicySubject>(m, "TransferPolicySubject")
         .value("MakerNote", TransferPolicySubject::MakerNote)
@@ -6902,15 +6903,14 @@ NB_MODULE(_openmeta, m)
             }
             return read_document(path, include_pointer_tags, decode_makernote,
                                  decompress, include_xmp_sidecar, verify_c2pa,
-                                 verify_backend,
-                                 verify_require_trusted_chain,
+                                 verify_backend, verify_require_trusted_chain,
                                  verify_require_resolved_references,
                                  max_file_bytes, policy_ptr);
         },
         "path"_a, "include_pointer_tags"_a = true, "decode_makernote"_a = false,
         "decompress"_a = true, "include_xmp_sidecar"_a = false,
         "verify_c2pa"_a = false, "verify_backend"_a = C2paVerifyBackend::Auto,
-        "verify_require_trusted_chain"_a = false,
+        "verify_require_trusted_chain"_a       = false,
         "verify_require_resolved_references"_a = false,
         "max_file_bytes"_a = 0ULL, "policy"_a = nb::none());
 
@@ -6919,8 +6919,7 @@ NB_MODULE(_openmeta, m)
         [](const std::string& path, bool include_pointer_tags,
            bool decode_makernote, bool decode_printim, bool decompress,
            bool include_xmp_sidecar, bool verify_c2pa,
-           C2paVerifyBackend verify_backend,
-           bool verify_require_trusted_chain,
+           C2paVerifyBackend verify_backend, bool verify_require_trusted_chain,
            bool verify_require_resolved_references, bool warnings_as_errors,
            bool ccm_require_dng_context, bool ccm_include_reduction_matrices,
            uint32_t ccm_max_fields, uint32_t ccm_max_values_per_field,
@@ -8183,23 +8182,25 @@ NB_MODULE(_openmeta, m)
     m.def("build_info", []() {
         const BuildInfo& bi = build_info();
         nb::dict d;
-        d["version"]              = sv_to_py(bi.version);
-        d["build_timestamp_utc"]  = sv_to_py(bi.build_timestamp_utc);
-        d["build_type"]           = sv_to_py(bi.build_type);
-        d["cmake_generator"]      = sv_to_py(bi.cmake_generator);
-        d["system_name"]          = sv_to_py(bi.system_name);
-        d["system_processor"]     = sv_to_py(bi.system_processor);
-        d["cxx_compiler_id"]      = sv_to_py(bi.cxx_compiler_id);
-        d["cxx_compiler_version"] = sv_to_py(bi.cxx_compiler_version);
-        d["cxx_compiler"]         = sv_to_py(bi.cxx_compiler);
-        d["linkage_static"]       = nb::bool_(bi.linkage_static);
-        d["linkage_shared"]       = nb::bool_(bi.linkage_shared);
-        d["option_with_zlib"]     = nb::bool_(bi.option_with_zlib);
-        d["option_with_brotli"]   = nb::bool_(bi.option_with_brotli);
-        d["option_with_expat"]    = nb::bool_(bi.option_with_expat);
-        d["has_zlib"]             = nb::bool_(bi.has_zlib);
-        d["has_brotli"]           = nb::bool_(bi.has_brotli);
-        d["has_expat"]            = nb::bool_(bi.has_expat);
+        d["version"]                 = sv_to_py(bi.version);
+        d["build_timestamp_utc"]     = sv_to_py(bi.build_timestamp_utc);
+        d["build_type"]              = sv_to_py(bi.build_type);
+        d["cmake_generator"]         = sv_to_py(bi.cmake_generator);
+        d["system_name"]             = sv_to_py(bi.system_name);
+        d["system_processor"]        = sv_to_py(bi.system_processor);
+        d["cxx_compiler_id"]         = sv_to_py(bi.cxx_compiler_id);
+        d["cxx_compiler_version"]    = sv_to_py(bi.cxx_compiler_version);
+        d["cxx_compiler"]            = sv_to_py(bi.cxx_compiler);
+        d["linkage_static"]          = nb::bool_(bi.linkage_static);
+        d["linkage_shared"]          = nb::bool_(bi.linkage_shared);
+        d["option_with_zlib"]        = nb::bool_(bi.option_with_zlib);
+        d["option_with_brotli"]      = nb::bool_(bi.option_with_brotli);
+        d["option_with_expat"]       = nb::bool_(bi.option_with_expat);
+        d["option_enable_rapidfuzz"] = nb::bool_(bi.option_enable_rapidfuzz);
+        d["has_zlib"]                = nb::bool_(bi.has_zlib);
+        d["has_brotli"]              = nb::bool_(bi.has_brotli);
+        d["has_expat"]               = nb::bool_(bi.has_expat);
+        d["has_rapidfuzz"]           = nb::bool_(bi.has_rapidfuzz);
         return d;
     });
 

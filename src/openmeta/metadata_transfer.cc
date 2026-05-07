@@ -17342,7 +17342,6 @@ deserialize_prepared_transfer_payload_batch(
     batch.target_format    = static_cast<TransferTargetFormat>(target_format);
     batch.emit.skip_empty_payloads = (skip_empty != 0U);
     batch.emit.stop_on_error       = (stop_on_error != 0U);
-    batch.payloads.reserve(count);
 
     const size_t min_payload_size = 8U + 1U + 4U + 8U + 8U + 1U + 2U + 4U + 4U
                                     + 4U + 4U + 4U + 1U + 1U + 8U;
@@ -17354,6 +17353,7 @@ deserialize_prepared_transfer_payload_batch(
         return out;
     }
 
+    batch.payloads.reserve(count);
     for (uint32_t i = 0U; i < count; ++i) {
         PreparedTransferPayload payload;
         uint8_t op_kind  = 0U;
@@ -19262,7 +19262,6 @@ deserialize_prepared_transfer_package_batch(
 
     batch.contract_version = contract_version;
     batch.target_format    = static_cast<TransferTargetFormat>(target_format);
-    batch.chunks.reserve(count);
 
     const size_t min_chunk_size = 1U + 8U + 8U + 4U + 1U + 8U + 8U;
     if (count > 0U && (bytes.size() - off) / min_chunk_size < count) {
@@ -19273,6 +19272,7 @@ deserialize_prepared_transfer_package_batch(
         return out;
     }
 
+    batch.chunks.reserve(count);
     for (uint32_t i = 0U; i < count; ++i) {
         PreparedTransferPackageBlob chunk;
         uint8_t kind = 0U;

@@ -310,6 +310,41 @@ TEST(MetadataQuery, MatchesFuzzyXmpCropPath)
               0U);
 }
 
+TEST(MetadataQuery, ReportsRapidFuzzAvailability)
+{
+#if defined(OPENMETA_HAS_RAPIDFUZZ) && OPENMETA_HAS_RAPIDFUZZ
+    EXPECT_TRUE(metadata_query_fuzzy_search_available());
+#else
+    EXPECT_FALSE(metadata_query_fuzzy_search_available());
+#endif
+}
+
+TEST(MetadataQuery, RapidFuzzMatchesMisspelledXmpCropPath)
+{
+    if (!metadata_query_fuzzy_search_available()) {
+        GTEST_SKIP() << "RapidFuzz metadata query matching is not enabled";
+    }
+
+    MetaStore store;
+    const EntryId entry_id
+        = add_xmp_text(&store, "http://example.invalid/aux/1.0/",
+                       "aux:SensrBordrPading", "64 32 168 128");
+    store.finalize();
+
+    const MetadataQueryResult result = query_crop_metadata(store);
+
+    const MetadataQueryMatch* match = find_match_for_entry(result, entry_id);
+    ASSERT_NE(match, nullptr);
+    EXPECT_EQ(match->semantic, MetadataQuerySemanticKind::Border);
+    EXPECT_GE(match->confidence, 70U);
+    EXPECT_NE((match->matched_terms
+               & static_cast<uint32_t>(MetadataQueryMatchTerm::Border)),
+              0U);
+    EXPECT_NE((match->matched_terms
+               & static_cast<uint32_t>(MetadataQueryMatchTerm::Padding)),
+              0U);
+}
+
 TEST(MetadataQuery, IgnoresDeletedEntries)
 {
     MetaStore store;

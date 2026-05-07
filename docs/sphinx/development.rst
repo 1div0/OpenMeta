@@ -86,7 +86,10 @@ reduction/forward matrix tags, DNG white-balance vector tags, and
 lens-correction table groups. RAW-processing queries add conservative groups
 for black/white levels, linearization tables, CFA/sensor layout, source
 geometry, and raw-storage identifiers. Grouped candidates use ``matrix_set``,
-``vector_set``, and ``table`` value shapes.
+``vector_set``, and ``table`` value shapes. When
+``OPENMETA_ENABLE_RAPIDFUZZ=ON``, the same query helpers also use RapidFuzz to
+score near-miss XMP/property paths; default builds keep the deterministic
+substring/tag matcher only.
 Python ``Document`` and ``TransferSourceSnapshot`` mirror this as thin wrappers
 returning the same match/candidate dictionary shape.
 
@@ -197,6 +200,11 @@ dependencies let OpenMeta decode more content:
 
 - **Expat** (``OPENMETA_WITH_EXPAT``): parses XMP RDF/XML packets (embedded
   blocks and ``.xmp`` sidecars) using a streaming parser with strict limits.
+- **RapidFuzz** (``OPENMETA_ENABLE_RAPIDFUZZ``): opt-in semantic-query name
+  matching for inspection/search UI. It is disabled by default; when enabled,
+  CMake requires either a ``rapidfuzz::rapidfuzz`` package target or
+  ``OPENMETA_RAPIDFUZZ_INCLUDE_DIR`` pointing at headers containing
+  ``rapidfuzz/fuzz.hpp``.
 - **zlib** (``OPENMETA_WITH_ZLIB``): inflates Deflate-compressed payloads such
   as PNG ``iCCP`` (ICC profiles) and compressed text/XMP chunks (``iTXt``,
   ``zTXt``).

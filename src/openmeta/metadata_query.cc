@@ -12,7 +12,12 @@
 #include <cstdint>
 #include <cstring>
 #include <span>
+#include <string>
 #include <string_view>
+
+#if defined(OPENMETA_HAS_RAPIDFUZZ) && OPENMETA_HAS_RAPIDFUZZ
+#    include <rapidfuzz/fuzz.hpp>
+#endif
 
 namespace openmeta {
 namespace {
@@ -158,6 +163,19 @@ namespace {
         return c;
     }
 
+#if defined(OPENMETA_HAS_RAPIDFUZZ) && OPENMETA_HAS_RAPIDFUZZ
+    static bool ascii_is_upper(char c) noexcept { return c >= 'A' && c <= 'Z'; }
+
+    static bool ascii_is_lower(char c) noexcept { return c >= 'a' && c <= 'z'; }
+
+    static bool ascii_is_digit(char c) noexcept { return c >= '0' && c <= '9'; }
+
+    static bool ascii_is_alnum(char c) noexcept
+    {
+        return ascii_is_upper(c) || ascii_is_lower(c) || ascii_is_digit(c);
+    }
+#endif
+
     static bool contains_ascii_case_insensitive(std::string_view text,
                                                 std::string_view needle) noexcept
     {
@@ -196,6 +214,94 @@ namespace {
             }
         }
         return true;
+    }
+
+#if defined(OPENMETA_HAS_RAPIDFUZZ) && OPENMETA_HAS_RAPIDFUZZ
+    static void append_fuzzy_space(std::string* out)
+    {
+        if (!out || out->empty() || (*out)[out->size() - 1U] == ' ') {
+            return;
+        }
+        out->push_back(' ');
+    }
+
+    static void normalize_ascii_for_fuzzy(std::string_view text,
+                                          std::string* out)
+    {
+        if (!out) {
+            return;
+        }
+        out->clear();
+        out->reserve(text.size() + 8U);
+
+        char previous = '\0';
+        for (size_t i = 0U; i < text.size(); ++i) {
+            const char c = text[i];
+            if (!ascii_is_alnum(c)) {
+                append_fuzzy_space(out);
+                previous = ' ';
+                continue;
+            }
+            if (ascii_is_upper(c)
+                && (ascii_is_lower(previous) || ascii_is_digit(previous))) {
+                append_fuzzy_space(out);
+            }
+            out->push_back(ascii_lower(c));
+            previous = c;
+        }
+        while (!out->empty() && (*out)[out->size() - 1U] == ' ') {
+            out->resize(out->size() - 1U);
+        }
+    }
+#endif
+
+    static double fuzzy_threshold_for_term(std::string_view term) noexcept
+    {
+        if (term.size() < 5U) {
+            return 101.0;
+        }
+        if (term.size() == 5U) {
+            return 90.0;
+        }
+        return 85.0;
+    }
+
+    static double rapidfuzz_term_score(std::string_view text,
+                                       std::string_view term)
+    {
+#if defined(OPENMETA_HAS_RAPIDFUZZ) && OPENMETA_HAS_RAPIDFUZZ
+        const double threshold = fuzzy_threshold_for_term(term);
+        if (threshold > 100.0 || text.empty()) {
+            return 0.0;
+        }
+
+        std::string normalized_text;
+        std::string normalized_term;
+        normalize_ascii_for_fuzzy(text, &normalized_text);
+        normalize_ascii_for_fuzzy(term, &normalized_term);
+        if (normalized_text.empty() || normalized_term.empty()) {
+            return 0.0;
+        }
+        return rapidfuzz::fuzz::partial_ratio(normalized_text, normalized_term,
+                                              threshold);
+#else
+        (void)text;
+        (void)term;
+        return 0.0;
+#endif
+    }
+
+    static bool term_matches(std::string_view text, std::string_view term,
+                             bool enable_fuzzy)
+    {
+        if (contains_ascii_case_insensitive(text, term)) {
+            return true;
+        }
+        if (!enable_fuzzy) {
+            return false;
+        }
+        return rapidfuzz_term_score(text, term)
+               >= fuzzy_threshold_for_term(term);
     }
 
     static MetadataQueryValueShape value_shape(const MetaValue& value) noexcept
@@ -505,75 +611,78 @@ namespace {
     }
 
     static uint32_t crop_match_terms(std::string_view name,
-                                     std::string_view group) noexcept
+                                     std::string_view group,
+                                     bool enable_fuzzy) noexcept
     {
         uint32_t terms = 0U;
-        if (contains_ascii_case_insensitive(name, "crop")) {
+        if (term_matches(name, "crop", enable_fuzzy)) {
             terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::Crop);
         }
-        if (contains_ascii_case_insensitive(name, "border")) {
+        if (term_matches(name, "border", enable_fuzzy)) {
             terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::Border);
         }
-        if (contains_ascii_case_insensitive(name, "margin")) {
+        if (term_matches(name, "margin", enable_fuzzy)) {
             terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::Margin);
         }
-        if (contains_ascii_case_insensitive(name, "padding")) {
+        if (term_matches(name, "padding", enable_fuzzy)) {
             terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::Padding);
         }
-        if (contains_ascii_case_insensitive(name, "activearea")
-            || contains_ascii_case_insensitive(name, "active area")) {
+        if (term_matches(name, "activearea", enable_fuzzy)
+            || term_matches(name, "active area", enable_fuzzy)) {
             terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::ActiveArea);
         }
-        if (contains_ascii_case_insensitive(name, "origin")) {
+        if (term_matches(name, "origin", enable_fuzzy)) {
             terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::Origin);
         }
-        if (contains_ascii_case_insensitive(name, "offset")) {
+        if (term_matches(name, "offset", enable_fuzzy)) {
             terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::Offset);
         }
-        if (contains_ascii_case_insensitive(name, "size")
-            || contains_ascii_case_insensitive(name, "width")
-            || contains_ascii_case_insensitive(name, "height")) {
+        if (term_matches(name, "size", enable_fuzzy)
+            || term_matches(name, "width", enable_fuzzy)
+            || term_matches(name, "height", enable_fuzzy)) {
             terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::Size);
         }
-        if (contains_ascii_case_insensitive(name, "sensor")
+        if (term_matches(name, "sensor", enable_fuzzy)
             || contains_ascii_case_insensitive(group, "phaseone")) {
             terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::Sensor);
         }
-        if (contains_ascii_case_insensitive(name, "image")) {
+        if (term_matches(name, "image", enable_fuzzy)) {
             terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::Image);
         }
         return terms;
     }
 
-    static uint32_t exposure_gain_match_terms(std::string_view name) noexcept
+    static uint32_t exposure_gain_match_terms(std::string_view name,
+                                              bool enable_fuzzy) noexcept
     {
         uint32_t terms = 0U;
-        if (contains_ascii_case_insensitive(name, "exposure")
-            || contains_ascii_case_insensitive(name, "shutter")
-            || contains_ascii_case_insensitive(name, "aperture")
-            || contains_ascii_case_insensitive(name, "brightness")
+        if (term_matches(name, "exposure", enable_fuzzy)
+            || term_matches(name, "shutter", enable_fuzzy)
+            || term_matches(name, "aperture", enable_fuzzy)
+            || term_matches(name, "brightness", enable_fuzzy)
             || contains_ascii_case_insensitive(name, "iso")) {
             terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::Exposure);
         }
-        if (contains_ascii_case_insensitive(name, "bias")
-            || contains_ascii_case_insensitive(name, "compensation")) {
+        if (term_matches(name, "bias", enable_fuzzy)
+            || term_matches(name, "compensation", enable_fuzzy)) {
             terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::Bias);
         }
-        if (contains_ascii_case_insensitive(name, "gain")) {
+        if (term_matches(name, "gain", enable_fuzzy)) {
             terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::Gain);
         }
         return terms;
     }
 
-    static uint32_t white_balance_match_terms(std::string_view name) noexcept
+    static uint32_t white_balance_match_terms(std::string_view name,
+                                              bool enable_fuzzy) noexcept
     {
         uint32_t terms = 0U;
-        if (contains_ascii_case_insensitive(name, "whitebalance")
-            || contains_ascii_case_insensitive(name, "white balance")
-            || contains_ascii_case_insensitive(name, "asshotneutral")
-            || contains_ascii_case_insensitive(name, "asshotwhitexy")
-            || contains_ascii_case_insensitive(name, "colortemp")
-            || contains_ascii_case_insensitive(name, "color temperature")
+        if (term_matches(name, "whitebalance", enable_fuzzy)
+            || term_matches(name, "white balance", enable_fuzzy)
+            || term_matches(name, "asshotneutral", enable_fuzzy)
+            || term_matches(name, "asshotwhitexy", enable_fuzzy)
+            || term_matches(name, "colortemp", enable_fuzzy)
+            || term_matches(name, "color temperature", enable_fuzzy)
             || starts_with_ascii_case_insensitive(name, "wb")
             || contains_ascii_case_insensitive(name, "_wb")
             || contains_ascii_case_insensitive(name, " wb")) {
@@ -583,122 +692,126 @@ namespace {
         return terms;
     }
 
-    static uint32_t color_match_terms(std::string_view name) noexcept
+    static uint32_t color_match_terms(std::string_view name,
+                                      bool enable_fuzzy) noexcept
     {
         uint32_t terms = 0U;
-        if (contains_ascii_case_insensitive(name, "color")
-            || contains_ascii_case_insensitive(name, "colour")
-            || contains_ascii_case_insensitive(name, "illuminant")
-            || contains_ascii_case_insensitive(name, "profile")
-            || contains_ascii_case_insensitive(name, "tonecurve")
-            || contains_ascii_case_insensitive(name, "tone curve")) {
+        if (term_matches(name, "color", enable_fuzzy)
+            || term_matches(name, "colour", enable_fuzzy)
+            || term_matches(name, "illuminant", enable_fuzzy)
+            || term_matches(name, "profile", enable_fuzzy)
+            || term_matches(name, "tonecurve", enable_fuzzy)
+            || term_matches(name, "tone curve", enable_fuzzy)) {
             terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::Color);
         }
-        if (contains_ascii_case_insensitive(name, "matrix")) {
+        if (term_matches(name, "matrix", enable_fuzzy)) {
             terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::Matrix);
         }
-        if (contains_ascii_case_insensitive(name, "calibration")) {
+        if (term_matches(name, "calibration", enable_fuzzy)) {
             terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::Calibration);
         }
-        if (contains_ascii_case_insensitive(name, "profile")) {
+        if (term_matches(name, "profile", enable_fuzzy)) {
             terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::Profile);
         }
         return terms;
     }
 
-    static uint32_t lens_correction_match_terms(std::string_view name) noexcept
+    static uint32_t lens_correction_match_terms(std::string_view name,
+                                                bool enable_fuzzy) noexcept
     {
         uint32_t terms = 0U;
-        if (contains_ascii_case_insensitive(name, "lens")
-            || contains_ascii_case_insensitive(name, "distort")
-            || contains_ascii_case_insensitive(name, "vignet")
-            || contains_ascii_case_insensitive(name, "aberration")
-            || contains_ascii_case_insensitive(name, "shading")
-            || contains_ascii_case_insensitive(name, "peripheral")
-            || contains_ascii_case_insensitive(name, "diffraction")
-            || contains_ascii_case_insensitive(name, "opcode")) {
+        if (term_matches(name, "lens", enable_fuzzy)
+            || term_matches(name, "distort", enable_fuzzy)
+            || term_matches(name, "vignet", enable_fuzzy)
+            || term_matches(name, "aberration", enable_fuzzy)
+            || term_matches(name, "shading", enable_fuzzy)
+            || term_matches(name, "peripheral", enable_fuzzy)
+            || term_matches(name, "diffraction", enable_fuzzy)
+            || term_matches(name, "opcode", enable_fuzzy)) {
             terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::Lens);
         }
-        if (contains_ascii_case_insensitive(name, "correction")
-            || contains_ascii_case_insensitive(name, "corr")
-            || contains_ascii_case_insensitive(name, "distort")
-            || contains_ascii_case_insensitive(name, "vignet")
-            || contains_ascii_case_insensitive(name, "aberration")
-            || contains_ascii_case_insensitive(name, "shading")
-            || contains_ascii_case_insensitive(name, "opcode")) {
+        if (term_matches(name, "correction", enable_fuzzy)
+            || term_matches(name, "corr", enable_fuzzy)
+            || term_matches(name, "distort", enable_fuzzy)
+            || term_matches(name, "vignet", enable_fuzzy)
+            || term_matches(name, "aberration", enable_fuzzy)
+            || term_matches(name, "shading", enable_fuzzy)
+            || term_matches(name, "opcode", enable_fuzzy)) {
             terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::Correction);
         }
         return terms;
     }
 
     static uint32_t raw_processing_match_terms(std::string_view name,
-                                               std::string_view group) noexcept
+                                               std::string_view group,
+                                               bool enable_fuzzy) noexcept
     {
         uint32_t terms = 0U;
-        if (contains_ascii_case_insensitive(name, "blacklevel")
-            || contains_ascii_case_insensitive(name, "black level")) {
+        if (term_matches(name, "blacklevel", enable_fuzzy)
+            || term_matches(name, "black level", enable_fuzzy)) {
             terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::BlackLevel);
         }
-        if (contains_ascii_case_insensitive(name, "whitelevel")
-            || contains_ascii_case_insensitive(name, "white level")) {
+        if (term_matches(name, "whitelevel", enable_fuzzy)
+            || term_matches(name, "white level", enable_fuzzy)) {
             terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::WhiteLevel);
         }
-        if (contains_ascii_case_insensitive(name, "linearization")
-            || contains_ascii_case_insensitive(name, "linearity")) {
+        if (term_matches(name, "linearization", enable_fuzzy)
+            || term_matches(name, "linearity", enable_fuzzy)) {
             terms |= static_cast<uint32_t>(
                 MetadataQueryMatchTerm::Linearization);
         }
         if (contains_ascii_case_insensitive(name, "cfa")
-            || contains_ascii_case_insensitive(name, "bayer")) {
+            || term_matches(name, "bayer", enable_fuzzy)) {
             terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::Cfa);
         }
-        if (contains_ascii_case_insensitive(name, "rawdata")
-            || contains_ascii_case_insensitive(name, "raw data")
-            || contains_ascii_case_insensitive(name, "rawfile")
-            || contains_ascii_case_insensitive(name, "raw file")
-            || contains_ascii_case_insensitive(name, "rawformat")
-            || contains_ascii_case_insensitive(name, "raw format")
-            || contains_ascii_case_insensitive(name, "rawimage")
-            || contains_ascii_case_insensitive(name, "raw image")
-            || contains_ascii_case_insensitive(name, "originalraw")) {
+        if (term_matches(name, "rawdata", enable_fuzzy)
+            || term_matches(name, "raw data", enable_fuzzy)
+            || term_matches(name, "rawfile", enable_fuzzy)
+            || term_matches(name, "raw file", enable_fuzzy)
+            || term_matches(name, "rawformat", enable_fuzzy)
+            || term_matches(name, "raw format", enable_fuzzy)
+            || term_matches(name, "rawimage", enable_fuzzy)
+            || term_matches(name, "raw image", enable_fuzzy)
+            || term_matches(name, "originalraw", enable_fuzzy)) {
             terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::Raw);
         }
-        if (contains_ascii_case_insensitive(name, "storage")
-            || contains_ascii_case_insensitive(name, "strip")
-            || contains_ascii_case_insensitive(name, "bytecount")
-            || contains_ascii_case_insensitive(name, "byte count")
-            || contains_ascii_case_insensitive(name, "fileoffset")
-            || contains_ascii_case_insensitive(name, "file offset")
-            || contains_ascii_case_insensitive(name, "dataoffset")
-            || contains_ascii_case_insensitive(name, "data offset")
-            || contains_ascii_case_insensitive(name, "datalength")
-            || contains_ascii_case_insensitive(name, "data length")
-            || contains_ascii_case_insensitive(name, "compresseddata")
-            || contains_ascii_case_insensitive(name, "compressed data")
-            || contains_ascii_case_insensitive(name, "byteorder")
-            || contains_ascii_case_insensitive(name, "byte order")) {
+        if (term_matches(name, "storage", enable_fuzzy)
+            || term_matches(name, "strip", enable_fuzzy)
+            || term_matches(name, "bytecount", enable_fuzzy)
+            || term_matches(name, "byte count", enable_fuzzy)
+            || term_matches(name, "fileoffset", enable_fuzzy)
+            || term_matches(name, "file offset", enable_fuzzy)
+            || term_matches(name, "dataoffset", enable_fuzzy)
+            || term_matches(name, "data offset", enable_fuzzy)
+            || term_matches(name, "datalength", enable_fuzzy)
+            || term_matches(name, "data length", enable_fuzzy)
+            || term_matches(name, "compresseddata", enable_fuzzy)
+            || term_matches(name, "compressed data", enable_fuzzy)
+            || term_matches(name, "byteorder", enable_fuzzy)
+            || term_matches(name, "byte order", enable_fuzzy)) {
             terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::Storage);
         }
-        if (contains_ascii_case_insensitive(name, "sensor")
-            || contains_ascii_case_insensitive(name, "validbits")
-            || contains_ascii_case_insensitive(name, "valid bits")
-            || contains_ascii_case_insensitive(name, "bitdepth")
-            || contains_ascii_case_insensitive(name, "bit depth")
-            || contains_ascii_case_insensitive(name, "rawdepth")
-            || contains_ascii_case_insensitive(name, "raw depth")
-            || contains_ascii_case_insensitive(name, "rawvaluerange")
-            || contains_ascii_case_insensitive(name, "raw value range")
-            || contains_ascii_case_insensitive(name, "rawvaluemedian")
-            || contains_ascii_case_insensitive(name, "raw value median")
+        if (term_matches(name, "sensor", enable_fuzzy)
+            || term_matches(name, "validbits", enable_fuzzy)
+            || term_matches(name, "valid bits", enable_fuzzy)
+            || term_matches(name, "bitdepth", enable_fuzzy)
+            || term_matches(name, "bit depth", enable_fuzzy)
+            || term_matches(name, "rawdepth", enable_fuzzy)
+            || term_matches(name, "raw depth", enable_fuzzy)
+            || term_matches(name, "rawvaluerange", enable_fuzzy)
+            || term_matches(name, "raw value range", enable_fuzzy)
+            || term_matches(name, "rawvaluemedian", enable_fuzzy)
+            || term_matches(name, "raw value median", enable_fuzzy)
             || contains_ascii_case_insensitive(group, "phaseone")) {
             terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::Sensor);
         }
         return terms;
     }
 
-    static uint32_t orientation_match_terms(std::string_view name) noexcept
+    static uint32_t orientation_match_terms(std::string_view name,
+                                            bool enable_fuzzy) noexcept
     {
-        if (contains_ascii_case_insensitive(name, "orientation")) {
+        if (term_matches(name, "orientation", enable_fuzzy)) {
             return static_cast<uint32_t>(MetadataQueryMatchTerm::Orientation);
         }
         return 0U;
@@ -912,21 +1025,24 @@ namespace {
 
     static uint32_t match_terms_for_kind(std::string_view name,
                                          std::string_view group,
-                                         MetadataQueryKind kind) noexcept
+                                         MetadataQueryKind kind,
+                                         bool enable_fuzzy) noexcept
     {
         switch (kind) {
-        case MetadataQueryKind::Crop: return crop_match_terms(name, group);
+        case MetadataQueryKind::Crop:
+            return crop_match_terms(name, group, enable_fuzzy);
         case MetadataQueryKind::ExposureGain:
-            return exposure_gain_match_terms(name);
+            return exposure_gain_match_terms(name, enable_fuzzy);
         case MetadataQueryKind::WhiteBalance:
-            return white_balance_match_terms(name);
-        case MetadataQueryKind::Color: return color_match_terms(name);
+            return white_balance_match_terms(name, enable_fuzzy);
+        case MetadataQueryKind::Color:
+            return color_match_terms(name, enable_fuzzy);
         case MetadataQueryKind::LensCorrection:
-            return lens_correction_match_terms(name);
+            return lens_correction_match_terms(name, enable_fuzzy);
         case MetadataQueryKind::Orientation:
-            return orientation_match_terms(name);
+            return orientation_match_terms(name, enable_fuzzy);
         case MetadataQueryKind::RawProcessing:
-            return raw_processing_match_terms(name, group);
+            return raw_processing_match_terms(name, group, enable_fuzzy);
         }
         return 0U;
     }
@@ -1190,7 +1306,7 @@ namespace {
                                                   entry.key.data.exif_tag.ifd);
         const std::string_view name
             = exif_entry_name(store, entry, ExifTagNamePolicy::ExifToolCompat);
-        uint32_t terms = match_terms_for_kind(name, ifd, kind);
+        uint32_t terms = match_terms_for_kind(name, ifd, kind, false);
         terms |= exact_exif_terms_for_kind(entry.key.data.exif_tag.tag, kind);
         const VendorRawProcessingGroup groups
             = classify_vendor_raw_processing_field(ifd, name,
@@ -1211,7 +1327,7 @@ namespace {
         const std::string_view path
             = arena_string(store.arena(),
                            entry.key.data.xmp_property.property_path);
-        const uint32_t terms = match_terms_for_kind(path, ns, kind);
+        const uint32_t terms = match_terms_for_kind(path, ns, kind, true);
         append_match(result, entry_id, entry, ns, path, kind, terms);
     }
 
@@ -1906,6 +2022,16 @@ MetadataQueryResult
 query_raw_processing_metadata(const MetaStore& store)
 {
     return query_semantic_metadata(store, MetadataQueryKind::RawProcessing);
+}
+
+bool
+metadata_query_fuzzy_search_available() noexcept
+{
+#if defined(OPENMETA_HAS_RAPIDFUZZ) && OPENMETA_HAS_RAPIDFUZZ
+    return true;
+#else
+    return false;
+#endif
 }
 
 const char*

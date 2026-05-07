@@ -198,6 +198,8 @@ function(openmeta_apply_core_deps target_name)
     openmeta_apply_expat_dep(${target_name} PRIVATE)
   endif()
 
+  openmeta_apply_rapidfuzz_dep(${target_name} PRIVATE)
+
   if(OPENMETA_ENABLE_C2PA_VERIFY)
     target_compile_definitions(${target_name} PRIVATE OPENMETA_ENABLE_C2PA_VERIFY=1)
   else()
@@ -215,5 +217,38 @@ function(openmeta_apply_core_deps target_name)
     target_compile_definitions(${target_name} PRIVATE OPENMETA_C2PA_VERIFY_OPENSSL_AVAILABLE=1)
   else()
     target_compile_definitions(${target_name} PRIVATE OPENMETA_C2PA_VERIFY_OPENSSL_AVAILABLE=0)
+  endif()
+endfunction()
+
+function(openmeta_apply_rapidfuzz_dep target_name visibility)
+  if(OPENMETA_RAPIDFUZZ_FOUND)
+    target_compile_definitions(
+      ${target_name}
+      ${visibility}
+        OPENMETA_HAS_RAPIDFUZZ=1)
+    if(TARGET rapidfuzz::rapidfuzz)
+      get_target_property(
+        _openmeta_rapidfuzz_includes
+        rapidfuzz::rapidfuzz
+        INTERFACE_INCLUDE_DIRECTORIES)
+      if(_openmeta_rapidfuzz_includes)
+        target_include_directories(
+          ${target_name}
+          SYSTEM PRIVATE
+            ${_openmeta_rapidfuzz_includes})
+      else()
+        target_link_libraries(${target_name} PRIVATE rapidfuzz::rapidfuzz)
+      endif()
+    elseif(OPENMETA_RAPIDFUZZ_INCLUDE_DIR)
+      target_include_directories(
+        ${target_name}
+        SYSTEM PRIVATE
+          "${OPENMETA_RAPIDFUZZ_INCLUDE_DIR}")
+    endif()
+  else()
+    target_compile_definitions(
+      ${target_name}
+      ${visibility}
+        OPENMETA_HAS_RAPIDFUZZ=0)
   endif()
 endfunction()

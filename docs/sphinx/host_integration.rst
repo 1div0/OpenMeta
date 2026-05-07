@@ -67,6 +67,14 @@ The basic read path is covered in :doc:`quick_start`. Once you have a
 ``MetaStore``, the main lookup API is exact-key lookup through
 ``MetaStore::find_all(...)``.
 
+Use exact lookup for deterministic key access. For inspection/search UI, prefer
+``openmeta/metadata_query.h`` before building a separate layer. It returns
+source entries, confidence, value shape, and normalized candidates. The default
+matcher uses built-in tags and conservative substring/name rules; builds
+configured with ``-DOPENMETA_ENABLE_RAPIDFUZZ=ON`` add RapidFuzz-backed
+near-miss XMP/path matching. ``metadata_query_fuzzy_search_available()``
+reports whether that stronger matcher is compiled in.
+
 Generic host metadata traversal
 -------------------------------
 
