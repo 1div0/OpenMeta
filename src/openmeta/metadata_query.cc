@@ -263,6 +263,9 @@ namespace {
         if (term.size() == 5U) {
             return 90.0;
         }
+        if (term.size() == 6U) {
+            return 83.0;
+        }
         return 85.0;
     }
 
