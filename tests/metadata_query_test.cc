@@ -176,6 +176,12 @@ TEST(MetadataQuery, BuildsDngDefaultCropCandidate)
 
     EXPECT_EQ(result.kind, MetadataQueryKind::Crop);
     EXPECT_GE(result.matches.size(), 2U);
+    const MetadataQueryMatch* origin_match = find_match_for_entry(result,
+                                                                  origin_id);
+    ASSERT_NE(origin_match, nullptr);
+    EXPECT_TRUE(origin_match->exact_match);
+    EXPECT_FALSE(origin_match->fuzzy_match);
+    EXPECT_EQ(origin_match->fuzzy_score, 0U);
     const MetadataQueryCandidate* candidate
         = find_candidate(result, MetadataQuerySemanticKind::Crop);
     ASSERT_NE(candidate, nullptr);
@@ -302,6 +308,9 @@ TEST(MetadataQuery, MatchesFuzzyXmpCropPath)
     EXPECT_EQ(match->semantic, MetadataQuerySemanticKind::Border);
     EXPECT_EQ(match->shape, MetadataQueryValueShape::Text);
     EXPECT_GE(match->confidence, 70U);
+    EXPECT_TRUE(match->exact_match);
+    EXPECT_FALSE(match->fuzzy_match);
+    EXPECT_EQ(match->fuzzy_score, 0U);
     EXPECT_NE((match->matched_terms
                & static_cast<uint32_t>(MetadataQueryMatchTerm::Border)),
               0U);
@@ -337,6 +346,9 @@ TEST(MetadataQuery, RapidFuzzMatchesMisspelledXmpCropPath)
     ASSERT_NE(match, nullptr);
     EXPECT_EQ(match->semantic, MetadataQuerySemanticKind::Border);
     EXPECT_GE(match->confidence, 70U);
+    EXPECT_FALSE(match->exact_match);
+    EXPECT_TRUE(match->fuzzy_match);
+    EXPECT_GE(match->fuzzy_score, 83U);
     EXPECT_NE((match->matched_terms
                & static_cast<uint32_t>(MetadataQueryMatchTerm::Border)),
               0U);
@@ -601,6 +613,9 @@ TEST(MetadataQuery, ReusesVendorLensCorrectionClassification)
     ASSERT_NE(match, nullptr);
     EXPECT_EQ(match->semantic, MetadataQuerySemanticKind::LensCorrection);
     EXPECT_GE(match->confidence, 90U);
+    EXPECT_TRUE(match->exact_match);
+    EXPECT_FALSE(match->fuzzy_match);
+    EXPECT_EQ(match->fuzzy_score, 0U);
     EXPECT_NE((match->matched_terms
                & static_cast<uint32_t>(MetadataQueryMatchTerm::Lens)),
               0U);

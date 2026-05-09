@@ -17,7 +17,7 @@ model should stay compact:
 | --- | --- | --- |
 | Decoding | Find metadata carriers and decode EXIF, XMP, IPTC, ICC, Photoshop IRB, JUMBF/C2PA, EXR, and related blocks into `MetaStore` entries. | High, about 90-95% for the current target scope. |
 | Interpretation | Normalize names and values, group entries by meaning, and classify source-bound data such as RAW crop, color, lens-correction, sensor, and vendor-private fields. | Medium-high, about 75-85%. |
-| Query | Find entries by name, fuzzy term, or semantic group, for example crop/border/active-area, exposure/gain, color/WB, orientation, lens-correction, and RAW-processing fields across standard and vendor metadata. | Low, about 20-25%. |
+| Query | Find entries by name, fuzzy term, or semantic group, for example crop/border/active-area, exposure/gain, color/WB, orientation, lens-correction, and RAW-processing fields across standard and vendor metadata. | Low, about 25-30%. |
 | Creation | Build fresh metadata entries from host-provided values. | Medium, about 55-65%. |
 | Editing | Modify existing logical metadata entries while preserving valid surrounding structure. | Medium, about 60-70%. |
 | Transfer | Move metadata between files using explicit compatible-file or rendered-image safety policies. | Medium-high, about 80-85%. |
@@ -30,8 +30,8 @@ Query results should expose both inspection-level matches and
 interpreted candidates. A crop query, for example, may match separate
 `DefaultCropOrigin` and `DefaultCropSize` tags, an `ActiveArea` rectangle,
 vendor margin fields, or a raw integer array. OpenMeta should return the
-source entries, confidence, value shape, and any normalized interpretation
-rather than hiding ambiguity behind a single value.
+source entries, confidence, value shape, match provenance, and any normalized
+interpretation rather than hiding ambiguity behind a single value.
 
 The first experimental C++ query surface is `openmeta/metadata_query.h`.
 It returns both raw matches and normalized candidates for crop/active-area,
@@ -49,7 +49,9 @@ geometry, and raw-storage identifiers. Grouped candidates use `matrix_set`,
 `vector_set`, and `table` value shapes. When
 `OPENMETA_ENABLE_RAPIDFUZZ=ON`, the same query helpers also use RapidFuzz to
 score near-miss XMP/property paths; default builds keep the deterministic
-substring/tag matcher only.
+substring/tag matcher only. Each raw match reports `exact_match`,
+`fuzzy_match`, and `fuzzy_score` so UI code can distinguish exact tag/name
+matches from near-miss search hits.
 Python `Document` and `TransferSourceSnapshot` mirror this as thin wrappers
 returning the same match/candidate dictionary shape.
 

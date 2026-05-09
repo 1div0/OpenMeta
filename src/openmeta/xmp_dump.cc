@@ -48,6 +48,8 @@ namespace {
         = "http://ns.useplus.org/ldf/xmp/1.0/";
     static constexpr std::string_view kXmpNsCrs
         = "http://ns.adobe.com/camera-raw-settings/1.0/";
+    static constexpr std::string_view kXmpNsDng
+        = "http://ns.adobe.com/dng/1.0/";
     static constexpr std::string_view kXmpNsLr
         = "http://ns.adobe.com/lightroom/1.0/";
     static constexpr std::string_view kXmpNsXmpDM
@@ -1444,6 +1446,10 @@ namespace {
         }
         if (ns == kXmpNsCrs) {
             *out_prefix = "crs";
+            return true;
+        }
+        if (ns == kXmpNsDng) {
+            *out_prefix = "dng";
             return true;
         }
         if (ns == kXmpNsLr) {
@@ -13622,6 +13628,9 @@ dump_xmp_portable(const MetaStore& store, std::span<std::byte> out,
     }
     if (existing_xmp_namespace_is_used(arena, es, options, kXmpNsPlus)) {
         decls.push_back(XmpNsDecl { "plus", kXmpNsPlus });
+    }
+    if (existing_xmp_namespace_is_used(arena, es, options, kXmpNsDng)) {
+        decls.push_back(XmpNsDecl { "dng", kXmpNsDng });
     }
     if (existing_xmp_namespace_is_used(arena, es, options, kXmpNsXmpBJ)) {
         decls.push_back(XmpNsDecl { "xmpBJ", kXmpNsXmpBJ });

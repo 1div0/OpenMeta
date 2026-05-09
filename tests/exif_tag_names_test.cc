@@ -169,12 +169,9 @@ TEST(ExifTagNames, MapsGeAndJvcMainPlaceholders)
 
     EXPECT_EQ(exif_tag_name("mk_jvc0", 0x0002),
               std::string_view("CPUVersions"));
-    EXPECT_EQ(exif_tag_name("mk_jvc0", 0x0001),
-              std::string_view("JVC_0x0001"));
-    EXPECT_EQ(exif_tag_name("mk_jvc0", 0x0004),
-              std::string_view("JVC_0x0004"));
-    EXPECT_EQ(exif_tag_name("mk_jvc0", 0x0005),
-              std::string_view("JVC_0x0005"));
+    EXPECT_EQ(exif_tag_name("mk_jvc0", 0x0001), std::string_view("JVC_0x0001"));
+    EXPECT_EQ(exif_tag_name("mk_jvc0", 0x0004), std::string_view("JVC_0x0004"));
+    EXPECT_EQ(exif_tag_name("mk_jvc0", 0x0005), std::string_view("JVC_0x0005"));
 }
 
 TEST(ExifTagNames, MapsNintendoMainAndCameraInfoTags)
@@ -268,6 +265,23 @@ TEST(ExifTagNames, MapsFujifilmMainPlaceholders)
               std::string_view("FujiFilm_0x1303"));
     EXPECT_EQ(exif_tag_name("mk_fuji0", 0x1430),
               std::string_view("FujiFilm_0x1430"));
+}
+
+TEST(ExifTagNames, MapsNativeRafTags)
+{
+    using openmeta::exif_tag_name;
+
+    EXPECT_EQ(exif_tag_name("raf_header", 0x003c),
+              std::string_view("RAFVersion"));
+    EXPECT_EQ(exif_tag_name("raf_header", 0x0064),
+              std::string_view("FujiIFDOffset"));
+    EXPECT_EQ(exif_tag_name("raf_0", 0x0100),
+              std::string_view("RawImageFullSize"));
+    EXPECT_EQ(exif_tag_name("raf_0", 0x0110),
+              std::string_view("RawImageCropTopLeft"));
+    EXPECT_EQ(exif_tag_name("raf_0", 0xc000), std::string_view("RAFData"));
+    EXPECT_EQ(exif_tag_name("raf_0", 0x9999),
+              std::string_view("FujiFilmRAF_0x9999"));
 }
 
 TEST(ExifTagNames, MapsDjiMainAndThermalTables)
@@ -1070,7 +1084,7 @@ TEST(ExifTagNames, ContextualEntryNamesSelectCanonCompatVariants)
                                       canon_compat_cases[i].tag);
         entry.origin.block = block;
         entry.flags |= EntryFlags::ContextualName;
-        entry.origin.name_context_kind    = canon_compat_cases[i].kind;
+        entry.origin.name_context_kind = canon_compat_cases[i].kind;
         if (canon_compat_cases[i].kind
             == EntryNameContextKind::CanonColorData7PSInfo2) {
             switch (canon_compat_cases[i].tag) {
@@ -1084,7 +1098,7 @@ TEST(ExifTagNames, ContextualEntryNamesSelectCanonCompatVariants)
         } else {
             entry.origin.name_context_variant = 1U;
         }
-        const EntryId id                  = store.add_entry(entry);
+        const EntryId id = store.add_entry(entry);
         ASSERT_NE(id, openmeta::kInvalidEntryId);
 
         const Entry& stored = store.entry(id);
@@ -1326,13 +1340,12 @@ TEST(ExifTagNames, ContextualEntryNamesSelectSonyCompatPlaceholders)
 
     for (size_t i = 0; i < sizeof(kCases) / sizeof(kCases[0]); ++i) {
         Entry entry;
-        entry.key = make_exif_tag_key(store.arena(), "mk_sony0",
-                                      kCases[i].tag);
+        entry.key = make_exif_tag_key(store.arena(), "mk_sony0", kCases[i].tag);
         entry.origin.block = block;
         entry.flags |= EntryFlags::ContextualName;
         entry.origin.name_context_kind = EntryNameContextKind::SonyMainCompat;
         entry.origin.name_context_variant = 1U;
-        const EntryId id = store.add_entry(entry);
+        const EntryId id                  = store.add_entry(entry);
         ASSERT_NE(id, openmeta::kInvalidEntryId);
 
         const Entry& stored = store.entry(id);
@@ -1362,14 +1375,13 @@ TEST(ExifTagNames, UsesNikonMenuSettingsZ8CompatNames)
     entry.key = make_exif_tag_key(store.arena(), "mk_nikon_menusettingsz8_0",
                                   0x027C);
     entry.origin.block = block;
-    const EntryId id = store.add_entry(entry);
+    const EntryId id   = store.add_entry(entry);
     ASSERT_NE(id, openmeta::kInvalidBlockId);
 
     const Entry& stored = store.entry(id);
     EXPECT_EQ(exif_entry_name(store, stored, ExifTagNamePolicy::Canonical),
               std::string_view("HighFrequencyFlickerReduction"));
-    EXPECT_EQ(exif_entry_name(store, stored,
-                              ExifTagNamePolicy::ExifToolCompat),
+    EXPECT_EQ(exif_entry_name(store, stored, ExifTagNamePolicy::ExifToolCompat),
               std::string_view("HighFrequencyFlickerReductionShooting"));
 }
 
@@ -1446,16 +1458,15 @@ TEST(ExifTagNames, ContextualEntryNamesSelectSonyTag9406CompatVariants)
     entry.key = make_exif_tag_key(store.arena(), "mk_sony_tag9406_0", 0x0005);
     entry.origin.block = block;
     entry.flags |= EntryFlags::ContextualName;
-    entry.origin.name_context_kind = EntryNameContextKind::SonyTag94060005;
+    entry.origin.name_context_kind    = EntryNameContextKind::SonyTag94060005;
     entry.origin.name_context_variant = 1U;
-    const EntryId id = store.add_entry(entry);
+    const EntryId id                  = store.add_entry(entry);
     ASSERT_NE(id, openmeta::kInvalidEntryId);
 
     const Entry& stored = store.entry(id);
     EXPECT_EQ(exif_entry_name(store, stored, ExifTagNamePolicy::Canonical),
               std::string_view("BatteryTemperature"));
-    EXPECT_EQ(exif_entry_name(store, stored,
-                              ExifTagNamePolicy::ExifToolCompat),
+    EXPECT_EQ(exif_entry_name(store, stored, ExifTagNamePolicy::ExifToolCompat),
               std::string_view("BatteryLevel"));
 }
 
@@ -1666,11 +1677,11 @@ TEST(ExifTagNames, EntryNamesSelectMinoltaMainCompatPlaceholders)
 
     Entry third;
     third.key = make_exif_tag_key(store.arena(), "mk_minolta0", 0x0103);
-    third.origin.block     = block;
-    third.flags            = EntryFlags::ContextualName;
-    third.origin.name_context_kind = EntryNameContextKind::MinoltaMainCompat;
+    third.origin.block                = block;
+    third.flags                       = EntryFlags::ContextualName;
+    third.origin.name_context_kind    = EntryNameContextKind::MinoltaMainCompat;
     third.origin.name_context_variant = 1U;
-    const EntryId third_id = store.add_entry(third);
+    const EntryId third_id            = store.add_entry(third);
     ASSERT_NE(third_id, openmeta::kInvalidEntryId);
 
     const Entry& third_entry = store.entry(third_id);
@@ -1682,16 +1693,15 @@ TEST(ExifTagNames, EntryNamesSelectMinoltaMainCompatPlaceholders)
 
     Entry fourth;
     fourth.key = make_exif_tag_key(store.arena(), "mk_minolta0", 0x0103);
-    fourth.origin.block     = block;
-    fourth.flags            = EntryFlags::ContextualName;
+    fourth.origin.block             = block;
+    fourth.flags                    = EntryFlags::ContextualName;
     fourth.origin.name_context_kind = EntryNameContextKind::MinoltaMainCompat;
     fourth.origin.name_context_variant = 2U;
-    const EntryId fourth_id = store.add_entry(fourth);
+    const EntryId fourth_id            = store.add_entry(fourth);
     ASSERT_NE(fourth_id, openmeta::kInvalidEntryId);
 
     const Entry& fourth_entry = store.entry(fourth_id);
-    EXPECT_EQ(exif_entry_name(store, fourth_entry,
-                              ExifTagNamePolicy::Canonical),
+    EXPECT_EQ(exif_entry_name(store, fourth_entry, ExifTagNamePolicy::Canonical),
               std::string_view("MinoltaImageSize"));
     EXPECT_EQ(exif_entry_name(store, fourth_entry,
                               ExifTagNamePolicy::ExifToolCompat),
@@ -1734,8 +1744,8 @@ TEST(ExifTagNames, ContextualEntryNamesSelectNikonSettingsCompatVariants)
               std::string_view("NikonSettings_0x0001"));
 
     Entry movie_placeholder;
-    movie_placeholder.key = make_exif_tag_key(store.arena(),
-                                              "mk_nikonsettings_main_0", 0x00B1);
+    movie_placeholder.key
+        = make_exif_tag_key(store.arena(), "mk_nikonsettings_main_0", 0x00B1);
     movie_placeholder.origin.block = block;
     movie_placeholder.flags |= EntryFlags::ContextualName;
     movie_placeholder.origin.name_context_kind
@@ -1789,7 +1799,6 @@ TEST(ExifTagNames, ContextualEntryNamesSelectNikonSettingsCompatVariants)
     EXPECT_EQ(exif_entry_name(store, movie_func_2_entry,
                               ExifTagNamePolicy::ExifToolCompat),
               std::string_view("MovieFunc2Button"));
-
 }
 
 TEST(ExifTagNames, ContextualEntryNamesSelectNikonMainZCompatVariants)
@@ -1812,9 +1821,9 @@ TEST(ExifTagNames, ContextualEntryNamesSelectNikonMainZCompatVariants)
     image_area.key = make_exif_tag_key(store.arena(), "mk_nikon0", 0x002B);
     image_area.origin.block = block;
     image_area.flags |= EntryFlags::ContextualName;
-    image_area.origin.name_context_kind = EntryNameContextKind::NikonMainZ;
+    image_area.origin.name_context_kind    = EntryNameContextKind::NikonMainZ;
     image_area.origin.name_context_variant = 1U;
-    const EntryId image_area_id = store.add_entry(image_area);
+    const EntryId image_area_id            = store.add_entry(image_area);
     ASSERT_NE(image_area_id, openmeta::kInvalidEntryId);
 
     const Entry& image_area_entry = store.entry(image_area_id);
@@ -1826,9 +1835,9 @@ TEST(ExifTagNames, ContextualEntryNamesSelectNikonMainZCompatVariants)
     lens_mount.key = make_exif_tag_key(store.arena(), "mk_nikon0", 0x0035);
     lens_mount.origin.block = block;
     lens_mount.flags |= EntryFlags::ContextualName;
-    lens_mount.origin.name_context_kind = EntryNameContextKind::NikonMainZ;
+    lens_mount.origin.name_context_kind    = EntryNameContextKind::NikonMainZ;
     lens_mount.origin.name_context_variant = 1U;
-    const EntryId lens_mount_id = store.add_entry(lens_mount);
+    const EntryId lens_mount_id            = store.add_entry(lens_mount);
     ASSERT_NE(lens_mount_id, openmeta::kInvalidEntryId);
 
     const Entry& lens_mount_entry = store.entry(lens_mount_id);
@@ -1860,7 +1869,7 @@ TEST(ExifTagNames, ContextualEntryNamesSelectNikonMainCompactType2Variants)
     unknown_iso.origin.name_context_kind
         = EntryNameContextKind::NikonMainCompactType2;
     unknown_iso.origin.name_context_variant = 1U;
-    const EntryId unknown_iso_id = store.add_entry(unknown_iso);
+    const EntryId unknown_iso_id            = store.add_entry(unknown_iso);
     ASSERT_NE(unknown_iso_id, openmeta::kInvalidEntryId);
 
     const Entry& unknown_iso_entry = store.entry(unknown_iso_id);
@@ -1878,7 +1887,7 @@ TEST(ExifTagNames, ContextualEntryNamesSelectNikonMainCompactType2Variants)
     digital_zoom.origin.name_context_kind
         = EntryNameContextKind::NikonMainCompactType2;
     digital_zoom.origin.name_context_variant = 1U;
-    const EntryId digital_zoom_id = store.add_entry(digital_zoom);
+    const EntryId digital_zoom_id            = store.add_entry(digital_zoom);
     ASSERT_NE(digital_zoom_id, openmeta::kInvalidEntryId);
 
     const Entry& digital_zoom_entry = store.entry(digital_zoom_id);
@@ -1936,16 +1945,16 @@ TEST(ExifTagNames, ContextualEntryNamesSelectNikonShotInfoZ8CompatTables)
     ASSERT_NE(menu_bank_id, openmeta::kInvalidEntryId);
 
     const Entry& menu_bank_entry = store.entry(menu_bank_id);
-    EXPECT_TRUE(exif_entry_name(store, menu_bank_entry,
-                                ExifTagNamePolicy::Canonical)
-                    .empty());
+    EXPECT_TRUE(
+        exif_entry_name(store, menu_bank_entry, ExifTagNamePolicy::Canonical)
+            .empty());
     EXPECT_EQ(exif_entry_name(store, menu_bank_entry,
                               ExifTagNamePolicy::ExifToolCompat),
               std::string_view("PhotoShootingMenuBank"));
 
     Entry bracket_increment;
-    bracket_increment.key = make_exif_tag_key(store.arena(),
-                                              "mk_nikon_shotinfo_0", 0x022E);
+    bracket_increment.key          = make_exif_tag_key(store.arena(),
+                                                       "mk_nikon_shotinfo_0", 0x022E);
     bracket_increment.origin.block = block;
     bracket_increment.flags |= EntryFlags::ContextualName;
     bracket_increment.origin.name_context_kind
@@ -1980,8 +1989,8 @@ TEST(ExifTagNames, ContextualEntryNamesSelectNikonShotInfoD800CompatTables)
     ASSERT_NE(block, openmeta::kInvalidBlockId);
 
     Entry sequence_number;
-    sequence_number.key = make_exif_tag_key(store.arena(),
-                                            "mk_nikon_shotinfo_0", 0x051C);
+    sequence_number.key          = make_exif_tag_key(store.arena(),
+                                                     "mk_nikon_shotinfo_0", 0x051C);
     sequence_number.origin.block = block;
     sequence_number.flags |= EntryFlags::ContextualName;
     sequence_number.origin.name_context_kind
@@ -1999,14 +2008,14 @@ TEST(ExifTagNames, ContextualEntryNamesSelectNikonShotInfoD800CompatTables)
               std::string_view("SequenceNumber"));
 
     Entry shutter_count;
-    shutter_count.key = make_exif_tag_key(store.arena(),
-                                          "mk_nikon_shotinfo_0", 0x05FB);
+    shutter_count.key = make_exif_tag_key(store.arena(), "mk_nikon_shotinfo_0",
+                                          0x05FB);
     shutter_count.origin.block = block;
     shutter_count.flags |= EntryFlags::ContextualName;
     shutter_count.origin.name_context_kind
         = EntryNameContextKind::NikonShotInfoD800;
     shutter_count.origin.name_context_variant = 1U;
-    const EntryId shutter_count_id = store.add_entry(shutter_count);
+    const EntryId shutter_count_id            = store.add_entry(shutter_count);
     ASSERT_NE(shutter_count_id, openmeta::kInvalidEntryId);
 
     const Entry& shutter_count_entry = store.entry(shutter_count_id);
@@ -2042,17 +2051,16 @@ TEST(ExifTagNames, ContextualEntryNamesSelectNikonShotInfoD850CompatTables)
     image_area.origin.name_context_kind
         = EntryNameContextKind::NikonShotInfoD850;
     image_area.origin.name_context_variant = 1U;
-    const EntryId image_area_id = store.add_entry(image_area);
+    const EntryId image_area_id            = store.add_entry(image_area);
     ASSERT_NE(image_area_id, openmeta::kInvalidEntryId);
 
     const Entry& image_area_entry = store.entry(image_area_id);
-    EXPECT_TRUE(exif_entry_name(store, image_area_entry,
-                                ExifTagNamePolicy::Canonical)
-                    .empty());
+    EXPECT_TRUE(
+        exif_entry_name(store, image_area_entry, ExifTagNamePolicy::Canonical)
+            .empty());
     EXPECT_EQ(exif_entry_name(store, image_area_entry,
                               ExifTagNamePolicy::ExifToolCompat),
               std::string_view("PhotoShootingMenuBankImageArea"));
-
 }
 
 TEST(ExifTagNames, ContextualEntryNamesSelectNikonFlashInfoGroupVariants)
@@ -2072,14 +2080,14 @@ TEST(ExifTagNames, ContextualEntryNamesSelectNikonFlashInfoGroupVariants)
     ASSERT_NE(block, openmeta::kInvalidBlockId);
 
     Entry group_a_comp;
-    group_a_comp.key = make_exif_tag_key(store.arena(), "mk_nikon_flashinfo0107_0",
-                                         0x0028);
+    group_a_comp.key          = make_exif_tag_key(store.arena(),
+                                                  "mk_nikon_flashinfo0107_0", 0x0028);
     group_a_comp.origin.block = block;
     group_a_comp.flags |= EntryFlags::ContextualName;
     group_a_comp.origin.name_context_kind
         = EntryNameContextKind::NikonFlashInfoGroups;
     group_a_comp.origin.name_context_variant = 1U;
-    const EntryId group_a_comp_id = store.add_entry(group_a_comp);
+    const EntryId group_a_comp_id            = store.add_entry(group_a_comp);
     ASSERT_NE(group_a_comp_id, openmeta::kInvalidEntryId);
 
     const Entry& group_a_comp_entry = store.entry(group_a_comp_id);
@@ -2091,14 +2099,14 @@ TEST(ExifTagNames, ContextualEntryNamesSelectNikonFlashInfoGroupVariants)
               std::string_view("FlashGroupACompensation"));
 
     Entry group_b_out;
-    group_b_out.key = make_exif_tag_key(store.arena(), "mk_nikon_flashinfo0300_0",
-                                        0x0029);
+    group_b_out.key          = make_exif_tag_key(store.arena(),
+                                                 "mk_nikon_flashinfo0300_0", 0x0029);
     group_b_out.origin.block = block;
     group_b_out.flags |= EntryFlags::ContextualName;
     group_b_out.origin.name_context_kind
         = EntryNameContextKind::NikonFlashInfoGroups;
     group_b_out.origin.name_context_variant = 2U;
-    const EntryId group_b_out_id = store.add_entry(group_b_out);
+    const EntryId group_b_out_id            = store.add_entry(group_b_out);
     ASSERT_NE(group_b_out_id, openmeta::kInvalidEntryId);
 
     const Entry& group_b_out_entry = store.entry(group_b_out_id);
@@ -2127,14 +2135,14 @@ TEST(ExifTagNames, ContextualEntryNamesSelectNikonFlashInfoLegacyVariants)
     ASSERT_NE(block, openmeta::kInvalidBlockId);
 
     Entry flash_comp;
-    flash_comp.key = make_exif_tag_key(store.arena(), "mk_nikon_flashinfo0106_0",
-                                       0x0027);
+    flash_comp.key          = make_exif_tag_key(store.arena(),
+                                                "mk_nikon_flashinfo0106_0", 0x0027);
     flash_comp.origin.block = block;
     flash_comp.flags |= EntryFlags::ContextualName;
     flash_comp.origin.name_context_kind
         = EntryNameContextKind::NikonFlashInfoLegacy;
     flash_comp.origin.name_context_variant = 1U;
-    const EntryId flash_comp_id = store.add_entry(flash_comp);
+    const EntryId flash_comp_id            = store.add_entry(flash_comp);
     ASSERT_NE(flash_comp_id, openmeta::kInvalidEntryId);
 
     const Entry& flash_comp_entry = store.entry(flash_comp_id);
@@ -2146,14 +2154,14 @@ TEST(ExifTagNames, ContextualEntryNamesSelectNikonFlashInfoLegacyVariants)
               std::string_view("FlashCompensation"));
 
     Entry group_b_comp;
-    group_b_comp.key = make_exif_tag_key(store.arena(),
-                                         "mk_nikon_flashinfo0102_0", 0x0013);
+    group_b_comp.key          = make_exif_tag_key(store.arena(),
+                                                  "mk_nikon_flashinfo0102_0", 0x0013);
     group_b_comp.origin.block = block;
     group_b_comp.flags |= EntryFlags::ContextualName;
     group_b_comp.origin.name_context_kind
         = EntryNameContextKind::NikonFlashInfoLegacy;
     group_b_comp.origin.name_context_variant = 3U;
-    const EntryId group_b_comp_id = store.add_entry(group_b_comp);
+    const EntryId group_b_comp_id            = store.add_entry(group_b_comp);
     ASSERT_NE(group_b_comp_id, openmeta::kInvalidEntryId);
 
     const Entry& group_b_comp_entry = store.entry(group_b_comp_id);
@@ -2165,8 +2173,8 @@ TEST(ExifTagNames, ContextualEntryNamesSelectNikonFlashInfoLegacyVariants)
               std::string_view("FlashGroupBCompensation"));
 
     Entry flash_comp_0102;
-    flash_comp_0102.key = make_exif_tag_key(store.arena(),
-                                            "mk_nikon_flashinfo0102_0", 0x000a);
+    flash_comp_0102.key          = make_exif_tag_key(store.arena(),
+                                                     "mk_nikon_flashinfo0102_0", 0x000a);
     flash_comp_0102.origin.block = block;
     flash_comp_0102.flags |= EntryFlags::ContextualName;
     flash_comp_0102.origin.name_context_kind
@@ -2181,8 +2189,8 @@ TEST(ExifTagNames, ContextualEntryNamesSelectNikonFlashInfoLegacyVariants)
               std::string_view("FlashCompensation"));
 
     Entry flash_comp_0101;
-    flash_comp_0101.key = make_exif_tag_key(store.arena(),
-                                            "mk_nikon_flashinfo0100_0", 0x000a);
+    flash_comp_0101.key          = make_exif_tag_key(store.arena(),
+                                                     "mk_nikon_flashinfo0100_0", 0x000a);
     flash_comp_0101.origin.block = block;
     flash_comp_0101.flags |= EntryFlags::ContextualName;
     flash_comp_0101.origin.name_context_kind
@@ -2197,8 +2205,8 @@ TEST(ExifTagNames, ContextualEntryNamesSelectNikonFlashInfoLegacyVariants)
               std::string_view("FlashCompensation"));
 
     Entry group_a_comp_0101;
-    group_a_comp_0101.key = make_exif_tag_key(
-        store.arena(), "mk_nikon_flashinfo0100_0", 0x0011);
+    group_a_comp_0101.key
+        = make_exif_tag_key(store.arena(), "mk_nikon_flashinfo0100_0", 0x0011);
     group_a_comp_0101.origin.block = block;
     group_a_comp_0101.flags |= EntryFlags::ContextualName;
     group_a_comp_0101.origin.name_context_kind
@@ -2216,8 +2224,8 @@ TEST(ExifTagNames, ContextualEntryNamesSelectNikonFlashInfoLegacyVariants)
               std::string_view("FlashGroupACompensation"));
 
     Entry group_b_comp_0101;
-    group_b_comp_0101.key = make_exif_tag_key(
-        store.arena(), "mk_nikon_flashinfo0100_0", 0x0012);
+    group_b_comp_0101.key
+        = make_exif_tag_key(store.arena(), "mk_nikon_flashinfo0100_0", 0x0012);
     group_b_comp_0101.origin.block = block;
     group_b_comp_0101.flags |= EntryFlags::ContextualName;
     group_b_comp_0101.origin.name_context_kind
@@ -2235,14 +2243,14 @@ TEST(ExifTagNames, ContextualEntryNamesSelectNikonFlashInfoLegacyVariants)
               std::string_view("FlashGroupBCompensation"));
 
     Entry group_a_ctrl;
-    group_a_ctrl.key = make_exif_tag_key(store.arena(),
-                                         "mk_nikon_flashinfo0102_0", 0x0010);
+    group_a_ctrl.key          = make_exif_tag_key(store.arena(),
+                                                  "mk_nikon_flashinfo0102_0", 0x0010);
     group_a_ctrl.origin.block = block;
     group_a_ctrl.flags |= EntryFlags::ContextualName;
     group_a_ctrl.origin.name_context_kind
         = EntryNameContextKind::NikonFlashInfoLegacy;
     group_a_ctrl.origin.name_context_variant = 5U;
-    const EntryId group_a_ctrl_id = store.add_entry(group_a_ctrl);
+    const EntryId group_a_ctrl_id            = store.add_entry(group_a_ctrl);
     ASSERT_NE(group_a_ctrl_id, openmeta::kInvalidEntryId);
 
     const Entry& group_a_ctrl_entry = store.entry(group_a_ctrl_id);
@@ -2251,14 +2259,14 @@ TEST(ExifTagNames, ContextualEntryNamesSelectNikonFlashInfoLegacyVariants)
               std::string_view("FlashGroupAControlMode"));
 
     Entry group_c_ctrl;
-    group_c_ctrl.key = make_exif_tag_key(store.arena(),
-                                         "mk_nikon_flashinfo0102_0", 0x0011);
+    group_c_ctrl.key          = make_exif_tag_key(store.arena(),
+                                                  "mk_nikon_flashinfo0102_0", 0x0011);
     group_c_ctrl.origin.block = block;
     group_c_ctrl.flags |= EntryFlags::ContextualName;
     group_c_ctrl.origin.name_context_kind
         = EntryNameContextKind::NikonFlashInfoLegacy;
     group_c_ctrl.origin.name_context_variant = 7U;
-    const EntryId group_c_ctrl_id = store.add_entry(group_c_ctrl);
+    const EntryId group_c_ctrl_id            = store.add_entry(group_c_ctrl);
     ASSERT_NE(group_c_ctrl_id, openmeta::kInvalidEntryId);
 
     const Entry& group_c_ctrl_entry = store.entry(group_c_ctrl_id);
@@ -2453,7 +2461,7 @@ TEST(ExifTagNames, MapsSigmaMainNamesAndPlaceholders)
     Entry sigma_compat_placeholder;
     sigma_compat_placeholder.key = make_exif_tag_key(store.arena(), "mk_sigma0",
                                                      0x001A);
-    sigma_compat_placeholder.origin.block = block;
+    sigma_compat_placeholder.origin.block     = block;
     const EntryId sigma_compat_placeholder_id = store.add_entry(
         sigma_compat_placeholder);
     ASSERT_NE(sigma_compat_placeholder_id, openmeta::kInvalidEntryId);
@@ -2470,7 +2478,7 @@ TEST(ExifTagNames, MapsSigmaMainNamesAndPlaceholders)
     Entry sigma_fixed_compat;
     sigma_fixed_compat.key = make_exif_tag_key(store.arena(), "mk_sigma0",
                                                0x001C);
-    sigma_fixed_compat.origin.block = block;
+    sigma_fixed_compat.origin.block     = block;
     const EntryId sigma_fixed_compat_id = store.add_entry(sigma_fixed_compat);
     ASSERT_NE(sigma_fixed_compat_id, openmeta::kInvalidEntryId);
 
@@ -2490,7 +2498,7 @@ TEST(ExifTagNames, MapsSigmaMainNamesAndPlaceholders)
     sigma_model_placeholder.origin.name_context_kind
         = EntryNameContextKind::SigmaMainCompat;
     sigma_model_placeholder.origin.name_context_variant = 1U;
-    const EntryId sigma_model_placeholder_id = store.add_entry(
+    const EntryId sigma_model_placeholder_id            = store.add_entry(
         sigma_model_placeholder);
     ASSERT_NE(sigma_model_placeholder_id, openmeta::kInvalidEntryId);
 

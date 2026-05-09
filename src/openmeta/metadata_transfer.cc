@@ -578,8 +578,10 @@ namespace {
     };
 
     struct ExifPackBuild final {
-        bool produced          = false;
-        uint32_t skipped_count = 0;
+        bool produced                                 = false;
+        uint32_t skipped_count                        = 0;
+        uint32_t decoded_only_makernote_skipped_count = 0;
+        uint32_t preserved_raw_makernote_count        = 0;
         std::vector<std::byte> app1_payload;
         std::vector<TimePatchSlot> time_patch_map;
     };
@@ -3189,6 +3191,41 @@ namespace {
                 continue;
             }
             if (e.key.data.exif_tag.tag == 0x927CU) {
+                count += 1U;
+            }
+        }
+        return count;
+    }
+
+    static bool is_decoded_makernote_ifd_name(std::string_view ifd) noexcept
+    {
+        return starts_with(ifd, "mk_") || starts_with(ifd, "mkifd")
+               || starts_with(ifd, "mk_subifd")
+               || starts_with(ifd, "makernote");
+    }
+
+    static uint32_t
+    count_decoded_only_makernote_entries(const MetaStore& store) noexcept
+    {
+        uint32_t count = 0U;
+        for (const Entry& e : store.entries()) {
+            if (any(e.flags, EntryFlags::Deleted)
+                || e.key.kind != MetaKeyKind::ExifTag) {
+                continue;
+            }
+            if (e.key.data.exif_tag.tag == 0x927CU) {
+                continue;
+            }
+
+            const std::span<const std::byte> ifd_bytes = store.arena().span(
+                e.key.data.exif_tag.ifd);
+            if (ifd_bytes.empty()) {
+                continue;
+            }
+            const std::string_view ifd_name(reinterpret_cast<const char*>(
+                                                ifd_bytes.data()),
+                                            ifd_bytes.size());
+            if (is_decoded_makernote_ifd_name(ifd_name)) {
                 count += 1U;
             }
         }
@@ -6337,6 +6374,18 @@ namespace {
         return true;
     }
 
+    static void note_exif_pack_skip(std::string_view ifd_name,
+                                    ExifPackBuild* out) noexcept
+    {
+        if (!out) {
+            return;
+        }
+        out->skipped_count += 1U;
+        if (is_decoded_makernote_ifd_name(ifd_name)) {
+            out->decoded_only_makernote_skipped_count += 1U;
+        }
+    }
+
     static bool encode_tiff_value(const MetaStore& store, const Entry& e,
                                   SerializedIfdEntry* out) noexcept
     {
@@ -6601,7 +6650,7 @@ namespace {
             const TransferExifIfdRef ifd_ref = classify_exif_ifd_ref(ifd_name);
             if (ifd_ref.slot == ExifIfdSlot::Unsupported && !ifd_ref.is_page
                 && !ifd_ref.is_subifd) {
-                out.skipped_count += 1U;
+                note_exif_pack_skip(ifd_name, &out);
                 continue;
             }
 
@@ -6618,13 +6667,15 @@ namespace {
                 && makernote_policy == TransferPolicyAction::Drop) {
                 continue;
             }
-
             SerializedIfdEntry encoded;
             encoded.tag          = tag;
             encoded.source_order = e.origin.order_in_block;
             if (!encode_tiff_value(store, e, &encoded)) {
-                out.skipped_count += 1U;
+                note_exif_pack_skip(ifd_name, &out);
                 continue;
+            }
+            if (!ifd_ref.is_page && !ifd_ref.is_subifd && tag == 0x927CU) {
+                out.preserved_raw_makernote_count += 1U;
             }
 
             SerializedIfd* dst = nullptr;
@@ -6637,7 +6688,7 @@ namespace {
                 dst = &page_ifds[ifd_ref.page_index - 1U];
             } else if (ifd_ref.is_subifd) {
                 if (!include_subifds) {
-                    out.skipped_count += 1U;
+                    note_exif_pack_skip(ifd_name, &out);
                     continue;
                 }
                 const size_t need_size
@@ -6650,7 +6701,7 @@ namespace {
                 dst = select_ifd(&ifd0, &exififd, &gpsifd, &interopifd,
                                  ifd_ref.slot);
                 if (!dst) {
-                    out.skipped_count += 1U;
+                    note_exif_pack_skip(ifd_name, &out);
                     continue;
                 }
             }
@@ -11472,9 +11523,14 @@ prepare_metadata_for_target_impl(const MetaStore& store,
     const bool include_icc_app2 = request.include_icc_app2
                                   && !transfer_safety_mode_is_rendered(
                                       effective_profile.safety);
-    const uint32_t makernote_count = count_makernote_entries(prepared_store);
-    const uint32_t jumbf_count     = count_jumbf_entries(prepared_store);
-    const uint32_t c2pa_count      = count_c2pa_entries(prepared_store);
+    const uint32_t raw_makernote_count = count_makernote_entries(
+        prepared_store);
+    const uint32_t decoded_only_makernote_count
+        = count_decoded_only_makernote_entries(prepared_store);
+    const uint32_t makernote_count = raw_makernote_count
+                                     + decoded_only_makernote_count;
+    const uint32_t jumbf_count = count_jumbf_entries(prepared_store);
+    const uint32_t c2pa_count  = count_c2pa_entries(prepared_store);
 
     if (has_icc) {
         if (!request.include_icc_app2) {
@@ -11511,6 +11567,28 @@ prepare_metadata_for_target_impl(const MetaStore& store,
                                makernote_reason, makernote_count,
                                "maker notes require EXIF transfer; EXIF output "
                                "is disabled");
+    } else if (raw_makernote_count == 0U) {
+        effective_makernote = TransferPolicyAction::Drop;
+        if (requested_profile.makernote == TransferPolicyAction::Drop) {
+            makernote_reason = TransferPolicyReason::ExplicitDrop;
+        } else if (transfer_safety_mode_is_rendered(effective_profile.safety)) {
+            makernote_reason = TransferPolicyReason::SafetyModeFiltered;
+        } else {
+            makernote_reason
+                = TransferPolicyReason::TargetSerializationUnavailable;
+        }
+        append_policy_decision(
+            &bundle, TransferPolicySubject::MakerNote,
+            requested_profile.makernote, effective_makernote, makernote_reason,
+            decoded_only_makernote_count,
+            makernote_reason == TransferPolicyReason::ExplicitDrop
+                ? "decoded maker note fields will be dropped from prepared EXIF"
+                : (makernote_reason == TransferPolicyReason::SafetyModeFiltered
+                       ? "rendered-image safety mode drops decoded maker note "
+                         "fields"
+                       : "decoded maker note sub-IFD fields require the original "
+                         "raw MakerNote payload; reconstructed vendor MakerNotes "
+                         "are not serialized"));
     } else {
         effective_makernote
             = resolve_makernote_policy(effective_profile.makernote,
@@ -11536,7 +11614,7 @@ prepare_metadata_for_target_impl(const MetaStore& store,
         append_policy_decision(
             &bundle, TransferPolicySubject::MakerNote,
             requested_profile.makernote, effective_makernote, makernote_reason,
-            makernote_count,
+            raw_makernote_count,
             makernote_reason == TransferPolicyReason::ExplicitDrop
                 ? "maker notes will be dropped from prepared EXIF"
                 : (makernote_reason == TransferPolicyReason::SafetyModeFiltered
@@ -12007,22 +12085,67 @@ prepare_metadata_for_target_impl(const MetaStore& store,
                     bundle.time_patch_map.push_back(slot);
                 }
             }
-            if (exif_build.skipped_count > 0U) {
+            if (exif_build.decoded_only_makernote_skipped_count > 0U) {
+                r.warnings += 1U;
+                if (exif_build.preserved_raw_makernote_count > 0U) {
+                    append_message(
+                        &r.message,
+                        "exif serializer skipped "
+                            + std::to_string(
+                                exif_build.decoded_only_makernote_skipped_count)
+                            + " decoded-only maker note sub-ifd entries; "
+                              "raw MakerNote payload was preserved");
+                } else {
+                    if (r.code == PrepareTransferCode::None) {
+                        r.code = PrepareTransferCode::
+                            RequestedMetadataNotSerializable;
+                    }
+                    append_message(
+                        &r.message,
+                        "exif serializer skipped "
+                            + std::to_string(
+                                exif_build.decoded_only_makernote_skipped_count)
+                            + " decoded-only maker note sub-ifd entries; "
+                              "original raw MakerNote payload is required");
+                }
+            }
+            uint32_t generic_skipped_count = exif_build.skipped_count;
+            if (generic_skipped_count
+                >= exif_build.decoded_only_makernote_skipped_count) {
+                generic_skipped_count
+                    -= exif_build.decoded_only_makernote_skipped_count;
+            } else {
+                generic_skipped_count = 0U;
+            }
+            if (generic_skipped_count > 0U) {
                 r.warnings += 1U;
                 append_message(&r.message,
                                "exif serializer skipped "
-                                   + std::to_string(exif_build.skipped_count)
+                                   + std::to_string(generic_skipped_count)
                                    + " unsupported exif entries");
             }
         } else {
             requested_present_but_unpacked = true;
-            if (r.code == PrepareTransferCode::None) {
-                r.code = PrepareTransferCode::ExifPackFailed;
+            if (exif_build.decoded_only_makernote_skipped_count > 0U) {
+                if (r.code == PrepareTransferCode::None) {
+                    r.code
+                        = PrepareTransferCode::RequestedMetadataNotSerializable;
+                }
+                r.warnings += 1U;
+                append_message(
+                    &r.message,
+                    "exif app1 packer found only decoded-only maker note "
+                    "sub-ifd entries; original raw MakerNote payload is "
+                    "required");
+            } else {
+                if (r.code == PrepareTransferCode::None) {
+                    r.code = PrepareTransferCode::ExifPackFailed;
+                }
+                r.warnings += 1U;
+                append_message(
+                    &r.message,
+                    "exif app1 packer could not serialize current exif set");
             }
-            r.warnings += 1U;
-            append_message(
-                &r.message,
-                "exif app1 packer could not serialize current exif set");
         }
     }
 

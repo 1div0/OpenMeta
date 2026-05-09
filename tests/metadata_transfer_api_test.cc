@@ -19591,20 +19591,27 @@ TEST(MetadataTransferApi, PrepareRenderedImageSafetyDropsSourceSpecificMetadata)
     static const PhaseOneTransferTag kAppleRenderedDropTags[] = {
         { "mk_apple0", 0x002DU, 1U }, { "mk_apple0", 0x003EU, 1U },
         { "mk_apple0", 0x0030U, 1U }, { "mk_apple0", 0x0019U, 1U },
-        { "mk_apple0", 0x0040U, 1U },
+        { "mk_apple0", 0x0040U, 1U }, { "mk_apple0", 0x0008U, 1U },
+        { "mk_apple0", 0x0021U, 1U }, { "mk_apple0", 0x0045U, 1U },
     };
     static const PhaseOneTransferTag kDjiRenderedDropTags[] = {
+        { "mk_dji0", 0x000AU, 1U },
+        { "mk_dji_thermalparams_0", 0x0046U, 1U },
         { "mk_dji_thermalparams2_0", 0x0000U, 1U },
         { "mk_dji_thermalparams2_0", 0x0008U, 1U },
         { "mk_dji_thermalparams3_0", 0x0006U, 1U },
     };
     static const PhaseOneTransferTag kGoogleRenderedDropTags[] = {
         { "mk_google_hdrplusmakernote_0", 0x0002U, 1U },
+        { "mk_google_shotlogdata_0", 0x0002U, 1U },
         { "mk_google_shotlogdata_0", 0x0003U, 1U },
     };
     static const PhaseOneTransferTag kFlirRenderedDropTags[] = {
         { "mk_flir_fff_rawdata_0", 0x0001U, 1U },
         { "mk_flir_fff_camerainfo_0", 0x0058U, 1U },
+        { "mk_flir_fff_camerainfo_0", 0x0310U, 1U },
+        { "mk_flir_fff_camerainfo_0", 0x01B4U, 1U },
+        { "mk_flir_fff_camerainfo_0", 0x045CU, 1U },
         { "mk_flir_fff_paletteinfo_0", 0x0050U, 1U },
         { "mk_flir_fff_pip_0", 0x0004U, 1U },
     };
@@ -20343,6 +20350,239 @@ TEST(MetadataTransferApi, PrepareRenderedImageSafetyDropsSourceSpecificMetadata)
     EXPECT_EQ(jumbf_decision->reason,
               openmeta::TransferPolicyReason::SafetyModeFiltered);
     EXPECT_EQ(jumbf_decision->matched_entries, 1U);
+}
+
+TEST(MetadataTransferApi, CompatibleSafetyKeepsSourceSpecificMetadata)
+{
+    openmeta::MetaStore store;
+    ASSERT_TRUE(build_rendered_image_safety_source_store(&store));
+
+    openmeta::PrepareTransferRequest request;
+    request.include_iptc_app13   = false;
+    request.xmp_include_existing = true;
+    request.profile.safety       = openmeta::TransferSafetyMode::CompatibleFile;
+
+    openmeta::PreparedTransferBundle bundle;
+    const openmeta::PrepareTransferResult result
+        = openmeta::prepare_metadata_for_target(store, request, &bundle);
+    ASSERT_EQ(result.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.errors, 0U);
+    EXPECT_EQ(bundle.profile.safety,
+              openmeta::TransferSafetyMode::CompatibleFile);
+
+    const openmeta::PreparedTransferBlock* exif_block = nullptr;
+    for (size_t i = 0; i < bundle.blocks.size(); ++i) {
+        if (bundle.blocks[i].kind == openmeta::TransferBlockKind::Exif) {
+            exif_block = &bundle.blocks[i];
+            break;
+        }
+    }
+
+    ASSERT_NE(exif_block, nullptr);
+    EXPECT_TRUE(prepared_exif_block_contains_ifd0_tag(*exif_block, 0x010FU));
+    EXPECT_FALSE(prepared_exif_block_contains_ifd0_tag(*exif_block, 0x0100U));
+    EXPECT_TRUE(prepared_exif_block_contains_ifd0_tag(*exif_block, 0xC621U));
+    EXPECT_TRUE(prepared_exif_block_contains_ifd0_tag(*exif_block, 0xC71CU));
+    EXPECT_TRUE(prepared_exif_block_contains_ifd0_tag(*exif_block, 0xC7A8U));
+    EXPECT_TRUE(prepared_exif_block_contains_exififd_tag(*exif_block, 0x9003U));
+    EXPECT_TRUE(prepared_exif_block_contains_exififd_tag(*exif_block, 0x927CU));
+    EXPECT_TRUE(payload_contains_ascii(
+        std::span<const std::byte>(exif_block->payload.data(),
+                                   exif_block->payload.size()),
+        "SOURCE_MAKERNOTE_DROP"));
+    EXPECT_FALSE(payload_contains_ascii(
+        std::span<const std::byte>(exif_block->payload.data(),
+                                   exif_block->payload.size()),
+        "SOURCE_VENDOR_PRIVATE_DROP"));
+    EXPECT_EQ(result.code, openmeta::PrepareTransferCode::None);
+    EXPECT_GE(result.warnings, 1U);
+    EXPECT_TRUE(
+        text_contains(result.message, "decoded-only maker note sub-ifd"));
+    EXPECT_TRUE(
+        text_contains(result.message, "raw MakerNote payload was preserved"));
+
+    EXPECT_TRUE(bundle_xmp_payload_contains_ascii(bundle, "Exposure2012"));
+    EXPECT_TRUE(
+        bundle_xmp_payload_contains_ascii(bundle, "Source Raw Profile"));
+    EXPECT_EQ(find_policy_decision(
+                  bundle, openmeta::TransferPolicySubject::RawColorCalibration),
+              nullptr);
+    EXPECT_EQ(find_policy_decision(
+                  bundle, openmeta::TransferPolicySubject::CameraRawSettings),
+              nullptr);
+}
+
+TEST(MetadataTransferApi,
+     CompatibleSafetyDecodedOnlyMakerNoteFieldsAreNotReconstructed)
+{
+    openmeta::MetaStore store;
+    const openmeta::BlockId block = store.add_block(openmeta::BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    openmeta::Entry make;
+    make.key   = openmeta::make_exif_tag_key(store.arena(), "ifd0", 0x010FU);
+    make.value = openmeta::make_text(store.arena(), "CameraVendor",
+                                     openmeta::TextEncoding::Ascii);
+    make.origin.block          = block;
+    make.origin.order_in_block = 0U;
+    ASSERT_NE(store.add_entry(make), openmeta::kInvalidEntryId);
+
+    const std::vector<std::byte> decoded_makernote_bytes = ascii_z(
+        "DECODED_ONLY_MAKERNOTE_FIELD");
+    openmeta::Entry decoded_makernote;
+    decoded_makernote.key   = openmeta::make_exif_tag_key(store.arena(),
+                                                          "mk_sony_sr2private_0",
+                                                          0x7200U);
+    decoded_makernote.value = openmeta::make_bytes(
+        store.arena(),
+        std::span<const std::byte>(decoded_makernote_bytes.data(),
+                                   decoded_makernote_bytes.size()));
+    decoded_makernote.origin.block          = block;
+    decoded_makernote.origin.order_in_block = 1U;
+    ASSERT_NE(store.add_entry(decoded_makernote), openmeta::kInvalidEntryId);
+    store.finalize();
+
+    openmeta::PrepareTransferRequest request;
+    request.include_iptc_app13 = false;
+    request.include_icc_app2   = false;
+    request.include_xmp_app1   = false;
+    request.profile.safety     = openmeta::TransferSafetyMode::CompatibleFile;
+
+    openmeta::PreparedTransferBundle bundle;
+    const openmeta::PrepareTransferResult result
+        = openmeta::prepare_metadata_for_target(store, request, &bundle);
+
+    ASSERT_EQ(result.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.code,
+              openmeta::PrepareTransferCode::RequestedMetadataNotSerializable);
+    EXPECT_EQ(result.errors, 0U);
+    EXPECT_GE(result.warnings, 1U);
+    EXPECT_TRUE(
+        text_contains(result.message, "decoded-only maker note sub-ifd"));
+    EXPECT_TRUE(text_contains(result.message,
+                              "original raw MakerNote payload is required"));
+
+    ASSERT_EQ(bundle.blocks.size(), 1U);
+    ASSERT_EQ(bundle.blocks[0].kind, openmeta::TransferBlockKind::Exif);
+    EXPECT_TRUE(
+        prepared_exif_block_contains_ifd0_tag(bundle.blocks[0], 0x010FU));
+    EXPECT_FALSE(payload_contains_ascii(
+        std::span<const std::byte>(bundle.blocks[0].payload.data(),
+                                   bundle.blocks[0].payload.size()),
+        "DECODED_ONLY_MAKERNOTE_FIELD"));
+    EXPECT_FALSE(
+        prepared_exif_block_contains_exififd_tag(bundle.blocks[0], 0x927CU));
+
+    const openmeta::PreparedTransferPolicyDecision* decision
+        = find_policy_decision(bundle,
+                               openmeta::TransferPolicySubject::MakerNote);
+    ASSERT_NE(decision, nullptr);
+    EXPECT_EQ(decision->requested, openmeta::TransferPolicyAction::Keep);
+    EXPECT_EQ(decision->effective, openmeta::TransferPolicyAction::Drop);
+    EXPECT_EQ(decision->reason,
+              openmeta::TransferPolicyReason::TargetSerializationUnavailable);
+    EXPECT_EQ(decision->matched_entries, 1U);
+}
+
+TEST(MetadataTransferApi,
+     RenderedSafetyReplacesImagePropertiesAndDropsSourceSpecificMetadata)
+{
+    openmeta::MetaStore store;
+    ASSERT_TRUE(build_rendered_image_safety_source_store(&store));
+
+    openmeta::PrepareTransferRequest request;
+    request.include_iptc_app13   = false;
+    request.xmp_include_existing = true;
+    request.profile.safety       = openmeta::TransferSafetyMode::RenderedImage;
+    request.target_image_spec.has_dimensions                 = true;
+    request.target_image_spec.width                          = 320U;
+    request.target_image_spec.height                         = 240U;
+    request.target_image_spec.has_orientation                = true;
+    request.target_image_spec.orientation                    = 1U;
+    request.target_image_spec.has_samples_per_pixel          = true;
+    request.target_image_spec.samples_per_pixel              = 1U;
+    request.target_image_spec.bits_per_sample_count          = 1U;
+    request.target_image_spec.bits_per_sample[0]             = 16U;
+    request.target_image_spec.sample_format_count            = 1U;
+    request.target_image_spec.sample_format[0]               = 1U;
+    request.target_image_spec.has_photometric_interpretation = true;
+    request.target_image_spec.photometric_interpretation     = 1U;
+    request.target_image_spec.has_planar_configuration       = true;
+    request.target_image_spec.planar_configuration           = 1U;
+
+    openmeta::PreparedTransferBundle bundle;
+    const openmeta::PrepareTransferResult result
+        = openmeta::prepare_metadata_for_target(store, request, &bundle);
+    ASSERT_EQ(result.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.errors, 0U);
+
+    const openmeta::PreparedTransferBlock* exif_block = nullptr;
+    for (size_t i = 0; i < bundle.blocks.size(); ++i) {
+        if (bundle.blocks[i].kind == openmeta::TransferBlockKind::Exif) {
+            exif_block = &bundle.blocks[i];
+            break;
+        }
+    }
+
+    ASSERT_NE(exif_block, nullptr);
+    uint32_t value = 0U;
+    uint32_t count = 0U;
+    uint16_t type  = 0U;
+    ASSERT_TRUE(prepared_exif_block_find_ifd0_tag(*exif_block, 0x0100U, &type,
+                                                  &count, &value));
+    EXPECT_EQ(value, 320U);
+    ASSERT_TRUE(prepared_exif_block_find_ifd0_tag(*exif_block, 0x0101U, &type,
+                                                  &count, &value));
+    EXPECT_EQ(value, 240U);
+    ASSERT_TRUE(prepared_exif_block_find_ifd0_tag(*exif_block, 0x0102U, &type,
+                                                  &count, &value));
+    EXPECT_EQ(type, 3U);
+    EXPECT_EQ(count, 1U);
+    EXPECT_EQ(value & 0xFFFFU, 16U);
+    ASSERT_TRUE(prepared_exif_block_find_ifd0_tag(*exif_block, 0x0106U, &type,
+                                                  &count, &value));
+    EXPECT_EQ(value & 0xFFFFU, 1U);
+    ASSERT_TRUE(prepared_exif_block_find_ifd0_tag(*exif_block, 0x0115U, &type,
+                                                  &count, &value));
+    EXPECT_EQ(value & 0xFFFFU, 1U);
+
+    EXPECT_TRUE(prepared_exif_block_contains_ifd0_tag(*exif_block, 0x010FU));
+    EXPECT_FALSE(prepared_exif_block_contains_ifd0_tag(*exif_block, 0xC621U));
+    EXPECT_FALSE(prepared_exif_block_contains_ifd0_tag(*exif_block, 0xC71CU));
+    EXPECT_FALSE(prepared_exif_block_contains_ifd0_tag(*exif_block, 0xC7A8U));
+    EXPECT_TRUE(prepared_exif_block_contains_exififd_tag(*exif_block, 0x9003U));
+    EXPECT_FALSE(
+        prepared_exif_block_contains_exififd_tag(*exif_block, 0x927CU));
+    EXPECT_FALSE(payload_contains_ascii(
+        std::span<const std::byte>(exif_block->payload.data(),
+                                   exif_block->payload.size()),
+        "SOURCE_MAKERNOTE_DROP"));
+    EXPECT_FALSE(payload_contains_ascii(
+        std::span<const std::byte>(exif_block->payload.data(),
+                                   exif_block->payload.size()),
+        "SOURCE_VENDOR_PRIVATE_DROP"));
+    EXPECT_FALSE(bundle_xmp_payload_contains_ascii(bundle, "Exposure2012"));
+    EXPECT_FALSE(
+        bundle_xmp_payload_contains_ascii(bundle, "Source Raw Profile"));
+
+    const openmeta::PreparedTransferPolicyDecision* image_decision
+        = find_policy_decision(bundle,
+                               openmeta::TransferPolicySubject::ImageProperties);
+    ASSERT_NE(image_decision, nullptr);
+    EXPECT_EQ(image_decision->effective, openmeta::TransferPolicyAction::Drop);
+    EXPECT_EQ(image_decision->matched_entries, 1U);
+
+    const openmeta::PreparedTransferPolicyDecision* raw_decision
+        = find_policy_decision(
+            bundle, openmeta::TransferPolicySubject::RawColorCalibration);
+    ASSERT_NE(raw_decision, nullptr);
+    EXPECT_EQ(raw_decision->effective, openmeta::TransferPolicyAction::Drop);
+
+    const openmeta::PreparedTransferPolicyDecision* crs_decision
+        = find_policy_decision(
+            bundle, openmeta::TransferPolicySubject::CameraRawSettings);
+    ASSERT_NE(crs_decision, nullptr);
+    EXPECT_EQ(crs_decision->effective, openmeta::TransferPolicyAction::Drop);
 }
 
 TEST(MetadataTransferApi, RenderedImageWritersOmitUnsafeSourceMetadata)
@@ -34366,7 +34606,8 @@ TEST(MetadataTransferApi, PrepareUnsupportedWhenExifOnlyUnsupportedIfd)
     ASSERT_NE(block, openmeta::kInvalidBlockId);
 
     openmeta::Entry e;
-    e.key   = openmeta::make_exif_tag_key(store.arena(), "mk_test", 0x0001U);
+    e.key   = openmeta::make_exif_tag_key(store.arena(), "unsupported_ifd",
+                                          0x0001U);
     e.value = openmeta::make_text(store.arena(), "v",
                                   openmeta::TextEncoding::Ascii);
     e.origin.block          = block;

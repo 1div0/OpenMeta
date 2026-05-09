@@ -43,6 +43,9 @@ Changes compared with `0.4.8`.
   for exposure/gain, white balance, color, lens correction, and orientation
   metadata. Non-crop queries return deterministic per-entry candidates with
   numeric value extraction when values are scalar or bounded numeric arrays.
+- Added native Fujifilm RAF read coverage for header-declared FujiIFD/TIFF
+  offsets, RAF header fields, RAF directory geometry tags, and RAFData geometry
+  projection.
 - Added grouped semantic-query candidates for DNG color matrix/calibration/
   reduction/forward matrix sets, DNG white-balance vector sets, and
   lens-correction table groups. Candidate value-shape labels now include
@@ -58,6 +61,15 @@ Changes compared with `0.4.8`.
   semantic-query XMP/property-path matching, plus
   `metadata_query_fuzzy_search_available()` so tools can detect whether the
   stronger fuzzy matcher is compiled in.
+- Semantic-query matches now report `exact_match`, `fuzzy_match`, and
+  `fuzzy_score` so host UI and Python tools can distinguish exact tag/name
+  hits from RapidFuzz near-miss results.
+- Added focused regression coverage for compatible-file versus rendered-image
+  transfer safety: compatible mode keeps serializable source RAW/camera-specific
+  metadata, while rendered mode drops source-specific metadata and uses
+  host-provided target image specs.
+- Added a public RAW read-parity plan that tracks camera RAW family gaps
+  against ExifTool-style coverage without broadening writer guarantees.
 
 ### Changed
 
@@ -77,6 +89,17 @@ Changes compared with `0.4.8`.
   computational, thermal, color/WB, geometry/storage, raw-data, sensor,
   lens-correction, preview/face geometry, stitch/panorama geometry, or
   vendor-private table metadata.
+- Live-vendor RAW/source-processing classification now covers additional Apple
+  computational capture/HDR/motion fields, DJI pose and thermal fields, Google
+  shot-log metering fields, and FLIR radiometric/raw-value/geometry fields.
+- Portable XMP output now recognizes Adobe DNG XMP properties (`dng:*`) as a
+  known namespace, so compatible-file transfer can serialize retained DNG
+  profile metadata while rendered-image safety still filters it as source raw
+  calibration metadata.
+- Prepared EXIF transfer now reports decoded-only vendor MakerNote sub-IFDs as
+  non-serializable writer inputs instead of implying that OpenMeta can
+  reconstruct vendor MakerNote blobs. The original raw `ExifIFD:MakerNote`
+  payload is still preserved when available.
 - Rendered-image transfer safety now uses the current DNG tag numbers for
   source-bound profile/gain tables, raw digests/storage identifiers,
   forward matrices, and opcode/correction lists.

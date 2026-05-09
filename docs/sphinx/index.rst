@@ -21,6 +21,7 @@ Read-path coverage snapshot:
 - Tracked HEIC/HEIF, CR3, and mixed RAW EXIF compare gates are passing.
 - EXR header metadata compare gate is passing for the documented contract.
 - MakerNote support is broad and baseline-gated; unknown tags remain lossless.
+- RAW read-depth gaps are tracked by family in :doc:`raw_read_parity_plan`.
 
 OpenMeta treats metadata as **untrusted input** and applies explicit limits and
 sanitization to reduce memory and output attack surface.
@@ -35,6 +36,7 @@ sanitization to reduce memory and output attack surface.
    compatibility_dump
    xmp_sync_policy
    writer_target_contract
+   raw_read_parity_plan
    build
    development
    interop_api

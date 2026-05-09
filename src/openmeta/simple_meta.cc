@@ -5,6 +5,7 @@
 #include "bmff_fields_decode_internal.h"
 #include "crw_ciff_decode_internal.h"
 #include "exif_tiff_decode_internal.h"
+#include "raf_decode_internal.h"
 
 #include "openmeta/exr_decode.h"
 #include "openmeta/icc_decode.h"
@@ -908,10 +909,22 @@ simple_meta_read(std::span<const std::byte> file_bytes, MetaStore& store,
     exr.parts_decoded   = 0;
     exr.entries_decoded = 0;
 
-    uint32_t ifd_write_pos        = 0;
-    uint32_t casio_qvci_index     = 0;
-    bool any_exif                 = false;
-    bool any_xmp                  = false;
+    uint32_t ifd_write_pos    = 0;
+    uint32_t casio_qvci_index = 0;
+    bool any_exif             = false;
+    bool any_xmp              = false;
+    if (raf_internal::looks_like_raf(file_bytes)) {
+        const ExifDecodeResult raf
+            = raf_internal::decode_raf_native(file_bytes, store,
+                                              options.exif.limits);
+        if (raf.status != ExifDecodeStatus::Unsupported
+            || raf.entries_decoded > 0U) {
+            any_exif = true;
+            merge_exif_status(&exif.status, raf.status);
+            exif.entries_decoded += raf.entries_decoded;
+        }
+    }
+
     const uint32_t blocks_written = (result.scan.written < out_blocks.size())
                                         ? result.scan.written
                                         : static_cast<uint32_t>(

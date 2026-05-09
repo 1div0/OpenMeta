@@ -4,12 +4,13 @@
 
 #include "openmeta/byte_arena.h"
 #include "openmeta/simple_meta.h"
+#include "openmeta/vendor_raw_processing.h"
 
 #include <gtest/gtest.h>
 
 #include <array>
-#include <cstring>
 #include <cstdint>
+#include <cstring>
 #include <limits>
 #include <string_view>
 #include <vector>
@@ -80,10 +81,8 @@ namespace {
         ASSERT_LE(off + 4U, out->size());
         (*out)[off + 0U] = std::byte { static_cast<uint8_t>((v >> 0) & 0xFF) };
         (*out)[off + 1U] = std::byte { static_cast<uint8_t>((v >> 8) & 0xFF) };
-        (*out)[off + 2U]
-            = std::byte { static_cast<uint8_t>((v >> 16) & 0xFF) };
-        (*out)[off + 3U]
-            = std::byte { static_cast<uint8_t>((v >> 24) & 0xFF) };
+        (*out)[off + 2U] = std::byte { static_cast<uint8_t>((v >> 16) & 0xFF) };
+        (*out)[off + 3U] = std::byte { static_cast<uint8_t>((v >> 24) & 0xFF) };
     }
 
 
@@ -291,9 +290,9 @@ namespace {
         append_u16le(&mn, 0x0003);  // WhiteBalance
         append_u16le(&mn, 3);       // SHORT
         append_u32le(&mn, 1);
-        append_u16le(&mn, 4);       // cloudy
+        append_u16le(&mn, 4);  // cloudy
         append_u16le(&mn, 0);
-        append_u32le(&mn, 0);       // next IFD
+        append_u32le(&mn, 0);  // next IFD
         return mn;
     }
 
@@ -364,9 +363,9 @@ namespace {
         append_u16le(&data, 0x000C);  // FlashMode
         append_u16le(&data, 3);       // SHORT
         append_u32le(&data, 1);
-        append_u16le(&data, 2);       // off, did not fire
+        append_u16le(&data, 2);  // off, did not fire
         append_u16le(&data, 0);
-        append_u32le(&data, 0);       // next IFD
+        append_u32le(&data, 0);  // next IFD
         return data;
     }
 
@@ -385,12 +384,12 @@ namespace {
 
         append_u16le(&tiff, 0x010F);  // Make
         append_u16le(&tiff, 2);
-        append_u32le(&tiff, 7);       // "PENTAX\0"
+        append_u32le(&tiff, 7);  // "PENTAX\0"
         append_u32le(&tiff, 50);
 
         append_u16le(&tiff, 0x0110);  // Model
         append_u16le(&tiff, 2);
-        append_u32le(&tiff, 11);      // "PENTAX K-1\0"
+        append_u32le(&tiff, 11);  // "PENTAX K-1\0"
         append_u32le(&tiff, 57);
 
         append_u16le(&tiff, 0xC634);  // DNGPrivateData
@@ -451,8 +450,8 @@ namespace {
         nefinfo.insert(nefinfo.end(), distortion.begin(), distortion.end());
 
         const std::byte raw_nefinfo_unknown[] = {
-            std::byte { '0' }, std::byte { '1' }, std::byte { '0' },
-            std::byte { '0' }, std::byte { 0x0c }, std::byte { 0x00 },
+            std::byte { '0' },  std::byte { '1' },  std::byte { '0' },
+            std::byte { '0' },  std::byte { 0x0c }, std::byte { 0x00 },
             std::byte { 0x08 }, std::byte { 0x00 }, std::byte { 0x40 },
             std::byte { 0x20 }, std::byte { 0x80 }, std::byte { 0x15 },
             std::byte { 0x3d }, std::byte { 0x0e },
@@ -514,7 +513,7 @@ namespace {
         mn.push_back(std::byte { 0 });
         mn.push_back(std::byte { 0 });
 
-        append_u16be(&mn, 2);       // entry count
+        append_u16be(&mn, 2);  // entry count
 
         append_u16be(&mn, 0x0002);  // SerialNumber
         append_u16be(&mn, 2);       // ASCII
@@ -1239,7 +1238,7 @@ TEST(SimpleMetaRead, DecodesEmbeddedJpegMakerNoteFromRawTag002E)
     std::array<std::byte, 8192> payload_scratch {};
     std::array<uint32_t, 64> payload_parts {};
     ExifDecodeOptions exif_options;
-    exif_options.decode_makernote          = true;
+    exif_options.decode_makernote           = true;
     exif_options.decode_embedded_containers = true;
     PayloadOptions payload_options;
 
@@ -1261,8 +1260,7 @@ TEST(SimpleMetaRead, DecodesEmbeddedJpegMakerNoteFromRawTag002E)
         exif_key("mk_panasonic0", 0x0003));
     ASSERT_EQ(wb_ids.size(), 1U);
     EXPECT_EQ(store.entry(wb_ids[0]).value.kind, MetaValueKind::Scalar);
-    EXPECT_EQ(store.entry(wb_ids[0]).value.elem_type,
-              MetaElementType::U16);
+    EXPECT_EQ(store.entry(wb_ids[0]).value.elem_type, MetaElementType::U16);
     EXPECT_EQ(store.entry(wb_ids[0]).value.data.u64, 4U);
 }
 
@@ -1274,7 +1272,7 @@ TEST(ExifTiffDecode, DecodesPentaxMakerNoteFromDngPrivateData)
     MetaStore store;
     std::array<ExifIfdRef, 8> ifds {};
     ExifDecodeOptions options;
-    options.decode_makernote = true;
+    options.decode_makernote   = true;
     const ExifDecodeResult res = decode_exif_tiff(tiff, store, ifds, options);
     EXPECT_EQ(res.status, ExifDecodeStatus::Ok);
 
@@ -1296,7 +1294,7 @@ TEST(ExifTiffDecode, DecodesNikonNefInfoDistortionInfoAsMakerNoteFields)
     MetaStore store;
     std::array<ExifIfdRef, 8> ifds {};
     ExifDecodeOptions options;
-    options.decode_makernote = true;
+    options.decode_makernote   = true;
     const ExifDecodeResult res = decode_exif_tiff(tiff, store, ifds, options);
     EXPECT_EQ(res.status, ExifDecodeStatus::Ok);
 
@@ -1325,8 +1323,7 @@ TEST(ExifTiffDecode, DecodesNikonNefInfoDistortionInfoAsMakerNoteFields)
         exif_key("mk_nikon_distortioninfo_0", 0x0004));
     ASSERT_EQ(enabled_ids.size(), 1U);
     EXPECT_EQ(store.entry(enabled_ids[0]).value.kind, MetaValueKind::Scalar);
-    EXPECT_EQ(store.entry(enabled_ids[0]).value.elem_type,
-              MetaElementType::U8);
+    EXPECT_EQ(store.entry(enabled_ids[0]).value.elem_type, MetaElementType::U8);
     EXPECT_EQ(store.entry(enabled_ids[0]).value.data.u64, 1U);
 
     const std::span<const EntryId> coeff1_ids = store.find_all(
@@ -1338,10 +1335,12 @@ TEST(ExifTiffDecode, DecodesNikonNefInfoDistortionInfoAsMakerNoteFields)
     EXPECT_EQ(store.entry(coeff1_ids[0]).value.data.sr.numer, -1429);
     EXPECT_EQ(store.entry(coeff1_ids[0]).value.data.sr.denom, 100000);
 
-    EXPECT_EQ(store.find_all(exif_key("mk_nikon_distortioninfo_0", 0x001C)).size(),
-              1U);
-    EXPECT_EQ(store.find_all(exif_key("mk_nikon_distortioninfo_0", 0x0024)).size(),
-              1U);
+    EXPECT_EQ(
+        store.find_all(exif_key("mk_nikon_distortioninfo_0", 0x001C)).size(),
+        1U);
+    EXPECT_EQ(
+        store.find_all(exif_key("mk_nikon_distortioninfo_0", 0x0024)).size(),
+        1U);
 }
 
 
@@ -1352,7 +1351,7 @@ TEST(ExifTiffDecode, DecodesSigmaMakerNoteUnderSigmaIfd)
     MetaStore store;
     std::array<ExifIfdRef, 8> ifds {};
     ExifDecodeOptions options;
-    options.decode_makernote = true;
+    options.decode_makernote   = true;
     const ExifDecodeResult res = decode_exif_tiff(tiff, store, ifds, options);
     EXPECT_EQ(res.status, ExifDecodeStatus::Ok);
 
@@ -1380,7 +1379,7 @@ TEST(ExifTiffDecode, DecodesSigmaWbSettingsSubtables)
     MetaStore store;
     std::array<ExifIfdRef, 8> ifds {};
     ExifDecodeOptions options;
-    options.decode_makernote = true;
+    options.decode_makernote   = true;
     const ExifDecodeResult res = decode_exif_tiff(tiff, store, ifds, options);
     EXPECT_EQ(res.status, ExifDecodeStatus::Ok);
 
@@ -1452,6 +1451,97 @@ TEST(SimpleMetaRead, DecodesRafEmbeddedTiff)
         exif_key("ifd0", 0x010F));
     ASSERT_EQ(ids.size(), 1U);
     EXPECT_EQ(arena_string(store.arena(), store.entry(ids[0]).value), "Canon");
+}
+
+TEST(SimpleMetaRead, DecodesRafNativeDirectory)
+{
+    const std::vector<std::byte> tiff = make_test_tiff_le();
+
+    std::vector<std::byte> dir;
+    append_u32be(&dir, 3U);
+    append_u16be(&dir, 0x0100U);
+    append_u16be(&dir, 4U);
+    append_u16be(&dir, 6048U);
+    append_u16be(&dir, 4032U);
+    append_u16be(&dir, 0x0110U);
+    append_u16be(&dir, 4U);
+    append_u16be(&dir, 12U);
+    append_u16be(&dir, 8U);
+    append_u16be(&dir, 0xc000U);
+    append_u16be(&dir, 16U);
+    append_u32be(&dir, 6048U);
+    append_u32be(&dir, 6048U);
+    append_u32be(&dir, 4032U);
+    append_u32be(&dir, 4032U);
+
+    const uint32_t dir_off  = 192U;
+    const uint32_t tiff_off = 320U;
+
+    std::vector<std::byte> raf;
+    append_bytes(&raf, "FUJIFILMCCD-RAW ");
+    raf.resize(0x3cU, std::byte { 0x00 });
+    append_bytes(&raf, "0200");
+    raf.resize(0x5cU, std::byte { 0x00 });
+    append_u32be(&raf, dir_off);
+    append_u32be(&raf, static_cast<uint32_t>(dir.size()));
+    append_u32be(&raf, tiff_off);
+    append_u32be(&raf, static_cast<uint32_t>(tiff.size()));
+    raf.resize(dir_off, std::byte { 0x00 });
+    raf.insert(raf.end(), dir.begin(), dir.end());
+    raf.resize(tiff_off, std::byte { 0x00 });
+    raf.insert(raf.end(), tiff.begin(), tiff.end());
+
+    MetaStore store;
+    std::array<ContainerBlockRef, 8> blocks {};
+    std::array<ExifIfdRef, 8> ifds {};
+    std::array<std::byte, 4096> payload_scratch {};
+    std::array<uint32_t, 16> payload_parts {};
+    ExifDecodeOptions exif_options;
+    PayloadOptions payload_options;
+    const SimpleMetaResult res
+        = simple_meta_read(raf, store, blocks, ifds, payload_scratch,
+                           payload_parts, exif_options, payload_options);
+    EXPECT_EQ(res.scan.status, ScanStatus::Ok);
+    EXPECT_EQ(res.exif.status, ExifDecodeStatus::Ok);
+    EXPECT_GT(res.exif.entries_decoded, 0U);
+
+    store.finalize();
+
+    const std::span<const EntryId> version_ids = store.find_all(
+        exif_key("raf_header", 0x003c));
+    ASSERT_EQ(version_ids.size(), 1U);
+    EXPECT_EQ(arena_string(store.arena(), store.entry(version_ids[0]).value),
+              "0200");
+
+    const std::span<const EntryId> size_ids = store.find_all(
+        exif_key("raf_0", 0x0100));
+    ASSERT_EQ(size_ids.size(), 1U);
+    const Entry& size_entry = store.entry(size_ids[0]);
+    EXPECT_EQ(size_entry.value.kind, MetaValueKind::Array);
+    EXPECT_EQ(size_entry.value.elem_type, MetaElementType::U16);
+    EXPECT_EQ(size_entry.value.count, 2U);
+
+    const std::span<const EntryId> left_ids = store.find_all(
+        exif_key("raf_0", 0x0110));
+    ASSERT_EQ(left_ids.size(), 1U);
+    const Entry& left_entry = store.entry(left_ids[0]);
+    EXPECT_EQ(left_entry.value.kind, MetaValueKind::Array);
+    EXPECT_EQ(left_entry.value.elem_type, MetaElementType::U16);
+    EXPECT_EQ(left_entry.value.count, 2U);
+
+    const std::span<const EntryId> width_ids = store.find_all(
+        exif_key("mk_fuji_rafdata_0", 0x0000));
+    ASSERT_EQ(width_ids.size(), 1U);
+    EXPECT_EQ(store.entry(width_ids[0]).value.kind, MetaValueKind::Scalar);
+    EXPECT_EQ(store.entry(width_ids[0]).value.elem_type, MetaElementType::U32);
+    EXPECT_EQ(store.entry(width_ids[0]).value.data.u64, 6048U);
+
+    const VendorRawProcessingSummary summary
+        = vendor_raw_processing_from_store(store,
+                                           VendorRawProcessingFamily::Fujifilm);
+    EXPECT_GE(summary.fields_seen, 1U);
+    EXPECT_GE(summary.geometry_fields, 1U);
+    EXPECT_GE(summary.raw_data_fields, 1U);
 }
 
 

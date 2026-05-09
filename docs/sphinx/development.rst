@@ -37,7 +37,7 @@ model should stay compact:
        crop/border/active-area, exposure/gain, color/WB, orientation,
        lens-correction, and RAW-processing fields across standard and vendor
        metadata.
-     - Low, about 20-25%.
+     - Low, about 25-30%.
    * - Creation
      - Build fresh metadata entries from host-provided values.
      - Medium, about 55-65%.
@@ -69,8 +69,8 @@ Query results should expose both inspection-level matches and interpreted
 candidates. A crop query, for example, may match separate
 ``DefaultCropOrigin`` and ``DefaultCropSize`` tags, an ``ActiveArea`` rectangle,
 vendor margin fields, or a raw integer array. OpenMeta should return the source
-entries, confidence, value shape, and any normalized interpretation rather than
-hiding ambiguity behind a single value.
+entries, confidence, value shape, match provenance, and any normalized
+interpretation rather than hiding ambiguity behind a single value.
 
 The first experimental C++ query surface is ``openmeta/metadata_query.h``.
 It returns both raw matches and normalized candidates for crop/active-area,
@@ -89,7 +89,9 @@ geometry, and raw-storage identifiers. Grouped candidates use ``matrix_set``,
 ``vector_set``, and ``table`` value shapes. When
 ``OPENMETA_ENABLE_RAPIDFUZZ=ON``, the same query helpers also use RapidFuzz to
 score near-miss XMP/property paths; default builds keep the deterministic
-substring/tag matcher only.
+substring/tag matcher only. Each raw match reports ``exact_match``,
+``fuzzy_match``, and ``fuzzy_score`` so UI code can distinguish exact tag/name
+matches from near-miss search hits.
 Python ``Document`` and ``TransferSourceSnapshot`` mirror this as thin wrappers
 returning the same match/candidate dictionary shape.
 

@@ -914,6 +914,9 @@ namespace {
             metadata_query_value_shape_name(match.shape));
         out["confidence"]    = nb::int_(match.confidence);
         out["matched_terms"] = nb::int_(match.matched_terms);
+        out["exact_match"]   = nb::bool_(match.exact_match);
+        out["fuzzy_match"]   = nb::bool_(match.fuzzy_match);
+        out["fuzzy_score"]   = nb::int_(match.fuzzy_score);
         out["exif_tag"]      = nb::int_(match.exif_tag);
         out["group"]         = sv_to_py(match.group);
         out["name"]          = sv_to_py(match.name);

@@ -213,6 +213,21 @@ Implemented:
   camera raw settings XMP, source ICC profiles, MakerNotes, and non-C2PA JUMBF
   data. It is intended for RAW-to-rendered or otherwise pixel-changing exports
   where host code must provide target-correct color/profile data.
+- safety regression coverage now checks both sides of that boundary:
+  compatible-file mode keeps serializable source RAW/camera-specific metadata,
+  while rendered-image mode drops the same source-specific data and injects
+  host-provided target dimensions, channel count, bit depth, sample format,
+  photometric interpretation, and orientation.
+- current writer limits still apply after safety filtering: some compatible
+  source metadata can be retained in the decoded `MetaStore` and audit, but
+  may not yet serialize through every target writer path. Adobe DNG XMP
+  properties (`dng:*`) are now emitted by the portable XMP writer when retained
+  by compatible-file safety. The remaining writer gap is mainly reconstructed
+  vendor-private MakerNote sub-IFDs and unknown/custom XMP namespaces that do
+  not have a declared portable writer contract. OpenMeta preserves the raw
+  `ExifIFD:MakerNote` payload when it is present, but decoded-only vendor
+  MakerNote sub-IFD fields are reported as non-serializable and are not used to
+  synthesize a new MakerNote blob.
 - bounded DNG-style merge policy in the file-helper path:
   source-supplied preview/aux front structures replace the target front
   structures, while existing target page tails and trailing auxiliary
@@ -683,7 +698,7 @@ Exit criteria:
 | JXL | Lock current box rewrite rules for `Exif`, `xml `, `jumb`, bounded `c2pa`, and encoder-side ICC handoff; add compare-backed roundtrip gates for edit/apply paths | Promote JXL from bounded but real to a stable first-class metadata target with explicit unmanaged-box preservation rules and clearer encoder/file-edit split | Add more `brob` realtype coverage only after the current direct and bounded compressed routes are stable |
 | HEIF / AVIF / CR3 | Lock the bounded metadata-only `meta` edit contract, item/property preservation rules, and compare-backed roundtrip gates | Stabilize the bounded BMFF writer contract for metadata items, ICC property handling, and existing OpenMeta-authored `meta` replacement | Deepen BMFF scene semantics and relation modeling where current bounded fields are too small for parity workflows |
 | EXR | Decide whether the public target remains an attribute-emitter contract or grows into a file rewrite/edit path; add compare-backed gates for the chosen contract | If EXR stays bounded, make that contract final and explicit across C++, CLI, and Python; if it grows, define one narrow first-class rewrite scope and gate it | Add depth only after the architectural choice is settled; avoid half-bounded expansion |
-| RAF / X3F | Keep current follow-path reads stable and add focused compare coverage for the existing best-effort semantics | Only add read depth that directly improves downstream transfer/export confidence | Deepen native semantics beyond embedded-TIFF follow paths if parity evidence shows real user-facing gaps |
+| RAF / X3F | Keep RAF header-declared FujiIFD/TIFF follow path, RAF header/directory geometry decode, RAFData geometry projection, standalone XMP fallback, and X3F follow-path reads stable with focused compare coverage | Only add read depth that directly improves downstream transfer/export confidence | Deepen remaining RAF model-specific tables and X3F native semantics if parity evidence shows real user-facing gaps |
 | CRW / CIFF | Keep the current bounded native CIFF projection stable and well-gated | Improve only the parts that materially affect interop or transfer workflows | Revisit deeper native legacy coverage if it becomes a recurring parity blocker |
 | Photoshop IRB | Keep raw preservation stable and add compare coverage for the current interpreted subset | Expand interpreted subset only where it improves practical writer parity | Revisit broader Photoshop-resource parity after the first-class writer set is stable |
 | JUMBF / C2PA | Keep bounded preserve/invalidate behavior deterministic and regression-gated | Improve public signer-handoff and bounded rewrite workflows without claiming full trust-policy parity | Revisit deeper semantics and signed rewrite coverage after the main writer contract is stable |
@@ -748,7 +763,7 @@ still sits after the current public regression and writer-contract work.
 | `JXL` | `Strong` on current lanes | `Partial` | more explicit box-preservation guarantees and deeper `brob` realtype follow-through |
 | `HEIF / AVIF / CR3` | `Strong` on tracked lanes | `Partial` | BMFF writer depth and deeper scene/relation semantics beyond the bounded current model |
 | `EXR` | `Bounded but real` | `Bounded but real` | still needs an explicit long-term decision between stable bounded target vs rewrite/edit path |
-| `RAF / X3F` | `Partial` | not a main writer lane | deeper native semantics beyond embedded-TIFF follow paths |
+| `RAF / X3F` | `Partial` | not a main writer lane | deeper RAF model-specific native tables and X3F section semantics beyond current follow paths |
 | `CRW / CIFF` | `Partial` | bounded | legacy native depth still trails mature tools |
 | `Photoshop IRB` | `Partial` | bounded preservation | interpreted subset still smaller than mature tools |
 | `JUMBF / C2PA` | `Partial` | bounded | deeper semantics, trust-policy behavior, and signed rewrite parity remain out of scope |

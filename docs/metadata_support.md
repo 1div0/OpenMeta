@@ -19,6 +19,9 @@ Host integrations can query the same kind of runtime support information with
 transfer preparation, target edit, and raw-preservation support by target
 format and metadata family.
 
+For the public camera RAW read-depth plan against ExifTool-style coverage, see
+[raw_read_parity_plan.md](raw_read_parity_plan.md).
+
 ## Coverage Snapshot
 
 Current tracked-gate status:
@@ -33,6 +36,9 @@ Current tracked-gate status:
   smoke tests.
 - MakerNote coverage is tracked by baseline gates with broad vendor support;
   unknown vendor tags are preserved as raw metadata for lossless workflows.
+- Decoded vendor MakerNote sub-IFDs are interpreted/query metadata. Writers do
+  not reconstruct MakerNote blobs from those decoded fields; they preserve the
+  original raw MakerNote payload when it is present.
 - BMFF edge-path tests include `iloc` construction-method-2 relation variants
   and safe-skip handling for invalid references.
 
@@ -46,7 +52,7 @@ Current tracked-gate status:
 | GIF | Yes | Partial | XMP, ICC, and structured comments |
 | TIFF / DNG / TIFF-based RAW | Yes | Yes | EXIF, MakerNote, XMP, IPTC, Photoshop IRB, ICC, GeoTIFF, and bounded JUMBF/C2PA |
 | CRW / CIFF | Yes | Partial | Derived EXIF bridge plus bounded native Canon CIFF naming and projection |
-| RAF / X3F | Partial | Partial | Mainly embedded-TIFF follow path with best-effort extras |
+| RAF / X3F | Partial | Partial | RAF now includes header-declared FujiIFD/TIFF follow path, native RAF header/directory geometry tags, RAFData geometry projection, and standalone XMP fallback; X3F remains mainly embedded-EXIF follow path |
 | JP2 | Yes | Yes | EXIF, XMP, IPTC, ICC, and GeoTIFF |
 | JXL | Yes | Yes | EXIF, XMP, and bounded JUMBF/C2PA; supported `brob` wrapped metadata is decoded |
 | HEIF / AVIF / CR3 | Yes | Partial | EXIF, XMP, ICC, CR3 maker blocks, BMFF derived fields, and bounded JUMBF/C2PA |
@@ -152,7 +158,8 @@ What this means in practice:
   surface
 - additional `JXL brob` realtypes beyond `Exif`, `xml `, `jumb`, and `c2pa`
 - full `JUMBF/C2PA` semantics and policy validation
-- deeper `RAF / X3F` native semantics beyond embedded-TIFF follow paths
+- deeper RAF model-specific native tables and X3F native semantics beyond the
+  current follow paths
 - broader Photoshop IRB interpretation beyond the current bounded subset
 
 ## Related Docs

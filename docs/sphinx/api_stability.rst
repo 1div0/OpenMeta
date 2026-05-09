@@ -78,8 +78,11 @@ Host-facing API map
        Current coverage includes crop/active-area, exposure/gain, white
        balance, color, lens correction, orientation, and RAW-processing
        metadata across standard tags, selected DNG tags, fuzzy XMP paths, and
-       vendor RAW-processing classification. ``OPENMETA_ENABLE_RAPIDFUZZ=ON``
-       adds optional near-miss XMP/property-path scoring. Grouped candidates
+       vendor RAW-processing classification. Matches report ``exact_match``,
+       ``fuzzy_match``, and ``fuzzy_score`` so tools can label exact results
+       separately from RapidFuzz near-miss hits.
+       ``OPENMETA_ENABLE_RAPIDFUZZ=ON`` adds optional near-miss
+       XMP/property-path scoring. Grouped candidates
        include ``matrix_set``, ``vector_set``, and ``table`` shapes for related
        non-crop metadata, including RAW black/white levels, linearization,
        CFA/sensor layout, source geometry, and raw-storage identifiers.
@@ -95,9 +98,11 @@ Host-facing API map
        Sigma, Samsung, Ricoh, Apple, DJI, Google, FLIR, Casio, Sanyo,
        KyoceraRaw, Reconyx, HP, JVC, GE, Motorola, Nintendo, and Microsoft
        MakerNotes, including vendor-private, computational, thermal, preview,
-       face-geometry, and stitch/panorama buckets. Intended for audit/UI and
-       rendered-transfer safety decisions, not for writing vendor
-       RAW/source-processing values into rendered targets.
+       face-geometry, stitch/panorama, Apple computational capture/HDR/motion,
+       DJI pose/thermal, Google HDR+/shot-log, and FLIR radiometric/raw-value
+       buckets. Intended for audit/UI and rendered-transfer safety decisions,
+       not for writing vendor RAW/source-processing values into rendered
+       targets.
    * - Transfer safety audit:
        ``transfer_safety_audit_from_store(...)``
      - ``openmeta/metadata_transfer.h``

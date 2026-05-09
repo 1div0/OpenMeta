@@ -36,7 +36,8 @@ Use the narrowest public API that matches your host:
 
 For inspection/search UI, prefer the experimental semantic query helpers before
 building a separate fuzzy layer. They report source entries, confidence, value
-shape, and normalized candidates while preserving ambiguity.
+shape, exact/fuzzy match provenance, and normalized candidates while preserving
+ambiguity.
 
 ## Adapter Classes
 
@@ -108,8 +109,9 @@ Use exact lookup for deterministic key access. For inspection/search UI, prefer
 entries, confidence, value shape, and normalized candidates. The default matcher
 uses built-in tags and conservative substring/name rules; builds configured
 with `-DOPENMETA_ENABLE_RAPIDFUZZ=ON` add RapidFuzz-backed near-miss XMP/path
-matching. `metadata_query_fuzzy_search_available()` reports whether that
-stronger matcher is compiled in.
+matching. Raw matches include `exact_match`, `fuzzy_match`, and `fuzzy_score`
+fields; `metadata_query_fuzzy_search_available()` reports whether the stronger
+matcher is compiled in.
 
 ## 3. Generic Host Metadata Traversal
 
@@ -579,6 +581,11 @@ print(audit["filtered_raw_color_calibration"])
 `metaread` prints
 `vendor_raw_processing[sony|canon|nikon|fujifilm|pentax|panasonic|olympus|kodak|minolta|sigma|samsung|ricoh|apple|dji|google|flir|casio|sanyo|kyoceraraw|reconyx|hp|jvc|ge|motorola|nintendo|microsoft]=...`
 summaries when matching decoded fields are present.
+Live-vendor source-processing coverage currently includes Apple computational
+capture/HDR/motion fields, DJI pose and thermal fields, Google HDR+/shot-log
+fields, and FLIR radiometric/raw-value/geometry fields. These buckets are used
+by rendered-image safety filtering; they are not target-owned metadata for
+rendered outputs.
 
 ## 11. Build `MetaStore` Yourself
 

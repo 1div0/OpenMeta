@@ -210,7 +210,7 @@ namespace {
                                                      blocks.size()));
 
         EXPECT_EQ(res.status, ScanStatus::Ok);
-        bool found_xmp = false;
+        bool found_xmp   = false;
         const uint32_t n = (res.written < blocks.size())
                                ? res.written
                                : static_cast<uint32_t>(blocks.size());
@@ -284,6 +284,32 @@ namespace {
         }
 
         EXPECT_TRUE(found);
+    }
+
+    TEST(ContainerScan, RafUsesHeaderDeclaredFujiIfdOffset)
+    {
+        std::vector<std::byte> raf;
+        append_bytes(&raf, "FUJIFILMCCD-RAW ");
+        raf.resize(0x64U, std::byte { 0x00 });
+        append_u32be(&raf, 256U);
+        append_u32be(&raf, 14U);
+        raf.resize(256U, std::byte { 0x00 });
+
+        append_bytes(&raf, "II");
+        append_u16le(&raf, 42);
+        append_u32le(&raf, 8);
+        append_u16le(&raf, 0);
+        append_u32le(&raf, 0);
+
+        std::array<ContainerBlockRef, 8> blocks {};
+        const ScanResult res
+            = scan_auto(std::span<const std::byte>(raf.data(), raf.size()),
+                        blocks);
+        ASSERT_EQ(res.status, ScanStatus::Ok);
+        ASSERT_EQ(res.written, 1U);
+        EXPECT_EQ(blocks[0].format, ContainerFormat::Raf);
+        EXPECT_EQ(blocks[0].kind, ContainerBlockKind::Exif);
+        EXPECT_EQ(blocks[0].data_offset, 256U);
     }
 
     TEST(ContainerScan, X3fEmbeddedExifUsesX3fFormat)

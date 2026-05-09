@@ -365,6 +365,7 @@ set(OPENMETA_SOURCES
   src/openmeta/photoshop_irb_decode.cc
   src/openmeta/preview_extract.cc
   src/openmeta/printim_decode.cc
+  src/openmeta/raf_decode.cc
   src/openmeta/simple_meta.cc
   src/openmeta/validate.cc
   src/openmeta/vendor_raw_processing.cc

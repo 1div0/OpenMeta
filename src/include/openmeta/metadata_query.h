@@ -101,6 +101,9 @@ struct MetadataQueryMatch final {
     MetadataQueryValueShape shape      = MetadataQueryValueShape::Unknown;
     uint8_t confidence                 = 0U;
     uint32_t matched_terms             = 0U;
+    bool exact_match                   = false;
+    bool fuzzy_match                   = false;
+    uint8_t fuzzy_score                = 0U;
     uint16_t exif_tag                  = 0U;
     std::string group;
     std::string name;

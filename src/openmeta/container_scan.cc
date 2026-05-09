@@ -395,6 +395,26 @@ namespace {
         block->data_size -= skip;
     }
 
+
+    static bool raf_declared_tiff_offset(std::span<const std::byte> bytes,
+                                         uint64_t* out) noexcept
+    {
+        if (!out) {
+            return false;
+        }
+
+        uint32_t off = 0;
+        if (!read_u32be(bytes, 0x64U, &off) || off == 0U) {
+            return false;
+        }
+        if (!looks_like_tiff_at(bytes, off)) {
+            return false;
+        }
+
+        *out = static_cast<uint64_t>(off);
+        return true;
+    }
+
 }  // namespace
 
 ScanResult
@@ -4636,10 +4656,15 @@ scan_auto(std::span<const std::byte> bytes,
         }
     }
 
-    // Fujifilm RAF: fixed header, then an embedded TIFF stream.
+    // Fujifilm RAF: fixed header plus header-declared FujiIFD/TIFF stream.
     if (bytes.size() >= 16 && match(bytes, 0, "FUJIFILMCCD-RAW ", 16)) {
         uint64_t tiff_off = 160;
-        if (tiff_off < bytes.size() && looks_like_tiff_at(bytes, tiff_off)) {
+        bool have_tiff    = raf_declared_tiff_offset(bytes, &tiff_off);
+        if (!have_tiff && tiff_off < bytes.size()
+            && looks_like_tiff_at(bytes, tiff_off)) {
+            have_tiff = true;
+        }
+        if (have_tiff) {
             const std::span<const std::byte> tiff = bytes.subspan(
                 static_cast<size_t>(tiff_off));
             ScanResult res   = scan_tiff(tiff, out);

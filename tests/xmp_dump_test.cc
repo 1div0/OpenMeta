@@ -10428,6 +10428,43 @@ TEST(XmpDump, PortablePreservesCrsNamespace)
               std::string_view::npos);
 }
 
+TEST(XmpDump, PortablePreservesDngNamespace)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, kInvalidBlockId);
+
+    Entry profile_name;
+    profile_name.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/dng/1.0/", "ProfileName");
+    profile_name.value = make_text(store.arena(), "Source Raw Profile",
+                                   TextEncoding::Utf8);
+    profile_name.origin.block          = block;
+    profile_name.origin.order_in_block = 0;
+    (void)store.add_entry(profile_name);
+
+    store.finalize();
+
+    XmpPortableOptions opts;
+    opts.include_exif         = false;
+    opts.include_iptc         = false;
+    opts.include_existing_xmp = true;
+
+    std::vector<std::byte> out(4096);
+    const XmpDumpResult r
+        = dump_xmp_portable(store, std::span<std::byte>(out.data(), out.size()),
+                            opts);
+    ASSERT_EQ(r.status, XmpDumpStatus::Ok);
+
+    const std::string_view s(reinterpret_cast<const char*>(out.data()),
+                             static_cast<size_t>(r.written));
+    EXPECT_NE(s.find("xmlns:dng=\"http://ns.adobe.com/dng/1.0/\""),
+              std::string_view::npos);
+    EXPECT_NE(
+        s.find("<dng:ProfileName>Source Raw Profile</dng:ProfileName>"),
+        std::string_view::npos);
+}
+
 TEST(XmpDump, PortablePreservesLrNamespace)
 {
     MetaStore store;

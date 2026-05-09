@@ -120,8 +120,7 @@ TEST(VendorRawProcessing, ClassifiesFujifilmRawProcessingFields)
 {
     const VendorRawProcessingGroup wb_groups
         = classify_vendor_raw_processing_field("mk_fuji0",
-                                               "WhiteBalanceFineTune",
-                                               0x100AU);
+                                               "WhiteBalanceFineTune", 0x100AU);
     EXPECT_TRUE(has_group(wb_groups, VendorRawProcessingGroup::WhiteBalance));
     EXPECT_TRUE(has_group(wb_groups, VendorRawProcessingGroup::Color));
 
@@ -155,8 +154,7 @@ TEST(VendorRawProcessing, ClassifiesPentaxRawProcessingFields)
     const VendorRawProcessingGroup raw_size_groups
         = classify_vendor_raw_processing_field("mk_pentax0", "RawImageSize",
                                                0x0039U);
-    EXPECT_TRUE(
-        has_group(raw_size_groups, VendorRawProcessingGroup::Geometry));
+    EXPECT_TRUE(has_group(raw_size_groups, VendorRawProcessingGroup::Geometry));
     EXPECT_TRUE(has_group(raw_size_groups, VendorRawProcessingGroup::RawData));
 
     const VendorRawProcessingGroup matrix_groups
@@ -173,8 +171,7 @@ TEST(VendorRawProcessing, ClassifiesPentaxRawProcessingFields)
 
     const VendorRawProcessingGroup correction_groups
         = classify_vendor_raw_processing_field("mk_pentax_lenscorr_0",
-                                               "DistortionCorrection",
-                                               0x0000U);
+                                               "DistortionCorrection", 0x0000U);
     EXPECT_TRUE(
         has_group(correction_groups, VendorRawProcessingGroup::LensCorrection));
 
@@ -257,8 +254,7 @@ TEST(VendorRawProcessing, ClassifiesOlympusRawProcessingFields)
 
     const VendorRawProcessingGroup rawdev_groups
         = classify_vendor_raw_processing_field("mk_olympus_rawdevelopment2_0",
-                                               "RawDevNoiseReduction",
-                                               0x010AU);
+                                               "RawDevNoiseReduction", 0x010AU);
     EXPECT_TRUE(has_group(rawdev_groups, VendorRawProcessingGroup::RawData));
     EXPECT_TRUE(has_group(rawdev_groups, VendorRawProcessingGroup::Sensor));
     EXPECT_TRUE(
@@ -290,8 +286,8 @@ TEST(VendorRawProcessing, ClassifiesKodakRawProcessingFields)
     EXPECT_TRUE(has_group(black_groups, VendorRawProcessingGroup::Sensor));
 
     const VendorRawProcessingGroup raw_groups
-        = classify_vendor_raw_processing_field("mk_kodak_ifd_0",
-                                               "RawHistogram", 0x0C4EU);
+        = classify_vendor_raw_processing_field("mk_kodak_ifd_0", "RawHistogram",
+                                               0x0C4EU);
     EXPECT_TRUE(has_group(raw_groups, VendorRawProcessingGroup::RawData));
 
     const VendorRawProcessingGroup capture_groups
@@ -348,8 +344,8 @@ TEST(VendorRawProcessing, ClassifiesSigmaRawProcessingFields)
     EXPECT_TRUE(has_group(wb_groups, VendorRawProcessingGroup::Color));
 
     const VendorRawProcessingGroup calibration_groups
-        = classify_vendor_raw_processing_field("mk_sigma0",
-                                               "CameraCalibration", 0x011FU);
+        = classify_vendor_raw_processing_field("mk_sigma0", "CameraCalibration",
+                                               0x011FU);
     EXPECT_TRUE(has_group(calibration_groups, VendorRawProcessingGroup::Color));
 
     const VendorRawProcessingGroup vignette_groups
@@ -359,8 +355,8 @@ TEST(VendorRawProcessing, ClassifiesSigmaRawProcessingFields)
         has_group(vignette_groups, VendorRawProcessingGroup::LensCorrection));
 
     const VendorRawProcessingGroup sensor_groups
-        = classify_vendor_raw_processing_field("mk_sigma0",
-                                               "SensorTemperature", 0x0039U);
+        = classify_vendor_raw_processing_field("mk_sigma0", "SensorTemperature",
+                                               0x0039U);
     EXPECT_TRUE(has_group(sensor_groups, VendorRawProcessingGroup::Sensor));
 
     const VendorRawProcessingGroup capture_groups
@@ -407,8 +403,8 @@ TEST(VendorRawProcessing, ClassifiesSamsungRawProcessingFields)
         has_group(correction_groups, VendorRawProcessingGroup::LensCorrection));
 
     const VendorRawProcessingGroup capture_groups
-        = classify_vendor_raw_processing_field("mk_samsung_type2_0",
-                                               "LensType", 0xA003U);
+        = classify_vendor_raw_processing_field("mk_samsung_type2_0", "LensType",
+                                               0xA003U);
     EXPECT_EQ(capture_groups, VendorRawProcessingGroup::None);
 }
 
@@ -416,8 +412,7 @@ TEST(VendorRawProcessing, ClassifiesRicohRawProcessingFields)
 {
     const VendorRawProcessingGroup wb_groups
         = classify_vendor_raw_processing_field("mk_ricoh0",
-                                               "WhiteBalanceFineTune",
-                                               0x1004U);
+                                               "WhiteBalanceFineTune", 0x1004U);
     EXPECT_TRUE(has_group(wb_groups, VendorRawProcessingGroup::WhiteBalance));
     EXPECT_TRUE(has_group(wb_groups, VendorRawProcessingGroup::Color));
 
@@ -447,24 +442,45 @@ TEST(VendorRawProcessing, ClassifiesRicohRawProcessingFields)
 TEST(VendorRawProcessing, ClassifiesAppleSourceProcessingFields)
 {
     const VendorRawProcessingGroup wb_groups
-        = classify_vendor_raw_processing_field("mk_apple0",
-                                               "ColorTemperature", 0x002DU);
+        = classify_vendor_raw_processing_field("mk_apple0", "ColorTemperature",
+                                               0x002DU);
     EXPECT_TRUE(has_group(wb_groups, VendorRawProcessingGroup::WhiteBalance));
     EXPECT_TRUE(has_group(wb_groups, VendorRawProcessingGroup::Color));
 
     const VendorRawProcessingGroup hdr_groups
-        = classify_vendor_raw_processing_field("mk_apple0", "HDRGain",
-                                               0x0030U);
+        = classify_vendor_raw_processing_field("mk_apple0", "HDRGain", 0x0030U);
     EXPECT_TRUE(has_group(hdr_groups, VendorRawProcessingGroup::Color));
-    EXPECT_TRUE(
-        has_group(hdr_groups, VendorRawProcessingGroup::PrivateTable));
+    EXPECT_TRUE(has_group(hdr_groups, VendorRawProcessingGroup::PrivateTable));
 
     const VendorRawProcessingGroup processing_groups
         = classify_vendor_raw_processing_field("mk_apple0",
-                                               "ImageProcessingFlags",
-                                               0x0019U);
+                                               "ImageProcessingFlags", 0x0019U);
     EXPECT_TRUE(has_group(processing_groups, VendorRawProcessingGroup::Sensor));
-    EXPECT_TRUE(has_group(processing_groups,
+    EXPECT_TRUE(
+        has_group(processing_groups, VendorRawProcessingGroup::PrivateTable));
+
+    const VendorRawProcessingGroup motion_groups
+        = classify_vendor_raw_processing_field("mk_apple0",
+                                               "AccelerationVector", 0x0008U);
+    EXPECT_TRUE(has_group(motion_groups, VendorRawProcessingGroup::Geometry));
+    EXPECT_TRUE(has_group(motion_groups, VendorRawProcessingGroup::Sensor));
+    EXPECT_TRUE(
+        has_group(motion_groups, VendorRawProcessingGroup::PrivateTable));
+
+    const VendorRawProcessingGroup hdr_headroom_groups
+        = classify_vendor_raw_processing_field("mk_apple0", "HDRHeadroom",
+                                               0x0021U);
+    EXPECT_TRUE(
+        has_group(hdr_headroom_groups, VendorRawProcessingGroup::Color));
+    EXPECT_TRUE(
+        has_group(hdr_headroom_groups, VendorRawProcessingGroup::PrivateTable));
+
+    const VendorRawProcessingGroup camera_geometry_groups
+        = classify_vendor_raw_processing_field("mk_apple0", "FrontFacingCamera",
+                                               0x0045U);
+    EXPECT_TRUE(
+        has_group(camera_geometry_groups, VendorRawProcessingGroup::Geometry));
+    EXPECT_TRUE(has_group(camera_geometry_groups,
                           VendorRawProcessingGroup::PrivateTable));
 
     const VendorRawProcessingGroup capture_groups
@@ -489,6 +505,19 @@ TEST(VendorRawProcessing, ClassifiesDjiThermalProcessingFields)
     EXPECT_TRUE(
         has_group(emissivity_groups, VendorRawProcessingGroup::PrivateTable));
 
+    const VendorRawProcessingGroup pose_groups
+        = classify_vendor_raw_processing_field("mk_dji0", "CameraYaw", 0x000AU);
+    EXPECT_TRUE(has_group(pose_groups, VendorRawProcessingGroup::Geometry));
+    EXPECT_TRUE(has_group(pose_groups, VendorRawProcessingGroup::Sensor));
+    EXPECT_TRUE(has_group(pose_groups, VendorRawProcessingGroup::PrivateTable));
+
+    const VendorRawProcessingGroup humidity_groups
+        = classify_vendor_raw_processing_field("mk_dji_thermalparams_0",
+                                               "RelativeHumidity", 0x0046U);
+    EXPECT_TRUE(has_group(humidity_groups, VendorRawProcessingGroup::Sensor));
+    EXPECT_TRUE(
+        has_group(humidity_groups, VendorRawProcessingGroup::PrivateTable));
+
     const VendorRawProcessingGroup capture_groups
         = classify_vendor_raw_processing_field("mk_dji0", "Make", 0x0001U);
     EXPECT_EQ(capture_groups, VendorRawProcessingGroup::None);
@@ -508,14 +537,20 @@ TEST(VendorRawProcessing, ClassifiesGoogleComputationalProcessingFields)
     EXPECT_TRUE(has_group(frame_groups, VendorRawProcessingGroup::Sensor));
     EXPECT_TRUE(
         has_group(frame_groups, VendorRawProcessingGroup::PrivateTable));
+
+    const VendorRawProcessingGroup metering_groups
+        = classify_vendor_raw_processing_field("mk_google_shotlogdata_0",
+                                               "MeteringFrameCount", 0x0002U);
+    EXPECT_TRUE(has_group(metering_groups, VendorRawProcessingGroup::Sensor));
+    EXPECT_TRUE(
+        has_group(metering_groups, VendorRawProcessingGroup::PrivateTable));
 }
 
 TEST(VendorRawProcessing, ClassifiesFlirThermalProcessingFields)
 {
     const VendorRawProcessingGroup raw_groups
         = classify_vendor_raw_processing_field("mk_flir_fff_rawdata_0",
-                                               "RawThermalImageWidth",
-                                               0x0001U);
+                                               "RawThermalImageWidth", 0x0001U);
     EXPECT_TRUE(has_group(raw_groups, VendorRawProcessingGroup::Geometry));
     EXPECT_TRUE(has_group(raw_groups, VendorRawProcessingGroup::RawData));
     EXPECT_TRUE(has_group(raw_groups, VendorRawProcessingGroup::Sensor));
@@ -532,6 +567,22 @@ TEST(VendorRawProcessing, ClassifiesFlirThermalProcessingFields)
     EXPECT_TRUE(has_group(palette_groups, VendorRawProcessingGroup::Color));
     EXPECT_TRUE(
         has_group(palette_groups, VendorRawProcessingGroup::PrivateTable));
+
+    const VendorRawProcessingGroup raw_value_groups
+        = classify_vendor_raw_processing_field("mk_flir_fff_camerainfo_0",
+                                               "RawValueRangeMin", 0x0310U);
+    EXPECT_TRUE(has_group(raw_value_groups, VendorRawProcessingGroup::RawData));
+    EXPECT_TRUE(has_group(raw_value_groups, VendorRawProcessingGroup::Sensor));
+
+    const VendorRawProcessingGroup fov_groups
+        = classify_vendor_raw_processing_field("mk_flir_fff_camerainfo_0",
+                                               "FieldOfView", 0x01B4U);
+    EXPECT_TRUE(has_group(fov_groups, VendorRawProcessingGroup::Geometry));
+
+    const VendorRawProcessingGroup focus_groups
+        = classify_vendor_raw_processing_field("mk_flir_fff_camerainfo_0",
+                                               "FocusDistance", 0x045CU);
+    EXPECT_TRUE(has_group(focus_groups, VendorRawProcessingGroup::Geometry));
 
     const VendorRawProcessingGroup capture_groups
         = classify_vendor_raw_processing_field("mk_flir_fff_camerainfo_0",
@@ -577,8 +628,8 @@ TEST(VendorRawProcessing, ClassifiesCasioSourceProcessingFields)
 TEST(VendorRawProcessing, ClassifiesSanyoSourceProcessingFields)
 {
     const VendorRawProcessingGroup wb_groups
-        = classify_vendor_raw_processing_field("mk_sanyo_mov_0",
-                                               "WhiteBalance", 0x0044U);
+        = classify_vendor_raw_processing_field("mk_sanyo_mov_0", "WhiteBalance",
+                                               0x0044U);
     EXPECT_TRUE(has_group(wb_groups, VendorRawProcessingGroup::WhiteBalance));
     EXPECT_TRUE(has_group(wb_groups, VendorRawProcessingGroup::Color));
 
@@ -626,8 +677,8 @@ TEST(VendorRawProcessing, ClassifiesReconyxSourceProcessingFields)
         = classify_vendor_raw_processing_field("mk_reconyx_hyperfire2_0",
                                                "AmbientTemperature", 0x0050U);
     EXPECT_TRUE(has_group(sensor_groups, VendorRawProcessingGroup::Sensor));
-    EXPECT_TRUE(has_group(sensor_groups,
-                          VendorRawProcessingGroup::PrivateTable));
+    EXPECT_TRUE(
+        has_group(sensor_groups, VendorRawProcessingGroup::PrivateTable));
 
     const VendorRawProcessingGroup private_groups
         = classify_vendor_raw_processing_field("mk_reconyx_hyperfire2_0",
@@ -644,14 +695,13 @@ TEST(VendorRawProcessing, ClassifiesReconyxSourceProcessingFields)
 TEST(VendorRawProcessing, ClassifiesHpSourceProcessingFields)
 {
     const VendorRawProcessingGroup private_groups
-        = classify_vendor_raw_processing_field("mk_hp0", "HP_0x0200",
-                                               0x0200U);
+        = classify_vendor_raw_processing_field("mk_hp0", "HP_0x0200", 0x0200U);
     EXPECT_TRUE(
         has_group(private_groups, VendorRawProcessingGroup::PrivateTable));
 
     const VendorRawProcessingGroup capture_groups
-        = classify_vendor_raw_processing_field("mk_hp_type6_0",
-                                               "SerialNumber", 0x0058U);
+        = classify_vendor_raw_processing_field("mk_hp_type6_0", "SerialNumber",
+                                               0x0058U);
     EXPECT_EQ(capture_groups, VendorRawProcessingGroup::None);
 }
 
@@ -670,8 +720,7 @@ TEST(VendorRawProcessing, ClassifiesJvcSourceProcessingFields)
 TEST(VendorRawProcessing, ClassifiesGeSourceProcessingFields)
 {
     const VendorRawProcessingGroup private_groups
-        = classify_vendor_raw_processing_field("mk_ge0", "GE_0x0104",
-                                               0x0104U);
+        = classify_vendor_raw_processing_field("mk_ge0", "GE_0x0104", 0x0104U);
     EXPECT_TRUE(
         has_group(private_groups, VendorRawProcessingGroup::PrivateTable));
 
@@ -683,18 +732,18 @@ TEST(VendorRawProcessing, ClassifiesGeSourceProcessingFields)
 TEST(VendorRawProcessing, ClassifiesMotorolaSourceProcessingFields)
 {
     const VendorRawProcessingGroup rendered_groups
-        = classify_vendor_raw_processing_field("mk_motorola0",
-                                               "CustomRendered", 0x6420U);
+        = classify_vendor_raw_processing_field("mk_motorola0", "CustomRendered",
+                                               0x6420U);
     EXPECT_TRUE(has_group(rendered_groups, VendorRawProcessingGroup::Color));
-    EXPECT_TRUE(has_group(rendered_groups,
-                          VendorRawProcessingGroup::PrivateTable));
+    EXPECT_TRUE(
+        has_group(rendered_groups, VendorRawProcessingGroup::PrivateTable));
 
     const VendorRawProcessingGroup sensor_groups
         = classify_vendor_raw_processing_field("mk_motorola0", "Sensor",
                                                0x665EU);
     EXPECT_TRUE(has_group(sensor_groups, VendorRawProcessingGroup::Sensor));
-    EXPECT_TRUE(has_group(sensor_groups,
-                          VendorRawProcessingGroup::PrivateTable));
+    EXPECT_TRUE(
+        has_group(sensor_groups, VendorRawProcessingGroup::PrivateTable));
 
     const VendorRawProcessingGroup capture_groups
         = classify_vendor_raw_processing_field("mk_motorola0", "SerialNumber",
@@ -708,8 +757,8 @@ TEST(VendorRawProcessing, ClassifiesNintendoSourceProcessingFields)
         = classify_vendor_raw_processing_field("mk_nintendo_camerainfo_0",
                                                "Parallax", 0x0028U);
     EXPECT_TRUE(has_group(geometry_groups, VendorRawProcessingGroup::Geometry));
-    EXPECT_TRUE(has_group(geometry_groups,
-                          VendorRawProcessingGroup::PrivateTable));
+    EXPECT_TRUE(
+        has_group(geometry_groups, VendorRawProcessingGroup::PrivateTable));
 
     const VendorRawProcessingGroup private_groups
         = classify_vendor_raw_processing_field("mk_nintendo0", "CameraInfo",
@@ -730,8 +779,8 @@ TEST(VendorRawProcessing, ClassifiesMicrosoftSourceProcessingFields)
                                                "PanoramicStitchTheta0",
                                                0x0003U);
     EXPECT_TRUE(has_group(stitch_groups, VendorRawProcessingGroup::Geometry));
-    EXPECT_TRUE(has_group(stitch_groups,
-                          VendorRawProcessingGroup::PrivateTable));
+    EXPECT_TRUE(
+        has_group(stitch_groups, VendorRawProcessingGroup::PrivateTable));
 }
 
 TEST(VendorRawProcessing, SummarizesFamiliesFromStore)
@@ -897,8 +946,8 @@ TEST(VendorRawProcessing, SummarizesFamiliesFromStore)
     EXPECT_EQ(nikon.private_table_fields, 1U);
 
     const VendorRawProcessingSummary fujifilm
-        = vendor_raw_processing_from_store(
-            store, VendorRawProcessingFamily::Fujifilm);
+        = vendor_raw_processing_from_store(store,
+                                           VendorRawProcessingFamily::Fujifilm);
     EXPECT_EQ(fujifilm.fields_seen, 3U);
     EXPECT_EQ(fujifilm.color_fields, 1U);
     EXPECT_EQ(fujifilm.white_balance_fields, 1U);
@@ -918,8 +967,8 @@ TEST(VendorRawProcessing, SummarizesFamiliesFromStore)
     EXPECT_EQ(pentax.raw_data_fields, 1U);
 
     const VendorRawProcessingSummary panasonic
-        = vendor_raw_processing_from_store(
-            store, VendorRawProcessingFamily::Panasonic);
+        = vendor_raw_processing_from_store(store,
+                                           VendorRawProcessingFamily::Panasonic);
     EXPECT_EQ(panasonic.fields_seen, 5U);
     EXPECT_EQ(panasonic.color_fields, 1U);
     EXPECT_EQ(panasonic.white_balance_fields, 1U);
@@ -1045,9 +1094,8 @@ TEST(VendorRawProcessing, SummarizesFamiliesFromStore)
     EXPECT_EQ(sanyo.storage_fields, 1U);
     EXPECT_EQ(sanyo.private_table_fields, 2U);
 
-    const VendorRawProcessingSummary kyocera
-        = vendor_raw_processing_from_store(
-            store, VendorRawProcessingFamily::KyoceraRaw);
+    const VendorRawProcessingSummary kyocera = vendor_raw_processing_from_store(
+        store, VendorRawProcessingFamily::KyoceraRaw);
     EXPECT_EQ(kyocera.fields_seen, 1U);
     EXPECT_EQ(kyocera.color_fields, 1U);
     EXPECT_EQ(kyocera.white_balance_fields, 1U);
@@ -1080,23 +1128,23 @@ TEST(VendorRawProcessing, SummarizesFamiliesFromStore)
     EXPECT_EQ(ge.private_table_fields, 1U);
 
     const VendorRawProcessingSummary motorola
-        = vendor_raw_processing_from_store(
-            store, VendorRawProcessingFamily::Motorola);
+        = vendor_raw_processing_from_store(store,
+                                           VendorRawProcessingFamily::Motorola);
     EXPECT_EQ(motorola.fields_seen, 2U);
     EXPECT_EQ(motorola.color_fields, 1U);
     EXPECT_EQ(motorola.sensor_fields, 1U);
     EXPECT_EQ(motorola.private_table_fields, 2U);
 
     const VendorRawProcessingSummary nintendo
-        = vendor_raw_processing_from_store(
-            store, VendorRawProcessingFamily::Nintendo);
+        = vendor_raw_processing_from_store(store,
+                                           VendorRawProcessingFamily::Nintendo);
     EXPECT_EQ(nintendo.fields_seen, 2U);
     EXPECT_EQ(nintendo.geometry_fields, 1U);
     EXPECT_EQ(nintendo.private_table_fields, 2U);
 
     const VendorRawProcessingSummary microsoft
-        = vendor_raw_processing_from_store(
-            store, VendorRawProcessingFamily::Microsoft);
+        = vendor_raw_processing_from_store(store,
+                                           VendorRawProcessingFamily::Microsoft);
     EXPECT_EQ(microsoft.fields_seen, 1U);
     EXPECT_EQ(microsoft.geometry_fields, 1U);
     EXPECT_EQ(microsoft.private_table_fields, 1U);

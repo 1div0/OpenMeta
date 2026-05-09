@@ -137,9 +137,10 @@ controls. Hosts may still strip more metadata.
    * - RAW/DNG sensor and color pipeline
      - CFA pattern, black/white levels, linearization tables,
        ``ColorMatrix*``, ``ForwardMatrix*``, ``CameraCalibration*``,
-       ``AsShotNeutral``, DNG private/profile tags, profile/gain tables, raw
-       digests/storage identifiers, opcode/correction lists, Phase One/Leaf
-       ``ColorMatrix1``, ``ColorMatrix2``, ``WB_RGBLevels``,
+       ``AsShotNeutral``, DNG private/profile tags, DNG XMP profile properties
+       (``dng:*``), profile/gain tables, raw digests/storage identifiers,
+       opcode/correction lists, Phase One/Leaf ``ColorMatrix1``,
+       ``ColorMatrix2``, ``WB_RGBLevels``,
        sensor-calibration flat fields and linearization coefficients,
        Sony/Canon/Nikon/Fujifilm/Pentax/Panasonic/Olympus/Kodak/Minolta/
        Sigma/Samsung/Ricoh/Apple/Casio/Sanyo/KyoceraRaw/Reconyx/Motorola
@@ -192,10 +193,14 @@ controls. Hosts may still strip more metadata.
        unless the host intentionally writes a sidecar/workflow record.
    * - Opaque MakerNote payloads
      - vendor MakerNote blobs and private nested IFDs
-     - Keep by default, or follow explicit MakerNote policy
+     - Keep the original raw ``ExifIFD:MakerNote`` payload by default, or
+       follow explicit MakerNote policy
      - Drop
      - Decoded safe facts can still be carried through standard EXIF/XMP
        fields; the opaque vendor blob is not copied for rendered outputs.
+       Decoded-only vendor MakerNote sub-IFDs are not reconstructed into a new
+       blob; prepare reports them as non-serializable when no raw MakerNote
+       payload is available.
    * - C2PA and JUMBF
      - APP11/JUMBF boxes, C2PA manifests, assertions, signatures
      - Follow explicit JUMBF/C2PA policy

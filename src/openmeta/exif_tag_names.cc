@@ -95,6 +95,81 @@ namespace {
     }
 
     static std::string_view
+    synthesize_raf_placeholder_name(uint16_t tag) noexcept
+    {
+        static thread_local char buf[24];
+        static constexpr std::string_view kPrefix = "FujiFilmRAF_0x";
+        static constexpr char kHex[]              = "0123456789abcdef";
+        if (kPrefix.size() + 4U >= sizeof(buf)) {
+            return {};
+        }
+
+        for (size_t i = 0; i < kPrefix.size(); ++i) {
+            buf[i] = kPrefix[i];
+        }
+        buf[kPrefix.size() + 0U] = kHex[(tag >> 12U) & 0xFU];
+        buf[kPrefix.size() + 1U] = kHex[(tag >> 8U) & 0xFU];
+        buf[kPrefix.size() + 2U] = kHex[(tag >> 4U) & 0xFU];
+        buf[kPrefix.size() + 3U] = kHex[(tag >> 0U) & 0xFU];
+        buf[kPrefix.size() + 4U] = '\0';
+        return std::string_view(buf, kPrefix.size() + 4U);
+    }
+
+    static bool is_raf_ifd(std::string_view ifd) noexcept
+    {
+        if (!ifd.starts_with("raf_") || ifd.size() <= 4U) {
+            return false;
+        }
+        for (size_t i = 4U; i < ifd.size(); ++i) {
+            if (ifd[i] < '0' || ifd[i] > '9') {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    static std::string_view raf_header_tag_name(uint16_t tag) noexcept
+    {
+        switch (tag) {
+        case 0x003cU: return "RAFVersion";
+        case 0x0048U: return "MRawHeaderOffset";
+        case 0x004cU: return "MRawHeaderLength";
+        case 0x0054U: return "PreviewImageStart";
+        case 0x0058U: return "PreviewImageLength";
+        case 0x005cU: return "RAFDirectoryOffset";
+        case 0x0060U: return "RAFDirectoryLength";
+        case 0x0064U: return "FujiIFDOffset";
+        case 0x0068U: return "FujiIFDLength";
+        case 0x006cU: return "RAFCompression";
+        case 0x0078U: return "RAFDirectory1Offset";
+        case 0x007cU: return "RAFDirectory1Length";
+        case 0x0080U: return "FujiIFD1Offset";
+        case 0x0084U: return "FujiIFD1Length";
+        default: return {};
+        }
+    }
+
+    static std::string_view raf_tag_name(uint16_t tag) noexcept
+    {
+        switch (tag) {
+        case 0x0100U: return "RawImageFullSize";
+        case 0x0110U: return "RawImageCropTopLeft";
+        case 0x0111U: return "RawImageCroppedSize";
+        case 0x0115U: return "RawImageAspectRatio";
+        case 0x0117U: return "RawZoomActive";
+        case 0x0118U: return "RawZoomTopLeft";
+        case 0x0119U: return "RawZoomSize";
+        case 0x0121U: return "RawImageSize";
+        case 0x0130U: return "FujiLayout";
+        case 0x0131U: return "XTransLayout";
+        case 0x9200U: return "RelativeExposure";
+        case 0x9650U: return "RawExposureBias";
+        case 0xc000U: return "RAFData";
+        default: return synthesize_raf_placeholder_name(tag);
+        }
+    }
+
+    static std::string_view
     synthesize_casio_main_placeholder_name(uint16_t tag) noexcept
     {
         static thread_local char buf[16];
@@ -236,7 +311,7 @@ namespace {
     {
         static thread_local char buf[19];
         static constexpr std::string_view kPrefix = "CanonRaw_0x";
-        static constexpr char kHex[]             = "0123456789abcdef";
+        static constexpr char kHex[]              = "0123456789abcdef";
         if (kPrefix.size() + 4U >= sizeof(buf)) {
             return {};
         }
@@ -268,10 +343,8 @@ namespace {
         case 0x003BU:
         case 0x003CU:
         case 0x0047U:
-        case 0x0113U:
-            return true;
-        default:
-            return false;
+        case 0x0113U: return true;
+        default: return false;
         }
     }
 
@@ -312,7 +385,7 @@ namespace {
     {
         static thread_local char buf[15];
         static constexpr std::string_view kPrefix = "Sony_0x";
-        static constexpr char kHex[]             = "0123456789abcdef";
+        static constexpr char kHex[]              = "0123456789abcdef";
         if (kPrefix.size() + 4U >= sizeof(buf)) {
             return {};
         }
@@ -675,7 +748,8 @@ namespace {
                 = arena_string(arena, entry.key.data.exif_tag.ifd);
             const uint16_t tag = entry.key.data.exif_tag.tag;
             if (ifd == "mk_sigma0") {
-                const std::string_view compat = sigma_main_fixed_compat_name(tag);
+                const std::string_view compat = sigma_main_fixed_compat_name(
+                    tag);
                 if (!compat.empty()) {
                     return compat;
                 }
@@ -683,11 +757,11 @@ namespace {
                     return synthesize_sigma_main_placeholder_name(tag);
                 }
             }
-        if (ifd == "mk_panasonic0") {
-            if (canonical == "Model"
-                && (tag == 0x0004U || tag == 0x000CU || tag == 0x0016U)
-                && entry.value.kind != MetaValueKind::Text) {
-                return synthesize_panasonic_main_placeholder_name(tag);
+            if (ifd == "mk_panasonic0") {
+                if (canonical == "Model"
+                    && (tag == 0x0004U || tag == 0x000CU || tag == 0x0016U)
+                    && entry.value.kind != MetaValueKind::Text) {
+                    return synthesize_panasonic_main_placeholder_name(tag);
                 }
                 switch (tag) {
                 case 0x0058U:
@@ -1017,6 +1091,12 @@ exif_tag_name(std::string_view ifd, uint16_t tag) noexcept
     if (group == ExifIfdGroup::Unknown) {
         if (ifd == "ciff_root" || ifd.starts_with("ciff_")) {
             return ciff_tag_name(ifd, tag);
+        }
+        if (ifd == "raf_header") {
+            return raf_header_tag_name(tag);
+        }
+        if (is_raf_ifd(ifd)) {
+            return raf_tag_name(tag);
         }
         if (ifd.starts_with("mk_")) {
             return makernote_tag_name(ifd, tag);

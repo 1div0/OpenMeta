@@ -294,17 +294,60 @@ namespace {
 #endif
     }
 
+    struct MatchProvenanceState final {
+        bool exact_match    = false;
+        bool fuzzy_match    = false;
+        uint8_t fuzzy_score = 0U;
+    };
+
+    static uint8_t fuzzy_score_to_u8(double score) noexcept
+    {
+        if (score <= 0.0) {
+            return 0U;
+        }
+        if (score >= 100.0) {
+            return 100U;
+        }
+        return static_cast<uint8_t>(score + 0.5);
+    }
+
+    static void note_exact_match(MatchProvenanceState* provenance) noexcept
+    {
+        if (provenance) {
+            provenance->exact_match = true;
+        }
+    }
+
+    static void note_fuzzy_match(MatchProvenanceState* provenance,
+                                 double score) noexcept
+    {
+        if (!provenance) {
+            return;
+        }
+        provenance->fuzzy_match = true;
+        const uint8_t score_u8  = fuzzy_score_to_u8(score);
+        if (score_u8 > provenance->fuzzy_score) {
+            provenance->fuzzy_score = score_u8;
+        }
+    }
+
     static bool term_matches(std::string_view text, std::string_view term,
-                             bool enable_fuzzy)
+                             bool enable_fuzzy,
+                             MatchProvenanceState* provenance)
     {
         if (contains_ascii_case_insensitive(text, term)) {
+            note_exact_match(provenance);
             return true;
         }
         if (!enable_fuzzy) {
             return false;
         }
-        return rapidfuzz_term_score(text, term)
-               >= fuzzy_threshold_for_term(term);
+        const double score = rapidfuzz_term_score(text, term);
+        if (score < fuzzy_threshold_for_term(term)) {
+            return false;
+        }
+        note_fuzzy_match(provenance, score);
+        return true;
     }
 
     static MetadataQueryValueShape value_shape(const MetaValue& value) noexcept
@@ -614,207 +657,229 @@ namespace {
     }
 
     static uint32_t crop_match_terms(std::string_view name,
-                                     std::string_view group,
-                                     bool enable_fuzzy) noexcept
+                                     std::string_view group, bool enable_fuzzy,
+                                     MatchProvenanceState* provenance) noexcept
     {
         uint32_t terms = 0U;
-        if (term_matches(name, "crop", enable_fuzzy)) {
+        if (term_matches(name, "crop", enable_fuzzy, provenance)) {
             terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::Crop);
         }
-        if (term_matches(name, "border", enable_fuzzy)) {
+        if (term_matches(name, "border", enable_fuzzy, provenance)) {
             terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::Border);
         }
-        if (term_matches(name, "margin", enable_fuzzy)) {
+        if (term_matches(name, "margin", enable_fuzzy, provenance)) {
             terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::Margin);
         }
-        if (term_matches(name, "padding", enable_fuzzy)) {
+        if (term_matches(name, "padding", enable_fuzzy, provenance)) {
             terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::Padding);
         }
-        if (term_matches(name, "activearea", enable_fuzzy)
-            || term_matches(name, "active area", enable_fuzzy)) {
+        if (term_matches(name, "activearea", enable_fuzzy, provenance)
+            || term_matches(name, "active area", enable_fuzzy, provenance)) {
             terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::ActiveArea);
         }
-        if (term_matches(name, "origin", enable_fuzzy)) {
+        if (term_matches(name, "origin", enable_fuzzy, provenance)) {
             terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::Origin);
         }
-        if (term_matches(name, "offset", enable_fuzzy)) {
+        if (term_matches(name, "offset", enable_fuzzy, provenance)) {
             terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::Offset);
         }
-        if (term_matches(name, "size", enable_fuzzy)
-            || term_matches(name, "width", enable_fuzzy)
-            || term_matches(name, "height", enable_fuzzy)) {
+        if (term_matches(name, "size", enable_fuzzy, provenance)
+            || term_matches(name, "width", enable_fuzzy, provenance)
+            || term_matches(name, "height", enable_fuzzy, provenance)) {
             terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::Size);
         }
-        if (term_matches(name, "sensor", enable_fuzzy)
+        if (term_matches(name, "sensor", enable_fuzzy, provenance)
             || contains_ascii_case_insensitive(group, "phaseone")) {
+            if (contains_ascii_case_insensitive(group, "phaseone")) {
+                note_exact_match(provenance);
+            }
             terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::Sensor);
         }
-        if (term_matches(name, "image", enable_fuzzy)) {
+        if (term_matches(name, "image", enable_fuzzy, provenance)) {
             terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::Image);
         }
         return terms;
     }
 
-    static uint32_t exposure_gain_match_terms(std::string_view name,
-                                              bool enable_fuzzy) noexcept
+    static uint32_t
+    exposure_gain_match_terms(std::string_view name, bool enable_fuzzy,
+                              MatchProvenanceState* provenance) noexcept
     {
         uint32_t terms = 0U;
-        if (term_matches(name, "exposure", enable_fuzzy)
-            || term_matches(name, "shutter", enable_fuzzy)
-            || term_matches(name, "aperture", enable_fuzzy)
-            || term_matches(name, "brightness", enable_fuzzy)
+        if (term_matches(name, "exposure", enable_fuzzy, provenance)
+            || term_matches(name, "shutter", enable_fuzzy, provenance)
+            || term_matches(name, "aperture", enable_fuzzy, provenance)
+            || term_matches(name, "brightness", enable_fuzzy, provenance)
             || contains_ascii_case_insensitive(name, "iso")) {
+            if (contains_ascii_case_insensitive(name, "iso")) {
+                note_exact_match(provenance);
+            }
             terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::Exposure);
         }
-        if (term_matches(name, "bias", enable_fuzzy)
-            || term_matches(name, "compensation", enable_fuzzy)) {
+        if (term_matches(name, "bias", enable_fuzzy, provenance)
+            || term_matches(name, "compensation", enable_fuzzy, provenance)) {
             terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::Bias);
         }
-        if (term_matches(name, "gain", enable_fuzzy)) {
+        if (term_matches(name, "gain", enable_fuzzy, provenance)) {
             terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::Gain);
         }
         return terms;
     }
 
-    static uint32_t white_balance_match_terms(std::string_view name,
-                                              bool enable_fuzzy) noexcept
+    static uint32_t
+    white_balance_match_terms(std::string_view name, bool enable_fuzzy,
+                              MatchProvenanceState* provenance) noexcept
     {
         uint32_t terms = 0U;
-        if (term_matches(name, "whitebalance", enable_fuzzy)
-            || term_matches(name, "white balance", enable_fuzzy)
-            || term_matches(name, "asshotneutral", enable_fuzzy)
-            || term_matches(name, "asshotwhitexy", enable_fuzzy)
-            || term_matches(name, "colortemp", enable_fuzzy)
-            || term_matches(name, "color temperature", enable_fuzzy)
+        if (term_matches(name, "whitebalance", enable_fuzzy, provenance)
+            || term_matches(name, "white balance", enable_fuzzy, provenance)
+            || term_matches(name, "asshotneutral", enable_fuzzy, provenance)
+            || term_matches(name, "asshotwhitexy", enable_fuzzy, provenance)
+            || term_matches(name, "colortemp", enable_fuzzy, provenance)
+            || term_matches(name, "color temperature", enable_fuzzy, provenance)
             || starts_with_ascii_case_insensitive(name, "wb")
             || contains_ascii_case_insensitive(name, "_wb")
             || contains_ascii_case_insensitive(name, " wb")) {
+            if (starts_with_ascii_case_insensitive(name, "wb")
+                || contains_ascii_case_insensitive(name, "_wb")
+                || contains_ascii_case_insensitive(name, " wb")) {
+                note_exact_match(provenance);
+            }
             terms |= static_cast<uint32_t>(
                 MetadataQueryMatchTerm::WhiteBalance);
         }
         return terms;
     }
 
-    static uint32_t color_match_terms(std::string_view name,
-                                      bool enable_fuzzy) noexcept
+    static uint32_t color_match_terms(std::string_view name, bool enable_fuzzy,
+                                      MatchProvenanceState* provenance) noexcept
     {
         uint32_t terms = 0U;
-        if (term_matches(name, "color", enable_fuzzy)
-            || term_matches(name, "colour", enable_fuzzy)
-            || term_matches(name, "illuminant", enable_fuzzy)
-            || term_matches(name, "profile", enable_fuzzy)
-            || term_matches(name, "tonecurve", enable_fuzzy)
-            || term_matches(name, "tone curve", enable_fuzzy)) {
+        if (term_matches(name, "color", enable_fuzzy, provenance)
+            || term_matches(name, "colour", enable_fuzzy, provenance)
+            || term_matches(name, "illuminant", enable_fuzzy, provenance)
+            || term_matches(name, "profile", enable_fuzzy, provenance)
+            || term_matches(name, "tonecurve", enable_fuzzy, provenance)
+            || term_matches(name, "tone curve", enable_fuzzy, provenance)) {
             terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::Color);
         }
-        if (term_matches(name, "matrix", enable_fuzzy)) {
+        if (term_matches(name, "matrix", enable_fuzzy, provenance)) {
             terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::Matrix);
         }
-        if (term_matches(name, "calibration", enable_fuzzy)) {
+        if (term_matches(name, "calibration", enable_fuzzy, provenance)) {
             terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::Calibration);
         }
-        if (term_matches(name, "profile", enable_fuzzy)) {
+        if (term_matches(name, "profile", enable_fuzzy, provenance)) {
             terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::Profile);
         }
         return terms;
     }
 
-    static uint32_t lens_correction_match_terms(std::string_view name,
-                                                bool enable_fuzzy) noexcept
+    static uint32_t
+    lens_correction_match_terms(std::string_view name, bool enable_fuzzy,
+                                MatchProvenanceState* provenance) noexcept
     {
         uint32_t terms = 0U;
-        if (term_matches(name, "lens", enable_fuzzy)
-            || term_matches(name, "distort", enable_fuzzy)
-            || term_matches(name, "vignet", enable_fuzzy)
-            || term_matches(name, "aberration", enable_fuzzy)
-            || term_matches(name, "shading", enable_fuzzy)
-            || term_matches(name, "peripheral", enable_fuzzy)
-            || term_matches(name, "diffraction", enable_fuzzy)
-            || term_matches(name, "opcode", enable_fuzzy)) {
+        if (term_matches(name, "lens", enable_fuzzy, provenance)
+            || term_matches(name, "distort", enable_fuzzy, provenance)
+            || term_matches(name, "vignet", enable_fuzzy, provenance)
+            || term_matches(name, "aberration", enable_fuzzy, provenance)
+            || term_matches(name, "shading", enable_fuzzy, provenance)
+            || term_matches(name, "peripheral", enable_fuzzy, provenance)
+            || term_matches(name, "diffraction", enable_fuzzy, provenance)
+            || term_matches(name, "opcode", enable_fuzzy, provenance)) {
             terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::Lens);
         }
-        if (term_matches(name, "correction", enable_fuzzy)
-            || term_matches(name, "corr", enable_fuzzy)
-            || term_matches(name, "distort", enable_fuzzy)
-            || term_matches(name, "vignet", enable_fuzzy)
-            || term_matches(name, "aberration", enable_fuzzy)
-            || term_matches(name, "shading", enable_fuzzy)
-            || term_matches(name, "opcode", enable_fuzzy)) {
+        if (term_matches(name, "correction", enable_fuzzy, provenance)
+            || term_matches(name, "corr", enable_fuzzy, provenance)
+            || term_matches(name, "distort", enable_fuzzy, provenance)
+            || term_matches(name, "vignet", enable_fuzzy, provenance)
+            || term_matches(name, "aberration", enable_fuzzy, provenance)
+            || term_matches(name, "shading", enable_fuzzy, provenance)
+            || term_matches(name, "opcode", enable_fuzzy, provenance)) {
             terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::Correction);
         }
         return terms;
     }
 
-    static uint32_t raw_processing_match_terms(std::string_view name,
-                                               std::string_view group,
-                                               bool enable_fuzzy) noexcept
+    static uint32_t
+    raw_processing_match_terms(std::string_view name, std::string_view group,
+                               bool enable_fuzzy,
+                               MatchProvenanceState* provenance) noexcept
     {
         uint32_t terms = 0U;
-        if (term_matches(name, "blacklevel", enable_fuzzy)
-            || term_matches(name, "black level", enable_fuzzy)) {
+        if (term_matches(name, "blacklevel", enable_fuzzy, provenance)
+            || term_matches(name, "black level", enable_fuzzy, provenance)) {
             terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::BlackLevel);
         }
-        if (term_matches(name, "whitelevel", enable_fuzzy)
-            || term_matches(name, "white level", enable_fuzzy)) {
+        if (term_matches(name, "whitelevel", enable_fuzzy, provenance)
+            || term_matches(name, "white level", enable_fuzzy, provenance)) {
             terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::WhiteLevel);
         }
-        if (term_matches(name, "linearization", enable_fuzzy)
-            || term_matches(name, "linearity", enable_fuzzy)) {
+        if (term_matches(name, "linearization", enable_fuzzy, provenance)
+            || term_matches(name, "linearity", enable_fuzzy, provenance)) {
             terms |= static_cast<uint32_t>(
                 MetadataQueryMatchTerm::Linearization);
         }
         if (contains_ascii_case_insensitive(name, "cfa")
-            || term_matches(name, "bayer", enable_fuzzy)) {
+            || term_matches(name, "bayer", enable_fuzzy, provenance)) {
+            if (contains_ascii_case_insensitive(name, "cfa")) {
+                note_exact_match(provenance);
+            }
             terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::Cfa);
         }
-        if (term_matches(name, "rawdata", enable_fuzzy)
-            || term_matches(name, "raw data", enable_fuzzy)
-            || term_matches(name, "rawfile", enable_fuzzy)
-            || term_matches(name, "raw file", enable_fuzzy)
-            || term_matches(name, "rawformat", enable_fuzzy)
-            || term_matches(name, "raw format", enable_fuzzy)
-            || term_matches(name, "rawimage", enable_fuzzy)
-            || term_matches(name, "raw image", enable_fuzzy)
-            || term_matches(name, "originalraw", enable_fuzzy)) {
+        if (term_matches(name, "rawdata", enable_fuzzy, provenance)
+            || term_matches(name, "raw data", enable_fuzzy, provenance)
+            || term_matches(name, "rawfile", enable_fuzzy, provenance)
+            || term_matches(name, "raw file", enable_fuzzy, provenance)
+            || term_matches(name, "rawformat", enable_fuzzy, provenance)
+            || term_matches(name, "raw format", enable_fuzzy, provenance)
+            || term_matches(name, "rawimage", enable_fuzzy, provenance)
+            || term_matches(name, "raw image", enable_fuzzy, provenance)
+            || term_matches(name, "originalraw", enable_fuzzy, provenance)) {
             terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::Raw);
         }
-        if (term_matches(name, "storage", enable_fuzzy)
-            || term_matches(name, "strip", enable_fuzzy)
-            || term_matches(name, "bytecount", enable_fuzzy)
-            || term_matches(name, "byte count", enable_fuzzy)
-            || term_matches(name, "fileoffset", enable_fuzzy)
-            || term_matches(name, "file offset", enable_fuzzy)
-            || term_matches(name, "dataoffset", enable_fuzzy)
-            || term_matches(name, "data offset", enable_fuzzy)
-            || term_matches(name, "datalength", enable_fuzzy)
-            || term_matches(name, "data length", enable_fuzzy)
-            || term_matches(name, "compresseddata", enable_fuzzy)
-            || term_matches(name, "compressed data", enable_fuzzy)
-            || term_matches(name, "byteorder", enable_fuzzy)
-            || term_matches(name, "byte order", enable_fuzzy)) {
+        if (term_matches(name, "storage", enable_fuzzy, provenance)
+            || term_matches(name, "strip", enable_fuzzy, provenance)
+            || term_matches(name, "bytecount", enable_fuzzy, provenance)
+            || term_matches(name, "byte count", enable_fuzzy, provenance)
+            || term_matches(name, "fileoffset", enable_fuzzy, provenance)
+            || term_matches(name, "file offset", enable_fuzzy, provenance)
+            || term_matches(name, "dataoffset", enable_fuzzy, provenance)
+            || term_matches(name, "data offset", enable_fuzzy, provenance)
+            || term_matches(name, "datalength", enable_fuzzy, provenance)
+            || term_matches(name, "data length", enable_fuzzy, provenance)
+            || term_matches(name, "compresseddata", enable_fuzzy, provenance)
+            || term_matches(name, "compressed data", enable_fuzzy, provenance)
+            || term_matches(name, "byteorder", enable_fuzzy, provenance)
+            || term_matches(name, "byte order", enable_fuzzy, provenance)) {
             terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::Storage);
         }
-        if (term_matches(name, "sensor", enable_fuzzy)
-            || term_matches(name, "validbits", enable_fuzzy)
-            || term_matches(name, "valid bits", enable_fuzzy)
-            || term_matches(name, "bitdepth", enable_fuzzy)
-            || term_matches(name, "bit depth", enable_fuzzy)
-            || term_matches(name, "rawdepth", enable_fuzzy)
-            || term_matches(name, "raw depth", enable_fuzzy)
-            || term_matches(name, "rawvaluerange", enable_fuzzy)
-            || term_matches(name, "raw value range", enable_fuzzy)
-            || term_matches(name, "rawvaluemedian", enable_fuzzy)
-            || term_matches(name, "raw value median", enable_fuzzy)
+        if (term_matches(name, "sensor", enable_fuzzy, provenance)
+            || term_matches(name, "validbits", enable_fuzzy, provenance)
+            || term_matches(name, "valid bits", enable_fuzzy, provenance)
+            || term_matches(name, "bitdepth", enable_fuzzy, provenance)
+            || term_matches(name, "bit depth", enable_fuzzy, provenance)
+            || term_matches(name, "rawdepth", enable_fuzzy, provenance)
+            || term_matches(name, "raw depth", enable_fuzzy, provenance)
+            || term_matches(name, "rawvaluerange", enable_fuzzy, provenance)
+            || term_matches(name, "raw value range", enable_fuzzy, provenance)
+            || term_matches(name, "rawvaluemedian", enable_fuzzy, provenance)
+            || term_matches(name, "raw value median", enable_fuzzy, provenance)
             || contains_ascii_case_insensitive(group, "phaseone")) {
+            if (contains_ascii_case_insensitive(group, "phaseone")) {
+                note_exact_match(provenance);
+            }
             terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::Sensor);
         }
         return terms;
     }
 
-    static uint32_t orientation_match_terms(std::string_view name,
-                                            bool enable_fuzzy) noexcept
+    static uint32_t
+    orientation_match_terms(std::string_view name, bool enable_fuzzy,
+                            MatchProvenanceState* provenance) noexcept
     {
-        if (term_matches(name, "orientation", enable_fuzzy)) {
+        if (term_matches(name, "orientation", enable_fuzzy, provenance)) {
             return static_cast<uint32_t>(MetadataQueryMatchTerm::Orientation);
         }
         return 0U;
@@ -1026,26 +1091,27 @@ namespace {
         return terms;
     }
 
-    static uint32_t match_terms_for_kind(std::string_view name,
-                                         std::string_view group,
-                                         MetadataQueryKind kind,
-                                         bool enable_fuzzy) noexcept
+    static uint32_t
+    match_terms_for_kind(std::string_view name, std::string_view group,
+                         MetadataQueryKind kind, bool enable_fuzzy,
+                         MatchProvenanceState* provenance) noexcept
     {
         switch (kind) {
         case MetadataQueryKind::Crop:
-            return crop_match_terms(name, group, enable_fuzzy);
+            return crop_match_terms(name, group, enable_fuzzy, provenance);
         case MetadataQueryKind::ExposureGain:
-            return exposure_gain_match_terms(name, enable_fuzzy);
+            return exposure_gain_match_terms(name, enable_fuzzy, provenance);
         case MetadataQueryKind::WhiteBalance:
-            return white_balance_match_terms(name, enable_fuzzy);
+            return white_balance_match_terms(name, enable_fuzzy, provenance);
         case MetadataQueryKind::Color:
-            return color_match_terms(name, enable_fuzzy);
+            return color_match_terms(name, enable_fuzzy, provenance);
         case MetadataQueryKind::LensCorrection:
-            return lens_correction_match_terms(name, enable_fuzzy);
+            return lens_correction_match_terms(name, enable_fuzzy, provenance);
         case MetadataQueryKind::Orientation:
-            return orientation_match_terms(name, enable_fuzzy);
+            return orientation_match_terms(name, enable_fuzzy, provenance);
         case MetadataQueryKind::RawProcessing:
-            return raw_processing_match_terms(name, group, enable_fuzzy);
+            return raw_processing_match_terms(name, group, enable_fuzzy,
+                                              provenance);
         }
         return 0U;
     }
@@ -1279,7 +1345,8 @@ namespace {
     static void append_match(MetadataQueryResult* result, EntryId entry_id,
                              const Entry& entry, std::string_view group,
                              std::string_view name, MetadataQueryKind kind,
-                             uint32_t terms)
+                             uint32_t terms,
+                             const MatchProvenanceState& provenance)
     {
         if (!result || terms == 0U) {
             return;
@@ -1291,6 +1358,9 @@ namespace {
         match.shape         = value_shape(entry.value);
         match.confidence    = confidence_from_terms(kind, terms);
         match.matched_terms = terms;
+        match.exact_match   = provenance.exact_match;
+        match.fuzzy_match   = provenance.fuzzy_match;
+        match.fuzzy_score   = provenance.fuzzy_score;
         if (entry.key.kind == MetaKeyKind::ExifTag) {
             match.exif_tag = entry.key.data.exif_tag.tag;
         }
@@ -1309,13 +1379,25 @@ namespace {
                                                   entry.key.data.exif_tag.ifd);
         const std::string_view name
             = exif_entry_name(store, entry, ExifTagNamePolicy::ExifToolCompat);
-        uint32_t terms = match_terms_for_kind(name, ifd, kind, false);
-        terms |= exact_exif_terms_for_kind(entry.key.data.exif_tag.tag, kind);
+        MatchProvenanceState provenance;
+        uint32_t terms = match_terms_for_kind(name, ifd, kind, false,
+                                              &provenance);
+        const uint32_t exact_exif_terms
+            = exact_exif_terms_for_kind(entry.key.data.exif_tag.tag, kind);
+        if (exact_exif_terms != 0U) {
+            note_exact_match(&provenance);
+            terms |= exact_exif_terms;
+        }
         const VendorRawProcessingGroup groups
             = classify_vendor_raw_processing_field(ifd, name,
                                                    entry.key.data.exif_tag.tag);
-        terms |= vendor_terms_for_kind(groups, kind);
-        append_match(result, entry_id, entry, ifd, name, kind, terms);
+        const uint32_t vendor_terms = vendor_terms_for_kind(groups, kind);
+        if (vendor_terms != 0U) {
+            note_exact_match(&provenance);
+            terms |= vendor_terms;
+        }
+        append_match(result, entry_id, entry, ifd, name, kind, terms,
+                     provenance);
     }
 
     static void append_xmp_match_if_relevant(const MetaStore& store,
@@ -1330,8 +1412,11 @@ namespace {
         const std::string_view path
             = arena_string(store.arena(),
                            entry.key.data.xmp_property.property_path);
-        const uint32_t terms = match_terms_for_kind(path, ns, kind, true);
-        append_match(result, entry_id, entry, ns, path, kind, terms);
+        MatchProvenanceState provenance;
+        const uint32_t terms = match_terms_for_kind(path, ns, kind, true,
+                                                    &provenance);
+        append_match(result, entry_id, entry, ns, path, kind, terms,
+                     provenance);
     }
 
     static bool exif_entry_is(const MetaStore& store, const Entry& entry,

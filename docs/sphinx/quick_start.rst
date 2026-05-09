@@ -127,6 +127,9 @@ RAW-processing metadata. These helpers use deterministic built-in name/tag
 matching by default. If OpenMeta is configured with
 ``-DOPENMETA_ENABLE_RAPIDFUZZ=ON``, the same query helpers also use RapidFuzz to
 match near-miss property names such as misspelled crop/border/padding paths.
+Every raw query match carries ``exact_match``, ``fuzzy_match``, and
+``fuzzy_score`` fields, so inspection UI can label near-miss results
+separately from exact tag/name hits.
 
 Call ``metadata_query_fuzzy_search_available()`` when a UI wants to expose that
 the stronger fuzzy matcher is compiled in.

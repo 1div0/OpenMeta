@@ -207,6 +207,7 @@ namespace {
         uint32_t groups = 0U;
         if (contains(name, "ColorCorrectionMatrix")
             || contains(name, "ColorTemperature") || contains(name, "HDR")
+            || contains(name, "HDRHeadroom")
             || contains(name, "SemanticStyle")) {
             groups |= kVendorRawColor;
         }
@@ -215,16 +216,22 @@ namespace {
         }
         if (contains(name, "AEMatrix") || contains(name, "AFMeasuredDepth")
             || contains(name, "FocusDistanceRange")
-            || contains(name, "FocusPosition")) {
+            || contains(name, "FocusPosition")
+            || contains(name, "FrontFacingCamera")
+            || contains(name, "AccelerationVector")) {
             groups |= kVendorRawGeometry;
         }
         if (contains(name, "LuminanceNoiseAmplitude")
             || contains(name, "SignalToNoiseRatio")
             || contains(name, "ImageProcessingFlags")
-            || contains(name, "GreenGhostMitigationStatus")) {
+            || contains(name, "GreenGhostMitigationStatus")
+            || contains(name, "AccelerationVector")) {
             groups |= kVendorRawSensor;
         }
-        if (contains(name, "HDR") || contains(name, "SemanticStyle")) {
+        if (contains(name, "HDR") || contains(name, "HDRHeadroom")
+            || contains(name, "SemanticStyle")
+            || contains(name, "AccelerationVector")
+            || contains(name, "FrontFacingCamera")) {
             groups |= kVendorRawPrivateTable;
         }
         if (contains(name, "AEStable") || contains(name, "AETarget")
@@ -246,10 +253,13 @@ namespace {
     static uint32_t classify_apple_tag(uint16_t tag) noexcept
     {
         switch (tag) {
+        case 0x0008U:
+            return kVendorRawGeometry | kVendorRawSensor
+                   | kVendorRawPrivateTable;
         case 0x0002U:
         case 0x002FU:
-        case 0x0038U:
-            return kVendorRawGeometry | kVendorRawPrivateTable;
+        case 0x0038U: return kVendorRawGeometry | kVendorRawPrivateTable;
+        case 0x0021U: return kVendorRawColor | kVendorRawPrivateTable;
         case 0x002DU:
             return kVendorRawColor | kVendorRawWhiteBalance
                    | kVendorRawPrivateTable;
@@ -257,14 +267,13 @@ namespace {
         case 0x003EU:
         case 0x0040U:
         case 0x0041U:
-        case 0x0042U:
-            return kVendorRawColor | kVendorRawPrivateTable;
+        case 0x0042U: return kVendorRawColor | kVendorRawPrivateTable;
+        case 0x0045U: return kVendorRawGeometry | kVendorRawPrivateTable;
         case 0x0019U:
         case 0x001DU:
         case 0x0026U:
         case 0x0027U:
-        case 0x003FU:
-            return kVendorRawSensor | kVendorRawPrivateTable;
+        case 0x003FU: return kVendorRawSensor | kVendorRawPrivateTable;
         case 0x0004U:
         case 0x0005U:
         case 0x0006U:
@@ -278,7 +287,6 @@ namespace {
         case 0x001AU:
         case 0x001FU:
         case 0x0020U:
-        case 0x0021U:
         case 0x0023U:
         case 0x0025U:
         case 0x002BU:
@@ -286,8 +294,7 @@ namespace {
         case 0x004EU:
         case 0x004FU:
         case 0x0054U:
-        case 0x005AU:
-            return kVendorRawPrivateTable;
+        case 0x005AU: return kVendorRawPrivateTable;
         default: break;
         }
         return 0U;
@@ -308,8 +315,16 @@ namespace {
         if (contains(name, "ObjectDistance") || contains(name, "Humidity")
             || contains(name, "Emissivity") || contains(name, "Reflection")
             || contains(name, "AmbientTemperature")
-            || contains(name, "ReflectedTemperature")) {
+            || contains(name, "ReflectedTemperature")
+            || contains(name, "Atmospheric") || contains(name, "Planck")
+            || contains(name, "IRWindow") || contains(name, "RawValue")) {
             groups |= kVendorRawSensor | kVendorRawPrivateTable;
+        }
+        if (contains(name, "Pitch") || contains(name, "Yaw")
+            || contains(name, "Roll") || contains(name, "Speed")
+            || contains(name, "FocusDistance")) {
+            groups |= kVendorRawGeometry | kVendorRawSensor
+                      | kVendorRawPrivateTable;
         }
         return groups;
     }
@@ -317,8 +332,7 @@ namespace {
     static uint32_t classify_google_ifd(std::string_view ifd) noexcept
     {
         uint32_t groups = 0U;
-        if (contains(ifd, "hdrplusmakernote")
-            || contains(ifd, "shotlogdata")) {
+        if (contains(ifd, "hdrplusmakernote") || contains(ifd, "shotlogdata")) {
             groups |= kVendorRawPrivateTable;
         }
         return groups;
@@ -328,11 +342,13 @@ namespace {
     {
         uint32_t groups = 0U;
         if (contains(name, "HDR") || contains(name, "FrameCount")
+            || contains(name, "Metering")
             || contains(name, "OriginalPayload")) {
             groups |= kVendorRawSensor;
         }
         if (contains(name, "TimeLog") || contains(name, "Summary")
-            || contains(name, "ShotLog") || contains(name, "OriginalPayload")) {
+            || contains(name, "ShotLog") || contains(name, "Metering")
+            || contains(name, "OriginalPayload")) {
             groups |= kVendorRawPrivateTable;
         }
         return groups;
@@ -342,8 +358,8 @@ namespace {
     {
         uint32_t groups = 0U;
         if (contains(ifd, "fff_rawdata")) {
-            groups |= kVendorRawGeometry | kVendorRawRawData
-                      | kVendorRawSensor | kVendorRawPrivateTable;
+            groups |= kVendorRawGeometry | kVendorRawRawData | kVendorRawSensor
+                      | kVendorRawPrivateTable;
         }
         if (contains(ifd, "fff_embeddedimage") || contains(ifd, "fff_pip")) {
             groups |= kVendorRawGeometry | kVendorRawPrivateTable;
@@ -366,7 +382,9 @@ namespace {
         }
         if (contains(name, "ImageWidth") || contains(name, "ImageHeight")
             || contains(name, "PiP") || contains(name, "OffsetX")
-            || contains(name, "OffsetY")) {
+            || contains(name, "OffsetY") || contains(name, "FieldOfView")
+            || contains(name, "FocusDistance")
+            || contains(name, "FocusStepCount")) {
             groups |= kVendorRawGeometry;
         }
         if (contains(name, "RawThermal") || contains(name, "RawValue")) {
@@ -447,14 +465,12 @@ namespace {
         }
         if (!contains(ifd, "type2")) {
             switch (tag) {
-            case 0x0007U:
-                return kVendorRawColor | kVendorRawWhiteBalance;
+            case 0x0007U: return kVendorRawColor | kVendorRawWhiteBalance;
             case 0x000BU:
             case 0x000CU:
             case 0x000DU:
             case 0x0016U:
-            case 0x0017U:
-                return kVendorRawColor | kVendorRawPrivateTable;
+            case 0x0017U: return kVendorRawColor | kVendorRawPrivateTable;
             default: break;
             }
             return 0U;
@@ -462,8 +478,7 @@ namespace {
         switch (tag) {
         case 0x0019U:
         case 0x2011U:
-        case 0x2012U:
-            return kVendorRawColor | kVendorRawWhiteBalance;
+        case 0x2012U: return kVendorRawColor | kVendorRawWhiteBalance;
         case 0x0002U:
         case 0x0003U:
         case 0x0004U:
@@ -473,8 +488,7 @@ namespace {
         case 0x2022U:
         case 0x2034U:
         case 0x2089U:
-        case 0x211CU:
-            return kVendorRawGeometry | kVendorRawPrivateTable;
+        case 0x211CU: return kVendorRawGeometry | kVendorRawPrivateTable;
         case 0x0016U:
         case 0x0017U:
         case 0x001FU:
@@ -491,8 +505,7 @@ namespace {
         case 0x302AU:
         case 0x302BU:
         case 0x3030U:
-        case 0x3031U:
-            return kVendorRawColor | kVendorRawPrivateTable;
+        case 0x3031U: return kVendorRawColor | kVendorRawPrivateTable;
         default: break;
         }
         return 0U;
@@ -553,8 +566,7 @@ namespace {
         }
         if (contains(ifd, "mov") || contains(ifd, "mp4")) {
             switch (tag) {
-            case 0x0044U:
-                return kVendorRawColor | kVendorRawWhiteBalance;
+            case 0x0044U: return kVendorRawColor | kVendorRawWhiteBalance;
             default: break;
             }
             return 0U;
@@ -562,16 +574,14 @@ namespace {
         switch (tag) {
         case 0x00FFU:
         case 0x0100U:
-        case 0x0F00U:
-            return kVendorRawStorage | kVendorRawPrivateTable;
+        case 0x0F00U: return kVendorRawStorage | kVendorRawPrivateTable;
         case 0x0208U:
         case 0x020FU:
         case 0x0210U:
         case 0x0218U:
         case 0x021DU:
         case 0x021EU:
-        case 0x021FU:
-            return kVendorRawColor | kVendorRawPrivateTable;
+        case 0x021FU: return kVendorRawColor | kVendorRawPrivateTable;
         default: break;
         }
         return 0U;
@@ -591,19 +601,19 @@ namespace {
     static uint32_t classify_reconyx_name(std::string_view name) noexcept
     {
         uint32_t groups = 0U;
-        if (name == "Contrast" || name == "Brightness"
-            || name == "Sharpness" || name == "Saturation") {
+        if (name == "Contrast" || name == "Brightness" || name == "Sharpness"
+            || name == "Saturation") {
             groups |= kVendorRawColor;
         }
-        if (contains(name, "AmbientTemperature")
-            || name == "AmbientInfrared" || name == "AmbientLight"
-            || name == "InfraredIlluminator" || name == "MotionSensitivity"
-            || name == "BatteryVoltage" || name == "BatteryVoltageAvg"
-            || name == "Illumination" || name == "Flash") {
+        if (contains(name, "AmbientTemperature") || name == "AmbientInfrared"
+            || name == "AmbientLight" || name == "InfraredIlluminator"
+            || name == "MotionSensitivity" || name == "BatteryVoltage"
+            || name == "BatteryVoltageAvg" || name == "Illumination"
+            || name == "Flash") {
             groups |= kVendorRawSensor | kVendorRawPrivateTable;
         }
-        if (name == "TriggerMode" || name == "Sequence"
-            || name == "EventNumber" || name == "UserLabel") {
+        if (name == "TriggerMode" || name == "Sequence" || name == "EventNumber"
+            || name == "UserLabel") {
             groups |= kVendorRawPrivateTable;
         }
         return groups;
@@ -738,10 +748,9 @@ namespace {
         if (contains(name, "ImageWidth") || contains(name, "ImageHeight")
             || contains(name, "ImageSize") || contains(name, "CroppedImage")
             || contains(name, "Crop") || contains(name, "ActiveArea")
-            || contains(name, "SensorWidth")
-            || contains(name, "SensorHeight") || contains(name, "SensorFull")
-            || contains(name, "SensorLeft") || contains(name, "SensorTop")
-            || contains(name, "SensorAreas")) {
+            || contains(name, "SensorWidth") || contains(name, "SensorHeight")
+            || contains(name, "SensorFull") || contains(name, "SensorLeft")
+            || contains(name, "SensorTop") || contains(name, "SensorAreas")) {
             groups |= kVendorRawGeometry;
         }
         if (contains(name, "Strip") || contains(name, "ByteCount")
@@ -771,9 +780,9 @@ namespace {
             || contains(name, "CFA") || contains(name, "Sensor")
             || contains(name, "ValidBits") || contains(name, "RawValueRange")
             || contains(name, "RawValueMedian")
-            || contains(name, "CameraTemperature")
-            || contains(name, "RawDepth") || contains(name, "BitDepth")
-            || contains(name, "BayerPattern") || contains(name, "Linearity")) {
+            || contains(name, "CameraTemperature") || contains(name, "RawDepth")
+            || contains(name, "BitDepth") || contains(name, "BayerPattern")
+            || contains(name, "Linearity")) {
             groups |= kVendorRawSensor;
         }
         if (contains(name, "DataDump") || contains(name, "UnknownBlock")
@@ -813,8 +822,7 @@ namespace {
             return starts_with(ifd, "mk_ricoh");
         case VendorRawProcessingFamily::Apple:
             return starts_with(ifd, "mk_apple");
-        case VendorRawProcessingFamily::Dji:
-            return starts_with(ifd, "mk_dji");
+        case VendorRawProcessingFamily::Dji: return starts_with(ifd, "mk_dji");
         case VendorRawProcessingFamily::Google:
             return starts_with(ifd, "mk_google");
         case VendorRawProcessingFamily::Flir:
