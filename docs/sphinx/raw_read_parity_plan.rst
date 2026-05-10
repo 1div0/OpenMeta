@@ -61,9 +61,10 @@ Family Gap Matrix
      - Deepen BMFF metadata graph interpretation before broad CR3 private-table
        work
    * - Canon CRW/CIFF
-     - Partial native CIFF naming and derived EXIF bridge
-     - Native CIFF directory depth and older Canon private tables
-     - Add CIFF directory tests and stable scalar/subtable decoding
+     - Partial native lane: recursive CIFF directories, stable
+       scalar/subtable decoding, common native names, and derived EXIF bridge
+     - Older Canon private tables and long-tail legacy records
+     - Continue table-by-table decode only where stable validation data exists
    * - Fujifilm RAF
      - Partial native lane: header-declared FujiIFD/TIFF follow path, RAF
        header fields, RAF directory geometry tags, RAFData geometry projection,
@@ -73,9 +74,13 @@ Family Gap Matrix
      - Extend native RAF section inventory table-by-table, with
        geometry/color/correction safety buckets before transfer use
    * - Sigma X3F
-     - Partial lane
-     - Native section directory and image-processing metadata
-     - Add X3F section walking before field-level interpretation
+     - Partial native lane: header fields, known PROP properties,
+       section-directory JPEG metadata follow path, and legacy embedded-EXIF
+       fallback
+     - Deeper image-processing/compression sections and model-specific private
+       records
+     - Add X3F native sections only when they expose stable user-visible fields
+       or transfer-safety inputs
    * - Panasonic, Olympus, Pentax, Kodak, Minolta, Samsung, Ricoh
      - Mixed TIFF/EXIF and MakerNote table coverage
      - Older model tables, preview/correction subtables, and private RAW
@@ -100,8 +105,9 @@ Priority
    reconstruct vendor MakerNote blobs; the original raw MakerNote payload is
    preserved when available.
 2. Continue high-visibility native read gaps: more RAF native sections,
-   CRW/CIFF directory depth, and X3F section walking.
+   long-tail CRW/CIFF private tables, and deeper X3F section interpretation.
 3. Deepen BMFF interpretation for CR3, HEIF, and AVIF metadata graphs.
-4. Add X3F native section walking.
+4. Add X3F image-processing section decode only when the fields can be named,
+   typed, and safety-classified.
 5. Continue vendor MakerNote table work for fields that affect crop, color,
    orientation, lens correction, or safe transfer decisions.

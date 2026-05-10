@@ -189,6 +189,15 @@ namespace {
     }
 
 
+    static constexpr uint32_t x3f_tag(char a, char b, char c, char d) noexcept
+    {
+        return (static_cast<uint32_t>(static_cast<uint8_t>(a)) << 0)
+               | (static_cast<uint32_t>(static_cast<uint8_t>(b)) << 8)
+               | (static_cast<uint32_t>(static_cast<uint8_t>(c)) << 16)
+               | (static_cast<uint32_t>(static_cast<uint8_t>(d)) << 24);
+    }
+
+
     static bool read_u64be(std::span<const std::byte> bytes, uint64_t offset,
                            uint64_t* out) noexcept
     {
@@ -413,6 +422,92 @@ namespace {
 
         *out = static_cast<uint64_t>(off);
         return true;
+    }
+
+
+    static bool scan_x3f_jpeg_sections(std::span<const std::byte> bytes,
+                                       BlockSink* sink) noexcept
+    {
+        if (!sink || bytes.size() < 16U || !match(bytes, 0U, "FOVb", 4U)) {
+            return false;
+        }
+
+        uint32_t dir_off = 0;
+        if (!read_u32le(bytes, bytes.size() - 4U, &dir_off)
+            || dir_off > bytes.size() - 16U
+            || !match(bytes, dir_off, "SECd", 4U)) {
+            return false;
+        }
+
+        uint32_t entries = 0;
+        if (!read_u32le(bytes, dir_off + 8U, &entries)) {
+            return false;
+        }
+        if (entries > 128U) {
+            sink->result.status = ScanStatus::OutputTruncated;
+            entries             = 128U;
+        }
+        if (dir_off + 12ULL + static_cast<uint64_t>(entries) * 12ULL
+            > bytes.size()) {
+            sink->result.status = ScanStatus::Malformed;
+            return false;
+        }
+
+        bool any = false;
+        for (uint32_t i = 0; i < entries; ++i) {
+            const uint64_t entry_off = dir_off + 12ULL
+                                       + static_cast<uint64_t>(i) * 12ULL;
+            uint32_t section_off  = 0;
+            uint32_t section_size = 0;
+            uint32_t section_tag  = 0;
+            if (!read_u32le(bytes, entry_off + 0U, &section_off)
+                || !read_u32le(bytes, entry_off + 4U, &section_size)
+                || !read_u32le(bytes, entry_off + 8U, &section_tag)) {
+                sink->result.status = ScanStatus::Malformed;
+                return any;
+            }
+            if (section_tag != x3f_tag('I', 'M', 'A', '2')
+                && section_tag != x3f_tag('I', 'M', 'A', 'G')) {
+                continue;
+            }
+            if (section_off > bytes.size()
+                || section_size
+                       > bytes.size() - static_cast<uint64_t>(section_off)
+                || section_size <= 28U) {
+                continue;
+            }
+
+            const uint64_t jpeg_off = static_cast<uint64_t>(section_off) + 28U;
+            if (!match(bytes, section_off, "SECi", 4U)
+                || jpeg_off + 2U > bytes.size() || u8(bytes[jpeg_off]) != 0xffU
+                || u8(bytes[jpeg_off + 1U]) != 0xd8U) {
+                continue;
+            }
+
+            std::array<ContainerBlockRef, 32> local {};
+            const std::span<const std::byte> jpeg
+                = bytes.subspan(static_cast<size_t>(jpeg_off),
+                                static_cast<size_t>(section_size - 28U));
+            const ScanResult local_res   = scan_jpeg(jpeg, local);
+            const uint32_t local_written = (local_res.written < local.size())
+                                               ? local_res.written
+                                               : static_cast<uint32_t>(
+                                                     local.size());
+            for (uint32_t j = 0; j < local_written; ++j) {
+                ContainerBlockRef block = local[j];
+                block.format            = ContainerFormat::X3f;
+                block.outer_offset += jpeg_off;
+                block.data_offset += jpeg_off;
+                sink_emit(sink, block);
+                any = true;
+            }
+            if (local_res.status == ScanStatus::OutputTruncated
+                && sink->result.status == ScanStatus::Ok) {
+                sink->result.status = ScanStatus::OutputTruncated;
+            }
+        }
+
+        return any;
     }
 
 }  // namespace
@@ -4764,6 +4859,16 @@ scan_auto(std::span<const std::byte> bytes,
     // Sigma X3F: the file commonly embeds an "Exif\0\0" preamble followed by a
     // classic TIFF header. Locate and scan that TIFF stream.
     if (bytes.size() >= 4 && match(bytes, 0, "FOVb", 4)) {
+        BlockSink sink;
+        sink.out = out.data();
+        sink.cap = static_cast<uint32_t>(out.size());
+        if (scan_x3f_jpeg_sections(bytes, &sink)) {
+            return sink.result;
+        }
+        if (sink.result.status == ScanStatus::Malformed) {
+            return sink.result;
+        }
+
         const uint64_t max_search = (bytes.size() < (4ULL * 1024ULL * 1024ULL))
                                         ? static_cast<uint64_t>(bytes.size())
                                         : (4ULL * 1024ULL * 1024ULL);

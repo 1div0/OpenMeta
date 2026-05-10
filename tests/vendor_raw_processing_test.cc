@@ -359,6 +359,28 @@ TEST(VendorRawProcessing, ClassifiesSigmaRawProcessingFields)
                                                0x0039U);
     EXPECT_TRUE(has_group(sensor_groups, VendorRawProcessingGroup::Sensor));
 
+    const VendorRawProcessingGroup x3f_geometry_groups
+        = classify_vendor_raw_processing_field("x3f_header", "ImageWidth",
+                                               0x0007U);
+    EXPECT_TRUE(
+        has_group(x3f_geometry_groups, VendorRawProcessingGroup::Geometry));
+    EXPECT_TRUE(
+        has_group(x3f_geometry_groups, VendorRawProcessingGroup::PrivateTable));
+
+    const VendorRawProcessingGroup x3f_color_groups
+        = classify_vendor_raw_processing_field("x3f_header_ext",
+                                               "ExposureAdjust", 0x0001U);
+    EXPECT_TRUE(has_group(x3f_color_groups, VendorRawProcessingGroup::Color));
+    EXPECT_TRUE(
+        has_group(x3f_color_groups, VendorRawProcessingGroup::PrivateTable));
+
+    const VendorRawProcessingGroup x3f_sensor_groups
+        = classify_vendor_raw_processing_field("x3f_prop", "SensorTemperature",
+                                               0x0015U);
+    EXPECT_TRUE(has_group(x3f_sensor_groups, VendorRawProcessingGroup::Sensor));
+    EXPECT_TRUE(
+        has_group(x3f_sensor_groups, VendorRawProcessingGroup::PrivateTable));
+
     const VendorRawProcessingGroup capture_groups
         = classify_vendor_raw_processing_field("mk_sigma0", "LensType",
                                                0x0027U);

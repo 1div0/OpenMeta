@@ -6,6 +6,7 @@
 #include "crw_ciff_decode_internal.h"
 #include "exif_tiff_decode_internal.h"
 #include "raf_decode_internal.h"
+#include "x3f_decode_internal.h"
 
 #include "openmeta/exr_decode.h"
 #include "openmeta/icc_decode.h"
@@ -922,6 +923,17 @@ simple_meta_read(std::span<const std::byte> file_bytes, MetaStore& store,
             any_exif = true;
             merge_exif_status(&exif.status, raf.status);
             exif.entries_decoded += raf.entries_decoded;
+        }
+    }
+    if (x3f_internal::looks_like_x3f(file_bytes)) {
+        const ExifDecodeResult x3f
+            = x3f_internal::decode_x3f_native(file_bytes, store,
+                                              options.exif.limits);
+        if (x3f.status != ExifDecodeStatus::Unsupported
+            || x3f.entries_decoded > 0U) {
+            any_exif = true;
+            merge_exif_status(&exif.status, x3f.status);
+            exif.entries_decoded += x3f.entries_decoded;
         }
     }
 

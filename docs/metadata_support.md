@@ -51,8 +51,8 @@ Current tracked-gate status:
 | WebP | Yes | Yes | EXIF, XMP, ICC, and bounded JUMBF/C2PA |
 | GIF | Yes | Partial | XMP, ICC, and structured comments |
 | TIFF / DNG / TIFF-based RAW | Yes | Yes | EXIF, MakerNote, XMP, IPTC, Photoshop IRB, ICC, GeoTIFF, and bounded JUMBF/C2PA |
-| CRW / CIFF | Yes | Partial | Derived EXIF bridge plus bounded native Canon CIFF naming and projection |
-| RAF / X3F | Partial | Partial | RAF now includes header-declared FujiIFD/TIFF follow path, native RAF header/directory geometry tags, RAFData geometry projection, and standalone XMP fallback; X3F remains mainly embedded-EXIF follow path |
+| CRW / CIFF | Yes | Partial | Recursive CIFF directories, stable scalar/subtable decode, derived EXIF bridge, and bounded native Canon CIFF naming/projection |
+| RAF / X3F | Partial | Partial | RAF includes header-declared FujiIFD/TIFF follow path, native RAF header/directory geometry tags, RAFData geometry projection, and standalone XMP fallback; X3F includes header fields, known PROP properties, section-directory JPEG metadata follow path, and legacy embedded-EXIF fallback |
 | JP2 | Yes | Yes | EXIF, XMP, IPTC, ICC, and GeoTIFF |
 | JXL | Yes | Yes | EXIF, XMP, and bounded JUMBF/C2PA; supported `brob` wrapped metadata is decoded |
 | HEIF / AVIF / CR3 | Yes | Partial | EXIF, XMP, ICC, CR3 maker blocks, BMFF derived fields, and bounded JUMBF/C2PA |
@@ -84,6 +84,18 @@ OpenMeta now does more than a pure derived-EXIF bridge:
 - stable scalar native CIFF fields are decoded where the layout is clear
 
 It is still a partial lane compared to the deepest legacy Canon tooling.
+
+### X3F
+
+OpenMeta now has a bounded native Sigma X3F lane:
+- common X3F header fields are decoded as `x3f_header`
+- stable header-extension adjustment fields are decoded as `x3f_header_ext`
+- known `PROP` properties are decoded as `x3f_prop`
+- section-directory JPEG metadata is followed for embedded EXIF/XMP-style
+  metadata blocks, with the older embedded-EXIF scan kept as fallback
+
+Deeper image-processing/compression sections remain partial and should only be
+promoted when fields can be typed, named, and safety-classified.
 
 ### Photoshop IRB
 
@@ -158,8 +170,8 @@ What this means in practice:
   surface
 - additional `JXL brob` realtypes beyond `Exif`, `xml `, `jumb`, and `c2pa`
 - full `JUMBF/C2PA` semantics and policy validation
-- deeper RAF model-specific native tables and X3F native semantics beyond the
-  current follow paths
+- deeper RAF model-specific native tables and X3F image-processing sections
+  beyond the current header/PROP/JPEG-section lane
 - broader Photoshop IRB interpretation beyond the current bounded subset
 
 ## Related Docs

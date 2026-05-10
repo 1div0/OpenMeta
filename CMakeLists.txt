@@ -371,6 +371,7 @@ set(OPENMETA_SOURCES
   src/openmeta/vendor_raw_processing.cc
   src/openmeta/xmp_decode.cc
   src/openmeta/xmp_dump.cc
+  src/openmeta/x3f_decode.cc
 )
 
 if(OPENMETA_DNG_SDK_FOUND)

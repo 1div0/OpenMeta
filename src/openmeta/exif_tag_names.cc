@@ -170,6 +170,104 @@ namespace {
     }
 
     static std::string_view
+    synthesize_x3f_placeholder_name(uint16_t tag) noexcept
+    {
+        static thread_local char buf[20];
+        static constexpr std::string_view kPrefix = "SigmaX3F_0x";
+        static constexpr char kHex[]              = "0123456789abcdef";
+        if (kPrefix.size() + 4U >= sizeof(buf)) {
+            return {};
+        }
+
+        for (size_t i = 0; i < kPrefix.size(); ++i) {
+            buf[i] = kPrefix[i];
+        }
+        buf[kPrefix.size() + 0U] = kHex[(tag >> 12U) & 0xFU];
+        buf[kPrefix.size() + 1U] = kHex[(tag >> 8U) & 0xFU];
+        buf[kPrefix.size() + 2U] = kHex[(tag >> 4U) & 0xFU];
+        buf[kPrefix.size() + 3U] = kHex[(tag >> 0U) & 0xFU];
+        buf[kPrefix.size() + 4U] = '\0';
+        return std::string_view(buf, kPrefix.size() + 4U);
+    }
+
+    static std::string_view x3f_header_tag_name(uint16_t tag) noexcept
+    {
+        switch (tag) {
+        case 0x0001U: return "FileVersion";
+        case 0x0002U: return "ImageUniqueID";
+        case 0x0006U: return "MarkBits";
+        case 0x0007U: return "ImageWidth";
+        case 0x0008U: return "ImageHeight";
+        case 0x0009U: return "Rotation";
+        case 0x000aU: return "WhiteBalance";
+        case 0x0012U: return "SceneCaptureType";
+        default: return synthesize_x3f_placeholder_name(tag);
+        }
+    }
+
+    static std::string_view x3f_header_ext_tag_name(uint16_t tag) noexcept
+    {
+        switch (tag) {
+        case 0x0001U: return "ExposureAdjust";
+        case 0x0002U: return "Contrast";
+        case 0x0003U: return "Shadow";
+        case 0x0004U: return "Highlight";
+        case 0x0005U: return "Saturation";
+        case 0x0006U: return "Sharpness";
+        case 0x0007U: return "RedAdjust";
+        case 0x0008U: return "GreenAdjust";
+        case 0x0009U: return "BlueAdjust";
+        case 0x000aU: return "X3FillLight";
+        default: return synthesize_x3f_placeholder_name(tag);
+        }
+    }
+
+    static std::string_view x3f_prop_tag_name(uint16_t tag) noexcept
+    {
+        switch (tag) {
+        case 0x0001U: return "MeteringMode";
+        case 0x0002U: return "AFArea";
+        case 0x0003U: return "AFInFocus";
+        case 0x0004U: return "FocusMode";
+        case 0x0005U: return "ApertureDisplayed";
+        case 0x0006U: return "FNumber";
+        case 0x0007U: return "Make";
+        case 0x0008U: return "Model";
+        case 0x0009U: return "CameraName";
+        case 0x000aU: return "SerialNumber";
+        case 0x000bU: return "ColorSpace";
+        case 0x000cU: return "DriveMode";
+        case 0x000dU: return "ExposureCompensation";
+        case 0x000eU: return "NetExposureCompensation";
+        case 0x000fU: return "IntegrationTime";
+        case 0x0010U: return "FirmwareVersion";
+        case 0x0011U: return "FlashMode";
+        case 0x0012U: return "FocalLength";
+        case 0x0013U: return "FocalLengthIn35mmFormat";
+        case 0x0014U: return "Focus";
+        case 0x0015U: return "SensorTemperature";
+        case 0x0016U: return "ISO";
+        case 0x0017U: return "LensType";
+        case 0x0018U: return "ExposureProgram";
+        case 0x0019U: return "Quality";
+        case 0x001aU: return "DateTimeOriginal";
+        case 0x001bU: return "WhiteBalance";
+        case 0x001cU: return "SceneCaptureType";
+        case 0x001dU: return "ExposureTime";
+        case 0x001eU: return "ShutterSpeedDisplayed";
+        case 0x001fU: return "LensApertureRange";
+        case 0x0020U: return "LensFocalRange";
+        case 0x0021U: return "BurstShot";
+        case 0x0022U: return "BracketShot";
+        case 0x0023U: return "EvalState";
+        case 0x0024U: return "ImagerBoardID";
+        case 0x0025U: return "ImageBoardID";
+        case 0x0026U: return "SensorID";
+        default: return synthesize_x3f_placeholder_name(tag);
+        }
+    }
+
+    static std::string_view
     synthesize_casio_main_placeholder_name(uint16_t tag) noexcept
     {
         static thread_local char buf[16];
@@ -1097,6 +1195,15 @@ exif_tag_name(std::string_view ifd, uint16_t tag) noexcept
         }
         if (is_raf_ifd(ifd)) {
             return raf_tag_name(tag);
+        }
+        if (ifd == "x3f_header") {
+            return x3f_header_tag_name(tag);
+        }
+        if (ifd == "x3f_header_ext") {
+            return x3f_header_ext_tag_name(tag);
+        }
+        if (ifd == "x3f_prop") {
+            return x3f_prop_tag_name(tag);
         }
         if (ifd.starts_with("mk_")) {
             return makernote_tag_name(ifd, tag);

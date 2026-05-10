@@ -171,19 +171,47 @@ namespace {
         if (contains(ifd, "wbsettings")) {
             groups |= kVendorRawColor | kVendorRawWhiteBalance;
         }
+        if (starts_with(ifd, "x3f_")) {
+            groups |= kVendorRawPrivateTable;
+        }
         return groups;
     }
 
     static uint32_t classify_sigma_tag(std::string_view ifd,
                                        uint16_t tag) noexcept
     {
-        if (!starts_with(ifd, "mk_sigma")) {
-            return 0U;
+        if (starts_with(ifd, "x3f_header_ext")) {
+            return kVendorRawColor | kVendorRawPrivateTable;
         }
-        switch (tag) {
-        case 0x0039U:
-        case 0x0055U: return kVendorRawSensor;
-        default: break;
+        if (starts_with(ifd, "x3f_header")) {
+            switch (tag) {
+            case 0x0007U:
+            case 0x0008U:
+            case 0x0009U: return kVendorRawGeometry | kVendorRawPrivateTable;
+            case 0x000aU:
+                return kVendorRawColor | kVendorRawWhiteBalance
+                       | kVendorRawPrivateTable;
+            default: break;
+            }
+            return kVendorRawPrivateTable;
+        }
+        if (starts_with(ifd, "x3f_prop")) {
+            switch (tag) {
+            case 0x000bU: return kVendorRawColor | kVendorRawPrivateTable;
+            case 0x0015U: return kVendorRawSensor | kVendorRawPrivateTable;
+            case 0x001bU:
+                return kVendorRawColor | kVendorRawWhiteBalance
+                       | kVendorRawPrivateTable;
+            default: break;
+            }
+            return kVendorRawPrivateTable;
+        }
+        if (starts_with(ifd, "mk_sigma")) {
+            switch (tag) {
+            case 0x0039U:
+            case 0x0055U: return kVendorRawSensor;
+            default: break;
+            }
         }
         return 0U;
     }
@@ -815,7 +843,7 @@ namespace {
         case VendorRawProcessingFamily::Minolta:
             return starts_with(ifd, "mk_minolta");
         case VendorRawProcessingFamily::Sigma:
-            return starts_with(ifd, "mk_sigma");
+            return starts_with(ifd, "mk_sigma") || starts_with(ifd, "x3f_");
         case VendorRawProcessingFamily::Samsung:
             return starts_with(ifd, "mk_samsung");
         case VendorRawProcessingFamily::Ricoh:
@@ -909,7 +937,7 @@ classify_vendor_raw_processing_field(std::string_view ifd,
         groups |= classify_kodak_ifd(ifd);
     } else if (starts_with(ifd, "mk_minolta")) {
         groups |= classify_minolta_ifd(ifd);
-    } else if (starts_with(ifd, "mk_sigma")) {
+    } else if (starts_with(ifd, "mk_sigma") || starts_with(ifd, "x3f_")) {
         groups |= classify_sigma_ifd(ifd);
         groups |= classify_sigma_tag(ifd, tag);
     } else if (starts_with(ifd, "mk_samsung")) {

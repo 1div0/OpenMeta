@@ -121,6 +121,65 @@ namespace {
         return key;
     }
 
+    struct X3fPropPair final {
+        std::string_view key;
+        std::string_view value;
+    };
+
+    static void write_fixed_ascii_at(std::vector<std::byte>* out, size_t off,
+                                     size_t field_size, std::string_view text)
+    {
+        ASSERT_TRUE(out != nullptr);
+        ASSERT_LE(off + field_size, out->size());
+        ASSERT_LT(text.size(), field_size);
+        for (size_t i = 0; i < text.size(); ++i) {
+            (*out)[off + i] = std::byte { static_cast<uint8_t>(text[i]) };
+        }
+    }
+
+    static uint32_t append_x3f_prop_text(std::vector<std::byte>* chars,
+                                         std::string_view text)
+    {
+        const uint32_t pos = static_cast<uint32_t>(chars->size() / 2U);
+        for (char c : text) {
+            chars->push_back(std::byte { static_cast<uint8_t>(c) });
+            chars->push_back(std::byte { 0 });
+        }
+        chars->push_back(std::byte { 0 });
+        chars->push_back(std::byte { 0 });
+        return pos;
+    }
+
+    static std::vector<std::byte>
+    make_x3f_prop_section(std::span<const X3fPropPair> pairs)
+    {
+        std::array<uint32_t, 16> name_pos {};
+        std::array<uint32_t, 16> value_pos {};
+        EXPECT_LE(pairs.size(), name_pos.size());
+
+        std::vector<std::byte> chars;
+        const size_t count = (pairs.size() < name_pos.size()) ? pairs.size()
+                                                              : name_pos.size();
+        for (size_t i = 0; i < count; ++i) {
+            name_pos[i]  = append_x3f_prop_text(&chars, pairs[i].key);
+            value_pos[i] = append_x3f_prop_text(&chars, pairs[i].value);
+        }
+
+        std::vector<std::byte> prop;
+        append_bytes(&prop, "SECp");
+        append_u32le(&prop, 1U);
+        append_u32le(&prop, static_cast<uint32_t>(count));
+        append_u32le(&prop, 0U);
+        append_u32le(&prop, 0U);
+        append_u32le(&prop, static_cast<uint32_t>(chars.size() / 2U));
+        for (size_t i = 0; i < count; ++i) {
+            append_u32le(&prop, name_pos[i]);
+            append_u32le(&prop, value_pos[i]);
+        }
+        prop.insert(prop.end(), chars.begin(), chars.end());
+        return prop;
+    }
+
     static MetaKeyView png_text_key(std::string_view keyword,
                                     std::string_view field)
     {
@@ -1578,6 +1637,108 @@ TEST(SimpleMetaRead, DecodesX3fEmbeddedExifTiff)
         exif_key("ifd0", 0x010F));
     ASSERT_EQ(ids.size(), 1U);
     EXPECT_EQ(arena_string(store.arena(), store.entry(ids[0]).value), "Canon");
+}
+
+TEST(SimpleMetaRead, DecodesX3fNativeHeaderAndProperties)
+{
+    std::vector<std::byte> x3f;
+    append_bytes(&x3f, "FOVb");
+    append_u32le(&x3f, (2U << 16U) | 3U);
+    append_bytes(&x3f, "0123456789abcdef");
+    append_u32le(&x3f, 0U);
+    append_u32le(&x3f, 2640U);
+    append_u32le(&x3f, 1760U);
+    append_u32le(&x3f, 0U);
+    x3f.resize(104U, std::byte { 0 });
+    write_fixed_ascii_at(&x3f, 40U, 32U, "Auto");
+    write_fixed_ascii_at(&x3f, 72U, 32U, "Standard");
+
+    x3f.resize(264U, std::byte { 0 });
+    x3f[104U] = std::byte { 1U };
+    write_u32le_at(&x3f, 136U, f32_bits(0.5F));
+
+    const std::array<X3fPropPair, 6> props
+        = { { { "CAMMANUF", "SIGMA" },
+              { "CAMMODEL", "SIGMA DP2" },
+              { "ISO", "100" },
+              { "IMAGERTEMP", "20" },
+              { "WB_DESC", "Auto" },
+              { "TIME", "2026:05:09 10:20:30" } } };
+    const std::vector<std::byte> prop = make_x3f_prop_section(props);
+    const uint32_t prop_off           = static_cast<uint32_t>(x3f.size());
+    x3f.insert(x3f.end(), prop.begin(), prop.end());
+
+    const uint32_t dir_off = static_cast<uint32_t>(x3f.size());
+    append_bytes(&x3f, "SECd");
+    append_u32le(&x3f, 1U);
+    append_u32le(&x3f, 1U);
+    append_u32le(&x3f, prop_off);
+    append_u32le(&x3f, static_cast<uint32_t>(prop.size()));
+    append_bytes(&x3f, "PROP");
+    append_u32le(&x3f, dir_off);
+
+    MetaStore store;
+    std::array<ContainerBlockRef, 8> blocks {};
+    std::array<ExifIfdRef, 8> ifds {};
+    std::array<std::byte, 4096> payload_scratch {};
+    std::array<uint32_t, 16> payload_parts {};
+    ExifDecodeOptions exif_options;
+    PayloadOptions payload_options;
+    const SimpleMetaResult res
+        = simple_meta_read(x3f, store, blocks, ifds, payload_scratch,
+                           payload_parts, exif_options, payload_options);
+    EXPECT_EQ(res.exif.status, ExifDecodeStatus::Ok);
+    EXPECT_GT(res.exif.entries_decoded, 0U);
+
+    store.finalize();
+
+    const std::span<const EntryId> width_ids = store.find_all(
+        exif_key("x3f_header", 0x0007));
+    ASSERT_EQ(width_ids.size(), 1U);
+    EXPECT_EQ(store.entry(width_ids[0]).value.kind, MetaValueKind::Scalar);
+    EXPECT_EQ(store.entry(width_ids[0]).value.elem_type, MetaElementType::U32);
+    EXPECT_EQ(store.entry(width_ids[0]).value.data.u64, 2640U);
+
+    const std::span<const EntryId> wb_ids = store.find_all(
+        exif_key("x3f_header", 0x000a));
+    ASSERT_EQ(wb_ids.size(), 1U);
+    EXPECT_EQ(arena_string(store.arena(), store.entry(wb_ids[0]).value),
+              "Auto");
+
+    const std::span<const EntryId> scene_ids = store.find_all(
+        exif_key("x3f_header", 0x0012));
+    ASSERT_EQ(scene_ids.size(), 1U);
+    EXPECT_EQ(arena_string(store.arena(), store.entry(scene_ids[0]).value),
+              "Standard");
+
+    const std::span<const EntryId> exposure_ids = store.find_all(
+        exif_key("x3f_header_ext", 0x0001));
+    ASSERT_EQ(exposure_ids.size(), 1U);
+    EXPECT_EQ(store.entry(exposure_ids[0]).value.elem_type,
+              MetaElementType::F32);
+    EXPECT_EQ(store.entry(exposure_ids[0]).value.data.f32_bits, f32_bits(0.5F));
+
+    const std::span<const EntryId> make_ids = store.find_all(
+        exif_key("x3f_prop", 0x0007));
+    ASSERT_EQ(make_ids.size(), 1U);
+    EXPECT_EQ(arena_string(store.arena(), store.entry(make_ids[0]).value),
+              "SIGMA");
+
+    const std::span<const EntryId> model_ids = store.find_all(
+        exif_key("x3f_prop", 0x0008));
+    ASSERT_EQ(model_ids.size(), 1U);
+    EXPECT_EQ(arena_string(store.arena(), store.entry(model_ids[0]).value),
+              "SIGMA DP2");
+
+    const VendorRawProcessingSummary summary
+        = vendor_raw_processing_from_store(store,
+                                           VendorRawProcessingFamily::Sigma);
+    EXPECT_GE(summary.fields_seen, 1U);
+    EXPECT_GE(summary.color_fields, 1U);
+    EXPECT_GE(summary.white_balance_fields, 1U);
+    EXPECT_GE(summary.geometry_fields, 1U);
+    EXPECT_GE(summary.sensor_fields, 1U);
+    EXPECT_GE(summary.private_table_fields, 1U);
 }
 
 

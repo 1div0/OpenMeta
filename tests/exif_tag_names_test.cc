@@ -284,6 +284,27 @@ TEST(ExifTagNames, MapsNativeRafTags)
               std::string_view("FujiFilmRAF_0x9999"));
 }
 
+TEST(ExifTagNames, MapsNativeX3fTags)
+{
+    using openmeta::exif_tag_name;
+
+    EXPECT_EQ(exif_tag_name("x3f_header", 0x0001),
+              std::string_view("FileVersion"));
+    EXPECT_EQ(exif_tag_name("x3f_header", 0x0007),
+              std::string_view("ImageWidth"));
+    EXPECT_EQ(exif_tag_name("x3f_header", 0x000a),
+              std::string_view("WhiteBalance"));
+    EXPECT_EQ(exif_tag_name("x3f_header_ext", 0x0001),
+              std::string_view("ExposureAdjust"));
+    EXPECT_EQ(exif_tag_name("x3f_header_ext", 0x000a),
+              std::string_view("X3FillLight"));
+    EXPECT_EQ(exif_tag_name("x3f_prop", 0x0007), std::string_view("Make"));
+    EXPECT_EQ(exif_tag_name("x3f_prop", 0x0015),
+              std::string_view("SensorTemperature"));
+    EXPECT_EQ(exif_tag_name("x3f_prop", 0x9999),
+              std::string_view("SigmaX3F_0x9999"));
+}
+
 TEST(ExifTagNames, MapsDjiMainAndThermalTables)
 {
     using openmeta::exif_tag_name;

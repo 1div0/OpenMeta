@@ -336,6 +336,65 @@ namespace {
         EXPECT_EQ(blocks[0].kind, ContainerBlockKind::Exif);
     }
 
+    TEST(ContainerScan, X3fSectionJpegMetadataUsesX3fFormat)
+    {
+        std::vector<std::byte> jpeg;
+        jpeg.push_back(std::byte { 0xff });
+        jpeg.push_back(std::byte { 0xd8 });
+
+        std::vector<std::byte> exif_payload;
+        append_bytes(&exif_payload, "Exif");
+        exif_payload.push_back(std::byte { 0 });
+        exif_payload.push_back(std::byte { 0 });
+        append_bytes(&exif_payload, "II");
+        append_u16le(&exif_payload, 42);
+        append_u32le(&exif_payload, 8);
+        append_u16le(&exif_payload, 0);
+        append_u32le(&exif_payload, 0);
+        append_jpeg_segment(&jpeg, 0xffe1, exif_payload);
+
+        std::vector<std::byte> xmp_payload;
+        append_bytes(&xmp_payload, "http://ns.adobe.com/xap/1.0/");
+        xmp_payload.push_back(std::byte { 0 });
+        append_bytes(&xmp_payload, "<x:xmpmeta/>");
+        append_jpeg_segment(&jpeg, 0xffe1, xmp_payload);
+        jpeg.push_back(std::byte { 0xff });
+        jpeg.push_back(std::byte { 0xd9 });
+
+        std::vector<std::byte> x3f;
+        append_bytes(&x3f, "FOVb");
+        append_u32le(&x3f, (2U << 16U) | 3U);
+        x3f.resize(128, std::byte { 0 });
+
+        const uint32_t section_off = static_cast<uint32_t>(x3f.size());
+        append_bytes(&x3f, "SECi");
+        x3f.resize(x3f.size() + 24U, std::byte { 0 });
+        x3f.insert(x3f.end(), jpeg.begin(), jpeg.end());
+        const uint32_t section_size = static_cast<uint32_t>(x3f.size())
+                                      - section_off;
+
+        const uint32_t dir_off = static_cast<uint32_t>(x3f.size());
+        append_bytes(&x3f, "SECd");
+        append_u32le(&x3f, 1U);
+        append_u32le(&x3f, 1U);
+        append_u32le(&x3f, section_off);
+        append_u32le(&x3f, section_size);
+        append_bytes(&x3f, "IMA2");
+        append_u32le(&x3f, dir_off);
+
+        std::array<ContainerBlockRef, 8> blocks {};
+        const ScanResult res
+            = scan_auto(std::span<const std::byte>(x3f.data(), x3f.size()),
+                        blocks);
+        ASSERT_EQ(res.status, ScanStatus::Ok);
+        ASSERT_EQ(res.written, 2U);
+        EXPECT_EQ(blocks[0].format, ContainerFormat::X3f);
+        EXPECT_EQ(blocks[0].kind, ContainerBlockKind::Exif);
+        EXPECT_EQ(blocks[1].format, ContainerFormat::X3f);
+        EXPECT_EQ(blocks[1].kind, ContainerBlockKind::Xmp);
+        EXPECT_GT(blocks[1].data_offset, static_cast<uint64_t>(section_off));
+    }
+
     TEST(ContainerScan, CrwRootBlockUsesCrwFormat)
     {
         std::vector<std::byte> crw;

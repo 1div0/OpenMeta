@@ -46,6 +46,9 @@ Changes compared with `0.4.8`.
 - Added native Fujifilm RAF read coverage for header-declared FujiIFD/TIFF
   offsets, RAF header fields, RAF directory geometry tags, and RAFData geometry
   projection.
+- Added native Sigma X3F read coverage for common header fields, header
+  extension adjustment fields, known `PROP` properties, and section-directory
+  JPEG metadata discovery while preserving the older embedded-EXIF fallback.
 - Added grouped semantic-query candidates for DNG color matrix/calibration/
   reduction/forward matrix sets, DNG white-balance vector sets, and
   lens-correction table groups. Candidate value-shape labels now include
