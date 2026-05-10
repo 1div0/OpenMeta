@@ -167,6 +167,17 @@ assert snapshot_bytes['status'] == openmeta.TransferStatus.Ok, snapshot_bytes
 assert snapshot_bytes['code_name'] == 'none', snapshot_bytes
 assert snapshot_bytes['entry_count'] == r['entry_count'], snapshot_bytes
 
+snapshot_raw = openmeta.read_transfer_source_snapshot_bytes(
+    p.read_bytes(),
+    preserve_raw_carriers=True,
+)
+assert snapshot_raw['overall_status'] == openmeta.TransferStatus.Ok, snapshot_raw
+assert snapshot_raw['raw_carrier_count'] >= 1, snapshot_raw
+assert snapshot_raw['snapshot'].raw_carrier_count == snapshot_raw['raw_carrier_count'], snapshot_raw
+raw_carriers = snapshot_raw['snapshot'].raw_carriers(include_payload=True)
+assert raw_carriers[0]['payload_preserved'] is True, raw_carriers
+assert isinstance(raw_carriers[0]['payload'], (bytes, bytearray)), raw_carriers
+
 doc_snapshot = openmeta.read(str(p)).build_transfer_source_snapshot()
 assert doc_snapshot.entry_count == r['entry_count'], doc_snapshot
 snapshot_dump = doc_snapshot.compatibility_dump()

@@ -1,5 +1,9 @@
 message(STATUS "Building OpenMeta Python wheel")
 
+if(NOT DEFINED OPENMETA_WHEEL_INSTALL)
+  set(OPENMETA_WHEEL_INSTALL ON)
+endif()
+
 file(MAKE_DIRECTORY "@_openmeta_wheel_out_dir@")
 
 set(_openmeta_prefix_path "@CMAKE_PREFIX_PATH@")
@@ -31,7 +35,24 @@ if(NOT _openmeta_cxx STREQUAL "")
   list(APPEND _openmeta_env_vars "CXX=${_openmeta_cxx}")
 endif()
 
-list(APPEND _openmeta_env_vars "SKBUILD_CMAKE_BUILD_TYPE=@CMAKE_BUILD_TYPE@")
+set(_openmeta_skbuild_build_type "@CMAKE_BUILD_TYPE@")
+if(DEFINED OPENMETA_WHEEL_CONFIG AND NOT OPENMETA_WHEEL_CONFIG STREQUAL "")
+  set(_openmeta_skbuild_build_type "${OPENMETA_WHEEL_CONFIG}")
+elseif(DEFINED CMAKE_INSTALL_CONFIG_NAME AND NOT CMAKE_INSTALL_CONFIG_NAME STREQUAL "")
+  set(_openmeta_skbuild_build_type "${CMAKE_INSTALL_CONFIG_NAME}")
+endif()
+if(NOT _openmeta_skbuild_build_type STREQUAL "")
+  list(APPEND _openmeta_env_vars
+    "SKBUILD_CMAKE_BUILD_TYPE=${_openmeta_skbuild_build_type}")
+endif()
+
+set(_openmeta_config_settings "@_openmeta_wheel_config_settings@")
+if(NOT _openmeta_prefix_path STREQUAL "")
+  set(_openmeta_prefix_path_define "${_openmeta_prefix_path}")
+  string(REPLACE ";" "\\;" _openmeta_prefix_path_define "${_openmeta_prefix_path_define}")
+  list(APPEND _openmeta_config_settings
+    "-C" "cmake.define.CMAKE_PREFIX_PATH=${_openmeta_prefix_path_define}")
+endif()
 
 message(STATUS "Wheel env:")
 message(STATUS "  Python: @Python_EXECUTABLE@")
@@ -42,6 +63,9 @@ else()
 endif()
 if(NOT _openmeta_cxx STREQUAL "")
   message(STATUS "  CXX: ${_openmeta_cxx}")
+endif()
+if(NOT _openmeta_skbuild_build_type STREQUAL "")
+  message(STATUS "  SKBUILD_CMAKE_BUILD_TYPE: ${_openmeta_skbuild_build_type}")
 endif()
 
 execute_process(
@@ -66,6 +90,7 @@ if(_openmeta_python_has_pip EQUAL 0)
             ${_openmeta_env_vars}
             "@Python_EXECUTABLE@" -m pip wheel "@PROJECT_SOURCE_DIR@"
               ${_openmeta_pip_args}
+              ${_openmeta_config_settings}
               -w "@_openmeta_wheel_out_dir@"
     WORKING_DIRECTORY "@PROJECT_SOURCE_DIR@"
     RESULT_VARIABLE _openmeta_wheel_res
@@ -87,6 +112,7 @@ else()
             ${_openmeta_env_vars}
             "@OPENMETA_UV_EXECUTABLE@" --no-cache build
               --wheel
+              ${_openmeta_config_settings}
               ${_openmeta_uv_args}
               -p "@Python_EXECUTABLE@"
               -o "@_openmeta_wheel_out_dir@"
@@ -120,21 +146,25 @@ endif()
 
 list(GET _openmeta_wheels 0 _openmeta_wheel_file)
 
-set(_openmeta_wheel_install_dir "${CMAKE_INSTALL_PREFIX}/@CMAKE_INSTALL_DATADIR@/openmeta/wheels")
-message(STATUS "Installing wheel: ${_openmeta_wheel_file}")
-message(STATUS "  -> ${_openmeta_wheel_install_dir}")
+if(OPENMETA_WHEEL_INSTALL)
+  set(_openmeta_wheel_install_dir "${CMAKE_INSTALL_PREFIX}/@CMAKE_INSTALL_DATADIR@/openmeta/wheels")
+  message(STATUS "Installing wheel: ${_openmeta_wheel_file}")
+  message(STATUS "  -> ${_openmeta_wheel_install_dir}")
 
-file(INSTALL
-  FILES "${_openmeta_wheel_file}"
-  DESTINATION "${_openmeta_wheel_install_dir}"
-)
-
-file(GLOB _openmeta_py_examples LIST_DIRECTORIES false "@PROJECT_SOURCE_DIR@/src/python/openmeta/python/*.py")
-list(LENGTH _openmeta_py_examples _openmeta_py_examples_count)
-if(_openmeta_py_examples_count GREATER 0)
-  message(STATUS "Installing Python helper scripts next to the wheel")
   file(INSTALL
-    FILES ${_openmeta_py_examples}
+    FILES "${_openmeta_wheel_file}"
     DESTINATION "${_openmeta_wheel_install_dir}"
   )
+
+  file(GLOB _openmeta_py_examples LIST_DIRECTORIES false "@PROJECT_SOURCE_DIR@/src/python/openmeta/python/*.py")
+  list(LENGTH _openmeta_py_examples _openmeta_py_examples_count)
+  if(_openmeta_py_examples_count GREATER 0)
+    message(STATUS "Installing Python helper scripts next to the wheel")
+    file(INSTALL
+      FILES ${_openmeta_py_examples}
+      DESTINATION "${_openmeta_wheel_install_dir}"
+    )
+  endif()
+else()
+  message(STATUS "Wheel built: ${_openmeta_wheel_file}")
 endif()

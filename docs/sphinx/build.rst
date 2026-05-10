@@ -65,6 +65,11 @@ Python (optional):
 - ``OPENMETA_BUILD_WHEEL``: add an ``openmeta_wheel`` build target and copy the wheel on ``install``.
 - ``OPENMETA_WHEEL_NO_BUILD_ISOLATION``: use ``pip wheel --no-build-isolation`` during wheel builds.
 
+The CMake wheel target and install-time wheel script forward the active compiler
+flags, selected Python paths, ``OPENMETA_USE_LIBCXX``, and optional feature
+toggles into the nested scikit-build configure step, so wheel ABI choices stay
+aligned with the outer CMake build.
+
 If you install dependencies into a custom prefix, provide it via
 ``CMAKE_PREFIX_PATH``.
 

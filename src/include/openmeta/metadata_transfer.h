@@ -491,17 +491,39 @@ struct PreparedTransferBundle final {
     std::vector<std::byte> generated_xmp_sidecar;
 };
 
+/// One opt-in raw source carrier captured next to a decoded snapshot.
+struct TransferSourceRawCarrier final {
+    /// Original container block reference, including byte ranges and chunking.
+    ContainerBlockRef block;
+    /// Transfer semantic family inferred from the scanned block kind.
+    TransferBlockKind semantic_kind = TransferBlockKind::Other;
+    /// Scan order among preserved source carriers.
+    uint32_t order = 0U;
+    /// Stable route hint for future passthrough/re-emission policy.
+    std::string route;
+    /// True when \ref payload contains the original block payload bytes.
+    bool payload_preserved = false;
+    /// Original metadata payload bytes, bounded by read options.
+    std::vector<std::byte> payload;
+};
+
 /**
- * \brief Reusable decoded source snapshot for later transfer preparation.
+ * \brief Reusable source snapshot for later transfer preparation.
  *
  * \par API Stability
- * Experimental host-facing API. Current snapshots are decoded-store-backed;
- * they do not preserve raw source packets for passthrough. Const reuse is safe
- * when callers do not mutate the snapshot and do not share returned result
- * objects across writers.
+ * Experimental host-facing API. The default snapshot remains decoded-store
+ * backed. Raw carrier provenance and payload bytes are kept only when read
+ * options explicitly request them; current transfer execution still uses the
+ * decoded \ref MetaStore path.
+ *
+ * Const reuse is safe when callers do not mutate the snapshot and do not share
+ * returned result objects across writers.
  */
 struct TransferSourceSnapshot final {
     MetaStore store;
+    std::vector<TransferSourceRawCarrier> raw_carriers;
+    uint64_t raw_carrier_bytes = 0U;
+    bool raw_carrier_bytes_truncated = false;
 };
 
 /// Options for explicit raw JUMBF append into a prepared JPEG bundle.
@@ -1103,6 +1125,8 @@ struct ReadTransferSourceSnapshotFileOptions final {
     bool decode_makernote           = false;
     bool decode_embedded_containers = true;
     bool decompress                 = true;
+    bool preserve_raw_carriers      = false;
+    uint64_t max_raw_carrier_bytes  = 64ULL * 1024ULL * 1024ULL;
     OpenMetaResourcePolicy policy;
 };
 
@@ -1121,6 +1145,9 @@ struct ReadTransferSourceSnapshotFileResult final {
         = ReadTransferSourceSnapshotFileCode::None;
     uint64_t file_size   = 0;
     uint32_t entry_count = 0;
+    uint32_t raw_carrier_count = 0U;
+    uint64_t raw_carrier_bytes = 0U;
+    bool raw_carrier_bytes_truncated = false;
     SimpleMetaResult read;
     TransferSourceSnapshot snapshot;
 };
@@ -1137,6 +1164,9 @@ struct ReadTransferSourceSnapshotBytesResult final {
         = ReadTransferSourceSnapshotBytesCode::None;
     uint64_t input_size  = 0;
     uint32_t entry_count = 0;
+    uint32_t raw_carrier_count = 0U;
+    uint64_t raw_carrier_bytes = 0U;
+    bool raw_carrier_bytes_truncated = false;
     SimpleMetaResult read;
     TransferSourceSnapshot snapshot;
 };
@@ -1773,8 +1803,9 @@ prepare_metadata_for_target(const MetaStore&, const PrepareTransferRequest&,
  * for host applications that already hold a reusable decoded source snapshot
  * from an earlier read.
  *
- * Current snapshot contract is decoded-store-backed. Raw source passthrough
- * payloads are not preserved.
+ * Current snapshot execution is decoded-store-backed. Opt-in raw carrier
+ * payloads can be retained in the snapshot for host diagnostics and future
+ * passthrough policy, but are not consumed by this preparation entry point yet.
  *
  * \par API Stability
  * Experimental host-facing API.

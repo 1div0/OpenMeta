@@ -596,64 +596,100 @@ if(OPENMETA_BUILD_WHEEL)
     endif()
   endif()
 
-  set(_openmeta_wheel_env_prefix_path "${CMAKE_PREFIX_PATH}")
-  string(REPLACE ";" "\\;" _openmeta_wheel_env_prefix_path "${_openmeta_wheel_env_prefix_path}")
+  if(NOT _openmeta_python_has_pip EQUAL 0 AND NOT OPENMETA_UV_EXECUTABLE)
+    message(FATAL_ERROR
+      "OPENMETA_BUILD_WHEEL: '${Python_EXECUTABLE}' has no pip module, and 'uv' was not found on PATH. "
+      "Either install pip into that Python, or install uv.")
+  endif()
+
   set(_openmeta_wheel_out_dir "${CMAKE_BINARY_DIR}/dist")
+  set(_openmeta_wheel_config_settings "")
 
-  set(_openmeta_wheel_pip_isolation_args "")
-  if(OPENMETA_WHEEL_NO_BUILD_ISOLATION)
-    set(_openmeta_wheel_pip_isolation_args --no-build-isolation)
-  endif()
-
-  set(_openmeta_wheel_cmd "")
-  set(_openmeta_wheel_tool "pip")
-  if(_openmeta_python_has_pip EQUAL 0)
-    list(APPEND _openmeta_wheel_cmd
-      "${Python_EXECUTABLE}" -m pip wheel "${PROJECT_SOURCE_DIR}"
-      --no-deps
-      ${_openmeta_wheel_pip_isolation_args}
-      -w "${_openmeta_wheel_out_dir}"
-    )
-  else()
-    if(NOT OPENMETA_UV_EXECUTABLE)
-      message(FATAL_ERROR
-        "OPENMETA_BUILD_WHEEL: '${Python_EXECUTABLE}' has no pip module, and 'uv' was not found on PATH. "
-        "Either install pip into that Python, or install uv."
-      )
+  function(openmeta_append_wheel_config_define openmeta_define_name openmeta_define_value)
+    if("${openmeta_define_value}" STREQUAL "")
+      return()
     endif()
-    set(_openmeta_wheel_tool "uv")
-    set(_openmeta_wheel_uv_args "")
-    if(OPENMETA_WHEEL_NO_BUILD_ISOLATION)
-      set(_openmeta_wheel_uv_args --no-build-isolation)
-    endif()
-    list(APPEND _openmeta_wheel_cmd
-      "${OPENMETA_UV_EXECUTABLE}" --no-cache build
-      --wheel
-      ${_openmeta_wheel_uv_args}
-      -p "${Python_EXECUTABLE}"
-      -o "${_openmeta_wheel_out_dir}"
-      "${PROJECT_SOURCE_DIR}"
-    )
-  endif()
+    set(openmeta_escaped_define_value "${openmeta_define_value}")
+    string(REPLACE ";" "\\;" openmeta_escaped_define_value "${openmeta_escaped_define_value}")
+    list(APPEND _openmeta_wheel_config_settings
+      "-C" "cmake.define.${openmeta_define_name}=${openmeta_escaped_define_value}")
+    set(_openmeta_wheel_config_settings "${_openmeta_wheel_config_settings}" PARENT_SCOPE)
+  endfunction()
 
-  add_custom_target(openmeta_wheel
-    COMMAND "${CMAKE_COMMAND}" -E make_directory "${_openmeta_wheel_out_dir}"
-    COMMAND "${CMAKE_COMMAND}" -E env
-            "CMAKE_PREFIX_PATH=${_openmeta_wheel_env_prefix_path}"
-            "CC=${CMAKE_C_COMPILER}"
-            "CXX=${CMAKE_CXX_COMPILER}"
-            "SKBUILD_CMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}"
-            ${_openmeta_wheel_cmd}
-    WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
-    COMMENT "Building OpenMeta Python wheel (${_openmeta_wheel_tool})"
-    VERBATIM
-  )
+  openmeta_append_wheel_config_define(OPENMETA_BUILD_PYTHON ON)
+  openmeta_append_wheel_config_define(OPENMETA_BUILD_WHEEL OFF)
+  openmeta_append_wheel_config_define(OPENMETA_BUILD_TOOLS OFF)
+  openmeta_append_wheel_config_define(OPENMETA_BUILD_TESTS OFF)
+  openmeta_append_wheel_config_define(OPENMETA_BUILD_FUZZERS OFF)
+  openmeta_append_wheel_config_define(OPENMETA_BUILD_FUZZTEST OFF)
+  openmeta_append_wheel_config_define(OPENMETA_BUILD_DOCS OFF)
+  openmeta_append_wheel_config_define(OPENMETA_BUILD_SPHINX_DOCS OFF)
+
+  foreach(_openmeta_wheel_define_var IN ITEMS
+      BUILD_SHARED_LIBS
+      CMAKE_C_STANDARD
+      CMAKE_C_FLAGS
+      CMAKE_C_FLAGS_DEBUG
+      CMAKE_C_FLAGS_RELEASE
+      CMAKE_C_FLAGS_RELWITHDEBINFO
+      CMAKE_C_FLAGS_MINSIZEREL
+      CMAKE_CXX_STANDARD
+      CMAKE_CXX_FLAGS
+      CMAKE_CXX_FLAGS_DEBUG
+      CMAKE_CXX_FLAGS_RELEASE
+      CMAKE_CXX_FLAGS_RELWITHDEBINFO
+      CMAKE_CXX_FLAGS_MINSIZEREL
+      CMAKE_MSVC_RUNTIME_LIBRARY
+      CMAKE_POLICY_VERSION_MINIMUM
+      CMAKE_EXE_LINKER_FLAGS
+      CMAKE_SHARED_LINKER_FLAGS
+      CMAKE_MODULE_LINKER_FLAGS
+      CMAKE_PREFIX_PATH
+      OPENMETA_BUILD_STATIC
+      OPENMETA_BUILD_SHARED
+      OPENMETA_WITH_ZLIB
+      OPENMETA_WITH_BROTLI
+      OPENMETA_WITH_EXPAT
+      OPENMETA_ENABLE_RAPIDFUZZ
+      OPENMETA_RAPIDFUZZ_INCLUDE_DIR
+      OPENMETA_WITH_DNG_SDK_ADAPTER
+      OPENMETA_ENABLE_C2PA_VERIFY
+      OPENMETA_C2PA_VERIFY_BACKEND
+      OPENMETA_USE_LIBCXX
+      OPENMETA_PYTHON_EXECUTABLE
+      Python_EXECUTABLE
+      Python_ROOT_DIR
+      Python_INCLUDE_DIR
+      Python_LIBRARY
+      Python_LIBRARY_RELEASE
+      Python_LIBRARY_DEBUG
+      Python_SABI_LIBRARY
+      Python_SABI_LIBRARY_RELEASE
+      nanobind_DIR
+      rapidfuzz_DIR
+      dng_sdk_DIR
+      dng_sdk_ROOT)
+    if(DEFINED ${_openmeta_wheel_define_var})
+      openmeta_append_wheel_config_define(
+        "${_openmeta_wheel_define_var}" "${${_openmeta_wheel_define_var}}")
+    endif()
+  endforeach()
 
   set(_openmeta_install_wheel_script "${CMAKE_CURRENT_BINARY_DIR}/OpenMetaInstallWheel.cmake")
   configure_file(
     "${PROJECT_SOURCE_DIR}/cmake/OpenMetaInstallWheel.cmake.in"
     "${_openmeta_install_wheel_script}"
     @ONLY
+  )
+
+  add_custom_target(openmeta_wheel
+    COMMAND "${CMAKE_COMMAND}"
+            -DOPENMETA_WHEEL_INSTALL=OFF
+            "-DOPENMETA_WHEEL_CONFIG=$<CONFIG>"
+            -P "${_openmeta_install_wheel_script}"
+    WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
+    COMMENT "Building OpenMeta Python wheel"
+    VERBATIM
   )
 endif()
 

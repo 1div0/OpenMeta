@@ -926,11 +926,13 @@ writer-confidence slice above; it should be sequenced around it.
 
 #### Medium-Term Fidelity Work
 
-- [ ] design an opt-in raw-preserving `TransferSourceSnapshot` mode that keeps
-  original carrier bytes alongside decoded `MetaStore` state
-- [ ] preserve bounded per-carrier provenance in raw snapshots: container type,
-  block kind, byte range, original order, route identity, and decoded entries
-  derived from the block
+- [x] add an opt-in raw-preserving `TransferSourceSnapshot` mode that keeps
+  original carrier provenance and bounded payload bytes alongside decoded
+  `MetaStore` state
+- [x] preserve bounded per-carrier provenance in raw snapshots: container type,
+  block kind, byte range, original order, and route identity
+- [ ] connect decoded entries back to the raw carrier records they were derived
+  from
 - [ ] define policy choices for raw passthrough vs decoded re-emission when the
   destination container can safely accept either form
 - [ ] provide versioned snapshot serialization only after the raw/provenance

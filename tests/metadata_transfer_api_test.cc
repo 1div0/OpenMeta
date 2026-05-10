@@ -7145,6 +7145,70 @@ TEST(MetadataTransferApi, ReadTransferSourceSnapshotBytesMatchesFileReader)
               prepared_file.blocks[0].payload);
 }
 
+TEST(MetadataTransferApi, ReadTransferSourceSnapshotRawCarriersAreOptIn)
+{
+    const std::vector<std::byte> exif = make_app1_exif_payload();
+    std::vector<std::byte> xmp;
+    ASSERT_TRUE(build_test_creator_tool_jpeg_xmp_app1_payload("RawCarrier",
+                                                              &xmp));
+
+    std::array<TestJpegSegment, 2> segments {{
+        { 0xE1U, std::span<const std::byte>(exif.data(), exif.size()) },
+        { 0xE1U, std::span<const std::byte>(xmp.data(), xmp.size()) },
+    }};
+    const std::vector<std::byte> jpeg = make_jpeg_with_segments(segments);
+
+    const openmeta::ReadTransferSourceSnapshotBytesResult decoded_only
+        = openmeta::read_transfer_source_snapshot_bytes(
+            std::span<const std::byte>(jpeg.data(), jpeg.size()));
+    ASSERT_EQ(decoded_only.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(decoded_only.raw_carrier_count, 0U);
+    EXPECT_TRUE(decoded_only.snapshot.raw_carriers.empty());
+
+    openmeta::ReadTransferSourceSnapshotOptions options;
+    options.preserve_raw_carriers = true;
+    const openmeta::ReadTransferSourceSnapshotBytesResult with_raw
+        = openmeta::read_transfer_source_snapshot_bytes(
+            std::span<const std::byte>(jpeg.data(), jpeg.size()), options);
+
+    ASSERT_EQ(with_raw.status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(with_raw.raw_carrier_count, 2U);
+    ASSERT_EQ(with_raw.snapshot.raw_carriers.size(), 2U);
+    EXPECT_EQ(with_raw.snapshot.raw_carriers[0].route, "jpeg:app1-exif");
+    EXPECT_EQ(with_raw.snapshot.raw_carriers[1].route, "jpeg:app1-xmp");
+    EXPECT_EQ(with_raw.snapshot.raw_carriers[0].semantic_kind,
+              openmeta::TransferBlockKind::Exif);
+    EXPECT_EQ(with_raw.snapshot.raw_carriers[1].semantic_kind,
+              openmeta::TransferBlockKind::Xmp);
+    EXPECT_FALSE(with_raw.raw_carrier_bytes_truncated);
+    EXPECT_EQ(with_raw.raw_carrier_bytes,
+              with_raw.snapshot.raw_carrier_bytes);
+
+    for (const openmeta::TransferSourceRawCarrier& carrier :
+         with_raw.snapshot.raw_carriers) {
+        ASSERT_TRUE(carrier.payload_preserved);
+        ASSERT_EQ(carrier.payload.size(),
+                  static_cast<size_t>(carrier.block.data_size));
+        ASSERT_LE(carrier.block.data_offset + carrier.block.data_size,
+                  static_cast<uint64_t>(jpeg.size()));
+        EXPECT_TRUE(std::equal(
+            carrier.payload.begin(), carrier.payload.end(),
+            jpeg.begin() + static_cast<std::ptrdiff_t>(
+                               carrier.block.data_offset)));
+    }
+
+    options.max_raw_carrier_bytes = 1U;
+    const openmeta::ReadTransferSourceSnapshotBytesResult limited
+        = openmeta::read_transfer_source_snapshot_bytes(
+            std::span<const std::byte>(jpeg.data(), jpeg.size()), options);
+    ASSERT_EQ(limited.status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(limited.raw_carrier_count, 2U);
+    EXPECT_TRUE(limited.raw_carrier_bytes_truncated);
+    EXPECT_EQ(limited.raw_carrier_bytes, 0U);
+    EXPECT_FALSE(limited.snapshot.raw_carriers[0].payload_preserved);
+    EXPECT_FALSE(limited.snapshot.raw_carriers[1].payload_preserved);
+}
+
 TEST(MetadataTransferApi,
      ReadTransferSourceSnapshotFilePreparesTiffBundleWithoutReopeningSource)
 {

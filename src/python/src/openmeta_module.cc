@@ -2175,6 +2175,73 @@ namespace {
             persisted.xmp_sidecar_cleanup_removed);
     }
 
+    static uint64_t transfer_source_snapshot_raw_carrier_count(
+        const TransferSourceSnapshot& snapshot) noexcept
+    {
+        return static_cast<uint64_t>(snapshot.raw_carriers.size());
+    }
+
+    static uint64_t transfer_source_snapshot_raw_carrier_bytes(
+        const TransferSourceSnapshot& snapshot) noexcept
+    {
+        return snapshot.raw_carrier_bytes;
+    }
+
+    static bool transfer_source_snapshot_raw_carrier_bytes_truncated(
+        const TransferSourceSnapshot& snapshot) noexcept
+    {
+        return snapshot.raw_carrier_bytes_truncated;
+    }
+
+    static nb::dict transfer_source_raw_carrier_to_python(
+        const TransferSourceRawCarrier& carrier, bool include_payload)
+    {
+        nb::dict out;
+        out["order"]              = nb::int_(carrier.order);
+        out["route"]              = nb::str(carrier.route.c_str(),
+                                            carrier.route.size());
+        out["semantic_kind"]      = carrier.semantic_kind;
+        out["semantic_kind_name"] = nb::str(
+            transfer_block_kind_name(carrier.semantic_kind));
+        out["format"]        = carrier.block.format;
+        out["kind"]          = carrier.block.kind;
+        out["compression"]   = carrier.block.compression;
+        out["chunking"]      = carrier.block.chunking;
+        out["outer_offset"]  = nb::int_(carrier.block.outer_offset);
+        out["outer_size"]    = nb::int_(carrier.block.outer_size);
+        out["data_offset"]   = nb::int_(carrier.block.data_offset);
+        out["data_size"]     = nb::int_(carrier.block.data_size);
+        out["id"]            = nb::int_(carrier.block.id);
+        out["part_index"]    = nb::int_(carrier.block.part_index);
+        out["part_count"]    = nb::int_(carrier.block.part_count);
+        out["logical_offset"] = nb::int_(carrier.block.logical_offset);
+        out["logical_size"]   = nb::int_(carrier.block.logical_size);
+        out["group"]          = nb::int_(carrier.block.group);
+        out["aux_u32"]        = nb::int_(carrier.block.aux_u32);
+        out["payload_preserved"] = nb::bool_(carrier.payload_preserved);
+        out["payload_size"]      = nb::int_(carrier.payload.size());
+        if (include_payload && carrier.payload_preserved) {
+            out["payload"] = nb::bytes(
+                reinterpret_cast<const char*>(carrier.payload.data()),
+                carrier.payload.size());
+        } else {
+            out["payload"] = nb::none();
+        }
+        return out;
+    }
+
+    static nb::list transfer_source_snapshot_raw_carriers_to_python(
+        const TransferSourceSnapshot& snapshot, bool include_payload)
+    {
+        nb::list out;
+        for (const TransferSourceRawCarrier& carrier :
+             snapshot.raw_carriers) {
+            out.append(transfer_source_raw_carrier_to_python(carrier,
+                                                             include_payload));
+        }
+        return out;
+    }
+
     static nb::dict read_transfer_source_snapshot_file_to_python(
         const std::string& path,
         const ReadTransferSourceSnapshotFileResult& result)
@@ -2187,8 +2254,12 @@ namespace {
         out["code"]      = result.code;
         out["code_name"] = nb::str(
             read_transfer_source_snapshot_file_code_name(result.code));
-        out["file_size"]      = nb::int_(result.file_size);
-        out["entry_count"]    = nb::int_(result.entry_count);
+        out["file_size"]         = nb::int_(result.file_size);
+        out["entry_count"]       = nb::int_(result.entry_count);
+        out["raw_carrier_count"] = nb::int_(result.raw_carrier_count);
+        out["raw_carrier_bytes"] = nb::int_(result.raw_carrier_bytes);
+        out["raw_carrier_bytes_truncated"]
+            = nb::bool_(result.raw_carrier_bytes_truncated);
         out["scan_status"]    = result.read.scan.status;
         out["payload_status"] = result.read.payload.status;
         out["exif_status"]    = result.read.exif.status;
@@ -2227,8 +2298,12 @@ namespace {
         out["code"]        = result.code;
         out["code_name"]   = nb::str(
             read_transfer_source_snapshot_bytes_code_name(result.code));
-        out["input_size"]     = nb::int_(result.input_size);
-        out["entry_count"]    = nb::int_(result.entry_count);
+        out["input_size"]        = nb::int_(result.input_size);
+        out["entry_count"]       = nb::int_(result.entry_count);
+        out["raw_carrier_count"] = nb::int_(result.raw_carrier_count);
+        out["raw_carrier_bytes"] = nb::int_(result.raw_carrier_bytes);
+        out["raw_carrier_bytes_truncated"]
+            = nb::bool_(result.raw_carrier_bytes_truncated);
         out["scan_status"]    = result.read.scan.status;
         out["payload_status"] = result.read.payload.status;
         out["exif_status"]    = result.read.exif.status;
@@ -6132,6 +6207,14 @@ NB_MODULE(_openmeta, m)
                          return static_cast<uint64_t>(
                              snapshot.store.entries().size());
                      })
+        .def_prop_ro("raw_carrier_count",
+                     &transfer_source_snapshot_raw_carrier_count)
+        .def_prop_ro("raw_carrier_bytes",
+                     &transfer_source_snapshot_raw_carrier_bytes)
+        .def_prop_ro("raw_carrier_bytes_truncated",
+                     &transfer_source_snapshot_raw_carrier_bytes_truncated)
+        .def("raw_carriers", &transfer_source_snapshot_raw_carriers_to_python,
+             "include_payload"_a = false)
         .def(
             "export_names",
             [](const TransferSourceSnapshot& snapshot, ExportNameStyle style,
@@ -6953,12 +7036,15 @@ NB_MODULE(_openmeta, m)
         "read_transfer_source_snapshot_file",
         [](const std::string& path, bool include_pointer_tags,
            bool decode_makernote, bool decode_embedded_containers,
-           bool decompress, uint64_t max_file_bytes, nb::object policy_obj) {
+           bool decompress, uint64_t max_file_bytes, nb::object policy_obj,
+           bool preserve_raw_carriers, uint64_t max_raw_carrier_bytes) {
             ReadTransferSourceSnapshotFileOptions options;
             options.include_pointer_tags       = include_pointer_tags;
             options.decode_makernote           = decode_makernote;
             options.decode_embedded_containers = decode_embedded_containers;
             options.decompress                 = decompress;
+            options.preserve_raw_carriers      = preserve_raw_carriers;
+            options.max_raw_carrier_bytes      = max_raw_carrier_bytes;
             options.policy.max_file_bytes      = max_file_bytes;
             if (!policy_obj.is_none()) {
                 options.policy = nb::cast<OpenMetaResourcePolicy>(policy_obj);
@@ -6976,18 +7062,23 @@ NB_MODULE(_openmeta, m)
         },
         "path"_a, "include_pointer_tags"_a = true, "decode_makernote"_a = false,
         "decode_embedded_containers"_a = true, "decompress"_a = true,
-        "max_file_bytes"_a = 0ULL, "policy"_a = nb::none());
+        "max_file_bytes"_a = 0ULL, "policy"_a = nb::none(),
+        "preserve_raw_carriers"_a = false,
+        "max_raw_carrier_bytes"_a = 64ULL * 1024ULL * 1024ULL);
 
     m.def(
         "read_transfer_source_snapshot_bytes",
         [](nb::object bytes_obj, bool include_pointer_tags,
            bool decode_makernote, bool decode_embedded_containers,
-           bool decompress, uint64_t max_file_bytes, nb::object policy_obj) {
+           bool decompress, uint64_t max_file_bytes, nb::object policy_obj,
+           bool preserve_raw_carriers, uint64_t max_raw_carrier_bytes) {
             ReadTransferSourceSnapshotOptions options;
             options.include_pointer_tags       = include_pointer_tags;
             options.decode_makernote           = decode_makernote;
             options.decode_embedded_containers = decode_embedded_containers;
             options.decompress                 = decompress;
+            options.preserve_raw_carriers      = preserve_raw_carriers;
+            options.max_raw_carrier_bytes      = max_raw_carrier_bytes;
             options.policy.max_file_bytes      = max_file_bytes;
             if (!policy_obj.is_none()) {
                 options.policy = nb::cast<OpenMetaResourcePolicy>(policy_obj);
@@ -7009,7 +7100,8 @@ NB_MODULE(_openmeta, m)
         "bytes"_a, "include_pointer_tags"_a = true,
         "decode_makernote"_a = false, "decode_embedded_containers"_a = true,
         "decompress"_a = true, "max_file_bytes"_a = 0ULL,
-        "policy"_a = nb::none());
+        "policy"_a = nb::none(), "preserve_raw_carriers"_a = false,
+        "max_raw_carrier_bytes"_a = 64ULL * 1024ULL * 1024ULL);
 
     m.def(
         "build_transfer_source_snapshot",

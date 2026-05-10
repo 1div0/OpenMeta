@@ -69,6 +69,10 @@ Changes compared with `0.4.8`.
 - Python `Document` and `TransferSourceSnapshot` now expose thin wrappers for
   the experimental semantic metadata query API, including generic
   `metadata_query(kind)` and focused query helpers.
+- Added opt-in raw-carrier preservation for `TransferSourceSnapshot` reads,
+  including original container block ranges, route hints, bounded payload
+  bytes, C++ result counters, and thin Python accessors. Transfer execution
+  still uses the decoded metadata path; passthrough policy remains future work.
 - Added optional `OPENMETA_ENABLE_RAPIDFUZZ` support for RapidFuzz-backed
   semantic-query XMP/property-path matching, plus
   `metadata_query_fuzzy_search_available()` so tools can detect whether the
@@ -88,6 +92,10 @@ Changes compared with `0.4.8`.
 - Added `OPENMETA_TEST_RUNTIME_LIBRARY_PATH` so CTest-launched external
   validation tools can run with a matching non-default C++ runtime lookup path,
   and documented the `libc++` test-prefix workflow.
+- The `openmeta_wheel` CMake target now forwards the active compiler flags,
+  Python selection, `OPENMETA_USE_LIBCXX`, and optional-feature defines into
+  the nested scikit-build wheel configure step and shares the install-time
+  wheel script, instead of relying only on environment variables.
 - Phase One-family IIQ MakerNote detection now recognizes Leaf/Credo-style
   files as Phase One MakerNotes before the generic Kodak `IIII` fallback.
 - Rendered-image transfer safety now treats Phase One/Leaf RAW sensor geometry,

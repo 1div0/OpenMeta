@@ -1177,6 +1177,11 @@ cmake -S . -B build-wheel -G Ninja -DCMAKE_BUILD_TYPE=Release \
 cmake --build build-wheel --target openmeta_wheel
 ```
 
+The CMake wheel target and install-time wheel script forward the active compiler
+flags, selected Python paths, `OPENMETA_USE_LIBCXX`, and optional feature
+toggles into the nested scikit-build configure step. This keeps wheel ABI
+choices aligned with the outer CMake build, including libc++-based Linux builds.
+
 When `OPENMETA_BUILD_WHEEL=ON`, `cmake --install` also builds a wheel and copies
 it into `${CMAKE_INSTALL_PREFIX}/share/openmeta/wheels` (and also copies the
 Python helper scripts `metaread.py`, `metavalidate.py`, `metadump.py`, `metatransfer.py`,

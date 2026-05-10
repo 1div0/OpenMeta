@@ -12959,6 +12959,249 @@ transfer_safety_audit_from_store(const MetaStore& store,
 
 namespace {
 
+    static bool source_range_in_bounds(uint64_t offset, uint64_t size,
+                                       uint64_t total) noexcept
+    {
+        return offset <= total && size <= total - offset;
+    }
+
+    static TransferBlockKind transfer_kind_from_source_block(
+        const ContainerBlockRef& block,
+        std::span<const std::byte> payload) noexcept
+    {
+        switch (block.kind) {
+        case ContainerBlockKind::Exif:
+        case ContainerBlockKind::Ciff:
+            return TransferBlockKind::Exif;
+        case ContainerBlockKind::Xmp:
+        case ContainerBlockKind::XmpExtended:
+            return TransferBlockKind::Xmp;
+        case ContainerBlockKind::IptcIim:
+            return TransferBlockKind::IptcIim;
+        case ContainerBlockKind::PhotoshopIrB:
+            return TransferBlockKind::PhotoshopIrb;
+        case ContainerBlockKind::Icc:
+            return TransferBlockKind::Icc;
+        case ContainerBlockKind::Jumbf:
+            return is_c2pa_jumbf_payload(payload) ? TransferBlockKind::C2pa
+                                                  : TransferBlockKind::Jumbf;
+        case ContainerBlockKind::CompressedMetadata:
+            if (block.aux_u32 == fourcc('c', '2', 'p', 'a')) {
+                return TransferBlockKind::C2pa;
+            }
+            if (block.aux_u32 == fourcc('j', 'u', 'm', 'b')) {
+                return TransferBlockKind::Jumbf;
+            }
+            return TransferBlockKind::Other;
+        case ContainerBlockKind::Unknown:
+        case ContainerBlockKind::MakerNote:
+        case ContainerBlockKind::Mpf:
+        case ContainerBlockKind::Comment:
+        case ContainerBlockKind::Text:
+            return TransferBlockKind::Other;
+        }
+        return TransferBlockKind::Other;
+    }
+
+    static bool source_block_is_bmff_family(ContainerFormat format) noexcept
+    {
+        return format == ContainerFormat::Heif
+               || format == ContainerFormat::Avif
+               || format == ContainerFormat::Cr3;
+    }
+
+    static std::string
+    source_route_for_metadata_block(const ContainerBlockRef& block,
+                                    std::span<const std::byte> payload) noexcept
+    {
+        switch (block.kind) {
+        case ContainerBlockKind::Exif:
+        case ContainerBlockKind::Ciff:
+            if (block.format == ContainerFormat::Jpeg) {
+                return "jpeg:app1-exif";
+            }
+            if (block.format == ContainerFormat::Png) {
+                return "png:chunk-exif";
+            }
+            if (block.format == ContainerFormat::Webp) {
+                return "webp:chunk-exif";
+            }
+            if (block.format == ContainerFormat::Tiff
+                || block.format == ContainerFormat::Raf
+                || block.format == ContainerFormat::X3f
+                || block.format == ContainerFormat::Crw) {
+                return "tiff:ifd-exif-app1";
+            }
+            if (block.format == ContainerFormat::Jxl) {
+                return "jxl:box-exif";
+            }
+            if (block.format == ContainerFormat::Jp2) {
+                return "jp2:box-exif";
+            }
+            if (source_block_is_bmff_family(block.format)) {
+                return "bmff:item-exif";
+            }
+            break;
+        case ContainerBlockKind::Xmp:
+        case ContainerBlockKind::XmpExtended:
+            if (block.format == ContainerFormat::Jpeg) {
+                return "jpeg:app1-xmp";
+            }
+            if (block.format == ContainerFormat::Png) {
+                return "png:chunk-xmp";
+            }
+            if (block.format == ContainerFormat::Webp) {
+                return "webp:chunk-xmp";
+            }
+            if (block.format == ContainerFormat::Tiff) {
+                return "tiff:tag-700-xmp";
+            }
+            if (block.format == ContainerFormat::Jxl) {
+                return "jxl:box-xml";
+            }
+            if (block.format == ContainerFormat::Jp2) {
+                return "jp2:box-xml";
+            }
+            if (source_block_is_bmff_family(block.format)) {
+                return "bmff:item-xmp";
+            }
+            break;
+        case ContainerBlockKind::Icc:
+            if (block.format == ContainerFormat::Jpeg) {
+                return "jpeg:app2-icc";
+            }
+            if (block.format == ContainerFormat::Png) {
+                return "png:chunk-iccp";
+            }
+            if (block.format == ContainerFormat::Webp) {
+                return "webp:chunk-iccp";
+            }
+            if (block.format == ContainerFormat::Tiff) {
+                return "tiff:tag-34675-icc";
+            }
+            if (block.format == ContainerFormat::Jp2) {
+                return "jp2:box-jp2h-colr";
+            }
+            if (source_block_is_bmff_family(block.format)) {
+                return "bmff:property-colr-icc";
+            }
+            break;
+        case ContainerBlockKind::IptcIim:
+        case ContainerBlockKind::PhotoshopIrB:
+            if (block.format == ContainerFormat::Jpeg) {
+                return "jpeg:app13-iptc";
+            }
+            if (block.format == ContainerFormat::Tiff) {
+                return "tiff:tag-33723-iptc";
+            }
+            break;
+        case ContainerBlockKind::Jumbf:
+        case ContainerBlockKind::CompressedMetadata:
+            if (block.kind == ContainerBlockKind::CompressedMetadata
+                && block.aux_u32 == fourcc('c', '2', 'p', 'a')) {
+                if (block.format == ContainerFormat::Jpeg) {
+                    return "jpeg:app11-c2pa";
+                }
+                if (block.format == ContainerFormat::Jxl) {
+                    return "jxl:box-c2pa";
+                }
+                if (source_block_is_bmff_family(block.format)) {
+                    return "bmff:item-c2pa";
+                }
+            }
+            if (block.format == ContainerFormat::Jpeg) {
+                return is_c2pa_jumbf_payload(payload) ? "jpeg:app11-c2pa"
+                                                      : "jpeg:app11-jumbf";
+            }
+            if (block.format == ContainerFormat::Jxl) {
+                return is_c2pa_jumbf_payload(payload) ? "jxl:box-c2pa"
+                                                      : "jxl:box-jumb";
+            }
+            if (block.format == ContainerFormat::Webp) {
+                return "webp:chunk-c2pa";
+            }
+            if (source_block_is_bmff_family(block.format)) {
+                return is_c2pa_jumbf_payload(payload) ? "bmff:item-c2pa"
+                                                      : "bmff:item-jumb";
+            }
+            break;
+        case ContainerBlockKind::Comment:
+            if (block.format == ContainerFormat::Jpeg) {
+                return "jpeg:com";
+            }
+            break;
+        case ContainerBlockKind::Unknown:
+        case ContainerBlockKind::MakerNote:
+        case ContainerBlockKind::Mpf:
+        case ContainerBlockKind::Text:
+            break;
+        }
+        return "source:metadata";
+    }
+
+    static void preserve_transfer_source_raw_carriers(
+        std::span<const std::byte> bytes,
+        std::span<const ContainerBlockRef> blocks,
+        const ReadTransferSourceSnapshotOptions& options,
+        TransferSourceSnapshot* snapshot) noexcept
+    {
+        if (!snapshot) {
+            return;
+        }
+        snapshot->raw_carriers.clear();
+        snapshot->raw_carrier_bytes           = 0U;
+        snapshot->raw_carrier_bytes_truncated = false;
+
+        if (!options.preserve_raw_carriers) {
+            return;
+        }
+
+        const uint64_t total = static_cast<uint64_t>(bytes.size());
+        snapshot->raw_carriers.reserve(blocks.size());
+        for (size_t i = 0; i < blocks.size(); ++i) {
+            const ContainerBlockRef& block = blocks[i];
+            TransferSourceRawCarrier carrier;
+            carrier.block = block;
+            carrier.order = static_cast<uint32_t>(i);
+
+            std::span<const std::byte> payload;
+            if (source_range_in_bounds(block.data_offset, block.data_size,
+                                       total)
+                && block.data_size <= static_cast<uint64_t>(SIZE_MAX)) {
+                payload = bytes.subspan(static_cast<size_t>(block.data_offset),
+                                        static_cast<size_t>(block.data_size));
+            }
+            carrier.route = source_route_for_metadata_block(block, payload);
+            carrier.semantic_kind = transfer_kind_from_source_block(block,
+                                                                    payload);
+
+            const bool can_copy_payload
+                = !payload.empty()
+                  || (block.data_size == 0U
+                      && source_range_in_bounds(block.data_offset, 0U, total));
+            bool within_budget = can_copy_payload;
+            if (within_budget && options.max_raw_carrier_bytes != 0U) {
+                const uint64_t used = snapshot->raw_carrier_bytes;
+                within_budget = block.data_size <= options.max_raw_carrier_bytes
+                                && used <= options.max_raw_carrier_bytes
+                                && block.data_size
+                                       <= options.max_raw_carrier_bytes - used;
+            }
+
+            if (can_copy_payload && within_budget) {
+                carrier.payload.assign(payload.begin(), payload.end());
+                carrier.payload_preserved = true;
+                snapshot->raw_carrier_bytes += block.data_size;
+            } else if (can_copy_payload) {
+                snapshot->raw_carrier_bytes_truncated = true;
+            } else if (block.data_size != 0U) {
+                snapshot->raw_carrier_bytes_truncated = true;
+            }
+
+            snapshot->raw_carriers.push_back(std::move(carrier));
+        }
+    }
+
     struct ReadTransferSourceSnapshotDecodeCommonResult final {
         SimpleMetaResult read;
         TransferSourceSnapshot snapshot;
@@ -13050,6 +13293,12 @@ namespace {
             return out;
         }
 
+        preserve_transfer_source_raw_carriers(
+            bytes,
+            std::span<const ContainerBlockRef>(blocks.data(),
+                                               out.read.scan.written),
+            options, &out.snapshot);
+
         out.snapshot.store.finalize();
         out.entry_count = static_cast<uint32_t>(
             out.snapshot.store.entries().size());
@@ -13090,6 +13339,11 @@ read_transfer_source_snapshot_bytes(
     out.read        = std::move(common.read);
     out.snapshot    = std::move(common.snapshot);
     out.entry_count = common.entry_count;
+    out.raw_carrier_count = static_cast<uint32_t>(
+        out.snapshot.raw_carriers.size());
+    out.raw_carrier_bytes = out.snapshot.raw_carrier_bytes;
+    out.raw_carrier_bytes_truncated
+        = out.snapshot.raw_carrier_bytes_truncated;
 
     if (common.payload_buffer_platform_limit) {
         out.status = TransferStatus::LimitExceeded;
@@ -13138,6 +13392,11 @@ read_transfer_source_snapshot_file(
     out.read        = std::move(bytes_result.read);
     out.snapshot    = std::move(bytes_result.snapshot);
     out.entry_count = bytes_result.entry_count;
+    out.raw_carrier_count = static_cast<uint32_t>(
+        out.snapshot.raw_carriers.size());
+    out.raw_carrier_bytes = out.snapshot.raw_carrier_bytes;
+    out.raw_carrier_bytes_truncated
+        = out.snapshot.raw_carrier_bytes_truncated;
 
     if (bytes_result.code
         == ReadTransferSourceSnapshotBytesCode::PayloadBufferPlatformLimit) {
