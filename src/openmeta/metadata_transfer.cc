@@ -16283,9 +16283,13 @@ build_prepared_transfer_emit_package(const PreparedTransferBundle& bundle,
                 out.skipped += 1U;
                 continue;
             }
-            uint32_t item_type = 0U;
-            bool mime_xmp      = false;
-            if (!bmff_item_from_route(block.route, &item_type, &mime_xmp)) {
+            uint32_t item_type        = 0U;
+            bool mime_xmp             = false;
+            uint32_t property_type    = 0U;
+            uint32_t property_subtype = 0U;
+            if (!bmff_item_from_route(block.route, &item_type, &mime_xmp)
+                && !bmff_property_from_route(block.route, &property_type,
+                                             &property_subtype)) {
                 out.status = TransferStatus::Unsupported;
                 if (out.code == EmitTransferCode::None) {
                     out.code = EmitTransferCode::UnsupportedRoute;
@@ -16300,6 +16304,8 @@ build_prepared_transfer_emit_package(const PreparedTransferBundle& bundle,
             }
             (void)item_type;
             (void)mime_xmp;
+            (void)property_type;
+            (void)property_subtype;
             append_package_prepared_block_chunk(&plan, i,
                                                 static_cast<uint64_t>(
                                                     block.payload.size()));
@@ -16800,13 +16806,41 @@ write_prepared_transfer_package(std::span<const std::byte> input,
                         &out)) {
                     return out;
                 }
+            } else if (transfer_target_is_bmff(bundle.target_format)) {
+                uint32_t item_type        = 0U;
+                bool mime_xmp             = false;
+                uint32_t property_type    = 0U;
+                uint32_t property_subtype = 0U;
+                if (!bmff_item_from_route(block.route, &item_type, &mime_xmp)
+                    && !bmff_property_from_route(block.route, &property_type,
+                                                 &property_subtype)) {
+                    out.status = TransferStatus::Unsupported;
+                    out.code   = EmitTransferCode::UnsupportedRoute;
+                    out.errors += 1U;
+                    out.failed_block_index = chunk.block_index;
+                    out.message
+                        = "prepared transfer block route is not a supported bmff item/property";
+                    return out;
+                }
+                (void)item_type;
+                (void)mime_xmp;
+                (void)property_type;
+                (void)property_subtype;
+                if (!write_transfer_bytes(
+                        writer,
+                        std::span<const std::byte>(block.payload.data(),
+                                                   block.payload.size()),
+                        &out,
+                        "prepared bmff transfer payload write failed")) {
+                    return out;
+                }
             } else {
                 out.status = TransferStatus::Unsupported;
                 out.code   = EmitTransferCode::InvalidArgument;
                 out.errors += 1U;
                 out.failed_block_index = chunk.block_index;
                 out.message
-                    = "prepared transfer block chunks are only supported for jpeg, png, jp2, jxl, and webp targets";
+                    = "prepared transfer block chunks are only supported for jpeg, png, jp2, jxl, webp, and bmff targets";
                 return out;
             }
             break;
@@ -25720,19 +25754,26 @@ namespace {
                 } else if (transfer_target_is_bmff(bundle.target_format)) {
                     const PreparedTransferBlock& block
                         = bundle.blocks[chunk.block_index];
-                    uint32_t item_type = 0U;
-                    bool mime_xmp      = false;
+                    uint32_t item_type        = 0U;
+                    bool mime_xmp             = false;
+                    uint32_t property_type    = 0U;
+                    uint32_t property_subtype = 0U;
                     if (!bmff_item_from_route(block.route, &item_type,
-                                              &mime_xmp)) {
+                                              &mime_xmp)
+                        && !bmff_property_from_route(block.route,
+                                                     &property_type,
+                                                     &property_subtype)) {
                         out.status = TransferStatus::Unsupported;
                         out.code   = EmitTransferCode::UnsupportedRoute;
                         out.errors = 1U;
                         out.message
-                            = "prepared transfer block route is not a supported bmff item";
+                            = "prepared transfer block route is not a supported bmff item/property";
                         return out;
                     }
                     (void)item_type;
                     (void)mime_xmp;
+                    (void)property_type;
+                    (void)property_subtype;
                     if (chunk.size
                         != static_cast<uint64_t>(block.payload.size())) {
                         out.status = TransferStatus::InvalidArgument;

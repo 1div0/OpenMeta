@@ -46,6 +46,15 @@ Changes compared with `0.4.8`.
 - Added native Fujifilm RAF read coverage for header-declared FujiIFD/TIFF
   offsets, RAF header fields, RAF directory geometry tags, and RAFData geometry
   projection.
+- RAF scanning now follows the header-declared preview JPEG metadata before the
+  FujiIFD/raw section, so standard preview-carried EXIF tags are decoded
+  together with native RAF fields.
+- Rendered-image transfer safety now treats decoded native RAF header/directory
+  fields as Fujifilm RAW/source-processing metadata and drops them before
+  rendered-target serialization.
+- BMFF direct emit package planning/writing now accepts both metadata item
+  routes and bounded ICC `colr/prof` property routes, and the package replay
+  path is regression-covered for foreign-`meta` graph merges.
 - Added native Sigma X3F read coverage for common header fields, header
   extension adjustment fields, known `PROP` properties, and section-directory
   JPEG metadata discovery while preserving the older embedded-EXIF fallback.

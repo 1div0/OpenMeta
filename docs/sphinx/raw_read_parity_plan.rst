@@ -66,11 +66,11 @@ Family Gap Matrix
      - Older Canon private tables and long-tail legacy records
      - Continue table-by-table decode only where stable validation data exists
    * - Fujifilm RAF
-     - Partial native lane: header-declared FujiIFD/TIFF follow path, RAF
-       header fields, RAF directory geometry tags, RAFData geometry projection,
-       and standalone XMP fallback
+     - Partial native lane: header-declared preview-JPEG EXIF/XMP discovery,
+       FujiIFD/TIFF follow path, RAF header fields, RAF directory geometry
+       tags, RAFData geometry projection, and standalone XMP fallback
      - Model-specific RAF tables and less common native sections outside the
-       stable header/directory subset
+       stable carrier/header/directory subset
      - Extend native RAF section inventory table-by-table, with
        geometry/color/correction safety buckets before transfer use
    * - Sigma X3F
@@ -104,8 +104,9 @@ Priority
 1. Keep writer safety explicit: decoded MakerNote sub-IFDs are not used to
    reconstruct vendor MakerNote blobs; the original raw MakerNote payload is
    preserved when available.
-2. Continue high-visibility native read gaps: more RAF native sections,
-   long-tail CRW/CIFF private tables, and deeper X3F section interpretation.
+2. Continue high-visibility native read gaps: more model-specific RAF native
+   sections, long-tail CRW/CIFF private tables, and deeper X3F section
+   interpretation.
 3. Deepen BMFF interpretation for CR3, HEIF, and AVIF metadata graphs.
 4. Add X3F image-processing section decode only when the fields can be named,
    typed, and safety-classified.

@@ -19532,10 +19532,9 @@ TEST(MetadataTransferApi, PrepareRenderedImageSafetyDropsSourceSpecificMetadata)
         { "mk_nikon_nefinfo_0", 0x0005U, 1U },
     };
     static const PhaseOneTransferTag kFujifilmRenderedDropTags[] = {
-        { "mk_fuji0", 0x100AU, 1U },
-        { "mk_fuji0", 0x144AU, 1U },
-        { "mk_fuji0", 0x1045U, 1U },
-        { "mk_fuji_rafdata_0", 0x0000U, 1U },
+        { "mk_fuji0", 0x100AU, 1U },   { "mk_fuji0", 0x144AU, 1U },
+        { "mk_fuji0", 0x1045U, 1U },   { "mk_fuji_rafdata_0", 0x0000U, 1U },
+        { "raf_header", 0x0054U, 1U }, { "raf_0", 0x0110U, 1U },
     };
     static const PhaseOneTransferTag kPentaxRenderedDropTags[] = {
         { "mk_pentax0", 0x0039U, 1U },
@@ -42215,6 +42214,152 @@ TEST(MetadataTransferApi, ExecutePreparedTransferBmffEditReplacesPriorMetaBox)
     ASSERT_EQ(scan.written, 2U);
     EXPECT_EQ(blocks[0].kind, openmeta::ContainerBlockKind::Exif);
     EXPECT_EQ(blocks[1].kind, openmeta::ContainerBlockKind::Xmp);
+}
+
+TEST(MetadataTransferApi,
+     BuildPreparedTransferEmitPackageBmffOwnsItemAndPropertyBytes)
+{
+    openmeta::PreparedTransferBundle bundle;
+    bundle.target_format = openmeta::TransferTargetFormat::Heif;
+
+    openmeta::PreparedTransferBlock exif;
+    exif.route   = "bmff:item-exif";
+    exif.payload = { std::byte { 0x01 }, std::byte { 0x02 },
+                     std::byte { 0x03 } };
+    bundle.blocks.push_back(exif);
+
+    openmeta::PreparedTransferBlock icc;
+    icc.route   = "bmff:property-colr-icc";
+    icc.payload = { std::byte { 'p' },  std::byte { 'r' },
+                    std::byte { 'o' },  std::byte { 'f' },
+                    std::byte { 0x10 }, std::byte { 0x20 } };
+    bundle.blocks.push_back(icc);
+
+    openmeta::PreparedTransferPackagePlan package;
+    const openmeta::EmitTransferResult packaged
+        = openmeta::build_prepared_transfer_emit_package(bundle, &package);
+    ASSERT_EQ(packaged.status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(package.target_format, openmeta::TransferTargetFormat::Heif);
+    ASSERT_EQ(package.input_size, 0U);
+    ASSERT_EQ(package.output_size,
+              exif.payload.size() + icc.payload.size());
+    ASSERT_EQ(package.chunks.size(), 2U);
+    EXPECT_EQ(package.chunks[0].kind,
+              openmeta::TransferPackageChunkKind::PreparedTransferBlock);
+    EXPECT_EQ(package.chunks[1].kind,
+              openmeta::TransferPackageChunkKind::PreparedTransferBlock);
+
+    std::vector<std::byte> expected;
+    expected.insert(expected.end(), exif.payload.begin(), exif.payload.end());
+    expected.insert(expected.end(), icc.payload.begin(), icc.payload.end());
+
+    std::vector<std::byte> bytes(expected.size());
+    openmeta::SpanTransferByteWriter writer(
+        std::span<std::byte>(bytes.data(), bytes.size()));
+    const std::span<const std::byte> empty_input;
+    const openmeta::EmitTransferResult write_result
+        = openmeta::write_prepared_transfer_package(empty_input, bundle,
+                                                    package, writer);
+    ASSERT_EQ(write_result.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(writer.bytes_written(), expected.size());
+    EXPECT_EQ(bytes, expected);
+
+    openmeta::PreparedTransferPackageBatch batch;
+    ASSERT_EQ(openmeta::build_prepared_transfer_package_batch(
+                  empty_input, bundle, package, &batch)
+                  .status,
+              openmeta::TransferStatus::Ok);
+    std::vector<openmeta::PreparedTransferPackageView> views;
+    const openmeta::EmitTransferResult view_result
+        = openmeta::collect_prepared_transfer_package_views(batch, &views);
+    ASSERT_EQ(view_result.status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(views.size(), 2U);
+    EXPECT_EQ(views[0].semantic_kind, openmeta::TransferSemanticKind::Exif);
+    EXPECT_EQ(views[1].semantic_kind, openmeta::TransferSemanticKind::Icc);
+
+    openmeta::EmitTransferResult batch_write;
+    const std::vector<std::byte> batch_bytes
+        = materialize_transfer_package_batch(batch, &batch_write);
+    ASSERT_EQ(batch_write.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(batch_bytes, expected);
+}
+
+TEST(MetadataTransferApi,
+     BuildExecutedTransferPackageBatchBmffForeignMetaMergeMatchesEdit)
+{
+    openmeta::PreparedTransferBundle bundle;
+    bundle.target_format = openmeta::TransferTargetFormat::Heif;
+
+    openmeta::PreparedTransferBlock exif;
+    exif.route   = "bmff:item-exif";
+    exif.payload = make_test_bmff_exif_item_payload();
+    bundle.blocks.push_back(exif);
+
+    openmeta::PreparedTransferBlock xmp;
+    xmp.route   = "bmff:item-xmp";
+    xmp.payload = { std::byte { '<' }, std::byte { 'n' },
+                    std::byte { 'e' }, std::byte { 'w' },
+                    std::byte { '-' }, std::byte { 'x' },
+                    std::byte { 'm' }, std::byte { 'p' },
+                    std::byte { '/' }, std::byte { '>' } };
+    bundle.blocks.push_back(xmp);
+
+    const std::vector<std::byte> input
+        = make_bmff_foreign_meta_existing_exif_xmp_target();
+    const std::span<const std::byte> input_span(input.data(), input.size());
+
+    openmeta::ExecutePreparedTransferOptions options;
+    options.edit_requested = true;
+    options.edit_apply     = true;
+    const openmeta::ExecutePreparedTransferResult applied
+        = openmeta::execute_prepared_transfer(&bundle, input_span, options);
+    ASSERT_EQ(applied.edit_plan_status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(applied.edit_apply.status, openmeta::TransferStatus::Ok);
+    ASSERT_FALSE(applied.edited_output.empty());
+
+    const std::span<const std::byte> edited(applied.edited_output.data(),
+                                            applied.edited_output.size());
+    EXPECT_EQ(count_top_level_bmff_boxes(edited,
+                                         openmeta::fourcc('m', 'e', 't',
+                                                          'a')),
+              1U);
+
+    std::array<openmeta::ContainerBlockRef, 16> blocks {};
+    const openmeta::ScanResult scan = openmeta::scan_bmff(
+        edited,
+        std::span<openmeta::ContainerBlockRef>(blocks.data(), blocks.size()));
+    ASSERT_EQ(scan.status, openmeta::ScanStatus::Ok);
+    uint32_t xmp_blocks = 0U;
+    for (uint32_t i = 0U; i < scan.written; ++i) {
+        if (blocks[i].kind != openmeta::ContainerBlockKind::Xmp) {
+            continue;
+        }
+        xmp_blocks += 1U;
+        ASSERT_EQ(blocks[i].data_size, xmp.payload.size());
+        ASSERT_LE(blocks[i].data_offset + blocks[i].data_size, edited.size());
+        EXPECT_EQ(std::memcmp(applied.edited_output.data()
+                                  + static_cast<size_t>(blocks[i].data_offset),
+                              xmp.payload.data(), xmp.payload.size()),
+                  0);
+    }
+    EXPECT_EQ(xmp_blocks, 1U);
+
+    openmeta::PreparedTransferPackageBatch batch;
+    const openmeta::EmitTransferResult batch_result
+        = openmeta::build_executed_transfer_package_batch(input_span, bundle,
+                                                          applied, &batch);
+    ASSERT_EQ(batch_result.status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(batch.output_size,
+              static_cast<uint64_t>(applied.edited_output.size()));
+
+    openmeta::EmitTransferResult write_result;
+    const std::vector<std::byte> batch_bytes
+        = materialize_transfer_package_batch(batch, &write_result);
+    ASSERT_EQ(write_result.status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(batch_bytes.size(), applied.edited_output.size());
+    EXPECT_EQ(std::memcmp(batch_bytes.data(), applied.edited_output.data(),
+                          applied.edited_output.size()),
+              0);
 }
 
 TEST(MetadataTransferApi, BuildExecutedTransferPackageBatchBmffMatchesEdit)

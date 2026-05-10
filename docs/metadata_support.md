@@ -52,7 +52,7 @@ Current tracked-gate status:
 | GIF | Yes | Partial | XMP, ICC, and structured comments |
 | TIFF / DNG / TIFF-based RAW | Yes | Yes | EXIF, MakerNote, XMP, IPTC, Photoshop IRB, ICC, GeoTIFF, and bounded JUMBF/C2PA |
 | CRW / CIFF | Yes | Partial | Recursive CIFF directories, stable scalar/subtable decode, derived EXIF bridge, and bounded native Canon CIFF naming/projection |
-| RAF / X3F | Partial | Partial | RAF includes header-declared FujiIFD/TIFF follow path, native RAF header/directory geometry tags, RAFData geometry projection, and standalone XMP fallback; X3F includes header fields, known PROP properties, section-directory JPEG metadata follow path, and legacy embedded-EXIF fallback |
+| RAF / X3F | Partial | Partial | RAF includes header-declared preview-JPEG EXIF/XMP discovery, FujiIFD/TIFF follow path, native RAF header/directory geometry tags, RAFData geometry projection, and standalone XMP fallback; X3F includes header fields, known PROP properties, section-directory JPEG metadata follow path, and legacy embedded-EXIF fallback |
 | JP2 | Yes | Yes | EXIF, XMP, IPTC, ICC, and GeoTIFF |
 | JXL | Yes | Yes | EXIF, XMP, and bounded JUMBF/C2PA; supported `brob` wrapped metadata is decoded |
 | HEIF / AVIF / CR3 | Yes | Partial | EXIF, XMP, ICC, CR3 maker blocks, BMFF derived fields, and bounded JUMBF/C2PA |
@@ -84,6 +84,18 @@ OpenMeta now does more than a pure derived-EXIF bridge:
 - stable scalar native CIFF fields are decoded where the layout is clear
 
 It is still a partial lane compared to the deepest legacy Canon tooling.
+
+### RAF
+
+OpenMeta now follows both RAF metadata carriers that matter for common camera
+files:
+- the header-declared preview JPEG is scanned for standard EXIF/XMP-style
+  metadata
+- the header-declared FujiIFD/TIFF area is scanned for native RAF/raw fields
+- native RAF header, directory, and RAFData-derived fields are classified as
+  source-specific metadata for rendered-transfer safety
+
+Deeper model-specific RAF sections remain a partial lane.
 
 ### X3F
 
@@ -171,7 +183,7 @@ What this means in practice:
 - additional `JXL brob` realtypes beyond `Exif`, `xml `, `jumb`, and `c2pa`
 - full `JUMBF/C2PA` semantics and policy validation
 - deeper RAF model-specific native tables and X3F image-processing sections
-  beyond the current header/PROP/JPEG-section lane
+  beyond the current bounded carrier/header/property lanes
 - broader Photoshop IRB interpretation beyond the current bounded subset
 
 ## Related Docs

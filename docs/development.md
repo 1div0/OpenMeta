@@ -1342,7 +1342,10 @@ Draft C++ transfer entry points (prepare/emit scaffold):
     - `TransferPackageChunkKind::SourceRange` copies bytes from the original
       input stream.
     - `TransferPackageChunkKind::PreparedTransferBlock` serializes one
-      prepared block directly for JPEG, JXL, WebP, or BMFF targets.
+      prepared block directly for JPEG, JXL, WebP, PNG, JP2, or BMFF targets.
+      BMFF direct packages carry stable item/property payload bytes; the file
+      edit path is what wraps those payloads into a bounded top-level `meta`
+      graph.
     - `TransferPackageChunkKind::PreparedJpegSegment` injects one prepared
       JPEG marker segment from the bundle.
     - `TransferPackageChunkKind::InlineBytes` carries deterministic generated

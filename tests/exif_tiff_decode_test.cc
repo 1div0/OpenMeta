@@ -73,6 +73,17 @@ namespace {
         out->push_back(std::byte { static_cast<uint8_t>((v >> 0) & 0xFF) });
     }
 
+    static void append_jpeg_segment(std::vector<std::byte>* out,
+                                    uint16_t marker,
+                                    std::span<const std::byte> payload)
+    {
+        out->push_back(std::byte { 0xFF });
+        out->push_back(std::byte { static_cast<uint8_t>(marker & 0xFF) });
+        const uint16_t seg_len = static_cast<uint16_t>(payload.size() + 2U);
+        append_u16be(out, seg_len);
+        out->insert(out->end(), payload.begin(), payload.end());
+    }
+
 
     static void write_u32le_at(std::vector<std::byte>* out, size_t off,
                                uint32_t v)
@@ -1510,6 +1521,72 @@ TEST(SimpleMetaRead, DecodesRafEmbeddedTiff)
         exif_key("ifd0", 0x010F));
     ASSERT_EQ(ids.size(), 1U);
     EXPECT_EQ(arena_string(store.arena(), store.entry(ids[0]).value), "Canon");
+}
+
+TEST(SimpleMetaRead, DecodesRafPreviewJpegExif)
+{
+    const std::vector<std::byte> tiff = make_test_tiff_le();
+
+    std::vector<std::byte> jpeg;
+    jpeg.push_back(std::byte { 0xff });
+    jpeg.push_back(std::byte { 0xd8 });
+    std::vector<std::byte> exif_payload;
+    append_bytes(&exif_payload, "Exif");
+    exif_payload.push_back(std::byte { 0 });
+    exif_payload.push_back(std::byte { 0 });
+    exif_payload.insert(exif_payload.end(), tiff.begin(), tiff.end());
+    append_jpeg_segment(&jpeg, 0xffe1, exif_payload);
+    jpeg.push_back(std::byte { 0xff });
+    jpeg.push_back(std::byte { 0xd9 });
+
+    const uint32_t preview_off = 128U;
+    const uint32_t tiff_off    = 512U;
+
+    std::vector<std::byte> raf;
+    append_bytes(&raf, "FUJIFILMCCD-RAW ");
+    raf.resize(0x54U, std::byte { 0x00 });
+    append_u32be(&raf, preview_off);
+    append_u32be(&raf, static_cast<uint32_t>(jpeg.size()));
+    raf.resize(0x64U, std::byte { 0x00 });
+    append_u32be(&raf, tiff_off);
+    append_u32be(&raf, 14U);
+    raf.resize(preview_off, std::byte { 0x00 });
+    raf.insert(raf.end(), jpeg.begin(), jpeg.end());
+    raf.resize(tiff_off, std::byte { 0x00 });
+    append_bytes(&raf, "II");
+    append_u16le(&raf, 42);
+    append_u32le(&raf, 8);
+    append_u16le(&raf, 0);
+    append_u32le(&raf, 0);
+
+    MetaStore store;
+    std::array<ContainerBlockRef, 8> blocks {};
+    std::array<ExifIfdRef, 8> ifds {};
+    std::array<std::byte, 4096> payload_scratch {};
+    std::array<uint32_t, 16> payload_parts {};
+    ExifDecodeOptions exif_options;
+    PayloadOptions payload_options;
+    const SimpleMetaResult res
+        = simple_meta_read(raf, store, blocks, ifds, payload_scratch,
+                           payload_parts, exif_options, payload_options);
+    EXPECT_EQ(res.scan.status, ScanStatus::Ok);
+    EXPECT_EQ(res.exif.status, ExifDecodeStatus::Ok);
+    ASSERT_GE(res.scan.written, 2U);
+    EXPECT_EQ(blocks[0].format, ContainerFormat::Raf);
+    EXPECT_EQ(blocks[0].kind, ContainerBlockKind::Exif);
+
+    store.finalize();
+    const std::span<const EntryId> make_ids = store.find_all(
+        exif_key("ifd0", 0x010F));
+    ASSERT_EQ(make_ids.size(), 1U);
+    EXPECT_EQ(arena_string(store.arena(), store.entry(make_ids[0]).value),
+              "Canon");
+
+    const std::span<const EntryId> date_ids = store.find_all(
+        exif_key("exififd", 0x9003));
+    ASSERT_EQ(date_ids.size(), 1U);
+    EXPECT_EQ(arena_string(store.arena(), store.entry(date_ids[0]).value),
+              "2024:01:01 00:00:00");
 }
 
 TEST(SimpleMetaRead, DecodesRafNativeDirectory)

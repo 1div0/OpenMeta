@@ -312,6 +312,60 @@ namespace {
         EXPECT_EQ(blocks[0].data_offset, 256U);
     }
 
+    TEST(ContainerScan, RafPreviewJpegMetadataUsesRafFormat)
+    {
+        std::vector<std::byte> jpeg;
+        jpeg.push_back(std::byte { 0xff });
+        jpeg.push_back(std::byte { 0xd8 });
+
+        std::vector<std::byte> exif_payload;
+        append_bytes(&exif_payload, "Exif");
+        exif_payload.push_back(std::byte { 0 });
+        exif_payload.push_back(std::byte { 0 });
+        append_bytes(&exif_payload, "II");
+        append_u16le(&exif_payload, 42);
+        append_u32le(&exif_payload, 8);
+        append_u16le(&exif_payload, 0);
+        append_u32le(&exif_payload, 0);
+        append_jpeg_segment(&jpeg, 0xffe1, exif_payload);
+        jpeg.push_back(std::byte { 0xff });
+        jpeg.push_back(std::byte { 0xd9 });
+
+        const uint32_t preview_off = 128U;
+        const uint32_t tiff_off    = 512U;
+
+        std::vector<std::byte> raf;
+        append_bytes(&raf, "FUJIFILMCCD-RAW ");
+        raf.resize(0x54U, std::byte { 0x00 });
+        append_u32be(&raf, preview_off);
+        append_u32be(&raf, static_cast<uint32_t>(jpeg.size()));
+        raf.resize(0x64U, std::byte { 0x00 });
+        append_u32be(&raf, tiff_off);
+        append_u32be(&raf, 14U);
+        raf.resize(preview_off, std::byte { 0x00 });
+        raf.insert(raf.end(), jpeg.begin(), jpeg.end());
+        raf.resize(tiff_off, std::byte { 0x00 });
+        append_bytes(&raf, "II");
+        append_u16le(&raf, 42);
+        append_u32le(&raf, 8);
+        append_u16le(&raf, 0);
+        append_u32le(&raf, 0);
+
+        std::array<ContainerBlockRef, 8> blocks {};
+        const ScanResult res
+            = scan_auto(std::span<const std::byte>(raf.data(), raf.size()),
+                        blocks);
+        ASSERT_EQ(res.status, ScanStatus::Ok);
+        ASSERT_GE(res.written, 2U);
+        EXPECT_EQ(blocks[0].format, ContainerFormat::Raf);
+        EXPECT_EQ(blocks[0].kind, ContainerBlockKind::Exif);
+        EXPECT_GE(blocks[0].data_offset, static_cast<uint64_t>(preview_off));
+        EXPECT_LT(blocks[0].data_offset, static_cast<uint64_t>(tiff_off));
+        EXPECT_EQ(blocks[1].format, ContainerFormat::Raf);
+        EXPECT_EQ(blocks[1].kind, ContainerBlockKind::Exif);
+        EXPECT_EQ(blocks[1].data_offset, static_cast<uint64_t>(tiff_off));
+    }
+
     TEST(ContainerScan, X3fEmbeddedExifUsesX3fFormat)
     {
         std::vector<std::byte> x3f;

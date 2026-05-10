@@ -161,8 +161,9 @@ controls. Hosts may still strip more metadata.
        sensor-temperature correction fields,
        Sony/Canon/Nikon/Fujifilm/Pentax/Panasonic/Olympus/Kodak/Minolta/
        Sigma/Samsung/Ricoh decoded RAW geometry/storage/lens-correction fields
-       such as SR2/SRF, RAFData, MinoltaRaw PRD/RIF/WBG tables, Pentax
-       lens-correction tables, Panasonic sensor subtables, Olympus
+       such as SR2/SRF, RAF header/directory/RAFData fields, MinoltaRaw
+       PRD/RIF/WBG tables, Pentax lens-correction tables, Panasonic sensor
+       subtables, Olympus
        image-processing/raw-development tables, Kodak sensor/black-level/
        raw-histogram fields, Samsung Type2 raw/color/correction fields, Ricoh
        sensor/crop/vignetting fields, Apple computational capture/HDR fields,

@@ -110,6 +110,12 @@ namespace {
             groups |= kVendorRawGeometry | kVendorRawRawData
                       | kVendorRawPrivateTable;
         }
+        if (starts_with(ifd, "raf_")) {
+            groups |= kVendorRawPrivateTable;
+            if (ifd == "raf_header") {
+                groups |= kVendorRawStorage;
+            }
+        }
         return groups;
     }
 
@@ -831,7 +837,7 @@ namespace {
         case VendorRawProcessingFamily::Nikon:
             return starts_with(ifd, "mk_nikon");
         case VendorRawProcessingFamily::Fujifilm:
-            return starts_with(ifd, "mk_fuji");
+            return starts_with(ifd, "mk_fuji") || starts_with(ifd, "raf_");
         case VendorRawProcessingFamily::Pentax:
             return starts_with(ifd, "mk_pentax");
         case VendorRawProcessingFamily::Panasonic:
@@ -925,7 +931,7 @@ classify_vendor_raw_processing_field(std::string_view ifd,
         groups |= classify_nikon_ifd(ifd);
     } else if (starts_with(ifd, "mk_sony")) {
         groups |= classify_sony_ifd(ifd);
-    } else if (starts_with(ifd, "mk_fuji")) {
+    } else if (starts_with(ifd, "mk_fuji") || starts_with(ifd, "raf_")) {
         groups |= classify_fujifilm_ifd(ifd);
     } else if (starts_with(ifd, "mk_pentax")) {
         groups |= classify_pentax_ifd(ifd);

@@ -4751,108 +4751,144 @@ scan_auto(std::span<const std::byte> bytes,
         }
     }
 
-    // Fujifilm RAF: fixed header plus header-declared FujiIFD/TIFF stream.
+    // Fujifilm RAF: fixed header plus header-declared preview JPEG and
+    // FujiIFD/TIFF streams.
     if (bytes.size() >= 16 && match(bytes, 0, "FUJIFILMCCD-RAW ", 16)) {
+        BlockSink sink;
+        sink.out = out.data();
+        sink.cap = static_cast<uint32_t>(out.size());
+
+        bool any      = false;
+        bool have_xmp = false;
+
+        uint32_t preview_off  = 0;
+        uint32_t preview_size = 0;
+        if (read_u32be(bytes, 0x54U, &preview_off)
+            && read_u32be(bytes, 0x58U, &preview_size)
+            && preview_off <= bytes.size()
+            && preview_size <= bytes.size() - static_cast<uint64_t>(preview_off)
+            && preview_size >= 2U && u8(bytes[preview_off + 0U]) == 0xffU
+            && u8(bytes[preview_off + 1U]) == 0xd8U) {
+            std::array<ContainerBlockRef, 32> local {};
+            const std::span<const std::byte> jpeg
+                = bytes.subspan(static_cast<size_t>(preview_off),
+                                static_cast<size_t>(preview_size));
+            const ScanResult jpeg_res    = scan_jpeg(jpeg, local);
+            const uint32_t local_written = (jpeg_res.written < local.size())
+                                               ? jpeg_res.written
+                                               : static_cast<uint32_t>(
+                                                     local.size());
+            for (uint32_t i = 0; i < local_written; ++i) {
+                ContainerBlockRef block = local[i];
+                block.format            = ContainerFormat::Raf;
+                block.outer_offset += preview_off;
+                block.data_offset += preview_off;
+                if (block.kind == ContainerBlockKind::Xmp
+                    || block.kind == ContainerBlockKind::XmpExtended) {
+                    have_xmp = true;
+                }
+                sink_emit(&sink, block);
+                any = true;
+            }
+            if (jpeg_res.status == ScanStatus::OutputTruncated
+                && sink.result.status == ScanStatus::Ok) {
+                sink.result.status = ScanStatus::OutputTruncated;
+            }
+        }
+
         uint64_t tiff_off = 160;
         bool have_tiff    = raf_declared_tiff_offset(bytes, &tiff_off);
         if (!have_tiff && tiff_off < bytes.size()
             && looks_like_tiff_at(bytes, tiff_off)) {
             have_tiff = true;
         }
+
         if (have_tiff) {
             const std::span<const std::byte> tiff = bytes.subspan(
                 static_cast<size_t>(tiff_off));
-            ScanResult res   = scan_tiff(tiff, out);
-            uint32_t written = (res.written < out.size())
-                                   ? res.written
-                                   : static_cast<uint32_t>(out.size());
-            for (uint32_t i = 0; i < written; ++i) {
-                out[i].outer_offset += tiff_off;
-                out[i].data_offset += tiff_off;
-                out[i].format = ContainerFormat::Raf;
+            std::array<ContainerBlockRef, 32> local {};
+            const ScanResult tiff_res    = scan_tiff(tiff, local);
+            const uint32_t local_written = (tiff_res.written < local.size())
+                                               ? tiff_res.written
+                                               : static_cast<uint32_t>(
+                                                     local.size());
+            for (uint32_t i = 0; i < local_written; ++i) {
+                ContainerBlockRef block = local[i];
+                block.outer_offset += tiff_off;
+                block.data_offset += tiff_off;
+                block.format = ContainerFormat::Raf;
+                if (block.kind == ContainerBlockKind::Xmp
+                    || block.kind == ContainerBlockKind::XmpExtended) {
+                    have_xmp = true;
+                }
+                sink_emit(&sink, block);
+                any = true;
             }
+            if (tiff_res.status == ScanStatus::OutputTruncated
+                && sink.result.status == ScanStatus::Ok) {
+                sink.result.status = ScanStatus::OutputTruncated;
+            } else if (tiff_res.status == ScanStatus::Malformed && !any) {
+                sink.result.status = ScanStatus::Malformed;
+            }
+        }
 
+        if (any || have_tiff) {
             // RAF files can also embed an XMP packet as a standalone blob
             // preceded by the standard Adobe XMP signature
             // ("http://ns.adobe.com/xap/1.0/\0"). ExifTool reports these XMP
             // values even when they are not referenced by TIFF tags.
-            //
-            // Best-effort: if the TIFF scan did not already find XMP, locate
-            // the first such packet in the file and expose it as an XMP block.
-            if (res.status == ScanStatus::Ok) {
-                bool have_xmp = false;
-                for (uint32_t i = 0; i < written; ++i) {
-                    const ContainerBlockRef& b = out[i];
-                    if (b.kind == ContainerBlockKind::Xmp
-                        || b.kind == ContainerBlockKind::XmpExtended) {
-                        have_xmp = true;
-                        break;
+            if (!have_xmp) {
+                static constexpr char kXmpSig[]
+                    = "http://ns.adobe.com/xap/1.0/\0";
+                const uint64_t max_search = (bytes.size()
+                                             < (32ULL * 1024ULL * 1024ULL))
+                                                ? bytes.size()
+                                                : (32ULL * 1024ULL * 1024ULL);
+                const uint64_t sig_off    = find_match(bytes, 0U, max_search,
+                                                       kXmpSig,
+                                                       sizeof(kXmpSig) - 1U);
+                if (sig_off != UINT64_MAX) {
+                    const uint64_t data_off = sig_off + (sizeof(kXmpSig) - 1U);
+
+                    // Limit scanning for close tags to keep this cheap and
+                    // bounded for hostile inputs.
+                    const uint64_t max_packet = 512ULL * 1024ULL;
+                    uint64_t packet_end       = data_off + max_packet;
+                    if (packet_end > bytes.size()) {
+                        packet_end = bytes.size();
                     }
-                }
 
-                if (!have_xmp) {
-                    static constexpr char kXmpSig[]
-                        = "http://ns.adobe.com/xap/1.0/\0";
-                    const uint64_t max_search
-                        = (bytes.size() < (32ULL * 1024ULL * 1024ULL))
-                              ? bytes.size()
-                              : (32ULL * 1024ULL * 1024ULL);
-                    const uint64_t sig_off = find_match(bytes, 0U, max_search,
-                                                        kXmpSig,
-                                                        sizeof(kXmpSig) - 1U);
-                    if (sig_off != UINT64_MAX) {
-                        const uint64_t data_off = sig_off
-                                                  + (sizeof(kXmpSig) - 1U);
+                    static constexpr char kCloseXmpMeta[] = "</x:xmpmeta>";
+                    static constexpr char kCloseRdf[]     = "</rdf:RDF>";
 
-                        // Limit scanning for close tags to keep this cheap and
-                        // bounded for hostile inputs.
-                        const uint64_t max_packet = 512ULL * 1024ULL;
-                        uint64_t packet_end       = data_off + max_packet;
-                        if (packet_end > bytes.size()) {
-                            packet_end = bytes.size();
-                        }
-
-                        static constexpr char kCloseXmpMeta[] = "</x:xmpmeta>";
-                        static constexpr char kCloseRdf[]     = "</rdf:RDF>";
-
-                        uint64_t end   = packet_end;
-                        uint64_t close = find_match(bytes, data_off, packet_end,
-                                                    kCloseXmpMeta,
-                                                    sizeof(kCloseXmpMeta) - 1U);
+                    uint64_t end   = packet_end;
+                    uint64_t close = find_match(bytes, data_off, packet_end,
+                                                kCloseXmpMeta,
+                                                sizeof(kCloseXmpMeta) - 1U);
+                    if (close != UINT64_MAX) {
+                        end = close + (sizeof(kCloseXmpMeta) - 1U);
+                    } else {
+                        close = find_match(bytes, data_off, packet_end,
+                                           kCloseRdf, sizeof(kCloseRdf) - 1U);
                         if (close != UINT64_MAX) {
-                            end = close + (sizeof(kCloseXmpMeta) - 1U);
-                        } else {
-                            close = find_match(bytes, data_off, packet_end,
-                                               kCloseRdf,
-                                               sizeof(kCloseRdf) - 1U);
-                            if (close != UINT64_MAX) {
-                                end = close + (sizeof(kCloseRdf) - 1U);
-                            }
+                            end = close + (sizeof(kCloseRdf) - 1U);
                         }
+                    }
 
-                        if (end > data_off && end > sig_off) {
-                            if (written < out.size()) {
-                                ContainerBlockRef block;
-                                block.format       = ContainerFormat::Raf;
-                                block.kind         = ContainerBlockKind::Xmp;
-                                block.outer_offset = sig_off;
-                                block.outer_size   = end - sig_off;
-                                block.data_offset  = data_off;
-                                block.data_size    = end - data_off;
-                                block.id           = fourcc('x', 'm', 'p', ' ');
-                                out[written]       = block;
-                                written += 1;
-                                res.written = written;
-                                res.needed  = written;
-                            } else {
-                                res.status = ScanStatus::OutputTruncated;
-                                res.needed = res.written + 1;
-                            }
-                        }
+                    if (end > data_off && end > sig_off) {
+                        ContainerBlockRef block;
+                        block.format       = ContainerFormat::Raf;
+                        block.kind         = ContainerBlockKind::Xmp;
+                        block.outer_offset = sig_off;
+                        block.outer_size   = end - sig_off;
+                        block.data_offset  = data_off;
+                        block.data_size    = end - data_off;
+                        block.id           = fourcc('x', 'm', 'p', ' ');
+                        sink_emit(&sink, block);
                     }
                 }
             }
-            return res;
+            return sink.result;
         }
     }
 

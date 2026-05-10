@@ -2693,8 +2693,9 @@ write_prepared_bundle_tiff_edit(std::span<const std::byte> input_tiff,
 /**
  * \brief Build one deterministic direct-emit package plan for a prepared bundle.
  *
- * Current implementation supports JPEG marker emission and JPEG XL box
- * emission without requiring an input container byte stream.
+ * Current implementation supports direct JPEG marker, JXL/WebP/PNG/JP2
+ * carrier, and BMFF item/property payload packaging without requiring an input
+ * container byte stream.
  */
 EmitTransferResult
 build_prepared_transfer_emit_package(const PreparedTransferBundle& bundle,

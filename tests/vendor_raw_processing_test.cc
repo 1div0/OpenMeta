@@ -137,6 +137,24 @@ TEST(VendorRawProcessing, ClassifiesFujifilmRawProcessingFields)
     EXPECT_TRUE(has_group(raf_groups, VendorRawProcessingGroup::RawData));
     EXPECT_TRUE(has_group(raf_groups, VendorRawProcessingGroup::PrivateTable));
 
+    const VendorRawProcessingGroup raf_header_groups
+        = classify_vendor_raw_processing_field("raf_header",
+                                               "PreviewImageStart", 0x0054U);
+    EXPECT_TRUE(
+        has_group(raf_header_groups, VendorRawProcessingGroup::Storage));
+    EXPECT_TRUE(
+        has_group(raf_header_groups, VendorRawProcessingGroup::PrivateTable));
+
+    const VendorRawProcessingGroup raf_native_groups
+        = classify_vendor_raw_processing_field("raf_0", "RawImageCropTopLeft",
+                                               0x0110U);
+    EXPECT_TRUE(
+        has_group(raf_native_groups, VendorRawProcessingGroup::Geometry));
+    EXPECT_TRUE(
+        has_group(raf_native_groups, VendorRawProcessingGroup::RawData));
+    EXPECT_TRUE(
+        has_group(raf_native_groups, VendorRawProcessingGroup::PrivateTable));
+
     const VendorRawProcessingGroup correction_groups
         = classify_vendor_raw_processing_field("mk_fuji0",
                                                "LensModulationOptimizer",
