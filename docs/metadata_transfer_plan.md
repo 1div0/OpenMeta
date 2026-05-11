@@ -931,10 +931,13 @@ writer-confidence slice above; it should be sequenced around it.
   `MetaStore` state
 - [x] preserve bounded per-carrier provenance in raw snapshots: container type,
   block kind, byte range, original order, and route identity
-- [ ] connect decoded entries back to the raw carrier records they were derived
-  from
-- [ ] define policy choices for raw passthrough vs decoded re-emission when the
+- [x] connect decoded entries back to the raw carrier records they were derived
+  from, using snapshot-local decoded entry ids
+- [x] define policy choices for raw passthrough vs decoded re-emission when the
   destination container can safely accept either form
+- [x] add a diagnostic raw-carrier passthrough audit that reports candidate
+  carriers and primary block reasons before any raw passthrough writer path is
+  enabled
 - [ ] provide versioned snapshot serialization only after the raw/provenance
   model is settled
 - [ ] provide full prepared-bundle serialization if hosts need to prepare once
@@ -954,6 +957,37 @@ writer-confidence slice above; it should be sequenced around it.
   and raw snapshot serialization are stable
 - [ ] defer any C ABI or opaque-handle facade until the host-facing C++ API is
   stable enough to freeze a narrow bridge
+
+#### Raw Snapshot Emission Policy
+
+Raw carriers are currently preserved for provenance, diagnostics, and future
+host-controlled passthrough decisions. Transfer preparation still defaults to
+decoded re-emission from `MetaStore`.
+
+`raw_carrier_passthrough_audit_from_snapshot(...)` is the current diagnostic
+bridge between preserved carriers and future emission policy. It reports
+whether each preserved carrier is a passthrough candidate for a target format,
+or blocked by missing payload bytes, target carrier incompatibility, active
+safety filtering, content-bound C2PA, explicit profile policy, missing decoded
+entry links, or unsupported carrier kind. The audit does not change bundle
+preparation; it is a preflight tool for host UI and test coverage.
+
+The planned policy choices are:
+- `DecodedReemit`: current behavior; OpenMeta decodes entries, applies safety
+  filtering, and emits freshly prepared EXIF/XMP/ICC/IPTC/JUMBF carriers.
+- `RawPassthroughWhenSafe`: future opt-in behavior; OpenMeta may reuse a
+  preserved raw carrier only when the target accepts the same carrier family,
+  the payload was preserved in the snapshot, the decoded entries are linked to
+  that carrier, and the active transfer safety/profile does not require
+  filtering, invalidation, or target-owned image-property rewrite.
+- `HostOwnedPassthrough`: current integration escape hatch; hosts may inspect
+  `TransferSourceSnapshot::raw_carriers` and implement their own passthrough
+  outside OpenMeta's writer path.
+
+Rendered-image transfer keeps using decoded re-emission plus safety filtering.
+Opaque MakerNotes, content-bound C2PA, source ICC profiles, raw color
+calibration, and target-owned image properties are not raw-passthrough
+candidates for rendered exports.
 
 ## Postponed Work
 

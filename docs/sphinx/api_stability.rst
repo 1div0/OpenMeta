@@ -114,6 +114,15 @@ Host-facing API map
        Reconyx/HP/JVC/GE/Motorola/Nintendo/Microsoft RAW/source-processing
        buckets. Intended for diagnostics and host UI before preparing
        rendered-image transfers.
+   * - Raw-carrier passthrough audit:
+       ``raw_carrier_passthrough_audit_from_snapshot(...)``
+     - ``openmeta/metadata_transfer.h``
+     - Experimental
+     - Diagnostic-only preflight for opt-in raw carriers. Reports candidate
+       carriers and primary block reasons such as missing payload, target
+       incompatibility, safety filtering, content-bound C2PA, explicit profile
+       policy, missing decoded-entry links, or unsupported carrier kind. Does
+       not enable raw passthrough emission.
    * - Source snapshot type and read helpers:
        ``TransferSourceSnapshot``,
        ``read_transfer_source_snapshot_file(...)``,
@@ -121,10 +130,12 @@ Host-facing API map
        ``build_transfer_source_snapshot(...)``
      - ``openmeta/metadata_transfer.h``
      - Experimental
-     - Current snapshots are decoded-store-backed and do not preserve raw
-       source packets for passthrough. Const reuse is safe when callers do not
-       mutate the snapshot and do not share returned result objects across
-       writers.
+     - Current snapshots are decoded-store-backed by default. Opt-in raw
+       carriers preserve bounded source payload/provenance records and
+       snapshot-local decoded entry ids for host diagnostics or future
+       passthrough policy decisions; transfer execution still uses decoded
+       re-emission. Const reuse is safe when callers do not mutate the snapshot
+       and do not share returned result objects across writers.
    * - Fileless preparation:
        ``prepare_metadata_for_target_snapshot(...)``
      - ``openmeta/metadata_transfer.h``

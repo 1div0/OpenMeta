@@ -12965,23 +12965,19 @@ namespace {
         return offset <= total && size <= total - offset;
     }
 
-    static TransferBlockKind transfer_kind_from_source_block(
-        const ContainerBlockRef& block,
-        std::span<const std::byte> payload) noexcept
+    static TransferBlockKind
+    transfer_kind_from_source_block(const ContainerBlockRef& block,
+                                    std::span<const std::byte> payload) noexcept
     {
         switch (block.kind) {
         case ContainerBlockKind::Exif:
-        case ContainerBlockKind::Ciff:
-            return TransferBlockKind::Exif;
+        case ContainerBlockKind::Ciff: return TransferBlockKind::Exif;
         case ContainerBlockKind::Xmp:
-        case ContainerBlockKind::XmpExtended:
-            return TransferBlockKind::Xmp;
-        case ContainerBlockKind::IptcIim:
-            return TransferBlockKind::IptcIim;
+        case ContainerBlockKind::XmpExtended: return TransferBlockKind::Xmp;
+        case ContainerBlockKind::IptcIim: return TransferBlockKind::IptcIim;
         case ContainerBlockKind::PhotoshopIrB:
             return TransferBlockKind::PhotoshopIrb;
-        case ContainerBlockKind::Icc:
-            return TransferBlockKind::Icc;
+        case ContainerBlockKind::Icc: return TransferBlockKind::Icc;
         case ContainerBlockKind::Jumbf:
             return is_c2pa_jumbf_payload(payload) ? TransferBlockKind::C2pa
                                                   : TransferBlockKind::Jumbf;
@@ -12997,10 +12993,299 @@ namespace {
         case ContainerBlockKind::MakerNote:
         case ContainerBlockKind::Mpf:
         case ContainerBlockKind::Comment:
-        case ContainerBlockKind::Text:
-            return TransferBlockKind::Other;
+        case ContainerBlockKind::Text: return TransferBlockKind::Other;
         }
         return TransferBlockKind::Other;
+    }
+
+    static TransferBlockKind
+    transfer_kind_from_entry_key(const MetaKey& key) noexcept
+    {
+        switch (key.kind) {
+        case MetaKeyKind::ExifTag:
+        case MetaKeyKind::GeotiffKey:
+        case MetaKeyKind::PrintImField: return TransferBlockKind::Exif;
+        case MetaKeyKind::XmpProperty: return TransferBlockKind::Xmp;
+        case MetaKeyKind::IptcDataset: return TransferBlockKind::IptcIim;
+        case MetaKeyKind::IccHeaderField:
+        case MetaKeyKind::IccTag: return TransferBlockKind::Icc;
+        case MetaKeyKind::PhotoshopIrb:
+        case MetaKeyKind::PhotoshopIrbField:
+            return TransferBlockKind::PhotoshopIrb;
+        case MetaKeyKind::JumbfField:
+        case MetaKeyKind::JumbfCborKey: return TransferBlockKind::Jumbf;
+        case MetaKeyKind::Comment:
+        case MetaKeyKind::ExrAttribute:
+        case MetaKeyKind::BmffField:
+        case MetaKeyKind::PngText: return TransferBlockKind::Other;
+        }
+        return TransferBlockKind::Other;
+    }
+
+    static bool
+    transfer_entry_kind_matches_carrier(TransferBlockKind carrier_kind,
+                                        TransferBlockKind entry_kind) noexcept
+    {
+        if (carrier_kind == entry_kind) {
+            return true;
+        }
+        return carrier_kind == TransferBlockKind::C2pa
+               && entry_kind == TransferBlockKind::Jumbf;
+    }
+
+    static bool raw_carrier_target_route(TransferBlockKind kind,
+                                         TransferTargetFormat target,
+                                         std::string* out_route) noexcept
+    {
+        if (out_route) {
+            out_route->clear();
+        }
+
+        std::string_view route;
+        switch (kind) {
+        case TransferBlockKind::Exif:
+            if (target == TransferTargetFormat::Jpeg) {
+                route = "jpeg:app1-exif";
+            } else if (transfer_target_is_tiff_family(target)) {
+                route = "tiff:ifd-exif-app1";
+            } else if (target == TransferTargetFormat::Png) {
+                route = "png:chunk-exif";
+            } else if (target == TransferTargetFormat::Webp) {
+                route = "webp:chunk-exif";
+            } else if (target == TransferTargetFormat::Jxl) {
+                route = "jxl:box-exif";
+            } else if (target == TransferTargetFormat::Jp2) {
+                route = "jp2:box-exif";
+            } else if (transfer_target_is_bmff(target)) {
+                route = "bmff:item-exif";
+            }
+            break;
+        case TransferBlockKind::Xmp:
+            if (target == TransferTargetFormat::Jpeg) {
+                route = "jpeg:app1-xmp";
+            } else if (transfer_target_is_tiff_family(target)) {
+                route = "tiff:tag-700-xmp";
+            } else if (target == TransferTargetFormat::Png) {
+                route = "png:chunk-xmp";
+            } else if (target == TransferTargetFormat::Webp) {
+                route = "webp:chunk-xmp";
+            } else if (target == TransferTargetFormat::Jxl) {
+                route = "jxl:box-xml";
+            } else if (target == TransferTargetFormat::Jp2) {
+                route = "jp2:box-xml";
+            } else if (transfer_target_is_bmff(target)) {
+                route = "bmff:item-xmp";
+            }
+            break;
+        case TransferBlockKind::Icc:
+            if (target == TransferTargetFormat::Jpeg) {
+                route = "jpeg:app2-icc";
+            } else if (transfer_target_is_tiff_family(target)) {
+                route = "tiff:tag-34675-icc";
+            } else if (target == TransferTargetFormat::Png) {
+                route = "png:chunk-iccp";
+            } else if (target == TransferTargetFormat::Webp) {
+                route = "webp:chunk-iccp";
+            } else if (target == TransferTargetFormat::Jxl) {
+                route = "jxl:icc-profile";
+            } else if (target == TransferTargetFormat::Jp2) {
+                route = "jp2:box-jp2h-colr";
+            } else if (transfer_target_is_bmff(target)) {
+                route = "bmff:property-colr-icc";
+            }
+            break;
+        case TransferBlockKind::IptcIim:
+            if (target == TransferTargetFormat::Jpeg) {
+                route = "jpeg:app13-iptc";
+            } else if (transfer_target_is_tiff_family(target)) {
+                route = "tiff:tag-33723-iptc";
+            }
+            break;
+        case TransferBlockKind::Jumbf:
+            if (target == TransferTargetFormat::Jpeg) {
+                route = "jpeg:app11-jumbf";
+            } else if (target == TransferTargetFormat::Jxl) {
+                route = "jxl:box-jumb";
+            } else if (transfer_target_is_bmff(target)) {
+                route = "bmff:item-jumb";
+            }
+            break;
+        case TransferBlockKind::C2pa:
+            if (target == TransferTargetFormat::Jpeg) {
+                route = "jpeg:app11-c2pa";
+            } else if (target == TransferTargetFormat::Jxl) {
+                route = "jxl:box-c2pa";
+            } else if (target == TransferTargetFormat::Webp) {
+                route = "webp:chunk-c2pa";
+            } else if (transfer_target_is_bmff(target)) {
+                route = "bmff:item-c2pa";
+            }
+            break;
+        case TransferBlockKind::PhotoshopIrb:
+        case TransferBlockKind::ExrAttribute:
+        case TransferBlockKind::Other: break;
+        }
+
+        if (route.empty()) {
+            return false;
+        }
+        if (out_route) {
+            *out_route = std::string(route);
+        }
+        return true;
+    }
+
+    static bool raw_carrier_kind_is_supported(TransferBlockKind kind) noexcept
+    {
+        switch (kind) {
+        case TransferBlockKind::Exif:
+        case TransferBlockKind::Xmp:
+        case TransferBlockKind::IptcIim:
+        case TransferBlockKind::Icc:
+        case TransferBlockKind::Jumbf:
+        case TransferBlockKind::C2pa: return true;
+        case TransferBlockKind::PhotoshopIrb:
+        case TransferBlockKind::ExrAttribute:
+        case TransferBlockKind::Other: return false;
+        }
+        return false;
+    }
+
+    static bool raw_carrier_entry_link_is_valid(
+        const MetaStore& store,
+        const TransferSourceRawCarrier& carrier) noexcept
+    {
+        const std::span<const Entry> entries = store.entries();
+        if (carrier.decoded_entry_ids.empty()) {
+            return false;
+        }
+        for (EntryId id : carrier.decoded_entry_ids) {
+            if (id >= entries.size()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    static bool
+    entry_is_makernote_for_rendered_transfer(const MetaStore& store,
+                                             const Entry& entry) noexcept
+    {
+        if (any(entry.flags, EntryFlags::Deleted)
+            || entry.key.kind != MetaKeyKind::ExifTag) {
+            return false;
+        }
+        if (entry.key.data.exif_tag.tag == 0x927CU) {
+            return true;
+        }
+        std::string_view ifd_name;
+        if (!ifd_name_for_entry(store, entry, &ifd_name)) {
+            return false;
+        }
+        return is_decoded_makernote_ifd_name(ifd_name);
+    }
+
+    static bool
+    raw_carrier_is_filtered_by_safety(const MetaStore& store,
+                                      const TransferSourceRawCarrier& carrier,
+                                      TransferSafetyMode safety) noexcept
+    {
+        if (transfer_safety_mode_is_rendered(safety)) {
+            if (carrier.semantic_kind == TransferBlockKind::Icc
+                || carrier.semantic_kind == TransferBlockKind::Jumbf) {
+                return true;
+            }
+        }
+
+        const std::span<const Entry> entries = store.entries();
+        for (EntryId id : carrier.decoded_entry_ids) {
+            if (id >= entries.size()) {
+                return true;
+            }
+            const Entry& entry = entries[id];
+            if (entry_is_image_dependent_for_target_transfer(store, entry)) {
+                return true;
+            }
+            if (!transfer_safety_mode_is_rendered(safety)) {
+                continue;
+            }
+            if (entry_is_raw_color_calibration_for_rendered_transfer(store,
+                                                                     entry)) {
+                return true;
+            }
+            if (entry_is_camera_raw_settings_for_rendered_transfer(store,
+                                                                   entry)) {
+                return true;
+            }
+            if (entry_is_makernote_for_rendered_transfer(store, entry)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static bool raw_carrier_is_content_bound_c2pa(
+        const TransferSourceRawCarrier& carrier) noexcept
+    {
+        if (carrier.semantic_kind != TransferBlockKind::C2pa) {
+            return false;
+        }
+        if (!carrier.payload_preserved || carrier.payload.empty()) {
+            return false;
+        }
+        const C2paPayloadClass payload_class = classify_c2pa_jumbf_payload(
+            std::span<const std::byte>(carrier.payload.data(),
+                                       carrier.payload.size()));
+        return payload_class != C2paPayloadClass::DraftUnsignedInvalidation;
+    }
+
+    static bool
+    raw_carrier_is_blocked_by_profile(TransferBlockKind kind,
+                                      const TransferProfile& profile) noexcept
+    {
+        if (kind == TransferBlockKind::Jumbf) {
+            return profile.jumbf != TransferPolicyAction::Keep;
+        }
+        if (kind == TransferBlockKind::C2pa) {
+            return profile.c2pa == TransferPolicyAction::Drop
+                   || profile.c2pa == TransferPolicyAction::Rewrite;
+        }
+        return false;
+    }
+
+    static void count_raw_carrier_passthrough_decision(
+        TransferRawCarrierPassthroughAudit* audit,
+        TransferRawCarrierPassthroughReason reason) noexcept
+    {
+        if (!audit) {
+            return;
+        }
+        switch (reason) {
+        case TransferRawCarrierPassthroughReason::Candidate:
+            audit->eligible_count += 1U;
+            break;
+        case TransferRawCarrierPassthroughReason::MissingPayload:
+            audit->blocked_missing_payload += 1U;
+            break;
+        case TransferRawCarrierPassthroughReason::TargetIncompatible:
+            audit->blocked_target_incompatible += 1U;
+            break;
+        case TransferRawCarrierPassthroughReason::SafetyFiltered:
+            audit->blocked_safety_filtered += 1U;
+            break;
+        case TransferRawCarrierPassthroughReason::ContentBoundMetadata:
+            audit->blocked_content_bound_metadata += 1U;
+            break;
+        case TransferRawCarrierPassthroughReason::PolicyBlocked:
+            audit->blocked_policy += 1U;
+            break;
+        case TransferRawCarrierPassthroughReason::DecodeLinkUnavailable:
+            audit->blocked_decode_link_unavailable += 1U;
+            break;
+        case TransferRawCarrierPassthroughReason::UnsupportedKind:
+            audit->blocked_unsupported_kind += 1U;
+            break;
+        }
     }
 
     static bool source_block_is_bmff_family(ContainerFormat format) noexcept
@@ -13133,8 +13418,7 @@ namespace {
         case ContainerBlockKind::Unknown:
         case ContainerBlockKind::MakerNote:
         case ContainerBlockKind::Mpf:
-        case ContainerBlockKind::Text:
-            break;
+        case ContainerBlockKind::Text: break;
         }
         return "source:metadata";
     }
@@ -13165,8 +13449,7 @@ namespace {
             carrier.order = static_cast<uint32_t>(i);
 
             std::span<const std::byte> payload;
-            if (source_range_in_bounds(block.data_offset, block.data_size,
-                                       total)
+            if (source_range_in_bounds(block.data_offset, block.data_size, total)
                 && block.data_size <= static_cast<uint64_t>(SIZE_MAX)) {
                 payload = bytes.subspan(static_cast<size_t>(block.data_offset),
                                         static_cast<size_t>(block.data_size));
@@ -13199,6 +13482,93 @@ namespace {
             }
 
             snapshot->raw_carriers.push_back(std::move(carrier));
+        }
+    }
+
+    static void link_transfer_source_raw_carrier_entries(
+        TransferSourceSnapshot* snapshot) noexcept
+    {
+        if (!snapshot || snapshot->raw_carriers.empty()) {
+            return;
+        }
+
+        for (TransferSourceRawCarrier& carrier : snapshot->raw_carriers) {
+            carrier.decoded_entry_ids.clear();
+        }
+
+        const uint32_t block_count = snapshot->store.block_count();
+        std::vector<uint32_t> carrier_by_block;
+        carrier_by_block.assign(block_count, 0xFFFFFFFFU);
+        std::vector<uint8_t> carrier_assigned;
+        carrier_assigned.assign(snapshot->raw_carriers.size(), 0U);
+
+        uint32_t search_start = 0U;
+        for (BlockId block = 0U; block < block_count; ++block) {
+            const std::span<const EntryId> ids
+                = snapshot->store.entries_in_block(block);
+            if (ids.empty()) {
+                continue;
+            }
+
+            TransferBlockKind block_kind = TransferBlockKind::Other;
+            for (EntryId id : ids) {
+                const Entry& entry = snapshot->store.entry(id);
+                block_kind         = transfer_kind_from_entry_key(entry.key);
+                if (block_kind != TransferBlockKind::Other) {
+                    break;
+                }
+            }
+            if (block_kind == TransferBlockKind::Other) {
+                continue;
+            }
+
+            bool matched = false;
+            for (uint32_t pass = 0U; pass < 2U && !matched; ++pass) {
+                const uint32_t first = (pass == 0U) ? search_start : 0U;
+                const uint32_t last  = (pass == 0U)
+                                           ? static_cast<uint32_t>(
+                                                snapshot->raw_carriers.size())
+                                           : search_start;
+                for (uint32_t carrier_index = first; carrier_index < last;
+                     ++carrier_index) {
+                    const TransferSourceRawCarrier& carrier
+                        = snapshot->raw_carriers[carrier_index];
+                    if (carrier_assigned[carrier_index] != 0U) {
+                        continue;
+                    }
+                    if (!transfer_entry_kind_matches_carrier(
+                            carrier.semantic_kind, block_kind)) {
+                        continue;
+                    }
+                    carrier_by_block[block]         = carrier_index;
+                    carrier_assigned[carrier_index] = 1U;
+                    search_start                    = carrier_index + 1U;
+                    matched                         = true;
+                    break;
+                }
+            }
+        }
+
+        const std::span<const Entry> entries = snapshot->store.entries();
+        for (EntryId id = 0U; id < static_cast<EntryId>(entries.size()); ++id) {
+            const Entry& entry  = entries[id];
+            const BlockId block = entry.origin.block;
+            if (block >= carrier_by_block.size()) {
+                continue;
+            }
+            const uint32_t carrier_index = carrier_by_block[block];
+            if (carrier_index >= snapshot->raw_carriers.size()) {
+                continue;
+            }
+            TransferSourceRawCarrier& carrier
+                = snapshot->raw_carriers[carrier_index];
+            const TransferBlockKind entry_kind = transfer_kind_from_entry_key(
+                entry.key);
+            if (!transfer_entry_kind_matches_carrier(carrier.semantic_kind,
+                                                     entry_kind)) {
+                continue;
+            }
+            carrier.decoded_entry_ids.push_back(id);
         }
     }
 
@@ -13293,13 +13663,13 @@ namespace {
             return out;
         }
 
+        out.snapshot.store.finalize();
         preserve_transfer_source_raw_carriers(
             bytes,
             std::span<const ContainerBlockRef>(blocks.data(),
                                                out.read.scan.written),
             options, &out.snapshot);
-
-        out.snapshot.store.finalize();
+        link_transfer_source_raw_carrier_entries(&out.snapshot);
         out.entry_count = static_cast<uint32_t>(
             out.snapshot.store.entries().size());
         return out;
@@ -13326,6 +13696,73 @@ namespace {
 
 }  // namespace
 
+TransferRawCarrierPassthroughAudit
+raw_carrier_passthrough_audit_from_snapshot(
+    const TransferSourceSnapshot& snapshot,
+    const TransferRawCarrierPassthroughAuditOptions& options) noexcept
+{
+    TransferRawCarrierPassthroughAudit audit;
+    audit.target_format = options.target_format;
+
+    const TransferProfile effective_profile = apply_transfer_safety_profile(
+        options.profile);
+    audit.safety        = effective_profile.safety;
+    audit.carrier_count = static_cast<uint32_t>(snapshot.raw_carriers.size());
+    audit.decisions.reserve(snapshot.raw_carriers.size());
+
+    for (size_t i = 0; i < snapshot.raw_carriers.size(); ++i) {
+        const TransferSourceRawCarrier& carrier = snapshot.raw_carriers[i];
+        TransferRawCarrierPassthroughDecision decision;
+        decision.carrier_index       = static_cast<uint32_t>(i);
+        decision.decoded_entry_count = static_cast<uint32_t>(
+            carrier.decoded_entry_ids.size());
+        decision.semantic_kind = carrier.semantic_kind;
+        decision.source_route  = carrier.route;
+        decision.reason = TransferRawCarrierPassthroughReason::UnsupportedKind;
+
+        const bool supported = raw_carrier_kind_is_supported(
+            carrier.semantic_kind);
+        const bool target_supported
+            = raw_carrier_target_route(carrier.semantic_kind,
+                                       options.target_format,
+                                       &decision.target_route);
+
+        if (!supported) {
+            decision.reason
+                = TransferRawCarrierPassthroughReason::UnsupportedKind;
+        } else if (!target_supported) {
+            decision.reason
+                = TransferRawCarrierPassthroughReason::TargetIncompatible;
+        } else if (!carrier.payload_preserved || carrier.payload.empty()) {
+            decision.reason
+                = TransferRawCarrierPassthroughReason::MissingPayload;
+        } else if (options.require_decoded_entry_links
+                   && !raw_carrier_entry_link_is_valid(snapshot.store,
+                                                       carrier)) {
+            decision.reason
+                = TransferRawCarrierPassthroughReason::DecodeLinkUnavailable;
+        } else if (raw_carrier_is_filtered_by_safety(snapshot.store, carrier,
+                                                     effective_profile.safety)) {
+            decision.reason
+                = TransferRawCarrierPassthroughReason::SafetyFiltered;
+        } else if (raw_carrier_is_content_bound_c2pa(carrier)) {
+            decision.reason
+                = TransferRawCarrierPassthroughReason::ContentBoundMetadata;
+        } else if (raw_carrier_is_blocked_by_profile(carrier.semantic_kind,
+                                                     effective_profile)) {
+            decision.reason = TransferRawCarrierPassthroughReason::PolicyBlocked;
+        } else {
+            decision.eligible = true;
+            decision.reason   = TransferRawCarrierPassthroughReason::Candidate;
+        }
+
+        count_raw_carrier_passthrough_decision(&audit, decision.reason);
+        audit.decisions.push_back(std::move(decision));
+    }
+
+    return audit;
+}
+
 ReadTransferSourceSnapshotBytesResult
 read_transfer_source_snapshot_bytes(
     std::span<const std::byte> bytes,
@@ -13336,14 +13773,13 @@ read_transfer_source_snapshot_bytes(
 
     ReadTransferSourceSnapshotDecodeCommonResult common
         = read_transfer_source_snapshot_bytes_common(bytes, options);
-    out.read        = std::move(common.read);
-    out.snapshot    = std::move(common.snapshot);
-    out.entry_count = common.entry_count;
+    out.read              = std::move(common.read);
+    out.snapshot          = std::move(common.snapshot);
+    out.entry_count       = common.entry_count;
     out.raw_carrier_count = static_cast<uint32_t>(
         out.snapshot.raw_carriers.size());
-    out.raw_carrier_bytes = out.snapshot.raw_carrier_bytes;
-    out.raw_carrier_bytes_truncated
-        = out.snapshot.raw_carrier_bytes_truncated;
+    out.raw_carrier_bytes           = out.snapshot.raw_carrier_bytes;
+    out.raw_carrier_bytes_truncated = out.snapshot.raw_carrier_bytes_truncated;
 
     if (common.payload_buffer_platform_limit) {
         out.status = TransferStatus::LimitExceeded;
@@ -13389,14 +13825,13 @@ read_transfer_source_snapshot_file(
 
     ReadTransferSourceSnapshotBytesResult bytes_result
         = read_transfer_source_snapshot_bytes(mapped.bytes(), options);
-    out.read        = std::move(bytes_result.read);
-    out.snapshot    = std::move(bytes_result.snapshot);
-    out.entry_count = bytes_result.entry_count;
+    out.read              = std::move(bytes_result.read);
+    out.snapshot          = std::move(bytes_result.snapshot);
+    out.entry_count       = bytes_result.entry_count;
     out.raw_carrier_count = static_cast<uint32_t>(
         out.snapshot.raw_carriers.size());
-    out.raw_carrier_bytes = out.snapshot.raw_carrier_bytes;
-    out.raw_carrier_bytes_truncated
-        = out.snapshot.raw_carrier_bytes_truncated;
+    out.raw_carrier_bytes           = out.snapshot.raw_carrier_bytes;
+    out.raw_carrier_bytes_truncated = out.snapshot.raw_carrier_bytes_truncated;
 
     if (bytes_result.code
         == ReadTransferSourceSnapshotBytesCode::PayloadBufferPlatformLimit) {
@@ -17089,8 +17524,7 @@ write_prepared_transfer_package(std::span<const std::byte> input,
                         writer,
                         std::span<const std::byte>(block.payload.data(),
                                                    block.payload.size()),
-                        &out,
-                        "prepared bmff transfer payload write failed")) {
+                        &out, "prepared bmff transfer payload write failed")) {
                     return out;
                 }
             } else {
@@ -26017,8 +26451,7 @@ namespace {
                     bool mime_xmp             = false;
                     uint32_t property_type    = 0U;
                     uint32_t property_subtype = 0U;
-                    if (!bmff_item_from_route(block.route, &item_type,
-                                              &mime_xmp)
+                    if (!bmff_item_from_route(block.route, &item_type, &mime_xmp)
                         && !bmff_property_from_route(block.route,
                                                      &property_type,
                                                      &property_subtype)) {

@@ -312,8 +312,21 @@ result = openmeta.transfer_snapshot_file(
 )
 ```
 
-Current source snapshots are decoded-store-backed. They are intended for the
-normal EXIF/XMP/ICC/IPTC transfer flow, not raw source-packet passthrough.
+Current source snapshots are decoded-store-backed by default. They are intended
+for the normal EXIF/XMP/ICC/IPTC transfer flow, where OpenMeta re-emits decoded
+metadata after applying the selected safety policy. If a host needs source
+carrier provenance for diagnostics or a later passthrough policy decision,
+enable `ReadTransferSourceSnapshotFileOptions::preserve_raw_carriers` or pass
+`ReadTransferSourceSnapshotBytesOptions` with `preserve_raw_carriers` set. Each
+raw carrier records its route, semantic kind, payload bytes, and snapshot-local
+decoded entry ids attributed to that carrier.
+Call `raw_carrier_passthrough_audit_from_snapshot(...)` before any host-owned
+passthrough decision. The audit reports candidate carriers and primary block
+reasons such as missing payload, target incompatibility, safety filtering,
+content-bound C2PA, explicit profile policy, missing decoded entry links, or
+unsupported carrier kind. It does not change OpenMeta's transfer execution.
+Python exposes the same check as
+`snapshot.raw_carrier_passthrough_audit(...)`.
 For hosts that still own the bundle/execution split, the lower-level
 `prepare_metadata_for_target_snapshot(...)` entry point remains available.
 If the host already has a decoded `MetaStore`, build a reusable snapshot with

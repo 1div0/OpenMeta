@@ -505,6 +505,55 @@ struct TransferSourceRawCarrier final {
     bool payload_preserved = false;
     /// Original metadata payload bytes, bounded by read options.
     std::vector<std::byte> payload;
+    /// Decoded \ref MetaStore entry ids attributed to this source carrier.
+    std::vector<EntryId> decoded_entry_ids;
+};
+
+/// Primary passthrough eligibility result for one preserved raw carrier.
+enum class TransferRawCarrierPassthroughReason : uint8_t {
+    Candidate,
+    MissingPayload,
+    TargetIncompatible,
+    SafetyFiltered,
+    ContentBoundMetadata,
+    PolicyBlocked,
+    DecodeLinkUnavailable,
+    UnsupportedKind,
+};
+
+/// Options for auditing raw-carrier passthrough eligibility.
+struct TransferRawCarrierPassthroughAuditOptions final {
+    TransferTargetFormat target_format = TransferTargetFormat::Jpeg;
+    TransferProfile profile;
+    bool require_decoded_entry_links = true;
+};
+
+/// One raw-carrier passthrough eligibility decision.
+struct TransferRawCarrierPassthroughDecision final {
+    uint32_t carrier_index          = 0U;
+    uint32_t decoded_entry_count    = 0U;
+    TransferBlockKind semantic_kind = TransferBlockKind::Other;
+    bool eligible                   = false;
+    TransferRawCarrierPassthroughReason reason
+        = TransferRawCarrierPassthroughReason::UnsupportedKind;
+    std::string source_route;
+    std::string target_route;
+};
+
+/// Diagnostic summary for raw-carrier passthrough eligibility.
+struct TransferRawCarrierPassthroughAudit final {
+    TransferTargetFormat target_format   = TransferTargetFormat::Jpeg;
+    TransferSafetyMode safety            = TransferSafetyMode::CompatibleFile;
+    uint32_t carrier_count               = 0U;
+    uint32_t eligible_count              = 0U;
+    uint32_t blocked_missing_payload     = 0U;
+    uint32_t blocked_target_incompatible = 0U;
+    uint32_t blocked_safety_filtered     = 0U;
+    uint32_t blocked_content_bound_metadata  = 0U;
+    uint32_t blocked_policy                  = 0U;
+    uint32_t blocked_decode_link_unavailable = 0U;
+    uint32_t blocked_unsupported_kind        = 0U;
+    std::vector<TransferRawCarrierPassthroughDecision> decisions;
 };
 
 /**
@@ -522,7 +571,7 @@ struct TransferSourceRawCarrier final {
 struct TransferSourceSnapshot final {
     MetaStore store;
     std::vector<TransferSourceRawCarrier> raw_carriers;
-    uint64_t raw_carrier_bytes = 0U;
+    uint64_t raw_carrier_bytes       = 0U;
     bool raw_carrier_bytes_truncated = false;
 };
 
@@ -1143,10 +1192,10 @@ struct ReadTransferSourceSnapshotFileResult final {
     TransferFileStatus file_status = TransferFileStatus::Ok;
     ReadTransferSourceSnapshotFileCode code
         = ReadTransferSourceSnapshotFileCode::None;
-    uint64_t file_size   = 0;
-    uint32_t entry_count = 0;
-    uint32_t raw_carrier_count = 0U;
-    uint64_t raw_carrier_bytes = 0U;
+    uint64_t file_size               = 0;
+    uint32_t entry_count             = 0;
+    uint32_t raw_carrier_count       = 0U;
+    uint64_t raw_carrier_bytes       = 0U;
     bool raw_carrier_bytes_truncated = false;
     SimpleMetaResult read;
     TransferSourceSnapshot snapshot;
@@ -1162,10 +1211,10 @@ struct ReadTransferSourceSnapshotBytesResult final {
     TransferStatus status = TransferStatus::Ok;
     ReadTransferSourceSnapshotBytesCode code
         = ReadTransferSourceSnapshotBytesCode::None;
-    uint64_t input_size  = 0;
-    uint32_t entry_count = 0;
-    uint32_t raw_carrier_count = 0U;
-    uint64_t raw_carrier_bytes = 0U;
+    uint64_t input_size              = 0;
+    uint32_t entry_count             = 0;
+    uint32_t raw_carrier_count       = 0U;
+    uint64_t raw_carrier_bytes       = 0U;
     bool raw_carrier_bytes_truncated = false;
     SimpleMetaResult read;
     TransferSourceSnapshot snapshot;
@@ -1841,6 +1890,24 @@ transfer_safety_audit_from_store(const MetaStore& store,
                                  TransferSafetyMode safety) noexcept;
 
 /**
+ * \brief Report which opt-in raw source carriers are passthrough candidates.
+ *
+ * This helper is diagnostic only. It checks preserved payload availability,
+ * target carrier compatibility, decoded-entry safety filtering, content-bound
+ * C2PA rules, and explicit profile drops. It does not enable raw passthrough
+ * during transfer preparation; current transfer execution still re-emits
+ * decoded metadata.
+ *
+ * \par API Stability
+ * Experimental host-facing API for diagnostics, UI, and preflight decisions.
+ */
+TransferRawCarrierPassthroughAudit
+raw_carrier_passthrough_audit_from_snapshot(
+    const TransferSourceSnapshot& snapshot,
+    const TransferRawCarrierPassthroughAuditOptions& options
+    = TransferRawCarrierPassthroughAuditOptions {}) noexcept;
+
+/**
  * \brief Append one logical raw JUMBF payload as JPEG APP11 transfer blocks.
  *
  * The input must be a logical JUMBF BMFF payload (`jumb`/`jumd`...), not an
@@ -2199,8 +2266,9 @@ write_prepared_bundle_jpeg_compiled(const PreparedTransferBundle& bundle,
  * can be reused later with \ref prepare_metadata_for_target_snapshot without
  * reopening the source file.
  *
- * Current snapshot contract is decoded-store-backed. Raw source passthrough
- * payloads are not preserved.
+ * Current snapshot contract is decoded-store-backed. Raw carrier provenance and
+ * payload bytes are preserved only when read options request them; transfer
+ * execution still uses decoded re-emission.
  *
  * \par API Stability
  * Experimental host-facing API.
@@ -2216,8 +2284,9 @@ read_transfer_source_snapshot_file(
  * This is the in-memory counterpart to \ref read_transfer_source_snapshot_file
  * for hosts that already own the source bytes and do not want a file-path API.
  *
- * Current snapshot contract is decoded-store-backed. Raw source passthrough
- * payloads are not preserved.
+ * Current snapshot contract is decoded-store-backed. Raw carrier provenance and
+ * payload bytes are preserved only when read options request them; transfer
+ * execution still uses decoded re-emission.
  *
  * \par API Stability
  * Experimental host-facing API.
@@ -2598,8 +2667,9 @@ execute_prepared_transfer_file(const char* path,
  * a fresh local bundle-preparation state, so the same snapshot can be reused
  * safely by concurrent callers that do not share the returned result object.
  *
- * Current snapshot contract is decoded-store-backed. Raw source passthrough
- * payloads are not preserved.
+ * Current snapshot contract is decoded-store-backed. Raw carrier provenance and
+ * payload bytes are preserved only when read options request them; transfer
+ * execution still uses decoded re-emission.
  *
  * \par API Stability
  * Experimental host-facing API.

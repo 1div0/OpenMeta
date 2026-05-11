@@ -4276,6 +4276,46 @@ build_test_creator_tool_xmp_sidecar(std::string_view creator_tool,
 }
 
 static bool
+build_test_xmp_property_sidecar(std::string_view schema_ns,
+                                std::string_view property_path,
+                                std::string_view value,
+                                std::vector<std::byte>* out)
+{
+    if (!out) {
+        return false;
+    }
+
+    openmeta::MetaStore store;
+    const openmeta::BlockId block = store.add_block(openmeta::BlockInfo {});
+    if (block == openmeta::kInvalidBlockId) {
+        return false;
+    }
+
+    openmeta::Entry xmp;
+    xmp.key          = openmeta::make_xmp_property_key(store.arena(), schema_ns,
+                                                       property_path);
+    xmp.value        = openmeta::make_text(store.arena(), value,
+                                           openmeta::TextEncoding::Utf8);
+    xmp.origin.block = block;
+    xmp.origin.order_in_block = 0U;
+    if (store.add_entry(xmp) == openmeta::kInvalidEntryId) {
+        return false;
+    }
+
+    store.finalize();
+
+    openmeta::XmpSidecarRequest request;
+    request.format               = openmeta::XmpSidecarFormat::Portable;
+    request.include_exif         = false;
+    request.include_iptc         = false;
+    request.include_existing_xmp = true;
+
+    const openmeta::XmpDumpResult dumped
+        = openmeta::dump_xmp_sidecar(store, out, request);
+    return dumped.status == openmeta::XmpDumpStatus::Ok && !out->empty();
+}
+
+static bool
 build_test_creator_tool_jpeg_xmp_app1_payload(std::string_view creator_tool,
                                               std::vector<std::byte>* out)
 {
@@ -4286,6 +4326,30 @@ build_test_creator_tool_jpeg_xmp_app1_payload(std::string_view creator_tool,
 
     std::vector<std::byte> packet;
     if (!build_test_creator_tool_xmp_sidecar(creator_tool, &packet)) {
+        return false;
+    }
+
+    static constexpr char kJpegXmpHeader[] = "http://ns.adobe.com/xap/1.0/";
+    append_bytes(out, kJpegXmpHeader);
+    out->push_back(std::byte { 0x00 });
+    out->insert(out->end(), packet.begin(), packet.end());
+    return true;
+}
+
+static bool
+build_test_xmp_property_jpeg_xmp_app1_payload(std::string_view schema_ns,
+                                              std::string_view property_path,
+                                              std::string_view value,
+                                              std::vector<std::byte>* out)
+{
+    if (!out) {
+        return false;
+    }
+    out->clear();
+
+    std::vector<std::byte> packet;
+    if (!build_test_xmp_property_sidecar(schema_ns, property_path, value,
+                                         &packet)) {
         return false;
     }
 
@@ -7149,13 +7213,13 @@ TEST(MetadataTransferApi, ReadTransferSourceSnapshotRawCarriersAreOptIn)
 {
     const std::vector<std::byte> exif = make_app1_exif_payload();
     std::vector<std::byte> xmp;
-    ASSERT_TRUE(build_test_creator_tool_jpeg_xmp_app1_payload("RawCarrier",
-                                                              &xmp));
+    ASSERT_TRUE(
+        build_test_creator_tool_jpeg_xmp_app1_payload("RawCarrier", &xmp));
 
-    std::array<TestJpegSegment, 2> segments {{
+    std::array<TestJpegSegment, 2> segments { {
         { 0xE1U, std::span<const std::byte>(exif.data(), exif.size()) },
         { 0xE1U, std::span<const std::byte>(xmp.data(), xmp.size()) },
-    }};
+    } };
     const std::vector<std::byte> jpeg = make_jpeg_with_segments(segments);
 
     const openmeta::ReadTransferSourceSnapshotBytesResult decoded_only
@@ -7180,9 +7244,22 @@ TEST(MetadataTransferApi, ReadTransferSourceSnapshotRawCarriersAreOptIn)
               openmeta::TransferBlockKind::Exif);
     EXPECT_EQ(with_raw.snapshot.raw_carriers[1].semantic_kind,
               openmeta::TransferBlockKind::Xmp);
+    ASSERT_FALSE(with_raw.snapshot.raw_carriers[0].decoded_entry_ids.empty());
+    ASSERT_FALSE(with_raw.snapshot.raw_carriers[1].decoded_entry_ids.empty());
+    for (const openmeta::EntryId id :
+         with_raw.snapshot.raw_carriers[0].decoded_entry_ids) {
+        ASSERT_LT(id, with_raw.snapshot.store.entries().size());
+        EXPECT_EQ(with_raw.snapshot.store.entry(id).key.kind,
+                  openmeta::MetaKeyKind::ExifTag);
+    }
+    for (const openmeta::EntryId id :
+         with_raw.snapshot.raw_carriers[1].decoded_entry_ids) {
+        ASSERT_LT(id, with_raw.snapshot.store.entries().size());
+        EXPECT_EQ(with_raw.snapshot.store.entry(id).key.kind,
+                  openmeta::MetaKeyKind::XmpProperty);
+    }
     EXPECT_FALSE(with_raw.raw_carrier_bytes_truncated);
-    EXPECT_EQ(with_raw.raw_carrier_bytes,
-              with_raw.snapshot.raw_carrier_bytes);
+    EXPECT_EQ(with_raw.raw_carrier_bytes, with_raw.snapshot.raw_carrier_bytes);
 
     for (const openmeta::TransferSourceRawCarrier& carrier :
          with_raw.snapshot.raw_carriers) {
@@ -7191,10 +7268,10 @@ TEST(MetadataTransferApi, ReadTransferSourceSnapshotRawCarriersAreOptIn)
                   static_cast<size_t>(carrier.block.data_size));
         ASSERT_LE(carrier.block.data_offset + carrier.block.data_size,
                   static_cast<uint64_t>(jpeg.size()));
-        EXPECT_TRUE(std::equal(
-            carrier.payload.begin(), carrier.payload.end(),
-            jpeg.begin() + static_cast<std::ptrdiff_t>(
-                               carrier.block.data_offset)));
+        EXPECT_TRUE(std::equal(carrier.payload.begin(), carrier.payload.end(),
+                               jpeg.begin()
+                                   + static_cast<std::ptrdiff_t>(
+                                       carrier.block.data_offset)));
     }
 
     options.max_raw_carrier_bytes = 1U;
@@ -7207,6 +7284,141 @@ TEST(MetadataTransferApi, ReadTransferSourceSnapshotRawCarriersAreOptIn)
     EXPECT_EQ(limited.raw_carrier_bytes, 0U);
     EXPECT_FALSE(limited.snapshot.raw_carriers[0].payload_preserved);
     EXPECT_FALSE(limited.snapshot.raw_carriers[1].payload_preserved);
+}
+
+TEST(MetadataTransferApi, RawCarrierPassthroughAuditReportsBlockReasons)
+{
+    const std::vector<std::byte> exif = make_app1_exif_payload();
+    std::vector<std::byte> xmp;
+    ASSERT_TRUE(
+        build_test_creator_tool_jpeg_xmp_app1_payload("RawAudit", &xmp));
+
+    std::array<TestJpegSegment, 2> segments { {
+        { 0xE1U, std::span<const std::byte>(exif.data(), exif.size()) },
+        { 0xE1U, std::span<const std::byte>(xmp.data(), xmp.size()) },
+    } };
+    const std::vector<std::byte> jpeg = make_jpeg_with_segments(segments);
+
+    openmeta::ReadTransferSourceSnapshotOptions options;
+    options.preserve_raw_carriers = true;
+    const openmeta::ReadTransferSourceSnapshotBytesResult with_raw
+        = openmeta::read_transfer_source_snapshot_bytes(
+            std::span<const std::byte>(jpeg.data(), jpeg.size()), options);
+    ASSERT_EQ(with_raw.status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(with_raw.snapshot.raw_carriers.size(), 2U);
+
+    openmeta::TransferRawCarrierPassthroughAuditOptions audit_options;
+    audit_options.target_format  = openmeta::TransferTargetFormat::Jpeg;
+    audit_options.profile.safety = openmeta::TransferSafetyMode::CompatibleFile;
+    const openmeta::TransferRawCarrierPassthroughAudit compatible
+        = openmeta::raw_carrier_passthrough_audit_from_snapshot(
+            with_raw.snapshot, audit_options);
+    ASSERT_EQ(compatible.carrier_count, 2U);
+    ASSERT_EQ(compatible.decisions.size(), 2U);
+    EXPECT_EQ(compatible.eligible_count, 2U);
+    EXPECT_EQ(compatible.blocked_missing_payload, 0U);
+    EXPECT_TRUE(compatible.decisions[0].eligible);
+    EXPECT_TRUE(compatible.decisions[1].eligible);
+    EXPECT_EQ(compatible.decisions[0].reason,
+              openmeta::TransferRawCarrierPassthroughReason::Candidate);
+    EXPECT_EQ(compatible.decisions[0].target_route, "jpeg:app1-exif");
+    EXPECT_EQ(compatible.decisions[1].target_route, "jpeg:app1-xmp");
+
+    audit_options.target_format = openmeta::TransferTargetFormat::Exr;
+    const openmeta::TransferRawCarrierPassthroughAudit incompatible
+        = openmeta::raw_carrier_passthrough_audit_from_snapshot(
+            with_raw.snapshot, audit_options);
+    EXPECT_EQ(incompatible.eligible_count, 0U);
+    EXPECT_EQ(incompatible.blocked_target_incompatible, 2U);
+    ASSERT_EQ(incompatible.decisions.size(), 2U);
+    EXPECT_EQ(incompatible.decisions[0].reason,
+              openmeta::TransferRawCarrierPassthroughReason::TargetIncompatible);
+
+    options.max_raw_carrier_bytes = 1U;
+    const openmeta::ReadTransferSourceSnapshotBytesResult limited
+        = openmeta::read_transfer_source_snapshot_bytes(
+            std::span<const std::byte>(jpeg.data(), jpeg.size()), options);
+    ASSERT_EQ(limited.status, openmeta::TransferStatus::Ok);
+    audit_options.target_format = openmeta::TransferTargetFormat::Jpeg;
+    const openmeta::TransferRawCarrierPassthroughAudit missing_payload
+        = openmeta::raw_carrier_passthrough_audit_from_snapshot(limited.snapshot,
+                                                                audit_options);
+    EXPECT_EQ(missing_payload.eligible_count, 0U);
+    EXPECT_EQ(missing_payload.blocked_missing_payload, 2U);
+}
+
+TEST(MetadataTransferApi,
+     RawCarrierPassthroughAuditBlocksRenderedRawSettingsAndC2pa)
+{
+    std::vector<std::byte> raw_settings_xmp;
+    ASSERT_TRUE(build_test_xmp_property_jpeg_xmp_app1_payload(
+        "http://ns.adobe.com/camera-raw-settings/1.0/", "Exposure2012", "+0.10",
+        &raw_settings_xmp));
+    const std::vector<std::byte> raw_settings_jpeg = make_jpeg_with_segment(
+        0xE1U, std::span<const std::byte>(raw_settings_xmp.data(),
+                                          raw_settings_xmp.size()));
+
+    openmeta::ReadTransferSourceSnapshotOptions options;
+    options.preserve_raw_carriers = true;
+    const openmeta::ReadTransferSourceSnapshotBytesResult raw_settings
+        = openmeta::read_transfer_source_snapshot_bytes(
+            std::span<const std::byte>(raw_settings_jpeg.data(),
+                                       raw_settings_jpeg.size()),
+            options);
+    ASSERT_EQ(raw_settings.status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(raw_settings.snapshot.raw_carriers.size(), 1U);
+
+    openmeta::TransferRawCarrierPassthroughAuditOptions audit_options;
+    audit_options.target_format  = openmeta::TransferTargetFormat::Jpeg;
+    audit_options.profile.safety = openmeta::TransferSafetyMode::RenderedImage;
+    openmeta::TransferRawCarrierPassthroughAudit audit
+        = openmeta::raw_carrier_passthrough_audit_from_snapshot(
+            raw_settings.snapshot, audit_options);
+    ASSERT_EQ(audit.decisions.size(), 1U);
+    EXPECT_EQ(audit.eligible_count, 0U);
+    EXPECT_EQ(audit.blocked_safety_filtered, 1U);
+    EXPECT_EQ(audit.decisions[0].reason,
+              openmeta::TransferRawCarrierPassthroughReason::SafetyFiltered);
+
+    const std::vector<std::byte> jumbf_jpeg = make_jpeg_with_app11_jumbf(
+        "acme");
+    const openmeta::ReadTransferSourceSnapshotBytesResult jumbf
+        = openmeta::read_transfer_source_snapshot_bytes(
+            std::span<const std::byte>(jumbf_jpeg.data(), jumbf_jpeg.size()),
+            options);
+    ASSERT_EQ(jumbf.status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(jumbf.snapshot.raw_carriers.size(), 1U);
+    audit_options.profile.safety = openmeta::TransferSafetyMode::CompatibleFile;
+    audit_options.profile.jumbf  = openmeta::TransferPolicyAction::Drop;
+    audit
+        = openmeta::raw_carrier_passthrough_audit_from_snapshot(jumbf.snapshot,
+                                                                audit_options);
+    ASSERT_EQ(audit.decisions.size(), 1U);
+    EXPECT_EQ(audit.eligible_count, 0U);
+    EXPECT_EQ(audit.blocked_policy, 1U);
+    EXPECT_EQ(audit.decisions[0].semantic_kind,
+              openmeta::TransferBlockKind::Jumbf);
+    EXPECT_EQ(audit.decisions[0].reason,
+              openmeta::TransferRawCarrierPassthroughReason::PolicyBlocked);
+
+    const std::vector<std::byte> c2pa_jpeg = make_jpeg_with_app11_jumbf("c2pa");
+    const openmeta::ReadTransferSourceSnapshotBytesResult c2pa
+        = openmeta::read_transfer_source_snapshot_bytes(
+            std::span<const std::byte>(c2pa_jpeg.data(), c2pa_jpeg.size()),
+            options);
+    ASSERT_EQ(c2pa.status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(c2pa.snapshot.raw_carriers.size(), 1U);
+    audit_options.profile.jumbf = openmeta::TransferPolicyAction::Keep;
+    audit = openmeta::raw_carrier_passthrough_audit_from_snapshot(c2pa.snapshot,
+                                                                  audit_options);
+    ASSERT_EQ(audit.decisions.size(), 1U);
+    EXPECT_EQ(audit.eligible_count, 0U);
+    EXPECT_EQ(audit.blocked_content_bound_metadata, 1U);
+    EXPECT_EQ(audit.decisions[0].semantic_kind,
+              openmeta::TransferBlockKind::C2pa);
+    EXPECT_EQ(
+        audit.decisions[0].reason,
+        openmeta::TransferRawCarrierPassthroughReason::ContentBoundMetadata);
 }
 
 TEST(MetadataTransferApi,
@@ -42294,9 +42506,8 @@ TEST(MetadataTransferApi,
 
     openmeta::PreparedTransferBlock icc;
     icc.route   = "bmff:property-colr-icc";
-    icc.payload = { std::byte { 'p' },  std::byte { 'r' },
-                    std::byte { 'o' },  std::byte { 'f' },
-                    std::byte { 0x10 }, std::byte { 0x20 } };
+    icc.payload = { std::byte { 'p' }, std::byte { 'r' },  std::byte { 'o' },
+                    std::byte { 'f' }, std::byte { 0x10 }, std::byte { 0x20 } };
     bundle.blocks.push_back(icc);
 
     openmeta::PreparedTransferPackagePlan package;
@@ -42305,8 +42516,7 @@ TEST(MetadataTransferApi,
     ASSERT_EQ(packaged.status, openmeta::TransferStatus::Ok);
     ASSERT_EQ(package.target_format, openmeta::TransferTargetFormat::Heif);
     ASSERT_EQ(package.input_size, 0U);
-    ASSERT_EQ(package.output_size,
-              exif.payload.size() + icc.payload.size());
+    ASSERT_EQ(package.output_size, exif.payload.size() + icc.payload.size());
     ASSERT_EQ(package.chunks.size(), 2U);
     EXPECT_EQ(package.chunks[0].kind,
               openmeta::TransferPackageChunkKind::PreparedTransferBlock);
@@ -42329,8 +42539,9 @@ TEST(MetadataTransferApi,
     EXPECT_EQ(bytes, expected);
 
     openmeta::PreparedTransferPackageBatch batch;
-    ASSERT_EQ(openmeta::build_prepared_transfer_package_batch(
-                  empty_input, bundle, package, &batch)
+    ASSERT_EQ(openmeta::build_prepared_transfer_package_batch(empty_input,
+                                                              bundle, package,
+                                                              &batch)
                   .status,
               openmeta::TransferStatus::Ok);
     std::vector<openmeta::PreparedTransferPackageView> views;
@@ -42361,11 +42572,10 @@ TEST(MetadataTransferApi,
 
     openmeta::PreparedTransferBlock xmp;
     xmp.route   = "bmff:item-xmp";
-    xmp.payload = { std::byte { '<' }, std::byte { 'n' },
-                    std::byte { 'e' }, std::byte { 'w' },
-                    std::byte { '-' }, std::byte { 'x' },
-                    std::byte { 'm' }, std::byte { 'p' },
-                    std::byte { '/' }, std::byte { '>' } };
+    xmp.payload = { std::byte { '<' }, std::byte { 'n' }, std::byte { 'e' },
+                    std::byte { 'w' }, std::byte { '-' }, std::byte { 'x' },
+                    std::byte { 'm' }, std::byte { 'p' }, std::byte { '/' },
+                    std::byte { '>' } };
     bundle.blocks.push_back(xmp);
 
     const std::vector<std::byte> input
@@ -42384,8 +42594,7 @@ TEST(MetadataTransferApi,
     const std::span<const std::byte> edited(applied.edited_output.data(),
                                             applied.edited_output.size());
     EXPECT_EQ(count_top_level_bmff_boxes(edited,
-                                         openmeta::fourcc('m', 'e', 't',
-                                                          'a')),
+                                         openmeta::fourcc('m', 'e', 't', 'a')),
               1U);
 
     std::array<openmeta::ContainerBlockRef, 16> blocks {};

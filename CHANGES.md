@@ -71,8 +71,16 @@ Changes compared with `0.4.8`.
   `metadata_query(kind)` and focused query helpers.
 - Added opt-in raw-carrier preservation for `TransferSourceSnapshot` reads,
   including original container block ranges, route hints, bounded payload
-  bytes, C++ result counters, and thin Python accessors. Transfer execution
-  still uses the decoded metadata path; passthrough policy remains future work.
+  bytes, snapshot-local decoded entry links, C++ result counters, and thin
+  Python accessors. Transfer execution still uses the decoded metadata path;
+  passthrough policy remains future work.
+- Added `raw_carrier_passthrough_audit_from_snapshot()` plus Python
+  `TransferSourceSnapshot.raw_carrier_passthrough_audit()` so hosts can
+  preflight opt-in raw carriers before any host-owned passthrough decision.
+  The audit reports candidate carriers and primary block reasons including
+  missing payloads, target incompatibility, safety filtering, content-bound
+  C2PA, profile policy, missing decoded entry links, and unsupported carrier
+  kinds.
 - Added optional `OPENMETA_ENABLE_RAPIDFUZZ` support for RapidFuzz-backed
   semantic-query XMP/property-path matching, plus
   `metadata_query_fuzzy_search_available()` so tools can detect whether the

@@ -177,6 +177,15 @@ assert snapshot_raw['snapshot'].raw_carrier_count == snapshot_raw['raw_carrier_c
 raw_carriers = snapshot_raw['snapshot'].raw_carriers(include_payload=True)
 assert raw_carriers[0]['payload_preserved'] is True, raw_carriers
 assert isinstance(raw_carriers[0]['payload'], (bytes, bytearray)), raw_carriers
+assert raw_carriers[0]['decoded_entry_count'] >= 1, raw_carriers
+assert len(raw_carriers[0]['decoded_entry_ids']) == raw_carriers[0]['decoded_entry_count'], raw_carriers
+raw_audit = snapshot_raw['snapshot'].raw_carrier_passthrough_audit(
+    target_format=openmeta.TransferTargetFormat.Jpeg,
+    safety=openmeta.TransferSafetyMode.CompatibleFile,
+)
+assert raw_audit['carrier_count'] == snapshot_raw['raw_carrier_count'], raw_audit
+assert raw_audit['eligible_count'] >= 1, raw_audit
+assert raw_audit['decisions'][0]['reason_name'] == 'candidate', raw_audit
 
 doc_snapshot = openmeta.read(str(p)).build_transfer_source_snapshot()
 assert doc_snapshot.entry_count == r['entry_count'], doc_snapshot

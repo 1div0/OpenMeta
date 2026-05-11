@@ -983,6 +983,9 @@ namespace {
         return metadata_query_result_to_python(result);
     }
 
+    static const char* transfer_raw_carrier_passthrough_reason_name(
+        TransferRawCarrierPassthroughReason reason) noexcept;
+
     static nb::dict
     transfer_safety_audit_to_python(const TransferSafetyAudit& audit)
     {
@@ -1066,6 +1069,57 @@ namespace {
             = vendor_raw_processing_summary_to_python(
                 VendorRawProcessingFamily::Microsoft,
                 audit.microsoft_raw_processing);
+        return out;
+    }
+
+    static nb::dict raw_carrier_passthrough_decision_to_python(
+        const TransferRawCarrierPassthroughDecision& decision)
+    {
+        nb::dict out;
+        out["carrier_index"]       = nb::int_(decision.carrier_index);
+        out["decoded_entry_count"] = nb::int_(decision.decoded_entry_count);
+        out["semantic_kind"]       = decision.semantic_kind;
+        out["semantic_kind_name"]  = nb::str(
+            transfer_block_kind_name(decision.semantic_kind));
+        out["eligible"]    = nb::bool_(decision.eligible);
+        out["reason"]      = decision.reason;
+        out["reason_name"] = nb::str(
+            transfer_raw_carrier_passthrough_reason_name(decision.reason));
+        out["source_route"] = nb::str(decision.source_route.c_str(),
+                                      decision.source_route.size());
+        out["target_route"] = nb::str(decision.target_route.c_str(),
+                                      decision.target_route.size());
+        return out;
+    }
+
+    static nb::dict raw_carrier_passthrough_audit_to_python(
+        const TransferRawCarrierPassthroughAudit& audit)
+    {
+        nb::list decisions;
+        for (size_t i = 0U; i < audit.decisions.size(); ++i) {
+            decisions.append(
+                raw_carrier_passthrough_decision_to_python(audit.decisions[i]));
+        }
+
+        nb::dict out;
+        out["target_format"]           = audit.target_format;
+        out["safety"]                  = audit.safety;
+        out["carrier_count"]           = nb::int_(audit.carrier_count);
+        out["eligible_count"]          = nb::int_(audit.eligible_count);
+        out["blocked_missing_payload"] = nb::int_(
+            audit.blocked_missing_payload);
+        out["blocked_target_incompatible"] = nb::int_(
+            audit.blocked_target_incompatible);
+        out["blocked_safety_filtered"] = nb::int_(
+            audit.blocked_safety_filtered);
+        out["blocked_content_bound_metadata"] = nb::int_(
+            audit.blocked_content_bound_metadata);
+        out["blocked_policy"]                  = nb::int_(audit.blocked_policy);
+        out["blocked_decode_link_unavailable"] = nb::int_(
+            audit.blocked_decode_link_unavailable);
+        out["blocked_unsupported_kind"] = nb::int_(
+            audit.blocked_unsupported_kind);
+        out["decisions"] = std::move(decisions);
         return out;
     }
 
@@ -1345,6 +1399,29 @@ namespace {
             return "target_image_properties";
         case TransferPolicyReason::SafetyModeFiltered:
             return "safety_mode_filtered";
+        }
+        return "unknown";
+    }
+
+    static const char* transfer_raw_carrier_passthrough_reason_name(
+        TransferRawCarrierPassthroughReason reason) noexcept
+    {
+        switch (reason) {
+        case TransferRawCarrierPassthroughReason::Candidate: return "candidate";
+        case TransferRawCarrierPassthroughReason::MissingPayload:
+            return "missing_payload";
+        case TransferRawCarrierPassthroughReason::TargetIncompatible:
+            return "target_incompatible";
+        case TransferRawCarrierPassthroughReason::SafetyFiltered:
+            return "safety_filtered";
+        case TransferRawCarrierPassthroughReason::ContentBoundMetadata:
+            return "content_bound_metadata";
+        case TransferRawCarrierPassthroughReason::PolicyBlocked:
+            return "policy_blocked";
+        case TransferRawCarrierPassthroughReason::DecodeLinkUnavailable:
+            return "decode_link_unavailable";
+        case TransferRawCarrierPassthroughReason::UnsupportedKind:
+            return "unsupported_kind";
         }
         return "unknown";
     }
@@ -2197,33 +2274,38 @@ namespace {
         const TransferSourceRawCarrier& carrier, bool include_payload)
     {
         nb::dict out;
-        out["order"]              = nb::int_(carrier.order);
-        out["route"]              = nb::str(carrier.route.c_str(),
-                                            carrier.route.size());
+        out["order"] = nb::int_(carrier.order);
+        out["route"] = nb::str(carrier.route.c_str(), carrier.route.size());
         out["semantic_kind"]      = carrier.semantic_kind;
         out["semantic_kind_name"] = nb::str(
             transfer_block_kind_name(carrier.semantic_kind));
-        out["format"]        = carrier.block.format;
-        out["kind"]          = carrier.block.kind;
-        out["compression"]   = carrier.block.compression;
-        out["chunking"]      = carrier.block.chunking;
-        out["outer_offset"]  = nb::int_(carrier.block.outer_offset);
-        out["outer_size"]    = nb::int_(carrier.block.outer_size);
-        out["data_offset"]   = nb::int_(carrier.block.data_offset);
-        out["data_size"]     = nb::int_(carrier.block.data_size);
-        out["id"]            = nb::int_(carrier.block.id);
-        out["part_index"]    = nb::int_(carrier.block.part_index);
-        out["part_count"]    = nb::int_(carrier.block.part_count);
-        out["logical_offset"] = nb::int_(carrier.block.logical_offset);
-        out["logical_size"]   = nb::int_(carrier.block.logical_size);
-        out["group"]          = nb::int_(carrier.block.group);
-        out["aux_u32"]        = nb::int_(carrier.block.aux_u32);
-        out["payload_preserved"] = nb::bool_(carrier.payload_preserved);
-        out["payload_size"]      = nb::int_(carrier.payload.size());
+        out["format"]              = carrier.block.format;
+        out["kind"]                = carrier.block.kind;
+        out["compression"]         = carrier.block.compression;
+        out["chunking"]            = carrier.block.chunking;
+        out["outer_offset"]        = nb::int_(carrier.block.outer_offset);
+        out["outer_size"]          = nb::int_(carrier.block.outer_size);
+        out["data_offset"]         = nb::int_(carrier.block.data_offset);
+        out["data_size"]           = nb::int_(carrier.block.data_size);
+        out["id"]                  = nb::int_(carrier.block.id);
+        out["part_index"]          = nb::int_(carrier.block.part_index);
+        out["part_count"]          = nb::int_(carrier.block.part_count);
+        out["logical_offset"]      = nb::int_(carrier.block.logical_offset);
+        out["logical_size"]        = nb::int_(carrier.block.logical_size);
+        out["group"]               = nb::int_(carrier.block.group);
+        out["aux_u32"]             = nb::int_(carrier.block.aux_u32);
+        out["payload_preserved"]   = nb::bool_(carrier.payload_preserved);
+        out["payload_size"]        = nb::int_(carrier.payload.size());
+        out["decoded_entry_count"] = nb::int_(carrier.decoded_entry_ids.size());
+        nb::list decoded_entry_ids;
+        for (EntryId id : carrier.decoded_entry_ids) {
+            decoded_entry_ids.append(nb::int_(id));
+        }
+        out["decoded_entry_ids"] = std::move(decoded_entry_ids);
         if (include_payload && carrier.payload_preserved) {
-            out["payload"] = nb::bytes(
-                reinterpret_cast<const char*>(carrier.payload.data()),
-                carrier.payload.size());
+            out["payload"] = nb::bytes(reinterpret_cast<const char*>(
+                                           carrier.payload.data()),
+                                       carrier.payload.size());
         } else {
             out["payload"] = nb::none();
         }
@@ -2234,8 +2316,7 @@ namespace {
         const TransferSourceSnapshot& snapshot, bool include_payload)
     {
         nb::list out;
-        for (const TransferSourceRawCarrier& carrier :
-             snapshot.raw_carriers) {
+        for (const TransferSourceRawCarrier& carrier : snapshot.raw_carriers) {
             out.append(transfer_source_raw_carrier_to_python(carrier,
                                                              include_payload));
         }
@@ -2254,12 +2335,12 @@ namespace {
         out["code"]      = result.code;
         out["code_name"] = nb::str(
             read_transfer_source_snapshot_file_code_name(result.code));
-        out["file_size"]         = nb::int_(result.file_size);
-        out["entry_count"]       = nb::int_(result.entry_count);
-        out["raw_carrier_count"] = nb::int_(result.raw_carrier_count);
-        out["raw_carrier_bytes"] = nb::int_(result.raw_carrier_bytes);
-        out["raw_carrier_bytes_truncated"]
-            = nb::bool_(result.raw_carrier_bytes_truncated);
+        out["file_size"]                   = nb::int_(result.file_size);
+        out["entry_count"]                 = nb::int_(result.entry_count);
+        out["raw_carrier_count"]           = nb::int_(result.raw_carrier_count);
+        out["raw_carrier_bytes"]           = nb::int_(result.raw_carrier_bytes);
+        out["raw_carrier_bytes_truncated"] = nb::bool_(
+            result.raw_carrier_bytes_truncated);
         out["scan_status"]    = result.read.scan.status;
         out["payload_status"] = result.read.payload.status;
         out["exif_status"]    = result.read.exif.status;
@@ -2298,12 +2379,12 @@ namespace {
         out["code"]        = result.code;
         out["code_name"]   = nb::str(
             read_transfer_source_snapshot_bytes_code_name(result.code));
-        out["input_size"]        = nb::int_(result.input_size);
-        out["entry_count"]       = nb::int_(result.entry_count);
-        out["raw_carrier_count"] = nb::int_(result.raw_carrier_count);
-        out["raw_carrier_bytes"] = nb::int_(result.raw_carrier_bytes);
-        out["raw_carrier_bytes_truncated"]
-            = nb::bool_(result.raw_carrier_bytes_truncated);
+        out["input_size"]                  = nb::int_(result.input_size);
+        out["entry_count"]                 = nb::int_(result.entry_count);
+        out["raw_carrier_count"]           = nb::int_(result.raw_carrier_count);
+        out["raw_carrier_bytes"]           = nb::int_(result.raw_carrier_bytes);
+        out["raw_carrier_bytes_truncated"] = nb::bool_(
+            result.raw_carrier_bytes_truncated);
         out["scan_status"]    = result.read.scan.status;
         out["payload_status"] = result.read.payload.status;
         out["exif_status"]    = result.read.exif.status;
@@ -5072,6 +5153,27 @@ snapshot_transfer_safety_audit(const TransferSourceSnapshot& snapshot,
 }
 
 static nb::dict
+snapshot_raw_carrier_passthrough_audit(const TransferSourceSnapshot& snapshot,
+                                       TransferTargetFormat target_format,
+                                       TransferSafetyMode safety,
+                                       TransferPolicyAction makernote_policy,
+                                       TransferPolicyAction jumbf_policy,
+                                       TransferPolicyAction c2pa_policy,
+                                       bool require_decoded_entry_links)
+{
+    TransferRawCarrierPassthroughAuditOptions options;
+    options.target_format               = target_format;
+    options.profile.safety              = safety;
+    options.profile.makernote           = makernote_policy;
+    options.profile.jumbf               = jumbf_policy;
+    options.profile.c2pa                = c2pa_policy;
+    options.require_decoded_entry_links = require_decoded_entry_links;
+    const TransferRawCarrierPassthroughAudit audit
+        = raw_carrier_passthrough_audit_from_snapshot(snapshot, options);
+    return raw_carrier_passthrough_audit_to_python(audit);
+}
+
+static nb::dict
 document_phaseone_raw_geometry(std::shared_ptr<PyDocument> d)
 {
     return phaseone_raw_geometry_to_python(d->store);
@@ -5946,6 +6048,24 @@ NB_MODULE(_openmeta, m)
                TransferPolicyReason::TargetImageProperties)
         .value("SafetyModeFiltered", TransferPolicyReason::SafetyModeFiltered);
 
+    nb::enum_<TransferRawCarrierPassthroughReason>(
+        m, "TransferRawCarrierPassthroughReason")
+        .value("Candidate", TransferRawCarrierPassthroughReason::Candidate)
+        .value("MissingPayload",
+               TransferRawCarrierPassthroughReason::MissingPayload)
+        .value("TargetIncompatible",
+               TransferRawCarrierPassthroughReason::TargetIncompatible)
+        .value("SafetyFiltered",
+               TransferRawCarrierPassthroughReason::SafetyFiltered)
+        .value("ContentBoundMetadata",
+               TransferRawCarrierPassthroughReason::ContentBoundMetadata)
+        .value("PolicyBlocked",
+               TransferRawCarrierPassthroughReason::PolicyBlocked)
+        .value("DecodeLinkUnavailable",
+               TransferRawCarrierPassthroughReason::DecodeLinkUnavailable)
+        .value("UnsupportedKind",
+               TransferRawCarrierPassthroughReason::UnsupportedKind);
+
     nb::enum_<TransferC2paMode>(m, "TransferC2paMode")
         .value("NotApplicable", TransferC2paMode::NotApplicable)
         .value("NotPresent", TransferC2paMode::NotPresent)
@@ -6251,6 +6371,14 @@ NB_MODULE(_openmeta, m)
              &snapshot_query_raw_processing_metadata)
         .def("transfer_safety_audit", &snapshot_transfer_safety_audit,
              "safety"_a = TransferSafetyMode::RenderedImage)
+        .def("raw_carrier_passthrough_audit",
+             &snapshot_raw_carrier_passthrough_audit,
+             "target_format"_a    = TransferTargetFormat::Jpeg,
+             "safety"_a           = TransferSafetyMode::CompatibleFile,
+             "makernote_policy"_a = TransferPolicyAction::Keep,
+             "jumbf_policy"_a     = TransferPolicyAction::Keep,
+             "c2pa_policy"_a      = TransferPolicyAction::Keep,
+             "require_decoded_entry_links"_a = true)
         .def("__repr__", [](const TransferSourceSnapshot& snapshot) {
             std::string text = "TransferSourceSnapshot(entry_count=";
             text.append(std::to_string(static_cast<unsigned long long>(
