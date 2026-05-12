@@ -938,6 +938,8 @@ writer-confidence slice above; it should be sequenced around it.
 - [x] add a diagnostic raw-carrier passthrough audit that reports candidate
   carriers and primary block reasons before any raw passthrough writer path is
   enabled
+- [x] add the first opt-in snapshot raw passthrough writer path for eligible
+  non-C2PA JUMBF and draft unsigned C2PA invalidation carriers
 - [ ] provide versioned snapshot serialization only after the raw/provenance
   model is settled
 - [ ] provide full prepared-bundle serialization if hosts need to prepare once
@@ -960,26 +962,30 @@ writer-confidence slice above; it should be sequenced around it.
 
 #### Raw Snapshot Emission Policy
 
-Raw carriers are currently preserved for provenance, diagnostics, and future
-host-controlled passthrough decisions. Transfer preparation still defaults to
-decoded re-emission from `MetaStore`.
+Raw carriers are preserved for provenance, diagnostics, and opt-in bounded
+passthrough decisions. Transfer preparation still defaults to decoded
+re-emission from `MetaStore`.
 
 `raw_carrier_passthrough_audit_from_snapshot(...)` is the current diagnostic
-bridge between preserved carriers and future emission policy. It reports
+bridge between preserved carriers and emission policy. It reports
 whether each preserved carrier is a passthrough candidate for a target format,
 or blocked by missing payload bytes, target carrier incompatibility, active
 safety filtering, content-bound C2PA, explicit profile policy, missing decoded
-entry links, or unsupported carrier kind. The audit does not change bundle
-preparation; it is a preflight tool for host UI and test coverage.
+entry links, or unsupported carrier kind. The audit itself does not change
+bundle preparation; it is a preflight tool for host UI and test coverage.
 
 The planned policy choices are:
 - `DecodedReemit`: current behavior; OpenMeta decodes entries, applies safety
   filtering, and emits freshly prepared EXIF/XMP/ICC/IPTC/JUMBF carriers.
-- `RawPassthroughWhenSafe`: future opt-in behavior; OpenMeta may reuse a
-  preserved raw carrier only when the target accepts the same carrier family,
-  the payload was preserved in the snapshot, the decoded entries are linked to
-  that carrier, and the active transfer safety/profile does not require
-  filtering, invalidation, or target-owned image-property rewrite.
+- `RawPassthroughWhenSafe`: opt-in behavior through
+  `TransferRawCarrierPassthroughMode::WhenSafe`; OpenMeta may reuse a preserved
+  raw carrier only when the target accepts the same carrier family, the payload
+  was preserved in the snapshot, and the active transfer safety/profile does
+  not require filtering, invalidation, or target-owned image-property rewrite.
+  The current writer path is intentionally narrow: non-C2PA JUMBF and
+  OpenMeta draft unsigned C2PA invalidation carriers can be reused for JPEG,
+  JXL, and BMFF targets, and draft unsigned C2PA invalidation carriers can be
+  reused for WebP. EXIF/XMP/ICC/IPTC still use decoded re-emission.
 - `HostOwnedPassthrough`: current integration escape hatch; hosts may inspect
   `TransferSourceSnapshot::raw_carriers` and implement their own passthrough
   outside OpenMeta's writer path.

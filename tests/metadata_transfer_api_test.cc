@@ -3731,6 +3731,42 @@ make_app11_draft_c2pa_invalidation_payload()
 }
 
 static std::vector<std::byte>
+make_draft_c2pa_invalidation_logical_payload()
+{
+    const std::vector<std::byte> app11
+        = make_app11_draft_c2pa_invalidation_payload();
+    EXPECT_GE(app11.size(), 8U);
+    return std::vector<std::byte>(app11.begin() + 8, app11.end());
+}
+
+static std::vector<std::byte>
+make_webp_with_draft_c2pa_invalidation()
+{
+    const std::vector<std::byte> logical
+        = make_draft_c2pa_invalidation_logical_payload();
+    std::vector<std::byte> metadata;
+    append_webp_chunk(&metadata, openmeta::fourcc('C', '2', 'P', 'A'),
+                      std::span<const std::byte>(logical.data(),
+                                                 logical.size()));
+    return build_minimal_webp_file(std::span<const std::byte>(metadata.data(),
+                                                              metadata.size()),
+                                   0U);
+}
+
+static std::vector<std::byte>
+make_webp_with_content_bound_c2pa()
+{
+    const std::vector<std::byte> logical = make_logical_jumbf_payload("c2pa");
+    std::vector<std::byte> metadata;
+    append_webp_chunk(&metadata, openmeta::fourcc('C', '2', 'P', 'A'),
+                      std::span<const std::byte>(logical.data(),
+                                                 logical.size()));
+    return build_minimal_webp_file(std::span<const std::byte>(metadata.data(),
+                                                              metadata.size()),
+                                   0U);
+}
+
+static std::vector<std::byte>
 make_app1_exif_payload()
 {
     std::vector<std::byte> t;
@@ -7473,6 +7509,414 @@ TEST(MetadataTransferApi,
               prepared_from_file.bundle.blocks[0].payload);
     EXPECT_EQ(from_snapshot.time_patch_map.size(),
               prepared_from_file.bundle.time_patch_map.size());
+}
+
+TEST(MetadataTransferApi, RawCarrierPassthroughSnapshotMatchesFileJpegJumbf)
+{
+    const std::vector<std::byte> jpeg = make_jpeg_with_app11_jumbf("acme");
+    const std::string path            = unique_temp_path(".jpg");
+    ASSERT_TRUE(
+        write_bytes_file(path,
+                         std::span<const std::byte>(jpeg.data(), jpeg.size())));
+
+    openmeta::PrepareTransferFileOptions file_options;
+    file_options.prepare.include_exif_app1  = false;
+    file_options.prepare.include_xmp_app1   = false;
+    file_options.prepare.include_icc_app2   = false;
+    file_options.prepare.include_iptc_app13 = false;
+    file_options.prepare.profile.jumbf = openmeta::TransferPolicyAction::Keep;
+
+    const openmeta::PrepareTransferFileResult from_file
+        = openmeta::prepare_metadata_for_target_file(path.c_str(),
+                                                     file_options);
+    std::remove(path.c_str());
+
+    openmeta::ReadTransferSourceSnapshotOptions read_options;
+    read_options.preserve_raw_carriers = true;
+    const openmeta::ReadTransferSourceSnapshotBytesResult snapshot
+        = openmeta::read_transfer_source_snapshot_bytes(
+            std::span<const std::byte>(jpeg.data(), jpeg.size()), read_options);
+    ASSERT_EQ(snapshot.status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(snapshot.snapshot.raw_carriers.size(), 1U);
+
+    openmeta::PrepareTransferRequest request = file_options.prepare;
+    request.raw_carrier_passthrough_mode
+        = openmeta::TransferRawCarrierPassthroughMode::WhenSafe;
+    openmeta::PreparedTransferBundle from_snapshot;
+    const openmeta::PrepareTransferResult prepared
+        = openmeta::prepare_metadata_for_target_snapshot(snapshot.snapshot,
+                                                         request,
+                                                         &from_snapshot);
+
+    ASSERT_EQ(from_file.file_status, openmeta::TransferFileStatus::Ok);
+    ASSERT_EQ(from_file.prepare.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(from_file.prepare.code, openmeta::PrepareTransferCode::None);
+    ASSERT_EQ(prepared.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(prepared.code, openmeta::PrepareTransferCode::None);
+    ASSERT_EQ(count_blocks_with_route(from_file.bundle, "jpeg:app11-jumbf"),
+              1U);
+    ASSERT_EQ(count_blocks_with_route(from_snapshot, "jpeg:app11-jumbf"), 1U);
+    ASSERT_EQ(from_file.bundle.blocks.size(), 1U);
+    ASSERT_EQ(from_snapshot.blocks.size(), 1U);
+    EXPECT_EQ(from_snapshot.blocks[0].kind, openmeta::TransferBlockKind::Jumbf);
+    EXPECT_EQ(from_snapshot.blocks[0].route, from_file.bundle.blocks[0].route);
+    EXPECT_EQ(from_snapshot.blocks[0].payload,
+              from_file.bundle.blocks[0].payload);
+
+    const openmeta::PreparedTransferPolicyDecision* decision
+        = find_policy_decision(from_snapshot,
+                               openmeta::TransferPolicySubject::Jumbf);
+    ASSERT_NE(decision, nullptr);
+    EXPECT_EQ(decision->effective, openmeta::TransferPolicyAction::Keep);
+}
+
+TEST(MetadataTransferApi, RawCarrierPassthroughSnapshotMatchesFileJxlJumbf)
+{
+    const std::vector<std::byte> jpeg = make_jpeg_with_app11_jumbf("acme");
+    const std::string path            = unique_temp_path(".jpg");
+    ASSERT_TRUE(
+        write_bytes_file(path,
+                         std::span<const std::byte>(jpeg.data(), jpeg.size())));
+
+    openmeta::PrepareTransferFileOptions file_options;
+    file_options.prepare.target_format = openmeta::TransferTargetFormat::Jxl;
+    file_options.prepare.include_exif_app1  = false;
+    file_options.prepare.include_xmp_app1   = false;
+    file_options.prepare.include_icc_app2   = false;
+    file_options.prepare.include_iptc_app13 = false;
+    file_options.prepare.profile.jumbf = openmeta::TransferPolicyAction::Keep;
+
+    const openmeta::PrepareTransferFileResult from_file
+        = openmeta::prepare_metadata_for_target_file(path.c_str(),
+                                                     file_options);
+    std::remove(path.c_str());
+
+    openmeta::ReadTransferSourceSnapshotOptions read_options;
+    read_options.preserve_raw_carriers = true;
+    const openmeta::ReadTransferSourceSnapshotBytesResult snapshot
+        = openmeta::read_transfer_source_snapshot_bytes(
+            std::span<const std::byte>(jpeg.data(), jpeg.size()), read_options);
+    ASSERT_EQ(snapshot.status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(snapshot.snapshot.raw_carriers.size(), 1U);
+
+    openmeta::PrepareTransferRequest request = file_options.prepare;
+    request.raw_carrier_passthrough_mode
+        = openmeta::TransferRawCarrierPassthroughMode::WhenSafe;
+    openmeta::PreparedTransferBundle from_snapshot;
+    const openmeta::PrepareTransferResult prepared
+        = openmeta::prepare_metadata_for_target_snapshot(snapshot.snapshot,
+                                                         request,
+                                                         &from_snapshot);
+
+    ASSERT_EQ(from_file.file_status, openmeta::TransferFileStatus::Ok);
+    ASSERT_EQ(from_file.prepare.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(from_file.prepare.code, openmeta::PrepareTransferCode::None);
+    ASSERT_EQ(prepared.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(prepared.code, openmeta::PrepareTransferCode::None);
+    ASSERT_EQ(count_blocks_with_route(from_file.bundle, "jxl:box-jumb"), 1U);
+    ASSERT_EQ(count_blocks_with_route(from_snapshot, "jxl:box-jumb"), 1U);
+    ASSERT_EQ(from_file.bundle.blocks.size(), 1U);
+    ASSERT_EQ(from_snapshot.blocks.size(), 1U);
+    EXPECT_EQ(from_snapshot.blocks[0].kind, openmeta::TransferBlockKind::Jumbf);
+    EXPECT_EQ(from_snapshot.blocks[0].route, from_file.bundle.blocks[0].route);
+    EXPECT_EQ(from_snapshot.blocks[0].payload,
+              from_file.bundle.blocks[0].payload);
+}
+
+TEST(MetadataTransferApi, RawCarrierPassthroughSnapshotMatchesFileDraftC2pa)
+{
+    const std::vector<std::byte> jpeg = make_jpeg_with_draft_c2pa_invalidation();
+    const std::string path = unique_temp_path(".jpg");
+    ASSERT_TRUE(
+        write_bytes_file(path,
+                         std::span<const std::byte>(jpeg.data(), jpeg.size())));
+
+    openmeta::PrepareTransferFileOptions file_options;
+    file_options.prepare.include_exif_app1  = false;
+    file_options.prepare.include_xmp_app1   = false;
+    file_options.prepare.include_icc_app2   = false;
+    file_options.prepare.include_iptc_app13 = false;
+    file_options.prepare.profile.c2pa = openmeta::TransferPolicyAction::Keep;
+
+    const openmeta::PrepareTransferFileResult from_file
+        = openmeta::prepare_metadata_for_target_file(path.c_str(),
+                                                     file_options);
+    std::remove(path.c_str());
+
+    openmeta::ReadTransferSourceSnapshotOptions read_options;
+    read_options.preserve_raw_carriers = true;
+    const openmeta::ReadTransferSourceSnapshotBytesResult snapshot
+        = openmeta::read_transfer_source_snapshot_bytes(
+            std::span<const std::byte>(jpeg.data(), jpeg.size()), read_options);
+    ASSERT_EQ(snapshot.status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(snapshot.snapshot.raw_carriers.size(), 1U);
+
+    openmeta::PrepareTransferRequest request = file_options.prepare;
+    request.raw_carrier_passthrough_mode
+        = openmeta::TransferRawCarrierPassthroughMode::WhenSafe;
+    openmeta::PreparedTransferBundle from_snapshot;
+    const openmeta::PrepareTransferResult prepared
+        = openmeta::prepare_metadata_for_target_snapshot(snapshot.snapshot,
+                                                         request,
+                                                         &from_snapshot);
+
+    ASSERT_EQ(from_file.file_status, openmeta::TransferFileStatus::Ok);
+    ASSERT_EQ(from_file.prepare.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(from_file.prepare.code, openmeta::PrepareTransferCode::None);
+    ASSERT_EQ(prepared.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(prepared.code, openmeta::PrepareTransferCode::None);
+    ASSERT_EQ(count_blocks_with_route(from_file.bundle, "jpeg:app11-c2pa"), 1U);
+    ASSERT_EQ(count_blocks_with_route(from_snapshot, "jpeg:app11-c2pa"), 1U);
+    ASSERT_EQ(from_file.bundle.blocks.size(), 1U);
+    ASSERT_EQ(from_snapshot.blocks.size(), 1U);
+    EXPECT_EQ(from_snapshot.blocks[0].kind, openmeta::TransferBlockKind::C2pa);
+    EXPECT_EQ(from_snapshot.blocks[0].route, from_file.bundle.blocks[0].route);
+    EXPECT_EQ(from_snapshot.blocks[0].payload,
+              from_file.bundle.blocks[0].payload);
+
+    const openmeta::PreparedTransferPolicyDecision* decision
+        = find_policy_decision(from_snapshot,
+                               openmeta::TransferPolicySubject::C2pa);
+    ASSERT_NE(decision, nullptr);
+    EXPECT_EQ(decision->effective, openmeta::TransferPolicyAction::Keep);
+    EXPECT_EQ(decision->c2pa_mode, openmeta::TransferC2paMode::PreserveRaw);
+    EXPECT_EQ(decision->c2pa_prepared_output,
+              openmeta::TransferC2paPreparedOutput::PreservedRaw);
+}
+
+TEST(MetadataTransferApi, RawCarrierPassthroughSnapshotMatchesFileBmffDraftC2pa)
+{
+    const std::vector<std::byte> jpeg = make_jpeg_with_draft_c2pa_invalidation();
+    const std::string path = unique_temp_path(".jpg");
+    ASSERT_TRUE(
+        write_bytes_file(path,
+                         std::span<const std::byte>(jpeg.data(), jpeg.size())));
+
+    openmeta::PrepareTransferFileOptions file_options;
+    file_options.prepare.target_format = openmeta::TransferTargetFormat::Heif;
+    file_options.prepare.include_exif_app1  = false;
+    file_options.prepare.include_xmp_app1   = false;
+    file_options.prepare.include_icc_app2   = false;
+    file_options.prepare.include_iptc_app13 = false;
+    file_options.prepare.profile.c2pa = openmeta::TransferPolicyAction::Keep;
+
+    const openmeta::PrepareTransferFileResult from_file
+        = openmeta::prepare_metadata_for_target_file(path.c_str(),
+                                                     file_options);
+    std::remove(path.c_str());
+
+    openmeta::ReadTransferSourceSnapshotOptions read_options;
+    read_options.preserve_raw_carriers = true;
+    const openmeta::ReadTransferSourceSnapshotBytesResult snapshot
+        = openmeta::read_transfer_source_snapshot_bytes(
+            std::span<const std::byte>(jpeg.data(), jpeg.size()), read_options);
+    ASSERT_EQ(snapshot.status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(snapshot.snapshot.raw_carriers.size(), 1U);
+
+    openmeta::PrepareTransferRequest request = file_options.prepare;
+    request.raw_carrier_passthrough_mode
+        = openmeta::TransferRawCarrierPassthroughMode::WhenSafe;
+    openmeta::PreparedTransferBundle from_snapshot;
+    const openmeta::PrepareTransferResult prepared
+        = openmeta::prepare_metadata_for_target_snapshot(snapshot.snapshot,
+                                                         request,
+                                                         &from_snapshot);
+
+    ASSERT_EQ(from_file.file_status, openmeta::TransferFileStatus::Ok);
+    ASSERT_EQ(from_file.prepare.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(from_file.prepare.code, openmeta::PrepareTransferCode::None);
+    ASSERT_EQ(prepared.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(prepared.code, openmeta::PrepareTransferCode::None);
+    ASSERT_EQ(count_blocks_with_route(from_file.bundle, "bmff:item-c2pa"), 1U);
+    ASSERT_EQ(count_blocks_with_route(from_snapshot, "bmff:item-c2pa"), 1U);
+    ASSERT_EQ(from_file.bundle.blocks.size(), 1U);
+    ASSERT_EQ(from_snapshot.blocks.size(), 1U);
+    EXPECT_EQ(from_snapshot.blocks[0].kind, openmeta::TransferBlockKind::C2pa);
+    EXPECT_EQ(from_snapshot.blocks[0].route, from_file.bundle.blocks[0].route);
+    EXPECT_EQ(from_snapshot.blocks[0].payload,
+              from_file.bundle.blocks[0].payload);
+}
+
+TEST(MetadataTransferApi, RawCarrierPassthroughSnapshotMatchesFileWebpDraftC2pa)
+{
+    const std::vector<std::byte> webp = make_webp_with_draft_c2pa_invalidation();
+    const std::string path = unique_temp_path(".webp");
+    ASSERT_TRUE(
+        write_bytes_file(path,
+                         std::span<const std::byte>(webp.data(), webp.size())));
+
+    openmeta::PrepareTransferFileOptions file_options;
+    file_options.prepare.target_format = openmeta::TransferTargetFormat::Webp;
+    file_options.prepare.include_exif_app1  = false;
+    file_options.prepare.include_xmp_app1   = false;
+    file_options.prepare.include_icc_app2   = false;
+    file_options.prepare.include_iptc_app13 = false;
+    file_options.prepare.profile.c2pa = openmeta::TransferPolicyAction::Keep;
+
+    const openmeta::PrepareTransferFileResult from_file
+        = openmeta::prepare_metadata_for_target_file(path.c_str(),
+                                                     file_options);
+    std::remove(path.c_str());
+
+    openmeta::ReadTransferSourceSnapshotOptions read_options;
+    read_options.preserve_raw_carriers = true;
+    const openmeta::ReadTransferSourceSnapshotBytesResult snapshot
+        = openmeta::read_transfer_source_snapshot_bytes(
+            std::span<const std::byte>(webp.data(), webp.size()), read_options);
+    ASSERT_EQ(snapshot.status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(snapshot.snapshot.raw_carriers.size(), 1U);
+    EXPECT_EQ(snapshot.snapshot.raw_carriers[0].route, "webp:chunk-c2pa");
+    EXPECT_EQ(snapshot.snapshot.raw_carriers[0].semantic_kind,
+              openmeta::TransferBlockKind::C2pa);
+
+    openmeta::PrepareTransferRequest request = file_options.prepare;
+    request.raw_carrier_passthrough_mode
+        = openmeta::TransferRawCarrierPassthroughMode::WhenSafe;
+    openmeta::PreparedTransferBundle from_snapshot;
+    const openmeta::PrepareTransferResult prepared
+        = openmeta::prepare_metadata_for_target_snapshot(snapshot.snapshot,
+                                                         request,
+                                                         &from_snapshot);
+
+    ASSERT_EQ(from_file.file_status, openmeta::TransferFileStatus::Ok);
+    ASSERT_EQ(from_file.prepare.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(from_file.prepare.code, openmeta::PrepareTransferCode::None);
+    ASSERT_EQ(prepared.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(prepared.code, openmeta::PrepareTransferCode::None);
+    ASSERT_EQ(count_blocks_with_route(from_file.bundle, "webp:chunk-c2pa"), 1U);
+    ASSERT_EQ(count_blocks_with_route(from_snapshot, "webp:chunk-c2pa"), 1U);
+    ASSERT_EQ(from_file.bundle.blocks.size(), 1U);
+    ASSERT_EQ(from_snapshot.blocks.size(), 1U);
+    EXPECT_EQ(from_snapshot.blocks[0].kind, openmeta::TransferBlockKind::C2pa);
+    EXPECT_EQ(from_snapshot.blocks[0].route, from_file.bundle.blocks[0].route);
+    EXPECT_EQ(from_snapshot.blocks[0].payload,
+              from_file.bundle.blocks[0].payload);
+}
+
+TEST(MetadataTransferApi, RawCarrierPassthroughSnapshotPolicyDropBlocksJumbf)
+{
+    const std::vector<std::byte> jpeg = make_jpeg_with_app11_jumbf("acme");
+
+    openmeta::ReadTransferSourceSnapshotOptions read_options;
+    read_options.preserve_raw_carriers = true;
+    const openmeta::ReadTransferSourceSnapshotBytesResult snapshot
+        = openmeta::read_transfer_source_snapshot_bytes(
+            std::span<const std::byte>(jpeg.data(), jpeg.size()), read_options);
+    ASSERT_EQ(snapshot.status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(snapshot.snapshot.raw_carriers.size(), 1U);
+
+    openmeta::TransferRawCarrierPassthroughAuditOptions audit_options;
+    audit_options.target_format = openmeta::TransferTargetFormat::Jpeg;
+    audit_options.profile.jumbf = openmeta::TransferPolicyAction::Drop;
+    const openmeta::TransferRawCarrierPassthroughAudit audit
+        = openmeta::raw_carrier_passthrough_audit_from_snapshot(
+            snapshot.snapshot, audit_options);
+    ASSERT_EQ(audit.decisions.size(), 1U);
+    EXPECT_EQ(audit.eligible_count, 0U);
+    EXPECT_EQ(audit.decisions[0].reason,
+              openmeta::TransferRawCarrierPassthroughReason::PolicyBlocked);
+
+    openmeta::PrepareTransferRequest request;
+    request.include_exif_app1  = false;
+    request.include_xmp_app1   = false;
+    request.include_icc_app2   = false;
+    request.include_iptc_app13 = false;
+    request.profile.jumbf      = openmeta::TransferPolicyAction::Drop;
+    request.raw_carrier_passthrough_mode
+        = openmeta::TransferRawCarrierPassthroughMode::WhenSafe;
+    openmeta::PreparedTransferBundle bundle;
+    const openmeta::PrepareTransferResult prepared
+        = openmeta::prepare_metadata_for_target_snapshot(snapshot.snapshot,
+                                                         request, &bundle);
+
+    EXPECT_EQ(prepared.status, openmeta::TransferStatus::Unsupported);
+    EXPECT_EQ(count_blocks_with_route(bundle, "jpeg:app11-jumbf"), 0U);
+    EXPECT_TRUE(bundle.blocks.empty());
+}
+
+TEST(MetadataTransferApi, RawCarrierPassthroughSnapshotDropsContentBoundC2pa)
+{
+    const std::vector<std::byte> jpeg = make_jpeg_with_app11_jumbf("c2pa");
+
+    openmeta::ReadTransferSourceSnapshotOptions read_options;
+    read_options.preserve_raw_carriers = true;
+    const openmeta::ReadTransferSourceSnapshotBytesResult snapshot
+        = openmeta::read_transfer_source_snapshot_bytes(
+            std::span<const std::byte>(jpeg.data(), jpeg.size()), read_options);
+    ASSERT_EQ(snapshot.status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(snapshot.snapshot.raw_carriers.size(), 1U);
+
+    openmeta::PrepareTransferRequest request;
+    request.include_exif_app1  = false;
+    request.include_xmp_app1   = false;
+    request.include_icc_app2   = false;
+    request.include_iptc_app13 = false;
+    request.profile.c2pa       = openmeta::TransferPolicyAction::Keep;
+    request.raw_carrier_passthrough_mode
+        = openmeta::TransferRawCarrierPassthroughMode::WhenSafe;
+    openmeta::PreparedTransferBundle bundle;
+    const openmeta::PrepareTransferResult prepared
+        = openmeta::prepare_metadata_for_target_snapshot(snapshot.snapshot,
+                                                         request, &bundle);
+
+    EXPECT_EQ(prepared.status, openmeta::TransferStatus::Unsupported);
+    EXPECT_EQ(count_blocks_with_route(bundle, "jpeg:app11-c2pa"), 0U);
+    EXPECT_TRUE(bundle.blocks.empty());
+
+    const openmeta::PreparedTransferPolicyDecision* decision
+        = find_policy_decision(bundle, openmeta::TransferPolicySubject::C2pa);
+    ASSERT_NE(decision, nullptr);
+    EXPECT_EQ(decision->effective, openmeta::TransferPolicyAction::Drop);
+    EXPECT_EQ(decision->reason,
+              openmeta::TransferPolicyReason::ContentBoundTransferUnavailable);
+    EXPECT_EQ(decision->c2pa_mode, openmeta::TransferC2paMode::Drop);
+    EXPECT_EQ(decision->c2pa_source_kind,
+              openmeta::TransferC2paSourceKind::ContentBound);
+}
+
+TEST(MetadataTransferApi,
+     RawCarrierPassthroughSnapshotDropsWebpContentBoundC2pa)
+{
+    const std::vector<std::byte> webp = make_webp_with_content_bound_c2pa();
+
+    openmeta::ReadTransferSourceSnapshotOptions read_options;
+    read_options.preserve_raw_carriers = true;
+    const openmeta::ReadTransferSourceSnapshotBytesResult snapshot
+        = openmeta::read_transfer_source_snapshot_bytes(
+            std::span<const std::byte>(webp.data(), webp.size()), read_options);
+    ASSERT_EQ(snapshot.status, openmeta::TransferStatus::Ok);
+    ASSERT_EQ(snapshot.snapshot.raw_carriers.size(), 1U);
+    EXPECT_EQ(snapshot.snapshot.raw_carriers[0].route, "webp:chunk-c2pa");
+    EXPECT_EQ(snapshot.snapshot.raw_carriers[0].semantic_kind,
+              openmeta::TransferBlockKind::C2pa);
+
+    openmeta::PrepareTransferRequest request;
+    request.target_format      = openmeta::TransferTargetFormat::Webp;
+    request.include_exif_app1  = false;
+    request.include_xmp_app1   = false;
+    request.include_icc_app2   = false;
+    request.include_iptc_app13 = false;
+    request.profile.c2pa       = openmeta::TransferPolicyAction::Keep;
+    request.raw_carrier_passthrough_mode
+        = openmeta::TransferRawCarrierPassthroughMode::WhenSafe;
+    openmeta::PreparedTransferBundle bundle;
+    const openmeta::PrepareTransferResult prepared
+        = openmeta::prepare_metadata_for_target_snapshot(snapshot.snapshot,
+                                                         request, &bundle);
+
+    EXPECT_EQ(prepared.status, openmeta::TransferStatus::Unsupported);
+    EXPECT_EQ(count_blocks_with_route(bundle, "webp:chunk-c2pa"), 0U);
+    EXPECT_TRUE(bundle.blocks.empty());
+
+    const openmeta::PreparedTransferPolicyDecision* decision
+        = find_policy_decision(bundle, openmeta::TransferPolicySubject::C2pa);
+    ASSERT_NE(decision, nullptr);
+    EXPECT_EQ(decision->effective, openmeta::TransferPolicyAction::Drop);
+    EXPECT_EQ(decision->reason,
+              openmeta::TransferPolicyReason::ContentBoundTransferUnavailable);
+    EXPECT_EQ(decision->c2pa_mode, openmeta::TransferC2paMode::Drop);
+    EXPECT_EQ(decision->c2pa_source_kind,
+              openmeta::TransferC2paSourceKind::ContentBound);
 }
 
 TEST(MetadataTransferApi, PrepareFilePreservesJpegApp11JumbfForJpegTarget)

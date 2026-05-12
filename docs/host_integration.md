@@ -324,9 +324,17 @@ Call `raw_carrier_passthrough_audit_from_snapshot(...)` before any host-owned
 passthrough decision. The audit reports candidate carriers and primary block
 reasons such as missing payload, target incompatibility, safety filtering,
 content-bound C2PA, explicit profile policy, missing decoded entry links, or
-unsupported carrier kind. It does not change OpenMeta's transfer execution.
+unsupported carrier kind.
 Python exposes the same check as
 `snapshot.raw_carrier_passthrough_audit(...)`.
+Snapshot preparation defaults to decoded re-emission. Hosts that need bounded
+raw reuse can set `PrepareTransferRequest::raw_carrier_passthrough_mode` to
+`TransferRawCarrierPassthroughMode::WhenSafe`, or pass
+`raw_carrier_passthrough_mode=openmeta.TransferRawCarrierPassthroughMode.WhenSafe`
+to Python snapshot transfer helpers. The current passthrough path is limited
+to eligible non-C2PA JUMBF and OpenMeta draft unsigned C2PA invalidation
+carriers for JPEG, JXL, and BMFF targets, plus draft unsigned C2PA
+invalidation carriers for WebP. EXIF/XMP/ICC/IPTC remain decoded re-emitted.
 For hosts that still own the bundle/execution split, the lower-level
 `prepare_metadata_for_target_snapshot(...)` entry point remains available.
 If the host already has a decoded `MetaStore`, build a reusable snapshot with

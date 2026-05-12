@@ -22,6 +22,9 @@ file(MAKE_DIRECTORY "${WORK_DIR}")
 set(_source_jpg "${WORK_DIR}/source_meta.jpg")
 set(_source_icc_jpg "${WORK_DIR}/source_icc.jpg")
 set(_source_xmp_jpg "${WORK_DIR}/source_xmp.jpg")
+set(_source_makernote_jpg "${WORK_DIR}/source_makernote.jpg")
+set(_makernote_hex "4f70656e4d6574614d616b65724e6f746500")
+set(_makernote_xmp_title "OpenMeta MakerNote XMP Gate")
 
 execute_process(
   COMMAND python3 -c
@@ -75,6 +78,86 @@ Path(sys.argv[1]).write_bytes(
 if(NOT _rv_source_xmp EQUAL 0)
   message(FATAL_ERROR
     "failed to write image usability XMP source fixture (${_rv_source_xmp})\nstdout:\n${_out_source_xmp}\nstderr:\n${_err_source_xmp}")
+endif()
+
+execute_process(
+  COMMAND python3 -c
+    [=[
+from pathlib import Path
+import sys
+
+
+def u16(v):
+    return int(v).to_bytes(2, "little")
+
+
+def u32(v):
+    return int(v).to_bytes(4, "little")
+
+
+def entry(tag, typ, count, value):
+    return u16(tag) + u16(typ) + u32(count) + value
+
+
+maker_note = b"OpenMetaMakerNote\x00"
+xmp = (
+    b'<x:xmpmeta xmlns:x="adobe:ns:meta/">'
+    b'<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">'
+    b'<rdf:Description xmlns:dc="http://purl.org/dc/elements/1.1/">'
+    b'<dc:title><rdf:Alt>'
+    b'<rdf:li xml:lang="x-default">OpenMeta MakerNote XMP Gate</rdf:li>'
+    b'</rdf:Alt></dc:title>'
+    b'</rdf:Description></rdf:RDF></x:xmpmeta>'
+)
+ifd0_count = 5
+exif_count = 7
+ifd0_off = 8
+ifd0_size = 2 + ifd0_count * 12 + 4
+exif_off = ifd0_off + ifd0_size
+exif_size = 2 + exif_count * 12 + 4
+data_off = exif_off + exif_size
+xres_off = data_off
+yres_off = xres_off + 8
+maker_off = yres_off + 8
+
+tiff = bytearray()
+tiff += b"II*\x00" + u32(ifd0_off)
+tiff += u16(ifd0_count)
+tiff += entry(0x011A, 5, 1, u32(xres_off))
+tiff += entry(0x011B, 5, 1, u32(yres_off))
+tiff += entry(0x0128, 3, 1, u16(2) + b"\x00\x00")
+tiff += entry(0x0213, 3, 1, u16(1) + b"\x00\x00")
+tiff += entry(0x8769, 4, 1, u32(exif_off))
+tiff += u32(0)
+tiff += u16(exif_count)
+tiff += entry(0x9000, 7, 4, b"0232")
+tiff += entry(0x9101, 7, 4, b"\x01\x02\x03\x00")
+tiff += entry(0x927C, 7, len(maker_note), u32(maker_off))
+tiff += entry(0xA000, 7, 4, b"0100")
+tiff += entry(0xA001, 3, 1, u16(1) + b"\x00\x00")
+tiff += entry(0xA002, 4, 1, u32(64))
+tiff += entry(0xA003, 4, 1, u32(32))
+tiff += u32(0)
+tiff += u32(72) + u32(1)
+tiff += u32(72) + u32(1)
+tiff += maker_note
+
+app1 = b"Exif\x00\x00" + bytes(tiff)
+xmp_app1 = b"http://ns.adobe.com/xap/1.0/\x00" + xmp
+Path(sys.argv[1]).write_bytes(
+    b"\xff\xd8\xff\xe1" + (len(app1) + 2).to_bytes(2, "big") + app1
+    + b"\xff\xe1" + (len(xmp_app1) + 2).to_bytes(2, "big") + xmp_app1
+    + b"\xff\xd9"
+)
+]=]
+    "${_source_makernote_jpg}"
+  RESULT_VARIABLE _rv_source_makernote
+  OUTPUT_VARIABLE _out_source_makernote
+  ERROR_VARIABLE _err_source_makernote
+)
+if(NOT _rv_source_makernote EQUAL 0)
+  message(FATAL_ERROR
+    "failed to write image usability MakerNote source fixture (${_rv_source_makernote})\nstdout:\n${_out_source_makernote}\nstderr:\n${_err_source_makernote}")
 endif()
 
 function(_om_run label)
@@ -247,6 +330,135 @@ function(_om_check_exiftool format extension)
   endif()
 endfunction()
 
+function(_om_check_exiftool_metadata_clean label path)
+  if(NOT DEFINED EXIFTOOL_BIN OR EXIFTOOL_BIN STREQUAL ""
+     OR NOT EXISTS "${EXIFTOOL_BIN}")
+    return()
+  endif()
+  execute_process(
+    COMMAND "${EXIFTOOL_BIN}" -validate -warning -error "${path}"
+    RESULT_VARIABLE _rv
+    OUTPUT_VARIABLE _out
+    ERROR_VARIABLE _err
+  )
+  if(NOT _rv EQUAL 0)
+    message(FATAL_ERROR
+      "exiftool could not read ${label} (${_rv})\nstdout:\n${_out}\nstderr:\n${_err}")
+  endif()
+  if(_out MATCHES "Error[ ]*:")
+    message(FATAL_ERROR "exiftool reported an error for ${label}\n${_out}")
+  endif()
+  if(_out MATCHES "Improper EXIF header")
+    message(FATAL_ERROR
+      "exiftool reported an improper EXIF header for ${label}\n${_out}")
+  endif()
+  if(_out MATCHES "Bad offset" OR _out MATCHES "Invalid offset")
+    message(FATAL_ERROR
+      "exiftool reported a corrupted EXIF offset for ${label}\n${_out}")
+  endif()
+endfunction()
+
+function(_om_check_exiftool_makernote_exact label path expected_hex)
+  if(NOT DEFINED EXIFTOOL_BIN OR EXIFTOOL_BIN STREQUAL ""
+     OR NOT EXISTS "${EXIFTOOL_BIN}")
+    return()
+  endif()
+  execute_process(
+    COMMAND python3 -c
+      [=[
+import subprocess
+import sys
+
+exiftool = sys.argv[1]
+path = sys.argv[2]
+expected = bytes.fromhex(sys.argv[3])
+proc = subprocess.run(
+    [exiftool, "-U", "-b", "-MakerNotes", path],
+    stdout=subprocess.PIPE,
+    stderr=subprocess.PIPE,
+)
+if proc.returncode != 0:
+    sys.stderr.write(proc.stderr.decode("utf-8", "replace"))
+    sys.exit(proc.returncode)
+if proc.stdout != expected:
+    sys.stderr.write(
+        f"MakerNote bytes mismatch: got={proc.stdout.hex()} "
+        f"expected={expected.hex()}\n"
+    )
+    sys.exit(1)
+]=]
+      "${EXIFTOOL_BIN}" "${path}" "${expected_hex}"
+    RESULT_VARIABLE _rv
+    OUTPUT_VARIABLE _out
+    ERROR_VARIABLE _err
+  )
+  if(NOT _rv EQUAL 0)
+    message(FATAL_ERROR
+      "exiftool did not find byte-exact MakerNote for ${label} (${_rv})\nstdout:\n${_out}\nstderr:\n${_err}")
+  endif()
+endfunction()
+
+function(_om_exiftool_makernote_hex label path out_var)
+  if(NOT DEFINED EXIFTOOL_BIN OR EXIFTOOL_BIN STREQUAL ""
+     OR NOT EXISTS "${EXIFTOOL_BIN}")
+    set("${out_var}" "" PARENT_SCOPE)
+    return()
+  endif()
+  execute_process(
+    COMMAND python3 -c
+      [=[
+import subprocess
+import sys
+
+exiftool = sys.argv[1]
+path = sys.argv[2]
+proc = subprocess.run(
+    [exiftool, "-U", "-b", "-MakerNotes", path],
+    stdout=subprocess.PIPE,
+    stderr=subprocess.PIPE,
+)
+if proc.returncode != 0:
+    sys.stderr.write(proc.stderr.decode("utf-8", "replace"))
+    sys.exit(proc.returncode)
+sys.stdout.write(proc.stdout.hex())
+]=]
+      "${EXIFTOOL_BIN}" "${path}"
+    RESULT_VARIABLE _rv
+    OUTPUT_VARIABLE _out
+    ERROR_VARIABLE _err
+  )
+  if(NOT _rv EQUAL 0)
+    message(FATAL_ERROR
+      "exiftool could not read MakerNotes for ${label} (${_rv})\nstdout:\n${_out}\nstderr:\n${_err}")
+  endif()
+  string(STRIP "${_out}" _hex)
+  set("${out_var}" "${_hex}" PARENT_SCOPE)
+endfunction()
+
+function(_om_check_exiftool_xmp_title label path expected_title)
+  if(NOT DEFINED EXIFTOOL_BIN OR EXIFTOOL_BIN STREQUAL ""
+     OR NOT EXISTS "${EXIFTOOL_BIN}")
+    return()
+  endif()
+  execute_process(
+    COMMAND "${EXIFTOOL_BIN}" -validate -warning -error -XMP:Title "${path}"
+    RESULT_VARIABLE _rv
+    OUTPUT_VARIABLE _out
+    ERROR_VARIABLE _err
+  )
+  if(NOT _rv EQUAL 0)
+    message(FATAL_ERROR
+      "exiftool could not read XMP title for ${label} (${_rv})\nstdout:\n${_out}\nstderr:\n${_err}")
+  endif()
+  if(_out MATCHES "Error[ ]*:")
+    message(FATAL_ERROR "exiftool reported an XMP error for ${label}\n${_out}")
+  endif()
+  if(NOT _out MATCHES "Title[ ]*: ${expected_title}")
+    message(FATAL_ERROR
+      "exiftool did not find XMP title for ${label}\n${_out}")
+  endif()
+endfunction()
+
 function(_om_check_bmff_exif_reader_layout format path)
   execute_process(
     COMMAND "${METATRANSFER_BIN}" --no-build-info
@@ -338,6 +550,83 @@ function(_om_transfer_and_check format extension)
   endif()
   _om_check_oiio("${format}" "${extension}")
   _om_check_exiftool("${format}" "${extension}")
+endfunction()
+
+function(_om_transfer_makernote_and_check format extension safety expect_present)
+  set(_target "${TARGET_${format}}")
+  if("${_target}" STREQUAL "")
+    return()
+  endif()
+  set(_output "${WORK_DIR}/edited_makernote_${format}_${safety}.${extension}")
+  set(_target_makernote_hex "")
+  if(NOT "${expect_present}")
+    _om_exiftool_makernote_hex(
+      "target ${format} MakerNote baseline" "${_target}"
+      _target_makernote_hex)
+  endif()
+  set(_common
+    --no-build-info
+    --source-meta "${_source_makernote_jpg}"
+    --target-width 64
+    --target-height 32
+    --target-orientation 1
+    --target-samples-per-pixel 3
+    --target-bits-per-sample 8
+    --target-sample-format 1
+    --target-photometric 2
+    --target-planar-configuration 1
+    --target-exif-color-space 1
+    --output "${_output}"
+    --force)
+  if("${safety}" STREQUAL "rendered")
+    list(APPEND _common --transfer-safety rendered)
+  endif()
+
+  if("${format}" STREQUAL "jpg")
+    _om_run("metatransfer MakerNote ${format} ${safety}"
+      "${METATRANSFER_BIN}" ${_common} --target-jpeg "${_target}")
+  elseif("${format}" STREQUAL "tif")
+    _om_run("metatransfer MakerNote ${format} ${safety}"
+      "${METATRANSFER_BIN}" ${_common} --target-tiff "${_target}")
+  elseif("${format}" STREQUAL "dng")
+    _om_run("metatransfer MakerNote ${format} ${safety}"
+      "${METATRANSFER_BIN}" ${_common} --target-dng "${_target}")
+  else()
+    _om_run("metatransfer MakerNote ${format} ${safety}"
+      "${METATRANSFER_BIN}" ${_common} "--target-${format}" "${_target}")
+  endif()
+
+  if(NOT EXISTS "${_output}")
+    message(FATAL_ERROR
+      "metatransfer did not write MakerNote ${format} ${safety}: ${_output}")
+  endif()
+  _om_check_decodable_file("${format}" "${_output}")
+  _om_check_exiftool_metadata_clean(
+    "edited ${format} MakerNote ${safety}" "${_output}")
+  if("${expect_present}")
+    _om_check_exiftool_makernote_exact(
+      "edited ${format} MakerNote ${safety}" "${_output}"
+      "${_makernote_hex}")
+  else()
+    _om_check_exiftool_makernote_exact(
+      "edited ${format} MakerNote ${safety}" "${_output}"
+      "${_target_makernote_hex}")
+  endif()
+  _om_check_exiftool_xmp_title(
+    "edited ${format} MakerNote ${safety}" "${_output}"
+    "${_makernote_xmp_title}")
+endfunction()
+
+function(_om_transfer_bmff_makernote_if_available format extension)
+  _om_prepare_bmff_target_if_available("${format}" "${extension}" "_makernote"
+    " MakerNote" _target _configured_target)
+  if("${_target}" STREQUAL "")
+    return()
+  endif()
+
+  set("TARGET_${format}" "${_target}")
+  _om_transfer_makernote_and_check("${format}" "${extension}" "compatible" TRUE)
+  _om_transfer_makernote_and_check("${format}" "${extension}" "rendered" FALSE)
 endfunction()
 
 function(_om_transfer_bmff_if_available format extension)
@@ -609,9 +898,23 @@ _om_transfer_and_check("webp" "webp")
 _om_transfer_and_check("jp2" "jp2")
 _om_transfer_and_check("jxl" "jxl")
 
+_om_transfer_makernote_and_check("jpg" "jpg" "compatible" TRUE)
+_om_transfer_makernote_and_check("jpg" "jpg" "rendered" FALSE)
+_om_transfer_makernote_and_check("tif" "tif" "compatible" TRUE)
+_om_transfer_makernote_and_check("tif" "tif" "rendered" FALSE)
+_om_transfer_makernote_and_check("dng" "dng" "compatible" TRUE)
+_om_transfer_makernote_and_check("dng" "dng" "rendered" FALSE)
+_om_transfer_makernote_and_check("webp" "webp" "compatible" TRUE)
+_om_transfer_makernote_and_check("webp" "webp" "rendered" FALSE)
+_om_transfer_makernote_and_check("jxl" "jxl" "compatible" TRUE)
+_om_transfer_makernote_and_check("jxl" "jxl" "rendered" FALSE)
+
 _om_transfer_bmff_if_available("heif" "heic")
 _om_transfer_bmff_if_available("avif" "avif")
 _om_transfer_bmff_if_available("cr3" "cr3")
+_om_transfer_bmff_makernote_if_available("heif" "heic")
+_om_transfer_bmff_makernote_if_available("avif" "avif")
+_om_transfer_bmff_makernote_if_available("cr3" "cr3")
 _om_transfer_bmff_icc_if_available("heif" "heic")
 _om_transfer_bmff_icc_if_available("avif" "avif")
 _om_transfer_bmff_icc_if_available("cr3" "cr3")

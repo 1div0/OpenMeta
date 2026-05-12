@@ -499,7 +499,7 @@ struct TransferSourceRawCarrier final {
     TransferBlockKind semantic_kind = TransferBlockKind::Other;
     /// Scan order among preserved source carriers.
     uint32_t order = 0U;
-    /// Stable route hint for future passthrough/re-emission policy.
+    /// Stable route hint for passthrough and decoded re-emission policy.
     std::string route;
     /// True when \ref payload contains the original block payload bytes.
     bool payload_preserved = false;
@@ -519,6 +519,14 @@ enum class TransferRawCarrierPassthroughReason : uint8_t {
     PolicyBlocked,
     DecodeLinkUnavailable,
     UnsupportedKind,
+};
+
+/// Opt-in raw-carrier use during snapshot transfer preparation.
+enum class TransferRawCarrierPassthroughMode : uint8_t {
+    /// Do not reuse preserved raw carriers while preparing from a snapshot.
+    Disabled,
+    /// Reuse only bounded carrier families that pass the active policy checks.
+    WhenSafe,
 };
 
 /// Options for auditing raw-carrier passthrough eligibility.
@@ -562,8 +570,8 @@ struct TransferRawCarrierPassthroughAudit final {
  * \par API Stability
  * Experimental host-facing API. The default snapshot remains decoded-store
  * backed. Raw carrier provenance and payload bytes are kept only when read
- * options explicitly request them; current transfer execution still uses the
- * decoded \ref MetaStore path.
+ * options explicitly request them; transfer preparation still uses decoded
+ * re-emission unless the request enables an explicit bounded passthrough mode.
  *
  * Const reuse is safe when callers do not mutate the snapshot and do not share
  * returned result objects across writers.
@@ -629,6 +637,9 @@ struct PrepareTransferRequest final {
     DngTargetMode dng_target_mode      = DngTargetMode::MinimalFreshScaffold;
     TransferProfile profile;
     TransferTargetImageSpec target_image_spec;
+    /// Disabled by default. Currently used only for snapshot preparation.
+    TransferRawCarrierPassthroughMode raw_carrier_passthrough_mode
+        = TransferRawCarrierPassthroughMode::Disabled;
     bool include_exif_app1    = true;
     bool include_xmp_app1     = true;
     bool include_icc_app2     = true;
@@ -1894,9 +1905,8 @@ transfer_safety_audit_from_store(const MetaStore& store,
  *
  * This helper is diagnostic only. It checks preserved payload availability,
  * target carrier compatibility, decoded-entry safety filtering, content-bound
- * C2PA rules, and explicit profile drops. It does not enable raw passthrough
- * during transfer preparation; current transfer execution still re-emits
- * decoded metadata.
+ * C2PA rules, and explicit profile drops. It does not enable passthrough by
+ * itself; callers must opt in through \ref PrepareTransferRequest.
  *
  * \par API Stability
  * Experimental host-facing API for diagnostics, UI, and preflight decisions.

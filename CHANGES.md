@@ -72,8 +72,7 @@ Changes compared with `0.4.8`.
 - Added opt-in raw-carrier preservation for `TransferSourceSnapshot` reads,
   including original container block ranges, route hints, bounded payload
   bytes, snapshot-local decoded entry links, C++ result counters, and thin
-  Python accessors. Transfer execution still uses the decoded metadata path;
-  passthrough policy remains future work.
+  Python accessors. Transfer execution still uses decoded metadata by default.
 - Added `raw_carrier_passthrough_audit_from_snapshot()` plus Python
   `TransferSourceSnapshot.raw_carrier_passthrough_audit()` so hosts can
   preflight opt-in raw carriers before any host-owned passthrough decision.
@@ -81,6 +80,12 @@ Changes compared with `0.4.8`.
   missing payloads, target incompatibility, safety filtering, content-bound
   C2PA, profile policy, missing decoded entry links, and unsupported carrier
   kinds.
+- Added `TransferRawCarrierPassthroughMode::WhenSafe` for snapshot-based
+  preparation, plus the matching Python enum and snapshot transfer keyword.
+  The first bounded path preserves eligible non-C2PA JUMBF and OpenMeta draft
+  unsigned C2PA invalidation carriers for JPEG, JXL, and BMFF targets, plus
+  draft unsigned C2PA invalidation carriers for WebP. EXIF/XMP/ICC/IPTC
+  transfer remains decoded re-emission.
 - Added optional `OPENMETA_ENABLE_RAPIDFUZZ` support for RapidFuzz-backed
   semantic-query XMP/property-path matching, plus
   `metadata_query_fuzzy_search_available()` so tools can detect whether the
@@ -167,6 +172,9 @@ Changes compared with `0.4.8`.
 - Fixed draft C2PA verification status handling for malformed COSE_Sign1 byte
   arrays, unresolved explicit detached-payload references, and nested numeric
   claim references with conflicting label/URI fields.
+- Fixed appended metadata-only BMFF `meta` boxes to advertise inserted item
+  payloads through file-offset `iloc` records, allowing CR3-style targets to
+  expose appended EXIF/XMP metadata through ExifTool-compatible readers.
 - High-level C2PA validation now emits a warning when a signature verifies but
   the certificate chain is not trusted unless strict trusted-chain enforcement
   is enabled.
@@ -240,6 +248,10 @@ Changes compared with `0.4.8`.
   ICC property.
 - Added BMFF coverage that verifies essential `ipma` association flags are
   preserved when ICC properties are replaced.
+- Extended the external image-usability gate so optional configured CR3 targets
+  also exercise MakerNote transfer. Rendered-mode checks now compare against
+  any pre-existing target MakerNote bytes instead of assuming the target had no
+  MakerNotes.
 
 ## 0.4.8 - 2026-04-27
 

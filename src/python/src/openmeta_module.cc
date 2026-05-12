@@ -4733,7 +4733,8 @@ namespace {
         nb::object persist_output_path_obj, bool persist_overwrite_output,
         bool persist_overwrite_xmp_sidecar,
         bool persist_remove_destination_xmp_sidecar,
-        nb::object target_image_spec_obj, TransferSafetyMode transfer_safety)
+        nb::object target_image_spec_obj, TransferSafetyMode transfer_safety,
+        TransferRawCarrierPassthroughMode raw_carrier_passthrough_mode)
     {
         ExecutePreparedTransferSnapshotOptions options;
         options.prepare.target_format   = target_format;
@@ -4759,6 +4760,8 @@ namespace {
         options.prepare.profile.jumbf     = jumbf_policy;
         options.prepare.profile.c2pa      = c2pa_policy;
         options.prepare.profile.safety    = transfer_safety;
+        options.prepare.raw_carrier_passthrough_mode
+            = raw_carrier_passthrough_mode;
         options.policy.max_file_bytes     = max_file_bytes;
         options.xmp_existing_sidecar_mode = xmp_existing_sidecar_mode;
         options.xmp_existing_sidecar_precedence
@@ -6065,6 +6068,11 @@ NB_MODULE(_openmeta, m)
                TransferRawCarrierPassthroughReason::DecodeLinkUnavailable)
         .value("UnsupportedKind",
                TransferRawCarrierPassthroughReason::UnsupportedKind);
+
+    nb::enum_<TransferRawCarrierPassthroughMode>(
+        m, "TransferRawCarrierPassthroughMode")
+        .value("Disabled", TransferRawCarrierPassthroughMode::Disabled)
+        .value("WhenSafe", TransferRawCarrierPassthroughMode::WhenSafe);
 
     nb::enum_<TransferC2paMode>(m, "TransferC2paMode")
         .value("NotApplicable", TransferC2paMode::NotApplicable)
@@ -7834,7 +7842,8 @@ NB_MODULE(_openmeta, m)
            XmpWritebackMode xmp_writeback_mode,
            XmpDestinationEmbeddedMode xmp_destination_embedded_mode,
            XmpDestinationSidecarMode xmp_destination_sidecar_mode,
-           nb::object target_image_spec, TransferSafetyMode transfer_safety) {
+           nb::object target_image_spec, TransferSafetyMode transfer_safety,
+           TransferRawCarrierPassthroughMode raw_carrier_passthrough_mode) {
             return transfer_snapshot_to_python(
                 snapshot, target_format, dng_target_mode, format,
                 include_exif_app1, include_xmp_app1, include_icc_app2,
@@ -7856,7 +7865,7 @@ NB_MODULE(_openmeta, m)
                 include_edited_bytes, false, xmp_writeback_mode,
                 xmp_destination_embedded_mode, xmp_destination_sidecar_mode,
                 nb::none(), false, false, true, target_image_spec,
-                transfer_safety);
+                transfer_safety, raw_carrier_passthrough_mode);
         },
         "snapshot"_a, "target_format"_a = TransferTargetFormat::Jpeg,
         "dng_target_mode"_a = DngTargetMode::MinimalFreshScaffold,
@@ -7898,7 +7907,9 @@ NB_MODULE(_openmeta, m)
         "xmp_destination_sidecar_mode"_a
         = XmpDestinationSidecarMode::PreserveExisting,
         "target_image_spec"_a = nb::none(),
-        "transfer_safety"_a   = TransferSafetyMode::CompatibleFile);
+        "transfer_safety"_a   = TransferSafetyMode::CompatibleFile,
+        "raw_carrier_passthrough_mode"_a
+        = TransferRawCarrierPassthroughMode::Disabled);
 
     m.def(
         "unsafe_transfer_snapshot_probe",
@@ -7935,7 +7946,8 @@ NB_MODULE(_openmeta, m)
            XmpWritebackMode xmp_writeback_mode,
            XmpDestinationEmbeddedMode xmp_destination_embedded_mode,
            XmpDestinationSidecarMode xmp_destination_sidecar_mode,
-           nb::object target_image_spec, TransferSafetyMode transfer_safety) {
+           nb::object target_image_spec, TransferSafetyMode transfer_safety,
+           TransferRawCarrierPassthroughMode raw_carrier_passthrough_mode) {
             return transfer_snapshot_to_python(
                 snapshot, target_format, dng_target_mode, format,
                 include_exif_app1, include_xmp_app1, include_icc_app2,
@@ -7957,7 +7969,7 @@ NB_MODULE(_openmeta, m)
                 include_edited_bytes, true, xmp_writeback_mode,
                 xmp_destination_embedded_mode, xmp_destination_sidecar_mode,
                 nb::none(), false, false, true, target_image_spec,
-                transfer_safety);
+                transfer_safety, raw_carrier_passthrough_mode);
         },
         "snapshot"_a, "target_format"_a = TransferTargetFormat::Jpeg,
         "dng_target_mode"_a = DngTargetMode::MinimalFreshScaffold,
@@ -7999,7 +8011,9 @@ NB_MODULE(_openmeta, m)
         "xmp_destination_sidecar_mode"_a
         = XmpDestinationSidecarMode::PreserveExisting,
         "target_image_spec"_a = nb::none(),
-        "transfer_safety"_a   = TransferSafetyMode::CompatibleFile);
+        "transfer_safety"_a   = TransferSafetyMode::CompatibleFile,
+        "raw_carrier_passthrough_mode"_a
+        = TransferRawCarrierPassthroughMode::Disabled);
 
     m.def(
         "transfer_snapshot_file",
@@ -8038,7 +8052,8 @@ NB_MODULE(_openmeta, m)
            XmpDestinationSidecarMode xmp_destination_sidecar_mode,
            const std::string& output_path, bool overwrite_output,
            bool overwrite_xmp_sidecar, bool remove_destination_xmp_sidecar,
-           nb::object target_image_spec, TransferSafetyMode transfer_safety) {
+           nb::object target_image_spec, TransferSafetyMode transfer_safety,
+           TransferRawCarrierPassthroughMode raw_carrier_passthrough_mode) {
             return transfer_snapshot_to_python(
                 snapshot, target_format, dng_target_mode, format,
                 include_exif_app1, include_xmp_app1, include_icc_app2,
@@ -8062,7 +8077,7 @@ NB_MODULE(_openmeta, m)
                 nb::str(output_path.c_str(), output_path.size()),
                 overwrite_output, overwrite_xmp_sidecar,
                 remove_destination_xmp_sidecar, target_image_spec,
-                transfer_safety);
+                transfer_safety, raw_carrier_passthrough_mode);
         },
         "snapshot"_a, "target_format"_a = TransferTargetFormat::Jpeg,
         "dng_target_mode"_a = DngTargetMode::MinimalFreshScaffold,
@@ -8107,7 +8122,9 @@ NB_MODULE(_openmeta, m)
         "overwrite_xmp_sidecar"_a          = false,
         "remove_destination_xmp_sidecar"_a = true,
         "target_image_spec"_a              = nb::none(),
-        "transfer_safety"_a = TransferSafetyMode::CompatibleFile);
+        "transfer_safety"_a                = TransferSafetyMode::CompatibleFile,
+        "raw_carrier_passthrough_mode"_a
+        = TransferRawCarrierPassthroughMode::Disabled);
 
     m.def(
         "unsafe_transfer_snapshot_file",
@@ -8146,7 +8163,8 @@ NB_MODULE(_openmeta, m)
            XmpDestinationSidecarMode xmp_destination_sidecar_mode,
            const std::string& output_path, bool overwrite_output,
            bool overwrite_xmp_sidecar, bool remove_destination_xmp_sidecar,
-           nb::object target_image_spec, TransferSafetyMode transfer_safety) {
+           nb::object target_image_spec, TransferSafetyMode transfer_safety,
+           TransferRawCarrierPassthroughMode raw_carrier_passthrough_mode) {
             return transfer_snapshot_to_python(
                 snapshot, target_format, dng_target_mode, format,
                 include_exif_app1, include_xmp_app1, include_icc_app2,
@@ -8170,7 +8188,7 @@ NB_MODULE(_openmeta, m)
                 nb::str(output_path.c_str(), output_path.size()),
                 overwrite_output, overwrite_xmp_sidecar,
                 remove_destination_xmp_sidecar, target_image_spec,
-                transfer_safety);
+                transfer_safety, raw_carrier_passthrough_mode);
         },
         "snapshot"_a, "target_format"_a = TransferTargetFormat::Jpeg,
         "dng_target_mode"_a = DngTargetMode::MinimalFreshScaffold,
@@ -8215,7 +8233,9 @@ NB_MODULE(_openmeta, m)
         "overwrite_xmp_sidecar"_a          = false,
         "remove_destination_xmp_sidecar"_a = true,
         "target_image_spec"_a              = nb::none(),
-        "transfer_safety"_a = TransferSafetyMode::CompatibleFile);
+        "transfer_safety"_a                = TransferSafetyMode::CompatibleFile,
+        "raw_carrier_passthrough_mode"_a
+        = TransferRawCarrierPassthroughMode::Disabled);
 
     m.def("dng_sdk_adapter_available",
           []() { return dng_sdk_adapter_available(); });

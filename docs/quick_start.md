@@ -290,9 +290,8 @@ If a host needs provenance for a later passthrough policy decision, enable
 `preserve_raw_carriers=True` in Python. The snapshot then keeps bounded raw
 carrier records with original `ContainerBlockRef` ranges, route hints, and
 payload bytes up to `max_raw_carrier_bytes`. Each carrier also reports the
-snapshot-local decoded entry ids attributed to it. Current transfer execution
-still uses decoded metadata; raw-carrier passthrough remains an explicit future
-policy layer with decoded re-emission as the default behavior.
+snapshot-local decoded entry ids attributed to it. Transfer still uses decoded
+re-emission by default.
 Use `raw_carrier_passthrough_audit_from_snapshot(...)` to preflight which
 preserved carriers are candidates for a target format and which are blocked by
 missing payloads, target incompatibility, active safety filtering,
@@ -300,6 +299,15 @@ content-bound C2PA, explicit profile policy, missing decoded entry links, or an
 unsupported carrier kind.
 Python exposes the same check as
 `snapshot.raw_carrier_passthrough_audit(...)`.
+To allow the bounded passthrough path during snapshot preparation, set
+`PrepareTransferRequest::raw_carrier_passthrough_mode` to
+`TransferRawCarrierPassthroughMode::WhenSafe`, or pass
+`raw_carrier_passthrough_mode=openmeta.TransferRawCarrierPassthroughMode.WhenSafe`
+to Python snapshot transfer helpers. The current passthrough emitter is
+deliberately narrow: it can reuse eligible non-C2PA JUMBF and OpenMeta draft
+unsigned C2PA invalidation carriers for JPEG, JXL, and BMFF targets, plus
+draft unsigned C2PA invalidation carriers for WebP. EXIF/XMP/ICC/IPTC still
+use decoded re-emission.
 If the host owns the final file write path, the lower-level
 `prepare_metadata_for_target_snapshot(...)` entry point remains available.
 If the host already has a decoded `MetaStore`, build a reusable snapshot with

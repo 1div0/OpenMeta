@@ -186,6 +186,15 @@ raw_audit = snapshot_raw['snapshot'].raw_carrier_passthrough_audit(
 assert raw_audit['carrier_count'] == snapshot_raw['raw_carrier_count'], raw_audit
 assert raw_audit['eligible_count'] >= 1, raw_audit
 assert raw_audit['decisions'][0]['reason_name'] == 'candidate', raw_audit
+assert openmeta.TransferRawCarrierPassthroughMode.WhenSafe != openmeta.TransferRawCarrierPassthroughMode.Disabled
+
+r_snapshot_raw_mode = openmeta.transfer_snapshot_probe(
+    snapshot_raw['snapshot'],
+    format=openmeta.XmpSidecarFormat.Portable,
+    raw_carrier_passthrough_mode=openmeta.TransferRawCarrierPassthroughMode.WhenSafe,
+)
+assert r_snapshot_raw_mode['overall_status'] == openmeta.TransferStatus.Ok, r_snapshot_raw_mode
+assert r_snapshot_raw_mode['prepare_status'] == openmeta.TransferStatus.Ok, r_snapshot_raw_mode
 
 doc_snapshot = openmeta.read(str(p)).build_transfer_source_snapshot()
 assert doc_snapshot.entry_count == r['entry_count'], doc_snapshot
