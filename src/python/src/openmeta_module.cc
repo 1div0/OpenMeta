@@ -7,6 +7,7 @@
 #include "openmeta/container_payload.h"
 #include "openmeta/dng_sdk_adapter.h"
 #include "openmeta/exif_tag_names.h"
+#include "openmeta/exif_value_names.h"
 #include "openmeta/exr_adapter.h"
 #include "openmeta/geotiff_key_names.h"
 #include "openmeta/icc_interpret.h"
@@ -14,6 +15,8 @@
 #include "openmeta/libraw_adapter.h"
 #include "openmeta/mapped_file.h"
 #include "openmeta/metadata_capabilities.h"
+#include "openmeta/metadata_concepts.h"
+#include "openmeta/metadata_interpretation.h"
 #include "openmeta/metadata_query.h"
 #include "openmeta/metadata_transfer.h"
 #include "openmeta/ocio_adapter.h"
@@ -52,6 +55,13 @@ namespace {
     static nb::str sv_to_py(std::string_view s)
     {
         return nb::str(s.data(), s.size());
+    }
+
+    static const char*
+    exif_tag_numeric_value_name_python(const std::string& ifd, uint16_t tag,
+                                       uint64_t value) noexcept
+    {
+        return exif_tag_numeric_value_name(ifd, tag, value);
     }
 
 
@@ -187,8 +197,7 @@ namespace {
     {
         switch (status) {
         case ExifOrientationStatus::Ok: return "ok";
-        case ExifOrientationStatus::InvalidArgument:
-            return "invalid_argument";
+        case ExifOrientationStatus::InvalidArgument: return "invalid_argument";
         }
         return "unknown";
     }
@@ -856,6 +865,11 @@ namespace {
         out["raw_data_fields"]      = nb::int_(summary.raw_data_fields);
         out["sensor_fields"]        = nb::int_(summary.sensor_fields);
         out["private_table_fields"] = nb::int_(summary.private_table_fields);
+        out["preview_fields"]       = nb::int_(summary.preview_fields);
+        out["face_geometry_fields"] = nb::int_(summary.face_geometry_fields);
+        out["computational_fields"] = nb::int_(summary.computational_fields);
+        out["thermal_fields"]       = nb::int_(summary.thermal_fields);
+        out["stitch_fields"]        = nb::int_(summary.stitch_fields);
         return out;
     }
 
@@ -913,6 +927,20 @@ namespace {
         return out;
     }
 
+    static nb::object
+    metadata_query_optional_margins_to_python(bool present,
+                                              const double* values)
+    {
+        if (!present || !values) {
+            return nb::none();
+        }
+        nb::list out;
+        for (uint32_t i = 0U; i < 4U; ++i) {
+            out.append(nb::float_(values[i]));
+        }
+        return out;
+    }
+
     static nb::dict
     metadata_query_match_to_python(const MetadataQueryMatch& match)
     {
@@ -959,6 +987,10 @@ namespace {
         out["has_rect"] = nb::bool_(candidate.has_rect);
         out["rect"] = metadata_query_optional_rect_to_python(candidate.has_rect,
                                                              candidate.rect);
+        out["has_margins"] = nb::bool_(candidate.has_margins);
+        out["margins"]
+            = metadata_query_optional_margins_to_python(candidate.has_margins,
+                                                        candidate.margins);
         out["has_values"] = nb::bool_(candidate.has_values);
         if (candidate.has_values) {
             out["values"] = metadata_query_values_to_python(candidate.values);
@@ -994,6 +1026,196 @@ namespace {
     {
         const MetadataQueryResult result = query_metadata(store, kind);
         return metadata_query_result_to_python(result);
+    }
+
+    static nb::dict metadata_interpretation_record_to_python(
+        const MetadataInterpretationRecord& record)
+    {
+        nb::dict out;
+        out["query_kind"]      = record.query_kind;
+        out["query_kind_name"] = nb::str(
+            metadata_query_kind_name(record.query_kind));
+        out["semantic"]      = record.semantic;
+        out["semantic_name"] = nb::str(
+            metadata_query_semantic_kind_name(record.semantic));
+        out["shape"]      = record.shape;
+        out["shape_name"] = nb::str(
+            metadata_query_value_shape_name(record.shape));
+        out["confidence"]     = nb::int_(record.confidence);
+        out["source_entries"] = metadata_query_entry_ids_to_python(
+            record.source_entries);
+        out["has_origin"] = nb::bool_(record.has_origin);
+        out["origin"] = metadata_query_optional_pair_to_python(record.has_origin,
+                                                               record.origin);
+        out["has_size"] = nb::bool_(record.has_size);
+        out["size"] = metadata_query_optional_pair_to_python(record.has_size,
+                                                             record.size);
+        out["has_rect"] = nb::bool_(record.has_rect);
+        out["rect"] = metadata_query_optional_rect_to_python(record.has_rect,
+                                                             record.rect);
+        out["has_margins"] = nb::bool_(record.has_margins);
+        out["margins"]
+            = metadata_query_optional_margins_to_python(record.has_margins,
+                                                        record.margins);
+        out["has_values"] = nb::bool_(record.has_values);
+        if (record.has_values) {
+            out["values"] = metadata_query_values_to_python(record.values);
+        } else {
+            out["values"] = nb::none();
+        }
+        return out;
+    }
+
+    static nb::dict metadata_interpretation_result_to_python(
+        const MetadataInterpretationResult& result)
+    {
+        nb::list records;
+        for (size_t i = 0U; i < result.records.size(); ++i) {
+            records.append(
+                metadata_interpretation_record_to_python(result.records[i]));
+        }
+        nb::dict out;
+        out["records"] = std::move(records);
+        return out;
+    }
+
+    static nb::dict metadata_interpretation_to_python(const MetaStore& store)
+    {
+        const MetadataInterpretationResult result = interpret_metadata(store);
+        return metadata_interpretation_result_to_python(result);
+    }
+
+    static nb::dict
+    metadata_interpretation_query_to_python(const MetaStore& store,
+                                            MetadataQueryKind kind)
+    {
+        const MetadataInterpretationResult result
+            = interpret_metadata_query(store, kind);
+        return metadata_interpretation_result_to_python(result);
+    }
+
+    static nb::list metadata_concept_numeric_to_python(
+        const MetadataConceptCandidate& candidate)
+    {
+        nb::list out;
+        for (uint8_t i = 0U; i < candidate.numeric_count; ++i) {
+            out.append(nb::float_(candidate.numeric[i]));
+        }
+        return out;
+    }
+
+    static nb::object metadata_concept_datetime_to_python(
+        const MetadataConceptCandidate& candidate)
+    {
+        if (!candidate.has_date_time) {
+            return nb::none();
+        }
+        nb::dict out;
+        out["year"]     = nb::int_(candidate.date_time_year);
+        out["month"]    = nb::int_(candidate.date_time_month);
+        out["day"]      = nb::int_(candidate.date_time_day);
+        out["has_time"] = nb::bool_(candidate.date_time_has_time);
+        if (candidate.date_time_has_time) {
+            out["hour"]   = nb::int_(candidate.date_time_hour);
+            out["minute"] = nb::int_(candidate.date_time_minute);
+            out["second"] = nb::int_(candidate.date_time_second);
+        } else {
+            out["hour"]   = nb::none();
+            out["minute"] = nb::none();
+            out["second"] = nb::none();
+        }
+        out["has_utc_offset"] = nb::bool_(candidate.date_time_has_utc_offset);
+        if (candidate.date_time_has_utc_offset) {
+            out["utc_offset_minutes"] = nb::int_(
+                candidate.date_time_utc_offset_min);
+        } else {
+            out["utc_offset_minutes"] = nb::none();
+        }
+        return out;
+    }
+
+    static nb::dict metadata_concept_candidate_to_python(
+        const MetadataConceptCandidate& candidate)
+    {
+        nb::dict out;
+        out["kind"]      = candidate.kind;
+        out["kind_name"] = nb::str(metadata_concept_kind_name(candidate.kind));
+        out["role"]      = candidate.role;
+        out["role_name"] = nb::str(metadata_concept_role_name(candidate.role));
+        out["family"]    = candidate.family;
+        out["family_name"] = nb::str(
+            metadata_concept_source_family_name(candidate.family));
+        out["semantic"]      = candidate.semantic;
+        out["semantic_name"] = nb::str(
+            metadata_query_semantic_kind_name(candidate.semantic));
+        out["shape"]      = candidate.shape;
+        out["shape_name"] = nb::str(
+            metadata_query_value_shape_name(candidate.shape));
+        out["entry_id"]       = nb::int_(candidate.entry_id);
+        out["source_entries"] = metadata_query_entry_ids_to_python(
+            candidate.source_entries);
+        out["priority"]      = nb::int_(candidate.priority);
+        out["preferred"]     = nb::bool_(candidate.preferred);
+        out["conflict"]      = nb::bool_(candidate.conflict);
+        out["has_numeric"]   = nb::bool_(candidate.has_numeric);
+        out["numeric_count"] = nb::int_(candidate.numeric_count);
+        if (candidate.has_numeric) {
+            out["numeric"] = metadata_concept_numeric_to_python(candidate);
+        } else {
+            out["numeric"] = nb::none();
+        }
+        out["text"]          = sv_to_py(candidate.text);
+        out["value_key"]     = sv_to_py(candidate.value_key);
+        out["has_date_time"] = nb::bool_(candidate.has_date_time);
+        out["date_time"]     = metadata_concept_datetime_to_python(candidate);
+        return out;
+    }
+
+    static nb::dict metadata_concept_resolution_to_python(
+        const MetadataConceptResolution& resolution)
+    {
+        nb::list candidates;
+        for (size_t i = 0U; i < resolution.candidates.size(); ++i) {
+            candidates.append(
+                metadata_concept_candidate_to_python(resolution.candidates[i]));
+        }
+        nb::dict out;
+        out["kind"]      = resolution.kind;
+        out["kind_name"] = nb::str(metadata_concept_kind_name(resolution.kind));
+        out["found"]     = nb::bool_(resolution.found);
+        out["conflict"]  = nb::bool_(resolution.conflict);
+        out["preferred_entry"] = nb::int_(resolution.preferred_entry);
+        out["source_entries"]  = metadata_query_entry_ids_to_python(
+            resolution.source_entries);
+        out["candidates"] = std::move(candidates);
+        return out;
+    }
+
+    static nb::dict
+    metadata_concept_result_to_python(const MetadataConceptResult& result)
+    {
+        nb::list concepts;
+        for (size_t i = 0U; i < result.concepts.size(); ++i) {
+            concepts.append(
+                metadata_concept_resolution_to_python(result.concepts[i]));
+        }
+        nb::dict out;
+        out["concepts"] = std::move(concepts);
+        return out;
+    }
+
+    static nb::dict metadata_concepts_to_python(const MetaStore& store)
+    {
+        const MetadataConceptResult result = resolve_metadata_concepts(store);
+        return metadata_concept_result_to_python(result);
+    }
+
+    static nb::dict metadata_concept_to_python(const MetaStore& store,
+                                               MetadataConceptKind kind)
+    {
+        const MetadataConceptResolution result = resolve_metadata_concept(store,
+                                                                          kind);
+        return metadata_concept_resolution_to_python(result);
     }
 
     static const char* transfer_raw_carrier_passthrough_reason_name(
@@ -3086,6 +3308,16 @@ namespace {
         out["mirrored"]         = nb::bool_(result.orientation.mirrored);
         out["preview_passthrough"] = nb::bool_(
             result.orientation.preview_passthrough);
+        out["has_exif_ifd0_orientation"] = nb::bool_(
+            result.orientation.has_exif_ifd0_orientation);
+        out["has_xmp_tiff_orientation"] = nb::bool_(
+            result.orientation.has_xmp_tiff_orientation);
+        out["exif_ifd0_orientation"] = nb::int_(
+            result.orientation.exif_ifd0_orientation);
+        out["xmp_tiff_orientation"] = nb::int_(
+            result.orientation.xmp_tiff_orientation);
+        out["orientation_conflict"] = nb::bool_(
+            result.orientation.orientation_conflict);
 
         std::string overall = "ok";
         if (result.file_status != LibRawOrientationFileStatus::Ok) {
@@ -3099,16 +3331,15 @@ namespace {
 
     static nb::dict interpret_exif_orientation_to_python(uint16_t orientation)
     {
-        const ExifOrientationInterpretation result
-            = interpret_exif_orientation(orientation);
+        const ExifOrientationInterpretation result = interpret_exif_orientation(
+            orientation);
 
         nb::dict out;
         out["status"]      = result.status;
         out["status_name"] = nb::str(
             exif_orientation_status_name(result.status));
         out["orientation"]               = nb::int_(result.orientation);
-        out["rotation_degrees_cw"]       = nb::int_(
-            result.rotation_degrees_cw);
+        out["rotation_degrees_cw"]       = nb::int_(result.rotation_degrees_cw);
         out["rotation_only_orientation"] = nb::int_(
             result.rotation_only_orientation);
         out["mirrored"]           = nb::bool_(result.mirrored);
@@ -3120,9 +3351,9 @@ namespace {
     static nb::dict
     exif_orientation_rotation_degrees_to_python(uint16_t orientation)
     {
-        bool valid            = false;
-        const uint16_t result = exif_orientation_rotation_degrees_cw(
-            orientation, &valid);
+        bool valid = false;
+        const uint16_t result
+            = exif_orientation_rotation_degrees_cw(orientation, &valid);
 
         nb::dict out;
         out["valid"]               = nb::bool_(valid);
@@ -5193,6 +5424,32 @@ snapshot_query_raw_processing_metadata(const TransferSourceSnapshot& snapshot)
 }
 
 static nb::dict
+snapshot_interpret_metadata(const TransferSourceSnapshot& snapshot)
+{
+    return metadata_interpretation_to_python(snapshot.store);
+}
+
+static nb::dict
+snapshot_interpret_metadata_query(const TransferSourceSnapshot& snapshot,
+                                  MetadataQueryKind kind)
+{
+    return metadata_interpretation_query_to_python(snapshot.store, kind);
+}
+
+static nb::dict
+snapshot_resolve_metadata_concepts(const TransferSourceSnapshot& snapshot)
+{
+    return metadata_concepts_to_python(snapshot.store);
+}
+
+static nb::dict
+snapshot_resolve_metadata_concept(const TransferSourceSnapshot& snapshot,
+                                  MetadataConceptKind kind)
+{
+    return metadata_concept_to_python(snapshot.store, kind);
+}
+
+static nb::dict
 snapshot_transfer_safety_audit(const TransferSourceSnapshot& snapshot,
                                TransferSafetyMode safety)
 {
@@ -5288,6 +5545,32 @@ static nb::dict
 document_query_raw_processing_metadata(std::shared_ptr<PyDocument> d)
 {
     return metadata_query_to_python(d->store, MetadataQueryKind::RawProcessing);
+}
+
+static nb::dict
+document_interpret_metadata(std::shared_ptr<PyDocument> d)
+{
+    return metadata_interpretation_to_python(d->store);
+}
+
+static nb::dict
+document_interpret_metadata_query(std::shared_ptr<PyDocument> d,
+                                  MetadataQueryKind kind)
+{
+    return metadata_interpretation_query_to_python(d->store, kind);
+}
+
+static nb::dict
+document_resolve_metadata_concepts(std::shared_ptr<PyDocument> d)
+{
+    return metadata_concepts_to_python(d->store);
+}
+
+static nb::dict
+document_resolve_metadata_concept(std::shared_ptr<PyDocument> d,
+                                  MetadataConceptKind kind)
+{
+    return metadata_concept_to_python(d->store, kind);
 }
 
 static nb::dict
@@ -5571,7 +5854,12 @@ NB_MODULE(_openmeta, m)
         .value("LensCorrection", VendorRawProcessingGroup::LensCorrection)
         .value("RawData", VendorRawProcessingGroup::RawData)
         .value("Sensor", VendorRawProcessingGroup::Sensor)
-        .value("PrivateTable", VendorRawProcessingGroup::PrivateTable);
+        .value("PrivateTable", VendorRawProcessingGroup::PrivateTable)
+        .value("Preview", VendorRawProcessingGroup::Preview)
+        .value("FaceGeometry", VendorRawProcessingGroup::FaceGeometry)
+        .value("Computational", VendorRawProcessingGroup::Computational)
+        .value("Thermal", VendorRawProcessingGroup::Thermal)
+        .value("Stitch", VendorRawProcessingGroup::Stitch);
 
     nb::enum_<MetadataQueryKind>(m, "MetadataQueryKind")
         .value("Crop", MetadataQueryKind::Crop)
@@ -5600,7 +5888,8 @@ NB_MODULE(_openmeta, m)
         .value("Linearization", MetadataQuerySemanticKind::Linearization)
         .value("CfaLayout", MetadataQuerySemanticKind::CfaLayout)
         .value("SensorGeometry", MetadataQuerySemanticKind::SensorGeometry)
-        .value("RawStorage", MetadataQuerySemanticKind::RawStorage);
+        .value("RawStorage", MetadataQuerySemanticKind::RawStorage)
+        .value("SourceProcessing", MetadataQuerySemanticKind::SourceProcessing);
 
     nb::enum_<MetadataQueryValueShape>(m, "MetadataQueryValueShape")
         .value("Unknown", MetadataQueryValueShape::Unknown)
@@ -5646,6 +5935,39 @@ NB_MODULE(_openmeta, m)
         .value("Cfa", MetadataQueryMatchTerm::Cfa)
         .value("Raw", MetadataQueryMatchTerm::Raw)
         .value("Storage", MetadataQueryMatchTerm::Storage);
+
+    nb::enum_<MetadataConceptKind>(m, "MetadataConceptKind")
+        .value("Orientation", MetadataConceptKind::Orientation)
+        .value("DateTime", MetadataConceptKind::DateTime)
+        .value("ColorProfile", MetadataConceptKind::ColorProfile)
+        .value("Gps", MetadataConceptKind::Gps);
+
+    nb::enum_<MetadataConceptSourceFamily>(m, "MetadataConceptSourceFamily")
+        .value("Unknown", MetadataConceptSourceFamily::Unknown)
+        .value("Exif", MetadataConceptSourceFamily::Exif)
+        .value("Xmp", MetadataConceptSourceFamily::Xmp)
+        .value("Iptc", MetadataConceptSourceFamily::Iptc)
+        .value("Icc", MetadataConceptSourceFamily::Icc)
+        .value("PngText", MetadataConceptSourceFamily::PngText)
+        .value("InterpretationRecord",
+               MetadataConceptSourceFamily::InterpretationRecord);
+
+    nb::enum_<MetadataConceptRole>(m, "MetadataConceptRole")
+        .value("Primary", MetadataConceptRole::Primary)
+        .value("Orientation", MetadataConceptRole::Orientation)
+        .value("Created", MetadataConceptRole::Created)
+        .value("Digitized", MetadataConceptRole::Digitized)
+        .value("Modified", MetadataConceptRole::Modified)
+        .value("MetadataDate", MetadataConceptRole::MetadataDate)
+        .value("DateCreated", MetadataConceptRole::DateCreated)
+        .value("ColorSpace", MetadataConceptRole::ColorSpace)
+        .value("IccProfile", MetadataConceptRole::IccProfile)
+        .value("ColorMatrix", MetadataConceptRole::ColorMatrix)
+        .value("WhiteBalance", MetadataConceptRole::WhiteBalance)
+        .value("Latitude", MetadataConceptRole::Latitude)
+        .value("Longitude", MetadataConceptRole::Longitude)
+        .value("Altitude", MetadataConceptRole::Altitude)
+        .value("Timestamp", MetadataConceptRole::Timestamp);
 
     nb::enum_<CcmQueryStatus>(m, "CcmQueryStatus")
         .value("Ok", CcmQueryStatus::Ok)
@@ -6058,6 +6380,26 @@ NB_MODULE(_openmeta, m)
           "format"_a, "family"_a);
     m.def("metadata_query_fuzzy_search_available",
           &metadata_query_fuzzy_search_available);
+    m.def("tiff_compression_name", &tiff_compression_name, "value"_a);
+    m.def("tiff_photometric_interpretation_name",
+          &tiff_photometric_interpretation_name, "value"_a);
+    m.def("tiff_planar_configuration_name", &tiff_planar_configuration_name,
+          "value"_a);
+    m.def("tiff_resolution_unit_name", &tiff_resolution_unit_name, "value"_a);
+    m.def("exif_exposure_program_name", &exif_exposure_program_name, "value"_a);
+    m.def("exif_metering_mode_name", &exif_metering_mode_name, "value"_a);
+    m.def("exif_light_source_name", &exif_light_source_name, "value"_a);
+    m.def("exif_flash_name", &exif_flash_name, "value"_a);
+    m.def("exif_color_space_name", &exif_color_space_name, "value"_a);
+    m.def("exif_white_balance_name", &exif_white_balance_name, "value"_a);
+    m.def("exif_scene_capture_type_name", &exif_scene_capture_type_name,
+          "value"_a);
+    m.def("exif_gain_control_name", &exif_gain_control_name, "value"_a);
+    m.def("dng_cfa_layout_name", &dng_cfa_layout_name, "value"_a);
+    m.def("dng_calibration_illuminant_name", &dng_calibration_illuminant_name,
+          "value"_a);
+    m.def("exif_tag_numeric_value_name", &exif_tag_numeric_value_name_python,
+          "ifd"_a, "tag"_a, "value"_a);
 
     nb::enum_<TransferPolicySubject>(m, "TransferPolicySubject")
         .value("MakerNote", TransferPolicySubject::MakerNote)
@@ -6427,6 +6769,12 @@ NB_MODULE(_openmeta, m)
         .def("query_orientation_metadata", &snapshot_query_orientation_metadata)
         .def("query_raw_processing_metadata",
              &snapshot_query_raw_processing_metadata)
+        .def("interpret_metadata", &snapshot_interpret_metadata)
+        .def("interpret_metadata_query", &snapshot_interpret_metadata_query,
+             "kind"_a = MetadataQueryKind::Crop)
+        .def("resolve_metadata_concepts", &snapshot_resolve_metadata_concepts)
+        .def("resolve_metadata_concept", &snapshot_resolve_metadata_concept,
+             "kind"_a = MetadataConceptKind::Orientation)
         .def("transfer_safety_audit", &snapshot_transfer_safety_audit,
              "safety"_a = TransferSafetyMode::RenderedImage)
         .def("raw_carrier_passthrough_audit",
@@ -6580,6 +6928,12 @@ NB_MODULE(_openmeta, m)
         .def("query_orientation_metadata", &document_query_orientation_metadata)
         .def("query_raw_processing_metadata",
              &document_query_raw_processing_metadata)
+        .def("interpret_metadata", &document_interpret_metadata)
+        .def("interpret_metadata_query", &document_interpret_metadata_query,
+             "kind"_a = MetadataQueryKind::Crop)
+        .def("resolve_metadata_concepts", &document_resolve_metadata_concepts)
+        .def("resolve_metadata_concept", &document_resolve_metadata_concept,
+             "kind"_a = MetadataConceptKind::Orientation)
         .def("transfer_safety_audit", &document_transfer_safety_audit,
              "safety"_a = TransferSafetyMode::RenderedImage)
         .def(

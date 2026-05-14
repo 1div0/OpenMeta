@@ -614,6 +614,110 @@ namespace {
         return count > 0U;
     }
 
+    static bool parse_decimal_number(std::string_view text,
+                                     double* out) noexcept
+    {
+        if (!out || text.empty()) {
+            return false;
+        }
+
+        size_t i       = 0U;
+        double sign    = 1.0;
+        double value   = 0.0;
+        bool saw_digit = false;
+
+        if (text[i] == '+') {
+            ++i;
+        } else if (text[i] == '-') {
+            sign = -1.0;
+            ++i;
+        }
+
+        for (; i < text.size(); ++i) {
+            const char c = text[i];
+            if (c < '0' || c > '9') {
+                break;
+            }
+            saw_digit = true;
+            value     = value * 10.0 + static_cast<double>(c - '0');
+        }
+
+        if (i < text.size() && text[i] == '.') {
+            ++i;
+            double scale = 0.1;
+            for (; i < text.size(); ++i) {
+                const char c = text[i];
+                if (c < '0' || c > '9') {
+                    break;
+                }
+                saw_digit = true;
+                value += scale * static_cast<double>(c - '0');
+                scale *= 0.1;
+            }
+        }
+
+        if (!saw_digit || i != text.size()) {
+            return false;
+        }
+        *out = sign * value;
+        return true;
+    }
+
+    static bool is_number_separator(char c) noexcept
+    {
+        return c == ' ' || c == '\t' || c == '\r' || c == '\n' || c == ','
+               || c == ';' || c == '[' || c == ']' || c == '(' || c == ')';
+    }
+
+    static bool parse_number_list(std::string_view text, double* out_values,
+                                  uint32_t max_values,
+                                  uint32_t* out_count) noexcept
+    {
+        if (!out_values || !out_count || max_values == 0U) {
+            return false;
+        }
+        *out_count = 0U;
+
+        size_t token_start = 0U;
+        bool in_token      = false;
+        for (size_t i = 0U; i <= text.size(); ++i) {
+            const bool at_end = i == text.size();
+            const char c      = at_end ? ' ' : text[i];
+            if (!at_end && !is_number_separator(c)) {
+                if (!in_token) {
+                    token_start = i;
+                    in_token    = true;
+                }
+                continue;
+            }
+            if (!in_token) {
+                continue;
+            }
+            if (*out_count >= max_values) {
+                return true;
+            }
+            double value = 0.0;
+            if (!parse_decimal_number(text.substr(token_start, i - token_start),
+                                      &value)) {
+                return false;
+            }
+            out_values[*out_count] = value;
+            *out_count += 1U;
+            in_token = false;
+        }
+        return *out_count > 0U;
+    }
+
+    static bool text_value(const MetaStore& store, const MetaValue& value,
+                           std::string_view* out) noexcept
+    {
+        if (!out || value.kind != MetaValueKind::Text) {
+            return false;
+        }
+        *out = arena_string(store.arena(), value.data.span);
+        return true;
+    }
+
     static bool entry_is_deleted(const Entry& entry) noexcept
     {
         return any(entry.flags, EntryFlags::Deleted);
@@ -1086,6 +1190,21 @@ namespace {
                     groups, VendorRawProcessingGroup::Storage)) {
                 terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::Storage);
             }
+            if (vendor_raw_processing_group_has(
+                    groups, VendorRawProcessingGroup::PrivateTable)
+                || vendor_raw_processing_group_has(
+                    groups, VendorRawProcessingGroup::Preview)
+                || vendor_raw_processing_group_has(
+                    groups, VendorRawProcessingGroup::FaceGeometry)
+                || vendor_raw_processing_group_has(
+                    groups, VendorRawProcessingGroup::Computational)
+                || vendor_raw_processing_group_has(
+                    groups, VendorRawProcessingGroup::Thermal)
+                || vendor_raw_processing_group_has(
+                    groups, VendorRawProcessingGroup::Stitch)) {
+                terms |= static_cast<uint32_t>(
+                    MetadataQueryMatchTerm::SourceProcessing);
+            }
             break;
         }
         return terms;
@@ -1220,6 +1339,12 @@ namespace {
                 != 0U) {
                 return MetadataQuerySemanticKind::RawStorage;
             }
+            if ((terms
+                 & static_cast<uint32_t>(
+                     MetadataQueryMatchTerm::SourceProcessing))
+                != 0U) {
+                return MetadataQuerySemanticKind::SourceProcessing;
+            }
             if ((terms & static_cast<uint32_t>(MetadataQueryMatchTerm::Sensor))
                 != 0U) {
                 return MetadataQuerySemanticKind::SensorGeometry;
@@ -1332,6 +1457,12 @@ namespace {
                     | static_cast<uint32_t>(MetadataQueryMatchTerm::Storage)))
                 != 0U) {
                 return 86U;
+            }
+            if ((terms
+                 & static_cast<uint32_t>(
+                     MetadataQueryMatchTerm::SourceProcessing))
+                != 0U) {
+                return 84U;
             }
             if ((terms & static_cast<uint32_t>(MetadataQueryMatchTerm::Sensor))
                 != 0U) {
@@ -1871,7 +2002,112 @@ namespace {
         candidate.values.push_back(geometry.geometry.sensor_top_margin);
         candidate.values.push_back(geometry.geometry.right_margin);
         candidate.values.push_back(geometry.geometry.bottom_margin);
+        candidate.has_margins = true;
+        candidate.margins[0]  = geometry.geometry.sensor_left_margin;
+        candidate.margins[1]  = geometry.geometry.sensor_top_margin;
+        candidate.margins[2]  = geometry.geometry.right_margin;
+        candidate.margins[3]  = geometry.geometry.bottom_margin;
         result->candidates.push_back(candidate);
+    }
+
+    static void append_masked_areas_candidate(const MetaStore& store,
+                                              MetadataQueryResult* result)
+    {
+        if (!result) {
+            return;
+        }
+        const EntryId masked_id
+            = find_first_exif_tag_any_ifd(store, kDngMaskedAreasTag);
+        if (masked_id == kInvalidEntryId) {
+            return;
+        }
+
+        double values[64] {};
+        uint32_t count = 0U;
+        if (!value_to_double_array(store, store.entry(masked_id).value, values,
+                                   64U, &count)
+            || count < 4U) {
+            return;
+        }
+
+        MetadataQueryCandidate candidate;
+        candidate.semantic         = MetadataQuerySemanticKind::Border;
+        candidate.normalized_shape = MetadataQueryValueShape::Table;
+        candidate.confidence       = 90U;
+        append_unique_entry(&candidate.source_entries, masked_id);
+        candidate.has_values = true;
+        candidate.values.reserve(count);
+        for (uint32_t i = 0U; i < count; ++i) {
+            candidate.values.push_back(values[i]);
+        }
+
+        const double top    = values[0];
+        const double left   = values[1];
+        const double bottom = values[2];
+        const double right  = values[3];
+        if (right >= left && bottom >= top) {
+            candidate.has_origin = true;
+            candidate.origin[0]  = left;
+            candidate.origin[1]  = top;
+            candidate.has_size   = true;
+            candidate.size[0]    = right - left;
+            candidate.size[1]    = bottom - top;
+            candidate.has_rect   = true;
+            candidate.rect[0]    = left;
+            candidate.rect[1]    = top;
+            candidate.rect[2]    = right - left;
+            candidate.rect[3]    = bottom - top;
+        }
+        result->candidates.push_back(candidate);
+    }
+
+    static void append_border_text_candidate(const MetaStore& store,
+                                             MetadataQueryResult* result,
+                                             const MetadataQueryMatch& match)
+    {
+        if (!result || match.entry_id == kInvalidEntryId
+            || match.semantic != MetadataQuerySemanticKind::Border) {
+            return;
+        }
+
+        std::string_view text;
+        if (!text_value(store, store.entry(match.entry_id).value, &text)) {
+            return;
+        }
+
+        double values[8] {};
+        uint32_t count = 0U;
+        if (!parse_number_list(text, values, 8U, &count) || count < 4U) {
+            return;
+        }
+
+        MetadataQueryCandidate candidate;
+        candidate.semantic         = MetadataQuerySemanticKind::Border;
+        candidate.normalized_shape = MetadataQueryValueShape::Vec4;
+        candidate.confidence       = match.confidence;
+        append_unique_entry(&candidate.source_entries, match.entry_id);
+        candidate.has_margins = true;
+        candidate.margins[0]  = values[0];
+        candidate.margins[1]  = values[1];
+        candidate.margins[2]  = values[2];
+        candidate.margins[3]  = values[3];
+        candidate.has_values  = true;
+        candidate.values.reserve(4U);
+        for (uint32_t i = 0U; i < 4U; ++i) {
+            candidate.values.push_back(values[i]);
+        }
+        result->candidates.push_back(candidate);
+    }
+
+    static void append_crop_match_candidates(const MetaStore& store,
+                                             MetadataQueryResult* result)
+    {
+        if (!result) {
+            return;
+        }
+        for (size_t i = 0U; i < result->matches.size(); ++i) {
+            append_border_text_candidate(store, result, result->matches[i]);
+        }
     }
 
     static void append_query_value_candidate(const MetaStore& store,
@@ -2073,6 +2309,8 @@ query_crop_metadata(const MetaStore& store)
     append_default_crop_candidate(store, &result);
     append_active_area_candidate(store, &result);
     append_phaseone_crop_candidate(store, &result);
+    append_masked_areas_candidate(store, &result);
+    append_crop_match_candidates(store, &result);
     return result;
 }
 
@@ -2159,6 +2397,8 @@ metadata_query_semantic_kind_name(MetadataQuerySemanticKind kind) noexcept
     case MetadataQuerySemanticKind::CfaLayout: return "cfa_layout";
     case MetadataQuerySemanticKind::SensorGeometry: return "sensor_geometry";
     case MetadataQuerySemanticKind::RawStorage: return "raw_storage";
+    case MetadataQuerySemanticKind::SourceProcessing:
+        return "source_processing";
     }
     return "unknown";
 }

@@ -156,10 +156,26 @@ tag/name hits.
 Call `metadata_query_fuzzy_search_available()` when a UI wants to expose that
 the stronger fuzzy matcher is compiled in.
 
+For structured interpretation output, use `openmeta/metadata_interpretation.h`.
+It projects semantic query candidates into records that carry the query class,
+semantic kind, normalized shape, confidence, source entry ids, and normalized
+rect/margin/value arrays where available.
+
+For duplicated concepts that may appear in multiple metadata families, use
+`openmeta/metadata_concepts.h`. The first experimental resolver covers
+orientation, date/time, color/profile, and GPS. It returns candidate source
+entries, source families, preferred entries, normalized date/time fields where
+available, and same-role conflict flags so host UI can show ambiguity instead
+of guessing silently.
+
 For user-facing orientation display, use `openmeta/orientation.h` instead of
 showing only the numeric EXIF/TIFF index. `interpret_exif_orientation(...)`
 returns the index, human-readable label, clockwise rotation degrees, mirrored
 state, width/height-swap flag, and nearest rotation-only orientation.
+
+For common enum-like TIFF/EXIF/DNG numeric values, use
+`openmeta/exif_value_names.h`. Unknown values return an empty string and remain
+available as numeric `MetaStore` values.
 
 ## 5. Build A `MetaStore` Manually
 

@@ -31,7 +31,10 @@ Use the narrowest public API that matches your host:
 | EXR writer | `build_exr_attribute_batch_from_file(...)` |
 | Host-owned metadata object model | `visit_metadata(...)` |
 | Host metadata inspection/search UI | `openmeta/metadata_query.h` focused query helpers |
+| Structured interpreted metadata records | `openmeta/metadata_interpretation.h` |
+| Cross-family concept conflicts | `openmeta/metadata_concepts.h` |
 | User-facing orientation display | `openmeta/orientation.h` |
+| Common EXIF/TIFF/DNG value labels | `openmeta/exif_value_names.h` |
 | JPEG/JXL/WebP/PNG/JP2/BMFF encoder path | `prepare_metadata_for_target_file(...)` + adapter view or backend emitter |
 | Adobe DNG SDK objects/files | `dng_sdk_adapter.h` |
 
@@ -39,6 +42,19 @@ For inspection/search UI, prefer the experimental semantic query helpers before
 building a separate fuzzy layer. They report source entries, confidence, value
 shape, exact/fuzzy match provenance, and normalized candidates while preserving
 ambiguity.
+
+For host code that wants a simpler iterable result, use
+`metadata_interpretation.h`. It keeps the same semantic vocabulary as query but
+returns structured records with query class, normalized shape, source entries,
+confidence, and normalized geometry/value arrays.
+
+For host code that needs to reconcile duplicated concepts across metadata
+families, use `metadata_concepts.h`. It reports orientation, date/time,
+color/profile, and GPS candidates with source families, preferred entries, and
+same-role conflict flags. Date/time candidates include parsed date/time fields
+when the source value is recognizable, and GPS timestamps combine
+`GPSDateStamp` with `GPSTimeStamp` when both are present. Treat this as an
+inspection and policy input rather than an automatic metadata rewrite decision.
 
 ## Adapter Classes
 
@@ -57,6 +73,13 @@ OpenMeta splits host integration surfaces deliberately:
 - orientation utility:
   `orientation.h` for EXIF/TIFF labels, rotation degrees, mirrored-state
   checks, and width/height-swap checks
+- value-name utility:
+  `exif_value_names.h` for common EXIF/TIFF/DNG enum-style numeric labels
+- structured interpretation utility:
+  `metadata_interpretation.h` for query-backed semantic records
+- concept-resolution utility:
+  `metadata_concepts.h` for cross-family orientation, date/time, color/profile,
+  and GPS conflict inspection
 
 ## 1. Read Into `MetaStore`
 

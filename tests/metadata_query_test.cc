@@ -254,6 +254,42 @@ TEST(MetadataQuery, NormalizesActiveAreaCandidate)
     EXPECT_TRUE(contains_entry(candidate->source_entries, active_id));
 }
 
+TEST(MetadataQuery, NormalizesDngMaskedAreasCandidate)
+{
+    MetaStore store;
+    const std::array<uint32_t, 4> masked_area = {
+        0U,
+        0U,
+        24U,
+        4000U,
+    };
+    const EntryId masked_id
+        = add_exif_u32_array(&store, "ifd0", 0xC68EU,
+                             std::span<const uint32_t>(masked_area.data(),
+                                                       masked_area.size()));
+    store.finalize();
+
+    const MetadataQueryResult result = query_crop_metadata(store);
+
+    const MetadataQueryCandidate* candidate
+        = find_candidate_with_shape(result, MetadataQuerySemanticKind::Border,
+                                    MetadataQueryValueShape::Table, 1U);
+    ASSERT_NE(candidate, nullptr);
+    EXPECT_GE(candidate->confidence, 90U);
+    EXPECT_TRUE(contains_entry(candidate->source_entries, masked_id));
+    ASSERT_TRUE(candidate->has_rect);
+    EXPECT_DOUBLE_EQ(candidate->rect[0], 0.0);
+    EXPECT_DOUBLE_EQ(candidate->rect[1], 0.0);
+    EXPECT_DOUBLE_EQ(candidate->rect[2], 4000.0);
+    EXPECT_DOUBLE_EQ(candidate->rect[3], 24.0);
+    ASSERT_TRUE(candidate->has_values);
+    ASSERT_EQ(candidate->values.size(), 4U);
+    EXPECT_DOUBLE_EQ(candidate->values[0], 0.0);
+    EXPECT_DOUBLE_EQ(candidate->values[1], 0.0);
+    EXPECT_DOUBLE_EQ(candidate->values[2], 24.0);
+    EXPECT_DOUBLE_EQ(candidate->values[3], 4000.0);
+}
+
 TEST(MetadataQuery, NormalizesPhaseOneRawGeometryCandidate)
 {
     MetaStore store;
@@ -290,6 +326,11 @@ TEST(MetadataQuery, NormalizesPhaseOneRawGeometryCandidate)
     EXPECT_DOUBLE_EQ(candidate->values[1], 32.0);
     EXPECT_DOUBLE_EQ(candidate->values[2], 168.0);
     EXPECT_DOUBLE_EQ(candidate->values[3], 128.0);
+    ASSERT_TRUE(candidate->has_margins);
+    EXPECT_DOUBLE_EQ(candidate->margins[0], 64.0);
+    EXPECT_DOUBLE_EQ(candidate->margins[1], 32.0);
+    EXPECT_DOUBLE_EQ(candidate->margins[2], 168.0);
+    EXPECT_DOUBLE_EQ(candidate->margins[3], 128.0);
 }
 
 TEST(MetadataQuery, MatchesFuzzyXmpCropPath)
@@ -317,6 +358,18 @@ TEST(MetadataQuery, MatchesFuzzyXmpCropPath)
     EXPECT_NE((match->matched_terms
                & static_cast<uint32_t>(MetadataQueryMatchTerm::Padding)),
               0U);
+    const MetadataQueryCandidate* candidate
+        = find_candidate_with_shape(result, MetadataQuerySemanticKind::Border,
+                                    MetadataQueryValueShape::Vec4, 1U);
+    ASSERT_NE(candidate, nullptr);
+    EXPECT_TRUE(contains_entry(candidate->source_entries, entry_id));
+    ASSERT_TRUE(candidate->has_margins);
+    EXPECT_DOUBLE_EQ(candidate->margins[0], 64.0);
+    EXPECT_DOUBLE_EQ(candidate->margins[1], 32.0);
+    EXPECT_DOUBLE_EQ(candidate->margins[2], 168.0);
+    EXPECT_DOUBLE_EQ(candidate->margins[3], 128.0);
+    ASSERT_TRUE(candidate->has_values);
+    ASSERT_EQ(candidate->values.size(), 4U);
 }
 
 TEST(MetadataQuery, ReportsRapidFuzzAvailability)
@@ -714,6 +767,35 @@ TEST(MetadataQuery, MatchesDngRawProcessingLevels)
     ASSERT_TRUE(black_candidate->has_values);
     ASSERT_EQ(black_candidate->values.size(), 1U);
     EXPECT_DOUBLE_EQ(black_candidate->values[0], 512.0);
+}
+
+TEST(MetadataQuery, MatchesVendorSourceProcessingFields)
+{
+    MetaStore store;
+    const EntryId source_id = add_exif_u32(&store, "mk_google_shotlogdata",
+                                           0x0001U, 7U);
+    store.finalize();
+
+    const MetadataQueryResult result = query_raw_processing_metadata(store);
+
+    const MetadataQueryMatch* match = find_match_for_entry(result, source_id);
+    ASSERT_NE(match, nullptr);
+    EXPECT_EQ(match->semantic, MetadataQuerySemanticKind::SourceProcessing);
+    EXPECT_GE(match->confidence, 80U);
+    EXPECT_NE((match->matched_terms
+               & static_cast<uint32_t>(
+                   MetadataQueryMatchTerm::SourceProcessing)),
+              0U);
+    const MetadataQueryCandidate* candidate
+        = find_candidate_for_entry(result, source_id);
+    ASSERT_NE(candidate, nullptr);
+    EXPECT_EQ(candidate->semantic, MetadataQuerySemanticKind::SourceProcessing);
+    ASSERT_TRUE(candidate->has_values);
+    ASSERT_EQ(candidate->values.size(), 1U);
+    EXPECT_DOUBLE_EQ(candidate->values[0], 7.0);
+    EXPECT_STREQ(metadata_query_semantic_kind_name(
+                     MetadataQuerySemanticKind::SourceProcessing),
+                 "source_processing");
 }
 
 TEST(MetadataQuery, GroupsDngBlackLevelAndCfaTables)

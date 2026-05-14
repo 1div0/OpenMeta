@@ -97,6 +97,24 @@ Changes compared with `0.4.8`.
   interpretation helpers for user-facing labels, clockwise rotation degrees,
   mirrored-state checks, width/height-swap checks, and rotation-only fallbacks,
   plus matching thin Python wrappers.
+- Added `openmeta/exif_value_names.h` with stable labels for common
+  EXIF/TIFF/DNG enum-like numeric values, plus matching thin Python wrappers.
+- Added `openmeta/metadata_interpretation.h` with query-backed structured
+  interpretation records for host/UI code that wants normalized semantic
+  records instead of raw query candidates.
+- Added `openmeta/metadata_concepts.h` with first bounded cross-family concept
+  resolution for orientation, date/time, color/profile, and GPS candidates
+  across EXIF, XMP, IPTC, ICC, and PNG text where applicable, including source
+  families, candidate source entries, preferred entries, normalized compare
+  keys, parsed date/time fields, combined GPS date/time candidates, and
+  same-role conflict flags.
+- Semantic crop queries now expose canonical border-margin candidates for
+  parseable border/padding XMP text, DNG masked-area candidates, and Phase
+  One/Leaf geometry margins.
+- Vendor RAW/source-processing classification now distinguishes source-private
+  preview, face-geometry, computational, thermal, and stitch/panorama buckets
+  in addition to the existing color, white-balance, geometry, storage,
+  lens-correction, raw-data, sensor, and private-table groups.
 - Added focused regression coverage for compatible-file versus rendered-image
   transfer safety: compatible mode keeps serializable source RAW/camera-specific
   metadata, while rendered mode drops source-specific metadata and uses

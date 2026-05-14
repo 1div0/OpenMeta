@@ -79,14 +79,25 @@ Host-facing API map
        rotation degrees, mirrored-state detection, dimension-swap detection,
        and rotation-only fallbacks. Python exposes the same helpers through
        thin scalar/dictionary wrappers.
+   * - EXIF/TIFF/DNG numeric value names:
+       ``exif_tag_numeric_value_name(...)`` and focused helpers
+     - ``openmeta/exif_value_names.h``
+     - Stable
+     - Small helper contract for common enum-like TIFF/EXIF/DNG numeric values
+       such as compression, photometric interpretation, planar configuration,
+       exposure program, metering mode, light source, flash, color space, white
+       balance, scene capture type, gain control, CFA layout, and DNG
+       calibration illuminants. Unknown values return an empty string and
+       remain lossless numeric metadata.
    * - Semantic metadata query: ``query_metadata(...)``,
        ``query_crop_metadata(...)``, focused query helpers, and
        ``metadata_query_fuzzy_search_available()``
      - ``openmeta/metadata_query.h``
      - Experimental
      - Query contract for inspection matches plus normalized candidates.
-       Current coverage includes crop/active-area, exposure/gain, white
-       balance, color, lens correction, orientation, and RAW-processing
+       Current coverage includes crop/active-area/border margins,
+       exposure/gain, white balance, color, lens correction, orientation, and
+       RAW/source-processing
        metadata across standard tags, selected DNG tags, fuzzy XMP paths, and
        vendor RAW-processing classification. Matches report ``exact_match``,
        ``fuzzy_match``, and ``fuzzy_score`` so tools can label exact results
@@ -95,9 +106,36 @@ Host-facing API map
        XMP/property-path scoring. Grouped candidates
        include ``matrix_set``, ``vector_set``, and ``table`` shapes for related
        non-crop metadata, including RAW black/white levels, linearization,
-       CFA/sensor layout, source geometry, and raw-storage identifiers.
+       CFA/sensor layout, source geometry, raw-storage identifiers, and
+       source-processing buckets.
        Python ``Document`` and ``TransferSourceSnapshot`` mirror this as thin
        dictionary-returning wrappers.
+   * - Structured metadata interpretation records:
+       ``interpret_metadata(...)`` and ``interpret_metadata_query(...)``
+     - ``openmeta/metadata_interpretation.h``
+     - Experimental
+     - Thin structured projection over semantic query candidates. Records
+       carry query class, semantic kind, normalized shape, confidence, source
+       entry ids, and normalized origin/size/rect/margins/value arrays where
+       available. Current scope covers orientation, geometry/crop/border,
+       exposure/gain, color/white-balance, lens-correction, and
+       RAW/source-processing records. Python ``Document`` and
+       ``TransferSourceSnapshot`` expose matching dictionary wrappers.
+   * - Cross-family concept resolution:
+       ``resolve_metadata_concepts(...)`` and
+       ``resolve_metadata_concept(...)``
+     - ``openmeta/metadata_concepts.h``
+     - Experimental
+     - First bounded resolver for duplicated host-facing concepts. Current
+       scope reports candidates, candidate source entries, source families,
+       preferred entries, normalized numeric/text keys, normalized date/time
+       fields, and same-role conflicts for orientation, date/time,
+       color/profile, and GPS evidence across EXIF, XMP, IPTC, ICC, and PNG
+       text where applicable. GPS date/time is combined from ``GPSDateStamp``
+       plus ``GPSTimeStamp`` when both entries exist. It is intended for
+       inspection UI and host policy decisions; it does not rewrite metadata or
+       hide ambiguity. Python ``Document`` and ``TransferSourceSnapshot``
+       expose matching dictionary wrappers.
    * - Vendor RAW-processing summaries:
        ``vendor_raw_processing_from_store(...)``,
        ``classify_vendor_raw_processing_field(...)``

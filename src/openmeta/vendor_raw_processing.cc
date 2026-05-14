@@ -28,6 +28,16 @@ namespace {
         VendorRawProcessingGroup::Sensor);
     static constexpr uint32_t kVendorRawPrivateTable = static_cast<uint32_t>(
         VendorRawProcessingGroup::PrivateTable);
+    static constexpr uint32_t kVendorRawPreview = static_cast<uint32_t>(
+        VendorRawProcessingGroup::Preview);
+    static constexpr uint32_t kVendorRawFaceGeometry = static_cast<uint32_t>(
+        VendorRawProcessingGroup::FaceGeometry);
+    static constexpr uint32_t kVendorRawComputational = static_cast<uint32_t>(
+        VendorRawProcessingGroup::Computational);
+    static constexpr uint32_t kVendorRawThermal = static_cast<uint32_t>(
+        VendorRawProcessingGroup::Thermal);
+    static constexpr uint32_t kVendorRawStitch = static_cast<uint32_t>(
+        VendorRawProcessingGroup::Stitch);
 
     static std::string_view arena_string(const ByteArena& arena,
                                          ByteSpan span) noexcept
@@ -266,7 +276,7 @@ namespace {
             || contains(name, "SemanticStyle")
             || contains(name, "AccelerationVector")
             || contains(name, "FrontFacingCamera")) {
-            groups |= kVendorRawPrivateTable;
+            groups |= kVendorRawComputational | kVendorRawPrivateTable;
         }
         if (contains(name, "AEStable") || contains(name, "AETarget")
             || contains(name, "AEAverage") || contains(name, "AFStable")
@@ -279,7 +289,7 @@ namespace {
             || contains(name, "ImageUniqueID")
             || contains(name, "PhotoIdentifier") || contains(name, "BurstUUID")
             || contains(name, "LivePhotoVideoIndex")) {
-            groups |= kVendorRawPrivateTable;
+            groups |= kVendorRawComputational | kVendorRawPrivateTable;
         }
         return groups;
     }
@@ -338,7 +348,8 @@ namespace {
     {
         uint32_t groups = 0U;
         if (contains(ifd, "thermalparams")) {
-            groups |= kVendorRawSensor | kVendorRawPrivateTable;
+            groups |= kVendorRawSensor | kVendorRawThermal
+                      | kVendorRawPrivateTable;
         }
         return groups;
     }
@@ -352,7 +363,8 @@ namespace {
             || contains(name, "ReflectedTemperature")
             || contains(name, "Atmospheric") || contains(name, "Planck")
             || contains(name, "IRWindow") || contains(name, "RawValue")) {
-            groups |= kVendorRawSensor | kVendorRawPrivateTable;
+            groups |= kVendorRawSensor | kVendorRawThermal
+                      | kVendorRawPrivateTable;
         }
         if (contains(name, "Pitch") || contains(name, "Yaw")
             || contains(name, "Roll") || contains(name, "Speed")
@@ -367,7 +379,7 @@ namespace {
     {
         uint32_t groups = 0U;
         if (contains(ifd, "hdrplusmakernote") || contains(ifd, "shotlogdata")) {
-            groups |= kVendorRawPrivateTable;
+            groups |= kVendorRawComputational | kVendorRawPrivateTable;
         }
         return groups;
     }
@@ -378,12 +390,12 @@ namespace {
         if (contains(name, "HDR") || contains(name, "FrameCount")
             || contains(name, "Metering")
             || contains(name, "OriginalPayload")) {
-            groups |= kVendorRawSensor;
+            groups |= kVendorRawSensor | kVendorRawComputational;
         }
         if (contains(name, "TimeLog") || contains(name, "Summary")
             || contains(name, "ShotLog") || contains(name, "Metering")
             || contains(name, "OriginalPayload")) {
-            groups |= kVendorRawPrivateTable;
+            groups |= kVendorRawComputational | kVendorRawPrivateTable;
         }
         return groups;
     }
@@ -393,13 +405,15 @@ namespace {
         uint32_t groups = 0U;
         if (contains(ifd, "fff_rawdata")) {
             groups |= kVendorRawGeometry | kVendorRawRawData | kVendorRawSensor
-                      | kVendorRawPrivateTable;
+                      | kVendorRawThermal | kVendorRawPrivateTable;
         }
         if (contains(ifd, "fff_embeddedimage") || contains(ifd, "fff_pip")) {
-            groups |= kVendorRawGeometry | kVendorRawPrivateTable;
+            groups |= kVendorRawGeometry | kVendorRawPreview
+                      | kVendorRawPrivateTable;
         }
         if (contains(ifd, "params")) {
-            groups |= kVendorRawSensor | kVendorRawPrivateTable;
+            groups |= kVendorRawSensor | kVendorRawThermal
+                      | kVendorRawPrivateTable;
         }
         if (contains(ifd, "fff_paletteinfo")) {
             groups |= kVendorRawColor | kVendorRawPrivateTable;
@@ -422,14 +436,14 @@ namespace {
             groups |= kVendorRawGeometry;
         }
         if (contains(name, "RawThermal") || contains(name, "RawValue")) {
-            groups |= kVendorRawRawData | kVendorRawSensor;
+            groups |= kVendorRawRawData | kVendorRawSensor | kVendorRawThermal;
         }
         if (contains(name, "Temperature") || contains(name, "Emissivity")
             || contains(name, "ObjectDistance") || contains(name, "Humidity")
             || contains(name, "IRWindow") || contains(name, "Atmospheric")
             || contains(name, "Planck") || contains(name, "Transmission")
             || contains(name, "Real2IR")) {
-            groups |= kVendorRawSensor;
+            groups |= kVendorRawSensor | kVendorRawThermal;
         }
         if (contains(name, "Palette") || contains(name, "RawThermal")
             || contains(name, "Real2IR") || contains(name, "PiP")
@@ -823,6 +837,27 @@ namespace {
             || contains(name, "CameraParameters")) {
             groups |= kVendorRawPrivateTable;
         }
+        if (contains(name, "PreviewImage") || contains(name, "Thumbnail")) {
+            groups |= kVendorRawPreview | kVendorRawPrivateTable;
+        }
+        if (contains(name, "Face") || contains(name, "AFPoint")) {
+            groups |= kVendorRawFaceGeometry | kVendorRawGeometry
+                      | kVendorRawPrivateTable;
+        }
+        if (contains(name, "HDR") || contains(name, "ShotLog")
+            || contains(name, "ImageProcessing")
+            || contains(name, "Computational")) {
+            groups |= kVendorRawComputational | kVendorRawPrivateTable;
+        }
+        if (contains(name, "Thermal") || contains(name, "Radiometric")
+            || contains(name, "Planck") || contains(name, "Emissivity")) {
+            groups |= kVendorRawThermal | kVendorRawPrivateTable;
+        }
+        if (contains(name, "Stitch") || contains(name, "Panorama")
+            || contains(name, "Panoramic")) {
+            groups |= kVendorRawStitch | kVendorRawGeometry
+                      | kVendorRawPrivateTable;
+        }
         return groups;
     }
 
@@ -914,6 +949,21 @@ namespace {
         }
         if ((groups & kVendorRawPrivateTable) != 0U) {
             out->private_table_fields += 1U;
+        }
+        if ((groups & kVendorRawPreview) != 0U) {
+            out->preview_fields += 1U;
+        }
+        if ((groups & kVendorRawFaceGeometry) != 0U) {
+            out->face_geometry_fields += 1U;
+        }
+        if ((groups & kVendorRawComputational) != 0U) {
+            out->computational_fields += 1U;
+        }
+        if ((groups & kVendorRawThermal) != 0U) {
+            out->thermal_fields += 1U;
+        }
+        if ((groups & kVendorRawStitch) != 0U) {
+            out->stitch_fields += 1U;
         }
     }
 
@@ -1080,6 +1130,11 @@ vendor_raw_processing_group_name(VendorRawProcessingGroup group) noexcept
     case VendorRawProcessingGroup::RawData: return "raw_data";
     case VendorRawProcessingGroup::Sensor: return "sensor";
     case VendorRawProcessingGroup::PrivateTable: return "private_table";
+    case VendorRawProcessingGroup::Preview: return "preview";
+    case VendorRawProcessingGroup::FaceGeometry: return "face_geometry";
+    case VendorRawProcessingGroup::Computational: return "computational";
+    case VendorRawProcessingGroup::Thermal: return "thermal";
+    case VendorRawProcessingGroup::Stitch: return "stitch";
     }
     return "mixed";
 }

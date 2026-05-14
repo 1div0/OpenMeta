@@ -1968,11 +1968,9 @@ namespace {
     remove_prepared_blocks_by_route(PreparedTransferBundle* bundle,
                                     std::string_view route) noexcept;
 
-    static bool
-    build_bmff_metadata_only_meta_box(const PreparedTransferBundle& bundle,
-                                      uint64_t output_meta_offset,
-                                      std::vector<std::byte>* out_meta,
-                                      EmitTransferResult* out) noexcept;
+    static bool build_bmff_metadata_only_meta_box(
+        const PreparedTransferBundle& bundle, uint64_t output_meta_offset,
+        std::vector<std::byte>* out_meta, EmitTransferResult* out) noexcept;
 
     static void
     append_package_prepared_block_chunk(PreparedTransferPackagePlan* plan,
@@ -9071,7 +9069,17 @@ namespace {
                || vendor_raw_processing_group_has(
                    groups, VendorRawProcessingGroup::Sensor)
                || vendor_raw_processing_group_has(
-                   groups, VendorRawProcessingGroup::PrivateTable);
+                   groups, VendorRawProcessingGroup::PrivateTable)
+               || vendor_raw_processing_group_has(
+                   groups, VendorRawProcessingGroup::Preview)
+               || vendor_raw_processing_group_has(
+                   groups, VendorRawProcessingGroup::FaceGeometry)
+               || vendor_raw_processing_group_has(
+                   groups, VendorRawProcessingGroup::Computational)
+               || vendor_raw_processing_group_has(
+                   groups, VendorRawProcessingGroup::Thermal)
+               || vendor_raw_processing_group_has(
+                   groups, VendorRawProcessingGroup::Stitch);
     }
 
     static std::string_view
@@ -22835,10 +22843,10 @@ namespace {
     };
 
     struct ExistingBmffManagedItemExtent final {
-        uint32_t item_id    = 0U;
-        uint64_t offset     = 0U;
-        uint64_t length     = 0U;
-        bool file_offset    = false;
+        uint32_t item_id = 0U;
+        uint64_t offset  = 0U;
+        uint64_t length  = 0U;
+        bool file_offset = false;
     };
 
     struct BmffForeignIinfEntry final {
@@ -23411,9 +23419,9 @@ namespace {
                             if (construction_method == 1U
                                 && base_offset == 0U) {
                                 ExistingBmffManagedItemExtent one;
-                                one.item_id = item_id;
-                                one.offset  = extent_offset;
-                                one.length  = extent_length;
+                                one.item_id     = item_id;
+                                one.offset      = extent_offset;
+                                one.length      = extent_length;
                                 one.file_offset = false;
                                 extents.push_back(one);
                             } else if (construction_method == 0U) {
@@ -23423,9 +23431,9 @@ namespace {
                                     return;
                                 }
                                 ExistingBmffManagedItemExtent one;
-                                one.item_id = item_id;
-                                one.offset  = base_offset + extent_offset;
-                                one.length  = extent_length;
+                                one.item_id     = item_id;
+                                one.offset      = base_offset + extent_offset;
+                                one.length      = extent_length;
                                 one.file_offset = true;
                                 extents.push_back(one);
                             }
@@ -23448,9 +23456,8 @@ namespace {
                 if (extents[j].item_id != items[i].item_id) {
                     continue;
                 }
-                if (extents[j].offset
-                    > std::numeric_limits<uint64_t>::max()
-                          - extents[j].length) {
+                if (extents[j].offset > std::numeric_limits<uint64_t>::max()
+                                            - extents[j].length) {
                     continue;
                 }
                 const uint64_t item_payload_end = extents[j].offset
@@ -23460,9 +23467,9 @@ namespace {
                     if (item_payload_end > bytes.size()) {
                         continue;
                     }
-                    existing_payload = bytes.subspan(
-                        static_cast<size_t>(extents[j].offset),
-                        static_cast<size_t>(extents[j].length));
+                    existing_payload
+                        = bytes.subspan(static_cast<size_t>(extents[j].offset),
+                                        static_cast<size_t>(extents[j].length));
                 } else {
                     if (idat_payload.empty()
                         || item_payload_end > idat_payload.size()) {
@@ -26305,11 +26312,9 @@ namespace {
         return true;
     }
 
-    static bool
-    build_bmff_metadata_only_meta_box(const PreparedTransferBundle& bundle,
-                                      uint64_t output_meta_offset,
-                                      std::vector<std::byte>* out_meta,
-                                      EmitTransferResult* out) noexcept
+    static bool build_bmff_metadata_only_meta_box(
+        const PreparedTransferBundle& bundle, uint64_t output_meta_offset,
+        std::vector<std::byte>* out_meta, EmitTransferResult* out) noexcept
     {
         if (!out_meta || !out) {
             return false;

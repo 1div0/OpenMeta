@@ -1,0 +1,58 @@
+// SPDX-License-Identifier: Apache-2.0
+
+#include "openmeta/exif_value_names.h"
+
+#include <gtest/gtest.h>
+
+namespace openmeta {
+namespace {
+
+    TEST(ExifValueNames, MapsTiffImageLayoutEnums)
+    {
+        EXPECT_STREQ(tiff_compression_name(1U), "Uncompressed");
+        EXPECT_STREQ(tiff_compression_name(8U), "Adobe Deflate");
+        EXPECT_STREQ(tiff_photometric_interpretation_name(2U), "RGB");
+        EXPECT_STREQ(tiff_photometric_interpretation_name(32803U),
+                     "Color Filter Array");
+        EXPECT_STREQ(tiff_planar_configuration_name(1U), "Chunky");
+        EXPECT_STREQ(tiff_planar_configuration_name(2U), "Planar");
+        EXPECT_STREQ(tiff_resolution_unit_name(3U), "cm");
+        EXPECT_STREQ(tiff_compression_name(65535U), "");
+    }
+
+    TEST(ExifValueNames, MapsStandardExifEnums)
+    {
+        EXPECT_STREQ(exif_exposure_program_name(3U), "Aperture-priority AE");
+        EXPECT_STREQ(exif_metering_mode_name(5U), "Multi-segment");
+        EXPECT_STREQ(exif_light_source_name(21U), "D65");
+        EXPECT_STREQ(exif_flash_name(25U), "Auto, fired");
+        EXPECT_STREQ(exif_color_space_name(1U), "sRGB");
+        EXPECT_STREQ(exif_color_space_name(0xFFFFU), "Uncalibrated");
+        EXPECT_STREQ(exif_white_balance_name(1U), "Manual");
+        EXPECT_STREQ(exif_exposure_program_name(6U), "Action (High speed)");
+        EXPECT_STREQ(exif_scene_capture_type_name(2U), "Portrait");
+        EXPECT_STREQ(exif_scene_capture_type_name(3U), "Night");
+        EXPECT_STREQ(exif_gain_control_name(2U), "High gain up");
+        EXPECT_STREQ(exif_metering_mode_name(42U), "");
+    }
+
+    TEST(ExifValueNames, MapsDngEnums)
+    {
+        EXPECT_STREQ(dng_cfa_layout_name(1U), "Rectangular");
+        EXPECT_STREQ(dng_cfa_layout_name(4U),
+                     "Even rows offset right 1/2 column");
+        EXPECT_STREQ(dng_calibration_illuminant_name(23U), "D50");
+    }
+
+    TEST(ExifValueNames, DispatchesByTag)
+    {
+        EXPECT_STREQ(exif_tag_numeric_value_name("ifd0", 0x0106U, 2U), "RGB");
+        EXPECT_STREQ(exif_tag_numeric_value_name("exififd", 0x9208U, 4U),
+                     "Flash");
+        EXPECT_STREQ(exif_tag_numeric_value_name("ifd0", 0xC617U, 1U),
+                     "Rectangular");
+        EXPECT_STREQ(exif_tag_numeric_value_name("ifd0", 0x9999U, 1U), "");
+    }
+
+}  // namespace
+}  // namespace openmeta

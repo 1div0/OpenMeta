@@ -600,6 +600,9 @@ TEST(VendorRawProcessing, ClassifiesFlirThermalProcessingFields)
         = classify_vendor_raw_processing_field("mk_flir_fff_camerainfo_0",
                                                "PlanckR1", 0x0058U);
     EXPECT_TRUE(has_group(planck_groups, VendorRawProcessingGroup::Sensor));
+    EXPECT_TRUE(has_group(planck_groups, VendorRawProcessingGroup::Thermal));
+    EXPECT_TRUE(
+        has_group(planck_groups, VendorRawProcessingGroup::PrivateTable));
 
     const VendorRawProcessingGroup palette_groups
         = classify_vendor_raw_processing_field("mk_flir_fff_paletteinfo_0",
@@ -628,6 +631,51 @@ TEST(VendorRawProcessing, ClassifiesFlirThermalProcessingFields)
         = classify_vendor_raw_processing_field("mk_flir_fff_camerainfo_0",
                                                "CameraModel", 0x00D4U);
     EXPECT_EQ(capture_groups, VendorRawProcessingGroup::None);
+}
+
+TEST(VendorRawProcessing, ClassifiesSourcePrivateSubgroups)
+{
+    const VendorRawProcessingGroup apple_hdr
+        = classify_vendor_raw_processing_field("mk_apple", "HDRHeadroom",
+                                               0x0054U);
+    EXPECT_TRUE(has_group(apple_hdr, VendorRawProcessingGroup::Computational));
+    EXPECT_TRUE(has_group(apple_hdr, VendorRawProcessingGroup::PrivateTable));
+
+    const VendorRawProcessingGroup dji_thermal
+        = classify_vendor_raw_processing_field("mk_dji_thermalparams",
+                                               "Emissivity", 0x0001U);
+    EXPECT_TRUE(has_group(dji_thermal, VendorRawProcessingGroup::Thermal));
+    EXPECT_TRUE(has_group(dji_thermal, VendorRawProcessingGroup::Sensor));
+
+    const VendorRawProcessingGroup google_shot
+        = classify_vendor_raw_processing_field("mk_google_shotlogdata",
+                                               "ShotLogData", 0x0001U);
+    EXPECT_TRUE(
+        has_group(google_shot, VendorRawProcessingGroup::Computational));
+    EXPECT_TRUE(has_group(google_shot, VendorRawProcessingGroup::PrivateTable));
+
+    const VendorRawProcessingGroup flir_raw
+        = classify_vendor_raw_processing_field("mk_flir_fff_rawdata",
+                                               "RawThermalImage", 0x0001U);
+    EXPECT_TRUE(has_group(flir_raw, VendorRawProcessingGroup::Thermal));
+    EXPECT_TRUE(has_group(flir_raw, VendorRawProcessingGroup::RawData));
+
+    const VendorRawProcessingGroup face
+        = classify_vendor_raw_processing_field("mk_casio_faceinfo",
+                                               "Face1Position", 0x0018U);
+    EXPECT_TRUE(has_group(face, VendorRawProcessingGroup::FaceGeometry));
+
+    const VendorRawProcessingGroup stitch
+        = classify_vendor_raw_processing_field("mk_microsoft",
+                                               "PanoramicStitchTheta0",
+                                               0x0001U);
+    EXPECT_TRUE(has_group(stitch, VendorRawProcessingGroup::Stitch));
+    EXPECT_STREQ(vendor_raw_processing_group_name(
+                     VendorRawProcessingGroup::Computational),
+                 "computational");
+    EXPECT_STREQ(vendor_raw_processing_group_name(
+                     VendorRawProcessingGroup::Thermal),
+                 "thermal");
 }
 
 TEST(VendorRawProcessing, ClassifiesCasioSourceProcessingFields)
@@ -1112,7 +1160,8 @@ TEST(VendorRawProcessing, SummarizesFamiliesFromStore)
     EXPECT_EQ(flir.geometry_fields, 2U);
     EXPECT_EQ(flir.raw_data_fields, 1U);
     EXPECT_EQ(flir.sensor_fields, 2U);
-    EXPECT_EQ(flir.private_table_fields, 3U);
+    EXPECT_EQ(flir.private_table_fields, 4U);
+    EXPECT_EQ(flir.thermal_fields, 2U);
 
     const VendorRawProcessingSummary casio
         = vendor_raw_processing_from_store(store,

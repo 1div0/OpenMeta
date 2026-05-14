@@ -339,6 +339,7 @@ set(OPENMETA_SOURCES
   src/openmeta/exif_makernote_samsung.cc
   src/openmeta/exif_makernote_sony.cc
   src/openmeta/exif_makernote_tag_names.cc
+  src/openmeta/exif_value_names.cc
   src/openmeta/exr_adapter.cc
   src/openmeta/exr_decode.cc
   src/openmeta/exif_tag_names.cc
@@ -355,6 +356,8 @@ set(OPENMETA_SOURCES
   src/openmeta/libraw_adapter.cc
   src/openmeta/meta_key.cc
   src/openmeta/metadata_capabilities.cc
+  src/openmeta/metadata_concepts.cc
+  src/openmeta/metadata_interpretation.cc
   src/openmeta/metadata_query.cc
   src/openmeta/metadata_transfer.cc
   src/openmeta/meta_store.cc
@@ -762,12 +765,15 @@ if(OPENMETA_BUILD_TESTS)
     tests/exr_adapter_test.cc
     tests/exr_decode_test.cc
     tests/exif_tiff_decode_test.cc
+    tests/exif_value_names_test.cc
     tests/geotiff_decode_test.cc
     tests/iptc_iim_decode_test.cc
     tests/interop_export_test.cc
     tests/dji_app4_decode_test.cc
     tests/makernote_decode_test.cc
     tests/metadata_capabilities_test.cc
+    tests/metadata_concepts_test.cc
+    tests/metadata_interpretation_test.cc
     tests/metadata_query_test.cc
     tests/metadata_transfer_api_test.cc
     tests/flir_fff_decode_test.cc

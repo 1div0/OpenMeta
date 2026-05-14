@@ -35,11 +35,12 @@ model should stay compact:
        vendor-private fields.
      - Medium-high, about 80%.
    * - Query
-     - Find entries by name, fuzzy term, or semantic group, for example
-       crop/border/active-area, exposure/gain, color/WB, orientation,
-       lens-correction, and RAW-processing fields across standard and vendor
-       metadata.
-     - Low, about 25-30%.
+     - Find entries by name, fuzzy term, or semantic group, then expose
+       normalized query candidates, structured interpretation records, and
+       bounded cross-family concept resolutions for crop/border/active-area,
+       exposure/gain, color/WB, orientation, date/time, GPS, lens-correction,
+       and RAW/source-processing fields across standard and vendor metadata.
+     - Medium, about 50-60%.
    * - Creation
      - Build fresh metadata entries from host-provided values.
      - Medium, about 55-65%.
@@ -81,14 +82,15 @@ RAW-processing queries.
 Crop queries include DNG crop tags, ``ActiveArea``, Phase One/Leaf raw
 geometry, and fuzzy crop/border-style XMP property paths. The non-crop queries
 expose per-entry value candidates and reuse standard tag names, selected DNG
-tags, fuzzy XMP paths, and vendor RAW-processing classification where
-applicable.
+tags, fuzzy XMP paths, canonical border-margin parsing, and vendor
+RAW-processing classification where applicable.
 They also append grouped candidates for related DNG color matrix/calibration/
 reduction/forward matrix tags, DNG white-balance vector tags, and
 lens-correction table groups. RAW-processing queries add conservative groups
 for black/white levels, linearization tables, CFA/sensor layout, source
-geometry, and raw-storage identifiers. Grouped candidates use ``matrix_set``,
-``vector_set``, and ``table`` value shapes. When
+geometry, raw-storage identifiers, and source-private processing buckets.
+Grouped candidates use ``matrix_set``, ``vector_set``, and ``table`` value
+shapes. When
 ``OPENMETA_ENABLE_RAPIDFUZZ=ON``, the same query helpers also use RapidFuzz to
 score near-miss XMP/property paths; default builds keep the deterministic
 substring/tag matcher only. Each raw match reports ``exact_match``,
@@ -96,6 +98,20 @@ substring/tag matcher only. Each raw match reports ``exact_match``,
 matches from near-miss search hits.
 Python ``Document`` and ``TransferSourceSnapshot`` mirror this as thin wrappers
 returning the same match/candidate dictionary shape.
+
+For code that wants an iterable semantic record stream instead of raw query
+matches, use ``openmeta/metadata_interpretation.h``. It projects query
+candidates into records with query class, semantic kind, normalized shape,
+confidence, source entries, and normalized geometry/value arrays where
+available.
+
+For cross-family duplicated concepts, use ``openmeta/metadata_concepts.h``.
+It currently resolves orientation, date/time, color/profile, and GPS into
+candidate lists with candidate source entries, source families, preferred
+entries, normalized compare keys, parsed date/time fields, and same-role
+conflict flags. This is deliberately an inspection/policy surface; host code
+still decides whether a conflict should be shown, ignored, or corrected during
+editing/transfer.
 
 Read-path coverage snapshot
 ---------------------------

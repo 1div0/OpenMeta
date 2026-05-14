@@ -11,6 +11,46 @@ This is intentionally lower than decode coverage. Decode parity only proves
 that metadata carriers and entries are visible; interpretation also requires
 human-readable meaning and safe cross-format behavior.
 
+100% acceptance gates
+---------------------
+
+For the declared target scope, an entry counts as covered when it has one
+explicit outcome:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 22 78
+
+   * - Gate
+     - Requirement
+   * - Decoded
+     - The carrier and entry are visible in ``MetaStore``, or the decoder
+       reports an explicit unsupported/limit/malformed reason.
+   * - Named
+     - The entry has a stable public name, or it is deliberately exposed as an
+       unknown numeric/private field.
+   * - Typed
+     - The raw value shape is preserved as scalar, vector, matrix, table, bytes,
+       text, or opaque blob.
+   * - Interpreted
+     - Known enum-like values, orientation states, geometry, color,
+       white-balance, lens-correction, RAW-processing, and source-private
+       meanings are projected into public helpers or query candidates.
+   * - Classified
+     - Source-bound data is classified as portable, target-owned, source
+       RAW-specific, vendor-private, computational, thermal, preview/face/
+       stitch metadata, or opaque/lossless.
+   * - Queryable
+     - Host/UI workflows can find the interpreted meaning through focused query
+       helpers with source entries, confidence, value shape, and normalized
+       fields where available.
+   * - Structured
+     - Host code can consume query-backed interpretation records without
+       reassembling raw query candidates manually.
+   * - Conflict-aware
+     - Duplicated cross-family concepts either have a documented precedence rule
+       or surface enough source information for host conflict handling.
+
 Coverage matrix
 ---------------
 
@@ -24,8 +64,8 @@ Coverage matrix
      - Main remaining gap
    * - Standard EXIF/TIFF/DNG tag names and typed values
      - Standard tag names, common scalar/vector values, DNG crop/color/
-       RAW-processing fields, and GeoTIFF key names are available through
-       decoded entries and query helpers.
+       RAW-processing fields, GeoTIFF key names, and common EXIF/TIFF/DNG
+       numeric value-name helpers are available.
      - High, about 90-95%.
      - More enum-style human-readable values and richer conflict handling
        between duplicated families.
@@ -45,14 +85,16 @@ Coverage matrix
    * - Orientation
      - EXIF/TIFF orientation query, LibRaw flip mapping, and generic
        orientation helpers for index, rotation degrees, mirrored state,
-       dimension swap, rotation-only fallback, and human-readable labels.
+       dimension swap, rotation-only fallback, human-readable labels, and
+       EXIF-vs-XMP conflict reporting in the LibRaw bridge.
      - High, about 90-95%.
-     - Higher-level policy for resolving conflicting EXIF, XMP, container, and
-       host pixel-orientation state remains host-specific.
+     - Higher-level policy for resolving container and host pixel-orientation
+       state remains host-specific.
    * - Geometry, crop, active area, and borders
-     - DNG crop/active-area tags, Phase One/Leaf geometry, vendor RAW-processing
-       geometry buckets, and fuzzy crop/border-style paths are queryable.
-     - Medium-high, about 80-85%.
+     - DNG crop/active-area/masked-area tags, Phase One/Leaf geometry,
+       canonical border margins, vendor RAW-processing geometry buckets, and
+       fuzzy crop/border-style paths are queryable.
+     - Medium-high, about 85-90%.
      - More vendor-specific normalized rectangles and stronger output contracts
        for ambiguous multi-tag geometry.
    * - Color, white balance, and matrices
@@ -71,7 +113,8 @@ Coverage matrix
    * - Vendor MakerNotes
      - Broad MakerNote naming and source-processing classification exists for
        common vendors and several live computational/thermal vendors. Unknown
-       entries remain lossless.
+       entries remain lossless and source-private subgroups distinguish
+       preview, face geometry, computational, thermal, and stitch/panorama data.
      - Medium-high, about 75-85%.
      - ExifTool-style long-tail print conversions, encrypted/custom settings,
        and per-model private tables.
@@ -85,12 +128,17 @@ Coverage matrix
        for fixed-layout resources.
      - Medium, about 60-70%.
      - Broader resource-specific interpretation.
-   * - Semantic query/search
+   * - Semantic query/search and records
      - Query helpers expose raw matches, confidence, provenance, value shapes,
-       normalized candidates, and optional RapidFuzz near-miss matching.
-     - Low-medium, about 30-40%.
-     - Stronger result contracts, more canonical shapes, and broader
-       cross-family concept resolution.
+       normalized candidates, canonical crop/active-area rectangles, border
+       margins, source-processing buckets, optional RapidFuzz near-miss
+       matching, structured interpretation records, and first bounded
+       cross-family concept resolution for orientation, date/time,
+       color/profile, and GPS with parsed date/time fields and combined GPS
+       timestamps.
+     - Medium, about 52-60%.
+     - More canonical shapes, deeper GPS/date normalization, and richer
+       per-record host policy hints.
    * - Transfer-safety classification
      - Compatible-file versus rendered-image safety policies classify
        source-specific image geometry, color/profile, RAW-processing, MakerNote,
@@ -114,10 +162,11 @@ outputs.
 Next interpretation priorities
 ------------------------------
 
-1. Harden semantic query output contracts for orientation, geometry, color,
-   lens correction, and RAW-processing groups.
-2. Add corpus-backed interpretation checks that compare public-safe names and
-   human-readable values against established tool behavior.
+1. Expand cross-family concept resolution beyond the current orientation,
+   date/time, color/profile, and GPS pass, especially richer timezone, GPS
+   altitude/reference, and host policy hints.
+2. Add more canonical record shapes for vendor geometry, color, lens
+   correction, and RAW-processing groups.
 3. Expand MakerNote meaning depth in vendor order: Nikon, Canon, Sony,
    Fujifilm, Phase One/Leaf, then remaining active vendors.
 4. Deepen BMFF/CR3/HEIF/AVIF item graph semantics only where hosts can use the

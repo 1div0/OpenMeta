@@ -79,6 +79,11 @@ struct LibRawOrientationResult final {
     bool apply_flip                = false;
     bool mirrored                  = false;
     bool preview_passthrough       = false;
+    bool has_exif_ifd0_orientation = false;
+    bool has_xmp_tiff_orientation  = false;
+    uint16_t exif_ifd0_orientation = 0;
+    uint16_t xmp_tiff_orientation  = 0;
+    bool orientation_conflict      = false;
 };
 
 /// Options for \ref map_libraw_flip_to_exif_orientation.
@@ -150,9 +155,9 @@ struct LibRawOrientationFileResult final {
  * baked into the extracted bytes or carried by the preview's own metadata.
  */
 LibRawOrientationResult
-map_exif_orientation_to_libraw_flip(
-    uint16_t exif_orientation, const LibRawOrientationOptions& options
-    = LibRawOrientationOptions {}) noexcept;
+map_exif_orientation_to_libraw_flip(uint16_t exif_orientation,
+                                    const LibRawOrientationOptions& options
+                                    = LibRawOrientationOptions {}) noexcept;
 
 /**
  * \brief Maps one common LibRaw `imgdata.sizes.flip` value back into EXIF/TIFF
@@ -172,9 +177,9 @@ map_exif_orientation_to_libraw_flip(
  * pass previews through unchanged and assume EXIF orientation `1`.
  */
 LibRawFlipToExifResult
-map_libraw_flip_to_exif_orientation(
-    uint32_t libraw_flip, const LibRawFlipToExifOptions& options
-    = LibRawFlipToExifOptions {}) noexcept;
+map_libraw_flip_to_exif_orientation(uint32_t libraw_flip,
+                                    const LibRawFlipToExifOptions& options
+                                    = LibRawFlipToExifOptions {}) noexcept;
 
 /**
  * \brief Extracts canonical orientation metadata from a \ref MetaStore and
@@ -186,9 +191,9 @@ map_libraw_flip_to_exif_orientation(
  * - assumed default EXIF orientation `1` if neither is present
  */
 LibRawOrientationResult
-map_meta_orientation_to_libraw_flip(
-    const MetaStore& store, const LibRawOrientationOptions& options
-    = LibRawOrientationOptions {}) noexcept;
+map_meta_orientation_to_libraw_flip(const MetaStore& store,
+                                    const LibRawOrientationOptions& options
+                                    = LibRawOrientationOptions {}) noexcept;
 
 /**
  * \brief Reads one file, decodes supported metadata, then maps canonical
@@ -201,6 +206,6 @@ map_meta_orientation_to_libraw_flip(
 LibRawOrientationFileResult
 map_meta_orientation_to_libraw_flip_from_file(
     const char* path, const LibRawOrientationFileOptions& options
-    = LibRawOrientationFileOptions {}) noexcept;
+                      = LibRawOrientationFileOptions {}) noexcept;
 
 }  // namespace openmeta

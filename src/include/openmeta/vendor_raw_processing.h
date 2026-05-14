@@ -53,6 +53,11 @@ enum class VendorRawProcessingGroup : uint32_t {
     RawData        = 1U << 5U,
     Sensor         = 1U << 6U,
     PrivateTable   = 1U << 7U,
+    Preview        = 1U << 8U,
+    FaceGeometry   = 1U << 9U,
+    Computational  = 1U << 10U,
+    Thermal        = 1U << 11U,
+    Stitch         = 1U << 12U,
 };
 
 struct VendorRawProcessingSummary final {
@@ -65,6 +70,11 @@ struct VendorRawProcessingSummary final {
     uint32_t raw_data_fields        = 0U;
     uint32_t sensor_fields          = 0U;
     uint32_t private_table_fields   = 0U;
+    uint32_t preview_fields         = 0U;
+    uint32_t face_geometry_fields   = 0U;
+    uint32_t computational_fields   = 0U;
+    uint32_t thermal_fields         = 0U;
+    uint32_t stitch_fields          = 0U;
 };
 
 VendorRawProcessingGroup

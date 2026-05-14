@@ -16,8 +16,7 @@ namespace {
         = "http://ns.adobe.com/tiff/1.0/";
 
     static bool map_exact_exif_orientation_to_libraw_flip(
-        uint16_t orientation, uint32_t* out_flip,
-        bool* out_apply_flip) noexcept
+        uint16_t orientation, uint32_t* out_flip, bool* out_apply_flip) noexcept
     {
         if (!out_flip || !out_apply_flip) {
             return false;
@@ -50,18 +49,10 @@ namespace {
             return false;
         }
         switch (libraw_flip) {
-        case 0U:
-            *out_orientation = 1U;
-            return true;
-        case 3U:
-            *out_orientation = 3U;
-            return true;
-        case 5U:
-            *out_orientation = 8U;
-            return true;
-        case 6U:
-            *out_orientation = 6U;
-            return true;
+        case 0U: *out_orientation = 1U; return true;
+        case 3U: *out_orientation = 3U; return true;
+        case 5U: *out_orientation = 8U; return true;
+        case 6U: *out_orientation = 6U; return true;
         default: return false;
         }
     }
@@ -169,14 +160,14 @@ namespace {
         return false;
     }
 
-    static bool extract_exif_orientation_from_store(const MetaStore& store,
-                                                    uint16_t* out,
-                                                    bool* found_invalid) noexcept
+    static bool
+    extract_exif_orientation_from_store(const MetaStore& store, uint16_t* out,
+                                        bool* found_invalid) noexcept
     {
         if (!out || !found_invalid) {
             return false;
         }
-        *found_invalid = false;
+        *found_invalid                       = false;
         const std::span<const Entry> entries = store.entries();
         for (size_t i = 0; i < entries.size(); ++i) {
             const Entry& entry = entries[i];
@@ -201,7 +192,7 @@ namespace {
         if (!out || !found_invalid) {
             return false;
         }
-        *found_invalid = false;
+        *found_invalid                       = false;
         const std::span<const Entry> entries = store.entries();
         for (size_t i = 0; i < entries.size(); ++i) {
             const Entry& entry = entries[i];
@@ -270,7 +261,7 @@ map_exif_orientation_to_libraw_flip(
 
     if (options.target == LibRawOrientationTarget::EmbeddedPreview
         && options.preserve_embedded_preview_orientation) {
-        result.code               = LibRawOrientationCode::PreviewPassThrough;
+        result.code                = LibRawOrientationCode::PreviewPassThrough;
         result.preview_passthrough = true;
         return result;
     }
@@ -280,7 +271,7 @@ map_exif_orientation_to_libraw_flip(
         result.mirrored = true;
         if (options.mirror_policy == LibRawMirrorPolicy::Reject) {
             result.status = LibRawOrientationStatus::Unsupported;
-            result.code   = LibRawOrientationCode::UnsupportedMirroredOrientation;
+            result.code = LibRawOrientationCode::UnsupportedMirroredOrientation;
             return result;
         }
         effective_orientation = exif_orientation_rotation_only(
@@ -310,9 +301,9 @@ map_libraw_flip_to_exif_orientation(
 
     if (options.target == LibRawOrientationTarget::EmbeddedPreview
         && options.preserve_embedded_preview_orientation) {
-        result.code               = LibRawFlipToExifCode::PreviewPassThrough;
+        result.code                = LibRawFlipToExifCode::PreviewPassThrough;
         result.preview_passthrough = true;
-        result.exif_orientation   = 1U;
+        result.exif_orientation    = 1U;
         return result;
     }
 
@@ -330,13 +321,25 @@ LibRawOrientationResult
 map_meta_orientation_to_libraw_flip(
     const MetaStore& store, const LibRawOrientationOptions& options) noexcept
 {
-    uint16_t orientation = 0U;
-    bool found_invalid   = false;
-    if (extract_exif_orientation_from_store(store, &orientation,
-                                            &found_invalid)) {
+    uint16_t exif_orientation = 0U;
+    uint16_t xmp_orientation  = 0U;
+    bool found_invalid        = false;
+    const bool has_exif       = extract_exif_orientation_from_store(store,
+                                                                    &exif_orientation,
+                                                                    &found_invalid);
+    if (has_exif) {
         LibRawOrientationResult result
-            = map_exif_orientation_to_libraw_flip(orientation, options);
-        result.source = LibRawOrientationSource::ExifIfd0;
+            = map_exif_orientation_to_libraw_flip(exif_orientation, options);
+        result.source                    = LibRawOrientationSource::ExifIfd0;
+        result.has_exif_ifd0_orientation = true;
+        result.exif_ifd0_orientation     = exif_orientation;
+        bool found_invalid_xmp           = false;
+        if (extract_xmp_tiff_orientation_from_store(store, &xmp_orientation,
+                                                    &found_invalid_xmp)) {
+            result.has_xmp_tiff_orientation = true;
+            result.xmp_tiff_orientation     = xmp_orientation;
+            result.orientation_conflict = xmp_orientation != exif_orientation;
+        }
         return result;
     }
     if (found_invalid) {
@@ -347,11 +350,13 @@ map_meta_orientation_to_libraw_flip(
         return result;
     }
 
-    if (extract_xmp_tiff_orientation_from_store(store, &orientation,
+    if (extract_xmp_tiff_orientation_from_store(store, &xmp_orientation,
                                                 &found_invalid)) {
         LibRawOrientationResult result
-            = map_exif_orientation_to_libraw_flip(orientation, options);
+            = map_exif_orientation_to_libraw_flip(xmp_orientation, options);
         result.source = LibRawOrientationSource::XmpTiffOrientation;
+        result.has_xmp_tiff_orientation = true;
+        result.xmp_tiff_orientation     = xmp_orientation;
         return result;
     }
     if (found_invalid) {
@@ -364,8 +369,8 @@ map_meta_orientation_to_libraw_flip(
 
     LibRawOrientationResult result
         = map_exif_orientation_to_libraw_flip(1U, options);
-    result.code            = LibRawOrientationCode::MissingExifOrientationAssumedDefault;
-    result.source          = LibRawOrientationSource::AssumedDefault;
+    result.code   = LibRawOrientationCode::MissingExifOrientationAssumedDefault;
+    result.source = LibRawOrientationSource::AssumedDefault;
     result.exif_orientation = 1U;
     return result;
 }
@@ -398,7 +403,7 @@ map_meta_orientation_to_libraw_flip_from_file(
     MetaStore store;
 
     for (;;) {
-        store = MetaStore();
+        store    = MetaStore();
         out.read = simple_meta_read(
             mapped.bytes(), store,
             std::span<ContainerBlockRef>(blocks.data(), blocks.size()),
@@ -421,7 +426,7 @@ map_meta_orientation_to_libraw_flip_from_file(
         if (out.read.payload.status == PayloadStatus::OutputTruncated
             && out.read.payload.needed > payload.size()) {
             if (out.read.payload.needed > static_cast<uint64_t>(SIZE_MAX)) {
-                out.file_status        = LibRawOrientationFileStatus::DecodeFailed;
+                out.file_status = LibRawOrientationFileStatus::DecodeFailed;
                 out.orientation.status = LibRawOrientationStatus::Unsupported;
                 return out;
             }
@@ -439,8 +444,8 @@ map_meta_orientation_to_libraw_flip_from_file(
         return out;
     }
 
-    out.orientation = map_meta_orientation_to_libraw_flip(
-        store, options.orientation);
+    out.orientation = map_meta_orientation_to_libraw_flip(store,
+                                                          options.orientation);
     out.file_status = LibRawOrientationFileStatus::Ok;
     return out;
 }

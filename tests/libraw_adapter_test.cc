@@ -278,6 +278,10 @@ TEST(LibRawAdapter, ReadsExifOrientationFromMetaStore) {
     EXPECT_EQ(result.status, LibRawOrientationStatus::Ok);
     EXPECT_EQ(result.source, LibRawOrientationSource::ExifIfd0);
     EXPECT_EQ(result.exif_orientation, 6U);
+    EXPECT_TRUE(result.has_exif_ifd0_orientation);
+    EXPECT_EQ(result.exif_ifd0_orientation, 6U);
+    EXPECT_FALSE(result.has_xmp_tiff_orientation);
+    EXPECT_FALSE(result.orientation_conflict);
     EXPECT_EQ(result.libraw_flip, 6U);
 }
 
@@ -297,6 +301,10 @@ TEST(LibRawAdapter, FallsBackToXmpOrientationWhenExifMissing) {
     EXPECT_EQ(result.status, LibRawOrientationStatus::Ok);
     EXPECT_EQ(result.source, LibRawOrientationSource::XmpTiffOrientation);
     EXPECT_EQ(result.exif_orientation, 8U);
+    EXPECT_FALSE(result.has_exif_ifd0_orientation);
+    EXPECT_TRUE(result.has_xmp_tiff_orientation);
+    EXPECT_EQ(result.xmp_tiff_orientation, 8U);
+    EXPECT_FALSE(result.orientation_conflict);
     EXPECT_EQ(result.libraw_flip, 5U);
 }
 
@@ -336,6 +344,11 @@ TEST(LibRawAdapter, PrefersExifOverXmpOrientation) {
     EXPECT_EQ(result.status, LibRawOrientationStatus::Ok);
     EXPECT_EQ(result.source, LibRawOrientationSource::ExifIfd0);
     EXPECT_EQ(result.exif_orientation, 6U);
+    EXPECT_TRUE(result.has_exif_ifd0_orientation);
+    EXPECT_TRUE(result.has_xmp_tiff_orientation);
+    EXPECT_EQ(result.exif_ifd0_orientation, 6U);
+    EXPECT_EQ(result.xmp_tiff_orientation, 8U);
+    EXPECT_TRUE(result.orientation_conflict);
     EXPECT_EQ(result.libraw_flip, 6U);
 }
 
@@ -350,6 +363,8 @@ TEST(LibRawAdapter, FileHelperReadsExifOrientationFromTiff) {
     EXPECT_EQ(result.orientation.status, LibRawOrientationStatus::Ok);
     EXPECT_EQ(result.orientation.source, LibRawOrientationSource::ExifIfd0);
     EXPECT_EQ(result.orientation.exif_orientation, 6U);
+    EXPECT_TRUE(result.orientation.has_exif_ifd0_orientation);
+    EXPECT_EQ(result.orientation.exif_ifd0_orientation, 6U);
     EXPECT_EQ(result.orientation.libraw_flip, 6U);
 }
 
