@@ -3,6 +3,7 @@
 #include "openmeta/libraw_adapter.h"
 
 #include "openmeta/meta_key.h"
+#include "openmeta/orientation.h"
 
 #include <span>
 #include <string_view>
@@ -13,29 +14,6 @@ namespace {
 
     static constexpr std::string_view kXmpNsTiff
         = "http://ns.adobe.com/tiff/1.0/";
-
-    static bool is_mirrored_exif_orientation(uint16_t orientation) noexcept
-    {
-        switch (orientation) {
-        case 2U:
-        case 4U:
-        case 5U:
-        case 7U: return true;
-        default: return false;
-        }
-    }
-
-    static uint16_t
-    drop_mirror_from_exif_orientation(uint16_t orientation) noexcept
-    {
-        switch (orientation) {
-        case 2U: return 1U;
-        case 4U: return 3U;
-        case 5U: return 8U;
-        case 7U: return 6U;
-        default: return orientation;
-        }
-    }
 
     static bool map_exact_exif_orientation_to_libraw_flip(
         uint16_t orientation, uint32_t* out_flip,
@@ -284,7 +262,7 @@ map_exif_orientation_to_libraw_flip(
     LibRawOrientationResult result {};
     result.exif_orientation = exif_orientation;
 
-    if (exif_orientation < 1U || exif_orientation > 8U) {
+    if (!exif_orientation_is_valid(exif_orientation)) {
         result.status = LibRawOrientationStatus::InvalidArgument;
         result.code   = LibRawOrientationCode::InvalidExifOrientation;
         return result;
@@ -298,21 +276,21 @@ map_exif_orientation_to_libraw_flip(
     }
 
     uint16_t effective_orientation = exif_orientation;
-    if (is_mirrored_exif_orientation(exif_orientation)) {
+    if (exif_orientation_is_mirrored(exif_orientation)) {
         result.mirrored = true;
         if (options.mirror_policy == LibRawMirrorPolicy::Reject) {
             result.status = LibRawOrientationStatus::Unsupported;
             result.code   = LibRawOrientationCode::UnsupportedMirroredOrientation;
             return result;
         }
-        effective_orientation = drop_mirror_from_exif_orientation(
+        effective_orientation = exif_orientation_rotation_only(
             exif_orientation);
         result.code = LibRawOrientationCode::MirroredOrientationDropped;
     }
 
-    if (!map_exact_exif_orientation_to_libraw_flip(
-            effective_orientation, &result.libraw_flip,
-            &result.apply_flip)) {
+    if (!map_exact_exif_orientation_to_libraw_flip(effective_orientation,
+                                                   &result.libraw_flip,
+                                                   &result.apply_flip)) {
         result.status = LibRawOrientationStatus::Unsupported;
         if (result.code == LibRawOrientationCode::None) {
             result.code = LibRawOrientationCode::UnsupportedMirroredOrientation;

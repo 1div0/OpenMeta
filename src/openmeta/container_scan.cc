@@ -129,6 +129,30 @@ namespace {
     }
 
 
+    static bool has_xmp_packet_hint(std::span<const std::byte> bytes,
+                                    uint64_t offset, uint64_t size) noexcept
+    {
+        const uint64_t end = (size < 512U) ? (offset + size) : (offset + 512U);
+        if (end > bytes.size() || offset > end) {
+            return false;
+        }
+
+        if (find_match(bytes, offset, end, "<?xpacket", 9U) != UINT64_MAX) {
+            return true;
+        }
+        if (find_match(bytes, offset, end, "<x:xmpmeta", 10U) != UINT64_MAX) {
+            return true;
+        }
+        if (find_match(bytes, offset, end, "<xmp:xmpmeta", 12U) != UINT64_MAX) {
+            return true;
+        }
+        if (find_match(bytes, offset, end, "<rdf:RDF", 8U) != UINT64_MAX) {
+            return true;
+        }
+        return false;
+    }
+
+
     static void sink_emit(BlockSink* sink,
                           const ContainerBlockRef& block) noexcept
     {
@@ -608,6 +632,17 @@ scan_jpeg(std::span<const std::byte> bytes,
                 block.outer_size   = seg_total_size;
                 block.data_offset  = seg_payload_off + 29;
                 block.data_size    = seg_payload_size - 29;
+                block.id           = marker;
+                sink_emit(&sink, block);
+            } else if (has_xmp_packet_hint(bytes, seg_payload_off,
+                                           seg_payload_size)) {
+                ContainerBlockRef block;
+                block.format       = ContainerFormat::Jpeg;
+                block.kind         = ContainerBlockKind::Xmp;
+                block.outer_offset = seg_total_off;
+                block.outer_size   = seg_total_size;
+                block.data_offset  = seg_payload_off;
+                block.data_size    = seg_payload_size;
                 block.id           = marker;
                 sink_emit(&sink, block);
             } else if (match(bytes, seg_payload_off,

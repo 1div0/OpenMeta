@@ -12,6 +12,8 @@ Repository layout (public):
 OpenMeta structure
 ------------------
 
+See :doc:`interpretation_status` for the semantic interpretation matrix.
+
 OpenMeta's public architecture is organized around a small set of user-facing
 capabilities. Internally some of these split into more stages, but the public
 model should stay compact:
@@ -26,12 +28,12 @@ model should stay compact:
    * - Decoding
      - Find metadata carriers and decode EXIF, XMP, IPTC, ICC, Photoshop IRB,
        JUMBF/C2PA, EXR, and related blocks into ``MetaStore`` entries.
-     - High, about 90-95% for the current target scope.
+     - High, about 98-100% for the current target scope.
    * - Interpretation
      - Normalize names and values, group entries by meaning, and classify
        source-bound data such as RAW crop, color, lens-correction, sensor, and
        vendor-private fields.
-     - Medium-high, about 75-85%.
+     - Medium-high, about 80%.
    * - Query
      - Find entries by name, fuzzy term, or semantic group, for example
        crop/border/active-area, exposure/gain, color/WB, orientation,

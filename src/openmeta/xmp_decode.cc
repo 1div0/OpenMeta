@@ -33,8 +33,7 @@ namespace {
     static constexpr std::string_view kXmlNs
         = "http://www.w3.org/XML/1998/namespace";
     static constexpr std::string_view kXmpMetaNs = "adobe:ns:meta/";
-    static constexpr std::string_view kXmpNsXmp
-        = "http://ns.adobe.com/xap/1.0/";
+    static constexpr std::string_view kXmpNsXmp = "http://ns.adobe.com/xap/1.0/";
     static constexpr std::string_view kXmpNsTiff
         = "http://ns.adobe.com/tiff/1.0/";
     static constexpr std::string_view kXmpNsExif
@@ -43,8 +42,7 @@ namespace {
         = "http://ns.adobe.com/exif/1.0/aux/";
     static constexpr std::string_view kXmpNsDc
         = "http://purl.org/dc/elements/1.1/";
-    static constexpr std::string_view kXmpNsPdf
-        = "http://ns.adobe.com/pdf/1.3/";
+    static constexpr std::string_view kXmpNsPdf = "http://ns.adobe.com/pdf/1.3/";
     static constexpr std::string_view kXmpNsXmpBJ
         = "http://ns.adobe.com/xap/1.0/bj/";
     static constexpr std::string_view kXmpNsPlus
@@ -205,6 +203,35 @@ namespace {
     }
 
 
+    static size_t find_xmpmeta_close_end(std::string_view s) noexcept
+    {
+        size_t search = 0;
+        while (search < s.size()) {
+            const size_t open = s.find("</", search);
+            if (open == std::string_view::npos) {
+                return std::string_view::npos;
+            }
+            const size_t name_begin = open + 2U;
+            const size_t gt         = s.find('>', name_begin);
+            if (gt == std::string_view::npos) {
+                return std::string_view::npos;
+            }
+
+            const std::string_view qname = s.substr(name_begin,
+                                                    gt - name_begin);
+            const size_t colon           = qname.rfind(':');
+            const std::string_view local = (colon == std::string_view::npos)
+                                               ? qname
+                                               : qname.substr(colon + 1U);
+            if (local == "xmpmeta") {
+                return gt + 1U;
+            }
+            search = gt + 1U;
+        }
+        return std::string_view::npos;
+    }
+
+
     static std::span<const std::byte>
     normalize_xmp_packet(std::span<const std::byte> bytes) noexcept
     {
@@ -226,12 +253,11 @@ namespace {
         // from container-specific storage (e.g. ISO-BMFF `mime` items).
         const std::string_view tail = s.substr(begin);
         {
-            static constexpr std::string_view kCloseXmpMeta = "</x:xmpmeta>";
-            static constexpr std::string_view kCloseRdf     = "</rdf:RDF>";
+            static constexpr std::string_view kCloseRdf = "</rdf:RDF>";
 
-            size_t pos = tail.find(kCloseXmpMeta);
+            size_t pos = find_xmpmeta_close_end(tail);
             if (pos != std::string_view::npos) {
-                end = begin + pos + kCloseXmpMeta.size();
+                end = begin + pos;
             } else {
                 pos = tail.find(kCloseRdf);
                 if (pos != std::string_view::npos) {
@@ -445,9 +471,8 @@ namespace {
         }
 
         for (size_t i = 0; i < lang.size(); ++i) {
-            const char c = lang[i];
-            const bool ok = (c >= 'A' && c <= 'Z')
-                            || (c >= 'a' && c <= 'z')
+            const char c  = lang[i];
+            const bool ok = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')
                             || (c >= '0' && c <= '9') || c == '-';
             if (!ok) {
                 return false;
@@ -688,12 +713,18 @@ namespace {
                 if (ap.uri.empty() || ap.local.empty()) {
                     continue;
                 }
-                if (ap.uri == kRdfNs || ap.uri == kXmlNs) {
-                    continue;
-                }
                 const std::string_view av(atts[i + 1],
                                           std::strlen(atts[i + 1]));
                 const std::string_view trimmed = trim_ascii_ws(av);
+                if (ap.uri == kRdfNs) {
+                    if (ap.local == "about" && !trimmed.empty()) {
+                        (void)emit_property_text(ctx, kRdfNs, "About", trimmed);
+                    }
+                    continue;
+                }
+                if (ap.uri == kXmlNs) {
+                    continue;
+                }
                 (void)emit_property_text(ctx, ap.uri, ap.local, trimmed);
             }
         }
@@ -722,6 +753,9 @@ namespace {
                 const std::string_view trimmed = trim_ascii_ws(frame.text);
                 (void)emit_property_text(ctx, ctx->root_schema_ns, ctx->path,
                                          trimmed);
+            } else if (frame.is_array_container && frame.li_counter == 0U) {
+                (void)emit_property_text(ctx, ctx->root_schema_ns, ctx->path,
+                                         std::string_view {});
             }
         }
 

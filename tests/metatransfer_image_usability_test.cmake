@@ -209,7 +209,7 @@ p.write_bytes(out)
   set("TARGET_${format}" "${_path}" PARENT_SCOPE)
 endfunction()
 
-function(_om_check_oiio_file format path)
+function(_om_check_oiio_file format path width height samples finite_count)
   execute_process(
     COMMAND "${OIIOTOOL_BIN}" --info --stats "${path}"
     RESULT_VARIABLE _rv
@@ -220,11 +220,17 @@ function(_om_check_oiio_file format path)
     message(FATAL_ERROR
       "oiiotool could not read edited ${format} (${_rv})\nstdout:\n${_out}\nstderr:\n${_err}")
   endif()
-  if(NOT _out MATCHES "64 x[ ]+32, 3 channel")
+  if(NOT _out MATCHES "${width} x[ ]+${height}, ${samples} channel")
     message(FATAL_ERROR
       "oiiotool reported unexpected geometry for edited ${format}\n${_out}")
   endif()
-  if(NOT _out MATCHES "FiniteCount: 2048 2048 2048")
+  set(_finite_pattern "FiniteCount:")
+  set(_finite_index 0)
+  while(_finite_index LESS ${samples})
+    set(_finite_pattern "${_finite_pattern} ${finite_count}")
+    math(EXPR _finite_index "${_finite_index} + 1")
+  endwhile()
+  if(NOT _out MATCHES "${_finite_pattern}")
     message(FATAL_ERROR
       "oiiotool stats did not cover all pixels for edited ${format}\n${_out}")
   endif()
@@ -283,21 +289,177 @@ function(_om_check_decodable_file format path)
     "stderr:\n${_err_oiio}")
 endfunction()
 
-function(_om_check_oiio format extension)
-  _om_check_oiio_file("${format}" "${WORK_DIR}/edited.${extension}")
+function(_om_set_default_image_spec prefix)
+  set("${prefix}_WIDTH" 64 PARENT_SCOPE)
+  set("${prefix}_HEIGHT" 32 PARENT_SCOPE)
+  set("${prefix}_SAMPLES" 3 PARENT_SCOPE)
+  set("${prefix}_BITS" 8 PARENT_SCOPE)
+  set("${prefix}_SAMPLE_FORMAT" 1 PARENT_SCOPE)
+  set("${prefix}_PHOTOMETRIC" 2 PARENT_SCOPE)
+  set("${prefix}_PLANAR" 1 PARENT_SCOPE)
+  set("${prefix}_EXIF_COLOR_SPACE" 1 PARENT_SCOPE)
+  set("${prefix}_FINITE_COUNT" 2048 PARENT_SCOPE)
+  set("${prefix}_STRICT_OIIO" TRUE PARENT_SCOPE)
 endfunction()
 
-function(_om_check_exiftool format extension)
+function(_om_probe_target_image_spec format path prefix out_var)
+  set(_exiftool_arg "")
+  if(DEFINED EXIFTOOL_BIN AND NOT EXIFTOOL_BIN STREQUAL ""
+     AND EXISTS "${EXIFTOOL_BIN}")
+    set(_exiftool_arg "${EXIFTOOL_BIN}")
+  endif()
+  execute_process(
+    COMMAND python3 -c
+      [=[
+import re
+import subprocess
+import sys
+
+exiftool = sys.argv[1]
+oiiotool = sys.argv[2]
+path = sys.argv[3]
+
+
+def first_int(value):
+    if value is None:
+        return None
+    match = re.search(r"-?\d+", value)
+    if match is None:
+        return None
+    return int(match.group(0))
+
+
+tags = {}
+if exiftool:
+    proc = subprocess.run(
+        [
+            exiftool,
+            "-s",
+            "-n",
+            "-ImageWidth",
+            "-ImageHeight",
+            "-ExifImageWidth",
+            "-ExifImageHeight",
+            "-BitsPerSample",
+            "-SamplesPerPixel",
+            path,
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    if proc.returncode == 0:
+        for line in proc.stdout.splitlines():
+            match = re.match(r"([^:]+?)\s*:\s*(.*)", line)
+            if match is not None:
+                tags[match.group(1).strip()] = match.group(2).strip()
+
+oiio_width = None
+oiio_height = None
+oiio_samples = None
+oiio_type = ""
+proc = subprocess.run(
+    [oiiotool, "--info", "--stats", path],
+    stdout=subprocess.PIPE,
+    stderr=subprocess.PIPE,
+    text=True,
+)
+if proc.returncode == 0:
+    match = re.search(
+        r":\s*(\d+)\s+x\s+(\d+),\s+(\d+)\s+channel,\s+([A-Za-z0-9_]+)",
+        proc.stdout,
+    )
+    if match is not None:
+        oiio_width = int(match.group(1))
+        oiio_height = int(match.group(2))
+        oiio_samples = int(match.group(3))
+        oiio_type = match.group(4)
+
+width = first_int(tags.get("ExifImageWidth"))
+height = first_int(tags.get("ExifImageHeight"))
+if width is None:
+    width = first_int(tags.get("ImageWidth"))
+if height is None:
+    height = first_int(tags.get("ImageHeight"))
+if width is None:
+    width = oiio_width
+if height is None:
+    height = oiio_height
+if width is None or height is None or width <= 0 or height <= 0:
+    sys.stderr.write("could not infer target metadata dimensions\n")
+    sys.exit(1)
+
+samples = first_int(tags.get("SamplesPerPixel"))
+if samples is None:
+    samples = oiio_samples
+if samples is None or samples <= 0:
+    samples = 3
+
+bits = first_int(tags.get("BitsPerSample"))
+if bits is None:
+    bits_by_type = {
+        "uint8": 8,
+        "int8": 8,
+        "uint16": 16,
+        "int16": 16,
+        "half": 16,
+        "uint32": 32,
+        "int32": 32,
+        "float": 32,
+        "double": 64,
+    }
+    bits = bits_by_type.get(oiio_type, 8)
+
+sample_format = 1
+if oiio_type in ("half", "float", "double"):
+    sample_format = 3
+elif oiio_type.startswith("int"):
+    sample_format = 2
+
+photometric = 1 if samples == 1 else 2
+
+print(f"WIDTH={width}")
+print(f"HEIGHT={height}")
+print(f"SAMPLES={samples}")
+print(f"BITS={bits}")
+print(f"SAMPLE_FORMAT={sample_format}")
+print(f"PHOTOMETRIC={photometric}")
+print("PLANAR=1")
+print("EXIF_COLOR_SPACE=1")
+print("FINITE_COUNT=")
+print("STRICT_OIIO=FALSE")
+]=]
+      "${_exiftool_arg}" "${OIIOTOOL_BIN}" "${path}"
+    RESULT_VARIABLE _rv
+    OUTPUT_VARIABLE _out
+    ERROR_VARIABLE _err
+  )
+  if(NOT _rv EQUAL 0)
+    message(STATUS
+      "skipping ${format} image-property transfer; could not infer target "
+      "image specs\nstdout:\n${_out}\nstderr:\n${_err}")
+    set("${out_var}" FALSE PARENT_SCOPE)
+    return()
+  endif()
+  string(REPLACE "\n" ";" _spec_lines "${_out}")
+  foreach(_line IN LISTS _spec_lines)
+    if(_line MATCHES "^([A-Z_]+)=(.*)$")
+      set("${prefix}_${CMAKE_MATCH_1}" "${CMAKE_MATCH_2}" PARENT_SCOPE)
+    endif()
+  endforeach()
+  set("${out_var}" TRUE PARENT_SCOPE)
+endfunction()
+
+function(_om_check_exiftool_file format path width height samples)
   if(NOT DEFINED EXIFTOOL_BIN OR EXIFTOOL_BIN STREQUAL ""
      OR NOT EXISTS "${EXIFTOOL_BIN}")
     return()
   endif()
-  set(_path "${WORK_DIR}/edited.${extension}")
   execute_process(
     COMMAND "${EXIFTOOL_BIN}" -validate -warning -error -ImageWidth
             -ImageHeight -ExifImageWidth -ExifImageHeight -BitsPerSample
             -SamplesPerPixel -PhotometricInterpretation -PlanarConfiguration
-            -Orientation -ColorSpace "${_path}"
+            -Orientation -ColorSpace "${path}"
     RESULT_VARIABLE _rv
     OUTPUT_VARIABLE _out
     ERROR_VARIABLE _err
@@ -313,20 +475,26 @@ function(_om_check_exiftool format extension)
     message(FATAL_ERROR
       "exiftool reported an improper EXIF header for edited ${format}\n${_out}")
   endif()
-  if(NOT _out MATCHES "Image Width[ ]*: 64")
-    message(FATAL_ERROR "exiftool missing ImageWidth=64 for ${format}\n${_out}")
+  if(NOT _out MATCHES "Image Width[ ]*: ${width}")
+    message(FATAL_ERROR
+      "exiftool missing ImageWidth=${width} for ${format}\n${_out}")
   endif()
-  if(NOT _out MATCHES "Image Height[ ]*: 32")
-    message(FATAL_ERROR "exiftool missing ImageHeight=32 for ${format}\n${_out}")
+  if(NOT _out MATCHES "Image Height[ ]*: ${height}")
+    message(FATAL_ERROR
+      "exiftool missing ImageHeight=${height} for ${format}\n${_out}")
   endif()
-  if(NOT _out MATCHES "Exif Image Width[ ]*: 64")
-    message(FATAL_ERROR "exiftool missing ExifImageWidth=64 for ${format}\n${_out}")
+  if(NOT _out MATCHES "Exif Image Width[ ]*: ${width}")
+    message(FATAL_ERROR
+      "exiftool missing ExifImageWidth=${width} for ${format}\n${_out}")
   endif()
-  if(NOT _out MATCHES "Exif Image Height[ ]*: 32")
-    message(FATAL_ERROR "exiftool missing ExifImageHeight=32 for ${format}\n${_out}")
+  if(NOT _out MATCHES "Exif Image Height[ ]*: ${height}")
+    message(FATAL_ERROR
+      "exiftool missing ExifImageHeight=${height} for ${format}\n${_out}")
   endif()
-  if(NOT _out MATCHES "Samples Per Pixel[ ]*: 3")
-    message(FATAL_ERROR "exiftool missing SamplesPerPixel=3 for ${format}\n${_out}")
+  if(NOT "${samples}" STREQUAL ""
+     AND NOT _out MATCHES "Samples Per Pixel[ ]*: ${samples}")
+    message(FATAL_ERROR
+      "exiftool missing SamplesPerPixel=${samples} for ${format}\n${_out}")
   endif()
 endfunction()
 
@@ -459,7 +627,7 @@ function(_om_check_exiftool_xmp_title label path expected_title)
   endif()
 endfunction()
 
-function(_om_check_bmff_exif_reader_layout format path)
+function(_om_check_bmff_exif_reader_layout format path width height)
   execute_process(
     COMMAND "${METATRANSFER_BIN}" --no-build-info
             "--target-${format}"
@@ -501,33 +669,34 @@ function(_om_check_bmff_exif_reader_layout format path)
       message(FATAL_ERROR
         "exiftool could not extract BMFF Exif item layout for ${format}\n${_out_exiftool}")
     endif()
-    if(NOT _out_exiftool MATCHES "Exif Image Width[ ]*: 64")
+    if(NOT _out_exiftool MATCHES "Exif Image Width[ ]*: ${width}")
       message(FATAL_ERROR
-        "exiftool missing BMFF ExifImageWidth=64 for ${format}\n${_out_exiftool}")
+        "exiftool missing BMFF ExifImageWidth=${width} for ${format}\n${_out_exiftool}")
     endif()
-    if(NOT _out_exiftool MATCHES "Exif Image Height[ ]*: 32")
+    if(NOT _out_exiftool MATCHES "Exif Image Height[ ]*: ${height}")
       message(FATAL_ERROR
-        "exiftool missing BMFF ExifImageHeight=32 for ${format}\n${_out_exiftool}")
+        "exiftool missing BMFF ExifImageHeight=${height} for ${format}\n${_out_exiftool}")
     endif()
   endif()
 
 endfunction()
 
-function(_om_transfer_and_check format extension)
+function(_om_transfer_and_check format extension width height samples bits
+         sample_format photometric planar color_space finite_count strict_oiio)
   set(_target "${TARGET_${format}}")
   set(_output "${WORK_DIR}/edited.${extension}")
   set(_common
     --no-build-info
     --source-meta "${_source_jpg}"
-    --target-width 64
-    --target-height 32
+    --target-width "${width}"
+    --target-height "${height}"
     --target-orientation 1
-    --target-samples-per-pixel 3
-    --target-bits-per-sample 8
-    --target-sample-format 1
-    --target-photometric 2
-    --target-planar-configuration 1
-    --target-exif-color-space 1
+    --target-samples-per-pixel "${samples}"
+    --target-bits-per-sample "${bits}"
+    --target-sample-format "${sample_format}"
+    --target-photometric "${photometric}"
+    --target-planar-configuration "${planar}"
+    --target-exif-color-space "${color_space}"
     --output "${_output}"
     --force)
 
@@ -548,11 +717,28 @@ function(_om_transfer_and_check format extension)
   if(NOT EXISTS "${_output}")
     message(FATAL_ERROR "metatransfer did not write edited ${format}: ${_output}")
   endif()
-  _om_check_oiio("${format}" "${extension}")
-  _om_check_exiftool("${format}" "${extension}")
+  if("${strict_oiio}")
+    _om_check_oiio_file("${format}" "${_output}" "${width}" "${height}"
+      "${samples}" "${finite_count}")
+  else()
+    _om_check_decodable_file("${format}" "${_output}")
+  endif()
+  _om_check_exiftool_file(
+    "${format}" "${_output}" "${width}" "${height}" "${samples}")
 endfunction()
 
-function(_om_transfer_makernote_and_check format extension safety expect_present)
+function(_om_transfer_default_and_check format extension)
+  _om_set_default_image_spec(_default)
+  _om_transfer_and_check("${format}" "${extension}"
+    "${_default_WIDTH}" "${_default_HEIGHT}" "${_default_SAMPLES}"
+    "${_default_BITS}" "${_default_SAMPLE_FORMAT}"
+    "${_default_PHOTOMETRIC}" "${_default_PLANAR}"
+    "${_default_EXIF_COLOR_SPACE}" "${_default_FINITE_COUNT}"
+    "${_default_STRICT_OIIO}")
+endfunction()
+
+function(_om_transfer_makernote_and_check format extension safety expect_present
+         width height samples bits sample_format photometric planar color_space)
   set(_target "${TARGET_${format}}")
   if("${_target}" STREQUAL "")
     return()
@@ -567,15 +753,15 @@ function(_om_transfer_makernote_and_check format extension safety expect_present
   set(_common
     --no-build-info
     --source-meta "${_source_makernote_jpg}"
-    --target-width 64
-    --target-height 32
+    --target-width "${width}"
+    --target-height "${height}"
     --target-orientation 1
-    --target-samples-per-pixel 3
-    --target-bits-per-sample 8
-    --target-sample-format 1
-    --target-photometric 2
-    --target-planar-configuration 1
-    --target-exif-color-space 1
+    --target-samples-per-pixel "${samples}"
+    --target-bits-per-sample "${bits}"
+    --target-sample-format "${sample_format}"
+    --target-photometric "${photometric}"
+    --target-planar-configuration "${planar}"
+    --target-exif-color-space "${color_space}"
     --output "${_output}"
     --force)
   if("${safety}" STREQUAL "rendered")
@@ -617,6 +803,16 @@ function(_om_transfer_makernote_and_check format extension safety expect_present
     "${_makernote_xmp_title}")
 endfunction()
 
+function(_om_transfer_default_makernote_and_check format extension safety
+         expect_present)
+  _om_set_default_image_spec(_default)
+  _om_transfer_makernote_and_check("${format}" "${extension}" "${safety}"
+    "${expect_present}" "${_default_WIDTH}" "${_default_HEIGHT}"
+    "${_default_SAMPLES}" "${_default_BITS}"
+    "${_default_SAMPLE_FORMAT}" "${_default_PHOTOMETRIC}"
+    "${_default_PLANAR}" "${_default_EXIF_COLOR_SPACE}")
+endfunction()
+
 function(_om_transfer_bmff_makernote_if_available format extension)
   _om_prepare_bmff_target_if_available("${format}" "${extension}" "_makernote"
     " MakerNote" _target _configured_target)
@@ -624,9 +820,24 @@ function(_om_transfer_bmff_makernote_if_available format extension)
     return()
   endif()
 
+  if(_configured_target)
+    _om_probe_target_image_spec("${format}" "${_target}" _spec _have_spec)
+    if(NOT _have_spec)
+      return()
+    endif()
+  else()
+    _om_set_default_image_spec(_spec)
+  endif()
+
   set("TARGET_${format}" "${_target}")
-  _om_transfer_makernote_and_check("${format}" "${extension}" "compatible" TRUE)
-  _om_transfer_makernote_and_check("${format}" "${extension}" "rendered" FALSE)
+  _om_transfer_makernote_and_check("${format}" "${extension}" "compatible"
+    TRUE "${_spec_WIDTH}" "${_spec_HEIGHT}" "${_spec_SAMPLES}"
+    "${_spec_BITS}" "${_spec_SAMPLE_FORMAT}" "${_spec_PHOTOMETRIC}"
+    "${_spec_PLANAR}" "${_spec_EXIF_COLOR_SPACE}")
+  _om_transfer_makernote_and_check("${format}" "${extension}" "rendered"
+    FALSE "${_spec_WIDTH}" "${_spec_HEIGHT}" "${_spec_SAMPLES}"
+    "${_spec_BITS}" "${_spec_SAMPLE_FORMAT}" "${_spec_PHOTOMETRIC}"
+    "${_spec_PLANAR}" "${_spec_EXIF_COLOR_SPACE}")
 endfunction()
 
 function(_om_transfer_bmff_if_available format extension)
@@ -637,19 +848,23 @@ function(_om_transfer_bmff_if_available format extension)
   endif()
 
   if(_configured_target)
-    _om_bmff_target_has_standard_geometry("${format}" "${_target}" _standard)
-    if(NOT _standard)
-      message(STATUS
-        "skipping ${format} image usability check; configured target is not "
-        "the 64x32 3-channel EXIF fixture shape")
+    _om_probe_target_image_spec("${format}" "${_target}" _spec _have_spec)
+    if(NOT _have_spec)
       return()
     endif()
+  else()
+    _om_set_default_image_spec(_spec)
   endif()
 
   set("TARGET_${format}" "${_target}")
-  _om_transfer_and_check("${format}" "${extension}")
+  _om_transfer_and_check("${format}" "${extension}"
+    "${_spec_WIDTH}" "${_spec_HEIGHT}" "${_spec_SAMPLES}" "${_spec_BITS}"
+    "${_spec_SAMPLE_FORMAT}" "${_spec_PHOTOMETRIC}" "${_spec_PLANAR}"
+    "${_spec_EXIF_COLOR_SPACE}" "${_spec_FINITE_COUNT}"
+    "${_spec_STRICT_OIIO}")
   _om_check_bmff_exif_reader_layout(
-    "${format}" "${WORK_DIR}/edited.${extension}")
+    "${format}" "${WORK_DIR}/edited.${extension}" "${_spec_WIDTH}"
+    "${_spec_HEIGHT}")
 endfunction()
 
 function(_om_prepare_bmff_target_if_available format extension suffix label
@@ -701,27 +916,6 @@ function(_om_prepare_bmff_target_if_available format extension suffix label
 
   set("${out_var}" "${_target}" PARENT_SCOPE)
   set("${out_configured_var}" FALSE PARENT_SCOPE)
-endfunction()
-
-function(_om_bmff_target_has_standard_geometry format path out_var)
-  execute_process(
-    COMMAND "${OIIOTOOL_BIN}" --info --stats "${path}"
-    RESULT_VARIABLE _rv
-    OUTPUT_VARIABLE _out
-    ERROR_VARIABLE _err
-  )
-  if(NOT _rv EQUAL 0)
-    message(STATUS
-      "oiiotool could not inspect configured ${format} target geometry; "
-      "skipping EXIF image-property transfer for this target")
-    set("${out_var}" FALSE PARENT_SCOPE)
-    return()
-  endif()
-  if(_out MATCHES "64 x[ ]+32, 3 channel")
-    set("${out_var}" TRUE PARENT_SCOPE)
-  else()
-    set("${out_var}" FALSE PARENT_SCOPE)
-  endif()
 endfunction()
 
 function(_om_check_bmff_icc_metadata format path)
@@ -890,24 +1084,24 @@ _om_create_target("webp" "webp")
 _om_create_target("jp2" "jp2")
 _om_create_target("jxl" "jxl")
 
-_om_transfer_and_check("jpg" "jpg")
-_om_transfer_and_check("tif" "tif")
-_om_transfer_and_check("dng" "dng")
-_om_transfer_and_check("png" "png")
-_om_transfer_and_check("webp" "webp")
-_om_transfer_and_check("jp2" "jp2")
-_om_transfer_and_check("jxl" "jxl")
+_om_transfer_default_and_check("jpg" "jpg")
+_om_transfer_default_and_check("tif" "tif")
+_om_transfer_default_and_check("dng" "dng")
+_om_transfer_default_and_check("png" "png")
+_om_transfer_default_and_check("webp" "webp")
+_om_transfer_default_and_check("jp2" "jp2")
+_om_transfer_default_and_check("jxl" "jxl")
 
-_om_transfer_makernote_and_check("jpg" "jpg" "compatible" TRUE)
-_om_transfer_makernote_and_check("jpg" "jpg" "rendered" FALSE)
-_om_transfer_makernote_and_check("tif" "tif" "compatible" TRUE)
-_om_transfer_makernote_and_check("tif" "tif" "rendered" FALSE)
-_om_transfer_makernote_and_check("dng" "dng" "compatible" TRUE)
-_om_transfer_makernote_and_check("dng" "dng" "rendered" FALSE)
-_om_transfer_makernote_and_check("webp" "webp" "compatible" TRUE)
-_om_transfer_makernote_and_check("webp" "webp" "rendered" FALSE)
-_om_transfer_makernote_and_check("jxl" "jxl" "compatible" TRUE)
-_om_transfer_makernote_and_check("jxl" "jxl" "rendered" FALSE)
+_om_transfer_default_makernote_and_check("jpg" "jpg" "compatible" TRUE)
+_om_transfer_default_makernote_and_check("jpg" "jpg" "rendered" FALSE)
+_om_transfer_default_makernote_and_check("tif" "tif" "compatible" TRUE)
+_om_transfer_default_makernote_and_check("tif" "tif" "rendered" FALSE)
+_om_transfer_default_makernote_and_check("dng" "dng" "compatible" TRUE)
+_om_transfer_default_makernote_and_check("dng" "dng" "rendered" FALSE)
+_om_transfer_default_makernote_and_check("webp" "webp" "compatible" TRUE)
+_om_transfer_default_makernote_and_check("webp" "webp" "rendered" FALSE)
+_om_transfer_default_makernote_and_check("jxl" "jxl" "compatible" TRUE)
+_om_transfer_default_makernote_and_check("jxl" "jxl" "rendered" FALSE)
 
 _om_transfer_bmff_if_available("heif" "heic")
 _om_transfer_bmff_if_available("avif" "avif")

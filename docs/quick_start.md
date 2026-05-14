@@ -156,6 +156,11 @@ tag/name hits.
 Call `metadata_query_fuzzy_search_available()` when a UI wants to expose that
 the stronger fuzzy matcher is compiled in.
 
+For user-facing orientation display, use `openmeta/orientation.h` instead of
+showing only the numeric EXIF/TIFF index. `interpret_exif_orientation(...)`
+returns the index, human-readable label, clockwise rotation degrees, mirrored
+state, width/height-swap flag, and nearest rotation-only orientation.
+
 ## 5. Build A `MetaStore` Manually
 
 This is useful when your application creates or edits metadata directly.

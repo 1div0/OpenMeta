@@ -681,6 +681,39 @@ namespace {
         EXPECT_EQ(est_auto.needed, 4U);
     }
 
+    TEST(ContainerScan, JpegApp1BareXmpPacket)
+    {
+        std::vector<std::byte> jpeg;
+        jpeg.push_back(std::byte { 0xFF });
+        jpeg.push_back(std::byte { 0xD8 });
+
+        std::vector<std::byte> xmp_payload;
+        append_bytes(
+            &xmp_payload,
+            "<?xpacket begin=''?>"
+            "<x:xmpmeta xmlns:x='adobe:ns:meta/'>"
+            "<rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'>"
+            "<rdf:Description rdf:about='camera'/>"
+            "</rdf:RDF>"
+            "</x:xmpmeta>");
+        append_jpeg_segment(&jpeg, 0xFFE1, xmp_payload);
+
+        jpeg.push_back(std::byte { 0xFF });
+        jpeg.push_back(std::byte { 0xD9 });
+
+        std::array<ContainerBlockRef, 4> blocks {};
+        const ScanResult res = scan_jpeg(jpeg, blocks);
+
+        ASSERT_EQ(res.status, ScanStatus::Ok);
+        ASSERT_EQ(res.written, 1U);
+        EXPECT_EQ(blocks[0].format, ContainerFormat::Jpeg);
+        EXPECT_EQ(blocks[0].kind, ContainerBlockKind::Xmp);
+        EXPECT_EQ(blocks[0].id, 0xFFE1U);
+        EXPECT_EQ(jpeg[blocks[0].data_offset], std::byte { '<' });
+        EXPECT_EQ(blocks[0].data_size,
+                  static_cast<uint64_t>(xmp_payload.size()));
+    }
+
     TEST(ContainerScan, JpegApp11JumbfOneBasedReassembly)
     {
         std::vector<std::byte> jpeg;

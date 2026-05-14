@@ -17,6 +17,7 @@
 #include "openmeta/metadata_query.h"
 #include "openmeta/metadata_transfer.h"
 #include "openmeta/ocio_adapter.h"
+#include "openmeta/orientation.h"
 #include "openmeta/phaseone_geometry.h"
 #include "openmeta/resource_policy.h"
 #include "openmeta/simple_meta.h"
@@ -176,6 +177,18 @@ namespace {
         case DngSdkAdapterStatus::Unsupported: return "unsupported";
         case DngSdkAdapterStatus::Malformed: return "malformed";
         case DngSdkAdapterStatus::InternalError: return "internal_error";
+        }
+        return "unknown";
+    }
+
+
+    static const char*
+    exif_orientation_status_name(ExifOrientationStatus status) noexcept
+    {
+        switch (status) {
+        case ExifOrientationStatus::Ok: return "ok";
+        case ExifOrientationStatus::InvalidArgument:
+            return "invalid_argument";
         }
         return "unknown";
     }
@@ -3084,6 +3097,39 @@ namespace {
         return out;
     }
 
+    static nb::dict interpret_exif_orientation_to_python(uint16_t orientation)
+    {
+        const ExifOrientationInterpretation result
+            = interpret_exif_orientation(orientation);
+
+        nb::dict out;
+        out["status"]      = result.status;
+        out["status_name"] = nb::str(
+            exif_orientation_status_name(result.status));
+        out["orientation"]               = nb::int_(result.orientation);
+        out["rotation_degrees_cw"]       = nb::int_(
+            result.rotation_degrees_cw);
+        out["rotation_only_orientation"] = nb::int_(
+            result.rotation_only_orientation);
+        out["mirrored"]           = nb::bool_(result.mirrored);
+        out["swaps_width_height"] = nb::bool_(result.swaps_width_height);
+        out["name"]               = nb::str(result.name);
+        return out;
+    }
+
+    static nb::dict
+    exif_orientation_rotation_degrees_to_python(uint16_t orientation)
+    {
+        bool valid            = false;
+        const uint16_t result = exif_orientation_rotation_degrees_cw(
+            orientation, &valid);
+
+        nb::dict out;
+        out["valid"]               = nb::bool_(valid);
+        out["rotation_degrees_cw"] = nb::int_(result);
+        return out;
+    }
+
     static nb::dict map_libraw_flip_to_exif_to_python(
         uint32_t libraw_flip, LibRawOrientationTarget target,
         bool preserve_embedded_preview_orientation)
@@ -5662,6 +5708,10 @@ NB_MODULE(_openmeta, m)
         .value("Ok", ExrAdapterStatus::Ok)
         .value("InvalidArgument", ExrAdapterStatus::InvalidArgument)
         .value("Unsupported", ExrAdapterStatus::Unsupported);
+
+    nb::enum_<ExifOrientationStatus>(m, "ExifOrientationStatus")
+        .value("Ok", ExifOrientationStatus::Ok)
+        .value("InvalidArgument", ExifOrientationStatus::InvalidArgument);
 
     nb::enum_<LibRawOrientationStatus>(m, "LibRawOrientationStatus")
         .value("Ok", LibRawOrientationStatus::Ok)
@@ -8281,6 +8331,20 @@ NB_MODULE(_openmeta, m)
         "jumbf_policy"_a     = TransferPolicyAction::Keep,
         "c2pa_policy"_a = TransferPolicyAction::Keep, "max_file_bytes"_a = 0ULL,
         "policy"_a = nb::none(), "include_values"_a = false);
+
+    m.def("exif_orientation_is_valid", &exif_orientation_is_valid,
+          "orientation"_a);
+    m.def("exif_orientation_is_mirrored", &exif_orientation_is_mirrored,
+          "orientation"_a);
+    m.def("exif_orientation_swaps_width_height",
+          &exif_orientation_swaps_width_height, "orientation"_a);
+    m.def("exif_orientation_rotation_degrees_cw",
+          &exif_orientation_rotation_degrees_to_python, "orientation"_a);
+    m.def("exif_orientation_rotation_only", &exif_orientation_rotation_only,
+          "orientation"_a);
+    m.def("exif_orientation_name", &exif_orientation_name, "orientation"_a);
+    m.def("interpret_exif_orientation", &interpret_exif_orientation_to_python,
+          "orientation"_a);
 
     m.def(
         "map_meta_orientation_to_libraw_flip_from_file",

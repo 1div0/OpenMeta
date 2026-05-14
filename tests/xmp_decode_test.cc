@@ -70,6 +70,102 @@ TEST(XmpDecodeTest, DecodesAttributesArraysAndRdfResource)
     expect_text("http://ns.adobe.com/xap/1.0/mm/", "InstanceID", "uuid:123");
 }
 
+TEST(XmpDecodeTest, TrimsXmpMetaCloseWithAlternatePrefix)
+{
+    std::string xmp
+        = "<?xpacket begin='\\xEF\\xBB\\xBF' id='W5M0MpCehiHzreSzNTczkc9d'?>"
+          "<xmp:xmpmeta xmlns:xmp='adobe:ns:meta/'>"
+          "<rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'>"
+          "<rdf:Description xmlns:xmp='http://ns.adobe.com/xap/1.0/'>"
+          "<xmp:Rating>0</xmp:Rating>"
+          "</rdf:Description>"
+          "</rdf:RDF>"
+          "</xmp:xmpmeta>"
+          "<?xpacket end='w'?>";
+    xmp.append("\0\0\0padding", 10U);
+
+    const std::span<const std::byte> bytes(reinterpret_cast<const std::byte*>(
+                                               xmp.data()),
+                                           xmp.size());
+
+    MetaStore store;
+    const XmpDecodeResult r = decode_xmp_packet(bytes, store);
+    EXPECT_EQ(r.status, XmpDecodeStatus::Ok);
+    EXPECT_EQ(r.entries_decoded, 1U);
+}
+
+TEST(XmpDecodeTest, DecodesRdfAboutAndEmptyBag)
+{
+    const std::string xmp
+        = "<xmp:xmpmeta xmlns:xmp='adobe:ns:meta/'>"
+          "<rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'>"
+          "<rdf:Description "
+          "rdf:about='uuid:faf5bdd5-ba3d-11da-ad31-d33d75182f1b' "
+          "xmlns:dc='http://purl.org/dc/elements/1.1/'>"
+          "<dc:subject><rdf:Bag></rdf:Bag></dc:subject>"
+          "</rdf:Description>"
+          "</rdf:RDF>"
+          "</xmp:xmpmeta>";
+
+    const std::span<const std::byte> bytes(reinterpret_cast<const std::byte*>(
+                                               xmp.data()),
+                                           xmp.size());
+
+    MetaStore store;
+    const XmpDecodeResult r = decode_xmp_packet(bytes, store);
+    EXPECT_EQ(r.status, XmpDecodeStatus::Ok);
+    EXPECT_EQ(r.entries_decoded, 2U);
+
+    store.finalize();
+
+    MetaKeyView about_key;
+    about_key.kind = MetaKeyKind::XmpProperty;
+    about_key.data.xmp_property.schema_ns
+        = "http://www.w3.org/1999/02/22-rdf-syntax-ns#";
+    about_key.data.xmp_property.property_path = "About";
+
+    const std::span<const EntryId> about_ids = store.find_all(about_key);
+    ASSERT_EQ(about_ids.size(), 1U);
+
+    const Entry& about = store.entry(about_ids[0]);
+    ASSERT_EQ(about.value.kind, MetaValueKind::Text);
+    const std::span<const std::byte> about_bytes = store.arena().span(
+        about.value.data.span);
+    const std::string_view about_text(reinterpret_cast<const char*>(
+                                          about_bytes.data()),
+                                      about_bytes.size());
+    EXPECT_EQ(about_text, "uuid:faf5bdd5-ba3d-11da-ad31-d33d75182f1b");
+
+    MetaKeyView subject_key;
+    subject_key.kind = MetaKeyKind::XmpProperty;
+    subject_key.data.xmp_property.schema_ns = "http://purl.org/dc/elements/1.1/";
+    subject_key.data.xmp_property.property_path = "subject";
+
+    const std::span<const EntryId> subject_ids = store.find_all(subject_key);
+    ASSERT_EQ(subject_ids.size(), 1U);
+    const Entry& subject = store.entry(subject_ids[0]);
+    ASSERT_EQ(subject.value.kind, MetaValueKind::Text);
+    EXPECT_EQ(subject.value.count, 0U);
+}
+
+TEST(XmpDecodeTest, SkipsEmptyRdfAbout)
+{
+    const std::string xmp
+        = "<x:xmpmeta xmlns:x='adobe:ns:meta/'>"
+          "<rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'>"
+          "<rdf:Description rdf:about=''/>"
+          "</rdf:RDF>"
+          "</x:xmpmeta>";
+
+    const std::span<const std::byte> bytes(
+        reinterpret_cast<const std::byte*>(xmp.data()), xmp.size());
+
+    MetaStore store;
+    const XmpDecodeResult r = decode_xmp_packet(bytes, store);
+    EXPECT_EQ(r.status, XmpDecodeStatus::Ok);
+    EXPECT_EQ(r.entries_decoded, 0U);
+}
+
 TEST(XmpDecodeTest, DecodesXmpMmStructuredMixedNamespaceChildren)
 {
     const std::string xmp
@@ -110,8 +206,9 @@ TEST(XmpDecodeTest, DecodesXmpMmStructuredMixedNamespaceChildren)
           "</rdf:RDF>"
           "</x:xmpmeta>";
 
-    const std::span<const std::byte> bytes(
-        reinterpret_cast<const std::byte*>(xmp.data()), xmp.size());
+    const std::span<const std::byte> bytes(reinterpret_cast<const std::byte*>(
+                                               xmp.data()),
+                                           xmp.size());
 
     MetaStore store;
     const XmpDecodeResult r = decode_xmp_packet(bytes, store);
@@ -130,8 +227,8 @@ TEST(XmpDecodeTest, DecodesXmpMmStructuredMixedNamespaceChildren)
         ASSERT_EQ(ids.size(), 1U);
         const Entry& e = store.entry(ids[0]);
         ASSERT_EQ(e.value.kind, MetaValueKind::Text);
-        const std::span<const std::byte> vb
-            = store.arena().span(e.value.data.span);
+        const std::span<const std::byte> vb = store.arena().span(
+            e.value.data.span);
         const std::string_view val(reinterpret_cast<const char*>(vb.data()),
                                    vb.size());
         EXPECT_EQ(val, expected);
@@ -139,8 +236,7 @@ TEST(XmpDecodeTest, DecodesXmpMmStructuredMixedNamespaceChildren)
 
     expect_text("DerivedFrom/stRef:documentID", "xmp.did:base");
     expect_text("DerivedFrom/stRef:instanceID", "xmp.iid:base");
-    expect_text("DerivedFrom/stRef:manageTo",
-                "https://example.invalid/base");
+    expect_text("DerivedFrom/stRef:manageTo", "https://example.invalid/base");
     expect_text("ManagedFrom/stRef:documentID", "xmp.did:managed");
     expect_text("ManagedFrom/stRef:instanceID", "xmp.iid:managed");
     expect_text("Ingredients[1]/stRef:documentID", "xmp.did:ingredient");
@@ -171,8 +267,9 @@ TEST(XmpDecodeTest, DecodesXmpMmPantryStructuredChildren)
           "</rdf:RDF>"
           "</x:xmpmeta>";
 
-    const std::span<const std::byte> bytes(
-        reinterpret_cast<const std::byte*>(xmp.data()), xmp.size());
+    const std::span<const std::byte> bytes(reinterpret_cast<const std::byte*>(
+                                               xmp.data()),
+                                           xmp.size());
 
     MetaStore store;
     const XmpDecodeResult r = decode_xmp_packet(bytes, store);
@@ -191,8 +288,8 @@ TEST(XmpDecodeTest, DecodesXmpMmPantryStructuredChildren)
         ASSERT_EQ(ids.size(), 1U);
         const Entry& e = store.entry(ids[0]);
         ASSERT_EQ(e.value.kind, MetaValueKind::Text);
-        const std::span<const std::byte> vb
-            = store.arena().span(e.value.data.span);
+        const std::span<const std::byte> vb = store.arena().span(
+            e.value.data.span);
         const std::string_view val(reinterpret_cast<const char*>(vb.data()),
                                    vb.size());
         EXPECT_EQ(val, expected);
@@ -245,8 +342,9 @@ TEST(XmpDecodeTest, DecodesLegacyUnqualifiedXmpMmStructuredChildren)
           "</rdf:RDF>"
           "</x:xmpmeta>";
 
-    const std::span<const std::byte> bytes(
-        reinterpret_cast<const std::byte*>(xmp.data()), xmp.size());
+    const std::span<const std::byte> bytes(reinterpret_cast<const std::byte*>(
+                                               xmp.data()),
+                                           xmp.size());
 
     MetaStore store;
     const XmpDecodeResult r = decode_xmp_packet(bytes, store);
@@ -256,16 +354,15 @@ TEST(XmpDecodeTest, DecodesLegacyUnqualifiedXmpMmStructuredChildren)
     const auto expect_text = [&](std::string_view path,
                                  std::string_view expected) {
         MetaKeyView key;
-        key.kind = MetaKeyKind::XmpProperty;
-        key.data.xmp_property.schema_ns
-            = "http://ns.adobe.com/xap/1.0/mm/";
+        key.kind                            = MetaKeyKind::XmpProperty;
+        key.data.xmp_property.schema_ns     = "http://ns.adobe.com/xap/1.0/mm/";
         key.data.xmp_property.property_path = path;
-        const std::span<const EntryId> ids = store.find_all(key);
+        const std::span<const EntryId> ids  = store.find_all(key);
         ASSERT_EQ(ids.size(), 1U);
         const Entry& e = store.entry(ids[0]);
         ASSERT_EQ(e.value.kind, MetaValueKind::Text);
-        const std::span<const std::byte> vb
-            = store.arena().span(e.value.data.span);
+        const std::span<const std::byte> vb = store.arena().span(
+            e.value.data.span);
         const std::string_view val(reinterpret_cast<const char*>(vb.data()),
                                    vb.size());
         EXPECT_EQ(val, expected);
@@ -423,8 +520,9 @@ TEST(XmpDecodeTest, DecodesAdobeStructuredWorkflowNamespaces)
           "</rdf:RDF>"
           "</x:xmpmeta>";
 
-    const std::span<const std::byte> bytes(
-        reinterpret_cast<const std::byte*>(xmp.data()), xmp.size());
+    const std::span<const std::byte> bytes(reinterpret_cast<const std::byte*>(
+                                               xmp.data()),
+                                           xmp.size());
 
     MetaStore store;
     const XmpDecodeResult r = decode_xmp_packet(bytes, store);
@@ -444,8 +542,8 @@ TEST(XmpDecodeTest, DecodesAdobeStructuredWorkflowNamespaces)
         ASSERT_EQ(ids.size(), 1U);
         const Entry& e = store.entry(ids[0]);
         ASSERT_EQ(e.value.kind, MetaValueKind::Text);
-        const std::span<const std::byte> vb
-            = store.arena().span(e.value.data.span);
+        const std::span<const std::byte> vb = store.arena().span(
+            e.value.data.span);
         const std::string_view val(reinterpret_cast<const char*>(vb.data()),
                                    vb.size());
         EXPECT_EQ(val, expected);
@@ -463,18 +561,16 @@ TEST(XmpDecodeTest, DecodesAdobeStructuredWorkflowNamespaces)
                 "11");
     expect_text("http://ns.adobe.com/xap/1.0/t/pg/", "MaxPageSize/stDim:unit",
                 "inch");
+    expect_text("http://ns.adobe.com/xap/1.0/t/pg/", "Fonts[1]/stFnt:fontName",
+                "Source Serif");
     expect_text("http://ns.adobe.com/xap/1.0/t/pg/",
-                "Fonts[1]/stFnt:fontName", "Source Serif");
+                "Fonts[1]/stFnt:childFontFiles[1]", "SourceSerif-Regular.otf");
     expect_text("http://ns.adobe.com/xap/1.0/t/pg/",
-                "Fonts[1]/stFnt:childFontFiles[1]",
-                "SourceSerif-Regular.otf");
-    expect_text("http://ns.adobe.com/xap/1.0/t/pg/",
-                "Fonts[1]/stFnt:childFontFiles[2]",
-                "SourceSerif-It.otf");
+                "Fonts[1]/stFnt:childFontFiles[2]", "SourceSerif-It.otf");
     expect_text("http://ns.adobe.com/xap/1.0/t/pg/",
                 "Colorants[1]/xmpG:swatchName", "Process Cyan");
-    expect_text("http://ns.adobe.com/xap/1.0/t/pg/",
-                "Colorants[1]/xmpG:mode", "CMYK");
+    expect_text("http://ns.adobe.com/xap/1.0/t/pg/", "Colorants[1]/xmpG:mode",
+                "CMYK");
     expect_text("http://ns.adobe.com/xap/1.0/t/pg/",
                 "SwatchGroups[1]/xmpG:groupName", "Brand Colors");
     expect_text("http://ns.adobe.com/xap/1.0/t/pg/",
@@ -484,10 +580,10 @@ TEST(XmpDecodeTest, DecodesAdobeStructuredWorkflowNamespaces)
                 "Accent Orange");
     expect_text("http://ns.adobe.com/xap/1.0/t/pg/",
                 "SwatchGroups[1]/Colorants[1]/xmpG:mode", "RGB");
-    expect_text("http://ns.adobe.com/xmp/1.0/DynamicMedia/",
-                "ProjectRef/path", "/proj/edit.prproj");
-    expect_text("http://ns.adobe.com/xmp/1.0/DynamicMedia/",
-                "ProjectRef/type", "movie");
+    expect_text("http://ns.adobe.com/xmp/1.0/DynamicMedia/", "ProjectRef/path",
+                "/proj/edit.prproj");
+    expect_text("http://ns.adobe.com/xmp/1.0/DynamicMedia/", "ProjectRef/type",
+                "movie");
     expect_text("http://ns.adobe.com/xmp/1.0/DynamicMedia/",
                 "altTimecode/timeFormat", "2997DropTimecode");
     expect_text("http://ns.adobe.com/xmp/1.0/DynamicMedia/",
@@ -500,18 +596,18 @@ TEST(XmpDecodeTest, DecodesAdobeStructuredWorkflowNamespaces)
                 "startTimecode/timeValue", "01:00:00:00");
     expect_text("http://ns.adobe.com/xmp/1.0/DynamicMedia/",
                 "startTimecode/value", "107892");
-    expect_text("http://ns.adobe.com/xmp/1.0/DynamicMedia/",
-                "duration/scale", "1/48000");
-    expect_text("http://ns.adobe.com/xmp/1.0/DynamicMedia/",
-                "duration/value", "96000");
-    expect_text("http://ns.adobe.com/xmp/1.0/DynamicMedia/",
-                "introTime/scale", "1/1000");
-    expect_text("http://ns.adobe.com/xmp/1.0/DynamicMedia/",
-                "introTime/value", "2500");
-    expect_text("http://ns.adobe.com/xmp/1.0/DynamicMedia/",
-                "outCue/scale", "1/1000");
-    expect_text("http://ns.adobe.com/xmp/1.0/DynamicMedia/",
-                "outCue/value", "18000");
+    expect_text("http://ns.adobe.com/xmp/1.0/DynamicMedia/", "duration/scale",
+                "1/48000");
+    expect_text("http://ns.adobe.com/xmp/1.0/DynamicMedia/", "duration/value",
+                "96000");
+    expect_text("http://ns.adobe.com/xmp/1.0/DynamicMedia/", "introTime/scale",
+                "1/1000");
+    expect_text("http://ns.adobe.com/xmp/1.0/DynamicMedia/", "introTime/value",
+                "2500");
+    expect_text("http://ns.adobe.com/xmp/1.0/DynamicMedia/", "outCue/scale",
+                "1/1000");
+    expect_text("http://ns.adobe.com/xmp/1.0/DynamicMedia/", "outCue/value",
+                "18000");
     expect_text("http://ns.adobe.com/xmp/1.0/DynamicMedia/",
                 "relativeTimestamp/scale", "1/1000");
     expect_text("http://ns.adobe.com/xmp/1.0/DynamicMedia/",
@@ -538,8 +634,8 @@ TEST(XmpDecodeTest, DecodesAdobeStructuredWorkflowNamespaces)
                 "beatSpliceParams/riseInTimeDuration/value", "1200");
     expect_text("http://ns.adobe.com/xmp/1.0/DynamicMedia/",
                 "beatSpliceParams/useFileBeatsMarker", "True");
-    expect_text("http://ns.adobe.com/xmp/1.0/DynamicMedia/",
-                "markers/name", "Verse 1");
+    expect_text("http://ns.adobe.com/xmp/1.0/DynamicMedia/", "markers/name",
+                "Verse 1");
     expect_text("http://ns.adobe.com/xmp/1.0/DynamicMedia/",
                 "markers/startTime", "00:00:05.000");
     expect_text("http://ns.adobe.com/xmp/1.0/DynamicMedia/",
@@ -599,8 +695,9 @@ TEST(XmpDecodeTest, DecodesXmpDmTracksStructuredChildren)
           "</rdf:RDF>"
           "</x:xmpmeta>";
 
-    const std::span<const std::byte> bytes(
-        reinterpret_cast<const std::byte*>(xmp.data()), xmp.size());
+    const std::span<const std::byte> bytes(reinterpret_cast<const std::byte*>(
+                                               xmp.data()),
+                                           xmp.size());
 
     MetaStore store;
     const XmpDecodeResult r = decode_xmp_packet(bytes, store);
@@ -611,7 +708,7 @@ TEST(XmpDecodeTest, DecodesXmpDmTracksStructuredChildren)
 
     auto expect_text = [&](std::string_view path, std::string_view expected) {
         MetaKeyView key;
-        key.kind                            = MetaKeyKind::XmpProperty;
+        key.kind = MetaKeyKind::XmpProperty;
         key.data.xmp_property.schema_ns
             = "http://ns.adobe.com/xmp/1.0/DynamicMedia/";
         key.data.xmp_property.property_path = path;
@@ -657,8 +754,9 @@ TEST(XmpDecodeTest, DecodesXmpMmManifestStructuredChildren)
           "</rdf:RDF>"
           "</x:xmpmeta>";
 
-    const std::span<const std::byte> bytes(
-        reinterpret_cast<const std::byte*>(xmp.data()), xmp.size());
+    const std::span<const std::byte> bytes(reinterpret_cast<const std::byte*>(
+                                               xmp.data()),
+                                           xmp.size());
 
     MetaStore store;
     const XmpDecodeResult r = decode_xmp_packet(bytes, store);
@@ -677,8 +775,8 @@ TEST(XmpDecodeTest, DecodesXmpMmManifestStructuredChildren)
         ASSERT_EQ(ids.size(), 1U);
         const Entry& e = store.entry(ids[0]);
         ASSERT_EQ(e.value.kind, MetaValueKind::Text);
-        const std::span<const std::byte> vb
-            = store.arena().span(e.value.data.span);
+        const std::span<const std::byte> vb = store.arena().span(
+            e.value.data.span);
         const std::string_view val(reinterpret_cast<const char*>(vb.data()),
                                    vb.size());
         EXPECT_EQ(val, expected);
@@ -715,8 +813,9 @@ TEST(XmpDecodeTest, DecodesXmpMmVersionsStructuredChildren)
           "</rdf:RDF>"
           "</x:xmpmeta>";
 
-    const std::span<const std::byte> bytes(
-        reinterpret_cast<const std::byte*>(xmp.data()), xmp.size());
+    const std::span<const std::byte> bytes(reinterpret_cast<const std::byte*>(
+                                               xmp.data()),
+                                           xmp.size());
 
     MetaStore store;
     const XmpDecodeResult r = decode_xmp_packet(bytes, store);
@@ -735,8 +834,8 @@ TEST(XmpDecodeTest, DecodesXmpMmVersionsStructuredChildren)
         ASSERT_EQ(ids.size(), 1U);
         const Entry& e = store.entry(ids[0]);
         ASSERT_EQ(e.value.kind, MetaValueKind::Text);
-        const std::span<const std::byte> vb
-            = store.arena().span(e.value.data.span);
+        const std::span<const std::byte> vb = store.arena().span(
+            e.value.data.span);
         const std::string_view val(reinterpret_cast<const char*>(vb.data()),
                                    vb.size());
         EXPECT_EQ(val, expected);
@@ -748,8 +847,7 @@ TEST(XmpDecodeTest, DecodesXmpMmVersionsStructuredChildren)
     expect_text("Versions[1]/stVer:modifyDate", "2026-04-16T10:15:00Z");
     expect_text("Versions[1]/stVer:event/stEvt:action", "saved");
     expect_text("Versions[1]/stVer:event/stEvt:changed", "/metadata");
-    expect_text("Versions[1]/stVer:event/stEvt:when",
-                "2026-04-16T10:15:00Z");
+    expect_text("Versions[1]/stVer:event/stEvt:when", "2026-04-16T10:15:00Z");
 }
 
 TEST(XmpDecodeTest, DecodesAltTextEntriesWithXmlLangPaths)
@@ -766,8 +864,9 @@ TEST(XmpDecodeTest, DecodesAltTextEntriesWithXmlLangPaths)
           "</rdf:RDF>"
           "</x:xmpmeta>";
 
-    const std::span<const std::byte> bytes(
-        reinterpret_cast<const std::byte*>(xmp.data()), xmp.size());
+    const std::span<const std::byte> bytes(reinterpret_cast<const std::byte*>(
+                                               xmp.data()),
+                                           xmp.size());
 
     MetaStore store;
     const XmpDecodeResult r = decode_xmp_packet(bytes, store);
@@ -778,8 +877,8 @@ TEST(XmpDecodeTest, DecodesAltTextEntriesWithXmlLangPaths)
 
     auto expect_text = [&](std::string_view path, std::string_view expected) {
         MetaKeyView key;
-        key.kind                            = MetaKeyKind::XmpProperty;
-        key.data.xmp_property.schema_ns     = "http://purl.org/dc/elements/1.1/";
+        key.kind                        = MetaKeyKind::XmpProperty;
+        key.data.xmp_property.schema_ns = "http://purl.org/dc/elements/1.1/";
         key.data.xmp_property.property_path = path;
 
         const std::span<const EntryId> ids = store.find_all(key);
@@ -816,8 +915,9 @@ TEST(XmpDecodeTest, DecodesStructuredResourcePaths)
           "</rdf:RDF>"
           "</x:xmpmeta>";
 
-    const std::span<const std::byte> bytes(
-        reinterpret_cast<const std::byte*>(xmp.data()), xmp.size());
+    const std::span<const std::byte> bytes(reinterpret_cast<const std::byte*>(
+                                               xmp.data()),
+                                           xmp.size());
 
     MetaStore store;
     const XmpDecodeResult r = decode_xmp_packet(bytes, store);
@@ -828,7 +928,7 @@ TEST(XmpDecodeTest, DecodesStructuredResourcePaths)
 
     auto expect_text = [&](std::string_view path, std::string_view expected) {
         MetaKeyView key;
-        key.kind                            = MetaKeyKind::XmpProperty;
+        key.kind = MetaKeyKind::XmpProperty;
         key.data.xmp_property.schema_ns
             = "http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/";
         key.data.xmp_property.property_path = path;
@@ -845,8 +945,7 @@ TEST(XmpDecodeTest, DecodesStructuredResourcePaths)
     };
 
     expect_text("CreatorContactInfo/CiEmailWork", "editor@example.test");
-    expect_text("CreatorContactInfo/CiUrlWork",
-                "https://example.test/contact");
+    expect_text("CreatorContactInfo/CiUrlWork", "https://example.test/contact");
     expect_text("LocationCreated/City", "Paris");
     expect_text("LocationCreated/CountryName", "France");
 }
@@ -872,8 +971,9 @@ TEST(XmpDecodeTest, DecodesIndexedStructuredResourcePaths)
           "</rdf:RDF>"
           "</x:xmpmeta>";
 
-    const std::span<const std::byte> bytes(
-        reinterpret_cast<const std::byte*>(xmp.data()), xmp.size());
+    const std::span<const std::byte> bytes(reinterpret_cast<const std::byte*>(
+                                               xmp.data()),
+                                           xmp.size());
 
     MetaStore store;
     const XmpDecodeResult r = decode_xmp_packet(bytes, store);
@@ -884,9 +984,8 @@ TEST(XmpDecodeTest, DecodesIndexedStructuredResourcePaths)
 
     auto expect_text = [&](std::string_view path, std::string_view expected) {
         MetaKeyView key;
-        key.kind                            = MetaKeyKind::XmpProperty;
-        key.data.xmp_property.schema_ns
-            = "http://ns.useplus.org/ldf/xmp/1.0/";
+        key.kind                        = MetaKeyKind::XmpProperty;
+        key.data.xmp_property.schema_ns = "http://ns.useplus.org/ldf/xmp/1.0/";
         key.data.xmp_property.property_path = path;
 
         const std::span<const EntryId> ids = store.find_all(key);
@@ -927,8 +1026,9 @@ TEST(XmpDecodeTest, DecodesIptc4xmpExtIndexedStructuredPaths)
           "</rdf:RDF>"
           "</x:xmpmeta>";
 
-    const std::span<const std::byte> bytes(
-        reinterpret_cast<const std::byte*>(xmp.data()), xmp.size());
+    const std::span<const std::byte> bytes(reinterpret_cast<const std::byte*>(
+                                               xmp.data()),
+                                           xmp.size());
 
     MetaStore store;
     const XmpDecodeResult r = decode_xmp_packet(bytes, store);
@@ -939,7 +1039,7 @@ TEST(XmpDecodeTest, DecodesIptc4xmpExtIndexedStructuredPaths)
 
     auto expect_text = [&](std::string_view path, std::string_view expected) {
         MetaKeyView key;
-        key.kind                            = MetaKeyKind::XmpProperty;
+        key.kind = MetaKeyKind::XmpProperty;
         key.data.xmp_property.schema_ns
             = "http://iptc.org/std/Iptc4xmpExt/2008-02-29/";
         key.data.xmp_property.property_path = path;
@@ -979,8 +1079,9 @@ TEST(XmpDecodeTest, DecodesStructuredChildLangAltPaths)
           "</rdf:RDF>"
           "</x:xmpmeta>";
 
-    const std::span<const std::byte> bytes(
-        reinterpret_cast<const std::byte*>(xmp.data()), xmp.size());
+    const std::span<const std::byte> bytes(reinterpret_cast<const std::byte*>(
+                                               xmp.data()),
+                                           xmp.size());
 
     MetaStore store;
     const XmpDecodeResult r = decode_xmp_packet(bytes, store);
@@ -991,7 +1092,7 @@ TEST(XmpDecodeTest, DecodesStructuredChildLangAltPaths)
 
     auto expect_text = [&](std::string_view path, std::string_view expected) {
         MetaKeyView key;
-        key.kind                            = MetaKeyKind::XmpProperty;
+        key.kind = MetaKeyKind::XmpProperty;
         key.data.xmp_property.schema_ns
             = "http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/";
         key.data.xmp_property.property_path = path;
@@ -1032,8 +1133,9 @@ TEST(XmpDecodeTest, DecodesIndexedStructuredChildLangAltPaths)
           "</rdf:RDF>"
           "</x:xmpmeta>";
 
-    const std::span<const std::byte> bytes(
-        reinterpret_cast<const std::byte*>(xmp.data()), xmp.size());
+    const std::span<const std::byte> bytes(reinterpret_cast<const std::byte*>(
+                                               xmp.data()),
+                                           xmp.size());
 
     MetaStore store;
     const XmpDecodeResult r = decode_xmp_packet(bytes, store);
@@ -1044,7 +1146,7 @@ TEST(XmpDecodeTest, DecodesIndexedStructuredChildLangAltPaths)
 
     auto expect_text = [&](std::string_view path, std::string_view expected) {
         MetaKeyView key;
-        key.kind                            = MetaKeyKind::XmpProperty;
+        key.kind = MetaKeyKind::XmpProperty;
         key.data.xmp_property.schema_ns
             = "http://iptc.org/std/Iptc4xmpExt/2008-02-29/";
         key.data.xmp_property.property_path = path;
@@ -1082,8 +1184,9 @@ TEST(XmpDecodeTest, DecodesStructuredChildIndexedPaths)
           "</rdf:RDF>"
           "</x:xmpmeta>";
 
-    const std::span<const std::byte> bytes(
-        reinterpret_cast<const std::byte*>(xmp.data()), xmp.size());
+    const std::span<const std::byte> bytes(reinterpret_cast<const std::byte*>(
+                                               xmp.data()),
+                                           xmp.size());
 
     MetaStore store;
     const XmpDecodeResult r = decode_xmp_packet(bytes, store);
@@ -1094,7 +1197,7 @@ TEST(XmpDecodeTest, DecodesStructuredChildIndexedPaths)
 
     auto expect_text = [&](std::string_view path, std::string_view expected) {
         MetaKeyView key;
-        key.kind                            = MetaKeyKind::XmpProperty;
+        key.kind = MetaKeyKind::XmpProperty;
         key.data.xmp_property.schema_ns
             = "http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/";
         key.data.xmp_property.property_path = path;
@@ -1133,8 +1236,9 @@ TEST(XmpDecodeTest, DecodesIndexedStructuredChildIndexedPaths)
           "</rdf:RDF>"
           "</x:xmpmeta>";
 
-    const std::span<const std::byte> bytes(
-        reinterpret_cast<const std::byte*>(xmp.data()), xmp.size());
+    const std::span<const std::byte> bytes(reinterpret_cast<const std::byte*>(
+                                               xmp.data()),
+                                           xmp.size());
 
     MetaStore store;
     const XmpDecodeResult r = decode_xmp_packet(bytes, store);
@@ -1145,7 +1249,7 @@ TEST(XmpDecodeTest, DecodesIndexedStructuredChildIndexedPaths)
 
     auto expect_text = [&](std::string_view path, std::string_view expected) {
         MetaKeyView key;
-        key.kind                            = MetaKeyKind::XmpProperty;
+        key.kind = MetaKeyKind::XmpProperty;
         key.data.xmp_property.schema_ns
             = "http://iptc.org/std/Iptc4xmpExt/2008-02-29/";
         key.data.xmp_property.property_path = path;
@@ -1182,8 +1286,9 @@ TEST(XmpDecodeTest, DecodesNestedStructuredResourcePaths)
           "</rdf:RDF>"
           "</x:xmpmeta>";
 
-    const std::span<const std::byte> bytes(
-        reinterpret_cast<const std::byte*>(xmp.data()), xmp.size());
+    const std::span<const std::byte> bytes(reinterpret_cast<const std::byte*>(
+                                               xmp.data()),
+                                           xmp.size());
 
     MetaStore store;
     const XmpDecodeResult r = decode_xmp_packet(bytes, store);
@@ -1194,7 +1299,7 @@ TEST(XmpDecodeTest, DecodesNestedStructuredResourcePaths)
 
     auto expect_text = [&](std::string_view path, std::string_view expected) {
         MetaKeyView key;
-        key.kind                            = MetaKeyKind::XmpProperty;
+        key.kind = MetaKeyKind::XmpProperty;
         key.data.xmp_property.schema_ns
             = "http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/";
         key.data.xmp_property.property_path = path;
@@ -1233,8 +1338,9 @@ TEST(XmpDecodeTest, DecodesIndexedNestedStructuredResourcePaths)
           "</rdf:RDF>"
           "</x:xmpmeta>";
 
-    const std::span<const std::byte> bytes(
-        reinterpret_cast<const std::byte*>(xmp.data()), xmp.size());
+    const std::span<const std::byte> bytes(reinterpret_cast<const std::byte*>(
+                                               xmp.data()),
+                                           xmp.size());
 
     MetaStore store;
     const XmpDecodeResult r = decode_xmp_packet(bytes, store);
@@ -1245,7 +1351,7 @@ TEST(XmpDecodeTest, DecodesIndexedNestedStructuredResourcePaths)
 
     auto expect_text = [&](std::string_view path, std::string_view expected) {
         MetaKeyView key;
-        key.kind                            = MetaKeyKind::XmpProperty;
+        key.kind = MetaKeyKind::XmpProperty;
         key.data.xmp_property.schema_ns
             = "http://iptc.org/std/Iptc4xmpExt/2008-02-29/";
         key.data.xmp_property.property_path = path;
@@ -1284,8 +1390,9 @@ TEST(XmpDecodeTest, DecodesNestedStructuredChildLangAltPaths)
           "</rdf:RDF>"
           "</x:xmpmeta>";
 
-    const std::span<const std::byte> bytes(
-        reinterpret_cast<const std::byte*>(xmp.data()), xmp.size());
+    const std::span<const std::byte> bytes(reinterpret_cast<const std::byte*>(
+                                               xmp.data()),
+                                           xmp.size());
 
     MetaStore store;
     const XmpDecodeResult r = decode_xmp_packet(bytes, store);
@@ -1296,7 +1403,7 @@ TEST(XmpDecodeTest, DecodesNestedStructuredChildLangAltPaths)
 
     auto expect_text = [&](std::string_view path, std::string_view expected) {
         MetaKeyView key;
-        key.kind                            = MetaKeyKind::XmpProperty;
+        key.kind = MetaKeyKind::XmpProperty;
         key.data.xmp_property.schema_ns
             = "http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/";
         key.data.xmp_property.property_path = path;
@@ -1312,8 +1419,9 @@ TEST(XmpDecodeTest, DecodesNestedStructuredChildLangAltPaths)
         EXPECT_EQ(val, expected);
     };
 
-    expect_text("CreatorContactInfo/CiAdrRegion/ProvinceName[@xml:lang=x-default]",
-                "Tokyo");
+    expect_text(
+        "CreatorContactInfo/CiAdrRegion/ProvinceName[@xml:lang=x-default]",
+        "Tokyo");
     expect_text("CreatorContactInfo/CiAdrRegion/ProvinceName[@xml:lang=ja-JP]",
                 "東京");
 }
@@ -1337,8 +1445,9 @@ TEST(XmpDecodeTest, DecodesNestedStructuredChildIndexedPaths)
           "</rdf:RDF>"
           "</x:xmpmeta>";
 
-    const std::span<const std::byte> bytes(
-        reinterpret_cast<const std::byte*>(xmp.data()), xmp.size());
+    const std::span<const std::byte> bytes(reinterpret_cast<const std::byte*>(
+                                               xmp.data()),
+                                           xmp.size());
 
     MetaStore store;
     const XmpDecodeResult r = decode_xmp_packet(bytes, store);
@@ -1349,7 +1458,7 @@ TEST(XmpDecodeTest, DecodesNestedStructuredChildIndexedPaths)
 
     auto expect_text = [&](std::string_view path, std::string_view expected) {
         MetaKeyView key;
-        key.kind                            = MetaKeyKind::XmpProperty;
+        key.kind = MetaKeyKind::XmpProperty;
         key.data.xmp_property.schema_ns
             = "http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/";
         key.data.xmp_property.property_path = path;
@@ -1390,8 +1499,9 @@ TEST(XmpDecodeTest, DecodesIndexedNestedStructuredChildLangAltPaths)
           "</rdf:RDF>"
           "</x:xmpmeta>";
 
-    const std::span<const std::byte> bytes(
-        reinterpret_cast<const std::byte*>(xmp.data()), xmp.size());
+    const std::span<const std::byte> bytes(reinterpret_cast<const std::byte*>(
+                                               xmp.data()),
+                                           xmp.size());
 
     MetaStore store;
     const XmpDecodeResult r = decode_xmp_packet(bytes, store);
@@ -1402,7 +1512,7 @@ TEST(XmpDecodeTest, DecodesIndexedNestedStructuredChildLangAltPaths)
 
     auto expect_text = [&](std::string_view path, std::string_view expected) {
         MetaKeyView key;
-        key.kind                            = MetaKeyKind::XmpProperty;
+        key.kind = MetaKeyKind::XmpProperty;
         key.data.xmp_property.schema_ns
             = "http://iptc.org/std/Iptc4xmpExt/2008-02-29/";
         key.data.xmp_property.property_path = path;
@@ -1443,8 +1553,9 @@ TEST(XmpDecodeTest, DecodesIndexedNestedStructuredChildIndexedPaths)
           "</rdf:RDF>"
           "</x:xmpmeta>";
 
-    const std::span<const std::byte> bytes(
-        reinterpret_cast<const std::byte*>(xmp.data()), xmp.size());
+    const std::span<const std::byte> bytes(reinterpret_cast<const std::byte*>(
+                                               xmp.data()),
+                                           xmp.size());
 
     MetaStore store;
     const XmpDecodeResult r = decode_xmp_packet(bytes, store);
@@ -1455,7 +1566,7 @@ TEST(XmpDecodeTest, DecodesIndexedNestedStructuredChildIndexedPaths)
 
     auto expect_text = [&](std::string_view path, std::string_view expected) {
         MetaKeyView key;
-        key.kind                            = MetaKeyKind::XmpProperty;
+        key.kind = MetaKeyKind::XmpProperty;
         key.data.xmp_property.schema_ns
             = "http://iptc.org/std/Iptc4xmpExt/2008-02-29/";
         key.data.xmp_property.property_path = path;
@@ -1522,8 +1633,9 @@ TEST(XmpDecodeTest, DecodesMixedNamespaceStructuredLocationDetailsChildren)
           "</rdf:RDF>"
           "</x:xmpmeta>";
 
-    const std::span<const std::byte> bytes(
-        reinterpret_cast<const std::byte*>(xmp.data()), xmp.size());
+    const std::span<const std::byte> bytes(reinterpret_cast<const std::byte*>(
+                                               xmp.data()),
+                                           xmp.size());
 
     MetaStore store;
     const XmpDecodeResult r = decode_xmp_packet(bytes, store);
@@ -1537,12 +1649,12 @@ TEST(XmpDecodeTest, DecodesMixedNamespaceStructuredLocationDetailsChildren)
         key.data.xmp_property.schema_ns
             = "http://iptc.org/std/Iptc4xmpExt/2008-02-29/";
         key.data.xmp_property.property_path = path;
-        const std::span<const EntryId> ids = store.find_all(key);
+        const std::span<const EntryId> ids  = store.find_all(key);
         ASSERT_EQ(ids.size(), 1U);
         const Entry& e = store.entry(ids[0]);
         ASSERT_EQ(e.value.kind, MetaValueKind::Text);
-        const std::span<const std::byte> vb
-            = store.arena().span(e.value.data.span);
+        const std::span<const std::byte> vb = store.arena().span(
+            e.value.data.span);
         const std::string_view val(reinterpret_cast<const char*>(vb.data()),
                                    vb.size());
         EXPECT_EQ(val, expected);
@@ -1582,8 +1694,9 @@ TEST(XmpDecodeTest,
           "</rdf:RDF>"
           "</x:xmpmeta>";
 
-    const std::span<const std::byte> bytes(
-        reinterpret_cast<const std::byte*>(xmp.data()), xmp.size());
+    const std::span<const std::byte> bytes(reinterpret_cast<const std::byte*>(
+                                               xmp.data()),
+                                           xmp.size());
 
     MetaStore store;
     const XmpDecodeResult r = decode_xmp_packet(bytes, store);
@@ -1597,12 +1710,12 @@ TEST(XmpDecodeTest,
         key.data.xmp_property.schema_ns
             = "http://iptc.org/std/Iptc4xmpExt/2008-02-29/";
         key.data.xmp_property.property_path = path;
-        const std::span<const EntryId> ids = store.find_all(key);
+        const std::span<const EntryId> ids  = store.find_all(key);
         ASSERT_EQ(ids.size(), 1U);
         const Entry& e = store.entry(ids[0]);
         ASSERT_EQ(e.value.kind, MetaValueKind::Text);
-        const std::span<const std::byte> vb
-            = store.arena().span(e.value.data.span);
+        const std::span<const std::byte> vb = store.arena().span(
+            e.value.data.span);
         const std::string_view val(reinterpret_cast<const char*>(vb.data()),
                                    vb.size());
         EXPECT_EQ(val, expected);

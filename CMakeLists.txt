@@ -361,6 +361,7 @@ set(OPENMETA_SOURCES
   src/openmeta/meta_edit.cc
   src/openmeta/meta_value.cc
   src/openmeta/ocio_adapter.cc
+  src/openmeta/orientation.cc
   src/openmeta/phaseone_geometry.cc
   src/openmeta/photoshop_irb_decode.cc
   src/openmeta/preview_extract.cc
@@ -773,6 +774,7 @@ if(OPENMETA_BUILD_TESTS)
     tests/meta_store_test.cc
     tests/mpf_decode_test.cc
     tests/ocio_adapter_test.cc
+    tests/orientation_test.cc
     tests/photoshop_irb_decode_test.cc
     tests/phaseone_geometry_test.cc
     tests/preview_extract_test.cc

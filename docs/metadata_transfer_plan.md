@@ -152,11 +152,12 @@ In a Python-enabled test tree it also runs:
 
 The external image-usability gate can use optional configured HEIF, AVIF, and
 CR3 target files via CMake cache paths when local tools cannot create those
-formats. Arbitrary configured BMFF targets exercise the ICC property and XMP
-item transfer/read-back routes; the EXIF image-property route remains limited
-to the 64x32, 3-channel fixture shape to avoid intentionally mismatched
-geometry. ExifTool is used when available for BMFF EXIF/XMP/ICC reader
-compatibility checks.
+formats. Configured BMFF targets exercise ICC property, XMP item, MakerNote,
+and EXIF image-property transfer/read-back routes. For real configured targets,
+the gate infers target-owned image dimensions, channel count, bit depth, sample
+format, and photometric layout before transfer, so OpenMeta does not write the
+synthetic fixture geometry into the destination metadata. ExifTool is used when
+available for BMFF EXIF/XMP/ICC reader compatibility checks.
 
 ## Per-Target Notes
 

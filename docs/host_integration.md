@@ -31,6 +31,7 @@ Use the narrowest public API that matches your host:
 | EXR writer | `build_exr_attribute_batch_from_file(...)` |
 | Host-owned metadata object model | `visit_metadata(...)` |
 | Host metadata inspection/search UI | `openmeta/metadata_query.h` focused query helpers |
+| User-facing orientation display | `openmeta/orientation.h` |
 | JPEG/JXL/WebP/PNG/JP2/BMFF encoder path | `prepare_metadata_for_target_file(...)` + adapter view or backend emitter |
 | Adobe DNG SDK objects/files | `dng_sdk_adapter.h` |
 
@@ -53,6 +54,9 @@ OpenMeta splits host integration surfaces deliberately:
   `dng_sdk_adapter.h` for applications that already use Adobe DNG SDK objects
 - narrow translator:
   `libraw_adapter.h` for orientation mapping into LibRaw flip space
+- orientation utility:
+  `orientation.h` for EXIF/TIFF labels, rotation degrees, mirrored-state
+  checks, and width/height-swap checks
 
 ## 1. Read Into `MetaStore`
 

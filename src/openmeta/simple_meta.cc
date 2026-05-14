@@ -867,8 +867,159 @@ namespace {
         const std::string_view head(reinterpret_cast<const char*>(bytes.data()),
                                     n);
         return head.find("<x:xmpmeta") != std::string_view::npos
+               || head.find("<xmp:xmpmeta") != std::string_view::npos
                || head.find("<rdf:RDF") != std::string_view::npos
                || head.find("xmlns:rdf=") != std::string_view::npos;
+    }
+
+
+    static bool match_bytes(std::span<const std::byte> bytes, uint64_t offset,
+                            const char* s, uint32_t n) noexcept
+    {
+        if (!s || offset + n > bytes.size()) {
+            return false;
+        }
+        return std::memcmp(bytes.data() + static_cast<size_t>(offset), s,
+                           static_cast<size_t>(n))
+               == 0;
+    }
+
+
+    static uint64_t find_bytes(std::span<const std::byte> bytes, uint64_t begin,
+                               uint64_t end, const char* s, uint32_t n) noexcept
+    {
+        if (!s || n == 0U) {
+            return UINT64_MAX;
+        }
+        if (end > bytes.size()) {
+            end = bytes.size();
+        }
+        if (begin > end || n > end - begin) {
+            return UINT64_MAX;
+        }
+        for (uint64_t off = begin; off + n <= end; ++off) {
+            if (match_bytes(bytes, off, s, n)) {
+                return off;
+            }
+        }
+        return UINT64_MAX;
+    }
+
+
+    static bool value_is_byte_payload(const MetaValue& value) noexcept
+    {
+        return value.kind == MetaValueKind::Bytes
+               || (value.kind == MetaValueKind::Array
+                   && value.elem_type == MetaElementType::U8);
+    }
+
+
+    static bool
+    copy_arena_payload_to_scratch(const MetaStore& store, ByteSpan span,
+                                  std::span<std::byte> scratch,
+                                  std::span<const std::byte>* out) noexcept
+    {
+        if (!out) {
+            return false;
+        }
+        const std::span<const std::byte> bytes = store.arena().span(span);
+        if (bytes.empty() || bytes.size() > scratch.size()) {
+            return false;
+        }
+        std::memcpy(scratch.data(), bytes.data(), bytes.size());
+        *out = scratch.subspan(0U, bytes.size());
+        return true;
+    }
+
+
+    static void decode_exif_carried_metadata(
+        MetaStore& store, size_t entry_start, size_t entry_end,
+        std::span<std::byte> payload,
+        const SimpleMetaDecodeOptions& options) noexcept
+    {
+        std::array<ByteSpan, 8> icc_payloads {};
+        std::array<ByteSpan, 8> iptc_payloads {};
+        uint32_t icc_count  = 0;
+        uint32_t iptc_count = 0;
+
+        const std::span<const Entry> entries = store.entries();
+        const size_t scan_end = (entry_end < entries.size()) ? entry_end
+                                                             : entries.size();
+        for (size_t ei = entry_start; ei < scan_end; ++ei) {
+            const Entry& e = entries[ei];
+            if (e.key.kind != MetaKeyKind::ExifTag
+                || !value_is_byte_payload(e.value)
+                || any(e.flags,
+                       EntryFlags::Truncated | EntryFlags::Unreadable)) {
+                continue;
+            }
+            if (e.key.data.exif_tag.tag == 0x8773U
+                && icc_count < icc_payloads.size()) {
+                icc_payloads[icc_count++] = e.value.data.span;
+            } else if (e.key.data.exif_tag.tag == 0x83BBU
+                       && iptc_count < iptc_payloads.size()) {
+                iptc_payloads[iptc_count++] = e.value.data.span;
+            }
+        }
+
+        for (uint32_t i = 0; i < icc_count; ++i) {
+            std::span<const std::byte> bytes;
+            if (!copy_arena_payload_to_scratch(store, icc_payloads[i], payload,
+                                               &bytes)) {
+                continue;
+            }
+            (void)decode_icc_profile(bytes, store, options.icc);
+        }
+
+        for (uint32_t i = 0; i < iptc_count; ++i) {
+            std::span<const std::byte> bytes;
+            if (!copy_arena_payload_to_scratch(store, iptc_payloads[i], payload,
+                                               &bytes)) {
+                continue;
+            }
+            (void)decode_iptc_iim(bytes, store, EntryFlags::None, options.iptc);
+        }
+    }
+
+
+    static bool decode_embedded_xmp_packet(std::span<const std::byte> bytes,
+                                           MetaStore& store,
+                                           const XmpDecodeOptions& options,
+                                           XmpDecodeResult* xmp) noexcept
+    {
+        if (!xmp) {
+            return false;
+        }
+
+        static constexpr char kXmpSig[] = "http://ns.adobe.com/xap/1.0/\0";
+        const uint64_t max_search = (bytes.size() < (32ULL * 1024ULL * 1024ULL))
+                                        ? bytes.size()
+                                        : (32ULL * 1024ULL * 1024ULL);
+        const uint64_t sig_off
+            = find_bytes(bytes, 0U, max_search, kXmpSig,
+                         static_cast<uint32_t>(sizeof(kXmpSig) - 1U));
+        if (sig_off == UINT64_MAX) {
+            return false;
+        }
+
+        const uint64_t data_off = sig_off + (sizeof(kXmpSig) - 1U);
+        if (data_off >= bytes.size()) {
+            return false;
+        }
+
+        uint64_t packet_end = data_off + (512ULL * 1024ULL);
+        if (packet_end > bytes.size()) {
+            packet_end = bytes.size();
+        }
+        const std::span<const std::byte> packet
+            = bytes.subspan(static_cast<size_t>(data_off),
+                            static_cast<size_t>(packet_end - data_off));
+
+        const XmpDecodeResult one
+            = decode_xmp_packet(packet, store, EntryFlags::None, options);
+        merge_xmp_status(&xmp->status, one.status);
+        xmp->entries_decoded += one.entries_decoded;
+        return one.entries_decoded > 0U;
     }
 
 }  // namespace
@@ -1126,6 +1277,16 @@ simple_meta_read(std::span<const std::byte> file_bytes, MetaStore& store,
                                           : room;
             ifd_write_pos += advanced;
             exif.ifds_written = ifd_write_pos;
+
+            decode_exif_carried_metadata(store, entry_start, entry_end, payload,
+                                         options);
+
+            if (options.exif.decode_embedded_containers) {
+                if (decode_embedded_xmp_packet(block_bytes, store, options.xmp,
+                                               &xmp)) {
+                    any_xmp = true;
+                }
+            }
 
             // Some TIFF-based RAW formats store an embedded JPEG preview as a
             // byte blob within a TIFF tag (for example, Panasonic RW2

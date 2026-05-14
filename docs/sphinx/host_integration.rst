@@ -34,6 +34,7 @@ EXR writer                      ``build_exr_attribute_batch_from_file(...)``
 Host-owned metadata object      ``visit_metadata(...)``
 Host inspection/search UI       ``openmeta/metadata_query.h`` focused query
                                 helpers
+User-facing orientation display ``openmeta/orientation.h``
 JPEG/JXL/WebP/PNG/JP2/BMFF      ``prepare_metadata_for_target_file(...)`` +
 encoder path                    adapter view or backend emitter
 Adobe DNG SDK objects/files     ``dng_sdk_adapter.h``
@@ -60,6 +61,9 @@ OpenMeta splits host integration surfaces deliberately:
   objects
 - narrow translator:
   ``libraw_adapter.h`` for orientation mapping into LibRaw flip space
+- orientation utility:
+  ``orientation.h`` for EXIF/TIFF labels, rotation degrees, mirrored-state
+  checks, and width/height-swap checks
 
 Read and query
 --------------

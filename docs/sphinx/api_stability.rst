@@ -69,6 +69,16 @@ Host-facing API map
      - ``openmeta/interop_export.h``
      - Stable
      - Stable v1 flat host naming contract. See :doc:`flat_host_mapping`.
+   * - EXIF/TIFF orientation helpers: ``interpret_exif_orientation(...)``,
+       ``exif_orientation_name(...)``,
+       ``exif_orientation_rotation_degrees_cw(...)``,
+       ``exif_orientation_rotation_only(...)``
+     - ``openmeta/orientation.h``
+     - Stable
+     - Small utility contract for user-facing orientation labels, clockwise
+       rotation degrees, mirrored-state detection, dimension-swap detection,
+       and rotation-only fallbacks. Python exposes the same helpers through
+       thin scalar/dictionary wrappers.
    * - Semantic metadata query: ``query_metadata(...)``,
        ``query_crop_metadata(...)``, focused query helpers, and
        ``metadata_query_fuzzy_search_available()``

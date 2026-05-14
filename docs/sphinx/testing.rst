@@ -116,11 +116,12 @@ suite and the public transfer smoke coverage into one named check.
 The external image-usability gate can also use existing BMFF target files when
 local tools cannot create them: ``OPENMETA_BMFF_HEIF_TEST_TARGET``,
 ``OPENMETA_BMFF_AVIF_TEST_TARGET``, and
-``OPENMETA_BMFF_CR3_TEST_TARGET``. Arbitrary configured targets exercise the
-ICC property and XMP item transfer/read-back paths. The EXIF image-property
-transfer path only runs for configured targets that match the 64x32,
-3-channel fixture shape, so the gate does not intentionally write mismatched
-image geometry. The configured XMP assertion is based on OpenMeta's BMFF
+``OPENMETA_BMFF_CR3_TEST_TARGET``. Configured targets exercise the ICC
+property, XMP item, MakerNote, and EXIF image-property transfer/read-back
+paths. For real configured targets, the gate infers target-owned image
+dimensions, channel count, bit depth, sample format, and photometric layout
+before transfer, so it does not intentionally write mismatched image geometry.
+The configured XMP assertion is based on OpenMeta's BMFF
 summary; ExifTool title validation is also applied for formats where ExifTool
 exposes the generic BMFF XMP item. ExifTool is also used for BMFF EXIF/ICC
 reader checks when available. If the local ``oiiotool`` build cannot decode a

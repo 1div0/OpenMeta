@@ -1,6 +1,7 @@
 # Development
 
-See also: `docs/metadata_support.md` for current container/block/decode support.
+See also: `docs/metadata_support.md` for current container/block/decode support
+and `docs/interpretation_status.md` for the semantic interpretation matrix.
 If you are looking for the shortest practical entry path, start with
 `docs/quick_start.md` before this file.
 
@@ -15,8 +16,8 @@ model should stay compact:
 
 | Area | Purpose | Readiness |
 | --- | --- | --- |
-| Decoding | Find metadata carriers and decode EXIF, XMP, IPTC, ICC, Photoshop IRB, JUMBF/C2PA, EXR, and related blocks into `MetaStore` entries. | High, about 90-95% for the current target scope. |
-| Interpretation | Normalize names and values, group entries by meaning, and classify source-bound data such as RAW crop, color, lens-correction, sensor, and vendor-private fields. | Medium-high, about 75-85%. |
+| Decoding | Find metadata carriers and decode EXIF, XMP, IPTC, ICC, Photoshop IRB, JUMBF/C2PA, EXR, and related blocks into `MetaStore` entries. | High, about 98-100% for the current target scope. |
+| Interpretation | Normalize names and values, group entries by meaning, and classify source-bound data such as RAW crop, color, lens-correction, sensor, and vendor-private fields. | Medium-high, about 80%. |
 | Query | Find entries by name, fuzzy term, or semantic group, for example crop/border/active-area, exposure/gain, color/WB, orientation, lens-correction, and RAW-processing fields across standard and vendor metadata. | Low, about 25-30%. |
 | Creation | Build fresh metadata entries from host-provided values. | Medium, about 55-65%. |
 | Editing | Modify existing logical metadata entries while preserving valid surrounding structure. | Medium, about 60-70%. |
@@ -920,11 +921,12 @@ ctest --test-dir build-tests -R openmeta_transfer_release_gate --output-on-failu
 The external image-usability gate can also use existing BMFF target files when
 local tools cannot create them:
 `OPENMETA_BMFF_HEIF_TEST_TARGET`, `OPENMETA_BMFF_AVIF_TEST_TARGET`, and
-`OPENMETA_BMFF_CR3_TEST_TARGET`. Arbitrary configured targets exercise the ICC
-property and XMP item transfer/read-back paths. The EXIF image-property
-transfer path only runs for configured targets that match the 64x32,
-3-channel fixture shape, so the gate does not intentionally write mismatched
-image geometry. The configured XMP assertion is based on OpenMeta's BMFF
+`OPENMETA_BMFF_CR3_TEST_TARGET`. Configured targets exercise the ICC property,
+XMP item, MakerNote, and EXIF image-property transfer/read-back paths. For real
+configured targets, the gate infers target-owned image dimensions, channel
+count, bit depth, sample format, and photometric layout before transfer, so it
+does not intentionally write mismatched image geometry. The configured XMP
+assertion is based on OpenMeta's BMFF
 summary; ExifTool title validation is also applied for formats where ExifTool
 exposes the generic BMFF XMP item. ExifTool is also used for BMFF EXIF/ICC
 reader checks when available. If the local `oiiotool` build cannot decode a

@@ -22835,9 +22835,10 @@ namespace {
     };
 
     struct ExistingBmffManagedItemExtent final {
-        uint32_t item_id = 0U;
-        uint32_t offset  = 0U;
-        uint32_t length  = 0U;
+        uint32_t item_id    = 0U;
+        uint64_t offset     = 0U;
+        uint64_t length     = 0U;
+        bool file_offset    = false;
     };
 
     struct BmffForeignIinfEntry final {
@@ -23402,17 +23403,30 @@ namespace {
                                 return;
                             }
                             cursor += offset_size + length_size;
+                            if (data_reference_index != 0U
+                                || extent_index != 0U) {
+                                continue;
+                            }
+
                             if (construction_method == 1U
-                                && data_reference_index == 0U
-                                && base_offset == 0U && extent_index == 0U
-                                && extent_offset <= 0xFFFFFFFFULL
-                                && extent_length <= 0xFFFFFFFFULL) {
+                                && base_offset == 0U) {
                                 ExistingBmffManagedItemExtent one;
                                 one.item_id = item_id;
-                                one.offset  = static_cast<uint32_t>(
-                                    extent_offset);
-                                one.length = static_cast<uint32_t>(
-                                    extent_length);
+                                one.offset  = extent_offset;
+                                one.length  = extent_length;
+                                one.file_offset = false;
+                                extents.push_back(one);
+                            } else if (construction_method == 0U) {
+                                if (base_offset
+                                    > std::numeric_limits<uint64_t>::max()
+                                          - extent_offset) {
+                                    return;
+                                }
+                                ExistingBmffManagedItemExtent one;
+                                one.item_id = item_id;
+                                one.offset  = base_offset + extent_offset;
+                                one.length  = extent_length;
+                                one.file_offset = true;
                                 extents.push_back(one);
                             }
                         }
@@ -23426,9 +23440,6 @@ namespace {
             off += child.size;
         }
 
-        if (idat_payload.empty()) {
-            return;
-        }
         for (size_t i = 0; i < items.size(); ++i) {
             if (!items[i].mime_xmp) {
                 continue;
@@ -23437,16 +23448,30 @@ namespace {
                 if (extents[j].item_id != items[i].item_id) {
                     continue;
                 }
-                const uint64_t item_payload_end
-                    = static_cast<uint64_t>(extents[j].offset)
-                      + static_cast<uint64_t>(extents[j].length);
-                if (item_payload_end > idat_payload.size()) {
+                if (extents[j].offset
+                    > std::numeric_limits<uint64_t>::max()
+                          - extents[j].length) {
                     continue;
                 }
-                const std::span<const std::byte> existing_payload
-                    = idat_payload.subspan(extents[j].offset,
-                                           static_cast<size_t>(
-                                               extents[j].length));
+                const uint64_t item_payload_end = extents[j].offset
+                                                  + extents[j].length;
+                std::span<const std::byte> existing_payload;
+                if (extents[j].file_offset) {
+                    if (item_payload_end > bytes.size()) {
+                        continue;
+                    }
+                    existing_payload = bytes.subspan(
+                        static_cast<size_t>(extents[j].offset),
+                        static_cast<size_t>(extents[j].length));
+                } else {
+                    if (idat_payload.empty()
+                        || item_payload_end > idat_payload.size()) {
+                        continue;
+                    }
+                    existing_payload = idat_payload.subspan(
+                        static_cast<size_t>(extents[j].offset),
+                        static_cast<size_t>(extents[j].length));
+                }
                 std::vector<std::byte> payload;
                 payload.assign(existing_payload.begin(),
                                existing_payload.end());

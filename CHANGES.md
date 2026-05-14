@@ -93,18 +93,35 @@ Changes compared with `0.4.8`.
 - Semantic-query matches now report `exact_match`, `fuzzy_match`, and
   `fuzzy_score` so host UI and Python tools can distinguish exact tag/name
   hits from RapidFuzz near-miss results.
+- Added `openmeta/orientation.h` with stable EXIF/TIFF orientation
+  interpretation helpers for user-facing labels, clockwise rotation degrees,
+  mirrored-state checks, width/height-swap checks, and rotation-only fallbacks,
+  plus matching thin Python wrappers.
 - Added focused regression coverage for compatible-file versus rendered-image
   transfer safety: compatible mode keeps serializable source RAW/camera-specific
   metadata, while rendered mode drops source-specific metadata and uses
   host-provided target image specs.
+- Configured BMFF image-usability checks now infer target-owned image specs
+  before transfer, so real HEIF/AVIF/CR3 targets can exercise EXIF
+  image-property, MakerNote, ICC, and XMP transfer paths without using the
+  synthetic fixture geometry.
 - Added a public RAW read-parity plan that tracks camera RAW family gaps
   against ExifTool-style coverage without broadening writer guarantees.
+- Added a public interpretation status matrix that separates decode visibility
+  from semantic names, query shapes, transfer-safety classification, and
+  competitor-facing interpretation gaps.
+- Added read-path coverage for EXIF/TIFF-carried ICC profiles and IPTC-IIM
+  payloads, bare JPEG APP1 XMP packets, and XMP packets that use alternate
+  `xmpmeta` namespace prefixes.
 
 ### Changed
 
 - Added `OPENMETA_TEST_RUNTIME_LIBRARY_PATH` so CTest-launched external
   validation tools can run with a matching non-default C++ runtime lookup path,
   and documented the `libc++` test-prefix workflow.
+- Empty `rdf:about=""` XMP description attributes are now ignored, matching
+  common tool behavior, while non-empty `rdf:about` values and empty RDF
+  collections such as empty `dc:subject` bags remain decoded.
 - The `openmeta_wheel` CMake target now forwards the active compiler flags,
   Python selection, `OPENMETA_USE_LIBCXX`, and optional-feature defines into
   the nested scikit-build wheel configure step and shares the install-time
@@ -175,6 +192,9 @@ Changes compared with `0.4.8`.
 - Fixed appended metadata-only BMFF `meta` boxes to advertise inserted item
   payloads through file-offset `iloc` records, allowing CR3-style targets to
   expose appended EXIF/XMP metadata through ExifTool-compatible readers.
+- Fixed sidecar-only BMFF transfer so existing OpenMeta-written XMP items are
+  preserved when the prior metadata-only `meta` box uses file-offset `iloc`
+  records.
 - High-level C2PA validation now emits a warning when a signature verifies but
   the certificate chain is not trusted unless strict trusted-chain enforcement
   is enabled.
