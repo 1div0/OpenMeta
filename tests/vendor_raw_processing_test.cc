@@ -654,6 +654,20 @@ TEST(VendorRawProcessing, ClassifiesSourcePrivateSubgroups)
         has_group(google_shot, VendorRawProcessingGroup::Computational));
     EXPECT_TRUE(has_group(google_shot, VendorRawProcessingGroup::PrivateTable));
 
+    const VendorRawProcessingGroup pixel_shift
+        = classify_vendor_raw_processing_field("mk_sony0", "PixelShiftInfo",
+                                               0x9400U);
+    EXPECT_TRUE(
+        has_group(pixel_shift, VendorRawProcessingGroup::Computational));
+    EXPECT_TRUE(has_group(pixel_shift, VendorRawProcessingGroup::PrivateTable));
+
+    const VendorRawProcessingGroup canon_alo
+        = classify_vendor_raw_processing_field("mk_canon0",
+                                               "AutoLightingOptimizer",
+                                               0x401DU);
+    EXPECT_TRUE(has_group(canon_alo, VendorRawProcessingGroup::Computational));
+    EXPECT_TRUE(has_group(canon_alo, VendorRawProcessingGroup::PrivateTable));
+
     const VendorRawProcessingGroup flir_raw
         = classify_vendor_raw_processing_field("mk_flir_fff_rawdata",
                                                "RawThermalImage", 0x0001U);

@@ -33,14 +33,14 @@ model should stay compact:
      - Normalize names and values, group entries by meaning, and classify
        source-bound data such as RAW crop, color, lens-correction, sensor, and
        vendor-private fields.
-     - Medium-high, about 80%.
+     - Medium-high, about 82%.
    * - Query
      - Find entries by name, fuzzy term, or semantic group, then expose
        normalized query candidates, structured interpretation records, and
        bounded cross-family concept resolutions for crop/border/active-area,
        exposure/gain, color/WB, orientation, date/time, GPS, lens-correction,
        and RAW/source-processing fields across standard and vendor metadata.
-     - Medium, about 50-60%.
+     - Medium, about 63-70%.
    * - Creation
      - Build fresh metadata entries from host-provided values.
      - Medium, about 55-65%.
@@ -106,13 +106,15 @@ confidence, source entries, and normalized geometry/value arrays where
 available.
 
 For cross-family duplicated concepts, use ``openmeta/metadata_concepts.h``.
-It currently resolves orientation, date/time, color/profile, GPS, and geometry
-into candidate lists with candidate source entries, source families, preferred
-entries, normalized compare keys, parsed date/time fields, date/time precision,
-timezone kind, GPS altitude-reference state, canonical geometry
-origin/size/rect/margins, and same-role conflict flags. This is deliberately an
-inspection/policy surface; host code still decides whether a conflict should be
-shown, ignored, or corrected during editing/transfer.
+It currently resolves orientation, date/time, color/profile, GPS, geometry,
+lens-correction, and RAW-processing into candidate lists with candidate source
+entries, source families, preferred entries, normalized compare keys, parsed
+date/time fields, date/time precision, timezone kind, GPS altitude-reference
+state, canonical geometry origin/size/rect/margins, full normalized value
+vectors for grouped matrix/vector/table records, and same-role conflict flags.
+This is deliberately an inspection/policy surface; host code still decides
+whether a conflict should be shown, ignored, or corrected during
+editing/transfer.
 
 Read-path coverage snapshot
 ---------------------------

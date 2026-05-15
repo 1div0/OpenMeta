@@ -22,6 +22,8 @@ enum class MetadataConceptKind : uint8_t {
     ColorProfile,
     Gps,
     Geometry,
+    LensCorrection,
+    RawProcessing,
 };
 
 enum class MetadataConceptSourceFamily : uint8_t {
@@ -54,6 +56,13 @@ enum class MetadataConceptRole : uint8_t {
     ActiveArea,
     Border,
     SensorGeometry,
+    LensCorrection,
+    BlackLevel,
+    WhiteLevel,
+    Linearization,
+    CfaLayout,
+    RawStorage,
+    SourceProcessing,
 };
 
 enum class MetadataConceptDateTimePrecision : uint8_t {
@@ -84,6 +93,9 @@ struct MetadataConceptCandidate final {
     bool has_numeric      = false;
     uint8_t numeric_count = 0U;
     double numeric[4] {};
+
+    bool has_values = false;
+    std::vector<double> values;
 
     bool has_origin = false;
     double origin[2] {};

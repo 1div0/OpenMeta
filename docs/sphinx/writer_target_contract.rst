@@ -167,7 +167,8 @@ controls. Hosts may still strip more metadata.
        image-processing/raw-development tables, Kodak sensor/black-level/
        raw-histogram fields, Samsung Type2 raw/color/correction fields, Ricoh
        sensor/crop/vignetting fields, Apple computational capture/HDR fields,
-       Google HDR+ and shot-log fields, DJI thermal parameter tables, FLIR
+       Google HDR+ and shot-log fields, pixel-shift, multi-shot, composite,
+       and auto-lighting optimizer fields, DJI thermal parameter tables, FLIR
        thermal raw-data/radiometric calibration/palette/PiP fields,
        Casio/Sanyo preview image, face geometry, and private data-dump fields,
        Reconyx trail-camera environment/trigger fields, HP/JVC/GE private

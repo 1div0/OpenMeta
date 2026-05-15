@@ -845,7 +845,9 @@ namespace {
                       | kVendorRawPrivateTable;
         }
         if (contains(name, "HDR") || contains(name, "ShotLog")
-            || contains(name, "ImageProcessing")
+            || contains(name, "ImageProcessing") || contains(name, "PixelShift")
+            || contains(name, "MultiShot") || contains(name, "Composite")
+            || contains(name, "AutoLightingOptimizer")
             || contains(name, "Computational")) {
             groups |= kVendorRawComputational | kVendorRawPrivateTable;
         }

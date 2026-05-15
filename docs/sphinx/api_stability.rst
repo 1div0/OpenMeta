@@ -128,15 +128,19 @@ Host-facing API map
      - Experimental
      - First bounded resolver for duplicated host-facing concepts. Current
        scope reports candidates, candidate source entries, source families,
-       preferred entries, normalized numeric/text keys, normalized date/time
-       fields, date/time precision, timezone kind, normalized geometry fields,
-       and same-role conflicts for orientation, date/time, color/profile, GPS,
-       and geometry evidence across EXIF, XMP, IPTC, ICC, PNG text, and
+       preferred entries, normalized numeric/text keys, full normalized value
+       vectors, normalized date/time fields, date/time precision, timezone
+       kind, normalized geometry fields, and same-role conflicts for
+       orientation, date/time, color/profile, GPS, geometry, lens-correction,
+       and RAW-processing evidence across EXIF, XMP, IPTC, ICC, PNG text, and
        query-backed interpretation records where applicable. Geometry
        candidates cover crop, active area, border, and sensor geometry with
-       canonical origin, size, rect, and margin fields when available. GPS
-       date/time is combined from ``GPSDateStamp`` plus ``GPSTimeStamp`` when
-       both entries exist, and GPS altitude candidates expose
+       canonical origin, size, rect, and margin fields when available.
+       Color/white-balance, lens-correction, and RAW-processing concepts
+       preserve grouped matrix/vector/table values for host inspection; they
+       do not make source-bound values safe to serialize into rendered targets.
+       GPS date/time is combined from ``GPSDateStamp`` plus ``GPSTimeStamp``
+       when both entries exist, and GPS altitude candidates expose
        altitude-reference code plus below-sea-level state when reference
        metadata is present. It is intended for inspection UI and host policy
        decisions; it does not rewrite metadata or hide ambiguity. Python
@@ -153,10 +157,11 @@ Host-facing API map
        KyoceraRaw, Reconyx, HP, JVC, GE, Motorola, Nintendo, and Microsoft
        MakerNotes, including vendor-private, computational, thermal, preview,
        face-geometry, stitch/panorama, Apple computational capture/HDR/motion,
-       DJI pose/thermal, Google HDR+/shot-log, and FLIR radiometric/raw-value
-       buckets. Intended for audit/UI and rendered-transfer safety decisions,
-       not for writing vendor RAW/source-processing values into rendered
-       targets.
+       DJI pose/thermal, Google HDR+/shot-log, pixel-shift/multi-shot/
+       composite/auto-lighting source processing, and FLIR
+       radiometric/raw-value buckets. Intended for audit/UI and
+       rendered-transfer safety decisions, not for writing vendor
+       RAW/source-processing values into rendered targets.
    * - Transfer safety audit:
        ``transfer_safety_audit_from_store(...)``
      - ``openmeta/metadata_transfer.h``

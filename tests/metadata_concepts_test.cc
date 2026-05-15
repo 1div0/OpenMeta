@@ -129,6 +129,19 @@ namespace {
     }
 
     static const MetadataConceptCandidate*
+    find_role_shape(const MetadataConceptResolution& resolution,
+                    MetadataConceptRole role, MetadataQueryValueShape shape)
+    {
+        for (size_t i = 0U; i < resolution.candidates.size(); ++i) {
+            const MetadataConceptCandidate& candidate = resolution.candidates[i];
+            if (candidate.role == role && candidate.shape == shape) {
+                return &candidate;
+            }
+        }
+        return nullptr;
+    }
+
+    static const MetadataConceptCandidate*
     find_role_family(const MetadataConceptResolution& resolution,
                      MetadataConceptRole role,
                      MetadataConceptSourceFamily family)
@@ -177,6 +190,23 @@ namespace {
                                                            0x52474220U);
         (void)add_xmp_text(&store, "http://ns.adobe.com/photoshop/1.0/",
                            "photoshop:ICCProfile", "sRGB IEC61966-2.1");
+        const std::array<uint32_t, 9> color_matrix_values = {
+            1U, 0U, 0U, 0U, 1U, 0U, 0U, 0U, 1U,
+        };
+        const EntryId color_matrix = add_exif_u32_array(
+            &store, "ifd0", 0xC621U,
+            std::span<const uint32_t>(color_matrix_values.data(),
+                                      color_matrix_values.size()));
+        const std::array<uint32_t, 3> wb_neutral_values = { 1U, 2U, 3U };
+        const std::array<uint32_t, 3> wb_analog_values  = { 10U, 20U, 30U };
+        const EntryId wb_neutral                        = add_exif_u32_array(
+            &store, "ifd0", 0xC628U,
+            std::span<const uint32_t>(wb_neutral_values.data(),
+                                                             wb_neutral_values.size()));
+        const EntryId wb_analog = add_exif_u32_array(
+            &store, "ifd0", 0xC627U,
+            std::span<const uint32_t>(wb_analog_values.data(),
+                                      wb_analog_values.size()));
 
         (void)add_exif_text(&store, "gpsifd", 0x0001U, "N");
         const std::array<URational, 3> lat = {
@@ -242,6 +272,25 @@ namespace {
         const EntryId border_padding
             = add_xmp_text(&store, "http://example.invalid/aux/1.0/",
                            "aux:SensorBorderPadding", "64 32 168 128");
+        const EntryId lens_distort
+            = add_exif_u32(&store, "mk_nikon_distortinfo", 0x0001U, 7U);
+        const EntryId lens_vignette = add_exif_u32(&store, "mk_nikon_vignette",
+                                                   0x0001U, 3U);
+        const std::array<uint32_t, 2> linearization_values = { 0U, 65535U };
+        const EntryId black_level = add_exif_u32(&store, "ifd0", 0xC61AU, 512U);
+        const EntryId linearization = add_exif_u32_array(
+            &store, "ifd0", 0xC618U,
+            std::span<const uint32_t>(linearization_values.data(),
+                                      linearization_values.size()));
+        const std::array<uint32_t, 4> raw_id_values = { 1U, 2U, 3U, 4U };
+        const EntryId raw_id                        = add_exif_u32_array(
+            &store, "ifd0", 0xC65DU,
+            std::span<const uint32_t>(raw_id_values.data(),
+                                                             raw_id_values.size()));
+        const EntryId raw_name = add_exif_text(&store, "ifd0", 0xC68BU,
+                                               "source.raw");
+        const EntryId source_processing
+            = add_exif_u32(&store, "mk_google_shotlogdata", 0x0001U, 7U);
         store.finalize();
 
         const MetadataConceptResult result = resolve_metadata_concepts(store);
@@ -306,6 +355,28 @@ namespace {
         ASSERT_NE(find_role_family(*color, MetadataConceptRole::ColorSpace,
                                    MetadataConceptSourceFamily::Icc),
                   nullptr);
+        const MetadataConceptCandidate* matrix_candidate
+            = find_role(*color, MetadataConceptRole::ColorMatrix);
+        ASSERT_NE(matrix_candidate, nullptr);
+        EXPECT_EQ(matrix_candidate->shape, MetadataQueryValueShape::Matrix3x3);
+        ASSERT_TRUE(matrix_candidate->has_values);
+        ASSERT_EQ(matrix_candidate->values.size(), 9U);
+        EXPECT_DOUBLE_EQ(matrix_candidate->values[0], 1.0);
+        EXPECT_DOUBLE_EQ(matrix_candidate->values[4], 1.0);
+        EXPECT_DOUBLE_EQ(matrix_candidate->values[8], 1.0);
+        EXPECT_TRUE(
+            contains_entry(matrix_candidate->source_entries, color_matrix));
+        const MetadataConceptCandidate* wb_candidate
+            = find_role_shape(*color, MetadataConceptRole::WhiteBalance,
+                              MetadataQueryValueShape::VectorSet);
+        ASSERT_NE(wb_candidate, nullptr);
+        EXPECT_EQ(wb_candidate->shape, MetadataQueryValueShape::VectorSet);
+        ASSERT_TRUE(wb_candidate->has_values);
+        ASSERT_EQ(wb_candidate->values.size(), 6U);
+        EXPECT_DOUBLE_EQ(wb_candidate->values[0], 1.0);
+        EXPECT_DOUBLE_EQ(wb_candidate->values[3], 10.0);
+        EXPECT_TRUE(contains_entry(wb_candidate->source_entries, wb_neutral));
+        EXPECT_TRUE(contains_entry(wb_candidate->source_entries, wb_analog));
         EXPECT_NE(exif_colorspace, kInvalidEntryId);
         EXPECT_NE(icc_colorspace, kInvalidEntryId);
 
@@ -393,6 +464,54 @@ namespace {
         EXPECT_DOUBLE_EQ(border->margins[2], 168.0);
         EXPECT_DOUBLE_EQ(border->margins[3], 128.0);
         EXPECT_TRUE(contains_entry(border->source_entries, border_padding));
+
+        const MetadataConceptResolution* lens
+            = find_concept(result, MetadataConceptKind::LensCorrection);
+        ASSERT_NE(lens, nullptr);
+        EXPECT_TRUE(lens->found);
+        const MetadataConceptCandidate* lens_candidate
+            = find_role_shape(*lens, MetadataConceptRole::LensCorrection,
+                              MetadataQueryValueShape::Table);
+        ASSERT_NE(lens_candidate, nullptr);
+        EXPECT_EQ(lens_candidate->shape, MetadataQueryValueShape::Table);
+        ASSERT_TRUE(lens_candidate->has_values);
+        ASSERT_EQ(lens_candidate->values.size(), 2U);
+        EXPECT_DOUBLE_EQ(lens_candidate->values[0], 7.0);
+        EXPECT_DOUBLE_EQ(lens_candidate->values[1], 3.0);
+        EXPECT_TRUE(
+            contains_entry(lens_candidate->source_entries, lens_distort));
+        EXPECT_TRUE(
+            contains_entry(lens_candidate->source_entries, lens_vignette));
+
+        const MetadataConceptResolution* raw
+            = find_concept(result, MetadataConceptKind::RawProcessing);
+        ASSERT_NE(raw, nullptr);
+        EXPECT_TRUE(raw->found);
+        const MetadataConceptCandidate* black
+            = find_role(*raw, MetadataConceptRole::BlackLevel);
+        ASSERT_NE(black, nullptr);
+        ASSERT_TRUE(black->has_values);
+        EXPECT_DOUBLE_EQ(black->values[0], 512.0);
+        EXPECT_TRUE(contains_entry(black->source_entries, black_level));
+        const MetadataConceptCandidate* linear
+            = find_role(*raw, MetadataConceptRole::Linearization);
+        ASSERT_NE(linear, nullptr);
+        ASSERT_TRUE(linear->has_values);
+        EXPECT_DOUBLE_EQ(linear->values[1], 65535.0);
+        EXPECT_TRUE(contains_entry(linear->source_entries, linearization));
+        const MetadataConceptCandidate* storage
+            = find_role_shape(*raw, MetadataConceptRole::RawStorage,
+                              MetadataQueryValueShape::Table);
+        ASSERT_NE(storage, nullptr);
+        EXPECT_EQ(storage->shape, MetadataQueryValueShape::Table);
+        EXPECT_TRUE(contains_entry(storage->source_entries, raw_id));
+        EXPECT_TRUE(contains_entry(storage->source_entries, raw_name));
+        const MetadataConceptCandidate* source
+            = find_role(*raw, MetadataConceptRole::SourceProcessing);
+        ASSERT_NE(source, nullptr);
+        ASSERT_TRUE(source->has_values);
+        EXPECT_DOUBLE_EQ(source->values[0], 7.0);
+        EXPECT_TRUE(contains_entry(source->source_entries, source_processing));
     }
 
     TEST(MetadataConcepts, FlagsConflictingCreatedDatesAcrossFamilies)
@@ -415,6 +534,57 @@ namespace {
             = find_role(datetime, MetadataConceptRole::DateCreated);
         ASSERT_NE(date_created, nullptr);
         EXPECT_TRUE(date_created->conflict);
+    }
+
+    TEST(MetadataConcepts, UsesToleranceForGpsCoordinateConflicts)
+    {
+        {
+            MetaStore store;
+            (void)add_exif_text(&store, "gpsifd", 0x0001U, "N");
+            const std::array<URational, 3> lat = {
+                URational { 41U, 1U },
+                URational { 24U, 1U },
+                URational { 30U, 1U },
+            };
+            (void)add_exif_urational_array(
+                &store, "gpsifd", 0x0002U,
+                std::span<const URational>(lat.data(), lat.size()));
+            (void)add_xmp_text(&store, "http://ns.adobe.com/exif/1.0/",
+                               "exif:GPSLatitude", "41,24.5000001N");
+            store.finalize();
+
+            const MetadataConceptResolution gps
+                = resolve_metadata_concept(store, MetadataConceptKind::Gps);
+
+            EXPECT_TRUE(gps.found);
+            EXPECT_FALSE(gps.conflict);
+        }
+
+        {
+            MetaStore store;
+            (void)add_exif_text(&store, "gpsifd", 0x0001U, "N");
+            const std::array<URational, 3> lat = {
+                URational { 41U, 1U },
+                URational { 24U, 1U },
+                URational { 30U, 1U },
+            };
+            (void)add_exif_urational_array(
+                &store, "gpsifd", 0x0002U,
+                std::span<const URational>(lat.data(), lat.size()));
+            (void)add_xmp_text(&store, "http://ns.adobe.com/exif/1.0/",
+                               "exif:GPSLatitude", "41,25.500N");
+            store.finalize();
+
+            const MetadataConceptResolution gps
+                = resolve_metadata_concept(store, MetadataConceptKind::Gps);
+
+            EXPECT_TRUE(gps.found);
+            EXPECT_TRUE(gps.conflict);
+            const MetadataConceptCandidate* lat_candidate
+                = find_role(gps, MetadataConceptRole::Latitude);
+            ASSERT_NE(lat_candidate, nullptr);
+            EXPECT_TRUE(lat_candidate->conflict);
+        }
     }
 
     TEST(MetadataConcepts, ResolvesSingleConcept)

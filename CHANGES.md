@@ -113,6 +113,14 @@ Changes compared with `0.4.8`.
   active area, border, and sensor-geometry records. Geometry candidates expose
   canonical origin, size, rect, and margin fields when the query/interpretation
   layer can normalize them.
+- Extended cross-family concept resolution with full normalized value vectors
+  and new lens-correction and RAW-processing concept families. Color/white
+  balance, lens-correction, black/white level, linearization, CFA layout,
+  raw-storage, and source-processing concepts now preserve grouped
+  interpretation values instead of only the first scalar preview values.
+- GPS concept conflict checks now compare numeric coordinates and altitude with
+  explicit tolerances, while grouped candidates that share source entries are
+  treated as alternate views of the same evidence rather than conflicts.
 - Semantic crop queries now expose canonical border-margin candidates for
   parseable border/padding XMP text, DNG masked-area candidates, and Phase
   One/Leaf geometry margins.
@@ -120,6 +128,10 @@ Changes compared with `0.4.8`.
   preview, face-geometry, computational, thermal, and stitch/panorama buckets
   in addition to the existing color, white-balance, geometry, storage,
   lens-correction, raw-data, sensor, and private-table groups.
+- Vendor RAW/source-processing classification now also treats common
+  computational MakerNote terms such as pixel-shift, multi-shot, composite, and
+  auto-lighting optimizer fields as source-private processing metadata for
+  audit and rendered-transfer safety decisions.
 - Added focused regression coverage for compatible-file versus rendered-image
   transfer safety: compatible mode keeps serializable source RAW/camera-specific
   metadata, while rendered mode drops source-specific metadata and uses

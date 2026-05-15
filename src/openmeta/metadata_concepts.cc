@@ -729,14 +729,16 @@ namespace {
 
     static MetadataConceptCandidate*
     find_candidate(MetadataConceptResolution* resolution, EntryId entry_id,
-                   MetadataConceptRole role) noexcept
+                   MetadataConceptRole role,
+                   MetadataQueryValueShape shape) noexcept
     {
         if (!resolution || entry_id == kInvalidEntryId) {
             return nullptr;
         }
         for (size_t i = 0U; i < resolution->candidates.size(); ++i) {
             MetadataConceptCandidate& candidate = resolution->candidates[i];
-            if (candidate.entry_id == entry_id && candidate.role == role) {
+            if (candidate.entry_id == entry_id && candidate.role == role
+                && candidate.shape == shape) {
                 return &candidate;
             }
         }
@@ -767,6 +769,10 @@ namespace {
             for (uint8_t i = 0U; i < src.numeric_count; ++i) {
                 dst->numeric[i] = src.numeric[i];
             }
+        }
+        if (!dst->has_values && src.has_values) {
+            dst->has_values = true;
+            dst->values     = src.values;
         }
         if (!dst->has_origin && src.has_origin) {
             dst->has_origin = true;
@@ -844,7 +850,8 @@ namespace {
             return;
         }
         MetadataConceptCandidate* existing
-            = find_candidate(resolution, candidate.entry_id, candidate.role);
+            = find_candidate(resolution, candidate.entry_id, candidate.role,
+                             candidate.shape);
         if (existing) {
             merge_candidate(existing, candidate);
             return;
@@ -1020,6 +1027,39 @@ namespace {
         }
     }
 
+    static void fill_values_candidate(MetadataConceptCandidate* candidate,
+                                      const std::vector<double>& values)
+    {
+        if (!candidate || values.empty()) {
+            return;
+        }
+        candidate->has_values = true;
+        candidate->values     = values;
+        if (!candidate->has_numeric) {
+            const uint8_t count = static_cast<uint8_t>(
+                std::min<size_t>(values.size(), 4U));
+            fill_numeric_candidate(candidate, values.data(), count);
+        }
+    }
+
+    static std::string values_key(const std::vector<double>& values)
+    {
+        std::string out;
+        if (values.empty()) {
+            return out;
+        }
+        out.reserve(values.size() * 16U);
+        char buf[64];
+        for (size_t i = 0U; i < values.size(); ++i) {
+            if (i != 0U) {
+                out.push_back(',');
+            }
+            std::snprintf(buf, sizeof(buf), "%.12g", values[i]);
+            out.append(buf);
+        }
+        return out;
+    }
+
     static void fill_pair_candidate(bool present, const double* src,
                                     bool* dst_present, double* dst) noexcept
     {
@@ -1175,10 +1215,7 @@ namespace {
                                            record.semantic, record.shape,
                                            priority);
                 if (record.has_values && !record.values.empty()) {
-                    const uint8_t count = static_cast<uint8_t>(
-                        std::min<size_t>(record.values.size(), 4U));
-                    fill_numeric_candidate(&candidate, record.values.data(),
-                                           count);
+                    fill_values_candidate(&candidate, record.values);
                     candidate.value_key = numeric_key(record.values[0]);
                 }
                 append_candidate(out, candidate);
@@ -1456,42 +1493,154 @@ namespace {
         append_iptc_datetime_composite(store, out);
     }
 
+    static MetadataConceptRole
+    color_role_from_semantic(MetadataQuerySemanticKind semantic) noexcept
+    {
+        switch (semantic) {
+        case MetadataQuerySemanticKind::ColorMatrix:
+            return MetadataConceptRole::ColorMatrix;
+        case MetadataQuerySemanticKind::WhiteBalance:
+            return MetadataConceptRole::WhiteBalance;
+        case MetadataQuerySemanticKind::Color:
+            return MetadataConceptRole::Primary;
+        case MetadataQuerySemanticKind::Unknown:
+        case MetadataQuerySemanticKind::Crop:
+        case MetadataQuerySemanticKind::Border:
+        case MetadataQuerySemanticKind::ActiveArea:
+        case MetadataQuerySemanticKind::Exposure:
+        case MetadataQuerySemanticKind::Gain:
+        case MetadataQuerySemanticKind::LensCorrection:
+        case MetadataQuerySemanticKind::Orientation:
+        case MetadataQuerySemanticKind::ExposureGain:
+        case MetadataQuerySemanticKind::BlackLevel:
+        case MetadataQuerySemanticKind::WhiteLevel:
+        case MetadataQuerySemanticKind::Linearization:
+        case MetadataQuerySemanticKind::CfaLayout:
+        case MetadataQuerySemanticKind::SensorGeometry:
+        case MetadataQuerySemanticKind::RawStorage:
+        case MetadataQuerySemanticKind::SourceProcessing: break;
+        }
+        return MetadataConceptRole::Primary;
+    }
+
+    static MetadataConceptRole
+    lens_role_from_semantic(MetadataQuerySemanticKind semantic) noexcept
+    {
+        if (semantic == MetadataQuerySemanticKind::LensCorrection) {
+            return MetadataConceptRole::LensCorrection;
+        }
+        return MetadataConceptRole::Primary;
+    }
+
+    static MetadataConceptRole
+    raw_role_from_semantic(MetadataQuerySemanticKind semantic) noexcept
+    {
+        switch (semantic) {
+        case MetadataQuerySemanticKind::BlackLevel:
+            return MetadataConceptRole::BlackLevel;
+        case MetadataQuerySemanticKind::WhiteLevel:
+            return MetadataConceptRole::WhiteLevel;
+        case MetadataQuerySemanticKind::Linearization:
+            return MetadataConceptRole::Linearization;
+        case MetadataQuerySemanticKind::CfaLayout:
+            return MetadataConceptRole::CfaLayout;
+        case MetadataQuerySemanticKind::SensorGeometry:
+            return MetadataConceptRole::SensorGeometry;
+        case MetadataQuerySemanticKind::RawStorage:
+            return MetadataConceptRole::RawStorage;
+        case MetadataQuerySemanticKind::SourceProcessing:
+            return MetadataConceptRole::SourceProcessing;
+        case MetadataQuerySemanticKind::Unknown:
+        case MetadataQuerySemanticKind::Crop:
+        case MetadataQuerySemanticKind::Border:
+        case MetadataQuerySemanticKind::ActiveArea:
+        case MetadataQuerySemanticKind::Exposure:
+        case MetadataQuerySemanticKind::Gain:
+        case MetadataQuerySemanticKind::Color:
+        case MetadataQuerySemanticKind::WhiteBalance:
+        case MetadataQuerySemanticKind::ColorMatrix:
+        case MetadataQuerySemanticKind::LensCorrection:
+        case MetadataQuerySemanticKind::Orientation:
+        case MetadataQuerySemanticKind::ExposureGain: break;
+        }
+        return MetadataConceptRole::Primary;
+    }
+
+    static void
+    copy_interpretation_values(const MetadataInterpretationRecord& record,
+                               MetadataConceptCandidate* candidate)
+    {
+        if (!candidate) {
+            return;
+        }
+        if (!record.has_values || record.values.empty()) {
+            return;
+        }
+        fill_values_candidate(candidate, record.values);
+        candidate->value_key = values_key(record.values);
+    }
+
+    typedef MetadataConceptRole (*ConceptRoleFromSemanticFn)(
+        MetadataQuerySemanticKind) noexcept;
+
+    static void append_query_concept_candidates(
+        const MetaStore& store, MetadataQueryKind query_kind,
+        MetadataConceptKind concept_kind, ConceptRoleFromSemanticFn role_fn,
+        uint8_t default_priority, MetadataConceptResolution* out)
+    {
+        MetadataInterpretationResult result
+            = interpret_metadata_query(store, query_kind);
+        for (size_t i = 0U; i < result.records.size(); ++i) {
+            const MetadataInterpretationRecord& record = result.records[i];
+            if (!role_fn || record.source_entries.empty()) {
+                continue;
+            }
+            const MetadataConceptRole role = role_fn(record.semantic);
+            const EntryId entry_id         = record.source_entries[0];
+            if (entry_id == kInvalidEntryId) {
+                continue;
+            }
+            MetadataConceptCandidate candidate = make_entry_candidate(
+                store, entry_id, concept_kind, role, record.semantic,
+                record.shape,
+                record.confidence != 0U ? record.confidence : default_priority);
+            candidate.source_entries.clear();
+            for (size_t e = 0U; e < record.source_entries.size(); ++e) {
+                add_unique_entry(&candidate.source_entries,
+                                 record.source_entries[e]);
+            }
+            copy_interpretation_values(record, &candidate);
+            append_candidate(out, candidate);
+        }
+    }
+
     static void
     append_color_interpretation_candidates(const MetaStore& store,
                                            MetadataConceptResolution* out)
     {
-        MetadataInterpretationResult result
-            = interpret_metadata_query(store, MetadataQueryKind::Color);
-        for (size_t i = 0U; i < result.records.size(); ++i) {
-            const MetadataInterpretationRecord& record = result.records[i];
-            MetadataConceptRole role = MetadataConceptRole::Primary;
-            if (record.semantic == MetadataQuerySemanticKind::ColorMatrix) {
-                role = MetadataConceptRole::ColorMatrix;
-            } else if (record.semantic
-                       == MetadataQuerySemanticKind::WhiteBalance) {
-                role = MetadataConceptRole::WhiteBalance;
-            } else if (record.semantic != MetadataQuerySemanticKind::Color) {
-                continue;
-            }
+        append_query_concept_candidates(store, MetadataQueryKind::Color,
+                                        MetadataConceptKind::ColorProfile,
+                                        color_role_from_semantic, 60U, out);
+        append_query_concept_candidates(store, MetadataQueryKind::WhiteBalance,
+                                        MetadataConceptKind::ColorProfile,
+                                        color_role_from_semantic, 60U, out);
+    }
 
-            for (size_t e = 0U; e < record.source_entries.size(); ++e) {
-                const EntryId entry_id = record.source_entries[e];
-                if (entry_id == kInvalidEntryId) {
-                    continue;
-                }
-                MetadataConceptCandidate candidate = make_entry_candidate(
-                    store, entry_id, MetadataConceptKind::ColorProfile, role,
-                    record.semantic, record.shape, 60U);
-                if (record.has_values && !record.values.empty()) {
-                    const uint8_t count = static_cast<uint8_t>(
-                        std::min<size_t>(record.values.size(), 4U));
-                    fill_numeric_candidate(&candidate, record.values.data(),
-                                           count);
-                }
-                candidate.value_key.clear();
-                append_candidate(out, candidate);
-            }
-        }
+    static void append_lens_correction_candidates(const MetaStore& store,
+                                                  MetadataConceptResolution* out)
+    {
+        append_query_concept_candidates(store,
+                                        MetadataQueryKind::LensCorrection,
+                                        MetadataConceptKind::LensCorrection,
+                                        lens_role_from_semantic, 70U, out);
+    }
+
+    static void append_raw_processing_candidates(const MetaStore& store,
+                                                 MetadataConceptResolution* out)
+    {
+        append_query_concept_candidates(store, MetadataQueryKind::RawProcessing,
+                                        MetadataConceptKind::RawProcessing,
+                                        raw_role_from_semantic, 70U, out);
     }
 
     static void append_exif_colorspace_candidate(const MetaStore& store,
@@ -1659,9 +1808,7 @@ namespace {
         fill_quad_candidate(record.has_margins, record.margins,
                             &candidate->has_margins, candidate->margins);
         if (record.has_values && !record.values.empty()) {
-            const uint8_t count = static_cast<uint8_t>(
-                std::min<size_t>(record.values.size(), 4U));
-            fill_numeric_candidate(candidate, record.values.data(), count);
+            fill_values_candidate(candidate, record.values);
         }
         candidate->value_key = geometry_key(*candidate);
     }
@@ -2022,11 +2169,93 @@ namespace {
     }
 
     static bool
+    candidates_share_source_entries(const MetadataConceptCandidate& a,
+                                    const MetadataConceptCandidate& b) noexcept
+    {
+        for (size_t i = 0U; i < a.source_entries.size(); ++i) {
+            const EntryId entry_id = a.source_entries[i];
+            if (entry_id == kInvalidEntryId) {
+                continue;
+            }
+            for (size_t j = 0U; j < b.source_entries.size(); ++j) {
+                if (b.source_entries[j] == entry_id) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    static double numeric_conflict_tolerance(MetadataConceptRole role) noexcept
+    {
+        switch (role) {
+        case MetadataConceptRole::Latitude:
+        case MetadataConceptRole::Longitude: return 0.0000001;
+        case MetadataConceptRole::Altitude: return 0.001;
+        case MetadataConceptRole::Primary:
+        case MetadataConceptRole::Orientation:
+        case MetadataConceptRole::Created:
+        case MetadataConceptRole::Digitized:
+        case MetadataConceptRole::Modified:
+        case MetadataConceptRole::MetadataDate:
+        case MetadataConceptRole::DateCreated:
+        case MetadataConceptRole::ColorSpace:
+        case MetadataConceptRole::IccProfile:
+        case MetadataConceptRole::ColorMatrix:
+        case MetadataConceptRole::WhiteBalance:
+        case MetadataConceptRole::Timestamp:
+        case MetadataConceptRole::Crop:
+        case MetadataConceptRole::ActiveArea:
+        case MetadataConceptRole::Border:
+        case MetadataConceptRole::SensorGeometry:
+        case MetadataConceptRole::LensCorrection:
+        case MetadataConceptRole::BlackLevel:
+        case MetadataConceptRole::WhiteLevel:
+        case MetadataConceptRole::Linearization:
+        case MetadataConceptRole::CfaLayout:
+        case MetadataConceptRole::RawStorage:
+        case MetadataConceptRole::SourceProcessing: break;
+        }
+        return 0.0;
+    }
+
+    static bool
+    numeric_candidates_conflict(const MetadataConceptCandidate& a,
+                                const MetadataConceptCandidate& b) noexcept
+    {
+        if (!a.has_numeric || !b.has_numeric) {
+            return false;
+        }
+        if (a.numeric_count != b.numeric_count) {
+            return true;
+        }
+        const double tolerance = numeric_conflict_tolerance(
+            conflict_group_role(a.role));
+        for (uint8_t i = 0U; i < a.numeric_count; ++i) {
+            if (std::fabs(a.numeric[i] - b.numeric[i]) > tolerance) {
+                return true;
+            }
+        }
+        if (conflict_group_role(a.role) == MetadataConceptRole::Altitude
+            && a.has_gps_altitude_reference && b.has_gps_altitude_reference
+            && a.gps_altitude_reference_code != b.gps_altitude_reference_code) {
+            return true;
+        }
+        return false;
+    }
+
+    static bool
     concept_values_conflict(const MetadataConceptCandidate& a,
                             const MetadataConceptCandidate& b) noexcept
     {
+        if (candidates_share_source_entries(a, b)) {
+            return false;
+        }
         if (a.has_date_time && b.has_date_time) {
             return date_time_candidates_conflict(a, b);
+        }
+        if (a.has_numeric && b.has_numeric) {
+            return numeric_candidates_conflict(a, b);
         }
         if (a.value_key.empty() || b.value_key.empty()) {
             return false;
@@ -2143,6 +2372,13 @@ namespace {
             MetadataConceptRole::ActiveArea,
             MetadataConceptRole::Border,
             MetadataConceptRole::SensorGeometry,
+            MetadataConceptRole::LensCorrection,
+            MetadataConceptRole::BlackLevel,
+            MetadataConceptRole::WhiteLevel,
+            MetadataConceptRole::Linearization,
+            MetadataConceptRole::CfaLayout,
+            MetadataConceptRole::RawStorage,
+            MetadataConceptRole::SourceProcessing,
         };
         for (size_t i = 0U; i < std::size(roles); ++i) {
             mark_role_preferred(resolution, roles[i]);
@@ -2185,6 +2421,12 @@ resolve_metadata_concept(const MetaStore& store, MetadataConceptKind kind)
     case MetadataConceptKind::Geometry:
         append_geometry_candidates(store, &out);
         break;
+    case MetadataConceptKind::LensCorrection:
+        append_lens_correction_candidates(store, &out);
+        break;
+    case MetadataConceptKind::RawProcessing:
+        append_raw_processing_candidates(store, &out);
+        break;
     }
     finalize_resolution(&out);
     return out;
@@ -2194,7 +2436,7 @@ MetadataConceptResult
 resolve_metadata_concepts(const MetaStore& store)
 {
     MetadataConceptResult out;
-    out.concepts.reserve(5U);
+    out.concepts.reserve(7U);
     out.concepts.push_back(
         resolve_metadata_concept(store, MetadataConceptKind::Orientation));
     out.concepts.push_back(
@@ -2205,6 +2447,10 @@ resolve_metadata_concepts(const MetaStore& store)
         resolve_metadata_concept(store, MetadataConceptKind::Gps));
     out.concepts.push_back(
         resolve_metadata_concept(store, MetadataConceptKind::Geometry));
+    out.concepts.push_back(
+        resolve_metadata_concept(store, MetadataConceptKind::LensCorrection));
+    out.concepts.push_back(
+        resolve_metadata_concept(store, MetadataConceptKind::RawProcessing));
     return out;
 }
 
@@ -2217,6 +2463,8 @@ metadata_concept_kind_name(MetadataConceptKind kind) noexcept
     case MetadataConceptKind::ColorProfile: return "color_profile";
     case MetadataConceptKind::Gps: return "gps";
     case MetadataConceptKind::Geometry: return "geometry";
+    case MetadataConceptKind::LensCorrection: return "lens_correction";
+    case MetadataConceptKind::RawProcessing: return "raw_processing";
     }
     return "unknown";
 }
@@ -2260,6 +2508,13 @@ metadata_concept_role_name(MetadataConceptRole role) noexcept
     case MetadataConceptRole::ActiveArea: return "active_area";
     case MetadataConceptRole::Border: return "border";
     case MetadataConceptRole::SensorGeometry: return "sensor_geometry";
+    case MetadataConceptRole::LensCorrection: return "lens_correction";
+    case MetadataConceptRole::BlackLevel: return "black_level";
+    case MetadataConceptRole::WhiteLevel: return "white_level";
+    case MetadataConceptRole::Linearization: return "linearization";
+    case MetadataConceptRole::CfaLayout: return "cfa_layout";
+    case MetadataConceptRole::RawStorage: return "raw_storage";
+    case MetadataConceptRole::SourceProcessing: return "source_processing";
     }
     return "unknown";
 }

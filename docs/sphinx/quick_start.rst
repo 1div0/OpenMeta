@@ -142,11 +142,13 @@ available.
 
 For duplicated concepts that may appear in multiple metadata families, use
 ``openmeta/metadata_concepts.h``. The first experimental resolver covers
-orientation, date/time, color/profile, GPS, and geometry. It returns candidate
-source entries, source families, preferred entries, normalized date/time fields
-where available, date/time precision, timezone kind, GPS altitude-reference
-state, canonical geometry origin/size/rect/margins, and same-role conflict
-flags so host UI can show ambiguity instead of guessing silently.
+orientation, date/time, color/profile, GPS, geometry, lens correction, and
+RAW-processing. It returns candidate source entries, source families, preferred
+entries, normalized date/time fields where available, date/time precision,
+timezone kind, GPS altitude-reference state, canonical geometry
+origin/size/rect/margins, full normalized value vectors for grouped
+matrix/vector/table concepts, and same-role conflict flags so host UI can show
+ambiguity instead of guessing silently.
 
 For user-facing orientation display, use ``openmeta/orientation.h`` instead of
 showing only the numeric EXIF/TIFF index. ``interpret_exif_orientation(...)``

@@ -56,16 +56,19 @@ entries, confidence, and normalized geometry/value arrays.
 
 For host code that needs to reconcile duplicated concepts across metadata
 families, use ``metadata_concepts.h``. It reports orientation, date/time,
-color/profile, GPS, and geometry candidates with source families, preferred
-entries, and same-role conflict flags. Geometry candidates expose crop,
-active-area, border, and sensor-geometry roles with canonical origin, size,
-rect, and margin fields when available. Date/time candidates include parsed
-date/time fields when the source value is recognizable, plus precision and
-timezone-kind fields. GPS timestamps combine ``GPSDateStamp`` with
-``GPSTimeStamp`` when both are present, and GPS altitude candidates report
+color/profile, GPS, geometry, lens-correction, and RAW-processing candidates
+with source families, preferred entries, and same-role conflict flags. Geometry
+candidates expose crop, active-area, border, and sensor-geometry roles with
+canonical origin, size, rect, and margin fields when available. Color/white
+balance, lens-correction, and RAW-processing candidates expose full normalized
+value vectors for grouped matrix/vector/table records. Date/time candidates
+include parsed date/time fields when the source value is recognizable, plus
+precision and timezone-kind fields. GPS timestamps combine ``GPSDateStamp``
+with ``GPSTimeStamp`` when both are present, and GPS altitude candidates report
 whether ``GPSAltitudeRef`` marked the height as below sea level. Treat this as
 an inspection and policy input rather than an automatic metadata rewrite
-decision.
+decision; source-bound color, lens, and RAW-processing values still need
+rendered-transfer safety filtering.
 
 Adapter classes
 ---------------
@@ -92,7 +95,8 @@ OpenMeta splits host integration surfaces deliberately:
   ``metadata_interpretation.h`` for query-backed semantic records
 - concept-resolution utility:
   ``metadata_concepts.h`` for cross-family orientation, date/time,
-  color/profile, GPS, and geometry conflict inspection
+  color/profile, GPS, geometry, lens-correction, and RAW-processing conflict
+  inspection
 
 Read and query
 --------------

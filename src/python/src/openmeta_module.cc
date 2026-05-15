@@ -1171,6 +1171,12 @@ namespace {
         } else {
             out["numeric"] = nb::none();
         }
+        out["has_values"] = nb::bool_(candidate.has_values);
+        if (candidate.has_values) {
+            out["values"] = metadata_query_values_to_python(candidate.values);
+        } else {
+            out["values"] = nb::none();
+        }
         out["has_origin"] = nb::bool_(candidate.has_origin);
         out["origin"]
             = metadata_query_optional_pair_to_python(candidate.has_origin,
@@ -5968,7 +5974,9 @@ NB_MODULE(_openmeta, m)
         .value("DateTime", MetadataConceptKind::DateTime)
         .value("ColorProfile", MetadataConceptKind::ColorProfile)
         .value("Gps", MetadataConceptKind::Gps)
-        .value("Geometry", MetadataConceptKind::Geometry);
+        .value("Geometry", MetadataConceptKind::Geometry)
+        .value("LensCorrection", MetadataConceptKind::LensCorrection)
+        .value("RawProcessing", MetadataConceptKind::RawProcessing);
 
     nb::enum_<MetadataConceptSourceFamily>(m, "MetadataConceptSourceFamily")
         .value("Unknown", MetadataConceptSourceFamily::Unknown)
@@ -5999,7 +6007,14 @@ NB_MODULE(_openmeta, m)
         .value("Crop", MetadataConceptRole::Crop)
         .value("ActiveArea", MetadataConceptRole::ActiveArea)
         .value("Border", MetadataConceptRole::Border)
-        .value("SensorGeometry", MetadataConceptRole::SensorGeometry);
+        .value("SensorGeometry", MetadataConceptRole::SensorGeometry)
+        .value("LensCorrection", MetadataConceptRole::LensCorrection)
+        .value("BlackLevel", MetadataConceptRole::BlackLevel)
+        .value("WhiteLevel", MetadataConceptRole::WhiteLevel)
+        .value("Linearization", MetadataConceptRole::Linearization)
+        .value("CfaLayout", MetadataConceptRole::CfaLayout)
+        .value("RawStorage", MetadataConceptRole::RawStorage)
+        .value("SourceProcessing", MetadataConceptRole::SourceProcessing);
 
     nb::enum_<MetadataConceptDateTimePrecision>(
         m, "MetadataConceptDateTimePrecision")
