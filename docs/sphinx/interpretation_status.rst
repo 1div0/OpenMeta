@@ -108,9 +108,10 @@ Coverage matrix
    * - Lens correction and RAW processing
      - Lens-correction groups, black/white levels, linearization, CFA/sensor
        layout, raw-storage identifiers, vendor RAW/source-processing buckets,
-       transfer hints, and concept candidates with grouped table/vector values
-       are classified for query and transfer safety.
-     - Medium-high, about 76-84%.
+       transfer hints, transfer diagnostics, and concept candidates with
+       grouped table/vector values are classified for query and transfer
+       safety.
+     - Medium-high, about 78-85%.
      - Long-tail per-model correction tables and richer numeric normalization.
    * - Vendor MakerNotes
      - Broad MakerNote naming and source-processing classification exists for
@@ -118,8 +119,10 @@ Coverage matrix
        entries remain lossless and source-private subgroups distinguish
        preview, face geometry, computational, thermal, stitch/panorama,
        pixel-shift, multi-shot, composite, auto-lighting, RAW crop/active-area,
-       source color-transform, lens-correction, and raw-level processing data.
-     - Medium-high, about 79-87%.
+       source color-transform, lens-correction, raw-level processing data, and
+       Phase One/Leaf RAW-processing fields handled by direct classification
+       plus dedicated normalized helpers.
+     - Medium-high, about 80-88%.
      - ExifTool-style long-tail print conversions, encrypted/custom settings,
        and per-model private tables.
    * - BMFF item graph, HEIF/AVIF/CR3, JUMBF, and C2PA
@@ -140,18 +143,20 @@ Coverage matrix
        concept resolution for orientation, date/time, color/profile, GPS,
        geometry, lens-correction, and RAW-processing with parsed date/time
        fields, timezone/precision classification, combined GPS timestamps, GPS
-       altitude-reference state, canonical geometry origin/size/rect/margins,
-       full grouped value vectors, transfer hints, rendered/compatible safety
-       booleans, and tolerance-aware GPS/color/geometry conflicts.
-     - Medium, about 66-72%.
+       altitude-reference state and display token, canonical geometry
+       origin/size/rect/margins, full grouped value vectors, transfer hints,
+       rendered/compatible safety booleans, and tolerance-aware
+       GPS/color/geometry conflicts.
+     - Medium, about 68-74%.
      - More long-tail per-model concept aliases and clearer user-facing policy
        messages.
    * - Transfer-safety classification
      - Compatible-file versus rendered-image safety policies classify
        source-specific image geometry, color/profile, RAW-processing, MakerNote,
-       JUMBF/C2PA, and vendor-private data.
-     - High, about 85-90%.
-     - More user-facing diagnostics and additional per-family policy tests.
+       JUMBF/C2PA, and vendor-private data, with concept-level diagnostics that
+       report keep/drop/requires-target-image-spec actions before prepare.
+     - High, about 87-91%.
+     - More per-family policy tests and richer host-authored message text.
 
 Competitor position
 -------------------
@@ -169,10 +174,10 @@ outputs.
 Next interpretation priorities
 ------------------------------
 
-1. Turn concept transfer hints into higher-level user-facing diagnostics for
-   transfer previews and GUI workflows.
-2. Expand GPS policy beyond current coordinate tolerance and altitude-reference
-   state, including unit/reference presentation and cross-family timestamp
+1. Deepen transfer diagnostics into host-authored message templates for GUI
+   workflows.
+2. Expand GPS policy beyond current coordinate tolerance, altitude-reference
+   display, and EXIF timestamp assembly into broader cross-family
    reconciliation.
 3. Expand MakerNote meaning depth in vendor order: Nikon, Canon, Sony,
    Fujifilm, Phase One/Leaf, then remaining active vendors.

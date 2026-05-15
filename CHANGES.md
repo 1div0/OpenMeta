@@ -1,5 +1,21 @@
 # OpenMeta Changes
 
+## 0.4.11 - 2026-05-15
+
+Changes compared with `0.4.10`.
+
+### Added
+
+- Added concept-based transfer diagnostics so host/UI code can preflight
+  concept candidates as kept, dropped, requiring target image specs, or
+  conflict-bearing under compatible-file or rendered-image safety modes.
+- Added GPS altitude-reference presentation helpers for concept candidates.
+
+### Changed
+
+- Expanded transfer-critical MakerNote/source-processing classification for
+  Nikon, Canon, Sony, Fujifilm, and Phase One/Leaf-style raw-processing terms.
+
 ## 0.4.10 - 2026-05-15
 
 Changes compared with `0.4.9`.

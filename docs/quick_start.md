@@ -173,6 +173,10 @@ booleans, and same-role conflict flags so host UI can show ambiguity instead
 of guessing silently. Transfer hints use `safe`, `source_bound`,
 `rendered_unsafe`, or `requires_target_image_spec` to separate portable facts
 from source RAW/correction data and target-owned image facts.
+`transfer_concept_diagnostics_from_store(...)` applies those hints to a
+selected transfer safety mode and returns keep/drop/requires-target-image-spec
+actions for transfer-preview UI. GPS altitude reference codes can be displayed
+with `metadata_concept_gps_altitude_reference_name(...)`.
 
 For user-facing orientation display, use `openmeta/orientation.h` instead of
 showing only the numeric EXIF/TIFF index. `interpret_exif_orientation(...)`

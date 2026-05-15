@@ -65,13 +65,17 @@ value vectors for grouped matrix/vector/table records. Date/time candidates
 include parsed date/time fields when the source value is recognizable, plus
 precision and timezone-kind fields. GPS timestamps combine ``GPSDateStamp``
 with ``GPSTimeStamp`` when both are present, and GPS altitude candidates report
-whether ``GPSAltitudeRef`` marked the height as below sea level. Treat this as
-an inspection and policy input rather than an automatic metadata rewrite
-decision; source-bound color, lens, and RAW-processing values still need
-rendered-transfer safety filtering. Each candidate also carries a transfer
-hint: ``safe``, ``source_bound``, ``rendered_unsafe``, or
+whether ``GPSAltitudeRef`` marked the height as below sea level; use
+``metadata_concept_gps_altitude_reference_name(...)`` for a stable display
+token. Treat this as an inspection and policy input rather than an automatic
+metadata rewrite decision; source-bound color, lens, and RAW-processing values
+still need rendered-transfer safety filtering. Each candidate also carries a
+transfer hint: ``safe``, ``source_bound``, ``rendered_unsafe``, or
 ``requires_target_image_spec``, plus ``compatible_file_safe`` and
-``rendered_image_safe`` booleans for host UI and preflight policy.
+``rendered_image_safe`` booleans for host UI and preflight policy. For transfer
+previews, ``transfer_concept_diagnostics_from_store(...)`` converts those hints
+into keep/drop/requires-target-image-spec actions for a selected
+``TransferSafetyMode``.
 
 Adapter classes
 ---------------
@@ -616,6 +620,21 @@ host UI, not as a rendered-output write source.
        // Show the host/user which source-bound metadata will not be transferred.
    }
 
+   openmeta::TransferConceptDiagnostics diagnostics =
+       openmeta::transfer_concept_diagnostics_from_store(
+           store, openmeta::TransferSafetyMode::RenderedImage);
+
+   for (size_t i = 0U; i < diagnostics.diagnostics.size(); ++i) {
+       const openmeta::TransferConceptDiagnostic& item =
+           diagnostics.diagnostics[i];
+       const char* action =
+           openmeta::transfer_concept_diagnostic_action_name(item.action);
+       const char* reason =
+           openmeta::transfer_concept_diagnostic_reason_name(item.reason);
+       (void)action;
+       (void)reason;
+   }
+
 Python uses the same family enum:
 
 .. code-block:: python
@@ -626,6 +645,12 @@ Python uses the same family enum:
 
    audit = doc.transfer_safety_audit(openmeta.TransferSafetyMode.RenderedImage)
    print(audit["filtered_raw_color_calibration"])
+
+   diagnostics = doc.transfer_concept_diagnostics(
+       openmeta.TransferSafetyMode.RenderedImage
+   )
+   for item in diagnostics["diagnostics"]:
+       print(item["kind_name"], item["role_name"], item["action_name"])
 
 ``metaread`` prints
 ``vendor_raw_processing[sony|canon|nikon|fujifilm|pentax|panasonic|olympus|kodak|minolta|sigma|samsung|ricoh|apple|dji|google|flir|casio|sanyo|kyoceraraw|reconyx|hp|jvc|ge|motorola|nintendo|microsoft]=...``

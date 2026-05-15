@@ -13318,6 +13318,174 @@ transfer_safety_audit_from_store(const MetaStore& store,
 
 namespace {
 
+    static TransferConceptDiagnosticReason concept_diagnostic_reason_from_hint(
+        MetadataConceptTransferHint hint) noexcept
+    {
+        switch (hint) {
+        case MetadataConceptTransferHint::Safe:
+            return TransferConceptDiagnosticReason::Safe;
+        case MetadataConceptTransferHint::SourceBound:
+            return TransferConceptDiagnosticReason::SourceBound;
+        case MetadataConceptTransferHint::RenderedUnsafe:
+            return TransferConceptDiagnosticReason::RenderedUnsafe;
+        case MetadataConceptTransferHint::RequiresTargetImageSpec:
+            return TransferConceptDiagnosticReason::TargetImageSpecRequired;
+        case MetadataConceptTransferHint::Unknown: break;
+        }
+        return TransferConceptDiagnosticReason::Unknown;
+    }
+
+    static TransferConceptDiagnosticAction
+    concept_diagnostic_action_for_candidate(
+        const MetadataConceptCandidate& candidate,
+        TransferSafetyMode safety) noexcept
+    {
+        if (transfer_safety_mode_is_rendered(safety)) {
+            if (candidate.rendered_image_safe) {
+                return TransferConceptDiagnosticAction::Keep;
+            }
+            if (candidate.requires_target_image_spec) {
+                return TransferConceptDiagnosticAction::RequiresTargetImageSpec;
+            }
+            return TransferConceptDiagnosticAction::Drop;
+        }
+        if (candidate.compatible_file_safe) {
+            return TransferConceptDiagnosticAction::Keep;
+        }
+        if (candidate.requires_target_image_spec) {
+            return TransferConceptDiagnosticAction::RequiresTargetImageSpec;
+        }
+        return TransferConceptDiagnosticAction::Drop;
+    }
+
+    static void
+    append_diagnostic_source_entries(const MetadataConceptCandidate& candidate,
+                                     TransferConceptDiagnostic* diagnostic)
+    {
+        if (!diagnostic) {
+            return;
+        }
+        diagnostic->source_entries.reserve(candidate.source_entries.size()
+                                           + 1U);
+        for (size_t i = 0U; i < candidate.source_entries.size(); ++i) {
+            diagnostic->source_entries.push_back(candidate.source_entries[i]);
+        }
+        if (diagnostic->source_entries.empty()
+            && candidate.entry_id != kInvalidEntryId) {
+            diagnostic->source_entries.push_back(candidate.entry_id);
+        }
+    }
+
+    static TransferConceptDiagnostic
+    make_concept_diagnostic(const MetadataConceptCandidate& candidate,
+                            TransferSafetyMode safety)
+    {
+        TransferConceptDiagnostic out;
+        out.kind   = candidate.kind;
+        out.role   = candidate.role;
+        out.hint   = candidate.transfer_hint;
+        out.action = concept_diagnostic_action_for_candidate(candidate, safety);
+        out.reason = concept_diagnostic_reason_from_hint(
+            candidate.transfer_hint);
+        out.entry_id                   = candidate.entry_id;
+        out.preferred                  = candidate.preferred;
+        out.conflict                   = candidate.conflict;
+        out.compatible_file_safe       = candidate.compatible_file_safe;
+        out.rendered_image_safe        = candidate.rendered_image_safe;
+        out.requires_target_image_spec = candidate.requires_target_image_spec;
+        out.source_bound               = candidate.source_bound;
+        out.has_gps_altitude_reference = candidate.has_gps_altitude_reference;
+        out.gps_altitude_below_sea_level
+            = candidate.gps_altitude_below_sea_level;
+        out.gps_altitude_reference_code = candidate.gps_altitude_reference_code;
+        append_diagnostic_source_entries(candidate, &out);
+        return out;
+    }
+
+    static void
+    add_concept_diagnostic_counts(const TransferConceptDiagnostic& diagnostic,
+                                  TransferConceptDiagnostics* out) noexcept
+    {
+        if (!out) {
+            return;
+        }
+        out->candidate_count += 1U;
+        switch (diagnostic.action) {
+        case TransferConceptDiagnosticAction::Keep:
+            out->kept_count += 1U;
+            break;
+        case TransferConceptDiagnosticAction::Drop:
+            out->dropped_count += 1U;
+            break;
+        case TransferConceptDiagnosticAction::RequiresTargetImageSpec:
+            out->requires_target_image_spec_count += 1U;
+            break;
+        }
+        if (diagnostic.hint == MetadataConceptTransferHint::RenderedUnsafe) {
+            out->rendered_unsafe_count += 1U;
+        }
+        if (diagnostic.source_bound) {
+            out->source_bound_count += 1U;
+        }
+        if (diagnostic.conflict) {
+            out->conflict_count += 1U;
+        }
+    }
+
+}  // namespace
+
+TransferConceptDiagnostics
+transfer_concept_diagnostics_from_store(const MetaStore& store,
+                                        TransferSafetyMode safety)
+{
+    TransferConceptDiagnostics out;
+    out.safety                           = safety;
+    const MetadataConceptResult concepts = resolve_metadata_concepts(store);
+    for (size_t c = 0U; c < concepts.concepts.size(); ++c) {
+        const MetadataConceptResolution& resolution = concepts.concepts[c];
+        out.diagnostics.reserve(out.diagnostics.size()
+                                + resolution.candidates.size());
+        for (size_t i = 0U; i < resolution.candidates.size(); ++i) {
+            const TransferConceptDiagnostic diagnostic
+                = make_concept_diagnostic(resolution.candidates[i], safety);
+            add_concept_diagnostic_counts(diagnostic, &out);
+            out.diagnostics.push_back(diagnostic);
+        }
+    }
+    return out;
+}
+
+const char*
+transfer_concept_diagnostic_action_name(
+    TransferConceptDiagnosticAction action) noexcept
+{
+    switch (action) {
+    case TransferConceptDiagnosticAction::Keep: return "keep";
+    case TransferConceptDiagnosticAction::Drop: return "drop";
+    case TransferConceptDiagnosticAction::RequiresTargetImageSpec:
+        return "requires_target_image_spec";
+    }
+    return "unknown";
+}
+
+const char*
+transfer_concept_diagnostic_reason_name(
+    TransferConceptDiagnosticReason reason) noexcept
+{
+    switch (reason) {
+    case TransferConceptDiagnosticReason::Unknown: return "unknown";
+    case TransferConceptDiagnosticReason::Safe: return "safe";
+    case TransferConceptDiagnosticReason::SourceBound: return "source_bound";
+    case TransferConceptDiagnosticReason::RenderedUnsafe:
+        return "rendered_unsafe";
+    case TransferConceptDiagnosticReason::TargetImageSpecRequired:
+        return "target_image_spec_required";
+    }
+    return "unknown";
+}
+
+namespace {
+
     static bool source_range_in_bounds(uint64_t offset, uint64_t size,
                                        uint64_t total) noexcept
     {

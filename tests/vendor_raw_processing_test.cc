@@ -167,6 +167,69 @@ TEST(VendorRawProcessing, ClassifiesFujifilmRawProcessingFields)
     EXPECT_EQ(capture_groups, VendorRawProcessingGroup::None);
 }
 
+TEST(VendorRawProcessing, ClassifiesPhaseOneLeafRawProcessingFields)
+{
+    const VendorRawProcessingGroup matrix_groups
+        = classify_vendor_raw_processing_field("mk_phaseone0", "ColorMatrix1",
+                                               0x0106U);
+    EXPECT_TRUE(has_group(matrix_groups, VendorRawProcessingGroup::Color));
+    EXPECT_TRUE(
+        has_group(matrix_groups, VendorRawProcessingGroup::PrivateTable));
+
+    const VendorRawProcessingGroup geometry_groups
+        = classify_vendor_raw_processing_field("mk_phaseone0",
+                                               "SensorLeftMargin", 0x010AU);
+    EXPECT_TRUE(has_group(geometry_groups, VendorRawProcessingGroup::Geometry));
+    EXPECT_TRUE(has_group(geometry_groups, VendorRawProcessingGroup::Sensor));
+
+    const VendorRawProcessingGroup wb_groups
+        = classify_vendor_raw_processing_field("mk_leaf0", "WB_RGBLevels",
+                                               0x0107U);
+    EXPECT_TRUE(has_group(wb_groups, VendorRawProcessingGroup::WhiteBalance));
+    EXPECT_TRUE(has_group(wb_groups, VendorRawProcessingGroup::Color));
+    EXPECT_TRUE(has_group(wb_groups, VendorRawProcessingGroup::PrivateTable));
+
+    const VendorRawProcessingGroup sensorcal_groups
+        = classify_vendor_raw_processing_field("mk_phaseone_sensorcalibration_0",
+                                               "SensorDefects", 0x0400U);
+    EXPECT_TRUE(has_group(sensorcal_groups, VendorRawProcessingGroup::Sensor));
+    EXPECT_TRUE(
+        has_group(sensorcal_groups, VendorRawProcessingGroup::PrivateTable));
+
+    const VendorRawProcessingGroup capture_groups
+        = classify_vendor_raw_processing_field("mk_phaseone0", "ISO", 0x0105U);
+    EXPECT_EQ(capture_groups, VendorRawProcessingGroup::None);
+}
+
+TEST(VendorRawProcessing, ClassifiesExpandedActiveVendorProcessingFields)
+{
+    const VendorRawProcessingGroup sony_camera_info
+        = classify_vendor_raw_processing_field("mk_sony_camerainfo_0",
+                                               "PixelShiftGroup", 0x0010U);
+    EXPECT_TRUE(
+        has_group(sony_camera_info, VendorRawProcessingGroup::Computational));
+    EXPECT_TRUE(
+        has_group(sony_camera_info, VendorRawProcessingGroup::PrivateTable));
+
+    const VendorRawProcessingGroup canon_sensor
+        = classify_vendor_raw_processing_field("mk_canon_sensorinfo_0",
+                                               "SensorWidth", 0x0001U);
+    EXPECT_TRUE(has_group(canon_sensor, VendorRawProcessingGroup::Geometry));
+    EXPECT_TRUE(has_group(canon_sensor, VendorRawProcessingGroup::Sensor));
+
+    const VendorRawProcessingGroup nikon_shot
+        = classify_vendor_raw_processing_field("mk_nikon_shotinfo_0",
+                                               "MultiExposureMode", 0x0020U);
+    EXPECT_TRUE(has_group(nikon_shot, VendorRawProcessingGroup::Computational));
+    EXPECT_TRUE(has_group(nikon_shot, VendorRawProcessingGroup::PrivateTable));
+
+    const VendorRawProcessingGroup fuji_focus
+        = classify_vendor_raw_processing_field("mk_fuji_focusinfo_0",
+                                               "FaceElementPositions", 0x1000U);
+    EXPECT_TRUE(has_group(fuji_focus, VendorRawProcessingGroup::FaceGeometry));
+    EXPECT_TRUE(has_group(fuji_focus, VendorRawProcessingGroup::Geometry));
+}
+
 TEST(VendorRawProcessing, ClassifiesPentaxRawProcessingFields)
 {
     const VendorRawProcessingGroup raw_size_groups
@@ -1072,7 +1135,8 @@ TEST(VendorRawProcessing, SummarizesFamiliesFromStore)
     EXPECT_EQ(sony.white_balance_fields, 1U);
     EXPECT_EQ(sony.storage_fields, 1U);
     EXPECT_EQ(sony.lens_correction_fields, 1U);
-    EXPECT_EQ(sony.private_table_fields, 1U);
+    EXPECT_EQ(sony.private_table_fields, 2U);
+    EXPECT_EQ(sony.computational_fields, 1U);
 
     const VendorRawProcessingSummary canon
         = vendor_raw_processing_from_store(store,

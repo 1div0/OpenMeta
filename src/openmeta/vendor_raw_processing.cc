@@ -79,6 +79,22 @@ namespace {
             || contains(ifd, "cmp1")) {
             groups |= kVendorRawGeometry;
         }
+        if (contains(ifd, "processing") || contains(ifd, "picturestyle")
+            || contains(ifd, "hdr") || contains(ifd, "multiexposure")) {
+            groups |= kVendorRawComputational | kVendorRawPrivateTable;
+        }
+        if (contains(ifd, "lensinfo") || contains(ifd, "lensdata")
+            || contains(ifd, "peripheral")) {
+            groups |= kVendorRawLensCorrection | kVendorRawPrivateTable;
+        }
+        if (contains(ifd, "sensorinfo")) {
+            groups |= kVendorRawGeometry | kVendorRawSensor
+                      | kVendorRawPrivateTable;
+        }
+        if (contains(ifd, "rawburst") || contains(ifd, "dualpixel")
+            || contains(ifd, "lightingopt")) {
+            groups |= kVendorRawComputational | kVendorRawPrivateTable;
+        }
         return groups;
     }
 
@@ -101,6 +117,18 @@ namespace {
         if (contains(ifd, "noisereduction")) {
             groups |= kVendorRawSensor;
         }
+        if (contains(ifd, "picturecontrol") || contains(ifd, "hdrinfo")
+            || contains(ifd, "multiexposure")) {
+            groups |= kVendorRawColor | kVendorRawComputational
+                      | kVendorRawPrivateTable;
+        }
+        if (contains(ifd, "lensdata") || contains(ifd, "afinfo")) {
+            groups |= kVendorRawLensCorrection | kVendorRawPrivateTable;
+        }
+        if (contains(ifd, "shotinfo") || contains(ifd, "retouch")
+            || contains(ifd, "highisonr")) {
+            groups |= kVendorRawComputational | kVendorRawPrivateTable;
+        }
         return groups;
     }
 
@@ -109,6 +137,22 @@ namespace {
         uint32_t groups = 0U;
         if (contains(ifd, "sr2private") || contains(ifd, "srf")) {
             groups |= kVendorRawStorage | kVendorRawPrivateTable;
+        }
+        if (contains(ifd, "tag940") || contains(ifd, "pixelshift")
+            || contains(ifd, "multi")) {
+            groups |= kVendorRawComputational | kVendorRawPrivateTable;
+        }
+        if (contains(ifd, "vignet") || contains(ifd, "distort")
+            || contains(ifd, "lens")) {
+            groups |= kVendorRawLensCorrection | kVendorRawPrivateTable;
+        }
+        if (contains(ifd, "camerainfo")) {
+            groups |= kVendorRawSensor | kVendorRawComputational
+                      | kVendorRawPrivateTable;
+        }
+        if (contains(ifd, "focusinfo") || contains(ifd, "tag2010")
+            || contains(ifd, "tag9050")) {
+            groups |= kVendorRawPrivateTable;
         }
         return groups;
     }
@@ -126,7 +170,101 @@ namespace {
                 groups |= kVendorRawStorage;
             }
         }
+        if (contains(ifd, "rawinfo")) {
+            groups |= kVendorRawRawData | kVendorRawSensor
+                      | kVendorRawPrivateTable;
+        }
+        if (contains(ifd, "film") || contains(ifd, "colorchrome")
+            || contains(ifd, "dynamicrange")) {
+            groups |= kVendorRawColor | kVendorRawComputational
+                      | kVendorRawPrivateTable;
+        }
+        if (contains(ifd, "crop")) {
+            groups |= kVendorRawGeometry | kVendorRawPrivateTable;
+        }
+        if (contains(ifd, "processing")) {
+            groups |= kVendorRawComputational | kVendorRawPrivateTable;
+        }
+        if (contains(ifd, "focus") || contains(ifd, "face")) {
+            groups |= kVendorRawFaceGeometry | kVendorRawGeometry
+                      | kVendorRawPrivateTable;
+        }
         return groups;
+    }
+
+    static bool is_phaseone_ifd(std::string_view ifd) noexcept
+    {
+        return starts_with(ifd, "mk_phaseone") || starts_with(ifd, "mk_leaf");
+    }
+
+    static bool is_phaseone_main_ifd(std::string_view ifd) noexcept
+    {
+        return ifd == "mk_phaseone0" || ifd == "mk_leaf0";
+    }
+
+    static uint32_t classify_phaseone_ifd(std::string_view ifd) noexcept
+    {
+        uint32_t groups = 0U;
+        if (contains(ifd, "sensorcalibration")) {
+            groups |= kVendorRawSensor | kVendorRawPrivateTable;
+        }
+        if (contains(ifd, "subifd")) {
+            groups |= kVendorRawStorage | kVendorRawPrivateTable;
+        }
+        return groups;
+    }
+
+    static uint32_t classify_phaseone_tag(std::string_view ifd,
+                                          uint16_t tag) noexcept
+    {
+        if (contains(ifd, "sensorcalibration")) {
+            switch (tag) {
+            case 0x0400U:
+            case 0x0401U:
+            case 0x0419U: return kVendorRawSensor | kVendorRawPrivateTable;
+            default: return kVendorRawPrivateTable;
+            }
+        }
+        if (!is_phaseone_main_ifd(ifd)) {
+            return 0U;
+        }
+        switch (tag) {
+        case 0x0100U: return kVendorRawGeometry | kVendorRawPrivateTable;
+        case 0x0106U:
+        case 0x0226U: return kVendorRawColor | kVendorRawPrivateTable;
+        case 0x0107U:
+            return kVendorRawColor | kVendorRawWhiteBalance
+                   | kVendorRawPrivateTable;
+        case 0x0108U:
+        case 0x0109U:
+        case 0x010AU:
+        case 0x010BU:
+        case 0x010CU:
+        case 0x010DU:
+            return kVendorRawGeometry | kVendorRawSensor
+                   | kVendorRawPrivateTable;
+        case 0x010EU:
+            return kVendorRawStorage | kVendorRawRawData
+                   | kVendorRawPrivateTable;
+        case 0x010FU: return kVendorRawRawData | kVendorRawPrivateTable;
+        case 0x0110U:
+        case 0x0210U:
+        case 0x0211U:
+        case 0x021DU:
+        case 0x0223U: return kVendorRawSensor | kVendorRawPrivateTable;
+        case 0x021CU:
+            return kVendorRawRawData | kVendorRawStorage
+                   | kVendorRawPrivateTable;
+        case 0x0222U:
+            return kVendorRawGeometry | kVendorRawSensor
+                   | kVendorRawPrivateTable;
+        case 0x0225U:
+        case 0x022BU:
+        case 0x0258U:
+        case 0x025AU: return kVendorRawPrivateTable;
+        default: break;
+        }
+        return 0U;
     }
 
     static uint32_t classify_pentax_ifd(std::string_view ifd) noexcept
@@ -803,6 +941,9 @@ namespace {
             || contains(name, "NeutralColor")) {
             groups |= kVendorRawColor | kVendorRawWhiteBalance;
         }
+        if (contains(name, "PhaseOne") || contains(name, "Leaf")) {
+            groups |= kVendorRawPrivateTable;
+        }
         if (contains(name, "ImageWidth") || contains(name, "ImageHeight")
             || contains(name, "ImageSize") || contains(name, "CroppedImage")
             || contains(name, "Crop") || contains(name, "ActiveArea")
@@ -1016,6 +1157,9 @@ classify_vendor_raw_processing_field(std::string_view ifd,
         groups |= classify_sony_ifd(ifd);
     } else if (starts_with(ifd, "mk_fuji") || starts_with(ifd, "raf_")) {
         groups |= classify_fujifilm_ifd(ifd);
+    } else if (is_phaseone_ifd(ifd)) {
+        groups |= classify_phaseone_ifd(ifd);
+        groups |= classify_phaseone_tag(ifd, tag);
     } else if (starts_with(ifd, "mk_pentax")) {
         groups |= classify_pentax_ifd(ifd);
     } else if (starts_with(ifd, "mk_panasonic")) {

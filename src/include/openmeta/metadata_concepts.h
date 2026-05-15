@@ -188,4 +188,7 @@ metadata_concept_timezone_kind_name(MetadataConceptTimeZoneKind kind) noexcept;
 const char*
 metadata_concept_transfer_hint_name(MetadataConceptTransferHint hint) noexcept;
 
+const char*
+metadata_concept_gps_altitude_reference_name(uint8_t code) noexcept;
+
 }  // namespace openmeta

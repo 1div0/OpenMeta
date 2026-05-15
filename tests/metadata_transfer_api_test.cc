@@ -785,6 +785,23 @@ find_policy_decision(const openmeta::PreparedTransferBundle& bundle,
     return nullptr;
 }
 
+static const openmeta::TransferConceptDiagnostic*
+find_transfer_concept_diagnostic(
+    const openmeta::TransferConceptDiagnostics& diagnostics,
+    openmeta::MetadataConceptKind kind, openmeta::MetadataConceptRole role,
+    openmeta::TransferConceptDiagnosticAction action) noexcept
+{
+    for (size_t i = 0U; i < diagnostics.diagnostics.size(); ++i) {
+        const openmeta::TransferConceptDiagnostic& diagnostic
+            = diagnostics.diagnostics[i];
+        if (diagnostic.kind == kind && diagnostic.role == role
+            && diagnostic.action == action) {
+            return &diagnostic;
+        }
+    }
+    return nullptr;
+}
+
 static std::vector<std::byte>
 ascii_z(const char* s)
 {
@@ -21129,6 +21146,212 @@ TEST(MetadataTransferApi, CompatibleSafetyKeepsSourceSpecificMetadata)
     EXPECT_EQ(find_policy_decision(
                   bundle, openmeta::TransferPolicySubject::CameraRawSettings),
               nullptr);
+}
+
+TEST(MetadataTransferApi, TransferConceptDiagnosticsMatchRenderedSafety)
+{
+    openmeta::MetaStore store;
+    const openmeta::BlockId block = store.add_block(openmeta::BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    openmeta::Entry orientation;
+    orientation.key   = openmeta::make_exif_tag_key(store.arena(), "ifd0",
+                                                    0x0112U);
+    orientation.value = openmeta::make_u16(6U);
+    orientation.origin.block          = block;
+    orientation.origin.order_in_block = 0U;
+    ASSERT_NE(store.add_entry(orientation), openmeta::kInvalidEntryId);
+
+    openmeta::Entry created;
+    created.key   = openmeta::make_exif_tag_key(store.arena(), "exififd",
+                                                0x9003U);
+    created.value = openmeta::make_text(store.arena(), "2024:01:02 03:04:05",
+                                        openmeta::TextEncoding::Ascii);
+    created.origin.block          = block;
+    created.origin.order_in_block = 1U;
+    ASSERT_NE(store.add_entry(created), openmeta::kInvalidEntryId);
+
+    openmeta::Entry gps_ref;
+    gps_ref.key = openmeta::make_exif_tag_key(store.arena(), "gpsifd", 0x0005U);
+    gps_ref.value                 = openmeta::make_u16(1U);
+    gps_ref.origin.block          = block;
+    gps_ref.origin.order_in_block = 2U;
+    ASSERT_NE(store.add_entry(gps_ref), openmeta::kInvalidEntryId);
+
+    const std::array<openmeta::URational, 1> altitude_value = {
+        openmeta::URational { 100U, 1U },
+    };
+    openmeta::Entry gps_altitude;
+    gps_altitude.key   = openmeta::make_exif_tag_key(store.arena(), "gpsifd",
+                                                     0x0006U);
+    gps_altitude.value = openmeta::make_urational_array(
+        store.arena(),
+        std::span<const openmeta::URational>(altitude_value.data(),
+                                             altitude_value.size()));
+    gps_altitude.origin.block          = block;
+    gps_altitude.origin.order_in_block = 3U;
+    ASSERT_NE(store.add_entry(gps_altitude), openmeta::kInvalidEntryId);
+
+    openmeta::Entry stale_width;
+    stale_width.key   = openmeta::make_exif_tag_key(store.arena(), "ifd0",
+                                                    0x0100U);
+    stale_width.value = openmeta::make_u32(999U);
+    stale_width.origin.block          = block;
+    stale_width.origin.order_in_block = 4U;
+    ASSERT_NE(store.add_entry(stale_width), openmeta::kInvalidEntryId);
+
+    openmeta::Entry exif_color_space;
+    exif_color_space.key = openmeta::make_exif_tag_key(store.arena(), "exififd",
+                                                       0xA001U);
+    exif_color_space.value                 = openmeta::make_u16(1U);
+    exif_color_space.origin.block          = block;
+    exif_color_space.origin.order_in_block = 5U;
+    ASSERT_NE(store.add_entry(exif_color_space), openmeta::kInvalidEntryId);
+
+    openmeta::Entry ifd0_color_space;
+    ifd0_color_space.key   = openmeta::make_exif_tag_key(store.arena(), "ifd0",
+                                                         0xA001U);
+    ifd0_color_space.value = openmeta::make_u16(2U);
+    ifd0_color_space.origin.block          = block;
+    ifd0_color_space.origin.order_in_block = 6U;
+    ASSERT_NE(store.add_entry(ifd0_color_space), openmeta::kInvalidEntryId);
+
+    const std::array<openmeta::SRational, 9> color_matrix = {
+        openmeta::SRational { 1, 1 }, openmeta::SRational { 0, 1 },
+        openmeta::SRational { 0, 1 }, openmeta::SRational { 0, 1 },
+        openmeta::SRational { 1, 1 }, openmeta::SRational { 0, 1 },
+        openmeta::SRational { 0, 1 }, openmeta::SRational { 0, 1 },
+        openmeta::SRational { 1, 1 },
+    };
+    openmeta::Entry raw_color;
+    raw_color.key = openmeta::make_exif_tag_key(store.arena(), "ifd0", 0xC621U);
+    raw_color.value = openmeta::make_srational_array(
+        store.arena(),
+        std::span<const openmeta::SRational>(color_matrix.data(),
+                                             color_matrix.size()));
+    raw_color.origin.block          = block;
+    raw_color.origin.order_in_block = 7U;
+    ASSERT_NE(store.add_entry(raw_color), openmeta::kInvalidEntryId);
+
+    openmeta::Entry source_processing;
+    source_processing.key
+        = openmeta::make_exif_tag_key(store.arena(), "mk_google_shotlogdata_0",
+                                      0x0001U);
+    source_processing.value                 = openmeta::make_u32(7U);
+    source_processing.origin.block          = block;
+    source_processing.origin.order_in_block = 8U;
+    ASSERT_NE(store.add_entry(source_processing), openmeta::kInvalidEntryId);
+    store.finalize();
+
+    const openmeta::TransferConceptDiagnostics rendered
+        = openmeta::transfer_concept_diagnostics_from_store(
+            store, openmeta::TransferSafetyMode::RenderedImage);
+
+    EXPECT_EQ(rendered.safety, openmeta::TransferSafetyMode::RenderedImage);
+    EXPECT_GT(rendered.candidate_count, 0U);
+    EXPECT_GE(rendered.kept_count, 2U);
+    EXPECT_GE(rendered.dropped_count, 2U);
+    EXPECT_GE(rendered.requires_target_image_spec_count, 3U);
+    EXPECT_GE(rendered.rendered_unsafe_count, 1U);
+    EXPECT_GE(rendered.source_bound_count, 2U);
+    EXPECT_GE(rendered.conflict_count, 2U);
+
+    const openmeta::TransferConceptDiagnostic* created_diag
+        = find_transfer_concept_diagnostic(
+            rendered, openmeta::MetadataConceptKind::DateTime,
+            openmeta::MetadataConceptRole::Created,
+            openmeta::TransferConceptDiagnosticAction::Keep);
+    ASSERT_NE(created_diag, nullptr);
+    EXPECT_EQ(created_diag->reason,
+              openmeta::TransferConceptDiagnosticReason::Safe);
+
+    const openmeta::TransferConceptDiagnostic* altitude_diag
+        = find_transfer_concept_diagnostic(
+            rendered, openmeta::MetadataConceptKind::Gps,
+            openmeta::MetadataConceptRole::Altitude,
+            openmeta::TransferConceptDiagnosticAction::Keep);
+    ASSERT_NE(altitude_diag, nullptr);
+    EXPECT_TRUE(altitude_diag->has_gps_altitude_reference);
+    EXPECT_TRUE(altitude_diag->gps_altitude_below_sea_level);
+    EXPECT_EQ(altitude_diag->gps_altitude_reference_code, 1U);
+    EXPECT_STREQ(openmeta::metadata_concept_gps_altitude_reference_name(
+                     altitude_diag->gps_altitude_reference_code),
+                 "below_sea_level");
+
+    const openmeta::TransferConceptDiagnostic* orientation_diag
+        = find_transfer_concept_diagnostic(
+            rendered, openmeta::MetadataConceptKind::Orientation,
+            openmeta::MetadataConceptRole::Orientation,
+            openmeta::TransferConceptDiagnosticAction::RequiresTargetImageSpec);
+    ASSERT_NE(orientation_diag, nullptr);
+    EXPECT_EQ(
+        orientation_diag->reason,
+        openmeta::TransferConceptDiagnosticReason::TargetImageSpecRequired);
+
+    const openmeta::TransferConceptDiagnostic* color_space_diag
+        = find_transfer_concept_diagnostic(
+            rendered, openmeta::MetadataConceptKind::ColorProfile,
+            openmeta::MetadataConceptRole::ColorSpace,
+            openmeta::TransferConceptDiagnosticAction::RequiresTargetImageSpec);
+    ASSERT_NE(color_space_diag, nullptr);
+    EXPECT_TRUE(color_space_diag->conflict);
+
+    const openmeta::TransferConceptDiagnostic* matrix_diag
+        = find_transfer_concept_diagnostic(
+            rendered, openmeta::MetadataConceptKind::ColorProfile,
+            openmeta::MetadataConceptRole::ColorMatrix,
+            openmeta::TransferConceptDiagnosticAction::Drop);
+    ASSERT_NE(matrix_diag, nullptr);
+    EXPECT_EQ(matrix_diag->reason,
+              openmeta::TransferConceptDiagnosticReason::RenderedUnsafe);
+
+    const openmeta::TransferConceptDiagnostic* source_diag
+        = find_transfer_concept_diagnostic(
+            rendered, openmeta::MetadataConceptKind::RawProcessing,
+            openmeta::MetadataConceptRole::SourceProcessing,
+            openmeta::TransferConceptDiagnosticAction::Drop);
+    ASSERT_NE(source_diag, nullptr);
+    EXPECT_EQ(source_diag->reason,
+              openmeta::TransferConceptDiagnosticReason::SourceBound);
+
+    const openmeta::TransferConceptDiagnostics compatible
+        = openmeta::transfer_concept_diagnostics_from_store(
+            store, openmeta::TransferSafetyMode::CompatibleFile);
+    const openmeta::TransferConceptDiagnostic* compatible_source_diag
+        = find_transfer_concept_diagnostic(
+            compatible, openmeta::MetadataConceptKind::RawProcessing,
+            openmeta::MetadataConceptRole::SourceProcessing,
+            openmeta::TransferConceptDiagnosticAction::Keep);
+    ASSERT_NE(compatible_source_diag, nullptr);
+    EXPECT_TRUE(compatible_source_diag->compatible_file_safe);
+    EXPECT_FALSE(compatible_source_diag->rendered_image_safe);
+
+    openmeta::PrepareTransferRequest request;
+    request.include_iptc_app13   = false;
+    request.xmp_include_existing = true;
+    request.profile.safety       = openmeta::TransferSafetyMode::RenderedImage;
+
+    openmeta::PreparedTransferBundle bundle;
+    const openmeta::PrepareTransferResult result
+        = openmeta::prepare_metadata_for_target(store, request, &bundle);
+    ASSERT_EQ(result.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.errors, 0U);
+
+    const openmeta::PreparedTransferPolicyDecision* image_decision
+        = find_policy_decision(bundle,
+                               openmeta::TransferPolicySubject::ImageProperties);
+    ASSERT_NE(image_decision, nullptr);
+    EXPECT_EQ(image_decision->effective, openmeta::TransferPolicyAction::Drop);
+    EXPECT_EQ(image_decision->reason,
+              openmeta::TransferPolicyReason::TargetImageProperties);
+
+    const openmeta::PreparedTransferPolicyDecision* raw_decision
+        = find_policy_decision(
+            bundle, openmeta::TransferPolicySubject::RawColorCalibration);
+    ASSERT_NE(raw_decision, nullptr);
+    EXPECT_EQ(raw_decision->effective, openmeta::TransferPolicyAction::Drop);
+    EXPECT_EQ(raw_decision->reason,
+              openmeta::TransferPolicyReason::SafetyModeFiltered);
 }
 
 TEST(MetadataTransferApi,

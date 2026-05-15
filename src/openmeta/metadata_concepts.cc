@@ -2685,4 +2685,15 @@ metadata_concept_transfer_hint_name(MetadataConceptTransferHint hint) noexcept
     return "unknown";
 }
 
+const char*
+metadata_concept_gps_altitude_reference_name(uint8_t code) noexcept
+{
+    switch (code) {
+    case 0U: return "above_sea_level";
+    case 1U: return "below_sea_level";
+    default: break;
+    }
+    return "unknown";
+}
+
 }  // namespace openmeta

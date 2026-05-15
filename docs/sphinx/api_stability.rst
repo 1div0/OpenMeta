@@ -146,10 +146,24 @@ Host-facing API map
        GPS date/time is combined from ``GPSDateStamp`` plus ``GPSTimeStamp``
        when both entries exist, and GPS altitude candidates expose
        altitude-reference code plus below-sea-level state when reference
-       metadata is present. It is intended for inspection UI and host policy
-       decisions; it does not rewrite metadata or hide ambiguity. Python
-       ``Document`` and
+       metadata is present; ``metadata_concept_gps_altitude_reference_name(...)``
+       provides a stable display token for the reference code. It is intended
+       for inspection UI and host policy decisions; it does not rewrite
+       metadata or hide ambiguity. Python ``Document`` and
        ``TransferSourceSnapshot`` expose matching dictionary wrappers.
+   * - Transfer concept diagnostics:
+       ``transfer_concept_diagnostics_from_store(...)``
+     - ``openmeta/metadata_transfer.h``
+     - Experimental
+     - Preflight view over concept candidates for ``TransferSafetyMode``.
+       Each diagnostic reports concept kind/role, transfer hint,
+       keep/drop/requires-target-image-spec action, reason token, conflict
+       flag, source entries, compatible/rendered safety booleans, and GPS
+       altitude-reference presentation fields. Intended for UI previews and
+       host policy messages before calling ``prepare_metadata_for_target(...)``;
+       it does not replace the actual transfer filter. Python ``Document`` and
+       ``TransferSourceSnapshot`` expose ``transfer_concept_diagnostics(...)``
+       dictionaries.
    * - Vendor RAW-processing summaries:
        ``vendor_raw_processing_from_store(...)``,
        ``classify_vendor_raw_processing_field(...)``
@@ -164,8 +178,10 @@ Host-facing API map
        DJI pose/thermal, Google HDR+/shot-log, pixel-shift/multi-shot/
        composite/auto-lighting source processing, and FLIR
        radiometric/raw-value buckets. Intended for audit/UI and
-       rendered-transfer safety decisions, not for writing vendor
-       RAW/source-processing values into rendered targets.
+       rendered-transfer safety decisions. Direct field classification also
+       recognizes decoded Phase One/Leaf RAW-processing tags; use the dedicated
+       Phase One/Leaf helpers for normalized geometry and processing summaries.
+       Do not write vendor RAW/source-processing values into rendered targets.
    * - Transfer safety audit:
        ``transfer_safety_audit_from_store(...)``
      - ``openmeta/metadata_transfer.h``

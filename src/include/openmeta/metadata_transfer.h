@@ -3,6 +3,7 @@
 #pragma once
 
 #include "openmeta/meta_store.h"
+#include "openmeta/metadata_concepts.h"
 #include "openmeta/resource_policy.h"
 #include "openmeta/simple_meta.h"
 #include "openmeta/vendor_raw_processing.h"
@@ -426,6 +427,53 @@ struct TransferSafetyAudit final {
     VendorRawProcessingSummary motorola_raw_processing;
     VendorRawProcessingSummary nintendo_raw_processing;
     VendorRawProcessingSummary microsoft_raw_processing;
+};
+
+enum class TransferConceptDiagnosticAction : uint8_t {
+    Keep,
+    Drop,
+    RequiresTargetImageSpec,
+};
+
+enum class TransferConceptDiagnosticReason : uint8_t {
+    Unknown,
+    Safe,
+    SourceBound,
+    RenderedUnsafe,
+    TargetImageSpecRequired,
+};
+
+struct TransferConceptDiagnostic final {
+    MetadataConceptKind kind         = MetadataConceptKind::Orientation;
+    MetadataConceptRole role         = MetadataConceptRole::Primary;
+    MetadataConceptTransferHint hint = MetadataConceptTransferHint::Unknown;
+    TransferConceptDiagnosticAction action
+        = TransferConceptDiagnosticAction::Drop;
+    TransferConceptDiagnosticReason reason
+        = TransferConceptDiagnosticReason::Unknown;
+    EntryId entry_id = kInvalidEntryId;
+    std::vector<EntryId> source_entries;
+    bool preferred                      = false;
+    bool conflict                       = false;
+    bool compatible_file_safe           = false;
+    bool rendered_image_safe            = false;
+    bool requires_target_image_spec     = false;
+    bool source_bound                   = false;
+    bool has_gps_altitude_reference     = false;
+    bool gps_altitude_below_sea_level   = false;
+    uint8_t gps_altitude_reference_code = 0U;
+};
+
+struct TransferConceptDiagnostics final {
+    TransferSafetyMode safety = TransferSafetyMode::CompatibleFile;
+    uint32_t candidate_count  = 0U;
+    uint32_t kept_count       = 0U;
+    uint32_t dropped_count    = 0U;
+    uint32_t requires_target_image_spec_count = 0U;
+    uint32_t rendered_unsafe_count            = 0U;
+    uint32_t source_bound_count               = 0U;
+    uint32_t conflict_count                   = 0U;
+    std::vector<TransferConceptDiagnostic> diagnostics;
 };
 
 /// Effective policy decision captured during bundle preparation.
@@ -1899,6 +1947,18 @@ build_transfer_source_snapshot(const MetaStore& store) noexcept;
 TransferSafetyAudit
 transfer_safety_audit_from_store(const MetaStore& store,
                                  TransferSafetyMode safety) noexcept;
+
+TransferConceptDiagnostics
+transfer_concept_diagnostics_from_store(const MetaStore& store,
+                                        TransferSafetyMode safety);
+
+const char*
+transfer_concept_diagnostic_action_name(
+    TransferConceptDiagnosticAction action) noexcept;
+
+const char*
+transfer_concept_diagnostic_reason_name(
+    TransferConceptDiagnosticReason reason) noexcept;
 
 /**
  * \brief Report which opt-in raw source carriers are passthrough candidates.

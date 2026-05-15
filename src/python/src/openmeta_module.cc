@@ -1209,6 +1209,9 @@ namespace {
             candidate.gps_altitude_below_sea_level);
         out["gps_altitude_reference_code"] = nb::int_(
             candidate.gps_altitude_reference_code);
+        out["gps_altitude_reference_name"] = nb::str(
+            metadata_concept_gps_altitude_reference_name(
+                candidate.gps_altitude_reference_code));
         return out;
     }
 
@@ -1345,6 +1348,69 @@ namespace {
             = vendor_raw_processing_summary_to_python(
                 VendorRawProcessingFamily::Microsoft,
                 audit.microsoft_raw_processing);
+        return out;
+    }
+
+    static nb::dict transfer_concept_diagnostic_to_python(
+        const TransferConceptDiagnostic& diagnostic)
+    {
+        nb::dict out;
+        out["kind"]      = diagnostic.kind;
+        out["kind_name"] = nb::str(metadata_concept_kind_name(diagnostic.kind));
+        out["role"]      = diagnostic.role;
+        out["role_name"] = nb::str(metadata_concept_role_name(diagnostic.role));
+        out["hint"]      = diagnostic.hint;
+        out["hint_name"] = nb::str(
+            metadata_concept_transfer_hint_name(diagnostic.hint));
+        out["action"]      = diagnostic.action;
+        out["action_name"] = nb::str(
+            transfer_concept_diagnostic_action_name(diagnostic.action));
+        out["reason"]      = diagnostic.reason;
+        out["reason_name"] = nb::str(
+            transfer_concept_diagnostic_reason_name(diagnostic.reason));
+        out["entry_id"]       = nb::int_(diagnostic.entry_id);
+        out["source_entries"] = metadata_query_entry_ids_to_python(
+            diagnostic.source_entries);
+        out["preferred"]            = nb::bool_(diagnostic.preferred);
+        out["conflict"]             = nb::bool_(diagnostic.conflict);
+        out["compatible_file_safe"] = nb::bool_(
+            diagnostic.compatible_file_safe);
+        out["rendered_image_safe"] = nb::bool_(diagnostic.rendered_image_safe);
+        out["requires_target_image_spec"] = nb::bool_(
+            diagnostic.requires_target_image_spec);
+        out["source_bound"]               = nb::bool_(diagnostic.source_bound);
+        out["has_gps_altitude_reference"] = nb::bool_(
+            diagnostic.has_gps_altitude_reference);
+        out["gps_altitude_below_sea_level"] = nb::bool_(
+            diagnostic.gps_altitude_below_sea_level);
+        out["gps_altitude_reference_code"] = nb::int_(
+            diagnostic.gps_altitude_reference_code);
+        out["gps_altitude_reference_name"] = nb::str(
+            metadata_concept_gps_altitude_reference_name(
+                diagnostic.gps_altitude_reference_code));
+        return out;
+    }
+
+    static nb::dict transfer_concept_diagnostics_to_python(
+        const TransferConceptDiagnostics& diagnostics)
+    {
+        nb::list entries;
+        for (size_t i = 0U; i < diagnostics.diagnostics.size(); ++i) {
+            entries.append(transfer_concept_diagnostic_to_python(
+                diagnostics.diagnostics[i]));
+        }
+        nb::dict out;
+        out["safety"]          = diagnostics.safety;
+        out["candidate_count"] = nb::int_(diagnostics.candidate_count);
+        out["kept_count"]      = nb::int_(diagnostics.kept_count);
+        out["dropped_count"]   = nb::int_(diagnostics.dropped_count);
+        out["requires_target_image_spec_count"] = nb::int_(
+            diagnostics.requires_target_image_spec_count);
+        out["rendered_unsafe_count"] = nb::int_(
+            diagnostics.rendered_unsafe_count);
+        out["source_bound_count"] = nb::int_(diagnostics.source_bound_count);
+        out["conflict_count"]     = nb::int_(diagnostics.conflict_count);
+        out["diagnostics"]        = std::move(entries);
         return out;
     }
 
@@ -5500,6 +5566,15 @@ snapshot_transfer_safety_audit(const TransferSourceSnapshot& snapshot,
 }
 
 static nb::dict
+snapshot_transfer_concept_diagnostics(const TransferSourceSnapshot& snapshot,
+                                      TransferSafetyMode safety)
+{
+    const TransferConceptDiagnostics diagnostics
+        = transfer_concept_diagnostics_from_store(snapshot.store, safety);
+    return transfer_concept_diagnostics_to_python(diagnostics);
+}
+
+static nb::dict
 snapshot_raw_carrier_passthrough_audit(const TransferSourceSnapshot& snapshot,
                                        TransferTargetFormat target_format,
                                        TransferSafetyMode safety,
@@ -5621,6 +5696,15 @@ document_transfer_safety_audit(std::shared_ptr<PyDocument> d,
     const TransferSafetyAudit audit = transfer_safety_audit_from_store(d->store,
                                                                        safety);
     return transfer_safety_audit_to_python(audit);
+}
+
+static nb::dict
+document_transfer_concept_diagnostics(std::shared_ptr<PyDocument> d,
+                                      TransferSafetyMode safety)
+{
+    const TransferConceptDiagnostics diagnostics
+        = transfer_concept_diagnostics_from_store(d->store, safety);
+    return transfer_concept_diagnostics_to_python(diagnostics);
 }
 
 struct PyEntry final {
@@ -6394,6 +6478,23 @@ NB_MODULE(_openmeta, m)
         .value("CompatibleFile", TransferSafetyMode::CompatibleFile)
         .value("RenderedImage", TransferSafetyMode::RenderedImage);
 
+    nb::enum_<TransferConceptDiagnosticAction>(m,
+                                               "TransferConceptDiagnosticAction")
+        .value("Keep", TransferConceptDiagnosticAction::Keep)
+        .value("Drop", TransferConceptDiagnosticAction::Drop)
+        .value("RequiresTargetImageSpec",
+               TransferConceptDiagnosticAction::RequiresTargetImageSpec);
+
+    nb::enum_<TransferConceptDiagnosticReason>(m,
+                                               "TransferConceptDiagnosticReason")
+        .value("Unknown", TransferConceptDiagnosticReason::Unknown)
+        .value("Safe", TransferConceptDiagnosticReason::Safe)
+        .value("SourceBound", TransferConceptDiagnosticReason::SourceBound)
+        .value("RenderedUnsafe",
+               TransferConceptDiagnosticReason::RenderedUnsafe)
+        .value("TargetImageSpecRequired",
+               TransferConceptDiagnosticReason::TargetImageSpecRequired);
+
     m.attr("TRANSFER_TARGET_IMAGE_SPEC_MAX_SAMPLES") = nb::int_(
         kTransferTargetImageSpecMaxSamples);
 
@@ -6852,6 +6953,9 @@ NB_MODULE(_openmeta, m)
              "kind"_a = MetadataConceptKind::Orientation)
         .def("transfer_safety_audit", &snapshot_transfer_safety_audit,
              "safety"_a = TransferSafetyMode::RenderedImage)
+        .def("transfer_concept_diagnostics",
+             &snapshot_transfer_concept_diagnostics,
+             "safety"_a = TransferSafetyMode::RenderedImage)
         .def("raw_carrier_passthrough_audit",
              &snapshot_raw_carrier_passthrough_audit,
              "target_format"_a    = TransferTargetFormat::Jpeg,
@@ -7010,6 +7114,9 @@ NB_MODULE(_openmeta, m)
         .def("resolve_metadata_concept", &document_resolve_metadata_concept,
              "kind"_a = MetadataConceptKind::Orientation)
         .def("transfer_safety_audit", &document_transfer_safety_audit,
+             "safety"_a = TransferSafetyMode::RenderedImage)
+        .def("transfer_concept_diagnostics",
+             &document_transfer_concept_diagnostics,
              "safety"_a = TransferSafetyMode::RenderedImage)
         .def(
             "dng_ccm_fields",
